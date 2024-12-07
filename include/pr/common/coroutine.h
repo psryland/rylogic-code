@@ -339,9 +339,13 @@ namespace pr::coroutine
 				};
 				return awaiter_t{m_continuation};
 			}
-
-			// Called for exceptions that escape a coroutine function
-			void unhandled_exception()
+			bool continuation_done() const
+			{
+				// This task doesn't need to block if there is no coroutine we're waiting on, or it's finished.
+				return !m_promise->m_continuation || m_promise->m_continuation.done();
+				//return m_promise->handle().done();
+			}
+			auto result()
 			{
 				m_exception = std::current_exception();
 			}
@@ -474,7 +478,7 @@ namespace pr::coroutine
 		// Awaiting a task means waiting for the contained promise to complete.
 		bool await_ready() const noexcept
 		{
-			return m_promise->ready();
+			return m_promise->continuation_done();
 		}
 		auto await_suspend(std::coroutine_handle<promise_type> outer_coroutine)
 		{
