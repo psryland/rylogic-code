@@ -19,7 +19,6 @@
 #include <system_error>
 #include <iostream>
 #include <fstream>
-
 // Only standard library headers
 
 namespace pr::ldraw

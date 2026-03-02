@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -372,6 +372,49 @@ namespace Rylogic.LDraw
 					Write(EKeyword.NonAffine);
 				Write(EKeyword.M4x4, o2w.m_mat);
 			});
+		}
+		private void Append(Serialiser.Facets f)
+		{
+			if (!f) return;
+			if (f.m_wedges != 0)
+				Write(EKeyword.Facets, f.m_facets, f.m_wedges);
+			else
+				Write(EKeyword.Facets, f.m_facets);
+		}
+		private void Append(Serialiser.CornerRadius cr)
+		{
+			if (!cr) return;
+			Write(EKeyword.CornerRadius, cr.m_radius);
+		}
+		private void Append(Serialiser.Closed c)
+		{
+			if (!c) return;
+			Write(EKeyword.Closed, c.m_closed);
+		}
+		private void Append(Serialiser.GenerateNormals gn)
+		{
+			if (!gn) return;
+			Write(EKeyword.GenerateNormals, gn.m_smoothing_angle);
+		}
+		private void Append(Serialiser.Reflectivity r)
+		{
+			if (!r) return;
+			Write(EKeyword.Reflectivity, r.m_amount);
+		}
+		private void Append(Serialiser.ScreenSpace ss)
+		{
+			if (!ss) return;
+			Write(EKeyword.ScreenSpace);
+		}
+		private void Append(Serialiser.Anchor a)
+		{
+			if (!a) return;
+			Write(EKeyword.Anchor, a.m_anchor);
+		}
+		private void Append(Serialiser.Padding p)
+		{
+			if (!p) return;
+			Write(EKeyword.Padding, p.m_left, p.m_top, p.m_right, p.m_bottom);
 		}
 
 		/// <inheritdoc/>

@@ -296,4 +296,70 @@ namespace Rylogic.LDraw.Serialiser
 	{
 		public string m_value = str ?? string.Empty;
 	}
+	public class Facets
+	{
+		public int m_facets = 0;
+		public int m_wedges = 0;
+		public bool m_is_default = true;
+		public Facets() { }
+		public Facets(int facets) { m_facets = facets; m_is_default = false; }
+		public Facets(int layers, int wedges) { m_facets = layers; m_wedges = wedges; m_is_default = false; }
+		public static implicit operator bool(Facets f) => !f.m_is_default || f.m_facets != 0;
+	}
+	public class CornerRadius
+	{
+		public float m_radius = 0f;
+		public bool m_is_default = true;
+		public CornerRadius() { }
+		public CornerRadius(float radius) { m_radius = radius; m_is_default = false; }
+		public static implicit operator bool(CornerRadius cr) => !cr.m_is_default || cr.m_radius != 0f;
+	}
+	public class Closed
+	{
+		public bool m_closed = false;
+		public bool m_is_default = true;
+		public Closed() { }
+		public Closed(bool closed) { m_closed = closed; m_is_default = false; }
+		public static implicit operator bool(Closed c) => !c.m_is_default || c.m_closed;
+	}
+	public class GenerateNormals
+	{
+		public float m_smoothing_angle = 0f;
+		public bool m_is_default = true;
+		public GenerateNormals() { }
+		public GenerateNormals(float angle) { m_smoothing_angle = angle; m_is_default = false; }
+		public static implicit operator bool(GenerateNormals gn) => !gn.m_is_default || gn.m_smoothing_angle != 0f;
+	}
+	public class Reflectivity
+	{
+		public float m_amount = 0f;
+		public bool m_is_default = true;
+		public Reflectivity() { }
+		public Reflectivity(float amount) { m_amount = amount; m_is_default = false; }
+		public static implicit operator bool(Reflectivity r) => !r.m_is_default || r.m_amount != 0f;
+	}
+	public class ScreenSpace
+	{
+		public bool m_screen_space = false;
+		public bool m_is_default = true;
+		public ScreenSpace() { }
+		public ScreenSpace(bool ss) { m_screen_space = ss; m_is_default = false; }
+		public static implicit operator bool(ScreenSpace ss) => !ss.m_is_default || ss.m_screen_space;
+	}
+	public class Anchor
+	{
+		public v2 m_anchor = v2.Zero;
+		public bool m_is_default = true;
+		public Anchor() { }
+		public Anchor(v2 anchor) { m_anchor = anchor; m_is_default = false; }
+		public static implicit operator bool(Anchor a) => !a.m_is_default || a.m_anchor != v2.Zero;
+	}
+	public class Padding
+	{
+		public float m_left = 0f, m_top = 0f, m_right = 0f, m_bottom = 0f;
+		public bool m_is_default = true;
+		public Padding() { }
+		public Padding(float left, float top, float right, float bottom) { m_left = left; m_top = top; m_right = right; m_bottom = bottom; m_is_default = false; }
+		public static implicit operator bool(Padding p) => !p.m_is_default;
+	}
 }

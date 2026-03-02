@@ -47,75 +47,9 @@ namespace Rylogic.LDraw
 		}
 
 		/// <summary>Create child object</summary>
-		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		public LdrGroup Group(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
-			var child = new LdrPoint();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrLine Line(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrLine();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCoordFrame();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrTriangle();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrPlane();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCircle();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrSphere();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrBox();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCylinder();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCone();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrFrustum();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrModel Model(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrModel();
+			var child = new LdrGroup();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
@@ -131,15 +65,159 @@ namespace Rylogic.LDraw
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrGroup Group(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		public LdrLightSource LightSource(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
-			var child = new LdrGroup();
+			var child = new LdrLightSource();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPoint();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrLine Line(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrLine();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrLineBox LineBox(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrLineBox();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrGrid Grid(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrGrid();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCoordFrame();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCircle();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPie Pie(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPie();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrRect Rect(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrRect();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPolygon Polygon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPolygon();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrTriangle();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrQuad Quad(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrQuad();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPlane();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrRibbon Ribbon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrRibbon();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrBox();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrBoxList BoxList(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrBoxList();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrFrustum();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrSphere();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCylinder();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCone();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrTube Tube(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrTube();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrMesh Mesh(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrMesh();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrConvexHull ConvexHull(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrConvexHull();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrChart Chart(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrChart();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrModel Model(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrModel();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrEquation Equation(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrEquation();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
@@ -298,8 +376,11 @@ namespace Rylogic.LDraw
 		protected Serialiser.Hidden m_hidden = new();
 		protected Serialiser.ZTest m_ztest = new();
 		protected Serialiser.ZWrite m_zwrite = new();
+		protected Serialiser.Reflectivity m_reflectivity = new();
+		protected Serialiser.ScreenSpace m_screen_space = new();
 		private LdrTransform? m_bake = null;
 		private LdrFont? m_font = null;
+		private LdrRootAnimation? m_root_anim = null;
 
 		/// <summary>Object name</summary>
 		public TDerived name(Serialiser.Name name)
@@ -430,12 +511,34 @@ namespace Rylogic.LDraw
 			return m_font;
 		}
 
+		/// <summary>Reflectivity amount</summary>
+		public TDerived reflectivity(float amount)
+		{
+			m_reflectivity = new(amount);
+			return (TDerived)this;
+		}
+
+		/// <summary>Screen space rendering</summary>
+		public TDerived screen_space(bool on = true)
+		{
+			m_screen_space = new(on);
+			return (TDerived)this;
+		}
+
+		/// <summary>Root animation</summary>
+		public LdrRootAnimation root_anim()
+		{
+			m_root_anim ??= new();
+			return m_root_anim;
+		}
+
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter writer)
 		{
-			writer.Append(m_axis_id, m_wire, m_solid, m_hidden, m_group_colour, m_ztest, m_zwrite, m_o2w);
+			writer.Append(m_axis_id, m_wire, m_solid, m_hidden, m_group_colour, m_reflectivity, m_screen_space, m_ztest, m_zwrite, m_o2w);
 			if (m_font != null) m_font.WriteTo(writer);
 			if (m_bake != null) m_bake.WriteTo(writer);
+			if (m_root_anim != null) m_root_anim.WriteTo(writer);
 			base.WriteTo(writer);
 		}
 	}
@@ -800,6 +903,61 @@ namespace Rylogic.LDraw
 		}
 	}
 
+	public class LdrRootAnimation
+	{
+		private string? m_style = null;
+		private float? m_period = null;
+		private v4? m_velocity = null;
+		private v4? m_accel = null;
+		private v4? m_ang_velocity = null;
+		private v4? m_ang_accel = null;
+
+		public LdrRootAnimation style(string style)
+		{
+			m_style = style;
+			return this;
+		}
+		public LdrRootAnimation period(float period)
+		{
+			m_period = period;
+			return this;
+		}
+		public LdrRootAnimation velocity(v4 vel)
+		{
+			m_velocity = vel;
+			return this;
+		}
+		public LdrRootAnimation accel(v4 acc)
+		{
+			m_accel = acc;
+			return this;
+		}
+		public LdrRootAnimation ang_velocity(v4 ang_vel)
+		{
+			m_ang_velocity = ang_vel;
+			return this;
+		}
+		public LdrRootAnimation ang_accel(v4 ang_acc)
+		{
+			m_ang_accel = ang_acc;
+			return this;
+		}
+
+		// Write to 'out'
+		public void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.RootAnimation, () =>
+			{
+				if (m_style != null) res.Write(EKeyword.Style, m_style);
+				if (m_period != null) res.Write(EKeyword.Period, m_period.Value);
+				if (m_velocity is v4 vel) res.Write(EKeyword.Velocity, vel.xyz);
+				if (m_accel is v4 acc) res.Write(EKeyword.Accel, acc.xyz);
+				if (m_ang_velocity is v4 ang_vel) res.Write(EKeyword.AngVelocity, ang_vel.xyz);
+				if (m_ang_accel is v4 ang_acc) res.Write(EKeyword.AngAccel, ang_acc.xyz);
+			});
+		}
+	}
+
 	// Object types
 	public class LdrPoint : LdrBase<LdrPoint>
 	{
@@ -852,7 +1010,7 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Point, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Style, m_style);
+				res.Append(m_style);
 				res.Append(m_size, m_depth, m_per_item_colour);
 				res.Write(EKeyword.Data, () =>
 				{
@@ -1012,10 +1170,95 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
+	public class LdrLineBox : LdrBase<LdrLineBox>
+	{
+		private v4 m_dim = new(1f);
+		private Serialiser.Width m_width = new();
+		private Serialiser.Dashed m_dashed = new();
+
+		public LdrLineBox dim(float d)
+		{
+			return dim(d, d, d);
+		}
+		public LdrLineBox dim(float w, float h, float d)
+		{
+			m_dim = new v4(w, h, d, 0);
+			return this;
+		}
+		public LdrLineBox dim(v4 dim)
+		{
+			m_dim = dim;
+			return this;
+		}
+		public LdrLineBox width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+		public LdrLineBox dashed(v2 dash)
+		{
+			m_dashed = new Serialiser.Dashed(dash);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.LineBox, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_dim.xyz);
+				res.Append(m_width, m_dashed);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrGrid : LdrBase<LdrGrid>
+	{
+		private v2 m_wh = new(1f, 1f);
+		private int m_div_w = 0;
+		private int m_div_h = 0;
+		private Serialiser.Width m_width = new();
+		private Serialiser.Dashed m_dashed = new();
+
+		public LdrGrid wh(float w, float h)
+		{
+			m_wh = new v2(w, h);
+			return this;
+		}
+		public LdrGrid divisions(int w, int h)
+		{
+			m_div_w = w;
+			m_div_h = h;
+			return this;
+		}
+		public LdrGrid width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+		public LdrGrid dashed(v2 dash)
+		{
+			m_dashed = new Serialiser.Dashed(dash);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Grid, m_name, m_colour, () =>
+			{
+				if (m_div_w != 0 && m_div_h != 0)
+					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_div_w, m_div_h);
+				else
+					res.Write(EKeyword.Data, m_wh);
+				res.Append(m_width, m_dashed);
+				base.WriteTo(res);
+			});
+		}
+	}
 	public class LdrCoordFrame : LdrBase<LdrCoordFrame>
 	{
 		private Serialiser.Scale m_scale = new();
 		private Serialiser.LeftHanded m_lh = new();
+		private Serialiser.Width m_width = new();
 
 		// Scale size
 		public new LdrCoordFrame scale(float s)
@@ -1031,12 +1274,20 @@ namespace Rylogic.LDraw
 			return this;
 		}
 
+		// Width
+		public LdrCoordFrame width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter res)
 		{
 			res.Write(EKeyword.CoordFrame, m_name, m_colour, () =>
 			{
 				res.Append(m_scale, m_lh);
+				res.Append(m_width);
 				base.WriteTo(res);
 			});
 		}
@@ -1076,6 +1327,50 @@ namespace Rylogic.LDraw
 							res.Append(tri.col);
 					}
 				});
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrQuad : LdrBase<LdrQuad>
+	{
+		private struct Qd { public v4 a, b, c, d; public Colour32 col_a, col_b, col_c, col_d; }
+		private readonly List<Qd> m_quads = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private LdrTexture m_tex = new();
+
+		public LdrQuad quad(v4 a, v4 b, v4 c, v4 d, Colour32? col_a = null, Colour32? col_b = null, Colour32? col_c = null, Colour32? col_d = null)
+		{
+			m_quads.Add(new Qd
+			{
+				a = a, b = b, c = c, d = d,
+				col_a = col_a ?? Colour32.White,
+				col_b = col_b ?? Colour32.White,
+				col_c = col_c ?? Colour32.White,
+				col_d = col_d ?? Colour32.White,
+			});
+			if (col_a != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Quad, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var q in m_quads)
+					{
+						res.Append(q.a.xyz, q.b.xyz, q.c.xyz, q.d.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(q.col_a, q.col_b, q.col_c, q.col_d);
+					}
+				});
+				m_tex.WriteTo(res);
 				base.WriteTo(res);
 			});
 		}
@@ -1120,13 +1415,73 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
+	public class LdrRibbon : LdrBase<LdrRibbon>
+	{
+		private class Pt { public v4 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private Serialiser.Width m_width = new();
+		private Serialiser.Smooth m_smooth = new();
+		private LdrTexture m_tex = new();
+
+		public LdrRibbon pt(v4 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrRibbon pt(v3 point, Colour32? colour = null)
+		{
+			return pt(point.w1, colour);
+		}
+		public LdrRibbon width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+		public LdrRibbon smooth(bool on = true)
+		{
+			m_smooth = new(on);
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Ribbon, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
+				res.Append(m_width, m_smooth);
+				m_tex.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
 	public class LdrCircle : LdrBase<LdrCircle>
 	{
 		private float m_radius = 1.0f;
+		private Serialiser.Facets m_facets = new();
 
 		public LdrCircle radius(float r)
 		{
 			m_radius = r;
+			return this;
+		}
+		public LdrCircle facets(int count)
+		{
+			m_facets = new(count);
 			return this;
 		}
 
@@ -1136,6 +1491,116 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.Circle, m_name, m_colour, () =>
 			{
 				res.Write(EKeyword.Data, m_radius);
+				res.Append(m_facets);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrPie : LdrBase<LdrPie>
+	{
+		private float m_angle0 = 0f;
+		private float m_angle1 = 90f;
+		private float m_inner_radius = 0f;
+		private float m_outer_radius = 1f;
+		private Serialiser.Facets m_facets = new();
+		private Serialiser.Scale2 m_scale = new();
+
+		public LdrPie pie(float angle0, float angle1, float inner_radius, float outer_radius)
+		{
+			m_angle0 = angle0;
+			m_angle1 = angle1;
+			m_inner_radius = inner_radius;
+			m_outer_radius = outer_radius;
+			return this;
+		}
+		public LdrPie facets(int count)
+		{
+			m_facets = new(count);
+			return this;
+		}
+		public LdrPie scale(Serialiser.Scale2 s)
+		{
+			m_scale = s;
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Pie, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
+				res.Append(m_facets, m_scale);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrRect : LdrBase<LdrRect>
+	{
+		private v2 m_wh = new(1f, 1f);
+		private Serialiser.CornerRadius m_corner_radius = new();
+		private Serialiser.Facets m_facets = new();
+
+		public LdrRect wh(float w, float h)
+		{
+			m_wh = new v2(w, h);
+			return this;
+		}
+		public LdrRect wh(float s)
+		{
+			return wh(s, s);
+		}
+		public LdrRect corner_radius(float r)
+		{
+			m_corner_radius = new(r);
+			return this;
+		}
+		public LdrRect facets(int count)
+		{
+			m_facets = new(count);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Rect, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_wh);
+				res.Append(m_corner_radius, m_facets);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrPolygon : LdrBase<LdrPolygon>
+	{
+		private class Pt { public v2 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+
+		public LdrPolygon pt(v2 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrPolygon pt(float x, float y, Colour32? colour = null)
+		{
+			return pt(new v2(x, y), colour);
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Polygon, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
 				base.WriteTo(res);
 			});
 		}
@@ -1143,6 +1608,7 @@ namespace Rylogic.LDraw
 	public class LdrSphere : LdrBase<LdrSphere>
 	{
 		private v4 m_radius = new(1.0f);
+		private Serialiser.Facets m_facets = new();
 
 		// Radius
 		public LdrSphere radius(float r)
@@ -1152,6 +1618,11 @@ namespace Rylogic.LDraw
 		public LdrSphere radius(v4 r)
 		{
 			m_radius = r;
+			return this;
+		}
+		public LdrSphere facets(int count)
+		{
+			m_facets = new(count);
 			return this;
 		}
 
@@ -1168,6 +1639,7 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.Sphere, m_name, m_colour, () =>
 			{
 				res.Write(EKeyword.Data, m_radius.xyz);
+				res.Append(m_facets);
 				base.WriteTo(res);
 			});
 		}
@@ -1213,6 +1685,41 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.Box, m_name, m_colour, () =>
 			{
 				res.Write(EKeyword.Data, m_dim.xyz);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrBoxList : LdrBase<LdrBoxList>
+	{
+		private class Entry { public v4 dim; public v4 pos; public Colour32 col; }
+		private readonly List<Entry> m_boxes = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+
+		public LdrBoxList box(v4 dim, v4 pos, Colour32? colour = null)
+		{
+			m_boxes.Add(new Entry { dim = dim, pos = pos, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrBoxList box(float w, float h, float d, float x, float y, float z, Colour32? colour = null)
+		{
+			return box(new v4(w, h, d, 0), new v4(x, y, z, 1), colour);
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.BoxList, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var b in m_boxes)
+					{
+						res.Append(b.dim.xyz, b.pos.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(b.col);
+					}
+				});
 				base.WriteTo(res);
 			});
 		}
@@ -1290,6 +1797,323 @@ namespace Rylogic.LDraw
 			{
 				res.Write(EKeyword.Data, m_angle, m_distance.x, m_distance.y);
 				res.Append(m_scale);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrTube : LdrBase<LdrTube>
+	{
+		// Cross section types
+		public enum ECrossSection { Round, Square, Polygon }
+
+		private class Pt { public v4 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private ECrossSection m_cs_type = ECrossSection.Round;
+		private v2 m_cs_radius = new(0.2f, 0.2f);
+		private readonly List<v2> m_cs_polygon = [];
+		private Serialiser.Facets m_cs_facets = new();
+		private Serialiser.Smooth m_cs_smooth = new();
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private Serialiser.Smooth m_smooth = new();
+		private Serialiser.Closed m_closed = new();
+
+		// Cross section configuration
+		public LdrTube cross_section_round(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection.Round;
+			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
+			return this;
+		}
+		public LdrTube cross_section_square(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection.Square;
+			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
+			return this;
+		}
+		public LdrTube cross_section_polygon(IEnumerable<v2> pts)
+		{
+			m_cs_type = ECrossSection.Polygon;
+			m_cs_polygon.AddRange(pts);
+			return this;
+		}
+		public LdrTube cross_section_facets(int facets)
+		{
+			m_cs_facets = new(facets);
+			return this;
+		}
+		public LdrTube cross_section_smooth(bool on = true)
+		{
+			m_cs_smooth = new(on);
+			return this;
+		}
+
+		// Path points
+		public LdrTube pt(v4 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrTube pt(v3 point, Colour32? colour = null)
+		{
+			return pt(point.w1, colour);
+		}
+		public LdrTube smooth(bool on = true)
+		{
+			m_smooth = new(on);
+			return this;
+		}
+		public LdrTube closed(bool on = true)
+		{
+			m_closed = new(on);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Tube, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.CrossSection, () =>
+				{
+					switch (m_cs_type)
+					{
+						case ECrossSection.Round:
+							res.Write(EKeyword.Round, m_cs_radius);
+							break;
+						case ECrossSection.Square:
+							res.Write(EKeyword.Square, m_cs_radius);
+							break;
+						case ECrossSection.Polygon:
+							res.Write(EKeyword.Polygon, () =>
+							{
+								foreach (var p in m_cs_polygon)
+									res.Append(p);
+							});
+							break;
+					}
+					res.Append(m_cs_facets, m_cs_smooth);
+				});
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
+				res.Append(m_smooth, m_closed);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrMesh : LdrBase<LdrMesh>
+	{
+		private readonly List<v4> m_verts = [];
+		private readonly List<v4> m_normals = [];
+		private readonly List<Colour32> m_colours = [];
+		private readonly List<v2> m_tex_coords = [];
+		private readonly List<int> m_faces = [];
+		private readonly List<int> m_lines = [];
+		private readonly List<int> m_tetras = [];
+		private Serialiser.GenerateNormals m_gen_normals = new();
+		private LdrTexture m_tex = new();
+
+		public LdrMesh vert(v4 v)
+		{
+			m_verts.Add(v);
+			return this;
+		}
+		public LdrMesh vert(float x, float y, float z)
+		{
+			return vert(new v4(x, y, z, 1));
+		}
+		public LdrMesh verts(IEnumerable<v4> pts)
+		{
+			m_verts.AddRange(pts);
+			return this;
+		}
+		public LdrMesh normal(v4 n)
+		{
+			m_normals.Add(n);
+			return this;
+		}
+		public LdrMesh normals(IEnumerable<v4> norms)
+		{
+			m_normals.AddRange(norms);
+			return this;
+		}
+		public LdrMesh colour(Colour32 c)
+		{
+			m_colours.Add(c);
+			return this;
+		}
+		public LdrMesh colours(IEnumerable<Colour32> cols)
+		{
+			m_colours.AddRange(cols);
+			return this;
+		}
+		public LdrMesh tex_coord(v2 uv)
+		{
+			m_tex_coords.Add(uv);
+			return this;
+		}
+		public LdrMesh tex_coords(IEnumerable<v2> uvs)
+		{
+			m_tex_coords.AddRange(uvs);
+			return this;
+		}
+		public LdrMesh face(int i0, int i1, int i2)
+		{
+			m_faces.Add(i0);
+			m_faces.Add(i1);
+			m_faces.Add(i2);
+			return this;
+		}
+		public LdrMesh faces(IEnumerable<int> indices)
+		{
+			m_faces.AddRange(indices);
+			return this;
+		}
+		public LdrMesh line(int i0, int i1)
+		{
+			m_lines.Add(i0);
+			m_lines.Add(i1);
+			return this;
+		}
+		public LdrMesh lines(IEnumerable<int> indices)
+		{
+			m_lines.AddRange(indices);
+			return this;
+		}
+		public LdrMesh tetra(int i0, int i1, int i2, int i3)
+		{
+			m_tetras.Add(i0);
+			m_tetras.Add(i1);
+			m_tetras.Add(i2);
+			m_tetras.Add(i3);
+			return this;
+		}
+		public LdrMesh tetras(IEnumerable<int> indices)
+		{
+			m_tetras.AddRange(indices);
+			return this;
+		}
+		public LdrMesh generate_normals(float smoothing_angle)
+		{
+			m_gen_normals = new(smoothing_angle);
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Mesh, m_name, m_colour, () =>
+			{
+				if (m_verts.Count != 0)
+				{
+					res.Write(EKeyword.Verts, () =>
+					{
+						foreach (var v in m_verts)
+							res.Append(v.xyz);
+					});
+				}
+				if (m_normals.Count != 0)
+				{
+					res.Write(EKeyword.Normals, () =>
+					{
+						foreach (var n in m_normals)
+							res.Append(n.xyz);
+					});
+				}
+				if (m_colours.Count != 0)
+				{
+					res.Write(EKeyword.Colours, () =>
+					{
+						foreach (var c in m_colours)
+							res.Append(c);
+					});
+				}
+				if (m_tex_coords.Count != 0)
+				{
+					res.Write(EKeyword.TexCoords, () =>
+					{
+						foreach (var uv in m_tex_coords)
+							res.Append(uv);
+					});
+				}
+				if (m_faces.Count != 0)
+				{
+					res.Write(EKeyword.Faces, () =>
+					{
+						foreach (var i in m_faces)
+							res.Append(i);
+					});
+				}
+				if (m_lines.Count != 0)
+				{
+					res.Write(EKeyword.Lines, () =>
+					{
+						foreach (var i in m_lines)
+							res.Append(i);
+					});
+				}
+				if (m_tetras.Count != 0)
+				{
+					res.Write(EKeyword.Tetra, () =>
+					{
+						foreach (var i in m_tetras)
+							res.Append(i);
+					});
+				}
+				res.Append(m_gen_normals);
+				m_tex.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrConvexHull : LdrBase<LdrConvexHull>
+	{
+		private readonly List<v4> m_verts = [];
+		private Serialiser.GenerateNormals m_gen_normals = new();
+
+		public LdrConvexHull vert(v4 v)
+		{
+			m_verts.Add(v);
+			return this;
+		}
+		public LdrConvexHull vert(float x, float y, float z)
+		{
+			return vert(new v4(x, y, z, 1));
+		}
+		public LdrConvexHull verts(IEnumerable<v4> pts)
+		{
+			m_verts.AddRange(pts);
+			return this;
+		}
+		public LdrConvexHull generate_normals(float smoothing_angle)
+		{
+			m_gen_normals = new(smoothing_angle);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.ConvexHull, m_name, m_colour, () =>
+			{
+				if (m_verts.Count != 0)
+				{
+					res.Write(EKeyword.Verts, () =>
+					{
+						foreach (var v in m_verts)
+							res.Append(v.xyz);
+					});
+				}
+				res.Append(m_gen_normals);
 				base.WriteTo(res);
 			});
 		}
@@ -1504,6 +2328,9 @@ namespace Rylogic.LDraw
 			public bool m_billboard = false;
 			public bool m_billboard_3d = false;
 			public Colour32? m_back_colour = null;
+			public Serialiser.Anchor m_anchor = new();
+			public Serialiser.Padding m_padding = new();
+			public string? m_format = null;
 			public static implicit operator bool(Block? b) => b != null && b.m_text.Length != 0;
 		}
 		private readonly List<Block> m_blocks = [];
@@ -1520,7 +2347,7 @@ namespace Rylogic.LDraw
 		}
 
 		/// <summary>Screen space text</summary>
-		public LdrText screen_space(bool on = true)
+		public new LdrText screen_space(bool on = true)
 		{
 			m_current.m_screen_space = on;
 			return this;
@@ -1554,6 +2381,34 @@ namespace Rylogic.LDraw
 			return m_current.m_font;
 		}
 
+		/// <summary>Anchor position</summary>
+		public LdrText anchor(v2 anchor)
+		{
+			m_current.m_anchor = new(anchor);
+			return this;
+		}
+
+		/// <summary>Padding</summary>
+		public LdrText padding(float left, float top, float right, float bottom)
+		{
+			m_current.m_padding = new(left, top, right, bottom);
+			return this;
+		}
+
+		/// <summary>Format string</summary>
+		public LdrText format(string fmt)
+		{
+			m_current.m_format = fmt;
+			return this;
+		}
+
+		/// <summary>CString text</summary>
+		public LdrText cstring(string s)
+		{
+			m_current.m_text.Append(s);
+			return this;
+		}
+
 		// 
 		public LdrText new_block()
 		{
@@ -1579,6 +2434,10 @@ namespace Rylogic.LDraw
 						res.Write(EKeyword.Billboard3D);
 					if (block.m_back_colour != null)
 						res.Write(EKeyword.BackColour, block.m_back_colour.Value);
+					res.Append(block.m_anchor);
+					res.Append(block.m_padding);
+					if (block.m_format != null)
+						res.Write(EKeyword.Format, block.m_format);
 
 					res.Write(EKeyword.Data, $"\"{block.m_text.ToString()}\"");
 				}
@@ -1600,6 +2459,69 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Group, m_name, m_colour, () =>
 			{
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrLightSource : LdrBase<LdrLightSource>
+	{
+		private string m_style = "Point";
+		private Colour32? m_ambient = null;
+		private Colour32? m_diffuse = null;
+		private Colour32? m_specular = null;
+		private float? m_specular_power = null;
+		private v2? m_range = null;
+		private v2? m_cone = null;
+		private float? m_cast_shadow = null;
+
+		public LdrLightSource style(string style)
+		{
+			m_style = style;
+			return this;
+		}
+		public LdrLightSource ambient(Colour32 col)
+		{
+			m_ambient = col;
+			return this;
+		}
+		public LdrLightSource diffuse(Colour32 col)
+		{
+			m_diffuse = col;
+			return this;
+		}
+		public LdrLightSource specular(Colour32 col, float power)
+		{
+			m_specular = col;
+			m_specular_power = power;
+			return this;
+		}
+		public LdrLightSource range(float range, float falloff)
+		{
+			m_range = new v2(range, falloff);
+			return this;
+		}
+		public LdrLightSource cone(float inner, float outer)
+		{
+			m_cone = new v2(inner, outer);
+			return this;
+		}
+		public LdrLightSource cast_shadow(float range)
+		{
+			m_cast_shadow = range;
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.LightSource, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Style, m_style);
+				if (m_ambient is Colour32 a) res.Write(EKeyword.Ambient, a);
+				if (m_diffuse is Colour32 d) res.Write(EKeyword.Diffuse, d);
+				if (m_specular is Colour32 s && m_specular_power is float p) res.Write(EKeyword.Specular, s, p);
+				if (m_range is v2 r) res.Write(EKeyword.Range, r);
+				if (m_cone is v2 c) res.Write(EKeyword.Cone, c);
+				if (m_cast_shadow is float cs) res.Write(EKeyword.CastShadow, cs);
 				base.WriteTo(res);
 			});
 		}
@@ -1760,6 +2682,49 @@ namespace Rylogic.LDraw
 				foreach (var series in m_series)
 					series.WriteTo(res);
 
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrEquation : LdrBase<LdrEquation>
+	{
+		private string m_equation = string.Empty;
+		private int m_resolution = 0;
+		private readonly List<(string name, float value)> m_params = [];
+		private float? m_weight = null;
+
+		public LdrEquation equation(string eq)
+		{
+			m_equation = eq;
+			return this;
+		}
+		public LdrEquation resolution(int res)
+		{
+			m_resolution = res;
+			return this;
+		}
+		public LdrEquation param(string name, float value)
+		{
+			m_params.Add((name, value));
+			return this;
+		}
+		public LdrEquation weight(float w)
+		{
+			m_weight = w;
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Equation, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, $"\"{m_equation}\"");
+				if (m_resolution != 0)
+					res.Write(EKeyword.Resolution, m_resolution);
+				foreach (var p in m_params)
+					res.Write(EKeyword.Param, p.name, p.value);
+				if (m_weight is float w)
+					res.Write(EKeyword.Weight, w);
 				base.WriteTo(res);
 			});
 		}
@@ -2564,6 +3529,241 @@ namespace Rylogic.UnitTests
 			var str = builder.ToString();
 			Assert.Equal(str, "*Line a FF00FF00 {*Style {LineStrip} *Data {0 0 1 0 0 1}}");
 		}
+
+		[Test]
+		public void TestGroup()
+		{
+			var builder = new LDraw.Builder();
+			builder.Group("g", 0xFF00FF00u);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Group g FF00FF00 {}");
+		}
+
+		[Test]
+		public void TestInstance()
+		{
+			var builder = new LDraw.Builder();
+			builder.Instance("i", 0xFFFF0000u).inst("model_ref");
+			var str = builder.ToString();
+			Assert.Equal(str, "*Instance i FFFF0000 {*Data {model_ref}}");
+		}
+
+		[Test]
+		public void TestTextObj()
+		{
+			var builder = new LDraw.Builder();
+			builder.Text("t", 0xFF00FF00u).text("hello");
+			var str = builder.ToString();
+			Assert.Equal(str, "*Text t FF00FF00 {*Data {\"hello\"}}");
+		}
+
+		[Test]
+		public void TestLightSource()
+		{
+			var builder = new LDraw.Builder();
+			builder.LightSource("light", 0xFF00FF00u).style("Spot").diffuse(new Colour32(0xFF0000FF));
+			var str = builder.ToString();
+			Assert.Equal(str, "*LightSource light FF00FF00 {*Style {Spot} *Diffuse {FF0000FF}}");
+		}
+
+		[Test]
+		public void TestPoint()
+		{
+			var builder = new LDraw.Builder();
+			builder.Point("p", 0xFF00FF00u).style(LDraw.EPointStyle.Circle).pt(new v4(1, 2, 3, 1));
+			var str = builder.ToString();
+			Assert.Equal(str, "*Point p FF00FF00 {*Style {Circle} *Data {1 2 3}}");
+		}
+
+		[Test]
+		public void TestLineBox()
+		{
+			var builder = new LDraw.Builder();
+			builder.LineBox("lb", 0xFF00FF00u).dim(2, 3, 4);
+			var str = builder.ToString();
+			Assert.Equal(str, "*LineBox lb FF00FF00 {*Data {2 3 4}}");
+		}
+
+		[Test]
+		public void TestGrid()
+		{
+			var builder = new LDraw.Builder();
+			builder.Grid("grid", 0xFF00FF00u).wh(10, 10).divisions(5, 5);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Grid grid FF00FF00 {*Data {10 10 5 5}}");
+		}
+
+		[Test]
+		public void TestCoordFrame()
+		{
+			var builder = new LDraw.Builder();
+			builder.CoordFrame("cf", 0xFF00FF00u).scale(2);
+			var str = builder.ToString();
+			Assert.Equal(str, "*CoordFrame cf FF00FF00 {*Scale {2}}");
+		}
+
+		[Test]
+		public void TestCircle()
+		{
+			var builder = new LDraw.Builder();
+			builder.Circle("c", 0xFF00FF00u).radius(5).solid(true);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Circle c FF00FF00 {*Data {5} *Solid {true}}");
+		}
+
+		[Test]
+		public void TestPie()
+		{
+			var builder = new LDraw.Builder();
+			builder.Pie("pie", 0xFF00FF00u).pie(0, 90, 0.5f, 1.5f);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Pie pie FF00FF00 {*Data {0 90 0.5 1.5}}");
+		}
+
+		[Test]
+		public void TestRect()
+		{
+			var builder = new LDraw.Builder();
+			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Rect r FF00FF00 {*Data {3 2}}");
+		}
+
+		[Test]
+		public void TestPolygon()
+		{
+			var builder = new LDraw.Builder();
+			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Polygon pg FF00FF00 {*Data {0 0 1 0 0.5 1}}");
+		}
+
+		[Test]
+		public void TestTriangle()
+		{
+			var builder = new LDraw.Builder();
+			builder.Triangle("tri", 0xFF00FF00u).tri(v4.Origin, new v4(1, 0, 0, 1), new v4(0, 1, 0, 1));
+			var str = builder.ToString();
+			Assert.Equal(str, "*Triangle tri FF00FF00 {*Data {0 0 0 1 0 0 0 1 0}}");
+		}
+
+		[Test]
+		public void TestQuad()
+		{
+			var builder = new LDraw.Builder();
+			builder.Quad("q", 0xFF00FF00u).quad(new v4(0, 0, 0, 1), new v4(1, 0, 0, 1), new v4(1, 1, 0, 1), new v4(0, 1, 0, 1));
+			var str = builder.ToString();
+			Assert.Equal(str, "*Quad q FF00FF00 {*Data {0 0 0 1 0 0 1 1 0 0 1 0}}");
+		}
+
+		[Test]
+		public void TestPlane()
+		{
+			var builder = new LDraw.Builder();
+			builder.Plane("pl", 0xFF00FF00u).wh(5, 5);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Plane pl FF00FF00 {*Data {5 5}}");
+		}
+
+		[Test]
+		public void TestRibbon()
+		{
+			var builder = new LDraw.Builder();
+			builder.Ribbon("rib", 0xFF00FF00u).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 0, 0, 1)).width(0.5f);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Ribbon rib FF00FF00 {*Data {0 0 0 1 0 0 2 0 0} *Width {0.5}}");
+		}
+
+		[Test]
+		public void TestBoxList()
+		{
+			var builder = new LDraw.Builder();
+			builder.BoxList("bl", 0xFF00FF00u).box(1, 1, 1, 0, 0, 0).box(2, 2, 2, 3, 0, 0);
+			var str = builder.ToString();
+			Assert.Equal(str, "*BoxList bl FF00FF00 {*Data {1 1 1 0 0 0 2 2 2 3 0 0}}");
+		}
+
+		[Test]
+		public void TestFrustum()
+		{
+			var builder = new LDraw.Builder();
+			builder.Frustum("fr", 0xFF00FF00u).wh(4, 3).nf(1, 100);
+			var str = builder.ToString();
+			Assert.Equal(str, "*FrustumWH fr FF00FF00 {*Data {4 3 1 100}}");
+		}
+
+		[Test]
+		public void TestSphere()
+		{
+			var builder = new LDraw.Builder();
+			builder.Sphere("s", 0xFF00FF00u).radius(3);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Sphere s FF00FF00 {*Data {3 3 3}}");
+		}
+
+		[Test]
+		public void TestCylinder()
+		{
+			var builder = new LDraw.Builder();
+			builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Cylinder cyl FF00FF00 {*Data {3 1 1}}");
+		}
+
+		[Test]
+		public void TestCone()
+		{
+			var builder = new LDraw.Builder();
+			builder.Cone("cn", 0xFF00FF00u).angle(30).height(5);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Cone cn FF00FF00 {*Data {30 0 5}}");
+		}
+
+		[Test]
+		public void TestTube()
+		{
+			var builder = new LDraw.Builder();
+			builder.Tube("tube", 0xFF00FF00u).cross_section_round(0.5f).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 1, 0, 1));
+			var str = builder.ToString();
+			Assert.Equal(str, "*Tube tube FF00FF00 {*CrossSection {*Round {0.5 0.5}} *Data {0 0 0 1 0 0 2 1 0}}");
+		}
+
+		[Test]
+		public void TestMesh()
+		{
+			var builder = new LDraw.Builder();
+			builder.Mesh("m", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).face(0, 1, 2);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Mesh m FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0} *Faces {0 1 2}}");
+		}
+
+		[Test]
+		public void TestConvexHull()
+		{
+			var builder = new LDraw.Builder();
+			builder.ConvexHull("ch", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
+			var str = builder.ToString();
+			Assert.Equal(str, "*ConvexHull ch FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0 0 0 1}}");
+		}
+
+		[Test]
+		public void TestChart()
+		{
+			var builder = new LDraw.Builder();
+			var chart = builder.Chart("chart", 0xFF00FF00u).dim(2).data(0, 1, 1, 2, 2, 3);
+			chart.Series("plot", 0xFF0000FFu).xaxis("C0").yaxis("C1");
+			var str = builder.ToString();
+			Assert.Equal(str, "*Chart chart FF00FF00 {*Dim {2} *Data {0 1 1 2 2 3} *Series plot FF0000FF {*XAxis {\"C0\"} *YAxis {\"C1\"}}}");
+		}
+
+		[Test]
+		public void TestEquation()
+		{
+			var builder = new LDraw.Builder();
+			builder.Equation("eq", 0xFF00FF00u).equation("sin(x)").resolution(100);
+			var str = builder.ToString();
+			Assert.Equal(str, "*Equation eq FF00FF00 {*Data {\"sin(x)\"} *Resolution {100}}");
+		}
 	}
 
 	[TestFixture]
@@ -2583,8 +3783,8 @@ namespace Rylogic.UnitTests
 		{
 			var builder = new LDraw.Builder();
 			builder.Line("a", 0xFF00FF00).style(LDraw.ELineStyle.LineStrip).line_to(v4.ZAxis.w1);
-			//builder.Save("E://Dump//line.bdr", LDraw.ESaveFlags.Binary);
 			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
 		}
 
 		[Test]
@@ -2592,8 +3792,8 @@ namespace Rylogic.UnitTests
 		{
 			var builder = new LDraw.Builder();
 			builder.Line("a", 0xFF00FF00).arrow(LDraw.EArrowType.Fwd).strip(v4.Origin).line_to(v4.ZAxis.w1);
-			//builder.Save("E://Dump//arrow.bdr", LDraw.ESaveFlags.Binary);
 			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
 		}
 
 		[Test]
@@ -2605,13 +3805,251 @@ namespace Rylogic.UnitTests
 				.add_to_scene(0)
 				.object_transform("b", m4x4.Transform(v4.ZAxis, 0.3f, v4.Origin));
 			var mem = builder.ToBinary();
+			Assert.True(mem.Length > 0);
+		}
 
-			#if false
-			{
-				using var ofile = File.Create("E:/Dump/LDraw/test.bdr");
-				mem.CopyTo(ofile);
-			}
-			#endif
+		[Test]
+		public void TestBinaryGroup()
+		{
+			var builder = new LDraw.Builder();
+			builder.Group("g", 0xFF00FF00u);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryInstance()
+		{
+			var builder = new LDraw.Builder();
+			builder.Instance("i", 0xFFFF0000u).inst("model_ref");
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryText()
+		{
+			var builder = new LDraw.Builder();
+			builder.Text("t", 0xFF00FF00u).text("hello");
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryLightSource()
+		{
+			var builder = new LDraw.Builder();
+			builder.LightSource("light", 0xFF00FF00u).style("Spot");
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryPoint()
+		{
+			var builder = new LDraw.Builder();
+			builder.Point("p", 0xFF00FF00u).pt(new v4(1, 2, 3, 1));
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryLineBox()
+		{
+			var builder = new LDraw.Builder();
+			builder.LineBox("lb", 0xFF00FF00u).dim(2, 3, 4);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryGrid()
+		{
+			var builder = new LDraw.Builder();
+			builder.Grid("grid", 0xFF00FF00u).wh(10, 10).divisions(5, 5);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryCoordFrame()
+		{
+			var builder = new LDraw.Builder();
+			builder.CoordFrame("cf", 0xFF00FF00u).scale(2);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryCircle()
+		{
+			var builder = new LDraw.Builder();
+			builder.Circle("c", 0xFF00FF00u).radius(5);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryPie()
+		{
+			var builder = new LDraw.Builder();
+			builder.Pie("pie", 0xFF00FF00u).pie(0, 90, 0.5f, 1.5f);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryRect()
+		{
+			var builder = new LDraw.Builder();
+			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryPolygon()
+		{
+			var builder = new LDraw.Builder();
+			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryTriangle()
+		{
+			var builder = new LDraw.Builder();
+			builder.Triangle("tri", 0xFF00FF00u).tri(v4.Origin, new v4(1, 0, 0, 1), new v4(0, 1, 0, 1));
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryQuad()
+		{
+			var builder = new LDraw.Builder();
+			builder.Quad("q", 0xFF00FF00u).quad(new v4(0, 0, 0, 1), new v4(1, 0, 0, 1), new v4(1, 1, 0, 1), new v4(0, 1, 0, 1));
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryPlane()
+		{
+			var builder = new LDraw.Builder();
+			builder.Plane("pl", 0xFF00FF00u).wh(5, 5);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryRibbon()
+		{
+			var builder = new LDraw.Builder();
+			builder.Ribbon("rib", 0xFF00FF00u).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 0, 0, 1)).width(0.5f);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryBox()
+		{
+			var builder = new LDraw.Builder();
+			builder.Box("b", 0xFF00FF00u).dim(2, 3, 4);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryBoxList()
+		{
+			var builder = new LDraw.Builder();
+			builder.BoxList("bl", 0xFF00FF00u).box(1, 1, 1, 0, 0, 0).box(2, 2, 2, 3, 0, 0);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryFrustum()
+		{
+			var builder = new LDraw.Builder();
+			builder.Frustum("fr", 0xFF00FF00u).wh(4, 3).nf(1, 100);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinarySphere()
+		{
+			var builder = new LDraw.Builder();
+			builder.Sphere("s", 0xFF00FF00u).radius(3);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryCylinder()
+		{
+			var builder = new LDraw.Builder();
+			builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryCone()
+		{
+			var builder = new LDraw.Builder();
+			builder.Cone("cn", 0xFF00FF00u).angle(30).height(5);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryTube()
+		{
+			var builder = new LDraw.Builder();
+			builder.Tube("tube", 0xFF00FF00u).cross_section_round(0.5f).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1));
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryMesh()
+		{
+			var builder = new LDraw.Builder();
+			builder.Mesh("m", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).face(0, 1, 2);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryConvexHull()
+		{
+			var builder = new LDraw.Builder();
+			builder.ConvexHull("ch", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryChart()
+		{
+			var builder = new LDraw.Builder();
+			var chart = builder.Chart("chart", 0xFF00FF00u).dim(2).data(0, 1, 1, 2);
+			chart.Series("plot", 0xFF0000FFu).xaxis("C0").yaxis("C1");
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+		}
+
+		[Test]
+		public void TestBinaryEquation()
+		{
+			var builder = new LDraw.Builder();
+			builder.Equation("eq", 0xFF00FF00u).equation("sin(x)").resolution(100);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
 		}
 	}
 }
