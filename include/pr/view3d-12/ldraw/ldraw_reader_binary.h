@@ -27,7 +27,7 @@ namespace pr::rdr12::ldraw
 			, m_src(src)
 			, m_pos()
 			, m_section({ {0, std::numeric_limits<int64_t>::max()} })
-			, m_location({ src_filepath })
+			, m_location({ src_filepath, ReadSourceLength(src_filepath) })
 		{
 			PushSection();
 		}
@@ -202,6 +202,15 @@ namespace pr::rdr12::ldraw
 			}
 
 			return length;
+		}
+
+		// Read the size of the input file/source
+		static int64_t ReadSourceLength(std::filesystem::path src_filepath)
+		{
+			if (!src_filepath.empty() && std::filesystem::exists(src_filepath))
+				return std::filesystem::file_size(src_filepath);
+			
+			return 0; // Unknown
 		}
 	};
 }

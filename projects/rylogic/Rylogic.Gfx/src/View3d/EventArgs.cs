@@ -33,11 +33,12 @@ namespace Rylogic.Gfx
 
 		public class ParsingProgressEventArgs :CancelEventArgs
 		{
-			public ParsingProgressEventArgs(Guid context_id, string filepath, long file_offset, bool complete)
+			public ParsingProgressEventArgs(Guid context_id, string filepath, long file_offset, long file_size, bool complete)
 			{
 				ContextId = context_id;
 				Filepath = filepath;
 				FileOffset = file_offset;
+				FileSize = file_size;
 				Complete = complete;
 			}
 
@@ -49,6 +50,9 @@ namespace Rylogic.Gfx
 
 			/// <summary>How far through the current file parsing is up to</summary>
 			public long FileOffset { get; }
+
+			/// <summary>The total size of the file being parsed</summary>
+			public long FileSize { get; }
 
 			/// <summary>Last progress update notification</summary>
 			public bool Complete { get; }

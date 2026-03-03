@@ -769,7 +769,7 @@ namespace pr
 		// Callbacks
 		using GuidPredCB = Callback<bool(__stdcall*)(void* ctx, GUID const&)>;
 		using SettingsChangedCB = Callback<void(__stdcall *)(void* ctx, Window window, ESettings setting)>;
-		using ParsingProgressCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, char const* filepath, long long file_offset, BOOL complete, BOOL& cancel)>;
+		using ParsingProgressCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, char const* filepath, long long file_offset, long long file_size, BOOL complete, BOOL& cancel)>;
 		using SourcesChangedCB = Callback<void(__stdcall *)(void* ctx, ESourcesChangedReason reason, GUID const* ids, int count, BOOL before)>;
 		using EnumGuidsCB = Callback<bool(__stdcall *)(void* ctx, GUID const& context_id)>;
 		using EnumObjectsCB = Callback<bool(__stdcall *)(void* ctx, Object object)>;
@@ -818,6 +818,9 @@ extern "C"
 	// Add an ldr script source. This will create all objects with context id 'context_id' (if given, otherwise an id will be created). Concurrent calls are thread safe.
 	VIEW3D_API GUID __stdcall View3D_LoadScriptFromString(char const* ldr_script, GUID const* context_id, pr::view3d::Includes const* includes, pr::view3d::AddCompleteCB on_add_cb);
 	VIEW3D_API GUID __stdcall View3D_LoadScriptFromFile(char const* ldr_file, GUID const* context_id, pr::view3d::Includes const* includes, pr::view3d::AddCompleteCB on_add_cb);
+
+	// Cancel an in-progress load operation
+	VIEW3D_API void __stdcall View3D_CancelLoad(GUID const* context_id);
 
 	// Enumerate all sources in the store
 	VIEW3D_API void __stdcall View3D_EnumSources(pr::view3d::EnumGuidsCB enum_guid_cb);

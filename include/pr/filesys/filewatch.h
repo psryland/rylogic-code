@@ -7,9 +7,9 @@
 #include <filesystem>
 #include "pr/common/guid.h"
 #include "pr/common/event_handler.h"
+#include "pr/common/async_wrap.h"
 #include "pr/algorithm/algorithm.h"
 #include "pr/container/vector.h"
-#include "pr/threads/synchronise.h"
 
 namespace pr
 {
@@ -78,20 +78,17 @@ namespace pr
 				return lhs.m_id == rhs; 
 			}
 		};
-		struct FileCont :vector<File>
-		{};
+		using FileCont = pr::AsyncWrap<vector<File>>;
 
 	private:
 
-		// The files being watched. Access via a Lock instance
-		FileCont m_impl_files;
-		std::mutex mutable m_mutex;
+		// The files being watched.
+		FileCont m_files;
 
 	public:
 
 		FileWatch()
-			: m_impl_files()
-			, m_mutex()
+			: m_files()
 			, PollCB({this, [](void* ctx) { static_cast<FileWatch*>(ctx)->CheckForChangedFiles(); }})
 			, OnFilesChanged()
 		{}
@@ -100,43 +97,27 @@ namespace pr
 		pr::StaticCB<void> PollCB;
 
 		// Raised when changed files are detected. Allows modification of file list
-		pr::EventHandler<FileWatch&, FileCont&> OnFilesChanged;
-
-		// Synchronise access to the file container
-		struct Lock :threads::Synchronise<FileWatch>
-		{
-			Lock(FileWatch const& fw)
-				:base(fw, fw.m_mutex)
-			{}
-
-			// The files being watched
-			FileCont const& files() const
-			{
-				return get().m_impl_files;
-			}
-			FileCont& files()
-			{
-				return get().m_impl_files;
-			}
-		};
+		pr::EventHandler<FileWatch&, std::span<File const>> OnFilesChanged;
 
 		// Return the Guid associated with the given filepath (or GuidZero, if not being watched)
 		pr::Guid FindId(path const& filepath) const
 		{
-			Lock lock(*this);
-			auto& files = lock.files();
-			auto iter = pr::find(files, filepath.lexically_normal());
-			return iter != std::end(files) ? iter->m_id : pr::GuidZero;
+			if (auto files = m_files.lock())
+			{
+				auto iter = pr::find(*files, filepath.lexically_normal());
+				return iter != std::end(*files) ? iter->m_id : pr::GuidZero;
+			}
 		}
 
 		// Mark a file as changed, to be caught on the next 'CheckForChangedFiles' call
 		void MarkAsChanged(path const& filepath)
 		{
-			Lock lock(*this);
-			auto& files = lock.files();
-			auto iter = pr::find(files, filepath.lexically_normal());
-			if (iter != std::end(files))
-				iter->m_time -= std::chrono::seconds(10);
+			if (auto files = m_files.lock())
+			{
+				auto iter = pr::find(*files, filepath.lexically_normal());
+				if (iter != std::end(*files))
+					iter->m_time -= std::chrono::seconds(10);
+			}
 		}
 
 		// Add a file to be watched
@@ -146,39 +127,39 @@ namespace pr
 			Remove(filepath);
 
 			// Add to the files collection
-			Lock lock(*this);
-			lock.files().emplace_back(filepath.lexically_normal(), onchanged, id, user_data);
+			if (auto files = m_files.lock())
+				files->emplace_back(filepath.lexically_normal(), onchanged, id, user_data);
 		}
 
 		// Remove a watched file
 		void Remove(std::filesystem::path const& filepath)
 		{
-			Lock lock(*this);
-			erase_first(lock.files(), [fpath = filepath.lexically_normal()](File const& f){ return f == fpath; });
+			if (auto files = m_files.lock())
+				erase_first(*files, [fpath = filepath.lexically_normal()](File const& f){ return f == fpath; });
 		}
 
 		// Remove all watches where 'm_id == id'
 		void RemoveAll(pr::Guid const& id)
 		{
-			Lock lock(*this);
-			pr::erase_if(lock.files(), [=](File const& file) { return file.m_id == id; });
+			if (auto files = m_files.lock())
+				erase_if(*files, [=](File const& file) { return file.m_id == id; });
 		}
 
 		// Remove all watches
 		void RemoveAll()
 		{
-			Lock lock(*this);
-			lock.files().resize(0);
+			if (auto files = m_files.lock())
+				files->resize(0);
 		}
 
 		// Check the timestamps of all watched files and call the callback for those that have changed.
 		void CheckForChangedFiles()
 		{
 			// Build a collection of the changed files to prevent reentrancy problems with the callbacks
-			FileCont changed_files;
+			vector<File> changed_files;
+			if (auto files = m_files.lock())
 			{
-				Lock lock(*this);
-				for (auto& file : lock.files())
+				for (auto& file : *files)
 				{
 					// Ignore files with issues
 					std::error_code ec;

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using LDraw.UI;
@@ -128,7 +129,7 @@ namespace LDraw
 					Sync.Post(x =>
 					{
 						var args = (View3d.ParsingProgressEventArgs)x!;
-						ParsingProgress ??= new ParsingProgressData(args.ContextId);
+						ParsingProgress ??= new ParsingProgressData(args.ContextId, CancelCurrentLoad);
 
 						// Only update with info from the same file
 						if (ParsingProgress.ContextId != args.ContextId)
@@ -137,10 +138,12 @@ namespace LDraw
 						if (args.Complete)
 						{
 							ParsingProgress = null;
+							LoadingContextId = Guid.Empty;
 						}
 						else
 						{
 							ParsingProgress.DataSourceName = args.Filepath;
+							ParsingProgress.DataLength = args.FileSize;
 							ParsingProgress.DataOffset = args.FileOffset;
 						}
 					}, e);
@@ -247,6 +250,7 @@ namespace LDraw
 			{
 				if (field == value) return;
 				field = value;
+				NotifyPropertyChanged(nameof(ParsingProgress));
 				ParsingProgressChanged?.Invoke(this, EventArgs.Empty);
 			}
 		}
@@ -292,7 +296,7 @@ namespace LDraw
 		}
 		private DispatcherTimer m_file_watch_timer = null!;
 
-		/// <summary>Add a file ldraw source</summary>
+		/// <summary>Add a file ldraw source (synchronous, blocks the calling thread)</summary>
 		public Source AddFileSource(string filepath, IEnumerable<SceneUI> scenes)
 		{
 			NotifyFileOpening(filepath);
@@ -300,6 +304,56 @@ namespace LDraw
 			var src = Sources.First(x => x.ContextId == ctx_id);
 			src.ShowInScenes(scenes, true);
 			return src;
+		}
+
+		/// <summary>Add a file ldraw source asynchronously (non-blocking)</summary>
+		public void AddFileSourceAsync(string filepath, IEnumerable<SceneUI> scenes)
+		{
+			NotifyFileOpening(filepath);
+
+			// Capture the scenes list before entering the background thread
+			var target_scenes = scenes.ToArray();
+
+			// Pre-compute the context id so cancellation works while parsing is in progress
+			var ctx_id = View3d.ContextIdFromFilepath(filepath);
+			LoadingContextId = ctx_id;
+
+			Task.Run(() =>
+			{
+				// This blocks the worker thread during parsing, but not the GUI thread.
+				// Progress events are fired from this thread and marshaled to the UI thread.
+				View3d.LoadScriptFromFile(filepath, context_id: ctx_id, add_completed: (id, before) =>
+				{
+					if (before) return;
+
+					// 'add_completed' fires on the main thread after SourceNotifyHandler has
+					// merged results, so 'Sources' should now contain the new source.
+					LoadingContextId = Guid.Empty;
+					var src = Sources.FirstOrDefault(x => x.ContextId == id);
+					src?.ShowInScenes(target_scenes, true);
+				});
+			});
+		}
+
+		/// <summary>The context id of the currently loading source (for cancellation)</summary>
+		public Guid LoadingContextId
+		{
+			get;
+			private set
+			{
+				if (field == value) return;
+				field = value;
+				NotifyPropertyChanged(nameof(LoadingContextId));
+			}
+		}
+
+		/// <summary>Cancel the current loading operation</summary>
+		public void CancelCurrentLoad()
+		{
+			if (LoadingContextId != Guid.Empty)
+			{
+				View3d.CancelLoad(LoadingContextId);
+			}
 		}
 
 		/// <summary>Add a string ldraw source</summary>

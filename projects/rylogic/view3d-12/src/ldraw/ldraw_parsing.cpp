@@ -172,8 +172,9 @@ namespace pr::rdr12::ldraw
 		time_point      m_last_progress_update;
 		EFlags          m_flags;
 		bool&           m_cancel;
+		std::stop_token m_stop_token;
 
-		ParseParams(Renderer& rdr, ParseResult& result, Guid const& context_id, ReportErrorCB error_cb, ParseProgressCB progress_cb, bool& cancel)
+		ParseParams(Renderer& rdr, ParseResult& result, Guid const& context_id, ReportErrorCB error_cb, ParseProgressCB progress_cb, bool& cancel, std::stop_token stop_token = {})
 			: m_rdr(rdr)
 			, m_result(result)
 			, m_objects(result.m_objects)
@@ -190,6 +191,7 @@ namespace pr::rdr12::ldraw
 			, m_last_progress_update(system_clock::now())
 			, m_flags(EFlags::None)
 			, m_cancel(cancel)
+			, m_stop_token(std::move(stop_token))
 		{}
 		ParseParams(ParseParams& pp, ObjectCont& objects, LdrObject* parent, IObjectCreator* parent_creator)
 			: m_rdr(pp.m_rdr)
@@ -208,6 +210,7 @@ namespace pr::rdr12::ldraw
 			, m_last_progress_update(pp.m_last_progress_update)
 			, m_flags(pp.m_flags)
 			, m_cancel(pp.m_cancel)
+			, m_stop_token(pp.m_stop_token)
 		{}
 		ParseParams(ParseParams&&) = delete;
 		ParseParams(ParseParams const&) = delete;
@@ -225,9 +228,20 @@ namespace pr::rdr12::ldraw
 		}
 
 		// Give a progress update
-		void ReportProgress()
+		void ReportProgress(IReader& reader, int r = 0)
 		{
 			using namespace std::chrono;
+
+			// Reduce report progress frequency based on external loop counter
+			if ((r % 0xfff) != 0)
+				return;
+
+			// Check for stop_token cancellation
+			if (m_stop_token.stop_requested())
+			{
+				m_cancel = true;
+				return;
+			}
 
 			// Callback provided?
 			if (m_progress_cb == nullptr)
@@ -239,7 +253,7 @@ namespace pr::rdr12::ldraw
 
 			// Call the callback with the freshly minted object.
 			// If the callback returns false, abort parsing.
-			m_cancel = !m_progress_cb(m_context_id, m_result, Location(), false);
+			m_cancel = !m_progress_cb(m_context_id, m_result, reader.Loc(), false);
 			m_last_progress_update = system_clock::now();
 		}
 	};
@@ -1787,8 +1801,9 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_verts.push_back(reader.Vector3f().w1());
 						if (m_per_item_colour)
 							m_colours.push_back(reader.Int<uint32_t>(16));
@@ -1955,8 +1970,9 @@ namespace pr::rdr12::ldraw
 				// Read pairs of points, each pair is a line segment
 				case ELineStyle::LineSegments:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_verts.push_back(reader.Vector3f().w1());
 						m_verts.push_back(reader.Vector3f().w1());
 						segment.m_vcount += 2;
@@ -1980,9 +1996,9 @@ namespace pr::rdr12::ldraw
 				// Read single points, each point is a continuation of a line strip. Use separate *Data sections to create strip cuts.
 				case ELineStyle::LineStrip:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
-						m_verts.push_back(reader.Vector3f().w1());
+						m_pp.ReportProgress(reader, r);
 						segment.m_vcount += 1;
 						if (m_per_item_colour)
 						{
@@ -2002,8 +2018,9 @@ namespace pr::rdr12::ldraw
 				// Read pairs of points, each pair is a (pt, pt + dir) line segment
 				case ELineStyle::Direction:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto p = reader.Vector3f().w1();
 						auto d = reader.Vector3f().w0();
 						m_verts.push_back(p);
@@ -2030,8 +2047,9 @@ namespace pr::rdr12::ldraw
 				// Read control points in sets of 4
 				case ELineStyle::BezierSpline:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto p0 = reader.Vector3f().w1();
 						auto p1 = reader.Vector3f().w1();
 						auto p2 = reader.Vector3f().w1();
@@ -2642,8 +2660,9 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Data:
 				{
 					// Read data till the end of the section
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto value = reader.Real<double>();
 						m_data.push_back(value);
 					}
@@ -3324,8 +3343,10 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
+
 						v4 pt[3] = {};
 						Colour32 col[3] = {};
 						for (int i = 0; i != 3; ++i)
@@ -3399,8 +3420,10 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
+
 						v4 pt[4] = {};
 						Colour32 col[4] = {};
 						for (int i = 0; i != 4; ++i)
@@ -3529,8 +3552,9 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd();)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_verts.push_back(reader.Vector3f().w1());
 						if (m_per_item_colour)
 							m_colours.push_back(reader.Int<uint32_t>(16));
@@ -3642,8 +3666,9 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd(); )
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto dim = reader.Vector3f().w0();
 						auto xyz = reader.Vector3f().w1();
 						m_boxes.push_back(BBox(xyz, Abs(dim) * 0.5f));
@@ -4182,37 +4207,37 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Verts:
 				{
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_verts.push_back(reader.Vector3f().w1());
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 					return true;
 				}
 				case EKeyword::Normals:
 				{
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_normals.push_back(reader.Vector3f().w0());
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 					return true;
 				}
 				case EKeyword::Colours:
 				{
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_colours.push_back(pr::Colour(reader.Int<uint32_t>(16)));
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 					return true;
 				}
 				case EKeyword::TexCoords:
 				{
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_texs.push_back(reader.Vector2f());
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 					return true;
 				}
@@ -4228,14 +4253,13 @@ namespace pr::rdr12::ldraw
 						.tex_diffuse(m_tex.m_texture)
 						.sam_diffuse(m_tex.m_sampler);
 
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto idx = reader.Int<uint16_t>(10);
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
-
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 
 					m_nuggets.push_back(nug);
@@ -4255,14 +4279,13 @@ namespace pr::rdr12::ldraw
 						.tex_diffuse(m_tex.m_texture)
 						.sam_diffuse(m_tex.m_sampler);
 
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						auto idx = reader.Int<uint16_t>(10);
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
-
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 
 					m_nuggets.push_back(nug);
@@ -4279,8 +4302,10 @@ namespace pr::rdr12::ldraw
 						.tex_diffuse(m_tex.m_texture)
 						.sam_diffuse(m_tex.m_sampler);
 
-					for (int r = 1;!reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
+
 						uint16_t const idx[] = {
 							reader.Int<uint16_t>(10),
 							reader.Int<uint16_t>(10),
@@ -4305,8 +4330,6 @@ namespace pr::rdr12::ldraw
 						nug.m_vrange.grow(idx[2]);
 						nug.m_vrange.grow(idx[3]);
 						nug.m_irange.m_end += 12;
-
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 
 					m_nuggets.push_back(nug);
@@ -4401,10 +4424,10 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Verts:
 				{
-					for (int r = 1; !reader.IsSectionEnd(); ++r)
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
+						m_pp.ReportProgress(reader, r);
 						m_verts.push_back(reader.Vector3f().w1());
-						if (r % 500 == 0) m_pp.ReportProgress();
 					}
 					return true;
 				}
@@ -5980,7 +6003,7 @@ namespace pr::rdr12::ldraw
 		pp.m_cache.Reset();
 
 		// Report progress
-		pp.ReportProgress();
+		pp.ReportProgress(reader);
 
 		return true;
 	}
@@ -5990,7 +6013,7 @@ namespace pr::rdr12::ldraw
 	void ParseLdrObjects(IReader& reader, ParseParams& pp, AddCB add_cb)
 	{
 		// Loop over keywords in the script
-		for (EKeyword kw; !pp.m_cancel && reader.NextKeyword(kw);)
+		for (EKeyword kw; !pp.m_cancel && !pp.m_stop_token.stop_requested() && reader.NextKeyword(kw);)
 		{
 			switch (kw)
 			{
@@ -6040,7 +6063,7 @@ namespace pr::rdr12::ldraw
 	// This function can be called from any thread (main or worker) and may be called concurrently by multiple threads.
 	// There is synchronisation in the renderer for creating/allocating models. The calling thread must control the
 	// lifetimes of the script reader, the parse output, and the 'store' container it refers to.
-	ParseResult Parse(Renderer& rdr, IReader& reader, Guid const& context_id)
+	ParseResult Parse(Renderer& rdr, IReader& reader, Guid const& context_id, std::stop_token stop_token)
 	{
 		ParseResult out;
 
@@ -6051,35 +6074,35 @@ namespace pr::rdr12::ldraw
 
 		// Parse the script
 		bool cancel = false;
-		ParseParams pp(rdr, out, context_id, reader.ReportError, reader.Progress, cancel);
+		ParseParams pp(rdr, out, context_id, reader.ReportError, reader.Progress, cancel, std::move(stop_token));
 		ParseLdrObjects(reader, pp, [&](int){});
 		return out;
 	}
-	ParseResult Parse(Renderer& rdr, std::string_view ldr_script, Guid const& context_id)
+	ParseResult Parse(Renderer& rdr, std::string_view ldr_script, Guid const& context_id, std::stop_token stop_token)
 	{
 		mem_istream<char> src{ ldr_script };
 		rdr12::ldraw::TextReader reader(src, {});
-		return Parse(rdr, reader, context_id);
+		return Parse(rdr, reader, context_id, std::move(stop_token));
 	}
-	ParseResult Parse(Renderer& rdr, std::wstring_view ldr_script, Guid const& context_id)
+	ParseResult Parse(Renderer& rdr, std::wstring_view ldr_script, Guid const& context_id, std::stop_token stop_token)
 	{
 		mem_istream<wchar_t> src{ ldr_script };
 		rdr12::ldraw::TextReader reader(src, {});
-		return Parse(rdr, reader, context_id);
+		return Parse(rdr, reader, context_id, std::move(stop_token));
 	}
-	ParseResult ParseFile(Renderer& rdr, std::filesystem::path ldr_filepath, Guid const& context_id)
+	ParseResult ParseFile(Renderer& rdr, std::filesystem::path ldr_filepath, Guid const& context_id, std::stop_token stop_token)
 	{
 		if (ldr_filepath.extension() == ".ldr")
 		{
 			std::ifstream src{ ldr_filepath };
 			rdr12::ldraw::TextReader reader(src, ldr_filepath);
-			return Parse(rdr, reader, context_id);
+			return Parse(rdr, reader, context_id, std::move(stop_token));
 		}
 		if (ldr_filepath.extension() == ".bdr")
 		{
 			std::ifstream src{ ldr_filepath, std::ios::binary };
 			rdr12::ldraw::BinaryReader reader(src, ldr_filepath);
-			return Parse(rdr, reader, context_id);
+			return Parse(rdr, reader, context_id, std::move(stop_token));
 		}
 		return {};
 	}

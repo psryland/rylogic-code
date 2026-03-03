@@ -18,6 +18,6 @@ namespace pr::rdr12::ldraw
 	protected:
 
 		// Regenerate the output from the source
-		ParseResult ReadSource(Renderer& rdr) override;
+		ParseResult ReadSource(Renderer& rdr, std::stop_token stop_token) override;
 	};
 }

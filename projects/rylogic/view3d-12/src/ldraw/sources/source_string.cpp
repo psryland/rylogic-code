@@ -25,7 +25,7 @@ namespace pr::rdr12::ldraw
 
 	// Regenerate the output from the source
 	template <typename Char>
-	ParseResult SourceString<Char>::ReadSource(Renderer& rdr)
+	ParseResult SourceString<Char>::ReadSource(Renderer& rdr, std::stop_token stop_token)
 	{
 		m_errors.resize(0);
 		m_filepaths.resize(0);
@@ -33,7 +33,7 @@ namespace pr::rdr12::ldraw
 
 		mem_istream<Char> src{ m_script, 0 };
 		TextReader reader(src, {}, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
-		return Parse(rdr, reader, m_context_id);
+		return Parse(rdr, reader, m_context_id, std::move(stop_token));
 	}
 
 	template struct SourceString<char>;

@@ -41,6 +41,7 @@ namespace pr::rdr12::ldraw
 	struct Location
 	{
 		std::filesystem::path m_filepath;
+		int64_t m_filesize = {};
 		int64_t m_offset = {};
 		int m_column = {};
 		int m_line = {};
@@ -318,19 +319,23 @@ namespace pr::rdr12::ldraw
 	ParseResult Parse(
 		Renderer& rdr,                      // The renderer to create models for
 		IReader& reader,                    // The source of the script
-		Guid const& context_id = GuidZero); // The context id to assign to each created object
+		Guid const& context_id = GuidZero,  // The context id to assign to each created object
+		std::stop_token stop_token = {});   // Token to signal cancellation
 	ParseResult Parse(
 		Renderer& rdr,                      // The renderer to create models for
 		std::string_view ldr_script,        // The source of the script
-		Guid const& context_id = GuidZero); // The context id to assign to each created object
+		Guid const& context_id = GuidZero,  // The context id to assign to each created object
+		std::stop_token stop_token = {});       // Token to signal cancellation
 	ParseResult Parse(
 		Renderer& rdr,                      // The renderer to create models for
 		std::wstring_view ldr_script,       // The source of the script
-		Guid const& context_id = GuidZero); // The context id to assign to each created object
+		Guid const& context_id = GuidZero,  // The context id to assign to each created object
+		std::stop_token stop_token = {});   // Token to signal cancellation
 	ParseResult ParseFile(
 		Renderer& rdr,                      // The renderer to create models for
 		std::filesystem::path ldr_filepath, // The source of the script
-		Guid const& context_id = GuidZero); // The context id to assign to each created object
+		Guid const& context_id = GuidZero,  // The context id to assign to each created object
+		std::stop_token stop_token = {});   // Token to signal cancellation
 
 	// Create an ldr object from creation data.
 	LdrObjectPtr Create(

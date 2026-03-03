@@ -365,7 +365,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\threads\name_thread.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\threads\pause_thread.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\threads\process.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\synchronise.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\threads\wait_state.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\win32\dummy_window.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\win32\key_codes.h" />

@@ -7,23 +7,23 @@
 
 namespace pr
 {
-	template <typename TObject>
+	template <typename TObject, typename TMutex = std::mutex>
 	class AsyncWrap
 	{
 		TObject m_obj;
-		mutable std::mutex m_mutex;
+		mutable TMutex m_mutex;
 
 	public:
 
 		template <typename TObj>
 		class Lock
 		{
-			std::lock_guard<std::mutex> m_guard;
+			std::lock_guard<TMutex> m_guard;
 			TObj& m_obj;
 
 		public:
 
-			Lock(std::mutex& mutex, TObj& obj)
+			Lock(TMutex& mutex, TObj& obj)
 				: m_guard(mutex)
 				, m_obj(obj)
 			{}
@@ -73,18 +73,17 @@ namespace pr::common
 		using async_vector_t = AsyncWrap<std::vector<int>>;
 
 		async_vector_t avec;
-		if (auto lock = avec.lock())
+		if (auto vec = avec.lock())
 		{
-			auto& vec = lock.get();
-			vec.push_back(1);
-			vec.push_back(2);
-			vec.push_back(3);
+			vec->push_back(1);
+			vec->push_back(2);
+			vec->push_back(3);
 		}
 
-		if (auto lock = avec.lock())
+		if (auto vec = avec.lock())
 		{
-			PR_EXPECT(lock.get().size() == 3);
-			PR_EXPECT(lock->size() == 3);
+			PR_EXPECT(vec.get().size() == 3);
+			PR_EXPECT(vec->size() == 3);
 		}
 	}
 }

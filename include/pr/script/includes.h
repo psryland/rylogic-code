@@ -295,7 +295,7 @@ namespace pr::script
 			if (AllSet(m_types, EIncludeTypes::Files) && ResolveFileInclude(include, AllSet(flags, EIncludeFlags::IncludeLocalDir), loc, fullpath, searched_paths))
 			{
 				FileOpened(*this, fullpath);
-				return std::make_unique<FileSrc>(fullpath);
+				return std::unique_ptr<FileSrc>(new FileSrc(fullpath));
 			}
 
 			// Try resources
@@ -306,7 +306,7 @@ namespace pr::script
 				// The resource remains in scope until the DLL is unloaded, so we don't need to
 				// copy the resource data to the buffer of the StringSrc.
 				auto res = resource::Read<char>(id, L"TEXT", module);
-				return std::make_unique<StringSrc>(std::string_view(res.m_data, res.m_len));
+				return std::unique_ptr<StringSrc>(new StringSrc(std::string_view(res.m_data, res.m_len)));
 			}
 
 			// Try the string table
@@ -316,12 +316,12 @@ namespace pr::script
 			{
 				// The string table string remains in scope for the lifetime of this includes instance.
 				auto const& str = (*strtab)[tag];
-				return std::make_unique<StringSrc>(str);
+				return std::unique_ptr<StringSrc>(new StringSrc(std::string_view(str)));
 			}
 
 			// If ignoring missing includes, return an empty source
 			if (AllSet(flags, EIncludeFlags::IgnoreMissing))
-				return std::make_unique<NullSrc>();
+				return std::unique_ptr<NullSrc>(new NullSrc{});
 
 			// Raise an include missing error
 			auto msg = Fmt(L"Failed to open include '%s'", include.c_str());
@@ -339,7 +339,7 @@ namespace pr::script
 			if (AllSet(m_types, EIncludeTypes::Files) && ResolveFileInclude(include, AllSet(flags, EIncludeFlags::IncludeLocalDir), loc, fullpath, searched_paths))
 			{
 				FileOpened(*this, fullpath);
-				return std::make_unique<std::ifstream>(fullpath, AllSet(flags, EIncludeFlags::Binary) ? std::istream::binary : 0);
+				return std::unique_ptr<std::ifstream>(new std::ifstream(fullpath, AllSet(flags, EIncludeFlags::Binary) ? std::istream::binary : 0));
 			}
 
 			// Try resources
@@ -357,12 +357,12 @@ namespace pr::script
 			if (AllSet(m_types, EIncludeTypes::Strings) && ResolveStringInclude(tag, strtab))
 			{
 				auto const& str = (*strtab)[tag];
-				return std::make_unique<std::istringstream>(str);
+				return std::unique_ptr<std::istringstream>(new std::istringstream(str));
 			}
 
 			// If ignoring missing includes, return an empty source
 			if (AllSet(flags, EIncludeFlags::IgnoreMissing))
-				return std::make_unique<std::istringstream>("");
+				return std::unique_ptr<std::istringstream>(new std::istringstream(""));
 
 			// Raise an include missing error
 			auto msg = Fmt(L"Failed to open include stream '%s'", include.c_str());

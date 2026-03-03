@@ -1057,9 +1057,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\threads\spin_lock.h">
       <Filter>pr\threads</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\synchronise.h">
-      <Filter>pr\threads</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\threads\thread_pool.h">
       <Filter>pr\threads</Filter>
     </ClInclude>

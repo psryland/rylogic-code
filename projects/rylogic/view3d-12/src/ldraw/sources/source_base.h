@@ -82,7 +82,7 @@ namespace pr::rdr12::ldraw
 		EventHandler<SourceBase&, ParsingProgressEventArgs&, true> ParsingProgress;
 
 		// Parse the contents of the script from this source.
-		ParseResult Load(Renderer& rdr);
+		ParseResult Load(Renderer& rdr, std::stop_token stop_token = {});
 
 		// An event raised when something happens with this source (e.g, has new data, disconnected, etc)
 		// This is called from outside the class because the 'Load' method cannot both return and move the result
@@ -96,7 +96,7 @@ namespace pr::rdr12::ldraw
 		static bool __stdcall OnProgress(void* ctx, Guid const& context_id, ParseResult const& out, Location const& loc, bool complete);
 
 		// Regenerate the output from the source
-		virtual ParseResult ReadSource(Renderer& rdr);
+		virtual ParseResult ReadSource(Renderer& rdr, std::stop_token stop_token);
 	};
 
 	// Create a stable Guid from a filepath

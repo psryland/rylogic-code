@@ -443,7 +443,7 @@ namespace pr::script
 							if (!result.empty())
 							{
 								// Push the result into the buffer of the 'StringSrc' since 'result' will go out of scope.
-								auto code_src = std::make_unique<StringSrc>(result, StringSrc::EFlags::BufferLocally);
+								auto code_src = std::unique_ptr<StringSrc>(new StringSrc(result, StringSrc::EFlags::BufferLocally));
 								Push(code_src.get(), true, false);
 								code_src.release();
 							}
@@ -721,7 +721,7 @@ namespace pr::script
 
 							// Push the expanded macro as a source. Copy 'exp' into the buffer of
 							// the StringSrc since 'exp' is about to go out of scope.
-							auto macro_src = std::make_unique<StringSrc>(exp, StringSrc::EFlags::BufferLocally);
+							auto macro_src = std::unique_ptr<StringSrc>(new StringSrc(exp, StringSrc::EFlags::BufferLocally));
 							Push(macro_src.get(), true, true);
 							macro_src.release();
 							is_output = false;

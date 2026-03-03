@@ -116,6 +116,12 @@ namespace pr::rdr12
 		return m_sources.AddBinary(data, context_id, add_complete);
 	}
 
+	// Cancel an in-progress load operation
+	void Context::CancelLoad(Guid const& context_id)
+	{
+		m_sources.CancelLoad(context_id);
+	}
+
 	// Enable/Disable streaming script sources.
 	ldraw::EStreamingState Context::StreamingState() const
 	{
@@ -608,9 +614,10 @@ namespace pr::rdr12
 		auto context_id = args.m_context_id;
 		auto filepath = args.m_loc.m_filepath.generic_string();
 		auto file_offset = s_cast<int64_t>(args.m_loc.m_offset);
+		auto file_size = s_cast<int64_t>(args.m_loc.m_filesize);
 		BOOL complete = args.m_complete;
 		BOOL cancel = false;
-		ParsingProgress(context_id, filepath.c_str(), file_offset, complete, cancel);
+		ParsingProgress(context_id, filepath.c_str(), file_offset, file_size, complete, cancel);
 		args.m_cancel = cancel != 0;
 	}
 

@@ -15,6 +15,9 @@ namespace pr::script
 		// The path to the stream source
 		std::filesystem::path m_filepath;
 
+		// The script source file size in characters, or 0 if unknown
+		std::streamsize m_filesize;
+
 		// The character offset into the stream (0-based)
 		std::streamoff m_pos;
 
@@ -42,13 +45,17 @@ namespace pr::script
 			: Loc(std::filesystem::path())
 		{}
 		explicit Loc(std::filesystem::path const& filepath)
-			: Loc(filepath, 0, 0, 1, 1, true)
+			: Loc(filepath, std::filesystem::exists(filepath) ? std::filesystem::file_size(filepath) : 0, 0, 0, 1, 1, true)
+		{}
+		explicit Loc(std::streamsize filesize)
+			: Loc({}, filesize, 0, 0, 1, 1, true)
 		{}
 		Loc(std::filesystem::path const& filepath, std::streamoff pos)
-			: Loc(filepath, pos, 0, 1, 1, true)
+			: Loc(filepath, std::filesystem::exists(filepath) ? std::filesystem::file_size(filepath) : 0, pos, 0, 1, 1, true)
 		{}
-		Loc(std::filesystem::path const& filepath, std::streamoff pos, std::streamoff line_pos, int line, int col, bool lc_valid, int tab_size = DefTabSize)
+		Loc(std::filesystem::path const& filepath, std::streamsize size, std::streamoff pos, std::streamoff line_pos, int line, int col, bool lc_valid, int tab_size = DefTabSize)
 			: m_filepath(filepath)
+			, m_filesize(size)
 			, m_pos(pos)
 			, m_line_pos(line_pos)
 			, m_line(std::max(line, 1))
@@ -98,6 +105,12 @@ namespace pr::script
 		void Filepath(std::filesystem::path const& filepath) noexcept
 		{
 			m_filepath = filepath;
+		}
+
+		// Get the file size in bytes, or 0 if unknown
+		std::streamsize FileSize() const noexcept
+		{
+			return m_filesize;
 		}
 
 		// Get/set the stream position

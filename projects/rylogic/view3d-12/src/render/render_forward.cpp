@@ -80,8 +80,9 @@ namespace pr::rdr12
 	// Add model nuggets to the draw list for this render step.
 	void RenderForward::AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist)
 	{
-		// Add a draw list element for each nugget in the instance's model
 		drawlist.reserve(drawlist.size() + nuggets.size());
+
+		// Add a draw list element for each nugget in the instance's model
 		for (auto& nug : nuggets)
 		{
 			// Ignore if flagged as not visible
@@ -188,8 +189,8 @@ namespace pr::rdr12
 		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
 
 		// Draw each element in the draw list
-		Lock lock(*this);
-		for (auto& dle : lock.drawlist())
+		auto drawlist = m_drawlist.lock();
+		for (auto& dle : *drawlist)
 		{
 			// Something not rendering?
 			//  - Check the tint for the nugget isn't 0x00000000.

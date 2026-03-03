@@ -211,6 +211,17 @@ VIEW3D_API GUID __stdcall View3D_LoadScriptFromFile(char const* ldr_file, GUID c
 	CatchAndReport(View3D_LoadScriptFromFile, (view3d::Window)nullptr, GuidZero);
 }
 
+// Cancel an in-progress load operation
+VIEW3D_API void __stdcall View3D_CancelLoad(GUID const* context_id)
+{
+	try
+	{
+		// Concurrent entry is allowed
+		Dll().CancelLoad(*context_id);
+	}
+	CatchAndReport(View3D_CancelLoad, , );
+}
+
 // Enumerate all sources in the store
 VIEW3D_API void __stdcall View3D_EnumSources(view3d::EnumGuidsCB enum_guids_cb)
 {

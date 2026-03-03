@@ -96,21 +96,23 @@ namespace pr::rdr12::ldraw
 		//    associated files.
 
 		using GuidCont = pr::vector<Guid>;
-		using GuidSet = std::unordered_set<Guid, std::hash<Guid>>;
+		using GuidSet = pr::AsyncWrap<std::unordered_map<Guid, std::stop_source, std::hash<Guid>>>;
 		using filepath_t = std::filesystem::path;
-
+		using shutdown_latch_t = std::optional<std::latch>;
+		
 	private:
 
-		SourceCont      m_srcs;           // The sources of ldr script
-		GizmoCont       m_gizmos;         // The created ldr gizmos
-		Renderer*       m_rdr;            // Renderer used to create models
-		ISourceEvents*  m_events;         // Event handler
-		Winsock         m_winsock;        // The 'winsock' instance we're bound to
-		GuidSet         m_loading;        // Context ids in the process of being loaded
-		FileWatch       m_watcher;        // The watcher of files
-		std::jthread    m_listen_thread;  // Thread that listens for incoming connections
-		std::thread::id m_main_thread_id; // The main thread id
-		uint16_t        m_listen_port;    // The port we're listening on
+		SourceCont        m_srcs;           // The sources of ldr script
+		GizmoCont         m_gizmos;         // The created ldr gizmos
+		Renderer*         m_rdr;            // Renderer used to create models
+		ISourceEvents*    m_events;         // Event handler
+		Winsock           m_winsock;        // The 'winsock' instance we're bound to
+		GuidSet           m_loading;        // Context ids in the process of being loaded
+		FileWatch         m_watcher;        // The watcher of files
+		std::jthread      m_listen_thread;  // Thread that listens for incoming connections
+		std::thread::id   m_main_thread_id; // The main thread id
+		uint16_t          m_listen_port;    // The port we're listening on
+		shutdown_latch_t  m_shutdown_latch; // Set during destruction, counted down by finishing workers
 
 	public:
 
@@ -163,6 +165,9 @@ namespace pr::rdr12::ldraw
 		// This function can be called from any thread and may be called concurrently by multiple threads.
 		// Returns the GUID of the context that the objects were added to.
 		Guid AddBinary(std::span<std::byte const> data, Guid const* context_id, AddCompleteCB add_complete);
+
+		// Cancel an in-progress load operation. Thread-safe.
+		void CancelLoad(Guid const& context_id);
 
 		// The state of the streaming connection
 		EStreamingState StreamingState() const;

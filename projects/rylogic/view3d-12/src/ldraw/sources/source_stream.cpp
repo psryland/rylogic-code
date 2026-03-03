@@ -181,7 +181,7 @@ namespace pr::rdr12::ldraw
 		// Find the range of complete sections that can be consumed
 		for (; bytes_read - consume > 0;)
 		{
-			script::StringSrc src({ &buffer.at_byte_ofs<char const>(consume), s_cast<size_t>(bytes_read - consume) });
+			script::StringSrc src(std::string_view{ &buffer.at_byte_ofs<char const>(consume), s_cast<size_t>(bytes_read - consume) });
 			auto remaining0 = src.size_in_bytes();
 
 			str::AdvanceToNonDelim(src);

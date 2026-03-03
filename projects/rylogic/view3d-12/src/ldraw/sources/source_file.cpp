@@ -28,7 +28,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Regenerate the output from the source
-	ParseResult SourceFile::ReadSource(Renderer& rdr)
+	ParseResult SourceFile::ReadSource(Renderer& rdr, std::stop_token stop_token)
 	{
 		m_errors.resize(0);
 		m_filepaths.resize(0);
@@ -60,14 +60,14 @@ namespace pr::rdr12::ldraw
 					{
 						std::wifstream src(m_filepath);
 						TextReader reader(src, m_filepath, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
-						return Parse(rdr, reader, m_context_id);
+						return Parse(rdr, reader, m_context_id, stop_token);
 					}
 					case EEncoding::ascii:
 					case EEncoding::utf8:
 					{
 						std::ifstream src(m_filepath);
 						TextReader reader(src, m_filepath, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
-						return Parse(rdr, reader, m_context_id);
+						return Parse(rdr, reader, m_context_id, stop_token);
 					}
 					default:
 					{
@@ -85,7 +85,7 @@ namespace pr::rdr12::ldraw
 				// Parse the ldr script file
 				std::ifstream src(m_filepath, std::ios::binary);
 				ldraw::BinaryReader reader(src, m_filepath, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id);
+				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
 			// P3D = My custom binary model file format
@@ -101,7 +101,7 @@ namespace pr::rdr12::ldraw
 
 				mem_istream<char> src{ ldr_script, 0 };
 				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id);
+				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
 			// CSV data, create a chart to graph the data
@@ -112,7 +112,7 @@ namespace pr::rdr12::ldraw
 
 				mem_istream<char> src{ ldr_script, 0 };
 				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id);
+				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
 			// Unknown file type

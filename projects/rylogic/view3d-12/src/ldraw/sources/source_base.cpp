@@ -18,7 +18,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Parse the contents of the script
-	ParseResult SourceBase::Load(Renderer& rdr) // worker thread context
+	ParseResult SourceBase::Load(Renderer& rdr, std::stop_token stop_token) // worker thread context
 	{
 		// This function may be called synchronously or in a worker thread (it's the caller's choice).
 		// This function simply returns a new ParseResults instance, it's up to the caller to manage
@@ -26,7 +26,7 @@ namespace pr::rdr12::ldraw
 		try
 		{
 			// Parse the script
-			return ReadSource(rdr);
+			return ReadSource(rdr, std::move(stop_token));
 		}
 		catch (std::exception const& ex)
 		{
@@ -37,7 +37,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Regenerate the output from the source
-	ParseResult SourceBase::ReadSource(Renderer&)
+	ParseResult SourceBase::ReadSource(Renderer&, std::stop_token)
 	{
 		return std::move(m_output);
 	}

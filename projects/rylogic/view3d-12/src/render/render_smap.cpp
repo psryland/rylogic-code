@@ -277,8 +277,8 @@ namespace pr::rdr12
 			m_shader.SetupFrame(m_cmd_list.get(), m_upload_buffer, caster);
 
 			// Draw each element in the draw list
-			Lock lock(*this);
-			for (auto& dle : lock.drawlist())
+			auto drawlist = m_drawlist.lock();
+			for (auto& dle : *drawlist)
 			{
 				auto const& nugget = *dle.m_nugget;
 				auto const& instance = *dle.m_instance;

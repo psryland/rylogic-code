@@ -18,34 +18,18 @@ namespace pr::rdr12
 		//  - Each render step can have its own command lists as some may require more than one
 
 		// Draw list element container
-		using drawlist_t = pr::vector<DrawListElement, 1024, false, alignof(DrawListElement), Allocator<DrawListElement>>;
-		using dl_mutex_t = std::recursive_mutex;
-
-		// A lock context for the draw list
-		struct Lock :threads::Synchronise<RenderStep, std::recursive_mutex>
-		{
-			Lock(RenderStep const& rs)
-				:base(rs, rs.m_mutex)
-			{}
-			drawlist_t const& drawlist() const
-			{
-				return get().m_drawlist;
-			}
-			drawlist_t& drawlist()
-			{
-				return get().m_drawlist;
-			}
-		};
+		using drawlist_t       = vector<DrawListElement, 1024, false, alignof(DrawListElement), Allocator<DrawListElement>>;
+		using drawlist_async_t = pr::AsyncWrap<drawlist_t>;
+		using dl_mutex_t       = std::recursive_mutex;
 
 		ERenderStep const  m_step_id;            // Derived type Id
 		Scene*             m_scene;              // The scene this render step is owned by
-		drawlist_t         m_drawlist;           // The draw list for this render step. Access via 'Lock'
+		drawlist_async_t   m_drawlist;           // The draw list for this render step. Access via 'Lock'
 		bool               m_sort_needed;        // True when the list needs sorting
 		GpuUploadBuffer    m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
 		PipeStateDesc      m_default_pipe_state; // Default settings for the pipeline state
 		PipeStatePool      m_pipe_state_pool;    // Pool of pipeline state objects
 		AutoSub            m_evt_model_delete;   // Event subscription for model deleted notification
-		dl_mutex_t mutable m_mutex;              // Sync access to the draw list
 
 		RenderStep(ERenderStep id, Scene& scene);
 		RenderStep(RenderStep&&) = default;

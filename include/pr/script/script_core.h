@@ -489,8 +489,9 @@ namespace pr::script
 
 	protected:
 
-		char const* m_ptr;
+		char const* m_beg;
 		char const* m_end;
+		char const* m_ptr;
 
 		// Return the next byte or decoded character from the underlying stream.
 		int Read() noexcept override
@@ -527,41 +528,44 @@ namespace pr::script
 		StringSrc()
 			:StringSrc(EEncoding::utf16_le)
 		{}
-		explicit StringSrc(EEncoding enc, Loc const& loc = Loc())
-			:Src(enc, loc)
-			,m_ptr(nullptr)
+		explicit StringSrc(EEncoding enc)
+			:Src(enc, {})
+			,m_beg(nullptr)
 			,m_end(nullptr)
+			,m_ptr(nullptr)
 		{}
-		explicit StringSrc(std::string_view str, Loc const& loc = Loc())
-			:StringSrc(str, EFlags::None, EEncoding::utf8, loc)
+		explicit StringSrc(std::string_view str)
+			:StringSrc(str, EFlags::None, EEncoding::utf8)
 		{}
-		explicit StringSrc(std::wstring_view str, Loc const& loc = Loc())
-			:StringSrc(str, EFlags::None, EEncoding::utf16_le, loc)
+		explicit StringSrc(std::wstring_view str)
+			:StringSrc(str, EFlags::None, EEncoding::utf16_le)
 		{}
-		explicit StringSrc(std::string_view str, EEncoding enc, Loc const& loc = Loc())
-			:StringSrc(str, EFlags::None, enc, loc)
+		explicit StringSrc(std::string_view str, EEncoding enc)
+			:StringSrc(str, EFlags::None, enc)
 		{}
-		explicit StringSrc(std::wstring_view str, EEncoding enc, Loc const& loc = Loc())
-			:StringSrc(str, EFlags::None, enc, loc)
+		explicit StringSrc(std::wstring_view str, EEncoding enc)
+			:StringSrc(str, EFlags::None, enc)
 		{}
-		explicit StringSrc(std::string_view str, EFlags flags, Loc const& loc = Loc())
-			:StringSrc(str, flags, EEncoding::utf8, loc)
+		explicit StringSrc(std::string_view str, EFlags flags)
+			:StringSrc(str, flags, EEncoding::utf8)
 		{}
-		explicit StringSrc(std::wstring_view str, EFlags flags, Loc const& loc = Loc())
-			:StringSrc(str, flags, EEncoding::utf16_le, loc)
+		explicit StringSrc(std::wstring_view str, EFlags flags)
+			:StringSrc(str, flags, EEncoding::utf16_le)
 		{}
-		explicit StringSrc(std::string_view str, EFlags flags, EEncoding enc, Loc const& loc = Loc())
-			:Src(enc, loc)
-			,m_ptr(str.data())
+		explicit StringSrc(std::string_view str, EFlags flags, EEncoding enc)
+			:Src(enc, Loc{s_cast<std::streamsize>(str.size())})
+			,m_beg(str.data())
 			,m_end(str.data() + str.size())
+			,m_ptr(m_beg)
 		{
 			if (AllSet(flags, EFlags::BufferLocally))
 				BufferLocally(str);
 		}
-		explicit StringSrc(std::wstring_view str, EFlags flags, EEncoding enc, Loc const& loc = Loc())
-			:Src(enc, loc)
-			,m_ptr(char_ptr(str.data()))
+		explicit StringSrc(std::wstring_view str, EFlags flags, EEncoding enc)
+			:Src(enc, Loc{s_cast<std::streamsize>(str.size() * sizeof(wchar_t))})
+			,m_beg(char_ptr(str.data()))
 			,m_end(char_ptr(str.data() + str.size()))
+			,m_ptr(m_beg)
 		{
 			// Make a local copy of 'str' in the buffer
 			if (AllSet(flags, EFlags::BufferLocally))
@@ -569,8 +573,9 @@ namespace pr::script
 		}
 		explicit StringSrc(StringSrc const& rhs, Loc const* loc = nullptr)
 			:Src(rhs.m_enc, loc ? *loc : rhs.Location())
-			,m_ptr(rhs.m_ptr)
+			,m_beg(rhs.m_beg)
 			,m_end(rhs.m_end)
+			,m_ptr(rhs.m_ptr)
 		{}
 
 		// The remaining length in bytes
@@ -616,6 +621,9 @@ namespace pr::script
 		// The open file stream
 		std::ifstream m_file;
 
+		// The size of the potion of the file to read.
+		uintmax_t m_filesize;
+
 		// Return the next byte or decoded character from the underlying stream, or EOS for the end of the stream.
 		int Read() override
 		{
@@ -625,24 +633,35 @@ namespace pr::script
 
 	public:
 
-		FileSrc(std::filesystem::path const& filepath, EEncoding enc = EEncoding::auto_detect, Loc* loc = nullptr)
-			:FileSrc(filepath, 0, enc, loc)
+		FileSrc(std::filesystem::path const& filepath, EEncoding enc = EEncoding::auto_detect)
+			:FileSrc(filepath, 0, enc)
 		{}
-		FileSrc(std::filesystem::path const& filepath, std::streamsize ofs, EEncoding enc = EEncoding::auto_detect, Loc* loc = nullptr)
-			:FileSrc(filepath, ofs, -1, enc, loc)
+		FileSrc(std::filesystem::path const& filepath, std::streamsize ofs, EEncoding enc = EEncoding::auto_detect)
+			:FileSrc(filepath, ofs, -1, enc)
 		{}
-		FileSrc(std::filesystem::path const& filepath, std::streamsize ofs, int64_t limit, EEncoding enc = EEncoding::auto_detect, Loc* loc = nullptr)
-			:Src(enc, Loc())
+		FileSrc(std::filesystem::path const& filepath, std::streamsize ofs, int64_t limit, EEncoding enc = EEncoding::auto_detect)
+			:Src(enc, Loc{})
 			,m_file()
+			,m_filesize()
 		{
 			if (!filepath.empty())
-				Open(filepath, ofs, limit, enc, loc);
+				Open(filepath, ofs, limit, enc);
 		}
 
 		// Open a file as a stream source
-		void Open(std::filesystem::path const& filepath, std::streamsize ofs = 0, int64_t limit = -1, EEncoding enc = EEncoding::auto_detect, Loc* loc = nullptr)
+		void Open(std::filesystem::path const& filepath, std::streamsize ofs = 0, int64_t limit = -1, EEncoding enc = EEncoding::auto_detect)
 		{
 			Close();
+
+			// Check the file exists and the offset is valid
+			if (!std::filesystem::exists(filepath))
+				throw ScriptException(EResult::FileNotFound, Loc(filepath), std::wstring(L"File '").append(filepath).append(L"' does not exist"));
+			if (std::filesystem::is_directory(filepath))
+				throw ScriptException(EResult::FileNotFound, Loc(filepath), std::wstring(L"File '").append(filepath).append(L"' is a directory"));
+
+			// Clamp to the file size
+			m_filesize = std::filesystem::file_size(filepath);
+			ofs = std::min(ofs, s_cast<std::streamsize>(m_filesize));
 
 			// Determine file encoding, look for the BOM in the first 3 bytes
 			m_enc = enc;
@@ -659,7 +678,7 @@ namespace pr::script
 			m_file.seekg(bom_size + ofs);
 
 			// Update the location
-			m_loc = loc ? *loc : Loc(filepath, bom_size + ofs, bom_size + ofs, 1, 1, ofs == 0);
+			m_loc = Loc{ filepath, s_cast<std::streamsize>(m_filesize), bom_size + ofs, bom_size + ofs, 1, 1, ofs == 0 };
 
 			// If a limit is given, apply it
 			if (limit >= 0)

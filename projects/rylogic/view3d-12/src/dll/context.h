@@ -63,6 +63,9 @@ namespace pr::rdr12
 		// Load/Add ldraw objects from binary data. Returns the Guid of the context that the objects were added to.
 		Guid LoadScriptBinary(std::span<std::byte const> data, Guid const* context_id, ldraw::AddCompleteCB add_complete);
 
+		// Cancel an in-progress load operation. Thread-safe.
+		void CancelLoad(Guid const& context_id);
+
 		// Enable/Disable streaming script sources.
 		ldraw::EStreamingState StreamingState() const;
 		void Streaming(bool enabled, uint16_t port);

@@ -41,7 +41,7 @@ namespace LDraw
 			Exit = Command.Create(this, ExitInternal);
 
 			m_recent_files.Import(Model.Settings.RecentFiles);
-			m_recent_files.RecentFileSelected = fp => AddFileSource(fp);
+			m_recent_files.RecentFileSelected = fp => AddFileSourceAsync(fp);
 
 			InitDockContainer();
 			LoadProfile();
@@ -62,11 +62,40 @@ namespace LDraw
 		}
 		protected override void OnPreviewKeyDown(KeyEventArgs e)
 		{
-			if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && m_dc.ActivePane != null)
+			// Handle keyboard shortcuts that may be swallowed by child HWNDs (e.g. the 3D viewport)
+			if (Keyboard.Modifiers == ModifierKeys.Control)
 			{
-				var steps = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1;
-				m_dc.ActivePane.CycleVisibleContent(steps);
-				e.Handled = true;
+				switch (e.Key)
+				{
+				    case Key.N:
+					{
+					    NewScript.Execute(null);
+					    e.Handled = true;
+					    break;
+					}
+				    case Key.O:
+					{
+						OpenFile.Execute(null);
+					    e.Handled = true;
+					    break;
+					}
+				    case Key.S:
+					{
+						SaveFile.Execute(null);
+					    e.Handled = true;
+					    break;
+					}
+				    case Key.Tab:
+					{
+						if (m_dc.ActivePane != null)
+					    {
+							var steps = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : +1;
+							m_dc.ActivePane.CycleVisibleContent(steps);
+							e.Handled = true;
+					    }
+					    break;
+					}
+				}
 			}
 			base.OnPreviewKeyDown(e);
 		}
@@ -82,7 +111,7 @@ namespace LDraw
 
 				// Add each file as a source
 				foreach (var file in files)
-					AddFileSource(file, scenes);
+					AddFileSourceAsync(file, scenes);
 
 				e.Handled = true;
 			}
@@ -331,7 +360,7 @@ namespace LDraw
 			}
 		}
 
-		/// <summary>Add a file source</summary>
+		/// <summary>Add a file source (synchronous — for NewScript which needs immediate Source ref)</summary>
 		public Source? AddFileSource(string? filepath, IList<SceneUI>? scenes = null)
 		{
 			try
@@ -358,6 +387,35 @@ namespace LDraw
 				Log.Write(ELogLevel.Info, ex, "Add file source failed.", filepath ?? string.Empty, 0, 0);
 				MsgBox.Show(Owner, $"Add file source failed.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
 				return null;
+			}
+		}
+
+		/// <summary>Add a file source asynchronously (non-blocking)</summary>
+		public void AddFileSourceAsync(string? filepath, IList<SceneUI>? scenes = null)
+		{
+			try
+			{
+				// Prompt for a filepath if none provided
+				if (filepath == null || filepath.Length == 0)
+				{
+					var dlg = new OpenFileDialog { Title = "Open an Ldraw supported file", Filter = Model.SupportedFilesFilter };
+					if (dlg.ShowDialog(App.Current.MainWindow) != true)
+						return;
+					
+					filepath = dlg.FileName ?? throw new FileNotFoundException($"A invalid filepath was selected");
+				}
+
+				// If the file doesn't exist reject it
+				if (!Path_.FileExists(filepath))
+					throw new FileNotFoundException($"File '{filepath}' does not exist");
+
+				// Add the file as a new source asynchronously
+				Model.AddFileSourceAsync(filepath, scenes ?? Model.Scenes.Take(1));
+			}
+			catch (Exception ex)
+			{
+				Log.Write(ELogLevel.Info, ex, "Add file source failed.", filepath ?? string.Empty, 0, 0);
+				MsgBox.Show(Owner, $"Add file source failed.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
 			}
 		}
 
@@ -404,7 +462,7 @@ namespace LDraw
 		public Command OpenFile { get; }
 		private void OpenFileInternal()
 		{
-			AddFileSource(null);
+			AddFileSourceAsync(null);
 		}
 
 		/// <summary>Save the currently focused script</summary>

@@ -23,7 +23,6 @@ namespace pr::rdr12
 		, m_default_pipe_state()
 		, m_pipe_state_pool(wnd())
 		, m_evt_model_delete(rdr().store().ModelDeleted += std::bind(&RenderStep::OnModelDeleted, this, _1, _2))
-		, m_mutex()
 	{}
 
 	// Access the renderer
@@ -47,18 +46,17 @@ namespace pr::rdr12
 	// Reset/Populate the drawlist
 	void RenderStep::ClearDrawlist()
 	{
-		Lock lock(*this);
-		lock.drawlist().resize(0);
+		if (auto drawlist = m_drawlist.lock())
+			drawlist->resize(0);
 	}
 
 	// Sort the draw list based on sort key
 	void RenderStep::Sort()
 	{
-		Lock lock(*this);
-		auto& dl = lock.drawlist();
+		auto drawlist = m_drawlist.lock();
 
 		// Sort by sort key
-		pr::sort(dl);
+		pr::sort(*drawlist);
 
 		// Sorting done
 		m_sort_needed = false;
@@ -101,8 +99,8 @@ namespace pr::rdr12
 		#endif
 
 		// Add the model nuggets to the draw list
-		Lock lock(*this);
-		AddNuggets(inst, nuggets, lock.drawlist());
+		if (auto drawlist = m_drawlist.lock())
+			AddNuggets(inst, nuggets, *drawlist);
 
 		// Flag the draw list as changed
 		m_sort_needed = true;
@@ -111,8 +109,8 @@ namespace pr::rdr12
 	// Remove an instance from the scene
 	void RenderStep::RemoveInstance(BaseInstance const& inst)
 	{
-		Lock lock(*this);
-		pr::erase_if(lock.drawlist(), [&](DrawListElement const& dle){ return dle.m_instance == &inst; });
+		if (auto drawlist = m_drawlist.lock())
+			erase_if(*drawlist, [&](DrawListElement const& dle){ return dle.m_instance == &inst; });
 	}
 
 	// Remove a batch of instances. Optimised by a single past through the draw list
@@ -125,23 +123,27 @@ namespace pr::rdr12
 		std::sort(doomed, doomed_end);
 
 		// Remove instances
-		Lock lock(*this);
-		pr::erase_if(lock.drawlist(), [&](DrawListElement const& dle)
+		if (auto drawlist = m_drawlist.lock())
 		{
-			auto iter = std::lower_bound(doomed, doomed_end, dle.m_instance);
-			return iter != doomed_end && *iter == dle.m_instance;
-		});
+			erase_if(*drawlist, [&](DrawListElement const& dle)
+			{
+				auto iter = std::lower_bound(doomed, doomed_end, dle.m_instance);
+				return iter != doomed_end && *iter == dle.m_instance;
+			});
+		}
 	}
 
 	// Notification of a model being destroyed
 	void RenderStep::OnModelDeleted(Model& model, EmptyArgs const&) const // any thread
 	{
 		// Check the model is not current in a draw list
-		Lock lock(*this);
-		for (auto& dle : lock.drawlist())
+		if (auto drawlist = m_drawlist.lock())
 		{
-			if (&model == dle.m_nugget->m_model)
-				throw std::runtime_error("Model being deleted is still in the draw list");
+			for (auto& dle : *drawlist)
+			{
+				if (&model == dle.m_nugget->m_model)
+					throw std::runtime_error("Model being deleted is still in the draw list");
+			}
 		}
 	}
 }

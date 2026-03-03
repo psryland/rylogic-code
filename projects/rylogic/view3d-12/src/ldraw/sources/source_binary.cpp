@@ -14,13 +14,13 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Regenerate the output from the source
-	ParseResult SourceBinary::ReadSource(Renderer& rdr)
+	ParseResult SourceBinary::ReadSource(Renderer& rdr, std::stop_token stop_token)
 	{
 		m_errors.resize(0);
 		m_filepaths.resize(0);
 
 		mem_istream<char> src{ m_script.data(), m_script.size() };
 		BinaryReader reader(src, {}, { this, OnReportError }, { this, OnProgress });
-		return Parse(rdr, reader, m_context_id);
+		return Parse(rdr, reader, m_context_id, std::move(stop_token));
 	}
 }

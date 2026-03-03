@@ -56,9 +56,10 @@ namespace pr::rdr12::ldraw
 	{
 		auto loc = as<script::Preprocessor const>(m_pp).Location();
 		m_location.m_filepath = loc.Filepath();
+		m_location.m_filesize = loc.FileSize();
+		m_location.m_offset = loc.Pos();
 		m_location.m_column = loc.Col();
 		m_location.m_line = loc.Line();
-		m_location.m_offset = loc.Pos();
 		return m_location;
 	}
 
