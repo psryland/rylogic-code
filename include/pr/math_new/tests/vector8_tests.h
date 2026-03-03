@@ -17,6 +17,27 @@ namespace pr::math::tests
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
+
+			// Default construction
+			auto v0 = vec8_t{};
+
+			// From 6 scalars
+			auto v1 = vec8_t{ T(1), T(2), T(3), T(4), T(5), T(6) };
+			PR_EXPECT(v1.ang.x == T(1));
+			PR_EXPECT(v1.ang.y == T(2));
+			PR_EXPECT(v1.ang.z == T(3));
+			PR_EXPECT(v1.lin.x == T(4));
+			PR_EXPECT(v1.lin.y == T(5));
+			PR_EXPECT(v1.lin.z == T(6));
+
+			// From two Vec4
+			auto v2 = vec8_t{ vec4_t(1, 2, 3, 0), vec4_t(4, 5, 6, 0) };
+			PR_EXPECT(FEql(v1, v2));
+
+			// Zero
+			auto z = vec8_t{};
+			PR_EXPECT(FEql(z.ang, vec4_t(0, 0, 0, 0)));
+			PR_EXPECT(FEql(z.lin, vec4_t(0, 0, 0, 0)));
 		}
 
 		PRUnitTestMethod(LinAt_AngAt, float, double)

@@ -13,17 +13,17 @@ namespace pr::collision
 		Shape m_base;
 		v4    m_radius;
 
-		ShapeBox(v4_cref dim, m4_cref shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		ShapeBox(v4 dim, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Box, sizeof(ShapeBox), shape_to_parent, material_id, flags)
 			,m_radius(dim * 0.5f)
 		{
 			assert(dim.x > 0 && dim.y > 0 && dim.z > 0 && dim.w == 0);
 			m_base.m_bbox = CalcBBox(*this);
 		}
-		ShapeBox(BBox_cref bbox, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		ShapeBox(BBox bbox, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:ShapeBox(bbox.m_radius, m4x4::Translation(bbox.m_centre), material_id, flags)
 		{}
-		ShapeBox(OBox_cref obox, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		ShapeBox(OBox const& obox, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:ShapeBox(obox.m_radius, obox.m_box_to_world, material_id, flags)
 		{}
 		operator Shape const&() const
@@ -54,7 +54,7 @@ namespace pr::collision
 
 	// Shift the centre of a box shape
 	template <typename>
-	void pr_vectorcall ShiftCentre(ShapeBox&, v4_cref shift)
+	void pr_vectorcall ShiftCentre(ShapeBox&, v4 shift)
 	{
 		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
 		(void)shift; 
@@ -62,7 +62,7 @@ namespace pr::collision
 
 	// Return a support vertex for a box shape
 	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapeBox const& shape, v4_cref direction, int, int& sup_vert_id)
+	v4 pr_vectorcall SupportVertex(ShapeBox const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		int sign_x = (direction.x > 0.0f);
 		int sign_y = (direction.y > 0.0f);
@@ -78,7 +78,7 @@ namespace pr::collision
 
 	// Returns the closest point on 'shape' to 'point'. 'shape' and 'point' are in the same space
 	template <typename>
-	void pr_vectorcall ClosestPoint(ShapeBox const& shape, v4_cref point, float& distance, v4& closest)
+	void pr_vectorcall ClosestPoint(ShapeBox const& shape, v4 point, float& distance, v4& closest)
 	{
 		closest = point;
 		distance = 0.0f;

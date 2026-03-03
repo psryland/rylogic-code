@@ -74,49 +74,60 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Vec2 Zero() noexcept
+		static constexpr Vec2 const& Zero() noexcept
 		{
-			return Vec2{0, 0};
+			static auto s_zero = math::Zero<Vec2>();
+			return s_zero;
 		}
-		static constexpr Vec2 One() noexcept
+		static constexpr Vec2 const& One() noexcept
 		{
-			return Vec2{1, 1};
+			static auto s_one = math::One<Vec2>();
+			return s_one;
 		}
-		static constexpr Vec2 Tiny() noexcept
+		static constexpr Vec2 const& Tiny() noexcept
 		{
-			return Vec2(tiny<S>, tiny<S>);
+			static auto s_tiny = math::Tiny<Vec2>();
+			return s_tiny;
 		}
-		static constexpr Vec2 Min() noexcept
+		static constexpr Vec2 const& Min() noexcept
 		{
-			return Vec2(limits<S>::min(), limits<S>::min());
+			static auto s_min = math::Min<Vec2>();
+			return s_min;
 		}
-		static constexpr Vec2 Max() noexcept
+		static constexpr Vec2 const& Max() noexcept
 		{
-			return Vec2(limits<S>::max(), limits<S>::max());
+			static auto s_max = math::Max<Vec2>();
+			return s_max;
 		}
-		static constexpr Vec2 Lowest() noexcept
+		static constexpr Vec2 const& Lowest() noexcept
 		{
-			return Vec2(limits<S>::lowest(), limits<S>::lowest());
+			static auto s_lowest = math::Lowest<Vec2>();
+			return s_lowest;
 		}
-		static constexpr Vec2 Epsilon() noexcept
+		static constexpr Vec2 const& Epsilon() noexcept
 		{
-			return Vec2(limits<S>::epsilon(), limits<S>::epsilon());
+			static auto s_epsilon = math::Epsilon<Vec2>();
+			return s_epsilon;
 		}
-		static constexpr Vec2 Infinity() noexcept
+		static constexpr Vec2 const& Infinity() noexcept
 		{
-			return Vec2(limits<S>::infinity(), limits<S>::infinity());
+			static auto s_infinity = math::Infinity<Vec2>();
+			return s_infinity;
 		}
-		static constexpr Vec2 XAxis() noexcept
+		static constexpr Vec2 const& XAxis() noexcept
 		{
-			return Vec2{1, 0};
+			static auto s_x_axis = math::XAxis<Vec2>();
+			return s_x_axis;
 		}
-		static constexpr Vec2 YAxis() noexcept
+		static constexpr Vec2 const& YAxis() noexcept
 		{
-			return Vec2{0, 1};
+			static auto s_y_axis = math::YAxis<Vec2>();
+			return s_y_axis;
 		}
-		static constexpr Vec2 Origin() noexcept
+		static constexpr Vec2 const& Origin() noexcept
 		{
-			return Vec2{0, 0};
+			static auto s_origin = math::Origin<Vec2>();
+			return s_origin;
 		}
 
 		// Construct normalised

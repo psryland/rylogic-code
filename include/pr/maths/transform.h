@@ -32,24 +32,24 @@ namespace pr
 
 		// Construct
 		Xform() = default;
-		constexpr Xform(Vec4_cref<S, void> p, Quat_cref<S, void, void> r, Vec4_cref<S, void> s)
+		constexpr Xform(Vec4<S, void> p, Quat<S,void,void> r, Vec4<S, void> s)
 			: pos(p)
 			, rot(r)
 			, scl(s)
 		{}
-		constexpr Xform(Vec4_cref<S, void> p, Quat_cref<S, void, void> r)
+		constexpr Xform(Vec4<S, void> p, Quat<S,void,void> r)
 			: pos(p)
 			, rot(r)
 			, scl(Vec4<S, void>::One())
 		{}
-		Xform(Vec4_cref<S, A> p, Mat3x4_cref<S, A, B> r)
+		Xform(Vec4<S, A> p, Mat3x4<S,A,B> const& r)
 		{
 			auto [r_norm, scale] = Normalise(r);
 			pos = p;
 			rot = Quat<S, A, B>(r_norm);
 			scl = scale.w1();
 		}
-		Xform(Mat4x4_cref<S,A,B> m)
+		Xform(Mat4x4<S,A,B> const& m)
 			:Xform(m.pos, m.rot)
 		{}
 
@@ -66,7 +66,7 @@ namespace pr
 		}
 
 		// Create a random transform
-		template <typename Rng = std::default_random_engine> static Xform Random(Rng& rng, Vec4_cref<S,void> centre, S radius, Vec2<S, void> scale_range)
+		template <typename Rng = std::default_random_engine> static Xform Random(Rng& rng, Vec4<S,void> centre, S radius, Vec2<S, void> scale_range)
 		{
 			return Xform(
 				Vec4<S, void>::Random(rng, centre, radius, S(1)),
@@ -74,7 +74,7 @@ namespace pr
 				Vec4<S, void>::Random(rng, Vec4<S, void>(scale_range.x), Vec4<S, void>(scale_range.y), S(1))
 			);
 		}
-		template <typename Rng = std::default_random_engine> static Xform Random(Rng& rng, Vec4_cref<S,void> centre, S radius)
+		template <typename Rng = std::default_random_engine> static Xform Random(Rng& rng, Vec4<S,void> centre, S radius)
 		{
 			return Random(rng, centre, radius, { 1, 1 });
 		}
@@ -104,13 +104,13 @@ namespace pr
 				lhs.scl * rhs.scl
 			};
 		}
-		friend Vec4<S,B> pr_vectorcall operator * (Xform const& lhs, Vec4_cref<S, A> rhs)
+		friend Vec4<S,B> pr_vectorcall operator * (Xform const& lhs, Vec4<S, A> rhs)
 		{
 			return
 				lhs.rot * (lhs.scl * rhs.w0()) +
 				lhs.pos * rhs.w;
 		}
-		friend Quat<S,A,B> pr_vectorcall operator * (Xform const& lhs, Quat_cref<S, A, B> rhs)
+		friend Quat<S,A,B> pr_vectorcall operator * (Xform const& lhs, Quat<S,A,B> rhs)
 		{
 			return lhs.rot * rhs;
 		}

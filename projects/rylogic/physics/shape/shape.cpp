@@ -27,7 +27,7 @@ Shape& Shape::set(EShape type, std::size_t size, const m4x4& shape_to_model, Mat
 // Return a shape to use in place of a real shape for objects that don't need a shape really
 Shape* pr::ph::GetDummyShape()
 {
-	static Shape dummy = Shape::make(EShape_NoShape, sizeof(Shape), m4x4Identity, 0, EShapeFlags_None);
+	static Shape dummy = Shape::make(EShape_NoShape, sizeof(Shape), m4x4::Identity(), 0, EShapeFlags_None);
 	return &dummy;
 }
 
@@ -130,7 +130,7 @@ void pr::ph::ClosestPoint(Shape const& shape, v4 const& point, float& distance, 
 //			m4x4 InertiaTensor(const Primitive& prim)
 //			{
 //				// Note for shell, Ixx = Iyy = (1/2)mr^2 + (1/12)mL^2, Izz = mr^2
-//				m4x4 moi = m4x4Identity;
+//				m4x4 moi = m4x4::Identity();
 //				moi.x.x = (1.0f / 4.0f) * (prim.m_radius.x * prim.m_radius.x) + (1.0f / 3.0f) * (prim.m_radius.z * prim.m_radius.z);	// (1/4)mr^2 + (1/12)mL^2
 //				moi.y.y = moi.x.x;
 //				moi.z.z = (1.0f / 2.0f) * (prim.m_radius.x * prim.m_radius.x);	// (1/2)mr^2
@@ -232,7 +232,7 @@ void pr::ph::ClosestPoint(Shape const& shape, v4 const& point, float& distance, 
 //			case EPrimitive_Cylinder:	return cylinder	::InertiaTensor(prim);
 //			case EPrimitive_Box:		return box		::InertiaTensor(prim);
 //			case EPrimitive_Polytope:	return polytope	::InertiaTensor(prim);
-//			default: PR_ASSERT(PR_DBG_PHYSICS, false, "Unknown primitive type"); return m4x4Identity;
+//			default: PR_ASSERT(PR_DBG_PHYSICS, false, "Unknown primitive type"); return m4x4::Identity();
 //			}
 //		}
 //

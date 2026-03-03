@@ -1,4 +1,4 @@
-﻿//*******************************************************************************************
+//*******************************************************************************************
 // Colour32
 //  Copyright (c) Rylogic Ltd 2009
 //*******************************************************************************************
@@ -37,22 +37,6 @@ namespace pr
 
 	template <typename T>
 	concept ColourType = is_colour_v<T>;
-
-	namespace maths
-	{
-		template <> struct is_vec<Colour32> :std::true_type
-		{
-			using elem_type = uint8_t;
-			using cp_type = uint8_t;
-			static int const dim = 4;
-		};
-		template <> struct is_vec<Colour> :std::true_type
-		{
-			using elem_type = float;
-			using cp_type = float;
-			static int const dim = 4;
-		};
-	}
 	#pragma endregion
 
 	enum class EColours : uint32_t
@@ -581,9 +565,7 @@ namespace pr
 		#if PR_MATHS_USE_INTRINSICS
 		explicit Colour(__m128 v)
 			: vec(v)
-		{
-			assert(maths::is_aligned(this));
-		}
+		{}
 		#endif
 
 		// Array access
@@ -729,22 +711,17 @@ namespace pr
 	static_assert(is_colour_v<Colour>, "");
 	static_assert(std::is_trivially_copyable_v<Colour>, "Colour should be a pod type");
 	static_assert(std::alignment_of_v<Colour> == 16, "Colour should have 16 byte alignment");
-	#if PR_MATHS_USE_INTRINSICS && !defined(_M_IX86)
-	using Colour_cref = Colour const;
-	#else
-	using Colour_cref = Colour const&;
-	#endif
 
 	// Define component accessors
-	constexpr float pr_vectorcall r_cp(Colour_cref v) { return v.r; }
-	constexpr float pr_vectorcall g_cp(Colour_cref v) { return v.g; }
-	constexpr float pr_vectorcall b_cp(Colour_cref v) { return v.b; }
-	constexpr float pr_vectorcall a_cp(Colour_cref v) { return v.a; }
+	constexpr float pr_vectorcall r_cp(Colour v) { return v.r; }
+	constexpr float pr_vectorcall g_cp(Colour v) { return v.g; }
+	constexpr float pr_vectorcall b_cp(Colour v) { return v.b; }
+	constexpr float pr_vectorcall a_cp(Colour v) { return v.a; }
 
-	constexpr float pr_vectorcall x_cp(Colour_cref v) { return r_cp(v); }
-	constexpr float pr_vectorcall y_cp(Colour_cref v) { return g_cp(v); }
-	constexpr float pr_vectorcall z_cp(Colour_cref v) { return b_cp(v); }
-	constexpr float pr_vectorcall w_cp(Colour_cref v) { return a_cp(v); }
+	constexpr float pr_vectorcall x_cp(Colour v) { return r_cp(v); }
+	constexpr float pr_vectorcall y_cp(Colour v) { return g_cp(v); }
+	constexpr float pr_vectorcall z_cp(Colour v) { return b_cp(v); }
+	constexpr float pr_vectorcall w_cp(Colour v) { return a_cp(v); }
 
 	#pragma region Constants
 	constexpr Colour ColourZero   = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -759,7 +736,7 @@ namespace pr
 	#pragma region Functions
 
 	// Colour FEql
-	inline bool pr_vectorcall FEqlRelative(Colour_cref lhs, Colour_cref rhs, float tol)
+	inline bool pr_vectorcall FEqlRelative(Colour lhs, Colour rhs, float tol)
 	{
 		#if PR_MATHS_USE_INTRINSICS
 		const __m128 zero = {tol, tol, tol, tol};
@@ -774,17 +751,17 @@ namespace pr
 			FEqlRelative(lhs.a, rhs.a, tol);
 		#endif
 	}
-	inline bool pr_vectorcall FEql(Colour_cref lhs, Colour_cref rhs)
+	inline bool pr_vectorcall FEql(Colour lhs, Colour rhs)
 	{
 		return FEqlRelative(lhs, rhs, maths::tinyf);
 	}
-	inline bool pr_vectorcall FEqlNoA(Colour_cref lhs, Colour_cref rhs)
+	inline bool pr_vectorcall FEqlNoA(Colour lhs, Colour rhs)
 	{
 		return FEql(lhs.a0(), rhs.a0());
 	}
 
 	// Clamp colour values to the interval [mn,mx]
-	inline Colour Clamp(Colour_cref c, float mn, float mx)
+	inline Colour Clamp(Colour c, float mn, float mx)
 	{
 		return Colour(
 			Clamp(c.r, mn, mx),
@@ -794,7 +771,7 @@ namespace pr
 	}
 
 	// Normalise all components of 'v'
-	inline Colour pr_vectorcall Normalise(Colour_cref v)
+	inline Colour pr_vectorcall Normalise(Colour v)
 	{
 		#if PR_MATHS_USE_INTRINSICS
 		return Colour(_mm_div_ps(v.vec, _mm_sqrt_ps(_mm_dp_ps(v.vec, v.vec, 0xFF))));
@@ -929,7 +906,7 @@ namespace pr
 		{
 			return static_cast<Colour>(c);
 		}
-		static Colour Func(v4_cref c)
+		static Colour Func(v4 c)
 		{
 			return Colour(c.x, c.y, c.z, c.w);
 		}

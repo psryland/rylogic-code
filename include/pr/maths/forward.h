@@ -18,6 +18,7 @@
 #include <immintrin.h>
 #include <emmintrin.h>
 #include <cmath>
+#include <bit>
 #include <cstdlib>
 #include <cstdint>
 #include <complex>
@@ -265,16 +266,6 @@ namespace pr
 		static_assert(Vector2<int[2]>);
 		#pragma endregion
 
-		// Test alignment of 't'
-		template <typename T, int A> inline bool is_aligned(T const* t)
-		{
-			return (reinterpret_cast<char const*>(t) - static_cast<char const*>(nullptr)) % A == 0;
-		}
-		template <typename T> inline bool is_aligned(T const* t)
-		{
-			return is_aligned<T, std::alignment_of<T>::value>(t);
-		}
-
 		// Component accessor with default for out-of-bounds
 		template <int idx, maths::VectorX V> constexpr maths::vec_elem_t<V> comp(V const& v)
 		{
@@ -292,25 +283,6 @@ namespace pr
 		}
 	}
 
-	// Constant reference types
-	#if PR_MATHS_USE_INTRINSICS && !defined(_M_IX86)
-	#define pr_cref const
-	#else
-	#define pr_cref const&
-	#endif
-	template <Scalar S, typename T> using Vec2_cref = Vec2<S,T> pr_cref;
-	template <Scalar S, typename T> using Vec3_cref = Vec3<S,T> pr_cref;
-	template <Scalar S, typename T> using Vec4_cref = Vec4<S,T> pr_cref;
-	template <Scalar S, typename T> using Vec8_cref = Vec8<S,T> pr_cref;
-	template <Scalar S, typename A, typename B> using Mat2x2_cref = Mat2x2<S, A, B> pr_cref;
-	template <Scalar S, typename A, typename B> using Mat3x4_cref = Mat3x4<S, A, B> pr_cref;
-	template <Scalar S, typename A, typename B> using Mat4x4_cref = Mat4x4<S, A, B> pr_cref;
-	template <Scalar S, typename A, typename B> using Mat6x8_cref = Mat6x8<S, A, B> const&;
-	template <Scalar S, typename A, typename B> using Quat_cref = Quat<S,A,B> pr_cref;
-	using BBox_cref = BBox pr_cref;
-	using BSphere_cref = BSphere pr_cref;
-	#undef pr_cref
-
 	// Old names
 	using v2 = Vec2<float, void>;
 	using v3 = Vec3<float, void>;
@@ -325,16 +297,7 @@ namespace pr
 	using iv2 = Vec2<int, void>;
 	using iv3 = Vec3i<void>;
 	using iv4 = Vec4i<void>;
-	using v2_cref = Vec2_cref<float, void>;
-	using v3_cref = Vec3_cref<float, void>;
-	using v4_cref = Vec4_cref<float, void>;
-	using v8_cref = Vec8_cref<float, void>;
-	using iv2_cref = Vec2_cref<int, void>;
-	using iv4_cref = Vec4_cref<int, void>;
-	using quat_cref = Quat_cref<float, void, void>;
-	using m3_cref = Mat3x4_cref<float, void, void>;
-	using m4_cref = Mat4x4_cref<float, void, void>;
-	using m6_cref = Mat6x8_cref<float, void, void>;
+	using v4 = Vec4<float, void>;
 
 	// Helper trait for 'underlying_type' that works for non-enums as well
 	template <typename T, bool = std::is_enum_v<T>> struct underlying_type : std::underlying_type<T> {};

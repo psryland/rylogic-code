@@ -22,7 +22,7 @@ namespace pr::rdr12::compute::spatial_partition
 	inline static constexpr uint32_t FNV_prime32 = 16777619U;
 
 	// Convert a floating point position into a grid cell coordinate
-	inline iv3 GridCell(v4_cref position, float grid_scale)
+	inline iv3 GridCell(v4 position, float grid_scale)
 	{
 		return To<iv3>(Ceil(position.xyz * grid_scale));
 	}
@@ -421,7 +421,7 @@ namespace pr::rdr12::compute::spatial_partition
 
 		// Find all particles in the cells overlapping 'volume'.
 		template <typename PosType, typename FoundCB> requires std::is_invocable_v<FoundCB, PosType const&>
-		void Find(BBox_cref volume, std::span<PosType const> particles, FoundCB found) const
+		void Find(BBox volume, std::span<PosType const> particles, FoundCB found) const
 		{
 			assert(!m_spatial.empty() && "Requires Update() with 'readback' = true");
 
@@ -454,7 +454,7 @@ namespace pr::rdr12::compute::spatial_partition
 
 		// Find all particles within 'radius' of 'position'
 		template <typename PosType, typename FoundCB> requires std::is_invocable_v<FoundCB, PosType const&, float>
-		void Find(v4_cref position, float radius, std::span<PosType const> particles, FoundCB found) const
+		void Find(v4 position, float radius, std::span<PosType const> particles, FoundCB found) const
 		{
 			auto radius_sq = radius * radius;
 			Find(BBox(position, v4(radius)), particles, [=](auto const& particle)

@@ -356,7 +356,7 @@ namespace pr
 		//  - This can be converted into 4 bits if sign information isn't needed
 		//    using: if (idx > 13) idx = 26 - idx;
 		//    Doing so, does not effect the Decompress() function
-		static uint32_t Compress(v4_cref norm)
+		static uint32_t Compress(v4 norm)
 		{
 			const float cos_67p5 = 0.382683f;
 			uint32_t x = (norm.x > cos_67p5) - (norm.x < -cos_67p5) + 1;
@@ -483,7 +483,7 @@ namespace pr
 	struct ComponentNorm
 	{
 		// Compress 'vec' into the lower 'max_bits' bits
-		static uint64_t Compress2(v2_cref vec, int bits)
+		static uint64_t Compress2(v2 vec, int bits)
 		{
 			assert(Abs(vec.x) <= 1.0f && Abs(vec.y) <= 1.0f && "Only supports vectors with components in the range -1 to 1");
 
@@ -508,7 +508,7 @@ namespace pr
 		}
 
 		// Compress 'vec' into the lower 'max_bits' bits
-		static uint64_t Compress3(v4_cref vec, int bits)
+		static uint64_t Compress3(v4 vec, int bits)
 		{
 			assert(Abs(vec.x) <= 1.0f && Abs(vec.y) <= 1.0f && Abs(vec.z) <= 1.0f && "Only supports vectors with components in the range -1 to 1, and w as 0 or 1");
 			assert((vec.w == 0.0f || vec.w == 1.0f) && "Only supports vectors with components in the range -1 to 1, and w as 0 or 1");
@@ -542,7 +542,7 @@ namespace pr
 		}
 		
 		// Compress 'vec' into the lower 'max_bits' bits
-		static uint64_t Compress4(v4_cref vec, int bits)
+		static uint64_t Compress4(v4 vec, int bits)
 		{
 			assert(Abs(vec.x) <= 1.0f && Abs(vec.y) <= 1.0f && Abs(vec.z) <= 1.0f && "Only supports vectors with components in the range -1 to 1, and w as 0 or 1");
 			assert((vec.w == 0.0f || vec.w == 1.0f) && "Only supports vectors with components in the range -1 to 1, and w as 0 or 1");

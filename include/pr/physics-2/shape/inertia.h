@@ -88,12 +88,12 @@ namespace pr::physics
 	InertiaInv Split(InertiaInv const& lhs, InertiaInv const& rhs);
 	InertiaInv Invert(Inertia const& inertia);
 	Inertia Invert(InertiaInv const& inertia_inv);
-	Inertia Rotate(Inertia const& inertia, m3_cref a2b);
-	InertiaInv Rotate(InertiaInv const& inertia_inv, m3_cref a2b);
-	Inertia Translate(Inertia const& inertia0, v4_cref offset, ETranslateInertia direction);
-	InertiaInv Translate(InertiaInv const& inertia0_inv, v4_cref offset, ETranslateInertia direction);
-	Inertia Transform(Inertia const& inertia0, m4_cref a2b, ETranslateInertia direction);
-	InertiaInv Transform(InertiaInv const& inertia0_inv, m4_cref a2b, ETranslateInertia direction);
+	Inertia Rotate(Inertia const& inertia, m3x4 const& a2b);
+	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x4 const& a2b);
+	Inertia Translate(Inertia const& inertia0, v4 offset, ETranslateInertia direction);
+	InertiaInv Translate(InertiaInv const& inertia0_inv, v4 offset, ETranslateInertia direction);
+	Inertia Transform(Inertia const& inertia0, m4x4 const& a2b, ETranslateInertia direction);
+	InertiaInv Transform(InertiaInv const& inertia0_inv, m4x4 const& a2b, ETranslateInertia direction);
 	#pragma endregion
 
 	struct Inertia
@@ -109,11 +109,11 @@ namespace pr::physics
 		v4 m_com_and_mass; // Offset from the origin to the centre of mass, and the mass.
 
 		Inertia();
-		Inertia(m3_cref unit_inertia, float mass, v4_cref com = v4{});
-		Inertia(v4_cref diagonal, v4_cref products, float mass, v4_cref com = v4{});
-		Inertia(float diagonal, float mass, v4_cref com = v4{});
-		Inertia(Inertia const& rhs, v4_cref com);
-		explicit Inertia(Mat6x8_cref<float,Motion,Force> inertia, float mass = -1);
+		Inertia(m3x4 const& unit_inertia, float mass, v4 com = v4{});
+		Inertia(v4 diagonal, v4 products, float mass, v4 com = v4{});
+		Inertia(float diagonal, float mass, v4 com = v4{});
+		Inertia(Inertia const& rhs, v4 com);
+		explicit Inertia(Mat6x8<float, Motion, Force> const& inertia, float mass = -1);
 		explicit Inertia(MassProperties const& mp);
 
 		// The mass to scale the inertia by
@@ -143,20 +143,20 @@ namespace pr::physics
 
 		// Sanity check
 		bool Check() const;
-		static bool Check(m3_cref inertia);
-		static bool Check(Mat6x8_cref<float,Motion,Force> inertia);
+		static bool Check(m3x4 const& inertia);
+		static bool Check(Mat6x8<float, Motion, Force> const& inertia);
 
 		// An immovable object
 		static Inertia Infinite();
 
 		// Create an inertia matrix for a point at 'offset'
-		static Inertia Point(float mass, v4_cref offset = v4{});
+		static Inertia Point(float mass, v4 offset = v4{});
 
 		// Create an inertia matrix for a sphere at 'offset'
-		static Inertia Sphere(float radius, float mass, v4_cref offset = v4{});
+		static Inertia Sphere(float radius, float mass, v4 offset = v4{});
 
 		// Create an inertia matrix for a box at 'offset'
-		static Inertia Box(v4_cref radius, float mass, v4_cref offset = v4{});
+		static Inertia Box(v4 radius, float mass, v4 offset = v4{});
 
 		#pragma region Operators
 		// Note: there is no operator + because its definition is ambiguous
@@ -193,10 +193,10 @@ namespace pr::physics
 		v4 m_com_and_invmass; // Offset from the origin to the centre of mass, and the inverse mass.
 
 		InertiaInv();
-		InertiaInv(m3_cref unit_inertia_inv, float invmass, v4_cref com = v4{});
-		InertiaInv(v4_cref diagonal, v4_cref products, float invmass, v4_cref com = v4{});
-		InertiaInv(InertiaInv const& rhs, v4_cref com);
-		InertiaInv(Mat6x8_cref<float,Force,Motion> inertia_inv, float invmass = -1);
+		InertiaInv(m3x4 const& unit_inertia_inv, float invmass, v4 com = v4{});
+		InertiaInv(v4 diagonal, v4 products, float invmass, v4 com = v4{});
+		InertiaInv(InertiaInv const& rhs, v4 com);
+		InertiaInv(Mat6x8<float, Force, Motion> const& inertia_inv, float invmass = -1);
 
 		// The mass to scale the inertia by
 		float Mass() const;
@@ -221,8 +221,8 @@ namespace pr::physics
 
 		// Sanity check
 		bool Check() const;
-		static bool Check(m3_cref inertia_inv);
-		static bool Check(Mat6x8_cref<float,Force,Motion> inertia_inv);
+		static bool Check(m3x4 const& inertia_inv);
+		static bool Check(Mat6x8<float, Force, Motion> const& inertia_inv);
 
 		// An immovable object
 		static InertiaInv Zero();
@@ -249,4 +249,6 @@ namespace pr
 {
 	bool FEql(physics::Inertia const& lhs, physics::Inertia const& rhs);
 	bool FEql(physics::InertiaInv const& lhs, physics::InertiaInv const& rhs);
+	bool FEqlRelative(physics::Inertia const& lhs, physics::Inertia const& rhs, float tol);
+	bool FEqlRelative(physics::InertiaInv const& lhs, physics::InertiaInv const& rhs, float tol);
 }

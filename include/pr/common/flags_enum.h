@@ -174,42 +174,46 @@
 #endif
 
 #if PR_UNITTESTS
-namespace pr::common::unittests
+#include "pr/common/unittests.h"
+namespace pr::common::unittest
 {
-	// Compile time unit tests only because of circular dependencies
-	enum class NotFlags
+	PRUnitTestClass(FlagsEnumTests)
 	{
-		One = 1,
-		Two = 2,
+		// Compile time unit tests only because of circular dependencies
+		enum class NotFlags
+		{
+			One = 1,
+			Two = 2,
+		};
+		static_assert(is_flags_enum_v<NotFlags> == false);
+
+		enum class Flags : uint32_t // Flags should be unsigned types
+		{
+			None = 0,
+			One = 1 << 0,
+			Two = 1 << 1,
+			Three = One | Two,
+			_flags_enum = 0,
+		};
+		static_assert(FlagsEnum<Flags>);
+
+		enum class Numbers
+		{
+			Zero = 0,
+			Two = 2,
+			One = 1,
+			Six = 6,
+			Three = 3,
+			MinusTwo = -2,
+
+			_arith_enum = 0,
+		};
+		static_assert(ArithEnum<Numbers>);
+
+		static_assert((Flags::One | Flags::Two) == Flags::Three);
+		static_assert((Flags::One & Flags::Two) == Flags::None);
+		static_assert((Flags::One ^ Flags::Two) == Flags::Three);
+		static_assert(~Flags::One == static_cast<Flags>(-2));
 	};
-	static_assert(is_flags_enum_v<NotFlags> == false);
-
-	enum class Flags : uint32_t // Flags should be unsigned types
-	{
-		None = 0,
-		One = 1 << 0,
-		Two = 1 << 1,
-		Three = One | Two,
-		_flags_enum = 0,
-	};
-	static_assert(FlagsEnum<Flags>);
-
-	enum class Numbers
-	{
-		Zero = 0,
-		Two = 2,
-		One = 1,
-		Six = 6,
-		Three = 3,
-		MinusTwo = -2,
-
-		_arith_enum = 0,
-	};
-	static_assert(ArithEnum<Numbers>);
-
-	static_assert((Flags::One | Flags::Two) == Flags::Three);
-	static_assert((Flags::One & Flags::Two) == Flags::None);
-	static_assert((Flags::One ^ Flags::Two) == Flags::Three);
-	static_assert(~Flags::One == static_cast<Flags>(-2));
 }
 #endif

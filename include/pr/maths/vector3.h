@@ -23,8 +23,6 @@ namespace pr
 		};
 		#pragma warning(pop)
 
-		using Vec3_cref = Vec3_cref<S, T>;
-
 		// Construct
 		Vec3() = default;
 		constexpr explicit Vec3(S x_)
@@ -123,7 +121,7 @@ namespace pr
 
 		// Create a random vector with components on interval ['vmin', 'vmax']
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec3 pr_vectorcall Random(Rng& rng, Vec3_cref vmin, Vec3_cref vmax)
+		static Vec3 pr_vectorcall Random(Rng& rng, Vec3 vmin, Vec3 vmax)
 		{
 			std::uniform_real_distribution<S> dist_x(vmin.x, vmax.x);
 			std::uniform_real_distribution<S> dist_y(vmin.y, vmax.y);
@@ -141,34 +139,34 @@ namespace pr
 
 		// Create a random vector centred on 'centre' with radius 'radius'
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec3 pr_vectorcall Random(Rng& rng, Vec3_cref centre, S radius)
+		static Vec3 pr_vectorcall Random(Rng& rng, Vec3 centre, S radius)
 		{
 			return Random(rng, S(0), radius) + centre;
 		}
 
 		#pragma region Operators
-		friend constexpr Vec3 operator + (Vec3_cref vec)
+		friend constexpr Vec3 operator + (Vec3 vec)
 		{
 			return vec;
 		}
-		friend constexpr Vec3 operator - (Vec3_cref vec)
+		friend constexpr Vec3 operator - (Vec3 vec)
 		{
 			return Vec3(-vec.x, -vec.y, -vec.z);
 		}
-		friend Vec3 operator * (S lhs, Vec3_cref rhs)
+		friend Vec3 operator * (S lhs, Vec3 rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Vec3 operator * (Vec3_cref lhs, S rhs)
+		friend Vec3 operator * (Vec3 lhs, S rhs)
 		{
 			return Vec3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs);
 		}
-		friend Vec3 operator / (Vec3_cref lhs, S rhs)
+		friend Vec3 operator / (Vec3 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For Scalars +inf/-inf are valid results
 			return Vec3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs);
 		}
-		friend Vec3 operator % (Vec3_cref lhs, S rhs)
+		friend Vec3 operator % (Vec3 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For Scalars +inf/-inf are valid results
 			if constexpr (std::floating_point<S>)
@@ -176,24 +174,24 @@ namespace pr
 			else
 				return Vec3(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs);
 		}
-		friend Vec3 operator + (Vec3_cref lhs, Vec3_cref rhs)
+		friend Vec3 operator + (Vec3 lhs, Vec3 rhs)
 		{
 			return Vec3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
 		}
-		friend Vec3 operator - (Vec3_cref lhs, Vec3_cref rhs)
+		friend Vec3 operator - (Vec3 lhs, Vec3 rhs)
 		{
 			return Vec3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
 		}
-		friend Vec3 operator * (Vec3_cref lhs, Vec3_cref rhs)
+		friend Vec3 operator * (Vec3 lhs, Vec3 rhs)
 		{
 			return Vec3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z);
 		}
-		friend Vec3 operator / (Vec3_cref lhs, Vec3_cref rhs)
+		friend Vec3 operator / (Vec3 lhs, Vec3 rhs)
 		{
 			// Don't check for divide by zero by default. For Scalars +inf/-inf are valid results
 			return Vec3(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z);
 		}
-		friend Vec3 operator % (Vec3_cref lhs, Vec3_cref rhs)
+		friend Vec3 operator % (Vec3 lhs, Vec3 rhs)
 		{
 			// Don't check for divide by zero by default. For Scalars +inf/-inf are valid results
 			if constexpr (std::floating_point<S>)
@@ -214,25 +212,25 @@ namespace pr
 	#undef PR_VEC3_CHECKS
 
 	// Dot product: a . b
-	template <Scalar S, typename T> constexpr S pr_vectorcall Dot(Vec3_cref<S, T> lhs, Vec3_cref<S, T> rhs)
+	template <Scalar S, typename T> constexpr S pr_vectorcall Dot(Vec3<S, T> lhs, Vec3<S, T> rhs)
 	{
 		return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
 	}
 
 	// Cross product: a x b
-	template <Scalar S, typename T> constexpr Vec3<S, T> pr_vectorcall Cross(Vec3_cref<S, T> lhs, Vec3_cref<S, T> rhs)
+	template <Scalar S, typename T> constexpr Vec3<S, T> pr_vectorcall Cross(Vec3<S, T> lhs, Vec3<S, T> rhs)
 	{
 		return Vec3<S, T>{lhs.y*rhs.z - lhs.z*rhs.y, lhs.z*rhs.x - lhs.x*rhs.z, lhs.x*rhs.y - lhs.y*rhs.x};
 	}
 
 	// Triple product: a . b x c
-	template <Scalar S, typename T> constexpr S pr_vectorcall Triple(Vec3_cref<S, T> a, Vec3_cref<S, T> b, Vec3_cref<S, T> c)
+	template <Scalar S, typename T> constexpr S pr_vectorcall Triple(Vec3<S, T> a, Vec3<S, T> b, Vec3<S, T> c)
 	{
 		return Dot(a, Cross3(b, c));
 	}
 
 	// Returns a vector with the values permuted 'n' times. 0=xyz, 1=yzx, 2=zxy, etc
-	template <Scalar S, typename T> constexpr Vec3<S, T> pr_vectorcall Permute(Vec3_cref<S, T> v, int n)
+	template <Scalar S, typename T> constexpr Vec3<S, T> pr_vectorcall Permute(Vec3<S, T> v, int n)
 	{
 		switch (n % 3)
 		{
@@ -243,7 +241,7 @@ namespace pr
 	}
 
 	// Returns a 3-bit bitmask of the octant the vector is in. 0=(-x,-y,-z), 1=(+x,-y,-z), 2=(-x,+y,-z), 3=(+x,+y,-z), 4=(-x,-y+z), 5=(+x,-y,+z), 6=(-x,+y,+z), 7=(+x,+y,+z)
-	template <Scalar S, typename T> constexpr uint32_t Octant(Vec3_cref<S, T> v)
+	template <Scalar S, typename T> constexpr uint32_t Octant(Vec3<S, T> v)
 	{
 		return
 			((v.x >= S(0)) << 0) |

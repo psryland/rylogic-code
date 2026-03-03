@@ -103,8 +103,8 @@ npm install && npm run compile
 ### CEX — Console Extensions (`projects/tools/cex`)
 The `cex` utility provides GUI automation commands that Copilot can use to interact with and verify Windows GUI applications. The tool is a `/SUBSYSTEM:Windows` app (no console window). Build it with:
 ```powershell
-& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-    projects/tools/cex/cex.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /nologo /verbosity:minimal
+& "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe" `
+    projects/tools/cex/cex.vcxproj /p:Configuration=Release /p:Platform=x64 /nologo /verbosity:minimal
 ```
 The built executable is at `projects/tools/cex/obj/x64/Release/cex.exe`. A deployed copy is at `C:\Tools\cex\cex.exe`.
 
@@ -317,15 +317,24 @@ Any comment containing `@copilot` is an instruction, question, or context direct
 ### Target Frameworks
 - Primary: `net9.0-windows`
 - Legacy: `net481`
-- C++ toolset: `v145` (VS 2022), Windows SDK 10.0
+- C++ toolset: `v145` (VS 2026), Windows SDK 10.0
 
 ## Build System Details
 
 ### Prerequisites
 - Windows (this project is Windows-only)
-- Visual Studio 2022 with C++ workload (for native projects)
+- Visual Studio 2026 (version 18) with C++ workload (for native projects) — v145 toolset
+- Visual Studio 2022 also installed (v143 toolset available but not preferred)
 - .NET 9 SDK
 - `dotnet-script` tool: `dotnet tool install -g dotnet-script`
+
+### MSBuild Path
+Always use the VS 2026 MSBuild for native C++ builds:
+```powershell
+$msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
+& $msbuild <project.vcxproj> /p:Configuration=Release /p:Platform=x64 /nologo /verbosity:minimal
+```
+Do **not** use the VS 2022 MSBuild (`C:\Program Files\Microsoft Visual Studio\2022\...`) — all native libraries in `/lib/` are built with the v145 toolset and linking against them with v143 causes `LNK1047`/`C1047` errors.
 
 ### Configuration Files
 - `Directory.Build.props` — Shared MSBuild properties for all C# and C++ projects
@@ -335,5 +344,5 @@ Any comment containing `@copilot` is an instruction, question, or context direct
 
 ### CI (GitHub Actions)
 - **C# builds** (`build-csharp-projects.yml`): Builds all C# projects on `windows-latest`. Removes `.vcxproj` (C++) and VSIX projects since the runner lacks the full VS C++ toolset.
-- **Native builds** (`build-native-projects.yml`): Builds C++ projects with MSBuild (v143 toolset). Removes C# projects first.
+- **Native builds** (`build-native-projects.yml`): Builds C++ projects with MSBuild (v143 toolset on CI runner). Removes C# projects first.
 - Both workflows trigger on push/PR to `main` with path filters.

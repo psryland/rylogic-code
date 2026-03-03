@@ -205,7 +205,7 @@ namespace pr
 	{
 		using U = std::make_unsigned_t<T>;
 
-		pr_assert(n > 0);
+		assert(n > 0);
 		return static_cast<T>(HighBit<U>(static_cast<U>(n)));
 	}
 
@@ -214,7 +214,7 @@ namespace pr
 	{
 		using U = std::make_unsigned_t<T>;
 
-		pr_assert(n >= 0 && n <= T(1) << (sizeof(T) * 8 - 1 - std::is_signed_v<T>)); // (1 << 31) is -1
+		assert(n >= 0 && n <= T(1) << (sizeof(T) * 8 - 1 - std::is_signed_v<T>)); // (1 << 31) is -1
 		return T(1) << std::bit_width<U>(static_cast<U>(n + (n == 0) - 1));
 	}
 

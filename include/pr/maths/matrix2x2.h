@@ -31,7 +31,7 @@ namespace pr
 			:x(xx, xy)
 			,y(yx, yy)
 		{}
-		constexpr Mat2x2(Vec2_cref<S,void> x_, Vec2_cref<S,void> y_)
+		constexpr Mat2x2(Vec2<S,void> x_, Vec2<S,void> y_)
 			:x(x_)
 			,y(y_)
 		{}
@@ -118,43 +118,43 @@ namespace pr
 		}
 
 		#pragma region Operators
-		friend constexpr Mat2x2 operator + (Mat2x2_cref<S,A,B> mat)
+		friend constexpr Mat2x2 operator + (Mat2x2<S,A,B> const& mat)
 		{
 			return mat;
 		}
-		friend constexpr Mat2x2 operator - (Mat2x2_cref<S,A,B> mat)
+		friend constexpr Mat2x2 operator - (Mat2x2<S,A,B> const& mat)
 		{
 			return Mat2x2{-mat.x, -mat.y};
 		}
-		friend Mat2x2 operator * (S lhs, Mat2x2_cref<S,A,B> rhs)
+		friend Mat2x2 operator * (S lhs, Mat2x2<S,A,B> const& rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Mat2x2 operator * (Mat2x2_cref<S,A,B> lhs, S rhs)
+		friend Mat2x2 operator * (Mat2x2<S,A,B> const& lhs, S rhs)
 		{
 			return Mat2x2{lhs.x * rhs, lhs.y * rhs};
 		}
-		friend Mat2x2 operator / (Mat2x2_cref<S,A,B> lhs, S rhs)
+		friend Mat2x2 operator / (Mat2x2<S,A,B> const& lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			//pr_assert("divide by zero" && rhs != 0);
 			return Mat2x2{lhs.x / rhs, lhs.y / rhs};
 		}
-		friend Mat2x2 operator % (Mat2x2_cref<S,A,B> lhs, S rhs)
+		friend Mat2x2 operator % (Mat2x2<S,A,B> const& lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			//pr_assert("divide by zero" && rhs != 0);
 			return Mat2x2{lhs.x % rhs, lhs.y % rhs};
 		}
-		friend Mat2x2 operator + (Mat2x2_cref<S,A,B> lhs, Mat2x2_cref<S,A,B> rhs)
+		friend Mat2x2 operator + (Mat2x2<S,A,B> const& lhs, Mat2x2<S,A,B> const& rhs)
 		{
 			return Mat2x2{lhs.x + rhs.x, lhs.y + rhs.y};
 		}
-		friend Mat2x2 operator - (Mat2x2_cref<S,A,B> lhs, Mat2x2_cref<S,A,B> rhs)
+		friend Mat2x2 operator - (Mat2x2<S,A,B> const& lhs, Mat2x2<S,A,B> const& rhs)
 		{
 			return Mat2x2{lhs.x - rhs.x, lhs.y - rhs.y};
 		}
-		friend Vec2<S,B> operator * (Mat2x2_cref<S,A,B> lhs, Vec2_cref<S,A> rhs)
+		friend Vec2<S,B> operator * (Mat2x2<S,A,B> const& lhs, Vec2<S,A> rhs)
 		{
 			auto ans = Vec2<S,B>{};
 			auto lhsT = Transpose(lhs);
@@ -162,7 +162,7 @@ namespace pr
 			ans.y = Dot(lhsT.y, rhs);
 			return ans;
 		}
-		template <typename C> friend Mat2x2<S,A,C> operator * (Mat2x2_cref<S,B,C> lhs, Mat2x2_cref<S,A,B> rhs)
+		template <typename C> friend Mat2x2<S,A,C> operator * (Mat2x2<S,B,C> const& lhs, Mat2x2<S,A,B> const& rhs)
 		{
 			auto ans = Mat2x2<S,A,C>{};
 			auto lhsT = Transpose(lhs);
@@ -186,13 +186,13 @@ namespace pr
 	#undef PR_MAT2X2_CHECKS
 
 	// 2x2 matrix determinant
-	template <Scalar S, typename A, typename B> inline S Determinant(Mat2x2_cref<S,A,B> m)
+	template <Scalar S, typename A, typename B> inline S Determinant(Mat2x2<S,A,B> const& m)
 	{
 		return m.x.x*m.y.y - m.x.y*m.y.x;
 	}
 
 	// 2x2 matrix transpose
-	template <Scalar S, typename A, typename B> inline Mat2x2<S,A,B> Transpose(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat2x2<S,A,B> Transpose(Mat2x2<S,A,B> const& mat)
 	{
 		auto m = mat;
 		std::swap(m.x.y, m.y.x);
@@ -200,20 +200,20 @@ namespace pr
 	}
 
 	// Return true if 'mat' is an affine transform
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsAffine(Mat2x2_cref<S,A,B>)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsAffine(Mat2x2<S,A,B> const&)
 	{
 		// All 2x2 matrices are Affine
 		return true;
 	}
 
 	// Return true if 'mat' is orthogonal
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthogonal(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthogonal(Mat2x2<S,A,B> const& mat)
 	{
 		return FEql(Dot(mat.x, mat.y), S(0));
 	}
 
 	// Return true if 'mat' is orthonormal
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthonormal(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthonormal(Mat2x2<S,A,B> const& mat)
 	{
 		return
 			FEql(LengthSq(mat.x), S(1)) &&
@@ -222,13 +222,13 @@ namespace pr
 	}
 
 	// Returns true if 'mat' has an inverse
-	template <Scalar S, typename A, typename B> inline bool IsInvertible(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool IsInvertible(Mat2x2<S,A,B> const& mat)
 	{
 		return Determinant(mat) != 0;
 	}
 
 	// Returns the inverse of 'mat'
-	template <Scalar S, typename A, typename B> inline Mat2x2<S,B,A> Invert(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat2x2<S,B,A> Invert(Mat2x2<S,A,B> const& mat)
 	{
 		pr_assert("Matrix is singular" && Determinant(mat) != S(0));
 
@@ -240,13 +240,13 @@ namespace pr
 	}
 
 	// Returns the inverse of 'mat' assuming is it a pure rotation matrix
-	template <Scalar S, typename A, typename B> inline Mat2x2<S, B, A> InvertAffine(Mat2x2_cref<S, A, B> mat)
+	template <Scalar S, typename A, typename B> inline Mat2x2<S, B, A> InvertAffine(Mat2x2<S,A,B> const& mat)
 	{
 		return Invert(mat); // Just as cheap
 	}
 	 
 	// Returns the inverse of 'mat' assuming is it a pure rotation matrix 
-	template <Scalar S, typename A, typename B> inline Mat2x2<S,B,A> InvertOrthonormal(Mat2x2_cref<S,A,B> mat) 
+	template <Scalar S, typename A, typename B> inline Mat2x2<S,B,A> InvertOrthonormal(Mat2x2<S,A,B> const& mat) 
 	{ 
 		assert("Matrix is not pure rotation" && FEql(Determinant(mat), S(1))); 
 		return Mat2x2<S,B,A>{
@@ -256,7 +256,7 @@ namespace pr
 	} 
 
 	// Return the square root of a matrix. The square root is the matrix B where B.B = mat.
-	template <Scalar S, typename A, typename B> inline Mat2x2<S,A,B> Sqrt(Mat2x2_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat2x2<S,A,B> Sqrt(Mat2x2<S,A,B> const& mat)
 	{
 		// Using 'Denman-Beavers' square root iteration. Should converge quadratically
 		auto a = mat;                       // Converges to mat^0.5

@@ -119,7 +119,7 @@ namespace pr
 	// Convert to ufbx
 	template <> struct Convert<ufbx_vec2, v2>
 	{
-		constexpr static ufbx_vec2 Func(v2_cref v)
+		constexpr static ufbx_vec2 Func(v2 v)
 		{
 			ufbx_vec2 r = {};
 			r.x = s_cast<ufbx_real>(v.x);
@@ -129,7 +129,7 @@ namespace pr
 	};
 	template <> struct Convert<ufbx_vec3, v3>
 	{
-		constexpr static ufbx_vec3 Func(v3_cref v)
+		constexpr static ufbx_vec3 Func(v3 v)
 		{
 			ufbx_vec3 r = {};
 			r.x = s_cast<ufbx_real>(v.x);
@@ -140,7 +140,7 @@ namespace pr
 	};
 	template <> struct Convert<ufbx_vec3, v4>
 	{
-		constexpr static ufbx_vec3 Func(v4_cref v)
+		constexpr static ufbx_vec3 Func(v4 v)
 		{
 			ufbx_vec3 r = {};
 			r.x = s_cast<ufbx_real>(v.x);
@@ -151,7 +151,7 @@ namespace pr
 	};
 	template <> struct Convert<ufbx_quat, quat>
 	{
-		constexpr static ufbx_quat Func(quat_cref v)
+		constexpr static ufbx_quat Func(quat v)
 		{
 			ufbx_quat r = {};
 			r.x = s_cast<ufbx_real>(v.x);

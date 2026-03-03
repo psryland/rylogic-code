@@ -440,6 +440,14 @@ namespace pr::math
 	{
 		return std::numeric_limits<S>::epsilon();
 	}
+	template <typename S> constexpr S Tiny() noexcept
+	{
+		return constants<S>::tiny;
+	}
+	template <typename S> constexpr S Lowest() noexcept
+	{
+		return std::numeric_limits<S>::lowest();
+	}
 	template <VectorType Vec> constexpr Vec Zero() noexcept
 	{
 		using vt = vector_traits<Vec>;
@@ -488,6 +496,30 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = Max<C>();
 		return res;
 	}
+	template <VectorType Vec> constexpr Vec Tiny() noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Tiny<C>();
+		if constexpr (vt::dimension > 1) vec(res).y = Tiny<C>();
+		if constexpr (vt::dimension > 2) vec(res).z = Tiny<C>();
+		if constexpr (vt::dimension > 3) vec(res).w = Tiny<C>();
+		return res;
+	}
+	template <VectorType Vec> constexpr Vec Lowest() noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Lowest<C>();
+		if constexpr (vt::dimension > 1) vec(res).y = Lowest<C>();
+		if constexpr (vt::dimension > 2) vec(res).z = Lowest<C>();
+		if constexpr (vt::dimension > 3) vec(res).w = Lowest<C>();
+		return res;
+	}
 	template <VectorType Vec> constexpr Vec Infinity() noexcept
 	{
 		using vt = vector_traits<Vec>;
@@ -512,7 +544,7 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = Epsilon<C>();
 		return res;
 	}
-	template <VectorType Vec> requires (IsRank1<Vec>&& vector_traits<Vec>::dimension >= 1) constexpr Vec XAxis() noexcept
+	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 1) constexpr Vec XAxis() noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -524,7 +556,7 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = S(0);
 		return res;
 	}
-	template <VectorType Vec> requires (IsRank1<Vec>&& vector_traits<Vec>::dimension >= 2) constexpr Vec YAxis() noexcept
+	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 2) constexpr Vec YAxis() noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -536,7 +568,7 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = S(0);
 		return res;
 	}
-	template <VectorType Vec> requires (IsRank1<Vec>&& vector_traits<Vec>::dimension >= 3) constexpr Vec ZAxis() noexcept
+	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 3) constexpr Vec ZAxis() noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -548,7 +580,7 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = S(0);
 		return res;
 	}
-	template <VectorType Vec> requires (IsRank1<Vec>&& vector_traits<Vec>::dimension >= 4) constexpr Vec WAxis() noexcept
+	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 4) constexpr Vec WAxis() noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -560,7 +592,7 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = S(1);
 		return res;
 	}
-	template <VectorType Vec> requires (IsRank1<Vec>&& vector_traits<Vec>::dimension >= 4) constexpr Vec Origin() noexcept
+	template <VectorType Vec> requires (IsRank1<Vec>) constexpr Vec Origin() noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -775,13 +807,75 @@ namespace pr::math
 	}
 
 	// Square/Signed Square
-	template <ScalarType S> constexpr S Square(S x) noexcept
+	template <ScalarType S> constexpr S Sqr(S x) noexcept
 	{
+		if constexpr (std::is_same_v<S, int8_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xB);
+		if constexpr (std::is_same_v<S, uint8_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xF);
+		if constexpr (std::is_same_v<S, int16_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xB5);
+		if constexpr (std::is_same_v<S, uint16_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xFF);
+		if constexpr (std::is_same_v<S, int32_t> || std::is_same_v<S, long>)
+			pr_assert("Overflow" && Abs(x) <= 0xB504);
+		if constexpr (std::is_same_v<S, uint32_t> || std::is_same_v<S, unsigned long>)
+			pr_assert("Overflow" && Abs(x) <= 0xFFFFU);
+		if constexpr (std::is_same_v<S, int64_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xB504F333LL);
+		if constexpr (std::is_same_v<S, uint64_t>)
+			pr_assert("Overflow" && Abs(x) <= 0xFFFFFFFFULL);
+
 		return x * x;
 	}
+	template <VectorType Vec> constexpr Vec pr_vectorcall Sqr(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Sqr(vec(v).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Sqr(vec(v).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Sqr(vec(v).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Sqr(vec(v).w);
+		return res;
+	}
+
+	// Cube a value
+	template <ScalarType S> constexpr S Cube(S x) noexcept
+	{
+		if constexpr (std::is_same_v<S, int8_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x5);
+		if constexpr (std::is_same_v<S, uint8_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x6);
+		if constexpr (std::is_same_v<S, int16_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x1F);
+		if constexpr (std::is_same_v<S, uint16_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x28);
+		if constexpr (std::is_same_v<S, int32_t> || std::is_same_v<S, long>)
+			pr_assert("Overflow" && Abs(x) <= 0x50A);
+		if constexpr (std::is_same_v<S, uint32_t> || std::is_same_v<S, unsigned long>)
+			pr_assert("Overflow" && Abs(x) <= 0x659U);
+		if constexpr (std::is_same_v<S, int64_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x1FFFFFLL);
+		if constexpr (std::is_same_v<S, uint64_t>)
+			pr_assert("Overflow" && Abs(x) <= 0x285145ULL);
+
+		return x * x * x;
+	}
+	template <VectorType Vec> constexpr Vec pr_vectorcall Cube(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Cube(vec(v).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Cube(vec(v).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Cube(vec(v).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Cube(vec(v).w);
+		return res;
+	}
+
+	// Signed square
 	template <ScalarType S> constexpr S SignedSqr(S x) noexcept
 	{
-		return x >= S() ? +Square(x) : -Square(x);
+		return x >= S() ? +Sqr(x) : -Sqr(x);
 	}
 	template <TensorType Vec> constexpr Vec pr_vectorcall SignedSqr(Vec v) noexcept
 	{
@@ -1368,72 +1462,6 @@ namespace pr::math
 		if constexpr (vt::dimension > 1) vec(res).y = Frac(vec(v).y);
 		if constexpr (vt::dimension > 2) vec(res).z = Frac(vec(v).z);
 		if constexpr (vt::dimension > 3) vec(res).w = Frac(vec(v).w);
-		return res;
-	}
-
-	// Square a value
-	template <ScalarType S> constexpr S Sqr(S x) noexcept
-	{
-		if constexpr (std::is_same_v<S, int8_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xB);
-		if constexpr (std::is_same_v<S, uint8_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xF);
-		if constexpr (std::is_same_v<S, int16_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xB5);
-		if constexpr (std::is_same_v<S, uint16_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xFF);
-		if constexpr (std::is_same_v<S, int32_t> || std::is_same_v<S, long>)
-			pr_assert("Overflow" && Abs(x) <= 0xB504);
-		if constexpr (std::is_same_v<S, uint32_t> || std::is_same_v<S, unsigned long>)
-			pr_assert("Overflow" && Abs(x) <= 0xFFFFU);
-		if constexpr (std::is_same_v<S, int64_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xB504F333LL);
-		if constexpr (std::is_same_v<S, uint64_t>)
-			pr_assert("Overflow" && Abs(x) <= 0xFFFFFFFFULL);
-
-		return x * x;
-	}
-	template <VectorType Vec> constexpr Vec pr_vectorcall Sqr(Vec v) noexcept
-	{
-		using vt = vector_traits<Vec>;
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = Sqr(vec(v).x);
-		if constexpr (vt::dimension > 1) vec(res).y = Sqr(vec(v).y);
-		if constexpr (vt::dimension > 2) vec(res).z = Sqr(vec(v).z);
-		if constexpr (vt::dimension > 3) vec(res).w = Sqr(vec(v).w);
-		return res;
-	}
-
-	// Cube a value
-	template <ScalarType S> constexpr S Cube(S x) noexcept
-	{
-		if constexpr (std::is_same_v<S, int8_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x5);
-		if constexpr (std::is_same_v<S, uint8_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x6);
-		if constexpr (std::is_same_v<S, int16_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x1F);
-		if constexpr (std::is_same_v<S, uint16_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x28);
-		if constexpr (std::is_same_v<S, int32_t> || std::is_same_v<S, long>)
-			pr_assert("Overflow" && Abs(x) <= 0x50A);
-		if constexpr (std::is_same_v<S, uint32_t> || std::is_same_v<S, unsigned long>)
-			pr_assert("Overflow" && Abs(x) <= 0x659U);
-		if constexpr (std::is_same_v<S, int64_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x1FFFFFLL);
-		if constexpr (std::is_same_v<S, uint64_t>)
-			pr_assert("Overflow" && Abs(x) <= 0x285145ULL);
-
-		return x * x * x;
-	}
-	template <VectorType Vec> constexpr Vec pr_vectorcall Cube(Vec v) noexcept
-	{
-		using vt = vector_traits<Vec>;
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = Cube(vec(v).x);
-		if constexpr (vt::dimension > 1) vec(res).y = Cube(vec(v).y);
-		if constexpr (vt::dimension > 2) vec(res).z = Cube(vec(v).z);
-		if constexpr (vt::dimension > 3) vec(res).w = Cube(vec(v).w);
 		return res;
 	}
 
@@ -2090,6 +2118,20 @@ namespace pr::math
 	{
 		using S = typename vector_traits<Vec>::element_t;
 		return Sqrt<S>(LengthSq(v));
+	}
+
+	// Length of a list of parameters
+	template <typename T, typename... A> constexpr T Len(T x, A&&... a) noexcept
+	{
+		if constexpr (sizeof...(A) == 0)
+		{
+			return Abs(x);
+		}
+		else
+		{
+			auto rest = Len(std::forward<A>(a)...);
+			return Sqrt(Sqr(x) + Sqr(rest));
+		}
 	}
 
 	// Return the trace of this matrix, 

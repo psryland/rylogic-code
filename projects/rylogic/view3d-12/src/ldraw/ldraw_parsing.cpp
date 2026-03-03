@@ -1249,7 +1249,7 @@ namespace pr::rdr12::ldraw
 						}
 						default:
 						{
-							pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *DataPoints", EKeyword_::ToStringA(kw)));
+							pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Arrow", EKeyword_::ToStringA(kw)));
 							break;
 						}
 					}
@@ -5129,7 +5129,7 @@ namespace pr::rdr12::ldraw
 			// Update object colour, visibility, etc
 			ApplyObjectState(&ob);
 		}
-		static void LinePlot(Model& model, BBox_cref range, eval::Expression const& equation, Extras const& extras, bool init)
+		static void LinePlot(Model& model, BBox range, eval::Expression const& equation, Extras const& extras, bool init)
 		{
 			// Notes:
 			//  - 'range' is the independent variable range. For line plots, only 'x' is used
@@ -5187,7 +5187,7 @@ namespace pr::rdr12::ldraw
 				model.CreateNugget(factory, n);
 			}
 		}
-		static void SurfacePlot(Model& model, BBox_cref range, eval::Expression const& equation, Extras const& extras, bool init)
+		static void SurfacePlot(Model& model, BBox range, eval::Expression const& equation, Extras const& extras, bool init)
 		{
 			// Notes:
 			//  - 'range' is the independent variable range. For surface plots, 'x' and 'y' are used.
@@ -5217,7 +5217,7 @@ namespace pr::rdr12::ldraw
 			auto iout = update_i.ptr<uint32_t>();
 
 			auto props = geometry::HexPatch(rings,
-				[&](v4_cref pos, Colour32, v4_cref, v2_cref)
+				[&](v4 pos, Colour32, v4, v2)
 				{
 					// Evaluate the function at points around the focus point, but shift them back
 					// so the focus point is centred around (0,0,0), then set the o2w transform
@@ -5259,7 +5259,7 @@ namespace pr::rdr12::ldraw
 				model.CreateNugget(factory, NuggetDesc(ETopo::TriStrip, props.m_geom).vrange(Range(0, nv)).irange(Range(0, ni)).alpha_geom(extras.has_alpha()));
 			}
 		}
-		static void CloudPlot(Model& model, BBox_cref range, eval::Expression const& equation, Extras const& extras, bool init)
+		static void CloudPlot(Model& model, BBox range, eval::Expression const& equation, Extras const& extras, bool init)
 		{
 			(void)model, range, equation, extras, init;
 			throw std::runtime_error("Plots of 3 independent variables are not supported");

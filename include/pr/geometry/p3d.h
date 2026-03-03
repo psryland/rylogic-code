@@ -18,7 +18,6 @@
 #include "pr/common/compress.h"
 #include "pr/common/range.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/half.h"
 #include "pr/gfx/colour.h"
 #include "pr/geometry/common.h"
 #include "pr/geometry/index_buffer.h"
@@ -319,7 +318,7 @@ namespace pr::geometry::p3d
 		v2     pad;
 
 		FatVert() = default;
-		FatVert(v4_cref p, Colour_cref c, v4_cref n, v2_cref t)
+		FatVert(v4 p, Colour c, v4 n, v2 t)
 			: m_vert(p)
 			, m_diff(c)
 			, m_norm(n)
@@ -600,7 +599,7 @@ namespace pr::geometry::p3d
 			,m_tex0()
 			,m_nugget()
 			,m_bbox(BBox::Reset())
-			,m_o2p(m4x4Identity)
+			,m_o2p(m4x4::Identity())
 		{}
 
 		// The length of the vertex buffer
@@ -1180,7 +1179,7 @@ namespace pr::geometry::p3d
 	// Write a mesh to parent transform to 'out'
 	template <typename TOut> uint32_t WriteMeshTransform(TOut& out, m4x4 const& o2p)
 	{
-		if (o2p == m4x4Identity)
+		if (o2p == m4x4::Identity())
 			return 0;
 
 		ChunkHeader hdr(EChunkId::MeshTransform, sizeof(m4x4));
@@ -1866,7 +1865,7 @@ namespace pr::geometry::p3d
 			}
 		case EVertFormat::Verts16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(half4{p[0], p[1], p[2], 1.0_hf}); });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{p[0], p[1], p[2], 1.0_hf}); });
 				break;
 			}
 		default:
@@ -1953,7 +1952,7 @@ namespace pr::geometry::p3d
 			}
 		case ENormFormat::Norms16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(half4{p[0], p[1], p[2], 0.0_hf}); });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{p[0], p[1], p[2], 0.0_hf}); });
 				break;
 			}
 		case ENormFormat::NormsPack32:
@@ -1997,17 +1996,17 @@ namespace pr::geometry::p3d
 		auto ptr = cont.data();
 		switch (fmt)
 		{
-		case EUVFormat::UVs32Bit:
+			case EUVFormat::UVs32Bit:
 			{
-				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v2{p[0], p[1]}; });
+				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v2{ p[0], p[1] }; });
 				break;
 			}
-		case EUVFormat::UVs16Bit:
+			case EUVFormat::UVs16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(half4{p[0], p[1], 0.0_hf, 0.0_hf}).xy; });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{ p[0], p[1], 0.0_hf, 0.0_hf }).xy; });
 				break;
 			}
-		default:
+			default:
 			{
 				throw std::runtime_error("Unsupported mesh UV format");
 			}
@@ -2123,24 +2122,24 @@ namespace pr::geometry::p3d
 
 		// Read the child chunks
 		Find(src, len, [&](ChunkHeader hdr, TSrc& src)
+		{
+			switch (hdr.m_id)
 			{
-				switch (hdr.m_id)
-				{
 				case EChunkId::MeshMatId:
-					{
-						// Read the material id
-						auto id = ReadStr(src, hdr.payload());
-						nugget.m_mat = id;
-						break;
-					}
-				case EChunkId::MeshVIdx:
-					{
-						nugget.m_vidx = ReadIndices(src, hdr.payload());
-						break;
-					}
+				{
+					// Read the material id
+					auto id = ReadStr(src, hdr.payload());
+					nugget.m_mat = id;
+					break;
 				}
-				return false;
-			});
+				case EChunkId::MeshVIdx:
+				{
+					nugget.m_vidx = ReadIndices(src, hdr.payload());
+					break;
+				}
+			}
+			return false;
+		});
 
 		return nugget;
 	}
@@ -2150,58 +2149,58 @@ namespace pr::geometry::p3d
 	{
 		Mesh mesh;
 		Find(src, len, [&](ChunkHeader hdr, TSrc& src)
+		{
+			switch (hdr.m_id)
 			{
-				switch (hdr.m_id)
-				{
 				case EChunkId::MeshName:
-					{
-						mesh.m_name = ReadStr(src, hdr.payload());
-						break;
-					}
-				case EChunkId::MeshBBox:
-					{
-						mesh.m_bbox = Read<BBox>(src);
-						break;
-					}
-				case EChunkId::MeshTransform:
-					{
-						mesh.m_o2p = Read<m4x4>(src);
-						break;
-					}
-				case EChunkId::MeshVerts:
-					{
-						mesh.m_vert = ReadMeshVerts(src, hdr.payload());
-						break;
-					}
-				case EChunkId::MeshColours:
-					{
-						mesh.m_diff = ReadMeshColours(src, hdr.payload());
-						break;
-					}
-				case EChunkId::MeshNorms:
-					{
-						mesh.m_norm = ReadMeshNorms(src, hdr.payload());
-						break;
-					}
-				case EChunkId::MeshUVs:
-					{
-						mesh.m_tex0 = ReadMeshUVs(src, hdr.payload());
-						break;
-					}
-				case EChunkId::MeshNugget:
-					{
-						mesh.m_nugget.emplace_back(ReadMeshNugget(src, hdr.payload()));
-						break;
-					}
-				case EChunkId::Mesh:
-					{
-						auto child = ReadMesh(src, hdr.payload());
-						mesh.m_children.emplace_back(std::move(child));
-						break;
-					}
+				{
+					mesh.m_name = ReadStr(src, hdr.payload());
+					break;
 				}
-				return false;
-			});
+				case EChunkId::MeshBBox:
+				{
+					mesh.m_bbox = Read<BBox>(src);
+					break;
+				}
+				case EChunkId::MeshTransform:
+				{
+					mesh.m_o2p = Read<m4x4>(src);
+					break;
+				}
+				case EChunkId::MeshVerts:
+				{
+					mesh.m_vert = ReadMeshVerts(src, hdr.payload());
+					break;
+				}
+				case EChunkId::MeshColours:
+				{
+					mesh.m_diff = ReadMeshColours(src, hdr.payload());
+					break;
+				}
+				case EChunkId::MeshNorms:
+				{
+					mesh.m_norm = ReadMeshNorms(src, hdr.payload());
+					break;
+				}
+				case EChunkId::MeshUVs:
+				{
+					mesh.m_tex0 = ReadMeshUVs(src, hdr.payload());
+					break;
+				}
+				case EChunkId::MeshNugget:
+				{
+					mesh.m_nugget.emplace_back(ReadMeshNugget(src, hdr.payload()));
+					break;
+				}
+				case EChunkId::Mesh:
+				{
+					auto child = ReadMesh(src, hdr.payload());
+					mesh.m_children.emplace_back(std::move(child));
+					break;
+				}
+			}
+			return false;
+		});
 		return mesh;
 	}
 
@@ -2210,15 +2209,15 @@ namespace pr::geometry::p3d
 	{
 		MatCont mats;
 		Find(src, len, [&](ChunkHeader hdr, TSrc& src)
+		{
+			switch (hdr.m_id)
 			{
-				switch (hdr.m_id)
-				{
 				case EChunkId::Material:
 					mats.emplace_back(ReadMaterial(src, hdr.payload()));
 					break;
-				}
-				return false;
-			});
+			}
+			return false;
+		});
 		return mats;
 	}
 
@@ -2227,15 +2226,15 @@ namespace pr::geometry::p3d
 	{
 		MeshCont meshes;
 		Find(src, len, [&](ChunkHeader hdr, TSrc& src)
+		{
+			switch (hdr.m_id)
 			{
-				switch (hdr.m_id)
-				{
 				case EChunkId::Mesh:
 					meshes.emplace_back(ReadMesh(src, hdr.payload()));
 					break;
-				}
-				return false;
-			});
+			}
+			return false;
+		});
 		return meshes;
 	}
 
@@ -2432,7 +2431,7 @@ namespace pr::geometry::p3d
 	// Write the p3d file as ldr script
 	template <typename TOut> void WriteAsScript(TOut& out, File const& file, char const* indent = "")
 	{
-		auto ind = std::string{indent};
+		auto ind = std::string{ indent };
 
 		out << ind << "*Group {\n";
 		ind.push_back('\t');
@@ -2517,11 +2516,11 @@ namespace pr::geometry::p3d
 			{
 				switch (nug.m_topo)
 				{
-				case ETopo::LineList:  out << ind << "*LineList {\n"; break;
-				case ETopo::LineStrip: out << ind << "*LineStrip {\n"; break;
-				case ETopo::TriList:   out << ind << "*TriList {\n"; break;
-				case ETopo::TriStrip:  out << ind << "*TriStrip {\n"; break;
-				default: throw std::runtime_error("Unsupported topology type");
+					case ETopo::LineList:  out << ind << "*LineList {\n"; break;
+					case ETopo::LineStrip: out << ind << "*LineStrip {\n"; break;
+					case ETopo::TriList:   out << ind << "*TriList {\n"; break;
+					case ETopo::TriStrip:  out << ind << "*TriStrip {\n"; break;
+					default: throw std::runtime_error("Unsupported topology type");
 				}
 				ind.push_back('\t');
 
@@ -2574,11 +2573,11 @@ namespace pr::geometry
 			tex.m_addr_mode = Texture::EAddrMode::Wrap;
 			tex.m_flags = Texture::EFlags::None;
 
-			Material mat{"mat01", ColourWhite};
+			Material mat{ "mat01", ColourWhite };
 			mat.m_textures.push_back(tex);
 
-			p3d::Mesh mesh{"tri"};
-			mesh.m_bbox = BBox{v4Origin, v4{1, 3, 0, 0}};
+			p3d::Mesh mesh{ "tri" };
+			mesh.m_bbox = BBox{ v4Origin, v4{1, 3, 0, 0} };
 			mesh.m_vert.assign({
 				v4{-1, -1, 0, 1},
 				v4{+1, -1, 0, 1},
@@ -2598,8 +2597,8 @@ namespace pr::geometry
 				v2{1.0f, 1.0f},
 				});
 
-			Nugget nug{ETopo::TriList, EGeom::All, "mat01", sizeof(uint16_t)};
-			nug.m_vidx.append<uint16_t>({0, 1, 2});
+			Nugget nug{ ETopo::TriList, EGeom::All, "mat01", sizeof(uint16_t) };
+			nug.m_vidx.append<uint16_t>({ 0, 1, 2 });
 			mesh.m_nugget.emplace_back(std::move(nug));
 
 			file.m_version = Version;
@@ -2721,9 +2720,9 @@ namespace pr::geometry
 
 		// IdxBuf iteration test
 		{
-			IdxBuf vidx{sizeof(uint16_t)};
-			vidx.append<uint16_t>({0, 1, 2, 3});
-			
+			IdxBuf vidx{ sizeof(uint16_t) };
+			vidx.append<uint16_t>({ 0, 1, 2, 3 });
+
 			int i = 0;
 			for (auto j : vidx.span_as<short>())
 				PR_EXPECT(j == (short)i++);
@@ -2732,7 +2731,7 @@ namespace pr::geometry
 		// Fat vertex iteration
 		{
 			auto const& mesh = file.m_scene.m_meshes[0];
-			
+
 			std::vector<FatVert> fat;
 			for (auto const& v : mesh.fat_verts())
 				fat.push_back(v);

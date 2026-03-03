@@ -70,7 +70,7 @@ namespace pr
 	inline constexpr m2x2 m2x2Epsilon  = m2x2{+v2Epsilon, +v2Epsilon};
 
 	inline constexpr m3x4 m3x4Zero     = m3x4{v4Zero, v4Zero, v4Zero};
-	inline constexpr m3x4 m3x4Identity = m3x4{v4XAxis, v4YAxis, v4ZAxis};
+	inline constexpr m3x4 m3x4Identity = m3x4{v4::XAxis(), v4::YAxis(), v4::ZAxis()};
 	inline constexpr m3x4 m3x4One      = m3x4{v4One, v4One, v4One};
 	inline constexpr m3x4 m3x4Min      = m3x4{+v4Min, +v4Min, +v4Min};
 	inline constexpr m3x4 m3x4Max      = m3x4{+v4Max, +v4Max, +v4Max};
@@ -78,7 +78,7 @@ namespace pr
 	inline constexpr m3x4 m3x4Epsilon  = m3x4{+v4Epsilon, +v4Epsilon, +v4Epsilon};
 
 	inline constexpr m4x4 m4x4Zero     = m4x4{v4Zero, v4Zero, v4Zero, v4Zero};
-	inline constexpr m4x4 m4x4Identity = m4x4{v4XAxis, v4YAxis, v4ZAxis, v4Origin};
+	inline constexpr m4x4 m4x4Identity = m4x4{v4::XAxis(), v4::YAxis(), v4::ZAxis(), v4Origin};
 	inline constexpr m4x4 m4x4One      = m4x4{v4One, v4One, v4One, v4One};
 	inline constexpr m4x4 m4x4Min      = m4x4{+v4Min, +v4Min, +v4Min, +v4Min};
 	inline constexpr m4x4 m4x4Max      = m4x4{+v4Max, +v4Max, +v4Max, +v4Max};

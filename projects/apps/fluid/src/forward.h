@@ -16,8 +16,6 @@
 #include "pr/common/resource.h"
 #include "pr/common/bit_fields.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/stat.h"
-#include "pr/maths/conversion.h"
 #include "pr/container/vector.h"
 #include "pr/container/kdtree.h"
 #include "pr/camera/camera.h"

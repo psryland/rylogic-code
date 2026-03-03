@@ -265,7 +265,7 @@ namespace pr
 		// 's' and 'd' must be in frustum space where the frustum apex is at (0,0,0) and grows down the -z axis. (i.e. camera space).
 		// 'accumulative' means 't0' and 't1' are expected to be initialised already, otherwise they are initialised to an infinite line.
 		// Returns the parametric values 't0' and 't1' and true if t0 < t1 i.e. some of the line is within the frustum.
-		bool pr_vectorcall clip(v4_cref s, v4_cref d, bool accumulative, float& t0, float& t1, bool include_zfar) const
+		bool pr_vectorcall clip(v4 s, v4 d, bool accumulative, float& t0, float& t1, bool include_zfar) const
 		{
 			// Frustum stores the clip planes such that the far plane is actually at (0,0,0) and the apex is at zfar along the +Z axis.
 			// Shift 's' and 'd' by 'zfar' so that callers can treat the frustum apex as if it was at (0,0,0).
@@ -408,7 +408,7 @@ namespace pr
 
 	// Return true if any part of a point, box, or sphere is within 'frustum'.
 	// Use 'zf == 0' to use the frustum's far plane, or 'zf == -1' to ignore the far plane.
-	inline bool pr_vectorcall IsWithin(Frustum const& frustum, v4_cref point, float radius, v2 nf = v2Zero)
+	inline bool pr_vectorcall IsWithin(Frustum const& frustum, v4 point, float radius, v2 nf = v2Zero)
 	{
 		auto pt = point;
 		auto frustum_apex = 0.0f;
@@ -451,12 +451,12 @@ namespace pr
 		// If all dot products are >= 0 then some part of the sphere is within the frustum
 		return dots == Abs(dots); 
 	}
-	inline bool pr_vectorcall IsWithin(Frustum const& frustum, BSphere_cref bsphere, v2 nf = v2Zero)
+	inline bool pr_vectorcall IsWithin(Frustum const& frustum, BSphere bsphere, v2 nf = v2Zero)
 	{
 		pr_assert(bsphere.valid() && "Invalid bsphere used in 'IsWithin' test against frustum");
 		return IsWithin(frustum, bsphere.Centre(), bsphere.Radius(), nf);
 	}
-	inline bool pr_vectorcall IsWithin(Frustum const& frustum, BBox_cref bbox, v2 nf = v2Zero)
+	inline bool pr_vectorcall IsWithin(Frustum const& frustum, BBox bbox, v2 nf = v2Zero)
 	{
 		pr_assert(bbox.valid() && "Invalid bbox used in 'IsWithin' test against frustum");
 
@@ -505,7 +505,7 @@ namespace pr
 	}
 
 	// Grow a frustum (i.e. move it along +f2w.Z growing zfar while preserving fov/aspect) so that 'ws_pt','ws_bbox', or 'ws_sphere' are within the frustum.
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, v4_cref ws_pt, float radius)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, v4 ws_pt, float radius)
 	{
 		// By similar triangles:
 		//   zfar1 / zfar0 = (n.w + Dot(n,pt)) / n.w
@@ -557,12 +557,12 @@ namespace pr
 		nf.x = Min(nf.x + dzfar, frustum_zfar - (pt.z + radius));
 		nf.y = Max(nf.y + dzfar, frustum_zfar - (pt.z - radius));
 	}
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, BSphere_cref ws_bsphere)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, BSphere ws_bsphere)
 	{
 		pr_assert(!frustum.orthographic() && "No amount of shifting along z can change what is within an orthographic frustum");
 		return Grow(frustum, f2w, nf, ws_bsphere.Centre(), ws_bsphere.Radius());
 	}
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, BBox_cref ws_bbox)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v2& nf, BBox ws_bbox)
 	{
 		pr_assert(!frustum.orthographic() && "No amount of shifting along z can change what is within an orthographic frustum");
 
@@ -573,7 +573,7 @@ namespace pr
 		bbox.m_centre.z += frustum_zfar;
 		
 		// If 'pt' is beyond the far plane, extend the far plane
-		auto pt = SupportPoint(bbox, -v4ZAxis);
+		auto pt = SupportPoint(bbox, -v4::ZAxis());
 		if (pt.z < 0)
 		{
 			frustum_zfar -= pt.z;
@@ -605,17 +605,17 @@ namespace pr
 		nf.x = Min(nf.x + dzfar, frustum_zfar - bbox.UpperZ());
 		nf.y = Max(nf.y + dzfar, frustum_zfar - bbox.LowerZ());
 	}
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v4_cref ws_pt, float radius)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, v4 ws_pt, float radius)
 	{
 		auto nf = v2Zero;
 		Grow(frustum, f2w, nf, ws_pt, radius);
 	}
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, BSphere_cref ws_bsphere)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, BSphere ws_bsphere)
 	{
 		auto nf = v2Zero;
 		Grow(frustum, f2w, nf, ws_bsphere);
 	}
-	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, BBox_cref ws_bbox)
+	inline void pr_vectorcall Grow(Frustum& frustum, m4x4& f2w, BBox ws_bbox)
 	{
 		auto nf = v2Zero;
 		Grow(frustum, f2w, nf, ws_bbox);

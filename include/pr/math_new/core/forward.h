@@ -14,6 +14,7 @@
 #include <random>
 #include <algorithm>
 #include <numeric>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>

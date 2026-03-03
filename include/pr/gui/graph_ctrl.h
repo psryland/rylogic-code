@@ -15,7 +15,6 @@
 #include "pr/common/event_handler.h"
 #include "pr/common/range.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/stat.h"
 #include "pr/gui/gdiplus.h"
 #include "pr/gui/context_menu.h"
 #include "pr/gui/wingui.h"

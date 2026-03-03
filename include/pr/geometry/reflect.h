@@ -10,7 +10,7 @@
 namespace pr
 {
 	// Reflect a direction vector through a plane
-	inline v4 pr_vectorcall Reflect_Direction(v4_cref plane, v4_cref direction)
+	inline v4 pr_vectorcall Reflect_Direction(v4 plane, v4 direction)
 	{
 		return direction - 2 * Dot(plane, direction) * plane.w0();
 	}
@@ -18,7 +18,7 @@ namespace pr
 	//TODO
 	/*
 	// Clip a line segment against a plane
-	inline float pr_vectorcall Clip_LineToPlane(v4_cref plane, v4_cref point, v4_cref direction)
+	inline float pr_vectorcall Clip_LineToPlane(v4 plane, v4 point, v4 direction)
 	{
 		auto d = Dot(plane, direction);
 		if (d == 0.0f) return 0.0f;
@@ -30,7 +30,7 @@ namespace pr
 	//// Reflect a ray (of length 't') off a plane ('t' is an in/out parameter).
 	//// Returns true if the ray intersects the plane. On return, 't' is the distance from the
 	//// initial position to the intercept. Rays that point out of the plane do not reflect.
-	//inline bool pr_vectorcall Reflect_RayToPlane(v4_cref plane, v4_cref point, v4_cref direction, float& t)
+	//inline bool pr_vectorcall Reflect_RayToPlane(v4 plane, v4 point, v4 direction, float& t)
 	//{
 	//	assert(point.w == 1.0f);
 	//	assert(direction.w == 0.0f);
@@ -64,7 +64,7 @@ namespace pr
 	// Reflect 'ray' (of length 'length') off a collection of planes, to calculate the final position.
 	// Returns the final position (equivalent to point travelling a distance of 'distance')
 	// and the direction that the ray is travelling at the final position.
-	inline bool pr_vectorcall Reflect_RayToPlanes(std::span<v4 const> planes, v4_cref point, v4_cref direction, float length, v4& out_position, v4& out_direction)
+	inline bool pr_vectorcall Reflect_RayToPlanes(std::span<v4 const> planes, v4 point, v4 direction, float length, v4& out_position, v4& out_direction)
 	{
 		out_position = point;
 		out_direction = direction;

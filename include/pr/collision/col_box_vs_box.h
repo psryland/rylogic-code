@@ -13,7 +13,7 @@ namespace pr::collision
 {
 	// Test for overlap between two oriented boxes, with generic penetration collection
 	template <typename Penetration>
-	void pr_vectorcall BoxVsBox(Shape const& lhs_, m4_cref l2w_, Shape const& rhs_, m4_cref r2w_, Penetration& pen)
+	void pr_vectorcall BoxVsBox(Shape const& lhs_, m4x4 const& l2w_, Shape const& rhs_, m4x4 const& r2w_, Penetration& pen)
 	{
 		auto& lhs = shape_cast<ShapeBox>(lhs_);
 		auto& rhs = shape_cast<ShapeBox>(rhs_);
@@ -28,7 +28,7 @@ namespace pr::collision
 		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tinyf);
 
 		// Lambda for returning a separating axis with the correct sign
-		auto sep_axis = [&](v4_cref sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
+		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
 
 		float ra, rb, sp;
 
@@ -117,7 +117,7 @@ namespace pr::collision
 	}
 
 	// Returns true if orientated boxes 'lhs' and 'rhs' are intersecting.
-	inline bool pr_vectorcall BoxVsBox(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w)
+	inline bool pr_vectorcall BoxVsBox(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w)
 	{
 		TestPenetration p;
 		BoxVsBox(lhs, l2w, rhs, r2w, p);
@@ -125,7 +125,7 @@ namespace pr::collision
 	}
 
 	// Returns true if 'lhs' and 'rhs' are intersecting.
-	inline bool pr_vectorcall BoxVsBox(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& contact)
+	inline bool pr_vectorcall BoxVsBox(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
 	{
 		ContactPenetration p;
 		BoxVsBox(lhs, l2w, rhs, r2w, p);

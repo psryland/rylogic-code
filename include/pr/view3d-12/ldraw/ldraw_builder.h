@@ -324,11 +324,11 @@ namespace pr::rdr12::ldraw
 			{
 				return o2w(m4x4::Translation(x, y, z));
 			}
-			Derived& pos(v4_cref pos)
+			Derived& pos(v4 pos)
 			{
 				return o2w(m4x4::Translation(pos));
 			}
-			Derived& pos(v3_cref pos)
+			Derived& pos(v3 pos)
 			{
 				return this->pos(pos.w1());
 			}
@@ -340,7 +340,7 @@ namespace pr::rdr12::ldraw
 			{
 				return ori(m3x4::Scale(sx, sy, sz));
 			}
-			Derived& scale(v4_cref scale)
+			Derived& scale(v4 scale)
 			{
 				return ori(m3x4::Scale(scale.x, scale.y, scale.z));
 			}
@@ -551,13 +551,13 @@ namespace pr::rdr12::ldraw
 			{}
 
 			// Points
-			LdrPoint& pt(v4_cref point, std::optional<Colour32> colour = {})
+			LdrPoint& pt(v4 point, std::optional<Colour32> colour = {})
 			{
 				m_points.push_back({ point, colour ? *colour : Colour32White });
 				if (colour) m_per_item_colour = true;
 				return *this;
 			}
-			LdrPoint& pt(v3_cref point, std::optional<Colour32> colour = {})
+			LdrPoint& pt(v3 point, std::optional<Colour32> colour = {})
 			{
 				return pt(point.w1(), colour);
 			}
@@ -672,7 +672,7 @@ namespace pr::rdr12::ldraw
 				return *this;
 			}
 
-			LdrLine& line(v4_cref a, v4_cref b, std::optional<Colour32> colour = {})
+			LdrLine& line(v4 a, v4 b, std::optional<Colour32> colour = {})
 			{
 				// Don't overwrite style here, it could be direction or segments
 				m_current.m_lines.push_back({ a, b, colour ? *colour : Colour32White });
@@ -680,7 +680,7 @@ namespace pr::rdr12::ldraw
 				m_current.m_strip.clear();
 				return *this;
 			}
-			LdrLine& line(v3_cref a, v3_cref b, std::optional<Colour32> colour = {})
+			LdrLine& line(v3 a, v3 b, std::optional<Colour32> colour = {})
 			{
 				return line(a.w1(), b.w1(), colour);
 			}
@@ -693,23 +693,23 @@ namespace pr::rdr12::ldraw
 				return *this;
 			}
 
-			LdrLine& strip(v4_cref start, std::optional<Colour32> colour = {})
+			LdrLine& strip(v4 start, std::optional<Colour32> colour = {})
 			{
 				m_current.m_strip.push_back({ start, colour ? *colour : Colour32White });
 				if (colour) m_current.m_per_item_colour = true;
 				m_current.m_lines.clear();
 				return *this;
 			}
-			LdrLine& strip(v3_cref start, std::optional<Colour32> colour = {})
+			LdrLine& strip(v3 start, std::optional<Colour32> colour = {})
 			{
 				return strip(start.w1(), colour);
 			}
-			LdrLine& line_to(v4_cref pt, std::optional<Colour32> colour = {})
+			LdrLine& line_to(v4 pt, std::optional<Colour32> colour = {})
 			{
 				if (m_current.m_strip.empty()) strip(pt, colour);
 				return strip(pt, colour);
 			}
-			LdrLine& line_to(v3_cref pt, std::optional<Colour32> colour = {})
+			LdrLine& line_to(v3 pt, std::optional<Colour32> colour = {})
 			{
 				return strip(pt.w1(), colour);
 			}
@@ -798,14 +798,14 @@ namespace pr::rdr12::ldraw
 				, m_per_item_colour()
 			{}
 
-			LdrTriangle& tri(v4_cref a, v4_cref b, v4_cref c, Colour32 colour)
+			LdrTriangle& tri(v4 a, v4 b, v4 c, Colour32 colour)
 			{
 				tri(a, b, c);
 				m_tris.back().col = colour;
 				m_per_item_colour = true;
 				return *this;
 			}
-			LdrTriangle& tri(v4_cref a, v4_cref b, v4_cref c)
+			LdrTriangle& tri(v4 a, v4 b, v4 c)
 			{
 				m_tris.push_back({ a, b, c });
 				return *this;
@@ -848,7 +848,7 @@ namespace pr::rdr12::ldraw
 				, m_tex()
 			{}
 
-			LdrPlane& plane(v4_cref p)
+			LdrPlane& plane(v4 p)
 			{
 				pos((p.xyz * -p.w).w1());
 				ori(Normalise(p.xyz.w0()), pr::AxisId::PosZ);
@@ -859,7 +859,7 @@ namespace pr::rdr12::ldraw
 				m_wh = { width, height };
 				return *this;
 			}
-			LdrPlane& wh(v2_cref wh)
+			LdrPlane& wh(v2 wh)
 			{
 				m_wh = wh;
 				return *this;
@@ -927,7 +927,7 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Create from bounding sphere
-			LdrSphere& bsphere(BSphere_cref bsphere)
+			LdrSphere& bsphere(BSphere bsphere)
 			{
 				if (bsphere == BSphere::Reset()) return *this;
 				return radius(bsphere.Radius()).pos(bsphere.Centre());
@@ -957,7 +957,7 @@ namespace pr::rdr12::ldraw
 			{
 				return dim(radii * 2);
 			}
-			LdrBox& radii(v4_cref radii)
+			LdrBox& radii(v4 radii)
 			{
 				return dim(radii * 2);
 			}
@@ -966,7 +966,7 @@ namespace pr::rdr12::ldraw
 				m_dim = v4{dim, dim, dim, 0};
 				return *this;
 			}
-			LdrBox& dim(v4_cref dim)
+			LdrBox& dim(v4 dim)
 			{
 				m_dim = v4(dim.x, dim.y, dim.z, 0);
 				return *this;
@@ -978,7 +978,7 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Create from bounding box
-			LdrBox& bbox(BBox_cref bbox)
+			LdrBox& bbox(BBox bbox)
 			{
 				if (bbox == BBox::Reset()) return *this;
 				return dim(2 * bbox.Radius()).pos(bbox.Centre());
@@ -1115,7 +1115,7 @@ namespace pr::rdr12::ldraw
 				m_nf = v2{ n, f };
 				return *this;
 			}
-			LdrFrustum& nf(v2_cref nf_)
+			LdrFrustum& nf(v2 nf_)
 			{
 				return nf(nf_.x, nf_.y);
 			}
@@ -1128,7 +1128,7 @@ namespace pr::rdr12::ldraw
 				m_aspect = 0;
 				return *this;
 			}
-			LdrFrustum& wh(v2_cref sz)
+			LdrFrustum& wh(v2 sz)
 			{
 				return wh(sz.x, sz.y);
 			}

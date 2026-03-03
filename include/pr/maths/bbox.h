@@ -169,10 +169,10 @@ namespace pr
 		// There are two variations of 'Encompass':
 		//   1) Grow = modifies the provided instance returning the point enclosed,
 		//   2) Union = operates on a const BBox returning a new BBox that includes 'point'
-		v4_cref Grow(v4_cref point)
+		v4 Grow(v4 point)
 		{
 			pr_assert("BBox Grow. Point must have w = 1" && point.w == 1.0f);
-			pr_assert("'point' must be aligned to 16" && maths::is_aligned(&point));
+			pr_assert("'point' must be aligned to 16" && is_aligned<v4>(&point));
 
 			#if PR_MATHS_USE_INTRINSICS
 			__m128 const zero = _mm_set_ps1(+0.0f);
@@ -210,18 +210,18 @@ namespace pr
 		}
 
 		#pragma region Operators
-		friend bool pr_vectorcall operator == (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
-		friend bool pr_vectorcall operator != (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
-		friend bool pr_vectorcall operator <  (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
-		friend bool pr_vectorcall operator >  (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
-		friend bool pr_vectorcall operator <= (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
-		friend bool pr_vectorcall operator >= (BBox_cref lhs, BBox_cref rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
-		friend BBox& pr_vectorcall operator += (BBox& lhs, v4_cref offset)
+		friend bool pr_vectorcall operator == (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
+		friend bool pr_vectorcall operator != (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
+		friend bool pr_vectorcall operator <  (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
+		friend bool pr_vectorcall operator >  (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
+		friend bool pr_vectorcall operator <= (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
+		friend bool pr_vectorcall operator >= (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
+		friend BBox& pr_vectorcall operator += (BBox& lhs, v4 offset)
 		{
 			lhs.m_centre += offset;
 			return lhs;
 		}
-		friend BBox& pr_vectorcall operator -= (BBox& lhs, v4_cref offset)
+		friend BBox& pr_vectorcall operator -= (BBox& lhs, v4 offset)
 		{
 			lhs.m_centre -= offset;
 			return lhs;
@@ -236,17 +236,17 @@ namespace pr
 			lhs *= (1.0f / s);
 			return lhs;
 		}
-		friend BBox pr_vectorcall operator + (BBox_cref lhs, v4_cref offset)
+		friend BBox pr_vectorcall operator + (BBox lhs, v4 offset)
 		{
 			auto bb = lhs;
 			return bb += offset;
 		}
-		friend BBox pr_vectorcall operator - (BBox_cref lhs, v4_cref offset)
+		friend BBox pr_vectorcall operator - (BBox lhs, v4 offset)
 		{
 			auto bb = lhs;
 			return bb -= offset;
 		}
-		friend BBox pr_vectorcall operator * (m4_cref m, BBox_cref rhs)
+		friend BBox pr_vectorcall operator * (m4x4 const& m, BBox rhs)
 		{
 			pr_assert("m4x4 * BBox: Transform is not affine" && IsAffine(m));
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
@@ -260,7 +260,7 @@ namespace pr
 			}
 			return bb;
 		}
-		friend BBox pr_vectorcall operator * (m3_cref m, BBox_cref rhs)
+		friend BBox pr_vectorcall operator * (m3x4 const& m, BBox rhs)
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
@@ -322,7 +322,7 @@ namespace pr
 	#pragma region Functions
 
 	// Return a corner of the bounding box
-	inline v4 pr_vectorcall Corner(BBox_cref bbox, int corner)
+	inline v4 pr_vectorcall Corner(BBox bbox, int corner)
 	{
 		pr_assert("Invalid corner index" && corner >= 0 && corner < 8);
 		auto x = ((corner >> 0) & 0x1) * 2 - 1;
@@ -336,7 +336,7 @@ namespace pr
 	}
 
 	// Return the corners of the bounding box
-	inline std::array<v4,8> pr_vectorcall Corners(BBox_cref bbox)
+	inline std::array<v4,8> pr_vectorcall Corners(BBox bbox)
 	{
 		std::array<v4, 8> corners;
 		auto& c = bbox.m_centre;
@@ -353,19 +353,19 @@ namespace pr
 	}
 
 	// Return the volume of a bounding box
-	inline float pr_vectorcall Volume(BBox_cref bbox)
+	inline float pr_vectorcall Volume(BBox bbox)
 	{
 		return bbox.SizeX() * bbox.SizeY() * bbox.SizeZ();
 	}
 
 	// Returns the most extreme point in the direction of 'separating_axis'
-	inline v4 pr_vectorcall SupportPoint(BBox_cref bbox, v4_cref separating_axis)
+	inline v4 pr_vectorcall SupportPoint(BBox bbox, v4 separating_axis)
 	{
 		return bbox.m_centre + Sign(separating_axis, false) * bbox.m_radius;
 	}
 
 	// Return a plane corresponding to a side of the bounding box. Returns inward facing planes
-	inline Plane pr_vectorcall GetPlane(BBox_cref bbox, BBox::EPlane side)
+	inline Plane pr_vectorcall GetPlane(BBox bbox, BBox::EPlane side)
 	{
 		switch (side)
 		{
@@ -380,13 +380,13 @@ namespace pr
 	}
 
 	// Return a bounding sphere that bounds the bounding box
-	inline BSphere pr_vectorcall GetBSphere(BBox_cref bbox)
+	inline BSphere pr_vectorcall GetBSphere(BBox bbox)
 	{
 		return BSphere(bbox.m_centre, Length(bbox.m_radius));
 	}
 
 	// Multiply the bounding box by a non-affine transform
-	inline BBox pr_vectorcall MulNonAffine(m4_cref m, BBox_cref rhs)
+	inline BBox pr_vectorcall MulNonAffine(m4x4 const& m, BBox rhs)
 	{
 		pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
@@ -401,14 +401,14 @@ namespace pr
 
 	// Include 'point' within 'bbox'.
 	[[nodiscard]]
-	inline BBox pr_vectorcall Union(BBox_cref bbox, v4_cref point)
+	inline BBox pr_vectorcall Union(BBox bbox, v4 point)
 	{
 		// Const version returns lhs, non-const returns rhs!
 		BBox bb = bbox;
 		bb.Grow(point);
 		return bb;
 	}
-	inline v4_cref pr_vectorcall Grow(BBox& bbox, v4_cref point)
+	inline v4 pr_vectorcall Grow(BBox& bbox, v4 point)
 	{
 		// Const version returns lhs, non-const returns rhs!
 		return bbox.Grow(point);
@@ -416,7 +416,7 @@ namespace pr
 
 	// Include 'rhs' in 'lhs'
 	[[nodiscard]]
-	inline BBox pr_vectorcall Union(BBox_cref lhs, BBox_cref rhs)
+	inline BBox pr_vectorcall Union(BBox lhs, BBox rhs)
 	{
 		// Const version returns lhs, non-const returns rhs!
 		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty bbox
@@ -426,7 +426,7 @@ namespace pr
 		bb.Grow(rhs.m_centre - rhs.m_radius);
 		return bb;
 	}
-	inline BBox_cref pr_vectorcall Grow(BBox& lhs, BBox_cref rhs)
+	inline BBox pr_vectorcall Grow(BBox& lhs, BBox rhs)
 	{
 		// Const version returns lhs, non-const returns rhs!
 		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty bbox
@@ -438,7 +438,7 @@ namespace pr
 
 	// Include 'rhs' in 'lhs'
 	[[nodiscard]]
-	inline BBox Union(BBox_cref lhs, BSphere_cref rhs)
+	inline BBox Union(BBox lhs, BSphere rhs)
 	{
 		// Don't treat rhs.empty() as an error, it's the only way to grow an empty bsphere
 		BBox bb = lhs;
@@ -448,7 +448,7 @@ namespace pr
 		bb.Grow(rhs.Centre() - radius);
 		return bb;
 	}
-	inline BSphere_cref Grow(BBox& lhs, BSphere_cref rhs)
+	inline BSphere Grow(BBox& lhs, BSphere rhs)
 	{
 		// Don't treat rhs.empty() as an error, it's the only way to grow an empty bsphere
 		if (!rhs.valid()) return rhs;
@@ -459,7 +459,7 @@ namespace pr
 	}
 
 	// Returns true if 'point' is within the bounding volume
-	inline bool pr_vectorcall IsWithin(BBox_cref bbox, v4_cref point, float tol = 0)
+	inline bool pr_vectorcall IsWithin(BBox bbox, v4 point, float tol = 0)
 	{
 		return
 			Abs(point.x - bbox.m_centre.x) <= bbox.m_radius.x + tol &&
@@ -468,7 +468,7 @@ namespace pr
 	}
 
 	// Returns true if 'test' is within the bounding volume
-	inline bool pr_vectorcall IsWithin(BBox_cref bbox, BBox_cref test)
+	inline bool pr_vectorcall IsWithin(BBox bbox, BBox test)
 	{
 		return
 			Abs(test.m_centre.x - bbox.m_centre.x) <= (bbox.m_radius.x - test.m_radius.x) &&

@@ -93,7 +93,7 @@ namespace pr::math::spatial
 	}
 
 	// Spatial matrix * affine transform
-	//template <typename A> inline Mat6x8f<A, Motion> pr_vectorcall operator * (m6_cref<> lhs, m4_cref& rhs)
+	//template <typename A> inline Mat6x8f<A, Motion> pr_vectorcall operator * (m6x8<> const& lhs, m4x4 const&& rhs)
 	//{
 	//	// [ E    0] * [m00, m01] = [E*m00     + 0*m10,  E*m01    + 0*m11] = [E*m00           , E*m01           ]
 	//	// [-E*rx E]   [m10, m11]   [-E*rx*m00 + E*m10, -E*rx*m01 + E*m11]   [E*(m10 - rx*m00), E*(m11 - rx*m01)]
@@ -235,7 +235,7 @@ namespace pr::math::spatial::tests
 		{
 		//	v4 vel(1,2,3,0);
 		//	v4 ang(4,3,2,0);
-		//	auto o2w = Mat4x4::Transform(v4ZAxis, float(maths::tau_by_4), v4(1,1,1,1));
+		//	auto o2w = Mat4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4(1,1,1,1));
 		}
 		PRUnitTestMethod(CrossProducts, float, double)
 		{

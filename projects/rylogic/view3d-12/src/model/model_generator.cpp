@@ -199,7 +199,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Points(points, colours,
-			[&](v4_cref p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
+			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -224,7 +224,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Lines(num_lines, points, colours,
-			[&](v4_cref p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
+			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -249,7 +249,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::LinesD(num_lines, points.data(), directions.data(), colours,
-			[&](v4_cref p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
+			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 		
@@ -273,7 +273,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::LinesStrip(num_lines, points.data(), colours,
-			[&](v4_cref p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
+			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -305,7 +305,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Quad(num_quads, verts.data(), colours, t2s,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -329,7 +329,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Quad(anchor, quad_w, quad_h, divisions, colour, t2s,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -353,7 +353,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Quad(axis_id, anchor, width, height, divisions, colour, t2s,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -376,7 +376,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::QuadStrip(num_quads, verts.data(), width, isize(normals), normals.data(), colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -398,7 +398,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::QuadPatch(dimx, dimy,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -423,7 +423,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Ellipse(dimx, dimy, solid, facets, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -446,7 +446,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Pie(dimx, dimy, ang0, ang1, radius0, radius1, solid, facets, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -469,7 +469,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::RoundedRectangle(dimx, dimy, solid, corner_radius, facets, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -492,7 +492,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Polygon(points, solid, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -509,7 +509,7 @@ namespace pr::rdr12
 	{
 		return Box(factory, v4(rad), opts);
 	}
-	ModelPtr ModelGenerator::Box(ResourceFactory& factory, v4_cref rad, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Box(ResourceFactory& factory, v4 rad, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::BoxSize(1);
@@ -520,7 +520,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.data<uint16_t>();
 		auto props = geometry::Box(rad, m4x4::Identity(), colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = s_cast<uint16_t>(idx); }
 		);
 
@@ -543,7 +543,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Boxes(num_boxes, points.data(), m4x4::Identity(), colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -554,7 +554,7 @@ namespace pr::rdr12
 		// Create the model
 		return Create(factory, cache, opts);
 	}	
-	ModelPtr ModelGenerator::BoxList(ResourceFactory& factory, int num_boxes, std::span<v4 const> positions, v4_cref rad, CreateOptions const* opts)
+	ModelPtr ModelGenerator::BoxList(ResourceFactory& factory, int num_boxes, std::span<v4 const> positions, v4 rad, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::BoxSize(num_boxes);
@@ -566,7 +566,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::BoxList(num_boxes, positions, rad, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -589,7 +589,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::BoxList(boxes, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -606,7 +606,7 @@ namespace pr::rdr12
 	{
 		return Geosphere(factory, v4(radius, radius, radius, 0.0f), divisions, opts);
 	}
-	ModelPtr ModelGenerator::Geosphere(ResourceFactory& factory, v4_cref radius, int divisions, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Geosphere(ResourceFactory& factory, v4 radius, int divisions, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::GeosphereSize(divisions);
@@ -618,7 +618,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Geosphere(radius, divisions, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -645,7 +645,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Sphere(radius, wedges, layers, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -670,7 +670,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Cylinder(radius0, radius1, height, xscale, yscale, wedges, layers, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -737,7 +737,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Extrude(cs, make_path, isize(path), closed, smooth_cs, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -763,7 +763,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Extrude(cs, make_path, isize(path), closed, smooth_cs, colours,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -792,7 +792,7 @@ namespace pr::rdr12
 			cdata.m_colours,
 			cdata.m_normals,
 			cdata.m_tex_coords,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -817,7 +817,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::SkyboxGeosphere(radius, divisions, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
@@ -846,7 +846,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.data<uint16_t>();
 		auto props = geometry::SkyboxFiveSidedCubicDome(radius, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](size_t idx) { *iptr++ = s_cast<uint16_t>(idx); });
 
 		// Model nugget properties for the sky box
@@ -874,7 +874,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.data<uint16_t>();
 		auto props = geometry::SkyboxSixSidedCube(radius, colour,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](size_t idx) { *iptr++ = s_cast<uint16_t>(idx); });
 
 		// Create the nuggets, one per face. Expected order: +X, -X, +Y, -Y, +Z, -Z
@@ -1768,7 +1768,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.data<uint16_t>();
 		auto props = geometry::Quad(axis_id, layout.m_anchor, text_size.x * pt_to_m, text_size.y * pt_to_m, iv2::Zero(), Colour32White, t2q,
-			[&](v4_cref p, Colour32 c, v4_cref n, v2_cref t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = s_cast<uint16_t>(idx); });
 
 		// Create a nugget

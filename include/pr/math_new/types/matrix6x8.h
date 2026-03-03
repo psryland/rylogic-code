@@ -100,17 +100,21 @@ namespace pr::math
 		}
 
 		// Basic constants
-		static constexpr Mat6x8 Zero() noexcept
+		static constexpr Mat6x8 const& Zero() noexcept
 		{
-			return Mat6x8{
-				Mat3x4<S, void, void>::Zero(), Mat3x4<S, void, void>::Zero(),
-				Mat3x4<S, void, void>::Zero(), Mat3x4<S, void, void>::Zero() };
+			static auto s_zero = Mat6x8{
+				math::Zero<Mat3x4<S>>(), math::Zero<Mat3x4<S>>(),
+				math::Zero<Mat3x4<S>>(), math::Zero<Mat3x4<S>>()
+			};
+			return s_zero;
 		}
-		static constexpr Mat6x8 Identity() noexcept
+		static constexpr Mat6x8 const& Identity() noexcept
 		{
-			return Mat6x8{
-				Mat3x4<S, void, void>::Identity(), Mat3x4<S, void, void>::Zero(),
-				Mat3x4<S, void, void>::Zero(), Mat3x4<S, void, void>::Identity() };
+			static auto s_identity = Mat6x8{
+				math::Identity<Mat3x4<S>>(), math::Zero<Mat3x4<S>>(),
+				math::Zero<Mat3x4<S>>(), math::Identity<Mat3x4<S>>()
+			};
+			return s_identity;
 		}
 
 		#pragma region Operators
@@ -176,7 +180,7 @@ namespace pr::math
 		}
 
 		// Invert the 6x6 matrix 'm'
-		friend Mat6x8<S, B, A> Invert(Mat6x8<S, A, B> const& m) noexcept
+		friend Mat6x8<S, B, A> Invert(Mat6x8<S, A, B> const& m)
 		{
 			// 2x2 block matrix inversion
 			// R = [A B]  R' = [E F]
@@ -200,7 +204,7 @@ namespace pr::math
 				if (IsInvertible(schur))
 				{
 					auto schur_inv = Invert(schur);
-					return Mat6x8<B, A>{
+					return Mat6x8<S, B, A>{
 						a_inv + a_inv * b * schur_inv * c * a_inv,
 						-a_inv * b * schur_inv,
 						-schur_inv * c * a_inv,
@@ -215,7 +219,7 @@ namespace pr::math
 				if (IsInvertible(schur))
 				{
 					auto schur_inv = Invert(schur);
-					return Mat6x8<B, A>{
+					return Mat6x8<S, B, A>{
 						schur_inv,
 						-schur_inv * b * d_inv,
 						-d_inv * c * schur_inv,

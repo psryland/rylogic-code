@@ -270,7 +270,7 @@ namespace Rylogic.LDraw.Serialiser
 		public ArrowHeads() { }
 		public ArrowHeads(EArrowType type, float size = 10f)
 		{
-			m_type = EArrowType.Line;
+			m_type = type;
 			m_size = size;
 			m_is_default = false;
 		}

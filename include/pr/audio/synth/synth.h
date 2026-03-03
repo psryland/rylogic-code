@@ -10,7 +10,7 @@
 #include <limits>
 #include <cassert>
 #include <random>
-#include "pr/maths/stat.h"
+#include "pr/maths/maths.h"
 #include "pr/container/span.h"
 #include "pr/audio/forward.h"
 #include "pr/audio/synth/note.h"
@@ -80,7 +80,7 @@ namespace pr::audio
 					{
 					case ETone::Sine:
 						{
-							value = std::sinf(time * freq * pr::maths::tauf);
+							value = std::sinf(time * freq * constants<float>::tau);
 							break;
 						}
 					case ETone::Square:

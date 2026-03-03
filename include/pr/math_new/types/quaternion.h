@@ -131,6 +131,30 @@ namespace pr::math
 			pr_assert(from.w == 0 && to.w == 0);
 		}
 
+		// Array access
+		constexpr S operator [] (int i) const noexcept
+		{
+			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
+			return arr[i];
+		}
+		constexpr S& operator [] (int i) noexcept
+		{
+			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
+			return arr[i];
+		}
+
+		// Constants
+		static constexpr Quat const& Zero() noexcept
+		{
+			static auto s_zero = Quat(S(0), S(0), S(0), S(0));
+			return s_zero;
+		}
+		static constexpr Quat const& Identity() noexcept
+		{
+			static auto s_identity = math::Identity<Quat>();
+			return s_identity;
+		}
+
 		// Get the axis component of the quaternion (normalised)
 		Vec4<S> Axis() const noexcept
 		{
@@ -167,28 +191,6 @@ namespace pr::math
 			// The sign is determined by the sign of w (which represents cos(θ/2))
 			auto sin_half_angle = Length(xyz);
 			return S(2) * sin_half_angle * w;
-		}
-
-		// Array access
-		constexpr S operator [] (int i) const noexcept
-		{
-			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
-			return arr[i];
-		}
-		constexpr S& operator [] (int i) noexcept
-		{
-			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
-			return arr[i];
-		}
-
-		// Constants
-		static constexpr Quat Zero() noexcept
-		{
-			return Quat(S(0), S(0), S(0), S(0));
-		}
-		static constexpr Quat Identity() noexcept
-		{
-			return Quat(S(0), S(0), S(0), S(1));
 		}
 	};
 
@@ -563,7 +565,7 @@ namespace pr::math
 			{
 				return Normalise(Quat<S,A,B>{m_avr.Mean()});
 			}
-			void Add(Quat_cref<S,A,B> q) noexcept
+			void Add(Quat<S,A,B> q) noexcept
 			{
 				// Nicked from Unity3D
 				// Note: this only really works if all the quaternions are relatively close together.

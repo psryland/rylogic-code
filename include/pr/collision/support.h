@@ -34,13 +34,13 @@ namespace pr::collision
 	// Returns a support vertex for a shape for a given direction.
 	// Assumes 'direction' is in the shape's root parent space (i.e. transformed
 	// by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
-	inline v4 SupportVertex(ShapeSphere const& shape, v4_cref direction, EFeature& feature_type)
+	inline v4 SupportVertex(ShapeSphere const& shape, v4 direction, EFeature& feature_type)
 	{
 		assert(IsNormal(direction));
 		feature_type = EFeature::Vert;
 		return shape.m_base.m_s2p.pos + shape.m_radius * direction;
 	}
-	inline v4 SupportVertex(ShapeBox const& shape, v4_cref direction, EFeature& feature_type)
+	inline v4 SupportVertex(ShapeBox const& shape, v4 direction, EFeature& feature_type)
 	{
 		feature_type = EFeature::Vert;
 
@@ -55,7 +55,7 @@ namespace pr::collision
 		}
 		return vert;
 	}
-	inline v4 SupportVertex(ShapeLine const& shape, v4_cref direction, EFeature& feature_type)
+	inline v4 SupportVertex(ShapeLine const& shape, v4 direction, EFeature& feature_type)
 	{
 		auto d = Dot(direction, shape.m_base.m_s2p.z);
 		auto r = shape.m_base.m_s2p.z * shape.m_radius;
@@ -67,14 +67,14 @@ namespace pr::collision
 		else feature_type = EFeature::Edge;
 		return vert;
 	}
-	inline v4 SupportVertex(ShapeTriangle const& shape, v4_cref direction, EFeature& feature_type)
+	inline v4 SupportVertex(ShapeTriangle const& shape, v4 direction, EFeature& feature_type)
 	{
 		v4 d(Dot3(direction, shape.m_v.x), Dot3(direction, shape.m_v.y), Dot3(direction, shape.m_v.z), 0.0f);
 		feature_type = EFeature::Vert;
 		return shape.m_v[MaxElementIndex(d.xyz)];
 	}
 	template <ShapeType TShape>
-	inline v4 SupportVertex(TShape const& shape, v4_cref direction)
+	inline v4 SupportVertex(TShape const& shape, v4 direction)
 	{
 		auto feature_type = EFeature{};
 		return SupportVertex(shape, direction, feature_type);
@@ -84,12 +84,12 @@ namespace pr::collision
 	// 'points' returns the feature polygon. The number of sides equals 'int(feature_type)'
 	// Assumes 'axis' is in the shape's root parent space (i.e. transformed by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
 	// When a face is returned, the points should be in order such that the face normal == 'axis'
-	inline void SupportFeature(ShapeSphere const& shape, v4_cref axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	inline void SupportFeature(ShapeSphere const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		points[0] = SupportVertex(shape, axis, feature_type);
 		assert(feature_type == EFeature::Vert);
 	}
-	inline void SupportFeature(ShapeBox const& shape, v4_cref axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	inline void SupportFeature(ShapeBox const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		feature_type = EFeature::Vert;
 		*points = shape.m_base.m_s2p.pos;
@@ -131,7 +131,7 @@ namespace pr::collision
 			}
 		}
 	}
-	inline void SupportFeature(ShapeLine const& shape, v4_cref axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	inline void SupportFeature(ShapeLine const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		auto d = Dot(axis, shape.m_base.m_s2p.z);
 		auto r = shape.m_base.m_s2p.z * shape.m_radius;
@@ -162,7 +162,7 @@ namespace pr::collision
 	// 'l2w' and 'r2w' transform 'lhs' and 'rhs' into the same space as 'axis' and the space
 	// that the contact point is returned in (typically world space).
 	template <typename = void>
-	v4 FindContactPoint(v4* pointA, EFeature featA, v4* pointB, EFeature featB, m4_cref l2w, m4_cref r2w, v4_cref axis, float pen)
+	v4 FindContactPoint(v4* pointA, EFeature featA, v4* pointB, EFeature featB, m4x4 const& l2w, m4x4 const& r2w, v4 axis, float pen)
 	{
 		auto countA = int(featA);
 		auto countB = int(featB);
@@ -284,7 +284,7 @@ namespace pr::collision
 		return (0.5f * (centreA + centreB)).w1();
 	}
 	template <typename Shape0, typename Shape1>
-	v4 FindContactPoint(Shape0 const& lhs, m4_cref l2w, Shape1 const& rhs, m4_cref r2w, v4_cref axis, float pen)
+	v4 FindContactPoint(Shape0 const& lhs, m4x4 const& l2w, Shape1 const& rhs, m4x4 const& r2w, v4 axis, float pen)
 	{
 		// Find the support feature on each shape (in each shape's space)
 		auto featA = EFeature{};

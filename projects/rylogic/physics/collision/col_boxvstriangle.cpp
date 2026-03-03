@@ -242,7 +242,7 @@ void pr::ph::BoxVsTriangle(Shape const& objA, m4x4 const& a2w, Shape const& objB
 
 	m4x4 tri_bs = t2b * tri.m_v;
 	PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, StartFile("C:/Deleteme/collision_boxtri2.pr_script"));
-	PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, ldr::Box("box", "FFFF0000", m4x4Identity, box.m_radius * 2.0f));
+	PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, ldr::Box("box", "FFFF0000", m4x4::Identity(), box.m_radius * 2.0f));
 	PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, ldr::Triangle("tri", "FF0000FF", tri_bs.x, tri_bs.y, tri_bs.z));
 	PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, EndFile();)
 	tri_bs = Transpose3x3(tri_bs);

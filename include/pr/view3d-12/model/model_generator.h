@@ -34,7 +34,7 @@ namespace pr::rdr12
 		{}
 		MeshCreationData& verts(std::span<v4 const> vbuf)
 		{
-			assert(maths::is_aligned(vbuf.data()));
+			assert(is_aligned(vbuf.data()));
 			m_verts = vbuf;
 			return *this;
 		}
@@ -57,7 +57,7 @@ namespace pr::rdr12
 		MeshCreationData& normals(std::span<v4 const> nbuf)
 		{
 			// Count doesn't have to be 0, 1, or 'vcount' because interpolation is used
-			assert(maths::is_aligned(nbuf.data()));
+			assert(is_aligned(nbuf.data()));
 			m_normals = nbuf;
 			return *this;
 		}
@@ -188,14 +188,14 @@ namespace pr::rdr12
 
 		// Boxes ******************************************************************************
 		static ModelPtr Box(ResourceFactory& factory, float rad, CreateOptions const* opts = nullptr);
-		static ModelPtr Box(ResourceFactory& factory, v4_cref rad, CreateOptions const* opts = nullptr);
+		static ModelPtr Box(ResourceFactory& factory, v4 rad, CreateOptions const* opts = nullptr);
 		static ModelPtr Boxes(ResourceFactory& factory, int num_boxes, std::span<v4 const> points, CreateOptions const* opts = nullptr);
-		static ModelPtr BoxList(ResourceFactory& factory, int num_boxes, std::span<v4 const> positions, v4_cref rad, CreateOptions const* opts = nullptr);
+		static ModelPtr BoxList(ResourceFactory& factory, int num_boxes, std::span<v4 const> positions, v4 rad, CreateOptions const* opts = nullptr);
 		static ModelPtr BoxList(ResourceFactory& factory, std::span<BBox const> boxes, CreateOptions const* opts = nullptr);
 
 		// Sphere *****************************************************************************
 		static ModelPtr Geosphere(ResourceFactory& factory, float radius, int divisions = 3, CreateOptions const* opts = nullptr);
-		static ModelPtr Geosphere(ResourceFactory& factory, v4_cref radius, int divisions = 3, CreateOptions const* opts = nullptr);
+		static ModelPtr Geosphere(ResourceFactory& factory, v4 radius, int divisions = 3, CreateOptions const* opts = nullptr);
 		static ModelPtr Sphere(ResourceFactory& factory, float radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
 		static ModelPtr Sphere(ResourceFactory& factory, v4 const& radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
 

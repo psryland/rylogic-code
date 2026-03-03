@@ -15,6 +15,9 @@
 //  - Pass matrix types by const&. Basically if the type is larger than 2 registers, pass by const&.
 //  - Functions are implemented for vector concepts, not specific types. So that they can be used on
 //    any type that conforms to the vector concept
+//  - Type constants (e.g. Vec3::Zero()) return a const reference so that the constant value has an address.
+//    These can't be compiled-time constants. The constant functions (e.g. Zero<Vec3>()) return by value so
+//    that they can be used in compile-time contexts.
 
 // Design Goals:
 //  - Vector types and functions should be independent. Functions should work for any type that meets

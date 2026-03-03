@@ -63,7 +63,7 @@ namespace pr::rdr12
 			case ELight::Directional: return m4x4::ProjectionOrthographic(w, h, zn, zf, true);
 			case ELight::Point:       return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
 			case ELight::Spot:        return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
-			default:                  return m4x4Identity;
+			default:                  return m4x4::Identity();
 		}
 	}
 	m4x4 Light::ProjectionFOV(float zn, float zf, float aspect, float fovY, float focus_dist) const
@@ -74,7 +74,7 @@ namespace pr::rdr12
 			case ELight::Directional: return m4x4::ProjectionOrthographic(height * aspect, height, zn, zf, true);
 			case ELight::Point:       return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
 			case ELight::Spot:        return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
-			default:                  return m4x4Identity;
+			default:                  return m4x4::Identity();
 		}
 	}
 

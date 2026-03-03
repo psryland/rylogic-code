@@ -14,7 +14,7 @@ namespace pr::collision
 {
 	// Test for collision between two spheres
 	template <typename Penetration>
-	void pr_vectorcall SphereVsSphere(Shape const& lhs_, m4_cref l2w_, Shape const& rhs_, m4_cref r2w_, Penetration& pen)
+	void pr_vectorcall SphereVsSphere(Shape const& lhs_, m4x4 const& l2w_, Shape const& rhs_, m4x4 const& r2w_, Penetration& pen)
 	{
 		auto& lhs = shape_cast<ShapeSphere>(lhs_);
 		auto& rhs = shape_cast<ShapeSphere>(rhs_);
@@ -31,7 +31,7 @@ namespace pr::collision
 	}
 
 	// Returns true if 'lhs' intersects 'rhs'
-	inline bool pr_vectorcall SphereVsSphere(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w)
+	inline bool pr_vectorcall SphereVsSphere(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w)
 	{
 		TestPenetration p;
 		SphereVsSphere(lhs, l2w, rhs, r2w, p);
@@ -39,7 +39,7 @@ namespace pr::collision
 	}
 
 	// Returns true if 'lhs' and 'rhs' are intersecting.
-	inline bool pr_vectorcall SphereVsSphere(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& contact)
+	inline bool pr_vectorcall SphereVsSphere(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
 	{
 		ContactPenetration p;
 		SphereVsSphere(lhs, l2w, rhs, r2w, p);

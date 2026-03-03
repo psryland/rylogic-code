@@ -18,6 +18,16 @@ namespace pr
 	// Helper for non-const member function overloads. Use 'const_call(member_func());'
 	#define const_call(fn) const_cast<std::remove_const_t<decltype(fn)>>(std::as_const(*this).fn)
 
+	// Test alignment of 't'
+	template <typename T, int A = alignof(T)> constexpr bool is_aligned(void const* p)
+	{
+		return (reinterpret_cast<std::uintptr_t>(p) & (A - 1)) == 0;
+	}
+	template <typename T> constexpr bool is_aligned(T const* t)
+	{
+		return is_aligned<T, alignof(T)>(t);
+	}
+
 	// Casting from any type of pointer to a uint8_t pointer
 	// Use:
 	//   int* int_ptr = ...
@@ -34,7 +44,7 @@ namespace pr
 	// Cast from a void pointer to a pointer of type 'T' (checking alignment)
 	template <typename T> constexpr T const* type_ptr(void const* t)
 	{
-		assert(((byte_ptr(t) - byte_ptr(nullptr)) % std::alignment_of<T>::value) == 0 && "Point is not correctly aligned for type");
+		assert(is_aligned<T>(t) && "Point is not correctly aligned for type");
 		return static_cast<T const*>(t);
 	}
 	template <typename T> constexpr T* type_ptr(void* t)

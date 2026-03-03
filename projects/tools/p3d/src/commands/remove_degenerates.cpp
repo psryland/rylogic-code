@@ -97,7 +97,7 @@ void RemoveDegenerateVerts(p3d::Mesh& mesh_, int quantisation, float smoothing_a
 			{
 				auto ci = Colour(mesh.m_diff[s_cast<int>(map[i].orig - v0)]);
 				auto cj = Colour(mesh.m_diff[s_cast<int>(map[j].kept - v0)]);
-				if (LengthSq(ci - cj) >= colour_dist_sq)
+				if (LengthSq(ci.rgba - cj.rgba) >= colour_dist_sq)
 					continue;
 			}
 

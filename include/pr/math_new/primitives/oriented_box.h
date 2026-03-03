@@ -33,6 +33,18 @@ namespace pr::math
 			,m_radius(radii)
 		{}
 
+		// Constants
+		static constexpr OBox const& Unit() noexcept
+		{
+			static auto s_unit = OBox{ Identity<Mat4>(), Vec4{S(0.5), S(0.5), S(0.5), S(0)} };
+			return s_unit;
+		}
+		static constexpr OBox const& Reset() noexcept
+		{
+			static auto s_reset = OBox{ Identity<Mat4>(), Zero<Vec4>() };
+			return s_reset;
+		}
+
 		// Width of the box
 		constexpr S SizeX() const noexcept
 		{
@@ -65,16 +77,6 @@ namespace pr::math
 		S Diametre() const noexcept
 		{
 			return Sqrt(DiametreSq());
-		}
-
-		// Constants
-		static constexpr OBox Unit() noexcept
-		{
-			return OBox{ Identity<Mat4>(), Vec4{S(0.5), S(0.5), S(0.5), S(1)} };
-		}
-		static constexpr OBox Reset() noexcept
-		{
-			return { Identity<Mat4>(), Zero<Vec4>() };
 		}
 
 		#pragma region Operators

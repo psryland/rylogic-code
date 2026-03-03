@@ -33,11 +33,11 @@ namespace pr
 			:ang(x)
 			,lin(x)
 		{}
-		constexpr Vec8(Vec3_cref<S,void> ang_, Vec3_cref<S,void> lin_)
+		constexpr Vec8(Vec3<S,void> ang_, Vec3<S,void> lin_)
 			:ang(ang_, S(0))
 			,lin(lin_, S(0))
 		{}
-		constexpr Vec8(Vec4_cref<S,void> ang_, Vec4_cref<S,void> lin_)
+		constexpr Vec8(Vec4<S,void> ang_, Vec4<S,void> lin_)
 			:ang(ang_)
 			,lin(lin_)
 		{}
@@ -88,7 +88,7 @@ namespace pr
 
 		// Sample the vector field at 'ofs'
 		// Returns the direction and magnitude of the vector field at 'ofs'
-		Vec4<S,void> LinAt(Vec4_cref<S,void> ofs) const
+		Vec4<S,void> LinAt(Vec4<S,void> ofs) const
 		{
 			return Vec4<S,void>{lin + Cross(ang, ofs)};
 		}
@@ -97,53 +97,53 @@ namespace pr
 		// Not really sure what the physical interpretation of this is.
 		// Returns 'ang - ofs x lin', which is the angular required at 'ofs' to ensure that the angular
 		// is constant over the whole vector field, given that 'ofs x lin' contributes to the angular.
-		Vec4<S,void> AngAt(Vec4_cref<S,void> ofs) const
+		Vec4<S,void> AngAt(Vec4<S,void> ofs) const
 		{
 			return Vec4<S,void>{ang - Cross(ofs, lin)};
 		}
 
 		#pragma region Operators
-		friend constexpr Vec8 pr_vectorcall operator + (Vec8_cref<S,T> lhs)
+		friend constexpr Vec8 pr_vectorcall operator + (Vec8<S,T> lhs)
 		{
 			return lhs;
 		}
-		friend constexpr Vec8 pr_vectorcall operator - (Vec8_cref<S,T> lhs)
+		friend constexpr Vec8 pr_vectorcall operator - (Vec8<S,T> lhs)
 		{
 			return Vec8{-lhs.ang, -lhs.lin};
 		}
-		friend Vec8 pr_vectorcall operator * (S lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator * (S lhs, Vec8<S,T> rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Vec8 pr_vectorcall operator * (Vec8_cref<S,T> lhs, S rhs)
+		friend Vec8 pr_vectorcall operator * (Vec8<S,T> lhs, S rhs)
 		{
 			return Vec8{lhs.ang * rhs, lhs.lin * rhs};
 		}
-		friend Vec8 pr_vectorcall operator / (Vec8_cref<S,T> lhs, S rhs)
+		friend Vec8 pr_vectorcall operator / (Vec8<S,T> lhs, S rhs)
 		{
 			return Vec8{lhs.ang / rhs, lhs.lin / rhs};
 		}
-		friend Vec8 pr_vectorcall operator % (Vec8_cref<S,T> lhs, S rhs)
+		friend Vec8 pr_vectorcall operator % (Vec8<S,T> lhs, S rhs)
 		{
 			return Vec8{lhs.ang % rhs, lhs.lin % rhs};
 		}
-		friend Vec8 pr_vectorcall operator + (Vec8_cref<S,T> lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator + (Vec8<S,T> lhs, Vec8<S,T> rhs)
 		{
 			return Vec8{lhs.ang + rhs.ang, lhs.lin + rhs.lin};
 		}
-		friend Vec8 pr_vectorcall operator - (Vec8_cref<S,T> lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator - (Vec8<S,T> lhs, Vec8<S,T> rhs)
 		{
 			return Vec8{lhs.ang - rhs.ang, lhs.lin - rhs.lin};
 		}
-		friend Vec8 pr_vectorcall operator * (Vec8_cref<S,T> lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator * (Vec8<S,T> lhs, Vec8<S,T> rhs)
 		{
 			return Vec8{lhs.ang * rhs.ang, lhs.lin * rhs.lin};
 		}
-		friend Vec8 pr_vectorcall operator / (Vec8_cref<S,T> lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator / (Vec8<S,T> lhs, Vec8<S,T> rhs)
 		{
 			return Vec8{lhs.ang / rhs.ang, lhs.lin / rhs.lin};
 		}
-		friend Vec8 pr_vectorcall operator % (Vec8_cref<S,T> lhs, Vec8_cref<S,T> rhs)
+		friend Vec8 pr_vectorcall operator % (Vec8<S,T> lhs, Vec8<S,T> rhs)
 		{
 			return Vec8{lhs.ang % rhs.ang, lhs.lin % rhs.lin};
 		}
@@ -169,7 +169,7 @@ namespace pr
 	}
 
 	// Project a vector onto an axis. Loosely "dot(vec,axis)*axis"
-	template <Scalar S, typename T> inline Vec8<S,T> Proj(Vec8<S,T> const& vec, Vec4_cref<S,void> axis)
+	template <Scalar S, typename T> inline Vec8<S,T> Proj(Vec8<S,T> const& vec, Vec4<S,void> axis)
 	{
 		return Vec8<S,T>{
 			Dot(vec.ang, axis) * axis,
@@ -177,7 +177,7 @@ namespace pr
 	}
 
 	// Reflect a vector. Reverses the components of 'vec' in the direction of 'normal'
-	template <Scalar S, typename T> inline Vec8<S,T> Reflect(Vec8<S,T> const& vec, Vec4_cref<S,void> normal)
+	template <Scalar S, typename T> inline Vec8<S,T> Reflect(Vec8<S,T> const& vec, Vec4<S,void> normal)
 	{
 		return vec - S(2) * Proj(vec, normal);
 	}

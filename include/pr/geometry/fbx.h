@@ -44,7 +44,6 @@
 #include "pr/common/range.h"
 #include "pr/common/flags_enum.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/bbox.h"
 #include "pr/gfx/colour.h"
 #include "pr/geometry/common.h"
 #include "pr/win32/win32.h"

@@ -55,7 +55,7 @@ namespace pr
 
 			RigidbodySettings()
 			{
-				m_object_to_world                       = m4x4Identity;
+				m_object_to_world                       = m4x4::Identity();
 				m_shape                                 = GetDummyShape();
 				m_type                                  = ERigidbody_Dynamic;
 				m_mass_properties.m_mass                = 10.0f;

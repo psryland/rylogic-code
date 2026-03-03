@@ -27,6 +27,6 @@ namespace pr::rdr12
 		ShadowCaster(Texture2DPtr smap, Light const& light, int size);
 
 		// Update the projection parameters for the given scene
-		void UpdateParams(Scene const& scene, BBox_cref ws_bounds);
+		void UpdateParams(Scene const& scene, BBox ws_bounds);
 	};
 }

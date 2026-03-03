@@ -26,6 +26,18 @@ namespace pr::math
 			:BSphere(centre.xyz, radius)
 		{}
 
+		// Constants
+		static constexpr BSphere const& Reset() noexcept
+		{
+			static auto s_reset = BSphere{ Vec3{0, 0, 0}, -1 };
+			return s_reset;
+		}
+		static constexpr BSphere const& Unit() noexcept
+		{
+			static auto s_unit = BSphere{ Vec3{0, 0, 0}, 1 };
+			return s_unit;
+		}
+
 		// Reset this bsphere to invalid
 		BSphere& reset() noexcept
 		{
@@ -209,16 +221,6 @@ namespace pr::math
 			return BSphere(m * bsph.Centre(), bsph.m_ctr_rad.w);
 		}
 		#pragma endregion
-
-		// Constants
-		static constexpr BSphere Reset() noexcept
-		{
-			return BSphere{ Vec3{0, 0, 0}, -1 };
-		}
-		static constexpr BSphere Unit() noexcept
-		{
-			return BSphere{ Vec3{0, 0, 0}, 1 };
-		}
 	};
 	static_assert(std::is_trivially_copyable_v<BSphere<float>>, "Should be a pod type");
 	static_assert(std::alignment_of_v<BSphere<float>> == 16, "Should be 16 byte aligned");

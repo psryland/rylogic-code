@@ -161,7 +161,7 @@ v4 pr::ph::SupportVertex(ShapePolytope const& shape, v4 const& direction, std::s
 	PR_ASSERT(PR_DBG_PHYSICS, hint_vert_id < shape.m_vert_count, "Invalid hint vertex index");
 	PR_ASSERT(PR_DBG_PHYSICS, Length(direction) > maths::tinyf, "Direction is too short");
 		PR_EXPAND(PR_PH_DBG_SUPVERT, StartFile("C:/DeleteMe/collision_supverttrace.pr_script");)
-		PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::PhShape("polytope", "8000FF00", shape, m4x4Identity);)
+		PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::PhShape("polytope", "8000FF00", shape, m4x4::Identity());)
 		PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::Line("sup_direction", "FFFFFF00", v4Origin, direction);)
 		PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::GroupStart("SupportVertexTrace");)
 

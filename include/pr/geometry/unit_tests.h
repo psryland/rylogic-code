@@ -209,7 +209,7 @@ namespace pr::geometry
 			PR_EXPECT(!r);
 
 			// Degenerate cases
-			p = pr::plane::make(v4Origin, v4XAxis);
+			p = pr::plane::make(v4Origin, v4::XAxis());
 			b.m_centre = v4(-0.250001f, 0, 0, 1);
 			r = intersect::BBoxVsPlane(b, p);
 			PR_EXPECT(!r);

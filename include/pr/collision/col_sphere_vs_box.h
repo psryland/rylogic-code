@@ -15,7 +15,7 @@ namespace pr::collision
 {
 	// Test for overlap between an orientated box and a sphere, with generic penetration collection
 	template <typename Penetration>
-	void pr_vectorcall SphereVsBox(Shape const& lhs, m4_cref l2w_, Shape const& rhs, m4_cref r2w_, Penetration& pen)
+	void pr_vectorcall SphereVsBox(Shape const& lhs, m4x4 const& l2w_, Shape const& rhs, m4x4 const& r2w_, Penetration& pen)
 	{
 		auto& sph = shape_cast<ShapeSphere>(lhs);
 		auto& box = shape_cast<ShapeBox   >(rhs);
@@ -79,7 +79,7 @@ namespace pr::collision
 	}
 
 	// Returns true if the sphere  'lhs' intersects the orientated box 'rhs'
-	inline bool pr_vectorcall SphereVsBox(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w)
+	inline bool pr_vectorcall SphereVsBox(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w)
 	{
 		TestPenetration p;
 		SphereVsBox(lhs, l2w, rhs, r2w, p);
@@ -87,7 +87,7 @@ namespace pr::collision
 	}
 
 	// Returns true if 'lhs' and 'rhs' are intersecting.
-	inline bool pr_vectorcall SphereVsBox(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& contact)
+	inline bool pr_vectorcall SphereVsBox(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
 	{
 		ContactPenetration p;
 		SphereVsBox(lhs, l2w, rhs, r2w, p);
@@ -123,7 +123,7 @@ namespace pr::collision
 		auto rhs = ShapeBox{v4{0.3f, 0.4f, 0.5f, 0.0f}};
 		m4x4 l2w_[] =
 		{
-			m4x4Identity,
+			m4x4::Identity(),
 		};
 		m4x4 r2w_[] =
 		{

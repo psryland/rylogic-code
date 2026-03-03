@@ -28,6 +28,7 @@
 		<LangVersion>latest</LangVersion>
 		<WarningLevel>9999</WarningLevel>
 		<Nullable>Enable</Nullable>
+		<NuGetAudit>false</NuGetAudit>
 
 		<!-- C# Assembly properties -->
 		<Authors>P Ryland</Authors>

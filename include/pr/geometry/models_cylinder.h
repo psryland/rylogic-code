@@ -57,7 +57,7 @@ namespace pr::geometry
 
 		auto pt = v4(0, 0, z, 1.0f);
 		auto uv = v2(0.5f, 0.5f);
-		auto nm = -v4ZAxis;
+		auto nm = -v4::ZAxis();
 
 		// Verts
 		vout(pt, cc(*col++), nm, uv);
@@ -82,7 +82,7 @@ namespace pr::geometry
 			}
 			if (l != layers) z += dz;
 		}
-		nm = v4ZAxis;
+		nm = v4::ZAxis();
 		for (int w = 0; w <= wedges; ++w) // Top face
 		{
 			auto a = da*w + (layers%2)*da*0.5f;

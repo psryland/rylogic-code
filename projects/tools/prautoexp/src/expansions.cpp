@@ -20,8 +20,6 @@
 #include "pr/common/cast.h"
 #include "pr/macros/link.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/spatial.h"
-#include "pr/maths/large_int.h"
 #include "pr/physics/physics.h"
 #include "pr/lua/lua.h"
 #include "lua/include/lstate.h"
@@ -170,9 +168,9 @@ extern "C"
 		m2x2 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 		
-		if (mat == m2x2Identity)
+		if (mat == m2x2::Identity())
 			_snprintf(pResult, max, "identity");
-		else if (mat == m2x2Zero)
+		else if (mat == m2x2::Zero())
 			_snprintf(pResult, max, "zero");
 		else
 		{
@@ -199,13 +197,13 @@ extern "C"
 		m3x4 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (mat == m3x4Identity)
+		if (mat == m3x4::Identity())
 			_snprintf(pResult, max, "identity");
-		else if (mat == m3x4Zero)
+		else if (mat == m3x4::Zero())
 			_snprintf(pResult, max, "zero");
 		else
 		{
-			auto ortho = Length(Cross3(Normalise(mat.x), Normalise(mat.y)) - Normalise(mat.z));
+			auto ortho = Length(Cross(Normalise(mat.x), Normalise(mat.y)) - Normalise(mat.z));
 			auto det = Determinant(mat);
 			_snprintf(pResult, max,
 				"{%+g %+g %+g} \n"
@@ -231,14 +229,14 @@ extern "C"
 		m4x4 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (mat == m4x4Identity)
+		if (mat == m4x4::Identity())
 			_snprintf(pResult, max, "identity");
-		else if (mat == m4x4Zero)
+		else if (mat == m4x4::Zero())
 			_snprintf(pResult, max, "zero");
 		else
 		{
-			auto ortho = Length(Cross3(Normalise(mat.x), Normalise(mat.y)) - Normalise(mat.z));
-			auto det = Determinant4(mat);
+			auto ortho = Length(Cross(Normalise(mat.x), Normalise(mat.y)) - Normalise(mat.z));
+			auto det = Determinant(mat);
 			_snprintf(pResult, max,
 				"{%+g %+g %+g %+g} \n"
 				"{%+g %+g %+g %+g} \n"
@@ -266,9 +264,9 @@ extern "C"
 		m6x8 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (mat == m6x8Identity)
+		if (mat == m6x8::Identity())
 			_snprintf(pResult, max, "identity");
-		else if (mat == m6x8Zero)
+		else if (mat == m6x8::Zero())
 			_snprintf(pResult, max, "zero");
 		else
 		{
@@ -295,9 +293,7 @@ extern "C"
 		quat q;
 		if (FAILED(pHelper->Read(q))) return E_FAIL;
 
-		v4 axis;
-		float angle;
-		AxisAngle(q, axis, angle);
+		auto [axis, angle] = AxisAngle(q);
 		_snprintf(pResult, max,
 			"%+g %+g %+g %+g Ang=%g° Len=%g"
 			,R(q.x)

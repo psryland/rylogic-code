@@ -13,7 +13,7 @@ namespace pr::physics
 	// Extrapolate the position based on the given momentum, forces, and inertia
 	// All parameters must be in the same space. The accuracy of this extrapolation
 	// decreases with larger angular momentum or greater 'dt'.
-	inline m4x4 ExtrapolateO2W(m4_cref o2w, v8force const& momentum, v8force const& force, InertiaInv const& inertia_inv, float dt)
+	inline m4x4 ExtrapolateO2W(m4x4 const& o2w, v8force const& momentum, v8force const& force, InertiaInv const& inertia_inv, float dt)
 	{
 		// S = So + Vt + 0.5At²
 		//   = So + t * (V + 0.5At)

@@ -87,53 +87,65 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Vec3 Zero()      noexcept
+		static constexpr Vec3 const& Zero() noexcept
 		{
-			return Vec3(S(0), S(0), S(0));
+			static auto s_zero = math::Zero<Vec3>();
+			return s_zero;
 		}
-		static constexpr Vec3 One()       noexcept
+		static constexpr Vec3 const& One() noexcept
 		{
-			return Vec3(S(1), S(1), S(1));
+			static auto s_one = math::One<Vec3>();
+			return s_one;
 		}
-		static constexpr Vec3 Tiny()      noexcept
+		static constexpr Vec3 const& Tiny() noexcept
 		{
-			return Vec3(tiny<S>, tiny<S>, tiny<S>);
+			static auto s_tiny = math::Tiny<Vec3>();
+			return s_tiny;
 		}
-		static constexpr Vec3 Min()       noexcept
+		static constexpr Vec3 const& Min() noexcept
 		{
-			return Vec3(limits<S>::min(), limits<S>::min(), limits<S>::min());
+			static auto s_min = math::Min<Vec3>();
+			return s_min;
 		}
-		static constexpr Vec3 Max()       noexcept
+		static constexpr Vec3 const& Max() noexcept
 		{
-			return Vec3(limits<S>::max(), limits<S>::max(), limits<S>::max());
+			static auto s_max = math::Max<Vec3>();
+			return s_max;
 		}
-		static constexpr Vec3 Lowest()    noexcept
+		static constexpr Vec3 const& Lowest() noexcept
 		{
-			return Vec3(limits<S>::lowest(), limits<S>::lowest(), limits<S>::lowest());
+			static auto s_lowest = math::Lowest<Vec3>();
+			return s_lowest;
 		}
-		static constexpr Vec3 Epsilon()   noexcept
+		static constexpr Vec3 const& Epsilon() noexcept
 		{
-			return Vec3(limits<S>::epsilon(), limits<S>::epsilon(), limits<S>::epsilon());
+			static auto s_epsilon = math::Epsilon<Vec3>();
+			return s_epsilon;
 		}
-		static constexpr Vec3 Infinity()  noexcept
+		static constexpr Vec3 const& Infinity() noexcept
 		{
-			return Vec3(limits<S>::infinity(), limits<S>::infinity(), limits<S>::infinity());
+			static auto s_infinity = math::Infinity<Vec3>();
+			return s_infinity;
 		}
-		static constexpr Vec3 XAxis()     noexcept
+		static constexpr Vec3 const& XAxis() noexcept
 		{
-			return Vec3(S(1), S(0), S(0));
+			static auto s_x_axis = math::XAxis<Vec3>();
+			return s_x_axis;
 		}
-		static constexpr Vec3 YAxis()     noexcept
+		static constexpr Vec3 const& YAxis() noexcept
 		{
-			return Vec3(S(0), S(1), S(0));
+			static auto s_y_axis = math::YAxis<Vec3>();
+			return s_y_axis;
 		}
-		static constexpr Vec3 ZAxis()     noexcept
+		static constexpr Vec3 const& ZAxis() noexcept
 		{
-			return Vec3(S(0), S(0), S(1));
+			static auto s_z_axis = math::ZAxis<Vec3>();
+			return s_z_axis;
 		}
-		static constexpr Vec3 Origin()    noexcept
+		static constexpr Vec3 const& Origin() noexcept
 		{
-			return Vec3(S(0), S(0), S(0));
+			static auto s_origin = math::Origin<Vec3>();
+			return s_origin;
 		}
 		
 		// Construct normalised

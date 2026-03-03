@@ -1209,7 +1209,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M3x3");
 			PR_EXPECT(reader.Matrix3x3(mat3) && FEql(mat3, m3x4Identity));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M4x4");
-			PR_EXPECT(reader.Matrix4x4(mat4) && FEql(mat4, m4x4Identity));
+			PR_EXPECT(reader.Matrix4x4(mat4) && FEql(mat4, m4x4::Identity()));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "Data");
 			PR_EXPECT(reader.Data(kw, 16) && std::string(kw) == "ABCDEFGHIJKLMNO");
 			PR_EXPECT(reader.FindKeyword(L"Section")); str.resize(0);

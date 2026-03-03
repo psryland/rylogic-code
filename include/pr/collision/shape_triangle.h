@@ -13,7 +13,7 @@ namespace pr::collision
 		Shape m_base;
 		m4x4  m_v; // <x,y,z> = verts of the triangle, w = normal. Cross3(w, y-x) should point toward the interior of the triangle
 
-		explicit ShapeTriangle(v4_cref a, v4_cref b, v4_cref c, m4_cref shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_parent, material_id, flags)
 			,m_v(a, b, c, Normalise(Cross3(b-a,c-b)))
 		{
@@ -64,7 +64,7 @@ namespace pr::collision
 
 	// Return a support vertex for a triangle
 	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapeTriangle const& shape, v4_cref direction, int, int& sup_vert_id)
+	v4 pr_vectorcall SupportVertex(ShapeTriangle const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		auto d = v4{
 			Dot3(direction, shape.m_v.x),
@@ -78,7 +78,7 @@ namespace pr::collision
 
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space
 	template <typename>
-	void pr_vectorcall ClosestPoint(ShapeTriangle const& shape, v4_cref point, float& distance, v4& closest)
+	void pr_vectorcall ClosestPoint(ShapeTriangle const& shape, v4 point, float& distance, v4& closest)
 	{
 		using namespace pr::geometry;
 		closest = closest_point::PointToTriangle(point, shape.m_v.x, shape.m_v.y, shape.m_v.z);

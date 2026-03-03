@@ -29,7 +29,7 @@ Couple::Couple(Shape const& shapeA, m4x4 const& a2w, Shape const& shapeB, m4x4 c
 		// If these shapes are overlapping for the first time, get the initial
 		// separating vector from the difference in positions.
 		m_separating_axis = m_b2w.pos - m_a2w.pos;
-		if(m_separating_axis == v4Zero)	{ m_separating_axis = v4XAxis; }
+		if(m_separating_axis == v4Zero)	{ m_separating_axis = v4::XAxis(); }
 		else								{ m_separating_axis = Normalise(m_separating_axis); }
 	}
 	else

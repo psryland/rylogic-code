@@ -9,6 +9,41 @@
 // PR_MATHS_USE_INTRINSICS
 // Also remember NOMINMAX
 
+#define NEW_MATHS 0
+
+#if NEW_MATHS
+#include "pr/math_new/math.h"
+namespace pr
+{
+	using namespace math;
+
+	using v2 = math::Vec2<float>;
+	using v3 = math::Vec3<float>;
+	using v4 = math::Vec4<float>;
+	using v8 = math::Vec8<float, void>;
+	using iv2 = math::Vec2<int32_t>;
+	using iv3 = math::Vec3<int32_t>;
+	using iv4 = math::Vec4<int32_t>;
+	using quat = math::Quat<float>;
+	using xform = math::Xform<float>;
+	using m2x2 = math::Mat2x2<float>;
+	using m3x4 = math::Mat3x4<float>;
+	using m4x4 = math::Mat4x4<float>;
+	using m6x8 = math::Mat6x8<float, void, void>;
+	using BBox = math::BBox<float>;
+	using BSphere = math::BSphere<float>;
+	using Plane = math::Plane<float>;
+
+	namespace maths
+	{
+		inline static constexpr float tinyf = math::tiny<float>;
+		inline static constexpr double tinyd = math::tiny<double>;
+	}
+}
+#else
+
+#include "pr/common/cast.h"
+
 #include "pr/maths/forward.h"
 #include "pr/maths/constants.h"
 #include "pr/maths/limits.h"
@@ -23,6 +58,7 @@
 #include "pr/maths/matrix4x4.h"
 #include "pr/maths/matrix6x8.h"
 #include "pr/maths/matrix.h"
+#include "pr/maths/half.h"
 #include "pr/maths/transform.h"
 #include "pr/maths/bbox.h"
 #include "pr/maths/bsphere.h"
@@ -33,7 +69,11 @@
 #include "pr/maths/axis_id.h"
 #include "pr/maths/conversion.h"
 #include "pr/maths/spline.h"
-#include "pr/maths/half.h"
 #include "pr/maths/polynomial.h"
+#include "pr/maths/spatial.h"
+#include "pr/maths/stat.h"
+#include "pr/maths/interpolate.h"
+#include "pr/maths/dynamics.h"
 #include "pr/maths/constants_vector.h"
 
+#endif

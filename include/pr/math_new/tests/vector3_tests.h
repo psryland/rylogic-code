@@ -90,12 +90,12 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 
-			static_assert(vec3_t::Zero() == vec3_t(T(0), T(0), T(0)));
-			static_assert(vec3_t::One() == vec3_t(T(1), T(1), T(1)));
-			static_assert(vec3_t::XAxis() == vec3_t(T(1), T(0), T(0)));
-			static_assert(vec3_t::YAxis() == vec3_t(T(0), T(1), T(0)));
-			static_assert(vec3_t::ZAxis() == vec3_t(T(0), T(0), T(1)));
-			static_assert(vec3_t::Origin() == vec3_t(T(0), T(0), T(0)));
+			static_assert(Zero<vec3_t>() == vec3_t(T(0), T(0), T(0)));
+			static_assert(One<vec3_t>() == vec3_t(T(1), T(1), T(1)));
+			static_assert(XAxis<vec3_t>() == vec3_t(T(1), T(0), T(0)));
+			static_assert(YAxis<vec3_t>() == vec3_t(T(0), T(1), T(0)));
+			static_assert(ZAxis<vec3_t>() == vec3_t(T(0), T(0), T(1)));
+			static_assert(Origin<vec3_t>() == vec3_t(T(0), T(0), T(0)));
 		}
 		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
 		{

@@ -16,7 +16,6 @@
 #include "pr/container/vector.h"
 #include "pr/container/byte_data.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/spatial.h"
 #include "pr/collision/shapes.h"
 #include "pr/collision/collision.h"
 #include "pr/geometry/closest_point.h"

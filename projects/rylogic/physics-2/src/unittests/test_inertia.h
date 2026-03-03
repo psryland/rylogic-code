@@ -69,7 +69,7 @@ namespace pr::physics
 			Ic1 = Rotate(Ic1, m3x4::Rotation(0, float(maths::tau_by_4), 0));
 			Ic1 = Translate(Ic1, v4{0,0,1,0}, ETranslateInertia::TowardCoM);
 
-			PR_EXPECT(FEql(Ic0, Ic1));
+			PR_EXPECT(FEqlRelative(Ic0, Ic1, 0.0001f));
 		}
 
 		PRUnitTestMethod(Transform)

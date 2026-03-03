@@ -50,10 +50,10 @@ namespace pr::physics
 		// Construct the rigid body with a collision shape
 		// Inertia is not automatically derived from the collision shape, that is left to the caller.
 		template <ShapeType TShape>
-		explicit RigidBody(TShape const* shape, m4_cref o2w = m4x4::Identity(), Inertia const& inertia = {})
+		explicit RigidBody(TShape const* shape, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {})
 			:RigidBody(shape_cast(shape), o2w, inertia)
 		{}
-		explicit RigidBody(Shape const* shape = nullptr, m4_cref o2w = m4x4::Identity(), Inertia const& inertia = {})
+		explicit RigidBody(Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {})
 			:m_o2w(o2w)
 			,m_os_com()
 			,m_ws_momentum()
@@ -102,7 +102,7 @@ namespace pr::physics
 		}
 
 		// Set the shape and mass properties explicitly
-		void Shape(collision::Shape const* shape, Inertia inertia, v4_cref com = v4{})
+		void Shape(collision::Shape const* shape, Inertia inertia, v4 com = v4{})
 		{
 			// Set the shape
 			Shape(shape);
@@ -112,7 +112,7 @@ namespace pr::physics
 		}
 
 		// Get/Set the body object to world transform
-		m4_cref O2W() const
+		m4x4 const& O2W() const
 		{
 			return m_o2w;
 		}
@@ -120,7 +120,7 @@ namespace pr::physics
 		{
 			return InvertAffine(O2W());
 		}
-		void O2W(m4_cref o2w)
+		void O2W(m4x4 const& o2w)
 		{
 			assert(IsOrthonormal(o2w));
 			m_o2w = o2w;
@@ -159,7 +159,7 @@ namespace pr::physics
 		}
 
 		// Offset to the centre of mass (w = 0) (Object relative)
-		v4_cref CentreOfMassOS() const
+		v4 CentreOfMassOS() const
 		{
 			return m_os_com;
 		}
@@ -188,25 +188,25 @@ namespace pr::physics
 
 		// Return the inertia rotated from object space to 'A' space
 		// 'com' is the position of this object's CoM in 'A' space
-		Inertia InertiaOS(m3_cref o2a, v4_cref com = v4{}) const
+		Inertia InertiaOS(m3x4 const& o2a, v4 com = v4{}) const
 		{
 			auto inertia = InertiaOS();
 			inertia = Rotate(inertia, o2a);
 			inertia.CoM(com);
 			return inertia;
 		}
-		InertiaInv InertiaInvOS(m3_cref o2a, v4_cref com = v4{}) const
+		InertiaInv InertiaInvOS(m3x4 const& o2a, v4 com = v4{}) const
 		{
 			auto inertia_inv = InertiaInvOS();
 			inertia_inv = Rotate(inertia_inv, o2a);
 			inertia_inv.CoM(com);
 			return inertia_inv;
 		}
-		Inertia InertiaOS(m4_cref o2a) const
+		Inertia InertiaOS(m4x4 const& o2a) const
 		{
 			return InertiaOS(o2a.rot, o2a.pos);
 		}
-		InertiaInv InertiaInvOS(m4_cref o2a) const
+		InertiaInv InertiaInvOS(m4x4 const& o2a) const
 		{
 			return InertiaInvOS(o2a.rot, o2a.pos);
 		}
@@ -231,14 +231,14 @@ namespace pr::physics
 			auto ws_velocity = O2W().rot * os_velocity;
 			VelocityWS(ws_velocity);
 		}
-		void VelocityWS(v4_cref ws_ang, v4_cref ws_lin, v4_cref ws_at = v4{})
+		void VelocityWS(v4 ws_ang, v4 ws_lin, v4 ws_at = v4{})
 		{
 			// 'ws_ang' and 'ws_lin' describe velocity at 'ws_at'. Shift to model origin.
 			auto spatial_velocity = v8motion{ws_ang, ws_lin};
 			spatial_velocity = Shift(spatial_velocity, -ws_at);
 			VelocityWS(spatial_velocity);
 		}
-		void VelocityOS(v4_cref os_ang, v4_cref os_lin, v4_cref os_at = v4{})
+		void VelocityOS(v4 os_ang, v4 os_lin, v4 os_at = v4{})
 		{
 			auto ws_ang = O2W() * os_ang;
 			auto ws_lin = O2W() * os_lin;
@@ -286,7 +286,7 @@ namespace pr::physics
 		}
 
 		// Add a force acting on the rigid body at position 'at' (world space, object origin relative, not CoM relative)
-		void ApplyForceWS(v4_cref ws_force, v4_cref ws_torque, v4_cref ws_at = v4Zero)
+		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4Zero)
 		{
 			assert("'at' should be an offset (in world space) from the object origin" && ws_at.w == 0);
 			auto spatial_force = v8force{ws_torque, ws_force};
@@ -299,7 +299,7 @@ namespace pr::physics
 		}
 
 		// Add a force acting on the rigid body at position 'at' (object space, not CoM relative)
-		void ApplyForceOS(v4_cref os_force, v4_cref os_torque, v4_cref os_at = v4Zero)
+		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4Zero)
 		{
 			assert("'at' should be an offset (in object space) from the object origin" && os_at.w == 0);
 			auto o2w = O2W();
@@ -317,7 +317,7 @@ namespace pr::physics
 		// Set the mass properties of the body.
 		// 'os_inertia' is the inertia for the body, measured at the model origin (not CoM) (in object space)
 		// 'os_model_to_com' is the vector from the model origin to the body's centre of mass (in object space)
-		void SetMassProperties(Inertia const& os_inertia, v4_cref os_model_to_com = v4{})
+		void SetMassProperties(Inertia const& os_inertia, v4 os_model_to_com = v4{})
 		{
 			// Notes:
 			//  - os_inertia.CoM() vs. os_model_to_com:

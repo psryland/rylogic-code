@@ -17,7 +17,7 @@ namespace pr
 		InterpolateVector()
 			:InterpolateVector(v4::Origin(), v4::Zero(), v4::Origin(), v4::Zero(), 1.0f)
 		{}
-		InterpolateVector(v4_cref x0, v4_cref v0, v4_cref x1, v4_cref v1, float interval)
+		InterpolateVector(v4 x0, v4 v0, v4 x1, v4 v1, float interval)
 			: m_p(x0 - x1, v0 * interval, v4::Zero(), v1 * interval, CurveType::Hermite)
 			, m_x1(x1)
 			, m_interval(interval)
@@ -60,7 +60,7 @@ namespace pr
 		InterpolateRotation()
 			:InterpolateRotation(quat::Identity(), v4::Zero(), quat::Identity(), v4::Zero(), 1.0f)
 		{}
-		InterpolateRotation(quat_cref q0, v4_cref w0, quat_cref q1, v4_cref w1, float interval)
+		InterpolateRotation(quat q0, v4 w0, quat q1, v4 w1, float interval)
 			: m_p(
 				LogMap(~q1 * q0),
 				Tangent(~q1 * q0, Rotate(~q1, w0)) * interval,
@@ -135,7 +135,7 @@ namespace pr
 		}
 
 		// Returns the tangent of 'q' in SO(3) based on angular velocity 'w'
-		static v4 Tangent(quat_cref q, v4_cref w)
+		static v4 Tangent(quat q, v4 w)
 		{
 			// Using the inverse left-Jacobian to map angular velocity 'w' to tangent space at 'q'
 			// The factor of 0.5 applied on return is because the Exp/Log functions use the

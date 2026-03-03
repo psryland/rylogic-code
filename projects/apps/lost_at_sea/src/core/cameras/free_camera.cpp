@@ -49,12 +49,12 @@ namespace las::camera
 			}
 			case input::EAction::FreeCamera_MoveDown:
 			{
-				m_move_wish -= v4ZAxis;
+				m_move_wish -= v4::ZAxis();
 				break;
 			}
 			case input::EAction::FreeCamera_MoveUp:
 			{
-				m_move_wish += v4ZAxis;
+				m_move_wish += v4::ZAxis();
 				break;
 			}
 

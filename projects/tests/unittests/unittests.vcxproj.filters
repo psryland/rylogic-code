@@ -1267,6 +1267,48 @@
     <ClInclude Include="..\..\..\include\pr\math_new\utils\polynomial.h">
       <Filter>pr\math_new\utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\bbox_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\bsphere_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\dynamics_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\frustum_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\half_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\interpolate_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\oriented_box_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\plane_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\polynomial_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\primes_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\rectangle_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\spatial_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\stat_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\tests\transform_tests.h">
+      <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">

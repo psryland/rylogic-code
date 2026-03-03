@@ -39,10 +39,10 @@ namespace pr::geometry
 			auto a = float(maths::tau * i / facets);
 			auto c = Cos(a);
 			auto s = Sin(a);
-			vout(v4(dimx * c, dimy * s, 0, 1), colour, v4ZAxis, v2(0.5f*(c + 1), 0.5f*(1 - s)));
+			vout(v4(dimx * c, dimy * s, 0, 1), colour, v4::ZAxis(), v2(0.5f*(c + 1), 0.5f*(1 - s)));
 		}
 		if (solid)
-			vout(v4Origin, colour, v4ZAxis, v2(0.5f, 0.5f));
+			vout(v4Origin, colour, v4::ZAxis(), v2(0.5f, 0.5f));
 
 		if (solid)
 		{
@@ -107,8 +107,8 @@ namespace pr::geometry
 			auto a = Lerp(ang0, ang1, float(i) / facets);
 			auto c = Cos(a);
 			auto s = Sin(a);
-			vout(bb(v4(radius0 * dimx * c, radius0 * dimy * s, 0, 1)), colour, v4ZAxis, v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
-			vout(bb(v4(radius1 * dimx * c, radius1 * dimy * s, 0, 1)), colour, v4ZAxis, v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
+			vout(bb(v4(radius0 * dimx * c, radius0 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
+			vout(bb(v4(radius1 * dimx * c, radius1 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
 		}
 
 		if (solid)
@@ -178,15 +178,15 @@ namespace pr::geometry
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(-dimx + rad * (1 - c), +dimy - rad * (1 - s), 0, 1), colour, v4ZAxis, v2(t0 + (1 - c) * tx, t0 + (1 - s) * ty));
-				vout(v4(-dimx + rad * (1 - c), -dimy + rad * (1 - s), 0, 1), colour, v4ZAxis, v2(t0 + (1 - c) * tx, t1 - (1 - s) * ty));
+				vout(v4(-dimx + rad * (1 - c), +dimy - rad * (1 - s), 0, 1), colour, v4::ZAxis(), v2(t0 + (1 - c) * tx, t0 + (1 - s) * ty));
+				vout(v4(-dimx + rad * (1 - c), -dimy + rad * (1 - s), 0, 1), colour, v4::ZAxis(), v2(t0 + (1 - c) * tx, t1 - (1 - s) * ty));
 			}
 			for (int i = 0; i != verts_per_cnr; ++i)
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(+dimx - rad * (1 - s), +dimy - rad * (1 - c), 0, 1), colour, v4ZAxis, v2(t1 - (1 - s)*tx, t0 + (1 - c)*ty));
-				vout(v4(+dimx - rad * (1 - s), -dimy + rad * (1 - c), 0, 1), colour, v4ZAxis, v2(t1 - (1 - s)*tx, t1 - (1 - c)*ty));
+				vout(v4(+dimx - rad * (1 - s), +dimy - rad * (1 - c), 0, 1), colour, v4::ZAxis(), v2(t1 - (1 - s)*tx, t0 + (1 - c)*ty));
+				vout(v4(+dimx - rad * (1 - s), -dimy + rad * (1 - c), 0, 1), colour, v4::ZAxis(), v2(t1 - (1 - s)*tx, t1 - (1 - c)*ty));
 			}
 		}
 		else // border only
@@ -196,25 +196,25 @@ namespace pr::geometry
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(-dimx + rad * (1 - c), -dimy + rad * (1 - s), 0, 1), colour, v4ZAxis, v2(t0 + (1 - c)*tx, t1 - (1 - s)*ty));
+				vout(v4(-dimx + rad * (1 - c), -dimy + rad * (1 - s), 0, 1), colour, v4::ZAxis(), v2(t0 + (1 - c)*tx, t1 - (1 - s)*ty));
 			}
 			for (int i = 0; i != verts_per_cnr; ++i)
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(+dimx - rad * (1 - s), -dimy + rad * (1 - c), 0, 1), colour, v4ZAxis, v2(t1 - (1 - s)*tx, t1 - (1 - c)*ty));
+				vout(v4(+dimx - rad * (1 - s), -dimy + rad * (1 - c), 0, 1), colour, v4::ZAxis(), v2(t1 - (1 - s)*tx, t1 - (1 - c)*ty));
 			}
 			for (int i = 0; i != verts_per_cnr; ++i)
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(+dimx - rad * (1 - c), +dimy - rad * (1 - s), 0, 1), colour, v4ZAxis, v2(t1 - (1 - c)*tx, t0 + (1 - s)*ty));
+				vout(v4(+dimx - rad * (1 - c), +dimy - rad * (1 - s), 0, 1), colour, v4::ZAxis(), v2(t1 - (1 - c)*tx, t0 + (1 - s)*ty));
 			}
 			for (int i = 0; i != verts_per_cnr; ++i)
 			{
 				auto c = cos(i);
 				auto s = sin(i);
-				vout(v4(-dimx + rad * (1 - s), +dimy - rad * (1 - c), 0, 1), colour, v4ZAxis, v2(t0 + (1 - s)*tx, t0 + (1 - c)*ty));
+				vout(v4(-dimx + rad * (1 - s), +dimy - rad * (1 - c), 0, 1), colour, v4::ZAxis(), v2(t0 + (1 - s)*tx, t0 + (1 - c)*ty));
 			}
 		}
 

@@ -80,7 +80,7 @@ namespace pr::physics
 			auto& objB = *c.m_objB;
 
 			// Perform the narrow phase collision detection in 'objA' space to reduce floating point errors
-			if (!collision::Collide(objA.Shape(), m4x4Identity, objB.Shape(), c.m_b2a, c))
+			if (!collision::Collide(objA.Shape(), m4x4::Identity(), objB.Shape(), c.m_b2a, c))
 				return false;
 
 			// If the collision point is moving out of collision, ignore the collision.

@@ -11,7 +11,7 @@
 namespace pr
 {
 	using half_t = unsigned short;
-	using half4 = Vec4<half_t, void>;
+	using Half4 = Vec4<half_t, void>;
 
 	// Convert between 32-bit float (1s7e24m) and 16-bit float (1s5e10m) at compile time
 	constexpr half_t F32toF16CT(float f32)
@@ -90,21 +90,21 @@ namespace pr
 	}
 
 	// Return the vector converted to half size floats
-	inline half4 pr_vectorcall F32toF16(Vec4_cref<float, void> v)
+	inline Half4 pr_vectorcall F32toF16(Vec4<float, void> v)
 	{
 		if constexpr (Vec4<float, void>::IntrinsicF)
 		{
 			auto f16 = _mm_cvtps_ph(v.vec, _MM_FROUND_TO_NEAREST_INT); //|_MM_FROUND_NO_EXC - emits a warning
-			return half4{f16.m128i_u16[0], f16.m128i_u16[1], f16.m128i_u16[2], f16.m128i_u16[3]};
+			return Half4{f16.m128i_u16[0], f16.m128i_u16[1], f16.m128i_u16[2], f16.m128i_u16[3]};
 		}
 		else
 		{
-			return half4{F32toF16(v.x), F32toF16(v.y), F32toF16(v.z), F32toF16(v.w)};
+			return Half4{F32toF16(v.x), F32toF16(v.y), F32toF16(v.z), F32toF16(v.w)};
 		}
 	}
 
 	// Return the vector as 32-bit floats
-	inline Vec4<float, void> pr_vectorcall F16toF32(half4 v)
+	inline Vec4<float, void> pr_vectorcall F16toF32(Half4 v)
 	{
 		if constexpr (Vec4<float, void>::IntrinsicF)
 		{

@@ -543,7 +543,7 @@ struct Main
 			return;
 
 		// Read the object to world transform
-		auto o2w = m4x4Identity;
+		auto o2w = m4x4::Identity();
 		reader.TransformS(o2w);
 		
 		// Create a normals to world transform

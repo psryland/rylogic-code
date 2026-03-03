@@ -219,7 +219,7 @@ namespace pr::rdr12
 
 		// Get/Set the window background colour
 		Colour BackgroundColour() const;
-		void BackgroundColour(Colour_cref colour);
+		void BackgroundColour(Colour colour);
 			
 		// Get/Set the window fill mode
 		EFillMode FillMode() const;
@@ -239,11 +239,11 @@ namespace pr::rdr12
 
 		// Get/Set the camera focus point position
 		v4 FocusPoint() const;
-		void FocusPoint(v4_cref position);
+		void FocusPoint(v4 position);
 
 		// Get/Set the camera focus point bounds
 		BBox FocusBounds() const;
-		void FocusBounds(BBox_cref bounds);
+		void FocusBounds(BBox bounds);
 
 		// Get/Set the aspect ratio for the camera field of view
 		float Aspect() const;
@@ -258,7 +258,7 @@ namespace pr::rdr12
 
 		// Get/Set (using fov and focus distance) the size of the perpendicular area visible to the camera at 'dist' (in world space). Use 'focus_dist != 0' to set a specific focus distance
 		v2 ViewRectAtDistance(float dist) const;
-		void ViewRectAtDistance(v2_cref rect, float focus_dist = 0);
+		void ViewRectAtDistance(v2 rect, float focus_dist = 0);
 
 		// Get/Set the near and far clip planes for the camera
 		v2 ClipPlanes(view3d::EClipPlanes flags) const;
@@ -270,7 +270,7 @@ namespace pr::rdr12
 
 		// Get/Set the camera align axis
 		v4 AlignAxis() const;
-		void AlignAxis(v4_cref axis);
+		void AlignAxis(v4 axis);
 
 		// Reset to the default zoom
 		void ResetZoom();

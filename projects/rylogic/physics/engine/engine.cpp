@@ -80,16 +80,16 @@ void Engine::ConstructCommon()
 
 	// Setup the terrain object
 	RigidbodySettings terrain_settings;
-	terrain_settings.m_object_to_world        = m4x4Identity;
-	terrain_settings.m_shape                  = &m_terrain_shape.set(m_settings.m_terrain, m4x4Identity, 0, EShapeFlags_None).m_base;
+	terrain_settings.m_object_to_world        = m4x4::Identity();
+	terrain_settings.m_shape                  = &m_terrain_shape.set(m_settings.m_terrain, m4x4::Identity(), 0, EShapeFlags_None).m_base;
 	terrain_settings.m_type                   = ERigidbody_Terrain;
 	terrain_settings.m_motion_type            = EMotion_Static;
 	terrain_settings.m_mass_properties.m_mass = maths::float_max;
 	m_terrain_object.Create(terrain_settings);
 	m_terrain_object.m_ws_bbox.m_radius      = v4Max;
-	m_terrain_object.m_os_inv_inertia_tensor = m3x4Zero;
+	m_terrain_object.m_os_inv_inertia_tensor = m3x4::Zero();
 	m_terrain_object.m_os_inertia_tensor     = m3x4Identity * maths::float_max;
-	m_terrain_object.m_ws_inv_inertia_tensor = m3x4Zero;
+	m_terrain_object.m_ws_inv_inertia_tensor = m3x4::Zero();
 
 	m_stepping     = false;
 	m_frame_number = 0;
@@ -512,16 +512,16 @@ void Engine::OnEvent(RBEvent const& e)
 //	// "inv_mass1" = [(1/MassA)*Identity - (pointA.CrossProductMatrix()*InvMassTensorWS()A*pointA.CrossProductMatrix())] and
 //	// "inv_mass2" = [(1/MassB)*Identity - (pointB.CrossProductMatrix()*InvMassTensorWS()B*pointB.CrossProductMatrix())]
 //	m4x4 pointAcross = contact.m_pointA.CrossProductMatrix();
-//	m4x4 inv_mass1 = (1.0f / objectA->Mass()) * m4x4Identity - (pointAcross * objectA->InvMassTensorWS() * pointAcross);
+//	m4x4 inv_mass1 = (1.0f / objectA->Mass()) * m4x4::Identity() - (pointAcross * objectA->InvMassTensorWS() * pointAcross);
 //	m4x4 inv_mass2;
 //	if( objectB )
 //	{
 //		m4x4 pointBcross = contact.m_pointB.CrossProductMatrix();
-//		inv_mass2 = (1.0f / objectB->Mass()) * m4x4Identity - (pointBcross * objectB->InvMassTensorWS() * pointBcross);
+//		inv_mass2 = (1.0f / objectB->Mass()) * m4x4::Identity() - (pointBcross * objectB->InvMassTensorWS() * pointBcross);
 //	}
 //	else
 //	{
-//		inv_mass2 = m4x4Zero;
+//		inv_mass2 = m4x4::Zero();
 //	}
 //
 //	m4x4 inv_mass = inv_mass1 + inv_mass2; inv_mass[3][3] = 1.0f;

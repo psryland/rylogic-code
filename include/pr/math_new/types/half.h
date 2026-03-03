@@ -93,7 +93,7 @@ namespace pr::math
 	{
 		using vt = vector_traits<Vec>;
 
-		auto fallback = [&]() constexpr { return Half4{ F32toF16(vec(v).x), F32toF16(vec(v).y), F32toF16(vec(v).z), F32toF16(vec(v).w) }; };
+		auto fallback = [&]() constexpr { return Half4{ F32toF16(static_cast<float>(vec(v).x)), F32toF16(static_cast<float>(vec(v).y)), F32toF16(static_cast<float>(vec(v).z)), F32toF16(static_cast<float>(vec(v).w)) }; };
 		if consteval
 		{
 			return fallback();

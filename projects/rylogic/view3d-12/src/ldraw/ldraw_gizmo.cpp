@@ -664,7 +664,7 @@ namespace pr::rdr12::ldraw
 		,m_mode(static_cast<EGizmoMode>(-1))
 		,m_gfx()
 		,m_scale(1.0f)
-		,m_offset(m4x4Identity)
+		,m_offset(m4x4::Identity())
 		,m_ref_pt()
 		,m_col_hover(0xFFBBBB00U)
 		,m_col_manip(0xFFFFFF00U)
@@ -676,7 +676,7 @@ namespace pr::rdr12::ldraw
 		// Create graphics for the gizmo, and set that model as the first
 		// matrix to be controlled by the gizmo thus moving itself.
 		m_attached_ptr.push_back(nullptr);
-		m_attached_ref.push_back(m4x4Identity);
+		m_attached_ref.push_back(m4x4::Identity());
 		Mode(mode);
 		O2W(o2w);
 	}
@@ -757,7 +757,7 @@ namespace pr::rdr12::ldraw
 		// Update the matrix for this graphics object in m_attached
 		m_attached_ptr[0] = &m_gfx.m_o2w;
 		m_attached_ref[0] = m_gfx.m_o2w;
-		m_offset = m4x4Identity;
+		m_offset = m4x4::Identity();
 	}
 
 	// Get/Set the gizmo object to world transform
@@ -772,7 +772,7 @@ namespace pr::rdr12::ldraw
 		if (!m_manipulating)
 			m_attached_ref[0] = o2w;
 
-		m_offset = m4x4Identity;
+		m_offset = m4x4::Identity();
 	}
 
 	// Attach/Detach objects by reference to their transform what will be moved as the gizmo moves
@@ -800,7 +800,7 @@ namespace pr::rdr12::ldraw
 		for (size_t i = 0, iend = m_attached_ptr.size(); i != iend; ++i)
 			m_attached_ref[i] = *m_attached_ptr[i];
 
-		m_offset = m4x4Identity;
+		m_offset = m4x4::Identity();
 	}
 
 	// Reset all attached objects back to the reference position and end manipulation
@@ -811,7 +811,7 @@ namespace pr::rdr12::ldraw
 			*m_attached_ptr[i] = m_attached_ref[i];
 
 		m_manipulating = false;
-		m_offset = m4x4Identity;
+		m_offset = m4x4::Identity();
 
 		// Call after reverting transforms so that callee's can Detach() after
 		// their transforms have been changed (if they decided to Attach on StartManip)
@@ -832,7 +832,7 @@ namespace pr::rdr12::ldraw
 		for (size_t i = 1, iend = m_attached_ptr.size(); i < iend; ++i)
 			m_attached_ref[i] = *m_attached_ptr[i];
 
-		m_offset = m4x4Identity;
+		m_offset = m4x4::Identity();
 
 		// Call after committing transforms so that callee's can Detach() after
 		// their transforms have been changed (if they decided to Attach on StartManip)
@@ -956,13 +956,13 @@ namespace pr::rdr12::ldraw
 					hit = EComponent::X;
 					min_dist_sq = dist_sq;
 				}
-				closest_point::LineToRay(v4::Origin(), v4YAxis.w1(), p, d, t0, t1, dist_sq);
+				closest_point::LineToRay(v4::Origin(), v4::YAxis().w1(), p, d, t0, t1, dist_sq);
 				if (t0 > t_min && t0 <= t_max && dist_sq < min_dist_sq && t1 > 0.0f)
 				{
 					hit = EComponent::Y;
 					min_dist_sq = dist_sq;
 				}
-				closest_point::LineToRay(v4::Origin(), v4ZAxis.w1(), p, d, t0, t1, dist_sq);
+				closest_point::LineToRay(v4::Origin(), v4::ZAxis().w1(), p, d, t0, t1, dist_sq);
 				if (t0 > t_min && t0 <= t_max && dist_sq < min_dist_sq && t1 > 0.0f)
 				{
 					hit = EComponent::Z;

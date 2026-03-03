@@ -268,7 +268,7 @@ namespace pr::rdr12
 		constexpr ClearValue()
 			:D3D12_CLEAR_VALUE{ .Format = DXGI_FORMAT_UNKNOWN, .Color = { 0.0f, 0.0f, 0.0f, 1.0f } }
 		{}
-		constexpr ClearValue(DXGI_FORMAT format, Colour_cref col)
+		constexpr ClearValue(DXGI_FORMAT format, Colour col)
 			:D3D12_CLEAR_VALUE{ .Format = format, .Color = { col.r, col.g, col.b, col.a } }
 		{}
 		constexpr ClearValue(DXGI_FORMAT format, Colour32 col)
@@ -591,7 +591,7 @@ namespace pr::rdr12
 		{
 			return clear(format, Colour(colour));
 		}
-		ResDesc& clear(DXGI_FORMAT format, Colour_cref colour)
+		ResDesc& clear(DXGI_FORMAT format, Colour colour)
 		{
 			return clear(D3D12_CLEAR_VALUE{ .Format = format, .Color = {colour.r, colour.g, colour.b, colour.a} });
 		}

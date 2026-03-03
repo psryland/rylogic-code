@@ -18,7 +18,6 @@
 #include "pr/container/ring.h"
 #include "pr/gfx/colour.h"
 #include "pr/maths/maths.h"
-#include "pr/maths/interpolate.h"
 
 namespace pr::geometry
 {
@@ -223,32 +222,32 @@ namespace pr::geometry
 		MinSeparation()
 			:m_axis()
 			,m_axis_len_sq()
-			,m_depth_sq(maths::float_inf)
+			,m_depth_sq(limits<float>::infinity())
 		{}
 
 		// Boolean test of penetration
 		bool Contact() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
 			return m_depth_sq > 0;
 		}
 
 		// Return the depth of penetration
 		float Depth() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
 			return SignedSqrt(m_depth_sq);
 		}
 
 		// The direction of minimum penetration (normalised)
 		v4 SeparatingAxis() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
 			return m_axis / Sqrt(m_axis_len_sq);
 		}
 
 		// Record the minimum depth separation
-		void operator()(float depth, v4_cref axis)
+		void operator()(float depth, v4 axis)
 		{
 			// Defer the sqrt by comparing squared depths.
 			// Need to preserve the sign however.
@@ -264,81 +263,81 @@ namespace pr::geometry
 	};
 
 	// Forward declare functions
-	v4 pr_vectorcall BaryPoint(v4_cref a, v4_cref b, v4_cref c, v4_cref bary);
-	v4 pr_vectorcall BaryPoint(v4_cref a, v4_cref b, v4_cref c, v3 bary);
-	v4 pr_vectorcall Barycentric(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
-	bool pr_vectorcall PointWithinTriangle(v4_cref point, v4_cref a, v4_cref b, v4_cref c, float tol);
-	bool pr_vectorcall PointWithinTriangle2(v4_cref point, v4_cref a, v4_cref b, v4_cref c, float tol);
-	bool pr_vectorcall PointWithinTriangle(v4_cref point, v4_cref a, v4_cref b, v4_cref c, v4& pt);
-	bool pr_vectorcall PointWithinTetrahedron(v4_cref point, v4_cref a, v4_cref b, v4_cref c, v4_cref d);
-	bool pr_vectorcall PointWithinConvexPolygon(v4_cref point, v4 const* poly, int count, v4_cref norm);
-	bool pr_vectorcall PointWithinConvexPolygon(v4_cref point, v4 const* poly, int count);
-	bool pr_vectorcall PointWithinHalfSpaces(v4_cref point, Plane const* planes, int count, float tol);
-	bool pr_vectorcall PointInFrontOfPlane(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
+	v4 pr_vectorcall BaryPoint(v4 a, v4 b, v4 c, v4 bary);
+	v4 pr_vectorcall BaryPoint(v4 a, v4 b, v4 c, v3 bary);
+	v4 pr_vectorcall Barycentric(v4 point, v4 a, v4 b, v4 c);
+	bool pr_vectorcall PointWithinTriangle(v4 point, v4 a, v4 b, v4 c, float tol);
+	bool pr_vectorcall PointWithinTriangle2(v4 point, v4 a, v4 b, v4 c, float tol);
+	bool pr_vectorcall PointWithinTriangle(v4 point, v4 a, v4 b, v4 c, v4& pt);
+	bool pr_vectorcall PointWithinTetrahedron(v4 point, v4 a, v4 b, v4 c, v4 d);
+	bool pr_vectorcall PointWithinConvexPolygon(v4 point, v4 const* poly, int count, v4 norm);
+	bool pr_vectorcall PointWithinConvexPolygon(v4 point, v4 const* poly, int count);
+	bool pr_vectorcall PointWithinHalfSpaces(v4 point, Plane const* planes, int count, float tol);
+	bool pr_vectorcall PointInFrontOfPlane(v4 point, v4 a, v4 b, v4 c);
 
 	namespace distance
 	{
-		float pr_vectorcall PointToPlane(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
-		float pr_vectorcall PointToPlane(v4_cref point, Plane const& plane);
-		float pr_vectorcall PointToRay(v4_cref point, v4_cref start, v4_cref end);
-		float pr_vectorcall RayToRay(v4_cref s0, v4_cref line0, v4_cref s1, v4_cref line1);
-		float pr_vectorcall PointToRaySq(v4_cref point, v4_cref s, v4_cref d);
-		float pr_vectorcall PointToLineSq(v4_cref point, v4_cref s, v4_cref e);
-		float pr_vectorcall PointToBoundingBoxSq(v4_cref point, BBox const& bbox);
-		float pr_vectorcall PointToTriangleSq(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
-		float pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox);
+		float pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c);
+		float pr_vectorcall PointToPlane(v4 point, Plane plane);
+		float pr_vectorcall PointToRay(v4 point, v4 start, v4 end);
+		float pr_vectorcall RayToRay(v4 s0, v4 line0, v4 s1, v4 line1);
+		float pr_vectorcall PointToRaySq(v4 point, v4 s, v4 d);
+		float pr_vectorcall PointToLineSq(v4 point, v4 s, v4 e);
+		float pr_vectorcall PointToBoundingBoxSq(v4 point, BBox const& bbox);
+		float pr_vectorcall PointToTriangleSq(v4 point, v4 a, v4 b, v4 c);
+		float pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox);
 	}
 	namespace closest_point
 	{
-		v4 pr_vectorcall PointToPlane(v4_cref point, Plane const& plane);
-		v4 pr_vectorcall PointToPlane(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
-		v4 pr_vectorcall PointToRay(v4_cref point, v4 s, v4 d, void*, float& t);
-		v4 pr_vectorcall PointToRay(v4_cref point, v4 s, v4 d, void*);
-		v4 pr_vectorcall PointToLine(v4_cref point, v4_cref s, v4_cref e, float& t);
-		v4 pr_vectorcall PointToLine(v4_cref point, v4_cref s, v4_cref e);
-		v4 pr_vectorcall PointToBoundingBox(v4_cref point, BBox_cref bbox, bool surface_only = false);
+		v4 pr_vectorcall PointToPlane(v4 point, Plane plane);
+		v4 pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c);
+		v4 pr_vectorcall PointToRay(v4 point, v4 s, v4 d, void*, float& t);
+		v4 pr_vectorcall PointToRay(v4 point, v4 s, v4 d, void*);
+		v4 pr_vectorcall PointToLine(v4 point, v4 s, v4 e, float& t);
+		v4 pr_vectorcall PointToLine(v4 point, v4 s, v4 e);
+		v4 pr_vectorcall PointToBoundingBox(v4 point, BBox bbox, bool surface_only = false);
 		v2 pr_vectorcall PointToEllipse(float x, float y, float major, float minor);
-		v4 pr_vectorcall PointToTriangle(v4_cref p, v4_cref a, v4_cref b, v4_cref c, v4& barycentric);
-		v4 pr_vectorcall PointToTriangle(v4_cref point, v4_cref a, v4_cref b, v4_cref c);
-		v4 pr_vectorcall PointToTriangle(v4_cref point, const v4* tri, v4& barycentric);
-		v4 pr_vectorcall PointToTriangle(v4_cref point, const v4* tri);
-		v4 pr_vectorcall PointToTetrahedron(v4_cref p, v4_cref a, v4_cref b, v4_cref c, v4_cref d, v4& barycentric);
-		v4 pr_vectorcall PointToTetrahedron(v4_cref point, v4_cref a, v4_cref b, v4_cref c, v4_cref d);
-		v4 pr_vectorcall PointToTetrahedron(v4_cref point, const v4* tetra, v4& barycentric);
-		v4 pr_vectorcall PointToTetrahedron(v4_cref point, const v4* tetra);
-		v2 pr_vectorcall RayToRay(v4_cref s0, v4_cref d0, v4_cref s1, v4_cref d1);
-		void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, float& t0, float& t1);
-		void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, v4& pt0, v4& pt1);
-		void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, v4& pt0, v4& pt1, float& t0, float& t1);
-		void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, float& dist_sq);
-		void pr_vectorcall LineToRay(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref line1, float& t0, float& t1);
-		void pr_vectorcall LineToRay(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref line1, float& t0, float& t1, float& dist_sq);
-		MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox);
-		MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox, float& t);
-		MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox, v4& pt0, v4& pt1);
-		v4 pr_vectorcall RayToTriangle(v4_cref s, v4_cref d, v4_cref a, v4_cref b, v4_cref c);
+		v4 pr_vectorcall PointToTriangle(v4 p, v4 a, v4 b, v4 c, v4& barycentric);
+		v4 pr_vectorcall PointToTriangle(v4 point, v4 a, v4 b, v4 c);
+		v4 pr_vectorcall PointToTriangle(v4 point, const v4* tri, v4& barycentric);
+		v4 pr_vectorcall PointToTriangle(v4 point, const v4* tri);
+		v4 pr_vectorcall PointToTetrahedron(v4 p, v4 a, v4 b, v4 c, v4 d, v4& barycentric);
+		v4 pr_vectorcall PointToTetrahedron(v4 point, v4 a, v4 b, v4 c, v4 d);
+		v4 pr_vectorcall PointToTetrahedron(v4 point, const v4* tetra, v4& barycentric);
+		v4 pr_vectorcall PointToTetrahedron(v4 point, const v4* tetra);
+		v2 pr_vectorcall RayToRay(v4 s0, v4 d0, v4 s1, v4 d1);
+		void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, float& t0, float& t1);
+		void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, v4& pt0, v4& pt1);
+		void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, v4& pt0, v4& pt1, float& t0, float& t1);
+		void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, float& dist_sq);
+		void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1);
+		void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1, float& dist_sq);
+		MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox);
+		MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox, float& t);
+		MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox, v4& pt0, v4& pt1);
+		v4 pr_vectorcall RayToTriangle(v4 s, v4 d, v4 a, v4 b, v4 c);
 	}
 	namespace intersect
 	{
-		bool RayVsRay(v2_cref p0, v2_cref d0, v2_cref p1, v2_cref d1);
-		bool RayVsRay(v2_cref p0, v2_cref d0, v2_cref p1, v2_cref d1, v2& intersect);
-		bool LineVsLine(v2_cref a0, v2_cref a1, v2_cref b0, v2_cref b1, float& ta, float& tb);
-		bool LineVsBBox(v2_cref a, v2_cref b, v2_cref bbox_min, v2_cref bbox_max, v2& A, v2& B);
-		bool pr_vectorcall RayVsTriangle(v4_cref s, v4_cref d, int dummy, v4_cref a, v4_cref b, v4_cref c);
-		bool pr_vectorcall RayVsTriangle(v4_cref s, v4_cref d, int dummy, v4_cref a, v4_cref b, v4_cref c, v4& bary);
-		bool pr_vectorcall RayVsTriangle(v4_cref s, v4_cref d, int dummy, v4_cref a, v4_cref b, v4_cref c, float& front_to_back, v4& bary);
-		bool pr_vectorcall RayVsTriangle(v4_cref s, v4_cref d, int dummy, v4_cref a, v4_cref b, v4_cref c, float* t, v4* bary, float* f2b, float tmin, float tmax);
-		bool pr_vectorcall RayVsSphere(v4_cref s, v4_cref d, float radius, float& tmin, float& tmax);
-		bool pr_vectorcall RayVsBBox(v4_cref s, v4_cref d, BBox_cref box, float& tmin, float& tmax);
-		bool pr_vectorcall RayVsFrustum(v4_cref s, v4_cref d, Frustum const& frustum, bool accumulative, float& t0, float& t1, bool include_zfar);
-		bool pr_vectorcall LineVsPlane(Plane const& plane, v4_cref s, v4_cref e, float& t0, float& t1);
-		bool pr_vectorcall LineVsPlane(Plane const& plane, v4_cref s, v4_cref e, v4& s_out, v4& e_out);
-		bool pr_vectorcall LineVsBoundingBox(v4_cref s, v4_cref e, BBox_cref bbox);
-		bool pr_vectorcall RayVsPlane(Plane const& plane, v4_cref s, v4_cref e, float* t, float tmin, float tmax);
-		bool pr_vectorcall LineVsSlab(v4_cref norm, float dist1, float dist2, v4_cref s, v4_cref e, v4& s_out, v4& e_out);
-		bool pr_vectorcall BBoxVsPlane(BBox_cref bbox, Plane const& plane);
-		bool pr_vectorcall BBoxVsBBox(BBox_cref lhs, BBox_cref rhs);
+		bool RayVsRay(v2 p0, v2 d0, v2 p1, v2 d1);
+		bool RayVsRay(v2 p0, v2 d0, v2 p1, v2 d1, v2& intersect);
+		bool LineVsLine(v2 a0, v2 a1, v2 b0, v2 b1, float& ta, float& tb);
+		bool LineVsBBox(v2 a, v2 b, v2 bbox_min, v2 bbox_max, v2& A, v2& B);
+		bool pr_vectorcall RayVsTriangle(v4 s, v4 d, int dummy, v4 a, v4 b, v4 c);
+		bool pr_vectorcall RayVsTriangle(v4 s, v4 d, int dummy, v4 a, v4 b, v4 c, v4& bary);
+		bool pr_vectorcall RayVsTriangle(v4 s, v4 d, int dummy, v4 a, v4 b, v4 c, float& front_to_back, v4& bary);
+		bool pr_vectorcall RayVsTriangle(v4 s, v4 d, int dummy, v4 a, v4 b, v4 c, float* t, v4* bary, float* f2b, float tmin, float tmax);
+		bool pr_vectorcall RayVsSphere(v4 s, v4 d, float radius, float& tmin, float& tmax);
+		bool pr_vectorcall RayVsBBox(v4 s, v4 d, BBox box, float& tmin, float& tmax);
+		bool pr_vectorcall RayVsFrustum(v4 s, v4 d, Frustum const& frustum, bool accumulative, float& t0, float& t1, bool include_zfar);
+		bool pr_vectorcall LineVsPlane(Plane plane, v4 s, v4 e, float& t0, float& t1);
+		bool pr_vectorcall LineVsPlane(Plane plane, v4 s, v4 e, v4& s_out, v4& e_out);
+		bool pr_vectorcall LineVsBoundingBox(v4 s, v4 e, BBox bbox);
+		bool pr_vectorcall RayVsPlane(Plane plane, v4 s, v4 e, float* t, float tmin, float tmax);
+		bool pr_vectorcall LineVsSlab(v4 norm, float dist1, float dist2, v4 s, v4 e, v4& s_out, v4& e_out);
+		bool pr_vectorcall BBoxVsPlane(BBox bbox, Plane plane);
+		bool pr_vectorcall BBoxVsBBox(BBox lhs, BBox rhs);
 		bool pr_vectorcall OBoxVsOBox(OBox const& lhs, OBox const& rhs);
-		bool pr_vectorcall ConvexPolygonVsConvexPolygon(v4 const* poly0, int count0, v4 const* poly1, int count1, v4_cref norm, std::invocable<v4> auto& out);
+		bool pr_vectorcall ConvexPolygonVsConvexPolygon(v4 const* poly0, int count0, v4 const* poly1, int count1, v4 norm, std::invocable<v4> auto& out);
 }
 }

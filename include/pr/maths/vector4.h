@@ -42,8 +42,6 @@ namespace pr
 		};
 		#pragma warning(pop)
 
-		using Vec4_cref = Vec4_cref<S, T>;
-
 		// Construct
 		Vec4() = default;
 		constexpr explicit Vec4(S x_)
@@ -95,11 +93,11 @@ namespace pr
 		Vec4(intrinsic_t v)
 			: vec(v)
 		{
-			pr_assert(maths::is_aligned(this));
+			pr_assert(is_aligned<Vec4>(this));
 		}
 		Vec4& operator =(intrinsic_t v)
 		{
-			pr_assert(maths::is_aligned(this));
+			pr_assert(is_aligned<Vec4>(this));
 			vec = v;
 			return *this;
 		}
@@ -203,7 +201,7 @@ namespace pr
 
 		// Create a random 4-vector with components on interval '[vmin, vmax]'
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec4 pr_vectorcall Random(Rng& rng, Vec4_cref vmin, Vec4_cref vmax)
+		static Vec4 pr_vectorcall Random(Rng& rng, Vec4 vmin, Vec4 vmax)
 		{
 			std::uniform_real_distribution<S> dist_x(vmin.x, vmax.x);
 			std::uniform_real_distribution<S> dist_y(vmin.y, vmax.y);
@@ -214,7 +212,7 @@ namespace pr
 
 		// Create a random vector with xyz components on interval '[vmin, vmax]' and 'w_'
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec4 pr_vectorcall Random(Rng& rng, Vec4_cref vmin, Vec4_cref vmax, S w_)
+		static Vec4 pr_vectorcall Random(Rng& rng, Vec4 vmin, Vec4 vmax, S w_)
 		{
 			return Vec4(Vec3<S, T>::Random(rng, vmin.xyz, vmax.xyz), w_);
 		}
@@ -236,24 +234,24 @@ namespace pr
 
 		// Create a random 4-vector with components on the interval [centre - radius, centre + radius].
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec4 pr_vectorcall Random(Rng& rng, Vec4_cref centre, S radius)
+		static Vec4 pr_vectorcall Random(Rng& rng, Vec4 centre, S radius)
 		{
 			return Random(rng, 0, radius) + centre;
 		}
 
 		// Create a vector with xyz randomly within the sphere [centre,radius], and 'w_'
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec4 pr_vectorcall Random(Rng& rng, Vec4_cref centre, S radius, S w_)
+		static Vec4 pr_vectorcall Random(Rng& rng, Vec4 centre, S radius, S w_)
 		{
 			return Vec4(Vec3<S, T>::Random(rng, centre.xyz, radius), w_);
 		}
 
 		#pragma region Operators
-		friend constexpr Vec4 pr_vectorcall operator + (Vec4_cref vec)
+		friend constexpr Vec4 pr_vectorcall operator + (Vec4 vec)
 		{
 			return vec;
 		}
-		friend constexpr Vec4 pr_vectorcall operator - (Vec4_cref vec)
+		friend constexpr Vec4 pr_vectorcall operator - (Vec4 vec)
 		{
 			//#if PR_MATHS_USE_INTRINSICS
 			//return Vec4{_mm_sub_ps(_mm_setzero_ps(), vec.vec)};
@@ -261,11 +259,11 @@ namespace pr
 			return Vec4{-vec.x, -vec.y, -vec.z, -vec.w};
 			//#endif
 		}
-		friend Vec4 pr_vectorcall operator * (S lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator * (S lhs, Vec4 rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Vec4 pr_vectorcall operator * (Vec4_cref lhs, S rhs)
+		friend Vec4 pr_vectorcall operator * (Vec4 lhs, S rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -280,7 +278,7 @@ namespace pr
 				return Vec4{lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs};
 			}
 		}
-		friend Vec4 pr_vectorcall operator / (Vec4_cref lhs, S rhs)
+		friend Vec4 pr_vectorcall operator / (Vec4 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			if constexpr (IntrinsicF)
@@ -296,12 +294,12 @@ namespace pr
 				return Vec4{lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs};
 			}
 		}
-		friend Vec4 pr_vectorcall operator % (Vec4_cref lhs, S rhs)
+		friend Vec4 pr_vectorcall operator % (Vec4 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Vec4{ Modulus(lhs.x, rhs), Modulus(lhs.y, rhs), Modulus(lhs.z, rhs), Modulus(lhs.w, rhs) };
 		}
-		friend Vec4 pr_vectorcall operator / (S lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator / (S lhs, Vec4 rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -316,7 +314,7 @@ namespace pr
 				return Vec4{lhs / rhs.x, lhs / rhs.y, lhs / rhs.z, lhs / rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator % (S lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator % (S lhs, Vec4 rhs)
 		{
 			if constexpr (std::floating_point<S>)
 			{
@@ -327,7 +325,7 @@ namespace pr
 				return Vec4{lhs % rhs.x, lhs % rhs.y, lhs % rhs.z, lhs % rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator + (Vec4_cref lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator + (Vec4 lhs, Vec4 rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -342,7 +340,7 @@ namespace pr
 				return Vec4{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator - (Vec4_cref lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator - (Vec4 lhs, Vec4 rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -357,7 +355,7 @@ namespace pr
 				return Vec4{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator * (Vec4_cref lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator * (Vec4 lhs, Vec4 rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -372,7 +370,7 @@ namespace pr
 				return Vec4{lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator / (Vec4_cref lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator / (Vec4 lhs, Vec4 rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			if constexpr (IntrinsicF)
@@ -388,7 +386,7 @@ namespace pr
 				return Vec4{lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w};
 			}
 		}
-		friend Vec4 pr_vectorcall operator % (Vec4_cref lhs, Vec4_cref rhs)
+		friend Vec4 pr_vectorcall operator % (Vec4 lhs, Vec4 rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			if constexpr (IntrinsicF)
@@ -412,7 +410,7 @@ namespace pr
 				return Vec4{ Modulus(lhs.x, rhs.x), Modulus(lhs.y, rhs.y), Modulus(lhs.z, rhs.z), Modulus(lhs.w, rhs.w) };
 			}
 		}
-		friend bool pr_vectorcall operator == (Vec4_cref lhs, Vec4_cref rhs)
+		friend bool pr_vectorcall operator == (Vec4 lhs, Vec4 rhs)
 		{
 			if constexpr (IntrinsicF)
 			{
@@ -427,51 +425,51 @@ namespace pr
 				return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
 			}
 		}
-		friend bool pr_vectorcall operator != (Vec4_cref lhs, Vec4_cref rhs)
+		friend bool pr_vectorcall operator != (Vec4 lhs, Vec4 rhs)
 		{
 			return !(lhs == rhs);
 		}
-		friend Vec4 pr_vectorcall operator ~ (Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator ~ (Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{~rhs.x, ~rhs.y, ~rhs.z, ~rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator ! (Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator ! (Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{!rhs.x, !rhs.y, !rhs.z, !rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator | (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator | (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z, lhs.w | rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator & (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator & (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z, lhs.w & rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator ^ (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator ^ (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z, lhs.w ^ rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator << (Vec4_cref lhs, int rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator << (Vec4 lhs, int rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x << rhs, lhs.y << rhs, lhs.z << rhs, lhs.w << rhs};
 		}
-		friend Vec4 pr_vectorcall operator << (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator << (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x << rhs.x, lhs.y << rhs.y, lhs.z << rhs.z, lhs.w << rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator >> (Vec4_cref lhs, int rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator >> (Vec4 lhs, int rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x >> rhs, lhs.y >> rhs, lhs.z >> rhs, lhs.w >> rhs};
 		}
-		friend Vec4 pr_vectorcall operator >> (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator >> (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x >> rhs.x, lhs.y >> rhs.y, lhs.z >> rhs.z, lhs.w >> rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator || (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator || (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x || rhs.x, lhs.y || rhs.y, lhs.z || rhs.z, lhs.w || rhs.w};
 		}
-		friend Vec4 pr_vectorcall operator && (Vec4_cref lhs, Vec4_cref rhs) requires std::integral<S>
+		friend Vec4 pr_vectorcall operator && (Vec4 lhs, Vec4 rhs) requires std::integral<S>
 		{
 			return Vec4{lhs.x && rhs.x, lhs.y && rhs.y, lhs.z && rhs.z, lhs.w && rhs.w};
 		}
@@ -501,7 +499,7 @@ namespace pr
 	}
 
 	// V4 FEql
-	template <Scalar S, typename T> inline bool pr_vectorcall FEqlAbsolute(Vec4_cref<S, T> a, Vec4_cref<S, T> b, S tol)
+	template <Scalar S, typename T> inline bool pr_vectorcall FEqlAbsolute(Vec4<S, T> a, Vec4<S, T> b, S tol)
 	{
 		static_assert(std::floating_point<S>, "FEql is only defined for floating point vectors");
 
@@ -522,7 +520,7 @@ namespace pr
 				FEqlAbsolute(a.w, b.w, tol);
 		}
 	}
-	template <Scalar S, typename T> inline bool pr_vectorcall FEqlRelative(Vec4_cref<S, T> a, Vec4_cref<S, T> b, S tol)
+	template <Scalar S, typename T> inline bool pr_vectorcall FEqlRelative(Vec4<S, T> a, Vec4<S, T> b, S tol)
 	{
 		static_assert(std::floating_point<S>, "FEql is only defined for floating point vectors");
 
@@ -537,7 +535,7 @@ namespace pr
 		auto abs_max_element = Max(MaxComponentAbs(a), MaxComponentAbs(b));
 		return FEqlAbsolute(a, b, tol * abs_max_element);
 	}
-	template <Scalar S, typename T> inline bool pr_vectorcall FEql(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline bool pr_vectorcall FEql(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		if constexpr (std::floating_point<S>)
 			return FEqlRelative(a, b, maths::tiny<S>);
@@ -546,7 +544,7 @@ namespace pr
 	}
 
 	// Abs
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Abs(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Abs(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -559,7 +557,7 @@ namespace pr
 	}
 
 	// V4 length squared
-	template <Scalar S, typename T> inline S pr_vectorcall LengthSq(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline S pr_vectorcall LengthSq(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -572,7 +570,7 @@ namespace pr
 	}
 
 	// Largest/Smallest element
-	template <Scalar S, typename T> inline S pr_vectorcall MinComponent(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline S pr_vectorcall MinComponent(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -588,7 +586,7 @@ namespace pr
 			return MinComponent<Vec4<S, T>>(v);
 		}
 	}
-	template <Scalar S, typename T> inline S pr_vectorcall MaxElement(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline S pr_vectorcall MaxElement(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -607,7 +605,7 @@ namespace pr
 
 	// Normalise all components of 'v'
 	template <Scalar S, typename T> requires std::floating_point<S>
-	inline Vec4<S, T> pr_vectorcall Normalise(Vec4_cref<S, T> v)
+	inline Vec4<S, T> pr_vectorcall Normalise(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -621,7 +619,7 @@ namespace pr
 	}
 
 	// Square: v * v
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Sqr(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Sqr(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -634,7 +632,7 @@ namespace pr
 	}
 
 	// Dot product: a . b
-	template <Scalar S, typename T> inline S pr_vectorcall Dot3(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline S pr_vectorcall Dot3(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -646,7 +644,7 @@ namespace pr
 			return a.x * b.x + a.y * b.y + a.z * b.z;
 		}
 	}
-	template <Scalar S, typename T> inline S pr_vectorcall Dot4(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline S pr_vectorcall Dot4(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -657,13 +655,13 @@ namespace pr
 			return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 		}
 	}
-	template <Scalar S, typename T> inline S pr_vectorcall Dot(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline S pr_vectorcall Dot(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		return Dot4(a,b);
 	}
 
 	// Cross product: a x b
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross3(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross3(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -676,33 +674,33 @@ namespace pr
 			return Vec4<S, T>{a.y* b.z - a.z * b.y, a.z* b.x - a.x * b.z, a.x* b.y - a.y * b.x, 0};
 		}
 	}
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross(Vec4_cref<S, T> a, Vec4_cref<S, T> b)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		return Cross3(a,b);
 	}
 
 	// Triple product: a . b x c
-	template <Scalar S, typename T> inline S pr_vectorcall Triple(Vec4_cref<S, T> a, Vec4_cref<S, T> b, Vec4_cref<S, T> c)
+	template <Scalar S, typename T> inline S pr_vectorcall Triple(Vec4<S, T> a, Vec4<S, T> b, Vec4<S, T> c)
 	{
 		return Dot3(a, Cross3(b, c));
 	}
 
 	// Returns true if 'a' and 'b' parallel
-	template <Scalar S, typename T> inline bool pr_vectorcall Parallel(Vec4_cref<S, T> v0, Vec4_cref<S, T> v1, S tol = maths::tiny<S>)
+	template <Scalar S, typename T> inline bool pr_vectorcall Parallel(Vec4<S, T> v0, Vec4<S, T> v1, S tol = maths::tiny<S>)
 	{
 		// '<=' to allow for 'tol' == 0.0
 		return LengthSq(Cross3(v0, v1)) <= Sqr(tol);
 	}
 
 	// Returns a vector guaranteed not parallel to 'v'
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall CreateNotParallelTo(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall CreateNotParallelTo(Vec4<S, T> v)
 	{
 		bool x_aligned = Abs(v.x) > Abs(v.y) && Abs(v.x) > Abs(v.z);
 		return Vec4<S, T>{static_cast<S>(!x_aligned), S(0), static_cast<S>(x_aligned), v.w};
 	}
 
 	// Returns a vector perpendicular to 'v' with the same length of 'v'
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Perpendicular(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Perpendicular(Vec4<S, T> v)
 	{
 		pr_assert("Cannot make a perpendicular to a zero vector" && (v != Vec4<S, T>::Zero()));
 		auto vec = Cross3(v, CreateNotParallelTo(v));
@@ -711,7 +709,7 @@ namespace pr
 	}
 
 	// Returns a vector perpendicular to 'vec' favouring 'previous' as the preferred perpendicular.
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Perpendicular(Vec4_cref<S, T> vec, Vec4_cref<S, T> previous)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Perpendicular(Vec4<S, T> vec, Vec4<S, T> previous)
 	{
 		// The length of the returned vector will be 'Length(vec)' or 'Length(previous)' (typically they'd be the same)
 		// Either 'vec' or 'previous' can be zero, but not both.
@@ -736,7 +734,7 @@ namespace pr
 	}
 
 	// Returns a vector with the 'xyz' values permuted 'n' times. '0=xyzw, 1=yzxw, 2=zxyw'
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Permute3(Vec4_cref<S, T> v, int n)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Permute3(Vec4<S, T> v, int n)
 	{
 		switch (n % 3)
 		{
@@ -747,7 +745,7 @@ namespace pr
 	}
 
 	// Returns a vector with the values permuted 'n' times. '0=xyzw, 1=yzwx, 2=zwxy, 3=wxyz'
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Permute4(Vec4_cref<S, T> v, int n)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Permute4(Vec4<S, T> v, int n)
 	{
 		switch (n % 4)
 		{
@@ -759,13 +757,13 @@ namespace pr
 	}
 
 	// Returns a 3-bit bitmask of the octant the vector is in. 0=(-x,-y,-z), 1=(+x,-y,-z), 2=(-x,+y,-z), 3=(+x,+y,-z), 4=(-x,-y+z), 5=(+x,-y,+z), 6=(-x,+y,+z), 7=(+x,+y,+z)
-	template <Scalar S, typename T> inline uint32_t pr_vectorcall Octant(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline uint32_t pr_vectorcall Octant(Vec4<S, T> v)
 	{
 		return Octant(v.xyz);
 	}
 
 	// Return the component sum
-	template <Scalar S, typename T> inline S pr_vectorcall ComponentSum(Vec4_cref<S, T> v)
+	template <Scalar S, typename T> inline S pr_vectorcall ComponentSum(Vec4<S, T> v)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -782,7 +780,7 @@ namespace pr
 	}
 
 	// Returns the most extreme point in the direction of 'separating_axis'
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall SupportPoint(Vec4_cref<S, T> pt, Vec4_cref<S, T> separating_axis)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall SupportPoint(Vec4<S, T> pt, Vec4<S, T> separating_axis)
 	{
 		// This overload allows other generic functions to work
 		(void)separating_axis;
@@ -1007,8 +1005,8 @@ namespace pr::maths
 				{5, 6, 7, 8},
 			};
 			(void)c0,c1;
-			PR_EXPECT(maths::is_aligned(&pt0[0]));
-			PR_EXPECT(maths::is_aligned(&pt1[0]));
+			PR_EXPECT(is_aligned(&pt0[0]));
+			PR_EXPECT(is_aligned(&pt1[0]));
 		}
 		PRUnitTestMethod(LinearInterpolate, float, double)
 		{

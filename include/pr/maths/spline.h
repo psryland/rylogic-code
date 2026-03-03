@@ -156,7 +156,7 @@ namespace pr
 		//  Bezier, etc: p0, p1, p2, p3
 		//  Hermite:     p0, v0, p1, v1
 		//  Trajector:   p0, v0, a0, j0
-		CubicCurve3(v4_cref p0, v4_cref p1, v4_cref p2, v4_cref p3, m4x4 const& coeff)
+		CubicCurve3(v4 p0, v4 p1, v4 p2, v4 p3, m4x4 const& coeff)
 			: m_coeff(m4x4{ p0, p1, p2, p3 } * coeff)
 		{
 		}
@@ -198,7 +198,7 @@ namespace pr
 		vector<CubicCurve3, 1> m_curves;
 
 		CubicSpline() = default;
-		CubicSpline(v4_cref p0, v4_cref p1, v4_cref p2, v4_cref p3, m4x4 const& coeff)
+		CubicSpline(v4 p0, v4 p1, v4 p2, v4 p3, m4x4 const& coeff)
 			: m_curves()
 		{
 			m_curves.push_back(CubicCurve3{ p0, p1, p2, p3, coeff });
@@ -637,7 +637,7 @@ namespace pr
 		// By default, the z axis is aligned to the spline with Y as up
 		m4x4 O2W(float time) const
 		{
-			return O2W(time, 2, v4YAxis);
+			return O2W(time, 2, v4::YAxis());
 		}
 		m4x4 O2W(float time, int axis, v4 const& up) const
 		{

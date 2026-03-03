@@ -13,16 +13,16 @@
 
 namespace pr::collision
 {
-	using Detect = bool (pr_vectorcall *)(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& c);
+	using Detect = bool (pr_vectorcall *)(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& c);
 
 	// Function type for collection detection
-	inline bool pr_vectorcall CollisionNotImplemented(Shape const&, m4_cref, Shape const&, m4_cref, Contact&)
+	inline bool pr_vectorcall CollisionNotImplemented(Shape const&, m4x4 const&, Shape const&, m4x4 const&, Contact&)
 	{
 		throw std::runtime_error("Collision not implemented");
 	}
 
 	// Collide two shapes
-	inline bool pr_vectorcall Collide(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& contact)
+	inline bool pr_vectorcall Collide(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
 	{
 		using namespace pr::tri_table;
 

@@ -89,13 +89,13 @@ namespace pr::math::tests
 		{
 			using vec4_t = Vec4<T>;
 
-			static_assert(vec4_t::Zero() == vec4_t(T(0), T(0), T(0), T(0)));
-			static_assert(vec4_t::One() == vec4_t(T(1), T(1), T(1), T(1)));
-			static_assert(vec4_t::XAxis() == vec4_t(T(1), T(0), T(0), T(0)));
-			static_assert(vec4_t::YAxis() == vec4_t(T(0), T(1), T(0), T(0)));
-			static_assert(vec4_t::ZAxis() == vec4_t(T(0), T(0), T(1), T(0)));
-			static_assert(vec4_t::WAxis() == vec4_t(T(0), T(0), T(0), T(1)));
-			static_assert(vec4_t::Origin() == vec4_t(T(0), T(0), T(0), T(1)));
+			static_assert(Zero<vec4_t>() == vec4_t(T(0), T(0), T(0), T(0)));
+			static_assert(One<vec4_t>() == vec4_t(T(1), T(1), T(1), T(1)));
+			static_assert(XAxis<vec4_t>() == vec4_t(T(1), T(0), T(0), T(0)));
+			static_assert(YAxis<vec4_t>() == vec4_t(T(0), T(1), T(0), T(0)));
+			static_assert(ZAxis<vec4_t>() == vec4_t(T(0), T(0), T(1), T(0)));
+			static_assert(WAxis<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1)));
+			static_assert(Origin<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1)));
 		}
 		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
 		{

@@ -8,21 +8,21 @@
 namespace pr::geometry::distance
 {
 	// Return the distance that 'point' is from the infinite plane: 'plane'
-	inline float pr_vectorcall PointToPlane(v4_cref point, v4_cref a, v4_cref b, v4_cref c)
+	inline float pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c)
 	{
 		assert(point.w == 1.0f);
 		v4 plane = Normalise(Cross3(b - a, c - a));
 		plane.w = -Dot3(plane, a);
 		return Dot4(plane, point);
 	}
-	inline float pr_vectorcall PointToPlane(v4_cref point, Plane const& plane)
+	inline float pr_vectorcall PointToPlane(v4 point, Plane plane)
 	{
 		assert(point.w == 1.0f);
 		return Dot(plane, point);
 	}
 
 	// Return the distance that 'point' is from the infinite line: 'line'
-	inline float pr_vectorcall PointToRay(v4_cref point, v4_cref start, v4_cref end)
+	inline float pr_vectorcall PointToRay(v4 point, v4 start, v4 end)
 	{
 		v4 line     = end   - start;
 		v4 to_point = point - start;
@@ -31,7 +31,7 @@ namespace pr::geometry::distance
 	}
 
 	// Return the minimum distance between two infinite lines
-	inline float pr_vectorcall RayToRay(v4_cref s0, v4_cref line0, v4_cref s1, v4_cref line1)
+	inline float pr_vectorcall RayToRay(v4 s0, v4 line0, v4 s1, v4 line1)
 	{
 		v4 a = s1 - s0;
 		float a_len_sq = LengthSq(a);
@@ -46,7 +46,7 @@ namespace pr::geometry::distance
 	}
 
 	// Returns the squared distance from 'point' to 'line'
-	inline float pr_vectorcall PointToRaySq(v4_cref point, v4_cref s, v4_cref d)
+	inline float pr_vectorcall PointToRaySq(v4 point, v4 s, v4 d)
 	{
 		auto sp   = point - s;
 		auto d_sq = Dot3(d,d);
@@ -55,7 +55,7 @@ namespace pr::geometry::distance
 	}
 
 	// Returns the squared distance from 'point' to 'line'
-	inline float pr_vectorcall PointToLineSq(v4_cref point, v4_cref s, v4_cref e)
+	inline float pr_vectorcall PointToLineSq(v4 point, v4 s, v4 e)
 	{
 		auto a = point - s;
 		auto d = e - s;
@@ -72,7 +72,7 @@ namespace pr::geometry::distance
 	}
 
 	// Returns the squared distance from 'point' to 'bbox'
-	inline float pr_vectorcall PointToBoundingBoxSq(v4_cref point, BBox const& bbox)
+	inline float pr_vectorcall PointToBoundingBoxSq(v4 point, BBox const& bbox)
 	{
 		float dist_sq = 0.0f;
 		v4 lower = bbox.Lower();
@@ -87,7 +87,7 @@ namespace pr::geometry::distance
 	}
 
 	// Returns the squared distance from 'point' to a 'triangle'
-	inline float pr_vectorcall PointToTriangleSq(v4_cref point, v4_cref a, v4_cref b, v4_cref c)
+	inline float pr_vectorcall PointToTriangleSq(v4 point, v4 a, v4 b, v4 c)
 	{
 		v4 bary;
 		auto pt = closest_point::PointToTriangle(point, a, b, c, bary);
@@ -96,7 +96,7 @@ namespace pr::geometry::distance
 
 	// Returns the signed minimum distance between a line segment '(s,e)' and an AABB 'bbox'.
 	// 's' and 'e' must be in the same space as 'bbox'. A negative value means the line segment intersects the AABB.
-	inline float pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox)
+	inline float pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox)
 	{
 		auto pen = closest_point::LineToBBox(s, e, bbox);
 		return -pen.Depth(); // 'depth' is positive for penetration, in this case we want the opposite.

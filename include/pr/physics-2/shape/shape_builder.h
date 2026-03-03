@@ -155,7 +155,7 @@ namespace pr::physics
 					arr.Complete(model.m_prim_list.size());
 					arr.m_base.m_flags = shape_flags;
 					//auto& arr = model_data.at_byte_ofs<ShapeArray>(base);
-					//arr = ShapeArray(model.m_prim_list.size(), model_data.size() - base, m4x4Identity, 0, shape_flags);
+					//arr = ShapeArray(model.m_prim_list.size(), model_data.size() - base, m4x4::Identity(), 0, shape_flags);
 					//arr.m_base.m_bbox = model.m_bbox;
 
 					// Return the shape

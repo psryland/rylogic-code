@@ -635,7 +635,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M3x3");
 			PR_EXPECT(reader.Matrix3x3(mat3)             ,true); PR_EXPECT(pr::FEql(mat3, pr::m3x4Identity), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M4x4");
-			PR_EXPECT(reader.Matrix4x4(mat4)             ,true); PR_EXPECT(pr::FEql(mat4, pr::m4x4Identity), true);
+			PR_EXPECT(reader.Matrix4x4(mat4)             ,true); PR_EXPECT(pr::FEql(mat4, pr::m4x4::Identity()), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "Data");
 			PR_EXPECT(reader.Data(kw, 16)                ,true); PR_EXPECT(std::string(kw) , "ABCDEFGHIJKLMNO");
 			PR_EXPECT(reader.FindKeyword(L"Section") ,true); str.resize(0);

@@ -3,7 +3,6 @@
 //  Copyright (c) Rylogic Ltd 2013
 //********************************
 #pragma once
-
 #include "pr/geometry/common.h"
 
 namespace pr::geometry
@@ -150,7 +149,7 @@ namespace pr::geometry
 			{-rad.x, +rad.y,  rad.z, 1.0f},
 			{+rad.x, +rad.y,  rad.z, 1.0f},
 		};
-		assert(pr::maths::is_aligned(&pt[0]));
+		assert(is_aligned<v4>(&pt[0]));
 		return Boxes(1, &pt[0], o2w, { &colour, 1 }, vout, iout);
 	}
 
@@ -158,7 +157,7 @@ namespace pr::geometry
 	template <VertOutputFn VOut, IndexOutputFn IOut>
 	Props BoxList(int num_boxes, std::span<v4 const> positions, v4 const& rad, std::span<Colour32 const> colours, VOut vout, IOut iout)
 	{
-		pr::vector<v4,64> points(8*num_boxes);
+		vector<v4,64> points(8*num_boxes);
 		auto* pt = points.data();
 
 		auto const* pos = positions.data();

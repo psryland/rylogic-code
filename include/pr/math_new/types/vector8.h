@@ -97,9 +97,10 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Vec8 Zero() noexcept
+		static constexpr Vec8 const& Zero() noexcept
 		{
-			return Vec8{ Vec4::Zero(), Vec4::Zero() };
+			static auto s_zero = Vec8{ Vec4::Zero(), Vec4::Zero() };
+			return s_zero;
 		}
 
 		// Sample the vector field at 'ofs'.

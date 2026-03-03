@@ -204,7 +204,7 @@ namespace pr
 		Camera(m4x4 const& c2w, double fovY = maths::tau_by_8, double aspect = 1.0, double focus_dist = 1.0)
 			:Camera(c2w, fovY, aspect, focus_dist, false, 0.01, 100.0)
 		{}
-		Camera(v4_cref eye, v4_cref pt, v4_cref up, double fovY = maths::tau_by_8, double aspect = 1.0)
+		Camera(v4 eye, v4 pt, v4 up, double fovY = maths::tau_by_8, double aspect = 1.0)
 			:Camera(m4x4::Identity(), fovY, aspect)
 		{
 			LookAt(eye, pt, up, true);

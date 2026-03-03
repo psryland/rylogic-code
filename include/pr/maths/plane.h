@@ -14,10 +14,20 @@ namespace pr
 	//  - Plane.w should be positive if the normal faces the origin.
 	//    Another way to think of it is, how far is the origin above the plane.
 	//    Then, when using dot(plane, point), > 0 means above the plane.
-	using Plane = Vec4f<struct PlaneType>;
+	struct Plane : Vec4f<struct PlaneType>
+	{
+		Plane() = default;
+		Plane(float dx, float dy, float dz, float dist)
+			: Vec4f<struct PlaneType>{dx, dy, dz, dist}
+		{}
+		Plane(v4 const& v)
+			: Vec4f<struct PlaneType>{v}
+		{}
+		v4 direction() const { return static_cast<v4>(w0()); }
+	};
 
 	// Define the dot product for planes
-	inline float Dot(Plane const& plane, v4 const& rhs)
+	inline float Dot(Plane plane, v4 const& rhs)
 	{
 		return Dot4(static_cast<v4>(plane), rhs);
 	}
@@ -76,25 +86,25 @@ namespace pr
 		}
 
 		// Normalise (Canonicalise a plane)
-		inline Plane Normalise(Plane const& plane)
+		inline Plane Normalise(Plane plane)
 		{
-			return plane / Length(plane.xyz); // This scales the w-component as well
+			return Plane(plane / Length(plane.xyz)); // This scales the w-component as well
 		}
 
 		// Return the direction vector component of a plane
-		inline v4 Direction(Plane const& plane)
+		inline v4 Direction(Plane plane)
 		{
 			return static_cast<v4>(plane.w0());
 		}
 
 		// Return the distance component of a plane
-		inline float Distance(Plane const& plane)
+		inline float Distance(Plane plane)
 		{
 			return -plane.w;
 		}
 
 		// Return the signed distance of 'v' from the plane.
-		inline float Distance(Plane const& plane, v4 const& v)
+		inline float Distance(Plane plane, v4 const& v)
 		{
 			return Dot(plane, v);
 		}
@@ -102,7 +112,7 @@ namespace pr
 		// Returns 'v' projected onto 'plane'
 		// So if plane.w == -dist, if v.w == 1 the returned point will lie on the plane at 'dist'
 		// from the origin. if v.w == 0, the returned vector will lie in a plane parallel to 'plane'.
-		inline v4 Project(Plane const& plane, v4 const& v)
+		inline v4 Project(Plane plane, v4 const& v)
 		{
 			return v - Dot(plane, v) * Direction(plane);
 		}

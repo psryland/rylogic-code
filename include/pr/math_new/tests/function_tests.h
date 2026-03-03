@@ -94,7 +94,7 @@ namespace pr::math::tests
 				// Cast to float
 				if constexpr (!std::is_same_v<S, float>)
 				{
-					auto m = vec_t::Identity();
+					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<float>>(m); PR_EXPECT(c == Mat2x2<float>::Identity()); }
 					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<float>>(m); PR_EXPECT(c == Mat3x4<float>::Identity()); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<float>>(m); PR_EXPECT(c == Mat4x4<float>::Identity()); }
@@ -103,7 +103,7 @@ namespace pr::math::tests
 				// Cast to double
 				if constexpr (!std::is_same_v<S, double>)
 				{
-					auto m = vec_t::Identity();
+					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<double>>(m); PR_EXPECT(c == Mat2x2<double>::Identity()); }
 					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<double>>(m); PR_EXPECT(c == Mat3x4<double>::Identity()); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<double>>(m); PR_EXPECT(c == Mat4x4<double>::Identity()); }
@@ -112,7 +112,7 @@ namespace pr::math::tests
 				// Cast to int32_t
 				if constexpr (!std::is_same_v<S, int32_t>)
 				{
-					auto m = vec_t::Identity();
+					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<int32_t>>(m); PR_EXPECT(c == Mat2x2<int32_t>::Identity()); }
 					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<int32_t>>(m); PR_EXPECT(c == Mat3x4<int32_t>::Identity()); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<int32_t>>(m); PR_EXPECT(c == Mat4x4<int32_t>::Identity()); }
@@ -121,7 +121,7 @@ namespace pr::math::tests
 				// Cast to int64_t
 				if constexpr (!std::is_same_v<S, int64_t>)
 				{
-					auto m = vec_t::Identity();
+					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<int64_t>>(m); PR_EXPECT(c == Mat2x2<int64_t>::Identity()); }
 					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<int64_t>>(m); PR_EXPECT(c == Mat3x4<int64_t>::Identity()); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<int64_t>>(m); PR_EXPECT(c == Mat4x4<int64_t>::Identity()); }
@@ -218,31 +218,31 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			constexpr auto dim = vt::dimension;
 
-			static_assert(vec_t::Zero() == vec_t(S(0)));
+			static_assert(Zero<vec_t>() == vec_t(S(0)));
 
 			if constexpr (IsRank1<vec_t>)
 			{
-				static_assert(vec_t::One() == vec_t(S(1)));
-				static_assert(vec_t::Tiny() == vec_t(tiny<S>));
+				static_assert(One<vec_t>() == vec_t(S(1)));
+				static_assert(Tiny<vec_t>() == vec_t(tiny<S>));
 				if constexpr (std::floating_point<S>)
 				{
-					static_assert(vec_t::Epsilon() == vec_t(limits<S>::epsilon()));
-					static_assert(vec_t::Infinity() == vec_t(limits<S>::infinity()));
+					static_assert(Epsilon<vec_t>() == vec_t(limits<S>::epsilon()));
+					static_assert(Infinity<vec_t>() == vec_t(limits<S>::infinity()));
 				}
 
-				if constexpr (dim >= 2) static_assert(vec_t::XAxis()[0] == S(1) && vec_t::XAxis()[1] == S(0));
-				if constexpr (dim >= 2) static_assert(vec_t::YAxis()[0] == S(0) && vec_t::YAxis()[1] == S(1));
-				if constexpr (dim >= 3) static_assert(vec_t::ZAxis()[2] == S(1) && vec_t::ZAxis()[0] == S(0));
-				if constexpr (dim >= 4) static_assert(vec_t::WAxis()[3] == S(1) && vec_t::WAxis()[0] == S(0));
+				if constexpr (dim >= 2) static_assert(XAxis<vec_t>()[0] == S(1) && XAxis<vec_t>()[1] == S(0));
+				if constexpr (dim >= 2) static_assert(YAxis<vec_t>()[0] == S(0) && YAxis<vec_t>()[1] == S(1));
+				if constexpr (dim >= 3) static_assert(ZAxis<vec_t>()[2] == S(1) && ZAxis<vec_t>()[0] == S(0));
+				if constexpr (dim >= 4) static_assert(WAxis<vec_t>()[3] == S(1) && WAxis<vec_t>()[0] == S(0));
 
-				if constexpr (dim == 2) static_assert(vec_t::Origin() == vec_t(S(0)));
-				if constexpr (dim == 3) static_assert(vec_t::Origin() == vec_t(S(0)));
-				if constexpr (dim == 4) static_assert(vec_t::Origin()[3] == S(1));
+				if constexpr (dim == 2) static_assert(Origin<vec_t>() == vec_t(S(0)));
+				if constexpr (dim == 3) static_assert(Origin<vec_t>() == vec_t(S(0)));
+				if constexpr (dim == 4) static_assert(Origin<vec_t>()[3] == S(1));
 			}
 
 			if constexpr (IsRank2<vec_t>)
 			{
-				constexpr auto I = vec_t::Identity();
+				constexpr auto I = Identity<vec_t>();
 				static_assert(vec(I).x[0] == S(1));
 				static_assert(vec(I).y[1] == S(1));
 				if constexpr (vt::dimension >= 3) static_assert(vec(I).z[2] == S(1));
@@ -391,7 +391,7 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			static_assert(Square(S(3)) == S(9));
+			static_assert(Sqr(S(3)) == S(9));
 			if constexpr (IsRank2<vec_t>)
 			{
 				PR_EXPECT(SignedSqr(vec_t(S(-3))) == vec_t(S(-9)));
@@ -522,7 +522,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			using Vec = typename vt::component_t;
 
-			auto I = mat_t::Identity();
+			auto I = Identity<mat_t>();
 			auto scale = Vec(S(2));
 			auto result = CompMul(I, scale);
 
@@ -559,7 +559,7 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			constexpr auto V0 = vec_t::XAxis();
+			constexpr auto V0 = XAxis<vec_t>();
 			static_assert(MaxElementIndex(V0) == 0);
 			static_assert(MinElementIndex(V0) == 1);
 		}
@@ -868,7 +868,7 @@ namespace pr::math::tests
 
 			constexpr auto V1 = vec_t(S(1), S(4));
 			static_assert(Cross(V0, V1) == -Cross(V1, V0));
-			static_assert(Cross(vec_t::XAxis(), vec_t::YAxis()) == S(1));
+			static_assert(Cross(XAxis<vec_t>(), YAxis<vec_t>()) == S(1));
 		}
 
 		// ---- Cross 3D (functions.h line ~1369) ----
@@ -878,15 +878,15 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			constexpr auto X = vec_t::XAxis();
-			constexpr auto Y = vec_t::YAxis();
-			constexpr auto Z = vec_t::ZAxis();
+			constexpr auto X = XAxis<vec_t>();
+			constexpr auto Y = YAxis<vec_t>();
+			constexpr auto Z = ZAxis<vec_t>();
 
 			static_assert(Cross(X, Y) == Z);
 			static_assert(Cross(Y, Z) == X);
 			static_assert(Cross(Z, X) == Y);
 			static_assert(Cross(X, Y) == -Cross(Y, X));
-			static_assert(Cross(X, X) == vec_t::Zero());
+			static_assert(Cross(X, X) == Zero<vec_t>());
 		}
 
 		// ---- Cross 4D (functions.h line ~1379) ----
@@ -896,9 +896,9 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			constexpr auto X = vec_t::XAxis();
-			constexpr auto Y = vec_t::YAxis();
-			constexpr auto Z = vec_t::ZAxis();
+			constexpr auto X = XAxis<vec_t>();
+			constexpr auto Y = YAxis<vec_t>();
+			constexpr auto Z = ZAxis<vec_t>();
 
 			static_assert(Cross(X, Y) == Z);
 			static_assert(Cross(Y, Z) == X);
@@ -913,9 +913,9 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			constexpr auto X = vec_t::XAxis();
-			constexpr auto Y = vec_t::YAxis();
-			constexpr auto Z = vec_t::ZAxis();
+			constexpr auto X = XAxis<vec_t>();
+			constexpr auto Y = YAxis<vec_t>();
+			constexpr auto Z = ZAxis<vec_t>();
 
 			static_assert(Triple(X, Y, Z) == S(1));
 			static_assert(Triple(Y, Z, X) == S(1));
@@ -927,9 +927,9 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			constexpr auto X = vec_t::XAxis();
-			constexpr auto Y = vec_t::YAxis();
-			constexpr auto Z = vec_t::ZAxis();
+			constexpr auto X = XAxis<vec_t>();
+			constexpr auto Y = YAxis<vec_t>();
+			constexpr auto Z = ZAxis<vec_t>();
 
 			static_assert(Triple3(X, Y, Z) == S(1));
 		}
@@ -958,8 +958,8 @@ namespace pr::math::tests
 			using vec_t = T;
 			using S = typename vector_traits<vec_t>::element_t;
 
-			static_assert(Length(vec_t::XAxis()) == S(1));
-			static_assert(Length(vec_t::Zero()) == S(0));
+			static_assert(Length(XAxis<vec_t>()) == S(1));
+			static_assert(Length(Zero<vec_t>()) == S(0));
 
 			constexpr auto V0 = vec_t(S(2));
 			constexpr auto len = Length(V0);
@@ -968,6 +968,22 @@ namespace pr::math::tests
 			else
 				// Note: len for integer types will be truncated, so we can't do an exact assert.
 				static_assert(len * len <= LengthSq(V0));
+		}
+
+		// ---- Length (functions.h line ~2096) ----
+		PRUnitTestMethod(LenTests)
+		{
+			PR_EXPECT(Len(3.0) == 3.0);
+			PR_EXPECT(Len(0.0) == 0.0);
+			PR_EXPECT(Len(-2.0) == 2.0);
+			PR_EXPECT(Len(1.0f) == 1.0f);
+			PR_EXPECT(Len(5) == 5);
+			PR_EXPECT(Len(-0.5) == 0.5);
+
+			PR_EXPECT(FEql(Len(3.0, 4.0), 5.0));               // 3-4-5
+			PR_EXPECT(FEql(Len(1.0, 2.0, 2.0), 3.0));          // 1² + 2² + 2² = 9
+			PR_EXPECT(FEql(Len(0.0, 0.0, 0.0), 0.0));          // zero vector
+			PR_EXPECT(FEql(Len(1.0, 1.0, 1.0, 1.0), 2.0));     // 4 * 1² = 4, sqrt = 2
 		}
 
 		// ---- Trace (functions.h line ~1429) ----
@@ -980,8 +996,8 @@ namespace pr::math::tests
 			using vt = vector_traits<mat_t>;
 			using S = typename vt::element_t;
 
-			static_assert(Trace(mat_t::Identity()) == S(vt::dimension));
-			static_assert(Trace(mat_t::Zero()) == S(0));
+			static_assert(Trace(Identity<mat_t>()) == S(vt::dimension));
+			static_assert(Trace(Zero<mat_t>()) == S(0));
 		}
 
 		// ---- Determinant (functions.h line ~1444) ----
@@ -993,14 +1009,14 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			PR_EXPECT(Determinant(mat_t::Identity()) == S(1));
-			PR_EXPECT(Determinant(mat_t::Zero()) == S(0));
+			PR_EXPECT(Determinant(Identity<mat_t>()) == S(1));
+			PR_EXPECT(Determinant(Zero<mat_t>()) == S(0));
 
 			// Det(k*I) = k^dim
 			if constexpr (std::floating_point<S>)
 			{
 				constexpr auto dim = vector_traits<mat_t>::dimension;
-				auto I2 = mat_t::Identity() * S(2);
+				constexpr auto I2 = Identity<mat_t>() * S(2);
 				PR_EXPECT(FEql(Determinant(I2), Pow(S(2), dim)));
 			}
 		}
@@ -1012,9 +1028,9 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			PR_EXPECT(DeterminantAffine(mat_t::Identity()) == S(1));
+			PR_EXPECT(DeterminantAffine(Identity<mat_t>()) == S(1));
 
-			auto I2 = mat_t::Identity() * S(2);
+			auto I2 = Identity<mat_t>() * S(2);
 			vec(vec(I2).w).w = S(1); // Restore affine w.w
 			PR_EXPECT(FEql(DeterminantAffine(I2), S(8)));
 		}
@@ -1037,8 +1053,8 @@ namespace pr::math::tests
 			if constexpr (vt::dimension > 2) vec(expected_diag).z = S(1);
 			if constexpr (vt::dimension > 3) vec(expected_diag).w = S(1);
 
-			PR_EXPECT(Diagonal(mat_t::Identity()) == expected_diag);
-			PR_EXPECT(Diagonal(mat_t::Zero()) == Vec(S(0)));
+			PR_EXPECT(Diagonal(Identity<mat_t>()) == expected_diag);
+			PR_EXPECT(Diagonal(Zero<mat_t>()) == Vec(S(0)));
 		}
 
 		// ---- Kernel (functions.h line ~1527) ----
@@ -1055,7 +1071,7 @@ namespace pr::math::tests
 			// For the identity matrix, (I - I) = Zero, so Kernel should work on singular matrices.
 			// For a matrix M with det=0, Kernel(M) gives a vector in the null space.
 			// Test: Kernel of a rank-deficient matrix is in its null space.
-			auto M = mat_t::Identity();
+			auto M = Identity<mat_t>();
 			vec(vec(M).x).x = S(0); // Make first column zero → singular
 
 			// k should be non-zero (there IS a kernel)
@@ -1086,9 +1102,9 @@ namespace pr::math::tests
 			auto N0 = Normalise(V0);
 			PR_EXPECT(FEql(N0[0], N0[1]));
 
-			PR_EXPECT(FEql(Normalise(vec_t::Zero(), V0), V0));
+			PR_EXPECT(FEql(Normalise(Zero<vec_t>(), V0), V0));
 
-			static_assert(IsNormalised(vec_t::XAxis()));
+			static_assert(IsNormalised(XAxis<vec_t>()));
 		}
 
 		// ---- Normalise(Mat) (functions.h line ~1588) ----
@@ -1102,7 +1118,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 
 			// Normalise a scaled identity, verify columns are unit-length and scales returned
-			auto scaled = mat_t::Identity() * S(3);
+			constexpr auto scaled = Identity<mat_t>() * S(3);
 			auto [norm_mat, scales] = Normalise(scaled);
 			PR_EXPECT(IsOrthonormal(norm_mat));
 			if constexpr (vt::dimension > 0) PR_EXPECT(FEql(vec(scales).x, S(3)));
@@ -1122,11 +1138,11 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			using Vec = typename vt::component_t;
 
-			PR_EXPECT(IsOrthogonal(mat_t::Identity()));
+			PR_EXPECT(IsOrthogonal(Identity<mat_t>()));
 
 			// Zero matrix has zero dot products between columns, so it IS "orthogonal" by the function's definition.
 			// Use a matrix with non-orthogonal columns instead.
-			auto M = mat_t::Identity();
+			auto M = Identity<mat_t>();
 			vec(vec(M).x).y = S(1); // col x = (1,1,...), col y = (0,1,...), Dot != 0
 			PR_EXPECT(!IsOrthogonal(M));
 		}
@@ -1140,9 +1156,9 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			PR_EXPECT(IsOrthonormal(mat_t::Identity()));
-			PR_EXPECT(!IsOrthonormal(mat_t::Zero()));
-			PR_EXPECT(!IsOrthonormal(mat_t::Identity() * S(2)));
+			PR_EXPECT(IsOrthonormal(Identity<mat_t>()));
+			PR_EXPECT(!IsOrthonormal(Zero<mat_t>()));
+			PR_EXPECT(!IsOrthonormal(Identity<mat_t>() * S(2)));
 		}
 
 		// ---- IsAffine (functions.h line ~1654) ----
@@ -1153,14 +1169,14 @@ namespace pr::math::tests
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
 
-			PR_EXPECT(IsAffine(mat_t::Identity()));
+			PR_EXPECT(IsAffine(Identity<mat_t>()));
 
 			// For dim==4, Zero fails because w.w != 1. For dim==3, Zero is structurally affine
 			// (all column .w == 0, and there's no 4th column to check w.w == 1).
 			if constexpr (vt::dimension >= 4)
-				PR_EXPECT(!IsAffine(mat_t::Zero()));
+				PR_EXPECT(!IsAffine(Zero<mat_t>()));
 			else
-				PR_EXPECT(IsAffine(mat_t::Zero()));
+				PR_EXPECT(IsAffine(Zero<mat_t>()));
 		}
 
 		// ---- IsInvertible (functions.h line ~1674) ----
@@ -1171,8 +1187,8 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(IsInvertible(mat_t::Identity()));
-			PR_EXPECT(!IsInvertible(mat_t::Zero()));
+			PR_EXPECT(IsInvertible(Identity<mat_t>()));
+			PR_EXPECT(!IsInvertible(Zero<mat_t>()));
 		}
 
 		// ---- IsSymmetric (functions.h line ~1684) ----
@@ -1183,8 +1199,8 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(IsSymmetric(mat_t::Identity()));
-			PR_EXPECT(IsSymmetric(mat_t::Zero()));
+			PR_EXPECT(IsSymmetric(Identity<mat_t>()));
+			PR_EXPECT(IsSymmetric(Zero<mat_t>()));
 		}
 
 		// ---- IsAntiSymmetric (functions.h line ~1711) ----
@@ -1195,7 +1211,7 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(IsAntiSymmetric(mat_t::Zero()));
+			PR_EXPECT(IsAntiSymmetric(Zero<mat_t>()));
 		}
 
 		// ---- IsParallel (functions.h line ~1738) ----
@@ -1212,7 +1228,7 @@ namespace pr::math::tests
 
 			PR_EXPECT(IsParallel(V0, V1));
 			PR_EXPECT(IsParallel(V0, -V1));
-			PR_EXPECT(!IsParallel(vec_t::XAxis(), vec_t::YAxis()));
+			PR_EXPECT(!IsParallel(XAxis<vec_t>(), YAxis<vec_t>()));
 		}
 
 		// ---- CreateNotParallelTo (functions.h line ~1757) ----
@@ -1223,10 +1239,10 @@ namespace pr::math::tests
 		) {
 			using vec_t = T;
 
-			auto V0 = vec_t::XAxis();
+			constexpr auto V0 = XAxis<vec_t>();
 			PR_EXPECT(!IsParallel(V0, CreateNotParallelTo(V0)));
 
-			auto V1 = vec_t::YAxis();
+			constexpr auto V1 = YAxis<vec_t>();
 			PR_EXPECT(!IsParallel(V1, CreateNotParallelTo(V1)));
 		}
 
@@ -1309,7 +1325,7 @@ namespace pr::math::tests
 			using vt = vector_traits<vec_t>;
 			using S = typename vt::element_t;
 
-			auto V0 = vec_t::XAxis();
+			constexpr auto V0 = XAxis<vec_t>();
 			auto perp = Perpendicular(V0);
 
 			auto T = static_cast<double>(Dot(V0, perp));
@@ -1330,8 +1346,8 @@ namespace pr::math::tests
 			using vt = vector_traits<vec_t>;
 			using S = typename vt::element_t;
 
-			auto V0 = vec_t::XAxis();
-			auto prev = vec_t::YAxis();
+			constexpr auto V0 = XAxis<vec_t>();
+			constexpr auto prev = YAxis<vec_t>();
 			auto perp = Perpendicular(V0, prev);
 
 			// Result should be perpendicular to V0
@@ -1359,7 +1375,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			constexpr auto dim = vt::dimension;
 
-			constexpr auto X = vec_t::XAxis();
+			constexpr auto X = XAxis<vec_t>();
 			static_assert(Permute(X, 0) == X);
 			static_assert(Permute(X, 1)[0] == S(0));
 			static_assert(Permute(X, 1)[dim - 1] == S(1));
@@ -1375,7 +1391,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			constexpr auto dim = vector_traits<mat_t>::dimension;
 
-			constexpr auto I = mat_t::Identity();
+			constexpr auto I = Identity<mat_t>();
 			static_assert(Permute(I, 0) == I);
 			static_assert(Permute(I, dim) == I);
 		}
@@ -1405,7 +1421,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			auto I = mat_t::Identity();
+			constexpr auto I = Identity<mat_t>();
 			PR_EXPECT(Transpose(I) == I);
 
 			auto M = mat_t(S(1)) + I;
@@ -1419,7 +1435,7 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(Transpose3x3(mat_t::Identity()) == mat_t::Identity());
+			PR_EXPECT(Transpose3x3(Identity<mat_t>()) == Identity<mat_t>());
 		}
 
 		// ---- InvertOrthonormal (functions.h line ~1945) ----
@@ -1428,7 +1444,7 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(FEql(InvertOrthonormal(mat_t::Identity()), mat_t::Identity()));
+			PR_EXPECT(FEql(InvertOrthonormal(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
 		// ---- InvertAffine (functions.h line ~1971) ----
@@ -1438,7 +1454,7 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(FEql(InvertAffine(mat_t::Identity()), mat_t::Identity()));
+			PR_EXPECT(FEql(InvertAffine(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
 		// ---- Invert (functions.h line ~2016) ----
@@ -1450,7 +1466,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			auto I = mat_t::Identity();
+			auto I = Identity<mat_t>();
 			PR_EXPECT(FEql(Invert(I), I));
 
 			// M * Invert(M) == I
@@ -1464,7 +1480,7 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(FEql(InvertPrecise(mat_t::Identity()), mat_t::Identity()));
+			PR_EXPECT(FEql(InvertPrecise(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
 		// ---- Sqrt matrix (functions.h line ~2159) ----
@@ -1475,8 +1491,8 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			auto sqrtI = Sqrt(mat_t::Identity());
-			PR_EXPECT(FEql(sqrtI * sqrtI, mat_t::Identity()));
+			auto sqrtI = Sqrt(Identity<mat_t>());
+			PR_EXPECT(FEql(sqrtI * sqrtI, Identity<mat_t>()));
 		}
 
 		// ---- Orthonorm (functions.h line ~2179) ----
@@ -1487,8 +1503,8 @@ namespace pr::math::tests
 		) {
 			using mat_t = T;
 
-			PR_EXPECT(FEql(Orthonorm(mat_t::Identity()), mat_t::Identity()));
-			PR_EXPECT(IsOrthonormal(Orthonorm(mat_t::Identity())));
+			PR_EXPECT(FEql(Orthonorm(Identity<mat_t>()), Identity<mat_t>()));
+			PR_EXPECT(IsOrthonormal(Orthonorm(Identity<mat_t>())));
 		}
 
 		// ---- Matrix multiply (functions.h line ~2190) ----
@@ -1502,7 +1518,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			using Vec = typename vt::component_t;
 
-			mat_t I = mat_t::Identity();
+			mat_t I = Identity<mat_t>();
 
 			mat_t M = {};
 			if constexpr (vt::dimension > 0) vec(M).x = Vec(S(vt::dimension));
@@ -1562,7 +1578,7 @@ namespace pr::math::tests
 			using S = typename vector_traits<mat_t>::element_t;
 
 			auto R0 = Rotation<mat_t>(S(0));
-			PR_EXPECT(FEql(R0, mat_t::Identity()));
+			PR_EXPECT(FEql(R0, Identity<mat_t>()));
 
 			auto R90 = Rotation<mat_t>(constants<S>::tau / S(4));
 			PR_EXPECT(IsOrthonormal(R90));
@@ -1579,10 +1595,10 @@ namespace pr::math::tests
 			PR_EXPECT(IsOrthonormal(R0));
 
 			auto R_full = Rotation<mat_t>(Vec::ZAxis(), constants<S>::tau);
-			PR_EXPECT(FEql(R_full, mat_t::Identity()));
+			PR_EXPECT(FEql(R_full, Identity<mat_t>()));
 
-			PR_EXPECT(FEql(RotationRad<mat_t>(S(0), S(0), S(0)), mat_t::Identity()));
-			PR_EXPECT(FEql(RotationDeg<mat_t>(S(0), S(0), S(0)), mat_t::Identity()));
+			PR_EXPECT(FEql(RotationRad<mat_t>(S(0), S(0), S(0)), Identity<mat_t>()));
+			PR_EXPECT(FEql(RotationDeg<mat_t>(S(0), S(0), S(0)), Identity<mat_t>()));
 		}
 
 		// ---- Rotation overloads (functions.h line ~2340) ----
@@ -1598,19 +1614,19 @@ namespace pr::math::tests
 
 			// Rotation(axis, angle)
 			auto R0 = Rotation<mat_t>(axis, S(0));
-			PR_EXPECT(FEql(R0, mat_t::Identity()));
+			PR_EXPECT(FEql(R0, Identity<mat_t>()));
 
 			// Rotation(axis, sin*axis, cos) — low-level overload
 			auto R1 = Rotation<mat_t>(axis, axis * std::sin(S(0)), std::cos(S(0)));
-			PR_EXPECT(FEql(R1, mat_t::Identity()));
+			PR_EXPECT(FEql(R1, Identity<mat_t>()));
 
 			// Rotation(angular_displacement) — zero displacement gives identity
 			auto R2 = Rotation<mat_t>(Vec(S(0)));
-			PR_EXPECT(FEql(R2, mat_t::Identity()));
+			PR_EXPECT(FEql(R2, Identity<mat_t>()));
 
 			// Rotation(from, to) — same vector gives identity
 			auto R3 = Rotation<mat_t>(Vec::XAxis(), Vec::XAxis());
-			PR_EXPECT(FEql(R3, mat_t::Identity()));
+			PR_EXPECT(FEql(R3, Identity<mat_t>()));
 
 			// Rotation(from, to) — X to Y is 90° about Z
 			auto R4 = Rotation<mat_t>(Vec::XAxis(), Vec::YAxis());
@@ -1619,7 +1635,7 @@ namespace pr::math::tests
 
 			// Rotation(AxisId, AxisId) — identity when same axis
 			auto R5 = Rotation<mat_t>(AxisId::PosZ, AxisId::PosZ);
-			PR_EXPECT(FEql(R5, mat_t::Identity()));
+			PR_EXPECT(FEql(R5, Identity<mat_t>()));
 
 			// Rotation(AxisId, AxisId) — X to Y
 			auto R6 = Rotation<mat_t>(AxisId::PosX, AxisId::PosY);
@@ -1636,7 +1652,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			PR_EXPECT(Scale<mat_t>(S(1)) == mat_t::Identity());
+			PR_EXPECT(Scale<mat_t>(S(1)) == Identity<mat_t>());
 
 			auto S2 = Scale<mat_t>(S(2));
 			PR_EXPECT(vec(vec(S2).x).x == S(2));
@@ -1650,7 +1666,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			static_assert(Shear<mat_t>(S(0), S(0)) == mat_t::Identity());
+			static_assert(Shear<mat_t>(S(0), S(0)) == Identity<mat_t>());
 		}
 		PRUnitTestMethod(Shear3DTests
 		, Mat3x4<float>, Mat3x4<double>
@@ -1658,7 +1674,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			static_assert(Shear<mat_t>(S(0), S(0), S(0), S(0), S(0), S(0)) == mat_t::Identity());
+			static_assert(Shear<mat_t>(S(0), S(0), S(0), S(0), S(0), S(0)) == Identity<mat_t>());
 		}
 
 		// ---- LookAt (functions.h line ~2493) ----
@@ -1740,7 +1756,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			auto [axis, angle] = AxisAngle(mat_t::Identity());
+			auto [axis, angle] = AxisAngle(Identity<mat_t>());
 			PR_EXPECT(FEql(angle, S(0)));
 		}
 
@@ -1753,7 +1769,7 @@ namespace pr::math::tests
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
 
-			auto S0 = ScaleFrom(mat_t::Identity());
+			auto S0 = ScaleFrom(Identity<mat_t>());
 			PR_EXPECT(vec(vec(S0).x).x == S(1));
 			PR_EXPECT(vec(vec(S0).y).y == S(1));
 		}
@@ -1768,10 +1784,10 @@ namespace pr::math::tests
 			using S = typename vector_traits<mat_t>::element_t;
 
 			// Unscaled(Identity) should give Identity (columns already unit-length)
-			PR_EXPECT(FEql(Unscaled(mat_t::Identity()), mat_t::Identity()));
+			PR_EXPECT(FEql(Unscaled(Identity<mat_t>()), Identity<mat_t>()));
 
 			// Unscaled of a scaled matrix should be orthonormal
-			auto M = mat_t::Identity() * S(3);
+			auto M = Identity<mat_t>() * S(3);
 			PR_EXPECT(IsOrthonormal(Unscaled(M)));
 		}
 
@@ -1786,7 +1802,7 @@ namespace pr::math::tests
 
 			// Rotating Z axis to Z should give identity
 			auto R = RotationToZAxis<mat_t>(Vec::ZAxis());
-			PR_EXPECT(FEql(R, mat_t::Identity()));
+			PR_EXPECT(FEql(R, Identity<mat_t>()));
 
 			// Rotating any unit vector to Z should produce a valid rotation
 			auto R2 = RotationToZAxis<mat_t>(Vec::XAxis());
@@ -1840,7 +1856,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 			using Vec = typename vt::component_t;
 
-			auto rv = RotationVectorApprox(mat_t::Identity(), mat_t::Identity());
+			auto rv = RotationVectorApprox(Identity<mat_t>(), Identity<mat_t>());
 			PR_EXPECT(FEql(rv, Vec(S(0))));
 		}
 
@@ -1872,7 +1888,7 @@ namespace pr::math::tests
 			using S = typename vt::element_t;
 
 			auto R = ExpMap3x3<mat_t>(Vec(S(0)));
-			PR_EXPECT(FEql(R, mat_t::Identity()));
+			PR_EXPECT(FEql(R, Identity<mat_t>()));
 		}
 
 		// ---- LogMap3x3 (functions.h line ~2857) ----
@@ -1884,7 +1900,7 @@ namespace pr::math::tests
 			using Vec = typename vt::component_t;
 			using S = typename vt::element_t;
 
-			auto omega = LogMap3x3(mat_t::Identity());
+			auto omega = LogMap3x3(Identity<mat_t>());
 			PR_EXPECT(FEql(omega, Vec(S(0))));
 		}
 
@@ -1898,13 +1914,13 @@ namespace pr::math::tests
 			using Vec = typename vt::component_t;
 
 			// Zero angular velocity and acceleration — orientation unchanged
-			auto ori = mat_t::Identity();
+			auto ori = Identity<mat_t>();
 			auto result = RotationAt(0.0f, ori, Vec(S(0)), Vec(S(0)));
 			PR_EXPECT(FEql(result, ori));
 
 			// Constant angular velocity about Z, zero acceleration
 			auto avel = Vec(S(0), S(0), S(1)); // 1 rad/s about Z
-			auto R1 = RotationAt(0.0f, mat_t::Identity(), avel, Vec(S(0)));
+			auto R1 = RotationAt(0.0f, Identity<mat_t>(), avel, Vec(S(0)));
 			PR_EXPECT(IsOrthonormal(R1));
 		}
 

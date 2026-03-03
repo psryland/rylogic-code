@@ -152,7 +152,7 @@ void ConstraintAccumulator::SetCollisionMatrix(Constraint& cons, Rigidbody const
 	// Say "inv_mass" = "inv_mass1" + "inv_mass2" then
 	// "inv_mass1" = [(1/MassA)*Identity - (pointA.CrossProductMatrix()*InvMassTensorWS()A*pointA.CrossProductMatrix())] and
 	// "inv_mass2" = [(1/MassB)*Identity - (pointB.CrossProductMatrix()*InvMassTensorWS()B*pointB.CrossProductMatrix())]
-	m3x4 inv_mass = m3x4Zero;
+	m3x4 inv_mass = m3x4::Zero();
 	if( mass_mask & 1 )
 	{
 		auto cpmA = CPM(pointA); // pointA is object relative

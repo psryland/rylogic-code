@@ -34,7 +34,7 @@ namespace pr
 						result.m_sample_index		= p - points;
 						result.m_terrain_point		= p->m_point;
 						result.m_terrain_point.y	= 0.0f;
-						result.m_normal				= v4YAxis;
+						result.m_normal				= v4::YAxis();
 						result.m_material_id		= 0;
 						if( !terrain_contact_cb(result, context) ) return;
 					}

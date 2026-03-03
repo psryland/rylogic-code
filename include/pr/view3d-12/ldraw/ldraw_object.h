@@ -123,11 +123,11 @@ namespace pr::rdr12::ldraw
 		EventHandler<LdrObject&, Scene const&, true> OnAddToScene;
 
 		// Recursively add this object and its children to a scene
-		void AddToScene(Scene& scene, m4x4 const& p2w = m4x4Identity, ELdrFlags parent_flags = ELdrFlags::None);
+		void AddToScene(Scene& scene, m4x4 const& p2w = m4x4::Identity(), ELdrFlags parent_flags = ELdrFlags::None);
 
 		// Recursively add the bounding box instance for this object using 'bbox_model'
 		// located and scaled to the transform and box of this object
-		void AddBBoxToScene(Scene& scene, m4x4 const& p2w = m4x4Identity, ELdrFlags parent_flags = ELdrFlags::None);
+		void AddBBoxToScene(Scene& scene, m4x4 const& p2w = m4x4::Identity(), ELdrFlags parent_flags = ELdrFlags::None);
 
 		// Apply an operation on this object or any of its child objects that match 'name'.
 		// 'func' should have a signature: 'bool func(LdrObject* obj);' returning false to 'quick-out'.

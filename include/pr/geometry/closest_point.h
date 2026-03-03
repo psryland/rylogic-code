@@ -12,31 +12,31 @@
 namespace pr::geometry::closest_point
 {
 	// Returns the point closest to 'point' on 'plane'
-	inline v4 pr_vectorcall PointToPlane(v4_cref point, Plane const& plane)
+	inline v4 pr_vectorcall PointToPlane(v4 point, Plane plane)
 	{
 		return point - distance::PointToPlane(point, plane) * plane::Direction(plane);
 	}
-	inline v4 pr_vectorcall PointToPlane(v4_cref point, v4_cref a, v4_cref b, v4_cref c)
+	inline v4 pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c)
 	{
 		return PointToPlane(point, plane::make(a, b, c));
 	}
 
 	// Returns the parametric value of the closest point on 'line'
-	inline v4 pr_vectorcall PointToRay(v4_cref point, v4 s, v4 d, void*, float& t)
+	inline v4 pr_vectorcall PointToRay(v4 point, v4 s, v4 d, void*, float& t)
 	{
 		assert(point.w == 1 && s.w == 1.0f && d.w == 0.0f);
 		assert(d != v4::Zero());
 		t = Dot(point - s, d) / LengthSq(d);
 		return s + t * d;
 	}
-	inline v4 pr_vectorcall PointToRay(v4_cref point, v4 s, v4 d, void*)
+	inline v4 pr_vectorcall PointToRay(v4 point, v4 s, v4 d, void*)
 	{
 		float t;
 		return PointToRay(point, s, d, 0, t);
 	}
 
 	// Returns the parametric value of the closest point on 'line'
-	inline v4 pr_vectorcall PointToLine(v4_cref point, v4_cref s, v4_cref e, float& t)
+	inline v4 pr_vectorcall PointToLine(v4 point, v4 s, v4 e, float& t)
 	{
 		assert(point.w == 1.0f && s.w == 1.0f && e.w == 1.0f);
 		auto line = e - s;
@@ -62,7 +62,7 @@ namespace pr::geometry::closest_point
 		t = t / denom;
 		return s + t * line;
 	}
-	inline v4 pr_vectorcall PointToLine(v4_cref point, v4_cref s, v4_cref e)
+	inline v4 pr_vectorcall PointToLine(v4 point, v4 s, v4 e)
 	{
 		float t;
 		return PointToLine(point, s, e, t);
@@ -71,7 +71,7 @@ namespace pr::geometry::closest_point
 	// Returns the point on an AABB that is closest to 'point'
 	// if 'surface_only' is true, the point is projected onto the bbox surface,
 	// otherwise points within the bounding box are counted as the closest point
-	inline v4 pr_vectorcall PointToBoundingBox(v4_cref point, BBox_cref bbox, bool surface_only)
+	inline v4 pr_vectorcall PointToBoundingBox(v4 point, BBox bbox, bool surface_only)
 	{
 		v4 result;
 		v4 lower = bbox.Lower();
@@ -131,7 +131,7 @@ namespace pr::geometry::closest_point
 	}
 
 	// Returns the closest point on a triangle to 'point'. From "Real time collision detection" by 'Christer Ericson'
-	inline v4 pr_vectorcall PointToTriangle(v4_cref p, v4_cref a, v4_cref b, v4_cref c, v4& barycentric)
+	inline v4 pr_vectorcall PointToTriangle(v4 p, v4 a, v4 b, v4 c, v4& barycentric)
 	{
 		assert(p.w == 1.0f && a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
 
@@ -205,23 +205,23 @@ namespace pr::geometry::closest_point
 		barycentric = v4(1.0f - v - w, v, w, 0.0f);
 		return a + ab * v + ac * w;
 	}
-	inline v4 pr_vectorcall PointToTriangle(v4_cref point, v4_cref a, v4_cref b, v4_cref c)
+	inline v4 pr_vectorcall PointToTriangle(v4 point, v4 a, v4 b, v4 c)
 	{
 		v4 barycentric;
 		return PointToTriangle(point, a, b, c, barycentric);
 	}
-	inline v4 pr_vectorcall PointToTriangle(v4_cref point, const v4* tri, v4& barycentric)
+	inline v4 pr_vectorcall PointToTriangle(v4 point, const v4* tri, v4& barycentric)
 	{
 		return PointToTriangle(point, tri[0], tri[1], tri[2], barycentric);
 	}
-	inline v4 pr_vectorcall PointToTriangle(v4_cref point, const v4* tri)
+	inline v4 pr_vectorcall PointToTriangle(v4 point, const v4* tri)
 	{
 		v4 barycentric;
 		return PointToTriangle(point, tri[0], tri[1], tri[2], barycentric);
 	}
 
 	// Returns the closest point on a tetrahedron to 'point'. From "Real time collision detection" by 'Christer Ericson'
-	inline v4 pr_vectorcall PointToTetrahedron(v4_cref p, v4_cref a, v4_cref b, v4_cref c, v4_cref d, v4& barycentric)
+	inline v4 pr_vectorcall PointToTetrahedron(v4 p, v4 a, v4 b, v4 c, v4 d, v4& barycentric)
 	{
 		assert(p.w == 1.0f && a.w == 1.0f && b.w == 1.0f && c.w == 1.0f && d.w == 1.0f);
 
@@ -265,16 +265,16 @@ namespace pr::geometry::closest_point
 		}
 		return closest_point;
 	}
-	inline v4 pr_vectorcall PointToTetrahedron(v4_cref point, v4_cref a, v4_cref b, v4_cref c, v4_cref d)
+	inline v4 pr_vectorcall PointToTetrahedron(v4 point, v4 a, v4 b, v4 c, v4 d)
 	{
 		v4 barycentric;
 		return PointToTetrahedron(point, a, b, c, d, barycentric);
 	}
-	inline v4 pr_vectorcall PointToTetrahedron(v4_cref point, const v4* tetra, v4& barycentric)
+	inline v4 pr_vectorcall PointToTetrahedron(v4 point, const v4* tetra, v4& barycentric)
 	{
 		return PointToTetrahedron(point, tetra[0], tetra[1], tetra[2], tetra[3], barycentric);
 	}
-	inline v4 pr_vectorcall PointToTetrahedron(v4_cref point, const v4* tetra)
+	inline v4 pr_vectorcall PointToTetrahedron(v4 point, const v4* tetra)
 	{
 		v4 barycentric;
 		return PointToTetrahedron(point, tetra[0], tetra[1], tetra[2], tetra[3], barycentric);
@@ -282,7 +282,7 @@ namespace pr::geometry::closest_point
 
 	// Returns the parametric values of the closest points on two rays
 	// Closest points are: p0 = s0 + return.x * d0, p1 = s1 + return.y * d1
-	inline v2 pr_vectorcall RayToRay(v4_cref s0, v4_cref d0, v4_cref s1, v4_cref d1)
+	inline v2 pr_vectorcall RayToRay(v4 s0, v4 d0, v4 s1, v4 d1)
 	{
 		// Degenerate lines should not be passed to this function
 		assert(d0 != v4::Zero());
@@ -308,7 +308,7 @@ namespace pr::geometry::closest_point
 	// Finds the closest points between two line segments and also
 	// the parametric values on each line.
 	// From "Real time collision detection" by 'Christer Ericson'
-	inline void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, float& t0, float& t1)
+	inline void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, float& t0, float& t1)
 	{
 		assert(s0.w == 1.0f && e0.w == 1.0f && s1.w == 1.0f && e1.w == 1.0f);
 
@@ -351,20 +351,20 @@ namespace pr::geometry::closest_point
 			t0 = Clamp((b - c) / len_sq0, 0.0f, 1.0f);
 		}
 	}
-	inline void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, v4& pt0, v4& pt1)
+	inline void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, v4& pt0, v4& pt1)
 	{
 		float t0, t1;
 		LineToLine(s0, e0, s1, e1, t0, t1);
 		pt0 = (1.0f - t0) * s0 + t0 * e0;
 		pt1 = (1.0f - t1) * s1 + t1 * e1;
 	}
-	inline void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, v4& pt0, v4& pt1, float& t0, float& t1)
+	inline void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, v4& pt0, v4& pt1, float& t0, float& t1)
 	{
 		LineToLine(s0, e0, s1, e1, t0, t1);
 		pt0 = (1.0f - t0) * s0 + t0 * e0;
 		pt1 = (1.0f - t1) * s1 + t1 * e1;
 	}
-	inline void pr_vectorcall LineToLine(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref e1, float& dist_sq)
+	inline void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, float& dist_sq)
 	{
 		float t0, t1;
 		LineToLine(s0, e0, s1, e1, t0, t1);
@@ -375,7 +375,7 @@ namespace pr::geometry::closest_point
 
 	// Returns the parametric values of the closest point between a line segment '(s0,e0)'
 	// and an infinite line '(s1,line1)'. From "Real time collision detection" by 'Christer Ericson'
-	inline void pr_vectorcall LineToRay(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref line1, float& t0, float& t1)
+	inline void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1)
 	{
 		assert(s0.w == 1.0f && e0.w == 1.0f && s1.w == 1.0f && line1.w == 0.0f);
 		assert(line1 != v4Zero && "The infinite line should not be degenerate");
@@ -407,7 +407,7 @@ namespace pr::geometry::closest_point
 		// using t1 = Dot3(pt0 - s1, line1) / line1_length_sq = (b*t0 + f) / line1_length_sq
 		t1 = (b * t0 + s0_on_line1) / line1_length_sq;
 	}
-	inline void pr_vectorcall LineToRay(v4_cref s0, v4_cref e0, v4_cref s1, v4_cref line1, float& t0, float& t1, float& dist_sq)
+	inline void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1, float& dist_sq)
 	{
 		LineToRay(s0, e0, s1, line1, t0, t1);
 		v4 pt0 = (1.0f - t0) * s0 + t0 * e0;
@@ -416,7 +416,7 @@ namespace pr::geometry::closest_point
 	}
 
 	// Returns the minimum distance of a line segment '(s,e)' to the AABB 'bbox'
-	inline MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox)
+	inline MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox)
 	{
 		// Note: This code is basically the same as col_box_vs_line.h.
 		// Make sure to maintain both
@@ -436,21 +436,21 @@ namespace pr::geometry::closest_point
 		auto sep = MinSeparation{};
 
 		// Try world coordinate axes
-		sep(bbox.m_radius.x + rad.x - Abs(mid.x), Sign(mid.x) * v4XAxis);
-		sep(bbox.m_radius.y + rad.y - Abs(mid.y), Sign(mid.y) * v4YAxis);
-		sep(bbox.m_radius.z + rad.z - Abs(mid.z), Sign(mid.z) * v4ZAxis);
+		sep(bbox.m_radius.x + rad.x - Abs(mid.x), Sign(mid.x) * v4::XAxis());
+		sep(bbox.m_radius.y + rad.y - Abs(mid.y), Sign(mid.y) * v4::YAxis());
+		sep(bbox.m_radius.z + rad.z - Abs(mid.z), Sign(mid.z) * v4::ZAxis());
 
 		// Lambda for returning a separating axis with the correct sign
-		auto sep_axis = [&](v4_cref sa) { return Sign(Dot(mid, sa)) * sa; };
+		auto sep_axis = [&](v4 sa) { return Sign(Dot(mid, sa)) * sa; };
 
 		// Try cross products of the segment direction with the coordinate axes.
-		sep(rad.z * bbox.m_radius.y + rad.y * bbox.m_radius.z - rad.z * Abs(mid.y) - rad.y * Abs(mid.z), sep_axis(Cross(v4XAxis, half)));
-		sep(rad.z * bbox.m_radius.x + rad.x * bbox.m_radius.z - rad.x * Abs(mid.z) - rad.z * Abs(mid.x), sep_axis(Cross(v4YAxis, half)));
-		sep(rad.y * bbox.m_radius.x + rad.x * bbox.m_radius.y - rad.y * Abs(mid.x) - rad.x * Abs(mid.y), sep_axis(Cross(v4ZAxis, half)));
+		sep(rad.z * bbox.m_radius.y + rad.y * bbox.m_radius.z - rad.z * Abs(mid.y) - rad.y * Abs(mid.z), sep_axis(Cross(v4::XAxis(), half)));
+		sep(rad.z * bbox.m_radius.x + rad.x * bbox.m_radius.z - rad.x * Abs(mid.z) - rad.z * Abs(mid.x), sep_axis(Cross(v4::YAxis(), half)));
+		sep(rad.y * bbox.m_radius.x + rad.x * bbox.m_radius.y - rad.y * Abs(mid.x) - rad.x * Abs(mid.y), sep_axis(Cross(v4::ZAxis(), half)));
 
 		return sep;
 	}
-	inline MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox, float& t)
+	inline MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox, float& t)
 	{
 		// Returns the parametric value of the closest point on the line segment '(s,e)' to the AABB 'bbox' and the distance.
 		auto sep = LineToBBox(s, e, bbox);
@@ -463,19 +463,19 @@ namespace pr::geometry::closest_point
 			if (axis[i] > 0)
 			{
 				for (int j = 0; j != n; ++j)
-					points[j] += m4x4Identity[i] * bbox.m_radius[i];
+					points[j] += m4x4::Identity()[i] * bbox.m_radius[i];
 			}
 			else if (axis[i] < 0)
 			{
 				for (int j = 0; j != n; ++j)
-					points[j] -= m4x4Identity[i] * bbox.m_radius[i];
+					points[j] -= m4x4::Identity()[i] * bbox.m_radius[i];
 			}
 			else
 			{
 				for (int j = 0; j != n; ++j)
 				{
-					points[j + n] = points[j] + m4x4Identity[i] * bbox.m_radius[i];
-					points[j] = points[j] - m4x4Identity[i] * bbox.m_radius[i];
+					points[j + n] = points[j] + m4x4::Identity()[i] * bbox.m_radius[i];
+					points[j] = points[j] - m4x4::Identity()[i] * bbox.m_radius[i];
 				}
 				n *= 2;
 			}
@@ -510,7 +510,7 @@ namespace pr::geometry::closest_point
 		assert("not implemented" && false);
 		return sep;
 	}
-	inline MinSeparation pr_vectorcall LineToBBox(v4_cref s, v4_cref e, BBox_cref bbox, v4& pt0, v4& pt1)
+	inline MinSeparation pr_vectorcall LineToBBox(v4 s, v4 e, BBox bbox, v4& pt0, v4& pt1)
 	{
 		float t;
 		auto sep = LineToBBox(s, e, bbox, t);
@@ -526,7 +526,7 @@ namespace pr::geometry::closest_point
 	// Returns the parametric values of the closest point between a ray 's -> s+d' and a triangle 'a,b,c'
 	// The closest point on the triangle is at: 'BaryPoint(a, b, c, return.xyz)'
 	// The closest point on the ray is at: 's + return.w * d'
-	inline v4 pr_vectorcall RayToTriangle(v4_cref s, v4_cref d, v4_cref a, v4_cref b, v4_cref c)
+	inline v4 pr_vectorcall RayToTriangle(v4 s, v4 d, v4 a, v4 b, v4 c)
 	{
 		assert(s.w == 1.0f && d.w == 0.0f);
 		assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
@@ -545,7 +545,7 @@ namespace pr::geometry::closest_point
 		// Otherwise, find the closest point between the ray and the triangle edges/vertices
 		else
 		{
-			struct Edge { v4_cref s; v4_cref d; };
+			struct Edge { v4 s; v4 d; };
 			Edge edges[3] = { {a, b - a}, {b, c - b}, {c, a - c} };
 
 			v2 best_t = {};

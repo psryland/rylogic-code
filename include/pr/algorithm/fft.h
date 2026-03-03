@@ -25,7 +25,9 @@
  *   Software.
  */
 #pragma once
+#include <complex>
 #include "pr/common/cast.h"
+#include "pr/common/bit_fields.h"
 #include "pr/maths/maths.h"
 
 namespace pr::algorithm::fft
@@ -87,8 +89,8 @@ namespace pr::algorithm::fft
 					for (auto j = i, k = 0ULL; j < i + halfsize; ++j, k += tablestep)
 					{
 						auto l = j + halfsize;
-						auto cos_k = Cos(maths::tau * k / length);
-						auto sin_k = Sin(maths::tau * k / length);
+						auto cos_k = std::cos(constants<double>::tau * k / length);
+						auto sin_k = std::sin(constants<double>::tau * k / length);
 						auto re =  real[l] * cos_k + imag[l] * sin_k;
 						auto im = -real[l] * sin_k + imag[l] * cos_k;
 
@@ -127,9 +129,9 @@ namespace pr::algorithm::fft
 			for (auto i = 0; i != s_cast<int>(length); ++i)
 			{
 				// An accurate version of: angle = pi * i * i / length;
-				auto angle = maths::tau_by_2 * ((i * i) % (length * 2)) / length;
-				auto cos_i = Cos(angle);
-				auto sin_i = Sin(angle);
+				auto angle = constants<double>::tau_by_2 * ((i * i) % (length * 2)) / length;
+				auto cos_i = std::cos(angle);
+				auto sin_i = std::sin(angle);
 
 				areal[i] =  real[i] * cos_i + imag[i] * sin_i;
 				aimag[i] = -real[i] * sin_i + imag[i] * cos_i;
@@ -144,9 +146,9 @@ namespace pr::algorithm::fft
 			for (auto i = 0; i != s_cast<int>(length); ++i)
 			{
 				// An accurate version of: angle = pi * i * i / length;
-				auto angle = maths::tau_by_2 * ((i * i) % (length * 2)) / length;
-				auto cos_i = Cos(angle);
-				auto sin_i = Sin(angle);
+				auto angle = constants<double>::tau_by_2 * ((i * i) % (length * 2)) / length;
+				auto cos_i = std::cos(angle);
+				auto sin_i = std::sin(angle);
 
 				real[i] =  creal[i] * cos_i + cimag[i] * sin_i;
 				imag[i] = -creal[i] * sin_i + cimag[i] * cos_i;
@@ -183,7 +185,7 @@ namespace pr::algorithm::fft
 		template <typename Real>
 		void DFTNaive(Real const* real, Real const* imag, Real* outr, Real* outi, size_t length, bool inverse)
 		{	
-			auto coef = Bool2SignI(inverse) * maths::tau / length;
+			auto coef = Bool2SignI(inverse) * constants<double>::tau / length;
 
 			// For each output element
 			for (auto k = 0ULL; k != length; ++k)
@@ -195,8 +197,8 @@ namespace pr::algorithm::fft
 				for (int t = 0; t != s_cast<int>(length); ++t)
 				{
 					auto angle = coef * (static_cast<long long>(t) * k % length);
-					sumr += real[t] * Cos(angle) - imag[t] * Sin(angle);
-					sumi += real[t] * Sin(angle) + imag[t] * Cos(angle);
+					sumr += real[t] * std::cos(angle) - imag[t] * std::sin(angle);
+					sumi += real[t] * std::sin(angle) + imag[t] * std::cos(angle);
 				}
 				
 				outr[k] = static_cast<Real>(sumr);
@@ -466,68 +468,70 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::algorithm::fft::tests
 {
-	PRUnitTest(FourierTransformTests)
+	PRUnitTestClass(FourierTransformTests)
 	{
-		struct L
+		std::default_random_engine rng;
+		TestClass_FourierTransformTests()
+			:rng(1)
+		{}
+
+		// Generate a vector of random real values
+		std::vector<double> RandomReals(int n)
 		{
-			// Generate a vector of random real values
-			static std::vector<double> RandomReals(int n)
-			{
-				std::vector<double> result;
-				std::uniform_real_distribution<double> dist(-1.0, 1.0);
-				for (auto i = 0; i != n; ++i) result.push_back(dist(g_rng()));
-				return std::move(result);
-			}
+			std::vector<double> result;
+			std::uniform_real_distribution<double> dist(-1.0, 1.0);
+			for (auto i = 0; i != n; ++i) result.push_back(dist(rng));
+			return std::move(result);
+		}
 
-			// Returns the Log10 RMS error between 'x' and 'y'
-			static double Log10RMSError(double const* xr, double const* xi, double const* yr, double const* yi, int length)
+		// Returns the Log10 RMS error between 'x' and 'y'
+		double Log10RMSError(double const* xr, double const* xi, double const* yr, double const* yi, int length)
+		{
+			auto err = std::pow(10, -99 * 2);
+			for (auto i = 0; i != length; ++i)
 			{
-				auto err = std::pow(10, -99 * 2);
-				for (auto i = 0; i != length; ++i)
-				{
-					auto real = xr[i] - yr[i];
-					auto imag = xi[i] - yi[i];
-					err += real * real + imag * imag;
-				}
-				length += (length == 0);
-				return std::log10(std::sqrt(err / length));
+				auto real = xr[i] - yr[i];
+				auto imag = xi[i] - yi[i];
+				err += real * real + imag * imag;
 			}
+			length += (length == 0);
+			return std::log10(std::sqrt(err / length));
+		}
 
-			// Test run a FFT
-			static void TestFFT(int n, double& err0, double& err1)
-			{
-				auto inputr = RandomReals(n);
-				auto inputi = RandomReals(n);
-	
-				std::vector<double> expectr(n), expecti(n);
-				impl::DFTNaive(inputr.data(), inputi.data(), expectr.data(), expecti.data(), n, false);
-	
-				std::vector<double> actualr(n), actuali(n);
-				DiscreteFourierTransform(inputr.data(), inputi.data(), actualr.data(), actuali.data(), n);
-				err0 = Log10RMSError(expectr.data(), expecti.data(), actualr.data(), actuali.data(), n);
-	
-				InverseDiscreteFourierTransform(actualr.data(), actuali.data(), actualr.data(), actuali.data(), n);
-				err1 = Log10RMSError(inputr.data(), inputi.data(), actualr.data(), actuali.data(), n);
-			}
+		// Test run a FFT
+		void TestFFT(int n, double& err0, double& err1)
+		{
+			auto inputr = RandomReals(n);
+			auto inputi = RandomReals(n);
 
-			// Test run a convolution
-			static void TestConvolution(int n, double& err)
-			{
-				auto input0r = RandomReals(n);
-				auto input0i = RandomReals(n);
-				auto input1r = RandomReals(n);
-				auto input1i = RandomReals(n);
-	
-				std::vector<double> expectr(n), expecti(n);
-				impl::ConvolveNaive(input0r.data(), input0i.data(), input1r.data(), input1i.data(), expectr.data(), expecti.data(), n);
-	
-				std::vector<double> actualr(n), actuali(n);
-				impl::Convolve(input0r.data(), input0i.data(), input1r.data(), input1i.data(), actualr.data(), actuali.data(), n);
-				err = Log10RMSError(expectr.data(), expecti.data(), actualr.data(), actuali.data(), n);
-			}
-		};
+			std::vector<double> expectr(n), expecti(n);
+			impl::DFTNaive(inputr.data(), inputi.data(), expectr.data(), expecti.data(), n, false);
 
-		// Test DFT and iDFT
+			std::vector<double> actualr(n), actuali(n);
+			DiscreteFourierTransform(inputr.data(), inputi.data(), actualr.data(), actuali.data(), n);
+			err0 = Log10RMSError(expectr.data(), expecti.data(), actualr.data(), actuali.data(), n);
+
+			InverseDiscreteFourierTransform(actualr.data(), actuali.data(), actualr.data(), actuali.data(), n);
+			err1 = Log10RMSError(inputr.data(), inputi.data(), actualr.data(), actuali.data(), n);
+		}
+
+		// Test run a convolution
+		void TestConvolution(int n, double& err)
+		{
+			auto input0r = RandomReals(n);
+			auto input0i = RandomReals(n);
+			auto input1r = RandomReals(n);
+			auto input1i = RandomReals(n);
+
+			std::vector<double> expectr(n), expecti(n);
+			impl::ConvolveNaive(input0r.data(), input0i.data(), input1r.data(), input1i.data(), expectr.data(), expecti.data(), n);
+
+			std::vector<double> actualr(n), actuali(n);
+			impl::Convolve(input0r.data(), input0i.data(), input1r.data(), input1i.data(), actualr.data(), actuali.data(), n);
+			err = Log10RMSError(expectr.data(), expecti.data(), actualr.data(), actuali.data(), n);
+		}
+
+		PRUnitTestMethod(DFTAndiDFTTests)
 		{
 			double max_err0 = -99.0, max_err1 = -99.0; //db
 
@@ -535,7 +539,7 @@ namespace pr::algorithm::fft::tests
 			for (int i = 0; i != 13; ++i)
 			{
 				double err0, err1;
-				L::TestFFT(1 << i, err0, err1);
+				TestFFT(1 << i, err0, err1);
 				max_err0 = std::max(max_err0, err0);
 				max_err1 = std::max(max_err1, err1);
 			}
@@ -544,7 +548,7 @@ namespace pr::algorithm::fft::tests
 			for (auto i = 0; i != 30; ++i)
 			{
 				double err0, err1;
-				L::TestFFT(i, err0, err1);
+				TestFFT(i, err0, err1);
 				max_err0 = std::max(max_err0, err0);
 				max_err1 = std::max(max_err1, err1);
 			}
@@ -556,7 +560,7 @@ namespace pr::algorithm::fft::tests
 				if (n > prev)
 				{
 					double err0, err1;
-					L::TestFFT(n, err0, err1);
+					TestFFT(n, err0, err1);
 					max_err0 = std::max(max_err0, err0);
 					max_err1 = std::max(max_err1, err1);
 					prev = n;
@@ -566,7 +570,7 @@ namespace pr::algorithm::fft::tests
 			PR_EXPECT(max_err0 < -10);
 			PR_EXPECT(max_err1 < -10);
 		}
-		// Test Convolution
+		PRUnitTestMethod(ConvolutionTests)
 		{
 			double max_err = -99.0; // db
 
@@ -574,10 +578,10 @@ namespace pr::algorithm::fft::tests
 			for (auto i = 0; i != 13; ++i)
 			{
 				double err;
-				L::TestConvolution(1ULL << i, err);
+				TestConvolution(1ULL << i, err);
 				max_err = std::max(max_err, err);
 			}
-	
+
 			// Test diverse size convolutions
 			for (auto i = 0, prev = 0; i != 100; ++i)
 			{
@@ -585,15 +589,14 @@ namespace pr::algorithm::fft::tests
 				if (n > prev)
 				{
 					double err;
-					L::TestConvolution(n, err);
+					TestConvolution(n, err);
 					max_err = std::max(max_err, err);
 				}
 			}
 
 			PR_EXPECT(max_err < -10);
 		}
-		// Other
-		#if 1
+		PRUnitTestMethod(OtherTests)
 		{
 			constexpr double freq0 = 2.0; // hz
 			constexpr double freq1 = 10.0; // hz
@@ -607,11 +610,11 @@ namespace pr::algorithm::fft::tests
 			for (auto i = 0, iend = s_cast<int>(signal.size()); i != iend; ++i)
 			{
 				signal[i] =
-					Sin(maths::tau * freq0 * i / SampFreq) +
-					Sin(maths::tau * freq1 * i / SampFreq) +
-					Sin(maths::tau * freq2 * i / SampFreq) +
-					Sin(maths::tau * freq3 * i / SampFreq) +
-					Sin(maths::tau * freq4 * i / SampFreq);
+					std::sin(constants<double>::tau * freq0 * i / SampFreq) +
+					std::sin(constants<double>::tau * freq1 * i / SampFreq) +
+					std::sin(constants<double>::tau * freq2 * i / SampFreq) +
+					std::sin(constants<double>::tau * freq3 * i / SampFreq) +
+					std::sin(constants<double>::tau * freq4 * i / SampFreq);
 			}
 
 			{// Standard DFT
@@ -621,7 +624,7 @@ namespace pr::algorithm::fft::tests
 				#if 0
 				{
 					std::ofstream out("\\dump\\frequencies1.csv");
-					for (auto i = 0, length = s_cast<int>(frequencies.size()); i != length/2; ++i)
+					for (auto i = 0, length = s_cast<int>(frequencies.size()); i != length / 2; ++i)
 					{
 						auto x = FreqAt(1.0 * i, SampFreq, length);
 						auto y = frequencies[i];
@@ -668,7 +671,6 @@ namespace pr::algorithm::fft::tests
 			}
 			#endif
 		}
-		#endif
-	}
+	};
 }
 #endif

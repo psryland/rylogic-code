@@ -54,7 +54,7 @@ ph::Shape* ShapeBuilder::BuildShape(ByteCont& model_data, MassProperties& mp, v4
 			for( TPrimList::const_iterator p = m_model.m_prim_list.begin(), p_end = m_model.m_prim_list.end(); p != p_end; ++p )
 				pr::AppendData(model_data, (*p)->m_data);
 			ShapeArray& arr = *reinterpret_cast<ShapeArray*>(&model_data[base]);
-			arr.set(m_model.m_prim_list.size(), model_data.size() - base, m4x4Identity, 0, shape_flags);
+			arr.set(m_model.m_prim_list.size(), model_data.size() - base, m4x4::Identity(), 0, shape_flags);
 			arr.m_base.m_bbox = m_model.m_bbox;
 			return &arr.m_base;
 		}
@@ -114,7 +114,7 @@ void ShapeBuilder::CalculateBoundingBox()
 // Calculates the inertia tensor for 'm_model'
 void ShapeBuilder::CalculateInertiaTensor()
 {
-	m_model.m_mp.m_os_inertia_tensor = m3x4Zero;
+	m_model.m_mp.m_os_inertia_tensor = m3x4::Zero();
 	for( TPrimList::const_iterator p = m_model.m_prim_list.begin(), p_end = m_model.m_prim_list.end(); p != p_end; ++p )
 	{
 		Prim const& prim = *(*p).m_ptr;

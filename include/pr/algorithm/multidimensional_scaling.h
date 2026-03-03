@@ -14,9 +14,7 @@
 #include <numeric>
 #include <cmath>
 #include <cassert>
-#include "pr/maths/forward.h"
-#include "pr/maths/vector4.h"
-#include "pr/maths/matrix.h"
+#include "pr/maths/maths.h"
 
 namespace pr::algorithm::mds
 {
@@ -188,7 +186,7 @@ namespace pr::algorithm
 				auto r = sqrt(1.0 - z * z);
 
 				// Golden angle increment
-				auto theta = i * maths::golden_angle;
+				auto theta = i * constants<double>::golden_angle;
 				auto x = cos(theta) * r;
 				auto y = sin(theta) * r;
 				return v4{ (float)x, (float)y, (float)z, 0 };

@@ -260,7 +260,7 @@ namespace pr::physics
 			rb.VelocityWS(vel);
 
 			auto o2w0 = rb.O2W();
-			auto O2W0 = m4x4Identity;
+			auto O2W0 = m4x4::Identity();
 			PR_EXPECT(FEql(o2w0, O2W0));
 
 			auto o2w1 = rb.O2W(1.0f);

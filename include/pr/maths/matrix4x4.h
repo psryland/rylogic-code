@@ -42,13 +42,13 @@ namespace pr
 			,z(x_)
 			,w(x_)
 		{}
-		constexpr Mat4x4(Vec4_cref<S,void> x_, Vec4_cref<S,void> y_, Vec4_cref<S,void> z_, Vec4_cref<S,void> w_)
+		constexpr Mat4x4(Vec4<S,void> x_, Vec4<S,void> y_, Vec4<S,void> z_, Vec4<S,void> w_)
 			:x(x_)
 			,y(y_)
 			,z(z_)
 			,w(w_)
 		{}
-		constexpr Mat4x4(Mat3x4_cref<S,A,B> rot_, Vec4_cref<S,void> pos_)
+		constexpr Mat4x4(Mat3x4<S,A,B> const& rot_, Vec4<S,void> pos_)
 			:rot(rot_)
 			,pos(pos_)
 		{
@@ -104,11 +104,11 @@ namespace pr
 		{
 			return Vec4<S, void>{x[i], y[i], z[i], w[i]};
 		}
-		void col(int i, Vec4_cref<S,void> col)
+		void col(int i, Vec4<S,void> col)
 		{
 			arr[i] = col;
 		}
-		void row(int i, Vec4_cref<S,void> row)
+		void row(int i, Vec4<S,void> row)
 		{
 			x[i] = row.x;
 			y[i] = row.y;
@@ -127,7 +127,7 @@ namespace pr
 		{
 			return Mat4x4{rot, Vec4<S,void>{0, 0, 0, 1}};
 		}
-		Mat4x4 w1(Vec4_cref<S,void> xyz) const
+		Mat4x4 w1(Vec4<S,void> xyz) const
 		{
 			pr_assert("'pos' must be a position vector" && xyz.w == 1);
 			return Mat4x4{rot, xyz};
@@ -156,17 +156,21 @@ namespace pr
 		}
 
 		// Basic constants
-		static constexpr Mat4x4 Zero()
+		static constexpr Mat4x4 const& Zero()
 		{
-			return Mat4x4{Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero()};
+			static Mat4x4 s_zero{ Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero() };
+			return s_zero;
+			//return Mat4x4{Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero(), Vec4<S,void>::Zero()};
 		}
-		static constexpr Mat4x4 Identity()
+		static constexpr Mat4x4 const& Identity()
 		{
-			return Mat4x4{Vec4<S,void>::XAxis(), Vec4<S,void>::YAxis(), Vec4<S,void>::ZAxis(), Vec4<S,void>::Origin()};
+			static Mat4x4 s_identity{ Vec4<S,void>::XAxis(), Vec4<S,void>::YAxis(), Vec4<S,void>::ZAxis(), Vec4<S,void>::Origin() };
+			return s_identity;
+			//return Mat4x4{Vec4<S,void>::XAxis(), Vec4<S,void>::YAxis(), Vec4<S,void>::ZAxis(), Vec4<S,void>::Origin()};
 		}
 
 		// Create a translation matrix
-		static Mat4x4 Translation(Vec4_cref<S,void> xyz)
+		static Mat4x4 Translation(Vec4<S,void> xyz)
 		{
 			// 'xyz' can be a position or an offset
 			pr_assert("translation should be an affine vector" && (xyz.w == S(0) || xyz.w == S(1)));
@@ -178,67 +182,67 @@ namespace pr
 		}
 
 		// Create a rotation matrix from Euler angles.  Order is: roll, pitch, yaw (to match DirectX)
-		static Mat4x4 Transform(S pitch, S yaw, S roll, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(S pitch, S yaw, S roll, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(pitch, yaw, roll), pos);
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
-		static Mat4x4 Transform(Vec4_cref<S,void> axis, S angle, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(Vec4<S,void> axis, S angle, Vec4<S,void> pos)
 		{
 			pr_assert("'axis' should be normalised" && IsNormal(axis));
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(axis, angle), pos);
 		}
 
 		// Create from an angular displacement vector. length = angle(rad), direction = axis
-		static Mat4x4 Transform(Vec4_cref<S,void> angular_displacement, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(Vec4<S,void> angular_displacement, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(angular_displacement), pos);
 		}
 
 		// Create from rotation and translation
-		static Mat4x4 Transform(Mat3x4<S,A,B> const& rot, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(Mat3x4<S,A,B> const& rot, Vec4<S,void> pos)
 		{
 			return Mat4x4(rot, pos);
 		}
 
 		// Create from quaternion
-		static Mat4x4 Transform(Quat<S,A,B> const& q, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(Quat<S,A,B> const& q, Vec4<S,void> pos)
 		{
 			pr_assert("'q' should be a normalised quaternion" && IsNormal(q));
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(q), pos);
 		}
 
 		// Create a transform representing the rotation from one vector to another. (Vectors do not need to be normalised)
-		static Mat4x4 Transform(Vec4_cref<S,void> from, Vec4_cref<S,void> to, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(Vec4<S,void> from, Vec4<S,void> to, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(from, to), pos);
 		}
 
 		// Create a transform from one basis axis to another
-		static Mat4x4 Transform(AxisId from_axis, AxisId to_axis, Vec4_cref<S,void> pos)
+		static Mat4x4 Transform(AxisId from_axis, AxisId to_axis, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Rotation(from_axis, to_axis), pos);
 		}
 
 		// Create a scale matrix
-		static Mat4x4 Scale(S scale, Vec4_cref<S,void> pos)
+		static Mat4x4 Scale(S scale, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Scale(scale), pos);
 		}
-		static Mat4x4 Scale(S sx, S sy, S sz, Vec4_cref<S,void> pos)
+		static Mat4x4 Scale(S sx, S sy, S sz, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Scale(sx, sy, sz), pos);
 		}
 
 		// Create a shear matrix
-		static Mat4x4 Shear(S sxy, S sxz, S syx, S syz, S szx, S szy, Vec4_cref<S,void> pos)
+		static Mat4x4 Shear(S sxy, S sxz, S syx, S syz, S szx, S szy, Vec4<S,void> pos)
 		{
 			return Mat4x4(Mat3x4<S,A,B>::Shear(sxy, sxz, syx, syz, szx, szy), pos);
 		}
 
 		// Orientation matrix to "look" at a point
-		static Mat4x4 LookAt(Vec4_cref<S,void> eye, Vec4_cref<S,void> at, Vec4_cref<S,void> up)
+		static Mat4x4 LookAt(Vec4<S,void> eye, Vec4<S,void> at, Vec4<S,void> up)
 		{
 			pr_assert("Invalid position/direction vectors passed to LookAt" && eye.w == S(1) && at.w == S(1) && up.w == S(0));
 			pr_assert("LookAt 'eye' and 'at' positions are coincident" && (eye - at != Vec4<S,void>{}));
@@ -332,7 +336,7 @@ namespace pr
 
 		// Create an affine transform matrix with a random rotation about 'axis', located at 'position'
 		template <typename Rng = std::default_random_engine>
-		static Mat4x4 Random(Rng& rng, Vec4_cref<S,void> axis, S min_angle, S max_angle, Vec4_cref<S,void> position)
+		static Mat4x4 Random(Rng& rng, Vec4<S,void> axis, S min_angle, S max_angle, Vec4<S,void> position)
 		{
 			std::uniform_real_distribution<S> dist(min_angle, max_angle);
 			return Transform(axis, dist(rng), position);
@@ -340,48 +344,48 @@ namespace pr
 
 		// Create an affine transform matrix with a random orientation, located at 'position'
 		template <typename Rng = std::default_random_engine>
-		static Mat4x4 Random(Rng& rng, Vec4_cref<S,void> position)
+		static Mat4x4 Random(Rng& rng, Vec4<S,void> position)
 		{
 			return Random(rng, Vec4<S,void>::RandomN(rng, S(0)), S(0), constants<S>::tau, position);
 		}
 
 		// Create an affine transform matrix with a random rotation about 'axis', located randomly within a sphere [centre, radius]
 		template <typename Rng = std::default_random_engine>
-		static Mat4x4 Random(Rng& rng, Vec4_cref<S,void> axis, S min_angle, S max_angle, Vec4_cref<S,void> centre, S radius)
+		static Mat4x4 Random(Rng& rng, Vec4<S,void> axis, S min_angle, S max_angle, Vec4<S,void> centre, S radius)
 		{
 			return Random(rng, axis, min_angle, max_angle, centre + Vec4<S,void>::Random(rng, S(0), radius, S(0)));
 		}
 
 		// Create an affine transform matrix with a random orientation, located randomly within a sphere [centre, radius]
 		template <typename Rng = std::default_random_engine>
-		static Mat4x4 Random(Rng& rng, Vec4_cref<S,void> centre, S radius)
+		static Mat4x4 Random(Rng& rng, Vec4<S,void> centre, S radius)
 		{
 			return Random(rng, Vec4<S,void>::RandomN(rng, S(0)), S(0), constants<S>::tau, centre, radius);
 		}
 
 		#pragma region Operators
-		friend constexpr Mat4x4 pr_vectorcall operator + (Mat4x4_cref<S,A,B> mat)
+		friend constexpr Mat4x4 pr_vectorcall operator + (Mat4x4<S,A,B> const& mat)
 		{
 			return mat;
 		}
-		friend constexpr Mat4x4 pr_vectorcall operator - (Mat4x4_cref<S,A,B> mat)
+		friend constexpr Mat4x4 pr_vectorcall operator - (Mat4x4<S,A,B> const& mat)
 		{
 			return Mat4x4{-mat.x, -mat.y, -mat.z, -mat.w};
 		}
-		friend Mat4x4 pr_vectorcall operator * (S lhs, Mat4x4_cref<S,A,B> rhs)
+		friend Mat4x4 pr_vectorcall operator * (S lhs, Mat4x4<S,A,B> const& rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Mat4x4 pr_vectorcall operator * (Mat4x4_cref<S,A,B> lhs, S rhs)
+		friend Mat4x4 pr_vectorcall operator * (Mat4x4<S,A,B> const& lhs, S rhs)
 		{
 			return Mat4x4{lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs};
 		}
-		friend Mat4x4 pr_vectorcall operator / (Mat4x4_cref<S,A,B> lhs, S rhs)
+		friend Mat4x4 pr_vectorcall operator / (Mat4x4<S,A,B> const& lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Mat4x4{lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs};
 		}
-		friend Mat4x4 pr_vectorcall operator % (Mat4x4_cref<S,A,B> lhs, S rhs)
+		friend Mat4x4 pr_vectorcall operator % (Mat4x4<S,A,B> const& lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			if constexpr (std::floating_point<S>)
@@ -393,23 +397,23 @@ namespace pr
 				return Mat4x4{lhs.x % rhs, lhs.y % rhs, lhs.z % rhs, lhs.w % rhs};
 			}
 		}
-		friend Mat4x4 pr_vectorcall operator + (Mat4x4_cref<S,A,B> lhs, Mat4x4_cref<S,A,B> rhs)
+		friend Mat4x4 pr_vectorcall operator + (Mat4x4<S,A,B> const& lhs, Mat4x4<S,A,B> const& rhs)
 		{
 			return Mat4x4{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w};
 		}
-		friend Mat4x4 pr_vectorcall operator - (Mat4x4_cref<S,A,B> lhs, Mat4x4_cref<S,A,B> rhs)
+		friend Mat4x4 pr_vectorcall operator - (Mat4x4<S,A,B> const& lhs, Mat4x4<S,A,B> const& rhs)
 		{
 			return Mat4x4{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w};
 		}
-		friend Mat4x4 pr_vectorcall operator + (Mat4x4_cref<S,A,B> lhs, Mat3x4_cref<S,A,B> rhs)
+		friend Mat4x4 pr_vectorcall operator + (Mat4x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs)
 		{
 			return Mat4x4{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
 		}
-		friend Mat4x4 pr_vectorcall operator - (Mat4x4_cref<S,A,B> lhs, Mat3x4_cref<S,A,B> rhs)
+		friend Mat4x4 pr_vectorcall operator - (Mat4x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs)
 		{
 			return Mat4x4{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
 		}
-		friend Vec4<S,B> pr_vectorcall operator * (Mat4x4_cref<S,A,B> a2b, Vec4_cref<S,A> v)
+		friend Vec4<S,B> pr_vectorcall operator * (Mat4x4<S,A,B> const& a2b, Vec4<S,A> v)
 		{
 			if constexpr (Vec4<S, void>::IntrinsicF)
 			{
@@ -439,7 +443,7 @@ namespace pr
 				return Vec4<S,B>{Dot4(a2bT.x, v), Dot4(a2bT.y, v), Dot4(a2bT.z, v), Dot4(a2bT.w, v)};
 			}
 		}
-		template <typename C> friend Mat4x4<S,A,C> pr_vectorcall operator * (Mat4x4_cref<S,B,C> b2c, Mat4x4_cref<S,A,B> a2b)
+		template <typename C> friend Mat4x4<S,A,C> pr_vectorcall operator * (Mat4x4<S,B,C> const& b2c, Mat4x4<S,A,B> const& a2b)
 		{
 			// Note:
 			//  - The reason for this order is because matrices are applied from right to left
@@ -501,13 +505,13 @@ namespace pr
 	#undef PR_MAT4X4_CHECKS
 
 	// Return the determinant of the rotation part of this matrix
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall Determinant3(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall Determinant3(Mat4x4<S,A,B> const& mat)
 	{
 		return Triple(mat.x, mat.y, mat.z);
 	}
 
 	// Return the 4x4 determinant of the affine transform 'mat'
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall DeterminantFast4(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall DeterminantFast4(Mat4x4<S,A,B> const& mat)
 	{
 		pr_assert("'mat' must be an affine transform to use this function" && IsAffine(mat));
 		return
@@ -520,7 +524,7 @@ namespace pr
 	}
 
 	// Return the 4x4 determinant of the arbitrary transform 'mat'
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall Determinant4(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall Determinant(Mat4x4<S,A,B> const& mat)
 	{
 		auto c1 = (mat.z.z * mat.w.w) - (mat.z.w * mat.w.z);
 		auto c2 = (mat.z.y * mat.w.w) - (mat.z.w * mat.w.y);
@@ -536,19 +540,19 @@ namespace pr
 	}
 
 	// Returns the sum of the first 3 diagonal elements of 'mat'
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall Trace3(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall Trace3(Mat4x4<S,A,B> const& mat)
 	{
 		return mat.x.x + mat.y.y + mat.z.z;
 	}
 
 	// Returns the sum of the diagonal elements of 'mat'
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall Trace4(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall Trace4(Mat4x4<S,A,B> const& mat)
 	{
 		return mat.x.x + mat.y.y + mat.z.z + mat.w.w;
 	}
 
 	// Scale each component of 'mat' by the values in 'scale'
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall CompMul(Mat4x4_cref<S, A, B> mat, Vec4_cref<S,void> scale)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall CompMul(Mat4x4<S,A,B> const& mat, Vec4<S,void> scale)
 	{
 		return Mat4x4<S,A,B>(
 			mat.x * scale.x,
@@ -558,13 +562,13 @@ namespace pr
 	}
 
 	// The kernel of the matrix
-	template <Scalar S, typename A, typename B> inline Vec4f<void> pr_vectorcall Kernel(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Vec4f<void> pr_vectorcall Kernel(Mat4x4<S,A,B> const& mat)
 	{
 		return Vec4<S,void>(mat.y.y*mat.z.z - mat.y.z*mat.z.y, -mat.y.x*mat.z.z + mat.y.z*mat.z.x, mat.y.x*mat.z.y - mat.y.y*mat.z.x, S(0));
 	}
 
 	// Return the cross product matrix for 'vec'.
-	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall CPM(Vec4_cref<S,A> vec, Vec4_cref<S,void> pos)
+	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall CPM(Vec4<S,A> vec, Vec4<S,void> pos)
 	{
 		// This matrix can be used to take the cross product with
 		// another vector: e.g. Cross4(v1, v2) == Cross4(v1) * v2
@@ -572,7 +576,7 @@ namespace pr
 	}
 
 	// Return the 4x4 transpose of 'mat'
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose4x4(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose4x4(Mat4x4<S,A,B> const& mat)
 	{
 		if constexpr (Vec4<S, void>::IntrinsicF)
 		{
@@ -594,7 +598,7 @@ namespace pr
 	}
 
 	// Return the 3x3 transpose of 'mat'
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose3x3(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose3x3(Mat4x4<S,A,B> const& mat)
 	{
 		auto m = mat;
 		std::swap(m.x.y, m.y.x);
@@ -604,7 +608,7 @@ namespace pr
 	}
 
 	// Return true if 'mat' is an affine transform
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsAffine(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsAffine(Mat4x4<S,A,B> const& mat)
 	{
 		return
 			mat.x.w == S(0) &&
@@ -614,7 +618,7 @@ namespace pr
 	}
 
 	// Return true if 'mat' is orthogonal
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthogonal(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthogonal(Mat4x4<S,A,B> const& mat)
 	{
 		return
 			FEql(Dot(mat.x, mat.y), S(0)) &&
@@ -626,23 +630,23 @@ namespace pr
 	}
 
 	// Return true if this matrix is orthonormal
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthonormal(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsOrthonormal(Mat4x4<S,A,B> const& mat)
 	{
 		return
 			FEql(LengthSq(mat.x), S(1)) &&
 			FEql(LengthSq(mat.y), S(1)) &&
 			FEql(LengthSq(mat.z), S(1)) &&
-			FEql(Abs(Determinant3(mat)), S(1));
+			FEql(Abs(Determinant(mat.rot)), S(1));
 	}
 
 	// True if 'mat' has an inverse
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsInvertible(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall IsInvertible(Mat4x4<S,A,B> const& mat)
 	{
-		return Determinant4(mat) != S(0);
+		return Determinant(mat) != S(0);
 	}
 
 	// Return the inverse of 'mat'
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall Invert(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall Invert(Mat4x4<S,A,B> const& mat)
 	{
 		// This was lifted from MESA implementation of the GLU library
 		if constexpr (true)
@@ -720,7 +724,7 @@ namespace pr
 	}
 
 	// Return the inverse of 'mat' (assuming an orthonormal matrix)
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertAffine(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertAffine(Mat4x4<S,A,B> const& mat)
 	{
 		pr_assert("Matrix is not affine" && IsAffine(mat));
 		auto m = mat;
@@ -754,7 +758,7 @@ namespace pr
 	}
  
 	// Return the inverse of 'mat' (assuming an orthonormal matrix) 
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertOrthonormal(Mat4x4_cref<S,A,B> mat) 
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertOrthonormal(Mat4x4<S,A,B> const& mat) 
 	{ 
 		assert("Matrix is not orthonormal" && IsOrthonormal(mat)); 
 		auto m = Mat4x4<S,B,A>{Transpose3x3(mat)}; 
@@ -765,7 +769,7 @@ namespace pr
 	} 
 
 	// Return the inverse of 'mat' using double precision floats
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertPrecise(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,B,A> pr_vectorcall InvertPrecise(Mat4x4<S,A,B> const& mat)
 	{
 		double inv[4][4];
 		inv[0][0] = 0.0 + mat.y.y * mat.z.z * mat.w.w - mat.y.y * mat.z.w * mat.w.z - mat.z.y * mat.y.z * mat.w.w + mat.z.y * mat.y.w * mat.w.z + mat.w.y * mat.y.z * mat.z.w - mat.w.y * mat.y.w * mat.z.z;
@@ -797,7 +801,7 @@ namespace pr
 	}
 
 	// Return the square root of a matrix. The square root is the matrix B where B.B = mat.
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Sqrt(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Sqrt(Mat4x4<S,A,B> const& mat)
 	{
 		// Using 'Denman-Beavers' square root iteration. Should converge quadratically
 		auto a = mat;                       // Converges to mat^0.5
@@ -813,7 +817,7 @@ namespace pr
 	}
 
 	// Orthonormalises the rotation component of the matrix
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Orthonorm(Mat4x4_cref<S,A,B> mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Orthonorm(Mat4x4<S,A,B> const& mat)
 	{
 		auto m = mat;
 		m.x = Normalise(m.x);
@@ -824,7 +828,7 @@ namespace pr
 	}
 
 	// Return the axis and angle of a rotation matrix
-	template <Scalar S, typename A, typename B> inline void pr_vectorcall GetAxisAngle(Mat4x4_cref<S,A,B> mat, Vec4<S,void>& axis, S& angle)
+	template <Scalar S, typename A, typename B> inline void pr_vectorcall GetAxisAngle(Mat4x4<S,A,B> const& mat, Vec4<S,void>& axis, S& angle)
 	{
 		GetAxisAngle(mat.rot, axis, angle);
 	}
@@ -833,20 +837,20 @@ namespace pr
 	// 'dir' is the direction to align the 'axis'th axis to
 	// 'up' is the preferred up direction, however if up is parallel to 'dir'
 	// then a vector perpendicular to 'dir' will be chosen.
-	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall OriFromDir(Vec4_cref<S,A> dir, AxisId axis, Vec4_cref<S,void> up, Vec4_cref<S,void> pos)
+	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall OriFromDir(Vec4<S,A> dir, AxisId axis, Vec4<S,void> up, Vec4<S,void> pos)
 	{
 		return Mat4x4<S,A,A>{OriFromDir(dir, axis, up), pos};
 	}
 
 	// Make a scaled object to world transform from a direction vector and position
 	// Returns a transform for scaling and rotating the 'axis'th axis to 'dir'
-	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall ScaledOriFromDir(Vec4_cref<S,A> dir, AxisId axis, Vec4_cref<S,void> up, Vec4_cref<S,void> pos)
+	template <Scalar S, typename A> inline Mat4x4<S,A,A> pr_vectorcall ScaledOriFromDir(Vec4<S,A> dir, AxisId axis, Vec4<S,void> up, Vec4<S,void> pos)
 	{
 		return Mat4x4<S,A,A>{ScaledOriFromDir(dir, axis, up), pos};
 	}
 
 	// Return a vector representing the approximate rotation between two orthonormal transforms
-	template <Scalar S, typename A, typename B> inline Vec4<S,void> pr_vectorcall RotationVectorApprox(Mat4x4_cref<S,A,B> from, Mat4x4_cref<S,A,B> to)
+	template <Scalar S, typename A, typename B> inline Vec4<S,void> pr_vectorcall RotationVectorApprox(Mat4x4<S,A,B> const& from, Mat4x4<S,A,B> const& to)
 	{
 		pr_assert(IsOrthonormal(from) && IsOrthonormal(to) && "This only works for orthonormal matrices");
 
@@ -857,7 +861,7 @@ namespace pr
 	}
 
 	// Spherically interpolate between two affine transforms
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Slerp(Mat4x4_cref<S,A,B> lhs, Mat4x4_cref<S,A,B> rhs, S frac)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Slerp(Mat4x4<S,A,B> const& lhs, Mat4x4<S,A,B> const& rhs, S frac)
 	{
 		pr_assert(IsAffine(lhs));
 		pr_assert(IsAffine(rhs));

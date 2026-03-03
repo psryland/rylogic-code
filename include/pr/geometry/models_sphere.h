@@ -168,10 +168,10 @@ namespace pr::geometry
 			{
 				auto norm_a = v4(R * Cos(ang1), R * Sin(ang1), H1, 0.0f);
 				auto norm_b = v4(R * Cos(ang2), R * Sin(ang2), H2, 0.0f);
-				AddVertex(v4ZAxis, ub[w], true, data);
+				AddVertex(v4::ZAxis(), ub[w], true, data);
 				AddVertex(norm_a, ua[w], false, data);
 				AddVertex(norm_b, ub[w], false, data);
-				AddVertex(-v4ZAxis, ua[w + 1], true, data);
+				AddVertex(-v4::ZAxis(), ua[w + 1], true, data);
 			}
 
 			// Add the faces
@@ -246,7 +246,7 @@ namespace pr::geometry
 		// Verts
 		for (int w = 0; w <= wedges; ++w)
 		{
-			auto norm = v4ZAxis;
+			auto norm = v4::ZAxis();
 			auto uv = v2(float(w + 0.5f) / wedges, 0.0f);
 			vout((radius * norm).w1(), colour, norm, uv);
 
@@ -259,7 +259,7 @@ namespace pr::geometry
 				vout((radius * norm).w1(), colour, norm, uv);
 			}
 
-			norm = -v4ZAxis;
+			norm = -v4::ZAxis();
 			uv = v2(float(w + 0.5f) / wedges, 1.0f);
 			vout((radius * norm).w1(), colour, norm, uv);
 		}

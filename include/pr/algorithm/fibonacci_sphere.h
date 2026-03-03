@@ -31,14 +31,14 @@ namespace pr::algorithm
 		auto r = sqrt(1.0 - z * z);
 
 		// Golden angle increment
-		auto theta = i * maths::golden_angle;
+		auto theta = i * constants<double>::golden_angle;
 		auto x = cos(theta) * r;
 		auto y = sin(theta) * r;
 		return v4{(float)x, (float)y, (float)z, 0};
 	}
 
 	// Inverse mapping from a spherical direction vector to the nearest point of a Fibonacci sphere
-	inline int FibonacciSphericalMapping(v4_cref dir, int N)
+	inline int FibonacciSphericalMapping(v4 dir, int N)
 	{
 		// Notes:
 		//  - If N points are distributed evenly over the sphere, then each point can be associated with
@@ -63,19 +63,19 @@ namespace pr::algorithm
 
 		// Find the patch on the sphere that contains the nearest point
 		constexpr double Inflate = 1.5;
-		auto patch_area = 2.0 * maths::tau / N;
-		auto patch_radius = Sqrt(2.0 * patch_area / maths::tau) * Inflate;
+		auto patch_area = 2.0 * constants<double>::tau / N;
+		auto patch_radius = Sqrt(2.0 * patch_area / constants<double>::tau) * Inflate;
 		auto radius_at_z = Sqrt(1.0 - Sqr(dir.z));
 		auto dz = std::max(patch_radius * radius_at_z, 0.0001);
 
 		// Find the phase range of the patch
-		auto tang = Cross(v4ZAxis, dir) / static_cast<float>(radius_at_z);
+		auto tang = Cross(v4::ZAxis(), dir) / static_cast<float>(radius_at_z);
 		auto dir0 = dir - static_cast<float>(patch_radius) * tang;
 		auto dir1 = dir + static_cast<float>(patch_radius) * tang;
-		auto phase0 = fmod((atan2(dir0.y, dir0.x) + maths::tau), maths::tau);
-		auto phase1 = fmod((atan2(dir1.y, dir1.x) + maths::tau), maths::tau);
+		auto phase0 = fmod((atan2(dir0.y, dir0.x) + constants<double>::tau), constants<double>::tau);
+		auto phase1 = fmod((atan2(dir1.y, dir1.x) + constants<double>::tau), constants<double>::tau);
 		auto phase_span = phase1 - phase0;
-		if (phase_span < 0) phase_span += maths::tau;
+		if (phase_span < 0) phase_span += constants<double>::tau;
 
 		// Get the Fibonacci sphere index range to search
 		auto ZtoI = [=](double z) { return (int)Lerp<double>(0.0, N, Frac(-1.0, z, +1.0)); };
@@ -83,12 +83,12 @@ namespace pr::algorithm
 		auto i1 = ZtoI(std::min(+1.0, dir.z + dz));
 
 		auto nearest = -1;
-		auto distsq = maths::double_inf;
-		auto phase = fmod(i0 * maths::golden_angle, maths::tau);
+		auto distsq = limits<double>::infinity();
+		auto phase = fmod(i0 * constants<double>::golden_angle, constants<double>::tau);
 		for (auto i = i0; i != i1; ++i)
 		{
 			auto dphase = phase - phase0;
-			if (dphase < 0) dphase += maths::tau;
+			if (dphase < 0) dphase += constants<double>::tau;
 			if (dphase < phase_span)
 			{
 				auto p = FibonacciSphericalMapping(i, N);
@@ -100,8 +100,8 @@ namespace pr::algorithm
 				}
 			}
 
-			phase += maths::golden_angle;
-			phase -= (phase > maths::tau) * maths::tau;
+			phase += constants<double>::golden_angle;
+			phase -= (phase > constants<double>::tau) * constants<double>::tau;
 		}
 		
 		// Exception here means no points fell within the search patch. It probably means 'Inflate' needs to be bigger

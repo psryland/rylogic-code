@@ -55,16 +55,17 @@ namespace pr::math
 			: Xform(m.pos, m.rot)
 		{}
 
+		// Basic constants
+		static constexpr Xform const& Identity() noexcept
+		{
+			static auto s_identity = Xform{ Vec4<S>::Origin(), Quat<S>::Identity(), Vec4<S>::One() };
+			return s_identity;
+		}
+
 		// Return the transform with scale set to one
 		constexpr Xform s1() const noexcept
 		{
 			return Xform{ pos, rot, Vec4<S>::One() };
-		}
-
-		// Basic constants
-		static constexpr Xform Identity() noexcept
-		{
-			return { Vec4<S>::Origin(), Quat<S>::Identity(), Vec4<S>::One() };
 		}
 
 		#pragma region Operators

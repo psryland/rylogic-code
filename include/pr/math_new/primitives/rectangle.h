@@ -30,20 +30,22 @@ namespace pr::math
 			,m_max(Vec2(rhs.m_max))
 		{}
 
-		#pragma region Constants
-		static constexpr Rectangle<S> Zero() noexcept
+		// Constants
+		static constexpr Rectangle<S> const& Zero() noexcept
 		{
-			return { ::pr::math::Zero<Vec2>(), ::pr::math::Zero<Vec2>() };
+			static auto s_zero = Rectangle<S>{ math::Zero<Vec2>(), math::Zero<Vec2>() };
+			return s_zero;
 		}
-		static constexpr Rectangle<S> Reset() noexcept
+		static constexpr Rectangle<S> const& Reset() noexcept
 		{
-			return { ::pr::math::Max<Vec2>(), -::pr::math::Max<Vec2>() };
+			static auto s_reset = Rectangle<S>{ math::Max<Vec2>(), -math::Max<Vec2>() };
+			return s_reset;
 		}
-		static constexpr Rectangle<S> Unit() noexcept
+		static constexpr Rectangle<S> const& Unit() noexcept
 		{
-			return { ::pr::math::Zero<Vec2>(), ::pr::math::One<Vec2>() };
+			static auto s_unit = Rectangle<S>{ math::Zero<Vec2>(), math::One<Vec2>() };
+			return s_unit;
 		}
-		#pragma endregion
 
 		// Reset this rectangle to an invalid interval
 		constexpr Rectangle& reset() noexcept

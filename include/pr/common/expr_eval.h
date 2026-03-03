@@ -185,23 +185,23 @@ namespace pr::eval
 			:Val(static_cast<double>(f))
 		{
 		}
-		Val(iv4_cref vec) noexcept
+		Val(iv4 vec) noexcept
 			:m_i4(vec)
 			,m_ty(EType::Intg4)
 			,pad()
 		{}
-		Val(v4_cref vec) noexcept
+		Val(v4 vec) noexcept
 			:m_v4(vec)
 			,m_ty(EType::Real4)
 			,pad()
 		{}
-		Val& operator = (iv4_cref v) noexcept
+		Val& operator = (iv4 v) noexcept
 		{
 			m_i4 = v;
 			m_ty = EType::Intg4;
 			return *this;
 		}
-		Val& operator = (v4_cref v) noexcept
+		Val& operator = (v4 v) noexcept
 		{
 			m_v4 = v;
 			m_ty = EType::Real4;

@@ -43,13 +43,13 @@ namespace pr
 			,m01(x_)
 			,m11(x_)
 		{}
-		constexpr Mat6x8(Mat3x4_cref<S,void,void> m00_, Mat3x4_cref<S,void,void> m01_, Mat3x4_cref<S,void,void> m10_, Mat3x4_cref<S,void,void> m11_)
+		constexpr Mat6x8(Mat3x4<S,void,void> const& m00_, Mat3x4<S,void,void> const& m01_, Mat3x4<S,void,void> const& m10_, Mat3x4<S,void,void> const& m11_)
 			:m00(m00_)
 			,m10(m10_)
 			,m01(m01_)
 			,m11(m11_)
 		{}
-		constexpr Mat6x8(Vec8_cref<S,void> x, Vec8_cref<S,void> y, Vec8_cref<S,void> z, Vec8_cref<S,void> u, Vec8_cref<S,void> v, Vec8_cref<S,void> w)
+		constexpr Mat6x8(Vec8<S,void> x, Vec8<S,void> y, Vec8<S,void> z, Vec8<S,void> u, Vec8<S,void> v, Vec8<S,void> w)
 			:m00(x.ang, y.ang, z.ang)
 			,m10(x.lin, y.lin, z.lin)
 			,m01(u.ang, v.ang, w.ang)
@@ -89,7 +89,7 @@ namespace pr
 			pr_assert("index out of range" && i >= 0 && i < 6);
 			return (*this)[i];
 		}
-		void col(int i, Vec8_cref<S,void> rhs)
+		void col(int i, Vec8<S,void> rhs)
 		{
 			pr_assert("index out of range" && i >= 0 && i < 6);
 			if (i < 3) { m00[i  ] = rhs.ang; m10[i  ] = rhs.lin; }
@@ -111,31 +111,31 @@ namespace pr
 		}
 
 		#pragma region Operators
-		friend constexpr Mat6x8 operator + (Mat6x8_cref<S,A,B> m)
+		friend constexpr Mat6x8 operator + (Mat6x8<S,A,B> const& m)
 		{
 			return m;
 		}
-		friend constexpr Mat6x8 operator - (Mat6x8_cref<S,A,B> m)
+		friend constexpr Mat6x8 operator - (Mat6x8<S,A,B> const& m)
 		{
 			return Mat6x8{-m.m00, -m.m01, -m.m10, -m.m11};
 		}
-		friend Mat6x8 operator + (Mat6x8_cref<S,A,B> lhs, Mat6x8_cref<S,A,B> rhs)
+		friend Mat6x8 operator + (Mat6x8<S,A,B> const& lhs, Mat6x8<S,A,B> const& rhs)
 		{
 			return Mat6x8{lhs.m00 + rhs.m00, lhs.m01 + rhs.m01, lhs.m10 + rhs.m10, lhs.m11 + rhs.m11};
 		}
-		friend Mat6x8 operator - (Mat6x8_cref<S,A,B> lhs, Mat6x8_cref<S,A,B> rhs)
+		friend Mat6x8 operator - (Mat6x8<S,A,B> const& lhs, Mat6x8<S,A,B> const& rhs)
 		{
 			return Mat6x8{lhs.m00 - rhs.m00, lhs.m01 - rhs.m01, lhs.m10 - rhs.m10, lhs.m11 - rhs.m11};
 		}
-		friend Mat6x8 operator * (Mat6x8_cref<S,A,B> lhs, S rhs)
+		friend Mat6x8 operator * (Mat6x8<S,A,B> const& lhs, S rhs)
 		{
 			return Mat6x8{lhs.m00 * rhs, lhs.m01 * rhs, lhs.m10 * rhs, lhs.m11 * rhs};
 		}
-		friend Mat6x8 operator * (S lhs, Mat6x8_cref<S,A,B> rhs)
+		friend Mat6x8 operator * (S lhs, Mat6x8<S,A,B> const& rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Vec8<S,B> operator * (Mat6x8_cref<S,A,B> lhs, Vec8<S,A> const& rhs)
+		friend Vec8<S,B> operator * (Mat6x8<S,A,B> const& lhs, Vec8<S,A> const& rhs)
 		{
 			// [m00*a + m01*b] = [m00, m01] [a]
 			// [m10*a + m11*b]   [m10, m11] [b]
@@ -143,7 +143,7 @@ namespace pr
 				lhs.m00 * rhs.ang + lhs.m01 * rhs.lin,
 				lhs.m10 * rhs.ang + lhs.m11 * rhs.lin};
 		}
-		template <typename C> friend Mat6x8<S,A,C> pr_vectorcall operator * (Mat6x8_cref<S,B,C> lhs, Mat6x8_cref<S,A,B> rhs)
+		template <typename C> friend Mat6x8<S,A,C> pr_vectorcall operator * (Mat6x8<S,B,C> const& lhs, Mat6x8<S,A,B> const& rhs)
 		{
 			// [a00, a01] [b00, b01] = [a00*b00 + a01*b10, a00*b01 + a01*b11]
 			// [a10, a11] [b10, b11]   [a10*b00 + a11*b10, a10*b01 + a11*b11]
@@ -165,7 +165,7 @@ namespace pr
 	#undef PR_MAT6X8_CHECKS
 
 	// Compare for floating point equality
-	template <Scalar S, typename A, typename B> inline bool FEql(Mat6x8_cref<S,A,B> lhs, Mat6x8_cref<S,A,B> rhs)
+	template <Scalar S, typename A, typename B> inline bool FEql(Mat6x8<S,A,B> const& lhs, Mat6x8<S,A,B> const& rhs)
 	{
 		return
 			FEql(lhs.m00, rhs.m00) &&
@@ -175,7 +175,7 @@ namespace pr
 	}
 
 	// Return the transpose of a spatial matrix
-	template <Scalar S, typename A, typename B> inline Mat6x8<S, A, B> Transpose(Mat6x8_cref<S,A,B> m)
+	template <Scalar S, typename A, typename B> inline Mat6x8<S, A, B> Transpose(Mat6x8<S,A,B> const& m)
 	{
 		return Mat6x8<S, A, B>(
 			Transpose(m.m00), Transpose(m.m10),
@@ -183,7 +183,7 @@ namespace pr
 	}
 
 	// Invert the 6x6 matrix 'm'
-	template <Scalar S, typename A, typename B> inline Mat6x8<S,B,A> Invert(Mat6x8_cref<S,A,B> m)
+	template <Scalar S, typename A, typename B> inline Mat6x8<S,B,A> Invert(Mat6x8<S,A,B> const& m)
 	{
 		// 2x2 block matrix inversion
 		// R = [A B]  R' = [E F]

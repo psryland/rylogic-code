@@ -81,7 +81,7 @@ namespace pr::maths::spatial
 
 	// Rotate a spatial motion vector
 	template <typename T>
-	inline Vec8f<T> pr_vectorcall operator * (Mat3x4_cref<float,Motion,T> a2b, Vec8f<Motion> const& vec)
+	inline Vec8f<T> pr_vectorcall operator * (Mat3x4<float,Motion,T> const& a2b, Vec8f<Motion> const& vec)
 	{
 		// [ E    0] * [v.ang] = [E*v.ang             ]
 		// [-E*rx E]   [v.lin]   [E*v.lin - E*rx*v.ang] where rx = (0,0,0)
@@ -89,14 +89,14 @@ namespace pr::maths::spatial
 		auto lin_b = m3x4{a2b} * vec.lin;
 		return Vec8f<T>{ang_b, lin_b};
 	}
-	inline Vec8f<Motion> pr_vectorcall operator * (m3_cref a2b, Vec8f<Motion> const& vec)
+	inline Vec8f<Motion> pr_vectorcall operator * (m3x4 const& a2b, Vec8f<Motion> const& vec)
 	{
-		return (Mat3x4_cref<float,Motion,Motion>)(a2b) * vec;
+		return (Mat3x4<float,Motion,Motion> const&)(a2b) * vec;
 	}
 
 	// Rotate a spatial force vector
 	template <typename T>
-	inline Vec8f<T> pr_vectorcall operator * (Mat3x4_cref<float,Force,T> a2b, Vec8f<Force> const& vec)
+	inline Vec8f<T> pr_vectorcall operator * (Mat3x4<float,Force,T> const& a2b, Vec8f<Force> const& vec)
 	{
 		// [E -E*rx] * [v.ang] = [E*v.ang - E*rx*v.lin]
 		// [0     E]   [v.lin]   [E*v.lin             ] where rx = (0,0,0)
@@ -104,15 +104,15 @@ namespace pr::maths::spatial
 		auto ang_b = m3x4{a2b} * vec.ang;
 		return Vec8f<T>{ang_b, lin_b};
 	}
-	inline Vec8f<Force> pr_vectorcall operator * (m3_cref a2b, Vec8f<Force> const& vec)
+	inline Vec8f<Force> pr_vectorcall operator * (m3x4 const& a2b, Vec8f<Force> const& vec)
 	{
-		return (Mat3x4_cref<float,Force,Force>)(a2b) * vec;
+		return (Mat3x4<float,Force,Force> const&)(a2b) * vec;
 	}
 
 
 	// Transform a spatial motion vector by an affine transform
 	template <typename T>
-	inline Vec8f<T> pr_vectorcall operator * (Mat4x4_cref<float,Motion,T> a2b, Vec8f<Motion> const& vec)
+	inline Vec8f<T> pr_vectorcall operator * (Mat4x4<float,Motion,T> const& a2b, Vec8f<Motion> const& vec)
 	{
 		// [ E    0] * [v.ang] = [E*v.ang             ]
 		// [-E*rx E]   [v.lin]   [E*v.lin - E*rx*v.ang]
@@ -121,14 +121,14 @@ namespace pr::maths::spatial
 		auto lin_b = m3x4{a2b.rot} * vec.lin + Cross(a2b.pos, ang_b);
 		return Vec8f<T>{ang_b, lin_b};
 	}
-	inline Vec8f<Motion> pr_vectorcall operator * (m4_cref a2b, Vec8f<Motion> const& vec)
+	inline Vec8f<Motion> pr_vectorcall operator * (m4x4 const& a2b, Vec8f<Motion> const& vec)
 	{
-		return (Mat4x4_cref<float,Motion,Motion>)(a2b) * vec;
+		return (Mat4x4<float,Motion,Motion> const&)(a2b) * vec;
 	}
 
 	// Transform a spatial force vector by an affine transform
 	template <typename T>
-	inline Vec8f<T> pr_vectorcall operator * (Mat4x4_cref<float,Force,T> a2b, Vec8f<Force> const& vec)
+	inline Vec8f<T> pr_vectorcall operator * (Mat4x4<float,Force,T> const& a2b, Vec8f<Force> const& vec)
 	{
 		// [E -E*rx] * [v.ang] = [E*v.ang - E*rx*v.lin]
 		// [0     E]   [v.lin]   [E*v.lin             ]
@@ -137,13 +137,13 @@ namespace pr::maths::spatial
 		auto ang_b = m3x4{a2b.rot} * vec.ang + Cross(a2b.pos, lin_b);
 		return Vec8f<T>{ang_b, lin_b};
 	}
-	inline Vec8f<Force> pr_vectorcall operator * (m4_cref a2b, Vec8f<Force> const& vec)
+	inline Vec8f<Force> pr_vectorcall operator * (m4x4 const& a2b, Vec8f<Force> const& vec)
 	{
-		return (Mat4x4_cref<float,Force,Force>)(a2b) * vec;
+		return (Mat4x4<float,Force,Force> const&)(a2b) * vec;
 	}
 
 	// Spatial matrix * affine transform
-	//template <typename A> inline Mat6x8f<A, Motion> pr_vectorcall operator * (m6_cref<> lhs, m4_cref& rhs)
+	//template <typename A> inline Mat6x8f<A, Motion> pr_vectorcall operator * (m6x8<> const& lhs, m4x4 const&& rhs)
 	//{
 	//	// [ E    0] * [m00, m01] = [E*m00     + 0*m10,  E*m01    + 0*m11] = [E*m00           , E*m01           ]
 	//	// [-E*rx E]   [m10, m11]   [-E*rx*m00 + E*m10, -E*rx*m01 + E*m11]   [E*(m10 - rx*m00), E*(m11 - rx*m01)]
@@ -193,14 +193,14 @@ namespace pr::maths::spatial
 	}
 
 	// Return a motion vector, equal to 'motion', but expressed at a new location equal to the previous location + 'ofs'. 
-	inline Vec8f<Motion> Shift(Vec8f<Motion> const& motion, v4_cref ofs)
+	inline Vec8f<Motion> Shift(Vec8f<Motion> const& motion, v4 ofs)
 	{
 		// c.f. RBDS 2.21
 		return Vec8f<Motion>(motion.ang, motion.lin + Cross(motion.ang, ofs));
 	}
 
 	// Return a force vector, equal to 'force', but expressed at a new location equal to the previous location + 'ofs'.
-	inline Vec8f<Force> Shift(Vec8f<Force> const& force, v4_cref ofs)
+	inline Vec8f<Force> Shift(Vec8f<Force> const& force, v4 ofs)
 	{
 		// c.f. RBDS 2.22
 		return Vec8f<Force>(force.ang + Cross(force.lin, ofs), force.lin);
@@ -213,7 +213,7 @@ namespace pr::maths::spatial
 	// 'acc' is the spatial acceleration to shift
 	// 'avel' is the angular velocity of the frame in which 'acc' is being shifted
 	// 'ofs' is the offset from the last position that 'acc' was measured at.
-	inline Vec8f<Motion> ShiftAccelerationBy(Vec8f<Motion> const& acc, v4_cref avel, v4_cref ofs)
+	inline Vec8f<Motion> ShiftAccelerationBy(Vec8f<Motion> const& acc, v4 avel, v4 ofs)
 	{
 		return Vec8f<Motion>(acc.ang, acc.lin + Cross(acc.ang, ofs) + Cross(avel, Cross(avel, ofs)));
 	}
@@ -237,8 +237,8 @@ namespace pr::maths::spatial
 	}
 
 	// Create a spatial coordinate transform
-	template <typename T> Mat6x8f<T,T> Transform(m4_cref a2b);
-	template <> inline Mat6x8f<Motion,Motion> Transform<Motion>(m4_cref a2b)
+	template <typename T> Mat6x8f<T,T> Transform(m4x4 const& a2b);
+	template <> inline Mat6x8f<Motion,Motion> Transform<Motion>(m4x4 const& a2b)
 	{
 		// Note: RBDS shows a transform to be:
 		//  [E    0] = motion   [E -Erx]
@@ -246,14 +246,14 @@ namespace pr::maths::spatial
 		// Matrix multiplies are right to left in this library, so m10 = -rxE here
 		return Mat6x8f<Motion,Motion>{a2b.rot, m3x4Zero, CPM(a2b.pos) * a2b.rot, a2b.rot};
 	}
-	template <> inline Mat6x8f<Force,Force> Transform<Force>(m4_cref a2b)
+	template <> inline Mat6x8f<Force,Force> Transform<Force>(m4x4 const& a2b)
 	{
 		return Mat6x8f<Force,Force>{a2b.rot, CPM(a2b.pos) * a2b.rot, m3x4Zero, a2b.rot};
 	}
 
 	// Spatial inertia matrix
-	template <typename T, typename U> Mat6x8f<T,U> Inertia(m3_cref unit_inertia, v4_cref com, float inv_mass);
-	template <> inline Mat6x8f<Motion,Force> Inertia(m3_cref unit_inertia, v4_cref com, float mass)
+	template <typename T, typename U> Mat6x8f<T,U> Inertia(m3x4 const& unit_inertia, v4 com, float inv_mass);
+	template <> inline Mat6x8f<Motion,Force> Inertia(m3x4 const& unit_inertia, v4 com, float mass)
 	{
 		auto cx = CPM(com);
 		auto mcx = mass * cx;
@@ -277,7 +277,7 @@ namespace pr::maths
 		{
 			v4 vel(1,2,3,0);
 			v4 ang(4,3,2,0);
-			auto o2w = m4x4::Transform(v4ZAxis, float(maths::tau_by_4), v4(1,1,1,1));
+			auto o2w = m4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4(1,1,1,1));
 		}
 		{// Cross Products
 			{// Test: CPM(m) * a == m x a
@@ -304,8 +304,8 @@ namespace pr::maths
 			}
 		}
 		{// Transforms
-			auto a2b = m4x4::Transform(v4ZAxis, float(maths::tau_by_4), v4{1,1,1,1});
-			auto b2c = m4x4::Transform(v4YAxis, float(maths::tau_by_8), v4{-1,2,-3,1});
+			auto a2b = m4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4{1,1,1,1});
+			auto b2c = m4x4::Transform(v4::YAxis(), float(maths::tau_by_8), v4{-1,2,-3,1});
 			auto a2c = b2c * a2b;
 
 			auto A2B = m6x8m{a2b.rot, m3x4Zero, CPM(a2b.pos) * a2b.rot, a2b.rot};
@@ -316,8 +316,8 @@ namespace pr::maths
 			PR_EXPECT(FEql(A2C, r));
 		}
 		{// Transforms
-			auto a2b = m4x4::Transform(v4ZAxis, float(maths::tau_by_4), v4{1,1,1,1});
-			auto b2c = m4x4::Transform(v4YAxis, float(maths::tau_by_8), v4{-1,2,-3,1});
+			auto a2b = m4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4{1,1,1,1});
+			auto b2c = m4x4::Transform(v4::YAxis(), float(maths::tau_by_8), v4{-1,2,-3,1});
 			auto a2c = b2c * a2b;
 
 			auto A2Bm = Transform<Motion>(a2b);

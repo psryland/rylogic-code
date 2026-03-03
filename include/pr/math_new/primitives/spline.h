@@ -648,7 +648,7 @@ namespace pr::math
 		// By default, the z axis is aligned to the spline with Y as up
 		m4x4 O2W(float time) const noexcept
 		{
-			return O2W(time, 2, v4YAxis);
+			return O2W(time, 2, v4::YAxis());
 		}
 		m4x4 O2W(float time, int axis, v4 const& up) const noexcept
 		{

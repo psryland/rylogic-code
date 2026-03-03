@@ -14,7 +14,7 @@ namespace pr::collision
 		float m_radius;
 		bool  m_hollow;
 
-		explicit ShapeSphere(float radius, m4_cref shape_to_parent = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		explicit ShapeSphere(float radius, m4x4 const& shape_to_parent = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_parent, material_id, flags)
 			,m_radius(radius)
 			,m_hollow(hollow)
@@ -49,7 +49,7 @@ namespace pr::collision
 
 	// Shift the centre of a sphere
 	template <typename>
-	void pr_vectorcall ShiftCentre(ShapeSphere&, v4_cref shift)
+	void pr_vectorcall ShiftCentre(ShapeSphere&, v4 shift)
 	{
 		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
 		(void)shift; 
@@ -57,7 +57,7 @@ namespace pr::collision
 
 	// Return a support vertex for a sphere
 	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapeSphere const& shape, v4_cref direction, int, int& sup_vert_id)
+	v4 pr_vectorcall SupportVertex(ShapeSphere const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		// We need to quantise the normal otherwise the iterative algorithms perform badly
 		auto dir = Normalise(direction);
@@ -73,7 +73,7 @@ namespace pr::collision
 
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space
 	template <typename>
-	void pr_vectorcall ClosestPoint(ShapeSphere const& shape, v4_cref point, float& distance, v4& closest)
+	void pr_vectorcall ClosestPoint(ShapeSphere const& shape, v4 point, float& distance, v4& closest)
 	{
 		distance  = Length(point);
 		closest   = ((shape.m_radius / distance) * point).w1();

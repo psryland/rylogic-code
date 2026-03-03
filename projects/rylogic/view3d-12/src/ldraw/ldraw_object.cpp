@@ -90,7 +90,7 @@ namespace pr::rdr12::ldraw
 
 	LdrObject::LdrObject(ELdrObject type, LdrObject* parent, Guid const& context_id)
 		: RdrInstance()
-		, m_o2p(m4x4Identity)
+		, m_o2p(m4x4::Identity())
 		, m_type(type)
 		, m_parent(parent)
 		, m_child() // Populated by the ParseParams object (it holds a reference as 'm_objects')
@@ -369,7 +369,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				o->m_c2s = m4x4Zero;
+				o->m_c2s = m4x4::Zero();
 				o->Flags(ELdrFlags::SceneBoundsExclude, false);
 				o->OnAddToScene -= o->m_screen_space;
 			}

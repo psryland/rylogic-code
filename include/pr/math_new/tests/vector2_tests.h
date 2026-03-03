@@ -115,8 +115,8 @@ namespace pr::math::tests
 			static_assert(FEql(Length(V0), T(5)));
 
 			// Unit vectors have length 1
-			static_assert(FEql(Length(vec2_t::XAxis()), T(1)));
-			static_assert(FEql(Length(vec2_t::YAxis()), T(1)));
+			static_assert(FEql(Length(XAxis<vec2_t>()), T(1)));
+			static_assert(FEql(Length(YAxis<vec2_t>()), T(1)));
 		}
 		PRUnitTestMethod(Permute, float, double, int32_t, int64_t)
 		{

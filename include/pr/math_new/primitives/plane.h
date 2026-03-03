@@ -25,6 +25,11 @@ namespace pr::math
 			:m_dir_dist(0, 0, 1, 0)
 		{}
 
+		// Construct from raw dir_dist vector (xyz = direction, w = distance)
+		constexpr explicit Plane(Vec4 dir_dist) noexcept
+			: m_dir_dist(dir_dist)
+		{}
+
 		// Construct from a direction and distance (direction not necessarily unit length)
 		constexpr Plane(S dx, S dy, S dz, S dist) noexcept
 			: m_dir_dist(dx, dy, dz, dist)
@@ -101,7 +106,8 @@ namespace pr::math
 	// Normalise (Canonicalise a plane)
 	template <ScalarTypeFP S> constexpr Plane<S> pr_vectorcall Normalise(Plane<S> plane) noexcept
 	{
-		return plane / Length(plane.xyz); // This scales the w-component as well
+		auto len = Length(plane.direction());
+		return Plane<S>(Vec4<S>(plane) / len); // This scales the w-component as well
 	}
 
 	// Return the signed distance of 'v' from the plane.
@@ -115,7 +121,7 @@ namespace pr::math
 	// from the origin. if v.w == 0, the returned vector will lie in a plane parallel to 'plane'.
 	template <ScalarTypeFP S> constexpr Vec4<S> pr_vectorcall Project(Plane<S> plane, Vec4<S> v) noexcept
 	{
-		return v - Dot(plane, v) * Direction(plane);
+		return v - Dot(plane, v) * plane.direction();
 	}
 
 	#pragma endregion

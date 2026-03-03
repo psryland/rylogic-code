@@ -29,7 +29,7 @@ namespace pr::physics
 			,m_centre_of_mass(v4{})
 			,m_mass(maths::float_inf)
 		{}
-		MassProperties(m3_cref os_unit_inertia, v4_cref centre_of_mass, float mass)
+		MassProperties(m3x4 const& os_unit_inertia, v4 centre_of_mass, float mass)
 			:m_os_unit_inertia(os_unit_inertia)
 			,m_centre_of_mass(centre_of_mass)
 			,m_mass(mass)

@@ -13,35 +13,35 @@ namespace pr::physics
 		,m_products(0, 0, 0, 0)
 		,m_com_and_mass(0, 0, 0, InfiniteMass)
 	{}
-	Inertia::Inertia(m3_cref unit_inertia, float mass, v4_cref com)
+	Inertia::Inertia(m3x4 const& unit_inertia, float mass, v4 com)
 		:m_diagonal(unit_inertia.x.x, unit_inertia.y.y, unit_inertia.z.z, 0)
 		,m_products(unit_inertia.x.y, unit_inertia.x.z, unit_inertia.y.z, 0)
 		,m_com_and_mass(com.xyz, mass)
 	{
 		assert(Check());
 	}
-	Inertia::Inertia(v4_cref diagonal, v4_cref products, float mass, v4_cref com)
+	Inertia::Inertia(v4 diagonal, v4 products, float mass, v4 com)
 		:m_diagonal(diagonal)
 		,m_products(products)
 		,m_com_and_mass(com.xyz, mass)
 	{
 		assert(Check());
 	}
-	Inertia::Inertia(float diagonal, float mass, v4_cref com)
+	Inertia::Inertia(float diagonal, float mass, v4 com)
 		:m_diagonal(diagonal, diagonal, diagonal, 0)
 		,m_products()
 		,m_com_and_mass(com.xyz, mass)
 	{
 		assert(Check());
 	}
-	Inertia::Inertia(Inertia const& rhs, v4_cref com)
+	Inertia::Inertia(Inertia const& rhs, v4 com)
 		:m_diagonal(rhs.m_diagonal)
 		,m_products(rhs.m_products)
 		,m_com_and_mass(com.xyz, rhs.Mass())
 	{
 		assert(Check());
 	}
-	Inertia::Inertia(Mat6x8_cref<float, Motion, Force> inertia, float mass)
+	Inertia::Inertia(Mat6x8<float, Motion, Force> const& inertia, float mass)
 	{
 		// If 'mass' is given, 'inertia' is assumed to be a unit inertia
 		assert(Inertia::Check(inertia));
@@ -134,7 +134,7 @@ namespace pr::physics
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return Mat6x8f<Motion, Force>{m6x8Identity};
+			return Mat6x8f<Motion, Force>{m6x8::Identity()};
 
 		auto Ic = Ic3x3(mass);
 		auto cx = CPM(CoM());
@@ -145,7 +145,7 @@ namespace pr::physics
 	{
 		return CoM() == v4{} ? Inertia::Check(To3x3()) : Inertia::Check(To6x6());
 	}
-	bool Inertia::Check(m3_cref inertia)
+	bool Inertia::Check(m3x4 const& inertia)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia))
@@ -176,7 +176,7 @@ namespace pr::physics
 
 		return true;
 	}
-	bool Inertia::Check(Mat6x8_cref<float, Motion, Force> inertia)
+	bool Inertia::Check(Mat6x8<float, Motion, Force> const& inertia)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia))
@@ -221,19 +221,19 @@ namespace pr::physics
 	{
 		return Inertia{v4{1, 1, 1, 0}, v4{0, 0, 0, 0}, InfiniteMass};
 	}
-	Inertia Inertia::Point(float mass, v4_cref offset)
+	Inertia Inertia::Point(float mass, v4 offset)
 	{
 		auto ib = Inertia{1.0f, mass};
 		ib = Translate(ib, offset, ETranslateInertia::AwayFromCoM);
 		return ib;
 	}
-	Inertia Inertia::Sphere(float radius, float mass, v4_cref offset)
+	Inertia Inertia::Sphere(float radius, float mass, v4 offset)
 	{
 		auto ib = Inertia{(2.0f / 5.0f) * Sqr(radius), mass};
 		ib = Translate(ib, offset, ETranslateInertia::AwayFromCoM);
 		return ib;
 	}
-	Inertia Inertia::Box(v4_cref radius, float mass, v4_cref offset)
+	Inertia Inertia::Box(v4 radius, float mass, v4 offset)
 	{
 		auto xx = (1.0f / 3.0f) * (Sqr(radius.y) + Sqr(radius.z));
 		auto yy = (1.0f / 3.0f) * (Sqr(radius.z) + Sqr(radius.x));
@@ -289,28 +289,28 @@ namespace pr::physics
 		,m_products(0, 0, 0, 0)
 		,m_com_and_invmass(0, 0, 0, 0)
 	{}
-	InertiaInv::InertiaInv(m3_cref unit_inertia_inv, float invmass, v4_cref com)
+	InertiaInv::InertiaInv(m3x4 const& unit_inertia_inv, float invmass, v4 com)
 		:m_diagonal(unit_inertia_inv.x.x, unit_inertia_inv.y.y, unit_inertia_inv.z.z, 0)
 		,m_products(unit_inertia_inv.x.y, unit_inertia_inv.x.z, unit_inertia_inv.y.z, 0)
 		,m_com_and_invmass(com.xyz, invmass)
 	{
 		assert(Check());
 	}
-	InertiaInv::InertiaInv(v4_cref diagonal, v4_cref products, float invmass, v4_cref com)
+	InertiaInv::InertiaInv(v4 diagonal, v4 products, float invmass, v4 com)
 		:m_diagonal(diagonal)
 		,m_products(products)
 		,m_com_and_invmass(com.xyz, invmass)
 	{
 		assert(Check());
 	}
-	InertiaInv::InertiaInv(InertiaInv const& rhs, v4_cref com)
+	InertiaInv::InertiaInv(InertiaInv const& rhs, v4 com)
 		:m_diagonal(rhs.m_diagonal)
 		,m_products(rhs.m_products)
 		,m_com_and_invmass(com.xyz, rhs.InvMass())
 	{
 		assert(Check());
 	}
-	InertiaInv::InertiaInv(Mat6x8_cref<float, Force, Motion> inertia_inv, float invmass)
+	InertiaInv::InertiaInv(Mat6x8<float, Force, Motion> const& inertia_inv, float invmass)
 	{
 		assert(InertiaInv::Check(inertia_inv));
 
@@ -405,7 +405,7 @@ namespace pr::physics
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
 		if (inv_mass < ZeroMass || inv_mass >= InfiniteMass)
-			return Mat6x8f<Force, Motion>{m6x8Identity};
+			return Mat6x8f<Force, Motion>{m6x8::Identity()};
 
 		auto Ic_inv = Ic3x3(inv_mass);
 		auto cx = CPM(CoM());
@@ -416,7 +416,7 @@ namespace pr::physics
 	{
 		return CoM() == v4{} ? InertiaInv::Check(To3x3()) : InertiaInv::Check(To6x6());
 	}
-	bool InertiaInv::Check(m3_cref inertia_inv)
+	bool InertiaInv::Check(m3x4 const& inertia_inv)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia_inv))
@@ -450,7 +450,7 @@ namespace pr::physics
 
 		return true;
 	}
-	bool InertiaInv::Check(Mat6x8_cref<float, Force, Motion> inertia_inv)
+	bool InertiaInv::Check(Mat6x8<float, Force, Motion> const& inertia_inv)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia_inv))
@@ -645,7 +645,7 @@ namespace pr::physics
 	}
 
 	// Rotate an inertia in frame 'a' to frame 'b'
-	Inertia Rotate(Inertia const& inertia, m3_cref a2b)
+	Inertia Rotate(Inertia const& inertia, m3x4 const& a2b)
 	{
 		// Ib = a2b*Ia*b2a
 		auto b2a = InvertAffine(a2b);
@@ -653,7 +653,7 @@ namespace pr::physics
 		auto com = a2b * inertia.CoM();
 		return Inertia{Ic, inertia.Mass(), com};
 	}
-	InertiaInv Rotate(InertiaInv const& inertia_inv, m3_cref a2b)
+	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x4 const& a2b)
 	{
 		// Ib¯ = (a2b*Ia*b2a)¯ = b2a¯*Ia¯*a2b¯ = a2b*Ia¯*b2a
 		auto b2a = InvertAffine(a2b);
@@ -665,7 +665,7 @@ namespace pr::physics
 	// Returns an inertia translated using the parallel axis theorem.
 	// 'offset' is the vector from (or toward) the centre of mass (determined by 'direction').
 	// 'offset' must be in the current frame.
-	Inertia Translate(Inertia const& inertia0, v4_cref offset, ETranslateInertia direction)
+	Inertia Translate(Inertia const& inertia0, v4 offset, ETranslateInertia direction)
 	{
 		//' Io = Ic - cxcx (for unit inertia away from CoM) '
 		//' Ic = Io + cxcx (for unit inertia toward CoM)    '
@@ -691,12 +691,12 @@ namespace pr::physics
 		// at a point other than where the inertia was measured at. Translate()
 		// moves the measure point, so if 'com' is non-zero, update it to reflect
 		// the new offset.
-		if (inertia1.m_com_and_mass.xyz != v3{})
+		if (inertia0.CoM() != v4{})
 			inertia1.m_com_and_mass.xyz -= sign * offset.xyz;
 
 		return inertia1;
 	}
-	InertiaInv Translate(InertiaInv const& inertia0_inv, v4_cref offset, ETranslateInertia direction)
+	InertiaInv Translate(InertiaInv const& inertia0_inv, v4 offset, ETranslateInertia direction)
 	{
 		auto inertia0 = Invert(inertia0_inv);
 		auto inertia1 = Translate(inertia0, offset, direction);
@@ -705,14 +705,14 @@ namespace pr::physics
 	}
 
 	// Rotate, then translate an inertia
-	Inertia Transform(Inertia const& inertia0, m4_cref a2b, ETranslateInertia direction)
+	Inertia Transform(Inertia const& inertia0, m4x4 const& a2b, ETranslateInertia direction)
 	{
 		auto inertia1 = inertia0;
 		inertia1 = Rotate(inertia1, a2b.rot);
 		inertia1 = Translate(inertia1, a2b.pos, direction);
 		return inertia1;
 	}
-	InertiaInv Transform(InertiaInv const& inertia0_inv, m4_cref a2b, ETranslateInertia direction)
+	InertiaInv Transform(InertiaInv const& inertia0_inv, m4x4 const& a2b, ETranslateInertia direction)
 	{
 		auto inertia1_inv = inertia0_inv;
 		inertia1_inv = Rotate(inertia1_inv, a2b.rot);
@@ -736,5 +736,19 @@ namespace pr
 			FEql(lhs.m_diagonal, rhs.m_diagonal) &&
 			FEql(lhs.m_products, rhs.m_products) &&
 			FEql(lhs.m_com_and_invmass, rhs.m_com_and_invmass);
+	}
+	bool FEqlRelative(physics::Inertia const& lhs, physics::Inertia const& rhs, float tol)
+	{
+		return
+			FEqlRelative(lhs.m_diagonal, rhs.m_diagonal, tol) &&
+			FEqlRelative(lhs.m_products, rhs.m_products, tol) &&
+			FEqlRelative(lhs.m_com_and_mass, rhs.m_com_and_mass, tol);
+	}
+	bool FEqlRelative(physics::InertiaInv const& lhs, physics::InertiaInv const& rhs, float tol)
+	{
+		return
+			FEqlRelative(lhs.m_diagonal, rhs.m_diagonal, tol) &&
+			FEqlRelative(lhs.m_products, rhs.m_products, tol) &&
+			FEqlRelative(lhs.m_com_and_invmass, rhs.m_com_and_invmass, tol);
 	}
 }

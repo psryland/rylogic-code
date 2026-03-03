@@ -93,7 +93,7 @@ namespace pr::collision
 		// The size in bytes of this shape and its data
 		size_t m_size;
 
-		Shape(EShape type, size_t size, m4_cref shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
+		Shape(EShape type, size_t size, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
 			:m_s2p(shape_to_parent)
 			,m_bbox(BBox::Reset())
 			,m_type(type)
@@ -105,17 +105,17 @@ namespace pr::collision
 
 	// Forward declare standard shape functions
 	template <typename = void> BBox pr_vectorcall CalcBBox(Shape const& shape);
-	template <typename = void> void pr_vectorcall ShiftCentre(Shape&, v4_cref shift);
-	template <typename = void> v4   pr_vectorcall SupportVertex(Shape const& shape, v4_cref direction, int hint_vert_id, int& sup_vert_id);
-	template <typename = void> void pr_vectorcall ClosestPoint(Shape const& shape, v4_cref point, float& distance, v4& closest);
+	template <typename = void> void pr_vectorcall ShiftCentre(Shape&, v4 shift);
+	template <typename = void> v4   pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id);
+	template <typename = void> void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest);
 
 	// Forward declare shape types and standard functions
 	#define PR_COLLISION_SHAPE_FORWARD(name, comp)\
 	struct Shape##name;\
 	template <typename = void> BBox pr_vectorcall CalcBBox(Shape##name const& shape);\
-	template <typename = void> void pr_vectorcall ShiftCentre(Shape##name&, v4_cref shift);\
-	template <typename = void> v4   pr_vectorcall SupportVertex(Shape##name const&, v4_cref direction, int, int&);\
-	template <typename = void> void pr_vectorcall ClosestPoint(Shape##name const& shape, v4_cref point, float& distance, v4& closest);
+	template <typename = void> void pr_vectorcall ShiftCentre(Shape##name&, v4 shift);\
+	template <typename = void> v4   pr_vectorcall SupportVertex(Shape##name const&, v4 direction, int, int&);\
+	template <typename = void> void pr_vectorcall ClosestPoint(Shape##name const& shape, v4 point, float& distance, v4& closest);
 	PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_FORWARD)
 	#undef PR_COLLISION_SHAPE_FORWARD
 

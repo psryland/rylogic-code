@@ -15,7 +15,7 @@ namespace pr::collision
 {
 	// Test for overlap between two shapes, with generic penetration collection
 	template <typename Penetration>
-	void pr_vectorcall BoxVsLine(Shape const& lhs_, m4_cref l2w_, Shape const& rhs_, m4_cref r2w_, Penetration& pen)
+	void pr_vectorcall BoxVsLine(Shape const& lhs_, m4x4 const& l2w_, Shape const& rhs_, m4x4 const& r2w_, Penetration& pen)
 	{
 		auto& lhs = shape_cast<ShapeBox>(lhs_);
 		auto& rhs = shape_cast<ShapeLine>(rhs_);
@@ -39,7 +39,7 @@ namespace pr::collision
 		if (!pen(lhs.m_radius.z + rad.z - Abs(mid.z), [&]{ return Sign(mid.z) * l2w.z; }, lhs_.m_material_id, rhs_.m_material_id)) return;
 
 		// Lambda for returning a separating axis with the correct sign
-		auto sep_axis = [&](v4_cref sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
+		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
 		float ra,rb;
 
 		// Try cross products of the segment direction with the coordinate axes.
@@ -76,7 +76,7 @@ namespace pr::collision
 	}
 
 	// Returns true if the sphere  'lhs' intersects the orientated box 'rhs'
-	inline bool pr_vectorcall BoxVsLine(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w)
+	inline bool pr_vectorcall BoxVsLine(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w)
 	{
 		TestPenetration p;
 		BoxVsLine(lhs, l2w, rhs, r2w, p);
@@ -84,7 +84,7 @@ namespace pr::collision
 	}
 
 	// Returns true if 'lhs' and 'rhs' are intersecting.
-	inline bool pr_vectorcall BoxVsLine(Shape const& lhs, m4_cref l2w, Shape const& rhs, m4_cref r2w, Contact& contact)
+	inline bool pr_vectorcall BoxVsLine(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
 	{
 		ContactPenetration p;
 		BoxVsLine(lhs, l2w, rhs, r2w, p);
@@ -120,7 +120,7 @@ namespace pr::collision
 		auto rhs = ShapeLine{3.0f};
 		m4x4 l2w_[] =
 		{
-			m4x4Identity,
+			m4x4::Identity(),
 		};
 		m4x4 r2w_[] =
 		{

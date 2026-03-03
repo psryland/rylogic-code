@@ -134,57 +134,70 @@ namespace pr::math
 		}
 
 		// Constants
-		static consteval Vec4 Zero() noexcept
+		static consteval Vec4 const& Zero() noexcept
 		{
-			return math::Zero<Vec4>();
+			static auto s_zero = math::Zero<Vec4>();
+			return s_zero;
 		}
-		static constexpr Vec4 One() noexcept
+		static constexpr Vec4 const& One() noexcept
 		{
-			return math::One<Vec4>();
+			static auto s_one = math::One<Vec4>();
+			return s_one;
 		}
-		static constexpr Vec4 Tiny() noexcept
+		static constexpr Vec4 const& Tiny() noexcept
 		{
-			return Vec4(tiny<S>, tiny<S>, tiny<S>, tiny<S>);
+			static auto s_tiny = math::Tiny<Vec4>();
+			return s_tiny;
 		}
-		static constexpr Vec4 Min() noexcept
+		static constexpr Vec4 const& Min() noexcept
 		{
-			return math::Min<Vec4>();
+			static auto s_min = math::Min<Vec4>();
+			return s_min;
 		}
-		static constexpr Vec4 Max() noexcept
+		static constexpr Vec4 const& Max() noexcept
 		{
-			return math::Max<Vec4>();
+			static auto s_max = math::Max<Vec4>();
+			return s_max;
 		}
-		static constexpr Vec4 Lowest() noexcept
+		static constexpr Vec4 const& Lowest() noexcept
 		{
-			return Vec4(limits<S>::lowest(), limits<S>::lowest(), limits<S>::lowest(), limits<S>::lowest());
+			static auto s_lowest = math::Lowest<Vec4>();
+			return s_lowest;
 		}
-		static constexpr Vec4 Epsilon() noexcept
+		static constexpr Vec4 const& Epsilon() noexcept
 		{
-			return math::Epsilon<Vec4>();
+			static auto s_epsilon = math::Epsilon<Vec4>();
+			return s_epsilon;
 		}
-		static constexpr Vec4 Infinity() noexcept
+		static constexpr Vec4 const& Infinity() noexcept
 		{
-			return math::Infinity<Vec4>();
+			static auto s_infinity = math::Infinity<Vec4>();
+			return s_infinity;
 		}
-		static constexpr Vec4 XAxis() noexcept
+		static constexpr Vec4 const& XAxis() noexcept
 		{
-			return math::XAxis<Vec4>();
+			static auto s_x_axis = math::XAxis<Vec4>();
+			return s_x_axis;
 		}
-		static constexpr Vec4 YAxis() noexcept
+		static constexpr Vec4 const& YAxis() noexcept
 		{
-			return math::YAxis<Vec4>();
+			static auto s_y_axis = math::YAxis<Vec4>();
+			return s_y_axis;
 		}
-		static constexpr Vec4 ZAxis() noexcept
+		static constexpr Vec4 const& ZAxis() noexcept
 		{
-			return math::ZAxis<Vec4>();
+			static auto s_z_axis = math::ZAxis<Vec4>();
+			return s_z_axis;
 		}
-		static constexpr Vec4 WAxis() noexcept
+		static constexpr Vec4 const& WAxis() noexcept
 		{
-			return math::WAxis<Vec4>();
+			static auto s_w_axis = math::WAxis<Vec4>();
+			return s_w_axis;
 		}
-		static constexpr Vec4 Origin() noexcept
+		static constexpr Vec4 const& Origin() noexcept
 		{
-			return math::Origin<Vec4>();
+			static auto s_origin = math::Origin<Vec4>();
+			return s_origin;
 		}
 
 		// Construct normalised

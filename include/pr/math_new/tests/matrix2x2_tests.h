@@ -40,8 +40,8 @@ namespace pr::math::tests
 			using vec2_t = Vec2<T>;
 			using mat2_t = Mat2x2<T>;
 
-			static_assert(mat2_t::Zero() == mat2_t(T(0), T(0), T(0), T(0)));
-			static_assert(mat2_t::Identity() == mat2_t(T(1), T(0), T(0), T(1)));
+			static_assert(Zero<mat2_t>() == mat2_t(T(0), T(0), T(0), T(0)));
+			static_assert(Identity<mat2_t>() == mat2_t(T(1), T(0), T(0), T(1)));
 
 			// Identity * Identity = Identity
 			auto I = mat2_t::Identity();

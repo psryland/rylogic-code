@@ -72,13 +72,15 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Mat3x4 Zero() noexcept
+		static constexpr Mat3x4 const& Zero() noexcept
 		{
-			return math::Zero<Mat3x4>();
+			static auto s_zero = math::Zero<Mat3x4>();
+			return s_zero;
 		}
-		static constexpr Mat3x4 Identity() noexcept
+		static constexpr Mat3x4 const& Identity() noexcept
 		{
-			return math::Identity<Mat3x4>();
+			static auto s_identity = math::Identity<Mat3x4>();
+			return s_identity;
 		}
 
 		// Get/Set by row or column. Note: x,y,z are column vectors
@@ -209,43 +211,43 @@ namespace pr::math
 	struct Mat3x4
 	{
 		#pragma region Operators
-		friend constexpr Mat3x4 pr_vectorcall operator + (Mat3x4_cref<S,A,B> mat) noexcept
+		friend constexpr Mat3x4 pr_vectorcall operator + (Mat3x4<S,A,B> const& mat) noexcept
 		{
 			return mat;
 		}
-		friend constexpr Mat3x4 pr_vectorcall operator - (Mat3x4_cref<S,A,B> mat) noexcept
+		friend constexpr Mat3x4 pr_vectorcall operator - (Mat3x4<S,A,B> const& mat) noexcept
 		{
 			return Mat3x4{-mat.x, -mat.y, -mat.z};
 		}
-		friend Mat3x4 pr_vectorcall operator * (S lhs, Mat3x4_cref<S,A,B> rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator * (S lhs, Mat3x4<S,A,B> const& rhs) noexcept
 		{
 			return rhs * lhs;
 		}
-		friend Mat3x4 pr_vectorcall operator * (Mat3x4_cref<S,A,B> lhs, S rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
 		{
 			return Mat3x4{lhs.x * rhs, lhs.y * rhs, lhs.z * rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator / (Mat3x4_cref<S,A,B> lhs, S rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator / (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			//pr_assert("divide by zero" && rhs != 0);
 			return Mat3x4{lhs.x / rhs, lhs.y / rhs, lhs.z / rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator % (Mat3x4_cref<S,A,B> lhs, S rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator % (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			//pr_assert("divide by zero" && rhs != 0);
 			return Mat3x4{lhs.x % rhs, lhs.y % rhs, lhs.z % rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator + (Mat3x4_cref<S,A,B> lhs, Mat3x4_cref<S,A,B> rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator + (Mat3x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
 		{
 			return Mat3x4{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
 		}
-		friend Mat3x4 pr_vectorcall operator - (Mat3x4_cref<S,A,B> lhs, Mat3x4_cref<S,A,B> rhs) noexcept
+		friend Mat3x4 pr_vectorcall operator - (Mat3x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
 		{
 			return Mat3x4{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
 		}
-		friend Vec4<S, B> pr_vectorcall operator * (Mat3x4_cref<S, A, B> lhs, Vec4_cref<S, A> rhs) noexcept
+		friend Vec4<S, B> pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, Vec4<S, A> rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{
@@ -273,7 +275,7 @@ namespace pr::math
 				return Vec4<S, B>{Dot3(lhsT.x, rhs), Dot3(lhsT.y, rhs), Dot3(lhsT.z, rhs), rhs.w};
 			}
 		}
-		friend Vec3<S,B> pr_vectorcall operator * (Mat3x4_cref<S,A,B> lhs, Vec3_cref<S,A> rhs) noexcept
+		friend Vec3<S,B> pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, Vec3<S,A> rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{
@@ -299,7 +301,7 @@ namespace pr::math
 				return Vec3<S, B>{Dot(lhsT.x.xyz, rhs), Dot(lhsT.y.xyz, rhs), Dot(lhsT.z.xyz, rhs)};
 			}
 		}
-		template <typename C> friend Mat3x4<S,A,C> pr_vectorcall operator * (Mat3x4_cref<S,B,C> lhs, Mat3x4_cref<S,A,B> rhs) noexcept
+		template <typename C> friend Mat3x4<S,A,C> pr_vectorcall operator * (Mat3x4<S,B,C> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{

@@ -24,8 +24,6 @@ namespace pr
 		};
 		#pragma warning(pop)
 
-		using Vec2_cref = Vec2_cref<S,T>;
-		
 		// Construct
 		Vec2() = default;
 		constexpr explicit Vec2(S x_)
@@ -109,7 +107,7 @@ namespace pr
 		
 		// Create a random vector with components on interval ['vmin', 'vmax']
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec2 pr_vectorcall Random(Rng& rng, Vec2_cref vmin, Vec2_cref vmax)
+		static Vec2 pr_vectorcall Random(Rng& rng, Vec2 vmin, Vec2 vmax)
 		{
 			std::uniform_real_distribution<S> dist_x(vmin.x, vmax.x);
 			std::uniform_real_distribution<S> dist_y(vmin.y, vmax.y);
@@ -126,56 +124,56 @@ namespace pr
 
 		// Create a random vector centred on 'centre' with radius 'radius'
 		template <typename Rng = std::default_random_engine> requires std::is_floating_point_v<S>
-		static Vec2 pr_vectorcall Random(Rng& rng, Vec2_cref centre, S radius)
+		static Vec2 pr_vectorcall Random(Rng& rng, Vec2 centre, S radius)
 		{
 			return Random(rng, S(0), radius) + centre;
 		}
 
 		#pragma region Operators
-		friend constexpr Vec2 operator + (Vec2_cref vec)
+		friend constexpr Vec2 operator + (Vec2 vec)
 		{
 			return vec;
 		}
-		friend constexpr Vec2 operator - (Vec2_cref vec)
+		friend constexpr Vec2 operator - (Vec2 vec)
 		{
 			return Vec2(-vec.x, -vec.y);
 		}
-		friend Vec2 operator * (S lhs, Vec2_cref rhs)
+		friend Vec2 operator * (S lhs, Vec2 rhs)
 		{
 			return rhs * lhs;
 		}
-		friend Vec2 operator * (Vec2_cref lhs, S rhs)
+		friend Vec2 operator * (Vec2 lhs, S rhs)
 		{
 			return Vec2(lhs.x * rhs, lhs.y * rhs);
 		}
-		friend Vec2 operator / (Vec2_cref lhs, S rhs)
+		friend Vec2 operator / (Vec2 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Vec2(lhs.x / rhs, lhs.y / rhs);
 		}
-		friend Vec2 operator % (Vec2_cref lhs, S rhs)
+		friend Vec2 operator % (Vec2 lhs, S rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Vec2{ Modulus(lhs.x, rhs), Modulus(lhs.y, rhs) };
 		}
-		friend Vec2 operator + (Vec2_cref lhs, Vec2_cref rhs)
+		friend Vec2 operator + (Vec2 lhs, Vec2 rhs)
 		{
 			return Vec2(lhs.x + rhs.x, lhs.y + rhs.y);
 		}
-		friend Vec2 operator - (Vec2_cref lhs, Vec2_cref rhs)
+		friend Vec2 operator - (Vec2 lhs, Vec2 rhs)
 		{
 			return Vec2(lhs.x - rhs.x, lhs.y - rhs.y);
 		}
-		friend Vec2 operator * (Vec2_cref lhs, Vec2_cref rhs)
+		friend Vec2 operator * (Vec2 lhs, Vec2 rhs)
 		{
 			return Vec2(lhs.x * rhs.x, lhs.y * rhs.y);
 		}
-		friend Vec2 operator / (Vec2_cref lhs, Vec2_cref rhs)
+		friend Vec2 operator / (Vec2 lhs, Vec2 rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Vec2(lhs.x / rhs.x, lhs.y / rhs.y);
 		}
-		friend Vec2 operator % (Vec2_cref lhs, Vec2_cref rhs)
+		friend Vec2 operator % (Vec2 lhs, Vec2 rhs)
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			return Vec2{ Modulus(lhs.x, rhs.x), Modulus(lhs.y, rhs.y) };
@@ -193,37 +191,37 @@ namespace pr
 	#undef PR_VEC2_CHECKS
 
 	// Dot product: a.b
-	template <Scalar S, typename T> constexpr S pr_vectorcall Dot(Vec2_cref<S, T> lhs, Vec2_cref<S, T> rhs)
+	template <Scalar S, typename T> constexpr S pr_vectorcall Dot(Vec2<S, T> lhs, Vec2<S, T> rhs)
 	{
 		return lhs.x * rhs.x + lhs.y * rhs.y;
 	}
 
 	// Cross product: Dot2(Rotate90CW(lhs), rhs)
-	template <Scalar S, typename T> constexpr S pr_vectorcall Cross(Vec2_cref<S, T> lhs, Vec2_cref<S, T> rhs)
+	template <Scalar S, typename T> constexpr S pr_vectorcall Cross(Vec2<S, T> lhs, Vec2<S, T> rhs)
 	{
 		return lhs.y * rhs.x - lhs.x * rhs.y;
 	}
 
 	// Rotate a 2d vector by 90deg (when looking down the Z axis)
-	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Rotate90CW(Vec2_cref<S, T> v)
+	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Rotate90CW(Vec2<S, T> v)
 	{
 		return Vec2<T>(-v.y, v.x);
 	}
 
 	// Rotate a 2d vector by -90def (when looking down the Z axis)
-	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Rotate90CCW(Vec2_cref<S, T> v)
+	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Rotate90CCW(Vec2<S, T> v)
 	{
 		return Vec2<S, T>(v.y, -v.x);
 	}
 
 	// Returns a vector with the 'xy' values permuted 'n' times. '0=xy, 1=yz'
-	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Permute(Vec2_cref<S, T> v, int n)
+	template <Scalar S, typename T> constexpr Vec2<S, T> pr_vectorcall Permute(Vec2<S, T> v, int n)
 	{
 		return (n%2) == 1 ? Vec2<S, T>(v.y, v.x) : v;
 	}
 
 	// Returns a 2-bit bitmask of the quadrant the vector is in. 0=(-x,-y), 1=(+x,-y), 2=(-x,+y), 3=(+x,+y)
-	template <Scalar S, typename T> constexpr uint32_t pr_vectorcall Quadrant(Vec2_cref<S, T> v)
+	template <Scalar S, typename T> constexpr uint32_t pr_vectorcall Quadrant(Vec2<S, T> v)
 	{
 		return
 			((v.x >= S(0)) << 0) |
@@ -231,7 +229,7 @@ namespace pr
 	}
 
 	// Divide a circle into N sectors and return an index for the sector that 'vec' is in
-	template <Scalar S, typename T> inline int pr_vectorcall Sector(Vec2_cref<S, T> vec, int sectors)
+	template <Scalar S, typename T> inline int pr_vectorcall Sector(Vec2<S, T> vec, int sectors)
 	{
 		return static_cast<int>(ATan2Positive<double>(vec.y, vec.x) * sectors / maths::tau);
 	}

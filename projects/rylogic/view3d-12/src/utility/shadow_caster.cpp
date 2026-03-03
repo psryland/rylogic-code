@@ -20,7 +20,7 @@ namespace pr::rdr12
 	{}
 
 	// Update the projection parameters for the given scene
-	void ShadowCaster::UpdateParams(Scene const& scene, BBox_cref ws_bounds)
+	void ShadowCaster::UpdateParams(Scene const& scene, BBox ws_bounds)
 	{
 		auto const& c2w = scene.m_cam.CameraToWorld();
 		auto l2w = m_light->LightToWorld(ws_bounds.Centre(), 0.5f * ws_bounds.Diametre(), c2w);
@@ -46,7 +46,7 @@ namespace pr::rdr12
 			// The projection clip planes are parallel to the light direction. The origin of LSP
 			// space is 'lsp_zn * lsp_z' from the nearest point of 'ws_bounds_cam'
 			auto lsp_z = Perpendicular(l2w.z, -c2w.z);
-			auto lsp_rot = m3x4::Rotation(-v4ZAxis, lsp_z);
+			auto lsp_rot = m3x4::Rotation(-v4::ZAxis(), lsp_z);
 			auto lsp_dz = Dot(Abs(lsp_z), ws_bounds_cam.Radius());
 			auto lsp_origin = ws_bounds_cam.Centre() - s_cast<float>(lsp_zn + lsp_dz) * lsp_z;
 			auto lsp2w = m4x4{lsp_rot, lsp_origin};

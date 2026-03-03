@@ -80,13 +80,15 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Mat4x4 Zero() noexcept
+		static constexpr Mat4x4 const& Zero() noexcept
 		{
-			return math::Zero<Mat4x4>();
+			static auto s_zero = math::Zero<Mat4x4>();
+			return s_zero;
 		}
-		static constexpr Mat4x4 Identity() noexcept
+		static constexpr Mat4x4 const& Identity() noexcept
 		{
-			return math::Identity<Mat4x4>();
+			static auto s_identity = math::Identity<Mat4x4>();
+			return s_identity;
 		}
 
 		// Get/Set by row or column. Note: x,y,z are column vectors

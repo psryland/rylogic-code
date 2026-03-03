@@ -56,7 +56,7 @@ namespace pr
 			,z(z_)
 			,w(s_)
 		{}
-		constexpr explicit Quat(Vec4_cref<S, void> vec)
+		constexpr explicit Quat(Vec4<S, void> vec)
 			:xyzw(vec)
 		{}
 		constexpr explicit Quat(S const* v)
@@ -69,11 +69,9 @@ namespace pr
 		Quat(intrinsic_t v)
 			:vec(v)
 		{
-			pr_assert(maths::is_aligned(this));
 		}
 		Quat& operator =(intrinsic_t v)
 		{
-			pr_assert(maths::is_aligned(this));
 			vec = v;
 			return *this;
 		}
@@ -110,7 +108,7 @@ namespace pr
 		}
 
 		// Create a quaternion from an axis and an angle
-		Quat(Vec4_cref<S, void> axis, S angle)
+		Quat(Vec4<S, void> axis, S angle)
 		{
 			auto s = Sin(S(0.5) * angle);
 			x = axis.x * s;
@@ -132,15 +130,15 @@ namespace pr
 		}
 
 		// Create a quaternion from a rotation matrix
-		explicit Quat(Mat3x4_cref<S,A,B> m);
+		explicit Quat(Mat3x4<S,A,B> const& m);
 
 		// Create a quaternion from a rotation matrix
-		explicit Quat(Mat4x4_cref<S,A,B> m)
+		explicit Quat(Mat4x4<S,A,B> const& m)
 			:Quat(m.rot)
 		{}
 
 		// Construct a quaternion from two vectors representing start and end orientations
-		Quat(Vec4_cref<S, void> from, Vec4_cref<S, void> to)
+		Quat(Vec4<S, void> from, Vec4<S, void> to)
 		{
 			pr_assert(from.w == 0 && to.w == 0);
 			auto d = Dot(from, to);
@@ -211,7 +209,7 @@ namespace pr
 		}
 
 		// Construct random
-		template <typename Rng = std::default_random_engine> static Quat Random(Rng& rng, Vec4_cref<S, void> axis, S min_angle, S max_angle)
+		template <typename Rng = std::default_random_engine> static Quat Random(Rng& rng, Vec4<S, void> axis, S min_angle, S max_angle)
 		{
 			// Create a random quaternion rotation
 			std::uniform_real_distribution<S> dist(min_angle, max_angle);
@@ -231,35 +229,35 @@ namespace pr
 		}
 
 		#pragma region Operators
-		friend constexpr Quat pr_vectorcall operator +(Quat_cref<S, A, B> q)
+		friend constexpr Quat pr_vectorcall operator +(Quat<S,A,B> q)
 		{
 			return q;
 		}
-		friend constexpr Quat  pr_vectorcall operator -(Quat_cref<S, A, B> q)
+		friend constexpr Quat  pr_vectorcall operator -(Quat<S,A,B> q)
 		{
 			return { -q.x, -q.y, -q.z, -q.w }; // Note: Not conjugate
 		}
-		friend Quat pr_vectorcall operator ~(Quat_cref<S, A, B> q)
+		friend Quat pr_vectorcall operator ~(Quat<S,A,B> q)
 		{
 			return { -q.x, -q.y, -q.z, q.w }; // This is conjugate
 		}
-		friend Quat pr_vectorcall operator + (Quat_cref<S, A, B> lhs, Quat_cref<S, A, B> rhs)
+		friend Quat pr_vectorcall operator + (Quat<S,A,B> lhs, Quat<S,A,B> rhs)
 		{
 			return Quat{ .xyzw = lhs.xyzw + rhs.xyzw };
 		}
-		friend Quat pr_vectorcall operator - (Quat_cref<S, A, B> lhs, Quat_cref<S, A, B> rhs)
+		friend Quat pr_vectorcall operator - (Quat<S,A,B> lhs, Quat<S,A,B> rhs)
 		{
 			return Quat{ .xyzw = lhs.xyzw - rhs.xyzw };
 		}
-		friend Quat pr_vectorcall operator *(Quat_cref<S, A, B> lhs, float rhs)
+		friend Quat pr_vectorcall operator *(Quat<S,A,B> lhs, float rhs)
 		{
 			return Quat{ .xyzw = lhs.xyzw * rhs };
 		}
-		friend Quat pr_vectorcall operator *(float lhs, Quat_cref<S, A, B> rhs)
+		friend Quat pr_vectorcall operator *(float lhs, Quat<S,A,B> rhs)
 		{
 			return Quat{ .xyzw = lhs * rhs.xyzw };
 		}
-		friend Quat pr_vectorcall operator /(Quat_cref<S, A, B> lhs, float rhs)
+		friend Quat pr_vectorcall operator /(Quat<S,A,B> lhs, float rhs)
 		{
 			return Quat{ .xyzw = lhs.xyzw / rhs };
 		}
@@ -273,7 +271,7 @@ namespace pr
 		//'  r2 = b * r1 * conj(b) - second rotation
 		//'  r2 = b * a * v * conj(a) * conj(b)     
 		//'  r2 = (b*a) * v * conj(b*a)             
-		template <typename C> friend Quat<S, A, C> pr_vectorcall operator * (Quat_cref<S, B, C> lhs, Quat_cref<S, A, B> rhs)
+		template <typename C> friend Quat<S,A,C> pr_vectorcall operator * (Quat<S,B,C> lhs, Quat<S,A,B> rhs)
 		{
 			auto q = Quat<S, A, C>{};
 			q.x = lhs.w*rhs.x + lhs.x*rhs.w + lhs.y*rhs.z - lhs.z*rhs.y;
@@ -286,7 +284,7 @@ namespace pr
 		// Quaternion rotate. i.e. 'r = q*v*conj(q)' the "sandwich product"
 		// This is not really correct, since it's actually two multiplies
 		// but it makes the code look nicer.
-		friend Vec4<S, B> pr_vectorcall operator * (Quat_cref<S, A, B> lhs, Vec4_cref<S, A> rhs)
+		friend Vec4<S, B> pr_vectorcall operator * (Quat<S,A,B> lhs, Vec4<S, A> rhs)
 		{
 			return Rotate(lhs, rhs);
 		}
@@ -303,51 +301,51 @@ namespace pr
 	#undef PR_QUAT_CHECKS
 
 	// Quaternion FEql. Note: q == -q
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall FEqlRelative(Quat_cref<S,A,B> lhs, Quat_cref<S,A,B> rhs, S tol)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall FEqlRelative(Quat<S,A,B> lhs, Quat<S,A,B> rhs, S tol)
 	{
 		return
 			FEqlRelative(lhs.xyzw, +rhs.xyzw, tol) ||
 			FEqlRelative(lhs.xyzw, -rhs.xyzw, tol);
 	}
-	template <Scalar S, typename A, typename B> inline bool pr_vectorcall FEql(Quat_cref<S,A,B> lhs, Quat_cref<S,A,B> rhs)
+	template <Scalar S, typename A, typename B> inline bool pr_vectorcall FEql(Quat<S,A,B> lhs, Quat<S,A,B> rhs)
 	{
 		return FEqlRelative(lhs, rhs, maths::tiny<S>);
 	}
 
 	// Component add
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompAdd(Quat_cref<S,A,B> lhs, Quat_cref<S,A,B> rhs)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompAdd(Quat<S,A,B> lhs, Quat<S,A,B> rhs)
 	{
 		return Quat<S,A,B>{lhs.xyzw + rhs.xyzw};
 	}
 
 	// Component multiply
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompMul(Quat_cref<S,A,B> lhs, S rhs)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompMul(Quat<S,A,B> lhs, S rhs)
 	{
 		return Quat<S,A,B>{lhs.xyzw * rhs};
 	}
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompMul(Quat_cref<S,A,B> lhs, Quat_cref<S,A,B> rhs)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall CompMul(Quat<S,A,B> lhs, Quat<S,A,B> rhs)
 	{
 		return Quat<S,A,B>{lhs.xyzw * rhs.xyzw};
 	}
 
 	// Length squared
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall LengthSq(Quat_cref<S,A,B> q)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall LengthSq(Quat<S,A,B> q)
 	{
 		return LengthSq(q.xyzw);
 	}
 
 	// Normalise the quaternion 'q'
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Normalise(Quat_cref<S,A,B> q)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Normalise(Quat<S,A,B> q)
 	{
 		return Quat<S,A,B>{Normalise(q.xyzw)};
 	}
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Normalise(Quat_cref<S,A,B> q, Quat_cref<S,A,B> def)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Normalise(Quat<S,A,B> q, Quat<S,A,B> def)
 	{
 		return Quat<S,A,B>{Normalise(q.xyzw, def.xyzw)};
 	}
 
 	// Returns the value of 'cos(theta / 2)', where 'theta' is the angle between 'a' and 'b'
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall CosHalfAngle(Quat_cref<S,A,B> a, Quat_cref<S,A,B> b)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall CosHalfAngle(Quat<S,A,B> a, Quat<S,A,B> b)
 	{
 		// The relative orientation between 'a' and 'b' is given by z = 'a * conj(b)'
 		// where operator * is a quaternion multiply. The 'w' component of a quaternion
@@ -358,7 +356,7 @@ namespace pr
 	}
 
 	// Returns the smallest angle between two quaternions (in radians, [0, tau/2])
-	template <Scalar S, typename A, typename B> inline S pr_vectorcall Angle(Quat_cref<S,A,B> a, Quat_cref<S,A,B> b)
+	template <Scalar S, typename A, typename B> inline S pr_vectorcall Angle(Quat<S,A,B> a, Quat<S,A,B> b)
 	{
 		// q.w = Cos(theta/2)
 		// Note: cos(A) = 2 * cos²(A/2) - 1
@@ -372,7 +370,7 @@ namespace pr
 	}
 
 	// Logarithm map of quaternion to tangent space at identity. Converts a quaternion into a length-scaled direction, where length is the angle of rotation
-	template <Scalar S, typename A, typename B> inline Vec4<S, void> pr_vectorcall LogMap(Quat_cref<S,A,B> q)
+	template <Scalar S, typename A, typename B> inline Vec4<S, void> pr_vectorcall LogMap(Quat<S,A,B> q)
 	{
 		// Quat = [u.Sin(A/2), Cos(A/2)]
 		auto cos_half_ang = Clamp<S>(q.w, -S(1), +S(1)); // [0, tau]
@@ -384,7 +382,7 @@ namespace pr
 	}
 
 	// Exponential map of tangent space at identity to quaternion. Converts a length-scaled direction to a quaternion.
-	template <Scalar S> inline Quat<S, void, void> pr_vectorcall ExpMap(Vec4_cref<S,void> v)
+	template <Scalar S> inline Quat<S, void, void> pr_vectorcall ExpMap(Vec4<S,void> v)
 	{
 		// Vec = (+/-)A * (-/+)u.
 		auto ang_by_2 = Length(v); // By convention, log space uses Length = A/2
@@ -395,7 +393,7 @@ namespace pr
 	}
 
 	// Scale the rotation 'q' by 'frac'. Returns a rotation about the same axis but with angle scaled by 'frac'
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Scale(Quat_cref<S,A,B> q, S frac)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Scale(Quat<S,A,B> q, S frac)
 	{
 		pr_assert("quaternion isn't normalised" && IsNormal4(q));
 
@@ -422,7 +420,7 @@ namespace pr
 	}
 
 	// Return the axis and angle from a quaternion
-	template <Scalar S, typename A, typename B> inline void pr_vectorcall AxisAngle(Quat_cref<S,A,B> q, Vec4<S,void>& axis, S& angle)
+	template <Scalar S, typename A, typename B> inline std::tuple<Vec4<S,void>, S> pr_vectorcall AxisAngle(Quat<S,A,B> q)
 	{
 		pr_assert("quaternion isn't normalised" && IsNormal(q));
 
@@ -433,14 +431,15 @@ namespace pr
 		//' s == sin(x/2)
 		auto w = Clamp(q.w, S(-1.0), S(+1.0));
 		auto s = Sqrt(S(+1.0) - Sqr(w));
-		angle = S(2.0) * Acos(w);
-		axis = Abs(s) > maths::tinyf
+		auto angle = S(2.0) * Acos(w);
+		auto axis = Abs(s) > maths::tinyf
 			? Vec4<S,void>(q.x/s, q.y/s, q.z/s, S(0))
 			: Vec4<S,void>{S(0), S(0), S(0), S(0)}; // axis is (0,0,0) when angle == 1
+		return { axis, angle };
 	}
 
 	// Return possible Euler angles for the quaternion 'q'
-	template <Scalar S, typename A, typename B> inline Vec4<S, void> EulerAngles(Quat_cref<S,A,B> q)
+	template <Scalar S, typename A, typename B> inline Vec4<S, void> EulerAngles(Quat<S,A,B> q)
 	{
 		// From Wikipedia
 		double q0 = q.w, q1 = q.x, q2 = q.y, q3 = q.z;
@@ -452,7 +451,7 @@ namespace pr
 	}
 
 	// Spherically interpolate between quaternions
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Slerp(Quat_cref<S,A,B> a, Quat_cref<S,A,B> b, S frac)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall Slerp(Quat<S,A,B> a, Quat<S,A,B> b, S frac)
 	{
 		if (frac == S(0)) return a;
 		if (frac == S(1)) return b;
@@ -478,7 +477,7 @@ namespace pr
 	}
 
 	// Rotate a vector by a quaternion
-	template <Scalar S, typename A, typename B> inline Vec4<S,B> pr_vectorcall Rotate(Quat_cref<S,A,B> lhs, Vec4_cref<S,A> rhs)
+	template <Scalar S, typename A, typename B> inline Vec4<S,B> pr_vectorcall Rotate(Quat<S,A,B> lhs, Vec4<S,A> rhs)
 	{
 		// This is an optimised version of: 'r = q*v*conj(q) for when v.w == 0'
 		S xx = lhs.x*lhs.x, xy = lhs.x*lhs.y, xz = lhs.x*lhs.z, xw = lhs.x*lhs.w;
@@ -495,7 +494,7 @@ namespace pr
 	}
 
 	// Evaluates 'ori' after 'time' for a constant angular velocity and angular acceleration
-	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall RotationAt(float time, Quat_cref<S,A,B> ori, Vec4_cref<S,A> avel, Vec4_cref<S,A> aacc)
+	template <Scalar S, typename A, typename B> inline Quat<S,A,B> pr_vectorcall RotationAt(float time, Quat<S,A,B> ori, Vec4<S,A> avel, Vec4<S,A> aacc)
 	{
 		// Orientation can be computed analytically if angular velocity
 		// and angular acceleration are parallel or angular acceleration is zero.
@@ -548,7 +547,7 @@ namespace pr
 			{
 				return Normalise(Quat<S,A,B>{m_avr.Mean()});
 			}
-			void Add(Quat_cref<S,A,B> q)
+			void Add(Quat<S,A,B> q)
 			{
 				// Nicked from Unity3D
 				// Note: this only really works if all the quaternions are relatively close together.

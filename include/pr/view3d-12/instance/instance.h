@@ -33,7 +33,7 @@ namespace pr::rdr12
 		I2WTransformPtr,     // pr::m4x4*
 		I2WTransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
 		C2STransform,        // pr::m4x4
-		C2SOptional,         // pr::m4x4 (set to m4x4Zero to indicate not used)
+		C2SOptional,         // pr::m4x4 (set to m4x4::Zero() to indicate not used)
 		C2STransformPtr,     // pr::m4x4*
 		C2STransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
 		SortkeyOverride,     // pr::rdr::SKOverride
@@ -210,7 +210,7 @@ namespace pr::rdr12
 		if (pi2wf && pi2wf->m_func != nullptr)
 			return pi2wf->Txfm();
 
-		return m4x4Identity;
+		return m4x4::Identity();
 	}
 
 	// Look for a camera to screen (or instance specific projection) transform for an instance.

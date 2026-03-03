@@ -67,13 +67,15 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Mat2x2 Zero() noexcept
+		static constexpr Mat2x2 const& Zero() noexcept
 		{
-			return math::Zero<Mat2x2>();
+			static auto s_zero = math::Zero<Mat2x2>();
+			return s_zero;
 		}
-		static constexpr Mat2x2 Identity() noexcept
+		static constexpr Mat2x2 const& Identity() noexcept
 		{
-			return math::Identity<Mat2x2>();
+			static auto s_identity = math::Identity<Mat2x2>();
+			return s_identity;
 		}
 
 		// Create a rotation matrix
@@ -119,39 +121,39 @@ namespace pr::math
 
 
 		//#pragma region Operators
-		//friend constexpr Mat2x2 operator + (Mat2x2_cref<S,A,B> mat)
+		//friend constexpr Mat2x2 operator + (Mat2x2<S,A,B> const& mat)
 		//{
 		//	return mat;
 		//}
-		//friend constexpr Mat2x2 operator - (Mat2x2_cref<S,A,B> mat)
+		//friend constexpr Mat2x2 operator - (Mat2x2<S,A,B> const& mat)
 		//{
 		//	return Mat2x2{-mat.x, -mat.y};
 		//}
-		//friend Mat2x2 operator * (S lhs, Mat2x2_cref<S,A,B> rhs)
+		//friend Mat2x2 operator * (S lhs, Mat2x2<S,A,B> const& rhs)
 		//{
 		//	return rhs * lhs;
 		//}
-		//friend Mat2x2 operator * (Mat2x2_cref<S,A,B> lhs, S rhs)
+		//friend Mat2x2 operator * (Mat2x2<S,A,B> const& lhs, S rhs)
 		//{
 		//	return Mat2x2{lhs.x * rhs, lhs.y * rhs};
 		//}
-		//friend Mat2x2 operator / (Mat2x2_cref<S,A,B> lhs, S rhs)
+		//friend Mat2x2 operator / (Mat2x2<S,A,B> const& lhs, S rhs)
 		//{
 		//	// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 		//	//pr_assert("divide by zero" && rhs != 0);
 		//	return Mat2x2{lhs.x / rhs, lhs.y / rhs};
 		//}
-		//friend Mat2x2 operator % (Mat2x2_cref<S,A,B> lhs, S rhs)
+		//friend Mat2x2 operator % (Mat2x2<S,A,B> const& lhs, S rhs)
 		//{
 		//	// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 		//	//pr_assert("divide by zero" && rhs != 0);
 		//	return Mat2x2{lhs.x % rhs, lhs.y % rhs};
 		//}
-		//friend Mat2x2 operator + (Mat2x2_cref<S,A,B> lhs, Mat2x2_cref<S,A,B> rhs)
+		//friend Mat2x2 operator + (Mat2x2<S,A,B> const& lhs, Mat2x2<S,A,B> const& rhs)
 		//{
 		//	return Mat2x2{lhs.x + rhs.x, lhs.y + rhs.y};
 		//}
-		//friend Mat2x2 operator - (Mat2x2_cref<S,A,B> lhs, Mat2x2_cref<S,A,B> rhs)
+		//friend Mat2x2 operator - (Mat2x2<S,A,B> const& lhs, Mat2x2<S,A,B> const& rhs)
 		//{
 		//	return Mat2x2{lhs.x - rhs.x, lhs.y - rhs.y};
 		//}

@@ -50,7 +50,7 @@ namespace pr::rdr12::compute::particle_collision
 		{
 			return o2w(m4x4::Translation(x, y, z));
 		}
-		Prim& pos(v4_cref pos)
+		Prim& pos(v4 pos)
 		{
 			return o2w(m4x4::Translation(pos));
 		}

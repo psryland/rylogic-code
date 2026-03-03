@@ -203,7 +203,7 @@ namespace pr::common
 		PR_EXPECT(udtest.get<double>() == 3.14);
 		PR_EXPECT(pr::str::Equal(udtest.get<Blob>().str, "HelloWorld"));
 		PR_EXPECT(&udtest.get<Blob>() != &blob);
-		PR_EXPECT(udtest.get<m4x4>() == m4x4Identity);
+		PR_EXPECT(udtest.get<m4x4>() == m4x4::Identity());
 		PR_EXPECT(&udtest.get<m4x4>() != &m4x4Identity);
 
 		udtest.get<double>() = 6.28;

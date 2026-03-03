@@ -65,7 +65,7 @@ namespace pr::rdr12::ldraw
 					auto os_velocity = scale * rb.VelocityOS();
 					auto os_force = scale * rb.ForceOS();
 					if (AllSet(flags, ERigidBodyFlags::Origin))
-						CoordFrame(str, "Origin", 0xFFFFFFFF, m4x4Identity, 0.1f);
+						CoordFrame(str, "Origin", 0xFFFFFFFF, m4x4::Identity(), 0.1f);
 					if (AllSet(flags, ERigidBodyFlags::CoM))
 						CoordFrame(str, "CoM", 0xFF404040, m4x4::Translation(rb.CentreOfMassOS().w1()), 0.1f);
 					if (AllSet(flags, ERigidBodyFlags::LVel))

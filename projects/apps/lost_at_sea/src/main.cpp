@@ -41,7 +41,7 @@ namespace las
 		m_cam.FocusDist(10.0f);
 		m_cam.Near(0.5f, false);
 		m_cam.Far(7000.0f, false);
-		m_cam.Align(v4ZAxis);
+		m_cam.Align(v4::ZAxis());
 
 		// Default camera: ship camera (third-person follow)
 		m_camera = CameraPtr(new camera::ShipCamera(m_cam, m_input, m_ship));

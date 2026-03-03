@@ -341,8 +341,12 @@ namespace Rylogic.LDraw
 		private void Append(Serialiser.ArrowHeads a)
 		{
 			if (!a) return;
-			Write(EKeyword.Arrow, a.m_type, a.m_size);
-		}		
+			Write(EKeyword.Arrow, () =>
+			{
+				Write(EKeyword.Style, a.m_type);
+				Write(EKeyword.Size, a.m_size);
+			});
+		}
 		private void Append(Serialiser.Pos p)
 		{
 			if (p.m_pos == v4.Origin)

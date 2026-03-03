@@ -7,7 +7,6 @@
 #include <concepts>
 #include <type_traits>
 #include "pr/maths/maths.h"
-#include "pr/maths/conversion.h"
 #include "pr/view3d-12/resource/image.h"
 #include "pr/view3d-12/lighting/light.h"
 

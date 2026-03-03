@@ -272,7 +272,7 @@ namespace pr::rdr12::ldraw
 			"	[@PerItemColour]\n"
 			"	[@PerItemParametrics]\n"
 			"	[*Style {LineSegments|LineStrip|Direction|BezierSpline|HermiteSpline|BSplineSpline|CatmullRom}]\n"
-			"	[*Arrow {Line|Fwd|Back|FwdBack [<size> [<length>]]}]\n"
+			"	[@Arrow]\n"
 			"	[@Width]\n"
 			"	[@Smooth]\n"
 			"	[@Dashed]\n"

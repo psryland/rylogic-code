@@ -39,7 +39,7 @@ BBox& pr::ph::CalcBBox(ShapeTriangle const& shape, BBox& bbox)
 // Return the inertia tensor for the triangle
 m3x4 pr::ph::CalcInertiaTensor(ShapeTriangle const& shape)
 {
-	m3x4 inertia = m3x4Zero;
+	m3x4 inertia = m3x4::Zero();
 	for( int i = 0; i != 3; ++i )
 	{
 		v4 const& vert = shape.m_v[i];
