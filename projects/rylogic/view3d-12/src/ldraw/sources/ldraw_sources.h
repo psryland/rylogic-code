@@ -98,7 +98,6 @@ namespace pr::rdr12::ldraw
 		using GuidCont = pr::vector<Guid>;
 		using GuidSet = pr::AsyncWrap<std::unordered_map<Guid, std::stop_source, std::hash<Guid>>>;
 		using filepath_t = std::filesystem::path;
-		using shutdown_latch_t = std::optional<std::latch>;
 		
 	private:
 
@@ -112,7 +111,7 @@ namespace pr::rdr12::ldraw
 		std::jthread      m_listen_thread;  // Thread that listens for incoming connections
 		std::thread::id   m_main_thread_id; // The main thread id
 		uint16_t          m_listen_port;    // The port we're listening on
-		shutdown_latch_t  m_shutdown_latch; // Set during destruction, counted down by finishing workers
+		std::atomic<bool> m_shutting_down;  // Set during destruction to prevent new loads and signal workers
 
 	public:
 

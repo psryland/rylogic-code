@@ -30,30 +30,30 @@ namespace pr::rdr12::ldraw
 		, m_listen_thread()
 		, m_main_thread_id(std::this_thread::get_id())
 		, m_listen_port()
-		, m_shutdown_latch()
+		, m_shutting_down(false)
 	{
 		m_rdr->AddPollCB(m_watcher.PollCB, seconds_t(1.0));
 	}
 	ScriptSources::~ScriptSources()
 	{
-		// Cancel all in-progress loads and wait for worker threads to finish
-		if (auto loading = m_loading.lock())
+		// Signal shutdown and cancel all in-progress loads
 		{
-			// Create a latch with count+1: workers count down once each, and we count down
-			// the extra 1 after setting up. This avoids UB if count is 0 (latch(0) + count_down = UB).
-			auto count = static_cast<ptrdiff_t>(loading->size());
-			m_shutdown_latch.emplace(count + 1);
-
-			// Signal all workers to stop
+			auto loading = m_loading.lock();
+			m_shutting_down.store(true, std::memory_order_release);
 			for (auto& [id, ss] : *loading)
 				ss.request_stop();
-
-			// Count down the +1 we added, then release the mutex
-			m_shutdown_latch->count_down();
 		}
 		
-		// Wait for all worker threads to count down the latch
-		m_shutdown_latch->wait();
+		// Wait for all active load operations to finish.
+		// Workers erase their entry from 'm_loading' as the last thing they do before returning.
+		for (;;)
+		{
+			{
+				auto loading = m_loading.lock();
+				if (loading->empty()) break;
+			}
+			std::this_thread::yield();
+		}
 
 		m_rdr->RemovePollCB(m_watcher.PollCB);
 		StopConnections();
@@ -221,37 +221,41 @@ namespace pr::rdr12::ldraw
 		// Note: when called from a worker thread, this function returns after objects have
 		// been created, but before they've been added to the main 'm_srcs' collection.
 		// The 'add_complete' callback function should be used as a continuation function.
+		auto src = std::shared_ptr<SourceString<Char>>(new SourceString<Char>(context_id, script, enc, includes));
+
 		std::stop_token ss_token;
-		std::shared_ptr<SourceString<Char>> src;
-		if (auto loading = m_loading.lock())
 		{
-			// Ignore 'Add' calls during shutdown
-			if (m_shutdown_latch)
+			auto loading = m_loading.lock();
+
+			// Reject new loads during shutdown
+			if (m_shutting_down.load(std::memory_order_acquire))
 				return {};
 
-			// On cleanup, remove from 'loading' and count down the shutdown latch if it's set
-			src.reset(new SourceString<Char>{ context_id, script, enc, includes }, [this](auto* ptr)
-			{
-				if (auto loading = m_loading.lock())
-				{
-					loading->erase(ptr->m_context_id);
-					if (m_shutdown_latch)
-						m_shutdown_latch->count_down();
-				}
-			});
-
-			// Insert a stop source for this context id, so that workers can check for shutdown
+			// Insert a stop source for this context id, so that shutdown can cancel it
 			std::stop_source ss;
 			ss_token = ss.get_token();
 			loading->emplace(src->m_context_id, std::move(ss));
 		}
 
+		// RAII guard: erase from the loading map when this scope exits (normal or exception)
+		auto cleanup = Scope<void>([&]
+		{
+			auto loading = m_loading.lock();
+			loading->erase(src->m_context_id);
+		});
+
 		src->ParsingProgress += [this](auto&, auto& args) { m_events->OnParsingProgress(args); };
 
-		// Start a task to 'parse' it
+		// Parse the script
 		auto output = src->Load(rdr(), ss_token);
-		src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-		src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+
+		// If shutting down, skip Notify
+		if (!m_shutting_down.load(std::memory_order_acquire))
+		{
+			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
+			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+		}
+
 		return src->m_context_id;
 	}
 	template Guid ScriptSources::AddString<wchar_t>(std::wstring_view script, EEncoding enc, Guid const* context_id, PathResolver const& includes, AddCompleteCB add_complete);
@@ -265,37 +269,41 @@ namespace pr::rdr12::ldraw
 		// Note: when called from a worker thread, this function returns after objects have
 		// been created, but before they've been added to the main 'm_srcs' collection.
 		// The 'add_complete' callback function should be used as a continuation function.
+		auto src = std::shared_ptr<SourceFile>(new SourceFile(context_id, filepath, enc, includes));
+
 		std::stop_token ss_token;
-		std::shared_ptr<SourceFile> src;
-		if (auto loading = m_loading.lock())
 		{
-			// Ignore 'Add' calls during shutdown
-			if (m_shutdown_latch)
+			auto loading = m_loading.lock();
+
+			// Reject new loads during shutdown
+			if (m_shutting_down.load(std::memory_order_acquire))
 				return {};
 
-			// On cleanup, remove from 'loading' and count down the shutdown latch if it's set
-			src.reset(new SourceFile{ context_id, filepath, enc, includes }, [this](auto* ptr)
-			{
-				if (auto loading = m_loading.lock())
-				{
-					loading->erase(ptr->m_context_id);
-					if (m_shutdown_latch)
-						m_shutdown_latch->count_down();
-				}
-			});
-
-			// Insert a stop source for this context id, so that workers can check for shutdown
+			// Insert a stop source for this context id, so that shutdown can cancel it
 			std::stop_source ss;
 			ss_token = ss.get_token();
 			loading->emplace(src->m_context_id, std::move(ss));
 		}
 
+		// RAII guard: erase from the loading map when this scope exits (normal or exception)
+		auto cleanup = Scope<void>([&]
+		{
+			auto loading = m_loading.lock();
+			loading->erase(src->m_context_id);
+		});
+
 		src->ParsingProgress += [this](auto&, auto& args) { m_events->OnParsingProgress(args); };
 
-		// Start a task to 'parse' it
+		// Parse the file
 		auto output = src->Load(rdr(), ss_token);
-		src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-		src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+
+		// If shutting down, skip Notify
+		if (!m_shutting_down.load(std::memory_order_acquire))
+		{
+			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
+			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+		}
+
 		return src->m_context_id;
 	}
 
@@ -307,37 +315,41 @@ namespace pr::rdr12::ldraw
 		// Note: when called from a worker thread, this function returns after objects have
 		// been created, but before they've been added to the main 'm_srcs' collection.
 		// The 'add_complete' callback function should be used as a continuation function.
+		auto src = std::shared_ptr<SourceBinary>(new SourceBinary(context_id, data));
+
 		std::stop_token ss_token;
-		std::shared_ptr<SourceBinary> src;
-		if (auto loading = m_loading.lock())
 		{
-			// Ignore 'Add' calls during shutdown
-			if (m_shutdown_latch)
+			auto loading = m_loading.lock();
+
+			// Reject new loads during shutdown
+			if (m_shutting_down.load(std::memory_order_acquire))
 				return {};
 
-			// On cleanup, remove from 'loading' and count down the shutdown latch if it's set
-			src.reset(new SourceBinary{ context_id, data }, [this](auto* ptr)
-			{
-				if (auto loading = m_loading.lock())
-				{
-					loading->erase(ptr->m_context_id);
-					if (m_shutdown_latch)
-						m_shutdown_latch->count_down();
-				}
-			});
-
-			// Insert a stop source for this context id, so that workers can check for shutdown
+			// Insert a stop source for this context id, so that shutdown can cancel it
 			std::stop_source ss;
 			ss_token = ss.get_token();
 			loading->emplace(src->m_context_id, std::move(ss));
 		}
 
+		// RAII guard: erase from the loading map when this scope exits (normal or exception)
+		auto cleanup = Scope<void>([&]
+		{
+			auto loading = m_loading.lock();
+			loading->erase(src->m_context_id);
+		});
+
 		src->ParsingProgress += [this](auto&, auto& args) { m_events->OnParsingProgress(args); };
 
-		// Start a task to 'parse' it
+		// Parse the binary data
 		auto output = src->Load(rdr(), ss_token);
-		src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-		src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+
+		// If shutting down, skip Notify
+		if (!m_shutting_down.load(std::memory_order_acquire))
+		{
+			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
+			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+		}
+
 		return src->m_context_id;
 	}
 
@@ -520,6 +532,10 @@ namespace pr::rdr12::ldraw
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
+		// Don't reload during shutdown
+		if (m_shutting_down.load(std::memory_order_acquire))
+			return;
+
 		// Look for a source that matches 'context_id'
 		auto iter = m_srcs.find(context_id);
 		if (iter == std::end(m_srcs))
@@ -527,8 +543,13 @@ namespace pr::rdr12::ldraw
 
 		// Create a stop token for this load operation
 		std::stop_token ss_token;
-		if (auto loading = m_loading.lock())
 		{
+			auto loading = m_loading.lock();
+
+			// Reject during shutdown
+			if (m_shutting_down.load(std::memory_order_acquire))
+				return;
+
 			// Skip files that are already in the process of loading
 			if (loading->find(context_id) != std::end(*loading))
 				return;
@@ -541,10 +562,22 @@ namespace pr::rdr12::ldraw
 		// Reload that file group (asynchronously)
 		std::jthread([this, src = iter->second, context_id, ss_token]() mutable
 		{
+			// RAII guard: erase from the loading map when this scope exits (normal or exception)
+			auto cleanup = Scope<void>([&]
+			{
+				auto loading = m_loading.lock();
+				loading->erase(context_id);
+			});
+
 			// Note: if loading a file fails, don't use 'MarkAsChanged' to trigger another load
 			// attempt. Doing so results in an infinite loop trying to load a broken file.
 			auto output = src->Load(rdr(), ss_token);
-			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::Reload, nullptr });
+
+			// If shutting down, skip Notify
+			if (!m_shutting_down.load(std::memory_order_acquire))
+			{
+				src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::Reload, nullptr });
+			}
 		}).detach();
 	}
 
@@ -568,21 +601,16 @@ namespace pr::rdr12::ldraw
 		// Marshal to the main thread.
 		if (std::this_thread::get_id() != m_main_thread_id)
 		{
-			// Note: During shutdown, the main thread is waiting for all worker threads to finish.
-			// Don't queue callbacks that might be called after this ScriptSources object is deleted.
-			if (auto loading = m_loading.lock())
-			{
-				// Don't queue callbacks during shutdown
-				if (m_shutdown_latch)
-					return;
+			// Don't queue callbacks during shutdown — the main thread may be blocked
+			if (m_shutting_down.load(std::memory_order_acquire))
+				return;
 
-				// Make a copy of the 'args' cause the caller is going out of scope.
-				// Copying 'ParseResult' isn't too back, because the vectors are just pointers to objects.
-				return rdr().RunOnMainThread([this, src, args = NotifyEventArgs(args)]() mutable noexcept
-				{
-					SourceNotifyHandler(src, args);
-				});
-			}
+			// Make a copy of the 'args' cause the caller is going out of scope.
+			// Copying 'ParseResult' isn't too bad, because the vectors are just pointers to objects.
+			return rdr().RunOnMainThread([this, src, args = NotifyEventArgs(args)]() mutable noexcept
+			{
+				SourceNotifyHandler(src, args);
+			});
 		}
 
 		// Should be on the main thread now
