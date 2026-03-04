@@ -98,143 +98,6 @@ cd typescript/projects/Rylogic.TextAligner
 npm install && npm run compile
 ```
 
-## Tools
-
-### CEX — Console Extensions (`projects/tools/cex`)
-The `cex` utility provides GUI automation commands that Copilot can use to interact with and verify Windows GUI applications. The tool is a `/SUBSYSTEM:Windows` app (no console window). Build it with:
-```powershell
-& "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe" `
-    projects/tools/cex/cex.vcxproj /p:Configuration=Release /p:Platform=x64 /nologo /verbosity:minimal
-```
-The built executable is at `projects/tools/cex/obj/x64/Release/cex.exe`. A deployed copy is at `C:\Tools\cex\cex.exe`.
-
-**To discover all available commands and their options**, run:
-```powershell
-Start-Process "C:\Tools\cex\cex.exe" -ArgumentList "-rtfm" -RedirectStandardOutput "dump\cex-manual.md" -Wait -NoNewWindow
-```
-Then read `dump\cex-manual.md` for complete markdown documentation of every command.
-
-Because cex is a GUI-subsystem app, always invoke it via `Start-Process` with `-RedirectStandardOutput` to capture output:
-```powershell
-Start-Process -FilePath ".\cex.exe" -ArgumentList "<args>" -NoNewWindow -Wait -PassThru `
-    -RedirectStandardOutput "out.txt" -RedirectStandardError "err.txt"
-```
-
-#### Screenshot — Capture Window Images
-```powershell
-# Capture all visible windows of a process to PNG files
-cex -screenshot -p <process-name> -o <output-directory>
-
-# Use -bitblt for GPU-rendered apps (Electron, Chromium) — captures from screen DC
-cex -screenshot -p <process-name> -o <output-directory> -bitblt
-
-# Use -all to include hidden/minimised windows
-cex -screenshot -p <process-name> -o <output-directory> -all
-
-# Use -scale to reduce image size (e.g. 0.25 for quarter size, saves tokens for AI input)
-cex -screenshot -p <process-name> -o <output-directory> -scale 0.25
-```
-Output files are named `<process>.<window-title>.png`. Use the `view` tool on the PNG to visually inspect the result.
-
-#### Send Keys — Keyboard Input Simulation
-```powershell
-# Type text into a GUI application (uses SendInput with KEYEVENTF_UNICODE)
-cex -send_keys "text to type" -p <process-name>
-
-# Target a specific window (default: largest window)
-cex -send_keys "text" -p <process-name> -w <window-name>
-
-# Control typing speed (default: 10 keys/sec)
-cex -send_keys "text" -p <process-name> -rate 20
-```
-Characters are sent as raw unicode — this does not parse key-combo escape sequences like `{CTRL+A}`.
-
-#### Send Mouse — Mouse Input Simulation
-```powershell
-# Send mouse events to a GUI application (coordinates are client-area relative)
-cex -send_mouse 100,100 -b LeftClick  -p <process-name>
-cex -send_mouse 100,100 -b RightClick -p <process-name>
-
-# Drag sequence: button down, move, button up
-cex -send_mouse 100,100 -b LeftDown -p <process-name>
-cex -send_mouse 200,200 -b Move     -p <process-name>
-cex -send_mouse 200,200 -b LeftUp   -p <process-name>
-
-# Target a specific window (default: largest window)
-cex -send_mouse 100,100 -b LeftClick -p <process-name> -w <window-name>
-```
-
-#### Visual Verification Workflow
-Copilot can close the loop on GUI automation by capturing and viewing screenshots:
-1. Perform an action (e.g. `send_keys` to type into Notepad)
-2. Capture a screenshot of the target window (`-screenshot`)
-3. View the PNG with the `view` tool to visually confirm the result
-
-This is useful for debugging GUI interactions without requiring the user to manually verify.
-
-#### Automate — Scripted Mouse/Keyboard Commands
-```powershell
-# Execute a script of commands from a file
-cex -automate -p <process-name> -f <script-file>
-
-# Or pipe from stdin
-echo "key ctrl+a" | cex -automate -p <process-name>
-```
-Script commands (one per line, `#` comments):
-- **Mouse:** `move x,y`, `click x,y [button]`, `down x,y [button]`, `up [button]`, `drag x1,y1 x2,y2 [N]`
-- **Drawing:** `line x1,y1 x2,y2`, `circle cx,cy r [N]`, `arc cx,cy r a0 a1 [N]`, `fill_circle cx,cy r [N]`
-- **Keyboard:** `type text...`, `key combo` (e.g. `key ctrl+a`, `key shift+delete`, `key f5`)
-- **Timing:** `delay ms`
-
-All coordinates are client-area relative. Angles are in degrees.
-
-#### Shutdown Process — Graceful Close
-```powershell
-# Gracefully close a process by sending WM_CLOSE
-cex -shutdown_process -p <process-name>
-
-# Wait up to 10 seconds for exit (default: 5000ms)
-cex -shutdown_process -p <process-name> -timeout 10000
-```
-
-#### List Windows — Enumerate Process Windows
-```powershell
-# List all visible windows of a process (HWND, size, title)
-cex -list_windows -p <process-name>
-
-# Include hidden/minimised windows
-cex -list_windows -p <process-name> -all
-```
-
-#### Read Text — UI Automation Text Extraction
-```powershell
-# Read text content from a window's UI element tree
-cex -read_text -p <process-name>
-
-# Limit tree depth (default: 5)
-cex -read_text -p <process-name> -depth 3
-```
-Outputs the element tree with control types, names, and text values. Useful for reading dialog messages, button labels, and text fields without screenshots.
-
-#### Find Element — Locate UI Elements by Name
-```powershell
-# Find a UI element and get its bounding rectangle in client coordinates
-cex -find_element -name "OK" -p <process-name>
-
-# Search deeper (default depth: 8)
-cex -find_element -name "Save" -p <process-name> -depth 12
-```
-Returns the element's control type, name, client-area position, size, and center point. Use the center coordinates with `send_mouse` or `automate` to click elements by name.
-
-#### Wait Window — Wait for Window to Appear
-```powershell
-# Wait for a window to appear (default timeout: 30s)
-cex -wait_window -p <process-name>
-
-# Wait for a specific window title
-cex -wait_window -p <process-name> -w "Save As" -timeout 5000
-```
-
 ## Architecture
 
 ### Language Mix
@@ -284,24 +147,6 @@ Layer 4: view3d-12 (depends on most lower layers — camera, geometry, gfx, math
 
 ## Conventions
 
-### Naming (applies to both C++ and C#)
-- **Classes, methods, properties, enums**: `PascalCase`
-- **Private/internal fields**: `m_field_name` (lowercase with underscores, `m_` prefix)
-- **Local variables**: `snake_case`
-- **Interfaces**: `I` prefix (e.g., `IMyInterface`)
-- **No camelCase** — this is a strong preference throughout the codebase
-- C++ namespaces: `pr::maths`, `pr::ldraw`, `pr::collision`, etc.
-
-### Coding Style
-- **Tabs** for indentation in both C++ and C#
-- **Allman braces** (opening brace on its own line) in C#
-- Prefer `var` in C# and `auto` in C++ unless the type change is deliberate
-- **East const** (postfix): `Type const&` not `const Type&`
-- **For loops**: use `!=` and pre-increment: `for (int i = 0; i != 10; ++i)` — `!=` is less defensive, `++i` is more optimal for non-trivial iterators
-- File-scoped namespaces in C#
-- Comments should explain "why", not "what" — add a blank line before comment blocks
-- C# nullable references enabled (`<Nullable>Enable</Nullable>`)
-
 ### P/Invoke Pattern
 Win32 interop in `Rylogic.Core/src/Win32/` uses a trailing-underscore convention:
 ```csharp
@@ -311,30 +156,21 @@ private static extern bool AllocConsole_();
 ```
 The public method wraps the private `_`-suffixed extern.
 
-### `@copilot` Comments
-Any comment containing `@copilot` is an instruction, question, or context directed at Copilot. Treat these as actionable input during sessions.
+### C++ Namespaces
+`pr::maths`, `pr::ldraw`, `pr::collision`, etc.
 
 ### Target Frameworks
 - Primary: `net9.0-windows`
 - Legacy: `net481`
 - C++ toolset: `v145` (VS 2026), Windows SDK 10.0
+- C# nullable references enabled (`<Nullable>Enable</Nullable>`)
 
 ## Build System Details
 
 ### Prerequisites
 - Windows (this project is Windows-only)
-- Visual Studio 2026 (version 18) with C++ workload (for native projects) — v145 toolset
-- Visual Studio 2022 also installed (v143 toolset available but not preferred)
 - .NET 9 SDK
 - `dotnet-script` tool: `dotnet tool install -g dotnet-script`
-
-### MSBuild Path
-Always use the VS 2026 MSBuild for native C++ builds:
-```powershell
-$msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
-& $msbuild <project.vcxproj> /p:Configuration=Release /p:Platform=x64 /nologo /verbosity:minimal
-```
-Do **not** use the VS 2022 MSBuild (`C:\Program Files\Microsoft Visual Studio\2022\...`) — all native libraries in `/lib/` are built with the v145 toolset and linking against them with v143 causes `LNK1047`/`C1047` errors.
 
 ### Configuration Files
 - `Directory.Build.props` — Shared MSBuild properties for all C# and C++ projects
