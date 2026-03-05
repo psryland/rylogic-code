@@ -3509,6 +3509,89 @@ namespace Rylogic.LDraw
 #if PR_UNITTESTS
 namespace Rylogic.UnitTests
 {
+	/// <summary>Helper for validating LDraw output using the native View3d parser</summary>
+	static class View3dValidator
+	{
+		private static bool s_attempted;
+		private static bool s_available;
+		private static View3d? s_view3d;
+
+		/// <summary>Try to initialise View3d for validation. Returns true if available.</summary>
+		private static bool Init()
+		{
+			if (s_attempted) return s_available;
+			s_attempted = true;
+
+			try
+			{
+				// Find the repo root by walking up from the assembly location
+				var dir = Path.GetDirectoryName(typeof(View3dValidator).Assembly.Location);
+				for (; dir != null; dir = Path.GetDirectoryName(dir))
+				{
+					if (File.Exists(Path.Combine(dir, "Directory.Build.props")))
+						break;
+				}
+				if (dir == null) return false;
+
+				// view3d-12.dll depends on dxcompiler.dll which lives in the obj build output.
+				// Add it to the DLL search path so that LoadLibraryEx can find it.
+				var platform = Environment.Is64BitProcess ? "x64" : "x86";
+				var config = Utility.Util.IsDebug ? "Debug" : "Release";
+				var dxc_dir = Path.Combine(dir, "obj", "view3d-12", platform, config, "lib", platform);
+				if (Directory.Exists(dxc_dir))
+					Interop.Win32.Kernel32.AddDllDirectory(dxc_dir);
+
+				// Load the View3d DLL from the repo's lib directory
+				if (!View3d.LoadDll(dir + @"\lib\$(platform)\$(config)", throw_if_missing: false))
+					return false;
+
+				s_view3d = View3d.Create();
+				s_available = true;
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Validate text output by parsing with View3d.
+		/// Silently skips if View3d is not available.
+		/// </summary>
+		public static void ValidateText(LDraw.Builder builder)
+		{
+			if (!Init()) return;
+
+			var text = builder.ToString();
+			using var obj = new View3d.Object(text, false, null);
+			Assert.True(obj.Handle != IntPtr.Zero);
+		}
+
+		/// <summary>
+		/// Validate binary output by saving to a temp .bdr file and loading with View3d.
+		/// Silently skips if View3d is not available.
+		/// </summary>
+		public static void ValidateBinary(LDraw.Builder builder)
+		{
+			if (!Init()) return;
+
+			var temp_dir = Path.Combine(Path.GetTempPath(), "LDrawTests");
+			Directory.CreateDirectory(temp_dir);
+			var bdr_path = Path.Combine(temp_dir, $"test_{Guid.NewGuid():N}.bdr");
+			try
+			{
+				builder.Save(bdr_path, LDraw.ESaveFlags.Binary);
+				using var obj = new View3d.Object(bdr_path, true, null);
+				Assert.True(obj.Handle != IntPtr.Zero);
+			}
+			finally
+			{
+				if (File.Exists(bdr_path)) File.Delete(bdr_path);
+			}
+		}
+	}
+
 	[TestFixture]
 	public class TestLdrawBuilderText
 	{
@@ -3776,6 +3859,7 @@ namespace Rylogic.UnitTests
 			builder.Box("b", 0xFF00FF00).dim(1).o2w(m4x4.Identity);
 			var mem = builder.ToBinary().ToArray();
 			Assert.Equal(mem.Length, 49);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3785,6 +3869,7 @@ namespace Rylogic.UnitTests
 			builder.Line("a", 0xFF00FF00).style(LDraw.ELineStyle.LineStrip).line_to(v4.ZAxis.w1);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3794,11 +3879,13 @@ namespace Rylogic.UnitTests
 			builder.Line("a", 0xFF00FF00).arrow(LDraw.EArrowType.Fwd).strip(v4.Origin).line_to(v4.ZAxis.w1);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
 		public void TestCommands()
 		{
+			// Commands are control data, not geometry — skip View3d validation
 			var builder = new LDraw.Builder();
 			builder.Box("b", 0xFF00FF00).dim(1);
 			builder.Command()
@@ -3815,11 +3902,13 @@ namespace Rylogic.UnitTests
 			builder.Group("g", 0xFF00FF00u);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
 		public void TestBinaryInstance()
 		{
+			// Instance references a model that doesn't exist — skip View3d validation
 			var builder = new LDraw.Builder();
 			builder.Instance("i", 0xFFFF0000u).inst("model_ref");
 			var mem = builder.ToBinary().ToArray();
@@ -3833,6 +3922,7 @@ namespace Rylogic.UnitTests
 			builder.Text("t", 0xFF00FF00u).text("hello");
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3842,6 +3932,7 @@ namespace Rylogic.UnitTests
 			builder.LightSource("light", 0xFF00FF00u).style("Spot");
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3851,6 +3942,7 @@ namespace Rylogic.UnitTests
 			builder.Point("p", 0xFF00FF00u).pt(new v4(1, 2, 3, 1));
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3860,6 +3952,7 @@ namespace Rylogic.UnitTests
 			builder.LineBox("lb", 0xFF00FF00u).dim(2, 3, 4);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3869,6 +3962,7 @@ namespace Rylogic.UnitTests
 			builder.Grid("grid", 0xFF00FF00u).wh(10, 10).divisions(5, 5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3878,6 +3972,7 @@ namespace Rylogic.UnitTests
 			builder.CoordFrame("cf", 0xFF00FF00u).scale(2);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3887,6 +3982,7 @@ namespace Rylogic.UnitTests
 			builder.Circle("c", 0xFF00FF00u).radius(5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3896,6 +3992,7 @@ namespace Rylogic.UnitTests
 			builder.Pie("pie", 0xFF00FF00u).pie(0, 90, 0.5f, 1.5f);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3905,6 +4002,7 @@ namespace Rylogic.UnitTests
 			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3914,6 +4012,7 @@ namespace Rylogic.UnitTests
 			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3923,6 +4022,7 @@ namespace Rylogic.UnitTests
 			builder.Triangle("tri", 0xFF00FF00u).tri(v4.Origin, new v4(1, 0, 0, 1), new v4(0, 1, 0, 1));
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3932,6 +4032,7 @@ namespace Rylogic.UnitTests
 			builder.Quad("q", 0xFF00FF00u).quad(new v4(0, 0, 0, 1), new v4(1, 0, 0, 1), new v4(1, 1, 0, 1), new v4(0, 1, 0, 1));
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3941,6 +4042,7 @@ namespace Rylogic.UnitTests
 			builder.Plane("pl", 0xFF00FF00u).wh(5, 5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3950,6 +4052,7 @@ namespace Rylogic.UnitTests
 			builder.Ribbon("rib", 0xFF00FF00u).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 0, 0, 1)).width(0.5f);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3959,6 +4062,7 @@ namespace Rylogic.UnitTests
 			builder.Box("b", 0xFF00FF00u).dim(2, 3, 4);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3968,6 +4072,7 @@ namespace Rylogic.UnitTests
 			builder.BoxList("bl", 0xFF00FF00u).box(1, 1, 1, 0, 0, 0).box(2, 2, 2, 3, 0, 0);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3977,6 +4082,7 @@ namespace Rylogic.UnitTests
 			builder.Frustum("fr", 0xFF00FF00u).wh(4, 3).nf(1, 100);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3986,6 +4092,7 @@ namespace Rylogic.UnitTests
 			builder.Sphere("s", 0xFF00FF00u).radius(3);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -3995,6 +4102,7 @@ namespace Rylogic.UnitTests
 			builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4004,6 +4112,7 @@ namespace Rylogic.UnitTests
 			builder.Cone("cn", 0xFF00FF00u).angle(30).height(5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4013,6 +4122,7 @@ namespace Rylogic.UnitTests
 			builder.Tube("tube", 0xFF00FF00u).cross_section_round(0.5f).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1));
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4022,6 +4132,7 @@ namespace Rylogic.UnitTests
 			builder.Mesh("m", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).face(0, 1, 2);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4031,6 +4142,7 @@ namespace Rylogic.UnitTests
 			builder.ConvexHull("ch", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4041,6 +4153,7 @@ namespace Rylogic.UnitTests
 			chart.Series("plot", 0xFF0000FFu).xaxis("C0").yaxis("C1");
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 
 		[Test]
@@ -4050,6 +4163,7 @@ namespace Rylogic.UnitTests
 			builder.Equation("eq", 0xFF00FF00u).equation("sin(x)").resolution(100);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
 		}
 	}
 }
