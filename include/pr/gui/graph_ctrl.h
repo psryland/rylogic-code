@@ -442,7 +442,7 @@ namespace pr::gui
 			,m_base_xrange()
 			,m_base_yrange()
 			,m_zoom(1.0f)
-			,m_zoom_limits({pr::maths::tinyf, pr::maths::float_max})
+			,m_zoom_limits({maths::tiny<float>, limits<float>::max()})
 			,m_cur_arrow()
 			,m_cur_cross()
 			,m_cur_grab()
@@ -545,8 +545,8 @@ namespace pr::gui
 		// Call ResetToDefaultRange() to zoom the graph to this range
 		void FindDefaultRange()
 		{
-			auto xrng = AxisRange(pr::maths::float_max, -pr::maths::float_max);
-			auto yrng = AxisRange(pr::maths::float_max, -pr::maths::float_max);
+			auto xrng = AxisRange(pr::limits<float>::max(), -pr::limits<float>::max());
+			auto yrng = AxisRange(pr::limits<float>::max(), -pr::limits<float>::max());
 			for (auto& s : m_series)
 			{
 				if (m_rdr_cancel)
@@ -803,8 +803,8 @@ namespace pr::gui
 		{
 			auto plot = plot_area.Shifted(1,1).Adjust(0, 0, -1, -1);
 			scale = Point(plot.width()/m_xaxis.span(), plot.height()/m_yaxis.span());
-			if (!pr::IsFinite(scale.x)) scale.x = scale.x >= 0 ? pr::maths::float_max : -pr::maths::float_max;
-			if (!pr::IsFinite(scale.y)) scale.y = scale.y >= 0 ? pr::maths::float_max : -pr::maths::float_max;
+			if (!pr::IsFinite(scale.x)) scale.x = scale.x >= 0 ? pr::limits<float>::max() : -pr::limits<float>::max();
+			if (!pr::IsFinite(scale.y)) scale.y = scale.y >= 0 ? pr::limits<float>::max() : -pr::limits<float>::max();
 			c2g.SetElements(1.0f, 0.0f, 0.0f, -1.0f
 				,float(plot.left   - m_xaxis.min() * scale.x)
 				,float(plot.bottom + m_yaxis.min() * scale.y));

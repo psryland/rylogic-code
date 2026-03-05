@@ -195,6 +195,13 @@ namespace pr::math
 			FEql(lhs.lin, rhs.lin);
 	}
 
+	// True if 'v' contains NaN. 'any' controls whether to check if any component is NaN, or if all components are NaN.
+	template <ScalarType S, typename T>
+	constexpr bool pr_vectorcall IsNaN(Vec8<S, T> v, bool any = true) noexcept // false = all
+	{
+		return IsNaN(v.ang, any) || IsNaN(v.lin, any);
+	}
+
 	// Project a vector onto an axis. Loosely "dot(vec,axis)*axis"
 	template <ScalarType S, typename T>
 	constexpr inline Vec8<S, T> pr_vectorcall Proj(Vec8<S, T> vec, Vec4<S> axis) noexcept

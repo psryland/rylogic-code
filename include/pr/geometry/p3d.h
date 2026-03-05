@@ -2577,7 +2577,7 @@ namespace pr::geometry
 			mat.m_textures.push_back(tex);
 
 			p3d::Mesh mesh{ "tri" };
-			mesh.m_bbox = BBox{ v4Origin, v4{1, 3, 0, 0} };
+			mesh.m_bbox = BBox{ v4::Origin(), v4{1, 3, 0, 0} };
 			mesh.m_vert.assign({
 				v4{-1, -1, 0, 1},
 				v4{+1, -1, 0, 1},

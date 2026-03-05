@@ -125,7 +125,7 @@ namespace pr::physics
 			// A force through the CoM produces pure translation — no rotation.
 			// The 6x6 spatial inertia handles the coupling correctly.
 			auto o2w = rb.O2W();
-			PR_EXPECT(FEql(o2w.rot, m3x4Identity));
+			PR_EXPECT(FEql(o2w.rot, m3x4::Identity()));
 			PR_EXPECT(FEql(o2w.pos, v4{0.5f / mass,0,0,1}));
 
 			// Check the momentum

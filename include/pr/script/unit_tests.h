@@ -355,7 +355,7 @@ namespace pr::script
 			"abc\n"
 			"\tx";
 
-		Loc loc(L"", 0, 0, 1, 1, true, 4);
+		Loc loc(L"", strlen(str), 0, 0, 1, 1, true, 4);
 		for (auto s = str; *s; ++s)
 			loc.inc(*s);
 

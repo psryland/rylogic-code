@@ -51,7 +51,7 @@ namespace pr::geometry
 
 		auto z  = -height * 0.5f;
 		auto dz = height / layers;
-		auto da = float(maths::tau) / wedges;
+		auto da = float(constants<double>::tau) / wedges;
 		int verts_per_layer = wedges + 1;
 		int ibase = 0, last = vcount - 1;
 
@@ -77,7 +77,7 @@ namespace pr::geometry
 				auto a = da*w + (l%2)*da*0.5f;
 				pt = v4(cos(a) * r * xscale, sin(a) * r * yscale, z, 1.0f);
 				nm = v4::Normal(height * cos(a + da*0.5f) / xscale, height * sin(a + da*0.5f) / yscale ,nz ,0.0f);
-				uv = v2(a / float(maths::tau), 1.0f - (z + height*0.5f) / height);
+				uv = v2(a / float(constants<double>::tau), 1.0f - (z + height*0.5f) / height);
 				vout(pt, cc(*col++), nm, uv);
 			}
 			if (l != layers) z += dz;

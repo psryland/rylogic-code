@@ -21,7 +21,7 @@ void pr::ph::SphereVsSphere(Shape const& objA, m4x4 const& a2w, Shape const& obj
 
 	v4 b2a = a2w.pos - b2w.pos;
 	float b2a_len = Length(b2a);
-	if (b2a_len < maths::tinyf) { b2a_len = b2a.y = 0.001f; }
+	if (b2a_len < maths::tiny<float>) { b2a_len = b2a.y = 0.001f; }
 	float sep = b2a_len - shapeA.m_radius - shapeB.m_radius;
 	if (sep > 0.0f) return;
 

@@ -52,8 +52,8 @@ namespace pr::physics
 		auto Vn_inv = Dot(V_inv, c.m_axis) * c.m_axis;
 
 		// The collision inertia contribution by each object
-		auto col_Ia_inv = (1/objA.Mass()) * m3x4Identity - CPM(rA) * objA.InertiaInvOS().To3x3() * CPM(rA);
-		auto col_Ib_inv = (1/objB.Mass()) * m3x4Identity - CPM(rB) * objB.InertiaInvOS(c.m_b2a).To3x3() * CPM(rB);
+		auto col_Ia_inv = (1/objA.Mass()) * m3x4::Identity() - CPM(rA) * objA.InertiaInvOS().To3x3() * CPM(rA);
+		auto col_Ib_inv = (1/objB.Mass()) * m3x4::Identity() - CPM(rB) * objB.InertiaInvOS(c.m_b2a).To3x3() * CPM(rB);
 		auto col_I_inv = col_Ia_inv + col_Ib_inv;
 		auto col_I = Invert(col_I_inv);
 		
@@ -63,7 +63,7 @@ namespace pr::physics
 		// Get the impulse that would reduce the normal component of the relative velocity at 'pt' to zero
 		// Check denominator to avoid division by zero for degenerate collision configurations
 		auto denom = Dot(c.m_axis, col_I_inv * c.m_axis);
-		auto impulseN = Abs(denom) > maths::tinyf 
+		auto impulseN = Abs(denom) > maths::tiny<float> 
 			? -(Dot(c.m_axis, V_inv) / denom) * c.m_axis 
 			: v4{};
 
@@ -73,7 +73,7 @@ namespace pr::physics
 		#if PR_DBG
 		//{
 		//	// Assert that impulse0 would kill the relative velocity
-		//	auto imp = Shift(v8force{v4{}, impulse0}, v4Origin - pt);
+		//	auto imp = Shift(v8force{v4{}, impulse0}, v4::Origin() - pt);
 		//	auto velA_ws = (objA.InertiaInvWS() * (objA.O2W().rot * (objA.MomentumOS() +                       -imp)));
 		//	auto velB_ws = (objB.InertiaInvWS() * (objB.O2W().rot * (objB.MomentumOS() + InvertAffine(c.m_b2a) * +imp)));
 		//	
@@ -93,7 +93,7 @@ namespace pr::physics
 		// Limit the normal and tangential components of 'impulse' to the friction cone.
 		{
 			// Scale 0->1 to 0->inf, 0.5->1.0f. Clamp friction to avoid division by zero.
-			auto clamped_friction = pr::Min(c.m_mat.m_friction_static, 0.9999f);
+			auto clamped_friction = Min(c.m_mat.m_friction_static, 0.9999f);
 			auto static_friction = clamped_friction / (1.000001f - clamped_friction);
 
 			// If '|Jt|/|Jn|' (the ratio of tangential to normal magnitudes) is greater than static friction
@@ -101,7 +101,7 @@ namespace pr::physics
 			auto Jn = Dot(impulse4, c.m_axis);
 			
 			// Clamp to avoid sqrt of negative value due to floating point errors
-			auto Jt = Sqrt(pr::Max(0.0f, LengthSq(impulse4) - Sqr(Jn)));
+			auto Jt = Sqrt(Max(0.0f, LengthSq(impulse4) - Sqr(Jn)));
 			if (Jt > static_friction * Abs(Jn))
 			{
 				// Reduce the tangential component of the impulse
@@ -109,14 +109,14 @@ namespace pr::physics
 				
 				// Only normalize if impulseT has non-zero length
 				auto impulseT_lenSq = LengthSq(impulseT);
-				if (impulseT_lenSq > maths::tiny_sqf)
+				if (impulseT_lenSq > Sqr(maths::tiny<float>))
 					impulseT = Jt * (impulseT / Sqrt(impulseT_lenSq));
 				
 				impulse4 = (1 + c.m_mat.m_elasticity_norm) * impulseN + impulseT;
 			}
 		}
 
-		auto impulse = Shift(v8force{v4{}, impulse4}, v4Origin - pt);
+		auto impulse = Shift(v8force{v4{}, impulse4}, v4::Origin() - pt);
 
 		auto impulse_pair = ImpulsePair{};
 		impulse_pair.m_os_impulse_objA = -impulse;

@@ -363,7 +363,7 @@ namespace pr::hlsl
 	//float4 mul(float4 const& v, float4x4 const& m)
 	//{
 	//	m4x4(m.x, m.y, m.z, m.w);
-	//	return m * static_cast<v4 const&>(v);
+	//	return m * static_cast<v4>(v);
 	//}
 
 	struct SamplerState
@@ -428,7 +428,7 @@ namespace pr
 	};
 	template <> struct Convert<hlsl::float4, v4>
 	{
-		static hlsl::float4 Func(v4 const& v)
+		static hlsl::float4 Func(v4 v)
 		{
 			return hlsl::float4(v.x, v.y, v.z, v.w);
 		}

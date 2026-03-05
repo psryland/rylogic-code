@@ -24,7 +24,7 @@ namespace pr::app
 		// Constructs a gimble model and instance.
 		Gimble(Renderer& rdr)
 			:m_inst()
-			,m_ofs_pos(v4Zero)
+			,m_ofs_pos(v4::Zero())
 			,m_scale(1.0f)
 		{
 			InitModel(rdr);
@@ -47,12 +47,12 @@ namespace pr::app
 
 			Vert const verts[] =
 			{
-				{{-0.1f,  0.0f,  0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, v4Zero, v2Zero},
-				{{ 1.0f,  0.0f,  0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, v4Zero, v2Zero},
-				{{ 0.0f, -0.1f,  0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, v4Zero, v2Zero},
-				{{ 0.0f,  1.0f,  0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, v4Zero, v2Zero},
-				{{ 0.0f,  0.0f, -0.1f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, v4Zero, v2Zero},
-				{{ 0.0f,  0.0f,  1.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, v4Zero, v2Zero},
+				{{-0.1f,  0.0f,  0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, v4::Zero(), v2Zero},
+				{{ 1.0f,  0.0f,  0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, v4::Zero(), v2Zero},
+				{{ 0.0f, -0.1f,  0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, v4::Zero(), v2Zero},
+				{{ 0.0f,  1.0f,  0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, v4::Zero(), v2Zero},
+				{{ 0.0f,  0.0f, -0.1f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, v4::Zero(), v2Zero},
+				{{ 0.0f,  0.0f,  1.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, v4::Zero(), v2Zero},
 			};
 			uint16_t const indices[] =
 			{

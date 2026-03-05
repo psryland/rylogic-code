@@ -855,7 +855,7 @@ namespace pr
 		}
 		friend bool FEql(Matrix<Real> const& lhs, m4x4 const& rhs)
 		{
-			return FEqlRelative(lhs, rhs, maths::tinyf);
+			return FEqlRelative(lhs, rhs, maths::tiny<float>);
 		}
 		friend bool FEqlAbsolute(Matrix<Real> const& lhs, v4 rhs, float tol)
 		{
@@ -879,7 +879,7 @@ namespace pr
 		}
 		friend bool FEql(Matrix<Real> const& lhs, v4 rhs)
 		{
-			return FEqlRelative(lhs, rhs, maths::tinyf);
+			return FEqlRelative(lhs, rhs, maths::tiny<float>);
 		}
 
 		#pragma endregion
@@ -1708,7 +1708,7 @@ namespace pr::maths
 		}
 		PRUnitTestMethod(InvertTransposed)
 		{
-			auto M = Transpose4x4(m4x4(
+			auto M = Transpose(m4x4(
 				v4(1.0f, +2.0f, 3.0f, +1.0f),
 				v4(4.0f, -5.0f, 6.0f, +5.0f),
 				v4(7.0f, +8.0f, 9.0f, -9.0f),
@@ -1744,7 +1744,7 @@ namespace pr::maths
 			PR_EXPECT(FEql(m1, M1));
 
 			auto m2 = Transpose(m);
-			auto M2 = Transpose4x4(M);
+			auto M2 = Transpose(M);
 			PR_EXPECT(FEql(m2, M2));
 		}
 		PRUnitTestMethod(Multiply)

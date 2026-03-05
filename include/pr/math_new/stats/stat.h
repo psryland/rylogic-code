@@ -292,19 +292,19 @@ namespace pr::math
 			}
 			void Add(Type const& value) noexcept
 			{
-				if (m_count == static_cast<int>(m_window.size()))
+				if (m_count < static_cast<int>(m_window.size()))
+				{
+					++m_count;
+					auto diff = value - m_mean;
+					m_mean += diff * static_cast<Scalar>(1.0 / m_count);
+					*m_in++ = value;
+				}
+				else if (m_count != 0)
 				{
 					if (m_in == m_window.data() + m_window.size())
 						m_in = m_window.data();
 
 					auto diff = value - *m_in;
-					m_mean += diff * static_cast<Scalar>(1.0 / m_count);
-					*m_in++ = value;
-				}
-				else
-				{
-					++m_count;
-					auto diff = value - m_mean;
 					m_mean += diff * static_cast<Scalar>(1.0 / m_count);
 					*m_in++ = value;
 				}

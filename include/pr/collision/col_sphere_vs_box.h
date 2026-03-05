@@ -24,10 +24,10 @@ namespace pr::collision
 
 		// Convert into box space
 		// Box centre to sphere centre vector in box space
-		auto l2r = InvertAffine(r2w) * l2w.pos - v4Origin;
+		auto l2r = InvertAffine(r2w) * l2w.pos - v4::Origin();
 	
 		// Get a vector from the sphere to the nearest point on the box
-		auto closest = v4Zero;
+		auto closest = v4::Zero();
 		auto dist_sq = 0.0f;
 		for (int i = 0; i != 3; ++i)
 		{
@@ -49,7 +49,7 @@ namespace pr::collision
 	
 		// If 'dist_sq' is zero then the centre of the sphere is inside the box
 		// The separating axis is in one of the box axis directions
-		if (dist_sq < maths::tinyf)
+		if (dist_sq < maths::tiny<float>)
 		{
 			auto i = MaxElementIndex(Abs(l2r).xyz);
 
@@ -58,7 +58,7 @@ namespace pr::collision
 			pen(depth, [&]
 			{
 				// Find the separating axis
-				auto norm = v4Zero;
+				auto norm = v4::Zero();
 				norm[i] = Sign(l2r[i]);
 				return r2w * norm;
 			}, lhs.m_material_id, rhs.m_material_id);

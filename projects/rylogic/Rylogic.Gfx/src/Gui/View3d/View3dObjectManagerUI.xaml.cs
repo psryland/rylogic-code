@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -23,6 +23,7 @@ namespace Rylogic.Gui.WPF
 			PinState = new PinData(this, EPin.Centre, pinned: false);
 			ObjectManager = new View3d.ObjectManager(window, exclude ?? Array.Empty<Guid>());
 			ObjectsView = new ListCollectionView(ObjectManager.Objects);
+			ObjectsView.SortDescriptions.Add(new SortDescription(nameof(View3d.Object.Name), ListSortDirection.Ascending));
 
 			ApplyFilter = Command.Create(this, ApplyFilterInternal);
 			SetVisibility = Command.Create(this, SetVisibilityInternal);
@@ -100,7 +101,7 @@ namespace Rylogic.Gui.WPF
 					}
 
 					// If an object within this window has changed, refresh
-					if (ObjectManager.Window.HasObject(obj, search_children: false))
+					if (ObjectManager.Window.HasObject(obj, search_children: true))
 						ObjectManager.Window.Invalidate();
 				}
 			}
@@ -269,6 +270,12 @@ namespace Rylogic.Gui.WPF
 				text_box.Focus();
 				text_box.SelectAll();
 			}
+		}
+
+		/// <summary>Handles the eye toggle button click to force a 3D scene redraw</summary>
+		private void OnEyeToggleClick(object sender, RoutedEventArgs e)
+		{
+			Invalidate();
 		}
 
 		/// <inheritdoc/>

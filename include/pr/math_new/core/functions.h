@@ -1464,6 +1464,194 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) vec(res).w = Frac(vec(v).w);
 		return res;
 	}
+	
+	// Trigonometric/Hyperbolic functions and their inverses
+	template <ScalarTypeFP S> inline S Sin(S x) noexcept
+	{
+		return static_cast<S>(std::sin(x));
+	}
+	template <ScalarTypeFP S> inline S Cos(S x) noexcept
+	{
+		return static_cast<S>(std::cos(x));
+	}
+	template <ScalarTypeFP S> inline S Tan(S x) noexcept
+	{
+		return static_cast<S>(std::tan(x));
+	}
+	template <ScalarTypeFP S> inline S ASin(S x) noexcept
+	{
+		return static_cast<S>(std::asin(x));
+	}
+	template <ScalarTypeFP S> inline S ACos(S x) noexcept
+	{
+		return static_cast<S>(std::acos(x));
+	}
+	template <ScalarTypeFP S> inline S ATan(S x) noexcept
+	{
+		return static_cast<S>(std::atan(x));
+	}
+	template <ScalarTypeFP S> inline S ATan2(S y, S x) noexcept
+	{
+		return static_cast<S>(std::atan2(y, x));
+	}
+	template <ScalarTypeFP S> inline S Sinh(S x) noexcept
+	{
+		return static_cast<S>(std::sinh(x));
+	}
+	template <ScalarTypeFP S> inline S Cosh(S x) noexcept
+	{
+		return static_cast<S>(std::cosh(x));
+	}
+	template <ScalarTypeFP S> inline S Tanh(S x) noexcept
+	{
+		return static_cast<S>(std::tanh(x));
+	}
+	template <ScalarTypeFP S> inline S Exp(S x) noexcept
+	{
+		return static_cast<S>(std::exp(x));
+	}
+	template <ScalarTypeFP S> inline S Log(S x) noexcept
+	{
+		return static_cast<S>(std::log(x));
+	}
+	template <ScalarTypeFP S> inline S Log10(S x) noexcept
+	{
+		return static_cast<S>(std::log10(x));
+	}
+	template <ScalarTypeFP S> inline S Pow(S x, S y) noexcept
+	{
+		return static_cast<S>(std::pow(x, y));
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Sin(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Sin(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Sin(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Sin(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Sin(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Cos(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Cos(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Cos(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Cos(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Cos(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Tan(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Tan(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Tan(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Tan(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Tan(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall ASin(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = ASin(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = ASin(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = ASin(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = ASin(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall ACos(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = ACos(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = ACos(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = ACos(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = ACos(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall ATan(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = ATan(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = ATan(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = ATan(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = ATan(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall ATan2(Vec y, Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = ATan2(vec(y).x, vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = ATan2(vec(y).y, vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = ATan2(vec(y).z, vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = ATan2(vec(y).w, vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Sinh(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Sinh(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Sinh(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Sinh(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Sinh(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Cosh(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Cosh(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Cosh(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Cosh(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Cosh(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Tanh(Vec x) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Tanh(vec(x).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Tanh(vec(x).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Tanh(vec(x).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Tanh(vec(x).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Exp(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Exp(vec(v).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Exp(vec(v).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Exp(vec(v).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Exp(vec(v).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Log(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Log(vec(v).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Log(vec(v).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Log(vec(v).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Log(vec(v).w);
+		return res;
+	}
+	template <VectorTypeFP Vec> inline Vec pr_vectorcall Log10(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = Log10(vec(v).x);
+		if constexpr (vt::dimension > 1) vec(res).y = Log10(vec(v).y);
+		if constexpr (vt::dimension > 2) vec(res).z = Log10(vec(v).z);
+		if constexpr (vt::dimension > 3) vec(res).w = Log10(vec(v).w);
+		return res;
+	}
 
 	// Raise 'x' to an integer power
 	constexpr int Pow2(int n) noexcept
@@ -1474,22 +1662,6 @@ namespace pr::math
 	{
 		return y == 0 ? 1 : x * Pow(x, y - 1);
 	}
-	template <ScalarTypeFP S> inline S Pow(S x, S y) noexcept
-	{
-		return static_cast<S>(std::pow(x, y));
-	}
-	template <ScalarTypeFP S> inline S Exp(S x) noexcept
-	{
-		return static_cast<S>(std::exp(x));
-	}
-	template <ScalarTypeFP S> inline S Log10(S x) noexcept
-	{
-		return static_cast<S>(std::log10(x));
-	}
-	template <ScalarTypeFP S> inline S Log(S x) noexcept
-	{
-		return static_cast<S>(std::log(x));
-	}
 	template <TensorType Vec> constexpr Vec pr_vectorcall Pow(Vec v, int y) noexcept
 	{
 		using vt = vector_traits<Vec>;
@@ -1498,36 +1670,6 @@ namespace pr::math
 		if constexpr (vt::dimension > 1) vec(res).y = Pow(vec(v).y, y);
 		if constexpr (vt::dimension > 2) vec(res).z = Pow(vec(v).z, y);
 		if constexpr (vt::dimension > 3) vec(res).w = Pow(vec(v).w, y);
-		return res;
-	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall Exp(Vec v) noexcept
-	{
-		using vt = vector_traits<Vec>;
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = Exp(vec(v).x);
-		if constexpr (vt::dimension > 1) vec(res).y = Exp(vec(v).y);
-		if constexpr (vt::dimension > 2) vec(res).z = Exp(vec(v).z);
-		if constexpr (vt::dimension > 3) vec(res).w = Exp(vec(v).w);
-		return res;
-	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall Log10(Vec v) noexcept
-	{
-		using vt = vector_traits<Vec>;
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = Log10(vec(v).x);
-		if constexpr (vt::dimension > 1) vec(res).y = Log10(vec(v).y);
-		if constexpr (vt::dimension > 2) vec(res).z = Log10(vec(v).z);
-		if constexpr (vt::dimension > 3) vec(res).w = Log10(vec(v).w);
-		return res;
-	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall Log(Vec v, int y) noexcept
-	{
-		using vt = vector_traits<Vec>;
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = Log(vec(v).x);
-		if constexpr (vt::dimension > 1) vec(res).y = Log(vec(v).y);
-		if constexpr (vt::dimension > 2) vec(res).z = Log(vec(v).z);
-		if constexpr (vt::dimension > 3) vec(res).w = Log(vec(v).w);
 		return res;
 	}
 
@@ -2084,15 +2226,12 @@ namespace pr::math
 	}
 
 	// Vector triple product: a . b x c
-	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension == 3)
+	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 3)
 	constexpr typename vector_traits<Vec>::element_t Triple(Vec a, Vec b, Vec c) noexcept
 	{
+		// Cross product is only defined for 3D vectors so Triple4 doesn't make sense.
+		// Therefore, we don't need an overload for 4D vectors, Triple3 would be the same as Triple.
 		return Dot(a, Cross(b, c));
-	}
-	template <VectorType Vec> requires (IsRank1<Vec> && vector_traits<Vec>::dimension >= 3)
-	constexpr typename vector_traits<Vec>::element_t Triple3(Vec a, Vec b, Vec c) noexcept
-	{
-		return Dot3(a, Cross(b, c));
 	}
 
 	// Squared Length of a vector
@@ -2166,7 +2305,7 @@ namespace pr::math
 		}
 		else if constexpr (vt::dimension == 3)
 		{
-			return Triple3(vec(mat).x, vec(mat).y, vec(mat).z);
+			return Triple(vec(mat).x, vec(mat).y, vec(mat).z);
 		}
 		else if constexpr (vt::dimension == 4)
 		{
@@ -2346,7 +2485,7 @@ namespace pr::math
 		if constexpr (vt::dimension >= 2) if (Abs(LengthSq(vec(mat).y) - S(1)) > tol) return false;
 		if constexpr (vt::dimension >= 3) if (Abs(LengthSq(vec(mat).z) - S(1)) > tol) return false;
 		if constexpr (vt::dimension == 2) if (Abs(Determinant(mat) - S(1)) > tol) return false;
-		if constexpr (vt::dimension >= 3) if (Abs(Triple3(vec(mat).x, vec(mat).y, vec(mat).z) - S(1)) > tol) return false;
+		if constexpr (vt::dimension >= 3) if (Abs(Triple(vec(mat).x, vec(mat).y, vec(mat).z) - S(1)) > tol) return false;
 		return true;
 	}
 

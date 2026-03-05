@@ -521,7 +521,7 @@ namespace pr::script
 				if (kw == ETransformKeyword::Euler)
 				{
 					auto angles = Vector3(0.0f);
-					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4Origin) * p2w;
+					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Scale)
@@ -532,7 +532,7 @@ namespace pr::script
 				}
 				if (kw == ETransformKeyword::Transpose)
 				{
-					p2w = Transpose4x4(p2w);
+					p2w = Transpose(p2w);
 					continue;
 				}
 				if (kw == ETransformKeyword::Inverse)
@@ -588,7 +588,7 @@ namespace pr::script
 			int ival = 0, iarray[4];
 			unsigned int uival = 0;
 			float fval = 0.0f, farray[4];
-			pr::v4 vec = pr::v4Zero;
+			pr::v4 vec = pr::v4::Zero();
 			pr::quat q = pr::QuatIdentity;
 			pr::m3x4 mat3;
 			pr::m4x4 mat4;
@@ -633,7 +633,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "Quaternion");
 			PR_EXPECT(reader.Quaternion(q)               ,true); PR_EXPECT(pr::FEql(q, pr::quat(0.0f, -1.0f, -2.0f, -3.0f)), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M3x3");
-			PR_EXPECT(reader.Matrix3x3(mat3)             ,true); PR_EXPECT(pr::FEql(mat3, pr::m3x4Identity), true);
+			PR_EXPECT(reader.Matrix3x3(mat3)             ,true); PR_EXPECT(pr::FEql(mat3, pr::m3x4::Identity()), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M4x4");
 			PR_EXPECT(reader.Matrix4x4(mat4)             ,true); PR_EXPECT(pr::FEql(mat4, pr::m4x4::Identity()), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "Data");

@@ -39,7 +39,7 @@ namespace pr
 				v4 p2(x + 0.01f, 0.0f, z, 0.0f);
 				p1.y = Eval(p1.x, p1.z);
 				p2.y = Eval(p2.x, p2.z);
-				return Normalise(Cross3(p1 - p0, p2 - p0));
+				return Normalise(Cross(p1 - p0, p2 - p0));
 			}
 			
 			void CollideSpheres(terrain::Sample* points, std::size_t num_points, TerrainContact terrain_contact_cb, void* context)

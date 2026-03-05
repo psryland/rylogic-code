@@ -44,7 +44,7 @@ namespace pr::geometry
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		int index = 0;
 		auto pt = points.data();
@@ -71,7 +71,7 @@ namespace pr::geometry
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		int index = 0;
 		for (int i = 0; i != num_lines; ++i, ++points, ++directions, ++col)
@@ -97,7 +97,7 @@ namespace pr::geometry
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		auto index = 0;
 		for (int i = 0; i != num_lines + 1; ++i, ++points, ++col)

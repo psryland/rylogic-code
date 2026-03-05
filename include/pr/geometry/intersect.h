@@ -233,7 +233,7 @@ namespace pr::geometry::intersect
 		bary.y *= denom;
 		bary.z *= denom; // w = 1.0f - u - v;
 		front_to_back = (denom > 0.0f) * 2.0f - 1.0f;
-		return bary.x > -maths::tinyf && bary.y > -maths::tinyf && bary.z > -maths::tinyf;
+		return bary.x > -maths::tiny<float> && bary.y > -maths::tiny<float> && bary.z > -maths::tiny<float>;
 	}
 
 	// DEPRECATED
@@ -248,7 +248,7 @@ namespace pr::geometry::intersect
 		v4 es = -d;
 
 		// Compute triangle normal.
-		v4 n = Cross3(ab, ac);
+		v4 n = Cross(ab, ac);
 
 		// Compute denominator d. If d == 0, the line is parallel to the triangle, so exit early
 		float denom = Dot3(es, n);
@@ -268,7 +268,7 @@ namespace pr::geometry::intersect
 		if (T > denom * tmax) return false;
 
 		// Compute barycentric coordinate components and test if within bounds
-		v4 f = Cross3(es, as);
+		v4 f = Cross(es, as);
 		v4 Bary;
 		Bary.y = +sign * Dot3(ac, f); if (Bary.y < 0.0f || Bary.y          > denom) return false;
 		Bary.z = -sign * Dot3(ab, f); if (Bary.z < 0.0f || Bary.y + Bary.z > denom) return false;
@@ -290,7 +290,7 @@ namespace pr::geometry::intersect
 	inline bool pr_vectorcall RayVsSphere(v4 s, v4 d, float radius, float& tmin, float& tmax)
 	{
 		auto d_sq = Dot(d, d);
-		if (d_sq < maths::tinyf)
+		if (d_sq < maths::tiny<float>)
 			return false; // zero length line
 
 		// Find the closest point to the line
@@ -372,10 +372,10 @@ namespace pr::geometry::intersect
 		float d0 = distance::PointToPlane(s, plane);
 		float d1 = distance::PointToPlane(s+d, plane);
 
-		if (Abs(d0) > maths::tinyf)
+		if (Abs(d0) > maths::tiny<float>)
 		{
 			float dist = d1 - d0;
-			if (Abs(dist) < maths::tinyf)
+			if (Abs(dist) < maths::tiny<float>)
 				return false; // Line and plane are parallel
 
 			t = -d0 / dist; // Use similar triangles to find 't'
@@ -436,9 +436,9 @@ namespace pr::geometry::intersect
 
 		// Add in an epsilon term to counteract arithmetic errors when segment is
 		// (near) parallel to a coordinate axis
-		adx += maths::tinyf;
-		ady += maths::tinyf;
-		adz += maths::tinyf;
+		adx += maths::tiny<float>;
+		ady += maths::tiny<float>;
+		adz += maths::tiny<float>;
 
 		// Try cross products of segment direction vector with coordinate axes
 		// This might be wrong. Compare with 'ClosestPoint_LineSegmentToBBox'
@@ -457,7 +457,7 @@ namespace pr::geometry::intersect
 	inline bool pr_vectorcall LineVsSlab(v4 norm, float dist1, float dist2, v4 s, v4 e, v4& s_out, v4& e_out)
 	{
 		assert(dist1 <= dist2);
-		auto plane = plane::make(norm, dist1);
+		auto plane = Plane(norm, dist1);
 
 		float slab_width = dist2 - dist1;
 		float d1 = distance::PointToPlane(s, plane);
@@ -508,7 +508,7 @@ namespace pr::geometry::intersect
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tinyf);
+		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
@@ -618,7 +618,7 @@ namespace pr::geometry::intersect
 			auto planes = PR_ALLOCA_POD(pr::Plane, count0);
 		for (auto i = 0; i != count0; ++i)
 		{
-			planes[i] = Cross3(norm, poly0[i] - poly0[i - 1]);
+			planes[i] = Cross(norm, poly0[i] - poly0[i - 1]);
 			planes[i].w = Dot3(planes[i]
 		}
 

@@ -30,8 +30,8 @@ namespace pr
 		BBox&	CalcBBox			(ShapeCylinder const& shape, BBox& bbox);
 		MassProperties& CalcMassProperties	(ShapeCylinder const& shape, float density, MassProperties& mp);
 		void			ShiftCentre			(ShapeCylinder& shape, v4& shift);
-		v4				SupportVertex		(ShapeCylinder const& shape, v4 const& direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
-		void			ClosestPoint		(ShapeCylinder const& shape, v4 const& point, float& distance, v4& closest);
+		v4				SupportVertex		(ShapeCylinder const& shape, v4 direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
+		void			ClosestPoint		(ShapeCylinder const& shape, v4 point, float& distance, v4& closest);
 	}
 }
 

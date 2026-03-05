@@ -294,8 +294,8 @@ namespace pr::maths
 			// "S" curve
 			{
 				auto q0 = quat(0, 0, 0, 1);
-				auto q1 = quat(v4::ZAxis(), maths::tau_by_4f); // 90 about Z
-				auto w0 = v4(0, maths::tau_by_4f, 0, 0);       // 90 deg/s about Y
+				auto q1 = quat(v4::ZAxis(), constants<float>::tau_by_4); // 90 about Z
+				auto w0 = v4(0, constants<float>::tau_by_4, 0, 0);       // 90 deg/s about Y
 				auto w1 = v4(0, 0, 0, 0);
 				InterpolateRotation interp(q0, w0, q1, w1, 1.0f);
 				auto Q0 = interp.Eval(0);
@@ -323,7 +323,7 @@ namespace pr::maths
 			{
 				for (float w = 0.0f; w < 10.f; w += 0.5f)
 				{
-					auto q0 = quat(v4::ZAxis(), maths::tau_by_4f);
+					auto q0 = quat(v4::ZAxis(), constants<float>::tau_by_4);
 					auto w0 = v4(0, 0, w, 0);
 					InterpolateRotation interp(q0, w0, q0, w0, 1.0f);
 					auto Q0 = interp.Eval(0);

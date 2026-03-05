@@ -46,11 +46,11 @@ namespace pr::app
 
 		// Constructs a sky box model and instance.
 		// 'texpath' should be an unrolled cube texture
-		Skybox(rdr12::Renderer& rdr, std::filesystem::path const& texpath, EStyle tex_style, float scale = 100.0f, m3x4 const& ori = m3x4Identity)
+		Skybox(rdr12::Renderer& rdr, std::filesystem::path const& texpath, EStyle tex_style, float scale = 100.0f, m3x4 const& ori = m3x4::Identity())
 			:m_inst()
 			,m_tex()
 			,m_scale(scale)
-			,m_i2w(ori, v4Origin)
+			,m_i2w(ori, v4::Origin())
 		{
 			switch (tex_style)
 			{
@@ -68,7 +68,7 @@ namespace pr::app
 		// Add the sky box to a viewport
 		void AddToScene(rdr12::Scene& scene)
 		{
-			m_inst.m_i2w = m_i2w * m4x4::Scale(m_scale, v4Origin);
+			m_inst.m_i2w = m_i2w * m4x4::Scale(m_scale, v4::Origin());
 			m_inst.m_i2w.pos = scene.m_cam.CameraToWorld().pos;
 			scene.AddInstance(m_inst);
 		}
@@ -102,18 +102,18 @@ namespace pr::app
 			float const s = 0.5f;
 			static Vert const verts[] =
 			{
-				{{-s,  s,  s, 1}, ColourWhite, v4Zero, { 0.25f, 0.25f}}, //0
-				{{-s,  s, -s, 1}, ColourWhite, v4Zero, { 0.25f, 0.75f}}, //1
-				{{ s,  s, -s, 1}, ColourWhite, v4Zero, { 0.75f, 0.75f}}, //2
-				{{ s,  s,  s, 1}, ColourWhite, v4Zero, { 0.75f, 0.25f}}, //3
-				{{-s, -s,  s, 1}, ColourWhite, v4Zero, {-0.25f, 0.25f}}, //4
-				{{-s, -s, -s, 1}, ColourWhite, v4Zero, {-0.25f, 0.75f}}, //5
-				{{-s, -s, -s, 1}, ColourWhite, v4Zero, { 0.25f, 1.25f}}, //6
-				{{ s, -s, -s, 1}, ColourWhite, v4Zero, { 0.75f, 1.25f}}, //7
-				{{ s, -s, -s, 1}, ColourWhite, v4Zero, { 1.25f, 0.75f}}, //8
-				{{ s, -s,  s, 1}, ColourWhite, v4Zero, { 1.25f, 0.25f}}, //9
-				{{ s, -s,  s, 1}, ColourWhite, v4Zero, { 0.75f,-0.25f}}, //10
-				{{-s, -s,  s, 1}, ColourWhite, v4Zero, { 0.25f,-0.25f}}, //11
+				{{-s,  s,  s, 1}, ColourWhite, v4::Zero(), { 0.25f, 0.25f}}, //0
+				{{-s,  s, -s, 1}, ColourWhite, v4::Zero(), { 0.25f, 0.75f}}, //1
+				{{ s,  s, -s, 1}, ColourWhite, v4::Zero(), { 0.75f, 0.75f}}, //2
+				{{ s,  s,  s, 1}, ColourWhite, v4::Zero(), { 0.75f, 0.25f}}, //3
+				{{-s, -s,  s, 1}, ColourWhite, v4::Zero(), {-0.25f, 0.25f}}, //4
+				{{-s, -s, -s, 1}, ColourWhite, v4::Zero(), {-0.25f, 0.75f}}, //5
+				{{-s, -s, -s, 1}, ColourWhite, v4::Zero(), { 0.25f, 1.25f}}, //6
+				{{ s, -s, -s, 1}, ColourWhite, v4::Zero(), { 0.75f, 1.25f}}, //7
+				{{ s, -s, -s, 1}, ColourWhite, v4::Zero(), { 1.25f, 0.75f}}, //8
+				{{ s, -s,  s, 1}, ColourWhite, v4::Zero(), { 1.25f, 0.25f}}, //9
+				{{ s, -s,  s, 1}, ColourWhite, v4::Zero(), { 0.75f,-0.25f}}, //10
+				{{-s, -s,  s, 1}, ColourWhite, v4::Zero(), { 0.25f,-0.25f}}, //11
 			};
 			static uint16_t const indices[] =
 			{
@@ -146,30 +146,30 @@ namespace pr::app
 			constexpr float s = 0.5f, t0 = 0.0f, t1 = 1.0f;
 			static Vert const verts[] =
 			{
-				{{+s, +s, -s, 1}, ColourWhite, v4Zero, {t0, t0}}, //  0 // +X
-				{{+s, -s, -s, 1}, ColourWhite, v4Zero, {t0, t1}}, //  1
-				{{+s, -s, +s, 1}, ColourWhite, v4Zero, {t1, t1}}, //  2
-				{{+s, +s, +s, 1}, ColourWhite, v4Zero, {t1, t0}}, //  3
-				{{-s, +s, +s, 1}, ColourWhite, v4Zero, {t0, t0}}, //  4 // -X
-				{{-s, -s, +s, 1}, ColourWhite, v4Zero, {t0, t1}}, //  5
-				{{-s, -s, -s, 1}, ColourWhite, v4Zero, {t1, t1}}, //  6
-				{{-s, +s, -s, 1}, ColourWhite, v4Zero, {t1, t0}}, //  7
-				{{+s, +s, +s, 1}, ColourWhite, v4Zero, {t0, t0}}, //  8 // +Y
-				{{-s, +s, +s, 1}, ColourWhite, v4Zero, {t0, t1}}, //  9
-				{{-s, +s, -s, 1}, ColourWhite, v4Zero, {t1, t1}}, // 10
-				{{+s, +s, -s, 1}, ColourWhite, v4Zero, {t1, t0}}, // 11
-				{{+s, -s, -s, 1}, ColourWhite, v4Zero, {t0, t0}}, // 12 // -Y
-				{{-s, -s, -s, 1}, ColourWhite, v4Zero, {t0, t1}}, // 13
-				{{-s, -s, +s, 1}, ColourWhite, v4Zero, {t1, t1}}, // 14
-				{{+s, -s, +s, 1}, ColourWhite, v4Zero, {t1, t0}}, // 15
-				{{+s, +s, +s, 1}, ColourWhite, v4Zero, {t0, t0}}, // 16 // +Z
-				{{+s, -s, +s, 1}, ColourWhite, v4Zero, {t0, t1}}, // 17
-				{{-s, -s, +s, 1}, ColourWhite, v4Zero, {t1, t1}}, // 18
-				{{-s, +s, +s, 1}, ColourWhite, v4Zero, {t1, t0}}, // 19
-				{{-s, +s, -s, 1}, ColourWhite, v4Zero, {t0, t0}}, // 20 // -Z
-				{{-s, -s, -s, 1}, ColourWhite, v4Zero, {t0, t1}}, // 21
-				{{+s, -s, -s, 1}, ColourWhite, v4Zero, {t1, t1}}, // 22
-				{{+s, +s, -s, 1}, ColourWhite, v4Zero, {t1, t0}}, // 23
+				{{+s, +s, -s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, //  0 // +X
+				{{+s, -s, -s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, //  1
+				{{+s, -s, +s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, //  2
+				{{+s, +s, +s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, //  3
+				{{-s, +s, +s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, //  4 // -X
+				{{-s, -s, +s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, //  5
+				{{-s, -s, -s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, //  6
+				{{-s, +s, -s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, //  7
+				{{+s, +s, +s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, //  8 // +Y
+				{{-s, +s, +s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, //  9
+				{{-s, +s, -s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, // 10
+				{{+s, +s, -s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, // 11
+				{{+s, -s, -s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, // 12 // -Y
+				{{-s, -s, -s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, // 13
+				{{-s, -s, +s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, // 14
+				{{+s, -s, +s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, // 15
+				{{+s, +s, +s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, // 16 // +Z
+				{{+s, -s, +s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, // 17
+				{{-s, -s, +s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, // 18
+				{{-s, +s, +s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, // 19
+				{{-s, +s, -s, 1}, ColourWhite, v4::Zero(), {t0, t0}}, // 20 // -Z
+				{{-s, -s, -s, 1}, ColourWhite, v4::Zero(), {t0, t1}}, // 21
+				{{+s, -s, -s, 1}, ColourWhite, v4::Zero(), {t1, t1}}, // 22
+				{{+s, +s, -s, 1}, ColourWhite, v4::Zero(), {t1, t0}}, // 23
 			};
 			static uint16_t const indices[] =
 			{

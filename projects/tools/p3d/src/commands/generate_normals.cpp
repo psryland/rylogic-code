@@ -23,7 +23,7 @@ void DoGenNorms(p3d::Mesh& mesh, float smoothing_angle, p3d::Nugget& nug, VIdx* 
 		{
 			return mesh.m_vert[idx];
 		},
-		[&](int new_idx, int orig_idx, v4 const& normal) // vout()
+		[&](int new_idx, int orig_idx, v4 normal) // vout()
 		{
 			// Copy the vert at 'orig_idx' to 'new_idx' and set its normal to 'normal'
 			assert(s_cast<size_t>(new_idx) <= mesh.m_vert.size());

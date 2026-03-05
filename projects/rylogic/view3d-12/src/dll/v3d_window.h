@@ -201,10 +201,10 @@ namespace pr::rdr12
 		void ResetView();
 
 		// Reset the scene camera to view all objects in the scene
-		void ResetView(v4 const& forward, v4 const& up, float dist = 0.0f, bool preserve_aspect = true, bool commit = true);
+		void ResetView(v4 forward, v4 up, float dist = 0.0f, bool preserve_aspect = true, bool commit = true);
 
 		// Reset the camera to view a bbox
-		void ResetView(BBox const& bbox, v4 const& forward, v4 const& up, float dist = 0.0f, bool preserve_aspect = true, bool commit = true);
+		void ResetView(BBox const& bbox, v4 forward, v4 up, float dist = 0.0f, bool preserve_aspect = true, bool commit = true);
 
 		// General mouse navigation
 		// 'ss_pos' is the mouse pointer position in 'window's screen space

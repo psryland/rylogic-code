@@ -16,7 +16,7 @@ namespace pr::math
 	struct Mat4x4
 	{
 		// Notes:
-		//  - Don't add Mat4x4(v4 const& v) or equivalent. It's ambiguous between being this:
+		//  - Don't add Mat4x4(v4 v) or equivalent. It's ambiguous between being this:
 		//    x = v4(v.x, v.x, v.x, v.x), y = v4(v.y, v.y, v.y, v.y), etc and
 		//    x = v4(v.x, v.y, v.z, v.w), y = v4(v.x, v.y, v.z, v.w), etc...
 

@@ -225,7 +225,7 @@ namespace pr::rdr12
 		}
 				
 		auto c2s_optional = inst.find<m4x4>(EInstComp::C2SOptional);
-		if (c2s_optional && c2s_optional->x != v4Zero)
+		if (c2s_optional && c2s_optional->x != v4::Zero())
 		{
 			camera_to_screen = *c2s_optional;
 			return true;

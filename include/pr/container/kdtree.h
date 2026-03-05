@@ -640,9 +640,9 @@ namespace pr::container
 			{
 				auto sep = Length(p.xy - centre);
 				if (results.find(p) != std::end(results))
-					PR_EXPECT(sep <= radius + maths::tinyf);
+					PR_EXPECT(sep <= radius + maths::tiny<float>);
 				else
-					PR_EXPECT(sep >= radius - maths::tinyf);
+					PR_EXPECT(sep >= radius - maths::tiny<float>);
 			}
 		}
 		void CheckNearest(std::vector<Pt> const& points, v2 centre, float radius, std::vector<KDTree::Neighbour> const& nearest)
@@ -744,8 +744,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tinyf);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tinyf);
+						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
 					}
 				);
 
@@ -892,8 +892,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(std::sqrt(dist_sq) < search_radius + maths::tinyf);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tinyf);
+						PR_EXPECT(std::sqrt(dist_sq) < search_radius + maths::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
 					}
 				);
 
@@ -995,8 +995,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tinyf);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tinyf);
+						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
 					}
 				);
 

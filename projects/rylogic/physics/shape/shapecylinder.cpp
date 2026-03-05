@@ -25,7 +25,7 @@ ShapeCylinder& ShapeCylinder::set(float radius, float height, const m4x4& shape_
 // Return the bounding box for the shape
 BBox& pr::ph::CalcBBox(ShapeCylinder const& shape, BBox& bbox)
 {
-	bbox.m_centre = v4Origin;
+	bbox.m_centre = v4::Origin();
 	bbox.m_radius.x = shape.m_radius;
 	bbox.m_radius.y = shape.m_height;
 	bbox.m_radius.z = shape.m_radius;	// TODO, make the main axis of the cylinder the z axis
@@ -36,11 +36,11 @@ BBox& pr::ph::CalcBBox(ShapeCylinder const& shape, BBox& bbox)
 // Return the mass properties
 MassProperties& pr::ph::CalcMassProperties(ShapeCylinder const& shape, float density, MassProperties& mp)
 {
-	auto volume = float(maths::tau * shape.m_radius * shape.m_radius * shape.m_height);
+	auto volume = float(constants<double>::tau * shape.m_radius * shape.m_radius * shape.m_height);
 
-	mp.m_centre_of_mass = v4Zero;
+	mp.m_centre_of_mass = v4::Zero();
 	mp.m_mass = volume * density;
-	mp.m_os_inertia_tensor		= m3x4Identity;	// Note for shell, Ixx = Iyy = (1/2)mr^2 + (1/12)mL^2, Izz = mr^2
+	mp.m_os_inertia_tensor		= m3x4::Identity();	// Note for shell, Ixx = Iyy = (1/2)mr^2 + (1/12)mL^2, Izz = mr^2
 	mp.m_os_inertia_tensor.x.x	= (1.0f / 4.0f) * (shape.m_radius * shape.m_radius) + (1.0f / 3.0f) * (shape.m_height * shape.m_height);	// (1/4)mr^2 + (1/12)mL^2
 	mp.m_os_inertia_tensor.y.y	= (1.0f / 2.0f) * (shape.m_radius * shape.m_radius);	// (1/2)mr^2
 	mp.m_os_inertia_tensor.z.z	= mp.m_os_inertia_tensor.x.x;
@@ -50,11 +50,11 @@ MassProperties& pr::ph::CalcMassProperties(ShapeCylinder const& shape, float den
 // Shift the centre of a cylinder
 void pr::ph::ShiftCentre(ShapeCylinder&, v4& shift)
 {
-	PR_ASSERT(PR_DBG_PHYSICS, FEql(shift,pr::v4Zero), ""); (void)shift; //impossible to shift the centre of an implicit object
+	PR_ASSERT(PR_DBG_PHYSICS, FEql(shift,pr::v4::Zero()), ""); (void)shift; //impossible to shift the centre of an implicit object
 }
 
 // Return a support vertex for the shape
-v4 pr::ph::SupportVertex(ShapeCylinder const& shape, v4 const& direction, std::size_t, std::size_t& sup_vert_id)
+v4 pr::ph::SupportVertex(ShapeCylinder const& shape, v4 direction, std::size_t, std::size_t& sup_vert_id)
 {
 	PR_DECLARE_PROFILE(PR_PROFILE_SUPPORT_VERTS, phSupVertCyl);
 	PR_PROFILE_SCOPE(PR_PROFILE_SUPPORT_VERTS, phSupVertCyl);
@@ -87,7 +87,7 @@ v4 pr::ph::SupportVertex(ShapeCylinder const& shape, v4 const& direction, std::s
 
 // Find the nearest point and distance from a point to a shape
 // 'shape' and 'point' are in the same space
-void pr::ph::ClosestPoint(ShapeCylinder const& shape, v4 const& point, float& distance, v4& closest)
+void pr::ph::ClosestPoint(ShapeCylinder const& shape, v4 point, float& distance, v4& closest)
 {
 	closest  = point;
 	distance = 0.0f; // Accumulate distance squared

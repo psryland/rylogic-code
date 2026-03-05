@@ -72,7 +72,7 @@ namespace pr::math
 
 	// Concept for a vector-like container template
 	template <template <typename...> class C, typename T>
-	concept VectorLike = requires(C<T>& c, T const& val)
+	concept StdContainer = requires(C<T>& c, T const& val)
 	{
 		{ c.push_back(val) };
 		{ c.size() } -> std::convertible_to<std::size_t>;
@@ -80,7 +80,7 @@ namespace pr::math
 		c.begin();
 		c.end();
 	};
-	static_assert(VectorLike<std::vector, int>, "std::vector should satisfy VectorLike");
+	static_assert(StdContainer<std::vector, int>, "std::vector should satisfy StdContainer");
 
 	// Forward declarations
 	template <ScalarType S> struct Vec2;

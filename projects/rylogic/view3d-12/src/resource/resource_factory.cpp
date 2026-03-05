@@ -251,7 +251,7 @@ namespace pr::rdr12
 					0, 1, 2, 0, 2, 3
 				};
 				constexpr BBox bbox = {
-					v4Origin,
+					v4::Origin(),
 					v4(1, 1, 0, 0)
 				};
 
@@ -281,7 +281,7 @@ namespace pr::rdr12
 					0, 4, 1, 5, 2, 6, 3, 7,
 				};
 				constexpr BBox bbox = {
-					v4Origin,
+					v4::Origin(),
 					v4(1, 1, 1, 0)
 				};
 
@@ -352,7 +352,7 @@ namespace pr::rdr12
 					28, 29, 28, 30, 28, 31,
 				};
 				constexpr BBox bbox = {
-					v4Origin,
+					v4::Origin(),
 					v4(1, 1, 1, 0)
 				};
 

@@ -129,7 +129,7 @@ namespace pr::physics
 		// Extrapolate the position based on the current momentum and forces
 		m4x4 O2W(float dt) const
 		{
-			return Abs(dt) > maths::tinyf
+			return Abs(dt) > maths::tiny<float>
 				? ExtrapolateO2W(O2W(), MomentumWS(), ForceWS(), InertiaInvWS(), dt)
 				: O2W();
 		}
@@ -286,7 +286,7 @@ namespace pr::physics
 		}
 
 		// Add a force acting on the rigid body at position 'at' (world space, object origin relative, not CoM relative)
-		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4Zero)
+		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4::Zero())
 		{
 			assert("'at' should be an offset (in world space) from the object origin" && ws_at.w == 0);
 			auto spatial_force = v8force{ws_torque, ws_force};
@@ -299,7 +299,7 @@ namespace pr::physics
 		}
 
 		// Add a force acting on the rigid body at position 'at' (object space, not CoM relative)
-		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4Zero)
+		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4::Zero())
 		{
 			assert("'at' should be an offset (in object space) from the object origin" && os_at.w == 0);
 			auto o2w = O2W();

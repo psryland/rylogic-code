@@ -87,7 +87,7 @@ namespace pr::rdr12
 			static float SX = 1.0f;
 			static float SY = 1.0f;
 			static float SZ = 1.0f;
-			auto lsp2ls = m4x4::Transform(From, To, v4{0, 0, Z, 1}) * m4x4::Scale(SX, SY, SZ, v4Origin);
+			auto lsp2ls = m4x4::Transform(From, To, v4{0, 0, Z, 1}) * m4x4::Scale(SX, SY, SZ, v4::Origin());
 
 			// World to perspective skewed light space to light space
 			auto w2ls = lsp2ls * lsp * w2lsp;
@@ -141,7 +141,7 @@ namespace pr::rdr12
 			// Create a projection that encloses the scene bounds. This is basically "c2s"
 			auto zn = Abs(ls_bounds.Centre().z + ls_bounds.Radius().z);
 			auto zf = Abs(ls_bounds.Centre().z - ls_bounds.Radius().z);
-			if (zf - zn < maths::tinyf) zf = zn + 1.0f;
+			if (zf - zn < maths::tiny<float>) zf = zn + 1.0f;
 			auto ls2s = m_light->Projection(zn, zf, ls_bounds.SizeX(), ls_bounds.SizeY(), Length(ls_bounds.Centre() - l2w.pos));
 			m_params.m_ls2s = ls2s;
 

@@ -40,16 +40,16 @@ namespace pr
 				,m_cyl_pos(b2w.pos)
 				,m_cyl_axis(b2w.y)
 				,m_diff(b2w.pos - a2w.pos)
-				,m_penetration(maths::float_max)
+				,m_penetration(limits<float>::max())
 				{}
 
 				ShapeBox const&		 m_box;
 				m4x4 const&			 m_a2w;
 				ShapeCylinder const& m_cyl;
 				m4x4 const&			 m_b2w;
-				v4 const&			 m_box_pos;
-				v4 const&			 m_cyl_pos;
-				v4 const&			 m_cyl_axis;
+				v4			 m_box_pos;
+				v4			 m_cyl_pos;
+				v4			 m_cyl_axis;
 				v4					 m_diff;
 				v4					 m_axis;		// The collision normal
 				v4					 m_pointA;		// The point of contact on object A (box)
@@ -79,9 +79,9 @@ namespace pr
 
 				// Find the nearest point on the cylinder
 				v4 cyl_point = data.m_cyl_pos - (Sign(ratio) * data.m_cyl.m_height) * data.m_cyl_axis;
-				if (1.0f - cos_angle > maths::tinyf)
+				if (1.0f - cos_angle > maths::tiny<float>)
 				{
-					v4 radius = Normalise(Cross3(data.m_cyl_axis, Cross3(data.m_cyl_axis, sep_axis)));
+					v4 radius = Normalise(Cross(data.m_cyl_axis, Cross(data.m_cyl_axis, sep_axis)));
 					cyl_point += data.m_cyl.m_radius * radius;
 					data.m_penetration = depth;
 					data.m_axis = -sep_axis;
@@ -157,12 +157,12 @@ namespace pr
 				{
 					float d = Dot3(data.m_a2w[i], sep_axis);
 					float r = data.m_box.m_radius[i];
-					if (d < -maths::tinyf)
+					if (d < -maths::tiny<float>)
 					{
 						depth -= d * r;
 						point -= r * data.m_a2w[i];
 					}
-					else if (d > maths::tinyf)
+					else if (d > maths::tiny<float>)
 					{
 						depth += d * r;
 						point += r * data.m_a2w[i];
@@ -192,9 +192,9 @@ namespace pr
 			// Test the edges of the box against the wall of the cylinder
 			bool TestCylWall(Overlap& data, uint32_t i)
 			{
-				v4 sep_axis = Cross3(data.m_a2w[i], data.m_cyl_axis);
-				if (FEql(sep_axis, v4Zero)) sep_axis = data.m_diff - Dot3(data.m_diff, data.m_cyl_axis) * data.m_cyl_axis;
-				if (FEql(sep_axis, v4Zero)) return true;
+				v4 sep_axis = Cross(data.m_a2w[i], data.m_cyl_axis);
+				if (FEql(sep_axis, v4::Zero())) sep_axis = data.m_diff - Dot3(data.m_diff, data.m_cyl_axis) * data.m_cyl_axis;
+				if (FEql(sep_axis, v4::Zero())) return true;
 				sep_axis = Normalise(sep_axis);
 
 				uint32_t j = (i+1)%3;
@@ -243,7 +243,7 @@ namespace pr
 				v4 c = c0 + t1 * (c1 - c0);
 				v4 saxis = c - b;
 				if( Dot3(saxis, sep_axis) < 0.0f ) saxis = -saxis;
-				if( FEql(saxis, v4Zero) ) saxis = sep_axis;
+				if( FEql(saxis, v4::Zero()) ) saxis = sep_axis;
 				sep_axis = Normalise(saxis);
 
 				data.m_penetration	= depth;
@@ -319,8 +319,8 @@ namespace pr
 
 				// Refine the separating axis to the vector that is perpendicular to both the nearest
 				// box edge and the tangent to the cylinder at 'point'
-				sep_axis = Cross3(data.m_a2w[i], Cross3(point - data.m_cyl_pos, cyl_axis));
-				if( FEql(sep_axis,pr::v4Zero) )	return true;
+				sep_axis = Cross(data.m_a2w[i], Cross(point - data.m_cyl_pos, cyl_axis));
+				if( FEql(sep_axis,pr::v4::Zero()) )	return true;
 				sep_axis = Normalise(sep_axis);
 				if( Dot3(sep_axis, data.m_cyl_pos - point) < 0.0f ) sep_axis = -sep_axis; // 'sep_axis' pointing from A to B
 				PR_EXPAND(PR_DBG_BOX_CYL_COLLISION, StartFile("C:/DeleteMe/collision_sepaxis.pr_script"));

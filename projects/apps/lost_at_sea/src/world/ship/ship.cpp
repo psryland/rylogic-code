@@ -15,10 +15,7 @@ namespace las
 	// Gravity acceleration (m/s²)
 	constexpr float Gravity = -9.81f;
 
-	// Water density (kg/m³)
-	constexpr float WaterDensity = 1025.0f;
-
-	Ship::Ship(Renderer& rdr, HeightField const& height_field, v4 location)
+	Ship::Ship(Renderer& rdr, HeightField const&, v4 location)
 		:m_col_shape(v4{1, 1, 1, 0})
 		,m_body(&m_col_shape, m4x4::Identity(), Inertia::Box(v4{0.5f, 0.5f, 0.5f, 0}, 100.0f)) // Rigid body: mass = 100kg, box inertia with half-extents of 0.5
 		,m_inst()
@@ -29,9 +26,8 @@ namespace las
 		m_inst.m_model = ModelGenerator::Box(factory, 0.5f, &opts);
 		factory.FlushToGpu(EGpuFlush::Block);
 
-		// Find a high terrain point near the requested location so the ship spawns above land
-		auto peak = height_field.FindHighPoint(location.x, location.y);
-		location = v4{peak.x, peak.y, peak.z + 10.0f, 1}; // 10m above the terrain peak
+		// Spawn above the ocean surface at the requested XY location
+		location.z = 5.0f;
 		m_body.O2W(m4x4::Translation(location));
 		m_inst.m_i2w = m_body.O2W();
 	}
@@ -39,88 +35,114 @@ namespace las
 	void Ship::Step(float dt, Ocean const& ocean, HeightField const& height_field, float sim_time)
 	{
 		auto mass = m_body.Mass();
+		auto o2w = m_body.O2W();
+		auto w2o = InvertAffine(o2w);
 
 		// Apply gravity
-		auto gravity_force = v4{0, 0, Gravity * mass, 0};
-		m_body.ApplyForceWS(gravity_force, v4Zero);
+		m_body.ApplyForceWS(v4{0, 0, Gravity * mass, 0}, v4::Zero());
 
-		// Ship world position (model origin). CoM is at the model origin for this box.
-		auto ws_pos = m_body.O2W().pos;
+		// Box corners in object space (1x1x1 box, half-extent 0.5)
+		constexpr float H = 0.5f;
+		constexpr v4 os_corners[] = {
+			{-H, -H, -H, 1}, {+H, -H, -H, 1}, {-H, +H, -H, 1}, {+H, +H, -H, 1},
+			{-H, -H, +H, 1}, {+H, -H, +H, 1}, {-H, +H, +H, 1}, {+H, +H, +H, 1},
+		};
 
-		// Apply buoyancy force based on how much of the cube is below the ocean surface.
-		auto surface_z = ocean.HeightAt(ws_pos.x, ws_pos.y, sim_time);
-		auto bottom_z = ws_pos.z - 0.5f; // bottom face of the 1x1x1 cube
-		auto submerged_height = std::clamp(surface_z - bottom_z, 0.0f, 1.0f);
-		if (submerged_height > 0)
+		// Static ocean body (infinite mass, zero velocity)
+		auto ocean_body = RigidBody{nullptr, m4x4::Identity(), Inertia::Infinite()};
+
+		// Ocean collision: test each corner against the ocean surface
+		auto max_pen = 0.0f;
+		auto max_correction = v4::Zero();
+		auto submerged_count = 0;
+		for (auto const& os_corner : os_corners)
 		{
-			// Buoyancy force = water_density * g * submerged_volume
-			auto buoyancy = WaterDensity * (-Gravity) * submerged_height * 1.0f;
-			auto buoyancy_force = v4{0, 0, buoyancy, 0};
-			m_body.ApplyForceWS(buoyancy_force, v4Zero);
+			auto ws_corner = o2w * os_corner;
+			auto surface_z = ocean.HeightAt(ws_corner.x, ws_corner.y, sim_time);
+			auto penetration = surface_z - ws_corner.z;
+			if (penetration <= 0) continue;
 
-			// Linear drag to simulate water resistance and prevent endless oscillation
-			auto velocity = m_body.VelocityWS();
-			auto drag_lin = -200.0f * velocity.lin;
-			auto drag_ang = -50.0f * velocity.ang;
-			m_body.ApplyForceWS(drag_lin, drag_ang);
+			++submerged_count;
+
+			// Ocean surface normal at this corner
+			auto normal_ws = ocean.NormalAt(ws_corner.x, ws_corner.y, sim_time);
+
+			// Build contact: ship (objA) vs ocean (objB)
+			auto contact = physics::Contact{m_body, ocean_body};
+
+			// Normal from ship to ocean, in ship object space
+			auto os_normal = w2o * (-normal_ws);
+			os_normal.w = 0;
+
+			// Contact point is the corner as offset from ship origin (w=0)
+			auto os_contact = v4{os_corner.x, os_corner.y, os_corner.z, 0};
+
+			contact.m_axis = os_normal;
+			contact.m_point = os_contact;
+			contact.m_point_at_t = os_contact;
+			contact.m_depth = penetration;
+			contact.m_mat = physics::Material{
+				physics::Material::DefaultID,
+				/*friction_static=*/ 0.3f,
+				/*elasticity_norm=*/ 0.3f,
+				/*elasticity_tang=*/ 0.0f,
+				/*elasticity_tors=*/ 0.0f,
+				/*density=*/ 1025.0f,
+			};
+
+			// Apply impulse if approaching the surface
+			auto rel_vel = contact.m_velocity.LinAt(contact.m_point_at_t);
+			auto approach = Dot(rel_vel, contact.m_axis);
+			if (approach < 0)
+			{
+				auto impulse = physics::RestitutionImpulse(contact);
+				m_body.MomentumOS(m_body.MomentumOS() + impulse.m_os_impulse_objA);
+			}
+
+			// Track the deepest penetration for position correction
+			if (penetration > max_pen)
+			{
+				max_pen = penetration;
+				max_correction = normal_ws * penetration;
+			}
 		}
 
-		// Terrain collision: detect penetration and apply impulse response
+		// Position correction: push ship out of the ocean along the deepest normal
+		if (max_pen > 0)
 		{
+			o2w = m_body.O2W();
+			o2w.pos += max_correction;
+			m_body.O2W(o2w);
+		}
+
+		// Water drag when submerged to damp oscillation
+		if (submerged_count > 0)
+		{
+			auto submersion = static_cast<float>(submerged_count) / 8.0f;
+			auto velocity = m_body.VelocityWS();
+			m_body.ApplyForceWS(-150.0f * submersion * velocity.lin, -40.0f * submersion * velocity.ang);
+		}
+
+		// Terrain collision (safety net)
+		{
+			auto ws_pos = m_body.O2W().pos;
 			auto terrain_z = height_field.HeightAt(ws_pos.x, ws_pos.y);
-			auto penetration = terrain_z - bottom_z; // positive = overlap
+			auto bottom_z = ws_pos.z - H;
+			auto penetration = terrain_z - bottom_z;
 			if (penetration > 0)
 			{
-				auto terrain_normal_ws = height_field.NormalAt(ws_pos.x, ws_pos.y);
-				auto w2o = m_body.W2O();
+				auto terrain_normal = height_field.NormalAt(ws_pos.x, ws_pos.y);
+				auto corrected = m_body.O2W();
+				corrected.pos += terrain_normal * penetration;
+				m_body.O2W(corrected);
 
-				// Create a static terrain body at the contact point (infinite mass, zero velocity)
-				auto terrain_surface_pos = v4{ws_pos.x, ws_pos.y, terrain_z, 1};
-				auto terrain_o2w = m4x4::Translation(terrain_surface_pos);
-				auto terrain_body = RigidBody{nullptr, terrain_o2w, Inertia::Infinite()};
-
-				// Build the contact in objA (ship) space
-				// m_axis = collision normal from A to B (ship to terrain) = -terrain_normal in ship space
-				auto os_normal = w2o * (-terrain_normal_ws);
-				os_normal.w = 0;
-
-				// Contact point in ship space = bottom of the box projected to the terrain surface
-				auto ws_contact_pt = v4{ws_pos.x, ws_pos.y, terrain_z + penetration * 0.5f, 1};
-				auto os_contact_pt = w2o * ws_contact_pt;
-				os_contact_pt.w = 0; // Contact point is an offset from objA origin
-
-				// Check that objects are approaching (not separating)
-				auto contact = physics::Contact{m_body, terrain_body};
-				contact.m_axis = os_normal;
-				contact.m_point = os_contact_pt;
-				contact.m_point_at_t = os_contact_pt;
-				contact.m_depth = penetration;
-
-				// Material: rocky terrain with moderate bounce and friction
-				contact.m_mat = physics::Material{
-					physics::Material::DefaultID,
-					/*friction_static=*/ 0.7f,
-					/*elasticity_norm=*/ 0.3f,
-					/*elasticity_tang=*/ 0.0f,
-					/*elasticity_tors=*/ 0.0f,
-					/*density=*/ 2500.0f
-				};
-
-				// Only apply impulse if objects are approaching
-				auto rel_vel_at_pt = contact.m_velocity.LinAt(contact.m_point_at_t);
-				auto approach_speed = Dot(rel_vel_at_pt, contact.m_axis);
-
-				if (approach_speed < 0)
+				// Kill downward velocity on terrain contact
+				auto vel = m_body.VelocityWS();
+				if (vel.lin.z < 0)
 				{
-					auto impulse_pair = physics::RestitutionImpulse(contact);
-					m_body.MomentumOS(m_body.MomentumOS() + impulse_pair.m_os_impulse_objA);
+					vel.lin.z = 0;
+					m_body.VelocityWS(vel);
 				}
-
-				// Position correction: push the ship out of the terrain
-				auto correction = terrain_normal_ws * penetration;
-				auto o2w = m_body.O2W();
-				o2w.pos += correction;
-				m_body.O2W(o2w);
 			}
 		}
 

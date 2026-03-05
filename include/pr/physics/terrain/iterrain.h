@@ -161,7 +161,7 @@ namespace pr
 //          //  eFullQuickOut   = eFull | eQuickOut,
 //          //};
 //
-//          //void  SetNoCollision()                            { m_depth = -maths::float_max; m_fraction = 1.0f; m_collision = false; }
+//          //void  SetNoCollision()                            { m_depth = -limits<float>::max(); m_fraction = 1.0f; m_collision = false; }
 //          //bool  IsDeeperThan(const Terrain& other) const    { return (!FEql(m_fraction, other.m_fraction)) ? (m_fraction < other.m_fraction) : (m_depth > other.m_depth); }
 //          //v4        Intersect() const                           { return m_position + m_fraction * m_direction; }
 //

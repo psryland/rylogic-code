@@ -303,12 +303,12 @@ namespace pr::rdr12::ldraw
 				m_o2w.m_mat = o2w * m_o2w.m_mat;
 				return *me();
 			}
-			Derived& o2w(m3x4 const& rot, v4 const& pos)
+			Derived& o2w(m3x4 const& rot, v4 pos)
 			{
 				m_o2w.m_mat = m4x4{ rot, pos } * m_o2w.m_mat;
 				return *me();
 			}
-			Derived& ori(v4 const& dir, pr::AxisId axis = pr::AxisId::PosZ)
+			Derived& ori(v4 dir, pr::AxisId axis = pr::AxisId::PosZ)
 			{
 				return ori(m3x4::Rotation(axis.vec(), dir));
 			}

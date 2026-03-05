@@ -356,8 +356,8 @@ namespace pr::rdr12::ldraw
 
 					// Scale the object to normalised screen space
 					auto scale = w >= h
-						? m4x4::Scale(0.5f * ViewPortSize * (w / h), 0.5f * ViewPortSize, 1, v4Origin)
-						: m4x4::Scale(0.5f * ViewPortSize, 0.5f * ViewPortSize * (h / w), 1, v4Origin);
+						? m4x4::Scale(0.5f * ViewPortSize * (w / h), 0.5f * ViewPortSize, 1, v4::Origin())
+						: m4x4::Scale(0.5f * ViewPortSize, 0.5f * ViewPortSize * (h / w), 1, v4::Origin());
 
 					// Scale the X,Y position so that positions are still in normalised screen space
 					ob.m_i2w.pos.x *= w >= h ? (w / h) : 1.0f;

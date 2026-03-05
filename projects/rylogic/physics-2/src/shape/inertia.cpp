@@ -106,7 +106,7 @@ namespace pr::physics
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return m3x4Identity;
+			return m3x4::Identity();
 
 		auto dia = mass * m_diagonal;
 		auto off = mass * m_products;
@@ -120,25 +120,25 @@ namespace pr::physics
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return m3x4Identity;
+			return m3x4::Identity();
 
 		auto Ic = Ic3x3(mass);
 		if (CoM() == v4{})
 			return Ic;
 
-		auto cx = CPM(CoM());
+		auto cx = CPM(CoM().xyz);
 		auto Io = Ic - mass * cx * cx;
 		return Io;
 	}
-	Mat6x8f<Motion, Force> Inertia::To6x6(float mass) const
+	Mat6x8<float, Motion, Force> Inertia::To6x6(float mass) const
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return Mat6x8f<Motion, Force>{m6x8::Identity()};
+			return Mat6x8<float, Motion, Force>{m6x8::Identity()};
 
 		auto Ic = Ic3x3(mass);
-		auto cx = CPM(CoM());
-		auto Io = Mat6x8f<Motion, Force>{Ic - mass * cx * cx, mass * cx, -mass * cx, mass * m3x4Identity};
+		auto cx = CPM(CoM().xyz);
+		auto Io = Mat6x8<float, Motion, Force>{Ic - mass * cx * cx, mass * cx, -mass * cx, mass * m3x4::Identity()};
 		return Io;
 	}
 	bool Inertia::Check() const
@@ -256,7 +256,7 @@ namespace pr::physics
 	{
 		return !(lhs == rhs);
 	}
-	v4 operator * (Inertia const& inertia, v4 const& v)
+	v4 operator * (Inertia const& inertia, v4 v)
 	{
 		if (inertia.CoM() == v4{})
 			return inertia.To3x3() * v;
@@ -368,7 +368,7 @@ namespace pr::physics
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
 		if (inv_mass < ZeroMass || inv_mass >= InfiniteMass)
-			return m3x4Identity;
+			return m3x4::Identity();
 
 		auto dia = inv_mass * m_diagonal;
 		auto off = inv_mass * m_products;
@@ -396,20 +396,20 @@ namespace pr::physics
 		//'     = Ic¯ + (1/m - Ic¯cxcx)¯Ic¯cxcxIc¯               '
 
 		// This is cheaper
-		auto cx = CPM(CoM());
+		auto cx = CPM(CoM().xyz);
 		auto Io = Invert(Ic_inv) - (1.0f / inv_mass) * cx * cx;
 		auto Io_inv = Invert(Io);
 		return Io_inv;
 	}
-	Mat6x8f<Force, Motion> InertiaInv::To6x6(float inv_mass) const
+	Mat6x8<float, Force, Motion> InertiaInv::To6x6(float inv_mass) const
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
 		if (inv_mass < ZeroMass || inv_mass >= InfiniteMass)
-			return Mat6x8f<Force, Motion>{m6x8::Identity()};
+			return Mat6x8<float, Force, Motion>{m6x8::Identity()};
 
 		auto Ic_inv = Ic3x3(inv_mass);
-		auto cx = CPM(CoM());
-		auto Io_inv = Mat6x8f<Force, Motion>{Ic_inv, -Ic_inv * cx, cx * Ic_inv, inv_mass * m3x4Identity - cx * Ic_inv * cx};
+		auto cx = CPM(CoM().xyz);
+		auto Io_inv = Mat6x8<float, Force, Motion>{Ic_inv, -Ic_inv * cx, cx * Ic_inv, inv_mass * m3x4::Identity() - cx * Ic_inv * cx};
 		return Io_inv;
 	}
 	bool InertiaInv::Check() const
@@ -508,7 +508,7 @@ namespace pr::physics
 	{
 		return !(lhs == rhs);
 	}
-	v4 operator * (InertiaInv const& inertia_inv, v4 const& h)
+	v4 operator * (InertiaInv const& inertia_inv, v4 h)
 	{
 		if (inertia_inv.CoM() == v4{})
 			return inertia_inv.To3x3() * h;
@@ -550,7 +550,7 @@ namespace pr::physics
 		//   I3 = m3U3 = m1U1 + m2U2
 		//   U3 = (m1U1 + m2U2)/m3
 		Inertia sum = {};
-		if (mass < maths::tinyf)
+		if (mass < maths::tiny<float>)
 		{
 			sum.m_diagonal = (Ia.m_diagonal + Ib.m_diagonal) / 2.0f;
 			sum.m_products = (Ia.m_products + Ib.m_products) / 2.0f;
@@ -628,7 +628,7 @@ namespace pr::physics
 		InertiaInv sum = {};
 		sum.m_diagonal = (massA*Ia_inv.m_diagonal - massB*Ib_inv.m_diagonal) / mass;
 		sum.m_products = (massA*Ia_inv.m_products - massB*Ib_inv.m_products) / mass;
-		sum.m_com_and_invmass = v4{com, 1/mass};
+		sum.m_com_and_invmass = v4{com.xyz, 1/mass};
 		return sum;
 	}
 

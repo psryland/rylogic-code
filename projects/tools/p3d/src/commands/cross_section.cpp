@@ -10,7 +10,7 @@ using namespace pr;
 using namespace pr::geometry;
 
 // Clip a model using the given plane
-void CrossSection(p3d::Mesh& mesh, v4 const& plane)
+void CrossSection(p3d::Mesh& mesh, v4 plane)
 {
 	(void)mesh,plane;
 	throw std::runtime_error("Not implemented");
@@ -18,7 +18,7 @@ void CrossSection(p3d::Mesh& mesh, v4 const& plane)
 }
 
 // Clip a model using the given plane
-void CrossSection(p3d::File& p3d, v4 const& plane)
+void CrossSection(p3d::File& p3d, v4 plane)
 {
 	(void)p3d, plane;
 	throw std::runtime_error("Not implemented");

@@ -33,7 +33,7 @@ namespace pr
 				,m_a2w(a2w)
 				,m_shapeB(shapeB)
 				,m_b2w(b2w)
-				,m_penetration(maths::float_max)
+				,m_penetration(limits<float>::max())
 				{
 					for( int i = 0; i != 3; ++ i )
 					{
@@ -137,7 +137,7 @@ namespace pr
 						pts[1][3] = overlap.m_pointB.m_point - overlap.m_boxB[axisB0] + overlap.m_boxB[axisB1];
 
 						// Clip each box against the other
-						v4 avr = v4Zero;
+						v4 avr = v4::Zero();
 						float count = 0;
 						for (int j = 0; j != 2; ++j)
 						{
@@ -226,8 +226,8 @@ namespace pr
 				{
 					for( int j = 0; j != 3; ++j )
 					{
-						v4 axis = Cross3(data.m_a2w[i], data.m_b2w[j]);
-						if( !FEql(axis, pr::v4Zero) )
+						v4 axis = Cross(data.m_a2w[i], data.m_b2w[j]);
+						if( !FEql(axis, pr::v4::Zero()) )
 						{
 							axis = Normalise(axis);
 							Point pointA(data.m_a2w.pos);

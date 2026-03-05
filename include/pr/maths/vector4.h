@@ -661,7 +661,7 @@ namespace pr
 	}
 
 	// Cross product: a x b
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross3(Vec4<S, T> a, Vec4<S, T> b)
+	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross(Vec4<S, T> a, Vec4<S, T> b)
 	{
 		if constexpr (Vec4<S, T>::IntrinsicF)
 		{
@@ -674,22 +674,18 @@ namespace pr
 			return Vec4<S, T>{a.y* b.z - a.z * b.y, a.z* b.x - a.x * b.z, a.x* b.y - a.y * b.x, 0};
 		}
 	}
-	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Cross(Vec4<S, T> a, Vec4<S, T> b)
-	{
-		return Cross3(a,b);
-	}
 
 	// Triple product: a . b x c
 	template <Scalar S, typename T> inline S pr_vectorcall Triple(Vec4<S, T> a, Vec4<S, T> b, Vec4<S, T> c)
 	{
-		return Dot3(a, Cross3(b, c));
+		return Dot3(a, Cross(b, c));
 	}
 
 	// Returns true if 'a' and 'b' parallel
-	template <Scalar S, typename T> inline bool pr_vectorcall Parallel(Vec4<S, T> v0, Vec4<S, T> v1, S tol = maths::tiny<S>)
+	template <Scalar S, typename T> inline bool pr_vectorcall IsParallel(Vec4<S, T> v0, Vec4<S, T> v1, S tol = maths::tiny<S>)
 	{
 		// '<=' to allow for 'tol' == 0.0
-		return LengthSq(Cross3(v0, v1)) <= Sqr(tol);
+		return LengthSq(Cross(v0, v1)) <= Sqr(tol);
 	}
 
 	// Returns a vector guaranteed not parallel to 'v'
@@ -703,7 +699,7 @@ namespace pr
 	template <Scalar S, typename T> inline Vec4<S, T> pr_vectorcall Perpendicular(Vec4<S, T> v)
 	{
 		pr_assert("Cannot make a perpendicular to a zero vector" && (v != Vec4<S, T>::Zero()));
-		auto vec = Cross3(v, CreateNotParallelTo(v));
+		auto vec = Cross(v, CreateNotParallelTo(v));
 		vec *= Sqrt(LengthSq(v) / LengthSq(vec));
 		return vec;
 	}
@@ -719,7 +715,7 @@ namespace pr
 			pr_assert("Cannot make a perpendicular to a zero vector" && (previous != Vec4<S, T>::Zero()));
 			return previous;
 		}
-		if (Parallel(vec, previous)) // includes 'previous' == zero
+		if (IsParallel(vec, previous)) // includes 'previous' == zero
 		{
 			// If 'previous' is parallel to 'vec', choose a new perpendicular
 			return Perpendicular(vec);
@@ -730,7 +726,7 @@ namespace pr
 			return previous;
 
 		// Otherwise, make a perpendicular that is close to 'previous'
-		return Normalise(Cross3(Cross3(vec, previous), vec));
+		return Normalise(Cross(Cross(vec, previous), vec));
 	}
 
 	// Returns a vector with the 'xyz' values permuted 'n' times. '0=xyzw, 1=yzxw, 2=zxyw'

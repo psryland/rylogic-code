@@ -52,9 +52,9 @@ namespace pr::geometry
 	// Returns true if a point projects within a triangle using the triangle normal
 	inline bool pr_vectorcall PointWithinTriangle2(v4 point, v4 a, v4 b, v4 c, float tol)
 	{
-		v4 c0 = Cross3(point - a, b - a);
-		v4 c1 = Cross3(point - b, c - b);
-		v4 c2 = Cross3(point - c, a - c);
+		v4 c0 = Cross(point - a, b - a);
+		v4 c1 = Cross(point - b, c - b);
+		v4 c2 = Cross(point - c, a - c);
 		return Dot3(c0, c1) >= -tol && Dot3(c0, c2) >= -tol;
 	}
 
@@ -116,8 +116,8 @@ namespace pr::geometry
 		// Find the face direction
 		for (int i = 2; i != count; ++i)
 		{
-			auto norm = Cross3(poly[i-1] - poly[0], poly[i] - poly[0]);
-			if (FEql(norm, v4Zero)) continue;
+			auto norm = Cross(poly[i-1] - poly[0], poly[i] - poly[0]);
+			if (FEql(norm, v4::Zero())) continue;
 			return PointWithinConvexPolygon(point, poly, count, norm);
 		}
 		
@@ -126,7 +126,7 @@ namespace pr::geometry
 	}
 
 	// Returns true if 'point' is on the positive side of all of 'planes'
-	inline bool pr_vectorcall PointWithinHalfSpaces(v4 point, Plane const* planes, int count, float tol = maths::tinyf)
+	inline bool pr_vectorcall PointWithinHalfSpaces(v4 point, Plane const* planes, int count, float tol = maths::tiny<float>)
 	{
 		for (auto i = 0; i != count; ++i)
 		{
@@ -136,7 +136,7 @@ namespace pr::geometry
 		return true;
 	}
 
-	// Returns true if 'point' lies in front of the plane described by 'abc' (Cross3(b-a, c-a))
+	// Returns true if 'point' lies in front of the plane described by 'abc' (Cross(b-a, c-a))
 	inline bool pr_vectorcall PointInFrontOfPlane(v4 point, v4 a, v4 b, v4 c)
 	{
 		assert(point.w == 1.0f && a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);

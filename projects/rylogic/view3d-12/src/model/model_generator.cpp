@@ -85,7 +85,7 @@ namespace pr::rdr12
 				{
 					return GetP(cache.m_vcont[s_cast<size_t>(idx)]);
 				},
-				[&](int64_t idx, int64_t orig, v4 const& norm)
+				[&](int64_t idx, int64_t orig, v4 norm)
 				{
 					assert(idx <= isize(cache.m_vcont));
 					if (idx == isize(cache.m_vcont)) cache.m_vcont.push_back(cache.m_vcont[orig]);
@@ -316,7 +316,7 @@ namespace pr::rdr12
 		// Create the model
 		return Create(factory, cache, opts);
 	}
-	ModelPtr ModelGenerator::Quad(ResourceFactory& factory, v2 const& anchor, v4 const& quad_w, v4 const& quad_h, iv2 const& divisions, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Quad(ResourceFactory& factory, v2 const& anchor, v4 quad_w, v4 quad_h, iv2 const& divisions, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::QuadSize(divisions);
@@ -633,7 +633,7 @@ namespace pr::rdr12
 	{
 		return Sphere(factory, v4{ radius, radius, radius, 0 }, wedges, layers, opts);
 	}
-	ModelPtr ModelGenerator::Sphere(ResourceFactory& factory, v4 const& radius, int wedges, int layers, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Sphere(ResourceFactory& factory, v4 radius, int wedges, int layers, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::SphereSize(wedges, layers);
@@ -1133,7 +1133,7 @@ namespace pr::rdr12
 			cache.m_m2root = obj.m_mesh.m_o2p; //todo: hierarchy needed
 
 			// Populate 'cache' from the 3DS data
-			auto vout = [&](v4 const& p, Colour const& c, v4 const& n, v2 const& t)
+			auto vout = [&](v4 p, Colour const& c, v4 n, v2 const& t)
 			{
 				Vert vert;
 				SetPCNT(vert, cache.m_bbox.Grow(p), c, n, t);

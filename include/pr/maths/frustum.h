@@ -64,7 +64,7 @@ namespace pr
 			f.m_Tplanes.y = Normalise(f.m_Tplanes.y);
 			f.m_Tplanes.z = Normalise(f.m_Tplanes.z);
 			f.m_Tplanes.w = Normalise(f.m_Tplanes.w);
-			f.m_Tplanes = Transpose4x4(f.m_Tplanes);
+			f.m_Tplanes = Transpose(f.m_Tplanes);
 			f.zfar(zfar);
 			return f;
 		}
@@ -96,7 +96,7 @@ namespace pr
 			f.m_Tplanes.y = v4(-1.0f, 0.0f, 0.0f, width * 0.5f); // right
 			f.m_Tplanes.z = v4(0.0f, +1.0, 0.0f, height * 0.5f); // bottom
 			f.m_Tplanes.w = v4(0.0f, -1.0, 0.0f, height * 0.5f); // top
-			f.m_Tplanes = Transpose4x4(f.m_Tplanes);
+			f.m_Tplanes = Transpose(f.m_Tplanes);
 			return f;
 		}
 		static Frustum MakeOrtho(v2 area)
@@ -144,7 +144,7 @@ namespace pr
 		{
 			// If none of the plane normals have a z component,
 			// then they are all parallel to the z axis.
-			return m_Tplanes.z == v4Zero;
+			return m_Tplanes.z == v4::Zero();
 		}
 
 		// Get/Set the distance to the far clip plane.
@@ -153,7 +153,7 @@ namespace pr
 			// Orthographic frusta don't have a far plane
 			return !orthographic()
 				? -ComponentSum(m_Tplanes.w / m_Tplanes.z) / 4.0f
-				: maths::float_inf;
+				: limits<float>::infinity();
 		}
 		void zfar(float z)
 		{
@@ -219,7 +219,7 @@ namespace pr
 		// Return the planes of the frustum
 		m4x4 planes() const
 		{
-			return Transpose4x4(m_Tplanes);
+			return Transpose(m_Tplanes);
 		}
 		Plane plane(EPlane plane_index) const
 		{
@@ -239,8 +239,8 @@ namespace pr
 		m4x4 face_normals() const
 		{
 			auto norms = m_Tplanes;
-			norms.w = v4Zero;
-			return Transpose4x4(norms);
+			norms.w = v4::Zero();
+			return Transpose(norms);
 		}
 		v4 face_normal(EPlane plane_index) const
 		{
@@ -277,7 +277,7 @@ namespace pr
 			if (!accumulative)
 			{
 				t0 = maths::float_lowest;
-				t1 = maths::float_max;
+				t1 = limits<float>::max();
 			}
 
 			// Clip to the far plane. Orthographic frustums don't have a far plane and are really a rectilinear channel.
@@ -347,7 +347,7 @@ namespace pr
 		{
 			return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0;
 		}
-		friend v4 operator * (Frustum const& lhs, v4 const& rhs)
+		friend v4 operator * (Frustum const& lhs, v4 rhs)
 		{
 			// Returns the signed distance of 'rhs' from each face of the frustum
 			return lhs.m_Tplanes * rhs;
@@ -393,8 +393,8 @@ namespace pr
 		{
 			// Each edge vector has length == 1. Find the length of each edge
 			// when projected onto the Z axis then scale by z.
-			auto lengths = Transpose4x4(edges) * v4(0, 0, -1, 0);
-			auto corners = CompMul(edges, z / lengths) + m4x4(v4Origin, v4Origin, v4Origin, v4Origin);
+			auto lengths = Transpose(edges) * v4(0, 0, -1, 0);
+			auto corners = CompMul(edges, z / lengths) + m4x4(v4::Origin(), v4::Origin(), v4::Origin(), v4::Origin());
 			return corners;
 		}
 	}
@@ -425,14 +425,14 @@ namespace pr
 
 			// Get the z coordinate of the clip planes
 			znear = frustum_apex - nf.x;
-			zfar = nf.y > 0 ? frustum_apex - nf.y : nf.y == 0 ? 0.0f : -maths::float_inf;
+			zfar = nf.y > 0 ? frustum_apex - nf.y : nf.y == 0 ? 0.0f : -limits<float>::infinity();
 		}
 		// Orthographic frusta have their "apex" at (0,0,0)
 		else
 		{
 			// Get the z coordinate of the clip planes
 			znear = -nf.x;
-			zfar = nf.y > 0 ? -nf.y : -maths::float_inf;
+			zfar = nf.y > 0 ? -nf.y : -limits<float>::infinity();
 		}
 
 		// Test against the near plane
@@ -475,14 +475,14 @@ namespace pr
 
 			// Get the z coordinate of the clip planes
 			znear = frustum_apex - nf.x;
-			zfar = nf.y > 0 ? frustum_apex - nf.y : nf.y == 0 ? 0.0f : -maths::float_inf;
+			zfar = nf.y > 0 ? frustum_apex - nf.y : nf.y == 0 ? 0.0f : -limits<float>::infinity();
 		}
 		// Orthographic frusta have their "apex" at (0,0,0)
 		else
 		{
 			// Get the z coordinate of the clip planes
 			znear = -nf.x;
-			zfar = nf.y > 0 ? -nf.y : -maths::float_inf;
+			zfar = nf.y > 0 ? -nf.y : -limits<float>::infinity();
 		}
 
 		// Test against the near plane
@@ -537,7 +537,7 @@ namespace pr
 		tnorms.w = -tnorms.z;
 
 		// Get the signed distance to all frustum planes
-		auto planes = Transpose4x4(tnorms);
+		auto planes = Transpose(tnorms);
 		auto dst = v4{
 			Dot(planes.x, pt - radius * planes.x.w0()),
 			Dot(planes.y, pt - radius * planes.y.w0()),
@@ -585,7 +585,7 @@ namespace pr
 		tnorms.w = -tnorms.z;
 
 		// Get the signed distance to all frustum planes
-		auto planes = Transpose4x4(tnorms);
+		auto planes = Transpose(tnorms);
 		auto dst = v4{
 			Dot(planes.x, SupportPoint(bbox, -planes.x.w0())),
 			Dot(planes.y, SupportPoint(bbox, -planes.y.w0())),
@@ -622,7 +622,7 @@ namespace pr
 	}
 
 	// Include 'f2w * frustum' in 'bbox'
-	inline BBox& pr_vectorcall Grow(BBox& bbox, Frustum const& frustum, m4x4 const& f2w = m4x4Identity)
+	inline BBox& pr_vectorcall Grow(BBox& bbox, Frustum const& frustum, m4x4 const& f2w = m4x4::Identity())
 	{
 		auto corner = Corners(frustum);
 		Grow(bbox, f2w.pos);
@@ -650,14 +650,14 @@ namespace pr::maths
 			//auto c = GetCorners(f);
 			//
 			//std::string s;
-			//ldr::Triangle(s, "left", 0xFFFFFFFF, v4Origin, c.x, c.y);
-			//ldr::Triangle(s, "top", 0xFFFFFFFF, v4Origin, c.y, c.z);
-			//ldr::Triangle(s, "right", 0xFFFFFFFF, v4Origin, c.z, c.w);
-			//ldr::Triangle(s, "bottom", 0xFFFFFFFF, v4Origin, c.w, c.x);
-			//ldr::Plane(s, "left", 0xFFFFFFFF, f.plane(Frustum::EPlane::XPos), v4Origin, zfar);
-			//ldr::Plane(s, "right", 0xFFFFFFFF, f.plane(Frustum::EPlane::XNeg), v4Origin, zfar);
-			//ldr::Plane(s, "bottom", 0xFFFFFFFF, f.plane(Frustum::EPlane::YPos), v4Origin, zfar);
-			//ldr::Plane(s, "top", 0xFFFFFFFF, f.plane(Frustum::EPlane::YNeg), v4Origin, zfar);
+			//ldr::Triangle(s, "left", 0xFFFFFFFF, v4::Origin(), c.x, c.y);
+			//ldr::Triangle(s, "top", 0xFFFFFFFF, v4::Origin(), c.y, c.z);
+			//ldr::Triangle(s, "right", 0xFFFFFFFF, v4::Origin(), c.z, c.w);
+			//ldr::Triangle(s, "bottom", 0xFFFFFFFF, v4::Origin(), c.w, c.x);
+			//ldr::Plane(s, "left", 0xFFFFFFFF, f.plane(Frustum::EPlane::XPos), v4::Origin(), zfar);
+			//ldr::Plane(s, "right", 0xFFFFFFFF, f.plane(Frustum::EPlane::XNeg), v4::Origin(), zfar);
+			//ldr::Plane(s, "bottom", 0xFFFFFFFF, f.plane(Frustum::EPlane::YPos), v4::Origin(), zfar);
+			//ldr::Plane(s, "top", 0xFFFFFFFF, f.plane(Frustum::EPlane::YNeg), v4::Origin(), zfar);
 			//ldr::Write(s, "P:\\dump\\frustum.ldr");
 		};
 
@@ -765,7 +765,7 @@ namespace pr::maths
 			auto f = Frustum::MakeOrtho(v2(1.6f, 0.9f));
 
 			// zdist
-			PR_EXPECT(FEql(f.zfar(), maths::float_inf));
+			PR_EXPECT(FEql(f.zfar(), limits<float>::infinity()));
 
 			// aspect = tan(fovX/2) / tan(fovY/2)
 			PR_EXPECT(FEql(f.aspect(), 1.6f/0.9f));
@@ -809,7 +809,7 @@ namespace pr::maths
 				pts.push_back(v4::Random(rng, 0.0f, 2.0f, 1.0f));
 
 			auto nf = v2Zero;
-			auto f2w = m4x4Identity;
+			auto f2w = m4x4::Identity();
 			auto f = Frustum::MakeFA(maths::tau_by_8f, 1.0f, 0.0f);
 			PR_EXPECT(f.zfar() == 0.0f);
 

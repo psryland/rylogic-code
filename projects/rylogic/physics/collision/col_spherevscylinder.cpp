@@ -26,7 +26,7 @@ void pr::ph::SphereVsCylinder(Shape const& sphere, m4x4 const& a2w, Shape const&
 
 	// Get a transform for the sphere in cylinder space
 	m4x4 a2b = InvertAffine(b2w) * a2w;
-	v4 const& sphere_pos = a2b.pos; // sphere position in cylinder space
+	v4 sphere_pos = a2b.pos; // sphere position in cylinder space
 	float height = Abs(sphere_pos.y);
 
 	// Test for penetration into the ends of the cylinder
@@ -50,9 +50,9 @@ void pr::ph::SphereVsCylinder(Shape const& sphere, m4x4 const& a2w, Shape const&
 	if (dxz_sq == 0.0f && dy_sq == 0.0f)
 	{
 		// If the centre of the sphere is closer to a wall of the cylinder...
-		if ((dist_xz - cyl.m_radius) > (height - cyl.m_height)) dxz_sq = maths::tinyf;
+		if ((dist_xz - cyl.m_radius) > (height - cyl.m_height)) dxz_sq = maths::tiny<float>;
 		// Otherwise closest to an end of the cylinder
-		else dy_sq = maths::tinyf;
+		else dy_sq = maths::tiny<float>;
 	}
 
 	Contact contact;
@@ -72,7 +72,7 @@ void pr::ph::SphereVsCylinder(Shape const& sphere, m4x4 const& a2w, Shape const&
 	else if (dy_sq == 0.0f)
 	{
 		contact.m_depth = cyl.m_radius + sph.m_radius - dist_xz;
-		if (dist_xz < maths::tinyf) contact.m_normal = a2w.x;	// choose arbitrarily
+		if (dist_xz < maths::tiny<float>) contact.m_normal = a2w.x;	// choose arbitrarily
 		else contact.m_normal = b2w * v4(sphere_pos.x / dist_xz, 0.0f, sphere_pos.z / dist_xz, 0.0f);
 		contact.m_pointA = a2w.pos - sph.m_radius * contact.m_normal;
 		contact.m_pointB = a2w.pos - (dist_xz - cyl.m_radius) * contact.m_normal;

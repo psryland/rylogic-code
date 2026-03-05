@@ -27,7 +27,7 @@ namespace pr::collision
 		auto sep = lhs.m_radius + rhs.m_radius - len;
 		
 		// Use default axis if centres coincide to avoid division by zero
-		pen(sep, [&]{ return len > maths::tinyf ? r2l/len : v4{1,0,0,0}; }, lhs_.m_material_id, rhs_.m_material_id);
+		pen(sep, [&]{ return len > maths::tiny<float> ? r2l/len : v4{1,0,0,0}; }, lhs_.m_material_id, rhs_.m_material_id);
 	}
 
 	// Returns true if 'lhs' intersects 'rhs'

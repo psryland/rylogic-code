@@ -30,13 +30,13 @@ void pr::ph::RegisterGravityField(ph::IGravity const* gravity_interface)
 }
 
 // Return the gravity experienced at 'position'
-v4 pr::ph::GetGravitationalAcceleration(v4 const& position)
+v4 pr::ph::GetGravitationalAcceleration(v4 position)
 {
 	return g_gravity_interface->GravityField(position);
 }
 
 // Returns the potential energy of a position in the gravity field
-float pr::ph::GetGravitationalPotential(v4 const& position)
+float pr::ph::GetGravitationalPotential(v4 position)
 {
 	return g_gravity_interface->GravityPotential(position);
 }

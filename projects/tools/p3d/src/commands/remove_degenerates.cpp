@@ -147,7 +147,7 @@ void RemoveDegenerateVerts(p3d::Mesh& mesh_, int quantisation, float smoothing_a
 			continue;
 
 		auto diff = ColourZero;
-		auto norm = v4Zero;
+		auto norm = v4::Zero();
 		auto tex0 = v2Zero;
 
 		// 'map[i]' should be the first in the next set of degenerate verts.

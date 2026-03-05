@@ -117,7 +117,7 @@ namespace pr::physics
 			auto vel = v8motion{avel, lvel};
 
 			// Inertia of a sphere with radius 1, positioned at (0,0,0), measured at (0,0,0) (2/5 m r²)
-			auto Ic = (2.0f/5.0f) * m3x4Identity;
+			auto Ic = (2.0f/5.0f) * m3x4::Identity();
 
 			// Traditional momentum calculation
 			auto amom = mass * Ic * avel; // I.w
@@ -310,7 +310,7 @@ namespace pr::physics
 			auto vel = v8motion{avel, lvel};
 
 			// Inertia of a sphere with radius 1, positioned at (0,0,0), measured at (0,0,0) (2/5 m r²)
-			auto Ic = (2.0f/5.0f) * m3x4Identity;
+			auto Ic = (2.0f/5.0f) * m3x4::Identity();
 
 			// Calculate kinetic energy
 			auto ke_lin = 0.5f * mass * Dot(lvel,lvel);

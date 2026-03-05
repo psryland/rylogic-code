@@ -40,7 +40,7 @@ RigidbodySettings Rigidbody::GetSettings() const
 	settings.m_object_to_world                      = m_object_to_world;
 	settings.m_shape                                = m_shape;
 	settings.m_type                                 = m_type;
-	settings.m_mass_properties                      .set(m_os_inertia_tensor, v4Zero, m_mass);
+	settings.m_mass_properties                      .set(m_os_inertia_tensor, v4::Zero(), m_mass);
 	settings.m_motion_type                          = m_motion_type;
 	settings.m_initially_sleeping                   = m_sleeping;
 	settings.m_lin_velocity                         = Velocity();
@@ -71,8 +71,8 @@ void Rigidbody::Create(RigidbodySettings const& settings)
 	SetForce(settings.m_force);
 	SetTorque(settings.m_torque);
 	SetSleepState(settings.m_initially_sleeping);
-	m_acc_impulse               = pr::v4Zero;
-	m_acc_twist                 = pr::v4Zero;
+	m_acc_impulse               = pr::v4::Zero();
+	m_acc_twist                 = pr::v4::Zero();
 	m_micro_mom_sq              = 0.0f;
 	m_user_data                 = settings.m_user_data;
 	m_flags                     = settings.m_flags;
@@ -111,7 +111,7 @@ void Rigidbody::SetObjectToWorld(m4x4 const& o2w)
 }
 
 // Set the position of the object
-void Rigidbody::SetPosition(v4 const& position)
+void Rigidbody::SetPosition(v4 position)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetPosition");)
 	v4 diff                 = position - m_object_to_world.pos;
@@ -136,7 +136,7 @@ void Rigidbody::SetMass(float mass)
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetMass");)
 	PR_ASSERT(PR_DBG_PHYSICS, mass > 0.0f, "");
 	m_mass                  = mass;
-	m_inv_mass              = (1.0f/mass > maths::tinyf) ? 1.0f/mass : 0.0f;
+	m_inv_mass              = (1.0f/mass > maths::tiny<float>) ? 1.0f/mass : 0.0f;
 }
 
 // Set the mass properties of a rigidbody
@@ -192,42 +192,42 @@ void Rigidbody::SetCollisionShape(Shape* shape, m4x4 const& o2w, MassProperties 
 }
 
 // Set a constant force for a rigidbody
-void Rigidbody::SetForce(v4 const& force)
+void Rigidbody::SetForce(v4 force)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetForce");)
 	m_force = force;
 }
 
 // Set a constant torque for a rigidbody
-void Rigidbody::SetTorque(v4 const& torque)
+void Rigidbody::SetTorque(v4 torque)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetTorque");)
 	m_torque = torque;
 }
 
 // Set the velocity of a rigidbody
-void Rigidbody::SetVelocity(v4 const& velocity)
+void Rigidbody::SetVelocity(v4 velocity)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetVelocity");)
 	m_lin_momentum = m_mass * velocity;
 }
 
 // Set the angular velocity of a rigidbody
-void Rigidbody::SetAngVelocity(v4 const& ang_velocity)
+void Rigidbody::SetAngVelocity(v4 ang_velocity)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetAngVelocity");)
 	m_ang_momentum = m_mass * (InertiaTensorWS(Orientation(), m_os_inertia_tensor) * ang_velocity);
 }
 
 // Set the linear momentum of a rigidbody
-void Rigidbody::SetMomentum(v4 const& momentum)
+void Rigidbody::SetMomentum(v4 momentum)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetMomentum");)
 	m_lin_momentum = momentum;
 }
 
 // Set the angular momentum of a rigidbody
-void Rigidbody::SetAngMomentum(v4 const& ang_momentum)
+void Rigidbody::SetAngMomentum(v4 ang_momentum)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "SetAngMomentum");)
 	m_ang_momentum = ang_momentum;
@@ -252,7 +252,7 @@ void Rigidbody::SetName(char const* PR_EXPAND(PR_DBG_PHYSICS, name))
 // Impulse functions **************************************
 
 // Apply a world space impulse
-void Rigidbody::ApplyWSImpulse(v4 const& ws_impulse)
+void Rigidbody::ApplyWSImpulse(v4 ws_impulse)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "ApplyWSImpulse(1)");)
 	PR_ASSERT(PR_DBG_PHYSICS, IsFinite(ws_impulse, ph::OverflowValue), "");
@@ -268,7 +268,7 @@ void Rigidbody::ApplyWSImpulse(v4 const& ws_impulse)
 }
 
 // Apply a world space twist
-void Rigidbody::ApplyWSTwist(v4 const& ws_twist)
+void Rigidbody::ApplyWSTwist(v4 ws_twist)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "ApplyWSTwist");)
 	PR_ASSERT(PR_DBG_PHYSICS, IsFinite(ws_twist, ph::OverflowValue), "");
@@ -284,13 +284,13 @@ void Rigidbody::ApplyWSTwist(v4 const& ws_twist)
 }
 
 // Apply an off-CoG impulse/twist to 'rb'
-void Rigidbody::ApplyWSImpulse(v4 const& ws_impulse, v4 const& point)
+void Rigidbody::ApplyWSImpulse(v4 ws_impulse, v4 point)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "ApplyWSImpulse(2)");)
 	PR_ASSERT(PR_DBG_PHYSICS, IsFinite(point, ph::OverflowValue) && IsFinite(ws_impulse, ph::OverflowValue), "");
 	if (m_motion_type != EMotion_Dynamic) return;
 	m_lin_momentum += ws_impulse;
-	m_ang_momentum += Cross3(point, ws_impulse);
+	m_ang_momentum += Cross(point, ws_impulse);
 	// If the object is asleep only wake it up once the velocity is above the micro velocity
 	if (m_sleeping)
 	{
@@ -304,19 +304,19 @@ void Rigidbody::ApplyWSImpulse(v4 const& ws_impulse, v4 const& point)
 // Clear the impulse accumulator
 void Rigidbody::AccClearImpulse()
 {
-	m_acc_impulse = pr::v4Zero;
-	m_acc_twist = pr::v4Zero;
+	m_acc_impulse = pr::v4::Zero();
+	m_acc_twist = pr::v4::Zero();
 }
 
 // Add an impulse to the accumulator members
-void Rigidbody::AccAddWSImpulse(v4 const& ws_impulse, v4 const& point)
+void Rigidbody::AccAddWSImpulse(v4 ws_impulse, v4 point)
 {
 	PR_EXPAND(PR_LOG_RB, Log(*this, "AddWSImpulse");)
 	PR_ASSERT(PR_DBG_PHYSICS, IsFinite(point, ph::OverflowValue) && IsFinite(ws_impulse, ph::OverflowValue), "");
 	PR_ASSERT(PR_DBG_PHYSICS, ws_impulse.w == 0.0f, "");
 	if (m_motion_type != EMotion_Dynamic) return;
 	m_acc_impulse += ws_impulse;
-	m_acc_twist   += Cross3(point, ws_impulse);
+	m_acc_twist   += Cross(point, ws_impulse);
 }
 
 // Apply the accumulated impulses to the velocity

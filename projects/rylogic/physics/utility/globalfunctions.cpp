@@ -9,7 +9,7 @@
 // Transform an inertia tensor using the parallel axis theorem.
 // 'offset' is the distance from (or toward) the centre of mass (determined by 'translate_type')
 // 'inertia' and 'offset' must be in the same frame.
-void pr::ph::ParallelAxisTranslateInertia(m3x4& inertia, pr::v4 const& offset, float mass, ParallelAxisTranslate::Type translate_type)
+void pr::ph::ParallelAxisTranslateInertia(m3x4& inertia, pr::v4 offset, float mass, ParallelAxisTranslate::Type translate_type)
 {
 	if (translate_type == ParallelAxisTranslate::TowardCoM)
 		mass = -mass;

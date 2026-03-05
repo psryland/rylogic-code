@@ -185,9 +185,9 @@ namespace pr
 			t = Clamp<float>(t, 0, 1);
 			auto vel = EvalDerivative(t);
 			auto acc = EvalDerivative2(t);
-			auto v_x_a = Length(Cross3(vel, acc));
+			auto v_x_a = Length(Cross(vel, acc));
 			auto vel_len = Length(vel);
-			return vel_len > maths::tinyf ? v_x_a / (vel_len * vel_len * vel_len) : 0;
+			return vel_len > maths::tiny<float> ? v_x_a / (vel_len * vel_len * vel_len) : 0;
 		}
 	};
 
@@ -341,7 +341,7 @@ namespace pr
 	namespace spline
 	{
 		// Return the length of a Cubic Curve from t0 to t1
-		inline float Length(CubicCurve3 const& curve, float t0, float t1, float tol = maths::tinyf)
+		inline float Length(CubicCurve3 const& curve, float t0, float t1, float tol = maths::tiny<float>)
 		{
 			struct L
 			{
@@ -390,7 +390,7 @@ namespace pr
 		}
 
 		// Return the length of a spline from t0 to t1
-		inline float Length(CubicSpline const& spline, float t0, float t1, float tol = maths::tinyf)
+		inline float Length(CubicSpline const& spline, float t0, float t1, float tol = maths::tiny<float>)
 		{
 			auto length = 0.0f;
 			int i0 = std::clamp(static_cast<int>(std::floor(t0)), 0, isize(spline.m_curves) - 1);
@@ -407,7 +407,7 @@ namespace pr
 		}
 
 		// Fill a container of points with a rasterized version of 'spline'. Returns the span of used points.
-		[[nodiscard]] inline std::span<v4> Raster(CubicSpline const& spline, float t0, float t1, std::span<v4> out, bool store_time_in_w = false, float tol = maths::tinyf)
+		[[nodiscard]] inline std::span<v4> Raster(CubicSpline const& spline, float t0, float t1, std::span<v4> out, bool store_time_in_w = false, float tol = maths::tiny<float>)
 		{
 			struct L
 			{
@@ -428,7 +428,7 @@ namespace pr
 				float m_tol;
 				bool m_store_time_in_w;
 
-				L(CubicSpline const& spline, std::span<v4> out, bool store_time_in_w = false, float tol = maths::tinyf)
+				L(CubicSpline const& spline, std::span<v4> out, bool store_time_in_w = false, float tol = maths::tiny<float>)
 					: m_spline(spline)
 					, m_out(out)
 					, m_pts_added(0)
@@ -509,9 +509,9 @@ namespace pr
 				}
 
 				// Split 'elem' at 't'
-				std::tuple<Elem, Elem> Split(Elem const& elem, v4 const& mid) const
+				std::tuple<Elem, Elem> Split(Elem const& elem, v4 mid) const
 				{
-					auto err = [this](v4 const& p0, v4 const& p1)
+					auto err = [this](v4 p0, v4 p1)
 					{
 						// If 't0' and 't1' are on different curves, pick a "large" error amount
 						if (p1.w - p0.w > 1.0f)
@@ -521,7 +521,7 @@ namespace pr
 						auto dpos = p1.xyz - p0.xyz;
 						auto dpos_len = Length(dpos);
 						auto mid = m_spline.Position(0.5f * (p1.w + p0.w));
-						return dpos_len > maths::tinyf ? Length(Cross(mid.xyz - p0.xyz, dpos)) / Length(dpos) : 0;
+						return dpos_len > maths::tiny<float> ? Length(Cross(mid.xyz - p0.xyz, dpos)) / Length(dpos) : 0;
 					};
 
 					Elem lhs =
@@ -581,7 +581,7 @@ namespace pr
 
 		// Construct a spline from 4 control points
 		Spline() = default;
-		Spline(v4 const& start, v4 const& start_ctrl, v4 const& end_ctrl, v4 const& end)
+		Spline(v4 start, v4 start_ctrl, v4 end_ctrl, v4 end)
 			:m4x4(start, start_ctrl, end_ctrl, end)
 		{
 			pr_assert(start.w == 1.0f && start_ctrl.w == 1.0f && end_ctrl.w == 1.0f && end.w == 1.0f && "Splines are constructed from 4 positions");
@@ -639,7 +639,7 @@ namespace pr
 		{
 			return O2W(time, 2, v4::YAxis());
 		}
-		m4x4 O2W(float time, int axis, v4 const& up) const
+		m4x4 O2W(float time, int axis, v4 up) const
 		{
 			return OriFromDir(Velocity(time), axis, up, Position(time));
 		}
@@ -683,7 +683,7 @@ namespace pr
 	}
 
 	// Return the length of a spline from t0 to t1
-	inline float Length(Spline const& spline, float t0, float t1, float tol = maths::tinyf)
+	inline float Length(Spline const& spline, float t0, float t1, float tol = maths::tiny<float>)
 	{
 		struct L
 		{
@@ -711,7 +711,7 @@ namespace pr
 	// Note: the analytic solution to this problem involves solving a 5th order polynomial
 	// This method uses Newton's method and relies on a "good" initial estimate of the nearest point
 	// Should have quadratic convergence
-	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 const& pt, float initial_estimate, bool bound01 = true, int iterations = 5)
+	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 pt, float initial_estimate, bool bound01 = true, int iterations = 5)
 	{
 		// The distance (squared) from 'pt' to the spline is: Dist(t) = |pt - S(t)|^2.    (S(t) = spline at t)
 		// At the closest point, Dist'(t) = 0.
@@ -736,7 +736,7 @@ namespace pr
 
 	// This overload attempts to find the nearest point robustly
 	// by testing 3 starting points and returning minimum.
-	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 const& pt, bool bound01 = true)
+	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 pt, bool bound01 = true)
 	{
 		float t0 = ClosestPoint_PointToSpline(spline, pt, -0.5f, bound01, 5);
 		float t1 = ClosestPoint_PointToSpline(spline, pt,  0.5f, bound01, 5);
@@ -873,7 +873,7 @@ namespace pr
 	// 'points' is the vert along the spline
 	// 'times' is the times along 'spline' at the point locations
 	template <typename PCont, typename TCont>
-	void Raster(Spline const& spline, PCont& points, TCont& times, int max_points, float tol = maths::tinyf)
+	void Raster(Spline const& spline, PCont& points, TCont& times, int max_points, float tol = maths::tiny<float>)
 	{
 		struct L
 		{
@@ -946,7 +946,7 @@ namespace pr
 		L::Raster(points, times, &elem, pts_remaining, tol);
 	}
 	template <typename PCont>
-	void Raster(Spline const& spline, PCont& points, int max_points, float tol = maths::tinyf)
+	void Raster(Spline const& spline, PCont& points, int max_points, float tol = maths::tiny<float>)
 	{
 		// Dummy container for the time values
 		struct TCont
@@ -960,7 +960,7 @@ namespace pr
 
 	// Fill a container of points with a smoothed spline based on 'points
 	template <SmoothOutput VOut, int MaxPointsPerSpline = 30>
-	void Smooth(std::span<v4 const> points, Spline::ETopo topo, VOut out, float tol = maths::tinyf)
+	void Smooth(std::span<v4 const> points, Spline::ETopo topo, VOut out, float tol = maths::tiny<float>)
 	{
 		if (points.size() < 3)
 		{
@@ -1033,7 +1033,7 @@ namespace pr
 		{
 			return Spline::O2W(m_clock);
 		}
-		m4x4 O2W(int axis, v4 const& up) const
+		m4x4 O2W(int axis, v4 up) const
 		{
 			return Spline::O2W(m_clock, axis, up);
 		}

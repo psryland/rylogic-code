@@ -24,11 +24,11 @@ void pr::ph::SphereVsBox(Shape const& sphere, m4x4 const& a2w, Shape const& box,
 	PR_EXPAND(PR_DBG_SPH_BOX_COLLISION, ldr::g_output->Print(ldr::Txfm(b2w));)
 
 	// Convert into box space
-	v4 b2s = InvertAffine(b2w) * a2w.pos - v4Origin; // Box to sphere vector in box space
-	PR_EXPAND(PR_DBG_SPH_BOX_COLLISION, ldr::Line("b2s", "FF00FF00", v4Origin, b2s);)
+	v4 b2s = InvertAffine(b2w) * a2w.pos - v4::Origin(); // Box to sphere vector in box space
+	PR_EXPAND(PR_DBG_SPH_BOX_COLLISION, ldr::Line("b2s", "FF00FF00", v4::Origin(), b2s);)
 	
 	// Get a vector from the sphere to the nearest point on the box
-	v4 closest = v4Zero;
+	v4 closest = v4::Zero();
 	float dist_sq = 0.0f;
 	for( int i = 0; i != 3; ++i )
 	{
@@ -65,7 +65,7 @@ void pr::ph::SphereVsBox(Shape const& sphere, m4x4 const& a2w, Shape const& box,
 	contact.m_material_idB	= box_shape   .m_base.m_material_id;
 
 	// If 'dist_sq' is zero then the centre of the sphere is inside the box
-	if (dist_sq < maths::tinyf)
+	if (dist_sq < maths::tiny<float>)
 	{
 		// Find the closest point on the box to the centre of the sphere
 		int largest = MaxElementIndex(Abs(b2s));
@@ -82,7 +82,7 @@ void pr::ph::SphereVsBox(Shape const& sphere, m4x4 const& a2w, Shape const& box,
 		contact.m_pointB = b2w * contact.m_pointB + b2w.pos;
 
 		// Get the normal in world space
-		contact.m_normal = v4Zero;
+		contact.m_normal = v4::Zero();
 		contact.m_normal[largest] = sign * 1.0f;
 		contact.m_normal = b2w * contact.m_normal;
 		contact.m_depth = sphere_shape.m_radius + box_shape.m_radius[largest] - Abs(b2s[largest]);

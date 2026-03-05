@@ -17,7 +17,7 @@ namespace tests
 		pr::network::socket_stream ldr;
 		ldr.set_non_blocking();
 		
-		for (auto t = 0.f;; t += 0.01f, std::this_thread::sleep_for(std::chrono::milliseconds(10)))
+		for (auto t = 0.f; t < 100000.0f; t += 0.01f, std::this_thread::sleep_for(std::chrono::milliseconds(10)))
 		{
 			builder.Clear();
 			builder.BinaryStream();

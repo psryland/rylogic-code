@@ -14,7 +14,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double)
 		{
 			using V4 = Vec4<T>;
-			using P = Plane<T>;
+			using P = Plane3<T>;
 
 			// From direction and distance
 			auto p1 = P(V4(0, 1, 0, 0), T(5));
@@ -34,7 +34,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(FromTriangle, float, double)
 		{
 			using V4 = Vec4<T>;
-			using P = Plane<T>;
+			using P = Plane3<T>;
 
 			auto p = P::FromTriangle(V4(0, 0, 0, 1), V4(1, 0, 0, 1), V4(0, 1, 0, 1));
 			auto norm = Normalise(p);
@@ -44,7 +44,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(NormaliseTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using P = Plane<T>;
+			using P = Plane3<T>;
 
 			auto p = P(T(0), T(0), T(2), T(-6));
 			auto n = Normalise(p);
@@ -55,7 +55,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(DistanceTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using P = Plane<T>;
+			using P = Plane3<T>;
 
 			// XY plane at z=0
 			auto p = P(V4(0, 0, 1, 0), T(0));
@@ -72,7 +72,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(ProjectTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using P = Plane<T>;
+			using P = Plane3<T>;
 
 			// Project point onto XY plane
 			auto p = P(V4(0, 0, 1, 0), T(0));

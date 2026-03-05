@@ -25,13 +25,13 @@ namespace pr::collision
 				return ray;
 
 			auto direction_len  = Length(ray.m_direction);
-			if (direction_len < maths::tinyf)
+			if (direction_len < maths::tiny<float>)
 				return ray; // Zero-length ray, cannot shift
 			
 			auto forward        = ray.m_direction / direction_len;
 			auto sideways       = (forward * Dot3(ray.m_point, forward) - ray.m_point).w0();
 			auto sideways_len   = Length(sideways);
-			sideways *= sideways_len > maths::tinyf ? (1.f / sideways_len) : 0.f; // If sideways length is zero, ray passes through origin - no shift needed
+			sideways *= sideways_len > maths::tiny<float> ? (1.f / sideways_len) : 0.f; // If sideways length is zero, ray passes through origin - no shift needed
 			return Ray(
 				ray.m_point +
 				forward  * pr::Min(direction_len, ray.m_thickness) +
@@ -48,7 +48,7 @@ namespace pr::collision
 
 		// Check for zero-length ray direction
 		auto direction_lenSq = LengthSq(ray.m_direction);
-		if (direction_lenSq < maths::tiny_sqf)
+		if (direction_lenSq < Sqr(maths::tiny<float>))
 			return result; // No valid ray direction
 		
 		// Find the closest point to the line
@@ -87,7 +87,7 @@ namespace pr::collision
 		result.m_shape = &shape.m_base;
 		for (auto i = 0; i != 3; ++i)
 		{
-			if (Abs(ray.m_direction[i]) < maths::tinyf)
+			if (Abs(ray.m_direction[i]) < maths::tiny<float>)
 			{
 				if (Abs(ray.m_point[i]) > shape.m_radius[i])
 					return result;
@@ -180,11 +180,11 @@ namespace pr::collision
 		};
 		struct Simplex
 		{
-			struct Vert { v4 m_vert; std::size_t m_id; void set(v4 const& vert, std::size_t id) {m_vert = vert; m_id = id;} };
+			struct Vert { v4 m_vert; std::size_t m_id; void set(v4 vert, std::size_t id) {m_vert = vert; m_id = id;} };
 			Simplex() : m_num_verts(0), m_intersects(false) {}
 	
 			// Add a vertex to the simplex. Returns false if it's a duplicate
-			bool AddVertex(v4 const& vert, std::size_t id, v4 const& lineS, v4 const& lineE)
+			bool AddVertex(v4 vert, std::size_t id, v4 lineS, v4 lineE)
 			{
 				PR_ASSERT(PR_DBG_PHYSICS, m_num_verts < 4, "");
 				for (std::size_t i = 0; i != m_num_verts; ++i)
@@ -222,7 +222,7 @@ namespace pr::collision
 
 							// Calculate the nearest and normal since we have the barycoords
 							m_nearest = BaryPoint(m_vert[i].m_vert, m_vert[j].m_vert, m_vert[k].m_vert, bary);
-							m_normal = Cross3(m_vert[j].m_vert - m_vert[i].m_vert, m_vert[k].m_vert - m_vert[j].m_vert);
+							m_normal = Cross(m_vert[j].m_vert - m_vert[i].m_vert, m_vert[k].m_vert - m_vert[j].m_vert);
 							return true;
 						}
 					}
@@ -232,7 +232,7 @@ namespace pr::collision
 			}
 
 			// Find the next direction to search in.
-			v4 FindNearest(v4 const& lineS, v4 const& lineE, Simplex& save_for_back_facing)
+			v4 FindNearest(v4 lineS, v4 lineE, Simplex& save_for_back_facing)
 			{
 				PR_ASSERT(PR_DBG_PHYSICS, m_num_verts > 0, "");
 				float t0, t1;
@@ -249,7 +249,7 @@ namespace pr::collision
 						if( t0 == 1.0f )	{ m_vert[0] = m_vert[1]; t0 = 0.0f; } // careful here, using t0 to pass into the next if
 						if( t0 == 0.0f )	{ m_nearest = m_vert[0].m_vert; m_num_verts = 1; }
 						else				{ m_nearest = (1.0f - t0)*m_vert[0].m_vert + t0*m_vert[1].m_vert; }
-						m_normal = Cross3(m_vert[1].m_vert - m_vert[0].m_vert, line);
+						m_normal = Cross(m_vert[1].m_vert - m_vert[0].m_vert, line);
 						m_normal *= (Dot3(lineS - m_vert[0].m_vert, m_normal) >= 0.0f) * 2.0f - 1.0f;
 						//m_normal = lineS + t0*line - m_nearest; don't use, not as robust
 					}return m_normal;
@@ -265,7 +265,7 @@ namespace pr::collision
 						if( m_intersects )
 						{
 							m_nearest = BaryPoint(m_vert[0].m_vert, m_vert[1].m_vert, m_vert[2].m_vert, bary);
-							m_normal  = f2b * Cross3(m_vert[1].m_vert - m_vert[0].m_vert, m_vert[2].m_vert - m_vert[1].m_vert);
+							m_normal  = f2b * Cross(m_vert[1].m_vert - m_vert[0].m_vert, m_vert[2].m_vert - m_vert[1].m_vert);
 
 							// Save a copy of the simplex when we detect that the line intersects the
 							// simplex. This is an optimisation to jump start the back facing search
@@ -280,7 +280,7 @@ namespace pr::collision
 							v4 line = lineE - lineS;
 							Vert  closest[2];
 							float closest_t = 0.0f;
-							float closest_dist_sq = maths::float_max;
+							float closest_dist_sq = limits<float>::max();
 							for( int i = 0; i != 3; ++i )
 							{
 								Vert const& vert0 = m_vert[ i     ];
@@ -335,13 +335,13 @@ namespace pr::collision
 		RayCastResult result;
 
 		Dbg::Scene();
-		assert(!FEql3(ray.m_direction, v4Zero));
+		assert(!FEql3(ray.m_direction, v4::Zero()));
 
 		auto ray_      = impl::ShiftTowardOrigin(ray);
 		auto lineS     = ray_.m_point;
 		auto lineE     = ray_.m_point + ray_.m_direction;
-		result.m_t0    = -maths::float_max;
-		result.m_t1    =  maths::float_max;
+		result.m_t0    = -limits<float>::max();
+		result.m_t1    =  limits<float>::max();
 		result.m_shape = &shape.m_base;
 
 		float t;
@@ -351,8 +351,8 @@ namespace pr::collision
 		// Attempt a quick out for the line vs. polytope test. If the distance to the most extreme vert
 		// in the direction from the centre of 'shape' to the line is less that the distance to the line
 		// then the line cannot penetrate the polytope
-		auto dir = ClosestPoint_PointToInfiniteLine(v4Origin, lineS, lineE, t) - v4Origin;
-		if (!FEql3(dir, v4Zero))
+		auto dir = ClosestPoint_PointToInfiniteLine(v4::Origin(), lineS, lineE, t) - v4::Origin();
+		if (!FEql3(dir, v4::Zero()))
 		{
 			start_vert = SupportVertex(shape, dir, id, id);
 				PR_EXPAND(PR_PH_DBG_RAY_CAST, StartFile("C:/Deleteme/raycast_vert.pr_script");)
@@ -388,7 +388,7 @@ namespace pr::collision
 			{
 				dir = smplx.FindNearest(line_s, line_e, back);
 					PR_EXPAND(PR_PH_DBG_RAY_CAST, smplx.Dump("raycast_smplx");)
-				if( FEql3(dir,pr::v4Zero) ) dir = line_s - line_e;
+				if( FEql3(dir,pr::v4::Zero()) ) dir = line_s - line_e;
 					PR_EXPAND(PR_PH_DBG_RAY_CAST, StartFile("C:/DeleteMe/raycast_nearest.pr_script");)
 					PR_EXPAND(PR_PH_DBG_RAY_CAST, ldr::Box("Nearest", "FFFF0000", smplx.m_nearest, 0.02f);)
 					PR_EXPAND(PR_PH_DBG_RAY_CAST, ldr::LineD("Sep_axis", "FFFFFF00", smplx.m_nearest, Normalise3(dir));)
@@ -403,7 +403,7 @@ namespace pr::collision
 				// separating axis 'dir' than 'nearest' then the line does not intersect the
 				// polytope and the distance is the distance from the nearest point to the line
 				float v_dist = Dot3(dir, vert);
-				float n_dist = Dot3(dir, smplx.m_nearest) + maths::tinyf;
+				float n_dist = Dot3(dir, smplx.m_nearest) + maths::tiny<float>;
 				if( v_dist <= n_dist )
 				{
 					if( smplx.m_intersects ) break;
@@ -444,14 +444,14 @@ namespace pr::collision
 		#define PR_COL_POLYTOPE_BRUTEFORCE 0
 		#if PR_COL_POLYTOPE_BRUTEFORCE
 		{
-			v4 const&	lineS = ray.m_point;
+			v4	lineS = ray.m_point;
 			v4			lineE = ray.m_point + ray.m_direction;
-			result.m_t0 = -maths::float_max; result.m_t1 = maths::float_max;
+			result.m_t0 = -limits<float>::max(); result.m_t1 = limits<float>::max();
 
 			// Attempt a quick out for the line vs. shape test
 			float t; std::size_t id = 0;
-			v4 nearest = ClosestPoint_PointToLineSegment(v4Origin, lineS, lineE, t) - v4Origin;
-			if( !FEql3(nearest,pr::v4Zero) )
+			v4 nearest = ClosestPoint_PointToLineSegment(v4::Origin(), lineS, lineE, t) - v4::Origin();
+			if( !FEql3(nearest,pr::v4::Zero()) )
 			{
 				v4 support = SupportVertex(shape, nearest, id, id);
 				if( Dot3(support, nearest) < Length3Sq(nearest) ) return false;

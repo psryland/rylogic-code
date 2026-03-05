@@ -15,7 +15,7 @@ namespace pr::math::tests
 		{
 			using V2 = Vec2<T>;
 			using V4 = Vec4<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			// Create a frustum from width/height
 			auto f = FR::MakeWH(T(2), T(1), T(1), T(100));
@@ -41,7 +41,7 @@ namespace pr::math::tests
 			using V4 = Vec4<T>;
 			using V2 = Vec2<T>;
 			using M4 = Mat4x4<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			auto f = FR::MakeWH(T(2), T(2), T(1), T(10));
 			auto corners = Corners(f, T(10)); // returns Mat4x4 (4 corners at given z)
@@ -57,7 +57,7 @@ namespace pr::math::tests
 		{
 			using V4 = Vec4<T>;
 			using V2 = Vec2<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			auto f = FR::MakeWH(T(2), T(2), T(1), T(100));
 
@@ -78,7 +78,7 @@ namespace pr::math::tests
 		{
 			using V2 = Vec2<T>;
 			using M4 = Mat4x4<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			auto f = FR::MakeWH(T(2), T(2), T(1), T(100));
 			auto proj = f.projection(T(1), T(100));
@@ -90,7 +90,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(OrthographicFrustum, float, double)
 		{
 			using V2 = Vec2<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			auto f = FR::MakeOrtho(T(10), T(8));
 			PR_EXPECT(f.orthographic());
@@ -99,8 +99,8 @@ namespace pr::math::tests
 		PRUnitTestMethod(Planes, float, double)
 		{
 			using V4 = Vec4<T>;
-			using FR = Frustum<T>;
-			using P = Plane<T>;
+			using FR = Frustum3<T>;
+			using P = Plane3<T>;
 
 			auto f = FR::MakeWH(T(2), T(2), T(1), T(100));
 
@@ -122,7 +122,7 @@ namespace pr::math::tests
 		{
 			using V2 = Vec2<T>;
 			using M4 = Mat4x4<T>;
-			using FR = Frustum<T>;
+			using FR = Frustum3<T>;
 
 			auto f1 = FR::MakeWH(T(4), T(3), T(1), T(50));
 			auto proj = f1.projection(T(1), T(50));

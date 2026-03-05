@@ -102,7 +102,7 @@ namespace pr
 		{
 			virtual ~IPolytopeGenerator() {}
 			virtual void BeginPolytope() = 0;
-			virtual void AddPolytopeVert(v4 const& position) = 0;
+			virtual void AddPolytopeVert(v4 position) = 0;
 			virtual void AddPolytopeFace(VIndex a, VIndex b, VIndex c) = 0;
 			virtual void EndPolytope() = 0;
 		};
@@ -136,7 +136,7 @@ namespace pr
 		// Returns a scale factor for 'displacement' that will ensure adjoining tetrahedra have at
 		// least 'min_volume'. Note: if a negative value is returned then the mesh contains tetras
 		// with volumes least than 'min_volume'
-		float ConstrainVertexDisplacement(tetramesh::Mesh const& mesh, TIndex tetra_idx, CIndex cnr_idx, v4 const& displacement, float min_volume);
+		float ConstrainVertexDisplacement(tetramesh::Mesh const& mesh, TIndex tetra_idx, CIndex cnr_idx, v4 displacement, float min_volume);
 
 		// Validate the mesh. Does self consistency checks on the mesh.
 		// Used for debugging many.
@@ -154,7 +154,7 @@ namespace pr
         void Generate(tetramesh::Mesh& mesh, TSize width, TSize height, TSize depth, float size_w, float size_h, float size_d);
 
 		// Tetra operations
-		float	Volume(v4 const& a, v4 const& b, v4 const& c, v4 const& d);
+		float	Volume(v4 a, v4 b, v4 c, v4 d);
 		float	Volume(tetramesh::Mesh const& mesh, VIndex a, VIndex b, VIndex c, VIndex d);
 		float	Volume(tetramesh::Mesh const& mesh, tetramesh::Tetra const& tetra);
 
@@ -255,9 +255,9 @@ namespace pr
 		}
 
 		// Return the volume of a tetra (actually volume*6 but I only care about relative volumes)
-		inline float Volume(v4 const& a, v4 const& b, v4 const& c, v4 const& d)
+		inline float Volume(v4 a, v4 b, v4 c, v4 d)
 		{
-			return Dot3(a-b, Cross3(b-c, c-d));
+			return Dot3(a-b, Cross(b-c, c-d));
 		}
 		inline float Volume(tetramesh::Mesh const& mesh, VIndex a, VIndex b, VIndex c, VIndex d)
 		{

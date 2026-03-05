@@ -45,10 +45,10 @@ namespace pr
 			TVertexCont& verts = sph.m_frame[0].m_mesh.m_vertex;
 			for( TVertexCont::iterator v = verts.begin(), v_end = verts.end(); v != v_end; ++v )
 			{
-				v4 direction = v->m_vertex - v4Origin;
+				v4 direction = v->m_vertex - v4::Origin();
 				v4 p = a2w * SupportVertex(shapeA, w2a *  direction, p_id, p_id);
 				v4 q = b2w * SupportVertex(shapeB, w2b * -direction, q_id, q_id);
-				v->m_vertex = p - q + v4Origin;
+				v->m_vertex = p - q + v4::Origin();
 			}
 			PRMesh(name, colour, sph.m_frame[0].m_mesh, str);
 		}
@@ -56,7 +56,7 @@ namespace pr
 		{
 			float distance = Dot3(vert.m_r, vert.m_direction);
 			v4 offset = vert.m_r - distance * vert.m_direction;
-			LineD ("vert"	, "FFFFFF00", v4Origin, vert.m_direction * distance, str);
+			LineD ("vert"	, "FFFFFF00", v4::Origin(), vert.m_direction * distance, str);
 			Sphere("pt"		, colour, vert.m_r, 0.001f, str);
 			LineD ("x"		, colour, vert.m_r - offset, offset, str);
 			LineD ("norm"	, colour, vert.m_r, vert.m_direction * 0.2f, str);

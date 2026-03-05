@@ -30,7 +30,7 @@ namespace pr
 		#pragma warning(pop)
 
 		// Notes:
-		//  - Don't add Mat4x4(v4 const& v) or equivalent. It's ambiguous between being this:
+		//  - Don't add Mat4x4(v4 v) or equivalent. It's ambiguous between being this:
 		//    x = v4(v.x, v.x, v.x, v.x), y = v4(v.y, v.y, v.y, v.y), etc and
 		//    x = v4(v.x, v.y, v.z, v.w), y = v4(v.x, v.y, v.z, v.w), etc...
 
@@ -246,11 +246,11 @@ namespace pr
 		{
 			pr_assert("Invalid position/direction vectors passed to LookAt" && eye.w == S(1) && at.w == S(1) && up.w == S(0));
 			pr_assert("LookAt 'eye' and 'at' positions are coincident" && (eye - at != Vec4<S,void>{}));
-			pr_assert("LookAt 'forward' and 'up' axes are aligned" && !Parallel(eye - at, up, S(0)));
+			pr_assert("LookAt 'forward' and 'up' axes are aligned" && !IsParallel(eye - at, up, S(0)));
 			auto mat = Mat4x4{};
 			mat.z = Normalise(eye - at);
-			mat.x = Normalise(Cross3(up, mat.z));
-			mat.y = Cross3(mat.z, mat.x);
+			mat.x = Normalise(Cross(up, mat.z));
+			mat.y = Cross(mat.z, mat.x);
 			mat.pos = eye;
 			return mat;
 		}
@@ -439,7 +439,7 @@ namespace pr
 			}
 			else
 			{
-				auto a2bT = Transpose4x4(a2b);
+				auto a2bT = Transpose(a2b);
 				return Vec4<S,B>{Dot4(a2bT.x, v), Dot4(a2bT.y, v), Dot4(a2bT.z, v), Dot4(a2bT.w, v)};
 			}
 		}
@@ -483,7 +483,7 @@ namespace pr
 			else
 			{
 				auto ans = Mat4x4<S,A,C>{};
-				auto b2cT = Transpose4x4(b2c);
+				auto b2cT = Transpose(b2c);
 				ans.x = Vec4<S, void>(Dot4(b2cT.x, a2b.x), Dot4(b2cT.y, a2b.x), Dot4(b2cT.z, a2b.x), Dot4(b2cT.w, a2b.x));
 				ans.y = Vec4<S, void>(Dot4(b2cT.x, a2b.y), Dot4(b2cT.y, a2b.y), Dot4(b2cT.z, a2b.y), Dot4(b2cT.w, a2b.y));
 				ans.z = Vec4<S, void>(Dot4(b2cT.x, a2b.z), Dot4(b2cT.y, a2b.z), Dot4(b2cT.z, a2b.z), Dot4(b2cT.w, a2b.z));
@@ -576,7 +576,7 @@ namespace pr
 	}
 
 	// Return the 4x4 transpose of 'mat'
-	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose4x4(Mat4x4<S,A,B> const& mat)
+	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose(Mat4x4<S,A,B> const& mat)
 	{
 		if constexpr (Vec4<S, void>::IntrinsicF)
 		{
@@ -601,9 +601,7 @@ namespace pr
 	template <Scalar S, typename A, typename B> inline Mat4x4<S,A,B> pr_vectorcall Transpose3x3(Mat4x4<S,A,B> const& mat)
 	{
 		auto m = mat;
-		std::swap(m.x.y, m.y.x);
-		std::swap(m.x.z, m.z.x);
-		std::swap(m.y.z, m.z.y);
+		m.rot = Transpose(m.rot);
 		return m;
 	}
 
@@ -679,7 +677,7 @@ namespace pr
 		}
 		else // Reference implementation
 		{
-			auto mA = Transpose4x4(mat); // Take the transpose so that row operations are faster
+			auto mA = Transpose(mat); // Take the transpose so that row operations are faster
 			auto mB = static_cast<Mat4x4<S, B, A>>(m4x4::Identity());
 
 			// Loop through columns of 'A'
@@ -718,7 +716,7 @@ namespace pr
 
 			// When these operations have been completed, A should have been transformed to the identity matrix
 			// and B should have been transformed into the inverse of the original A
-			mB = Transpose4x4(mB);
+			mB = Transpose(mB);
 			return mB;
 		}
 	}
@@ -821,8 +819,8 @@ namespace pr
 	{
 		auto m = mat;
 		m.x = Normalise(m.x);
-		m.y = Normalise(Cross3(m.z, m.x));
-		m.z = Cross3(m.x, m.y);
+		m.y = Normalise(Cross(m.z, m.x));
+		m.z = Cross(m.x, m.y);
 		pr_assert(IsOrthonormal(m));
 		return m;
 	}
@@ -1117,7 +1115,7 @@ namespace pr::maths
 			vec4_t b = {3, -5, 2, -4};
 			auto a2b = CPM(a, vec4_t::Origin());
 
-			vec4_t c = Cross3(a, b);
+			vec4_t c = Cross(a, b);
 			vec4_t d = a2b * b;
 			PR_EXPECT(FEql(c.xyz, d.xyz));
 		}

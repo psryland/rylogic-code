@@ -24,8 +24,8 @@ namespace pr::gui
 			auto j = 0.0;
 			for (int i = 0; i != 3600; ++i, j += 0.1)
 			{
-				m_series0.m_values.push_back(GraphDatum(j, sin(j/pr::maths::tau)));
-				m_series1.m_values.push_back(GraphDatum(j, cos(j/pr::maths::tau)));
+				m_series0.m_values.push_back(GraphDatum(j, sin(j/pr::constants<double>::tau)));
+				m_series1.m_values.push_back(GraphDatum(j, cos(j/pr::constants<double>::tau)));
 			}
 			m_graph.m_series.push_back(&m_series0);
 			m_graph.m_series.push_back(&m_series1);

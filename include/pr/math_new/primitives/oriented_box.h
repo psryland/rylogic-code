@@ -12,7 +12,7 @@
 namespace pr::math
 {
 	template <ScalarType S>
-	struct OBox
+	struct OrientedBox
 	{
 		using Mat4 = Mat4x4<S>;
 		using Mat3 = Mat3x4<S>;
@@ -23,25 +23,25 @@ namespace pr::math
 		Mat4 m_box_to_world;
 		Vec4 m_radius;
 
-		OBox() = default;
-		OBox(Vec4 centre, Vec4 radii, Mat3 const& ori) noexcept
+		OrientedBox() = default;
+		OrientedBox(Vec4 centre, Vec4 radii, Mat3 const& ori) noexcept
 			:m_box_to_world(ori, centre)
 			,m_radius(radii)
 		{}
-		OBox(Mat4 const& box_to_world, Vec4 radii) noexcept
+		OrientedBox(Mat4 const& box_to_world, Vec4 radii) noexcept
 			:m_box_to_world(box_to_world)
 			,m_radius(radii)
 		{}
 
 		// Constants
-		static constexpr OBox const& Unit() noexcept
+		static constexpr OrientedBox const& Unit() noexcept
 		{
-			static auto s_unit = OBox{ Identity<Mat4>(), Vec4{S(0.5), S(0.5), S(0.5), S(0)} };
+			static auto s_unit = OrientedBox{ Identity<Mat4>(), Vec4{S(0.5), S(0.5), S(0.5), S(0)} };
 			return s_unit;
 		}
-		static constexpr OBox const& Reset() noexcept
+		static constexpr OrientedBox const& Reset() noexcept
 		{
-			static auto s_reset = OBox{ Identity<Mat4>(), Zero<Vec4>() };
+			static auto s_reset = OrientedBox{ Identity<Mat4>(), Zero<Vec4>() };
 			return s_reset;
 		}
 
@@ -80,56 +80,56 @@ namespace pr::math
 		}
 
 		#pragma region Operators
-		friend bool operator == (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
-		friend bool operator != (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
-		friend bool operator <  (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
-		friend bool operator >  (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
-		friend bool operator <= (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
-		friend bool operator >= (OBox const& lhs, OBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
-		friend OBox& pr_vectorcall operator += (OBox& lhs, Vec4 offset) noexcept
+		friend bool operator == (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
+		friend bool operator != (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
+		friend bool operator <  (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
+		friend bool operator >  (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
+		friend bool operator <= (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
+		friend bool operator >= (OrientedBox const& lhs, OrientedBox const& rhs) { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
+		friend OrientedBox& pr_vectorcall operator += (OrientedBox& lhs, Vec4 offset) noexcept
 		{
 			lhs.m_box_to_world.pos += offset;
 			return lhs;
 		}
-		friend OBox& pr_vectorcall operator -= (OBox& lhs, Vec4 offset) noexcept
+		friend OrientedBox& pr_vectorcall operator -= (OrientedBox& lhs, Vec4 offset) noexcept
 		{
 			lhs.m_box_to_world.pos -= offset;
 			return lhs;
 		}
-		friend OBox pr_vectorcall operator + (OBox const& lhs, Vec4 offset) noexcept
+		friend OrientedBox pr_vectorcall operator + (OrientedBox const& lhs, Vec4 offset) noexcept
 		{
 			auto ob = lhs;
 			return ob += offset;
 		}
-		friend OBox pr_vectorcall operator - (OBox const& lhs, Vec4 offset) noexcept
+		friend OrientedBox pr_vectorcall operator - (OrientedBox const& lhs, Vec4 offset) noexcept
 		{
 			auto ob = lhs;
 			return ob -= offset;
 		}
-		friend OBox pr_vectorcall operator * (Mat4 const& m, OBox const& ob) noexcept
+		friend OrientedBox pr_vectorcall operator * (Mat4 const& m, OrientedBox const& ob) noexcept
 		{
-			OBox obox;
+			OrientedBox obox;
 			obox.m_box_to_world = m * ob.m_box_to_world;
 			obox.m_radius = ob.m_radius;
 			return obox;
 		}
 		#pragma endregion
 	};
-	static_assert(std::is_trivially_copyable_v<OBox<float>>, "Should be a pod type");
-	static_assert(std::alignment_of_v<OBox<float>> == 16, "Should be 16 byte aligned");
+	static_assert(std::is_trivially_copyable_v<OrientedBox<float>>, "Should be a pod type");
+	static_assert(std::alignment_of_v<OrientedBox<float>> == 16, "Should be 16 byte aligned");
 
 	#pragma region Functions
 
 	// Return the volume of the box
-	template <ScalarType S> constexpr S Volume(OBox<S> const& ob) noexcept
+	template <ScalarType S> constexpr S Volume(OrientedBox<S> const& ob) noexcept
 	{
 		return ob.SizeX() * ob.SizeY() * ob.SizeZ();
 	}
 
 	// Return the bounding sphere for the box
-	template <ScalarType S> constexpr BSphere<S> GetBSphere(OBox<S> const& ob) noexcept
+	template <ScalarType S> constexpr BoundingSphere<S> GetBSphere(OrientedBox<S> const& ob) noexcept
 	{
-		return BSphere(ob.m_box_to_world.pos, Length(ob.m_radius));
+		return BoundingSphere(ob.m_box_to_world.pos, Length(ob.m_radius));
 	}
 
 	#pragma endregion

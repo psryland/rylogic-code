@@ -182,7 +182,7 @@ namespace pr
 	};
 	template <> struct Convert<view3d::Vec4, v4>
 	{
-		constexpr static view3d::Vec4 Func(v4 const& v)
+		constexpr static view3d::Vec4 Func(v4 v)
 		{
 			return view3d::Vec4{v.x, v.y, v.z, v.w};
 		}

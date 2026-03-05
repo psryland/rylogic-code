@@ -29,11 +29,11 @@ namespace pr
 			struct Point
 			{
 				Point() {}
-				Point(v4 const& point)
+				Point(v4 point)
 				:m_point(point)
 				,m_type(EPointType_Point)
 				{}
-				void set(v4 const& point, int type, int dof0, int dof1)
+				void set(v4 point, int type, int dof0, int dof1)
 				{
 					m_point = point;
 					m_type = type;
@@ -53,7 +53,7 @@ namespace pr
 				,m_a2w(a2w)
 				,m_shapeB(shapeB)
 				,m_b2w(b2w)
-				,m_penetration(maths::float_max)
+				,m_penetration(limits<float>::max())
 				{
 					m_heightA = m_a2w.y * m_shapeA.m_height;
 					m_heightB = m_b2w.y * m_shapeB.m_height;
@@ -81,7 +81,7 @@ using namespace pr::ph::collision;
 // Projects a cylinder onto 'axis'
 // Returns the half width of the cylinder when projected.
 // Also returns the point in the minimum direction of axis
-float Project(v4 const& axis, v4 const& cyl_axis, float height, float radius, Point& point)
+float Project(v4 axis, v4 cyl_axis, float height, float radius, Point& point)
 {
 	float dist = 0.0f;
 	float d = Dot3(axis, cyl_axis);
@@ -104,7 +104,7 @@ float Project(v4 const& axis, v4 const& cyl_axis, float height, float radius, Po
 	}
 
 	// Project the radius
-	v4 radius_v4 = Cross3(cyl_axis, Cross3(cyl_axis, axis));
+	v4 radius_v4 = Cross(cyl_axis, Cross(cyl_axis, axis));
 	d = Length(radius_v4);
 	if( FEqlRelative(d, 0.f, FaceToFaceTolerance) )
 	{

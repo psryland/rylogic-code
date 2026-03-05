@@ -63,14 +63,14 @@ std::unique_ptr<p3d::File> CreateFrom3DS(std::filesystem::path const& filepath)
 		// Bounding box / transform
 		mesh.m_bbox = BBox::Reset();
 		mesh.m_o2p = o.m_mesh.m_o2p;
-		auto bb = [&](v4 const& v) { Grow(mesh.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(mesh.m_bbox, v); return v; };
 
 		p3d::IdxBuf vidx(sizeof(uint16_t));
 		auto mesh_geom = EGeom::Vert;
 
 		// Get the 3ds code to extract the verts/faces/normals/nuggets
 		max_3ds::CreateModel(o, matlookup,
-			[&](v4 const& p, Colour const& c, v4 const& n, v2 const& t) // vertex out
+			[&](v4 p, Colour const& c, v4 n, v2 const& t) // vertex out
 			{
 				mesh.add_vert({p, c, n, t});
 			},
@@ -132,7 +132,7 @@ std::unique_ptr<p3d::File> CreateFromSTL(std::filesystem::path const& filepath)
 
 		// Bounding box
 		mesh.m_bbox = BBox::Reset();
-		auto bb = [&](v4 const& v) { Grow(mesh.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(mesh.m_bbox, v); return v; };
 
 		// Copy the verts
 		mesh.m_vert.reserve(vcount);

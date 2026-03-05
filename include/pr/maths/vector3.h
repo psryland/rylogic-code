@@ -226,7 +226,7 @@ namespace pr
 	// Triple product: a . b x c
 	template <Scalar S, typename T> constexpr S pr_vectorcall Triple(Vec3<S, T> a, Vec3<S, T> b, Vec3<S, T> c)
 	{
-		return Dot(a, Cross3(b, c));
+		return Dot(a, Cross(b, c));
 	}
 
 	// Returns a vector with the values permuted 'n' times. 0=xyz, 1=yzx, 2=zxy, etc

@@ -107,7 +107,7 @@ namespace pr::maths
 		static Monic FromPoints(v2 const& a, v2 const& b)
 		{
 			auto dx = b.x - a.x;
-			if (Abs(dx) < maths::tinyf)
+			if (Abs(dx) < tiny<float>)
 				return Monic(0, a.y); // Vertical line - return horizontal through a.y
 			
 			auto A = (b.y - a.y) / dx;
@@ -255,7 +255,7 @@ namespace pr::maths
 			//' A = |a.x² a.x 1| x = |A| y = |a.y|
 			//'     |b.x² b.x 1|     |B|     |b.y|
 			//'     |c.x² c.x 1|     |C|     |c.y|
-			auto M = Transpose4x4(m4x4(
+			auto M = Transpose(m4x4(
 				v4(a.x*a.x*a.x, a.x*a.x, a.x, 1),
 				v4(b.x*b.x*b.x, b.x*b.x, b.x, 1),
 				v4(c.x*c.x*c.x, c.x*c.x, c.x, 1),
@@ -324,7 +324,7 @@ namespace pr::maths
 			: -0.5 * (p.B + discriminant);
 
 		// Check for zero discriminant to avoid division by zero
-		if (Abs(discriminant) < maths::tinyf)
+		if (Abs(discriminant) < tiny<float>)
 		{
 			// Repeated root case: x = -B / (2A)
 			auto root = -p.B / (2 * p.A);
@@ -340,7 +340,7 @@ namespace pr::maths
 	template <typename = void> Roots FindRoots(Cubic const& p)
 	{
 		// Check for degenerate cubic (A == 0)
-		if (Abs(p.A) < maths::tinyf)
+		if (Abs(p.A) < tiny<float>)
 			return FindRoots(Quadratic(p.B, p.C, p.D));
 		
 		// See http://www2.hawaii.edu/suremath/jrootsCubic.html for method
@@ -467,7 +467,7 @@ namespace pr::maths
 	inline Roots StationaryPoints(Quadratic const& p)
 	{
 		// Check for linear polynomial (A == 0)
-		if (Abs(p.A) < maths::tinyf)
+		if (Abs(p.A) < tiny<float>)
 			return Roots(); // Linear has no stationary points
 		
 		return Roots(-p.B / (2.0f * p.A));

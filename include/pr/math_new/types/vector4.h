@@ -134,7 +134,7 @@ namespace pr::math
 		}
 
 		// Constants
-		static consteval Vec4 const& Zero() noexcept
+		static constexpr Vec4 const& Zero() noexcept
 		{
 			static auto s_zero = math::Zero<Vec4>();
 			return s_zero;

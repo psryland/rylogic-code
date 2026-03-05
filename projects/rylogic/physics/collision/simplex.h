@@ -17,7 +17,7 @@ namespace pr
 		{
 			struct Vert
 			{
-				void set(v4 const& direction, std::size_t id_p, std::size_t id_q)	{ m_direction = direction; m_id_p = id_p; m_id_q = id_q; }
+				void set(v4 direction, std::size_t id_p, std::size_t id_q)	{ m_direction = direction; m_id_p = id_p; m_id_q = id_q; }
 				v4			m_p, m_q, m_r;	// Points on objectA, objectB, and the minkowski difference of A and B
 				v4			m_direction;	// The support direction used to calculate this vertex
 				std::size_t	m_id_p, m_id_q;	// The id's of the vertices 'm_p' and 'm_q'
@@ -46,8 +46,8 @@ namespace pr
 					return *this;
 				}
 				Vert const& vert() const	{ return *m_vert; }
-				v4 const& direction() const	{ return m_vert->m_direction; }
-				v4 const& offset() const	{ return m_offset; }
+				v4 direction() const	{ return m_vert->m_direction; }
+				v4 offset() const	{ return m_offset; }
 				float distance() const		{ return m_distance; }
 			};
 
@@ -70,7 +70,7 @@ namespace pr
 
 				Simplex() :m_num_vertices(0) {}
 				bool	AddVertex(Vert const& v);
-				v4		FindNearestPoint(v4 const& point);
+				v4		FindNearestPoint(v4 point);
 				v4		GetNearestPointOnA() const;	// Returns the nearest point on A in world space. Must call 'FindNearestPoint' first
 				v4		GetNearestPointOnB() const;	// Returns the nearest point on B in world space. Must call 'FindNearestPoint' first
 			};

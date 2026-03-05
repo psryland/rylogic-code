@@ -44,7 +44,7 @@ namespace pr
 			void Clear();
 
 			// Add a support point. Attempt to add 'point' as a support of the object that owns this struct
-			void Add(Rigidbody& on_obj, v4 const& gravity, v4 const& point);
+			void Add(Rigidbody& on_obj, v4 gravity, v4 point);
 
 			// Returns true if this struct appears to be supported
 			bool IsSupported() const			{ m_active -= (m_active > 1); return m_supported; }

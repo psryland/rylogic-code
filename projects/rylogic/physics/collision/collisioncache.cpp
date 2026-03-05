@@ -23,7 +23,7 @@ namespace pr { namespace ph { namespace collision
 }}}
 
 // Update the cache entry for a collision couple
-void CacheData::Update(v4 const& sep_axis, std::size_t p_id, std::size_t q_id)
+void CacheData::Update(v4 sep_axis, std::size_t p_id, std::size_t q_id)
 {
 	m_separating_axis	= sep_axis;
 	m_p_id				= p_id;

@@ -97,7 +97,7 @@ void BPSweepAndPrune::EnumPairs(EnumPairsFunc func, void* context)
 		[&] { m_enumerating = false; }));
 
 	// Sweep the array looking for overlaps
-	v4 sum = v4Zero, sum_sq = v4Zero;
+	v4 sum = v4::Zero(), sum_sq = v4::Zero();
 	for (BPEntityCont::const_iterator i = m_entity.begin(), i_end = m_entity.end(); i != i_end; ++i)
 	{
 		BPEntity const& entityA = **i;

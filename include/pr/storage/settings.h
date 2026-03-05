@@ -64,7 +64,7 @@ namespace pr::settings
 	{
 		return pr::FmtS(L"%f %f", t.x, t.y);
 	}
-	inline string Write(pr::v4 const& t)
+	inline string Write(pr::v4 t)
 	{
 		return pr::FmtS(L"%f %f %f %f", t.x, t.y, t.z, t.w);
 	}

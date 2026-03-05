@@ -952,7 +952,7 @@ namespace pr::geometry::fbx
 			tri_indices.resize(fbxmesh.max_face_triangles * 3);
 
 			// Add a vertex to 'm_vbuf' and return its index.
-			auto AddVert = [&mesh, &vlookup](int src_vidx, v4 const& pos, Colour const& col, v4 const& norm, v2 const& uv) -> int
+			auto AddVert = [&mesh, &vlookup](int src_vidx, v4 pos, Colour const& col, v4 norm, v2 const& uv) -> int
 			{
 				Vert v = {
 					.m_vert = pos,

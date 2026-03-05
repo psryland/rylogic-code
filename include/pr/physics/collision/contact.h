@@ -22,7 +22,7 @@ namespace pr
 			uint32_t				m_material_idA;		// The material id for pointA
 			uint32_t				m_material_idB;		// The material id for pointB
 
-			Contact() : m_depth(-maths::float_max)	{}
+			Contact() : m_depth(-limits<float>::max())	{}
 			void FlipResults()
 			{
 				std::swap(m_pointA, m_pointB);

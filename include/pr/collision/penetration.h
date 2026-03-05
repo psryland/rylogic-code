@@ -63,9 +63,9 @@ namespace pr::collision
 		int   m_mat_idB;     // The material id of object B
 
 		Penetration()
-			:m_axis(v4Zero)
+			:m_axis(v4::Zero())
 			,m_axis_len_sq(0.0f)
-			,m_depth_sq(maths::float_inf)
+			,m_depth_sq(limits<float>::infinity())
 			,m_mat_idA()
 			,m_mat_idB()
 		{}
@@ -73,22 +73,22 @@ namespace pr::collision
 		// Boolean test of penetration
 		bool Contact() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
 			return m_depth_sq > 0;
 		}
 
 		// Return the depth of penetration
 		float Depth() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
 			return SignedSqrt(m_depth_sq);
 		}
 
 		// The direction of minimum penetration (normalised)
 		v4 SeparatingAxis() const
 		{
-			assert("No separating axes have been tested yet" && m_depth_sq != maths::float_inf);
-			return m_axis_len_sq > maths::tiny_sqf ? m_axis / Sqrt(m_axis_len_sq) : v4{1,0,0,0};
+			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
+			return m_axis_len_sq > Sqr(maths::tiny<float>) ? m_axis / Sqrt(m_axis_len_sq) : v4{1,0,0,0};
 		}
 
 		// Implemented by derived types.
@@ -127,7 +127,7 @@ namespace pr::collision
 			auto len_sq = LengthSq(axis);
 			
 			// Skip degenerate axes to avoid division by zero
-			if (len_sq < maths::tiny_sqf)
+			if (len_sq < Sqr(maths::tiny<float>))
 				return true;
 			
 			auto d_sq = SignedSqr(depth) / len_sq;

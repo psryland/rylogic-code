@@ -53,9 +53,9 @@ namespace pr::rdr12::ldraw
 			, m_btn_set0(gui::Button::Params<>().parent(this_).name("btn-set0").id(ID_BTN_SET0).wh(50, 20).xy(Left | RightOf | ID_BTN_ORIG, 0).anchor(EAnchor::TopLeft).text(L"Point 0"))
 			, m_btn_set1(gui::Button::Params<>().parent(this_).name("btn-set1").id(ID_BTN_SET1).wh(50, 20).xy(Left | RightOf | ID_BTN_SET0, 0).anchor(EAnchor::TopLeft).text(L"Point 1"))
 			, m_tb_values(gui::TextBox::Params<>().parent(this_).name("tb-values").id(ID_TB_VALUES).wh(Fill, Fill).xy(0, Top | BottomOf | ID_BTN_ORIG).anchor(EAnchor::All).multiline(true))
-			, m_origin(v4Origin)
-			, m_point0(v4Origin)
-			, m_point1(v4Origin)
+			, m_origin(v4::Origin())
+			, m_point0(v4::Origin())
+			, m_point1(v4::Origin())
 		{
 			CreateHandle();
 			m_btn_orig.Click += std::bind(&AngleUI::HandleSetPoint, this, _1, _2);

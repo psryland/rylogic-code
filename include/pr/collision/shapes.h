@@ -58,7 +58,7 @@ namespace pr::collision
 			#define PR_COLLISION_SHAPE_SUPPORTVERTEX(name, comp) case EShape::name: return SupportVertex(shape_cast<Shape##name>(shape), direction, hint_vert_id, sup_vert_id);
 			PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_SUPPORTVERTEX)
 			#undef PR_COLLISION_SHAPE_SUPPORTVERTEX
-			default: assert("Unknown primitive type" && false); return v4Zero;
+			default: assert("Unknown primitive type" && false); return v4::Zero();
 		}
 	}
 

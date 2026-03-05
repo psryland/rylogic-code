@@ -61,7 +61,7 @@ namespace las
 
 			for (int seg = 0; seg != NumSegments; ++seg)
 			{
-				auto angle = maths::tauf * seg / NumSegments;
+				auto angle = constants<float>::tau * seg / NumSegments;
 				auto idx = 1 + ring * NumSegments + seg;
 				auto& v = buf.m_vcont[idx];
 				v.m_vert = v4(std::cos(angle), std::sin(angle), t, 1);

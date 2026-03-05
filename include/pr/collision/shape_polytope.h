@@ -79,7 +79,7 @@ namespace pr::collision
 		v4*       vert_beg()                    { return type_ptr<v4>(this + 1); }
 		v4 const* vert_end() const              { return vert_beg() + m_vert_count; }
 		v4*       vert_end()                    { return vert_beg() + m_vert_count; }
-		v4 const& vertex(std::size_t idx) const { return vert_beg()[idx]; }
+		v4        vertex(std::size_t idx) const { return vert_beg()[idx]; }
 		v4&       vertex(std::size_t idx)       { return vert_beg()[idx]; }
 
 		// Face accessors
@@ -99,7 +99,7 @@ namespace pr::collision
 		Nbrs&       nbrs(int idx)       { return nbrs_beg()[idx]; }
 
 		// Opposite side vertex
-		v4 const& opp_vertex(int idx) const { return vert_beg()[*nbrs(idx).begin()]; }
+		v4        opp_vertex(int idx) const { return vert_beg()[*nbrs(idx).begin()]; }
 		v4&       opp_vertex(int idx)       { return vert_beg()[*nbrs(idx).begin()]; }
 
 		// Conversion
@@ -143,9 +143,9 @@ namespace pr::collision
 		auto volume = 0.0f;
 		for (ShapePolyFace const *f = shape.face_beg(), *f_end = shape.face_end(); f != f_end; ++f)
 		{
-			auto& a = shape.vertex(f->m_index[0]);
-			auto& b	= shape.vertex(f->m_index[1]);
-			auto& c = shape.vertex(f->m_index[2]);
+			auto a = shape.vertex(f->m_index[0]);
+			auto b	= shape.vertex(f->m_index[1]);
+			auto c = shape.vertex(f->m_index[2]);
 			volume += Triple(a, b, c); // Triple product is volume x 6
 		}
 		return volume / 6.0f;
@@ -157,13 +157,13 @@ namespace pr::collision
 	{
 		assert("Centre of mass is undefined for an empty polytope" && shape.m_vert_count != 0 && shape.m_face_count != 0);
 
-		auto com = v4Zero;
+		auto com = v4::Zero();
 		auto volume = 0.0f;
 		for (ShapePolyFace const *f = shape.face_beg(), *fend = shape.face_end(); f != fend; ++f)
 		{
-			auto& a = shape.vertex(f->m_index[0]);
-			auto& b = shape.vertex(f->m_index[1]);
-			auto& c = shape.vertex(f->m_index[2]);
+			auto a = shape.vertex(f->m_index[0]);
+			auto b = shape.vertex(f->m_index[1]);
+			auto c = shape.vertex(f->m_index[2]);
 			auto vol_x6 = Triple(a, b, c); // Triple product is volume x 6
 			com	+= vol_x6 * (a + b + c);    // Divide by 4 at end
 			volume += vol_x6;
@@ -173,7 +173,7 @@ namespace pr::collision
 		// If the polytope is degenerate, use the weighted average vertex positions
 		if (FEql(volume, 0.f))
 		{
-			com = v4Zero;
+			com = v4::Zero();
 			for (v4 const *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) com += *v;
 			volume = 1.0f * shape.m_vert_count;
 		}
@@ -197,7 +197,7 @@ namespace pr::collision
 	v4 pr_vectorcall SupportVertex(ShapePolytope const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
 	{
 		assert("Invalid hint vertex index" && hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count);
-		assert("Direction is too short" && Length(direction) > maths::tinyf);
+		assert("Direction is too short" && Length(direction) > maths::tiny<float>);
 
 		// Find the support vertex using a 'hill-climbing' search
 		// Start at the hint vertex and look for a neighbour that is more extreme in the
@@ -208,7 +208,7 @@ namespace pr::collision
 
 		//PR_EXPAND(PR_PH_DBG_SUPVERT, StartFile("C:/DeleteMe/collision_supverttrace.pr_script");)
 		//PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::PhShape("polytope", "8000FF00", shape, m4x4::Identity());)
-		//PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::Line("sup_direction", "FFFFFF00", v4Origin, direction);)
+		//PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::Line("sup_direction", "FFFFFF00", v4::Origin(), direction);)
 		//PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::GroupStart("SupportVertexTrace");)
 		//PR_EXPAND(PR_PH_DBG_SUPVERT, ldr::Box("start", "FF00FFFF", *support_vertex, 0.05f);)
 
@@ -229,7 +229,7 @@ namespace pr::collision
 				{
 	 				skip_first_nbr = true;
 					auto dist = Dot3(shape.vertex(*n), direction);
-					if (dist > sup_dist + maths::tinyf)
+					if (dist > sup_dist + maths::tiny<float>)
 					{
 						sup_vert_id    = *n;
 						sup_dist       = dist;
@@ -247,7 +247,7 @@ namespace pr::collision
 					nbrs.y = shape.vertex(*(n + 1));
 					nbrs.z = shape.vertex(*(n + 2));
 					nbrs.w = shape.vertex(*(n + 3));
-					nbrs = Transpose4x4(nbrs);
+					nbrs = Transpose(nbrs);
 					v4 dots = nbrs * direction;
 
 					auto id = sup_vert_id;
@@ -282,7 +282,7 @@ namespace pr::collision
 	{
 		assert(hint_vert_id  >= 0 && hint_vert_id < shape.m_vert_count);
 
-		auto eps = major ? maths::tinyf : -maths::tinyf;
+		auto eps = major ? maths::tiny<float> : -maths::tiny<float>;
 
 		vert_id0 = hint_vert_id;
 		auto V1 = &shape.vertex(vert_id0);

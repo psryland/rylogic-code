@@ -10,13 +10,13 @@ namespace las::camera
 	ShipCamera::ShipCamera(Camera& cam, InputHandler& input, Ship const& ship)
 		: ICamera(cam, input)
 		, m_ship(ship)
-		, m_yaw(maths::tau_by_4f)  // Start looking from the side
+		, m_yaw(constants<float>::tau_by_4)  // Start looking from the side
 		, m_pitch(0.3f)            // Slightly above horizontal
 		, m_arm_length(15.0f)
 		, m_arm_min(3.0f)
 		, m_arm_max(100.0f)
-		, m_current_pos(v4Zero)
-		, m_pos_velocity(v4Zero)
+		, m_current_pos(v4::Zero())
+		, m_pos_velocity(v4::Zero())
 		, m_stiffness(25.0f)
 		, m_damping(10.0f)
 		, m_look_offset_z(1.0f)
@@ -84,8 +84,8 @@ namespace las::camera
 		// Build camera-to-world matrix directly (avoid LookAt which triggers navigation state)
 		auto forward = Normalise(look_target - m_current_pos);
 		auto cam_z = -forward; // Camera looks along -Z
-		auto cam_x = Normalise(Cross3(v4{0, 0, 1, 0}, cam_z));
-		auto cam_y = Cross3(cam_z, cam_x);
+		auto cam_x = Normalise(Cross(v4{0, 0, 1, 0}, cam_z));
+		auto cam_y = Cross(cam_z, cam_x);
 		m_cam.CameraToWorld(m4x4{cam_x, cam_y, cam_z, m_current_pos});
 	}
 }

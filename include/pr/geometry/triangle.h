@@ -19,7 +19,7 @@ namespace pr::geometry
 {
 	// Return the 'circum radius' of three points
 	// 'centre' is only defined if the returned radius is less than float max
-	inline float CircumRadius(v4 const& a, v4 const& b, v4 const& c, v4& centre)
+	inline float CircumRadius(v4 a, v4 b, v4 c, v4& centre)
 	{
 		v4 ab = b - a;
 		v4 ac = c - a;
@@ -28,7 +28,7 @@ namespace pr::geometry
 		float abac = Dot3(ab, ac);
 		float e = abab * acac;
 		float d = 2.0f * (e - abac * abac);
-		if (Abs(d) <= maths::tinyf) return maths::float_max;
+		if (Abs(d) <= maths::tiny<float>) return limits<float>::max();
 
 		float s = (e - acac * abac) / d;
 		float t = (e - abab * abac) / d;
@@ -38,7 +38,7 @@ namespace pr::geometry
 	}
 
 	// Returns the angles at each triangle vertex for the triangle v0,v1,v2
-	inline v4 TriangleAngles(v4 const& v0, v4 const& v1, v4 const& v2)
+	inline v4 TriangleAngles(v4 v0, v4 v1, v4 v2)
 	{
 		// Angle at a vertex:
 		// Cos(C) = a.b / |a|b|
@@ -63,7 +63,7 @@ namespace pr::geometry
 
 			angles.x = 0.5f * Acos(Clamp(2*(bc*bc / (d1 + (d1 == 0.0f))) - 1, -1.0f, 1.0f));
 			angles.y = 0.5f * Acos(Clamp(2*(ca*ca / (d2 + (d2 == 0.0f))) - 1, -1.0f, 1.0f));
-			angles.z = maths::tau_by_2f - angles.x - angles.y;
+			angles.z = constants<float>::tau_by_2 - angles.x - angles.y;
 		}
 		else if (asq > bsq && asq > csq)
 		{
@@ -72,7 +72,7 @@ namespace pr::geometry
 
 			angles.y = 0.5f * Acos(Clamp(2*(ca*ca / (d2 + (d2 == 0.0f))) - 1, -1.0f, 1.0f));
 			angles.z = 0.5f * Acos(Clamp(2*(ab*ab / (d0 + (d0 == 0.0f))) - 1, -1.0f, 1.0f));
-			angles.x = maths::tau_by_2f - angles.y - angles.z;
+			angles.x = constants<float>::tau_by_2 - angles.y - angles.z;
 		}
 		else
 		{
@@ -81,7 +81,7 @@ namespace pr::geometry
 			
 			angles.x = 0.5f * Acos(Clamp(2*(bc*bc / (d1 + (d1 == 0.0f))) - 1, -1.0f, 1.0f));
 			angles.z = 0.5f * Acos(Clamp(2*(ab*ab / (d0 + (d0 == 0.0f))) - 1, -1.0f, 1.0f));
-			angles.y = maths::tau_by_2f - angles.x - angles.z;
+			angles.y = constants<float>::tau_by_2 - angles.x - angles.z;
 		}
 		angles.w = 0.0f;
 		return angles;

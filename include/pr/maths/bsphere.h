@@ -17,14 +17,14 @@ namespace pr
 		v4 m_ctr_rad; // x,y,z = position, 'w' = radius
 
 		BSphere() = default;
-		constexpr BSphere(v4 const& centre, float radius)
+		constexpr BSphere(v4 centre, float radius)
 			:m_ctr_rad(centre.xyz, radius)
 		{}
 
 		// Reset this bsphere to invalid
 		BSphere& reset()
 		{
-			m_ctr_rad = -v4Origin;
+			m_ctr_rad = -v4::Origin();
 			return *this;
 		}
 
@@ -43,7 +43,7 @@ namespace pr
 		// Set this bsphere to a unit sphere centred on the origin
 		BSphere& unit()
 		{
-			m_ctr_rad = v4Origin;
+			m_ctr_rad = v4::Origin();
 			return *this;
 		}
 

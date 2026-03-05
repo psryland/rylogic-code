@@ -17,7 +17,7 @@ namespace pr
 		// 'offset' is the distance from (or toward) the centre of mass (determined by 'translate_type')
 		// 'inertia' and 'offset' must be in the same frame.
 		namespace ParallelAxisTranslate { enum Type { TowardCoM, AwayFromCoM }; }
-		void ParallelAxisTranslateInertia(m3x4& inertia, pr::v4 const& offset, float mass, ParallelAxisTranslate::Type translate_type);
+		void ParallelAxisTranslateInertia(m3x4& inertia, pr::v4 offset, float mass, ParallelAxisTranslate::Type translate_type);
 		
 		// Create inertia tensors
 		inline m3x4 InertiaTensorWS(m3x4 const& orientation, m3x4 const& os_inertia_tensor)

@@ -74,11 +74,11 @@ ph::Shape* ShapeBuilder::BuildShape(ByteCont& model_data, MassProperties& mp, v4
 void ShapeBuilder::CalculateMassAndCentreOfMass()
 {
 	m_model.m_mp.m_mass = 0.0f;
-	m_model.m_mp.m_centre_of_mass = pr::v4Zero;
+	m_model.m_mp.m_centre_of_mass = pr::v4::Zero();
 	for( TPrimList::const_iterator p = m_model.m_prim_list.begin(), p_end = m_model.m_prim_list.end(); p != p_end; ++p )
 	{
 		Prim const& prim = *(*p).m_ptr;
-		PR_ASSERT(PR_DBG_PHYSICS, FEql(prim.m_mp.m_centre_of_mass,pr::v4Zero), ""); // All shapes should be centred on their centre of mass when added to the builder
+		PR_ASSERT(PR_DBG_PHYSICS, FEql(prim.m_mp.m_centre_of_mass,pr::v4::Zero()), ""); // All shapes should be centred on their centre of mass when added to the builder
 		m_model.m_mp.m_mass				+= prim.m_mp.m_mass;
 		m_model.m_mp.m_centre_of_mass	+= prim.m_mp.m_mass * prim.GetShape().m_shape_to_model.pos;
 	}
@@ -97,7 +97,7 @@ void ShapeBuilder::MoveToCentreOfMassFrame(v4& model_to_CoMframe)
 		(*p)->GetShape().m_shape_to_model.pos -= m_model.m_mp.m_centre_of_mass;
 
 	// The offset to the centre of mass is now zero
-	m_model.m_mp.m_centre_of_mass = pr::v4Zero;
+	m_model.m_mp.m_centre_of_mass = pr::v4::Zero();
 }
 
 // Calculate the bounding box for 'm_model'.
@@ -118,7 +118,7 @@ void ShapeBuilder::CalculateInertiaTensor()
 	for( TPrimList::const_iterator p = m_model.m_prim_list.begin(), p_end = m_model.m_prim_list.end(); p != p_end; ++p )
 	{
 		Prim const& prim = *(*p).m_ptr;
-		PR_ASSERT(PR_DBG_PHYSICS, FEql(prim.m_mp.m_centre_of_mass,pr::v4Zero), ""); // All primitives should be in their inertial frame
+		PR_ASSERT(PR_DBG_PHYSICS, FEql(prim.m_mp.m_centre_of_mass,pr::v4::Zero()), ""); // All primitives should be in their inertial frame
 
 		m3x4 primitive_inertia  = prim.m_mp.m_mass * prim.m_mp.m_os_inertia_tensor;
 

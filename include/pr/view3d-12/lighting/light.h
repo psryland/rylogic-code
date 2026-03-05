@@ -28,7 +28,7 @@ namespace pr::rdr12
 		bool IsValid() const;
 
 		// Returns a light to world transform appropriate for this light type and facing 'centre'
-		m4x4 LightToWorld(v4 const& centre, float centre_dist, m4x4 const& c2w = m4x4::Identity()) const;
+		m4x4 LightToWorld(v4 centre, float centre_dist, m4x4 const& c2w = m4x4::Identity()) const;
 
 		// Returns a projection transform appropriate for this light type
 		m4x4 Projection(float zn, float zf, float w, float h, float focus_dist) const;

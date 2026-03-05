@@ -16,12 +16,12 @@ namespace pr::collision
 		Ray()
 			:m_thickness(0.0f)
 		{}
-		Ray(v4 const& point, v4 const& direction)
+		Ray(v4 point, v4 direction)
 			:m_point(point)
 			,m_direction(direction)
 			,m_thickness(0.0f)
 		{}
-		Ray(v4 const& point, v4 const& direction, float thickness)
+		Ray(v4 point, v4 direction, float thickness)
 			:m_point(point)
 			,m_direction(direction)
 			,m_thickness(thickness)

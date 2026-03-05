@@ -68,7 +68,7 @@ namespace pr::collision
 			static_cast<size_t>((dir.y + 1.0f) * 0.5f * (1 << 4)) << 10 |
 			static_cast<size_t>((dir.z + 1.0f) * 0.5f * (1 << 4)) << 0;
 
-		return dir * shape.m_radius + v4Origin;
+		return dir * shape.m_radius + v4::Origin();
 	}
 
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space

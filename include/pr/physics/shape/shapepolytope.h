@@ -55,9 +55,9 @@ namespace pr
 			v4*						vert_begin()						{ return reinterpret_cast<v4*      >(this + 1); }
 			v4 const*				vert_end() const					{ return vert_begin() + m_vert_count; }
 			v4*						vert_end()							{ return vert_begin() + m_vert_count; }
-			v4 const&				vertex(std::size_t idx) const		{ return vert_begin()[idx]; }
+			v4						vertex(std::size_t idx) const		{ return vert_begin()[idx]; }
 			v4&						vertex(std::size_t idx)				{ return vert_begin()[idx]; }
-			v4 const&				opp_vertex(std::size_t idx) const	{ return vert_begin()[*nbr(idx).begin()]; }
+			v4						opp_vertex(std::size_t idx) const	{ return vert_begin()[*nbr(idx).begin()]; }
 			v4&						opp_vertex(std::size_t idx)			{ return vert_begin()[*nbr(idx).begin()]; }
 
 			ShapePolyFace const*	face_begin() const					{ return reinterpret_cast<ShapePolyFace const*>(vert_end()); }
@@ -87,14 +87,14 @@ namespace pr
 		float			CalcVolume			(ShapePolytope const& shape);
 		v4				CalcCentreOfMass	(ShapePolytope const& shape);
 		void			ShiftCentre			(ShapePolytope& shape, v4& shift);
-		BBox&	CalcBBox			(ShapePolytope const& shape, BBox& bbox);
+		BBox&			CalcBBox			(ShapePolytope const& shape, BBox& bbox);
 		m3x4			CalcInertiaTensor	(ShapePolytope const& shape);
 		MassProperties& CalcMassProperties	(ShapePolytope const& shape, float density, MassProperties& mp);
-		v4				SupportVertex		(ShapePolytope const& shape, v4 const& direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
+		v4				SupportVertex		(ShapePolytope const& shape, v4 direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
 		void			GetAxis				(ShapePolytope const& shape, v4& direction, std::size_t hint_vertex_id, std::size_t& vert_id0, std::size_t& vert_id1, bool major);
-		uint32_t			VertCount			(ShapePolytope const& shape);
-		uint32_t			EdgeCount			(ShapePolytope const& shape);
-		uint32_t			FaceCount			(ShapePolytope const& shape);
+		uint32_t		VertCount			(ShapePolytope const& shape);
+		uint32_t		EdgeCount			(ShapePolytope const& shape);
+		uint32_t		FaceCount			(ShapePolytope const& shape);
 		void			GenerateVerts		(ShapePolytope const& shape, v4* verts, v4* verts_end);
 		void			GenerateEdges		(ShapePolytope const& shape, v4* edges, v4* edges_end);
 		void			GenerateFaces		(ShapePolytope const& shape, uint32_t* faces, uint32_t* faces_end);

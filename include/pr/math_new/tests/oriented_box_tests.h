@@ -16,7 +16,7 @@ namespace pr::math::tests
 			using V4 = Vec4<T>;
 			using M3 = Mat3x4<T>;
 			using M4 = Mat4x4<T>;
-			using OB = OBox<T>;
+			using OB = OrientedBox<T>;
 
 			// Default construction
 			auto ob0 = OB{};
@@ -35,7 +35,7 @@ namespace pr::math::tests
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x4<T>;
-			using OB = OBox<T>;
+			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(2, 3, 4, 0), Identity<M3>());
 			PR_EXPECT(ob.SizeX() == T(4));
@@ -48,7 +48,7 @@ namespace pr::math::tests
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x4<T>;
-			using OB = OBox<T>;
+			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(1, 1, 1, 0), Identity<M3>());
 			PR_EXPECT(FEql(ob.DiametreSq(), T(12)));
@@ -59,8 +59,8 @@ namespace pr::math::tests
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x4<T>;
-			using OB = OBox<T>;
-			using BS = BSphere<T>;
+			using OB = OrientedBox<T>;
+			using BS = BoundingSphere<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(1, 1, 1, 0), Identity<M3>());
 			auto bs = GetBSphere(ob);
@@ -72,7 +72,7 @@ namespace pr::math::tests
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x4<T>;
-			using OB = OBox<T>;
+			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(1, 1, 1, 0), Identity<M3>());
 			auto shifted = ob + V4(5, 0, 0, 0);

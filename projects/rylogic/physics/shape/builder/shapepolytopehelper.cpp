@@ -23,7 +23,7 @@ struct ShapePolytopeNbrsEx
 	pr::vector<PolyIdx> m_nbr;
 	v4                 m_normal;
 
-	ShapePolytopeNbrsEx() :m_normal(v4Zero) {}
+	ShapePolytopeNbrsEx() :m_normal(v4::Zero()) {}
 };
 
 namespace pr
@@ -55,7 +55,7 @@ void GenerateNeighbours(v4 const* verts, std::size_t num_verts, ShapePolyFace co
 		// Calculate the face normal
 		v4 edge0 = verts[f->m_index[1]] - verts[f->m_index[0]];
 		v4 edge1 = verts[f->m_index[2]] - verts[f->m_index[0]];
-		v4 norm  = Normalise(Cross3(edge0, edge1), v4Zero);
+		v4 norm  = Normalise(Cross(edge0, edge1), v4::Zero());
 
 		// For each vertex in each face, add the other face vertices as neighbours
 		for( std::size_t i = 0, j = 1, k = 2; i != 3; ++i, j=(j+1)%3, k=(k+1)%3 )
@@ -161,7 +161,7 @@ ShapePolytope& Serialise(ShapePolytopeHelper& helper
 	//// Shift the polytope vertices to the centre of mass and adjust the shape to model transform
 	//MassProperties mp;
 	//CalcMassProperties(poly, 1.0f, mp);
-	//ShiftCentre(poly, mp.m_centre_of_mass - v4Origin);
+	//ShiftCentre(poly, mp.m_centre_of_mass - v4::Origin());
 
 	#if PH_SHAPE_POLYTOPE_LDR_OUTPUT == 1
 	{

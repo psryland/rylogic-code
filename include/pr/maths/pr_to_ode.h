@@ -32,7 +32,7 @@ namespace pr
 	}
 	
 	// Convert a pr::v4 to a dVector3 
-	inline dV4 ode(pr::v4 const& vec)
+	inline dV4 ode(pr::v4 vec)
 	{
 		dV4 v = {{vec.x, vec.y, vec.z, vec.w}};
 		return v;

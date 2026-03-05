@@ -66,9 +66,9 @@ namespace pr::physics
 		auto off_diag = v4{}; // Accumulate matrix off-diagonals  [y*z, x*z, x*y]
 		for (ShapePolyFace const *f = shape.face_beg(), *fend = shape.face_end(); f != fend; ++f)
 		{
-			auto& a = shape.vertex(f->m_index[0]);
-			auto& b = shape.vertex(f->m_index[1]);
-			auto& c = shape.vertex(f->m_index[2]);
+			auto a = shape.vertex(f->m_index[0]);
+			auto b = shape.vertex(f->m_index[1]);
+			auto c = shape.vertex(f->m_index[2]);
 			auto vol_x6 = Triple(a, b, c); // Triple product is volume x 6
 			volume += vol_x6;
 
@@ -97,9 +97,9 @@ namespace pr::physics
 		}
 
 		// If the polytope is degenerate, use the weighted average vertex positions
-		if (pr::FEql(volume, 0.f))
+		if (FEql(volume, 0.f))
 		{
-			auto centre = v4Zero;
+			auto centre = v4::Zero();
 			for (v4 const *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) centre += *v;
 			return Inertia::Point(1.0f, centre).To3x3();
 		}
@@ -117,7 +117,7 @@ namespace pr::physics
 	// Return the mass properties
 	inline MassProperties CalcMassProperties(ShapeSphere const& shape, float density)
 	{
-		auto volume = float((2.0/3.0) * maths::tau * shape.m_radius * shape.m_radius * shape.m_radius);
+		auto volume = float((2.0/3.0) * constants<double>::tau * shape.m_radius * shape.m_radius * shape.m_radius);
 
 		MassProperties mp;
 		mp.m_centre_of_mass  = v4{};
@@ -143,7 +143,7 @@ namespace pr::physics
 	{
 		MassProperties mp;
 		mp.m_centre_of_mass  = (1.0f / 3.0f) * (shape.m_v.x + shape.m_v.y + shape.m_v.z).w0();
-		mp.m_mass            = 0.5f * Length(Cross3(shape.m_v.y - shape.m_v.x, shape.m_v.z - shape.m_v.y)) * density;
+		mp.m_mass            = 0.5f * Length(Cross(shape.m_v.y - shape.m_v.x, shape.m_v.z - shape.m_v.y)) * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
 		return mp;
 	}

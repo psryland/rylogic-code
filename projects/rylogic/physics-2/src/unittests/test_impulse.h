@@ -17,7 +17,7 @@ namespace pr::physics
 		{
 			#if 0
 			ShapeSphere sph(0.5f);
-			ShapeBox    box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, maths::tau_by_8f, v4Origin));
+			ShapeBox    box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, maths::tau_by_8f, v4::Origin()));
 			RigidBody objA(&box, m4x4::Transform(0, 0, 0, v4{-0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
 			RigidBody objB(&box, m4x4::Transform(0, 0, 0, v4{+0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
 
@@ -74,7 +74,7 @@ namespace pr::physics
 				objB.Mass(10);
 				objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
 				objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1,-1, 0, 0});
-				c.m_axis = Normalise(v4{Cos(maths::tauf/16), Sin(maths::tauf/16),0,0});
+				c.m_axis = Normalise(v4{Cos(constants<float>::tau/16), Sin(constants<float>::tau/16),0,0});
 				c.m_point = v4{0.5f, 0, 0, 0};
 				c.m_mat.m_friction_static = 0.0f; // frictionless
 				c.m_mat.m_elasticity_norm = 1.0f; // elastic
@@ -101,7 +101,7 @@ namespace pr::physics
 				objA.Mass(10);
 				objB.Mass(10);
 				objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
-				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-maths::tinyf, 0, 0, 0});
+				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
 				c.m_axis = v4{1,0,0,0};
 				c.m_point = v4{0.5f, 0, 0, 0};
 				c.m_mat.m_friction_static = 1.0f; // sticky
@@ -122,7 +122,7 @@ namespace pr::physics
 				objA.Mass(10);
 				objB.Mass(10);
 				objA.VelocityWS(v4{0, 0, +1, 0}, v4{});
-				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-maths::tinyf, 0, 0, 0});
+				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
 				c.m_axis = v4{1,0,0,0};
 				c.m_point = v4{0.5f, 0, 0, 0};
 				c.m_mat.m_friction_static = 1.0f; // sticky
@@ -142,7 +142,7 @@ namespace pr::physics
 			//	objA.Mass(10);
 			//	objB.Mass(10);
 			//	objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
-			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{-maths::tinyf, 0, 0, 0});
+			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
 			//	c.m_axis = v4{1,0,0,0};
 			//	c.m_point = v4{0.5f, 0, 0, 0};
 			//	c.m_mat.m_friction_static = 1.0f;

@@ -178,13 +178,13 @@ namespace pr::maths
 			PR_EXPECT(FEqlRelative(x0, x2, 0.005f));
 		}
 		{
-			auto x0 = maths::float_inf;
+			auto x0 = limits<float>::infinity();
 			auto x1 = F32toF16(x0);
 			auto x2 = F16toF32(x1);
 			PR_EXPECT(x0 == x2);
 		}
 		{
-			auto x0 = -maths::float_inf;
+			auto x0 = -limits<float>::infinity();
 			auto x1 = F32toF16(x0);
 			auto x2 = F16toF32(x1);
 			PR_EXPECT(x0 == x2);
@@ -198,7 +198,7 @@ namespace pr::maths
 
 		// Half4
 		{
-			auto x0 = v4Zero;
+			auto x0 = v4::Zero();
 			auto x1 = F32toF16(x0);
 			auto x2 = F16toF32(x1);
 			PR_EXPECT(x2 == x0);

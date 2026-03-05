@@ -724,14 +724,14 @@ namespace pr::rdr12
 	}
 
 	// Reset the scene camera to view all objects in the scene
-	void V3dWindow::ResetView(v4 const& forward, v4 const& up, float dist, bool preserve_aspect, bool commit)
+	void V3dWindow::ResetView(v4 forward, v4 up, float dist, bool preserve_aspect, bool commit)
 	{
 		auto bbox = SceneBounds(view3d::ESceneBounds::All, 0, nullptr);
 		ResetView(bbox, forward, up, dist, preserve_aspect, commit);
 	}
 
 	// Reset the camera to view a bbox
-	void V3dWindow::ResetView(BBox const& bbox, v4 const& forward, v4 const& up, float dist, bool preserve_aspect, bool commit)
+	void V3dWindow::ResetView(BBox const& bbox, v4 forward, v4 up, float dist, bool preserve_aspect, bool commit)
 	{
 		m_scene.m_cam.View(bbox, forward, up, dist, preserve_aspect, commit);
 
@@ -1123,7 +1123,7 @@ namespace pr::rdr12
 		else
 		{
 			m_selection_box.m_i2w =
-				m4x4(ori, v4Origin) *
+				m4x4(ori, v4::Origin()) *
 				m4x4::Scale(bbox.m_radius.x, bbox.m_radius.y, bbox.m_radius.z, bbox.m_centre);
 		}
 	}
@@ -1284,7 +1284,7 @@ namespace pr::rdr12
 			ray_casts.push_back(To<HitTestRay>(ray));
 
 		// Initialise the results
-		auto const invalid = view3d::HitTestResult{.m_distance = maths::float_max};
+		auto const invalid = view3d::HitTestResult{.m_distance = limits<float>::max()};
 		for (auto& r : hits)
 			r = invalid;
 
@@ -1714,7 +1714,7 @@ namespace pr::rdr12
 		{
 			case EKeyCodes::F7:
 			{
-				auto up = LengthSq(m_scene.m_cam.Align()) > maths::tinyf ? m_scene.m_cam.Align() : v4::YAxis();
+				auto up = LengthSq(m_scene.m_cam.Align()) > maths::tiny<float> ? m_scene.m_cam.Align() : v4::YAxis();
 				auto forward = up.z > up.y ? v4::YAxis() : -v4::ZAxis();
 
 				auto bounds =

@@ -79,8 +79,8 @@ void pr::ph::SetMaterialProperties(Contact& contact)
 	{
 		float momA_sq = contact.m_objectA->Momentum().LengthSq();
 		float momB_sq = contact.m_objectB->Momentum().LengthSq();		
-		float micro_momA_sq = contact.m_objectA->m_micro_mom_sq + maths::tinyf;
-		float micro_momB_sq = contact.m_objectB->m_micro_mom_sq + maths::tinyf;
+		float micro_momA_sq = contact.m_objectA->m_micro_mom_sq + tiny<float>;
+		float micro_momB_sq = contact.m_objectB->m_micro_mom_sq + tiny<float>;
 		float elasticityA = materialA.m_elasticity * Maximum(0.0f, momA_sq/micro_momA_sq - 0.5f*micro_momA_sq);
 		float elasticityB = materialB.m_elasticity * Maximum(0.0f, momB_sq/micro_momB_sq - 0.5f*micro_momB_sq);
 		contact.m_elasticity_n = (elasticityA + elasticityB) * 0.5f;
@@ -103,8 +103,8 @@ void pr::ph::ImpulseResponse(Contact& contact, v4& ws_impulse)
 	// "inv_mass2" = [(1/MassB)*Identity - (pointB.CrossProductMatrix()*InvMassTensorWS()B*pointB.CrossProductMatrix())]
 	m3x4 cpmA = CrossProductMatrix3x3(contact.m_pointA - objA.Position());
 	m3x4 cpmB = CrossProductMatrix3x3(contact.m_pointB - objB.Position());
-	m3x4 inv_mass1	= objA.m_inv_mass * (m3x4Identity - (cpmA * objA.m_ws_inv_inertia_tensor * cpmA));
-	m3x4 inv_mass2	= objB.m_inv_mass * (m3x4Identity - (cpmB * objB.m_ws_inv_inertia_tensor * cpmB));
+	m3x4 inv_mass1	= objA.m_inv_mass * (m3x4::Identity() - (cpmA * objA.m_ws_inv_inertia_tensor * cpmA));
+	m3x4 inv_mass2	= objB.m_inv_mass * (m3x4::Identity() - (cpmB * objB.m_ws_inv_inertia_tensor * cpmB));
 	m3x4 inv_mass	= inv_mass1 + inv_mass2;
 	m3x4 mass		= inv_mass.Invert();
 
@@ -170,7 +170,7 @@ void pr::ph::PushOut(Rigidbody& objA, Rigidbody& objB, Contact& contact)
 
 		//// Decompose the push into a shift of the CoM and a rotation
 		//v4 radius = contact.m_pointA - objA.m_object_to_world.pos;
-		//v4 rot    = Cross3(radius, push)         / radius.LengthSq();
+		//v4 rot    = Cross(radius, push)         / radius.LengthSq();
 		//v4 trans  = Dot3(radius, push) * radius  / radius.LengthSq();
 		//objA.m_object_to_world     += CrossProductMatrix3x3(rot) * objA.m_object_to_world.Getm3x4();
 		//objA.m_object_to_world.pos += trans;
@@ -182,7 +182,7 @@ void pr::ph::PushOut(Rigidbody& objA, Rigidbody& objB, Contact& contact)
 		{
 			//v4 vel = objA.Velocity();
 			//float vel_sq = vel.LengthSq();
-			//if( nrg_gain > vel_sq )	objA.SetVelocity(v4Zero);
+			//if( nrg_gain > vel_sq )	objA.SetVelocity(v4::Zero());
 			//else					objA.SetVelocity(vel * Sqrt((vel_sq - nrg_gain) / vel_sq));
 		}
 	}
@@ -197,7 +197,7 @@ void pr::ph::PushOut(Rigidbody& objA, Rigidbody& objB, Contact& contact)
 
 		//// Decompose the push into a shift of the CoM and a rotation
 		//v4 radius = contact.m_pointB - objB.m_object_to_world.pos;
-		//v4 rot    = Cross3(radius, push)         / radius.LengthSq();
+		//v4 rot    = Cross(radius, push)         / radius.LengthSq();
 		//v4 trans  = Dot3(radius, push) * radius  / radius.LengthSq();
 		//objB.m_object_to_world     += CrossProductMatrix3x3(rot) * objB.m_object_to_world.Getm3x4();
 		//objB.m_object_to_world.pos += trans;
@@ -209,7 +209,7 @@ void pr::ph::PushOut(Rigidbody& objA, Rigidbody& objB, Contact& contact)
 		{
 			//v4 vel = objB.Velocity();
 			//float vel_sq = vel.LengthSq();
-			//if( nrg_gain > vel_sq )	objB.SetVelocity(v4Zero);
+			//if( nrg_gain > vel_sq )	objB.SetVelocity(v4::Zero());
 			//else					objB.SetVelocity(vel * Sqrt((vel_sq - nrg_gain) / vel_sq));
 		}
 	}

@@ -71,14 +71,14 @@ namespace pr::geometry
 		props.m_geom = EGeom::Vert | (isize(colours) ? EGeom::Colr : EGeom::None) | EGeom::Norm | EGeom::Tex0;
 
 		// Helper function for generating normals
-		auto norm = [](v4 const& a, v4 const& b, v4 const& c) { return Normalise(Cross3(c - b, a - b), v4Zero); };
+		auto norm = [](v4 a, v4 b, v4 c) { return Normalise(Cross(c - b, a - b), v4::Zero()); };
 
 		// Colour iterator wrapper
 		auto col = CreateRepeater(colours, 8*num_boxes, Colour32White);
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		auto v_in = points;
 		for (int i = 0; i != num_boxes; ++i)
@@ -136,7 +136,7 @@ namespace pr::geometry
 
 	// Create a box with side half lengths = rad.x,rad.y,rad.z
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Box(v4 const& rad, m4x4 const& o2w, Colour32 colour, VOut vout, IOut iout)
+	Props Box(v4 rad, m4x4 const& o2w, Colour32 colour, VOut vout, IOut iout)
 	{
 		v4 const pt[8] =
 		{
@@ -155,7 +155,7 @@ namespace pr::geometry
 
 	// Create boxes at each point in 'positions' with side half lengths = rad.x,rad.y,rad.z
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props BoxList(int num_boxes, std::span<v4 const> positions, v4 const& rad, std::span<Colour32 const> colours, VOut vout, IOut iout)
+	Props BoxList(int num_boxes, std::span<v4 const> positions, v4 rad, std::span<Colour32 const> colours, VOut vout, IOut iout)
 	{
 		vector<v4,64> points(8*num_boxes);
 		auto* pt = points.data();

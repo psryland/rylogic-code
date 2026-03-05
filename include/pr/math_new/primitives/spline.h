@@ -193,7 +193,7 @@ namespace pr::math
 	};
 
 	// A Spline made from a continuous collection of CubicCurves
-	template <ScalarTypeFP S, template<typename...> class Container = std::vector> requires VectorLike<Container, CubicCurve3<S>>
+	template <ScalarTypeFP S, template<typename...> class Container = std::vector> requires StdContainer<Container, CubicCurve3<S>>
 	struct CubicSpline
 	{
 		using Vec4 = Vec4<S>;
@@ -592,7 +592,7 @@ namespace pr::math
 
 		// Construct a spline from 4 control points
 		Spline() = default;
-		Spline(v4 const& start, v4 const& start_ctrl, v4 const& end_ctrl, v4 const& end) noexcept
+		Spline(v4 start, v4 start_ctrl, v4 end_ctrl, v4 end) noexcept
 			:m4x4(start, start_ctrl, end_ctrl, end)
 		{
 			pr_assert(start.w == 1.0f && start_ctrl.w == 1.0f && end_ctrl.w == 1.0f && end.w == 1.0f && "Splines are constructed from 4 positions");
@@ -650,7 +650,7 @@ namespace pr::math
 		{
 			return O2W(time, 2, v4::YAxis());
 		}
-		m4x4 O2W(float time, int axis, v4 const& up) const noexcept
+		m4x4 O2W(float time, int axis, v4 up) const noexcept
 		{
 			return OriFromDir(Velocity(time), axis, up, Position(time));
 		}
@@ -694,7 +694,7 @@ namespace pr::math
 	}
 
 	// Return the length of a spline from t0 to t1
-	inline float Length(Spline const& spline, float t0, float t1, float tol = maths::tinyf) noexcept
+	inline float Length(Spline const& spline, float t0, float t1, float tol = tiny<float>) noexcept
 	{
 		struct L
 		{
@@ -722,7 +722,7 @@ namespace pr::math
 	// Note: the analytic solution to this problem involves solving a 5th order polynomial
 	// This method uses Newton's method and relies on a "good" initial estimate of the nearest point
 	// Should have quadratic convergence
-	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 const& pt, float initial_estimate, bool bound01 = true, int iterations = 5) noexcept
+	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 pt, float initial_estimate, bool bound01 = true, int iterations = 5) noexcept
 	{
 		// The distance (squared) from 'pt' to the spline is: Dist(t) = |pt - S(t)|^2.    (S(t) = spline at t)
 		// At the closest point, Dist'(t) = 0.
@@ -747,7 +747,7 @@ namespace pr::math
 
 	// This overload attempts to find the nearest point robustly
 	// by testing 3 starting points and returning minimum.
-	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 const& pt, bool bound01 = true) noexcept
+	inline float ClosestPoint_PointToSpline(Spline const& spline, v4 pt, bool bound01 = true) noexcept
 	{
 		float t0 = ClosestPoint_PointToSpline(spline, pt, -0.5f, bound01, 5);
 		float t1 = ClosestPoint_PointToSpline(spline, pt,  0.5f, bound01, 5);
@@ -884,7 +884,7 @@ namespace pr::math
 	// 'points' is the vert along the spline
 	// 'times' is the times along 'spline' at the point locations
 	template <typename PCont, typename TCont>
-	void Raster(Spline const& spline, PCont& points, TCont& times, int max_points, float tol = maths::tinyf) noexcept
+	void Raster(Spline const& spline, PCont& points, TCont& times, int max_points, float tol = tiny<float>) noexcept
 	{
 		struct L
 		{
@@ -957,7 +957,7 @@ namespace pr::math
 		L::Raster(points, times, &elem, pts_remaining, tol);
 	}
 	template <typename PCont>
-	void Raster(Spline const& spline, PCont& points, int max_points, float tol = maths::tinyf) noexcept
+	void Raster(Spline const& spline, PCont& points, int max_points, float tol = tiny<float>) noexcept
 	{
 		// Dummy container for the time values
 		struct TCont
@@ -971,7 +971,7 @@ namespace pr::math
 
 	// Fill a container of points with a smoothed spline based on 'points
 	template <SmoothOutput VOut, int MaxPointsPerSpline = 30>
-	void Smooth(std::span<v4 const> points, Spline::ETopo topo, VOut out, float tol = maths::tinyf) noexcept
+	void Smooth(std::span<v4 const> points, Spline::ETopo topo, VOut out, float tol = tiny<float>) noexcept
 	{
 		if (points.size() < 3)
 		{
@@ -1044,7 +1044,7 @@ namespace pr::math
 		{
 			return Spline::O2W(m_clock);
 		}
-		m4x4 O2W(int axis, v4 const& up) const noexcept
+		m4x4 O2W(int axis, v4 up) const noexcept
 		{
 			return Spline::O2W(m_clock, axis, up);
 		}

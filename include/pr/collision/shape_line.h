@@ -52,9 +52,9 @@ namespace pr::collision
 
 	// Shift the centre of a line
 	template <typename>
-	void pr_vectorcall ShiftCentre(ShapeLine&, v4 const& shift)
+	void pr_vectorcall ShiftCentre(ShapeLine&, v4 shift)
 	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4Zero));
+		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
 		(void)shift; 
 	}
 

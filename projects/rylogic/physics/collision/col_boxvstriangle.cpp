@@ -33,7 +33,7 @@ namespace pr
 				,m_a2w(a2w)
 				,m_tri(tri)
 				,m_b2w(b2w)
-				,m_penetration(maths::float_max)
+				,m_penetration(limits<float>::max())
 				{
 					for( int i = 0; i != 3; ++ i )
 					{
@@ -105,9 +105,9 @@ void GetPointOfContactBoxVsTri(v4& pointA, v4& pointB, Overlap const& overlap)
 				overlap.m_tri_verts[0] - overlap.m_tri_verts[2]
 			};
 			Plane tri_plane[3];
-			tri_plane[0] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[0], Cross3(Cross3(edge[0], edge[1]), edge[0]));
-			tri_plane[1] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[1], Cross3(Cross3(edge[1], edge[2]), edge[1]));
-			tri_plane[2] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[2], Cross3(Cross3(edge[2], edge[0]), edge[2]));
+			tri_plane[0] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[0], Cross(Cross(edge[0], edge[1]), edge[0]));
+			tri_plane[1] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[1], Cross(Cross(edge[1], edge[2]), edge[1]));
+			tri_plane[2] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[2], Cross(Cross(edge[2], edge[0]), edge[2]));
 			intersect::LineVsPlane(tri_plane[0], s, e, s, e);
 			intersect::LineVsPlane(tri_plane[1], s, e, s, e);
 			intersect::LineVsPlane(tri_plane[2], s, e, s, e);
@@ -135,7 +135,7 @@ void GetPointOfContactBoxVsTri(v4& pointA, v4& pointB, Overlap const& overlap)
 		}
 	case (EPointType_Face<<2)|EPointType_Face:
 		{
-			v4 avr = v4Zero;
+			v4 avr = v4::Zero();
 			float count = 0;
 
 			// Clip the three edges of the triangle to two slabs
@@ -166,9 +166,9 @@ void GetPointOfContactBoxVsTri(v4& pointA, v4& pointB, Overlap const& overlap)
 				overlap.m_tri_verts[0] - overlap.m_tri_verts[2]
 			};
 			Plane tri_plane[3];
-			tri_plane[0] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[0], Cross3(Cross3(edge[0], edge[1]), edge[0]));
-			tri_plane[1] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[1], Cross3(Cross3(edge[1], edge[2]), edge[1]));
-			tri_plane[2] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[2], Cross3(Cross3(edge[2], edge[0]), edge[2]));
+			tri_plane[0] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[0], Cross(Cross(edge[0], edge[1]), edge[0]));
+			tri_plane[1] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[1], Cross(Cross(edge[1], edge[2]), edge[1]));
+			tri_plane[2] = plane::make(overlap.m_b2w.pos + overlap.m_tri_verts[2], Cross(Cross(edge[2], edge[0]), edge[2]));
 
 			// Clip the four edges of the box against the triangle
 			v4 box_pts[4];
@@ -214,7 +214,7 @@ void pr::ph::BoxVsTriangle(Shape const& objA, m4x4 const& a2w, Shape const& objB
 		PR_EXPAND(PR_DBG_BOX_TRI_COLLISION, EndFile();)
 
 		Overlap data(box, a2w, tri, b2w);
-	v4 const& a_to_b = b2w.pos - a2w.pos;
+	v4 a_to_b = b2w.pos - a2w.pos;
 
 	// Test the box against the plane of the triangle
 	{
@@ -279,9 +279,9 @@ void pr::ph::BoxVsTriangle(Shape const& objA, m4x4 const& a2w, Shape const& objB
 		v4 edge = data.m_tri_verts[(j + 1) % 3] - data.m_tri_verts[j];
 		for (int i = 0; i != 3; ++i)
 		{
-			v4 axis = Cross3(a2w[i], edge);
+			v4 axis = Cross(a2w[i], edge);
 			float len = Length(axis);
-			if (len > maths::tinyf)
+			if (len > maths::tiny<float>)
 			{
 				axis /= len;
 				float sep = Dot3(axis, a_to_b);

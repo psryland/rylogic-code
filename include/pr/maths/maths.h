@@ -17,6 +17,14 @@ namespace pr
 {
 	using namespace math;
 
+	namespace maths
+	{
+		namespace spatial
+		{
+			using namespace ::pr::math::spatial;
+		}
+	}
+
 	using v2 = math::Vec2<float>;
 	using v3 = math::Vec3<float>;
 	using v4 = math::Vec4<float>;
@@ -30,15 +38,14 @@ namespace pr
 	using m3x4 = math::Mat3x4<float>;
 	using m4x4 = math::Mat4x4<float>;
 	using m6x8 = math::Mat6x8<float, void, void>;
-	using BBox = math::BBox<float>;
-	using BSphere = math::BSphere<float>;
-	using Plane = math::Plane<float>;
+	using BBox = math::BoundingBox<float>;
+	using BSphere = math::BoundingSphere<float>;
+	using OBox = math::OrientedBox<float>;
+	using Plane = math::Plane3<float>;
+	using Frustum = math::Frustum3<float>;
 
-	namespace maths
-	{
-		inline static constexpr float tinyf = math::tiny<float>;
-		inline static constexpr double tinyd = math::tiny<double>;
-	}
+	using v8motion = math::Vec8<float, math::spatial::Motion>;
+	using v8force = math::Vec8<float, math::spatial::Force>;
 }
 #else
 

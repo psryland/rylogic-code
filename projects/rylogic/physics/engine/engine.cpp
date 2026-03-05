@@ -84,11 +84,11 @@ void Engine::ConstructCommon()
 	terrain_settings.m_shape                  = &m_terrain_shape.set(m_settings.m_terrain, m4x4::Identity(), 0, EShapeFlags_None).m_base;
 	terrain_settings.m_type                   = ERigidbody_Terrain;
 	terrain_settings.m_motion_type            = EMotion_Static;
-	terrain_settings.m_mass_properties.m_mass = maths::float_max;
+	terrain_settings.m_mass_properties.m_mass = limits<float>::max();
 	m_terrain_object.Create(terrain_settings);
-	m_terrain_object.m_ws_bbox.m_radius      = v4Max;
+	m_terrain_object.m_ws_bbox.m_radius      = v4::Max();
 	m_terrain_object.m_os_inv_inertia_tensor = m3x4::Zero();
-	m_terrain_object.m_os_inertia_tensor     = m3x4Identity * maths::float_max;
+	m_terrain_object.m_os_inertia_tensor     = m3x4::Identity() * limits<float>::max();
 	m_terrain_object.m_ws_inv_inertia_tensor = m3x4::Zero();
 
 	m_stepping     = false;
@@ -152,8 +152,8 @@ void Engine::Step(float elapsed_seconds)
 		}
 		else if( rb.m_support.IsSupported() )
 		{
-			rb.SetVelocity(v4Zero);
-			rb.SetAngVelocity(v4Zero);
+			rb.SetVelocity(v4::Zero());
+			rb.SetAngVelocity(v4::Zero());
 			rb.SetSleepState(true);
 			continue;
 		}

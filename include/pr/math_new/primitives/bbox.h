@@ -13,57 +13,57 @@
 namespace pr::math
 {
 	template <ScalarType S>
-	struct BBox
+	struct BoundingBox
 	{
 		using Vec4 = Vec4<S>;
 
 		Vec4 m_centre;
 		Vec4 m_radius;
 
-		BBox() = default;
-		constexpr BBox(Vec4 centre, Vec4 radius) noexcept
+		BoundingBox() = default;
+		constexpr BoundingBox(Vec4 centre, Vec4 radius) noexcept
 			: m_centre(centre)
 			, m_radius(radius)
 		{
-			// Catch invalid bbox radii (make an exception for the 'Reset' bbox)
+			// Catch invalid BoundingBox radii (make an exception for the 'Reset' BoundingBox)
 			pr_assert("Invalid bounding box" && (
 				(radius.x >= +S(0) && radius.y >= +S(0) && radius.z >= +S(0)) ||
 				(radius.x == -S(1) && radius.y == -S(1) && radius.z == -S(1))));
 		}
 
 		// Constants
-		static constexpr BBox const& Unit() noexcept
+		static constexpr BoundingBox const& Unit() noexcept
 		{
-			static auto s_unit = BBox{ math::Origin<Vec4>(), S(0.5) * math::One<Vec4>().w0() };
+			static auto s_unit = BoundingBox{ math::Origin<Vec4>(), S(0.5) * math::One<Vec4>().w0() };
 			return s_unit;
 		}
-		static constexpr BBox const& Reset() noexcept
+		static constexpr BoundingBox const& Reset() noexcept
 		{
-			static auto s_reset = BBox{ math::Origin<Vec4>(), -math::One<Vec4>().w0() };
+			static auto s_reset = BoundingBox{ math::Origin<Vec4>(), -math::One<Vec4>().w0() };
 			return s_reset;
 		}
-		static constexpr BBox const& Infinity() noexcept
+		static constexpr BoundingBox const& Infinity() noexcept
 		{
-			static auto s_infinity = BBox{ math::Origin<Vec4>(), math::Infinity<Vec4>().w0() };
+			static auto s_infinity = BoundingBox{ math::Origin<Vec4>(), math::Infinity<Vec4>().w0() };
 			return s_infinity;
 		}
 
-		// Reset this bbox to an invalid interval
-		BBox& reset() noexcept
+		// Reset this BoundingBox to an invalid interval
+		BoundingBox& reset() noexcept
 		{
 			m_centre = Origin<Vec4>();
 			m_radius = Vec4{ S(-1), S(-1), S(-1), S(0) };
 			return *this;
 		}
 
-		// Returns true if the bbox is valid
+		// Returns true if the BoundingBox is valid
 		constexpr bool valid() const noexcept
 		{
 			// Note: An infinite bounding box should still be valid
 			return m_radius.x >= 0 && m_radius.y >= 0 && m_radius.z >= 0 && IsFinite(m_centre);
 		}
 
-		// Returns true if this bbox encloses a single point
+		// Returns true if this BoundingBox encloses a single point
 		constexpr bool is_point() const noexcept
 		{
 			return m_radius == Zero<Vec4>();
@@ -75,22 +75,22 @@ namespace pr::math
 			return m_radius.x != 0 && m_radius.y != 0 && m_radius.z != 0;
 		}
 
-		// Set this bbox to a unit cube centred on the origin
-		BBox& unit() noexcept
+		// Set this BoundingBox to a unit cube centred on the origin
+		BoundingBox& unit() noexcept
 		{
 			m_centre = Origin<Vec4>();
 			m_radius = Vec4{ S(0.5), S(0.5), S(0.5), S(0) };
 			return *this;
 		}
 
-		// The centre of the bbox
+		// The centre of the BoundingBox
 		constexpr Vec4 Centre() const noexcept
 		{
 			// This method exists for uniformity with BSphere
 			return m_centre;
 		}
 
-		// The radius on each axis of the bbox
+		// The radius on each axis of the BoundingBox
 		constexpr Vec4 RadiusSq() const noexcept
 		{
 			return Sqr(Radius());
@@ -100,7 +100,7 @@ namespace pr::math
 			return m_radius;
 		}
 
-		// Diagonal size of the bbox
+		// Diagonal size of the BoundingBox
 		constexpr S DiametreSq() const noexcept
 		{
 			return S(4) * LengthSq(m_radius);
@@ -172,13 +172,13 @@ namespace pr::math
 			return S(2) * m_radius[axis];
 		}
 
-		// Grows the bbox to include 'rhs'. Note: prefer the free function versions.
+		// Grows the BoundingBox to include 'rhs'. Note: prefer the free function versions.
 		// There are two variations of 'Encompass':
 		//   1) Grow = modifies the provided instance returning the point enclosed,
-		//   2) Union = operates on a const BBox returning a new BBox that includes 'point'
+		//   2) Union = operates on a const BoundingBox returning a new BoundingBox that includes 'point'
 		constexpr Vec4 Grow(Vec4 point) noexcept
 		{
-			pr_assert("BBox Grow. Point must have w = 1" && point.w == 1.0f);
+			pr_assert("BoundingBox Grow. Point must have w = 1" && point.w == 1.0f);
 
 			auto fallback = [&]() constexpr
 			{
@@ -230,48 +230,48 @@ namespace pr::math
 		}
 
 		#pragma region Operators
-		friend bool pr_vectorcall operator == (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
-		friend bool pr_vectorcall operator != (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
-		friend bool pr_vectorcall operator <  (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
-		friend bool pr_vectorcall operator >  (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
-		friend bool pr_vectorcall operator <= (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
-		friend bool pr_vectorcall operator >= (BBox lhs, BBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
-		friend BBox& pr_vectorcall operator += (BBox& lhs, Vec4 offset) noexcept
+		friend bool pr_vectorcall operator == (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) == 0; }
+		friend bool pr_vectorcall operator != (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) != 0; }
+		friend bool pr_vectorcall operator <  (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <  0; }
+		friend bool pr_vectorcall operator >  (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >  0; }
+		friend bool pr_vectorcall operator <= (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) <= 0; }
+		friend bool pr_vectorcall operator >= (BoundingBox lhs, BoundingBox rhs)  { return memcmp(&lhs, &rhs, sizeof(lhs)) >= 0; }
+		friend BoundingBox& pr_vectorcall operator += (BoundingBox& lhs, Vec4 offset) noexcept
 		{
 			lhs.m_centre += offset;
 			return lhs;
 		}
-		friend BBox& pr_vectorcall operator -= (BBox& lhs, Vec4 offset) noexcept
+		friend BoundingBox& pr_vectorcall operator -= (BoundingBox& lhs, Vec4 offset) noexcept
 		{
 			lhs.m_centre -= offset;
 			return lhs;
 		}
-		friend BBox& pr_vectorcall operator *= (BBox& lhs, S s) noexcept
+		friend BoundingBox& pr_vectorcall operator *= (BoundingBox& lhs, S s) noexcept
 		{
 			lhs.m_radius *= s;
 			return lhs;
 		}
-		friend BBox& pr_vectorcall operator /= (BBox& lhs, S s) noexcept
+		friend BoundingBox& pr_vectorcall operator /= (BoundingBox& lhs, S s) noexcept
 		{
 			lhs *= (1.0f / s);
 			return lhs;
 		}
-		friend BBox pr_vectorcall operator + (BBox lhs, Vec4 offset) noexcept
+		friend BoundingBox pr_vectorcall operator + (BoundingBox lhs, Vec4 offset) noexcept
 		{
 			auto bb = lhs;
 			return bb += offset;
 		}
-		friend BBox pr_vectorcall operator - (BBox lhs, Vec4 offset) noexcept
+		friend BoundingBox pr_vectorcall operator - (BoundingBox lhs, Vec4 offset) noexcept
 		{
 			auto bb = lhs;
 			return bb -= offset;
 		}
-		friend BBox pr_vectorcall operator * (Mat4x4<S> const& m, BBox rhs) noexcept
+		friend BoundingBox pr_vectorcall operator * (Mat4x4<S> const& m, BoundingBox rhs) noexcept
 		{
-			pr_assert("m4x4 * BBox: Transform is not affine" && IsAffine(m));
+			pr_assert("m4x4 * BoundingBox: Transform is not affine" && IsAffine(m));
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BBox bb(m.pos, Zero<Vec4>());
+			BoundingBox bb(m.pos, Zero<Vec4>());
 			auto mat = Transpose3x3(m);
 			for (int i = 0; i != 3; ++i)
 			{
@@ -280,11 +280,11 @@ namespace pr::math
 			}
 			return bb;
 		}
-		friend BBox pr_vectorcall operator * (Mat3x4<S> const& m, BBox rhs) noexcept
+		friend BoundingBox pr_vectorcall operator * (Mat3x4<S> const& m, BoundingBox rhs) noexcept
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BBox bb(Origin<Vec4>(), Zero<Vec4>());
+			BoundingBox bb(Origin<Vec4>(), Zero<Vec4>());
 			auto mat = Transpose(m);
 			for (int i = 0; i != 3; ++i)
 			{
@@ -296,34 +296,26 @@ namespace pr::math
 		#pragma endregion
 
 		// Create a bounding box from lower/upper corners
-		static BBox Make(Vec4 lower, Vec4 upper) noexcept
+		static BoundingBox Make(Vec4 lower, Vec4 upper) noexcept
 		{
-			return BBox((upper + lower) * 0.5f, (upper - lower) * 0.5f);
+			return BoundingBox((upper + lower) * 0.5f, (upper - lower) * 0.5f);
 		}
 
 		// Create a bounding box from a collection of points
-		static BBox Make(std::ranges::input_range auto&& points) noexcept
+		static BoundingBox Make(std::ranges::input_range auto&& points) noexcept
 		{
 			auto bbox = Reset();
 			for (auto& point : points) bbox.Grow(point);
 			return bbox;
 		}
-
-		//// Create a bounding box from a list of verts
-		//template <typename Vert> static BBox Make(std::initializer_list<Vert> verts)
-		//{
-		//	auto bbox = Reset();
-		//	for (auto& vert : verts) pr::Grow(bbox, vert);
-		//	return bbox;
-		//}
 	};
-	static_assert(std::is_trivially_copyable_v<BBox<float>>, "Should be a pod type");
-	static_assert(std::alignment_of_v<BBox<float>> == 16, "Should be 16 byte aligned");
+	static_assert(std::is_trivially_copyable_v<BoundingBox<float>>, "Should be a pod type");
+	static_assert(std::alignment_of_v<BoundingBox<float>> == 16, "Should be 16 byte aligned");
 
 	#pragma region Functions
 
 	// Faces of the bounding box
-	enum class EBBoxPlane
+	enum class EBoundingBoxPlane
 	{
 		Lx = 0,
 		Ux = 1,
@@ -335,21 +327,21 @@ namespace pr::math
 	};
 
 	// Return a corner of the bounding box
-	template <ScalarType S> constexpr Vec4<S> pr_vectorcall Corner(BBox<S> bbox, int corner) noexcept
+	template <ScalarType S> constexpr Vec4<S> pr_vectorcall Corner(BoundingBox<S> BoundingBox, int corner) noexcept
 	{
 		pr_assert("Invalid corner index" && corner >= 0 && corner < 8);
 		auto x = ((corner >> 0) & 0x1) * 2 - 1;
 		auto y = ((corner >> 1) & 0x1) * 2 - 1;
 		auto z = ((corner >> 2) & 0x1) * 2 - 1;
 		return Vec4<S>(
-			bbox.m_centre.x + x * bbox.m_radius.x,
-			bbox.m_centre.y + y * bbox.m_radius.y,
-			bbox.m_centre.z + z * bbox.m_radius.z,
+			BoundingBox.m_centre.x + x * BoundingBox.m_radius.x,
+			BoundingBox.m_centre.y + y * BoundingBox.m_radius.y,
+			BoundingBox.m_centre.z + z * BoundingBox.m_radius.z,
 			S(1));
 	}
 
 	// Return the corners of the bounding box
-	template <ScalarType S> constexpr std::array<Vec4<S>,8> pr_vectorcall Corners(BBox<S> bbox) noexcept
+	template <ScalarType S> constexpr std::array<Vec4<S>,8> pr_vectorcall Corners(BoundingBox<S> bbox) noexcept
 	{
 		auto& c = bbox.m_centre;
 		auto& r = bbox.m_radius;
@@ -366,39 +358,39 @@ namespace pr::math
 	}
 
 	// Return the volume of a bounding box
-	template <ScalarType S> constexpr S pr_vectorcall Volume(BBox<S> bbox) noexcept
+	template <ScalarType S> constexpr S pr_vectorcall Volume(BoundingBox<S> bbox) noexcept
 	{
 		return bbox.SizeX() * bbox.SizeY() * bbox.SizeZ();
 	}
 
 	// Include 'point' within 'bbox'.
-	template <ScalarType S> [[nodiscard]] constexpr BBox<S> pr_vectorcall Union(BBox<S> bbox, Vec4<S> point) noexcept
+	template <ScalarType S> [[nodiscard]] constexpr BoundingBox<S> pr_vectorcall Union(BoundingBox<S> bbox, Vec4<S> point) noexcept
 	{
 		// Const version returns lhs, non-const returns rhs!
 		auto bb = bbox;
 		bb.Grow(point);
 		return bb;
 	}
-	template <ScalarType S> constexpr Vec4<S> pr_vectorcall Grow(BBox<S>& bbox, Vec4<S> point) noexcept
+	template <ScalarType S> constexpr Vec4<S> pr_vectorcall Grow(BoundingBox<S>& bbox, Vec4<S> point) noexcept
 	{
 		return bbox.Grow(point);
 	}
 
 	// Include 'rhs' in 'lhs'
-	template <ScalarType S> [[nodiscard]] constexpr BBox<S> pr_vectorcall Union(BBox<S> lhs, BBox<S> rhs) noexcept
+	template <ScalarType S> [[nodiscard]] constexpr BoundingBox<S> pr_vectorcall Union(BoundingBox<S> lhs, BoundingBox<S> rhs) noexcept
 	{
 		// Const version returns lhs, non-const returns rhs!
-		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty bbox
+		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty BoundingBox
 		auto bb = lhs;
 		if (!rhs.valid()) return bb;
 		bb.Grow(rhs.m_centre + rhs.m_radius);
 		bb.Grow(rhs.m_centre - rhs.m_radius);
 		return bb;
 	}
-	template <ScalarType S> constexpr BBox<S> pr_vectorcall Grow(BBox<S>& lhs, BBox<S> rhs) noexcept
+	template <ScalarType S> constexpr BoundingBox<S> pr_vectorcall Grow(BoundingBox<S>& lhs, BoundingBox<S> rhs) noexcept
 	{
 		// Const version returns lhs, non-const returns rhs!
-		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty bbox
+		// Don't treat !rhs.valid() as an error, it's the only way to grow an empty BoundingBox
 		if (!rhs.valid()) return rhs;
 		lhs.Grow(rhs.m_centre + rhs.m_radius);
 		lhs.Grow(rhs.m_centre - rhs.m_radius);
@@ -406,38 +398,38 @@ namespace pr::math
 	}
 
 	// Returns the most extreme point in the direction of 'separating_axis'
-	template <ScalarType S> constexpr Vec4<S> pr_vectorcall SupportPoint(BBox<S> bbox, Vec4<S> separating_axis) noexcept
+	template <ScalarType S> constexpr Vec4<S> pr_vectorcall SupportPoint(BoundingBox<S> bbox, Vec4<S> separating_axis) noexcept
 	{
 		return bbox.m_centre + Sign(separating_axis, false) * bbox.m_radius;
 	}
 
-	// Return the planes of 'bbox'. Returns inward facing planes
-	template <ScalarType S> constexpr std::array<Plane<S>,6> pr_vectorcall ToPlanes(BBox<S> bbox) noexcept
+	// Return the planes of 'BoundingBox'. Returns inward facing planes
+	template <ScalarType S> constexpr std::array<Plane3<S>,6> pr_vectorcall ToPlanes(BoundingBox<S> bbox) noexcept
 	{
-		return std::array<Plane<S>, EBBoxPlane::NumberOf> {
-			Plane(+S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
-			Plane(-S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
-			Plane(+S(0), +S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
-			Plane(+S(0), -S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
-			Plane(+S(0), +S(0), +S(1), bbox.m_centre.z + bbox.m_radius.z),
-			Plane(+S(0), +S(0), -S(1), bbox.m_centre.z + bbox.m_radius.z),
+		return std::array<Plane3<S>, EBoundingBoxPlane::NumberOf> {
+			Plane3<S>(+S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
+			Plane3<S>(-S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
+			Plane3<S>(+S(0), +S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
+			Plane3<S>(+S(0), -S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
+			Plane3<S>(+S(0), +S(0), +S(1), bbox.m_centre.z + bbox.m_radius.z),
+			Plane3<S>(+S(0), +S(0), -S(1), bbox.m_centre.z + bbox.m_radius.z),
 		};
 	}
 
 	// Return a plane corresponding to a side of the bounding box. Returns inward facing planes
-	template <ScalarType S> constexpr Plane<S> pr_vectorcall GetPlane(BBox<S> bbox, EBBoxPlane side) noexcept
+	template <ScalarType S> constexpr Plane3<S> pr_vectorcall GetPlane(BoundingBox<S> bbox, EBoundingBoxPlane side) noexcept
 	{
 		return ToPlanes(bbox)[static_cast<int>(side)];
 	}
 
 	// Return a bounding sphere that bounds the bounding box
-	template <ScalarType S> [[nodiscard]] BSphere<S> pr_vectorcall GetBSphere(BBox<S> bbox) noexcept
+	template <ScalarType S> [[nodiscard]] BoundingSphere<S> pr_vectorcall GetBSphere(BoundingBox<S> bbox) noexcept
 	{
-		return BSphere<S>(bbox.m_centre, Length(bbox.m_radius));
+		return BoundingSphere<S>(bbox.m_centre, Length(bbox.m_radius));
 	}
 
 	// Include 'rhs' in 'lhs'
-	template <ScalarType S> [[nodiscard]] constexpr BBox<S> Union(BBox<S> lhs, BSphere<S> rhs) noexcept
+	template <ScalarType S> [[nodiscard]] constexpr BoundingBox<S> Union(BoundingBox<S> lhs, BoundingSphere<S> rhs) noexcept
 	{
 		// Don't treat rhs.empty() as an error, it's the only way to grow an empty bsphere
 		auto bb = lhs;
@@ -447,7 +439,7 @@ namespace pr::math
 		bb.Grow(rhs.Centre() - radius);
 		return bb;
 	}
-	template <ScalarType S> constexpr BSphere<S> Grow(BBox<S>& lhs, BSphere<S> rhs) noexcept
+	template <ScalarType S> constexpr BoundingSphere<S> Grow(BoundingBox<S>& lhs, BoundingSphere<S> rhs) noexcept
 	{
 		// Don't treat rhs.empty() as an error, it's the only way to grow an empty bsphere
 		if (!rhs.valid()) return rhs;
@@ -458,7 +450,7 @@ namespace pr::math
 	}
 
 	// Returns true if 'point' is within the bounding volume
-	template <ScalarType S> constexpr bool pr_vectorcall IsWithin(BBox<S> bbox, Vec4<S> point, S tol = 0) noexcept
+	template <ScalarType S> constexpr bool pr_vectorcall IsWithin(BoundingBox<S> bbox, Vec4<S> point, S tol = 0) noexcept
 	{
 		return
 			Abs(point.x - bbox.m_centre.x) <= bbox.m_radius.x + tol &&
@@ -467,7 +459,7 @@ namespace pr::math
 	}
 
 	// Returns true if 'test' is within the bounding volume
-	template <ScalarType S> constexpr bool pr_vectorcall IsWithin(BBox<S> bbox, BBox<S> test) noexcept
+	template <ScalarType S> constexpr bool pr_vectorcall IsWithin(BoundingBox<S> bbox, BoundingSphere<S> test) noexcept
 	{
 		return
 			Abs(test.m_centre.x - bbox.m_centre.x) <= (bbox.m_radius.x - test.m_radius.x) &&
@@ -475,12 +467,22 @@ namespace pr::math
 			Abs(test.m_centre.z - bbox.m_centre.z) <= (bbox.m_radius.z - test.m_radius.z);
 	}
 
+	// Returns true if 'bb' is within the bounding volume
+	template <ScalarType S> constexpr bool pr_vectorcall IsWithin(BoundingBox<S> bb, BoundingBox<S> test, S tol = 0) noexcept
+	{
+		// True if 'test' is entirely within 'bb'
+		return
+			Abs(bb.m_centre.x - test.m_centre.x) <= (bb.m_radius.x - test.m_radius.x) + tol &&
+			Abs(bb.m_centre.y - test.m_centre.y) <= (bb.m_radius.y - test.m_radius.y) + tol &&
+			Abs(bb.m_centre.z - test.m_centre.z) <= (bb.m_radius.z - test.m_radius.z) + tol;
+	}
+
 	// Multiply the bounding box by a non-affine transform
-	template <ScalarType S> constexpr BBox<S> pr_vectorcall MulNonAffine(Mat4x4<S> const& m, BBox<S> rhs) noexcept
+	template <ScalarType S> constexpr BoundingBox<S> pr_vectorcall MulNonAffine(Mat4x4<S> const& m, BoundingBox<S> rhs) noexcept
 	{
 		pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-		auto bb = BBox<S>::Reset();
+		auto bb = BoundingBox<S>::Reset();
 		for (auto& c : Corners(rhs))
 		{
 			auto cnr = m * c;
@@ -507,7 +509,7 @@ namespace pr::math
 				{+0,-2,-1,1},
 			};
 	
-			auto bbox = BBox<float>::Reset();
+			auto bbox = BoundingBox<float>::Reset();
 			for (auto& p : pt)
 				Grow(bbox, p);
 

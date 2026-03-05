@@ -11,8 +11,8 @@ namespace las::camera
 		, m_speed(400.0f)
 		, m_speed_min(0.5f)
 		, m_speed_max(2000.0f)
-		, m_velocity(v4Zero)
-		, m_move_wish(v4Zero)
+		, m_velocity(v4::Zero())
+		, m_move_wish(v4::Zero())
 		, m_accel(12.0f)
 		, m_damping(8.0f)
 	{
@@ -99,7 +99,7 @@ namespace las::camera
 		auto wish_len = Length(m_move_wish);
 		auto target_vel = wish_len > 0.001f
 			? (m_move_wish / wish_len) * m_speed
-			: v4Zero;
+			: v4::Zero();
 
 		// Exponential interpolation: accelerate when keys held, damp when released
 		auto rate = wish_len > 0.001f ? m_accel : m_damping;
@@ -115,6 +115,6 @@ namespace las::camera
 		}
 
 		// Reset wish for next frame
-		m_move_wish = v4Zero;
+		m_move_wish = v4::Zero();
 	}
 }

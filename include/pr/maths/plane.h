@@ -17,17 +17,22 @@ namespace pr
 	struct Plane : Vec4f<struct PlaneType>
 	{
 		Plane() = default;
+		Plane(v4 v)
+			: Vec4f<struct PlaneType>{v}
+		{}
 		Plane(float dx, float dy, float dz, float dist)
 			: Vec4f<struct PlaneType>{dx, dy, dz, dist}
 		{}
-		Plane(v4 const& v)
-			: Vec4f<struct PlaneType>{v}
+		Plane(v4 norm, float dist)
+			: Vec4f<struct PlaneType>{ norm.x, norm.y, norm.z, -dist }
 		{}
 		v4 direction() const { return static_cast<v4>(w0()); }
+		static Plane FromTriangle(v4 a, v4 b, v4 c);
+		static Plane FromBestFit(std::span<v4 const> points);
 	};
 
 	// Define the dot product for planes
-	inline float Dot(Plane plane, v4 const& rhs)
+	inline float Dot(Plane plane, v4 rhs)
 	{
 		return Dot4(static_cast<v4>(plane), rhs);
 	}
@@ -41,7 +46,7 @@ namespace pr
 		}
 
 		// Create a point from a point and direction (not necessarily unit length)
-		inline Plane make(v4 const& point, v4 const& direction)
+		inline Plane make(v4 point, v4 direction)
 		{
 			auto p = direction;
 			p.w = -Dot3(point, direction);
@@ -49,15 +54,15 @@ namespace pr
 		}
 
 		// Create a point from 3 points in 3D space
-		inline Plane make(v4 const& a, v4 const& b, v4 const& c)
+		inline Plane make(v4 a, v4 b, v4 c)
 		{
-			auto p = Normalise(Cross3(b-a, c-a));
+			auto p = Normalise(Cross(b-a, c-a));
 			p.w = -Dot3(a, p);
 			return Plane{p};
 		}
 
 		// Create from a normal direction and distance
-		inline Plane make(v4 const& norm, float dist)
+		inline Plane make(v4 norm, float dist)
 		{
 			auto p = norm;
 			p.w = -dist;
@@ -104,7 +109,7 @@ namespace pr
 		}
 
 		// Return the signed distance of 'v' from the plane.
-		inline float Distance(Plane plane, v4 const& v)
+		inline float Distance(Plane plane, v4 v)
 		{
 			return Dot(plane, v);
 		}
@@ -112,9 +117,18 @@ namespace pr
 		// Returns 'v' projected onto 'plane'
 		// So if plane.w == -dist, if v.w == 1 the returned point will lie on the plane at 'dist'
 		// from the origin. if v.w == 0, the returned vector will lie in a plane parallel to 'plane'.
-		inline v4 Project(Plane plane, v4 const& v)
+		inline v4 Project(Plane plane, v4 v)
 		{
 			return v - Dot(plane, v) * Direction(plane);
 		}
+	}
+
+	inline Plane Plane::FromTriangle(v4 a, v4 b, v4 c)
+	{
+		return plane::make(a, b, c);
+	}
+	inline Plane Plane::FromBestFit(std::span<v4 const> points)
+	{
+		return plane::make(points.data(), points.data() + points.size());
 	}
 }

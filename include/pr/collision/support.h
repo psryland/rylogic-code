@@ -36,7 +36,7 @@ namespace pr::collision
 	// by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
 	inline v4 SupportVertex(ShapeSphere const& shape, v4 direction, EFeature& feature_type)
 	{
-		assert(IsNormal(direction));
+		assert(IsNormalised(direction));
 		feature_type = EFeature::Vert;
 		return shape.m_base.m_s2p.pos + shape.m_radius * direction;
 	}
@@ -49,8 +49,8 @@ namespace pr::collision
 		{
 			float d = Dot3(direction, shape.m_base.m_s2p[i]);
 
-			if      (d > +maths::tinyf) vert += shape.m_base.m_s2p[i] * shape.m_radius[i];
-			else if (d < -maths::tinyf) vert -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+			if      (d > +maths::tiny<float>) vert += shape.m_base.m_s2p[i] * shape.m_radius[i];
+			else if (d < -maths::tiny<float>) vert -= shape.m_base.m_s2p[i] * shape.m_radius[i];
 			else feature_type = EFeature(int(feature_type) << 1);
 		}
 		return vert;
@@ -62,8 +62,8 @@ namespace pr::collision
 
 		feature_type = EFeature::Vert;
 		auto vert = shape.m_base.m_s2p.pos;
-		if      (d > +maths::tinyf) vert += r;
-		else if (d < -maths::tinyf) vert -= r;
+		if      (d > +maths::tiny<float>) vert += r;
+		else if (d < -maths::tiny<float>) vert -= r;
 		else feature_type = EFeature::Edge;
 		return vert;
 	}
@@ -96,12 +96,12 @@ namespace pr::collision
 		for (int i = 0; i != 3; ++i)
 		{
 			float d = Dot3(axis, shape.m_base.m_s2p[i]);
-			if (d > +maths::tinyf)
+			if (d > +maths::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
 					points[f] += shape.m_base.m_s2p[i] * shape.m_radius[i];
 			}
-			else if (d < -maths::tinyf)
+			else if (d < -maths::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
 					points[f] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
@@ -135,13 +135,13 @@ namespace pr::collision
 	{
 		auto d = Dot(axis, shape.m_base.m_s2p.z);
 		auto r = shape.m_base.m_s2p.z * shape.m_radius;
-		if (d > +maths::tinyf)
+		if (d > +maths::tiny<float>)
 		{
 			// Line points in the direction of the axis, return the end point
 			feature_type = EFeature::Vert;
 			points[0] = shape.m_base.m_s2p.pos + r;
 		}
-		else if (d < -maths::tinyf)
+		else if (d < -maths::tiny<float>)
 		{
 			// Line points against the direction of the axis, return the start point
 			feature_type = EFeature::Vert;
@@ -178,8 +178,8 @@ namespace pr::collision
 		// average position perpendicular to 'axis').
 
 		// For features with area, check that the polygon is facing the correct direction, +ve for featA, -ve for featB
-		assert((featA <= EFeature::Edge || (Dot(plane::make(pointA, pointA + countA), axis) > 0)) && "Contact polygon has incorrect winding order");
-		assert((featB <= EFeature::Edge || (Dot(plane::make(pointB, pointB + countB), axis) < 0)) && "Contact polygon has incorrect winding order");
+		assert((featA <= EFeature::Edge || (Dot(Plane::FromBestFit({ pointA, size_t(countA) }), axis) > 0)) && "Contact polygon has incorrect winding order");
+		assert((featB <= EFeature::Edge || (Dot(Plane::FromBestFit({ pointB, size_t(countB) }), axis) < 0)) && "Contact polygon has incorrect winding order");
 
 		// If both shapes contact at a vert, then the separating axis passes through their average position
 		if (featA == EFeature::Vert && featB == EFeature::Vert)
@@ -220,7 +220,7 @@ namespace pr::collision
 			{
 				auto& as = point0[ i          ];
 				auto& ae = point0[(i+1)%count0];
-				auto n = Plane{sign * Cross3(axis, ae - as)};
+				auto n = Plane{sign * Cross(axis, ae - as)};
 				for (int j = 0; j != count1; ++j)
 				{
 					auto& edge = edges1[j];
@@ -265,7 +265,7 @@ namespace pr::collision
 		auto avr = [&](v4 const* point, int count, Edge const* edges)
 		{
 			auto total = 0.0f;
-			auto centre = v4Zero;
+			auto centre = v4::Zero();
 			for (int i = 0; i != count; ++i)
 			{
 				if (!edges[i]) continue;

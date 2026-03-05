@@ -53,7 +53,7 @@ namespace pr::rdr12
 	};
 	static_assert(std::is_trivially_copyable_v<Vert> && std::is_trivially_default_constructible_v<Vert>);
 
-	constexpr v4 const& GetP(Vert const& vert)
+	constexpr v4 GetP(Vert const& vert)
 	{
 		return vert.m_vert;
 	}
@@ -61,7 +61,7 @@ namespace pr::rdr12
 	{
 		return vert.m_diff;
 	}
-	constexpr v4 const& GetN(Vert const& vert)
+	constexpr v4 GetN(Vert const& vert)
 	{
 		return vert.m_norm;
 	}
@@ -71,7 +71,7 @@ namespace pr::rdr12
 	}
 
 	// Don't set values that aren't given, allows these functions to be composed
-	constexpr void SetP(Vert& vert, v4 const& pos)
+	constexpr void SetP(Vert& vert, v4 pos)
 	{
 		vert.m_vert = pos;
 	}
@@ -79,7 +79,7 @@ namespace pr::rdr12
 	{
 		vert.m_diff = col;
 	}
-	constexpr void SetN(Vert& vert, v4 const& norm)
+	constexpr void SetN(Vert& vert, v4 norm)
 	{
 		vert.m_norm = norm;
 	}
@@ -87,30 +87,30 @@ namespace pr::rdr12
 	{
 		vert.m_tex0 = uv;
 	}
-	constexpr void SetPC(Vert& vert, v4 const& pos, Colour const& col)
+	constexpr void SetPC(Vert& vert, v4 pos, Colour const& col)
 	{
 		vert.m_vert = pos;
 		vert.m_diff = col;
 	}
-	constexpr void SetPT(Vert& vert, v4 const& pos, v2 const& uv)
+	constexpr void SetPT(Vert& vert, v4 pos, v2 const& uv)
 	{
 		vert.m_vert = pos;
 		vert.m_tex0 = uv;
 	}
-	constexpr void SetPCN(Vert& vert, v4 const& pos, Colour const& col, v4 const& norm)
+	constexpr void SetPCN(Vert& vert, v4 pos, Colour const& col, v4 norm)
 	{
 		vert.m_vert = pos;
 		vert.m_diff = col;
 		vert.m_norm = norm;
 	}
-	constexpr void SetPCNT(Vert& vert, v4 const& pos, Colour const& col, v4 const& norm, v2 const& uv)
+	constexpr void SetPCNT(Vert& vert, v4 pos, Colour const& col, v4 norm, v2 const& uv)
 	{
 		vert.m_vert = pos;
 		vert.m_diff = col;
 		vert.m_norm = norm;
 		vert.m_tex0 = uv;
 	}
-	constexpr void SetPCNTI(Vert& vert, v4 const& pos, Colour const& col, v4 const& norm, v2 const& uv, iv2 const& idx)
+	constexpr void SetPCNTI(Vert& vert, v4 pos, Colour const& col, v4 norm, v2 const& uv, iv2 const& idx)
 	{
 		vert.m_vert = pos;
 		vert.m_diff = col;

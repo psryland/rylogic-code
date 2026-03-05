@@ -78,7 +78,7 @@ namespace pr
 		{
 			//GroupStart("ResultTriangle", str);
 			//Triangle("tri", "FFFF00FF", tri.m_vert[0].m_r, tri.m_vert[1].m_r, tri.m_vert[2].m_r, str);
-			//Line("line", "FFFF00FF", v4Origin, tri.m_direction * tri.m_distance * 1.02f, str);
+			//Line("line", "FFFF00FF", v4::Origin(), tri.m_direction * tri.m_distance * 1.02f, str);
 			//GroupEnd(str);
 		}
 		template <typename TStr> void PhCollisionScene(char const* name, unsigned int colour, ph::Shape const& shapeA, m4x4 const& a2w, ph::Shape const& shapeB, m4x4 const& b2w, TStr& str)

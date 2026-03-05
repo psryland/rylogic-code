@@ -21,11 +21,11 @@ namespace pr
 		v4   m_radius;
 
 		OBox() = default;
-		OBox(v4 const& centre, v4 const& radii, m3x4 const& ori)
+		OBox(v4 centre, v4 radii, m3x4 const& ori)
 			:m_box_to_world(ori, centre)
 			,m_radius(radii)
 		{}
-		OBox(m4x4 const& box_to_world, v4 const& radii)
+		OBox(m4x4 const& box_to_world, v4 radii)
 			:m_box_to_world(box_to_world)
 			,m_radius(radii)
 		{}
@@ -49,7 +49,7 @@ namespace pr
 		}
 
 		// The centre position of the box
-		v4 const& Centre() const
+		v4 Centre() const
 		{
 			return m_box_to_world.pos;
 		}
@@ -68,9 +68,9 @@ namespace pr
 	static_assert(std::alignment_of_v<OBox> == 16, "Should be 16 byte aligned");
 
 	#pragma region Constants
-	static OBox const OBoxZero  = {m4x4Identity, v4Zero};
-	static OBox const OBoxUnit  = {m4x4Identity, {0.5f, 0.5f, 0.5f, 1.0f}};
-	static OBox const OBoxReset = {m4x4Identity, v4Zero};
+	static OBox const OBoxZero  = {m4x4::Identity(), v4::Zero()};
+	static OBox const OBoxUnit  = {m4x4::Identity(), {0.5f, 0.5f, 0.5f, 1.0f}};
+	static OBox const OBoxReset = {m4x4::Identity(), v4::Zero()};
 	#pragma endregion
 
 	#pragma region Operators

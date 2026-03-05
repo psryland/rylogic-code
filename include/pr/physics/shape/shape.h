@@ -80,7 +80,7 @@ namespace pr
 			v4		m_centre_of_mass;		// Offset to the object space centre of mass
 			float	m_mass;					// Mass in kg
 
-			MassProperties& set(m3x4 const& os_inertia_tensor, v4 const& centre_of_mass, float	mass) { m_os_inertia_tensor = os_inertia_tensor; m_centre_of_mass = centre_of_mass; m_mass = mass; return *this; }
+			MassProperties& set(m3x4 const& os_inertia_tensor, v4 centre_of_mass, float	mass) { m_os_inertia_tensor = os_inertia_tensor; m_centre_of_mass = centre_of_mass; m_mass = mass; return *this; }
 		};
 
 		// General shape functions
@@ -89,8 +89,8 @@ namespace pr
 		BBox&	CalcBBox			(Shape const& shape, BBox& bbox);
 		MassProperties& CalcMassProperties	(Shape const& shape, float density, MassProperties& mp);
 		void			ShiftCentre			(Shape& shape, v4& shift);
-		v4				SupportVertex		(Shape const& shape, v4 const& direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
-		void			ClosestPoint		(Shape const& shape, v4 const& point, float& distance, v4& closest);
+		v4				SupportVertex		(Shape const& shape, v4 direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
+		void			ClosestPoint		(Shape const& shape, v4 point, float& distance, v4& closest);
 
 		// Shape casting helpers
 		template <typename T> inline T const& shape_cast(Shape const& shape)			{ PR_ASSERT(1,           shape .m_type == (int)T::EShapeType, FmtS("Attempting to cast %s to %s", GetShapeTypeStr(shape .m_type), GetShapeTypeStr((pr::ph::EShape)T::EShapeType))); return reinterpret_cast<T const&>(shape); }

@@ -32,7 +32,7 @@ namespace pr::physics
 
 			KernelSpike2D(float radius)
 				: m_radius(radius)
-				, m_volume((1.0f / 12.0f) * maths::tauf * Pow(radius, 4.0f))
+				, m_volume((1.0f / 12.0f) * constants<float>::tau * Pow(radius, 4.0f))
 			{}
 			float Radius() const
 			{
@@ -62,7 +62,7 @@ namespace pr::physics
 
 			KernelSpike3D(float radius)
 				: m_radius(radius)
-				, m_volume((1.0f / 15.0f) * maths::tauf * Pow(radius, 5.0f))
+				, m_volume((1.0f / 15.0f) * constants<float>::tau * Pow(radius, 5.0f))
 			{}
 			float Radius() const
 			{

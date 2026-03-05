@@ -428,9 +428,9 @@ namespace pr::container
 			{
 				auto sep = Length(p.xy - centre);
 				if (results.find(p) != std::end(results))
-					PR_EXPECT(sep <= radius + maths::tinyf);
+					PR_EXPECT(sep <= radius + maths::tiny<float>);
 				else
-					PR_EXPECT(sep >= radius - maths::tinyf);
+					PR_EXPECT(sep >= radius - maths::tiny<float>);
 			}
 		}
 		void CheckNearest(std::vector<Pt> const& points, v2 centre, float radius, std::vector<VPTree::Neighbour> const& nearest)

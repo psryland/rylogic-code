@@ -143,15 +143,15 @@ namespace pr
 			pr_assert(from.w == 0 && to.w == 0);
 			auto d = Dot(from, to);
 			auto s = Sqrt(LengthSq(from) * LengthSq(to)) + d;
-			auto axis = Cross3(from, to);
+			auto axis = Cross(from, to);
 
 			// Vectors are aligned, 180 degrees apart, or one is zero
 			if (FEql(s, S(0)))
 			{
 				s = S(0);
 				axis =
-					LengthSq(from) > maths::tinyf ? Perpendicular(from) :
-					LengthSq(to) > maths::tinyf ? Perpendicular(to) :
+					LengthSq(from) > maths::tiny<float> ? Perpendicular(from) :
+					LengthSq(to) > maths::tiny<float> ? Perpendicular(to) :
 					v4::ZAxis();
 			}
 
@@ -364,7 +364,7 @@ namespace pr
 		// Using the 'acos(2A² - 1)' form always returns the smallest angle
 		auto cos_half_ang = CosHalfAngle(a, b);
 		return 
-			cos_half_ang > 1.0f - maths::tinyf ? S(0) :
+			cos_half_ang > 1.0f - maths::tiny<float> ? S(0) :
 			cos_half_ang > 0 ? S(2) * Acos(Clamp(cos_half_ang, -S(1), +S(1))) : // better precision
 			Acos(Clamp(S(2) * Sqr(cos_half_ang) - S(1), -S(1), +S(1)));
 	}
@@ -376,7 +376,7 @@ namespace pr
 		auto cos_half_ang = Clamp<S>(q.w, -S(1), +S(1)); // [0, tau]
 		auto sin_half_ang = Length(q.xyz); // Don't use 'sqrt(1 - w*w)', it's not float noise accurate enough when w ~= +/-1
 		auto ang_by_2 = Acos(cos_half_ang); // By convention, log space uses Length = A/2
-		return Abs(sin_half_ang) > maths::tinyd
+		return Abs(sin_half_ang) > maths::tiny<double>
 			? q.xyzw.w0() * static_cast<S>(ang_by_2 / sin_half_ang)
 			: q.xyzw.w0();
 	}
@@ -388,7 +388,7 @@ namespace pr
 		auto ang_by_2 = Length(v); // By convention, log space uses Length = A/2
 		auto cos_half_ang = Cos(ang_by_2);
 		auto sin_half_ang = Sin(ang_by_2); // != Sqrt(1 - cos_half_ang * cos_half_ang) when ang_by_2 > tau/2
-		auto s = ang_by_2 > maths::tinyd ? static_cast<S>(sin_half_ang / ang_by_2) : S(1);
+		auto s = ang_by_2 > maths::tiny<double> ? static_cast<S>(sin_half_ang / ang_by_2) : S(1);
 		return { v.x * s, v.y * s, v.z * s, static_cast<S>(cos_half_ang) };
 	}
 
@@ -432,7 +432,7 @@ namespace pr
 		auto w = Clamp(q.w, S(-1.0), S(+1.0));
 		auto s = Sqrt(S(+1.0) - Sqr(w));
 		auto angle = S(2.0) * Acos(w);
-		auto axis = Abs(s) > maths::tinyf
+		auto axis = Abs(s) > maths::tiny<float>
 			? Vec4<S,void>(q.x/s, q.y/s, q.z/s, S(0))
 			: Vec4<S,void>{S(0), S(0), S(0), S(0)}; // axis is (0,0,0) when angle == 1
 		return { axis, angle };
@@ -598,9 +598,9 @@ namespace pr::maths
 			using quat_t = Quat<S, void, void>;
 
 			float const angles[] = {
-				-maths::tau_by_2f,
+				-constants<float>::tau_by_2,
 				-maths::tau_by_3f,
-				-maths::tau_by_4f,
+				-constants<float>::tau_by_4,
 				-maths::tau_by_5f,
 				-maths::tau_by_6f,
 				-maths::tau_by_7f,
@@ -608,9 +608,9 @@ namespace pr::maths
 				+maths::tau_by_7f,
 				+maths::tau_by_6f,
 				+maths::tau_by_5f,
-				+maths::tau_by_4f,
+				+constants<float>::tau_by_4,
 				+maths::tau_by_3f,
-				+maths::tau_by_2f,
+				+constants<float>::tau_by_2,
 			};
 
 			auto axis = v4::Normal(1, 1, 1, 0);
@@ -620,7 +620,7 @@ namespace pr::maths
 				{
 					auto q0 = quat{ axis, ANG0 };
 					auto q1 = quat{ axis, ANG1 };
-					auto expected = Min(Abs(ANG1 - ANG0), Abs(maths::tauf - Abs(ANG1 - ANG0)));
+					auto expected = Min(Abs(ANG1 - ANG0), Abs(constants<float>::tau - Abs(ANG1 - ANG0)));
 
 					auto ang0 = Angle(q0, q1);
 					auto ang1 = Angle(q1, q0);

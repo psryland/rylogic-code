@@ -24,7 +24,7 @@ namespace pr
 
 			pr::quad_tree::Tree<Face> m_tree;
 			void Reset();
-			void AddFace(v4 const& a, v4 const& b, v4 const& c);
+			void AddFace(v4 a, v4 b, v4 c);
 			void CollideSpheres(terrain::Sample* points, std::size_t num_points, TerrainContact terrain_contact_cb, void* context);
 		};
 	}

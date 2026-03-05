@@ -84,7 +84,7 @@ bool pr::ph::RayCast(Ray const& ray, ShapeBox const& shape, RayCastResult& resul
 	result.m_shape = &shape.m_base;
 	for( int i = 0; i != 3; ++i )
 	{
-		if( Abs(ray.m_direction[i]) < maths::tinyf )
+		if( Abs(ray.m_direction[i]) < maths::tiny<float> )
 		{
 			if( Abs(ray.m_point[i]) > shape.m_radius[i] ) return false;
 		}
@@ -118,11 +118,11 @@ bool pr::ph::RayCast(Ray const& ray, ShapeCylinder const& shape, RayCastResult& 
 namespace pr { namespace ph { namespace ray_cast {
 struct Simplex
 {
-	struct Vert { v4 m_vert; std::size_t m_id; void set(v4 const& vert, std::size_t id) {m_vert = vert; m_id = id;} };
+	struct Vert { v4 m_vert; std::size_t m_id; void set(v4 vert, std::size_t id) {m_vert = vert; m_id = id;} };
 	Simplex() : m_num_verts(0), m_intersects(false) {}
 	
 	// Add a vertex to the simplex. Returns false if it's a duplicate
-	bool AddVertex(v4 const& vert, std::size_t id, v4 const& lineS, v4 const& lineE)
+	bool AddVertex(v4 vert, std::size_t id, v4 lineS, v4 lineE)
 	{
 		PR_ASSERT(PR_DBG_PHYSICS, m_num_verts < 4, "");
 		for( std::size_t i = 0; i != m_num_verts; ++i )
@@ -158,7 +158,7 @@ struct Simplex
 
 					// Calculate the nearest and normal since we have the barycoords
 					m_nearest = BaryPoint(m_vert[i].m_vert, m_vert[j].m_vert, m_vert[k].m_vert, bary);
-					m_normal  = Cross3(m_vert[j].m_vert - m_vert[i].m_vert, m_vert[k].m_vert - m_vert[j].m_vert);
+					m_normal  = Cross(m_vert[j].m_vert - m_vert[i].m_vert, m_vert[k].m_vert - m_vert[j].m_vert);
 					return true;
 				}
 			}
@@ -168,7 +168,7 @@ struct Simplex
 	}
 
 	// Find the next direction to search in.
-	v4 FindNearest(v4 const& lineS, v4 const& lineE, Simplex& save_for_back_facing)
+	v4 FindNearest(v4 lineS, v4 lineE, Simplex& save_for_back_facing)
 	{
 		PR_ASSERT(PR_DBG_PHYSICS, m_num_verts > 0, "");
 		float t0, t1;
@@ -185,7 +185,7 @@ struct Simplex
 				if (t0 == 1.0f) { m_vert[0] = m_vert[1]; t0 = 0.0f; } // careful here, using t0 to pass into the next if
 				if (t0 == 0.0f) { m_nearest = m_vert[0].m_vert; m_num_verts = 1; }
 				else { m_nearest = (1.0f - t0) * m_vert[0].m_vert + t0 * m_vert[1].m_vert; }
-				m_normal = Cross3(m_vert[1].m_vert - m_vert[0].m_vert, line);
+				m_normal = Cross(m_vert[1].m_vert - m_vert[0].m_vert, line);
 				m_normal *= (Dot3(lineS - m_vert[0].m_vert, m_normal) >= 0.0f) * 2.0f - 1.0f;
 				//m_normal = lineS + t0*line - m_nearest; don't use, not as robust
 			}return m_normal;
@@ -201,7 +201,7 @@ struct Simplex
 				if (m_intersects)
 				{
 					m_nearest = BaryPoint(m_vert[0].m_vert, m_vert[1].m_vert, m_vert[2].m_vert, bary);
-					m_normal = f2b * Cross3(m_vert[1].m_vert - m_vert[0].m_vert, m_vert[2].m_vert - m_vert[1].m_vert);
+					m_normal = f2b * Cross(m_vert[1].m_vert - m_vert[0].m_vert, m_vert[2].m_vert - m_vert[1].m_vert);
 
 					// Save a copy of the simplex when we detect that the line intersects the
 					// simplex. This is an optimisation to jump start the back facing search
@@ -216,7 +216,7 @@ struct Simplex
 					v4 line = lineE - lineS;
 					Vert  closest[2];
 					float closest_t = 0.0f;
-					float closest_dist_sq = maths::float_max;
+					float closest_dist_sq = limits<float>::max();
 					for (int i = 0; i != 3; ++i)
 					{
 						Vert const& vert0 = m_vert[i];
@@ -295,13 +295,13 @@ bool pr::ph::RayCast(Ray const& ray, ShapePolytope const& shape, RayCastResult& 
 	PR_EXPAND(PR_PH_DBG_RAY_CAST,	StartFile("C:/Deleteme/raycast_dir.pr_script");EndFile();)
 	PR_EXPAND(PR_PH_DBG_RAY_CAST,	StartFile("C:/Deleteme/raycast_result.pr_script");EndFile();)
 	
-	PR_ASSERT(PR_DBG_PHYSICS, !FEql(ray.m_direction,pr::v4Zero), "");
+	PR_ASSERT(PR_DBG_PHYSICS, !FEql(ray.m_direction,pr::v4::Zero()), "");
 
 	Ray ray_ = ShiftRay(ray);
 	v4 lineS = ray_.m_point;
 	v4 lineE = ray_.m_point + ray_.m_direction;
-	result.m_t0 = -maths::float_max;
-	result.m_t1 =  maths::float_max;
+	result.m_t0 = -limits<float>::max();
+	result.m_t1 =  limits<float>::max();
 	result.m_shape = &shape.m_base;
 
 	float t;
@@ -311,8 +311,8 @@ bool pr::ph::RayCast(Ray const& ray, ShapePolytope const& shape, RayCastResult& 
 	// Attempt a quick out for the line vs. polyyope test. If the distance to the most extreme vert
 	// in the direction from the centre of 'shape' to the line is less that the distance to the line
 	// then the line cannot penetrate the polytope
-	v4 dir = closest_point::PointToRay(v4Origin, lineS, lineE - lineS, 0, t) - v4Origin;
-	if( !FEql(dir,pr::v4Zero) )
+	v4 dir = closest_point::PointToRay(v4::Origin(), lineS, lineE - lineS, 0, t) - v4::Origin();
+	if( !FEql(dir,pr::v4::Zero()) )
 	{
 		start_vert = SupportVertex(shape, dir, id, id);
 			PR_EXPAND(PR_PH_DBG_RAY_CAST, StartFile("C:/Deleteme/raycast_vert.pr_script");)
@@ -348,7 +348,7 @@ bool pr::ph::RayCast(Ray const& ray, ShapePolytope const& shape, RayCastResult& 
 		{
 			dir = smplx.FindNearest(line_s, line_e, back);
 				PR_EXPAND(PR_PH_DBG_RAY_CAST, smplx.Dump("raycast_smplx");)
-			if( FEql(dir,pr::v4Zero) ) dir = line_s - line_e;
+			if( FEql(dir,pr::v4::Zero()) ) dir = line_s - line_e;
 				PR_EXPAND(PR_PH_DBG_RAY_CAST, StartFile("C:/DeleteMe/raycast_nearest.pr_script");)
 				PR_EXPAND(PR_PH_DBG_RAY_CAST, ldr::Box("Nearest", "FFFF0000", smplx.m_nearest, 0.02f);)
 				PR_EXPAND(PR_PH_DBG_RAY_CAST, ldr::LineD("Sep_axis", "FFFFFF00", smplx.m_nearest, Normalise(dir));)
@@ -363,7 +363,7 @@ bool pr::ph::RayCast(Ray const& ray, ShapePolytope const& shape, RayCastResult& 
 			// separating axis 'dir' than 'nearest' then the line does not intersect the
 			// polytope and the distance is the distance from the nearest point to the line
 			float v_dist = Dot3(dir, vert);
-			float n_dist = Dot3(dir, smplx.m_nearest) + maths::tinyf;
+			float n_dist = Dot3(dir, smplx.m_nearest) + maths::tiny<float>;
 			if( v_dist <= n_dist )
 			{
 				if( smplx.m_intersects ) break;
@@ -439,14 +439,14 @@ bool pr::ph::RayCast(Ray const& ray, ShapeArray const& shape, RayCastResult& res
 #if PR_DBG_PHYSICS == 1
 bool pr::ph::RayCastBruteForce(Ray const& ray, ShapePolytope const& shape, RayCastResult& result)
 {
-	v4 const&	lineS = ray.m_point;
+	v4	lineS = ray.m_point;
 	v4			lineE = ray.m_point + ray.m_direction;
-	result.m_t0 = -maths::float_max; result.m_t1 = maths::float_max;
+	result.m_t0 = -limits<float>::max(); result.m_t1 = limits<float>::max();
 
 	// Attempt a quick out for the line vs. shape test
 	float t; std::size_t id = 0;
-	v4 nearest = closest_point::PointToLine(v4Origin, lineS, lineE, t) - v4Origin;
-	if( !FEql(nearest,pr::v4Zero) )
+	v4 nearest = closest_point::PointToLine(v4::Origin(), lineS, lineE, t) - v4::Origin();
+	if( !FEql(nearest,pr::v4::Zero()) )
 	{
 		v4 support = SupportVertex(shape, nearest, id, id);
 		if( Dot3(support, nearest) < LengthSq(nearest) ) return false;

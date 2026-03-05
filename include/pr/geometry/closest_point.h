@@ -14,11 +14,11 @@ namespace pr::geometry::closest_point
 	// Returns the point closest to 'point' on 'plane'
 	inline v4 pr_vectorcall PointToPlane(v4 point, Plane plane)
 	{
-		return point - distance::PointToPlane(point, plane) * plane::Direction(plane);
+		return point - distance::PointToPlane(point, plane) * plane.direction();
 	}
 	inline v4 pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c)
 	{
-		return PointToPlane(point, plane::make(a, b, c));
+		return PointToPlane(point, Plane::FromTriangle(a, b, c));
 	}
 
 	// Returns the parametric value of the closest point on 'line'
@@ -108,10 +108,10 @@ namespace pr::geometry::closest_point
 		assert(major >= 0.0f && minor >= 0.0f && major >= minor);
 
 		// Special case minor axis lengths of zero
-		if (minor < maths::tinyf)
+		if (minor < maths::tiny<float>)
 			return v2(Clamp(x, -major, major), 0.0f);
 
-		auto ratio = Sign(y) * minor / (major + maths::tinyf); // Add an epsilon to prevent divide by zero
+		auto ratio = Sign(y) * minor / (major + maths::tiny<float>); // Add an epsilon to prevent divide by zero
 		auto a = Sqr(major), b = Sqr(minor);
 		v2 pt(x, y);
 		v2 nearest;
@@ -227,7 +227,7 @@ namespace pr::geometry::closest_point
 
 		// Start out assuming point inside all halfspaces, so closest to itself
 		v4 closest_point = p;
-		float best_dist_sq = maths::float_max;
+		float best_dist_sq = limits<float>::max();
 		bool point_is_inside = true;
 
 		// If point outside face abc then compute closest point on abc
@@ -378,7 +378,7 @@ namespace pr::geometry::closest_point
 	inline void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1)
 	{
 		assert(s0.w == 1.0f && e0.w == 1.0f && s1.w == 1.0f && line1.w == 0.0f);
-		assert(line1 != v4Zero && "The infinite line should not be degenerate");
+		assert(line1 != v4::Zero() && "The infinite line should not be degenerate");
 
 		auto line0 = e0 - s0;
 		auto line0_length_sq = LengthSq(line0);
@@ -427,7 +427,7 @@ namespace pr::geometry::closest_point
 		// Line segment "radius" plus an epsilon term to counteract arithmetic
 		// errors when the segment is (near) parallel to a coordinate axis.
 		auto half = e - mid;
-		auto rad = Abs(half) + v4(maths::tinyf);
+		auto rad = Abs(half) + v4::TinyF();
 
 		// Translate box and segment to origin
 		mid = mid - bbox.m_centre;
@@ -550,7 +550,7 @@ namespace pr::geometry::closest_point
 
 			v2 best_t = {};
 			int best_edge = -1;
-			float best_dist_sq = maths::float_max;
+			float best_dist_sq = limits<float>::max();
 
 			// Check distance to each edge
 			for (int i = 0; i != 3; ++i)

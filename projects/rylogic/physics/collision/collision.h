@@ -27,11 +27,11 @@ namespace pr
 			struct Point
 			{
 				Point() {}
-				Point(v4 const& point)
+				Point(v4 point)
 				:m_point(point)
 				,m_type(EPointType_Point)
 				{}
-				void set(v4 const& point, int type, int dof0, int dof1)
+				void set(v4 point, int type, int dof0, int dof1)
 				{
 					m_point = point;
 					m_type = type;
@@ -49,14 +49,14 @@ namespace pr
 		// 'axis' is the axis to project the box onto.
 		// 'point' is a point maximal in the direction of 'axis'
 		// Returns the distance from the centre of the box to 'point' along 'axis'
-		float ProjectBox(m3x4 const& box, v4 const& axis, collision::Point& point);
+		float ProjectBox(m3x4 const& box, v4 axis, collision::Point& point);
 
 		// Project a triangle onto 'axis'
 		// 'tri' is the three vertices of the triangle
 		// 'axis' is the axis to project the triangle onto
 		// 'point' is a point maximal in the direction of 'axis'
 		// Returns the distance from the centre of the triangle to 'point' along 'axis'
-		float ProjectTri(m3x4 const& tri, v4 const& axis, collision::Point& point);
+		float ProjectTri(m3x4 const& tri, v4 axis, collision::Point& point);
 	}
 }
 

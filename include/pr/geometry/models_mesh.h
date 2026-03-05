@@ -50,7 +50,7 @@ namespace pr::geometry
 		auto uv = CreateRepeater(tex_coords, isize(verts), v2::Zero());
 
 		// Bounding box
-		auto bb = [&props](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&props](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		// Verts
 		auto vptr = verts.data();

@@ -193,7 +193,7 @@ namespace pr::common
 		pr::UserData udtest;
 		udtest.get<Blob>() = blob;
 		udtest.get<double>() = 3.14;
-		udtest.get<m4x4>(0) = m4x4Identity; // store aligned types
+		udtest.get<m4x4>(0) = m4x4::Identity(); // store aligned types
 
 		PR_EXPECT(udtest.has<Blob>());
 		PR_EXPECT(udtest.has<double>());
@@ -204,7 +204,7 @@ namespace pr::common
 		PR_EXPECT(pr::str::Equal(udtest.get<Blob>().str, "HelloWorld"));
 		PR_EXPECT(&udtest.get<Blob>() != &blob);
 		PR_EXPECT(udtest.get<m4x4>() == m4x4::Identity());
-		PR_EXPECT(&udtest.get<m4x4>() != &m4x4Identity);
+		PR_EXPECT(&udtest.get<m4x4>() != &m4x4::Identity());
 
 		udtest.get<double>() = 6.28;
 		PR_EXPECT(udtest.get<double>() == 6.28);

@@ -185,7 +185,7 @@ namespace pr::algorithm::fft
 		template <typename Real>
 		void DFTNaive(Real const* real, Real const* imag, Real* outr, Real* outi, size_t length, bool inverse)
 		{	
-			auto coef = Bool2SignI(inverse) * constants<double>::tau / length;
+			auto coef = (inverse ? 1.0 : -1.0) * constants<double>::tau / length; // @Copilot, if inverse is true, should this be +1 or -1?
 
 			// For each output element
 			for (auto k = 0ULL; k != length; ++k)
@@ -376,7 +376,7 @@ namespace pr
 			m_count = 0;
 
 			// Initialize 'e-to-the-i-thetas' for theta = 0..tau in increments of 1/N
-			auto k = (!inverse ? +maths::tau : -maths::tau) * complex(0,1) / double(window_size);
+			auto k = (!inverse ? +constants<double>::tau : -constants<double>::tau) * complex(0,1) / double(window_size);
 			for (int i = 0; i != window_size; ++i)
 				m_coeffs[i] = std::exp(k * Real(i));
 		}

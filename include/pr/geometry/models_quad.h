@@ -111,7 +111,7 @@ namespace pr::geometry
 		props.m_geom = EGeom::Vert | (isize(colours) ? EGeom::Colr : EGeom::None) | EGeom::Norm | EGeom::Tex0;
 
 		// Helper function for generating normals
-		auto norm = [](v4 a, v4 b, v4 c) { return Normalise(Cross3(a - b, c - b), v4::Zero()); };
+		auto norm = [](v4 a, v4 b, v4 c) { return Normalise(Cross(a - b, c - b), v4::Zero()); };
 
 		// Colour iterator wrapper
 		auto col = CreateRepeater(colours, num_quads * 4, Colour32White);
@@ -174,18 +174,18 @@ namespace pr::geometry
 	// 'colour' is a colour for the whole quad
 	// 't2q' is a transform to apply to the standard texture coordinates 0,0 -> 1,1
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Quad(v2 const& anchor, v4 const& quad_w, v4 const& quad_h, iv2 const& divisions, Colour32 colour, m4x4 const& t2q, VOut vout, IOut iout)
+	Props Quad(v2 const& anchor, v4 quad_w, v4 quad_h, iv2 const& divisions, Colour32 colour, m4x4 const& t2q, VOut vout, IOut iout)
 	{
 		// Set the start point so that the model origin matches 'anchor'
-		auto origin = v4Origin
+		auto origin = v4::Origin()
 			- 0.5f * (1.0f + anchor.x) * quad_w
 			- 0.5f * (1.0f + anchor.y) * quad_h;
-		auto norm = Normalise(Cross3(quad_w, quad_h));
+		auto norm = Normalise(Cross(quad_w, quad_h));
 		auto step_x = quad_w / float(divisions.x + 1);
 		auto step_y = quad_h / float(divisions.y + 1);
 
 		// Texture coordinates
-		auto uvbase = (t2q * v4Origin).xy;
+		auto uvbase = (t2q * v4::Origin()).xy;
 		auto du     = (t2q * v4::XAxis()).xy;
 		auto dv     = (t2q * v4::YAxis()).xy;
 
@@ -236,7 +236,7 @@ namespace pr::geometry
 		// X => Y = width, Z = Height
 		// Y => Z = width, X = Height
 		// Z => X = width, Y = Height
-		v4 quad_w, quad_h;
+		v4 quad_w = {}, quad_h = {};
 		switch (axis_id) {
 		case AxisId::PosX: quad_w = +width * v4::YAxis(); quad_h = +height * v4::ZAxis(); break;
 		case AxisId::PosY: quad_w = +width * v4::ZAxis(); quad_h = +height * v4::XAxis(); break;
@@ -254,11 +254,11 @@ namespace pr::geometry
 	// 'top' is the up direction of the quad. Can be zero (defaults to -ZAxis, then -XAxis), doesn't need to be orthogonal to 'forward'
 	// 't2q' is a transform to apply to the standard texture coordinates 0,0 -> 1,1
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Quad(v4 const& centre, v4 const& forward, v4 const& top, float width, float height, iv2 const& divisions, Colour32 colour, m4x4 const& t2q, VOut vout, IOut iout)
+	Props Quad(v4 centre, v4 forward, v4 top, float width, float height, iv2 const& divisions, Colour32 colour, m4x4 const& t2q, VOut vout, IOut iout)
 	{
-		auto fwd = forward != v4Zero ? forward : v4::YAxis();
-		auto up = top != v4Zero ? top : -v4::ZAxis();
-		if (Parallel(up, fwd))
+		auto fwd = forward != v4::Zero() ? forward : v4::YAxis();
+		auto up = top != v4::Zero() ? top : -v4::ZAxis();
+		if (IsParallel(up, fwd))
 			up = -v4::XAxis();
 
 		auto quad_w = width  * Normalise(Cross(up, fwd));
@@ -293,8 +293,8 @@ namespace pr::geometry
 		auto norm = CreateLerpRepeater(normals, num_normals, num_verts, v4::ZAxis());
 
 		// Bounding box
-		auto lwr = +v4Max;
-		auto upr = -v4Max;
+		auto lwr = +v4::Max();
+		auto upr = -v4::Max();
 		auto bb = [&](v4 v) { lwr = Min(lwr,v); upr = Max(upr,v); return v; };
 
 		// Texture coords (note: 1D texture)
@@ -308,7 +308,7 @@ namespace pr::geometry
 		Colour32 c0, c1 = *col++  , c2 = *col++  ;
 
 		// Create the first pair of verts
-		auto bi = Normalise(Cross3(n1, v2 - v1), Perpendicular(n1));
+		auto bi = Normalise(Cross(n1, v2 - v1), Perpendicular(n1));
 		vout(bb(v1 + bi*hwidth), cc(c1), n1, t00); iout(index++);
 		vout(bb(v1 - bi*hwidth), cc(c1), n1, t10); iout(index++);
 
@@ -320,8 +320,8 @@ namespace pr::geometry
 
 			auto d0 = v1 - v0;
 			auto d1 = v2 - v1;
-			auto b0 = Normalise(Cross3(n1, d0), bi);
-			auto b1 = Normalise(Cross3(n1, d1), bi);
+			auto b0 = Normalise(Cross(n1, d0), bi);
+			auto b1 = Normalise(Cross(n1, d1), bi);
 			bi = Normalise(b0 + b1, bi); // The bisector at v1
 			// Note: bi always points to the left of d0 and d1
 			
@@ -341,8 +341,8 @@ namespace pr::geometry
 			//   => t = 1 - hwidth*w/y
 			auto d0_sq = LengthSq(d0);
 			auto d1_sq = LengthSq(d1);
-			auto w0 = Div(Abs(Dot3(d0,bi)), d0_sq, maths::tinyf);
-			auto w1 = Div(Abs(Dot3(d1,bi)), d1_sq, maths::tinyf);
+			auto w0 = Div(Abs(Dot3(d0,bi)), d0_sq, maths::tiny<float>);
+			auto w1 = Div(Abs(Dot3(d1,bi)), d1_sq, maths::tiny<float>);
 			auto y = Dot3(b0,bi); // == Dot3(b1,bi);
 			auto u0 = y <= hwidth*w0 ? 1.0f : hwidth*w0/y; // Cannot be a div/0 because w0,w1 are positive-semi-definite.
 			auto u1 = y <= hwidth*w1 ? 1.0f : hwidth*w1/y;
@@ -377,7 +377,7 @@ namespace pr::geometry
 		}
 
 		// Finish the previous quad
-		bi = Normalise(Cross3(n2, v2 - v1), Perpendicular(n2));
+		bi = Normalise(Cross(n2, v2 - v1), Perpendicular(n2));
 		vout(bb(v2 + bi*hwidth), cc(c2), n2, t00); iout(index++);
 		vout(bb(v2 - bi*hwidth), cc(c2), n2, t10); iout(index++);
 
@@ -453,10 +453,10 @@ namespace pr::geometry
 
 		Props props;
 		props.m_geom = EGeom::Vert | EGeom::Colr | EGeom::Norm | EGeom::Tex0;
-		props.m_bbox = BBox(v4Origin, v4(1, 1, 0, 0));
+		props.m_bbox = BBox(v4::Origin(), v4(1, 1, 0, 0));
 
-		auto const dx = maths::cos_60f / rings;
-		auto const dy = maths::sin_60f / rings;
+		auto const dx = constants<float>::cos_60 / rings;
+		auto const dy = constants<float>::sin_60 / rings;
 
 		// Make a grid of verts
 		float x = 0.0f, y = 0.0f;

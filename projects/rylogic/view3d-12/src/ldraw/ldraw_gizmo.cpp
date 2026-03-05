@@ -933,7 +933,7 @@ namespace pr::rdr12::ldraw
 		auto [p, d] = camera.NSSPointToWSRay(v4(nss_point, 1.0f, 0.0f));
 
 		// Then transform the ray from world space to gizmo space (note, it might be scaled)
-		auto w2o = Invert(O2W() * m4x4::Scale(m_scale, v4Origin));
+		auto w2o = Invert(O2W() * m4x4::Scale(m_scale, v4::Origin()));
 		p = (w2o * p).w1();
 		d = (w2o * d).w0();
 
@@ -972,7 +972,7 @@ namespace pr::rdr12::ldraw
 			}
 			case EGizmoMode::Rotate:
 			{
-				float t, t_min = pr::maths::float_max;
+				float t, t_min = pr::limits<float>::max();
 
 				// Intersect YZ plane for rotation about X? Closest pt in the range [0.25,1] on the XAxis
 				// and within the threshold distance. Also, on the positive side of the ray
@@ -1020,11 +1020,11 @@ namespace pr::rdr12::ldraw
 	// Add this gizmo to a scene
 	void LdrGizmo::AddToScene(Scene& scene)
 	{
-		auto scale = m4x4::Scale(m_scale, v4Origin);
+		auto scale = m4x4::Scale(m_scale, v4::Origin());
 
-		m_gfx.m_axis[0].m_i2w = m_gfx.m_o2w * m4x4::Transform(0, float(pr::maths::tau_by_4), float(pr::maths::tau_by_4), v4Origin) * scale;
-		m_gfx.m_axis[1].m_i2w = m_gfx.m_o2w * m4x4::Transform(-float(pr::maths::tau_by_4), -float(pr::maths::tau_by_4), 0, v4Origin) * scale;
-		m_gfx.m_axis[2].m_i2w = m_gfx.m_o2w * m4x4::Transform(0,0,0, v4Origin) * scale;
+		m_gfx.m_axis[0].m_i2w = m_gfx.m_o2w * m4x4::Transform(0, float(pr::maths::tau_by_4), float(pr::maths::tau_by_4), v4::Origin()) * scale;
+		m_gfx.m_axis[1].m_i2w = m_gfx.m_o2w * m4x4::Transform(-float(pr::maths::tau_by_4), -float(pr::maths::tau_by_4), 0, v4::Origin()) * scale;
+		m_gfx.m_axis[2].m_i2w = m_gfx.m_o2w * m4x4::Transform(0,0,0, v4::Origin()) * scale;
 
 		scene.AddInstance(m_gfx.m_axis[0]);
 		scene.AddInstance(m_gfx.m_axis[1]);
@@ -1041,7 +1041,7 @@ namespace pr::rdr12::ldraw
 		if (FEql(LengthSq(d), 0.0f))
 		{
 			// If 'd' is zero, try construct it from the other two axes
-			d = Cross3(m_attached_ref[0][(k+1)%3], m_attached_ref[0][(k+2)%3]);
+			d = Cross(m_attached_ref[0][(k+1)%3], m_attached_ref[0][(k+2)%3]);
 			if (FEql(LengthSq(d), 0.0f))
 				return; // Still zero... give up
 		}
@@ -1074,7 +1074,7 @@ namespace pr::rdr12::ldraw
 		// Get the axis of rotation from the gizmo and normalised it
 		auto axis = d;
 		auto axis_lensq = LengthSq(axis);
-		if (axis_lensq < pr::maths::tinyf) return;
+		if (axis_lensq < pr::maths::tiny<float>) return;
 		axis /= sqrt(axis_lensq);
 
 		// Project the component axis back into normalised screen space
@@ -1086,7 +1086,7 @@ namespace pr::rdr12::ldraw
 		auto c  = nss_point - p0.xy;
 		auto t  = s * Atan2(Dot(c,b), Dot(c,a));
 
-		m_offset = m4x4::Translation(p) * m4x4::Transform(axis, t, v4Origin) * m4x4::Translation((-p).w1()); // World space rotation about 'axis'
+		m_offset = m4x4::Translation(p) * m4x4::Transform(axis, t, v4::Origin()) * m4x4::Translation((-p).w1()); // World space rotation about 'axis'
 
 		// Rotate attached objects by t radians about the component axis
 		for (int i = 0, iend = int(m_attached_ptr.size()); i != iend; ++i)
@@ -1103,7 +1103,7 @@ namespace pr::rdr12::ldraw
 		if (FEql(LengthSq(d), 0.0f))
 		{
 			// If 'd' is zero, try construct it from the other two axes
-			d = Cross3(m_attached_ref[0][(k+1)%3], m_attached_ref[0][(k+2)%3]);
+			d = Cross(m_attached_ref[0][(k+1)%3], m_attached_ref[0][(k+2)%3]);
 			if (FEql(LengthSq(d), 0.0f))
 				return; // Still zero... give up
 		}
@@ -1131,7 +1131,7 @@ namespace pr::rdr12::ldraw
 		w2giz.z.w = 0.0f;
 		w2giz.w.w = 1.0f;
 
-		m_offset = giz2w * m4x4::Scale(t[0], t[1], t[2], v4Origin) * w2giz;
+		m_offset = giz2w * m4x4::Scale(t[0], t[1], t[2], v4::Origin()) * w2giz;
 
 		// Scale attached objects in their local space, but by a scale
 		// matrix with the same orientation as the gizmo.

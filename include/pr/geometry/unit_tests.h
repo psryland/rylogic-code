@@ -24,7 +24,7 @@ namespace pr::geometry
 				v4(+2.0f, +0.5f, 0.0f, 1.0f),
 				v4(-0.5f, +2.0f, 0.0f, 1.0f),
 			};
-			PR_EXPECT(PointWithinConvexPolygon(v4Origin, poly, _countof(poly)));
+			PR_EXPECT(PointWithinConvexPolygon(v4::Origin(), poly, _countof(poly)));
 			PR_EXPECT(!PointWithinConvexPolygon(poly[0], poly, _countof(poly)));
 			PR_EXPECT(!PointWithinConvexPolygon(v4(-1.0f, +2.0f, 0.0f, 1.0f), poly, _countof(poly)));
 			PR_EXPECT(PointWithinConvexPolygon(v4(+1.0f, -0.5f, 0.0f, 1.0f), poly, _countof(poly)));
@@ -53,9 +53,9 @@ namespace pr::geometry
 			std::default_random_engine rng;
 			for (int i = 0; i != 100; ++i)
 			{
-				auto bbox = BBox{ v4::Random(rng, v4Origin, 3.0f, 1), v4::Random(rng, v4(0.f), v4(3.f), 0) };
-				auto s = v4::Random(rng, v4Origin, 10.0f, 1);
-				auto e = v4::Random(rng, v4Origin, 10.0f, 1);
+				auto bbox = BBox{ v4::Random(rng, v4::Origin(), 3.0f, 1), v4::Random(rng, v4(0.f), v4(3.f), 0) };
+				auto s = v4::Random(rng, v4::Origin(), 10.0f, 1);
+				auto e = v4::Random(rng, v4::Origin(), 10.0f, 1);
 
 				v4 pt0, pt1;
 				auto sep = closest_point::LineToBBox(s, e, bbox, pt0, pt1);
@@ -161,7 +161,7 @@ namespace pr::geometry
 			auto s = pr::v4(+1.0f, +0.2f, +0.5f, 1.0f);
 			auto e = pr::v4(-1.0f, -0.2f, -0.4f, 1.0f);
 			auto d = e - s;
-			auto bbox = BBox(v4Origin, v4(0.25f, 0.15f, 0.2f, 0.0f));
+			auto bbox = BBox(v4::Origin(), v4(0.25f, 0.15f, 0.2f, 0.0f));
 
 			auto r = intersect::RayVsBBox(s, d, bbox, tmin, tmax);
 			PR_EXPECT(r);
@@ -209,7 +209,7 @@ namespace pr::geometry
 			PR_EXPECT(!r);
 
 			// Degenerate cases
-			p = pr::plane::make(v4Origin, v4::XAxis());
+			p = pr::plane::make(v4::Origin(), v4::XAxis());
 			b.m_centre = v4(-0.250001f, 0, 0, 1);
 			r = intersect::BBoxVsPlane(b, p);
 			PR_EXPECT(!r);

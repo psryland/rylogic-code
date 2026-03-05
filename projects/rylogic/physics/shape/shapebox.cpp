@@ -13,7 +13,7 @@ using namespace pr;
 using namespace pr::ph;
 
 // Construct a shape box
-ShapeBox& ShapeBox::set(const v4& dim, const m4x4& shape_to_model, MaterialId material_id, uint32_t flags)
+ShapeBox& ShapeBox::set(v4 dim, const m4x4& shape_to_model, MaterialId material_id, uint32_t flags)
 {
 	m_base.set(EShape_Box, sizeof(ShapeBox), shape_to_model, material_id, flags);
 	m_radius = dim / 2.0f;
@@ -25,7 +25,7 @@ ShapeBox& ShapeBox::set(const v4& dim, const m4x4& shape_to_model, MaterialId ma
 // Return the bounding box for a box
 BBox& pr::ph::CalcBBox(const ShapeBox& shape, BBox& bbox)
 {
-	bbox.m_centre = v4Origin;
+	bbox.m_centre = v4::Origin();
 	bbox.m_radius = shape.m_radius;
 	return bbox;
 }
@@ -35,9 +35,9 @@ MassProperties& pr::ph::CalcMassProperties(const ShapeBox& shape, float density,
 {
 	float volume = 8.0f * shape.m_radius.x * shape.m_radius.y * shape.m_radius.z;
 
-	mp.m_centre_of_mass = v4Zero;
+	mp.m_centre_of_mass = v4::Zero();
 	mp.m_mass = volume * density;
-	mp.m_os_inertia_tensor = m3x4Identity;
+	mp.m_os_inertia_tensor = m3x4::Identity();
 	mp.m_os_inertia_tensor.x.x = (1.0f / 3.0f) * (shape.m_radius.y * shape.m_radius.y + shape.m_radius.z * shape.m_radius.z);	// (1/12)m(Y^2 + Z^2)
 	mp.m_os_inertia_tensor.y.y = (1.0f / 3.0f) * (shape.m_radius.x * shape.m_radius.x + shape.m_radius.z * shape.m_radius.z);	// (1/12)m(X^2 + Z^2)
 	mp.m_os_inertia_tensor.z.z = (1.0f / 3.0f) * (shape.m_radius.y * shape.m_radius.y + shape.m_radius.x * shape.m_radius.x);	// (1/12)m(Y^2 + Z^2)
@@ -47,11 +47,11 @@ MassProperties& pr::ph::CalcMassProperties(const ShapeBox& shape, float density,
 // Shift the centre of a box
 void pr::ph::ShiftCentre(ShapeBox&, v4& shift)
 {
-	PR_ASSERT(PR_DBG_PHYSICS, FEql(shift,pr::v4Zero), ""); (void)shift; //impossible to shift the centre of an implicit object
+	PR_ASSERT(PR_DBG_PHYSICS, FEql(shift,pr::v4::Zero()), ""); (void)shift; //impossible to shift the centre of an implicit object
 }
 
 // Return a support vertex for a box
-v4 pr::ph::SupportVertex(ShapeBox const& shape, v4 const& direction, std::size_t, std::size_t& sup_vert_id)
+v4 pr::ph::SupportVertex(ShapeBox const& shape, v4 direction, std::size_t, std::size_t& sup_vert_id)
 {
 	PR_DECLARE_PROFILE(PR_PROFILE_SUPPORT_VERTS, phSupVertBox);
 	PR_PROFILE_SCOPE(PR_PROFILE_SUPPORT_VERTS, phSupVertBox);
@@ -99,7 +99,7 @@ v4 pr::ph::SupportVertex(ShapeBox const& shape, v4 const& direction, std::size_t
 
 // Find the nearest point and distance from a point to a shape
 // 'shape' and 'point' are in the same space
-void pr::ph::ClosestPoint(ShapeBox const& shape, v4 const& point, float& distance, v4& closest)
+void pr::ph::ClosestPoint(ShapeBox const& shape, v4 point, float& distance, v4& closest)
 {
 	closest  = point;
 	distance = 0.0f; // Accumulate distance squared

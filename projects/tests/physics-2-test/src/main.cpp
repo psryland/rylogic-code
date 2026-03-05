@@ -36,12 +36,13 @@ struct MainUI :Form
 		, m_physics()
 		, m_sph(0.5f)
 		#if TEST_PAIR
-		, m_box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, maths::tau_by_8f, v4Origin))
+		, m_box(v4{2, 2, 2, 0}, m4x4::Transform(0, 0, maths::tau_by_8f, v4::Origin()))
 		#else
-		, m_box(Abs(Random3(rng, v4{0.8f}, v4{1.4f}, 0)))
+		, m_box(Abs(v4::Random(rng, v4{0.8f}, v4{1.4f}, 0)))
 		#endif
 	{
 		Reset();
+		m_steps = 0xFFFFFFFF; // Auto-start the simulation
 		m_view3d.Key += [&](Control&, KeyEventArgs const& args)
 		{
 			if (args.m_down && args.m_vk_key == 'R')
@@ -50,6 +51,8 @@ struct MainUI :Form
 				m_steps = 1;
 			if (args.m_down && args.m_vk_key == 'G')
 				m_steps = 0xFFFFFFFF;
+			if (args.m_down && args.m_vk_key == 'P')
+				m_steps = 0; // Pause
 		};
 	}
 
@@ -76,36 +79,15 @@ struct MainUI :Form
 		{// Test case setup
 			auto& objA = m_body[0];
 			auto& objB = m_body[1];
-			objA.Shape(m_box, physics::Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
-			objB.Shape(m_box, physics::Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
-			objA.O2W(m4x4::Transform(0, 0, 0, v4{-0.5f, -0.0f, 1, 1}));
-			objB.O2W(m4x4::Transform(0, 0, 0, v4{+0.5f, +0.1f, 1, 1}));
+			objA.Shape(m_box, physics::Inertia::Box(v4{1,1,1,0}, 10.0f));
+			objB.Shape(m_box, physics::Inertia::Box(v4{1,1,1,0}, 10.0f));
+			objA.O2W(m4x4::Transform(0, 0, 0, v4{-3.0f, 0, 0, 1}));
+			objB.O2W(m4x4::Transform(0, 0, 0, v4{+3.0f, 0, 0, 1}));
 
 			objA.Mass(10);
 			objB.Mass(5);
-			objA.VelocityWS(v4{0,0,0,0}, v4{+0, 0, 0, 0});
-			objB.VelocityWS(v4{0,0,0,0}, v4{-10,-10, 0, 0});
-
-			// Self detaching handler
-			static Sub sub;
-			sub = m_physics.PostCollisionDetection += [&](Physics const&, std::vector<physics::Contact>& contacts)
-			{
-				(void)contacts;
-				m_physics.PostCollisionDetection -= sub;
-				return;
-
-			//	contacts.resize(0);
-			//
-			//	physics::Contact c(objA, objB);
-			//	c.m_axis = Normalise(v4{Cos(maths::tauf/16), Sin(maths::tauf/16),0,0});
-			//	c.m_point = v4{0.5f, 0, 0, 0};
-			//	c.m_mat.m_friction_static = 1.0f;
-			//	c.m_mat.m_elasticity_norm = 0.0f;
-			//	c.m_mat.m_elasticity_tors = -1.0f;
-			//	c.update(0);
-			//	contacts.push_back(c);
-
-			};
+			objA.VelocityWS(v4{0,0,0,0}, v4{0, 0, 0, 0});
+			objB.VelocityWS(v4{0,0,0,0}, v4{0, 0, 0, 0});
 		}
 		#endif
 
@@ -122,7 +104,7 @@ struct MainUI :Form
 
 		Render();
 
-		View3D_ResetView(m_view3d.m_win, view3d::Vec4{+0.0f,0,-1,0}, view3d::Vec4{0,1,0,0}, 0, TRUE, TRUE);
+		View3D_ResetView(m_view3d.m_win, view3d::Vec4{0,0,-1,0}, view3d::Vec4{0,1,0,0}, 20, TRUE, TRUE);
 	}
 
 	// Step the main loop
@@ -138,6 +120,49 @@ struct MainUI :Form
 
 		#if TEST_PAIR
 
+		// Mutual gravitational attraction between the pair
+		{
+			float const G = 5.0f;
+			float const softening_sq = 4.0f;
+			auto sep = m_body[0].O2W().pos - m_body[1].O2W().pos;
+			sep.w = 0;
+			auto r_sq = LengthSq(sep);
+			auto r = Sqrt(r_sq);
+			if (r > 0.1f)
+			{
+				auto force_mag = G * m_body[0].Mass() * m_body[1].Mass() / (r_sq + softening_sq);
+				auto force = force_mag * sep / r;
+				m_body[0].ApplyForceWS(-force, v4::Zero());
+				m_body[1].ApplyForceWS(+force, v4::Zero());
+			}
+		}
+
+		// Damping, velocity clamp, centering force, and NaN guard
+		for (auto& body : m_body)
+		{
+			auto vel = body.VelocityWS();
+			auto speed = Length(vel.lin);
+
+			// Linear and angular damping to prevent energy growth
+			body.ApplyForceWS(-0.15f * body.Mass() * vel.lin, -0.15f * vel.ang);
+
+			if (speed > 20.0f)
+				body.VelocityWS(vel.ang, vel.lin * (20.0f / speed));
+
+			// Pull back toward origin if too far
+			auto r = body.O2W().pos.w0();
+			auto rlen = Length(r);
+			if (rlen > 8.0f)
+				body.ApplyForceWS(-r * body.Mass() * (rlen - 8.0f) * 3.0f / rlen, v4{});
+
+			auto pos = body.O2W().pos;
+			if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z))
+			{
+				Reset();
+				return;
+			}
+		}
+
 		m_physics.Step(dt, m_body);
 
 		#else
@@ -149,21 +174,24 @@ struct MainUI :Form
 				auto& body0 = m_body[i];
 				auto& body1 = m_body[j];
 
-				// Apply gravity: GMm/r^2
+				// Apply gravity with softening: GMm / (r² + ε²)
 				float const G = 1.0f;
-				auto sep = body0.O2W(dt/2).pos - body1.O2W(dt/2).pos;
-				auto r_sq = Length3Sq(sep);
-				if (r_sq > Sqr(0.1_m))
+				float const softening_sq = 1.0f;
+				auto sep = body0.O2W().pos - body1.O2W().pos;
+				sep.w = 0;
+				auto r_sq = LengthSq(sep);
+				auto r = Sqrt(r_sq);
+				if (r > 0.05f)
 				{
-					auto force_mag = G * body0.Mass() * body1.Mass() / r_sq;
-					auto force = force_mag * sep / Sqrt(r_sq);
-					body0.ApplyForceWS(-force, v4Zero);
-					body1.ApplyForceWS(+force, v4Zero);
+					auto force_mag = G * body0.Mass() * body1.Mass() / (r_sq + softening_sq);
+					auto force = force_mag * sep / r;
+					body0.ApplyForceWS(-force, v4::Zero());
+					body1.ApplyForceWS(+force, v4::Zero());
 				}
 			}
 		}
 
-		// Pull things back to the origin
+		// Pull things back to the origin and clamp velocity
 		for (int i = 0, iend = _countof(m_body); i != iend; ++i)
 		{
 			auto& body = m_body[i];
@@ -174,6 +202,15 @@ struct MainUI :Form
 			{
 				body.ApplyForceWS(-r * Sqrt(rlen - 10.0f) / rlen, v4{});
 			}
+
+			// Velocity damping to prevent energy growth
+			auto vel = body.VelocityWS();
+			body.ApplyForceWS(-0.5f * body.Mass() * vel.lin, -0.5f * vel.ang);
+
+			// Hard clamp velocity to prevent numerical explosion
+			auto speed = Length(vel.lin);
+			if (speed > 50.0f)
+				body.VelocityWS(vel.ang, vel.lin * (50.0f / speed));
 		}
 
 		//Dump();
@@ -188,6 +225,12 @@ struct MainUI :Form
 	{
 		for (auto& body : m_body)
 			body.UpdateGfx();
+
+		// Track the center of mass so both bodies are always visible
+		auto com = (m_body[0].O2W().pos * m_body[0].Mass() + m_body[1].O2W().pos * m_body[1].Mass()) / (m_body[0].Mass() + m_body[1].Mass());
+		com.w = 1;
+		View3D_CameraFocusPointSet(m_view3d.m_win, *reinterpret_cast<view3d::Vec4*>(&com));
+		View3D_CameraCommit(m_view3d.m_win);
 
 		Invalidate(false, nullptr, true);
 	}

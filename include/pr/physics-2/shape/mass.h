@@ -25,9 +25,9 @@ namespace pr::physics
 		float m_mass;
 
 		MassProperties()
-			:m_os_unit_inertia(v4{maths::float_inf}, v4{maths::float_inf}, v4{maths::float_inf})
+			:m_os_unit_inertia(v4{limits<float>::infinity()}, v4{limits<float>::infinity()}, v4{limits<float>::infinity()})
 			,m_centre_of_mass(v4{})
-			,m_mass(maths::float_inf)
+			,m_mass(limits<float>::infinity())
 		{}
 		MassProperties(m3x4 const& os_unit_inertia, v4 centre_of_mass, float mass)
 			:m_os_unit_inertia(os_unit_inertia)

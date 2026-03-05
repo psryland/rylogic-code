@@ -61,7 +61,7 @@ namespace std
 	{
 	public:
 		static pr::Vec4f<T> min() throw()     { return pr::v4Min; }
-		static pr::Vec4f<T> max() throw()     { return pr::v4Max; }
+		static pr::Vec4f<T> max() throw()     { return pr::v4::Max(); }
 		static pr::Vec4f<T> lowest() throw()  { return pr::v4Lowest; }
 		static pr::Vec4f<T> epsilon() throw() { return pr::v4Epsilon; }
 

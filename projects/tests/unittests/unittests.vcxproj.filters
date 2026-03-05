@@ -1195,12 +1195,6 @@
     <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix6x8_tests.h">
       <Filter>pr\math_new\tests</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bbox.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bsphere.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\include\pr\math_new\primitives\oriented_box.h">
       <Filter>pr\math_new\primitives</Filter>
     </ClInclude>
@@ -1305,6 +1299,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\math_new\tests\transform_tests.h">
       <Filter>pr\math_new\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bbox.h">
+      <Filter>pr\math_new\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bsphere.h">
+      <Filter>pr\math_new\primitives</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

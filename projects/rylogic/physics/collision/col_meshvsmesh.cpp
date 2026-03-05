@@ -41,12 +41,12 @@ namespace pr::ph::mesh_vs_mesh
 
 		//	if( a2w.pos == b2w.pos ) return false;
 
-		float dp, shallowest = -maths::float_max;
+		float dp, shallowest = -limits<float>::max();
 		std::size_t id = 0;
 		for (std::size_t f = 0; f != polyA.m_face_count; ++f)
 		{
 			// ObjA
-			v4 axis = a2w * Normalise(Cross3(polyA.vertex(polyA.face(f).m_index[1]) - polyA.vertex(polyA.face(f).m_index[0]),
+			v4 axis = a2w * Normalise(Cross(polyA.vertex(polyA.face(f).m_index[1]) - polyA.vertex(polyA.face(f).m_index[0]),
 				polyA.vertex(polyA.face(f).m_index[2]) - polyA.vertex(polyA.face(f).m_index[0])));
 			v4 p = a2w * SupportVertex(shapeA, w2a *  axis, id, id);
 			v4 q = b2w * SupportVertex(shapeB, w2b * -axis, id, id);
@@ -72,7 +72,7 @@ namespace pr::ph::mesh_vs_mesh
 		for (std::size_t f = 0; f != polyB.m_face_count; ++f)
 		{
 			// ObjB
-			v4 axis = b2w * Normalise(Cross3(polyB.vertex(polyB.face(f).m_index[1]) - polyB.vertex(polyB.face(f).m_index[0]),
+			v4 axis = b2w * Normalise(Cross(polyB.vertex(polyB.face(f).m_index[1]) - polyB.vertex(polyB.face(f).m_index[0]),
 				polyB.vertex(polyB.face(f).m_index[2]) - polyB.vertex(polyB.face(f).m_index[0])));
 			v4 p = a2w * SupportVertex(shapeA, w2a *  axis, id, id);
 			v4 q = b2w * SupportVertex(shapeB, w2b * -axis, id, id);
@@ -105,8 +105,8 @@ namespace pr::ph::mesh_vs_mesh
 						v4 sj = b2w *  polyB.vertex(polyB.face(fj).m_index[(ej + 0) % 3]); sj;
 						v4 edgei = a2w * (polyA.vertex(polyA.face(fi).m_index[(ei + 1) % 3]) - polyA.vertex(polyA.face(fi).m_index[(ei + 0) % 3]));
 						v4 edgej = b2w * (polyB.vertex(polyB.face(fj).m_index[(ej + 1) % 3]) - polyB.vertex(polyB.face(fj).m_index[(ej + 0) % 3]));
-						v4 axis = Cross3(edgei, edgej);
-						if (axis == v4Zero) continue;
+						v4 axis = Cross(edgei, edgej);
+						if (axis == v4::Zero()) continue;
 
 						axis = Normalise(axis);
 						v4 p = a2w * SupportVertex(shapeA, w2a *  axis, id, id);
@@ -149,15 +149,15 @@ namespace pr::ph::mesh_vs_mesh
 			for (uint32_t i = 0; i != r_size; ++i)
 			{
 				if (i == j) continue;
-				v4 half_space_normal = Cross3(r[i], r[j]);
-				if (!FEql(half_space_normal, v4Zero))
+				v4 half_space_normal = Cross(r[i], r[j]);
+				if (!FEql(half_space_normal, v4::Zero()))
 				{
 					half_space_normal = Normalise(half_space_normal);
 					bool all_positive = true;
 					for (uint32_t k = 0; k != r_size; ++k)
 					{
-						if ((should_exist && Dot3(half_space_normal, r[k]) < -maths::tinyf) ||
-							(!should_exist && Dot3(half_space_normal, r[k]) < maths::tinyf))
+						if ((should_exist && Dot3(half_space_normal, r[k]) < -maths::tiny<float>) ||
+							(!should_exist && Dot3(half_space_normal, r[k]) < maths::tiny<float>))
 						{
 							all_positive = false;
 							break;
@@ -172,10 +172,10 @@ namespace pr::ph::mesh_vs_mesh
 		}
 		return false;
 	}
-	bool VerifyHalfSpace(v4 const* r, uint32_t r_size, v4 const& half_space_normal)
+	bool VerifyHalfSpace(v4 const* r, uint32_t r_size, v4 half_space_normal)
 	{
 		r; half_space_normal;
-		PR_ASSERT(PR_DBG_PHYSICS, !FEql(half_space_normal,pr::v4Zero), "");
+		PR_ASSERT(PR_DBG_PHYSICS, !FEql(half_space_normal,pr::v4::Zero()), "");
 		for( uint32_t i = 0; i != r_size; ++i )
 		{
 			PR_ASSERT(PR_DBG_PHYSICS, Dot3(half_space_normal, r[i]) > -0.01f, "");
@@ -194,12 +194,12 @@ namespace pr::ph::mesh_vs_mesh
 	}
 
 	// Clip an edge to a triangle
-	inline void ClipEdgeToTriangle(v4 const (&tri)[3], v4 const& face_norm, v4& s, v4& e)
+	inline void ClipEdgeToTriangle(v4 const (&tri)[3], v4 face_norm, v4& s, v4& e)
 	{
 		for( int i = 0; i != 3; ++i )
 		{
-			v4 norm = Cross3(face_norm, tri[(i+1)%3] - tri[i]);
-			if( FEql(norm,pr::v4Zero) ) continue;
+			v4 norm = Cross(face_norm, tri[(i+1)%3] - tri[i]);
+			if( FEql(norm,pr::v4::Zero()) ) continue;
 			norm = Normalise(norm);
 			if( Dot3(norm, tri[(i+2)%3] - tri[i]) < 0.0f ) norm = -norm;
 			float d1 = Dot3(norm, s - tri[i]);
@@ -279,7 +279,7 @@ namespace pr::ph::mesh_vs_mesh
 		case (Face<<2)|Face:
 			{
 				// Clip the edges of one face against the other
-				v4 avr = v4Zero;
+				v4 avr = v4::Zero();
 				v4 tri[3] = {nearest.m_vert[0].m_q, nearest.m_vert[1].m_q, nearest.m_vert[2].m_q};
 				for( int i = 0; i != 3; ++i )
 				{
@@ -318,8 +318,8 @@ namespace pr::ph::mesh_vs_mesh
 			col.m_dist_sq_upper_bound = dist_sq;
 			col.m_nearest = vert;
 				PR_EXPAND(PR_DBG_MESH_COLLISION, StartFile("C:/DeleteMe/collision_upperbound.pr_script");)
-				PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::Sphere("Upper_Bound", "80FF0000", v4Origin, Sqrt(col.m_dist_sq_upper_bound));)
-				PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::Line  ("TargetNorm" , "FFFFFF00", v4Origin, Normalise(vert.m_direction) * Sqrt(col.m_dist_sq_upper_bound));)
+				PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::Sphere("Upper_Bound", "80FF0000", v4::Origin(), Sqrt(col.m_dist_sq_upper_bound));)
+				PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::Line  ("TargetNorm" , "FFFFFF00", v4::Origin(), Normalise(vert.m_direction) * Sqrt(col.m_dist_sq_upper_bound));)
 				PR_EXPAND(PR_DBG_MESH_COLLISION, EndFile();)
 					
 			// If the line from the origin to the vert is aligned with the normal then we've found our result
@@ -346,7 +346,7 @@ namespace pr::ph::mesh_vs_mesh
 				SetNearestBound(col.m_simplex.m_vertex[1], col);
 				v4 x = col.m_simplex.m_vertex[1].m_r - col.m_simplex.m_vertex[0].m_r;
 				v4 y = Perpendicular(x);
-				v4 z = Cross3(x, y);
+				v4 z = Cross(x, y);
 				col.SupportVertex( y);	SetNearestBound(col.m_vertex, col);
 				col.SupportVertex( z);	SetNearestBound(col.m_vertex, col);
 				col.SupportVertex(-y);	SetNearestBound(col.m_vertex, col);
@@ -359,7 +359,7 @@ namespace pr::ph::mesh_vs_mesh
 				SetNearestBound(col.m_simplex.m_vertex[2], col);
 						
 				// Use the normal of the face to add a vertex on either side
-				v4 norm = Cross3(col.m_simplex.m_vertex[1].m_r - col.m_simplex.m_vertex[0].m_r, col.m_simplex.m_vertex[2].m_r - col.m_simplex.m_vertex[0].m_r);
+				v4 norm = Cross(col.m_simplex.m_vertex[1].m_r - col.m_simplex.m_vertex[0].m_r, col.m_simplex.m_vertex[2].m_r - col.m_simplex.m_vertex[0].m_r);
 				col.SupportVertex( norm);	SetNearestBound(col.m_vertex, col);
 				col.SupportVertex(-norm);	SetNearestBound(col.m_vertex, col);
 			}break;
@@ -370,7 +370,7 @@ namespace pr::ph::mesh_vs_mesh
 				for( int i = 0; i != 4; ++i, tris += 3 )
 				{
 					SetNearestBound(col.m_simplex.m_vertex[i], col);
-					v4 norm = Cross3(	col.m_simplex.m_vertex[tris[2]].m_r - col.m_simplex.m_vertex[tris[0]].m_r,
+					v4 norm = Cross(	col.m_simplex.m_vertex[tris[2]].m_r - col.m_simplex.m_vertex[tris[0]].m_r,
 										col.m_simplex.m_vertex[tris[1]].m_r - col.m_simplex.m_vertex[tris[0]].m_r);
 							
 					// Ensure outward facing normals
@@ -385,7 +385,7 @@ namespace pr::ph::mesh_vs_mesh
 	}
 
 	// Choose a vert with an offset that opposes 'a'
-	bool GetOpposingVert(Couple& col, TrackVert& a, TrackVert& b, v4 const& refine_normal_direction)
+	bool GetOpposingVert(Couple& col, TrackVert& a, TrackVert& b, v4 refine_normal_direction)
 	{
 		PR_EXPAND(PR_DBG_MESH_COLLISION, int loop_count = 0;)
 		PR_EXPAND(PR_DBG_MESH_COLLISION, get_opposing_edge_count = 0;)
@@ -417,12 +417,12 @@ namespace pr::ph::mesh_vs_mesh
 
 	// Refine an edge by bringing the normals into alignment
 	// 'refine_normal_direction' - This is the direction we bend the normals.
-	bool RefineEdge(Couple& col, TrackVert& a, TrackVert& b, v4 const& refine_normal_direction)
+	bool RefineEdge(Couple& col, TrackVert& a, TrackVert& b, v4 refine_normal_direction)
 	{
 		PR_EXPAND(PR_DBG_MESH_COLLISION, int loop_count = 0;)
 
 		Vert test_vert;
-		TrackVert test = {&test_vert, 0.0f, v4Zero};
+		TrackVert test = {&test_vert, 0.0f, v4::Zero()};
 		for(;;)
 		{
 			PR_EXPAND(PR_DBG_MESH_COLLISION, ++refine_edge_count;)
@@ -459,7 +459,7 @@ namespace pr::ph::mesh_vs_mesh
 	// If at any point we get a vert for which m_offset is zero then we're done
 	void FindPenetration(Couple& col, Triangle& triangle)
 	{
-		PR_ASSERT(PR_DBG_PHYSICS, col.m_dist_sq_upper_bound == maths::float_max, "");
+		PR_ASSERT(PR_DBG_PHYSICS, col.m_dist_sq_upper_bound == limits<float>::max(), "");
 		PR_EXPAND(PR_DBG_MESH_COLLISION, StartFile("C:/DeleteMe/collision_nearestpoint.pr_script");EndFile();)
 		PR_EXPAND(PR_DBG_MESH_COLLISION, refine_edge_count = 0; get_opposing_edge_count = 0;)
 
@@ -473,16 +473,16 @@ namespace pr::ph::mesh_vs_mesh
 		}
 				
 		TrackVert trk[3] = {
-			{&triangle.m_vert[0], 0.0f, v4Zero},
-			{&triangle.m_vert[1], 0.0f, v4Zero},
-			{&triangle.m_vert[2], 0.0f, v4Zero}};
+			{&triangle.m_vert[0], 0.0f, v4::Zero()},
+			{&triangle.m_vert[1], 0.0f, v4::Zero()},
+			{&triangle.m_vert[2], 0.0f, v4::Zero()}};
 
 		// Start with the best estimate from the simplex
 		col.m_nearest.m_direction = Normalise(col.m_nearest.m_direction);
 		trk[0].set(col.m_nearest);
 		PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::phTrackingVert(trk, 1);)
 
-		v4 refine_normal_direction = Normalise(v4Origin - trk[0].offset());
+		v4 refine_normal_direction = Normalise(v4::Origin() - trk[0].offset());
 		for( int i = 0; i != 3; ++i )
 		{
 			int j = (i + 1) % 3;
@@ -506,8 +506,8 @@ namespace pr::ph::mesh_vs_mesh
 			// If the origin does not project onto the edge formed between 'i' and 'i+1'
 			// then find a new direction to refine the normal in
 			v4 edge = trk[j].vert().m_r - trk[i].vert().m_r;
-			if(edge== v4Zero)	{ refine_normal_direction = v4Origin - trk[i].offset(); }
-			else				{ refine_normal_direction = Normalise(Cross3(trk[i].direction(), edge)); }
+			if(edge== v4::Zero())	{ refine_normal_direction = v4::Origin() - trk[i].offset(); }
+			else				{ refine_normal_direction = Normalise(Cross(trk[i].direction(), edge)); }
 
 			// Make sure we choose a direction toward the origin
 			float side = Dot3(refine_normal_direction, trk[i].offset());
@@ -561,7 +561,7 @@ namespace pr::ph::mesh_vs_mesh
 			// Initialise the half space normal once we have two r's
 			// If the product is zero, then any vector perpendicular to 'r[0]' should do
 			half_space_normal = r[0] + r[1];
-			if (FEql(half_space_normal, pr::v4Zero)) half_space_normal = Perpendicular(r[0]);
+			if (FEql(half_space_normal, pr::v4::Zero())) half_space_normal = Perpendicular(r[0]);
 			else                                     half_space_normal = Normalise(half_space_normal);
 			first_new_r = 2;
 
@@ -572,9 +572,9 @@ namespace pr::ph::mesh_vs_mesh
 		for (; first_new_r != r_size; ++first_new_r)
 		{
 			// Ignore vectors already above the half space
-			if (Dot3(half_space_normal, r[first_new_r]) >= -maths::tinyf) continue;
+			if (Dot3(half_space_normal, r[first_new_r]) >= -maths::tiny<float>) continue;
 
-			v4 const& new_r = r[first_new_r];
+			v4 new_r = r[first_new_r];
 
 			// If 'new_r' lies outside the current half space then 'new_r' should lie in the plane
 			// of a new half space (if it exists). This constrains the half space around one axis (new_r).
@@ -597,7 +597,7 @@ namespace pr::ph::mesh_vs_mesh
 			//	float d = Sqrt(x*x + y*y);
 			//	if( FEql(d, 0.0f) )
 			//	{
-			//		M = m3x4Identity;	// Create an identity transform or a 180 degree rotation
+			//		M = m3x4::Identity();	// Create an identity transform or a 180 degree rotation
 			//		M.x.x = new_r.z;	// about Y depending on the sign of 'new_r.z'
 			//		M.z.z = new_r.z;
 			//	}
@@ -649,7 +649,7 @@ namespace pr::ph::mesh_vs_mesh
 				}
 			}
 			// If we get here then a half space is possible. i.e. rb should still be on the positive side of 'ra'
-			PR_ASSERT(PR_DBG_PHYSICS, Line::Eqn(ra, rb) >= -maths::tinyf, "");
+			PR_ASSERT(PR_DBG_PHYSICS, Line::Eqn(ra, rb) >= -maths::tiny<float>, "");
 
 			// Calculate a new half space normal. Use the perpendicular to 'ra' unless
 			// that's zero in which case, use the perpendicular to 'rb'. If that's zero
@@ -685,13 +685,13 @@ namespace pr::ph::mesh_vs_mesh
 		}
 
 		// Iteratively find the nearest point to the origin
-		float last_nearest_distanceSq = maths::float_max;
+		float last_nearest_distanceSq = limits<float>::max();
 		for( int k = 0; ; ++k )
 		{
 			PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::PhSimplex("Simplex", "FF00FF00", col.m_simplex, "simplex");)
 
 			// Find the minimum normal distance from the convex hull of the simplex to the origin
-			v4 nearest_point = col.m_simplex.FindNearestPoint(v4Origin) - v4Origin;
+			v4 nearest_point = col.m_simplex.FindNearestPoint(v4::Origin()) - v4::Origin();
 			float nearest_distanceSq = LengthSq(nearest_point);
 			if( nearest_distanceSq >= last_nearest_distanceSq )
 			{
@@ -708,7 +708,7 @@ namespace pr::ph::mesh_vs_mesh
 			// If the closest point to the simplex is the origin then the
 			// simplex surrounds the origin and the shapes are in collision
 			//if( nearest_point.IsApproxZero3() )
-			if( nearest_distanceSq < maths::tinyf*maths::tinyf )
+			if( nearest_distanceSq < Sqr(maths::tiny<float>) )
 			{
 				PR_EXPAND(PR_DBG_MESH_COLLISION, DebugOutput(Fmt("GJK: COLLISION detected after %d iterations\n", k).c_str());)
 				return true;
@@ -716,7 +716,7 @@ namespace pr::ph::mesh_vs_mesh
 
 			// Determine the new test separating axis from this nearest point
 			col.m_separating_axis = nearest_point / -Sqrt(nearest_distanceSq); // Normalise
-			//col.m_separating_axis = (v4Origin - nearest_point).GetNormal3();
+			//col.m_separating_axis = (v4::Origin() - nearest_point).GetNormal3();
 			PR_EXPAND(PR_DBG_MESH_COLLISION, StartFile("C:/DeleteMe/collision_separatingaxis.pr_script");)
 			PR_EXPAND(PR_DBG_MESH_COLLISION, ldr::LineD("Sep_axis", "FFFFFF00", nearest_point, col.m_separating_axis); EndFile();)
 
@@ -790,9 +790,9 @@ namespace pr::ph::mesh_vs_mesh
 			PR_EXPAND(PR_DBG_MESH_COLLISION, EndFile();)
 
 			// Get the world space vector between these two vertices
-			r[k] = v4Origin - col.m_vertex.m_r;
+			r[k] = v4::Origin() - col.m_vertex.m_r;
 			float dp = Dot3(col.m_separating_axis, r[k]);
-			if( dp >= -maths::tinyf )	// Lemma 1
+			if( dp >= -maths::tiny<float> )	// Lemma 1
 			{
 				PR_EXPAND(PR_DBG_MESH_COLLISION, DebugOutput(Fmt("CW: Collision rejected in %d iterations\n", k).c_str());)
 				return false; // non-collision
@@ -908,7 +908,7 @@ bool pr::ph::GetNearestPoints(Shape const& shapeA, m4x4 const& a2w, Shape const&
 	}
 	else
 	{
-		v4 nearest_point	= col.m_simplex.FindNearestPoint(v4Origin) - v4Origin;
+		v4 nearest_point	= col.m_simplex.FindNearestPoint(v4::Origin()) - v4::Origin();
 		Contact contact;
 		contact.m_depth		= -Length(nearest_point);
 		contact.m_normal	= nearest_point / contact.m_depth;

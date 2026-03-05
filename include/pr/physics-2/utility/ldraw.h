@@ -54,36 +54,33 @@ namespace pr::rdr12::ldraw
 		template <fluent::WriterType Writer, typename TOut>
 		void WriteTo(TOut& out) const
 		{
-			(void)out;
-			#if 0 // todo
+			if (!m_rb || !m_rb->HasShape())
+				return;
+
+			// Write the collision shape with this element's color
+			auto& shape = m_rb->Shape();
+			using namespace collision;
+			switch (shape.m_type)
 			{
-				GroupStart(str, name, colour);
-				Shape(str, "Shape", colour, rb.Shape());
-				if (flags != ERigidBodyFlags::None)
+				case EShape::Box:
 				{
-					auto os_momentum = scale * rb.MomentumOS();
-					auto os_velocity = scale * rb.VelocityOS();
-					auto os_force = scale * rb.ForceOS();
-					if (AllSet(flags, ERigidBodyFlags::Origin))
-						CoordFrame(str, "Origin", 0xFFFFFFFF, m4x4::Identity(), 0.1f);
-					if (AllSet(flags, ERigidBodyFlags::CoM))
-						CoordFrame(str, "CoM", 0xFF404040, m4x4::Translation(rb.CentreOfMassOS().w1()), 0.1f);
-					if (AllSet(flags, ERigidBodyFlags::LVel))
-						Arrow(str, "LVel", 0xFF00FFFF, EArrowType::Fwd, v4Origin, os_velocity.lin, 2);
-					if (AllSet(flags, ERigidBodyFlags::AVel))
-						Arrow(str, "AVel", 0xFFFF00FF, EArrowType::Fwd, v4Origin, os_velocity.ang, 2);
-					if (AllSet(flags, ERigidBodyFlags::LMom))
-						Arrow(str, "LMom", 0xFF008080, EArrowType::Fwd, v4Origin, os_momentum.lin, 5);
-					if (AllSet(flags, ERigidBodyFlags::AMom))
-						Arrow(str, "AMom", 0xFF800080, EArrowType::Fwd, v4Origin, os_momentum.ang, 5);
-					if (AllSet(flags, ERigidBodyFlags::Force))
-						Arrow(str, "Force", 0xFF0000FF, EArrowType::Back, v4Origin, -os_force.lin.w0(), 8);
-					if (AllSet(flags, ERigidBodyFlags::Torque))
-						Arrow(str, "Torque", 0xFF000080, EArrowType::Fwd, v4Origin, os_force.ang.w1(), 8);
+					auto& box = shape_cast<ShapeBox>(shape);
+					fluent::LdrBox().colour(m_colour).dim(box.m_radius).o2w(box.m_base.m_s2p).WriteTo<Writer>(out);
+					break;
 				}
-				GroupEnd(str, o2w ? *o2w : rb.O2W());
+				case EShape::Sphere:
+				{
+					auto& sph = shape_cast<ShapeSphere>(shape);
+					fluent::LdrSphere().colour(m_colour).radius(sph.m_radius).o2w(sph.m_base.m_s2p).WriteTo<Writer>(out);
+					break;
+				}
+				default:
+				{
+					LdrPhysicsShape().shape(shape).WriteTo<Writer>(out);
+					break;
+				}
 			}
-			#endif
+			LdrBase::WriteTo<Writer>(out);
 		}
 	};
 }

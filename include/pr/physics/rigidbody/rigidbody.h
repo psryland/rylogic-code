@@ -59,14 +59,14 @@ namespace pr
 				m_shape                                 = GetDummyShape();
 				m_type                                  = ERigidbody_Dynamic;
 				m_mass_properties.m_mass                = 10.0f;
-				m_mass_properties.m_centre_of_mass      = pr::v4Origin;
-				m_mass_properties.m_os_inertia_tensor   = m3x4Identity;
+				m_mass_properties.m_centre_of_mass      = pr::v4::Origin();
+				m_mass_properties.m_os_inertia_tensor   = m3x4::Identity();
 				m_motion_type                           = EMotion_Dynamic;
 				m_initially_sleeping                    = false;
-				m_lin_velocity                          = pr::v4Zero;
-				m_ang_velocity                          = pr::v4Zero;
-				m_force                                 = pr::v4Zero;
-				m_torque                                = pr::v4Zero;
+				m_lin_velocity                          = pr::v4::Zero();
+				m_ang_velocity                          = pr::v4::Zero();
+				m_force                                 = pr::v4::Zero();
+				m_torque                                = pr::v4::Zero();
 				m_user_data                             = 0;
 				m_flags                                 = ERBFlags_None;
 				m_name                                  = "";
@@ -88,7 +88,7 @@ namespace pr
 			// Read Access Functions ******************************
 			ERigidbody      Type() const                            { return m_type; }
 			m4x4 const&     ObjectToWorld() const                   { return m_object_to_world; }
-			v4 const&       Position() const                        { return m_object_to_world.pos; }
+			v4       Position() const                        { return m_object_to_world.pos; }
 			m3x4 const&     Orientation() const                     { return m_object_to_world.rot; }
 			Shape const*    GetShape() const                        { return m_shape; }
 			float           Mass() const                            { return m_mass; }
@@ -97,12 +97,12 @@ namespace pr
 			v4              AngMomentum() const                     { return m_ang_momentum; }
 			v4              Velocity() const                        { return m_inv_mass * Momentum(); }
 			v4              AngVelocity() const                     { return m_inv_mass * (m_ws_inv_inertia_tensor * AngMomentum()); }
-			v4              VelocityAt(const v4& ws_offset) const   { return Velocity() + Cross3(AngVelocity(), ws_offset); }
+			v4              VelocityAt(v4 ws_offset) const   { return Velocity() + Cross(AngVelocity(), ws_offset); }
 			BBox            BBoxWS() const                          { return m_ws_bbox; }
 			BBox            BBoxOS() const                          { return GetShape()->m_bbox; }
 			m3x4            InertiaOS() const                       { return m_os_inertia_tensor; }
 			void*           UserData() const                        { return m_user_data; }
-			MassProperties  GetMassProperties() const               { MassProperties mp = {m_os_inertia_tensor, v4Zero, Mass()}; return mp; }
+			MassProperties  GetMassProperties() const               { MassProperties mp = {m_os_inertia_tensor, v4::Zero(), Mass()}; return mp; }
 			v4              Gravity() const                         { return GetGravitationalAcceleration(m_object_to_world.pos); }
 			float           Energy() const                          { return PotentialEnergy() + KineticEnergy(); }             // mgh + 0.5mv^2 + 0.5wIw
 			float           PotentialEnergy() const                 { return -Dot3(Gravity(), Position()); }                    // mgh
@@ -115,26 +115,26 @@ namespace pr
 
 			// Write Access Functions ******************************
 			void            SetObjectToWorld(m4x4 const& o2w);
-			void            SetPosition(v4 const& position);
+			void            SetPosition(v4 position);
 			void            SetOrientation(m3x4 const& ori);
 			void            SetMass(float mass);
 			void            SetMassProperties(MassProperties const& mp);
 			void            SetMotionType(EMotion motion_type);
 			void            SetCollisionShape(Shape* shape, m4x4 const& o2w);
 			void            SetCollisionShape(Shape* shape, m4x4 const& o2w, MassProperties const& mp);
-			void            SetVelocity(v4 const& velocity);
-			void            SetAngVelocity(v4 const& ang_velocity);
-			void            SetMomentum(v4 const& momentum);
-			void            SetAngMomentum(v4 const& ang_momentum);
-			void            SetForce(v4 const& force);
-			void            SetTorque(v4 const& torque);
+			void            SetVelocity(v4 velocity);
+			void            SetAngVelocity(v4 ang_velocity);
+			void            SetMomentum(v4 momentum);
+			void            SetAngMomentum(v4 ang_momentum);
+			void            SetForce(v4 force);
+			void            SetTorque(v4 torque);
 			void            SetSleepState(bool asleep);
 			void            SetName(char const* name);
 
 			// Impulse functions ******************************
-			void            ApplyWSImpulse(v4 const& ws_impulse);
-			void            ApplyWSTwist(v4 const& ws_twist);
-			void            ApplyWSImpulse(v4 const& ws_impulse, v4 const& point);
+			void            ApplyWSImpulse(v4 ws_impulse);
+			void            ApplyWSTwist(v4 ws_twist);
+			void            ApplyWSImpulse(v4 ws_impulse, v4 point);
 
 #ifndef PR_PH_BUILD
 		private:
@@ -145,9 +145,9 @@ namespace pr
 			v4              AccAngMomentum() const                  { return m_ang_momentum + m_acc_twist; }
 			v4              AccVelocity() const                     { return m_inv_mass * AccMomentum(); }
 			v4              AccAngVelocity() const                  { return m_inv_mass * (m_ws_inv_inertia_tensor * AccAngMomentum()); }
-			v4              AccVelocityAt(const v4& ws_offset) const { return AccVelocity() + Cross3(AccAngVelocity(), ws_offset); }
+			v4              AccVelocityAt(v4 ws_offset) const { return AccVelocity() + Cross(AccAngVelocity(), ws_offset); }
 			void            AccClearImpulse();
-			void            AccAddWSImpulse(v4 const& ws_impulse, v4 const& point);
+			void            AccAddWSImpulse(v4 ws_impulse, v4 point);
 			void            AccApplyWSImpulse();
 
 			// DO NOT USE THESE MEMBERS DIRECTLY, use the access functions/methods

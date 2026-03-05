@@ -753,7 +753,7 @@ namespace pr
 	}
 	inline bool pr_vectorcall FEql(Colour lhs, Colour rhs)
 	{
-		return FEqlRelative(lhs, rhs, maths::tinyf);
+		return FEqlRelative(lhs, rhs, maths::tiny<float>);
 	}
 	inline bool pr_vectorcall FEqlNoA(Colour lhs, Colour rhs)
 	{

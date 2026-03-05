@@ -33,19 +33,19 @@ namespace pr
 		//	const Primitive*	prim_begin() const					{ return m_rigid_body->prim_begin(); }
 		//	const Primitive*	prim_end() const					{ return m_rigid_body->prim_end(); }
 		//	const m4x4&			ObjectToWorld() const				{ return *m_object_to_world; }
-		//	const v4&			Velocity() const					{ return m_velocity; }
-		//	const v4&			AngVelocity() const					{ return m_ang_velocity; }
-		//	v4					VelocityAt(const v4& where) const	{ return m_velocity + Cross3(m_ang_velocity, where); }
-		//	float				GetEnergy(const v4& gravity) const;
+		//	v4			Velocity() const					{ return m_velocity; }
+		//	v4			AngVelocity() const					{ return m_ang_velocity; }
+		//	v4					VelocityAt(v4 where) const	{ return m_velocity + Cross(m_ang_velocity, where); }
+		//	float				GetEnergy(v4 gravity) const;
 
 		//	// Set methods
 		//	void SetCollisionGroup(uint32_t group)						{ m_collision_group = group; }
 		//	void SetRigidBody(Rigidbody* rigid_body)				{ m_rigid_body = rigid_body; }
 		//	void SetObjectToWorld(m4x4* object_to_world)			{ m_object_to_world = object_to_world; }
-		//	void SetVelocity(const v4& velocity)					{ m_velocity = velocity; }
-		//	void SetAngVelocity(const v4& ang_vel);
+		//	void SetVelocity(v4 velocity)					{ m_velocity = velocity; }
+		//	void SetAngVelocity(v4 ang_vel);
 
-		//	void PushOut(const v4& push_distance);
+		//	void PushOut(v4 push_distance);
 
 		//private:
 		//	void StepOrder1(float elapsed_seconds);
@@ -74,14 +74,14 @@ namespace pr
 		//
 		////*****
 		//// Apply an impulse at the centre of mass
-		//inline void Instance::ApplyWorldImpulse(const v4& force)
+		//inline void Instance::ApplyWorldImpulse(v4 force)
 		//{
 		//	m_force += force;
 		//}
 
 		////*****
 		//// Apply a moment to the centre of mass
-		//inline void Instance::ApplyWorldMoment(const v4& torque)
+		//inline void Instance::ApplyWorldMoment(v4 torque)
 		//{
 		//	m_torque += torque;
 		//}
@@ -90,22 +90,22 @@ namespace pr
 		//// Apply an impulse at a location relative to the centre of mass.
 		//// 'impulse' and 'where' are in world space although 'where' is relative
 		//// to the object centre of mass.
-		//inline void	Instance::ApplyWorldImpulseAt(const v4& force, const v4& where)
+		//inline void	Instance::ApplyWorldImpulseAt(v4 force, v4 where)
 		//{
 		//	m_force	 += force;
-		//	m_torque += Cross3(where, force);
+		//	m_torque += Cross(where, force);
 		//}
 
 		////*****
 		//// Apply a collision impulse. These zero the current components of force
 		//// and torque in the direction of the force and torque we're about to apply
-		//inline void Instance::ApplyWorldCollisionImpulseAt(const v4& force, const v4& where)
+		//inline void Instance::ApplyWorldCollisionImpulseAt(v4 force, v4 where)
 		//{
 		//	float inward_force = Dot3(force, m_force);
 		//	if( inward_force < 0.0f ) { m_force -= (inward_force / force.LengthSq()) * force; }
 		//	m_force += force;
 
-		//	v4 torque = Cross3(where, force);
+		//	v4 torque = Cross(where, force);
 		//	float inward_torque = Dot3(torque, m_torque);
 		//	if( inward_torque < 0.0f ) { m_torque -= (inward_torque / torque.LengthSq()) * torque; }
 		//	m_torque += torque;

@@ -25,7 +25,7 @@ namespace pr::collision
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tinyf);
+		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
@@ -56,63 +56,63 @@ namespace pr::collision
 		ra = lhs.m_radius.y * r2l_abs.x.z + lhs.m_radius.z * r2l_abs.x.y;
 		rb = rhs.m_radius.y * r2l_abs.z.x + rhs.m_radius.z * r2l_abs.y.x;
 		sp = Abs(r2l.pos.z * r2l.x.y - r2l.pos.y * r2l.x.z);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.x, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.x, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.x X rhs.y
 		ra = lhs.m_radius.y * r2l_abs.y.z + lhs.m_radius.z * r2l_abs.y.y;
 		rb = rhs.m_radius.x * r2l_abs.z.x + rhs.m_radius.z * r2l_abs.x.x;
 		sp = Abs(r2l.pos.z * r2l.y.y - r2l.pos.y * r2l.y.z);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.x, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.x, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.x X rhs.z
 		ra = lhs.m_radius.y * r2l_abs.z.z + lhs.m_radius.z * r2l_abs.z.y;
 		rb = rhs.m_radius.x * r2l_abs.y.x + rhs.m_radius.y * r2l_abs.x.x;
 		sp = Abs(r2l.pos.z * r2l.z.y - r2l.pos.y * r2l.z.z);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.x, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.x, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.y X rhs.x
 		ra = lhs.m_radius.x * r2l_abs.x.z + lhs.m_radius.z * r2l_abs.x.x;
 		rb = rhs.m_radius.y * r2l_abs.z.y + rhs.m_radius.z * r2l_abs.y.y;
 		sp = Abs(r2l.pos.x * r2l.x.z - r2l.pos.z * r2l.x.x);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.y, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.y, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.y X rhs.y
 		ra = lhs.m_radius.x * r2l_abs.y.z + lhs.m_radius.z * r2l_abs.y.x;
 		rb = rhs.m_radius.x * r2l_abs.z.y + rhs.m_radius.z * r2l_abs.x.y;
 		sp = Abs(r2l.pos.x * r2l.y.z - r2l.pos.z * r2l.y.x);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.y, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.y, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.y X rhs.z
 		ra = lhs.m_radius.x * r2l_abs.z.z + lhs.m_radius.z * r2l_abs.z.x;
 		rb = rhs.m_radius.x * r2l_abs.y.y + rhs.m_radius.y * r2l_abs.x.y;
 		sp = Abs(r2l.pos.x * r2l.z.z - r2l.pos.z * r2l.z.x);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.y, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.y, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.z X rhs.x
 		ra = lhs.m_radius.x * r2l_abs.x.y + lhs.m_radius.y * r2l_abs.x.x;
 		rb = rhs.m_radius.y * r2l_abs.z.z + rhs.m_radius.z * r2l_abs.y.z;
 		sp = Abs(r2l.pos.y * r2l.x.x - r2l.pos.x * r2l.x.y);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.z, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.z, r2w.x)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.z X rhs.y
 		ra = lhs.m_radius.x * r2l_abs.y.y + lhs.m_radius.y * r2l_abs.y.x;
 		rb = rhs.m_radius.x * r2l_abs.z.z + rhs.m_radius.z * r2l_abs.x.z;
 		sp = Abs(r2l.pos.y * r2l.y.x - r2l.pos.x * r2l.y.y);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.z, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.z, r2w.y)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 
 		// Test axis L = lhs.z X rhs.z
 		ra = lhs.m_radius.x * r2l_abs.z.y + lhs.m_radius.y * r2l_abs.z.x;
 		rb = rhs.m_radius.x * r2l_abs.y.z + rhs.m_radius.y * r2l_abs.x.z;
 		sp = Abs(r2l.pos.y * r2l.z.x - r2l.pos.x * r2l.z.y);
-		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross3(l2w.z, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!pen(ra + rb - sp, [&]{ return sep_axis(Cross(l2w.z, r2w.z)); }, lhs_.m_material_id, rhs_.m_material_id))
 			return;
 	}
 

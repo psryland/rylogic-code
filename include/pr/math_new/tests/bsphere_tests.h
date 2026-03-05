@@ -14,7 +14,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			// From centre and radius
 			auto s = BS(V4(1, 2, 3, 1), T(5));
@@ -42,7 +42,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(VolumeTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto s = BS(V4(0, 0, 0, 1), T(1));
 			auto vol = Volume(s);
@@ -53,7 +53,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(GrowTests, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			// Grow to include a point
 			auto s = BS(V4(0, 0, 0, 1), T(1));
@@ -78,7 +78,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(UnionTests, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto a = BS(V4(0, 0, 0, 1), T(1));
 			auto b = BS(V4(4, 0, 0, 1), T(1));
@@ -96,7 +96,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(IsWithinTests, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto s = BS(V4(0, 0, 0, 1), T(2));
 
@@ -128,7 +128,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(IsIntersectionTests, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto a = BS(V4(0, 0, 0, 1), T(2));
 			auto b = BS(V4(3, 0, 0, 1), T(2));
@@ -141,7 +141,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(TranslationOps, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto s = BS(V4(0, 0, 0, 1), T(1));
 			auto shifted = s + V4(5, 0, 0, 0);
@@ -152,7 +152,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(SupportPointTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BS = BSphere<T>;
+			using BS = BoundingSphere<T>;
 
 			auto s = BS(V4(1, 0, 0, 1), T(2));
 			auto sp = SupportPoint(s, V4(1, 0, 0, 0));

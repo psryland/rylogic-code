@@ -11,7 +11,7 @@ namespace pr::geometry::distance
 	inline float pr_vectorcall PointToPlane(v4 point, v4 a, v4 b, v4 c)
 	{
 		assert(point.w == 1.0f);
-		v4 plane = Normalise(Cross3(b - a, c - a));
+		v4 plane = Normalise(Cross(b - a, c - a));
 		plane.w = -Dot3(plane, a);
 		return Dot4(plane, point);
 	}
@@ -38,8 +38,8 @@ namespace pr::geometry::distance
 		if (a_len_sq == 0.0f)
 			return 0.0f;
 
-		v4 b = Cross3(line0, line1);
-		if (FEql(b, v4Zero))
+		v4 b = Cross(line0, line1);
+		if (FEql(b, v4::Zero()))
 			return Sqrt(a_len_sq - Sqr(Dot3(a, line0)) / LengthSq(line0));
 		else
 			return Dot3(a, b) / LengthSq(b);

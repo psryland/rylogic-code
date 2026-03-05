@@ -189,7 +189,7 @@ namespace pr::geometry
 				}
 
 				// 'sep' can be zero if the nodes are 2D. The zero-dimension will be the minimum penetration
-				if (LengthSq(sep) < maths::tinyf)
+				if (LengthSq(sep) < maths::tiny<float>)
 					sep.xyz = v3::RandomN(m_rng);
 
 				return { sep, min_dist };
@@ -200,7 +200,7 @@ namespace pr::geometry
 				sep = vec;
 				sep.z = 0.f;
 
-				if (LengthSq(sep) < maths::tinyf)
+				if (LengthSq(sep) < maths::tiny<float>)
 					sep.xy = v2::RandomN(m_rng);
 
 				// Find the minimum distance along 'sep' needed to separate the bodies

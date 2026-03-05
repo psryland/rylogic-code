@@ -21,7 +21,7 @@ Couple::Couple(Shape const& shapeA, m4x4 const& a2w, Shape const& shapeB, m4x4 c
 ,m_w2b			(InvertAffine(b2w.rot))
 ,m_hint_id_p	(0)
 ,m_hint_id_q	(0)
-,m_dist_sq_upper_bound(maths::float_max)
+,m_dist_sq_upper_bound(limits<float>::max())
 {
 	// Look in the cache for an entry for this pair of objects.
 	if( !cache || !cache->Lookup(&shapeA, &shapeB, m_cache_data) )
@@ -29,7 +29,7 @@ Couple::Couple(Shape const& shapeA, m4x4 const& a2w, Shape const& shapeB, m4x4 c
 		// If these shapes are overlapping for the first time, get the initial
 		// separating vector from the difference in positions.
 		m_separating_axis = m_b2w.pos - m_a2w.pos;
-		if(m_separating_axis == v4Zero)	{ m_separating_axis = v4::XAxis(); }
+		if(m_separating_axis == v4::Zero())	{ m_separating_axis = v4::XAxis(); }
 		else								{ m_separating_axis = Normalise(m_separating_axis); }
 	}
 	else

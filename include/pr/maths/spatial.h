@@ -185,11 +185,11 @@ namespace pr::maths::spatial
 	// There are two cross product operations, one for motion vectors (rx) and one for forces (rx*)
 	template <typename T> inline Vec8f<Motion> Cross(Vec8f<T> const& lhs, Vec8f<Motion> const& rhs)
 	{
-		return Vec8f<Motion>(Cross3(lhs.ang, rhs.ang), Cross3(lhs.ang, rhs.lin) + Cross3(lhs.lin, rhs.ang));
+		return Vec8f<Motion>(Cross(lhs.ang, rhs.ang), Cross(lhs.ang, rhs.lin) + Cross(lhs.lin, rhs.ang));
 	}
 	template <typename T> inline Vec8f<Force> Cross(Vec8f<T> const& lhs, Vec8f<Force> const& rhs)
 	{
-		return Vec8f<Force>(Cross3(lhs.ang, rhs.ang) + Cross3(lhs.lin, rhs.lin), Cross3(lhs.ang, rhs.lin));
+		return Vec8f<Force>(Cross(lhs.ang, rhs.ang) + Cross(lhs.lin, rhs.lin), Cross(lhs.ang, rhs.lin));
 	}
 
 	// Return a motion vector, equal to 'motion', but expressed at a new location equal to the previous location + 'ofs'. 
@@ -336,13 +336,13 @@ namespace pr::maths
 		}
 		{// Transforming a spatial vector
 			std::default_random_engine rng(1);
-			std::uniform_real_distribution<double> dist(-maths::tau, maths::tau);
+			std::uniform_real_distribution<double> dist(-constants<double>::tau, constants<double>::tau);
 
 			// For a bunch of points, the velocity should be the same when described in either frame 'a' or frame 'c'
 			for (float y = -0.5f; y <= 0.5f; y += 0.25f)
 			for (float x = -0.5f; x <= 0.5f; x += 0.25f)
 			{
-				auto a2c = m4x4::Transform(v4::RandomN(rng, 0), float(dist(rng)), v4::Random(rng, v4Origin, 3.0f, 1));
+				auto a2c = m4x4::Transform(v4::RandomN(rng, 0), float(dist(rng)), v4::Random(rng, v4::Origin(), 3.0f, 1));
 				//auto a2c = m4x4::Translation(v4{1,0,0,1});
 				auto c2a = InvertAffine(a2c);
 
@@ -379,7 +379,7 @@ namespace pr::maths
 					//		std::string str;
 					//		{
 					//			auto frame = ldr::Frame(str, "FrameA");
-					//			ldr::VectorField(str, "field", 0xFF00FF00, v8{ang_a, lin_a}, v4Origin, 2.0f);
+					//			ldr::VectorField(str, "field", 0xFF00FF00, v8{ang_a, lin_a}, v4::Origin(), 2.0f);
 					//			ldr::Box(str, "pt", 0xFFFFFFFF, 0.05f, pt_a);
 					//		}
 					//		ldr::Write(str, L"\\dump\\spatial_frameA.ldr");
@@ -388,7 +388,7 @@ namespace pr::maths
 					//		std::string str;
 					//		{
 					//			auto frame = ldr::Frame(str, "FrameC", 0xFF808080, c2a);
-					//			ldr::VectorField(str, "field", 0xFFFF0000, v8{ang_c, lin_c}, v4Origin, 2.0f);
+					//			ldr::VectorField(str, "field", 0xFFFF0000, v8{ang_c, lin_c}, v4::Origin(), 2.0f);
 					//			ldr::Box(str, "pt", 0xFFFFFFFF, 0.05f, pt_c);
 					//		}
 					//		ldr::Write(str, L"\\dump\\spatial_frameC.ldr");

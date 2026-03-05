@@ -6,11 +6,12 @@
 // Add '_arith_enum = 0' to your enum for arithmetic operators
 // The '= 0' prevents a warning about forgetting to assign a value
 #pragma once
+#include <type_traits>
+#include <concepts>
 
 // These are in the global namespace so that they work in any namespace
 
 #ifdef __cplusplus // C does not require operators
-#include <type_traits>
 
 	template <typename T> concept HasFlagsEnumField = std::is_enum_v<T> && requires(T t) { T::_flags_enum; };
 	template <typename T> concept HasArithEnumField = std::is_enum_v<T> && requires(T t) { T::_arith_enum; };
@@ -25,10 +26,8 @@
 	template <typename T> constexpr bool is_arith_enum_v = is_arith_enum<T>::value;
 
 	// Concepts
-	template <typename T>
-	concept FlagsEnum = is_flags_enum_v<T>;
-	template <typename T>
-	concept ArithEnum = is_arith_enum_v<T>;
+	template <typename T> concept FlagsEnum = is_flags_enum_v<T>;
+	template <typename T> concept ArithEnum = is_arith_enum_v<T>;
 
 	// Define the bitwise operators
 	template <FlagsEnum TEnum> constexpr TEnum operator ~ (TEnum lhs)
@@ -169,6 +168,24 @@
 	{
 		using UT = std::underlying_type_t<TEnum>;
 		return static_cast<TEnum>(lhs / static_cast<UT>(rhs));
+	}
+
+	// Inject the flags/arith enum operators into namespace 'pr' so they are
+	// found alongside pr::math operators during unqualified lookup from within
+	// pr::* namespaces. Concept constraints disambiguate (FlagsEnum vs VectorType).
+	namespace pr
+	{
+		using ::operator~;
+		using ::operator|;
+		using ::operator&;
+		using ::operator^;
+		using ::operator|=;
+		using ::operator&=;
+		using ::operator^=;
+		using ::operator<<;
+		using ::operator>>;
+		using ::operator<<=;
+		using ::operator>>=;
 	}
 
 #endif

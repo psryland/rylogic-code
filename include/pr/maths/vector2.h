@@ -231,7 +231,7 @@ namespace pr
 	// Divide a circle into N sectors and return an index for the sector that 'vec' is in
 	template <Scalar S, typename T> inline int pr_vectorcall Sector(Vec2<S, T> vec, int sectors)
 	{
-		return static_cast<int>(ATan2Positive<double>(vec.y, vec.x) * sectors / maths::tau);
+		return static_cast<int>(ATan2Positive<double>(vec.y, vec.x) * sectors / constants<double>::tau);
 	}
 }
 

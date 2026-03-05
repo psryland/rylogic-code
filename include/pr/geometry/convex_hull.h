@@ -127,8 +127,8 @@ namespace pr
 				// Scan through and find the min/max verts on the Z axis
 				VertIter vmin = m_vbeg, vmax = m_vbeg;
 				{
-					auto dmin = +maths::float_max;
-					auto dmax = -maths::float_max;
+					auto dmin = +limits<float>::max();
+					auto dmax = -limits<float>::max();
 					for (auto i = m_vbeg; i != m_vend; ++i)
 					{
 						auto d = Dot3(v4::ZAxis(), m_vcont[*i]);
@@ -138,7 +138,7 @@ namespace pr
 
 					// If the span is zero then all verts must lie
 					// in a plane parallel to the XY plane.
-					if (dmax - dmin < maths::tinyf)
+					if (dmax - dmin < maths::tiny<float>)
 						return false;
 
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("zaxis", "FF0000FF", m_vcont[*vmin], m_vcont[*vmax], ldr_extm));
@@ -167,14 +167,14 @@ namespace pr
 					}
 
 					// If all verts lie on the zaxis...
-					if (dmax < maths::tinyf)
+					if (dmax < maths::tiny<float>)
 						return false;
 				
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("yaxis", "FF00FF00", zmin, m_vcont[*vmax], ldr_extm));
 				}
 
 				// Choose a perpendicular axis
-				auto axis = Cross3(zaxis, m_vcont[*vmax] - zmin);
+				auto axis = Cross(zaxis, m_vcont[*vmax] - zmin);
 
 				// Move 'vmax' to the convex hull end of the range.
 				swap(*vmax, *m_vhull_last++);
@@ -191,7 +191,7 @@ namespace pr
 					}
 
 					// If all verts lie on in the plane...
-					if (dmax < maths::tinyf)
+					if (dmax < maths::tiny<float>)
 						return false;
 				
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("xaxis", "FFFF0000", zmin, m_vcont[*vmax], ldr_extm));
@@ -362,7 +362,7 @@ namespace pr
 				auto e0 = m_vcont[*(m_vbeg + b)] - A;
 				auto e1 = m_vcont[*(m_vbeg + c)] - A;
 				auto& plane = *m_hs_last;
-				plane = Normalise(Cross3(e0, e1));
+				plane = Normalise(Cross(e0, e1));
 				plane.w = -Dot3(plane, A);
 				++m_hs_last;
 
@@ -551,7 +551,7 @@ namespace pr
 			vcont[*i].w = static_cast<float>(i - index);
 
 		// Then sort on 'w'
-		std::sort(&vcont[0], &vcont[0] + num_verts, [](v4 const& lhs, v4 const& rhs) { return lhs.w < rhs.w; });
+		std::sort(&vcont[0], &vcont[0] + num_verts, [](v4 lhs, v4 rhs) { return lhs.w < rhs.w; });
 		
 		// Then restore the 'w' component to '1.0f'
 		for (v4* i = &vcont[0], *i_end = i + num_verts; i != i_end; ++i)

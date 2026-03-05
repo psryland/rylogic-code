@@ -31,7 +31,7 @@ namespace pr
 		v4 m_radius;
 
 		BBox() = default;
-		constexpr BBox(v4 const& centre, v4 const& radius)
+		constexpr BBox(v4 centre, v4 radius)
 			:m_centre(centre)
 			,m_radius(radius)
 		{
@@ -44,7 +44,7 @@ namespace pr
 		// Reset this bbox to an invalid interval
 		BBox& reset()
 		{
-			m_centre = v4Origin;
+			m_centre = v4::Origin();
 			m_radius = v4(-1.0f, -1.0f, -1.0f, 0.0f);
 			return *this;
 		}
@@ -59,7 +59,7 @@ namespace pr
 		// Returns true if this bbox encloses a single point
 		bool is_point() const
 		{
-			return m_radius == v4Zero;
+			return m_radius == v4::Zero();
 		}
 
 		// Returns true if all of the radii are non zero
@@ -71,7 +71,7 @@ namespace pr
 		// Set this bbox to a unit cube centred on the origin
 		BBox& unit()
 		{
-			m_centre = v4Origin;
+			m_centre = v4::Origin();
 			m_radius = v4(0.5f, 0.5f, 0.5f, 0.0f);
 			return *this;
 		}
@@ -251,7 +251,7 @@ namespace pr
 			pr_assert("m4x4 * BBox: Transform is not affine" && IsAffine(m));
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BBox bb(m.pos, v4Zero);
+			BBox bb(m.pos, v4::Zero());
 			m4x4 mat = Transpose3x3(m);
 			for (int i = 0; i != 3; ++i)
 			{
@@ -264,7 +264,7 @@ namespace pr
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BBox bb(v4Origin, v4Zero);
+			BBox bb(v4::Origin(), v4::Zero());
 			auto mat = Transpose(m);
 			for (int i = 0; i != 3; ++i)
 			{
@@ -290,7 +290,7 @@ namespace pr
 		}
 
 		// Create a bounding box from lower/upper corners
-		static BBox Make(v4 const& lower, v4 const& upper)
+		static BBox Make(v4 lower, v4 upper)
 		{
 			return BBox((upper + lower) * 0.5f, (upper - lower) * 0.5f);
 		}

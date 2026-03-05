@@ -150,10 +150,10 @@ namespace pr::physics
 				builder._<LdrRigidBody>("body1", 0x8000FF00).rigid_body(objB).flags(ERigidBodyFlags::None).o2w(c.m_b2a);
 				#if 0 //TODO
 				builder.Arrow(str, "Normal", 0xFFFFFFFF, ldr::EArrowType::Fwd, c.m_point_at_t, c.m_axis * 0.1f, 5);
-				builder.VectorField(str, "VelocityBefore", 0xFFFFFF00, (v8)c.m_velocity * 0.1f, v4Origin, 2, 0.25f);
-				ldr::VectorField(str, "VelocityAfter", 0xFF00FFFF, (v8)c2.m_velocity * 0.1f, v4Origin, 2, 0.25f);
+				builder.VectorField(str, "VelocityBefore", 0xFFFFFF00, (v8)c.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
+				ldr::VectorField(str, "VelocityAfter", 0xFF00FFFF, (v8)c2.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
 				#endif
-				//ldr::VectorField(str, "ImpulseField", 0xFF007F00, (v8)impulse * 0.1f, v4Origin, 5, 0.25f);
+				//ldr::VectorField(str, "ImpulseField", 0xFF007F00, (v8)impulse * 0.1f, v4::Origin(), 5, 0.25f);
 				//ldr::Arrow(str, "Impulse", 0xFF0000FF, ldr::EArrowType::Fwd, c.m_point - impulse.lin, impulse.lin, 3);
 				//ldr::Arrow(str, "Twist", 0xFF000080, ldr::EArrowType::Fwd, c.m_point - impulse.ang, impulse.ang, 3);
 				builder.Save(L"\\dump\\collision.ldr");

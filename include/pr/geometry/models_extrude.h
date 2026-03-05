@@ -59,7 +59,7 @@ namespace pr::geometry
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		// Verts - create planes of cross sections at each path point
 		auto xsection = MakeRing(cs.begin(), cs.end());

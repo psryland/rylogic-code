@@ -181,7 +181,7 @@ namespace pr
 
 		m4x4           m_c2w;               // Camera to world transform
 		NavState       m_nav;               // Navigation initial state data
-		v4             m_align;             // The direction to align 'up' to, or v4Zero
+		v4             m_align;             // The direction to align 'up' to, or v4::Zero()
 		BBox           m_bounds;            // Limits on where the focus point can be
 		double         m_default_fovY;      // The default field of view
 		double         m_fovY;              // Field of view in the Y direction
@@ -231,7 +231,7 @@ namespace pr
 			PR_ASSERT(PR_DBG, IsFinite(m_fovY), "invalid scene view parameters");
 			PR_ASSERT(PR_DBG, IsFinite(m_aspect), "invalid scene view parameters");
 			PR_ASSERT(PR_DBG, IsFinite(m_focus_dist), "invalid scene view parameters");
-			PR_ASSERT(PR_DBG, m_focus_dist > maths::tinyd, "invalid scene view parameters");
+			PR_ASSERT(PR_DBG, m_focus_dist > maths::tiny<double>, "invalid scene view parameters");
 			m_nav.Commit(*this);
 		}
 
@@ -274,7 +274,7 @@ namespace pr
 		// Return a point in world space corresponding to a normalised screen space point.
 		// The x,y components of 'nss_point' should be in normalised screen space, i.e. (-1,-1)->(1,1) (lower left -> upper right).
 		// The z component should be the depth into the screen (i.e. d*-c2w.z, where 'd' is typically positive).
-		v4 NSSPointToWSPoint(v4 const& nss_point) const
+		v4 NSSPointToWSPoint(v4 nss_point) const
 		{
 			auto half_height = m_focus_dist * std::tan(m_fovY * 0.5);
 
@@ -295,7 +295,7 @@ namespace pr
 
 		// Return a point in normalised screen space corresponding to 'ws_point'
 		// The returned 'z' component will be the depth into the screen (i.e. d*-c2w.z, where 'd' is typically positive).
-		v4 WSPointToNSSPoint(v4 const& ws_point) const
+		v4 WSPointToNSSPoint(v4 ws_point) const
 		{
 			auto half_height = m_focus_dist * std::tan(m_fovY * 0.5);
 
@@ -319,7 +319,7 @@ namespace pr
 		// Return a ray from the camera that passes through 'nss_point' (a normalised screen space point).
 		// The x,y components of 'nss_point' should be in normalised screen space, i.e. (-1,-1)->(1,1) (lower left -> upper right).
 		// The z component should be the depth into the screen (i.e. d*-c2w.z, where 'd' is typically positive).
-		std::tuple<v4, v4> NSSPointToWSRay(v4 const& nss_point) const
+		std::tuple<v4, v4> NSSPointToWSRay(v4 nss_point) const
 		{
 			v4 ws_point, ws_direction;
 			auto pt = NSSPointToWSPoint(nss_point);
@@ -337,7 +337,7 @@ namespace pr
 			}
 			return {ws_point, ws_direction};
 		}
-		//void NSSPointToWSRay(v4 const& nss_point, v4& ws_point, v4& ws_direction) const // deprecate
+		//void NSSPointToWSRay(v4 nss_point, v4& ws_point, v4& ws_direction) const // deprecate
 		//{
 		//	std::tie(ws_point, ws_direction) = NSSPointToWSRay(nss_point);
 		//	//auto pt = NSSPointToWSPoint(nss_point);
@@ -412,14 +412,14 @@ namespace pr
 		double FovX() const
 		{
 			auto fovX = 2.0 * std::atan(std::tan(m_fovY * 0.5) * m_aspect);
-			if (fovX <= 0.0 || fovX >= maths::tau_by_2 || !IsFinite(fovX))
+			if (fovX <= 0.0 || fovX >= constants<double>::tau_by_2 || !IsFinite(fovX))
 				throw std::runtime_error("FovX must be > 0 and < tau/2");
 
 			return fovX;
 		}
 		void FovX(double fovX)
 		{
-			if (fovX <= 0.0 || fovX >= maths::tau_by_2 || !IsFinite(fovX))
+			if (fovX <= 0.0 || fovX >= constants<double>::tau_by_2 || !IsFinite(fovX))
 				throw std::runtime_error("FovX must be > 0 and < tau/2");
 
 			FovY(2.0 * std::atan(std::tan(fovX * 0.5) / m_aspect));
@@ -434,10 +434,10 @@ namespace pr
 		{
 			if (fovY == m_fovY)
 				return;
-			if (fovY <= 0.0 || fovY >= maths::tau_by_2 || !IsFinite(fovY))
+			if (fovY <= 0.0 || fovY >= constants<double>::tau_by_2 || !IsFinite(fovY))
 				throw std::runtime_error("FovY value is invalid");
 			
-			fovY = Clamp(fovY, maths::tinyd, maths::tau_by_2);
+			fovY = Clamp(fovY, maths::tiny<double>, constants<double>::tau_by_2);
 			m_moved |= fovY != m_fovY;
 			m_fovY = fovY;
 		}
@@ -445,13 +445,13 @@ namespace pr
 		// Set both X and Y axis field of view. Implies aspect ratio
 		void Fov(double fovX, double fovY)
 		{
-			if (fovX <= 0.0 || fovX >= maths::tau_by_2 || !IsFinite(fovX))
+			if (fovX <= 0.0 || fovX >= constants<double>::tau_by_2 || !IsFinite(fovX))
 				throw std::runtime_error("FovX value is invalid");
-			if (fovY <= 0.0 || fovY >= maths::tau_by_2 || !IsFinite(fovY))
+			if (fovY <= 0.0 || fovY >= constants<double>::tau_by_2 || !IsFinite(fovY))
 				throw std::runtime_error("FovY value is invalid");
 
-			fovX = Clamp(fovX, maths::tinyd, maths::tau_by_2);
-			fovY = Clamp(fovY, maths::tinyd, maths::tau_by_2);
+			fovX = Clamp(fovX, maths::tiny<double>, constants<double>::tau_by_2);
+			fovY = Clamp(fovY, maths::tiny<double>, constants<double>::tau_by_2);
 			auto aspect = std::tan(fovX/2) / std::tan(fovY/2);
 			Aspect(aspect);
 			FovY(fovY);
@@ -460,7 +460,7 @@ namespace pr
 		// Adjust the FocusDist, FovX, and FovY so that the average FOV equals 'fov'
 		void BalanceFov(double fov)
 		{
-			if (fov <= 0.0 || fov >= maths::tau_by_2 || !IsFinite(fov))
+			if (fov <= 0.0 || fov >= constants<double>::tau_by_2 || !IsFinite(fov))
 				throw std::runtime_error("FOV value is invalid");
 			
 			// Measure the current focus distance and view size at that distance
@@ -495,12 +495,12 @@ namespace pr
 		{
 			return m_align;
 		}
-		void Align(v4 const& up)
+		void Align(v4 up)
 		{
 			m_align = up;
-			if (LengthSq(m_align) > maths::tinyf)
+			if (LengthSq(m_align) > maths::tiny<float>)
 			{
-				if (Parallel(m_c2w.z, m_align)) m_c2w = m4x4(m_c2w.y, m_c2w.z, m_c2w.x, m_c2w.w);
+				if (IsParallel(m_c2w.z, m_align)) m_c2w = m4x4(m_c2w.y, m_c2w.z, m_c2w.x, m_c2w.w);
 				m_c2w = m4x4::LookAt(m_c2w.pos, FocusPoint(), m_align);
 				m_moved = true;
 			}
@@ -509,7 +509,7 @@ namespace pr
 		// Return true if the align axis has been set for the camera
 		bool IsAligned() const
 		{
-			return LengthSq(m_align) > maths::tinyf;
+			return LengthSq(m_align) > maths::tiny<float>;
 		}
 
 		// Get/Set orthographic projection mode
@@ -580,7 +580,7 @@ namespace pr
 		{
 			return m_c2w.pos - s_cast<float>(m_focus_dist) * m_c2w.z;
 		}
-		void FocusPoint(v4 const& position)
+		void FocusPoint(v4 position)
 		{
 			m_c2w.pos += position - FocusPoint();
 			EnforceBounds();
@@ -594,11 +594,11 @@ namespace pr
 		}
 		void FocusDist(double dist)
 		{
-			if (!IsFinite(dist) || dist < maths::tinyd)
+			if (!IsFinite(dist) || dist < maths::tiny<double>)
 				throw std::runtime_error("'dist' should not be negative");
 
 			dist = Clamp(dist, FocusDistMin(), FocusDistMax());
-			if (!IsFinite(dist) || dist < maths::tinyd)
+			if (!IsFinite(dist) || dist < maths::tiny<double>)
 				throw std::runtime_error("'dist' should not be negative");
 
 			// Ignore if locked
@@ -693,7 +693,7 @@ namespace pr
 				// If in the roll zone. 'm_Rref' is a point in normalised space[-1, +1] x [-1, +1].
 				// So the roll zone is a radial distance from the centre of the screen
 				if (Length(m_nav.m_Rref) < 0.80f)
-					Rotate((point.y - m_nav.m_Rref.y) * maths::tau_by_4f, (m_nav.m_Rref.x - point.x) * maths::tau_by_4f, 0.0f, false);
+					Rotate((point.y - m_nav.m_Rref.y) * constants<float>::tau_by_4, (m_nav.m_Rref.x - point.x) * constants<float>::tau_by_4, 0.0f, false);
 				else
 					Rotate(0.0f, 0.0f, Atan2(m_nav.m_Rref.y, m_nav.m_Rref.x) - Atan2(point.y, point.x), false);
 			}
@@ -881,7 +881,7 @@ namespace pr
 			}
 
 			auto fovY = (1.0 + zoom) * m_nav.m_fovY0;
-			fovY = Clamp(m_fovY, maths::tinyd, maths::tau_by_2 - maths::tinyd);
+			fovY = Clamp(m_fovY, maths::tiny<double>, constants<double>::tau_by_2 - maths::tiny<double>);
 			FovY(fovY);
 
 			// Set the base values
@@ -937,7 +937,7 @@ namespace pr
 		}
 
 		// Position the camera at 'position' looking at 'lookat' with up pointing 'up'
-		void LookAt(v4 const& position, v4 const& lookat, v4 const& up, bool commit = true)
+		void LookAt(v4 position, v4 lookat, v4 up, bool commit = true)
 		{
 			CameraToWorld(m4x4::LookAt(position, lookat, up));
 			FocusDist(Clamp<double>(Length(lookat - position), FocusDistMin(), FocusDistMax()));
@@ -947,7 +947,7 @@ namespace pr
 		}
 
 		// Position the camera so that all of 'bbox' is visible to the camera when looking 'forward' and 'up'
-		void View(BBox const& bbox, v4 const& forward, v4 const& up, double focus_dist = 0, bool preserve_aspect = true, bool update_base = true)
+		void View(BBox const& bbox, v4 forward, v4 up, double focus_dist = 0, bool preserve_aspect = true, bool update_base = true)
 		{
 			if (!bbox.valid())
 				throw std::runtime_error("Camera: Cannot view an invalid bounding box");
@@ -961,7 +961,7 @@ namespace pr
 			auto bbox_radius = bbox.Radius();
 
 			// Get the distance from the centre of the bbox to the point nearest the camera
-			auto sizez = maths::float_max;
+			auto sizez = limits<float>::max();
 			sizez = Min(sizez, Abs(Dot3(forward, v4( bbox_radius.x,  bbox_radius.y,  bbox_radius.z, 0.0f))));
 			sizez = Min(sizez, Abs(Dot3(forward, v4(-bbox_radius.x,  bbox_radius.y,  bbox_radius.z, 0.0f))));
 			sizez = Min(sizez, Abs(Dot3(forward, v4( bbox_radius.x, -bbox_radius.y,  bbox_radius.z, 0.0f))));
@@ -976,7 +976,7 @@ namespace pr
 			if (!preserve_aspect)
 			{
 				// Get the camera orientation matrix
-				m3x4 c2w(Cross3(up, forward), up, forward);
+				m3x4 c2w(Cross(up, forward), up, forward);
 				auto w2c = InvertAffine(c2w);
 
 				auto bbox_cs = w2c * bbox;
@@ -985,13 +985,13 @@ namespace pr
 				auto aspect = width / height;
 
 				// Set the aspect ratio
-				if (aspect < maths::float_eps || !IsFinite(aspect))
+				if (aspect < limits<float>::epsilon() || !IsFinite(aspect))
 				{
 					// Handle degeneracy
-					const auto min_aspect = maths::tinyf;
-					const auto max_aspect = 1 / maths::tinyf;
-					if      (width  > maths::float_eps) height = width / max_aspect;
-					else if (height > maths::float_eps) width = min_aspect / height;
+					const auto min_aspect = maths::tiny<float>;
+					const auto max_aspect = 1 / maths::tiny<float>;
+					if      (width  > limits<float>::epsilon()) height = width / max_aspect;
+					else if (height > limits<float>::epsilon()) width = min_aspect / height;
 					else { width = 1; height = 1; }
 					aspect = width / height;
 				}
@@ -1020,7 +1020,7 @@ namespace pr
 			else
 			{
 				// 'size' is the *radius* (i.e. not the full height) of the bounding box projected onto the 'forward' plane.
-				auto size = Sqrt(Clamp(LengthSq(bbox_radius) - Sqr(sizez), 0.0f, maths::float_max));
+				auto size = Sqrt(Clamp(LengthSq(bbox_radius) - Sqr(sizez), 0.0f, limits<float>::max()));
 
 				// Choose the focus distance if not given
 				if (focus_dist == 0 || focus_dist < sizez)
@@ -1050,7 +1050,7 @@ namespace pr
 			v4 axis = IsAligned() ? InvertAffine(m_c2w) * m_align : m_c2w.y;
 
 			// Rotate the camera transform and reposition to look at the focus point
-			m_c2w     = m_c2w * m4x4::Transform(axis, angle_rad, v4Origin);
+			m_c2w     = m_c2w * m4x4::Transform(axis, angle_rad, v4::Origin());
 			m_c2w.pos = old_focus + s_cast<float>(m_focus_dist) * m_c2w.z;
 			m_c2w     = Orthonorm(m_c2w);
 			EnforceBounds();

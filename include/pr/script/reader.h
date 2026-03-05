@@ -820,18 +820,18 @@ namespace pr::script
 		// Extract a transform description. 'rot' should be a valid initial transform
 		m3x4 Rotation()
 		{
-			m3x4 rot = m3x4Identity;
-			return Rotation(rot) ? rot : m3x4Identity;
+			m3x4 rot = m3x4::Identity();
+			return Rotation(rot) ? rot : m3x4::Identity();
 		}
 		m3x4 RotationS()
 		{
-			m3x4 rot = m3x4Identity;
-			return RotationS(rot) ? rot : m3x4Identity;
+			m3x4 rot = m3x4::Identity();
+			return RotationS(rot) ? rot : m3x4::Identity();
 		}
 		bool Rotation(m3x4& rot)
 		{
 			assert(IsFinite(rot) && "A valid 'rot' must be passed to this function as it pre-multiplies the transform with the one read from the script");
-			auto o2w = m4x4{ rot, v4Origin };
+			auto o2w = m4x4{ rot, v4::Origin() };
 			return Transform(o2w) ? (rot = o2w.rot, true) : false;
 		}
 		bool RotationS(m3x4& o2w)
@@ -906,14 +906,14 @@ namespace pr::script
 						break;
 					}
 
-					p2w = m4x4::Transform(axis, direction, v4Origin) * p2w;
+					p2w = m4x4::Transform(axis, direction, v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Quat)
 				{
 					quat q;
 					Vector4S(q.xyzw);
-					p2w = m4x4::Transform(q, v4Origin) * p2w;
+					p2w = m4x4::Transform(q, v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::QuatPos)
@@ -959,7 +959,7 @@ namespace pr::script
 				{
 					v4 angles;
 					Vector3S(angles, 0.0f);
-					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4Origin) * p2w;
+					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Scale)
@@ -977,12 +977,12 @@ namespace pr::script
 						Real(scale.z);
 					}
 					SectionEnd();
-					p2w = m4x4::Scale(scale.x, scale.y, scale.z, v4Origin) * p2w;
+					p2w = m4x4::Scale(scale.x, scale.y, scale.z, v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Transpose)
 				{
-					p2w = Transpose4x4(p2w);
+					p2w = Transpose(p2w);
 					continue;
 				}
 				if (kw == ETransformKeyword::Inverse)
@@ -1161,7 +1161,7 @@ namespace pr::script
 			int ival = 0, iarray[4];
 			unsigned int uival = 0;
 			float fval = 0.0f, farray[4];
-			pr::v4 vec = pr::v4Zero;
+			pr::v4 vec = pr::v4::Zero();
 			pr::quat q = pr::QuatIdentity;
 			pr::m3x4 mat3;
 			pr::m4x4 mat4;
@@ -1207,7 +1207,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "Quaternion");
 			PR_EXPECT(reader.Quaternion(q) && FEql(q, quat(0.0f, -1.0f, -2.0f, -3.0f)));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M3x3");
-			PR_EXPECT(reader.Matrix3x3(mat3) && FEql(mat3, m3x4Identity));
+			PR_EXPECT(reader.Matrix3x3(mat3) && FEql(mat3, m3x4::Identity()));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M4x4");
 			PR_EXPECT(reader.Matrix4x4(mat4) && FEql(mat4, m4x4::Identity()));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "Data");

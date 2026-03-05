@@ -65,7 +65,7 @@ namespace pr
 			}
 			v4 ContactCentre() const
 			{
-				v4 pos = v4Zero;
+				v4 pos = v4::Zero();
 				for( uint32_t i = 0; i != m_num_contacts; ++i ) pos += m_contact[i].m_pointA;
 				pos /= float(m_num_contacts);
 				pos.w = 1.0f;

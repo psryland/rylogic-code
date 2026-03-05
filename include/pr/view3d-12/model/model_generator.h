@@ -175,7 +175,7 @@ namespace pr::rdr12
 		// Supports optional colours (opts->m_colours), either, 0, 1, or num_quads
 		static ModelPtr Quad(ResourceFactory& factory, CreateOptions const* opts = nullptr);
 		static ModelPtr Quad(ResourceFactory& factory, int num_quads, std::span<v4 const> verts, CreateOptions const* opts = nullptr);
-		static ModelPtr Quad(ResourceFactory& factory, v2 const& anchor, v4 const& quad_w, v4 const& quad_h, iv2 const& divisions = iv2::Zero(), CreateOptions const* opts = nullptr);
+		static ModelPtr Quad(ResourceFactory& factory, v2 const& anchor, v4 quad_w, v4 quad_h, iv2 const& divisions = iv2::Zero(), CreateOptions const* opts = nullptr);
 		static ModelPtr Quad(ResourceFactory& factory, AxisId axis_id, v2 const& anchor, float width, float height, iv2 const& divisions = iv2::Zero(), CreateOptions const* opts = nullptr);
 		static ModelPtr QuadStrip(ResourceFactory& factory, int num_quads, std::span<v4 const> verts, float width, std::span<v4 const> normals = {}, CreateOptions const* opts = nullptr);
 		static ModelPtr QuadPatch(ResourceFactory& factory, int dimx, int dimy, CreateOptions const* opts = nullptr);
@@ -197,7 +197,7 @@ namespace pr::rdr12
 		static ModelPtr Geosphere(ResourceFactory& factory, float radius, int divisions = 3, CreateOptions const* opts = nullptr);
 		static ModelPtr Geosphere(ResourceFactory& factory, v4 radius, int divisions = 3, CreateOptions const* opts = nullptr);
 		static ModelPtr Sphere(ResourceFactory& factory, float radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
-		static ModelPtr Sphere(ResourceFactory& factory, v4 const& radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
+		static ModelPtr Sphere(ResourceFactory& factory, v4 radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
 
 		// Cylinder ***************************************************************************
 		static ModelPtr Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale = 1.0f, float yscale = 1.0f, int wedges = 20, int layers = 1, CreateOptions const* opts = nullptr);

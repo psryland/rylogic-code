@@ -921,18 +921,6 @@ namespace pr::math::tests
 			static_assert(Triple(Y, Z, X) == S(1));
 			static_assert(Triple(X, Y, Z) == -Triple(X, Z, Y));
 		}
-		PRUnitTestMethod(TripleProduct3
-		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
-		) {
-			using vec_t = T;
-			using S = typename vector_traits<vec_t>::element_t;
-
-			constexpr auto X = XAxis<vec_t>();
-			constexpr auto Y = YAxis<vec_t>();
-			constexpr auto Z = ZAxis<vec_t>();
-
-			static_assert(Triple3(X, Y, Z) == S(1));
-		}
 
 		// ---- LengthSq (functions.h line ~1404) ----
 		PRUnitTestMethod(LengthSqTests

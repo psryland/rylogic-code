@@ -222,7 +222,7 @@ namespace pr
 			if (cos_angle >= 1.0f - maths::tiny<S>) return Identity();
 			if (cos_angle <= maths::tiny<S> - S(1)) return Rotation(Normalise(Perpendicular(from - to)), constants<S>::tau_by_2);
 
-			auto axis_size_angle = Cross3(from, to) / len;
+			auto axis_size_angle = Cross(from, to) / len;
 			auto axis_norm = Normalise(axis_size_angle);
 			return Rotation(axis_norm, axis_size_angle, cos_angle);
 		}
@@ -582,9 +582,9 @@ namespace pr
 		pr_assert("Matrix has no inverse" && IsInvertible(mat));
 		auto det = Determinant(mat);
 		Mat3x4<S,B,A> tmp = {};
-		tmp.x = Cross3(mat.y, mat.z) / det;
-		tmp.y = Cross3(mat.z, mat.x) / det;
-		tmp.z = Cross3(mat.x, mat.y) / det;
+		tmp.x = Cross(mat.y, mat.z) / det;
+		tmp.y = Cross(mat.z, mat.x) / det;
+		tmp.z = Cross(mat.x, mat.y) / det;
 		return Transpose(tmp);
 	}
 
@@ -656,8 +656,8 @@ namespace pr
 	{
 		auto m = mat;
 		m.x = Normalise(m.x);
-		m.y = Normalise(Cross3(m.z, m.x));
-		m.z = Cross3(m.x, m.y);
+		m.y = Normalise(Cross(m.z, m.x));
+		m.z = Cross(m.x, m.y);
 		return m;
 	}
 
@@ -687,7 +687,7 @@ namespace pr
 		auto vec = CreateNotParallelTo(axis);
 		auto X = vec - Dot3(axis, vec) * axis;
 		auto Xprim = mat * X;
-		auto XcXp = Cross3(X, Xprim);
+		auto XcXp = Cross(X, Xprim);
 		if (Dot3(XcXp, axis) < S(0))
 			angle = -angle;
 	}
@@ -817,8 +817,8 @@ namespace pr
 
 		Mat3x4<S,A,A> ori = {};
 		ori.z = Normalise(Sign(S(axis_id)) * dir);
-		ori.x = Normalise(Cross3(up, ori.z));
-		ori.y = Cross3(ori.z, ori.x);
+		ori.x = Normalise(Cross(up, ori.z));
+		ori.y = Cross(ori.z, ori.x);
 
 		// Permute the column vectors so +Z becomes 'axis'
 		return PermuteRotation(ori, abs(axis_id));
@@ -860,14 +860,18 @@ namespace pr
 	}
 
 	// Create a cross product matrix for 'vec'.
-	template <Scalar S, typename A> inline Mat3x4<S,A,A> pr_vectorcall CPM(Vec4<S,A> vec)
+	template <Scalar S, typename A> inline Mat3x4<S,A,A> pr_vectorcall CPM(Vec3<S,A> vec)
 	{
 		// This matrix can be used to calculate the cross product with
-		// another vector: e.g. Cross3(v1, v2) == CPM(v1) * v2
+		// another vector: e.g. Cross(v1, v2) == CPM(v1) * v2
 		return Mat3x4<S,A,A>{
 			Vec4<S,void>(  S(0),  vec.z, -vec.y, S(0)),
 			Vec4<S,void>(-vec.z,   S(0),  vec.x, S(0)),
 			Vec4<S,void>( vec.y, -vec.x,   S(0), S(0))};
+	}
+	template <Scalar S, typename A> inline Mat3x4<S, A, A> pr_vectorcall CPM(Vec4<S, A> vec)
+	{
+		return CPM(vec.xyz);
 	}
 
 	// Return 'exp(omega)' (Rodriges' formula)
@@ -903,7 +907,7 @@ namespace pr
 	{
 		// Orientation can be computed analytically if angular velocity
 		// and angular acceleration are parallel or angular acceleration is zero.
-		if (LengthSq(Cross(avel, aacc)) < maths::tinyf)
+		if (LengthSq(Cross(avel, aacc)) < maths::tiny<float>)
 		{
 			auto w = avel + aacc * time;
 			return ExpMap3x3(w * time) * ori;
@@ -1106,7 +1110,7 @@ namespace pr::maths
 
 			// Wrap into [0, tau/2]
 			auto w_len = Length(w);
-			w *= fmod(w_len, maths::tau_by_2f) / w_len;
+			w *= fmod(w_len, constants<float>::tau_by_2) / w_len;
 
 			auto rot1 = mat3_t::Rotation(w);
 			auto rot2 = ExpMap3x3(w);

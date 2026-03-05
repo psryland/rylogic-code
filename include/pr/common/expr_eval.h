@@ -1403,8 +1403,8 @@ namespace pr::eval
 						auto x = stack.back(); stack.pop_back();
 						switch (x.m_ty)
 						{
-							case Val::EType::Intg: stack.push_back(x.db() * maths::E60_by_tau); break;
-							case Val::EType::Real: stack.push_back(x.db() * maths::E60_by_tau); break;
+							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
+							case Val::EType::Real: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
 							case Val::EType::Intg4: stack.push_back(x.v4() * maths::E60_by_tauf); break;
 							case Val::EType::Real4: stack.push_back(x.v4() * maths::E60_by_tauf); break;
 							default: throw std::runtime_error("Unknown value type");
@@ -1417,8 +1417,8 @@ namespace pr::eval
 						auto x = stack.back(); stack.pop_back();
 						switch (x.m_ty)
 						{
-							case Val::EType::Intg: stack.push_back(x.db() * maths::tau_by_360); break;
-							case Val::EType::Real: stack.push_back(x.db() * maths::tau_by_360); break;
+							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::tau_by_360); break;
+							case Val::EType::Real: stack.push_back(x.db() * constants<double>::tau_by_360); break;
 							case Val::EType::Intg4: stack.push_back(x.v4() * maths::tau_by_360f); break;
 							case Val::EType::Real4: stack.push_back(x.v4() * maths::tau_by_360f); break;
 							default: throw std::runtime_error("Unknown value type");
@@ -1850,7 +1850,7 @@ namespace pr::eval
 			{
 				if (cmp(expr, "pow")) { expr += 3; return ETok::Pow; }
 				if (cmp(expr, "phi")) { expr += 3; val = maths::golden_ratio; return ETok::Value; }
-				if (cmp(expr, "pi")) { expr += 2; val = maths::tau_by_2; return ETok::Value; }
+				if (cmp(expr, "pi")) { expr += 2; val = constants<double>::tau_by_2; return ETok::Value; }
 				break;
 			}
 		case 'r':
@@ -1871,7 +1871,7 @@ namespace pr::eval
 			{
 				if (cmp(expr, "tanh")) { expr += 4; return ETok::TanH; }
 				if (cmp(expr, "tan")) { expr += 3; return ETok::Tan; }
-				if (cmp(expr, "tau")) { expr += 3; val = maths::tau; return ETok::Value; }
+				if (cmp(expr, "tau")) { expr += 3; val = constants<double>::tau; return ETok::Value; }
 				if (cmp(expr, "true")) { expr += 4; val = 1LL; return ETok::Value; }
 				break;
 			}
@@ -2360,81 +2360,81 @@ namespace pr::common
 				auto expr = Compile("clamp(x,mn,mx)");
 				PR_EXPECT(FEql(expr(+10.0, -3.4, -3.2).db(), -3.2));
 				PR_EXPECT(FEql(expr(-10.0, -3.4, -3.2).db(), -3.4));
-				PR_EXPECT(FEql(expr(v4(-0.2f, 3.4f, -5.6f, 7.8f), -v4One, +v4One).v4(), v4(-0.2f, 1.0f, -1.0f, 1.0f)));
+				PR_EXPECT(FEql(expr(v4(-0.2f, 3.4f, -5.6f, 7.8f), -v4::One(), +v4::One()).v4(), v4(-0.2f, 1.0f, -1.0f, 1.0f)));
 			}
 			{ // sin
 				auto expr = Compile("sin(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Sin(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::sin(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Sin(-0.2f), Sin(0.4f), Sin(-0.6f), Sin(0.8f))));
 			}
 			{ // cos
 				auto expr = Compile("cos(x)");
-				PR_EXPECT(FEql(expr(0.2).db(), Cos(0.2)));
+				PR_EXPECT(FEql(expr(0.2).db(), std::cos(0.2)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Cos(-0.2f), Cos(0.4f), Cos(-0.6f), Cos(0.8f))));
 			}
 			{ // tan
 				auto expr = Compile("tan(x)");
-				PR_EXPECT(FEql(expr(0.2).db(), Tan(0.2)));
+				PR_EXPECT(FEql(expr(0.2).db(), std::tan(0.2)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Tan(-0.2f), Tan(0.4f), Tan(-0.6f), Tan(0.8f))));
 			}
 			{ // asin
 				auto expr = Compile("asin(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Asin(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::asin(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Asin(-0.2f), Asin(0.4f), Asin(-0.6f), Asin(0.8f))));
 			}
 			{ // acos
 				auto expr = Compile("acos(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Acos(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::acos(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Acos(-0.2f), Acos(0.4f), Acos(-0.6f), Acos(0.8f))));
 			}
 			{ // atan
 				auto expr = Compile("atan(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Atan(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::atan(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Atan(-0.2f), Atan(0.4f), Atan(-0.6f), Atan(0.8f))));
 			}
 			{ // atan2
 				auto expr = Compile("atan2(y,x)");
-				PR_EXPECT(FEql(expr(2.3, -3.9).db(), Atan2(2.3, -3.9)));
+				PR_EXPECT(FEql(expr(2.3, -3.9).db(), std::atan2(2.3, -3.9)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f), v4(+0.1f, -0.3f, +0.5f, -0.7f)).v4(), v4(Atan2(-0.2f, 0.1f), Atan2(0.4f, -0.3f), Atan2(-0.6f, 0.5f), Atan2(0.8f, -0.7f))));
 			}
 			{ // sinh
 				auto expr = Compile("sinh(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Sinh(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::sinh(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Sinh(-0.2f), Sinh(0.4f), Sinh(-0.6f), Sinh(0.8f))));
 			}
 			{ // cosh
 				auto expr = Compile("cosh(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Cosh(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::cosh(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Cosh(-0.2f), Cosh(0.4f), Cosh(-0.6f), Cosh(0.8f))));
 			}
 			{ // tanh
 				auto expr = Compile("tanh(x)");
-				PR_EXPECT(FEql(expr(-0.8).db(), Tanh(-0.8)));
+				PR_EXPECT(FEql(expr(-0.8).db(), std::tanh(-0.8)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Tanh(-0.2f), Tanh(0.4f), Tanh(-0.6f), Tanh(0.8f))));
 			}
 			{ // exp
 				auto expr = Compile("exp(x)");
-				PR_EXPECT(FEql(expr(2.3).db(), Exp(2.3)));
+				PR_EXPECT(FEql(expr(2.3).db(), std::exp(2.3)));
 				PR_EXPECT(FEql(expr(v4(-0.2f, 0.4f, -0.6f, 0.8f)).v4(), v4(Exp(-0.2f), Exp(0.4f), Exp(-0.6f), Exp(0.8f))));
 			}
 			{ // log
 				auto expr = Compile("log(x)");
-				PR_EXPECT(FEql(expr(209.3).db(), Log(209.3)));
+				PR_EXPECT(FEql(expr(209.3).db(), std::log(209.3)));
 				PR_EXPECT(FEql(expr(v4(0.2f, 0.4f, 0.6f, 0.8f)).v4(), v4(Log(0.2f), Log(0.4f), Log(0.6f), Log(0.8f))));
 			}
 			{ // log10
 				auto expr = Compile("log10(x)");
-				PR_EXPECT(FEql(expr(209.3).db(), Log10(209.3)));
+				PR_EXPECT(FEql(expr(209.3).db(), std::log10(209.3)));
 				PR_EXPECT(FEql(expr(v4(1.2f, 10.4f, 100.6f, 1000.8f)).v4(), v4(Log10(1.2f), Log10(10.4f), Log10(100.6f), Log10(1000.8f))));
 			}
 			{ // pow
 				auto expr = Compile("pow(x,y)");
-				PR_EXPECT(FEql(expr(2.3, -1.3).db(), Pow(2.3, -1.3)));
+				PR_EXPECT(FEql(expr(2.3, -1.3).db(), std::pow(2.3, -1.3)));
 				PR_EXPECT(FEql(expr(v4(0.2f, 0.4f, 0.6f, 0.8f), v4(+0.1f, -0.3f, +0.5f, -0.7f)).v4(), v4(Pow(0.2f, 0.1f), Pow(0.4f, -0.3f), Pow(0.6f, 0.5f), Pow(0.8f, -0.7f))));
 			}
 			{ // sqrt
 				auto expr = Compile("sqrt(x)");
-				PR_EXPECT(FEql(expr(2.3).db(), Sqrt(2.3)));
+				PR_EXPECT(FEql(expr(2.3).db(), std::sqrt(2.3)));
 				PR_EXPECT(FEql(expr(v4(0.2f, 0.4f, 0.6f, 0.8f)).v4(), v4(Sqrt(0.2f), Sqrt(0.4f), Sqrt(0.6f), Sqrt(0.8f))));
 			}
 			{ // sqr
@@ -2456,11 +2456,11 @@ namespace pr::common
 			}
 			{ // deg
 				auto expr = Compile("deg(x)");
-				PR_EXPECT(FEql(expr(-1.24).db(), Val(-1.24 * maths::E60_by_tau).db()));
+				PR_EXPECT(FEql(expr(-1.24).db(), Val(-1.24 * constants<double>::E60_by_tau).db()));
 			}
 			{ // rad
 				auto expr = Compile("rad(x)");
-				PR_EXPECT(FEql(expr(241.32).db(), Val(241.32 * maths::tau_by_360).db()));
+				PR_EXPECT(FEql(expr(241.32).db(), Val(241.32 * constants<double>::tau_by_360).db()));
 			}
 			{ // hash
 				auto expr = Compile("hash(\"A String\")");
@@ -2468,12 +2468,12 @@ namespace pr::common
 			}
 			{ // long expression, no variables
 				auto expr = Compile("sqr(sqrt(2.3)*-abs(4%2)/15.0-tan(TAU/-6))");
-				auto res = Sqr(Sqrt(2.3) * -Abs(4 % 2) / 15.0 - Tan(maths::tau / -6));
+				auto res = Sqr(Sqrt(2.3) * -Abs(4 % 2) / 15.0 - std::tan(constants<double>::tau / -6));
 				PR_EXPECT(FEql(expr().db(), res));
 			}
 			{ // long expression, with variables
 				auto expr = Compile("sqr(sqrt(x)*-abs(y%3)/x-tan(TAU/-y))");
-				auto res = Sqr(Sqrt(2.3) * -Abs(13 % 3) / 2.3 - Tan(maths::tau / -13));
+				auto res = Sqr(Sqrt(2.3) * -Abs(13 % 3) / 2.3 - std::tan(constants<double>::tau / -13));
 				PR_EXPECT(FEql(expr(2.3, 13).db(), res));
 				PR_EXPECT(FEql(expr(v4(2.3f), v4(13.0f)).v4(), v4(float(res))));
 			}
@@ -2712,8 +2712,8 @@ namespace pr::common
 					if (!Eval(expr, args, 0, tok)) return false;
 					switch (x.m_ty)
 					{
-					case Val::EType::Intg: result[ridx].push_back(x.db() * maths::E60_by_tau); break;
-					case Val::EType::Real: result[ridx].push_back(x.db() * maths::E60_by_tau); break;
+					case Val::EType::Intg: result[ridx].push_back(x.db() * constants<double>::E60_by_tau); break;
+					case Val::EType::Real: result[ridx].push_back(x.db() * constants<double>::E60_by_tau); break;
 					case Val::EType::Vec4: result[ridx].push_back(CompOp(x.v4(), [](auto x) { return x * maths::E60_by_tauf; })); break;
 					default: throw std::runtime_error("Unknown value type");
 					}

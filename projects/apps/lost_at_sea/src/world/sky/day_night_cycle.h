@@ -32,8 +32,8 @@ namespace las
 		// Sunrise at 06:00, noon at 12:00, sunset at 18:00.
 		v4 SunDirection() const
 		{
-			auto azimuth = (m_time_of_day - 12.0f) / 24.0f * maths::tauf;
-			auto elevation = MaxElevation * std::sin(maths::tauf * 0.5f * (m_time_of_day - 6.0f) / 12.0f);
+			auto azimuth = (m_time_of_day - 12.0f) / 24.0f * constants<float>::tau;
+			auto elevation = MaxElevation * std::sin(constants<float>::tau * 0.5f * (m_time_of_day - 6.0f) / 12.0f);
 			return Normalise(v4(
 				std::cos(azimuth) * std::cos(elevation),
 				std::sin(azimuth) * std::cos(elevation),

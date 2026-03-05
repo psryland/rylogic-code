@@ -14,7 +14,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			// Default construction
 			auto b0 = BB{};
@@ -42,7 +42,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(MakeFromCorners, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB::Make(V4(-1, -2, -3, 1), V4(3, 4, 5, 1));
 			PR_EXPECT(FEql(b.Centre(), V4(1, 1, 1, 1)));
@@ -52,7 +52,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(LowerUpper, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(1, 2, 3, 1), V4(4, 5, 6, 0));
 			PR_EXPECT(FEql(b.Lower(), V4(-3, -3, -3, 1)));
@@ -68,7 +68,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(SizeAndVolume, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(2, 3, 4, 0));
 			PR_EXPECT(b.SizeX() == T(4));
@@ -80,7 +80,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(IsPointAndHasVolume, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto point = BB(V4(1, 2, 3, 1), V4(0, 0, 0, 0));
 			PR_EXPECT(point.is_point());
@@ -94,7 +94,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(CornersTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 1, 1, 0));
 			auto corners = Corners(b);
@@ -110,7 +110,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(UnionAndGrow, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			// Union with point
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 1, 1, 0));
@@ -136,7 +136,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(IsWithinTests, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(2, 2, 2, 0));
 
@@ -160,7 +160,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(TranslationOps, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 1, 1, 0));
 			auto shifted = b + V4(5, 0, 0, 0);
@@ -175,7 +175,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(ScaleOps, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 2, 3, 0));
 			b *= T(2);
@@ -186,7 +186,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(GetBSphereTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 1, 1, 0));
 			auto s = GetBSphere(b);
@@ -197,7 +197,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(SupportPointTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using BB = BBox<T>;
+			using BB = BoundingBox<T>;
 
 			auto b = BB(V4(0, 0, 0, 1), V4(1, 1, 1, 0));
 			auto sp = SupportPoint(b, V4(1, 0, 0, 0));

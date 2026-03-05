@@ -24,7 +24,7 @@ namespace pr::geometry
 	// Generate normals implementation
 	namespace generate_normals
 	{
-		template <typename T> concept VertOutFn = std::invocable<T, int, int, v4 const&>;
+		template <typename T> concept VertOutFn = std::invocable<T, int, int, v4>;
 		template <typename T> concept IdxOutFn = std::invocable<T, int, int, int>;
 
 		template <typename TIdxCIter, GetVertFn TGetV>
@@ -43,7 +43,7 @@ namespace pr::geometry
 					if (idx == m_idx[1]) return m_norm * m_angles.y;
 					if (idx == m_idx[2]) return m_norm * m_angles.z;
 					assert(false && "index is not part of this face");
-					return v4Zero;
+					return v4::Zero();
 				}
 			};
 			struct Edge
@@ -113,15 +113,15 @@ namespace pr::geometry
 					face.m_idx[1] = *indices++;
 					face.m_idx[2] = *indices++;
 
-					v4 const& v0 = getv(s_cast<VIdx>(face.m_idx[0]));
-					v4 const& v1 = getv(s_cast<VIdx>(face.m_idx[1]));
-					v4 const& v2 = getv(s_cast<VIdx>(face.m_idx[2]));
+					v4 v0 = getv(s_cast<VIdx>(face.m_idx[0]));
+					v4 v1 = getv(s_cast<VIdx>(face.m_idx[1]));
+					v4 v2 = getv(s_cast<VIdx>(face.m_idx[2]));
 
 					// Find the largest vertex index
 					max_index = pr::max(max_index, face.m_idx[0], face.m_idx[1], face.m_idx[2]);
 
 					// Get properties of the face (normal, angles, etc)
-					face.m_norm = Normalise(Cross3(v1 - v0, v2 - v1), v4Zero);
+					face.m_norm = Normalise(Cross(v1 - v0, v2 - v1), v4::Zero());
 					face.m_angles = TriangleAngles(v0, v1, v2);
 					face.m_grp = ++sg; // each face is in a unique smoothing group to start with
 
@@ -293,13 +293,13 @@ namespace pr::geometry
 	// 'smoothing_angle' is the threshold above which normals are not merged and a new vertex is created (in radians)
 	// 'new_vidx' is the start index to assign to new vertices. Effectively, it's the size of the container 'getv' is
 	//   pulling from. You can set this to zero in which case one passed the largest vertex index encountered will be used.
-	// 'getv' is an accessor to the vertex for a given face index: v4 const& getv(VIdx idx)
+	// 'getv' is an accessor to the vertex for a given face index: v4 getv(VIdx idx)
 	// 'vout' outputs the new vertex normals: vout(VIdx new_idx, VIdx orig_idx, v4 normal)
 	// 'iout' outputs the new face indices: iout(VIdx i0, VIdx i1, VIdx i2)
 	// This function will only add verts, not remove any, so 'vout' can overwrite and add to the existing container.
 	// It also outputs the verts in order.
 	// e.g.
-	//   vout = [&](VIdx new_idx, VIdx orig_idx, v4 const& normal)
+	//   vout = [&](VIdx new_idx, VIdx orig_idx, v4 normal)
 	//     {
 	//        if (new_idx >= verts.size()) verts.resize(new_idx + 1, verts[orig_idx]);
 	//        verts[new_idx].norm = normal;
@@ -343,7 +343,7 @@ namespace pr::geometry
 			// Callback function should duplicate the original vertex and set the normal to that provided.
 			auto new_idx = s_cast<VIdx>(vert.m_new_idx);
 			auto org_idx = s_cast<VIdx>(vert.m_orig_idx);
-			vout(new_idx, org_idx, Normalise(norm, v4Zero));
+			vout(new_idx, org_idx, Normalise(norm, v4::Zero()));
 		}
 
 		// Output the new faces
@@ -362,7 +362,7 @@ namespace pr::geometry
 	// 'indices' is an iterator to the model face data (sets of 3 indices per face)
 	// 'GetV' is a function object with signature v4 (*GetV)(size_t i) returning the vertex position at index position 'i'
 	// 'GetN' is a function object with signature v4 (*GetN)(size_t i) returning the vertex normal at index position 'i'
-	// 'SetN' is a function object with signature void (*SetN)(size_t i, v4 const& n) used to set the value of the normal at index position 'i'
+	// 'SetN' is a function object with signature void (*SetN)(size_t i, v4 n) used to set the value of the normal at index position 'i'
 	// Only reads/writes to the normals for vertices adjoining the provided faces
 	// Note: This is the simple version without vertex weights or edge detection
 	template <typename TIdxCIter, GetVertFn TGetV, GetNormFn TGetN, SetNormFn TSetN>
@@ -371,7 +371,7 @@ namespace pr::geometry
 		// Initialise all of the vertex normals to zero
 		auto ib = indices;
 		for (size_t i = 0; i != num_indices; ++i, ++ib)
-			SetN(*ib, v4Zero);
+			SetN(*ib, v4::Zero());
 
 		// For each face, calculate the face normal and add it to the normals of each adjoining vertex
 		ib = indices;
@@ -381,12 +381,12 @@ namespace pr::geometry
 			size_t i1 = *ib++;
 			size_t i2 = *ib++;
 
-			v4 const& v0 = GetV(i0);
-			v4 const& v1 = GetV(i1);
-			v4 const& v2 = GetV(i2);
+			v4 v0 = GetV(i0);
+			v4 v1 = GetV(i1);
+			v4 v2 = GetV(i2);
 
 			// Calculate the face normal
-			v4 norm = Normalise(Cross3(v1 - v0, v2 - v0), v4Zero);
+			v4 norm = Normalise(Cross(v1 - v0, v2 - v0), v4::Zero());
 
 			// Add the normal to each vertex that references the face
 			SetN(i0, GetN(i0) + norm);
@@ -397,7 +397,7 @@ namespace pr::geometry
 		// Normalise all of the normals
 		ib = indices;
 		for (size_t i = 0; i != num_indices; ++i, ++ib)
-			SetN(*ib, Normalise(GetN(*ib), v4Zero));
+			SetN(*ib, Normalise(GetN(*ib), v4::Zero()));
 	}
 }
 
@@ -414,7 +414,7 @@ namespace pr::geometry
 			v4 m_norm;
 
 			Vert() = default;
-			Vert(v4 const& pos, v4 const& norm)
+			Vert(v4 pos, v4 norm)
 				: m_pos(pos)
 				, m_norm(norm)
 			{}
@@ -455,7 +455,7 @@ namespace pr::geometry
 					assert(i < PR_COUNTOF(verts));
 					return verts[i].m_pos;
 				},
-				[&](int, int orig_idx, v4 const& norm)
+				[&](int, int orig_idx, v4 norm)
 				{
 					assert(orig_idx < PR_COUNTOF(verts));
 					vout.push_back(Vert(verts[orig_idx].m_pos, norm));

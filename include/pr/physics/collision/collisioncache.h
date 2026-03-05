@@ -24,7 +24,7 @@ namespace pr
 				std::size_t		m_q_id;				// The vertex id last used on shapeB
 				std::size_t		m_last_used;		// The counter value when this cache entry was last used
 
-				void Update(v4 const& sep_axis, std::size_t p_id, std::size_t q_id);
+				void Update(v4 sep_axis, std::size_t p_id, std::size_t q_id);
 				void Swap() { std::swap(m_shapeA, m_shapeB); std::swap(m_p_id, m_q_id); m_separating_axis = -m_separating_axis; }
 			};
 		}

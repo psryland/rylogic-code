@@ -75,7 +75,7 @@ void Support::Clear()
 }
 
 // Insert 'leg' into the chain of objects supported by 'on_obj'
-inline void AddSupport(v4 const& point, support::Leg& leg, Rigidbody& on_obj)
+inline void AddSupport(v4 point, support::Leg& leg, Rigidbody& on_obj)
 {
 	leg.m_point = point;
 	leg.m_count = 0;
@@ -83,7 +83,7 @@ inline void AddSupport(v4 const& point, support::Leg& leg, Rigidbody& on_obj)
 }
 
 // Add a support point. Attempt to add 'point' as a support of the object that owns this struct
-void Support::Add(Rigidbody& on_obj, v4 const& gravity, v4 const& point)
+void Support::Add(Rigidbody& on_obj, v4 gravity, v4 point)
 {
 	PR_DECLARE_PROFILE(PR_PROFILE_SLEEPING, phSleepAddSupport);
 	PR_PROFILE_SCOPE(PR_PROFILE_SLEEPING, phSleepAddSupport);
@@ -91,7 +91,7 @@ void Support::Add(Rigidbody& on_obj, v4 const& gravity, v4 const& point)
 	// Get the rigid body that owns this support
 	Rigidbody& rb = GetRB(*this);
 	PR_ASSERT(PR_DBG_PHYSICS, &rb != &on_obj, "Objects cannot support themselves");
-	PR_ASSERT(PR_DBG_PHYSICS, !FEql(gravity,pr::v4Zero), "This object has no gravity and therefore can't come to rest");
+	PR_ASSERT(PR_DBG_PHYSICS, !FEql(gravity,pr::v4::Zero()), "This object has no gravity and therefore can't come to rest");
 	PR_ASSERT(PR_DBG_PHYSICS, rb.HasMicroVelocity() && on_obj.HasMicroVelocity(), "One of these objects has a velocity above the threshold");
 	PR_EXPAND(PR_LDR_SLEEPING, ldr::PhSupport(*this, "sleeping_support");)
 
@@ -135,8 +135,8 @@ void Support::Add(Rigidbody& on_obj, v4 const& gravity, v4 const& point)
 			}break;
 		case 2:
 			{
-				v4 L0xG = Cross3(m_leg[0].m_point, gravity);
-				v4 L1xG = Cross3(m_leg[1].m_point, gravity);
+				v4 L0xG = Cross(m_leg[0].m_point, gravity);
+				v4 L1xG = Cross(m_leg[1].m_point, gravity);
 				if( Dot3(m_leg[1].m_point, L0xG) > 0.0f )
 				{
 					if( Dot3(radius2d, L0xG) > -thres ||
@@ -152,7 +152,7 @@ void Support::Add(Rigidbody& on_obj, v4 const& gravity, v4 const& point)
 				AddSupport(radius2d, m_leg[2], on_obj);
 				++m_num_supports;
 
-				PR_ASSERT(PR_DBG_PHYSICS, PointWithinTriangle2(v4Zero, m_leg[0].m_point, m_leg[1].m_point, m_leg[2].m_point, 0.01f), "");
+				PR_ASSERT(PR_DBG_PHYSICS, PointWithinTriangle2(v4::Zero(), m_leg[0].m_point, m_leg[1].m_point, m_leg[2].m_point, 0.01f), "");
 			}break;
 		default:
 			break;

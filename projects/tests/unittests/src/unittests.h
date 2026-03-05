@@ -10,6 +10,7 @@
 #include "pr/algorithm/fibonacci_sphere.h"
 #include "pr/algorithm/multidimensional_scaling.h"
 #include "pr/algorithm/peak_detection.h"
+#include "pr/algorithm/trapping_sets.h"
 #include "pr/audio/synth/synth.h"
 #include "pr/collision/col_box_vs_box.h"
 #include "pr/collision/col_box_vs_line.h"

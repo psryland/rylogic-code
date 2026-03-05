@@ -268,7 +268,7 @@ namespace pr::math::tests
 				for (float t = 0; t <= 1.0f; t += 0.1f)
 				{
 					auto pos = interp.Eval(t);
-					PR_EXPECT(IsWithin(BBox<float>::Make(x0, x1), pos, 0.0001f));
+					PR_EXPECT(IsWithin(BoundingBox<float>::Make(x0, x1), pos, 0.0001f));
 				}
 				auto X0 = interp.Eval(0);
 				auto X1 = interp.Eval(1);

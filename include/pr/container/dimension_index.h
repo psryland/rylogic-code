@@ -227,7 +227,7 @@ namespace pr::container
 			}
 		}
 
-		auto GetValue = [](v4 const& p, int i)
+		auto GetValue = [](v4 p, int i)
 		{
 			return p[i];
 		};
@@ -241,9 +241,9 @@ namespace pr::container
 
 		{
 			auto& results = builder.Point("results", 0xFF00FF00).size(10.0f);
-			index.Find<v4>(points, search.xyz.arr, radius, GetValue, [&](v4 const& a, float dist_sq)
+			index.Find<v4>(points, search.xyz.arr, radius, GetValue, [&](v4 a, float dist_sq)
 			{
-				PR_EXPECT(dist_sq < radius * radius + maths::tinyf);
+				PR_EXPECT(dist_sq < radius * radius + maths::tiny<float>);
 				results.pt(a);
 			});
 		}

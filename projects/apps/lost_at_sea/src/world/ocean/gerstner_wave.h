@@ -18,11 +18,11 @@ namespace las
 
 		float Frequency() const
 		{
-			return maths::tauf / m_wavelength;
+			return constants<float>::tau / m_wavelength;
 		}
 		float WaveNumber() const
 		{
-			return maths::tauf / m_wavelength;
+			return constants<float>::tau / m_wavelength;
 		}
 	};
 }

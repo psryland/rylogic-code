@@ -241,4 +241,82 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(int32_t);
 	PR_MATH_DEFINE_TYPE(int64_t);
 	#undef PR_MATH_DEFINE_TYPE
+
+	// Compare for floating point equality
+	template <ScalarType S, typename A, typename B>
+	constexpr bool FEql(Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs) noexcept
+	{
+		return
+			FEql(lhs.m00, rhs.m00) &&
+			FEql(lhs.m01, rhs.m01) &&
+			FEql(lhs.m10, rhs.m10) &&
+			FEql(lhs.m11, rhs.m11);
+	}
+
+	// True if 'v' contains NaN. 'any' controls whether to check if any component is NaN, or if all components are NaN.
+	template <ScalarType S, typename A, typename B>
+	constexpr bool pr_vectorcall IsNaN(Mat6x8<S, A, B> m, bool any = true) noexcept // false = all
+	{
+		return
+			IsNan(m.m00, any) &&
+			IsNan(m.m01, any) &&
+			IsNan(m.m10, any) &&
+			IsNan(m.m11, any);
+	}
+
+	// Return the transpose of a spatial matrix
+	template <ScalarType S, typename A, typename B>
+	constexpr Mat6x8<S, A, B> Transpose(Mat6x8<S,A,B> const& m)
+	{
+		return Mat6x8<S, A, B>(
+			Transpose(m.m00), Transpose(m.m10),
+			Transpose(m.m01), Transpose(m.m11));
+	}
+
+	// Invert the 6x6 matrix 'm'
+	template <ScalarType S, typename A, typename B>
+	inline Mat6x8<S,B,A> Invert(Mat6x8<S,A,B> const& m)
+	{
+		// 2x2 block matrix inversion
+		// R = [A B]  R' = [E F]
+		//     [C D]       [G H]
+		// For square diagonal partitions of 'R' (i.e. submatrices are square)
+		// If 'A' is non-singular then 'R' is invertible iff the Schur complement "D - CA¯B" of A is invertible
+		// R'= [A¯ + A¯B(D-CA¯B)¯CA¯ ,  -A¯B(D-CA¯B)¯ ]
+		//     [    -(D-CA¯B)¯CA¯    ,    (D-CA¯B)¯   ]
+		// or:
+		//     [   (A-BD¯C)¯     ,    -(A-BD¯C)¯BD¯   ]
+		//     [ -D¯C(A-BD¯C)¯   , D¯+D¯C(A-BD¯C)¯BD¯ ]
+
+		auto& a = m.m00;
+		auto& b = m.m01;
+		auto& c = m.m10;
+		auto& d = m.m11;
+		if (IsInvertible(a))
+		{
+			auto a_inv = Invert(a);
+			auto schur = d - c * a_inv * b; // The 'Schur Complement'
+			if (IsInvertible(schur))
+			{
+				auto schur_inv = Invert(schur);
+				return Mat6x8<S,B,A>{
+					a_inv + a_inv * b * schur_inv * c * a_inv , -a_inv * b * schur_inv,
+					                   -schur_inv * c * a_inv ,              schur_inv};
+			}
+		}
+		if (IsInvertible(d))
+		{
+			auto d_inv = Invert(d);
+			auto schur = a - b * d_inv * c; // The 'Schur Complement'
+			if (IsInvertible(schur))
+			{
+				auto schur_inv = Invert(schur);
+				return Mat6x8<S,B,A>{
+					             schur_inv ,                    -schur_inv * b * d_inv,
+					-d_inv * c * schur_inv , d_inv + d_inv * c * schur_inv * b * d_inv};
+			}
+		}
+		throw std::runtime_error("matrix is singular");
+	}
+
 }

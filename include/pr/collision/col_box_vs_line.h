@@ -31,7 +31,7 @@ namespace pr::collision
 		// Line segment "radius" plus an epsilon term to counteract arithmetic
 		// errors when segment is (near) parallel to a coordinate axis.
 		auto half = rhs.m_radius * r2l.z;
-		auto rad = Abs(half) + v4(maths::tinyf);
+		auto rad = Abs(half) + v4(maths::tiny<float>);
 
 		// Try world coordinate axes as separating axes
 		if (!pen(lhs.m_radius.x + rad.x - Abs(mid.x), [&]{ return Sign(mid.x) * l2w.x; }, lhs_.m_material_id, rhs_.m_material_id)) return;

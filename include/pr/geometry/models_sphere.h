@@ -75,9 +75,9 @@ namespace pr::geometry
 
 		// Create a vertex and add it to the vertex container
 		// Returns the index position of the vertex
-		inline VIndex AddVertex(v4 const& norm, float ang, bool pole, CreateGeosphereData& data)
+		inline VIndex AddVertex(v4 norm, float ang, bool pole, CreateGeosphereData& data)
 		{
-			PR_ASSERT(PR_DBG, IsNormal(norm), "");
+			PR_ASSERT(PR_DBG, IsNormalised(norm), "");
 
 			// Add the vertex
 			GeosphereVert vertex;
@@ -154,11 +154,11 @@ namespace pr::geometry
 		// Create an Icosahedron and recursively subdivide the triangles
 		inline void CreateIcosahedron(CreateGeosphereData& data)
 		{
-			constexpr float A = 2.0f / (1.0f + Sqr(maths::golden_ratiof));
+			constexpr float A = 2.0f / (1.0f + Sqr(constants<float>::golden_ratio));
 			constexpr float H1 = 1.0f - A;
 			constexpr float H2 = -1.0f + A;
 			constexpr float R = float(SqrtCT(1.0 - H1 * H1));
-			constexpr float dAng = float(maths::tau / 5.0);
+			constexpr float dAng = float(constants<double>::tau / 5.0);
 			static float const ua[] = { 0.0f,0.2f,0.4f,0.6f,0.8f,1.0f,1.2f };
 			static float const ub[] = { 0.1f,0.3f,0.5f,0.7f,0.9f,1.1f,1.3f };
 
@@ -166,8 +166,8 @@ namespace pr::geometry
 			float ang1 = 0.0f, ang2 = dAng * 0.5f;
 			for (uint32_t w = 0; w != 6; ++w, ang1 += dAng, ang2 += dAng)
 			{
-				auto norm_a = v4(R * Cos(ang1), R * Sin(ang1), H1, 0.0f);
-				auto norm_b = v4(R * Cos(ang2), R * Sin(ang2), H2, 0.0f);
+				auto norm_a = v4(R * std::cos(ang1), R * std::sin(ang1), H1, 0.0f);
+				auto norm_b = v4(R * std::cos(ang2), R * std::sin(ang2), H2, 0.0f);
 				AddVertex(v4::ZAxis(), ub[w], true, data);
 				AddVertex(norm_a, ua[w], false, data);
 				AddVertex(norm_b, ub[w], false, data);
@@ -187,10 +187,10 @@ namespace pr::geometry
 
 	// Generate an ellipsoid geosphere
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Geosphere(v4 const& radius, int divisions, Colour32 colour, VOut vout, IOut iout)
+	Props Geosphere(v4 radius, int divisions, Colour32 colour, VOut vout, IOut iout)
 	{
 		Props props;
-		props.m_bbox = BBox(pr::v4Origin, radius);
+		props.m_bbox = BBox(pr::v4::Origin(), radius);
 		props.m_geom = EGeom::Vert | EGeom::Colr | EGeom::Norm | EGeom::Tex0;
 		props.m_has_alpha = HasAlpha(colour);
 
@@ -234,10 +234,10 @@ namespace pr::geometry
 
 	// Generate a standard sphere
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Sphere(v4 const& radius, int wedges, int layers, Colour32 colour, VOut vout, IOut iout)
+	Props Sphere(v4 radius, int wedges, int layers, Colour32 colour, VOut vout, IOut iout)
 	{
 		Props props;
-		props.m_bbox = BBox(pr::v4Origin, radius);
+		props.m_bbox = BBox(pr::v4::Origin(), radius);
 		props.m_has_alpha = colour.a != 0xFF;
 
 		if (wedges < 3) wedges = 3;
@@ -252,9 +252,9 @@ namespace pr::geometry
 
 			for (int l = 1; l < layers; ++l)
 			{
-				auto a = float(maths::tauf * w / wedges);
-				auto b = float(maths::tau_by_2f * l / layers);
-				norm = v4(Cos(a) * Sin(b), Sin(a) * Sin(b), Cos(b), 0.0f);
+				auto a = float(constants<float>::tau * w / wedges);
+				auto b = float(constants<float>::tau_by_2 * l / layers);
+				norm = v4(std::cos(a) * std::sin(b), std::sin(a) * std::sin(b), Cos(b), 0.0f);
 				uv = v2(float(w) / wedges, (1.0f - norm.z) * 0.5f);
 				vout((radius * norm).w1(), colour, norm, uv);
 			}

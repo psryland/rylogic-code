@@ -860,11 +860,11 @@ namespace pr
 	// Angles
 	template <std::floating_point T> constexpr inline T DegreesToRadians(T degrees)
 	{
-		return static_cast<T>(degrees * maths::tau_by_360);
+		return static_cast<T>(degrees * constants<double>::tau_by_360);
 	}
 	template <std::floating_point T> constexpr inline T RadiansToDegrees(T radians)
 	{
-		return static_cast<T>(radians * maths::E60_by_tau);
+		return static_cast<T>(radians * constants<double>::E60_by_tau);
 	}
 	template <maths::VectorX T> constexpr inline T DegreesToRadians(T v)
 	{
@@ -1088,6 +1088,10 @@ namespace pr
 	template <maths::VectorX T> inline bool IsNormal(T const& v)
 	{
 		return FEql(LengthSq(v), static_cast<maths::vec_comp_t<T>>(1));
+	}
+	template <maths::VectorX T> inline bool IsNormalised(T const& v)
+	{
+		return IsNormal(v);
 	}
 
 	// Sum the elements in a vector
@@ -1716,7 +1720,7 @@ namespace pr::maths
 			PR_EXPECT(!FEqlRelative(+0.0f, -0.00001f, _6dp));
 
 			// Comparisons involving extreme values (overflow potential)
-			auto float_hi = maths::float_max;
+			auto float_hi = limits<float>::max();
 			auto float_lo = maths::float_lowest;
 			PR_EXPECT(FEqlRelative(float_hi, float_hi, _6dp));
 			PR_EXPECT(!FEqlRelative(float_hi, float_lo, _6dp));
@@ -1728,11 +1732,11 @@ namespace pr::maths
 			PR_EXPECT(!FEqlRelative(float_lo, float_lo / 2, _6dp));
 
 			// Comparisons involving infinities
-			PR_EXPECT(FEqlRelative(+maths::float_inf, +maths::float_inf, _6dp));
-			PR_EXPECT(FEqlRelative(-maths::float_inf, -maths::float_inf, _6dp));
-			PR_EXPECT(!FEqlRelative(-maths::float_inf, +maths::float_inf, _6dp));
-			PR_EXPECT(!FEqlRelative(+maths::float_inf, +maths::float_max, _6dp));
-			PR_EXPECT(!FEqlRelative(-maths::float_inf, -maths::float_max, _6dp));
+			PR_EXPECT(FEqlRelative(+limits<float>::infinity(), +limits<float>::infinity(), _6dp));
+			PR_EXPECT(FEqlRelative(-limits<float>::infinity(), -limits<float>::infinity(), _6dp));
+			PR_EXPECT(!FEqlRelative(-limits<float>::infinity(), +limits<float>::infinity(), _6dp));
+			PR_EXPECT(!FEqlRelative(+limits<float>::infinity(), +limits<float>::max(), _6dp));
+			PR_EXPECT(!FEqlRelative(-limits<float>::infinity(), -limits<float>::max(), _6dp));
 
 			// Comparisons involving NaN values
 			PR_EXPECT(!FEqlRelative(maths::float_nan, maths::float_nan, _6dp));
@@ -1740,14 +1744,14 @@ namespace pr::maths
 			PR_EXPECT(!FEqlRelative(-0.0f, maths::float_nan, _6dp));
 			PR_EXPECT(!FEqlRelative(maths::float_nan, -0.0f, _6dp));
 			PR_EXPECT(!FEqlRelative(+0.0f, maths::float_nan, _6dp));
-			PR_EXPECT(!FEqlRelative(maths::float_nan, +maths::float_inf, _6dp));
-			PR_EXPECT(!FEqlRelative(+maths::float_inf, maths::float_nan, _6dp));
-			PR_EXPECT(!FEqlRelative(maths::float_nan, -maths::float_inf, _6dp));
-			PR_EXPECT(!FEqlRelative(-maths::float_inf, maths::float_nan, _6dp));
-			PR_EXPECT(!FEqlRelative(maths::float_nan, +maths::float_max, _6dp));
-			PR_EXPECT(!FEqlRelative(+maths::float_max, maths::float_nan, _6dp));
-			PR_EXPECT(!FEqlRelative(maths::float_nan, -maths::float_max, _6dp));
-			PR_EXPECT(!FEqlRelative(-maths::float_max, maths::float_nan, _6dp));
+			PR_EXPECT(!FEqlRelative(maths::float_nan, +limits<float>::infinity(), _6dp));
+			PR_EXPECT(!FEqlRelative(+limits<float>::infinity(), maths::float_nan, _6dp));
+			PR_EXPECT(!FEqlRelative(maths::float_nan, -limits<float>::infinity(), _6dp));
+			PR_EXPECT(!FEqlRelative(-limits<float>::infinity(), maths::float_nan, _6dp));
+			PR_EXPECT(!FEqlRelative(maths::float_nan, +limits<float>::max(), _6dp));
+			PR_EXPECT(!FEqlRelative(+limits<float>::max(), maths::float_nan, _6dp));
+			PR_EXPECT(!FEqlRelative(maths::float_nan, -limits<float>::max(), _6dp));
+			PR_EXPECT(!FEqlRelative(-limits<float>::max(), maths::float_nan, _6dp));
 			PR_EXPECT(!FEqlRelative(maths::float_nan, +maths::float_min, _6dp));
 			PR_EXPECT(!FEqlRelative(+maths::float_min, maths::float_nan, _6dp));
 			PR_EXPECT(!FEqlRelative(maths::float_nan, -maths::float_min, _6dp));
@@ -1789,11 +1793,11 @@ namespace pr::maths
 		PRUnitTestMethod(FEqlArrays)
 		{
 			auto t0 = 0.0f;
-			auto t1 = maths::tinyf * 0.5f;
-			auto t2 = maths::tinyf * 1.5f;
-			float arr0[] = {t0, 0, maths::tinyf, -1};
-			float arr1[] = {t1, 0, maths::tinyf, -1};
-			float arr2[] = {t2, 0, maths::tinyf, -1};
+			auto t1 = tiny<float> * 0.5f;
+			auto t2 = tiny<float> * 1.5f;
+			float arr0[] = {t0, 0, tiny<float>, -1};
+			float arr1[] = {t1, 0, tiny<float>, -1};
+			float arr2[] = {t2, 0, tiny<float>, -1};
 
 			PR_EXPECT(FEql(arr0, arr1)); // Different by 1.000005%
 			PR_EXPECT(!FEql(arr0, arr2)); // Different by 1.000015%

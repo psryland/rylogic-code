@@ -175,11 +175,11 @@ namespace pr::physics
 			auto& model = *m_model;
 
 			model.m_mp.m_mass = 0.0f;
-			model.m_mp.m_centre_of_mass = pr::v4Zero;
+			model.m_mp.m_centre_of_mass = pr::v4::Zero();
 			for (auto& prim_ptr : model.m_prim_list)
 			{
 				auto& prim = *prim_ptr;
-				assert("All shapes should be centred on their centre of mass when added to the builder" && FEql(prim.m_mp.m_centre_of_mass, v4Zero));
+				assert("All shapes should be centred on their centre of mass when added to the builder" && FEql(prim.m_mp.m_centre_of_mass, v4::Zero()));
 
 				// Accumulate mass and centre of mass
 				model.m_mp.m_mass           += prim.m_mp.m_mass;
@@ -204,7 +204,7 @@ namespace pr::physics
 				prim->shape().m_s2p.pos -= model.m_mp.m_centre_of_mass;
 
 			// The offset to the centre of mass is now zero
-			model.m_mp.m_centre_of_mass = v4Zero;
+			model.m_mp.m_centre_of_mass = v4::Zero();
 		}
 
 		// Calculate the bounding box for 'm_model'.
@@ -226,7 +226,7 @@ namespace pr::physics
 			for (auto& p : model.m_prim_list)
 			{
 				auto& prim = *p;
-				assert("All primitives should be in centre of mass frame" && FEql(prim.m_mp.m_centre_of_mass, v4Zero));
+				assert("All primitives should be in centre of mass frame" && FEql(prim.m_mp.m_centre_of_mass, v4::Zero()));
 
 				// The CoM frame inertia of the primitive
 				auto primitive_inertia = Inertia{prim.m_mp};

@@ -19,8 +19,8 @@ namespace pr
 			v4		m_radius;
 
 			enum { EShapeType = EShape_Box };
-			static ShapeBox	make(v4 const& dim, m4x4 const& shape_to_model, MaterialId material_id, uint32_t flags) { ShapeBox s; s.set(dim, shape_to_model, material_id, flags); return s; }
-			ShapeBox&		set (v4 const& dim, m4x4 const& shape_to_model, MaterialId material_id, uint32_t flags);
+			static ShapeBox	make(v4 dim, m4x4 const& shape_to_model, MaterialId material_id, uint32_t flags) { ShapeBox s; s.set(dim, shape_to_model, material_id, flags); return s; }
+			ShapeBox&		set (v4 dim, m4x4 const& shape_to_model, MaterialId material_id, uint32_t flags);
 			operator Shape const&() const	{ return m_base; }
 			operator Shape& ()				{ return m_base; }
 		};
@@ -29,8 +29,8 @@ namespace pr
 		BBox&	CalcBBox			(ShapeBox const& shape, BBox& bbox);
 		MassProperties& CalcMassProperties	(ShapeBox const& shape, float density, MassProperties& mp);
 		void			ShiftCentre			(ShapeBox& shape, v4& shift);
-		v4				SupportVertex		(ShapeBox const& shape, v4 const& direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
-		void			ClosestPoint		(ShapeBox const& shape, v4 const& point, float& distance, v4& closest);
+		v4				SupportVertex		(ShapeBox const& shape, v4 direction, std::size_t hint_vert_id, std::size_t& sup_vert_id);
+		void			ClosestPoint		(ShapeBox const& shape, v4 point, float& distance, v4& closest);
 	}
 }
 

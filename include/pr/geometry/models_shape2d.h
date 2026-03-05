@@ -31,18 +31,18 @@ namespace pr::geometry
 
 		Props props;
 		props.m_geom = EGeom::Vert | EGeom::Colr | (solid ? EGeom::Norm : EGeom::None) | (solid ? EGeom::Tex0 : EGeom::None);
-		props.m_bbox = BBox(v4Origin, v4(dimx, dimy, 0, 0));
+		props.m_bbox = BBox(v4::Origin(), v4(dimx, dimy, 0, 0));
 
 		// Set Verts
 		for (int i = 0; i != facets; ++i)
 		{
-			auto a = float(maths::tau * i / facets);
-			auto c = Cos(a);
-			auto s = Sin(a);
+			auto a = float(constants<double>::tau * i / facets);
+			auto c = std::cos(a);
+			auto s = std::sin(a);
 			vout(v4(dimx * c, dimy * s, 0, 1), colour, v4::ZAxis(), v2(0.5f*(c + 1), 0.5f*(1 - s)));
 		}
 		if (solid)
-			vout(v4Origin, colour, v4::ZAxis(), v2(0.5f, 0.5f));
+			vout(v4::Origin(), colour, v4::ZAxis(), v2(0.5f, 0.5f));
 
 		if (solid)
 		{
@@ -70,7 +70,7 @@ namespace pr::geometry
 	// Returns the number of verts and indices needed to hold geometry for a 'Pie'
 	constexpr BufSizes PieSize(bool solid, float ang0, float ang1, int facets)
 	{
-		auto scale = Abs(ang1 - ang0) / maths::tauf;
+		auto scale = Abs(ang1 - ang0) / constants<float>::tau;
 		facets = std::max(int(scale * facets + 0.5f), 3);
 		return
 		{
@@ -86,7 +86,7 @@ namespace pr::geometry
 	template <VertOutputFn VOut, IndexOutputFn IOut>
 	Props Pie(float dimx, float dimy, float ang0, float ang1, float radius0, float radius1, bool solid, int facets, Colour32 colour, VOut vout, IOut iout)
 	{
-		auto scale = abs(ang1 - ang0) / maths::tau;
+		auto scale = abs(ang1 - ang0) / constants<double>::tau;
 		facets = std::max(int(scale * facets + 0.5f), 3);
 		radius0 = std::max(0.0f, radius0);
 		radius1 = std::max(radius0, radius1);
@@ -95,7 +95,7 @@ namespace pr::geometry
 		props.m_geom = EGeom::Vert | EGeom::Colr | (solid ? EGeom::Norm : EGeom::None) | (solid ? EGeom::Tex0 : EGeom::None);
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		// Tex coords
 		auto tr0 = FEql(radius1, 0.f) ? 0.0f : radius0 / radius1;
@@ -105,8 +105,8 @@ namespace pr::geometry
 		for (int i = 0; i <= facets; ++i)
 		{
 			auto a = Lerp(ang0, ang1, float(i) / facets);
-			auto c = Cos(a);
-			auto s = Sin(a);
+			auto c = std::cos(a);
+			auto s = std::sin(a);
 			vout(bb(v4(radius0 * dimx * c, radius0 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
 			vout(bb(v4(radius1 * dimx * c, radius1 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
 		}
@@ -155,15 +155,15 @@ namespace pr::geometry
 
 		Props props;
 		props.m_geom = EGeom::Vert | EGeom::Colr | (solid ? EGeom::Norm : EGeom::None) | (solid ? EGeom::Tex0 : EGeom::None);
-		props.m_bbox = BBox(v4Origin, v4(dimx, dimy, 0, 0));
+		props.m_bbox = BBox(v4::Origin(), v4(dimx, dimy, 0, 0));
 
 		// Limit the rounding to half the smallest rectangle side length
 		auto rad = corner_radius;
 		if (rad > dimx) rad = dimx;
 		if (rad > dimy) rad = dimy;
 		auto verts_per_cnr = rad != 0.0f ? std::max(facets / 4, 0) + 1 : 1;
-		auto cos = [=](int i) { return verts_per_cnr > 1 ? Cos(maths::tau_by_4f * i / (verts_per_cnr - 1)) : 0.0f; };
-		auto sin = [=](int i) { return verts_per_cnr > 1 ? Sin(maths::tau_by_4f * i / (verts_per_cnr - 1)) : 0.0f; };
+		auto cos = [=](int i) { return verts_per_cnr > 1 ? Cos(constants<float>::tau_by_4 * i / (verts_per_cnr - 1)) : 0.0f; };
+		auto sin = [=](int i) { return verts_per_cnr > 1 ? Sin(constants<float>::tau_by_4 * i / (verts_per_cnr - 1)) : 0.0f; };
 				
 		// Texture coords
 		auto tx = rad / (2 * dimx);
@@ -257,7 +257,7 @@ namespace pr::geometry
 		auto cc = [&](Colour32 c) { props.m_has_alpha |= HasAlpha(c); return c; };
 
 		// Bounding box
-		auto bb = [&](v4 const& v) { Grow(props.m_bbox, v); return v; };
+		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		// Verts
 		for (int i = 0; i != isize(points); ++i)

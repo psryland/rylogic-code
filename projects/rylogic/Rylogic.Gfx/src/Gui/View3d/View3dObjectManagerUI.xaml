@@ -297,6 +297,7 @@
 							Grid.Column="2"
 							Style="{StaticResource StateButtonStyle}"
 							IsChecked="{Binding Visible}"
+							Click="OnEyeToggleClick"
 							HorizontalAlignment="Right"
 							VerticalAlignment="Center"
 							Background="Transparent"
