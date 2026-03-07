@@ -20,7 +20,9 @@ namespace pr::physics
 	//  - Use spatial vectors for impulse restitution
 	//  - Optimise the impulse restitution function
 
-	// A container object that groups the parts of a physics system together
+	// A container object that groups the parts of a physics system together.
+	// TBroadphase provides spatial overlap queries (e.g. brute-force, sweep-and-prune).
+	// TMaterials maps material ID pairs to combined material properties (friction, elasticity).
 	template <typename TBroadphase, typename TMaterials = MaterialMap>
 	struct Engine
 	{
@@ -28,34 +30,43 @@ namespace pr::physics
 		TMaterials m_materials;
 
 		// Raised after collision detection, but before resolution.
-		// The collisions list can be modified by event handlers.
+		// Subscribers can inspect, modify, add, or remove contacts before impulses are applied.
 		EventHandler<Engine&, std::vector<Contact>&> PostCollisionDetection;
 
-		// Evolve the physics objects forward in time and resolve any collisions
+		// Evolve the physics objects forward in time and resolve any collisions.
+		// The simulation pipeline is: Evolve → Broad Phase → Narrow Phase → Resolve.
 		template <typename TRigidBodyCont>
 		void Step(float dt, TRigidBodyCont& bodies)
 		{
 			// Before here, callers should have set forces on the rigid bodies (including gravity).
 			// Todo: A lot of this could be done in parallel/pipelined...
 
-			// Advance all bodies to 't + dt'
+			// Advance all bodies to 't + dt' using semi-implicit Euler integration.
+			// After this, body positions reflect the new time but may overlap.
+			// Static bodies (infinite mass) are skipped — they have no forces, no
+			// velocity, and evolving them would only accumulate numerical drift.
 			for (auto& body : bodies)
+			{
+				if (body.Mass() >= InfiniteMass * 0.5f) continue;
 				Evolve(body, dt);
+			}
 
-			// Perform collision detection
+			// Broad phase: find pairs of bodies whose bounding volumes overlap.
+			// Narrow phase: test each pair for actual geometric contact.
 			std::vector<Contact> collision_queue;
 			m_broadphase.EnumOverlappingPairs([&](void*, RigidBody const& objA, RigidBody const& objB)
 			{
-				// Narrow phase collision detection
 				auto c = Contact{objA, objB};
 				if (NarrowPhaseCollision(dt, c))
 				{
+					#ifdef PR_PHYSICS_DUMP_CONTACTS
 					Dump(c);
+					#endif
 					collision_queue.push_back(c);
 				}
 			});
 
-			// Sort the collisions by time
+			// Sort the collisions by estimated time of impact so earlier collisions are resolved first.
 			// Todo: for parallel processing, collision queue should be broken up into islands of objects that affect each other.
 			// Assign an increasing 'island' number to each Contact. If a preceding contact involves one of the same objects, use the lowest number
 			std::sort(std::begin(collision_queue), std::end(collision_queue), [](auto& lhs, auto& rhs){ return lhs.m_time < rhs.m_time; });
@@ -63,116 +74,90 @@ namespace pr::physics
 			// Notify of detected collisions, and allow updates/additions
 			PostCollisionDetection(*this, collision_queue);
 
-			// Resolve collisions
+			// Apply restitution impulses to resolve each collision
 			for (auto& c : collision_queue)
 				ResolveCollision(c);
 		}
 
-		// Narrow phase collision detection
-		// Returns true if 'objA' and 'objB' are in contact
-		// 'c' is only valid if the function returns true.
+		// Narrow phase collision detection.
+		// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
+		// All collision data (point, axis, depth) is computed in objA's object space to
+		// minimise floating-point error. Returns true if the objects are in contact and
+		// the contact is approaching (not separating).
 		bool NarrowPhaseCollision(float dt, Contact& c)
 		{
-			// Notes:
-			//  t0 = 't', t1 = 't + dt'. Objects are currently at t1.
-			
 			auto& objA = *c.m_objA;
 			auto& objB = *c.m_objB;
 
-			// Perform the narrow phase collision detection in 'objA' space to reduce floating point errors
+			// Collision detection in objA space: objA is at identity, objB is at c.m_b2a.
 			if (!collision::Collide(objA.Shape(), m4x4::Identity(), objB.Shape(), c.m_b2a, c))
 				return false;
 
 			// If the collision point is moving out of collision, ignore the collision.
+			// This prevents re-resolving contacts that are already separating.
 			auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point);
 			if (Dot(rel_vel_at_point, c.m_axis) > 0)
 				return false;
 
-			// Get the combined material properties of the contact
-			// Todo: in the previous implementation, micro velocity collisions changed the material properties.
+			// Look up the combined material properties for this contact pair
 			c.m_mat = m_materials(c.m_mat_idA, c.m_mat_idB);
 
-			// Determine the parametric value for the time of the collision by estimating the A-space position
-			// of 'c.m_point' at t0 assuming linear velocity (because it's faster and easier)
+			// Estimate the sub-step time when the collision actually occurred.
+			// The bodies have already been evolved past the collision point, so we
+			// need to estimate how far back in time the actual contact was. We project
+			// the contact point backward along the relative velocity to find the
+			// pre-overlap position, then compute sub_step as the fraction of dt to
+			// rewind. This gives a more accurate contact point and lever arms for
+			// the impulse calculation.
 			auto point_at_t0 = c.m_point - dt * c.m_velocity.LinAt(c.m_point);
-			
-			// The distance from 'point_at_t0' to 'point_at_t1' in the direction of 'c.m_axis'
 			auto distance = Abs(Dot(c.m_point - point_at_t0, c.m_axis));
-
-			// The collision time is a negative value so that position_at_collision = position_now + time * velocity_now
-			// If 'c.m_depth' is zero then the point in only just in collision.
-			// If 'c.m_depth' = 'distance' then the point was in collision in the last frame.
 			auto sub_step = distance > c.m_depth ? -c.m_depth / distance : 0.0f;
 
-			// Adjust the collision point and relative transform to the collision time
+			// Recompute contact data (b2a, velocity, contact point) at the estimated collision time.
+			// Note: this is an approximation — the bodies aren't actually moved back in time,
+			// so there will be a small angular momentum error proportional to penetration depth.
 			c.update(sub_step * dt);
+
 			return true;
 		}
 
-		// Calculate and apply forces to resolve the contact between the objects in 'pair'
-		// Contact values in 'pair' are expected to be in objA space.
-		void ResolveCollision(Contact const& c)
+		// Calculate and apply the restitution impulse to resolve a collision.
+		// The impulse is computed in objA's space (where all contact data lives),
+		// then transformed to each body's own object space before being applied.
+		//
+		// Important: When multiple collisions are resolved in a single time step,
+		// earlier resolutions change body momenta. We must recompute the relative
+		// velocity using CURRENT momenta before computing each impulse, otherwise
+		// stale velocity data causes catastrophic energy injection. For example:
+		// if body A bounces off the ground (velocity reversed from -v to +v), then
+		// a subsequent collision (A, B) using the old velocity (-v) would compute
+		// an impulse as if A is still approaching B, doubling the energy.
+		void ResolveCollision(Contact& c)
 		{
-			// Algorithm:
-			//  - Extrapolate back (using the current dynamics) to the time of collision
-			//  - Resolve the collision with impulses
-			//  - Extrapolate to the original 't + dt'
-			// Notes:
-			//  An impulse is an instantaneous change in momentum.
-
-			// Const cast is needed here because collision detection is a read-only process
-			// but now when want to change the objects that were detected as in collision.
 			auto& objA = const_cast<RigidBody&>(*c.m_objA);
 			auto& objB = const_cast<RigidBody&>(*c.m_objB);
 
-			#if PR_DBG
-			//auto vel_beforeA = objA.VelocityWS();
-			//auto vel_beforeB = objB.VelocityWS();
-			//auto ke_beforeA = objA.KineticEnergy();
-			//auto ke_beforeB = objB.KineticEnergy();
-			//auto h_before = objA.MomentumWS() + objB.MomentumWS();
-			#endif
+			// Recompute relative velocity using current momenta.
+			// The geometric data (contact point, axis, depth) is still valid because
+			// only momenta changed, not positions. But the velocity field is stale.
+			c.m_velocity = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
 
-			// Calculate the world space restitution impulse
+			// Re-check the separating condition with updated velocities.
+			// A previous impulse in this step may have already resolved this contact.
+			auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point_at_t);
+			auto sep_dot = Dot(rel_vel_at_point, c.m_axis);
+			if (sep_dot > 0)
+				return;
+
+			// Compute the equal-and-opposite impulse pair as spatial force wrenches.
+			// Each wrench is expressed at the body's own model origin, in its own frame.
 			auto impulse_pair = RestitutionImpulse(c);
 
-			// Apply the impulse to the objects
+			// Apply the impulses to each body's momentum (stored as spatial force at model origin).
+			// The impulse changes both linear momentum (causing velocity change) and angular
+			// momentum (causing spin change proportional to the lever arm from CoM to contact).
 			objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
 			objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-
-			{
-				auto c2 = c;
-				c2.update(0);
-
-				using namespace pr::rdr12::ldraw;
-				Builder builder;
-				builder._<LdrRigidBody>("body0", 0x80FF0000).rigid_body(objA).flags(ERigidBodyFlags::None);
-				builder._<LdrRigidBody>("body1", 0x8000FF00).rigid_body(objB).flags(ERigidBodyFlags::None).o2w(c.m_b2a);
-				#if 0 //TODO
-				builder.Arrow(str, "Normal", 0xFFFFFFFF, ldr::EArrowType::Fwd, c.m_point_at_t, c.m_axis * 0.1f, 5);
-				builder.VectorField(str, "VelocityBefore", 0xFFFFFF00, (v8)c.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
-				ldr::VectorField(str, "VelocityAfter", 0xFF00FFFF, (v8)c2.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
-				#endif
-				//ldr::VectorField(str, "ImpulseField", 0xFF007F00, (v8)impulse * 0.1f, v4::Origin(), 5, 0.25f);
-				//ldr::Arrow(str, "Impulse", 0xFF0000FF, ldr::EArrowType::Fwd, c.m_point - impulse.lin, impulse.lin, 3);
-				//ldr::Arrow(str, "Twist", 0xFF000080, ldr::EArrowType::Fwd, c.m_point - impulse.ang, impulse.ang, 3);
-				builder.Save(L"\\dump\\collision.ldr");
-			}
-
-			// Collisions should not add energy to the system and momentum should be conserved.
-			#if PR_DBG
-		//	auto vel_afterA = objA.VelocityWS();
-		//	auto vel_afterB = objB.VelocityWS();
-		//	auto ke_afterA  = objA.KineticEnergy();
-		//	auto ke_afterB  = objB.KineticEnergy();
-		//	auto ke_diff    = (ke_afterA + ke_afterB) - (ke_beforeA + ke_beforeB);
-		//	auto h_after    = objA.MomentumWS() + objB.MomentumWS();
-		//	auto h_ang_diff = Length(h_after.ang) - Length(h_before.ang);
-		//	auto h_lin_diff = Length(h_after.lin) - Length(h_before.lin);
-		//	assert("Collision caused an increase in angular momentum" && h_ang_diff <= 0);
-		//	assert("Collision caused an increase in linear momentum" && h_lin_diff <= 0);
-		//	assert("Collision caused an increase in K.E." && ke_diff <= 0);
-			#endif
 		}
 	};
 }

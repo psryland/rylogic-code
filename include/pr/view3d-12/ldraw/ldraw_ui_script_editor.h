@@ -10,11 +10,11 @@
 namespace pr::rdr12::ldraw
 {
 	// Script editor interface
-	struct ScriptEditorUI :pr::gui::Form
+	struct ScriptEditorUI :gui::Form
 	{
-		pr::gui::ScintillaCtrl m_edit;
-		pr::gui::Button m_btn_render;
-		pr::gui::Button m_btn_close;
+		gui::ScintillaCtrl m_edit;
+		gui::Button m_btn_render;
+		gui::Button m_btn_close;
 
 		enum
 		{
@@ -27,14 +27,14 @@ namespace pr::rdr12::ldraw
 		ScriptEditorUI(HWND parent)
 			:Form(Params<>()
 				.name("ldr-script-editor").title(L"Script Editor").wh(430, 380).start_pos(EStartPosition::CentreParent)
-				.menu({{L"&File", pr::gui::Menu(pr::gui::Menu::EKind::Popup, {{L"&Load", ID_LOAD}, {L"&Save", ID_SAVE}, {pr::gui::MenuItem::Separator}, {L"&Close", IDCANCEL}})}})
+				.menu({{L"&File", gui::Menu(gui::Menu::EKind::Popup, {{L"&Load", ID_LOAD}, {L"&Save", ID_SAVE}, {gui::MenuItem::Separator}, {L"&Close", IDCANCEL}})}})
 				.icon_bg((HICON)::SendMessageW(parent, WM_GETICON, ICON_BIG, 0))
 				.icon_sm((HICON)::SendMessageW(parent, WM_GETICON, ICON_SMALL, 0))
 				.parent(parent).hide_on_close(true).pin_window(true).visible(false)
 				.wndclass(RegisterWndClass<ScriptEditorUI>()))
-			,m_edit      (pr::gui::ScintillaCtrl::Params<>().parent(this_).name("edit"      ).wh(Fill,Fill).margin(3,3,3,32).anchor(EAnchor::All))
-			,m_btn_close (pr::gui::Button       ::Params<>().parent(this_).name("btn-close" ).xy(-1, -1).text(L"&Close"      ).anchor(EAnchor::BottomRight))
-			,m_btn_render(pr::gui::Button       ::Params<>().parent(this_).name("btn-render").xy(+1, -1).text(L"&Render (F5)").anchor(EAnchor::BottomLeft))
+			,m_edit      (gui::ScintillaCtrl::Params<>().parent(this_).name("edit"      ).wh(Fill,Fill).margin(3,3,3,32).anchor(EAnchor::All))
+			,m_btn_close (gui::Button       ::Params<>().parent(this_).name("btn-close" ).xy(-1, -1).text(L"&Close"      ).anchor(EAnchor::BottomRight))
+			,m_btn_render(gui::Button       ::Params<>().parent(this_).name("btn-render").xy(+1, -1).text(L"&Render (F5)").anchor(EAnchor::BottomLeft))
 		{
 			CreateHandle();
 
@@ -42,7 +42,7 @@ namespace pr::rdr12::ldraw
 			// Note: don't grab input focus until the editor is actually visible
 			m_edit.InitLdrStyle();
 			m_edit.SetSel(-1, 0);
-			m_edit.Key += [this](Control&, pr::gui::KeyEventArgs const& args)
+			m_edit.Key += [this](Control&, gui::KeyEventArgs const& args)
 			{
 				if (!args.m_down) return;
 				if (args.m_vk_key == VK_F5)
@@ -50,19 +50,19 @@ namespace pr::rdr12::ldraw
 			};
 
 			// Hook up button handlers
-			m_btn_render.Click += [this](pr::gui::Button&, pr::gui::EmptyArgs const&)
+			m_btn_render.Click += [this](gui::Button&, gui::EmptyArgs const&)
 			{
 				auto text = m_edit.Text();
 				Render(*this, pr::Widen(text));
 			};
-			m_btn_close.Click += [this](pr::gui::Button&, pr::gui::EmptyArgs const&)
+			m_btn_close.Click += [this](gui::Button&, gui::EmptyArgs const&)
 			{
 				Close(EDialogResult::Close);
 			};
 		}
 
 		// An event raised when the render button is clicked
-		pr::gui::EventHandler<ScriptEditorUI&, std::wstring const&> Render;
+		gui::EventHandler<ScriptEditorUI&, std::wstring const&> Render;
 
 		// Get/Set the utf-8 text in the dialog
 		virtual std::string Text() const

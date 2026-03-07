@@ -667,7 +667,7 @@ namespace pr::script
 			m_enc = enc;
 			auto bom_size = 0;
 			if (m_enc == EEncoding::auto_detect)
-				m_enc = pr::filesys::DetectFileEncoding(filepath, bom_size);
+				m_enc = filesys::DetectFileEncoding(filepath, bom_size);
 
 			// Open the input file stream
 			m_file.open(filepath, std::ios::binary);

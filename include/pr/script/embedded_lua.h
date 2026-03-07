@@ -36,7 +36,7 @@ namespace pr::script
 			// Convert the lua code to a compiled chunk
 			std::string error_msg;
 			auto code_utf8 = Narrow(code);
-			if (lua::PushLuaChunk(m_lua, code_utf8, error_msg) != pr::lua::EResult::Success)
+			if (lua::PushLuaChunk(m_lua, code_utf8, error_msg) != lua::EResult::Success)
 				throw std::runtime_error(error_msg);
 
 			// Execute the chunk

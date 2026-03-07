@@ -341,8 +341,8 @@ namespace pr::geometry
 			//   => t = 1 - hwidth*w/y
 			auto d0_sq = LengthSq(d0);
 			auto d1_sq = LengthSq(d1);
-			auto w0 = Div(Abs(Dot3(d0,bi)), d0_sq, maths::tiny<float>);
-			auto w1 = Div(Abs(Dot3(d1,bi)), d1_sq, maths::tiny<float>);
+			auto w0 = Div(Abs(Dot3(d0,bi)), d0_sq, math::tiny<float>);
+			auto w1 = Div(Abs(Dot3(d1,bi)), d1_sq, math::tiny<float>);
 			auto y = Dot3(b0,bi); // == Dot3(b1,bi);
 			auto u0 = y <= hwidth*w0 ? 1.0f : hwidth*w0/y; // Cannot be a div/0 because w0,w1 are positive-semi-definite.
 			auto u1 = y <= hwidth*w1 ? 1.0f : hwidth*w1/y;

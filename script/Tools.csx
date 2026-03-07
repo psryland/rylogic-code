@@ -1,6 +1,6 @@
 ﻿#! "net9.0"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.0.0"
+#r "nuget: Rylogic.Core, 2.0.2"
 #r "System.Diagnostics.Process"
 #load "UserVars.csx"
 #nullable enable

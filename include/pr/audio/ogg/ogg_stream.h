@@ -60,7 +60,7 @@ namespace pr::sound
 			int const update_rate = 10; // updates_per_sec
 			vorbis_info const* vi = ov_info(&m_ogg, -1);
 			if (size == 0) size = GetMinRequiredBufferSize(update_rate, vi->channels, vi->rate, ogg_bps);
-			return pr::sound::CreateBuffer(dsound, size, vi->channels, vi->rate, ogg_bps);
+			return sound::CreateBuffer(dsound, size, vi->channels, vi->rate, ogg_bps);
 		}
 
 		// Load an ogg file

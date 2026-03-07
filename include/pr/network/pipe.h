@@ -525,12 +525,12 @@ namespace pr::network
 		// Start the server and client
 		std::thread ipc_server_thread([&ipc_server, &shutdown, &cv_signal]
 		{
-			pr::threads::SetCurrentThreadName("IPC Server");
+			threads::SetCurrentThreadName("IPC Server");
 			ipc_server.Run(shutdown.get_token(), cv_signal);
 		});
 		std::thread ipc_client_thread([&ipc_client, &shutdown, &cv_signal]
 		{
-			pr::threads::SetCurrentThreadName("IPC Client");
+			threads::SetCurrentThreadName("IPC Client");
 			ipc_client.Run(shutdown.get_token(), cv_signal);
 		});
 

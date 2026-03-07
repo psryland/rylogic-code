@@ -31,7 +31,7 @@ namespace pr::rdr12
 	SortKeyId Shader::SortId() const
 	{
 		// Hash all of the ByteCode pointers together for the sort id.
-		return SortKeyId(pr::hash::HashBytes32(&m_code, &m_code + 1) % SortKey::MaxShaderId);
+		return SortKeyId(hash::HashBytes32(&m_code, &m_code + 1) % SortKey::MaxShaderId);
 	}
 
 	// Ref counting clean up function

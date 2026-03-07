@@ -6,118 +6,102 @@
 
 namespace pr::physics
 {
-	// Calculate the impulse that will resolve the collision between two objects.
+	// Calculate the restitution impulse that resolves a collision between two rigid bodies.
+	//
+	// Overview:
+	//   Given a contact between objA and objB (all data in objA's frame), this function
+	//   computes the impulse needed to prevent interpenetration and apply restitution.
+	//   The result is a pair of spatial force wrenches — one for each body — expressed
+	//   at each body's model origin in its own object space.
+	//
+	// The approach:
+	//   1. Compute the relative velocity at the contact point.
+	//   2. Build the "collision mass matrix" that relates an impulse at the contact point
+	//      to the resulting velocity change, accounting for both translational and rotational
+	//      degrees of freedom.
+	//   3. Decompose the impulse into normal and tangential components.
+	//   4. Scale the normal component by (1 + elasticity) for restitution.
+	//   5. Clamp the tangential component to the friction cone.
+	//   6. Convert the point impulse to a spatial wrench at each body's origin.
+	//
 	ImpulsePair RestitutionImpulse(Contact const& c)
 	{
-		// Calculate the effective inertia at 'c.m_point'. This is not the sum of inertias
-		// because, even though the bodies are in contact at 'c.m_point', the point has a
-		// different velocity on each body.
-		// Let:
-		//'   +p, -p = the restitution impulse for each object (equal but opposite)
-		//' dVa, dVb = the change in velocities for the objects
-		//' Ia¯, Ib¯ = the inverse inertia for each object expressed at the collision point (in objA space) '
-		//'  impulse = change in momentum; p = dH = I.dV '
-		//'    Vdiff = dVb - dVa          '
-		//'      dVa = -Ia¯.p             '
-		//'      dVb = +Ib¯.p             '
-		//'    Vdiff = (Ib¯.p + Ia¯.p)    '
-		//'    Vdiff = (Ib¯ + Ia¯).p      '
-		//' => p = (Ib¯ + Ia¯)¯.Vdiff     '
-
-		// Debugging Tips:
-		//  - Check the impulse for each object assuming the other object has infinite mass
-		//    i.e. set one of Ia¯ or Ib¯ to zero.
-
 		auto& objA = *c.m_objA;
 		auto& objB = *c.m_objB;
 		auto& pt = c.m_point_at_t;
 
-		// Check the relative velocity is into the collision
+		// Sanity check: the contact should be approaching, not separating
 		#if PR_DBG
 		auto rel_normal_velocity = Dot(c.m_velocity.LinAt(pt), c.m_axis);
 		assert("Point of contact is moving out of collision" && rel_normal_velocity <= 0);
-		//Dump(c);
 		#endif
 
-		// rA = vector from objA origin to 'p'
+		// Lever arms from each body's origin to the contact point (in A's frame).
 		auto rA = pt - v4::Origin();
-
-		// rB = vector from objB origin to 'p'
 		auto rB = pt - c.m_b2a.pos;
 
-		// V¯ = Relative velocity at 'p' before collision = Vb¯ - Va¯
+		// Relative velocity at the contact point.
 		auto V_inv  = c.m_velocity.LinAt(pt);
-
-		// Vn¯ = Relative normal velocity at 'p' before the collision
 		auto Vn_inv = Dot(V_inv, c.m_axis) * c.m_axis;
 
-		// The collision inertia contribution by each object
-		auto col_Ia_inv = (1/objA.Mass()) * m3x4::Identity() - CPM(rA) * objA.InertiaInvOS().To3x3() * CPM(rA);
-		auto col_Ib_inv = (1/objB.Mass()) * m3x4::Identity() - CPM(rB) * objB.InertiaInvOS(c.m_b2a).To3x3() * CPM(rB);
-		auto col_I_inv = col_Ia_inv + col_Ib_inv;
-		auto col_I = Invert(col_I_inv);
-		
-		// Get the impulse that would change the relative velocity at 'pt' to zero
-		auto impulse0 = -(col_I * V_inv);
+		// Inverse inertia tensors in A's frame.
+		auto Ia_inv_3x3 = objA.InertiaInvOS().To3x3();
+		auto Ib_inv_3x3 = objB.InertiaInvOS(c.m_b2a.rot).To3x3();
 
-		// Get the impulse that would reduce the normal component of the relative velocity at 'pt' to zero
-		// Check denominator to avoid division by zero for degenerate collision configurations
+		// Collision inverse-mass matrix.
+		auto col_Ia_inv = (1/objA.Mass()) * m3x4::Identity() - CPM<m3x4>(rA) * Ia_inv_3x3 * CPM<m3x4>(rA);
+		auto col_Ib_inv = (1/objB.Mass()) * m3x4::Identity() - CPM<m3x4>(rB) * Ib_inv_3x3 * CPM<m3x4>(rB);
+		auto col_I_inv = col_Ia_inv + col_Ib_inv;
+
+		// The collision mass matrix.
+		auto col_I = Invert(col_I_inv);
+
+		// Decomposethe impulse into normal and tangential components.
+		// impulse0: the impulse needed to kill ALL relative velocity (zero restitution).
+		// impulseN: the normal component only (for zero restitution).
+		// impulseT: the tangential (friction) component.
+		auto impulse0 = -(col_I * V_inv);
 		auto denom = Dot(c.m_axis, col_I_inv * c.m_axis);
-		auto impulseN = Abs(denom) > maths::tiny<float> 
+		auto impulseN = Abs(denom) > math::tiny<float> 
 			? -(Dot(c.m_axis, V_inv) / denom) * c.m_axis 
 			: v4{};
-
-		// The difference is the impulse that would reduce the tangential component of the relative velocity at 'pt' to zero
 		auto impulseT = impulse0 - impulseN;
 
-		#if PR_DBG
-		//{
-		//	// Assert that impulse0 would kill the relative velocity
-		//	auto imp = Shift(v8force{v4{}, impulse0}, v4::Origin() - pt);
-		//	auto velA_ws = (objA.InertiaInvWS() * (objA.O2W().rot * (objA.MomentumOS() +                       -imp)));
-		//	auto velB_ws = (objB.InertiaInvWS() * (objB.O2W().rot * (objB.MomentumOS() + InvertAffine(c.m_b2a) * +imp)));
-		//	
-		//	auto pt_ws = objA.O2W() * pt;
-		//	auto velA_at_pt_ws = velA_ws.LinAt(pt_ws - objA.O2W().pos);
-		//	auto velB_at_pt_ws = velB_ws.LinAt(pt_ws - objB.O2W().pos);
-		//	auto dvel_ws = (velB_at_pt_ws - velA_at_pt_ws);
-		//	assert(FEqlRelative(Length(dvel_ws), 0, 0.0001f));
-		//}
-		#endif
-		// TODO optimise...
-
-		// Calculate the restitution impulse
-		// Apply elasticity to the normal component only (tangential handled by friction)
+		// Apply restitution to the normal component.
+		// For elasticity e: the post-collision normal velocity is -e times the pre-collision value.
+		// This requires scaling the normal impulse by (1 + e). e=0 is perfectly inelastic
+		// (objects stick together), e=1 is perfectly elastic (kinetic energy conserved).
 		auto impulse4 = (1 + c.m_mat.m_elasticity_norm) * impulseN + impulseT;
 
-		// Limit the normal and tangential components of 'impulse' to the friction cone.
+		// Coulomb friction cone: the tangential impulse cannot exceed μ · |Jn|.
+		// If it does, we clamp it, which models sliding friction. When friction is zero,
+		// this effectively removes all tangential impulse, making the collision frictionless.
 		{
-			// Scale 0->1 to 0->inf, 0.5->1.0f. Clamp friction to avoid division by zero.
-			auto clamped_friction = Min(c.m_mat.m_friction_static, 0.9999f);
+			auto clamped_friction = pr::Min(c.m_mat.m_friction_static, 0.9999f);
 			auto static_friction = clamped_friction / (1.000001f - clamped_friction);
-
-			// If '|Jt|/|Jn|' (the ratio of tangential to normal magnitudes) is greater than static friction
-			// then the contact 'slips' and the impulse is reduced in the tangential direction.
 			auto Jn = Dot(impulse4, c.m_axis);
-			
-			// Clamp to avoid sqrt of negative value due to floating point errors
-			auto Jt = Sqrt(Max(0.0f, LengthSq(impulse4) - Sqr(Jn)));
+			auto Jt = Sqrt(pr::Max(0.0f, LengthSq(impulse4) - Sqr(Jn)));
 			if (Jt > static_friction * Abs(Jn))
 			{
-				// Reduce the tangential component of the impulse
 				Jt = static_friction * Abs(Jn);
-				
-				// Only normalize if impulseT has non-zero length
 				auto impulseT_lenSq = LengthSq(impulseT);
-				if (impulseT_lenSq > Sqr(maths::tiny<float>))
+				if (impulseT_lenSq > Sqr(math::tiny<float>))
 					impulseT = Jt * (impulseT / Sqrt(impulseT_lenSq));
-				
 				impulse4 = (1 + c.m_mat.m_elasticity_norm) * impulseN + impulseT;
 			}
 		}
 
+		// Convert the linear impulse at the contact point into a spatial force wrench
+		// at A's model origin. Shift translates the pure force into force + torque:
+		//   wrench.lin = impulse4  (force unchanged)
+		//   wrench.ang = r × impulse4  (torque from the lever arm)
 		auto impulse = Shift(v8force{v4{}, impulse4}, v4::Origin() - pt);
 
+		// Build the impulse pair: equal and opposite wrenches for each body.
+		// For objA: receives the negative (reaction) impulse, already in A's frame.
+		// For objB: receives the positive (action) impulse, transformed from A's
+		//   frame to B's frame. The spatial force transform handles both rotation
+		//   of the vector components and the change of reference point (A origin → B origin).
 		auto impulse_pair = ImpulsePair{};
 		impulse_pair.m_os_impulse_objA = -impulse;
 		impulse_pair.m_os_impulse_objB = InvertAffine(c.m_b2a) * +impulse;
@@ -125,3 +109,4 @@ namespace pr::physics
 		return impulse_pair;
 	}
 }
+

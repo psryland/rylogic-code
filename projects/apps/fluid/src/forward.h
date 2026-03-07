@@ -15,7 +15,7 @@
 #include "pr/common/static_callback.h"
 #include "pr/common/resource.h"
 #include "pr/common/bit_fields.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/container/vector.h"
 #include "pr/container/kdtree.h"
 #include "pr/camera/camera.h"

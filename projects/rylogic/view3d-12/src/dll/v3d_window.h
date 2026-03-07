@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -327,7 +327,7 @@ namespace pr::rdr12
 		// Returns 'HitTestRayId::None' if no more rays can be added.
 		// Returns 'id' if the ray was updated/removed successfully, otherwise returns HitTestRayId::None.
 		// Use 'ray == nullptr' to remove a ray.
-		view3d::HitTestRayId HitTestRayUpdate(pr::view3d::HitTestRayId id, view3d::HitTestRay const* ray);
+		view3d::HitTestRayId HitTestRayUpdate(view3d::HitTestRayId id, view3d::HitTestRay const* ray);
 
 		// Move the focus point to the hit target
 		void CentreOnHitTarget(view3d::HitTestRay const& ray);

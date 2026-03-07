@@ -1,4 +1,4 @@
-﻿//*****************************************
+//*****************************************
 // KD Tree
 //  Copyright (c) March 2005 Paul Ryland
 //*****************************************
@@ -602,7 +602,7 @@ namespace pr::kdtree
 }
 
 #if PR_UNITTESTS
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/common/unittests.h"
 #include "pr/view3d-12/ldraw/ldraw_builder.h"
 namespace pr::container
@@ -619,7 +619,7 @@ namespace pr::container
 		void GenerateRandomPoints(std::vector<Pt>& points)
 		{
 			for (auto& p : points)
-				p = Pt{ v2::Random(m_rng, v2::Zero(), 10.0f), 0 };
+				p = Pt{ Random<v2>(m_rng, v2::Zero(), 10.0f), 0 };
 		}
 		void GenerateGridPoints(std::vector<Pt>& points)
 		{
@@ -640,9 +640,9 @@ namespace pr::container
 			{
 				auto sep = Length(p.xy - centre);
 				if (results.find(p) != std::end(results))
-					PR_EXPECT(sep <= radius + maths::tiny<float>);
+					PR_EXPECT(sep <= radius + math::tiny<float>);
 				else
-					PR_EXPECT(sep >= radius - maths::tiny<float>);
+					PR_EXPECT(sep >= radius - math::tiny<float>);
 			}
 		}
 		void CheckNearest(std::vector<Pt> const& points, v2 centre, float radius, std::vector<KDTree::Neighbour> const& nearest)
@@ -744,8 +744,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tiny<float>);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
+						PR_EXPECT(Sqrt(dist_sq) < search_radius + math::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + math::tiny<float>);
 					}
 				);
 
@@ -799,7 +799,7 @@ namespace pr::container
 					for (auto const& p : points)
 					{
 						auto is_found = std::ranges::find_if(nearest, [&](auto const& x) { return x.item == &p; }) != std::end(nearest);
-						ldr_points.pt(v4(p, 0, 1), is_found ? 0xFFFF0000 : 0xFF0000FF);
+						ldr_points.pt(p.w1(), is_found ? 0xFFFF0000 : 0xFF0000FF);
 					}
 
 					builder.Save("E:/Dump/kdtree.ldr", ESaveFlags::Pretty);
@@ -866,7 +866,7 @@ namespace pr::container
 				nearest.resize(std::uniform_int_distribution<size_t>(1, 20)(m_rng));
 				pairs.resize(std::uniform_int_distribution<size_t>(1, 20)(m_rng));
 
-				v2 const search_centre = v2::Random(m_rng, v2::Zero(), 7.0f);
+				v2 const search_centre = Random<v2>(m_rng, v2::Zero(), 7.0f);
 				float const search_radius = std::uniform_real_distribution<float>(0.f, 5.0f)(m_rng);
 
 				KDTree::Build(points,
@@ -892,8 +892,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(std::sqrt(dist_sq) < search_radius + maths::tiny<float>);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
+						PR_EXPECT(std::sqrt(dist_sq) < search_radius + math::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + math::tiny<float>);
 					}
 				);
 
@@ -969,7 +969,7 @@ namespace pr::container
 				nearest.resize(std::uniform_int_distribution<size_t>(1, 20)(m_rng));
 				pairs.resize(std::uniform_int_distribution<size_t>(1, 20)(m_rng));
 
-				v2 const search_centre = v2::Random(m_rng, v2::Zero(), 7.0f);
+				v2 const search_centre = Random<v2>(m_rng, v2::Zero(), 7.0f);
 				float const search_radius = std::uniform_real_distribution<float>(0.f, 5.0f)(m_rng);
 
 				KDTree::Build(points,
@@ -995,8 +995,8 @@ namespace pr::container
 					[&](Pt const& p, float dist_sq)
 					{
 						results.insert(p);
-						PR_EXPECT(Sqrt(dist_sq) < search_radius + maths::tiny<float>);
-						PR_EXPECT(Length(search_centre - p.xy) < search_radius + maths::tiny<float>);
+						PR_EXPECT(Sqrt(dist_sq) < search_radius + math::tiny<float>);
+						PR_EXPECT(Length(search_centre - p.xy) < search_radius + math::tiny<float>);
 					}
 				);
 

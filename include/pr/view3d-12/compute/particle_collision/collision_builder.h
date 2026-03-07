@@ -56,7 +56,7 @@ namespace pr::rdr12::compute::particle_collision
 		}
 		Prim& ori(v4 dir, AxisId axis = AxisId::PosZ)
 		{
-			return ori(m3x4::Rotation(axis.vec(), dir));
+			return ori(m3x4::Rotation(v4(axis), dir));
 		}
 		Prim& ori(m3x4 const& rot)
 		{

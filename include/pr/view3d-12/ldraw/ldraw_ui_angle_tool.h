@@ -103,7 +103,7 @@ namespace pr::rdr12::ldraw
 		// Update the text in the measurement details text box
 		void UpdateMeasurementInfo()
 		{
-			using namespace maths;
+			using namespace math;
 
 			// Remove any existing graphics
 			m_gfx = nullptr;
@@ -131,7 +131,7 @@ namespace pr::rdr12::ldraw
 			float edge0 = Length(e0);
 			float edge1 = Length(e1);
 			float edge2 = Length(e2);
-			float ang = (edge0 < tinyf || edge1 < tinyf) ? 0.0f : RadiansToDegrees(Acos(Clamp(Dot3(e0, e1) / (edge0 * edge1), -1.0f, 1.0f)));
+			float ang = (edge0 < constants<float>::tiny || edge1 < constants<float>::tiny) ? 0.0f : RadiansToDegrees(Acos(Clamp(Dot3(e0, e1) / (edge0 * edge1), -1.0f, 1.0f)));
 
 			// Update the text description
 			m_tb_values.Text(FmtS(

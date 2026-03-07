@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
 
 namespace pr::collision
@@ -67,16 +68,36 @@ namespace pr::collision
 		Shape const* end() const   { return reinterpret_cast<Shape const*>(byte_ptr(this) + m_base.m_size); }
 		Shape*       end()         { return reinterpret_cast<Shape*      >(byte_ptr(this) + m_base.m_size); }
 	};
-	static_assert(is_shape_v<ShapeArray>);
+	static_assert(ShapeType<ShapeArray>);
 
 	// Calculate the bounding box for the shape.
-	template <typename>
-	BBox pr_vectorcall CalcBBox(ShapeArray const& shape)
+	inline BBox pr_vectorcall CalcBBox(ShapeArray const& shape)
 	{
 		auto bb = BBox::Reset();
 		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
 			Grow(bb, CalcBBox(*i));
 
 		return bb;
+	}
+
+	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
+	inline void pr_vectorcall ShiftCentre(ShapeArray& shape, v4 shift)
+	{
+		(void)shape, shift;
+		throw std::runtime_error("Not implemented");
+	}
+
+	// Returns the support vertex for 'shape' in 'direction'. 'direction' is in shape space
+	inline v4 pr_vectorcall SupportVertex(ShapeArray const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
+	{
+		(void)shape, direction, hint_vert_id, sup_vert_id;
+		throw std::runtime_error("Not implemented");
+	}
+
+	// Returns the closest point on 'shape' to 'point'. 'shape' and 'point' are in the same space
+	inline void pr_vectorcall ClosestPoint(ShapeArray const& shape, v4 point, float& distance, v4& closest)
+	{
+		(void)shape, point, distance, closest;
+		throw std::runtime_error("Not implemented");
 	}
 }

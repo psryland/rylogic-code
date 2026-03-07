@@ -17,7 +17,7 @@
 #include "pr/container/deque.h"
 #include "pr/container/ring.h"
 #include "pr/gfx/colour.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::geometry
 {

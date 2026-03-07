@@ -171,8 +171,8 @@ namespace pr::fluid
 					std::default_random_engine rng;
 					for (int i = 0; i != count; ++i)
 					{
-						auto pos = v3::Random(rng, v3(-hw, -hh, -hd), v3(+hw, +hh, +hd)).w1();
-						auto vel = v3::Random(rng, v3(-vx, -vx, -vx), v3(+vx, +vx, +vx)).w0();
+						auto pos = Random<v3>(rng, v3(-hw, -hh, -hd), v3(+hw, +hh, +hd)).w1();
+						auto vel = Random<v3>(rng, v3(-vx, -vx, -vx), v3(+vx, +vx, +vx)).w0();
 						points(pos, vel);
 					}
 					break;

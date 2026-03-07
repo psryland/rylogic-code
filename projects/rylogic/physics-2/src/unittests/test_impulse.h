@@ -17,7 +17,7 @@ namespace pr::physics
 		{
 			#if 0
 			ShapeSphere sph(0.5f);
-			ShapeBox    box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, maths::tau_by_8f, v4::Origin()));
+			ShapeBox    box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4::Origin()));
 			RigidBody objA(&box, m4x4::Transform(0, 0, 0, v4{-0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
 			RigidBody objB(&box, m4x4::Transform(0, 0, 0, v4{+0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
 
@@ -159,7 +159,7 @@ namespace pr::physics
 			//	// Glancing collision from two rotating, but not translating, objects.
 			//	// Collision should reverse the rotations because the collision is tangentially elastic.
 			//	RigidBody objA(&sph, m4x4::Transform(0, 0,                0, v4{-0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
-			//	RigidBody objB(&box, m4x4::Transform(0, 0, maths::tau_by_8f, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));//Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			//	RigidBody objB(&box, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));//Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
 			//
 			//	// Spin the same way so that the contact point has opposing velocity.
 			//	objA.VelocityWS(v4{0, 0, +1, 0}, v4{});
@@ -185,8 +185,8 @@ namespace pr::physics
 			//}
 			//{// ObjA and ObjB rotating in opposite directions, should stop after collision impulses
 			//	ShapeSphere sph(0.5f);
-			//	RigidBody objA(&sph, m4x4::Transform(0, 0, maths::tau_by_8f, v4{-0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
-			//	RigidBody objB(&sph, m4x4::Transform(0, 0, maths::tau_by_8f, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
+			//	RigidBody objA(&sph, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{-0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
+			//	RigidBody objB(&sph, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
 			//
 			//	objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
 			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{});

@@ -33,7 +33,7 @@ namespace pr
 				template <std::size_t N, bool ObviousNonPrime>
 				struct impl
 				{
-					enum { value = impl2<N, pr::meta::square_root<N>::value, 1, false, false>::value };
+					enum { value = impl2<N, meta::square_root<N>::value, 1, false, false>::value };
 				};
 
 				template <std::size_t N>

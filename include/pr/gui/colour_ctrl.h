@@ -24,7 +24,7 @@ namespace pr
 			enum { DefW = 80, DefH = 23 };
 			enum :DWORD { DefaultStyle   = (DefaultControlStyle | WS_GROUP | SS_LEFT) & ~WS_TABSTOP };
 			enum :DWORD { DefaultStyleEx = DefaultControlStyleEx };
-			static wchar_t const* WndClassName() { return L"pr::gui::ColourCtrl"; }
+			static wchar_t const* WndClassName() { return L"gui::ColourCtrl"; }
 
 			template <typename TParams = CtrlParams, typename Derived = void> struct Params :MakeCtrlParams<TParams, choose_non_void<Derived, Params<>>>
 			{
@@ -70,7 +70,7 @@ namespace pr
 		};
 
 		// A dialog for picking a colour
-		struct ColourUI :pr::gui::Form
+		struct ColourUI :gui::Form
 		{
 			pr::Colour32 m_colour;
 

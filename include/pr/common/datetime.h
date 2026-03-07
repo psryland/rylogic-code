@@ -169,7 +169,7 @@ OLD STUFF, DON'T USE
 #include "pr/macros/noexcept.h"
 #include "pr/common/to.h"
 #include "pr/common/fmt.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/str/string.h"
 
 namespace pr
@@ -437,7 +437,7 @@ namespace pr
 			if (asctime_s(buf, this) == 0) throw std::runtime_error("asctime_s failed");
 			std::string s = buf;
 			while (s.rbegin() != s.rend() && *s.rbegin() == '\n') s.resize(s.size() - 1);
-			return pr::str::TrimChars(s, "\n", false, true);
+			return str::TrimChars(s, "\n", false, true);
 		}
 
 		// Return a pretty string representation of the time

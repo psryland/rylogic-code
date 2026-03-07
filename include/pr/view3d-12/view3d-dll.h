@@ -42,13 +42,13 @@ namespace pr
 	namespace view3d
 	{
 		using DllHandle = unsigned char const*;
-		using Object = pr::rdr12::ldraw::LdrObject*;
-		using Gizmo = pr::rdr12::ldraw::LdrGizmo*;
-		using Texture = pr::rdr12::Texture2D*;
-		using CubeMap = pr::rdr12::TextureCube*;
-		using Sampler = pr::rdr12::Sampler*;
-		using Shader = pr::rdr12::Shader*;
-		using Window = pr::rdr12::V3dWindow*;
+		using Object = rdr12::ldraw::LdrObject*;
+		using Gizmo = rdr12::ldraw::LdrGizmo*;
+		using Texture = rdr12::Texture2D*;
+		using CubeMap = rdr12::TextureCube*;
+		using Sampler = rdr12::Sampler*;
+		using Shader = rdr12::Shader*;
+		using Window = rdr12::V3dWindow*;
 		using Colour = unsigned int;
 
 		#pragma region Enumerations
@@ -72,7 +72,7 @@ namespace pr
 			Front   = D3D12_CULL_MODE::D3D12_CULL_MODE_FRONT,
 			Back    = D3D12_CULL_MODE::D3D12_CULL_MODE_BACK,
 		};
-		enum class EGeom :int // pr::rdr12::EGeom
+		enum class EGeom :int // rdr12::EGeom
 		{
 			Unknown = 0,
 			Vert    = 1 << 0, // Object space 3D position
@@ -81,7 +81,7 @@ namespace pr
 			Tex0    = 1 << 3, // Diffuse texture
 			_flags_enum = 0,
 		};
-		enum class ETopo :int // pr::rdr12::ETopo
+		enum class ETopo :int // rdr12::ETopo
 		{
 			Invalid      = D3D_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED,
 			PointList    = D3D_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_POINTLIST,
@@ -103,7 +103,7 @@ namespace pr
 			ShadowMap,
 			RayCast,
 		};
-		enum class ENuggetFlag :int // pr::rdr12::ENuggetFlag
+		enum class ENuggetFlag :int // rdr12::ENuggetFlag
 		{
 			None = 0,
 
@@ -130,7 +130,7 @@ namespace pr
 
 			_flags_enum = 0,
 		};
-		enum class EStockTexture :int // pr::rdr12::EStockTexture
+		enum class EStockTexture :int // rdr12::EStockTexture
 		{
 			Invalid = 0,
 			Black,
@@ -144,7 +144,7 @@ namespace pr
 			WhiteTriangle,
 			EnvMapProjection,
 		};
-		enum class EStockSampler : int // pr::rdr12::EStockSampler
+		enum class EStockSampler : int // rdr12::EStockSampler
 		{
 			Invalid = 0,
 			PointClamp,
@@ -154,7 +154,7 @@ namespace pr
 			AnisotropicClamp,
 			AnisotropicWrap,
 		};
-		enum class EStockShader : int // pr::rdr12::EStockShader
+		enum class EStockShader : int // rdr12::EStockShader
 		{
 			Invalid = 0,
 			Forward,
@@ -224,7 +224,7 @@ namespace pr
 			SelectionBox = 1 << 2,
 			_flags_enum = 0,
 		};
-		enum class ENavOp :int // pr::camera::ENavOp
+		enum class ENavOp :int // camera::ENavOp
 		{
 			None      = 0,
 			Translate = 1 << 0,
@@ -232,7 +232,7 @@ namespace pr
 			Zoom      = 1 << 2,
 			_flags_enum = 0,
 		};
-		enum class ECameraLockMask :int // pr::camera::ELockMask
+		enum class ECameraLockMask :int // camera::ELockMask
 		{
 			None           = 0,
 			TransX         = 1 << 0,
@@ -256,7 +256,7 @@ namespace pr
 			Both = Near | Far,
 			_flags_enum = 0,
 		};
-		enum class EColourOp :int // pr::rdr12::EColourOp
+		enum class EColourOp :int // rdr12::EColourOp
 		{
 			Overwrite,
 			Add,
@@ -338,7 +338,7 @@ namespace pr
 			All          = 0x1FF,
 			_flags_enum = 0,
 		};
-		enum class ESortGroup :int // pr::rdr12::ESortGroup
+		enum class ESortGroup :int // rdr12::ESortGroup
 		{
 			Min = 0,               // The minimum sort group value
 			PreOpaques = 63,       // 
@@ -1439,11 +1439,11 @@ namespace pr::view3d
 		};
 	}
 
-	using ObjectPtr  = std::unique_ptr<pr::rdr12::ldraw::LdrObject, impl::Deleter>;
-	using GizmoPtr   = std::unique_ptr<pr::rdr12::ldraw::LdrGizmo, impl::Deleter>;
-	using TexturePtr = std::unique_ptr<pr::rdr12::Texture2D, impl::Deleter>;
-	using CubeMapPtr = std::unique_ptr<pr::rdr12::TextureCube, impl::Deleter>;
-	using SamplerPtr = std::unique_ptr<pr::rdr12::Sampler, impl::Deleter>;
-	using ShaderPtr  = std::unique_ptr<pr::rdr12::Shader, impl::Deleter>;
-	using WindowPtr  = std::unique_ptr<pr::rdr12::V3dWindow, impl::Deleter>;
+	using ObjectPtr  = std::unique_ptr<rdr12::ldraw::LdrObject, impl::Deleter>;
+	using GizmoPtr   = std::unique_ptr<rdr12::ldraw::LdrGizmo, impl::Deleter>;
+	using TexturePtr = std::unique_ptr<rdr12::Texture2D, impl::Deleter>;
+	using CubeMapPtr = std::unique_ptr<rdr12::TextureCube, impl::Deleter>;
+	using SamplerPtr = std::unique_ptr<rdr12::Sampler, impl::Deleter>;
+	using ShaderPtr  = std::unique_ptr<rdr12::Shader, impl::Deleter>;
+	using WindowPtr  = std::unique_ptr<rdr12::V3dWindow, impl::Deleter>;
 }

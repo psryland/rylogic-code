@@ -102,22 +102,22 @@ namespace pr::rdr12::ldraw
 		{
 			traits<TOut>::write(out, { byte_ptr(&m), sizeof(m) });
 		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec2<S, void> v)
-		{
-			traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec3<S, void> v)
-		{
-			traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec4<S, void> v)
-		{
-			traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Mat4x4<S, void, void> m)
-		{
-			traits<TOut>::write(out, { byte_ptr(&m), sizeof(m) });
-		}
+		//template <typename TOut, ScalarType S> static void Append(TOut& out, Vec2<S, void> v)
+		//{
+		//	traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
+		//}
+		//template <typename TOut, ScalarType S> static void Append(TOut& out, Vec3<S, void> v)
+		//{
+		//	traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
+		//}
+		//template <typename TOut, ScalarType S> static void Append(TOut& out, Vec4<S, void> v)
+		//{
+		//	traits<TOut>::write(out, { byte_ptr(&v), sizeof(v) });
+		//}
+		//template <typename TOut, ScalarType S> static void Append(TOut& out, Mat4x4<S, void, void> m)
+		//{
+		//	traits<TOut>::write(out, { byte_ptr(&m), sizeof(m) });
+		//}
 		template <typename TOut> static void Append(TOut& out, EAddrMode addr)
 		{
 			Append(out, s_cast<int>(addr));

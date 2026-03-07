@@ -8,7 +8,7 @@
 #include <algorithm>
 #include "pr/common/assert.h"
 #include "pr/common/alloca.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 #ifndef PR_DBG_CONVEX_HULL
 #define PR_DBG_CONVEX_HULL 0
@@ -138,7 +138,7 @@ namespace pr
 
 					// If the span is zero then all verts must lie
 					// in a plane parallel to the XY plane.
-					if (dmax - dmin < maths::tiny<float>)
+					if (dmax - dmin < math::tiny<float>)
 						return false;
 
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("zaxis", "FF0000FF", m_vcont[*vmin], m_vcont[*vmax], ldr_extm));
@@ -167,7 +167,7 @@ namespace pr
 					}
 
 					// If all verts lie on the zaxis...
-					if (dmax < maths::tiny<float>)
+					if (dmax < math::tiny<float>)
 						return false;
 				
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("yaxis", "FF00FF00", zmin, m_vcont[*vmax], ldr_extm));
@@ -191,7 +191,7 @@ namespace pr
 					}
 
 					// If all verts lie on in the plane...
-					if (dmax < maths::tiny<float>)
+					if (dmax < math::tiny<float>)
 						return false;
 				
 					PR_EXPAND(PR_DBG_CONVEX_HULL, ldr::Line("xaxis", "FFFF0000", zmin, m_vcont[*vmax], ldr_extm));
@@ -238,7 +238,7 @@ namespace pr
 					for (auto plane = m_hs_beg; plane != m_hs_last; ++plane, ++face_index)
 					{
 						PR_ASSERT(PR_DBG_CONVEX_HULL, m_vcont[*v].w == 1.0f, "Should be finding the convex hull of positions, not directions");
-						auto d = Dot4(*plane, m_vcont[*v]);
+						auto d = Dot(*plane, m_vcont[*v]);
 						if (d <= 0.0f)
 							continue; // behind 'plane'
 
@@ -318,7 +318,7 @@ namespace pr
 					for (auto face = m_fbeg; !(face == m_flast); )
 					{
 						// Ignore faces that face away or are edge on to 'v'
-						if (Dot4(*plane, vert) <= 0.0f)
+						if (Dot(*plane, vert) <= 0.0f)
 						{
 							++face;
 							++plane;

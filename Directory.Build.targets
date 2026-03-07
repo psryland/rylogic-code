@@ -28,4 +28,40 @@
 			StandardOutputImportance="High" />
 	</Target>
 
+	<!-- Auto-pack library assemblies to lib/packages and purge the global cache.
+	     This must be in .targets (not .props) so that IsPackable from individual .csproj files is available. -->
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true'">
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
+		<_RylogicNuGetPackage>true</_RylogicNuGetPackage>
+	</PropertyGroup>
+	<ItemGroup Condition="'$(_RylogicNuGetPackage)' == 'true'">
+		<None Include="$(MSBuildProjectDirectory)\Readme.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildProjectDirectory)\Readme.md')" />
+	</ItemGroup>
+
+	<!-- Refresh the global nuget cache for the current version after packing so consumers always get the latest build.
+	     Overwrites in-place (no delete) for parallel-build safety.
+	     Uses a stamp file per package to run only once across TFMs in multi-targeting builds. -->
+	<Target Name="PurgeNuGetCache" AfterTargets="Pack" Condition="'$(_RylogicNuGetPackage)' == 'true'">
+		<PropertyGroup>
+			<_PkgIdLower>$(PackageId.ToLowerInvariant())</_PkgIdLower>
+			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(Version)</_NuGetCacheDir>
+			<_NuPkgPath>$(PackageOutputPath)$(PackageId).$(Version).nupkg</_NuPkgPath>
+			<_NuPkgCacheName>$(_PkgIdLower).$(Version).nupkg</_NuPkgCacheName>
+			<_PurgeStamp>$(RylogicRoot)obj\.purge.$(_PkgIdLower).stamp</_PurgeStamp>
+			<_NeedsPurge>false</_NeedsPurge>
+			<_NeedsPurge Condition="!Exists('$(_PurgeStamp)')">true</_NeedsPurge>
+			<_NeedsPurge Condition="'$(_NeedsPurge)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_PurgeStamp)').Ticks)">true</_NeedsPurge>
+		</PropertyGroup>
+
+		<!-- Overwrite cache in-place to avoid a window where the directory is absent (parallel-build safety).
+		     ContinueOnError tolerates locked DLLs held by concurrent dotnet-script processes. -->
+		<MakeDir Condition="'$(_NeedsPurge)' == 'true'" Directories="$(_NuGetCacheDir)" />
+		<Unzip Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFolder="$(_NuGetCacheDir)" OverwriteReadOnlyFiles="true" ContinueOnError="WarnAndContinue" />
+		<Copy Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFiles="$(_NuGetCacheDir)\$(_NuPkgCacheName)" ContinueOnError="WarnAndContinue" />
+		<Exec Condition="'$(_NeedsPurge)' == 'true'" Command="dotnet-script.exe --no-cache &quot;$(ScriptPath)InstallNugetCache.csx&quot; -- &quot;$(_NuPkgPath)&quot; &quot;$(_NuGetCacheDir)&quot; &quot;$(_NuPkgCacheName)&quot;" IgnoreExitCode="true" />
+		<Touch Condition="'$(_NeedsPurge)' == 'true'" Files="$(_PurgeStamp)" AlwaysCreate="true" />
+		<Message Condition="'$(_NeedsPurge)' == 'true'" Text="Reinstalled $(_PkgIdLower) $(Version) into nuget cache" Importance="high" />
+	</Target>
+
 </Project>

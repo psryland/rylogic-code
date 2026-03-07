@@ -1,0 +1,90 @@
+{
+	"scene": {
+		"description": "Objects falling under gravity onto a ground plane. 3 spheres and 4 boxes at various heights, with elastic collisions. Demonstrates gravity, ground contact, and inter-body collisions.",
+
+		"gravity": [0, 0, -9.81],
+
+		"material": {
+			"elasticity": 1.0,
+			"friction": 0.3
+		},
+
+		"ground_plane": {
+			"height": 0.0,
+			"texture": "#checker3"
+		},
+
+		"bodies": [
+			{
+				"name": "box_large",
+				"shape": {
+					"type": "box",
+					"dimensions": [2.0, 2.0, 2.0]
+				},
+				"mass": 20.0,
+				"position": [-3.0, 0.0, 8.0],
+				"velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "box_medium",
+				"shape": {
+					"type": "box",
+					"dimensions": [1.5, 1.5, 1.5]
+				},
+				"mass": 10.0,
+				"position": [2.0, -1.0, 12.0],
+				"velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "box_small",
+				"shape": {
+					"type": "box",
+					"dimensions": [1.0, 1.0, 1.0]
+				},
+				"mass": 5.0,
+				"position": [0.0, 2.0, 16.0],
+				"velocity": [0.5, 0.0, 0.0]
+			},
+			{
+				"name": "box_tilted",
+				"shape": {
+					"type": "box",
+					"dimensions": [1.2, 1.2, 1.2]
+				},
+				"mass": 8.0,
+				"position": [-1.0, -2.0, 20.0],
+				"velocity": [0.3, -0.2, 0.0]
+			},
+			{
+				"name": "sphere_heavy",
+				"shape": {
+					"type": "sphere",
+					"radius": 1.0
+				},
+				"mass": 15.0,
+				"position": [3.0, 1.0, 6.0],
+				"velocity": [-0.5, 0.0, 0.0]
+			},
+			{
+				"name": "sphere_medium",
+				"shape": {
+					"type": "sphere",
+					"radius": 0.8
+				},
+				"mass": 8.0,
+				"position": [-2.0, 1.5, 14.0],
+				"velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "sphere_light",
+				"shape": {
+					"type": "sphere",
+					"radius": 0.5
+				},
+				"mass": 2.0,
+				"position": [1.0, -0.5, 10.0],
+				"velocity": [0.0, 0.3, 0.0]
+			}
+		]
+	}
+}

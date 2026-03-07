@@ -413,8 +413,8 @@ namespace pr::storage
 {
 	PRUnitTestClass(CsvTests)
 	{
-		using Str = pr::csv::Str;
-		using Csv = pr::csv::Csv;
+		using Str = csv::Str;
+		using Csv = csv::Csv;
 
 		std::filesystem::path test_csv = temp_dir() / L"test_csv.csv";
 
@@ -533,7 +533,7 @@ namespace pr::storage
 			PR_EXPECT(d == 3.0);
 
 			PR_EXPECT(loc.row == 4 && loc.col == 0);
-			PR_EXPECT(pr::filesys::EraseFile<std::string>("test_csv.csv"));
+			PR_EXPECT(filesys::EraseFile<std::string>("test_csv.csv"));
 			*/
 		}
 	};

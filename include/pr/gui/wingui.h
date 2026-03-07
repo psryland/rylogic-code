@@ -2402,7 +2402,7 @@ namespace pr
 			// The new size of the resized window
 			Size Size() const
 			{
-				return pr::gui::Size(m_wp->cx, m_wp->cy);
+				return gui::Size(m_wp->cx, m_wp->cy);
 			}
 		};
 
@@ -2671,6 +2671,7 @@ namespace pr
 				LoopCont m_loop;          // The loops to execute
 				Filters m_filters;        // Message filters to process messages before TranslateMessage is called
 				time_point_t m_clock0;    // The time when 'Run' was called
+				bool m_quit_pending;      // Set when PostQuitMessage has been called, enables aggressive drain
 
 			public:
 
@@ -2682,6 +2683,7 @@ namespace pr
 					, m_filters()
 					, m_clock0()
 					, m_config()
+					, m_quit_pending(false)
 				{
 					m_filters.push_back(this);
 				}
@@ -2758,7 +2760,31 @@ namespace pr
 
 						HandleMessage(msg);
 					}
+
+					// WM_QUIT has the lowest priority in the Windows message queue. It is only
+					// synthesized by PeekMessage/GetMessage when no other messages are pending.
+					// If any source continuously generates messages (timers, paint, posted messages
+					// from background threads), WM_QUIT can be starved indefinitely.
+					// Check explicitly by draining all remaining messages in a second pass.
+					if (m_quit_pending)
+					{
+						while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+						{
+							if (msg.message == WM_QUIT)
+								return static_cast<int>(msg.wParam);
+							// Discard non-quit messages during shutdown drain
+						}
+					}
 					return std::nullopt;
+				}
+
+				// Post WM_QUIT to the thread message queue and enable aggressive message
+				// draining so that WM_QUIT (which has the lowest priority) is not starved
+				// by continuously generated messages from timers, paint, or background threads.
+				void RequestQuit(int exit_code = 0)
+				{
+					m_quit_pending = true;
+					::PostQuitMessage(exit_code);
 				}
 
 				// Call 'Step' on all loops that are pending. Returns the time in milliseconds until the next loop is due.
@@ -3922,15 +3948,15 @@ namespace pr
 			//  - All controls use the DEFAULT_GUI_FONT, this ensures auto scaling works properly.
 
 			// These are here to import the types within Control
-			using EAnchor        = pr::gui::EAnchor;
-			using EDock          = pr::gui::EDock;
-			using EDialogResult  = pr::gui::EDialogResult;
-			using EStartPosition = pr::gui::EStartPosition;
-			using WndRef         = pr::gui::WndRef;
+			using EAnchor        = gui::EAnchor;
+			using EDock          = gui::EDock;
+			using EDialogResult  = gui::EDialogResult;
+			using EStartPosition = gui::EStartPosition;
+			using WndRef         = gui::WndRef;
 			using Controls       = std::vector<Control*>;
 
 			template <typename Lhs, typename Rhs>
-			using not_void_t = pr::gui::not_void_t<Lhs, Rhs>;
+			using not_void_t = gui::not_void_t<Lhs, Rhs>;
 			template <typename Derived = void>
 			using Params = CtrlParams<Derived>;
 			template <typename P>
@@ -3941,7 +3967,7 @@ namespace pr
 			decltype(std::placeholders::_3) const _3{};
 			decltype(std::placeholders::_4) const _4{};
 
-			static constexpr int ID_UNUSED = pr::gui::ID_UNUSED;
+			static constexpr int ID_UNUSED = gui::ID_UNUSED;
 
 			#pragma region Auto Size Position
 			static auto const AutoPosMask  = auto_size_position::AutoPosMask;
@@ -4249,7 +4275,7 @@ namespace pr
 			TRet SendMsg(UINT msg, WP wparam = 0, LP lparam = 0) const
 			{
 				assert(m_hwnd != nullptr);
-				return pr::gui::SendMsg<TRet,WP,LP>::Send(m_hwnd, msg, wparam, lparam);
+				return gui::SendMsg<TRet,WP,LP>::Send(m_hwnd, msg, wparam, lparam);
 			}
 
 			#pragma region Accessors
@@ -5193,7 +5219,7 @@ namespace pr
 					case WM_PAINT:
 					{
 						// Notes:
-						//  - Only create a pr::gui::PaintStruct if you intend to do all the painting yourself,
+						//  - Only create a gui::PaintStruct if you intend to do all the painting yourself,
 						//    otherwise DefWndProc will do it (i.e. most controls are drawn by DefWndProc).
 						//  - The update rect in the paint args is the area needing painting.
 						//  - Typical behaviour is to create a PaintStruct, however you can choose to not do
@@ -5571,7 +5597,7 @@ namespace pr
 						if (ForwardToChildren(toplevel_hwnd, message, wparam, lparam, result, AllChildren))
 							return true;
 
-						// Parent window is being destroy, destroy this window to
+						// Parent window is being destroyed, destroy this window too
 						if (toplevel_hwnd != m_hwnd)
 							::DestroyWindow(m_hwnd);
 
@@ -5918,7 +5944,7 @@ namespace pr
 
 					// Display the message
 					static int msg_idx = 0; ++msg_idx;
-					auto m = pr::gui::DebugMessage(hwnd, message, wparam, lparam);
+					auto m = gui::DebugMessage(hwnd, message, wparam, lparam);
 					if (*m)
 					{
 						for (int i = 1; i < wnd_proc_nest(); ++i) out("\t");
@@ -6591,12 +6617,18 @@ namespace pr
 						// Don't detach children, that happens when the Form/Control is destructed
 						Parent(nullptr);
 
-						// If we're the main app, post WM_QUIT
+						// If we're the main app, quit the message loop (or fall back to
+						// PostQuitMessage if no loop is registered).
 						if (cp().m_main_wnd)
-							::PostQuitMessage((int)m_dialog_result);
+						{
+							if (cp().m_msg_loop)
+								cp().m_msg_loop->RequestQuit((int)m_dialog_result);
+							else
+								::PostQuitMessage((int)m_dialog_result);
+						}
 
 						// Return false so that WM_DESTROY is passed to the WndProc which
-						// while unhook the thunk and null the 'm_hwnd'
+						// will unhook the thunk and null the 'm_hwnd'
 						return false;
 					}
 					case WM_CTLCOLORDLG:
@@ -6904,7 +6936,7 @@ namespace pr
 			}
 
 			// Events
-			// Click += [&](pr::gui::Button&, pr::gui::EmptyArgs const&){}
+			// Click += [&](gui::Button&, gui::EmptyArgs const&){}
 			EventHandler<Button&, EmptyArgs const&> Click;
 			EventHandler<Button&, EmptyArgs const&> CheckedChanged;
 
@@ -7663,7 +7695,7 @@ namespace pr
 				{}
 			};
 
-			// [&](pr::gui::ListView&, pr::gui::ListView::ItemChangedEventArgs const&){}
+			// [&](gui::ListView&, gui::ListView::ItemChangedEventArgs const&){}
 			EventHandler<ListView&, ItemChangingEventArgs const&> ItemChanging;
 			EventHandler<ListView&, ItemChangedEventArgs const&> ItemChanged;
 			EventHandler<ListView&, ItemChangingEventArgs const&> SelectionChanging;
@@ -8076,7 +8108,7 @@ namespace pr
 			enum { DefW = 80, DefH = 80 };
 			enum :DWORD { DefaultStyle   = DefaultControlStyle & ~(WS_CLIPCHILDREN) };
 			enum :DWORD { DefaultStyleEx = DefaultControlStyleEx | WS_EX_CONTROLPARENT };
-			static wchar_t const* WndClassName() { return L"pr::gui::Panel"; }
+			static wchar_t const* WndClassName() { return L"gui::Panel"; }
 
 			template <typename Derived = void>
 			struct Params :Control::Params<not_void_t<Derived, Params<Derived>>>
@@ -8386,7 +8418,7 @@ namespace pr
 			gui::Rect Rect(int pane) const
 			{
 				assert(::IsWindow(m_hwnd) && pane >= 0 && pane < 256);
-				pr::gui::Rect rect;
+				gui::Rect rect;
 				Check(::SendMessageW(m_hwnd, SB_GETRECT, WPARAM(pane), LPARAM(&rect)) != 0, "Failed to get the client rect for a status bar pane");
 				return rect;
 			}
@@ -8801,7 +8833,7 @@ namespace pr
 			enum { DefW = 80, DefH = 80 };
 			enum :DWORD { DefaultStyle   = DefaultControlStyle };
 			enum :DWORD { DefaultStyleEx = DefaultControlStyleEx };
-			static wchar_t const* WndClassName() { return L"pr::gui::Splitter"; }
+			static wchar_t const* WndClassName() { return L"gui::Splitter"; }
 
 			template <typename Derived = void>
 			struct Params :Control::Params<not_void_t<Derived, Params<Derived>>>

@@ -1,6 +1,6 @@
 #! "net9.0"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.0.0"
+#r "nuget: Rylogic.Core, 2.0.2"
 #nullable enable
 
 using System;
@@ -31,11 +31,11 @@ public class UserVars
 	public static string MSBuild => Path([VSDir, "MSBuild\\Current\\Bin\\MSBuild.exe"]);
 
 	/// <summary>The version of installed Visual Studio</summary>
-	public static string VSVersion => "17.0";
-	public static string VCVersion => "14.44.35207";
+	public static string VSVersion => "18.0";
+	public static string VCVersion => "14.50.35717";
 
 	/// <summary>Visual Studio installation directory</summary>
-	public static string VSDir => m_vs_dir ??= Path(["C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise"]);
+	public static string VSDir => m_vs_dir ??= Path(["C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise"]);
 	private static string? m_vs_dir;
 	//vs_devenv = Path(vs_dir, "Common7\\IDE\\devenv.exe")
 	//vs_envvars = Path(vs_dir, "Common7\\Tools\\VsDevCmd.bat")

@@ -3,11 +3,10 @@
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
 #pragma once
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
 #include "pr/collision/ray.h"
 #include "pr/collision/ray_cast_result.h"
-#include "pr/geometry/intersect.h"
-#include "pr/geometry/point.h"
 
 namespace pr::collision
 {
@@ -25,13 +24,13 @@ namespace pr::collision
 				return ray;
 
 			auto direction_len  = Length(ray.m_direction);
-			if (direction_len < maths::tiny<float>)
+			if (direction_len < math::tiny<float>)
 				return ray; // Zero-length ray, cannot shift
 			
 			auto forward        = ray.m_direction / direction_len;
 			auto sideways       = (forward * Dot3(ray.m_point, forward) - ray.m_point).w0();
 			auto sideways_len   = Length(sideways);
-			sideways *= sideways_len > maths::tiny<float> ? (1.f / sideways_len) : 0.f; // If sideways length is zero, ray passes through origin - no shift needed
+			sideways *= sideways_len > math::tiny<float> ? (1.f / sideways_len) : 0.f; // If sideways length is zero, ray passes through origin - no shift needed
 			return Ray(
 				ray.m_point +
 				forward  * pr::Min(direction_len, ray.m_thickness) +
@@ -48,7 +47,7 @@ namespace pr::collision
 
 		// Check for zero-length ray direction
 		auto direction_lenSq = LengthSq(ray.m_direction);
-		if (direction_lenSq < Sqr(maths::tiny<float>))
+		if (direction_lenSq < Sqr(math::tiny<float>))
 			return result; // No valid ray direction
 		
 		// Find the closest point to the line
@@ -87,7 +86,7 @@ namespace pr::collision
 		result.m_shape = &shape.m_base;
 		for (auto i = 0; i != 3; ++i)
 		{
-			if (Abs(ray.m_direction[i]) < maths::tiny<float>)
+			if (Abs(ray.m_direction[i]) < math::tiny<float>)
 			{
 				if (Abs(ray.m_point[i]) > shape.m_radius[i])
 					return result;
@@ -403,7 +402,7 @@ namespace pr::collision
 				// separating axis 'dir' than 'nearest' then the line does not intersect the
 				// polytope and the distance is the distance from the nearest point to the line
 				float v_dist = Dot3(dir, vert);
-				float n_dist = Dot3(dir, smplx.m_nearest) + maths::tiny<float>;
+				float n_dist = Dot3(dir, smplx.m_nearest) + math::tiny<float>;
 				if( v_dist <= n_dist )
 				{
 					if( smplx.m_intersects ) break;
@@ -510,16 +509,16 @@ namespace pr::collision
 	{
 		switch (shape.m_type)
 		{
-			#define PR_COLLISION_SHAPE_RAYCAST(name, comp) case EShape::name: return RayCast(ray, shape_cast<Shape##name>(shape));
-			PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_RAYCAST)
-			#undef PR_COLLISION_SHAPE_RAYCAST
+			#define PR_ENUM(name, comp) case EShape::name: return RayCast(ray, shape_cast<Shape##name>(shape));
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
 			default: assert("Unknown primitive type" && false); return RayCastResult{};
 		}
 	}
 
 	// Cast a world space ray
-	template <ShapeType TShape>
-	inline RayCastResult RayCastWS(Ray const& ray, TShape const& shape, m4x4 const& s2w)
+	template <ShapeType Shp>
+	inline RayCastResult RayCastWS(Ray const& ray, Shp const& shape, m4x4 const& s2w)
 	{
 		// Transform the ray cast into shape space
 		auto result = RayCast(InvertAffine(s2w) * ray, shape);

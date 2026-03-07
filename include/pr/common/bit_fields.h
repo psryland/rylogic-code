@@ -6,6 +6,7 @@
 #pragma once
 #include <type_traits>
 #include <concepts>
+#include <bit>
 
 namespace pr
 {

@@ -39,7 +39,12 @@ namespace pr::unittests
 #include <sstream>
 #include <fstream>
 #include <vector>
+#include <deque>
 #include <tuple>
+#include <set>
+#include <map>
+#include <unordered_set>
+#include <unordered_map>
 #include <filesystem>
 #include <algorithm>
 #include <functional>

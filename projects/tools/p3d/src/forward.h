@@ -19,8 +19,16 @@
 #include "pr/common/hash.h"
 #include "pr/common/hresult.h"
 #include "pr/common/command_line.h"
+#include "pr/math/math.h"
+#include "pr/math/conversion.h"
 #include "pr/filesys/filesys.h"
 #include "pr/script/script.h"
 #include "pr/script/reader.h"
 
 #include "pr/geometry/p3d.h"
+
+using namespace pr;
+using namespace pr::math;
+using namespace pr::geometry;
+using namespace std::literals;
+using namespace std::filesystem;

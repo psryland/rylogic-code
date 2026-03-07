@@ -383,7 +383,7 @@ namespace pr::script
 			if (include_local_dir && std::filesystem::exists(loc.Filepath()))
 			{
 				// Note: 'local_dir' means the directory local to the current source location 'loc'.
-				// Don't use the executable local directory: "pr::filesys::CurrentDirectory<string>()"
+				// Don't use the executable local directory: "filesys::CurrentDirectory<string>()"
 				// If the executable directory is wanted, add it manually before calling resolve.
 				local_dir = loc.Filepath().parent_path();
 				local_dir_ptr = !local_dir.empty() ? &local_dir : nullptr;
@@ -428,4 +428,3 @@ namespace pr::script
 		}
 	};
 }
-

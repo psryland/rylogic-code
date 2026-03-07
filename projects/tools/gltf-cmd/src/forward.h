@@ -10,7 +10,7 @@
 
 #include "pr/common/command_line.h"
 #include "pr/geometry/gltf.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace gltf_cmd
 {

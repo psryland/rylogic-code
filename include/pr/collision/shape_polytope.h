@@ -3,7 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
-#include "pr/container/vector.h"
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
 
 namespace pr::collision
@@ -79,7 +79,7 @@ namespace pr::collision
 		v4*       vert_beg()                    { return type_ptr<v4>(this + 1); }
 		v4 const* vert_end() const              { return vert_beg() + m_vert_count; }
 		v4*       vert_end()                    { return vert_beg() + m_vert_count; }
-		v4        vertex(std::size_t idx) const { return vert_beg()[idx]; }
+		v4 const& vertex(std::size_t idx) const { return vert_beg()[idx]; }
 		v4&       vertex(std::size_t idx)       { return vert_beg()[idx]; }
 
 		// Face accessors
@@ -120,14 +120,13 @@ namespace pr::collision
 			return &m_base;
 		}
 	};
-	static_assert(is_shape_v<ShapePolytope>);
+	static_assert(ShapeType<ShapePolytope>);
 	using PolyIdx       = ShapePolytope::Idx;
 	using ShapePolyFace = ShapePolytope::Face;
 	using ShapePolyNbrs = ShapePolytope::Nbrs;
 
 	// Return the bounding box for a polytope
-	template <typename>
-	BBox pr_vectorcall CalcBBox(ShapePolytope const& shape)
+	inline BBox pr_vectorcall CalcBBox(ShapePolytope const& shape)
 	{
 		auto bb = BBox::Reset();
 		for (v4 const *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v)
@@ -137,8 +136,7 @@ namespace pr::collision
 	}
 
 	// Return the volume of the polytope
-	template <typename = void>
-	float CalcVolume(ShapePolytope const& shape)
+	inline float CalcVolume(ShapePolytope const& shape)
 	{
 		auto volume = 0.0f;
 		for (ShapePolyFace const *f = shape.face_beg(), *f_end = shape.face_end(); f != f_end; ++f)
@@ -152,8 +150,7 @@ namespace pr::collision
 	}
 
 	// Return the centre of mass position of the polytope
-	template <typename = void>
-	v4 CalcCentreOfMass(ShapePolytope const& shape)
+	inline v4 CalcCentreOfMass(ShapePolytope const& shape)
 	{
 		assert("Centre of mass is undefined for an empty polytope" && shape.m_vert_count != 0 && shape.m_face_count != 0);
 
@@ -184,8 +181,7 @@ namespace pr::collision
 	// Shift the verts of the polytope so they are centred on a new position.
 	// 'shift' should be in 'shape' space. NOTE: This invalidates the inertia matrix.
 	// You will need to translate the inertia matrix by the same shift.
-	template <typename>
-	void pr_vectorcall ShiftCentre(ShapePolytope& shape, v4 shift)
+	inline void pr_vectorcall ShiftCentre(ShapePolytope& shape, v4 shift)
 	{
 		assert(shift.w == 0.0f);
 		for (v4 *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) *v -= shift;
@@ -193,11 +189,10 @@ namespace pr::collision
 	}
 
 	// Return a support vertex for a polytope
-	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapePolytope const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
+	inline v4 pr_vectorcall SupportVertex(ShapePolytope const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
 	{
 		assert("Invalid hint vertex index" && hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count);
-		assert("Direction is too short" && Length(direction) > maths::tiny<float>);
+		assert("Direction is too short" && Length(direction) > math::tiny<float>);
 
 		// Find the support vertex using a 'hill-climbing' search
 		// Start at the hint vertex and look for a neighbour that is more extreme in the
@@ -229,7 +224,7 @@ namespace pr::collision
 				{
 	 				skip_first_nbr = true;
 					auto dist = Dot3(shape.vertex(*n), direction);
-					if (dist > sup_dist + maths::tiny<float>)
+					if (dist > sup_dist + math::tiny<float>)
 					{
 						sup_vert_id    = *n;
 						sup_dist       = dist;
@@ -277,12 +272,11 @@ namespace pr::collision
 	// Returns the longest/shortest axis of a polytope in 'direction' (in polytope space)
 	// Searching starts at 'hint_vert_id'. The spanning vertices are 'vert_id0' and 'vert_id1'
 	// 'major' is true for the longest axis, false for the shortest axis
-	template <typename>
-	void GetAxis(ShapePolytope const& shape, v4& direction, int hint_vert_id, int& vert_id0, int& vert_id1, bool major)
+	inline void GetAxis(ShapePolytope const& shape, v4& direction, int hint_vert_id, int& vert_id0, int& vert_id1, bool major)
 	{
 		assert(hint_vert_id  >= 0 && hint_vert_id < shape.m_vert_count);
 
-		auto eps = major ? maths::tiny<float> : -maths::tiny<float>;
+		auto eps = major ? math::tiny<float> : -math::tiny<float>;
 
 		vert_id0 = hint_vert_id;
 		auto V1 = &shape.vertex(vert_id0);
@@ -316,15 +310,13 @@ namespace pr::collision
 	}
 
 	// Return the number of vertices in a polytope
-	template <typename = void>
-	int VertCount(ShapePolytope const& shape)
+	inline int VertCount(ShapePolytope const& shape)
 	{
 		return shape.m_vert_count;
 	}
 
 	// Return the number of edges in a polytope
-	template <typename = void>
-	int EdgeCount(ShapePolytope const& shape)
+	inline int EdgeCount(ShapePolytope const& shape)
 	{
 		// The number of edges in the polytope is the number of
 		// neighbours minus the artificial neighbours over 2.
@@ -336,26 +328,21 @@ namespace pr::collision
 	}
 
 	// Return the number of faces in a polytope
-	template <typename = void>
-	int FaceCount(ShapePolytope const& shape)
+	inline int FaceCount(ShapePolytope const& shape)
 	{
 		// Use Euler's formula: F - E + V = 2. => F = 2 + E - V
 		return 2 + EdgeCount(shape) - VertCount(shape);
 	}
 
-	// Generate the verts of a polytope. 'verts' should point to a buffer of v4's with
-	// a length equal to the value returned from 'VertCount'
-	template <typename = void>
-	void GenerateVerts(ShapePolytope const& shape, v4* verts, v4* verts_end)
+	// Generate the verts of a polytope. 'verts' should point to a buffer of v4's with a length equal to the value returned from 'VertCount'
+	inline void GenerateVerts(ShapePolytope const& shape, v4* verts, v4* verts_end)
 	{
 		assert("buffer too small" && int(verts_end - verts) >= shape.m_vert_count); (void)verts_end;
 		memcpy(verts, shape.vert_beg(), sizeof(v4) * VertCount(shape));
 	}
 
-	// Generate the edges of a polytope from the verts and their neighbours. 'edges' should
-	// point to a buffer of 2*the number of edges returned from 'EdgeCount'
-	template <typename = void>
-	void GenerateEdges(ShapePolytope const& shape, v4* edges, v4* edges_end)
+	// Generate the edges of a polytope from the verts and their neighbours. 'edges' should point to a buffer of 2*the number of edges returned from 'EdgeCount'
+	inline void GenerateEdges(ShapePolytope const& shape, v4* edges, v4* edges_end)
 	{
 		assert("buffer too small" && int(edges_end - edges) >= 2 * EdgeCount(shape));
 
@@ -388,8 +375,7 @@ namespace pr::collision
 	}
 
 	// Generate faces for a polytope from the verts and their neighbours.
-	template <typename = void>
-	void GenerateFaces(ShapePolytope const& shape, int* faces, int* faces_end, int& face_count)
+	inline void GenerateFaces(ShapePolytope const& shape, int* faces, int* faces_end, int& face_count)
 	{
 		// Record the start address
 		auto faces_start = faces;
@@ -486,8 +472,7 @@ namespace pr::collision
 	}
 
 	// Remove the face data from a polytope
-	template <typename = void>
-	void StripFaces(ShapePolytope& shape)
+	inline void StripFaces(ShapePolytope& shape)
 	{
 		if (shape.m_face_count == 0)
 			return;
@@ -506,8 +491,7 @@ namespace pr::collision
 	}
 
 	// Validate a polytope
-	template <typename = void>
-	bool Validate(ShapePolytope const& shape, bool check_com, char const** err_msg = nullptr)
+	inline bool Validate(ShapePolytope const& shape, bool check_com, char const** err_msg = nullptr)
 	{
 		auto num_real_nbrs = 0;
 		for (auto i = 0; i != shape.m_vert_count; ++i)

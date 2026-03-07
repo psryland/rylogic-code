@@ -67,7 +67,7 @@ namespace pr
 				m_next = Next();
 			}
 			m_item = m_smooth
-				? Lerp(m_curr, m_next, 1.0f * m_accum / output_count)
+				? TItem(m_curr + (m_next - m_curr) * (1.0f * m_accum / output_count))
 				: m_curr;
 
 			return *this;

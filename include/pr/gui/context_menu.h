@@ -12,6 +12,7 @@
 
 #include "pr/gui/gdiplus.h"
 #include "pr/gui/wingui.h"
+#include "pr/common/fmt.h"
 
 namespace pr
 {
@@ -395,7 +396,7 @@ namespace pr
 			// Textbox menu item. Consists of a label followed by an edit box
 			struct TextBox :Label
 			{
-				using TBox = pr::gui::TextBox;
+				using TBox = gui::TextBox;
 				enum { InnerMargin = 2, OuterMargin = 2 };
 
 				TBox         m_edit;       // The hosted control
@@ -627,7 +628,7 @@ namespace pr
 			{
 				static WndClassEx s_wc = [=]
 				{
-					static wchar_t const* class_name = L"pr::gui::cmenu";
+					static wchar_t const* class_name = L"gui::cmenu";
 					WndClassEx wc(class_name);
 					if (wc.m_atom != 0)
 						return wc;
@@ -1099,7 +1100,7 @@ namespace pr
 			// Consists of a label followed by an edit box
 			struct TextBox :Label
 			{
-				using TBox = pr::gui::TextBox;
+				using TBox = gui::TextBox;
 				enum { InnerMargin = 2, OuterMargin = 2 };
 
 				TBox         m_edit;       // The hosted control
@@ -1333,7 +1334,7 @@ namespace pr
 			};
 
 			MenuParentWindow m_win; // A zero-sized window that handles the menu messages
-			pr::gui::Menu m_root;   // The handle to the popup menu
+			gui::Menu m_root;   // The handle to the popup menu
 			Label m_label;          // The text label for the submenu
 
 			HWND CtrlHost() const override
@@ -1550,7 +1551,7 @@ namespace pr
 
 			pr::GdiPlus   m_gdip_ctx; // Ensure the dlls have been loaded
 			ItemCont      m_items;    // The items in this menu
-			pr::gui::Menu m_root;     // The handle to the root menu
+			gui::Menu m_root;     // The handle to the root menu
 			Selection     m_sel;      // The menu item that was selected
 
 			int ApplySelection()

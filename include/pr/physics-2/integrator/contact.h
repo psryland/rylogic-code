@@ -66,19 +66,23 @@ namespace pr::physics
 		}
 	};
 
-	// Dump the collision scene to LDraw script
+	// Dump the collision scene to LDraw script (best-effort, won't throw)
 	template <typename = void> void Dump(Contact const& c)
 	{
-		using namespace pr::rdr12::ldraw;
+		try
+		{
+			using namespace pr::rdr12::ldraw;
 
-		Builder builder;
-		builder._<LdrRigidBody>("ObjA", 0x80FF0000).rigid_body(*c.m_objA).flags(ERigidBodyFlags::None);
-		builder._<LdrRigidBody>("ObjB", 0x8000FF00).rigid_body(*c.m_objB).flags(ERigidBodyFlags::None).o2w(c.m_b2a);
-		#if 0 //TODO
-		ldr::VectorField(str, "Velocity", 0xFFFFFF00, (v8)c.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
-		ldr::Arrow(str, "Normal", 0xFFFFFFFF, ldr::EArrowType::Fwd, c.m_point_at_t, c.m_axis * 0.1f, 5);
-		#endif
-		builder.Box("Contact", 0xFFFFFF00).dim(0.005f).pos(c.m_point_at_t.w1());
-		builder.Save(L"\\dump\\collision.ldr");
+			Builder builder;
+			builder._<LdrRigidBody>("ObjA", 0x80FF0000).rigid_body(*c.m_objA).flags(ERigidBodyFlags::None);
+			builder._<LdrRigidBody>("ObjB", 0x8000FF00).rigid_body(*c.m_objB).flags(ERigidBodyFlags::None).o2w(c.m_b2a);
+			#if 0 //TODO
+			ldr::VectorField(str, "Velocity", 0xFFFFFF00, (v8)c.m_velocity * 0.1f, v4::Origin(), 2, 0.25f);
+			ldr::Arrow(str, "Normal", 0xFFFFFFFF, ldr::EArrowType::Fwd, c.m_point_at_t, c.m_axis * 0.1f, 5);
+			#endif
+			builder.Box("Contact", 0xFFFFFF00).dim(0.005f).pos(c.m_point_at_t.w1());
+			builder.Save(L"dump\\collision.ldr");
+		}
+		catch (...) {}
 	}
 }

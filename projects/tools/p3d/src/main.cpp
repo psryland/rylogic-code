@@ -7,12 +7,7 @@
 #include "src/commands/model_io.h"
 #include "src/commands/remove_degenerates.h"
 #include "src/commands/generate_normals.h"
-//#include "cex/src/NEW_COMMAND.h"
-
-using namespace pr;
-using namespace pr::geometry;
-using namespace std::literals;
-using namespace std::filesystem;
+//#include "rc/commands/NEW_COMMAND.h"
 
 struct Main
 {

@@ -17,7 +17,7 @@ namespace pr::rdr12
 
 		SceneCamera();
 		SceneCamera(Camera const& cam);
-		SceneCamera(m4x4 const& c2w, float fovY = pr::maths::tau_by_8, float aspect = 1.0f, float focus_dist = 1.0f, bool orthographic = false, float near_ = 0.01f, float far_ = 100.0f);
+		SceneCamera(m4x4 const& c2w, float fovY = pr::constants<double>::tau_by_8, float aspect = 1.0f, float focus_dist = 1.0f, bool orthographic = false, float near_ = 0.01f, float far_ = 100.0f);
 
 		// Return the scene views for the left and right eye in stereoscopic view
 		void Stereo(float separation, SceneCamera (&eye)[Enum<EEye>::NumberOf]) const;

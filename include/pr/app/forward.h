@@ -52,7 +52,7 @@
 #include "pr/common/log.h"
 #include "pr/common/console.h"
 #include "pr/camera/camera.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/gfx/colour.h"
 #include "pr/filesys/filesys.h"
 #include "pr/gui/wingui.h"

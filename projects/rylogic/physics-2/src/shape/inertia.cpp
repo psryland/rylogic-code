@@ -126,7 +126,7 @@ namespace pr::physics
 		if (CoM() == v4{})
 			return Ic;
 
-		auto cx = CPM(CoM().xyz);
+		auto cx = CPM<m3x4>(CoM());
 		auto Io = Ic - mass * cx * cx;
 		return Io;
 	}
@@ -137,7 +137,7 @@ namespace pr::physics
 			return Mat6x8<float, Motion, Force>{m6x8::Identity()};
 
 		auto Ic = Ic3x3(mass);
-		auto cx = CPM(CoM().xyz);
+		auto cx = CPM<m3x4>(CoM());
 		auto Io = Mat6x8<float, Motion, Force>{Ic - mass * cx * cx, mass * cx, -mass * cx, mass * m3x4::Identity()};
 		return Io;
 	}
@@ -367,7 +367,12 @@ namespace pr::physics
 	m3x4 InertiaInv::Ic3x3(float inv_mass) const
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
-		if (inv_mass < ZeroMass || inv_mass >= InfiniteMass)
+
+		// For immovable bodies (inv_mass ≈ 0), the inverse inertia is zero.
+		// For massless bodies (inv_mass → ∞), treat as degenerate.
+		if (inv_mass < ZeroMass)
+			return m3x4{};
+		if (inv_mass >= InfiniteMass)
 			return m3x4::Identity();
 
 		auto dia = inv_mass * m_diagonal;
@@ -381,7 +386,11 @@ namespace pr::physics
 	m3x4 InertiaInv::To3x3(float inv_mass) const
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
-		if (inv_mass < ZeroMass || inv_mass >= InfiniteMass)
+
+		// For immovable bodies (inv_mass ≈ 0), the inverse inertia is zero.
+		if (inv_mass < ZeroMass)
+			return m3x4{};
+		if (inv_mass >= InfiniteMass)
 			return m3x4::Identity();
 
 		auto Ic_inv = Ic3x3(inv_mass);
@@ -396,7 +405,7 @@ namespace pr::physics
 		//'     = Ic¯ + (1/m - Ic¯cxcx)¯Ic¯cxcxIc¯               '
 
 		// This is cheaper
-		auto cx = CPM(CoM().xyz);
+		auto cx = CPM<m3x4>(CoM());
 		auto Io = Invert(Ic_inv) - (1.0f / inv_mass) * cx * cx;
 		auto Io_inv = Invert(Io);
 		return Io_inv;
@@ -408,7 +417,7 @@ namespace pr::physics
 			return Mat6x8<float, Force, Motion>{m6x8::Identity()};
 
 		auto Ic_inv = Ic3x3(inv_mass);
-		auto cx = CPM(CoM().xyz);
+		auto cx = CPM<m3x4>(CoM());
 		auto Io_inv = Mat6x8<float, Force, Motion>{Ic_inv, -Ic_inv * cx, cx * Ic_inv, inv_mass * m3x4::Identity() - cx * Ic_inv * cx};
 		return Io_inv;
 	}
@@ -550,17 +559,17 @@ namespace pr::physics
 		//   I3 = m3U3 = m1U1 + m2U2
 		//   U3 = (m1U1 + m2U2)/m3
 		Inertia sum = {};
-		if (mass < maths::tiny<float>)
+		if (mass < math::tiny<float>)
 		{
 			sum.m_diagonal = (Ia.m_diagonal + Ib.m_diagonal) / 2.0f;
 			sum.m_products = (Ia.m_products + Ib.m_products) / 2.0f;
-			sum.m_com_and_mass = v4{ com, mass };
+			sum.m_com_and_mass = v4{ com.xyz, mass };
 		}
 		else
 		{
 			sum.m_diagonal = (massA * Ia.m_diagonal + massB * Ib.m_diagonal) / mass;
 			sum.m_products = (massA * Ia.m_products + massB * Ib.m_products) / mass;
-			sum.m_com_and_mass = v4{ com, mass };
+			sum.m_com_and_mass = v4{ com.xyz, mass };
 		}
 		return sum;
 	}
@@ -584,7 +593,7 @@ namespace pr::physics
 		Inertia sum = {};
 		sum.m_diagonal = (massA*Ia.m_diagonal - massB*Ib.m_diagonal) / mass;
 		sum.m_products = (massA*Ia.m_products - massB*Ib.m_products) / mass;
-		sum.m_com_and_mass = v4{com, mass};
+		sum.m_com_and_mass = v4{ com.xyz, mass };
 		return sum;
 	}
 
@@ -605,7 +614,7 @@ namespace pr::physics
 		InertiaInv sum = {};
 		sum.m_diagonal = (massA*Ia_inv.m_diagonal + massB*Ib_inv.m_diagonal) / mass;
 		sum.m_products = (massA*Ia_inv.m_products + massB*Ib_inv.m_products) / mass;
-		sum.m_com_and_invmass = v4{com, 1/mass};
+		sum.m_com_and_invmass = v4{ com.xyz, 1 / mass };
 		return sum;
 	}
 	InertiaInv Split(InertiaInv const& lhs, InertiaInv const& rhs)

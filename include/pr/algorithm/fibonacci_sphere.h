@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
 #pragma once
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::algorithm
 {
@@ -132,7 +132,7 @@ namespace pr::algorithm::tests
 			auto max_i = -1;
 			for (int i = 0; i != N; ++i)
 			{
-				auto pt = v4::RandomN(rng, 0.0f);
+				auto pt = RandomN<v3>(rng).w0();
 				auto idx = FibonacciSphericalMapping(pt, N);
 				auto fpt = FibonacciSphericalMapping(idx, N);
 				auto dist = Length(fpt - pt);

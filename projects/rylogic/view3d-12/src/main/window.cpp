@@ -366,6 +366,11 @@ namespace pr::rdr12
 			multisamp = multisamp != nullptr ? multisamp : &bb.m_multisamp;
 			bb = CreateRenderTarget(size, *multisamp, m_rt_props, m_ds_props);
 		}
+
+		// Notify subscribers that the back buffer size has changed.
+		// Scenes use this to update viewport dimensions and scissor rects.
+		BackBufferSizeChangedEventArgs args(size, true);
+		rdr().BackBufferSizeChanged(*this, args);
 	}
 
 	// Get/Set the multi sampling used.

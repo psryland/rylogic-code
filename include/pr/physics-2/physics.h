@@ -9,6 +9,7 @@
 #include "pr/physics-2/broadphase/brute.h"
 #include "pr/physics-2/shape/mass.h"
 #include "pr/physics-2/shape/shape_mass.h"
+#include "pr/physics-2/shape/inertia.h"
 #include "pr/physics-2/rigid_body/rigid_body.h"
 #include "pr/physics-2/material/material.h"
 #include "pr/physics-2/material/material_map.h"

@@ -449,7 +449,7 @@ namespace pr::rdr12
 				s_cast<ESnapType>(r.snap_type) == ESnapType::Face)
 			{
 				// At least one of the intercepts is a face, sort by distance
-				if (Abs(l.ws_intercept.w - r.ws_intercept.w) > maths::tiny<float>)
+				if (Abs(l.ws_intercept.w - r.ws_intercept.w) > math::tiny<float>)
 					return l.ws_intercept.w < r.ws_intercept.w;
 
 				// If the intercepts are at the same distance, prioritise by snap type

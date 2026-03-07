@@ -286,11 +286,11 @@ namespace pr::rdr12
 	{
 		if (args.m_done && &wnd == m_wnd)
 		{
-			// Only adjust the width/height of the viewport to the new area.
-			// If an application is using a different viewport region they'll
-			// have to adjust it after this (and before the next frame is drawn)
-			m_viewport.Width = float(args.m_area.x);
-			m_viewport.Height = float(args.m_area.y);
+			// Update the viewport to match the new back buffer area.
+			// Use Set() rather than directly assigning Width/Height so that the
+			// scissor rect and ScreenW/ScreenH are also updated. Without this,
+			// D3D12's RSSetScissorRects clips rendering to the old bounds.
+			m_viewport.Set(args.m_area);
 		}
 	}
 

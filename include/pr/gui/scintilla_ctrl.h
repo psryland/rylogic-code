@@ -15,7 +15,7 @@ namespace pr::gui
 	struct ScintillaCtrl :Control
 	{
 		// Notes:
-		// - Remember to call pr::win32::LoadDll<struct Scintilla>(L"scintilla.dll");
+		// - Remember to call win32::LoadDll<struct Scintilla>(L"scintilla.dll");
 		//   before creating an instance of this control
 		// - There is a C# port of this control called Rylogic.Gui.ScintillaCtrl. Try to
 		//   keep these in sync
@@ -39,7 +39,7 @@ namespace pr::gui
 			}
 			this_type& load_dll(wchar_t const* dllname = L"scintilla.dll", wchar_t const* dir = L".\\lib\\$(platform)")
 			{
-				pr::win32::LoadDll<struct Scintilla>(dllname, dir);
+				win32::LoadDll<struct Scintilla>(dllname, dir);
 				return this->me();
 			}
 		};

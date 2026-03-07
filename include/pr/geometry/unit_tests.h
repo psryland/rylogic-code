@@ -6,7 +6,7 @@
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/geometry/point.h"
 #include "pr/geometry/distance.h"
 #include "pr/geometry/closest_point.h"
@@ -53,9 +53,9 @@ namespace pr::geometry
 			std::default_random_engine rng;
 			for (int i = 0; i != 100; ++i)
 			{
-				auto bbox = BBox{ v4::Random(rng, v4::Origin(), 3.0f, 1), v4::Random(rng, v4(0.f), v4(3.f), 0) };
-				auto s = v4::Random(rng, v4::Origin(), 10.0f, 1);
-				auto e = v4::Random(rng, v4::Origin(), 10.0f, 1);
+				auto bbox = BBox{ Random<v4>(rng, v4::Origin(), 3.0f).w1(), Random<v4>(rng, v4{0.f}, v4{3.f}).w0() };
+				auto s = Random<v4>(rng, v4::Origin(), 10.0f).w1();
+				auto e = Random<v4>(rng, v4::Origin(), 10.0f).w1();
 
 				v4 pt0, pt1;
 				auto sep = closest_point::LineToBBox(s, e, bbox, pt0, pt1);
@@ -78,12 +78,12 @@ namespace pr::geometry
 			std::default_random_engine rng;
 			for (int i = 0; i != 100; ++i)
 			{
-				auto s = v4::Random(rng, v4::Origin(), 10.0f, 1);
-				auto d = v4::Random(rng, v4::Origin(), 10.0f, 1) - s;
+				auto s = Random<v4>(rng, v4::Origin(), 10.0f).w1();
+				auto d = Random<v4>(rng, v4::Origin(), 10.0f).w1() - s;
 
-				auto a = v4::Random(rng, v4::Origin(), 10.0f, 1);
-				auto b = v4::Random(rng, v4::Origin(), 10.0f, 1);
-				auto c = v4::Random(rng, v4::Origin(), 10.0f, 1);
+				auto a = Random<v4>(rng, v4::Origin(), 10.0f).w1();
+				auto b = Random<v4>(rng, v4::Origin(), 10.0f).w1();
+				auto c = Random<v4>(rng, v4::Origin(), 10.0f).w1();
 
 				auto para = closest_point::RayToTriangle(s, d, a, b, c);
 				auto pt0 = s + para.w * d;
@@ -165,8 +165,8 @@ namespace pr::geometry
 
 			auto r = intersect::RayVsBBox(s, d, bbox, tmin, tmax);
 			PR_EXPECT(r);
-			PR_EXPECT(pr::FEqlRelative(s + tmin * d, pr::v4(+0.25f, +0.05f, +0.163f, 1.0f), 0.001f));
-			PR_EXPECT(pr::FEqlRelative(s + tmax * d, pr::v4(-0.25f, -0.05f, -0.063f, 1.0f), 0.001f));
+			PR_EXPECT(FEqlRelative(s + tmin * d, pr::v4(+0.25f, +0.05f, +0.163f, 1.0f), 0.001f));
+			PR_EXPECT(FEqlRelative(s + tmax * d, pr::v4(-0.25f, -0.05f, -0.063f, 1.0f), 0.001f));
 
 			s = pr::v4(+1.0f, +0.2f, -0.22f, 1.0f);
 			r = intersect::RayVsBBox(s, d, bbox, tmin, tmax);
@@ -182,8 +182,8 @@ namespace pr::geometry
 
 			auto r = intersect::RayVsSphere(s, d, rad, tmin, tmax);
 			PR_EXPECT(r);
-			PR_EXPECT(pr::FEqlRelative(s + tmin * d, pr::v4(+0.247f, +0.049f, +0.161f, 1.0f), 0.001f));
-			PR_EXPECT(pr::FEqlRelative(s + tmax * d, pr::v4(-0.284f, -0.057f, -0.078f, 1.0f), 0.001f));
+			PR_EXPECT(FEqlRelative(s + tmin * d, pr::v4(+0.247f, +0.049f, +0.161f, 1.0f), 0.001f));
+			PR_EXPECT(FEqlRelative(s + tmax * d, pr::v4(-0.284f, -0.057f, -0.078f, 1.0f), 0.001f));
 
 			s = pr::v4(+1.0f, +0.2f, -0.22f, 1.0f);
 			r = intersect::RayVsSphere(s, d, rad, tmin, tmax);
@@ -191,7 +191,7 @@ namespace pr::geometry
 		}
 		PRUnitTestMethod(BBoxVsPlane)
 		{
-			auto p = pr::plane::make(v4(0.1f, 0.4f, -0.3f, 1), v4::Normal(0.3f, -0.4f, 0.5f, 0));
+			auto p = Plane(v4(0.1f, 0.4f, -0.3f, 1), v4::Normal(0.3f, -0.4f, 0.5f, 0));
 			auto b = BBox(v4(0.0f, 0.2f, 0.0f, 1.0f), v4(0.25f, 0.15f, 0.2f, 0));
 			auto r = intersect::BBoxVsPlane(b, p);
 			PR_EXPECT(r);
@@ -209,7 +209,7 @@ namespace pr::geometry
 			PR_EXPECT(!r);
 
 			// Degenerate cases
-			p = pr::plane::make(v4::Origin(), v4::XAxis());
+			p = Plane(v4::Origin(), v4::XAxis());
 			b.m_centre = v4(-0.250001f, 0, 0, 1);
 			r = intersect::BBoxVsPlane(b, p);
 			PR_EXPECT(!r);

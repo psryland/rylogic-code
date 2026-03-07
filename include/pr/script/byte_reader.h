@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 #pragma once
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/script/forward.h"
 #include "pr/script/script_core.h"
 #include "pr/script/filter.h"
@@ -438,6 +438,7 @@ namespace pr::script
 			assert(IsFinite(o2w) && "A valid 'o2w' must be passed to this function as it pre-multiplies the transform with the one read from the script");
 			auto p2w = m4x4::Identity();
 			auto affine = IsAffine(o2w);
+			static std::default_random_engine rng;
 
 			// Parse the transform
 			for (ETransformKeyword kw; NextKeywordH(kw);)
@@ -502,26 +503,28 @@ namespace pr::script
 				{
 					auto centre = Vector3(1.0f);
 					auto radius = Real<float>();
-					p2w = m4x4::Random(g_rng(), centre, radius) * p2w;
+					auto rot = Random<m3x4>(rng);
+					auto pos = Random<v4>(rng, centre, radius);
+					p2w = m4x4{rot, pos} * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::RandPos)
 				{
 					auto centre = Vector3(1.0f);
 					auto radius = Real<float>();
-					p2w = m4x4::Translation(v4::Random(g_rng(), centre, radius, 1)) * p2w;
+					p2w = m4x4::Translation(Random<v4>(rng, centre, radius).w1()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::RandOri)
 				{
-					auto m = m4x4(m3x4::Random(g_rng()), v4::Origin());
+					auto m = m4x4(Random<m3x4>(rng), v4::Origin());
 					p2w = m * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Euler)
 				{
 					auto angles = Vector3(0.0f);
-					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4::Origin()) * p2w;
+					p2w = m4x4::TransformDeg(angles.x, angles.y, angles.z, v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Scale)
@@ -571,8 +574,8 @@ namespace pr::script
 	{
 		enum class ETestKeyword :int
 		{
-			Identifer = pr::hash::HashICT("Identifier"),
-			String = pr::hash::HashICT("String"),
+			Identifer = hash::HashICT("Identifier"),
+			String = hash::HashICT("String"),
 		};
 
 		{// basic extract methods

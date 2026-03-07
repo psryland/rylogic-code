@@ -1351,10 +1351,8 @@ namespace pr
 }
 
 #if PR_UNITTESTS
-#include <deque>
 #include "pr/common/unittests.h"
-#include "pr/maths/maths.h"
-namespace pr::container
+namespace pr::container::tests
 {
 	PRUnitTestClass(DequeTests)
 	{

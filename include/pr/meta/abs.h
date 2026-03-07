@@ -26,8 +26,8 @@ namespace pr::meta
 {
 	PRUnitTest(AbsTests)
 	{
-		static_assert(pr::meta::abs<int,+5>::value == +5, "");
-		static_assert(pr::meta::abs<int,-5>::value == +5, "");
+		static_assert(meta::abs<int,+5>::value == +5, "");
+		static_assert(meta::abs<int,-5>::value == +5, "");
 	}
 }
 #endif

@@ -6,12 +6,13 @@
 // Supports 3D trackball-like mouse control and basic keyboard control
 #pragma once
 #include <memory>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/common/bit_fields.h"
 #include "pr/common/assert.h"
 #include "pr/common/keystate.h"
 #include "pr/common/flags_enum.h"
 #include "pr/common/value_ptr.h"
+#include "pr/common/cast.h"
 
 namespace pr::camera
 {
@@ -201,10 +202,10 @@ namespace pr
 		Camera()
 			:Camera(m4x4::Identity())
 		{}
-		Camera(m4x4 const& c2w, double fovY = maths::tau_by_8, double aspect = 1.0, double focus_dist = 1.0)
+		Camera(m4x4 const& c2w, double fovY = constants<double>::tau_by_8, double aspect = 1.0, double focus_dist = 1.0)
 			:Camera(c2w, fovY, aspect, focus_dist, false, 0.01, 100.0)
 		{}
-		Camera(v4 eye, v4 pt, v4 up, double fovY = maths::tau_by_8, double aspect = 1.0)
+		Camera(v4 eye, v4 pt, v4 up, double fovY = constants<double>::tau_by_8, double aspect = 1.0)
 			:Camera(m4x4::Identity(), fovY, aspect)
 		{
 			LookAt(eye, pt, up, true);
@@ -231,7 +232,7 @@ namespace pr
 			PR_ASSERT(PR_DBG, IsFinite(m_fovY), "invalid scene view parameters");
 			PR_ASSERT(PR_DBG, IsFinite(m_aspect), "invalid scene view parameters");
 			PR_ASSERT(PR_DBG, IsFinite(m_focus_dist), "invalid scene view parameters");
-			PR_ASSERT(PR_DBG, m_focus_dist > maths::tiny<double>, "invalid scene view parameters");
+			PR_ASSERT(PR_DBG, m_focus_dist > math::tiny<double>, "invalid scene view parameters");
 			m_nav.Commit(*this);
 		}
 
@@ -437,7 +438,7 @@ namespace pr
 			if (fovY <= 0.0 || fovY >= constants<double>::tau_by_2 || !IsFinite(fovY))
 				throw std::runtime_error("FovY value is invalid");
 			
-			fovY = Clamp(fovY, maths::tiny<double>, constants<double>::tau_by_2);
+			fovY = Clamp(fovY, math::tiny<double>, constants<double>::tau_by_2);
 			m_moved |= fovY != m_fovY;
 			m_fovY = fovY;
 		}
@@ -450,8 +451,8 @@ namespace pr
 			if (fovY <= 0.0 || fovY >= constants<double>::tau_by_2 || !IsFinite(fovY))
 				throw std::runtime_error("FovY value is invalid");
 
-			fovX = Clamp(fovX, maths::tiny<double>, constants<double>::tau_by_2);
-			fovY = Clamp(fovY, maths::tiny<double>, constants<double>::tau_by_2);
+			fovX = Clamp(fovX, math::tiny<double>, constants<double>::tau_by_2);
+			fovY = Clamp(fovY, math::tiny<double>, constants<double>::tau_by_2);
 			auto aspect = std::tan(fovX/2) / std::tan(fovY/2);
 			Aspect(aspect);
 			FovY(fovY);
@@ -498,7 +499,7 @@ namespace pr
 		void Align(v4 up)
 		{
 			m_align = up;
-			if (LengthSq(m_align) > maths::tiny<float>)
+			if (LengthSq(m_align) > math::tiny<float>)
 			{
 				if (IsParallel(m_c2w.z, m_align)) m_c2w = m4x4(m_c2w.y, m_c2w.z, m_c2w.x, m_c2w.w);
 				m_c2w = m4x4::LookAt(m_c2w.pos, FocusPoint(), m_align);
@@ -509,7 +510,7 @@ namespace pr
 		// Return true if the align axis has been set for the camera
 		bool IsAligned() const
 		{
-			return LengthSq(m_align) > maths::tiny<float>;
+			return LengthSq(m_align) > math::tiny<float>;
 		}
 
 		// Get/Set orthographic projection mode
@@ -594,11 +595,11 @@ namespace pr
 		}
 		void FocusDist(double dist)
 		{
-			if (!IsFinite(dist) || dist < maths::tiny<double>)
+			if (!IsFinite(dist) || dist < math::tiny<double>)
 				throw std::runtime_error("'dist' should not be negative");
 
 			dist = Clamp(dist, FocusDistMin(), FocusDistMax());
-			if (!IsFinite(dist) || dist < maths::tiny<double>)
+			if (!IsFinite(dist) || dist < math::tiny<double>)
 				throw std::runtime_error("'dist' should not be negative");
 
 			// Ignore if locked
@@ -844,7 +845,7 @@ namespace pr
 			v4 old_focus = FocusPoint();
 
 			// Rotate the camera matrix
-			m_c2w = m_nav.m_c2w0 * m4x4::Transform(s_cast<float>(pitch), s_cast<float>(yaw), s_cast<float>(roll), v4::Origin());
+			m_c2w = m_nav.m_c2w0 * m4x4::Transform(m3x4::RotationRad(s_cast<float>(pitch), s_cast<float>(yaw), s_cast<float>(roll)), v4::Origin());
 
 			// Position the camera so that the focus is still in the same position
 			m_c2w.pos = old_focus + s_cast<float>(m_focus_dist) * m_c2w.z;
@@ -881,7 +882,7 @@ namespace pr
 			}
 
 			auto fovY = (1.0 + zoom) * m_nav.m_fovY0;
-			fovY = Clamp(m_fovY, maths::tiny<double>, constants<double>::tau_by_2 - maths::tiny<double>);
+			fovY = Clamp(m_fovY, math::tiny<double>, constants<double>::tau_by_2 - math::tiny<double>);
 			FovY(fovY);
 
 			// Set the base values
@@ -988,8 +989,8 @@ namespace pr
 				if (aspect < limits<float>::epsilon() || !IsFinite(aspect))
 				{
 					// Handle degeneracy
-					const auto min_aspect = maths::tiny<float>;
-					const auto max_aspect = 1 / maths::tiny<float>;
+					const auto min_aspect = math::tiny<float>;
+					const auto max_aspect = 1 / math::tiny<float>;
 					if      (width  > limits<float>::epsilon()) height = width / max_aspect;
 					else if (height > limits<float>::epsilon()) width = min_aspect / height;
 					else { width = 1; height = 1; }

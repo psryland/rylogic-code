@@ -8,7 +8,7 @@
 #include <execution>
 #include <random>
 #include <tuple>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::geometry
 {
@@ -189,8 +189,8 @@ namespace pr::geometry
 				}
 
 				// 'sep' can be zero if the nodes are 2D. The zero-dimension will be the minimum penetration
-				if (LengthSq(sep) < maths::tiny<float>)
-					sep.xyz = v3::RandomN(m_rng);
+				if (LengthSq(sep) < math::tiny<float>)
+					sep.xyz = RandomN<v3>(m_rng);
 
 				return { sep, min_dist };
 			}
@@ -200,8 +200,8 @@ namespace pr::geometry
 				sep = vec;
 				sep.z = 0.f;
 
-				if (LengthSq(sep) < maths::tiny<float>)
-					sep.xy = v2::RandomN(m_rng);
+				if (LengthSq(sep) < math::tiny<float>)
+					sep.xy = RandomN<v2>(m_rng);
 
 				// Find the minimum distance along 'sep' needed to separate the bodies
 				min_dist = Dot(0.5f * size.xy, Abs(sep.xy)) / Length(sep.xy);
@@ -252,8 +252,8 @@ namespace pr::geometry
 		std::vector<Body> bodies(100);
 		for (auto& body : bodies)
 		{
-			body.m_point = v3::Random(rng, v3::Zero(), 100.0f).w1();
-			body.m_size = Abs(v3::Random(rng, v3(1.0f), v3(5.0f))).w0();
+			body.m_point = Random<v3>(rng, v3::Zero(), 100.0f).w1();
+			body.m_size = Abs(Random<v3>(rng, v3(1.0f), v3(5.0f))).w0();
 			if constexpr (Dim == 2)
 			{
 				body.m_point.z = 0.0f;

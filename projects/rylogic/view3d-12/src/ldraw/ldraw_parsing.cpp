@@ -40,8 +40,16 @@ namespace pr::rdr12::ldraw
 
 	using Guid = pr::Guid;
 	using VCont = pr::vector<v4>;
+
+	// Static random number generator (replaces the old maths g_rng)
+	inline std::default_random_engine& g_rng()
+	{
+		static std::default_random_engine s_rng(std::random_device{}());
+		return s_rng;
+	}
+
 	using NCont = pr::vector<v4>;
-	using ICont = pr::geometry::IdxBuf;
+	using ICont = geometry::IdxBuf;
 	using CCont = pr::vector<Colour32>;
 	using TCont = pr::vector<v2>;
 	using GCont = pr::vector<NuggetDesc>;
@@ -1147,10 +1155,20 @@ namespace pr::rdr12::ldraw
 			VCont InterpolateVerts(std::span<v4 const> verts)
 			{
 				VCont out;
-				pr::Smooth(verts, Spline::ETopo::Continuous3, [&](std::span<v4 const> points, std::span<float const> /*times*/)
+
+				if (verts.size() < 3)
 				{
-					out.insert(out.end(), points.begin(), points.end());
-				});
+					out.assign(verts.begin(), verts.end());
+					return out;
+				}
+
+				// Create a cubic spline from the points and raster it
+				auto spline = math::CubicSpline<float>::FromPoints(verts, math::ECurveTopology::Continuous3, math::CurveType<float>::Bezier);
+				out.resize(verts.size() * 10);
+
+				auto rastered = math::Raster(spline, spline.Time0(), spline.Time1(), std::span<v4>{out});
+				out.resize(rastered.size());
+
 				return out;
 			}
 			explicit operator bool() const
@@ -2140,11 +2158,11 @@ namespace pr::rdr12::ldraw
 				if (segment.m_smooth && segment.m_style == ELineStyle::LineStrip)
 				{
 					// Convert the points of this segment into a Bezier cubic spline
-					CubicSpline spline = CubicSpline::FromPoints(m_verts.span(vcount, segment.m_vcount), ECurveTopology::Continuous3, CurveType::Bezier);
+					CubicSpline<float> spline = CubicSpline<float>::FromPoints(m_verts.span(vcount, segment.m_vcount), ECurveTopology::Continuous3, CurveType<float>::Bezier);
 
 					// Raster the spline into a new buffer
 					VCont spline_point_buf(50);
-					auto spline_points = spline::Raster(spline, spline.Time0(), spline.Time1(), spline_point_buf);
+					auto spline_points = Raster(spline, spline.Time0(), spline.Time1(), std::span<v4>{spline_point_buf});
 
 					// Replace the verts with the smoothed verts
 					m_verts.erase(m_verts.begin() + vcount, m_verts.begin() + vcount + segment.m_vcount);
@@ -3134,7 +3152,7 @@ namespace pr::rdr12::ldraw
 			: IObjectCreator(pp)
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
-			, m_scale(v2One)
+			, m_scale(v2::One())
 			, m_ang()
 			, m_rad()
 			, m_facets(40)
@@ -3785,7 +3803,7 @@ namespace pr::rdr12::ldraw
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
 			, m_pt()
-			, m_fovY(maths::tau_by_8f)
+			, m_fovY(constants<float>::tau_by_8)
 			, m_aspect(1.0f)
 			, m_near(0.0f)
 			, m_far(1.0f)
@@ -4848,7 +4866,7 @@ namespace pr::rdr12::ldraw
 
 			Axis()
 				: m_min(limits<float>::max())
-				, m_max(maths::float_lowest)
+				, m_max(limits<float>::lowest())
 				, m_col()
 			{
 			}
@@ -6459,13 +6477,15 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Quat:
 				{
-					auto q = quat{ Vector4f() };
+					auto v = Vector4f();
+					auto q = quat(v.x, v.y, v.z, v.w);
 					p2w = m4x4::Transform(q, v4::Origin()) * p2w;
 					break;
 				}
 				case EKeyword::QuatPos:
 				{
-					auto q = quat{ Vector4f() };
+					auto v = Vector4f();
+					auto q = quat(v.x, v.y, v.z, v.w);
 					auto p = Vector3f().w1();
 					p2w = m4x4::Transform(q, p) * p2w;
 					break;
@@ -6474,26 +6494,26 @@ namespace pr::rdr12::ldraw
 				{
 					auto centre = Vector3f().w1();
 					auto radius = Real<float>();
-					p2w = m4x4::Random(g_rng(), centre, radius) * p2w;
+					p2w = m4x4{Random<m3x4>(g_rng()), Random<v4>(g_rng(), centre, radius).w1()} * p2w;
 					break;
 				}
 				case EKeyword::RandPos:
 				{
 					auto centre = Vector3f().w1();
 					auto radius = Real<float>();
-					p2w = m4x4::Translation(v4::Random(g_rng(), centre, radius, 1)) * p2w;
+					p2w = m4x4::Translation(Random<v4>(g_rng(), centre, radius).w1()) * p2w;
 					break;
 				}
 				case EKeyword::RandOri:
 				{
-					auto m = m4x4(m3x4::Random(g_rng()), v4::Origin());
+					auto m = m4x4{Random<m3x4>(g_rng()), v4::Origin()};
 					p2w = m * p2w;
 					break;
 				}
 				case EKeyword::Euler:
 				{
 					auto angles = Vector3f().w0();
-					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4::Origin()) * p2w;
+					p2w = m4x4::TransformDeg(angles.x, angles.y, angles.z, v4::Origin()) * p2w;
 					break;
 				}
 				case EKeyword::Scale:

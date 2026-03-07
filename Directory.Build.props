@@ -34,9 +34,10 @@
 		<Authors>P Ryland</Authors>
 		<Company>Rylogic</Company>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageReadmeFile>Readme.md</PackageReadmeFile>
 		<Description>A toolbox of extension methods, data structures, and helper classes used in tools created by Rylogic.</Description>
 		<Copyright>Copyright (c) Rylogic 2007</Copyright>
-		<RylogicLibraryVersion>2.0.1</RylogicLibraryVersion>
+		<RylogicLibraryVersion>2.0.2</RylogicLibraryVersion>
 
 		<!-- Deterministic builds -->
 		<Deterministic>true</Deterministic>

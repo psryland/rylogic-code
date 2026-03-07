@@ -31,16 +31,15 @@ namespace pr::meta
 {
 	PRUnitTest(GcfTests)
 	{
-		static_assert(pr::meta::gcf<int,+20,+12>::value == +4, "");
-		static_assert(pr::meta::gcf<int,+20,-12>::value == +4, "");
-		static_assert(pr::meta::gcf<int,-20,+12>::value == +4, "");
-		static_assert(pr::meta::gcf<int,-20,-12>::value == +4, "");
+		static_assert(meta::gcf<int,+20,+12>::value == +4, "");
+		static_assert(meta::gcf<int,+20,-12>::value == +4, "");
+		static_assert(meta::gcf<int,-20,+12>::value == +4, "");
+		static_assert(meta::gcf<int,-20,-12>::value == +4, "");
 
-		static_assert(pr::meta::gcf<int,+12,+20>::value == +4, "");
-		static_assert(pr::meta::gcf<int,-12,+20>::value == +4, "");
-		static_assert(pr::meta::gcf<int,+12,-20>::value == +4, "");
-		static_assert(pr::meta::gcf<int,-12,-20>::value == +4, "");
+		static_assert(meta::gcf<int,+12,+20>::value == +4, "");
+		static_assert(meta::gcf<int,-12,+20>::value == +4, "");
+		static_assert(meta::gcf<int,+12,-20>::value == +4, "");
+		static_assert(meta::gcf<int,-12,-20>::value == +4, "");
 	}
 }
 #endif
-

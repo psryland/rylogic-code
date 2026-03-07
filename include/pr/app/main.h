@@ -77,7 +77,7 @@ namespace pr::app
 			,m_rdr_pending(false)
 		{
 			// Position the camera
-			m_cam.FovY(maths::tau_by_8f);
+			m_cam.FovY(constants<float>::tau_by_8);
 			m_cam.LookAt(
 				v4(0, 0, 1.0f / (float)tan(m_cam.FovY()/2.0f), 1.0f),
 				v4::Origin(),
@@ -140,7 +140,7 @@ namespace pr::app
 			m_scene.ClearDrawlists();
 			auto& frame = m_window.NewFrame();
 			m_scene.Render(frame);
-			m_window.Present(frame, pr::rdr12::EGpuFlush::Block);
+			m_window.Present(frame, rdr12::EGpuFlush::Block);
 		}
 
 		// Show the last rendered scene

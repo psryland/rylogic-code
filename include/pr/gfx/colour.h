@@ -6,7 +6,7 @@
 #include <string>
 #include <concepts>
 #include <type_traits>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/macros/enum.h"
 #include "pr/common/to.h"
 #include "pr/common/interpolate.h"
@@ -753,7 +753,7 @@ namespace pr
 	}
 	inline bool pr_vectorcall FEql(Colour lhs, Colour rhs)
 	{
-		return FEqlRelative(lhs, rhs, maths::tiny<float>);
+		return FEqlRelative(lhs, rhs, math::tiny<float>);
 	}
 	inline bool pr_vectorcall FEqlNoA(Colour lhs, Colour rhs)
 	{

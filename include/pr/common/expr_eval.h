@@ -12,7 +12,8 @@
 #include <cassert>
 #include "pr/common/fmt.h"
 #include "pr/common/hash.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
+#include "pr/math/conversion.h"
 #include "pr/container/vector.h"
 #include "pr/container/byte_data.h"
 
@@ -142,7 +143,7 @@ namespace pr::eval
 	using Ident = std::string;
 
 	// Identifier hash
-	using IdentHash = pr::hash::HashValue32;
+	using IdentHash = hash::HashValue32;
 	constexpr IdentHash hashname(std::string_view name)
 	{
 		return hash::HashCT(name.data(), name.data() + name.size());
@@ -158,8 +159,8 @@ namespace pr::eval
 		{
 			long long m_ll;
 			double m_db;
-			pr::v4 m_v4;
-			pr::iv4 m_i4;
+			v4 m_v4;
+			iv4 m_i4;
 		};
 		EType m_ty;
 		uint8_t pad[12];
@@ -275,12 +276,12 @@ namespace pr::eval
 		{
 			return static_cast<float>(db());
 		}
-		pr::iv4 i4() const
+		iv4 i4() const
 		{
 			if (m_ty == EType::Intg4) return m_i4;
-			if (m_ty == EType::Real4) return To<pr::iv4>(m_v4);
-			if (m_ty == EType::Intg) return pr::iv4(static_cast<int>(m_ll));
-			if (m_ty == EType::Real) return pr::iv4(static_cast<int>(m_db));
+			if (m_ty == EType::Real4) return To<iv4>(m_v4);
+			if (m_ty == EType::Intg) return iv4(static_cast<int>(m_ll));
+			if (m_ty == EType::Real) return iv4(static_cast<int>(m_db));
 			throw std::runtime_error("Value not given. Value type is unknown");
 		}
 		pr::v4 v4() const
@@ -750,7 +751,7 @@ namespace pr::eval
 		using ArgNames = vector<Ident>;
 
 		// The compiled expression
-		pr::byte_data<> m_op;
+		byte_data<> m_op;
 
 		// The arguments (and default values) of the unique identifiers in the expression (in order of discovery from left to right).
 		ArgSet m_args;
@@ -1405,8 +1406,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
 							case Val::EType::Real: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
-							case Val::EType::Intg4: stack.push_back(x.v4() * maths::E60_by_tauf); break;
-							case Val::EType::Real4: stack.push_back(x.v4() * maths::E60_by_tauf); break;
+							case Val::EType::Intg4: stack.push_back(x.v4() * constants<float>::E60_by_tau); break;
+							case Val::EType::Real4: stack.push_back(x.v4() * constants<float>::E60_by_tau); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1419,8 +1420,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::tau_by_360); break;
 							case Val::EType::Real: stack.push_back(x.db() * constants<double>::tau_by_360); break;
-							case Val::EType::Intg4: stack.push_back(x.v4() * maths::tau_by_360f); break;
-							case Val::EType::Real4: stack.push_back(x.v4() * maths::tau_by_360f); break;
+							case Val::EType::Intg4: stack.push_back(x.v4() * constants<float>::tau_by_360); break;
+							case Val::EType::Real4: stack.push_back(x.v4() * constants<float>::tau_by_360); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1849,7 +1850,7 @@ namespace pr::eval
 		case 'p':
 			{
 				if (cmp(expr, "pow")) { expr += 3; return ETok::Pow; }
-				if (cmp(expr, "phi")) { expr += 3; val = maths::golden_ratio; return ETok::Value; }
+				if (cmp(expr, "phi")) { expr += 3; val = constants<double>::golden_ratio; return ETok::Value; }
 				if (cmp(expr, "pi")) { expr += 2; val = constants<double>::tau_by_2; return ETok::Value; }
 				break;
 			}
@@ -2129,7 +2130,7 @@ namespace pr::eval
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::common
+namespace pr::common::tests
 {
 	PRUnitTest(ExprEvalTests)
 	{
@@ -2714,7 +2715,7 @@ namespace pr::common
 					{
 					case Val::EType::Intg: result[ridx].push_back(x.db() * constants<double>::E60_by_tau); break;
 					case Val::EType::Real: result[ridx].push_back(x.db() * constants<double>::E60_by_tau); break;
-					case Val::EType::Vec4: result[ridx].push_back(CompOp(x.v4(), [](auto x) { return x * maths::E60_by_tauf; })); break;
+					case Val::EType::Vec4: result[ridx].push_back(CompOp(x.v4(), [](auto x) { return x * constants<float>::E60_by_tau; })); break;
 					default: throw std::runtime_error("Unknown value type");
 					}
 //todo - update needed

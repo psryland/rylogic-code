@@ -33,7 +33,7 @@
 #include "pr/common/profile.h"
 #include "pr/common/profile_manager.h"
 #include "pr/container/vector.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 #define PR_DBG_GEOM_TETRAMESH 0 //PR_DBG
 #define PR_LDR_TETRAMESH 0

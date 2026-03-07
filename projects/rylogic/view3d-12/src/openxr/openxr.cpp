@@ -437,7 +437,7 @@ namespace pr::rdr12::openxr
 		XrSwapchainPtr m_swapchain;
 
 		OpenXRImpl(Config const& config)
-			: m_dll(pr::win32::LoadDll<OpenXR>("openxr_loader.dll", L".\\lib\\$(platform)"))
+			: m_dll(win32::LoadDll<OpenXR>("openxr_loader.dll", L".\\lib\\$(platform)"))
 			, m_api(m_dll, config)
 			, m_config(config)
 			, m_system_id()

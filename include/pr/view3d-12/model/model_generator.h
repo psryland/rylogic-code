@@ -391,7 +391,7 @@ namespace pr::rdr12
 		{
 			using VType = VertexType;
 			using VCont = vector<VType>;
-			using ICont = pr::geometry::IdxBuf;
+			using ICont = geometry::IdxBuf;
 			using NCont = vector<NuggetDesc>;
 
 			string32 m_name = {};                 // Model name
@@ -423,7 +423,7 @@ namespace pr::rdr12
 			using Buffers = Buffers<VertexType>;
 			using VType = VertexType;
 			using VCont = vector<VType>;
-			using ICont = pr::geometry::IdxBuf;
+			using ICont = geometry::IdxBuf;
 			using NCont = vector<NuggetDesc>;
 
 		private:

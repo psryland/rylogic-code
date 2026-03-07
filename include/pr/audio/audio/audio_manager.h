@@ -27,7 +27,7 @@ namespace pr::audio
 	{
 		Settings m_settings;
 		pr::RefPtr<IXAudio2> m_xaudio;
-		pr::audio::VoicePtr<IXAudio2MasteringVoice> m_master;
+		audio::VoicePtr<IXAudio2MasteringVoice> m_master;
 
 		State(Settings const& settings);
 		~State();

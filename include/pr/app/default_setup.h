@@ -10,8 +10,8 @@ namespace pr::app
 	// This type is a default and example of a set up object for the app.
 	struct DefaultSetup
 	{
-		using RSettings = pr::rdr12::RdrSettings;
-		using WSettings = pr::rdr12::WndSettings;
+		using RSettings = rdr12::RdrSettings;
+		using WSettings = rdr12::WndSettings;
 
 		// The Main object contains a user defined 'UserSettings' type which may be needed before
 		// configuring the renderer. In order to construct the UserSettings instance a method with

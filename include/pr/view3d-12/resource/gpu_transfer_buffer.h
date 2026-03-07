@@ -132,7 +132,7 @@ namespace pr::rdr12
 			if (might_reuse)
 			{
 				// Generate a key
-				key = pr::hash::HashBytes32(&item, &item + 1);
+				key = hash::HashBytes32(&item, &item + 1);
 				auto iter = m_lookup.find(key);
 				if (iter != end(m_lookup))
 					return iter->second;

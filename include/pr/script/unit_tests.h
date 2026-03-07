@@ -603,7 +603,7 @@ namespace pr::script
 			auto& src = *src_ptr;
 
 			std::wstring r; for (;*src; ++src) r.push_back(*src);
-			PR_EXPECT(pr::str::Equal(r, data));
+			PR_EXPECT(str::Equal(r, data));
 		}
 	}
 	PRUnitTest(TokeniserTests)

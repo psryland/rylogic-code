@@ -10,7 +10,7 @@
 #include "pr/common/assert.h"
 #include "pr/common/d3dptr.h"
 #include "pr/common/hresult.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 #ifndef PR_DBG_SND
 #define PR_DBG_SND PR_DBG

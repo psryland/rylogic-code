@@ -31,7 +31,7 @@ namespace pr
 		DECLARE_DYNAMIC(LuaConsole)
 	public:
 		enum { IDD = IDD_DIALOG_LUA_CONSOLE };
-		LuaConsole(pr::lua::Lua& lua, CWnd* pParent = NULL);
+		LuaConsole(lua::Lua& lua, CWnd* pParent = NULL);
 		virtual ~LuaConsole();
 
 		virtual void Create(CWnd* parent);
@@ -50,7 +50,7 @@ namespace pr
 		afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 		afx_msg void OnSize(UINT nType, int cx, int cy);
 
-		pr::lua::Lua*		m_lua;
+		lua::Lua*		m_lua;
 		pr::SplitterCtrl	m_splitter;
 		CRichEditCtrl		m_output;
 		CLuaInputEdit		m_input;

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	
 	<PropertyGroup>
 		<OutputType>Library</OutputType>
@@ -10,6 +10,7 @@
 	<PropertyGroup>
 		<ApplicationIcon>icon_128x128.ico</ApplicationIcon>
 		<Version>$(RylogicLibraryVersion)</Version>
+		<IsPackable>true</IsPackable>
 	</PropertyGroup>
 
 	<!-- Build Options -->

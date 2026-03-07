@@ -20,11 +20,15 @@
 
 #include "pr/common/to.h"
 #include "pr/common/cast.h"
+#include "pr/common/bit_fields.h"
 #include "pr/geometry/gltf.h"
 #include "pr/geometry/common.h"
 #include "pr/container/vector.h"
+#include "pr/math/math.h"
+#include "pr/math/conversion.h"
 
 using namespace pr;
+using namespace pr::math;
 using namespace pr::geometry::gltf;
 
 namespace pr
@@ -119,7 +123,12 @@ namespace pr
 }
 namespace pr::geometry::gltf
 {
-	static constexpr Vert NoVert = { .m_idx0 = {NoIndex, 0} };
+	static constexpr Vert NoVert = {
+		.m_vert = Zero<v4>(), 
+		.m_colr = ColourWhite,
+		.m_norm = Zero<v4>(),
+		.m_tex0 = Zero<v2>(),
+		.m_idx0 = {NoIndex, 0} };
 
 	// Model data types (owning versions of the public span-based types)
 	struct MaterialData

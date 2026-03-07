@@ -125,15 +125,15 @@ namespace pr::chain
 	//  struct Field
 	//  {
 	//      int m_i;
-	//      pr::chain::Link<Field> m_link;     // Note: copyable!
+	//      chain::Link<Field> m_link;     // Note: copyable!
 	//      Field(int i) :m_i(i) ,m_link(this) {}
 	//  };
-	//  pr::chain::Link<Field> head;
+	//  chain::Link<Field> head;
 	//  Field f0(0), f1(1), f2(2);
-	//  pr::chain::Insert(head, f0.m_link);
-	//  pr::chain::Insert(head, f1.m_link);
-	//  pr::chain::Insert(head, f2.m_link);
-	//  for (pr::chain::Link<Field>* i = head.begin(); i != head.end(); i = i->m_next) i->m_owner->DoStuff();
+	//  chain::Insert(head, f0.m_link);
+	//  chain::Insert(head, f1.m_link);
+	//  chain::Insert(head, f2.m_link);
+	//  for (chain::Link<Field>* i = head.begin(); i != head.end(); i = i->m_next) i->m_owner->DoStuff();
 	#pragma region Field Chain
 
 	template <typename Owner>
@@ -651,17 +651,17 @@ namespace pr::chain
 		{
 			int m_i;
 			Member *m_next, *m_prev;
-			Member(int i) :m_i(i) { pr::chain::Init(*this); }
+			Member(int i) :m_i(i) { chain::Init(*this); }
 		};
 
 		struct Field
 		{
 			int m_i;
-			pr::chain::Link<Field> m_link;
+			chain::Link<Field> m_link;
 			Field(int i) :m_i(i) { m_link.init(this); }
 		};
 
-		struct Mixin : pr::chain::link<Mixin>
+		struct Mixin : chain::link<Mixin>
 		{
 			int m_i;
 			Mixin(int i) :m_i(i) {}

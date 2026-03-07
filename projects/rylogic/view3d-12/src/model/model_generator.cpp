@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -31,7 +31,7 @@ namespace pr::rdr12
 			}
 
 			// If the transform is left handed, flip the faces
-			if (Determinant3(a2b) < 0)
+			if (Determinant(a2b.rot) < 0)
 			{
 				// Check each nugget for faces
 				for (auto& nug : cache.m_ncont)
@@ -705,7 +705,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v4::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			else if (p == pcount - 1)
@@ -714,7 +714,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v4::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			else
@@ -725,7 +725,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v4::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			ori.pos = path[p];
@@ -1197,7 +1197,7 @@ namespace pr::rdr12
 				auto vptr = cache.m_vcont.data();
 				for (int i = 0, iend = int(mesh.m_verts.size()); i != iend; ++i)
 				{
-					SetPCNT(*vptr, cache.m_bbox.Grow(mesh.m_verts[i]), ColourWhite, mesh.m_norms[i/3], v2Zero);
+					SetPCNT(*vptr, cache.m_bbox.Grow(mesh.m_verts[i]), ColourWhite, mesh.m_norms[i/3], v2::Zero());
 					++vptr;
 				}
 

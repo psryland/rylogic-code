@@ -3,11 +3,11 @@
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
 #pragma once
-#include "pr/maths/maths.h"
-#include "pr/geometry/closest_point.h"
+#include "pr/collision/forward.h"
+#include "pr/collision/shape.h"
+#include "pr/collision/shape_box.h"
 #include "pr/collision/penetration.h"
 #include "pr/collision/support.h"
-#include "pr/collision/shape_box.h"
 
 namespace pr::collision
 {
@@ -25,7 +25,7 @@ namespace pr::collision
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tiny<float>);
+		auto r2l_abs = Abs(r2l.rot) + m3x4(math::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
@@ -134,8 +134,8 @@ namespace pr::collision
 
 		// Determine the sign of the separating axis to make it the normal from 'lhs' to 'rhs'
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot3(sep_axis, (l2w * lhs.m_s2p).pos);
-		auto p1 = Dot3(sep_axis, (r2w * rhs.m_s2p).pos);
+		auto p0 = Dot(sep_axis, (l2w * lhs.m_s2p).pos);
+		auto p1 = Dot(sep_axis, (r2w * rhs.m_s2p).pos);
 		auto sign = Bool2SignF(p0 < p1);
 
 		contact.m_depth = p.Depth();
@@ -151,7 +151,7 @@ namespace pr::collision
 #include "pr/common/unittests.h"
 #include "pr/collision/ldraw.h"
 
-namespace pr::collision
+namespace pr::collision::tests
 {
 	PRUnitTest(CollisionBoxVsBoxTests)
 	{
@@ -165,18 +165,18 @@ namespace pr::collision
 		};
 		m4x4 r2w_[] =
 		{
-			m4x4::Transform(maths::tau_by_8f, 0, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::Transform(0, maths::tau_by_8f, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::Transform(0, 0, maths::tau_by_8f, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::Transform(0, 0, -3 * maths::tau_by_8f, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			m4x4::TransformRad(constants<float>::tau_by_8, 0, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			m4x4::TransformRad(0, constants<float>::tau_by_8, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			m4x4::TransformRad(0, 0, constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			m4x4::TransformRad(0, 0, -3 * constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
 		};
 
 		std::default_random_engine rng;
 		for (int i = 0; i != 20; ++i)
 		{
 			Contact c;
-			m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
-			m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+			m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
+			m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
 
 			Builder builder;
 			builder._<LdrPhysicsShape>("lhs", 0x30FF0000).shape(lhs).o2w(l2w);

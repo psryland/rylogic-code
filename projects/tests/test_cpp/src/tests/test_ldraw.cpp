@@ -21,7 +21,7 @@ namespace tests
 		{
 			builder.Clear();
 			builder.BinaryStream();
-			builder.Command().object_transform("g", m4x4::Transform(0, t, 0, v4::Origin()));
+			builder.Command().object_transform("g", m4x4::TransformRad(0, t, 0, v4::Origin()));
 
 			if (ldr.connect("localhost", 1976).good())
 				ldr << builder.ToBinary() << std::flush;

@@ -853,7 +853,7 @@ namespace pr::rdr12::ldraw
 	// 'nav_op' is a navigation/manipulation verb
 	// 'ref_point' should be true on the mouse down/up event, false while mouse moving
 	// Returns true if the gizmo has moved or changed colour
-	bool LdrGizmo::MouseControl(Camera& camera, v2 const& nss_point, pr::camera::ENavOp nav_op, bool ref_point)
+	bool LdrGizmo::MouseControl(Camera& camera, v2 const& nss_point, camera::ENavOp nav_op, bool ref_point)
 	{
 		// Not enabled? ignore mouse input
 		if (!Enabled())
@@ -863,7 +863,7 @@ namespace pr::rdr12::ldraw
 		if (ref_point)
 		{
 			// On left mouse down, if we're not currently manipulating an axis, hit test to see if we should start
-			auto lbtn = pr::camera::ENavOp::Rotate;
+			auto lbtn = camera::ENavOp::Rotate;
 			if (nav_op == lbtn && m_component == EComponent::None)
 			{
 				auto hit = HitTest(camera, nss_point);
@@ -911,7 +911,7 @@ namespace pr::rdr12::ldraw
 		}
 
 		// If we're not currently manipulating, check for mouse hover over the gizmo
-		if (nav_op == pr::camera::ENavOp::None)
+		if (nav_op == camera::ENavOp::None)
 		{
 			auto hit = HitTest(camera, nss_point);
 			if (hit != m_last_hit)
@@ -1022,9 +1022,9 @@ namespace pr::rdr12::ldraw
 	{
 		auto scale = m4x4::Scale(m_scale, v4::Origin());
 
-		m_gfx.m_axis[0].m_i2w = m_gfx.m_o2w * m4x4::Transform(0, float(pr::maths::tau_by_4), float(pr::maths::tau_by_4), v4::Origin()) * scale;
-		m_gfx.m_axis[1].m_i2w = m_gfx.m_o2w * m4x4::Transform(-float(pr::maths::tau_by_4), -float(pr::maths::tau_by_4), 0, v4::Origin()) * scale;
-		m_gfx.m_axis[2].m_i2w = m_gfx.m_o2w * m4x4::Transform(0,0,0, v4::Origin()) * scale;
+		m_gfx.m_axis[0].m_i2w = m_gfx.m_o2w * m4x4::TransformRad(0, constants<float>::tau_by_4, constants<float>::tau_by_4, v4::Origin()) * scale;
+		m_gfx.m_axis[1].m_i2w = m_gfx.m_o2w * m4x4::TransformRad(-constants<float>::tau_by_4, -constants<float>::tau_by_4, 0, v4::Origin()) * scale;
+		m_gfx.m_axis[2].m_i2w = m_gfx.m_o2w * m4x4::TransformRad(0, 0, 0, v4::Origin()) * scale;
 
 		scene.AddInstance(m_gfx.m_axis[0]);
 		scene.AddInstance(m_gfx.m_axis[1]);
@@ -1074,14 +1074,14 @@ namespace pr::rdr12::ldraw
 		// Get the axis of rotation from the gizmo and normalised it
 		auto axis = d;
 		auto axis_lensq = LengthSq(axis);
-		if (axis_lensq < pr::maths::tiny<float>) return;
+		if (axis_lensq < math::tiny<float>) return;
 		axis /= sqrt(axis_lensq);
 
 		// Project the component axis back into normalised screen space
 		auto p0 = camera.WSPointToNSSPoint(p);
 		auto p1 = camera.WSPointToNSSPoint(p + d);
 		auto s  = Sign(p1.z - p0.z);
-		auto a  = Normalise(m_ref_pt - p0.xy, v2Zero);
+		auto a  = Normalise(m_ref_pt - p0.xy, v2::Zero());
 		auto b  = Rotate90CCW(a);
 		auto c  = nss_point - p0.xy;
 		auto t  = s * Atan2(Dot(c,b), Dot(c,a));

@@ -148,7 +148,7 @@ void RemoveDegenerateVerts(p3d::Mesh& mesh_, int quantisation, float smoothing_a
 
 		auto diff = ColourZero;
 		auto norm = v4::Zero();
-		auto tex0 = v2Zero;
+		auto tex0 = v2::Zero();
 
 		// 'map[i]' should be the first in the next set of degenerate verts.
 		// Redirect all pointers up to the next non-degenerate vert to the new container.

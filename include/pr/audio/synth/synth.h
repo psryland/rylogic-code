@@ -10,7 +10,7 @@
 #include <limits>
 #include <cassert>
 #include <random>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/container/span.h"
 #include "pr/audio/forward.h"
 #include "pr/audio/synth/note.h"

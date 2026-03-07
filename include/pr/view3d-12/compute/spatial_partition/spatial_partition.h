@@ -470,7 +470,7 @@ namespace pr::rdr12::compute::spatial_partition
 		struct Stats
 		{
 			// The average number and variance of particles per cell
-			pr::maths::AvrVar<> occupancy;
+			math::AvrVar<> occupancy;
 		};
 		Stats GetPerformanceStat() const
 		{

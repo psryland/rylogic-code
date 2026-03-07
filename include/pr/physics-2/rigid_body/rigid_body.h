@@ -129,7 +129,7 @@ namespace pr::physics
 		// Extrapolate the position based on the current momentum and forces
 		m4x4 O2W(float dt) const
 		{
-			return Abs(dt) > maths::tiny<float>
+			return Abs(dt) > math::tiny<float>
 				? ExtrapolateO2W(O2W(), MomentumWS(), ForceWS(), InertiaInvWS(), dt)
 				: O2W();
 		}
@@ -293,7 +293,7 @@ namespace pr::physics
 			spatial_force = Shift(spatial_force, -ws_at);
 			ApplyForceWS(spatial_force);
 		}
-		void ApplyForceWS(v8force const& ws_force)
+		void ApplyForceWS(v8force ws_force)
 		{
 			m_ws_force += ws_force;
 		}

@@ -1,7 +1,7 @@
 ﻿#! "net9.0"
 #r "System.IO"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.0.0"
+#r "nuget: Rylogic.Core, 2.0.2"
 #load "UserVars.csx"
 #load "Tools.csx"
 #load "BuildInstaller.csx"

@@ -510,9 +510,9 @@ namespace pr::common
 		#if !defined(NDEBUG)
 		auto s = out.str();
 		std::string::size_type ofs = 0U;
-		PR_EXPECT((ofs = s.find("pr::unittests::StackDumpTest::Func3", ofs)) != std::string::npos);
-		PR_EXPECT((ofs = s.find("pr::unittests::StackDumpTest::Func2", ofs)) != std::string::npos);
-		PR_EXPECT((ofs = s.find("pr::unittests::StackDumpTest::Func1", ofs)) != std::string::npos);
+		PR_EXPECT((ofs = s.find("unittests::StackDumpTest::Func3", ofs)) != std::string::npos);
+		PR_EXPECT((ofs = s.find("unittests::StackDumpTest::Func2", ofs)) != std::string::npos);
+		PR_EXPECT((ofs = s.find("unittests::StackDumpTest::Func1", ofs)) != std::string::npos);
 		#endif
 		#endif
 	}

@@ -176,7 +176,6 @@ namespace pr
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/maths/maths.h"
 namespace pr::common
 {
 	PRUnitTest(UserDataTests)
@@ -201,7 +200,7 @@ namespace pr::common
 		PR_EXPECT(udtest.has<m4x4>());
 
 		PR_EXPECT(udtest.get<double>() == 3.14);
-		PR_EXPECT(pr::str::Equal(udtest.get<Blob>().str, "HelloWorld"));
+		PR_EXPECT(str::Equal(udtest.get<Blob>().str, "HelloWorld"));
 		PR_EXPECT(&udtest.get<Blob>() != &blob);
 		PR_EXPECT(udtest.get<m4x4>() == m4x4::Identity());
 		PR_EXPECT(&udtest.get<m4x4>() != &m4x4::Identity());

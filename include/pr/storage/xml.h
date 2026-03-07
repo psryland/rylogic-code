@@ -628,7 +628,7 @@ R"(
 )";
 
 		// XML doesn't accept \0 in the string
-		pr::xml::Node root = pr::xml::Load(xml, sizeof(xml) - 1);
+		xml::Node root = xml::Load(xml, sizeof(xml) - 1);
 		PR_EXPECT(root.m_child.size() == 2U);
 		PR_EXPECT(root.element(L"node0") != nullptr);
 		PR_EXPECT(root.element(L"child") != nullptr);

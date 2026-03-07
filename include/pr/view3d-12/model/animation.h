@@ -120,7 +120,7 @@ namespace pr::rdr12
 		// Convert to an affine transform
 		operator m4x4() const
 		{
-			return m4x4(m3x4(m_rot) * m3x4::Scale(m_scl), m_pos.w1());
+			return m4x4(ToMatrix<m3x4>(m_rot) * m3x4::Scale(m_scl), m_pos.w1());
 		}
 
 		// Convert to xform
@@ -149,7 +149,7 @@ namespace pr::rdr12
 		// Convert to an affine transform
 		operator m4x4() const
 		{
-			return m4x4(m3x4(m_rot) * m3x4::Scale(m_scl), m_pos.w1());
+			return m4x4(ToMatrix<m3x4>(m_rot) * m3x4::Scale(m_scl), m_pos.w1());
 		}
 
 		// Convert to xform

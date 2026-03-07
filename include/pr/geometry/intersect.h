@@ -233,7 +233,7 @@ namespace pr::geometry::intersect
 		bary.y *= denom;
 		bary.z *= denom; // w = 1.0f - u - v;
 		front_to_back = (denom > 0.0f) * 2.0f - 1.0f;
-		return bary.x > -maths::tiny<float> && bary.y > -maths::tiny<float> && bary.z > -maths::tiny<float>;
+		return bary.x > -math::tiny<float> && bary.y > -math::tiny<float> && bary.z > -math::tiny<float>;
 	}
 
 	// DEPRECATED
@@ -290,7 +290,7 @@ namespace pr::geometry::intersect
 	inline bool pr_vectorcall RayVsSphere(v4 s, v4 d, float radius, float& tmin, float& tmax)
 	{
 		auto d_sq = Dot(d, d);
-		if (d_sq < maths::tiny<float>)
+		if (d_sq < math::tiny<float>)
 			return false; // zero length line
 
 		// Find the closest point to the line
@@ -372,10 +372,10 @@ namespace pr::geometry::intersect
 		float d0 = distance::PointToPlane(s, plane);
 		float d1 = distance::PointToPlane(s+d, plane);
 
-		if (Abs(d0) > maths::tiny<float>)
+		if (Abs(d0) > math::tiny<float>)
 		{
 			float dist = d1 - d0;
-			if (Abs(dist) < maths::tiny<float>)
+			if (Abs(dist) < math::tiny<float>)
 				return false; // Line and plane are parallel
 
 			t = -d0 / dist; // Use similar triangles to find 't'
@@ -436,9 +436,9 @@ namespace pr::geometry::intersect
 
 		// Add in an epsilon term to counteract arithmetic errors when segment is
 		// (near) parallel to a coordinate axis
-		adx += maths::tiny<float>;
-		ady += maths::tiny<float>;
-		adz += maths::tiny<float>;
+		adx += math::tiny<float>;
+		ady += math::tiny<float>;
+		adz += math::tiny<float>;
 
 		// Try cross products of segment direction vector with coordinate axes
 		// This might be wrong. Compare with 'ClosestPoint_LineSegmentToBBox'
@@ -508,7 +508,7 @@ namespace pr::geometry::intersect
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(maths::tiny<float>);
+		auto r2l_abs = Abs(r2l.rot) + m3x4(math::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };

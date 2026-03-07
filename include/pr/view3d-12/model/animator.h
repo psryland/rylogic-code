@@ -72,8 +72,8 @@ namespace pr::rdr12
 		//  - This animator reads from a single key frame animation
 		struct Interpolators
 		{
-			InterpolateRotation rot;
-			InterpolateVector pos;
+			InterpolateRotation<float> rot;
+			InterpolateVector<float> pos;
 		};
 
 		KinematicKeyFrameAnimationPtr m_anim; // The animation sequence to read from

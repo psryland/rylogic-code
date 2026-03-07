@@ -11,7 +11,7 @@
 #include "pr/common/command_line.h"
 #include "pr/geometry/fbx.h"
 #include "pr/geometry/p3d.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace fbx_cmd
 {

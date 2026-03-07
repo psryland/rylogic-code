@@ -6,7 +6,7 @@
 #pragma once
 #include <concepts>
 #include <type_traits>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/view3d-12/resource/image.h"
 #include "pr/view3d-12/lighting/light.h"
 

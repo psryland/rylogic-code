@@ -10,7 +10,7 @@
 #include "pr/common/cast.h"
 #include "pr/common/assert.h"
 #include "pr/container/byte_data.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/gui/wingui.h"
 
 namespace pr
@@ -76,7 +76,7 @@ namespace pr
 	// Convert a client space point to a normalised point
 	inline v2 NormalisePoint(HWND hwnd, POINT const& pt)
 	{
-		return NormalisePoint(ClientArea(hwnd), To<v2>(pt), 1.0f, -1.0f);
+		return NormalisePoint(Rectangle<float>(ClientArea(hwnd)), To<v2>(pt), 1.0f, -1.0f);
 	}
 
 	#if 0

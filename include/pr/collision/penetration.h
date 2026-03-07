@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2014
 //********************************
 #pragma once
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::collision
 {
@@ -88,7 +88,7 @@ namespace pr::collision
 		v4 SeparatingAxis() const
 		{
 			assert("No separating axes have been tested yet" && m_depth_sq != limits<float>::infinity());
-			return m_axis_len_sq > Sqr(maths::tiny<float>) ? m_axis / Sqrt(m_axis_len_sq) : v4{1,0,0,0};
+			return m_axis_len_sq > Sqr(math::tiny<float>) ? m_axis / Sqrt(m_axis_len_sq) : v4{1,0,0,0};
 		}
 
 		// Implemented by derived types.
@@ -127,7 +127,7 @@ namespace pr::collision
 			auto len_sq = LengthSq(axis);
 			
 			// Skip degenerate axes to avoid division by zero
-			if (len_sq < Sqr(maths::tiny<float>))
+			if (len_sq < Sqr(math::tiny<float>))
 				return true;
 			
 			auto d_sq = SignedSqr(depth) / len_sq;

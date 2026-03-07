@@ -28,7 +28,7 @@
 #include <complex>
 #include "pr/common/cast.h"
 #include "pr/common/bit_fields.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::algorithm::fft
 {

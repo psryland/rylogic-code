@@ -896,12 +896,12 @@ namespace pr::pipe
 		// Start the server and client
 		std::thread ipc_server_thread([&ipc_server, &shutdown]
 			{
-				pr::threads::SetCurrentThreadName("IPC Server");
+				threads::SetCurrentThreadName("IPC Server");
 				ipc_server.Run(shutdown.get_token());
 			});
 		std::thread ipc_client_thread([&ipc_client, &shutdown]
 			{
-				pr::threads::SetCurrentThreadName("IPC Client");
+				threads::SetCurrentThreadName("IPC Client");
 				ipc_client.Run(shutdown.get_token());
 			});
 
@@ -980,12 +980,12 @@ namespace pr::pipe
 		// Start the server and client
 		std::thread ipc_server_thread([&ipc_server, &shutdown]
 			{
-				pr::threads::SetCurrentThreadName("IPC Server");
+				threads::SetCurrentThreadName("IPC Server");
 				ipc_server.Run(shutdown.get_token());
 			});
 		std::thread ipc_client_thread([&ipc_client, &shutdown]
 			{
-				pr::threads::SetCurrentThreadName("IPC Client");
+				threads::SetCurrentThreadName("IPC Client");
 				ipc_client.Run(shutdown.get_token());
 			});
 
@@ -1057,7 +1057,7 @@ namespace pr::pipe
 		// Start client
 		std::thread ipc_client_thread([&ipc_client, &shutdown]
 		{
-			pr::threads::SetCurrentThreadName("IPC Client");
+			threads::SetCurrentThreadName("IPC Client");
 			ipc_client.Run(shutdown.get_token());
 		});
 
@@ -1104,7 +1104,7 @@ namespace pr::pipe
 		// Start the server
 		std::thread ipc_server_thread([&ipc_server, &shutdown]
 		{
-			pr::threads::SetCurrentThreadName("IPC Server");
+			threads::SetCurrentThreadName("IPC Server");
 			ipc_server.Run(shutdown.get_token());
 		});
 	

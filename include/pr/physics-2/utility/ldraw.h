@@ -65,7 +65,7 @@ namespace pr::rdr12::ldraw
 				case EShape::Box:
 				{
 					auto& box = shape_cast<ShapeBox>(shape);
-					fluent::LdrBox().colour(m_colour).dim(box.m_radius).o2w(box.m_base.m_s2p).WriteTo<Writer>(out);
+					fluent::LdrBox().colour(m_colour).dim(box.m_radius * 2).o2w(box.m_base.m_s2p).WriteTo<Writer>(out);
 					break;
 				}
 				case EShape::Sphere:

@@ -33,7 +33,7 @@ struct Main :Form, IProbeActions
 	};
 
 	using rtc_time_t = std::chrono::high_resolution_clock::time_point;
-	using ema_t = maths::ExpMovingAvr<double>;
+	using ema_t = math::ExpMovingAvr<double>;
 	using demo_scenes_t = std::vector<std::shared_ptr<IDemoScene>>;
 	using colours_t = FluidSimulation::ColourData;
 
@@ -388,7 +388,9 @@ struct Main :Form, IProbeActions
 			std::default_random_engine rng(s_cast<uint32_t>(m_time * 1000.0f));
 			for (auto& particle : particles)
 			{
-				auto pos = v3::Random(rng, m_probe.m_position.xyz, m_probe.m_radius).w1();
+				auto centre = m_probe.m_position.xyz;
+				auto rad = v3(m_probe.m_radius);
+				auto pos = Random<v3>(rng, centre - rad, centre + rad).w1();
 				if (m_fluid_sim.m_collision.Config.SpatialDimensions != 3) pos.z = 0;
 				particle = Particle{
 					.pos = pos,

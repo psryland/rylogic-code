@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 #pragma once
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/script/forward.h"
 #include "pr/script/script_core.h"
 #include "pr/script/filter.h"
@@ -266,9 +266,9 @@ namespace pr::script
 				++src;
 			}
 			if (*src == L'*') ++src; else return false;
-			pr::str::Resize(kw, 0);
-			if (!pr::str::ExtractIdentifier(kw, src, m_delim.c_str())) return false;
-			if (!m_case_sensitive) pr::str::LowerCase(kw);
+			str::Resize(kw, 0);
+			if (!str::ExtractIdentifier(kw, src, m_delim.c_str())) return false;
+			if (!m_case_sensitive) str::LowerCase(kw);
 			m_last_keyword = pr::Widen(kw);
 			return true;
 		}
@@ -855,6 +855,7 @@ namespace pr::script
 			assert(IsFinite(o2w) && "A valid 'o2w' must be passed to this function as it pre-multiplies the transform with the one read from the script");
 			auto p2w = m4x4::Identity();
 			auto affine = IsAffine(o2w);
+			static std::default_random_engine rng;
 
 			// Parse the transform
 			for (ETransformKeyword kw; NextKeywordH(kw);)
@@ -935,7 +936,9 @@ namespace pr::script
 					Vector3(centre, 1.0f);
 					Real(radius);
 					SectionEnd();
-					p2w = m4x4::Random(g_rng(), centre, radius) * p2w;
+					auto rot = Random<m3x4>(rng);
+					auto pos = Random<v4>(rng, centre, radius);
+					p2w = m4x4{rot, pos} * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::RandPos)
@@ -946,12 +949,12 @@ namespace pr::script
 					Vector3(centre, 1.0f);
 					Real(radius);
 					SectionEnd();
-					p2w = m4x4::Translation(v4::Random(g_rng(), centre, radius, 1)) * p2w;
+					p2w = m4x4::Translation(Random<v4>(rng, centre, radius).w1()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::RandOri)
 				{
-					auto m = m4x4(m3x4::Random(g_rng()), v4::Origin());
+					auto m = m4x4(Random<m3x4>(rng), v4::Origin());
 					p2w = m * p2w;
 					continue;
 				}
@@ -959,7 +962,7 @@ namespace pr::script
 				{
 					v4 angles;
 					Vector3S(angles, 0.0f);
-					p2w = m4x4::Transform(DegreesToRadians(angles.x), DegreesToRadians(angles.y), DegreesToRadians(angles.z), v4::Origin()) * p2w;
+					p2w = m4x4::TransformDeg(angles.x, angles.y, angles.z, v4::Origin()) * p2w;
 					continue;
 				}
 				if (kw == ETransformKeyword::Scale)
@@ -1027,22 +1030,22 @@ namespace pr::script
 			auto& src = m_pp;
 			InLiteral lit;
 			if (IsSectionStart()) ++src; else return ReportError(EResult::TokenNotFound, Location(), "expected '{'");
-			if (include_braces) pr::str::Append(str, L'{');
+			if (include_braces) str::Append(str, L'{');
 			for (int nest = 1; *src; ++src)
 			{
 				// If we're in a string/character literal, then ignore any '{''}' characters
-				if (lit.WithinLiteral(*src)) { pr::str::Append(str, *src); continue; }
+				if (lit.WithinLiteral(*src)) { str::Append(str, *src); continue; }
 				nest += int(*src == '{');
 				nest -= int(*src == '}');
 				if (nest == 0) break;
-				pr::str::Append(str, *src);
+				str::Append(str, *src);
 			}
-			if (include_braces) pr::str::Append(str, '}');
+			if (include_braces) str::Append(str, '}');
 			if (IsSectionEnd()) ++src; else return ReportError(EResult::TokenNotFound, Location(), "expected '}'");
 			return true;
 		}
 
-		// Allow extension methods. e.g: template <> bool pr::script::Reader::Extract<MyType>(MyType& my_type) { return Int(my_type.int, 10); // etc }
+		// Allow extension methods. e.g: template <> bool script::Reader::Extract<MyType>(MyType& my_type) { return Int(my_type.int, 10); // etc }
 		template <typename Type> Type Extract()
 		{
 			Type type;
@@ -1162,7 +1165,7 @@ namespace pr::script
 			unsigned int uival = 0;
 			float fval = 0.0f, farray[4];
 			pr::v4 vec = pr::v4::Zero();
-			pr::quat q = pr::QuatIdentity;
+			pr::quat q = pr::quat::Identity();
 			pr::m3x4 mat3;
 			pr::m4x4 mat4;
 

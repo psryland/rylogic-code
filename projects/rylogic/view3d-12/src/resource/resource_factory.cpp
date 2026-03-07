@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -214,12 +214,12 @@ namespace pr::rdr12
 			{
 				// Basis/focus point model
 				constexpr Vert verts[] = {
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), v4::Zero(), v2::Zero()},
-					{v4(1.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), v4::Zero(), v2::Zero()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF00FF00), v4::Zero(), v2::Zero()},
-					{v4(0.0f,  1.0f,  0.0f, 1.0f), Colour(0xFF00FF00), v4::Zero(), v2::Zero()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(0.0f,  0.0f,  1.0f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
+					{v4(1.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  1.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  1.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 3, 4, 5,
@@ -242,16 +242,16 @@ namespace pr::rdr12
 			{
 				// Unit quad in Z = 0 plane
 				constexpr Vert verts[] = {
-					{v4(-0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), v4::ZAxis(), v2(0.0000f,0.9999f)},
-					{v4(0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), v4::ZAxis(), v2(0.9999f,0.9999f)},
-					{v4(0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), v4::ZAxis(), v2(0.9999f,0.0000f)},
-					{v4(-0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), v4::ZAxis(), v2(0.0000f,0.0000f)},
+					{v4(-0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.9999f)},
+					{v4(+0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.9999f)},
+					{v4(+0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.0000f)},
+					{v4(-0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.0000f)},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 0, 2, 3
 				};
 				constexpr BBox bbox = {
-					v4::Origin(),
+					Origin<v4>(),
 					v4(1, 1, 0, 0)
 				};
 
@@ -266,14 +266,14 @@ namespace pr::rdr12
 			{
 				// Bounding box cube
 				constexpr Vert verts[] = {
-					{v4(-0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(+0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(+0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(-0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(-0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(+0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(+0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
-					{v4(-0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), v4::Zero(), v2::Zero()},
+					{v4(-0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 1, 2, 2, 3, 3, 0,
@@ -281,7 +281,7 @@ namespace pr::rdr12
 					0, 4, 1, 5, 2, 6, 3, 7,
 				};
 				constexpr BBox bbox = {
-					v4::Origin(),
+					Origin<v4>(),
 					v4(1, 1, 1, 0)
 				};
 
@@ -301,45 +301,45 @@ namespace pr::rdr12
 				constexpr float sz = 1.0f;
 				constexpr float dd = 0.8f;
 				constexpr Vert verts[] = {
-					{v4(-sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(-sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(-sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(-sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
-					{v4(-sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), v4::Zero(), v2::Zero()},
+					{v4(-sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0,  1,  0,  2,  0,  3,
@@ -352,7 +352,7 @@ namespace pr::rdr12
 					28, 29, 28, 30, 28, 31,
 				};
 				constexpr BBox bbox = {
-					v4::Origin(),
+					Origin<v4>(),
 					v4(1, 1, 1, 0)
 				};
 
@@ -778,7 +778,7 @@ namespace pr::rdr12
 						auto r = Len(i - radius, j - radius);
 						auto t = Frac(0.0f, r, radius);
 						t = SmoothStep(0.0f, 1.0f, t);
-						c.a = uint8_t(Lerp(0xFF, 0x00, t));
+						c.a = uint8_t(Lerp(255.0f, 0.0f, t));
 						data[size_t(j * sz + i)] = c.argb;
 					}
 				}
@@ -807,7 +807,7 @@ namespace pr::rdr12
 						{
 							t = Clamp(1.0f - t, 0.0f, 1.0f);
 							t = Clamp(Pow(t, 3.0f) + 0.05f, 0.0f, 1.0f);
-							c.a = uint8_t(Lerp(0x00, 0xFF, t));
+							c.a = uint8_t(Lerp(0.0f, 255.0f, t));
 							data[size_t(j * sz + i)] = c.argb;
 						}
 					}
@@ -855,7 +855,7 @@ namespace pr::rdr12
 			case EStockTexture::WhiteTriangle:
 			{
 				constexpr int sz = 64, hsz = sz / 2;
-				constexpr auto dx = maths::root3_by_2f / 2.0f;
+				constexpr auto dx = constants<float>::root3_by_2 / 2.0f;
 				constexpr auto dy = 0.75f;
 				constexpr auto s = 1.0f / sz;
 
@@ -883,7 +883,7 @@ namespace pr::rdr12
 							(Frac(x0 * dy, y * dx, x1 * 0.75f)); // Spanning the edge
 
 						auto c = Colour32White;
-						c.a = uint8_t(Lerp(0xFF, 0x00, SmoothStep(0.0f, 1.0f, t)));
+						c.a = uint8_t(Lerp(255.0f, 0.0f, SmoothStep(0.0f, 1.0f, t)));
 
 						data[size_t(j * sz + hsz - i)] = c.argb;
 						data[size_t(j * sz + hsz + i)] = c.argb;

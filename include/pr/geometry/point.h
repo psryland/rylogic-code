@@ -126,7 +126,7 @@ namespace pr::geometry
 	}
 
 	// Returns true if 'point' is on the positive side of all of 'planes'
-	inline bool pr_vectorcall PointWithinHalfSpaces(v4 point, Plane const* planes, int count, float tol = maths::tiny<float>)
+	inline bool pr_vectorcall PointWithinHalfSpaces(v4 point, Plane const* planes, int count, float tol = math::tiny<float>)
 	{
 		for (auto i = 0; i != count; ++i)
 		{

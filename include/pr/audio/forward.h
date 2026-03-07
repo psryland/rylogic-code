@@ -44,7 +44,7 @@
 #include "pr/common/scope.h"
 #include "pr/common/flags_enum.h"
 #include "pr/common/allocator.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/common/bit_fields.h"
 #include "pr/algorithm/algorithm.h"
 #include "pr/storage/xml.h"

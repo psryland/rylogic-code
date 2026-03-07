@@ -70,9 +70,9 @@ namespace pr::rdr12
 	m4x4 BBoxTransform(BBox const& bbox)
 	{
 		return m4x4::Scale(
-			bbox.SizeX() + maths::tiny<float>,
-			bbox.SizeY() + maths::tiny<float>,
-			bbox.SizeZ() + maths::tiny<float>,
+			bbox.SizeX() + math::tiny<float>,
+			bbox.SizeY() + math::tiny<float>,
+			bbox.SizeZ() + math::tiny<float>,
 			bbox.Centre());
 	}
 }

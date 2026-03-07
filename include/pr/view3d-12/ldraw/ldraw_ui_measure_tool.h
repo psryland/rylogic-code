@@ -97,7 +97,7 @@ namespace pr::rdr12::ldraw
 		// Update the text in the measurement details text box
 		void UpdateMeasurementInfo()
 		{
-			using namespace maths;
+			using namespace math;
 
 			// Remove any existing graphics
 			m_gfx = nullptr;
@@ -130,9 +130,9 @@ namespace pr::rdr12::ldraw
 			auto dxy = Len(dx, dy);
 			auto dyz = Len(dy, dz);
 			auto dzx = Len(dz, dx);
-			auto angx = dyz > tinyf && fabs(dy) > tinyf ? RadiansToDegrees(Angle(dyz, fabs(dy), fabs(dz))) : 0.0f;
-			auto angy = dzx > tinyf && fabs(dx) > tinyf ? RadiansToDegrees(Angle(dzx, fabs(dx), fabs(dz))) : 0.0f;
-			auto angz = dxy > tinyf && fabs(dx) > tinyf ? RadiansToDegrees(Angle(dxy, fabs(dx), fabs(dy))) : 0.0f;
+			auto angx = dyz > constants<float>::tiny && fabs(dy) > constants<float>::tiny ? RadiansToDegrees(Angle(dyz, fabs(dy), fabs(dz))) : 0.0f;
+			auto angy = dzx > constants<float>::tiny && fabs(dx) > constants<float>::tiny ? RadiansToDegrees(Angle(dzx, fabs(dx), fabs(dz))) : 0.0f;
+			auto angz = dxy > constants<float>::tiny && fabs(dx) > constants<float>::tiny ? RadiansToDegrees(Angle(dxy, fabs(dx), fabs(dy))) : 0.0f;
 
 			// Update the text description
 			m_tb_values.Text(FmtS(

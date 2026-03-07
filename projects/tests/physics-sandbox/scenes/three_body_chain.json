@@ -1,0 +1,39 @@
+{
+	"scene": {
+		"description": "Three-body collision chain: a fast sphere hits a stationary box, which in turn hits another stationary sphere. Demonstrates multi-body energy transfer.",
+		"material": {
+			"elasticity": 1.0,
+			"friction": 0.0
+		},
+		"bodies": [
+			{
+				"name": "projectile_sphere",
+				"shape": {
+					"type": "sphere",
+					"radius": 0.8
+				},
+				"mass": 10.0,
+				"position": [-10, 0, 0],
+				"velocity": [5, 0, 0]
+			},
+			{
+				"name": "middle_box",
+				"shape": {
+					"type": "box",
+					"dimensions": [2, 2, 2]
+				},
+				"mass": 10.0,
+				"position": [0, 0, 0]
+			},
+			{
+				"name": "target_sphere",
+				"shape": {
+					"type": "sphere",
+					"radius": 1.2
+				},
+				"mass": 10.0,
+				"position": [8, 0, 0]
+			}
+		]
+	}
+}

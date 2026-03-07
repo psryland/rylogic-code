@@ -18,7 +18,7 @@
 //#include "pr/gfx/colour.h"
 //#include "pr/common/range.h"
 #include "pr/common/scope.h"
-//#include "pr/maths/maths.h"
+//#include "pr/math/math.h"
 #include "pr/str/extract.h"
 #include "pr/script/script_core.h"
 

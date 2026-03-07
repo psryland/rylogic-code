@@ -193,7 +193,7 @@ namespace pr::sqlite
 	// Configure sqlite. Must be called before any db connections are opened
 	// E.g
 	// logging:
-	//   pr::sqlite::Configure(EConfig::Log, log_func, 0);  - sadly, [](void* ctx, int code, char const* msg) { OutputDebugStringA(msg); } doesn't work
+	//   sqlite::Configure(EConfig::Log, log_func, 0);  - sadly, [](void* ctx, int code, char const* msg) { OutputDebugStringA(msg); } doesn't work
 	int (&Configure)(int, ...) = sqlite3_config;
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1145,13 +1145,13 @@ namespace pr::sqlite
 		// Remember binding indices start from '1'
 		template <typename TParm> void Bind(int idx, TParm const& parm)
 		{
-			pr::sqlite::Bind(m_stmt, idx, parm);
+			sqlite::Bind(m_stmt, idx, parm);
 		}
 
 		// Read a row from the query as type "DBRecord"
 		template <typename DBRecord> DBRecord Read()
 		{
-			return pr::sqlite::Read<DBRecord>(m_stmt);
+			return sqlite::Read<DBRecord>(m_stmt);
 		}
 
 		// Returns the number of rows changed as a result of the last 'step()'
@@ -1163,14 +1163,14 @@ namespace pr::sqlite
 		// Returns the number of columns in the result of this query
 		size_t ColumnCount() const
 		{
-			return pr::sqlite::ColumnCount(m_stmt);
+			return sqlite::ColumnCount(m_stmt);
 		}
 
 		//// Return a value for a column for the current row
 		//template <typename Type> Type& ColumnValue(int col, Type& type) const
 		//{
 		//	assert(col < ColumnCount() && "Column index out of range");
-		//	pr::sqlite::Read(m_stmt, col, type);
+		//	sqlite::Read(m_stmt, col, type);
 		//	return type;
 		//}
 		//template <typename Type> Type  ColumnValue(int col) const
@@ -1239,14 +1239,14 @@ namespace pr::sqlite
 		// Bind primary keys to this get query
 		template <typename PKArgs> void Bind(PKArgs const& pks)
 		{
-			pr::sqlite::BindPKs<DBRecord>(*this, pks);
+			sqlite::BindPKs<DBRecord>(*this, pks);
 		}
 
 		// Run the get command. Call 'Reset()' before running the command again
 		DBRecord& Get(DBRecord& item)
 		{
 			Step();
-			pr::sqlite::Read(*this, item);
+			sqlite::Read(*this, item);
 			return item;
 		}
 
@@ -1254,7 +1254,7 @@ namespace pr::sqlite
 		bool Find(DBRecord& item)
 		{
 			if (!Step()) return false;
-			pr::sqlite::Read(*this, item);
+			sqlite::Read(*this, item);
 			return true;
 		}
 	};
@@ -1292,13 +1292,13 @@ namespace pr::sqlite
 		}
 
 		// Delete an item from the database
-		// Use pr::sqlite::PKs() to create 'PRArgs'
+		// Use sqlite::PKs() to create 'PRArgs'
 		template <typename PKArgs> int Delete(PKArgs const& pks)
 		{
 			assert(m_db->IsOpen() && "Database closed");
 			auto const& meta = DBRecord::Sqlite_TableMetaData();
 			Query query(*m_db, Sql("delete from ",meta.TableName()," where ",meta.PKConstraints()));
-			pr::sqlite::Bind(query, pks);
+			sqlite::Bind(query, pks);
 			query.Step();
 			return query.RowsChanged();
 		}
@@ -1326,7 +1326,7 @@ namespace pr::sqlite
 		}
 
 		// Update a single column in a table
-		// Use pr::sqlite::PKArgs() to create 'PKs'
+		// Use sqlite::PKArgs() to create 'PKs'
 		template <typename ValueType, typename PKArgs> int Update(char const* column_name, ValueType const& value, PKArgs const& pks)
 		{
 			assert(m_db->IsOpen() && "Database closed");
@@ -1335,13 +1335,13 @@ namespace pr::sqlite
 
 			Query query(*m_db, Sql("update ",meta.TableName()," set ",column.Name," = ? where ",meta.PKConstraints()));
 			column.Bind(query, 1, value);
-			pr::sqlite::BindPKs<DBRecord>(query, pks, 1);
+			sqlite::BindPKs<DBRecord>(query, pks, 1);
 			query.Step();
 			return query.RowsChanged();
 		}
 
 		// Return a record from the database.
-		// Use pr::sqlite::PKs() to create 'PRArgs'
+		// Use sqlite::PKs() to create 'PRArgs'
 		template <typename PKArgs> DBRecord& Get(PKArgs const& pks, DBRecord& item) const
 		{
 			assert(m_db->IsOpen() && "Database closed");
@@ -1377,7 +1377,7 @@ namespace pr::sqlite
 			auto const& column = *meta.Columns()[col];
 
 			Query query(*m_db, Sql("select ",column.Name," from ",meta.TableName()," where ",meta.PKConstraints()));
-			pr::sqlite::BindPKs<DBRecord>(query, pks);
+			sqlite::BindPKs<DBRecord>(query, pks);
 			query.Step();
 			column.Read(query, 0, value);
 			return value;
@@ -1468,7 +1468,7 @@ namespace pr::sqlite
 		{
 			Query query(m_db, sql_query);
 			if (!query.Step()) throw Exception(SQLITE_ERROR, "Scalar query returned no results", false);
-			int value; pr::sqlite::read_integer(query, 0, value);
+			int value; sqlite::read_integer(query, 0, value);
 			if (query.Step()) throw Exception(SQLITE_ERROR, "Scalar query returned more than one result", false);
 			return value;
 		}
@@ -1611,9 +1611,9 @@ namespace pr::sqlite
 
 		enum class Enum { One, Two, Three };
 
-		struct DB :pr::sqlite::Database
+		struct DB :sqlite::Database
 		{
-			DB() :pr::sqlite::Database(L":memory:") {}
+			DB() :sqlite::Database(L":memory:") {}
 		};
 
 		// Set the log function
@@ -1782,7 +1782,7 @@ namespace pr::sqlite
 			PR_EXPECT(table.Insert(Record(2, 'b')) == 1);
 
 			try { table.Insert(Record(1, 'c'), EOnConstraint::Reject); }
-			catch (pr::sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_CONSTRAINT); }
+			catch (sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_CONSTRAINT); }
 
 			// Ignore, should ignore constraints violations
 			PR_EXPECT(table.Insert(Record(1, 'd'), EOnConstraint::Ignore) == 0);
@@ -1847,7 +1847,7 @@ namespace pr::sqlite
 					,m_string()
 				{}
 			};
-			typedef pr::sqlite::PKArgs<int,bool> PKArgs;
+			typedef sqlite::PKArgs<int,bool> PKArgs;
 
 			DB db;
 			db.DropTable<Record>();
@@ -2054,9 +2054,9 @@ namespace pr::sqlite
 			PR_EXPECT(table.Insert(Record('a')) == 1);
 			PR_EXPECT(table.Insert(Record('b')) == 1);
 			Record a('a');
-			PR_THROWS(table.Insert(a), pr::sqlite::Exception);
+			PR_THROWS(table.Insert(a), sqlite::Exception);
 			try { table.Insert(Record('b')); }
-			catch (pr::sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_CONSTRAINT); }
+			catch (sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_CONSTRAINT); }
 		}
 		PRUnitTestMethod(Find)
 		{
@@ -2088,7 +2088,7 @@ namespace pr::sqlite
 
 			Record r = table.Get(PKs(3));
 			try { table.Get(PKs(6)); }
-			catch (pr::sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_NOTFOUND); }
+			catch (sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_NOTFOUND); }
 
 			Record R;
 			PR_EXPECT( table.Find(PKs(3), R));
@@ -2177,8 +2177,8 @@ namespace pr::sqlite
 			PR_EXPECT(table.Insert(r3, r3.m_key) == 1);
 
 			Record r;
-			{//  for (pr::sqlite::Query q(db, "select * from Record"); q.Step();) {}
-				pr::sqlite::Query q(db, "select * from Record");
+			{//  for (sqlite::Query q(db, "select * from Record"); q.Step();) {}
+				sqlite::Query q(db, "select * from Record");
 				PR_EXPECT(q.Step()); r = q.Read<Record>(); PR_EXPECT(r.m_string == "r0");
 				PR_EXPECT(q.Step()); r = q.Read<Record>(); PR_EXPECT(r.m_string == "r1");
 				PR_EXPECT(q.Step()); r = q.Read<Record>(); PR_EXPECT(r.m_string == "r2");
@@ -2186,8 +2186,8 @@ namespace pr::sqlite
 				PR_EXPECT(!q.Step());
 			}
 
-			{//for (pr::sqlite::EnumRows<Record> row(cached_query); !row.end(); row.next()) {}
-				pr::sqlite::Query q(db, "select * from Record where String = ?");
+			{//for (sqlite::EnumRows<Record> row(cached_query); !row.end(); row.next()) {}
+				sqlite::Query q(db, "select * from Record where String = ?");
 				q.Bind(1,"r1");
 
 				PR_EXPECT(q.Step()); r = q.Read<Record>(); PR_EXPECT(r.m_string == "r1");

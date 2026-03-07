@@ -27,26 +27,25 @@ namespace pr::collision
 	//  - add to support.h
 	//  - update collision.h
 
-	// Primitive shape types: x(Name, Composite)
+	// Shape type enum
 	// These are trivially copyable types that have 'Shape' as the first member.
 	// Order is important because it affects the collision detection tri-table.
-	#define PR_COLLISION_SHAPES(x)\
+	enum class EShape :int
+	{
+		// Special value to indicate the shape is a dummy object
+		NoShape = -1,
+
+		// Primitive shape types: x(Name, Composite)
+		#define PR_COLLISION_SHAPES(x)\
 		x(Sphere  , false)\
 		x(Box     , false)\
 		x(Line    , false)\
 		x(Triangle, false)\
 		x(Polytope, false)\
 		x(Array   , true )
-
-	// Shape type enum
-	enum class EShape :int
-	{
-		// Special value to indicate the shape is a dummy object
-		NoShape = -1,
-
-		#define PR_COLLISION_SHAPE_ENUM(name, comp) name,
-		PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_ENUM)
-		#undef PR_COLLISION_SHAPE_ENUM
+		#define PR_ENUM(name, comp) name,
+		PR_COLLISION_SHAPES(PR_ENUM)
+		#undef PR_ENUM
 
 		NumberOf,
 	};
@@ -55,9 +54,9 @@ namespace pr::collision
 		switch (shape)
 		{
 			case EShape::NoShape: return "NoShape";
-			#define PR_COLLISION_SHAPE_TOSTRING(name, comp) case EShape::name: return #name;
-			PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_TOSTRING)
-			#undef PR_COLLISION_SHAPE_TOSTRING
+			#define PR_ENUM(name, comp) case EShape::name: return #name;
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
 			default: assert("Unknown shape type" && false); return "Unknown";
 		}
 	}
@@ -93,6 +92,7 @@ namespace pr::collision
 		// The size in bytes of this shape and its data
 		size_t m_size;
 
+		Shape() = default;
 		Shape(EShape type, size_t size, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
 			:m_s2p(shape_to_parent)
 			,m_bbox(BBox::Reset())
@@ -103,85 +103,98 @@ namespace pr::collision
 		{}
 	};
 
-	// Forward declare standard shape functions
-	template <typename = void> BBox pr_vectorcall CalcBBox(Shape const& shape);
-	template <typename = void> void pr_vectorcall ShiftCentre(Shape&, v4 shift);
-	template <typename = void> v4   pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id);
-	template <typename = void> void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest);
-
-	// Forward declare shape types and standard functions
-	#define PR_COLLISION_SHAPE_FORWARD(name, comp)\
-	struct Shape##name;\
-	template <typename = void> BBox pr_vectorcall CalcBBox(Shape##name const& shape);\
-	template <typename = void> void pr_vectorcall ShiftCentre(Shape##name&, v4 shift);\
-	template <typename = void> v4   pr_vectorcall SupportVertex(Shape##name const&, v4 direction, int, int&);\
-	template <typename = void> void pr_vectorcall ClosestPoint(Shape##name const& shape, v4 point, float& distance, v4& closest);
-	PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_FORWARD)
-	#undef PR_COLLISION_SHAPE_FORWARD
-
-	// Other forwards
-	struct Ray;
-
 	// Traits/Concepts
-	template <typename T> struct is_shape :std::false_type {};
-	template <> struct is_shape<Shape> :std::true_type
+	template <typename Shp> struct shape_traits
 	{
 		static constexpr EShape shape_type = EShape::NoShape;
 		static constexpr bool composite = false;
+		static constexpr bool is_shape_v = false;
 	};
-	#define PR_COLLISION_SHAPE_TRAITS(name, comp)\
-	template <> struct is_shape<Shape##name> :std::true_type\
+	template <> struct shape_traits<Shape>
+	{
+		static constexpr EShape shape_type = EShape::NoShape;
+		static constexpr bool composite = false;
+		static constexpr bool is_shape_v = true;
+	};
+
+	// Specializations for each concrete shape type, generated from the macro.
+	// These MUST be defined before any code that might instantiate shape_cast
+	// or check ShapeType, otherwise the primary template gets implicitly
+	// instantiated with is_shape_v=false and the later explicit specialization
+	// in the individual shape headers becomes illegal (C2766/C2908).
+	#define PR_ENUM(name, comp)\
+	template <> struct shape_traits<Shape##name>\
 	{\
 		static constexpr EShape shape_type = EShape::name;\
 		static constexpr bool composite = comp;\
+		static constexpr bool is_shape_v = true;\
 	};
-	PR_COLLISION_SHAPES(PR_COLLISION_SHAPE_TRAITS)
-	#undef PR_COLLISION_SHAPE_TRAITS
-	template <typename T> constexpr bool is_shape_v = is_shape<T>::value && std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
-	template <typename T> concept ShapeType = is_shape_v<T>;
-	template <typename T> concept CompositeShapeType = is_shape_v<T> && is_shape<T>::composite;
-	static_assert(is_shape_v<Shape>);
+	PR_COLLISION_SHAPES(PR_ENUM)
+	#undef PR_ENUM
+
+	// Standard shape functions
+	BBox pr_vectorcall CalcBBox(Shape const& shape);
+	void pr_vectorcall ShiftCentre(Shape&, v4 shift);
+	v4   pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id);
+	void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest);
+
+	#define PR_ENUM(name, comp)\
+	struct Shape##name; /*forward declaration*/ \
+	BBox pr_vectorcall CalcBBox(Shape##name const& shape);\
+	void pr_vectorcall ShiftCentre(Shape##name& shape, v4 shift);\
+	v4   pr_vectorcall SupportVertex(Shape##name const& shape, v4 direction, int hnt_vert_id, int& sup_vert_id);\
+	void pr_vectorcall ClosestPoint(Shape##name const& shape, v4 point, float& distance, v4& closest);
+	PR_COLLISION_SHAPES(PR_ENUM)
+	#undef PR_ENUM
+
+	// Shape concepts
+	template <typename T>
+	concept ShapeType = shape_traits<std::remove_cv_t<T>>::is_shape_v;
+	
+	template <typename T>
+	concept CompositeShapeType = ShapeType<T> && shape_traits<T>::composite;
+
+	static_assert(ShapeType<Shape>);
 
 	// Cast 'Shape' to a specific Shape type
-	template <ShapeType TShape> inline TShape const& shape_cast(Shape const& shape)
+	template <ShapeType Shp> inline Shp const& shape_cast(Shape const& shape)
 	{
-		assert("Invalid shape cast" && shape.m_type == is_shape<TShape>::shape_type);
-		return reinterpret_cast<TShape const&>(shape);
+		assert("Invalid shape cast" && shape.m_type == shape_traits<Shp>::shape_type);
+		return reinterpret_cast<Shp const&>(shape);
 	}
-	template <ShapeType TShape> inline TShape const* shape_cast(Shape const* shape)
+	template <ShapeType Shp> inline Shp const* shape_cast(Shape const* shape)
 	{
-		assert("Invalid shape cast" && (shape == nullptr || shape->m_type == is_shape<TShape>::shape_type));
-		return reinterpret_cast<TShape const*>(shape);
+		assert("Invalid shape cast" && (shape == nullptr || shape->m_type == shape_traits<Shp>::shape_type));
+		return reinterpret_cast<Shp const*>(shape);
 	}
-	template <ShapeType TShape> inline TShape& shape_cast(Shape& shape)
+	template <ShapeType Shp> inline Shp& shape_cast(Shape& shape)
 	{
-		assert("Invalid shape cast" && shape.m_type == is_shape<TShape>::shape_type);
-		return reinterpret_cast<TShape&>(shape);
+		assert("Invalid shape cast" && shape.m_type == shape_traits<Shp>::shape_type);
+		return reinterpret_cast<Shp&>(shape);
 	}
-	template <ShapeType TShape> inline TShape* shape_cast(Shape* shape)
+	template <ShapeType Shp> inline Shp* shape_cast(Shape* shape)
 	{
-		assert("Invalid shape cast" && (shape == nullptr || shape->m_type == is_shape<TShape>::shape_type));
-		return reinterpret_cast<TShape*>(shape);
+		assert("Invalid shape cast" && (shape == nullptr || shape->m_type == shape_traits<Shp>::shape_type));
+		return reinterpret_cast<Shp*>(shape);
 	}
 
 	// Cast a Shape type to 'Shape'
-	template <ShapeType TShape> inline Shape const& shape_cast(TShape const& shape)
+	template <ShapeType Shp> inline Shape const& shape_cast(Shp const& shape)
 	{
 		return shape.m_base;
 	}
-	template <ShapeType TShape> inline Shape const* shape_cast(TShape const* shape)
+	template <ShapeType Shp> inline Shape const* shape_cast(Shp const* shape)
 	{
 		return shape ? &shape->m_base : nullptr;
 	}
-	template <ShapeType TShape> inline Shape& shape_cast(TShape& shape)
+	template <ShapeType Shp> inline Shape& shape_cast(Shp& shape)
 	{
 		return shape.m_base;
 	}
-	template <ShapeType TShape> inline Shape* shape_cast(TShape* shape)
+	template <ShapeType Shp> inline Shape* shape_cast(Shp* shape)
 	{
 		return shape ? &shape->m_base : nullptr;
 	}
-
 	inline Shape const& shape_cast(Shape const& shape)
 	{
 		return shape;
@@ -199,31 +212,14 @@ namespace pr::collision
 		return shape;
 	}
 
-	#if 0
-	// A constant reference to a shape
-	struct ShapeCRef
-	{
-		// This is used in the Rigid body to point to a collision shape
-		Shape const* m_shape;
-		ShapeCRef(Shape const* shape) :m_shape(shape) {}
-		ShapeCRef(Shape const& shape) :m_shape(&shape) {}
-		template <ShapeType TShape> ShapeCRef(TShape const& shape) :m_shape(&shape.m_base) {}
-		template <ShapeType TShape> ShapeCRef(TShape const* shape) :m_shape(shape.m_base) {}
-		Shape const* operator ->() const { return m_shape; }
-		Shape const& operator *() const { return *m_shape; }
-		operator Shape const*() const { return m_shape; }
-		operator Shape const&() const { return *m_shape; }
-	};
-	#endif
-
 	// Increment a shape pointer: for (Shape const *s = shape.begin(), *s_end = shape.end(); s != s_end; s = next(s)) {}
-	template <ShapeType TShape> inline TShape const* next(TShape const* p)
+	template <ShapeType Shp> inline Shp const* next(Shp const* p)
 	{
-		return reinterpret_cast<TShape const*>(byte_ptr(p) + p->m_base.m_size);
+		return reinterpret_cast<Shp const*>(byte_ptr(p) + p->m_base.m_size);
 	}
-	template <ShapeType TShape> inline TShape* next(TShape* p)
+	template <ShapeType Shp> inline Shp* next(Shp* p)
 	{
-		return reinterpret_cast<TShape*>(byte_ptr(p) + p->m_base.m_size);
+		return reinterpret_cast<Shp*>(byte_ptr(p) + p->m_base.m_size);
 	}
 	template <> inline Shape const* next(Shape const* p)
 	{
@@ -233,12 +229,59 @@ namespace pr::collision
 	{
 		return reinterpret_cast<Shape*>(byte_ptr(p) + p->m_size);
 	}
-}
-namespace pr
-{
-	// Convert a shape enum to a string
-	inline char const* ToString(collision::EShape shape)
+
+	// Return a shape to use in place of a real shape for objects that don't need a shape really
+	inline Shape& NoShape()
 	{
-		return collision::ToString(shape);
+		static Shape s_no_shape(EShape::NoShape, sizeof(Shape));
+		return s_no_shape;
+	}
+
+	// Calculate the bounding box for a shape (in parent space, i.e. includes m_s2p)
+	inline BBox pr_vectorcall CalcBBox(Shape const& shape)
+	{
+		switch (shape.m_type)
+		{
+			#define PR_ENUM(name, comp) case EShape::name: return CalcBBox(shape_cast<Shape##name>(shape));
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
+			default: assert("Unknown primitive type" && false); return BBox::Reset();
+		}
+	}
+
+	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
+	inline void pr_vectorcall ShiftCentre(Shape& shape, v4 shift)
+	{
+		switch (shape.m_type)
+		{
+			#define PR_ENUM(name, comp) case EShape::name: return ShiftCentre(shape_cast<Shape##name>(shape), shift);
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
+			default: assert("Unknown primitive type" && false); return;
+		}
+	}
+
+	// Returns the support vertex for 'shape' in 'direction'. 'direction' is in shape space
+	inline v4 pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
+	{
+		switch (shape.m_type)
+		{
+			#define PR_ENUM(name, comp) case EShape::name: return SupportVertex(shape_cast<Shape##name>(shape), direction, hint_vert_id, sup_vert_id);
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
+			default: assert("Unknown primitive type" && false); return v4::Zero();
+		}
+	}
+
+	// Returns the closest point on 'shape' to 'point'. 'shape' and 'point' are in the same space
+	inline void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest)
+	{
+		switch (shape.m_type)
+		{
+			#define PR_ENUM(name, comp) case EShape::name: return ClosestPoint(shape_cast<Shape##name>(shape), point, distance, closest);
+			PR_COLLISION_SHAPES(PR_ENUM)
+			#undef PR_ENUM
+			default: assert("Unknown primitive type" && false); return;
+		}
 	}
 }

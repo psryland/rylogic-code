@@ -53,11 +53,11 @@ namespace pr::rdr12
 	// Make an RdrId from a string
 	inline RdrId MakeId(wchar_t const* str)
 	{
-		return pr::hash::Hash(str);
+		return hash::Hash(str);
 	}
 	inline RdrId MakeId(char const* str)
 	{
-		return pr::hash::Hash(str);
+		return hash::Hash(str);
 	}
 
 	// Create a 4-byte CC code

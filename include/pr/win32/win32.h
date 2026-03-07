@@ -340,7 +340,7 @@ namespace pr::win32
 	// Load a dependent dll
 	// 'dir' can use substitution values L".\\lib\\$(platform)\\$(config)\\"
 	// 'Context' is used to ensure the module handle for the dll only exists once for each dll
-	// Use it like this pr::win32::LoadDll<struct MyDllName>(L"mydll.dll");
+	// Use it like this win32::LoadDll<struct MyDllName>(L"mydll.dll");
 	template <typename Context>
 	inline HMODULE LoadDll(std::filesystem::path const& dllname, std::wstring dir)
 	{

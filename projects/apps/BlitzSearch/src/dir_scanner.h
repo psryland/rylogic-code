@@ -16,7 +16,7 @@ namespace pr::filesys
 		// Scans using multiple threads.
 		using filepath_t = std::filesystem::path;
 
-		pr::threads::ThreadPool m_thread_pool;
+		threads::ThreadPool m_thread_pool;
 		concurrency::concurrent_vector<filepath_t> m_files;
 
 		DirScanner(std::span<filepath_t const> paths, std::function<bool(filepath_t)> filter, int thread_count = std::thread::hardware_concurrency())

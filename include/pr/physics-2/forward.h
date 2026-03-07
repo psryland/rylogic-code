@@ -15,8 +15,7 @@
 #include "pr/str/to_string.h"
 #include "pr/container/vector.h"
 #include "pr/container/byte_data.h"
-#include "pr/maths/maths.h"
-#include "pr/collision/shapes.h"
+#include "pr/math/math.h"
 #include "pr/collision/collision.h"
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
@@ -24,8 +23,8 @@
 namespace pr::physics
 {
 	// Import types into this namespace
-	using namespace ::pr::maths::spatial;
-	using namespace ::pr::collision;
+	using namespace math::spatial;
+	using namespace collision;
 
 	// Forwards
 	struct Material;

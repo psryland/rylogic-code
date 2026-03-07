@@ -503,12 +503,22 @@ namespace Rylogic.LDraw
 			m_bake ??= new(EKeyword.BakeTransform);
 			return m_bake;
 		}
-
+		public TDerived bake(Action<LdrTransform> a)
+		{
+			a(bake());
+			return (TDerived)this;
+		}
+		
 		/// <summary>The text font</summary>
 		public LdrFont font()
 		{
 			m_font ??= new();
 			return m_font;
+		}
+		public TDerived font(Action<LdrFont> a)
+		{
+			a(font());
+			return (TDerived)this;
 		}
 
 		/// <summary>Reflectivity amount</summary>
@@ -530,6 +540,11 @@ namespace Rylogic.LDraw
 		{
 			m_root_anim ??= new();
 			return m_root_anim;
+		}
+		public TDerived root_anim(Action<LdrRootAnimation> a)
+		{
+			a(root_anim());
+			return (TDerived)this;
 		}
 
 		/// <inheritdoc/>
@@ -1355,6 +1370,11 @@ namespace Rylogic.LDraw
 		{
 			return m_tex;
 		}
+		public LdrQuad texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
 
 		public override void WriteTo(IWriter res)
 		{
@@ -1403,6 +1423,11 @@ namespace Rylogic.LDraw
 		{
 			return m_tex;
 		}
+		public LdrPlane texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
 
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter res)
@@ -1447,6 +1472,11 @@ namespace Rylogic.LDraw
 		public LdrTexture texture()
 		{
 			return m_tex;
+		}
+		public LdrRibbon texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
 		}
 
 		public override void WriteTo(IWriter res)
@@ -2009,6 +2039,11 @@ namespace Rylogic.LDraw
 		{
 			return m_tex;
 		}
+		public LdrMesh texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
 
 		public override void WriteTo(IWriter res)
 		{
@@ -2248,6 +2283,11 @@ namespace Rylogic.LDraw
 			m_anim ??= new();
 			return m_anim;
 		}
+		public LdrModel anim(Action<LdrAnimation> a)
+		{
+			a(anim());
+			return this;
+		}
 
 		/// <summary>Add a montage to the model (mutually exclusive with animation)</summary>
 		public LdrMontage montage()
@@ -2255,6 +2295,11 @@ namespace Rylogic.LDraw
 			if (m_anim != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Model");
 			m_montage ??= new();
 			return m_montage;
+		}
+		public LdrModel montage(Action<LdrMontage> a)
+		{
+			a(montage());
+			return this;
 		}
 
 		/// <summary>Don't load materials from the model</summary>
@@ -2297,6 +2342,11 @@ namespace Rylogic.LDraw
 			m_anim ??= new();
 			return m_anim;
 		}
+		public LdrInstance anim(Action<LdrAnimation> a)
+		{
+			a(anim());
+			return this;
+		}
 
 		/// <summary>Add a montage to the instance (mutually exclusive with animation)</summary>
 		public LdrMontage montage()
@@ -2304,6 +2354,11 @@ namespace Rylogic.LDraw
 			if (m_anim != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Instance");
 			m_montage ??= new();
 			return m_montage;
+		}
+		public LdrInstance montage(Action<LdrMontage> a)
+		{
+			a(montage());
+			return this;
 		}
 
 		/// <inheritdoc/>

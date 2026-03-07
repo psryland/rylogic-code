@@ -3,8 +3,8 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
-#include "pr/geometry/closest_point.h"
 
 namespace pr::collision
 {
@@ -13,6 +13,7 @@ namespace pr::collision
 		Shape m_base;
 		m4x4  m_v; // <x,y,z> = verts of the triangle, w = normal. Cross(w, y-x) should point toward the interior of the triangle
 
+		ShapeTriangle() = default;
 		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_parent, material_id, flags)
 			,m_v(a, b, c, Normalise(Cross(b-a,c-b)))
@@ -37,11 +38,10 @@ namespace pr::collision
 			return &m_base;
 		}
 	};
-	static_assert(is_shape_v<ShapeTriangle>);
+	static_assert(ShapeType<ShapeTriangle>);
 
 	// Return the bounding box for a triangle shape
-	template <typename>
-	BBox pr_vectorcall CalcBBox(ShapeTriangle const& shape)
+	inline BBox pr_vectorcall CalcBBox(ShapeTriangle const& shape)
 	{
 		auto bb = BBox::Reset();
 		Grow(bb, shape.m_v.x);
@@ -51,8 +51,7 @@ namespace pr::collision
 	}
 
 	// Shift the centre of a triangle
-	template <typename>
-	void pr_vectorcall ShiftCentre(ShapeTriangle& shape, v4 shift)
+	inline void pr_vectorcall ShiftCentre(ShapeTriangle& shape, v4 shift)
 	{
 		assert(shift.w == 0.0f);
 		if (FEql(shift, v4::Zero())) return;
@@ -63,8 +62,7 @@ namespace pr::collision
 	}
 
 	// Return a support vertex for a triangle
-	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapeTriangle const& shape, v4 direction, int, int& sup_vert_id)
+	inline v4 pr_vectorcall SupportVertex(ShapeTriangle const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		auto d = v4{
 			Dot3(direction, shape.m_v.x),
@@ -77,8 +75,7 @@ namespace pr::collision
 	}
 
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space
-	template <typename>
-	void pr_vectorcall ClosestPoint(ShapeTriangle const& shape, v4 point, float& distance, v4& closest)
+	inline void pr_vectorcall ClosestPoint(ShapeTriangle const& shape, v4 point, float& distance, v4& closest)
 	{
 		using namespace pr::geometry;
 		closest = closest_point::PointToTriangle(point, shape.m_v.x, shape.m_v.y, shape.m_v.z);

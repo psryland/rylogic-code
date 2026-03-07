@@ -13,7 +13,7 @@ namespace pr::geometry::distance
 		assert(point.w == 1.0f);
 		v4 plane = Normalise(Cross(b - a, c - a));
 		plane.w = -Dot3(plane, a);
-		return Dot4(plane, point);
+		return Dot(plane, point);
 	}
 	inline float pr_vectorcall PointToPlane(v4 point, Plane plane)
 	{

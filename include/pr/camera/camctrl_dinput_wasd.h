@@ -13,8 +13,8 @@ namespace pr::camera
 	struct WASDCtrller
 	{
 		pr::Camera* m_cam;      // The camera being controlled
-		pr::dinput::Keyboard m_kb;       // DInput keyboard device
-		pr::dinput::Mouse    m_mouse;    // DInput mouse device
+		dinput::Keyboard m_kb;       // DInput keyboard device
+		dinput::Mouse    m_mouse;    // DInput mouse device
 		pr::IRect            m_area;     // The screen resolution in pixels
 		pr::v4               m_heading;  // The direction of 'forward'
 		pr::v4               m_velocity; // The forward velocity
@@ -29,8 +29,8 @@ namespace pr::camera
 
 		WASDCtrller(pr::Camera& cam, HINSTANCE app_inst, HWND hwnd, pr::IRect const& area)
 			:m_cam(&cam)
-			, m_kb(pr::dinput::DeviceSettings(app_inst, hwnd, pr::dinput::EDeviceClass::Keyboard))
-			, m_mouse(pr::dinput::DeviceSettings(app_inst, hwnd, pr::dinput::EDeviceClass::Mouse))
+			, m_kb(dinput::DeviceSettings(app_inst, hwnd, dinput::EDeviceClass::Keyboard))
+			, m_mouse(dinput::DeviceSettings(app_inst, hwnd, dinput::EDeviceClass::Mouse))
 			, m_area(area)
 			, m_heading(pr::v4ZAxis)
 			, m_velocity(pr::v4Zero)
@@ -54,8 +54,8 @@ namespace pr::camera
 			//OutputDebugString(pr::FmtS("mousex: %d  mousey: %d  mousez:  %d\n" ,m_mouse.dx() ,m_mouse.dy() ,m_mouse.dz()));
 
 			// Right mouse controls heading, left controls view direction
-			bool lbtn = m_mouse.btn(pr::dinput::Mouse::Left);
-			bool rbtn = m_mouse.btn(pr::dinput::Mouse::Right);
+			bool lbtn = m_mouse.btn(dinput::Mouse::Left);
+			bool rbtn = m_mouse.btn(dinput::Mouse::Right);
 			if (lbtn || rbtn)
 			{
 				pr::v2 mv = pr::v2(
@@ -73,7 +73,7 @@ namespace pr::camera
 			pr::v4 lin_acc = pr::v4Zero; float rot = 0.0f;
 			float lacc = m_max_lvel / m_accel_time; // The acceleration to use (m/s/s)
 			float ldec = m_max_lvel / m_drag_time;  // The deceleration to use (m/s/s)
-			float turn = float(pr::maths::tau_by_8 * m_turn_speed);
+			float turn = float(maths::tau_by_8 * m_turn_speed);
 			if (m_kb.KeyDown(DIK_Q)) lin_acc.x -= lacc; // strafe left
 			if (m_kb.KeyDown(DIK_W)) lin_acc.z -= lacc; // forward
 			if (m_kb.KeyDown(DIK_E)) lin_acc.x += lacc; // strafe right
@@ -94,7 +94,7 @@ namespace pr::camera
 
 			// Limit velocities
 			float lvel_sq = LengthSq(m_velocity);
-			if (lvel_sq < pr::maths::tinyf) m_velocity = pr::v4Zero;
+			if (lvel_sq < maths::tinyf) m_velocity = pr::v4Zero;
 			else if (lvel_sq > m_max_lvel)      m_velocity *= m_max_lvel / pr::Sqrt(lvel_sq);
 
 			// Integrate velocity

@@ -1333,14 +1333,14 @@ namespace pr::rdr12::ldraw
 		{
 			ldr.Line("arrow")
 				.arrow(EArrowType::Fwd)
-				.strip({ -0.8f, +0.2f,  0.0f }, 0xFF00FF00)
-				.line_to({ -0.8f, +0.2f,  0.0f }, 0xFF00FF00)
-				.line_to({ +0.3f,  0.7f,  0.2f }, 0xFFFF0000)
-				.line_to({ -0.3f,  1.2f, -0.2f }, 0xFFFF0000)
-				.line_to({ +1.0f, +1.7f,  0.0f }, 0xFFFFFF00)
+				.strip(v3(-0.8f, +0.2f,  0.0f), 0xFF00FF00)
+				.line_to(v3(-0.8f, +0.2f,  0.0f), 0xFF00FF00)
+				.line_to(v3(+0.3f,  0.7f,  0.2f), 0xFFFF0000)
+				.line_to(v3(-0.3f,  1.2f, -0.2f), 0xFFFF0000)
+				.line_to(v3(+1.0f, +1.7f,  0.0f), 0xFFFFFF00)
 				.smooth()
 				.width(10.f)
-				.pos({ -15, 1, 0 });
+				.pos(v3(-15, 1, 0));
 		}
 
 		return ldr.ToBinary();

@@ -5,7 +5,7 @@
 #pragma once
 #include <cassert>
 #include <concepts>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/algorithm/algorithm.h"
 #include "pr/container/vector.h"
 #include "pr/container/ring.h"
@@ -28,7 +28,7 @@ namespace pr::geometry
 		float abac = Dot3(ab, ac);
 		float e = abab * acac;
 		float d = 2.0f * (e - abac * abac);
-		if (Abs(d) <= maths::tiny<float>) return limits<float>::max();
+		if (Abs(d) <= math::tiny<float>) return limits<float>::max();
 
 		float s = (e - acac * abac) / d;
 		float t = (e - abab * abac) / d;
@@ -92,7 +92,7 @@ namespace pr::geometry
 	{
 		auto area = 0.0f;
 		for (int i = 0; i != isize(poly)-1; ++i)
-			area += Cross(poly[i+1], poly[i]);
+			area += Cross(poly[i], poly[i+1]);
 
 		return area / 2.0f;
 	}
@@ -166,7 +166,7 @@ namespace pr::geometry
 				throw std::runtime_error("Polygon winding order is incorrect");
 
 			#if LDR_OUTPUT
-			pr::ldr::LdrBuilder ldr;
+			ldr::LdrBuilder ldr;
 			ldr.Line("", 0xFF00FF00, 1, [=](int i, v4& pt) { pt = v4(m_verts[i%count], 0, 1.0f); return i <= count; });
 			ldr.ToFile(L"\\dump\\triangulate.ldr");
 			#endif
@@ -364,7 +364,7 @@ namespace pr::geometry
 		// True if 'b' is a convex vertex (assuming winding order a, b, c is CCW)
 		static bool Convex(v2 a, v2 b, v2 c)
 		{
-			return Cross(b - a, c - b) <= 0;
+			return Cross(b - a, c - b) >= 0;
 		}
 
 		// True if 'lhs' is less than 'rhs'
@@ -420,7 +420,7 @@ namespace pr::geometry
 				tris.push_back(i2);
 
 				#if LDR_OUTPUT
-				pr::ldr::LdrBuilder ldr;
+				ldr::LdrBuilder ldr;
 				ldr.Triangle("", 0xFF00FF00, v4(poly[i0],0,1), v4(poly[i1],0,1), v4(poly[i2],0,1));
 				ldr.ToFile(L"\\dump\\triangulate.ldr", true);
 				#endif
@@ -448,7 +448,7 @@ namespace pr::geometry
 				tris.push_back(i2);
 
 				#if LDR_OUTPUT
-				pr::ldr::LdrBuilder ldr;
+				ldr::LdrBuilder ldr;
 				ldr.Triangle("", 0xFF00FF00, v4(poly[i0],0,1), v4(poly[i1],0,1), v4(poly[i2],0,1));
 				ldr.ToFile(L"\\dump\\triangulate.ldr", true);
 				#endif

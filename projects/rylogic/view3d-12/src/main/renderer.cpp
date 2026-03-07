@@ -23,7 +23,7 @@ namespace pr::rdr12
 	// Useful reading: http://msdn.microsoft.com/en-us/library/windows/desktop/bb205075(v=vs.85).aspx
 
 	// Registered windows message for BeginInvoke
-	static wchar_t const* BeginInvokeWndClassName = L"pr::rdr12::BeginInvoke";
+	static wchar_t const* BeginInvokeWndClassName = L"rdr12::BeginInvoke";
 
 	// WndProc for the dummy window used to implement BeginInvoke functionality
 	LRESULT __stdcall BeginInvokeWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
@@ -499,4 +499,3 @@ namespace pr::rdr12
 		throw std::runtime_error("RunTasks must be called from the main thread");
 	}
 }
-

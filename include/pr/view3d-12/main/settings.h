@@ -28,11 +28,9 @@ namespace pr::rdr12
 		struct BuildOptions
 		{
 			StdBuildOptions m_std;
-			MathsBuildOptions m_maths;
 			int RunTimeShaders;
 			BuildOptions()
 				:m_std()
-				,m_maths()
 				,RunTimeShaders(PR_RDR_RUNTIME_SHADERS)
 			{}
 		};

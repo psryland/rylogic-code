@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
 #pragma once
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
 
 namespace pr::collision

@@ -12,7 +12,7 @@ namespace pr::rdr12
 		,m_shadow_zfar(10.0f)
 		,m_shadow_max_caster_dist(20.0f)
 	{
-		PR_ASSERT(PR_DBG_RDR, pr::meta::is_aligned<SceneCamera>(this), "My alignment is broke");
+		PR_ASSERT(PR_DBG_RDR, meta::is_aligned<SceneCamera>(this), "My alignment is broke");
 	}
 	SceneCamera::SceneCamera(pr::Camera const& cam)
 		:Camera(cam)

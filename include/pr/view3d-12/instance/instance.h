@@ -28,7 +28,7 @@ namespace pr::rdr12
 	enum class EInstComp :uint8_t
 	{
 		None,                // invalid entry (used for padding)
-		ModelPtr,            // pr::rdr::ModelPtr
+		ModelPtr,            // rdr::ModelPtr
 		I2WTransform,        // pr::m4x4
 		I2WTransformPtr,     // pr::m4x4*
 		I2WTransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
@@ -36,8 +36,8 @@ namespace pr::rdr12
 		C2SOptional,         // pr::m4x4 (set to m4x4::Zero() to indicate not used)
 		C2STransformPtr,     // pr::m4x4*
 		C2STransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
-		SortkeyOverride,     // pr::rdr::SKOverride
-		PipeStates,          // pr::rdr::PipeStates
+		SortkeyOverride,     // rdr::SKOverride
+		PipeStates,          // rdr::PipeStates
 		Flags,               // EInstFlag
 		TintColour32,        // pr::Colour32
 		DiffTexture,         // Texture2DPtr. An override of the main diffuse texture
@@ -306,8 +306,8 @@ namespace pr::rdr12
 	//  struct MyInstanceType
 	//  {
 	//     #define PR_RDR_INST(x)\
-	//     x(pr::rdr12::ModelPtr ,m_model  ,pr::rdr12::EInstComp::ModelPtr)\
-	//     x(pr::Colour32        ,m_colour ,pr::rdr12::EInstComp::TintColour32)
+	//     x(rdr12::ModelPtr ,m_model  ,rdr12::EInstComp::ModelPtr)\
+	//     x(pr::Colour32        ,m_colour ,rdr12::EInstComp::TintColour32)
 	//     PR_RDR12_INSTANCE_MEMBERS(MyInstance, PR_RDR_INST);
 	//     #undef PR_RDR_INST
 	//  };

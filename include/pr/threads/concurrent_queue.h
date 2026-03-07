@@ -250,7 +250,7 @@ namespace pr::threads
 		t0.join();
 		t1.join();
 		{
-			pr::threads::ConcurrentQueue<Item>::Lock lock(queue);
+			threads::ConcurrentQueue<Item>::Lock lock(queue);
 			auto size = lock.m_queue.size() + items.size();
 			PR_EXPECT(size >= 20 && size <= 30); // since t0,t1 have finished
 		}

@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -155,7 +155,7 @@ namespace pr::rdr12
 		// Convert the time into a key number.
 		// Note, by scaling 'm_duration' or 'time_s' the playback rate of the animation can be changed.
 		auto tfrac = Frac<double>(0.0, time_s, duration());
-		auto kidx = Lerp(0, kcount - 1, tfrac);
+		auto kidx = static_cast<int>(Lerp(0.0, static_cast<double>(kcount - 1), tfrac));
 		return Clamp(kidx, 0, kcount - 1);
 	}
 
@@ -377,7 +377,7 @@ namespace pr::rdr12
 		if (m_times.empty())
 		{
 			auto tfrac = Frac<double>(0.0, time_s, duration());
-			auto kidx = Lerp(0, kcount - 1, tfrac);
+			auto kidx = static_cast<int>(Lerp(0.0, static_cast<double>(kcount - 1), tfrac));
 			return Clamp(kidx, 0, kcount - 1);
 		}
 		else
@@ -627,7 +627,7 @@ namespace pr::rdr12
 						// Ensure shortest arcs
 						for (auto& sample : samples)
 						{
-							if (Dot(q0, sample.rot) < 0)
+							if (Dot(q0.xyzw, sample.rot.xyzw) < 0)
 								sample.rot = -sample.rot;
 
 							q0 = sample.rot;
@@ -782,7 +782,7 @@ namespace pr::rdr12
 					for (int kidx = 0; kidx != m_out.key_count(); ++kidx)
 					{
 						auto const& r2a = per_frame_r2a[std::clamp(kidx, 0, isize(per_frame_r2a) - 1)];
-						ApplyXform(kidx, r2a);
+						ApplyXform(kidx, xform(r2a));
 					}
 				}
 				else
@@ -836,9 +836,10 @@ namespace pr::rdr12
 			// Determine the dynamics values for 'samples[2]' because on the surrounding values
 			static TransformDynamics DynamicsFromFiniteDifference(std::span<xform const> samples, float dt)
 			{
-				auto [rot0, rot1, rot2] = CalculateRotationalDynamics(samples, dt);
-				auto [pos0, pos1, pos2] = CalculateTranslationalDynamics(samples, dt);
-				auto [scl0, scl1, scl2] = CalculateScaleDynamics(samples, dt);
+				auto samples5 = samples.first<5>();
+				auto [rot0, rot1, rot2] = CalculateRotationalDynamics(samples5, dt);
+				auto [pos0, pos1, pos2] = CalculateTranslationalDynamics(samples5, dt);
+				auto [scl0, scl1, scl2] = CalculateScaleDynamics(samples5, dt);
 
 				constexpr auto tol0 = 0.0001f;
 				constexpr auto tol1 = 0.0001f;

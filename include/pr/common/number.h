@@ -242,7 +242,7 @@ namespace pr
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 namespace pr::common
 {
 	PRUnitTest(NumberTests)

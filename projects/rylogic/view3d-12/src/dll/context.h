@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -16,7 +16,7 @@ namespace pr::rdr12
 	{
 		using InitSet = std::unordered_set<view3d::DllHandle>;
 		using WindowCont = std::vector<V3dWindow*>;
-		using ScriptSources = pr::rdr12::ldraw::ScriptSources;
+		using ScriptSources = rdr12::ldraw::ScriptSources;
 
 		inline static Guid const GuidDemoSceneObjects = { 0xFE51C164, 0x9E57, 0x456F, 0x9D, 0x8D, 0x39, 0xE3, 0xFA, 0xAF, 0xD3, 0xE7 };
 

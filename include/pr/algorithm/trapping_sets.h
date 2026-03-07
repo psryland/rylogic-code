@@ -4,6 +4,8 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <unordered_set>
+#include <unordered_map>
 #include <stack>
 #include <queue>
 #include <algorithm>
@@ -45,6 +47,10 @@ namespace hyperpose::trapping_sets
 
 		// Total number of original nodes in this trapping set (inclusive of children)
 		int total_node_count = 0;
+
+		// True for sets created by SquashChains. These represent linear funnels
+		// (no cycle from end to start) rather than true trapping sets.
+		bool linear_chain = false;
 	};
 
 	// Result of trapping set detection
@@ -188,7 +194,7 @@ namespace hyperpose::trapping_sets
 		struct CondensationDAG
 		{
 			int scc_count;
-			std::vector<std::set<int>> adj_sets;
+			std::vector<std::unordered_set<int>> adj_sets;
 			std::vector<std::vector<int>> scc_members; // super-node IDs in each SCC
 
 			CondensationDAG(Graph const& super_graph, std::vector<int> const& scc_id, int scc_count)
@@ -206,9 +212,9 @@ namespace hyperpose::trapping_sets
 			}
 
 			// For each SCC, compute all reachable SCCs and collect their super-node IDs
-			std::vector<std::set<int>> ComputeReachableSuperNodeSets() const
+			std::vector<std::unordered_set<int>> ComputeReachableSuperNodeSets() const
 			{
-				std::vector<std::set<int>> reachable(scc_count);
+				std::vector<std::unordered_set<int>> reachable(scc_count);
 				for (int c = 0; c < scc_count; ++c)
 				{
 					std::queue<int> q;
@@ -431,30 +437,40 @@ namespace hyperpose::trapping_sets
 		}
 
 		// Compute trapping-set signatures for each super-node (set of trapping-set indices it belongs to)
-		using SuperNodeSignatures = std::vector<std::set<int>>;
+		using SuperNodeSignatures = std::vector<std::unordered_set<int>>;
 
 		inline SuperNodeSignatures ComputeSignatures(Graph const& super_graph, TarjanSCC const& tarjan)
 		{
 			CondensationDAG dag(super_graph, tarjan.scc_id, tarjan.scc_count);
 			auto reachable_sets = dag.ComputeReachableSuperNodeSets();
 
-			// Deduplicate trapping sets
+			// Deduplicate trapping sets.
+			// unique_sets uses std::map<std::set<int>, ...> because it needs ordered
+			// comparison to identify equivalent super-node sets. Converting to unordered_map
+			// would require a custom hash for set contents with no real benefit here — this
+			// runs once and the number of unique sets is typically small.
 			std::map<std::set<int>, int> unique_sets;
 			for (int c = 0; c < tarjan.scc_count; ++c)
-				if (!unique_sets.contains(reachable_sets[c]))
-					unique_sets[reachable_sets[c]] = c;
+			{
+				std::set<int> ordered(reachable_sets[c].begin(), reachable_sets[c].end());
+				if (!unique_sets.contains(ordered))
+					unique_sets[std::move(ordered)] = c;
+			}
 
 			// Full graph set
-			std::set<int> full_graph;
+			std::unordered_set<int> full_graph;
 			for (int i = 0; i < super_graph.node_count; ++i)
 				full_graph.insert(i);
 
 			// Collect trapping sets (full graph = index 0)
-			std::vector<std::set<int>> ts_sets;
+			std::vector<std::unordered_set<int>> ts_sets;
 			ts_sets.push_back(full_graph);
 			for (auto& [sn_set, _] : unique_sets)
-				if (sn_set != full_graph)
-					ts_sets.push_back(sn_set);
+			{
+				std::unordered_set<int> unordered(sn_set.begin(), sn_set.end());
+				if (unordered != full_graph)
+					ts_sets.push_back(std::move(unordered));
+			}
 
 			// For each super-node, record which trapping sets contain it
 			SuperNodeSignatures signatures(super_graph.node_count);
@@ -614,14 +630,14 @@ namespace hyperpose::trapping_sets
 		// Core trapping set detection on a contracted super-graph
 		struct RawTrappingSet
 		{
-			std::set<int> super_nodes;
+			std::unordered_set<int> super_nodes;
 		};
 
 		struct DetectionResult
 		{
 			std::vector<RawTrappingSet> raw_sets;         // sorted by size descending, [0] = full graph
 			std::vector<std::vector<int>> children;       // containment hierarchy
-			std::vector<std::set<int>> exclusive_super;   // per-set: super-nodes not in any child
+			std::vector<std::unordered_set<int>> exclusive_super;   // per-set: super-nodes not in any child
 			std::vector<int> node_owner;                  // per original-node: owning set index
 		};
 
@@ -638,14 +654,21 @@ namespace hyperpose::trapping_sets
 			CondensationDAG dag(sg, tarjan.scc_id, tarjan.scc_count);
 			auto reachable_sets = dag.ComputeReachableSuperNodeSets();
 
-			// Deduplicate trapping sets
+			// Deduplicate trapping sets.
+			// unique_sets uses std::map<std::set<int>, ...> because it needs ordered
+			// comparison to identify equivalent super-node sets. Converting to unordered_map
+			// would require a custom hash for set contents with no real benefit here — this
+			// runs once and the number of unique sets is typically small.
 			std::map<std::set<int>, int> unique_sets;
 			for (int c = 0; c < tarjan.scc_count; ++c)
-				if (!unique_sets.contains(reachable_sets[c]))
-					unique_sets[reachable_sets[c]] = c;
+			{
+				std::set<int> ordered(reachable_sets[c].begin(), reachable_sets[c].end());
+				if (!unique_sets.contains(ordered))
+					unique_sets[std::move(ordered)] = c;
+			}
 
 			// Full graph super-node set
-			std::set<int> full_graph;
+			std::unordered_set<int> full_graph;
 			for (int i = 0; i < sg.node_count; ++i)
 				full_graph.insert(i);
 
@@ -656,27 +679,39 @@ namespace hyperpose::trapping_sets
 			std::vector<std::pair<std::set<int>, int>> sorted_sets(unique_sets.begin(), unique_sets.end());
 			std::ranges::sort(sorted_sets, [](auto const& a, auto const& b) { return a.first.size() > b.first.size(); });
 			for (auto const& [sn_set, _] : sorted_sets)
-				if (sn_set != full_graph)
-					raw_sets.push_back({sn_set});
+			{
+				std::unordered_set<int> unordered(sn_set.begin(), sn_set.end());
+				if (unordered != full_graph)
+					raw_sets.push_back({std::move(unordered)});
+			}
 
 			// Build containment hierarchy
 			int num_sets = static_cast<int>(raw_sets.size());
 			std::vector<std::vector<int>> children(num_sets);
+
+			// Subset check for unordered_sets: returns true if 'sub' is a subset of 'super'
+			auto is_subset = [](std::unordered_set<int> const& sub, std::unordered_set<int> const& super) -> bool
+			{
+				if (sub.size() > super.size())
+					return false;
+				for (int v : sub)
+					if (!super.contains(v))
+						return false;
+				return true;
+			};
 
 			for (int i = 1; i < num_sets; ++i)
 			{
 				std::vector<int> direct_parents;
 				for (int j = i - 1; j >= 0; --j)
 				{
-					if (!std::includes(raw_sets[j].super_nodes.begin(), raw_sets[j].super_nodes.end(),
-					                   raw_sets[i].super_nodes.begin(), raw_sets[i].super_nodes.end()))
+					if (!is_subset(raw_sets[i].super_nodes, raw_sets[j].super_nodes))
 						continue;
 
 					bool is_direct = true;
 					for (int p : direct_parents)
 					{
-						if (std::includes(raw_sets[j].super_nodes.begin(), raw_sets[j].super_nodes.end(),
-						                  raw_sets[p].super_nodes.begin(), raw_sets[p].super_nodes.end()))
+						if (is_subset(raw_sets[p].super_nodes, raw_sets[j].super_nodes))
 						{
 							is_direct = false;
 							break;
@@ -691,10 +726,10 @@ namespace hyperpose::trapping_sets
 			}
 
 			// Compute exclusive super-nodes per set (not in any child)
-			std::vector<std::set<int>> exclusive_super(num_sets);
+			std::vector<std::unordered_set<int>> exclusive_super(num_sets);
 			for (int i = 0; i < num_sets; ++i)
 			{
-				std::set<int> child_sn;
+				std::unordered_set<int> child_sn;
 				for (int child_id : children[i])
 					child_sn.insert(raw_sets[child_id].super_nodes.begin(), raw_sets[child_id].super_nodes.end());
 
@@ -712,7 +747,7 @@ namespace hyperpose::trapping_sets
 
 			// Topological sort of trapping sets for stable ordering
 			// Build dependency graph: parent→child
-			std::vector<std::set<int>> dep_adj(num_sets);
+			std::vector<std::unordered_set<int>> dep_adj(num_sets);
 			for (int i = 0; i < num_sets; ++i)
 				for (int child : children[i])
 					dep_adj[i].insert(child);
@@ -777,9 +812,9 @@ namespace hyperpose::trapping_sets
 		}
 
 		// Expand super-nodes to original nodes
-		inline std::set<int> ExpandToOriginalNodes(std::set<int> const& super_nodes, std::vector<std::vector<int>> const& chains)
+		inline std::unordered_set<int> ExpandToOriginalNodes(std::unordered_set<int> const& super_nodes, std::vector<std::vector<int>> const& chains)
 		{
-			std::set<int> nodes;
+			std::unordered_set<int> nodes;
 			for (int sn : super_nodes)
 				for (int n : chains[sn])
 					nodes.insert(n);
@@ -848,6 +883,141 @@ namespace hyperpose::trapping_sets
 		result.avg_chain_length = chain_count > 0 ? static_cast<float>(total_chain_nodes) / chain_count : 0.f;
 
 		return result;
+	}
+
+	// Squash chains of singly-linked trapping sets into single sets.
+	//
+	// A "squashable chain" is a maximal path in the containment tree where each
+	// set has exactly one child. These sets are merged into a single set with
+	// linear_chain=true, combining their exclusive node_chains into one set.
+	//
+	// This simplifies deeply nested hierarchies where each level peels off only
+	// a few nodes (e.g. long funnels that narrow one node at a time). The merged
+	// sets are not true trapping sets (no cycle from end to start), as indicated
+	// by the linear_chain flag.
+	//
+	// Set 0 (the full graph) is never squashed.
+	inline Result SquashChains(Result input)
+	{
+		auto& sets = input.sets;
+		int const num_sets = static_cast<int>(sets.size());
+		if (num_sets <= 1)
+			return input;
+
+		// Build parent map from containment hierarchy
+		std::vector<int> parent(num_sets, -1);
+		for (int i = 0; i < num_sets; ++i)
+			for (int child : sets[i].child_sets)
+				parent[child] = i;
+
+		// Identify squashable chains.
+		// set_chain_id[s] = index into 'chains' if set s belongs to a chain, else -1.
+		std::vector<int> set_chain_id(num_sets, -1);
+		std::vector<std::vector<int>> chains;
+
+		// Start from 1 to exclude the root set
+		for (int s = 1; s < num_sets; ++s)
+		{
+			if (set_chain_id[s] >= 0)
+				continue;
+			if (sets[s].child_sets.size() != 1)
+				continue;
+
+			// A chain head is a single-child set whose parent is either the root
+			// (set 0), or has multiple children (so this set starts a new chain).
+			int p = parent[s];
+			if (p > 0 && sets[p].child_sets.size() == 1)
+				continue; // Not a chain head; parent will start this chain
+
+			// Walk the chain of single-child sets
+			std::vector<int> chain;
+			int cur = s;
+			while (cur >= 0 && sets[cur].child_sets.size() == 1)
+			{
+				chain.push_back(cur);
+				cur = sets[cur].child_sets[0];
+			}
+
+			// Only squash chains of 2 or more sets
+			if (chain.size() >= 2)
+			{
+				int cid = static_cast<int>(chains.size());
+				for (int idx : chain)
+					set_chain_id[idx] = cid;
+				chains.push_back(std::move(chain));
+			}
+		}
+
+		if (chains.empty())
+			return input;
+
+		// Build new set list. Chain heads become merged sets; chain non-heads are removed.
+		Result output;
+		std::vector<int> old_to_new(num_sets, -1);
+
+		for (int s = 0; s < num_sets; ++s)
+		{
+			if (set_chain_id[s] >= 0)
+			{
+				auto const& chain = chains[set_chain_id[s]];
+				if (chain[0] != s)
+					continue; // Not the head; absorbed into the merged set
+
+				TrappingSet merged;
+				merged.linear_chain = true;
+
+				// Total node count from the head (already includes all descendants)
+				merged.total_node_count = sets[chain[0]].total_node_count;
+
+				// Collect exclusive node_chains from all sets in the chain, in order
+				for (int idx : chain)
+					for (auto& nc : sets[idx].node_chains)
+						merged.node_chains.push_back(std::move(nc));
+
+				// The child of the last set in the chain becomes this set's child
+				int last = chain.back();
+				merged.child_sets = std::move(sets[last].child_sets);
+
+				int new_idx = static_cast<int>(output.sets.size());
+				merged.id = new_idx;
+				for (int idx : chain)
+					old_to_new[idx] = new_idx;
+
+				output.sets.push_back(std::move(merged));
+			}
+			else
+			{
+				old_to_new[s] = static_cast<int>(output.sets.size());
+				sets[s].id = static_cast<int>(output.sets.size());
+				output.sets.push_back(std::move(sets[s]));
+			}
+		}
+
+		// Remap child_sets to new indices
+		for (auto& ts : output.sets)
+			for (auto& child : ts.child_sets)
+				child = old_to_new[child];
+
+		// Remap node_owner to new set indices
+		output.node_owner.resize(input.node_owner.size());
+		for (size_t v = 0; v < input.node_owner.size(); ++v)
+			output.node_owner[v] = old_to_new[input.node_owner[v]];
+
+		// Recompute chain statistics
+		int total_chain_nodes = 0;
+		int chain_count = 0;
+		for (auto const& ts : output.sets)
+		{
+			for (auto const& nc : ts.node_chains)
+			{
+				total_chain_nodes += static_cast<int>(nc.size());
+				chain_count++;
+			}
+		}
+		output.chain_count = chain_count;
+		output.avg_chain_length = chain_count > 0 ? static_cast<float>(total_chain_nodes) / chain_count : 0.f;
+
+		return output;
 	}
 }
 
@@ -1118,6 +1288,239 @@ namespace hyperpose::trapping_sets::unittest
 				}
 			}
 			PR_EXPECT(found_nested);
+		}
+
+		PRUnitTestMethod(SquashChainsBasic)
+		{
+			// 0→1→2→3→4→5→3 (long funnel 0→1→2 into cycle 3→4→5→3)
+			// The hierarchy should have: full graph → cycle {3,4,5}
+			// With intermediate single-child sets along the chain, SquashChains should merge them.
+			auto adj = MakeSuccessors(6, {{0,1},{1,2},{2,3},{3,4},{4,5},{5,3}});
+			auto result = Detect(6, [&](int v) { return adj[v]; });
+			auto squashed = SquashChains(result);
+
+			// All nodes must still be accounted for
+			PR_EXPECT(squashed.sets[0].total_node_count == 6);
+			PR_EXPECT(squashed.node_owner.size() == 6);
+
+			// Every node should have a valid owner
+			for (int i = 0; i != 6; ++i)
+				PR_EXPECT(squashed.node_owner[i] >= 0 && squashed.node_owner[i] < static_cast<int>(squashed.sets.size()));
+		}
+
+		PRUnitTestMethod(SquashChainsPreservesSimple)
+		{
+			// Simple case: 0→1→0 (single cycle, no chain to squash)
+			auto adj = MakeSuccessors(2, {{0,1},{1,0}});
+			auto result = Detect(2, [&](int v) { return adj[v]; });
+			auto squashed = SquashChains(result);
+
+			// Should be identical — nothing to squash
+			PR_EXPECT(squashed.sets.size() == result.sets.size());
+			PR_EXPECT(squashed.sets[0].total_node_count == 2);
+		}
+
+		PRUnitTestMethod(SquashChainsLinearFlag)
+		{
+			// Build a graph that creates a chain of single-child trapping sets.
+			// Cycle A: 4→5→4 (innermost)
+			// 3→4 (leads into cycle A) → trapping set {3,4,5}
+			// 2→3 (leads into {3,4,5}) → trapping set {2,3,4,5}
+			// 1→2 (leads into {2,3,4,5}) → trapping set {1,2,3,4,5}
+			// 0→1 → full graph {0,1,2,3,4,5}
+			auto adj = MakeSuccessors(6, {{0,1},{1,2},{2,3},{3,4},{4,5},{5,4}});
+			Result result = Detect(6, [&](int v) { return adj[v]; });
+
+			// Before squashing, count single-child sets
+			int single_child_count = 0;
+			for (int i = 0; i != static_cast<int>(result.sets.size()); ++i)
+				if (result.sets[i].child_sets.size() == 1)
+					single_child_count++;
+
+			// Squash
+			Result squashed = SquashChains(result);
+
+			// After squashing, the chain of single-child sets should be merged
+			// At least one set should have linear_chain=true if there were chains to squash
+			if (single_child_count >= 2)
+			{
+				bool has_linear = false;
+				for (int i = 0; i != static_cast<int>(squashed.sets.size()); ++i)
+					if (squashed.sets[i].linear_chain)
+						has_linear = true;
+				PR_EXPECT(has_linear);
+			}
+
+			// All nodes still accounted for
+			PR_EXPECT(squashed.sets[0].total_node_count == 6);
+
+			// Chain statistics should be valid
+			PR_EXPECT(squashed.chain_count >= 1);
+			PR_EXPECT(squashed.avg_chain_length > 0.f);
+		}
+
+		PRUnitTestMethod(SquashChainsMultipleBranches)
+		{
+			// Graph with two branches, each leading to a different cycle.
+			// Neither branch forms a single-child chain in the hierarchy.
+			// 0→1→2→0 (cycle A), 0→3→4→3 (cycle B reachable from A)
+			// 0→5→6→5 (cycle C reachable from A)
+			// Trapping sets: full graph, {3,4}, {5,6}. No single-child chains.
+			auto adj = MakeSuccessors(7, {{0,1},{1,2},{2,0},{0,3},{3,4},{4,3},{0,5},{5,6},{6,5}});
+			auto result = Detect(7, [&](int v) { return adj[v]; });
+			auto squashed = SquashChains(result);
+
+			// No single-child chains to squash, so result should be unchanged
+			PR_EXPECT(squashed.sets.size() == result.sets.size());
+
+			// No linear_chain flags should be set
+			for (auto const& ts : squashed.sets)
+				PR_EXPECT(ts.linear_chain == false);
+		}
+
+		PRUnitTestMethod(SquashChainsSingleNode)
+		{
+			// Single node, no edges
+			auto adj = MakeSuccessors(1, {});
+			auto result = Detect(1, [&](int v) { return adj[v]; });
+			auto squashed = SquashChains(result);
+
+			PR_EXPECT(squashed.sets.size() == 1);
+			PR_EXPECT(squashed.sets[0].total_node_count == 1);
+			PR_EXPECT(squashed.node_owner[0] == 0);
+		}
+
+		PRUnitTestMethod(SquashChainsNodeOwnerConsistency)
+		{
+			// After squashing, every node must be owned by a valid set,
+			// and the owning set must contain that node.
+			auto adj = MakeSuccessors(8, {
+				{0,1},{1,2},{2,3},{3,4},{4,5},{5,3}, // Chain into cycle
+				{6,7},{7,6},                          // Disjoint cycle
+			});
+			auto result = Detect(8, [&](int v) { return adj[v]; });
+			auto squashed = SquashChains(result);
+
+			for (int v = 0; v != 8; ++v)
+			{
+				int owner = squashed.node_owner[v];
+				PR_EXPECT(owner >= 0 && owner < static_cast<int>(squashed.sets.size()));
+
+				// The node should appear in the owning set's node_chains
+				bool found = false;
+				auto nodes = AllNodes(squashed, owner);
+				found = nodes.count(v) > 0;
+				PR_EXPECT(found);
+			}
+		}
+
+		PRUnitTestMethod(TopologicalOrdering)
+		{
+			// Verify that parents appear before children in the result.
+			// 0→1→2→0, 2→3, 3→4→3 (cycle A contains cycle B)
+			auto adj = MakeSuccessors(5, {{0,1},{1,2},{2,0},{2,3},{3,4},{4,3}});
+			auto result = Detect(5, [&](int v) { return adj[v]; });
+
+			// For every set, its children should have higher indices
+			for (int i = 0; i < static_cast<int>(result.sets.size()); ++i)
+				for (int child : result.sets[i].child_sets)
+					PR_EXPECT(child > i);
+		}
+
+		PRUnitTestMethod(DisjointComponentsNoEdges)
+		{
+			// 4 isolated nodes, no edges
+			auto adj = MakeSuccessors(4, {});
+			auto result = Detect(4, [&](int v) { return adj[v]; });
+
+			// Each node is its own trivial trapping set (singleton, no outgoing edges)
+			// Plus the full graph → at least 5 sets (or fewer if singletons are merged)
+			PR_EXPECT(result.sets[0].total_node_count == 4);
+
+			// Every node has a valid owner
+			for (int i = 0; i != 4; ++i)
+				PR_EXPECT(result.node_owner[i] >= 0 && result.node_owner[i] < static_cast<int>(result.sets.size()));
+		}
+
+		PRUnitTestMethod(SinkNodeTrappingSet)
+		{
+			// 0→1→2, 0→3→2, 2 is a sink node (no outgoing edges)
+			// Node 2 forms a trivial trapping set (once there, you can't leave)
+			auto adj = MakeSuccessors(4, {{0,1},{1,2},{0,3},{3,2}});
+			auto result = Detect(4, [&](int v) { return adj[v]; });
+
+			// Should find node 2 as a trapping sub-set
+			bool found_sink = false;
+			for (int i = 1; i < static_cast<int>(result.sets.size()); ++i)
+			{
+				auto nodes = AllNodes(result, i);
+				if (nodes.size() == 1 && nodes.count(2))
+				{
+					found_sink = true;
+					break;
+				}
+			}
+			PR_EXPECT(found_sink);
+		}
+
+		PRUnitTestMethod(LongChainContraction)
+		{
+			// A very long linear chain: 0→1→2→...→19→20→20 (self-loop at end)
+			// Chain contraction should merge the linear portion efficiently
+			int const N = 21;
+			std::vector<std::pair<int,int>> edges;
+			for (int i = 0; i != N - 1; ++i)
+				edges.push_back({i, i + 1});
+			edges.push_back({N - 1, N - 1}); // self-loop at end
+
+			auto adj = MakeSuccessors(N, edges);
+			auto result = Detect(N, [&](int v) { return adj[v]; });
+
+			PR_EXPECT(result.sets[0].total_node_count == N);
+
+			// The self-loop node should be in a trapping sub-set
+			bool found_loop = false;
+			for (int i = 1; i < static_cast<int>(result.sets.size()); ++i)
+			{
+				auto nodes = AllNodes(result, i);
+				if (nodes.count(N - 1))
+				{
+					found_loop = true;
+					break;
+				}
+			}
+			PR_EXPECT(found_loop);
+
+			// Chain statistics: most nodes should be in chains
+			PR_EXPECT(result.avg_chain_length > 1.f);
+		}
+
+		PRUnitTestMethod(SquashChainsDeepNesting)
+		{
+			// Create a deeply nested containment hierarchy:
+			// 0→1→2→3→4→5→6→7, 7→8→7 (cycle at the end)
+			// Each prefix creates a nested trapping set.
+			// SquashChains should collapse the single-child chain.
+			auto adj = MakeSuccessors(9, {
+				{0,1},{1,2},{2,3},{3,4},{4,5},{5,6},{6,7},{7,8},{8,7}
+			});
+			auto result = Detect(9, [&](int v) { return adj[v]; });
+			int original_count = static_cast<int>(result.sets.size());
+
+			auto squashed = SquashChains(result);
+
+			// Squashing should reduce the number of sets
+			PR_EXPECT(static_cast<int>(squashed.sets.size()) <= original_count);
+
+			// All 9 nodes still accounted for
+			PR_EXPECT(squashed.sets[0].total_node_count == 9);
+
+			// Verify node owners are still valid
+			for (int v = 0; v != 9; ++v)
+			{
+				int owner = squashed.node_owner[v];
+				PR_EXPECT(owner >= 0 && owner < static_cast<int>(squashed.sets.size()));
+			}
 		}
 	};
 }

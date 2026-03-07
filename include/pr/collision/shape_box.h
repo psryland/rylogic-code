@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
+#include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
 
 namespace pr::collision
@@ -13,7 +14,8 @@ namespace pr::collision
 		Shape m_base;
 		v4    m_radius;
 
-		ShapeBox(v4 dim, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		ShapeBox() = default;
+		explicit ShapeBox(v4 dim, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Box, sizeof(ShapeBox), shape_to_parent, material_id, flags)
 			,m_radius(dim * 0.5f)
 		{
@@ -43,26 +45,23 @@ namespace pr::collision
 			return &m_base;
 		}
 	};
-	static_assert(is_shape_v<ShapeBox>);
+	static_assert(ShapeType<ShapeBox>);
 
 	// Return the bounding box for a box shape
-	template <typename>
-	BBox pr_vectorcall CalcBBox(ShapeBox const& shape)
+	inline BBox pr_vectorcall CalcBBox(ShapeBox const& shape)
 	{
 		return BBox(v4::Origin(), shape.m_radius);
 	}
 
 	// Shift the centre of a box shape
-	template <typename>
-	void pr_vectorcall ShiftCentre(ShapeBox&, v4 shift)
+	inline void pr_vectorcall ShiftCentre(ShapeBox&, v4 shift)
 	{
 		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
 		(void)shift; 
 	}
 
 	// Return a support vertex for a box shape
-	template <typename>
-	v4 pr_vectorcall SupportVertex(ShapeBox const& shape, v4 direction, int, int& sup_vert_id)
+	inline v4 pr_vectorcall SupportVertex(ShapeBox const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		int sign_x = (direction.x > 0.0f);
 		int sign_y = (direction.y > 0.0f);
@@ -77,8 +76,7 @@ namespace pr::collision
 	}
 
 	// Returns the closest point on 'shape' to 'point'. 'shape' and 'point' are in the same space
-	template <typename>
-	void pr_vectorcall ClosestPoint(ShapeBox const& shape, v4 point, float& distance, v4& closest)
+	inline void pr_vectorcall ClosestPoint(ShapeBox const& shape, v4 point, float& distance, v4& closest)
 	{
 		closest = point;
 		distance = 0.0f;

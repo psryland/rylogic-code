@@ -3,16 +3,8 @@
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
 #pragma once
-
-#include <cassert>
-#include "pr/maths/maths.h"
-#include "pr/common/alloca.h"
-#include "pr/geometry/intersect.h"
-
-#include "pr/collision/shape_sphere.h"
-#include "pr/collision/shape_box.h"
-#include "pr/collision/shape_triangle.h"
-#include "pr/collision/shape_line.h"
+#include "pr/collision/forward.h"
+#include "pr/collision/shapes.h"
 
 namespace pr::collision
 {
@@ -49,8 +41,8 @@ namespace pr::collision
 		{
 			float d = Dot3(direction, shape.m_base.m_s2p[i]);
 
-			if      (d > +maths::tiny<float>) vert += shape.m_base.m_s2p[i] * shape.m_radius[i];
-			else if (d < -maths::tiny<float>) vert -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+			if      (d > +math::tiny<float>) vert += shape.m_base.m_s2p[i] * shape.m_radius[i];
+			else if (d < -math::tiny<float>) vert -= shape.m_base.m_s2p[i] * shape.m_radius[i];
 			else feature_type = EFeature(int(feature_type) << 1);
 		}
 		return vert;
@@ -62,8 +54,8 @@ namespace pr::collision
 
 		feature_type = EFeature::Vert;
 		auto vert = shape.m_base.m_s2p.pos;
-		if      (d > +maths::tiny<float>) vert += r;
-		else if (d < -maths::tiny<float>) vert -= r;
+		if      (d > +math::tiny<float>) vert += r;
+		else if (d < -math::tiny<float>) vert -= r;
 		else feature_type = EFeature::Edge;
 		return vert;
 	}
@@ -96,12 +88,12 @@ namespace pr::collision
 		for (int i = 0; i != 3; ++i)
 		{
 			float d = Dot3(axis, shape.m_base.m_s2p[i]);
-			if (d > +maths::tiny<float>)
+			if (d > +math::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
 					points[f] += shape.m_base.m_s2p[i] * shape.m_radius[i];
 			}
-			else if (d < -maths::tiny<float>)
+			else if (d < -math::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
 					points[f] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
@@ -135,13 +127,13 @@ namespace pr::collision
 	{
 		auto d = Dot(axis, shape.m_base.m_s2p.z);
 		auto r = shape.m_base.m_s2p.z * shape.m_radius;
-		if (d > +maths::tiny<float>)
+		if (d > +math::tiny<float>)
 		{
 			// Line points in the direction of the axis, return the end point
 			feature_type = EFeature::Vert;
 			points[0] = shape.m_base.m_s2p.pos + r;
 		}
-		else if (d < -maths::tiny<float>)
+		else if (d < -math::tiny<float>)
 		{
 			// Line points against the direction of the axis, return the start point
 			feature_type = EFeature::Vert;
@@ -275,6 +267,17 @@ namespace pr::collision
 				centre += s + 0.5f * (edges[i].t0 + edges[i].t1) * d;
 				total += 1.0f;
 			}
+
+			// Fallback: if all edges were clipped out (degenerate case, e.g. faces
+			// share boundaries), use the centroid of the original polygon instead.
+			if (total == 0.0f)
+			{
+				for (int i = 0; i != count; ++i)
+				{
+					centre += point[i];
+					total += 1.0f;
+				}
+			}
 			return centre / total;
 		};
 		auto centreA = avr(pointA, countA, edgesA);
@@ -283,7 +286,7 @@ namespace pr::collision
 		// Shift centre to the halfway point between the faces
 		return (0.5f * (centreA + centreB)).w1();
 	}
-	template <typename Shape0, typename Shape1>
+	template <ShapeType Shape0, ShapeType Shape1>
 	v4 FindContactPoint(Shape0 const& lhs, m4x4 const& l2w, Shape1 const& rhs, m4x4 const& r2w, v4 axis, float pen)
 	{
 		// Find the support feature on each shape (in each shape's space)

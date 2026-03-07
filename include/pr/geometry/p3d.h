@@ -17,7 +17,7 @@
 #include "pr/common/scope.h"
 #include "pr/common/compress.h"
 #include "pr/common/range.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/gfx/colour.h"
 #include "pr/geometry/common.h"
 #include "pr/geometry/index_buffer.h"
@@ -284,15 +284,15 @@ namespace pr::geometry::p3d
 			return m_cont.data() + m_cont.size();
 		}
 	};
-	struct VBase { static constexpr v4 Default = v4::Origin(); };
+	struct VBase { static constexpr v4 Default = Origin<v4>(); };
 	struct CBase { static constexpr Colour32 Default = Colour32White; };
-	struct NBase { static constexpr v4 Default = v4::Zero(); };
-	struct TBase { static constexpr v2 Default = v2::Zero(); };
+	struct NBase { static constexpr v4 Default = Zero<v4>(); };
+	struct TBase { static constexpr v2 Default = Zero<v2>(); };
 	using VCont = Cont<v4, VBase>;
 	using CCont = Cont<Colour32, CBase>;
 	using NCont = Cont<v4, NBase>;
 	using TCont = Cont<v2, TBase>;
-	using IdxBuf = pr::geometry::IdxBuf;
+	using IdxBuf = geometry::IdxBuf;
 
 	struct Str16;
 	struct Nugget;
@@ -310,7 +310,7 @@ namespace pr::geometry::p3d
 	struct FatVert
 	{
 		// Notes:
-		//  - This vertex is intended to be compatible with pr::rdr::Vert.
+		//  - This vertex is intended to be compatible with rdr::Vert.
 		v4     m_vert;
 		Colour m_diff;
 		v4     m_norm;
@@ -1858,17 +1858,17 @@ namespace pr::geometry::p3d
 		auto ptr = cont.data();
 		switch (fmt)
 		{
-		case EVertFormat::Verts32Bit:
+			case EVertFormat::Verts32Bit:
 			{
-				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v4{p[0], p[1], p[2], 1.0f}; });
+				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v4{ p[0], p[1], p[2], 1.0f }; });
 				break;
 			}
-		case EVertFormat::Verts16Bit:
+			case EVertFormat::Verts16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{p[0], p[1], p[2], 1.0_hf}); });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32<v4>(Half4{ p[0], p[1], p[2], 1.0_hf }); });
 				break;
 			}
-		default:
+			default:
 			{
 				throw std::runtime_error("Unsupported mesh vertex format");
 			}
@@ -1945,22 +1945,22 @@ namespace pr::geometry::p3d
 		auto ptr = cont.data();
 		switch (fmt)
 		{
-		case ENormFormat::Norms32Bit:
+			case ENormFormat::Norms32Bit:
 			{
-				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v4{p[0], p[1], p[2], 0.0f}; });
+				Read<float>(src, count, stride, [&](float const* p) { *ptr++ = v4{ p[0], p[1], p[2], 0.0f }; });
 				break;
 			}
-		case ENormFormat::Norms16Bit:
+			case ENormFormat::Norms16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{p[0], p[1], p[2], 0.0_hf}); });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32<v4>(Half4{ p[0], p[1], p[2], 0.0_hf }); });
 				break;
 			}
-		case ENormFormat::NormsPack32:
+			case ENormFormat::NormsPack32:
 			{
 				Read<uint32_t>(src, count, stride, [&](uint32_t const* p) { *ptr++ = Norm32bit::Decompress(p[0]); });
 				break;
 			}
-		default:
+			default:
 			{
 				throw std::runtime_error("Unsupported mesh normals format");
 			}
@@ -2003,7 +2003,7 @@ namespace pr::geometry::p3d
 			}
 			case EUVFormat::UVs16Bit:
 			{
-				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32(Half4{ p[0], p[1], 0.0_hf, 0.0_hf }).xy; });
+				Read<half_t>(src, count, stride, [&](half_t const* p) { *ptr++ = F16toF32<v4>(Half4{ p[0], p[1], 0.0_hf, 0.0_hf }).xy; });
 				break;
 			}
 			default:
@@ -2347,7 +2347,7 @@ namespace pr::geometry::p3d
 
 			// Write the model vertices
 			out << ind << "#pragma region Verts\n";
-			out << ind << "static pr::rdr::Vert const verts[] =\n";
+			out << ind << "static rdr::Vert const verts[] =\n";
 			out << ind << "{\n";
 			ind.push_back('\t');
 			for (auto const& vert : mesh.fat_verts())
@@ -2393,7 +2393,7 @@ namespace pr::geometry::p3d
 
 			// Write the model nuggets
 			out << ind << "#pragma region Nuggets\n";
-			out << ind << "static pr::rdr::NuggetProps const nuggets[] =\n";
+			out << ind << "static rdr::NuggetProps const nuggets[] =\n";
 			out << ind << "{\n";
 			ind.push_back('\t');
 			size_t ibeg = 0;
@@ -2401,12 +2401,12 @@ namespace pr::geometry::p3d
 			{
 				auto vrange = nug.vrange();
 				out << ind 
-					<< "pr::rdr::NuggetProps{"
-					<< "pr::rdr::ETopo{" << s_cast<int>(nug.m_topo) << "}, "
-					<< "pr::rdr::EGeom{" << s_cast<int>(nug.m_geom) << "}, "
+					<< "rdr::NuggetProps{"
+					<< "rdr::ETopo{" << s_cast<int>(nug.m_topo) << "}, "
+					<< "rdr::EGeom{" << s_cast<int>(nug.m_geom) << "}, "
 					<< "nullptr, "
-					<< "pr::rdr::Range{" << vrange.m_beg << "," << vrange.m_end << "}, "
-					<< "pr::rdr::Range{" << ibeg << "," << ibeg + nug.icount() << "}"
+					<< "rdr::Range{" << vrange.m_beg << "," << vrange.m_end << "}, "
+					<< "rdr::Range{" << ibeg << "," << ibeg + nug.icount() << "}"
 					<< "},\n";
 
 				ibeg += nug.icount();
@@ -2637,7 +2637,7 @@ namespace pr::geometry
 			{
 				auto& m0 = cmp.m_scene.m_materials[i];
 				auto& m1 = file.m_scene.m_materials[i];
-				PR_EXPECT(pr::str::Equal(m0.m_id.str, m1.m_id.str));
+				PR_EXPECT(str::Equal(m0.m_id.str, m1.m_id.str));
 				PR_EXPECT(m0.m_diffuse == m1.m_diffuse);
 				PR_EXPECT(m0.m_textures.size() == m1.m_textures.size());
 				for (size_t j = 0; j != m1.m_textures.size(); ++j)

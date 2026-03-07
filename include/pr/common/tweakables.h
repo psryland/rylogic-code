@@ -11,9 +11,11 @@
 #include <memory>
 #include <chrono>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include "pr/common/to.h"
 #include "pr/common/hresult.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr::tweakables
 {

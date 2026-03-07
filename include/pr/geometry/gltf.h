@@ -16,7 +16,7 @@
 #include <string_view>
 #include "pr/common/range.h"
 #include "pr/common/flags_enum.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/gfx/colour.h"
 #include "pr/geometry/common.h"
 #include "pr/win32/win32.h"

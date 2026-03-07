@@ -8,7 +8,7 @@
 #include "pr/common/number.h"
 #include "pr/common/flags_enum.h"
 #include "pr/str/string_core.h"
-#include "pr/macros/enum.h"
+#include "pr/str/string.h"
 
 namespace pr::str
 {
@@ -535,7 +535,7 @@ namespace pr::str
 	template <typename Int, typename Ptr, CharType Char = char_type_t<Ptr>>
 	bool ExtractInt(Int& intg, int radix, Ptr& src, Char const* delim = nullptr)
 	{
-		pr::string<Char, 256> str = {};
+		string<Char, 256> str = {};
 		BufferNumber(str, src, radix, ENumType::Int, delim);
 		if (str.empty()) return false;
 

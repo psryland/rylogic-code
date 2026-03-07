@@ -19,8 +19,8 @@
 #include "pr/common/alloca.h"
 #include "pr/common/cast.h"
 #include "pr/macros/link.h"
-#include "pr/maths/maths.h"
-#include "pr/physics/physics.h"
+#include "pr/math/math.h"
+#include "pr/physics-2/physics.h"
 #include "pr/lua/lua.h"
 #include "lua/include/lstate.h"
 
@@ -28,29 +28,29 @@ using namespace pr;
 #define ADDIN_API __declspec(dllexport)
 
 // Helper rounding function
-inline float R(float x)
+inline double R(int x)
+{
+	return static_cast<double>(x);
+}
+inline double R(int64_t x)
+{
+	return static_cast<double>(x);
+}
+inline double R(float x)
 {
 	return
 		isnan(x) ? x :
-		x < -maths::tiny<float> ? x :
-		x > +maths::tiny<float> ? x :
+		x < -math::tiny<float> ? x :
+		x > +math::tiny<float> ? x :
 		x < 0 ? -0 : +0;
 }
 inline double R(double x)
 {
 	return 
 		isnan(x) ? x :
-		x < -maths::tiny<double> ? x :
-		x > +maths::tiny<double> ? x :
+		x < -math::tiny<double> ? x :
+		x > +math::tiny<double> ? x :
 		x < 0 ? -0 : +0;
-}
-inline int R(int x)
-{
-	return x;
-}
-inline int64_t R(int64_t x)
-{
-	return x;
 }
 
 extern "C"
@@ -121,8 +121,8 @@ extern "C"
 		if (FAILED(pHelper->Read(vec))) return E_FAIL;
 		_snprintf(pResult, max,
 			"{%+d %+d} Len2=%g"
-			,R(vec.x)
-			,R(vec.y)
+			,vec.x
+			,vec.y
 			,R(Length(vec))
 		);
 		return S_OK;
@@ -134,10 +134,10 @@ extern "C"
 		if (FAILED(pHelper->Read(vec))) return E_FAIL;
 		_snprintf(pResult, max,
 			"{%+d %+d %+d %+d} Len3=%g Len4=%g"
-			,R(vec.x)
-			,R(vec.y)
-			,R(vec.z)
-			,R(vec.w)
+			,vec.x
+			,vec.y
+			,vec.z
+			,vec.w
 			,R(Length(vec.w0()))
 			,R(Length(vec))
 		);
@@ -153,10 +153,10 @@ extern "C"
 		auto len4 = Len(double(vec[0]), double(vec[1]), double(vec[2]), double(vec[3]));
 		_snprintf(pResult, max,
 			"{%+lld %+lld %+lld %+lld} Len3=%g Len4=%g"
-			,R(vec[0])
-			,R(vec[1])
-			,R(vec[2])
-			,R(vec[3])
+			,vec[0]
+			,vec[1]
+			,vec[2]
+			,vec[3]
 			,R(len3)
 			,R(len4)
 		);
@@ -378,7 +378,7 @@ extern "C"
 		quat q;
 		if (FAILED(pHelper->Read(q))) return E_FAIL;
 
-		auto mat = m3x4::Rotation(q);
+		auto mat = ToMatrix<m3x4>(q);
 		_snprintf(pResult, max,
 			"{%+g %+g %+g} \n"
 			"{%+g %+g %+g} \n"
@@ -391,62 +391,64 @@ extern "C"
 	}
 	ADDIN_API HRESULT WINAPI AddIn_PhShape(DWORD, DbgHelper* pHelper, int, BOOL, char *pResult, size_t max, DWORD)
 	{
-		using namespace ph;
+		using namespace physics;
 		ReentryGuard guard;
 
 		Shape base;
 		if (FAILED(pHelper->Read(base))) return E_FAIL;
 		switch (base.m_type)
 		{
-		case EShape_Sphere:
+			case EShape::Sphere:
 			{
 				ShapeSphere shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
 				_snprintf(pResult, max, "Sph(%d): r=%f", (int)shape.m_base.m_size, shape.m_radius);
-			}break;
-		case EShape_Cylinder:
-			{
-				ShapeCylinder shape;
-				if (FAILED(pHelper->Read(shape))) return E_FAIL;
-				_snprintf(pResult, max, "Cyl(%d): r=%f h=%f", (int)shape.m_base.m_size, shape.m_radius, shape.m_height);
-			}break;
-		case EShape_Box:
+				break;
+			}
+			case EShape::Box:
 			{
 				ShapeBox shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
 				_snprintf(pResult, max, "Box(%d): w=%f h=%f d=%f", (int)shape.m_base.m_size, shape.m_radius.x, shape.m_radius.y, shape.m_radius.z);
-			}break;
-		case EShape_Polytope:
+				break;
+			}
+			case EShape::Line:
 			{
-				ShapePolytope shape;
+				ShapeLine shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
-				_snprintf(pResult, max, "Poly(%d): v=%d f=%d", (int)shape.m_base.m_size, shape.m_vert_count, shape.m_face_count);
-			}break;
-		case EShape_Triangle:
+				_snprintf(pResult, max, "Line(%d): <%3.3f>", (int)shape.m_base.m_size, shape.m_radius);
+				break;
+			}
+			case EShape::Triangle:
 			{
 				ShapeTriangle shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
 				_snprintf(pResult, max, "Tri(%d): <%3.3f,%3.3f,%3.3f> <%3.3f,%3.3f,%3.3f> <%3.3f,%3.3f,%3.3f>"
-					,(int)shape.m_base.m_size
-					,shape.m_v.x.x ,shape.m_v.x.y ,shape.m_v.x.z
-					,shape.m_v.y.x ,shape.m_v.y.y ,shape.m_v.y.z
-					,shape.m_v.z.x ,shape.m_v.z.y ,shape.m_v.z.z);
-			}break;
-		case EShape_Terrain:
+					, (int)shape.m_base.m_size
+					, shape.m_v.x.x, shape.m_v.x.y, shape.m_v.x.z
+					, shape.m_v.y.x, shape.m_v.y.y, shape.m_v.y.z
+					, shape.m_v.z.x, shape.m_v.z.y, shape.m_v.z.z);
+				break;
+			}
+			case EShape::Polytope:
 			{
-				ShapeTerrain shape;
+				ShapePolytope shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
-				_snprintf(pResult, max, "Terr(%d): ", (int)shape.m_base.m_size);
-			}break;
-		case EShape_Array:
+				_snprintf(pResult, max, "Poly(%d): v=%d f=%d", (int)shape.m_base.m_size, shape.m_vert_count, shape.m_face_count);
+				break;
+			}
+			case EShape::Array:
 			{
 				ShapeArray shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
 				_snprintf(pResult, max, "Array(%d): n=%d", (int)shape.m_base.m_size, (int)shape.m_num_shapes);
-			}break;
-		default:
-			_snprintf(pResult, max, "Unknown Shape");
-			break;
+				break;
+			}
+			default:
+			{
+				_snprintf(pResult, max, "Unknown Shape");
+				break;
+			}
 		}
 		return S_OK;
 	}

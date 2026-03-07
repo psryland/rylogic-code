@@ -181,18 +181,18 @@ namespace pr::rdr12
 		}
 		Box& Clip(iv3 first, iv3 range)
 		{
-			Vec3l<void> last = {
-				std::clamp<int64_t>(s_cast<int64_t>(first.x) + range.x, first.x, pr::limits<int>::max()),
-				std::clamp<int64_t>(s_cast<int64_t>(first.y) + range.y, first.y, pr::limits<int>::max()),
-				std::clamp<int64_t>(s_cast<int64_t>(first.z) + range.z, first.z, pr::limits<int>::max()),
+			struct { int64_t x, y, z; } last = {
+				std::clamp<int64_t>(static_cast<int64_t>(first.x) + range.x, first.x, pr::limits<int>::max()),
+				std::clamp<int64_t>(static_cast<int64_t>(first.y) + range.y, first.y, pr::limits<int>::max()),
+				std::clamp<int64_t>(static_cast<int64_t>(first.z) + range.z, first.z, pr::limits<int>::max()),
 			};
 
-			if (s_cast<int>(left)  < first.x) left   = s_cast<UINT>(first.x);
-			if (s_cast<int>(top)   < first.y) top    = s_cast<UINT>(first.y);
-			if (s_cast<int>(front) < first.z) front  = s_cast<UINT>(first.z);
-			if (s_cast<int>(right)  > last.x) right  = s_cast<UINT>(last.x);
-			if (s_cast<int>(bottom) > last.y) bottom = s_cast<UINT>(last.y);
-			if (s_cast<int>(back)   > last.z) back   = s_cast<UINT>(last.z);
+			if (static_cast<int>(left)  < first.x) left   = static_cast<UINT>(first.x);
+			if (static_cast<int>(top)   < first.y) top    = static_cast<UINT>(first.y);
+			if (static_cast<int>(front) < first.z) front  = static_cast<UINT>(first.z);
+			if (static_cast<int>(right)  > last.x) right  = static_cast<UINT>(last.x);
+			if (static_cast<int>(bottom) > last.y) bottom = static_cast<UINT>(last.y);
+			if (static_cast<int>(back)   > last.z) back   = static_cast<UINT>(last.z);
 			return *this;
 		}
 	};
@@ -433,11 +433,11 @@ namespace pr::rdr12
 		// 'ss_point' must be in screen pixels, not logical pixels (DIP).
 		v2 SSPointToNSSPoint(v2 const& ss_point) const
 		{
-			return NormalisePoint(IRect(0, 0, ScreenW, ScreenH), ss_point, 1.0f, -1.0f);
+			return NormalisePoint(FRect(0.0f, 0.0f, static_cast<float>(ScreenW), static_cast<float>(ScreenH)), ss_point, 1.0f, -1.0f);
 		}
 		v2 NSSPointToSSPoint(v2 const& nss_point) const
 		{
-			return ScalePoint(IRect(0, 0, ScreenW, ScreenH), nss_point, 1.0f, -1.0f);
+			return ScalePoint(FRect(0.0f, 0.0f, static_cast<float>(ScreenW), static_cast<float>(ScreenH)), nss_point, 1.0f, -1.0f);
 		}
 	};
 
@@ -1086,7 +1086,7 @@ namespace pr::rdr12
 		// Hash this description to create an Id that can be used to detect duplicate samplers
 		RdrId Id() const
 		{
-			return s_cast<RdrId>(pr::hash::HashBytes64(this, this + 1));
+			return s_cast<RdrId>(hash::HashBytes64(this, this + 1));
 		}
 
 		SamDesc& border(Colour32 colour)

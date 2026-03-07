@@ -300,7 +300,7 @@ namespace pr::network
 			// Wait for the socket to say it's writable (meaning it's connected)
 			fd_set set = {};
 			FD_SET(m_socket, &set);
-			auto timeout = pr::network::TimeVal(timeout_ms);
+			auto timeout = network::TimeVal(timeout_ms);
 			r = ::select(0, 0, &set, 0, timeout_ms == ~0 ? nullptr : &timeout);
 			if (r == NO_ERROR)
 				return false;
@@ -359,7 +359,7 @@ namespace pr::network
 				CreateSocket();
 
 			SOCKADDR_BTH addr = {};
-			if (!pr::network::DeviceNameToBluetoothAddr(device_name, addr))
+			if (!network::DeviceNameToBluetoothAddr(device_name, addr))
 				return false;
 
 			addr.serviceClassId = service_or_port.m_service;

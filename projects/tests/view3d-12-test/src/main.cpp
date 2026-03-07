@@ -1,6 +1,6 @@
 ﻿#include <stdexcept>
 #include <windows.h>
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/gui/wingui.h"
 #include "pr/win32/windows_com.h"
 #include "pr/win32/win32.h"

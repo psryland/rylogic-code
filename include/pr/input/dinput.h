@@ -299,7 +299,7 @@ namespace pr::dinput
 
 		// Default settings for a device class
 		DeviceSettings(HINSTANCE app_inst, HWND hwnd, EDeviceClass dev_class, int buf_size = 0, bool buffered = false, bool events = false)
-			:m_dinput(pr::dinput::GetDInput(app_inst))
+			:m_dinput(dinput::GetDInput(app_inst))
 			,m_instance(FindDeviceInstance(m_dinput.get(), dev_class))
 			,m_hwnd(hwnd)
 			,m_buffer_size(buf_size)

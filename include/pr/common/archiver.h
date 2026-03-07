@@ -247,8 +247,8 @@ namespace pr::archive
 
 			// Add the template
 			Template tmp;
-			tmp.m_type_info = pr::hash::HashCT(typeid(Type).name());
-			tmp.m_type_name = pr::hash::Hash(template_desc, ','); ++template_desc;
+			tmp.m_type_info = hash::HashCT(typeid(Type).name());
+			tmp.m_type_name = hash::Hash(template_desc, ','); ++template_desc;
 			assert(!IsBuiltinType(tmp.m_type_name) && "Do not register template descriptions for built-in types");
 			assert(!IsTemplateTypeInfo(tmp.m_type_info) && "Template already defined for this type");
 			assert(!IsTemplateName(tmp.m_type_name) && "Template for type with this name already defined");
@@ -265,8 +265,8 @@ namespace pr::archive
 
 				// Add a field to the template
 				Field field;
-				field.m_type = pr::hash::Hash(template_desc, ':'); ++template_desc;
-				field.m_name = pr::hash::Hash(template_desc, ':'); ++template_desc;
+				field.m_type = hash::Hash(template_desc, ':'); ++template_desc;
+				field.m_name = hash::Hash(template_desc, ':'); ++template_desc;
 				field.m_count = strtoul(template_desc, (char**)&template_desc, 10); template_desc += int(*template_desc == ',');
 				field.m_offset = offset;
 
@@ -344,14 +344,14 @@ namespace pr::archive
 		// Write a type for which a template has been registered
 		template <typename Type> void Write(Type const& type)
 		{
-			U_032 type_info = pr::hash::HashCT(typeid(Type).name());
+			U_032 type_info = hash::HashCT(typeid(Type).name());
 			Write(GetTemplateByTypeInfo(type_info), reinterpret_cast<char const*>(&type));
 		}
 
 		// Read a type from 'm_data'
 		template <typename Type> void Read(Type& type)
 		{
-			U_032 type_info = pr::hash::HashCT(typeid(Type).name());
+			U_032 type_info = hash::HashCT(typeid(Type).name());
 			Read(GetTemplateByTypeInfo(type_info), reinterpret_cast<char*>(&type));
 		}
 
@@ -437,7 +437,7 @@ namespace pr::archive
 #include "pr/common/StdVector.h"
 #include "pr/common/StdList.h"
 #include "pr/common/StdMap.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr
 {

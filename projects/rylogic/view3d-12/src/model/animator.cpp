@@ -180,7 +180,7 @@ namespace pr::rdr12
 				rot = quat::Identity();
 
 			// Update the bone
-			bone = m4x4(m3x4(rot), pos);
+			bone = m4x4{ToMatrix<m3x4>(rot), pos};
 		}
 	}
 

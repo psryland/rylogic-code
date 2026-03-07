@@ -86,22 +86,22 @@ namespace pr::rdr12::ldraw
 		{
 			Append(out, To<string32>(m));
 		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec2<S, void> v)
-		{
-			Append(out, To<string32>(v));
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec3<S, void> v)
-		{
-			Append(out, To<string32>(v));
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Vec4<S, void> v)
-		{
-			Append(out, To<string32>(v));
-		}
-		template <typename TOut, Scalar S> static void Append(TOut& out, Mat4x4<S, void, void> m)
-		{
-			Append(out, To<string32>(m));
-		}
+		//template <typename TOut, Scalar S> static void Append(TOut& out, Vec2<S, void> v)
+		//{
+		//	Append(out, To<string32>(v));
+		//}
+		//template <typename TOut, Scalar S> static void Append(TOut& out, Vec3<S, void> v)
+		//{
+		//	Append(out, To<string32>(v));
+		//}
+		//template <typename TOut, Scalar S> static void Append(TOut& out, Vec4<S, void> v)
+		//{
+		//	Append(out, To<string32>(v));
+		//}
+		//template <typename TOut, Scalar S> static void Append(TOut& out, Mat4x4<S, void, void> m)
+		//{
+		//	Append(out, To<string32>(m));
+		//}
 		template <typename TOut> static void Append(TOut& out, EAddrMode addr)
 		{
 			switch (addr)

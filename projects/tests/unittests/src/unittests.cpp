@@ -47,7 +47,7 @@ namespace pr::unittests::your::namespace
 //#include "pr/container/vector.h"
 //#include "pr/macros/enum.h"
 //#include "pr/maths/interpolate.h"
-//#include "pr/maths/maths.h"
+//#include "pr/math/math.h"
 //#include "pr/maths/matrix6x8.h"
 //#include "pr/maths/matrix4x4.h"
 //#include "pr/maths/matrix3x4.h"

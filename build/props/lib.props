@@ -31,7 +31,7 @@
 	<!-- Dependencies -->
 	<Target Name="Deploy" AfterTargets="Build">
 		<Exec
-			Command="dotnet-script.exe --cache-path %TEMP%\dotnet-script\$(PlatformTarget)\$(Configuration) $(ScriptPath)DeployLib.csx -- $(TargetPath)"
+			Command="dotnet-script.exe --cache-path %TEMP%\$(SubDir) $(ScriptPath)DeployLib.csx -- $(TargetPath)"
 			WorkingDirectory="$(RylogicRoot)"
 		/>
 	</Target>

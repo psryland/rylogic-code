@@ -8,7 +8,7 @@
 
 #include "pr/common/min_max_fix.h"
 #include "pr/container/byte_data.h"
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 #include "pr/geometry/tetramesh.h"
 
 namespace pr

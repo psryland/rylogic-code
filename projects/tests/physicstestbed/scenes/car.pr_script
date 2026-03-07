@@ -1,5 +1,0 @@
-#include "car_shell.pr_script"
-#include "car_mesh.pr_script"
-#include "car_tetramesh.pr_script"
-//#include "car_chassis.pr_script"
-//#include "car_exclusion_volumes.pr_script"

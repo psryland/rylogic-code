@@ -583,7 +583,7 @@ namespace pr::common
 
 		{// basic hashing
 			auto h0 = Hash("");
-			PR_EXPECT(h0 == static_cast<HashValue32>(pr::hash::FNV_offset_basis32));
+			PR_EXPECT(h0 == static_cast<HashValue32>(hash::FNV_offset_basis32));
 		}
 		{// Compile time hash vs. std::hash
 			char const data[] = "Paul was here. CrC this, mofo";

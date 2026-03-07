@@ -3,7 +3,8 @@
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
 #pragma once
-#include "pr/maths/maths.h"
+#include "pr/common/bit_fields.h"
+#include "pr/math/math.h"
 
 namespace pr
 {
@@ -70,7 +71,7 @@ namespace pr
 			auto iy = int((1.0f - y) * MaxYDiv);
 			auto xz_scale = 1.0f - y;
 			auto MaxXZDiv = 2 * iy;
-			auto ixz = xz_scale > maths::tiny<float> ? int((z / xz_scale) * float(MaxXZDiv)) : 0;
+			auto ixz = xz_scale > math::tiny<float> ? int((z / xz_scale) * float(MaxXZDiv)) : 0;
 			assert(ixz <= MaxXZDiv);
 
 			auto index = iy * iy + ixz;
@@ -177,7 +178,7 @@ namespace pr
 			auto iy = int((1.0f - y) * MaxYDiv);
 			auto xz_scale = 1.0f - y;
 			auto MaxXZDiv = 2 * iy;
-			auto ixz = xz_scale > maths::tiny<float> ? int((z / xz_scale) * float(MaxXZDiv)) : 0;
+			auto ixz = xz_scale > math::tiny<float> ? int((z / xz_scale) * float(MaxXZDiv)) : 0;
 			assert(ixz <= MaxXZDiv);
 
 			auto index = iy * iy + ixz;

@@ -4,7 +4,7 @@
 //********************************
 #pragma once
 
-#include "pr/maths/maths.h"
+#include "pr/math/math.h"
 
 namespace pr
 {

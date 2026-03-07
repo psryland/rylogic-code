@@ -254,7 +254,7 @@ namespace pr::rdr12
 	// that sub range. Not all data is necessarily needed to render each nugget (depends on
 	// the shader that the render step uses), but each nugget can be rendered with a single
 	// DrawIndexed call for any possible shader.
-	struct Nugget :pr::chain::link<Nugget, ChainGroupNugget>, NuggetDesc
+	struct Nugget :chain::link<Nugget, ChainGroupNugget>, NuggetDesc
 	{
 		Model*       m_model;         // The model that owns this nugget.
 		TNuggetChain m_nuggets;       // The dependent nuggets associated with this nugget.
