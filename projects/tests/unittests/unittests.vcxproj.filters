@@ -1195,6 +1195,42 @@
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h">
       <Filter>pr\math\utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ldraw.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">
