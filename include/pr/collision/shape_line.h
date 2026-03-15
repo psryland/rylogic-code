@@ -17,6 +17,7 @@ namespace pr::collision
 		Shape m_base;
 		float m_radius;    // Half-length along the Z axis. Length = 2 * m_radius.
 		float m_thickness; // Collision radius perpendicular to the Z axis. 0 = infinitely thin.
+		int pad[2];
 
 		ShapeLine() = default;
 		explicit ShapeLine(float length, float thickness = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
@@ -49,6 +50,7 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapeLine>);
+	static_assert((sizeof(ShapeLine) & 0xf) == 0);
 
 	// Return the bounding box for a line shape.
 	// Includes the thickness envelope (hemispherical ends for bounding purposes).

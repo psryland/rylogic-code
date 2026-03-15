@@ -85,8 +85,8 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	auto autoplay = cmd.count("autoplay") > 0;
 	if (autoplay)
 	{
-		_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
-		_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+		_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+		_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
 	}
 
 	try
@@ -107,7 +107,7 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 
 		// Start the simulation immediately if -autoplay was specified
 		if (autoplay)
-			sandbox.m_scene.m_steps_remaining = -1;
+			sandbox.m_steps_remaining = -1;
 
 		// Simulation loop: fixed 60 Hz timestep for deterministic physics.
 		// Render loop: variable at high target rate. The actual frame rate is

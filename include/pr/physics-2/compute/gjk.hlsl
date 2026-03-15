@@ -224,6 +224,13 @@ MkSup MkSupport(
 
 	float4 va = TransformPoint(a2w, SupportVertex(shape_a, dir_a, verts));
 	float4 vb = TransformPoint(b2w, SupportVertex(shape_b, dir_b, verts));
+	
+	// This is not a fix
+	//// Support on A in direction +dir, support on B in direction -dir.
+	//// Support functions return in world space (they apply s2p internally),
+	//// so no additional transform is needed here.
+	//float4 va = SupportVertex(shape_a, +dir, verts);
+	//float4 vb = SupportVertex(shape_b, -dir, verts);
 
 	MkSup s;
 	s.w = float4((va - vb).xyz, 0);

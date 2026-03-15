@@ -11,6 +11,14 @@ static const float float_max = 3.402823466e+38f;
 static const uint FNV_offset_basis32 = 2166136261U;
 static const uint FNV_prime32 = 16777619U;
 
+// A transform represented as quaternion rotation + translation.
+struct Transform
+{
+	float4 translation; // {x, y, z, 1}
+	float4 rotation;    // {x, y, z, w} (quaternion)
+	float4 scale;       // {x, y, z, 1}
+};
+
 // Component sign (never zero) functions
 inline float sign_nz(float x)
 {

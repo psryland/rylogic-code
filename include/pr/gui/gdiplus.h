@@ -13,7 +13,10 @@
 #include <vector>
 #include <filesystem>
 #include <Windows.h>
+#pragma warning(push)
+#pragma warning(disable: 5260) // Windows SDK GdiplusEnums.h: const with internal/external linkage mismatch
 #include <gdiplus.h>
+#pragma warning(pop)
 #include "pr/common/to.h"
 
 #pragma comment(lib, "gdiplus.lib")

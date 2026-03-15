@@ -28,7 +28,7 @@
     <ClCompile>
       <EnableModules>false</EnableModules>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <DisableSpecificWarnings>4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4189;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
         ;$(RylogicRoot)include

@@ -33,6 +33,6 @@ namespace pr::physics
 		void Remove(RigidBody const& obj) override;
 
 		// Enumerate all pairs of entities whose bounding boxes overlap
-		void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const override;
+		void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const;
 	};
 }

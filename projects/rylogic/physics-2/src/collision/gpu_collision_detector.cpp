@@ -37,7 +37,6 @@ namespace pr::physics
 
 	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu)
 		: m_gpu(gpu)
-		, m_job(m_gpu, "PhysicsCollision", 0xFF80FF40, 5)
 		, m_cs_gjk()
 		, m_r_shapes()
 		, m_r_pairs()
@@ -54,6 +53,7 @@ namespace pr::physics
 	// Run collision detection on the GPU.
 	// Uploads shapes, pairs, and vertices → dispatches GJK shader → reads back contacts.
 	int GpuCollisionDetector::DetectCollisions(
+		GpuJob& job,
 		std::span<GpuCollisionPair const> pairs,
 		std::span<GpuShape const> shapes,
 		std::span<v4 const> verts,
@@ -68,7 +68,7 @@ namespace pr::physics
 
 		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
 		// regardless of the caller's dirty flag (the new buffers contain garbage).
-		if (ResizeBuffers(m_job.m_cmd_list, shape_count, vert_count, pair_count))
+		if (ResizeBuffers(job.m_cmd_list, shape_count, vert_count, pair_count))
 			shapes_dirty = true;
 
 		// Only upload shapes and verts when they've changed. When the shape cache
@@ -77,99 +77,99 @@ namespace pr::physics
 		if (shapes_dirty)
 		{
 			// Upload shapes buffer
-			m_job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
 
-			auto shape_upload = m_job.m_upload.Alloc<GpuShape>(shape_count);
+			auto shape_upload = job.m_upload.Alloc<GpuShape>(shape_count);
 			memcpy(shape_upload.ptr<GpuShape>(), shapes.data(), shape_count * sizeof(GpuShape));
-			m_job.m_cmd_list.CopyBufferRegion(m_r_shapes.get(), 0, shape_upload);
+			job.m_cmd_list.CopyBufferRegion(m_r_shapes.get(), 0, shape_upload);
 
 			// Upload vertices buffer (may be empty if no polytopes/triangles)
 			if (vert_count > 0)
 			{
-				m_job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-				m_job.m_barriers.Commit();
+				job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				job.m_barriers.Commit();
 
-				auto vert_upload = m_job.m_upload.Alloc<v4>(vert_count);
+				auto vert_upload = job.m_upload.Alloc<v4>(vert_count);
 				memcpy(vert_upload.ptr<v4>(), verts.data(), vert_count * sizeof(v4));
-				m_job.m_cmd_list.CopyBufferRegion(m_r_verts.get(), 0, vert_upload);
+				job.m_cmd_list.CopyBufferRegion(m_r_verts.get(), 0, vert_upload);
 			}
 
-			m_job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (vert_count > 0)
-				m_job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			m_job.m_barriers.Commit();
+				job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
 		}
 
 		// Pairs change every frame — always upload
 		{
-			m_job.m_barriers.Transition(m_r_pairs.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_pairs.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
 
-			auto pair_upload = m_job.m_upload.Alloc<GpuCollisionPair>(pair_count);
+			auto pair_upload = job.m_upload.Alloc<GpuCollisionPair>(pair_count);
 			memcpy(pair_upload.ptr<GpuCollisionPair>(), pairs.data(), pair_count * sizeof(GpuCollisionPair));
-			m_job.m_cmd_list.CopyBufferRegion(m_r_pairs.get(), 0, pair_upload);
+			job.m_cmd_list.CopyBufferRegion(m_r_pairs.get(), 0, pair_upload);
 
-			m_job.m_barriers.Transition(m_r_pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
 		}
 
 		// Zero the counter buffer before dispatch
 		{
-			m_job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
 
-			auto upload = m_job.m_upload.Alloc<GpuCollisionCounters>(1);
+			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
 			auto* counters = upload.ptr<GpuCollisionCounters>();
 			*counters = {};
-			m_job.m_cmd_list.CopyBufferRegion(m_r_counters.get(), 0, upload);
+			job.m_cmd_list.CopyBufferRegion(m_r_counters.get(), 0, upload);
 
-			m_job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
 		}
 
 		// Dispatch the GJK compute shader
 		{
 			auto cb = cbCollision{ .pair_count = static_cast<uint32_t>(pair_count) };
 
-			m_job.m_cmd_list.SetPipelineState(m_cs_gjk.m_pso.get());
-			m_job.m_cmd_list.SetComputeRootSignature(m_cs_gjk.m_sig.get());
-			m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			m_job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
-			m_job.m_cmd_list.AddComputeRootShaderResourceView(m_r_pairs->GetGPUVirtualAddress());
-			m_job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
-			m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
-			m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
+			job.m_cmd_list.SetPipelineState(m_cs_gjk.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_gjk.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_pairs->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
 
 			auto dispatch_count = (pair_count + ThreadGroupSize - 1) / ThreadGroupSize;
-			m_job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
+			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
 
 			// UAV barriers to ensure compute finishes before readback
-			m_job.m_barriers.UAV(m_r_contacts.get());
-			m_job.m_barriers.UAV(m_r_counters.get());
+			job.m_barriers.UAV(m_r_contacts.get());
+			job.m_barriers.UAV(m_r_counters.get());
 		}
 
 		// Read back contacts and counter
 		GpuReadbackBuffer::Allocation readback_contacts;
 		GpuReadbackBuffer::Allocation readback_counters;
 		{
-			m_job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_job.m_barriers.Commit();
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
 
-			readback_contacts = m_job.m_readback.Alloc<GpuContact>(pair_count);
-			m_job.m_cmd_list.CopyBufferRegion(readback_contacts, m_r_contacts.get(), 0);
+			readback_contacts = job.m_readback.Alloc<GpuContact>(pair_count);
+			job.m_cmd_list.CopyBufferRegion(readback_contacts, m_r_contacts.get(), 0);
 
-			readback_counters = m_job.m_readback.Alloc<GpuCollisionCounters>(1);
-			m_job.m_cmd_list.CopyBufferRegion(readback_counters, m_r_counters.get(), 0);
+			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
+			job.m_cmd_list.CopyBufferRegion(readback_counters, m_r_counters.get(), 0);
 
 			// Transition back for next frame
-			m_job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
 
 		// Execute and wait for GPU completion
-		m_job.Run();
+		job.Run();
 
 		// Read the contact count
 		auto* counters = readback_counters.ptr<GpuCollisionCounters>();

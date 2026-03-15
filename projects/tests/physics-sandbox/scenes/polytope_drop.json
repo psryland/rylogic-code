@@ -11,7 +11,8 @@
 
 		"ground_plane": {
 			"height": 0.0,
-			"texture": "#checker"
+			"colour": "8000AA00"
+			//"texture": "#checker"
 		},
 
 		"bodies": [

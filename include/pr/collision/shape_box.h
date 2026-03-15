@@ -46,6 +46,7 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapeBox>);
+	static_assert((sizeof(ShapeBox) & 0xf) == 0);
 
 	// Return the bounding box for a box shape
 	inline BBox pr_vectorcall CalcBBox(ShapeBox const& shape)

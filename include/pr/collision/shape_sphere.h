@@ -13,13 +13,14 @@ namespace pr::collision
 	{
 		Shape m_base;
 		float m_radius;
-		bool  m_hollow;
+		int m_hollow;
+		int pad[2];
 
 		ShapeSphere() = default;
 		explicit ShapeSphere(float radius, m4x4 const& shape_to_parent = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_parent, material_id, flags)
-			,m_radius (radius)
-			,m_hollow (hollow)
+			,m_radius(radius)
+			,m_hollow(hollow)
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}
@@ -41,6 +42,7 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapeSphere>);
+	static_assert((sizeof(ShapeSphere) & 0xf) == 0);
 
 	// Return the bounding box for a sphere shape
 	inline BBox pr_vectorcall CalcBBox(ShapeSphere const& shape)

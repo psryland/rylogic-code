@@ -103,7 +103,7 @@ namespace pr::physics
 	{
 		RigidBodyDynamics dyn = PackDynamics(rb);
 		Evolve(dyn, elapsed_seconds);
-		UnpackDynamics(rb, dyn);
+		UnpackDynamics(dyn, rb);
 	}
 
 	#if 0

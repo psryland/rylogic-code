@@ -9,6 +9,7 @@
 // Buffer layout:
 //   u0: RWStructuredBuffer<RigidBodyDynamics> — per-body dynamic state (read/write)
 //   u1: RWStructuredBuffer<IntegrateOutput>   — per-body KE debug output (write)
+//   u2: RWStructuredBuffer<IntegrateAABB>     — per-body world-space AABB (write)
 //   b0: cbuffer with time step and body count
 //
 // Matrix convention (row-vector / DirectX-style):
@@ -21,7 +22,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 
-// Must match the C++ RigidBodyDynamics struct exactly (176 bytes per element).
+// Must match the C++ RigidBodyDynamics struct exactly (208 bytes per element).
 struct RigidBodyDynamics
 {
 	// Object-to-world transform. Each HLSL row = one C++ column vector.
@@ -40,6 +41,8 @@ struct RigidBodyDynamics
 	float4 inertia_inv_diagonal;  // {Ixx_inv, Iyy_inv, Izz_inv, 0}
 	float4 inertia_inv_products;  // {Ixy_inv, Ixz_inv, Iyz_inv, 0}
 	float4 os_com_and_invmass;    // {com_x, com_y, com_z, inv_mass}
+	float4 os_bbox_centre;        // object-space AABB centre
+	float4 os_bbox_radius;        // object-space AABB half-extents
 };
 
 // Per-body output for debug energy validation
@@ -51,9 +54,17 @@ struct IntegrateOutput
 	float pad1;
 };
 
+// World-space AABB computed from the updated transform and OS bounding box
+struct IntegrateAABB
+{
+	float4 ws_bbox_centre;
+	float4 ws_bbox_radius;
+};
+
 // Shader resources
 RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
 RWStructuredBuffer<IntegrateOutput> g_output : register(u1);
+RWStructuredBuffer<IntegrateAABB> g_aabbs : register(u2);
 
 // Integration parameters
 cbuffer cbIntegrate : register(b0)
@@ -161,6 +172,22 @@ void CSIntegrate(uint3 dtid : SV_DispatchThreadID)
 	float3 vel_lin_post = inv_mass * body.momentum_lin.xyz;
 	float ke_after = 0.5f * spatial_dot(vel_ang_post, vel_lin_post,
 		body.momentum_ang.xyz, body.momentum_lin.xyz);
+
+	// Compute world-space AABB from object-space bbox and the updated transform.
+	// new_rot[i] is the i-th basis vector (row-major convention), so to get the
+	// j-th world-axis extent we sum |basis_i[j]| * os_radius[i] over all i.
+	float3 os_centre = body.os_bbox_centre.xyz;
+	float3 os_radius = body.os_bbox_radius.xyz;
+	float3 ws_centre = mul(float4(os_centre, 1), body.o2w).xyz;
+	float3 ws_radius;
+	ws_radius.x = abs(new_rot[0].x) * os_radius.x + abs(new_rot[1].x) * os_radius.y + abs(new_rot[2].x) * os_radius.z;
+	ws_radius.y = abs(new_rot[0].y) * os_radius.x + abs(new_rot[1].y) * os_radius.y + abs(new_rot[2].y) * os_radius.z;
+	ws_radius.z = abs(new_rot[0].z) * os_radius.x + abs(new_rot[1].z) * os_radius.y + abs(new_rot[2].z) * os_radius.z;
+
+	IntegrateAABB aabb;
+	aabb.ws_bbox_centre = float4(ws_centre, 0);
+	aabb.ws_bbox_radius = float4(ws_radius, 0);
+	g_aabbs[idx] = aabb;
 
 	// Write results
 	g_bodies[idx] = body;

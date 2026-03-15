@@ -62,7 +62,7 @@ namespace pr::physics
 
 			// Create a GpuIntegrator (which owns the D3D12 device and command queue),
 			// then create the collision detector sharing the same Gpu instance.
-			auto gpu_count = m_detector.DetectCollisions(pairs, shapes, verts, gpu_contacts);
+			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, shapes, verts, gpu_contacts);
 			auto gpu_hit = gpu_count > 0;
 
 			// --- Compare collision/no-collision agreement ---

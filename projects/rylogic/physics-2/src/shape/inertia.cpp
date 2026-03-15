@@ -257,6 +257,41 @@ namespace pr::physics
 		ib = Translate(ib, offset, ETranslateInertia::AwayFromCoM);
 		return ib;
 	}
+	Inertia Inertia::Line(float half_length, float mass, v4 offset)
+	{
+		// Thin rod along the Z-axis, centred at the origin.
+		// Ixx = Iyy = (1/3)*h², Izz = 0, where h is the half-length.
+		// (Derived from (1/12)*L² for full length L = 2h.)
+		auto hh = Sqr(half_length);
+		auto ii = (1.0f / 3.0f) * hh;
+		auto ib = Inertia{v4{ii, ii, 0, 0}, v4{}, mass};
+		ib = Translate(ib, offset, ETranslateInertia::AwayFromCoM);
+		return ib;
+	}
+	Inertia Inertia::Triangle(v4 a, v4 b, v4 c, float mass)
+	{
+		// Thin triangular lamina with uniform surface density.
+		// CoM is at the centroid; unit inertia is computed about the CoM.
+		auto com = (a + b + c) / 3.0f;
+		com.w = 0;
+		auto q0 = a - com;
+		auto q1 = b - com;
+		auto q2 = c - com;
+
+		// Unit inertia about CoM for a triangular lamina:
+		//   diagonal_i = (1/12) * Σ_k (qk_j² + qk_k²)
+		//   product_ij = -(1/12) * Σ_k (qk_i * qk_j)
+		// Derived from the barycentric integral ∫∫ λi·λj dA = A/12 (i≠j), A/6 (i=j),
+		// with the simplification that Σqi = 0.
+		constexpr auto k = 1.0f / 12.0f;
+		auto xx = k * (Sqr(q0.y) + Sqr(q0.z) + Sqr(q1.y) + Sqr(q1.z) + Sqr(q2.y) + Sqr(q2.z));
+		auto yy = k * (Sqr(q0.x) + Sqr(q0.z) + Sqr(q1.x) + Sqr(q1.z) + Sqr(q2.x) + Sqr(q2.z));
+		auto zz = k * (Sqr(q0.x) + Sqr(q0.y) + Sqr(q1.x) + Sqr(q1.y) + Sqr(q2.x) + Sqr(q2.y));
+		auto xy = -k * (q0.x * q0.y + q1.x * q1.y + q2.x * q2.y);
+		auto xz = -k * (q0.x * q0.z + q1.x * q1.z + q2.x * q2.z);
+		auto yz = -k * (q0.y * q0.z + q1.y * q1.z + q2.y * q2.z);
+		return Inertia{v4{xx, yy, zz, 0}, v4{xy, xz, yz, 0}, mass, com};
+	}
 
 	// Inertia operators ********************************************
 

@@ -25,8 +25,8 @@ namespace pr::physics
 		// Unregister a body
 		virtual void Remove(RigidBody const& obj) = 0;
 
-		// Call 'cb' for each pair of bodies whose bounding volumes overlap.
-		// The callback receives the two overlapping bodies in no particular order.
-		virtual void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const = 0;
+		//// Call 'cb' for each pair of bodies whose bounding volumes overlap.
+		//// The callback receives the two overlapping bodies in no particular order.
+		//virtual void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const = 0;
 	};
 }

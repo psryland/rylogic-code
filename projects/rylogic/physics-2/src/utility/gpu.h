@@ -18,12 +18,21 @@
 
 namespace pr::physics
 {
+	using ComGpu = rdr12::Gpu<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using GpuJob = rdr12::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using CmdList = rdr12::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using ComputeStep = rdr12::ComputeStep;
+	using GpuUploadBuffer = rdr12::GpuUploadBuffer;
+	using BoundsSorter = rdr12::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+
 	struct Gpu
 	{
-		rdr12::ComGpu m_gpu;
-
+		ComGpu m_gpu; // A GPU wrapper for running compute shaders
+		GpuJob m_job; // A GpuJob for running Engine::Step()
+		
 		Gpu(ID3D12Device4* existing_device = nullptr)
 			: m_gpu(existing_device)
+			, m_job(m_gpu, "Physics Engine Job", 0xFF00FFFF, 1)
 		{}
 
 		// Implicit conversion to the underlying D3D12 device for convenience.
@@ -37,7 +46,7 @@ namespace pr::physics
 		}
 		
 		// Access the GPU upload buffer
-		rdr12::GpuUploadBuffer& UploadBuffer()
+		GpuUploadBuffer& UploadBuffer()
 		{
 			return m_gpu.UploadBuffer();
 		}
@@ -48,10 +57,4 @@ namespace pr::physics
 			return m_gpu.CreateResource(desc, cmd_list, name);
 		}
 	};
-
-	using GpuJob = rdr12::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using CmdList = rdr12::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using ComputeStep = rdr12::ComputeStep;
-	using BoundsSorter = rdr12::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-
 }

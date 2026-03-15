@@ -12,7 +12,7 @@
 namespace pr::physics
 {
 	// A flat, GPU-friendly representation of the rigid body state needed for integration.
-	// Layout matches the HLSL RigidBodyDynamics struct exactly (11 × float4 = 176 bytes).
+	// Layout matches the HLSL RigidBodyDynamics struct exactly (13 × float4 = 208 bytes).
 	//
 	// Memory convention: C++ m4x4 stores columns contiguously (x, y, z, w members).
 	// HLSL 'row_major float4x4' stores rows contiguously, so each HLSL row maps to one
@@ -40,9 +40,21 @@ namespace pr::physics
 		// Object-space CoM offset from model origin, packed with inverse mass.
 		// The CoM offset is needed to convert CoM velocity to model-origin position changes.
 		v4 os_com_and_invmass;    // {com_x, com_y, com_z, inv_mass}
+
+		// Object-space bounding box for AABB computation in the integrate shader.
+		// These allow the GPU to compute world-space AABBs after evolving the transform.
+		v4 os_bbox_centre;   // {cx, cy, cz, 0} — object-space AABB centre
+		v4 os_bbox_radius;   // {rx, ry, rz, 0} — object-space AABB half-extents
 	};
-	static_assert(sizeof(RigidBodyDynamics) == 176, "RigidBodyDynamics must be 176 bytes for GPU alignment");
+	static_assert(sizeof(RigidBodyDynamics) == 208, "RigidBodyDynamics must be 208 bytes for GPU alignment");
 	static_assert(alignof(RigidBodyDynamics) == 16, "RigidBodyDynamics must be 16-byte aligned");
+
+	// World-space AABB computed by the GPU integrate shader.
+	struct alignas(16) IntegrateAABB
+	{
+		BBox ws_bbox; // world-space AABB
+	};
+	static_assert(sizeof(IntegrateAABB) == 32, "IntegrateAABB must be 32 bytes");
 
 	// Output from the GPU integration step for debug validation.
 	// One entry per body, written by the compute shader.
@@ -55,7 +67,7 @@ namespace pr::physics
 	};
 	static_assert(sizeof(IntegrateOutput) == 16, "IntegrateOutput must be 16 bytes");
 
-	// Pack a RigidBody's dynamic state into the flat GPU buffer format.
+	// Pack/Unpack a RigidBody's dynamic state into the flat GPU buffer format.
 	inline RigidBodyDynamics PackDynamics(RigidBody const& rb)
 	{
 		auto const& o2w = rb.O2W();
@@ -63,7 +75,6 @@ namespace pr::physics
 		auto force = rb.ForceWS();
 		auto iinv = rb.InertiaInvOS();
 		auto com = rb.CentreOfMassOS();
-
 		return RigidBodyDynamics
 		{
 			.o2w = o2w,
@@ -74,16 +85,16 @@ namespace pr::physics
 			.inertia_inv_diagonal = iinv.m_diagonal,
 			.inertia_inv_products = iinv.m_products,
 			.os_com_and_invmass = v4{com.x, com.y, com.z, iinv.InvMass()},
+			.os_bbox_centre = rb.Shape().m_bbox.m_centre,
+			.os_bbox_radius = rb.Shape().m_bbox.m_radius,
 		};
 	}
-
-	// Unpack the flat GPU buffer back into a RigidBody, updating transform, momentum, and zeroing forces.
-	inline void UnpackDynamics(RigidBody& rb, RigidBodyDynamics const& dyn)
+	inline void UnpackDynamics(RigidBodyDynamics const& dyn, RigidBody& rb)
 	{
 		rb.O2W(dyn.o2w);
 
 		// Update momentum (the integrator advanced it by the full step)
-		rb.MomentumWS(v8force{dyn.momentum_ang, dyn.momentum_lin});
+		rb.MomentumWS(v8force{ dyn.momentum_ang, dyn.momentum_lin });
 
 		// Forces are zeroed by the integrator after the second half-kick
 		rb.ZeroForces();

@@ -19,130 +19,166 @@ namespace physics_sandbox::scene_loader
 	}
 
 	// Parse a single body definition from a JSON object
-	BodyDesc ReadBody(pr::json::Value const& body_json)
+	BodyDesc ReadBody(pr::json::Value const& jv_body)
 	{
-		auto const& obj = body_json.to_object();
-		auto desc = BodyDesc{};
+		BodyDesc desc;
+		auto const& jbody = jv_body.to_object();
 
-		// Name (required)
-		desc.name = obj["name"].to<std::string>();
+		// Name
+		if (auto* jname = jbody.find("name"))
+			desc.name = jname->to<std::string>();
+		
+		// Colour
+		if (auto* jcolour = jbody.find("colour"))
+			desc.colour = To<Colour32>(jcolour->to<std::string>());
 
-		// Shape (required)
-		auto const& shape_obj = obj["shape"].to_object();
-		auto shape_type = shape_obj["type"].to<std::string>();
-		if (shape_type == "box")
+		// Shape
+		if (auto* jshape = jbody.find("shape"))
 		{
-			desc.shape_type = BodyDesc::EShape::Box;
-			desc.box_dimensions = ReadVec3(shape_obj["dimensions"], 0);
-		}
-		else if (shape_type == "sphere")
-		{
-			desc.shape_type = BodyDesc::EShape::Sphere;
-			desc.sphere_radius = shape_obj["radius"].to<float>();
-		}
-		else if (shape_type == "line")
-		{
-			desc.shape_type = BodyDesc::EShape::Line;
-			desc.line_length = shape_obj["length"].to<float>();
-			if (auto* t = shape_obj.find("thickness"))
-				desc.line_thickness = t->to<float>();
+			auto const& jshape_obj = jshape->to_object();
+			auto shape_type = jshape_obj["type"].to<std::string>();
+			if (shape_type == "box")
+			{
+				desc.shape_type = BodyDesc::EShape::Box;
+				desc.box_dimensions = ReadVec3(jshape_obj["dimensions"], 0);
+			}
+			else if (shape_type == "sphere")
+			{
+				desc.shape_type = BodyDesc::EShape::Sphere;
+				desc.sphere_radius = jshape_obj["radius"].to<float>();
+			}
+			else if (shape_type == "line")
+			{
+				desc.shape_type = BodyDesc::EShape::Line;
+				desc.line_length = jshape_obj["length"].to<float>();
+
+				if (auto* t = jshape_obj.find("thickness"))
+					desc.line_thickness = t->to<float>();
+			}
+			else if (shape_type == "triangle")
+			{
+				desc.shape_type = BodyDesc::EShape::Triangle;
+
+				auto const& verts = jshape_obj["vertices"].to_array();
+				if (verts.size() < 3)
+					throw std::runtime_error("Triangle shape requires 3 vertices");
+
+				desc.tri_verts[0] = ReadVec3(verts[0], 0);
+				desc.tri_verts[1] = ReadVec3(verts[1], 0);
+				desc.tri_verts[2] = ReadVec3(verts[2], 0);
+			}
+			else if (shape_type == "polytope")
+			{
+				desc.shape_type = BodyDesc::EShape::Polytope;
+
+				auto const& verts = jshape_obj["vertices"].to_array();
+				if (verts.size() < 4)
+					throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
+
+				for (auto const& v : verts)
+					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
+			}
 			else
-				desc.line_thickness = 0.0f;
-		}
-		else if (shape_type == "triangle")
-		{
-			desc.shape_type = BodyDesc::EShape::Triangle;
-			auto const& verts = shape_obj["vertices"].to_array();
-			if (verts.size() < 3)
-				throw std::runtime_error("Triangle shape requires 3 vertices");
-			desc.tri_verts[0] = ReadVec3(verts[0], 0);
-			desc.tri_verts[1] = ReadVec3(verts[1], 0);
-			desc.tri_verts[2] = ReadVec3(verts[2], 0);
-		}
-		else if (shape_type == "polytope")
-		{
-			desc.shape_type = BodyDesc::EShape::Polytope;
-			auto const& verts = shape_obj["vertices"].to_array();
-			if (verts.size() < 4)
-				throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
-			for (auto const& v : verts)
-				desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
-		}
-		else
-		{
-			throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
+			{
+				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
+			}
 		}
 
-		// Mass (required)
-		desc.mass = obj["mass"].to<float>();
+		// Mass
+		if (auto* jmass = jbody.find("mass"))
+			desc.mass = jmass->to<float>();
 
-		// Position (required)
-		desc.position = ReadVec3(obj["position"], 1.0f);
+		// Position
+		if (auto* jpos = jbody.find("position"))
+			desc.position = ReadVec3(*jpos, 1.0f);
 
 		// Velocity (optional, defaults to zero)
-		if (auto* vel = obj.find("velocity"))
-			desc.velocity = ReadVec3(*vel, 0.0f);
-		else
-			desc.velocity = v4::Zero();
+		if (auto* jvel = jbody.find("velocity"))
+			desc.velocity = ReadVec3(*jvel, 0.0f);
 
 		// Angular velocity (optional, defaults to zero)
-		if (auto* avel = obj.find("angular_velocity"))
-			desc.angular_velocity = ReadVec3(*avel, 0.0f);
-		else
-			desc.angular_velocity = v4::Zero();
+		if (auto* javl = jbody.find("angular_velocity"))
+			desc.angular_velocity = ReadVec3(*javl, 0.0f);
 
 		return desc;
+	}
+
+	// Parse a ground plane definition from a JSON object
+	GroundPlaneDesc ReadGroundPlane(pr::json::Value const& jgp_)
+	{
+		GroundPlaneDesc ground;
+		auto const& jgp = jgp_.to_object();
+
+		if (auto* h = jgp.find("height"))
+			ground.height = h->to<float>();
+
+		if (auto* c = jgp.find("colour"))
+			ground.colour = To<Colour32>(c->to<std::string>());
+
+		if (auto* t = jgp.find("texture"))
+			ground.texture = t->to<std::string>();
+
+		return ground;
+	}
+
+	// Parse a ground plane definition from a JSON object
+	CameraDesc ReadCamera(pr::json::Value const& jcam)
+	{
+		CameraDesc camera;
+		auto const& jcam_obj = jcam.to_object();
+
+		if (auto* jposition = jcam_obj.find("position"))
+			camera.position = ReadVec3(*jposition, 1.0f);
+
+		if (auto* jlookat = jcam_obj.find("lookat"))
+			camera.lookat = ReadVec3(*jlookat, 1.0f);
+
+		return camera;
 	}
 
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath)
 	{
-		auto doc = pr::json::Read(filepath);
-		auto const& root = doc.to_object();
+		auto doc = pr::json::Read(filepath, json::Options{.AllowComments = true, .AllowTrailingCommas = true});
+		auto const& jscene = doc.to_object()["scene"].to_object();
 
-		// The top-level object should contain a "scene" key
-		auto const& scene_obj = root["scene"].to_object();
+		SceneDesc desc;
+		desc.filepath = filepath;
 
-		auto desc = SceneDesc{};
+		// Description
+		if (auto* jdesc = jscene.find("description"))
+			desc.description = jdesc->to<std::string>();
 
-		// Description (optional)
-		if (auto* d = scene_obj.find("description"))
-			desc.description = d->to<std::string>();
+		// Gravity
+		if (auto* jgravity = jscene.find("gravity"))
+			desc.gravity = ReadVec3(*jgravity, 0.0f);
 
-		// Gravity (optional, defaults to zero — no gravity)
-		if (auto* g = scene_obj.find("gravity"))
-			desc.gravity = ReadVec3(*g, 0.0f);
-		else
-			desc.gravity = v4::Zero();
-
-		// Material properties (optional, defaults to perfectly elastic + frictionless)
-		desc.elasticity = 1.0f;
-		desc.friction = 0.0f;
-		if (auto* mat = scene_obj.find("material"))
+		// Material properties
+		if (auto* jmat = jscene.find("material"))
 		{
-			auto const& mat_obj = mat->to_object();
-			if (auto* e = mat_obj.find("elasticity"))
-				desc.elasticity = e->to<float>();
-			if (auto* f = mat_obj.find("friction"))
-				desc.friction = f->to<float>();
+			if (auto* jelasticity = jmat->to_object().find("elasticity"))
+				desc.elasticity = jelasticity->to<float>();
+
+			if (auto* jfriction = jmat->to_object().find("friction"))
+				desc.friction = jfriction->to<float>();
 		}
 
-		// Ground plane (optional)
-		desc.has_ground = false;
-		if (auto* gp = scene_obj.find("ground_plane"))
+		// Ground plane
+		if (auto* jground = jscene.find("ground_plane"))
+			desc.ground = ReadGroundPlane(*jground);
+
+		// Bodies
+		if (auto* jbodies = jscene.find("bodies"))
 		{
-			desc.has_ground = true;
-			auto const& gp_obj = gp->to_object();
-			if (auto* h = gp_obj.find("height"))
-				desc.ground.height = h->to<float>();
-			if (auto* t = gp_obj.find("texture"))
-				desc.ground.texture = t->to<std::string>();
+			for (auto const& jbody : jscene["bodies"].to_array())
+				desc.bodies.push_back(ReadBody(jbody));
 		}
 
-		// Bodies (required, must be an array)
-		auto const& bodies_arr = scene_obj["bodies"].to_array();
-		for (auto const& body_val : bodies_arr)
-			desc.bodies.push_back(ReadBody(body_val));
+		// Camera
+		if (auto* jcamera = jscene.find("camera"))
+		{
+			desc.camera = ReadCamera(*jcamera);
+		}
 
 		return desc;
 	}

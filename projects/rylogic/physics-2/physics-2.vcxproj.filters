@@ -48,6 +48,9 @@
     <ClCompile Include="src\collision\gpu_collision_detector.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
+    <ClCompile Include="src\collision\gpu_resolver.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
     <ClCompile Include="src\collision\contact.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
@@ -96,6 +99,9 @@
       <Filter>src\unittests</Filter>
     </ClInclude>
     <ClInclude Include="src\collision\gpu_collision_detector.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\gpu_resolver.h">
       <Filter>src\collision</Filter>
     </ClInclude>
     <ClInclude Include="src\collision\gpu_collision_types.h">
@@ -176,6 +182,9 @@
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="..\..\..\include\pr\physics-2\compute\integrate.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\resolve.hlsl">
       <Filter>src\compute</Filter>
     </FxCompile>
   </ItemGroup>

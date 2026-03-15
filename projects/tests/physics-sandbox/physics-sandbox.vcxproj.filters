@@ -276,6 +276,15 @@
     <None Include="scenes\three_body_chain.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\generate_scene.py">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\polytope_drop.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\stress_test_1000.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">

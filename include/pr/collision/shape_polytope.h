@@ -54,14 +54,16 @@ namespace pr::collision
 		};
 
 		Shape m_base;
-		int   m_vert_count;
-		int   m_face_count;
+		int m_vert_count;
+		int m_face_count;
+		int pad[2];
 		
 		// Memory layout. The following data is expected to follow this struct in memory, but is not actually part of the struct.
 		// v4   m_vert[m_vert_count]
 		// Face m_face[m_face_count]
 		// Nbrs m_nbrs[m_vert_count]
 		// Idx  m_nbr[sum(m_nbrs[i].m_count)]
+		// Idx  padding[] to make the total size a multiple of 16 bytes
 
 		explicit ShapePolytope(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_parent, material_id, flags)
@@ -99,17 +101,7 @@ namespace pr::collision
 		v4*       vert_end()                    { return vert_beg() + m_vert_count; }
 		v4 const& vertex(std::size_t idx) const { return vert_beg()[idx]; }
 		v4&       vertex(std::size_t idx)       { return vert_beg()[idx]; }
-		auto verts() const
-		{
-			struct R
-			{
-				v4 const* m_beg;
-				v4 const* m_end;
-				auto begin() const { return m_beg; }
-				auto end() const   { return m_end; }
-			};
-			return R{ vert_beg(), vert_end() };
-		}
+		auto verts() const { return std::ranges::subrange(vert_beg(), vert_end()); }
 
 		// Face accessors
 		Face const* face_beg() const    { return type_ptr<Face>(vert_end()); }
@@ -118,17 +110,7 @@ namespace pr::collision
 		Face*       face_end()          { return face_beg() + m_face_count; }
 		Face const& face(int idx) const { return face_beg()[idx]; }
 		Face&       face(int idx)       { return face_beg()[idx]; }
-		auto faces() const
-		{
-			struct R
-			{
-				Face const* m_beg;
-				Face const* m_end;
-				auto begin() const { return m_beg; }
-				auto end() const   { return m_end; }
-			};
-			return R{ face_beg(), face_end() };
-		}
+		auto faces() const { return std::ranges::subrange(face_beg(), face_end()); }
 
 		// Neighbours accessors
 		Nbrs const* nbrs_beg() const    { return type_ptr<Nbrs>(face_end()); }
@@ -161,6 +143,8 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapePolytope>);
+	static_assert((sizeof(ShapePolytope) & 0xf) == 0);
+
 	using PolyIdx       = ShapePolytope::Idx;
 	using ShapePolyFace = ShapePolytope::Face;
 	using ShapePolyNbrs = ShapePolytope::Nbrs;
@@ -704,18 +688,20 @@ namespace pr::collision
 		//   Face  faces[fc]
 		//   Nbrs  nbrs[vc]        (headers with byte-offset pointers)
 		//   Idx   nbr_data[total]  (contiguous neighbour index arrays)
-		auto buf_size =
+		//   Idx   pad[padding]   (to ensure 16-byte alignment if needed)
+		auto buf_size = PadTo(
 			sizeof(ShapePolytope) +
 			sizeof(v4)   * vc +
 			sizeof(Face) * fc +
 			sizeof(Nbrs) * vc +
-			sizeof(Idx)  * total_nbr_count;
+			sizeof(Idx)  * total_nbr_count,
+			16);
 
 		byte_data<16> buf;
 		buf.resize(buf_size, std::byte{0});
 
 		// Placement-new the ShapePolytope header at the start of the buffer
-		auto& poly = *new (buf.m_ptr) ShapePolytope(shape_to_parent, material_id, flags);
+		auto& poly = *new (buf.data()) ShapePolytope(shape_to_parent, material_id, flags);
 
 		// Set counts so that the accessor methods (vert_beg, face_beg, nbrs_beg) work
 		poly.m_vert_count = vc;
@@ -789,7 +775,6 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-
 namespace pr::collision::tests
 {
 	PRUnitTestClass(BuildPolytopeTests)

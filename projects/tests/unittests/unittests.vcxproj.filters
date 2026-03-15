@@ -1195,6 +1195,42 @@
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h">
       <Filter>pr\math\utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ldraw.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">
@@ -1221,6 +1257,21 @@
     <None Include="cpp.hint">
       <Filter>src</Filter>
     </None>
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt">
@@ -1231,5 +1282,10 @@
     <ClCompile Include="src\dependecy_check_new_math.cpp">
       <Filter>src</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
+      <Filter>pr\hlsl</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

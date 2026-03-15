@@ -14,7 +14,6 @@ namespace pr::physics
 	struct GpuCollisionDetector
 	{
 		Gpu& m_gpu;                          // Lightweight D3D12 wrapper (device + command queue)
-		GpuJob m_job;                        // GpuJob for running the collision compute shader
 		ComputeStep m_cs_gjk;                // Root signature + PSO for the GJK shader
 		D3DPtr<ID3D12Resource> m_r_shapes;   // GPU buffer: StructuredBuffer<GpuShape>
 		D3DPtr<ID3D12Resource> m_r_verts;    // GPU buffer: StructuredBuffer<float4>
@@ -32,6 +31,7 @@ namespace pr::physics
 		// When 'shapes_dirty' is false, the shapes and verts buffers are already on the GPU
 		// from a previous frame and the upload is skipped.
 		int DetectCollisions(
+			GpuJob& job,
 			std::span<GpuCollisionPair const> pairs,
 			std::span<GpuShape const> shapes,
 			std::span<v4 const> verts,

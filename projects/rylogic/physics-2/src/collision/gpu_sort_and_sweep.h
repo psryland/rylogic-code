@@ -18,6 +18,7 @@
 //
 #pragma once
 #include "pr/physics-2/forward.h"
+#include "pr/physics-2/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics-2/collision/ibroadphase.h"
 #include "src/utility/gpu.h"
 
@@ -27,8 +28,8 @@ namespace pr::physics
 	{
 	private:
 
-		// GpuJob for running the sort compute shader
-		mutable GpuJob m_job;
+		// Lightweight D3D12 wrapper (device + command queue)
+		Gpu& m_gpu;
 
 		// The GPU radix sorter — long-lived, resized as needed.
 		// Sorts float keys (AABB endpoints) with uint32 payloads (body_index << 1 | begin/end).
@@ -38,13 +39,7 @@ namespace pr::physics
 		// Staging buffers for sort input/output (reused across frames)
 		mutable std::vector<float> m_keys;
 		mutable std::vector<uint32_t> m_payloads;
-
-		// Cached AABBs per body (world space, computed each frame)
-		mutable std::vector<pr::BBox> m_bboxes;
-
-		// Precomputed AABB min/max for the two secondary axes (avoids recomputing in inner loop)
-		struct AxisBounds { float lo_y, hi_y, lo_z, hi_z; };
-		mutable std::vector<AxisBounds> m_axis_bounds;
+		mutable std::vector<int> m_sweep;
 
 		// The registered bodies for overlap testing
 		std::vector<RigidBody const*> m_entity;
@@ -62,8 +57,11 @@ namespace pr::physics
 		// Unregister a body
 		void Remove(RigidBody const& obj) override;
 
-		// Enumerate all pairs of bodies whose bounding boxes overlap.
-		// Uses GPU radix sort for the primary axis, then CPU sweep with Y/Z filtering.
-		void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const override;
+		//// Enumerate all pairs of bodies whose bounding boxes overlap.
+		//// Uses GPU radix sort for the primary axis, then CPU sweep with Y/Z filtering.
+		//void EnumOverlappingPairs(GpuJob& job, std::function<void(RigidBody const&, RigidBody const&)> cb) const;
+
+		// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
+		void EnumOverlappingPairs(GpuJob& job, std::span<IntegrateAABB const> aabbs, std::function<void(RigidBody const&, RigidBody const&)> cb) const;
 	};
 }

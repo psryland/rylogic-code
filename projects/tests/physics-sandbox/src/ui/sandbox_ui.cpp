@@ -17,7 +17,7 @@ namespace physics_sandbox
 				MenuItem(L"Recent Files", ::CreatePopupMenu()),
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"E&xit", IDCLOSE),
-			})}})
+			})} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
 		, m_status(StatusBar::Params<>().parent(this_).dock(EDock::Bottom))
@@ -27,8 +27,13 @@ namespace physics_sandbox
 			.parent(this_)
 			.bkgd_colour(Colour(0xFF808080))
 			.dock(EDock::Fill))
-		, m_scene(m_view3d.D3DDevice())
+		, m_scene(&m_view3d.m_rdr)
+		, m_steps_remaining(0)
 		, m_pause_on_collision(false)
+		, m_scenario(EScenario::Sandbox)
+		, m_scene_filepath()
+		, m_recent()
+		, m_last_status()
 		, m_frame_count(0)
 		, m_fps_elapsed(0)
 		, m_fps(0)
@@ -44,11 +49,11 @@ namespace physics_sandbox
 		// Wire media panel events to simulation control
 		m_media.OnPlay += [&](auto&, auto&)
 		{
-			m_scene.m_steps_remaining = -1; // Run continuously
+			m_steps_remaining = -1; // Run continuously
 		};
 		m_media.OnPause += [&](auto&, auto&)
 		{
-			m_scene.m_steps_remaining = 0; // Pause
+			m_steps_remaining = 0; // Pause
 		};
 		m_media.OnReset += [&](auto&, auto&)
 		{
@@ -64,20 +69,20 @@ namespace physics_sandbox
 			// 0-5: select scenario (0 = sandbox, 1-5 = test scenarios)
 			if (args.m_vk_key >= '0' && args.m_vk_key <= '5')
 			{
-				m_scene.m_scenario = static_cast<EScenario>(args.m_vk_key - '0');
+				m_scenario = static_cast<EScenario>(args.m_vk_key - '0');
 				ResetScene();
-				m_scene.m_steps_remaining = -1; // Auto-start
+				m_steps_remaining = -1; // Auto-start
 			}
 
 			// R=reset, S=single step, G=go (play), P=pause
 			if (args.m_vk_key == 'R')
 				ResetScene();
 			if (args.m_vk_key == 'S')
-				m_scene.m_steps_remaining = 1;
+				m_steps_remaining = 1;
 			if (args.m_vk_key == 'G')
-				m_scene.m_steps_remaining = -1;
+				m_steps_remaining = -1;
 			if (args.m_vk_key == 'P')
-				m_scene.m_steps_remaining = 0;
+				m_steps_remaining = 0;
 
 			// C=toggle pause-on-collision
 			if (args.m_vk_key == 'C')
@@ -118,6 +123,8 @@ namespace physics_sandbox
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
+			if (m_scene.m_origin_gfx)
+				m_scene.m_origin_gfx->AddToScene(scene);
 		};
 
 		// Start with the sandbox scenario
@@ -167,19 +174,25 @@ namespace physics_sandbox
 	// If a scene file was loaded, reload it from disk. Otherwise, reset the built-in scenario.
 	void SandboxUI::ResetScene()
 	{
-		// If a scene file was loaded, reload it from scratch
-		if (!m_scene_filepath.empty())
-		{
-			LoadSceneFile(m_scene_filepath);
-			return;
-		}
+		// Pause the simulation
+		m_steps_remaining = 0;
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
 		m_scene.Reset();
 
-		// Frame the camera to see the whole scene: look from +Y toward origin, Z-up
-		m_view3d.m_cam.LookAt(v4(0, -35, 10, 1), v4::Origin(), v4{0, 0, 1, 0});
+		// Reset to the last loaded scene file
+		if (!m_scene_filepath.empty())
+		{
+			LoadSceneFile(m_scene_filepath);
+		}
+		else
+		{
+			m_scene.SetupScenario(m_scenario);
+
+			// Frame the camera to see the whole scene: look from +Y toward origin, Z-up
+			m_view3d.m_cam.LookAt(v4(0, -35, 10, 1), v4::Origin(), v4{0, 0, 1, 0});
+		}
 
 		Render(0);
 	}
@@ -217,7 +230,7 @@ namespace physics_sandbox
 			return;
 
 		// The "Recent Files" item is at position 1 (after "Open Scene...")
-		auto recent_menu = ::GetSubMenu(file_menu, 1);
+		auto recent_menu = ::GetSubMenu(file_menu, MenuItemIndex::RecentFiles);
 		if (!recent_menu)
 			return;
 
@@ -250,6 +263,9 @@ namespace physics_sandbox
 	{
 		try
 		{
+			// Pause the simulation
+			m_steps_remaining = 0;
+
 			// Remember the filepath so Reset can reload it
 			m_scene_filepath = filepath;
 
@@ -261,13 +277,21 @@ namespace physics_sandbox
 			m_view3d.WaitForGpu();
 
 			// Load the scene from JSON (creates new body graphics automatically)
-			m_scene.LoadFromJson(m_view3d.m_rdr, filepath);
+			auto scene_desc = scene_loader::LoadFromFile(filepath);
+			m_scene.LoadScene(scene_desc);
 
 			// Frame the camera to see all loaded bodies
 			auto bbox = ComputeSceneBBox();
-			m_view3d.m_cam.View(bbox,
-				v4{ 0, -1, 0, 0 },  // Forward direction
-				v4{ 0, 0, 1, 0 });  // Up direction (Z-up)
+			if (scene_desc.camera)
+			{
+				m_view3d.m_cam.LookAt(scene_desc.camera->position, scene_desc.camera->lookat, ZAxis<v4>());
+			}
+			else
+			{
+				m_view3d.m_cam.View(bbox,
+					v4{ 0, -1, 0, 0 },  // Forward direction
+					v4{ 0, 0, 1, 0 });  // Up direction (Z-up)
+			}
 
 			Render(0);
 		}
@@ -292,10 +316,10 @@ namespace physics_sandbox
 			return;
 
 		// Check if we should be stepping
-		if (m_scene.m_steps_remaining == 0)
+		if (m_steps_remaining == 0)
 			return;
-		if (m_scene.m_steps_remaining > 0)
-			--m_scene.m_steps_remaining;
+		if (m_steps_remaining > 0)
+			--m_steps_remaining;
 
 		// Apply the time scale from the slow-mo slider.
 		// This scales the physics dt so that 0.5x = half speed, 2.0x = double speed, etc.
@@ -307,7 +331,7 @@ namespace physics_sandbox
 
 		// Pause on first collision if requested
 		if (collision && m_pause_on_collision && m_scene.m_diag.count == 1)
-			m_scene.m_steps_remaining = 0;
+			m_steps_remaining = 0;
 	}
 
 	// Render a frame: sync graphics, rebuild overlays, update details panel.
@@ -361,8 +385,8 @@ namespace physics_sandbox
 			m_media.UpdateSpeedLabel();
 
 			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} col={}  {}  FPS: {:.0f}",
-				static_cast<int>(m_scene.m_scenario),
-				ScenarioName(m_scene.m_scenario),
+				static_cast<int>(m_scene.m_current_scenario),
+				ScenarioName(m_scene.m_current_scenario),
 				m_scene.m_clock,
 				m_scene.m_diag.count,
 				m_scene.m_physics.UseGpu() ? "GPU" : "CPU",
@@ -375,9 +399,9 @@ namespace physics_sandbox
 			m_status_elapsed = 0;
 			auto new_status = std::format(L"t={:.3f}  {}  Collisions: {}  {}  FPS: {:.0f}",
 				m_scene.m_clock,
-				pr::Widen(ScenarioName(m_scene.m_scenario)),
+				pr::Widen(ScenarioName(m_scene.m_current_scenario)),
 				m_scene.m_diag.count,
-				m_scene.m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
+				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);
 
 			if (new_status != m_last_status)

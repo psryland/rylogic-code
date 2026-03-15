@@ -67,7 +67,7 @@ namespace physics_sandbox
 		if (!m_pinned)
 			return;
 		std::wstringstream ss;
-		ss << L"Scenario: " << pr::Widen(ScenarioName(scene.m_scenario)) << L"\r\n";
+		ss << L"Scenario: " << pr::Widen(ScenarioName(scene.m_current_scenario)) << L"\r\n";
 		ss << L"Time: " << std::fixed << std::setprecision(3) << scene.m_clock << L"s\r\n";
 		ss << L"Collisions: " << scene.m_diag.count << L"\r\n";
 		ss << L"\r\n";

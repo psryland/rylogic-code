@@ -109,17 +109,6 @@ old:
 	<Type Name="pr::impl::deque::iter&lt;*,*,*,*,*,*&gt;">
 		<DisplayString>{m_idx} {*m_map}</DisplayString>
 	</Type>
-	<Type Name="std::span&lt;*&gt;">
-		<DisplayString Condition="m_count == 0">empty</DisplayString>
-		<DisplayString>[{m_count}] {m_arr}</DisplayString>
-		<Expand>
-			<Item Name="[count]">m_count</Item>
-			<ArrayItems>
-				<Size>m_count</Size>
-				<ValuePointer>m_arr</ValuePointer>
-			</ArrayItems>
-		</Expand>
-	</Type>
 	<Type Name="pr::byte_data&lt;*&gt;">
 		<DisplayString Condition="m_size == 0">empty</DisplayString>
 		<DisplayString>[{m_size}] {m_ptr,na}</DisplayString>

@@ -39,6 +39,7 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapeTriangle>);
+	static_assert((sizeof(ShapeTriangle) & 0xf) == 0);
 
 	// Return the bounding box for a triangle shape
 	inline BBox pr_vectorcall CalcBBox(ShapeTriangle const& shape)

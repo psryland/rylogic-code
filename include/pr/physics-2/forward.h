@@ -52,6 +52,7 @@ namespace pr::physics
 	struct Engine;
 	struct RigidBodyDynamics;
 	struct IntegrateOutput;
+	struct IntegrateAABB;
 	struct Inertia;
 	struct InertiaInv;
 	struct RbContact;
@@ -59,6 +60,8 @@ namespace pr::physics
 	struct Gpu;
 	struct GpuIntegrator;
 	struct GpuCollisionDetector;
+	struct GpuResolver;
+	struct GpuResolveContact;
 	struct GpuShape;
 	struct GpuCollisionPair;
 	struct GpuContact;
@@ -69,6 +72,7 @@ namespace pr::physics
 	using GpuIntegratorPtr = std::unique_ptr<GpuIntegrator, Deleter<GpuIntegrator>>;
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
+	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;
 	using CachePtr = std::unique_ptr<EngineBufferCache, Deleter<EngineBufferCache>>;
 
 	// Traits

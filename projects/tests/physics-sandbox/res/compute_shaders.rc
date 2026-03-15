@@ -8,5 +8,6 @@ VECTOR_HLSLI               TEXT    DISCARDABLE     "pr/hlsl/vector.hlsli"
 SPATIAL_ALGEBRA_HLSLI      TEXT    DISCARDABLE     "pr/hlsl/spatial_algebra.hlsli"
 PHYSICS_INTEGRATE_HLSL     TEXT    DISCARDABLE     "pr/physics-2/compute/integrate.hlsl"
 PHYSICS_GJK_HLSL           TEXT    DISCARDABLE     "pr/physics-2/compute/gjk.hlsl"
+PHYSICS_RESOLVE_HLSL       TEXT    DISCARDABLE     "pr/physics-2/compute/resolve.hlsl"
 RADIX_SORT_HLSL            TEXT    DISCARDABLE     "pr/view3d-12/compute/radix_sort/radix_sort.hlsl"
 

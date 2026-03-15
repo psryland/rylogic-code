@@ -15,6 +15,7 @@ namespace pr::collision
 
 		// The number of shapes in the array
 		size_t m_num_shapes;
+		size_t pad[3]; // Pad to 16 bytes
 
 		// Followed by an array of other shape types (with different sizes):
 		// ShapeBox s0;
@@ -33,7 +34,8 @@ namespace pr::collision
 		{
 			// Determine the size of the array
 			auto ptr = begin();
-			for (auto i = num_shapes; i-- != 0; ptr = next(ptr)) {}
+			for (auto i = num_shapes; i-- != 0;)
+				ptr = next(ptr);
 
 			// Calculate the bounding box
 			auto bb = BBox::Reset();
@@ -43,6 +45,9 @@ namespace pr::collision
 			m_num_shapes = num_shapes;
 			m_base.m_size = sizeof(ShapeArray) + byte_ptr(ptr) - byte_ptr(begin());
 			m_base.m_bbox = CalcBBox(*this);
+
+			// All shape sizes should be a multiple of 16 bytes
+			assert((m_base.m_size & 0xf) == 0 && "Shape size must be a multiple of 16 bytes");
 		}
 
 		operator Shape const&() const
@@ -67,8 +72,27 @@ namespace pr::collision
 		Shape*       begin()       { return reinterpret_cast<Shape*      >(this + 1); }
 		Shape const* end() const   { return reinterpret_cast<Shape const*>(byte_ptr(this) + m_base.m_size); }
 		Shape*       end()         { return reinterpret_cast<Shape*      >(byte_ptr(this) + m_base.m_size); }
+		auto shapes() const
+		{
+			struct I
+			{
+				Shape const* ptr;
+				operator Shape const* () const { return ptr; }
+				auto& operator ++() { ptr = next(ptr); return *this; }
+				bool operator != (I const& rhs) const { return ptr != rhs.ptr; }
+			};
+			struct R
+			{
+				Shape const* b;
+				Shape const* e;
+				auto begin() const { return I{ b }; }
+				auto end() const { return I{ e }; }
+			};
+			return R{ begin(), end() };
+		}
 	};
 	static_assert(ShapeType<ShapeArray>);
+	static_assert((sizeof(ShapeArray) & 0xf) == 0);
 
 	// Calculate the bounding box for the shape.
 	inline BBox pr_vectorcall CalcBBox(ShapeArray const& shape)

@@ -91,6 +91,7 @@
     <ClCompile Include="src\integrator\integrator.cpp" />
     <ClCompile Include="src\integrator\gpu_integrator.cpp" />
     <ClCompile Include="src\collision\gpu_collision_detector.cpp" />
+    <ClCompile Include="src\collision\gpu_resolver.cpp" />
     <ClCompile Include="src\unittests\unittests.cpp" />
   </ItemGroup>
   <!--
@@ -128,6 +129,7 @@
     <ClInclude Include="..\..\..\include\pr\physics-2\rigid_body\rigid_body_dynamics.h" />
     <ClInclude Include="src\collision\gpu_sort_and_sweep.h" />
     <ClInclude Include="src\collision\gpu_collision_detector.h" />
+    <ClInclude Include="src\collision\gpu_resolver.h" />
     <ClInclude Include="src\collision\gpu_collision_types.h" />
     <ClInclude Include="src\integrator\gpu_integrator.h" />
     <ClInclude Include="src\unittests\test_collision.h" />
@@ -151,6 +153,7 @@
   <ItemGroup>
     <FxCompile Include="..\..\..\include\pr\physics-2\compute\gjk.hlsl" EntryPointName="CSCollisionDetect" />
     <FxCompile Include="..\..\..\include\pr\physics-2\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\resolve.hlsl" EntryPointName="CSResolve" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -22,7 +22,11 @@ namespace physics_sandbox
 
 		// Physics simulation
 		Scene m_scene;
+		int m_steps_remaining; // 0 = paused, -1 = running, N = step N times
 		bool m_pause_on_collision;
+
+		// The scenario to load on reset.
+		EScenario m_scenario;
 
 		// Path of the last loaded scene file, so Reset reloads the same scene
 		std::filesystem::path m_scene_filepath;

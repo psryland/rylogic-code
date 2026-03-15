@@ -59,7 +59,7 @@ namespace pr::rdr12
 		if (m_cmd_queue == nullptr)
 		{
 			D3D12_COMMAND_QUEUE_DESC queue_desc = {
-				.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+				.Type = ListType,
 				.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
 				.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
 				.NodeMask = 0,
