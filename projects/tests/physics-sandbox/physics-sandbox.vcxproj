@@ -40,7 +40,9 @@
       <SubSystem>Windows</SubSystem>
       <AdditionalDependencies>
 				;view3d-12-static.lib
+        ;view3d_compute_shaders.res
 				;physics-static.lib
+        ;physics_compute_shaders.res
 				;dxcompiler.lib
 				;%(AdditionalDependencies)
       </AdditionalDependencies>
@@ -120,7 +122,7 @@
     <ClInclude Include="src\unittests\sandbox_tests.h" />
     <ClInclude Include="src\utils\scene_loader.h" />
     <ClCompile Include="src\main.cpp" />
-    <ResourceCompile Include="res\compute_shaders.rc" />
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
   <!--
   Dependencies

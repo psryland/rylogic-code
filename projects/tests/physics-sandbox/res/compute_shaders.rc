@@ -1,2 +1,0 @@
-#include "pr/hlsl/pr_hlsl.rc"
-#include "pr/physics/compute/compute_shaders.rc"

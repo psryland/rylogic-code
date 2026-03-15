@@ -873,6 +873,9 @@
     <None Include="src\compute\particle_collision\collision.hlsli">
       <Filter>src\compute\particle_collision</Filter>
     </None>
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">
@@ -899,6 +902,9 @@
   <ItemGroup>
     <ResourceCompile Include="src\compute\view3d_compute_shaders.rc">
       <Filter>src\compute</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="src\shaders\view3d_render_shaders.rc">
+      <Filter>src\shaders</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>

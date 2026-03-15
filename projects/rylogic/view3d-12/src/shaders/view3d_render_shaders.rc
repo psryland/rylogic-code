@@ -1,0 +1,2 @@
+// HLSL source for runtime compilation
+src/shaders/hlsl/types.hlsli TEXT DISCARDABLE "src/shaders/hlsl/types.hlsli"

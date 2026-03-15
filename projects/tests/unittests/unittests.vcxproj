@@ -434,6 +434,7 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\collision.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />

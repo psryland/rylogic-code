@@ -35,7 +35,15 @@ namespace pr::physics
 			, m_job(m_gpu, "Physics Engine Job", 0xFF00FFFF, 1)
 		{}
 
-		// Implicit conversion to the underlying D3D12 device for convenience.
+		// Allow use as a device
+		ID3D12Device4 const* operator -> () const
+		{
+			return m_gpu.operator ->();
+		}
+		ID3D12Device4* operator ->()
+		{
+			return m_gpu.operator ->();
+		}
 		operator ID3D12Device4 const* () const
 		{
 			return m_gpu;

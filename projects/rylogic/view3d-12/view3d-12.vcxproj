@@ -330,6 +330,7 @@
     <ClInclude Include="src\shaders\common.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli" />
     <None Include="cpp.hint" />
     <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
@@ -370,6 +371,7 @@
     <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl" EntryPointName="SweepDown" />
     <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
     <ResourceCompile Include="src\compute\view3d_compute_shaders.rc" />
+    <ResourceCompile Include="src\shaders\view3d_render_shaders.rc" />
   </ItemGroup>
   <!--
   AutoGen

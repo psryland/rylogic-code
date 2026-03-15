@@ -1272,6 +1272,9 @@
     <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt">

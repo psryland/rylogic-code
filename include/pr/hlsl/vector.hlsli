@@ -54,6 +54,16 @@ float Triple(float4 a, float4 b, float4 c)
 	return dot(a, float4(cross(b.xyz, c.xyz), 0));
 }
 
+// Cross-product matrix: CPM(r) * v = cross(r, v)
+float3x3 CrossProductMatrix(float3 r)
+{
+	return float3x3(
+		 0,    -r.z,  r.y,
+		 r.z,  0,    -r.x,
+		-r.y,  r.x,  0
+	);
+}
+
 // Rotate a 2D vector
 float2 RotateCW(float2 a)
 {
@@ -173,6 +183,17 @@ float4x4 InvertAffine(float4x4 mat)
 		rt[2].x, rt[2].y, rt[2].z, 0,
 		inv_t.x, inv_t.y, inv_t.z, 1
 	);
+}
+
+// Invert a 3x3 matrix using cofactor expansion
+float3x3 Invert(float3x3 m)
+{
+	float3 c0 = cross(m[1], m[2]);
+	float3 c1 = cross(m[2], m[0]);
+	float3 c2 = cross(m[0], m[1]);
+	float det = dot(m[0], c0);
+	float inv_det = 1.0f / det;
+	return transpose(float3x3(c0, c1, c2)) * inv_det;
 }
 
 // Return a vector representing the approximate rotation between two orthonormal transforms
