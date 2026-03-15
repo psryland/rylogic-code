@@ -11,7 +11,7 @@
 		<PropsPath>$(MSBuildThisFileDirectory)build\props\</PropsPath>
 		<TargetsPath>$(MSBuildThisFileDirectory)build\targets\</TargetsPath>
 		<PackagesPath>$(MSBuildThisFileDirectory)packages\</PackagesPath>
-		<ArtifactsPath>$(MSBuildThisFileDirectory)lib\</ArtifactsPath>
+		<DeployPath>$(MSBuildThisFileDirectory)lib\</DeployPath>
 		<SDKPath>$(MSBuildThisFileDirectory)sdk\</SDKPath>
 	</PropertyGroup>
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<!--
-	Deploy target: copies BuildArtifacts to ArtifactsPath/Platform/Config/
+	Deploy target: copies BuildArtifacts to DeployPath/Platform/Config/
 	
 	Usage: In your .vcxproj or .props, define BuildArtifacts items:
 		<ItemGroup>
@@ -13,7 +13,7 @@
 	Add extra BuildArtifacts items in the .vcxproj to deploy additional files.
 	-->
 	<PropertyGroup>
-		<DeployDir>$(ArtifactsPath)$(PlatformTarget)\$(Configuration)\</DeployDir>
+		<DeployDir>$(DeployPath)$(PlatformTarget)\$(Configuration)\</DeployDir>
 	</PropertyGroup>
 
 	<Target Name="Deploy" AfterTargets="Build" Condition="'@(BuildArtifacts)' != ''">
