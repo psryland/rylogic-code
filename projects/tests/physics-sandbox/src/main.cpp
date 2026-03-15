@@ -37,7 +37,7 @@ namespace physics_sandbox
 		freopen_s(&fp, "CONOUT$", "w", stdout);
 		freopen_s(&fp, "CONOUT$", "w", stderr);
 
-		printf("Physics-2 Sandbox: Running unit tests...\n");
+		printf("Physics Sandbox: Running unit tests...\n");
 
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.

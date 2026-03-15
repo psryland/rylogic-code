@@ -86,7 +86,7 @@ namespace pr
 
 			// No handle? Check the error was data not found
 			auto last_error = GetLastError();
-			if (last_error == ERROR_RESOURCE_DATA_NOT_FOUND)
+			if (last_error == ERROR_RESOURCE_NAME_NOT_FOUND)
 				return false;
 
 			// Throw for other errors

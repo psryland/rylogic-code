@@ -1,12 +1,8 @@
 // HLSL source for runtime compilation
-FLUID_SIMULATION_HLSL      TEXT    DISCARDABLE     "pr/view3d-12/compute/fluid_simulation/fluid_simulation.hlsl"
+#ifndef FLUID_RC
+#define FLUID_RC
 
-COLLISION_HLSLI            TEXT    DISCARDABLE     "pr/view3d-12/compute/particle_collision/collision.hlsli"
-PARTICLE_HLSLI             TEXT    DISCARDABLE     "pr/view3d-12/compute/particle_collision/particle.hlsli"
-PARTICLE_COLLISION_HLSL    TEXT    DISCARDABLE     "pr/view3d-12/compute/particle_collision/particle_collision.hlsl"
+#include "pr/hlsl/pr_hlsl.rc"
+#include "pr/view3d-12/compute/compute_shaders.rc"
 
-RADIX_SORT_HLSL            TEXT    DISCARDABLE     "pr/view3d-12/compute/radix_sort/radix_sort.hlsl"
-
-SPATIAL_PARTITION_HLSL     TEXT    DISCARDABLE     "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsl"
-SPATIAL_PARTITION_HLSLI    TEXT    DISCARDABLE     "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsli"
-
+#endif

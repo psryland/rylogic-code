@@ -72,7 +72,6 @@
     <UpToDateCheckInput Include="$(RylogicRoot)lib\$(PlatformTarget)\$(ConfigurationName)\view3d-12.dll" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
     <ResourceCompile Include="res\shaders.rc" />
   </ItemGroup>
   <ItemGroup>

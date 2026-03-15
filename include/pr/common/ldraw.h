@@ -4547,7 +4547,7 @@ namespace pr::ldraw
 				"	}\n"
 				"}");
 
-			auto bdr = builder.ToBinary();
+			auto bdr = builder.ToBinary(); // @copilot ToBinary has unimplemented code paths for some property types - fix me
 		}
 		PRUnitTestMethod(Line)
 		{

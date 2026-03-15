@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+  Globals
+  -->
+  <PropertyGroup Label="Globals">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <ProjectGuid>{A3C8E2F1-5D7B-4E6A-9F2C-1B8D3E5A7C9F}</ProjectGuid>
+    <ProjectName>physics.dll</ProjectName>
+    <TargetName>physics</TargetName>
+    <RootNamespace>Physics</RootNamespace>
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
+  <!--
+  Property Sheets
+  -->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(PropsPath)build_configurations.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(PropsPath)dll.props" />
+  <!--
+  Build options
+  -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PHYSICS_EXPORTS
+      </PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>
+        ;$(RylogicRoot)projects\rylogic
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>
+        ;physics-static.lib
+        ;view3d-12-static.lib
+        ;%(AdditionalDependencies)
+      </AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <!--
+  Files
+  -->
+  <ItemGroup>
+    <ClCompile Include="src\dll\dll.cpp" />
+    <ClCompile Include="src\dll\context.cpp" />
+    <ClInclude Include="src\dll\dll_forward.h" />
+    <ClInclude Include="src\dll\context.h" />
+  </ItemGroup>
+  <!--
+  Dependencies
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+  </ItemGroup>
+  <!--
+  Targets
+  -->
+  <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

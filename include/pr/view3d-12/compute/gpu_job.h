@@ -136,15 +136,20 @@ namespace pr::rdr12
 			auto sync_point = m_gsync.AddSyncPoint(m_queue.get());
 			m_cmd_list.SyncPoint(sync_point);
 
+			// Wait for the GPU to finish
+			m_gsync.Wait();
+
+			// Notify that sync points have been reached (recycles command allocators,
+			// sweeps KeepAlive references, etc). Without this, resources accumulate
+			// indefinitely when GpuJob is used without a Renderer's periodic timer.
+			m_gsync.Poll();
+
 			// Reset for the next job
 			m_cmd_list.Reset(m_cmd_pool.Get());
 
 			// Rebind the view heap after reset
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-
-			// Wait for the GPU to finish
-			m_gsync.Wait();
 		}
 
 		// Get a pointer to the queue

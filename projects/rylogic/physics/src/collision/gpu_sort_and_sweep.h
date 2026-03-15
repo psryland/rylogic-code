@@ -1,0 +1,56 @@
+//*********************************************
+// Physics Sandbox — GPU Sort-and-Sweep Broadphase
+//  Copyright (C) Rylogic Ltd 2026
+//*********************************************
+// GPU-accelerated sort-and-sweep broadphase using radix sort.
+//
+// Algorithm:
+//   1. Choose the primary sort axis (axis with max position variance)
+//   2. Pack 2N AABB endpoints (min + max per body) as float keys
+//   3. GPU radix sort the endpoints
+//   4. CPU sweep: linear scan tracking an "active set" of open intervals.
+//      For each "begin" endpoint: test Y and Z overlap against all active bodies.
+//      For each "end" endpoint: remove from active set.
+//   5. Emit pairs that overlap on all 3 axes.
+//
+// Full 3-axis AABB filtering with only one GPU sort. The Y/Z tests during
+// the sweep are 4 comparisons per candidate — trivial cost vs the sort.
+//
+#pragma once
+#include "pr/physics/forward.h"
+#include "src/utility/gpu.h"
+
+namespace pr::physics
+{
+	struct GpuSortAndSweep
+	{
+	private:
+
+		Gpu& m_gpu;                           // Lightweight D3D12 wrapper (device + command queue)
+		ComputeStep m_cs_sweep;               // Root signature + PSO for the sweep shader
+		BoundsSorter m_sorter;                // Sorts float AABB endpoints (keys) with uint32 payloads (body_index << 1 | begin/end).
+		D3DPtr<ID3D12Resource> m_r_col_pairs; // GPU buffer: RWStructuredBuffer<GpuCollisionPair> for storing the output pairs from the sweep step.
+		int m_max_col_pairs;                  // The maximum number of collision pairs that can be stored in the output buffer
+
+	public:
+
+		explicit GpuSortAndSweep(Gpu& gpu);
+
+		// Sort the body index list based on the bounding box bounds
+		void Sort(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> aabb, D3DPtr<ID3D12Resource> aabb_idx);
+		
+		// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
+		void Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies);
+
+		// Get the GPU resources
+		D3DPtr<ID3D12Resource> CollisionPairs() { return m_r_col_pairs; }
+
+	private:
+
+		// Compile the compute shaders
+		void CompileShaders();
+
+		// Resize the buffers to support
+		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_col_pairs);
+	};
+}

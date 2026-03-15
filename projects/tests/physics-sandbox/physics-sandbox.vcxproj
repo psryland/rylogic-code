@@ -40,7 +40,7 @@
       <SubSystem>Windows</SubSystem>
       <AdditionalDependencies>
 				;view3d-12-static.lib
-				;physics-2-static.lib
+				;physics-static.lib
 				;dxcompiler.lib
 				;%(AdditionalDependencies)
       </AdditionalDependencies>
@@ -78,25 +78,25 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\gui\view3d_panel.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\broadphase\brute.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\constants.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\contact.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\impulse.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\integrator.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\jacobian.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\engine.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material_map.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\physics.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\rigid_body\rigid_body.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\inertia.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_builder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\field.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\ldraw.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\misc.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\broadphase\brute.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\jacobian.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\material\material.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\material\material_map.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\inertia.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\mass.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_builder.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_mass.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
@@ -126,13 +126,24 @@
   Dependencies
   -->
   <ItemGroup>
-    <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics-2\physics-2.vcxproj" />
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
   </ItemGroup>
   <!--
   Targets
   -->
   <ItemGroup>
+    <None Include="..\..\..\include\pr\hlsl\camera.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\closest_point.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\core.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\geometry.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\intercept.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\vector.hlsli" />
     <None Include="scenes\box_vs_sphere.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\generate_scene.py" />

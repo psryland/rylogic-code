@@ -330,8 +330,8 @@
     <ClInclude Include="src\shaders\common.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
     <None Include="cpp.hint" />
+    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\core.hlsli" />
@@ -371,8 +371,7 @@
     <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_shaders.rc" />
-    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
+    <ResourceCompile Include="src\compute\view3d_compute_shaders.rc" />
   </ItemGroup>
   <!--
   AutoGen

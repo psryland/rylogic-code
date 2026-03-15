@@ -892,16 +892,13 @@
     <CSharpScript Include="auto_gen.csx" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_shaders.rc">
-      <Filter>src\compute</Filter>
-    </ResourceCompile>
-    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
-      <Filter>pr\hlsl</Filter>
-    </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="src\compute\gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\compute\view3d_compute_shaders.rc">
+      <Filter>src\compute</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

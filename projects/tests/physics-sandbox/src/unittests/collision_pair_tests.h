@@ -373,4 +373,140 @@ namespace physics_sandbox::tests
 			PR_EXPECT(r.collision_occurred);
 		}
 	};
+
+	// ===== Stress test: many bodies falling onto ground =====
+	// Reproduces the stress test scenario to detect TDR and passthrough bugs.
+	// Uses 100 bodies (40 boxes, 40 spheres, 20 polytopes) falling under gravity onto a box ground.
+	PRUnitTestClass(StressDropTests)
+	{
+		PRUnitTestMethod(ManyBodiesFalling)
+		{
+			auto ground_shape = collision::ShapeBox(v4{50, 50, 5.0f, 0});
+			auto sphere_shape = collision::ShapeSphere(0.2f);
+			auto box_shape = collision::ShapeBox(v4{0.2f, 0.2f, 0.2f, 0});
+			auto tetra_pts = std::array<v4, 4>{
+				v4{0, 0.3f, 0, 1}, v4{0.25f, -0.15f, 0, 1},
+				v4{-0.125f, -0.15f, 0.22f, 1}, v4{-0.125f, -0.15f, -0.22f, 1}};
+			auto poly_buf = collision::BuildPolytopeFromPoints(tetra_pts);
+			auto& poly_shape = poly_buf.as<collision::ShapePolytope>();
+
+			static constexpr int NumBodies = 100;
+			static constexpr int NumSteps = 200;
+			static constexpr float dt = 1.0f / 60.0f;
+			static constexpr float g = 9.81f;
+
+			// Allocate bodies: 40 spheres, 40 boxes, 20 polytopes, 1 ground
+			std::vector<physics::RigidBody> bodies(NumBodies + 1);
+			std::vector<collision::Shape const*> shapes(NumBodies);
+
+			// Position bodies in a 10x10 grid above the ground
+			for (int i = 0; i != NumBodies; ++i)
+			{
+				int row = i / 10;
+				int col = i % 10;
+				float x = (col - 4.5f) * 0.6f;
+				float y = (row - 4.5f) * 0.6f;
+				float z = 3.0f + (i % 5) * 0.5f; // stagger heights
+
+				if (i < 40)
+				{
+					bodies[i].Shape(collision::shape_cast(&sphere_shape), 5.0f);
+					shapes[i] = collision::shape_cast(&sphere_shape);
+				}
+				else if (i < 80)
+				{
+					bodies[i].Shape(collision::shape_cast(&box_shape), 5.0f);
+					shapes[i] = collision::shape_cast(&box_shape);
+				}
+				else
+				{
+					bodies[i].Shape(collision::shape_cast(&poly_shape), 5.0f);
+					shapes[i] = collision::shape_cast(&poly_shape);
+				}
+				bodies[i].O2W(m4x4::Translation(v4{x, y, z, 0}));
+			}
+
+			// Ground: infinite mass, top surface at z=0
+			bodies[NumBodies].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
+			bodies[NumBodies].O2W(m4x4::Translation(v4{0, 0, -5.0f, 0}));
+
+			physics::MaterialMap materials;
+			auto& mat = materials(0);
+			mat.m_elasticity_norm = 0.5f;
+			mat.m_friction_static = 0.3f;
+
+			physics::Engine engine(materials);
+			for (auto& b : bodies)
+				engine.Broadphase().Add(b);
+
+			int passthrough_count = 0;
+			int max_pair_count = 0;
+
+			for (int step = 0; step != NumSteps; ++step)
+			{
+				for (int i = 0; i != NumBodies; ++i)
+				{
+					bodies[i].ZeroForces();
+					auto m = bodies[i].Mass();
+					auto com_os = bodies[i].CentreOfMassOS();
+					auto ws_com = bodies[i].O2W().rot * com_os;
+					bodies[i].ApplyForceWS(v4{0, 0, -g, 0} * m, v4::Zero(), ws_com);
+				}
+				bodies[NumBodies].ZeroForces();
+
+				// Build pointer span for Engine::Step
+				std::vector<physics::RigidBody*> body_ptrs;
+				for (auto& b : bodies)
+					body_ptrs.push_back(&b);
+
+				engine.Step(dt, body_ptrs);
+
+				// Check for passthrough
+				for (int i = 0; i != NumBodies; ++i)
+				{
+					if (bodies[i].O2W().pos.z < -2.0f)
+					{
+						++passthrough_count;
+						if (passthrough_count <= 3)
+						{
+							auto type = i < 40 ? "sphere" : i < 80 ? "box" : "polytope";
+							printf("  PASSTHROUGH: body[%d] (%s) at step %d z=%.3f\n",
+								i, type, step, bodies[i].O2W().pos.z);
+
+							// Run CPU collision test on this pair to check if CPU GJK catches it
+							auto w2g = InvertOrthonormal(bodies[NumBodies].O2W());
+							auto b2g = w2g * bodies[i].O2W();
+							collision::Contact cpu_contact;
+							bool cpu_hit = collision::Collide(
+								bodies[NumBodies].Shape(), m4x4::Identity(),
+								bodies[i].Shape(), b2g, cpu_contact);
+							printf("  CPU Collide: %s (depth=%.6f axis=(%.3f,%.3f,%.3f))\n",
+								cpu_hit ? "HIT" : "MISS", cpu_contact.m_depth,
+								cpu_contact.m_axis.x, cpu_contact.m_axis.y, cpu_contact.m_axis.z);
+
+							// Also try CPU GJK directly
+							collision::Contact gjk_contact;
+							bool gjk_hit = collision::GjkCollide(
+								bodies[NumBodies].Shape(), m4x4::Identity(),
+								bodies[i].Shape(), b2g, gjk_contact);
+							printf("  CPU GJK:     %s (depth=%.6f axis=(%.3f,%.3f,%.3f))\n",
+								gjk_hit ? "HIT" : "MISS", gjk_contact.m_depth,
+								gjk_contact.m_axis.x, gjk_contact.m_axis.y, gjk_contact.m_axis.z);
+
+							// Log the exact transform for reproduction
+							auto& o = bodies[i].O2W();
+							printf("  O2W: x=(%.6f,%.6f,%.6f) y=(%.6f,%.6f,%.6f) z=(%.6f,%.6f,%.6f) pos=(%.6f,%.6f,%.6f)\n",
+								o.x.x, o.x.y, o.x.z, o.y.x, o.y.y, o.y.z, o.z.x, o.z.y, o.z.z, o.pos.x, o.pos.y, o.pos.z);
+						}
+					}
+				}
+			}
+
+			printf("  Stress test: %d bodies, %d steps, %d passthroughs\n",
+				NumBodies, NumSteps, passthrough_count);
+
+			// No body should fall through the ground
+			PR_EXPECT(passthrough_count == 0);
+		}
+	};
 }

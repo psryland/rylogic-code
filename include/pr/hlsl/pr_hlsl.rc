@@ -1,10 +1,55 @@
 // HLSL source for runtime compilation
-CORE_HLSLI           TEXT DISCARDABLE "pr/hlsl/core.hlsli"
-VECTOR_HLSLI         TEXT DISCARDABLE "pr/hlsl/vector.hlsli"
-INTEROP_HLSLI        TEXT DISCARDABLE "pr/hlsl/interop.hlsli"
-GEOMETRY_HLSLI       TEXT DISCARDABLE "pr/hlsl/geometry.hlsli"
-INTERCEPT_HLSLI      TEXT DISCARDABLE "pr/hlsl/intercept.hlsli"
-CLOSEST_POINT_HLSLI  TEXT DISCARDABLE "pr/hlsl/closest_point.hlsli"
-CAMERA_HLSLI         TEXT DISCARDABLE "pr/hlsl/camera.hlsli"
-HERMITE_SPLINE_HLSLI TEXT DISCARDABLE "pr/hlsl/hermite_spline.hlsli"
-INTERPOLATE_HLSLI    TEXT DISCARDABLE "pr/hlsl/interpolate.hlsli"
+#ifndef PR_HLSL_RC
+#define PR_HLSL_RC
+
+#ifndef pr_hlsl_core_hlsli_included
+#define pr_hlsl_core_hlsli_included
+"pr/hlsl/core.hlsli" TEXT DISCARDABLE "pr/hlsl/core.hlsli"
+#endif
+
+#ifndef pr_hlsl_vector_hlsli_included
+#define pr_hlsl_vector_hlsli_included
+"pr/hlsl/vector.hlsli" TEXT DISCARDABLE "pr/hlsl/vector.hlsli"
+#endif
+
+#ifndef pr_hlsl_interop_hlsli_included
+#define pr_hlsl_interop_hlsli_included
+"pr/hlsl/interop.hlsli" TEXT DISCARDABLE "pr/hlsl/interop.hlsli"
+#endif
+
+#ifndef pr_hlsl_geometry_hlsli_included
+#define pr_hlsl_geometry_hlsli_included
+"pr/hlsl/geometry.hlsli" TEXT DISCARDABLE "pr/hlsl/geometry.hlsli"
+#endif
+
+#ifndef pr_hlsl_intercept_hlsli_included
+#define pr_hlsl_intercept_hlsli_included
+"pr/hlsl/intercept.hlsli" TEXT DISCARDABLE "pr/hlsl/intercept.hlsli"
+#endif
+
+#ifndef pr_hlsl_closest_point_hlsli_included
+#define pr_hlsl_closest_point_hlsli_included
+"pr/hlsl/closest_point.hlsli" TEXT DISCARDABLE "pr/hlsl/closest_point.hlsli"
+#endif
+
+#ifndef pr_hlsl_camera_hlsli_included
+#define pr_hlsl_camera_hlsli_included
+"pr/hlsl/camera.hlsli" TEXT DISCARDABLE "pr/hlsl/camera.hlsli"
+#endif
+
+#ifndef pr_hlsl_hermite_spline_hlsli_included
+#define pr_hlsl_hermite_spline_hlsli_included
+"pr/hlsl/hermite_spline.hlsli" TEXT DISCARDABLE "pr/hlsl/hermite_spline.hlsli"
+#endif
+
+#ifndef pr_hlsl_interpolate_hlsli_included
+#define pr_hlsl_interpolate_hlsli_included
+"pr/hlsl/interpolate.hlsli" TEXT DISCARDABLE "pr/hlsl/interpolate.hlsli"
+#endif
+
+#ifndef pr_hlsl_spatial_algebra_hlsli_included
+#define pr_hlsl_spatial_algebra_hlsli_included
+"pr/hlsl/spatial_algebra.hlsli" TEXT DISCARDABLE "pr/hlsl/spatial_algebra.hlsli"
+#endif
+
+#endif

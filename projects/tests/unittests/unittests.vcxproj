@@ -40,7 +40,7 @@
 			</AdditionalLibraryDirectories>
       <AdditionalDependencies>
 				;lua-static.lib
-				;physics-2-static.lib
+				;physics-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>

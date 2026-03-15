@@ -4,8 +4,8 @@
 //************************************
 #pragma once
 #include "src/forward.h"
-#include "pr/physics-2/rigid_body/rigid_body.h"
-#include "pr/physics-2/shape/inertia.h"
+#include "pr/physics/rigid_body/rigid_body.h"
+#include "pr/physics/shape/inertia.h"
 #include "pr/collision/shape_box.h"
 #include "pr/container/byte_data.h"
 

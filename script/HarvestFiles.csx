@@ -21,7 +21,7 @@ try
 
 	var outfile = args.Count > 0 ? args[0] : throw new Exception("Output filepath not provided");
 
-	// Unittests that aren't in /include should be built into separate projects for unit testing (e.g. physics-2-test)
+	// Unittests that aren't in /include should be built into separate projects for unit testing (e.g. physics-test)
 	var srcdirs = (List<string>)[
 		Tools.Path([UserVars.Root, "include"]),
 	];

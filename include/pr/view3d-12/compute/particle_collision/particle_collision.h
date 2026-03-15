@@ -214,7 +214,7 @@ namespace pr::rdr12::compute::particle_collision
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
 			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"PARTICLE_COLLISION_HLSL", L"TEXT"))
+				.Source(resource::Read<char>(L"pr_view3d_12_compute_particle_collision_particle_collision_hlsl", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)

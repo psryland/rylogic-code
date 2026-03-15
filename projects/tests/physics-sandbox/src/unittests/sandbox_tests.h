@@ -8,7 +8,7 @@
 // (no View3D, no window) — they operate directly on RigidBody objects.
 //
 // For a broader set of collision tests, see also:
-//   projects/rylogic/physics-2/src/unittests/test_collision.h
+//   projects/rylogic/physics/src/unittests/test_collision.h
 //
 #pragma once
 #include "src/forward.h"
