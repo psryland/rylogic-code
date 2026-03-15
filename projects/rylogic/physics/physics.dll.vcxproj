@@ -29,6 +29,7 @@
         ;PHYSICS_EXPORTS
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
         ;$(RylogicRoot)projects\rylogic
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
@@ -50,6 +51,9 @@
     <ClInclude Include="src\dll\dll_forward.h" />
     <ClInclude Include="src\dll\context.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h" />
+  </ItemGroup>
   <!--
   Dependencies
   -->
@@ -57,10 +61,10 @@
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
   </ItemGroup>
   <!--
+  Deploy
+  -->
+  <!--
   Targets
   -->
-  <ItemGroup>
-    <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

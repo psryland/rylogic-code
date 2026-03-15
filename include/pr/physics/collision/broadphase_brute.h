@@ -4,11 +4,10 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
-#include "pr/physics/collision/ibroadphase.h"
 
 namespace pr::physics
 {
-	struct BroadphaseBrute : IBroadphase
+	struct BroadphaseBrute
 	{
 		// Notes:
 		// A simple O(n²) broad phase implementation.
@@ -24,13 +23,13 @@ namespace pr::physics
 		BroadphaseBrute();
 
 		// Remove all registered bodies
-		void Clear() override;
+		void Clear();
 
 		// Register a body for overlap testing
-		void Add(RigidBody const& obj) override;
+		void Add(RigidBody const& obj);
 
 		// Unregister a body
-		void Remove(RigidBody const& obj) override;
+		void Remove(RigidBody const& obj);
 
 		// Enumerate all pairs of entities whose bounding boxes overlap
 		void EnumOverlappingPairs(std::function<void(RigidBody const&, RigidBody const&)> cb) const;

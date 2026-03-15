@@ -12,12 +12,15 @@ namespace pr::physics
 	{
 		Gpu& m_gpu;                          // Lightweight D3D12 wrapper (device + command queue)
 		ComputeStep m_cs_integrate;          // Root signature + PSO for the integration shader
+		D3DPtr<ID3D12Resource> m_r_counters; // GPU buffer: RWStructuredBuffer<GpuCollisionCounters> for storing the number of bodies, pairs, and contacts
 		D3DPtr<ID3D12Resource> m_r_bodies;   // GPU buffer: RWStructuredBuffer<RigidBodyDynamics>
-		D3DPtr<ID3D12Resource> m_r_output;   // GPU buffer: RWStructuredBuffer<IntegrateOutput>
 		D3DPtr<ID3D12Resource> m_r_aabb_x;   // GPU buffer: RWStructuredBuffer<float> bounding box x bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_y;   // GPU buffer: RWStructuredBuffer<float> bounding box y bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_z;   // GPU buffer: RWStructuredBuffer<float> bounding box z bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
+		#if COLLISION_DIAGNOSTICS
+		D3DPtr<ID3D12Resource> m_r_diag;     // GPU buffer: RWStructuredBuffer<GpuIntegrateDiag>
+		#endif
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 
 		explicit GpuIntegrator(Gpu& gpu);
@@ -26,12 +29,11 @@ namespace pr::physics
 		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> dynamics, float dt);
 		
 		// Readback data into the provided buffers. 0-length means "don't readback".
-		void Readback(GpuJob& job, std::span<RigidBodyDynamics> dynamics, std::span<IntegrateDebugOutput> output, std::span<BBox> aabbs);
-
-		// Get the GPU resource for the bodies buffer (for GJK to reference directly).
-		D3DPtr<ID3D12Resource> BodiesResource() { return m_r_bodies; }
+		void Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
 		// Get the GPU resources
+		D3DPtr<ID3D12Resource> Counters() { return m_r_counters; }
+		D3DPtr<ID3D12Resource> Bodies() { return m_r_bodies; }
 		D3DPtr<ID3D12Resource> AABBAxisX() { return m_r_aabb_x; }
 		D3DPtr<ID3D12Resource> AABBAxisY() { return m_r_aabb_y; }
 		D3DPtr<ID3D12Resource> AABBAxisZ() { return m_r_aabb_z; }

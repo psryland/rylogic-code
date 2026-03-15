@@ -7,7 +7,6 @@
 #include "pr/physics/integrator/impulse.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
-#include "pr/physics/collision/ibroadphase.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/materials/imaterials.h"
 #include "src/integrator/gpu_integrator.h"
@@ -31,22 +30,6 @@ namespace pr::physics
 	{
 		// Persists across frames
 		CollisionShapeCache m_shape_cache;
-
-		// Per-frame buffers
-		std::vector<GpuCollisionPair> m_col_pairs;
-		std::vector<BodyPair> m_body_pairs;
-		std::vector<RbContact> m_collision_queue;
-		std::vector<GpuContact> m_gpu_contacts;
-
-		// Reset per-frame buffers
-		void BeginFrame()
-		{
-			m_shape_cache.BeginFrame();
-			m_col_pairs.resize(0);
-			m_body_pairs.resize(0);
-			m_collision_queue.resize(0);
-			m_gpu_contacts.resize(0);
-		}
 	};
 
 	Engine::Engine(IMaterials& mats, ID3D12Device4* existing_device)
@@ -94,25 +77,22 @@ namespace pr::physics
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
-	void Engine::Step(float dt, std::span<RigidBody*> bodies)
+	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
 	{
 		// Notes:
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
 		//    If this limit becomes a problem, the options are increase the max number of collision pairs
 		//    or run Engine::Step() multiple times on "islands" of physics objects
-
-		m_cache->BeginFrame();
-		//auto& shape_cache = m_cache->m_shape_cache;
-		//auto& collision_queue = m_cache->m_collision_queue;
-		//auto& gpu_contacts = m_cache->m_gpu_contacts;
 		constexpr auto max_col_pairs = 65536;
-
-		int body_count = static_cast<int>(bodies.size());
+		int body_count = static_cast<int>(rigid_bodies.size());
 		if (body_count == 0)
 			return;
 
 		if (m_body_ptrs.empty())
-			m_body_ptrs.append_range(bodies);
+			m_body_ptrs.append_range(rigid_bodies);
+
+		// Populate the shape cache
+		m_cache->m_shape_cache.BeginFrame();
 
 		// Pack all bodies into a GPU-friendly format
 		{
@@ -130,20 +110,27 @@ namespace pr::physics
 		{
 			auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
 			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
-			auto bodies = m_gpu_integrator->BodiesResource();
+			auto counters = m_gpu_integrator->Counters();
+			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, aabb_idx, bodies);
+			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, counters, aabb_idx, bodies);
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
 		{
+			auto dispatch = m_gpu_sort_and_sweep->DispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(col_pairs);
+			auto counters = m_gpu_integrator->Counters();
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 		}
 		
-		// Resolve -> uses contacts -> applies impulses to bodyes
+		// Resolve -> uses contacts -> applies impulses to bodies
 		{
-			m_gpu_resolver->Resolve();
+			auto dispatch = m_gpu_collision_detector->DispatchArgs();
+			auto counters = m_gpu_integrator->Counters();
+			auto contacts = m_gpu_collision_detector->Contacts();
+			auto bodies = m_gpu_integrator->Bodies();
+			m_gpu_resolver->Resolve(m_gpu->m_job, body_count, dispatch, counters, contacts, bodies);
 		}
 
 		// Wait for all GPU work to complete before reading back results
@@ -152,14 +139,14 @@ namespace pr::physics
 		// Readback dynamics from GPU and unpack into bodies
 		{
 			m_gpu_integrator->Readback(m_gpu->m_job, m_rb_dynamics, {}, {});
-			for (auto [body, i] : with_index(bodies))
+			for (auto [body, i] : with_index(rigid_bodies))
 				UnpackDynamics(m_rb_dynamics[i], *body);
 		}
 
 		m_body_ptrs.resize(0);
 	}
 
-
+	#if 0
 	// Broad phase overlap query → narrow phase collision detection → impulse resolution.
 	void Engine::DetectAndResolveCollisions(float dt)
 	{
@@ -174,11 +161,6 @@ namespace pr::physics
 		// Nothing close enough to be colliding? Skip the GPU GJK step.
 		if (col_pairs.empty())
 			return;
-
-
-		// Periodically flush stale shapes (every 10 frames)
-		if (shape_cache.m_frame % CollisionShapeCache::StaleFrameLimit == 0)
-			shape_cache.Flush();
 
 		// Phase 2: Narrow phase collision detection.
 		if (m_gpu_detect)
@@ -451,6 +433,7 @@ namespace pr::physics
 			}
 		}
 	}
+	#endif
 
 	// Narrow phase collision detection.
 	// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.

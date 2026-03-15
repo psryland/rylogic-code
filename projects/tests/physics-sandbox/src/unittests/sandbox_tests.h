@@ -83,9 +83,6 @@ namespace physics_sandbox::tests
 			mat.m_elasticity_tors = 0.0f;
 			mat.m_friction_static = 0.0f;
 
-			engine.Broadphase().Add(body_a);
-			engine.Broadphase().Add(body_b);
-
 			// Capture the "before" state on the step where collision is first detected,
 			// before the impulse is applied.
 			engine.PostCollisionDetection += [&](auto&, auto args)
@@ -631,14 +628,11 @@ namespace physics_sandbox::tests
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
 
 			physics::MaterialMap materials;
-			physics::Engine engine(materials);
-
 			auto& mat = materials(0);
 			mat.m_elasticity_norm = 1.0f;
 			mat.m_friction_static = 0.0f;
 
-			engine.Broadphase().Add(bodies[0]);
-			engine.Broadphase().Add(bodies[1]);
+			physics::Engine engine(materials);
 
 			auto const g = 9.81f;
 			auto const gravity = v4{0, 0, -g, 0};

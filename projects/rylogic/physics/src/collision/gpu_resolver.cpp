@@ -9,61 +9,86 @@ namespace pr::physics
 {
 	using namespace pr::rdr12;
 
-	// Thread group size matching the HLSL [numthreads(64, 1, 1)] declaration.
-	static constexpr int ResolveThreadGroupSize = 64;
-
 	// Constant buffer layout matching the HLSL cbResolve declaration.
 	struct alignas(16) cbResolve
 	{
-		uint32_t contact_count;
-		uint32_t colour;       // current colour batch being processed
-		uint32_t pad0;
-		uint32_t pad1;
+		int g_colour;       // current colour batch being processed
+		int pad0;
+		int pad1;
+		int pad2;
 	};
 	static_assert(sizeof(cbResolve) == 16);
 
 	// Register assignments for the resolve root signature
 	struct EResolveReg
 	{
-		inline static constexpr ECBufReg Params   = ECBufReg::b0;
-		inline static constexpr EUAVReg  Bodies   = EUAVReg::u0;
-		inline static constexpr ESRVReg  Contacts = ESRVReg::t0;
-		inline static constexpr ESRVReg  Colours  = ESRVReg::t1;
+		inline static constexpr auto Params   = ECBufReg::b0;
+		inline static constexpr auto Counters = ESRVReg::t0;
+		inline static constexpr auto Contacts = ESRVReg::t1;
+		inline static constexpr auto Bodies   = EUAVReg::u0;
+		inline static constexpr auto Colours  = EUAVReg::u1;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu)
 		: m_gpu(gpu)
+		, m_cs_colouring()
 		, m_cs_resolve()
-		, m_r_contacts()
+		, m_cmd_sig()
 		, m_r_colours()
 		, m_capacity()
 	{
-		CompileShader();
+		CompileShaders();
+
+		// Create a command signature for indirect dispatch
+		D3D12_INDIRECT_ARGUMENT_DESC arg = {
+			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
+		};
+		D3D12_COMMAND_SIGNATURE_DESC desc = {
+			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+		};
+		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
 	// Compile the resolve compute shader from embedded resources.
-	void GpuResolver::CompileShader()
+	void GpuResolver::CompileShaders()
 	{
-		auto shader_source = resource::Read<char>(L"PHYSICS_RESOLVE_HLSL", L"TEXT");
 		auto compiler = ShaderCompiler{}
-			.Source(shader_source)
+			.Source(resource::Read<char>(L"src/compute/resolve.hlsl", L"TEXT"))
 			.Includes({new ResourceIncludeHandler, true})
-			.EntryPoint(L"CSResolve")
+			.Define(L"COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
-		auto bytecode = compiler.Compile();
+		// m_cs_colouring
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbResolve>(EResolveReg::Params)
+				.SRV(EResolveReg::Counters)
+				.SRV(EResolveReg::Contacts)
+				.UAV(EResolveReg::Colours);
 
-		// Root signature: root constants (cbResolve) + UAV (bodies) + 2 SRVs (contacts, colours)
-		m_cs_resolve.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-			.U32<cbResolve>(EResolveReg::Params)
-			.UAV(EResolveReg::Bodies)
-			.SRV(EResolveReg::Contacts)
-			.SRV(EResolveReg::Colours)
-			.Create(m_gpu, "Physics:ResolveSig");
+			auto bytecode = compiler.EntryPoint(L"CSGraphColouring").Compile();
 
-		m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode)
-			.Create(m_gpu, "Physics:ResolvePSO");
+			m_cs_colouring.m_sig = sig.Create(m_gpu, "Physics:GraphColouringSig");
+			m_cs_colouring.m_pso = ComputePSO(m_cs_colouring.m_sig.get(), bytecode).Create(m_gpu, "Physics:GraphColouringPSO");
+		}
+
+		// m_cs_resolve
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbResolve>(EResolveReg::Params)
+				.SRV(EResolveReg::Counters)
+				.SRV(EResolveReg::Contacts)
+				.UAV(EResolveReg::Bodies)
+				.UAV(EResolveReg::Colours);
+
+			auto bytecode = compiler.EntryPoint(L"CSResolve").Compile();
+
+			m_cs_resolve.m_sig = sig.Create(m_gpu, "Physics:ResolveSig");
+			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
+		}
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
@@ -71,87 +96,64 @@ namespace pr::physics
 	{
 		capacity = std::max(1, capacity);
 
-		if (m_r_contacts == nullptr || m_capacity < capacity)
+		if (m_r_colours == nullptr || m_capacity < capacity)
 		{
-			m_r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(capacity, {}), cmd_list, "Physics:ResolveContacts");
 			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(capacity, {}), cmd_list, "Physics:ResolveColours");
 			m_capacity = capacity;
 		}
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(
-		GpuJob& job,
-		std::span<GpuResolveContact const> contacts,
-		std::span<int const> colours,
-		int max_colour,
-		ID3D12Resource* bodies_resource)
+	void GpuResolver::Resolve(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies)
 	{
-		auto contact_count = static_cast<int>(contacts.size());
-		if (contact_count == 0 || max_colour == 0)
-			return;
+		ResizeBuffers(job.m_cmd_list, body_count);
 
-		ResizeBuffers(job.m_cmd_list, contact_count);
-
-		// Upload contacts
+		// Dispatch the graph colouring shader
 		{
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
+			job.m_cmd_list.SetPipelineState(m_cs_colouring.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_colouring.m_sig.get());
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
 
-			auto upload = job.m_upload.Alloc<GpuResolveContact>(contact_count);
-			memcpy(upload.ptr<GpuResolveContact>(), contacts.data(), contact_count * sizeof(GpuResolveContact));
-			job.m_cmd_list.CopyBufferRegion(m_r_contacts.get(), 0, upload);
+			// TODO: this will depend on how the colouring algorithm works on the GPU
+			job.m_cmd_list.Dispatch(1, 1, 1);
 
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.UAV(m_r_colours.get());
 			job.m_barriers.Commit();
 		}
 
-		// Upload colours (convert int→uint32_t for GPU)
+		// Dispatch the resolve shader
 		{
-			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-
-			auto upload = job.m_upload.Alloc<uint32_t>(contact_count);
-			auto* dst = upload.ptr<uint32_t>();
-			for (int i = 0; i != contact_count; ++i)
-				dst[i] = static_cast<uint32_t>(colours[i]);
-			job.m_cmd_list.CopyBufferRegion(m_r_colours.get(), 0, upload);
-
-			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-		}
-
-		// Dispatch one compute pass per colour batch.
-		// Bodies buffer is assumed to be in UNORDERED_ACCESS state from the integrator.
-		// Flush the GPU every N colour batches to avoid TDR on large scenes.
-		static constexpr int FlushInterval = 32;
-		auto dispatch_count = (contact_count + ResolveThreadGroupSize - 1) / ResolveThreadGroupSize;
-		for (int colour = 0; colour != max_colour; ++colour)
-		{
-			auto cb = cbResolve{
-				.contact_count = static_cast<uint32_t>(contact_count),
-				.colour = static_cast<uint32_t>(colour),
-			};
+			auto cb = cbResolve{ .g_colour = {} };
 
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies_resource->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
 
-			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
+			// Dispatch with the count provided by the collision detection shader
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 			// UAV barrier on bodies ensures writes from this colour batch are visible
 			// before the next batch reads them
-			job.m_barriers.UAV(bodies_resource);
+			job.m_barriers.UAV(bodies.get());
 			job.m_barriers.Commit();
-
-			// Periodically flush the command list to avoid TDR on large scenes
-			if ((colour + 1) % FlushInterval == 0 && colour + 1 < max_colour)
-				job.Run();
 		}
 	}
+
+	// Custom deleter implementation (GpuResolver is complete here)
+	void Deleter<GpuResolver>::operator()(GpuResolver* p) const
+	{
+		delete p;
+	}
+}
+
+
+#if 0
 
 	// Greedy graph colouring: assign colours so no two contacts sharing a body have the same colour.
 	std::pair<std::vector<int>, int> GraphColourContacts(std::span<GpuResolveContact const> contacts)
@@ -190,9 +192,32 @@ namespace pr::physics
 		return {colours, max_colour};
 	}
 
-	// Custom deleter implementation (GpuResolver is complete here)
-	void Deleter<GpuResolver>::operator()(GpuResolver* p) const
-	{
-		delete p;
-	}
-}
+
+		// Upload contacts
+		{
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuResolveContact>(contact_count);
+			memcpy(upload.ptr<GpuResolveContact>(), contacts.data(), contact_count * sizeof(GpuResolveContact));
+			job.m_cmd_list.CopyBufferRegion(m_r_contacts.get(), 0, upload);
+
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Upload colours (convert int→uint32_t for GPU)
+		{
+			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<uint32_t>(contact_count);
+			auto* dst = upload.ptr<uint32_t>();
+			for (int i = 0; i != contact_count; ++i)
+				dst[i] = static_cast<uint32_t>(colours[i]);
+			job.m_cmd_list.CopyBufferRegion(m_r_colours.get(), 0, upload);
+
+			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+#endif

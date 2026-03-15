@@ -29,20 +29,24 @@ namespace pr::physics
 		std::vector<v4> m_verts;                           // Shared vertex buffer (polytope/triangle verts)
 		std::unordered_map<Shape const*, Entry> m_entries; // Shape pointer → cache entry
 		int m_frame;                                       // Current frame counter
-		bool m_dirty;                                      // True if shapes were added/removed since last upload
+		bool m_changed;                                    // True if shapes were added/removed since last upload
 
 		CollisionShapeCache()
 			: m_shapes()
 			, m_verts()
 			, m_entries()
 			, m_frame(0)
-			, m_dirty(true)
+			, m_changed(true)
 		{}
 
 		// Begin a new frame. Must be called before any GetOrAdd() calls.
 		void BeginFrame()
 		{
 			++m_frame;
+
+			// Periodically flush stale shapes (every 10 frames)
+			if (m_frame % StaleFrameLimit == 0)
+				Flush();
 		}
 
 		// Get the GPU shape index for a collision shape, adding it to the cache if new.
@@ -59,7 +63,7 @@ namespace pr::physics
 			// New shape — pack it into the GPU buffers
 			auto idx = static_cast<int>(m_shapes.size());
 			auto vert_offset = static_cast<int>(m_verts.size());
-			m_shapes.push_back(PackShapeGeneric(shape, m_verts));
+			m_shapes.push_back(PackShape(shape, m_verts));
 			auto vert_count = static_cast<int>(m_verts.size()) - vert_offset;
 
 			m_entries[&shape] = Entry{
@@ -68,7 +72,8 @@ namespace pr::physics
 				.vert_count = vert_count,
 				.last_used = m_frame,
 			};
-			m_dirty = true;
+
+			m_changed = true;
 			return idx;
 		}
 
@@ -103,7 +108,7 @@ namespace pr::physics
 				// Re-pack this shape at its new index
 				auto new_idx = static_cast<int>(m_shapes.size());
 				auto new_vert_offset = static_cast<int>(m_verts.size());
-				m_shapes.push_back(PackShapeGeneric(*ptr, m_verts));
+				m_shapes.push_back(PackShape(*ptr, m_verts));
 				auto new_vert_count = static_cast<int>(m_verts.size()) - new_vert_offset;
 
 				m_entries[ptr] = Entry{
@@ -113,19 +118,7 @@ namespace pr::physics
 					.last_used = entry.last_used,
 				};
 			}
-			m_dirty = true;
-		}
-
-		// Returns true if shapes have changed since the last upload.
-		// Call ClearDirty() after uploading to reset.
-		bool IsDirty() const
-		{
-			return m_dirty;
-		}
-
-		void ClearDirty()
-		{
-			m_dirty = false;
+			m_changed = true;
 		}
 	};
 }

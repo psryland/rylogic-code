@@ -187,12 +187,12 @@
     <None Include="src\compute\gjk.hlsli">
       <Filter>src\compute</Filter>
     </None>
+    <None Include="src\compute\collision_types.hlsli">
+      <Filter>src\compute</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\collide.hlsl">
-      <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\gjk.hlsl">
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="src\compute\integrate.hlsl">

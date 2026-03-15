@@ -28,6 +28,9 @@
 //   mul(v, M) for vector transforms, mul(A, B) = A then B in row-vector convention.
 #ifndef PR_PHYSICS_GJK_HLSLI
 #define PR_PHYSICS_GJK_HLSLI
+#include "pr/hlsl/core.hlsli"
+#include "pr/hlsl/vector.hlsli"
+#include "src/compute/collision_types.hlsli"
 
 // ---- Constants ----
 static const int MaxGjkIter = 32;
@@ -39,40 +42,40 @@ static const float EpaEps = 1e-6f;
 
 // ---- Vector helpers ----
 
-float4 Normalise3(float4 v)
-{
-	float len = length(v.xyz);
-	return len > GjkEps ? v / len : float4(1, 0, 0, 0);
-}
+//float4 Normalise3(float4 v)
+//{
+//	float len = length(v.xyz);
+//	return len > GjkEps ? v / len : float4(1, 0, 0, 0);
+//}
 
-// Transform a point by a row_major float4x4 (point has w=1)
-float4 TransformPoint(float4x4 m, float4 p)
-{
-	return mul(float4(p.xyz, 1), m);
-}
+//// Transform a point by a row_major float4x4 (point has w=1)
+//float4 TransformPoint(float4x4 m, float4 p)
+//{
+//	return mul(float4(p.xyz, 1), m);
+//}
 
-// Transform a direction by a row_major float4x4 (direction has w=0)
-float4 TransformDir(float4x4 m, float4 d)
-{
-	return float4(mul(float4(d.xyz, 0), m).xyz, 0);
-}
+//// Transform a direction by a row_major float4x4 (direction has w=0)
+//float4 TransformDir(float4x4 m, float4 d)
+//{
+//	return float4(mul(float4(d.xyz, 0), m).xyz, 0);
+//}
 
 // ---- Support vertex functions ----
 // Each function returns the furthest point on the shape boundary in the given direction.
 float4 SupportVertex_Sphere(GpuShape shape, float4 dir)
 {
-	float4 centre = shape.s2p[3];
+	float4 centre = shape.s2rb[3];
 	float radius = shape.data.x;
-	return centre + radius * Normalise3(dir);
+	return centre + radius * normalize(dir);
 }
 
 float4 SupportVertex_Box(GpuShape shape, float4 dir)
 {
 	float3 half_ext = shape.data.xyz;
-	float4 result = shape.s2p[3];
-	float4 ax = float4(shape.s2p[0].xyz, 0);
-	float4 ay = float4(shape.s2p[1].xyz, 0);
-	float4 az = float4(shape.s2p[2].xyz, 0);
+	float4 result = shape.s2rb[3];
+	float4 ax = float4(shape.s2rb[0].xyz, 0);
+	float4 ay = float4(shape.s2rb[1].xyz, 0);
+	float4 az = float4(shape.s2rb[2].xyz, 0);
 	result += (dot(dir.xyz, ax.xyz) > 0 ? half_ext.x : -half_ext.x) * ax;
 	result += (dot(dir.xyz, ay.xyz) > 0 ? half_ext.y : -half_ext.y) * ay;
 	result += (dot(dir.xyz, az.xyz) > 0 ? half_ext.z : -half_ext.z) * az;
@@ -83,8 +86,8 @@ float4 SupportVertex_Line(GpuShape shape, float4 dir)
 {
 	float half_len = shape.data.x;
 	float thickness = shape.data.y;
-	float4 centre = shape.s2p[3];
-	float4 z_axis = float4(shape.s2p[2].xyz, 0);
+	float4 centre = shape.s2rb[3];
+	float4 z_axis = float4(shape.s2rb[2].xyz, 0);
 	float d = dot(dir.xyz, z_axis.xyz);
 	float4 result = centre;
 	result += (d > 0 ? half_len : -half_len) * z_axis;
@@ -102,9 +105,9 @@ float4 SupportVertex_Triangle(GpuShape shape, float4 dir, StructuredBuffer<float
 	float4 v0 = verts[shape.vert_offset + 0];
 	float4 v1 = verts[shape.vert_offset + 1];
 	float4 v2 = verts[shape.vert_offset + 2];
-	float4 p0 = TransformPoint(shape.s2p, v0);
-	float4 p1 = TransformPoint(shape.s2p, v1);
-	float4 p2 = TransformPoint(shape.s2p, v2);
+	float4 p0 = mul(v0, shape.s2rb);
+	float4 p1 = mul(v1, shape.s2rb);
+	float4 p2 = mul(v2, shape.s2rb);
 	float d0 = dot(dir.xyz, p0.xyz);
 	float d1 = dot(dir.xyz, p1.xyz);
 	float d2 = dot(dir.xyz, p2.xyz);
@@ -119,7 +122,7 @@ float4 SupportVertex_Polytope(GpuShape shape, float4 dir, StructuredBuffer<float
 	float4 best_vert = float4(0, 0, 0, 1);
 	for (int i = 0; i < shape.vert_count; ++i)
 	{
-		float4 v = TransformPoint(shape.s2p, verts[shape.vert_offset + i]);
+		float4 v = mul(verts[shape.vert_offset + i], shape.s2rb);
 		float d = dot(dir.xyz, v.xyz);
 		if (d > best_dot)
 		{
@@ -157,10 +160,10 @@ MkSup MkSupport(
 	GpuShape shape_b, float4x4 b2w, float4x4 w2b,
 	float4 dir, StructuredBuffer<float4> verts)
 {
-	float4 dir_a = TransformDir(w2a, +dir);
-	float4 dir_b = TransformDir(w2b, -dir);
-	float4 va = TransformPoint(a2w, SupportVertex(shape_a, dir_a, verts));
-	float4 vb = TransformPoint(b2w, SupportVertex(shape_b, dir_b, verts));
+	float4 dir_a = mul(+dir, w2a);
+	float4 dir_b = mul(-dir, w2b);
+	float4 va = mul(SupportVertex(shape_a, dir_a, verts), a2w);
+	float4 vb = mul(SupportVertex(shape_b, dir_b, verts), b2w);
 	MkSup s;
 	s.w = float4((va - vb).xyz, 0);
 	s.a = float4(va.xyz, 1);
@@ -297,13 +300,15 @@ bool Epa(
 	out_ptB = float4(0, 0, 0, 1);
 	out_epa_iters = 0;
 
-	if (gjk_sx.n < 4) return false;
+	if (gjk_sx.n < 4)
+		return false;
 
 	MkSup epa_verts[MaxEpaVerts];
 	EpaFace epa_faces[MaxEpaFaces];
 	int nv = 4, nf = 0;
-
-	for (int i = 0; i < 4; ++i)
+	int i;
+	
+	for (i = 0; i < 4; ++i)
 		epa_verts[i] = gjk_sx.s[i];
 
 	// Ensure consistent tetrahedron winding
@@ -355,7 +360,7 @@ bool Epa(
 		out_epa_iters = iter + 1;
 
 		int ci = 0;
-		for (int i = 1; i < nf; ++i)
+		for (i = 1; i < nf; ++i)
 		{
 			if (epa_faces[i].dist < epa_faces[ci].dist)
 				ci = i;
@@ -407,7 +412,7 @@ bool Epa(
 
 		EpaEdge edges[MaxEpaEdges];
 		int ne = 0;
-		for (int i = nf - 1; i >= 0; --i)
+		for (i = nf - 1; i >= 0; --i)
 		{
 			float4 face_to_new = sup.w - epa_verts[epa_faces[i].i0].w;
 			if (dot(epa_faces[i].normal.xyz, face_to_new.xyz) <= 0)
@@ -439,7 +444,7 @@ bool Epa(
 			epa_faces[i] = epa_faces[--nf];
 		}
 
-		for (int i = 0; i < ne && nf < MaxEpaFaces; ++i)
+		for (i = 0; i < ne && nf < MaxEpaFaces; ++i)
 		{
 			int ia = edges[i].a;
 			int ib = edges[i].b;

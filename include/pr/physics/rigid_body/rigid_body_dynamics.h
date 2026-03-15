@@ -49,24 +49,6 @@ namespace pr::physics
 	static_assert(sizeof(RigidBodyDynamics) == 208, "RigidBodyDynamics must be 208 bytes for GPU alignment");
 	static_assert(alignof(RigidBodyDynamics) == 16, "RigidBodyDynamics must be 16-byte aligned");
 
-	//// World-space AABB computed by the GPU integrate shader.
-	//struct alignas(16) IntegrateAABB
-	//{
-	//	BBox ws_bbox; // world-space AABB
-	//};
-	//static_assert(sizeof(IntegrateAABB) == 32, "IntegrateAABB must be 32 bytes");
-
-	// Output from the GPU integration step for debug validation.
-	// One entry per body, written by the compute shader.
-	struct alignas(16) IntegrateDebugOutput
-	{
-		float ke_before; // kinetic energy before integration
-		float ke_after;  // kinetic energy after integration
-		float pad0;
-		float pad1;
-	};
-	static_assert(sizeof(IntegrateDebugOutput) == 16, "IntegrateDebugOutput must be 16 bytes");
-
 	// Pack/Unpack a RigidBody's dynamic state into the flat GPU buffer format.
 	inline RigidBodyDynamics PackDynamics(RigidBody const& rb)
 	{
@@ -100,3 +82,4 @@ namespace pr::physics
 		rb.ZeroForces();
 	}
 }
+

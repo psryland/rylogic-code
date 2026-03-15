@@ -1,37 +1,9 @@
 // HLSL source for runtime compilation
-#ifndef PR_PHYSICS_RC
-#define PR_PHYSICS_RC
-
-#include "pr/hlsl/pr_hlsl.rc"
-
-#ifndef src_compute_integrate_hlsl_included
-#define src_compute_integrate_hlsl_included
-"src/compute/integrate.hlsl" TEXT DISCARDABLE "src/compute/integrate.hlsl"
-#endif
-
-#ifndef src_compute_sweep_hlsl_included
-#define src_compute_sweep_hlsl_included
-src_compute_sweep_hlsl TEXT DISCARDABLE "src/compute/sweep.hlsl"
-#endif
-
-#ifndef src_compute_collide_hlsl_included
-#define src_compute_collide_hlsl_included
-src_compute_collide_hlsl TEXT DISCARDABLE "src/compute/collide.hlsl"
-#endif
-
-#ifndef src_compute_gjk_hlsli_included
-#define src_compute_gjk_hlsli_included
-src_compute_gjk_hlsli TEXT DISCARDABLE "src/compute/gjk.hlsli"
-#endif
-
-#ifndef src_compute_collision_hlsli_included
-#define src_compute_collision_hlsli_included
-src_compute_collision_hlsli TEXT DISCARDABLE "src/compute/collision.hlsli"
-#endif
-
-#ifndef src_compute_resolve_hlsl_included
-#define src_compute_resolve_hlsl_included
-src_compute_resolve_hlsl TEXT DISCARDABLE "src/compute/resolve.hlsl"
-#endif
-
-#endif
+src/compute/collide.hlsl              TEXT DISCARDABLE "src/compute/collide.hlsl"
+src/compute/collision_types.hlsli     TEXT DISCARDABLE "src/compute/collision_types.hlsli"
+src/compute/collision.hlsli           TEXT DISCARDABLE "src/compute/collision.hlsli"
+src/compute/gjk.hlsli                 TEXT DISCARDABLE "src/compute/gjk.hlsli"
+src/compute/integrate.hlsl            TEXT DISCARDABLE "src/compute/integrate.hlsl"
+src/compute/resolve.hlsl              TEXT DISCARDABLE "src/compute/resolve.hlsl"
+src/compute/rigid_body_dynamics.hlsli TEXT DISCARDABLE "src/compute/rigid_body_dynamics.hlsli"
+src/compute/sweep.hlsl                TEXT DISCARDABLE "src/compute/sweep.hlsl"

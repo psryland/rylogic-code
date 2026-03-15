@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
+#include <chrono>
 #include <cassert>
 
 #include "pr/common/to.h"
@@ -59,14 +60,18 @@ namespace pr::physics
 
 	struct Gpu;
 	struct GpuIntegrator;
+	struct GpuSortAndSweep;
 	struct GpuCollisionDetector;
 	struct GpuResolver;
-	struct GpuResolveContact;
 	struct GpuShape;
 	struct GpuCollisionPair;
 	struct GpuContact;
+	struct GpuResolveContact;
+	struct GpuCollisionCounters;
+	struct GpuIntegrateDiag;
+	struct GpuPairDiag;
 	struct EngineBufferCache;
-	struct GpuSortAndSweep;
+	struct CollisionShapeCache;
 
 	using GpuPtr = std::unique_ptr<Gpu, Deleter<Gpu>>;
 	using GpuIntegratorPtr = std::unique_ptr<GpuIntegrator, Deleter<GpuIntegrator>>;
@@ -91,4 +96,10 @@ namespace pr::physics
 	{
 		return float(dist);
 	}
+
+	#if PR_DBG
+	#define COLLISION_DIAGNOSTICS 1
+	#else
+	#define COLLISION_DIAGNOSTICS 0
+	#endif
 }

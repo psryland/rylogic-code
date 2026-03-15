@@ -21,75 +21,29 @@
 //   mul(v, M) for vector transforms, mul(A, B) = A then B in row-vector convention.
 
 #include "pr/hlsl/core.hlsli"
+#include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-
-// Must match the C++ RigidBodyDynamics struct exactly (208 bytes per element).
-struct RigidBodyDynamics
-{
-	row_major float4x4 o2w;
-	float4 momentum_ang;
-	float4 momentum_lin;
-	float4 force_ang;
-	float4 force_lin;
-	float4 inertia_inv_diagonal;  // {Ixx_inv, Iyy_inv, Izz_inv, 0}
-	float4 inertia_inv_products;  // {Ixy_inv, Ixz_inv, Iyz_inv, 0}
-	float4 os_com_and_invmass;    // {com_x, com_y, com_z, inv_mass}
-	float4 os_bbox_centre;
-	float4 os_bbox_radius;
-};
-
-// Must match the C++ GpuResolveContact struct (112 bytes).
-struct GpuResolveContact
-{
-	float4 axis;                   // collision normal (in A's object space)
-	float4 contact_pt;             // contact point at estimated collision time (in A's space)
-	row_major float4x4 b2a;       // B-to-A transform
-	int body_idx_a;
-	int body_idx_b;
-	float elasticity;              // combined material elasticity (normal)
-	float friction;                // combined material static friction
-};
-
-// Shader resources
-RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
-StructuredBuffer<GpuResolveContact> g_contacts : register(t0);
-StructuredBuffer<uint> g_colours : register(t1);
+#include "src/compute/rigid_body_dynamics.hlsli"
+#include "src/compute/collision_types.hlsli"
 
 // Per-dispatch constants
 cbuffer cbResolve : register(b0)
 {
-	uint g_contact_count;
-	uint g_colour;         // current colour batch being processed
-	uint g_pad0;
-	uint g_pad1;
+	int g_colour;         // current colour batch being processed
+	int g_pad0;
+	int g_pad1;
+	int g_pad2;
 };
 
-// ----- Helper functions -----
-
-// Cross-product matrix: CPM(r) * v = cross(r, v)
-float3x3 cross_product_matrix(float3 r)
-{
-	return float3x3(
-		 0,    -r.z,  r.y,
-		 r.z,  0,    -r.x,
-		-r.y,  r.x,  0
-	);
-}
-
-// Invert a 3x3 matrix using cofactor expansion
-float3x3 invert3x3(float3x3 m)
-{
-	float3 c0 = cross(m[1], m[2]);
-	float3 c1 = cross(m[2], m[0]);
-	float3 c2 = cross(m[0], m[1]);
-	float det = dot(m[0], c0);
-	float inv_det = 1.0f / det;
-	return transpose(float3x3(c0, c1, c2)) * inv_det;
-}
+// Shader resources
+StructuredBuffer<GpuCollisionCounters> g_counters : register(t0);
+StructuredBuffer<GpuResolveContact> g_contacts : register(t1);
+RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
+RWStructuredBuffer<uint> g_colours : register(u1);
 
 // Compute kinetic energy from momentum and inverse inertia (world space).
 // Momentum is at CoM, inertia is block-diagonal.
-float kinetic_energy(RigidBodyDynamics body)
+float KineticEnergy(RigidBodyDynamics body)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
@@ -101,13 +55,53 @@ float kinetic_energy(RigidBodyDynamics body)
 	return 0.5f * spatial_dot(vel_ang, vel_lin, body.momentum_ang.xyz, body.momentum_lin.xyz);
 }
 
-// ----- Main resolve kernel -----
+[numthreads(1, 1, 1)]
+void CSGraphColouring(uint3 dtid : SV_DispatchThreadID)
+{
+	// TODO: Need to work out how to do this in a shader
+#if 0
+	// Greedy graph colouring: assign colours so no two contacts sharing a body have the same colour.
+	std::pair<std::vector<int>, int> GraphColourContacts(std::span<GpuResolveContact const> contacts)
+	{
+		auto n = static_cast<int>(contacts.size());
+		std::vector<int> colours(n, -1);
+		int max_colour = 0;
 
-[numthreads(64, 1, 1)]
+		// For each contact (in time-sorted order), find conflicting colours
+		for (int i = 0; i != n; ++i)
+		{
+			auto a = contacts[i].body_idx_a;
+			auto b = contacts[i].body_idx_b;
+
+			// Collect colours used by earlier contacts that share body A or B
+			std::vector<bool> used(max_colour + 2, false);
+			for (int j = 0; j != i; ++j)
+			{
+				if (contacts[j].body_idx_a == a || contacts[j].body_idx_b == a ||
+					contacts[j].body_idx_a == b || contacts[j].body_idx_b == b)
+				{
+					if (colours[j] >= 0)
+						used[colours[j]] = true;
+				}
+			}
+
+			// Assign lowest available colour
+			int c = 0;
+			while (c < static_cast<int>(used.size()) && used[c]) ++c;
+			colours[i] = c;
+			max_colour = std::max(max_colour, c + 1);
+		}
+
+		return {colours, max_colour};
+	}
+#endif
+}
+
+[numthreads(ResolveThreadCount, 1, 1)]
 void CSResolve(uint3 dtid : SV_DispatchThreadID)
 {
 	uint idx = dtid.x;
-	if (idx >= g_contact_count)
+	if (idx >= g_counters[0].contact_count)
 		return;
 
 	// Only process contacts assigned to the current colour batch
@@ -175,7 +169,7 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 		return;
 
 	// ----- Measure pre-collision kinetic energy -----
-	float ke_before = kinetic_energy(bodyA) + kinetic_energy(bodyB);
+	float ke_before = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 
 	// ----- Build collision mass matrix -----
 
@@ -192,15 +186,15 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 
 	// Collision inverse-mass matrix (3x3):
 	// col_I_inv = (1/mA)*I - CPM(rA)*Ia_inv*CPM(rA) + (1/mB)*I - CPM(rB)*Ib_inv*CPM(rB)
-	float3x3 cpm_rA = cross_product_matrix(rA);
-	float3x3 cpm_rB = cross_product_matrix(rB);
+	float3x3 cpm_rA = CrossProductMatrix(rA);
+	float3x3 cpm_rB = CrossProductMatrix(rB);
 
 	float3x3 col_Ia_inv = inv_mass_a * float3x3(1,0,0, 0,1,0, 0,0,1) - mul(mul(cpm_rA, Ia_inv), cpm_rA);
 	float3x3 col_Ib_inv = inv_mass_b * float3x3(1,0,0, 0,1,0, 0,0,1) - mul(mul(cpm_rB, Ib_inv), cpm_rB);
 	float3x3 col_I_inv = col_Ia_inv + col_Ib_inv;
 
 	// The collision mass matrix
-	float3x3 col_I = invert3x3(col_I_inv);
+	float3x3 col_I = Invert(col_I_inv);
 
 	// ----- Decompose impulse into normal and tangential components -----
 
@@ -278,7 +272,7 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	// ----- Energy conservation guard -----
 	// If the impulse injected energy, scale it back.
 	// KE(α) = KE₀ + αB + α²A is quadratic in the impulse scale factor α.
-	float ke_after = kinetic_energy(bodyA) + kinetic_energy(bodyB);
+	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
 	if (delta > 0 && A > 1e-12f)
 	{

@@ -101,7 +101,7 @@ bool BBox_IsIntersection(BBox a, BBox b)
 
 // Transform a bounding box by a row-major float4x4 (row-vector convention).
 // The radius is recomputed by projecting the rotated half-extents onto each target axis.
-BBox mul(BBox bbox, float4x4 a2b)
+BBox Transform(BBox bbox, float4x4 a2b)
 {
 	// Transpose so that absM[j] contains the j-th column of the abs rotation.
 	// Then dot(absM[j], radius) gives the new half-extent along target axis j.

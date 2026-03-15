@@ -66,10 +66,6 @@ namespace physics_sandbox
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
 
-		// Clear the broadphasebefore modifying bodies. The broadphase holds raw
-		// pointers to RigidBody objects, which become invalid if the vector resizes.
-		m_physics.Broadphase().Clear();
-
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
 		m_shape_buffer.resize(0);
@@ -235,11 +231,6 @@ namespace physics_sandbox
 			}
 		}
 
-		// Rebuild the broadphase with the active bodies
-		m_physics.Broadphase().Clear();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-			m_physics.Broadphase().Add(m_body[i]);
-
 		auto const& mat = m_materials(0);
 
 		DbgLog("\n--- Reset: Scenario %d [%s] ---\n", static_cast<int>(scenario), ScenarioName(scenario));
@@ -267,10 +258,6 @@ namespace physics_sandbox
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
-
-		// Clear the broadphase before modifying bodies. The broadphase holds raw
-		// pointers to RigidBody objects, which become invalid if the vector resizes.
-		m_physics.Broadphase().Clear();
 
 		// Clear existing bodies and owned shapes
 		m_body.resize(0);
@@ -435,11 +422,6 @@ namespace physics_sandbox
 				m_body.back().m_gfx = result.m_objects[obj_idx++];
 			}
 		}
-
-		// Rebuild the broadphase with the new bodies
-		m_physics.Broadphase().Clear();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-			m_physics.Broadphase().Add(m_body[i]);
 
 		// Logging
 		{

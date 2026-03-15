@@ -46,8 +46,6 @@ namespace physics_sandbox::tests
 
 			physics::MaterialMap materials;
 			physics::Engine engine(materials);
-			engine.Broadphase().Add(bodies[0]);
-			engine.Broadphase().Add(bodies[1]);
 
 			// Apply the external force before stepping
 			bodies[0].ZeroForces();
@@ -264,8 +262,6 @@ namespace physics_sandbox::tests
 
 			physics::MaterialMap materials;
 			physics::Engine engine(materials);
-			engine.Broadphase().Add(gpu_bodies[0]);
-			engine.Broadphase().Add(gpu_bodies[1]);
 
 			for (int step = 0; step != 100; ++step)
 			{
@@ -332,9 +328,6 @@ namespace physics_sandbox::tests
 
 				physics::Engine engine(materials);
 				engine.UseGpuResolve(true);
-				engine.Broadphase().Add(bodies[0]);
-				engine.Broadphase().Add(bodies[1]);
-
 				engine.PostCollisionDetection += [&](auto&, auto args)
 				{
 					if (!args.m_contacts.empty())
@@ -366,9 +359,6 @@ namespace physics_sandbox::tests
 
 				physics::Engine engine(materials);
 				engine.UseGpuResolve(false);
-				engine.Broadphase().Add(bodies[0]);
-				engine.Broadphase().Add(bodies[1]);
-
 				engine.PostCollisionDetection += [&](auto&, auto args)
 				{
 					if (!args.m_contacts.empty())
@@ -478,8 +468,6 @@ namespace physics_sandbox::tests
 
 			physics::MaterialMap materials;
 			physics::Engine engine(materials);
-			engine.Broadphase().Add(bodies[0]);
-			engine.Broadphase().Add(bodies[1]);
 
 			for (int step = 0; step != 100; ++step)
 			{
@@ -517,8 +505,6 @@ namespace physics_sandbox::tests
 
 			physics::MaterialMap materials;
 			physics::Engine engine(materials);
-			engine.Broadphase().Add(bodies[0]);
-			engine.Broadphase().Add(bodies[1]);
 
 			auto ke0 = bodies[0].KineticEnergy();
 			float max_drift = 0.0f;
@@ -558,8 +544,6 @@ namespace physics_sandbox::tests
 
 			physics::MaterialMap materials;
 			physics::Engine engine(materials);
-			engine.Broadphase().Add(bodies[0]);
-			engine.Broadphase().Add(bodies[1]);
 
 			// Step until the bodies should be close enough to overlap
 			bool collision_detected = false;
@@ -619,9 +603,7 @@ namespace physics_sandbox::tests
 				physics::Engine engine(materials);
 				engine.UseGpuDetect(gpu_detect);
 				engine.UseGpuResolve(gpu_resolve);
-				engine.Broadphase().Add(bodies[0]);
-				engine.Broadphase().Add(bodies[1]);
-
+				
 				bool collision_done = false;
 				engine.PostCollisionDetection += [&](auto&, auto args)
 				{

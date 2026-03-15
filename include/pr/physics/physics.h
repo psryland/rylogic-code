@@ -6,7 +6,6 @@
 #include "pr/collision/shapes.h"
 #include "pr/collision/collision.h"
 #include "pr/physics/forward.h"
-#include "pr/physics/collision/ibroadphase.h"
 #include "pr/physics/collision/broadphase_brute.h"
 #include "pr/physics/shape/mass.h"
 #include "pr/physics/shape/shape_mass.h"

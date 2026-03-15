@@ -108,9 +108,6 @@ namespace pr::physics
 			mat.m_elasticity_tors = 0.0f;
 			mat.m_friction_static = 0.0f;  // No friction
 
-			engine.Broadphase().Add(body_a);
-			engine.Broadphase().Add(body_b);
-
 			// Hook the PostCollisionDetection event to capture pre-impulse state.
 			// This fires after Evolve and collision detection, but before impulse resolution.
 			engine.PostCollisionDetection += [&](auto&, auto args)

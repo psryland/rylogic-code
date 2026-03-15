@@ -13,6 +13,7 @@
 #include "pr/collision/shapes.h"
 #include "src/collision/gpu_collision_types.h"
 #include "src/collision/gpu_collision_detector.h"
+#include "src/collision/collision_shape_cache.h"
 
 namespace pr::physics
 {
@@ -44,10 +45,9 @@ namespace pr::physics
 
 			// --- GPU path ---
 			// Pack shapes into GPU buffers
-			auto verts = std::vector<v4>{};
-			auto shapes = std::vector<GpuShape>{};
-			shapes.push_back(PackShapeGeneric(sa, verts));
-			shapes.push_back(PackShapeGeneric(sb, verts));
+			CollisionShapeCache cache;
+			cache.GetOrAdd(sa);
+			cache.GetOrAdd(sb);
 
 			// Build collision pair. GJK runs with A at identity, B at b2a.
 			auto pair = GpuCollisionPair{};
@@ -58,11 +58,11 @@ namespace pr::physics
 			pair.b2a = InvertOrthonormal(l2w) * r2w;
 
 			auto pairs = std::vector<GpuCollisionPair>{ pair };
-			auto gpu_contacts = std::vector<GpuContact>{};
+			auto gpu_contacts = std::vector<GpuContact>{1};
 
 			// Create a GpuIntegrator (which owns the D3D12 device and command queue),
 			// then create the collision detector sharing the same Gpu instance.
-			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, shapes, verts, gpu_contacts);
+			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, cache, gpu_contacts);
 			auto gpu_hit = gpu_count > 0;
 
 			// --- Compare collision/no-collision agreement ---

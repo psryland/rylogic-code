@@ -4,21 +4,19 @@
 //*********************************************
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "src/integrator/gpu_integrator.h"
+#include "src/collision/gpu_collision_types.h"
 
 namespace pr::physics
 {
 	using namespace pr::rdr12;
 
-	// Thread group size matching the HLSL [numthreads(64, 1, 1)] declaration.
-	static constexpr int ThreadGroupSize = 64;
-
 	// Integrate constants
 	struct alignas(16) cbIntegrate
 	{
-		float dt;
-		int body_count;
-		int pad0;
-		int pad1;
+		float g_dt;
+		int g_pad0;
+		int g_pad1;
+		int g_pad2;
 	};
 	static_assert(sizeof(cbIntegrate) == 16);
 
@@ -26,23 +24,28 @@ namespace pr::physics
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
-		inline static constexpr auto Bodies = EUAVReg::u0;
-		inline static constexpr auto Output = EUAVReg::u1;
+		inline static constexpr auto Counters = EUAVReg::u0;
+		inline static constexpr auto Bodies = EUAVReg::u1;
 		inline static constexpr auto AABB_X = EUAVReg::u2;
 		inline static constexpr auto AABB_Y = EUAVReg::u3;
 		inline static constexpr auto AABB_Z = EUAVReg::u4;
 		inline static constexpr auto AABB_Idx = EUAVReg::u5;
+		#if COLLISION_DIAGNOSTICS
+		inline static constexpr auto Diag = EUAVReg::u6;
+		#endif
 	};
 
 	GpuIntegrator::GpuIntegrator(Gpu& gpu)
 		: m_gpu(gpu)
 		, m_cs_integrate()
 		, m_r_bodies()
-		, m_r_output()
 		, m_r_aabb_x()
 		, m_r_aabb_y()
 		, m_r_aabb_z()
 		, m_r_aabb_idx()
+		#if COLLISION_DIAGNOSTICS
+		, m_r_diag()
+		#endif
 		, m_capacity()
 	{
 		CompileShaders();
@@ -51,31 +54,33 @@ namespace pr::physics
 	// Compile the integration compute shader
 	void GpuIntegrator::CompileShaders()
 	{
-		// Load the HLSL source from the embedded resource.
-		// The resource is embedded by the consuming executable's .rc file.
-		auto shader_source = resource::Read<char>(L"INTEGRATE_HLSL", L"TEXT");
 		auto compiler = ShaderCompiler{}
-			.Source(shader_source)
+			.Source(resource::Read<char>(L"src/compute/integrate.hlsl", L"TEXT"))
 			.Includes({ new ResourceIncludeHandler, true })
-			.EntryPoint(L"CSIntegrate")
+			.Define(L"COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
-		auto bytecode = compiler.Compile();
+		// m_cs_integrate
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbIntegrate>(EReg::Params)
+				.UAV(EReg::Counters)
+				.UAV(EReg::Bodies)
+				.UAV(EReg::AABB_X)
+				.UAV(EReg::AABB_Y)
+				.UAV(EReg::AABB_Z)
+				.UAV(EReg::AABB_Idx)
+				#if COLLISION_DIAGNOSTICS
+				.UAV(EReg::Diag)
+				#endif
+				;
 
-		// Root signature: root constants (cbIntegrate) + three UAVs (bodies, output, aabbs)
-		m_cs_integrate.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-			.U32<cbIntegrate>(EReg::Params)
-			.UAV(EReg::Bodies)
-			.UAV(EReg::Output)
-			.UAV(EReg::AABB_X)
-			.UAV(EReg::AABB_Y)
-			.UAV(EReg::AABB_Z)
-			.UAV(EReg::AABB_Idx)
-			.Create(m_gpu, "Physics:IntegrateSig");
+			auto bytecode = compiler.EntryPoint(L"CSIntegrate").Compile();
 
-		m_cs_integrate.m_pso = ComputePSO(m_cs_integrate.m_sig.get(), bytecode)
-			.Create(m_gpu, "Physics:IntegratePSO");
+			m_cs_integrate.m_sig = sig.Create(m_gpu, "Physics:IntegrateSig");
+			m_cs_integrate.m_pso = ComputePSO(m_cs_integrate.m_sig.get(), bytecode).Create(m_gpu, "Physics:IntegratePSO");
+		}
 	}
 
 	// Resize the buffers to hold 'capacity' bodies.
@@ -83,14 +88,20 @@ namespace pr::physics
 	{
 		capacity = std::max(1, capacity);
 
+		if (m_r_counters == nullptr)
+		{
+			m_r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionCounters");
+		}
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
 			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<RigidBodyDynamics>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyDynamics");
-			m_r_output = m_gpu.CreateResource(ResDesc::Buf<IntegrateDebugOutput>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateDebugOutput");
 			m_r_aabb_x = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_X");
 			m_r_aabb_y = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Y");
 			m_r_aabb_z = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Z");
 			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Idx");
+			#if COLLISION_DIAGNOSTICS
+			m_r_diag = m_gpu.CreateResource(ResDesc::Buf<GpuIntegrateDiag>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:GpuIntegrateDiag");
+			#endif
 			m_capacity = capacity;
 		}
 	}
@@ -98,16 +109,29 @@ namespace pr::physics
 	// Integrate bodies on GPU
 	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> dynamics, float dt)
 	{
-		// This function runs the integration compute shader, but leaves the results on the GPU
-		// for later shaders to make use of. In particular, the broadphase shader needs the aabb_x/y/z
-		// and aabb_idx values.
-
 		auto body_count = static_cast<int>(dynamics.size());
 		if (body_count == 0)
 			return;
 
 		// Ensure the buffers are large enough to hold the body count.
 		ResizeBuffers(job.m_cmd_list, body_count);
+		
+		// Initialise and upload the counters
+		{
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload_counters = job.m_upload.Alloc<GpuCollisionCounters>(1);
+			*upload_counters.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
+				.body_count = body_count,
+				.pair_count = 0,
+				.contact_count = 0,
+			};
+			job.m_cmd_list.CopyBufferRegion(m_r_counters.get(), 0, upload_counters);
+
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
 
 		// Upload body dynamics to the GPU
 		{
@@ -124,42 +148,42 @@ namespace pr::physics
 
 		// Dispatch the compute shader
 		{
-			auto cb = cbIntegrate{ .dt = dt, .body_count = body_count };
+			auto cb = cbIntegrate{ .g_dt = dt };
 
 			job.m_cmd_list.SetPipelineState(m_cs_integrate.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_integrate.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_x->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_y->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_z->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_idx->GetGPUVirtualAddress());
+			#if COLLISION_DIAGNOSTICS
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
+			#endif
 
-			auto dispatch_count = (body_count + ThreadGroupSize - 1) / ThreadGroupSize;
+			auto dispatch_count = (body_count + IntegrateThreadCount - 1) / IntegrateThreadCount;
 			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
 
+			job.m_barriers.UAV(m_r_counters.get());
 			job.m_barriers.UAV(m_r_bodies.get());
-			job.m_barriers.UAV(m_r_output.get());
 			job.m_barriers.UAV(m_r_aabb_x.get());
 			job.m_barriers.UAV(m_r_aabb_y.get());
 			job.m_barriers.UAV(m_r_aabb_z.get());
 			job.m_barriers.UAV(m_r_aabb_idx.get());
+			#if COLLISION_DIAGNOSTICS
+			job.m_barriers.UAV(m_r_diag.get());
+			#endif
 		}
-
-		// Leave output data on the GPU for the next step.
 	}
 
 	// Readback data into the provided buffers. 0-length means "don't readback".
-	void GpuIntegrator::Readback(GpuJob& job, std::span<RigidBodyDynamics> dynamics, std::span<IntegrateDebugOutput> output, std::span<BBox> aabbs)
+	void GpuIntegrator::Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag)
 	{
-		if (!dynamics.empty())
+		if (!bodies.empty())
 		{
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-		}
-		if (!output.empty())
-		{
-			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 		}
 		if (!aabbs.empty())
 		{
@@ -167,42 +191,46 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 		}
-		
+		if (!diag.empty())
+		{
+			#if COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			#endif
+		}
 		job.m_barriers.Commit();
 	
-		GpuReadbackBuffer::Allocation readback_dynamics;
-		GpuReadbackBuffer::Allocation readback_output;
+		GpuReadbackBuffer::Allocation readback_bodies;
 		GpuReadbackBuffer::Allocation readback_aabb_x;
 		GpuReadbackBuffer::Allocation readback_aabb_y;
 		GpuReadbackBuffer::Allocation readback_aabb_z;
+		GpuReadbackBuffer::Allocation readback_diag;
 
-		if (!dynamics.empty())
+		if (!bodies.empty())
 		{
-			readback_dynamics = job.m_readback.template Alloc<RigidBodyDynamics>(int(dynamics.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_dynamics, m_r_output.get(), 0);
-		}
-		if (!output.empty())
-		{
-			readback_output = job.m_readback.template Alloc<IntegrateDebugOutput>(int(output.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_output, m_r_output.get(), 0);
+			readback_bodies = job.m_readback.template Alloc<RigidBodyDynamics>(static_cast<int>(bodies.size()));
+			job.m_cmd_list.CopyBufferRegion(readback_bodies, m_r_bodies.get(), 0);
 		}
 		if (!aabbs.empty())
 		{
-			readback_aabb_x = job.m_readback.template Alloc<float>(int(2 * aabbs.size()));
-			readback_aabb_y = job.m_readback.template Alloc<float>(int(2 * aabbs.size()));
-			readback_aabb_z = job.m_readback.template Alloc<float>(int(2 * aabbs.size()));
+			auto aabb_count = static_cast<int>(2 * aabbs.size());
+			readback_aabb_x = job.m_readback.template Alloc<float>(aabb_count);
+			readback_aabb_y = job.m_readback.template Alloc<float>(aabb_count);
+			readback_aabb_z = job.m_readback.template Alloc<float>(aabb_count);
 			job.m_cmd_list.CopyBufferRegion(readback_aabb_x, m_r_aabb_x.get(), 0);
 			job.m_cmd_list.CopyBufferRegion(readback_aabb_y, m_r_aabb_y.get(), 0);
 			job.m_cmd_list.CopyBufferRegion(readback_aabb_z, m_r_aabb_z.get(), 0);
 		}
+		if (!diag.empty())
+		{
+			#if COLLISION_DIAGNOSTICS
+			readback_diag = job.m_readback.template Alloc<GpuIntegrateDiag>(int(diag.size()));
+			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
+			#endif
+		}
 
-		if (!dynamics.empty())
+		if (!bodies.empty())
 		{
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
-		if (!output.empty())
-		{
-			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
 		if (!aabbs.empty())
 		{
@@ -210,16 +238,18 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
+		if (!diag.empty())
+		{
+			#if COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#endif
+		}
 
 		job.Run();
 
-		if (!dynamics.empty())
+		if (!bodies.empty())
 		{
-			memcpy(dynamics.data(), readback_dynamics.template ptr<RigidBodyDynamics>(), dynamics.size() * sizeof(RigidBodyDynamics));
-		}
-		if (!output.empty())
-		{
-			memcpy(output.data(), readback_output.template ptr<IntegrateDebugOutput>(), output.size() * sizeof(IntegrateDebugOutput));
+			memcpy(bodies.data(), readback_bodies.template ptr<RigidBodyDynamics>(), bodies.size() * sizeof(RigidBodyDynamics));
 		}
 		if (!aabbs.empty())
 		{
@@ -233,6 +263,12 @@ namespace pr::physics
 				auto upper = v4{ aabb_x[i * 2 + 1], aabb_y[i * 2 + 1], aabb_z[i * 2 + 1], 1 };
 				aabbs[i] = BBox::Make(lower, upper);
 			}
+		}
+		if (!diag.empty())
+		{
+			#if COLLISION_DIAGNOSTICS
+			memcpy(diag.data(), readback_diag.template ptr<GpuIntegrateDiag>(), diag.size() * sizeof(GpuIntegrateDiag));
+			#endif
 		}
 	}
 

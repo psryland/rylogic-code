@@ -1,8 +1,8 @@
 //*********************************************
-// Physics Engine — GPU Narrow Phase Collision Compute Shader
+// Physics Engine
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// One thread per broadphase pair. Dispatches to specialised collision tests
+// One thread per broad phase pair. Dispatches to specialised collision tests
 // for simple/curved shape pairs, or falls through to generic GJK + EPA for
 // purely polyhedral pairs.
 //
@@ -17,100 +17,47 @@
 //
 // Compile-time switches:
 //   COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u2
-//
-// Matrix convention: same as integrate.hlsl (row-vector / DirectX-style).
-
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "src/compute/collision_types.hlsli"
+#include "src/compute/collision.hlsli"
+#include "src/compute/gjk.hlsli"
 
-// ---- Shape type enum (matches C++ EShape) ----
-static const int SHAPE_SPHERE   = 0;
-static const int SHAPE_BOX      = 1;
-static const int SHAPE_LINE     = 2;
-static const int SHAPE_TRIANGLE = 3;
-static const int SHAPE_POLYTOPE = 4;
-
-// ---- GPU data structures (must match C++ layout exactly) ----
-struct GpuShape
-{
-	row_major float4x4 s2p; // shape-to-parent transform
-	int type;
-	int vert_offset;
-	int vert_count;
-	int material_id;
-	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,thickness)
-};
-struct GpuCollisionPair
-{
-	int shape_idx_a;
-	int shape_idx_b;
-	int pair_index;
-	int pad0;
-	row_major float4x4 b2a; // transform B into A's space
-};
-struct GpuContact
-{
-	float4 axis;
-	float4 pt;
-	float depth;
-	int pair_index;
-	int mat_id_a;
-	int mat_id_b;
-};
-
-#ifdef COLLISION_DIAGNOSTICS
-struct GpuPairDiag
-{
-	int pair_index;
-	int shape_type_a;
-	int shape_type_b;
-	int gjk_iters;
-	int epa_iters;
-	int hit;
-	int pad0;
-	int pad1;
-};
-#endif
-
-// ---- Bindings ----
+// Shader parameters
 cbuffer cbCollision : register(b0)
 {
-	uint g_pair_count;
+	uint g_max_contacts;
 	uint g_pad0;
 	uint g_pad1;
 	uint g_pad2;
 };
 
-StructuredBuffer<GpuShape>         g_shapes   : register(t0);
-StructuredBuffer<GpuCollisionPair> g_pairs    : register(t1);
-StructuredBuffer<float4>           g_verts    : register(t2);
-RWStructuredBuffer<GpuContact>     g_contacts : register(u0);
-RWStructuredBuffer<uint>           g_counters : register(u1);
-#ifdef COLLISION_DIAGNOSTICS
-RWStructuredBuffer<GpuPairDiag>    g_diag     : register(u2);
+RWStructuredBuffer<GpuCollisionCounters> g_counters: register(u0);
+RWStructuredBuffer<GpuContact> g_contacts: register(u1);
+RWStructuredBuffer<DispatchArguments> g_dispatch_args: register(u2);
+StructuredBuffer<GpuCollisionPair> g_pairs: register(t0);
+StructuredBuffer<GpuShape> g_shapes: register(t1);
+StructuredBuffer<float4> g_verts: register(t2);
+#if COLLISION_DIAGNOSTICS
+RWStructuredBuffer<GpuPairDiag> g_diag : register(u3);
 #endif
 
-// Include collision algorithms after struct definitions (they reference GpuShape, etc.)
-#include "pr/physics/compute/gjk.hlsli"
-#include "pr/physics/compute/collision.hlsli"
-
-// ---- Compute shader entry point ----
-[numthreads(32, 1, 1)]
-void CSCollisionDetect(uint3 ThreadID : SV_DispatchThreadID)
+[numthreads(CollideThreadCount, 1, 1)]
+void CSCollide(uint3 ThreadID : SV_DispatchThreadID)
 {
-	if (ThreadID.x >= g_pair_count)
+	if (ThreadID.x >= g_counters[0].pair_count)
 		return;
 
 	GpuCollisionPair pair = g_pairs[ThreadID.x];
 	GpuShape shape_a = g_shapes[pair.shape_idx_a];
 	GpuShape shape_b = g_shapes[pair.shape_idx_b];
 
-	// Build the world transforms for each shape.
+	// Build the transforms for each shape.
 	// Shape A is at identity (collision runs in A's space).
 	// Shape B is at b2a (the relative transform from B to A).
-	// The s2p transform is pre-baked into the world transforms.
-	float4x4 a2w = shape_a.s2p;
-	float4x4 b2w = mul(shape_b.s2p, pair.b2a);
+	// "World" here means RigidBody-A's local space.
+	float4x4 a2w = shape_a.s2rb;
+	float4x4 b2w = mul(shape_b.s2rb, pair.b2a);
 
 	// Dispatch to specialised collision tests for shape pairs involving
 	// implicit curved surfaces (sphere, thick line), or fall through to
@@ -187,7 +134,7 @@ void CSCollisionDetect(uint3 ThreadID : SV_DispatchThreadID)
 		col_axis = -col_axis;
 
 	// Write per-pair diagnostics (every pair, not just colliding ones)
-#ifdef COLLISION_DIAGNOSTICS
+	#if COLLISION_DIAGNOSTICS
 	{
 		GpuPairDiag diag;
 		diag.pair_index = pair.pair_index;
@@ -200,15 +147,15 @@ void CSCollisionDetect(uint3 ThreadID : SV_DispatchThreadID)
 		diag.pad1 = 0;
 		g_diag[ThreadID.x] = diag;
 	}
-#endif
+	#endif
 
 	if (!hit)
 		return;
 
 	// Allocate a slot in the contact buffer atomically
 	uint slot;
-	InterlockedAdd(g_counters[0], 1, slot);
-	if (slot >= g_pair_count)
+	InterlockedAdd(g_counters[0].contact_count, 1, slot);
+	if (slot >= g_max_contacts)
 		return;
 
 	// Write the contact
@@ -220,4 +167,15 @@ void CSCollisionDetect(uint3 ThreadID : SV_DispatchThreadID)
 	contact.mat_id_a = shape_a.material_id;
 	contact.mat_id_b = shape_b.material_id;
 	g_contacts[slot] = contact;
+}
+
+// This shader is dispatched with 1 thread. It calculates the number of thread groups needed for the collision detection
+// shader based on the number of pairs found in the sweep step, and writes that to the dispatch arguments buffer.
+[numthreads(1,1,1)]
+void CSCalcResolveDispatch(int3 dtid : SV_DispatchThreadID)
+{
+	uint count = g_counters[0].contact_count;
+	g_dispatch_args[0].ThreadGroupCountX = (count + CollideThreadCount) / CollideThreadCount;
+	g_dispatch_args[0].ThreadGroupCountY = 1;
+	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }

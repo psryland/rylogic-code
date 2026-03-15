@@ -24,66 +24,34 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-
-// Must match the C++ RigidBodyDynamics struct exactly (208 bytes per element).
-struct RigidBodyDynamics
-{
-	// Object-to-world transform. Each HLSL row = one C++ column vector.
-	// Row 0-2 = rotation basis vectors, Row 3 = position (w=1).
-	row_major float4x4 o2w;
-
-	// World-space spatial momentum [angular, linear] at centre of mass
-	float4 momentum_ang;
-	float4 momentum_lin;
-
-	// World-space force accumulator [angular, linear] at centre of mass
-	float4 force_ang;
-	float4 force_lin;
-
-	// Object-space inverse inertia (compact symmetric 3x3)
-	float4 inertia_inv_diagonal;  // {Ixx_inv, Iyy_inv, Izz_inv, 0}
-	float4 inertia_inv_products;  // {Ixy_inv, Ixz_inv, Iyz_inv, 0}
-
-	// Object-space CoM offset from model origin, packed with inverse mass.
-	// The CoM offset is needed to convert CoM velocity to model-origin position changes.
-	float4 os_com_and_invmass;    // {com_x, com_y, com_z, inv_mass}
-	
-	// Object-space bounding box
-	float4 os_bbox_centre;        // object-space AABB centre
-	float4 os_bbox_radius;        // object-space AABB half-extents
-};
-
-// Per-body output for debug energy validation
-struct IntegrateDebugOutput
-{
-	float ke_before;
-	float ke_after;
-	float pad0;
-	float pad1;
-};
-
-// Shader resources
-RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
-RWStructuredBuffer<IntegrateDebugOutput> g_dbg_output : register(u1);
-RWStructuredBuffer<float> g_aabb_x : register(u2);
-RWStructuredBuffer<float> g_aabb_y : register(u3);
-RWStructuredBuffer<float> g_aabb_z : register(u4);
-RWStructuredBuffer<int> g_aabb_idx : register(u5);
+#include "src/compute/rigid_body_dynamics.hlsli"
+#include "src/compute/collision_types.hlsli"
 
 // Integration parameters
 cbuffer cbIntegrate : register(b0)
 {
 	float g_dt;
-	int g_body_count;
 	int g_pad0;
 	int g_pad1;
+	int g_pad2;
 };
 
-[numthreads(64, 1, 1)]
+// Shader resources
+RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
+RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u1);
+RWStructuredBuffer<float> g_aabb_x : register(u2);
+RWStructuredBuffer<float> g_aabb_y : register(u3);
+RWStructuredBuffer<float> g_aabb_z : register(u4);
+RWStructuredBuffer<int> g_aabb_idx : register(u5);
+#if COLLISION_DIAGNOSTICS
+RWStructuredBuffer<GpuIntegrateDiag> g_diag : register(u6);
+#endif
+
+[numthreads(IntegrateThreadCount, 1, 1)]
 void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 {
 	int idx = dtid.x;
-	if (idx >= g_body_count)
+	if (idx >= g_counters[0].body_count)
 		return;
 
 	// Load the body's dynamic state
@@ -177,8 +145,8 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	// Compute world-space AABB from object-space bbox and the updated transform.
 	// new_rot[i] is the i-th basis vector (row-major convention), so to get the
 	// j-th world-axis extent we sum |basis_i[j]| * os_radius[i] over all i.
-	float3 os_centre = body.os_bbox_centre.xyz;
-	float3 os_radius = body.os_bbox_radius.xyz;
+	float3 os_centre = body.os_bbox.centre.xyz;
+	float3 os_radius = body.os_bbox.radius.xyz;
 	float3 ws_centre = mul(float4(os_centre, 1), body.o2w).xyz;
 	float3 ws_radius;
 	ws_radius.x = abs(new_rot[0].x) * os_radius.x + abs(new_rot[1].x) * os_radius.y + abs(new_rot[2].x) * os_radius.z;
@@ -187,10 +155,6 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 
 	// Write results
 	g_bodies[idx] = body;
-	g_dbg_output[idx].ke_before = ke_before;
-	g_dbg_output[idx].ke_after = ke_after;
-	g_dbg_output[idx].pad0 = 0;
-	g_dbg_output[idx].pad1 = 0;
 
 	// Write the aabb min/max values
 	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;
@@ -201,4 +165,11 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	g_aabb_z[2 * idx + 1] = ws_centre.z + ws_radius.z;
 	g_aabb_idx[2 * idx + 0] = (idx << 1) | 0; // bounding box lower bound
 	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1; // bounding box upper bound
+
+	#if COLLISION_DIAGNOSTICS
+	g_diag[idx].ke_before = ke_before;
+	g_diag[idx].ke_after = ke_after;
+	g_diag[idx].pad0 = 0;
+	g_diag[idx].pad1 = 0;
+	#endif
 }

@@ -42,6 +42,13 @@
 //     Polytope vs Polytope
 #ifndef PR_PHYSICS_COLLISION_HLSLI
 #define PR_PHYSICS_COLLISION_HLSLI
+#include "pr/hlsl/core.hlsli"
+#include "pr/hlsl/vector.hlsli"
+#include "src/compute/collision_types.hlsli"
+#include "src/compute/gjk.hlsli"
+
+// ---- Constants ----
+static const float Eps = 1e-8f;
 
 // ---- Sphere vs Sphere ----
 // Direct distance test between two sphere centres.
@@ -86,22 +93,23 @@ bool SphereVsBox(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 sphere_centre = sphere_w[3].xyz;
+	float4 sphere_centre = sphere_w[3];
 	float radius = sphere.data.x;
-	float3 half_ext = box.data.xyz;
-	float3 box_centre = box_w[3].xyz;
+	float4 half_ext = box.data;
+	float4 box_centre = box_w[3];
 
 	// Transform sphere centre into box's local frame
-	float3 local = float3(
-		dot(sphere_centre - box_centre, box_w[0].xyz),
-		dot(sphere_centre - box_centre, box_w[1].xyz),
-		dot(sphere_centre - box_centre, box_w[2].xyz));
+	float4 local = float4(
+		dot(sphere_centre - box_centre, box_w[0]),
+		dot(sphere_centre - box_centre, box_w[1]),
+		dot(sphere_centre - box_centre, box_w[2]),
+		0);
 
 	// Clamp to box extents to find closest point on box surface
-	float3 clamped = clamp(local, -half_ext, half_ext);
+	float4 clamped = clamp(local, -half_ext, half_ext);
 
 	// Distance from sphere centre to closest point on box
-	float3 delta = local - clamped;
+	float4 delta = local - clamped;
 	float dist_sq = dot(delta, delta);
 
 	if (dist_sq >= radius * radius)
@@ -111,48 +119,48 @@ bool SphereVsBox(
 	if (dist_sq > 1e-12f)
 	{
 		float dist = sqrt(dist_sq);
-		float3 local_normal = delta / dist;
+		float4 local_normal = delta / dist;
 
 		// Transform normal back to world space
-		float3 world_normal = local_normal.x * box_w[0].xyz
-		                    + local_normal.y * box_w[1].xyz
-		                    + local_normal.z * box_w[2].xyz;
+		float4 world_normal = local_normal.x * box_w[0]
+		                    + local_normal.y * box_w[1]
+		                    + local_normal.z * box_w[2];
 
-		out_axis = float4(world_normal, 0);
+		out_axis = world_normal;
 		out_depth = radius - dist;
 
 		// Contact point on box surface in world space
-		float3 closest_world = box_centre
-			+ clamped.x * box_w[0].xyz
-			+ clamped.y * box_w[1].xyz
-			+ clamped.z * box_w[2].xyz;
-		out_point = float4(closest_world, 1);
+		float4 closest_world = box_centre
+			+ clamped.x * box_w[0]
+			+ clamped.y * box_w[1]
+			+ clamped.z * box_w[2];
+		out_point = closest_world;
 		return true;
 	}
 
 	// Sphere centre is inside the box — find the shortest axis to push out
-	float3 face_dist = half_ext - abs(local);
+	float4 face_dist = half_ext - abs(local);
 	int min_axis = 0;
 	if (face_dist.y < face_dist.x) min_axis = 1;
 	if (face_dist.z < face_dist[min_axis]) min_axis = 2;
 
-	float3 local_normal = float3(0, 0, 0);
+	float4 local_normal = float4(0, 0, 0, 0);
 	local_normal[min_axis] = local[min_axis] > 0 ? 1.0f : -1.0f;
 
-	float3 world_normal = local_normal.x * box_w[0].xyz
-	                    + local_normal.y * box_w[1].xyz
-	                    + local_normal.z * box_w[2].xyz;
+	float4 world_normal = local_normal.x * box_w[0]
+	                    + local_normal.y * box_w[1]
+	                    + local_normal.z * box_w[2];
 
-	out_axis = float4(world_normal, 0);
+	out_axis = world_normal;
 	out_depth = radius + face_dist[min_axis];
 
 	// Contact point: box face
-	float3 face_pt = local;
+	float4 face_pt = local;
 	face_pt[min_axis] = local_normal[min_axis] * half_ext[min_axis];
-	out_point = float4(box_centre
-		+ face_pt.x * box_w[0].xyz
-		+ face_pt.y * box_w[1].xyz
-		+ face_pt.z * box_w[2].xyz, 1);
+	out_point = box_centre
+		+ face_pt.x * box_w[0]
+		+ face_pt.y * box_w[1]
+		+ face_pt.z * box_w[2];
 	return true;
 }
 
@@ -168,21 +176,21 @@ bool SphereVsLine(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 sphere_centre = sphere_w[3].xyz;
+	float4 sphere_centre = sphere_w[3];
 	float sphere_r = sphere.data.x;
 	float half_len = seg.data.x;
 	float thickness = seg.data.y;
-	float3 seg_centre = seg_w[3].xyz;
-	float3 seg_dir = seg_w[2].xyz; // Z axis is the line direction
+	float4 seg_centre = seg_w[3];
+	float4 seg_dir = seg_w[2]; // Z axis is the line direction
 
 	// Project sphere centre onto line axis
-	float3 to_sphere = sphere_centre - seg_centre;
+	float4 to_sphere = sphere_centre - seg_centre;
 	float t = dot(to_sphere, seg_dir);
 	t = clamp(t, -half_len, half_len);
 
 	// Closest point on line segment
-	float3 closest = seg_centre + t * seg_dir;
-	float3 diff = sphere_centre - closest;
+	float4 closest = seg_centre + t * seg_dir;
+	float4 diff = sphere_centre - closest;
 	float dist_sq = dot(diff, diff);
 	float combined_r = sphere_r + thickness;
 
@@ -190,10 +198,10 @@ bool SphereVsLine(
 		return false;
 
 	float dist = sqrt(dist_sq);
-	float3 normal = diff / dist;
-	out_axis = float4(normal, 0);
+	float4 normal = diff / dist;
+	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = float4(closest + thickness * normal, 1);
+	out_point = closest + thickness * normal;
 	return true;
 }
 
@@ -213,23 +221,23 @@ bool SphereVsConvex(
 	out_depth = 0;
 	out_gjk_iters = 0;
 
-	float3 sphere_centre = sphere_w[3].xyz;
+	float4 sphere_centre = sphere_w[3];
 	float radius = sphere.data.x;
 
 	float4x4 w2c = InvertOrthonormal(convex_w);
 
 	// Initial search direction: from convex centre toward sphere centre
-	float3 dir3 = sphere_centre - convex_w[3].xyz;
-	if (dot(dir3, dir3) < GjkEps) dir3 = float3(1, 0, 0);
+	float4 dir = sphere_centre - convex_w[3];
+	if (dot(dir, dir) < Eps)
+		dir = float4(1, 0, 0, 0);
 
 	// GJK closest-point between the convex shape and the sphere centre (a point).
 	// The simplex tracks the closest feature on the Minkowski difference (convex - point = convex shifted).
 	// We just need the closest point on the convex to the sphere centre.
-	float4 dir = float4(dir3, 0);
-	float4 local_dir = TransformDir(w2c, dir);
+	float4 local_dir = mul(dir, w2c);
 	float4 sup_local = SupportVertex(convex, local_dir, verts);
-	float4 sup = TransformPoint(convex_w, sup_local);
-	float4 w = float4((sup - float4(sphere_centre, 1)).xyz, 0); // Minkowski vertex
+	float4 sup = mul(sup_local, convex_w);
+	float4 w = sup - sphere_centre; // Minkowski vertex
 
 	// Simplex for closest-point GJK (we store up to 3 vertices)
 	float4 simplex_w[4];  // Minkowski difference points
@@ -246,13 +254,13 @@ bool SphereVsConvex(
 
 		// Search toward the origin
 		dir = -float4(w.xyz, 0);
-		if (dot(dir.xyz, dir.xyz) < GjkEps)
+		if (dot(dir.xyz, dir.xyz) < Eps)
 			break;
 
-		local_dir = TransformDir(w2c, dir);
+		local_dir = mul(dir, w2c);
 		sup_local = SupportVertex(convex, local_dir, verts);
-		sup = TransformPoint(convex_w, sup_local);
-		w = float4((sup - float4(sphere_centre, 1)).xyz, 0);
+		sup = mul(sup_local, convex_w);
+		w = sup - sphere_centre;
 
 		// Check if new support makes progress toward origin
 		float proj = dot(w.xyz, dir.xyz);
@@ -269,7 +277,7 @@ bool SphereVsConvex(
 		{
 			// Line case: project origin onto segment
 			float4 ab = simplex_w[1] - simplex_w[0];
-			float t = -dot(simplex_w[0].xyz, ab.xyz) / max(dot(ab.xyz, ab.xyz), GjkEps);
+			float t = -dot(simplex_w[0].xyz, ab.xyz) / max(dot(ab.xyz, ab.xyz), Eps);
 			t = saturate(t);
 			w = simplex_w[0] + t * ab;
 			if (t <= 0) { sn = 1; }
@@ -284,7 +292,7 @@ bool SphereVsConvex(
 			float d20 = dot(ao.xyz, ab.xyz), d21 = dot(ao.xyz, ac.xyz);
 			float denom = d00 * d11 - d01 * d01;
 
-			if (abs(denom) < GjkEps)
+			if (abs(denom) < Eps)
 			{
 				// Degenerate triangle — reduce to best edge
 				sn = 2;
@@ -311,7 +319,7 @@ bool SphereVsConvex(
 				{
 					int i = idx[e], j = idx[(e + 1) % 3];
 					float4 edge = simplex_w[j] - simplex_w[i];
-					float et = -dot(simplex_w[i].xyz, edge.xyz) / max(dot(edge.xyz, edge.xyz), GjkEps);
+					float et = -dot(simplex_w[i].xyz, edge.xyz) / max(dot(edge.xyz, edge.xyz), Eps);
 					et = saturate(et);
 					float4 pt = simplex_w[i] + et * edge;
 					float d = dot(pt.xyz, pt.xyz);
@@ -342,23 +350,23 @@ bool SphereVsConvex(
 	if (dist >= radius)
 		return false; // No overlap
 
-	if (dist > GjkEps)
+	if (dist > Eps)
 	{
-		float3 normal = w.xyz / dist;
-		out_axis = float4(normal, 0);
+		float4 normal = w / dist;
+		out_axis = normal;
 		out_depth = radius - dist;
 
 		// Contact point: on the convex surface (closest point to sphere centre)
 		// Reconstruct from simplex
-		float3 contact_on_convex = sphere_centre + normal * dist;
-		out_point = float4(contact_on_convex, 1);
+		float4 contact_on_convex = sphere_centre + normal * dist;
+		out_point = contact_on_convex;
 	}
 	else
 	{
 		// Sphere centre is on/inside the convex — use an approximate axis
-		out_axis = float4(normalize(sphere_centre - convex_w[3].xyz), 0);
+		out_axis = normalize(sphere_centre - convex_w[3]);
 		out_depth = radius;
-		out_point = float4(sphere_centre, 1);
+		out_point = sphere_centre;
 	}
 	return true;
 }
@@ -367,11 +375,11 @@ bool SphereVsConvex(
 
 // Closest point between two line segments. Returns the parameters (t0, t1) in [0,1].
 void ClosestPointSegmentSegment(
-	float3 p0, float3 d0, float len0,
-	float3 p1, float3 d1, float len1,
+	float4 p0, float4 d0, float len0,
+	float4 p1, float4 d1, float len1,
 	out float t0, out float t1)
 {
-	float3 r = p0 - p1;
+	float4 r = p0 - p1;
 	float a = dot(d0, d0); // len0*len0 but d0 might not be unit
 	float e = dot(d1, d1);
 	float f = dot(d1, r);
@@ -397,17 +405,17 @@ void ClosestPointSegmentSegment(
 }
 
 // Closest point on a triangle (in world space) to a point. Returns barycentric coords.
-float3 ClosestPointOnTriangle(float3 p, float3 v0, float3 v1, float3 v2)
+float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
 {
-	float3 ab = v1 - v0, ac = v2 - v0, ap = p - v0;
+	float4 ab = v1 - v0, ac = v2 - v0, ap = p - v0;
 	float d1 = dot(ab, ap), d2 = dot(ac, ap);
 	if (d1 <= 0 && d2 <= 0) return v0;
 
-	float3 bp = p - v1;
+	float4 bp = p - v1;
 	float d3 = dot(ab, bp), d4 = dot(ac, bp);
 	if (d3 >= 0 && d4 <= d3) return v1;
 
-	float3 cp = p - v2;
+	float4 cp = p - v2;
 	float d5 = dot(ab, cp), d6 = dot(ac, cp);
 	if (d6 >= 0 && d5 <= d6) return v2;
 
@@ -427,16 +435,15 @@ float3 ClosestPointOnTriangle(float3 p, float3 v0, float3 v1, float3 v2)
 }
 
 // Get the world-space vertices of a triangle shape
-void GetTriangleVerts(GpuShape tri, float4x4 tri_w, StructuredBuffer<float4> verts,
-	out float3 v0, out float3 v1, out float3 v2)
+void GetTriangleVerts(GpuShape tri, float4x4 tri_w, StructuredBuffer<float4> verts, out float4 v0, out float4 v1, out float4 v2)
 {
-	v0 = TransformPoint(tri_w, TransformPoint(tri.s2p, verts[tri.vert_offset + 0])).xyz;
-	v1 = TransformPoint(tri_w, TransformPoint(tri.s2p, verts[tri.vert_offset + 1])).xyz;
-	v2 = TransformPoint(tri_w, TransformPoint(tri.s2p, verts[tri.vert_offset + 2])).xyz;
+	v0 = mul(mul(verts[tri.vert_offset + 0], tri.s2rb), tri_w);
+	v1 = mul(mul(verts[tri.vert_offset + 1], tri.s2rb), tri_w);
+	v2 = mul(mul(verts[tri.vert_offset + 2], tri.s2rb), tri_w);
 }
 
 // Closest point on a line segment to a point
-float3 ClosestPointOnSegment(float3 p, float3 seg_centre, float3 seg_dir, float half_len)
+float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float half_len)
 {
 	float t = clamp(dot(p - seg_centre, seg_dir), -half_len, half_len);
 	return seg_centre + t * seg_dir;
@@ -453,8 +460,8 @@ bool LineVsLine(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 ca = la_w[3].xyz, cb = lb_w[3].xyz;
-	float3 da = la_w[2].xyz, db = lb_w[2].xyz;
+	float4 ca = la_w[3], cb = lb_w[3];
+	float4 da = la_w[2], db = lb_w[2];
 	float ha = la.data.x, hb = lb.data.x;
 	float ta = la.data.y, tb = lb.data.y;
 	float combined_r = ta + tb;
@@ -462,19 +469,19 @@ bool LineVsLine(
 	float t0, t1;
 	ClosestPointSegmentSegment(ca, da, ha, cb, db, hb, t0, t1);
 
-	float3 pa = ca + t0 * da;
-	float3 pb = cb + t1 * db;
-	float3 diff = pb - pa;
+	float4 pa = ca + t0 * da;
+	float4 pb = cb + t1 * db;
+	float4 diff = pb - pa;
 	float dist_sq = dot(diff, diff);
 
 	if (dist_sq >= combined_r * combined_r || dist_sq < 1e-12f)
 		return false;
 
 	float dist = sqrt(dist_sq);
-	float3 normal = diff / dist;
-	out_axis = float4(normal, 0);
+	float4 normal = diff / dist;
+	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = float4(pa + ta * normal, 1);
+	out_point = pa + ta * normal;
 	return true;
 }
 
@@ -490,37 +497,38 @@ bool LineVsBox(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 seg_centre = seg_w[3].xyz;
-	float3 seg_dir = seg_w[2].xyz;
+	float4 seg_centre = seg_w[3];
+	float4 seg_dir = seg_w[2];
 	float half_len = seg.data.x;
 	float thickness = seg.data.y;
-	float3 half_ext = box.data.xyz;
-	float3 box_centre = box_w[3].xyz;
+	float4 half_ext = box.data;
+	float4 box_centre = box_w[3];
 
 	// Sample several points along the line and find the closest one to the box.
 	// For a segment vs OBB, the closest feature is one of: endpoint, or the point
 	// where the segment is tangent to a box face. We approximate by testing both
 	// endpoints and the midpoint projected onto the box.
 	float best_dist_sq = 1e30f;
-	float3 best_line_pt = seg_centre;
-	float3 best_box_pt = box_centre;
+	float4 best_line_pt = seg_centre;
+	float4 best_box_pt = box_centre;
 
 	// Test N sample points along the line
 	static const int N = 5;
 	for (int i = 0; i < N; ++i)
 	{
 		float t = -half_len + (2.0f * half_len) * (float)i / (float)(N - 1);
-		float3 lp = seg_centre + t * seg_dir;
+		float4 lp = seg_centre + t * seg_dir;
 
 		// Closest point on box to this line point
-		float3 local = float3(
-			dot(lp - box_centre, box_w[0].xyz),
-			dot(lp - box_centre, box_w[1].xyz),
-			dot(lp - box_centre, box_w[2].xyz));
-		float3 clamped = clamp(local, -half_ext, half_ext);
-		float3 bp = box_centre + clamped.x * box_w[0].xyz + clamped.y * box_w[1].xyz + clamped.z * box_w[2].xyz;
+		float4 local = float4(
+			dot(lp - box_centre, box_w[0]),
+			dot(lp - box_centre, box_w[1]),
+			dot(lp - box_centre, box_w[2]),
+			0);
+		float4 clamped = clamp(local, -half_ext, half_ext);
+		float4 bp = box_centre + clamped.x * box_w[0] + clamped.y * box_w[1] + clamped.z * box_w[2];
 
-		float3 diff = lp - bp;
+		float4 diff = lp - bp;
 		float d = dot(diff, diff);
 		if (d < best_dist_sq)
 		{
@@ -532,15 +540,16 @@ bool LineVsBox(
 
 	// Refine: project the best box point back onto the line to get exact closest pair
 	float t_refine = clamp(dot(best_box_pt - seg_centre, seg_dir), -half_len, half_len);
-	float3 refined_lp = seg_centre + t_refine * seg_dir;
-	float3 local_r = float3(
-		dot(refined_lp - box_centre, box_w[0].xyz),
-		dot(refined_lp - box_centre, box_w[1].xyz),
-		dot(refined_lp - box_centre, box_w[2].xyz));
-	float3 clamped_r = clamp(local_r, -half_ext, half_ext);
-	float3 refined_bp = box_centre + clamped_r.x * box_w[0].xyz + clamped_r.y * box_w[1].xyz + clamped_r.z * box_w[2].xyz;
+	float4 refined_lp = seg_centre + t_refine * seg_dir;
+	float4 local_r = float4(
+		dot(refined_lp - box_centre, box_w[0]),
+		dot(refined_lp - box_centre, box_w[1]),
+		dot(refined_lp - box_centre, box_w[2]),
+		0);
+	float4 clamped_r = clamp(local_r, -half_ext, half_ext);
+	float4 refined_bp = box_centre + clamped_r.x * box_w[0] + clamped_r.y * box_w[1] + clamped_r.z * box_w[2];
 
-	float3 diff = refined_lp - refined_bp;
+	float4 diff = refined_lp - refined_bp;
 	float dist_sq = dot(diff, diff);
 
 	if (dist_sq >= thickness * thickness)
@@ -549,24 +558,24 @@ bool LineVsBox(
 	if (dist_sq > 1e-12f)
 	{
 		float dist = sqrt(dist_sq);
-		float3 normal = diff / dist;
-		out_axis = float4(normal, 0);
+		float4 normal = diff / dist;
+		out_axis = normal;
 		out_depth = thickness - dist;
-		out_point = float4(refined_bp, 1);
+		out_point = refined_bp;
 	}
 	else
 	{
 		// Line skeleton is inside the box — push out along shortest box face
-		float3 face_dist = half_ext - abs(local_r);
+		float4 face_dist = half_ext - abs(local_r);
 		int min_axis = 0;
 		if (face_dist.y < face_dist.x) min_axis = 1;
 		if (face_dist.z < face_dist[min_axis]) min_axis = 2;
-		float3 local_normal = float3(0, 0, 0);
+		float4 local_normal = float4(0, 0, 0, 0);
 		local_normal[min_axis] = local_r[min_axis] > 0 ? 1.0f : -1.0f;
-		float3 world_normal = local_normal.x * box_w[0].xyz + local_normal.y * box_w[1].xyz + local_normal.z * box_w[2].xyz;
-		out_axis = float4(world_normal, 0);
+		float4 world_normal = local_normal.x * box_w[0] + local_normal.y * box_w[1] + local_normal.z * box_w[2];
+		out_axis = world_normal;
 		out_depth = thickness + face_dist[min_axis];
-		out_point = float4(refined_bp, 1);
+		out_point = refined_bp;
 	}
 	return true;
 }
@@ -583,51 +592,52 @@ bool LineVsTriangle(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 seg_centre = seg_w[3].xyz;
-	float3 seg_dir = seg_w[2].xyz;
+	float4 seg_centre = seg_w[3];
+	float4 seg_dir = seg_w[2];
 	float half_len = seg.data.x;
 	float thickness = seg.data.y;
-
-	float3 v0, v1, v2;
+	int i;
+	
+	float4 v0, v1, v2;
 	GetTriangleVerts(tri, tri_w, verts, v0, v1, v2);
 
 	// Find closest point pair between segment and triangle.
 	// Test: closest point on triangle to each segment endpoint, and
 	// closest point on segment to each triangle vertex/edge.
 	float best_dist_sq = 1e30f;
-	float3 best_lp = seg_centre;
-	float3 best_tp = v0;
+	float4 best_lp = seg_centre;
+	float4 best_tp = v0;
 
 	// Test segment endpoints against triangle
-	for (int i = 0; i < 2; ++i)
+	for (i = 0; i < 2; ++i)
 	{
-		float3 lp = seg_centre + (i == 0 ? -half_len : half_len) * seg_dir;
-		float3 tp = ClosestPointOnTriangle(lp, v0, v1, v2);
+		float4 lp = seg_centre + (i == 0 ? -half_len : half_len) * seg_dir;
+		float4 tp = ClosestPointOnTriangle(lp, v0, v1, v2);
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
 	}
 
 	// Test triangle vertices against segment
-	float3 tri_verts[3] = {v0, v1, v2};
-	for (int i = 0; i < 3; ++i)
+	float4 tri_verts[3] = {v0, v1, v2};
+	for (i = 0; i < 3; ++i)
 	{
-		float3 lp = ClosestPointOnSegment(tri_verts[i], seg_centre, seg_dir, half_len);
+		float4 lp = ClosestPointOnSegment(tri_verts[i], seg_centre, seg_dir, half_len);
 		float d = dot(lp - tri_verts[i], lp - tri_verts[i]);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tri_verts[i]; }
 	}
 
 	// Test segment against triangle edges
-	float3 edge_a[3] = {v0, v1, v2};
-	float3 edge_b[3] = {v1, v2, v0};
-	for (int i = 0; i < 3; ++i)
+	float4 edge_a[3] = {v0, v1, v2};
+	float4 edge_b[3] = {v1, v2, v0};
+	for (i = 0; i < 3; ++i)
 	{
-		float3 ec = (edge_a[i] + edge_b[i]) * 0.5f;
-		float3 ed = normalize(edge_b[i] - edge_a[i]);
+		float4 ec = (edge_a[i] + edge_b[i]) * 0.5f;
+		float4 ed = normalize(edge_b[i] - edge_a[i]);
 		float elen = length(edge_b[i] - edge_a[i]) * 0.5f;
 		float t0, t1;
 		ClosestPointSegmentSegment(seg_centre, seg_dir, half_len, ec, ed, elen, t0, t1);
-		float3 lp = seg_centre + t0 * seg_dir;
-		float3 tp = ec + t1 * ed;
+		float4 lp = seg_centre + t0 * seg_dir;
+		float4 tp = ec + t1 * ed;
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
 	}
@@ -636,10 +646,10 @@ bool LineVsTriangle(
 		return false;
 
 	float dist = sqrt(best_dist_sq);
-	float3 normal = (best_lp - best_tp) / dist;
-	out_axis = float4(normal, 0);
+	float4 normal = (best_lp - best_tp) / dist;
+	out_axis = normal;
 	out_depth = thickness - dist;
-	out_point = float4(best_tp, 1);
+	out_point = best_tp;
 	return true;
 }
 
@@ -705,14 +715,14 @@ bool TriangleVsTriangle(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float3 a0, a1, a2, b0, b1, b2;
+	float4 a0, a1, a2, b0, b1, b2;
 	GetTriangleVerts(ta, ta_w, verts, a0, a1, a2);
 	GetTriangleVerts(tb, tb_w, verts, b0, b1, b2);
 
-	float3 a_edges[3] = { a1 - a0, a2 - a1, a0 - a2 };
-	float3 b_edges[3] = { b1 - b0, b2 - b1, b0 - b2 };
-	float3 a_verts[3] = { a0, a1, a2 };
-	float3 b_verts[3] = { b0, b1, b2 };
+	float4 a_edges[3] = { a1 - a0, a2 - a1, a0 - a2 };
+	float4 b_edges[3] = { b1 - b0, b2 - b1, b0 - b2 };
+	float4 a_verts[3] = { a0, a1, a2 };
+	float4 b_verts[3] = { b0, b1, b2 };
 
 	float best_depth = 1e30f;
 	float3 best_axis = float3(0, 0, 0);
@@ -727,8 +737,8 @@ bool TriangleVsTriangle(
 			ax /= ax_len; \
 			float a_min = 1e30f, a_max = -1e30f, b_min = 1e30f, b_max = -1e30f; \
 			for (int _i = 0; _i < 3; ++_i) { \
-				float da = dot(a_verts[_i], ax); a_min = min(a_min, da); a_max = max(a_max, da); \
-				float db = dot(b_verts[_i], ax); b_min = min(b_min, db); b_max = max(b_max, db); \
+				float da = dot(a_verts[_i].xyz, ax); a_min = min(a_min, da); a_max = max(a_max, da); \
+				float db = dot(b_verts[_i].xyz, ax); b_min = min(b_min, db); b_max = max(b_max, db); \
 			} \
 			float overlap = min(a_max - b_min, b_max - a_min); \
 			if (overlap < 0) return false; \
@@ -736,13 +746,13 @@ bool TriangleVsTriangle(
 		} }
 
 	// Face normals
-	TEST_AXIS(cross(a_edges[0], a_edges[1]))
-	TEST_AXIS(cross(b_edges[0], b_edges[1]))
+	TEST_AXIS(cross(a_edges[0].xyz, a_edges[1].xyz))
+	TEST_AXIS(cross(b_edges[0].xyz, b_edges[1].xyz))
 
 	// Edge cross products (9 axes)
 	for (int i = 0; i < 3; ++i)
 		for (int j = 0; j < 3; ++j)
-			TEST_AXIS(cross(a_edges[i], b_edges[j]))
+			TEST_AXIS(cross(a_edges[i].xyz, b_edges[j].xyz))
 
 	#undef TEST_AXIS
 
@@ -750,9 +760,9 @@ bool TriangleVsTriangle(
 	out_axis = float4(best_axis, 0);
 
 	// Contact point: midpoint of the overlap region
-	float3 centre_a = (a0 + a1 + a2) / 3.0f;
-	float3 centre_b = (b0 + b1 + b2) / 3.0f;
-	out_point = float4((centre_a + centre_b) * 0.5f, 1);
+	float4 centre_a = (a0 + a1 + a2) / 3.0f;
+	float4 centre_b = (b0 + b1 + b2) / 3.0f;
+	out_point = (centre_a + centre_b) * 0.5f;
 	return true;
 }
 
@@ -767,7 +777,8 @@ bool BoxVsBox(
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
-
+	int i;
+	
 	float3 ha = sa.data.xyz;
 	float3 hb = sb.data.xyz;
 	float3x3 rot_a = (float3x3)a2w;
@@ -779,7 +790,7 @@ bool BoxVsBox(
 	// Rotation of B relative to A
 	float3x3 R;
 	float3x3 absR;
-	for (int i = 0; i < 3; ++i)
+	for (i = 0; i < 3; ++i)
 	{
 		for (int j = 0; j < 3; ++j)
 		{
@@ -794,7 +805,7 @@ bool BoxVsBox(
 	float3 best_axis = float3(0, 0, 0);
 
 	// Face axes of A
-	for (int i = 0; i < 3; ++i)
+	for (i = 0; i < 3; ++i)
 	{
 		float ra_proj = ha[i];
 		float rb_proj = hb[0] * absR[i][0] + hb[1] * absR[i][1] + hb[2] * absR[i][2];
@@ -810,7 +821,7 @@ bool BoxVsBox(
 	}
 
 	// Face axes of B
-	for (int i = 0; i < 3; ++i)
+	for (i = 0; i < 3; ++i)
 	{
 		float ra_proj = ha[0] * absR[0][i] + ha[1] * absR[1][i] + ha[2] * absR[2][i];
 		float rb_proj = hb[i];

@@ -122,7 +122,6 @@
   <ItemGroup>
     <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\collision\ibroadphase.h" />
     <ClInclude Include="..\..\..\include\pr\physics\materials\imaterials.h" />
     <ClInclude Include="..\..\..\include\pr\physics\materials\material.h" />
     <ClInclude Include="..\..\..\include\pr\physics\materials\material_map.h" />
@@ -144,23 +143,26 @@
   <!--
   Resources
   -->
-  <!--
-  Targets
-  -->
   <ItemGroup>
     <None Include="src\compute\collision.hlsli" />
+    <None Include="src\compute\collision_types.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
     <None Include="src\compute\rigid_body_dynamics.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\compute\collide.hlsl" />
-    <FxCompile Include="src\compute\gjk.hlsl" />
-    <FxCompile Include="src\compute\integrate.hlsl" />
-    <FxCompile Include="src\compute\resolve.hlsl" />
-    <FxCompile Include="src\compute\sweep.hlsl" />
+    <FxCompile Include="src\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
+    <FxCompile Include="src\compute\sweep.hlsl" EntryPointName="CSSweep" />
+    <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSCollide" />
+    <FxCompile Include="src\compute\resolve.hlsl" EntryPointName="CSResolve" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />
   </ItemGroup>
+  <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)physics_compute_shaders.res" />
+  </ItemGroup>
+  <!--
+  Targets
+  -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

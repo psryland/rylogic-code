@@ -9,16 +9,13 @@ namespace pr::physics
 {
 	using namespace pr::rdr12;
 
-	// Thread group size matching the HLSL [numthreads(64, 1, 1)] declaration.
-	static constexpr int ThreadGroupSize = 64;
-
 	// Integrate constants
 	struct alignas(16) cbSweep
 	{
-		int body_count;
-		int pad0;
-		int pad1;
-		int pad2;
+		int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
+		int g_pad0;
+		int g_pad1;
+		int g_pad2;
 	};
 	static_assert(sizeof(cbSweep) == 16);
 
@@ -26,15 +23,20 @@ namespace pr::physics
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
-		inline static constexpr auto AABB = ESRVReg::t0;
+		inline static constexpr auto Counters = EUAVReg::u0;
+		inline static constexpr auto ColPairs = EUAVReg::u1;
+		inline static constexpr auto DispatchArgs = EUAVReg::u2;
+		inline static constexpr auto Bodies = ESRVReg::t0;
 		inline static constexpr auto AABB_Idx = ESRVReg::t1;
-		inline static constexpr auto ColPairs = EUAVReg::u0;
 	};
 
 	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu)
 		: m_gpu(gpu)
 		, m_sorter(gpu.m_gpu)
+		, m_cs_sweep()
+		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
+		, m_r_dispatch()
 		, m_max_col_pairs()
 	{
 		CompileShaders();
@@ -43,34 +45,56 @@ namespace pr::physics
 	// Compile the compute shaders
 	void GpuSortAndSweep::CompileShaders()
 	{
-		auto shader_source = resource::Read<char>(L"pr_physics_compute_sweep_hlsl", L"TEXT");
 		auto compiler = ShaderCompiler{}
-			.Source(shader_source)
+			.Source(resource::Read<char>(L"src/compute/sweep.hlsl", L"TEXT"))
 			.Includes({ new ResourceIncludeHandler, true })
-			.EntryPoint(L"CSSweep")
+			.Define(L"COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
-		auto bytecode = compiler.Compile();
 
-		// Root signature: root constants (cbIntegrate) + three UAVs (bodies, output, aabbs)
-		m_cs_sweep.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-			.U32<cbSweep>(EReg::Params)
-			.SRV(EReg::AABB)
-			.SRV(EReg::AABB_Idx)
-			.UAV(EReg::ColPairs)
-			.Create(m_gpu, "Physics:SweepSig");
+		// m_cs_sweep: Root signature: constants + 2 SRVs (AABB, AABB_Idx) + 3 UAVs (ColPairs, Counters, DispatchArgs)
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbSweep>(EReg::Params)
+				.UAV(EReg::Counters)
+				.UAV(EReg::ColPairs)
+				.UAV(EReg::DispatchArgs)
+				.SRV(EReg::Bodies)
+				.SRV(EReg::AABB_Idx)
+				;
 
-		m_cs_sweep.m_pso = ComputePSO(m_cs_sweep.m_sig.get(), bytecode)
-			.Create(m_gpu, "Physics:SweepPSO");
+			auto bytecode = compiler.EntryPoint(L"CSSweep").Compile();
+
+			m_cs_sweep.m_sig = sig.Create(m_gpu, "Physics:SweepSig");
+			m_cs_sweep.m_pso = ComputePSO(m_cs_sweep.m_sig.get(), bytecode).Create(m_gpu, "Physics:SweepPSO");
+		}
+
+		// m_cs_calc_dispatch: Root signature: constants + 1 SRV (Counters) + 1 UAV (DispatchArgs)
+		{
+			auto sig= RootSig(ERootSigFlags::ComputeOnly)
+				.UAV(EReg::Counters)
+				.UAV(EReg::DispatchArgs);
+
+			auto bytecode = compiler.EntryPoint(L"CSCalcCDDispatch").Compile();
+
+			m_cs_calc_dispatch.m_sig = sig.Create(m_gpu, "Physics:CalcCDDispatchSig");
+			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), bytecode).Create(m_gpu, "Physics:CalcCDDispatchPSO");
+		}
 	}
 
 	// Resize the buffers to support
-	void GpuSortAndSweep::ResizeBuffers(CmdList& cmd_list, int body_count, int max_col_pairs)
+	void GpuSortAndSweep::ResizeBuffers(CmdList& cmd_list, int max_col_pairs)
 	{
+		max_col_pairs = std::max(1, max_col_pairs);
+		
 		if (m_r_col_pairs == nullptr || m_max_col_pairs < max_col_pairs)
 		{
 			m_r_col_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_col_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionPairs");
 			m_max_col_pairs = max_col_pairs;
+		}
+		if (m_r_dispatch == nullptr)
+		{
+			m_r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CDDispatchArgs");
 		}
 	}
 	
@@ -83,41 +107,40 @@ namespace pr::physics
 	}
 
 	// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
-	void GpuSortAndSweep::Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> dynamics)
+	void GpuSortAndSweep::Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies)
 	{
-		if (body_count == 0)
-			return;
-
-		ResizeBuffers(job.m_cmd_list, body_count, max_col_pairs);
+		ResizeBuffers(job.m_cmd_list, max_col_pairs);
 
 		// Dispatch the compute shader
 		{
-			auto cb = cbSweep{ .body_count = body_count };
+			auto cb = cbSweep{ .g_max_pair_count = max_col_pairs };
 
 			job.m_cmd_list.SetPipelineState(m_cs_sweep.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_sweep.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_x->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_y->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_z->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_idx->GetGPUVirtualAddress());
-
-			auto dispatch_count = (body_count + ThreadGroupSize - 1) / ThreadGroupSize;
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx->GetGPUVirtualAddress());
+			
+			// One thread for each array element in the AABB index buffer
+			auto dispatch_count = (2*body_count + SweepThreadCount - 1) / SweepThreadCount;
 			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
 
-			job.m_barriers.UAV(m_r_bodies.get());
-			job.m_barriers.UAV(m_r_output.get());
-			job.m_barriers.UAV(m_r_aabb_x.get());
-			job.m_barriers.UAV(m_r_aabb_y.get());
-			job.m_barriers.UAV(m_r_aabb_z.get());
-			job.m_barriers.UAV(m_r_aabb_idx.get());
+			job.m_barriers.UAV(counters.get());
+			job.m_barriers.UAV(m_r_col_pairs.get());
 		}
 
-		// Bind the dynamics and the aabb_idx buffer
+		// Dispatch the calculate dispatch size shader
 		{
+			job.m_cmd_list.SetPipelineState(m_cs_calc_dispatch.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_dispatch->GetGPUVirtualAddress());
 
+			job.m_cmd_list.Dispatch(1, 1, 1);
+
+			job.m_barriers.UAV(m_r_dispatch.get());
 		}
 	}
 
