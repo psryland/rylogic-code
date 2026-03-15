@@ -1,42 +1,8 @@
 // HLSL source for runtime compilation
-#ifndef PR_VIEW3D_RC
-#define PR_VIEW3D_RC
-
-#include "pr/hlsl/pr_hlsl.rc"
-
-#ifndef pr_view3d_12_compute_fluid_simulation_fluid_simulation_hlsl_included
-#define pr_view3d_12_compute_fluid_simulation_fluid_simulation_hlsl_included
-"pr/view3d-12/compute/fluid_simulation/fluid_simulation.hlsl" TEXT DISCARDABLE "pr/view3d-12/compute/fluid_simulation/fluid_simulation.hlsl"
-#endif
-
-#ifndef pr_view3d_12_compute_particle_collision_collision_hlsli_included
-#define pr_view3d_12_compute_particle_collision_collision_hlsli_included
-"pr/view3d-12/compute/particle_collision/collision.hlsli" TEXT DISCARDABLE "pr/view3d-12/compute/particle_collision/collision.hlsli"
-#endif
-
-#ifndef pr_view3d_12_compute_particle_collision_particle_hlsli_included
-#define pr_view3d_12_compute_particle_collision_particle_hlsli_included
-"pr/view3d-12/compute/particle_collision/particle.hlsli" TEXT DISCARDABLE "pr/view3d-12/compute/particle_collision/particle.hlsli"
-#endif
-
-#ifndef pr_view3d_12_compute_particle_collision_particle_collision_hlsl_included
-#define pr_view3d_12_compute_particle_collision_particle_collision_hlsl_included
-"pr/view3d-12/compute/particle_collision/particle_collision.hlsl" TEXT DISCARDABLE "pr/view3d-12/compute/particle_collision/particle_collision.hlsl"
-#endif
-
-#ifndef pr_view3d_12_compute_radix_sort_radix_sort_hlsl_included
-#define pr_view3d_12_compute_radix_sort_radix_sort_hlsl_included
-"pr/view3d-12/compute/radix_sort/radix_sort.hlsl" TEXT DISCARDABLE "pr/view3d-12/compute/radix_sort/radix_sort.hlsl"
-#endif
-
-#ifndef pr_view3d_12_compute_spatial_partition_spatial_partition_hlsl_included
-#define pr_view3d_12_compute_spatial_partition_spatial_partition_hlsl_included
-"pr/view3d-12/compute/spatial_partition/spatial_partition.hlsl" TEXT DISCARDABLE "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsl"
-#endif
-
-#ifndef pr_view3d_12_compute_spatial_partition_spatial_partition_hlsli_included
-#define pr_view3d_12_compute_spatial_partition_spatial_partition_hlsli_included
-"pr/view3d-12/compute/spatial_partition/spatial_partition.hlsli" TEXT DISCARDABLE "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsli"
-#endif
-
-#endif
+src/compute/fluid_simulation/fluid_simulation.hlsl     TEXT DISCARDABLE "src/compute/fluid_simulation/fluid_simulation.hlsl"
+src/compute/particle_collision/collision.hlsli         TEXT DISCARDABLE "src/compute/particle_collision/collision.hlsli"
+src/compute/particle_collision/particle.hlsli          TEXT DISCARDABLE "src/compute/particle_collision/particle.hlsli"
+src/compute/particle_collision/particle_collision.hlsl TEXT DISCARDABLE "src/compute/particle_collision/particle_collision.hlsl"
+src/compute/radix_sort/radix_sort.hlsl                 TEXT DISCARDABLE "src/compute/radix_sort/radix_sort.hlsl"
+src/compute/spatial_partition/spatial_partition.hlsl   TEXT DISCARDABLE "src/compute/spatial_partition/spatial_partition.hlsl"
+src/compute/spatial_partition/spatial_partition.hlsli  TEXT DISCARDABLE "src/compute/spatial_partition/spatial_partition.hlsli"

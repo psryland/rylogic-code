@@ -38,31 +38,19 @@ namespace pr::rdr12
 		/// <inheritdoc/>
 		HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR pFilename, IDxcBlob** ppIncludeSource) override
 		{
-			std::wstring name;
+			std::wstring name = resource::Name(pFilename);
 
-			// Start with just the file name, and keep appending parent directories until the resource is found
-			auto path = std::filesystem::path(pFilename);
-			auto candidate = path.filename();
-			auto remaining = path.parent_path();
+			// Start with the full path, and trim off parent directories until the resource is resolved
 			for (;;)
 			{
-				name = candidate.wstring();
-				std::transform(name.begin(), name.end(), name.begin(), [](wchar_t c)
-				{
-					if (!std::isalnum(c)) return L'_';
-					return static_cast<wchar_t>(std::tolower(c));
-				});
-
 				if (resource::Find(name, L"TEXT"))
 					break;
 
-				// All parent directories exhausted without finding the resource
-				if (remaining.empty() || remaining == remaining.parent_path())
-					throw std::runtime_error(std::format("Resource for '{}' not found", path.string()));
-
-				// Prepend the next parent directory to the candidate
-				candidate = remaining.filename() / candidate;
-				remaining = remaining.parent_path();
+				// Trim upto and including the next '/\\'
+				if (auto i = name.find_first_of(L"./\\"); i != std::wstring::npos)
+					name = name.substr(i + 1);
+				else
+					throw std::runtime_error(std::format("Resource for '{}' not found", Narrow(pFilename)));
 			}
 
 			// Read the file from the resources

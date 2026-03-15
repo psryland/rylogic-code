@@ -7,8 +7,8 @@
 //  2. Build a histogram of positions per cell
 //  3. Sort the 'm_grid_hash' buffer by hash value so that all positions in the same cell are contiguous
 //  4. Create a lookup from cell hash to the start index of the cell in the sorted buffer
-#include "pr/view3d-12/compute/particle_collision/particle.hlsli"
-#include "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsli"
+#include "src/compute/particle_collision/particle.hlsli"
+#include "src/compute/spatial_partition/spatial_partition.hlsli"
 
 static const uint ThreadGroupSize = 1024;
 

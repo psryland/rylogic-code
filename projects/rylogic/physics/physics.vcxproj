@@ -160,7 +160,7 @@
     <FxCompile Include="src\compute\sweep.hlsl" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="src\compute\compute_shaders.rc" />
+    <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

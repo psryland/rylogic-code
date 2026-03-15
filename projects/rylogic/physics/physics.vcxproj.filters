@@ -206,7 +206,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="src\compute\compute_shaders.rc">
+    <ResourceCompile Include="src\compute\physics_compute_shaders.rc">
       <Filter>src\compute</Filter>
     </ResourceCompile>
   </ItemGroup>

@@ -2,8 +2,8 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
-#include "pr/view3d-12/compute/particle_collision/collision.hlsli"
-#include "pr/view3d-12/compute/particle_collision/particle.hlsli"
+#include "src/compute/particle_collision/collision.hlsli"
+#include "src/compute/particle_collision/particle.hlsli"
 
 static const int ThreadGroupSize = 1024;
 static const int MaxCollisionResolutionSteps = 10;

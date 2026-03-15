@@ -147,7 +147,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\fbx.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\index_buffer.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
@@ -769,6 +768,9 @@
     <ClInclude Include="..\..\..\include\pr\view3d-12\compute\gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
+      <Filter>pr\geometry</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -843,15 +845,6 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.hlsli">
-      <Filter>src\compute\spatial_partition</Filter>
-    </None>
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\collision.hlsli">
-      <Filter>src\compute\particle_collision</Filter>
-    </None>
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle.hlsli">
-      <Filter>src\compute\particle_collision</Filter>
-    </None>
     <None Include="src\ldraw\ldraw_demo_scene.ldr">
       <Filter>src\ldraw</Filter>
     </None>
@@ -870,22 +863,29 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
-      <Filter>pr\hlsl</Filter>
+    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
+    <None Include="src\compute\particle_collision\particle.hlsli">
+      <Filter>src\compute\particle_collision</Filter>
+    </None>
+    <None Include="src\compute\spatial_partition\spatial_partition.hlsli">
+      <Filter>src\compute\spatial_partition</Filter>
+    </None>
+    <None Include="src\compute\particle_collision\collision.hlsli">
+      <Filter>src\compute\particle_collision</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\radix_sort\radix_sort.hlsl">
-      <Filter>src\compute\radix_sort</Filter>
+    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">
+      <Filter>src\compute\fluid_simulation</Filter>
     </FxCompile>
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.hlsl">
-      <Filter>src\compute\spatial_partition</Filter>
-    </FxCompile>
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle_collision.hlsl">
+    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl">
       <Filter>src\compute\particle_collision</Filter>
     </FxCompile>
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\fluid_simulation\fluid_simulation.hlsl">
-      <Filter>src\compute\fluid_simulation</Filter>
+    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl">
+      <Filter>src\compute\radix_sort</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl">
+      <Filter>src\compute\spatial_partition</Filter>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>

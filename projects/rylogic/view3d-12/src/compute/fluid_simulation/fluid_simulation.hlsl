@@ -4,9 +4,9 @@
 //*********************************************
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/geometry.hlsli"
-#include "pr/view3d-12/compute/particle_collision/particle.hlsli"
-#include "pr/view3d-12/compute/particle_collision/collision.hlsli"
-#include "pr/view3d-12/compute/spatial_partition/spatial_partition.hlsli"
+#include "src/compute/particle_collision/particle.hlsli"
+#include "src/compute/particle_collision/collision.hlsli"
+#include "src/compute/spatial_partition/spatial_partition.hlsli"
 
 #ifndef THREAD_GROUP_SIZE
 #define THREAD_GROUP_SIZE 32

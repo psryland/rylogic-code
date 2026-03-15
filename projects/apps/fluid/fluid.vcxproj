@@ -1,83 +1,85 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!-- Globals -->
-  <PropertyGroup Label="Globals">
-    <ConfigurationType>Application</ConfigurationType>
-    <ProjectGuid>{A34D76E2-52AC-4C2D-9873-7305977B7015}</ProjectGuid>
-    <RootNamespace>fluid</RootNamespace>
-    <ProjectName>fluid</ProjectName>
-  </PropertyGroup>
-  <!-- Property Sheets -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <Import Project="$(PropsPath)build_configurations.props" />
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="$(PropsPath)app.props" />
-  <Import Project="$(PropsPath)fxc_build_rule.props" />
-  <!-- Build options -->
-  <ItemDefinitionGroup>
-    <ClCompile>
-      <EnableModules>false</EnableModules>
-      <AdditionalIncludeDirectories>
+	<!-- Globals -->
+	<PropertyGroup Label="Globals">
+		<ConfigurationType>Application</ConfigurationType>
+		<ProjectGuid>{A34D76E2-52AC-4C2D-9873-7305977B7015}</ProjectGuid>
+		<RootNamespace>fluid</RootNamespace>
+		<ProjectName>fluid</ProjectName>
+	</PropertyGroup>
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)app.props" />
+	<Import Project="$(PropsPath)fxc_build_rule.props" />
+	<!-- Build options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<EnableModules>false</EnableModules>
+			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
-    </ClCompile>
-    <Link>
-      <AdditionalDependencies>
+		</ClCompile>
+		<Link>
+			<AdditionalDependencies>
 				;view3d-12-static.lib
+				;view3d_compute_shaders.res
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
-      <AdditionalLibraryDirectories>
+			<AdditionalLibraryDirectories>
 				;$(RylogicRoot)lib\$(PlatformTarget)\$(Configuration)
 				;%(AdditionalLibraryDirectories)
 			</AdditionalLibraryDirectories>
-      <SubSystem>Windows</SubSystem>
-    </Link>
-    <ResourceCompile>
-      <AdditionalIncludeDirectories>
+			<SubSystem>Windows</SubSystem>
+		</Link>
+		<ResourceCompile>
+			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
 				;$(RylogicRoot)projects\rylogic
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
-    </ResourceCompile>
-    <FxCompile>
-      <AdditionalIncludeDirectories>
+		</ResourceCompile>
+		<FxCompile>
+			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
 				;$(RylogicRoot)projects\rylogic
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
-      <ShaderModel>6.6</ShaderModel>
-    </FxCompile>
-  </ItemDefinitionGroup>
-  <!-- Files -->
-  <ItemGroup>
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
-    <ClCompile Include="src\hlsl_emulated.cpp" />
-    <ClCompile Include="src\main.cpp" />
-    <ClInclude Include="src\demo\scene2d.h" />
-    <ClInclude Include="src\demo\scene3d.h" />
-    <ClInclude Include="src\demo\tube2d.h" />
-    <ClInclude Include="src\forward.h" />
-    <ClInclude Include="src\fluid_visualisation.h" />
-    <ClCompile Include="src\fluid_visualisation.cpp" />
-    <ClInclude Include="src\idemo_scene.h" />
-    <ClInclude Include="src\probe.h" />
-  </ItemGroup>
-  <!-- Dependencies -->
-  <ItemGroup>
-    <UpToDateCheckInput Include="$(RylogicRoot)lib\$(PlatformTarget)\$(ConfigurationName)\view3d-12.dll" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="res\shaders.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(RylogicRoot)build\cpp.hint" />
-  </ItemGroup>
-  <!-- Targets -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
+			<ShaderModel>6.6</ShaderModel>
+		</FxCompile>
+	</ItemDefinitionGroup>
+	<!-- Files -->
+	<ItemGroup>
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
+		<ClCompile Include="src\hlsl_emulated.cpp" />
+		<ClCompile Include="src\main.cpp" />
+		<ClInclude Include="src\demo\scene2d.h" />
+		<ClInclude Include="src\demo\scene3d.h" />
+		<ClInclude Include="src\demo\tube2d.h" />
+		<ClInclude Include="src\forward.h" />
+		<ClInclude Include="src\fluid_visualisation.h" />
+		<ClCompile Include="src\fluid_visualisation.cpp" />
+		<ClInclude Include="src\idemo_scene.h" />
+		<ClInclude Include="src\probe.h" />
+	</ItemGroup>
+	<!-- Dependencies -->
+	<ItemGroup>
+		<UpToDateCheckInput Include="$(RylogicRoot)lib\$(PlatformTarget)\$(ConfigurationName)\view3d-12.dll" />
+	</ItemGroup>
+	<ItemGroup>
+		<ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
+		<ResourceCompile Include="res\shaders.rc" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="$(RylogicRoot)build\cpp.hint" />
+	</ItemGroup>
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+	<Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
 </Project>

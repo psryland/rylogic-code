@@ -1,75 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!--
-  Globals
-  -->
-  <PropertyGroup Label="Globals">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <ProjectGuid>{FB13BA51-F847-4804-90A8-61AB789F4061}</ProjectGuid>
-    <ProjectName>view3d-12.dll</ProjectName>
-    <TargetName>view3d-12</TargetName>
-    <RootNamespace>View3d</RootNamespace>
-    <ResolveNuGetPackages>false</ResolveNuGetPackages>
-    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
-  </PropertyGroup>
-  <!--
-  Property Sheets
-  -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <Import Project="$(PropsPath)build_configurations.props" />
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="$(PropsPath)dll.props" />
-  <!--
-  Build options
-  -->
-  <ItemDefinitionGroup>
-    <ClCompile>
-      <PreprocessorDefinitions>
+	<!--
+	Globals
+	-->
+	<PropertyGroup Label="Globals">
+		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<ProjectGuid>{FB13BA51-F847-4804-90A8-61AB789F4061}</ProjectGuid>
+		<ProjectName>view3d-12.dll</ProjectName>
+		<TargetName>view3d-12</TargetName>
+		<RootNamespace>View3d</RootNamespace>
+		<ResolveNuGetPackages>false</ResolveNuGetPackages>
+		<DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+	</PropertyGroup>
+	<!--
+	Property Sheets
+	-->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)dll.props" />
+	<!--
+	Build options
+	-->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<PreprocessorDefinitions>
 				;%(PreprocessorDefinitions)
 				;VIEW3D_EXPORTS
 				;PR_VIEW3D_12=1
 				;PR_MATHS_USE_DIRECTMATH=1
 			</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
-      <AdditionalOptions>/Zm200 /bigobj $(AdditionalOptions)</AdditionalOptions>
-    </ClCompile>
-    <Link>
-      <AdditionalDependencies>
+			<AdditionalOptions>/Zm200 /bigobj $(AdditionalOptions)</AdditionalOptions>
+		</ClCompile>
+		<Link>
+			<AdditionalDependencies>
 				;view3d-12-static.lib
+				;view3d_compute_shaders.res
 				;strmiids.lib
 				;comctl32.lib
 				;dxcompiler.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-  <!--
-  Files
-  -->
-  <ItemGroup>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-dll.h" />
-    <ClInclude Include="src\dll\context.h" />
-    <ClInclude Include="src\dll\dll_forward.h" />
-    <ClInclude Include="src\dll\v3d_window.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="src\dll\context.cpp" />
-    <ClCompile Include="src\dll\dll.cpp" />
-    <ClCompile Include="src\dll\v3d_window.cpp" />
-  </ItemGroup>
-  <!--
-  Dependencies
-  -->
-  <ItemGroup>
-    <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
-  </ItemGroup>
-  <!--
-  Targets
-  -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
-  <Import Project="$(TargetsPath)dxc.targets" />
+		</Link>
+	</ItemDefinitionGroup>
+	<!--
+	Files
+	-->
+	<ItemGroup>
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-dll.h" />
+		<ClInclude Include="src\dll\context.h" />
+		<ClInclude Include="src\dll\dll_forward.h" />
+		<ClInclude Include="src\dll\v3d_window.h" />
+	</ItemGroup>
+	<ItemGroup>
+		<ClCompile Include="src\dll\context.cpp" />
+		<ClCompile Include="src\dll\dll.cpp" />
+		<ClCompile Include="src\dll\v3d_window.cpp" />
+	</ItemGroup>
+	<!--
+	Dependencies
+	-->
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
+	</ItemGroup>
+	<!--
+	Targets
+	-->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+	<Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
+	<Import Project="$(TargetsPath)dxc.targets" />
 </Project>

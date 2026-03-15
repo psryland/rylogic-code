@@ -110,7 +110,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			, m_size()
 		{
 			auto compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"pr_view3d_12_compute_radix_sort_radix_sort_hlsl", L"TEXT"))
+				.Source(resource::Read<char>(L"src/compute/radix_sort/radix_sort.hlsl", L"TEXT"))
 				.ShaderModel(m_tuning.shader_model)
 				.Optimise()
 				.Define(L"KEYS_PER_THREAD", std::to_wstring(m_tuning.keys_per_thread))

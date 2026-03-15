@@ -69,7 +69,7 @@
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
         ;$(RylogicRoot)include\
-        ;$(RylogicRoot)projects\rylogic\
+        ;$(RylogicRoot)projects\rylogic\view3d-12\
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
@@ -83,7 +83,7 @@
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
         ;$(RylogicRoot)include\
-        ;$(RylogicRoot)projects\rylogic\
+        ;$(RylogicRoot)projects\rylogic\view3d-12\
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
@@ -96,8 +96,8 @@
       <ShaderModel>6.6</ShaderModel>
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
-        ;$(RylogicRoot)include
-        ;$(RylogicRoot)projects\rylogic
+        ;$(RylogicRoot)include\
+        ;$(RylogicRoot)projects\rylogic\view3d-12\
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
@@ -362,15 +362,13 @@
     <View3dShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\collision.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.hlsli" />
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\fluid_simulation\fluid_simulation.hlsl" EntryPointName="ApplyForces" />
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle_collision.hlsl" EntryPointName="Integrate" />
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\radix_sort\radix_sort.hlsl" EntryPointName="SweepDown" />
-    <FxCompile Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
-  </ItemGroup>
-  <ItemGroup>
+    <None Include="src\compute\particle_collision\collision.hlsli" />
+    <None Include="src\compute\particle_collision\particle.hlsli" />
+    <None Include="src\compute\spatial_partition\spatial_partition.hlsli" />
+    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl" EntryPointName="ApplyForces" />
+    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl" EntryPointName="Integrate" />
+    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl" EntryPointName="SweepDown" />
+    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
     <ResourceCompile Include="src\compute\view3d_compute_shaders.rc" />
   </ItemGroup>
   <!--
@@ -388,6 +386,12 @@
       </AdditionalInputs>
       <Outputs>;$(ProjectDir)src\ldraw\ldraw_demo_scene.cpp</Outputs>
     </CSharpScript>
+  </ItemGroup>
+  <!--
+  Build Artifacts
+  -->
+  <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)view3d_compute_shaders.res" />
   </ItemGroup>
   <!--
   Targets

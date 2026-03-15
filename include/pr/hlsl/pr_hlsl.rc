@@ -1,55 +1,21 @@
 // HLSL source for runtime compilation
-#ifndef PR_HLSL_RC
-#define PR_HLSL_RC
 
-#ifndef pr_hlsl_core_hlsli_included
-#define pr_hlsl_core_hlsli_included
-"pr/hlsl/core.hlsli" TEXT DISCARDABLE "pr/hlsl/core.hlsli"
-#endif
+// Notes:
+//  - This file is intended to be included in a project's '.rc' file. Think of it as a header library.
+//  - Resources from static libs build to a '.res' file which is basically like a static lib and should
+//    be added to the linker's <AdditionalDependencies> section. The reason for the difference is that
+//    static library resources are often private files. Building to a .res file allows those files to be
+//    added to a consuming project without having to have the resources in /include/pr.
+//  - Resource files are whitespace delimited
+//  - To see what's in a compiled resource file (*.res), just open it in VS.
 
-#ifndef pr_hlsl_vector_hlsli_included
-#define pr_hlsl_vector_hlsli_included
-"pr/hlsl/vector.hlsli" TEXT DISCARDABLE "pr/hlsl/vector.hlsli"
-#endif
-
-#ifndef pr_hlsl_interop_hlsli_included
-#define pr_hlsl_interop_hlsli_included
-"pr/hlsl/interop.hlsli" TEXT DISCARDABLE "pr/hlsl/interop.hlsli"
-#endif
-
-#ifndef pr_hlsl_geometry_hlsli_included
-#define pr_hlsl_geometry_hlsli_included
-"pr/hlsl/geometry.hlsli" TEXT DISCARDABLE "pr/hlsl/geometry.hlsli"
-#endif
-
-#ifndef pr_hlsl_intercept_hlsli_included
-#define pr_hlsl_intercept_hlsli_included
-"pr/hlsl/intercept.hlsli" TEXT DISCARDABLE "pr/hlsl/intercept.hlsli"
-#endif
-
-#ifndef pr_hlsl_closest_point_hlsli_included
-#define pr_hlsl_closest_point_hlsli_included
-"pr/hlsl/closest_point.hlsli" TEXT DISCARDABLE "pr/hlsl/closest_point.hlsli"
-#endif
-
-#ifndef pr_hlsl_camera_hlsli_included
-#define pr_hlsl_camera_hlsli_included
-"pr/hlsl/camera.hlsli" TEXT DISCARDABLE "pr/hlsl/camera.hlsli"
-#endif
-
-#ifndef pr_hlsl_hermite_spline_hlsli_included
-#define pr_hlsl_hermite_spline_hlsli_included
-"pr/hlsl/hermite_spline.hlsli" TEXT DISCARDABLE "pr/hlsl/hermite_spline.hlsli"
-#endif
-
-#ifndef pr_hlsl_interpolate_hlsli_included
-#define pr_hlsl_interpolate_hlsli_included
-"pr/hlsl/interpolate.hlsli" TEXT DISCARDABLE "pr/hlsl/interpolate.hlsli"
-#endif
-
-#ifndef pr_hlsl_spatial_algebra_hlsli_included
-#define pr_hlsl_spatial_algebra_hlsli_included
-"pr/hlsl/spatial_algebra.hlsli" TEXT DISCARDABLE "pr/hlsl/spatial_algebra.hlsli"
-#endif
-
-#endif
+pr/hlsl/core.hlsli            TEXT DISCARDABLE "pr/hlsl/core.hlsli"
+pr/hlsl/vector.hlsli          TEXT DISCARDABLE "pr/hlsl/vector.hlsli"
+pr/hlsl/interop.hlsli         TEXT DISCARDABLE "pr/hlsl/interop.hlsli"
+pr/hlsl/geometry.hlsli        TEXT DISCARDABLE "pr/hlsl/geometry.hlsli"
+pr/hlsl/intercept.hlsli       TEXT DISCARDABLE "pr/hlsl/intercept.hlsli"
+pr/hlsl/closest_point.hlsli   TEXT DISCARDABLE "pr/hlsl/closest_point.hlsli"
+pr/hlsl/camera.hlsli          TEXT DISCARDABLE "pr/hlsl/camera.hlsli"
+pr/hlsl/hermite_spline.hlsli  TEXT DISCARDABLE "pr/hlsl/hermite_spline.hlsli"
+pr/hlsl/interpolate.hlsli     TEXT DISCARDABLE "pr/hlsl/interpolate.hlsli"
+pr/hlsl/spatial_algebra.hlsli TEXT DISCARDABLE "pr/hlsl/spatial_algebra.hlsli"

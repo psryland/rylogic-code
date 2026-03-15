@@ -56,6 +56,9 @@
     <ResourceCompile Include="res\shaders.rc">
       <Filter>res</Filter>
     </ResourceCompile>
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
+      <Filter>res</Filter>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)build\cpp.hint" />

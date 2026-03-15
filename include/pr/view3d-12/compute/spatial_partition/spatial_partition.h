@@ -183,7 +183,7 @@ namespace pr::rdr12::compute::spatial_partition
 		void CreateComputeSteps(std::wstring_view position_layout)
 		{
 			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"pr_view3d_12_compute_spatial_partition_spatial_partition_hlsl", L"TEXT"))
+				.Source(resource::Read<char>(L"src/compute/spatial_partition/spatial_partition.hlsl", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
 				.Define(L"POSITION_TYPE", position_layout)
 				.ShaderModel(L"cs_6_6")

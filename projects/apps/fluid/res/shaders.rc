@@ -2,7 +2,4 @@
 #ifndef FLUID_RC
 #define FLUID_RC
 
-#include "pr/hlsl/pr_hlsl.rc"
-#include "pr/view3d-12/compute/compute_shaders.rc"
-
 #endif
