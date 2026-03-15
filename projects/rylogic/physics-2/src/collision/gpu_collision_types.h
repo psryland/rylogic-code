@@ -100,6 +100,21 @@ namespace pr::physics
 	};
 	static_assert(sizeof(GpuCollisionCounters) == 16);
 
+	// Per-pair diagnostic output from the GPU GJK shader.
+	// Written by every thread, not just colliding ones. Used for profiling.
+	struct alignas(16) GpuPairDiag
+	{
+		int pair_index;
+		int shape_type_a;
+		int shape_type_b;
+		int gjk_iters;
+		int epa_iters;
+		int hit;
+		int pad0;
+		int pad1;
+	};
+	static_assert(sizeof(GpuPairDiag) == 32);
+
 	// ---- Pack helpers ----
 
 	// Convert CPU collision shapes into the flat GPU format.

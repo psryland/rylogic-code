@@ -4,6 +4,7 @@
 //*********************************************
 #include "src/collision/gpu_collision_detector.h"
 #include "src/collision/gpu_collision_types.h"
+#include <chrono>
 
 namespace pr::physics
 {
@@ -33,6 +34,7 @@ namespace pr::physics
 		inline static constexpr ESRVReg  Verts = ESRVReg::t2;
 		inline static constexpr EUAVReg  Contacts = EUAVReg::u0;
 		inline static constexpr EUAVReg  Counters = EUAVReg::u1;
+		inline static constexpr EUAVReg  Diag = EUAVReg::u2;
 	};
 
 	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu)
@@ -43,6 +45,7 @@ namespace pr::physics
 		, m_r_verts()
 		, m_r_contacts()
 		, m_r_counters()
+		, m_r_diag()
 		, m_max_shapes()
 		, m_max_verts()
 		, m_max_pairs()
@@ -128,7 +131,7 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Dispatch the GJK compute shader
+		// Dispatch the collision compute shader
 		{
 			auto cb = cbCollision{ .pair_count = static_cast<uint32_t>(pair_count) };
 
@@ -140,16 +143,21 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
+			#if PR_DBG
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
+			#endif
 
 			auto dispatch_count = (pair_count + ThreadGroupSize - 1) / ThreadGroupSize;
 			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
 
-			// UAV barriers to ensure compute finishes before readback
 			job.m_barriers.UAV(m_r_contacts.get());
 			job.m_barriers.UAV(m_r_counters.get());
+			#if PR_DBG
+			job.m_barriers.UAV(m_r_diag.get());
+			#endif
 		}
 
-		// Read back contacts and counter
+		// Read back contacts, counter, and diagnostics
 		GpuReadbackBuffer::Allocation readback_contacts;
 		GpuReadbackBuffer::Allocation readback_counters;
 		{
@@ -167,6 +175,18 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
+		#if PR_DBG
+		GpuReadbackBuffer::Allocation readback_diag;
+		{
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
+
+			readback_diag = job.m_readback.Alloc<GpuPairDiag>(pair_count);
+			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
+
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		}
+		#endif
 
 		// Execute and wait for GPU completion
 		job.Run();
@@ -176,6 +196,52 @@ namespace pr::physics
 		auto contact_count = static_cast<int>(counters->contact_count);
 		contact_count = std::min(contact_count, pair_count); // safety clamp
 
+		// Log per-pair diagnostics
+		#if PR_DBG
+		if (pair_count > 10)
+		{
+			auto t_end = std::chrono::high_resolution_clock::now();
+			static auto t_start = t_end;
+			auto gpu_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+			t_start = t_end;
+
+			static FILE* f_timing = nullptr;
+			if (!f_timing) f_timing = fopen("dump\\gjk_timing.log", "w");
+			if (f_timing)
+			{
+				static char const* shape_names[] = {"sphere", "box", "line", "tri", "poly"};
+				fprintf(f_timing, "--- pairs=%d contacts=%d gpu=%.2fms ---\n", pair_count, contact_count, gpu_ms);
+
+				auto* diag = readback_diag.ptr<GpuPairDiag>();
+				int max_gjk = 0, max_epa = 0;
+				int total_gjk = 0, total_epa = 0;
+				int gjk_pairs = 0;
+				for (int i = 0; i != pair_count; ++i)
+				{
+					auto& d = diag[i];
+					if (d.gjk_iters > 0) ++gjk_pairs;
+					total_gjk += d.gjk_iters;
+					total_epa += d.epa_iters;
+					if (d.gjk_iters > max_gjk) max_gjk = d.gjk_iters;
+					if (d.epa_iters > max_epa) max_epa = d.epa_iters;
+
+					if (d.gjk_iters + d.epa_iters > 20)
+					{
+						auto sa = (d.shape_type_a >= 0 && d.shape_type_a <= 4) ? shape_names[d.shape_type_a] : "?";
+						auto sb = (d.shape_type_b >= 0 && d.shape_type_b <= 4) ? shape_names[d.shape_type_b] : "?";
+						fprintf(f_timing, "  pair[%d] %s vs %s: gjk=%d epa=%d hit=%d\n",
+							d.pair_index, sa, sb, d.gjk_iters, d.epa_iters, d.hit);
+					}
+				}
+				fprintf(f_timing, "  summary: gjk_pairs=%d max_gjk=%d max_epa=%d avg_gjk=%.1f avg_epa=%.1f\n",
+					gjk_pairs, max_gjk, max_epa,
+					gjk_pairs > 0 ? (float)total_gjk / gjk_pairs : 0.0f,
+					gjk_pairs > 0 ? (float)total_epa / gjk_pairs : 0.0f);
+				fflush(f_timing);
+			}
+		}
+		#endif
+
 		// Copy contacts to output
 		out_contacts.resize(contact_count);
 		if (contact_count > 0)
@@ -184,31 +250,38 @@ namespace pr::physics
 		return contact_count;
 	}
 
-	// Compile the GJK compute shader from embedded resources.
+	// Compile the collision compute shader from embedded resources.
 	void GpuCollisionDetector::CompileShader()
 	{
 		auto device = static_cast<ID3D12Device4*>(m_gpu);
-		ShaderCompiler compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"PHYSICS_GJK_HLSL", L"TEXT"))
+		auto compiler = ShaderCompiler{}
+			.Source(resource::Read<char>(L"COLLIDE_HLSL", L"TEXT"))
 			.Includes({ new ResourceIncludeHandler, true })
 			.EntryPoint(L"CSCollisionDetect")
 			.ShaderModel(L"cs_6_0")
+			#if PR_DBG
+			.Define(L"COLLISION_DIAGNOSTICS", L"1")
+			#endif
 			.Optimise();
 
 		auto bytecode = compiler.Compile();
 
-		// Root signature: constants + 3 SRVs + 2 UAVs
-		m_cs_gjk.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+		// Root signature: constants + 3 SRVs + UAVs (contacts, counters, diag)
+		auto sig = RootSig(ERootSigFlags::ComputeOnly)
 			.U32<cbCollision>(EReg::Params)
 			.SRV(EReg::Shapes)
 			.SRV(EReg::Pairs)
 			.SRV(EReg::Verts)
 			.UAV(EReg::Contacts)
-			.UAV(EReg::Counters)
-			.Create(device, "Physics:GjkSig");
+			.UAV(EReg::Counters);
 
+		#if PR_DBG
+		sig.UAV(EReg::Diag);
+		#endif
+
+		m_cs_gjk.m_sig = sig.Create(device, "Physics:CollideSig");
 		m_cs_gjk.m_pso = ComputePSO(m_cs_gjk.m_sig.get(), bytecode)
-			.Create(device, "Physics:GjkPSO");
+			.Create(device, "Physics:CollidePSO");
 	}
 
 	// Create GPU buffers for collision pipeline.
@@ -238,6 +311,9 @@ namespace pr::physics
 		{
 			m_r_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_pairs, {}), cmd_list, "Physics:CollisionPairs");
 			m_r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuContact>(max_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:Contacts");
+			#if PR_DBG
+			m_r_diag = m_gpu.CreateResource(ResDesc::Buf<GpuPairDiag>(max_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:PairDiag");
+			#endif
 			m_max_pairs = max_pairs;
 		}
 		if (m_r_counters == nullptr)

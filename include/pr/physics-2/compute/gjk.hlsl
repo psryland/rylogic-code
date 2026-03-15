@@ -63,6 +63,19 @@ struct GpuContact
 	int mat_id_b;
 };
 
+// Per-pair diagnostic output (written by every thread, not just colliding ones)
+struct GpuPairDiag
+{
+	int pair_index;
+	int shape_type_a;
+	int shape_type_b;
+	int gjk_iters;
+	int epa_iters;
+	int hit;          // 1 if collision detected, 0 if not
+	int pad0;
+	int pad1;
+};
+
 // ---- Bindings ----
 cbuffer cbCollision : register(b0)
 {
@@ -77,6 +90,7 @@ StructuredBuffer<GpuCollisionPair> g_pairs    : register(t1);
 StructuredBuffer<float4>           g_verts    : register(t2);
 RWStructuredBuffer<GpuContact>     g_contacts : register(u0);
 RWStructuredBuffer<uint>           g_counters : register(u1);
+RWStructuredBuffer<GpuPairDiag>    g_diag     : register(u2);
 
 // ---- Vector helpers ----
 
@@ -399,12 +413,14 @@ bool Epa(
 	GpuShape shape_a, float4x4 a2w, float4x4 w2a,
 	GpuShape shape_b, float4x4 b2w, float4x4 w2b,
 	Simplex gjk_sx, StructuredBuffer<float4> verts,
-	out float4 out_normal, out float out_depth, out float4 out_ptA, out float4 out_ptB)
+	out float4 out_normal, out float out_depth, out float4 out_ptA, out float4 out_ptB,
+	out int out_epa_iters)
 {
 	out_normal = float4(0, 0, 0, 0);
 	out_depth = 0;
 	out_ptA = float4(0, 0, 0, 1);
 	out_ptB = float4(0, 0, 0, 1);
+	out_epa_iters = 0;
 
 	if (gjk_sx.n < 4) return false;
 
@@ -471,6 +487,7 @@ bool Epa(
 	// EPA main loop
 	for (int iter = 0; iter < MaxGjkIter; ++iter)
 	{
+		out_epa_iters = iter + 1;
 		// Find the face closest to the origin
 		int ci = 0;
 		for (int i = 1; i < nf; ++i)
@@ -607,11 +624,14 @@ bool GjkCollide(
 	GpuShape shape_a, float4x4 a2w,
 	GpuShape shape_b, float4x4 b2w,
 	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	out float4 out_axis, out float4 out_point, out float out_depth,
+	out int out_gjk_iters, out int out_epa_iters)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
+	out_gjk_iters = 0;
+	out_epa_iters = 0;
 
 	// Compute shape-to-world and world-to-shape transforms.
 	// For the GPU path, shapes are already positioned (s2p baked into a2w/b2w by caller),
@@ -636,6 +656,8 @@ bool GjkCollide(
 	// GJK main loop
 	for (int iter = 0; iter < MaxGjkIter; ++iter)
 	{
+		out_gjk_iters = iter + 1;
+
 		if (length_sq(dir.xyz) < GjkEps)
 			break;
 
@@ -652,8 +674,13 @@ bool GjkCollide(
 			// Origin enclosed — shapes overlap. Run EPA for penetration info.
 			float4 normal, ptA, ptB;
 			float depth;
-			if (!Epa(shape_a, a2w, w2a, shape_b, b2w, w2b, sx, verts, normal, depth, ptA, ptB))
+			int epa_iters;
+			if (!Epa(shape_a, a2w, w2a, shape_b, b2w, w2b, sx, verts, normal, depth, ptA, ptB, epa_iters))
+			{
+				out_epa_iters = epa_iters;
 				return false;
+			}
+			out_epa_iters = epa_iters;
 
 			// Orient axis from A toward B (convention: axis points A→B)
 			float pa = dot(normal.xyz, centre_a.xyz);
@@ -667,6 +694,122 @@ bool GjkCollide(
 	}
 
 	return false; // GJK did not converge
+}
+
+// ---- Specialised collision tests ----
+// GJK/EPA is general-purpose but produces imprecise normals for sphere-like
+// Minkowski differences (the EPA polytope can't accurately represent a curved surface
+// with limited vertices). Specialised tests give exact results for simple shapes.
+
+// Sphere vs Sphere: direct distance test. Returns true if overlapping.
+bool SphereVsSphere(GpuShape sa, float4x4 a2w, GpuShape sb, float4x4 b2w,
+	out float4 out_axis, out float4 out_point, out float out_depth)
+{
+	out_axis = float4(0, 0, 0, 0);
+	out_point = float4(0, 0, 0, 1);
+	out_depth = 0;
+
+	float3 ca = a2w[3].xyz;
+	float3 cb = b2w[3].xyz;
+	float ra = sa.data.x;
+	float rb = sb.data.x;
+	float3 diff = cb - ca;
+	float dist_sq = dot(diff, diff);
+	float radii_sum = ra + rb;
+
+	if (dist_sq >= radii_sum * radii_sum || dist_sq < 1e-12f)
+		return false;
+
+	float dist = sqrt(dist_sq);
+	float3 normal = diff / dist;
+	out_axis = float4(normal, 0);
+	out_depth = radii_sum - dist;
+	float3 pt = ca + normal * (ra - out_depth * 0.5f);
+	out_point = float4(pt, 1);
+	return true;
+}
+
+// Sphere vs Box: GJK works well for this pair (no degenerate simplex issue)
+// since the Minkowski difference is a rounded box, not a sphere.
+
+// Box vs Box: SAT-based test for axis-aligned pairs.
+// The Minkowski difference of two boxes is a larger box, and EPA struggles
+// to resolve the face normal precisely. SAT gives the exact separating axis.
+bool BoxVsBox(GpuShape sa, float4x4 a2w, GpuShape sb, float4x4 b2w,
+	out float4 out_axis, out float4 out_point, out float out_depth)
+{
+	out_axis = float4(0, 0, 0, 0);
+	out_point = float4(0, 0, 0, 1);
+	out_depth = 0;
+
+	float3 ha = sa.data.xyz; // half-extents of A
+	float3 hb = sb.data.xyz; // half-extents of B
+	float3x3 rot_a = (float3x3)a2w;
+	float3x3 rot_b = (float3x3)b2w;
+	float3 pos_a = a2w[3].xyz;
+	float3 pos_b = b2w[3].xyz;
+	float3 d = pos_b - pos_a; // vector from A centre to B centre
+
+	// Rotation of B relative to A: R = Rᵃᵀ * Rᵇ, and absolute values for SAT
+	float3x3 R;
+	float3x3 absR;
+	for (int i = 0; i < 3; ++i)
+	{
+		for (int j = 0; j < 3; ++j)
+		{
+			R[i][j] = dot(rot_a[i], rot_b[j]);
+			absR[i][j] = abs(R[i][j]) + 1e-6f; // epsilon to avoid division by zero in edge tests
+		}
+	}
+
+	// Translation in A's frame
+	float3 t = float3(dot(d, rot_a[0]), dot(d, rot_a[1]), dot(d, rot_a[2]));
+
+	float best_depth = 1e30f;
+	float3 best_axis = float3(0, 0, 0);
+
+	// Test 15 axes (6 face + 9 edge cross products)
+	// Face axes of A (3 axes)
+	for (int i = 0; i < 3; ++i)
+	{
+		float ra_proj = ha[i];
+		float rb_proj = hb[0] * absR[i][0] + hb[1] * absR[i][1] + hb[2] * absR[i][2];
+		float sep = abs(t[i]) - (ra_proj + rb_proj);
+		if (sep > 0) return false;
+		if (-sep < best_depth)
+		{
+			best_depth = -sep;
+			float3 axis = float3(0, 0, 0);
+			axis[i] = t[i] > 0 ? 1.0f : -1.0f;
+			best_axis = mul(axis, rot_a); // transform back to world(=A-object) space
+		}
+	}
+
+	// Face axes of B (3 axes)
+	for (int i = 0; i < 3; ++i)
+	{
+		float ra_proj = ha[0] * absR[0][i] + ha[1] * absR[1][i] + ha[2] * absR[2][i];
+		float rb_proj = hb[i];
+		float sep_val = dot(float3(R[0][i], R[1][i], R[2][i]), t);
+		float sep = abs(sep_val) - (ra_proj + rb_proj);
+		if (sep > 0) return false;
+		if (-sep < best_depth)
+		{
+			best_depth = -sep;
+			float3 axis = float3(0, 0, 0);
+			axis[i] = sep_val > 0 ? 1.0f : -1.0f;
+			best_axis = mul(axis, rot_b);
+		}
+	}
+
+	out_depth = best_depth;
+	out_axis = float4(normalize(best_axis), 0);
+
+	// Contact point: midpoint between the two closest features
+	// Approximate as midpoint between centres offset by half-depth along axis
+	float3 pt = pos_a + dot(d, out_axis.xyz) * 0.5f * out_axis.xyz;
+	out_point = float4(pt, 1);
+	return true;
 }
 
 // ---- Compute shader entry point ----
@@ -689,11 +832,41 @@ void CSCollisionDetect(uint3 ThreadID : SV_DispatchThreadID)
 	float4x4 a2w = shape_a.s2p; // A is in its own local space
 	float4x4 b2w = mul(shape_b.s2p, pair.b2a); // B transformed into A's space
 
-	// Run GJK + EPA
+	// Dispatch to specialised collision tests for simple shapes,
+	// or fall through to generic GJK + EPA.
 	float4 col_axis;
 	float4 col_point;
 	float depth;
-	if (!GjkCollide(shape_a, a2w, shape_b, b2w, g_verts, col_axis, col_point, depth))
+	bool hit = false;
+	int gjk_iters = 0;
+	int epa_iters = 0;
+
+	if (shape_a.type == SHAPE_SPHERE && shape_b.type == SHAPE_SPHERE)
+	{
+		hit = SphereVsSphere(shape_a, a2w, shape_b, b2w, col_axis, col_point, depth);
+	}
+	else if (shape_a.type == SHAPE_BOX && shape_b.type == SHAPE_BOX)
+	{
+		hit = BoxVsBox(shape_a, a2w, shape_b, b2w, col_axis, col_point, depth);
+	}
+	else
+	{
+		hit = GjkCollide(shape_a, a2w, shape_b, b2w, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters);
+	}
+
+	// Write per-pair diagnostics (every pair, not just colliding ones)
+	GpuPairDiag diag;
+	diag.pair_index = pair.pair_index;
+	diag.shape_type_a = shape_a.type;
+	diag.shape_type_b = shape_b.type;
+	diag.gjk_iters = gjk_iters;
+	diag.epa_iters = epa_iters;
+	diag.hit = hit ? 1 : 0;
+	diag.pad0 = 0;
+	diag.pad1 = 0;
+	g_diag[ThreadID.x] = diag;
+
+	if (!hit)
 		return;
 
 	// Allocate a slot in the contact buffer atomically.

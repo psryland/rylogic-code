@@ -20,6 +20,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_pairs;    // GPU buffer: StructuredBuffer<GpuCollisionPair>
 		D3DPtr<ID3D12Resource> m_r_contacts; // GPU buffer: RWStructuredBuffer<GpuContact>
 		D3DPtr<ID3D12Resource> m_r_counters; // GPU buffer: RWStructuredBuffer<uint>
+		D3DPtr<ID3D12Resource> m_r_diag;     // GPU buffer: RWStructuredBuffer<GpuPairDiag>
 		int m_max_shapes;
 		int m_max_verts;
 		int m_max_pairs;

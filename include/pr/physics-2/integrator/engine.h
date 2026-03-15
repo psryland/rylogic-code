@@ -48,8 +48,8 @@ namespace pr::physics
 
 		// Recycled buffer of rigid body pointers
 		std::vector<RigidBody*> m_body_ptrs;
-		bool m_gpu_resolve = false;
-		bool m_gpu_detect = false; // Use GPU GJK for narrow phase (false = CPU SAT)
+		bool m_gpu_resolve = true;
+		bool m_gpu_detect = true;
 
 	public:
 

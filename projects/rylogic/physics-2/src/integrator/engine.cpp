@@ -163,7 +163,7 @@ namespace pr::physics
 		// many bodies cluster together (e.g., 1000 bodies falling onto a ground plane),
 		// the broadphase can produce thousands of pairs. Capping prevents the GPU
 		// dispatch from exceeding the Windows TDR timeout (~2s).
-		static constexpr int MaxPairsPerFrame = 8192;
+		static constexpr int MaxPairsPerFrame = 1024;
 		int pair_idx = 0;
 		m_gpu_sort_and_sweep->EnumOverlappingPairs(m_gpu->m_job, std::span<IntegrateAABB const>(m_integrate_aabbs), [&](RigidBody const& objA, RigidBody const& objB)
 		{

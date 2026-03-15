@@ -10,6 +10,7 @@
 #include "src/ui/sandbox_ui.h"
 #include "src/unittests/sandbox_tests.h"
 #include "src/unittests/gpu_compare_tests.h"
+#include "src/unittests/collision_pair_tests.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
 #pragma comment(linker, "\"/manifestdependency:type='win32' \

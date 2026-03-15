@@ -592,5 +592,77 @@ namespace physics_sandbox::tests
 
 			PR_EXPECT(collision_detected);
 		}
+
+		// Diagnostic: compare full GPU pipeline (GPU detect + GPU resolve) against
+		// full CPU pipeline (CPU SAT + CPU resolve) for a sphere-sphere collision.
+		// Prints the velocity differences to help diagnose GPU GJK accuracy.
+		PRUnitTestMethod(FullGpuVsCpuSphereSphere)
+		{
+			auto sphere = collision::ShapeSphere(1.0f);
+			auto inertia = physics::Inertia::Sphere(1.0f, 10.0f);
+			auto const dt = 1.0f / 100.0f;
+
+			auto run_collision = [&](bool gpu_detect, bool gpu_resolve) -> std::pair<v8motion, v8motion>
+			{
+				physics::RigidBody bodies[2] = {
+					physics::RigidBody{&sphere, m4x4::Translation(v4{-5, 0, 0, 1}), inertia},
+					physics::RigidBody{&sphere, m4x4::Translation(v4{+5, 0, 0, 1}), inertia},
+				};
+				bodies[0].VelocityWS(v4::Zero(), v4{+3, 0, 0, 0});
+				bodies[1].VelocityWS(v4::Zero(), v4{-3, 0, 0, 0});
+
+				physics::MaterialMap materials;
+				auto& mat = materials(0);
+				mat.m_elasticity_norm = 1.0f;
+				mat.m_friction_static = 0.0f;
+
+				physics::Engine engine(materials);
+				engine.UseGpuDetect(gpu_detect);
+				engine.UseGpuResolve(gpu_resolve);
+				engine.Broadphase().Add(bodies[0]);
+				engine.Broadphase().Add(bodies[1]);
+
+				bool collision_done = false;
+				engine.PostCollisionDetection += [&](auto&, auto args)
+				{
+					if (!args.m_contacts.empty())
+						collision_done = true;
+				};
+
+				for (int step = 0; step != 5000 && !collision_done; ++step)
+				{
+					bodies[0].ZeroForces();
+					bodies[1].ZeroForces();
+					engine.Step(dt, bodies);
+				}
+
+				return {bodies[0].VelocityWS(), bodies[1].VelocityWS()};
+			};
+
+			auto [full_gpu_va, full_gpu_vb] = run_collision(true, true);
+			auto [gjk_cpu_va, gjk_cpu_vb] = run_collision(true, false); // GPU detect + CPU resolve
+			auto [sat_gpu_va, sat_gpu_vb] = run_collision(false, true); // CPU detect + GPU resolve
+			auto [full_cpu_va, full_cpu_vb] = run_collision(false, false);
+
+			printf("  Full GPU  (GJK+GPUres): va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+				full_gpu_va.lin.x, full_gpu_va.lin.y, full_gpu_va.lin.z, full_gpu_vb.lin.x, full_gpu_vb.lin.y, full_gpu_vb.lin.z);
+			printf("  GJK+CPUres:             va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+				gjk_cpu_va.lin.x, gjk_cpu_va.lin.y, gjk_cpu_va.lin.z, gjk_cpu_vb.lin.x, gjk_cpu_vb.lin.y, gjk_cpu_vb.lin.z);
+			printf("  SAT+GPUres:             va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+				sat_gpu_va.lin.x, sat_gpu_va.lin.y, sat_gpu_va.lin.z, sat_gpu_vb.lin.x, sat_gpu_vb.lin.y, sat_gpu_vb.lin.z);
+			printf("  Full CPU  (SAT+CPUres): va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+				full_cpu_va.lin.x, full_cpu_va.lin.y, full_cpu_va.lin.z, full_cpu_vb.lin.x, full_cpu_vb.lin.y, full_cpu_vb.lin.z);
+			printf("  Expected analytic:      va=(-3, 0, 0) vb=(+3, 0, 0)\n");
+
+			// The key diagnostic: which combination breaks?
+			auto diff_gjk_cpu = Length(gjk_cpu_va.lin - full_cpu_va.lin);
+			auto diff_sat_gpu = Length(sat_gpu_va.lin - full_cpu_va.lin);
+			printf("  GJK+CPUres diff from ref: %.6f (if large → GPU GJK contact data is wrong)\n", diff_gjk_cpu);
+			printf("  SAT+GPUres diff from ref: %.6f (if large → GPU resolve is wrong)\n", diff_sat_gpu);
+
+			// Both combinations should be close to the full CPU result
+			PR_EXPECT(diff_gjk_cpu < 0.1f);
+			PR_EXPECT(diff_sat_gpu < 0.1f);
+		}
 	};
 }
