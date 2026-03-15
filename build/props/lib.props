@@ -28,11 +28,12 @@
 		</ResourceCompile>
 	</ItemDefinitionGroup>
 
-	<!-- Dependencies -->
-	<Target Name="Deploy" AfterTargets="Build">
-		<Exec
-			Command="dotnet-script.exe --cache-path %TEMP%\$(SubDir) $(ScriptPath)DeployLib.csx -- $(TargetPath)"
-			WorkingDirectory="$(RylogicRoot)"
-		/>
-	</Target>
+	<!-- Default build artifacts for static library projects -->
+	<ItemGroup>
+		<BuildArtifacts Include="$(OutDir)$(TargetName).lib" />
+		<BuildArtifacts Include="$(OutDir)$(TargetName).pdb" />
+	</ItemGroup>
+
+	<!-- Deploy artifacts to lib/platform/config/ after build -->
+	<Import Project="$(TargetsPath)deploy.targets" />
 </Project>

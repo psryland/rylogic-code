@@ -34,11 +34,13 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
 
-  <!-- Dependencies -->
-  <Target Name="Deploy" AfterTargets="Build">
-    <Exec
-      Command="dotnet-script.exe --cache-path %TEMP%\$(SubDir) $(ScriptPath)DeployLib.csx -- $(TargetPath)"
-      WorkingDirectory="$(RylogicRoot)"
-    />
-  </Target>
+  <!-- Default build artifacts for DLL projects -->
+  <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)$(TargetName).dll" />
+    <BuildArtifacts Include="$(OutDir)$(TargetName).imp" />
+    <BuildArtifacts Include="$(OutDir)$(TargetName).pdb" />
+  </ItemGroup>
+
+  <!-- Deploy artifacts to lib/platform/config/ after build -->
+  <Import Project="$(TargetsPath)deploy.targets" />
 </Project>

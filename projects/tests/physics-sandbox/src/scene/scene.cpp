@@ -383,13 +383,17 @@ namespace physics_sandbox
 			}
 		}
 
-		// Create the graphics now that all bodies and shapes are stable in memory
+		// Create the graphics now that all bodies and shapes are stable in memory.
+		// Build a single LDraw script containing all body shapes, then parse it in one
+		// call. This is dramatically faster than parsing each body individually because
+		// it amortises renderer overhead (shader cache lookups, resource pool, etc.).
 		if (m_rdr)
 		{
 			using namespace pr::ldraw;
 			static std::default_random_engine rng;
 
-			// Create graphics for each physics shape
+			// Build a single script with one root object per body
+			Builder builder;
 			for (auto const& [bd, i] : with_index(scene_desc.bodies))
 			{
 				auto& body = m_body[i];
@@ -397,44 +401,38 @@ namespace physics_sandbox
 					continue;
 
 				auto colour = bd.colour ? *bd.colour : RandomRGB(rng, 0.0f, 1.0f);
-
-				Builder builder;
 				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
-				auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToString());
-				if (!result.m_objects.empty())
-					body.m_gfx = result.m_objects.front();
-
-				body.UpdateGfx();
 			}
 
-			// Create graphics for the terrain
+			// Add ground plane shape
 			if (scene_desc.ground)
 			{
 				auto& body = m_body.back();
 				auto colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(rng, 0.0f, 1.0f);
-
-				Builder builder;
 				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
-				auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToString());
-				if (!result.m_objects.empty())
-					body.m_gfx = result.m_objects.front();
+			}
 
-				//// Create the ground plane visual as a large textured quad
-				//if (m_rdr)
-				//{
-				//	auto extent = ground_half_extent * 2;
-				//	auto scale = ground_half_extent / 8.0f;
-				//	ldraw::Builder ldr;
-				//	ldr.Plane("ground", 0xFFC8B078)
-				//		.wh({ extent, extent })
-				//		.texture([=](ldraw::seri::Texture& tex) { tex.filepath(scene_desc.ground.texture).t2s(m3x4::Scale(scale)); })
-				//		.axis(AxisId::PosZ)
-				//		.pos(v3{ 0, 0, scene_desc.ground.height });
+			// Parse all shapes in one batch
+			auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToBinary());
 
-				//	auto result = rdr12::ldraw::Parse(*m_rdr, ldr.ToString());
-				//	if (!result.m_objects.empty())
-				//		m_ground_gfx = result.m_objects.front();
-				//}
+			// Assign each parsed object to its corresponding body
+			int obj_idx = 0;
+			for (auto const& [bd, i] : with_index(scene_desc.bodies))
+			{
+				auto& body = m_body[i];
+				if (!body.HasShape())
+					continue;
+
+				if (obj_idx < static_cast<int>(result.m_objects.size()))
+					body.m_gfx = result.m_objects[obj_idx++];
+
+				body.UpdateGfx();
+			}
+
+			// Assign ground plane graphics
+			if (scene_desc.ground && obj_idx < static_cast<int>(result.m_objects.size()))
+			{
+				m_body.back().m_gfx = result.m_objects[obj_idx++];
 			}
 		}
 
@@ -630,11 +628,11 @@ namespace physics_sandbox
 	// Export the scene as LDraw script
 	void Scene::Dump()
 	{
-		auto flags = ldraw::ERigidBodyFlags::All;
+		using namespace pr::ldraw;
 
 		ldraw::Builder builder;
-		builder.Add<ldraw::LdrRigidBody>("body0", 0x8000FF00).rigid_body(m_body[0]).flags(flags);
-		builder.Add<ldraw::LdrRigidBody>("body1", 0x10FF0000).rigid_body(m_body[1]).flags(flags);
+		builder.Add<LdrRigidBody>("body0", 0x8000FF00).rigid_body(m_body[0]);
+		builder.Add<LdrRigidBody>("body1", 0x10FF0000).rigid_body(m_body[1]);
 		builder.Save(L"dump\\physics_dump.ldr");
 	}
 

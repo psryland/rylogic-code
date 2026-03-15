@@ -418,7 +418,6 @@ void Sections(uint end, EKeyword parent)
 		switch (kw)
 		{
 			case Arrow:
-			case Bar:
 			case Box:
 			case BoxList:
 			case Chart:
@@ -438,7 +437,6 @@ void Sections(uint end, EKeyword parent)
 			case LightSource:
 			case Line:
 			case LineBox:
-			case LineD:
 			case LineStrip:
 			case Mesh:
 			case Model:
@@ -451,7 +449,6 @@ void Sections(uint end, EKeyword parent)
 			case Ribbon:
 			case Series:
 			case Sphere:
-			case Spline:
 			case Text:
 			case Triangle:
 			case Tube:

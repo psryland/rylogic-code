@@ -22,52 +22,27 @@ namespace pr::ldraw
 		_flags_enum = 0,
 	};
 
-	struct LdrRigidBody : LdrBase
+	struct LdrRigidBody : LdrGroup
 	{
-		physics::RigidBody const* m_rb;
-		ERigidBodyFlags m_flags;
-
+		physics::RigidBody m_rb;
 		LdrRigidBody(seri::Name name = {}, seri::Colour colour = {})
-			: LdrBase(name, colour)
-			, m_rb()
-			, m_flags(ERigidBodyFlags::Default)
+			: LdrGroup(name, colour)
 		{
+			group_colour(m_colour);
 		}
 
 		LdrRigidBody& rigid_body(physics::RigidBody const& rb)
 		{
-			m_rb = &rb;
+			m_rb = rb;
+			if (m_rb.HasShape())
+				Add<LdrCollisionShape>("shape").shape(m_rb.Shape());
+
 			return *this;
 		}
-		LdrRigidBody& flags(ERigidBodyFlags f)
+		LdrRigidBody& origin()
 		{
-			m_flags = f;
+			CoordFrame("origin");
 			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			if (!m_rb || !m_rb->HasShape())
-				return;
-
-			Builder tmp;
-			auto& grp = tmp.Group(m_name, m_colour);
-			grp.group_colour(m_colour);
-			AddShape(grp, m_rb->Shape());
-			tmp.ToString(out);
-			LdrBase::Write(out);
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			if (!m_rb || !m_rb->HasShape())
-				return;
-
-			Builder tmp;
-			auto& grp = tmp.Group(m_name, m_colour);
-			grp.group_colour(m_colour);
-			AddShape(grp, m_rb->Shape());
-			tmp.ToBinary(out);
-			LdrBase::Write(out);
 		}
 	};
 }

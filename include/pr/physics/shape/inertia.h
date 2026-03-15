@@ -158,6 +158,14 @@ namespace pr::physics
 		// Create an inertia matrix for a box at 'offset'
 		static Inertia Box(v4 radius, float mass, v4 offset = v4{});
 
+		// Create an inertia matrix for a thin rod along the Z-axis at 'offset'.
+		// 'half_length' is the half-extent along Z.
+		static Inertia Line(float half_length, float mass, v4 offset = v4{});
+
+		// Create an inertia matrix for a thin triangular lamina with vertices 'a', 'b', 'c'.
+		// The CoM is at (a+b+c)/3. Vertices are in shape space.
+		static Inertia Triangle(v4 a, v4 b, v4 c, float mass);
+
 		#pragma region Operators
 		// Note: there is no operator + because its definition is ambiguous
 		//  Ia + Ib can either mean:
