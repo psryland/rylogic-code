@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<!--
+	Deploy target: copies BuildArtifacts to ArtifactsPath/Platform/Config/
+	
+	Usage: In your .vcxproj or .props, define BuildArtifacts items:
+		<ItemGroup>
+			<BuildArtifacts Include="$(OutDir)$(TargetName).lib" />
+			<BuildArtifacts Include="$(OutDir)$(TargetName).pdb" />
+		</ItemGroup>
+	
+	Projects that import lib.props or dll.props get sensible defaults automatically.
+	Add extra BuildArtifacts items in the .vcxproj to deploy additional files.
+	-->
+	<PropertyGroup>
+		<DeployDir>$(ArtifactsPath)$(PlatformTarget)\$(Configuration)\</DeployDir>
+	</PropertyGroup>
+
+	<Target Name="Deploy" AfterTargets="Build" Condition="'@(BuildArtifacts)' != ''">
+		<MakeDir Directories="$(DeployDir)" />
+		<Copy
+			SourceFiles="@(BuildArtifacts)"
+			DestinationFolder="$(DeployDir)"
+			SkipUnchangedFiles="true"
+			Condition="Exists('%(Identity)')"
+		/>
+		<Message
+			Text="Deployed %(BuildArtifacts.Filename)%(BuildArtifacts.Extension) --> $(DeployDir)"
+			Importance="normal"
+			Condition="Exists('%(Identity)')"
+		/>
+	</Target>
+</Project>
