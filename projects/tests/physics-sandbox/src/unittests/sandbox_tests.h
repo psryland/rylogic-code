@@ -74,14 +74,7 @@ namespace physics_sandbox::tests
 			body_b.VelocityWS(v4::Zero(), vel_b);
 
 			// Configure perfectly elastic, frictionless collisions
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
-
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 1.0f;
-			mat.m_elasticity_tang = 0.0f;
-			mat.m_elasticity_tors = 0.0f;
-			mat.m_friction_static = 0.0f;
+			physics::Engine engine;
 
 			// Capture the "before" state on the step where collision is first detected,
 			// before the impulse is applied.
@@ -627,12 +620,12 @@ namespace physics_sandbox::tests
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
 
-			physics::MaterialMap materials;
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 1.0f;
-			mat.m_friction_static = 0.0f;
-
-			physics::Engine engine(materials);
+			physics::Engine engine;
+			engine.Material(physics::Material{
+				.m_id = physics::Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 1.0f,
+			});
 
 			auto const g = 9.81f;
 			auto const gravity = v4{0, 0, -g, 0};

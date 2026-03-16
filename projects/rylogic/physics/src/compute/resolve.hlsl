@@ -3,18 +3,24 @@
 //  Copyright (C) Rylogic Ltd 2025
 //*********************************************
 // Graph-coloured batch collision resolution running on the GPU.
-// Each thread processes one contact. Contacts are dispatched in colour
-// batches — within a batch, no two contacts share a body, so writes
-// to body momenta are data-race free.
 //
-// The algorithm mirrors the CPU RestitutionImpulse() + ResolveCollision()
-// path in impulse.cpp and engine.cpp. See those files for detailed comments.
+// Pipeline:
+//   1. CSPrepareContacts — converts GpuContact → GpuResolveContact (one thread per contact)
+//   2. CSGraphColouring  — assigns colours to contacts, single thread, O(n²)
+//   3. CSResolve          — dispatched once per colour from CPU loop (fixed MaxColours iterations)
+//
+// Within a colour batch, no two contacts share a body, so writes to body
+// momenta are data-race free.
 //
 // Buffer layout:
-//   u0: RWStructuredBuffer<RigidBodyDynamics> — per-body dynamic state (read/write)
-//   t0: StructuredBuffer<GpuResolveContact>   — filtered contacts with materials
-//   t1: StructuredBuffer<uint>                — per-contact colour assignment
-//   b0: cbuffer with contact count and current colour batch
+//   b0: cbuffer with colour index or max contacts
+//   u0: RWStructuredBuffer<RigidBodyDynamics>   — per-body dynamic state (read/write)
+//   u1: RWStructuredBuffer<uint>                — per-contact colour assignment
+//   u2: RWStructuredBuffer<GpuResolveContact>   — prepared contacts (output of CSPrepareContacts)
+//   t0: StructuredBuffer<GpuCollisionCounters>  — counters (body_count, pair_count, contact_count)
+//   t1: StructuredBuffer<GpuContact>            — raw contacts from collision detection
+//   t2: StructuredBuffer<GpuCollisionPair>      — collision pairs (for body index lookup)
+//   t3: StructuredBuffer<GpuMaterial>           — material properties
 //
 // Matrix convention: same as integrate.hlsl (row-vector / DirectX-style).
 //   HLSL 'row_major float4x4' rows = C++ columns = basis vectors.
@@ -26,10 +32,14 @@
 #include "src/compute/rigid_body_dynamics.hlsli"
 #include "src/compute/collision_types.hlsli"
 
+// Maximum number of colour batches. The CPU dispatches CSResolve this many times.
+// Empty batches (no contacts with that colour) are free — threads return immediately.
+static const int MaxColours = 32;
+
 // Per-dispatch constants
 cbuffer cbResolve : register(b0)
 {
-	int g_colour;         // current colour batch being processed
+	int g_colour; // current colour batch being processed (for CSResolve)
 	int g_pad0;
 	int g_pad1;
 	int g_pad2;
@@ -40,6 +50,8 @@ StructuredBuffer<GpuCollisionCounters> g_counters : register(t0);
 StructuredBuffer<GpuResolveContact> g_contacts : register(t1);
 RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
 RWStructuredBuffer<uint> g_colours : register(u1);
+
+// ----- Helper functions -----
 
 // Compute kinetic energy from momentum and inverse inertia (world space).
 // Momentum is at CoM, inertia is block-diagonal.
@@ -55,57 +67,52 @@ float KineticEnergy(RigidBodyDynamics body)
 	return 0.5f * spatial_dot(vel_ang, vel_lin, body.momentum_ang.xyz, body.momentum_lin.xyz);
 }
 
+// ----- CSGraphColouring -----
+// Greedy graph colouring: assigns colours so no two contacts sharing a body have the same colour.
+// Single-thread shader — O(n²) is fine for typical contact counts (<10k).
+// Writes per-contact colour to g_colours[].
 [numthreads(1, 1, 1)]
 void CSGraphColouring(uint3 dtid : SV_DispatchThreadID)
 {
-	// TODO: Need to work out how to do this in a shader
-#if 0
-	// Greedy graph colouring: assign colours so no two contacts sharing a body have the same colour.
-	std::pair<std::vector<int>, int> GraphColourContacts(std::span<GpuResolveContact const> contacts)
+	int n = g_counters[0].contact_count;
+
+	// Greedy colouring: for each contact, find the lowest colour not used by
+	// any earlier contact that shares a body.
+	for (int i = 0; i < n; ++i)
 	{
-		auto n = static_cast<int>(contacts.size());
-		std::vector<int> colours(n, -1);
-		int max_colour = 0;
+		int a = g_contacts[i].body_idx_a;
+		int b = g_contacts[i].body_idx_b;
 
-		// For each contact (in time-sorted order), find conflicting colours
-		for (int i = 0; i != n; ++i)
+		// Bitmask of used colours (supports up to 32 colours)
+		uint used = 0;
+		for (int j = 0; j < i; ++j)
 		{
-			auto a = contacts[i].body_idx_a;
-			auto b = contacts[i].body_idx_b;
-
-			// Collect colours used by earlier contacts that share body A or B
-			std::vector<bool> used(max_colour + 2, false);
-			for (int j = 0; j != i; ++j)
+			if (g_contacts[j].body_idx_a == a || g_contacts[j].body_idx_b == a ||
+				g_contacts[j].body_idx_a == b || g_contacts[j].body_idx_b == b)
 			{
-				if (contacts[j].body_idx_a == a || contacts[j].body_idx_b == a ||
-					contacts[j].body_idx_a == b || contacts[j].body_idx_b == b)
-				{
-					if (colours[j] >= 0)
-						used[colours[j]] = true;
-				}
+				uint c = g_colours[j];
+				if (c < 32)
+					used |= (1u << c);
 			}
-
-			// Assign lowest available colour
-			int c = 0;
-			while (c < static_cast<int>(used.size()) && used[c]) ++c;
-			colours[i] = c;
-			max_colour = std::max(max_colour, c + 1);
 		}
 
-		return {colours, max_colour};
+		// Find lowest clear bit
+		g_colours[i] = firstbitlow(~used);
 	}
-#endif
 }
 
+// ----- CSResolve -----
+// Dispatched once per colour from the CPU loop. Each thread processes one contact.
+// Only contacts matching the current colour are processed — all others return immediately.
 [numthreads(ResolveThreadCount, 1, 1)]
-void CSResolve(uint3 dtid : SV_DispatchThreadID)
+void CSResolve(int3 dtid : SV_DispatchThreadID)
 {
 	uint idx = dtid.x;
 	if (idx >= g_counters[0].contact_count)
 		return;
 
 	// Only process contacts assigned to the current colour batch
-	if (g_colours[idx] != g_colour)
+	if (g_colours[idx] != (uint)g_colour)
 		return;
 
 	// Load the contact
@@ -123,23 +130,18 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	float3 os_com_b = bodyB.os_com_and_invmass.xyz;
 
 	// ----- Compute relative velocity at the contact point (in A's object space) -----
-	// Body A: A-space = A's object space, so rotation from OS to A-space is identity.
-	// Note: stored diagonal/products are unscaled — multiply by inv_mass to get actual Ic_inv.
 	float3x3 os_iinv_a = inv_mass_a * build_symmetric_3x3(bodyA.inertia_inv_diagonal.xyz, bodyA.inertia_inv_products.xyz);
 	float3x3 rot_a = (float3x3)bodyA.o2w;
 	float3x3 ws_iinv_a = rotate_inertia_inv(os_iinv_a, rot_a);
 
-	// Compute A's velocity at model origin in world space, then transform to A-space.
-	// Momentum is at CoM, velocity at CoM: omega = I_inv * h_ang, v_com = h_lin / m
 	float3 omega_a_ws = mul(ws_iinv_a, bodyA.momentum_ang.xyz);
 	float3 v_com_a_ws = inv_mass_a * bodyA.momentum_lin.xyz;
 
-	// Transform velocity to A's object space (w2a rotation = transpose of rot_a in row-vector convention)
+	// Transform velocity to A's object space
 	float3 omega_a = mul(rot_a, omega_a_ws);
 	float3 v_com_a = mul(rot_a, v_com_a_ws);
 
-	// Velocity at contact point: v_pt = v_com + cross(omega, pt - com_pos)
-	float3 com_a_in_a = os_com_a; // A's CoM in A-space is just the OS CoM offset
+	float3 com_a_in_a = os_com_a;
 	float3 v_a_at_pt = v_com_a + cross(omega_a, pt - com_a_in_a);
 
 	// Body B: need B's velocity in A-space
@@ -150,11 +152,9 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	float3 omega_b_ws = mul(ws_iinv_b, bodyB.momentum_ang.xyz);
 	float3 v_com_b_ws = inv_mass_b * bodyB.momentum_lin.xyz;
 
-	// Transform B's WS velocity to A-space: use w2a rotation
 	float3 omega_b_in_a = mul(rot_a, omega_b_ws);
 	float3 v_com_b_in_a = mul(rot_a, v_com_b_ws);
 
-	// B's CoM position in A-space
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 b2a_pos = c.b2a[3].xyz;
 	float3 com_b_in_a = b2a_pos + mul(os_com_b, b2a_rot);
@@ -172,20 +172,12 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	float ke_before = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 
 	// ----- Build collision mass matrix -----
-
-	// Lever arms from each body's CoM to the contact point (in A-space)
 	float3 rA = pt - com_a_in_a;
 	float3 rB = pt - com_b_in_a;
 
-	// Inverse inertia tensors at CoM, in A-space
-	// For A: A-space IS A's object space, so no rotation needed
 	float3x3 Ia_inv = os_iinv_a;
-
-	// For B: rotate from B's OS to A-space
 	float3x3 Ib_inv = rotate_inertia_inv(os_iinv_b, b2a_rot);
 
-	// Collision inverse-mass matrix (3x3):
-	// col_I_inv = (1/mA)*I - CPM(rA)*Ia_inv*CPM(rA) + (1/mB)*I - CPM(rB)*Ib_inv*CPM(rB)
 	float3x3 cpm_rA = CrossProductMatrix(rA);
 	float3x3 cpm_rB = CrossProductMatrix(rB);
 
@@ -193,23 +185,16 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	float3x3 col_Ib_inv = inv_mass_b * float3x3(1,0,0, 0,1,0, 0,0,1) - mul(mul(cpm_rB, Ib_inv), cpm_rB);
 	float3x3 col_I_inv = col_Ia_inv + col_Ib_inv;
 
-	// The collision mass matrix
 	float3x3 col_I = Invert(col_I_inv);
 
 	// ----- Decompose impulse into normal and tangential components -----
-
-	// impulse0: kills ALL relative velocity (zero restitution)
 	float3 impulse0 = -mul(col_I, V_inv);
-
-	// impulseN: normal component only
 	float denom = dot(axis, mul(col_I_inv, axis));
 	float3 impulseN = (float3)0;
 	if (abs(denom) > 1e-12f)
 		impulseN = -(dot(axis, V_inv) / denom) * axis;
 
 	float3 impulseT = impulse0 - impulseN;
-
-	// Apply restitution to normal component
 	float3 impulse4 = (1.0f + c.elasticity) * impulseN + impulseT;
 
 	// ----- Coulomb friction cone clamping -----
@@ -230,58 +215,42 @@ void CSResolve(uint3 dtid : SV_DispatchThreadID)
 	}
 
 	// ----- Convert point impulse to spatial wrenches at each body's CoM -----
-	// Pure force at contact point → torque = cross(r, F) about CoM
-
-	// For A: impulse wrench at CoM in A-space (negate — A receives the reaction)
-	// Shift: torque = Cross(force, com - pt) per Featherstone RBDS 2.22
 	float3 forceA_in_a = -impulse4;
 	float3 torqueA_in_a = -cross(impulse4, com_a_in_a - pt);
-
-	// For B: impulse wrench at B's CoM in A-space
 	float3 forceB_in_a = impulse4;
 	float3 torqueB_in_a = cross(impulse4, com_b_in_a - pt);
 
-	// Transform wrenches to world space for momentum update.
-	// Both wrenches are in A-space. Momentum is stored in world space.
+	// Transform wrenches to world space
 	float3 torqueA_ws = mul(torqueA_in_a, rot_a);
 	float3 forceA_ws = mul(forceA_in_a, rot_a);
-	float3 torqueB_ws = mul(torqueB_in_a, rot_a); // B's wrench is also in A-space
+	float3 torqueB_ws = mul(torqueB_in_a, rot_a);
 	float3 forceB_ws = mul(forceB_in_a, rot_a);
 
 	// ----- Pre-compute impulse KE coefficient for energy guard -----
-	// A = 0.5 * (vAj·jA + vBj·jB) where vXj = IinvX * jX
-	float3 ja_ang = torqueA_ws;
-	float3 ja_lin = forceA_ws;
-	float3 jb_ang = torqueB_ws;
-	float3 jb_lin = forceB_ws;
-
-	// va_j = InertiaInvWS * impulseA (at CoM, block-diagonal)
-	float3 va_j_ang = mul(ws_iinv_a, ja_ang);
-	float3 va_j_lin = inv_mass_a * ja_lin;
-	float3 vb_j_ang = mul(ws_iinv_b, jb_ang);
-	float3 vb_j_lin = inv_mass_b * jb_lin;
-	float A = 0.5f * (spatial_dot(va_j_ang, va_j_lin, ja_ang, ja_lin)
-	                 + spatial_dot(vb_j_ang, vb_j_lin, jb_ang, jb_lin));
+	float3 va_j_ang = mul(ws_iinv_a, torqueA_ws);
+	float3 va_j_lin = inv_mass_a * forceA_ws;
+	float3 vb_j_ang = mul(ws_iinv_b, torqueB_ws);
+	float3 vb_j_lin = inv_mass_b * forceB_ws;
+	float A = 0.5f * (spatial_dot(va_j_ang, va_j_lin, torqueA_ws, forceA_ws)
+	                 + spatial_dot(vb_j_ang, vb_j_lin, torqueB_ws, forceB_ws));
 
 	// ----- Apply impulses to body momenta -----
-	bodyA.momentum_ang.xyz += ja_ang;
-	bodyA.momentum_lin.xyz += ja_lin;
-	bodyB.momentum_ang.xyz += jb_ang;
-	bodyB.momentum_lin.xyz += jb_lin;
+	bodyA.momentum_ang.xyz += torqueA_ws;
+	bodyA.momentum_lin.xyz += forceA_ws;
+	bodyB.momentum_ang.xyz += torqueB_ws;
+	bodyB.momentum_lin.xyz += forceB_ws;
 
 	// ----- Energy conservation guard -----
-	// If the impulse injected energy, scale it back.
-	// KE(α) = KE₀ + αB + α²A is quadratic in the impulse scale factor α.
 	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
 	if (delta > 0 && A > 1e-12f)
 	{
 		float alpha = clamp((A - delta) / A, 0.0f, 1.0f);
 		float correction = 1.0f - alpha;
-		bodyA.momentum_ang.xyz -= correction * ja_ang;
-		bodyA.momentum_lin.xyz -= correction * ja_lin;
-		bodyB.momentum_ang.xyz -= correction * jb_ang;
-		bodyB.momentum_lin.xyz -= correction * jb_lin;
+		bodyA.momentum_ang.xyz -= correction * torqueA_ws;
+		bodyA.momentum_lin.xyz -= correction * forceA_ws;
+		bodyB.momentum_ang.xyz -= correction * torqueB_ws;
+		bodyB.momentum_lin.xyz -= correction * forceB_ws;
 	}
 
 	// ----- Write updated bodies -----

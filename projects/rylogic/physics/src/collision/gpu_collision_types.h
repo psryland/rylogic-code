@@ -68,29 +68,6 @@ namespace pr::physics
 	};
 	static_assert(sizeof(GpuCollisionPair) == 80, "GpuCollisionPair must be 80 bytes (5 x float4)");
 
-	// GPU collision detection output for a single pair.
-	// Written by the GJK compute shader when a collision is detected.
-	struct alignas(16) GpuContact
-	{
-		// Collision separating axis (unit normal pointing from A toward B).
-		// In objA's space (since GJK runs with A at identity).
-		v4 axis;
-
-		// Contact point (in objA's space), midpoint between the two surfaces.
-		v4 pt;
-
-		// Penetration depth (positive = overlapping).
-		float depth;
-
-		// Index of the pair that produced this contact (maps back to GpuCollisionPair.pair_index).
-		int pair_index;
-
-		// Material IDs from each shape, for combined material lookup on CPU.
-		int mat_id_a;
-		int mat_id_b;
-	};
-	static_assert(sizeof(GpuContact) == 48, "GpuContact must be 48 bytes (3 x float4)");
-
 	// GPU-friendly contact data for the resolve shader.
 	// Contains everything needed to compute and apply the restitution impulse.
 	struct alignas(16) GpuResolveContact
@@ -102,8 +79,12 @@ namespace pr::physics
 		int body_idx_b;   // index into RigidBodyDynamics buffer
 		float elasticity; // combined material elasticity (normal)
 		float friction;   // combined material static friction
+		float depth;      // Penetration depth (positive = overlapping).
+		int mat_id_a;     // Material IDs from each shape
+		int mat_id_b;     // Material IDs from each shape
+		int pad0;
 	};
-	static_assert(sizeof(GpuResolveContact) == 112, "GpuResolveContact must be 112 bytes for GPU alignment");
+	static_assert(sizeof(GpuResolveContact) == 128, "GpuResolveContact must be 128 bytes for GPU alignment");
 
 	// Counter buffer for atomic contact output.
 	// The compute shader increments this atomically to allocate slots in the contact buffer.
@@ -115,6 +96,21 @@ namespace pr::physics
 		int pad1;
 	};
 	static_assert(sizeof(GpuCollisionCounters) == 16);
+
+	// GPU-friendly material properties. Packed for upload to the GPU.
+	// The collide shader looks up materials by ID and merges them inline.
+	struct alignas(16) GpuMaterial
+	{
+		float friction_static;
+		float elasticity_norm;
+		float elasticity_tang;
+		float elasticity_tors;
+		float density;
+		float pad0;
+		float pad1;
+		float pad2;
+	};
+	static_assert(sizeof(GpuMaterial) == 32);
 
 	// Output from the GPU integration step for debug validation.
 	// One entry per body, written by the compute shader.

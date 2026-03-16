@@ -22,11 +22,11 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/collision/shape_box.h"
+#include "pr/physics/materials/material.h"
 #include "pr/physics/collision/broadphase_brute.h"
 #include "pr/physics/integrator/engine.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/inertia.h"
-#include "pr/physics/materials/material_map.h"
 
 namespace pr::physics
 {
@@ -99,14 +99,7 @@ namespace pr::physics
 			body_b.VelocityWS(ang_vel_b, vel_b);
 
 			// Set up the engine with perfectly elastic, frictionless material
-			MaterialMap mats;
-			Engine engine(mats);
-
-			auto& mat = mats(0);
-			mat.m_elasticity_norm = 1.0f;  // Perfectly elastic
-			mat.m_elasticity_tang = 0.0f;
-			mat.m_elasticity_tors = 0.0f;
-			mat.m_friction_static = 0.0f;  // No friction
+			Engine engine;
 
 			// Hook the PostCollisionDetection event to capture pre-impulse state.
 			// This fires after Evolve and collision detection, but before impulse resolution.

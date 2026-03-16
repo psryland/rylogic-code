@@ -119,9 +119,6 @@
     <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h">
       <Filter>src\collision</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\collision\ibroadphase.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
@@ -155,13 +152,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\materials\imaterials.h">
-      <Filter>src\materials</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\include\pr\physics\materials\material.h">
-      <Filter>src\materials</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\materials\material_map.h">
       <Filter>src\materials</Filter>
     </ClInclude>
     <ClInclude Include="src\unittests\test_collision.h">
@@ -175,6 +166,9 @@
     </ClInclude>
     <ClInclude Include="src\collision\collision_shape_cache.h">
       <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\materials\material_map.h">
+      <Filter>src\materials</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

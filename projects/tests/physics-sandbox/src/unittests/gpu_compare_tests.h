@@ -13,6 +13,7 @@
 //
 #pragma once
 #include "src/forward.h"
+#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 
 namespace physics_sandbox::tests
 {
@@ -44,8 +45,7 @@ namespace physics_sandbox::tests
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0})); // far away
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
+			physics::Engine engine;
 
 			// Apply the external force before stepping
 			bodies[0].ZeroForces();
@@ -260,8 +260,7 @@ namespace physics_sandbox::tests
 			gpu_bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			gpu_bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
+			physics::Engine engine;
 
 			for (int step = 0; step != 100; ++step)
 			{
@@ -311,12 +310,6 @@ namespace physics_sandbox::tests
 			auto result = ResolveComparison{};
 			auto const dt = 1.0f / 100.0f;
 
-			// Configure perfectly elastic, frictionless collisions
-			physics::MaterialMap materials;
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 1.0f;
-			mat.m_friction_static = 0.0f;
-
 			// --- GPU resolve path ---
 			{
 				physics::RigidBody bodies[2] = {
@@ -326,7 +319,7 @@ namespace physics_sandbox::tests
 				bodies[0].VelocityWS(v4::Zero(), vel_a);
 				bodies[1].VelocityWS(v4::Zero(), vel_b);
 
-				physics::Engine engine(materials);
+				physics::Engine engine;
 				engine.UseGpuResolve(true);
 				engine.PostCollisionDetection += [&](auto&, auto args)
 				{
@@ -357,7 +350,7 @@ namespace physics_sandbox::tests
 				bodies[0].VelocityWS(v4::Zero(), vel_a);
 				bodies[1].VelocityWS(v4::Zero(), vel_b);
 
-				physics::Engine engine(materials);
+				physics::Engine engine;
 				engine.UseGpuResolve(false);
 				engine.PostCollisionDetection += [&](auto&, auto args)
 				{
@@ -466,8 +459,7 @@ namespace physics_sandbox::tests
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
+			physics::Engine engine;
 
 			for (int step = 0; step != 100; ++step)
 			{
@@ -503,8 +495,7 @@ namespace physics_sandbox::tests
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
+			physics::Engine engine;
 
 			auto ke0 = bodies[0].KineticEnergy();
 			float max_drift = 0.0f;
@@ -542,8 +533,7 @@ namespace physics_sandbox::tests
 			bodies[1].O2W(m4x4::Translation(v4{+5, 0, 0, 1}));
 			bodies[1].VelocityWS(v4::Zero(), v4{0, 0, 0, 0});
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
+			physics::Engine engine;
 
 			// Step until the bodies should be close enough to overlap
 			bool collision_detected = false;
@@ -595,12 +585,7 @@ namespace physics_sandbox::tests
 				bodies[0].VelocityWS(v4::Zero(), v4{+3, 0, 0, 0});
 				bodies[1].VelocityWS(v4::Zero(), v4{-3, 0, 0, 0});
 
-				physics::MaterialMap materials;
-				auto& mat = materials(0);
-				mat.m_elasticity_norm = 1.0f;
-				mat.m_friction_static = 0.0f;
-
-				physics::Engine engine(materials);
+				physics::Engine engine;
 				engine.UseGpuDetect(gpu_detect);
 				engine.UseGpuResolve(gpu_resolve);
 				

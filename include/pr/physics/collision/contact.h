@@ -36,7 +36,7 @@ namespace pr::physics
 
 		RbContact();
 		RbContact(RigidBody const& objA, RigidBody const& objB);
-		RbContact(RigidBody const& objA, RigidBody const& objB, GpuContact const& contact);
+		RbContact(RigidBody const& objA, RigidBody const& objB, GpuResolveContact const& contact);
 
 		// Adjust the collision data to the given sub-step time.
 		void Update(float dt_sub);

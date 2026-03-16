@@ -4,8 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
-#include "pr/physics/shape/inertia.h"
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 
 namespace pr::physics
 {
@@ -36,13 +34,10 @@ namespace pr::physics
 		GpuResolverPtr m_gpu_resolver;
 
 		// Material map for looking up combined material properties during collision resolution.
-		IMaterials& m_materials;
+		MaterialMapPtr m_materials;
 
 		// Buffers for preparing GPU data
 		CachePtr m_cache;
-
-		// Staging buffer for packing body dynamics
-		std::vector<RigidBodyDynamics> m_rb_dynamics;
 
 		// Recycled buffer of rigid body pointers
 		std::vector<RigidBody*> m_body_ptrs;
@@ -54,7 +49,7 @@ namespace pr::physics
 
 	public:
 
-		Engine(IMaterials& mats, ID3D12Device4* existing_device = nullptr);
+		Engine(ID3D12Device4* existing_device = nullptr);
 
 		// Get/Set whether the GPU is used for integration and collision detection.
 		bool UseGpu() const;
@@ -83,6 +78,10 @@ namespace pr::physics
 		// Subscribers can inspect, modify, add, or remove contacts before impulses are applied.
 		struct PostCollisionDetectionArgs { std::span<RbContact> m_contacts; };
 		EventHandler<Engine&, PostCollisionDetectionArgs> PostCollisionDetection;
+
+		// Get/set the physics material properties for a given material ID.
+		physics::Material Material(int id) const;
+		void Material(physics::Material mat);
 
 	private:
 

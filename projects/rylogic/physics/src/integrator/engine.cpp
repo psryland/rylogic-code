@@ -8,13 +8,14 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics/collision/contact.h"
-#include "pr/physics/materials/imaterials.h"
+#include "pr/physics/shape/inertia.h"
 #include "src/integrator/gpu_integrator.h"
 #include "src/collision/collision_shape_cache.h"
 #include "src/collision/gpu_sort_and_sweep.h"
 #include "src/collision/gpu_collision_detector.h"
 #include "src/collision/gpu_collision_types.h"
 #include "src/collision/gpu_resolver.h"
+#include "src/materials/material_map.h"
 #include "src/utility/gpu.h"
 
 namespace pr::physics
@@ -30,17 +31,23 @@ namespace pr::physics
 	{
 		// Persists across frames
 		CollisionShapeCache m_shape_cache;
+		
+		// Staging buffer for packing body dynamics
+		std::vector<RigidBodyDynamics> m_rb_dynamics;
 	};
+	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
+	{
+		delete cache;
+	}
 
-	Engine::Engine(IMaterials& mats, ID3D12Device4* existing_device)
+	Engine::Engine(ID3D12Device4* existing_device)
 		: m_gpu(new Gpu(existing_device))
 		, m_gpu_integrator(new GpuIntegrator(*m_gpu))
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu))
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu))
 		, m_gpu_resolver(new GpuResolver(*m_gpu))
-		, m_materials(mats)
+		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache)
-		, m_rb_dynamics()
 		, PostCollisionDetection()
 	{
 	}
@@ -96,14 +103,14 @@ namespace pr::physics
 
 		// Pack all bodies into a GPU-friendly format
 		{
-			m_rb_dynamics.resize(0);
+			m_cache->m_rb_dynamics.resize(0);
 			for (auto body : m_body_ptrs)
-				m_rb_dynamics.push_back(PackDynamics(*body));
+				m_cache->m_rb_dynamics.push_back(PackDynamics(*body));
 		}
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
 		{
-			m_gpu_integrator->Integrate(m_gpu->m_job, m_rb_dynamics, dt);
+			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
 		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
@@ -121,7 +128,7 @@ namespace pr::physics
 			auto dispatch = m_gpu_sort_and_sweep->DispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 			auto counters = m_gpu_integrator->Counters();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache, m_materials->span());
 		}
 		
 		// Resolve -> uses contacts -> applies impulses to bodies
@@ -138,13 +145,156 @@ namespace pr::physics
 
 		// Readback dynamics from GPU and unpack into bodies
 		{
-			m_gpu_integrator->Readback(m_gpu->m_job, m_rb_dynamics, {}, {});
+			m_gpu_integrator->Readback(m_gpu->m_job, m_cache->m_rb_dynamics, {}, {});
 			for (auto [body, i] : with_index(rigid_bodies))
-				UnpackDynamics(m_rb_dynamics[i], *body);
+				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 
 		m_body_ptrs.resize(0);
 	}
+
+	// Access the physics material properties for a given material ID.
+	physics::Material Engine::Material(int id) const
+	{
+		return (*m_materials)[id];
+	}
+	void Engine::Material(physics::Material mat)
+	{
+		(*m_materials).Set(mat);
+	}
+
+	// Narrow phase collision detection.
+	// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
+	// All collision data (point, axis, depth) is computed in objA's object space to
+	// minimise floating-point error. Returns true if the objects are in contact and
+	// the contact is approaching (not separating).
+	bool Engine::NarrowPhaseCollision(float dt, RbContact& c)
+	{
+		// This is the CPU reference implementation. Keep.
+		auto& objA = *c.m_objA;
+		auto& objB = *c.m_objB;
+
+		// Collision detection in objA space: objA is at identity, objB is at c.m_b2a.
+		if (!collision::Collide(objA.Shape(), m4x4::Identity(), objB.Shape(), c.m_b2a, c))
+			return false;
+
+		// If the collision point is moving out of collision, ignore the collision.
+		// This prevents re-resolving contacts that are already separating.
+		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point);
+		if (Dot(rel_vel_at_point, c.m_axis) > 0)
+			return false;
+
+		// Look up the combined material properties for this contact pair
+		c.m_mat = (*m_materials)(c.m_mat_idA, c.m_mat_idB);
+
+		// Estimate the sub-step time when the collision actually occurred.
+		// The bodies have already been evolved past the collision point, so we
+		// need to estimate how far back in time the actual contact was. We project
+		// the contact point backward along the relative velocity to find the
+		// pre-overlap position, then compute sub_step as the fraction of dt to
+		// rewind. This gives a more accurate contact point and lever arms for
+		// the impulse calculation.
+		auto point_at_t0 = c.m_point - dt * c.m_velocity.LinAt(c.m_point);
+		auto distance = Abs(Dot(c.m_point - point_at_t0, c.m_axis));
+		auto sub_step = distance > c.m_depth ? -c.m_depth / distance : 0.0f;
+
+		// Recompute contact data (b2a, velocity, contact point) at the estimated collision time.
+		c.Update(sub_step * dt);
+
+		return true;
+	}
+
+	// Calculate and apply the restitution impulse to resolve a collision.
+	// The impulse is computed in objA's space (where all contact data lives),
+	// then transformed to each body's own object space before being applied.
+	//
+	// Important: When multiple collisions are resolved in a single time step,
+	// earlier resolutions change body momenta. We must recompute the relative
+	// velocity using CURRENT momenta before computing each impulse, otherwise
+	// stale velocity data causes catastrophic energy injection.
+	void Engine::ResolveCollision(RbContact& c)
+	{
+		// This is the CPU reference implementation. Keep.
+		auto& objA = const_cast<RigidBody&>(*c.m_objA);
+		auto& objB = const_cast<RigidBody&>(*c.m_objB);
+
+		// Recompute relative velocity using current momenta.
+		// The geometric data (contact point, axis, depth) is still valid because
+		// only momenta changed, not positions. But the velocity field is stale.
+		auto va = Shift(objA.VelocityOS(), -objA.CentreOfMassOS());
+		auto vb = Shift(objB.VelocityOS(), -objB.CentreOfMassOS());
+		c.m_velocity = c.m_b2a * vb - va;
+
+		// Re-check the separating condition with updated velocities.
+		// A previous impulse in this step may have already resolved this contact.
+		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point_at_t);
+		auto sep_dot = Dot(rel_vel_at_point, c.m_axis);
+		if (sep_dot > 0)
+			return;
+
+		// Measure pre-collision kinetic energy of the pair
+		auto ke_before = objA.KineticEnergy() + objB.KineticEnergy();
+
+		// Compute the equal-and-opposite impulse pair as spatial force wrenches.
+		// Each wrench is expressed at the body's own model origin, in its own frame.
+		auto impulse_pair = RestitutionImpulse(c);
+		auto ja = impulse_pair.m_os_impulse_objA;
+		auto jb = impulse_pair.m_os_impulse_objB;
+
+		// Pre-compute the "impulse kinetic energy" term: the KE that the impulse
+		// alone would create if applied to stationary bodies. This is the coefficient
+		// of the α² term in KE(α) = KE₀ + αB + α²A.
+		auto va_j = objA.InertiaInvOS() * ja;
+		auto vb_j = objB.InertiaInvOS() * jb;
+		auto A = 0.5f * (Dot(va_j, ja) + Dot(vb_j, jb));
+
+		// Apply the impulses to each body's momentum (stored as spatial force at CoM).
+		// The impulse changes both linear momentum (causing velocity change) and angular
+		// momentum (causing spin change proportional to the lever arm from CoM to contact).
+		objA.MomentumOS(objA.MomentumOS() + ja);
+		objB.MomentumOS(objB.MomentumOS() + jb);
+
+		// Energy conservation guard: if the impulse injected energy, scale it back.
+		// For elastic collisions (e=1), KE should be conserved exactly. For inelastic (e<1),
+		// KE must decrease. Numerical errors in contact geometry, sub-step approximation,
+		// or the collision mass matrix can cause small energy gains that compound over
+		// many collisions, leading to objects "exploding" apart.
+		//
+		// KE(α) = KE₀ + αB + α²A is quadratic in the impulse scale factor α.
+		// At α=1: KE₁ = KE₀ + B + A, so B = (KE₁ - KE₀) - A = δ - A.
+		// For KE(α) = KE₀: α²A + αB = 0 → α = -B/A = (A - δ)/A.
+		auto ke_after = objA.KineticEnergy() + objB.KineticEnergy();
+		auto delta = ke_after - ke_before;
+		if (delta > 0 && A > math::tiny<float>)
+		{
+			auto alpha = Clamp((A - delta) / A, 0.0f, 1.0f);
+			auto correction = 1.0f - alpha;
+			objA.MomentumOS(objA.MomentumOS() - correction * ja);
+			objB.MomentumOS(objB.MomentumOS() - correction * jb);
+
+			#if PR_DBG
+			{
+				auto ke_clamped = objA.KineticEnergy() + objB.KineticEnergy();
+				if (delta > 0.1f || alpha < 0.5f)
+				{
+					char buf[256];
+					snprintf(buf, sizeof(buf),
+						"[CLAMP] ke_before=%.4f delta=%.4f A=%.4f alpha=%.4f ke_clamped=%.4f\n",
+						ke_before, delta, A, alpha, ke_clamped);
+					auto f = fopen("dump\\clamp.log", "a");
+					if (f) { fputs(buf, f); fclose(f); }
+				}
+			}
+			#endif
+		}
+	}
+}
+
+
+
+
+
+
 
 	#if 0
 	// Broad phase overlap query → narrow phase collision detection → impulse resolution.
@@ -434,148 +584,6 @@ namespace pr::physics
 		}
 	}
 	#endif
-
-	// Narrow phase collision detection.
-	// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
-	// All collision data (point, axis, depth) is computed in objA's object space to
-	// minimise floating-point error. Returns true if the objects are in contact and
-	// the contact is approaching (not separating).
-	bool Engine::NarrowPhaseCollision(float dt, RbContact& c)
-	{
-		// This is the CPU reference implementation. Keep.
-		auto& objA = *c.m_objA;
-		auto& objB = *c.m_objB;
-
-		// Collision detection in objA space: objA is at identity, objB is at c.m_b2a.
-		if (!collision::Collide(objA.Shape(), m4x4::Identity(), objB.Shape(), c.m_b2a, c))
-			return false;
-
-		// If the collision point is moving out of collision, ignore the collision.
-		// This prevents re-resolving contacts that are already separating.
-		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point);
-		if (Dot(rel_vel_at_point, c.m_axis) > 0)
-			return false;
-
-		// Look up the combined material properties for this contact pair
-		c.m_mat = m_materials(c.m_mat_idA, c.m_mat_idB);
-
-		// Estimate the sub-step time when the collision actually occurred.
-		// The bodies have already been evolved past the collision point, so we
-		// need to estimate how far back in time the actual contact was. We project
-		// the contact point backward along the relative velocity to find the
-		// pre-overlap position, then compute sub_step as the fraction of dt to
-		// rewind. This gives a more accurate contact point and lever arms for
-		// the impulse calculation.
-		auto point_at_t0 = c.m_point - dt * c.m_velocity.LinAt(c.m_point);
-		auto distance = Abs(Dot(c.m_point - point_at_t0, c.m_axis));
-		auto sub_step = distance > c.m_depth ? -c.m_depth / distance : 0.0f;
-
-		// Recompute contact data (b2a, velocity, contact point) at the estimated collision time.
-		c.Update(sub_step * dt);
-
-		return true;
-	}
-
-	// Calculate and apply the restitution impulse to resolve a collision.
-	// The impulse is computed in objA's space (where all contact data lives),
-	// then transformed to each body's own object space before being applied.
-	//
-	// Important: When multiple collisions are resolved in a single time step,
-	// earlier resolutions change body momenta. We must recompute the relative
-	// velocity using CURRENT momenta before computing each impulse, otherwise
-	// stale velocity data causes catastrophic energy injection.
-	void Engine::ResolveCollision(RbContact& c)
-	{
-		// This is the CPU reference implementation. Keep.
-		auto& objA = const_cast<RigidBody&>(*c.m_objA);
-		auto& objB = const_cast<RigidBody&>(*c.m_objB);
-
-		// Recompute relative velocity using current momenta.
-		// The geometric data (contact point, axis, depth) is still valid because
-		// only momenta changed, not positions. But the velocity field is stale.
-		auto va = Shift(objA.VelocityOS(), -objA.CentreOfMassOS());
-		auto vb = Shift(objB.VelocityOS(), -objB.CentreOfMassOS());
-		c.m_velocity = c.m_b2a * vb - va;
-
-		// Re-check the separating condition with updated velocities.
-		// A previous impulse in this step may have already resolved this contact.
-		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point_at_t);
-		auto sep_dot = Dot(rel_vel_at_point, c.m_axis);
-		if (sep_dot > 0)
-			return;
-
-		// Measure pre-collision kinetic energy of the pair
-		auto ke_before = objA.KineticEnergy() + objB.KineticEnergy();
-
-		// Compute the equal-and-opposite impulse pair as spatial force wrenches.
-		// Each wrench is expressed at the body's own model origin, in its own frame.
-		auto impulse_pair = RestitutionImpulse(c);
-		auto ja = impulse_pair.m_os_impulse_objA;
-		auto jb = impulse_pair.m_os_impulse_objB;
-
-		// Pre-compute the "impulse kinetic energy" term: the KE that the impulse
-		// alone would create if applied to stationary bodies. This is the coefficient
-		// of the α² term in KE(α) = KE₀ + αB + α²A.
-		auto va_j = objA.InertiaInvOS() * ja;
-		auto vb_j = objB.InertiaInvOS() * jb;
-		auto A = 0.5f * (Dot(va_j, ja) + Dot(vb_j, jb));
-
-		// Apply the impulses to each body's momentum (stored as spatial force at CoM).
-		// The impulse changes both linear momentum (causing velocity change) and angular
-		// momentum (causing spin change proportional to the lever arm from CoM to contact).
-		objA.MomentumOS(objA.MomentumOS() + ja);
-		objB.MomentumOS(objB.MomentumOS() + jb);
-
-		// Energy conservation guard: if the impulse injected energy, scale it back.
-		// For elastic collisions (e=1), KE should be conserved exactly. For inelastic (e<1),
-		// KE must decrease. Numerical errors in contact geometry, sub-step approximation,
-		// or the collision mass matrix can cause small energy gains that compound over
-		// many collisions, leading to objects "exploding" apart.
-		//
-		// KE(α) = KE₀ + αB + α²A is quadratic in the impulse scale factor α.
-		// At α=1: KE₁ = KE₀ + B + A, so B = (KE₁ - KE₀) - A = δ - A.
-		// For KE(α) = KE₀: α²A + αB = 0 → α = -B/A = (A - δ)/A.
-		auto ke_after = objA.KineticEnergy() + objB.KineticEnergy();
-		auto delta = ke_after - ke_before;
-		if (delta > 0 && A > math::tiny<float>)
-		{
-			auto alpha = Clamp((A - delta) / A, 0.0f, 1.0f);
-			auto correction = 1.0f - alpha;
-			objA.MomentumOS(objA.MomentumOS() - correction * ja);
-			objB.MomentumOS(objB.MomentumOS() - correction * jb);
-
-			#if PR_DBG
-			{
-				auto ke_clamped = objA.KineticEnergy() + objB.KineticEnergy();
-				if (delta > 0.1f || alpha < 0.5f)
-				{
-					char buf[256];
-					snprintf(buf, sizeof(buf),
-						"[CLAMP] ke_before=%.4f delta=%.4f A=%.4f alpha=%.4f ke_clamped=%.4f\n",
-						ke_before, delta, A, alpha, ke_clamped);
-					auto f = fopen("dump\\clamp.log", "a");
-					if (f) { fputs(buf, f); fclose(f); }
-				}
-			}
-			#endif
-		}
-	}
-
-	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
-	{
-		delete cache;
-	}
-	void Deleter<Gpu>::operator()(Gpu* p) const
-	{
-		delete p;
-	}
-}
-
-
-
-
-
-
 
 // Debug: stashed pre-integration state for A/B comparison between Evolve() and EvolveCPU().
 #if PR_DBG&&0

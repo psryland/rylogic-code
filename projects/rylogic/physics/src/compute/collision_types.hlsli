@@ -35,15 +35,6 @@ struct GpuCollisionPair
 	int pad0;
 	row_major float4x4 b2a; // transform B into A's space
 };
-struct GpuContact
-{
-	float4 axis;
-	float4 pt;
-	float depth;
-	int pair_index;
-	int mat_id_a;
-	int mat_id_b;
-};
 struct GpuResolveContact
 {
 	float4 axis;            // collision normal (in A's object space)
@@ -53,6 +44,10 @@ struct GpuResolveContact
 	int body_idx_b;         //
 	float elasticity;       // combined material elasticity (normal)
 	float friction;         // combined material static friction
+	float depth;            // Penetration depth (positive = overlapping).
+	int mat_id_a;           // Material IDs from each shape
+	int mat_id_b;           // Material IDs from each shape
+	int pad0;
 };
 struct GpuCollisionCounters
 {
@@ -60,6 +55,17 @@ struct GpuCollisionCounters
 	int pair_count; // The number of potentially colliding objects
 	int contact_count; // The number of contact points found
 	int pad0;
+};
+struct GpuMaterial
+{
+	float friction_static;
+	float elasticity_norm;
+	float elasticity_tang;
+	float elasticity_tors;
+	float density;
+	float pad0;
+	float pad1;
+	float pad2;
 };
 struct GpuIntegrateDiag
 {

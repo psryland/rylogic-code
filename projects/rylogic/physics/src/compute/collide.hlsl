@@ -6,17 +6,23 @@
 // for simple/curved shape pairs, or falls through to generic GJK + EPA for
 // purely polyhedral pairs.
 //
+// Outputs GpuResolveContact directly (no intermediate GpuContact). The collide
+// shader has access to the pair data (b2a, body indices) and the materials buffer,
+// so it can build the complete resolve contact inline.
+//
 // Buffer layout:
-//   t0: StructuredBuffer<GpuShape>           — all unique shapes in the scene
-//   t1: StructuredBuffer<GpuCollisionPair>   — broadphase overlap pairs
-//   t2: StructuredBuffer<float4>             — shared vertex buffer (polytope/triangle)
-//   u0: RWStructuredBuffer<GpuContact>       — collision results (written atomically)
-//   u1: RWStructuredBuffer<uint>             — atomic contact count at index 0
-//   u2: RWStructuredBuffer<GpuPairDiag>      — per-pair diagnostic output (COLLISION_DIAGNOSTICS only)
-//   b0: cbuffer with pair count
+//   b0: cbuffer with max contacts
+//   u0: RWStructuredBuffer<GpuCollisionCounters> — counters (read pair_count, write contact_count)
+//   u1: RWStructuredBuffer<GpuResolveContact>    — output contacts for the resolve shader
+//   u2: RWStructuredBuffer<DispatchArguments>    — dispatch args (unused by this shader, bound for root sig compatibility)
+//   t0: StructuredBuffer<GpuCollisionPair>       — broadphase overlap pairs
+//   t1: StructuredBuffer<GpuShape>               — all unique shapes in the scene
+//   t2: StructuredBuffer<float4>                 — shared vertex buffer (polytope/triangle)
+//   t3: StructuredBuffer<GpuMaterial>            — material properties
+//   u3: RWStructuredBuffer<GpuPairDiag>          — per-pair diagnostic output (COLLISION_DIAGNOSTICS only)
 //
 // Compile-time switches:
-//   COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u2
+//   COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "src/compute/collision_types.hlsli"
@@ -32,18 +38,19 @@ cbuffer cbCollision : register(b0)
 	uint g_pad2;
 };
 
-RWStructuredBuffer<GpuCollisionCounters> g_counters: register(u0);
-RWStructuredBuffer<GpuContact> g_contacts: register(u1);
-RWStructuredBuffer<DispatchArguments> g_dispatch_args: register(u2);
-StructuredBuffer<GpuCollisionPair> g_pairs: register(t0);
-StructuredBuffer<GpuShape> g_shapes: register(t1);
-StructuredBuffer<float4> g_verts: register(t2);
+RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
+RWStructuredBuffer<GpuResolveContact> g_contacts : register(u1);
+RWStructuredBuffer<DispatchArguments> g_dispatch_args : register(u2);
+StructuredBuffer<GpuCollisionPair> g_pairs : register(t0);
+StructuredBuffer<GpuShape> g_shapes : register(t1);
+StructuredBuffer<float4> g_verts : register(t2);
+StructuredBuffer<GpuMaterial> g_materials : register(t3);
 #if COLLISION_DIAGNOSTICS
 RWStructuredBuffer<GpuPairDiag> g_diag : register(u3);
 #endif
 
 [numthreads(CollideThreadCount, 1, 1)]
-void CSCollide(uint3 ThreadID : SV_DispatchThreadID)
+void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 {
 	if (ThreadID.x >= g_counters[0].pair_count)
 		return;
@@ -124,7 +131,6 @@ void CSCollide(uint3 ThreadID : SV_DispatchThreadID)
 		break;
 
 	case SHAPE_POLYTOPE:
-		// Polytope vs Polytope
 		hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters);
 		break;
 	}
@@ -158,24 +164,33 @@ void CSCollide(uint3 ThreadID : SV_DispatchThreadID)
 	if (slot >= g_max_contacts)
 		return;
 
-	// Write the contact
-	GpuContact contact;
+	// Merge materials from the two shapes
+	GpuMaterial mat_a = g_materials[shape_a.material_id];
+	GpuMaterial mat_b = g_materials[shape_b.material_id];
+
+	// Write the resolve contact directly (no intermediate GpuContact)
+	GpuResolveContact contact;
 	contact.axis = col_axis;
-	contact.pt = col_point;
+	contact.contact_pt = col_point;
+	contact.b2a = pair.b2a;
+	contact.body_idx_a = pair.shape_idx_a;
+	contact.body_idx_b = pair.shape_idx_b;
+	contact.elasticity = (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+	contact.friction = sqrt(mat_a.friction_static * mat_b.friction_static);
 	contact.depth = depth;
-	contact.pair_index = pair.pair_index;
 	contact.mat_id_a = shape_a.material_id;
 	contact.mat_id_b = shape_b.material_id;
+	contact.pad0 = 0;
 	g_contacts[slot] = contact;
 }
 
-// This shader is dispatched with 1 thread. It calculates the number of thread groups needed for the collision detection
-// shader based on the number of pairs found in the sweep step, and writes that to the dispatch arguments buffer.
+// Calculates the number of thread groups needed for the resolve shader
+// based on the number of contacts found, and writes to the dispatch arguments buffer.
 [numthreads(1,1,1)]
 void CSCalcResolveDispatch(int3 dtid : SV_DispatchThreadID)
 {
-	uint count = g_counters[0].contact_count;
-	g_dispatch_args[0].ThreadGroupCountX = (count + CollideThreadCount) / CollideThreadCount;
+	int count = g_counters[0].contact_count;
+	g_dispatch_args[0].ThreadGroupCountX = (count + ResolveThreadCount - 1) / ResolveThreadCount;
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }

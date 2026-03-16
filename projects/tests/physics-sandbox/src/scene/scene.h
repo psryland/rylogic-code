@@ -16,7 +16,6 @@ namespace physics_sandbox
 
 		// Broadphase — either brute-force (CPU) or GPU sort-and-sweep.
 		// Owned via unique_ptr to allow runtime selection based on GPU availability.
-		physics::MaterialMap m_materials;
 		physics::Engine m_physics;
 		collision::ShapeBox m_box;
 

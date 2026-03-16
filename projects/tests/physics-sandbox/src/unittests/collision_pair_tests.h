@@ -66,11 +66,7 @@ namespace physics_sandbox::tests
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
 
-			physics::MaterialMap materials;
-			physics::Engine engine(materials);
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 1.0f;
-			mat.m_friction_static = 0.0f;
+			physics::Engine engine;
 
 			auto result = DropResult{};
 			auto const g = 9.81f;
@@ -146,12 +142,7 @@ namespace physics_sandbox::tests
 			bodies[0].VelocityWS(v4::Zero(), v4{+speed, 0, 0, 0});
 			bodies[1].VelocityWS(v4::Zero(), v4{-speed, 0, 0, 0});
 
-			physics::MaterialMap materials;
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 1.0f;
-			mat.m_friction_static = 0.0f;
-
-			physics::Engine engine(materials);
+			physics::Engine engine;
 			engine.PostCollisionDetection += [&](auto&, auto args)
 			{
 				if (!args.m_contacts.empty())
@@ -424,15 +415,14 @@ namespace physics_sandbox::tests
 			bodies[NumBodies].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
 			bodies[NumBodies].O2W(m4x4::Translation(v4{0, 0, -5.0f, 0}));
 
-			physics::MaterialMap materials;
-			auto& mat = materials(0);
-			mat.m_elasticity_norm = 0.5f;
-			mat.m_friction_static = 0.3f;
-
-			physics::Engine engine(materials);
+			physics::Engine engine;
+			engine.Material(physics::Material{
+				.m_id = physics::Material::DefaultID,
+				.m_friction_static = 0.3f,
+				.m_elasticity_norm = 0.5f,
+			});
 
 			int passthrough_count = 0;
-			int max_pair_count = 0;
 
 			for (int step = 0; step != NumSteps; ++step)
 			{

@@ -45,9 +45,9 @@ namespace pr::physics
 
 			// --- GPU path ---
 			// Pack shapes into GPU buffers
-			CollisionShapeCache cache;
-			cache.GetOrAdd(sa);
-			cache.GetOrAdd(sb);
+			CollisionShapeCache shape_cache;
+			shape_cache.GetOrAdd(sa);
+			shape_cache.GetOrAdd(sb);
 
 			// Build collision pair. GJK runs with A at identity, B at b2a.
 			auto pair = GpuCollisionPair{};
@@ -58,11 +58,12 @@ namespace pr::physics
 			pair.b2a = InvertOrthonormal(l2w) * r2w;
 
 			auto pairs = std::vector<GpuCollisionPair>{ pair };
-			auto gpu_contacts = std::vector<GpuContact>{1};
+			auto gpu_contacts = std::vector<GpuResolveContact>{1};
+			auto materials = std::vector<GpuMaterial>{ GpuMaterial{0, 1} };
 
 			// Create a GpuIntegrator (which owns the D3D12 device and command queue),
 			// then create the collision detector sharing the same Gpu instance.
-			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, cache, gpu_contacts);
+			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, materials, gpu_contacts);
 			auto gpu_hit = gpu_count > 0;
 
 			// --- Compare collision/no-collision agreement ---
@@ -96,7 +97,7 @@ namespace pr::physics
 			PR_EXPECT(angle < AxisAngleTol);
 
 			// Contact point comparison
-			auto pt_err = Length(gc.pt - cpu_point_local);
+			auto pt_err = Length(gc.point - cpu_point_local);
 			PR_EXPECT(pt_err < PointTol);
 		}
 

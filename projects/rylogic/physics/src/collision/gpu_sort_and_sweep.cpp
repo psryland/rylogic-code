@@ -120,9 +120,10 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_dispatch->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx->GetGPUVirtualAddress());
-			
+
 			// One thread for each array element in the AABB index buffer
 			auto dispatch_count = (2*body_count + SweepThreadCount - 1) / SweepThreadCount;
 			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);

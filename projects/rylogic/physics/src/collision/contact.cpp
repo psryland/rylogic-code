@@ -26,12 +26,12 @@ namespace pr::physics
 		m_objB = &objB;
 		Update(0);
 	}
-	RbContact::RbContact(RigidBody const& objA, RigidBody const& objB, GpuContact const& contact)
+	RbContact::RbContact(RigidBody const& objA, RigidBody const& objB, GpuResolveContact const& contact)
 		:RbContact(objA, objB)
 	{
 		// Copy geometric data from GPU contact (already in objA's space)
 		m_axis = contact.axis;
-		m_point = contact.pt;
+		m_point = contact.point;
 		m_depth = contact.depth;
 		m_mat_idA = contact.mat_id_a;
 		m_mat_idB = contact.mat_id_b;

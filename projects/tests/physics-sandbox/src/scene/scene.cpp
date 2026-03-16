@@ -6,8 +6,7 @@ namespace physics_sandbox
 {
 	Scene::Scene(rdr12::Renderer* rdr)
 		: m_rdr(rdr)
-		, m_materials()
-		, m_physics(m_materials, rdr ? rdr->d3d() : nullptr)
+		, m_physics(rdr ? rdr->d3d() : nullptr)
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
@@ -71,11 +70,13 @@ namespace physics_sandbox
 		m_shape_buffer.resize(0);
 
 		// Set up perfectly elastic, frictionless material for clean collision tests
-		auto& mat = m_materials(0);
-		mat.m_elasticity_norm = 1.0f;
-		mat.m_elasticity_tang = 0.0f;
-		mat.m_elasticity_tors = 0.0f;
-		mat.m_friction_static = 0.0f;
+		m_physics.Material(physics::Material{
+			.m_id = physics::Material::DefaultID,
+			.m_friction_static = 0.0f,
+			.m_elasticity_norm = 1.0f,
+			.m_elasticity_tang = 0.0f,
+			.m_elasticity_tors = 0.0f,
+		});
 	}
 
 	// Advance the simulation by one time step.
@@ -231,7 +232,7 @@ namespace physics_sandbox
 			}
 		}
 
-		auto const& mat = m_materials(0);
+		auto mat = m_physics.Material(0);
 
 		DbgLog("\n--- Reset: Scenario %d [%s] ---\n", static_cast<int>(scenario), ScenarioName(scenario));
 		DbgLog("  Material: elasticity_norm=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
@@ -271,11 +272,13 @@ namespace physics_sandbox
 		m_kill_zone_height = (scene_desc.ground ? scene_desc.ground->height : 0) - 50.0f;
 
 		// Apply material properties from the scene file
-		auto& mat = m_materials(0);
-		mat.m_elasticity_norm = scene_desc.elasticity;
-		mat.m_elasticity_tang = 0.0f;
-		mat.m_elasticity_tors = 0.0f;
-		mat.m_friction_static = scene_desc.friction;
+		m_physics.Material(physics::Material{
+			.m_id = physics::Material::DefaultID,
+			.m_friction_static = scene_desc.friction,
+			.m_elasticity_norm = scene_desc.elasticity,
+			.m_elasticity_tang = 0.0f,
+			.m_elasticity_tors = 0.0f,
+		});
 
 		// Count total bodies: scene bodies + optional ground plane body
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
@@ -425,6 +428,8 @@ namespace physics_sandbox
 
 		// Logging
 		{
+			auto mat = m_physics.Material(0);
+
 			DbgLog("\n--- Loaded scene from: %ls ---\n", scene_desc.filepath.c_str());
 			if (!scene_desc.description.empty())
 				DbgLog("  Description: %s\n", scene_desc.description.c_str());
