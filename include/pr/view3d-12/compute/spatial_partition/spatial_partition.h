@@ -4,8 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/main/renderer.h"
-#include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
@@ -48,6 +47,7 @@ namespace pr::rdr12::compute::spatial_partition
 	}
 
 	// Grid-based Spatial Partitioning
+	template <D3D12_COMMAND_LIST_TYPE QueueType = D3D12_COMMAND_LIST_TYPE_DIRECT>
 	struct SpatialPartition
 	{
 		// Notes:
@@ -58,7 +58,8 @@ namespace pr::rdr12::compute::spatial_partition
 		//    have this form: "struct PosType { float4 _dummy; float4 pos; float4 _dummy2; }". A field
 		//    called 'pos' must exist and be a float4.
 
-		using GpuRadixSorter = compute::gpu_radix_sort::GpuRadixSort<uint32_t, uint32_t>;
+		using Gpu = Gpu<QueueType>;
+		using GpuRadixSorter = compute::gpu_radix_sort::GpuRadixSort<uint32_t, uint32_t, QueueType>;
 		using Cell = struct { int32_t start; int32_t count; };
 
 		struct ConfigData
@@ -91,7 +92,7 @@ namespace pr::rdr12::compute::spatial_partition
 			}
 		};
 
-		Renderer* m_rdr;                    // The renderer instance to use to run the compute shader
+		Gpu* m_gpu;                         // The gpu instance to use to run the compute shader
 		ComputeStep m_init;                 // Reset buffers
 		ComputeStep m_populate;             // Populate the grid cells
 		ComputeStep m_build;                // Build the lookup data structure
@@ -106,8 +107,8 @@ namespace pr::rdr12::compute::spatial_partition
 		ConfigData Config;
 		StepOutput Output;
 
-		SpatialPartition(Renderer& rdr, std::wstring_view position_layout)
-			: m_rdr(&rdr)
+		SpatialPartition(Gpu& gpu, std::wstring_view position_layout)
+			: m_gpu(&gpu)
 			, m_init()
 			, m_populate()
 			, m_build()
@@ -115,7 +116,7 @@ namespace pr::rdr12::compute::spatial_partition
 			, m_spatial()
 			, m_idx_start()
 			, m_idx_count()
-			, m_sorter(rdr)
+			, m_sorter(gpu)
 			, m_size()
 			, Config()
 			, Output()
@@ -124,14 +125,14 @@ namespace pr::rdr12::compute::spatial_partition
 		}
 
 		// (Re)Initialise the spatial partitioning
-		void Init(Setup const& setup)
+		void Init(GraphicsJob& job, Setup const& setup)
 		{
 			assert(setup.valid());
 
 			Config = setup.Config;
 
-			CreateResourceBuffers();
-			Resize(setup.Capacity);
+			CreateResourceBuffers(job);
+			Resize(job, setup.Capacity);
 		}
 
 		// Spatially partition the particles for faster locality testing
@@ -181,7 +182,6 @@ namespace pr::rdr12::compute::spatial_partition
 		// Compute the compute shaders
 		void CreateComputeSteps(std::wstring_view position_layout)
 		{
-			auto device = m_rdr->D3DDevice();
 			ShaderCompiler compiler = ShaderCompiler{}
 				.Source(resource::Read<char>(L"SPATIAL_PARTITION_HLSL", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
@@ -196,9 +196,9 @@ namespace pr::rdr12::compute::spatial_partition
 					.U32<cbGridPartition>(EReg::Constants)
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
-					.Create(device, "SpatialPartition:InitSig");
+					.Create(*m_gpu, "SpatialPartition:InitSig");
 				m_init.m_pso = ComputePSO(m_init.m_sig.get(), bytecode)
-					.Create(device, "SpatialPartition:InitPSO");
+					.Create(*m_gpu, "SpatialPartition:InitPSO");
 			}
 
 			// Populate
@@ -209,9 +209,9 @@ namespace pr::rdr12::compute::spatial_partition
 					.SRV(EReg::Positions)
 					.UAV(EReg::GridHash)
 					.UAV(EReg::Spatial)
-					.Create(device, "SpatialPartition:CalculateHashesSig");
+					.Create(*m_gpu, "SpatialPartition:CalculateHashesSig");
 				m_populate.m_pso = ComputePSO(m_populate.m_sig.get(), bytecode)
-					.Create(device, "SpatialPartition:CalculateHashesPSO");
+					.Create(*m_gpu, "SpatialPartition:CalculateHashesPSO");
 			}
 
 			// Build lookup
@@ -222,52 +222,43 @@ namespace pr::rdr12::compute::spatial_partition
 					.UAV(EReg::GridHash)
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
-					.Create(device, "SpatialPartition:BuildLookupSig");
+					.Create(*m_gpu, "SpatialPartition:BuildLookupSig");
 				m_build.m_pso = ComputePSO(m_build.m_sig.get(), bytecode)
-					.Create(device, "SpatialPartition:BuildLookupPSO");
+					.Create(*m_gpu, "SpatialPartition:BuildLookupPSO");
 			}
 		}
 
 		// Create resource buffers
-		void CreateResourceBuffers()
+		void CreateResourceBuffers(GraphicsJob& job)
 		{
-			ResourceFactory factory(*m_rdr);
-			ResDesc desc = ResDesc::Buf<uint32_t>(Config.CellCount, {})
-				.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
-				.usage(EUsage::UnorderedAccess);
-			m_idx_start = factory.CreateResource(desc, "SpatialPartition:IdxStart");
-			m_idx_count = factory.CreateResource(desc, "SpatialPartition:IdxCount");
+			ResDesc desc = ResDesc::Buf<uint32_t>(Config.CellCount, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
+			m_idx_start = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:IdxStart");
+			m_idx_count = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:IdxCount");
 		}
 
 		// Ensure the buffers are large enough to partition 'size' positions
-		void Resize(int size)
+		void Resize(GraphicsJob& job, int size)
 		{
 			if (size <= m_size)
 				return;
 
-			ResourceFactory factory(*m_rdr);
-
 			// Grid hash
 			{
-				ResDesc desc = ResDesc::Buf<uint32_t>(size, {})
-					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
-					.usage(EUsage::UnorderedAccess);
-				m_grid_hash = factory.CreateResource(desc, "SpatialPartition:GridHash");
+				ResDesc desc = ResDesc::Buf<uint32_t>(size, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
+				m_grid_hash = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:GridHash");
 			}
 
 			// Position indices
 			{
-				ResDesc desc = ResDesc::Buf<uint32_t>(size, {})
-					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
-					.usage(EUsage::UnorderedAccess);
-				m_spatial = factory.CreateResource(desc, "SpatialPartition:Spatial");
+				ResDesc desc = ResDesc::Buf<uint32_t>(size, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
+				m_spatial = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:Spatial");
 			}
 
 			// Resize the sorter
 			{
 				// Point the sort and payload buffers of the sorter to our grid-hash and pos-index
 				// buffer so that we don't need to copy data from 'm_grid_hash' to 'm_sort[0]' etc.
-				m_sorter.Bind(size, m_grid_hash, m_spatial);
+				m_sorter.Bind(job.m_cmd_list, size, m_grid_hash, m_spatial);
 			}
 
 			m_size = size;
@@ -280,7 +271,7 @@ namespace pr::rdr12::compute::spatial_partition
 			auto positions_state0 = job.m_cmd_list.ResState(positions.get()).Mip0State();
 
 			// Ensure the buffer sizes are correct
-			Resize(count);
+			Resize(job, count);
 
 			// Our buffers should be read-only for everyone else
 			job.m_barriers.Transition(positions.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -394,8 +385,8 @@ namespace pr::rdr12::compute::spatial_partition
 		//  - Use the step output to update this structure (after calling job.Run())
 		//  - You need 'readback = true' in the call to 'SpatialPartition::Update'
 
-		using Cell = SpatialPartition::Cell;
-		using StepOutput = SpatialPartition::StepOutput;
+		using Cell = SpatialPartition<>::Cell;
+		using StepOutput = SpatialPartition<>::StepOutput;
 
 		std::vector<int32_t> m_spatial;
 		std::vector<Cell> m_lookup;

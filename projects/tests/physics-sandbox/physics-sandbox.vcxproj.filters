@@ -35,12 +35,6 @@
     <Filter Include="pr\collision">
       <UniqueIdentifier>{74f19a98-ec3e-4080-af50-742308ee4069}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\maths">
-      <UniqueIdentifier>{b1e41304-46c3-4eb7-ac89-da6455d1835d}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="pr\ldraw">
-      <UniqueIdentifier>{4ddb25be-c541-41a0-a212-6ae4b70d0ff8}</UniqueIdentifier>
-    </Filter>
     <Filter Include="pr\physics\utility">
       <UniqueIdentifier>{9f24ebf5-b77b-42f0-b536-a3c844f33c79}</UniqueIdentifier>
     </Filter>
@@ -56,9 +50,6 @@
     <Filter Include="deps">
       <UniqueIdentifier>{c90e4abd-930a-45f1-9831-7318b3319c8b}</UniqueIdentifier>
     </Filter>
-    <Filter Include="unittests">
-      <UniqueIdentifier>{32591f07-c0c9-490c-8d19-a44814071b70}</UniqueIdentifier>
-    </Filter>
     <Filter Include="scenes">
       <UniqueIdentifier>{f1310b0d-c9eb-447e-9e5f-e49dbfb614fc}</UniqueIdentifier>
     </Filter>
@@ -67,6 +58,15 @@
     </Filter>
     <Filter Include="src\unittests">
       <UniqueIdentifier>{c3d4e5f6-a7b8-9012-cdef-012345678912}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\physics\compute">
+      <UniqueIdentifier>{48da3655-f908-4ac8-ad93-f33464cec890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="res">
+      <UniqueIdentifier>{deeecb5d-650d-4abf-8a66-d65a41dc0df3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\common">
+      <UniqueIdentifier>{e222861f-dc20-4879-a5bb-3f324787147a}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -129,36 +129,6 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h">
       <Filter>pr\gui</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\ldraw\ldr_helper.h">
-      <Filter>pr\ldraw</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\ldraw\ldr_object.h">
-      <Filter>pr\ldraw</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\maths.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\matrix3x4.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\matrix4x4.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\matrix6x8.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\spatial.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\vector2.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\vector3.h">
-      <Filter>pr\maths</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\vector4.h">
-      <Filter>pr\maths</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\broadphase\brute.h">
       <Filter>pr\physics\broadphase</Filter>
@@ -241,27 +211,6 @@
     <ClInclude Include="src\utils\scene_loader.h">
       <Filter>src\utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_collision.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_field.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_impulse.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_inertia.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_integrator.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_rigid_body.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\rylogic\physics-2\src\unittests\test_shape_builder.h">
-      <Filter>unittests</Filter>
-    </ClInclude>
     <ClInclude Include="src\scene\body.h">
       <Filter>src\scene</Filter>
     </ClInclude>
@@ -277,11 +226,39 @@
     <ClInclude Include="..\..\..\include\pr\collision\shapes.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-12.dll">
-      <Filter>deps</Filter>
-    </DependencyLink>
+    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\recent_files.h">
+      <Filter>src\ui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\menu_id.h">
+      <Filter>src\ui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\scenario.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\common\ldraw.h">
+      <Filter>pr\common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="scenes\box_vs_sphere.json">
@@ -299,10 +276,48 @@
     <None Include="scenes\three_body_chain.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\generate_scene.py">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\polytope_drop.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\stress_test_1000.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene\body.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\details_panel.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\diagnostics\diagnostics.cpp">
+      <Filter>src\diagnostics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\media_panel.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\sandbox_ui.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\scene.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utils\scene_loader.cpp">
+      <Filter>src\utils</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\recent_files.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="res\compute_shaders.rc">
+      <Filter>res</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

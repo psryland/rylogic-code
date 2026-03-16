@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // Collision
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
@@ -21,7 +21,7 @@ namespace pr::collision
 		auto r2w = r2w_ * rhs_.m_s2p;
 
 		// Compute a transform for 'rhs' in 'lhs's frame
-		auto r2l = InvertAffine(l2w) * r2w;
+		auto r2l = InvertOrthonormal(l2w) * r2w;
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
@@ -150,46 +150,120 @@ namespace pr::collision
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/collision/ldraw.h"
-
 namespace pr::collision::tests
 {
-	PRUnitTest(CollisionBoxVsBoxTests)
+	PRUnitTestClass(BoxVsBoxTests)
 	{
-		using namespace pr::rdr12::ldraw;
-
-		auto lhs = ShapeBox{v4(0.3f, 0.4f, 0.5f, 0.0f)};
-		auto rhs = ShapeBox{v4(0.3f, 0.4f, 0.5f, 0.0f)};
-		m4x4 l2w_[] =
+		PRUnitTestMethod(Visualise)
 		{
-			m4x4::Identity(),
-		};
-		m4x4 r2w_[] =
-		{
-			m4x4::TransformRad(constants<float>::tau_by_8, 0, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::TransformRad(0, constants<float>::tau_by_8, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::TransformRad(0, 0, constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			m4x4::TransformRad(0, 0, -3 * constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-		};
+			using namespace pr::ldraw;
 
-		std::default_random_engine rng;
-		for (int i = 0; i != 20; ++i)
-		{
-			Contact c;
-			m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
-			m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
-
-			Builder builder;
-			builder._<LdrPhysicsShape>("lhs", 0x30FF0000).shape(lhs).o2w(l2w);
-			builder._<LdrPhysicsShape>("rhs", 0x3000FF00).shape(rhs).o2w(r2w);
-			//builder.Write(L"collision_unittests.ldr");
-			if (BoxVsBox(lhs, l2w, rhs, r2w, c))
+			#if PR_UNITTESTS_VISUALISE
+			auto lhs = ShapeBox{ v4(0.3f, 0.4f, 0.5f, 0.0f) };
+			auto rhs = ShapeBox{ v4(0.3f, 0.4f, 0.5f, 0.0f) };
+			m4x4 l2w_[] =
 			{
-				builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
-				builder.Box("pt0", Colour32Yellow).dim(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
-				builder.Box("pt1", Colour32Yellow).dim(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
+				m4x4::Identity(),
+			};
+			m4x4 r2w_[] =
+			{
+				m4x4::Transform(constants<float>::tau_by_8, 0, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(0, constants<float>::tau_by_8, 0, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(0, 0, constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(0, 0, -3 * constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			};
+
+			std::default_random_engine rng;
+			for (int i = 0; i != 20; ++i)
+			{
+				Contact c;
+				m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+				m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+
+				Builder builder;
+				{ auto& g = builder.Group("lhs", 0x30FF0000); AddShape(g, lhs); g.o2w(l2w); }
+				{ auto& g = builder.Group("rhs", 0x3000FF00); AddShape(g, rhs); g.o2w(r2w); }
+				if (BoxVsBox(lhs, l2w, rhs, r2w, c))
+				{
+					builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
+					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
+					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
+				}
+				builder.Write(L"collision_unittests.ldr");
 			}
-			//builder.Write(L"collision_unittests.ldr");
+			#endif
 		}
-	}
+
+		// Coincident boxes: maximum overlap
+		PRUnitTestMethod(CoincidentBoxes)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Identity();
+
+			PR_EXPECT(BoxVsBox(box, l2w, box, r2w));
+			Contact c;
+			PR_EXPECT(BoxVsBox(box, l2w, box, r2w, c));
+			PR_EXPECT(c.m_depth > 0.0f);
+		}
+
+		// Face-to-face overlap: boxes separated along X
+		PRUnitTestMethod(FaceToFaceOverlap)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // overlap of 0.5 in X
+
+			Contact c;
+			PR_EXPECT(BoxVsBox(box, l2w, box, r2w, c));
+			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.02f));
+		}
+
+		// Separated: gap between boxes
+		PRUnitTestMethod(Separated)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{3, 0, 0, 0});
+
+			PR_EXPECT(!BoxVsBox(box, l2w, box, r2w));
+		}
+
+		// Edge-to-edge: rotated box touching via edges
+		PRUnitTestMethod(EdgeContact)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+
+			// Rotate rhs 45° about Z and offset so edges overlap
+			auto r2w = m4x4::Transform(RotationRad<m3x4>(0, 0, constants<float>::tau_by_8), v4{1.3f, 1.3f, 0, 1});
+
+			// The rotated box edge should be close to lhs corner
+			Contact c;
+			auto result = BoxVsBox(box, l2w, box, r2w, c);
+			if (result)
+			{
+				PR_EXPECT(c.m_depth > 0.0f);
+				PR_EXPECT(IsNormalised(c.m_axis));
+			}
+		}
+
+		// Corner-to-face: rotated box poking into face
+		PRUnitTestMethod(CornerToFace)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+
+			// Rotate rhs by 45° on two axes so its corner points into lhs face
+			auto r2w = m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, constants<float>::tau_by_8, 0), v4{2.0f, 0, 0, 1});
+
+			Contact c;
+			auto result = BoxVsBox(box, l2w, box, r2w, c);
+			if (result)
+			{
+				PR_EXPECT(c.m_depth > 0.0f);
+			}
+		}
+	};
 }
 #endif

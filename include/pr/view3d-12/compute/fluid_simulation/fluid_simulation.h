@@ -4,12 +4,12 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
 #include "pr/view3d-12/compute/spatial_partition/spatial_partition.h"
 #include "pr/view3d-12/compute/particle_collision/particle_collision.h"
+#include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/utility/pix.h"
 
@@ -63,9 +63,10 @@ namespace pr::rdr12::compute::fluid
 	{
 		// Notes:
 		//  Hydrostatic pressure is: P = density * gravity * depth
+		using Gpu = Gpu<QueueType>;
 		using GpuJob = GpuJob<QueueType>;
-		using SpatialPartition = compute::spatial_partition::SpatialPartition;
-		using ParticleCollision = compute::particle_collision::ParticleCollision;
+		using SpatialPartition = compute::spatial_partition::SpatialPartition<QueueType>;
+		using ParticleCollision = compute::particle_collision::ParticleCollision<QueueType>;
 		using CollisionPrim = compute::particle_collision::Prim;
 
 		// Runtime data
@@ -180,27 +181,27 @@ namespace pr::rdr12::compute::fluid
 			}
 		};
 
-		Renderer* m_rdr;                          // The renderer instance to use to run the compute shader
-		ComputeStep m_cs_apply_forces;            // Calculate the forces acting on each particle position
-		ComputeStep m_cs_apply_probe;             // Apply forces from the probe
-		ComputeStep m_cs_cull_particles;          // Remove particles below a plane
-		ComputeStep m_cs_colour;                  // Apply colours to the particles
-		ComputeStep m_cs_gen_map;                 // Populate a texture with a map of a property
-		ComputeStep m_cs_debugging;               // Debug testing
-		D3DPtr<ID3D12Resource> m_r_particles;     // The buffer of the particles (includes position/colour/norm(velocity))
-		D3DPtr<ID3D12Resource> m_r_dynamics;      // The buffer of the particles (includes position/colour/norm(velocity))
-		D3DPtr<ID3D12Resource> m_r_output;        // The buffer that receives the output of the compute shader
-		ParticleCollision m_collision;            // The collision resolution for the fluid
-		SpatialPartition m_spatial;               // Spatial partitioning of the particles
-		int m_capacity;                           // The maximum number of particles
-		int m_frame;                              // Frame counter
+		Gpu* m_gpu;                           // The gpu instance to use to run the compute shader
+		ComputeStep m_cs_apply_forces;        // Calculate the forces acting on each particle position
+		ComputeStep m_cs_apply_probe;         // Apply forces from the probe
+		ComputeStep m_cs_cull_particles;      // Remove particles below a plane
+		ComputeStep m_cs_colour;              // Apply colours to the particles
+		ComputeStep m_cs_gen_map;             // Populate a texture with a map of a property
+		ComputeStep m_cs_debugging;           // Debug testing
+		D3DPtr<ID3D12Resource> m_r_particles; // The buffer of the particles (includes position/colour/norm(velocity))
+		D3DPtr<ID3D12Resource> m_r_dynamics;  // The buffer of the particles (includes position/colour/norm(velocity))
+		D3DPtr<ID3D12Resource> m_r_output;    // The buffer that receives the output of the compute shader
+		ParticleCollision m_collision;        // The collision resolution for the fluid
+		SpatialPartition m_spatial;           // Spatial partitioning of the particles
+		int m_capacity;                       // The maximum number of particles
+		int m_frame;                          // Frame counter
 
 		// Runtime configurable data
 		ConfigData Config; // The configuration data for the fluid simulation
 		StepOutput Output; // Read back data from the last executed step
 
-		explicit FluidSimulation(Renderer& rdr)
-			: m_rdr(&rdr)
+		explicit FluidSimulation(Gpu& gpu)
+			: m_gpu(&gpu)
 			, m_cs_apply_forces()
 			, m_cs_apply_probe()
 			, m_cs_colour()
@@ -209,8 +210,8 @@ namespace pr::rdr12::compute::fluid
 			, m_r_particles()
 			, m_r_dynamics()
 			, m_r_output()
-			, m_collision(rdr, Particle::Layout, Dynamics::Layout)
-			, m_spatial(rdr, Particle::Layout)
+			, m_collision(gpu, Particle::Layout, Dynamics::Layout)
+			, m_spatial(gpu, Particle::Layout)
 			, m_capacity()
 			, m_frame()
 			, Config()
@@ -228,13 +229,13 @@ namespace pr::rdr12::compute::fluid
 			Config = fs_setup.Config;
 
 			// Create resource buffers
-			CreateResourceBuffers(fs_setup);
+			CreateResourceBuffers(job, fs_setup);
 
 			// Reset the collision primitives
-			m_collision.Init(pc_setup);
+			m_collision.Init(job, pc_setup);
 
 			// Reset the spatial partitioning
-			m_spatial.Init(sp_setup);
+			m_spatial.Init(job, sp_setup);
 
 			// Make the particle buffer accessible in the compute shader
 			ParticleBufferAsUAV(job, true);
@@ -609,7 +610,6 @@ namespace pr::rdr12::compute::fluid
 		// Compile the compute shaders
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
-			auto device = m_rdr->D3DDevice();
 			ShaderCompiler compiler = ShaderCompiler{}
 				.Source(resource::Read<char>(L"FLUID_SIMULATION_HLSL", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
@@ -630,9 +630,9 @@ namespace pr::rdr12::compute::fluid
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
 					.UAV(EReg::Output)
-					.Create(device, "Fluid:ApplyForcesSig");
+					.Create(*m_gpu, "Fluid:ApplyForcesSig");
 				m_cs_apply_forces.m_pso = ComputePSO(m_cs_apply_forces.m_sig.get(), bytecode)
-					.Create(device, "Fluid:ApplyForcesPSO");
+					.Create(*m_gpu, "Fluid:ApplyForcesPSO");
 			}
 
 			// Apply Probe
@@ -642,9 +642,9 @@ namespace pr::rdr12::compute::fluid
 					.U32<cbProbeData>(EReg::Probe)
 					.UAV(EReg::Particles)
 					.UAV(EReg::Dynamics)
-					.Create(device, "Fluid:ApplyProbeSig");
+					.Create(*m_gpu, "Fluid:ApplyProbeSig");
 				m_cs_apply_probe.m_pso = ComputePSO(m_cs_apply_probe.m_sig.get(), bytecode)
-					.Create(device, "Fluid:ApplyProbePSO");
+					.Create(*m_gpu, "Fluid:ApplyProbePSO");
 			}
 
 			// Cull particles
@@ -658,9 +658,9 @@ namespace pr::rdr12::compute::fluid
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
 					.UAV(EReg::Output)
-					.Create(device, "Fluid:CullParticlesSig");
+					.Create(*m_gpu, "Fluid:CullParticlesSig");
 				m_cs_cull_particles.m_pso = ComputePSO(m_cs_cull_particles.m_sig.get(), bytecode)
-					.Create(device, "Fluid:CullParticlesPSO");
+					.Create(*m_gpu, "Fluid:CullParticlesPSO");
 			}
 
 			// Colour
@@ -670,9 +670,9 @@ namespace pr::rdr12::compute::fluid
 					.U32<cbColourData>(EReg::Colours)
 					.UAV(EReg::Particles)
 					.UAV(EReg::Dynamics)
-					.Create(device, "Fluid:ColourParticlesSig");
+					.Create(*m_gpu, "Fluid:ColourParticlesSig");
 				m_cs_colour.m_pso = ComputePSO(m_cs_colour.m_sig.get(), bytecode)
-					.Create(device, "Fluid:ColourParticlesPSO");
+					.Create(*m_gpu, "Fluid:ColourParticlesPSO");
 			}
 
 			// Generate Map
@@ -686,9 +686,9 @@ namespace pr::rdr12::compute::fluid
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
 					.UAV(EReg::TexMap, 1)
-					.Create(device, "Fluid:GenerateMapSig");
+					.Create(*m_gpu, "Fluid:GenerateMapSig");
 				m_cs_gen_map.m_pso = ComputePSO(m_cs_gen_map.m_sig.get(), bytecode)
-					.Create(device, "Fluid:GenerateMapPSO");
+					.Create(*m_gpu, "Fluid:GenerateMapPSO");
 			}
 
 			// Debugging
@@ -703,39 +703,33 @@ namespace pr::rdr12::compute::fluid
 					.UAV(EReg::IdxStart)
 					.UAV(EReg::IdxCount)
 					.UAV(EReg::Output)
-					.Create(device, "Fluid:DebuggingSig");
+					.Create(*m_gpu, "Fluid:DebuggingSig");
 				m_cs_debugging.m_pso = ComputePSO(m_cs_debugging.m_sig.get(), bytecode)
-					.Create(device, "Fluid:DebuggingPSO");
+					.Create(*m_gpu, "Fluid:DebuggingPSO");
 			}
 		}
 
 		// Create the resource buffers
-		void CreateResourceBuffers(Setup const& setup)
+		void CreateResourceBuffers(GpuJob& job, Setup const& setup)
 		{
-			ResourceFactory factory(*m_rdr);
 			m_capacity = setup.ParticleCapacity;
 
 			// Create the particle (vertex) buffer
 			{
-				ResDesc desc = ResDesc::VBuf<Particle>(setup.ParticleCapacity, setup.ParticleInitData)
-					.usage(EUsage::UnorderedAccess);
-				m_r_particles = factory.CreateResource(desc, "Fluid:ParticlePositions");
+				ResDesc desc = ResDesc::VBuf<Particle>(setup.ParticleCapacity, setup.ParticleInitData).usage(EUsage::UnorderedAccess);
+				m_r_particles = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:ParticlePositions");
 			}
 
 			// Create the particle dynamics buffer
 			{
-				ResDesc desc = ResDesc::Buf<Dynamics>(setup.ParticleCapacity, setup.DynamicsInitData)
-					.def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-					.usage(EUsage::UnorderedAccess);
-				m_r_dynamics = factory.CreateResource(desc, "Fluid:ParticleDynamics");
+				ResDesc desc = ResDesc::Buf<Dynamics>(setup.ParticleCapacity, setup.DynamicsInitData).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_r_dynamics = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:ParticleDynamics");
 			}
 
 			// Create the output buffer
 			{
-				ResDesc desc = ResDesc::Buf<OutputData>(1, {})
-					.def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-					.usage(EUsage::UnorderedAccess);
-				m_r_output = factory.CreateResource(desc, "Fluid:Output");
+				ResDesc desc = ResDesc::Buf<OutputData>(1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_r_output = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:Output");
 			}
 		}
 

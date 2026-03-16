@@ -18,16 +18,19 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="$(PropsPath)build_configurations.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(PropsPath)view3d_shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
   <!--
   Build options
   -->
   <ItemDefinitionGroup>
     <ClCompile>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
         ;$(RylogicRoot)projects\rylogic
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
@@ -38,15 +41,58 @@
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
         ;PR_DBG_PHYSICS=1
+        ;PR_UNITTESTS=1
       </PreprocessorDefinitions>
     </ClCompile>
+  </ItemDefinitionGroup>
+  <!--
+  Shaders
+  -->
+  <ItemDefinitionGroup>
+    <View3dShaderBuild>
+      <ShaderType>Effect</ShaderType>
+      <ShaderModel>6.6</ShaderModel>
+      <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include\
+        ;$(RylogicRoot)projects\rylogic\
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;SHADER_BUILD
+      </PreprocessorDefinitions>
+    </View3dShaderBuild>
+    <FxCompile>
+      <ShaderType>Compute</ShaderType>
+      <ShaderModel>6.6</ShaderModel>
+      <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include\
+        ;$(RylogicRoot)projects\rylogic\
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;SHADER_BUILD
+      </PreprocessorDefinitions>
+    </FxCompile>
   </ItemDefinitionGroup>
   <!--
   Source files
   -->
   <ItemGroup>
+    <ClCompile Include="src\collision\gpu_sort_and_sweep.cpp" />
+    <ClCompile Include="src\collision\contact.cpp" />
+    <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\integrator\impulse.cpp" />
+    <ClCompile Include="src\integrator\engine.cpp" />
+    <ClCompile Include="src\integrator\integrator.cpp" />
+    <ClCompile Include="src\integrator\gpu_integrator.cpp" />
+    <ClCompile Include="src\collision\gpu_collision_detector.cpp" />
+    <ClCompile Include="src\collision\gpu_resolver.cpp" />
+    <ClCompile Include="src\unittests\unittests.cpp" />
   </ItemGroup>
   <!--
   Public headers
@@ -55,14 +101,10 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\constants.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\physics.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\broadphase\brute.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\contact.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\engine.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\integrator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\jacobian.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material_map.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\rigid_body\rigid_body.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\inertia.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\mass.h" />
@@ -71,20 +113,47 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\field.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\misc.h" />
+    <ClInclude Include="src\collision\collision_shape_cache.h" />
+    <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--
   Unit test headers
   -->
   <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\broadphase_brute.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\contact.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\ibroadphase.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\imaterials.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\material.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\material_map.h" />
+    <ClInclude Include="..\..\..\include\pr\physics-2\rigid_body\rigid_body_dynamics.h" />
+    <ClInclude Include="src\collision\gpu_sort_and_sweep.h" />
+    <ClInclude Include="src\collision\gpu_collision_detector.h" />
+    <ClInclude Include="src\collision\gpu_resolver.h" />
+    <ClInclude Include="src\collision\gpu_collision_types.h" />
+    <ClInclude Include="src\integrator\gpu_integrator.h" />
+    <ClInclude Include="src\unittests\test_collision.h" />
     <ClInclude Include="src\unittests\test_field.h" />
     <ClInclude Include="src\unittests\test_impulse.h" />
     <ClInclude Include="src\unittests\test_inertia.h" />
     <ClInclude Include="src\unittests\test_integrator.h" />
     <ClInclude Include="src\unittests\test_rigid_body.h" />
     <ClInclude Include="src\unittests\test_shape_builder.h" />
+    <ClInclude Include="src\unittests\test_gpu_collision.h" />
+  </ItemGroup>
+  <!--
+  Resources
+  -->
+  <ItemGroup>
+    <ResourceCompile Include="..\..\..\include\pr\physics-2\compute\compute_shaders.rc" />
   </ItemGroup>
   <!--
   Targets
   -->
+  <ItemGroup>
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\gjk.hlsl" EntryPointName="CSCollisionDetect" />
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\resolve.hlsl" EntryPointName="CSResolve" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

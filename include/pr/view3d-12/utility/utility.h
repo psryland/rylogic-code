@@ -7,6 +7,12 @@
 
 namespace pr::rdr12
 {
+	#ifdef NDEBUG
+	inline static constexpr bool IsDebug = false;
+	#else
+	inline static constexpr bool IsDebug = true;
+	#endif
+
 	// Turn an r-value into an l-value. Basically 'std::unmove()'
 	template <typename T>
 	inline T& LValue(T&& x) { return x; }

@@ -24,10 +24,11 @@ namespace pr::rdr12
 
 		enum class EDbgFlags
 		{
-			None                  = 0,
-			WarnedNoRenderNuggets = 1 << 0,
-			NormalsVisible        = 1 << 1,
-			_flags_enum = 0,
+			None                   = 0,
+			WarnedNoRenderNuggets  = 1 << 0,
+			WarnedInvalidTransform = 1 << 1,
+			NormalsVisible         = 1 << 2,
+			_flags_enum            = 0,
 		};
 
 		Renderer*                m_rdr;       // The renderer that owns this model
@@ -68,8 +69,8 @@ namespace pr::rdr12
 		Renderer& rdr();
 
 		// Allow update of the vertex/index buffers
-		UpdateSubresourceScope UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
-		UpdateSubresourceScope UpdateIndices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
+		GfxUpdateSubresourceScope UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
+		GfxUpdateSubresourceScope UpdateIndices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
 
 		// Create a nugget from a range within this model
 		// Ranges are model relative, i.e. the first vert in the model is range [0,1)

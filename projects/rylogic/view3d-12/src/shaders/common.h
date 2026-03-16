@@ -164,7 +164,7 @@ namespace pr::rdr12
 		SetTxfm(cb, inst, model);
 
 		m4x4 o2w = GetO2W(inst);
-		m4x4 w2c = InvertAffine(view.CameraToWorld());
+		m4x4 w2c = InvertOrthonormal(view.CameraToWorld());
 		m4x4 c2s = FindC2S(inst, c2s) ? c2s : view.CameraToScreen();
 
 		// Set the object to screen projection
@@ -216,7 +216,7 @@ namespace pr::rdr12
 	{
 		cb.m_c2w = view.CameraToWorld();
 		cb.m_c2s = view.CameraToScreen();
-		cb.m_w2c = InvertAffine(cb.m_c2w);
+		cb.m_w2c = InvertOrthonormal(cb.m_c2w);
 		cb.m_w2s = cb.m_c2s * cb.m_w2c;
 	}
 
@@ -262,6 +262,6 @@ namespace pr::rdr12
 	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map)
 	{
 		if (env_map == nullptr) return;
-		cb.m_w2env = InvertAffine(env_map->m_cube2w);
+		cb.m_w2env = InvertOrthonormal(env_map->m_cube2w);
 	}
 }

@@ -50,7 +50,7 @@ namespace pr::rdr12
 			auto lsp_dz = Dot(Abs(lsp_z), ws_bounds_cam.Radius());
 			auto lsp_origin = ws_bounds_cam.Centre() - s_cast<float>(lsp_zn + lsp_dz) * lsp_z;
 			auto lsp2w = m4x4{lsp_rot, lsp_origin};
-			auto w2lsp = InvertAffine(lsp2w);
+			auto w2lsp = InvertOrthonormal(lsp2w);
 
 			// Get the scene+camera bounds in LSP space.
 			auto lsp_bounds_cam = w2lsp * ws_bounds_cam;
@@ -104,7 +104,7 @@ namespace pr::rdr12
 				ldr::Builder b;
 				b.Box("scene_bounds", 0xFF0000FF).bbox(ws_bounds_cam).wireframe();
 				b.Frustum("camera_view", 0xFF00FFFF).nf(scene.m_cam.Near(false), scene.m_cam.FocusDist() * 2).fov(scene.m_cam.FovY(), scene.m_cam.Aspect()).o2w(c2w).wireframe().axis(AxisId::NegZ);
-				b.Frustum("lsp", 0x4000FF00).proj(lsp).o2w(InvertAffine(w2lsp));
+				b.Frustum("lsp", 0x4000FF00).proj(lsp).o2w(InvertOrthonormal(w2lsp));
 				auto& blight = b.Add<LdrLight>("light", 0xFFFFFF00).light(*m_light).scale(scene.m_cam.FocusDist() * 0.05).o2w(l2w);
 		//		blight.Box("light_bounds", 0xFFFFFF00).bbox(m_params.m_bounds).wireframe();
 		//		blight.Frustum("light_proj", 0xFFFF00FF).proj(ls2s).wireframe().o2w(l2w);
@@ -129,7 +129,7 @@ namespace pr::rdr12
 		else
 		{
 			// World to light space
-			auto w2ls = InvertAffine(l2w);
+			auto w2ls = InvertOrthonormal(l2w);
 			m_params.m_w2ls = w2ls;
 
 			// Get the scene bounds in light space

@@ -496,9 +496,6 @@ namespace pr
 			auto g = component_dist(rng);
 			auto b = component_dist(rng);
 			auto len_sq = r * r + g * g + b * b;
-			if (len_sq > 1.0f)
-				continue;
-		
 			auto brightness = brightness_dist(rng);
 			auto scale = brightness / sqrt(len_sq);
 			return Colour32(r * scale, g * scale, b * scale, a);

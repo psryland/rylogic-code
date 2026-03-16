@@ -277,9 +277,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw.h">
       <Filter>src\ldraw</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_builder.h">
-      <Filter>src\ldraw</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_commands.h">
       <Filter>src\ldraw</Filter>
     </ClInclude>
@@ -314,12 +311,6 @@
       <Filter>src\ldraw</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_script_editor.h">
-      <Filter>src\ldraw</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_writer_binary.h">
-      <Filter>src\ldraw</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_writer_text.h">
       <Filter>src\ldraw</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\light.h">
@@ -775,6 +766,9 @@
     <ClInclude Include="..\..\..\include\pr\view3d-12\imgui\imgui.h">
       <Filter>src\imgui</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\compute\gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -904,5 +898,10 @@
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
       <Filter>pr\hlsl</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\compute\gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

@@ -81,6 +81,17 @@ inline float4 NotParallel(float4 v)
 	return select(v.x > v.y && v.x > v.z, float4(0,0,1,0), float4(1,0,0,0));
 }
 
+// Return a vector perpendicular to 'v'
+inline float3 Perpendicular(float3 v)
+{
+	// Choose the axis least aligned with v, then cross
+	float3 ax = abs(v.x) < abs(v.y) ? float3(1, 0, 0) : float3(0, 1, 0);
+	if (abs(v.z) < abs(ax.x * v.x + ax.y * v.y + ax.z * v.z))
+		ax = float3(0, 0, 1);
+	
+	return cross(v, ax);
+}
+
 // Normalise a vector or return zero if the length is zero
 inline float2 NormaliseOrZero(float2 vec)
 {

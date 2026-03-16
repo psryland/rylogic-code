@@ -70,6 +70,7 @@ struct Main :Form, IProbeActions
 	rdr12::Renderer m_rdr;
 	rdr12::Window m_wnd;
 	rdr12::Scene m_scn;
+	Gpu m_gpu;
 	GpuJob m_job;
 
 	Probe m_probe;
@@ -100,11 +101,12 @@ struct Main :Form, IProbeActions
 		, m_rdr(rdr12::RdrSettings(hinst).DebugLayer())
 		, m_wnd(m_rdr, rdr12::WndSettings(CreateHandle(), true, m_rdr.Settings()).BackgroundColour(0xFFA0A080))
 		, m_scn(m_wnd)
-		, m_job(m_rdr.D3DDevice(), "Fluid", 0xFFA83250, 5)
+		, m_gpu(m_rdr.D3DDevice(), m_rdr.GfxQueue())
+		, m_job(m_rdr.D3DDevice(), m_rdr.GfxQueue(), "Fluid", 0xFFA83250, 5)
 		, m_probe(m_rdr, ParticleRadius, this)
 		, m_demo(CreateDemo())
 		, m_loop()
-		, m_fluid_sim(m_rdr)
+		, m_fluid_sim(m_gpu)
 		, m_fluid_vis(m_rdr, m_scn)
 		, m_cpu_particles()
 		, m_colour_data()

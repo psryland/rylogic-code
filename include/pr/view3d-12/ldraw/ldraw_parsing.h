@@ -331,6 +331,11 @@ namespace pr::rdr12::ldraw
 		std::wstring_view ldr_script,       // The source of the script
 		Guid const& context_id = GuidZero,  // The context id to assign to each created object
 		std::stop_token stop_token = {});   // Token to signal cancellation
+	ParseResult Parse(
+		Renderer& rdr,                     // The renderer to create models for
+		std::span<std::byte const> data,   // The binary source of the script
+		Guid const& context_id = GuidZero, // The context id to assign to each created object
+		std::stop_token stop_token = {});  // Token to signal cancellation
 	ParseResult ParseFile(
 		Renderer& rdr,                      // The renderer to create models for
 		std::filesystem::path ldr_filepath, // The source of the script
@@ -397,8 +402,8 @@ namespace pr::rdr12::ldraw
 	void ModelTreeToLdr(LdrObject* root, std::span<ModelTreeNode const> tree);
 
 	// Generate a scene that demos the supported object types and modifiers.
-	textbuf CreateDemoSceneText();
-	bytebuf CreateDemoSceneBinary();
+	pr::ldraw::textbuf CreateDemoSceneText();
+	pr::ldraw::bytebuf CreateDemoSceneBinary();
 
 	// Return the auto completion templates
 	std::string AutoCompleteTemplates();

@@ -112,8 +112,8 @@ namespace pr::math
 			w[i] = row.w;
 		}
 
-		// Create a 4x4 matrix with this matrix as the rotation part
-		constexpr Mat4x4 w0() const noexcept
+		// Create a 4x4 matrix using just the rotation part of this matrix
+		constexpr Mat4x4 w1() const noexcept
 		{
 			return Mat4x4{ rot, Origin<Vec4<S>>() };
 		}

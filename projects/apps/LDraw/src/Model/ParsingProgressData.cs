@@ -25,7 +25,7 @@ namespace LDraw
 		public bool CanCancel => CancelAction != null;
 
 		/// <summary>Command to cancel the current loading operation</summary>
-		public ICommand CancelCommand { get; }
+		public Command CancelCommand { get; }
 
 		/// <summary>The name of the file/script currently being parsed</summary>
 		public string DataSourceName
@@ -79,11 +79,8 @@ namespace LDraw
 		/// <summary>True if we don't know the upper bound</summary>
 		public bool IsIndeterminate => DataLength == 0;
 
-		/// <summary></summary>
+		/// <inheritdoc />
 		public event PropertyChangedEventHandler? PropertyChanged;
-		private void NotifyPropertyChanged(string prop_name)
-		{
-			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop_name));
-		}
+		private void NotifyPropertyChanged(string prop_name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop_name));
 	}
 }

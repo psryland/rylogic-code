@@ -192,6 +192,65 @@ namespace pr::math
 			return S(0.5) * tangent;
 		}
 	};
+
+	template <ScalarTypeFP S>
+	struct HermiteVelCorrected
+	{
+		using CurveType = CurveType<S>;
+		using CubicCurve3 = CubicCurve3<S>;
+		using Vec4 = Vec4<S>;
+
+		// Notes:
+		//  - Velocity-corrected Hermite spline interpolator.
+		//  - Constructs a cubic Hermite spline from actual positions at t±T and (pos, vel) at the midpoint.
+		//  - The endpoint tangents are derived so the cubic exactly passes through (pos, vel) at u=0.5.
+		CubicCurve3 m_p;
+		Vec4 m_x1;
+		S m_interval;
+
+		// Construct a vel-corrected Hermite from:
+		//   pos_prev, pos_next: actual positions at t-T and t+T
+		//   pos:    actual position at the time t
+		//   vel:    velocity at the time t
+		//   interval: total time span from 'pos_prev' to 'pos_next' (= 2*T)
+		// Derive endpoint tangents V0, V1 in parameter space that force P(0.5) = pos, P'(0.5)/interval = vel
+		HermiteVelCorrected()
+			: m_p(Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), CubicCurve3::Hermite)
+			, m_x1(Zero<Vec4>())
+			, m_interval(S(1))
+		{}
+		HermiteVelCorrected(Vec4 pos_prev, Vec4 pos_next, Vec4 pos, Vec4 vel, S interval)
+			: m_p(
+				pos_prev - pos_next,
+				S(4) * pos - S(5) * pos_prev + pos_next - S(2) * vel * interval,
+				Zero<Vec4>(),
+				-pos_prev + S(5) * pos_next - S(4) * pos - S(2) * vel * interval,
+				CubicCurve3::Hermite)
+			, m_x1(pos_next)
+			, m_interval(interval)
+		{}
+		Vec4 Eval(S t) const
+		{
+			// Evaluate position. 't' is time relative to the midpoint (t=0 at PDP time, t=-T at pos_prev, t=+T at pos_next).
+			S T = S(0.5) * m_interval;
+			S u = (t + T) / m_interval;
+			return m_x1 + m_p.Eval(u);
+		}
+		Vec4 EvalDerivative(S t) const
+		{
+			// Evaluate velocity (in world-space units per second).
+			S T = S(0.5) * m_interval;
+			S u = (t + T) / m_interval;
+			return m_p.EvalDerivative(u) / m_interval;
+		}
+		Vec4 EvalDerivative2(S t) const
+		{
+			// Evaluate acceleration (in world-space units per second^2).
+			S T = S(0.5) * m_interval;
+			S u = (t + T) / m_interval;
+			return m_p.EvalDerivative2(u) / m_interval;
+		}
+	};
 }
 
 #if PR_UNITTESTS
@@ -381,9 +440,13 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(W1, w1, tol));
 			}
 		}
-		#if 0
+		PRUnitTestMethod(VelCorrected)
+		{
+			// @Copilot, please add unit tests for HermiteVelCorrected
+		}
 		PRUnitTestMethod(LdrDump)
 		{
+			#if PR_UNITTESTS_VISUALISE
 			using namespace pr::rdr12::ldraw;
 			auto samples = GenerateTestData();
 
@@ -457,8 +520,8 @@ namespace pr::math::tests
 			}
 
 			builder.Save("E:\\Dump\\LDraw\\interpolation.ldr", ESaveFlags::Pretty);
+			#endif
 		}
-		#endif
 	};
 }
 #endif

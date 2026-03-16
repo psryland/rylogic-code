@@ -3,7 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
-#include "pr/physics2/rigid_body/rigid_body.h"
+#include "pr/physics-2/rigid_body/rigid_body.h"
 
 namespace pr::physics
 {

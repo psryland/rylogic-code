@@ -1,6 +1,6 @@
 {
 	"scene": {
-		"description": "Objects falling under gravity onto a ground plane. 3 spheres and 4 boxes at various heights, with elastic collisions. Demonstrates gravity, ground contact, and inter-body collisions.",
+		"description": "Objects falling under gravity onto a ground plane. Boxes, spheres, thick lines, triangles, and polytopes at various heights. Demonstrates gravity, ground contact, and inter-body collisions across all shape types.",
 
 		"gravity": [0, 0, -9.81],
 
@@ -84,6 +84,112 @@
 				"mass": 2.0,
 				"position": [1.0, -0.5, 10.0],
 				"velocity": [0.0, 0.3, 0.0]
+			},
+			{
+				"name": "line_thick_a",
+				"shape": {
+					"type": "line",
+					"length": 3.0,
+					"thickness": 0.2
+				},
+				"mass": 4.0,
+				"position": [4.0, 0.0, 18.0],
+				"velocity": [-0.3, 0.0, 0.0],
+				"angular_velocity": [0.0, 1.0, 0.0]
+			},
+			{
+				"name": "line_thick_b",
+				"shape": {
+					"type": "line",
+					"length": 2.0,
+					"thickness": 0.3
+				},
+				"mass": 6.0,
+				"position": [-4.0, -1.0, 10.0],
+				"velocity": [0.2, 0.0, 0.0]
+			},
+			{
+				"name": "line_thin",
+				"shape": {
+					"type": "line",
+					"length": 4.0,
+					"thickness": 0.05
+				},
+				"mass": 1.0,
+				"position": [0.0, -3.0, 22.0],
+				"velocity": [0.0, 0.5, 0.0],
+				"angular_velocity": [2.0, 0.0, 0.5]
+			},
+			{
+				"name": "triangle_large",
+				"shape": {
+					"type": "triangle",
+					"vertices": [[-1.0, -0.8, 0.0], [1.0, -0.8, 0.0], [0.0, 1.0, 0.0]]
+				},
+				"mass": 3.0,
+				"position": [1.0, 3.0, 15.0],
+				"velocity": [0.0, -0.3, 0.0]
+			},
+			{
+				"name": "triangle_small",
+				"shape": {
+					"type": "triangle",
+					"vertices": [[-0.5, -0.4, 0.0], [0.5, -0.4, 0.0], [0.0, 0.6, 0.0]]
+				},
+				"mass": 1.5,
+				"position": [-3.0, 2.0, 24.0],
+				"velocity": [0.4, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 1.5]
+			},
+			{
+				"name": "polytope_tetra",
+				"shape": {
+					"type": "polytope",
+					"vertices": [
+						[-0.8, -0.8, -0.5],
+						[ 0.8, -0.8, -0.5],
+						[ 0.0,  0.8, -0.5],
+						[ 0.0,  0.0,  0.8]
+					]
+				},
+				"mass": 7.0,
+				"position": [5.0, 0.0, 11.0],
+				"velocity": [-0.4, 0.0, 0.0],
+				"angular_velocity": [0.5, 0.3, 0.0]
+			},
+			{
+				"name": "polytope_wedge",
+				"shape": {
+					"type": "polytope",
+					"vertices": [
+						[-1.5, -0.4, -0.3],
+						[ 1.5, -0.4, -0.3],
+						[-1.5,  0.4, -0.3],
+						[ 1.5,  0.4, -0.3],
+						[ 0.0,  0.0,  0.6]
+					]
+				},
+				"mass": 5.0,
+				"position": [-5.0, 1.0, 17.0],
+				"velocity": [0.3, -0.2, 0.0]
+			},
+			{
+				"name": "polytope_gem",
+				"shape": {
+					"type": "polytope",
+					"vertices": [
+						[ 0.0,  0.0, -0.8],
+						[ 1.0,  0.0,  0.0],
+						[-1.0,  0.0,  0.0],
+						[ 0.0,  1.0,  0.0],
+						[ 0.0, -1.0,  0.0],
+						[ 0.0,  0.0,  0.8]
+					]
+				},
+				"mass": 9.0,
+				"position": [0.0, -4.0, 13.0],
+				"velocity": [0.0, 0.5, 0.0],
+				"angular_velocity": [0.0, 0.0, 1.0]
 			}
 		]
 	}

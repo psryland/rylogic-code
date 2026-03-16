@@ -116,28 +116,28 @@
     <Filter Include="pr\hlsl">
       <UniqueIdentifier>{49abda68-2c1c-4ab5-bd62-5efc4673e067}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new">
+    <Filter Include="pr\math">
       <UniqueIdentifier>{b7648680-d452-49fa-8888-4bc7ea03600a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\core">
+    <Filter Include="pr\math\core">
       <UniqueIdentifier>{c0b9ccec-d509-47ed-9870-f7b4c1b8935f}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\tests">
+    <Filter Include="pr\math\tests">
       <UniqueIdentifier>{13efb58e-60f7-4ad1-b858-82408a198e5d}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\types">
+    <Filter Include="pr\math\types">
       <UniqueIdentifier>{8c56cf7a-9ff9-4884-90ca-60c1278fafd1}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\primitives">
+    <Filter Include="pr\math\primitives">
       <UniqueIdentifier>{b21d84d7-5c39-4e48-8845-8b4097746cbc}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\spatial">
+    <Filter Include="pr\math\spatial">
       <UniqueIdentifier>{bdc09006-3fb7-4670-aa4d-74d846e92a40}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\stats">
+    <Filter Include="pr\math\stats">
       <UniqueIdentifier>{90c69d56-2b89-4718-a9dd-7fa86566ae66}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\math_new\utils">
+    <Filter Include="pr\math\utils">
       <UniqueIdentifier>{a13adaa5-4f48-412f-95bd-e9985b551009}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
@@ -718,15 +718,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\math_new\core\forward.h">
-      <Filter>pr\math_new\core</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\math_new\math.h">
-      <Filter>pr\math_new</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\math_new\tests\vector2_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\meta\abs.h">
       <Filter>pr\meta</Filter>
     </ClInclude>
@@ -997,98 +988,11 @@
     <ClInclude Include="src\unittests.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\all_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\quaternion_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\core\constants.h">
-      <Filter>pr\math_new\core</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\core\functions.h">
-      <Filter>pr\math_new\core</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\core\traits.h">
-      <Filter>pr\math_new\core</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\matrix.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\matrix2x2.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\matrix3x4.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\matrix4x4.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\quaternion.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\transform.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\vector2.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\vector3.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\vector4.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\vector8.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\include\pr\algorithm\multidimensional_scaling.h">
       <Filter>pr\algorithm</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\common\task_graph.h">
       <Filter>pr\common</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix2x2_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix3x4_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix4x4_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\vector3_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\vector4_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\vector8_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\matrix6x8.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\core\axis_id.h">
-      <Filter>pr\math_new\core</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\matrix6x8_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\oriented_box.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\plane.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\spline.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\function_tests.h">
-      <Filter>pr\math_new\tests</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h">
       <Filter>pr\geometry</Filter>
@@ -1105,86 +1009,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\fibonacci_sphere.h">
       <Filter>pr\algorithm</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\frustum.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\spatial\spatial.h">
-      <Filter>pr\math_new\spatial</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\stats\stat.h">
-      <Filter>pr\math_new\stats</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\scalar_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h">
       <Filter>pr\common</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\types\half.h">
-      <Filter>pr\math_new\types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\rectangle.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\utils\primes.h">
-      <Filter>pr\math_new\utils</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\utils\dynamics.h">
-      <Filter>pr\math_new\utils</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\utils\interpolate.h">
-      <Filter>pr\math_new\utils</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\utils\polynomial.h">
-      <Filter>pr\math_new\utils</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\bbox_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\bsphere_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\dynamics_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\frustum_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\half_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\interpolate_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\oriented_box_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\plane_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\polynomial_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\primes_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\rectangle_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\spatial_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\stat_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\tests\transform_tests.h">
-      <Filter>pr\math_new\tests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bbox.h">
-      <Filter>pr\math_new\primitives</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\primitives\bsphere.h">
-      <Filter>pr\math_new\primitives</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h">
       <Filter>pr\algorithm</Filter>
@@ -1192,8 +1018,218 @@
     <ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h">
       <Filter>pr\algorithm</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math_new\conversion.h">
-      <Filter>pr\math_new</Filter>
+    <ClInclude Include="..\..\..\include\pr\math\tests\all_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\core\axis_id.h">
+      <Filter>pr\math\core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\bbox.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\bbox_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\bsphere.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\bsphere_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\core\constants.h">
+      <Filter>pr\math\core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\conversion.h">
+      <Filter>pr\math</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\dynamics_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\math\core\forward.h">
+      <Filter>pr\math\core</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\math\math.h">
+      <Filter>pr\math</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\half_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\matrix_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\matrix2x2_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\matrix3x4_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\matrix4x4_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\matrix6x8_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\oriented_box_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\plane_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\polynomial_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\primes_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\quaternion_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\function_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\frustum_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix2x2.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix3x4.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix6x8.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix4x4.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\frustum.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\half.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\interpolate_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\rectangle_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\transform_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\math\tests\vector2_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\vector3_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\vector4_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\spatial_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\stat_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\vector8_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\vector8.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\vector2.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\vector3.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\vector4.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\quaternion.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\core\traits.h">
+      <Filter>pr\math\core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\core\functions.h">
+      <Filter>pr\math\core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\oriented_box.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\plane.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\primes.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\types\transform.h">
+      <Filter>pr\math\types</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\stats\stat.h">
+      <Filter>pr\math\stats</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\spline.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\spatial\spatial.h">
+      <Filter>pr\math\spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\tests\scalar_tests.h">
+      <Filter>pr\math\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\primitives\rectangle.h">
+      <Filter>pr\math\primitives</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ldraw.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h">
+      <Filter>pr\collision</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1218,9 +1254,24 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="cpp.hint" />
+    <None Include="cpp.hint">
+      <Filter>src</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt">
@@ -1231,5 +1282,10 @@
     <ClCompile Include="src\dependecy_check_new_math.cpp">
       <Filter>src</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
+      <Filter>pr\hlsl</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

@@ -10,7 +10,6 @@
 #include "pr/geometry/point.h"
 #include "pr/geometry/distance.h"
 #include "pr/geometry/closest_point.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
 namespace pr::geometry
 {
 	PRUnitTestClass(PointTests)
@@ -62,18 +61,22 @@ namespace pr::geometry
 				//auto dist = -sep.Depth();
 				auto axis = sep.SeparatingAxis();
 
-				rdr12::ldraw::Builder builder;
-				builder.Box("bbox", 0x8000FF00).bbox(bbox);
-				builder.Line("line", 0xFFFF0000).line(s, e);
-				builder.Box("cp1", 0xFF0000FF).dim(0.01f).pos(pt0);
-				builder.Box("cp2", 0xFF0000FF).dim(0.01f).pos(pt1);
-				builder.Line("axis", 0xFF0000FF).line(pt0, pt1);
-				//builder.Write(L"\\dump\\test.ldr");
+				#if PR_UNITTESTS_VISUALISE
+				{
+					pr::ldraw::Builder builder;
+					builder.Box("bbox", 0x8000FF00).box(bbox.m_radius.x * 2, bbox.m_radius.y * 2, bbox.m_radius.z * 2).pos(bbox.m_centre);
+					builder.Line("line", 0xFFFF0000).line(s, e);
+					builder.Box("cp1", 0xFF0000FF).box(0.01f).pos(pt0);
+					builder.Box("cp2", 0xFF0000FF).box(0.01f).pos(pt1);
+					builder.Line("axis", 0xFF0000FF).line(pt0, pt1);
+					//builder.Save(temp_dir() / "test.ldr");
+				}
+				#endif
 			}
 		}
 		PRUnitTestMethod(RayVsTriangle)
 		{
-			using namespace pr::rdr12::ldraw;
+			using namespace pr::ldraw;
 
 			std::default_random_engine rng;
 			for (int i = 0; i != 100; ++i)
@@ -89,12 +92,16 @@ namespace pr::geometry
 				auto pt0 = s + para.w * d;
 				auto pt1 = BaryPoint(a, b, c, para.xyz);
 
-				Builder builder;
-				builder.Line("ray", 0xFFFF0000).style(ELineStyle::Direction).line(s, 5 * d);
-				builder.Triangle("tri", 0xFF0000FF).tri(a, b, c);
-				builder.Point("cp0", 0xFFFFFF00).size(20).pt(pt0);
-				builder.Point("cp1", 0xFF00FFFF).size(20).pt(pt1);
-				//builder.Save(temp_dir() / "geometry.ldr", ESaveFlags::Pretty);
+				#if PR_UNITTESTS_VISUALISE
+				{
+					Builder builder;
+					builder.Line("ray", 0xFFFF0000).style("Direction").line(s, 5 * d);
+					builder.Triangle("tri", 0xFF0000FF).tri(a, b, c);
+					builder.Point("cp0", 0xFFFFFF00).size(20).pt(pt0);
+					builder.Point("cp1", 0xFF00FFFF).size(20).pt(pt1);
+					//builder.Save(temp_dir() / "geometry.ldr", ESaveFlags::Pretty);
+				}
+				#endif
 			}
 		}
 	};

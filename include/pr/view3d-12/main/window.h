@@ -110,6 +110,9 @@ namespace pr::rdr12
 		// Present the frame to the display
 		void Present(Frame& frame, EGpuFlush flush = EGpuFlush::Async);
 
+		// Wait for the GPU to finish rendering the current frame. Use before shutdown
+		void WaitForGpu();
+
 		// Create an MSAA render target and depth stencil
 		BackBuffer CreateRenderTarget(iv2 size, MultiSamp ms, ClearValue rt_clear, ClearValue ds_clear);
 

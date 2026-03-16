@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!--
 https://docs.microsoft.com/en-us/visualstudio/debugger/create-custom-views-of-native-objects?view=vs-2017
 
@@ -109,17 +109,6 @@ old:
 	<Type Name="pr::impl::deque::iter&lt;*,*,*,*,*,*&gt;">
 		<DisplayString>{m_idx} {*m_map}</DisplayString>
 	</Type>
-	<Type Name="std::span&lt;*&gt;">
-		<DisplayString Condition="m_count == 0">empty</DisplayString>
-		<DisplayString>[{m_count}] {m_arr}</DisplayString>
-		<Expand>
-			<Item Name="[count]">m_count</Item>
-			<ArrayItems>
-				<Size>m_count</Size>
-				<ValuePointer>m_arr</ValuePointer>
-			</ArrayItems>
-		</Expand>
-	</Type>
 	<Type Name="pr::byte_data&lt;*&gt;">
 		<DisplayString Condition="m_size == 0">empty</DisplayString>
 		<DisplayString>[{m_size}] {m_ptr,na}</DisplayString>
@@ -173,14 +162,14 @@ old:
 	</Type>
 
 	<!-- Maths -->
-	<Type Name="pr::Vec2&lt;*&gt;">
+	<Type Name="pr::math::Vec2&lt;*&gt;">
 		<DisplayString>{x,g}  {y,g}</DisplayString> 
 		<!--
 		<DisplayString>new v2({x,g}f,  {y,g}f)</DisplayString>
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_v2"></DisplayString> 
 		-->
 	</Type>
-	<Type Name="pr::Vec3&lt;*&gt;">
+	<Type Name="pr::math::Vec3&lt;*&gt;">
 		<DisplayString>{x,g}  {y,g}  {z,g}</DisplayString> 
 		<!--
 		<DisplayString>*pos{{{x,g}  {y,g}  {z,g}}}</DisplayString>
@@ -188,7 +177,7 @@ old:
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_v3"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Vec4&lt;*&gt;">
+	<Type Name="pr::math::Vec4&lt;*&gt;">
 		<DisplayString>{x,g}  {y,g}  {z,g}  {w,g}</DisplayString>
 		<!--
 		<DisplayString>*pos{{{x,g}  {y,g}  {z,g}}}</DisplayString>
@@ -203,44 +192,32 @@ old:
 			<Item Name="||V||&#xB2;">x*x + y*y + z*z + w*w</Item>
 		</Expand>
 	</Type>
-	<Type Name="pr::Vec8&lt;*&gt;">
+	<Type Name="pr::math::Vec8&lt;*,*&gt;">
 		<DisplayString>{ang}  {lin}</DisplayString>
 		<!--
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_v8"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::IVec2&lt;*&gt;">
-		<DisplayString>{x,g}  {y,g}</DisplayString> 
-		<!--
-		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_iv2"></DisplayString>
-		-->
-	</Type>
-	<Type Name="pr::IVec4&lt;*&gt;">
-		<DisplayString>{x,g}  {y,g}  {z,g}  {w,g}</DisplayString>
-		<!--
-		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_iv4"></DisplayString>
-		-->
-	</Type>
-	<Type Name="pr::Quat&lt;*&gt;">
+	<Type Name="pr::math::Quat&lt;*&gt;">
 		<DisplayString>{x,g} {y,g} {z,g} {w,g}</DisplayString>
 		<!--
 		<DisplayString>new quat({x,g}f,  {y,g}f,  {z,g}f,  {w,g}f)</DisplayString>
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_Quaternion"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Xform&lt;*&gt;">
+	<Type Name="pr::math::Xform&lt;*&gt;">
 		<DisplayString>P:[{pos.xyz}]  R:[{rot}]  S:[{scl.xyz}]</DisplayString> 
 		<!--
 		<DisplayString>new Xform(&#10;	new v4({pos.x}f, {pos.y}f, {pos.z}f, {pos.w}f),&#10;	new Quat({rot.x}f, {rot.y}f, {rot.z}f, {rot.w}f),&#10;	new v4({scl.x}f, {scl.y}f, {scl.z}f, {scl.w}f)&#10;);</DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Mat2x2&lt;*&gt;">
+	<Type Name="pr::math::Mat2x2&lt;*&gt;">
 		<DisplayString>{x}  {y}</DisplayString> 
 		<!--
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_m2x2"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Mat3x4&lt;*,*&gt;">
+	<Type Name="pr::math::Mat3x4&lt;*&gt;">
 		<DisplayString>[{x.xyz}]  [{y.xyz}]  [{z.xyz}]</DisplayString>
 		<!--
 		<DisplayString>new m3x4(&#10;	new v4({x.x}f, {x.y}f, {x.z}f, {x.w}f),&#10;	new v4({y.x}f, {y.y}f, {y.z}f, {y.w}f),&#10;	new v4({z.x}f, {z.y}f, {z.z}f, {z.w}f)&#10;);</DisplayString>
@@ -248,7 +225,7 @@ old:
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_m3x4"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Mat4x4&lt;*,*&gt;">
+	<Type Name="pr::math::Mat4x4&lt;*&gt;">
 		<DisplayString>[{x}]  [{y}]  [{z}]  [{w}]</DisplayString>
 		<!--
 		<DisplayString>[{x}] &#10;[{y}] &#10;[{z}] &#10;[{w}]</DisplayString>
@@ -257,46 +234,23 @@ old:
 		<DisplayString LegacyAddin="P:\pr\obj\v142\prautoexp\x86\Debug\prautoexp.dll" Export="AddIn_m4x4"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Mat6x8&lt;*,*&gt;">
+	<Type Name="pr::math::Mat6x8&lt;*,*,*&gt;">
 		<DisplayString>{m00}  {m10}  {m01}  {m11}</DisplayString> 
 		<!--
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_m6x8"></DisplayString>
 		-->
 	</Type>
-	<Type Name="pr::Matrix&lt;*&gt;">
+	<Type Name="pr::math::Matrix&lt;*&gt;">
 		<DisplayString>{m_cols}x{m_rows} {m_data,36}</DisplayString>
 	</Type>
-	<Type Name="pr::LargeInt">
-		<!--
-		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_LargeInt"></DisplayString>
-		-->
+	<Type Name="pr::math::BoundingBox&lt;*&gt;">
+		<DisplayString>centre={m_centre.x,g} {m_centre.y,g} {m_centre.z,g}  radius={m_radius.x,g} {m_radius.y,g} {m_radius.z,g}</DisplayString>
 	</Type>
-	<Type Name="pr::BoundingBox">
-		<DisplayString>radius={m_radius.x} {m_radius.y} {m_radius.z} {m_radius.w} centre={m_centre.x} {m_centre.y} {m_centre.z} {m_centre.w}</DisplayString>
+	<Type Name="pr::math::BoundingSphere&lt;*&gt;">
+		<DisplayString>centre={m_ctr_rad.x,g} {m_ctr_rad.y,g} {m_ctr_rad.z,g}  radius={m_ctr_rad.w,g}</DisplayString>
 	</Type>
-	<Type Name="pr::BoundingSphere">
-		<DisplayString>radius={m_radius} centre={m_centre}</DisplayString>
-	</Type>
-	<Type Name="pr::Plane">
-		<DisplayString>{m_dx} {m_dy} {m_dz} {m_dist}</DisplayString>
-	</Type>
-	<Type Name="pr::Line3">
-		<DisplayString>Pt:{m_point} Dir:{m_line}</DisplayString>
-	</Type>
-	<Type Name="pr::Rectangle&lt;*&gt;">
-		<DisplayString>{m_min.x} {m_min.y} {m_max.x} {m_max.y}</DisplayString>
-	</Type>
-	<Type Name="pr::Spline">
-		<DisplayString>{m_geometry}</DisplayString>
-	</Type>
-	<Type Name="pr::Frustum">
-		<DisplayString>{m_Tplanes}</DisplayString>
-		<Expand>
-			<ExpandedItem>m_Tplanes</ExpandedItem>
-		</Expand>
-	</Type>
-	<Type Name="pr::Rand">
-		<DisplayString>{m_value}</DisplayString>
+	<Type Name="pr::math::Plane3&lt;*&gt;">
+		<DisplayString>dir={m_dir_dist.x,g} {m_dir_dist.y,g} {m_dir_dist.z,g}  dist={m_dir_dist.w,g}</DisplayString>
 	</Type>
 
 	<!-- Colour -->

@@ -181,7 +181,7 @@ namespace pr::math::tests
 				vec4_t(T(5), T(6), T(7), T(1)));
 
 			// w0 strips the translation, setting w column to Origin
-			auto M0 = M.w0();
+			auto M0 = M.w1();
 			PR_EXPECT(M0.w == vec4_t::Origin());
 			PR_EXPECT(M0.x == M.x && M0.y == M.y && M0.z == M.z);
 		}

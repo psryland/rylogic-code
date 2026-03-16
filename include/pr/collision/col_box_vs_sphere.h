@@ -23,7 +23,7 @@ namespace pr::collision
 
 		// Convert into box space
 		// Box centre to sphere centre vector in box space
-		auto r2l = InvertAffine(l2w) * r2w.pos - v4::Origin();
+		auto r2l = InvertOrthonormal(l2w) * r2w.pos - v4::Origin();
 	
 		// Get a vector from the sphere to the nearest point on the box
 		auto closest = v4::Zero();
@@ -119,40 +119,127 @@ namespace pr::collision
 
 namespace pr::collision::tests
 {
-	PRUnitTest(CollisionBoxVsSphere)
+	PRUnitTestClass(BoxVsSphereTests)
 	{
-		using namespace pr::rdr12::ldraw;
-
-		auto lhs = ShapeBox{v4{0.3f, 0.4f, 0.5f, 0.0f}};
-		auto rhs = ShapeSphere{0.3f};
-		m4x4 l2w_[] =
+		PRUnitTestMethod(Visualise)
 		{
-			m4x4::TransformRad(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
-		};
-		m4x4 r2w_[] =
-		{
-			m4x4::Identity(),
-		};
+			using namespace pr::ldraw;
 
-		std::default_random_engine rng;
-		for (int i = 0; i != 20; ++i)
-		{
-			Contact c;
-			m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
-			m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4{Random<m3x4>(rng), Random<v4>(rng, v4::Origin(), 0.5f).w1()};
-
-			Builder builder;
-			builder._<LdrPhysicsShape>("lhs", 0x3000FF00).shape(lhs).o2w(l2w);
-			builder._<LdrPhysicsShape>("rhs", 0x30FF0000).shape(rhs).o2w(r2w);
-			//builder.Write("collision_unittests.ldr");
-			if (BoxVsSphere(lhs, l2w, rhs, r2w, c))
+			#if PR_UNITTESTS_VISUALISE
+			auto lhs = ShapeBox{v4{0.3f, 0.4f, 0.5f, 0.0f}};
+			auto rhs = ShapeSphere{0.3f};
+			m4x4 l2w_[] =
 			{
-				builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
-				builder.Box("pt0", Colour32Yellow).dim(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
-				builder.Box("pt1", Colour32Yellow).dim(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
+				m4x4::Transform(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8, v4(0.2f, 0.3f, 0.1f, 1.0f)),
+			};
+			m4x4 r2w_[] =
+			{
+				m4x4::Identity(),
+			};
+
+			std::default_random_engine rng;
+			for (int i = 0; i != 20; ++i)
+			{
+				Contact c;
+				m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+				m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+
+				Builder builder;
+				{ auto& g = builder.Group("lhs", 0x3000FF00); AddShape(g, lhs); g.o2w(l2w); }
+				{ auto& g = builder.Group("rhs", 0x30FF0000); AddShape(g, rhs); g.o2w(r2w); }
+				if (BoxVsSphere(lhs, l2w, rhs, r2w, c))
+				{
+					builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
+					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
+					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
+				}
+				builder.Write(L"collision_unittests.ldr");
 			}
-			//builder.Write("collision_unittests.ldr");
+			#endif
 		}
-	}
+
+		// Sphere inside box: centre coincident
+		PRUnitTestMethod(SphereInsideBox)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.3f};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Identity();
+
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w));
+			Contact c;
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w, c));
+			PR_EXPECT(c.m_depth > 0.0f);
+		}
+
+		// Sphere touching box face
+		PRUnitTestMethod(SphereTouchingFace)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.5f};
+
+			// Sphere centre at (1.3, 0, 0) — distance to box face at x=1 is 0.3
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{1.3f, 0, 0, 0});
+
+			// Depth = 0.5 - 0.3 = 0.2
+			Contact c;
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w, c));
+			PR_EXPECT(FEqlRelative(c.m_depth, 0.2f, 0.02f));
+		}
+
+		// Sphere near box edge
+		PRUnitTestMethod(SphereNearEdge)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.5f};
+
+			// Sphere near the edge at (1, 1, 0)
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{1.2f, 1.2f, 0, 0});
+
+			// Distance to edge = sqrt(0.04 + 0.04) ≈ 0.283
+			Contact c;
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w, c));
+			PR_EXPECT(c.m_depth > 0.0f);
+		}
+
+		// Sphere near box corner
+		PRUnitTestMethod(SphereNearCorner)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.5f};
+
+			// Near corner (1,1,1), distance = sqrt(3*0.04) ≈ 0.346
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{1.2f, 1.2f, 1.2f, 0});
+
+			Contact c;
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w, c));
+			PR_EXPECT(c.m_depth > 0.0f);
+		}
+
+		// Separated: sphere far from box
+		PRUnitTestMethod(Separated)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.5f};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{5, 0, 0, 0});
+
+			PR_EXPECT(!BoxVsSphere(box, l2w, sph, r2w));
+		}
+
+		// Degenerate: zero-radius sphere inside box
+		PRUnitTestMethod(ZeroRadiusSphereInside)
+		{
+			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto sph = ShapeSphere{0.0f};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Identity();
+
+			PR_EXPECT(BoxVsSphere(box, l2w, sph, r2w));
+		}
+	};
 }
 #endif

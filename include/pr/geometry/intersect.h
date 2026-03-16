@@ -504,7 +504,7 @@ namespace pr::geometry::intersect
 		auto r2w = rhs.m_box_to_world;
 
 		// Compute a transform for 'rhs' in 'lhs's frame
-		auto r2l = InvertAffine(l2w) * r2w;
+		auto r2l = InvertOrthonormal(l2w) * r2w;
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0

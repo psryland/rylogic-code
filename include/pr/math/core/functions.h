@@ -2874,7 +2874,7 @@ namespace pr::math
 	}
 
 	// Return the inverse of 'mat' (assuming an orthonormal matrix)
-	template <VectorTypeFP Mat> requires (IsRank2<Mat> && vector_traits<Mat>::dimension == 4)
+	template <VectorTypeFP Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall InvertOrthonormal(Mat const& mat) noexcept
 	{
 		using vt = vector_traits<Mat>;
@@ -3376,7 +3376,7 @@ namespace pr::math
 			case +3: o2t = Identity<Mat>(); break;
 			default: pr_assert(false && "axis_id must one of +/-1, +/-2, +/-3"); o2t = Identity<Mat>(); break;
 		}
-		return o2t * InvertAffine(o2f);
+		return o2t * InvertOrthonormal(o2f);
 	}
 
 	// Create a scale matrix

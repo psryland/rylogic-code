@@ -4,7 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
@@ -17,6 +17,7 @@
 
 namespace pr::rdr12::compute::particle_collision
 {
+	template <D3D12_COMMAND_LIST_TYPE QueueType = D3D12_COMMAND_LIST_TYPE_DIRECT>
 	struct ParticleCollision
 	{
 		// Notes:
@@ -27,6 +28,7 @@ namespace pr::rdr12::compute::particle_collision
 		//  - ReadPrimitives/WritePrimitives methods for updating collision
 		//  - Support primitives with dynamics (i.e. moving, with mass, accumulate force from particles)
 		//  - Spatially partition collision
+		using Gpu = Gpu<QueueType>;
 
 		enum class ECullMode :int
 		{
@@ -65,7 +67,7 @@ namespace pr::rdr12::compute::particle_collision
 			}
 		};
 
-		Renderer* m_rdr;                       // The renderer instance to use to run the compute shader
+		Gpu* m_gpu;                            // The gpu instance to use to run the compute shader
 		ComputeStep m_cs_integrate;            // Integrate particles forward in time (with collision)
 		ComputeStep m_cs_boundaries;           // Detect proximity to boundaries for each particle
 		ComputeStep m_cs_culldead;             // Mark culled particles with NaN positions
@@ -75,8 +77,8 @@ namespace pr::rdr12::compute::particle_collision
 		// Runtime collision config
 		ConfigData Config;
 		
-		ParticleCollision(Renderer& rdr, std::wstring_view position_layout, std::wstring_view dynamics_layout)
-			: m_rdr(&rdr)
+		ParticleCollision(Gpu& gpu, std::wstring_view position_layout, std::wstring_view dynamics_layout)
+			: m_gpu(&gpu)
 			, m_cs_integrate()
 			, m_cs_boundaries()
 			, m_cs_culldead()
@@ -88,21 +90,17 @@ namespace pr::rdr12::compute::particle_collision
 		}
 
 		// (Re)Initialise the particle collision system
-		void Init(Setup const& setup)
+		void Init(GraphicsJob& job, Setup const& setup)
 		{
 			assert(setup.valid());
-			ResourceFactory factory(*m_rdr);
 
 			// Save the config
 			Config = setup.Config;
 
 			// Create the primitives buffer
 			{
-				ResDesc desc = ResDesc::Buf<Prim>(setup.PrimitiveCapacity, setup.CollisionInitData)
-					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
-					.usage(EUsage::UnorderedAccess);
-
-				m_r_primitives = factory.CreateResource(desc, "ParticleCollision:Primitives");
+				ResDesc desc = ResDesc::Buf<Prim>(setup.PrimitiveCapacity, setup.CollisionInitData).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
+				m_r_primitives = m_gpu->CreateResource(desc, job.m_cmd_list, "ParticleCollision:Primitives");
 				m_capacity = setup.PrimitiveCapacity;
 			}
 		}
@@ -215,7 +213,6 @@ namespace pr::rdr12::compute::particle_collision
 		// Create the compute steps
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
-			auto device = m_rdr->D3DDevice();
 			ShaderCompiler compiler = ShaderCompiler{}
 				.Source(resource::Read<char>(L"PARTICLE_COLLISION_HLSL", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
@@ -232,9 +229,9 @@ namespace pr::rdr12::compute::particle_collision
 					.UAV(EReg::Particles)
 					.UAV(EReg::Dynamics)
 					.SRV(EReg::Primitives)
-					.Create(device, "ParticleCollision:IntegrateSig");
+					.Create(*m_gpu, "ParticleCollision:IntegrateSig");
 				m_cs_integrate.m_pso = ComputePSO(m_cs_integrate.m_sig.get(), bytecode)
-					.Create(device, "ParticleCollision:IntegratePSO");
+					.Create(*m_gpu, "ParticleCollision:IntegratePSO");
 			}
 
 			// Boundaries
@@ -245,9 +242,9 @@ namespace pr::rdr12::compute::particle_collision
 					.UAV(EReg::Particles)
 					.UAV(EReg::Dynamics)
 					.SRV(EReg::Primitives)
-					.Create(device, "ParticleCollision:BoundariesSig");
+					.Create(*m_gpu, "ParticleCollision:BoundariesSig");
 				m_cs_boundaries.m_pso = ComputePSO(m_cs_boundaries.m_sig.get(), bytecode)
-					.Create(device, "ParticleCollision:BoundariesPSO");
+					.Create(*m_gpu, "ParticleCollision:BoundariesPSO");
 			}
 
 			// Cull dead particles
@@ -256,9 +253,9 @@ namespace pr::rdr12::compute::particle_collision
 				m_cs_culldead.m_sig = RootSig(ERootSigFlags::ComputeOnly)
 					.U32<cbCull>(EReg::Cull)
 					.UAV(EReg::Particles)
-					.Create(device, "ParticleCollision:CullDeadSig");
+					.Create(*m_gpu, "ParticleCollision:CullDeadSig");
 				m_cs_culldead.m_pso = ComputePSO(m_cs_culldead.m_sig.get(), bytecode)
-					.Create(device, "ParticleCollision:CullDeadPSO");
+					.Create(*m_gpu, "ParticleCollision:CullDeadPSO");
 			}
 		}
 

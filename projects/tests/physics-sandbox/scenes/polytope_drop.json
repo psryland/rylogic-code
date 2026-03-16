@@ -1,0 +1,37 @@
+{
+	"scene": {
+		"description": "Single polytope dropping onto ground. Tests integration correctness for polytope shapes which may have non-zero CoM offset.",
+
+		"gravity": [0, 0, -9.81],
+
+		"material": {
+			"elasticity": 1.0,
+			"friction": 0.0
+		},
+
+		"ground_plane": {
+			"height": 0.0,
+			"colour": "8000AA00"
+			//"texture": "#checker"
+		},
+
+		"bodies": [
+			{
+				"name": "tetrahedron",
+				"shape": {
+					"type": "polytope",
+					"vertices": [
+						[-0.8, -0.8, -0.5],
+						[ 0.8, -0.8, -0.5],
+						[ 0.0,  0.8, -0.5],
+						[ 0.0,  0.0,  0.8]
+					]
+				},
+				"mass": 10.0,
+				"position": [0.0, 0.0, 5.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.5, 0.3, 0.0]
+			}
+		]
+	}
+}

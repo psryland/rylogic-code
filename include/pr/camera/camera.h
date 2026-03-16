@@ -248,7 +248,7 @@ namespace pr
 		}
 		m4x4 WorldToCamera() const
 		{
-			return InvertAffine(m_c2w);
+			return InvertOrthonormal(m_c2w);
 		}
 
 		// Return a projection transform
@@ -301,7 +301,7 @@ namespace pr
 			auto half_height = m_focus_dist * std::tan(m_fovY * 0.5);
 
 			// Get the point in camera space and project into normalised screen space
-			v4 cam = InvertAffine(m_c2w) * ws_point;
+			v4 cam = InvertOrthonormal(m_c2w) * ws_point;
 
 			v4 point;
 			point.x = s_cast<float>(cam.x / (m_aspect * half_height));
@@ -978,7 +978,7 @@ namespace pr
 			{
 				// Get the camera orientation matrix
 				m3x4 c2w(Cross(up, forward), up, forward);
-				auto w2c = InvertAffine(c2w);
+				auto w2c = InvertOrthonormal(c2w);
 
 				auto bbox_cs = w2c * bbox;
 				auto width  = bbox_cs.SizeX();
@@ -1048,7 +1048,7 @@ namespace pr
 			v4 old_focus = FocusPoint();
 
 			// Find the axis of rotation
-			v4 axis = IsAligned() ? InvertAffine(m_c2w) * m_align : m_c2w.y;
+			v4 axis = IsAligned() ? InvertOrthonormal(m_c2w) * m_align : m_c2w.y;
 
 			// Rotate the camera transform and reposition to look at the focus point
 			m_c2w     = m_c2w * m4x4::Transform(axis, angle_rad, v4::Origin());

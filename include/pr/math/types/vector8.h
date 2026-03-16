@@ -218,11 +218,20 @@ namespace pr::math
 
 	// Compare for floating point equality
 	template <ScalarType S, typename T>
-	constexpr bool FEql(Vec8<S, T> lhs, Vec8<S, T> rhs) noexcept
+	constexpr bool pr_vectorcall FEql(Vec8<S, T> lhs, Vec8<S, T> rhs) noexcept
 	{
 		return
 			FEql(lhs.ang, rhs.ang) &&
 			FEql(lhs.lin, rhs.lin);
+	}
+
+	// Compare for relative floating point equality
+	template <ScalarType S, typename T>
+	constexpr bool pr_vectorcall FEqlRelative(Vec8<S, T> const& lhs, Vec8<S, T> const& rhs, auto tol) noexcept
+	{
+		return
+			FEqlRelative(lhs.ang, rhs.ang, tol) &&
+			FEqlRelative(lhs.lin, rhs.lin, tol);
 	}
 
 	// True if 'v' contains NaN. 'any' controls whether to check if any component is NaN, or if all components are NaN.

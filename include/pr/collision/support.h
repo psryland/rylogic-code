@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // Collision
 //  Copyright (c) Rylogic Ltd 2006
 //*********************************************
@@ -57,13 +57,22 @@ namespace pr::collision
 		if      (d > +math::tiny<float>) vert += r;
 		else if (d < -math::tiny<float>) vert -= r;
 		else feature_type = EFeature::Edge;
+
+		// Hemispherical end-cap offset for thick lines
+		if (shape.m_thickness > 0)
+		{
+			auto len_sq = LengthSq(direction);
+			if (len_sq > Sqr(math::tiny<float>))
+				vert += shape.m_thickness * direction / Sqrt(len_sq);
+		}
 		return vert;
 	}
 	inline v4 SupportVertex(ShapeTriangle const& shape, v4 direction, EFeature& feature_type)
 	{
+		// Triangle vertices are stored as offsets (w=0), return as positions (w=1)
 		v4 d(Dot3(direction, shape.m_v.x), Dot3(direction, shape.m_v.y), Dot3(direction, shape.m_v.z), 0.0f);
 		feature_type = EFeature::Vert;
-		return shape.m_v[MaxElementIndex(d.xyz)];
+		return shape.m_v[MaxElementIndex(d.xyz)].w1();
 	}
 	template <ShapeType TShape>
 	inline v4 SupportVertex(TShape const& shape, v4 direction)
@@ -127,25 +136,61 @@ namespace pr::collision
 	{
 		auto d = Dot(axis, shape.m_base.m_s2p.z);
 		auto r = shape.m_base.m_s2p.z * shape.m_radius;
+
+		// Hemispherical end-cap offset for thick lines
+		auto thickness_offset = v4::Zero();
+		if (shape.m_thickness > 0)
+		{
+			auto len_sq = LengthSq(axis);
+			if (len_sq > Sqr(math::tiny<float>))
+				thickness_offset = shape.m_thickness * axis / Sqrt(len_sq);
+		}
+
 		if (d > +math::tiny<float>)
 		{
 			// Line points in the direction of the axis, return the end point
 			feature_type = EFeature::Vert;
-			points[0] = shape.m_base.m_s2p.pos + r;
+			points[0] = shape.m_base.m_s2p.pos + r + thickness_offset;
 		}
 		else if (d < -math::tiny<float>)
 		{
 			// Line points against the direction of the axis, return the start point
 			feature_type = EFeature::Vert;
-			points[0] = shape.m_base.m_s2p.pos - r;
+			points[0] = shape.m_base.m_s2p.pos - r + thickness_offset;
 		}
 		else
 		{
-			// Line is perpendicular to the axis, return the line
+			// Line is perpendicular to the axis, return the line (both endpoints offset by thickness)
 			feature_type = EFeature::Edge;
-			points[0] = shape.m_base.m_s2p.pos - r;
-			points[1] = shape.m_base.m_s2p.pos + r;
+			points[0] = shape.m_base.m_s2p.pos - r + thickness_offset;
+			points[1] = shape.m_base.m_s2p.pos + r + thickness_offset;
 		}
+	}
+	inline void SupportFeature(ShapeTriangle const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	{
+		// Project each vertex onto the axis
+		auto d0 = Dot3(axis, shape.m_v.x);
+		auto d1 = Dot3(axis, shape.m_v.y);
+		auto d2 = Dot3(axis, shape.m_v.z);
+		auto d_max = std::max({d0, d1, d2});
+
+		// Count how many vertices are at the maximum projection (within tolerance).
+		// 1 vertex  → Vert feature, 2 vertices → Edge feature, 3 vertices → Tri (face) feature.
+		auto tol = math::tiny<float>;
+		int count = 0;
+		int indices[3] = {};
+		if (d0 >= d_max - tol) indices[count++] = 0;
+		if (d1 >= d_max - tol) indices[count++] = 1;
+		if (d2 >= d_max - tol) indices[count++] = 2;
+
+		// Triangle vertices are stored as offsets (w=0), return as positions (w=1)
+		feature_type = EFeature(count);
+		for (int i = 0; i != count; ++i)
+			points[i] = shape.m_v[indices[i]].w1();
+
+		// For the face case, ensure winding order matches the axis direction
+		if (count == 3 && Triple(axis, points[1] - points[0], points[2] - points[0]) < 0)
+			std::swap(points[1], points[2]);
 	}
 
 	// Returns the *single* point of contact between two shapes, 'lhs' and 'rhs'.
@@ -294,8 +339,8 @@ namespace pr::collision
 		auto featB = EFeature{};
 		v4 pointA[FeaturePolygonMaxSides] = {};
 		v4 pointB[FeaturePolygonMaxSides] = {};
-		SupportFeature(lhs, InvertAffine(l2w) * +axis, featA, pointA);
-		SupportFeature(rhs, InvertAffine(r2w) * -axis, featB, pointB);
+		SupportFeature(lhs, InvertOrthonormal(l2w) * +axis, featA, pointA);
+		SupportFeature(rhs, InvertOrthonormal(r2w) * -axis, featB, pointB);
 
 		return FindContactPoint(pointA, featA, pointB, featB, l2w, r2w, axis, pen);
 	}

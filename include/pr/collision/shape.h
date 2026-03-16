@@ -155,6 +155,7 @@ namespace pr::collision
 	concept CompositeShapeType = ShapeType<T> && shape_traits<T>::composite;
 
 	static_assert(ShapeType<Shape>);
+	static_assert((sizeof(Shape) & 0xf) == 0);
 
 	// Cast 'Shape' to a specific Shape type
 	template <ShapeType Shp> inline Shp const& shape_cast(Shape const& shape)

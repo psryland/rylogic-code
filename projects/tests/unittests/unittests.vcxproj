@@ -41,6 +41,7 @@
       <AdditionalDependencies>
 				;lua-static.lib
 				;physics-2-static.lib
+				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
     </Link>
@@ -223,6 +224,18 @@
     <ClInclude Include="$(RylogicRoot)include\pr\gui\scintilla_ctrl.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\ldraw.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\ray.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h" />
     <ClInclude Include="..\..\..\include\pr\gui\message_loop.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\gui\vt100.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\gui\vt100_colours.h" />
@@ -421,9 +434,17 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\collision.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli" />
     <None Include="cpp.hint" />
   </ItemGroup>
   <!-- Run unit tests -->
+  <ItemGroup>
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
+  </ItemGroup>
   <Target Name="RunUnitTests" AfterTargets="Build">
     <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
   </Target>

@@ -6,7 +6,7 @@
 #include "pr/physics-2/forward.h"
 #include "pr/physics-2/shape/mass.h"
 #include "pr/physics-2/shape/inertia.h"
-#include "pr/physics-2/material/material.h"
+#include "pr/physics-2/materials/material.h"
 
 namespace pr::physics
 {
@@ -40,7 +40,7 @@ namespace pr::physics
 		// Instances of primitives
 		struct alignas(16) Prim
 		{
-			ByteData<16>    m_data;  // Data containing the shape
+			byte_data<16>   m_data;  // Data containing the shape
 			MassProperties  m_mp;    // Mass properties for the primitive
 			BBox            m_bbox;  // Bounding box for the primitive
 			Shape mutable*  m_shape; // Used in the debugger only
@@ -71,20 +71,21 @@ namespace pr::physics
 
 		ShapeBuilder(Settings const& settings = Settings())
 			:m_settings(settings)
-			,m_model(std::make_unique<Model>())
+			,m_model(std::unique_ptr<Model>(new Model))
 		{}
 
 		// Begin a new physics model
 		void Reset()
 		{
-			m_model = std::make_unique<Model>();
+			m_model = std::unique_ptr<Model>(new Model);
 		}
 
 		// Add shapes to the current model.
-		template <ShapeType TShape> void AddShape(TShape const& shape)
+		template <ShapeType TShape>
+		void AddShape(TShape const& shape)
 		{
 			// Create a new primitive to contain the shape
-			auto prim = std::make_unique<Prim>();
+			auto prim = std::unique_ptr<Prim>(new Prim);
 			prim->m_data.push_back({ byte_ptr(&shape), shape.m_base.m_size });
 			auto& s = shape_cast<TShape>(prim->shape());
 
@@ -111,7 +112,7 @@ namespace pr::physics
 		// It should be possible to insert the shape returned from here into a larger shape.
 		// The highest level shape in a composite shape should have a shape_to_parent transform of identity.
 		// Shape flags only apply to composite shape types
-		Shape* BuildShape(ByteData<16>& model_data, MassProperties& mp, v4& model_to_CoMframe, EShape container = EShape::Array, Shape::EFlags shape_flags = Shape::EFlags::None)
+		Shape* BuildShape(byte_data<16>& model_data, MassProperties& mp, v4& model_to_CoMframe, EShape container = EShape::Array, Shape::EFlags shape_flags = Shape::EFlags::None)
 		{
 			auto& model = *m_model;
 

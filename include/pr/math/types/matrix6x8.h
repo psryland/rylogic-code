@@ -256,13 +256,24 @@ namespace pr::math
 
 	// Compare for floating point equality
 	template <ScalarType S, typename A, typename B>
-	constexpr bool FEql(Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs) noexcept
+	constexpr bool pr_vectorcall FEql(Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs) noexcept
 	{
 		return
 			FEql(lhs.m00, rhs.m00) &&
 			FEql(lhs.m01, rhs.m01) &&
 			FEql(lhs.m10, rhs.m10) &&
 			FEql(lhs.m11, rhs.m11);
+	}
+
+	// Compare for relative floating point equality
+	template <ScalarType S, typename A, typename B>
+	constexpr bool pr_vectorcall FEqlRelative(Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs, auto tol) noexcept
+	{
+		return
+			FEqlRelative(lhs.m00, rhs.m00, tol) &&
+			FEqlRelative(lhs.m01, rhs.m01, tol) &&
+			FEqlRelative(lhs.m10, rhs.m10, tol) &&
+			FEqlRelative(lhs.m11, rhs.m11, tol);
 	}
 
 	// True if 'v' contains NaN. 'any' controls whether to check if any component is NaN, or if all components are NaN.
@@ -278,7 +289,7 @@ namespace pr::math
 
 	// Return the transpose of a spatial matrix
 	template <ScalarType S, typename A, typename B>
-	constexpr Mat6x8<S, A, B> Transpose(Mat6x8<S,A,B> const& m)
+	constexpr Mat6x8<S, A, B> pr_vectorcall Transpose(Mat6x8<S,A,B> const& m)
 	{
 		return Mat6x8<S, A, B>(
 			Transpose(m.m00), Transpose(m.m10),
@@ -287,7 +298,7 @@ namespace pr::math
 
 	// Invert the 6x6 matrix 'm'
 	template <ScalarType S, typename A, typename B>
-	inline Mat6x8<S,B,A> Invert(Mat6x8<S,A,B> const& m)
+	inline Mat6x8<S,B,A> pr_vectorcall Invert(Mat6x8<S,A,B> const& m)
 	{
 		// 2x2 block matrix inversion
 		// R = [A B]  R' = [E F]

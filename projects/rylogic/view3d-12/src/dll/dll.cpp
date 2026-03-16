@@ -13,6 +13,7 @@
 //  want to temporarily push a different error handler. Each window maintains a
 //  stack of error handlers.
 #include "pr/view3d-12/view3d-dll.h"
+#include "pr/view3d-12/ldraw/ldraw_ui_script_editor.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -360,9 +361,9 @@ VIEW3D_API EStreamingState __stdcall View3D_StreamingState()
 		DllLockGuard;
 		switch (Dll().StreamingState())
 		{
-			case ldraw::EStreamingState::Disconnected: return view3d::EStreamingState::Disconnected;
-			case ldraw::EStreamingState::Listening: return view3d::EStreamingState::Listening;
-			case ldraw::EStreamingState::Connected: return view3d::EStreamingState::Connected;
+			case rdr12::ldraw::EStreamingState::Disconnected: return view3d::EStreamingState::Disconnected;
+			case rdr12::ldraw::EStreamingState::Listening: return view3d::EStreamingState::Listening;
+			case rdr12::ldraw::EStreamingState::Connected: return view3d::EStreamingState::Connected;
 			default: throw std::runtime_error("Unknown streaming state");
 		}
 	}
@@ -2129,7 +2130,7 @@ VIEW3D_API view3d::BBox __stdcall View3D_ObjectBBoxMS(view3d::Object object, vie
 		Validate(object);
 
 		DllLockGuard;
-		return To<view3d::BBox>(object->BBoxMS(static_cast<ldraw::EBBoxFlags>(bbox_flags)));
+		return To<view3d::BBox>(object->BBoxMS(static_cast<rdr12::ldraw::EBBoxFlags>(bbox_flags)));
 	}
 	CatchAndReport(View3D_ObjectBBoxMS, , {});
 }
@@ -2142,7 +2143,7 @@ VIEW3D_API BOOL __stdcall View3D_ObjectVisibilityGet(view3d::Object object, char
 		Validate(object);
 
 		DllLockGuard;
-		return const_cast<ldraw::LdrObject const*>(object)->Visible(name);
+		return const_cast<rdr12::ldraw::LdrObject const*>(object)->Visible(name);
 	}
 	CatchAndReport(View3D_ObjectGetVisibility, ,FALSE);
 }
@@ -2166,7 +2167,7 @@ VIEW3D_API BOOL __stdcall View3D_ObjectWireframeGet(view3d::Object object, char 
 		Validate(object);
 
 		DllLockGuard;
-		return const_cast<ldraw::LdrObject const*>(object)->Wireframe(name);
+		return const_cast<rdr12::ldraw::LdrObject const*>(object)->Wireframe(name);
 	}
 	CatchAndReport(View3D_ObjectWireframeGet, , FALSE);
 }
@@ -2262,7 +2263,7 @@ VIEW3D_API BOOL __stdcall View3D_ObjectNormalsGet(view3d::Object object, char co
 		Validate(object);
 
 		DllLockGuard;
-		return const_cast<ldraw::LdrObject const*>(object)->Normals(name);
+		return const_cast<rdr12::ldraw::LdrObject const*>(object)->Normals(name);
 	}
 	CatchAndReport(View3D_ObjectNormalsGet, , FALSE);
 }
@@ -2705,7 +2706,7 @@ VIEW3D_API void __stdcall View3D_GizmoMovedCBSet(view3d::Gizmo gizmo, view3d::Gi
 		Validate(gizmo);
 		if (!moved_cb) throw std::runtime_error("Callback function is null");
 
-		auto gizmo_moved = [](void* ctx, ldraw::LdrGizmo* gizmo, ldraw::EGizmoState state)
+		auto gizmo_moved = [](void* ctx, rdr12::ldraw::LdrGizmo* gizmo, rdr12::ldraw::EGizmoState state)
 		{
 			auto& cb = *static_cast<view3d::GizmoMovedCB*>(ctx);
 			cb(gizmo, static_cast<view3d::EGizmoState>(state));
@@ -3176,9 +3177,9 @@ VIEW3D_API GUID __stdcall View3D_DemoSceneCreateText(view3d::Window window)
 		Dll().LoadScriptString(std::string_view(scene), EEncoding::utf8, &Context::GuidDemoSceneObjects, PathResolver{}, [=](Guid const& context_id, bool before)
 		{
 			if (before)
-				window->Remove({ (void*)&context_id, ldraw::MatchContextId });
+				window->Remove({ (void*)&context_id, rdr12::ldraw::MatchContextId });
 			else
-				window->Add(Dll().m_sources.Sources(), GuidPredCB{ &context_id, ldraw::MatchContextId });
+				window->Add(Dll().m_sources.Sources(), GuidPredCB{ &context_id, rdr12::ldraw::MatchContextId });
 		});
 		return Context::GuidDemoSceneObjects;
 	}
@@ -3204,9 +3205,9 @@ VIEW3D_API GUID __stdcall View3D_DemoSceneCreateBinary(view3d::Window window)
 		Dll().LoadScriptBinary(scene, &Context::GuidDemoSceneObjects, [=](Guid const& id, bool before)
 		{
 			if (before)
-				window->Remove({ &id, ldraw::MatchContextId });
+				window->Remove({ &id, rdr12::ldraw::MatchContextId });
 			else
-				window->Add(Dll().m_sources.Sources(), { &id, ldraw::MatchContextId });
+				window->Add(Dll().m_sources.Sources(), { &id, rdr12::ldraw::MatchContextId });
 		});
 		return Context::GuidDemoSceneObjects;
 	}
@@ -3217,7 +3218,7 @@ VIEW3D_API void __stdcall View3D_DemoSceneDelete()
 	try
 	{
 		DllLockGuard;
-		Dll().DeleteAllObjectsById({ &Context::GuidDemoSceneObjects, ldraw::MatchContextId });
+		Dll().DeleteAllObjectsById({ &Context::GuidDemoSceneObjects, rdr12::ldraw::MatchContextId });
 	}
 	CatchAndReport(View3D_DemoSceneDelete,,);
 }

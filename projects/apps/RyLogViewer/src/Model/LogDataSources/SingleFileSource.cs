@@ -25,7 +25,7 @@ namespace RyLogViewer
 		/// <summary>Create a new stream with access to the log data</summary>
 		public Stream OpenStream()
 		{
-			return new FileStream(m_filepath, FileMode.Open, FileAccess.Read, FileShare.Read);
+			return new FileStream(m_filepath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 		}
 	}
 }

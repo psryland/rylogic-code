@@ -7,7 +7,7 @@
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
+#include "pr/common/ldraw.h"
 #include "pr/gui/wingui.h"
 
 namespace pr::rdr12::ldraw
@@ -108,7 +108,7 @@ namespace pr::rdr12::ldraw
 				auto p0 = v4(m_point1.x, m_point0.y, m_point0.z, 1.0f);
 				auto p1 = v4(m_point1.x, m_point1.y, m_point0.z, 1.0f);
 
-				Builder ldr;
+				pr::ldraw::Builder ldr;
 				auto& group = ldr.Group("Measurement");
 				group.Line("dist", 0xFFFFFFFF).line(m_point0, m_point1);
 				group.Line("distX", 0xFFFF0000).line(m_point0, p0);
@@ -116,7 +116,7 @@ namespace pr::rdr12::ldraw
 				group.Line("distZ", 0xFF0000FF).line(p1, m_point1);
 				auto data = ldr.ToBinary();
 
-				mem_istream<char> src{ data.data(), data.size() };
+				mem_istream<char> src{ reinterpret_cast<char const*>(data.data()), data.size() };
 				BinaryReader reader(src, {});
 				auto out = Parse(m_rdr, reader, GfxContextId());
 				if (!out.m_objects.empty())

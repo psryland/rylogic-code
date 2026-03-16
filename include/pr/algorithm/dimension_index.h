@@ -181,8 +181,7 @@ namespace pr::algorithm
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
-
+#include "pr/math/math.h"
 namespace pr::algorithm::tests
 {
 	PRUnitTest(DimensionIndexTests)
@@ -230,10 +229,12 @@ namespace pr::algorithm::tests
 	}
 	PRUnitTest(DimensionIndexLdrTests)
 	{
+		#if PR_UNITTESTS_VISUALISE
 		std::random_device rd;
 		std::default_random_engine rng(rd());
 		std::uniform_real_distribution dist(0.2f, 0.5f);
-		rdr12::ldraw::Builder builder;
+
+		pr::ldraw::Builder builder;
 
 		const int N = 10000;
 		std::vector<v4> points;
@@ -268,6 +269,7 @@ namespace pr::algorithm::tests
 		}
 
 		builder.Save("E:/Dump/dimension_index.ldr");
+		#endif
 	}
 }
 

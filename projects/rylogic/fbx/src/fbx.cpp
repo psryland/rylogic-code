@@ -1249,7 +1249,7 @@ namespace pr::geometry::fbx
 					// The o2bp transforms are used to take verts in object space and make them bone relative.
 					// At runtime, a pose contains transforms: currentpose-to-world * bindpose-to-currentpose
 					auto o2bp = IsOrthonormal(bp2o)
-						? InvertAffine(bp2o)
+						? InvertOrthonormal(bp2o)
 						: Invert(bp2o);
 					
 					skel.m_bone_ids.push_back(bone_id);

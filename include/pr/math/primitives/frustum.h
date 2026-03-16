@@ -534,7 +534,7 @@ namespace pr::math
 		// The caller assumes (0,0,0) is the apex and the far plane is (0,0,-zfar).
 		// Transform 'ws_pt' to frustum space, then offset to be relative to (0,0,zfar)
 		auto frustum_zfar = frustum.zfar();
-		auto pt = InvertAffine(f2w) * ws_pt;
+		auto pt = InvertOrthonormal(f2w) * ws_pt;
 		pt.z += frustum_zfar;
 		
 		// If 'pt' is beyond the far plane, extend the far plane
@@ -581,7 +581,7 @@ namespace pr::math
 		// The caller assumes (0,0,0) is the apex and the far plane is (0,0,-zfar).
 		// Transform 'ws_bbox' to frustum space, then offset to be relative to (0,0,zfar)
 		auto frustum_zfar = frustum.zfar();
-		auto bbox = InvertAffine(f2w) * ws_bbox;
+		auto bbox = InvertOrthonormal(f2w) * ws_bbox;
 		bbox.m_centre.z += frustum_zfar;
 		
 		// If 'pt' is beyond the far plane, extend the far plane
@@ -835,7 +835,7 @@ namespace pr::math::tests
 			//}
 			for (auto& pt : pts)
 			{
-				auto within = IsWithin(f, InvertAffine(f2w) * pt, T(0.001), nf);
+				auto within = IsWithin(f, InvertOrthonormal(f2w) * pt, T(0.001), nf);
 				PR_EXPECT(within);
 			}
 		}
@@ -872,7 +872,7 @@ namespace pr::math::tests
 			//}
 			for (auto& bb : bboxes)
 			{
-				auto within = IsWithin(f, InvertAffine(f2w) * bb, nf);
+				auto within = IsWithin(f, InvertOrthonormal(f2w) * bb, nf);
 				PR_EXPECT(within);
 			}
 		}
@@ -909,7 +909,7 @@ namespace pr::math::tests
 			//}
 			for (auto& bs : spheres)
 			{
-				auto within = IsWithin(f, InvertAffine(f2w) * bs, nf);
+				auto within = IsWithin(f, InvertOrthonormal(f2w) * bs, nf);
 				PR_EXPECT(within);
 			}
 		}

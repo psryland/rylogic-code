@@ -28,7 +28,7 @@
 			<MenuItem Header="_File">
 				<MenuItem Header="_Open Log File" Command="{Binding OpenSingleLogFile}"/>
 				<MenuItem Header="_Data Sources">
-					<MenuItem Header="_Program Output..."/>
+					<MenuItem Header="_Program Output..." Command="{Binding OpenProgramOutput}"/>
 					<MenuItem Header="_Serial Port..."/>
 					<MenuItem Header="_Network Connection..."/>
 					<MenuItem Header="Named _Pipe..."/>
@@ -65,13 +65,15 @@
 				</MenuItem>
 			</MenuItem>
 			<MenuItem Header="_Tools">
-				<MenuItem Header="_Export"/>
+				<MenuItem Header="_Export..." Command="{Binding ExportLog}"/>
 				<Separator/>
 				<MenuItem Header="_Pattern Sets"/>
 				<Separator/>
 				<MenuItem Header="_Options" Command="{Binding ShowOptionsUI}"/>
 			</MenuItem>
-			<MenuItem Header="_Help"/>
+			<MenuItem Header="_Help">
+				<MenuItem Header="_About RyLogViewer" Command="{Binding ShowAbout}"/>
+			</MenuItem>
 			<MenuItem Header="Free Edition" HorizontalAlignment="Right"/>
 		</Menu>
 		<ToolBarTray
@@ -91,23 +93,23 @@
 					<Image Source="{StaticResource quick_filter}"/>
 				</Button>
 				<Separator/>
-				<Button>
+				<Button ToolTip="Toggle highlights panel" Command="{Binding ToggleHighlights}">
 					<Image Source="{StaticResource highlight}"/>
 				</Button>
-				<Button>
+				<Button ToolTip="Toggle filters panel" Command="{Binding ToggleFilters}">
 					<Image Source="{StaticResource filter}"/>
 				</Button>
-				<Button>
+				<Button ToolTip="Toggle transforms panel" Command="{Binding ToggleTransforms}">
 					<Image Source="{StaticResource transform}"/>
 				</Button>
-				<Button>
+				<Button ToolTip="Toggle actions panel" Command="{Binding ToggleActions}">
 					<Image Source="{StaticResource execute}"/>
 				</Button>
 				<Separator/>
-				<Button>
+				<Button ToolTip="Toggle find panel" Command="{Binding ToggleFind}">
 					<Image Source="{StaticResource find}"/>
 				</Button>
-				<Button>
+				<Button ToolTip="Toggle bookmarks panel" Command="{Binding ToggleBookmarks}">
 					<Image Source="{StaticResource bookmark}"/>
 				</Button>
 				<Separator/>
@@ -118,12 +120,12 @@
 					<Image Source="{StaticResource next_match}"/>
 				</Button>
 				<Separator/>
-				<Button>
+				<ToggleButton IsChecked="{Binding TailEnabled}" ToolTip="Tail mode — follow new content">
 					<Image Source="{StaticResource bottom}"/>
-				</Button>
-				<Button>
+				</ToggleButton>
+				<ToggleButton IsChecked="{Binding WatchEnabled}" ToolTip="Watch mode — detect file changes">
 					<Image Source="{StaticResource watch}"/>
-				</Button>
+				</ToggleButton>
 				<Separator/>
 				<Button>
 					<Image Source="{StaticResource edit_add}"/>
@@ -160,11 +162,9 @@
 			Orientation="Vertical"
 			Width="18"
 			/>
-		<local:LogGrid
-			x:Name="m_grid"
-			Style="{StaticResource LogDataGridStyle}"
+		<gui2:DockContainer
+			x:Name="m_dock"
 			Background="{x:Static SystemColors.ControlDarkBrush}"
-			ItemsSource="{Binding LogData}"
 			/>
 	</DockPanel>
 </Window>

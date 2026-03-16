@@ -150,6 +150,7 @@ namespace pr::rdr12::ldraw
 
 		// Allow the object to change it's transform just before rendering
 		OnAddToScene(*this, scene);
+		PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(m_i2w), "Invalid instance transform");
 
 		// Decide if this object should be added to the scene
 		auto is_hidden =
@@ -244,7 +245,7 @@ namespace pr::rdr12::ldraw
 	{
 		Apply([&](LdrObject* o)
 		{
-			o->m_o2p = o->m_parent ? InvertAffine(o->m_parent->O2W()) * o2w : o2w;
+			o->m_o2p = o->m_parent ? InvertOrthonormal(o->m_parent->O2W()) * o2w : o2w;
 			assert(FEql(o->m_o2p.w.w, 1.0f) && "Invalid instance transform");
 			return true;
 		}, name);

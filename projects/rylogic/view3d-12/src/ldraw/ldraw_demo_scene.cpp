@@ -2,15 +2,15 @@
 // Ldr Object
 //  Copyright (c) Rylogic Ltd 2009
 //***************************************************************************************************
+#include "pr/common/ldraw.h"
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
 
 namespace pr::rdr12::ldraw
 {
 	// Generate a scene that demos the supported object types and modifiers.
-	textbuf CreateDemoSceneText()
+	pr::ldraw::textbuf CreateDemoSceneText()
 	{
-		textbuf str;
+		pr::ldraw::textbuf str;
 		str.reserve(4096);
 		str.append(
 
@@ -1231,30 +1231,32 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Generate a binary scene that demos the supported object types and modifiers
-	bytebuf CreateDemoSceneBinary()
+	pr::ldraw::bytebuf CreateDemoSceneBinary()
 	{
-		ldraw::Builder ldr;
+		pr::ldraw::Builder ldr;
 
 		// Minimal example
 		{
 			ldr.Box("minimal_example", 0xFFFF00FF)
-				.dim(1);
+				.box(1, 1, 1);
 		}
 
 		// Transforms example
 		{
 			ldr.Box("transforms_example", 0xFF00FF00)
-				.dim(1, 2, 1)
-				.ori(v4::YAxis(), pr::AxisId::PosZ)
-				.euler(55.0f, 30.0f, 60.0f)
-				.pos(-2.5f, 4.0f, -0.8f)
+				.box(1, 2, 1)
+				.o2w()
+					.align({ 0, 1, 0 }, pr::AxisId::PosZ)
+					.euler(55.0f, 30.0f, 60.0f)
+					.pos(-2.5f, 4.0f, -0.8f)
 				;
 		}
 
 		// Modifiers example
 		{
 			ldr.Cone("modifiers_example", 0x80FFFFFF)
-				.angle(55.0f).height(2)
+				.angle(55.0f)
+				.height(2)
 				.axis(pr::AxisId::PosX)
 				.colour(0xFFFF00FF)
 				.group_colour(0xFFFF00FF)
@@ -1264,18 +1266,18 @@ namespace pr::rdr12::ldraw
 
 		// Nesting
 		{
-			ldr.Sphere("nesting0", 0xA0FFFF00).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 5, -7, 1 }).group_colour(0xFFFF00FF)
-				.Sphere("nested1", 0xFF00FFFF).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 1.4f, 0, 1 }).euler(0, 0, 60).pos({ 0, -1.4f, 0, 1 })
-				.Sphere("nested2", 0xFF00FFFF).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 1.4f, 0, 1 }).euler(0, 0, 60).pos({ 0, -1.4f, 0, 1 })
-				.Sphere("nested3", 0xFF00FFFF).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 1.4f, 0, 1 }).euler(0, 0, 60).pos({ 0, -1.4f, 0, 1 })
-				.Sphere("nested4", 0xFF00FFFF).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 1.4f, 0, 1 }).euler(0, 0, 60).pos({ 0, -1.4f, 0, 1 })
-				.Sphere("nested5", 0xFF00FFFF).radius({ 0.8f, 1.4f, 0.5f, 0 }).pos({ 0, 1.4f, 0, 1 }).euler(0, 0, 60).pos({ 0, -1.4f, 0, 1 });
+			ldr.Sphere("nesting0", 0xA0FFFF00).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 5, -7 }).group_colour(0xFFFF00FF)
+				.Sphere("nested1", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested2", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested3", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested4", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested5", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 });
 		}
 
 		// Groups
 		{
 			auto& grp = ldr.Group("group").pos(-10, 1.5f, -5);
-			grp.Cylinder("barrel", 0xFFE0A060).axis(pr::AxisId::PosZ).cylinder(3, 1);
+			grp.Cylinder("barrel", 0xFFE0A060).hr(3, 1).axis(pr::AxisId::PosZ);
 			grp.Sphere("bullet", 0xFF0000FF).radius(0.7f);
 			//{
 			//	*RootAnimation
@@ -1287,44 +1289,45 @@ namespace pr::rdr12::ldraw
 			//	}
 			//	*o2w{*pos{0 0 0}}
 			//}
-			grp.Box("box", 0xFF00FF00).dim(1, 1, 3).pos(0, -1, 0);
-			grp.Box("box", 0xFF00FF00).dim(3, 1, 1).pos(0, -1, 0);
+			grp.Box("box", 0xFF00FF00).box(1, 1, 3).pos(0, -1, 0);
+			grp.Box("box", 0xFF00FF00).box(3, 1, 1).pos(0, -1, 0);
 		}
 
 		// An "infinite" plane.
 		{
 			ldr.Plane("ground", 0xFFFFE8A0)
 				.wh(40, 40)
-				.axis(pr::AxisId::PosY)
-				.texture()
-					.path("#checker3")
-					.addr(EAddrMode::Wrap, EAddrMode::Wrap)
-					.t2s(m4x4::Scale(10, 10, 1, v4::Origin()));
+				.texture([](pr::ldraw::seri::Texture& tex)
+				{
+					tex.filepath("#checker3")
+						.addr(EAddrMode::Wrap, EAddrMode::Wrap)
+						.t2s(m3x4::Scale(10, 10, 1));
+				})
+				.axis(pr::ldraw::seri::AxisId::PosY);
 		}
 
 		// Points
 		{
 			ldr.Point("points")
 				.size(40.f)
-				.style(EPointStyle::Star)
-				.pt({ -0.32182515f, -0.11282351f, -0.33979280f, 1 }, 0xFF8DFD8F)
-				.pt({ -0.09884672f, +0.20496936f, -0.11294128f, 1 }, 0xFF84BDF2)
-				.pt({ +0.32952994f, +0.12638773f, -0.16279069f, 1 }, 0xFFA1B6C5)
-				.pt({ -0.28267866f, +0.12046398f, +0.37289724f, 1 }, 0xFFB3DFE2)
-				.pt({ +0.07734887f, -0.30069580f, +0.15674202f, 1 }, 0xFFFCE3E9)
-				.pt({ +0.14382900f, +0.27675366f, -0.35658675f, 1 }, 0xFFE09789)
-				.pt({ +0.29473856f, -0.11315139f, +0.27820430f, 1 }, 0xFF90D0C8)
-				.pt({ -0.04522936f, -0.41357175f, +0.00881479f, 1 }, 0xFFC283AF)
-				.pt({ +0.28132004f, +0.22615014f, +0.31323278f, 1 }, 0xFFCAA0EA)
-				.pt({ -0.09371998f, +0.09980434f, +0.18248796f, 1 }, 0xFFE7AF98)
-				.pt({ -0.02596593f, +0.18868162f, -0.19324471f, 1 }, 0xFFD7D8DB)
-				.pt({ +0.36394337f, -0.21930681f, -0.05467778f, 1 }, 0xFFF4B2AC)
-				.pt({ +0.14113660f, +0.45059928f, +0.13722318f, 1 }, 0xFFCED899)
-				.pt({ +0.18176337f, -0.24681160f, -0.12977648f, 1 }, 0xFFA7D8AE)
-				.pt({ +0.38887858f, +0.24615003f, +0.06563436f, 1 }, 0xFFB9BA96)
-				.pos({ 16, 6, 6, 1 })
-				.texture()
-					.path("#whitespot")
+				.style("Star")
+				.pt({ -0.32182515f, -0.11282351f, -0.33979280f }, 0xFF8DFD8F)
+				.pt({ -0.09884672f, +0.20496936f, -0.11294128f }, 0xFF84BDF2)
+				.pt({ +0.32952994f, +0.12638773f, -0.16279069f }, 0xFFA1B6C5)
+				.pt({ -0.28267866f, +0.12046398f, +0.37289724f }, 0xFFB3DFE2)
+				.pt({ +0.07734887f, -0.30069580f, +0.15674202f }, 0xFFFCE3E9)
+				.pt({ +0.14382900f, +0.27675366f, -0.35658675f }, 0xFFE09789)
+				.pt({ +0.29473856f, -0.11315139f, +0.27820430f }, 0xFF90D0C8)
+				.pt({ -0.04522936f, -0.41357175f, +0.00881479f }, 0xFFC283AF)
+				.pt({ +0.28132004f, +0.22615014f, +0.31323278f }, 0xFFCAA0EA)
+				.pt({ -0.09371998f, +0.09980434f, +0.18248796f }, 0xFFE7AF98)
+				.pt({ -0.02596593f, +0.18868162f, -0.19324471f }, 0xFFD7D8DB)
+				.pt({ +0.36394337f, -0.21930681f, -0.05467778f }, 0xFFF4B2AC)
+				.pt({ +0.14113660f, +0.45059928f, +0.13722318f }, 0xFFCED899)
+				.pt({ +0.18176337f, -0.24681160f, -0.12977648f }, 0xFFA7D8AE)
+				.pt({ +0.38887858f, +0.24615003f, +0.06563436f }, 0xFFB9BA96)
+				.texture([](pr::ldraw::seri::Texture& t) { t.filepath("#whitespot"); })
+				.pos(16, 6, 6)
 				;
 		}
 
@@ -1332,7 +1335,7 @@ namespace pr::rdr12::ldraw
 		// A line with pointy ends
 		{
 			ldr.Line("arrow")
-				.arrow(EArrowType::Fwd)
+				.arrow("Fwd")
 				.strip(v3(-0.8f, +0.2f,  0.0f), 0xFF00FF00)
 				.line_to(v3(-0.8f, +0.2f,  0.0f), 0xFF00FF00)
 				.line_to(v3(+0.3f,  0.7f,  0.2f), 0xFFFF0000)

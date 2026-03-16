@@ -655,6 +655,12 @@ namespace pr::rdr12
 		if (flush == EGpuFlush::Block)
 			m_gsync.Wait();
 	}
+	
+	// Wait for the GPU to finish rendering the current frame. Use before shutdown
+	void Window::WaitForGpu()
+	{
+		m_gsync.Wait();
+	}
 
 	// Create the MSAA render target and depth stencil
 	BackBuffer Window::CreateRenderTarget(iv2 size, MultiSamp ms, ClearValue rt_clear, ClearValue ds_clear)

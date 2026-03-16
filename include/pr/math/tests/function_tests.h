@@ -1422,7 +1422,7 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
-
+			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
 			PR_EXPECT(Transpose3x3(Identity<mat_t>()) == Identity<mat_t>());
 		}
 
@@ -1431,7 +1431,7 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-
+			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
 			PR_EXPECT(FEql(InvertOrthonormal(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
@@ -1441,7 +1441,7 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-
+			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
 			PR_EXPECT(FEql(InvertAffine(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
@@ -1467,7 +1467,7 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-
+			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
 			PR_EXPECT(FEql(InvertPrecise(Identity<mat_t>()), Identity<mat_t>()));
 		}
 
@@ -1490,7 +1490,7 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-
+			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
 			PR_EXPECT(FEql(Orthonorm(Identity<mat_t>()), Identity<mat_t>()));
 			PR_EXPECT(IsOrthonormal(Orthonorm(Identity<mat_t>())));
 		}

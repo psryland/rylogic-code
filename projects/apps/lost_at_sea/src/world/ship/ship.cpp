@@ -6,8 +6,8 @@
 #include "src/world/ship/ship.h"
 #include "src/world/ocean/ocean.h"
 #include "src/world/terrain/height_field.h"
+#include "pr/physics-2/collision/contact.h"
 #include "pr/physics-2/integrator/integrator.h"
-#include "pr/physics-2/integrator/contact.h"
 #include "pr/physics-2/integrator/impulse.h"
 
 namespace las
@@ -36,7 +36,7 @@ namespace las
 	{
 		auto mass = m_body.Mass();
 		auto o2w = m_body.O2W();
-		auto w2o = InvertAffine(o2w);
+		auto w2o = InvertOrthonormal(o2w);
 
 		// Apply gravity
 		m_body.ApplyForceWS(v4{0, 0, Gravity * mass, 0}, v4::Zero());
@@ -68,7 +68,7 @@ namespace las
 			auto normal_ws = ocean.NormalAt(ws_corner.x, ws_corner.y, sim_time);
 
 			// Build contact: ship (objA) vs ocean (objB)
-			auto contact = physics::Contact{m_body, ocean_body};
+			auto contact = physics::RbContact{m_body, ocean_body};
 
 			// Normal from ship to ocean, in ship object space
 			auto os_normal = w2o * (-normal_ws);

@@ -30,10 +30,12 @@ namespace pr
 		template <typename Type> struct citer // const iterator
 		{
 			using value_type = Type;
+			using element_type = Type const;
 			using pointer = Type const*;
 			using reference = Type const&;
 			using difference_type = typename std::pointer_traits<pointer>::difference_type;
 			using iterator_category = std::random_access_iterator_tag;
+			using iterator_concept = std::contiguous_iterator_tag;
 
 			pointer m_ptr;
 
@@ -116,6 +118,10 @@ namespace pr
 			{
 				return lhs.m_ptr + rhs;
 			}
+			friend citer<Type> operator + (difference_type lhs, citer rhs)
+			{
+				return rhs.m_ptr + lhs;
+			}
 			friend citer<Type> operator - (citer lhs, difference_type rhs)
 			{
 				return lhs.m_ptr - rhs;
@@ -128,10 +134,12 @@ namespace pr
 		template <typename Type> struct miter // mutable iterator
 		{
 			using value_type = Type;
+			using element_type = Type;
 			using pointer = Type*;
 			using reference = Type&;
 			using difference_type = typename std::pointer_traits<pointer>::difference_type;
 			using iterator_category = std::random_access_iterator_tag;
+			using iterator_concept = std::contiguous_iterator_tag;
 
 			pointer m_ptr;
 
@@ -215,6 +223,10 @@ namespace pr
 			friend miter<Type> operator + (miter lhs, difference_type rhs)
 			{
 				return lhs.m_ptr + rhs;
+			}
+			friend miter<Type> operator + (difference_type lhs, miter rhs)
+			{
+				return rhs.m_ptr + lhs;
 			}
 			friend miter<Type> operator - (miter lhs, difference_type rhs)
 			{

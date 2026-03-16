@@ -493,7 +493,7 @@ namespace pr::collision
 		for (Shape const *s = shape.begin(), *s_end = shape.end(); s != s_end; s = next(s))
 		{
 			// Transform the ray into shape space and call recursively
-			auto res = RayCast(InvertAffine(s->m_s2p) * ray, *s);
+			auto res = RayCast(InvertOrthonormal(s->m_s2p) * ray, *s);
 			if (res.m_shape != nullptr && res.m_t0 < result.m_t0)
 			{
 				// Record the nearest intersect
@@ -521,7 +521,7 @@ namespace pr::collision
 	inline RayCastResult RayCastWS(Ray const& ray, Shp const& shape, m4x4 const& s2w)
 	{
 		// Transform the ray cast into shape space
-		auto result = RayCast(InvertAffine(s2w) * ray, shape);
+		auto result = RayCast(InvertOrthonormal(s2w) * ray, shape);
 
 		// Transform the result back to world space
 		if (result.m_shape != nullptr)

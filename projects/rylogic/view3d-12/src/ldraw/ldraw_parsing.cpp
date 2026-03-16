@@ -4475,15 +4475,10 @@ namespace pr::rdr12::ldraw
 			// Find the convex hull
 			size_t num_verts = 0, num_faces = 0;
 			if (idx_stride == sizeof(uint32_t))
-			{
-				auto iptr = m_indices.data<uint32_t>();
-				ConvexHull(m_verts, m_verts.size(), iptr, iptr + isize(m_indices), num_verts, num_faces);
-			}
+				hull::ConvexHull(m_verts, m_indices.span<uint32_t>(), num_verts, num_faces);
 			else
-			{
-				auto iptr = m_indices.data<uint16_t>();
-				ConvexHull(m_verts, m_verts.size(), iptr, iptr + isize(m_indices), num_verts, num_faces);
-			}
+				hull::ConvexHull(m_verts, m_indices.span<uint16_t>(), num_verts, num_faces);
+
 			m_verts.resize(num_verts);
 			m_indices.resize(3 * num_faces, idx_stride);
 
@@ -5639,7 +5634,7 @@ namespace pr::rdr12::ldraw
 						auto scale = m4x4::Scale(m_to_px * ViewPortSize / w, m_to_px * ViewPortSize / h, 1, v4::Origin());
 
 						// Construct the 'i2w' using the screen space position
-						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale();
+						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale().w1();
 					};
 					break;
 				}
@@ -6125,6 +6120,12 @@ namespace pr::rdr12::ldraw
 		rdr12::ldraw::TextReader reader(src, {});
 		return Parse(rdr, reader, context_id, std::move(stop_token));
 	}
+	ParseResult Parse(Renderer& rdr, std::span<std::byte const> data, Guid const& context_id, std::stop_token stop_token)
+	{
+		mem_istream<char> src{ data.data(), data.size() };
+		rdr12::ldraw::BinaryReader reader(src, {});
+		return Parse(rdr, reader, context_id, std::move(stop_token));
+	}
 	ParseResult ParseFile(Renderer& rdr, std::filesystem::path ldr_filepath, Guid const& context_id, std::stop_token stop_token)
 	{
 		if (ldr_filepath.extension() == ".ldr")
@@ -6532,7 +6533,7 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Inverse:
 				{
-					p2w = IsOrthonormal(p2w) ? InvertAffine(p2w) : Invert(p2w);
+					p2w = IsOrthonormal(p2w) ? InvertOrthonormal(p2w) : Invert(p2w);
 					break;
 				}
 				case EKeyword::Normalise:

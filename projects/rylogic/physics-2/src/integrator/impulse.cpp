@@ -3,6 +3,8 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #include "pr/physics-2/integrator/impulse.h"
+#include "pr/physics-2/collision/contact.h"
+#include "pr/physics-2/rigid_body/rigid_body.h"
 
 namespace pr::physics
 {
@@ -24,7 +26,7 @@ namespace pr::physics
 	//   5. Clamp the tangential component to the friction cone.
 	//   6. Convert the point impulse to a spatial wrench at each body's origin.
 	//
-	ImpulsePair RestitutionImpulse(Contact const& c)
+	ImpulsePair RestitutionImpulse(RbContact const& c)
 	{
 		auto& objA = *c.m_objA;
 		auto& objB = *c.m_objB;
@@ -36,15 +38,19 @@ namespace pr::physics
 		assert("Point of contact is moving out of collision" && rel_normal_velocity <= 0);
 		#endif
 
-		// Lever arms from each body's origin to the contact point (in A's frame).
-		auto rA = pt - v4::Origin();
-		auto rB = pt - c.m_b2a.pos;
+		// Lever arms from each body's CoM to the contact point (in A's frame).
+		// Momentum/forces are stored at the CoM, so lever arms must be from CoM.
+		auto com_A_in_A = v4::Origin() + objA.CentreOfMassOS();
+		auto com_B_in_A = c.m_b2a.pos + c.m_b2a.rot * objB.CentreOfMassOS();
+		auto rA = pt - com_A_in_A;
+		auto rB = pt - com_B_in_A;
 
 		// Relative velocity at the contact point.
 		auto V_inv  = c.m_velocity.LinAt(pt);
 		auto Vn_inv = Dot(V_inv, c.m_axis) * c.m_axis;
 
-		// Inverse inertia tensors in A's frame.
+		// Inverse inertia tensors at each body's CoM, in A's frame.
+		// Since InertiaInvOS().CoM() == 0, To3x3() returns Ic3x3() (the CoM inertia).
 		auto Ia_inv_3x3 = objA.InertiaInvOS().To3x3();
 		auto Ib_inv_3x3 = objB.InertiaInvOS(c.m_b2a.rot).To3x3();
 
@@ -91,20 +97,23 @@ namespace pr::physics
 			}
 		}
 
-		// Convert the linear impulse at the contact point into a spatial force wrench
-		// at A's model origin. Shift translates the pure force into force + torque:
-		//   wrench.lin = impulse4  (force unchanged)
-		//   wrench.ang = r × impulse4  (torque from the lever arm)
-		auto impulse = Shift(v8force{v4{}, impulse4}, v4::Origin() - pt);
+		// Convert the linear impulse at the contact point into spatial force wrenches
+		// at each body's CoM. The pure force at the contact point creates a torque = r × F
+		// about the CoM where r is the lever arm from CoM to contact point.
+		auto impulse_at_pt = v8force{v4{}, impulse4};
+
+		// For A: shift impulse from contact point to A's CoM (in A's frame)
+		auto impulseA = Shift(impulse_at_pt, com_A_in_A - pt);
+
+		// For B: shift impulse from contact point to B's CoM (in A's frame),
+		// then rotate to B's frame (pure rotation, the wrench is already at B's CoM)
+		auto impulseB_in_A = Shift(impulse_at_pt, com_B_in_A - pt);
+		auto a2b_rot = InvertOrthonormal(c.m_b2a.rot);
 
 		// Build the impulse pair: equal and opposite wrenches for each body.
-		// For objA: receives the negative (reaction) impulse, already in A's frame.
-		// For objB: receives the positive (action) impulse, transformed from A's
-		//   frame to B's frame. The spatial force transform handles both rotation
-		//   of the vector components and the change of reference point (A origin → B origin).
 		auto impulse_pair = ImpulsePair{};
-		impulse_pair.m_os_impulse_objA = -impulse;
-		impulse_pair.m_os_impulse_objB = InvertAffine(c.m_b2a) * +impulse;
+		impulse_pair.m_os_impulse_objA = -impulseA;
+		impulse_pair.m_os_impulse_objB = a2b_rot * impulseB_in_A;
 		impulse_pair.m_contact = &c;
 		return impulse_pair;
 	}

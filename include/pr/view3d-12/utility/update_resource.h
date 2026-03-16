@@ -21,6 +21,7 @@ namespace pr::rdr12
 	};
 
 	// A scope object for updating data in a resource
+	template <D3D12_COMMAND_LIST_TYPE ListType>
 	struct UpdateSubresourceScope
 	{
 		// Notes:
@@ -56,25 +57,26 @@ namespace pr::rdr12
 
 		using footprints_t = pr::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT, 16>;
 		using staging_buf_t = GpuUploadBuffer::Allocation;
+		using CmdList = CmdList<ListType>;
 
-		GfxCmdList&      m_cmd_list;     // The command list to perform the update in
-		ID3D12Resource*  m_dest;         // The destination resource to be updated
-		int              m_mip0, m_mipN; // The mip-map range to update. *Note* != the subresource index
-		int              m_sub0;         // The subresource index of the 0th mip of the array slice
-		int              m_alignment;    // The alignment requirements of the data in the upload buffer
-		Box              m_range;        // The subrange to update within the resource (in elements not bytes (except for 1-D buffers), and always relative to mip 0)
-		footprints_t     m_layout;       // The memory layout of the sub-resources within 'm_dest' start at mip 'm_sub0'
-		staging_buf_t    m_staging;      // The allocation within the upload buffer
+		CmdList&        m_cmd_list;     // The command list to perform the update in
+		ID3D12Resource* m_dest;         // The destination resource to be updated
+		int             m_mip0, m_mipN; // The mip-map range to update. *Note* != the subresource index
+		int             m_sub0;         // The subresource index of the 0th mip of the array slice
+		int             m_alignment;    // The alignment requirements of the data in the upload buffer
+		Box             m_range;        // The subrange to update within the resource (in elements not bytes (except for 1-D buffers), and always relative to mip 0)
+		footprints_t    m_layout;       // The memory layout of the sub-resources within 'm_dest' start at mip 'm_sub0'
+		staging_buf_t   m_staging;      // The allocation within the upload buffer
 
 		// ** Remember to call Commit before the leaving the scope **
 
 		// Constructor for updating 1D buffers
-		UpdateSubresourceScope(GfxCmdList& cmd_list, GpuUploadBuffer& upload, ID3D12Resource* dest, int alignment, int first = 0, int range = limits<int>::max())
+		UpdateSubresourceScope(CmdList& cmd_list, GpuUploadBuffer& upload, ID3D12Resource* dest, int alignment, int first = 0, int range = limits<int>::max())
 			: UpdateSubresourceScope(cmd_list, upload, dest, 0, 0, 1, alignment, { first, 0, 0 }, { range, 1, 1 })
 		{}
 
 		// Constructor for updating 2D/3D textures
-		UpdateSubresourceScope(GfxCmdList& cmd_list, GpuUploadBuffer& upload, ID3D12Resource* dest, int array_slice, int mip0, int mipN, int alignment, iv3 first = iv3::Zero(), iv3 range = iv3::Max())
+		UpdateSubresourceScope(CmdList& cmd_list, GpuUploadBuffer& upload, ID3D12Resource* dest, int array_slice, int mip0, int mipN, int alignment, iv3 first = iv3::Zero(), iv3 range = iv3::Max())
 			: m_cmd_list(cmd_list)
 			, m_dest(dest)
 			, m_mip0(mip0)
@@ -330,4 +332,7 @@ namespace pr::rdr12
 			return mip + mip_count * (array_slice + array_length * plane_slice);
 		}
 	};
+
+	using GfxUpdateSubresourceScope = UpdateSubresourceScope<D3D12_COMMAND_LIST_TYPE_DIRECT>;
+	using ComUpdateSubresourceScope = UpdateSubresourceScope<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 }

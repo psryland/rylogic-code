@@ -3,7 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.IO;
 using System.Text;
+using System.Windows.Threading;
 using Rylogic.Common;
 using Rylogic.Plugin;
 using Rylogic.Utility;
@@ -11,9 +13,13 @@ using RyLogViewer.Options;
 
 namespace RyLogViewer
 {
-	public class Main : IReadOnlyList<ILine>, INotifyCollectionChanged, INotifyPropertyChanged
+	public class Main : IReadOnlyList<ILine>, INotifyCollectionChanged, INotifyPropertyChanged, IDisposable
 	{
 		private readonly IReport m_report;
+		private DispatcherTimer? m_tail_timer;
+		private FileSystemWatcher? m_file_watcher;
+		private long m_last_known_file_length;
+
 		public Main(StartupOptions su, Settings settings, IReport report)
 		{
 			m_report = report;
@@ -21,8 +27,40 @@ namespace RyLogViewer
 
 			Highlights = new HighLightContainer();
 			Filters = new FilterContainer();
+			Bookmarks = new BookmarkContainer();
+			Transforms = new TransformContainer();
+			Actions = new ClickActionContainer();
+
+			// Rebuild the index when filters change
+			Filters.FiltersChanged += (s, e) => RebuildIndex();
+			Highlights.HighlightsChanged += (s, e) =>
+			{
+				// In quick-filter mode, highlights act as filters
+				if (Settings.QuickFilterEnabled)
+					RebuildIndex();
+
+				// Always notify so the grid repaints with new highlight colours
+				CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+			};
+
+			// Tail mode timer — polls the file for new content
+			m_tail_timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+			m_tail_timer.Tick += HandleTailTimerTick;
 
 			LoadPlugins();
+		}
+
+		/// <summary>Clean up resources</summary>
+		public void Dispose()
+		{
+			if (m_tail_timer != null)
+			{
+				m_tail_timer.Stop();
+				m_tail_timer.Tick -= HandleTailTimerTick;
+				m_tail_timer = null;
+			}
+			StopFileWatcher();
+			LogDataSource = null;
 		}
 
 		/// <summary>Notify property changes</summary>
@@ -51,7 +89,14 @@ namespace RyLogViewer
 				// Handler
 				void HandleSettingsChange(object? sender, SettingChangeEventArgs e)
 				{
-
+					if (e.Before) return;
+					if (e.Key == nameof(Options.Settings.TailEnabled))
+						UpdateTailMode();
+					if (e.Key == nameof(Options.Settings.WatchEnabled))
+					{
+						if (Settings.WatchEnabled) StartFileWatcher();
+						else StopFileWatcher();
+					}
 				}
 			}
 		}
@@ -62,6 +107,15 @@ namespace RyLogViewer
 
 		/// <summary>The filter patterns</summary>
 		public FilterContainer Filters { get; }
+
+		/// <summary>The bookmarks</summary>
+		public BookmarkContainer Bookmarks { get; }
+
+		/// <summary>The text transforms</summary>
+		public TransformContainer Transforms { get; }
+
+		/// <summary>The click actions</summary>
+		public ClickActionContainer Actions { get; }
 
 		/// <summary>Lists the names of the available formatters</summary>
 		public IEnumerable<string> AvailableFormatters
@@ -115,7 +169,9 @@ namespace RyLogViewer
 				if (m_log_data_source != null)
 				{
 					// Clear any references to the current log data
-					//todo Bookmarks.Clear();
+					StopFileWatcher();
+					m_tail_timer?.Stop();
+					Bookmarks.Clear();
 
 					Lines = null!;
 					Util.Dispose(ref m_log_data_source!);
@@ -136,8 +192,16 @@ namespace RyLogViewer
 					// Create a cache of lines to reduce formatting load
 					Lines = new LineCache(line_index, formatter, m_report);
 
+					// Track file length for tail mode
+					using (var stream = m_log_data_source.OpenStream())
+						m_last_known_file_length = stream.Length;
+
 					// Build the log index
 					Build(LogOpenPosition, true);
+
+					// Start tail and watch modes
+					UpdateTailMode();
+					StartFileWatcher();
 				}
 
 				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LogDataSource)));
@@ -188,6 +252,128 @@ namespace RyLogViewer
 			Lines.LineIndex.Build(filepos, reload, filters);
 		}
 
+		/// <summary>Rebuild the line index at the current position</summary>
+		private void RebuildIndex()
+		{
+			if (Lines == null) return;
+			Build(Lines.LineIndex.FileByteRange.End, true);
+		}
+
+		/// <summary>Handle tail timer tick — check if file has grown</summary>
+		private void HandleTailTimerTick(object? sender, EventArgs e)
+		{
+			if (LogDataSource == null || Lines == null) return;
+			try
+			{
+				using var stream = LogDataSource.OpenStream();
+				var length = stream.Length;
+				if (length != m_last_known_file_length)
+				{
+					m_last_known_file_length = length;
+
+					// Rebuild at the end of the file to show new content
+					Build(length, false);
+				}
+			}
+			catch
+			{
+				// File may be temporarily locked — ignore and try again next tick
+			}
+		}
+
+		/// <summary>Handle file system change — the file has been modified externally</summary>
+		private void HandleFileChanged(object sender, FileSystemEventArgs e)
+		{
+			// FileSystemWatcher fires on a thread pool thread, so marshal to UI
+			m_tail_timer?.Dispatcher.BeginInvoke(new Action(() =>
+			{
+				if (LogDataSource == null || Lines == null) return;
+				try
+				{
+					using var stream = LogDataSource.OpenStream();
+					m_last_known_file_length = stream.Length;
+
+					// Rebuild at the current position
+					Build(Lines.LineIndex.FileByteRange.End, true);
+				}
+				catch
+				{
+					// File may be temporarily locked
+				}
+			}));
+		}
+
+		/// <summary>Start or stop the tail timer based on settings</summary>
+		private void UpdateTailMode()
+		{
+			if (m_tail_timer == null) return;
+			if (Settings.TailEnabled && LogDataSource != null)
+				m_tail_timer.Start();
+			else
+				m_tail_timer.Stop();
+		}
+
+		/// <summary>Start watching the current file for external changes</summary>
+		private void StartFileWatcher()
+		{
+			StopFileWatcher();
+			if (!Settings.WatchEnabled || LogDataSource == null) return;
+
+			// Only watch file-based sources
+			var filepath = LogDataSource.Path;
+			if (string.IsNullOrEmpty(filepath) || !File.Exists(filepath)) return;
+
+			var dir = System.IO.Path.GetDirectoryName(filepath);
+			var name = System.IO.Path.GetFileName(filepath);
+			if (dir == null || name == null) return;
+
+			m_file_watcher = new FileSystemWatcher(dir, name)
+			{
+				NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+				EnableRaisingEvents = true,
+			};
+			m_file_watcher.Changed += HandleFileChanged;
+		}
+
+		/// <summary>Stop watching the file</summary>
+		private void StopFileWatcher()
+		{
+			if (m_file_watcher != null)
+			{
+				m_file_watcher.EnableRaisingEvents = false;
+				m_file_watcher.Changed -= HandleFileChanged;
+				m_file_watcher.Dispose();
+				m_file_watcher = null;
+			}
+		}
+
+		/// <summary>Raised when the user scrolls to the end of the file (for tail mode)</summary>
+		public bool TailEnabled
+		{
+			get => Settings.TailEnabled;
+			set
+			{
+				if (Settings.TailEnabled == value) return;
+				Settings.TailEnabled = value;
+				UpdateTailMode();
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TailEnabled)));
+			}
+		}
+
+		/// <summary>Whether file watching is enabled</summary>
+		public bool WatchEnabled
+		{
+			get => Settings.WatchEnabled;
+			set
+			{
+				if (Settings.WatchEnabled == value) return;
+				Settings.WatchEnabled = value;
+				if (value) StartFileWatcher();
+				else StopFileWatcher();
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WatchEnabled)));
+			}
+		}
+
 		/// <summary>Create a new instance of a formatter of the currently selected type</summary>
 		private ILineFormatter CreateFormatter(ILogDataSource src, Encoding encoding)
 		{
@@ -199,11 +385,13 @@ namespace RyLogViewer
 				}
 				case DelimitedLineFormatter.Name:
 				{
-					return new DelimitedLineFormatter();
+					var delimiter = Settings.Format.ColDelimiter;
+					if (string.IsNullOrEmpty(delimiter)) delimiter = "\t";
+					return new DelimitedLineFormatter(encoding, delimiter);
 				}
 				case JsonLineFormatter.Name:
 				{
-					return new JsonLineFormatter();
+					return new JsonLineFormatter(encoding);
 				}
 				default:
 				{

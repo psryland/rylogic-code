@@ -32,7 +32,8 @@ namespace pr::rdr12
 		//  - Need to wrap the command list because state (such as Resource States) needs to be buffered per command list.
 		//  - Not storing a ref to a cmd_alloc_pool in here, because not all CmdLists are used where there is an allocator pool.
 
-		using ICommandList = std::conditional_t<ListType == D3D12_COMMAND_LIST_TYPE_DIRECT, ID3D12GraphicsCommandList, ID3D12GraphicsCommandList>;
+		// Dx12 uses 'ID3D12GraphicsCommandList' for all command list types.
+		using ICommandList = ID3D12GraphicsCommandList;
 
 	private:
 

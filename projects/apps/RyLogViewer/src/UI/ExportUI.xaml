@@ -1,0 +1,57 @@
+﻿<Window x:Class="RyLogViewer.ExportUI"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Title="Export Log Data" Width="450" Height="300"
+	WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+	<Grid Margin="12">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+		<Grid.ColumnDefinitions>
+			<ColumnDefinition Width="110"/>
+			<ColumnDefinition Width="*"/>
+			<ColumnDefinition Width="Auto"/>
+		</Grid.ColumnDefinitions>
+
+		<!-- Output File -->
+		<Label Grid.Row="0" Grid.Column="0" Content="Output File:" VerticalAlignment="Center"/>
+		<TextBox Grid.Row="0" Grid.Column="1" x:Name="m_output_file" Margin="0,2"/>
+		<Button Grid.Row="0" Grid.Column="2" Content="..." Width="28" Margin="4,2" Click="BrowseOutput_Click"/>
+
+		<!-- Row Delimiter -->
+		<Label Grid.Row="1" Grid.Column="0" Content="Row Delimiter:" VerticalAlignment="Center"/>
+		<ComboBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="m_row_delim" Margin="0,2" IsEditable="True">
+			<ComboBoxItem Content="\r\n"/>
+			<ComboBoxItem Content="\n"/>
+		</ComboBox>
+
+		<!-- Column Delimiter -->
+		<Label Grid.Row="2" Grid.Column="0" Content="Col Delimiter:" VerticalAlignment="Center"/>
+		<ComboBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="m_col_delim" Margin="0,2" IsEditable="True">
+			<ComboBoxItem Content=","/>
+			<ComboBoxItem Content="\t"/>
+			<ComboBoxItem Content="|"/>
+		</ComboBox>
+
+		<!-- Options -->
+		<StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,4">
+			<CheckBox x:Name="m_apply_filters" Content="Apply Filters" Margin="0,0,16,0" IsChecked="True"/>
+			<CheckBox x:Name="m_apply_transforms" Content="Apply Transforms" Margin="0,0,16,0" IsChecked="True"/>
+		</StackPanel>
+
+		<!-- Progress -->
+		<ProgressBar Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" x:Name="m_progress" Height="20" Margin="0,4" Visibility="Collapsed"/>
+
+		<!-- Buttons -->
+		<StackPanel Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right">
+			<Button Content="Export" Width="80" Margin="4" IsDefault="True" Click="Export_Click"/>
+			<Button Content="Cancel" Width="80" Margin="4" IsCancel="True"/>
+		</StackPanel>
+	</Grid>
+</Window>

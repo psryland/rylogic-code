@@ -31,30 +31,63 @@ namespace pr::physics
 		return inertia;
 	}
 
-	// Return the unit inertia for the triangle
+	// Return the unit inertia for the triangle.
+	// Computed about the model origin. SetMassProperties applies the parallel axis
+	// theorem to translate from origin to centre of mass using mp.m_centre_of_mass.
 	inline m3x4 UnitInertia(ShapeTriangle const& shape)
 	{
+		// Compute the inertia tensor about the origin using the vertex positions.
+		// For a surface element (thin plate), each vertex contributes equally (1/3).
 		auto inertia = m3x4{};
 		for (int i = 0; i != 3; ++i)
 		{
-			auto& vert = shape.m_v[i];
-			inertia.x.x += Sqr(vert.y) + Sqr(vert.z);
-			inertia.y.y += Sqr(vert.z) + Sqr(vert.x);
-			inertia.z.z += Sqr(vert.x) + Sqr(vert.y);
-			inertia.x.y += vert.x * vert.y;
-			inertia.x.z += vert.x * vert.z;
-			inertia.y.z += vert.y * vert.z;
+			auto v = shape.m_v[i];
+			v.w = 0;
+			inertia.x.x += Sqr(v.y) + Sqr(v.z);
+			inertia.y.y += Sqr(v.z) + Sqr(v.x);
+			inertia.z.z += Sqr(v.x) + Sqr(v.y);
+			inertia.x.y -= v.x * v.y;
+			inertia.x.z -= v.x * v.z;
+			inertia.y.z -= v.y * v.z;
 		}
-		inertia.x.y = -inertia.x.y;
-		inertia.x.z = -inertia.x.y;
-		inertia.y.z = -inertia.x.y;
+
+		// Mirror off-diagonal elements (inertia tensor is symmetric)
 		inertia.y.x = inertia.x.y;
 		inertia.z.x = inertia.x.z;
 		inertia.z.y = inertia.y.z;
 		return inertia;
 	}
 
-	// Returns the unit inertia for the polytope.
+	// Return the unit inertia for the line shape.
+	// Modelled as a thin rod along Z (length = 2*m_radius) with optional cylindrical thickness.
+	// When thickness > 0, uses a solid cylinder inertia: Ixx = Iyy = (1/12)*(3r^2 + L^2), Izz = (1/2)*r^2
+	// When thickness == 0, uses a thin rod: Ixx = Iyy = (1/12)*L^2, Izz ≈ 0
+	inline m3x4 UnitInertia(ShapeLine const& shape)
+	{
+		auto L = 2.0f * shape.m_radius;     // Full length
+		auto r = shape.m_thickness;          // Collision radius (half-thickness)
+		auto inertia = m3x4{};
+		if (r > math::tiny<float>)
+		{
+			// Solid cylinder inertia (per unit mass)
+			inertia.x.x = (1.0f / 12.0f) * (3.0f * Sqr(r) + Sqr(L));
+			inertia.y.y = inertia.x.x;
+			inertia.z.z = 0.5f * Sqr(r);
+		}
+		else
+		{
+			// Thin rod along Z (per unit mass)
+			inertia.x.x = (1.0f / 12.0f) * Sqr(L);
+			inertia.y.y = inertia.x.x;
+			inertia.z.z = math::tiny<float>; // Near-zero to avoid singular inertia
+		}
+		return inertia;
+	}
+
+	// Returns the unit inertia for the polytope, computed about the model origin.
+	// SetMassProperties applies the parallel axis theorem to translate from origin
+	// to the centre of mass using mp.m_centre_of_mass.
+	// Uses the divergence theorem to integrate x², y², z² etc. over the volume.
 	inline m3x4 UnitInertia(ShapePolytope const& shape)
 	{
 		// Notes:
@@ -96,22 +129,25 @@ namespace pr::physics
 			}
 		}
 
-		// If the polytope is degenerate, use the weighted average vertex positions
+		// If the polytope is degenerate, use the average vertex position as a point mass
 		if (FEql(volume, 0.f))
 		{
 			auto centre = v4::Zero();
 			for (v4 const *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) centre += *v;
+			centre /= static_cast<float>(shape.m_vert_count);
 			return Inertia::Point(1.0f, centre).To3x3();
 		}
 
-		// Divide by total volume
+		// Divide by total volume — gives the per-unit-mass inertia about the origin
 		volume   /= 6.0f;
 		diagonal /= volume * 60.0f;
 		off_diag /= volume * 120.0f;
-		return m3x4{
+		auto Io = m3x4{
 			v4{diagonal.y + diagonal.z , -off_diag.z             , -off_diag.y           ,0},
 			v4{-off_diag.z             , diagonal.x + diagonal.z , -off_diag.x           ,0},
 			v4{-off_diag.y             , -off_diag.x             , diagonal.x+diagonal.y ,0}};
+
+		return Io;
 	}
 
 	// Return the mass properties
@@ -148,6 +184,24 @@ namespace pr::physics
 		return mp;
 	}
 
+	// Return the mass properties for the line shape
+	inline MassProperties CalcMassProperties(ShapeLine const& shape, float density)
+	{
+		// Volume depends on thickness: cylinder of radius m_thickness and length 2*m_radius.
+		// For zero-thickness lines, use a small minimum volume to avoid zero mass.
+		auto L = 2.0f * shape.m_radius;
+		auto r = shape.m_thickness;
+		auto volume = (r > math::tiny<float>)
+			? float(constants<double>::tau_by_2) * Sqr(r) * L  // pi * r^2 * L
+			: L * math::tiny<float>;                          // Fallback: thin rod with minimal cross-section
+
+		MassProperties mp;
+		mp.m_centre_of_mass  = v4{};
+		mp.m_mass            = volume * density;
+		mp.m_os_unit_inertia = UnitInertia(shape);
+		return mp;
+	}
+
 	// Return mass properties for the polytope
 	inline MassProperties CalcMassProperties(ShapePolytope const& shape, float density)
 	{
@@ -167,6 +221,7 @@ namespace pr::physics
 		default: assert("Unknown primitive type" && false); return MassProperties();
 		case EShape::Sphere:   return CalcMassProperties(shape_cast<ShapeSphere>(shape), density);
 		case EShape::Box:      return CalcMassProperties(shape_cast<ShapeBox>(shape), density);
+		case EShape::Line:     return CalcMassProperties(shape_cast<ShapeLine>(shape), density);
 		case EShape::Triangle: return CalcMassProperties(shape_cast<ShapeTriangle>(shape), density);
 		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density);
 		}

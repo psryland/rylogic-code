@@ -8,7 +8,14 @@
 #include "pr/collision/col_sphere_vs_sphere.h"
 #include "pr/collision/col_box_vs_sphere.h"
 #include "pr/collision/col_box_vs_box.h"
+#include "pr/collision/col_line_vs_sphere.h"
 #include "pr/collision/col_line_vs_box.h"
+#include "pr/collision/col_line_vs_line.h"
+#include "pr/collision/col_triangle_vs_sphere.h"
+#include "pr/collision/col_triangle_vs_box.h"
+#include "pr/collision/col_triangle_vs_line.h"
+#include "pr/collision/col_triangle_vs_triangle.h"
+#include "pr/collision/col_gjk.h"
 #include "pr/collision/penetration.h"
 #include "pr/collision/support.h"
 
@@ -44,20 +51,20 @@ namespace pr::collision
 			BoxVsSphere,             // (1 v 0) - Box v Sphere
 			BoxVsBox,                // (1 v 1) - Box v Box 
 
-			CollisionNotImplemented, // (2 v 0) - Line v Sphere
+			LineVsSphere,            // (2 v 0) - Line v Sphere
 			LineVsBox,               // (2 v 1) - Line v Box
-			CollisionNotImplemented, // (2 v 2) - Line v Line
+			LineVsLine,              // (2 v 2) - Line v Line
 
-			CollisionNotImplemented, // (3 v 0) - Triangle v Sphere
-			CollisionNotImplemented, // (3 v 1) - Triangle v Box
-			CollisionNotImplemented, // (3 v 2) - Triangle v Line
-			CollisionNotImplemented, // (3 v 3) - Triangle v Triangle
+			TriangleVsSphere,        // (3 v 0) - Triangle v Sphere
+			TriangleVsBox,           // (3 v 1) - Triangle v Box
+			TriangleVsLine,          // (3 v 2) - Triangle v Line
+			TriangleVsTriangle,      // (3 v 3) - Triangle v Triangle
 
-			CollisionNotImplemented, // (4 v 0) - Polytope v Sphere
-			CollisionNotImplemented, // (4 v 1) - Polytope v Box
-			CollisionNotImplemented, // (4 v 2) - Polytope v Line
-			CollisionNotImplemented, // (4 v 3) - Polytope v Triangle
-			CollisionNotImplemented, // (4 v 4) - Polytope v Polytope
+			GjkCollide,              // (4 v 0) - Polytope v Sphere
+			GjkCollide,              // (4 v 1) - Polytope v Box
+			GjkCollide,              // (4 v 2) - Polytope v Line
+			GjkCollide,              // (4 v 3) - Polytope v Triangle
+			GjkCollide,              // (4 v 4) - Polytope v Polytope
 
 			CollisionNotImplemented, // (5 v 0) - Array v Sphere
 			CollisionNotImplemented, // (5 v 1) - Array v Box
@@ -70,15 +77,16 @@ namespace pr::collision
 		// Get the appropriate collision function
 		auto func = s_collision_functions[Index(EType::Inclusive, int(lhs.m_type), int(rhs.m_type))];
 
-		// Ensure the lowest shape type value is 'lhs'
-		auto flip = lhs.m_type > rhs.m_type;
+		// Tri-table functions are named HigherVsLower (e.g., BoxVsSphere expects lhs_=Box, rhs_=Sphere).
+		// Ensure the highest shape type value is passed as lhs_ to match the function's expectation.
+		auto flip = lhs.m_type < rhs.m_type;
 
 		// Test for contact
 		auto result = flip
 			? func(rhs, r2w, lhs, l2w, contact)
 			: func(lhs, l2w, rhs, r2w, contact);
 		
-		// Flip back
+		// Flip the contact normal back to match the original caller's argument order
 		if (flip)
 			contact.flip();
 

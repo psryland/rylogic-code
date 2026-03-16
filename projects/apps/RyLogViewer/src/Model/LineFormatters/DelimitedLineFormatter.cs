@@ -1,14 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Text;
 using Rylogic.Common;
 
 namespace RyLogViewer
 {
 	public class DelimitedLineFormatter : ILineFormatter
 	{
+		private readonly Encoding m_encoding;
+		private readonly string m_delimiter;
+
+		public DelimitedLineFormatter(Encoding encoding, string delimiter)
+		{
+			m_encoding = encoding;
+			m_delimiter = delimiter;
+		}
+
 		/// <summary>A name for this formatter, for displaying in the UI</summary>
 		public const string Name = "Delimited Text";
 		string ILineFormatter.Name => Name;
@@ -16,14 +21,8 @@ namespace RyLogViewer
 		/// <summary>Return a line instance from a buffer of log data</summary>
 		public ILine CreateLine(byte[] line_buf, int start, int count, RangeI file_byte_range)
 		{
-			throw new NotImplementedException();
-
-			//// Cache data for the line
-			//line.Read(rng.Beg, m_line_buf, 0, read, m_encoding, m_col_delim, m_highlights, m_transforms);
-
-			//// Save the text size
-			//line.TextSize = m_gfx.MeasureString(line.RowText, m_grid.RowsDefaultCellStyle.Font);
-
+			var text = m_encoding.GetString(line_buf, start, count);
+			return new DelimitedLine(text, file_byte_range, m_delimiter);
 		}
 	}
 }

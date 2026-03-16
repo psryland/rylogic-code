@@ -1,0 +1,20 @@
+// Resource definitions for physics-2 compute shaders.
+// This file must be compiled by the consuming executable (not the static lib)
+// because static libraries cannot embed Win32 resources.
+//
+// Add this to the application's .vcxproj:
+//   <ResourceCompile Include="$(RylogicRoot)include\pr\physics-2\compute\physics_shaders.rc" />
+//
+// The resource compiler's include path must contain $(RylogicRoot)include so that
+// relative paths like "pr/physics-2/compute/integrate.hlsl" resolve correctly.
+//
+// Note: core.hlsli and spatial_algebra.hlsli must also be embedded because the DXC
+// shader compiler resolves #include directives via ResourceIncludeHandler, which loads
+// includes from embedded resources at shader compile time.
+
+CORE_HLSLI                  TEXT    DISCARDABLE     "pr/hlsl/core.hlsli"
+VECTOR_HLSLI                TEXT    DISCARDABLE     "pr/hlsl/vector.hlsli"
+SPATIAL_ALGEBRA_HLSLI       TEXT    DISCARDABLE     "pr/hlsl/spatial_algebra.hlsli"
+PHYSICS_INTEGRATE_HLSL      TEXT    DISCARDABLE     "pr/physics-2/compute/integrate.hlsl"
+PHYSICS_GJK_HLSL            TEXT    DISCARDABLE     "pr/physics-2/compute/gjk.hlsl"
+PHYSICS_RESOLVE_HLSL        TEXT    DISCARDABLE     "pr/physics-2/compute/resolve.hlsl"

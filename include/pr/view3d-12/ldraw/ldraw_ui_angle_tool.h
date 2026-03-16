@@ -7,7 +7,7 @@
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
+#include "pr/common/ldraw.h"
 #include "pr/gui/wingui.h"
 
 namespace pr::rdr12::ldraw
@@ -111,14 +111,14 @@ namespace pr::rdr12::ldraw
 			// Create graphics
 			if (m_origin != m_point0 || m_origin != m_point1)
 			{
-				Builder ldr;
+				pr::ldraw::Builder ldr;
 				auto& group = ldr.Group("Angle");
 				group.Line("edge0", 0xFFFFFFFF).line(m_origin, m_point0);
 				group.Line("edge1", 0xFFFFFF00).line(m_origin, m_point1);
 				group.Line("edge2", 0xFF00FF00).line(m_point0, m_point1);
 				auto data = ldr.ToBinary();
 
-				mem_istream<char> src{ data.data(), data.size() };
+				mem_istream<char> src{ reinterpret_cast<char const*>(data.data()), data.size() };
 				BinaryReader reader(src, {});
 				auto out = Parse(m_rdr, reader, GfxContextId());
 				if (!out.m_objects.empty())

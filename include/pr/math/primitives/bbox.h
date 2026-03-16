@@ -477,6 +477,15 @@ namespace pr::math
 			Abs(bb.m_centre.z - test.m_centre.z) <= (bb.m_radius.z - test.m_radius.z) + tol;
 	}
 
+	// Returns true if 'lhs' and 'rhs' intersect
+	template <ScalarType S> constexpr bool pr_vectorcall IsIntersection(BoundingBox<S> lhs, BoundingBox<S> rhs) noexcept
+	{
+		return !(
+			Abs(lhs.m_centre.x - rhs.m_centre.x) > (lhs.m_radius.x + rhs.m_radius.x) ||
+			Abs(lhs.m_centre.y - rhs.m_centre.y) > (lhs.m_radius.y + rhs.m_radius.y) ||
+			Abs(lhs.m_centre.z - rhs.m_centre.z) > (lhs.m_radius.z + rhs.m_radius.z));
+	}
+
 	// Multiply the bounding box by a non-affine transform
 	template <ScalarType S> constexpr BoundingBox<S> pr_vectorcall MulNonAffine(Mat4x4<S> const& m, BoundingBox<S> rhs) noexcept
 	{
@@ -499,6 +508,8 @@ namespace pr::math
 {
 	PRUnitTestClass(BoundingBoxTests)
 	{
+		// @Copilot, please add unit tests for all of the BoundingBox functions
+
 		PRUnitTestMethod(Grow)
 		{
 			Vec4<float> pt[] =

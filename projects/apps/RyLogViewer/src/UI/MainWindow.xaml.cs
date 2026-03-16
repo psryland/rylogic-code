@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
 using Rylogic.Common;
@@ -13,6 +14,14 @@ namespace RyLogViewer
 {
 	public partial class MainWindow : Window, INotifyPropertyChanged
 	{
+		private readonly LogGrid m_grid;
+		private readonly HighlightsPanel m_highlights_panel;
+		private readonly FiltersPanel m_filters_panel;
+		private readonly FindPanel m_find_panel;
+		private readonly BookmarksPanel m_bookmarks_panel;
+		private readonly TransformsPanel m_transforms_panel;
+		private readonly ActionsPanel m_actions_panel;
+
 		public MainWindow(Main main, Settings settings, IReport report)
 		{
 			InitializeComponent();
@@ -20,7 +29,36 @@ namespace RyLogViewer
 			Main = main;
 			Settings = settings;
 			Report = report;
+
+			// Create the log grid and add it to the dock container as centre content
+			m_grid = new LogGrid
+			{
+				Style = (Style)FindResource("LogDataGridStyle"),
+			};
 			m_grid.Settings = settings;
+			m_grid.Highlights = main.Highlights;
+			m_grid.SetBinding(DataGrid.ItemsSourceProperty, new System.Windows.Data.Binding(nameof(LogData)) { Source = this });
+
+			// Add the grid to the dock container as centre content
+			m_dock.Add(m_grid, EDockSite.Centre);
+
+			// Create dockable tool panels
+			m_highlights_panel = new HighlightsPanel(Main);
+			m_filters_panel = new FiltersPanel(Main);
+			m_find_panel = new FindPanel(Main);
+			m_bookmarks_panel = new BookmarksPanel(Main);
+			m_transforms_panel = new TransformsPanel(Main);
+			m_actions_panel = new ActionsPanel(Main);
+			m_dock.Add(m_highlights_panel, EDockSite.Right);
+			m_dock.Add(m_filters_panel, EDockSite.Right);
+			m_dock.Add(m_transforms_panel, EDockSite.Right);
+			m_dock.Add(m_actions_panel, EDockSite.Right);
+			m_dock.Add(m_find_panel, EDockSite.Bottom);
+			m_dock.Add(m_bookmarks_panel, EDockSite.Bottom);
+
+			// Wire up navigation events from find/bookmarks
+			m_find_panel.FoundMatch += (s, e) => ScrollToLine(e.LineIndex);
+			m_bookmarks_panel.NavigateToBookmark += (s, e) => ScrollToLine(e.LineIndex);
 
 			// Initialise from settings
 			m_recent_files.Import(Settings.RecentFiles);
@@ -39,7 +77,16 @@ namespace RyLogViewer
 
 			// Commands
 			OpenSingleLogFile = Command.Create(this, OpenSingleLogFileInternal);
+			OpenProgramOutput = Command.Create(this, OpenProgramOutputInternal);
+			ExportLog = Command.Create(this, ExportLogInternal);
 			ShowOptionsUI = Command.Create(this, ShowOptionsUIInternal);
+			ToggleHighlights = Command.Create(this, ToggleHighlightsInternal);
+			ToggleFilters = Command.Create(this, ToggleFiltersInternal);
+			ToggleFind = Command.Create(this, ToggleFindInternal);
+			ToggleBookmarks = Command.Create(this, ToggleBookmarksInternal);
+			ToggleTransforms = Command.Create(this, ToggleTransformsInternal);
+			ToggleActions = Command.Create(this, ToggleActionsInternal);
+			ShowAbout = Command.Create(this, ShowAboutInternal);
 			Shutdown = Command.Create(this, ShutdownInternal);
 
 			Loaded += (s, a) =>
@@ -47,8 +94,36 @@ namespace RyLogViewer
 				// Assign data contexts after properties have been set
 				DataContext = this;
 				m_panel.DataContext = this;
-				m_grid.DataContext = this;
+
+				// Track selection changes
+				m_grid.SelectionChanged += HandleGridSelectionChanged;
+
+				// Wire bookmark toggle from grid context menu
+				m_grid.ToggleBookmarkRequested += (gs, ge) =>
+				{
+					var idx = m_grid.SelectedIndex;
+					if (idx >= 0 && idx < Main.Count)
+					{
+						var line = Main[idx];
+						Main.Bookmarks.Toggle(idx, line.FileByteRange.Beg, line.Value(0));
+					}
+				};
+
+				// Wire click actions — double-click triggers matching actions
+				m_grid.MouseDoubleClick += (gs, ge) =>
+				{
+					var idx = m_grid.SelectedIndex;
+					if (idx < 0 || idx >= Main.Count) return;
+					var text = Main[idx].Value(0);
+					foreach (var action in Main.Actions)
+						action.Execute(text);
+				};
 			};
+
+			// Keyboard shortcuts
+			InputBindings.Add(new KeyBinding(OpenSingleLogFile, Key.O, ModifierKeys.Control));
+			InputBindings.Add(new KeyBinding(ToggleFind, Key.F, ModifierKeys.Control));
+			InputBindings.Add(new KeyBinding(Shutdown, Key.Q, ModifierKeys.Control));
 		}
 
 		/// <summary>Notify property changes</summary>
@@ -120,6 +195,40 @@ namespace RyLogViewer
 			}
 		}
 
+		/// <summary>Open a program output data source</summary>
+		public ICommand OpenProgramOutput { get; }
+		private void OpenProgramOutputInternal()
+		{
+			var dlg = new ProgramOutputUI(Settings.OutputFilepathHistory.Length > 0 ? Array.Empty<LaunchApp>() : Array.Empty<LaunchApp>())
+			{
+				Owner = this,
+			};
+			if (dlg.ShowDialog() != true || dlg.Result == null) return;
+
+			try
+			{
+				Main.LogDataSource = new ProgramOutputSource(dlg.Result);
+			}
+			catch (Exception ex)
+			{
+				Report.ErrorPopup($"Failed to launch program '{dlg.Result.Executable}'.", ex);
+				Main.LogDataSource = null;
+			}
+		}
+
+		/// <summary>Export the current log data</summary>
+		public ICommand ExportLog { get; }
+		private void ExportLogInternal()
+		{
+			if (Main.Count == 0)
+			{
+				MessageBox.Show(this, "No log data to export.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+				return;
+			}
+			var dlg = new ExportUI(Main, Settings) { Owner = this };
+			dlg.ShowDialog();
+		}
+
 		/// <summary>Open the Option UI</summary>
 		public ICommand ShowOptionsUI { get; }
 		private void ShowOptionsUIInternal(object? value)
@@ -142,8 +251,129 @@ namespace RyLogViewer
 			Application.Current.Shutdown(0);
 		}
 
+		/// <summary>Show the About dialog</summary>
+		public ICommand ShowAbout { get; }
+		private void ShowAboutInternal()
+		{
+			var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+			MessageBox.Show(this,
+				$"RyLogViewer\n" +
+				$"Version {version}\n\n" +
+				$"A log file viewer for large log files.\n" +
+				$"© Rylogic Ltd",
+				"About RyLogViewer",
+				MessageBoxButton.OK,
+				MessageBoxImage.Information);
+		}
+
+		/// <summary>Toggle the highlights panel visibility</summary>
+		public ICommand ToggleHighlights { get; }
+		private void ToggleHighlightsInternal()
+		{
+			var dc = m_highlights_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_highlights_panel, EDockSite.Right);
+		}
+
+		/// <summary>Toggle the filters panel visibility</summary>
+		public ICommand ToggleFilters { get; }
+
+		/// <summary>Toggle the find panel visibility</summary>
+		public ICommand ToggleFind { get; }
+
+		/// <summary>Toggle the bookmarks panel visibility</summary>
+		public ICommand ToggleBookmarks { get; }
+
+		/// <summary>Toggle the transforms panel visibility</summary>
+		public ICommand ToggleTransforms { get; }
+
+		/// <summary>Toggle the actions panel visibility</summary>
+		public ICommand ToggleActions { get; }
+		private void ToggleFiltersInternal()
+		{
+			var dc = m_filters_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_filters_panel, EDockSite.Right);
+		}
+		private void ToggleFindInternal()
+		{
+			var dc = m_find_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_find_panel, EDockSite.Bottom);
+		}
+		private void ToggleBookmarksInternal()
+		{
+			var dc = m_bookmarks_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_bookmarks_panel, EDockSite.Bottom);
+		}
+		private void ToggleTransformsInternal()
+		{
+			var dc = m_transforms_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_transforms_panel, EDockSite.Right);
+		}
+		private void ToggleActionsInternal()
+		{
+			var dc = m_actions_panel.DockControl;
+			if (dc.DockPane != null)
+				dc.Close();
+			else
+				m_dock.Add(m_actions_panel, EDockSite.Right);
+		}
+
+		/// <summary>Scroll the grid to the given line index and select it</summary>
+		private void ScrollToLine(int line_index)
+		{
+			if (line_index < 0 || line_index >= Main.Count) return;
+			m_grid.SelectedIndex = line_index;
+			m_grid.ScrollIntoView(m_grid.Items[line_index]);
+		}
+
+		/// <summary>Handle grid selection changes</summary>
+		private void HandleGridSelectionChanged(object sender, SelectionChangedEventArgs e)
+		{
+			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusFilePosition)));
+			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusSelection)));
+		}
+
+		/// <summary>The index of the currently selected row, or -1 if none</summary>
+		private int SelectedRowIndex => m_grid.SelectedIndex;
+
 		/// <summary>The data to display in the grid</summary>
 		public IReadOnlyCollection<ILine> LogData => Main;
+
+		/// <summary>Whether tail mode is enabled</summary>
+		public bool TailEnabled
+		{
+			get => Main.TailEnabled;
+			set
+			{
+				Main.TailEnabled = value;
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TailEnabled)));
+			}
+		}
+
+		/// <summary>Whether watch mode is enabled</summary>
+		public bool WatchEnabled
+		{
+			get => Main.WatchEnabled;
+			set
+			{
+				Main.WatchEnabled = value;
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(WatchEnabled)));
+			}
+		}
 
 		/// <summary>Application title</summary>
 		public string WindowTitle => Main.LogDataSource != null ? $"RyLogViewer - {Main.LogDataSource.Path}" : $"RyLogViewer";
@@ -156,9 +386,8 @@ namespace RyLogViewer
 		{
 			get
 			{
-				// Get current file position
-				var r = -1;//todo selected row index
-				var pos = (r != -1) ? Main[r].FileByteRange.Beg : 0;
+				var r = SelectedRowIndex;
+				var pos = (r >= 0 && r < Main.Count) ? Main[r].FileByteRange.Beg : 0;
 				var end = Main.FileByteRange.End;
 				return $"Position: {pos:N0} / {end:N0} bytes";
 			}
@@ -169,11 +398,20 @@ namespace RyLogViewer
 		{
 			get
 			{
-				var r = -1; //todo selected row index
-				var sel_range = RangeI.Zero;// m_grid.SelectedRowIndexRange();
-				var rg = (r == -1) ? RangeI.Zero//todo SelectedRowByteRange;
-					: new RangeI(Main[sel_range.Begi].FileByteRange.Beg, Main[sel_range.Endi].FileByteRange.End);
-				return $"Selection: [{rg.Beg:N0} - {rg.End:N0}] ({rg.Size} bytes)";
+				var items = m_grid.SelectedItems;
+				if (items.Count == 0)
+					return "Selection: (none)";
+
+				// Get the byte range spanning the selected rows
+				var first = items[0] as ILine;
+				var last = items[items.Count - 1] as ILine;
+				if (first == null || last == null)
+					return "Selection: (none)";
+
+				var beg = first.FileByteRange.Beg;
+				var end = last.FileByteRange.End;
+				var size = end - beg;
+				return $"Selection: [{beg:N0} - {end:N0}] ({size:N0} bytes)";
 			}
 		}
 

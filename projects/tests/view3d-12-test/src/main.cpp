@@ -2,12 +2,12 @@
 #include <windows.h>
 #include "pr/math/math.h"
 #include "pr/gui/wingui.h"
+#include "pr/common/ldraw.h"
 #include "pr/win32/windows_com.h"
 #include "pr/win32/win32.h"
 
 #include "pr/view3d-12/view3d.h"
 #include "pr/view3d-12/view3d-dll.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
 #include "pr/view3d-12/utility/conversion.h"
 
 using namespace pr;

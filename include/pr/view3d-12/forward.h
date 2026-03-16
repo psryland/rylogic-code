@@ -81,6 +81,7 @@
 #include "pr/common/to.h"
 #include "pr/common/user_data.h"
 #include "pr/common/async_wrap.h"
+#include "pr/common/ldraw.h"
 #include "pr/container/byte_data.h"
 #include "pr/container/chain.h"
 #include "pr/container/deque.h"

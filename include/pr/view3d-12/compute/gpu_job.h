@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/utility/gpu_sync.h"
 #include "pr/view3d-12/utility/cmd_alloc.h"
 #include "pr/view3d-12/utility/cmd_list.h"
@@ -75,6 +76,11 @@ namespace pr::rdr12
 	template <D3D12_COMMAND_LIST_TYPE QueueType>
 	struct GpuJob
 	{
+		// Notes:
+		//  - Creating a CommandQueue is slow. GpuJob is meant to be a long-lived object.
+		//    You call Run() on it each frame rather than creating a new GpuJob each frame.
+		//
+		using Gpu = Gpu<QueueType>;
 		using GpuViewHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
 		using CmdListCollection = CmdListCollection<QueueType>;
 		using BarrierBatch = BarrierBatch<QueueType>;
@@ -92,23 +98,10 @@ namespace pr::rdr12
 		GpuUploadBuffer            m_upload;     // Upload buffer for the compute shader
 		GpuReadbackBuffer          m_readback;   // Read back buffer for the compute shader
 
-		// Get a pointer to the queue
-		static D3DPtr<ID3D12CommandQueue> GetQueue(ID3D12Device4* device)
-		{
-			D3D12_COMMAND_QUEUE_DESC queue_desc = {
-				.Type = QueueType,
-				.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
-				.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
-				.NodeMask = 0,
-			};
-			D3DPtr<ID3D12CommandQueue> m_queue;
-			Check(device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_queue.address_of()));
-			return m_queue;
-		}
-
-		GpuJob(ID3D12Device4* device, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
+		// Note: can be constructed with a 'Gpu' instance or 'Renderer::D3DDevice()'
+		GpuJob(ID3D12Device4* device, ID3D12CommandQueue* queue, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
 			: m_device(device, true)
-			, m_queue(GetQueue(device))
+			, m_queue(queue ? D3DPtr<ID3D12CommandQueue>{queue, true} : GetQueue(device))
 			, m_gsync(device)
 			, m_view_heap(view_heap_capacity, m_gsync)
 			, m_cmd_pool(m_gsync)
@@ -121,6 +114,12 @@ namespace pr::rdr12
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
 		}
+		GpuJob(ID3D12Device4* device, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
+			: GpuJob(device, nullptr, name, pix_colour, view_heap_capacity)
+		{}
+		GpuJob(Gpu& gpu, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
+			: GpuJob(gpu.device(), gpu.queue(), name, pix_colour, view_heap_capacity)
+		{}
 
 		// Run the job and block till complete
 		void Run()
@@ -146,6 +145,20 @@ namespace pr::rdr12
 
 			// Wait for the GPU to finish
 			m_gsync.Wait();
+		}
+
+		// Get a pointer to the queue
+		static D3DPtr<ID3D12CommandQueue> GetQueue(ID3D12Device4* device)
+		{
+			D3D12_COMMAND_QUEUE_DESC queue_desc = {
+				.Type = QueueType,
+				.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
+				.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
+				.NodeMask = 0,
+			};
+			D3DPtr<ID3D12CommandQueue> m_queue;
+			Check(device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_queue.address_of()));
+			return m_queue;
 		}
 	};
 

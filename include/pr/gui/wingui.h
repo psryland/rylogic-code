@@ -417,8 +417,18 @@ namespace pr
 		}
 
 		// Raw string copy
-		template <int N> void StrCopy(char(&dest)[N], char    const* src) { strncpy(dest, src, N); dest[N - 1] = 0; }
-		template <int N> void StrCopy(wchar_t(&dest)[N], wchar_t const* src) { wcsncpy(dest, src, N); dest[N - 1] = 0; }
+		template <int N> void StrCopy(char(&dest)[N], std::string_view src)
+		{
+			 size_t copy_count = std::min(src.size(), size_t(N - 1));
+			 std::copy_n(src.data(), copy_count, dest);
+			 dest[copy_count] = '\0';
+		}
+		template <int N> void StrCopy(wchar_t(&dest)[N], std::wstring_view src)
+		{
+			 size_t copy_count = std::min(src.size(), size_t(N - 1));
+			 std::copy_n(src.data(), copy_count, dest);
+			 dest[copy_count] = L'\0';
+		}
 
 		// All in container
 		template <typename TCont, typename Pred> void for_all(TCont& cont, Pred pred)
@@ -440,26 +450,6 @@ namespace pr
 		{
 			// If 'state' is true, returns 'value | mask'. If false, returns 'value & ~mask'
 			return state ? static_cast<T>(value | mask) : static_cast<T>(value & ~mask);
-		}
-
-		// FmtS
-		template <typename TChar> inline TChar const* FmtS(TChar const* format, ...)
-		{
-			static thread_local TChar buf[1024];
-			int const buf_count = _countof(buf);
-
-			struct L {
-				static int Format(char* dst, size_t max_count, char const* fmt, va_list arg_list) { return _vsprintf_p(dst, max_count, fmt, arg_list); }
-				static int Format(wchar_t* dst, size_t max_count, wchar_t const* fmt, va_list arg_list) { return _vswprintf_p(dst, max_count, fmt, arg_list); }
-			};
-
-			va_list arg_list;
-			va_start(arg_list, format);
-			auto n = L::Format(buf, buf_count, format, arg_list);
-			buf[n >= 0 ? std::min(buf_count - 1, n) : 0] = 0;
-			va_end(arg_list);
-
-			return buf;
 		}
 
 		// Enum class operator | and &
@@ -3595,7 +3585,7 @@ namespace pr
 			}
 
 			// Fluent initialisation
-			this_type& name(char const* n)
+			this_type& name(std::string_view n)
 			{
 				StrCopy(m_name, n);
 				return me();
@@ -4254,7 +4244,7 @@ namespace pr
 				//     or a valid menu handle otherwise it is the id of the control being created.
 				InitParam init(this, p.m_init_param);
 				auto hwnd = ::CreateWindowExW(p.m_style_ex, p.atom(), p.m_text, p.m_style, x, y, w, h, p.m_parent, menu, p.m_hinst, &init);
-				Check(hwnd != nullptr, FmtS("CreateWindowEx failed for window class '%S', instance '%s'.", p.wcn(), p.m_name));
+				Check(hwnd != nullptr, std::format("CreateWindowEx failed for window class '{}', instance '{}'.", Narrow(p.wcn()), p.m_name));
 
 				// If we're creating a control whose window class we don't control (i.e. a system/third party control),
 				// then Attach won't have been called because the InitialWndProc function was not called (indicated by m_hwnd == nullptr).
@@ -5181,7 +5171,7 @@ namespace pr
 			// WndProc is called by windows, Forms forward messages to their child controls using 'ProcessWindowMessage'
 			virtual LRESULT WndProc(UINT message, WPARAM wparam, LPARAM lparam)
 			{
-				//WndProcDebug(m_hwnd, message, wparam, lparam, FmtS("CtrlWPMsg: %s",cp().m_name));
+				//WndProcDebug(m_hwnd, message, wparam, lparam, std::format("CtrlWPMsg: {}", cp().m_name));
 				switch (message)
 				{
 					case WM_GETCTRLPTR:
@@ -5563,7 +5553,7 @@ namespace pr
 				//   - This control is not necessarily a child control, it can be the Form using
 				//     the default implementation, or an owned form.
 
-				//WndProcDebug(toplevel_hwnd, message, wparam, lparam, FmtS("CtrlMsg: %s", m_name.c_str()));
+				//WndProcDebug(toplevel_hwnd, message, wparam, lparam, std::format("CtrlMsg: {}", m_name));
 				switch (message)
 				{
 					case WM_INITDIALOG:
@@ -6429,7 +6419,7 @@ namespace pr
 			{
 				#if PR_WNDPROCDEBUG
 				RAII<int> nest(wnd_proc_nest(), wnd_proc_nest()+1);
-				//WndProcDebug(m_hwnd, message, wparam, lparam, FmtS("FormWPMsg: %s", m_name.c_str()));
+				//WndProcDebug(m_hwnd, message, wparam, lparam, std::format("FormWPMsg: {}", m_name));
 				#endif
 
 				LRESULT result = S_OK;
@@ -6554,7 +6544,7 @@ namespace pr
 				//     Control::WndProc() - otherwise the WndProc for the window handles it (in the base class)
 				//  Some events in Control::WndProc() have handler virtual functions
 
-				//WndProcDebug(hwnd, message, wparam, lparam, FmtS("FormMsg: %s", cp().m_name));
+				//WndProcDebug(hwnd, message, wparam, lparam, std::format("FormMsg: {}", cp().m_name));
 				switch (message)
 				{
 					case WM_CREATE:
@@ -7937,7 +7927,7 @@ namespace pr
 				//{
 				//case WM_WINDOWPOSCHANGED:
 				//	{
-				//		OutputDebugStringA(FmtS("Tree %s resize\n", m_name.c_str()));
+				//		OutputDebugStringA(std::format("Tree {} resize\n", m_name).c_str());
 				//		break;
 				//	}
 				//}
@@ -8578,7 +8568,7 @@ namespace pr
 				// Insert the item at the end of the tab control
 				index = index != -1 ? index : TabCount();
 				index = int(::SendMessageW(m_hwnd, TCM_INSERTITEMW, WPARAM(index), LPARAM(&item)));
-				Check(index != -1, FmtS("Failed to add tab %s", Narrow(label).c_str()));
+				Check(index != -1, std::format("Failed to add tab {}", Narrow(label)));
 
 				// Add the tab
 				m_tabs.push_back(&tab);
@@ -8615,7 +8605,7 @@ namespace pr
 					active_tab_index = new_tab_count - 1;
 
 				// Remove the item from the view list
-				Check(::SendMessageW(m_hwnd, TCM_DELETEITEM, tab_index, 0) != 0, FmtS("Failed to delete tab %d", tab_index));
+				Check(::SendMessageW(m_hwnd, TCM_DELETEITEM, tab_index, 0) != 0, std::format("Failed to delete tab {}", tab_index).c_str());
 				m_tabs.erase(std::begin(m_tabs) + tab_index);
 				tab->Parent(nullptr);
 
@@ -8642,7 +8632,7 @@ namespace pr
 				info.mask = mask;
 				info.pszText = buf;
 				info.cchTextMax = buf_count;
-				Check(::SendMessage(m_hwnd, TCM_GETITEMW, tab_index, LPARAM(&info)) != 0, FmtS("Failed to read item info for tab %d", tab_index));
+				Check(::SendMessage(m_hwnd, TCM_GETITEMW, tab_index, LPARAM(&info)) != 0, std::format("Failed to read item info for tab {}", tab_index).c_str());
 				return info;
 			}
 
@@ -8774,7 +8764,7 @@ namespace pr
 			// Throw if 'tab_index' is invalid
 			void ValidateTabIndex(int tab_index) const
 			{
-				Check(tab_index >= 0 && tab_index < TabCount(), FmtS("Tab index (%d) out of range", tab_index));
+				Check(tab_index >= 0 && tab_index < TabCount(), std::format("Tab index ({}) out of range", tab_index));
 			}
 
 			// Switch from tab 'old' to tab 'neu'
@@ -8907,8 +8897,8 @@ namespace pr
 			template <typename TParams, typename = typename TParams::this_type>
 			explicit Splitter(TParams const& p)
 				:Control(p)
-				,Pane0(Panel::Params<>().parent(this_).name(FmtS("%s-L", p.m_name)).anchor(EAnchor::None).bk_col(::GetSysColor(COLOR_APPWORKSPACE)))
-				,Pane1(Panel::Params<>().parent(this_).name(FmtS("%s-R", p.m_name)).anchor(EAnchor::None).bk_col(::GetSysColor(COLOR_APPWORKSPACE)))
+				,Pane0(Panel::Params<>().parent(this_).name(std::format("{}-L", p.m_name)).anchor(EAnchor::None).bk_col(::GetSysColor(COLOR_APPWORKSPACE)))
+				,Pane1(Panel::Params<>().parent(this_).name(std::format("{}-R", p.m_name)).anchor(EAnchor::None).bk_col(::GetSysColor(COLOR_APPWORKSPACE)))
 				,m_vertical(p.m_vertical)
 				,m_full_drag(p.m_full_drag)
 				,m_bar_width(p.m_bar_width)
@@ -9306,14 +9296,14 @@ namespace pr
 					for (DWORD i = 0; i != count; ++i)
 					{
 						CComPtr<IShellItem> item;
-						Check(items->GetItemAt(i, &item.p), FmtS("Failed to read result %d from the file open dialog results", i));
+						Check(items->GetItemAt(i, &item.p), std::format("Failed to read result {} from the file open dialog results", i));
 						
 						wchar_t* fpath;
 						Check(item->GetDisplayName(SIGDN_FILESYSPATH, &fpath), "Failed to read the filepath from an open file dialog result");
 						results.emplace_back(fpath);
 						CoTaskMemFree(fpath);
 					}
-				}
+				}	
 				else
 				{
 					CComPtr<IShellItem> item;

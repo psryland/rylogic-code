@@ -237,6 +237,12 @@ namespace RyLogViewer
 				}
 			}
 
+			// Update the line start range to reflect the cached lines
+			if (m_line_index.Count > 0)
+				d.m_line_start_range = new RangeI(m_line_index[0].Beg, m_line_index[m_line_index.Count - 1].Beg);
+			else
+				d.m_line_start_range = RangeI.Zero;
+
 			// Save the new index state
 			m_state = d;
 

@@ -3,11 +3,17 @@
 //   Copyright Thomas Smith 3/13/2024
 //   https://github.com/b0nes164/GPUSorting
 
-#ifndef KEY_TYPE
-#define KEY_TYPE int
+// Type ID constants for preprocessor branching.
+// DXC's preprocessor doesn't support token-pasting macros in #if comparisons, so we use numeric IDs instead of the TYPE_(x) trick.
+#define TYPE_ID_INT   0
+#define TYPE_ID_UINT  1
+#define TYPE_ID_FLOAT 2
+
+#ifndef KEY_TYPE_ID
+#define KEY_TYPE_ID TYPE_ID_INT
 #endif
-#ifndef PAYLOAD_TYPE
-#define PAYLOAD_TYPE int
+#ifndef PAYLOAD_TYPE_ID
+#define PAYLOAD_TYPE_ID TYPE_ID_INT
 #endif
 #ifndef KEYS_PER_THREAD
 #define KEYS_PER_THREAD 15
@@ -61,16 +67,25 @@ static const uint PartSize = PART_SIZE;
 // Valid values are 4096, 7936
 static const uint TotalSharedMemory = TOTAL_SHARED_MEM;
 
-// Preprocesser support for type traits
-#define TYPE_int 0
-#define TYPE_uint 1
-#define TYPE_float 2
-#define TYPE_uint16_t 3
-#define TYPE_(x) type_##x
-
-// Valid values are 'uint', 'int', 'float'
-typedef KEY_TYPE key_t;
-typedef PAYLOAD_TYPE payload_t;
+// Valid values are 'int', 'uint', 'float'
+#if   KEY_TYPE_ID == TYPE_ID_INT
+	typedef int key_t;
+#elif KEY_TYPE_ID == TYPE_ID_UINT
+	typedef uint key_t;
+#elif KEY_TYPE_ID == TYPE_ID_FLOAT
+	typedef float key_t;
+#else
+	#error "Unknown KEY_TYPE_ID"
+#endif
+#if   PAYLOAD_TYPE_ID == TYPE_ID_INT
+	typedef int payload_t;
+#elif PAYLOAD_TYPE_ID == TYPE_ID_UINT
+	typedef uint payload_t;
+#elif PAYLOAD_TYPE_ID == TYPE_ID_FLOAT
+	typedef float payload_t;
+#else
+	#error "Unknown PAYLOAD_TYPE_ID"
+#endif
 
 // Valid values are 'uint' or uint16_t'
 typedef DIGIT_TYPE digit_t;
@@ -114,11 +129,11 @@ struct DigitStruct
 inline uint KeyToUInt(key_t x)
 {
 	// Radix Tricks by Michael Herf: http://stereopsis.com/radix.html
-	#if	TYPE_(KEY_TYPE) == TYPE_uint
+	#if	KEY_TYPE_ID == TYPE_ID_UINT
 		return x;
-	#elif TYPE_(KEY_TYPE) == TYPE_int
+	#elif KEY_TYPE_ID == TYPE_ID_INT
 		return asuint(x ^ 0x80000000);
-	#elif TYPE_(KEY_TYPE) == TYPE_float
+	#elif KEY_TYPE_ID == TYPE_ID_FLOAT
 		uint mask = -((int) (asuint(x) >> 31)) | 0x80000000;
 		return asuint(x) ^ mask;
 	#else
@@ -128,11 +143,11 @@ inline uint KeyToUInt(key_t x)
 }
 inline key_t ToKey(uint x)
 {
-	#if	TYPE_(KEY_TYPE) == TYPE_uint
+	#if	KEY_TYPE_ID == TYPE_ID_UINT
 		return x;
-	#elif TYPE_(KEY_TYPE) == TYPE_int
+	#elif KEY_TYPE_ID == TYPE_ID_INT
 		return asint(x ^ 0x80000000);
-	#elif TYPE_(KEY_TYPE) == TYPE_float
+	#elif KEY_TYPE_ID == TYPE_ID_FLOAT
 		uint mask = ((x >> 31) - 1) | 0x80000000;
 		return asfloat(x ^ mask);
 	#else
@@ -143,11 +158,11 @@ inline key_t ToKey(uint x)
 inline uint PayloadToUInt(payload_t x)
 {
 	// Radix Tricks by Michael Herf: http://stereopsis.com/radix.html
-	#if	TYPE_(PAYLOAD_TYPE) == TYPE_uint
+	#if	PAYLOAD_TYPE_ID == TYPE_ID_UINT
 		return x;
-	#elif TYPE_(PAYLOAD_TYPE) == TYPE_int
+	#elif PAYLOAD_TYPE_ID == TYPE_ID_INT
 		return asuint(x ^ 0x80000000);
-	#elif TYPE_(PAYLOAD_TYPE) == TYPE_float
+	#elif PAYLOAD_TYPE_ID == TYPE_ID_FLOAT
 		uint mask = -((int) (asuint(x) >> 31)) | 0x80000000;
 		return asuint(x) ^ mask;
 	#else
@@ -157,11 +172,11 @@ inline uint PayloadToUInt(payload_t x)
 }
 inline payload_t ToPayload(uint x)
 {
-	#if	TYPE_(PAYLOAD_TYPE) == TYPE_uint
+	#if	PAYLOAD_TYPE_ID == TYPE_ID_UINT
 		return x;
-	#elif TYPE_(PAYLOAD_TYPE) == TYPE_int
+	#elif PAYLOAD_TYPE_ID == TYPE_ID_INT
 		return asint(x ^ 0x80000000);
-	#elif TYPE_(PAYLOAD_TYPE) == TYPE_float
+	#elif PAYLOAD_TYPE_ID == TYPE_ID_FLOAT
 		uint mask = ((x >> 31) - 1) | 0x80000000;
 		return asfloat(x ^ mask);
 	#else

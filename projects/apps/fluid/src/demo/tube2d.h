@@ -9,7 +9,7 @@ namespace pr::fluid
 		std::vector<fluid::Particle> m_particles;
 		std::vector<fluid::Dynamics> m_dynamics;
 		CollisionBuilder m_col;
-		rdr12::ldraw::Builder m_ldr;
+		ldraw::Builder m_ldr;
 
 		inline static constexpr int ParticleCount = 10000;
 		explicit Tube2d(int particle_capacity, float particle_radius)
@@ -19,19 +19,19 @@ namespace pr::fluid
 			, m_dynamics(std::min(ParticleCount, particle_capacity))
 		{
 			// Floor
-			m_ldr.Plane("floor", 0xFFade3ff).wh({ 2*particle_radius, particle_radius }).o2w(m3x4::Rotation(AxisId::PosZ, AxisId::PosY), v4{ 0, -0.5, 0, 1 });
+			m_ldr.Plane("floor", 0xFFade3ff).wh({ 2*particle_radius, particle_radius }).o2w(m4x4::Transform(Rotation<m3x4>(AxisId::PosZ, AxisId::PosY), v4{ 0, -0.5, 0, 1 }));
 			m_col.Plane().o2w(m3x4::Rotation(AxisId::PosZ, AxisId::PosY), v4{ 0, -0.5, 0, 1 });
 
 			// Ceiling
-			m_ldr.Plane("ceiling", 0xFFade3ff).wh({ 2*particle_radius, particle_radius }).o2w(m3x4::Rotation(AxisId::PosZ, AxisId::NegY), v4{ 0, +0.5, 0, 1 });
+			m_ldr.Plane("ceiling", 0xFFade3ff).wh({ 2*particle_radius, particle_radius }).o2w(m4x4::Transform(Rotation<m3x4>(AxisId::PosZ, AxisId::NegY), v4{ 0, +0.5, 0, 1 }));
 			m_col.Plane().o2w(m3x4::Rotation(AxisId::PosZ, AxisId::NegY), v4{ 0, +0.5, 0, 1 });
 
 			// Left Wall
-			m_ldr.Plane("left_wall", 0xFFade3ff).wh({ particle_radius, 1 }).o2w(m3x4::Rotation(AxisId::PosZ, AxisId::PosX), v4{ -particle_radius, 0, 0, 1 });
+			m_ldr.Plane("left_wall", 0xFFade3ff).wh({ particle_radius, 1 }).o2w(m4x4::Transform(Rotation<m3x4>(AxisId::PosZ, AxisId::PosX), v4{ -particle_radius, 0, 0, 1 }));
 			m_col.Plane().o2w(m3x4::Rotation(AxisId::PosZ, AxisId::PosX), v4{ -particle_radius, 0, 0, 1 });
 
 			// Right Wall
-			m_ldr.Plane("right_wall", 0xFFade3ff).wh({ particle_radius, 1 }).o2w(m3x4::Rotation(AxisId::PosZ, AxisId::NegX), v4{ +particle_radius, 0, 0, 1 });
+			m_ldr.Plane("right_wall", 0xFFade3ff).wh({ particle_radius, 1 }).o2w(m4x4::Transform(Rotation<m3x4>(AxisId::PosZ, AxisId::NegX), v4{ +particle_radius, 0, 0, 1 }));
 			m_col.Plane().o2w(m3x4::Rotation(AxisId::PosZ, AxisId::NegX), v4{ +particle_radius, 0, 0, 1 });
 
 			//m_ldr.Plane("cull_plane", 0x80FF0000).wh({ 2,0.5f }).o2w(m3x4::Rotation(AxisId::NegZ, AxisId::PosY), v4{ 0, -0.95f, 0, 1 });
@@ -114,7 +114,7 @@ namespace pr::fluid
 		// Return the visualisation scene
 		std::string LdrScene() const override
 		{
-			return m_ldr.ToText(true);
+			return m_ldr.ToString();
 		}
 
 		// Returns initialisation data for the particle positions.

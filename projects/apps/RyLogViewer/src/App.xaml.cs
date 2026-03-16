@@ -70,7 +70,15 @@ namespace RyLogViewer
 				// Otherwise show the app
 				var settings = new Settings(startup_options.SettingsPath);
 				var main = new Main(startup_options, settings, report);
-				new MainWindow(main, settings, report).Show();
+				var window = new MainWindow(main, settings, report);
+				window.Show();
+
+				// Open file from command line if specified
+				if (startup_options.FileToLoad != null)
+				{
+					try { main.LogDataSource = new SingleFileSource(startup_options.FileToLoad, settings); }
+					catch (Exception ex) { report.ErrorPopup("Failed to open file.", ex); }
+				}
 			}
 			#if !DEBUG || TRAP_UNHANDLED_EXCEPTIONS
 			catch (Exception e) { unhandled = e; }

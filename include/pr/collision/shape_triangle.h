@@ -39,14 +39,16 @@ namespace pr::collision
 		}
 	};
 	static_assert(ShapeType<ShapeTriangle>);
+	static_assert((sizeof(ShapeTriangle) & 0xf) == 0);
 
 	// Return the bounding box for a triangle shape
 	inline BBox pr_vectorcall CalcBBox(ShapeTriangle const& shape)
 	{
+		// Triangle vertices are offsets with w=0, but BBox::Grow requires w=1 (positions)
 		auto bb = BBox::Reset();
-		Grow(bb, shape.m_v.x);
-		Grow(bb, shape.m_v.y);
-		Grow(bb, shape.m_v.z);
+		Grow(bb, shape.m_v.x.w1());
+		Grow(bb, shape.m_v.y.w1());
+		Grow(bb, shape.m_v.z.w1());
 		return bb;
 	}
 
@@ -61,7 +63,8 @@ namespace pr::collision
 		shape.m_base.m_s2p.pos += shift;
 	}
 
-	// Return a support vertex for a triangle
+	// Return a support vertex for a triangle.
+	// Triangle vertices are offsets (w=0), but callers expect positions (w=1).
 	inline v4 pr_vectorcall SupportVertex(ShapeTriangle const& shape, v4 direction, int, int& sup_vert_id)
 	{
 		auto d = v4{
@@ -71,7 +74,7 @@ namespace pr::collision
 			0};
 
 		sup_vert_id = MaxElementIndex(d.xyz);
-		return shape.m_v[(int)sup_vert_id];
+		return shape.m_v[(int)sup_vert_id].w1();
 	}
 
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space

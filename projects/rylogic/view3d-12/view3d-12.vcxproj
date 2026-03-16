@@ -112,6 +112,7 @@
   Files
   -->
   <ItemGroup>
+    <ClCompile Include="src\compute\gpu.cpp" />
     <ClCompile Include="src\ldraw\ldraw_gizmo.cpp" />
     <ClCompile Include="src\ldraw\ldraw_object.cpp" />
     <ClCompile Include="src\ldraw\ldraw_reader_text.cpp" />
@@ -223,7 +224,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_commands.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_conversion.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_gizmo.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_builder.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_object.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_parsing.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_binary.h" />
@@ -233,8 +233,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_measure_tool.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_object_manager.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_script_editor.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_writer_binary.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_writer_text.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\light.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\light_ui.h" />
@@ -317,6 +315,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\wrappers.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\win32\win32.h" />
+    <ClInclude Include="..\..\..\include\pr\view3d-12\compute\gpu.h" />
     <ClInclude Include="..\..\..\include\pr\view3d-12\imgui\imgui.h" />
     <ClInclude Include="src\ldraw\sources\source_binary.h" />
     <ClInclude Include="src\ldraw\sources\source_file.h" />

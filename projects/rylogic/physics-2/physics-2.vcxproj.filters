@@ -13,26 +13,20 @@
     <Filter Include="src\unittests">
       <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
     </Filter>
-    <Filter Include="include">
-      <UniqueIdentifier>{D9D6E242-F8AF-46E4-B9FD-80ECBC20BA3E}</UniqueIdentifier>
+    <Filter Include="src\collision">
+      <UniqueIdentifier>{48813738-03b8-4701-987d-48bcd9444531}</UniqueIdentifier>
     </Filter>
-    <Filter Include="include\broadphase">
-      <UniqueIdentifier>{B1C2D3E4-F5A6-B7C8-D9E0-F1A2B3C4D5E6}</UniqueIdentifier>
+    <Filter Include="src\compute">
+      <UniqueIdentifier>{0ec91900-7759-4f59-b73e-b425b89fa64c}</UniqueIdentifier>
     </Filter>
-    <Filter Include="include\integrator">
-      <UniqueIdentifier>{C2D3E4F5-A6B7-C8D9-E0F1-A2B3C4D5E6F7}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="include\material">
-      <UniqueIdentifier>{D3E4F5A6-B7C8-D9E0-F1A2-B3C4D5E6F7A8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="include\rigid_body">
+    <Filter Include="src\rigid_body">
       <UniqueIdentifier>{E4F5A6B7-C8D9-E0F1-A2B3-C4D5E6F7A8B9}</UniqueIdentifier>
     </Filter>
-    <Filter Include="include\shape">
-      <UniqueIdentifier>{F5A6B7C8-D9E0-F1A2-B3C4-D5E6F7A8B9C0}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="include\utility">
+    <Filter Include="src\utility">
       <UniqueIdentifier>{A6B7C8D9-E0F1-A2B3-C4D5-E6F7A8B9C0D1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\materials">
+      <UniqueIdentifier>{D3E4F5A6-B7C8-D9E0-F1A2-B3C4D5E6F7A8}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -42,64 +36,46 @@
     <ClCompile Include="src\integrator\impulse.cpp">
       <Filter>src\integrator</Filter>
     </ClCompile>
+    <ClCompile Include="src\integrator\engine.cpp">
+      <Filter>src\integrator</Filter>
+    </ClCompile>
+    <ClCompile Include="src\integrator\integrator.cpp">
+      <Filter>src\integrator</Filter>
+    </ClCompile>
+    <ClCompile Include="src\integrator\gpu_integrator.cpp">
+      <Filter>src\integrator</Filter>
+    </ClCompile>
+    <ClCompile Include="src\collision\gpu_collision_detector.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
+    <ClCompile Include="src\collision\gpu_resolver.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
+    <ClCompile Include="src\collision\contact.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\unittests.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\collision\broadphase_brute.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
+    <ClCompile Include="src\collision\gpu_sort_and_sweep.cpp">
+      <Filter>src\collision</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\constants.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\forward.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\physics.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\broadphase\brute.h">
-      <Filter>include\broadphase</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\contact.h">
-      <Filter>include\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\engine.h">
-      <Filter>include\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\impulse.h">
-      <Filter>include\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\integrator.h">
-      <Filter>include\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\jacobian.h">
-      <Filter>include\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material.h">
-      <Filter>include\material</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material_map.h">
-      <Filter>include\material</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\rigid_body\rigid_body.h">
-      <Filter>include\rigid_body</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\inertia.h">
-      <Filter>include\shape</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\mass.h">
-      <Filter>include\shape</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_builder.h">
-      <Filter>include\shape</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_mass.h">
-      <Filter>include\shape</Filter>
+      <Filter>src\rigid_body</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\field.h">
-      <Filter>include\utility</Filter>
+      <Filter>src\utility</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\ldraw.h">
-      <Filter>include\utility</Filter>
+      <Filter>src\utility</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\misc.h">
-      <Filter>include\utility</Filter>
+      <Filter>src\utility</Filter>
     </ClInclude>
     <ClInclude Include="src\unittests\test_field.h">
       <Filter>src\unittests</Filter>
@@ -119,5 +95,102 @@
     <ClInclude Include="src\unittests\test_shape_builder.h">
       <Filter>src\unittests</Filter>
     </ClInclude>
+    <ClInclude Include="src\unittests\test_gpu_collision.h">
+      <Filter>src\unittests</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\gpu_collision_detector.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\gpu_resolver.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\gpu_collision_types.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\integrator\gpu_integrator.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\rigid_body\rigid_body_dynamics.h">
+      <Filter>src\rigid_body</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\broadphase_brute.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\contact.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\collision\ibroadphase.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\engine.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\impulse.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\integrator.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\jacobian.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\inertia.h">
+      <Filter>src\shape</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\mass.h">
+      <Filter>src\shape</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_builder.h">
+      <Filter>src\shape</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_mass.h">
+      <Filter>src\shape</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\constants.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\forward.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\physics.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\imaterials.h">
+      <Filter>src\materials</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\material.h">
+      <Filter>src\materials</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics-2\materials\material_map.h">
+      <Filter>src\materials</Filter>
+    </ClInclude>
+    <ClInclude Include="src\unittests\test_collision.h">
+      <Filter>src\unittests</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\gpu_sort_and_sweep.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utility\gpu.h">
+      <Filter>src\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="src\collision\collision_shape_cache.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\gjk.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\integrate.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+    <FxCompile Include="..\..\..\include\pr\physics-2\compute\resolve.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\..\..\include\pr\physics-2\compute\compute_shaders.rc">
+      <Filter>src\compute</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

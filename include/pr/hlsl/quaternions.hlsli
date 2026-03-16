@@ -7,6 +7,8 @@
 
 // Quaternion math utilities for HLSL.
 // Quaternions are represented as float4 with layout {x, y, z, w}.
+static const float TinyAngle = 1e-8;
+static const float SmallAngle = 1e-5;
 
 // Return the identity quaternion
 float4 quat_identity()
@@ -131,6 +133,61 @@ float4 quat_from_float3x3(float3x3 m)
 		q.w = (m[0][1] - m[1][0]) * s;
 	}
 	return q;
+}
+
+// Log map: quaternion -> float3 (axis * half_angle)
+// Convention: log space uses Length = angle/2
+float3 quat_log(float4 q)
+{
+	// Ensure shortest arc
+	q = q.w < 0 ? -q : q;
+
+	float cos_half_ang = clamp(q.w, -1.0, 1.0);
+	float sin_half_ang = length(q.xyz);
+	float ang_by_2 = acos(cos_half_ang);
+	return sin_half_ang > TinyAngle
+		? q.xyz * (ang_by_2 / sin_half_ang)
+		: q.xyz;
+}
+
+// Exp map: float3 (axis * half_angle) -> quaternion
+float4 quat_exp(float3 v)
+{
+	float ang_by_2 = length(v);
+	float cos_half_ang = cos(ang_by_2);
+	float sin_half_ang = sin(ang_by_2);
+	float s = ang_by_2 > TinyAngle ? (sin_half_ang / ang_by_2) : 1.0;
+	return float4(v * s, cos_half_ang);
+}
+
+// Returns the tangent of 'q' in SO(3) based on angular velocity 'w'.
+// Uses the inverse left-Jacobian to map angular velocity 'w' to tangent space at 'q'.
+// The factor of 0.5 on return is because Exp/Log use the convention that lengths in log space are angle/2.
+float3 quat_tangent(float4 q, float3 w)
+{
+	// 'u' = axis * full_angle (radians)
+	// 'r' = |u| = angle
+	float3 u = 2.0 * quat_log(q);
+	float r = length(u);
+
+	// Tiny-angle approximation: J^{-1}(u) ~= I, so tangent ~= 0.5 * w
+	if (r < TinyAngle)
+		return 0.5 * w;
+
+	float3 u_x_w = cross(u, w);
+	float3 u_x_u_x_w = cross(u, u_x_w);
+	float sin_r = sin(r);
+	float cos_r = cos(r);
+
+	// Exact alpha term for J^{-1}: alpha = 1/r^2 - (1+cos(r)) / (2*r*sin(r))
+	// If sin(r) ~= zero, use series expansion for alpha ~ 1/12 when r -> 0
+	float alpha = abs(sin_r) > SmallAngle
+		? (1.0 / (r * r)) - (1.0 + cos_r) / (2.0 * r * sin_r)
+		: (1.0 / 12.0);
+
+	// J^{-1} * w = w - 0.5 * u x w + alpha * (u x (u x w))
+	float3 tangent = w - 0.5 * u_x_w + alpha * u_x_u_x_w;
+	return 0.5 * tangent;
 }
 
 #endif

@@ -3,10 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
-
 #include "pr/physics-2/forward.h"
-#include "pr/physics-2/rigid_body/rigid_body.h"
-#include "pr/physics-2/integrator/contact.h"
 
 namespace pr::physics
 {
@@ -38,10 +35,10 @@ namespace pr::physics
 	{
 		v8force m_os_impulse_objA;
 		v8force m_os_impulse_objB;
-		Contact const* m_contact;
+		RbContact const* m_contact;
 	};
 
 	// Calculate the impulse that will resolve the collision between two objects.
-	ImpulsePair RestitutionImpulse(Contact const& c);
+	ImpulsePair RestitutionImpulse(RbContact const& c);
 }
 

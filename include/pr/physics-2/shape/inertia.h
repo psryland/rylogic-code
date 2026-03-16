@@ -158,6 +158,14 @@ namespace pr::physics
 		// Create an inertia matrix for a box at 'offset'
 		static Inertia Box(v4 radius, float mass, v4 offset = v4{});
 
+		// Create an inertia matrix for a thin rod along the Z-axis at 'offset'.
+		// 'half_length' is the half-extent along Z.
+		static Inertia Line(float half_length, float mass, v4 offset = v4{});
+
+		// Create an inertia matrix for a thin triangular lamina with vertices 'a', 'b', 'c'.
+		// The CoM is at (a+b+c)/3. Vertices are in shape space.
+		static Inertia Triangle(v4 a, v4 b, v4 c, float mass);
+
 		#pragma region Operators
 		// Note: there is no operator + because its definition is ambiguous
 		//  Ia + Ib can either mean:
@@ -175,19 +183,19 @@ namespace pr::physics
 		friend v8force operator * (Inertia const& inertia, v8motion const& motion);
 		#pragma endregion
 	};
-
-	// Inverse Inertia.
-	// See: RBDA 2.73
-	// The format of the inverse inertia expressed at the centre of mass is:
-	//   InvMass * [Ic¯ 0]
-	//             [0   1]
-	//  where:
-	//    'Ic¯' is the inverse of 'Ic', the inertia expressed at the centre of mass,
-	// The form of the inverse inertia expressed at an arbitrary point is:
-	//  Io¯ = InvMass * [Ic¯   ,       Ic¯cxT] = InvMass * [Ic¯   ,      -Ic¯cx]
-	//                  [cxIc¯ , 1 + cxIc¯cxT]             [cxIc¯ , 1 - cxIc¯cx]
 	struct InertiaInv
 	{
+		// Notes:
+		// See: RBDA 2.73
+		// The format of the inverse inertia expressed at the centre of mass is:
+		//   InvMass * [Ic¯ 0]
+		//             [0   1]
+		//  where:
+		//    'Ic¯' is the inverse of 'Ic', the inertia expressed at the centre of mass,
+		// The form of the inverse inertia expressed at an arbitrary point is:
+		//  Io¯ = InvMass * [Ic¯   ,       Ic¯cxT] = InvMass * [Ic¯   ,      -Ic¯cx]
+		//                  [cxIc¯ , 1 + cxIc¯cxT]             [cxIc¯ , 1 - cxIc¯cx]
+
 		v4 m_diagonal;        // The Ixx, Iyy, Izz terms of the unit inverse inertia
 		v4 m_products;        // The Ixy, Ixz, Iyz terms of the unit inverse inertia
 		v4 m_com_and_invmass; // Offset from the origin to the centre of mass, and the inverse mass.

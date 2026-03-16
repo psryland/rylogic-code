@@ -3,7 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
-#include "pr/common/space_filling.h"
+#include "pr/algorithm/space_filling.h"
 #include "pr/physics-2/forward.h"
 
 namespace pr::physics
@@ -43,10 +43,11 @@ namespace pr::physics
 				if (distance >= m_radius) return 0.0f;
 				return Sqr(m_radius - distance) / m_volume;
 			}
+			// d/dd[(r-d)^2 / V] = -2(r-d) / V (chain rule: d/dd of (r-d) = -1)
 			float dInfluenceAt(float distance) const
 			{
 				if (distance >= m_radius) return 0.0f;
-				return 2.0f * (m_radius - distance) / m_volume;
+				return -2.0f * (m_radius - distance) / m_volume;
 			}
 		};
 
@@ -73,10 +74,11 @@ namespace pr::physics
 				if (distance >= m_radius) return 0.0f;
 				return Sqr(m_radius - distance) / m_volume;
 			}
+			// d/dd[(r-d)^2 / V] = -2(r-d) / V (chain rule: d/dd of (r-d) = -1)
 			float dInfluenceAt(float distance) const
 			{
 				if (distance >= m_radius) return 0.0f;
-				return 2.0f * (m_radius - distance) / m_volume;
+				return -2.0f * (m_radius - distance) / m_volume;
 			}
 		};
 	}
@@ -120,7 +122,7 @@ namespace pr::physics
 		// Reset the field to the default value
 		void Reset()
 		{
-			m_map.resize(0);
+			m_map.clear();
 			m_field.resize(0);
 		}
 
@@ -150,23 +152,13 @@ namespace pr::physics
 		}
 
 		// Get the field value at a point in space.
+		// TODO: This function is incomplete — the weighted accumulation logic is not implemented.
 		TProperty ValueAt(FVec position) const
 		{
-			// Loop over the sample points within the kernel radius of 'position'
 			auto value = m_default_value;
-			EnumSamplePoints(position, [&]()
-			{
-				// Accumulate the weighted value of each sample point
-			//	value += m_kernel.InfluenceAt(Length(position - sample_point)) * m_field[sample_point];
-			});
-
-
-			//// Convert the grid point to a Z-Order index
-			//auto index = ZOrder(grid_point);
-
-			//// Lookup the index in the map
-			//auto it = m_map.find(index);
-			//return it != m_map.end() ? m_field[it->second] : m_default_value;
+			// TODO: Loop over sample points within the kernel radius and accumulate
+			// weighted contributions: value += kernel.InfluenceAt(dist) * field[pt]
+			return value;
 		}
 
 		// Set a field value at a point in space.

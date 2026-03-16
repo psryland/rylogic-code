@@ -217,69 +217,96 @@ namespace pr::rdr12::ldraw
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/view3d-12/ldraw/ldraw_writer_binary.h"
-namespace pr::rdr12::ldraw
+#include "pr/common/ldraw.h"
+namespace pr::rdr12::ldraw::tests
 {
-	PRUnitTest(LDrawBinarySerialiserTests)
+	PRUnitTestClass(LDrawBinarySerialiserTests)
 	{
-		std::vector<char> data;
+		using Builder = pr::ldraw::Builder;
 
-		pr::mem_ostream<char> strm(data);
-		BinaryWriter::Write(strm, EKeyword::Point, [&]
+		void Dump(std::span<std::byte const> data)
 		{
-			BinaryWriter::Write(strm, EKeyword::Name, "TestPoints");
-			BinaryWriter::Write(strm, EKeyword::Colour, 0xFF00FF00);
-			BinaryWriter::Write(strm, EKeyword::Data, v3(1,1,1), v3(2,2,2), v3(3,3,3));
-			BinaryWriter::Write(strm, EKeyword::Line, [&]
+			(void)data;
+			#if PR_UNITTESTS_VISUALISE
 			{
-				BinaryWriter::Write(strm, EKeyword::Name, "TestLines");
-				BinaryWriter::Write(strm, EKeyword::Colour, 0xFF0000FF);
-				BinaryWriter::Write(strm, EKeyword::Data, v3(-1,-1,0), v3(1,1,0), v3(-1,1,0), v3(1,-1,0));
-			});
-			BinaryWriter::Write(strm, EKeyword::Sphere, [&]
-			{
-				BinaryWriter::Write(strm, EKeyword::Name, "TestSphere");
-				BinaryWriter::Write(strm, EKeyword::Colour, 0xFFFF0000);
-				BinaryWriter::Write(strm, EKeyword::Data, 1.0f);
-			});
-			BinaryWriter::Write(strm, EKeyword::Custom, [&]
-			{
-				std::string_view s = "ShortString";
-				BinaryWriter::Write(strm, EKeyword::Name, StringWithLength{ s }, StringWithLength{ s });
-			});
-		});
-
-		PR_EXPECT(data.size() != 0);
-
-		#if 1
-		{
-			std::ofstream ofile(temp_dir() / "ldraw_test.lbr", std::ios::binary);
-			ofile.write(data.data(), data.size());
+				std::ofstream ofile(temp_dir() / "ldraw_test.bdr", std::ios::binary);
+				ofile.write(data.data(), data.size());
+			}
+			#endif
 		}
-		#endif
-
-		mem_istream<char> src(data);
-		BinaryReader reader(src, {});
-
-		PR_EXPECT(reader.Loc().m_offset == 0);
-		
-		EKeyword kw;
-		PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Point);
+		PRUnitTestMethod(TestPoint)
 		{
-			auto points = reader.SectionScope();
-			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
-			PR_EXPECT(reader.Identifier<string32>() == "TestPoints");
+			Builder builder;
+			builder.Point("TestPoints", 0xFF00FF00).pt(v3(1, 1, 1)).pt(v3(2, 2, 2)).pt(v3(3, 3, 3));
+			auto const bin = builder.ToBinary();
+			Dump(bin);
 
-			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
-			PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
 
-			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-			PR_EXPECT(reader.Vector3f().w1() == v4(1,1,1,1));
-			PR_EXPECT(reader.Vector3f().w1() == v4(2,2,2,1));
-			PR_EXPECT(reader.Vector3f().w1() == v4(3,3,3,1));
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Point);
+			{
+				auto points = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "TestPoints");
 
-			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Line); // Skip Line
-			
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 1, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(2, 2, 2, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(3, 3, 3, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestLine)
+		{
+			Builder builder;
+			builder.Line("TestLines", 0xFF0000FF).style(ELineStyle::LineSegments).line(v3(-1, -1, 0), v3(1, 1, 0)).line(v3(-1, 1, 0), v3(1, -1, 0));
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Line);
+			{
+				auto line = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "TestLines");
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF0000FF);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector3f().w1() == v4(-1, -1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(+1, +1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(-1, +1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(+1, -1, 0, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestSphere)
+		{
+			Builder builder;
+			builder.Sphere("TestSphere", 0xFFFF0000).radius(1.0f);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
 			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Sphere);
 			{
 				auto sphere = reader.SectionScope();
@@ -292,20 +319,552 @@ namespace pr::rdr12::ldraw
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
 				PR_EXPECT(reader.Real<float>() == 1.0f);
 			}
-
-			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Custom);
-			{
-				auto sphere = reader.SectionScope();
-				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
-				PR_EXPECT(reader.String<string32>() == "ShortString");
-				PR_EXPECT(reader.String<string32>() == "ShortString");
-			}
-
 			PR_EXPECT(!reader.NextKeyword(kw));
-			PR_EXPECT(reader.IsSectionEnd());
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
+		PRUnitTestMethod(TestBox)
+		{
+			Builder builder;
+			builder.Box("B", 0xFFFF0000).box(1, 2, 3);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
 
-		PR_EXPECT(reader.Loc().m_offset == isize(data));
-	}
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Box);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "B");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF0000);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 1.0f);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+				PR_EXPECT(reader.Real<float>() == 3.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestTriangle)
+		{
+			Builder builder;
+			builder.Triangle("T", 0xFF00FF00).tri({0,0,0}, {1,0,0}, {0,1,0});
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Triangle);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "T");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestQuad)
+		{
+			Builder builder;
+			builder.Quad("Q", 0xFF0000FF).quad({0,0,0}, {1,0,0}, {1,1,0}, {0,1,0});
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Quad);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Q");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF0000FF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestPlane)
+		{
+			Builder builder;
+			builder.Plane("P", 0xFFAAAA00).wh(10, 10);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Plane);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "P");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFAAAA00);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 10.0f);
+				PR_EXPECT(reader.Real<float>() == 10.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestCircle)
+		{
+			Builder builder;
+			builder.Circle("C", 0xFF00AAFF).radius(2.0f);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Circle);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "C");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00AAFF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestRect)
+		{
+			Builder builder;
+			builder.Rect("R", 0xFFFF00FF).wh(3, 4);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Rect);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "R");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF00FF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 3.0f);
+				PR_EXPECT(reader.Real<float>() == 4.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestGroup)
+		{
+			Builder builder;
+			builder.Group("G", 0xFF808080).Box("inner", 0xFFFF0000).box(1);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Group);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "G");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF808080);
+
+				// Child Box
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Box);
+				{
+					auto inner = reader.SectionScope();
+					PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+					PR_EXPECT(reader.Identifier<string32>() == "inner");
+					PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+					PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF0000);
+					PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+					PR_EXPECT(reader.Real<float>() == 1.0f);
+					PR_EXPECT(reader.Real<float>() == 1.0f);
+					PR_EXPECT(reader.Real<float>() == 1.0f);
+				}
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestLineBox)
+		{
+			Builder builder;
+			builder.LineBox("LB", 0xFF00FF00).dim(2, 3, 4);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::LineBox);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "LB");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+				PR_EXPECT(reader.Real<float>() == 3.0f);
+				PR_EXPECT(reader.Real<float>() == 4.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestGrid)
+		{
+			Builder builder;
+			builder.Grid("Gr", 0xFFAAAAAA).wh(5, 5);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Grid);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Gr");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFAAAAAA);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 5.0f);
+				PR_EXPECT(reader.Real<float>() == 5.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestCoordFrame)
+		{
+			Builder builder;
+			builder.CoordFrame("CF");
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::CoordFrame);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "CF");
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestRibbon)
+		{
+			Builder builder;
+			builder.Ribbon("Rb", 0xFFFF8800).pt({0,0,0}).pt({1,1,0}).pt({2,0,0});
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Ribbon);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Rb");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF8800);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(2, 0, 0, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestPie)
+		{
+			Builder builder;
+			builder.Pie("Pi", 0xFF00FF88).angles(0, 90).radii(0.5f, 1.0f);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Pie);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Pi");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF88);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 0.0f);
+				PR_EXPECT(reader.Real<float>() == 90.0f);
+				PR_EXPECT(reader.Real<float>() == 0.5f);
+				PR_EXPECT(reader.Real<float>() == 1.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestPolygon)
+		{
+			Builder builder;
+			builder.Polygon("Pg", 0xFFFFFF00).pt({0,0}).pt({1,0}).pt({0.5f,1});
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Polygon);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Pg");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFFFF00);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Vector2f() == v2(0, 0));
+				PR_EXPECT(reader.Vector2f() == v2(1, 0));
+				PR_EXPECT(reader.Vector2f() == v2(0.5f, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestCylinder)
+		{
+			Builder builder;
+			builder.Cylinder("Cy", 0xFF00FFFF).hr(2, 0.5f);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Cylinder);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Cy");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FFFF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+				PR_EXPECT(reader.Real<float>() == 0.5f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestCone)
+		{
+			Builder builder;
+			builder.Cone("Co", 0xFFFF00FF).angle(30).height(2);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Cone);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Co");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF00FF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 30.0f);
+				PR_EXPECT(reader.Real<float>() == 0.0f);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestMesh)
+		{
+			Builder builder;
+			builder.Mesh("M", 0xFFFF0000).vert({0,0,0}).vert({1,0,0}).vert({0,1,0}).face(0,1,2);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Mesh);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "M");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF0000);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Faces);
+				PR_EXPECT(reader.Int<int>() == 0);
+				PR_EXPECT(reader.Int<int>() == 1);
+				PR_EXPECT(reader.Int<int>() == 2);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestConvexHull)
+		{
+			Builder builder;
+			builder.ConvexHull("CH", 0xFF00FF00).vert(0,0,0).vert(1,0,0).vert(0,1,0).vert(0,0,1);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::ConvexHull);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "CH");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 1, 1));
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestFrustum)
+		{
+			Builder builder;
+			builder.Frustum("Fr", 0xFF0000FF).wh(2, 1, 0.1f, 10.0f);
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::FrustumWH);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Fr");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFF0000FF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.Real<float>() == 2.0f);
+				PR_EXPECT(reader.Real<float>() == 1.0f);
+				PR_EXPECT(reader.Real<float>() == 0.1f);
+				PR_EXPECT(reader.Real<float>() == 10.0f);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestText)
+		{
+			Builder builder;
+			builder.Text("Txt", 0xFFFFFFFF).text("Hello");
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Text);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "Txt");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFFFFFF);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
+				PR_EXPECT(reader.String<string32>() == "Hello");
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestLightSource)
+		{
+			Builder builder;
+			builder.LightSource("L").style("Point");
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+			PR_EXPECT(reader.Loc().m_offset == 0);
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::LightSource);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "L");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
+				PR_EXPECT(reader.String<string32>() == "Point");
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+	};
 }
 #endif

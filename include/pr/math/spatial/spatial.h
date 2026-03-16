@@ -323,7 +323,7 @@ namespace pr::math::spatial::tests
 			{
 				auto a2c = Mat4x4::Transform(RandomN<Vec3>(rng).w0(), dist(rng), Random<Vec4>(rng, Origin<Vec4>(), T(3)).w1());
 				//auto a2c = Mat4x4::Translation(Vec4{1,0,0,1});
-				auto c2a = InvertAffine(a2c);
+				auto c2a = InvertOrthonormal(a2c);
 
 				// A body-fixed point in frame 'a' and the same point in frame 'c'
 				auto pt_a = Vec4{x,y,0.01f,1};

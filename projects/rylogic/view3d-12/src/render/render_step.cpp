@@ -82,6 +82,9 @@ namespace pr::rdr12
 		// Debug checks
 		#if PR_DBG_RDR
 		{
+			// Note: Only print debug messages here. The debug behaviour needs to match the release behaviour
+
+			// Check that nuggets have been created
 			if (nuggets.empty() && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedNoRenderNuggets))
 			{
 				PR_INFO(PR_DBG_RDR, FmtS("This model (%s) has no nuggets, you need to call CreateNugget() on the model first\n", model->m_name.c_str()));
@@ -91,10 +94,16 @@ namespace pr::rdr12
 			// Check the instance transform is valid
 			auto& o2w = GetO2W(inst);
 			auto flags = GetFlags(inst);
-			if (!IsFinite(o2w))
-				throw std::runtime_error("Invalid instance transform");
-			if (!AllSet(flags, EInstFlag::NonAffine) && !IsAffine(o2w))
-				throw std::runtime_error("Invalid instance transform");
+			if (!IsFinite(o2w) && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform))
+			{
+				PR_INFO(PR_DBG_RDR, FmtS("This model (%s) has an invalid instance transform\n", model->m_name.c_str()));
+				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
+			}
+			if (!AllSet(flags, EInstFlag::NonAffine) && !IsAffine(o2w) && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform))
+			{
+				PR_INFO(PR_DBG_RDR, FmtS("This model (%s) has a non-affine instance transform\n", model->m_name.c_str()));
+				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
+			}
 		}
 		#endif
 

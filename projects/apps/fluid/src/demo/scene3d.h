@@ -17,7 +17,7 @@ namespace pr::fluid
 		std::vector<fluid::Particle> m_particles;
 		std::vector<fluid::Dynamics> m_dynamics;
 		CollisionBuilder m_col;
-		rdr12::ldraw::Builder m_ldr;
+		ldraw::Builder m_ldr;
 
 		explicit Scene3d(int particle_count)
 			: m_col()
@@ -85,7 +85,7 @@ namespace pr::fluid
 		// Return the visualisation scene
 		std::string LdrScene() const override
 		{
-			return m_ldr.ToText(true);
+			return m_ldr.ToString();
 		}
 
 		// Returns initialisation data for the particles.

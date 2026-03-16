@@ -7,9 +7,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics-2/utility/field.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
-
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(FieldTests)
 	{
@@ -20,8 +18,8 @@ namespace pr::physics
 
 			/*
 			// Draw the vector field
-			rdr12::ldraw::Builder builder;
-			auto& points = ldr.Point("Field", 0xFF00FF00).size(0.1f);
+			pr::ldraw::Builder builder;
+			auto& points = builder.Point("Field", 0xFF00FF00).size(0.1f);
 			for (int y = 0; y != 100; ++y)
 			{
 				for (int x = 0; x != 100; ++x)

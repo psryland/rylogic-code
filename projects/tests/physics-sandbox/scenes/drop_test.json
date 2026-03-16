@@ -15,12 +15,16 @@
 				"name": "test_box",
 				"shape": {
 					"type": "box",
-					"dimensions": [1.0, 1.0, 1.0]
+					"dimensions": [ 1.0, 1.0, 1.0 ]
 				},
 				"mass": 10.0,
-				"position": [0.0, 0.0, 3.0],
-				"velocity": [0.0, 0.0, 0.0]
+				"position": [ 0.0, 0.0, 3.0 ],
+				"velocity": [ 0.0, 0.0, 0.0 ]
 			}
-		]
+		],
+		"camera": {
+			"position": [ 0.0, -10.0, 2.0 ],
+			"lookat": [ 0.0, 0.0, 0.0 ]
+		}
 	}
 }

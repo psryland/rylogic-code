@@ -9,12 +9,16 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/utility/ray_cast.h"
 #include "pr/view3d-12/lighting/light_ui.h"
-#include "pr/view3d-12/ldraw/ldraw_ui_object_manager.h"
-#include "pr/view3d-12/ldraw/ldraw_ui_script_editor.h"
-#include "pr/view3d-12/ldraw/ldraw_ui_measure_tool.h"
-#include "pr/view3d-12/ldraw/ldraw_ui_angle_tool.h"
 #include "view3d-12/src/dll/dll_forward.h"
 #include "view3d-12/src/ldraw/sources/ldraw_sources.h"
+
+namespace pr::rdr12::ldraw
+{
+	struct ScriptEditorUI;
+	struct MeasureUI;
+	struct AngleUI;
+	class ObjectManagerUI;
+}
 
 namespace pr::rdr12
 {

@@ -1,0 +1,65 @@
+﻿<Window x:Class="RyLogViewer.ProgramOutputUI"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Title="Program Output" Width="500" Height="340"
+	WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+	<Grid Margin="12">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+		<Grid.ColumnDefinitions>
+			<ColumnDefinition Width="110"/>
+			<ColumnDefinition Width="*"/>
+			<ColumnDefinition Width="Auto"/>
+		</Grid.ColumnDefinitions>
+
+		<!-- Executable -->
+		<Label Grid.Row="0" Grid.Column="0" Content="Executable:" VerticalAlignment="Center"/>
+		<TextBox Grid.Row="0" Grid.Column="1" x:Name="m_exe" Margin="0,2" VerticalAlignment="Center"/>
+		<Button Grid.Row="0" Grid.Column="2" Content="..." Width="28" Margin="4,2" Click="BrowseExe_Click"/>
+
+		<!-- Arguments -->
+		<Label Grid.Row="1" Grid.Column="0" Content="Arguments:" VerticalAlignment="Center"/>
+		<TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="m_args" Margin="0,2" VerticalAlignment="Center"/>
+
+		<!-- Working Directory -->
+		<Label Grid.Row="2" Grid.Column="0" Content="Working Dir:" VerticalAlignment="Center"/>
+		<TextBox Grid.Row="2" Grid.Column="1" x:Name="m_working_dir" Margin="0,2" VerticalAlignment="Center"/>
+		<Button Grid.Row="2" Grid.Column="2" Content="..." Width="28" Margin="4,2" Click="BrowseWorkDir_Click"/>
+
+		<!-- Output File -->
+		<Label Grid.Row="3" Grid.Column="0" Content="Output File:" VerticalAlignment="Center"/>
+		<TextBox Grid.Row="3" Grid.Column="1" x:Name="m_output_file" Margin="0,2" VerticalAlignment="Center"
+			ToolTip="Leave empty for a temporary file"/>
+		<Button Grid.Row="3" Grid.Column="2" Content="..." Width="28" Margin="4,2" Click="BrowseOutputFile_Click"/>
+
+		<!-- Options -->
+		<StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,4">
+			<CheckBox x:Name="m_capture_stdout" Content="Capture Stdout" Margin="0,0,16,0" IsChecked="True"/>
+			<CheckBox x:Name="m_capture_stderr" Content="Capture Stderr" Margin="0,0,16,0" IsChecked="True"/>
+			<CheckBox x:Name="m_show_window" Content="Show Window" Margin="0,0,16,0"/>
+			<CheckBox x:Name="m_append" Content="Append" Margin="0,0,16,0" IsChecked="True"/>
+		</StackPanel>
+
+		<Separator Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,4"/>
+
+		<!-- History -->
+		<Label Grid.Row="6" Grid.Column="0" Content="History:" VerticalAlignment="Center"/>
+		<ComboBox Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="m_history" Margin="0,2"
+			SelectionChanged="History_SelectionChanged"/>
+
+		<!-- Buttons -->
+		<StackPanel Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right">
+			<Button Content="Launch" Width="80" Margin="4" IsDefault="True" Click="Launch_Click"/>
+			<Button Content="Cancel" Width="80" Margin="4" IsCancel="True"/>
+		</StackPanel>
+	</Grid>
+</Window>

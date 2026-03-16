@@ -239,15 +239,12 @@ namespace pr::geometry
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/view3d-12/ldraw/ldraw_builder.h"
-
-namespace pr::geometry
+namespace pr::geometry::tests
 {
 	PRUnitTest(ScatterTests)
 	{
 		constexpr int Dim = 3;
 		std::default_random_engine rng;
-
 
 		std::vector<Body> bodies(100);
 		for (auto& body : bodies)
@@ -272,26 +269,27 @@ namespace pr::geometry
 			} while (link.m_body0 == link.m_body1);
 		}
 
-		auto LdrDump = [&]
-		{
-			auto ldr = rdr12::ldraw::Builder{};
-			auto& ldr_bodies = ldr.Group("Body");
-			for (auto const& body : bodies)
-				ldr_bodies.Box("Box", 0xFF00FF00).dim(body.m_size).pos(body.m_point);
-			auto& ldr_links = ldr.Line("Link", 0xFF005000);
-			for (auto const& link : links)
-				ldr_links.line(bodies[link.m_body0].m_point, bodies[link.m_body1].m_point);
-			ldr.Save(temp_dir() / "scatter.ldr");
-		};
-
 		Scatterer<Dim> scat(bodies, links, {});
 		scat.Step();
 
-		#if 0 // Ldr
-		for (; !scat.m_equalibrium; )
+		#if PR_UNITTESTS_VISUALISE
 		{
-			LdrDump();
-			scat.Step();
+			auto LdrDump = [&]
+			{
+				auto ldr = pr::ldraw::Builder{};
+				auto& ldr_bodies = ldr.Group("Body");
+				for (auto const& body : bodies)
+					ldr_bodies.Box("Box", 0xFF00FF00).box(body.m_size).pos(body.m_point);
+				auto& ldr_links = ldr.Line("Link", 0xFF005000);
+				for (auto const& link : links)
+					ldr_links.line(bodies[link.m_body0].m_point, bodies[link.m_body1].m_point);
+				ldr.Save(temp_dir() / "scatter.ldr");
+			};
+			for (; !scat.m_equalibrium; )
+			{
+				LdrDump();
+				scat.Step();
+			}
 		}
 		#endif
 	}

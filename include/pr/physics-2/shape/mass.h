@@ -15,7 +15,8 @@ namespace pr::physics
 		//  for Shapes. It's not used in the RigidBody object.
 		//  All values are in model space.
 
-		// Normalised object space inertia, expressed at the object centre of mass.
+		// Normalised (per-unit-mass) object space inertia, measured about the model origin.
+		// SetMassProperties translates from origin to the centre of mass using m_centre_of_mass.
 		m3x4 m_os_unit_inertia;
 
 		// Offset to the centre of mass from the model space origin (note: w = 0)

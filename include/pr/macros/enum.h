@@ -283,6 +283,7 @@ namespace pr
 		e = enum_name##_::Parse(s.c_str());\
 		return stream;\
 	}\
+	inline constexpr char const* ToString(enum_name e) { return enum_name##_::ToString<char>(e); }\
 	\
 	/* Forward declare a function that returns the meta data type for 'enum_name'*/\
 	enum_name##_& pr_reflected_enum_metadata(enum_name);\
