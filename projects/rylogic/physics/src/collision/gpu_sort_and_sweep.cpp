@@ -2,6 +2,7 @@
 // Physics Sandbox — GPU Sort-and-Sweep Broadphase
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
+#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "src/collision/gpu_sort_and_sweep.h"
 #include "src/collision/gpu_collision_types.h"
 
@@ -153,7 +154,108 @@ namespace pr::physics
 		}
 	}
 
-	// Custom deleter implementation (GpuIntegrator is complete here)
+	// CPU-side testing: upload bodies, sort + sweep, readback pairs. Calls job.Run() internally.
+	int GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<RigidBodyDynamics const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs)
+	{
+		auto body_count = static_cast<int>(bodies.size());
+		if (body_count < 2)
+			return 0;
+
+		// Create temporary GPU resources
+		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempCounters");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<RigidBodyDynamics>(body_count, {}), job.m_cmd_list, "Physics:TempBodies");
+		auto r_aabb = m_gpu.CreateResource(ResDesc::Buf<float>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB");
+		auto r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABBIdx");
+
+		// Upload counters
+		{
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
+			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{ .body_count = body_count };
+			job.m_cmd_list.CopyBufferRegion(r_counters.get(), 0, upload);
+
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+
+		// Upload bodies
+		{
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<RigidBodyDynamics>(body_count);
+			memcpy(upload.ptr<RigidBodyDynamics>(), bodies.data(), body_count * sizeof(RigidBodyDynamics));
+			job.m_cmd_list.CopyBufferRegion(r_bodies.get(), 0, upload);
+
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Upload AABBs and AABB_Idx
+		{
+			job.m_barriers.Transition(r_aabb.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Transition(r_aabb_idx.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload_aabb = job.m_upload.Alloc<float>(2 * body_count);
+			auto upload_idx = job.m_upload.Alloc<int>(2 * body_count);
+			auto* bounds = upload_aabb.ptr<float>();
+			auto* idx = upload_idx.ptr<int>();
+			for (int i = 0; i != body_count; ++i)
+			{
+				auto ws_bbox = bodies[i].o2w * bodies[i].os_bbox;
+				bounds[i * 2 + 0] = ws_bbox.Lower()[sort_axis];
+				bounds[i * 2 + 1] = ws_bbox.Upper()[sort_axis];
+				idx[i * 2 + 0] = (i << 1) | 0; // start
+				idx[i * 2 + 1] = (i << 1) | 1; // end
+			}
+			job.m_cmd_list.CopyBufferRegion(r_aabb.get(), 0, upload_aabb);
+			job.m_cmd_list.CopyBufferRegion(r_aabb_idx.get(), 0, upload_idx);
+
+			job.m_barriers.Transition(r_aabb.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(r_aabb_idx.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Run the sort step
+		Sort(job, body_count, r_aabb, r_aabb_idx);
+
+		// Run the sweep step (skip sort for CPU-side testing)
+		Sweep(job, body_count, max_col_pairs, r_counters, r_aabb_idx, r_bodies);
+
+		// Readback pairs and counters
+		GpuReadbackBuffer::Allocation readback_pairs;
+		GpuReadbackBuffer::Allocation readback_counters;
+		{
+			job.m_barriers.Transition(m_r_col_pairs.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
+
+			readback_pairs = job.m_readback.Alloc<GpuCollisionPair>(max_col_pairs);
+			job.m_cmd_list.CopyBufferRegion(readback_pairs, m_r_col_pairs.get(), 0);
+
+			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
+			job.m_cmd_list.CopyBufferRegion(readback_counters, r_counters.get(), 0);
+
+			job.m_barriers.Transition(m_r_col_pairs.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		}
+
+		job.Run();
+
+		auto* counters = readback_counters.ptr<GpuCollisionCounters>();
+		auto pair_count = std::min(static_cast<int>(counters->pair_count), max_col_pairs);
+		pair_count = std::min(pair_count, static_cast<int>(out_pairs.size()));
+
+		if (pair_count > 0)
+			memcpy(out_pairs.data(), readback_pairs.ptr<GpuCollisionPair>(), pair_count * sizeof(GpuCollisionPair));
+
+		return pair_count;
+	}
+
+	// Custom deleter implementation
 	void Deleter<GpuSortAndSweep>::operator()(GpuSortAndSweep* p) const
 	{
 		delete p;

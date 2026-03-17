@@ -284,6 +284,13 @@ namespace pr::physics
 		}
 	}
 
+	// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
+	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt, std::span<BBox> aabbs)
+	{
+		Integrate(job, bodies, dt);
+		Readback(job, bodies, aabbs, {});
+	}
+
 	// Custom deleter implementation (GpuIntegrator is complete here)
 	void Deleter<GpuIntegrator>::operator()(GpuIntegrator* p) const
 	{

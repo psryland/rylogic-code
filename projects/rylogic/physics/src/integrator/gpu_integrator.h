@@ -31,6 +31,9 @@ namespace pr::physics
 		// Readback data into the provided buffers. 0-length means "don't readback".
 		void Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
+		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
+		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt, std::span<BBox> aabbs);
+
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> Counters() { return m_r_counters; }
 		D3DPtr<ID3D12Resource> Bodies() { return m_r_bodies; }

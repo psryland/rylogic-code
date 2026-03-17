@@ -2,8 +2,9 @@
 // Physics Engine — GPU Collision Resolution
 //  Copyright (C) Rylogic Ltd 2025
 //*********************************************
-#include "src/collision/gpu_resolver.h"
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
+#include "src/collision/gpu_resolver.h"
+#include "src/collision/gpu_collision_types.h"
 
 namespace pr::physics
 {
@@ -150,6 +151,99 @@ namespace pr::physics
 			job.m_barriers.UAV(bodies.get());
 			job.m_barriers.Commit();
 		}
+	}
+
+	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
+	void GpuResolver::Resolve(GpuJob& job, std::span<GpuResolveContact const> contacts, std::span<RigidBodyDynamics> bodies)
+	{
+		auto contact_count = static_cast<int>(contacts.size());
+		auto body_count = static_cast<int>(bodies.size());
+		if (contact_count == 0 || body_count == 0)
+			return;
+
+		// Create temporary GPU resources
+		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");
+		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}), job.m_cmd_list, "Physics:TempContacts");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<RigidBodyDynamics>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempBodies");
+		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatch");
+
+		// Upload counters
+		{
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
+			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
+				.body_count = body_count,
+				.pair_count = 0,
+				.contact_count = contact_count,
+			};
+			job.m_cmd_list.CopyBufferRegion(r_counters.get(), 0, upload);
+
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Upload contacts
+		{
+			job.m_barriers.Transition(r_contacts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuResolveContact>(contact_count);
+			memcpy(upload.ptr<GpuResolveContact>(), contacts.data(), contact_count * sizeof(GpuResolveContact));
+			job.m_cmd_list.CopyBufferRegion(r_contacts.get(), 0, upload);
+
+			job.m_barriers.Transition(r_contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Upload bodies
+		{
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<RigidBodyDynamics>(body_count);
+			memcpy(upload.ptr<RigidBodyDynamics>(), bodies.data(), body_count * sizeof(RigidBodyDynamics));
+			job.m_cmd_list.CopyBufferRegion(r_bodies.get(), 0, upload);
+
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+
+		// Upload dispatch args
+		{
+			job.m_barriers.Transition(r_dispatch.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<D3D12_DISPATCH_ARGUMENTS>(1);
+			auto* args = upload.ptr<D3D12_DISPATCH_ARGUMENTS>();
+			args->ThreadGroupCountX = static_cast<UINT>((contact_count + ResolveThreadCount - 1) / ResolveThreadCount);
+			args->ThreadGroupCountY = 1;
+			args->ThreadGroupCountZ = 1;
+			job.m_cmd_list.CopyBufferRegion(r_dispatch.get(), 0, upload);
+
+			job.m_barriers.Transition(r_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+
+		// Run the GPU resolve pipeline
+		Resolve(job, body_count, r_dispatch, r_counters, r_contacts, r_bodies);
+
+		// Readback bodies
+		GpuReadbackBuffer::Allocation readback_bodies;
+		{
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
+
+			readback_bodies = job.m_readback.Alloc<RigidBodyDynamics>(body_count);
+			job.m_cmd_list.CopyBufferRegion(readback_bodies, r_bodies.get(), 0);
+
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		}
+
+		job.Run();
+
+		memcpy(bodies.data(), readback_bodies.ptr<RigidBodyDynamics>(), body_count * sizeof(RigidBodyDynamics));
 	}
 
 	// Custom deleter implementation (GpuResolver is complete here)

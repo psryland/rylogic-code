@@ -20,11 +20,10 @@ namespace pr::physics
 		explicit GpuResolver(Gpu& gpu);
 
 		// Resolve collisions on the GPU using graph-coloured batches.
-		// 'contacts' are the filtered/prepared contacts with body indices and materials.
-		// 'colours' is the per-contact colour assignment.
-		// 'max_colour' is the number of colour batches to dispatch.
-		// 'bodies_resource' is the GPU-resident RigidBodyDynamics buffer from the integrator.
 		void Resolve(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies);
+
+		// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies. Calls job.Run() internally.
+		void Resolve(GpuJob& job, std::span<GpuResolveContact const> contacts, std::span<RigidBodyDynamics> bodies);
 
 	private:
 

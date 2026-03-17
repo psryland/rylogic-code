@@ -44,6 +44,10 @@ namespace pr::physics
 		// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
 		void Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies);
 
+		// CPU-side testing: upload bodies, sort AABB endpoints, sweep for overlapping pairs, readback pairs.
+		// Calls job.Run() internally. Returns the number of pairs found.
+		int SortAndSweep(GpuJob& job, std::span<RigidBodyDynamics const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs);
+
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> CollisionPairs() { return m_r_col_pairs; }
 		D3DPtr<ID3D12Resource> CDDispatchArgs() { return m_r_cd_dispatch; }
