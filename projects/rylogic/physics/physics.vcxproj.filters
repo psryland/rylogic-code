@@ -164,7 +164,7 @@
     <ClInclude Include="src\utility\gpu.h">
       <Filter>src\utility</Filter>
     </ClInclude>
-    <ClInclude Include="src\collision\collision_shape_cache.h">
+    <ClInclude Include="src\collision\shape_cache.h">
       <Filter>src\collision</Filter>
     </ClInclude>
     <ClInclude Include="src\materials\material_map.h">

@@ -107,9 +107,9 @@ namespace pr::physics
 	}
 
 	// Integrate bodies on GPU
-	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> dynamics, float dt)
+	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt)
 	{
-		auto body_count = static_cast<int>(dynamics.size());
+		auto body_count = static_cast<int>(bodies.size());
 		if (body_count == 0)
 			return;
 
@@ -133,26 +133,38 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Upload body dynamics to the GPU
+		// Upload bodies to the GPU
 		{
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
 			auto upload = job.m_upload.template Alloc<RigidBodyDynamics>(body_count);
-			memcpy(upload.template ptr<RigidBodyDynamics>(), dynamics.data(), body_count * sizeof(RigidBodyDynamics));
+			memcpy(upload.template ptr<RigidBodyDynamics>(), bodies.data(), body_count * sizeof(RigidBodyDynamics));
 			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload);
 
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
 
+		// Switch states for resources
+		{
+			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_aabb_x.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_aabb_idx.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#if COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#endif
+			job.m_barriers.Commit();
+		}
+
 		// Dispatch the compute shader
 		{
-			auto cb = cbIntegrate{ .g_dt = dt };
-
 			job.m_cmd_list.SetPipelineState(m_cs_integrate.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_integrate.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbIntegrate{ .g_dt = dt });
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_x->GetGPUVirtualAddress());

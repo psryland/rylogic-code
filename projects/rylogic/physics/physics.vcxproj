@@ -113,7 +113,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
-    <ClInclude Include="src\collision\collision_shape_cache.h" />
+    <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>

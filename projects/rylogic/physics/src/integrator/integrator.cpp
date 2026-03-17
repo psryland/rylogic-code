@@ -6,6 +6,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics/shape/inertia.h"
+#include "src/collision/shape_cache.h"
 
 namespace pr::physics
 {
@@ -101,10 +102,37 @@ namespace pr::physics
 	// Evolve the rigid body forward in time by 'elapsed_seconds' using Störmer-Verlet integration.
 	void Evolve(RigidBody& rb, float elapsed_seconds)
 	{
-		RigidBodyDynamics dyn = PackDynamics(rb);
+		ShapeCache shape_cache;
+		auto shape_id = shape_cache.GetOrAdd(rb.Shape());
+		RigidBodyDynamics dyn = PackDynamics(rb, shape_id);
 		Evolve(dyn, elapsed_seconds);
 		UnpackDynamics(dyn, rb);
 	}
+
+	// Calculate the signed change in kinetic energy caused by applying 'force' for 'time_s'.
+	float KineticEnergyChange(v8force force, v8force momentum0, InertiaInv const& inertia_inv, float time_s)
+	{
+		// Kinetic energy change:
+		//    0.5 * (v1*I*v1 - v0*I*v0)
+		//  = 0.5 * (v1.h1 - v0.h0)
+
+		// Initial velocity
+		auto velocity0 = inertia_inv * momentum0;
+
+		// 'force' causes a change in momentum
+		auto dmomentum = force * time_s;
+		auto momentum1 = momentum0 + dmomentum;
+
+		// Which corresponds to a change in velocity
+		auto dvelocity = inertia_inv * dmomentum;
+		auto velocity1 = velocity0 + dvelocity;
+
+		// Kinetic energy
+		auto ke = 0.5f * (Dot(velocity1, momentum1) - Dot(velocity0, momentum0));
+		return ke;
+	}
+}
+
 
 	#if 0
 	// Half-kick: advance momentum by half a timestep using the current force.
@@ -283,27 +311,3 @@ namespace pr::physics
 	}
 
 	#endif
-
-	// Calculate the signed change in kinetic energy caused by applying 'force' for 'time_s'.
-	float KineticEnergyChange(v8force force, v8force momentum0, InertiaInv const& inertia_inv, float time_s)
-	{
-		// Kinetic energy change:
-		//    0.5 * (v1*I*v1 - v0*I*v0)
-		//  = 0.5 * (v1.h1 - v0.h0)
-
-		// Initial velocity
-		auto velocity0 = inertia_inv * momentum0;
-
-		// 'force' causes a change in momentum
-		auto dmomentum = force * time_s;
-		auto momentum1 = momentum0 + dmomentum;
-
-		// Which corresponds to a change in velocity
-		auto dvelocity = inertia_inv * dmomentum;
-		auto velocity1 = velocity0 + dvelocity;
-
-		// Kinetic energy
-		auto ke = 0.5f * (Dot(velocity1, momentum1) - Dot(velocity0, momentum0));
-		return ke;
-	}
-}

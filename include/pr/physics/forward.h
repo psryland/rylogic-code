@@ -72,7 +72,7 @@ namespace pr::physics
 	struct GpuIntegrateDiag;
 	struct GpuPairDiag;
 	struct EngineBufferCache;
-	struct CollisionShapeCache;
+	struct ShapeCache;
 
 	using MaterialMapPtr = std::unique_ptr<MaterialMap, Deleter<MaterialMap>>;
 	using GpuPtr = std::unique_ptr<Gpu, Deleter<Gpu>>;

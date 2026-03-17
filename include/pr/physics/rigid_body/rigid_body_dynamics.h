@@ -43,14 +43,19 @@ namespace pr::physics
 
 		// Object-space bounding box for AABB computation in the integrate shader.
 		// These allow the GPU to compute world-space AABBs after evolving the transform.
-		v4 os_bbox_centre;   // {cx, cy, cz, 0} — object-space AABB centre
-		v4 os_bbox_radius;   // {rx, ry, rz, 0} — object-space AABB half-extents
+		BBox os_bbox;   // object-space AABB
+
+		// The id of the shape for this object
+		int shape_id;
+		int pad0;
+		int pad1;
+		int pad2;
 	};
-	static_assert(sizeof(RigidBodyDynamics) == 208, "RigidBodyDynamics must be 208 bytes for GPU alignment");
+	static_assert(sizeof(RigidBodyDynamics) == 224, "RigidBodyDynamics must be 224 bytes for GPU alignment");
 	static_assert(alignof(RigidBodyDynamics) == 16, "RigidBodyDynamics must be 16-byte aligned");
 
 	// Pack/Unpack a RigidBody's dynamic state into the flat GPU buffer format.
-	inline RigidBodyDynamics PackDynamics(RigidBody const& rb)
+	inline RigidBodyDynamics PackDynamics(RigidBody const& rb, int shape_id)
 	{
 		auto const& o2w = rb.O2W();
 		auto momentum = rb.MomentumWS();
@@ -67,8 +72,8 @@ namespace pr::physics
 			.inertia_inv_diagonal = iinv.m_diagonal,
 			.inertia_inv_products = iinv.m_products,
 			.os_com_and_invmass = v4{com.x, com.y, com.z, iinv.InvMass()},
-			.os_bbox_centre = rb.Shape().m_bbox.m_centre,
-			.os_bbox_radius = rb.Shape().m_bbox.m_radius,
+			.os_bbox = rb.Shape().m_bbox,
+			.shape_id = shape_id,
 		};
 	}
 	inline void UnpackDynamics(RigidBodyDynamics const& dyn, RigidBody& rb)

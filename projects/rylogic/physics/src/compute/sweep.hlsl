@@ -52,8 +52,8 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 		return;
 
 	// Get the object we're testing against the other objects
-	int rb_idx = g_aabb_idx[idx] >> 1;
-	RigidBodyDynamics rb = g_bodies[rb_idx];
+	int rbA_idx = g_aabb_idx[idx] >> 1;
+	RigidBodyDynamics rb = g_bodies[rbA_idx];
 	
 	// Get the index value that ends our search
 	int end_idx = g_aabb_idx[idx] | 1;
@@ -64,9 +64,9 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	// Search for overlaps on this axis
 	for (++idx; idx != bounds_count && g_aabb_idx[idx] != end_idx; ++idx)
 	{
-		int other_rb_idx = g_aabb_idx[idx] >> 1;
+		int rbB_idx = g_aabb_idx[idx] >> 1;
 		
-		RigidBodyDynamics other_rb = g_bodies[other_rb_idx];
+		RigidBodyDynamics other_rb = g_bodies[rbB_idx];
 		BBox other_ws_bbox = Transform(other_rb.os_bbox, other_rb.o2w);
 		
 		// If intersection on all three axes, add a pair to the output buffer
@@ -80,8 +80,8 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 
 			// Write the contact
 			GpuCollisionPair pair;
-			pair.shape_idx_a = rb_idx;
-			pair.shape_idx_b = other_rb_idx;
+			pair.shape_idx_a = g_bodies[rbA_idx].shape_id;
+			pair.shape_idx_b = g_bodies[rbB_idx].shape_id;
 			pair.pair_index = slot;
 			pair.pad0 = 0;
 			pair.b2a = mul(other_rb.o2w, InvertOrthonormal(rb.o2w));

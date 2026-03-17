@@ -13,7 +13,7 @@
 #include "pr/collision/shapes.h"
 #include "src/collision/gpu_collision_types.h"
 #include "src/collision/gpu_collision_detector.h"
-#include "src/collision/collision_shape_cache.h"
+#include "src/collision/shape_cache.h"
 
 namespace pr::physics
 {
@@ -45,7 +45,7 @@ namespace pr::physics
 
 			// --- GPU path ---
 			// Pack shapes into GPU buffers
-			CollisionShapeCache shape_cache;
+			ShapeCache shape_cache;
 			shape_cache.GetOrAdd(sa);
 			shape_cache.GetOrAdd(sb);
 

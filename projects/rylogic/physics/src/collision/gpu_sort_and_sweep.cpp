@@ -36,7 +36,7 @@ namespace pr::physics
 		, m_cs_sweep()
 		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
-		, m_r_dispatch()
+		, m_r_cd_dispatch()
 		, m_max_col_pairs()
 	{
 		CompileShaders();
@@ -92,9 +92,9 @@ namespace pr::physics
 			m_r_col_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_col_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionPairs");
 			m_max_col_pairs = max_col_pairs;
 		}
-		if (m_r_dispatch == nullptr)
+		if (m_r_cd_dispatch == nullptr)
 		{
-			m_r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CDDispatchArgs");
+			m_r_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CDDispatchArgs");
 		}
 	}
 	
@@ -111,16 +111,24 @@ namespace pr::physics
 	{
 		ResizeBuffers(job.m_cmd_list, max_col_pairs);
 
+		// Switch states for resources
+		{
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_col_pairs.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_cd_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(aabb_idx.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
 		// Dispatch the compute shader
 		{
-			auto cb = cbSweep{ .g_max_pair_count = max_col_pairs };
-
 			job.m_cmd_list.SetPipelineState(m_cs_sweep.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_sweep.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbSweep{ .g_max_pair_count = max_col_pairs });
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx->GetGPUVirtualAddress());
 
@@ -137,11 +145,11 @@ namespace pr::physics
 			job.m_cmd_list.SetPipelineState(m_cs_calc_dispatch.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch->GetGPUVirtualAddress());
 
 			job.m_cmd_list.Dispatch(1, 1, 1);
 
-			job.m_barriers.UAV(m_r_dispatch.get());
+			job.m_barriers.UAV(m_r_cd_dispatch.get());
 		}
 	}
 

@@ -12,8 +12,8 @@
 //   3. Analytic results: free-flight, elastic collisions
 //
 #pragma once
-#include "src/forward.h"
 #include "pr/physics/rigid_body/rigid_body_dynamics.h"
+#include "src/forward.h"
 
 namespace physics_sandbox::tests
 {
@@ -26,18 +26,11 @@ namespace physics_sandbox::tests
 
 		// Helper: run one integration step through Engine::Step (GPU path) on a single
 		// dynamic body that won't collide with anything. Returns the post-integration body.
-		inline physics::RigidBody RunGpuIntegrate(
-			collision::Shape const* shape,
-			float mass,
-			m4x4 const& o2w,
-			v4 ang_vel,
-			v4 lin_vel,
-			v4 force_ang,
-			v4 force_lin,
-			float dt)
+		inline physics::RigidBody RunGpuIntegrate(collision::Shape const* shape, float mass, m4x4 const& o2w, v4 ang_vel, v4 lin_vel, v4 force_ang, v4 force_lin, float dt)
 		{
-			// Create two bodies: the test body and a ground body far away (so no collision).
 			auto ground_shape = collision::ShapeBox(v4{1, 1, 1, 0});
+
+			// Create two bodies: the test body and a ground body far away (so no collision).
 			physics::RigidBody bodies[2];
 			bodies[0].Shape(shape, mass);
 			bodies[0].O2W(o2w);
@@ -57,15 +50,7 @@ namespace physics_sandbox::tests
 
 		// Helper: run one integration step through CPU Evolve(RigidBodyDynamics&, float).
 		// Returns the post-integration dynamics.
-		inline physics::RigidBodyDynamics RunCpuIntegrate(
-			collision::Shape const* shape,
-			float mass,
-			m4x4 const& o2w,
-			v4 ang_vel,
-			v4 lin_vel,
-			v4 force_ang,
-			v4 force_lin,
-			float dt)
+		inline physics::RigidBody RunCpuIntegrate(collision::Shape const* shape, float mass, m4x4 const& o2w, v4 ang_vel, v4 lin_vel, v4 force_ang, v4 force_lin, float dt)
 		{
 			physics::RigidBody rb;
 			rb.Shape(shape, mass);
@@ -74,9 +59,8 @@ namespace physics_sandbox::tests
 			rb.ZeroForces();
 			rb.ApplyForceWS(force_lin, force_ang, v4::Zero());
 
-			auto dyn = physics::PackDynamics(rb);
-			physics::Evolve(dyn, dt);
-			return dyn;
+			physics::Evolve(rb, dt);
+			return rb;
 		}
 
 		// Helper: compare a RigidBody (GPU output) with a RigidBodyDynamics (CPU output).
@@ -84,37 +68,33 @@ namespace physics_sandbox::tests
 		inline bool CompareIntegration(
 			char const* label,
 			physics::RigidBody const& gpu_rb,
-			physics::RigidBodyDynamics const& cpu_dyn,
+			physics::RigidBody const& cpu_rb,
 			float pos_tol = PosTol,
 			float rot_tol = RotTol,
 			float mom_tol = MomTol)
 		{
-			auto gpu_dyn = physics::PackDynamics(gpu_rb);
 			bool ok = true;
 
-			auto pos_err = Length(gpu_dyn.o2w.pos - cpu_dyn.o2w.pos);
-			auto rot_err = Length(gpu_dyn.o2w.x - cpu_dyn.o2w.x)
-			             + Length(gpu_dyn.o2w.y - cpu_dyn.o2w.y)
-			             + Length(gpu_dyn.o2w.z - cpu_dyn.o2w.z);
-			auto ang_err = Length(gpu_dyn.momentum_ang - cpu_dyn.momentum_ang);
-			auto lin_err = Length(gpu_dyn.momentum_lin - cpu_dyn.momentum_lin);
+			auto pos_err = Length(gpu_rb.O2W().pos        - cpu_rb.O2W().pos);
+			auto rot_err = Length(gpu_rb.O2W().x          - cpu_rb.O2W().x)
+			             + Length(gpu_rb.O2W().y          - cpu_rb.O2W().y)
+			             + Length(gpu_rb.O2W().z          - cpu_rb.O2W().z);
+			auto ang_err = Length(gpu_rb.MomentumWS().ang - cpu_rb.MomentumWS().ang);
+			auto lin_err = Length(gpu_rb.MomentumWS().lin - cpu_rb.MomentumWS().lin);
 
 			if (pos_err > pos_tol || rot_err > rot_tol || ang_err > mom_tol || lin_err > mom_tol)
 			{
 				ok = false;
 				printf("  [%s] MISMATCH:\n", label);
-				printf("    pos_err=%.6f rot_err=%.6f ang_err=%.6f lin_err=%.6f\n",
-					pos_err, rot_err, ang_err, lin_err);
-				printf("    GPU pos=(%.6f, %.6f, %.6f)\n",
-					gpu_dyn.o2w.pos.x, gpu_dyn.o2w.pos.y, gpu_dyn.o2w.pos.z);
-				printf("    CPU pos=(%.6f, %.6f, %.6f)\n",
-					cpu_dyn.o2w.pos.x, cpu_dyn.o2w.pos.y, cpu_dyn.o2w.pos.z);
+				printf("    pos_err=%.6f rot_err=%.6f ang_err=%.6f lin_err=%.6f\n", pos_err, rot_err, ang_err, lin_err);
+				printf("    GPU pos=(%.6f, %.6f, %.6f)\n", gpu_rb.O2W().pos.x, gpu_rb.O2W().pos.y, gpu_rb.O2W().pos.z);
+				printf("    CPU pos=(%.6f, %.6f, %.6f)\n", cpu_rb.O2W().pos.x, cpu_rb.O2W().pos.y, cpu_rb.O2W().pos.z);
 				printf("    GPU mom_ang=(%.6f, %.6f, %.6f) mom_lin=(%.6f, %.6f, %.6f)\n",
-					gpu_dyn.momentum_ang.x, gpu_dyn.momentum_ang.y, gpu_dyn.momentum_ang.z,
-					gpu_dyn.momentum_lin.x, gpu_dyn.momentum_lin.y, gpu_dyn.momentum_lin.z);
+					gpu_rb.MomentumWS().ang.x, gpu_rb.MomentumWS().ang.y, gpu_rb.MomentumWS().ang.z,
+					gpu_rb.MomentumWS().lin.x, gpu_rb.MomentumWS().lin.y, gpu_rb.MomentumWS().lin.z);
 				printf("    CPU mom_ang=(%.6f, %.6f, %.6f) mom_lin=(%.6f, %.6f, %.6f)\n",
-					cpu_dyn.momentum_ang.x, cpu_dyn.momentum_ang.y, cpu_dyn.momentum_ang.z,
-					cpu_dyn.momentum_lin.x, cpu_dyn.momentum_lin.y, cpu_dyn.momentum_lin.z);
+					cpu_rb.MomentumWS().ang.x, cpu_rb.MomentumWS().ang.y, cpu_rb.MomentumWS().ang.z,
+					cpu_rb.MomentumWS().lin.x, cpu_rb.MomentumWS().lin.y, cpu_rb.MomentumWS().lin.z);
 			}
 			else
 			{
@@ -275,16 +255,14 @@ namespace physics_sandbox::tests
 			cpu_rb.O2W(m4x4::Translation(v4{0, 0, 10, 0}));
 			cpu_rb.VelocityWS(ang_vel, lin_vel);
 
-			auto cpu_dyn = physics::PackDynamics(cpu_rb);
 			for (int step = 0; step != 100; ++step)
 			{
-				cpu_dyn.force_ang = v4{};
-				cpu_dyn.force_lin = v4{};
-				physics::Evolve(cpu_dyn, dt);
+				cpu_rb.ZeroForces();
+				physics::Evolve(cpu_rb, dt);
 			}
 
 			// Compare after 100 steps (allow larger tolerance for accumulated float differences)
-			PR_EXPECT(gpu_compare::CompareIntegration("MultiStep100", gpu_bodies[0], cpu_dyn, 1e-3f, 1e-3f, 1e-3f));
+			PR_EXPECT(gpu_compare::CompareIntegration("MultiStep100", gpu_bodies[0], cpu_rb, 1e-3f, 1e-3f, 1e-3f));
 		}
 	};
 

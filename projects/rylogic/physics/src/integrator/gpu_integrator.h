@@ -26,7 +26,7 @@ namespace pr::physics
 		explicit GpuIntegrator(Gpu& gpu);
 
 		// Integrate bodies on GPU and readback AABBs (but keep bodies GPU-resident for later readback).
-		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> dynamics, float dt);
+		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt);
 		
 		// Readback data into the provided buffers. 0-length means "don't readback".
 		void Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);

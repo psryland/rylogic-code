@@ -80,13 +80,16 @@ namespace pr::physics
 		// Returns the max absolute error across position, rotation, and momentum.
 		static float CompareOneStep(RigidBody const& rb_template, float dt)
 		{
+			ShapeCache shape_cache;
+
 			// Path A: Evolve() — the known-good reference
 			auto rb_a = rb_template;
 			Evolve(rb_a, dt);
 
 			// Path B: Pack → EvolveCPU → compare (don't unpack, just compare raw)
 			auto rb_b = rb_template;
-			auto dyn = PackDynamics(rb_b);
+			auto sid = shape_cache.GetOrAdd(rb_b.Shape());
+			auto dyn = PackDynamics(rb_b, sid);
 			Evolve(dyn, dt);
 
 			// Compare transform

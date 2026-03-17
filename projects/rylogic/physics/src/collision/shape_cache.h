@@ -8,7 +8,7 @@
 
 namespace pr::physics
 {
-	struct CollisionShapeCache
+	struct ShapeCache
 	{
 		// Note:
 		//  - Cached collision shape data that persists across frames.
@@ -31,7 +31,7 @@ namespace pr::physics
 		int m_frame;                                       // Current frame counter
 		bool m_changed;                                    // True if shapes were added/removed since last upload
 
-		CollisionShapeCache()
+		ShapeCache()
 			: m_shapes()
 			, m_verts()
 			, m_entries()

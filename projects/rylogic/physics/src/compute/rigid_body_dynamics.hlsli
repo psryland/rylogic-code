@@ -31,6 +31,12 @@ struct RigidBodyDynamics
 	
 	// Object-space bounding box
 	BBox os_bbox; // object-space AABB (centre + half-extents)
+
+	// The id of the shape for this object
+	int shape_id;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 
 #endif

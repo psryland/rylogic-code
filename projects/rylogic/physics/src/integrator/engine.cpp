@@ -10,11 +10,11 @@
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/shape/inertia.h"
 #include "src/integrator/gpu_integrator.h"
-#include "src/collision/collision_shape_cache.h"
 #include "src/collision/gpu_sort_and_sweep.h"
 #include "src/collision/gpu_collision_detector.h"
 #include "src/collision/gpu_collision_types.h"
 #include "src/collision/gpu_resolver.h"
+#include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
 #include "src/utility/gpu.h"
 
@@ -30,7 +30,7 @@ namespace pr::physics
 	struct EngineBufferCache
 	{
 		// Persists across frames
-		CollisionShapeCache m_shape_cache;
+		ShapeCache m_shape_cache;
 		
 		// Staging buffer for packing body dynamics
 		std::vector<RigidBodyDynamics> m_rb_dynamics;
@@ -105,7 +105,10 @@ namespace pr::physics
 		{
 			m_cache->m_rb_dynamics.resize(0);
 			for (auto body : m_body_ptrs)
-				m_cache->m_rb_dynamics.push_back(PackDynamics(*body));
+			{
+				auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
+				m_cache->m_rb_dynamics.push_back(PackDynamics(*body, shape_id));
+			}
 		}
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
@@ -115,9 +118,9 @@ namespace pr::physics
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
 		{
+			auto counters = m_gpu_integrator->Counters();
 			auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
 			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
-			auto counters = m_gpu_integrator->Counters();
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
 			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, counters, aabb_idx, bodies);
@@ -125,16 +128,16 @@ namespace pr::physics
 
 		// Narrow phase -> uses collision pairs -> generates contacts
 		{
-			auto dispatch = m_gpu_sort_and_sweep->DispatchArgs();
-			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 			auto counters = m_gpu_integrator->Counters();
+			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
+			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache, m_materials->span());
 		}
 		
 		// Resolve -> uses contacts -> applies impulses to bodies
 		{
-			auto dispatch = m_gpu_collision_detector->DispatchArgs();
 			auto counters = m_gpu_integrator->Counters();
+			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_resolver->Resolve(m_gpu->m_job, body_count, dispatch, counters, contacts, bodies);

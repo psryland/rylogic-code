@@ -4,7 +4,7 @@
 //*********************************************
 #include "src/collision/gpu_collision_detector.h"
 #include "src/collision/gpu_collision_types.h"
-#include "src/collision/collision_shape_cache.h"
+#include "src/collision/shape_cache.h"
 
 namespace pr::physics
 {
@@ -41,7 +41,7 @@ namespace pr::physics
 		, m_r_shapes()
 		, m_r_verts()
 		, m_r_contacts()
-		, m_r_dispatch()
+		, m_r_resolve_dispatch()
 		#if COLLISION_DIAGNOSTICS
 		, m_r_diag()
 		#endif
@@ -144,15 +144,15 @@ namespace pr::physics
 			#endif
 			m_max_contacts = max_contacts;
 		}
-		if (m_r_dispatch == nullptr)
+		if (m_r_resolve_dispatch == nullptr)
 		{
-			m_r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveDispatchArgs");
+			m_r_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveDispatchArgs");
 		}
 		return shapes_resized;
 	}
 
 	// Run collision detection on the GPU.
-	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, CollisionShapeCache const& shape_cache, std::span<GpuMaterial const> materials)
+	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache, std::span<GpuMaterial const> materials)
 	{
 		// Notes:
 		//  - Assumes that the counters.contact_count has been zeroed already by the broad phase shader.
@@ -198,13 +198,27 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
+		// Switch states for resources
+		{
+			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_resolve_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#if COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#endif
+			job.m_barriers.Commit();
+		}
+
 		// Dispatch the collision compute shader
 		{
-			auto cb = cbCollision{ .g_max_contacts = max_contacts };
-
 			job.m_cmd_list.SetPipelineState(m_cs_collide.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_collide.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbCollision{ .g_max_contacts = max_contacts });
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch->GetGPUVirtualAddress());
@@ -231,18 +245,18 @@ namespace pr::physics
 			job.m_cmd_list.SetPipelineState(m_cs_calc_dispatch.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_resolve_dispatch->GetGPUVirtualAddress());
 
 			job.m_cmd_list.Dispatch(1, 1, 1);
 
-			job.m_barriers.UAV(m_r_dispatch.get());
+			job.m_barriers.UAV(m_r_resolve_dispatch.get());
 		}
 	}
 
 	// Run collision detection on the GPU with CPU-side data.
 	// This overload uploads pairs from CPU, runs the GPU collision detection, reads back contacts.
 	// Used by unit tests and CPU-fallback paths. Returns the number of contacts found.
-	int GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, CollisionShapeCache const& shape_cache, std::span<GpuMaterial const> materials, std::span<GpuResolveContact> contacts)
+	int GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuMaterial const> materials, std::span<GpuResolveContact> contacts)
 	{
 		auto pair_count = static_cast<int>(pairs.size());
 		auto max_contacts = static_cast<int>(contacts.size());

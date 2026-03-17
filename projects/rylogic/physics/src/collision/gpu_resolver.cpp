@@ -98,7 +98,7 @@ namespace pr::physics
 
 		if (m_r_colours == nullptr || m_capacity < capacity)
 		{
-			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(capacity, {}), cmd_list, "Physics:ResolveColours");
+			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
 			m_capacity = capacity;
 		}
 	}
@@ -108,15 +108,24 @@ namespace pr::physics
 	{
 		ResizeBuffers(job.m_cmd_list, body_count);
 
+		// Switch states for resources
+		{
+			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+
 		// Dispatch the graph colouring shader
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_colouring.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_colouring.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{});
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
 
-			// TODO: this will depend on how the colouring algorithm works on the GPU
 			job.m_cmd_list.Dispatch(1, 1, 1);
 
 			job.m_barriers.UAV(m_r_colours.get());
@@ -125,11 +134,9 @@ namespace pr::physics
 
 		// Dispatch the resolve shader
 		{
-			auto cb = cbResolve{ .g_colour = {} };
-
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{ .g_colour = {} });
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
