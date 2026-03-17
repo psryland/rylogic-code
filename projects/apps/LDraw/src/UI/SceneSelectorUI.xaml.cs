@@ -15,8 +15,6 @@ namespace LDraw.UI
 		public SceneSelectorUI()
 		{
 			InitializeComponent();
-			AvailableScenes = new ListCollectionView(new List<SceneWrapper>());
-
 			// Don't bind DataContext, we need to inherit it
 		}
 
@@ -35,10 +33,17 @@ namespace LDraw.UI
 			if (nue is not null)
 			{
 				nue.PropertyChanged += HandleSourcePropertyChanged;
-				HandleSourcePropertyChanged(nue, new PropertyChangedEventArgs(nameof(Source.AvailableScenes)));
-				HandleSourcePropertyChanged(nue, new PropertyChangedEventArgs(nameof(Source.SelectedScenes)));
+
+				PopulateAvailableScenes(nue);
+				NotifyPropertyChanged(nameof(SelectedScenesDescription));
 			}
 
+			void PopulateAvailableScenes(Source source)
+			{
+				var scenes = (List<SceneWrapper>)AvailableScenes.SourceCollection;
+				scenes.Assign(source.AvailableScenes.Select(x => new SceneWrapper(this, x)) ?? []);
+				AvailableScenes.Refresh();
+			}
 			void HandleSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
 			{
 				switch (e.PropertyName)
@@ -46,9 +51,7 @@ namespace LDraw.UI
 					case nameof(Source.AvailableScenes):
 					{
 						var source = (Source?)sender ?? throw new Exception("Expected sender to be a Source");
-						var scenes = (List<SceneWrapper>)AvailableScenes.SourceCollection;
-						scenes.Assign(source.AvailableScenes.Select(x => new SceneWrapper(this, x)) ?? []);
-						AvailableScenes.Refresh();
+						PopulateAvailableScenes(source);
 						
 						// 'SelectedScenesDescription' can change if the number of scenes decreases
 						NotifyPropertyChanged(nameof(SelectedScenesDescription));
@@ -76,7 +79,7 @@ namespace LDraw.UI
 		}
 
 		/// <summary>The available scenes</summary>
-		public ICollectionView AvailableScenes { get; }
+		public ICollectionView AvailableScenes { get; } = new ListCollectionView(new List<SceneWrapper>());
 
 		/// <summary>Handle checkbox clicks to prevent ComboBox from closing</summary>
 		private void CheckBox_Click(object sender, RoutedEventArgs e)

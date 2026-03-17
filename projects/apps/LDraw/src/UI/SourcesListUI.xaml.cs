@@ -22,7 +22,6 @@ namespace LDraw.UI
 				DestroyOnClose = false,
 			};
 			Model = model;
-			Sources = new ListCollectionView(new List<SourceItemUI>());
 
 			AddSource = Command.Create(this, AddSourceInternal);
 			OpenInEditor = Command.Create(this, OpenInEditorInternal, OpenInEditorAvailable);
@@ -97,7 +96,7 @@ namespace LDraw.UI
 					OpenInEditor.NotifyCanExecuteChanged();
 				}
 			}
-		} = null!;
+		} = new ListCollectionView(new List<SourceItemUI>());
 
 		/// <summary></summary>
 		public Command AddSource { get; }

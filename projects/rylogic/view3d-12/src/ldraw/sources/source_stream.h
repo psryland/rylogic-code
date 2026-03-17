@@ -11,7 +11,7 @@ namespace pr::rdr12::ldraw
 	struct SourceStream : SourceBase
 	{
 		using Socket = network::Socket;
-		using EMode = enum class EMode { Text, Binary };
+		using EMode = enum class EMode { Auto, Text, Binary };
 
 		Renderer*    m_rdr;     // The owning renderer
 		Socket       m_socket;  // A non-owning reference to the network connection
@@ -25,6 +25,9 @@ namespace pr::rdr12::ldraw
 		SourceStream& operator =(SourceStream&& rhs) noexcept;
 		SourceStream& operator =(SourceStream const&) = delete;
 		~SourceStream();
+
+		// Auto-detect the stream format from the first byte of data
+		static EMode DetectMode(byte_data<4> const& buffer, int bytes_read);
 
 		std::tuple<int,int> ConsumeBinary(byte_data<4>& buffer, int& bytes_read);
 		std::tuple<int,int> ConsumeText(byte_data<4>& buffer, int& bytes_read);

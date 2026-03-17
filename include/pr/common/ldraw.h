@@ -26,34 +26,34 @@
 namespace pr::ldraw
 {
 	struct LdrBase;
+	struct LdrBinaryStream;
+	struct LdrBox;
+	struct LdrCircle;
+	struct LdrCommands;
+	struct LdrCone;
+	struct LdrConvexHull;
+	struct LdrCoordFrame;
+	struct LdrCylinder;
+	struct LdrFrustum;
+	struct LdrGrid;
 	struct LdrGroup;
 	struct LdrInstance;
-	struct LdrText;
 	struct LdrLightSource;
-	struct LdrPoint;
 	struct LdrLine;
 	struct LdrLineBox;
-	struct LdrGrid;
-	struct LdrCoordFrame;
-	struct LdrCircle;
-	struct LdrPie;
-	struct LdrRect;
-	struct LdrPolygon;
-	struct LdrTriangle;
-	struct LdrQuad;
-	struct LdrPlane;
-	struct LdrRibbon;
-	struct LdrBox;
-	struct LdrFrustum;
-	struct LdrSphere;
-	struct LdrCylinder;
-	struct LdrCone;
 	struct LdrMesh;
-	struct LdrConvexHull;
 	struct LdrModel;
-	struct LdrCommands;
-	struct LdrBinaryStream;
+	struct LdrPie;
+	struct LdrPlane;
+	struct LdrPoint;
+	struct LdrPolygon;
+	struct LdrQuad;
+	struct LdrRect;
+	struct LdrRibbon;
+	struct LdrSphere;
+	struct LdrText;
 	struct LdrTextStream;
+	struct LdrTriangle;
 
 	using ObjPtr = std::shared_ptr<LdrBase>;
 	using textbuf = std::string;
@@ -115,199 +115,212 @@ namespace pr::ldraw
 	};
 
 	// Enum strings
-	struct EKeyword
+	struct NameValue
 	{
 		char const* name = "";
 		uint32_t value = 0;
 
-		constexpr EKeyword() {}
-		constexpr EKeyword(char const* name_, uint32_t value_)
+		constexpr NameValue() {}
+		constexpr NameValue(char const* name_, uint32_t value_)
 		{
 			name = name_;
 			value = value_;
 		}
 		explicit constexpr operator bool() const { return value != 0; }
-		constexpr bool operator==(EKeyword const& rhs) const { return value == rhs.value; }
-		constexpr bool operator!=(EKeyword const& rhs) const { return value != rhs.value; }
+		constexpr bool operator==(NameValue const& rhs) const { return value == rhs.value; }
+		constexpr bool operator!=(NameValue const& rhs) const { return value != rhs.value; }
 	};
 	struct EKeywords
 	{
 		#pragma region Keywords
 		// AUTO-GENERATED-KEYWORDS-BEGIN
-		inline static constexpr EKeyword Accel = {"*Accel", 3784776339};
-		inline static constexpr EKeyword Addr = {"*Addr", 1087856498};
-		inline static constexpr EKeyword Align = {"*Align", 1613521886};
-		inline static constexpr EKeyword Alpha = {"*Alpha", 1569418667};
-		inline static constexpr EKeyword Ambient = {"*Ambient", 479609067};
-		inline static constexpr EKeyword Anchor = {"*Anchor", 1122880180};
-		inline static constexpr EKeyword AngAccel = {"*AngAccel", 801436173};
-		inline static constexpr EKeyword AngVelocity = {"*AngVelocity", 2226367268};
-		inline static constexpr EKeyword AnimSource = {"*AnimSource", 4254838773};
-		inline static constexpr EKeyword Animation = {"*Animation", 3779456605};
-		inline static constexpr EKeyword Arrow = {"*Arrow", 2220107398};
-		inline static constexpr EKeyword Aspect = {"*Aspect", 2929999953};
-		inline static constexpr EKeyword Axis = {"*Axis", 1831579124};
-		inline static constexpr EKeyword AxisId = {"*AxisId", 1558262649};
-		inline static constexpr EKeyword BackColour = {"*BackColour", 1583172070};
-		inline static constexpr EKeyword BakeTransform = {"*BakeTransform", 3697187404};
-		inline static constexpr EKeyword Billboard = {"*Billboard", 3842439780};
-		inline static constexpr EKeyword Billboard3D = {"*Billboard3D", 3185018435};
-		inline static constexpr EKeyword BinaryStream = {"*BinaryStream", 1110191492};
-		inline static constexpr EKeyword Box = {"*Box", 1892056626};
-		inline static constexpr EKeyword BoxList = {"*BoxList", 282663022};
-		inline static constexpr EKeyword Camera = {"*Camera", 2663290958};
-		inline static constexpr EKeyword CastShadow = {"*CastShadow", 3890809582};
-		inline static constexpr EKeyword Chart = {"*Chart", 1487494731};
-		inline static constexpr EKeyword Circle = {"*Circle", 673280137};
-		inline static constexpr EKeyword Closed = {"*Closed", 3958264005};
-		inline static constexpr EKeyword Colour = {"*Colour", 33939709};
-		inline static constexpr EKeyword Colours = {"*Colours", 3175120778};
-		inline static constexpr EKeyword Commands = {"*Commands", 3062934995};
-		inline static constexpr EKeyword Cone = {"*Cone", 3711978346};
-		inline static constexpr EKeyword ConvexHull = {"*ConvexHull", 1990998937};
-		inline static constexpr EKeyword CoordFrame = {"*CoordFrame", 3958982335};
-		inline static constexpr EKeyword CornerRadius = {"*CornerRadius", 2396916310};
-		inline static constexpr EKeyword CrossSection = {"*CrossSection", 3755993582};
-		inline static constexpr EKeyword CString = {"*CString", 2719639595};
-		inline static constexpr EKeyword Custom = {"*Custom", 542584942};
-		inline static constexpr EKeyword Cylinder = {"*Cylinder", 2904473583};
-		inline static constexpr EKeyword Dashed = {"*Dashed", 4029489596};
-		inline static constexpr EKeyword Data = {"*Data", 3631407781};
-		inline static constexpr EKeyword DataPoints = {"*DataPoints", 1656579750};
-		inline static constexpr EKeyword Depth = {"*Depth", 4269121258};
-		inline static constexpr EKeyword Diffuse = {"*Diffuse", 1416505917};
-		inline static constexpr EKeyword Dim = {"*Dim", 3496118841};
-		inline static constexpr EKeyword Direction = {"*Direction", 3748513642};
-		inline static constexpr EKeyword Divisions = {"*Divisions", 555458703};
-		inline static constexpr EKeyword Equation = {"*Equation", 2486886355};
-		inline static constexpr EKeyword Euler = {"*Euler", 1180123250};
-		inline static constexpr EKeyword Faces = {"*Faces", 455960701};
-		inline static constexpr EKeyword Facets = {"*Facets", 3463018577};
-		inline static constexpr EKeyword Far = {"*Far", 3170376174};
-		inline static constexpr EKeyword FilePath = {"*FilePath", 1962937316};
-		inline static constexpr EKeyword Filter = {"*Filter", 3353438327};
-		inline static constexpr EKeyword Font = {"*Font", 659427984};
-		inline static constexpr EKeyword ForeColour = {"*ForeColour", 3815865055};
-		inline static constexpr EKeyword Format = {"*Format", 3114108242};
-		inline static constexpr EKeyword Fov = {"*Fov", 2968750556};
-		inline static constexpr EKeyword FovX = {"*FovX", 862039340};
-		inline static constexpr EKeyword FovY = {"*FovY", 878816959};
-		inline static constexpr EKeyword Frame = {"*Frame", 3523899814};
-		inline static constexpr EKeyword FrameRange = {"*FrameRange", 1562558803};
-		inline static constexpr EKeyword FrameRate = {"*FrameRate", 2601589476};
-		inline static constexpr EKeyword FrustumFA = {"*FrustumFA", 3281884904};
-		inline static constexpr EKeyword FrustumWH = {"*FrustumWH", 3334630522};
-		inline static constexpr EKeyword GenerateNormals = {"*GenerateNormals", 750341558};
-		inline static constexpr EKeyword Grid = {"*Grid", 2944866961};
-		inline static constexpr EKeyword Group = {"*Group", 1605967500};
-		inline static constexpr EKeyword GroupColour = {"*GroupColour", 2738848320};
-		inline static constexpr EKeyword Hidden = {"*Hidden", 4128829753};
-		inline static constexpr EKeyword HideWhenNotAnimating = {"*HideWhenNotAnimating", 2975106646};
-		inline static constexpr EKeyword Instance = {"*Instance", 193386898};
-		inline static constexpr EKeyword Inverse = {"*Inverse", 2986472067};
-		inline static constexpr EKeyword Layers = {"*Layers", 2411172191};
-		inline static constexpr EKeyword LeftHanded = {"*LeftHanded", 1992685208};
-		inline static constexpr EKeyword LightSource = {"*LightSource", 2597226090};
-		inline static constexpr EKeyword Line = {"*Line", 400234023};
-		inline static constexpr EKeyword LineBox = {"*LineBox", 3297263992};
-		inline static constexpr EKeyword LineList = {"*LineList", 419493935};
-		inline static constexpr EKeyword Lines = {"*Lines", 3789825596};
-		inline static constexpr EKeyword LineStrip = {"*LineStrip", 4082781759};
-		inline static constexpr EKeyword LookAt = {"*LookAt", 3951693683};
-		inline static constexpr EKeyword M3x3 = {"*M3x3", 1709156072};
-		inline static constexpr EKeyword M4x4 = {"*M4x4", 3279345952};
-		inline static constexpr EKeyword Mesh = {"*Mesh", 2701180604};
-		inline static constexpr EKeyword Model = {"*Model", 2961925722};
-		inline static constexpr EKeyword Montage = {"*Montage", 2939791094};
-		inline static constexpr EKeyword Name = {"*Name", 2369371622};
-		inline static constexpr EKeyword Near = {"*Near", 1425233679};
-		inline static constexpr EKeyword NewLine = {"*NewLine", 4281549323};
-		inline static constexpr EKeyword NonAffine = {"*NonAffine", 3876544483};
-		inline static constexpr EKeyword NoMaterials = {"*NoMaterials", 762077060};
-		inline static constexpr EKeyword Normalise = {"*Normalise", 4066511049};
-		inline static constexpr EKeyword Normals = {"*Normals", 247908339};
-		inline static constexpr EKeyword NoRootTranslation = {"*NoRootTranslation", 3287374065};
-		inline static constexpr EKeyword NoRootRotation = {"*NoRootRotation", 3606635828};
-		inline static constexpr EKeyword NoZTest = {"*NoZTest", 329427844};
-		inline static constexpr EKeyword NoZWrite = {"*NoZWrite", 1339143375};
-		inline static constexpr EKeyword O2W = {"*O2W", 2877203913};
-		inline static constexpr EKeyword Orthographic = {"*Orthographic", 3824181163};
-		inline static constexpr EKeyword Orthonormalise = {"*Orthonormalise", 2850748489};
-		inline static constexpr EKeyword Padding = {"*Padding", 2157316278};
-		inline static constexpr EKeyword Param = {"*Param", 1309554226};
-		inline static constexpr EKeyword Parametrics = {"*Parametrics", 4148475404};
-		inline static constexpr EKeyword Part = {"*Part", 2088252948};
-		inline static constexpr EKeyword Parts = {"*Parts", 1480434725};
-		inline static constexpr EKeyword Period = {"*Period", 2580104964};
-		inline static constexpr EKeyword PerItemColour = {"*PerItemColour", 1734234667};
-		inline static constexpr EKeyword PerItemParametrics = {"*PerItemParametrics", 2079701142};
-		inline static constexpr EKeyword Pie = {"*Pie", 1782644405};
-		inline static constexpr EKeyword Plane = {"*Plane", 3435855957};
-		inline static constexpr EKeyword Point = {"*Point", 414084241};
-		inline static constexpr EKeyword PointDepth = {"*PointDepth", 1069768758};
-		inline static constexpr EKeyword PointSize = {"*PointSize", 375054368};
-		inline static constexpr EKeyword PointStyle = {"*PointStyle", 2082693170};
-		inline static constexpr EKeyword Polygon = {"*Polygon", 85768329};
-		inline static constexpr EKeyword Pos = {"*Pos", 1412654217};
-		inline static constexpr EKeyword Position = {"*Position", 2471448074};
-		inline static constexpr EKeyword Quad = {"*Quad", 1738228046};
-		inline static constexpr EKeyword Quat = {"*Quat", 1469786142};
-		inline static constexpr EKeyword QuatPos = {"*QuatPos", 1842422916};
-		inline static constexpr EKeyword Rand4x4 = {"*Rand4x4", 1326225514};
-		inline static constexpr EKeyword RandColour = {"*RandColour", 1796074266};
-		inline static constexpr EKeyword RandOri = {"*RandOri", 55550374};
-		inline static constexpr EKeyword RandPos = {"*RandPos", 4225427356};
-		inline static constexpr EKeyword Range = {"*Range", 4208725202};
-		inline static constexpr EKeyword Rect = {"*Rect", 3940830471};
-		inline static constexpr EKeyword Reflectivity = {"*Reflectivity", 3111471187};
-		inline static constexpr EKeyword Resolution = {"*Resolution", 488725647};
-		inline static constexpr EKeyword Ribbon = {"*Ribbon", 1119144745};
-		inline static constexpr EKeyword RootAnimation = {"*RootAnimation", 464566237};
-		inline static constexpr EKeyword Round = {"*Round", 1326178875};
-		inline static constexpr EKeyword Scale = {"*Scale", 2190941297};
-		inline static constexpr EKeyword ScreenSpace = {"*ScreenSpace", 3267318065};
-		inline static constexpr EKeyword Series = {"*Series", 3703783856};
-		inline static constexpr EKeyword Size = {"*Size", 597743964};
-		inline static constexpr EKeyword Smooth = {"*Smooth", 24442543};
-		inline static constexpr EKeyword Solid = {"*Solid", 2973793012};
-		inline static constexpr EKeyword Source = {"*Source", 466561496};
-		inline static constexpr EKeyword Specular = {"*Specular", 3195258592};
-		inline static constexpr EKeyword Sphere = {"*Sphere", 2950268184};
-		inline static constexpr EKeyword Square = {"*Square", 3031831110};
-		inline static constexpr EKeyword Step = {"*Step", 3343129103};
-		inline static constexpr EKeyword Stretch = {"*Stretch", 3542801962};
-		inline static constexpr EKeyword Strikeout = {"*Strikeout", 3261692833};
-		inline static constexpr EKeyword Style = {"*Style", 2888859350};
-		inline static constexpr EKeyword Tetra = {"*Tetra", 1647597299};
-		inline static constexpr EKeyword TexCoords = {"*TexCoords", 536531680};
-		inline static constexpr EKeyword Text = {"*Text", 3185987134};
-		inline static constexpr EKeyword TextLayout = {"*TextLayout", 2881593448};
-		inline static constexpr EKeyword TextStream = {"*TextStream", 998584670};
-		inline static constexpr EKeyword Texture = {"*Texture", 1013213428};
-		inline static constexpr EKeyword TimeBias = {"*TimeBias", 2748914857};
-		inline static constexpr EKeyword TimeRange = {"*TimeRange", 1138166793};
-		inline static constexpr EKeyword Transpose = {"*Transpose", 3224470464};
-		inline static constexpr EKeyword Triangle = {"*Triangle", 84037765};
-		inline static constexpr EKeyword TriList = {"*TriList", 3668920810};
-		inline static constexpr EKeyword TriStrip = {"*TriStrip", 1312470952};
-		inline static constexpr EKeyword Tube = {"*Tube", 1747223167};
-		inline static constexpr EKeyword Txfm = {"*Txfm", 2438414104};
-		inline static constexpr EKeyword Underline = {"*Underline", 3850515583};
-		inline static constexpr EKeyword Unknown = {"*Unknown", 2608177081};
-		inline static constexpr EKeyword Up = {"*Up", 1128467232};
-		inline static constexpr EKeyword Velocity = {"*Velocity", 846470194};
-		inline static constexpr EKeyword Verts = {"*Verts", 3167497763};
-		inline static constexpr EKeyword Video = {"*Video", 3472427884};
-		inline static constexpr EKeyword ViewPlaneZ = {"*ViewPlaneZ", 458706800};
-		inline static constexpr EKeyword Wedges = {"*Wedges", 451463732};
-		inline static constexpr EKeyword Weight = {"*Weight", 1352703673};
-		inline static constexpr EKeyword Width = {"*Width", 2508680735};
-		inline static constexpr EKeyword Wireframe = {"*Wireframe", 305834533};
-		inline static constexpr EKeyword XAxis = {"*XAxis", 3274667154};
-		inline static constexpr EKeyword XColumn = {"*XColumn", 3953029077};
-		inline static constexpr EKeyword YAxis = {"*YAxis", 1077811589};
-		inline static constexpr EKeyword ZAxis = {"*ZAxis", 3837765916};
+		inline static constexpr NameValue Accel = {"*Accel", 3784776339};
+		inline static constexpr NameValue Addr = {"*Addr", 1087856498};
+		inline static constexpr NameValue Align = {"*Align", 1613521886};
+		inline static constexpr NameValue Alpha = {"*Alpha", 1569418667};
+		inline static constexpr NameValue Ambient = {"*Ambient", 479609067};
+		inline static constexpr NameValue Anchor = {"*Anchor", 1122880180};
+		inline static constexpr NameValue AngAccel = {"*AngAccel", 801436173};
+		inline static constexpr NameValue AngVelocity = {"*AngVelocity", 2226367268};
+		inline static constexpr NameValue AnimSource = {"*AnimSource", 4254838773};
+		inline static constexpr NameValue Animation = {"*Animation", 3779456605};
+		inline static constexpr NameValue Arrow = {"*Arrow", 2220107398};
+		inline static constexpr NameValue Aspect = {"*Aspect", 2929999953};
+		inline static constexpr NameValue Axis = {"*Axis", 1831579124};
+		inline static constexpr NameValue AxisId = {"*AxisId", 1558262649};
+		inline static constexpr NameValue BackColour = {"*BackColour", 1583172070};
+		inline static constexpr NameValue BakeTransform = {"*BakeTransform", 3697187404};
+		inline static constexpr NameValue Billboard = {"*Billboard", 3842439780};
+		inline static constexpr NameValue Billboard3D = {"*Billboard3D", 3185018435};
+		inline static constexpr NameValue BinaryStream = {"*BinaryStream", 1110191492};
+		inline static constexpr NameValue Box = {"*Box", 1892056626};
+		inline static constexpr NameValue BoxList = {"*BoxList", 282663022};
+		inline static constexpr NameValue Camera = {"*Camera", 2663290958};
+		inline static constexpr NameValue CastShadow = {"*CastShadow", 3890809582};
+		inline static constexpr NameValue Chart = {"*Chart", 1487494731};
+		inline static constexpr NameValue Circle = {"*Circle", 673280137};
+		inline static constexpr NameValue Closed = {"*Closed", 3958264005};
+		inline static constexpr NameValue Colour = {"*Colour", 33939709};
+		inline static constexpr NameValue Colours = {"*Colours", 3175120778};
+		inline static constexpr NameValue Commands = {"*Commands", 3062934995};
+		inline static constexpr NameValue Cone = {"*Cone", 3711978346};
+		inline static constexpr NameValue ConvexHull = {"*ConvexHull", 1990998937};
+		inline static constexpr NameValue CoordFrame = {"*CoordFrame", 3958982335};
+		inline static constexpr NameValue CornerRadius = {"*CornerRadius", 2396916310};
+		inline static constexpr NameValue CrossSection = {"*CrossSection", 3755993582};
+		inline static constexpr NameValue CString = {"*CString", 2719639595};
+		inline static constexpr NameValue Custom = {"*Custom", 542584942};
+		inline static constexpr NameValue Cylinder = {"*Cylinder", 2904473583};
+		inline static constexpr NameValue Dashed = {"*Dashed", 4029489596};
+		inline static constexpr NameValue Data = {"*Data", 3631407781};
+		inline static constexpr NameValue DataPoints = {"*DataPoints", 1656579750};
+		inline static constexpr NameValue Depth = {"*Depth", 4269121258};
+		inline static constexpr NameValue Diffuse = {"*Diffuse", 1416505917};
+		inline static constexpr NameValue Dim = {"*Dim", 3496118841};
+		inline static constexpr NameValue Direction = {"*Direction", 3748513642};
+		inline static constexpr NameValue Divisions = {"*Divisions", 555458703};
+		inline static constexpr NameValue Equation = {"*Equation", 2486886355};
+		inline static constexpr NameValue Euler = {"*Euler", 1180123250};
+		inline static constexpr NameValue Faces = {"*Faces", 455960701};
+		inline static constexpr NameValue Facets = {"*Facets", 3463018577};
+		inline static constexpr NameValue Far = {"*Far", 3170376174};
+		inline static constexpr NameValue FilePath = {"*FilePath", 1962937316};
+		inline static constexpr NameValue Filter = {"*Filter", 3353438327};
+		inline static constexpr NameValue Font = {"*Font", 659427984};
+		inline static constexpr NameValue ForeColour = {"*ForeColour", 3815865055};
+		inline static constexpr NameValue Format = {"*Format", 3114108242};
+		inline static constexpr NameValue Fov = {"*Fov", 2968750556};
+		inline static constexpr NameValue FovX = {"*FovX", 862039340};
+		inline static constexpr NameValue FovY = {"*FovY", 878816959};
+		inline static constexpr NameValue Frame = {"*Frame", 3523899814};
+		inline static constexpr NameValue FrameRange = {"*FrameRange", 1562558803};
+		inline static constexpr NameValue FrameRate = {"*FrameRate", 2601589476};
+		inline static constexpr NameValue FrustumFA = {"*FrustumFA", 3281884904};
+		inline static constexpr NameValue FrustumWH = {"*FrustumWH", 3334630522};
+		inline static constexpr NameValue GenerateNormals = {"*GenerateNormals", 750341558};
+		inline static constexpr NameValue Grid = {"*Grid", 2944866961};
+		inline static constexpr NameValue Group = {"*Group", 1605967500};
+		inline static constexpr NameValue GroupColour = {"*GroupColour", 2738848320};
+		inline static constexpr NameValue Hidden = {"*Hidden", 4128829753};
+		inline static constexpr NameValue HideWhenNotAnimating = {"*HideWhenNotAnimating", 2975106646};
+		inline static constexpr NameValue Instance = {"*Instance", 193386898};
+		inline static constexpr NameValue Inverse = {"*Inverse", 2986472067};
+		inline static constexpr NameValue Layers = {"*Layers", 2411172191};
+		inline static constexpr NameValue LeftHanded = {"*LeftHanded", 1992685208};
+		inline static constexpr NameValue LightSource = {"*LightSource", 2597226090};
+		inline static constexpr NameValue Line = {"*Line", 400234023};
+		inline static constexpr NameValue LineBox = {"*LineBox", 3297263992};
+		inline static constexpr NameValue LineList = {"*LineList", 419493935};
+		inline static constexpr NameValue Lines = {"*Lines", 3789825596};
+		inline static constexpr NameValue LineStrip = {"*LineStrip", 4082781759};
+		inline static constexpr NameValue LookAt = {"*LookAt", 3951693683};
+		inline static constexpr NameValue M3x3 = {"*M3x3", 1709156072};
+		inline static constexpr NameValue M4x4 = {"*M4x4", 3279345952};
+		inline static constexpr NameValue Mesh = {"*Mesh", 2701180604};
+		inline static constexpr NameValue Model = {"*Model", 2961925722};
+		inline static constexpr NameValue Montage = {"*Montage", 2939791094};
+		inline static constexpr NameValue Name = {"*Name", 2369371622};
+		inline static constexpr NameValue Near = {"*Near", 1425233679};
+		inline static constexpr NameValue NewLine = {"*NewLine", 4281549323};
+		inline static constexpr NameValue NonAffine = {"*NonAffine", 3876544483};
+		inline static constexpr NameValue NoMaterials = {"*NoMaterials", 762077060};
+		inline static constexpr NameValue Normalise = {"*Normalise", 4066511049};
+		inline static constexpr NameValue Normals = {"*Normals", 247908339};
+		inline static constexpr NameValue NoRootTranslation = {"*NoRootTranslation", 3287374065};
+		inline static constexpr NameValue NoRootRotation = {"*NoRootRotation", 3606635828};
+		inline static constexpr NameValue NoZTest = {"*NoZTest", 329427844};
+		inline static constexpr NameValue NoZWrite = {"*NoZWrite", 1339143375};
+		inline static constexpr NameValue O2W = {"*O2W", 2877203913};
+		inline static constexpr NameValue Orthographic = {"*Orthographic", 3824181163};
+		inline static constexpr NameValue Orthonormalise = {"*Orthonormalise", 2850748489};
+		inline static constexpr NameValue Padding = {"*Padding", 2157316278};
+		inline static constexpr NameValue Param = {"*Param", 1309554226};
+		inline static constexpr NameValue Parametrics = {"*Parametrics", 4148475404};
+		inline static constexpr NameValue Part = {"*Part", 2088252948};
+		inline static constexpr NameValue Parts = {"*Parts", 1480434725};
+		inline static constexpr NameValue Period = {"*Period", 2580104964};
+		inline static constexpr NameValue PerItemColour = {"*PerItemColour", 1734234667};
+		inline static constexpr NameValue PerItemParametrics = {"*PerItemParametrics", 2079701142};
+		inline static constexpr NameValue Pie = {"*Pie", 1782644405};
+		inline static constexpr NameValue Plane = {"*Plane", 3435855957};
+		inline static constexpr NameValue Point = {"*Point", 414084241};
+		inline static constexpr NameValue PointDepth = {"*PointDepth", 1069768758};
+		inline static constexpr NameValue PointSize = {"*PointSize", 375054368};
+		inline static constexpr NameValue PointStyle = {"*PointStyle", 2082693170};
+		inline static constexpr NameValue Polygon = {"*Polygon", 85768329};
+		inline static constexpr NameValue Pos = {"*Pos", 1412654217};
+		inline static constexpr NameValue Position = {"*Position", 2471448074};
+		inline static constexpr NameValue Quad = {"*Quad", 1738228046};
+		inline static constexpr NameValue Quat = {"*Quat", 1469786142};
+		inline static constexpr NameValue QuatPos = {"*QuatPos", 1842422916};
+		inline static constexpr NameValue Rand4x4 = {"*Rand4x4", 1326225514};
+		inline static constexpr NameValue RandColour = {"*RandColour", 1796074266};
+		inline static constexpr NameValue RandOri = {"*RandOri", 55550374};
+		inline static constexpr NameValue RandPos = {"*RandPos", 4225427356};
+		inline static constexpr NameValue Range = {"*Range", 4208725202};
+		inline static constexpr NameValue Rect = {"*Rect", 3940830471};
+		inline static constexpr NameValue Reflectivity = {"*Reflectivity", 3111471187};
+		inline static constexpr NameValue Resolution = {"*Resolution", 488725647};
+		inline static constexpr NameValue Ribbon = {"*Ribbon", 1119144745};
+		inline static constexpr NameValue RootAnimation = {"*RootAnimation", 464566237};
+		inline static constexpr NameValue Round = {"*Round", 1326178875};
+		inline static constexpr NameValue Scale = {"*Scale", 2190941297};
+		inline static constexpr NameValue ScreenSpace = {"*ScreenSpace", 3267318065};
+		inline static constexpr NameValue Series = {"*Series", 3703783856};
+		inline static constexpr NameValue Size = {"*Size", 597743964};
+		inline static constexpr NameValue Smooth = {"*Smooth", 24442543};
+		inline static constexpr NameValue Solid = {"*Solid", 2973793012};
+		inline static constexpr NameValue Source = {"*Source", 466561496};
+		inline static constexpr NameValue Specular = {"*Specular", 3195258592};
+		inline static constexpr NameValue Sphere = {"*Sphere", 2950268184};
+		inline static constexpr NameValue Square = {"*Square", 3031831110};
+		inline static constexpr NameValue Step = {"*Step", 3343129103};
+		inline static constexpr NameValue Stretch = {"*Stretch", 3542801962};
+		inline static constexpr NameValue Strikeout = {"*Strikeout", 3261692833};
+		inline static constexpr NameValue Style = {"*Style", 2888859350};
+		inline static constexpr NameValue Tetra = {"*Tetra", 1647597299};
+		inline static constexpr NameValue TexCoords = {"*TexCoords", 536531680};
+		inline static constexpr NameValue Text = {"*Text", 3185987134};
+		inline static constexpr NameValue TextLayout = {"*TextLayout", 2881593448};
+		inline static constexpr NameValue TextStream = {"*TextStream", 998584670};
+		inline static constexpr NameValue Texture = {"*Texture", 1013213428};
+		inline static constexpr NameValue TimeBias = {"*TimeBias", 2748914857};
+		inline static constexpr NameValue TimeRange = {"*TimeRange", 1138166793};
+		inline static constexpr NameValue Transpose = {"*Transpose", 3224470464};
+		inline static constexpr NameValue Triangle = {"*Triangle", 84037765};
+		inline static constexpr NameValue TriList = {"*TriList", 3668920810};
+		inline static constexpr NameValue TriStrip = {"*TriStrip", 1312470952};
+		inline static constexpr NameValue Tube = {"*Tube", 1747223167};
+		inline static constexpr NameValue Txfm = {"*Txfm", 2438414104};
+		inline static constexpr NameValue Underline = {"*Underline", 3850515583};
+		inline static constexpr NameValue Unknown = {"*Unknown", 2608177081};
+		inline static constexpr NameValue Up = {"*Up", 1128467232};
+		inline static constexpr NameValue Velocity = {"*Velocity", 846470194};
+		inline static constexpr NameValue Verts = {"*Verts", 3167497763};
+		inline static constexpr NameValue Video = {"*Video", 3472427884};
+		inline static constexpr NameValue ViewPlaneZ = {"*ViewPlaneZ", 458706800};
+		inline static constexpr NameValue Wedges = {"*Wedges", 451463732};
+		inline static constexpr NameValue Weight = {"*Weight", 1352703673};
+		inline static constexpr NameValue Width = {"*Width", 2508680735};
+		inline static constexpr NameValue Wireframe = {"*Wireframe", 305834533};
+		inline static constexpr NameValue XAxis = {"*XAxis", 3274667154};
+		inline static constexpr NameValue XColumn = {"*XColumn", 3953029077};
+		inline static constexpr NameValue YAxis = {"*YAxis", 1077811589};
+		inline static constexpr NameValue ZAxis = {"*ZAxis", 3837765916};
 		// AUTO-GENERATED-KEYWORDS-END
+		#pragma endregion
+	};
+	struct ECommands
+	{
+		#pragma region Commands
+		// AUTO-GENERATED-COMMANDS-BEGIN
+		inline static constexpr NameValue Invalid = {"Invalid", 3419534640};
+		inline static constexpr NameValue AddToScene = {"AddToScene", 3734185163};
+		inline static constexpr NameValue CameraToWorld = {"CameraToWorld", 1798355577};
+		inline static constexpr NameValue CameraPosition = {"CameraPosition", 109155401};
+		inline static constexpr NameValue ObjectToWorld = {"ObjectToWorld", 1059927965};
+		inline static constexpr NameValue Render = {"Render", 4009327117};
+		// AUTO-GENERATED-COMMANDS-END
 		#pragma endregion
 	};
 
@@ -481,23 +494,23 @@ namespace pr::ldraw
 			char ch[32];
 			Append(out, conv(ch, u, 16));
 		}
-		inline void Append(textbuf& out, EKeyword kw)
+		inline void Append(textbuf& out, NameValue kw)
 		{
 			Append(out, std::string_view{ kw.name });
 		}
-		inline void Append(bytebuf& out, EKeyword kw)
+		inline void Append(bytebuf& out, NameValue kw)
 		{
 			Append(out, { byte_ptr(&kw.value), sizeof(kw.value) });
 		}
 
 		struct Name
 		{
-			EKeyword m_kw;
+			NameValue m_kw;
 			std::optional<std::string> m_name;
 			Name() :m_kw(), m_name() {}
 			Name(std::string_view str) :m_kw(), m_name(Sanitise(str)) {}
 			Name(std::string const& str) :m_kw(), m_name(Sanitise(str)) {}
-			Name(EKeyword kw, std::string_view str) :m_kw(kw), m_name(Sanitise(str)) {}
+			Name(NameValue kw, std::string_view str) :m_kw(kw), m_name(Sanitise(str)) {}
 			template <int N> Name(char const (&str)[N]) :m_kw(), m_name(Sanitise(str)) {}
 			static std::string Sanitise(std::string_view name)
 			{
@@ -522,12 +535,12 @@ namespace pr::ldraw
 		};
 		struct Colour
 		{
-			EKeyword m_kw;
+			NameValue m_kw;
 			std::optional<uint32_t> m_colour;
 			Colour() :m_kw(), m_colour() {}
 			Colour(uint32_t argb) :m_kw(), m_colour(argb) {}
 			Colour(TColour32 auto c) :m_kw(), m_colour(c) {}
-			Colour(EKeyword kw, TColour32 auto c) :m_kw(kw), m_colour(c) {}
+			Colour(NameValue kw, TColour32 auto c) :m_kw(kw), m_colour(c) {}
 			explicit operator bool() const { return m_colour.has_value(); }
 			static constexpr uint32_t Default = 0xFFFFFFFF;
 			friend void Append(bytebuf& out, seri::Colour c); // Defined after Header
@@ -544,7 +557,7 @@ namespace pr::ldraw
 		};
 		struct Header
 		{
-			EKeyword m_kw;
+			NameValue m_kw;
 			Name m_name;
 			Colour m_colour;
 
@@ -2115,32 +2128,55 @@ namespace pr::ldraw
 		LdrBase& operator=(LdrBase const&) = delete;
 		virtual ~LdrBase() = default;
 
+		// Remove all state and children from this object
+		void Clear()
+		{
+			m_children.clear();
+			m_name = {};
+			m_colour = {};
+			m_group_colour = {};
+			m_hide = {};
+			m_wire = {};
+			m_axis_id = {};
+			m_solid = {};
+			m_refl = {};
+			m_left_handed = {};
+			m_screen_space = {};
+			m_no_ztest = {};
+			m_no_zwrite = {};
+			m_root_anim = {};
+			m_o2w = {};
+		}
+
 		// Children
+		LdrBinaryStream& BinaryStream();
+		LdrBox& Box(seri::Name name = {}, seri::Colour colour = {});
+		LdrCircle& Circle(seri::Name name = {}, seri::Colour colour = {});
+		LdrCommands& Commands();
+		LdrCone& Cone(seri::Name name = {}, seri::Colour colour = {});
+		LdrConvexHull& ConvexHull(seri::Name name = {}, seri::Colour colour = {});
+		LdrCoordFrame& CoordFrame(seri::Name name = {}, seri::Colour colour = {});
+		LdrCylinder& Cylinder(seri::Name name = {}, seri::Colour colour = {});
+		LdrFrustum& Frustum(seri::Name name = {}, seri::Colour colour = {});
+		LdrGrid& Grid(seri::Name name = {}, seri::Colour colour = {});
 		LdrGroup& Group(seri::Name name = {}, seri::Colour colour = {});
 		LdrInstance& Instance(seri::Name name = {}, seri::Colour colour = {});
-		LdrText& Text(seri::Name name = {}, seri::Colour colour = {});
 		LdrLightSource& LightSource(seri::Name name = {}, seri::Colour colour = {});
-		LdrPoint& Point(seri::Name name = {}, seri::Colour colour = {});
 		LdrLine& Line(seri::Name name = {}, seri::Colour colour = {});
 		LdrLineBox& LineBox(seri::Name name = {}, seri::Colour colour = {});
-		LdrGrid& Grid(seri::Name name = {}, seri::Colour colour = {});
-		LdrCoordFrame& CoordFrame(seri::Name name = {}, seri::Colour colour = {});
-		LdrCircle& Circle(seri::Name name = {}, seri::Colour colour = {});
-		LdrPie& Pie(seri::Name name = {}, seri::Colour colour = {});
-		LdrRect& Rect(seri::Name name = {}, seri::Colour colour = {});
-		LdrPolygon& Polygon(seri::Name name = {}, seri::Colour colour = {});
-		LdrTriangle& Triangle(seri::Name name = {}, seri::Colour colour = {});
-		LdrQuad& Quad(seri::Name name = {}, seri::Colour colour = {});
-		LdrPlane& Plane(seri::Name name = {}, seri::Colour colour = {});
-		LdrRibbon& Ribbon(seri::Name name = {}, seri::Colour colour = {});
-		LdrBox& Box(seri::Name name = {}, seri::Colour colour = {});
-		LdrFrustum& Frustum(seri::Name name = {}, seri::Colour colour = {});
-		LdrSphere& Sphere(seri::Name name = {}, seri::Colour colour = {});
-		LdrCylinder& Cylinder(seri::Name name = {}, seri::Colour colour = {});
-		LdrCone& Cone(seri::Name name = {}, seri::Colour colour = {});
 		LdrMesh& Mesh(seri::Name name = {}, seri::Colour colour = {});
-		LdrConvexHull& ConvexHull(seri::Name name = {}, seri::Colour colour = {});
 		LdrModel& Model(seri::Name name = {}, seri::Colour colour = {});
+		LdrPie& Pie(seri::Name name = {}, seri::Colour colour = {});
+		LdrPlane& Plane(seri::Name name = {}, seri::Colour colour = {});
+		LdrPoint& Point(seri::Name name = {}, seri::Colour colour = {});
+		LdrPolygon& Polygon(seri::Name name = {}, seri::Colour colour = {});
+		LdrQuad& Quad(seri::Name name = {}, seri::Colour colour = {});
+		LdrRect& Rect(seri::Name name = {}, seri::Colour colour = {});
+		LdrRibbon& Ribbon(seri::Name name = {}, seri::Colour colour = {});
+		LdrSphere& Sphere(seri::Name name = {}, seri::Colour colour = {});
+		LdrText& Text(seri::Name name = {}, seri::Colour colour = {});
+		LdrTextStream& TextStream();
+		LdrTriangle& Triangle(seri::Name name = {}, seri::Colour colour = {});
 
 		// Extension objects. Use: `builder._<LdrCustom>("name", 0xFFFFFFFF)`
 		template <typename LdrCustom> requires std::is_base_of_v<LdrBase, LdrCustom>
@@ -2283,80 +2319,74 @@ namespace pr::ldraw
 				child->Write(out);
 		}
 	};
-	struct LdrPoint :LdrBase
+	struct LdrBinaryStream :LdrBase
 	{
-		struct Point
+		// Write to 'out'
+		virtual void Write(bytebuf& out) const override
 		{
-			seri::Vec3 pt = {};
-			seri::Colour col = {};
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::BinaryStream, m_name, m_colour });
+		}
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::BinaryStream);
+		}
+	};
+	struct LdrBox : LdrBase
+	{
+		struct BoxData
+		{
+			seri::Vec3 m_whd = {};
+			seri::Vec3 m_pos = {};
+			seri::Colour m_col = {};
 		};
-		std::vector<Point> m_points;
-		seri::Size2 m_size;
-		seri::Depth m_depth;
-		seri::PointStyle m_style;
-		seri::PerItemColour m_per_item_colour;
-		seri::Texture m_tex;
+		std::vector<BoxData> m_boxes;
 
-		LdrPoint(seri::Name name, seri::Colour colour)
-			: LdrBase(name, colour)
+		LdrBox(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
 		{}
 
-		LdrPoint& pt(seri::Vec3 point, seri::Colour colour = {})
+		LdrBox& box(seri::Vec3 whd, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			m_points.push_back({ point, colour });
-			if (colour) m_per_item_colour = true;
+			m_boxes.push_back(BoxData{ whd, pos, col });
 			return *this;
 		}
-		LdrPoint& pt(float x, float y, float z, seri::Colour colour = {})
+		LdrBox& box(float x, float y, float z, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			return pt({ x, y, z }, colour);
+			return box(seri::Vec3(x, y, z), pos, col);
 		}
-		LdrPoint& size(seri::Vec2 s)
+		LdrBox& box(float s)
 		{
-			m_size = s;
-			return *this;
-		}
-		LdrPoint& size(float s) // Point size (in pixels if depth == false, in world space if depth == true)
-		{
-			return size({ s, s });
-		}
-		LdrPoint& depth(bool d = true) // Points have depth
-		{
-			m_depth = d;
-			return *this;
-		}
-		LdrPoint& style(seri::PointStyle s) // Point style
-		{
-			m_style = s;
-			return *this;
-		}
-		seri::Texture& texture() // Texture for point sprites
-		{
-			return m_tex;
-		}
-		LdrPoint& texture(std::invocable<seri::Texture&> auto&& cb)
-		{
-			cb(m_tex);
-			return *this;
+			return box(s, s, s);
 		}
 
 		virtual void Write(textbuf& out) const override
 		{
 			using namespace seri;
-			Append(out, EKeywords::Point, m_name, m_colour, "{");
+			auto single = m_boxes.size() == 1 && !m_boxes[0].m_pos && !m_boxes[0].m_col;
+			auto per_item_colour = std::ranges::any_of(m_boxes, [](auto const& x) { return !!x.m_col; });
+
+			Append(out, single ? EKeywords::Box : EKeywords::BoxList, m_name, m_colour, "{");
 			{
-				Append(out, m_style, m_size, m_depth, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
+				if (single)
 				{
-					for (auto& point : m_points)
-					{
-						Append(out, point.pt);
-						if (m_per_item_colour && *m_per_item_colour.m_active)
-							Append(out, point.col ? *point.col.m_colour : seri::Colour::Default);
-					}
+					Append(out, EKeywords::Data, "{", m_boxes[0].m_whd, "}");
 				}
-				Append(out, "}");
-				Append(out, m_tex);
+				else
+				{
+					if (per_item_colour)
+						Append(out, EKeywords::PerItemColour, "{}");
+
+					Append(out, EKeywords::Data, "{");
+					for (auto const& box : m_boxes)
+					{
+						Append(out, box.m_whd, box.m_pos);
+						if (per_item_colour)
+							Append(out, box.m_col);
+					}
+					Append(out, "}");
+				}
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -2364,21 +2394,687 @@ namespace pr::ldraw
 		virtual void Write(bytebuf& out) const override
 		{
 			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Point, m_name, m_colour });
+			auto single = m_boxes.size() == 1 && !m_boxes[0].m_pos && !m_boxes[0].m_col;
+			auto per_item_colour = std::ranges::any_of(m_boxes, [](auto const& x) { return !!x.m_col; });
+
+			auto s = Append(out, seri::Header{ single ? EKeywords::Box : EKeywords::BoxList, m_name, m_colour });
 			{
-				Append(out, m_style, m_size, m_depth, m_per_item_colour);
+				if (single)
 				{
-					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					Append(out, seri::Header{ EKeywords::Data }, m_boxes[0].m_whd);
+				}
+				else
+				{
+					if (per_item_colour)
+						Append(out, seri::Header{ EKeywords::PerItemColour });
+
 					{
-						for (auto& point : m_points)
+						auto sd = Append(out, seri::Header{ EKeywords::Data });
+						for (auto const& box : m_boxes)
 						{
-							Append(out, point.pt);
-							if (m_per_item_colour && *m_per_item_colour.m_active)
-								Append(out, point.col ? *point.col.m_colour : seri::Colour::Default);
+							Append(out, box.m_whd, box.m_pos);
+							if (per_item_colour)
+								Append(out, box.m_col);
 						}
 					}
 				}
-				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrCircle : LdrBase
+	{
+		float m_radius = {};
+		seri::Facets m_facets;
+
+		LdrCircle(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrCircle& radius(float r)
+		{
+			m_radius = r;
+			return *this;
+		}
+		LdrCircle& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Circle, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, "{", m_radius, "}");
+				Append(out, m_facets, m_axis_id, m_solid);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Circle, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_radius);
+				Append(out, m_facets, m_axis_id, m_solid);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrCommands :LdrBase
+	{
+		using param_t = union param_t // Don't need type descrimination, the command implies the parameter types
+		{
+			seri::Mat4 mat4;
+			seri::Vec4 vec4;
+			seri::Vec2 vec2;
+			seri::StringWithLength nstr;
+			float f;
+			int i;
+			bool b;
+		};
+		using cmd_t = struct Cmd
+		{
+			NameValue m_id;
+			std::vector<param_t> m_params;
+		};
+
+		std::vector<cmd_t> m_cmds;
+
+		// Add objects created by this script to scene 'scene_id'
+		LdrCommands& add_to_scene(int scene_id)
+		{
+			m_cmds.push_back({ ECommands::AddToScene, {{.i = scene_id}} });
+			return *this;
+		}
+
+		// Apply a transform to an object with the given name
+		LdrCommands& object_transform(std::string_view object_name, TMat4 auto&& o2w)
+		{
+			m_cmds.push_back({ ECommands::ObjectToWorld, {{.nstr = object_name}, {.mat4 = o2w}} });
+			return *this;
+		}
+
+		// Write to 'out'
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Commands, m_name, m_colour });
+			for (auto& cmd : m_cmds)
+			{
+				auto sd = Append(out, seri::Header{ EKeywords::Data });
+				{
+					Append(out, cmd.m_id);
+					if (cmd.m_id == ECommands::AddToScene)
+					{
+						Append(out, cmd.m_params[0].i);
+					}
+					else if (cmd.m_id == ECommands::ObjectToWorld)
+					{
+						Append(out, cmd.m_params[0].nstr);
+						Append(out, cmd.m_params[1].mat4);
+					}
+					else
+					{
+						throw std::runtime_error("Unknown command id");
+					}
+				}
+			}
+		}
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Commands, m_name, m_colour, "{");
+			for (auto& cmd : m_cmds)
+			{
+				Append(out, EKeywords::Data, "{");
+				{
+					Append(out, cmd.m_id);
+					if (cmd.m_id == ECommands::AddToScene)
+					{
+						Append(out, cmd.m_params[0].i);
+					}
+					else if (cmd.m_id == ECommands::ObjectToWorld)
+					{
+						Append(out, cmd.m_params[0].nstr);
+						Append(out, cmd.m_params[1].mat4);
+					}
+					else
+					{
+						throw std::runtime_error("Unknown command id");
+					}
+				}
+				Append(out, "}");
+			}
+			Append(out, "}");
+		}
+	};
+	struct LdrCone : LdrBase
+	{
+		float m_angle = {};
+		float m_near = {};
+		float m_far = {};
+		seri::Facets m_facets;
+		bool m_scale_set = false;
+		seri::Scale2 m_scale;
+
+		LdrCone(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrCone& angle(float a)
+		{
+			m_angle = a;
+			return *this;
+		}
+		LdrCone& height(float h)
+		{
+			m_far = m_near + h;
+			return *this;
+		}
+		LdrCone& near_dist(float n)
+		{
+			m_near = n;
+			return *this;
+		}
+		LdrCone& far_dist(float f)
+		{
+			m_far = f;
+			return *this;
+		}
+		LdrCone& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+		LdrCone& scale(float sx, float sy)
+		{
+			m_scale = seri::Scale2(sx, sy);
+			m_scale_set = true;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Cone, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, "{", m_angle, m_near, m_far, "}");
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Cone, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_angle, m_near, m_far);
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrConvexHull : LdrBase
+	{
+		std::vector<seri::Vec3> m_verts;
+		seri::GenerateNormals m_gen_normals;
+
+		LdrConvexHull(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrConvexHull& vert(seri::Vec3 v)
+		{
+			m_verts.push_back(v);
+			return *this;
+		}
+		LdrConvexHull& vert(float x, float y, float z)
+		{
+			return vert({x, y, z});
+		}
+		LdrConvexHull& generate_normals(float angle = 0)
+		{
+			m_gen_normals = angle;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::ConvexHull, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Verts, "{");
+				for (auto& v : m_verts) Append(out, v);
+				Append(out, "}");
+				Append(out, m_gen_normals);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::ConvexHull, m_name, m_colour });
+			{
+				{
+					auto sv = Append(out, seri::Header{ EKeywords::Verts });
+					for (auto& v : m_verts) Append(out, v);
+				}
+				Append(out, m_gen_normals);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrCoordFrame : LdrBase
+	{
+		seri::Scale m_scale;
+		seri::Width m_width;
+
+		LdrCoordFrame(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrCoordFrame& scale(float s)
+		{
+			m_scale = s;
+			return *this;
+		}
+		LdrCoordFrame& width(float w)
+		{
+			m_width = w;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::CoordFrame, m_name, m_colour, "{");
+			{
+				Append(out, m_scale, m_left_handed, m_width);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::CoordFrame, m_name, m_colour });
+			{
+				Append(out, m_scale, m_left_handed, m_width);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrCylinder : LdrBase
+	{
+		float m_height = {};
+		float m_radius = {};
+		float m_tip_radius = -1.0f;
+		seri::Facets m_facets;
+		bool m_scale_set = false;
+		seri::Scale2 m_scale;
+
+		LdrCylinder(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrCylinder& hr(float h, float r)
+		{
+			m_height = h;
+			m_radius = r;
+			return *this;
+		}
+		LdrCylinder& height(float h)
+		{
+			m_height = h;
+			return *this;
+		}
+		LdrCylinder& radius(float r)
+		{
+			m_radius = r;
+			return *this;
+		}
+		LdrCylinder& tip_radius(float r)
+		{
+			m_tip_radius = r;
+			return *this;
+		}
+		LdrCylinder& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+		LdrCylinder& scale(float sx, float sy)
+		{
+			m_scale = seri::Scale2(sx, sy);
+			m_scale_set = true;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Cylinder, m_name, m_colour, "{");
+			{
+				if (m_tip_radius >= 0)
+				Append(out, EKeywords::Data, "{", m_height, m_radius, m_tip_radius, "}");
+				else
+				Append(out, EKeywords::Data, "{", m_height, m_radius, "}");
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Cylinder, m_name, m_colour });
+			{
+				if (m_tip_radius >= 0)
+				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius, m_tip_radius);
+				else
+				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius);
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrFrustum : LdrBase
+	{
+		enum class EMode { WH, FA };
+		EMode m_mode = EMode::WH;
+		float m_width = {};
+		float m_height = {};
+		float m_fov_y = {};
+		float m_aspect = 1.0f;
+		float m_near = {};
+		float m_far = {};
+		seri::Facets m_facets;
+
+		LdrFrustum(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrFrustum& wh(float w, float h, float near_dist, float far_dist)
+		{
+			m_mode = EMode::WH;
+			m_width = w;
+			m_height = h;
+			m_near = near_dist;
+			m_far = far_dist;
+			return *this;
+		}
+		LdrFrustum& fa(float fov_y, float aspect, float near_dist, float far_dist)
+		{
+			m_mode = EMode::FA;
+			m_fov_y = fov_y;
+			m_aspect = aspect;
+			m_near = near_dist;
+			m_far = far_dist;
+			return *this;
+		}
+		LdrFrustum& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			auto kw = m_mode == EMode::FA ? EKeywords::FrustumFA : EKeywords::FrustumWH;
+			Append(out, kw, m_name, m_colour, "{");
+			{
+				if (m_mode == EMode::WH)
+				Append(out, EKeywords::Data, "{", m_width, m_height, m_near, m_far, "}");
+				else
+				Append(out, EKeywords::Data, "{", m_fov_y, m_aspect, m_near, m_far, "}");
+				Append(out, m_facets);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto kw = m_mode == EMode::FA ? EKeywords::FrustumFA : EKeywords::FrustumWH;
+			auto s = Append(out, seri::Header{ kw, m_name, m_colour });
+			{
+				if (m_mode == EMode::WH)
+				Append(out, seri::Header{ EKeywords::Data }, m_width, m_height, m_near, m_far);
+				else
+				Append(out, seri::Header{ EKeywords::Data }, m_fov_y, m_aspect, m_near, m_far);
+				Append(out, m_facets);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrGrid : LdrBase
+	{
+		seri::Vec2 m_wh = {};
+		int m_div_w = 0;
+		int m_div_h = 0;
+		seri::Width m_width;
+		seri::Dashed m_dashed;
+
+		LdrGrid(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrGrid& wh(seri::Vec2 wh)
+		{
+			m_wh = wh;
+			return *this;
+		}
+		LdrGrid& wh(float w, float h)
+		{
+			m_wh = {w, h};
+			return *this;
+		}
+		LdrGrid& divisions(int w, int h)
+		{
+			m_div_w = w;
+			m_div_h = h;
+			return *this;
+		}
+		LdrGrid& width(float w)
+		{
+			m_width = w;
+			return *this;
+		}
+		LdrGrid& dashed(seri::Vec2 d)
+		{
+			m_dashed = d;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Grid, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, "{", m_wh, "}");
+				if (m_div_w != 0 || m_div_h != 0)
+				Append(out, EKeywords::Divisions, "{", m_div_w, m_div_h, "}");
+				Append(out, m_width, m_dashed);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Grid, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_wh);
+				if (m_div_w != 0 || m_div_h != 0)
+				Append(out, seri::Header{ EKeywords::Divisions }, m_div_w, m_div_h);
+				Append(out, m_width, m_dashed);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrGroup : LdrBase
+	{
+		LdrGroup(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
+		{}
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Group, m_name, m_colour, "{");
+			LdrBase::Write(out);
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Group, m_name, m_colour });
+			LdrBase::Write(out);
+		}
+	};
+	struct LdrInstance : LdrBase
+	{
+		std::string m_address;
+		seri::Animation m_anim;
+
+		LdrInstance(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrInstance& address(std::string_view addr)
+		{
+			m_address = addr;
+			return *this;
+		}
+		seri::Animation& anim()
+		{
+			return m_anim;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Instance, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, std::string("{\"") + m_address + "\"}");
+				if (m_anim) Append(out, m_anim);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Instance, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_address);
+				if (m_anim) Append(out, m_anim);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrLightSource : LdrBase
+	{
+		std::string m_style;
+		std::optional<uint32_t> m_ambient;
+		std::optional<uint32_t> m_diffuse;
+		std::optional<uint32_t> m_specular;
+		std::optional<float> m_range;
+		std::optional<float> m_cone_angle;
+		std::optional<bool> m_cast_shadow;
+
+		LdrLightSource(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrLightSource& style(std::string_view s)
+		{
+			m_style = s;
+			return *this;
+		}
+		LdrLightSource& ambient(uint32_t c)
+		{
+			m_ambient = c;
+			return *this;
+		}
+		LdrLightSource& diffuse(uint32_t c)
+		{
+			m_diffuse = c;
+			return *this;
+		}
+		LdrLightSource& specular(uint32_t c)
+		{
+			m_specular = c;
+			return *this;
+		}
+		LdrLightSource& range(float r)
+		{
+			m_range = r;
+			return *this;
+		}
+		LdrLightSource& cone_angle(float angle)
+		{
+			m_cone_angle = angle;
+			return *this;
+		}
+		LdrLightSource& cast_shadow(bool cs = true)
+		{
+			m_cast_shadow = cs;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::LightSource, m_name, m_colour, "{");
+			{
+				if (!m_style.empty())
+				Append(out, EKeywords::Style, "{", m_style, "}");
+				if (m_ambient)
+				Append(out, EKeywords::Ambient, "{", *m_ambient, "}");
+				if (m_diffuse)
+				Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
+				if (m_specular)
+				Append(out, EKeywords::Specular, "{", *m_specular, "}");
+				if (m_range)
+				Append(out, EKeywords::Range, "{", *m_range, "}");
+				if (m_cone_angle)
+				Append(out, EKeywords::Fov, "{", *m_cone_angle, "}");
+				if (m_cast_shadow)
+				Append(out, EKeywords::CastShadow, "{", *m_cast_shadow, "}");
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::LightSource, m_name, m_colour });
+			{
+				if (!m_style.empty())
+				Append(out, seri::Header{ EKeywords::Style }, m_style);
+				if (m_ambient)
+				Append(out, seri::Header{ EKeywords::Ambient }, *m_ambient);
+				if (m_diffuse)
+				Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
+				if (m_specular)
+				Append(out, seri::Header{ EKeywords::Specular }, *m_specular);
+				if (m_range)
+				Append(out, seri::Header{ EKeywords::Range }, *m_range);
+				if (m_cone_angle)
+				Append(out, seri::Header{ EKeywords::Fov }, *m_cone_angle);
+				if (m_cast_shadow)
+				Append(out, seri::Header{ EKeywords::CastShadow }, *m_cast_shadow);
 				LdrBase::Write(out);
 			}
 		}
@@ -2552,243 +3248,6 @@ namespace pr::ldraw
 			}
 		}
 	};
-	struct LdrPlane : LdrBase
-	{
-		seri::Vec4 m_position;
-		seri::Vec4 m_direction;
-		seri::Vec2 m_wh;
-		seri::Texture m_tex;
-		seri::AxisId m_axis;
-
-		LdrPlane(seri::Name name, seri::Colour colour)
-			:LdrBase(name, colour)
-		{}
-
-		LdrPlane& plane(seri::Vec4 dir_and_dist)
-		{
-			o2w([=](seri::O2W& o2w)
-			{
-				o2w.pos(seri::Vec3{
-					dir_and_dist.x * -dir_and_dist.w,
-					dir_and_dist.y * -dir_and_dist.w,
-					dir_and_dist.z * -dir_and_dist.w,
-				});
-				o2w.align(
-					seri::Vec3{
-						dir_and_dist.x,
-						dir_and_dist.y,
-						dir_and_dist.z,
-					},
-					seri::AxisId::PosZ
-				);
-			});
-			return *this;
-		}
-		LdrPlane& wh(seri::Vec2 wh)
-		{
-			m_wh = wh;
-			return *this;
-		}
-		LdrPlane& wh(float w, float h)
-		{
-			return wh({ w, h });
-		}
-
-		LdrPlane& texture(std::invocable<seri::Texture&> auto&& cb)
-		{
-			cb(m_tex);
-			return *this;
-		}
-		seri::Texture& texture()
-		{
-			return m_tex;
-		}
-		LdrPlane& axis(seri::AxisId axis)
-		{
-			m_axis = axis;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Plane, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_wh.x, m_wh.y, "}");
-				Append(out, m_axis, m_tex);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Plane, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_wh.x, m_wh.y);
-				Append(out, m_axis, m_tex);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrBox : LdrBase
-	{
-		struct BoxData
-		{
-			seri::Vec3 m_whd = {};
-			seri::Vec3 m_pos = {};
-			seri::Colour m_col = {};
-		};
-		std::vector<BoxData> m_boxes;
-
-		LdrBox(seri::Name name, seri::Colour colour)
-			:LdrBase(name, colour)
-		{}
-
-		LdrBox& box(seri::Vec3 whd, seri::Vec3 pos = {}, seri::Colour col = {})
-		{
-			m_boxes.push_back(BoxData{ whd, pos, col });
-			return *this;
-		}
-		LdrBox& box(float x, float y, float z, seri::Vec3 pos = {}, seri::Colour col = {})
-		{
-			return box(seri::Vec3(x, y, z), pos, col);
-		}
-		LdrBox& box(float s)
-		{
-			return box(s, s, s);
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			auto single = m_boxes.size() == 1 && !m_boxes[0].m_pos && !m_boxes[0].m_col;
-			auto per_item_colour = std::ranges::any_of(m_boxes, [](auto const& x) { return !!x.m_col; });
-
-			Append(out, single ? EKeywords::Box : EKeywords::BoxList, m_name, m_colour, "{");
-			{
-				if (single)
-				{
-					Append(out, EKeywords::Data, "{", m_boxes[0].m_whd, "}");
-				}
-				else
-				{
-					if (per_item_colour)
-						Append(out, EKeywords::PerItemColour, "{}");
-
-					Append(out, EKeywords::Data, "{");
-					for (auto const& box : m_boxes)
-					{
-						Append(out, box.m_whd, box.m_pos);
-						if (per_item_colour)
-							Append(out, box.m_col);
-					}
-					Append(out, "}");
-				}
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto single = m_boxes.size() == 1 && !m_boxes[0].m_pos && !m_boxes[0].m_col;
-			auto per_item_colour = std::ranges::any_of(m_boxes, [](auto const& x) { return !!x.m_col; });
-
-			auto s = Append(out, seri::Header{ single ? EKeywords::Box : EKeywords::BoxList, m_name, m_colour });
-			{
-				if (single)
-				{
-					Append(out, seri::Header{ EKeywords::Data }, m_boxes[0].m_whd);
-				}
-				else
-				{
-					if (per_item_colour)
-						Append(out, seri::Header{ EKeywords::PerItemColour });
-
-					{
-						auto sd = Append(out, seri::Header{ EKeywords::Data });
-						for (auto const& box : m_boxes)
-						{
-							Append(out, box.m_whd, box.m_pos);
-							if (per_item_colour)
-								Append(out, box.m_col);
-						}
-					}
-				}
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrModel : LdrBase
-	{
-		std::filesystem::path m_filepath;
-		seri::Animation m_anim;
-		bool m_no_materials = {};
-
-		LdrModel(seri::Name name, seri::Colour colour)
-			: LdrBase(name, colour)
-		{}
-
-		LdrModel& filepath(std::filesystem::path filepath)
-		{
-			m_filepath = filepath;
-			return *this;
-		}
-		seri::Animation& anim()
-		{
-			return m_anim;
-		}
-		LdrModel& no_materials(bool on = true)
-		{
-			m_no_materials = on;
-			return *this;
-		}
-
-		// Write to 'out'
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Model, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::FilePath, std::format("{{\"{}\"}}", m_filepath.string()));
-				if (m_anim) Append(out, m_anim);
-				if (m_no_materials) Append(out, EKeywords::NoMaterials, "{}" );
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Model, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::FilePath }, m_filepath.string());
-				if (m_anim) Append(out, m_anim);
-				if (m_no_materials) Append(out, seri::Header{ EKeywords::NoMaterials });
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrGroup : LdrBase
-	{
-		LdrGroup(seri::Name name, seri::Colour colour)
-			:LdrBase(name, colour)
-		{}
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Group, m_name, m_colour, "{");
-			LdrBase::Write(out);
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Group, m_name, m_colour });
-			LdrBase::Write(out);
-		}
-	};
 	struct LdrLineBox : LdrBase
 	{
 		seri::Vec3 m_dim = {};
@@ -2838,739 +3297,6 @@ namespace pr::ldraw
 			{
 				Append(out, seri::Header{ EKeywords::Data }, m_dim);
 				Append(out, m_width, m_dashed);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrGrid : LdrBase
-	{
-		seri::Vec2 m_wh = {};
-		int m_div_w = 0;
-		int m_div_h = 0;
-		seri::Width m_width;
-		seri::Dashed m_dashed;
-
-		LdrGrid(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrGrid& wh(seri::Vec2 wh)
-		{
-			m_wh = wh;
-			return *this;
-		}
-		LdrGrid& wh(float w, float h)
-		{
-			m_wh = {w, h};
-			return *this;
-		}
-		LdrGrid& divisions(int w, int h)
-		{
-			m_div_w = w;
-			m_div_h = h;
-			return *this;
-		}
-		LdrGrid& width(float w)
-		{
-			m_width = w;
-			return *this;
-		}
-		LdrGrid& dashed(seri::Vec2 d)
-		{
-			m_dashed = d;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Grid, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_wh, "}");
-				if (m_div_w != 0 || m_div_h != 0)
-				Append(out, EKeywords::Divisions, "{", m_div_w, m_div_h, "}");
-				Append(out, m_width, m_dashed);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Grid, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_wh);
-				if (m_div_w != 0 || m_div_h != 0)
-				Append(out, seri::Header{ EKeywords::Divisions }, m_div_w, m_div_h);
-				Append(out, m_width, m_dashed);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrCoordFrame : LdrBase
-	{
-		seri::Scale m_scale;
-		seri::Width m_width;
-
-		LdrCoordFrame(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrCoordFrame& scale(float s)
-		{
-			m_scale = s;
-			return *this;
-		}
-		LdrCoordFrame& width(float w)
-		{
-			m_width = w;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::CoordFrame, m_name, m_colour, "{");
-			{
-				Append(out, m_scale, m_left_handed, m_width);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::CoordFrame, m_name, m_colour });
-			{
-				Append(out, m_scale, m_left_handed, m_width);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrTriangle : LdrBase
-	{
-		struct Tri
-		{
-			seri::Vec3 a, b, c;
-			seri::Colour col;
-		};
-		std::vector<Tri> m_tris;
-		seri::PerItemColour m_per_item_colour;
-
-		LdrTriangle(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrTriangle& tri(seri::Vec3 a, seri::Vec3 b, seri::Vec3 c, seri::Colour colour = {})
-		{
-			m_tris.push_back({a, b, c, colour});
-			if (colour) m_per_item_colour = true;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Triangle, m_name, m_colour, "{");
-			{
-				Append(out, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
-				for (auto& t : m_tris)
-				{
-					Append(out, t.a, t.b, t.c);
-					if (m_per_item_colour && *m_per_item_colour.m_active)
-					Append(out, t.col ? *t.col.m_colour : seri::Colour::Default);
-				}
-				Append(out, "}");
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Triangle, m_name, m_colour });
-			{
-				Append(out, m_per_item_colour);
-				{
-					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& t : m_tris)
-					{
-						Append(out, t.a, t.b, t.c);
-						if (m_per_item_colour && *m_per_item_colour.m_active)
-						Append(out, t.col ? *t.col.m_colour : seri::Colour::Default);
-					}
-				}
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrQuad : LdrBase
-	{
-		struct Qd
-		{
-			seri::Vec3 a, b, c, d;
-			seri::Colour col;
-		};
-		std::vector<Qd> m_quads;
-		seri::PerItemColour m_per_item_colour;
-		seri::Texture m_tex;
-
-		LdrQuad(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrQuad& quad(seri::Vec3 a, seri::Vec3 b, seri::Vec3 c, seri::Vec3 d, seri::Colour colour = {})
-		{
-			m_quads.push_back({a, b, c, d, colour});
-			if (colour) m_per_item_colour = true;
-			return *this;
-		}
-		seri::Texture& texture()
-		{
-			return m_tex;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Quad, m_name, m_colour, "{");
-			{
-				Append(out, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
-				for (auto& q : m_quads)
-				{
-					Append(out, q.a, q.b, q.c, q.d);
-					if (m_per_item_colour && *m_per_item_colour.m_active)
-					Append(out, q.col ? *q.col.m_colour : seri::Colour::Default);
-				}
-				Append(out, "}");
-				Append(out, m_tex);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Quad, m_name, m_colour });
-			{
-				Append(out, m_per_item_colour);
-				{
-					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& q : m_quads)
-					{
-						Append(out, q.a, q.b, q.c, q.d);
-						if (m_per_item_colour && *m_per_item_colour.m_active)
-						Append(out, q.col ? *q.col.m_colour : seri::Colour::Default);
-					}
-				}
-				Append(out, m_tex);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrRibbon : LdrBase
-	{
-		struct Pt
-		{
-			seri::Vec3 pt;
-			seri::Colour col;
-		};
-		std::vector<Pt> m_points;
-		seri::Width m_width;
-		seri::Smooth m_smooth;
-		seri::PerItemColour m_per_item_colour;
-		seri::Texture m_tex;
-
-		LdrRibbon(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrRibbon& pt(seri::Vec3 p, seri::Colour colour = {})
-		{
-			m_points.push_back({p, colour});
-			if (colour) m_per_item_colour = true;
-			return *this;
-		}
-		LdrRibbon& pt(float x, float y, float z, seri::Colour colour = {})
-		{
-			return pt({x, y, z}, colour);
-		}
-		LdrRibbon& width(float w)
-		{
-			m_width = w;
-			return *this;
-		}
-		LdrRibbon& smooth(bool s = true)
-		{
-			m_smooth = s;
-			return *this;
-		}
-		seri::Texture& texture()
-		{
-			return m_tex;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Ribbon, m_name, m_colour, "{");
-			{
-				Append(out, m_width, m_smooth, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
-				for (auto& p : m_points)
-				{
-					Append(out, p.pt);
-					if (m_per_item_colour && *m_per_item_colour.m_active)
-					Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
-				}
-				Append(out, "}");
-				Append(out, m_tex);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Ribbon, m_name, m_colour });
-			{
-				Append(out, m_width, m_smooth, m_per_item_colour);
-				{
-					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& p : m_points)
-					{
-						Append(out, p.pt);
-						if (m_per_item_colour && *m_per_item_colour.m_active)
-						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
-					}
-				}
-				Append(out, m_tex);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrCircle : LdrBase
-	{
-		float m_radius = {};
-		seri::Facets m_facets;
-
-		LdrCircle(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrCircle& radius(float r)
-		{
-			m_radius = r;
-			return *this;
-		}
-		LdrCircle& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Circle, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_radius, "}");
-				Append(out, m_facets, m_axis_id, m_solid);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Circle, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_radius);
-				Append(out, m_facets, m_axis_id, m_solid);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrPie : LdrBase
-	{
-		float m_angle0 = {};
-		float m_angle1 = {};
-		float m_inner_radius = {};
-		float m_outer_radius = {};
-		seri::Facets m_facets;
-		bool m_scale_set = false;
-		seri::Scale2 m_scale;
-
-		LdrPie(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrPie& angles(float a0, float a1)
-		{
-			m_angle0 = a0;
-			m_angle1 = a1;
-			return *this;
-		}
-		LdrPie& radii(float inner, float outer)
-		{
-			m_inner_radius = inner;
-			m_outer_radius = outer;
-			return *this;
-		}
-		LdrPie& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-		LdrPie& scale(float sx, float sy)
-		{
-			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Pie, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_angle0, m_angle1, m_inner_radius, m_outer_radius, "}");
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Pie, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrRect : LdrBase
-	{
-		seri::Vec2 m_wh = {};
-		seri::CornerRadius m_corner_radius;
-		seri::Facets m_facets;
-
-		LdrRect(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrRect& wh(seri::Vec2 wh)
-		{
-			m_wh = wh;
-			return *this;
-		}
-		LdrRect& wh(float w, float h)
-		{
-			m_wh = {w, h};
-			return *this;
-		}
-		LdrRect& corner_radius(float r)
-		{
-			m_corner_radius = r;
-			return *this;
-		}
-		LdrRect& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Rect, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_wh, "}");
-				Append(out, m_corner_radius, m_facets, m_solid);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Rect, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_wh);
-				Append(out, m_corner_radius, m_facets, m_solid);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrPolygon : LdrBase
-	{
-		struct Pt
-		{
-			seri::Vec2 pt;
-			seri::Colour col;
-		};
-		std::vector<Pt> m_points;
-		seri::PerItemColour m_per_item_colour;
-
-		LdrPolygon(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrPolygon& pt(seri::Vec2 p, seri::Colour colour = {})
-		{
-			m_points.push_back({p, colour});
-			if (colour) m_per_item_colour = true;
-			return *this;
-		}
-		LdrPolygon& pt(float x, float y, seri::Colour colour = {})
-		{
-			return pt({x, y}, colour);
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Polygon, m_name, m_colour, "{");
-			{
-				Append(out, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
-				for (auto& p : m_points)
-				{
-					Append(out, p.pt);
-					if (m_per_item_colour && *m_per_item_colour.m_active)
-					Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
-				}
-				Append(out, "}");
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Polygon, m_name, m_colour });
-			{
-				Append(out, m_per_item_colour);
-				{
-					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& p : m_points)
-					{
-						Append(out, p.pt);
-						if (m_per_item_colour && *m_per_item_colour.m_active)
-						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
-					}
-				}
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrSphere : LdrBase
-	{
-		seri::Vec3 m_radius = {};
-		seri::Facets m_facets;
-
-		LdrSphere(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrSphere& radius(seri::Vec3 radius)
-		{
-			m_radius = radius;
-			return *this;
-		}
-		LdrSphere& radius(seri::Vec4 r)
-		{
-			return radius({ r.x, r.y, r.z });
-		}
-		LdrSphere& radius(float rx, float ry, float rz)
-		{
-			return radius({rx, ry, rz});
-		}
-		LdrSphere& radius(float r)
-		{
-			return radius(r, r, r);
-		}
-		LdrSphere& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Sphere, m_name, m_colour, "{");
-			{
-				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
-				Append(out, EKeywords::Data, "{", m_radius.x, "}");
-				else
-				Append(out, EKeywords::Data, "{", m_radius, "}");
-				Append(out, m_facets);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Sphere, m_name, m_colour });
-			{
-				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
-				Append(out, seri::Header{ EKeywords::Data }, m_radius.x);
-				else
-				Append(out, seri::Header{ EKeywords::Data }, m_radius);
-				Append(out, m_facets);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrCylinder : LdrBase
-	{
-		float m_height = {};
-		float m_radius = {};
-		float m_tip_radius = -1.0f;
-		seri::Facets m_facets;
-		bool m_scale_set = false;
-		seri::Scale2 m_scale;
-
-		LdrCylinder(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrCylinder& hr(float h, float r)
-		{
-			m_height = h;
-			m_radius = r;
-			return *this;
-		}
-		LdrCylinder& height(float h)
-		{
-			m_height = h;
-			return *this;
-		}
-		LdrCylinder& radius(float r)
-		{
-			m_radius = r;
-			return *this;
-		}
-		LdrCylinder& tip_radius(float r)
-		{
-			m_tip_radius = r;
-			return *this;
-		}
-		LdrCylinder& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-		LdrCylinder& scale(float sx, float sy)
-		{
-			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Cylinder, m_name, m_colour, "{");
-			{
-				if (m_tip_radius >= 0)
-				Append(out, EKeywords::Data, "{", m_height, m_radius, m_tip_radius, "}");
-				else
-				Append(out, EKeywords::Data, "{", m_height, m_radius, "}");
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Cylinder, m_name, m_colour });
-			{
-				if (m_tip_radius >= 0)
-				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius, m_tip_radius);
-				else
-				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius);
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrCone : LdrBase
-	{
-		float m_angle = {};
-		float m_near = {};
-		float m_far = {};
-		seri::Facets m_facets;
-		bool m_scale_set = false;
-		seri::Scale2 m_scale;
-
-		LdrCone(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrCone& angle(float a)
-		{
-			m_angle = a;
-			return *this;
-		}
-		LdrCone& height(float h)
-		{
-			m_far = m_near + h;
-			return *this;
-		}
-		LdrCone& near_dist(float n)
-		{
-			m_near = n;
-			return *this;
-		}
-		LdrCone& far_dist(float f)
-		{
-			m_far = f;
-			return *this;
-		}
-		LdrCone& facets(int f)
-		{
-			m_facets = f;
-			return *this;
-		}
-		LdrCone& scale(float sx, float sy)
-		{
-			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Cone, m_name, m_colour, "{");
-			{
-				Append(out, EKeywords::Data, "{", m_angle, m_near, m_far, "}");
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Cone, m_name, m_colour });
-			{
-				Append(out, seri::Header{ EKeywords::Data }, m_angle, m_near, m_far);
-				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
 				LdrBase::Write(out);
 			}
 		}
@@ -3743,39 +3469,40 @@ namespace pr::ldraw
 			}
 		}
 	};
-	struct LdrConvexHull : LdrBase
+	struct LdrModel : LdrBase
 	{
-		std::vector<seri::Vec3> m_verts;
-		seri::GenerateNormals m_gen_normals;
+		std::filesystem::path m_filepath;
+		seri::Animation m_anim;
+		bool m_no_materials = {};
 
-		LdrConvexHull(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
+		LdrModel(seri::Name name, seri::Colour colour)
+			: LdrBase(name, colour)
 		{}
 
-		LdrConvexHull& vert(seri::Vec3 v)
+		LdrModel& filepath(std::filesystem::path filepath)
 		{
-			m_verts.push_back(v);
+			m_filepath = filepath;
 			return *this;
 		}
-		LdrConvexHull& vert(float x, float y, float z)
+		seri::Animation& anim()
 		{
-			return vert({x, y, z});
+			return m_anim;
 		}
-		LdrConvexHull& generate_normals(float angle = 0)
+		LdrModel& no_materials(bool on = true)
 		{
-			m_gen_normals = angle;
+			m_no_materials = on;
 			return *this;
 		}
 
+		// Write to 'out'
 		virtual void Write(textbuf& out) const override
 		{
 			using namespace seri;
-			Append(out, EKeywords::ConvexHull, m_name, m_colour, "{");
+			Append(out, EKeywords::Model, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Verts, "{");
-				for (auto& v : m_verts) Append(out, v);
-				Append(out, "}");
-				Append(out, m_gen_normals);
+				Append(out, EKeywords::FilePath, std::format("{{\"{}\"}}", m_filepath.string()));
+				if (m_anim) Append(out, m_anim);
+				if (m_no_materials) Append(out, EKeywords::NoMaterials, "{}" );
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -3783,52 +3510,409 @@ namespace pr::ldraw
 		virtual void Write(bytebuf& out) const override
 		{
 			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::ConvexHull, m_name, m_colour });
+			auto s = Append(out, seri::Header{ EKeywords::Model, m_name, m_colour });
 			{
-				{
-					auto sv = Append(out, seri::Header{ EKeywords::Verts });
-					for (auto& v : m_verts) Append(out, v);
-				}
-				Append(out, m_gen_normals);
+				Append(out, seri::Header{ EKeywords::FilePath }, m_filepath.string());
+				if (m_anim) Append(out, m_anim);
+				if (m_no_materials) Append(out, seri::Header{ EKeywords::NoMaterials });
 				LdrBase::Write(out);
 			}
 		}
 	};
-	struct LdrFrustum : LdrBase
+	struct LdrPie : LdrBase
 	{
-		enum class EMode { WH, FA };
-		EMode m_mode = EMode::WH;
-		float m_width = {};
-		float m_height = {};
-		float m_fov_y = {};
-		float m_aspect = 1.0f;
-		float m_near = {};
-		float m_far = {};
+		float m_angle0 = {};
+		float m_angle1 = {};
+		float m_inner_radius = {};
+		float m_outer_radius = {};
 		seri::Facets m_facets;
+		bool m_scale_set = false;
+		seri::Scale2 m_scale;
 
-		LdrFrustum(seri::Name name, seri::Colour colour)
+		LdrPie(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
 		{}
 
-		LdrFrustum& wh(float w, float h, float near_dist, float far_dist)
+		LdrPie& angles(float a0, float a1)
 		{
-			m_mode = EMode::WH;
-			m_width = w;
-			m_height = h;
-			m_near = near_dist;
-			m_far = far_dist;
+			m_angle0 = a0;
+			m_angle1 = a1;
 			return *this;
 		}
-		LdrFrustum& fa(float fov_y, float aspect, float near_dist, float far_dist)
+		LdrPie& radii(float inner, float outer)
 		{
-			m_mode = EMode::FA;
-			m_fov_y = fov_y;
-			m_aspect = aspect;
-			m_near = near_dist;
-			m_far = far_dist;
+			m_inner_radius = inner;
+			m_outer_radius = outer;
 			return *this;
 		}
-		LdrFrustum& facets(int f)
+		LdrPie& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+		LdrPie& scale(float sx, float sy)
+		{
+			m_scale = seri::Scale2(sx, sy);
+			m_scale_set = true;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Pie, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, "{", m_angle0, m_angle1, m_inner_radius, m_outer_radius, "}");
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Pie, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
+				Append(out, m_facets);
+				if (m_scale_set) Append(out, m_scale);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrPlane : LdrBase
+	{
+		seri::Vec4 m_position;
+		seri::Vec4 m_direction;
+		seri::Vec2 m_wh;
+		seri::Texture m_tex;
+		seri::AxisId m_axis;
+
+		LdrPlane(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
+		{}
+
+		LdrPlane& plane(seri::Vec4 dir_and_dist)
+		{
+			o2w([=](seri::O2W& o2w)
+			{
+				o2w.pos(seri::Vec3{
+					dir_and_dist.x * -dir_and_dist.w,
+					dir_and_dist.y * -dir_and_dist.w,
+					dir_and_dist.z * -dir_and_dist.w,
+				});
+				o2w.align(
+					seri::Vec3{
+						dir_and_dist.x,
+						dir_and_dist.y,
+						dir_and_dist.z,
+					},
+					seri::AxisId::PosZ
+				);
+			});
+			return *this;
+		}
+		LdrPlane& wh(seri::Vec2 wh)
+		{
+			m_wh = wh;
+			return *this;
+		}
+		LdrPlane& wh(float w, float h)
+		{
+			return wh({ w, h });
+		}
+
+		LdrPlane& texture(std::invocable<seri::Texture&> auto&& cb)
+		{
+			cb(m_tex);
+			return *this;
+		}
+		seri::Texture& texture()
+		{
+			return m_tex;
+		}
+		LdrPlane& axis(seri::AxisId axis)
+		{
+			m_axis = axis;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Plane, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, "{", m_wh.x, m_wh.y, "}");
+				Append(out, m_axis, m_tex);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Plane, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_wh.x, m_wh.y);
+				Append(out, m_axis, m_tex);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrPoint :LdrBase
+	{
+		struct Point
+		{
+			seri::Vec3 pt = {};
+			seri::Colour col = {};
+		};
+		std::vector<Point> m_points;
+		seri::Size2 m_size;
+		seri::Depth m_depth;
+		seri::PointStyle m_style;
+		seri::PerItemColour m_per_item_colour;
+		seri::Texture m_tex;
+
+		LdrPoint(seri::Name name, seri::Colour colour)
+			: LdrBase(name, colour)
+		{}
+
+		LdrPoint& pt(seri::Vec3 point, seri::Colour colour = {})
+		{
+			m_points.push_back({ point, colour });
+			if (colour) m_per_item_colour = true;
+			return *this;
+		}
+		LdrPoint& pt(float x, float y, float z, seri::Colour colour = {})
+		{
+			return pt({ x, y, z }, colour);
+		}
+		LdrPoint& size(seri::Vec2 s)
+		{
+			m_size = s;
+			return *this;
+		}
+		LdrPoint& size(float s) // Point size (in pixels if depth == false, in world space if depth == true)
+		{
+			return size({ s, s });
+		}
+		LdrPoint& depth(bool d = true) // Points have depth
+		{
+			m_depth = d;
+			return *this;
+		}
+		LdrPoint& style(seri::PointStyle s) // Point style
+		{
+			m_style = s;
+			return *this;
+		}
+		seri::Texture& texture() // Texture for point sprites
+		{
+			return m_tex;
+		}
+		LdrPoint& texture(std::invocable<seri::Texture&> auto&& cb)
+		{
+			cb(m_tex);
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Point, m_name, m_colour, "{");
+			{
+				Append(out, m_style, m_size, m_depth, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				{
+					for (auto& point : m_points)
+					{
+						Append(out, point.pt);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+							Append(out, point.col ? *point.col.m_colour : seri::Colour::Default);
+					}
+				}
+				Append(out, "}");
+				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Point, m_name, m_colour });
+			{
+				Append(out, m_style, m_size, m_depth, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					{
+						for (auto& point : m_points)
+						{
+							Append(out, point.pt);
+							if (m_per_item_colour && *m_per_item_colour.m_active)
+								Append(out, point.col ? *point.col.m_colour : seri::Colour::Default);
+						}
+					}
+				}
+				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrPolygon : LdrBase
+	{
+		struct Pt
+		{
+			seri::Vec2 pt;
+			seri::Colour col;
+		};
+		std::vector<Pt> m_points;
+		seri::PerItemColour m_per_item_colour;
+
+		LdrPolygon(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrPolygon& pt(seri::Vec2 p, seri::Colour colour = {})
+		{
+			m_points.push_back({p, colour});
+			if (colour) m_per_item_colour = true;
+			return *this;
+		}
+		LdrPolygon& pt(float x, float y, seri::Colour colour = {})
+		{
+			return pt({x, y}, colour);
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Polygon, m_name, m_colour, "{");
+			{
+				Append(out, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				for (auto& p : m_points)
+				{
+					Append(out, p.pt);
+					if (m_per_item_colour && *m_per_item_colour.m_active)
+					Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+				}
+				Append(out, "}");
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Polygon, m_name, m_colour });
+			{
+				Append(out, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& p : m_points)
+					{
+						Append(out, p.pt);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+					}
+				}
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrQuad : LdrBase
+	{
+		struct Qd
+		{
+			seri::Vec3 a, b, c, d;
+			seri::Colour col;
+		};
+		std::vector<Qd> m_quads;
+		seri::PerItemColour m_per_item_colour;
+		seri::Texture m_tex;
+
+		LdrQuad(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrQuad& quad(seri::Vec3 a, seri::Vec3 b, seri::Vec3 c, seri::Vec3 d, seri::Colour colour = {})
+		{
+			m_quads.push_back({a, b, c, d, colour});
+			if (colour) m_per_item_colour = true;
+			return *this;
+		}
+		seri::Texture& texture()
+		{
+			return m_tex;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Quad, m_name, m_colour, "{");
+			{
+				Append(out, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				for (auto& q : m_quads)
+				{
+					Append(out, q.a, q.b, q.c, q.d);
+					if (m_per_item_colour && *m_per_item_colour.m_active)
+					Append(out, q.col ? *q.col.m_colour : seri::Colour::Default);
+				}
+				Append(out, "}");
+				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Quad, m_name, m_colour });
+			{
+				Append(out, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& q : m_quads)
+					{
+						Append(out, q.a, q.b, q.c, q.d);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, q.col ? *q.col.m_colour : seri::Colour::Default);
+					}
+				}
+				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrRect : LdrBase
+	{
+		seri::Vec2 m_wh = {};
+		seri::CornerRadius m_corner_radius;
+		seri::Facets m_facets;
+
+		LdrRect(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrRect& wh(seri::Vec2 wh)
+		{
+			m_wh = wh;
+			return *this;
+		}
+		LdrRect& wh(float w, float h)
+		{
+			m_wh = {w, h};
+			return *this;
+		}
+		LdrRect& corner_radius(float r)
+		{
+			m_corner_radius = r;
+			return *this;
+		}
+		LdrRect& facets(int f)
 		{
 			m_facets = f;
 			return *this;
@@ -3837,14 +3921,10 @@ namespace pr::ldraw
 		virtual void Write(textbuf& out) const override
 		{
 			using namespace seri;
-			auto kw = m_mode == EMode::FA ? EKeywords::FrustumFA : EKeywords::FrustumWH;
-			Append(out, kw, m_name, m_colour, "{");
+			Append(out, EKeywords::Rect, m_name, m_colour, "{");
 			{
-				if (m_mode == EMode::WH)
-				Append(out, EKeywords::Data, "{", m_width, m_height, m_near, m_far, "}");
-				else
-				Append(out, EKeywords::Data, "{", m_fov_y, m_aspect, m_near, m_far, "}");
-				Append(out, m_facets);
+				Append(out, EKeywords::Data, "{", m_wh, "}");
+				Append(out, m_corner_radius, m_facets, m_solid);
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -3852,44 +3932,71 @@ namespace pr::ldraw
 		virtual void Write(bytebuf& out) const override
 		{
 			using namespace seri;
-			auto kw = m_mode == EMode::FA ? EKeywords::FrustumFA : EKeywords::FrustumWH;
-			auto s = Append(out, seri::Header{ kw, m_name, m_colour });
+			auto s = Append(out, seri::Header{ EKeywords::Rect, m_name, m_colour });
 			{
-				if (m_mode == EMode::WH)
-				Append(out, seri::Header{ EKeywords::Data }, m_width, m_height, m_near, m_far);
-				else
-				Append(out, seri::Header{ EKeywords::Data }, m_fov_y, m_aspect, m_near, m_far);
-				Append(out, m_facets);
+				Append(out, seri::Header{ EKeywords::Data }, m_wh);
+				Append(out, m_corner_radius, m_facets, m_solid);
 				LdrBase::Write(out);
 			}
 		}
 	};
-	struct LdrInstance : LdrBase
+	struct LdrRibbon : LdrBase
 	{
-		std::string m_address;
-		seri::Animation m_anim;
+		struct Pt
+		{
+			seri::Vec3 pt;
+			seri::Colour col;
+		};
+		std::vector<Pt> m_points;
+		seri::Width m_width;
+		seri::Smooth m_smooth;
+		seri::PerItemColour m_per_item_colour;
+		seri::Texture m_tex;
 
-		LdrInstance(seri::Name name, seri::Colour colour)
+		LdrRibbon(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
 		{}
 
-		LdrInstance& address(std::string_view addr)
+		LdrRibbon& pt(seri::Vec3 p, seri::Colour colour = {})
 		{
-			m_address = addr;
+			m_points.push_back({p, colour});
+			if (colour) m_per_item_colour = true;
 			return *this;
 		}
-		seri::Animation& anim()
+		LdrRibbon& pt(float x, float y, float z, seri::Colour colour = {})
 		{
-			return m_anim;
+			return pt({x, y, z}, colour);
+		}
+		LdrRibbon& width(float w)
+		{
+			m_width = w;
+			return *this;
+		}
+		LdrRibbon& smooth(bool s = true)
+		{
+			m_smooth = s;
+			return *this;
+		}
+		seri::Texture& texture()
+		{
+			return m_tex;
 		}
 
 		virtual void Write(textbuf& out) const override
 		{
 			using namespace seri;
-			Append(out, EKeywords::Instance, m_name, m_colour, "{");
+			Append(out, EKeywords::Ribbon, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, std::string("{\"") + m_address + "\"}");
-				if (m_anim) Append(out, m_anim);
+				Append(out, m_width, m_smooth, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				for (auto& p : m_points)
+				{
+					Append(out, p.pt);
+					if (m_per_item_colour && *m_per_item_colour.m_active)
+					Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+				}
+				Append(out, "}");
+				Append(out, m_tex);
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -3897,10 +4004,79 @@ namespace pr::ldraw
 		virtual void Write(bytebuf& out) const override
 		{
 			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Instance, m_name, m_colour });
+			auto s = Append(out, seri::Header{ EKeywords::Ribbon, m_name, m_colour });
 			{
-				Append(out, seri::Header{ EKeywords::Data }, m_address);
-				if (m_anim) Append(out, m_anim);
+				Append(out, m_width, m_smooth, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& p : m_points)
+					{
+						Append(out, p.pt);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+					}
+				}
+				Append(out, m_tex);
+				LdrBase::Write(out);
+			}
+		}
+	};
+	struct LdrSphere : LdrBase
+	{
+		seri::Vec3 m_radius = {};
+		seri::Facets m_facets;
+
+		LdrSphere(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrSphere& radius(seri::Vec3 radius)
+		{
+			m_radius = radius;
+			return *this;
+		}
+		LdrSphere& radius(seri::Vec4 r)
+		{
+			return radius({ r.x, r.y, r.z });
+		}
+		LdrSphere& radius(float rx, float ry, float rz)
+		{
+			return radius({rx, ry, rz});
+		}
+		LdrSphere& radius(float r)
+		{
+			return radius(r, r, r);
+		}
+		LdrSphere& facets(int f)
+		{
+			m_facets = f;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Sphere, m_name, m_colour, "{");
+			{
+				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
+				Append(out, EKeywords::Data, "{", m_radius.x, "}");
+				else
+				Append(out, EKeywords::Data, "{", m_radius, "}");
+				Append(out, m_facets);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Sphere, m_name, m_colour });
+			{
+				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
+				Append(out, seri::Header{ EKeywords::Data }, m_radius.x);
+				else
+				Append(out, seri::Header{ EKeywords::Data }, m_radius);
+				Append(out, m_facets);
 				LdrBase::Write(out);
 			}
 		}
@@ -3985,216 +4161,6 @@ namespace pr::ldraw
 			}
 		}
 	};
-	struct LdrLightSource : LdrBase
-	{
-		std::string m_style;
-		std::optional<uint32_t> m_ambient;
-		std::optional<uint32_t> m_diffuse;
-		std::optional<uint32_t> m_specular;
-		std::optional<float> m_range;
-		std::optional<float> m_cone_angle;
-		std::optional<bool> m_cast_shadow;
-
-		LdrLightSource(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
-
-		LdrLightSource& style(std::string_view s)
-		{
-			m_style = s;
-			return *this;
-		}
-		LdrLightSource& ambient(uint32_t c)
-		{
-			m_ambient = c;
-			return *this;
-		}
-		LdrLightSource& diffuse(uint32_t c)
-		{
-			m_diffuse = c;
-			return *this;
-		}
-		LdrLightSource& specular(uint32_t c)
-		{
-			m_specular = c;
-			return *this;
-		}
-		LdrLightSource& range(float r)
-		{
-			m_range = r;
-			return *this;
-		}
-		LdrLightSource& cone_angle(float angle)
-		{
-			m_cone_angle = angle;
-			return *this;
-		}
-		LdrLightSource& cast_shadow(bool cs = true)
-		{
-			m_cast_shadow = cs;
-			return *this;
-		}
-
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::LightSource, m_name, m_colour, "{");
-			{
-				if (!m_style.empty())
-				Append(out, EKeywords::Style, "{", m_style, "}");
-				if (m_ambient)
-				Append(out, EKeywords::Ambient, "{", *m_ambient, "}");
-				if (m_diffuse)
-				Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
-				if (m_specular)
-				Append(out, EKeywords::Specular, "{", *m_specular, "}");
-				if (m_range)
-				Append(out, EKeywords::Range, "{", *m_range, "}");
-				if (m_cone_angle)
-				Append(out, EKeywords::Fov, "{", *m_cone_angle, "}");
-				if (m_cast_shadow)
-				Append(out, EKeywords::CastShadow, "{", *m_cast_shadow, "}");
-				LdrBase::Write(out);
-			}
-			Append(out, "}");
-		}
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::LightSource, m_name, m_colour });
-			{
-				if (!m_style.empty())
-				Append(out, seri::Header{ EKeywords::Style }, m_style);
-				if (m_ambient)
-				Append(out, seri::Header{ EKeywords::Ambient }, *m_ambient);
-				if (m_diffuse)
-				Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
-				if (m_specular)
-				Append(out, seri::Header{ EKeywords::Specular }, *m_specular);
-				if (m_range)
-				Append(out, seri::Header{ EKeywords::Range }, *m_range);
-				if (m_cone_angle)
-				Append(out, seri::Header{ EKeywords::Fov }, *m_cone_angle);
-				if (m_cast_shadow)
-				Append(out, seri::Header{ EKeywords::CastShadow }, *m_cast_shadow);
-				LdrBase::Write(out);
-			}
-		}
-	};
-	struct LdrCommands :LdrBase
-	{
-		enum class ECmdId { AddToScene, CameraToWorld, CameraPosition, ObjectToWorld, Render };
-		static constexpr std::string_view Cmds[] = { "AddToScene", "CameraToWorld", "CameraPosition", "ObjectToWorld", "Render" };
-		using param_t = union param_t // Don't need type descrimination, the command implies the parameter types
-		{
-			seri::Mat4 mat4;
-			seri::Vec4 vec4;
-			seri::Vec2 vec2;
-			seri::StringWithLength nstr;
-			float f;
-			int i;
-			bool b;
-		};
-		using cmd_t = struct Cmd
-		{
-			ECmdId m_id;
-			std::vector<param_t> m_params;
-		};
-
-		std::vector<cmd_t> m_cmds;
-
-		// Add objects created by this script to scene 'scene_id'
-		LdrCommands& add_to_scene(int scene_id)
-		{
-			m_cmds.push_back({ ECmdId::AddToScene, {{.i = scene_id}} });
-			return *this;
-		}
-
-		// Apply a transform to an object with the given name
-		LdrCommands& object_transform(std::string_view object_name, TMat4 auto&& o2w)
-		{
-			m_cmds.push_back({ ECmdId::ObjectToWorld, {{.nstr = object_name}, {.mat4 = o2w}} });
-			return *this;
-		}
-
-		// Write to 'out'
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Commands, m_name, m_colour });
-			for (auto& cmd : m_cmds)
-			{
-				auto sd = Append(out, seri::Header{ EKeywords::Data });
-				{
-					Append(out, (int)cmd.m_id);
-					switch (cmd.m_id)
-					{
-						case ECmdId::AddToScene:
-						{
-							Append(out, cmd.m_params[0].i);
-							break;
-						}
-						case ECmdId::ObjectToWorld:
-						{
-							Append(out, cmd.m_params[0].nstr);
-							Append(out, cmd.m_params[1].mat4);
-							break;
-						}
-						default:
-						{
-							throw std::runtime_error("Unknown command id");
-						}
-					}
-				}
-			}
-		}
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::Commands, m_name, m_colour, "{");
-			for (auto& cmd : m_cmds)
-			{
-				Append(out, EKeywords::Data, "{");
-				{
-					Append(out, (int)cmd.m_id);
-					switch (cmd.m_id)
-					{
-						case ECmdId::AddToScene:
-						{
-							Append(out, cmd.m_params[0].i);
-							break;
-						}
-						case ECmdId::ObjectToWorld:
-						{
-							Append(out, cmd.m_params[0].nstr);
-							Append(out, cmd.m_params[1].mat4);
-							break;
-						}
-						default:
-						{
-							throw std::runtime_error("Unknown command id");
-						}
-					}
-				}
-				Append(out, "}");
-			}
-			Append(out, "}");
-		}
-	};
-	struct LdrBinaryStream :LdrBase
-	{
-		// Write to 'out'
-		virtual void Write(bytebuf& out) const override
-		{
-			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::BinaryStream, m_name, m_colour });
-		}
-		virtual void Write(textbuf& out) const override
-		{
-			using namespace seri;
-			Append(out, EKeywords::BinaryStream);
-		}
-	};
 	struct LdrTextStream :LdrBase
 	{
 		// Write to 'out'
@@ -4207,6 +4173,64 @@ namespace pr::ldraw
 		{
 			using namespace seri;
 			Append(out, EKeywords::TextStream);
+		}
+	};
+	struct LdrTriangle : LdrBase
+	{
+		struct Tri
+		{
+			seri::Vec3 a, b, c;
+			seri::Colour col;
+		};
+		std::vector<Tri> m_tris;
+		seri::PerItemColour m_per_item_colour;
+
+		LdrTriangle(seri::Name name, seri::Colour colour)
+		:LdrBase(name, colour)
+		{}
+
+		LdrTriangle& tri(seri::Vec3 a, seri::Vec3 b, seri::Vec3 c, seri::Colour colour = {})
+		{
+			m_tris.push_back({a, b, c, colour});
+			if (colour) m_per_item_colour = true;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Triangle, m_name, m_colour, "{");
+			{
+				Append(out, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				for (auto& t : m_tris)
+				{
+					Append(out, t.a, t.b, t.c);
+					if (m_per_item_colour && *m_per_item_colour.m_active)
+					Append(out, t.col ? *t.col.m_colour : seri::Colour::Default);
+				}
+				Append(out, "}");
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Triangle, m_name, m_colour });
+			{
+				Append(out, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& t : m_tris)
+					{
+						Append(out, t.a, t.b, t.c);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, t.col ? *t.col.m_colour : seri::Colour::Default);
+					}
+				}
+				LdrBase::Write(out);
+			}
 		}
 	};
 	struct Builder : LdrBase
@@ -4372,130 +4396,145 @@ namespace pr::ldraw
 
 	// Implementation
 	#pragma region Implementation
-	inline LdrPoint& LdrBase::Point(seri::Name name, seri::Colour colour)
+	inline LdrBinaryStream& LdrBase::BinaryStream()
 	{
-		m_children.push_back(ObjPtr{ new LdrPoint(name, colour) });
-		return *static_cast<LdrPoint*>(m_children.back().get());
-	}
-	inline LdrLine& LdrBase::Line(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrLine(name, colour) });
-		return *static_cast<LdrLine*>(m_children.back().get());
-	}
-	inline LdrPlane& LdrBase::Plane(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrPlane(name, colour) });
-		return *static_cast<LdrPlane*>(m_children.back().get());
+		m_children.push_back(ObjPtr{ new LdrBinaryStream });
+		return *static_cast<LdrBinaryStream*>(m_children.back().get());
 	}
 	inline LdrBox& LdrBase::Box(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrBox(name, colour) });
 		return *static_cast<LdrBox*>(m_children.back().get());
 	}
-	inline LdrModel& LdrBase::Model(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrModel(name, colour) });
-		return *static_cast<LdrModel*>(m_children.back().get());
-	}
-	inline LdrGroup& LdrBase::Group(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrGroup(name, colour) });
-		return *static_cast<LdrGroup*>(m_children.back().get());
-	}
-	inline LdrLineBox& LdrBase::LineBox(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrLineBox(name, colour) });
-		return *static_cast<LdrLineBox*>(m_children.back().get());
-	}
-	inline LdrGrid& LdrBase::Grid(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrGrid(name, colour) });
-		return *static_cast<LdrGrid*>(m_children.back().get());
-	}
-	inline LdrCoordFrame& LdrBase::CoordFrame(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrCoordFrame(name, colour) });
-		return *static_cast<LdrCoordFrame*>(m_children.back().get());
-	}
-	inline LdrTriangle& LdrBase::Triangle(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrTriangle(name, colour) });
-		return *static_cast<LdrTriangle*>(m_children.back().get());
-	}
-	inline LdrQuad& LdrBase::Quad(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrQuad(name, colour) });
-		return *static_cast<LdrQuad*>(m_children.back().get());
-	}
-	inline LdrRibbon& LdrBase::Ribbon(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrRibbon(name, colour) });
-		return *static_cast<LdrRibbon*>(m_children.back().get());
-	}
 	inline LdrCircle& LdrBase::Circle(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrCircle(name, colour) });
 		return *static_cast<LdrCircle*>(m_children.back().get());
 	}
-	inline LdrPie& LdrBase::Pie(seri::Name name, seri::Colour colour)
+	inline LdrCommands& LdrBase::Commands()
 	{
-		m_children.push_back(ObjPtr{ new LdrPie(name, colour) });
-		return *static_cast<LdrPie*>(m_children.back().get());
-	}
-	inline LdrRect& LdrBase::Rect(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrRect(name, colour) });
-		return *static_cast<LdrRect*>(m_children.back().get());
-	}
-	inline LdrPolygon& LdrBase::Polygon(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrPolygon(name, colour) });
-		return *static_cast<LdrPolygon*>(m_children.back().get());
-	}
-	inline LdrSphere& LdrBase::Sphere(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrSphere(name, colour) });
-		return *static_cast<LdrSphere*>(m_children.back().get());
-	}
-	inline LdrCylinder& LdrBase::Cylinder(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrCylinder(name, colour) });
-		return *static_cast<LdrCylinder*>(m_children.back().get());
+		m_children.push_back(ObjPtr{ new LdrCommands });
+		return *static_cast<LdrCommands*>(m_children.back().get());
 	}
 	inline LdrCone& LdrBase::Cone(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrCone(name, colour) });
 		return *static_cast<LdrCone*>(m_children.back().get());
 	}
-	inline LdrMesh& LdrBase::Mesh(seri::Name name, seri::Colour colour)
-	{
-		m_children.push_back(ObjPtr{ new LdrMesh(name, colour) });
-		return *static_cast<LdrMesh*>(m_children.back().get());
-	}
 	inline LdrConvexHull& LdrBase::ConvexHull(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrConvexHull(name, colour) });
 		return *static_cast<LdrConvexHull*>(m_children.back().get());
+	}
+	inline LdrCoordFrame& LdrBase::CoordFrame(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrCoordFrame(name, colour) });
+		return *static_cast<LdrCoordFrame*>(m_children.back().get());
+	}
+	inline LdrCylinder& LdrBase::Cylinder(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrCylinder(name, colour) });
+		return *static_cast<LdrCylinder*>(m_children.back().get());
 	}
 	inline LdrFrustum& LdrBase::Frustum(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrFrustum(name, colour) });
 		return *static_cast<LdrFrustum*>(m_children.back().get());
 	}
+	inline LdrGrid& LdrBase::Grid(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrGrid(name, colour) });
+		return *static_cast<LdrGrid*>(m_children.back().get());
+	}
+	inline LdrGroup& LdrBase::Group(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrGroup(name, colour) });
+		return *static_cast<LdrGroup*>(m_children.back().get());
+	}
 	inline LdrInstance& LdrBase::Instance(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrInstance(name, colour) });
 		return *static_cast<LdrInstance*>(m_children.back().get());
+	}
+	inline LdrLightSource& LdrBase::LightSource(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrLightSource(name, colour) });
+		return *static_cast<LdrLightSource*>(m_children.back().get());
+	}
+	inline LdrLine& LdrBase::Line(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrLine(name, colour) });
+		return *static_cast<LdrLine*>(m_children.back().get());
+	}
+	inline LdrLineBox& LdrBase::LineBox(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrLineBox(name, colour) });
+		return *static_cast<LdrLineBox*>(m_children.back().get());
+	}
+	inline LdrMesh& LdrBase::Mesh(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrMesh(name, colour) });
+		return *static_cast<LdrMesh*>(m_children.back().get());
+	}
+	inline LdrModel& LdrBase::Model(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrModel(name, colour) });
+		return *static_cast<LdrModel*>(m_children.back().get());
+	}
+	inline LdrPie& LdrBase::Pie(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrPie(name, colour) });
+		return *static_cast<LdrPie*>(m_children.back().get());
+	}
+	inline LdrPlane& LdrBase::Plane(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrPlane(name, colour) });
+		return *static_cast<LdrPlane*>(m_children.back().get());
+	}
+	inline LdrPoint& LdrBase::Point(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrPoint(name, colour) });
+		return *static_cast<LdrPoint*>(m_children.back().get());
+	}
+	inline LdrPolygon& LdrBase::Polygon(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrPolygon(name, colour) });
+		return *static_cast<LdrPolygon*>(m_children.back().get());
+	}
+	inline LdrQuad& LdrBase::Quad(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrQuad(name, colour) });
+		return *static_cast<LdrQuad*>(m_children.back().get());
+	}
+	inline LdrRect& LdrBase::Rect(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrRect(name, colour) });
+		return *static_cast<LdrRect*>(m_children.back().get());
+	}
+	inline LdrRibbon& LdrBase::Ribbon(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrRibbon(name, colour) });
+		return *static_cast<LdrRibbon*>(m_children.back().get());
+	}
+	inline LdrSphere& LdrBase::Sphere(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrSphere(name, colour) });
+		return *static_cast<LdrSphere*>(m_children.back().get());
 	}
 	inline LdrText& LdrBase::Text(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrText(name, colour) });
 		return *static_cast<LdrText*>(m_children.back().get());
 	}
-	inline LdrLightSource& LdrBase::LightSource(seri::Name name, seri::Colour colour)
+	inline LdrTextStream& LdrBase::TextStream()
 	{
-		m_children.push_back(ObjPtr{ new LdrLightSource(name, colour) });
-		return *static_cast<LdrLightSource*>(m_children.back().get());
+		m_children.push_back(ObjPtr{ new LdrTextStream });
+		return *static_cast<LdrTextStream*>(m_children.back().get());
+	}
+	inline LdrTriangle& LdrBase::Triangle(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrTriangle(name, colour) });
+		return *static_cast<LdrTriangle*>(m_children.back().get());
 	}
 
 	// Extension objects. Use: `builder._<LdrCustom>("name", 0xFFFFFFFF)`

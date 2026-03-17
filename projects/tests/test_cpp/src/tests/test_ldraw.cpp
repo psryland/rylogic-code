@@ -10,21 +10,41 @@ namespace tests
 {
 	void Run()
 	{
-		pr::ldraw::Builder builder;
-		builder.Group("g", 0xFFFF0000).Box("b", 0xFF00FF00).box(1, 2, 3);
-
 		pr::network::Winsock winsock;
 		pr::network::socket_stream ldr;
 		ldr.set_non_blocking();
-		
-		for (auto t = 0.f; t < 100000.0f; t += 0.01f, std::this_thread::sleep_for(std::chrono::milliseconds(10)))
-		{
-			// Note: Clear(), BinaryStream(), and Command() are not available in the new builder API.
-			// This test needs reworking to use the new API for streaming LDraw over sockets.
-			pr::ldraw::Builder frame;
-			frame.Group("g", 0xFFFF0000).Box("b", 0xFF00FF00).box(1, 2, 3).o2w(m4x4::Transform(RotationRad<m3x4>(0, t, 0), v4::Origin()));
 
-			if (ldr.connect("localhost", 1976).good())
+		bool use_text = true;
+
+		// Sleep for 'ms'
+		auto wait = [](int ms)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+		};
+		
+		pr::ldraw::Builder frame;
+		for (auto t = 0.f; t < 100000.0f; t += 0.01f, wait(100))
+		{
+			frame.Clear();
+
+			if (!ldr.is_open() || !ldr.good())
+			{
+				std::cout << "Disconnected\n";
+				for (; !ldr.connect("localhost", 1976).good() || !ldr.is_open(); wait(100)) {}
+				std::cout << "Connected\n";
+
+				frame.Group("g", 0xFFFF0000).Box("b", 0xFF00FF00).box(1, 2, 3);
+			}
+
+			frame.Commands().object_transform("g", m4x4::Transform(RotationRad<m3x4>(0, t, 0), v4::Origin()));
+
+			if (use_text)
+			{
+				auto text = frame.ToString();
+				ldr.write(reinterpret_cast<std::byte const*>(text.data()), text.size());
+				ldr.flush();
+			}
+			else
 			{
 				auto data = frame.ToBinary();
 				ldr.write(data.data(), data.size());

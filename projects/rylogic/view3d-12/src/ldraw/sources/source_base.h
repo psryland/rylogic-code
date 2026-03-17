@@ -33,6 +33,9 @@ namespace pr::rdr12::ldraw
 		// 'Load' was called, so new data is ready
 		LoadComplete,
 
+		// The source is a new connection
+		NewConnection,
+
 		// The source has disconnected
 		Disconnected,
 	};

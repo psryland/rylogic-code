@@ -400,10 +400,15 @@ namespace pr::rdr12::ldraw
 					{
 						case EState::Disconnected:
 						{
-							// Create the listen socket. If this fails with WSAEACCESS, it's probably because the firewall is blocking it
+							// Create the listen socket on IPv4. Streaming sources are a localhost
+							// debugging tool, so dual-stack IPv6 support is unnecessary.
 							listen_socket = Socket(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
 							if (listen_socket == nullptr)
 								network::Throw(WSAGetLastError());
+
+							// Allow rapid rebinding after restart (avoids WSAEADDRINUSE)
+							DWORD reuse = 1;
+							::setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<char const*>(&reuse), sizeof(reuse));
 
 							// Bind the local address to the socket
 							sockaddr_in my_address = {};
@@ -450,7 +455,7 @@ namespace pr::rdr12::ldraw
 						case EState::Listening:
 						{
 							// Wait for new connections
-							if (network::SelectToRecv(listen_socket, 5000))
+							if (network::SelectToRecv(listen_socket, 1000))
 							{
 								// Someone is trying to connect
 								sockaddr_in client_addr = {};
@@ -462,7 +467,7 @@ namespace pr::rdr12::ldraw
 								// We just need to call 'SourceNotifyHandler' to register it as a source.
 								auto src = std::shared_ptr<SourceStream>(new SourceStream{ nullptr, &rdr(), std::move(client), client_addr });
 								src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-								src->Notify(src, NotifyEventArgs{ {}, ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
+								src->Notify(src, NotifyEventArgs{ {}, ENotifyReason::NewConnection, EDataChangeTrigger::NewData, nullptr });
 							}
 							break;
 						}
@@ -615,6 +620,12 @@ namespace pr::rdr12::ldraw
 
 		// Should be on the main thread now
 		assert(std::this_thread::get_id() == m_main_thread_id);
+
+		// A callback that was already queued via RunOnMainThread can arrive after
+		// shutdown has started. Guard against accessing destroyed members.
+		if (m_shutting_down.load(std::memory_order_acquire))
+			return;
+
 		auto context_id = src->m_context_id;
 
 		switch (args.m_reason)
@@ -657,6 +668,32 @@ namespace pr::rdr12::ldraw
 				// Process any commands
 				if (!existing->m_output.m_commands.empty())
 					m_events->OnHandleCommands(*existing);
+
+				break;
+			}
+			case ENotifyReason::NewConnection:
+			{
+				// 'source' is connected
+
+				// Notify of the store about to change
+				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &args.m_output, true });
+				if (args.m_add_complete) args.m_add_complete(context_id, true);
+
+				// Notify of any errors that occurred
+				for (auto& err : src->m_errors)
+					m_events->OnError(err);
+
+				// Update the store
+				auto& existing = m_srcs[context_id];
+				if (existing == nullptr)
+					existing = src;
+
+				// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
+				existing->m_output = {};
+
+				// Notify of the store change
+				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &existing->m_output, false });
+				if (args.m_add_complete) args.m_add_complete(context_id, false);
 
 				break;
 			}
