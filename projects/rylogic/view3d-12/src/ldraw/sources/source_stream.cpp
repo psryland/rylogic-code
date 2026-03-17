@@ -79,14 +79,27 @@ namespace pr::rdr12::ldraw
 			// Make this source as invalid
 			m_socket = nullptr;
 
-			// Signal that the connection was lost
-			if (!m_thread.get_stop_token().stop_requested())
+			try
 			{
-				std::promise<void> done;
-				auto future = done.get_future();
-				AddCompleteCB complete_cb = [&done](auto&, auto) { done.set_value(); };
-				Notify(shared_from_this(), { {}, EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ContextIdRemoved | EStoreChangeFlags::ObjectsRemoved, complete_cb });
-				future.wait(); // blocks until the handler calls the callback
+				// Signal that the connection was lost
+				if (!m_thread.get_stop_token().stop_requested())
+				{
+					std::promise<void> done;
+					AddCompleteCB complete_cb = [&done](auto&, bool before)
+					{
+						// The callback fires twice: before and after the store change.
+						// Only signal completion after the change is fully processed.
+						if (!before) done.set_value();
+					};
+
+					auto future = done.get_future();
+					Notify(shared_from_this(), { {}, EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ContextIdRemoved | EStoreChangeFlags::ObjectsRemoved, complete_cb });
+					future.wait(); // blocks until the handler calls the callback
+				}
+			}
+			catch (std::exception const& ex)
+			{
+				OutputDebugStringA(ex.what());
 			}
 		});
 	}

@@ -342,11 +342,7 @@ namespace pr::rdr12::ldraw
 				}
 				case ECommandId::ObjectToWorld:
 				{
-					auto cmd = Command_ObjectToWorld{
-						.m_id = id,
-						.m_object_name = {},
-						.m_o2w = {},
-					};
+					auto cmd = Command_ObjectToWorld{ .m_id = id, .m_object_name = {}, .m_o2w = {} };
 					auto obj_name = reader.Identifier<string32>();
 					memcpy(&cmd.m_object_name[0], obj_name.c_str(), std::min(_countof(cmd.m_object_name) - 1, obj_name.size()));
 					cmd.m_o2w = reader.Matrix4x4();

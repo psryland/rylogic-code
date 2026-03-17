@@ -2491,10 +2491,29 @@ namespace pr::ldraw
 			return *this;
 		}
 
+		// Position the camera within the scene
+		LdrCommands& camera_to_world(TMat4 auto&& c2w)
+		{
+			m_cmds.push_back({ ECommands::CameraToWorld, {{.mat4 = c2w}} });
+			return *this;
+		}
+		LdrCommands& camera_position(TVec3 auto&& pos)
+		{
+			m_cmds.push_back({ ECommands::CameraPosition, {{.vec3 = pos}} });
+			return *this;
+		}
+
 		// Apply a transform to an object with the given name
 		LdrCommands& object_transform(std::string_view object_name, TMat4 auto&& o2w)
 		{
 			m_cmds.push_back({ ECommands::ObjectToWorld, {{.nstr = object_name}, {.mat4 = o2w}} });
+			return *this;
+		}
+
+		// Trigger a frame render
+		LdrCommands& render(int scene_id)
+		{
+			m_cmds.push_back({ ECommands::Render, {{.i = scene_id}} });
 			return *this;
 		}
 
@@ -2508,18 +2527,38 @@ namespace pr::ldraw
 				auto sd = Append(out, seri::Header{ EKeywords::Data });
 				{
 					Append(out, cmd.m_id);
-					if (cmd.m_id == ECommands::AddToScene)
+					switch (cmd.m_id.value)
 					{
-						Append(out, cmd.m_params[0].i);
-					}
-					else if (cmd.m_id == ECommands::ObjectToWorld)
-					{
-						Append(out, cmd.m_params[0].nstr);
-						Append(out, cmd.m_params[1].mat4);
-					}
-					else
-					{
-						throw std::runtime_error("Unknown command id");
+						case ECommands::AddToScene.value:
+						{
+							Append(out, cmd.m_params[0].i);
+							break;
+						}
+						case ECommands::CameraToWorld.value:
+						{
+							Append(out, cmd.m_params[0].mat4);
+							break;
+						}
+						case ECommands::CameraPosition.value: 
+						{
+							Append(out, cmd.m_params[0].vec4);
+							break;
+						}
+						case ECommands::ObjectToWorld.value:
+						{
+							Append(out, cmd.m_params[0].nstr);
+							Append(out, cmd.m_params[1].mat4);
+							break;
+						}
+						case ECommands::Render.value:
+						{
+							Append(out, cmd.m_params[0].i);
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unknown command id");
+						}
 					}
 				}
 			}
@@ -2533,18 +2572,38 @@ namespace pr::ldraw
 				Append(out, EKeywords::Data, "{");
 				{
 					Append(out, cmd.m_id);
-					if (cmd.m_id == ECommands::AddToScene)
+					switch (cmd.m_id.value)
 					{
-						Append(out, cmd.m_params[0].i);
-					}
-					else if (cmd.m_id == ECommands::ObjectToWorld)
-					{
-						Append(out, cmd.m_params[0].nstr);
-						Append(out, cmd.m_params[1].mat4);
-					}
-					else
-					{
-						throw std::runtime_error("Unknown command id");
+						case ECommands::AddToScene.value:
+						{
+							Append(out, cmd.m_params[0].i);
+							break;
+						}
+						case ECommands::CameraToWorld.value:
+						{
+							Append(out, cmd.m_params[0].mat4);
+							break;
+						}
+						case ECommands::CameraPosition.value: 
+						{
+							Append(out, cmd.m_params[0].vec4);
+							break;
+						}
+						case ECommands::ObjectToWorld.value:
+						{
+							Append(out, cmd.m_params[0].nstr);
+							Append(out, cmd.m_params[1].mat4);
+							break;
+						}
+						case ECommands::Render.value:
+						{
+							Append(out, cmd.m_params[0].i);
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unknown command id");
+						}
 					}
 				}
 				Append(out, "}");

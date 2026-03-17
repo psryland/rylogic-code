@@ -34,9 +34,12 @@ namespace tests
 				std::cout << "Connected\n";
 
 				frame.Group("g", 0xFFFF0000).Box("b", 0xFF00FF00).box(1, 2, 3);
+				frame.Commands().add_to_scene(0);
 			}
 
-			frame.Commands().object_transform("g", m4x4::Transform(RotationRad<m3x4>(0, t, 0), v4::Origin()));
+			frame.Commands()
+				.object_transform("g", m4x4::Transform(RotationRad<m3x4>(0, t, 0), v4::Origin()))
+				.render(0);
 
 			if (use_text)
 			{
