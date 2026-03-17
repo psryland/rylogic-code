@@ -51,7 +51,7 @@ namespace pr::rdr12::ldraw
 					auto [consumed, required] =
 						m_mode == EMode::Text ? ConsumeText(buffer, bytes_read) :
 						m_mode == EMode::Binary ? ConsumeBinary(buffer, bytes_read) :
-						m_mode == EMode::Auto ? std::tuple<int,int>{ bytes_read, 0 } :
+						m_mode == EMode::Auto ? std::tuple<int, int>{ bytes_read, 0 } :
 						throw std::runtime_error("Unsupported format");
 
 					// If sections where consumed, remove the data from 'buffer'
@@ -85,7 +85,7 @@ namespace pr::rdr12::ldraw
 				std::promise<void> done;
 				auto future = done.get_future();
 				AddCompleteCB complete_cb = [&done](auto&, auto) { done.set_value(); };
-				Notify(shared_from_this(), { {}, ENotifyReason::Disconnected, {}, complete_cb });
+				Notify(shared_from_this(), { {}, EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ContextIdRemoved | EStoreChangeFlags::ObjectsRemoved, complete_cb });
 				future.wait(); // blocks until the handler calls the callback
 			}
 		});
@@ -168,7 +168,7 @@ namespace pr::rdr12::ldraw
 			{
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				src->Notify(src, { std::move(out), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
 			}
 		}
 
@@ -235,7 +235,7 @@ namespace pr::rdr12::ldraw
 			{
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				src->Notify(src, { std::move(out), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
 			}
 		}
 

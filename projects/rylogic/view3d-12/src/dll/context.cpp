@@ -28,7 +28,7 @@ namespace pr::rdr12
 		, m_mutex()
 		, ReportError()
 		, ParsingProgress()
-		, SourcesChanged()
+		, StoreChanged()
 	{
 		ReportError += global_error_cb;
 	}
@@ -450,7 +450,7 @@ namespace pr::rdr12
 			wnd->Remove(object);
 
 		// Delete the object from the object container
-		m_sources.Remove(object);
+		m_sources.Remove(object, ldraw::EStoreChangeInitiator::ObjectsDeleted);
 	}
 
 	// Delete all objects
@@ -472,7 +472,7 @@ namespace pr::rdr12
 			wnd->Remove(pred, false);
 
 		// Remove sources that match the given set of context ids to delete
-		m_sources.Remove(pred);
+		m_sources.Remove(pred, ldraw::EStoreChangeInitiator::ObjectsDeleted);
 	}
 
 	// Delete all objects not displayed in any windows
@@ -498,7 +498,7 @@ namespace pr::rdr12
 		// Remove unused sources
 		if (!unused.empty())
 		{
-			m_sources.Remove([&unused](Guid const& id) { return unused.contains(id); });
+			m_sources.Remove([&unused](Guid const& id) { return unused.contains(id); }, ldraw::EStoreChangeInitiator::ObjectsDeleted);
 		}
 	}
 
@@ -624,61 +624,46 @@ namespace pr::rdr12
 	// Store change event. Called before and after a change to the collection of objects in the store.
 	void Context::OnStoreChange(ldraw::StoreChangeEventArgs const& args)
 	{
-		view3d::ESourcesChangedReason reason = {};
-		switch (args.m_trigger)
+		auto initiator = static_cast<view3d::EStoreChangeInitiator>(args.m_initiator);
+		auto change_flags = static_cast<view3d::EStoreChangeFlags>(args.m_change_flags);
+
+		// When a source is about to be reloaded, remove it's objects from the windows, but keep the context ids so we know what to reload.
+		if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
 		{
-			case ldraw::EDataChangeTrigger::NewData:
+			for (auto& wnd : m_windows)
 			{
-				// On NewData, do nothing. Callers will add objects to windows as they see fit.
-				reason = view3d::ESourcesChangedReason::NewData;
-				break;
-			}
-			case ldraw::EDataChangeTrigger::Reload:
-			{
-				for (auto& wnd : m_windows)
-				{
-					// When a source is about to be reloaded, remove it's objects from the windows, but keep the context ids so we know what to reload.
-					if (args.m_before)
-					{
-						wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, true);
-					}
-
-					// After reload, each window re-adds objects from the previous contexts
-					else
-					{
-						struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; } ids = { args.m_context_ids, wnd->m_guids };
-						constexpr auto ReAdd = [](void* ctx, Guid const& id)
-						{
-							auto& x = *static_cast<Ids*>(ctx);
-							return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
-						};
-						wnd->Add(m_sources.Sources(), { &ids, ReAdd });
-					}
-
-					wnd->Invalidate();
-				}
-				reason = view3d::ESourcesChangedReason::Reload;
-				break;
-			}
-			case ldraw::EDataChangeTrigger::Removal:
-			{
-				// When a source is about to be removed, remove it's objects from the windows.
 				if (args.m_before)
 				{
-					for (auto& wnd : m_windows)
-						wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, false);
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, true);
 				}
-				reason = view3d::ESourcesChangedReason::Removal;
-				break;
+				else
+				{
+					// After reload, each window re-adds objects from the previous contexts
+					struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; } ids = { args.m_context_ids, wnd->m_guids };
+					constexpr auto ReAdd = [](void* ctx, Guid const& id)
+					{
+						auto& x = *static_cast<Ids*>(ctx);
+						return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
+					};
+					wnd->Add(m_sources.Sources(), { &ids, ReAdd });
+				}
+
+				wnd->Invalidate();
 			}
-			default:
+		}
+
+		// When a source is about to be removed, remove it's objects from the windows.
+		if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ObjectsRemoved))
+		{
+			if (args.m_before)
 			{
-				throw std::runtime_error("Unknown store changed reason");
+				for (auto& wnd : m_windows)
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, false);
 			}
 		}
 
 		// Notify of updated sources
-		SourcesChanged(reason, args.m_context_ids.data(), isize(args.m_context_ids), args.m_before);
+		StoreChanged(initiator, change_flags, args.m_context_ids.data(), isize(args.m_context_ids), args.m_before);
 	}
 
 	// Process any received commands in the source

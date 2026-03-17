@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <execution>
 #include <stdexcept>
 #include <thread>
 #include <mutex>

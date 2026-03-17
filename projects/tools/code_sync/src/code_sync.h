@@ -41,7 +41,7 @@ namespace code_sync
 	{
 		auto ext = p.extension().string();
 		for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		return ext == ".h" || ext == ".hpp" || ext == ".cpp" || ext == ".c" || ext == ".inl";
+		return ext == ".h" || ext == ".hpp" || ext == ".cpp" || ext == ".c" || ext == ".inl" || ext == ".cs";
 	}
 
 	struct CodeSync
@@ -71,8 +71,7 @@ namespace code_sync
 			bool is_sot = false;
 		};
 
-		// Try to parse a begin-marker line.
-		// Format: <anything>BEGIN_TAG( <name> [, source_of_truth] )<anything>
+		// Try to parse a begin-marker line. Format: <anything>BEGIN_TAG( <name> [, source_of_truth] )<anything>
 		static BeginMatch MatchBegin(std::string const& line)
 		{
 			auto pos = line.find(BeginTag);
@@ -86,13 +85,16 @@ namespace code_sync
 				return {};
 			++p;
 
-			// Skip whitespace, read name (identifier: [a-zA-Z_][a-zA-Z0-9_]*)
-			while (p < line.size() && line[p] == ' ') ++p;
+			// Skip whitespace
+			for (; p < line.size() && std::isspace(line[p]); ++p) {};
+
+			// Read name (identifier: [a-zA-Z_][a-zA-Z0-9_-:]*)
 			auto name_start = p;
-			while (p < line.size() && (std::isalnum(static_cast<unsigned char>(line[p])) || line[p] == '_'))
-				++p;
+			auto is_tag_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == ':'; };
+			for (; p < line.size() && is_tag_char(line[p]); ++p) {}
 			if (p == name_start)
 				return {};
+
 			auto name = line.substr(name_start, p - name_start);
 
 			// Skip whitespace
@@ -239,38 +241,45 @@ namespace code_sync
 			return lines;
 		}
 
-		// Enumerate source files in a directory tree using Win32 for speed
-		static void EnumerateFilesRecursive(std::wstring const& dir, std::vector<fs::path>& out)
-		{
-			WIN32_FIND_DATAW fd;
-			auto pattern = dir + L"\\*";
-			auto h = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
-			if (h == INVALID_HANDLE_VALUE) return;
-
-			do
-			{
-				if (fd.cFileName[0] == L'.' && (fd.cFileName[1] == 0 || (fd.cFileName[1] == L'.' && fd.cFileName[2] == 0)))
-					continue;
-
-				auto path = dir + L"\\" + fd.cFileName;
-				if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-				{
-					EnumerateFilesRecursive(path, out);
-				}
-				else if (IsSyncFile(fs::path(fd.cFileName)))
-				{
-					out.emplace_back(path);
-				}
-			}
-			while (FindNextFileW(h, &fd));
-			FindClose(h);
-		}
-
+		// Recursively enumerate all sync files under a root directory using Win32 APIs for speed
 		std::vector<fs::path> EnumerateFiles(fs::path const& root) const
 		{
-			std::vector<fs::path> files;
-			EnumerateFilesRecursive(root.wstring(), files);
-			return files;
+			struct L
+			{
+				std::vector<fs::path> out;
+
+				// Enumerate source files in a directory tree using Win32 for speed
+				void Run(std::wstring const& dir)
+				{
+					WIN32_FIND_DATAW fd;
+					auto pattern = dir + L"\\*";
+					auto h = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+					if (h == INVALID_HANDLE_VALUE)
+						return;
+
+					do
+					{
+						if (fd.cFileName[0] == L'.' && (fd.cFileName[1] == 0 || (fd.cFileName[1] == L'.' && fd.cFileName[2] == 0)))
+							continue;
+
+						auto path = dir + L"\\" + fd.cFileName;
+						if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+						{
+							Run(path);
+						}
+						else if (IsSyncFile(fs::path(fd.cFileName)))
+						{
+							out.emplace_back(path);
+						}
+					}
+					while (FindNextFileW(h, &fd));
+					FindClose(h);
+				}
+			};
+
+			L enum_files;
+			enum_files.Run(root.wstring());
+			return enum_files.out;
 		}
 
 		// Write all lines to a file
@@ -286,11 +295,7 @@ namespace code_sync
 		}
 
 		// Extract truth content from lines [content_start, content_end), stripping nested BEGIN/END
-		std::vector<TruthLine> ExtractTruthContent(
-			std::vector<std::string> const& lines,
-			int begin_line,
-			int content_start,
-			int content_end) const
+		std::vector<TruthLine> ExtractTruthContent(std::vector<std::string> const& lines, int begin_line, int content_start, int content_end) const
 		{
 			auto base_columns = MeasureIndent(lines[begin_line]);
 			std::vector<TruthLine> result;
@@ -304,11 +309,7 @@ namespace code_sync
 		}
 
 		// Validate that a truth block does not contain ref blocks
-		void ValidateNoRefBlocks(
-			std::vector<std::string> const& lines,
-			int start, int end,
-			std::string const& truth_name,
-			fs::path const& filepath) const
+		void ValidateNoRefBlocks(std::vector<std::string> const& lines, int start, int end, std::string const& truth_name, fs::path const& filepath) const
 		{
 			for (int i = start; i < end; ++i)
 			{
@@ -339,11 +340,7 @@ namespace code_sync
 		}
 
 		// Scan lines for truth blocks
-		void FindTruthBlocksInLines(
-			std::vector<std::string> const& lines,
-			fs::path const& filepath,
-			int start, int end,
-			bool is_truth_scope)
+		void FindTruthBlocksInLines(std::vector<std::string> const& lines, fs::path const& filepath, int start, int end, bool is_truth_scope)
 		{
 			for (int i = start; i < end; ++i)
 			{
@@ -429,6 +426,7 @@ namespace code_sync
 		// Run across multiple directories
 		int Run(std::vector<fs::path> const& directories)
 		{
+			// Validate directories exist
 			for (auto const& dir : directories)
 			{
 				if (!fs::exists(dir) || !fs::is_directory(dir))
@@ -462,32 +460,16 @@ namespace code_sync
 					all_files.push_back({filepath, {}, {}, false});
 
 			// Read files and scan for markers in parallel
-			auto nthreads = std::min(static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())), all_files.size());
-			auto chunk = nthreads > 0 ? (all_files.size() + nthreads - 1) / nthreads : size_t(0);
+			static auto const marker = std::string("PR_CODE") + "_SYNC";
+			std::for_each(std::execution::par, all_files.begin(), all_files.end(), [](FileData& fd)
 			{
-				std::vector<std::thread> threads;
-				for (size_t t = 0; t != nthreads; ++t)
+				auto raw = ReadFileRaw(fd.filepath);
+				if (raw.find(marker) != std::string::npos)
 				{
-					auto begin = t * chunk;
-					auto end = std::min(begin + chunk, all_files.size());
-					if (begin >= all_files.size())
-						break;
-					threads.emplace_back([&all_files, begin, end]() {
-						static auto const m = std::string("PR_CODE") + "_SYNC";
-						for (auto i = begin; i != end; ++i)
-						{
-							auto raw = ReadFileRaw(all_files[i].filepath);
-							if (raw.find(m) != std::string::npos)
-							{
-								all_files[i].has_markers = true;
-								all_files[i].raw = std::move(raw);
-							}
-						}
-					});
+					fd.has_markers = true;
+					fd.raw = std::move(raw);
 				}
-				for (auto& t : threads)
-					t.join();
-			}
+			});
 
 			// Collect files with markers and split into lines
 			std::vector<FileData*> sync_files;
@@ -495,6 +477,7 @@ namespace code_sync
 			{
 				if (!fd.has_markers)
 					continue;
+
 				fd.lines = SplitLines(fd.raw);
 				fd.raw.clear(); // Free raw content
 				sync_files.push_back(&fd);

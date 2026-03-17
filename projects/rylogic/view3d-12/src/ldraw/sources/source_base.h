@@ -12,32 +12,57 @@ namespace pr::rdr12::ldraw
 	// Callback after data has been added to the store
 	using AddCompleteCB = std::function<void(Guid const&, bool)>;
 
-	// The event that triggered the data change in the store
-	enum class EDataChangeTrigger
+	// The event that triggered the store change
+	enum class EStoreChangeInitiator
 	{
-		None,
+		// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeInitiator, source_of_truth)
 
-		// New objects have been added to the store
-		NewData,
+		// A new source (e.g. file, string, stream, etc) was added to the store
+		NewSource,
 
-		// Data has been refreshed from the sources
+		// A source was removed from the store
+		SourceRemoved,
+
+		// Existing sources refreshed their data
 		Reload,
 
-		// Objects have been removed from the store
-		Removal,
+		// More data for an existing source was added (typically from streaming sources)
+		AppendData,
+
+		// The DeleteObject API call was made
+		ObjectsDeleted,
+	
+		// PR_CODE_SYNC_END();
 	};
 
-	// The initiating reason for a notify event
-	enum class ENotifyReason
+	// Flags describing how the store was changed
+	enum class EStoreChangeFlags
 	{
-		// 'Load' was called, so new data is ready
-		LoadComplete,
+		// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeFlags, source_of_truth)
 
-		// The source is a new connection
-		NewConnection,
+		None = 0,
 
-		// The source has disconnected
-		Disconnected,
+		// One or more objects were removed
+		ObjectsAdded = 1 << 0,
+
+		// One or more objects were removed
+		ObjectsRemoved = 1 << 1,
+
+		// A new context id was added to the store
+		ContextIdAdded = 1 << 2,
+
+		// A context id was removed from the store
+		ContextIdRemoved = 1 << 3,
+
+		// Objects in the store were refreshed from the sources (e.g. after a Load() call)
+		ExistingObjectsRefreshed = 1 << 4,
+
+		ObjectsChanged = ObjectsAdded | ObjectsRemoved,
+		ContextIdsChanged = ContextIdAdded | ContextIdRemoved,
+
+		_flags_enum = 0,
+
+		// PR_CODE_SYNC_END();
 	};
 
 	// Event args for the SourceBase Notify event
@@ -46,11 +71,11 @@ namespace pr::rdr12::ldraw
 		// The load results
 		ParseResult m_output;
 
-		// The initiating reason for this event
-		ENotifyReason m_reason;
+		// The original trigger that initiated the data change in the store
+		EStoreChangeInitiator m_initiator;
 
-		// The trigger that initiated a Load call
-		EDataChangeTrigger m_trigger;
+		// What changed in the store
+		EStoreChangeFlags m_change_flags;
 
 		// Called after data has been added to the store
 		AddCompleteCB m_add_complete;

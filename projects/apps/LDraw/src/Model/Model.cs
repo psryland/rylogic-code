@@ -57,7 +57,7 @@ namespace LDraw
 				if (field != null)
 				{
 					field.ParsingProgress -= HandleParsingProgress;
-					field.OnSourcesChanged -= HandleSourcesChanged;
+					field.OnStoreChanged -= HandleSourcesChanged;
 					field.Error -= ReportError;
 					Util.Dispose(ref field!);
 				}
@@ -65,7 +65,7 @@ namespace LDraw
 				if (field != null)
 				{
 					field.Error += ReportError;
-					field.OnSourcesChanged += HandleSourcesChanged;
+					field.OnStoreChanged += HandleSourcesChanged;
 					field.ParsingProgress += HandleParsingProgress;
 				}
 
@@ -74,10 +74,14 @@ namespace LDraw
 				{
 					Log.Write(ELogLevel.Error, e.Message, e.Filepath, e.FileLine, e.FileOffset);
 				}
-				void HandleSourcesChanged(object? sender, View3d.SourcesChangedEventArgs e)
+				void HandleSourcesChanged(object? sender, View3d.StoreChangedEventArgs e)
 				{
-					// Refresh the collection of sources
-					if (e.After)
+					// Refresh the collection of sources if sources were added or removed.
+					// 'SourcesChanged' can mean a source was added/removed, or it can mean
+					// a source changed its data (i.e. Load was called).
+					if (e.After && (
+						e.Flags.HasFlag(View3d.EStoreChangeFlags.ContextIdAdded) ||
+						e.Flags.HasFlag(View3d.EStoreChangeFlags.ContextIdRemoved)))
 					{
 						// Assume all sources will be removed to start with
 						var old = Sources.ToDictionary(x => x.ContextId, x => x);

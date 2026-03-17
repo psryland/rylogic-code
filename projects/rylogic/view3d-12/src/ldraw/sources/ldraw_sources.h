@@ -26,8 +26,11 @@ namespace pr::rdr12::ldraw
 	// Store change event args
 	struct StoreChangeEventArgs
 	{
-		// The event that triggered the data change
-		EDataChangeTrigger m_trigger;
+		// The original trigger that initiated the data change in the store
+		EStoreChangeInitiator m_initiator;
+
+		// What changed in the store
+		EStoreChangeFlags m_change_flags;
 
 		// The context ids that changed
 		std::span<Guid const> m_context_ids;
@@ -37,14 +40,6 @@ namespace pr::rdr12::ldraw
 
 		// True if this event is just prior to the changes being made to the store
 		bool m_before;
-
-		StoreChangeEventArgs(EDataChangeTrigger trigger, std::span<Guid const> context_ids, ParseResult const* result, bool before)
-			: m_trigger(trigger)
-			, m_context_ids(context_ids)
-			, m_result(result)
-			, m_before(before)
-		{
-		}
 	};
 
 	// Interface for handling source events
@@ -131,11 +126,11 @@ namespace pr::rdr12::ldraw
 		void ClearAll();
 
 		// Remove a single object from the object container
-		void Remove(LdrObject* object, EDataChangeTrigger trigger = EDataChangeTrigger::Removal);
+		void Remove(LdrObject* object, EStoreChangeInitiator trigger);
 
 		// Remove all objects associated with 'context_ids'
-		void Remove(std::function<bool(Guid const&)> pred, EDataChangeTrigger trigger = EDataChangeTrigger::Removal);
-		void Remove(Guid const& context_id, EDataChangeTrigger trigger = EDataChangeTrigger::Removal);
+		void Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger);
+		void Remove(Guid const& context_id, EStoreChangeInitiator trigger);
 
 		// Reload a range of sources
 		void Reload(std::span<Guid const> ids);

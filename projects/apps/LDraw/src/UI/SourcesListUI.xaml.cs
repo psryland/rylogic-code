@@ -67,9 +67,15 @@ namespace LDraw.UI
 				void HandleSourcesChanged(object? sender, EventArgs args)
 				{
 					var source_list = (List<SourceItemUI>)Sources.SourceCollection;
-					source_list.SyncStable(Model.Sources, (l,r) => l.ContextId == r.Source.ContextId, (s,i) => new SourceItemUI(s));
-					NotifyPropertyChanged(nameof(Sources));
-					Sources.Refresh();
+					var prev_count = source_list.Count;
+					if (source_list.SyncStable(Model.Sources, (l,r) => l.ContextId == r.Source.ContextId, (s,i) => new SourceItemUI(s)))
+					{
+						// Only refresh the UI when the source list actually changed (items added/removed).
+						// Stream sources fire SourcesChanged on every data update, and rebuilding the
+						// ListView at 100Hz would starve the UI thread of mouse/keyboard events.
+						NotifyPropertyChanged(nameof(Sources));
+						Sources.Refresh();
+					}
 				}
 			}
 		} = null!;

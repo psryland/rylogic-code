@@ -92,11 +92,11 @@ namespace pr::rdr12::ldraw
 		m_watcher.RemoveAll();
 
 		// Notify of the object container change
-		m_events->OnStoreChange({EDataChangeTrigger::Removal, guids, nullptr, false});
+		m_events->OnStoreChange({ EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ContextIdRemoved, guids, nullptr, false });
 	}
 
 	// Remove a single object from the store
-	void ScriptSources::Remove(LdrObject* object, EDataChangeTrigger trigger)
+	void ScriptSources::Remove(LdrObject* object, EStoreChangeInitiator trigger)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto id = object->m_context_id;
@@ -108,15 +108,15 @@ namespace pr::rdr12::ldraw
 
 		// Notify of the object container change
 		if (src->m_output.m_objects.size() != count)
-			m_events->OnStoreChange({ trigger, {&id, 1}, nullptr, false });
+			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
 
 		// If that was the last object for the source, remove the source too
 		if (src->m_output.m_objects.empty())
-			Remove(id);
+			Remove(id, trigger);
 	}
 
 	// Remove all objects associated with 'context_ids'
-	void ScriptSources::Remove(std::function<bool(Guid const&)> pred, EDataChangeTrigger trigger)
+	void ScriptSources::Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
@@ -134,7 +134,7 @@ namespace pr::rdr12::ldraw
 		// Notify of the object container about to change
 		if (!removed.empty())
 		{
-			m_events->OnStoreChange({ trigger, removed, nullptr, true });
+			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, removed, nullptr, true });
 		}
 
 		// Remove the sources
@@ -150,10 +150,10 @@ namespace pr::rdr12::ldraw
 		// Notify of the object container change
 		if (!removed.empty())
 		{
-			m_events->OnStoreChange({ trigger, removed, nullptr, false });
+			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, removed, nullptr, false });
 		}
 	}
-	void ScriptSources::Remove(Guid const& context_id, EDataChangeTrigger trigger)
+	void ScriptSources::Remove(Guid const& context_id, EStoreChangeInitiator trigger)
 	{
 		Remove([&](Guid const& id) { return context_id == id; }, trigger);
 	}
@@ -165,20 +165,20 @@ namespace pr::rdr12::ldraw
 		pr::vector<Guid> ids = ids_;
 
 		// Notify of a reload about to start
-		m_events->OnStoreChange({ EDataChangeTrigger::Reload, ids, nullptr, true });
+		m_events->OnStoreChange({ EStoreChangeInitiator::Reload, {}, ids, nullptr, true });
 
 		// Reload each source in a background thread
 		std::for_each(std::execution::par, std::begin(ids), std::end(ids), [this](Guid const& id)
 		{
 			auto& src = m_srcs[id];
 			auto output = src->Load(rdr());
-			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::Reload, nullptr });
+			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, nullptr });
 		});
 
 		// Queue a notify load complete after all reloads have been queued
 		rdr().RunOnMainThread([this, ids = std::move(ids)]() mutable noexcept
 		{
-			m_events->OnStoreChange({ EDataChangeTrigger::Reload, ids, nullptr, false });
+			m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, ids, nullptr, false });
 		});
 	}
 
@@ -208,7 +208,7 @@ namespace pr::rdr12::ldraw
 		
 		// Parse the script
 		auto output = src->Load(rdr());
-		src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
+		src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::NewSource, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ContextIdAdded, nullptr });
 		return src->m_context_id;
 	}
 
@@ -253,7 +253,7 @@ namespace pr::rdr12::ldraw
 		if (!m_shutting_down.load(std::memory_order_acquire))
 		{
 			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::NewSource, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ContextIdAdded, add_complete });
 		}
 
 		return src->m_context_id;
@@ -301,7 +301,7 @@ namespace pr::rdr12::ldraw
 		if (!m_shutting_down.load(std::memory_order_acquire))
 		{
 			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::NewSource, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ContextIdAdded, add_complete });
 		}
 
 		return src->m_context_id;
@@ -347,7 +347,7 @@ namespace pr::rdr12::ldraw
 		if (!m_shutting_down.load(std::memory_order_acquire))
 		{
 			src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-			src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, add_complete });
+			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::NewSource, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ContextIdAdded, add_complete });
 		}
 
 		return src->m_context_id;
@@ -467,7 +467,7 @@ namespace pr::rdr12::ldraw
 								// We just need to call 'SourceNotifyHandler' to register it as a source.
 								auto src = std::shared_ptr<SourceStream>(new SourceStream{ nullptr, &rdr(), std::move(client), client_addr });
 								src->Notify += std::bind(&ScriptSources::SourceNotifyHandler, this, _1, _2);
-								src->Notify(src, NotifyEventArgs{ {}, ENotifyReason::NewConnection, EDataChangeTrigger::NewData, nullptr });
+								src->Notify(src, NotifyEventArgs{ {}, EStoreChangeInitiator::NewSource, EStoreChangeFlags::ContextIdAdded, nullptr });
 							}
 							break;
 						}
@@ -581,7 +581,7 @@ namespace pr::rdr12::ldraw
 			// If shutting down, skip Notify
 			if (!m_shutting_down.load(std::memory_order_acquire))
 			{
-				src->Notify(src, NotifyEventArgs{ std::move(output), ENotifyReason::LoadComplete, EDataChangeTrigger::Reload, nullptr });
+				src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, nullptr });
 			}
 		}).detach();
 	}
@@ -626,87 +626,49 @@ namespace pr::rdr12::ldraw
 		if (m_shutting_down.load(std::memory_order_acquire))
 			return;
 
+		// Don't remove previous objects associated with 'context',
+		// leave that to the caller via the 'on_add' callback.
 		auto context_id = src->m_context_id;
 
-		switch (args.m_reason)
+		// Notify of the store about to change
+		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &args.m_output, true });
+		if (args.m_add_complete) args.m_add_complete(context_id, true);
+
+		// Add any dependent files to the file watcher
+		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdAdded))
 		{
-			case ENotifyReason::LoadComplete:
-			{
-				// Don't remove previous objects associated with 'context',
-				// leave that to the caller via the 'on_add' callback.
-
-				// Notify of the store about to change
-				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &args.m_output, true });
-				if (args.m_add_complete) args.m_add_complete(context_id, true);
-
-				// Add any dependent files to the file watcher
-				for (auto& fp : src->m_filepaths)
-					m_watcher.Add(fp.c_str(), this, context_id);
-
-				// Notify of any errors that occurred
-				for (auto& err : src->m_errors)
-					m_events->OnError(err);
-
-				// Update the store
-				auto& existing = m_srcs[context_id];
-				if (existing == nullptr)
-					existing = src;
-
-				// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
-				ParseResult previous_data;
-				if (args.m_trigger == EDataChangeTrigger::Reload)
-					std::swap(previous_data, existing->m_output);
-
-				// Merged the output with the existing output.
-				// This is a merge, rather than a replace, because stream sources add data incrementally
-				existing->m_output += args.m_output;
-
-				// Notify of the store change
-				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &existing->m_output, false });
-				if (args.m_add_complete) args.m_add_complete(context_id, false);
-
-				// Process any commands
-				if (!existing->m_output.m_commands.empty())
-					m_events->OnHandleCommands(*existing);
-
-				break;
-			}
-			case ENotifyReason::NewConnection:
-			{
-				// 'source' is connected
-
-				// Notify of the store about to change
-				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &args.m_output, true });
-				if (args.m_add_complete) args.m_add_complete(context_id, true);
-
-				// Notify of any errors that occurred
-				for (auto& err : src->m_errors)
-					m_events->OnError(err);
-
-				// Update the store
-				auto& existing = m_srcs[context_id];
-				if (existing == nullptr)
-					existing = src;
-
-				// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
-				existing->m_output = {};
-
-				// Notify of the store change
-				m_events->OnStoreChange({ args.m_trigger, { &context_id, 1 }, &existing->m_output, false });
-				if (args.m_add_complete) args.m_add_complete(context_id, false);
-
-				break;
-			}
-			case ENotifyReason::Disconnected:
-			{
-				// 'source' has disconnected.
-				Remove(src->m_context_id);
-				break;
-			}
-			default:
-			{
-				throw std::runtime_error("Unknown notify reason");
-			}
+			for (auto& fp : src->m_filepaths)
+				m_watcher.Add(fp.c_str(), this, context_id);
 		}
+
+		// Notify of any errors that occurred
+		for (auto& err : src->m_errors)
+			m_events->OnError(err);
+
+		// See if 'src' is actually an existing source
+		auto& existing = m_srcs[context_id];
+		if (existing == nullptr)
+			existing = src;
+
+		// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
+		ParseResult previous_data;
+		if (AllSet(args.m_change_flags, EStoreChangeFlags::ExistingObjectsRefreshed))
+			std::swap(previous_data, existing->m_output);
+
+		// Merged the output with the existing output.
+		// This is a merge, rather than a replace, because stream sources add data incrementally
+		if (AllSet(args.m_change_flags, EStoreChangeFlags::ObjectsAdded))
+			existing->m_output += args.m_output;
+
+		// Process any commands
+		if (!existing->m_output.m_commands.empty())
+			m_events->OnHandleCommands(*existing);
+
+		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
+			Remove(src->m_context_id, args.m_initiator);
+
+		// Notify of the store change
+		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &existing->m_output, false });
+		if (args.m_add_complete) args.m_add_complete(context_id, false);
 	}
 }
