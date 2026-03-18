@@ -40,6 +40,7 @@
     <ClCompile>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
+        ;PR_COLLISION_DIAGNOSTICS=1
         ;PR_DBG_PHYSICS=1
         ;PR_UNITTESTS=1
       </PreprocessorDefinitions>
@@ -82,16 +83,16 @@
   Source files
   -->
   <ItemGroup>
-    <ClCompile Include="src\collision\gpu_sort_and_sweep.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
+    <ClCompile Include="src\compute\collide_gpu.cpp" />
+    <ClCompile Include="src\compute\integrate_gpu.cpp" />
+    <ClCompile Include="src\compute\resolve_gpu.cpp" />
+    <ClCompile Include="src\compute\sweep_gpu.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\integrator\impulse.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
     <ClCompile Include="src\integrator\integrator.cpp" />
-    <ClCompile Include="src\integrator\gpu_integrator.cpp" />
-    <ClCompile Include="src\collision\gpu_collision_detector.cpp" />
-    <ClCompile Include="src\collision\gpu_resolver.cpp" />
     <ClCompile Include="src\unittests\unittests.cpp" />
   </ItemGroup>
   <!--
@@ -114,6 +115,11 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
+    <ClInclude Include="src\compute\collide_gpu.h" />
+    <ClInclude Include="src\compute\physics_types.h" />
+    <ClInclude Include="src\compute\integrate_gpu.h" />
+    <ClInclude Include="src\compute\resolve_gpu.h" />
+    <ClInclude Include="src\compute\sweep_gpu.h" />
     <ClInclude Include="src\materials\material_map.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
@@ -124,12 +130,6 @@
     <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h" />
     <ClInclude Include="..\..\..\include\pr\physics\materials\material.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\rigid_body_dynamics.h" />
-    <ClInclude Include="src\collision\gpu_sort_and_sweep.h" />
-    <ClInclude Include="src\collision\gpu_collision_detector.h" />
-    <ClInclude Include="src\collision\gpu_resolver.h" />
-    <ClInclude Include="src\collision\gpu_collision_types.h" />
-    <ClInclude Include="src\integrator\gpu_integrator.h" />
     <ClInclude Include="src\unittests\test_collision.h" />
     <ClInclude Include="src\unittests\test_field.h" />
     <ClInclude Include="src\unittests\test_impulse.h" />
@@ -144,9 +144,8 @@
   -->
   <ItemGroup>
     <None Include="src\compute\collision.hlsli" />
-    <None Include="src\compute\collision_types.hlsli" />
+    <None Include="src\compute\physics_types.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
-    <None Include="src\compute\rigid_body_dynamics.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\integrate.hlsl" EntryPointName="CSIntegrate" />

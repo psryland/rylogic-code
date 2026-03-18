@@ -6,14 +6,13 @@
 #include "pr/physics/integrator/integrator.h"
 #include "pr/physics/integrator/impulse.h"
 #include "pr/physics/rigid_body/rigid_body.h"
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/shape/inertia.h"
-#include "src/integrator/gpu_integrator.h"
-#include "src/collision/gpu_sort_and_sweep.h"
-#include "src/collision/gpu_collision_detector.h"
-#include "src/collision/gpu_collision_types.h"
-#include "src/collision/gpu_resolver.h"
+#include "src/compute/physics_types.h"
+#include "src/compute/integrate_gpu.h"
+#include "src/compute/sweep_gpu.h"
+#include "src/compute/collide_gpu.h"
+#include "src/compute/resolve_gpu.h"
 #include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
 #include "src/utility/gpu.h"
@@ -32,7 +31,7 @@ namespace pr::physics
 		ShapeCache m_shape_cache;
 		
 		// Staging buffer for packing body dynamics
-		std::vector<RigidBodyDynamics> m_rb_dynamics;
+		std::vector<GpuRigidBody> m_rb_dynamics;
 	};
 	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
 	{
@@ -94,6 +93,15 @@ namespace pr::physics
 		if (body_count == 0)
 			return;
 
+		#if PR_DBG_PHYSICS
+		static int dbg_frame = 0;
+		static FILE* dbg_log = nullptr;
+		static bool dbg_logging = true;
+		if (!dbg_log) dbg_log = fopen("dump\\physics_pipeline.log", "w");
+		if (dbg_frame >= 0 && dbg_frame < 100) dbg_logging = true;
+		dbg_logging = dbg_log ? dbg_logging : false;
+		#endif
+
 		#if PR_PIX_ENABLED
 		static bool capture = false;
 		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
@@ -122,11 +130,26 @@ namespace pr::physics
 
 			#if PR_DBG_PHYSICS
 			{
-				std::vector<RigidBodyDynamics> bodies(body_count);
+				std::vector<GpuRigidBody> bodies(body_count);
 				std::vector<BBox> aabbs(body_count);
 				std::vector<GpuIntegrateDiag> diag(body_count);
 				m_gpu_integrator->Readback(m_gpu->m_job, bodies, aabbs, diag);
-				(void)bodies, aabbs, diag;
+
+				if (dbg_logging)
+				{
+					fprintf(dbg_log, "=== Frame %d: %d bodies, dt=%.4f ===\n", dbg_frame, body_count, dt);
+					for (int i = 0; i != body_count; ++i)
+					{
+						auto& b = bodies[i];
+						auto pos = b.o2w.w;
+						auto vel = b.os_com_and_invmass.w * b.momentum_lin;
+						fprintf(dbg_log, "  body[%d]: pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) inv_mass=%.6f shape=%d\n",
+							i, pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, b.os_com_and_invmass.w, b.shape_id);
+						fprintf(dbg_log, "           aabb=(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f)\n",
+							aabbs[i].Lower().x, aabbs[i].Lower().y, aabbs[i].Lower().z,
+							aabbs[i].Upper().x, aabbs[i].Upper().y, aabbs[i].Upper().z);
+					}
+				}
 			}
 			#endif
 		}
@@ -144,7 +167,19 @@ namespace pr::physics
 			{
 				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
 				auto pairs = m_gpu_sort_and_sweep->Readback(m_gpu->m_job, counters, out_pairs);
-				(void)pairs;
+				assert(pairs.size() < max_col_pairs && "Hit capacity on pairs");
+
+				if (dbg_logging)
+				{
+					fprintf(dbg_log, "  Broadphase: %d pairs\n", static_cast<int>(pairs.size()));
+					for (int i = 0; i != static_cast<int>(pairs.size()) && i < 10; ++i)
+					{
+						auto& p = pairs[i];
+						fprintf(dbg_log, "    pair[%d]: body(%d,%d) shape(%d,%d) b2a_pos=(%.3f,%.3f,%.3f)\n",
+							i, p.body_idx_a, p.body_idx_b, p.shape_idx_a, p.shape_idx_b,
+							p.b2a.w.x, p.b2a.w.y, p.b2a.w.z);
+					}
+				}
 			}
 			#endif
 		}
@@ -161,7 +196,30 @@ namespace pr::physics
 				std::vector<GpuResolveContact> out_contacts(max_col_pairs);
 				std::vector<GpuPairDiag> out_diag(max_col_pairs);
 				auto [contacts, diag] = m_gpu_collision_detector->Readback(m_gpu->m_job, counters, out_contacts, out_diag);
-				(void)contacts, diag;
+				assert(contacts.size() < max_col_pairs && "Hit capacity on contacts");
+
+				if (dbg_logging)
+				{
+					fprintf(dbg_log, "  NarrowPhase: %d contacts, %d diag\n", static_cast<int>(contacts.size()), static_cast<int>(diag.size()));
+					for (int i = 0; i != static_cast<int>(diag.size()) && i < 20; ++i)
+					{
+						auto& d = diag[i];
+						fprintf(dbg_log, "    diag[%d]: body(%d,%d) shape(%d,%d) gjk=%d epa=%d hit=%d\n",
+							i, d.body_idx_a, d.body_idx_b, d.shape_type_a, d.shape_type_b,
+							d.gjk_iters, d.epa_iters, d.hit);
+					}
+					for (int i = 0; i != static_cast<int>(contacts.size()) && i < 20; ++i)
+					{
+						auto& c = contacts[i];
+						fprintf(dbg_log, "    contact[%d]: body(%d,%d) axis=(%.4f,%.4f,%.4f) pt=(%.4f,%.4f,%.4f) depth=%.6f\n",
+							i, c.body_idx_a, c.body_idx_b,
+							c.axis.x, c.axis.y, c.axis.z,
+							c.contact_point.x, c.contact_point.y, c.contact_point.z, c.depth);
+					}
+					fprintf(dbg_log, "\n");
+					fflush(dbg_log);
+					++dbg_frame;
+				}
 			}
 			#endif
 		}
@@ -172,7 +230,7 @@ namespace pr::physics
 			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, dispatch, counters, contacts, bodies, m_materials->span());
+			m_gpu_resolver->Resolve(m_gpu->m_job, dt, max_col_pairs, dispatch, counters, contacts, bodies, m_materials->span());
 		}
 
 		// Readback dynamics from GPU and unpack into bodies
@@ -550,7 +608,7 @@ namespace pr::physics
 						ResolveCollision(c);
 
 					// Save CPU-resolved momenta
-					auto cpu_dynamics = std::vector<RigidBodyDynamics>(body_ptrs.size());
+					auto cpu_dynamics = std::vector<GpuRigidBody>(body_ptrs.size());
 					for (int i = 0; i != static_cast<int>(body_ptrs.size()); ++i)
 						cpu_dynamics[i] = PackDynamics(*body_ptrs[i]);
 
@@ -620,7 +678,7 @@ namespace pr::physics
 
 // Debug: stashed pre-integration state for A/B comparison between Evolve() and EvolveCPU().
 #if PR_DBG&&0
-std::vector<RigidBodyDynamics> m_compare_dynamics;
+std::vector<GpuRigidBody> m_compare_dynamics;
 std::vector<int> m_compare_indices;
 float m_compare_dt = 0;
 

@@ -14,7 +14,7 @@
 //
 // Buffer layout:
 //   b0: cbuffer with colour index or max contacts
-//   u0: RWStructuredBuffer<RigidBodyDynamics>   — per-body dynamic state (read/write)
+//   u0: RWStructuredBuffer<GpuRigidBody>        — per-body dynamic state (read/write)
 //   u1: RWStructuredBuffer<uint>                — per-contact colour assignment
 //   u2: RWStructuredBuffer<GpuResolveContact>   — prepared contacts (output of CSPrepareContacts)
 //   t0: StructuredBuffer<GpuCollisionCounters>  — counters (body_count, pair_count, contact_count)
@@ -29,33 +29,31 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-#include "src/compute/rigid_body_dynamics.hlsli"
-#include "src/compute/collision_types.hlsli"
-
-// Maximum contacts supported by the single-threaded graph colouring.
-static const int MaxContacts = 8192;
+#include "src/compute/physics_types.hlsli"
 
 // Per-dispatch constants
 cbuffer cbResolve : register(b0)
 {
-	int g_colour; // current colour batch being processed (for CSResolve)
-	float g_dt;   // timestep in seconds (for CSGraphColouring collision time estimation)
-	int g_pad1;
-	int g_pad2;
+	int g_colour;       // current colour batch being processed (for CSResolve)
+	int g_max_contacts; // The capacity of the contacts buffer
+	float g_dt;         // timestep in seconds (for CSGraphColouring collision time estimation)
+	int pad0;
 };
 
 // Shader resources
 StructuredBuffer<GpuCollisionCounters> g_counters : register(t0);
 StructuredBuffer<GpuMaterial> g_materials : register(t1);
-RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
+RWStructuredBuffer<GpuRigidBody> g_bodies : register(u0);
 RWStructuredBuffer<uint> g_colours : register(u1);
-RWStructuredBuffer<GpuResolveContact> g_contacts : register(u2); // UAV: CSComputeCollisionTimes writes collision_time; read by all others
+RWStructuredBuffer<GpuResolveContact> g_contacts : register(u2);
+RWStructuredBuffer<float> g_contact_times : register(u3);                // scratch: collision_time keys for radix sort
+RWStructuredBuffer<uint> g_contact_order: register(u4);              // scratch: contact indices for radix sort
 
 // ----- Helper functions -----
 
 // Compute kinetic energy from momentum and inverse inertia (world space).
 // Momentum is at CoM, inertia is block-diagonal.
-float KineticEnergy(RigidBodyDynamics body)
+float KineticEnergy(GpuRigidBody body)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
@@ -68,7 +66,7 @@ float KineticEnergy(RigidBodyDynamics body)
 }
 
 // Compute a body's object-space inverse inertia matrix (scaled by inv_mass).
-float3x3 OsInverseInertia(RigidBodyDynamics body)
+float3x3 OsInverseInertia(GpuRigidBody body)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	return inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
@@ -76,7 +74,7 @@ float3x3 OsInverseInertia(RigidBodyDynamics body)
 
 // Compute a body's velocity at a point, expressed in A's object space.
 // 'rot_a' transforms from world space to A's object space.
-float3 BodyVelocityAtPoint(RigidBodyDynamics body, float3x3 os_iinv, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
+float3 BodyVelocityAtPoint(GpuRigidBody body, float3x3 os_iinv, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
@@ -86,8 +84,7 @@ float3 BodyVelocityAtPoint(RigidBodyDynamics body, float3x3 os_iinv, float3 pt_i
 }
 
 // Compute the relative velocity of B w.r.t. A at the contact point, in A's object space.
-float3 RelativeVelocityAtContact(GpuResolveContact c, RigidBodyDynamics bodyA, RigidBodyDynamics bodyB,
-	float3x3 os_iinv_a, float3x3 os_iinv_b, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
+float3 RelativeVelocityAtContact(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB,	float3x3 os_iinv_a, float3x3 os_iinv_b, float3x3 rot_a, float3 com_a_in_a, float3 com_b_in_a)
 {
 	float3 pt = c.contact_point.xyz;
 	float3 v_a = BodyVelocityAtPoint(bodyA, os_iinv_a, pt, com_a_in_a, rot_a);
@@ -145,7 +142,7 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 // Convert a point impulse at 'pt' (in A's space) into world-space momentum changes,
 // apply to both bodies, and clamp using an energy conservation guard.
 void ApplyImpulseWithEnergyGuard(
-	inout RigidBodyDynamics bodyA, inout RigidBodyDynamics bodyB,
+	inout GpuRigidBody bodyA, inout GpuRigidBody bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
 	float inv_mass_a, float inv_mass_b)
@@ -196,8 +193,8 @@ void ApplyImpulseWithEnergyGuard(
 // Returns a negative value (earlier in the timestep = more negative).
 float EstimateCollisionTime(GpuResolveContact c)
 {
-	RigidBodyDynamics bodyA = g_bodies[c.body_idx_a];
-	RigidBodyDynamics bodyB = g_bodies[c.body_idx_b];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 
 	float3 os_com_a = bodyA.os_com_and_invmass.xyz;
 	float3 os_com_b = bodyB.os_com_and_invmass.xyz;
@@ -222,60 +219,49 @@ float EstimateCollisionTime(GpuResolveContact c)
 [numthreads(ResolveThreadCount, 1, 1)]
 void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 {
-	uint idx = dtid.x;
-
-	// Zero the body colour_used bitmask (one thread per body, reusing the same dispatch)
-	if (idx < (uint)g_counters[0].body_count)
-		g_bodies[idx].colour_used = 0;
-
-	if (idx < (uint)g_counters[0].contact_count)
+	int idx = dtid.x;
+	int i;
+	
+	if (idx < g_counters[0].contact_count)
+	{
 		g_contacts[idx].collision_time = EstimateCollisionTime(g_contacts[idx]);
+		
+		// Add the collision time and the contact index to the sort buffers
+		g_contact_times[idx] = g_contacts[idx].collision_time;
+		g_contact_order[idx] = idx;
+	}
+
+	// Get thread 0 to do serial operations
+	if (idx == 0)
+	{
+		// Zero the body colour_used bitmask (one thread per body, reusing the same dispatch)
+		for (i = 0; i != g_counters[0].body_count; ++i)
+			g_bodies[i].colour_used = 0;
+		
+		// Set the out of bounds contact times to a large positive value so they sort to the end
+		for (i = g_counters[0].contact_count; i != g_max_contacts; ++i)
+			g_contact_times[i] = 1e30f;
+	}
 }
 
 // ----- CSAssignColours -----
-// Serial: single thread. Reads pre-computed collision times from contacts,
-// sorts by time, then does greedy graph colouring using per-body bitmasks
-// stored in g_bodies[].colour_used.
+// Serial: single thread. Walks contacts in order sorted by collision time.
+// Uses per-body colour bitmasks stored in g_bodies[].colour_used.
 [numthreads(1, 1, 1)]
 void CSAssignColours(uint3 dtid : SV_DispatchThreadID)
 {
-	int n = min(g_counters[0].contact_count, MaxContacts);
-
-	// Build sorted index array from pre-computed times
-	int order[MaxContacts];
-	for (int i = 0; i < n; ++i)
-		order[i] = i;
-
-	// Insertion sort by collision time (ascending = earliest first)
-	for (int i = 1; i < n; ++i)
+	for (int i = 0; i != g_counters[0].contact_count; ++i)
 	{
-		int key_idx = order[i];
-		float key_time = g_contacts[key_idx].collision_time;
-		int j = i - 1;
-		while (j >= 0 && g_contacts[order[j]].collision_time > key_time)
-		{
-			order[j + 1] = order[j];
-			--j;
-		}
-		order[j + 1] = key_idx;
-	}
-
-	// Greedy colouring in time-sorted order using per-body colour bitmasks.
-	for (int si = 0; si < n; ++si)
-	{
-		int i = order[si];
-		int a = g_contacts[i].body_idx_a;
-		int b = g_contacts[i].body_idx_b;
+		int idx = g_contact_order[i]; // get contact index from sorted order
+		int a = g_contacts[idx].body_idx_a;
+		int b = g_contacts[idx].body_idx_b;
 
 		uint used = g_bodies[a].colour_used | g_bodies[b].colour_used;
-		uint colour = firstbitlow(~used);
-		g_colours[i] = colour;
+		uint colour = min(firstbitlow(~used), MaxColours);
 
-		if (colour < 32)
-		{
-			g_bodies[a].colour_used |= (1u << colour);
-			g_bodies[b].colour_used |= (1u << colour);
-		}
+		g_colours[idx] = colour;
+		g_bodies[a].colour_used |= (1u << colour);
+		g_bodies[b].colour_used |= (1u << colour);
 	}
 }
 
@@ -285,9 +271,10 @@ void CSAssignColours(uint3 dtid : SV_DispatchThreadID)
 [numthreads(ResolveThreadCount, 1, 1)]
 void CSResolve(int3 dtid : SV_DispatchThreadID)
 {
-	uint idx = dtid.x;
-	if (idx >= g_counters[0].contact_count)
+	if (dtid.x >= g_counters[0].contact_count)
 		return;
+
+	uint idx = g_contact_order[dtid.x];
 
 	// Only process contacts assigned to the current colour batch
 	if (g_colours[idx] != (uint)g_colour)
@@ -298,8 +285,8 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	float3 axis = c.axis.xyz;
 	float3 pt = c.contact_point.xyz;
 
-	RigidBodyDynamics bodyA = g_bodies[c.body_idx_a];
-	RigidBodyDynamics bodyB = g_bodies[c.body_idx_b];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;

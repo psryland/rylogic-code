@@ -13,7 +13,7 @@ namespace pr::physics
 		Gpu& m_gpu;                          // Lightweight D3D12 wrapper (device + command queue)
 		ComputeStep m_cs_integrate;          // Root signature + PSO for the integration shader
 		D3DPtr<ID3D12Resource> m_r_counters; // GPU buffer: RWStructuredBuffer<GpuCollisionCounters> for storing the number of bodies, pairs, and contacts
-		D3DPtr<ID3D12Resource> m_r_bodies;   // GPU buffer: RWStructuredBuffer<RigidBodyDynamics>
+		D3DPtr<ID3D12Resource> m_r_bodies;   // GPU buffer: RWStructuredBuffer<GpuRigidBody>
 		D3DPtr<ID3D12Resource> m_r_aabb_x;   // GPU buffer: RWStructuredBuffer<float> bounding box x bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_y;   // GPU buffer: RWStructuredBuffer<float> bounding box y bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_z;   // GPU buffer: RWStructuredBuffer<float> bounding box z bounds
@@ -26,13 +26,13 @@ namespace pr::physics
 		explicit GpuIntegrator(Gpu& gpu);
 
 		// Integrate bodies on GPU and readback AABBs (but keep bodies GPU-resident for later readback).
-		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt);
+		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt);
 		
 		// Readback data into the provided buffers. 0-length means "don't readback".
-		void Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
+		void Readback(GpuJob& job, std::span<GpuRigidBody> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
 		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
-		void Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt, std::span<BBox> aabbs);
+		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> Counters() { return m_r_counters; }

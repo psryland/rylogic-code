@@ -30,7 +30,7 @@
 #define PR_PHYSICS_GJK_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
-#include "src/compute/collision_types.hlsli"
+#include "src/compute/physics_types.hlsli"
 
 // ---- Constants ----
 static const int MaxGjkIter = 32;

@@ -5,7 +5,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/utility/ldraw.h"
-#include "src/collision/gpu_collision_types.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics
 {

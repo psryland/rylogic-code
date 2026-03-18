@@ -2,9 +2,8 @@
 // Physics Sandbox — GPU Sort-and-Sweep Broadphase
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
-#include "src/collision/gpu_sort_and_sweep.h"
-#include "src/collision/gpu_collision_types.h"
+#include "src/compute/sweep_gpu.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics
 {
@@ -190,7 +189,7 @@ namespace pr::physics
 	}
 
 	// CPU-side testing: upload bodies, sort + sweep, readback pairs. Calls job.Run() internally.
-	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<RigidBodyDynamics const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs)
+	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs)
 	{
 		auto body_count = static_cast<int>(bodies.size());
 		if (body_count < 2)
@@ -198,7 +197,7 @@ namespace pr::physics
 
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempCounters");
-		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<RigidBodyDynamics>(body_count, {}), job.m_cmd_list, "Physics:TempBodies");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}), job.m_cmd_list, "Physics:TempBodies");
 		auto r_aabb = m_gpu.CreateResource(ResDesc::Buf<float>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB");
 		auto r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABBIdx");
 
@@ -220,8 +219,8 @@ namespace pr::physics
 			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
-			auto upload = job.m_upload.Alloc<RigidBodyDynamics>(body_count);
-			memcpy(upload.ptr<RigidBodyDynamics>(), bodies.data(), body_count * sizeof(RigidBodyDynamics));
+			auto upload = job.m_upload.Alloc<GpuRigidBody>(body_count);
+			memcpy(upload.ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
 			job.m_cmd_list.CopyBufferRegion(r_bodies.get(), 0, upload);
 
 			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

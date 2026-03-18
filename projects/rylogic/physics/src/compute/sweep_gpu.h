@@ -48,7 +48,7 @@ namespace pr::physics
 		std::span<GpuCollisionPair> Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuCollisionPair> pairs);
 
 		// CPU-side testing: upload bodies, sort AABB endpoints, sweep for overlapping pairs, readback pairs.
-		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<RigidBodyDynamics const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs);
+		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> CollisionPairs() { return m_r_col_pairs; }

@@ -5,7 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "pr/physics/materials/material.h"
-#include "src/collision/gpu_collision_types.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics
 {

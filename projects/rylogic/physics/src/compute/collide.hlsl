@@ -25,7 +25,7 @@
 //   PR_COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
-#include "src/compute/collision_types.hlsli"
+#include "src/compute/physics_types.hlsli"
 #include "src/compute/collision.hlsli"
 #include "src/compute/gjk.hlsli"
 

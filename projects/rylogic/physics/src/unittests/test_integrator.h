@@ -7,7 +7,6 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/integrator/integrator.h"
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics/shape/inertia.h"
 
 namespace pr::physics

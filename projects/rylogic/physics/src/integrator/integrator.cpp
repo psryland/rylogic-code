@@ -4,15 +4,15 @@
 //*********************************************
 #include "pr/physics/integrator/integrator.h"
 #include "pr/physics/rigid_body/rigid_body.h"
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "pr/physics/shape/inertia.h"
 #include "src/collision/shape_cache.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics
 {
-	// Performs Störmer-Verlet kick-drift-kick on a RigidBodyDynamics.
+	// Performs Störmer-Verlet kick-drift-kick on a GpuRigidBody.
 	// This mirrors the GPU compute shader exactly, allowing A/B comparison for debugging.
-	void Evolve(RigidBodyDynamics& dyn, float elapsed_seconds)
+	void Evolve(GpuRigidBody& dyn, float elapsed_seconds)
 	{
 		auto half_dt = elapsed_seconds * 0.5f;
 		auto inv_mass = dyn.os_com_and_invmass.w;
@@ -104,7 +104,7 @@ namespace pr::physics
 	{
 		ShapeCache shape_cache;
 		auto shape_id = shape_cache.GetOrAdd(rb.Shape());
-		RigidBodyDynamics dyn = PackDynamics(rb, shape_id);
+		GpuRigidBody dyn = PackDynamics(rb, shape_id);
 		Evolve(dyn, elapsed_seconds);
 		UnpackDynamics(dyn, rb);
 	}

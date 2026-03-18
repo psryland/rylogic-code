@@ -42,15 +42,6 @@
     <ClCompile Include="src\integrator\integrator.cpp">
       <Filter>src\integrator</Filter>
     </ClCompile>
-    <ClCompile Include="src\integrator\gpu_integrator.cpp">
-      <Filter>src\integrator</Filter>
-    </ClCompile>
-    <ClCompile Include="src\collision\gpu_collision_detector.cpp">
-      <Filter>src\collision</Filter>
-    </ClCompile>
-    <ClCompile Include="src\collision\gpu_resolver.cpp">
-      <Filter>src\collision</Filter>
-    </ClCompile>
     <ClCompile Include="src\collision\contact.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
@@ -60,8 +51,17 @@
     <ClCompile Include="src\collision\broadphase_brute.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
-    <ClCompile Include="src\collision\gpu_sort_and_sweep.cpp">
-      <Filter>src\collision</Filter>
+    <ClCompile Include="src\compute\collide_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\integrate_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\resolve_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\sweep_gpu.cpp">
+      <Filter>src\compute</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -97,21 +97,6 @@
     </ClInclude>
     <ClInclude Include="src\unittests\test_gpu_collision.h">
       <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\collision\gpu_collision_detector.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
-    <ClInclude Include="src\collision\gpu_resolver.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
-    <ClInclude Include="src\collision\gpu_collision_types.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
-    <ClInclude Include="src\integrator\gpu_integrator.h">
-      <Filter>src\integrator</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\rigid_body_dynamics.h">
-      <Filter>src\rigid_body</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h">
       <Filter>src\collision</Filter>
@@ -158,9 +143,6 @@
     <ClInclude Include="src\unittests\test_collision.h">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\collision\gpu_sort_and_sweep.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
     <ClInclude Include="src\utility\gpu.h">
       <Filter>src\utility</Filter>
     </ClInclude>
@@ -170,18 +152,30 @@
     <ClInclude Include="src\materials\material_map.h">
       <Filter>src\materials</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\physics_types.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\collide_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\integrate_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\resolve_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\sweep_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\compute\rigid_body_dynamics.hlsli">
-      <Filter>src\compute</Filter>
-    </None>
     <None Include="src\compute\collision.hlsli">
       <Filter>src\compute</Filter>
     </None>
     <None Include="src\compute\gjk.hlsli">
       <Filter>src\compute</Filter>
     </None>
-    <None Include="src\compute\collision_types.hlsli">
+    <None Include="src\compute\physics_types.hlsli">
       <Filter>src\compute</Filter>
     </None>
   </ItemGroup>

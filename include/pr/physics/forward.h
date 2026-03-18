@@ -56,7 +56,6 @@ namespace pr::physics
 	struct IBroadphase;
 	struct IMaterials;
 	struct Engine;
-	struct RigidBodyDynamics;
 	struct IntegrateDebugOutput;
 	struct Inertia;
 	struct InertiaInv;
@@ -67,6 +66,7 @@ namespace pr::physics
 	struct GpuSortAndSweep;
 	struct GpuCollisionDetector;
 	struct GpuResolver;
+	struct GpuRigidBody;
 	struct GpuShape;
 	struct GpuCollisionPair;
 	struct GpuContact;

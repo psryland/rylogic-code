@@ -9,7 +9,7 @@ namespace pr::physics
 {
 	// Performs Störmer-Verlet kick-drift-kick on a RigidBody.
 	// This mirrors the GPU compute shader exactly, allowing A/B comparison for debugging.
-	void Evolve(RigidBodyDynamics& dyn, float elapsed_seconds);
+	void Evolve(GpuRigidBody& dyn, float elapsed_seconds);
 
 	// Evolve the rigid body forward in time by 'elapsed_seconds' using Störmer-Verlet integration.
 	void Evolve(RigidBody& rb, float elapsed_seconds);
@@ -39,9 +39,9 @@ namespace pr::physics
 	void Evolve(RigidBody& rb, float elapsed_seconds);
 
 	// CPU fallback for GPU integration path.
-	// Performs the same Störmer-Verlet kick-drift-kick on a RigidBodyDynamics buffer entry.
+	// Performs the same Störmer-Verlet kick-drift-kick on a GpuRigidBody buffer entry.
 	// This mirrors the GPU compute shader exactly, allowing A/B comparison for debugging.
-	void EvolveCPU(RigidBodyDynamics& dyn, float elapsed_seconds);
+	void EvolveCPU(GpuRigidBody& dyn, float elapsed_seconds);
 	#endif
 
 	// Calculate the signed change in kinetic energy caused by applying 'force' for 'time_s'.

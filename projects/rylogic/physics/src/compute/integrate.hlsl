@@ -7,7 +7,7 @@
 // Evolve() function in integrator.cpp — see that file for detailed comments.
 //
 // Buffer layout:
-//   u0: RWStructuredBuffer<RigidBodyDynamics> — per-body dynamic state (read/write)
+//   u0: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
 //   u1: RWStructuredBuffer<IntegrateOutput>   — per-body KE debug output (write)
 //   u2: RWStructuredBuffer<float>             — per-body world-space AABB X value (write)
 //   u3: RWStructuredBuffer<float>             — per-body world-space AABB Y value (write)
@@ -24,8 +24,7 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-#include "src/compute/rigid_body_dynamics.hlsli"
-#include "src/compute/collision_types.hlsli"
+#include "src/compute/physics_types.hlsli"
 
 // Integration parameters
 cbuffer cbIntegrate : register(b0)
@@ -38,7 +37,7 @@ cbuffer cbIntegrate : register(b0)
 
 // Shader resources
 RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
-RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u1);
+RWStructuredBuffer<GpuRigidBody> g_bodies : register(u1);
 RWStructuredBuffer<float> g_aabb_x : register(u2);
 RWStructuredBuffer<float> g_aabb_y : register(u3);
 RWStructuredBuffer<float> g_aabb_z : register(u4);
@@ -55,7 +54,7 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 		return;
 
 	// Load the body's dynamic state
-	RigidBodyDynamics body = g_bodies[idx];
+	GpuRigidBody body = g_bodies[idx];
 	float half_dt = g_dt * 0.5f;
 	float inv_mass = body.os_com_and_invmass.w;
 	float3 os_com = body.os_com_and_invmass.xyz;

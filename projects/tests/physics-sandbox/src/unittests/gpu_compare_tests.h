@@ -12,7 +12,6 @@
 //   3. Analytic results: free-flight, elastic collisions
 //
 #pragma once
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
 #include "src/forward.h"
 
 namespace physics_sandbox::tests

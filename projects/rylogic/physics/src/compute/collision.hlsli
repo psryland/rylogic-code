@@ -44,7 +44,7 @@
 #define PR_PHYSICS_COLLISION_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
-#include "src/compute/collision_types.hlsli"
+#include "src/compute/physics_types.hlsli"
 #include "src/compute/gjk.hlsli"
 
 // ---- Constants ----
@@ -126,7 +126,8 @@ bool SphereVsBox(
 		                    + local_normal.y * box_w[1]
 		                    + local_normal.z * box_w[2];
 
-		out_axis = world_normal;
+		// Axis from sphere toward box (sa→sb convention)
+		out_axis = -world_normal;
 		out_depth = radius - dist;
 
 		// Contact point on box surface in world space
@@ -151,7 +152,8 @@ bool SphereVsBox(
 	                    + local_normal.y * box_w[1]
 	                    + local_normal.z * box_w[2];
 
-	out_axis = world_normal;
+	// Axis from sphere toward box (sa→sb convention)
+	out_axis = -world_normal;
 	out_depth = radius + face_dist[min_axis];
 
 	// Contact point: box face
@@ -757,11 +759,16 @@ bool TriangleVsTriangle(
 	#undef TEST_AXIS
 
 	out_depth = best_depth;
+
+	// Ensure axis points sa→sb (from triangle A toward triangle B)
+	float4 centre_a = (a0 + a1 + a2) / 3.0f;
+	float4 centre_b = (b0 + b1 + b2) / 3.0f;
+	if (dot(best_axis, (centre_b - centre_a).xyz) < 0)
+		best_axis = -best_axis;
+
 	out_axis = float4(best_axis, 0);
 
 	// Contact point: midpoint of the overlap region
-	float4 centre_a = (a0 + a1 + a2) / 3.0f;
-	float4 centre_b = (b0 + b1 + b2) / 3.0f;
 	out_point = (centre_a + centre_b) * 0.5f;
 	return true;
 }
@@ -832,12 +839,17 @@ bool BoxVsBox(
 		{
 			best_depth = -sep;
 			float3 axis = float3(0, 0, 0);
-			axis[i] = sep_val > 0 ? 1.0f : -1.0f;
+			axis[i] = sep_val > 0 ? -1.0f : 1.0f; // Negate to point sa→sb
 			best_axis = mul(axis, rot_b);
 		}
 	}
 
 	out_depth = best_depth;
+
+	// Ensure axis points sa→sb (from box A toward box B)
+	if (dot(best_axis, d) < 0)
+		best_axis = -best_axis;
+
 	out_axis = float4(normalize(best_axis), 0);
 	float3 pt = pos_a + dot(d, out_axis.xyz) * 0.5f * out_axis.xyz;
 	out_point = float4(pt, 1);

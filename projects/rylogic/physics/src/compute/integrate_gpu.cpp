@@ -2,9 +2,8 @@
 // Physics Engine — GPU Integration Implementation
 //  Copyright (C) Rylogic Ltd 2025
 //*********************************************
-#include "pr/physics/rigid_body/rigid_body_dynamics.h"
-#include "src/integrator/gpu_integrator.h"
-#include "src/collision/gpu_collision_types.h"
+#include "src/compute/integrate_gpu.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics
 {
@@ -94,7 +93,7 @@ namespace pr::physics
 		}
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
-			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<RigidBodyDynamics>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyDynamics");
+			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyDynamics");
 			m_r_aabb_x = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_X");
 			m_r_aabb_y = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Y");
 			m_r_aabb_z = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Z");
@@ -107,7 +106,7 @@ namespace pr::physics
 	}
 
 	// Integrate bodies on GPU
-	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt)
+	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt)
 	{
 		auto body_count = static_cast<int>(bodies.size());
 		if (body_count == 0)
@@ -138,8 +137,8 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
-			auto upload = job.m_upload.template Alloc<RigidBodyDynamics>(body_count);
-			memcpy(upload.template ptr<RigidBodyDynamics>(), bodies.data(), body_count * sizeof(RigidBodyDynamics));
+			auto upload = job.m_upload.template Alloc<GpuRigidBody>(body_count);
+			memcpy(upload.template ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
 			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload);
 
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -192,7 +191,7 @@ namespace pr::physics
 	}
 
 	// Readback data into the provided buffers. 0-length means "don't readback".
-	void GpuIntegrator::Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag)
+	void GpuIntegrator::Readback(GpuJob& job, std::span<GpuRigidBody> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag)
 	{
 		GpuReadbackBuffer::Allocation readback_bodies;
 		GpuReadbackBuffer::Allocation readback_aabb_x;
@@ -224,7 +223,7 @@ namespace pr::physics
 
 			if (!bodies.empty())
 			{
-				readback_bodies = job.m_readback.template Alloc<RigidBodyDynamics>(static_cast<int>(bodies.size()));
+				readback_bodies = job.m_readback.template Alloc<GpuRigidBody>(static_cast<int>(bodies.size()));
 				job.m_cmd_list.CopyBufferRegion(readback_bodies, m_r_bodies.get(), 0);
 			}
 			if (!aabbs.empty())
@@ -268,7 +267,7 @@ namespace pr::physics
 
 		if (!bodies.empty())
 		{
-			memcpy(bodies.data(), readback_bodies.template ptr<RigidBodyDynamics>(), bodies.size() * sizeof(RigidBodyDynamics));
+			memcpy(bodies.data(), readback_bodies.template ptr<GpuRigidBody>(), bodies.size() * sizeof(GpuRigidBody));
 		}
 		if (!aabbs.empty())
 		{
@@ -293,7 +292,7 @@ namespace pr::physics
 	}
 
 	// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
-	void GpuIntegrator::Integrate(GpuJob& job, std::span<RigidBodyDynamics> bodies, float dt, std::span<BBox> aabbs)
+	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs)
 	{
 		Integrate(job, bodies, dt);
 		Readback(job, bodies, aabbs, {});

@@ -9,8 +9,7 @@
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
-#include "src/compute/rigid_body_dynamics.hlsli"
-#include "src/compute/collision_types.hlsli"
+#include "src/compute/physics_types.hlsli"
 
 // Shader parameters
 cbuffer cbSweep : register(b0)
@@ -25,7 +24,7 @@ cbuffer cbSweep : register(b0)
 RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
 RWStructuredBuffer<GpuCollisionPair> g_collision_pairs : register(u1);
 RWStructuredBuffer<DispatchArguments> g_dispatch_args : register(u2);
-StructuredBuffer<RigidBodyDynamics> g_bodies : register(t0);
+StructuredBuffer<GpuRigidBody> g_bodies : register(t0);
 StructuredBuffer<int> g_aabb_idx : register(t1);
 
 [numthreads(SweepThreadCount, 1, 1)]
@@ -54,7 +53,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 
 	// Get the object we're testing against the other objects
 	int rbA_idx = g_aabb_idx[idx] >> 1;
-	RigidBodyDynamics rb = g_bodies[rbA_idx];
+	GpuRigidBody rb = g_bodies[rbA_idx];
 	
 	// Get the index value that ends our search
 	int end_idx = g_aabb_idx[idx] | 1;
@@ -62,19 +61,26 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	// The world-space bbox of the object we're testing
 	BBox ws_bbox = Transform(rb.os_bbox, rb.o2w);
 	
-	// Search for overlaps on this axis
+	// Search for overlaps on this axis.
+	// Walk forward from this body's start bound until our end bound is reached.
+	// Check all encountered start bounds for 3D AABB overlap.
 	for (++idx; idx != bounds_count && g_aabb_idx[idx] != end_idx; ++idx)
 	{
-		int rbB_idx = g_aabb_idx[idx] >> 1;
-		if (rbB_idx <= rbA_idx)
-			continue;
+		int payload = g_aabb_idx[idx];
+		if ((payload & 1) == 1)
+			continue; // Skip 'end' bounds
+
+		int rbB_idx = payload >> 1;
 		
-		RigidBodyDynamics other_rb = g_bodies[rbB_idx];
+		GpuRigidBody other_rb = g_bodies[rbB_idx];
 		BBox other_ws_bbox = Transform(other_rb.os_bbox, other_rb.o2w);
 		
-		// If intersection on all three axes, add a pair to the output buffer
+		// If intersection on all three axes, add a pair to the output buffer.
+		// Canonicalise pair so lower body index is always 'a'.
 		if (BBox_IsIntersection(ws_bbox, other_ws_bbox))
 		{
+			int idxA = min(rbA_idx, rbB_idx);
+			int idxB = max(rbA_idx, rbB_idx);
 			// Allocate a slot in the collision pairs buffer atomically
 			uint slot;
 			InterlockedAdd(g_counters[0].pair_count, 1, slot);
@@ -83,11 +89,11 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 
 			// Write the contact
 			GpuCollisionPair pair;
-			pair.body_idx_a = rbA_idx;
-			pair.body_idx_b = rbB_idx;
-			pair.shape_idx_a = g_bodies[rbA_idx].shape_id;
-			pair.shape_idx_b = g_bodies[rbB_idx].shape_id;
-			pair.b2a = mul(other_rb.o2w, InvertOrthonormal(rb.o2w));
+			pair.body_idx_a = idxA;
+			pair.body_idx_b = idxB;
+			pair.shape_idx_a = g_bodies[idxA].shape_id;
+			pair.shape_idx_b = g_bodies[idxB].shape_id;
+			pair.b2a = mul(g_bodies[idxB].o2w, InvertOrthonormal(g_bodies[idxA].o2w));
 			g_collision_pairs[slot] = pair;
 		}
 	}
