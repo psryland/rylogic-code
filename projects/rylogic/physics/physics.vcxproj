@@ -164,4 +164,5 @@
   Targets
   -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
 </Project>

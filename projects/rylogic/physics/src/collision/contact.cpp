@@ -31,7 +31,7 @@ namespace pr::physics
 	{
 		// Copy geometric data from GPU contact (already in objA's space)
 		m_axis = contact.axis;
-		m_point = contact.point;
+		m_point = contact.contact_point;
 		m_depth = contact.depth;
 		m_mat_idA = contact.mat_id_a;
 		m_mat_idB = contact.mat_id_b;

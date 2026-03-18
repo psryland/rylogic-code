@@ -51,20 +51,20 @@ namespace pr::physics
 
 			// Build collision pair. GJK runs with A at identity, B at b2a.
 			auto pair = GpuCollisionPair{};
+			pair.body_idx_a = 0;
+			pair.body_idx_b = 1;
 			pair.shape_idx_a = 0;
 			pair.shape_idx_b = 1;
-			pair.pair_index = 0;
-			pair.pad0 = 0;
 			pair.b2a = InvertOrthonormal(l2w) * r2w;
 
 			auto pairs = std::vector<GpuCollisionPair>{ pair };
-			auto gpu_contacts = std::vector<GpuResolveContact>{1};
-			auto materials = std::vector<GpuMaterial>{ GpuMaterial{0, 1} };
+			auto out_contacts = std::vector<GpuResolveContact>{1};
 
 			// Create a GpuIntegrator (which owns the D3D12 device and command queue),
 			// then create the collision detector sharing the same Gpu instance.
-			auto gpu_count = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, materials, gpu_contacts);
-			auto gpu_hit = gpu_count > 0;
+			auto [gpu_contacts, diag] = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts, {});
+			auto gpu_hit = gpu_contacts.size() > 0;
+			(void)diag; // diagnostics not used in this test
 
 			// --- Compare collision/no-collision agreement ---
 			PR_EXPECT(cpu_hit == expect_collision);
@@ -97,7 +97,7 @@ namespace pr::physics
 			PR_EXPECT(angle < AxisAngleTol);
 
 			// Contact point comparison
-			auto pt_err = Length(gc.point - cpu_point_local);
+			auto pt_err = Length(gc.contact_point - cpu_point_local);
 			PR_EXPECT(pt_err < PointTol);
 		}
 

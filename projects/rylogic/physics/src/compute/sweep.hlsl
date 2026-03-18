@@ -32,9 +32,10 @@ StructuredBuffer<int> g_aabb_idx : register(t1);
 void CSSweep(int3 dtid : SV_DispatchThreadID)
 {
 	// 'aabb_idx' is a list of encoded body indices sorted on some axes.
-	// There is one thread per aabb_idx array element. Indexes that are 'end'
-	// bounds, return early. For indexex that are start bounds, search forward
-	// in the index buffer adding pairs for overlap that is a full AABB overlap.
+	// There is one thread per aabb_idx array element. Indexes that are 'end' bounds, return early.
+	// For indexes that are start bounds, search forward in the index buffer, adding pairs for any overlap that
+	// is a full 3D overlap.
+	// Since if A overlaps B, then B overlaps A, only add a collision pair if A < B
 	// Note: indices are encoded as:
 	//   start = (body_index << 1) | 0
 	//   end = (body_index << 1) | 1
@@ -65,6 +66,8 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	for (++idx; idx != bounds_count && g_aabb_idx[idx] != end_idx; ++idx)
 	{
 		int rbB_idx = g_aabb_idx[idx] >> 1;
+		if (rbB_idx <= rbA_idx)
+			continue;
 		
 		RigidBodyDynamics other_rb = g_bodies[rbB_idx];
 		BBox other_ws_bbox = Transform(other_rb.os_bbox, other_rb.o2w);
@@ -80,10 +83,10 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 
 			// Write the contact
 			GpuCollisionPair pair;
+			pair.body_idx_a = rbA_idx;
+			pair.body_idx_b = rbB_idx;
 			pair.shape_idx_a = g_bodies[rbA_idx].shape_id;
 			pair.shape_idx_b = g_bodies[rbB_idx].shape_id;
-			pair.pair_index = slot;
-			pair.pad0 = 0;
 			pair.b2a = mul(other_rb.o2w, InvertOrthonormal(rb.o2w));
 			g_collision_pairs[slot] = pair;
 		}

@@ -29,25 +29,25 @@ struct GpuShape
 };
 struct GpuCollisionPair
 {
-	int shape_idx_a;
-	int shape_idx_b;
-	int pair_index;
-	int pad0;
+	int body_idx_a;        // Rigid body index for A
+	int body_idx_b;        // Rigid body index for B
+	int shape_idx_a;       // Collision shape index for A
+	int shape_idx_b;       // Collision shape index for B
 	row_major float4x4 b2a; // transform B into A's space
 };
 struct GpuResolveContact
 {
 	float4 axis;            // collision normal (in A's object space)
-	float4 contact_pt;      // contact point at estimated collision time (in A's space)
+	float4 contact_point;   // contact point at estimated collision time (in A's space)
 	row_major float4x4 b2a; // B-to-A transform
-	int body_idx_a;         //
-	int body_idx_b;         //
-	float elasticity;       // combined material elasticity (normal)
-	float friction;         // combined material static friction
-	float depth;            // Penetration depth (positive = overlapping).
+	int body_idx_a;         // index into RigidBodyDynamics buffer
+	int body_idx_b;         // index into RigidBodyDynamics buffer
 	int mat_id_a;           // Material IDs from each shape
 	int mat_id_b;           // Material IDs from each shape
+	float depth;            // Penetration depth (positive = overlapping).
 	int pad0;
+	int pad1;
+	int pad2;
 };
 struct GpuCollisionCounters
 {
@@ -76,14 +76,14 @@ struct GpuIntegrateDiag
 };
 struct GpuPairDiag
 {
-	int pair_index;
+	int body_idx_a;  // Rigid body index for A
+	int body_idx_b;  // Rigid body index for B
 	int shape_type_a;
 	int shape_type_b;
 	int gjk_iters;
 	int epa_iters;
 	int hit;
 	int pad0;
-	int pad1;
 };
 struct DispatchArguments // D3D12_DISPATCH_ARGUMENTS
 {

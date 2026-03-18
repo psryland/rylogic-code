@@ -43,7 +43,7 @@ RWStructuredBuffer<float> g_aabb_x : register(u2);
 RWStructuredBuffer<float> g_aabb_y : register(u3);
 RWStructuredBuffer<float> g_aabb_z : register(u4);
 RWStructuredBuffer<int> g_aabb_idx : register(u5);
-#if COLLISION_DIAGNOSTICS
+#if PR_COLLISION_DIAGNOSTICS
 RWStructuredBuffer<GpuIntegrateDiag> g_diag : register(u6);
 #endif
 
@@ -166,7 +166,7 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	g_aabb_idx[2 * idx + 0] = (idx << 1) | 0; // bounding box lower bound
 	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1; // bounding box upper bound
 
-	#if COLLISION_DIAGNOSTICS
+	#if PR_COLLISION_DIAGNOSTICS
 	g_diag[idx].ke_before = ke_before;
 	g_diag[idx].ke_after = ke_after;
 	g_diag[idx].pad0 = 0;

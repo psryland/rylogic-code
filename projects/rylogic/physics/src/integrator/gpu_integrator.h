@@ -18,7 +18,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_y;   // GPU buffer: RWStructuredBuffer<float> bounding box y bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_z;   // GPU buffer: RWStructuredBuffer<float> bounding box z bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
-		#if COLLISION_DIAGNOSTICS
+		#if PR_COLLISION_DIAGNOSTICS
 		D3DPtr<ID3D12Resource> m_r_diag;     // GPU buffer: RWStructuredBuffer<GpuIntegrateDiag>
 		#endif
 		int m_capacity;                      // Maximum number of bodies the buffers can hold

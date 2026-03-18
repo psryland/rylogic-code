@@ -19,32 +19,31 @@
     <ClCompile>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>
-				;%(PreprocessorDefinitions)
-				;PR_UNITTESTS=1
+        ;%(PreprocessorDefinitions)
+        ;PR_UNITTESTS=1
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
-				;$(ProjectDir)
-				;$(RylogicRoot)include
-				;$(RylogicRoot)sdk
-				;$(RylogicRoot)projects\rylogic
-				;%(AdditionalIncludeDirectories)
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include
+        ;$(RylogicRoot)sdk
+        ;$(RylogicRoot)projects\rylogic
+        ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
     </ClCompile>
     <ResourceCompile>
       <AdditionalIncludeDirectories>
-				;$(RylogicRoot)include
-				;%(AdditionalIncludeDirectories)
+        ;$(RylogicRoot)include
+        ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <AdditionalDependencies>
-				;view3d-12-static.lib
+        ;view3d-12-static.lib
         ;view3d_compute_shaders.res
-				;physics-static.lib
+        ;physics-static.lib
         ;physics_compute_shaders.res
-				;dxcompiler.lib
-				;%(AdditionalDependencies)
+        ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -124,16 +123,6 @@
     <ClCompile Include="src\main.cpp" />
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
-  <!--
-  Dependencies
-  -->
-  <ItemGroup>
-    <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
-    <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
-  </ItemGroup>
-  <!--
-  Targets
-  -->
   <ItemGroup>
     <None Include="..\..\..\include\pr\hlsl\camera.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\closest_point.hlsli" />
@@ -146,6 +135,18 @@
     <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\vector.hlsli" />
+  </ItemGroup>
+  <!--
+  Dependencies
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
+  </ItemGroup>
+  <!--
+  Test Scenes
+  -->
+  <ItemGroup>
     <None Include="scenes\box_vs_sphere.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\generate_scene.py" />
@@ -155,12 +156,20 @@
     <None Include="scenes\stress_test_1000.json" />
     <None Include="scenes\three_body_chain.json" />
   </ItemGroup>
+  
+  <!--
+  Targets
+  -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <!-- Run unit tests as a post-build step in Debug builds.
-       IgnoreExitCode allows the build to succeed even if tests fail,
-       so that test failures don't block iteration during development.
+  <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
+  <Import Project="$(TargetsPath)dxc.targets" />
+  <!--
+  Run unit tests as a post-build step in Debug builds.
+  IgnoreExitCode allows the build to succeed even if tests fail,
+  so that test failures don't block iteration during development.
   <Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(Configuration)'=='Debug'">
     <Exec Command="&quot;$(TargetPath)&quot; -unittest" WorkingDirectory="$(TargetDir)" IgnoreExitCode="true" />
   </Target>
-       -->
+  -->
+
 </Project>

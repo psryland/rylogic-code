@@ -6,8 +6,13 @@
 #include <type_traits>
 #include <filesystem>
 
+// Defined in '/build/targets/WinPixEventRuntime.targets'
 #ifndef PR_PIX_ENABLED
 #define PR_PIX_ENABLED 0
+#endif
+
+#ifndef PR_COMPUTE_SHADER_DEBUG
+#define PR_COMPUTE_SHADER_DEBUG 0
 #endif
 
 #if PR_PIX_ENABLED

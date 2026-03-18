@@ -31,6 +31,10 @@
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
 
+#ifndef PR_COLLISION_DIAGNOSTICS
+#define PR_COLLISION_DIAGNOSTICS 0
+#endif
+
 // Forward declare D3D12 device (avoids including d3d12.h)
 struct ID3D12Device4;
 
@@ -98,10 +102,4 @@ namespace pr::physics
 	{
 		return float(dist);
 	}
-
-	#if PR_DBG
-	#define COLLISION_DIAGNOSTICS 1
-	#else
-	#define COLLISION_DIAGNOSTICS 0
-	#endif
 }

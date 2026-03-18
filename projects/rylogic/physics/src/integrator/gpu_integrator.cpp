@@ -30,7 +30,7 @@ namespace pr::physics
 		inline static constexpr auto AABB_Y = EUAVReg::u3;
 		inline static constexpr auto AABB_Z = EUAVReg::u4;
 		inline static constexpr auto AABB_Idx = EUAVReg::u5;
-		#if COLLISION_DIAGNOSTICS
+		#if PR_COLLISION_DIAGNOSTICS
 		inline static constexpr auto Diag = EUAVReg::u6;
 		#endif
 	};
@@ -43,7 +43,7 @@ namespace pr::physics
 		, m_r_aabb_y()
 		, m_r_aabb_z()
 		, m_r_aabb_idx()
-		#if COLLISION_DIAGNOSTICS
+		#if PR_COLLISION_DIAGNOSTICS
 		, m_r_diag()
 		#endif
 		, m_capacity()
@@ -57,7 +57,7 @@ namespace pr::physics
 		auto compiler = ShaderCompiler{}
 			.Source(resource::Read<char>(L"src/compute/integrate.hlsl", L"TEXT"))
 			.Includes({ new ResourceIncludeHandler, true })
-			.Define(L"COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(COLLISION_DIAGNOSTICS))
+			.Define(L"PR_COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(PR_COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
@@ -71,7 +71,7 @@ namespace pr::physics
 				.UAV(EReg::AABB_Y)
 				.UAV(EReg::AABB_Z)
 				.UAV(EReg::AABB_Idx)
-				#if COLLISION_DIAGNOSTICS
+				#if PR_COLLISION_DIAGNOSTICS
 				.UAV(EReg::Diag)
 				#endif
 				;
@@ -99,7 +99,7 @@ namespace pr::physics
 			m_r_aabb_y = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Y");
 			m_r_aabb_z = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Z");
 			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Idx");
-			#if COLLISION_DIAGNOSTICS
+			#if PR_COLLISION_DIAGNOSTICS
 			m_r_diag = m_gpu.CreateResource(ResDesc::Buf<GpuIntegrateDiag>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:GpuIntegrateDiag");
 			#endif
 			m_capacity = capacity;
@@ -154,7 +154,7 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_aabb_idx.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#if COLLISION_DIAGNOSTICS
+			#if PR_COLLISION_DIAGNOSTICS
 			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			#endif
 			job.m_barriers.Commit();
@@ -171,7 +171,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_y->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_z->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_idx->GetGPUVirtualAddress());
-			#if COLLISION_DIAGNOSTICS
+			#if PR_COLLISION_DIAGNOSTICS
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
 			#endif
 
@@ -184,77 +184,84 @@ namespace pr::physics
 			job.m_barriers.UAV(m_r_aabb_y.get());
 			job.m_barriers.UAV(m_r_aabb_z.get());
 			job.m_barriers.UAV(m_r_aabb_idx.get());
-			#if COLLISION_DIAGNOSTICS
+			#if PR_COLLISION_DIAGNOSTICS
 			job.m_barriers.UAV(m_r_diag.get());
 			#endif
+			job.m_barriers.Commit();
 		}
 	}
 
 	// Readback data into the provided buffers. 0-length means "don't readback".
 	void GpuIntegrator::Readback(GpuJob& job, std::span<RigidBodyDynamics> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag)
 	{
-		if (!bodies.empty())
-		{
-			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-		}
-		if (!aabbs.empty())
-		{
-			job.m_barriers.Transition(m_r_aabb_x.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-		}
-		if (!diag.empty())
-		{
-			#if COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#endif
-		}
-		job.m_barriers.Commit();
-	
 		GpuReadbackBuffer::Allocation readback_bodies;
 		GpuReadbackBuffer::Allocation readback_aabb_x;
 		GpuReadbackBuffer::Allocation readback_aabb_y;
 		GpuReadbackBuffer::Allocation readback_aabb_z;
+		#if PR_COLLISION_DIAGNOSTICS
 		GpuReadbackBuffer::Allocation readback_diag;
+		#endif
 
-		if (!bodies.empty())
+		// Readback bodies, aabbs, and diagnostics (if requested)
 		{
-			readback_bodies = job.m_readback.template Alloc<RigidBodyDynamics>(static_cast<int>(bodies.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_bodies, m_r_bodies.get(), 0);
-		}
-		if (!aabbs.empty())
-		{
-			auto aabb_count = static_cast<int>(2 * aabbs.size());
-			readback_aabb_x = job.m_readback.template Alloc<float>(aabb_count);
-			readback_aabb_y = job.m_readback.template Alloc<float>(aabb_count);
-			readback_aabb_z = job.m_readback.template Alloc<float>(aabb_count);
-			job.m_cmd_list.CopyBufferRegion(readback_aabb_x, m_r_aabb_x.get(), 0);
-			job.m_cmd_list.CopyBufferRegion(readback_aabb_y, m_r_aabb_y.get(), 0);
-			job.m_cmd_list.CopyBufferRegion(readback_aabb_z, m_r_aabb_z.get(), 0);
-		}
-		if (!diag.empty())
-		{
-			#if COLLISION_DIAGNOSTICS
-			readback_diag = job.m_readback.template Alloc<GpuIntegrateDiag>(int(diag.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
-			#endif
-		}
+			if (!bodies.empty())
+			{
+				job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			}
+			if (!aabbs.empty())
+			{
+				job.m_barriers.Transition(m_r_aabb_x.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			}
+			if (!diag.empty())
+			{
+				#if PR_COLLISION_DIAGNOSTICS
+				job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				#endif
+			}
+			job.m_barriers.Commit();
 
-		if (!bodies.empty())
-		{
-			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
-		if (!aabbs.empty())
-		{
-			job.m_barriers.Transition(m_r_aabb_x.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
-		if (!diag.empty())
-		{
-			#if COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
+			if (!bodies.empty())
+			{
+				readback_bodies = job.m_readback.template Alloc<RigidBodyDynamics>(static_cast<int>(bodies.size()));
+				job.m_cmd_list.CopyBufferRegion(readback_bodies, m_r_bodies.get(), 0);
+			}
+			if (!aabbs.empty())
+			{
+				auto aabb_count = static_cast<int>(2 * aabbs.size());
+				readback_aabb_x = job.m_readback.template Alloc<float>(aabb_count);
+				readback_aabb_y = job.m_readback.template Alloc<float>(aabb_count);
+				readback_aabb_z = job.m_readback.template Alloc<float>(aabb_count);
+				job.m_cmd_list.CopyBufferRegion(readback_aabb_x, m_r_aabb_x.get(), 0);
+				job.m_cmd_list.CopyBufferRegion(readback_aabb_y, m_r_aabb_y.get(), 0);
+				job.m_cmd_list.CopyBufferRegion(readback_aabb_z, m_r_aabb_z.get(), 0);
+			}
+			if (!diag.empty())
+			{
+				#if PR_COLLISION_DIAGNOSTICS
+				readback_diag = job.m_readback.template Alloc<GpuIntegrateDiag>(int(diag.size()));
+				job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
+				#endif
+			}
+
+			if (!bodies.empty())
+			{
+				job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			}
+			if (!aabbs.empty())
+			{
+				job.m_barriers.Transition(m_r_aabb_x.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				job.m_barriers.Transition(m_r_aabb_y.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				job.m_barriers.Transition(m_r_aabb_z.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			}
+			if (!diag.empty())
+			{
+				#if PR_COLLISION_DIAGNOSTICS
+				job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				#endif
+			}
+			job.m_barriers.Commit();
 		}
 
 		job.Run();
@@ -265,9 +272,10 @@ namespace pr::physics
 		}
 		if (!aabbs.empty())
 		{
-			auto aabb_x = std::span{readback_aabb_x.template ptr<float>(), aabbs.size()};
-			auto aabb_y = std::span{readback_aabb_y.template ptr<float>(), aabbs.size()};
-			auto aabb_z = std::span{readback_aabb_z.template ptr<float>(), aabbs.size()};
+			auto aabb_count = 2 * aabbs.size();
+			auto aabb_x = std::span{readback_aabb_x.template ptr<float>(), aabb_count};
+			auto aabb_y = std::span{readback_aabb_y.template ptr<float>(), aabb_count};
+			auto aabb_z = std::span{readback_aabb_z.template ptr<float>(), aabb_count};
 
 			for (int i = 0; i != aabbs.size(); ++i)
 			{
@@ -278,7 +286,7 @@ namespace pr::physics
 		}
 		if (!diag.empty())
 		{
-			#if COLLISION_DIAGNOSTICS
+			#if PR_COLLISION_DIAGNOSTICS
 			memcpy(diag.data(), readback_diag.template ptr<GpuIntegrateDiag>(), diag.size() * sizeof(GpuIntegrateDiag));
 			#endif
 		}

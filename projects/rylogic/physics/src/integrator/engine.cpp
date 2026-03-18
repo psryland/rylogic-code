@@ -26,7 +26,6 @@ namespace pr::physics
 		RigidBody const* objA;
 		RigidBody const* objB;
 	};
-
 	struct EngineBufferCache
 	{
 		// Persists across frames
@@ -95,6 +94,12 @@ namespace pr::physics
 		if (body_count == 0)
 			return;
 
+		#if PR_PIX_ENABLED
+		static bool capture = false;
+		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
+		capture = false;
+		#endif
+
 		if (m_body_ptrs.empty())
 			m_body_ptrs.append_range(rigid_bodies);
 
@@ -114,6 +119,16 @@ namespace pr::physics
 		// Integrate -> Updates dynamics, generates AABBs, debug data
 		{
 			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
+
+			#if PR_DBG_PHYSICS
+			{
+				std::vector<RigidBodyDynamics> bodies(body_count);
+				std::vector<BBox> aabbs(body_count);
+				std::vector<GpuIntegrateDiag> diag(body_count);
+				m_gpu_integrator->Readback(m_gpu->m_job, bodies, aabbs, diag);
+				(void)bodies, aabbs, diag;
+			}
+			#endif
 		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
@@ -124,6 +139,14 @@ namespace pr::physics
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
 			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, counters, aabb_idx, bodies);
+
+			#if PR_DBG_PHYSICS
+			{
+				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
+				auto pairs = m_gpu_sort_and_sweep->Readback(m_gpu->m_job, counters, out_pairs);
+				(void)pairs;
+			}
+			#endif
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
@@ -131,7 +154,16 @@ namespace pr::physics
 			auto counters = m_gpu_integrator->Counters();
 			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache, m_materials->span());
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+
+			#if PR_DBG_PHYSICS
+			{
+				std::vector<GpuResolveContact> out_contacts(max_col_pairs);
+				std::vector<GpuPairDiag> out_diag(max_col_pairs);
+				auto [contacts, diag] = m_gpu_collision_detector->Readback(m_gpu->m_job, counters, out_contacts, out_diag);
+				(void)contacts, diag;
+			}
+			#endif
 		}
 		
 		// Resolve -> uses contacts -> applies impulses to bodies
@@ -140,14 +172,12 @@ namespace pr::physics
 			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, body_count, dispatch, counters, contacts, bodies);
+			m_gpu_resolver->Resolve(m_gpu->m_job, body_count, dispatch, counters, contacts, bodies, m_materials->span());
 		}
-
-		// Wait for all GPU work to complete before reading back results
-		m_gpu->m_job.Run();
 
 		// Readback dynamics from GPU and unpack into bodies
 		{
+			// This will wait on the gpu work to complete
 			m_gpu_integrator->Readback(m_gpu->m_job, m_cache->m_rb_dynamics, {}, {});
 			for (auto [body, i] : with_index(rigid_bodies))
 				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);

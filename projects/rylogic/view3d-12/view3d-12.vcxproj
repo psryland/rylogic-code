@@ -50,8 +50,6 @@
         ;%(PreprocessorDefinitions)
         ;PR_RDR_RUNTIME_SHADERS=0
         ;PR_DBG_RDR=1
-        ;PR_PIX_ENABLED=0
-        ;USE_PIX
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
         ;$(RylogicRoot)projects\rylogic

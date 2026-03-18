@@ -21,13 +21,14 @@ namespace pr::physics
 	static_assert(sizeof(cbResolve) == 16);
 
 	// Register assignments for the resolve root signature
-	struct EResolveReg
+	struct EReg
 	{
-		inline static constexpr auto Params   = ECBufReg::b0;
-		inline static constexpr auto Counters = ESRVReg::t0;
-		inline static constexpr auto Contacts = ESRVReg::t1;
-		inline static constexpr auto Bodies   = EUAVReg::u0;
-		inline static constexpr auto Colours  = EUAVReg::u1;
+		inline static constexpr auto Params    = ECBufReg::b0;
+		inline static constexpr auto Counters  = ESRVReg::t0;
+		inline static constexpr auto Contacts  = ESRVReg::t1;
+		inline static constexpr auto Materials = ESRVReg::t2;
+		inline static constexpr auto Bodies    = EUAVReg::u0;
+		inline static constexpr auto Colours   = EUAVReg::u1;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu)
@@ -35,7 +36,9 @@ namespace pr::physics
 		, m_cs_colouring()
 		, m_cs_resolve()
 		, m_cmd_sig()
+		, m_r_materials()
 		, m_r_colours()
+		, m_max_materials()
 		, m_capacity()
 	{
 		CompileShaders();
@@ -58,17 +61,17 @@ namespace pr::physics
 		auto compiler = ShaderCompiler{}
 			.Source(resource::Read<char>(L"src/compute/resolve.hlsl", L"TEXT"))
 			.Includes({new ResourceIncludeHandler, true})
-			.Define(L"COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(COLLISION_DIAGNOSTICS))
+			.Define(L"PR_COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(PR_COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
 		// m_cs_colouring
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EResolveReg::Params)
-				.SRV(EResolveReg::Counters)
-				.SRV(EResolveReg::Contacts)
-				.UAV(EResolveReg::Colours);
+				.U32<cbResolve>(EReg::Params)
+				.SRV(EReg::Counters)
+				.SRV(EReg::Contacts)
+				.UAV(EReg::Colours);
 
 			auto bytecode = compiler.EntryPoint(L"CSGraphColouring").Compile();
 
@@ -79,11 +82,12 @@ namespace pr::physics
 		// m_cs_resolve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EResolveReg::Params)
-				.SRV(EResolveReg::Counters)
-				.SRV(EResolveReg::Contacts)
-				.UAV(EResolveReg::Bodies)
-				.UAV(EResolveReg::Colours);
+				.U32<cbResolve>(EReg::Params)
+				.SRV(EReg::Counters)
+				.SRV(EReg::Contacts)
+				.SRV(EReg::Materials)
+				.UAV(EReg::Bodies)
+				.UAV(EReg::Colours);
 
 			auto bytecode = compiler.EntryPoint(L"CSResolve").Compile();
 
@@ -93,10 +97,16 @@ namespace pr::physics
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
-	void GpuResolver::ResizeBuffers(CmdList& cmd_list, int capacity)
+	void GpuResolver::ResizeBuffers(CmdList& cmd_list, int capacity, int max_materials)
 	{
 		capacity = std::max(1, capacity);
+		max_materials = std::max(1, max_materials);
 
+		if (m_r_materials == nullptr || max_materials > m_max_materials)
+		{
+			m_r_materials = m_gpu.CreateResource(ResDesc::Buf<GpuMaterial>(max_materials, {}), cmd_list, "Physics:Materials");
+			m_max_materials = max_materials;
+		}
 		if (m_r_colours == nullptr || m_capacity < capacity)
 		{
 			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
@@ -105,15 +115,31 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies)
+	void GpuResolver::Resolve(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials)
 	{
-		ResizeBuffers(job.m_cmd_list, body_count);
+		auto material_count = static_cast<int>(materials.size());
+		
+		ResizeBuffers(job.m_cmd_list, body_count, material_count);
+
+		// Upload materials (small buffer, upload every frame for simplicity)
+		{
+			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto mat_upload = job.m_upload.Alloc<GpuMaterial>(std::max(1, material_count));
+			memcpy(mat_upload.ptr<GpuMaterial>(), materials.data(), material_count * sizeof(GpuMaterial)); // can be empty
+			job.m_cmd_list.CopyBufferRegion(m_r_materials.get(), 0, mat_upload);
+
+			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
 
 		// Switch states for resources
 		{
 			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
 			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
@@ -140,6 +166,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{ .g_colour = {} });
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
 
@@ -154,7 +181,7 @@ namespace pr::physics
 	}
 
 	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
-	void GpuResolver::Resolve(GpuJob& job, std::span<GpuResolveContact const> contacts, std::span<RigidBodyDynamics> bodies)
+	void GpuResolver::Resolve(GpuJob& job, std::span<GpuResolveContact const> contacts, std::span<RigidBodyDynamics> bodies, std::span<GpuMaterial const> materials)
 	{
 		auto contact_count = static_cast<int>(contacts.size());
 		auto body_count = static_cast<int>(bodies.size());
@@ -227,7 +254,7 @@ namespace pr::physics
 		}
 
 		// Run the GPU resolve pipeline
-		Resolve(job, body_count, r_dispatch, r_counters, r_contacts, r_bodies);
+		Resolve(job, body_count, r_dispatch, r_counters, r_contacts, r_bodies, materials);
 
 		// Readback bodies
 		GpuReadbackBuffer::Allocation readback_bodies;
@@ -257,37 +284,45 @@ namespace pr::physics
 #if 0
 
 	// Greedy graph colouring: assign colours so no two contacts sharing a body have the same colour.
+	// Uses per-body colour tracking to avoid the O(n²) scan of all earlier contacts.
+	// Complexity: O(n × k) where k is the max colour count (typically small, ~4-8).
 	std::pair<std::vector<int>, int> GraphColourContacts(std::span<GpuResolveContact const> contacts)
 	{
 		auto n = static_cast<int>(contacts.size());
 		std::vector<int> colours(n, -1);
 		int max_colour = 0;
 
-		// @Copilot, this is an O(n^2) algorithm, is there a way to colour more efficiently?
+		// Map from body_index → bitset of colours already used by that body's contacts.
+		// This lets us find conflicting colours in O(k) instead of scanning all earlier contacts.
+		std::unordered_map<int, std::vector<bool>> body_used;
 
-		// For each contact (in time-sorted order), find conflicting colours
 		for (int i = 0; i != n; ++i)
 		{
 			auto a = contacts[i].body_idx_a;
 			auto b = contacts[i].body_idx_b;
 
-			// Collect colours used by earlier contacts that share body A or B
-			std::vector<bool> used(max_colour + 2, false);
-			for (int j = 0; j != i; ++j)
+			auto& ua = body_used[a];
+			auto& ub = body_used[b];
+
+			// Find the lowest colour not used by either body
+			auto limit = static_cast<int>(std::max(ua.size(), ub.size()));
+			int c = 0;
+			for (; c < limit; ++c)
 			{
-				if (contacts[j].body_idx_a == a || contacts[j].body_idx_b == a ||
-					contacts[j].body_idx_a == b || contacts[j].body_idx_b == b)
-				{
-					if (colours[j] >= 0)
-						used[colours[j]] = true;
-				}
+				auto used_a = c < static_cast<int>(ua.size()) && ua[c];
+				auto used_b = c < static_cast<int>(ub.size()) && ub[c];
+				if (!used_a && !used_b)
+					break;
 			}
 
-			// Assign lowest available colour
-			int c = 0;
-			while (c < static_cast<int>(used.size()) && used[c]) ++c;
 			colours[i] = c;
 			max_colour = std::max(max_colour, c + 1);
+
+			// Mark this colour as used for both bodies
+			if (c >= static_cast<int>(ua.size())) ua.resize(c + 1, false);
+			if (c >= static_cast<int>(ub.size())) ub.resize(c + 1, false);
+			ua[c] = true;
+			ub[c] = true;
 		}
 
 		return {colours, max_colour};

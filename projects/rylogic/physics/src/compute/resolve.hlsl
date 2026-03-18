@@ -48,6 +48,7 @@ cbuffer cbResolve : register(b0)
 // Shader resources
 StructuredBuffer<GpuCollisionCounters> g_counters : register(t0);
 StructuredBuffer<GpuResolveContact> g_contacts : register(t1);
+StructuredBuffer<GpuMaterial> g_materials : register(t2);
 RWStructuredBuffer<RigidBodyDynamics> g_bodies : register(u0);
 RWStructuredBuffer<uint> g_colours : register(u1);
 
@@ -118,7 +119,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// Load the contact
 	GpuResolveContact c = g_contacts[idx];
 	float3 axis = c.axis.xyz;
-	float3 pt = c.contact_pt.xyz;
+	float3 pt = c.contact_point.xyz;
 
 	// Load both bodies
 	RigidBodyDynamics bodyA = g_bodies[c.body_idx_a];
@@ -187,6 +188,12 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 
 	float3x3 col_I = Invert(col_I_inv);
 
+	// ----- Load material properties -----
+	GpuMaterial mat_a = g_materials[c.mat_id_a];
+	GpuMaterial mat_b = g_materials[c.mat_id_b];
+	float elasticity = (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+	float friction = sqrt(mat_a.friction_static * mat_b.friction_static);
+
 	// ----- Decompose impulse into normal and tangential components -----
 	float3 impulse0 = -mul(col_I, V_inv);
 	float denom = dot(axis, mul(col_I_inv, axis));
@@ -195,11 +202,11 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 		impulseN = -(dot(axis, V_inv) / denom) * axis;
 
 	float3 impulseT = impulse0 - impulseN;
-	float3 impulse4 = (1.0f + c.elasticity) * impulseN + impulseT;
+	float3 impulse4 = (1.0f + elasticity) * impulseN + impulseT;
 
 	// ----- Coulomb friction cone clamping -----
 	{
-		float clamped_friction = min(c.friction, 0.9999f);
+		float clamped_friction = min(friction, 0.9999f);
 		float static_friction = clamped_friction / (1.000001f - clamped_friction);
 		float Jn = dot(impulse4, axis);
 		float Jt_sq = max(0.0f, dot(impulse4, impulse4) - Jn * Jn);
@@ -210,7 +217,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 			float impulseT_lenSq = dot(impulseT, impulseT);
 			if (impulseT_lenSq > 1e-12f)
 				impulseT = Jt * (impulseT / sqrt(impulseT_lenSq));
-			impulse4 = (1.0f + c.elasticity) * impulseN + impulseT;
+			impulse4 = (1.0f + elasticity) * impulseN + impulseT;
 		}
 	}
 

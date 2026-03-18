@@ -53,13 +53,10 @@ namespace pr::physics
 	// the pair info into this struct for the GPU narrow phase.
 	struct alignas(16) GpuCollisionPair
 	{
-		// Indices into the GpuShape buffer identifying the two shapes to test.
-		int shape_idx_a;
-		int shape_idx_b;
-
-		// Index of this pair in the original broadphase pair list (for CPU readback mapping)
-		int pair_index;
-		int pad0;
+		int body_idx_a;  // Rigid body index for A
+		int body_idx_b;  // Rigid body index for B
+		int shape_idx_a; // Collision shape index for A
+		int shape_idx_b; // Collision shape index for B
 
 		// Transform from shape B's space into shape A's space.
 		// The GJK algorithm runs with shape A at identity and shape B at b2a.
@@ -73,16 +70,16 @@ namespace pr::physics
 	struct alignas(16) GpuResolveContact
 	{
 		v4 axis;          // collision normal (in A's object space)
-		v4 point;         // contact point at estimated collision time (in A's space)
+		v4 contact_point; // contact point at estimated collision time (in A's space)
 		m4x4 b2a;         // B-to-A transform
 		int body_idx_a;   // index into RigidBodyDynamics buffer
 		int body_idx_b;   // index into RigidBodyDynamics buffer
-		float elasticity; // combined material elasticity (normal)
-		float friction;   // combined material static friction
-		float depth;      // Penetration depth (positive = overlapping).
 		int mat_id_a;     // Material IDs from each shape
 		int mat_id_b;     // Material IDs from each shape
+		float depth;      // Penetration depth (positive = overlapping).
 		int pad0;
+		int pad1;
+		int pad2;
 	};
 	static_assert(sizeof(GpuResolveContact) == 128, "GpuResolveContact must be 128 bytes for GPU alignment");
 
@@ -127,14 +124,14 @@ namespace pr::physics
 	// Written by every thread, not just colliding ones. Used for profiling.
 	struct alignas(16) GpuPairDiag
 	{
-		int pair_index;
+		int body_idx_a;  // Rigid body index for A
+		int body_idx_b;  // Rigid body index for B
 		int shape_type_a;
 		int shape_type_b;
 		int gjk_iters;
 		int epa_iters;
 		int hit;
 		int pad0;
-		int pad1;
 	};
 	static_assert(sizeof(GpuPairDiag) == 32);
 

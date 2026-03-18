@@ -19,10 +19,10 @@
 //   t1: StructuredBuffer<GpuShape>               — all unique shapes in the scene
 //   t2: StructuredBuffer<float4>                 — shared vertex buffer (polytope/triangle)
 //   t3: StructuredBuffer<GpuMaterial>            — material properties
-//   u3: RWStructuredBuffer<GpuPairDiag>          — per-pair diagnostic output (COLLISION_DIAGNOSTICS only)
+//   u3: RWStructuredBuffer<GpuPairDiag>          — per-pair diagnostic output (PR_COLLISION_DIAGNOSTICS only)
 //
 // Compile-time switches:
-//   COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
+//   PR_COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "src/compute/collision_types.hlsli"
@@ -44,8 +44,7 @@ RWStructuredBuffer<DispatchArguments> g_dispatch_args : register(u2);
 StructuredBuffer<GpuCollisionPair> g_pairs : register(t0);
 StructuredBuffer<GpuShape> g_shapes : register(t1);
 StructuredBuffer<float4> g_verts : register(t2);
-StructuredBuffer<GpuMaterial> g_materials : register(t3);
-#if COLLISION_DIAGNOSTICS
+#if PR_COLLISION_DIAGNOSTICS
 RWStructuredBuffer<GpuPairDiag> g_diag : register(u3);
 #endif
 
@@ -92,47 +91,53 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 	bool hit = false;
 	switch (sa.type)
 	{
-	case SHAPE_SPHERE:
-		switch (sb.type)
+		case SHAPE_SPHERE:
 		{
-		case SHAPE_SPHERE:   hit = SphereVsSphere(sa, wa, sb, wb, col_axis, col_point, depth); break;
-		case SHAPE_BOX:      hit = SphereVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
-		case SHAPE_LINE:     hit = SphereVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
-		case SHAPE_TRIANGLE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
-		case SHAPE_POLYTOPE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
+			switch (sb.type)
+			{
+			case SHAPE_SPHERE:   hit = SphereVsSphere(sa, wa, sb, wb, col_axis, col_point, depth); break;
+			case SHAPE_BOX:      hit = SphereVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
+			case SHAPE_LINE:     hit = SphereVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
+			case SHAPE_TRIANGLE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
+			case SHAPE_POLYTOPE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
+			}
+			break;
 		}
-		break;
-
-	case SHAPE_BOX:
-		switch (sb.type)
+		case SHAPE_BOX:
 		{
-		case SHAPE_BOX:      hit = BoxVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
-		case SHAPE_LINE:     hit = LineVsBox(sb, wb, sa, wa, col_axis, col_point, depth); break;
-		case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
-		case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
+			switch (sb.type)
+			{
+			case SHAPE_BOX:      hit = BoxVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
+			case SHAPE_LINE:     hit = LineVsBox(sb, wb, sa, wa, col_axis, col_point, depth); break;
+			case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
+			case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
+			}
+			break;
 		}
-		break;
-
-	case SHAPE_LINE:
-		switch (sb.type)
+		case SHAPE_LINE:
 		{
-		case SHAPE_LINE:     hit = LineVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
-		case SHAPE_TRIANGLE: hit = LineVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
-		case SHAPE_POLYTOPE: hit = LineVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
+			switch (sb.type)
+			{
+			case SHAPE_LINE:     hit = LineVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
+			case SHAPE_TRIANGLE: hit = LineVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
+			case SHAPE_POLYTOPE: hit = LineVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
+			}
+			break;
 		}
-		break;
-
-	case SHAPE_TRIANGLE:
-		switch (sb.type)
+		case SHAPE_TRIANGLE:
 		{
-		case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
-		case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
+			switch (sb.type)
+			{
+			case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
+			case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
+			}
+			break;
 		}
-		break;
-
-	case SHAPE_POLYTOPE:
-		hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters);
-		break;
+		case SHAPE_POLYTOPE:
+		{
+			hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters);
+			break;
+		}
 	}
 
 	// If we swapped A and B, negate the contact axis
@@ -140,17 +145,17 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 		col_axis = -col_axis;
 
 	// Write per-pair diagnostics (every pair, not just colliding ones)
-	#if COLLISION_DIAGNOSTICS
+	#if PR_COLLISION_DIAGNOSTICS
 	{
 		GpuPairDiag diag;
-		diag.pair_index = pair.pair_index;
+		diag.body_idx_a = pair.body_idx_a;
+		diag.body_idx_b = pair.body_idx_b;
 		diag.shape_type_a = shape_a.type;
 		diag.shape_type_b = shape_b.type;
 		diag.gjk_iters = gjk_iters;
 		diag.epa_iters = epa_iters;
 		diag.hit = hit ? 1 : 0;
 		diag.pad0 = 0;
-		diag.pad1 = 0;
 		g_diag[ThreadID.x] = diag;
 	}
 	#endif
@@ -164,23 +169,19 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 	if (slot >= g_max_contacts)
 		return;
 
-	// Merge materials from the two shapes
-	GpuMaterial mat_a = g_materials[shape_a.material_id];
-	GpuMaterial mat_b = g_materials[shape_b.material_id];
-
 	// Write the resolve contact directly (no intermediate GpuContact)
 	GpuResolveContact contact;
 	contact.axis = col_axis;
-	contact.contact_pt = col_point;
+	contact.contact_point = col_point;
 	contact.b2a = pair.b2a;
-	contact.body_idx_a = pair.shape_idx_a;
-	contact.body_idx_b = pair.shape_idx_b;
-	contact.elasticity = (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
-	contact.friction = sqrt(mat_a.friction_static * mat_b.friction_static);
-	contact.depth = depth;
+	contact.body_idx_a = pair.body_idx_a;
+	contact.body_idx_b = pair.body_idx_b;
 	contact.mat_id_a = shape_a.material_id;
 	contact.mat_id_b = shape_b.material_id;
+	contact.depth = depth;
 	contact.pad0 = 0;
+	contact.pad1 = 0;
+	contact.pad2 = 0;
 	g_contacts[slot] = contact;
 }
 

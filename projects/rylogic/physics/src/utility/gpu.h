@@ -14,6 +14,7 @@
 #include "pr/view3d-12/shaders/shader_registers.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "pr/view3d-12/utility/wrappers.h"
+#include "pr/view3d-12/utility/pix.h"
 #include "pr/common/resource.h"
 
 namespace pr::physics
