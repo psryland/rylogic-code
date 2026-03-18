@@ -54,6 +54,10 @@
 			<_NeedsPurge>false</_NeedsPurge>
 			<_NeedsPurge Condition="!Exists('$(_PurgeStamp)')">true</_NeedsPurge>
 			<_NeedsPurge Condition="'$(_NeedsPurge)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_PurgeStamp)').Ticks)">true</_NeedsPurge>
+
+			<!-- Suppress MSB3936 ("failed to unzip") as a warning. This is expected when dotnet-script
+			     holds a lock on cached DLLs. The cache already has a valid version in this case. -->
+			<MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3936</MSBuildWarningsAsMessages>
 		</PropertyGroup>
 
 		<!--
