@@ -55,6 +55,10 @@ namespace physics_sandbox
 		{
 			m_steps_remaining = 0; // Pause
 		};
+		m_media.OnStep += [&](auto&, auto&)
+		{
+			m_steps_remaining = 1; // Single step
+		};
 		m_media.OnReset += [&](auto&, auto&)
 		{
 			ResetScene();

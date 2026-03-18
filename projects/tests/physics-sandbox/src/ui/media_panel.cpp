@@ -7,7 +7,8 @@ namespace physics_sandbox
 		: Panel(p.dock(EDock::Bottom).wh(Fill, 36).padding(4))
 		, m_btn_play(Button::Params<>().parent(this_).text(L"\u25B6 Play").xy(0, 4).wh(80, 26))
 		, m_btn_pause(Button::Params<>().parent(this_).text(L"\u23F8 Pause").xy(84, 4).wh(80, 26))
-		, m_btn_reset(Button::Params<>().parent(this_).text(L"\u23EE Reset").xy(168, 4).wh(80, 26))
+		, m_btn_step(Button::Params<>().parent(this_).text(L"\u23ED Step").xy(168, 4).wh(80, 26))
+		, m_btn_reset(Button::Params<>().parent(this_).text(L"\u23EE Reset").xy(252, 4).wh(80, 26))
 		, m_lbl_speed(Label::Params<>().parent(this_).text(L"Speed: 1.00x").xy(280, 4).wh(100, 26).style('+', SS_CENTERIMAGE))
 		, m_slider(nullptr)
 	{
@@ -40,8 +41,8 @@ namespace physics_sandbox
 
 			auto cx = args.m_wp->cx;
 
-			// Button group: 3 buttons × 80px with 4px gaps between them
-			auto btn_group_w = 80 + 4 + 80 + 4 + 80; // = 248
+			// Button group: 4 buttons × 80px with 4px gaps between them
+			auto btn_group_w = 80 + 4 + 80 + 4 + 80 + 4 + 80; // = 332
 			// Slider group: speed label (100px) + gap (8px) + slider (150px)
 			auto slider_group_w = 100 + 8 + 150; // = 258
 			// Total width with 24px gap between groups
@@ -51,7 +52,8 @@ namespace physics_sandbox
 			// All controls vertically centred at y=4, h=26
 			::SetWindowPos(m_btn_play, nullptr, left, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 			::SetWindowPos(m_btn_pause, nullptr, left + 84, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-			::SetWindowPos(m_btn_reset, nullptr, left + 168, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+			::SetWindowPos(m_btn_step, nullptr, left + 168, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+			::SetWindowPos(m_btn_reset, nullptr, left + 252, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 
 			// Speed label and slider to the right of the buttons
 			auto slider_left = left + btn_group_w + 24;
@@ -68,6 +70,10 @@ namespace physics_sandbox
 		m_btn_pause.Click += [&](Button&, pr::gui::EmptyArgs const&)
 		{
 			OnPause(*this, pr::gui::EmptyArgs{});
+		};
+		m_btn_step.Click += [&](Button&, pr::gui::EmptyArgs const&)
+		{
+			OnStep(*this, pr::gui::EmptyArgs{});
 		};
 		m_btn_reset.Click += [&](Button&, pr::gui::EmptyArgs const&)
 		{
