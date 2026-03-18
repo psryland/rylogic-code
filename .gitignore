@@ -26,7 +26,6 @@ syntax: glob
 dump/
 obj/
 bin/
-lib/
 dist/
 built/
 Debug/
@@ -37,7 +36,7 @@ Release/
 .metadata/
 .nuget/
 __pycache__/
-packages/
+/packages/
 TestResults/
 media/
 thirdparty/
@@ -45,6 +44,19 @@ symbol_cache/
 script/UserVars.py
 script/UserVars.json
 build/certs/
+
+# Keep lib/ structure for NuGet local package sources (must come after Debug/Release rules)
+lib/*
+!lib/readme.txt
+!lib/packages/
+lib/packages/*
+!lib/packages/.gitkeep
+!lib/packages/debug/
+lib/packages/debug/*
+!lib/packages/debug/.gitkeep
+!lib/packages/release/
+lib/packages/release/*
+!lib/packages/release/.gitkeep
 
 projects/apps/lost_at_sea/build_err.txt
 projects/apps/lost_at_sea/build_out.txt

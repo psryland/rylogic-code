@@ -538,6 +538,70 @@ public class All : Group
 	}
 }
 
+// Ensure the workspace directories exist and SDK dependencies are fetched
+void SetupWorkspace(string workspace)
+{
+	// Ensure required directories exist
+	string[] required_dirs = [
+		IOPath.Combine(workspace, "obj"),
+		IOPath.Combine(workspace, "lib", "packages"),
+		IOPath.Combine(workspace, "lib", "packages", "debug"),
+		IOPath.Combine(workspace, "lib", "packages", "release"),
+	];
+	foreach (var dir in required_dirs)
+	{
+		Directory.CreateDirectory(dir);
+	}
+
+	// Pre-fetch SDK dependencies sequentially to avoid parallel dotnet-script conflicts.
+	// Each entry is (marker_path, script_path) - if the marker doesn't exist, run the script.
+	(string Marker, string Script)[] sdk_deps = [
+		(IOPath.Combine(workspace, "sdk", "cgltf", "cgltf"), IOPath.Combine(workspace, "sdk", "cgltf", "_get.csx")),
+		(IOPath.Combine(workspace, "sdk", "imgui", "imgui"), IOPath.Combine(workspace, "sdk", "imgui", "_get.csx")),
+		(IOPath.Combine(workspace, "sdk", "ufbx", "ufbx"), IOPath.Combine(workspace, "sdk", "ufbx", "_get.csx")),
+		(IOPath.Combine(workspace, "sdk", "openxr", "openxr"), IOPath.Combine(workspace, "sdk", "openxr", "_get.csx")),
+	];
+
+	bool any_fetched = false;
+	foreach (var (marker, script) in sdk_deps)
+	{
+		if (Directory.Exists(marker) || File.Exists(marker))
+			continue;
+
+		if (!File.Exists(script))
+			continue;
+
+		if (!any_fetched)
+		{
+			Console.WriteLine("Fetching SDK dependencies...");
+			any_fetched = true;
+		}
+
+		var sdk_name = IOPath.GetFileName(IOPath.GetDirectoryName(script));
+		Console.WriteLine($"  Fetching {sdk_name}...");
+		Tools.Run(["dotnet-script", script], return_output: false);
+	}
+	if (any_fetched)
+		Console.WriteLine("SDK dependencies ready.\n");
+
+	// Restore NuGet packages for C++ projects (packages.config style).
+	// This must happen before building because MSBuild /t:restore only handles PackageReference.
+	var nuget_exe = IOPath.Combine(workspace, "tools", "nuget", "nuget.exe");
+	if (!File.Exists(nuget_exe))
+	{
+		Console.WriteLine("Downloading nuget.exe...");
+		var get_nuget = IOPath.Combine(workspace, "tools", "nuget", "_get.ps1");
+		Tools.Run(["pwsh", "-NonInteractive", "-NoProfile", "-File", get_nuget], return_output: false);
+	}
+	if (File.Exists(nuget_exe))
+	{
+		var sln = IOPath.Combine(workspace, "Rylogic.sln");
+		Console.WriteLine("Restoring NuGet packages (packages.config)...");
+		Tools.Run([nuget_exe, "restore", sln, "-Verbosity", "quiet", "-NonInteractive"], return_output: false);
+		Console.WriteLine("");
+	}
+}
+
 // Build script main function
 void Main(IList<string> args)
 {
@@ -659,6 +723,9 @@ void Main(IList<string> args)
 	if (projects.Count == 0) projects.Add(EProjects.All);
 	build |= !clean && !build && !deploy && !publish;
 	deploy |= publish;
+
+	// Ensure workspace is ready (directories, SDK dependencies)
+	SetupWorkspace(workspace);
 
 	// Build/Clean/Deploy each given project
 	foreach (var project in projects)

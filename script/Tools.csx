@@ -286,13 +286,16 @@ public class Tools
 			}
 			else
 			{
+				// Build the first config synchronously to handle one-time setup
+				// (code generation, package file copies) before spawning parallel builds.
 				int i = 0;
+				bool first = true;
 				foreach (var platform in platforms)
 				{
 					foreach (var config in configs)
 					{
 						List<string> args_ = [..args, $"/p:Configuration={config};Platform={platform}"];
-						if (parallel)
+						if (parallel && !first)
 						{
 							var instance_id = ++i;
 							Console.WriteLine($"{instance_id}> --- {string.Join(",", projects)} --- {platform}|{config} ---");
@@ -302,6 +305,7 @@ public class Tools
 						{
 							Console.WriteLine($"--- {string.Join(",", projects)} --- {platform}|{config} ---");
 							Run(args_, return_output: false, show_arguments: false);
+							first = false;
 						}
 					}
 				}
