@@ -60,6 +60,7 @@ jobs:
       # The repo nuget.config references a local package source that only
       # exists on the dev machine. Replace it with just nuget.org for CI.
       # dotnet-script also uses this config when restoring its internal project.
+      # Keep lib/packages as a local source for the Rylogic packages built below.
       - name: Configure NuGet for CI
         shell: pwsh
         run: |
@@ -75,9 +76,15 @@ jobs:
             </packageRestore>
             <packageSources>
               <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              <add key="local" value="lib/packages" />
             </packageSources>
           </configuration>
           '@ | Set-Content -Path nuget.config
+
+      # Build and pack Rylogic.Core so that dotnet-script can resolve it.
+      # The .csx scripts reference a version that may not yet be on nuget.org.
+      - name: Pack Rylogic.Core for dotnet-script
+        run: dotnet pack projects/rylogic/Rylogic.Core/Rylogic.Core.csproj -c Release -o lib/packages
 
       # Fetch external SDK dependencies that are git-ignored in the repo.
       # Each _get.csx script clones/downloads its SDK if not already present.
