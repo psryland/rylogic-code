@@ -56,18 +56,18 @@ public class UserVars
 	public static string Git => m_git ??= FindOnPath("git");
 	private static string? m_git;
 
-	/// <summary>Azure Trusted Signing account name (from Azure portal)</summary>
+	/// <summary>Azure Trusted Signing account name (from Azure portal). Empty if not configured.</summary>
 	public static string AzureSignAccount
 	{
-		get => m_azure_sign_account ??= UserSecret("RylogicAzureSignAccount") ?? Prompt("Azure Trusted Signing Account Name: ");
+		get => m_azure_sign_account ??= UserSecret("RylogicAzureSignAccount") ?? "";
 		set => m_azure_sign_account = value;
 	}
 	private static string? m_azure_sign_account = null;
 
-	/// <summary>Azure Trusted Signing certificate profile name</summary>
+	/// <summary>Azure Trusted Signing certificate profile name. Empty if not configured.</summary>
 	public static string AzureSignProfile
 	{
-		get => m_azure_sign_profile ??= UserSecret("RylogicAzureSignProfile") ?? Prompt("Azure Trusted Signing Certificate Profile: ");
+		get => m_azure_sign_profile ??= UserSecret("RylogicAzureSignProfile") ?? "";
 		set => m_azure_sign_profile = value;
 	}
 	private static string? m_azure_sign_profile = null;

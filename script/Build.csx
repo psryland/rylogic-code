@@ -743,11 +743,11 @@ void Main(IList<string> args)
 		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs)
 			?? throw new Exception($"Failed to create the builder type foe {project}");
 
-		// Ensure Azure signing is configured if signing is needed
+		// Warn if Azure signing is not configured for deploy/publish
 		if (deploy || publish)
 		{
-			_ = UserVars.AzureSignAccount; // Prompt if not configured
-			_ = UserVars.AzureSignProfile;
+			if (!Tools.SigningAvailable)
+				Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
 		}
 
 		// Clean if '-clean' is used

@@ -332,12 +332,29 @@ public class Tools
 	// Sign a file using Azure Trusted Signing.
 	// Requires 'dotnet tool install --global sign' and 'az login'.
 	// Works for EXEs, DLLs, NuGet packages, VSIX, MSI, etc.
+	// Skips signing if Azure signing is not configured.
 	public static void Sign(string filepath)
 	{
+		if (!SigningAvailable)
+		{
+			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(filepath)}");
+			return;
+		}
+
 		Run(["dotnet", "sign", "code", "trusted-signing",
 			"--account", UserVars.AzureSignAccount,
 			"--profile", UserVars.AzureSignProfile,
 			filepath]);
+	}
+
+	// True if Azure Trusted Signing is configured
+	public static bool SigningAvailable
+	{
+		get
+		{
+			try { return !string.IsNullOrEmpty(UserVars.AzureSignAccount) && !string.IsNullOrEmpty(UserVars.AzureSignProfile); }
+			catch { return false; }
+		}
 	}
 
 	// Sign an assembly (EXE or DLL)
