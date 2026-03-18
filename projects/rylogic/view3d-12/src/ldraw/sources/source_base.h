@@ -106,6 +106,10 @@ namespace pr::rdr12::ldraw
 		SourceBase& operator=(SourceBase const&) = default;
 		virtual ~SourceBase() = default;
 
+		// Stop any background activity. Called before destruction to prevent
+		// races between worker threads and shared_ptr release.
+		virtual void Stop() {}
+
 		// An event raised during parsing.
 		EventHandler<SourceBase&, ParsingProgressEventArgs&, true> ParsingProgress;
 

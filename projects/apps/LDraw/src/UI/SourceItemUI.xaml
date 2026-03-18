@@ -45,7 +45,6 @@
 			Grid.Column="3"
 			ToolTip="Remove this source. [Ctrl+D]"
 			Command="{Binding RemoveSource}"
-			IsEnabled="{Binding Source.CanRender}"
 			VerticalAlignment="Center"
 			Background="Transparent"
 			BorderThickness="0"

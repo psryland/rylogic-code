@@ -78,7 +78,7 @@ namespace Rylogic.Gfx
 				add
 				{
 					if (StoreChangedInternal == null)
-						View3d.OnStoreChanged += HandleStoreChanged;
+						View3d.OnStoreChange += HandleStoreChanged;
 
 					StoreChangedInternal += value;
 				}
@@ -87,7 +87,7 @@ namespace Rylogic.Gfx
 					StoreChangedInternal -= value;
 
 					if (StoreChangedInternal == null)
-						View3d.OnStoreChanged -= HandleStoreChanged;
+						View3d.OnStoreChange -= HandleStoreChanged;
 				}
 			}
 			private event EventHandler? StoreChangedInternal;

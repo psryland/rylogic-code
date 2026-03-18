@@ -128,8 +128,10 @@ namespace pr::rdr12::ldraw
 		// Remove a single object from the object container
 		void Remove(LdrObject* object, EStoreChangeInitiator trigger);
 
-		// Remove all objects associated with 'context_ids'
+		// Remove all sources associated with context ids filtered by 'pred'
 		void Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger);
+		
+		// Remove the source associated with 'context_id'
 		void Remove(Guid const& context_id, EStoreChangeInitiator trigger);
 
 		// Reload a range of sources

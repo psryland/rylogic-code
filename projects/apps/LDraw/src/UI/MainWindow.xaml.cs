@@ -50,6 +50,10 @@ namespace LDraw
 		}
 		protected override void OnClosing(CancelEventArgs e)
 		{
+			// Disable streaming before shutdown so that connections are cleanly closed
+			if (StreamingState != View3d.EStreamingState.Disconnected)
+				Model.View3d.Streaming(false, Model.Profile.StreamingPort);
+
 			m_dc.LayoutChanged -= SaveLayout;
 			base.OnClosing(e);
 		}

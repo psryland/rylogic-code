@@ -51,7 +51,7 @@ namespace pr::rdr12
 		MultiCast<view3d::ParsingProgressCB, true> ParsingProgress;
 
 		// Event raised when the script sources are updated/reloaded
-		MultiCast<view3d::StoreChangedCB, true> StoreChanged;
+		MultiCast<view3d::StoreChangeCB, true> StoreChange;
 
 		// Load/Add ldraw objects from a script file. Returns the Guid of the context that the objects were added to.
 		Guid LoadScriptFile(std::filesystem::path ldr_script, EEncoding enc, Guid const* context_id, PathResolver const& includes, ldraw::AddCompleteCB add_complete);

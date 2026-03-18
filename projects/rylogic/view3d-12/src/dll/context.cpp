@@ -28,7 +28,7 @@ namespace pr::rdr12
 		, m_mutex()
 		, ReportError()
 		, ParsingProgress()
-		, StoreChanged()
+		, StoreChange()
 	{
 		ReportError += global_error_cb;
 	}
@@ -663,7 +663,7 @@ namespace pr::rdr12
 		}
 
 		// Notify of updated sources
-		StoreChanged(initiator, change_flags, args.m_context_ids.data(), isize(args.m_context_ids), args.m_before);
+		StoreChange(initiator, change_flags, args.m_context_ids.data(), isize(args.m_context_ids), args.m_before);
 	}
 
 	// Process any received commands in the source
@@ -732,7 +732,7 @@ namespace pr::rdr12
 
 						// Render the window
 						auto& window = *m_windows[cmd.m_scene_id];
-						window.Render();
+						window.Invalidate();
 						break;
 					}
 					default:

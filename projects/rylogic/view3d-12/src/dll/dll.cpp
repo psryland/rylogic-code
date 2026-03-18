@@ -142,17 +142,17 @@ VIEW3D_API void __stdcall View3D_ParsingProgressCBSet(view3d::ParsingProgressCB 
 }
 
 // Set the callback that is called when the sources are reloaded
-VIEW3D_API void __stdcall View3D_StoreChangedCBSet(view3d::StoreChangedCB store_changed_cb, BOOL add)
+VIEW3D_API void __stdcall View3D_StoreChangeCBSet(view3d::StoreChangeCB store_change_cb, BOOL add)
 {
 	try
 	{
 		DllLockGuard;
 		if (add)
-			Dll().StoreChanged += store_changed_cb;
+			Dll().StoreChange += store_change_cb;
 		else
-			Dll().StoreChanged -= store_changed_cb;
+			Dll().StoreChange -= store_change_cb;
 	}
-	CatchAndReport(View3D_StoreChangedCBSet,,);
+	CatchAndReport(View3D_StoreChangeCBSet,,);
 }
 
 // Return the context id for objects created from 'filepath' (if filepath is an existing source)
