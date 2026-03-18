@@ -329,50 +329,61 @@ public class Tools
 		return !errors;
 	}
 
-	// Sign a file using Azure Trusted Signing.
-	// Requires 'dotnet tool install --global sign' and 'az login'.
-	// Works for EXEs, DLLs, NuGet packages, VSIX, MSI, etc.
-	// Skips signing if Azure signing is not configured.
-	public static void Sign(string filepath)
-	{
-		if (!SigningAvailable)
-		{
-			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(filepath)}");
-			return;
-		}
-
-		Run(["dotnet", "sign", "code", "trusted-signing",
-			"--account", UserVars.AzureSignAccount,
-			"--profile", UserVars.AzureSignProfile,
-			filepath]);
-	}
-
-	// True if Azure Trusted Signing is configured
+	// True if code signing is configured (PFX certificate available)
 	public static bool SigningAvailable
 	{
 		get
 		{
-			try { return !string.IsNullOrEmpty(UserVars.AzureSignAccount) && !string.IsNullOrEmpty(UserVars.AzureSignProfile); }
+			try { return !string.IsNullOrEmpty(UserVars.CodeSignCert_Pfx) && !string.IsNullOrEmpty(UserVars.CodeSignCert_Pw); }
 			catch { return false; }
 		}
 	}
 
-	// Sign an assembly (EXE or DLL)
+	// Sign an assembly (EXE or DLL) using signtool.exe
+	// Skips signing if no certificate is configured.
 	public static void SignAssembly(string target)
 	{
-		Sign(target);
+		if (!SigningAvailable)
+		{
+			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(target)}");
+			return;
+		}
+
+		Run([UserVars.SignTool, "sign",
+			"/f", UserVars.CodeSignCert_Pfx,
+			"/p", UserVars.CodeSignCert_Pw,
+			"/fd", "SHA256",
+			"/tr", "http://timestamp.digicert.com",
+			"/td", "SHA256",
+			target]);
 	}
 
 	// Sign a VSIX extension package
+	// Requires 'dotnet tool install -g OpenVsixSignTool'
 	public static void SignVsix(string vsix_filepath, string algo)
 	{
-		Sign(vsix_filepath);
+		if (string.IsNullOrEmpty(UserVars.CodeSignCert_Thumbprint))
+		{
+			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(vsix_filepath)}");
+			return;
+		}
+
+		Run(["openvsixsigntool", "sign", "--sha1", UserVars.CodeSignCert_Thumbprint, "-fd", algo, vsix_filepath]);
 	}
 
 	// Sign a NuGet package (.nupkg)
 	public static void SignNugetPackage(string nupkg_filepath)
 	{
-		Sign(nupkg_filepath);
+		if (!SigningAvailable)
+		{
+			Console.WriteLine($"Signing skipped (not configured): {System.IO.Path.GetFileName(nupkg_filepath)}");
+			return;
+		}
+
+		Run([UserVars.Nuget, "sign", nupkg_filepath,
+			"-CertificatePath", UserVars.CodeSignCert_Pfx,
+			"-CertificatePassword", UserVars.CodeSignCert_Pw,
+			"-Timestamper", "http://timestamp.digicert.com"]);
 	}
 
 	// Run the units tests in a .net assembly

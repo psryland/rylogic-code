@@ -654,16 +654,16 @@ void Main(IList<string> args)
 					publish = true;
 					break;
 				}
-			case "-azure_sign_account":
+			case "-cert_pfx":
 				{
-					if (!IsDataArg(i)) throw new Exception("Azure Trusted Signing account name expected");
-					UserVars.AzureSignAccount = args[i++];
+					if (!IsDataArg(i)) throw new Exception("Code signing certificate PFX path expected");
+					UserVars.CodeSignCert_Pfx = args[i++];
 					break;
 				}
-			case "-azure_sign_profile":
+			case "-cert_pw":
 				{
-					if (!IsDataArg(i)) throw new Exception("Azure Trusted Signing certificate profile expected");
-					UserVars.AzureSignProfile = args[i++];
+					if (!IsDataArg(i)) throw new Exception("Code signing certificate password expected");
+					UserVars.CodeSignCert_Pw = args[i++];
 					break;
 				}
 			case "-workspace":

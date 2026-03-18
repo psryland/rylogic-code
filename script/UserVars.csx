@@ -56,21 +56,32 @@ public class UserVars
 	public static string Git => m_git ??= FindOnPath("git");
 	private static string? m_git;
 
-	/// <summary>Azure Trusted Signing account name (from Azure portal). Empty if not configured.</summary>
-	public static string AzureSignAccount
-	{
-		get => m_azure_sign_account ??= UserSecret("RylogicAzureSignAccount") ?? "";
-		set => m_azure_sign_account = value;
-	}
-	private static string? m_azure_sign_account = null;
+	/// <summary>Assembly sign tool (Windows SDK signtool.exe)</summary>
+	public static string SignTool => Path([WinSDK, "bin", WinSDKVersion, "x64\\signtool.exe"]);
 
-	/// <summary>Azure Trusted Signing certificate profile name. Empty if not configured.</summary>
-	public static string AzureSignProfile
+	/// <summary>Code signing certificate PFX path. Empty if not configured.</summary>
+	public static string CodeSignCert_Pfx
 	{
-		get => m_azure_sign_profile ??= UserSecret("RylogicAzureSignProfile") ?? "";
-		set => m_azure_sign_profile = value;
+		get => m_code_sign_cert_pfx ??= UserSecret("RylogicCodeSignCertPfx") ?? "";
+		set => m_code_sign_cert_pfx = value;
 	}
-	private static string? m_azure_sign_profile = null;
+	private static string? m_code_sign_cert_pfx = null;
+
+	/// <summary>Code signing certificate password. Empty if not configured.</summary>
+	public static string CodeSignCert_Pw
+	{
+		get => m_code_sign_cert_pw ??= UserSecret("RylogicCodeSigningCertPassword") ?? "";
+		set => m_code_sign_cert_pw = value;
+	}
+	private static string? m_code_sign_cert_pw = null;
+
+	/// <summary>Code signing certificate thumbprint (for VSIX signing). Empty if not configured.</summary>
+	public static string CodeSignCert_Thumbprint
+	{
+		get => m_code_sign_cert_thumbprint ??= UserSecret("RylogicCodeSignCertThumbprint") ?? "";
+		set => m_code_sign_cert_thumbprint = value;
+	}
+	private static string? m_code_sign_cert_thumbprint = null;
 
 	/// <summary>Nuget package manager</summary>
 	public static string Nuget => Path([Root, "tools\\nuget\\nuget.exe"]);
@@ -325,8 +336,9 @@ public class UserVars
 						case "Pwsh": m_pwsh = prop.Value.GetString(); break;
 						case "WinSDK": m_win_sdk = prop.Value.GetString(); break;
 						case "WinSDKVersion": m_win_sdk_version = prop.Value.GetString(); break;
-						case "AzureSignAccount": m_azure_sign_account = prop.Value.GetString(); break;
-						case "AzureSignProfile": m_azure_sign_profile = prop.Value.GetString(); break;
+						case "CodeSignCert_Pfx": m_code_sign_cert_pfx = prop.Value.GetString(); break;
+						case "CodeSignCert_Pw": m_code_sign_cert_pw = prop.Value.GetString(); break;
+						case "CodeSignCert_Thumbprint": m_code_sign_cert_thumbprint = prop.Value.GetString(); break;
 						default:
 						{
 							if (prop.Name == "") break; // Ignore empty names
