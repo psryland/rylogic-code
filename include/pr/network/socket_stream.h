@@ -96,31 +96,52 @@ namespace pr::network
 				close();
 		}
 
-		// Connect to the socket
+		// Connect to the socket. Handles three states:
+		//  1. No socket exists → create one and start connecting
+		//  2. Non-blocking connect in progress → poll for completion
+		//  3. Connected but broken → caller should close() first, then retry
 		void connect(char const* host, int port, IPPROTO proto)
 		{
-			// Non-blocking connection in progress?
-			if (m_socket != INVALID_SOCKET)
+			// Non-blocking connection in progress — poll for completion
+			if (m_socket != INVALID_SOCKET && m_connecting)
 			{
-				if (m_connecting && check_status(false))
-					m_connecting = false;
+				auto status = poll_connect();
+				if (status == EConnectPoll::Pending)
+					return;
 
+				if (status == EConnectPoll::Connected && check_status(false))
+				{
+					m_connecting = false; // Connected!
+				}
+				else
+				{
+					// Connection failed (e.g., refused). Tear down so
+					// the next call creates a fresh socket.
+					close();
+				}
 				return;
 			}
 
-			// Reset the bits on a connection attempt
+			// Already have a live socket (connected or broken) — nothing to do.
+			// Caller should check good()/is_open() and close() if broken.
+			if (m_socket != INVALID_SOCKET)
+				return;
+
+			// No socket — create one and attempt to connect
 			m_setstate(0);
 			m_connecting = false;
 
 			try
 			{
-				// Create socket only returns INVALID_SOCKET for non-blocking connections that return WOULD_BLOCK
-				m_socket = create_socket(host, port, proto, m_non_blocking);
-				m_connecting = m_non_blocking;
+				auto [sock, pending] = create_socket(host, port, proto, m_non_blocking);
+				m_socket = sock;
+				m_connecting = pending;
 
-				// Check for connection errors
-				if (check_status(!m_non_blocking))
-					m_connecting = false;
+				// For blocking sockets, verify the connection completed
+				if (!pending && !check_status(!m_non_blocking))
+				{
+					close();
+				}
 			}
 			catch (...)
 			{
@@ -192,16 +213,18 @@ namespace pr::network
 			return error_msg;
 		}
 
-		// Create the socket. Returns a socket or throws an exception.
-		// For non-blocking connection, the returned socket may not be connected yet. Test with 'wait_for_write'.
-		static SOCKET create_socket(char const* host, int port, IPPROTO proto, bool non_blocking)
+		// Create the socket. Returns {socket, pending} where 'pending' is true if the
+		// non-blocking connect is still in progress (WSAEWOULDBLOCK). If pending is false,
+		// the connection completed synchronously (common on localhost).
+		struct CreateResult { SOCKET socket; bool pending; };
+		static CreateResult create_socket(char const* host, int port, IPPROTO proto, bool non_blocking, int ai_family = AF_INET)
 		{
 			// Convert port to string
 			auto port_str = std::format("{}", port);
 
 			// Get address info
 			ADDRINFO hints = {
-				.ai_family = AF_UNSPEC, // IPv4 or IPv6
+				.ai_family = ai_family,
 				.ai_socktype = proto == IPPROTO_TCP ? SOCK_STREAM : SOCK_DGRAM,
 				.ai_protocol = proto,
 			};
@@ -250,9 +273,9 @@ namespace pr::network
 				{
 					auto error = WSAGetLastError();
 
-					// Would block is expected?
+					// Non-blocking connect in progress
 					if (error == WSAEWOULDBLOCK && non_blocking)
-						return sock;
+						return { sock, true };
 
 					// Try the next address
 					::closesocket(sock);
@@ -260,8 +283,8 @@ namespace pr::network
 					continue;
 				}
 				
-				// Connection successful
-				break;
+				// Connection completed synchronously
+				return { sock, false };
 			}
 
 			if (sock == INVALID_SOCKET)
@@ -270,7 +293,7 @@ namespace pr::network
 				throw std::runtime_error(std::format("Failed to connect to {}:{} - WSA error: {} {}", host, port, error, wsa_error_string(error)));
 			}
 
-			return sock;
+			return { sock, false };
 		}
 
 		// Test if 'm_socket' is still in a good state
@@ -306,6 +329,45 @@ namespace pr::network
 
 			m_setstate(0);
 			return true;
+		}
+
+		// Non-blocking poll: has the pending connect completed (success or failure)?
+		// On Windows, successful connects appear in writefds, failed connects appear
+		// in exceptfds. Must check both to detect connection refusal.
+		enum class EConnectPoll { Pending, Connected, Failed };
+		EConnectPoll poll_connect()
+		{
+			fd_set writefds = {}, exceptfds = {};
+			FD_ZERO(&writefds);
+			FD_ZERO(&exceptfds);
+			FD_SET(m_socket, &writefds);
+			FD_SET(m_socket, &exceptfds);
+
+			timeval tv = {};
+			auto result = ::select(0, nullptr, &writefds, &exceptfds, &tv);
+			if (result <= 0)
+				return EConnectPoll::Pending;
+
+			if (FD_ISSET(m_socket, &exceptfds))
+				return EConnectPoll::Failed;
+
+			if (FD_ISSET(m_socket, &writefds))
+				return EConnectPoll::Connected;
+
+			return EConnectPoll::Pending;
+		}
+
+		// Non-blocking poll: is the socket ready for writing right now?
+		// Uses select() with a zero timeval, which polls without blocking.
+		bool is_writable()
+		{
+			fd_set writefds = {};
+			FD_ZERO(&writefds);
+			FD_SET(m_socket, &writefds);
+
+			timeval tv = {};
+			auto result = ::select(0, nullptr, &writefds, nullptr, &tv);
+			return result > 0;
 		}
 
 		// Block for data
@@ -478,22 +540,36 @@ namespace pr::network
 			connect(host, port, proto);
 		}
 
-		// Try to connect to a host. Use `if (stream.connect("host",port).good()) stream << data;`. Remember you can use 'non-blocking'.
+		// Try to connect to a host. Resilient to server/client restarts:
+		//  - If already connected and healthy → no-op
+		//  - If the stream has error bits (send failed, connection lost) → close and reconnect
+		//  - If a non-blocking connect is pending → poll it (via m_buf.connect)
+		//  - If no socket exists → create one
+		// Use: `if (stream.connect("host",port).good() && stream.is_open()) stream << data;`
 		socket_stream& connect(char const* host, int port, IPPROTO proto = IPPROTO_TCP)
 		{
-			// Already connected
-			if (is_open())
+			// Already connected and healthy
+			if (is_open() && good())
 				return *this;
+
+			// If the stream is in an error state (e.g., previous send failed,
+			// server disconnected, or a non-blocking connect was refused),
+			// close the dead socket and clear the error bits so we can
+			// attempt a fresh connection.
+			if (fail() || bad())
+			{
+				close();
+				clear();
+			}
 
 			try
 			{
-				// Try to connect
+				// Try to connect (or poll a pending non-blocking connect)
 				m_buf.connect(host, port, proto);
 			}
 			catch (std::exception const&)
 			{
-				// Set 'failbit' instead of 'badbit' to allow recovery.
-				// This allows the stream to be used again and makes good() return false
+				// Set 'failbit' instead of 'badbit' to allow recovery on the next call
 				setstate(std::ios::failbit);
 			}
 			return *this;
@@ -535,8 +611,15 @@ namespace pr::network
 
 		static socket_streambuf::setstate_fn setstate_fn(socket_stream* self)
 		{
-			// Passing 0 is the same as calling clear()
-			return [self](std::ios::iostate state) { self->setstate(state); };
+			// Passing 0 clears all error bits (like clear()). Any other value
+			// is OR'd into the current state (like setstate()).
+			return [self](std::ios::iostate state)
+			{
+				if (state == 0)
+					self->clear();
+				else
+					self->setstate(state);
+			};
 		}
 	};
 }

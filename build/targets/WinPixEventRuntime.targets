@@ -30,6 +30,7 @@
 			<Link>lib\x64\WinPixEventRuntime.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+		<BuildArtifacts Include="$(PixPackagePath)bin\x64\WinPixEventRuntime.dll" />
 	</ItemGroup>
 	
 	<ItemDefinitionGroup>

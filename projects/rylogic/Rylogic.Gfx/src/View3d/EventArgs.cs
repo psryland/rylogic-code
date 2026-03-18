@@ -58,17 +58,21 @@ namespace Rylogic.Gfx
 			public bool Complete { get; }
 		}
 
-		public class SourcesChangedEventArgs :EventArgs
+		public class StoreChangedEventArgs :EventArgs
 		{
-			public SourcesChangedEventArgs(ESourcesChangedReason reason, IntPtr ids, int count, bool before)
+			public StoreChangedEventArgs(EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before)
 			{
-				Reason = reason;
+				Initiator = initiator;
+				Flags = flags;
 				ContextIds = Marshal_.PtrToArray<Guid>(ids, count);
 				Before = before;
 			}
 
 			/// <summary>The cause of the source changes</summary>
-			public ESourcesChangedReason Reason { get; }
+			public EStoreChangeInitiator Initiator { get; }
+
+			/// <summary>What potentially changed in the store</summary>
+			public EStoreChangeFlags Flags { get; }
 
 			/// <summary>The sources that changed</summary>
 			public Guid[] ContextIds { get; }

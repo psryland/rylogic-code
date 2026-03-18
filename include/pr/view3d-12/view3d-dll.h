@@ -105,6 +105,7 @@ namespace pr
 		};
 		enum class ENuggetFlag :int // rdr12::ENuggetFlag
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ENuggetFlag, source_of_truth)
 			None = 0,
 
 			// Exclude this nugget when rendering a model
@@ -129,6 +130,7 @@ namespace pr
 			RangesCanOverlap = 1 << 5,
 
 			_flags_enum = 0,
+			// PR_CODE_SYNC_END()
 		};
 		enum class EStockTexture :int // rdr12::EStockTexture
 		{
@@ -266,6 +268,8 @@ namespace pr
 		};
 		enum class ELdrFlags :int // sync with 'ELdrFlags'
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ELdrFlags, source_of_truth)
+
 			// Notes:
 			//  - Flags are for a single object only. Don't set the recursively.
 			//    Instead use the
@@ -312,6 +316,8 @@ namespace pr
 
 			// Bitwise operators
 			_flags_enum = 0,
+
+			// PR_CODE_SYNC_END()
 		};
 		enum class EBBoxFlags :int // sync with 'EBBoxFlags'
 		{
@@ -360,11 +366,57 @@ namespace pr
 			Selected,
 			Visible,
 		};
-		enum class ESourcesChangedReason :int
+		// The event that triggered the store change
+		enum class EStoreChangeInitiator
 		{
-			NewData,
+			// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeInitiator)
+
+			// A new source (e.g. file, string, stream, etc) was added to the store
+			NewSource,
+
+			// A source was removed from the store
+			SourceRemoved,
+
+			// Existing sources refreshed their data
 			Reload,
-			Removal,
+
+			// More data for an existing source was added (typically from streaming sources)
+			AppendData,
+
+			// The DeleteObject API call was made
+			ObjectsDeleted,
+
+			// PR_CODE_SYNC_END();
+		};
+
+		// Flags describing how the store was changed
+		enum class EStoreChangeFlags
+		{
+			// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeFlags)
+
+			None = 0,
+
+			// One or more objects were removed
+			ObjectsAdded = 1 << 0,
+
+			// One or more objects were removed
+			ObjectsRemoved = 1 << 1,
+
+			// A new context id was added to the store
+			ContextIdAdded = 1 << 2,
+
+			// A context id was removed from the store
+			ContextIdRemoved = 1 << 3,
+
+			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
+			ExistingObjectsRefreshed = 1 << 4,
+
+			ObjectsChanged = ObjectsAdded | ObjectsRemoved,
+			ContextIdsChanged = ContextIdAdded | ContextIdRemoved,
+
+			_flags_enum = 0,
+		
+			// PR_CODE_SYNC_END();
 		};
 		enum class ESceneChanged :int
 		{
@@ -405,6 +457,8 @@ namespace pr
 		};
 		enum class ESettings :int
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ESettings, source_of_truth)
+
 			// Upper 2-bytes = category
 			// Lower 2-bytes = specific property that changed.
 			None = 0,
@@ -451,6 +505,8 @@ namespace pr
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
 
 			_flags_enum = 0,
+
+			// PR_CODE_SYNC_END()
 		};
 		#pragma endregion
 
@@ -770,7 +826,7 @@ namespace pr
 		using GuidPredCB = Callback<bool(__stdcall*)(void* ctx, GUID const&)>;
 		using SettingsChangedCB = Callback<void(__stdcall *)(void* ctx, Window window, ESettings setting)>;
 		using ParsingProgressCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, char const* filepath, long long file_offset, long long file_size, BOOL complete, BOOL& cancel)>;
-		using SourcesChangedCB = Callback<void(__stdcall *)(void* ctx, ESourcesChangedReason reason, GUID const* ids, int count, BOOL before)>;
+		using StoreChangedCB = Callback<void(__stdcall *)(void* ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, GUID const* ids, int count, BOOL before)>;
 		using EnumGuidsCB = Callback<bool(__stdcall *)(void* ctx, GUID const& context_id)>;
 		using EnumObjectsCB = Callback<bool(__stdcall *)(void* ctx, Object object)>;
 		using AddCompleteCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, BOOL before)>;
@@ -807,8 +863,8 @@ extern "C"
 	// Set the callback for progress events when script sources are loaded or updated
 	VIEW3D_API void __stdcall View3D_ParsingProgressCBSet(pr::view3d::ParsingProgressCB progress_cb, BOOL add);
 	
-	// Set the callback that is called when the sources are reloaded
-	VIEW3D_API void __stdcall View3D_SourcesChangedCBSet(pr::view3d::SourcesChangedCB sources_changed_cb, BOOL add);
+	// Set the callback that is called when the sources/object store is changed/reloaded
+	VIEW3D_API void __stdcall View3D_StoreChangedCBSet(pr::view3d::StoreChangedCB store_changed_cb, BOOL add);
 
 	// Return the context id for objects created from 'filepath' (if filepath is an existing source)
 	VIEW3D_API GUID __stdcall View3D_ContextIdFromFilepath(char const* filepath);

@@ -14,7 +14,7 @@ namespace LDraw
 	{
 		static App()
 		{
-			WPFUtil.WaitForDebugger();
+			//WPFUtil.WaitForDebugger();
 		}
 		protected override void OnStartup(StartupEventArgs e)
 		{

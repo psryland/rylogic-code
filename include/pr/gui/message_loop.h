@@ -19,7 +19,7 @@
 
 namespace pr::gui
 {
-	// PR_CODE_SYNC_BEGIN(MessageLoop, source_of_truth)
+	// PR_CODE_SYNC_BEGIN(pr::gui::MessageLoop, source_of_truth)
 
 	// An interface for types that need to handle messages from the message loop before TranslateMessage is called.
 	// Typically these are dialog windows or windows with keyboard accelerators that need to call 'IsDialogMessage'

@@ -2569,7 +2569,7 @@ namespace pr
 		#pragma region MessageLoop
 		namespace wingui
 		{
-			// PR_CODE_SYNC_BEGIN(MessageLoop)
+			// PR_CODE_SYNC_BEGIN(pr::gui::MessageLoop)
 
 			// An interface for types that need to handle messages from the message loop before TranslateMessage is called.
 			// Typically these are dialog windows or windows with keyboard accelerators that need to call 'IsDialogMessage'

@@ -76,29 +76,32 @@ namespace Rylogic.Gfx
 		}
 		[Flags] public enum ENuggetFlag : int
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ENuggetFlag)
 			None = 0,
 
-			/// <summary>Exclude this nugget when rendering a model</summary>
+			// Exclude this nugget when rendering a model
 			Hidden = 1 << 0,
 
-			/// <summary>Set if the geometry data for the nugget contains alpha colours</summary>
+			// Set if the geometry data for the nugget contains alpha colours
 			GeometryHasAlpha = 1 << 1,
 
-			/// <summary>Set if the tint colour contains alpha</summary>
+			// Set if the tint colour contains alpha
 			TintHasAlpha = 1 << 2,
 
-			/// <summary>Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)</summary>
+			// Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)
 			TexDiffuseHasAlpha = 1 << 3,
 
-			/// <summary>Excluded from shadow map render steps</summary>
+			// Excluded from shadow map render steps
 			ShadowCastExclude = 1 << 4,
 
-			/// <summary>
-			/// Can overlap with other nuggets.
-			/// Set this flag to true if you want to add a nugget that overlaps the range
-			/// of an existing nugget. For simple models, overlapping nugget ranges is
-			/// usually an error, but in advanced cases it isn't.</summary>
+			// Can overlap with other nuggets.
+			// Set this flag to true if you want to add a nugget that overlaps the range
+			// of an existing nugget. For simple models, overlapping nugget ranges is
+			// usually an error, but in advanced cases it isn't.
 			RangesCanOverlap = 1 << 5,
+
+			_flags_enum = 0,
+			// PR_CODE_SYNC_END()
 		}
 		public enum ERenderStep :int
 		{
@@ -234,40 +237,56 @@ namespace Rylogic.Gfx
 		}
 		[Flags] public enum ELdrFlags : int
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ELdrFlags)
+
+			// Notes:
+			//  - Flags are for a single object only. Don't set the recursively.
+			//    Instead use the
 			None = 0,
 
-			/// <summary>The object is hidden</summary>
+			// The object is hidden
 			Hidden = 1 << 0,
 
-			/// <summary>The object is filled in wireframe mode</summary>
+			// The object is filled in wireframe mode
 			Wireframe = 1 << 1,
 
-			/// <summary>Render the object without testing against the depth buffer</summary>
+			// Render the object without testing against the depth buffer
 			NoZTest = 1 << 2,
 
-			/// <summary>Render the object without effecting the depth buffer</summary>
+			// Render the object without effecting the depth buffer
 			NoZWrite = 1 << 3,
 
-			/// <summary>The object has normals shown</summary>
+			// The object has normals shown
 			Normals = 1 << 4,
 
-			/// <summary>The object to world transform is not an affine transform</summary>
+			// The object to world transform is not an affine transform
 			NonAffine = 1 << 5,
 
-			/// <summary>Set when an object is selected. The meaning of 'selected' is up to the application</summary>
+			// Set when an instance is "selected". The meaning of 'selected' is up to the application
 			Selected = 1 << 8,
 
-			/// <summary>Doesn't contribute to the bounding box on an object.</summary>
+			// Doesn't contribute to the bounding box
 			BBoxExclude = 1 << 9,
 
-			/// <summary>Should not be included when determining the bounds of a scene.</summary>
+			// Should not be included when determining the bounds of a scene.
 			SceneBoundsExclude = 1 << 10,
 
-			/// <summary>Ignored for hit test ray casts</summary>
+			// Ignored for hit test ray casts
 			HitTestExclude = 1 << 11,
 
-			/// <summary>Doesn't cast a shadow</summary>
+			// Doesn't cast a shadow
 			ShadowCastExclude = 1 << 12,
+
+			// True if the object has animation data.
+			Animated = 1 << 13,
+
+			// Indicates invalidated flags that need to be refreshed
+			Invalidated = 1 << 31,
+
+			// Bitwise operators
+			_flags_enum = 0,
+
+			// PR_CODE_SYNC_END()
 		}
 		[Flags] public enum EBBoxFlags
 		{
@@ -310,12 +329,55 @@ namespace Rylogic.Gfx
 			Selected,
 			Visible,
 		}
-		public enum ESourcesChangedReason : int
+		public enum EStoreChangeInitiator : int
 		{
-			NewData,
+			// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeInitiator)
+
+			// A new source (e.g. file, string, stream, etc) was added to the store
+			NewSource,
+
+			// A source was removed from the store
+			SourceRemoved,
+
+			// Existing sources refreshed their data
 			Reload,
-			Removal,
+
+			// More data for an existing source was added (typically from streaming sources)
+			AppendData,
+
+			// The DeleteObject API call was made
+			ObjectsDeleted,
+
+			// PR_CODE_SYNC_END();
 		}
+		[Flags] public enum EStoreChangeFlags
+		{
+			// PR_CODE_SYNC_BEGIN(pr::rdr12::ldraw::EStoreChangeFlags)
+
+			None = 0,
+
+			// One or more objects were removed
+			ObjectsAdded = 1 << 0,
+
+			// One or more objects were removed
+			ObjectsRemoved = 1 << 1,
+
+			// A new context id was added to the store
+			ContextIdAdded = 1 << 2,
+
+			// A context id was removed from the store
+			ContextIdRemoved = 1 << 3,
+
+			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
+			ExistingObjectsRefreshed = 1 << 4,
+
+			ObjectsChanged = ObjectsAdded | ObjectsRemoved,
+			ContextIdsChanged = ContextIdAdded | ContextIdRemoved,
+
+			_flags_enum = 0,
+
+			// PR_CODE_SYNC_END();
+		};
 		public enum ESceneChanged : int
 		{
 			ObjectsAdded,
@@ -354,6 +416,8 @@ namespace Rylogic.Gfx
 		}
 		[Flags] public enum ESettings : int
 		{
+			// PR_CODE_SYNC_BEGIN(view3d::ESettings)
+
 			// Upper 2-bytes = category
 			// Lower 2-bytes = specific property that changed.
 			None = 0,
@@ -369,7 +433,7 @@ namespace Rylogic.Gfx
 			Scene                  = 1 << 17,
 			Scene_BackgroundColour = Scene | 1 << 0,
 			Scene_Multisampling    = Scene | 1 << 1,
-			Scene_FilllMode        = Scene | 1 << 2,
+			Scene_FillMode         = Scene | 1 << 2,
 			Scene_CullMode         = Scene | 1 << 3,
 			Scene_Viewport         = Scene | 1 << 4,
 			Scene_EnvMap           = Scene | 1 << 5,
@@ -398,6 +462,10 @@ namespace Rylogic.Gfx
 			Diagnostics_NormalsLength      = Diagnostics | 1 << 1,
 			Diagnostics_NormalsColour      = Diagnostics | 1 << 2,
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
+
+			_flags_enum = 0,
+
+			// PR_CODE_SYNC_END()
 		}
 		#endregion
 		#region D3D Enumerations
@@ -621,11 +689,11 @@ namespace Rylogic.Gfx
 			public FuncCB m_cb;
 		}
 
-		/// <summary>Callback when the sources are reloaded</summary>
+		/// <summary>Callback when the stores are changed/reloaded</summary>
 		[StructLayout(LayoutKind.Sequential)]
-		public struct SourcesChangedCB
+		public struct StoreChangedCB
 		{
-			public delegate void FuncCB(IntPtr ctx, ESourcesChangedReason reason, IntPtr ids, int count, bool before);
+			public delegate void FuncCB(IntPtr ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before);
 			public IntPtr m_ctx;
 			public FuncCB m_cb;
 		}
@@ -1302,7 +1370,7 @@ namespace Rylogic.Gfx
 		private readonly int m_thread_id;                   // The main thread id
 		private ReportErrorCB m_error_cb;                   // Reference to callback
 		private ParsingProgressCB m_parsing_progress_cb;    // Reference to callback
-		private SourcesChangedCB m_sources_changed_cb;      // Reference to callback
+		private StoreChangedCB m_store_changed_cb;      // Reference to callback
 		private List<AddCompleteCB> m_add_complete_cb; // Reference to callbacks
 
 		#if PR_VIEW3D_CREATE_STACKTRACE
@@ -1361,13 +1429,13 @@ namespace Rylogic.Gfx
 				}
 
 				// Sign up for notification of the sources changing
-				View3D_SourcesChangedCBSet(m_sources_changed_cb = new SourcesChangedCB { m_cb = HandleSourcesChanged }, true);
-				void HandleSourcesChanged(IntPtr ctx, ESourcesChangedReason reason, IntPtr ids, int count, bool before)
+				View3D_StoreChangedCBSet(m_store_changed_cb = new StoreChangedCB { m_cb = HandleStoreChanged }, true);
+				void HandleStoreChanged(IntPtr ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before)
 				{
 					if (m_thread_id != Thread.CurrentThread.ManagedThreadId)
-						m_sync.Post(_ => HandleSourcesChanged(ctx, reason, ids, count, before), null);
+						m_sync.Post(_ => HandleStoreChanged(ctx, initiator, flags, ids, count, before), null);
 					else
-						OnSourcesChanged?.Invoke(this, new SourcesChangedEventArgs(reason, ids, count, before));
+						OnStoreChanged?.Invoke(this, new StoreChangedEventArgs(initiator, flags, ids, count, before));
 				}
 			}
 			catch
@@ -1386,7 +1454,7 @@ namespace Rylogic.Gfx
 			}
 			if (m_singleton != null)
 			{
-				View3D_SourcesChangedCBSet(m_sources_changed_cb, false);
+				View3D_StoreChangedCBSet(m_store_changed_cb, false);
 				View3D_ParsingProgressCBSet(m_parsing_progress_cb, false);
 				View3D_GlobalErrorCBSet(m_error_cb, false);
 
@@ -1409,7 +1477,7 @@ namespace Rylogic.Gfx
 		public event EventHandler<ParsingProgressEventArgs>? ParsingProgress;
 
 		/// <summary>Event notifying whenever sources are loaded/reloaded</summary>
-		public event EventHandler<SourcesChangedEventArgs>? OnSourcesChanged;
+		public event EventHandler<StoreChangedEventArgs>? OnStoreChanged;
 
 		/// <summary>
 		/// Add objects from an ldr file or string. This will create all objects declared in 'ldr_script'
@@ -1582,7 +1650,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_ParsingProgressCBSet(ParsingProgressCB progress_cb, bool add);
 
 		// Set the callback that is called when the sources are reloaded
-		[DllImport(Dll)] private static extern void View3D_SourcesChangedCBSet(SourcesChangedCB sources_changed_cb, bool add);
+		[DllImport(Dll)] private static extern void View3D_StoreChangedCBSet(StoreChangedCB sources_changed_cb, bool add);
 
 		// Return the context id for objects created from 'filepath' (if filepath is an existing source)
 		[DllImport(Dll)] private static extern Guid View3D_ContextIdFromFilepath([MarshalAs(UnmanagedType.LPStr)] string filepath);

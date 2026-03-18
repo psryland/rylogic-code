@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -30,8 +29,13 @@ namespace LDraw
 			m_selected_scene_names.Clear();
 			PopulateScenes();
 
-			Model = null!;
+			// Detach all external subscribers before nulling members.
+			// Without this, a WPF binding that still references this Source
+			// could fire a PropertyChanged handler that accesses Model after disposal.
+			PropertyChanged = null;
+
 			View3dSource = null!;
+			Model = null!;
 			GC.SuppressFinalize(this);
 		}
 

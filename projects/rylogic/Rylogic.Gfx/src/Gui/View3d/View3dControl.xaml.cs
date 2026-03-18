@@ -194,7 +194,7 @@ namespace Rylogic.Gui.WPF
 								cmenu.NotifyPropertyChanged(nameof(IView3dCMenu.BackgroundColour));
 							if (Bit.AllSet(e.Setting, View3d.ESettings.Scene_Multisampling))
 								cmenu.NotifyPropertyChanged(nameof(IView3dCMenu.Antialiasing));
-							if (Bit.AllSet(e.Setting, View3d.ESettings.Scene_FilllMode))
+							if (Bit.AllSet(e.Setting, View3d.ESettings.Scene_FillMode))
 								cmenu.NotifyPropertyChanged(nameof(IView3dCMenu.FillMode));
 							if (Bit.AllSet(e.Setting, View3d.ESettings.Scene_CullMode))
 								cmenu.NotifyPropertyChanged(nameof(IView3dCMenu.CullMode));

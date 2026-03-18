@@ -71,7 +71,15 @@ void AutoGen()
 		"PR_LDRAW_KEYWORDS_END",
 		"// AUTO-GENERATED-KEYWORDS-BEGIN",
 		"// AUTO-GENERATED-KEYWORDS-END",
-		TransformEnumLineToKeywordString);
+		TransformEnumLineToNameValue);
+	ReplaceSection(
+		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
+		Path.Join(Root, "include/pr/common/ldraw.h"),
+		"#define PR_LDRAW_COMMANDS(x)",
+		"PR_LDRAW_COMMANDS_END",
+		"// AUTO-GENERATED-COMMANDS-BEGIN",
+		"// AUTO-GENERATED-COMMANDS-END",
+		TransformEnumLineToNameValueNoStar);
 
 	// Update keywords in LDRTemplate.bt
 	ReplaceSection(
@@ -115,10 +123,17 @@ string TransformEnumLineToPython(string line)
 }
 
 // Convert from C++ code macro to keyword with name and hash value
-string TransformEnumLineToKeywordString(string line)
+string TransformEnumLineToNameValue(string line)
 {
 	var match = Pattern.Match(line.Trim());
-	return match.Success ? $"inline static constexpr EKeyword {match.Groups[1].Value} = {{\"*{match.Groups[1].Value}\", {HashI(match.Groups[1].Value)}}};" : line.Trim();
+	return match.Success ? $"inline static constexpr NameValue {match.Groups[1].Value} = {{\"*{match.Groups[1].Value}\", {HashI(match.Groups[1].Value)}}};" : line.Trim();
+}
+
+// Convert from C++ code macro to keyword with name and hash value
+string TransformEnumLineToNameValueNoStar(string line)
+{
+	var match = Pattern.Match(line.Trim());
+	return match.Success ? $"inline static constexpr NameValue {match.Groups[1].Value} = {{\"{match.Groups[1].Value}\", {HashI(match.Groups[1].Value)}}};" : line.Trim();
 }
 
 // Convert from C++ code macro to C++

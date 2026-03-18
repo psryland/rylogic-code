@@ -77,26 +77,26 @@ namespace Rylogic.Gfx
 			{
 				add
 				{
-					if (SourceChangedInternal == null)
-						View3d.OnSourcesChanged += HandleSourcesChanged;
+					if (StoreChangedInternal == null)
+						View3d.OnStoreChanged += HandleStoreChanged;
 
-					SourceChangedInternal += value;
+					StoreChangedInternal += value;
 				}
 				remove
 				{
-					SourceChangedInternal -= value;
+					StoreChangedInternal -= value;
 
-					if (SourceChangedInternal == null)
-						View3d.OnSourcesChanged -= HandleSourcesChanged;
+					if (StoreChangedInternal == null)
+						View3d.OnStoreChanged -= HandleStoreChanged;
 				}
 			}
-			private event EventHandler? SourceChangedInternal;
-			private void HandleSourcesChanged(object? sender, SourcesChangedEventArgs e)
+			private event EventHandler? StoreChangedInternal;
+			private void HandleStoreChanged(object? sender, StoreChangedEventArgs e)
 			{
 				if (!e.ContextIds.Contains(ContextId))
 					return;
 
-				SourceChangedInternal?.Invoke(this, EventArgs.Empty);
+				StoreChangedInternal?.Invoke(this, EventArgs.Empty);
 			}
 
 			/// <summary>Notify property value changed</summary>

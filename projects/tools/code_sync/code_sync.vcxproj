@@ -40,11 +40,20 @@
   -->
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="src\forward.h" />
     <ClInclude Include="src\code_sync.h" />
   </ItemGroup>
+  <!--
+  Deploy
+  -->
+  <Target Name="DeployCodeSync" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="fc /b &quot;$(TargetPath)&quot; &quot;$(RylogicRoot)tools\code_sync\code_sync.exe&quot; >nul 2>&amp;1" IgnoreExitCode="true" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="FileCompareExitCode" />
+    </Exec>
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(RylogicRoot)tools\code_sync\code_sync.exe" Condition="'$(FileCompareExitCode)' != '0'" />
+    <Message Text="'code_sync.exe' deployed to tools directory" Importance="high" Condition="'$(FileCompareExitCode)' != '0'" />
+  </Target>
+  <Target Name="Deploy" DependsOnTargets="DeployCodeSync" />
   <!--
   Targets
   -->

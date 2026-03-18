@@ -15,6 +15,7 @@
 			<Link>lib\x64\dxcompiler.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+		<BuildArtifacts Include="$(DxcPackagePath)build\native\bin\x64\dxcompiler.dll" />
 	</ItemGroup>
 
 </Project>

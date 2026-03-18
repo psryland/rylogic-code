@@ -16,7 +16,7 @@ namespace pr::rdr12::ldraw
 		, m_socket(std::move(socket))
 		, m_thread()
 		, m_mutex()
-		, m_mode(EMode::Text)
+		, m_mode(EMode::Auto)
 	{
 		m_name = std::format("{}:{}", network::GetIPAddress(addr), network::GetPort(addr));
 
@@ -43,10 +43,15 @@ namespace pr::rdr12::ldraw
 
 					bytes_read += read;
 
+					// Auto-detect the stream format from the first data received
+					if (m_mode == EMode::Auto)
+						m_mode = DetectMode(buffer, bytes_read);
+
 					// Parse the data by batches of sections. Find the range of whole sections to consume.
 					auto [consumed, required] =
 						m_mode == EMode::Text ? ConsumeText(buffer, bytes_read) :
 						m_mode == EMode::Binary ? ConsumeBinary(buffer, bytes_read) :
+						m_mode == EMode::Auto ? std::tuple<int, int>{ bytes_read, 0 } :
 						throw std::runtime_error("Unsupported format");
 
 					// If sections where consumed, remove the data from 'buffer'
@@ -74,8 +79,28 @@ namespace pr::rdr12::ldraw
 			// Make this source as invalid
 			m_socket = nullptr;
 
-			// Signal that the connection was lost
-			Notify(shared_from_this(), { {}, ENotifyReason::Disconnected, {}, nullptr });
+			try
+			{
+				// Signal that the connection was lost
+				if (!m_thread.get_stop_token().stop_requested())
+				{
+					std::promise<void> done;
+					AddCompleteCB complete_cb = [&done](auto&, bool before)
+					{
+						// The callback fires twice: before and after the store change.
+						// Only signal completion after the change is fully processed.
+						if (!before) done.set_value();
+					};
+
+					auto future = done.get_future();
+					Notify(shared_from_this(), { {}, EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ContextIdRemoved | EStoreChangeFlags::ObjectsRemoved, complete_cb });
+					future.wait(); // blocks until the handler calls the callback
+				}
+			}
+			catch (std::exception const& ex)
+			{
+				OutputDebugStringA(ex.what());
+			}
 		});
 	}
 	SourceStream::SourceStream(SourceStream&& rhs) noexcept
@@ -154,11 +179,9 @@ namespace pr::rdr12::ldraw
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
 			if (out)
 			{
+				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				m_rdr->RunOnMainThread([src, out = std::move(out)]() mutable noexcept
-				{
-					src->Notify(src, { std::move(out), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
-				});
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
 			}
 		}
 
@@ -223,11 +246,9 @@ namespace pr::rdr12::ldraw
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
 			if (out)
 			{
+				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				m_rdr->RunOnMainThread([src, out = std::move(out)]() mutable noexcept
-				{
-					src->Notify(src, { std::move(out), ENotifyReason::LoadComplete, EDataChangeTrigger::NewData, nullptr });
-				});
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
 			}
 		}
 
@@ -238,5 +259,29 @@ namespace pr::rdr12::ldraw
 		}
 
 		return { consume, required };
+	}
+
+	// Auto-detect the stream format. Text LDraw starts with whitespace or '*'. Binary
+	// LDraw starts with a SectionHeader whose first 4 bytes are a valid EKeyword value.
+	SourceStream::EMode SourceStream::DetectMode(byte_data<4> const& buffer, int bytes_read)
+	{
+		if (bytes_read == 0)
+			return EMode::Auto;
+
+		// Text scripts start with whitespace or '*'
+		auto first = buffer.at_byte_ofs<char const>(0);
+		if (first == '*' || first == ' ' || first == '\t' || first == '\r' || first == '\n' || first == '/')
+			return EMode::Text;
+
+		// If we have enough bytes for a section header, check for a valid keyword
+		if (bytes_read >= static_cast<int>(sizeof(ldraw::SectionHeader)))
+		{
+			auto const& header = buffer.at_byte_ofs<ldraw::SectionHeader>(0);
+			if (ldraw::EKeyword_::IsValue(s_cast<int>(header.m_keyword)))
+				return EMode::Binary;
+		}
+
+		// Default to binary if the first byte isn't a text character
+		return EMode::Binary;
 	}
 }
