@@ -329,26 +329,33 @@ public class Tools
 		return !errors;
 	}
 
-	// Sign an assembly
+	// Sign a file using Azure Trusted Signing.
+	// Requires 'dotnet tool install --global sign' and 'az login'.
+	// Works for EXEs, DLLs, NuGet packages, VSIX, MSI, etc.
+	public static void Sign(string filepath)
+	{
+		Run(["dotnet", "sign", "code", "trusted-signing",
+			"--account", UserVars.AzureSignAccount,
+			"--profile", UserVars.AzureSignProfile,
+			filepath]);
+	}
+
+	// Sign an assembly (EXE or DLL)
 	public static void SignAssembly(string target)
 	{
-		if (UserVars.CodeSignCert_Pfx.Length == 0)
-			return;
-
-		Run([UserVars.SignTool, "sign", "/f", UserVars.CodeSignCert_Pfx, "/p", UserVars.CodeSignCert_Pw, "/fd", "SHA1", target]);
+		Sign(target);
 	}
 
 	// Sign a VSIX extension package
 	public static void SignVsix(string vsix_filepath, string algo)
 	{
-		// Use 'dotnet tool install -g OpenVsixSignTool' to install 'OpenVsixSignTool'
-		// 'OpenVsixSignTool' is an open source (and better) version of 'VsixSignTool' (https://github.com/vcsjones/OpenOpcSignTool)
-		// 'e1053e6fa1aeb7bd4ee453302116a129ca4112f9' is the thumbprint of the code signing certificate installed on the machine.
-		// Run 'mmc' then add 'Certificates' to the console. Find your code signing cert (Rylogic Limited, Sectigo RSA Code Signing CA),
-		// and open it. Under 'details' find 'Thumbprint'. The OpenVsixSignTool uses this hash value to find the cert in the store.
-		// If the vsix supports VS versions less than 14.0, you need to use "-fd sha1" or the cert shows up as invalid. If the VSIX only
-		// supports VS versions >= 14.0, use sha256 instead.
-		Run(["openvsixsigntool", "sign", "--sha1", UserVars.CodeSignCert_Thumbprint, "-fd", algo, vsix_filepath]);
+		Sign(vsix_filepath);
+	}
+
+	// Sign a NuGet package (.nupkg)
+	public static void SignNugetPackage(string nupkg_filepath)
+	{
+		Sign(nupkg_filepath);
 	}
 
 	// Run the units tests in a .net assembly

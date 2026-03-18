@@ -56,25 +56,21 @@ public class UserVars
 	public static string Git => m_git ??= FindOnPath("git");
 	private static string? m_git;
 
-	/// <summary>Assembly sign tool</summary>
-	public static string SignTool => Path([WinSDK, "bin", WinSDKVersion, "x64\\signtool.exe"]);
-	public static string VsixSignTool => Path(["C:\\Program Files\\PackageManagement\\NuGet\\Packages\\Microsoft.VSSDK.VsixSignTool.16.2.29116.78\\tools\\vssdk\\vsixsigntool.exe"]);
-
-	/// <summary>Code signing cert</summary>
-	public static string CodeSignCert_Pfx => m_code_sign_cert_pfx ??= Browse("Code Signing Cert PFX: ", "PFX files (*.pfx)|*.pfx|All files (*.*)|*.*", "CodeSigningCert.pfx");
-	private static string? m_code_sign_cert_pfx = null;
-
-	/// <summary>Code signing cert thumbprint</summary>
-	public static string CodeSignCert_Thumbprint => m_code_sign_cert_thumbprint ??= Prompt("Code Signing Cert Thumbprint: ");
-	private static string? m_code_sign_cert_thumbprint = null;
-
-	/// <summary>Code signing cert password</summary>
-	public static string CodeSignCert_Pw
+	/// <summary>Azure Trusted Signing account name (from Azure portal)</summary>
+	public static string AzureSignAccount
 	{
-		get => m_code_sign_cert_pw ??= UserSecret("RylogicCodeSigningCertPassword") ?? Prompt("Code Signing Cert Password: ");
-		set => m_code_sign_cert_pw = value;
+		get => m_azure_sign_account ??= UserSecret("RylogicAzureSignAccount") ?? Prompt("Azure Trusted Signing Account Name: ");
+		set => m_azure_sign_account = value;
 	}
-	private static string? m_code_sign_cert_pw = null;
+	private static string? m_azure_sign_account = null;
+
+	/// <summary>Azure Trusted Signing certificate profile name</summary>
+	public static string AzureSignProfile
+	{
+		get => m_azure_sign_profile ??= UserSecret("RylogicAzureSignProfile") ?? Prompt("Azure Trusted Signing Certificate Profile: ");
+		set => m_azure_sign_profile = value;
+	}
+	private static string? m_azure_sign_profile = null;
 
 	/// <summary>Nuget package manager</summary>
 	public static string Nuget => Path([Root, "tools\\nuget\\nuget.exe"]);
@@ -329,14 +325,8 @@ public class UserVars
 						case "Pwsh": m_pwsh = prop.Value.GetString(); break;
 						case "WinSDK": m_win_sdk = prop.Value.GetString(); break;
 						case "WinSDKVersion": m_win_sdk_version = prop.Value.GetString(); break;
-						case "CodeSignCert_Pfx": m_code_sign_cert_pfx = prop.Value.GetString(); break;
-						case "CodeSignCert_Thumbprint":
-						{
-							// Get 'thumbprint' from the cert manager. Find your code signing cert (Rylogic Limited, Sectigo RSA Code Signing CA), and open it. Under 'details' find 'Thumbprint'.
-							m_code_sign_cert_thumbprint = prop.Value.GetString();
-							break;
-						}
-						case "CodeSignCert_Pw": m_code_sign_cert_pw = prop.Value.GetString(); break;
+						case "AzureSignAccount": m_azure_sign_account = prop.Value.GetString(); break;
+						case "AzureSignProfile": m_azure_sign_profile = prop.Value.GetString(); break;
 						default:
 						{
 							if (prop.Name == "") break; // Ignore empty names

@@ -654,10 +654,16 @@ void Main(IList<string> args)
 					publish = true;
 					break;
 				}
-			case "-cert_pw":
+			case "-azure_sign_account":
 				{
-					if (!IsDataArg(i)) throw new Exception("Rylogic code signing certificate password expected");
-					UserVars.CodeSignCert_Pw = args[i++];
+					if (!IsDataArg(i)) throw new Exception("Azure Trusted Signing account name expected");
+					UserVars.AzureSignAccount = args[i++];
+					break;
+				}
+			case "-azure_sign_profile":
+				{
+					if (!IsDataArg(i)) throw new Exception("Azure Trusted Signing certificate profile expected");
+					UserVars.AzureSignProfile = args[i++];
 					break;
 				}
 			case "-workspace":
@@ -737,9 +743,12 @@ void Main(IList<string> args)
 		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs)
 			?? throw new Exception($"Failed to create the builder type foe {project}");
 
-		// Prompt for the cert password if signing is needed
+		// Ensure Azure signing is configured if signing is needed
 		if (deploy || publish)
-			UserVars.CodeSignCert_Pw = UserVars.CodeSignCert_Pw; // Prompt if needed
+		{
+			_ = UserVars.AzureSignAccount; // Prompt if not configured
+			_ = UserVars.AzureSignProfile;
+		}
 
 		// Clean if '-clean' is used
 		if (clean)

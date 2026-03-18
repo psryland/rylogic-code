@@ -92,7 +92,7 @@ public class Nuget
 
 		// Sign the package
 		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"]);
-		Tools.Run([UserVars.Nuget, "sign", PackagePath, "-CertificatePath", UserVars.CodeSignCert_Pfx, "-CertificatePassword", UserVars.CodeSignCert_Pw, "-Timestamper", "http://timestamp.digicert.com"]);
+		Tools.SignNugetPackage(PackagePath);
 	}
 
 	// Push a nugget package to 'nuget.org'
