@@ -15,8 +15,10 @@ namespace physics_sandbox
 		, m_ground_gfx()
 		, m_origin_gfx()
 		, m_clock()
-		, m_diag()
 		, m_current_scenario()
+		, m_diag()
+		, m_history()
+		, m_step_count()
 	{
 		// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
 		m_physics.PostCollisionDetection += [&](auto&, auto args)
@@ -58,7 +60,9 @@ namespace physics_sandbox
 	void Scene::Reset()
 	{
 		m_clock = 0;
+		m_step_count = 0;
 		m_diag.Reset();
+		m_history.Close();
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
 
@@ -104,7 +108,10 @@ namespace physics_sandbox
 
 		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
 		auto bodies = std::span(m_body);
+		m_history.RecordFrame(m_step_count, m_body);
 		m_physics.Step(dt, bodies);
+		m_history.CheckForFallenBodies(m_step_count, m_body, m_kill_zone_height + 50.0f);
+		++m_step_count;
 
 		#ifdef PR_PHYSICS_DIAGNOSTICS
 		{
@@ -255,7 +262,12 @@ namespace physics_sandbox
 	{
 		// Reset simulation state
 		m_clock = 0;
+		m_step_count = 0;
 		m_diag.Reset();
+
+		// Open per-body history logger. Initially tracks no bodies — bodies that
+		// fall below the ground will be auto-tracked by the Step() scan.
+		m_history.Open("dump\\body_history.log", {});
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
@@ -444,6 +456,9 @@ namespace physics_sandbox
 				snap.Log(FmtS("Body %d '%s'", i, name));
 			}
 		}
+
+		// Open per-body history logger now that body count is known
+		m_history.Open("dump\\body_history.log", static_cast<int>(m_body.size()));
 	}
 
 	// Log comprehensive collision diagnostics and analytic comparisons
