@@ -17,6 +17,7 @@ namespace pr::physics
 	static constexpr int SweepThreadCount = 64;
 	static constexpr int CollideThreadCount = 32;
 	static constexpr int ResolveThreadCount = 64;
+	static constexpr int MaxColours = 32;
 
 	// GPU-friendly representation of a collision shape.
 	// All shape types are unified into a single struct with type-specific data fields.
@@ -69,17 +70,17 @@ namespace pr::physics
 	// Contains everything needed to compute and apply the restitution impulse.
 	struct alignas(16) GpuResolveContact
 	{
-		v4 axis;          // collision normal (in A's object space)
-		v4 contact_point; // contact point at estimated collision time (in A's space)
-		m4x4 b2a;         // B-to-A transform
-		int body_idx_a;   // index into RigidBodyDynamics buffer
-		int body_idx_b;   // index into RigidBodyDynamics buffer
-		int mat_id_a;     // Material IDs from each shape
-		int mat_id_b;     // Material IDs from each shape
-		float depth;      // Penetration depth (positive = overlapping).
+		v4 axis;              // collision normal (in A's object space)
+		v4 contact_point;     // contact point at estimated collision time (in A's space)
+		m4x4 b2a;             // B-to-A transform
+		int body_idx_a;       // index into RigidBodyDynamics buffer
+		int body_idx_b;       // index into RigidBodyDynamics buffer
+		int mat_id_a;         // Material IDs from each shape
+		int mat_id_b;         // Material IDs from each shape
+		float depth;          // Penetration depth (positive = overlapping).
+		float collision_time; // Estimated sub-step collision time. Written by CSComputeCollisionTimes, read by CSAssignColours.
 		int pad0;
 		int pad1;
-		int pad2;
 	};
 	static_assert(sizeof(GpuResolveContact) == 128, "GpuResolveContact must be 128 bytes for GPU alignment");
 

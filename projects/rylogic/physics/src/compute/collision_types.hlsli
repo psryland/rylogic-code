@@ -9,6 +9,7 @@ static const int IntegrateThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
+static const int MaxColours = 32;
 
 // ---- Shape type enum (matches C++ EShape) ----
 static const int SHAPE_SPHERE   = 0;
@@ -45,9 +46,9 @@ struct GpuResolveContact
 	int mat_id_a;           // Material IDs from each shape
 	int mat_id_b;           // Material IDs from each shape
 	float depth;            // Penetration depth (positive = overlapping).
+	float collision_time;   // Estimated sub-step collision time. Written by CSComputeCollisionTimes.
 	int pad0;
 	int pad1;
-	int pad2;
 };
 struct GpuCollisionCounters
 {

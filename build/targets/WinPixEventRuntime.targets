@@ -36,8 +36,8 @@
 	<ItemDefinitionGroup>
 		<ClCompile>
 			<PreprocessorDefinitions>
-				;PR_PIX_ENABLED=1
-				;PR_COMPUTE_SHADER_DEBUG=1
+				;PR_PIX_ENABLED=0
+				;PR_COMPUTE_SHADER_DEBUG=0
 				;%(PreprocessorDefinitions)
 			</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>

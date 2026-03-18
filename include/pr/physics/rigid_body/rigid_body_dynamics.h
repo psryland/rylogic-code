@@ -47,9 +47,13 @@ namespace pr::physics
 
 		// The id of the shape for this object
 		int shape_id;
+
+		// Scratch: bitmask of graph-colouring colours used by this body.
+		// Written by CSComputeCollisionTimes, read by CSAssignColours.
+		uint32_t colour_used;
+
 		int pad0;
 		int pad1;
-		int pad2;
 	};
 	static_assert(sizeof(RigidBodyDynamics) == 224, "RigidBodyDynamics must be 224 bytes for GPU alignment");
 	static_assert(alignof(RigidBodyDynamics) == 16, "RigidBodyDynamics must be 16-byte aligned");

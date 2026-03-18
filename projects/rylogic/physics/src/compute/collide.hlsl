@@ -179,9 +179,9 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 	contact.mat_id_a = shape_a.material_id;
 	contact.mat_id_b = shape_b.material_id;
 	contact.depth = depth;
+	contact.collision_time = 0;
 	contact.pad0 = 0;
 	contact.pad1 = 0;
-	contact.pad2 = 0;
 	g_contacts[slot] = contact;
 }
 

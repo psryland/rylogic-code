@@ -172,7 +172,7 @@ namespace pr::physics
 			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, body_count, dispatch, counters, contacts, bodies, m_materials->span());
+			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, dispatch, counters, contacts, bodies, m_materials->span());
 		}
 
 		// Readback dynamics from GPU and unpack into bodies
