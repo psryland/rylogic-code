@@ -26,6 +26,9 @@ namespace pr::rdr12::ldraw
 		SourceStream& operator =(SourceStream const&) = delete;
 		~SourceStream();
 
+		// Stop the worker thread cleanly before destruction
+		void Stop() override;
+
 		// Auto-detect the stream format from the first byte of data
 		static EMode DetectMode(byte_data<4> const& buffer, int bytes_read);
 

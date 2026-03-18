@@ -6572,6 +6572,7 @@ namespace pr::rdr12::ldraw
 
 	ParseResult::ParseResult()
 		: m_objects()
+		, m_commands()
 		, m_lookup()
 		, m_cam()
 		, m_cam_fields()
@@ -6581,6 +6582,7 @@ namespace pr::rdr12::ldraw
 	void ParseResult::reset()
 	{
 		m_objects.resize(0);
+		m_commands.resize(0);
 		m_lookup.clear();
 		m_cam = {};
 		m_cam_fields = {};
@@ -6597,14 +6599,13 @@ namespace pr::rdr12::ldraw
 	ParseResult& ParseResult::operator += (ParseResult const& rhs)
 	{
 		m_objects.insert(end(m_objects), begin(rhs.m_objects), end(rhs.m_objects));
+		m_commands.append(rhs.m_commands);
 
 		// The lookup maps names to objects, duplicate names will replace
 		// earlier objects with the same name. It's up to the script writer
 		// to prevent that if they need to refer to objects by name.
 		for (auto& p : rhs.m_lookup)
 			m_lookup[p.first] = p.second;
-
-		m_commands.append(rhs.m_commands);
 
 		CopyCamera(rhs.m_cam, rhs.m_cam_fields, m_cam);
 		
@@ -6614,6 +6615,6 @@ namespace pr::rdr12::ldraw
 	}
 	ParseResult::operator bool() const
 	{
-		return !m_objects.empty() || !m_lookup.empty() || !m_commands.empty();
+		return !m_objects.empty() || !m_commands.empty() || !m_lookup.empty();
 	}
 }

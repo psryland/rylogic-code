@@ -115,7 +115,7 @@ namespace pr::rdr12::ldraw
 			Remove(id, trigger);
 	}
 
-	// Remove all objects associated with 'context_ids'
+	// Remove all objects associated with context ids filtered by 'pred'
 	void ScriptSources::Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
@@ -131,11 +131,11 @@ namespace pr::rdr12::ldraw
 			removed.push_back(id);
 		}
 
+		if (removed.empty())
+			return;
+
 		// Notify of the object container about to change
-		if (!removed.empty())
-		{
-			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, removed, nullptr, true });
-		}
+		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, true });
 
 		// Remove the sources
 		for (auto& id : removed)
@@ -143,15 +143,19 @@ namespace pr::rdr12::ldraw
 			// Delete any associated files and watches
 			m_watcher.RemoveAll(id);
 
-			// Delete the source and its associated objects
-			m_srcs.erase(id);
+			// Stop any worker threads before destroying the source.
+			// This prevents a race where the worker calls shared_from_this()
+			// after the last shared_ptr has been released by m_srcs.erase().
+			auto it = m_srcs.find(id);
+			if (it != m_srcs.end())
+			{
+				it->second->Stop();
+				m_srcs.erase(it);
+			}
 		}
 
 		// Notify of the object container change
-		if (!removed.empty())
-		{
-			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, removed, nullptr, false });
-		}
+		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, false });
 	}
 	void ScriptSources::Remove(Guid const& context_id, EStoreChangeInitiator trigger)
 	{

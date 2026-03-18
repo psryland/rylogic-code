@@ -691,7 +691,7 @@ namespace Rylogic.Gfx
 
 		/// <summary>Callback when the stores are changed/reloaded</summary>
 		[StructLayout(LayoutKind.Sequential)]
-		public struct StoreChangedCB
+		public struct StoreChangeCB
 		{
 			public delegate void FuncCB(IntPtr ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before);
 			public IntPtr m_ctx;
@@ -1370,7 +1370,7 @@ namespace Rylogic.Gfx
 		private readonly int m_thread_id;                   // The main thread id
 		private ReportErrorCB m_error_cb;                   // Reference to callback
 		private ParsingProgressCB m_parsing_progress_cb;    // Reference to callback
-		private StoreChangedCB m_store_changed_cb;      // Reference to callback
+		private StoreChangeCB m_store_changed_cb;      // Reference to callback
 		private List<AddCompleteCB> m_add_complete_cb; // Reference to callbacks
 
 		#if PR_VIEW3D_CREATE_STACKTRACE
@@ -1429,13 +1429,13 @@ namespace Rylogic.Gfx
 				}
 
 				// Sign up for notification of the sources changing
-				View3D_StoreChangedCBSet(m_store_changed_cb = new StoreChangedCB { m_cb = HandleStoreChanged }, true);
-				void HandleStoreChanged(IntPtr ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before)
+				View3D_StoreChangeCBSet(m_store_changed_cb = new StoreChangeCB { m_cb = HandleStoreChange }, true);
+				void HandleStoreChange(IntPtr ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before)
 				{
 					if (m_thread_id != Thread.CurrentThread.ManagedThreadId)
-						m_sync.Post(_ => HandleStoreChanged(ctx, initiator, flags, ids, count, before), null);
+						m_sync.Post(_ => HandleStoreChange(ctx, initiator, flags, ids, count, before), null);
 					else
-						OnStoreChanged?.Invoke(this, new StoreChangedEventArgs(initiator, flags, ids, count, before));
+						OnStoreChange?.Invoke(this, new StoreChangedEventArgs(initiator, flags, ids, count, before));
 				}
 			}
 			catch
@@ -1454,7 +1454,7 @@ namespace Rylogic.Gfx
 			}
 			if (m_singleton != null)
 			{
-				View3D_StoreChangedCBSet(m_store_changed_cb, false);
+				View3D_StoreChangeCBSet(m_store_changed_cb, false);
 				View3D_ParsingProgressCBSet(m_parsing_progress_cb, false);
 				View3D_GlobalErrorCBSet(m_error_cb, false);
 
@@ -1477,7 +1477,7 @@ namespace Rylogic.Gfx
 		public event EventHandler<ParsingProgressEventArgs>? ParsingProgress;
 
 		/// <summary>Event notifying whenever sources are loaded/reloaded</summary>
-		public event EventHandler<StoreChangedEventArgs>? OnStoreChanged;
+		public event EventHandler<StoreChangedEventArgs>? OnStoreChange;
 
 		/// <summary>
 		/// Add objects from an ldr file or string. This will create all objects declared in 'ldr_script'
@@ -1650,7 +1650,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_ParsingProgressCBSet(ParsingProgressCB progress_cb, bool add);
 
 		// Set the callback that is called when the sources are reloaded
-		[DllImport(Dll)] private static extern void View3D_StoreChangedCBSet(StoreChangedCB sources_changed_cb, bool add);
+		[DllImport(Dll)] private static extern void View3D_StoreChangeCBSet(StoreChangeCB sources_change_cb, bool add);
 
 		// Return the context id for objects created from 'filepath' (if filepath is an existing source)
 		[DllImport(Dll)] private static extern Guid View3D_ContextIdFromFilepath([MarshalAs(UnmanagedType.LPStr)] string filepath);

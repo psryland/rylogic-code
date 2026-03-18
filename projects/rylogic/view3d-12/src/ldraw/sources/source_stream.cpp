@@ -113,8 +113,15 @@ namespace pr::rdr12::ldraw
 	}
 	SourceStream::~SourceStream()
 	{
-		// Stop the thread
+		Stop();
+	}
+	void SourceStream::Stop()
+	{
 		m_thread.request_stop();
+
+		// Close the socket to unblock any pending recv() in the worker thread
+		m_socket = nullptr;
+
 		if (m_thread.joinable())
 			m_thread.join();
 	}
@@ -168,7 +175,8 @@ namespace pr::rdr12::ldraw
 			{
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
+				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, change_flags, nullptr });
 			}
 		}
 
@@ -235,7 +243,8 @@ namespace pr::rdr12::ldraw
 			{
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, EStoreChangeFlags::ObjectsChanged, nullptr });
+				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, change_flags, nullptr });
 			}
 		}
 

@@ -146,11 +146,18 @@ namespace pr::rdr12::ldraw
 
 		// Combine recursive flags
 		auto flags = Flags() | (parent_flags & (ELdrFlags::Hidden | ELdrFlags::Wireframe | ELdrFlags::NonAffine | ELdrFlags::HideWhenNotAnimating));
-		PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(m_i2w), "Invalid instance transform");
 
 		// Allow the object to change it's transform just before rendering
 		OnAddToScene(*this, scene);
-		PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(m_i2w), "Invalid instance transform");
+
+		// Trap non-affine transforms
+		#if PR_DBG
+		if (!IsAffine(m_i2w) && !AllSet(flags, ELdrFlags::NonAffine))
+		{
+			_CrtDbgBreak();
+			assert(false && "Invalid instance transform");
+		}
+		#endif
 
 		// Decide if this object should be added to the scene
 		auto is_hidden =
