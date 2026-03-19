@@ -108,7 +108,6 @@
     <ClInclude Include="..\..\..\include\pr\collision\forward.h" />
     <ClInclude Include="..\..\..\include\pr\collision\shapes.h" />
     <ClInclude Include="..\..\..\include\pr\common\ldraw.h" />
-    <ClInclude Include="src\diagnostics\body_history.h" />
     <ClInclude Include="src\forward.h" />
     <ClInclude Include="src\diagnostics\diagnostics.h" />
     <ClInclude Include="src\scene\body.h" />

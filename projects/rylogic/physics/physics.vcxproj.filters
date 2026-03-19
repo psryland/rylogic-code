@@ -28,6 +28,9 @@
     <Filter Include="src\materials">
       <UniqueIdentifier>{D3E4F5A6-B7C8-D9E0-F1A2-B3C4D5E6F7A8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\diagnostics">
+      <UniqueIdentifier>{e01f84db-e905-41c2-8d06-1600f8872c94}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\shape\inertia.cpp">
@@ -166,6 +169,12 @@
     </ClInclude>
     <ClInclude Include="src\compute\sweep_gpu.h">
       <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\diagnostics\physics_log.h">
+      <Filter>src\diagnostics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\diagnostics\body_history.h">
+      <Filter>src\diagnostics</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

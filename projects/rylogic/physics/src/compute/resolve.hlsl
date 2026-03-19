@@ -46,8 +46,8 @@ StructuredBuffer<GpuMaterial> g_materials : register(t1);
 RWStructuredBuffer<GpuRigidBody> g_bodies : register(u0);
 RWStructuredBuffer<uint> g_colours : register(u1);
 RWStructuredBuffer<GpuResolveContact> g_contacts : register(u2);
-RWStructuredBuffer<float> g_contact_times : register(u3);                // scratch: collision_time keys for radix sort
-RWStructuredBuffer<uint> g_contact_order: register(u4);              // scratch: contact indices for radix sort
+RWStructuredBuffer<float> g_contact_times : register(u3); // scratch: collision_time keys for radix sort
+RWStructuredBuffer<uint> g_contact_order: register(u4);   // scratch: contact indices for radix sort
 
 // ----- Helper functions -----
 
@@ -70,6 +70,40 @@ float3x3 OsInverseInertia(GpuRigidBody body)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	return inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+}
+
+// Extrapolate a body's o2w transform by dt using current momentum and forces.
+// Mirrors the CPU ExtrapolateO2W: S = S0 + 0.5*dt * I^(2*momentum + force*dt).
+// Used to rewind bodies to the estimated collision time.
+float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
+{
+	float inv_mass = body.os_com_and_invmass.w;
+	float3 os_com = body.os_com_and_invmass.xyz;
+	float3x3 os_iinv = OsInverseInertia(body);
+	float3x3 rot = (float3x3)body.o2w;
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, rot);
+
+	// Spatial displacement: dx = 0.5 * dt * I^(2*h + f*dt)
+	float3 h_ang = 2.0f * body.momentum_ang.xyz + dt * body.force_ang.xyz;
+	float3 h_lin = 2.0f * body.momentum_lin.xyz + dt * body.force_lin.xyz;
+	float3 dx_ang = 0.5f * dt * mul(ws_iinv, h_ang);
+	float3 dx_lin = 0.5f * dt * inv_mass * h_lin;
+
+	// CoM-based position update
+	float3 com_ws = body.o2w[3].xyz + mul(os_com, rot);
+
+	// Small-angle rotation: R_new ≈ (I + [dx_ang×]) * R_old
+	float3x3 skew = CrossProductMatrix(dx_ang);
+	float3x3 new_rot = rot + mul(skew, rot);
+
+	float3 new_com = com_ws + dx_lin;
+	float3 new_pos = new_com - mul(os_com, new_rot);
+
+	return float4x4(
+		float4(new_rot[0], 0),
+		float4(new_rot[1], 0),
+		float4(new_rot[2], 0),
+		float4(new_pos, 1));
 }
 
 // Compute a body's velocity at a point, expressed in A's object space.
@@ -282,12 +316,26 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 
 	// Load the contact and both bodies
 	GpuResolveContact c = g_contacts[idx];
-	float3 axis = c.axis.xyz;
-	float3 pt = c.contact_point.xyz;
-
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
 	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 
+	// Rewind the b2a transform to the estimated collision time.
+	// This gives contact geometry at the moment of first contact rather than
+	// at the post-integration position where the body has already penetrated.
+	float ct = c.collision_time;
+	if (abs(ct) > 1e-6f)
+	{
+		float4x4 o2w_a_at_t = ExtrapolateO2W(bodyA, ct);
+		float4x4 o2w_b_at_t = ExtrapolateO2W(bodyB, ct);
+		c.b2a = mul(o2w_b_at_t, InvertOrthonormal(o2w_a_at_t));
+	}
+
+	float3 axis = c.axis.xyz;
+	float3 pt = c.contact_point.xyz;
+
+	// Adjust the contact point to the estimated collision time.
+	// point_at_t ≈ point + 0.5 * collision_time * relative_velocity_at_point
+	// (midpoint between pre- and post-collision positions)
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
@@ -305,6 +353,10 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// Compute relative velocity at the contact point (in A's object space)
 	float3 V_rel = RelativeVelocityAtContact(c, bodyA, bodyB,
 		os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+
+	// Adjust contact point to estimated collision time
+	if (abs(ct) > 1e-6f)
+		pt += 0.5f * ct * V_rel;
 
 	// Skip if already separating
 	if (dot(V_rel, axis) > 0)

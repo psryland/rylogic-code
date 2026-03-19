@@ -10,10 +10,14 @@
 #include <vector>
 #include <array>
 #include <ranges>
+#include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
+#include <fstream>
+#include <format>
 #include <chrono>
+#include <cstdio>
 #include <cassert>
 
 #include "pr/common/to.h"

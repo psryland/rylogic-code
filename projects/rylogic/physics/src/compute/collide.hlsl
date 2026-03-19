@@ -190,8 +190,10 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 [numthreads(1,1,1)]
 void CSCalcResolveDispatch(int3 dtid : SV_DispatchThreadID)
 {
+	// Ensure that there is always at least one thread group dispatched in the resolve shader,
+	// so that it always resets the 'colour_used' and contact times
 	int count = g_counters[0].contact_count;
-	g_dispatch_args[0].ThreadGroupCountX = (count + ResolveThreadCount - 1) / ResolveThreadCount;
+	g_dispatch_args[0].ThreadGroupCountX = max(1, (count + ResolveThreadCount - 1) / ResolveThreadCount);
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }

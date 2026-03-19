@@ -185,7 +185,9 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
 
-			// Indirect dispatch for collision time computation (contact_count is GPU-side)
+			// The collide shader's 'CSCalcResolveDispatch' function ensures that there will always be at least
+			// one thread group dispatched, even if contact_count is 0. This ensures the 'colour_used' and
+			// contact times are always initialised.
 			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 			job.m_barriers.UAV(bodies.get());

@@ -15,6 +15,7 @@
 #include "src/compute/resolve_gpu.h"
 #include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
+#include "src/diagnostics/physics_log.h"
 #include "src/utility/gpu.h"
 
 namespace pr::physics
@@ -94,12 +95,9 @@ namespace pr::physics
 			return;
 
 		#if PR_DBG_PHYSICS
-		static int dbg_frame = 0;
-		static FILE* dbg_log = nullptr;
-		static bool dbg_logging = true;
-		if (!dbg_log) dbg_log = fopen("dump\\physics_pipeline.log", "w");
-		if (dbg_frame >= 0 && dbg_frame < 100) dbg_logging = true;
-		dbg_logging = dbg_log ? dbg_logging : false;
+		static PhysicsLog dbg_log;
+		if (!dbg_log.IsActive() && dbg_log.m_frame == 0)
+			dbg_log.Open("dump\\physics_pipeline.log");
 		#endif
 
 		#if PR_PIX_ENABLED
@@ -134,22 +132,7 @@ namespace pr::physics
 				std::vector<BBox> aabbs(body_count);
 				std::vector<GpuIntegrateDiag> diag(body_count);
 				m_gpu_integrator->Readback(m_gpu->m_job, bodies, aabbs, diag);
-
-				if (dbg_logging)
-				{
-					fprintf(dbg_log, "=== Frame %d: %d bodies, dt=%.4f ===\n", dbg_frame, body_count, dt);
-					for (int i = 0; i != body_count; ++i)
-					{
-						auto& b = bodies[i];
-						auto pos = b.o2w.w;
-						auto vel = b.os_com_and_invmass.w * b.momentum_lin;
-						fprintf(dbg_log, "  body[%d]: pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) inv_mass=%.6f shape=%d\n",
-							i, pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, b.os_com_and_invmass.w, b.shape_id);
-						fprintf(dbg_log, "           aabb=(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f)\n",
-							aabbs[i].Lower().x, aabbs[i].Lower().y, aabbs[i].Lower().z,
-							aabbs[i].Upper().x, aabbs[i].Upper().y, aabbs[i].Upper().z);
-					}
-				}
+				dbg_log.LogIntegrate(body_count, dt, bodies, aabbs);
 			}
 			#endif
 		}
@@ -168,18 +151,7 @@ namespace pr::physics
 				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
 				auto pairs = m_gpu_sort_and_sweep->Readback(m_gpu->m_job, counters, out_pairs);
 				assert(pairs.size() < max_col_pairs && "Hit capacity on pairs");
-
-				if (dbg_logging)
-				{
-					fprintf(dbg_log, "  Broadphase: %d pairs\n", static_cast<int>(pairs.size()));
-					for (int i = 0; i != static_cast<int>(pairs.size()) && i < 10; ++i)
-					{
-						auto& p = pairs[i];
-						fprintf(dbg_log, "    pair[%d]: body(%d,%d) shape(%d,%d) b2a_pos=(%.3f,%.3f,%.3f)\n",
-							i, p.body_idx_a, p.body_idx_b, p.shape_idx_a, p.shape_idx_b,
-							p.b2a.w.x, p.b2a.w.y, p.b2a.w.z);
-					}
-				}
+				dbg_log.LogBroadphase(pairs);
 			}
 			#endif
 		}
@@ -197,29 +169,8 @@ namespace pr::physics
 				std::vector<GpuPairDiag> out_diag(max_col_pairs);
 				auto [contacts, diag] = m_gpu_collision_detector->Readback(m_gpu->m_job, counters, out_contacts, out_diag);
 				assert(contacts.size() < max_col_pairs && "Hit capacity on contacts");
-
-				if (dbg_logging)
-				{
-					fprintf(dbg_log, "  NarrowPhase: %d contacts, %d diag\n", static_cast<int>(contacts.size()), static_cast<int>(diag.size()));
-					for (int i = 0; i != static_cast<int>(diag.size()) && i < 20; ++i)
-					{
-						auto& d = diag[i];
-						fprintf(dbg_log, "    diag[%d]: body(%d,%d) shape(%d,%d) gjk=%d epa=%d hit=%d\n",
-							i, d.body_idx_a, d.body_idx_b, d.shape_type_a, d.shape_type_b,
-							d.gjk_iters, d.epa_iters, d.hit);
-					}
-					for (int i = 0; i != static_cast<int>(contacts.size()) && i < 20; ++i)
-					{
-						auto& c = contacts[i];
-						fprintf(dbg_log, "    contact[%d]: body(%d,%d) axis=(%.4f,%.4f,%.4f) pt=(%.4f,%.4f,%.4f) depth=%.6f\n",
-							i, c.body_idx_a, c.body_idx_b,
-							c.axis.x, c.axis.y, c.axis.z,
-							c.contact_point.x, c.contact_point.y, c.contact_point.z, c.depth);
-					}
-					fprintf(dbg_log, "\n");
-					fflush(dbg_log);
-					++dbg_frame;
-				}
+				dbg_log.LogNarrowPhase(contacts, diag);
+				dbg_log.EndFrame();
 			}
 			#endif
 		}

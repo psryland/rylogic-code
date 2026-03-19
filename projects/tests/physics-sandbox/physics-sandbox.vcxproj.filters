@@ -262,9 +262,6 @@
     <ClInclude Include="..\..\..\include\pr\common\ldraw.h">
       <Filter>pr\common</Filter>
     </ClInclude>
-    <ClInclude Include="src\diagnostics\body_history.h">
-      <Filter>src\diagnostics</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="scenes\box_vs_sphere.json">

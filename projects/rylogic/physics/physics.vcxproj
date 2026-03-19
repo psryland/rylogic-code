@@ -120,6 +120,8 @@
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
+    <ClInclude Include="src\diagnostics\body_history.h" />
+    <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\materials\material_map.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
