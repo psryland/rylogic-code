@@ -5581,7 +5581,7 @@ namespace pr::rdr12::ldraw
 						auto pt_ws = c2w * pt_cs;
 
 						// Position facing the camera
-						ob.m_i2w = m4x4(c2w.rot, pt_ws) * ob.m_i2w.scale();
+						ob.m_i2w = m4x4(c2w.rot, pt_ws) * ob.m_i2w.scale().w1();
 						ob.m_c2s = text_camera.CameraToScreen();
 					};
 					break;
@@ -5679,7 +5679,7 @@ namespace pr::rdr12::ldraw
 						auto scale = m4x4::Scale(m_to_px * ViewPortSize / w, m_to_px * ViewPortSize / h, 1, v4::Origin());
 
 						// Convert 'i2w', which is 'i2c' in the ldr script, into an actual 'i2w'
-						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale();
+						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale().w1();
 					};
 					break;
 				}

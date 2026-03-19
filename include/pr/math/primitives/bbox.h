@@ -508,7 +508,194 @@ namespace pr::math
 {
 	PRUnitTestClass(BoundingBoxTests)
 	{
-		// @Copilot, please add unit tests for all of the BoundingBox functions
+		PRUnitTestMethod(Union)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			// Union of two non-overlapping boxes
+			auto a = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			auto b = bbox_t(vec4_t(S(5), S(5), S(5), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			auto u = Union(a, b);
+			PR_EXPECT(u.Lower().x == S(-1));
+			PR_EXPECT(u.Lower().y == S(-1));
+			PR_EXPECT(u.Lower().z == S(-1));
+			PR_EXPECT(u.Upper().x == S(6));
+			PR_EXPECT(u.Upper().y == S(6));
+			PR_EXPECT(u.Upper().z == S(6));
+
+			// Union with a point
+			auto c = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			auto u2 = Union(c, vec4_t(S(3), S(0), S(0), S(1)));
+			PR_EXPECT(u2.Upper().x == S(3));
+			PR_EXPECT(u2.Lower().x == S(-1));
+
+			// Union with a reset (empty) box should return the non-empty box
+			auto d = bbox_t::Reset();
+			auto u3 = Union(d, a);
+			PR_EXPECT(FEql(u3.Centre(), a.Centre()));
+			PR_EXPECT(FEql(u3.Radius(), a.Radius()));
+		}
+
+		PRUnitTestMethod(IsWithin)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			auto bb = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(2), S(2), S(2), S(0)));
+
+			// Centre is within
+			PR_EXPECT(IsWithin(bb, vec4_t(S(0), S(0), S(0), S(1))));
+
+			// Corner is within (on boundary)
+			PR_EXPECT(IsWithin(bb, vec4_t(S(2), S(2), S(2), S(1))));
+
+			// Outside
+			PR_EXPECT(!IsWithin(bb, vec4_t(S(3), S(0), S(0), S(1))));
+			PR_EXPECT(!IsWithin(bb, vec4_t(S(0), S(0), S(-3), S(1))));
+
+			// BBox within BBox
+			auto inner = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			PR_EXPECT(IsWithin(bb, inner));
+
+			auto outer = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(3), S(3), S(3), S(0)));
+			PR_EXPECT(!IsWithin(bb, outer));
+		}
+
+		PRUnitTestMethod(IsIntersection)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			auto a = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(2), S(2), S(2), S(0)));
+			auto b = bbox_t(vec4_t(S(1), S(1), S(1), S(1)), vec4_t(S(2), S(2), S(2), S(0)));
+			PR_EXPECT(IsIntersection(a, b));
+
+			// Separated boxes
+			auto c = bbox_t(vec4_t(S(10), S(10), S(10), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			PR_EXPECT(!IsIntersection(a, c));
+
+			// Touching on edge
+			auto d = bbox_t(vec4_t(S(4), S(0), S(0), S(1)), vec4_t(S(2), S(2), S(2), S(0)));
+			PR_EXPECT(IsIntersection(a, d));
+
+			// Just barely separated
+			auto e = bbox_t(vec4_t(S(4.1f), S(0), S(0), S(1)), vec4_t(S(2), S(2), S(2), S(0)));
+			PR_EXPECT(!IsIntersection(a, e));
+		}
+
+		PRUnitTestMethod(CornerTests)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			auto bb = bbox_t(vec4_t(S(1), S(2), S(3), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+
+			// Corner 0 = (-x, -y, -z), Corner 7 = (+x, +y, +z)
+			auto c0 = Corner(bb, 0);
+			PR_EXPECT(c0.x == S(0) && c0.y == S(1) && c0.z == S(2));
+
+			auto c7 = Corner(bb, 7);
+			PR_EXPECT(c7.x == S(2) && c7.y == S(3) && c7.z == S(4));
+
+			// All 8 corners should be on the bbox boundary
+			auto corners = Corners(bb);
+			for (auto& cnr : corners)
+			{
+				PR_EXPECT(IsWithin(bb, cnr));
+			}
+		}
+
+		PRUnitTestMethod(VolumeTest)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			// Unit cube: size 2x2x2, volume = 8
+			auto unit = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+			PR_EXPECT(Volume(unit) == S(8));
+
+			// Rectangular: 4x6x10 = 240
+			auto rect = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(2), S(3), S(5), S(0)));
+			PR_EXPECT(Volume(rect) == S(240));
+
+			// Point: volume = 0
+			auto point = bbox_t(vec4_t(S(1), S(2), S(3), S(1)), vec4_t(S(0), S(0), S(0), S(0)));
+			PR_EXPECT(Volume(point) == S(0));
+		}
+
+		PRUnitTestMethod(SupportPointTest)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			auto bb = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(2), S(3), S(4), S(0)));
+
+			// Support in +X direction should be the +X face
+			auto sp = SupportPoint(bb, vec4_t(S(1), S(0), S(0), S(0)));
+			PR_EXPECT(sp.x == S(2));
+
+			// Support in -Y direction
+			auto sp2 = SupportPoint(bb, vec4_t(S(0), S(-1), S(0), S(0)));
+			PR_EXPECT(sp2.y == S(-3));
+
+			// Support in diagonal direction
+			auto sp3 = SupportPoint(bb, vec4_t(S(1), S(1), S(1), S(0)));
+			PR_EXPECT(sp3.x == S(2) && sp3.y == S(3) && sp3.z == S(4));
+		}
+
+		PRUnitTestMethod(MakeTest)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			// Make from lower/upper
+			auto bb = bbox_t::Make(vec4_t(S(-1), S(-2), S(-3), S(1)), vec4_t(S(1), S(2), S(3), S(1)));
+			PR_EXPECT(FEql(bb.Centre(), vec4_t(S(0), S(0), S(0), S(1))));
+			PR_EXPECT(FEql(bb.Radius(), vec4_t(S(1), S(2), S(3), S(0))));
+
+			// Make from collection of points
+			std::array<vec4_t, 4> pts = {
+				vec4_t(S(1), S(0), S(0), S(1)),
+				vec4_t(S(-2), S(3), S(0), S(1)),
+				vec4_t(S(0), S(0), S(5), S(1)),
+				vec4_t(S(0), S(-1), S(0), S(1)),
+			};
+			auto bb2 = bbox_t::Make(pts);
+			PR_EXPECT(bb2.Lower().x == S(-2));
+			PR_EXPECT(bb2.Upper().y == S(3));
+			PR_EXPECT(bb2.Upper().z == S(5));
+		}
+
+		PRUnitTestMethod(TransformTest)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+			using mat4_t = Mat4x4<S>;
+
+			auto bb = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
+
+			// Pure translation: corners should shift
+			auto translate = mat4_t::Transform(Identity<Mat3x4<S>>(), vec4_t(S(5), S(0), S(0), S(1)));
+			auto moved = translate * bb;
+			PR_EXPECT(FEql(moved.Centre(), vec4_t(S(5), S(0), S(0), S(1))));
+			PR_EXPECT(FEql(moved.Radius(), bb.Radius()));
+
+			// 90-degree rotation around Z: radius should swap X/Y
+			auto rot = mat4_t::Transform(vec4_t::ZAxis(), DegreesToRadians(S(90)), Origin<vec4_t>());
+			auto rotated = rot * bb;
+			PR_EXPECT(FEql(rotated.Centre(), vec4_t(S(0), S(0), S(0), S(1))));
+			// After 90° Z rotation, radius (1,1,1) stays (1,1,1)
+			PR_EXPECT(FEqlAbsolute(rotated.Radius(), vec4_t(S(1), S(1), S(1), S(0)), S(0.001)));
+		}
 
 		PRUnitTestMethod(Grow)
 		{

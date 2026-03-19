@@ -215,7 +215,7 @@ namespace pr::math
 		//   interval: total time span from 'pos_prev' to 'pos_next' (= 2*T)
 		// Derive endpoint tangents V0, V1 in parameter space that force P(0.5) = pos, P'(0.5)/interval = vel
 		HermiteVelCorrected()
-			: m_p(Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), CubicCurve3::Hermite)
+			: m_p(Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), CurveType::Hermite)
 			, m_x1(Zero<Vec4>())
 			, m_interval(S(1))
 		{}
@@ -225,7 +225,7 @@ namespace pr::math
 				S(4) * pos - S(5) * pos_prev + pos_next - S(2) * vel * interval,
 				Zero<Vec4>(),
 				-pos_prev + S(5) * pos_next - S(4) * pos - S(2) * vel * interval,
-				CubicCurve3::Hermite)
+				CurveType::Hermite)
 			, m_x1(pos_next)
 			, m_interval(interval)
 		{}
@@ -442,7 +442,74 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(VelCorrected)
 		{
-			// @Copilot, please add unit tests for HermiteVelCorrected
+			using S = float;
+			using vec4_t = Vec4<S>;
+
+			// Simple straight-line case: pos_prev → pos → pos_next equally spaced
+			{
+				auto pos_prev = vec4_t(S(0), S(0), S(0), S(1));
+				auto pos_next = vec4_t(S(2), S(0), S(0), S(1));
+				auto pos = vec4_t(S(1), S(0), S(0), S(1));
+				auto vel = vec4_t(S(1), S(0), S(0), S(0));
+				auto interval = S(2);
+
+				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+
+				// Boundary: Eval(-T) = pos_prev, Eval(+T) = pos_next, where T = interval/2
+				auto T = interval / S(2);
+				PR_EXPECT(FEql(interp.Eval(-T), pos_prev));
+				PR_EXPECT(FEql(interp.Eval(+T), pos_next));
+
+				// Midpoint: Eval(0) = pos
+				PR_EXPECT(FEql(interp.Eval(S(0)), pos));
+
+				// Midpoint velocity: EvalDerivative(0) = vel
+				PR_EXPECT(FEql(interp.EvalDerivative(S(0)), vel));
+			}
+
+			// Non-trivial curve with vertical motion
+			{
+				auto pos_prev = vec4_t(S(0), S(0), S(0), S(1));
+				auto pos_next = vec4_t(S(4), S(0), S(0), S(1));
+				auto pos = vec4_t(S(2), S(1), S(0), S(1));
+				auto vel = vec4_t(S(2), S(0), S(0), S(0));
+				auto interval = S(2);
+
+				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+
+				// Boundary positions
+				auto T = interval / S(2);
+				PR_EXPECT(FEql(interp.Eval(-T), pos_prev));
+				PR_EXPECT(FEql(interp.Eval(+T), pos_next));
+
+				// Midpoint constraint
+				PR_EXPECT(FEql(interp.Eval(S(0)), pos));
+				PR_EXPECT(FEql(interp.EvalDerivative(S(0)), vel));
+			}
+
+			// Smoothness: verify no discontinuities by checking values at close sample points
+			{
+				auto pos_prev = vec4_t(S(0), S(1), S(0), S(1));
+				auto pos_next = vec4_t(S(3), S(2), S(-1), S(1));
+				auto pos = vec4_t(S(1.5), S(2), S(0.5), S(1));
+				auto vel = vec4_t(S(1.5), S(0.5), S(-0.5), S(0));
+				auto interval = S(2);
+				auto T = interval / S(2);
+				auto eps = S(0.001);
+
+				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+
+				// Check continuity at several sample points
+				for (S t = -T + eps; t < T - eps; t += S(0.1))
+				{
+					auto p0 = interp.Eval(t);
+					auto p1 = interp.Eval(t + eps);
+
+					// Consecutive samples should be close together
+					auto diff = p1 - p0;
+					PR_EXPECT(Length(diff) < S(0.1));
+				}
+			}
 		}
 		PRUnitTestMethod(LdrDump)
 		{
