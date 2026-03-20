@@ -6,6 +6,7 @@ namespace Rylogic.Audio;
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Maths;
 

@@ -2,8 +2,9 @@
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Text.RegularExpressions;
+using Rylogic.Maths;
 
-namespace Rylogic.Maths
+namespace Rylogic.Common
 {
 	public class ExprLambda
 	{
@@ -847,6 +848,7 @@ namespace Rylogic.Maths
 namespace Rylogic.UnitTests
 {
 	using Maths;
+	using Rylogic.Common;
 
 	[TestFixture]
 	public class TestExprLamdba

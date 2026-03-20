@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Data;
 using LDraw.UI;
+using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gui.WPF;
 using Rylogic.Maths;
