@@ -9,7 +9,7 @@ namespace LDraw
 	public class StartupOptions
 	{
 		// Notes:
-		//  - Parsed command line options
+		//  - Parsed command line options. See 'CmdLine' for the options that are supported.
 
 		public StartupOptions(string[] args)
 		{
