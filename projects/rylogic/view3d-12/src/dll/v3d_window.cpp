@@ -1753,6 +1753,7 @@ namespace pr::rdr12
 			}
 			case EKeyCodes::Decimal:
 			case EKeyCodes::OemPeriod:
+			case EKeyCodes::MButton:
 			{
 				auto z = static_cast<float>(m_scene.m_cam.FocusDist());
 				auto nss_pt = m_scene.m_viewport.SSPointToNSSPoint(ss_point);
