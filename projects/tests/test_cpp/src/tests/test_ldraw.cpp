@@ -23,7 +23,7 @@ namespace tests
 		};
 		
 		pr::ldraw::Builder frame;
-		for (auto t = 0.f; t < 100000.0f; t += 0.01f, wait(100))
+		for (auto t = 0.f; t < 100000.0f; t += 0.01f, wait(10))
 		{
 			frame.Clear();
 

@@ -29,7 +29,7 @@ namespace pr::fluid
 			m_gfx_map.m_model->m_name = "Fluid:MapQuad";
 			m_gfx_map.m_i2w = m4x4::Identity();
 			
-			auto& nug = m_gfx_map.m_model->m_nuggets.front();
+			auto& nug = *m_gfx_map.m_model->m_nuggets.get();
 			nug.m_tex_diffuse = m_tex_map;
 			nug.m_sam_diffuse = rdr.store().StockSampler(EStockSampler::PointClamp);
 		}
@@ -188,7 +188,7 @@ namespace pr::fluid
 		// The particles
 		if (AllSet(flags, EScene::Particles))
 		{
-			auto& nug = m_gfx_fluid.m_model->m_nuggets.front();
+			auto& nug = *m_gfx_fluid.m_model->m_nuggets.get();
 			nug.m_vrange = { 0, particle_count };
 			scene.AddInstance(m_gfx_fluid);
 		}
@@ -196,7 +196,7 @@ namespace pr::fluid
 		// The vector field
 		if (AllSet(flags, EScene::VectorField))
 		{
-			auto& nug = m_gfx_fluid.m_model->m_nuggets.front();
+			auto& nug = *m_gfx_fluid.m_model->m_nuggets.get();
 			nug.m_vrange = { 0, particle_count };
 			scene.AddInstance(m_gfx_vector_field);
 		}

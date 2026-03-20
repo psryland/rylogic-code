@@ -169,19 +169,19 @@ namespace pr::collision::tests
 			for (int i = 0; i != 20; ++i)
 			{
 				Contact c;
-				m4x4 l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-				m4x4 r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+				auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+				auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
 
 				Builder builder;
-				{ auto& g = builder.Group("tri_a", 0x30FF0000); AddShape(g, tri_a); g.o2w(l2w); }
-				{ auto& g = builder.Group("tri_b", 0x3000FF00); AddShape(g, tri_b); g.o2w(r2w); }
+				builder.Group("tri_a", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(tri_a);
+				builder.Group("tri_b", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(tri_b);
 				if (TriangleVsTriangle(tri_a, l2w, tri_b, r2w, c))
 				{
-					builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
+					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
 					builder.Box("pt0", Colour32Yellow).box(0.005f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
 					builder.Box("pt1", Colour32Yellow).box(0.005f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
 				}
-				builder.Write(L"collision_unittests.ldr");
+				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr", ESaveFlags::Pretty);
 			}
 			#endif
 		}

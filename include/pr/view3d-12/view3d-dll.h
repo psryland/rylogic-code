@@ -826,7 +826,7 @@ namespace pr
 		using GuidPredCB = Callback<bool(__stdcall*)(void* ctx, GUID const&)>;
 		using SettingsChangedCB = Callback<void(__stdcall *)(void* ctx, Window window, ESettings setting)>;
 		using ParsingProgressCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, char const* filepath, long long file_offset, long long file_size, BOOL complete, BOOL& cancel)>;
-		using StoreChangedCB = Callback<void(__stdcall *)(void* ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, GUID const* ids, int count, BOOL before)>;
+		using StoreChangeCB = Callback<void(__stdcall *)(void* ctx, EStoreChangeInitiator initiator, EStoreChangeFlags flags, GUID const* ids, int count, BOOL before)>;
 		using EnumGuidsCB = Callback<bool(__stdcall *)(void* ctx, GUID const& context_id)>;
 		using EnumObjectsCB = Callback<bool(__stdcall *)(void* ctx, Object object)>;
 		using AddCompleteCB = Callback<void(__stdcall *)(void* ctx, GUID const& context_id, BOOL before)>;
@@ -864,7 +864,7 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ParsingProgressCBSet(pr::view3d::ParsingProgressCB progress_cb, BOOL add);
 	
 	// Set the callback that is called when the sources/object store is changed/reloaded
-	VIEW3D_API void __stdcall View3D_StoreChangedCBSet(pr::view3d::StoreChangedCB store_changed_cb, BOOL add);
+	VIEW3D_API void __stdcall View3D_StoreChangeCBSet(pr::view3d::StoreChangeCB store_change_cb, BOOL add);
 
 	// Return the context id for objects created from 'filepath' (if filepath is an existing source)
 	VIEW3D_API GUID __stdcall View3D_ContextIdFromFilepath(char const* filepath);

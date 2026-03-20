@@ -19,23 +19,21 @@ namespace pr
 		constexpr static TTo Func(TFrom const&)
 		{
 			no_conversion_for_these_types error;
-			//static_assert(Convert<TTo, TFrom>::value, "No conversion from this type is available");
 		}
-		template <typename... Args> constexpr static TTo Func(TFrom const&, Args...)
+		template <typename... Args> constexpr static TTo Func(TFrom const&, Args&&...)
 		{
 			no_conversion_for_these_types error;
-			//static_assert(Convert<TTo, TFrom>::value, "No conversion from this type is available");
 		}
 	};
 
 	// Conversion function: auto b = To<B>(a);
-	template <typename TTo, typename TFrom> constexpr inline TTo To(TFrom const& from)
+	template <typename TTo, typename TFrom> constexpr inline TTo To(TFrom&& from)
 	{
-		return Convert<TTo, TFrom>::Func(from);
+		return Convert<TTo, std::remove_cvref_t<TFrom>>::Func(std::forward<TFrom>(from));
 	}
-	template <typename TTo, typename TFrom, typename... Args> constexpr inline TTo To(TFrom const& from, Args... args)
+	template <typename TTo, typename TFrom, typename... Args> constexpr inline TTo To(TFrom&& from, Args&&... args)
 	{
-		return Convert<TTo, TFrom>::Func(from, std::forward<Args>(args)...);
+		return Convert<TTo, std::remove_cvref_t<TFrom>>::Func(std::forward<TFrom>(from), std::forward<Args>(args)...);
 	}
 
 	// No-op conversion

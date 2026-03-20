@@ -85,7 +85,7 @@ namespace Rylogic.Gui.WPF
 				var new_value = value;
 
 				if (SingleSelect)
-					new_value = Maths.Bit.LowBit(value ^ Selected);
+					new_value = Common.Bit.LowBit(value ^ Selected);
 
 				SetValue(SelectedProperty, new_value);
 			}
@@ -107,7 +107,7 @@ namespace Rylogic.Gui.WPF
 		private void SingleSelect_Changed()
 		{
 			// Remove extra bits if single selecting
-			SetValue(SelectedProperty, Maths.Bit.LowBit(Selected));
+			SetValue(SelectedProperty, Common.Bit.LowBit(Selected));
 			UpdateGfx();
 		}
 		public static readonly DependencyProperty SingleSelectProperty = Gui_.DPRegister<BitArray>(nameof(SingleSelect), Boxed.False, Gui_.EDPFlags.None);
@@ -249,12 +249,12 @@ namespace Rylogic.Gui.WPF
 			// Create the filled bits
 			{
 				var path = new PathGeometry();
-				var selected = LSBIsLeft ? Selected : Maths.Bit.ReverseBits(Selected) >> (64-BitCount);
+				var selected = LSBIsLeft ? Selected : Common.Bit.ReverseBits(Selected) >> (64-BitCount);
 				for (var h = 0; h != H; ++h)
 				{
 					for (var w = 0; w != W; ++w)
 					{
-						if (Maths.Bit.AllSet(selected, 1U))
+						if (Common.Bit.AllSet(selected, 1U))
 						{
 							var fig = new PathFigure { IsFilled = true, IsClosed = true, };
 							var x = Spacing/2 + w * (CellW + Spacing);
@@ -329,10 +329,10 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Convert a BitArray selection to a bit index</summary>
 		public static int BitmaskToBit(ulong selected)
 		{
-			if (Maths.Bit.CountBits(selected) > 1)
+			if (Common.Bit.CountBits(selected) > 1)
 				throw new Exception("Bitmask must contain 0 or 1 bits only");
 
-			return Maths.Bit.LowBitIndex(selected);
+			return Common.Bit.LowBitIndex(selected);
 		}
 
 		private const double CellW = 100;

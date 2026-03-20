@@ -132,31 +132,22 @@ namespace pr::rdr12
 	}
 
 	// Add model nuggets to the draw list for this render step
-	void RenderRayCast::AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist)
+	void RenderRayCast::AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist)
 	{
 		// Ignore instances that are filtered out
 		if (!m_include(&inst))
 			return;
 
-		drawlist.reserve(drawlist.size() + nuggets.size());
-		for (auto& nug : nuggets)
+		// For ray casting, we only need the default nuggets (currently)
+		for (auto& nug : Enumerate(nuggets))
 		{
 			// Ignore if flagged as not visible
 			if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
 				continue;
 
 			// Add an element to the draw list
-			DrawListElement dle = {
-				.m_sort_key = nug.m_sort_key,
-				.m_nugget = &nug,
-				.m_instance = &inst,
-			};
-			drawlist.push_back(dle);
+			drawlist.push_back(DrawListElement{ .m_sort_key = nug.m_sort_key, .m_nugget = &nug, .m_instance = &inst });
 			m_sort_needed = true;
-
-			// Recursively add dependent nuggets
-			if (!nug.m_nuggets.empty())
-				AddNuggets(inst, nug.m_nuggets, drawlist);
 		}
 	}
 

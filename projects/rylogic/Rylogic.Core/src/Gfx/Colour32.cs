@@ -10,8 +10,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
-using Rylogic.Extn;
+using Rylogic.Common;
 using Rylogic.Maths;
 
 namespace Rylogic.Gfx

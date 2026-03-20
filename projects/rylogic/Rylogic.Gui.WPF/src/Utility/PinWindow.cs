@@ -46,7 +46,6 @@ namespace Rylogic.Gui.WPF
 
 		public PinData(Window window, EPin pin_site, bool pinned)
 		{
-			m_pin_window = null!;
 			PinSite = pin_site;
 			PinWindow = window;
 			PinTarget = window.Owner ?? Application.Current.MainWindow;
@@ -98,37 +97,43 @@ namespace Rylogic.Gui.WPF
 		/// <summary>The window whose position is being controlled</summary>
 		private Window PinWindow
 		{
-			get => m_pin_window;
+			get;
 			set
 			{
-				if (m_pin_window == value) return;
-				if (m_pin_window != null)
+				if (field == value) return;
+				if (field != null)
 				{
-					m_pin_window.LayoutUpdated -= HandleLayoutUpdated;
-					m_pin_window.LocationChanged -= HandleMoved;
-					m_pin_window.SizeChanged -= HandleMoved;
-					m_pin_window.Closed -= HandleClosed;
+					field.LayoutUpdated -= HandleLayoutUpdated;
+					field.LocationChanged -= HandleMoved;
+					field.SizeChanged -= HandleMoved;
+					field.Closed -= HandleClosed;
 
 					// Remove the menu item from the system menu
 					PinOptionInSysMenu(false);
 
-					m_pin_window.WindowStartupLocation = m_pin_window_startloc;
+					field.WindowStartupLocation = m_pin_window_startloc;
 					m_pin_window_handle = IntPtr.Zero;
 				}
-				m_pin_window = value;
-				if (m_pin_window != null)
+				field = value;
+				if (field != null)
 				{
-					m_pin_window_handle = new WindowInteropHelper(m_pin_window).EnsureHandle();
-					m_pin_window_startloc = m_pin_window.WindowStartupLocation;
-					m_pin_window.WindowStartupLocation = Pinned ? WindowStartupLocation.Manual : m_pin_window_startloc;
+					try { m_pin_window_handle = new WindowInteropHelper(field).EnsureHandle(); }
+					catch
+					{
+						m_pin_window_handle = IntPtr.Zero;
+						field = null!;
+						return;
+					}
+					m_pin_window_startloc = field.WindowStartupLocation;
+					field.WindowStartupLocation = Pinned ? WindowStartupLocation.Manual : m_pin_window_startloc;
 
 					// Add a menu item to the system menu
 					PinOptionInSysMenu(true);
 
-					m_pin_window.Closed += HandleClosed;
-					m_pin_window.SizeChanged += HandleMoved;
-					m_pin_window.LocationChanged += HandleMoved;
-					m_pin_window.LayoutUpdated += HandleLayoutUpdated;
+					field.Closed += HandleClosed;
+					field.SizeChanged += HandleMoved;
+					field.LocationChanged += HandleMoved;
+					field.LayoutUpdated += HandleLayoutUpdated;
 				}
 
 				// Handlers
@@ -165,8 +170,7 @@ namespace Rylogic.Gui.WPF
 					Dispose();
 				}
 			}
-		}
-		private Window m_pin_window;
+		} = null!;
 		private IntPtr m_pin_window_handle;
 		private WindowStartupLocation m_pin_window_startloc;
 

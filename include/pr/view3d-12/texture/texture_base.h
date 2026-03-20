@@ -74,6 +74,12 @@ namespace pr::rdr12
 		// A sort key component for this texture
 		SortKeyId SortId() const;
 
+		// Access the texture flags
+		ETextureFlag Flags() const;
+
+		// True if this texture contains alpha pixels
+		bool Alpha() const;
+
 		// Get the description of the texture resource
 		ResDesc TexDesc() const;
 

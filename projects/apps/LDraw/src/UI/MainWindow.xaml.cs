@@ -47,9 +47,22 @@ namespace LDraw
 			LoadProfile();
 
 			DataContext = this;
+
+			// Load any files specified on the command line
+			Loaded += PostLoad;
+			void PostLoad(object? sender, RoutedEventArgs e)
+			{ 
+				Loaded -= PostLoad;
+				foreach (var filepath in Model.StartupOptions.FilesToLoad)
+					AddFileSourceAsync(filepath);
+			}
 		}
 		protected override void OnClosing(CancelEventArgs e)
 		{
+			// Disable streaming before shutdown so that connections are cleanly closed
+			if (StreamingState != View3d.EStreamingState.Disconnected)
+				Model.View3d.Streaming(false, Model.Profile.StreamingPort);
+
 			m_dc.LayoutChanged -= SaveLayout;
 			base.OnClosing(e);
 		}
@@ -118,7 +131,6 @@ namespace LDraw
 
 			base.OnPreviewDrop(e);
 		}
-
 		private void PreviewMouseDoubleClick_ShowObjectInfo(object sender, MouseButtonEventArgs e)
 		{
 			// Todo: Show a UI containing information about the object under the mouse pointer

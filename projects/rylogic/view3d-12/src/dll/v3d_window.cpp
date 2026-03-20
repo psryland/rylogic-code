@@ -512,7 +512,7 @@ namespace pr::rdr12
 			// Notify if changed
 			if (m_objects.size() != old_count)
 			{
-				pr::vector<Guid> guids(std::begin(removed), std::end(removed));
+				vector<Guid> guids(std::begin(removed), std::end(removed));
 				ObjectContainerChanged(view3d::ESceneChanged::ObjectsRemoved, guids, nullptr);
 			}
 
@@ -527,7 +527,7 @@ namespace pr::rdr12
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
 		// Make a copy of the GUIDs
-		pr::vector<GUID> context_ids(std::begin(m_guids), std::end(m_guids));
+		vector<GUID> context_ids(std::begin(m_guids), std::end(m_guids));
 
 		// Remove the objects and GUIDs
 		m_objects.clear();
@@ -1753,6 +1753,7 @@ namespace pr::rdr12
 			}
 			case EKeyCodes::Decimal:
 			case EKeyCodes::OemPeriod:
+			case EKeyCodes::MButton:
 			{
 				auto z = static_cast<float>(m_scene.m_cam.FocusDist());
 				auto nss_pt = m_scene.m_viewport.SSPointToNSSPoint(ss_point);

@@ -166,6 +166,18 @@ namespace pr::rdr12
 	{
 		return m_id % SortKey::MaxTextureId;
 	}
+	
+	// Access the texture flags
+	ETextureFlag TextureBase::Flags() const
+	{
+		return m_tflags;
+	}
+
+	// True if this texture contains alpha pixels
+	bool TextureBase::Alpha() const
+	{
+		return AllSet(m_tflags, ETextureFlag::HasAlpha);
+	}
 
 	// Get the description of the texture resource
 	ResDesc TextureBase::TexDesc() const

@@ -84,12 +84,9 @@ namespace pr::unittests
 	#define ONLY_USED_AT_NAMESPACE_SCOPE namespace ___CUT___ {extern int YOU_CAN_ONLY_DEFINE_TEST_CLASS_AT_NAMESPACE_SCOPE;}
 #endif
 
-// Enable this to turn on dumping to linedrawer
-#define PR_UNITTESTS_VISUALISE 0
+// Enable this to turn on dumping to LDraw
 #if PR_UNITTESTS_VISUALISE
 #include "pr/common/ldraw.h"
-#include "pr/macros/link.h"
-#pragma message (PR_LINK "warning : ************************************************* PR_UNITTESTS_VISUALISE Enabled")
 #endif
 
 // Cannot include pr lib headers here because they are the headers

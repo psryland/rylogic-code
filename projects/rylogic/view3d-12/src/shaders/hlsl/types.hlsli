@@ -4,7 +4,6 @@
 //***********************************************
 #ifndef PR_VIEW3D_SHADER_TYPES_HLSLI
 #define PR_VIEW3D_SHADER_TYPES_HLSLI
-
 #include "pr/hlsl/interop.hlsli"
 
 static const float TINY = 0.0001f;
@@ -19,23 +18,6 @@ static const int TextureFlags_HasDiffuse        = (1 << 0);
 static const int TextureFlags_IsReflective      = (1 << 1);
 static const int TextureFlags_ProjectFromEnvMap = (1 << 2);
 static const int AlphaFlags_HasAlpha            = (1 << 0);
-
-// Models
-#define HasNormals (m_flags.x & ModelFlags_HasNormals)
-#define IsSkinned  (m_flags.x & ModelFlags_IsSkinned)
-#define HasTex0    (m_flags.y & TextureFlags_HasDiffuse)
-#define HasEnvMap  (m_flags.y & TextureFlags_IsReflective)
-#define EnvMapProj (m_flags.y & TextureFlags_ProjectFromEnvMap)
-#define HasAlpha   (m_flags.z & AlphaFlags_HasAlpha)
-
-// Light types
-#define AmbientLight(light)     (light.m_info.x == 0)
-#define DirectionalLight(light) (light.m_info.x == 1)
-#define PointLight(light)       (light.m_info.x == 2)
-#define SpotLight(light)        (light.m_info.x == 3)
-
-// Shadows
-#define ShadowMapCount(shdw) (shdw.m_info.x)
 
 // Row major matrix for use in structured buffers
 struct Mat4x4
@@ -93,6 +75,22 @@ struct Skinfluence
 	uint4 m_weights; // 8 16-bit bone weights
 };
 
+// Models
+inline bool HasNormals (int4 flags) { return flags.x & ModelFlags_HasNormals; }
+inline bool IsSkinned  (int4 flags) { return flags.x & ModelFlags_IsSkinned; }
+inline bool HasTex0    (int4 flags) { return flags.y & TextureFlags_HasDiffuse; }
+inline bool HasEnvMap  (int4 flags) { return flags.y & TextureFlags_IsReflective; }
+inline bool EnvMapProj (int4 flags) { return flags.y & TextureFlags_ProjectFromEnvMap; }
+inline bool HasAlpha   (int4 flags) { return flags.z & AlphaFlags_HasAlpha; }
+
+// Light types
+inline bool AmbientLight(Light light)     { return light.m_info.x == 0; }
+inline bool DirectionalLight(Light light) { return light.m_info.x == 1; }
+inline bool PointLight(Light light)       { return light.m_info.x == 2; }
+inline bool SpotLight(Light light)        { return light.m_info.x == 3; }
+
+// Shadows
+inline int ShadowMapCount(Shadow shdw) { return shdw.m_info.x; }
 
 // Vertex shader input format
 struct VSIn

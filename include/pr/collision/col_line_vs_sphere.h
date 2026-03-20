@@ -111,7 +111,7 @@ namespace pr::collision::tests
 			m4x4 l2w_[] =
 			{
 				m4x4::Identity(),
-				m4x4::Transform(0, constants<float>::tau_by_8, 0, v4::Origin()),
+				m4x4::Transform(RotationRad<m3x4>(0, constants<float>::tau_by_8, 0), v4::Origin()),
 			};
 			m4x4 r2w_[] =
 			{
@@ -123,19 +123,19 @@ namespace pr::collision::tests
 			for (int i = 0; i != 20; ++i)
 			{
 				Contact c;
-				m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
-				m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
+				auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
+				auto r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
 
 				Builder builder;
-				{ auto& g = builder.Group("line", 0x30FF0000); AddShape(g, line); g.o2w(l2w); }
-				{ auto& g = builder.Group("sph", 0x3000FF00); AddShape(g, sph); g.o2w(r2w); }
+				builder.Group("line", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(line);
+				builder.Group("sph", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(sph);
 				if (LineVsSphere(line, l2w, sph, r2w, c))
 				{
-					builder.Line("sep_axis", Colour32Yellow).style(ELineStyle::Direction).line(c.m_point, c.m_axis);
+					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
 					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
 					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
 				}
-				builder.Write(L"collision_unittests.ldr");
+				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr", ESaveFlags::Pretty);
 			}
 			#endif
 		}

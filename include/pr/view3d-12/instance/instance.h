@@ -16,10 +16,7 @@
 //   component
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/render/sortkey.h"
-#include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 
 namespace pr::rdr12
@@ -189,107 +186,39 @@ namespace pr::rdr12
 	};
 
 	// Return a pointer to the model that this is an instance of.
-	inline ModelPtr const& GetModel(BaseInstance const& inst)
-	{
-		return inst.get<ModelPtr>(EInstComp::ModelPtr);
-	}
+	ModelPtr const& GetModel(BaseInstance const& inst);
+
+	// Return the chain of nuggets to render for this instance
+	NuggetPtr GetNuggets(BaseInstance const& inst);
+
+	// Return true if this instance requires alpha blending.
+	bool HasAlpha(BaseInstance const& inst);
 
 	// Return the instance to world transform for an instance.
 	// An instance must have an i2w transform or a shared i2w transform.
-	inline m4x4 const& GetO2W(BaseInstance const& inst)
-	{
-		auto pi2w = inst.find<m4x4>(EInstComp::I2WTransform);
-		if (pi2w)
-			return *pi2w;
-
-		auto ppi2w = inst.find<m4x4 const*>(EInstComp::I2WTransformPtr);
-		if (ppi2w)
-			return **ppi2w;
-
-		auto pi2wf = inst.find<m4x4Func>(EInstComp::I2WTransformFuncPtr);
-		if (pi2wf && pi2wf->m_func != nullptr)
-			return pi2wf->Txfm();
-
-		return m4x4::Identity();
-	}
+	m4x4 const& GetO2W(BaseInstance const& inst);
 
 	// Look for a camera to screen (or instance specific projection) transform for an instance.
 	// Returns null if the instance doesn't have one.
-	inline bool FindC2S(BaseInstance const& inst, m4x4& camera_to_screen)
-	{
-		auto pc2s = inst.find<m4x4>(EInstComp::C2STransform);
-		if (pc2s)
-		{
-			camera_to_screen = *pc2s;
-			return true;
-		}
-				
-		auto c2s_optional = inst.find<m4x4>(EInstComp::C2SOptional);
-		if (c2s_optional && c2s_optional->x != v4::Zero())
-		{
-			camera_to_screen = *c2s_optional;
-			return true;
-		}
-
-		auto ppc2s = inst.find<m4x4 const*>(EInstComp::C2STransformPtr);
-		if (ppc2s)
-		{
-			camera_to_screen = **ppc2s;
-			return true;
-		}
-
-		auto pc2sf = inst.find<m4x4Func>(EInstComp::C2STransformFuncPtr);
-		if (pc2sf && pc2sf->m_func != nullptr)
-		{
-			camera_to_screen = pc2sf->Txfm();
-			return true;
-		}
-
-		return false;
-	}
+	bool FindC2S(BaseInstance const& inst, m4x4& camera_to_screen);
 
 	// Return the instance flags associated with 'inst'
-	inline EInstFlag GetFlags(BaseInstance const& inst)
-	{
-		auto const* flags = inst.find<EInstFlag>(EInstComp::Flags);
-		return flags ? *flags : EInstFlag::None;
-	}
+	EInstFlag GetFlags(BaseInstance const& inst);
 
 	// Return the id assigned to this instance, or '0' if not found
-	inline int UniqueId(BaseInstance const& inst)
-	{
-		auto puid = inst.find<int>(EInstComp::UniqueId);
-		return puid ? *puid : 0;
-	}
+	int UniqueId(BaseInstance const& inst);
 
 	// Return any pipe state overrides in the instance
-	inline PipeStates const& GetPipeStates(BaseInstance const& inst)
-	{
-		static PipeStates const NoPipeStates;
-		auto pps = inst.find<PipeStates>(EInstComp::PipeStates);
-		return pps ? *pps : NoPipeStates;
-	}
+	PipeStates const& GetPipeStates(BaseInstance const& inst);
 
 	// Return the texture override in this instance (if exists)
-	inline Texture2DPtr FindDiffTexture(BaseInstance const& inst)
-	{
-		auto const* ptex = inst.find<Texture2DPtr>(EInstComp::DiffTexture);
-		return ptex ? *ptex : nullptr;
-	}
+	Texture2DPtr FindDiffTexture(BaseInstance const& inst);
 
 	// Return the sampler override in this instance (if exists)
-	inline SamplerPtr FindDiffTextureSampler(BaseInstance const& inst)
-	{
-		auto const* psamp = inst.find<SamplerPtr>(EInstComp::DiffTextureSampler);
-		return psamp ? *psamp : nullptr;
-	}
+	SamplerPtr FindDiffTextureSampler(BaseInstance const& inst);
 
 	// Return the skin override in this instance (if exists)
-	inline PosePtr FindPose(BaseInstance const& inst)
-	{
-		auto const* pskin = inst.find<PosePtr>(EInstComp::PosePtr);
-		return pskin ? *pskin : nullptr;
-	}
+	PosePtr FindPose(BaseInstance const& inst);
 
 	// Cast from a 'BaseInstance' pointer to an instance type
 	template <typename InstType> constexpr InstType const* cast(BaseInstance const* base_ptr)

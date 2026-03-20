@@ -3866,7 +3866,7 @@ namespace pr::math
 
 	// Create a random value on interval ['vmin', 'vmax']
 	template <ScalarType S, typename Rng = std::default_random_engine>
-	constexpr S Random(Rng& rng, S vmin, S vmax) noexcept
+	constexpr S RandomI(Rng& rng, S vmin, S vmax) noexcept
 	{
 		if constexpr (std::integral<S>)
 		{
@@ -3884,7 +3884,7 @@ namespace pr::math
 	template <ScalarType S, typename Rng = std::default_random_engine>
 	constexpr S RandomC(Rng& rng, S centre, S radius) noexcept
 	{
-		return Random<S, Rng>(rng, centre - radius, centre + radius);
+		return RandomI<S, Rng>(rng, centre - radius, centre + radius);
 	}
 
 	// Create a random vector with unit length
@@ -3944,20 +3944,10 @@ namespace pr::math
 		if constexpr (IsRank1<Vec>)
 		{
 			Vec res = {};
-			if constexpr (std::floating_point<S>)
-			{
-				if constexpr (vt::dimension > 0) { std::uniform_real_distribution<S> dist_x(vec(vmin).x, vec(vmax).x); vec(res).x = dist_x(rng); }
-				if constexpr (vt::dimension > 1) { std::uniform_real_distribution<S> dist_y(vec(vmin).y, vec(vmax).y); vec(res).y = dist_y(rng); }
-				if constexpr (vt::dimension > 2) { std::uniform_real_distribution<S> dist_z(vec(vmin).z, vec(vmax).z); vec(res).z = dist_z(rng); }
-				if constexpr (vt::dimension > 3) { std::uniform_real_distribution<S> dist_w(vec(vmin).w, vec(vmax).w); vec(res).w = dist_w(rng); }
-			}
-			else
-			{
-				if constexpr (vt::dimension > 0) { std::uniform_int_distribution<S> dist_x(vec(vmin).x, vec(vmax).x); vec(res).x = dist_x(rng); }
-				if constexpr (vt::dimension > 1) { std::uniform_int_distribution<S> dist_y(vec(vmin).y, vec(vmax).y); vec(res).y = dist_y(rng); }
-				if constexpr (vt::dimension > 2) { std::uniform_int_distribution<S> dist_z(vec(vmin).z, vec(vmax).z); vec(res).z = dist_z(rng); }
-				if constexpr (vt::dimension > 3) { std::uniform_int_distribution<S> dist_w(vec(vmin).w, vec(vmax).w); vec(res).w = dist_w(rng); }
-			}
+			if constexpr (vt::dimension > 0) vec(res).x = RandomI(rng, vec(vmin).x, vec(vmax).x);
+			if constexpr (vt::dimension > 1) vec(res).y = RandomI(rng, vec(vmin).y, vec(vmax).y);
+			if constexpr (vt::dimension > 2) vec(res).z = RandomI(rng, vec(vmin).z, vec(vmax).z);
+			if constexpr (vt::dimension > 3) vec(res).w = RandomI(rng, vec(vmin).w, vec(vmax).w);
 			return res;
 		}
 		else
@@ -3973,7 +3963,7 @@ namespace pr::math
 
 	// Create a random vector with length on interval [min_length, max_length]
 	template <VectorType Vec, typename Rng = std::default_random_engine>
-	constexpr Vec pr_vectorcall Random(Rng& rng, typename vector_traits<Vec>::component_t min_length, typename vector_traits<Vec>::component_t max_length) noexcept
+	constexpr Vec pr_vectorcall Random(Rng& rng, typename vector_traits<Vec>::element_t min_length, typename vector_traits<Vec>::element_t max_length) noexcept
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
@@ -3981,47 +3971,45 @@ namespace pr::math
 
 		if constexpr (IsRank1<Vec>)
 		{
-			if constexpr (std::floating_point<S>)
-			{
-				std::uniform_real_distribution<S> dist(min_length, max_length);
-				return dist(rng) * RandomN<Vec>(rng);
-			}
-			else
-			{
-				std::uniform_int_distribution<S> dist(min_length, max_length);
-				return dist(rng) * RandomN<Vec>(rng);
-			}
+			return RandomI(rng, min_length, max_length) * RandomN<Vec>(rng);
 		}
 		else
 		{
+			// Each vector is a random vector within the length range
 			Vec res = {};
-			if constexpr (vt::dimension > 0) vec(res).x = Random<C>(rng, vec(min_length).x, vec(max_length).x);
-			if constexpr (vt::dimension > 1) vec(res).y = Random<C>(rng, vec(min_length).y, vec(max_length).y);
-			if constexpr (vt::dimension > 2) vec(res).z = Random<C>(rng, vec(min_length).z, vec(max_length).z);
-			if constexpr (vt::dimension > 3) vec(res).w = Random<C>(rng, vec(min_length).w, vec(max_length).w);
+			if constexpr (vt::dimension > 0) vec(res).x = Random<C>(rng, min_length, max_length);
+			if constexpr (vt::dimension > 1) vec(res).y = Random<C>(rng, min_length, max_length);
+			if constexpr (vt::dimension > 2) vec(res).z = Random<C>(rng, min_length, max_length);
+			if constexpr (vt::dimension > 3) vec(res).w = Random<C>(rng, min_length, max_length);
 			return res;
 		}
 	}
 
 	// Create a random vector centred on 'centre' with radius 'radius'
 	template <VectorType Vec, typename Rng = std::default_random_engine>
-	constexpr Vec pr_vectorcall Random(Rng& rng, Vec centre, typename vector_traits<Vec>::component_t radius) noexcept
+	constexpr Vec pr_vectorcall Random(Rng& rng, Vec centre, typename vector_traits<Vec>::element_t radius) noexcept
 	{
+		// Note: This cannot be used to create a random Mat4x4 transform at a centre position, because
+		// these functions can't create an Mat3x4 type from a Mat4x4 type. You have to create the transform
+		// using an explicit type: e.g. Mat4x4(Random<Mat3>(), Random<Vec3>().w1())
+
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
 		using C = typename vt::component_t;
 
 		if constexpr (IsRank1<Vec>)
 		{
-			return Random<Vec>(rng, S(0), radius) + centre;
+			// For vectors, this is a point within a sphere of radius 'radius' centred on 'centre'
+			return centre + Random<Vec>(rng, S(0), radius);
 		}
 		else
 		{
+			// Each vector is a random vector within a sphere of radius 'radius' centred on 'centre'
 			Vec res = {};
-			if constexpr (vt::dimension > 0) vec(res).x = Random<C>(rng, vec(centre).x, vec(radius).x);
-			if constexpr (vt::dimension > 1) vec(res).y = Random<C>(rng, vec(centre).y, vec(radius).y);
-			if constexpr (vt::dimension > 2) vec(res).z = Random<C>(rng, vec(centre).z, vec(radius).z);
-			if constexpr (vt::dimension > 3) vec(res).w = Random<C>(rng, vec(centre).w, vec(radius).w);
+			if constexpr (vt::dimension > 0) vec(res).x = Random<C>(rng, vec(centre).x, radius);
+			if constexpr (vt::dimension > 1) vec(res).y = Random<C>(rng, vec(centre).y, radius);
+			if constexpr (vt::dimension > 2) vec(res).z = Random<C>(rng, vec(centre).z, radius);
+			if constexpr (vt::dimension > 3) vec(res).w = Random<C>(rng, vec(centre).w, radius);
 			return res;
 		}
 	}

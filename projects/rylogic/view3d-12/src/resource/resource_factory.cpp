@@ -373,10 +373,10 @@ namespace pr::rdr12
 	}
 
 	// Create a new nugget
-	Nugget* ResourceFactory::CreateNugget(NuggetDesc const& ndata, Model* model)
+	NuggetPtr ResourceFactory::CreateNugget(NuggetDesc const& ndata, Model* model)
 	{
-		auto ptr = rdr12::New<Nugget>(ndata, model);
-		assert(rdr().mem_tracker().add(ptr));
+		NuggetPtr ptr(rdr12::New<Nugget>(ndata, model), true);
+		assert(rdr().mem_tracker().add(ptr.get()));
 		return ptr;
 	}
 

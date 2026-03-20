@@ -1116,7 +1116,7 @@ namespace pr::math
 		void DumpToLDraw(CubicCurve3<S> const& curve)
 		{
 			#if PR_UNITTESTS_VISUALISE
-			using namespace pr::rdr12::ldraw;
+			using namespace pr::ldraw;
 
 			Builder builder;
 

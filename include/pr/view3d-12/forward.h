@@ -83,7 +83,6 @@
 #include "pr/common/async_wrap.h"
 #include "pr/common/ldraw.h"
 #include "pr/container/byte_data.h"
-#include "pr/container/chain.h"
 #include "pr/container/deque.h"
 #include "pr/container/ring.h"
 #include "pr/container/vector.h"
@@ -225,7 +224,7 @@ namespace pr::rdr12
 	struct NuggetDesc;
 	struct MeshCreationData;
 	using ModelPtr = RefPtr<Model>;
-	using TNuggetChain = chain::head<Nugget, struct ChainGroupNugget>;
+	using NuggetPtr = RefPtr<Nugget>;
 
 	// Instances
 	struct BaseInstance;
@@ -275,6 +274,7 @@ namespace pr::rdr12
 	struct Image;
 	struct ImageWithData;
 	struct FeatureSupport;
+	struct PipeStates;
 	struct GpuSync;
 	
 	// LDraw
@@ -284,8 +284,8 @@ namespace pr::rdr12
 		struct LdrGizmo;
 		using LdrObjectPtr = RefPtr<LdrObject>;
 		using LdrGizmoPtr = RefPtr<LdrGizmo>;
-		using ObjectCont = pr::vector<LdrObjectPtr, 8>;
-		using GizmoCont = pr::vector<LdrGizmoPtr, 8>;
+		using ObjectCont = vector<LdrObjectPtr, 8>;
+		using GizmoCont = vector<LdrGizmoPtr, 8>;
 		enum class EGizmoMode :int;
 		struct Location;
 		struct SourceBase;

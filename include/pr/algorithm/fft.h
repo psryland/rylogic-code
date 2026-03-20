@@ -185,7 +185,7 @@ namespace pr::algorithm::fft
 		template <typename Real>
 		void DFTNaive(Real const* real, Real const* imag, Real* outr, Real* outi, size_t length, bool inverse)
 		{	
-			auto coef = (inverse ? 1.0 : -1.0) * constants<double>::tau / length; // @Copilot, if inverse is true, should this be +1 or -1?
+			auto coef = (inverse ? 1.0 : -1.0) * constants<double>::tau / length; // Forward DFT: e^{-j·2π·k·t/N}, Inverse DFT: e^{+j·2π·k·t/N}
 
 			// For each output element
 			for (auto k = 0ULL; k != length; ++k)
