@@ -1,4 +1,4 @@
-﻿//***********************************************************************
+//***********************************************************************
 // Interpolation
 //  Copyright (c) Rylogic Ltd 2014
 //***********************************************************************
@@ -293,12 +293,13 @@ namespace pr::math
 		//  - Velocity-corrected Hermite spline interpolator.
 		//  - Constructs a cubic Hermite spline from actual orientations at t±T and (rot, angvel) at the midpoint.
 		//  - The endpoint tangents are derived so the cubic exactly passes through (rot, angvel) at u=0.5.
+		using HermiteQuaternion = HermiteQuaternion<S>;
 		using CurveType = CurveType<S>;
 		using CubicCurve3 = CubicCurve3<S>;
 		using Quat = Quat<S>;
 		using Vec4 = Vec4<S>;
 
-		HermiteQuaternion<S> rot;
+		HermiteQuaternion rot;
 
 		HermiteQuaternion_MidPoint() noexcept
 			: rot()
@@ -317,7 +318,7 @@ namespace pr::math
 			// Using the same Hermite velocity-correction as position (but in log space):
 			auto u0 = LogMap<Vec4>(~rot_next * rot_prev);
 			auto u_mid = LogMap<Vec4>(~rot_next * rot_mid);
-			auto t_mid = Tangent(~rot_next * rot_mid, Rotate(~rot_next, angvel_mid)) * interval;
+			auto t_mid = HermiteQuaternion::Tangent(~rot_next * rot_mid, Rotate(~rot_next, angvel_mid)) * interval;
 
 			// Solve for endpoint tangents m0_r, m1_r such that the Hermite curve in log space
 			// passes through u_mid at u=0.5 with derivative t_mid:
@@ -326,7 +327,7 @@ namespace pr::math
 			auto m0_r = S(4) * u_mid - S(5) * u0 - S(2) * t_mid;
 			auto m1_r = -u0 - S(4) * u_mid - S(2) * t_mid;
 
-			rot.m_p = CubicCurve3(u0, m0_r, Zero<Vec4>(), m1_r, CubicCurve3::Hermite);
+			rot.m_p = CubicCurve3(u0, m0_r, Zero<Vec4>(), m1_r, CurveType::Hermite);
 			rot.m_q1 = rot_next;
 			rot.m_interval = interval;
 		}

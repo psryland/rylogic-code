@@ -80,8 +80,8 @@ namespace LDraw
 					// 'SourcesChanged' can mean a source was added/removed, or it can mean
 					// a source changed its data (i.e. Load was called).
 					if (e.After && (
-						e.Flags.HasFlag(View3d.EStoreChangeFlags.ContextIdAdded) ||
-						e.Flags.HasFlag(View3d.EStoreChangeFlags.ContextIdRemoved)))
+						e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ContextIdAdded) ||
+						e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ContextIdRemoved)))
 					{
 						// Assume all sources will be removed to start with
 						var old = Sources.ToDictionary(x => x.ContextId, x => x);
@@ -115,13 +115,13 @@ namespace LDraw
 						// Disposing any old sources (after notifying so they remain valid in event handlers)
 						Util.DisposeRange(old.Values);
 					}
+
+					// Just prior to reloading sources
+					if (e.Before && Profile.ClearErrorLogOnReload)
+						Log.Clear();
+
 					// This implements auto range on load... but sources can change for reasons that don't require
 					// an auto range (e.g. measure tool graphics).
-
-					//	// Just prior to reloading sources
-					//	if (e.Before && Settings.ClearErrorLogOnReload)
-					//		Log.Clear();
-					//	
 					//	// After a source change, reset
 					//	if (e.After && Settings.ResetOnLoad)
 					//		foreach (var scene in Scenes)
