@@ -20,6 +20,11 @@ namespace pr::unittests::your::namespace
 //  - For faster build times, comment out the "all-headers" include and just include the header you care about
 //  - Avoid including extra stuff in the #if PR_UNITTESTS blocks. For standard headers add them to 'unittests.h'
 //    For pr headers, consider putting the unit test in a different file to avoid additional dependencies
+#define PR_UNITTESTS_VISUALISE 1
+#if PR_UNITTESTS_VISUALISE
+#include "pr/macros/link.h"
+#pragma message (PR_LINK "warning : ************************************************* PR_UNITTESTS_VISUALISE Enabled")
+#endif
 
 #include "pr/common/unittests.h"
 #include "src/unittests.h" // all tests

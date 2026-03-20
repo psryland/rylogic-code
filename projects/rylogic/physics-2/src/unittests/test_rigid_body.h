@@ -285,7 +285,7 @@ namespace pr::physics
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1, mass), v4{});
 			rb.MomentumWS(v8force{0,0,1, 0,1,0});
-			rb.O2W(Random<m4x4>(rng, v4::Origin(), v4(5.0f)));
+			rb.O2W(m4x4::Random(rng, v4::Origin(), 5.0f));
 
 			auto ws_ke = 0.5f * Dot(rb.VelocityWS(), rb.MomentumWS());
 			auto os_ke = 0.5f * Dot(rb.VelocityOS(), rb.MomentumOS());

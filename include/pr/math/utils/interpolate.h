@@ -1,4 +1,4 @@
-//***********************************************************************
+﻿//***********************************************************************
 // Interpolation
 //  Copyright (c) Rylogic Ltd 2014
 //***********************************************************************
@@ -567,7 +567,61 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(HermiteXform)
 		{
-			// @Copilot, please at unit tests here
+			auto tol = 0.001f;
+
+			// Simple case: translate + rotate from identity
+			{
+				auto pos0 = V4(0, 0, 0, 1);
+				auto vel0 = V4(1, 0, 0, 0);
+				auto rot0 = Q(0, 0, 0, 1);
+				auto avel0 = V4(0, 0, constants<float>::tau_by_4, 0);
+				auto pos1 = V4(1, 0, 0, 1);
+				auto vel1 = V4(1, 0, 0, 0);
+				auto rot1 = Q(V4::ZAxis(), constants<float>::tau_by_4);
+				auto avel1 = V4(0, 0, constants<float>::tau_by_4, 0);
+
+				HermiteTransform<float> interp(pos0, vel0, rot0, avel0, pos1, vel1, rot1, avel1, 1.0f);
+
+				// Boundary positions
+				auto x0 = interp.Eval(0);
+				auto x1 = interp.Eval(1);
+				PR_EXPECT(FEqlAbsolute(x0.pos, pos0, tol));
+				PR_EXPECT(FEqlAbsolute(x1.pos, pos1, tol));
+
+				// Boundary rotations (sign ambiguity)
+				auto sign0 = Dot(x0.rot.xyzw, rot0.xyzw) < 0 ? -1.0f : 1.0f;
+				auto sign1 = Dot(x1.rot.xyzw, rot1.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(x0.rot.xyzw, rot0.xyzw * sign0, tol));
+				PR_EXPECT(FEqlAbsolute(x1.rot.xyzw, rot1.xyzw * sign1, tol));
+			}
+
+			// Random transforms
+			std::default_random_engine rng(42u);
+			for (int i = 0; i != 50; ++i)
+			{
+				auto pos0 = Random<V4>(rng, Origin<V4>(), 10.0f).w1();
+				auto pos1 = Random<V4>(rng, Origin<V4>(), 10.0f).w1();
+				auto vel0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+				auto vel1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+				auto axis0 = RandomN<Vec3<float>>(rng);
+				auto axis1 = RandomN<Vec3<float>>(rng);
+				auto rot0 = Q(Vec4<float>(axis0, 0), std::uniform_real_distribution<float>(0, constants<float>::tau)(rng));
+				auto rot1 = Q(Vec4<float>(axis1, 0), std::uniform_real_distribution<float>(0, constants<float>::tau)(rng));
+				auto avel0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+				auto avel1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+
+				HermiteTransform<float> interp(pos0, vel0, rot0, avel0, pos1, vel1, rot1, avel1, 1.0f);
+
+				auto x0 = interp.Eval(0);
+				auto x1 = interp.Eval(1);
+				PR_EXPECT(FEqlAbsolute(x0.pos, pos0, tol));
+				PR_EXPECT(FEqlAbsolute(x1.pos, pos1, tol));
+
+				auto rsign0 = Dot(x0.rot.xyzw, rot0.xyzw) < 0 ? -1.0f : 1.0f;
+				auto rsign1 = Dot(x1.rot.xyzw, rot1.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(x0.rot.xyzw, rot0.xyzw * rsign0, tol));
+				PR_EXPECT(FEqlAbsolute(x1.rot.xyzw, rot1.xyzw * rsign1, tol));
+			}
 		}
 		PRUnitTestMethod(HermiteVec_MidPoint)
 		{
@@ -642,83 +696,315 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(HermiteQuat_MidPoint)
 		{
-			// @Copilot, please at unit tests here
+			auto tol = 0.01f;
+
+			// Simple rotation: identity → 90° about Z, midpoint at 45°
+			{
+				auto rot_prev = Q(0, 0, 0, 1);
+				auto rot_next = Q(V4::ZAxis(), constants<float>::tau_by_4);
+				auto rot_mid = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
+				auto avel_mid = V4(0, 0, constants<float>::tau_by_4, 0);
+				auto interval = 2.0f;
+
+				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avel_mid, rot_next, interval);
+
+				auto T = interval / 2;
+
+				// Boundary orientations
+				auto Q0 = interp.Eval(-T);
+				auto Q1 = interp.Eval(+T);
+				auto sign0 = Dot(Q0.xyzw, rot_prev.xyzw) < 0 ? -1.0f : 1.0f;
+				auto sign1 = Dot(Q1.xyzw, rot_next.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(Q0.xyzw, rot_prev.xyzw * sign0, tol));
+				PR_EXPECT(FEqlAbsolute(Q1.xyzw, rot_next.xyzw * sign1, tol));
+
+				// Midpoint orientation
+				auto Qm = interp.Eval(0);
+				auto sign_m = Dot(Qm.xyzw, rot_mid.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(Qm.xyzw, rot_mid.xyzw * sign_m, tol));
+			}
+
+			// Smoothness check
+			{
+				auto rot_prev = Q(V4::YAxis(), -constants<float>::tau_by_4);
+				auto rot_next = Q(V4::YAxis(), +constants<float>::tau_by_4);
+				auto rot_mid = Q(0, 0, 0, 1);
+				auto avel_mid = V4(0, constants<float>::tau_by_4, 0, 0);
+				auto interval = 2.0f;
+				auto T = interval / 2;
+				auto eps = 0.001f;
+
+				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avel_mid, rot_next, interval);
+
+				for (float t = -T + eps; t < T - eps; t += 0.1f)
+				{
+					auto q0 = interp.Eval(t);
+					auto q1 = interp.Eval(t + eps);
+					auto diff = Length(q1.xyzw - q0.xyzw);
+					PR_EXPECT(diff < 0.1f);
+				}
+			}
 		}
 		PRUnitTestMethod(HermiteXform_MidPoint)
 		{
-			// @Copilot, please at unit tests here
+			auto tol = 0.01f;
+
+			// Combined translation + rotation midpoint interpolator
+			{
+				auto pos_prev = V4(0, 0, 0, 1);
+				auto pos_next = V4(2, 0, 0, 1);
+				auto pos_mid = V4(1, 0, 0, 1);
+				auto vel_mid = V4(1, 0, 0, 0);
+				auto rot_prev = Q(0, 0, 0, 1);
+				auto rot_next = Q(V4::ZAxis(), constants<float>::tau_by_4);
+				auto rot_mid = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
+				auto avel_mid = V4(0, 0, constants<float>::tau_by_4, 0);
+				auto interval = 2.0f;
+
+				HermiteTransform_MidPoint<float> interp(
+					pos_prev, pos_next, pos_mid, vel_mid,
+					rot_prev, rot_mid, avel_mid, rot_next,
+					interval);
+
+				auto T = interval / 2;
+
+				// Boundary positions
+				auto x0 = interp.Eval(-T);
+				auto x1 = interp.Eval(+T);
+				PR_EXPECT(FEqlAbsolute(x0.pos, pos_prev, tol));
+				PR_EXPECT(FEqlAbsolute(x1.pos, pos_next, tol));
+
+				// Midpoint position
+				auto xm = interp.Eval(0);
+				PR_EXPECT(FEqlAbsolute(xm.pos, pos_mid, tol));
+
+				// Boundary rotations
+				auto sign0 = Dot(x0.rot.xyzw, rot_prev.xyzw) < 0 ? -1.0f : 1.0f;
+				auto sign1 = Dot(x1.rot.xyzw, rot_next.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(x0.rot.xyzw, rot_prev.xyzw * sign0, tol));
+				PR_EXPECT(FEqlAbsolute(x1.rot.xyzw, rot_next.xyzw * sign1, tol));
+
+				// Midpoint rotation
+				auto sign_m = Dot(xm.rot.xyzw, rot_mid.xyzw) < 0 ? -1.0f : 1.0f;
+				PR_EXPECT(FEqlAbsolute(xm.rot.xyzw, rot_mid.xyzw * sign_m, tol));
+			}
+
+			// Smoothness: check consecutive samples are close
+			{
+				auto pos_prev = V4(0, 1, 0, 1);
+				auto pos_next = V4(3, 2, -1, 1);
+				auto pos_mid = V4(1.5f, 2, 0.5f, 1);
+				auto vel_mid = V4(1.5f, 0.5f, -0.5f, 0);
+				auto rot_prev = Q(V4::XAxis(), -0.5f);
+				auto rot_next = Q(V4::XAxis(), +0.5f);
+				auto rot_mid = Q(0, 0, 0, 1);
+				auto avel_mid = V4(0.5f, 0, 0, 0);
+				auto interval = 2.0f;
+				auto T = interval / 2;
+				auto eps = 0.001f;
+
+				HermiteTransform_MidPoint<float> interp(
+					pos_prev, pos_next, pos_mid, vel_mid,
+					rot_prev, rot_mid, avel_mid, rot_next,
+					interval);
+
+				for (float t = -T + eps; t < T - eps; t += 0.1f)
+				{
+					auto a = interp.Eval(t);
+					auto b = interp.Eval(t + eps);
+					PR_EXPECT(Length(b.pos - a.pos) < 0.1f);
+					PR_EXPECT(Length(b.rot.xyzw - a.rot.xyzw) < 0.1f);
+				}
+			}
 		}
 		PRUnitTestMethod(LdrDump)
 		{
 			#if PR_UNITTESTS_VISUALISE
-			using namespace pr::rdr12::ldraw;
+			using namespace pr::ldraw;
+
 			auto samples = GenerateTestData();
 
 			Builder builder;
 			V4 const box_dim = 0.5f * V4{ 1.0f, 1.5f, 2.0f, 0.0f };
 			float vel_scale = 0.1f;
 			float avel_scale = 0.1f;
+			float step = 0.001f;
+			int boxes_per_segment = 20;
 
-			// Input data
+			// Helper: draw input sample data (shared across all visualisations)
+			auto draw_input = [&](LdrGroup& grp, float z_offset)
 			{
-				builder.Sphere("start", 0xFFFF0000).radius(0.1f).pos(samples[0].pos);
-				auto& track = builder.Line("track0").smooth().strip(samples[0].pos);
-				auto& boxes = builder.Group("boxes0");
-				auto& grp_vel = builder.Group("vel0");
-				auto& grp_avel = builder.Group("avel0");
-				for (auto& sample : samples)
+				auto ofs = V4(0, 0, z_offset, 0);
+				grp.Sphere("start", 0xFFFF0000).radius(0.1f).pos(samples[1].pos + ofs);
+				auto& track = grp.Line("track_in", 0x80FFFFFF).smooth().strip(samples[1].pos + ofs);
+				auto& boxes = grp.Group("boxes_in");
+				auto& grp_vel = grp.Group("vel_in");
+				auto& grp_avel = grp.Group("avel_in");
+				for (int i = 1; i != ssize(samples) - 1; ++i)
 				{
-					track.line_to(sample.pos);
-					grp_vel.Line("vel", 0xFFFFFF00).arrow().strip(sample.pos).line_to(sample.pos + vel_scale * sample.vel);
-					grp_avel.Line("avel", 0xFF00FFFF).arrow().strip(sample.pos).line_to(sample.pos + avel_scale * sample.avel);
-					boxes.Box("obj", 0x80008000).dim(box_dim).ori(sample.rot).pos(sample.pos);
+					auto& s = samples[i];
+					track.line_to(s.pos + ofs);
+					grp_vel.Line("vel", 0x80FFFF00).strip(s.pos + ofs).line_to(s.pos + ofs + vel_scale * s.vel);
+					grp_avel.Line("avel", 0x8000FFFF).strip(s.pos + ofs).line_to(s.pos + ofs + avel_scale * s.avel);
+					boxes.Box("obj", 0x40008000).box(box_dim).o2w().quat(s.rot).pos(s.pos + ofs);
+				}
+			};
+
+			// 1. HermiteVector + HermiteQuaternion (endpoint-to-endpoint)
+			{
+				auto& grp = builder.Group("HermiteVQ");
+				draw_input(grp, 0);
+
+				auto& boxes = grp.Group("boxes_interp");
+				auto& track = grp.Line("track_interp", 0xFF00FF00).strip(samples[1].pos);
+				auto& grp_vel = grp.Group("vel_interp");
+
+				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				{
+					auto& s0 = samples[seg];
+					auto& s1 = samples[seg + 1];
+					auto T = std::max(s1.t - s0.t, 0.001f);
+					auto interpV = HermiteVector<float>(s0.pos, s0.vel, s1.pos, s1.vel, T);
+					auto interpQ = HermiteQuaternion<float>(s0.rot, s0.avel, s1.rot, s1.avel, T);
+
+					int box_idx = 0;
+					for (float dt = 0.0f; dt <= T; dt += step)
+					{
+						auto pos = interpV.Eval(dt);
+						auto vel = interpV.EvalDerivative(dt);
+						auto qr = interpQ.Eval(dt);
+						track.line_to(pos);
+
+						auto frac = boxes_per_segment * dt / T;
+						if (frac > box_idx + 1)
+						{
+							grp_vel.Line("vel", 0xFFFFFF00).strip(pos).line_to(pos + vel_scale * vel);
+							boxes.Box("obj", 0x8000FF00).box(box_dim).o2w().quat(qr).pos(pos);
+							++box_idx;
+						}
+					}
 				}
 			}
 
-			// Interpolated data
+			// 2. HermiteTransform (endpoint-to-endpoint combined)
 			{
-				int i = 0;
-				auto curr = &samples[i + 0];
-				auto next = &samples[i + 1];
-				auto T = std::max(next->t - curr->t, 0.001f);
+				float z_ofs = 20.0f;
+				auto ofs = V4(0, 0, z_ofs, 0);
+				auto& grp = builder.Group("HermiteXform");
+				draw_input(grp, z_ofs);
 
-				auto interpolateV = HermiteVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
-				auto interpolateQ = HermiteQuaternion<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
+				auto& boxes = grp.Group("boxes_interp");
+				auto& track = grp.Line("track_interp", 0xFFFF8000).strip(samples[1].pos + ofs);
 
-				auto& boxes = builder.Group("boxes1"); int box_index = 0;
-				auto& track = builder.Line("track1", 0xFF00FF00).strip(samples[0].pos);
-				auto& grp_vel = builder.Group("vel1");
-				auto& grp_avel = builder.Group("avel1");
-				for (float dt = 0.0f; ; dt += 0.001f)
+				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
 				{
-					if (dt > samples[i + 1].t - samples[i].t)
-					{
-						if (++i == ssize(samples) - 1)
-							break;
+					auto& s0 = samples[seg];
+					auto& s1 = samples[seg + 1];
+					auto T = std::max(s1.t - s0.t, 0.001f);
+					HermiteTransform<float> interp(s0.pos, s0.vel, s0.rot, s0.avel, s1.pos, s1.vel, s1.rot, s1.avel, T);
 
-						++curr; ++next;
-						T = std::max(samples[i + 1].t - samples[i].t, 0.001f);
-						interpolateV = HermiteVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
-						interpolateQ = HermiteQuaternion<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
-						dt = 0.0f;
-						box_index = 0;
+					int box_idx = 0;
+					for (float dt = 0.0f; dt <= T; dt += step)
+					{
+						auto x = interp.Eval(dt);
+						track.line_to(x.pos + ofs);
+
+						auto frac = boxes_per_segment * dt / T;
+						if (frac > box_idx + 1)
+						{
+							boxes.Box("obj", 0x80FF8000).box(box_dim).o2w().quat(x.rot).pos(x.pos + ofs);
+							++box_idx;
+						}
 					}
+				}
+			}
 
-					auto pos = interpolateV.Eval(dt);
-					auto vel = interpolateV.EvalDerivative(dt);
-					auto qr = interpolateQ.Eval(dt);
-					auto avel = interpolateQ.EvalDerivative(dt);
+			// 3. HermiteVector_MidPoint + HermiteQuaternion_MidPoint (midpoint interpolators)
+			{
+				float z_ofs = 40.0f;
+				auto ofs = V4(0, 0, z_ofs, 0);
+				auto& grp = builder.Group("HermiteMidPoint");
+				draw_input(grp, z_ofs);
 
-					track.line_to(pos);
+				auto& boxes = grp.Group("boxes_interp");
+				auto& track = grp.Line("track_interp", 0xFF8000FF).strip(samples[1].pos + ofs);
 
-					auto N = 20;
-					auto frac = N * dt / (samples[i + 1].t - samples[i].t);
-					if (frac > box_index + 1)
+				// Midpoint interpolators span from samples[seg-1] to samples[seg+1], centred on samples[seg]
+				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				{
+					auto& prev = samples[seg - 1];
+					auto& curr = samples[seg];
+					auto& next = samples[seg + 1];
+					auto interval = next.t - prev.t;
+					if (interval < 0.001f) continue;
+
+					auto interpV = HermiteVector_MidPoint<float>(prev.pos, next.pos, curr.pos, curr.vel, interval);
+					auto interpQ = HermiteQuaternion_MidPoint<float>(prev.rot, curr.rot, curr.avel, next.rot, interval);
+
+					// Evaluate from -T to +T (centred on curr)
+					auto T = interval / 2;
+					auto seg_start = -T;
+					auto seg_end = +T;
+
+					// Only draw the first half (up to midpoint) to avoid overlap with next segment
+					auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : seg_end;
+
+					int box_idx = 0;
+					for (float t = seg_start; t <= draw_end; t += step)
 					{
-						grp_vel.Line("vel", 0xFFFFFF00).arrow().strip(pos).line_to(pos + vel_scale * vel);
-						grp_avel.Line("avel", 0xFF00FFFF).arrow().strip(pos).line_to(pos + avel_scale * avel);
-						boxes.Box("obj", 0x8000FF00).dim(box_dim).ori(qr).pos(pos);
-						++box_index;
+						auto pos = interpV.Eval(t);
+						auto qr = interpQ.Eval(t);
+						track.line_to(pos + ofs);
+
+						auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
+						if (frac > box_idx + 1)
+						{
+							boxes.Box("obj", 0x808000FF).box(box_dim).o2w().quat(qr).pos(pos + ofs);
+							++box_idx;
+						}
+					}
+				}
+			}
+
+			// 4. HermiteTransform_MidPoint (combined midpoint)
+			{
+				float z_ofs = 60.0f;
+				auto ofs = V4(0, 0, z_ofs, 0);
+				auto& grp = builder.Group("HermiteXform_MidPoint");
+				draw_input(grp, z_ofs);
+
+				auto& boxes = grp.Group("boxes_interp");
+				auto& track = grp.Line("track_interp", 0xFFFF00FF).strip(samples[1].pos + ofs);
+
+				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				{
+					auto& prev = samples[seg - 1];
+					auto& curr = samples[seg];
+					auto& next = samples[seg + 1];
+					auto interval = next.t - prev.t;
+					if (interval < 0.001f) continue;
+
+					HermiteTransform_MidPoint<float> interp(
+						prev.pos, next.pos, curr.pos, curr.vel,
+						prev.rot, curr.rot, curr.avel, next.rot,
+						interval);
+
+					auto T = interval / 2;
+					auto seg_start = -T;
+					auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : +T;
+
+					int box_idx = 0;
+					for (float t = seg_start; t <= draw_end; t += step)
+					{
+						auto x = interp.Eval(t);
+						track.line_to(x.pos + ofs);
+
+						auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
+						if (frac > box_idx + 1)
+						{
+							boxes.Box("obj", 0x80FF00FF).box(box_dim).o2w().quat(x.rot).pos(x.pos + ofs);
+							++box_idx;
+						}
 					}
 				}
 			}

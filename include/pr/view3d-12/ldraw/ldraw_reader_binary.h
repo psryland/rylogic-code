@@ -217,7 +217,6 @@ namespace pr::rdr12::ldraw
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/common/ldraw.h"
 namespace pr::rdr12::ldraw::tests
 {
 	PRUnitTestClass(LDrawBinarySerialiserTests)
@@ -229,8 +228,8 @@ namespace pr::rdr12::ldraw::tests
 			(void)data;
 			#if PR_UNITTESTS_VISUALISE
 			{
-				std::ofstream ofile(temp_dir() / "ldraw_test.bdr", std::ios::binary);
-				ofile.write(data.data(), data.size());
+				std::ofstream ofile(temp_dir() / L"ldraw_test.bdr", std::ios::binary);
+				ofile.write(reinterpret_cast<char const*>(data.data()), data.size());
 			}
 			#endif
 		}

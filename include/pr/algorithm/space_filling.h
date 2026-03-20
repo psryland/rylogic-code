@@ -268,7 +268,7 @@ namespace pr::algorithm::tests
 		{
 			// Plot them by converting indices to points.
 			pr::ldraw::Builder builder;
-			auto& line1 = builder.Line("COrder", Colour32Blue).strip(v4::Origin());
+			auto& line1 = builder.Line("COrder", 0xFFFF0000).strip(v4::Origin());
 			for (auto idx : indices)
 			{
 				auto pt = COrder3D(idx);
@@ -335,22 +335,24 @@ namespace pr::algorithm::tests
 
 		#if PR_UNITTESTS_VISUALISE
 		{
+			using namespace pr::ldraw;
+
 			// Draw the Hilbert curve
-			ldr::Builder builder;
-			builder.Box("bound", Colour32Green).dim(4, 4, 0.1).pos(2, 2, 0).wireframe();
-			auto& line1 = builder.Line("hilbert", Colour32Blue).strip(v4::Origin());
+			Builder builder;
+			builder.Box("bound", 0xFF00FF00).box(4, 4, 0.1f).pos(2, 2, 0).wireframe();
+			auto& line1 = builder.Line("hilbert", 0xFF0000FF).strip(v4::Origin());
 			for (int32_t i = 0; i != 16; ++i)
 			{
 				auto pt = Hilbert2D<2>(i);
-				line1.line_to(v4(To<v2>(pt), 0, 1));
+				line1.line_to(v4(pt.x * 1.0f, pt.y * 1.0f, 0, 1));
 			}
-			auto& line2 = builder.Line("hilbert", Colour32Red).strip(v4::Origin());
+			auto& line2 = builder.Line("hilbert", 0xFFFF0000).strip(v4::Origin());
 			for (int32_t i = 0; i != 64; ++i)
 			{
 				auto pt = Hilbert2D<3>(i);
-				line2.line_to(v4(To<v2>(pt) / 2, 0.1, 1));
+				line2.line_to(v4(pt.x * 0.5f, pt.y * 0.5f, 0.1f, 1));
 			}
-			builder.Write("E:\\dump\\hilbert.ldr");
+			builder.Save(temp_dir() / L"LDraw/hilbert.ldr", ESaveFlags::Pretty);
 		}
 		#endif
 	}

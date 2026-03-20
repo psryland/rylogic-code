@@ -244,6 +244,17 @@ namespace pr::math
 			return math::ProjectionPerspectiveFOV<Mat4x4>(fovY, aspect, zn, zf, righthanded);
 		}
 
+		// Create a transform with a random orientation and position centred on 'centre' and within 'radius'
+		template <typename Rng = std::default_random_engine>
+		static Mat4x4 Random(Rng& rng, Vec4<S> centre, S radius)
+		{
+			// This is a helper wrapper really
+			return Transform(
+				math::Random<Mat3x4<S>>(rng),
+				math::Random<Vec3<S>>(rng, {}, radius).w0() + centre
+			);
+		}
+
 		#pragma region Operators
 		friend Vec4<S> pr_vectorcall operator * (Mat4x4 const& a2b, Vec4<S> v) noexcept
 		{
