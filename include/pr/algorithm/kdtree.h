@@ -832,16 +832,16 @@ namespace pr::algorithm::tests
 
 					auto& ldr_points = builder.Point("Points").size(10.0f);
 					for (auto const& p : points)
-						ldr_points.pt(v4(p, 0.0f, 1), 0xFF0000FF);
+						ldr_points.pt(v4(p.xy, 0.0f, 1), 0xFF0000FF);
 
 					auto& ldr_lines = builder.Line("Closest", 0xFFFF0000);
 					for (auto const& p : pairs)
 					{
-						auto p0 = v4(*p.item0, 0, 1);
-						auto p1 = v4(*p.item1, 0, 1);
+						auto p0 = v4(p.item0->xy, 0, 1);
+						auto p1 = v4(p.item1->xy, 0, 1);
 
 						ldr_lines.line(p0, p1);
-						builder.Sphere("Found", 0x80FF0000).radius(sqrt(p.dist_sq) * 0.5f).pos((p0 + p1) * 0.5f);
+						builder.Sphere("Found", 0x80FF0000).radius(sqrt(p.squared_distance) * 0.5f).pos((p0 + p1) * 0.5f);
 					}
 
 					builder.Save("E:/Dump/kdtree.ldr", ESaveFlags::Pretty);

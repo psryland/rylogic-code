@@ -65,7 +65,7 @@ namespace pr::rdr12
 		ModelPtr CreateModel(EStockModel id);
 
 		// Create a new nugget
-		Nugget* CreateNugget(NuggetDesc const& ndata, Model* model);
+		NuggetPtr CreateNugget(NuggetDesc const& ndata, Model* model);
 
 		// Create a new texture instance.
 		Texture2DPtr CreateTexture2D(TextureDesc const& desc);

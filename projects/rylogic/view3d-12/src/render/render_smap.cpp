@@ -151,7 +151,7 @@ namespace pr::rdr12
 	}
 
 	// Add model nuggets to the draw list for this render step
-	void RenderSmap::AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist)
+	void RenderSmap::AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist)
 	{
 		// Ignore instances that don't cast shadows
 		if (AnySet(GetFlags(inst), EInstFlag::ShadowCastExclude))
@@ -159,67 +159,52 @@ namespace pr::rdr12
 
 		bool grow_bounds = true;
 
-		// Add a draw list element for each nugget in the instance's model
-		drawlist.reserve(drawlist.size() + nuggets.size());
-		for (auto& nug : nuggets)
+		// Use the default nuggets. This means alpha objects will cast shadows as if they were opaque
+		for (auto& nug : Enumerate(nuggets))
 		{
 			// Filter out nuggets that can't cast shadows
 			if (AnySet(nug.m_nflags, ENuggetFlag::ShadowCastExclude | ENuggetFlag::Hidden))
 				continue;
 
-			for (;;)
+			// Don't add nuggets without a surface area
+			if (nug.FillMode() != EFillMode::Default && nug.FillMode() != EFillMode::Solid)
+				break;
+
+			// Create the combined sort key for this nugget
+			// Ignore the shader sort key, because they're all using the smap shader
+			auto sk = nug.m_sort_key;
+			if (auto* sko = inst.find<SKOverride>(EInstComp::SortkeyOverride))
+				sk = sko->Combine(sk);
+
+			// Set the texture id part of the key if not set already
+			// Only really need the texture if it contains alpha pixels...
+			if (!AnySet(sk, SortKey::TextureIdMask) && nug.m_tex_diffuse != nullptr)
+				sk = SetBits(sk, SortKey::TextureIdMask, nug.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
+
+			// Grow the scene bounds by the model bbox if nuggets were added
+			for (;grow_bounds;)
 			{
-				// Don't add nuggets without a surface area
-				if (nug.FillMode() != EFillMode::Default && nug.FillMode() != EFillMode::Solid)
+				grow_bounds = false;
+
+				// Ignore models with invalid bounding boxes
+				if (!nug.m_model->m_bbox.valid())
 					break;
 
-				// Don't add alpha back faces when using 'Points' fill mode
-				if (nug.m_id == AlphaNuggetId)
+				// Ignore instances with non-affine transforms
+				auto i2w = GetO2W(inst);
+				if (!IsAffine(i2w))
 					break;
 
-				// Create the combined sort key for this nugget
-				// Ignore the shader sort key, because they're all using the smap shader
-				auto sk = nug.m_sort_key;
-				auto sko = inst.find<SKOverride>(EInstComp::SortkeyOverride);
-				if (sko) sk = sko->Combine(sk);
-
-				// Set the texture id part of the key if not set already
-				if (!AnySet(sk, SortKey::TextureIdMask) && nug.m_tex_diffuse != nullptr)
-					sk = SetBits(sk, SortKey::TextureIdMask, nug.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
-
-				// Grow the scene bounds by the model bbox if nuggets were added
-				for (;grow_bounds;)
-				{
-					grow_bounds = false;
-
-					// Ignore models with invalid bounding boxes
-					if (!nug.m_model->m_bbox.valid())
-						break;
-
-					// Ignore instances with non-affine transforms
-					auto i2w = GetO2W(inst);
-					if (!IsAffine(i2w))
-						break;
-
-					// Grow the scene bounds
-					auto bbox = i2w * nug.m_model->m_bbox;
-					assert(bbox.valid() && "Model bounding box is invalid");
-					Grow(m_bbox_scene, bbox);
-					break;
-				}
-
-				// Add an element to the draw list
-				DrawListElement dle = {
-					.m_sort_key = sk,
-					.m_nugget = &nug,
-					.m_instance = &inst,
-				};
-				drawlist.push_back(dle);
+				// Grow the scene bounds
+				auto bbox = i2w * nug.m_model->m_bbox;
+				assert(bbox.valid() && "Model bounding box is invalid");
+				Grow(m_bbox_scene, bbox);
 				break;
 			}
 
-			// Recursively add dependent nuggets
-			AddNuggets(inst, nug.m_nuggets, drawlist);
+			// Add an element to the draw list
+			drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
+			m_sort_needed = true;
 		}
 	}
 

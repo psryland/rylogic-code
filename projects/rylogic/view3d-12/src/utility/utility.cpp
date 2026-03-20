@@ -6,6 +6,7 @@
 #include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/map_resource.h"
 #include "pr/view3d-12/utility/cmd_list.h"
+#include "pr/view3d-12/utility/pipe_state.h"
 #include "pr/view3d-12/main/renderer.h"
 
 namespace pr::rdr12

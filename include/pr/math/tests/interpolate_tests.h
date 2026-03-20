@@ -39,7 +39,7 @@ namespace pr::math::tests
 			auto v0 = V4(0, 0, 0, 0);
 			auto p1 = V4(10, 0, 0, 1);
 			auto v1 = V4(0, 0, 0, 0);
-			auto interp = InterpolateVector<T>(p0, v0, p1, v1, T(1));
+			auto interp = HermiteVector<T>(p0, v0, p1, v1, T(1));
 
 			// At t=0, should be at p0
 			PR_EXPECT(FEql(interp.Eval(T(0)), p0));
@@ -63,7 +63,7 @@ namespace pr::math::tests
 			auto q1 = Quat<T>(T(0), T(0), Sqrt(T(0.5)), Sqrt(T(0.5))); // 90° about Z
 			auto w1 = V4(0, 0, 0, 0);
 
-			auto interp = InterpolateRotation<T>(q0, w0, q1, w1, T(1));
+			auto interp = HermiteQuaternion<T>(q0, w0, q1, w1, T(1));
 
 			// At t=0, should be identity
 			auto r0 = interp.Eval(T(0));

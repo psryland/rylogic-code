@@ -9,9 +9,9 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Xaml;
 using Rylogic.Attrib;
+using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
-using Rylogic.Maths;
 using Rylogic.Utility;
 
 namespace Rylogic.Gui.WPF.Converters

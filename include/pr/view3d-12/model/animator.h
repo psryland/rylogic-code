@@ -70,14 +70,10 @@ namespace pr::rdr12
 	{
 		// Notes:
 		//  - This animator reads from a single key frame animation
-		struct Interpolators
-		{
-			InterpolateRotation<float> rot;
-			InterpolateVector<float> pos;
-		};
+		using HermiteTransform = HermiteTransform<float>;
 
 		KinematicKeyFrameAnimationPtr m_anim; // The animation sequence to read from
-		vector<Interpolators, 0> m_interp; // Interpolators for each track
+		vector<HermiteTransform, 0> m_interp; // Interpolators for each track
 		vector<KinematicKey, 0> m_keys; // A recycling buffer for reading key frames into
 		TimeRange m_interp_time_range; // The time range of the current interpolation period
 

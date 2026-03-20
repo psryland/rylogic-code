@@ -305,6 +305,11 @@ namespace pr::tweakables
 		Tweakables::filepath = temp_dir() / "tweakables.ini";
 		Tweakables::poll_rate = std::chrono::milliseconds(100);
 
+		// Remove any stale file from a previous run to prevent the poller
+		// from overwriting default values before the test can verify them.
+		std::filesystem::remove(Tweakables::filepath);
+		std::this_thread::sleep_for(Tweakables::poll_rate * 2);
+
 		Tweakable<bool, "MY_BOOL"> my_bool = true;
 		Tweakable<int, "MY_INT"> my_int = 2;
 		Tweakable<float, "MY_FLOAT"> my_float = 1.0f;

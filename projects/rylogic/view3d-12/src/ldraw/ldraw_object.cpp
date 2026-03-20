@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -519,21 +519,20 @@ namespace pr::rdr12::ldraw
 		if (obj == nullptr || obj->m_model == nullptr)
 			return ENuggetFlag::None;
 
-		if (index >= static_cast<int>(obj->m_model->m_nuggets.size()))
-			throw std::runtime_error("nugget index out of range");
-
-		auto nug = obj->m_model->m_nuggets.begin();
-		for (int i = 0; i != index; ++i, ++nug) {}
-		return nug->m_nflags;
+		auto nug = obj->m_model->m_nuggets;
+		for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
+		return nug ? nug->m_nflags : throw std::runtime_error("nugget index out of range");
 	}
 	void LdrObject::NuggetFlags(ENuggetFlag flags, bool state, char const* name, int index)
 	{
 		Apply([=](LdrObject* obj)
 		{
+			// Note: this will apply to all instances of the model
 			if (obj->m_model != nullptr)
 			{
-				auto nug = obj->m_model->m_nuggets.begin();
-				for (int i = 0; i != index; ++i, ++nug) {}
+				auto nug = obj->m_model->m_nuggets;
+				for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
+				if (nug == nullptr) throw std::runtime_error("nugget index out of range");
 				nug->m_nflags = SetBits(nug->m_nflags, flags, state);
 			}
 			return true;
@@ -547,21 +546,20 @@ namespace pr::rdr12::ldraw
 		if (obj == nullptr || obj->m_model == nullptr)
 			return Colour32White;
 
-		if (index >= static_cast<int>(obj->m_model->m_nuggets.size()))
-			throw std::runtime_error("nugget index out of range");
-
-		auto nug = obj->m_model->m_nuggets.begin();
-		for (int i = 0; i != index; ++i, ++nug) {}
-		return nug->m_tint;
+		auto nug = obj->m_model->m_nuggets;
+		for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
+		return nug ? nug->m_tint : throw std::runtime_error("nugget index out of range");
 	}
 	void LdrObject::NuggetTint(Colour32 tint, char const* name, int index)
 	{
 		Apply([=](LdrObject* obj)
 		{
+			// Note: this will apply to all instances of the model
 			if (obj->m_model != nullptr)
 			{
-				auto nug = obj->m_model->m_nuggets.begin();
-				for (int i = 0; i != index; ++i, ++nug) {}
+				auto nug = obj->m_model->m_nuggets;
+				for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
+				if (nug == nullptr) throw std::runtime_error("nugget index out of range");
 				nug->m_tint = tint;
 			}
 			return true;
@@ -609,15 +607,15 @@ namespace pr::rdr12::ldraw
 			if (base_colour)
 				o->m_colour = o->m_base_colour;
 
-			// Update the nugget alpha states
-			if (o->m_model != nullptr)
+			// Ensure the nugget has alpha variants if needed
+			if (HasAlpha(o->m_colour) && o->m_model != nullptr)
 			{
-				auto tint_has_alpha = HasAlpha(o->m_colour);
-				for (auto& nug : o->m_model->m_nuggets)
-				{
-					nug.m_nflags = SetBits(nug.m_nflags, ENuggetFlag::TintHasAlpha, tint_has_alpha);
-					nug.UpdateAlphaStates();
-				}
+				ResourceFactory factory(o->m_model->rdr());
+
+				// Recreate the alpha variant of the nugget
+				// Don't clear if alpha == false because other instances might still need them
+				for (auto& nug : Enumerate(o->m_model->m_nuggets))
+					nug.AlphaVariant(factory, true);
 			}
 
 			return true;
@@ -630,15 +628,10 @@ namespace pr::rdr12::ldraw
 		Apply([=](LdrObject* o)
 		{
 			o->m_colour = o->m_base_colour;
-			if (o->m_model == nullptr) return true;
+			if (o->m_model == nullptr)
+				return true;
 
-			auto has_alpha = HasAlpha(o->m_colour);
-			for (auto& nug : o->m_model->m_nuggets)
-			{
-				nug.m_nflags = SetBits(nug.m_nflags, ENuggetFlag::TintHasAlpha, has_alpha);
-				nug.UpdateAlphaStates();
-			}
-
+			// Don't clear if not alpha because other instances might still need them
 			return true;
 		}, name);
 	}
@@ -670,11 +663,18 @@ namespace pr::rdr12::ldraw
 	{
 		Apply([=](LdrObject* o)
 		{
-			if (o->m_model == nullptr) return true;
-			for (auto& nug : o->m_model->m_nuggets)
+			if (o->m_model == nullptr)
+				return true;
+
+			Texture2DPtr ptex(tex, true);
+			ResourceFactory factory(o->m_model->rdr());
+			for (auto& nug : Enumerate(o->m_model->m_nuggets))
 			{
-				nug.m_tex_diffuse = Texture2DPtr(tex, true);
-				nug.UpdateAlphaStates();
+				nug.m_tex_diffuse = ptex;
+
+				// Recreate the alpha variant of the nugget
+				if (nug.RequiresAlpha())
+					nug.AlphaVariant(factory, true);
 			}
 
 			return true;
@@ -689,7 +689,7 @@ namespace pr::rdr12::ldraw
 		Apply([=](LdrObject* o)
 		{
 			if (o->m_model == nullptr) return true;
-			for (auto& nug : o->m_model->m_nuggets)
+			for (auto& nug : Enumerate(o->m_model->m_nuggets))
 			{
 				nug.m_sam_diffuse = SamplerPtr(sam, true);
 			}

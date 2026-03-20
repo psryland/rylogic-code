@@ -9,7 +9,7 @@ namespace LDraw
 	public class StartupOptions
 	{
 		// Notes:
-		//  - Parsed command line options
+		//  - Parsed command line options. See 'CmdLine' for the options that are supported.
 
 		public StartupOptions(string[] args)
 		{
@@ -47,7 +47,7 @@ namespace LDraw
 			PortableMode |= Path_.FileExists(Path_.CombinePath(exe_dir, "portable"));
 
 			// Set the UserDataDir based on whether we're running in portable mode or not
-			UserDataDir = Path.GetFullPath(PortableMode ? Path_.CombinePath(exe_dir, "UserData") : Util.ResolveUserDocumentsPath("Rylogic", "LDraw"));
+			UserDataDir = Path.GetFullPath(PortableMode ? Path_.CombinePath(exe_dir, "UserData") : Util.ResolveAppDataPath("Rylogic", "LDraw"));
 			Path_.CreateDirs(UserDataDir);
 
 			// Check that we have write access to the user data directory

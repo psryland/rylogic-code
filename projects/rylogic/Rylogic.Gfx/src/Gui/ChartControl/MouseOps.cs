@@ -489,6 +489,8 @@ namespace Rylogic.Gui.WPF
 		public class MouseOpDefaultMButton : MouseOp
 		{
 			private IDisposable? m_defer_nav_checkpoint;
+			private IDisposable? m_mouse_capture;
+			private EDragState m_drag_state;
 
 			public MouseOpDefaultMButton(ChartControl chart)
 				: base(chart)
@@ -496,7 +498,6 @@ namespace Rylogic.Gui.WPF
 			public override void MouseDown(MouseButtonEventArgs? e)
 			{
 				if (e == null) throw new Exception("This mouse op should start on mouse down");
-				m_defer_nav_checkpoint = Chart.DeferNavCheckpoints();
 				var location = e.GetPosition(Chart);
 
 				// If mouse down occurred within the chart, record it
@@ -504,6 +505,9 @@ namespace Rylogic.Gui.WPF
 				{
 					Chart.Cursor = Cursors.Cross;
 				}
+
+				m_drag_state = EDragState.Start;
+				m_defer_nav_checkpoint = Chart.DeferNavCheckpoints();
 			}
 			public override void MouseMove(MouseEventArgs e)
 			{
@@ -512,13 +516,21 @@ namespace Rylogic.Gui.WPF
 				if (IsClick(scene_point))
 					return;
 
+				// Capture the mouse if this is the start of a drag operation
+				if (m_drag_state != EDragState.Dragging)
+					m_mouse_capture = Chart.Scene.CaptureMouseScope();
+
+				m_drag_state = EDragState.Dragging;
+
 				Chart.Invalidate();
 			}
 			public override void MouseUp(MouseButtonEventArgs e)
 			{
+				var scene_point = e.GetPosition(Chart.Scene).ToV2();
 				Util.Dispose(ref m_suspended_chart_changed);
 				Util.Dispose(ref m_defer_nav_checkpoint);
-				var scene_point = e.GetPosition(Chart.Scene).ToV2();
+				Util.Dispose(ref m_mouse_capture);
+				Chart.Cursor = Cursors.Arrow;
 
 				// If this is a single click...
 				if (IsClick(scene_point))
@@ -526,23 +538,22 @@ namespace Rylogic.Gui.WPF
 					// Pass the click event out to users first
 					var args = new ChartClickedEventArgs(HitResult, e);
 					Chart.OnChartClicked(args);
+					e.Handled = args.Handled;
 
-					if (!args.Handled)
+					if (!e.Handled)
 					{
-						if (HitResult.Zone.HasFlag(EZone.Chart))
-						{ }
-						else if (HitResult.Zone.HasFlag(EZone.XAxis))
-						{ }
-						else if (HitResult.Zone.HasFlag(EZone.YAxis))
-						{ }
+						Chart.Scene.Window.TranslateKey(Interop.Win32.EKeyCodes.MButton, scene_point);
 					}
 				}
 				// Otherwise this is a drag action
 				else
 				{
+					// Commit if dragging hasn't been cancelled
+					if (m_drag_state == EDragState.Dragging)
+						m_drag_state = EDragState.Commit;
+
 				}
 
-				Chart.Cursor = Cursors.Arrow;
 				Chart.Invalidate();
 			}
 		}

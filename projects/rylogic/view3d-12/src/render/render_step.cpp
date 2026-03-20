@@ -71,21 +71,19 @@ namespace pr::rdr12
 	// that the instance is in the draw list, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 	void RenderStep::AddInstance(BaseInstance const& inst)
 	{
-		// Get the model associated with the instance
-		auto const& model = GetModel(inst);
-		if (model == nullptr)
-			throw std::runtime_error("Null model pointer");
-
-		// Get the nuggets for this render step
-		auto& nuggets = model->m_nuggets;
+		// Ask the instance to provide the nuggets. This could be different to the nuggets owned by the model.
+		// Also, if the instance uses an alpha tint, it will ask the model for it's "alpha" nuggets instead
+		// of its "default" nuggets. This allows the same model to be used for both opaque and alpha tinted instances.
+		auto nuggets = GetNuggets(inst);
 
 		// Debug checks
 		#if PR_DBG_RDR
 		{
 			// Note: Only print debug messages here. The debug behaviour needs to match the release behaviour
+			auto const& model = GetModel(inst);
 
 			// Check that nuggets have been created
-			if (nuggets.empty() && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedNoRenderNuggets))
+			if (nuggets == nullptr && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedNoRenderNuggets))
 			{
 				PR_INFO(PR_DBG_RDR, FmtS("This model (%s) has no nuggets, you need to call CreateNugget() on the model first\n", model->m_name.c_str()));
 				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedNoRenderNuggets, true);

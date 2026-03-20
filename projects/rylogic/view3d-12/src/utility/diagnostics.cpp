@@ -14,7 +14,7 @@
 
 namespace pr::rdr12
 {
-	constexpr RdrId ShowNormalsId = hash::HashCT("ShowNormals");
+	constexpr ENuggetVariant ShowNormalsNugget = hash::HashCT("ShowNormalsNugget");
 
 	DiagState::DiagState(Window& wnd)
 		:m_wnd(&wnd)
@@ -35,8 +35,8 @@ namespace pr::rdr12
 		//  - The normals length property is controlled independently
 
 		// Remove dependent nuggets used to show normals
-		for (auto& nug : model->m_nuggets)
-			nug.DeleteDependent([](Nugget& n) { return n.m_id == ShowNormalsId; });
+		for (auto& nug : Enumerate(model->m_nuggets))
+			nug.DeleteDependents(ShowNormalsNugget);
 
 		// If showing normals, add a dependent nugget for each nugget that has valid vertex normals
 		if (show)
@@ -46,19 +46,17 @@ namespace pr::rdr12
 
 			// Add a dependent nugget for each existing nugget that has vertex normals
 			ResourceFactory factory(model->rdr());
-			for (auto& nug : model->m_nuggets)
+			for (auto& nug : Enumerate(model->m_nuggets))
 			{
 				if (!AllSet(nug.m_geom, EGeom::Norm))
 					continue;
 
-				// Create a dependent nugget that draws the normals
-				auto ndesc = NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr)
+				// Add a dependent nugget that draws the normals
+				nug.AddDependent(factory,
+					NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr)
 					.irange(RangeZero)
-					.id(ShowNormalsId)
-					.use_shader_overlay(ERenderStep::RenderForward, shdr);
-
-				auto& dep = *factory.CreateNugget(nug, model);
-				nug.m_nuggets.push_back(dep);
+					.variant(ShowNormalsNugget)
+					.use_shader_overlay(ERenderStep::RenderForward, shdr));
 			}
 		}
 

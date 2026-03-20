@@ -1422,8 +1422,35 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
-			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
+			using Vec = typename vt::component_t;
+
+			// Identity should be its own transpose
 			PR_EXPECT(Transpose3x3(Identity<mat_t>()) == Identity<mat_t>());
+
+			// Double transpose is identity operation
+			auto M = mat_t(S(1)) + Identity<mat_t>();
+			PR_EXPECT(Transpose3x3(Transpose3x3(M)) == M);
+
+			// Verify element positions are swapped in the 3x3 part
+			if constexpr (vt::dimension >= 3)
+			{
+				auto A = Identity<mat_t>();
+				vec(vec(A).x).y = S(2);  // A[0][1] = 2
+				vec(vec(A).y).z = S(3);  // A[1][2] = 3
+				vec(vec(A).z).x = S(5);  // A[2][0] = 5
+
+				auto At = Transpose3x3(A);
+				PR_EXPECT(vec(vec(At).y).x == S(2)); // transposed: A[1][0] should be 2
+				PR_EXPECT(vec(vec(At).z).y == S(3)); // transposed: A[2][1] should be 3
+				PR_EXPECT(vec(vec(At).x).z == S(5)); // transposed: A[0][2] should be 5
+
+				// Original off-diag positions should be back to identity values
+				PR_EXPECT(vec(vec(At).x).y == S(0));
+				PR_EXPECT(vec(vec(At).y).z == S(0));
+				PR_EXPECT(vec(vec(At).z).x == S(0));
+			}
 		}
 
 		// ---- InvertOrthonormal (functions.h line ~1945) ----
@@ -1431,8 +1458,25 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
+			using S = typename vector_traits<mat_t>::element_t;
+			using vec4_t = Vec4<S>;
+
+			// Identity inverse is identity
 			PR_EXPECT(FEql(InvertOrthonormal(Identity<mat_t>()), Identity<mat_t>()));
+
+			// Rotation around Z by 45 degrees
+			auto angle = DegreesToRadians(S(45));
+			auto rot = mat_t::Transform(vec4_t::ZAxis(), angle, Origin<vec4_t>());
+			auto inv = InvertOrthonormal(rot);
+			PR_EXPECT(FEql(inv * rot, Identity<mat_t>()));
+			PR_EXPECT(FEql(rot * inv, Identity<mat_t>()));
+
+			// Rotation + translation
+			auto pos = vec4_t(S(3), S(-7), S(11), S(1));
+			auto m = mat_t::Transform(vec4_t::Normal(S(1), S(1), S(0), S(0)), DegreesToRadians(S(60)), pos);
+			auto m_inv = InvertOrthonormal(m);
+			PR_EXPECT(FEql(m_inv * m, Identity<mat_t>()));
+			PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
 		}
 
 		// ---- InvertAffine (functions.h line ~1971) ----
@@ -1441,8 +1485,41 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
+			using vec4_t = Vec4<S>;
+
+			// Identity inverse is identity
 			PR_EXPECT(FEql(InvertAffine(Identity<mat_t>()), Identity<mat_t>()));
+
+			// Uniform scale (2x)
+			auto scaled = Identity<mat_t>();
+			vec(vec(scaled).x).x = S(2);
+			vec(vec(scaled).y).y = S(2);
+			vec(vec(scaled).z).z = S(2);
+			auto scaled_inv = InvertAffine(scaled);
+			PR_EXPECT(FEql(scaled * scaled_inv, Identity<mat_t>()));
+
+			// Rotation + uniform scale
+			auto rot = Mat3x4<S>::Rotation(vec4_t::ZAxis(), DegreesToRadians(S(30)));
+			rot.x = Vec4<S>(rot.x) * S(3);
+			rot.y = Vec4<S>(rot.y) * S(3);
+			rot.z = Vec4<S>(rot.z) * S(3);
+			if constexpr (vt::dimension == 4)
+			{
+				// Mat4x4: build full affine with translation
+				auto pos = vec4_t(S(5), S(-2), S(8), S(1));
+				auto m = mat_t(rot, pos);
+				auto m_inv = InvertAffine(m);
+				PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
+			}
+			else
+			{
+				// Mat3x4: just rotation + scale
+				auto m = mat_t(rot);
+				auto m_inv = InvertAffine(m);
+				PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
+			}
 		}
 
 		// ---- Invert (functions.h line ~2016) ----
@@ -1467,8 +1544,30 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
+			using S = typename vector_traits<mat_t>::element_t;
+			using vec4_t = Vec4<S>;
+
+			// Identity inverse is identity
 			PR_EXPECT(FEql(InvertPrecise(Identity<mat_t>()), Identity<mat_t>()));
+
+			// Non-uniform scale matrix (not orthonormal, not simple affine)
+			auto m = mat_t(
+				vec4_t(S(2), S(1), S(0), S(0)),
+				vec4_t(S(0), S(3), S(1), S(0)),
+				vec4_t(S(1), S(0), S(4), S(0)),
+				vec4_t(S(5), S(-2), S(7), S(1)));
+			auto m_inv = InvertPrecise(m);
+			PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
+			PR_EXPECT(FEql(m_inv * m, Identity<mat_t>()));
+
+			// Projection-like matrix (non-affine w-row)
+			auto p = mat_t(
+				vec4_t(S(1), S(0), S(0), S(0)),
+				vec4_t(S(0), S(2), S(0), S(0)),
+				vec4_t(S(0), S(0), S(1), S(1)),
+				vec4_t(S(0), S(0), S(-1), S(0)));
+			auto p_inv = InvertPrecise(p);
+			PR_EXPECT(FEql(p * p_inv, Identity<mat_t>()));
 		}
 
 		// ---- Sqrt matrix (functions.h line ~2159) ----
@@ -1490,9 +1589,36 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
-			// @Copilot, Can you make this test more thorough? Maybe test a non-identity matrix as well?
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
+
+			// Identity is already orthonormal
 			PR_EXPECT(FEql(Orthonorm(Identity<mat_t>()), Identity<mat_t>()));
 			PR_EXPECT(IsOrthonormal(Orthonorm(Identity<mat_t>())));
+
+			// Scaled identity should orthonormalize back
+			auto scaled = Identity<mat_t>() * S(3);
+			if constexpr (vt::dimension >= 4)
+				vec(vec(scaled).w).w = S(1);
+			PR_EXPECT(IsOrthonormal(Orthonorm(scaled)));
+
+			// Slightly perturbed basis vectors should produce orthonormal result
+			if constexpr (vt::dimension >= 3)
+			{
+				auto perturbed = Identity<mat_t>();
+				vec(vec(perturbed).x).y = S(0.05);  // skew x column slightly
+				vec(vec(perturbed).y).z = S(0.03);  // skew y column slightly
+				auto result = Orthonorm(perturbed);
+				PR_EXPECT(IsOrthonormal(result));
+			}
+			else
+			{
+				// Mat2x2: perturb the 2D basis
+				auto perturbed = Identity<mat_t>();
+				vec(vec(perturbed).x).y = S(0.1);
+				auto result = Orthonorm(perturbed);
+				PR_EXPECT(IsOrthonormal(result));
+			}
 		}
 
 		// ---- Matrix multiply (functions.h line ~2190) ----

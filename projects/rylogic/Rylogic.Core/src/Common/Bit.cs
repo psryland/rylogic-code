@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using System.Text;
 using Rylogic.Utility;
 
-namespace Rylogic.Maths
+namespace Rylogic.Common
 {
 	/// <summary> Bit manipulation functions</summary>
 	public static class Bit
@@ -499,7 +499,7 @@ namespace Rylogic.Maths
 namespace Rylogic.UnitTests
 {
 	using System.Linq;
-	using Maths;
+	using Rylogic.Common;
 
 	[TestFixture]
 	public class TestBit

@@ -11,7 +11,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using Rylogic.Attrib;
-using Rylogic.Maths;
+using Rylogic.Common;
 using Rylogic.Utility;
 
 namespace Rylogic.Extn

@@ -85,7 +85,7 @@ namespace pr::rdr12
 		// a collection of shader instances (each containing shader specific data such
 		// as projection texture, line width, etc). This method needs to ensure the
 		// nugget's shader collection contains the appropriate shaders.
-		virtual void AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist) = 0;
+		virtual void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) = 0;
 
 	private:
 

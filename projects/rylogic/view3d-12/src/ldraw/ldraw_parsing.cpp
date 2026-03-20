@@ -1203,7 +1203,7 @@ namespace pr::rdr12::ldraw
 			void ConvertNuggets(Renderer& rdr, ELineStyle line_style, LdrObject* obj)
 			{
 				auto shdr = CreateShader(rdr, line_style);
-				for (auto& nug : obj->m_model->m_nuggets)
+				for (auto& nug : Enumerate(obj->m_model->m_nuggets))
 				{
 					nug.m_topo = line_style == ELineStyle::LineSegments ? ETopo::LineList : ETopo::LineStripAdj;
 					nug.m_shdr_overlays.push_back({ shdr, ERenderStep::RenderForward });
@@ -5111,7 +5111,7 @@ namespace pr::rdr12::ldraw
 			auto& equation = ob.m_user_data.get<eval::Expression>();
 			auto& extras = ob.m_user_data.get<Extras>();
 			auto& cache = ob.m_user_data.get<Cache>();
-			auto init = model.m_nuggets.empty();
+			auto init = model.m_nuggets == nullptr;
 
 			// Find the range to plot the equation over
 			auto& cam = scene.m_cam;
@@ -5581,7 +5581,7 @@ namespace pr::rdr12::ldraw
 						auto pt_ws = c2w * pt_cs;
 
 						// Position facing the camera
-						ob.m_i2w = m4x4(c2w.rot, pt_ws) * ob.m_i2w.scale();
+						ob.m_i2w = m4x4(c2w.rot, pt_ws) * ob.m_i2w.scale().w1();
 						ob.m_c2s = text_camera.CameraToScreen();
 					};
 					break;
@@ -5679,7 +5679,7 @@ namespace pr::rdr12::ldraw
 						auto scale = m4x4::Scale(m_to_px * ViewPortSize / w, m_to_px * ViewPortSize / h, 1, v4::Origin());
 
 						// Convert 'i2w', which is 'i2c' in the ldr script, into an actual 'i2w'
-						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale();
+						ob.m_i2w = c2w * m4x4::Translation(pt_ss.x, pt_ss.y, pt_ss.z) * scale * ob.m_i2w.scale().w1();
 					};
 					break;
 				}

@@ -147,16 +147,14 @@ namespace pr::rdr12
 				auto first = m_keys[i0].m_idx == 0;
 				auto last = m_keys[i1].m_idx == kcount - 1;
 
-				interp.rot = InterpolateRotation(
-					m_keys[i0].m_rot, !first ? m_keys[i0].m_ang_vel.w0() : v4::Zero(),
-					m_keys[i1].m_rot, !last ? m_keys[i1].m_ang_vel.w0() : v4::Zero(),
-					interval
-				);
-				interp.pos = InterpolateVector(
+				interp = HermiteTransform(
 					m_keys[i0].m_pos.w1(), !first ? m_keys[i0].m_lin_vel.w0() : v4::Zero(),
-					m_keys[i1].m_pos.w1(), !last ? m_keys[i1].m_lin_vel.w0() : v4::Zero(),
+					m_keys[i0].m_rot,      !first ? m_keys[i0].m_ang_vel.w0() : v4::Zero(),
+					m_keys[i1].m_pos.w1(), !last  ? m_keys[i1].m_lin_vel.w0() : v4::Zero(),
+					m_keys[i1].m_rot,      !last  ? m_keys[i1].m_ang_vel.w0() : v4::Zero(),
 					interval
 				);
+
 				++i0;
 				++i1;
 			}

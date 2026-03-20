@@ -148,6 +148,18 @@ namespace Rylogic.Gfx
 						args.Handled = true;
 						break;
 					}
+					case Win32.WM_MBUTTONUP:
+					{
+						if (!DefaultNavigation)
+							break;
+
+						// Middle-click moves the focus point to the object under the cursor
+						var pt = Win32.LParamToPoint(args.LParam);
+						TranslateKey(EKeyCodes.MButton, v2.From(pt));
+						Invalidate();
+						args.Handled = true;
+						break;
+					}
 					case Win32.WM_MOUSEMOVE:
 					{
 						if (!DefaultNavigation)

@@ -127,7 +127,7 @@ namespace las
 		static bool bWireframe = false;
 		if (bWireframe)
 		{
-			for (auto& nugget : m_inst.m_model->m_nuggets)
+			for (auto& nugget : Enumerate(m_inst.m_model->m_nuggets))
 				nugget.FillMode(EFillMode::Wireframe);
 		}
 

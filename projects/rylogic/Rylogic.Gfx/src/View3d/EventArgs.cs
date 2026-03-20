@@ -60,10 +60,10 @@ namespace Rylogic.Gfx
 
 		public class StoreChangedEventArgs :EventArgs
 		{
-			public StoreChangedEventArgs(EStoreChangeInitiator initiator, EStoreChangeFlags flags, IntPtr ids, int count, bool before)
+			public StoreChangedEventArgs(EStoreChangeInitiator initiator, EStoreChangeFlags change_flags, IntPtr ids, int count, bool before)
 			{
 				Initiator = initiator;
-				Flags = flags;
+				ChangeFlags = change_flags;
 				ContextIds = Marshal_.PtrToArray<Guid>(ids, count);
 				Before = before;
 			}
@@ -72,7 +72,7 @@ namespace Rylogic.Gfx
 			public EStoreChangeInitiator Initiator { get; }
 
 			/// <summary>What potentially changed in the store</summary>
-			public EStoreChangeFlags Flags { get; }
+			public EStoreChangeFlags ChangeFlags { get; }
 
 			/// <summary>The sources that changed</summary>
 			public Guid[] ContextIds { get; }

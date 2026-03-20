@@ -1,9 +1,8 @@
 ﻿using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using Rylogic.Maths;
+using Rylogic.Common;
 using Rylogic.Utility;
 
 namespace Rylogic.Gui.WPF

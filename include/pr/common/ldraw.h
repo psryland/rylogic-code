@@ -103,7 +103,7 @@ namespace pr::ldraw
 	};
 	template <typename T> concept TColour32 = requires (T t)
 	{
-		{ t } -> std::convertible_to<uint32_t>;
+		{ static_cast<uint32_t>(t) };
 	};
 	template <typename T> concept TString = requires (T t)
 	{
@@ -3053,8 +3053,9 @@ namespace pr::ldraw
 		std::optional<bool> m_cast_shadow;
 
 		LdrLightSource(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
-		{}
+			:LdrBase(name, colour)
+		{
+		}
 
 		LdrLightSource& style(std::string_view s)
 		{
@@ -3098,19 +3099,19 @@ namespace pr::ldraw
 			Append(out, EKeywords::LightSource, m_name, m_colour, "{");
 			{
 				if (!m_style.empty())
-				Append(out, EKeywords::Style, "{", m_style, "}");
+					Append(out, EKeywords::Style, "{", m_style, "}");
 				if (m_ambient)
-				Append(out, EKeywords::Ambient, "{", *m_ambient, "}");
+					Append(out, EKeywords::Ambient, "{", *m_ambient, "}");
 				if (m_diffuse)
-				Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
+					Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
 				if (m_specular)
-				Append(out, EKeywords::Specular, "{", *m_specular, "}");
+					Append(out, EKeywords::Specular, "{", *m_specular, "}");
 				if (m_range)
-				Append(out, EKeywords::Range, "{", *m_range, "}");
+					Append(out, EKeywords::Range, "{", *m_range, "}");
 				if (m_cone_angle)
-				Append(out, EKeywords::Fov, "{", *m_cone_angle, "}");
+					Append(out, EKeywords::Fov, "{", *m_cone_angle, "}");
 				if (m_cast_shadow)
-				Append(out, EKeywords::CastShadow, "{", *m_cast_shadow, "}");
+					Append(out, EKeywords::CastShadow, "{", *m_cast_shadow, "}");
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -3121,19 +3122,19 @@ namespace pr::ldraw
 			auto s = Append(out, seri::Header{ EKeywords::LightSource, m_name, m_colour });
 			{
 				if (!m_style.empty())
-				Append(out, seri::Header{ EKeywords::Style }, m_style);
+					Append(out, seri::Header{ EKeywords::Style }, m_style);
 				if (m_ambient)
-				Append(out, seri::Header{ EKeywords::Ambient }, *m_ambient);
+					Append(out, seri::Header{ EKeywords::Ambient }, *m_ambient);
 				if (m_diffuse)
-				Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
+					Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
 				if (m_specular)
-				Append(out, seri::Header{ EKeywords::Specular }, *m_specular);
+					Append(out, seri::Header{ EKeywords::Specular }, *m_specular);
 				if (m_range)
-				Append(out, seri::Header{ EKeywords::Range }, *m_range);
+					Append(out, seri::Header{ EKeywords::Range }, *m_range);
 				if (m_cone_angle)
-				Append(out, seri::Header{ EKeywords::Fov }, *m_cone_angle);
+					Append(out, seri::Header{ EKeywords::Fov }, *m_cone_angle);
 				if (m_cast_shadow)
-				Append(out, seri::Header{ EKeywords::CastShadow }, *m_cast_shadow);
+					Append(out, seri::Header{ EKeywords::CastShadow }, *m_cast_shadow);
 				LdrBase::Write(out);
 			}
 		}

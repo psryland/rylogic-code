@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Windows.Input;
@@ -68,7 +68,7 @@ namespace Rylogic.Gui.WPF
 			//     2) OnMouseDown - base.OnMouseDown() does *not* raise the MouseDown event
 			//     3) Handers attached to event MouseDown
 			//  - MouseDown is a 'bubbling' event, it starts at the visual tree leaf element and
-			//    bubble up the tree, stopped when a handle sets 'e.Handled = true'
+			//    bubbles up the tree, stopping when a handle sets 'e.Handled = true'
 			//  - PreviewMouseDown is a tunnelling 'event', it starts at the window and drills
 			//    down the tree to the leaves. If 'e.Handled = true' in a PreviewMouseDown handler
 			//    then MouseDown is never raised, and override OnMouseDown isn't called.
