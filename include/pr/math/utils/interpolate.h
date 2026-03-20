@@ -10,7 +10,7 @@
 namespace pr::math
 {
 	template <ScalarTypeFP S>
-	struct InterpolateVector
+	struct HermiteVector
 	{
 		using CurveType = CurveType<S>;
 		using CubicCurve3 = CubicCurve3<S>;
@@ -20,10 +20,10 @@ namespace pr::math
 		Vec4 m_x1;
 		S m_interval;
 
-		InterpolateVector() noexcept
-			:InterpolateVector(Origin<Vec4>(), Zero<Vec4>(), Origin<Vec4>(), Zero<Vec4>(), S(1))
+		HermiteVector() noexcept
+			:HermiteVector(Origin<Vec4>(), Zero<Vec4>(), Origin<Vec4>(), Zero<Vec4>(), S(1))
 		{}
-		InterpolateVector(Vec4 x0, Vec4 v0, Vec4 x1, Vec4 v1, S interval) noexcept
+		HermiteVector(Vec4 x0, Vec4 v0, Vec4 x1, Vec4 v1, S interval) noexcept
 			: m_p(x0 - x1, v0 * interval, Zero<Vec4>(), v1 * interval, CurveType::Hermite)
 			, m_x1(x1)
 			, m_interval(interval)
@@ -45,7 +45,7 @@ namespace pr::math
 	};
 
 	template <ScalarTypeFP S>
-	struct InterpolateRotation
+	struct HermiteQuaternion
 	{
 		// Notes:
 		// - This is C1-continuous interpolation using a Hermite cubic in SO(3). I.e, orientation changes smoothly
@@ -70,10 +70,10 @@ namespace pr::math
 		Quat m_q1;
 		S m_interval;
 		
-		InterpolateRotation() noexcept
-			:InterpolateRotation(Identity<Quat>(), Zero<Vec4>(), Identity<Quat>(), Zero<Vec4>(), S(1))
+		HermiteQuaternion() noexcept
+			:HermiteQuaternion(Identity<Quat>(), Zero<Vec4>(), Identity<Quat>(), Zero<Vec4>(), S(1))
 		{}
-		InterpolateRotation(Quat q0, Vec4 w0, Quat q1, Vec4 w1, S interval) noexcept
+		HermiteQuaternion(Quat q0, Vec4 w0, Quat q1, Vec4 w1, S interval) noexcept
 			: m_p()
 			, m_q1(q1)
 			, m_interval(interval)
@@ -194,19 +194,43 @@ namespace pr::math
 	};
 
 	template <ScalarTypeFP S>
-	struct HermiteVelCorrected
+	struct HermiteTransform
 	{
-		using CurveType = CurveType<S>;
-		using CubicCurve3 = CubicCurve3<S>;
+		using Xform = Xform<S>;
 		using Vec4 = Vec4<S>;
+		using Quat = Quat<S>;
 
+		HermiteVector<S> pos;
+		HermiteQuaternion<S> rot;
+
+		HermiteTransform() noexcept
+			: pos()
+			, rot()
+		{}
+		HermiteTransform(
+			Vec4 pos0, Vec4 vel0, Quat rot0, Vec4 angvel0,
+			Vec4 pos1, Vec4 vel1, Quat rot1, Vec4 angvel1,
+			S interval) noexcept
+			: pos(pos0, vel0, pos1, vel1, interval)
+			, rot(rot0, angvel0, rot1, angvel1, interval)
+		{}
+
+		Xform Eval(S t) const noexcept
+		{
+			return Xform{ pos.Eval(t), rot.Eval(t) };
+		}
+	};
+
+	template <ScalarTypeFP S>
+	struct HermiteVector_MidPoint
+	{
 		// Notes:
 		//  - Velocity-corrected Hermite spline interpolator.
 		//  - Constructs a cubic Hermite spline from actual positions at t±T and (pos, vel) at the midpoint.
 		//  - The endpoint tangents are derived so the cubic exactly passes through (pos, vel) at u=0.5.
-		CubicCurve3 m_p;
-		Vec4 m_x1;
-		S m_interval;
+		using CurveType = CurveType<S>;
+		using CubicCurve3 = CubicCurve3<S>;
+		using Vec4 = Vec4<S>;
 
 		// Construct a vel-corrected Hermite from:
 		//   pos_prev, pos_next: actual positions at t-T and t+T
@@ -214,41 +238,141 @@ namespace pr::math
 		//   vel:    velocity at the time t
 		//   interval: total time span from 'pos_prev' to 'pos_next' (= 2*T)
 		// Derive endpoint tangents V0, V1 in parameter space that force P(0.5) = pos, P'(0.5)/interval = vel
-		HermiteVelCorrected()
-			: m_p(Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), Zero<Vec4>(), CurveType::Hermite)
-			, m_x1(Zero<Vec4>())
-			, m_interval(S(1))
+		HermiteVector<S> pos;
+
+		HermiteVector_MidPoint() noexcept
+			: pos()
 		{}
-		HermiteVelCorrected(Vec4 pos_prev, Vec4 pos_next, Vec4 pos, Vec4 vel, S interval)
-			: m_p(
+		HermiteVector_MidPoint(Vec4 pos_prev, Vec4 pos_next, Vec4 pos_mid, Vec4 vel_mid, S interval) noexcept
+			: pos()
+		{
+			// --- Position: velocity-corrected Hermite ---
+			// Standard Hermite: P(u) = x1 + H(u; p0, m0, 0, m1) where p0 = pos_prev - pos_next
+			// Constraints at u=0.5: P(0.5) = pos_mid and P'(0.5)/interval = vel_mid
+			// Solving gives the same tangent formulas as VelCorrectedHermite:
+			//   m0 = 4*pos_mid - 5*pos_prev + pos_next - 2*vel_mid*interval
+			//   m1 = -pos_prev + 5*pos_next - 4*pos_mid - 2*vel_mid*interval
+			pos.m_p = CubicCurve3(
 				pos_prev - pos_next,
-				S(4) * pos - S(5) * pos_prev + pos_next - S(2) * vel * interval,
+				S(4) * pos_mid - S(5) * pos_prev + pos_next - S(2) * vel_mid * interval,
 				Zero<Vec4>(),
-				-pos_prev + S(5) * pos_next - S(4) * pos - S(2) * vel * interval,
-				CurveType::Hermite)
-			, m_x1(pos_next)
-			, m_interval(interval)
-		{}
-		Vec4 Eval(S t) const
+				-pos_prev + S(5) * pos_next - S(4) * pos_mid - S(2) * vel_mid * interval,
+				CurveType::Hermite
+			);
+			pos.m_x1 = pos_next;
+			pos.m_interval = interval;
+		}
+
+		Vec4 Eval(S t) const noexcept
 		{
 			// Evaluate position. 't' is time relative to the midpoint (t=0 at PDP time, t=-T at pos_prev, t=+T at pos_next).
-			S T = S(0.5) * m_interval;
-			S u = (t + T) / m_interval;
-			return m_x1 + m_p.Eval(u);
+			S T = S(0.5) * pos.m_interval;
+			S u = (t + T) / pos.m_interval;
+			return pos.m_x1 + pos.m_p.Eval(u);
 		}
-		Vec4 EvalDerivative(S t) const
+		Vec4 EvalDerivative(S t) const noexcept
 		{
 			// Evaluate velocity (in world-space units per second).
-			S T = S(0.5) * m_interval;
-			S u = (t + T) / m_interval;
-			return m_p.EvalDerivative(u) / m_interval;
+			S T = S(0.5) * pos.m_interval;
+			S u = (t + T) / pos.m_interval;
+			return pos.m_p.EvalDerivative(u) / pos.m_interval;
 		}
-		Vec4 EvalDerivative2(S t) const
+		Vec4 EvalDerivative2(S t) const noexcept
 		{
 			// Evaluate acceleration (in world-space units per second^2).
-			S T = S(0.5) * m_interval;
-			S u = (t + T) / m_interval;
-			return m_p.EvalDerivative2(u) / m_interval;
+			S T = S(0.5) * pos.m_interval;
+			S u = (t + T) / pos.m_interval;
+			return pos.m_p.EvalDerivative2(u) / pos.m_interval;
+		}
+	};
+
+	template <ScalarTypeFP S>
+	struct HermiteQuaternion_MidPoint
+	{
+		// Notes:
+		//  - Velocity-corrected Hermite spline interpolator.
+		//  - Constructs a cubic Hermite spline from actual orientations at t±T and (rot, angvel) at the midpoint.
+		//  - The endpoint tangents are derived so the cubic exactly passes through (rot, angvel) at u=0.5.
+		using CurveType = CurveType<S>;
+		using CubicCurve3 = CubicCurve3<S>;
+		using Quat = Quat<S>;
+		using Vec4 = Vec4<S>;
+
+		HermiteQuaternion<S> rot;
+
+		HermiteQuaternion_MidPoint() noexcept
+			: rot()
+		{}
+		HermiteQuaternion_MidPoint(Quat rot_prev, Quat rot_mid,  Vec4 angvel_mid, Quat rot_next, S interval) noexcept
+			: rot()
+		{
+			// --- Rotation: velocity-corrected in log domain ---
+			// HermiteQuaternion works in the log domain relative to rot_next:
+			//   u(t) = log(~rot_next * q(t)), so u0 = log(~rot_next * rot_prev), u1 = 0
+			// The tangent in log space is: u' = J^{-1}(u) * w_local, where w_local = ~rot_next * w
+			//
+			// The midpoint constraint is: u(0.5) = log(~rot_next * rot_mid) = u_mid
+			// and: u'(0.5) = J^{-1}(u_mid) * (~rot_next * angvel_mid)
+			//
+			// Using the same Hermite velocity-correction as position (but in log space):
+			auto u0 = LogMap<Vec4>(~rot_next * rot_prev);
+			auto u_mid = LogMap<Vec4>(~rot_next * rot_mid);
+			auto t_mid = Tangent(~rot_next * rot_mid, Rotate(~rot_next, angvel_mid)) * interval;
+
+			// Solve for endpoint tangents m0_r, m1_r such that the Hermite curve in log space
+			// passes through u_mid at u=0.5 with derivative t_mid:
+			//   m0_r = 4*u_mid - 5*u0 + 0 - 2*t_mid = 4*u_mid - 5*u0 - 2*t_mid
+			//   m1_r = -u0 + 5*0 - 4*u_mid - 2*t_mid = -u0 - 4*u_mid - 2*t_mid
+			auto m0_r = S(4) * u_mid - S(5) * u0 - S(2) * t_mid;
+			auto m1_r = -u0 - S(4) * u_mid - S(2) * t_mid;
+
+			rot.m_p = CubicCurve3(u0, m0_r, Zero<Vec4>(), m1_r, CubicCurve3::Hermite);
+			rot.m_q1 = rot_next;
+			rot.m_interval = interval;
+		}
+
+		// Evaluate rotation at time t (t=0 at midpoint, t=-T at rot_prev, t=+T at rot_next, where T = interval/2)
+		Quat Eval(S t) const noexcept
+		{
+			auto u = (t + S(0.5) * rot.m_interval) / rot.m_interval;
+			auto log_u = rot.m_p.Eval(u);
+			return rot.m_q1 * ExpMap<Quat>(log_u);
+		}
+		Vec4 EvalDerivative(S t) const noexcept
+		{
+			auto u = (t + S(0.5) * rot.m_interval) / rot.m_interval;
+			auto log_u = rot.m_p.Eval(u);
+			auto log_u_dot = rot.m_p.EvalDerivative(u) / rot.m_interval;
+			return Rotate(rot.m_q1, S(2) * (rot.m_p.EvalDerivative(u) / rot.m_interval));
+		}
+	};
+
+	template <ScalarTypeFP S>
+	struct HermiteTransform_MidPoint
+	{
+		using Xform = Xform<S>;
+		using Vec4 = Vec4<S>;
+		using Quat = Quat<S>;
+
+		HermiteVector_MidPoint<S> pos;
+		HermiteQuaternion_MidPoint<S> rot;
+
+		HermiteTransform_MidPoint() noexcept
+			: pos()
+			, rot()
+		{}
+		HermiteTransform_MidPoint(
+			Vec4 pos_prev, Vec4 pos_next, Vec4 pos, Vec4 vel,
+			Quat rot_prev, Quat rot_mid, Vec4 angvel_mid, Quat rot_next,
+			S interval) noexcept
+			: pos(pos_prev, pos_next, pos, vel, interval)
+			, rot(rot_prev, rot_mid, angvel_mid, rot_next, interval)
+		{}
+
+		// Evaluate the transform at time t (t=0 at midpoint, t=-T at prev, t=+T at next, where T = interval/2)
+		Xform Eval(S t) const noexcept
+		{
+			return Xform{ pos.Eval(t), rot.Eval(t) };
 		}
 	};
 }
@@ -313,7 +437,7 @@ namespace pr::math::tests
 			return samples;
 		}
 
-		PRUnitTestMethod(Vector)
+		PRUnitTestMethod(HermiteVec)
 		{
 			auto tol = 0.001f;
 
@@ -323,7 +447,7 @@ namespace pr::math::tests
 				auto x1 = V4(1, 1, 0, 1);
 				auto v0 = V4(0.3f, 0, 0, 0);
 				auto v1 = V4(0.3f, 0, 0, 0);
-				InterpolateVector<float> interp(x0, v0, x1, v1, 1.0f);
+				HermiteVector<float> interp(x0, v0, x1, v1, 1.0f);
 				for (float t = 0; t <= 1.0f; t += 0.1f)
 				{
 					auto pos = interp.Eval(t);
@@ -343,7 +467,7 @@ namespace pr::math::tests
 			{
 				auto x0 = V4(0, 0, 0, 1);
 				auto v0 = V4(0.3f, 0, 0, 0);
-				InterpolateVector<float> interp(x0, v0, x0, v0, 1.0f);
+				HermiteVector<float> interp(x0, v0, x0, v0, 1.0f);
 				auto X0 = interp.Eval(0);
 				auto V0 = interp.EvalDerivative(0);
 				PR_EXPECT(FEqlAbsolute(X0, x0, tol));
@@ -358,7 +482,7 @@ namespace pr::math::tests
 				auto x1 = Random<V4>(rng, Origin<V4>(), 10.0f).w1();
 				auto v0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
 				auto v1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
-				InterpolateVector<float> interp(x0, v0, x1, v1, 1.0f);
+				HermiteVector<float> interp(x0, v0, x1, v1, 1.0f);
 				auto X0 = interp.Eval(0);
 				auto X1 = interp.Eval(1);
 				auto V0 = interp.EvalDerivative(0);
@@ -369,7 +493,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(V1, v1, tol));
 			}
 		}
-		PRUnitTestMethod(Rotation)
+		PRUnitTestMethod(HermiteQuat)
 		{
 			auto tol = 0.001f;
 
@@ -379,7 +503,7 @@ namespace pr::math::tests
 				auto q1 = Q(V4::ZAxis(), constants<float>::tau_by_4); // 90 about Z
 				auto w0 = V4(0, constants<float>::tau_by_4, 0, 0);    // 90 deg/s about Y
 				auto w1 = V4(0, 0, 0, 0);
-				InterpolateRotation<float> interp(q0, w0, q1, w1, 1.0f);
+				HermiteQuaternion<float> interp(q0, w0, q1, w1, 1.0f);
 				auto Q0 = interp.Eval(0);
 				auto Q1 = interp.Eval(1);
 				auto W0 = interp.EvalDerivative(0);
@@ -394,7 +518,7 @@ namespace pr::math::tests
 			{
 				auto q0 = Q(0, 0, 0, 1);
 				auto w0 = V4(0, 0, 0.3f, 0);
-				InterpolateRotation<float> interp(q0, w0, q0, w0, 1.0f);
+				HermiteQuaternion<float> interp(q0, w0, q0, w0, 1.0f);
 				auto Q0 = interp.Eval(0);
 				auto W0 = interp.EvalDerivative(0);
 				PR_EXPECT(FEqlAbsolute(Q0.xyzw, q0.xyzw, tol));
@@ -407,7 +531,7 @@ namespace pr::math::tests
 				{
 					auto q0 = Q(V4::ZAxis(), constants<float>::tau_by_4);
 					auto w0 = V4(0, 0, w, 0);
-					InterpolateRotation<float> interp(q0, w0, q0, w0, 1.0f);
+					HermiteQuaternion<float> interp(q0, w0, q0, w0, 1.0f);
 					auto Q0 = interp.Eval(0);
 					auto W0 = interp.EvalDerivative(0);
 					PR_EXPECT(FEqlAbsolute(Q0.xyzw, q0.xyzw, tol));
@@ -425,7 +549,7 @@ namespace pr::math::tests
 				auto q1 = Q(Vec4<float>(axis1, 0), std::uniform_real_distribution<float>(0, constants<float>::tau)(rng));
 				auto w0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
 				auto w1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
-				InterpolateRotation<float> interp(q0, w0, q1, w1, 1.0f);
+				HermiteQuaternion<float> interp(q0, w0, q1, w1, 1.0f);
 				auto Q0 = interp.Eval(0);
 				auto Q1 = interp.Eval(1);
 				auto W0 = interp.EvalDerivative(0);
@@ -440,7 +564,11 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(W1, w1, tol));
 			}
 		}
-		PRUnitTestMethod(VelCorrected)
+		PRUnitTestMethod(HermiteXform)
+		{
+			// @Copilot, please at unit tests here
+		}
+		PRUnitTestMethod(HermiteVec_MidPoint)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -453,7 +581,7 @@ namespace pr::math::tests
 				auto vel = vec4_t(S(1), S(0), S(0), S(0));
 				auto interval = S(2);
 
-				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
 
 				// Boundary: Eval(-T) = pos_prev, Eval(+T) = pos_next, where T = interval/2
 				auto T = interval / S(2);
@@ -475,7 +603,7 @@ namespace pr::math::tests
 				auto vel = vec4_t(S(2), S(0), S(0), S(0));
 				auto interval = S(2);
 
-				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
 
 				// Boundary positions
 				auto T = interval / S(2);
@@ -497,7 +625,7 @@ namespace pr::math::tests
 				auto T = interval / S(2);
 				auto eps = S(0.001);
 
-				HermiteVelCorrected<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
 
 				// Check continuity at several sample points
 				for (S t = -T + eps; t < T - eps; t += S(0.1))
@@ -510,6 +638,14 @@ namespace pr::math::tests
 					PR_EXPECT(Length(diff) < S(0.1));
 				}
 			}
+		}
+		PRUnitTestMethod(HermiteQuat_MidPoint)
+		{
+			// @Copilot, please at unit tests here
+		}
+		PRUnitTestMethod(HermiteXform_MidPoint)
+		{
+			// @Copilot, please at unit tests here
 		}
 		PRUnitTestMethod(LdrDump)
 		{
@@ -545,8 +681,8 @@ namespace pr::math::tests
 				auto next = &samples[i + 1];
 				auto T = std::max(next->t - curr->t, 0.001f);
 
-				auto interpolateV = InterpolateVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
-				auto interpolateQ = InterpolateRotation<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
+				auto interpolateV = HermiteVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
+				auto interpolateQ = HermiteQuaternion<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
 
 				auto& boxes = builder.Group("boxes1"); int box_index = 0;
 				auto& track = builder.Line("track1", 0xFF00FF00).strip(samples[0].pos);
@@ -561,8 +697,8 @@ namespace pr::math::tests
 
 						++curr; ++next;
 						T = std::max(samples[i + 1].t - samples[i].t, 0.001f);
-						interpolateV = InterpolateVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
-						interpolateQ = InterpolateRotation<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
+						interpolateV = HermiteVector<float>(samples[i].pos, samples[i].vel, samples[i + 1].pos, samples[i + 1].vel, T);
+						interpolateQ = HermiteQuaternion<float>(samples[i].rot, samples[i].avel, samples[i + 1].rot, samples[i + 1].avel, T);
 						dt = 0.0f;
 						box_index = 0;
 					}

@@ -624,45 +624,38 @@ namespace pr::rdr12
 	// Store change event. Called before and after a change to the collection of objects in the store.
 	void Context::OnStoreChange(ldraw::StoreChangeEventArgs const& args)
 	{
-		auto initiator = static_cast<view3d::EStoreChangeInitiator>(args.m_initiator);
-		auto change_flags = static_cast<view3d::EStoreChangeFlags>(args.m_change_flags);
-
-		// When a source is about to be reloaded, remove it's objects from the windows, but keep the context ids so we know what to reload.
-		if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
+		if (args.m_before)
 		{
+			// Keep the context ids on reloads
+			auto keep_context_ids = AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed);
+
 			for (auto& wnd : m_windows)
+				wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, keep_context_ids);
+		}
+		else // after
+		{
+			// Re-Add objects for the context ids after reload
+			if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
 			{
-				if (args.m_before)
+				struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; };
+				auto ReAdd = [](void* ctx, Guid const& id)
 				{
-					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, true);
-				}
-				else
+					auto& x = *static_cast<Ids*>(ctx);
+					return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
+				};
+
+				for (auto& wnd : m_windows)
 				{
 					// After reload, each window re-adds objects from the previous contexts
-					struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; } ids = { args.m_context_ids, wnd->m_guids };
-					constexpr auto ReAdd = [](void* ctx, Guid const& id)
-					{
-						auto& x = *static_cast<Ids*>(ctx);
-						return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
-					};
+					Ids ids = { args.m_context_ids, wnd->m_guids };
 					wnd->Add(m_sources.Sources(), { &ids, ReAdd });
 				}
-
-				wnd->Invalidate();
-			}
-		}
-
-		// When a source is about to be removed, remove it's objects from the windows.
-		if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ObjectsRemoved))
-		{
-			if (args.m_before)
-			{
-				for (auto& wnd : m_windows)
-					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, false);
 			}
 		}
 
 		// Notify of updated sources
+		auto initiator = static_cast<view3d::EStoreChangeInitiator>(args.m_initiator);
+		auto change_flags = static_cast<view3d::EStoreChangeFlags>(args.m_change_flags);
 		StoreChange(initiator, change_flags, args.m_context_ids.data(), isize(args.m_context_ids), args.m_before);
 	}
 

@@ -551,7 +551,8 @@ namespace pr::rdr12::ldraw
 			return;
 
 		// Create a stop token for this load operation
-		std::stop_token ss_token;
+		std::stop_source ss;
+		auto ss_token = ss.get_token();
 		{
 			auto loading = m_loading.lock();
 
@@ -563,13 +564,11 @@ namespace pr::rdr12::ldraw
 			if (loading->find(context_id) != std::end(*loading))
 				return;
 
-			std::stop_source ss;
-			ss_token = ss.get_token();
 			loading->emplace(context_id, std::move(ss));
 		}
 
 		// Reload that file group (asynchronously)
-		std::jthread([this, src = iter->second, context_id, ss_token]() mutable
+		std::jthread([this, src = iter->second, context_id, ss_token = std::move(ss_token)]() mutable
 		{
 			// RAII guard: erase from the loading map when this scope exits (normal or exception)
 			auto cleanup = Scope<void>([&]
@@ -585,7 +584,11 @@ namespace pr::rdr12::ldraw
 			// If shutting down, skip Notify
 			if (!m_shutting_down.load(std::memory_order_acquire))
 			{
-				src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, nullptr });
+				auto change_flags = EStoreChangeFlags::ExistingObjectsRefreshed |
+					(output ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None) |
+					(src->m_output ? EStoreChangeFlags::ObjectsRemoved : EStoreChangeFlags::None);
+
+				src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, change_flags, nullptr });
 			}
 		}).detach();
 	}

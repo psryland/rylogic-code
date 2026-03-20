@@ -284,12 +284,8 @@ namespace LDraw
 				{
 					try
 					{
-						//TODO: This should be done by the native code right?
-						//foreach (var script in Scripts)
-						//	script.CheckForChangedScript();
-						//
-						//if (Settings.AutoRefresh)
-						//	m_view3d.CheckForChangedSources();
+						if (Profile.AutoRefresh)
+							View3d.CheckForChangedSources();
 					}
 					catch (Exception ex)
 					{
