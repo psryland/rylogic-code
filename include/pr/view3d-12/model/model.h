@@ -36,7 +36,7 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource>   m_ib;        // The index buffer
 		D3D12_VERTEX_BUFFER_VIEW m_vb_view;   // Buffer views for shader binding
 		D3D12_INDEX_BUFFER_VIEW  m_ib_view;   // Buffer views for shader binding
-		TNuggetChain             m_nuggets;   // The nuggets for this model
+		NuggetPtr                m_nuggets;   // The chain of nuggets for this model
 		int64_t                  m_vcount;    // The count of elements in the V-buffer
 		int64_t                  m_icount;    // The count of elements in the I-buffer
 		m4x4                     m_m2root;    // Model to root transform. Use for multi-part models, like skinned characters

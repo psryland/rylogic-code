@@ -111,21 +111,20 @@ namespace pr::rdr12
 		if (!IsWithin(Range(0, m_icount), ndata.m_irange))
 			throw std::runtime_error(std::format("I-Range exceeds the size of this model ({})", m_name.c_str()));
 		if (!AllSet(ndata.m_nflags, ENuggetFlag::RangesCanOverlap))
-			for (auto& nug : m_nuggets)
+			for (auto const& nug : Enumerate(m_nuggets))
 				if (Intersects(ndata.m_irange, nug.m_irange))
 					throw std::runtime_error(std::format("A render nugget covering this index range already exists. Did you forget the 'ENuggetFlag::RangesCanOverlap' flag, or is a DeleteNuggets() call needed ({})", m_name.c_str()));
 		#endif
 
 		auto nug = factory.CreateNugget(ndata, this);
-		m_nuggets.push_back(*nug);
+		nug->m_next = std::move(m_nuggets);
+		m_nuggets = std::move(nug);
 	}
 
 	// Clear the render nuggets for this model.
 	void Model::DeleteNuggets()
 	{
-		ResourceStore::Access store(rdr());
-		for (;!m_nuggets.empty();)
-			store.Delete(&m_nuggets.front());
+		m_nuggets = nullptr;
 	}
 
 	// Ref-counting clean up function

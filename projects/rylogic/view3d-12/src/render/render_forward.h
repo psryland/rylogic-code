@@ -33,7 +33,7 @@ namespace pr::rdr12
 		void Execute(Frame& frame) override;
 
 		// Add model nuggets to the draw list for this render step
-		void AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist) override;
+		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
 
 		// Draw a single nugget
 		void DrawNugget(Nugget const& nugget, PipeStateDesc& desc);

@@ -113,6 +113,7 @@
   -->
   <ItemGroup>
     <ClCompile Include="src\compute\gpu.cpp" />
+    <ClCompile Include="src\instance\instance.cpp" />
     <ClCompile Include="src\ldraw\ldraw_gizmo.cpp" />
     <ClCompile Include="src\ldraw\ldraw_object.cpp" />
     <ClCompile Include="src\ldraw\ldraw_reader_text.cpp" />

@@ -78,27 +78,31 @@ namespace pr::rdr12
 	}
 
 	// Add model nuggets to the draw list for this render step.
-	void RenderForward::AddNuggets(BaseInstance const& inst, TNuggetChain const& nuggets, drawlist_t& drawlist)
+	void RenderForward::AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist)
 	{
-		drawlist.reserve(drawlist.size() + nuggets.size());
+		auto has_alpha = HasAlpha(inst);
 
 		// Add a draw list element for each nugget in the instance's model
-		for (auto& nug : nuggets)
+		for (auto& nugget : Enumerate(nuggets))
 		{
-			// Ignore if flagged as not visible
-			if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
-				continue;
-
-			for (;;)
+			for (auto& nug : nugget.Dependents())
 			{
-				// Don't add alpha back faces when using 'Points' fill mode
-				if (nug.m_id == AlphaNuggetId && nug.FillMode() == EFillMode::Points)
-					break;
+				// Skip the default nugget if the instance requires alpha
+				if (has_alpha == (nug.m_variant == DefaultNugget))
+					continue;
+
+				// Ignore if flagged as not visible
+				if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
+					continue;
 
 				// Create the combined sort key for this nugget
 				auto sk = nug.m_sort_key;
-				auto sko = inst.find<SKOverride>(EInstComp::SortkeyOverride);
-				if (sko) sk = sko->Combine(sk);
+				if (auto* sko = inst.find<SKOverride>(EInstComp::SortkeyOverride))
+					sk = sko->Combine(sk);
+
+				// Don't add alpha back faces when using 'Points' fill mode
+				if (nug.FillMode() == EFillMode::Points && sk.Group() == ESortGroup::AlphaBack)
+					break;
 
 				// Set the texture id part of the key if not set already
 				if (!AnySet(sk, SortKey::TextureIdMask) && nug.m_tex_diffuse != nullptr)
@@ -115,25 +119,15 @@ namespace pr::rdr12
 							continue;
 
 						// hash the sort ids together
-						shdr_id = shdr_id*13 ^ overlay.m_overlay->SortId();
+						shdr_id = shdr_id * 13 ^ overlay.m_overlay->SortId();
 					}
 					sk = SetBits(sk, SortKey::ShaderIdMask, shdr_id << SortKey::ShaderIdOfs);
 				}
 
 				// Add an element to the draw list
-				DrawListElement dle = {
-					.m_sort_key = sk,
-					.m_nugget = &nug,
-					.m_instance = &inst,
-				};
-				drawlist.push_back(dle);
+				drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
 				m_sort_needed = true;
-				break;
 			}
-
-			// Recursively add dependent nuggets
-			if (!nug.m_nuggets.empty())
-				AddNuggets(inst, nug.m_nuggets, drawlist);
 		}
 	}
 

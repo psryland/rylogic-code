@@ -903,5 +903,8 @@
     <ClCompile Include="src\compute\gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\instance\instance.cpp">
+      <Filter>src\instance</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

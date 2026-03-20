@@ -1203,7 +1203,7 @@ namespace pr::rdr12::ldraw
 			void ConvertNuggets(Renderer& rdr, ELineStyle line_style, LdrObject* obj)
 			{
 				auto shdr = CreateShader(rdr, line_style);
-				for (auto& nug : obj->m_model->m_nuggets)
+				for (auto& nug : Enumerate(obj->m_model->m_nuggets))
 				{
 					nug.m_topo = line_style == ELineStyle::LineSegments ? ETopo::LineList : ETopo::LineStripAdj;
 					nug.m_shdr_overlays.push_back({ shdr, ERenderStep::RenderForward });
@@ -5111,7 +5111,7 @@ namespace pr::rdr12::ldraw
 			auto& equation = ob.m_user_data.get<eval::Expression>();
 			auto& extras = ob.m_user_data.get<Extras>();
 			auto& cache = ob.m_user_data.get<Cache>();
-			auto init = model.m_nuggets.empty();
+			auto init = model.m_nuggets == nullptr;
 
 			// Find the range to plot the equation over
 			auto& cam = scene.m_cam;
