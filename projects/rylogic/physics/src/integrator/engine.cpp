@@ -14,107 +14,20 @@
 #include "src/compute/sweep_gpu.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
 #include "src/diagnostics/physics_log.h"
+#include "src/diagnostics/dbg_physics.h"
 #include "src/utility/gpu.h"
 
 namespace pr::physics
 {
-	// TODO: this should be in engine config
-	constexpr auto max_col_pairs = 65536;
-
 	struct BodyPair
 	{
 		m4x4 b2a;
 		RigidBody const* objA;
 		RigidBody const* objB;
-	};
-	struct EngineBufferCache
-	{
-		// Persists across frames
-		ShapeCache m_shape_cache;
-
-		// Staging buffer for packing body dynamics
-		std::vector<GpuRigidBody> m_rb_dynamics;
-
-		// Diagnostics
-		#if PR_DBG_PHYSICS
-		BodyHistory m_history;
-		PhysicsLog m_log;
-		#endif
-	};
-	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
-	{
-		delete cache;
-	}
-
-	// Debugging utilities for inspecting GPU results.
-	struct DbgPhysics
-	{
-		Engine& me;
-		DbgPhysics(Engine& engine) : me(engine) {}
-
-		// Debugging inspection of GPU results.
-		void ReadbackIntegrate(int body_count)
-		{
-			#if PR_DBG_PHYSICS
-			static bool capture = false;
-			if (capture)
-			{
-				std::vector<GpuRigidBody> bodies(body_count);
-				std::vector<BBox> aabbs(body_count);
-				std::vector<GpuIntegrateDiag> diag(body_count);
-				me.m_gpu_integrator->Readback(me.m_gpu->m_job, bodies, aabbs, diag);
-			}
-			#else
-			(void)body_count;
-			#endif
-		}
-		void ReadbackSweeo(D3DPtr<ID3D12Resource> counters)
-		{
-			#if PR_DBG_PHYSICS
-			static bool capture = false;
-			if (capture)
-			{
-				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
-				auto pairs = me.m_gpu_sort_and_sweep->Readback(me.m_gpu->m_job, counters, out_pairs);
-				assert(pairs.size() < max_col_pairs && "Hit capacity on pairs");
-			}
-			#else
-			(void)counters;
-			#endif
-		}
-		void ReadbackCollide(D3DPtr<ID3D12Resource> counters)
-		{
-			#if PR_DBG_PHYSICS
-			static bool capture = false;
-			if (capture)
-			{
-				std::vector<GpuResolveContact> out_contacts(max_col_pairs);
-				std::vector<GpuPairDiag> out_diag(max_col_pairs);
-				auto [contacts, diag] = me.m_gpu_collision_detector->Readback(me.m_gpu->m_job, counters, out_contacts, out_diag);
-				assert(contacts.size() < max_col_pairs && "Hit capacity on contacts");
-			}
-			#else
-			(void)counters;
-			#endif
-		}
-		void ReadbackResolve(int body_count, D3DPtr<ID3D12Resource> r_bodies)
-		{
-			#if PR_DBG_PHYSICS
-			static bool capture = false;
-			if (capture)
-			{
-				std::vector<GpuRigidBody> bodies(body_count);
-				std::vector<GpuResolveContact> contacts(max_col_pairs);
-				std::vector<GpuPairDiag> diag(max_col_pairs);
-				me.m_gpu_resolver->Readback(me.m_gpu->m_job, r_bodies, bodies);
-			}
-			#else
-			(void)body_count, r_bodies;
-			#endif
-		}
 	};
 
 	Engine::Engine(ID3D12Device4* existing_device)
@@ -199,7 +112,9 @@ namespace pr::physics
 		// Integrate -> Updates dynamics, generates AABBs, debug data
 		{
 			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
+			#if PR_DBG_PHYSICS
 			dbg.ReadbackIntegrate(body_count);
+			#endif
 		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
@@ -209,8 +124,10 @@ namespace pr::physics
 			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, counters, aabb_idx, bodies);
-			dbg.ReadbackSweeo(counters);
+			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, MaxCollisionPairs, counters, aabb_idx, bodies);
+			#if PR_DBG_PHYSICS
+			dbg.ReadbackSweep(counters);
+			#endif
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
@@ -218,8 +135,10 @@ namespace pr::physics
 			auto counters = m_gpu_integrator->Counters();
 			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, MaxCollisionPairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+			#if PR_DBG_PHYSICS
 			dbg.ReadbackCollide(counters);
+			#endif
 		}
 
 		// Resolve -> uses contacts -> applies impulses to bodies
@@ -228,8 +147,10 @@ namespace pr::physics
 			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, dt, max_col_pairs, dispatch, counters, contacts, bodies, m_materials->span());
+			m_gpu_resolver->Resolve(m_gpu->m_job, dt, MaxCollisionPairs, dispatch, counters, contacts, bodies, m_materials->span());
+			#if PR_DBG_PHYSICS
 			dbg.ReadbackResolve(body_count, bodies);
+			#endif
 		}
 
 		// Readback dynamics from GPU and unpack into bodies

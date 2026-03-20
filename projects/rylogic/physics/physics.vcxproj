@@ -121,7 +121,9 @@
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
+    <ClInclude Include="src\diagnostics\dbg_physics.h" />
     <ClInclude Include="src\diagnostics\physics_log.h" />
+    <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>

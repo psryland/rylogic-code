@@ -290,12 +290,20 @@ void CSAssignColours(uint3 dtid : SV_DispatchThreadID)
 		int a = g_contacts[idx].body_idx_a;
 		int b = g_contacts[idx].body_idx_b;
 
-		uint used = g_bodies[a].colour_used | g_bodies[b].colour_used;
+		// Only consider colour conflicts for dynamic bodies (inv_mass > 0).
+		// Static bodies (inv_mass == 0) never have their momentum changed,
+		// so contacts involving them don't conflict with each other.
+		bool a_dynamic = g_bodies[a].os_com_and_invmass.w > 0;
+		bool b_dynamic = g_bodies[b].os_com_and_invmass.w > 0;
+		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
+		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
+
+		uint used = used_a | used_b;
 		uint colour = min(firstbitlow(~used), MaxColours);
 
 		g_colours[idx] = colour;
-		g_bodies[a].colour_used |= (1u << colour);
-		g_bodies[b].colour_used |= (1u << colour);
+		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
+		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
 	}
 }
 

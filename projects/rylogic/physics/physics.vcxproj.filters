@@ -176,6 +176,12 @@
     <ClInclude Include="..\..\..\include\pr\physics\diagnostics\body_history.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
+    <ClInclude Include="src\diagnostics\dbg_physics.h">
+      <Filter>src\diagnostics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\integrator\engine_buffer_cache.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\collision.hlsli">
