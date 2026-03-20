@@ -173,7 +173,7 @@
     <ClInclude Include="src\diagnostics\physics_log.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
-    <ClInclude Include="src\diagnostics\body_history.h">
+    <ClInclude Include="..\..\..\include\pr\physics\diagnostics\body_history.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
   </ItemGroup>

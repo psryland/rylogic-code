@@ -321,6 +321,18 @@
     <None Include="..\..\..\include\pr\hlsl\vector.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
+    <None Include="scenes\all_shapes_drop.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\brick_wall.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\simultaneous_impact_1000.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\stacked_column.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">

@@ -48,6 +48,8 @@ namespace pr::physics
 		// Collision shape
 		collision::Shape const* m_shape;
 
+		friend struct BodyHistory;
+
 	public:
 
 		// Construct the rigid body with a collision shape

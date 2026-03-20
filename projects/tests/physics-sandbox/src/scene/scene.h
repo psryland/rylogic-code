@@ -2,7 +2,6 @@
 #include "src/forward.h"
 #include "src/scene/body.h"
 #include "src/diagnostics/diagnostics.h"
-#include "src/diagnostics/body_history.h"
 #include "src/utils/scene_loader.h"
 #include "src/scene/scenario.h"
 
@@ -50,7 +49,6 @@ namespace physics_sandbox
 
 		// Diagnostics
 		CollisionDiag m_diag;
-		BodyHistory m_history;
 		int m_step_count;
 
 		explicit Scene(rdr12::Renderer* rdr);

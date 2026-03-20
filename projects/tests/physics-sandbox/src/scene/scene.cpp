@@ -17,7 +17,6 @@ namespace physics_sandbox
 		, m_clock()
 		, m_current_scenario()
 		, m_diag()
-		, m_history()
 		, m_step_count()
 	{
 		// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
@@ -62,9 +61,6 @@ namespace physics_sandbox
 		m_clock = 0;
 		m_step_count = 0;
 		m_diag.Reset();
-		#ifdef _DEBUG
-		m_history.Close();
-		#endif
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
 
@@ -110,15 +106,7 @@ namespace physics_sandbox
 
 		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
 		auto bodies = std::span(m_body);
-		#ifdef _DEBUG
-		m_history.RecordFrame(m_step_count, m_body);
-		#endif
-
 		m_physics.Step(dt, bodies);
-
-		#ifdef _DEBUG
-		m_history.CheckForFallenBodies(m_step_count, m_body, m_kill_zone_height + 50.0f);
-		#endif
 
 		++m_step_count;
 
@@ -461,10 +449,6 @@ namespace physics_sandbox
 				snap.Log(FmtS("Body %d '%s'", i, name));
 			}
 		}
-
-		#ifdef _DEBUG
-		m_history.Open("dump\\body_history.log", static_cast<int>(m_body.size()));
-		#endif
 	}
 
 	// Log comprehensive collision diagnostics and analytic comparisons

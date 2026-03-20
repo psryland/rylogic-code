@@ -341,12 +341,47 @@ namespace pr::physics
 		memcpy(bodies.data(), readback_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
 	}
 
+	// Readback bodies after GPU resolve (for CPU-side testing).
+	void GpuResolver::Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_bodies, std::span<GpuRigidBody> out_bodies)
+	{
+		auto body_count = static_cast<int>(out_bodies.size());
+		if (body_count == 0)
+			return;
+
+		GpuReadbackBuffer::Allocation readback;
+
+		{
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
+
+			readback = job.m_readback.Alloc<GpuRigidBody>(body_count);
+
+			job.m_cmd_list.CopyBufferRegion(readback, r_bodies.get(), 0);
+			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+
+		// Execute the command list and wait for completion
+		job.Run();
+
+		// Read the results back to the CPU
+		memcpy(out_bodies.data(), readback.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+	}
+
 	// Custom deleter implementation (GpuResolver is complete here)
 	void Deleter<GpuResolver>::operator()(GpuResolver* p) const
 	{
 		delete p;
 	}
 }
+
+
+
+
+
+
+
+
 
 
 #if 0

@@ -8,6 +8,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/shape/inertia.h"
+#include "pr/physics/diagnostics/body_history.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/integrate_gpu.h"
 #include "src/compute/sweep_gpu.h"
@@ -20,6 +21,9 @@
 
 namespace pr::physics
 {
+	// TODO: this should be in engine config
+	constexpr auto max_col_pairs = 65536;
+
 	struct BodyPair
 	{
 		m4x4 b2a;
@@ -30,14 +34,88 @@ namespace pr::physics
 	{
 		// Persists across frames
 		ShapeCache m_shape_cache;
-		
+
 		// Staging buffer for packing body dynamics
 		std::vector<GpuRigidBody> m_rb_dynamics;
+
+		// Diagnostics
+		#if PR_DBG_PHYSICS
+		BodyHistory m_history;
+		PhysicsLog m_log;
+		#endif
 	};
 	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
 	{
 		delete cache;
 	}
+
+	// Debugging utilities for inspecting GPU results.
+	struct DbgPhysics
+	{
+		Engine& me;
+		DbgPhysics(Engine& engine) : me(engine) {}
+
+		// Debugging inspection of GPU results.
+		void ReadbackIntegrate(int body_count)
+		{
+			#if PR_DBG_PHYSICS
+			static bool capture = false;
+			if (capture)
+			{
+				std::vector<GpuRigidBody> bodies(body_count);
+				std::vector<BBox> aabbs(body_count);
+				std::vector<GpuIntegrateDiag> diag(body_count);
+				me.m_gpu_integrator->Readback(me.m_gpu->m_job, bodies, aabbs, diag);
+			}
+			#else
+			(void)body_count;
+			#endif
+		}
+		void ReadbackSweeo(D3DPtr<ID3D12Resource> counters)
+		{
+			#if PR_DBG_PHYSICS
+			static bool capture = false;
+			if (capture)
+			{
+				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
+				auto pairs = me.m_gpu_sort_and_sweep->Readback(me.m_gpu->m_job, counters, out_pairs);
+				assert(pairs.size() < max_col_pairs && "Hit capacity on pairs");
+			}
+			#else
+			(void)counters;
+			#endif
+		}
+		void ReadbackCollide(D3DPtr<ID3D12Resource> counters)
+		{
+			#if PR_DBG_PHYSICS
+			static bool capture = false;
+			if (capture)
+			{
+				std::vector<GpuResolveContact> out_contacts(max_col_pairs);
+				std::vector<GpuPairDiag> out_diag(max_col_pairs);
+				auto [contacts, diag] = me.m_gpu_collision_detector->Readback(me.m_gpu->m_job, counters, out_contacts, out_diag);
+				assert(contacts.size() < max_col_pairs && "Hit capacity on contacts");
+			}
+			#else
+			(void)counters;
+			#endif
+		}
+		void ReadbackResolve(int body_count, D3DPtr<ID3D12Resource> r_bodies)
+		{
+			#if PR_DBG_PHYSICS
+			static bool capture = false;
+			if (capture)
+			{
+				std::vector<GpuRigidBody> bodies(body_count);
+				std::vector<GpuResolveContact> contacts(max_col_pairs);
+				std::vector<GpuPairDiag> diag(max_col_pairs);
+				me.m_gpu_resolver->Readback(me.m_gpu->m_job, r_bodies, bodies);
+			}
+			#else
+			(void)body_count, r_bodies;
+			#endif
+		}
+	};
 
 	Engine::Engine(ID3D12Device4* existing_device)
 		: m_gpu(new Gpu(existing_device))
@@ -89,25 +167,21 @@ namespace pr::physics
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
 		//    If this limit becomes a problem, the options are increase the max number of collision pairs
 		//    or run Engine::Step() multiple times on "islands" of physics objects
-		constexpr auto max_col_pairs = 65536;
 		int body_count = static_cast<int>(rigid_bodies.size());
 		if (body_count == 0)
 			return;
-
-		#if PR_DBG_PHYSICS
-		static PhysicsLog dbg_log;
-		if (!dbg_log.IsActive() && dbg_log.m_frame == 0)
-			dbg_log.Open("dump\\physics_pipeline.log");
-		#endif
 
 		#if PR_PIX_ENABLED
 		static bool capture = false;
 		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
 		capture = false;
 		#endif
-
-		if (m_body_ptrs.empty())
-			m_body_ptrs.append_range(rigid_bodies);
+		#if PR_DBG_PHYSICS
+		DbgPhysics dbg(*this);
+		{
+			m_cache->m_history.BeginFrame(rigid_bodies);
+		}
+		#endif
 
 		// Populate the shape cache
 		m_cache->m_shape_cache.BeginFrame();
@@ -115,7 +189,7 @@ namespace pr::physics
 		// Pack all bodies into a GPU-friendly format
 		{
 			m_cache->m_rb_dynamics.resize(0);
-			for (auto body : m_body_ptrs)
+			for (auto body : rigid_bodies)
 			{
 				auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
 				m_cache->m_rb_dynamics.push_back(PackDynamics(*body, shape_id));
@@ -125,16 +199,7 @@ namespace pr::physics
 		// Integrate -> Updates dynamics, generates AABBs, debug data
 		{
 			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
-
-			#if PR_DBG_PHYSICS
-			{
-				std::vector<GpuRigidBody> bodies(body_count);
-				std::vector<BBox> aabbs(body_count);
-				std::vector<GpuIntegrateDiag> diag(body_count);
-				m_gpu_integrator->Readback(m_gpu->m_job, bodies, aabbs, diag);
-				dbg_log.LogIntegrate(body_count, dt, bodies, aabbs);
-			}
-			#endif
+			dbg.ReadbackIntegrate(body_count);
 		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
@@ -145,15 +210,7 @@ namespace pr::physics
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
 			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, max_col_pairs, counters, aabb_idx, bodies);
-
-			#if PR_DBG_PHYSICS
-			{
-				std::vector<GpuCollisionPair> out_pairs(max_col_pairs);
-				auto pairs = m_gpu_sort_and_sweep->Readback(m_gpu->m_job, counters, out_pairs);
-				assert(pairs.size() < max_col_pairs && "Hit capacity on pairs");
-				dbg_log.LogBroadphase(pairs);
-			}
-			#endif
+			dbg.ReadbackSweeo(counters);
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
@@ -162,19 +219,9 @@ namespace pr::physics
 			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, max_col_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
-
-			#if PR_DBG_PHYSICS
-			{
-				std::vector<GpuResolveContact> out_contacts(max_col_pairs);
-				std::vector<GpuPairDiag> out_diag(max_col_pairs);
-				auto [contacts, diag] = m_gpu_collision_detector->Readback(m_gpu->m_job, counters, out_contacts, out_diag);
-				assert(contacts.size() < max_col_pairs && "Hit capacity on contacts");
-				dbg_log.LogNarrowPhase(contacts, diag);
-				dbg_log.EndFrame();
-			}
-			#endif
+			dbg.ReadbackCollide(counters);
 		}
-		
+
 		// Resolve -> uses contacts -> applies impulses to bodies
 		{
 			auto counters = m_gpu_integrator->Counters();
@@ -182,6 +229,7 @@ namespace pr::physics
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_resolver->Resolve(m_gpu->m_job, dt, max_col_pairs, dispatch, counters, contacts, bodies, m_materials->span());
+			dbg.ReadbackResolve(body_count, bodies);
 		}
 
 		// Readback dynamics from GPU and unpack into bodies
@@ -190,9 +238,22 @@ namespace pr::physics
 			m_gpu_integrator->Readback(m_gpu->m_job, m_cache->m_rb_dynamics, {}, {});
 			for (auto [body, i] : with_index(rigid_bodies))
 				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
-		}
 
-		m_body_ptrs.resize(0);
+			#if PR_DBG_PHYSICS
+			{
+				// Look for anomolies in the dynamics and log them.
+				m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
+				{
+					// Return true if rb0 was below ground and rb1 is worse
+					float ground_z = -0.5f;
+					if (rb0.O2W().pos.z < ground_z && rb1.O2W().pos.z < rb0.O2W().pos.z)
+						return true;
+
+					return false;
+				});
+			}
+			#endif
+		}
 	}
 
 	// Access the physics material properties for a given material ID.
@@ -203,6 +264,32 @@ namespace pr::physics
 	void Engine::Material(physics::Material mat)
 	{
 		(*m_materials).Set(mat);
+	}
+
+	// CPU integration for testing and debugging.
+	void Engine::CpuIntegrate(std::span<GpuRigidBody> bodies, float dt)
+	{
+		for (auto& body : bodies)
+			Evolve(body, dt);
+	}
+	
+	// CPU broadphase for testing and debugging
+	void Engine::CpuSweep()
+	{
+		// todo
+	}
+
+	// CPU collision detection for testing and debugging.
+	void Engine::CpuCollide(std::span<GpuCollisionPair> pairs)
+	{
+		(void)pairs;
+		// todo, Will call 'NarrowPhaseCollision
+	}
+	
+	// CPU collision resolution for testing and debugging
+	void Engine::CpuResolve()
+	{
+		// todo, will call ResolveCollision
 	}
 
 	// Narrow phase collision detection.
@@ -350,61 +437,42 @@ namespace pr::physics
 		++frame;
 		#endif
 
-		// Nothing close enough to be colliding? Skip the GPU GJK step.
-		if (col_pairs.empty())
-			return;
-
-		// Phase 2: Narrow phase collision detection.
-		if (m_gpu_detect)
+		// CPU narrow phase path — use SAT-based Collide() for each broadphase pair
+		for (auto const& bp : body_pairs)
 		{
-			// GPU collision detection path
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, col_pairs, shape_cache.m_shapes, shape_cache.m_verts, gpu_contacts, shape_cache.IsDirty());
-			shape_cache.ClearDirty();
-
-			#if PR_DBG
-			if (f_step && col_pairs.size() > 10)
-				fprintf(f_step, "[frame %d] GPU detect: %d contacts from %d pairs\n", frame, static_cast<int>(gpu_contacts.size()), static_cast<int>(col_pairs.size()));
-			#endif
-		}
-		else
-		{
-			// CPU narrow phase path — use SAT-based Collide() for each broadphase pair
-			for (auto const& bp : body_pairs)
+			auto c = RbContact{*bp.objA, *bp.objB};
+			if (NarrowPhaseCollision(dt, c))
 			{
-				auto c = RbContact{*bp.objA, *bp.objB};
-				if (NarrowPhaseCollision(dt, c))
+				// Compare with CPU GJK for debugging
+				#if PR_DBG
 				{
-					// Compare with CPU GJK for debugging
-					#if PR_DBG
+					collision::Contact gjk_c;
+					auto w2a = InvertOrthonormal(bp.objA->O2W());
+					auto b2a = w2a * bp.objB->O2W();
+					auto& sA = bp.objA->Shape();
+					auto& sB = bp.objB->Shape();
+					if (collision::GjkCollide(sA, m4x4::Identity(), sB, b2a, gjk_c))
 					{
-						collision::Contact gjk_c;
-						auto w2a = InvertOrthonormal(bp.objA->O2W());
-						auto b2a = w2a * bp.objB->O2W();
-						auto& sA = bp.objA->Shape();
-						auto& sB = bp.objB->Shape();
-						if (collision::GjkCollide(sA, m4x4::Identity(), sB, b2a, gjk_c))
+						static FILE* f = nullptr;
+						if (!f) f = fopen("dump\\sat_vs_gjk.log", "w");
+						if (f)
 						{
-							static FILE* f = nullptr;
-							if (!f) f = fopen("dump\\sat_vs_gjk.log", "w");
-							if (f)
-							{
-								fprintf(f, "SAT: axis=(%.4f,%.4f,%.4f) depth=%.6f pt=(%.4f,%.4f,%.4f)\n",
-									c.m_axis.x, c.m_axis.y, c.m_axis.z, c.m_depth, c.m_point.x, c.m_point.y, c.m_point.z);
-								fprintf(f, "GJK: axis=(%.4f,%.4f,%.4f) depth=%.6f pt=(%.4f,%.4f,%.4f)\n",
-									gjk_c.m_axis.x, gjk_c.m_axis.y, gjk_c.m_axis.z, gjk_c.m_depth, gjk_c.m_point.x, gjk_c.m_point.y, gjk_c.m_point.z);
-								fprintf(f, "  bodyA pos=(%.4f,%.4f,%.4f) bodyB pos=(%.4f,%.4f,%.4f)\n\n",
-									bp.objA->O2W().pos.x, bp.objA->O2W().pos.y, bp.objA->O2W().pos.z,
-									bp.objB->O2W().pos.x, bp.objB->O2W().pos.y, bp.objB->O2W().pos.z);
-								fflush(f);
-							}
+							fprintf(f, "SAT: axis=(%.4f,%.4f,%.4f) depth=%.6f pt=(%.4f,%.4f,%.4f)\n",
+								c.m_axis.x, c.m_axis.y, c.m_axis.z, c.m_depth, c.m_point.x, c.m_point.y, c.m_point.z);
+							fprintf(f, "GJK: axis=(%.4f,%.4f,%.4f) depth=%.6f pt=(%.4f,%.4f,%.4f)\n",
+								gjk_c.m_axis.x, gjk_c.m_axis.y, gjk_c.m_axis.z, gjk_c.m_depth, gjk_c.m_point.x, gjk_c.m_point.y, gjk_c.m_point.z);
+							fprintf(f, "  bodyA pos=(%.4f,%.4f,%.4f) bodyB pos=(%.4f,%.4f,%.4f)\n\n",
+								bp.objA->O2W().pos.x, bp.objA->O2W().pos.y, bp.objA->O2W().pos.z,
+								bp.objB->O2W().pos.x, bp.objB->O2W().pos.y, bp.objB->O2W().pos.z);
+							fflush(f);
 						}
 					}
-					#endif
-					collision_queue.push_back(c);
 				}
+				#endif
+				collision_queue.push_back(c);
 			}
 		}
-
+	
 		// Phase 3: Convert GPU contacts to physics::Contact structs and resolve.
 		if (m_gpu_detect)
 		{

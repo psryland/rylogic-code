@@ -7,9 +7,6 @@
 
 namespace pr::physics
 {
-	// ToDo:
-	//  - Make use of sub step collision time
-
 	// A container object that groups the parts of a physics system together.
 	// IBroadphase provides spatial overlap queries (e.g. brute-force, sweep-and-prune).
 	// IMaterials maps material ID pairs to combined material properties (friction, elasticity).
@@ -39,9 +36,10 @@ namespace pr::physics
 		// Buffers for preparing GPU data
 		CachePtr m_cache;
 
-		// Recycled buffer of rigid body pointers
+		// Storage for body pointers
 		std::vector<RigidBody*> m_body_ptrs;
 
+		friend struct DbgPhysics;
 		bool m_gpu_integrate = true;
 		bool m_gpu_sorter = true;
 		bool m_gpu_detect = true;
@@ -85,8 +83,17 @@ namespace pr::physics
 
 	private:
 
-		// Broad phase overlap query → narrow phase collision detection → impulse resolution.
-		void DetectAndResolveCollisions(float dt);
+		// CPU integration for testing and debugging.
+		void CpuIntegrate(std::span<GpuRigidBody> bodies, float dt);
+
+		// CPU broadphase for testing and debugging
+		void CpuSweep();
+
+		// CPU collision detection for testing and debugging.
+		void CpuCollide(std::span<GpuCollisionPair> pairs);
+
+		// CPU collision resolution for testing and debugging
+		void CpuResolve();
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

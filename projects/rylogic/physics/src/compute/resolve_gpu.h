@@ -31,6 +31,9 @@ namespace pr::physics
 		// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies. Calls job.Run() internally.
 		void Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials);
 
+		// Readback bodies after GPU resolve (for CPU-side testing).
+		void Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_bodies, std::span<GpuRigidBody> out_bodies);
+
 	private:
 
 		// Compile the compute shaders

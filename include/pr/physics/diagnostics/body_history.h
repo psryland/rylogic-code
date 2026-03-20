@@ -15,66 +15,91 @@ namespace pr::physics
 		//  - Records per-frame state for all bodies in a compact ring buffer. When a body is flagged for investigation
 		//    (e.g., falls below ground), the ring buffer history is dumped to the log file, then detailed per-frame logging
 		//    continues for that body.
+		inline static constexpr int Length = 60; // number of frames to keep in the ring buffer (e.g., 1 second at 60fps)
 
-		// Compact per-body snapshot for the ring buffer
-		struct Snapshot
-		{
-			v4 pos;
-			v4 vel_lin;
-			float inv_mass;
-			float pad0;
-			float pad1;
-			float pad2;
-		};
+		// A ring buffer of snapshots for a single body,
+		using History = RigidBody[Length];
+		using BodyMap = std::unordered_map<int, History>;
+		using Tracked = std::unordered_set<int>;
 
 		std::ofstream m_file;
-		std::vector<std::vector<Snapshot>> m_ring; // [body_idx][ring_pos]
-		std::unordered_set<int> m_tracked;         // bodies flagged for detailed logging
-		int m_ring_size;
-		int m_ring_head;
-		int m_body_count;
-		int m_max_frames;
+		BodyMap m_bodies;
+		Tracked m_tracked;
+		int m_frame;
 
 		BodyHistory()
 			: m_file()
-			, m_ring()
+			, m_bodies()
 			, m_tracked()
-			, m_ring_size(0)
-			, m_ring_head(0)
-			, m_body_count(0)
-			, m_max_frames(0)
-		{
-		}
-		~BodyHistory()
-		{
-			Close();
-		}
+			, m_frame()
+		{}
 
-		// Open a log file and initialize the ring buffer for the given number of bodies.
-		void Open(std::filesystem::path filepath, int body_count, int ring_size = 120, int max_frames = 50000)
+		// Snapshot the state of each body at the start of the frame.
+		void BeginFrame(std::span<RigidBody* const> bodies)
 		{
-			Close();
-			m_file.open(filepath, std::ios::out | std::ios::trunc);
-			m_body_count = body_count;
-			m_ring_size = ring_size;
-			m_ring_head = 0;
-			m_max_frames = max_frames;
-			m_tracked.clear();
-			m_ring.resize(body_count);
-			for (auto& ring : m_ring)
-				ring.resize(ring_size, Snapshot{});
+			++m_frame;
+			for (auto& body : bodies)
+			{
+				auto idx = static_cast<int>(&body - bodies.data());
+				m_bodies[idx][m_frame % Length] = *body;
+			}
+
+			//if (!m_file.is_open())
+			//	return;
+			//if (IsActive(0))
+			//{
+			//	auto msg = std::format("\n=== Begin frame {} with {} bodies ===\n", 0, bodies.size());
+			//	m_file.write(msg.data(), msg.size());
+			//}
 		}
 
-		// Close the log file and clear all data.
-		void Close()
+		// Called at the end of a frame to detect anomolous bodies (e.g., fallen below ground) and log their history.
+		void EndFrame(std::span<RigidBody* const> bodies, std::invocable<RigidBody const&, RigidBody const&> auto&& anomolous)
 		{
-			if (m_file.is_open())
-				m_file.close();
+			auto tracking = IsTracking();
+			for (auto& body : bodies)
+			{
+				auto idx = static_cast<int>(&body - bodies.data());
+				
+				// Compare before/after snapshots to look for anomolies.
+				auto const& rb0 = m_bodies[idx][m_frame % Length];
+				if (anomolous(rb0, *body))
+					m_tracked.insert(idx);
+				else
+					m_tracked.erase(idx);
+			}
+			if (!IsTracking())
+				return;
 
-			m_ring.clear();
-			m_tracked.clear();
+			// Open the history file and log bodie states
+			if (!tracking)
+			{
+				//if (!m_file.is_open())
+				//	m_file.open(filepath, std::ios::out | std::ios::trunc);
+
+				//auto msg = std::format("\n=== End frame {}: {} bodies flagged for tracking ===\n", m_frame, m_tracked.size());
+				//m_file.write(msg.data(), msg.size());
+			}
+
+			if (m_tracked.empty())
+				return;
+
+				
+				//	return;
+			//if (IsActive(0))
+			//{
+			//	auto msg = std::format("=== End frame {} ===\n", 0);
+			//	m_file.write(msg.data(), msg.size());
+			//}
 		}
 
+		// True if we're tracking any bodies
+		bool IsTracking() const
+		{
+			return !m_tracked.empty();
+		}
+
+/*
 		// True if the history is active (log file open and within frame limit).
 		bool IsActive(int frame) const
 		{
@@ -166,6 +191,7 @@ namespace pr::physics
 				++idx;
 			}
 		}
+		*/
 
 		// Flush the log file.
 		void Flush()

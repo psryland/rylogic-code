@@ -147,12 +147,16 @@
   Test Scenes
   -->
   <ItemGroup>
+    <None Include="scenes\all_shapes_drop.json" />
     <None Include="scenes\box_vs_sphere.json" />
+    <None Include="scenes\brick_wall.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />
     <None Include="scenes\oblique_spheres.json" />
     <None Include="scenes\polytope_drop.json" />
+    <None Include="scenes\simultaneous_impact_1000.json" />
+    <None Include="scenes\stacked_column.json" />
     <None Include="scenes\stress_test_1000.json" />
     <None Include="scenes\three_body_chain.json" />
   </ItemGroup>
