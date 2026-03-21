@@ -26,7 +26,7 @@ namespace pr::physics
 		explicit GpuResolver(Gpu& gpu);
 
 		// Resolve collisions on the GPU using graph-coloured batches.
-		void Resolve(GpuJob& job, float dt, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials);
+		void Resolve(GpuJob& job, float dt, int max_contacts, v4 gravity, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials);
 
 		// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies. Calls job.Run() internally.
 		void Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials);

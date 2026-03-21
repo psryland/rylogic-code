@@ -44,6 +44,7 @@ namespace pr::physics
 		bool m_gpu_sorter = true;
 		bool m_gpu_detect = true;
 		bool m_gpu_resolve = true;
+		v4 m_gravity = v4::Zero(); // World-space gravity vector (e.g., (0,0,-9.81,0))
 
 	public:
 
@@ -60,6 +61,11 @@ namespace pr::physics
 		// Get/Set whether the GPU is used for collision resolution (impulse application).
 		bool UseGpuResolve() const;
 		void UseGpuResolve(bool use);
+
+		// Get/Set the gravity vector (world space). Used by the resolve shader
+		// to sort contacts bottom-up for better stack convergence.
+		v4 Gravity() const { return m_gravity; }
+		void Gravity(v4 gravity) { m_gravity = gravity; }
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);

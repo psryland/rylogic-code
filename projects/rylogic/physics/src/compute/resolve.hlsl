@@ -36,8 +36,9 @@ cbuffer cbResolve : register(b0)
 {
 	int g_colour;       // current colour batch being processed (for CSResolve)
 	int g_max_contacts; // The capacity of the contacts buffer
-	float g_dt;         // timestep in seconds (for CSGraphColouring collision time estimation)
-	int pad0;
+	float g_dt;         // timestep in seconds
+	float pad0;
+	float4 g_gravity;   // gravity direction (world space, e.g., (0,0,-9.81,0))
 };
 
 // Shader resources
@@ -258,10 +259,21 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 	
 	if (idx < g_counters[0].contact_count)
 	{
-		g_contacts[idx].collision_time = EstimateCollisionTime(g_contacts[idx]);
+		GpuResolveContact c = g_contacts[idx];
+		float collision_time = EstimateCollisionTime(c);
+		g_contacts[idx].collision_time = collision_time;
 		
-		// Add the collision time and the contact index to the sort buffers
-		g_contact_times[idx] = g_contacts[idx].collision_time;
+		// Compute a composite sort key: collision_time primary, contact height secondary.
+		// For contacts with similar collision times (e.g., a stacked column landing),
+		// lower contacts (closer to the support surface) sort first so the impulse
+		// propagates upward through the stack. Height is measured along the gravity
+		// direction — contacts further along -gravity sort earlier.
+		float3x3 rot_a = (float3x3)g_bodies[c.body_idx_a].o2w;
+		float3 ws_point = g_bodies[c.body_idx_a].o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
+		float grav_len = length(g_gravity.xyz);
+		float height = (grav_len > 1e-6f) ? dot(ws_point, g_gravity.xyz / grav_len) : 0.0f;
+		float height_bias = height * 1e-6f; // contacts lower along gravity sort first (more negative = earlier)
+		g_contact_times[idx] = collision_time + height_bias;
 		g_contact_order[idx] = idx;
 	}
 
@@ -366,9 +378,21 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	if (abs(ct) > 1e-6f)
 		pt += 0.5f * ct * V_rel;
 
-	// Skip if already separating
-	if (dot(V_rel, axis) > 0)
+	// Baumgarte velocity bias: add a corrective velocity proportional to penetration depth.
+	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes).
+	// The bias only activates when depth exceeds a small slop tolerance, avoiding jitter.
+	float slop = 0.005f;
+	float baumgarte = 0.2f;
+	float bias = (baumgarte / g_dt) * max(c.depth - slop, 0.0f);
+
+	// Skip if already separating faster than the bias correction requires
+	float closing_speed = dot(V_rel, axis);
+	if (closing_speed > bias)
 		return;
+
+	// Inject the bias as a virtual closing velocity so the impulse computation
+	// generates a corrective force to push overlapping bodies apart.
+	V_rel -= bias * axis;
 
 	// Build collision mass matrix
 	float3x3 col_I = CollisionMassMatrix(
@@ -379,7 +403,11 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// Load material properties
 	GpuMaterial mat_a = g_materials[c.mat_id_a];
 	GpuMaterial mat_b = g_materials[c.mat_id_b];
-	float elasticity = (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+
+	// For resting contacts (low closing speed), reduce elasticity to prevent bouncing.
+	// The Baumgarte bias provides the corrective velocity; restitution would amplify it.
+	float rest_factor = saturate(abs(closing_speed) * 10.0f); // fade from 0 at rest to 1 at speed 0.1
+	float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
 	float friction = sqrt(mat_a.friction_static * mat_b.friction_static);
 
 	// Compute impulse with friction cone clamping

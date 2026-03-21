@@ -62,6 +62,7 @@ namespace physics_sandbox
 		m_step_count = 0;
 		m_diag.Reset();
 		m_gravity = v4::Zero();
+		m_physics.Gravity(m_gravity);
 		m_kill_zone_height = -100.0f;
 
 		// Clean up the ground plane visual
@@ -271,6 +272,7 @@ namespace physics_sandbox
 
 		// Apply gravity from the scene file
 		m_gravity = scene_desc.gravity;
+		m_physics.Gravity(m_gravity);
 
 		// Set the kill zone well below the ground plane. Bodies that fall below
 		// this height are frozen to prevent them from corrupting the simulation.
