@@ -7,6 +7,7 @@
 			"friction": 0.0
 		},
 		"ground_plane": {
+			"size": [ 20.0, 20.0 ],
 			"height": 0.0,
 			"texture": "#checker"
 		},
@@ -15,11 +16,11 @@
 				"name": "test_box",
 				"shape": {
 					"type": "box",
-					"dimensions": [ 1.0, 1.0, 1.0 ]
+					"dimensions": [ 1.0, 1.3, 1.8 ]
 				},
 				"mass": 10.0,
 				"position": [ 0.0, 0.0, 3.0 ],
-				"velocity": [ 0.0, 0.0, 0.0 ]
+				"velocity": [ 0.8, 0.0, 0.0 ]
 			}
 		],
 		"camera": {

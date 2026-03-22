@@ -254,7 +254,8 @@ float EstimateCollisionTime(GpuResolveContact c)
 }
 
 // Add a contact point to the body's contact simplex, maintaining a maximum of 4 points.
-void AddSupportContact(inout GpuRigidBody body, float4 ws_pt)
+// The .w component stores the body index of the support body (as asfloat(int)).
+void AddSupportContact(inout GpuRigidBody body, float3 ws_pt, int support_body_idx)
 {
 	if (body.contact_simplex_count == 4)
 	{
@@ -263,11 +264,11 @@ void AddSupportContact(inout GpuRigidBody body, float4 ws_pt)
 		body.contact_simplex[2] = body.contact_simplex[3];
 		body.contact_simplex_count = 3;
 	}
-	body.contact_simplex[body.contact_simplex_count] = ws_pt;
+	body.contact_simplex[body.contact_simplex_count] = float4(ws_pt, asfloat(support_body_idx));
 	body.contact_simplex_count++;
 }
 
-// Test if the body's CoM projects inside the contact simplex along the 'down' direction
+// Test if the body's CoM projects inside the contact simplex along the 'down' direction.
 bool IsSupportedBySimplex(GpuRigidBody body, float3 down)
 {
 	int simplex_count = min(body.contact_simplex_count, 4);
@@ -284,14 +285,45 @@ bool IsSupportedBySimplex(GpuRigidBody body, float3 down)
 	float3 pt2 = Project(body.contact_simplex[2].xyz, down);
 	float3 pt3 = Project(body.contact_simplex[3].xyz, down); // Will be invalid if count is 3, but that's ok because we won't use it in that case
 
+	// If the contact points are degenerate and near the CoM, we can still consider it supported.
+	//const float threshold = 1e-3f;
+	//bool4 near_com = bool4(
+	//	length_sq(com - pt0) < sqr(threshold),
+	//	length_sq(com - pt1) < sqr(threshold),
+	//	length_sq(com - pt2) < sqr(threshold),
+	//	length_sq(com - pt3) < sqr(threshold));
+
 	bool r0 = PointInTriangle(com, pt0, pt1, pt2) != 0;
 	if (simplex_count == 3)
-		return r0;
-	
+		return r0;// || all(near_com.xyz);
+
+	// For 4 points, check all 4 triangle faces of the tetrahedron. If any are valid, the CoM is supported.
 	bool r1 = PointInTriangle(com, pt0, pt1, pt3) != 0;
 	bool r2 = PointInTriangle(com, pt0, pt2, pt3) != 0;
 	bool r3 = PointInTriangle(com, pt1, pt2, pt3) != 0;
-	return r0 || r1 || r2 || r3;
+	return (r0 || r1 || r2 || r3);// || all(near_com);
+}
+
+// Check if any body referenced by the contact simplex has woken up.
+// If a support body is no longer sleeping (and is not static), this body should also wake.
+bool SupportStillSleeping(GpuRigidBody body)
+{
+	int count = min(body.contact_simplex_count, 4);
+	for (int i = 0; i != count; ++i)
+	{
+		int support_idx = asint(body.contact_simplex[i].w);
+		GpuRigidBody support = g_bodies[support_idx];
+	
+		// Static bodies (inv_mass == 0) are always valid support
+		float support_inv_mass = support.os_com_and_invmass.w;
+		if (support_inv_mass <= 0 || HasFlag(support.state_flags, ERigidBodyStateFlags_Static))
+			continue;
+
+		// If the support body is no longer sleeping, our support is lost
+		if (!HasFlag(support.state_flags, ERigidBodyStateFlags_Sleeping))
+			return false;
+	}
+	return true;
 }
 
 // ----- CSComputeCollisionTimes -----
@@ -467,18 +499,21 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 		com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 		inv_mass_a, inv_mass_b);
 
-	// If the contact normal opposes gravity for the body, add it to the contact simplex for sleep testing.
-	float3 ws_axis = mul(axis, rot_a); // contact normal in world space (points from A to B)
+	// Add support contacts for sleep testing.
+	// Body A is pushed in -axis direction, body B in +axis direction.
+	// A support contact is one where the push direction opposes gravity (holding the body up).
+	// The .w component stores the index of the OTHER body (the support provider).
+	float3 ws_axis = mul(axis, rot_a); // contact normal in world space
 	float4 ws_contact = mul(float4(pt, 1), bodyA.o2w);
-	if (dot(bodyA.ws_gravity.xyz, ws_axis) < -0.1f)
+	if (dot(bodyA.ws_gravity.xyz, ws_axis) > +0.1f) // body A's push is -axis, opposing gravity when dot > 0
 	{
-		float4 ws_pt = float4(ws_contact.xyz - bodyA.o2w[3].xyz, 0);
-		AddSupportContact(bodyA, ws_pt);
+		float3 ws_pt = ws_contact.xyz - bodyA.o2w[3].xyz;
+		AddSupportContact(bodyA, ws_pt, c.body_idx_b);
 	}
-	if (dot(bodyB.ws_gravity.xyz, ws_axis) > +0.1f)
+	if (dot(bodyB.ws_gravity.xyz, ws_axis) < -0.1f) // body B's push is +axis, opposing gravity when dot < 0
 	{
-		float4 ws_pt = float4(ws_contact.xyz - bodyB.o2w[3].xyz, 0);
-		AddSupportContact(bodyB, ws_pt);
+		float3 ws_pt = ws_contact.xyz - bodyB.o2w[3].xyz;
+		AddSupportContact(bodyB, ws_pt, c.body_idx_a);
 	}
 	
 	// Write updated bodies
@@ -487,14 +522,11 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 }
 
 // ----- CSUpdateSleepState -----
-// One thread per body. Scans contacts for this body, updates the contact support simplex,
-// and determines whether the body should go to sleep.
-// Sleep conditions:
+// One thread per body. Determines whether the body should sleep or wake based on:
 //   1. Momentum below threshold
-//   2. Gravity is non-zero (no sleep in zero-g)
-//   3. Contact simplex forms a triangle
-//   4. CoM projects inside the simplex (along gravity direction)
-//   5. Contact normals oppose gravity
+//   2. Gravity is non-zero (no sleeping in zero-g)
+//   3. Contact simplex indicates support (CoM above contact points, or degenerate fallback)
+//   4. Support bodies are still sleeping/static (cascade wake-up if support wakes)
 [numthreads(ResolveThreadCount, 1, 1)]
 void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 {
@@ -506,7 +538,7 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 	float inv_mass = body.os_com_and_invmass.w;
 
 	// Static bodies (inv_mass == 0) are always "sleeping" — skip
-	if (inv_mass <= 0)
+	if (inv_mass <= 0 || HasFlag(body.state_flags, ERigidBodyStateFlags_Static))
 		return;
 
 	// Only bodies with near zero velocities can sleep
@@ -517,17 +549,18 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 	float grav_len = length(body.ws_gravity.xyz);
 	bool has_gravity = grav_len > 1e-6f;
 
-	// Check sleep conditions
+	// Check basic sleep conditions
 	bool can_sleep =
 		vel_lin_sq < sqr(g_sleep_velocity_threshold_lin) &&
 		vel_ang_sq < sqr(g_sleep_velocity_threshold_ang) &&
-		has_gravity;
+		has_gravity &&
+		SupportStillSleeping(body);
 
-	// Clear sleep flag if conditions not met.
+	// Clear sleep flag and simplex if velocity/gravity conditions not met
 	if (!can_sleep)
 	{
 		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
-		body.contact_simplex_count = 0; // clear simplex when waking up
+		body.contact_simplex_count = 0;
 		g_bodies[body_idx] = body;
 		return;
 	}

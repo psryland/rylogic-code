@@ -73,7 +73,7 @@ namespace pr::physics
 		// The number of valid points in the contact simplex.
 		int contact_simplex_count;
 
-		// Contact support simplex (world space).
+		// Contact support simplex (world space, relative to body origin).
 		// Up to 4 recent contact points. Only contacts with normals that oppose gravity are recorded.
 		v4 contact_simplex[4];
 	};
@@ -81,7 +81,6 @@ namespace pr::physics
 	static_assert(alignof(GpuRigidBody) == 16, "GpuRigidBody must be 16-byte aligned");
 
 	// Pack a RigidBody's dynamic state into the flat GPU buffer format.
-	// 'prev' carries persistent GPU state (sleep, simplex) from the previous frame's readback.
 	inline GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id)
 	{
 		auto com = rb.CentreOfMassOS();

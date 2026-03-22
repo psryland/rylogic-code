@@ -156,6 +156,7 @@ namespace pr::rdr12
 		{
 			m_args.push_back(L"-Fd");
 			m_args.push_back(m_pdb_path.c_str());
+			std::filesystem::create_directories(m_pdb_path);
 		}
 		for (auto& extra : m_extras)
 		{

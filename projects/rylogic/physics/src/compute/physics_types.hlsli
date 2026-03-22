@@ -14,7 +14,8 @@ static const int MaxColours = 32;
 
 // Rigid body state flags:
 static const int ERigidBodyStateFlags_None = 0;
-static const int ERigidBodyStateFlags_Sleeping = 1 << 0;
+static const int ERigidBodyStateFlags_Static = 1 << 0;
+static const int ERigidBodyStateFlags_Sleeping = 1 << 1;
 
 // Collision shape types:
 static const int SHAPE_SPHERE   = 0;
@@ -66,7 +67,7 @@ struct GpuRigidBody
 	// The number of valid points in the contact simplex.
 	int contact_simplex_count;
 
-	// Contact support simplex (world space).
+	// Contact support simplex (world space, relative to body origin).
 	// Up to 4 recent contact points. Only contacts with normals that oppose gravity are recorded.
 	float4 contact_simplex[4];
 };

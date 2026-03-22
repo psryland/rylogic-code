@@ -2206,6 +2206,16 @@
           9.68
         ],
         "mass": 5.0
+      },
+      {
+        "name": "wrecking_ball",
+        "shape": {
+          "type": "sphere",
+          "radius": 2.0
+        },
+        "position": [0, 10, 5],
+        "velocity": [0, -20, 0],
+        "mass": 50.0
       }
     ],
     "material": {

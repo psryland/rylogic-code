@@ -61,7 +61,8 @@ namespace physics_sandbox::scene_loader
 	// Parsed description of a ground plane
 	struct GroundPlaneDesc
 	{
-		float height = 0.0;                       // Y height of the ground surface
+		v2 size = {};                            // the horizontal extent of the ground surface
+		float height = 0.0;                      // Vertical height of the ground surface
 		std::optional<Colour32> colour = {};     //
 		std::optional<std::string> texture = {}; // Stock texture name (e.g. "#checker3")
 	};

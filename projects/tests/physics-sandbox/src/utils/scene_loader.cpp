@@ -109,6 +109,9 @@ namespace physics_sandbox::scene_loader
 		GroundPlaneDesc ground;
 		auto const& jgp = jgp_.to_object();
 
+		if (auto* s = jgp.find("size"))
+			ground.size = v2(s->to_array()[0].to<float>(), s->to_array()[1].to<float>());
+
 		if (auto* h = jgp.find("height"))
 			ground.height = h->to<float>();
 

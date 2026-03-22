@@ -9,6 +9,8 @@ namespace physics_sandbox
 	struct Body : physics::RigidBody
 	{
 		rdr12::ldraw::LdrObjectPtr m_gfx;
+		Colour32 m_original_colour = {};
+		bool m_was_sleeping = false;
 
 		Body() = default;
 		Body(rdr12::Renderer* rdr, collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), physics::Inertia const& inertia = {});

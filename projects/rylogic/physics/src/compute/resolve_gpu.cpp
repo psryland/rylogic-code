@@ -291,6 +291,8 @@ namespace pr::physics
 		}
 
 		// Update sleep state for all bodies based on post-resolve momenta and contact simplex.
+		static bool enable_sleeping = false;
+		if (enable_sleeping)
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_update_sleep.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_update_sleep.m_sig.get());

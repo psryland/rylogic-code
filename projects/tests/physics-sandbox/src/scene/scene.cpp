@@ -342,8 +342,9 @@ namespace physics_sandbox
 			if (scene_desc.ground)
 			{
 				// Create the ground plane body as a large thin box with infinite mass.
-				auto ground_half_extent = 10.0f * Length(scene_bbox.Radius().xy);
-				m_shape_buffer.push_back(collision::ShapeBox(v4{ ground_half_extent, ground_half_extent, ground_thickness, 0 }));
+				v2 extent = scene_desc.ground->size;
+				if (extent == Zero<v2>()) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
+				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
 			}
 		}
 

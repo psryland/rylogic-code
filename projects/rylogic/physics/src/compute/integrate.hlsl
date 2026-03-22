@@ -113,7 +113,7 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 		return;
 	}
 
-	// If the velocities are too high, reset contact count
+	// If the velocities are too high, reset the contact simplex
 	if (!low_velocity)
 		body.contact_simplex_count = 0;
 

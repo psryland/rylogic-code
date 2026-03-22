@@ -39,11 +39,32 @@ namespace physics_sandbox
 		};
 	}
 
-	// Position the graphics at the rigid body location
+	// Position the graphics at the rigid body location and update sleep visualisation
 	void Body::UpdateGfx()
 	{
-		if (m_gfx)
-			m_gfx->O2W(m_o2w);
+		if (!m_gfx)
+			return;
+
+		m_gfx->O2W(m_o2w);
+
+		// Make sleeping bodies semi-transparent for debugging
+		bool sleeping = Sleeping();
+		if (sleeping != m_was_sleeping)
+		{
+			m_was_sleeping = sleeping;
+			if (sleeping)
+			{
+				// Store original colour, then apply 50% alpha
+				m_original_colour = m_gfx->Colour(false);
+				auto c = m_original_colour;
+				c.a = 0x80;
+				m_gfx->Colour(false, c);
+			}
+			else
+			{
+				m_gfx->Colour(false, m_original_colour);
+			}
+		}
 	}
 
 	// Add the body's graphics to a scene for rendering this frame

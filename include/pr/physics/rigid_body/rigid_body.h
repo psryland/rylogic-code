@@ -336,6 +336,12 @@ namespace pr::physics
 			return (m_state_flags & ERigidBodyStateFlags::Sleeping) != ERigidBodyStateFlags::None;
 		}
 
+		// Number of valid points in the contact support simplex
+		int ContactSimplexCount() const
+		{
+			return m_contact_simplex_count;
+		}
+
 		// Get/Set the current forces applied to this body.
 		v8force ForceWS() const
 		{
@@ -410,6 +416,9 @@ namespace pr::physics
 
 			// Position of the centre of mass (in object space)
 			m_os_com = os_model_to_com;
+
+			// Set state flags
+			m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, inertia.InvMass() == 0.0f);
 		}
 
 		// Return the kinetic energy of the body
