@@ -56,25 +56,32 @@ public class UserVars
 	public static string Git => m_git ??= FindOnPath("git");
 	private static string? m_git;
 
-	/// <summary>Assembly sign tool</summary>
+	/// <summary>Assembly sign tool (Windows SDK signtool.exe)</summary>
 	public static string SignTool => Path([WinSDK, "bin", WinSDKVersion, "x64\\signtool.exe"]);
-	public static string VsixSignTool => Path(["C:\\Program Files\\PackageManagement\\NuGet\\Packages\\Microsoft.VSSDK.VsixSignTool.16.2.29116.78\\tools\\vssdk\\vsixsigntool.exe"]);
 
-	/// <summary>Code signing cert</summary>
-	public static string CodeSignCert_Pfx => m_code_sign_cert_pfx ??= Browse("Code Signing Cert PFX: ", "PFX files (*.pfx)|*.pfx|All files (*.*)|*.*", "CodeSigningCert.pfx");
+	/// <summary>Code signing certificate PFX path. Empty if not configured.</summary>
+	public static string CodeSignCert_Pfx
+	{
+		get => m_code_sign_cert_pfx ??= UserSecret("RylogicCodeSignCertPfx") ?? "";
+		set => m_code_sign_cert_pfx = value;
+	}
 	private static string? m_code_sign_cert_pfx = null;
 
-	/// <summary>Code signing cert thumbprint</summary>
-	public static string CodeSignCert_Thumbprint => m_code_sign_cert_thumbprint ??= Prompt("Code Signing Cert Thumbprint: ");
-	private static string? m_code_sign_cert_thumbprint = null;
-
-	/// <summary>Code signing cert password</summary>
+	/// <summary>Code signing certificate password. Empty if not configured.</summary>
 	public static string CodeSignCert_Pw
 	{
-		get => m_code_sign_cert_pw ??= UserSecret("RylogicCodeSigningCertPassword") ?? Prompt("Code Signing Cert Password: ");
+		get => m_code_sign_cert_pw ??= UserSecret("RylogicCodeSigningCertPassword") ?? "";
 		set => m_code_sign_cert_pw = value;
 	}
 	private static string? m_code_sign_cert_pw = null;
+
+	/// <summary>Code signing certificate thumbprint (for VSIX signing). Empty if not configured.</summary>
+	public static string CodeSignCert_Thumbprint
+	{
+		get => m_code_sign_cert_thumbprint ??= UserSecret("RylogicCodeSignCertThumbprint") ?? "";
+		set => m_code_sign_cert_thumbprint = value;
+	}
+	private static string? m_code_sign_cert_thumbprint = null;
 
 	/// <summary>Nuget package manager</summary>
 	public static string Nuget => Path([Root, "tools\\nuget\\nuget.exe"]);
@@ -330,13 +337,8 @@ public class UserVars
 						case "WinSDK": m_win_sdk = prop.Value.GetString(); break;
 						case "WinSDKVersion": m_win_sdk_version = prop.Value.GetString(); break;
 						case "CodeSignCert_Pfx": m_code_sign_cert_pfx = prop.Value.GetString(); break;
-						case "CodeSignCert_Thumbprint":
-						{
-							// Get 'thumbprint' from the cert manager. Find your code signing cert (Rylogic Limited, Sectigo RSA Code Signing CA), and open it. Under 'details' find 'Thumbprint'.
-							m_code_sign_cert_thumbprint = prop.Value.GetString();
-							break;
-						}
 						case "CodeSignCert_Pw": m_code_sign_cert_pw = prop.Value.GetString(); break;
+						case "CodeSignCert_Thumbprint": m_code_sign_cert_thumbprint = prop.Value.GetString(); break;
 						default:
 						{
 							if (prop.Name == "") break; // Ignore empty names

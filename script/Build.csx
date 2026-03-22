@@ -654,9 +654,15 @@ void Main(IList<string> args)
 					publish = true;
 					break;
 				}
+			case "-cert_pfx":
+				{
+					if (!IsDataArg(i)) throw new Exception("Code signing certificate PFX path expected");
+					UserVars.CodeSignCert_Pfx = args[i++];
+					break;
+				}
 			case "-cert_pw":
 				{
-					if (!IsDataArg(i)) throw new Exception("Rylogic code signing certificate password expected");
+					if (!IsDataArg(i)) throw new Exception("Code signing certificate password expected");
 					UserVars.CodeSignCert_Pw = args[i++];
 					break;
 				}
@@ -737,9 +743,12 @@ void Main(IList<string> args)
 		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs)
 			?? throw new Exception($"Failed to create the builder type foe {project}");
 
-		// Prompt for the cert password if signing is needed
+		// Warn if Azure signing is not configured for deploy/publish
 		if (deploy || publish)
-			UserVars.CodeSignCert_Pw = UserVars.CodeSignCert_Pw; // Prompt if needed
+		{
+			if (!Tools.SigningAvailable)
+				Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
+		}
 
 		// Clean if '-clean' is used
 		if (clean)
