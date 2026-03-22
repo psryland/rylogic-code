@@ -183,7 +183,7 @@ namespace pr::rdr12
 		}
 
 		// In device debug mode, create a dummy swap chain so that the graphics debugging sees 'Present' calls allowing it to capture frames.
-		if (AllSet(rdr.Settings().m_options, ERdrOptions::DeviceDebug))
+		if (AllSet(rdr.Settings().m_options, ERdrOptions::DeviceDebug) && m_swap_chain == nullptr) // Don't need 'm_swap_chain_dbg' if we have a normal swap chain
 		{
 			DXGI_SWAP_CHAIN_DESC sd = {
 				.BufferDesc = DisplayMode(16,16),

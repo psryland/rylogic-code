@@ -27,6 +27,7 @@ namespace pr::physics
 	private:
 
 		Gpu& m_gpu;                             // Lightweight D3D12 wrapper (device + command queue)
+		EngineConfig const& m_config;           // Engine configuration parameters
 		BoundsSorter m_sorter;                  // Sorts float AABB endpoints (keys) with uint32 payloads (body_index << 1 | begin/end).
 		ComputeStep m_cs_sweep;                 // Root signature + PSO for the sweep shader
 		ComputeStep m_cs_calc_dispatch;         // Root signature + PSO for the calculating the dispatch size of the collide shader
@@ -36,7 +37,7 @@ namespace pr::physics
 
 	public:
 
-		explicit GpuSortAndSweep(Gpu& gpu);
+		explicit GpuSortAndSweep(Gpu& gpu, EngineConfig const& config);
 
 		// Sort the body index list based on the bounding box bounds
 		void Sort(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> aabb, D3DPtr<ID3D12Resource> aabb_idx);
@@ -48,7 +49,7 @@ namespace pr::physics
 		std::span<GpuCollisionPair> Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuCollisionPair> pairs);
 
 		// CPU-side testing: upload bodies, sort AABB endpoints, sweep for overlapping pairs, readback pairs.
-		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs);
+		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, std::span<GpuCollisionPair> out_pairs);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> CollisionPairs() { return m_r_col_pairs; }

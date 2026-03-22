@@ -11,6 +11,7 @@
 #include "pr/physics/forward.h"
 #include "pr/collision/shapes.h"
 #include "pr/physics/rigid_body/rigid_body.h"
+#include "pr/physics/rigid_body/state_flags.h"
 
 namespace pr::physics
 {
@@ -41,6 +42,10 @@ namespace pr::physics
 		v4 force_ang;      // external torque
 		v4 force_lin;      // external force
 
+		// World-space gravity. Each body has its own gravity vector to define local "down" for this object.
+		// Gravity is applied every frame even for static bodies.
+		v4 gravity;
+
 		// Object-space inverse inertia in compact symmetric form.
 		// The full 3×3 inverse inertia matrix is reconstructed from diagonal + off-diagonal terms.
 		v4 inertia_inv_diagonal;  // {Ixx_inv, Iyy_inv, Izz_inv, 0}
@@ -54,6 +59,10 @@ namespace pr::physics
 		// These allow the GPU to compute world-space AABBs after evolving the transform.
 		BBox os_bbox;   // object-space AABB
 
+		// State flags:
+		//  1 << 0: Sleep state: 0 = awake, 1 = sleeping.
+		int state_flags;
+
 		// The id of the shape for this object
 		int shape_id;
 
@@ -61,33 +70,45 @@ namespace pr::physics
 		// Written by CSComputeCollisionTimes, read by CSAssignColours.
 		uint32_t colour_used;
 
-		int pad0;
-		int pad1;
+		// The number of valid points in the contact simplex.
+		int contact_simplex_count;
+
+		// Contact support simplex (world space).
+		// Up to 4 recent contact points. Only contacts with normals that oppose gravity are recorded.
+		v4 contact_simplex[4];
 	};
-	static_assert(sizeof(GpuRigidBody) == 224, "GpuRigidBody must be 224 bytes for GPU alignment");
+	static_assert((sizeof(GpuRigidBody) & 0xf) == 0, "GpuRigidBody must be a multiple of 16 bytes");
 	static_assert(alignof(GpuRigidBody) == 16, "GpuRigidBody must be 16-byte aligned");
 
-	// Pack/Unpack a RigidBody's dynamic state into the flat GPU buffer format.
+	// Pack a RigidBody's dynamic state into the flat GPU buffer format.
+	// 'prev' carries persistent GPU state (sleep, simplex) from the previous frame's readback.
 	inline GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id)
 	{
-		auto const& o2w = rb.O2W();
-		auto momentum = rb.MomentumWS();
-		auto force = rb.ForceWS();
-		auto iinv = rb.InertiaInvOS();
 		auto com = rb.CentreOfMassOS();
-		return GpuRigidBody
+		auto result = GpuRigidBody
 		{
-			.o2w = o2w,
-			.momentum_ang = momentum.ang,
-			.momentum_lin = momentum.lin,
-			.force_ang = force.ang,
-			.force_lin = force.lin,
-			.inertia_inv_diagonal = iinv.m_diagonal,
-			.inertia_inv_products = iinv.m_products,
-			.os_com_and_invmass = v4{com.x, com.y, com.z, iinv.InvMass()},
+			.o2w = rb.m_o2w,
+			.momentum_ang = rb.m_ws_momentum.ang,
+			.momentum_lin = rb.m_ws_momentum.lin,
+			.force_ang = rb.m_ws_force.ang,
+			.force_lin = rb.m_ws_force.lin,
+			.gravity = rb.m_ws_gravity,
+			.inertia_inv_diagonal = rb.m_os_inertia_inv.m_diagonal,
+			.inertia_inv_products = rb.m_os_inertia_inv.m_products,
+			.os_com_and_invmass = v4{com.x, com.y, com.z, rb.m_os_inertia_inv.InvMass()},
 			.os_bbox = rb.Shape().m_bbox,
+			.state_flags = static_cast<int>(rb.m_state_flags),
 			.shape_id = shape_id,
+			.colour_used = 0,
+			.contact_simplex_count = rb.m_contact_simplex_count,
+			.contact_simplex = {
+				rb.m_contact_simplex[0],
+				rb.m_contact_simplex[1],
+				rb.m_contact_simplex[2],
+				rb.m_contact_simplex[3]
+			},
 		};
+		return result;
 	}
 	inline void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb)
 	{
@@ -98,6 +119,16 @@ namespace pr::physics
 
 		// Forces are zeroed by the integrator after the second half-kick
 		rb.ZeroForces();
+
+		// Preserve the state flags
+		rb.m_state_flags = static_cast<ERigidBodyStateFlags>(dyn.state_flags);
+
+		// Preserve the contact simplex
+		rb.m_contact_simplex[0] = dyn.contact_simplex[0];
+		rb.m_contact_simplex[1] = dyn.contact_simplex[1];
+		rb.m_contact_simplex[2] = dyn.contact_simplex[2];
+		rb.m_contact_simplex[3] = dyn.contact_simplex[3];
+		rb.m_contact_simplex_count = dyn.contact_simplex_count;
 	}
 
 	// GPU-friendly representation of a collision shape.
@@ -151,7 +182,7 @@ namespace pr::physics
 	// Contains everything needed to compute and apply the restitution impulse.
 	struct alignas(16) GpuResolveContact
 	{
-		v4 axis;              // collision normal (in A's object space)
+		v4 axis;              // collision normal (in A's object space) (points from A to B)
 		v4 contact_point;     // contact point at estimated collision time (in A's space)
 		m4x4 b2a;             // B-to-A transform
 		int body_idx_a;       // index into GpuRigidBody buffer
@@ -169,9 +200,9 @@ namespace pr::physics
 	// The compute shader increments this atomically to allocate slots in the contact buffer.
 	struct alignas(16) GpuCollisionCounters
 	{
-		int body_count; // The number of bodies/shapes to test
 		int pair_count; // The number of potentially colliding objects
 		int contact_count; // The number of contact points found
+		int pad0;
 		int pad1;
 	};
 	static_assert(sizeof(GpuCollisionCounters) == 16);

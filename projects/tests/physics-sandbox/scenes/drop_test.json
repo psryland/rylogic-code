@@ -3,7 +3,7 @@
 		"description": "Single box drop test: one box falling onto a ground plane. For debugging ground collisions.",
 		"gravity": [0, 0, -9.81],
 		"material": {
-			"elasticity": 1.0,
+			"elasticity": 0.3,
 			"friction": 0.0
 		},
 		"ground_plane": {

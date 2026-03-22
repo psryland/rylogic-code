@@ -30,9 +30,9 @@
 cbuffer cbIntegrate : register(b0)
 {
 	float g_dt;
-	int g_pad0;
-	int g_pad1;
-	int g_pad2;
+	int g_body_count;
+	float g_sleep_velocity_threshold_lin;
+	float g_sleep_velocity_threshold_ang;
 };
 
 // Shader resources
@@ -46,11 +46,34 @@ RWStructuredBuffer<int> g_aabb_idx : register(u5);
 RWStructuredBuffer<GpuIntegrateDiag> g_diag : register(u6);
 #endif
 
+// Compute the world-space AABB for a body and write it to the output buffers.
+void UpdateAABB(GpuRigidBody body, int idx)
+{
+	float3x3 rot = (float3x3)body.o2w;
+	float3 os_centre = body.os_bbox.centre.xyz;
+	float3 os_radius = body.os_bbox.radius.xyz;
+	float3 ws_centre = mul(float4(os_centre, 1), body.o2w).xyz;
+	float3 ws_radius = float3(
+		abs(rot[0].x) * os_radius.x + abs(rot[1].x) * os_radius.y + abs(rot[2].x) * os_radius.z,
+		abs(rot[0].y) * os_radius.x + abs(rot[1].y) * os_radius.y + abs(rot[2].y) * os_radius.z,
+		abs(rot[0].z) * os_radius.x + abs(rot[1].z) * os_radius.y + abs(rot[2].z) * os_radius.z);
+
+	// Write the aabb min/max values
+	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;
+	g_aabb_x[2 * idx + 1] = ws_centre.x + ws_radius.x;
+	g_aabb_y[2 * idx + 0] = ws_centre.y - ws_radius.y;
+	g_aabb_y[2 * idx + 1] = ws_centre.y + ws_radius.y;
+	g_aabb_z[2 * idx + 0] = ws_centre.z - ws_radius.z;
+	g_aabb_z[2 * idx + 1] = ws_centre.z + ws_radius.z;
+	g_aabb_idx[2 * idx + 0] = (idx << 1) | 0;
+	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1;
+}
+
 [numthreads(IntegrateThreadCount, 1, 1)]
 void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 {
 	int idx = dtid.x;
-	if (idx >= g_counters[0].body_count)
+	if (idx >= g_body_count)
 		return;
 
 	// Load the body's dynamic state
@@ -62,6 +85,37 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	// ---- Step 1: Half-kick — advance momentum by half the force impulse ----
 	body.momentum_ang += body.force_ang * half_dt;
 	body.momentum_lin += body.force_lin * half_dt;
+
+	// ---- Sleep check: if body is sleeping and momentum is below thresholds, skip dynamics ----
+	bool low_velocity =
+		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g_sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
+		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g_sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
+
+	bool stay_asleep = HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
+	if (stay_asleep)
+	{
+		// Sleeping body: zero momentum and forces, keep position unchanged.
+		body.momentum_ang = float4(0, 0, 0, 0);
+		body.momentum_lin = float4(0, 0, 0, 0);
+		body.force_ang = float4(0, 0, 0, 0);
+		body.force_lin = float4(0, 0, 0, 0);
+		g_bodies[idx] = body;
+
+		// Still need to output the AABBs so the broadphase can detect collisions that wake us
+		UpdateAABB(body, idx);
+
+		#if PR_COLLISION_DIAGNOSTICS
+		g_diag[idx].ke_before = 0;
+		g_diag[idx].ke_after = 0;
+		g_diag[idx].pad0 = 0;
+		g_diag[idx].pad1 = 0;
+		#endif
+		return;
+	}
+
+	// If the velocities are too high, reset contact count
+	if (!low_velocity)
+		body.contact_simplex_count = 0;
 
 	// ---- Step 2: Drift — update position and orientation ----
 	// Build the object-space unit inverse inertia (not mass-scaled)
@@ -81,9 +135,11 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 
 	// Compute KE before drift (for debug output).
 	// Momentum is at CoM, inertia is block-diagonal — no coupling.
+	#if PR_COLLISION_DIAGNOSTICS
 	float3 vel_ang_pre = mul(ws_iinv, body.momentum_ang.xyz);
 	float3 vel_lin_pre = inv_mass * body.momentum_lin.xyz;
 	float ke_before = 0.5f * spatial_dot(vel_ang_pre, vel_lin_pre, body.momentum_ang.xyz, body.momentum_lin.xyz);
+	#endif
 
 	// Compute velocity from momentum (block-diagonal — no coupling terms).
 	// omega = Ic_inv * h_ang, v_com = h_lin / m.
@@ -114,7 +170,7 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	new_rot = orthonorm3x3(new_rot);
 
 	// CoM-based position update: translate CoM, derive model origin from new rotation.
-	float3 com_ws = mul(os_com, rot);         // world-space CoM offset
+	float3 com_ws = mul(os_com, rot);          // world-space CoM offset
 	float3 com_pos = body.o2w[3].xyz + com_ws; // world-space CoM position
 	float3 new_com_pos = com_pos + vel_lin * g_dt;
 	float3 new_pos = new_com_pos - mul(os_com, new_rot);
@@ -133,7 +189,14 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	body.force_ang = float4(0, 0, 0, 0);
 	body.force_lin = float4(0, 0, 0, 0);
 
+	// Write results
+	g_bodies[idx] = body;
+
+	// Compute world-space AABB from object-space bbox and the updated transform.
+	UpdateAABB(body, idx);
+
 	// ---- Debug: compute KE after integration ----
+	#if PR_COLLISION_DIAGNOSTICS
 	// Block-diagonal: no coupling, velocity is simple.
 	float3x3 new_ws_iinv_unit = rotate_inertia_inv(os_iinv_unit, new_rot);
 	float3x3 new_ws_iinv = inv_mass * new_ws_iinv_unit;
@@ -141,31 +204,6 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	float3 vel_lin_post = inv_mass * body.momentum_lin.xyz;
 	float ke_after = 0.5f * spatial_dot(vel_ang_post, vel_lin_post, body.momentum_ang.xyz, body.momentum_lin.xyz);
 
-	// Compute world-space AABB from object-space bbox and the updated transform.
-	// new_rot[i] is the i-th basis vector (row-major convention), so to get the
-	// j-th world-axis extent we sum |basis_i[j]| * os_radius[i] over all i.
-	float3 os_centre = body.os_bbox.centre.xyz;
-	float3 os_radius = body.os_bbox.radius.xyz;
-	float3 ws_centre = mul(float4(os_centre, 1), body.o2w).xyz;
-	float3 ws_radius;
-	ws_radius.x = abs(new_rot[0].x) * os_radius.x + abs(new_rot[1].x) * os_radius.y + abs(new_rot[2].x) * os_radius.z;
-	ws_radius.y = abs(new_rot[0].y) * os_radius.x + abs(new_rot[1].y) * os_radius.y + abs(new_rot[2].y) * os_radius.z;
-	ws_radius.z = abs(new_rot[0].z) * os_radius.x + abs(new_rot[1].z) * os_radius.y + abs(new_rot[2].z) * os_radius.z;
-
-	// Write results
-	g_bodies[idx] = body;
-
-	// Write the aabb min/max values
-	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;
-	g_aabb_x[2 * idx + 1] = ws_centre.x + ws_radius.x;
-	g_aabb_y[2 * idx + 0] = ws_centre.y - ws_radius.y;
-	g_aabb_y[2 * idx + 1] = ws_centre.y + ws_radius.y;
-	g_aabb_z[2 * idx + 0] = ws_centre.z - ws_radius.z;
-	g_aabb_z[2 * idx + 1] = ws_centre.z + ws_radius.z;
-	g_aabb_idx[2 * idx + 0] = (idx << 1) | 0; // bounding box lower bound
-	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1; // bounding box upper bound
-
-	#if PR_COLLISION_DIAGNOSTICS
 	g_diag[idx].ke_before = ke_before;
 	g_diag[idx].ke_after = ke_after;
 	g_diag[idx].pad0 = 0;

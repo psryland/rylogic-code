@@ -12,7 +12,11 @@ static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
 static const int MaxColours = 32;
 
-// ---- Shape type enum (matches C++ EShape) ----
+// Rigid body state flags:
+static const int ERigidBodyStateFlags_None = 0;
+static const int ERigidBodyStateFlags_Sleeping = 1 << 0;
+
+// Collision shape types:
 static const int SHAPE_SPHERE   = 0;
 static const int SHAPE_BOX      = 1;
 static const int SHAPE_LINE     = 2;
@@ -34,6 +38,10 @@ struct GpuRigidBody
 	float4 force_ang;
 	float4 force_lin;
 
+	// Each body has its own gravity vector to define local "down" for this object. This value is updated
+	// via the Gravity methods and should be called each frame to apply the gravity force to the body (even static bodies).
+	float4 ws_gravity;
+
 	// Object-space inverse inertia (compact symmetric 3x3)
 	float4 inertia_inv_diagonal;  // {Ixx_inv, Iyy_inv, Izz_inv, 0}
 	float4 inertia_inv_products;  // {Ixy_inv, Ixz_inv, Iyz_inv, 0}
@@ -45,6 +53,9 @@ struct GpuRigidBody
 	// Object-space bounding box
 	BBox os_bbox; // object-space AABB (centre + half-extents)
 
+	// State flags (ERigidBodyStateFlags)
+	int state_flags;
+
 	// The id of the shape for this object
 	int shape_id;
 
@@ -52,8 +63,12 @@ struct GpuRigidBody
 	// Written by CSComputeCollisionTimes, read by CSAssignColours.
 	uint colour_used;
 
-	int pad0;
-	int pad1;
+	// The number of valid points in the contact simplex.
+	int contact_simplex_count;
+
+	// Contact support simplex (world space).
+	// Up to 4 recent contact points. Only contacts with normals that oppose gravity are recorded.
+	float4 contact_simplex[4];
 };
 struct GpuShape
 {
@@ -88,10 +103,10 @@ struct GpuResolveContact
 };
 struct GpuCollisionCounters
 {
-	int body_count; // The number of bodies/shapes to test
 	int pair_count; // The number of potentially colliding objects
 	int contact_count; // The number of contact points found
 	int pad0;
+	int pad1;
 };
 struct GpuMaterial
 {

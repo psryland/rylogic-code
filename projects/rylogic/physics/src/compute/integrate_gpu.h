@@ -11,6 +11,7 @@ namespace pr::physics
 	struct GpuIntegrator
 	{
 		Gpu& m_gpu;                          // Lightweight D3D12 wrapper (device + command queue)
+		EngineConfig const& m_config;        // Engine configuration parameters
 		ComputeStep m_cs_integrate;          // Root signature + PSO for the integration shader
 		D3DPtr<ID3D12Resource> m_r_counters; // GPU buffer: RWStructuredBuffer<GpuCollisionCounters> for storing the number of bodies, pairs, and contacts
 		D3DPtr<ID3D12Resource> m_r_bodies;   // GPU buffer: RWStructuredBuffer<GpuRigidBody>
@@ -23,16 +24,16 @@ namespace pr::physics
 		#endif
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 
-		explicit GpuIntegrator(Gpu& gpu);
+		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
 
 		// Integrate bodies on GPU and readback AABBs (but keep bodies GPU-resident for later readback).
 		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt);
-		
-		// Readback data into the provided buffers. 0-length means "don't readback".
-		void Readback(GpuJob& job, std::span<GpuRigidBody> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
 		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
 		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs);
+		
+		// Readback data into the provided buffers. 0-length means "don't readback".
+		void Readback(GpuJob& job, std::span<GpuRigidBody> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> Counters() { return m_r_counters; }

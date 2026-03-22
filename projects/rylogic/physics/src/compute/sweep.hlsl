@@ -15,9 +15,9 @@
 cbuffer cbSweep : register(b0)
 {
 	int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
+	int g_body_count;
 	int g_pad0;
 	int g_pad1;
-	int g_pad2;
 };
 
 // Shader Resources
@@ -40,7 +40,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	//   end = (body_index << 1) | 1
 	
 	// The number of bounds in the 'g_aabb_idx' buffer.
-	int bounds_count = 2 * g_counters[0].body_count;
+	int bounds_count = 2 * g_body_count;
 
 	// The index into 'g_aabb_idx'
 	int idx = dtid.x;

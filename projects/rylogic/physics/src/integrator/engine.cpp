@@ -23,22 +23,15 @@
 
 namespace pr::physics
 {
-	struct BodyPair
-	{
-		m4x4 b2a;
-		RigidBody const* objA;
-		RigidBody const* objB;
-	};
-
-	Engine::Engine(ID3D12Device4* existing_device)
-		: m_gpu(new Gpu(existing_device))
-		, m_gpu_integrator(new GpuIntegrator(*m_gpu))
-		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu))
-		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu))
-		, m_gpu_resolver(new GpuResolver(*m_gpu))
+	Engine::Engine(EngineConfig const& config, ID3D12Device4* existing_device)
+		: m_config(config)
+		, m_gpu(new Gpu(existing_device))
+		, m_gpu_integrator(new GpuIntegrator(*m_gpu, config))
+		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, config))
+		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, config))
+		, m_gpu_resolver(new GpuResolver(*m_gpu, config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache)
-		, PostCollisionDetection()
 	{
 	}
 
@@ -124,7 +117,7 @@ namespace pr::physics
 			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
 			auto bodies = m_gpu_integrator->Bodies();
 			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, MaxCollisionPairs, counters, aabb_idx, bodies);
+			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
 			#if PR_DBG_PHYSICS
 			dbg.ReadbackSweep(counters);
 			#endif
@@ -135,7 +128,7 @@ namespace pr::physics
 			auto counters = m_gpu_integrator->Counters();
 			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, MaxCollisionPairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 			#if PR_DBG_PHYSICS
 			dbg.ReadbackCollide(counters);
 			#endif
@@ -147,7 +140,7 @@ namespace pr::physics
 			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 			auto contacts = m_gpu_collision_detector->Contacts();
 			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, dt, MaxCollisionPairs, m_gravity, dispatch, counters, contacts, bodies, m_materials->span());
+			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
 			#if PR_DBG_PHYSICS
 			dbg.ReadbackResolve(body_count, bodies);
 			#endif
@@ -337,6 +330,12 @@ namespace pr::physics
 			}
 			#endif
 		}
+	}
+
+	// Deleter implementations
+	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
+	{
+		delete cache;
 	}
 }
 

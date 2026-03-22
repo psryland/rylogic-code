@@ -53,20 +53,15 @@ namespace pr::physics
 		void operator()(T* p) const; // Implemented where 'T' is fully defined
 	};
 
-	// TODO: this should be in engine config
-	static constexpr auto MaxCollisionPairs = 65536;
-
 	// Forwards
-	struct Material;
-	struct MaterialMap;
-	struct RigidBody;
-	struct IBroadphase;
-	struct IMaterials;
 	struct Engine;
-	struct IntegrateDebugOutput;
+	struct EngineConfig;
+	struct RigidBody;
 	struct Inertia;
 	struct InertiaInv;
 	struct RbContact;
+	struct MaterialMap;
+	struct Material;
 
 	struct Gpu;
 	struct GpuIntegrator;

@@ -2,6 +2,7 @@
 // Physics Engine — GPU Integration Implementation
 //  Copyright (C) Rylogic Ltd 2025
 //*********************************************
+#include "pr/physics/integrator/engine_config.h"
 #include "src/compute/integrate_gpu.h"
 #include "src/compute/physics_types.h"
 
@@ -13,9 +14,9 @@ namespace pr::physics
 	struct alignas(16) cbIntegrate
 	{
 		float g_dt;
-		int g_pad0;
-		int g_pad1;
-		int g_pad2;
+		int g_body_count;
+		float g_sleep_velocity_threshold_lin;
+		float g_sleep_velocity_threshold_ang;
 	};
 	static_assert(sizeof(cbIntegrate) == 16);
 
@@ -34,8 +35,9 @@ namespace pr::physics
 		#endif
 	};
 
-	GpuIntegrator::GpuIntegrator(Gpu& gpu)
+	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
+		, m_config(config)
 		, m_cs_integrate()
 		, m_r_bodies()
 		, m_r_aabb_x()
@@ -112,9 +114,18 @@ namespace pr::physics
 		if (body_count == 0)
 			return;
 
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFFbc45f2, "Physics::Integrate");
+
 		// Ensure the buffers are large enough to hold the body count.
 		ResizeBuffers(job.m_cmd_list, body_count);
 		
+		cbIntegrate cb_integrate = {
+			.g_dt = dt,
+			.g_body_count = body_count,
+			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
+			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
+		};
+
 		// Initialise and upload the counters
 		{
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -122,7 +133,6 @@ namespace pr::physics
 
 			auto upload_counters = job.m_upload.Alloc<GpuCollisionCounters>(1);
 			*upload_counters.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
-				.body_count = body_count,
 				.pair_count = 0,
 				.contact_count = 0,
 			};
@@ -163,7 +173,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_integrate.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_integrate.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbIntegrate{ .g_dt = dt });
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_integrate);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_aabb_x->GetGPUVirtualAddress());
@@ -174,8 +184,8 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
 			#endif
 
-			auto dispatch_count = (body_count + IntegrateThreadCount - 1) / IntegrateThreadCount;
-			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
+			auto dispatch = (body_count + IntegrateThreadCount - 1) / IntegrateThreadCount;
+			job.m_cmd_list.Dispatch(dispatch, 1, 1);
 
 			job.m_barriers.UAV(m_r_counters.get());
 			job.m_barriers.UAV(m_r_bodies.get());
@@ -188,6 +198,15 @@ namespace pr::physics
 			#endif
 			job.m_barriers.Commit();
 		}
+
+		pix::EndEvent(job.m_cmd_list.get());
+	}
+
+	// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
+	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs)
+	{
+		Integrate(job, bodies, dt);
+		Readback(job, bodies, aabbs, {});
 	}
 
 	// Readback data into the provided buffers. 0-length means "don't readback".
@@ -289,13 +308,6 @@ namespace pr::physics
 			memcpy(diag.data(), readback_diag.template ptr<GpuIntegrateDiag>(), diag.size() * sizeof(GpuIntegrateDiag));
 			#endif
 		}
-	}
-
-	// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
-	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs)
-	{
-		Integrate(job, bodies, dt);
-		Readback(job, bodies, aabbs, {});
 	}
 
 	// Custom deleter implementation (GpuIntegrator is complete here)

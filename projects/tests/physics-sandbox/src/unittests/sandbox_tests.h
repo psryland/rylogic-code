@@ -76,16 +76,16 @@ namespace physics_sandbox::tests
 			// Configure perfectly elastic, frictionless collisions
 			physics::Engine engine;
 
-			// Capture the "before" state on the step where collision is first detected,
-			// before the impulse is applied.
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				if (args.m_contacts.empty())
-					return;
+			//// Capture the "before" state on the step where collision is first detected,
+			//// before the impulse is applied.
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	if (args.m_contacts.empty())
+			//		return;
 
-				result.before = SystemState::Capture(body_a, body_b);
-				result.collision_occurred = true;
-			};
+			//	result.before = SystemState::Capture(body_a, body_b);
+			//	result.collision_occurred = true;
+			//};
 
 			// Step until a collision occurs (or timeout after 5000 steps)
 			auto const dt = 1.0f / 100.0f;
@@ -652,15 +652,15 @@ namespace physics_sandbox::tests
 			float sum_collision_delta = 0.0f;     // total ΔE from collision resolution (signed)
 			float max_collision_delta = 0.0f;
 
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				E_at_callback = TotalEnergy();
-				if (!args.m_contacts.empty())
-				{
-					had_collision = true;
-					++collision_count;
-				}
-			};
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	E_at_callback = TotalEnergy();
+			//	if (!args.m_contacts.empty())
+			//	{
+			//		had_collision = true;
+			//		++collision_count;
+			//	}
+			//};
 
 			for (int step = 0; step != num_steps; ++step)
 			{

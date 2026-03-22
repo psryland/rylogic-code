@@ -227,6 +227,10 @@ bool HasFlag(uint mask, uint flag)
 {
 	return (mask & flag) != 0;
 }
+int SetFlag(int mask, int flag, bool on)
+{
+	return select(on, mask | flag, mask & ~flag);
+}
 
 // Return the parametric position of 'x' on the range [mn, mx]
 float Frac(float mn, float x, float mx)

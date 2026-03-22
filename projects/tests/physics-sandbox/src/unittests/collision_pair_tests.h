@@ -75,11 +75,11 @@ namespace physics_sandbox::tests
 			auto const m = bodies[0].Mass();
 			auto const com_os = bodies[0].CentreOfMassOS();
 
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				if (!args.m_contacts.empty())
-					result.total_collisions++;
-			};
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	if (!args.m_contacts.empty())
+			//		result.total_collisions++;
+			//};
 
 			for (int step = 0; step != num_steps; ++step)
 			{
@@ -143,11 +143,11 @@ namespace physics_sandbox::tests
 			bodies[1].VelocityWS(v4::Zero(), v4{-speed, 0, 0, 0});
 
 			physics::Engine engine;
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				if (!args.m_contacts.empty())
-					result.collision_occurred = true;
-			};
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	if (!args.m_contacts.empty())
+			//		result.collision_occurred = true;
+			//};
 
 			auto const dt = 1.0f / 100.0f;
 			for (int step = 0; step != 5000; ++step)

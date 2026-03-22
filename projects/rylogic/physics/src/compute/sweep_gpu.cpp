@@ -13,9 +13,9 @@ namespace pr::physics
 	struct alignas(16) cbSweep
 	{
 		int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
+		int g_body_count;
 		int g_pad0;
 		int g_pad1;
-		int g_pad2;
 	};
 	static_assert(sizeof(cbSweep) == 16);
 
@@ -30,8 +30,9 @@ namespace pr::physics
 		inline static constexpr auto AABB_Idx = ESRVReg::t1;
 	};
 
-	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu)
+	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
+		, m_config(config)
 		, m_sorter(gpu.m_gpu)
 		, m_cs_sweep()
 		, m_cs_calc_dispatch()
@@ -109,7 +110,14 @@ namespace pr::physics
 	// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
 	void GpuSortAndSweep::Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies)
 	{
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFF45bcf2, "Physics::Sweep");
+
 		ResizeBuffers(job.m_cmd_list, max_col_pairs);
+
+		cbSweep cb_sweep = {
+			.g_max_pair_count = max_col_pairs,
+			.g_body_count = body_count,
+		};
 
 		// Switch states for resources
 		{
@@ -125,7 +133,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_sweep.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_sweep.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbSweep{ .g_max_pair_count = max_col_pairs });
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_sweep);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch->GetGPUVirtualAddress());
@@ -153,6 +161,8 @@ namespace pr::physics
 			job.m_barriers.UAV(m_r_cd_dispatch.get());
 			job.m_barriers.Commit();
 		}
+
+		pix::EndEvent(job.m_cmd_list.get());
 	}
 
 	// Read back the results of the Sort and Sweep steps.
@@ -189,9 +199,10 @@ namespace pr::physics
 	}
 
 	// CPU-side testing: upload bodies, sort + sweep, readback pairs. Calls job.Run() internally.
-	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, int max_col_pairs, std::span<GpuCollisionPair> out_pairs)
+	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, std::span<GpuCollisionPair> out_pairs)
 	{
 		auto body_count = static_cast<int>(bodies.size());
+		auto pair_count = static_cast<int>(out_pairs.size());
 		if (body_count < 2)
 			return {};
 
@@ -207,7 +218,10 @@ namespace pr::physics
 			job.m_barriers.Commit();
 
 			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
-			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{ .body_count = body_count };
+			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
+				.pair_count = pair_count,
+				.contact_count = 0,
+			};
 			job.m_cmd_list.CopyBufferRegion(r_counters.get(), 0, upload);
 
 			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -257,7 +271,7 @@ namespace pr::physics
 		Sort(job, body_count, r_aabb, r_aabb_idx);
 
 		// Run the sweep step (skip sort for CPU-side testing)
-		Sweep(job, body_count, max_col_pairs, r_counters, r_aabb_idx, r_bodies);
+		Sweep(job, body_count, pair_count, r_counters, r_aabb_idx, r_bodies);
 
 		// Read back data from the GPU
 		return Readback(job, r_counters, out_pairs);

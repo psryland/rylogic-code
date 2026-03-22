@@ -8,6 +8,16 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 
+// Project 'pt' onto the plane with normal 'direction'
+float3 Project(float3 pt, float3 direction)
+{
+	return pt - dot(pt, direction) * direction;
+}
+float4 Project(float4 pt, float4 direction)
+{
+	return pt - dot(pt, direction) * direction;
+}
+
 // Return the normal for the triangle (a,b,c)
 // Returns 'def' if the triangle is degenerate
 float4 FaceNormal(float4 a, float4 b, float4 c, float4 def = float4(0,0,0,0))
@@ -97,6 +107,57 @@ inline float4 Barycentric(float4 pos, float4 a, float4 b, float4 c)
 	bary.x = 1.0f - bary.y - bary.z;
 	bary.w = 0.0f;
 	return bary;
+}
+
+// Returns 1.0 if point 'p' lies inside triangle (a,b,c), otherwise 0.0.
+// 'p' - Point to test (does NOT need to lie in triangle plane)
+// a,b,c - Triangle vertices
+float PointInTriangle(float3 p, float3 a, float3 b, float3 c)
+{
+	// Notes:
+	//   - Internally computes the triangle normal
+	//   - Projects 'p' onto the triangle plane implicitly via orientation tests
+	//   - Returns 0.0 for degenerate triangles
+	float3 ab = b - a;
+	float3 ac = c - a;
+
+	float3 n = cross(ab, ac); // triangle normal
+
+	// Degeneracy check
+	float area2 = dot(n, n);
+	float valid = step(1e-12f, area2);
+
+	float3 bc = c - b;
+	float3 ca = a - c;
+
+	float3 ap = p - a;
+	float3 bp = p - b;
+	float3 cp = p - c;
+
+	float s0 = dot(cross(ab, ap), n);
+	float s1 = dot(cross(bc, bp), n);
+	float s2 = dot(cross(ca, cp), n);
+
+	float min_s = min(s0, min(s1, s2));
+	float max_s = max(s0, max(s1, s2));
+
+	// 's0..s2' scale with the squared triangle area, so use a relative tolerance
+	float eps = max(1e-12f, 1e-5f * area2);
+
+	float all_pos = step(-eps, min_s);
+	float all_neg = step(max_s, eps);
+
+	return max(all_pos, all_neg) * valid;
+}
+
+// Returns 1.0 if 'p' is inside the quad '(a,b,c,d)', otherwise 0.0.
+float PointInQuad(float3 p, float3 a, float3 b, float3 c, float3 d)
+{
+	float t0 = PointInTriangle(p, a, b, c);
+	float t1 = PointInTriangle(p, a, b, d);
+	float t2 = PointInTriangle(p, a, c, d);
+	float t3 = PointInTriangle(p, b, c, d);
+	return max(max(t0, t1), max(t2, t3));
 }
 
 // Returns a spherical direction vector corresponding to the i'th point of a Fibonacci sphere

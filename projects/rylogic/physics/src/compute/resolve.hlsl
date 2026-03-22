@@ -28,17 +28,22 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/geometry.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "src/compute/physics_types.hlsli"
 
 // Per-dispatch constants
 cbuffer cbResolve : register(b0)
 {
-	int g_colour;       // current colour batch being processed (for CSResolve)
-	int g_max_contacts; // The capacity of the contacts buffer
+	int g_max_contacts; // The max capacity of the contacts buffer
+	int g_body_count;   // The number of bodies in the scene
+	int g_colour;       // Current colour batch being processed (for CSResolve)
+	int pad0;
+
 	float g_dt;         // timestep in seconds
-	float pad0;
-	float4 g_gravity;   // gravity direction (world space, e.g., (0,0,-9.81,0))
+	float g_sleep_velocity_threshold_lin;
+	float g_sleep_velocity_threshold_ang;
+	float pad1;
 };
 
 // Shader resources
@@ -248,30 +253,73 @@ float EstimateCollisionTime(GpuResolveContact c)
 	return sub_step * g_dt;
 }
 
+// Add a contact point to the body's contact simplex, maintaining a maximum of 4 points.
+void AddSupportContact(inout GpuRigidBody body, float4 ws_pt)
+{
+	if (body.contact_simplex_count == 4)
+	{
+		body.contact_simplex[0] = body.contact_simplex[1];
+		body.contact_simplex[1] = body.contact_simplex[2];
+		body.contact_simplex[2] = body.contact_simplex[3];
+		body.contact_simplex_count = 3;
+	}
+	body.contact_simplex[body.contact_simplex_count] = ws_pt;
+	body.contact_simplex_count++;
+}
+
+// Test if the body's CoM projects inside the contact simplex along the 'down' direction
+bool IsSupportedBySimplex(GpuRigidBody body, float3 down)
+{
+	int simplex_count = min(body.contact_simplex_count, 4);
+	if (simplex_count < 3)
+		return false;
+
+	// Get the CoM position in world space relative to the body's origin
+	float3 com_ws_rel = mul(body.os_com_and_invmass.xyz, (float3x3)body.o2w);
+	float3 com = Project(com_ws_rel, down);
+
+	// Project the simplex and the CoM into the plane perpendicular to 'down' (the support plane)
+	float3 pt0 = Project(body.contact_simplex[0].xyz, down);
+	float3 pt1 = Project(body.contact_simplex[1].xyz, down);
+	float3 pt2 = Project(body.contact_simplex[2].xyz, down);
+	float3 pt3 = Project(body.contact_simplex[3].xyz, down); // Will be invalid if count is 3, but that's ok because we won't use it in that case
+
+	bool r0 = PointInTriangle(com, pt0, pt1, pt2) != 0;
+	if (simplex_count == 3)
+		return r0;
+	
+	bool r1 = PointInTriangle(com, pt0, pt1, pt3) != 0;
+	bool r2 = PointInTriangle(com, pt0, pt2, pt3) != 0;
+	bool r3 = PointInTriangle(com, pt1, pt2, pt3) != 0;
+	return r0 || r1 || r2 || r3;
+}
+
 // ----- CSComputeCollisionTimes -----
-// Parallel: one thread per contact. Computes collision time and writes to the contact.
-// Also zeroes the per-body colour_used bitmask (one thread per body, reusing the same dispatch).
+// Parallel: one thread per contact. Computes collision time
 [numthreads(ResolveThreadCount, 1, 1)]
 void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 {
 	int idx = dtid.x;
-	int i;
-	
 	if (idx < g_counters[0].contact_count)
 	{
+		// Calculate the estimated collision time for this contact
 		GpuResolveContact c = g_contacts[idx];
 		float collision_time = EstimateCollisionTime(c);
 		g_contacts[idx].collision_time = collision_time;
+
+		// Transform the contact point to world space to compute its height along gravity for tie-breaking in sorting.
+		float3x3 rot_a = (float3x3)g_bodies[c.body_idx_a].o2w;
+		float3 ws_point = g_bodies[c.body_idx_a].o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
+
+		// Get the direction of gravity for this contact so we can determine "down" for height sorting.
+		// Use body A, if the objects are in contact then gravity should be similar for both bodies.
+		float3 gravity = NormaliseOrZero(g_bodies[c.body_idx_a].ws_gravity).xyz;
+		float height = dot(ws_point, gravity);
 		
 		// Compute a composite sort key: collision_time primary, contact height secondary.
 		// For contacts with similar collision times (e.g., a stacked column landing),
-		// lower contacts (closer to the support surface) sort first so the impulse
-		// propagates upward through the stack. Height is measured along the gravity
-		// direction — contacts further along -gravity sort earlier.
-		float3x3 rot_a = (float3x3)g_bodies[c.body_idx_a].o2w;
-		float3 ws_point = g_bodies[c.body_idx_a].o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
-		float grav_len = length(g_gravity.xyz);
-		float height = (grav_len > 1e-6f) ? dot(ws_point, g_gravity.xyz / grav_len) : 0.0f;
+		// lower contacts (closer to the support surface) sort first so the impulse propagates upward through the stack.
+		// Height is measured along the gravity direction — contacts further along -gravity sort earlier.
 		float height_bias = height * 1e-6f; // contacts lower along gravity sort first (more negative = earlier)
 		g_contact_times[idx] = collision_time + height_bias;
 		g_contact_order[idx] = idx;
@@ -280,8 +328,10 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 	// Get thread 0 to do serial operations
 	if (idx == 0)
 	{
+		int i;
+	
 		// Zero the body colour_used bitmask (one thread per body, reusing the same dispatch)
-		for (i = 0; i != g_counters[0].body_count; ++i)
+		for (i = 0; i != g_body_count; ++i)
 			g_bodies[i].colour_used = 0;
 		
 		// Set the out of bounds contact times to a large positive value so they sort to the end
@@ -294,7 +344,7 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 // Serial: single thread. Walks contacts in order sorted by collision time.
 // Uses per-body colour bitmasks stored in g_bodies[].colour_used.
 [numthreads(1, 1, 1)]
-void CSAssignColours(uint3 dtid : SV_DispatchThreadID)
+void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 {
 	for (int i = 0; i != g_counters[0].contact_count; ++i)
 	{
@@ -371,8 +421,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	float3x3 ws_iinv_b = rotate_inertia_inv(os_iinv_b, (float3x3)bodyB.o2w);
 
 	// Compute relative velocity at the contact point (in A's object space)
-	float3 V_rel = RelativeVelocityAtContact(c, bodyA, bodyB,
-		os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+	float3 V_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
 
 	// Adjust contact point to estimated collision time
 	if (abs(ct) > 1e-6f)
@@ -418,7 +467,81 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 		com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 		inv_mass_a, inv_mass_b);
 
+	// If the contact normal opposes gravity for the body, add it to the contact simplex for sleep testing.
+	float3 ws_axis = mul(axis, rot_a); // contact normal in world space (points from A to B)
+	float4 ws_contact = mul(float4(pt, 1), bodyA.o2w);
+	if (dot(bodyA.ws_gravity.xyz, ws_axis) < -0.1f)
+	{
+		float4 ws_pt = float4(ws_contact.xyz - bodyA.o2w[3].xyz, 0);
+		AddSupportContact(bodyA, ws_pt);
+	}
+	if (dot(bodyB.ws_gravity.xyz, ws_axis) > +0.1f)
+	{
+		float4 ws_pt = float4(ws_contact.xyz - bodyB.o2w[3].xyz, 0);
+		AddSupportContact(bodyB, ws_pt);
+	}
+	
 	// Write updated bodies
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
+}
+
+// ----- CSUpdateSleepState -----
+// One thread per body. Scans contacts for this body, updates the contact support simplex,
+// and determines whether the body should go to sleep.
+// Sleep conditions:
+//   1. Momentum below threshold
+//   2. Gravity is non-zero (no sleep in zero-g)
+//   3. Contact simplex forms a triangle
+//   4. CoM projects inside the simplex (along gravity direction)
+//   5. Contact normals oppose gravity
+[numthreads(ResolveThreadCount, 1, 1)]
+void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
+{
+	int body_idx = dtid.x;
+	if (body_idx >= g_body_count)
+		return;
+
+	GpuRigidBody body = g_bodies[body_idx];
+	float inv_mass = body.os_com_and_invmass.w;
+
+	// Static bodies (inv_mass == 0) are always "sleeping" — skip
+	if (inv_mass <= 0)
+		return;
+
+	// Only bodies with near zero velocities can sleep
+	float vel_lin_sq = dot(body.momentum_lin.xyz, body.momentum_lin.xyz) * sqr(inv_mass);
+	float vel_ang_sq = dot(body.momentum_ang.xyz, body.momentum_ang.xyz) * sqr(inv_mass);
+
+	// Sleeping requires resting contact which requires gravity to define "resting"
+	float grav_len = length(body.ws_gravity.xyz);
+	bool has_gravity = grav_len > 1e-6f;
+
+	// Check sleep conditions
+	bool can_sleep =
+		vel_lin_sq < sqr(g_sleep_velocity_threshold_lin) &&
+		vel_ang_sq < sqr(g_sleep_velocity_threshold_ang) &&
+		has_gravity;
+
+	// Clear sleep flag if conditions not met.
+	if (!can_sleep)
+	{
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+		body.contact_simplex_count = 0; // clear simplex when waking up
+		g_bodies[body_idx] = body;
+		return;
+	}
+
+	// If the body could sleep, but doesn't have enough contact points yet, keep waiting
+	if (body.contact_simplex_count < 3)
+	{
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+		g_bodies[body_idx] = body;
+		return;
+	}
+
+	// Test if the body is supported by its contact simplex.
+	bool is_supported = IsSupportedBySimplex(body, body.ws_gravity.xyz / grav_len);
+	body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, is_supported);
+	g_bodies[body_idx] = body;
 }

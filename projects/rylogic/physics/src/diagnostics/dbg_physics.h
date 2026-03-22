@@ -4,6 +4,8 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/integrator/engine.h"
+#include "pr/physics/integrator/engine_config.h"
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 
@@ -44,9 +46,9 @@ namespace pr::physics
 			auto& log = me.m_cache->m_log;
 			if (log.IsActive())
 			{
-				std::vector<GpuCollisionPair> out_pairs(MaxCollisionPairs);
+				std::vector<GpuCollisionPair> out_pairs(me.m_config.max_collision_pairs);
 				auto pairs = me.m_gpu_sort_and_sweep->Readback(me.m_gpu->m_job, counters, out_pairs);
-				assert(pairs.size() < MaxCollisionPairs && "Hit capacity on pairs");
+				assert(pairs.size() < me.m_config.max_collision_pairs && "Hit capacity on pairs");
 				log.LogBroadphase(pairs);
 			}
 			#else
@@ -59,10 +61,10 @@ namespace pr::physics
 			auto& log = me.m_cache->m_log;
 			if (log.IsActive())
 			{
-				std::vector<GpuResolveContact> out_contacts(MaxCollisionPairs);
-				std::vector<GpuPairDiag> out_diag(MaxCollisionPairs);
+				std::vector<GpuResolveContact> out_contacts(me.m_config.max_collision_pairs);
+				std::vector<GpuPairDiag> out_diag(me.m_config.max_collision_pairs);
 				auto [contacts, diag] = me.m_gpu_collision_detector->Readback(me.m_gpu->m_job, counters, out_contacts, out_diag);
-				assert(contacts.size() < MaxCollisionPairs && "Hit capacity on contacts");
+				assert(contacts.size() < me.m_config.max_collision_pairs && "Hit capacity on contacts");
 				log.LogNarrowPhase(contacts, diag);
 				log.EndFrame();
 			}
@@ -77,8 +79,8 @@ namespace pr::physics
 			if (capture)
 			{
 				std::vector<GpuRigidBody> bodies(body_count);
-				std::vector<GpuResolveContact> contacts(MaxCollisionPairs);
-				std::vector<GpuPairDiag> diag(MaxCollisionPairs);
+				std::vector<GpuResolveContact> contacts(me.m_config.max_collision_pairs);
+				std::vector<GpuPairDiag> diag(me.m_config.max_collision_pairs);
 				me.m_gpu_resolver->Readback(me.m_gpu->m_job, r_bodies, bodies);
 			}
 			#else

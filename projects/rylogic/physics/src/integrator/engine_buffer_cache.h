@@ -25,9 +25,4 @@ namespace pr::physics
 		PhysicsLog m_log;
 		#endif
 	};
-		
-	inline void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
-	{
-		delete cache;
-	}
 }

@@ -6,6 +6,7 @@
 #include "pr/physics/forward.h"
 #include "pr/physics/shape/inertia.h"
 #include "pr/physics/shape/shape_mass.h"
+#include "pr/physics/rigid_body/state_flags.h"
 #include "pr/physics/utility/misc.h"
 
 namespace pr::physics
@@ -41,6 +42,10 @@ namespace pr::physics
 		// be constant need to be applied each frame.
 		v8force m_ws_force;
 
+		// Each body has its own gravity vector to define local "down" for this object. This value is updated
+		// via the Gravity methods and should be called each frame to apply the gravity force to the body (even static bodies).
+		v4 m_ws_gravity;
+
 		// Inverse inertia, measured at the centre of mass (CoM() == 0, block-diagonal).
 		// For articulated bodies, the inertia can be shifted to joint frames using Translate()/To6x6().
 		InertiaInv m_os_inertia_inv;
@@ -48,7 +53,16 @@ namespace pr::physics
 		// Collision shape
 		collision::Shape const* m_shape;
 
+		// Contact simplex. Points are in world space relative to the model origin.
+		v4 m_contact_simplex[4];
+		int m_contact_simplex_count;
+
+		// Rigid body state flags
+		ERigidBodyStateFlags m_state_flags;
+
 		friend struct BodyHistory;
+		friend GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id);
+		friend void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb);
 
 	public:
 
@@ -63,8 +77,12 @@ namespace pr::physics
 			,m_os_com()
 			,m_ws_momentum()
 			,m_ws_force()
+			,m_ws_gravity()
 			,m_os_inertia_inv()
 			,m_shape(collision::shape_cast(shape))
+			,m_contact_simplex{}
+			,m_contact_simplex_count(0)
+			,m_state_flags(ERigidBodyStateFlags::None)
 		{
 			SetMassProperties(inertia);
 		}
@@ -289,6 +307,33 @@ namespace pr::physics
 		void ZeroMomentum()
 		{
 			m_ws_momentum = v8force{};
+		}
+
+		// Apply gravity to the body. This should be called each frame to apply the gravity force
+		// to the body, even for static bodies in order to define the "down" direction for the body.
+		v4 GravityWS() const
+		{
+			return m_ws_gravity;
+		}
+		void GravityWS(v4 ws_gravity)
+		{
+			m_ws_gravity = ws_gravity;
+
+			auto mass = Mass();
+			if (mass < InfiniteMass * 0.5f)
+				ApplyForceWS(m_ws_gravity * mass, v4::Zero(), O2W().rot * CentreOfMassOS());
+		}
+
+		// Return the body's state flags
+		ERigidBodyStateFlags StateFlags() const
+		{
+			return m_state_flags;
+		}
+
+		// True if the body is flagged as asleep
+		bool Sleeping() const
+		{
+			return (m_state_flags & ERigidBodyStateFlags::Sleeping) != ERigidBodyStateFlags::None;
 		}
 
 		// Get/Set the current forces applied to this body.

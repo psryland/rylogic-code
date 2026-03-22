@@ -1,7 +1,8 @@
 //*********************************************
-// Physics Engine — GPU Collision Resolution
+// Physics Engine
 //  Copyright (C) Rylogic Ltd 2025
 //*********************************************
+#include "pr/physics/integrator/engine_config.h"
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/physics_types.h"
 
@@ -12,13 +13,17 @@ namespace pr::physics
 	// Constant buffer layout matching the HLSL cbResolve declaration.
 	struct alignas(16) cbResolve
 	{
-		int g_colour;       // current colour batch being processed (for CSResolve)
-		int g_max_contacts; // The capacity of the contacts buffer
+		int g_max_contacts; // The max capacity of the contacts buffer
+		int g_body_count;   // The number of bodies in the scene
+		int g_colour;       // Current colour batch being processed (for CSResolve)
+		int pad0;
+
 		float g_dt;         // timestep in seconds
-		float pad0;
-		v4 g_gravity;       // gravity direction (world space)
+		float g_sleep_velocity_threshold_lin = 0.1f;
+		float g_sleep_velocity_threshold_ang = 0.05f;
+		float pad1;
 	};
-	static_assert(sizeof(cbResolve) == 32);
+	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
 	// Register assignments for the resolve root signature
 	struct EReg
@@ -33,12 +38,14 @@ namespace pr::physics
 		inline static constexpr auto ContactOrder   = EUAVReg::u4;
 	};
 
-	GpuResolver::GpuResolver(Gpu& gpu)
+	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
+		, m_config(config)
 		, m_contact_sorter(gpu.m_gpu)
 		, m_cs_compute_times()
 		, m_cs_assign_colours()
 		, m_cs_resolve()
+		, m_cs_update_sleep()
 		, m_cmd_sig()
 		, m_r_materials()
 		, m_r_colours()
@@ -120,6 +127,20 @@ namespace pr::physics
 			m_cs_resolve.m_sig = sig.Create(m_gpu, "Physics:ResolveSig");
 			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
 		}
+
+		// m_cs_update_sleep: update contact simplex and sleep state per body
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbResolve>(EReg::Params)
+				.SRV(EReg::Counters)
+				.UAV(EReg::Bodies)
+				.UAV(EReg::Contacts);
+
+			auto bytecode = compiler.EntryPoint(L"CSUpdateSleepState").Compile();
+
+			m_cs_update_sleep.m_sig = sig.Create(m_gpu, "Physics:UpdateSleepSig");
+			m_cs_update_sleep.m_pso = ComputePSO(m_cs_update_sleep.m_sig.get(), bytecode).Create(m_gpu, "Physics:UpdateSleepPSO");
+		}
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
@@ -143,11 +164,23 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int max_contacts, v4 gravity, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials)
 	{
 		auto material_count = static_cast<int>(materials.size());
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
 		ResizeBuffers(job.m_cmd_list, max_contacts, material_count);
+
+		cbResolve cb_resolve = {
+			.g_max_contacts = max_contacts,
+			.g_body_count = body_count,
+			.g_colour = 0,
+			.pad0 = 0,
+			.g_dt = dt,
+			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
+			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
+			.pad1 = 0,
+		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
 		{
@@ -175,11 +208,11 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Calculate the contact times and zero the body colour_used bitmasks.
+		// Calculate the contact times (biased by gravity) and zero the body colour_used bitmasks.
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_compute_times.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_compute_times.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{ .g_colour = 0, .g_max_contacts = max_contacts, .g_dt = dt, .g_gravity = gravity });
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
@@ -212,7 +245,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_assign_colours.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_assign_colours.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{ .g_gravity = gravity });
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
@@ -234,7 +267,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbResolve{ .g_gravity = gravity });
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
 			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
@@ -246,14 +279,34 @@ namespace pr::physics
 			{
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
-					job.m_cmd_list.SetComputeRoot32BitConstants(0, cbResolve{ .g_colour = colour, .g_max_contacts = max_contacts, .g_dt = dt, .g_gravity = gravity });
+					cb_resolve.g_colour = colour;
+					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
 					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 					job.m_barriers.UAV(bodies.get());
 					job.m_barriers.Commit();
 				}
 			}
+			cb_resolve.g_colour = 0;
 		}
+
+		// Update sleep state for all bodies based on post-resolve momenta and contact simplex.
+		{
+			job.m_cmd_list.SetPipelineState(m_cs_update_sleep.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_update_sleep.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+
+			auto sleep_dispatch = (body_count + ResolveThreadCount - 1) / ResolveThreadCount;
+			job.m_cmd_list.Dispatch(sleep_dispatch, 1, 1);
+
+			job.m_barriers.UAV(bodies.get());
+			job.m_barriers.Commit();
+		}
+
+		pix::EndEvent(job.m_cmd_list.get());
 	}
 
 	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
@@ -277,7 +330,6 @@ namespace pr::physics
 
 			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
 			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
-				.body_count = body_count,
 				.pair_count = 0,
 				.contact_count = contact_count,
 			};
@@ -330,7 +382,7 @@ namespace pr::physics
 		}
 
 		// Run the GPU resolve pipeline
-		Resolve(job, dt, contact_count, v4::Zero(), r_dispatch, r_counters, r_contacts, r_bodies, materials);
+		Resolve(job, dt, body_count, contact_count, r_dispatch, r_counters, r_contacts, r_bodies, materials);
 
 		// Readback bodies
 		GpuReadbackBuffer::Allocation readback_bodies;

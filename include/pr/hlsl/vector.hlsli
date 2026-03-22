@@ -74,6 +74,12 @@ float2 RotateCCW(float2 a)
 	return float2(-a.y, a.x);
 }
 
+// 2D cross product
+float Cross2D(float2 lhs, float2 rhs)
+{
+	return lhs.x * rhs.y - lhs.y * rhs.x;
+}
+
 // Return a vector that is not parallel to 'v'
 inline float2 NotParallel(float2 v)
 {

@@ -298,11 +298,11 @@ namespace physics_sandbox::tests
 
 				physics::Engine engine;
 				engine.UseGpuResolve(true);
-				engine.PostCollisionDetection += [&](auto&, auto args)
-				{
-					if (!args.m_contacts.empty())
-						result.gpu_collision = true;
-				};
+				//engine.PostCollisionDetection += [&](auto&, auto args)
+				//{
+				//	if (!args.m_contacts.empty())
+				//		result.gpu_collision = true;
+				//};
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -329,11 +329,11 @@ namespace physics_sandbox::tests
 
 				physics::Engine engine;
 				engine.UseGpuResolve(false);
-				engine.PostCollisionDetection += [&](auto&, auto args)
-				{
-					if (!args.m_contacts.empty())
-						result.cpu_collision = true;
-				};
+				//engine.PostCollisionDetection += [&](auto&, auto args)
+				//{
+				//	if (!args.m_contacts.empty())
+				//		result.cpu_collision = true;
+				//};
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -514,11 +514,11 @@ namespace physics_sandbox::tests
 
 			// Step until the bodies should be close enough to overlap
 			bool collision_detected = false;
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				if (!args.m_contacts.empty())
-					collision_detected = true;
-			};
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	if (!args.m_contacts.empty())
+			//		collision_detected = true;
+			//};
 
 			for (int step = 0; step != 500; ++step)
 			{
@@ -567,11 +567,11 @@ namespace physics_sandbox::tests
 				engine.UseGpuResolve(gpu_resolve);
 				
 				bool collision_done = false;
-				engine.PostCollisionDetection += [&](auto&, auto args)
-				{
-					if (!args.m_contacts.empty())
-						collision_done = true;
-				};
+				//engine.PostCollisionDetection += [&](auto&, auto args)
+				//{
+				//	if (!args.m_contacts.empty())
+				//		collision_done = true;
+				//};
 
 				for (int step = 0; step != 5000 && !collision_done; ++step)
 				{

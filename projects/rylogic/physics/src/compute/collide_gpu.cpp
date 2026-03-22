@@ -33,8 +33,9 @@ namespace pr::physics
 		inline static constexpr auto Diag = EUAVReg::u3;
 	};
 
-	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu)
+	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
+		, m_config(config)
 		, m_cs_collide()
 		, m_cmd_sig()
 		, m_r_shapes()
@@ -152,6 +153,8 @@ namespace pr::physics
 		auto vert_count = static_cast<int>(shape_cache.m_verts.size());
 		auto shapes_upload_needed = shape_cache.m_changed;
 
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFFf245bc, "Physics::Collide");
+
 		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
 		// regardless of the caller's dirty flag (the new buffers contain garbage).
 		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, shape_count, vert_count);
@@ -229,6 +232,8 @@ namespace pr::physics
 			job.m_barriers.UAV(m_r_resolve_dispatch.get());
 			job.m_barriers.Commit();
 		}
+
+		pix::EndEvent(job.m_cmd_list.get());
 	}
 
 	// Read back the results of the collision detection.

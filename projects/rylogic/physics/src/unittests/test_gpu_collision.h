@@ -25,10 +25,12 @@ namespace pr::physics
 		static constexpr float PointTol = 0.1f;        // world units
 
 		Gpu m_gpu;
+		EngineConfig m_config;
 		GpuCollisionDetector m_detector;
 		TestClass_GpuCollisionTests()
 			: m_gpu()
-			, m_detector(m_gpu)
+			, m_config()
+			, m_detector(m_gpu, m_config)
 		{}
 
 		// Run both CPU GjkCollide and GPU GpuDetectCollisions for a shape pair.

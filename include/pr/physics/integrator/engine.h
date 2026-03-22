@@ -4,16 +4,24 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/integrator/engine_config.h"
 
 namespace pr::physics
 {
-	// A container object that groups the parts of a physics system together.
-	// IBroadphase provides spatial overlap queries (e.g. brute-force, sweep-and-prune).
-	// IMaterials maps material ID pairs to combined material properties (friction, elasticity).
-	// The broadphase and material map are owned externally and passed by reference.
 	struct Engine
 	{
+		// Notes:
+		//  - The engine does not own the bodies. The caller is responsible for managing their
+		//    lifetime and ensuring they remain valid while being used by the engine.
+		//  - The engine does not have a universal gravity setting, Gravity should be applied
+		//    as a force to bodies each frame before calling Step().
+		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
+		//    even if it is a zero vector.
+
 	private:
+
+		// Engine configuration parameters.
+		EngineConfig const m_config;
 
 		// GPU device and command queue wrapper, shared by the integrator and collision detector.
 		GpuPtr m_gpu;
@@ -38,17 +46,16 @@ namespace pr::physics
 
 		// Storage for body pointers
 		std::vector<RigidBody*> m_body_ptrs;
-
+		
 		friend struct DbgPhysics;
 		bool m_gpu_integrate = true;
 		bool m_gpu_sorter = true;
 		bool m_gpu_detect = true;
 		bool m_gpu_resolve = true;
-		v4 m_gravity = v4::Zero(); // World-space gravity vector (e.g., (0,0,-9.81,0))
 
 	public:
 
-		Engine(ID3D12Device4* existing_device = nullptr);
+		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
 
 		// Get/Set whether the GPU is used for integration and collision detection.
 		bool UseGpu() const;
@@ -62,11 +69,6 @@ namespace pr::physics
 		bool UseGpuResolve() const;
 		void UseGpuResolve(bool use);
 
-		// Get/Set the gravity vector (world space). Used by the resolve shader
-		// to sort contacts bottom-up for better stack convergence.
-		v4 Gravity() const { return m_gravity; }
-		void Gravity(v4 gravity) { m_gravity = gravity; }
-
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);
 		void Step(float dt, RigidBodyRange auto&& bodies)
@@ -77,11 +79,6 @@ namespace pr::physics
 
 			Step(dt, m_body_ptrs);
 		}
-
-		// Raised after collision detection, but before resolution.
-		// Subscribers can inspect, modify, add, or remove contacts before impulses are applied.
-		struct PostCollisionDetectionArgs { std::span<RbContact> m_contacts; };
-		EventHandler<Engine&, PostCollisionDetectionArgs> PostCollisionDetection;
 
 		// Get/set the physics material properties for a given material ID.
 		physics::Material Material(int id) const;

@@ -14,6 +14,7 @@ namespace pr::physics
 	struct GpuCollisionDetector
 	{
 		Gpu& m_gpu;                                  // Lightweight D3D12 wrapper (device + command queue)
+		EngineConfig const& m_config;                // Engine configuration parameters
 		ComputeStep m_cs_collide;                    // Root signature + PSO for the collide shader
 		ComputeStep m_cs_calc_dispatch;              // Root signature + PSO for calculating the dispatch size of the resolve shader
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;    // Command signature for indirect dispatch of the collision shader
@@ -28,7 +29,7 @@ namespace pr::physics
 		int m_max_shapes;
 		int m_max_verts;
 
-		explicit GpuCollisionDetector(Gpu& gpu);
+		explicit GpuCollisionDetector(Gpu& gpu, EngineConfig const& config);
 
 		// Run collision detection on the GPU. Outputs GpuResolveContact directly.
 		void DetectCollisions(GpuJob& job, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache);

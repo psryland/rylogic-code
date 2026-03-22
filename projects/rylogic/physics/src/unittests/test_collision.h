@@ -101,16 +101,16 @@ namespace pr::physics
 			// Set up the engine with perfectly elastic, frictionless material
 			Engine engine;
 
-			// Hook the PostCollisionDetection event to capture pre-impulse state.
-			// This fires after Evolve and collision detection, but before impulse resolution.
-			engine.PostCollisionDetection += [&](auto&, auto args)
-			{
-				if (args.m_contacts.empty())
-					return;
+			//// Hook the PostCollisionDetection event to capture pre-impulse state.
+			//// This fires after Evolve and collision detection, but before impulse resolution.
+			//engine.PostCollisionDetection += [&](auto&, auto args)
+			//{
+			//	if (args.m_contacts.empty())
+			//		return;
 
-				result.before = SystemState::Capture(body_a, body_b);
-				result.collision_occurred = true;
-			};
+			//	result.before = SystemState::Capture(body_a, body_b);
+			//	result.collision_occurred = true;
+			//};
 
 			// Step until collision or timeout.
 			// Fixed 100 Hz timestep; 5000 steps = 50 seconds of simulation time.
