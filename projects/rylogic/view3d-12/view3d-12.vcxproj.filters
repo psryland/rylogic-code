@@ -432,9 +432,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\scene_camera.h">
       <Filter>src\scene</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\hlsl_proxy.h">
-      <Filter>src\shaders</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader.h">
       <Filter>src\shaders</Filter>
     </ClInclude>

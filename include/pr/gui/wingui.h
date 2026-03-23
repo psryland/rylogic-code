@@ -83,9 +83,12 @@ Example Use:
 #include <mutex>
 #include <thread>
 #include <format>
+#include <optional>
 #include <type_traits>
+#include <stdexcept> 
 #include <cassert>
 
+#include <Windows.h>
 #include <winsdkver.h>
 #include <sdkddkver.h>
 #include <winuser.h>

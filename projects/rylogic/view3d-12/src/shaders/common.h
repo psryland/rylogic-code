@@ -53,6 +53,8 @@ namespace pr::rdr12
 
 	namespace shaders
 	{
+		using namespace pr::hlsl;
+
 		#include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 		// The constant buffer definitions

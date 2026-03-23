@@ -1,6 +1,6 @@
 // Fluid
 #include "src/forward.h"
-#include "pr/view3d-12/shaders/hlsl_proxy.h"
+#include "pr/hlsl/interop.h"
 
 using namespace pr::hlsl;
 using namespace pr::rdr12;

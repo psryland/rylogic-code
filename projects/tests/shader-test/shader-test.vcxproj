@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+	Globals
+	-->
+  <PropertyGroup Label="Globals">
+    <ConfigurationType>Application</ConfigurationType>
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{b7a3f2e1-45d6-4c89-9f01-2e8d7a6b3c50}</ProjectGuid>
+    <RootNamespace>shader_test</RootNamespace>
+    <ProjectName>shader-test</ProjectName>
+  </PropertyGroup>
+  <!--
+	Property Sheets
+	-->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(PropsPath)build_configurations.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(PropsPath)app.props" />
+  <!--
+	Build options
+	-->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>
+				;$(ProjectDir)
+				;$(RylogicRoot)include
+				<!--
+				;$(SDKPath)shaderator\shaderator\Shaderator
+				;$(SDKPath)shaderator\shaderator
+				-->
+				;%(AdditionalIncludeDirectories)
+			</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>
+        <!--
+				;Shaderator.lib
+				-->
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <Link>
+      <AdditionalLibraryDirectories>
+        <!--
+				;$(SDKPath)shaderator\shaderator\build-debug\lib\Debug
+				-->
+				;%(AdditionalLibraryDirectories)
+			</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'!='Debug'">
+    <Link>
+      <AdditionalLibraryDirectories>
+        <!--
+				;$(SDKPath)shaderator\shaderator\build\lib\Release
+				-->
+				;%(AdditionalLibraryDirectories)
+			</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <!--
+	Files
+	-->
+  <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\hlsl\interop.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
+    <None Include="src\example.hlsl" />
+  </ItemGroup>
+  <!--
+	Targets
+	-->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

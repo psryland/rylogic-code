@@ -17,6 +17,7 @@ namespace las
 			CBufDistantOcean = 3,
 		};
 
+		using namespace pr::hlsl;
 		#include "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
 		static_assert((sizeof(CBufDistantOcean) % 16) == 0);
 	}

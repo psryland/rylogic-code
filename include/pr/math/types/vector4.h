@@ -666,6 +666,9 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(double);
 	PR_MATH_DEFINE_TYPE(int32_t);
 	PR_MATH_DEFINE_TYPE(int64_t);
+	PR_MATH_DEFINE_TYPE(uint32_t);
+	PR_MATH_DEFINE_TYPE(uint64_t);
+	PR_MATH_DEFINE_TYPE(bool);
 	#undef PR_MATH_DEFINE_TYPE
 
 	// Deferred definitions for Vec3::w0() and Vec3::w1() (Vec4 must be complete)

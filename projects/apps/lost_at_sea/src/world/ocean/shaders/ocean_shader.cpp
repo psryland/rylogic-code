@@ -20,6 +20,7 @@ namespace las
 			CBufOcean = 3,  // Reused by ocean shader for ocean params (b3)
 		};
 
+		using namespace pr::hlsl;
 		#include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 		static_assert((sizeof(CBufOcean) % 16) == 0);
 	}
