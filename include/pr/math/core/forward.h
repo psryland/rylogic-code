@@ -64,7 +64,7 @@ namespace pr::math
 {
 	// Concept for scalar types
 	template <typename T>
-	concept ScalarType = std::floating_point<T> || std::integral<T>;
+	concept ScalarType = std::floating_point<T> || std::integral<T> || std::is_same_v<T, bool>;
 	template <typename T>
 	concept ScalarTypeFP = std::floating_point<T>;
 

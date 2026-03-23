@@ -6,7 +6,6 @@
 // This file is included from both HLSL and C++ source.
 #ifndef LAS_TERRAIN_CBUF_HLSLI
 #define LAS_TERRAIN_CBUF_HLSLI
-
 #include "pr/hlsl/interop.hlsli"
 
 // Terrain constant buffer. Bound to b3 (reusing the CBufScreenSpace slot since

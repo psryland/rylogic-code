@@ -21,6 +21,7 @@ namespace las
 			CBufTerrain = 3, // Terrain params (b3)
 		};
 
+		using namespace pr::hlsl;
 		#include "src/world/terrain/shaders/terrain_cbuf.hlsli"
 		static_assert((sizeof(CBufTerrain) % 16) == 0);
 	}

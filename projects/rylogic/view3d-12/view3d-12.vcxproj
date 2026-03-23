@@ -275,7 +275,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\sampler\sampler_desc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\scene.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\scene_camera.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\hlsl_proxy.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_arrow_head.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_forward.h" />

@@ -113,6 +113,7 @@
 #include "pr/geometry/utility.h"
 #include "pr/gfx/colour.h"
 #include "pr/gui/gdiplus.h"
+#include "pr/hlsl/interop.h"
 #include "pr/macros/enum.h"
 #include "pr/math/math.h"
 #include "pr/math/conversion.h"

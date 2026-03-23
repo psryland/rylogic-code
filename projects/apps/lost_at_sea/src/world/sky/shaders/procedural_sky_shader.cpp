@@ -17,6 +17,7 @@ namespace las
 			CBufProceduralSky = 3,
 		};
 
+		using namespace pr::hlsl;
 		#include "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
 		static_assert((sizeof(CBufProceduralSky) % 16) == 0);
 	}

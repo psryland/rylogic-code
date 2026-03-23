@@ -21,6 +21,7 @@
 #include "pr/algorithm/kdtree.h"
 #include "pr/camera/camera.h"
 #include "pr/gui/wingui.h"
+#include "pr/hlsl/interop.h"
 #include "pr/win32/windows_com.h"
 
 #include "pr/view3d-12/view3d.h"

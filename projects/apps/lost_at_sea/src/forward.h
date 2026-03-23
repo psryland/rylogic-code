@@ -28,6 +28,7 @@
 #include "pr/common/resource.h"
 #include "pr/common/task_graph.h"
 #include "pr/geometry/p3d.h"
+#include "pr/hlsl/interop.h"
 #include "pr/storage/json.h"
 #include "pr/algorithm/perlin_noise.h"
 #include "pr/view3d-12/view3d.h"
