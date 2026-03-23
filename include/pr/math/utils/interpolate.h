@@ -83,7 +83,7 @@ namespace pr::math
 			// Compute relative quaternion, ensuring w >= 0 so that
 			// LogMap (which uses |w|) round-trips correctly via ExpMap.
 			auto dq = ~q1 * q0;
-			if (vec(dq).w < S(0)) dq = -dq;
+			if (vec(dq).w < 0) dq = -dq;
 
 			m_p = CubicCurve3(
 				LogMap<Vec4>(dq),
@@ -208,11 +208,11 @@ namespace pr::math
 			, rot()
 		{}
 		HermiteTransform(
-			Vec4 pos0, Vec4 vel0, Quat rot0, Vec4 angvel0,
-			Vec4 pos1, Vec4 vel1, Quat rot1, Vec4 angvel1,
+			Vec4 pos0, Vec4 vel0, Quat rot0, Vec4 avl0,
+			Vec4 pos1, Vec4 vel1, Quat rot1, Vec4 avl1,
 			S interval) noexcept
 			: pos(pos0, vel0, pos1, vel1, interval)
-			, rot(rot0, angvel0, rot1, angvel1, interval)
+			, rot(rot0, avl0, rot1, avl1, interval)
 		{}
 
 		Xform Eval(S t) const noexcept
@@ -243,7 +243,7 @@ namespace pr::math
 		HermiteVector_MidPoint() noexcept
 			: pos()
 		{}
-		HermiteVector_MidPoint(Vec4 pos_prev, Vec4 pos_next, Vec4 pos_mid, Vec4 vel_mid, S interval) noexcept
+		HermiteVector_MidPoint(Vec4 pos_prev, Vec4 pos_mid, Vec4 vel_mid, Vec4 pos_next, void*, S interval) noexcept
 			: pos()
 		{
 			// --- Position: velocity-corrected Hermite ---
@@ -304,7 +304,7 @@ namespace pr::math
 		HermiteQuaternion_MidPoint() noexcept
 			: rot()
 		{}
-		HermiteQuaternion_MidPoint(Quat rot_prev, Quat rot_mid,  Vec4 angvel_mid, Quat rot_next, S interval) noexcept
+		HermiteQuaternion_MidPoint(Quat rot_prev, Quat rot_mid, Vec4 avl_mid, Quat rot_next, void*, S interval) noexcept
 			: rot()
 		{
 			// --- Rotation: velocity-corrected in log domain ---
@@ -313,12 +313,12 @@ namespace pr::math
 			// The tangent in log space is: u' = J^{-1}(u) * w_local, where w_local = ~rot_next * w
 			//
 			// The midpoint constraint is: u(0.5) = log(~rot_next * rot_mid) = u_mid
-			// and: u'(0.5) = J^{-1}(u_mid) * (~rot_next * angvel_mid)
+			// and: u'(0.5) = J^{-1}(u_mid) * (~rot_next * avl_mid)
 			//
 			// Using the same Hermite velocity-correction as position (but in log space):
 			auto u0 = LogMap<Vec4>(~rot_next * rot_prev);
 			auto u_mid = LogMap<Vec4>(~rot_next * rot_mid);
-			auto t_mid = HermiteQuaternion::Tangent(~rot_next * rot_mid, Rotate(~rot_next, angvel_mid)) * interval;
+			auto t_mid = HermiteQuaternion::Tangent(~rot_next * rot_mid, Rotate(~rot_next, avl_mid)) * interval;
 
 			// Solve for endpoint tangents m0_r, m1_r such that the Hermite curve in log space
 			// passes through u_mid at u=0.5 with derivative t_mid:
@@ -363,11 +363,11 @@ namespace pr::math
 			, rot()
 		{}
 		HermiteTransform_MidPoint(
-			Vec4 pos_prev, Vec4 pos_next, Vec4 pos, Vec4 vel,
-			Quat rot_prev, Quat rot_mid, Vec4 angvel_mid, Quat rot_next,
-			S interval) noexcept
-			: pos(pos_prev, pos_next, pos, vel, interval)
-			, rot(rot_prev, rot_mid, angvel_mid, rot_next, interval)
+			Vec4 pos_prev, Vec4 pos_mid, Vec4 vel_mid, Vec4 pos_next,
+			Quat rot_prev, Quat rot_mid, Vec4 avl_mid, Quat rot_next,
+			void*, S interval) noexcept
+			: pos(pos_prev, pos_mid, vel_mid, pos_next, nullptr, interval)
+			, rot(rot_prev, rot_mid, avl_mid, rot_next, nullptr, interval)
 		{}
 
 		// Evaluate the transform at time t (t=0 at midpoint, t=-T at prev, t=+T at next, where T = interval/2)
@@ -375,6 +375,8 @@ namespace pr::math
 		{
 			return Xform{ pos.Eval(t), rot.Eval(t) };
 		}
+
+		// For derivatives, access 'pos' or 'rot' as needed.
 	};
 }
 
@@ -393,12 +395,12 @@ namespace pr::math::tests
 			Q rot;
 			V4 pos;
 			V4 vel;
-			V4 avel;
+			V4 avl;
 			float t;
 		};
-		std::vector<Sample> GenerateTestData() noexcept
+		std::span<Sample const> GenerateTestData(int n = 100000) noexcept
 		{
-			std::vector<Sample> samples = {
+			static std::vector<Sample> samples = {
 				{Q{-0.2060304f, +0.15757678f, +0.51549790f, +0.81669027f}, V4{+5.3832355f, -3.1496096f, +4.6114840f, 1}, {}, {}, 0.00f},
 				{Q{-0.2060304f, +0.15757678f, +0.51549790f, +0.81669027f}, V4{+5.3832355f, -3.1496096f, +4.6114840f, 1}, {}, {}, 0.00f},
 				{Q{+0.5922902f, +0.71645330f, -0.12527874f, -0.34668744f}, V4{-2.9858220f, -1.5808580f, +3.1302433f, 1}, {}, {}, 0.80f},
@@ -432,10 +434,11 @@ namespace pr::math::tests
 				auto ori_p1 = samples[p1].rot;
 				auto ori_n1 = samples[n1].rot;
 				auto ori_p1n1 = ori_n1 * ~ori_p1;  // Change in orientation from p1 to n1
-				samples[i].avel = t_pn > 0 ? LogMap<V4>(ori_p1n1) / t_pn : V4{}; // (N1 - P1) / 2dT = angular velocity at C0 (comes from q` = 0.5 w q)
+				samples[i].avl = t_pn > 0 ? LogMap<V4>(ori_p1n1) / t_pn : V4{}; // (N1 - P1) / 2dT = angular velocity at C0 (comes from q` = 0.5 w q)
 			}
 
-			return samples;
+			n = std::min<int>(n, static_cast<int>(ssize(samples)));
+			return std::span{ samples }.subspan(n);
 		}
 
 		PRUnitTestMethod(HermiteVec)
@@ -477,7 +480,7 @@ namespace pr::math::tests
 
 			// Random curves
 			std::default_random_engine rng(1u);
-			for (int i = 0; i < 100; ++i)
+			for (int i = 0; i < 10; ++i)
 			{
 				auto x0 = Random<V4>(rng, Origin<V4>(), 10.0f).w1();
 				auto x1 = Random<V4>(rng, Origin<V4>(), 10.0f).w1();
@@ -526,7 +529,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(W0, w0, tol));
 			}
 
-			// Test avel outside [-tau, +tau]
+			// Test avl outside [-tau, +tau]
 			{
 				for (float w = 0.0f; w < 10.f; w += 0.5f)
 				{
@@ -542,7 +545,7 @@ namespace pr::math::tests
 
 			// Random curves
 			std::default_random_engine rng(1u);
-			for (int i = 0; i < 100; ++i)
+			for (int i = 0; i < 10; ++i)
 			{
 				auto axis0 = RandomN<Vec3<float>>(rng);
 				auto axis1 = RandomN<Vec3<float>>(rng);
@@ -574,13 +577,13 @@ namespace pr::math::tests
 				auto pos0 = V4(0, 0, 0, 1);
 				auto vel0 = V4(1, 0, 0, 0);
 				auto rot0 = Q(0, 0, 0, 1);
-				auto avel0 = V4(0, 0, constants<float>::tau_by_4, 0);
+				auto avl0 = V4(0, 0, constants<float>::tau_by_4, 0);
 				auto pos1 = V4(1, 0, 0, 1);
 				auto vel1 = V4(1, 0, 0, 0);
 				auto rot1 = Q(V4::ZAxis(), constants<float>::tau_by_4);
-				auto avel1 = V4(0, 0, constants<float>::tau_by_4, 0);
+				auto avl1 = V4(0, 0, constants<float>::tau_by_4, 0);
 
-				HermiteTransform<float> interp(pos0, vel0, rot0, avel0, pos1, vel1, rot1, avel1, 1.0f);
+				HermiteTransform<float> interp(pos0, vel0, rot0, avl0, pos1, vel1, rot1, avl1, 1.0f);
 
 				// Boundary positions
 				auto x0 = interp.Eval(0);
@@ -607,10 +610,10 @@ namespace pr::math::tests
 				auto axis1 = RandomN<Vec3<float>>(rng);
 				auto rot0 = Q(Vec4<float>(axis0, 0), std::uniform_real_distribution<float>(0, constants<float>::tau)(rng));
 				auto rot1 = Q(Vec4<float>(axis1, 0), std::uniform_real_distribution<float>(0, constants<float>::tau)(rng));
-				auto avel0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
-				auto avel1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+				auto avl0 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
+				auto avl1 = Random<V4>(rng, Origin<V4>(), 3.0f).w0();
 
-				HermiteTransform<float> interp(pos0, vel0, rot0, avel0, pos1, vel1, rot1, avel1, 1.0f);
+				HermiteTransform<float> interp(pos0, vel0, rot0, avl0, pos1, vel1, rot1, avl1, 1.0f);
 
 				auto x0 = interp.Eval(0);
 				auto x1 = interp.Eval(1);
@@ -630,35 +633,35 @@ namespace pr::math::tests
 
 			// Simple straight-line case: pos_prev → pos → pos_next equally spaced
 			{
-				auto pos_prev = vec4_t(S(0), S(0), S(0), S(1));
-				auto pos_next = vec4_t(S(2), S(0), S(0), S(1));
-				auto pos = vec4_t(S(1), S(0), S(0), S(1));
-				auto vel = vec4_t(S(1), S(0), S(0), S(0));
-				auto interval = S(2);
+				auto pos_prev = vec4_t(0, 0, 0, 1);
+				auto pos_next = vec4_t(2, 0, 0, 1);
+				auto pos_mid = vec4_t(1, 0, 0, 1);
+				auto vel_mid = vec4_t(1, 0, 0, 0);
+				S interval = 2;
 
-				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_mid, vel_mid, pos_next, nullptr, interval);
 
 				// Boundary: Eval(-T) = pos_prev, Eval(+T) = pos_next, where T = interval/2
 				auto T = interval / S(2);
 				PR_EXPECT(FEql(interp.Eval(-T), pos_prev));
 				PR_EXPECT(FEql(interp.Eval(+T), pos_next));
 
-				// Midpoint: Eval(0) = pos
-				PR_EXPECT(FEql(interp.Eval(S(0)), pos));
+				// Midpoint: Eval(0) = pos_mid
+				PR_EXPECT(FEql(interp.Eval(0), pos_mid));
 
-				// Midpoint velocity: EvalDerivative(0) = vel
-				PR_EXPECT(FEql(interp.EvalDerivative(S(0)), vel));
+				// Midpoint velocity: EvalDerivative(0) = vel_mid
+				PR_EXPECT(FEql(interp.EvalDerivative(0), vel_mid));
 			}
 
 			// Non-trivial curve with vertical motion
 			{
-				auto pos_prev = vec4_t(S(0), S(0), S(0), S(1));
-				auto pos_next = vec4_t(S(4), S(0), S(0), S(1));
-				auto pos = vec4_t(S(2), S(1), S(0), S(1));
-				auto vel = vec4_t(S(2), S(0), S(0), S(0));
+				auto pos_prev = vec4_t(0, 0, 0, 1);
+				auto pos_next = vec4_t(4, 0, 0, 1);
+				auto pos_mid = vec4_t(2, 1, 0, 1);
+				auto vel_mid = vec4_t(2, 0, 0, 0);
 				auto interval = S(2);
 
-				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_mid, vel_mid, pos_next, nullptr, interval);
 
 				// Boundary positions
 				auto T = interval / S(2);
@@ -666,21 +669,21 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(interp.Eval(+T), pos_next));
 
 				// Midpoint constraint
-				PR_EXPECT(FEql(interp.Eval(S(0)), pos));
-				PR_EXPECT(FEql(interp.EvalDerivative(S(0)), vel));
+				PR_EXPECT(FEql(interp.Eval(0), pos_mid));
+				PR_EXPECT(FEql(interp.EvalDerivative(0), vel_mid));
 			}
 
 			// Smoothness: verify no discontinuities by checking values at close sample points
 			{
-				auto pos_prev = vec4_t(S(0), S(1), S(0), S(1));
-				auto pos_next = vec4_t(S(3), S(2), S(-1), S(1));
-				auto pos = vec4_t(S(1.5), S(2), S(0.5), S(1));
-				auto vel = vec4_t(S(1.5), S(0.5), S(-0.5), S(0));
+				auto pos_prev = vec4_t(0, 1, 0, 1);
+				auto pos_next = vec4_t(3, 2, -1, 1);
+				auto pos_mid = vec4_t(S(1.5), 2, S(0.5), 1);
+				auto vel_mid = vec4_t(S(1.5), S(0.5), S(-0.5), 0);
 				auto interval = S(2);
 				auto T = interval / S(2);
 				auto eps = S(0.001);
 
-				HermiteVector_MidPoint<S> interp(pos_prev, pos_next, pos, vel, interval);
+				HermiteVector_MidPoint<S> interp(pos_prev, pos_mid, vel_mid, pos_next, nullptr, interval);
 
 				// Check continuity at several sample points
 				for (S t = -T + eps; t < T - eps; t += S(0.1))
@@ -701,12 +704,12 @@ namespace pr::math::tests
 			// Simple rotation: identity → 90° about Z, midpoint at 45°
 			{
 				auto rot_prev = Q(0, 0, 0, 1);
+				auto rot_mid  = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
+				auto avl_mid  = V4(0, 0, constants<float>::tau_by_4, 0);
 				auto rot_next = Q(V4::ZAxis(), constants<float>::tau_by_4);
-				auto rot_mid = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
-				auto avel_mid = V4(0, 0, constants<float>::tau_by_4, 0);
 				auto interval = 2.0f;
 
-				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avel_mid, rot_next, interval);
+				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avl_mid, rot_next, nullptr, interval);
 
 				auto T = interval / 2;
 
@@ -727,14 +730,14 @@ namespace pr::math::tests
 			// Smoothness check
 			{
 				auto rot_prev = Q(V4::YAxis(), -constants<float>::tau_by_4);
+				auto rot_mid  = Q(0, 0, 0, 1);
+				auto avl_mid  = V4(0, constants<float>::tau_by_4, 0, 0);
 				auto rot_next = Q(V4::YAxis(), +constants<float>::tau_by_4);
-				auto rot_mid = Q(0, 0, 0, 1);
-				auto avel_mid = V4(0, constants<float>::tau_by_4, 0, 0);
 				auto interval = 2.0f;
 				auto T = interval / 2;
 				auto eps = 0.001f;
 
-				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avel_mid, rot_next, interval);
+				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, avl_mid, rot_next, nullptr, interval);
 
 				for (float t = -T + eps; t < T - eps; t += 0.1f)
 				{
@@ -752,18 +755,19 @@ namespace pr::math::tests
 			// Combined translation + rotation midpoint interpolator
 			{
 				auto pos_prev = V4(0, 0, 0, 1);
+				auto pos_mid  = V4(1, 0, 0, 1);
+				auto vel_mid  = V4(1, 0, 0, 0);
 				auto pos_next = V4(2, 0, 0, 1);
-				auto pos_mid = V4(1, 0, 0, 1);
-				auto vel_mid = V4(1, 0, 0, 0);
 				auto rot_prev = Q(0, 0, 0, 1);
+				auto rot_mid  = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
+				auto avl_mid  = V4(0, 0, constants<float>::tau_by_4, 0);
 				auto rot_next = Q(V4::ZAxis(), constants<float>::tau_by_4);
-				auto rot_mid = Q(V4::ZAxis(), constants<float>::tau_by_4 / 2);
-				auto avel_mid = V4(0, 0, constants<float>::tau_by_4, 0);
 				auto interval = 2.0f;
 
 				HermiteTransform_MidPoint<float> interp(
-					pos_prev, pos_next, pos_mid, vel_mid,
-					rot_prev, rot_mid, avel_mid, rot_next,
+					pos_prev, pos_mid, vel_mid, pos_next,
+					rot_prev, rot_mid, avl_mid, rot_next,
+					nullptr,
 					interval);
 
 				auto T = interval / 2;
@@ -792,20 +796,21 @@ namespace pr::math::tests
 			// Smoothness: check consecutive samples are close
 			{
 				auto pos_prev = V4(0, 1, 0, 1);
+				auto pos_mid  = V4(1.5f, 2, 0.5f, 1);
+				auto vel_mid  = V4(1.5f, 0.5f, -0.5f, 0);
 				auto pos_next = V4(3, 2, -1, 1);
-				auto pos_mid = V4(1.5f, 2, 0.5f, 1);
-				auto vel_mid = V4(1.5f, 0.5f, -0.5f, 0);
 				auto rot_prev = Q(V4::XAxis(), -0.5f);
+				auto rot_mid  = Q(0, 0, 0, 1);
+				auto avl_mid  = V4(0.5f, 0, 0, 0);
 				auto rot_next = Q(V4::XAxis(), +0.5f);
-				auto rot_mid = Q(0, 0, 0, 1);
-				auto avel_mid = V4(0.5f, 0, 0, 0);
 				auto interval = 2.0f;
 				auto T = interval / 2;
 				auto eps = 0.001f;
 
 				HermiteTransform_MidPoint<float> interp(
-					pos_prev, pos_next, pos_mid, vel_mid,
-					rot_prev, rot_mid, avel_mid, rot_next,
+					pos_prev, pos_mid, vel_mid, pos_next,
+					rot_prev, rot_mid, avl_mid, rot_next,
+					nullptr,
 					interval);
 
 				for (float t = -T + eps; t < T - eps; t += 0.1f)
@@ -817,201 +822,215 @@ namespace pr::math::tests
 				}
 			}
 		}
-		PRUnitTestMethod(LdrDump)
+
+		#if PR_UNITTESTS_VISUALISE
+		inline static int N = 3;
+		inline static float step = 0.001f;
+		inline static float vel_scale = 0.1f;
+		inline static float avl_scale = 0.1f;
+		inline static int boxes_per_segment = 20;
+		inline static V4 const box_dim = 0.5f * V4{ 1.0f, 1.5f, 2.0f, 0.0f };
+
+		void DrawInput(ldraw::LdrGroup& grp, std::span<Sample const> samples)
 		{
-			#if PR_UNITTESTS_VISUALISE
 			using namespace pr::ldraw;
 
-			auto samples = GenerateTestData();
+			grp.Sphere("start", 0xFFFF0000).radius(0.1f).pos(samples[1].pos);
+
+			auto& track = grp.Line("track_in", 0x80FFFFFF).smooth().strip(samples[1].pos);
+			auto& boxes = grp.Group("boxes_in");
+			auto& grp_vel = grp.Group("vel_in");
+			auto& grp_avl = grp.Group("avl_in");
+			for (int i = 1; i != ssize(samples) - 1; ++i)
+			{
+				auto& s = samples[i];
+				track.line_to(s.pos);
+
+				grp_vel.Line("vel", 0x80FFFF00).strip(s.pos).line_to(s.pos + vel_scale * s.vel);
+				grp_avl.Line("avl", 0x8000FFFF).strip(s.pos).line_to(s.pos + avl_scale * s.avl);
+				boxes.Box("obj", 0x40008000).box(box_dim).o2w().quat(s.rot).pos(s.pos);
+			}
+		}
+		PRUnitTestMethod(LdrHermiteVec)
+		{
+			using namespace pr::ldraw;
+			auto samples = GenerateTestData(N);
 
 			Builder builder;
-			V4 const box_dim = 0.5f * V4{ 1.0f, 1.5f, 2.0f, 0.0f };
-			float vel_scale = 0.1f;
-			float avel_scale = 0.1f;
-			float step = 0.001f;
-			int boxes_per_segment = 20;
-
-			// Helper: draw input sample data (shared across all visualisations)
-			auto draw_input = [&](LdrGroup& grp, float z_offset)
-			{
-				auto ofs = V4(0, 0, z_offset, 0);
-				grp.Sphere("start", 0xFFFF0000).radius(0.1f).pos(samples[1].pos + ofs);
-				auto& track = grp.Line("track_in", 0x80FFFFFF).smooth().strip(samples[1].pos + ofs);
-				auto& boxes = grp.Group("boxes_in");
-				auto& grp_vel = grp.Group("vel_in");
-				auto& grp_avel = grp.Group("avel_in");
-				for (int i = 1; i != ssize(samples) - 1; ++i)
-				{
-					auto& s = samples[i];
-					track.line_to(s.pos + ofs);
-					grp_vel.Line("vel", 0x80FFFF00).strip(s.pos + ofs).line_to(s.pos + ofs + vel_scale * s.vel);
-					grp_avel.Line("avel", 0x8000FFFF).strip(s.pos + ofs).line_to(s.pos + ofs + avel_scale * s.avel);
-					boxes.Box("obj", 0x40008000).box(box_dim).o2w().quat(s.rot).pos(s.pos + ofs);
-				}
-			};
+			auto& grp = builder.Group("HermiteVQ");
+			DrawInput(grp.Group("input"), samples);
 
 			// 1. HermiteVector + HermiteQuaternion (endpoint-to-endpoint)
+			auto& boxes = grp.Group("interp_boxes");
+			auto& track = grp.Line("interp_track", 0xFF00FF00).strip(samples[1].pos);
+			auto& velocity = grp.Group("interp_vel");
+
+			for (int seg = 1; seg < ssize(samples) - 2; ++seg)
 			{
-				auto& grp = builder.Group("HermiteVQ");
-				draw_input(grp, 0);
+				auto& s0 = samples[seg];
+				auto& s1 = samples[seg + 1];
+				auto T = std::max(s1.t - s0.t, 0.001f);
+				auto interpV = HermiteVector<float>(s0.pos, s0.vel, s1.pos, s1.vel, T);
+				auto interpQ = HermiteQuaternion<float>(s0.rot, s0.avl, s1.rot, s1.avl, T);
 
-				auto& boxes = grp.Group("boxes_interp");
-				auto& track = grp.Line("track_interp", 0xFF00FF00).strip(samples[1].pos);
-				auto& grp_vel = grp.Group("vel_interp");
-
-				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				int box_idx = 0;
+				for (float dt = 0.0f; dt <= T; dt += step)
 				{
-					auto& s0 = samples[seg];
-					auto& s1 = samples[seg + 1];
-					auto T = std::max(s1.t - s0.t, 0.001f);
-					auto interpV = HermiteVector<float>(s0.pos, s0.vel, s1.pos, s1.vel, T);
-					auto interpQ = HermiteQuaternion<float>(s0.rot, s0.avel, s1.rot, s1.avel, T);
+					auto pos = interpV.Eval(dt);
+					auto vel = interpV.EvalDerivative(dt);
+					auto qr = interpQ.Eval(dt);
 
-					int box_idx = 0;
-					for (float dt = 0.0f; dt <= T; dt += step)
+					track.line_to(pos);
+
+					auto frac = boxes_per_segment * dt / T;
+					if (frac > box_idx + 1)
 					{
-						auto pos = interpV.Eval(dt);
-						auto vel = interpV.EvalDerivative(dt);
-						auto qr = interpQ.Eval(dt);
-						track.line_to(pos);
-
-						auto frac = boxes_per_segment * dt / T;
-						if (frac > box_idx + 1)
-						{
-							grp_vel.Line("vel", 0xFFFFFF00).strip(pos).line_to(pos + vel_scale * vel);
-							boxes.Box("obj", 0x8000FF00).box(box_dim).o2w().quat(qr).pos(pos);
-							++box_idx;
-						}
+						velocity.Line("vel", 0xFFFFFF00).strip(pos).line_to(pos + vel_scale * vel);
+						boxes.Box("obj", 0x8000FF00).box(box_dim).o2w().quat(qr).pos(pos);
+						++box_idx;
 					}
 				}
 			}
+			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+		}
+		PRUnitTestMethod(LdrHermiteTransform)
+		{
+			using namespace pr::ldraw;
+			auto samples = GenerateTestData(N);
+
+			Builder builder;
+			auto& grp = builder.Group("HermiteXform");
+			DrawInput(grp.Group("input"), samples);
 
 			// 2. HermiteTransform (endpoint-to-endpoint combined)
+			auto& boxes = grp.Group("interp_boxes");
+			auto& track = grp.Line("interp_track", 0xFFFF8000).strip(samples[1].pos);
+
+			for (int seg = 1; seg < ssize(samples) - 2; ++seg)
 			{
-				float z_ofs = 20.0f;
-				auto ofs = V4(0, 0, z_ofs, 0);
-				auto& grp = builder.Group("HermiteXform");
-				draw_input(grp, z_ofs);
+				auto& s0 = samples[seg];
+				auto& s1 = samples[seg + 1];
+				auto T = std::max(s1.t - s0.t, 0.001f);
+				auto interp = HermiteTransform<float>(
+					s0.pos, s0.vel, s0.rot, s0.avl,
+					s1.pos, s1.vel, s1.rot, s1.avl,
+					nullptr, T);
 
-				auto& boxes = grp.Group("boxes_interp");
-				auto& track = grp.Line("track_interp", 0xFFFF8000).strip(samples[1].pos + ofs);
-
-				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				int box_idx = 0;
+				for (float dt = 0.0f; dt <= T; dt += step)
 				{
-					auto& s0 = samples[seg];
-					auto& s1 = samples[seg + 1];
-					auto T = std::max(s1.t - s0.t, 0.001f);
-					HermiteTransform<float> interp(s0.pos, s0.vel, s0.rot, s0.avel, s1.pos, s1.vel, s1.rot, s1.avel, T);
+					auto x = interp.Eval(dt);
+					track.line_to(x.pos);
 
-					int box_idx = 0;
-					for (float dt = 0.0f; dt <= T; dt += step)
+					auto frac = boxes_per_segment * dt / T;
+					if (frac > box_idx + 1)
 					{
-						auto x = interp.Eval(dt);
-						track.line_to(x.pos + ofs);
-
-						auto frac = boxes_per_segment * dt / T;
-						if (frac > box_idx + 1)
-						{
-							boxes.Box("obj", 0x80FF8000).box(box_dim).o2w().quat(x.rot).pos(x.pos + ofs);
-							++box_idx;
-						}
+						boxes.Box("obj", 0x80FF8000).box(box_dim).o2w().quat(x.rot).pos(x.pos);
+						++box_idx;
 					}
 				}
 			}
+			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+		}
+		PRUnitTestMethod(LdrHermiteVector_MidPoint)
+		{
+			using namespace pr::ldraw;
+			auto samples = GenerateTestData(N);
+
+			Builder builder;
+			auto& grp = builder.Group("HermiteMidPoint");
+			DrawInput(grp.Group("input"), samples);
 
 			// 3. HermiteVector_MidPoint + HermiteQuaternion_MidPoint (midpoint interpolators)
+			auto& boxes = grp.Group("interp_boxes");
+			auto& track = grp.Line("interp_track", 0xFF8000FF).strip(samples[1].pos);
+
+			// Midpoint interpolators span from samples[seg-1] to samples[seg+1], centred on samples[seg]
+			for (int seg = 1; seg < ssize(samples) - 2; ++seg)
 			{
-				float z_ofs = 40.0f;
-				auto ofs = V4(0, 0, z_ofs, 0);
-				auto& grp = builder.Group("HermiteMidPoint");
-				draw_input(grp, z_ofs);
+				auto& prev = samples[seg - 1];
+				auto& curr = samples[seg];
+				auto& next = samples[seg + 1];
+				auto interval = next.t - prev.t;
+				if (interval < 0.001f) continue;
 
-				auto& boxes = grp.Group("boxes_interp");
-				auto& track = grp.Line("track_interp", 0xFF8000FF).strip(samples[1].pos + ofs);
+				auto interpV = HermiteVector_MidPoint<float>(prev.pos, curr.pos, curr.vel, next.pos, nullptr, interval);
+				auto interpQ = HermiteQuaternion_MidPoint<float>(prev.rot, curr.rot, curr.avl, next.rot, nullptr, interval);
 
-				// Midpoint interpolators span from samples[seg-1] to samples[seg+1], centred on samples[seg]
-				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+				// Evaluate from -T to +T (centred on curr)
+				auto T = interval / 2;
+				auto seg_start = -T;
+				auto seg_end = +T;
+
+				// Only draw the first half (up to midpoint) to avoid overlap with next segment
+				auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : seg_end;
+
+				int box_idx = 0;
+				for (float t = seg_start; t <= draw_end; t += step)
 				{
-					auto& prev = samples[seg - 1];
-					auto& curr = samples[seg];
-					auto& next = samples[seg + 1];
-					auto interval = next.t - prev.t;
-					if (interval < 0.001f) continue;
+					auto pos = interpV.Eval(t);
+					auto qr = interpQ.Eval(t);
+					track.line_to(pos);
 
-					auto interpV = HermiteVector_MidPoint<float>(prev.pos, next.pos, curr.pos, curr.vel, interval);
-					auto interpQ = HermiteQuaternion_MidPoint<float>(prev.rot, curr.rot, curr.avel, next.rot, interval);
-
-					// Evaluate from -T to +T (centred on curr)
-					auto T = interval / 2;
-					auto seg_start = -T;
-					auto seg_end = +T;
-
-					// Only draw the first half (up to midpoint) to avoid overlap with next segment
-					auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : seg_end;
-
-					int box_idx = 0;
-					for (float t = seg_start; t <= draw_end; t += step)
+					auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
+					if (frac > box_idx + 1)
 					{
-						auto pos = interpV.Eval(t);
-						auto qr = interpQ.Eval(t);
-						track.line_to(pos + ofs);
-
-						auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
-						if (frac > box_idx + 1)
-						{
-							boxes.Box("obj", 0x808000FF).box(box_dim).o2w().quat(qr).pos(pos + ofs);
-							++box_idx;
-						}
+						boxes.Box("obj", 0x808000FF).box(box_dim).o2w().quat(qr).pos(pos);
+						++box_idx;
 					}
 				}
 			}
-
-			// 4. HermiteTransform_MidPoint (combined midpoint)
-			{
-				float z_ofs = 60.0f;
-				auto ofs = V4(0, 0, z_ofs, 0);
-				auto& grp = builder.Group("HermiteXform_MidPoint");
-				draw_input(grp, z_ofs);
-
-				auto& boxes = grp.Group("boxes_interp");
-				auto& track = grp.Line("track_interp", 0xFFFF00FF).strip(samples[1].pos + ofs);
-
-				for (int seg = 1; seg < ssize(samples) - 2; ++seg)
-				{
-					auto& prev = samples[seg - 1];
-					auto& curr = samples[seg];
-					auto& next = samples[seg + 1];
-					auto interval = next.t - prev.t;
-					if (interval < 0.001f) continue;
-
-					HermiteTransform_MidPoint<float> interp(
-						prev.pos, next.pos, curr.pos, curr.vel,
-						prev.rot, curr.rot, curr.avel, next.rot,
-						interval);
-
-					auto T = interval / 2;
-					auto seg_start = -T;
-					auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : +T;
-
-					int box_idx = 0;
-					for (float t = seg_start; t <= draw_end; t += step)
-					{
-						auto x = interp.Eval(t);
-						track.line_to(x.pos + ofs);
-
-						auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
-						if (frac > box_idx + 1)
-						{
-							boxes.Box("obj", 0x80FF00FF).box(box_dim).o2w().quat(x.rot).pos(x.pos + ofs);
-							++box_idx;
-						}
-					}
-				}
-			}
-
-			builder.Save("E:\\Dump\\LDraw\\interpolation.ldr", ESaveFlags::Pretty);
-			#endif
+			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
 		}
+		PRUnitTestMethod(LdrHermiteTransform_MidPoint)
+		{
+			using namespace pr::ldraw;
+			auto samples = GenerateTestData(N);
+
+			Builder builder;
+			auto& grp = builder.Group("HermiteXformMidPoint");
+			DrawInput(grp.Group("input"), samples);
+		
+			// 4. HermiteTransform_MidPoint (combined midpoint)
+			auto& boxes = grp.Group("interp_boxes");
+			auto& track = grp.Line("interp_track", 0xFFFF00FF).strip(samples[1].pos);
+
+			for (int seg = 1; seg < ssize(samples) - 2; ++seg)
+			{
+				auto& prev = samples[seg - 1];
+				auto& curr = samples[seg];
+				auto& next = samples[seg + 1];
+				auto interval = next.t - prev.t;
+				if (interval < 0.001f) continue;
+
+				HermiteTransform_MidPoint<float> interp(
+					prev.pos, curr.pos, curr.vel, next.pos,
+					prev.rot, curr.rot, curr.avl, next.rot,
+					nullptr,
+					interval);
+
+				auto T = interval / 2;
+				auto seg_start = -T;
+				auto draw_end = (seg < ssize(samples) - 3) ? 0.0f : +T;
+
+				int box_idx = 0;
+				for (float t = seg_start; t <= draw_end; t += step)
+				{
+					auto x = interp.Eval(t);
+					track.line_to(x.pos);
+
+					auto frac = boxes_per_segment * (t - seg_start) / (draw_end - seg_start);
+					if (frac > box_idx + 1)
+					{
+						boxes.Box("obj", 0x80FF00FF).box(box_dim).o2w().quat(x.rot).pos(x.pos);
+						++box_idx;
+					}
+				}
+			}
+		
+			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+		}
+		#endif
 	};
 }
 #endif

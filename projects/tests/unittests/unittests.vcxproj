@@ -1,26 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <!-- Properties -->
-  <PropertyGroup Label="Globals">
-    <ConfigurationType>Application</ConfigurationType>
-    <ProjectGuid>{64F62186-4F86-4CD6-AE3A-3C0E311BB2A6}</ProjectGuid>
-    <RootNamespace>unittests</RootNamespace>
-  </PropertyGroup>
-  <!-- Property Sheets -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <Import Project="$(PropsPath)build_configurations.props" />
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="$(PropsPath)app.props" />
-  <!-- Build Options -->
-  <ItemDefinitionGroup>
-    <ClCompile>
-      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>
+	<!-- Properties -->
+	<PropertyGroup Label="Globals">
+		<ConfigurationType>Application</ConfigurationType>
+		<ProjectGuid>{64F62186-4F86-4CD6-AE3A-3C0E311BB2A6}</ProjectGuid>
+		<RootNamespace>unittests</RootNamespace>
+	</PropertyGroup>
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)app.props" />
+	<!-- Build Options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+			<PreprocessorDefinitions>
 				;%(PreprocessorDefinitions)
 				;PR_MATHS_USE_DIRECTMATH=1
 				;PR_UNITTESTS=1
+				;PR_UNITTESTS_VISUALISE=0
 			</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
 				;$(RylogicRoot)sdk
@@ -30,424 +31,424 @@
 				;$(VCInstallDir)Auxiliary\VS\UnitTest\include
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
-    </ClCompile>
-    <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<AdditionalLibraryDirectories>
 				;$(RylogicRoot)lib\$(PlatformTarget)\$(Configuration)
-        ;$(VCInstallDir)Auxiliary\VS\UnitTest\lib
+				;$(VCInstallDir)Auxiliary\VS\UnitTest\lib
 				;%(AdditionalLibraryDirectories)
 			</AdditionalLibraryDirectories>
-      <AdditionalDependencies>
+			<AdditionalDependencies>
 				;lua-static.lib
 				;physics-2-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-  <!-- Find unit tests -->
-  <Target Name="HarvestFiles" BeforeTargets="PrepareForBuild">
-    <Message Importance="high" Text="Harvesting files..." />
-    <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)HarvestFiles.csx -- $(ProjectDir)src\unittests.h" />
-  </Target>
-  <!-- Files -->
-  <ItemGroup>
-    <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\algorithm.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\astar_search.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\peak_detection.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\savitzky_golay_filter.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\app\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\app\gimble.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\app\main.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\app\main_ui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\app\skybox.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\synth\note.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\synth\synth.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\camera\camera.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_box.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\collision.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_line.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\penetration.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shapes.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_array.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_box.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_line.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_polytope.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_sphere_vs_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_triangle.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\alloca.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\assert.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\async_wrap.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\base64.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\bit_data.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\cancel_token.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\cast.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\clipboard.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\command_line.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\compress.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\console.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\coroutine.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\crc.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\d3dptr.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\datetime.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\enumerable.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\exception.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\expr_eval.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\flags_enum.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\fmt.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\guid.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\hash.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\space_filling.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\hresult.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\inplacealloc.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\ireport.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\keystate.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\interpolate.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\linq.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\log.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\mempool.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\memstream.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\min_max_fix.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\msgbox.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\event_handler.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\ldraw.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\number.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\objectpool.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\observe.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\pe_file.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\pollingtoevent.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\range.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\refcount.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\refptr.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\registrykey.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\resource.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\scope.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\singleton.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\si_units.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\static_callback.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\stop_watch.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\stride_ptr.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\to.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\repeater.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\tstring.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\tweakables.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\unittests.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\user_data.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\value_ptr.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\bit_array.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\byte_data.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\concurrent_queue.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\chain.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\deque.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\kdtree.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\quadtree.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\queue.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\ring_buffer.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\segmented_list.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\span.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\stack.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\suffix_array.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\tri_table.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\vector.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\container\vector_map.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\blake2b.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\md5.h" />
-    <ClCompile Include="$(RylogicRoot)include\pr\crypt\monocypher.c" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\monocypher.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\rijndael.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha1.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha512.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\filesys.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\filewatch.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_encoding.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_snapshot.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\3ds.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_box.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\closest_point.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\common.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_cylinder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\deformablemesh.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\distance.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_extrude.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\geometry.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\intersect.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_line.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_mesh.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_point.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_skybox.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\model_file.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\p3d.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_quad.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_shape2d.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\point.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\reflect.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\scatter.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\tetramesh.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\triangle.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\unit_tests.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\utility.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\volume.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gfx\colour.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gfx\dpi.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gfx\onebit.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\atlgdix.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\colour_ctrl.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\context_menu.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\font_helper.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\gdiplus.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\graph_ctrl.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\grid_ctrl.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\menu_list.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\messagemap_dbg.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\mfc_helper.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\misc.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\progress_ui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\recent_files.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\richedit.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\round_button_ctrl.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\scaled_dc.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\scintilla_ctrl.h" />
-    <ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h" />
-    <ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\ldraw.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\ray.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h" />
-    <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h" />
-    <ClInclude Include="..\..\..\include\pr\gui\message_loop.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\vt100.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\vt100_colours.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\gui\wtl_tab_view_ctrl.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\hardware\comm_port_io.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\hardware\cpuinfo.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\hardware\find_bt_device.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\input\dinput.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\lua\lua.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\align.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\auto_do.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\constexpr.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\count_of.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\enum.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\join.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\link.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\noexcept.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\fft.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\fibonacci_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\rand_mt19937.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\abs.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\and.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\constants.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\dep_constants.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\function_arity.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\gcf.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\if.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\min_max.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\nameof.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\not.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\or.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\meta\remove_pointer.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\bluetooth.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\bluetooth_ui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\email.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\pipe.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\pipe2.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\sockets.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\socket_stream.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\tcpip.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\web_get.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\network\winsock.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\constants.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\integrator\impulse.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\physics.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\rigid_body\rigid_body.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\inertia.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_builder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\utility\field.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\unit_tests.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\ini_file.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\json.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\char8.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\convert_utf.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\string2.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\unit_tests.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\utf8.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\thread_pool.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d\renderer.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d\textures\projected_texture.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\buf.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\byte_reader.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\embedded.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\embedded_lua.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\filter.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\fail_policy.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\includes.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\macros.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\preprocessor.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\location.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\reader.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\script.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\script_core.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\src_stack.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\token.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\script\tokeniser.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\csv.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\settings.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\sqlite.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\xml.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\storage\zip_file.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\encoding.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\extract.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\string.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\string_core.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\string_filter.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\string_util.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\str\to_string.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\concurrent_queue.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\spin_lock.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\name_thread.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\pause_thread.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\process.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\threads\wait_state.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\dummy_window.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\key_codes.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\mem_checks.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\stackdump.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\user_directories.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\win32.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\win32\windows_com.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw.h" />
-    <ClInclude Include="$(RylogicRoot)sdk\sqlite3\include\sqlite3.h" />
-    <ClCompile Include="$(RylogicRoot)sdk\sqlite3\src\sqlite3.c">
-      <WarningLevel>Level3</WarningLevel>
-      <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>
+		</Link>
+	</ItemDefinitionGroup>
+	<!-- Find unit tests -->
+	<Target Name="HarvestFiles" BeforeTargets="PrepareForBuild">
+		<Message Importance="high" Text="Harvesting files..." />
+		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)HarvestFiles.csx -- $(ProjectDir)src\unittests.h" />
+	</Target>
+	<!-- Files -->
+	<ItemGroup>
+		<Text Include="$(RylogicRoot)include\pr\collision\_readme.txt" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\algorithm.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\astar_search.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\peak_detection.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\savitzky_golay_filter.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\app\forward.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\app\gimble.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\app\main.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\app\main_ui.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\app\skybox.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\synth\note.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\synth\synth.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\camera\camera.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_box.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\collision.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_line.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\penetration.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shapes.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_array.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_box.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_line.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_polytope.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_sphere.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_sphere.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\col_sphere_vs_sphere.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\shape_triangle.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\alloca.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\assert.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\async_wrap.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\base64.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\bit_data.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\cancel_token.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\cast.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\clipboard.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\command_line.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\compress.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\console.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\coroutine.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\crc.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\d3dptr.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\datetime.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\enumerable.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\exception.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\expr_eval.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\flags_enum.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\fmt.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\guid.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\hash.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\space_filling.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\hresult.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\inplacealloc.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\ireport.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\keystate.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\interpolate.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\linq.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\log.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\mempool.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\memstream.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\min_max_fix.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\msgbox.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\event_handler.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\ldraw.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\number.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\objectpool.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\observe.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\pe_file.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\pollingtoevent.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\profile.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\range.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\refcount.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\refptr.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\registrykey.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\resource.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\scope.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\singleton.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\si_units.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\static_callback.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\stop_watch.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\stride_ptr.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\to.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\repeater.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\tstring.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\tweakables.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\unittests.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\user_data.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\common\value_ptr.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\bit_array.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\byte_data.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\concurrent_queue.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\chain.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\deque.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\kdtree.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\quadtree.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\queue.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\ring_buffer.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\segmented_list.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\span.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\stack.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\suffix_array.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\tri_table.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\vector.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\container\vector_map.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\blake2b.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\md5.h" />
+		<ClCompile Include="$(RylogicRoot)include\pr\crypt\monocypher.c" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\monocypher.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\rijndael.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\sha1.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\crypt\sha512.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\filesys.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\filewatch.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\file_encoding.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\file_snapshot.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\3ds.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_box.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\closest_point.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\common.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_cylinder.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\deformablemesh.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\distance.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_extrude.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\geometry.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\intersect.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_line.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_mesh.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_point.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_skybox.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\model_file.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\p3d.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_quad.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_shape2d.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\models_sphere.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\point.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\reflect.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\scatter.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\tetramesh.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\triangle.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\unit_tests.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\utility.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\volume.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gfx\colour.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gfx\dpi.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gfx\onebit.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\atlgdix.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\colour_ctrl.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\context_menu.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\font_helper.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\gdiplus.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\graph_ctrl.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\grid_ctrl.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\menu_list.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\messagemap_dbg.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\mfc_helper.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\misc.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\progress_ui.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\recent_files.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\richedit.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\round_button_ctrl.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\scaled_dc.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\scintilla_ctrl.h" />
+		<ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h" />
+		<ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_triangle.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\ldraw.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\ray.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\ray_cast.h" />
+		<ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h" />
+		<ClInclude Include="..\..\..\include\pr\gui\message_loop.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\vt100.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\vt100_colours.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\gui\wtl_tab_view_ctrl.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\hardware\comm_port_io.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\hardware\cpuinfo.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\hardware\find_bt_device.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\input\dinput.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\lua\lua.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\align.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\auto_do.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\constexpr.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\count_of.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\enum.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\join.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\link.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\noexcept.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\fft.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\fibonacci_sphere.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\algorithm\rand_mt19937.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\abs.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\and.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\constants.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\dep_constants.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\function_arity.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\gcf.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\if.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\min_max.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\nameof.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\not.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\or.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\meta\remove_pointer.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\bluetooth.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\bluetooth_ui.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\email.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\pipe.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\pipe2.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\sockets.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\socket_stream.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\tcpip.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\web_get.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\network\winsock.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\constants.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\forward.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\integrator\impulse.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\physics.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\rigid_body\rigid_body.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\inertia.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\mass.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_builder.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_mass.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\physics2\utility\field.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\unit_tests.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\ini_file.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\json.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\char8.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\convert_utf.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\string2.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\unit_tests.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\utf8.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\thread_pool.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d\renderer.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d\textures\projected_texture.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\buf.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\byte_reader.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\embedded.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\embedded_lua.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\filter.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\fail_policy.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\forward.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\includes.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\macros.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\preprocessor.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\location.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\reader.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\script.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\script_core.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\src_stack.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\token.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\script\tokeniser.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\csv.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\settings.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\sqlite.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\xml.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\storage\zip_file.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\encoding.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\extract.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\string.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\string_core.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\string_filter.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\string_util.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\str\to_string.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\concurrent_queue.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\spin_lock.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\name_thread.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\pause_thread.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\process.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\threads\wait_state.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\dummy_window.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\key_codes.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\mem_checks.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\stackdump.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\user_directories.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\win32.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\win32\windows_com.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw.h" />
+		<ClInclude Include="$(RylogicRoot)sdk\sqlite3\include\sqlite3.h" />
+		<ClCompile Include="$(RylogicRoot)sdk\sqlite3\src\sqlite3.c">
+			<WarningLevel>Level3</WarningLevel>
+			<SDLCheck>false</SDLCheck>
+			<PreprocessorDefinitions>
 				;%(PreprocessorDefinitions)
 				;SQLITE_WIN32_GETVERSIONEX=0
 				;PR_UNITTESTS=1
 				;PR_MATHS_USE_DIRECTMATH=1
 			</PreprocessorDefinitions>
-    </ClCompile>
-    <ClCompile Include="src\dependecy_check_new_math.cpp" />
-    <ClCompile Include="src\unittests.cpp" />
-    <ClInclude Include="$(RylogicRoot)include\pr\math\core\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\math\math.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\math\tests\vector2_tests.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\forward.h" />
-    <ClInclude Include="..\..\..\include\pr\common\task_graph.h" />
-    <ClInclude Include="..\..\..\include\pr\math\conversion.h" />
-    <ClInclude Include="..\..\..\include\pr\math\core\axis_id.h" />
-    <ClInclude Include="..\..\..\include\pr\math\core\constants.h" />
-    <ClInclude Include="..\..\..\include\pr\math\core\functions.h" />
-    <ClInclude Include="..\..\..\include\pr\math\core\traits.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\bbox.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\bsphere.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\frustum.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\oriented_box.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\plane.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\rectangle.h" />
-    <ClInclude Include="..\..\..\include\pr\math\primitives\spline.h" />
-    <ClInclude Include="..\..\..\include\pr\math\spatial\spatial.h" />
-    <ClInclude Include="..\..\..\include\pr\math\stats\stat.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\all_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\bbox_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\bsphere_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\dynamics_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\frustum_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\function_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\half_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\interpolate_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\matrix2x2_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\matrix3x4_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\matrix4x4_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\matrix6x8_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\matrix_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\oriented_box_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\plane_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\polynomial_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\primes_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\quaternion_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\rectangle_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\scalar_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\spatial_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\stat_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\transform_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\vector3_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\vector4_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\tests\vector8_tests.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\half.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix2x2.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix3x4.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix4x4.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix6x8.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\quaternion.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\transform.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\vector2.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\vector3.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\vector4.h" />
-    <ClInclude Include="..\..\..\include\pr\math\types\vector8.h" />
-    <ClInclude Include="..\..\..\include\pr\algorithm\multidimensional_scaling.h" />
-    <ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h" />
-    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
-    <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />
-    <ClInclude Include="..\..\..\include\pr\math\utils\primes.h" />
-    <ClInclude Include="src\unittests.h" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\core.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\geometry.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\collision.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
-    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
-    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
-    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />
-    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli" />
-    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli" />
-    <None Include="cpp.hint" />
-  </ItemGroup>
-  <!-- Run unit tests -->
-  <ItemGroup>
-    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
-  </ItemGroup>
-  <Target Name="RunUnitTests" AfterTargets="Build">
-    <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
-  </Target>
-  <!-- Targets -->
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+		</ClCompile>
+		<ClCompile Include="src\dependecy_check_new_math.cpp" />
+		<ClCompile Include="src\unittests.cpp" />
+		<ClInclude Include="$(RylogicRoot)include\pr\math\core\forward.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\math\math.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\math\tests\vector2_tests.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\collision\forward.h" />
+		<ClInclude Include="..\..\..\include\pr\common\task_graph.h" />
+		<ClInclude Include="..\..\..\include\pr\math\conversion.h" />
+		<ClInclude Include="..\..\..\include\pr\math\core\axis_id.h" />
+		<ClInclude Include="..\..\..\include\pr\math\core\constants.h" />
+		<ClInclude Include="..\..\..\include\pr\math\core\functions.h" />
+		<ClInclude Include="..\..\..\include\pr\math\core\traits.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\bbox.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\bsphere.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\frustum.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\oriented_box.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\plane.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\rectangle.h" />
+		<ClInclude Include="..\..\..\include\pr\math\primitives\spline.h" />
+		<ClInclude Include="..\..\..\include\pr\math\spatial\spatial.h" />
+		<ClInclude Include="..\..\..\include\pr\math\stats\stat.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\all_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\bbox_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\bsphere_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\dynamics_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\frustum_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\function_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\half_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\interpolate_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\matrix2x2_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\matrix3x4_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\matrix4x4_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\matrix6x8_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\matrix_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\oriented_box_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\plane_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\polynomial_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\primes_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\quaternion_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\rectangle_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\scalar_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\spatial_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\stat_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\transform_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\vector3_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\vector4_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\tests\vector8_tests.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\half.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\matrix.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\matrix2x2.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\matrix3x4.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\matrix4x4.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\matrix6x8.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\quaternion.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\transform.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\vector2.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\vector3.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\vector4.h" />
+		<ClInclude Include="..\..\..\include\pr\math\types\vector8.h" />
+		<ClInclude Include="..\..\..\include\pr\algorithm\multidimensional_scaling.h" />
+		<ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h" />
+		<ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
+		<ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />
+		<ClInclude Include="..\..\..\include\pr\math\utils\primes.h" />
+		<ClInclude Include="src\unittests.h" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\core.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\geometry.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\collision.hlsli" />
+		<None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
+		<None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
+		<None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
+		<None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />
+		<None Include="..\..\..\include\pr\hlsl\quaternions.hlsli" />
+		<None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli" />
+		<None Include="cpp.hint" />
+	</ItemGroup>
+	<!-- Run unit tests -->
+	<ItemGroup>
+		<ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
+	</ItemGroup>
+	<Target Name="RunUnitTests" AfterTargets="Build">
+		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
+	</Target>
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

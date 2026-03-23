@@ -3197,7 +3197,8 @@ namespace pr::ldraw
 
 		LdrLine& line(seri::Vec3 a, seri::Vec3 b, seri::Colour colour = {})
 		{
-			// Don't overwrite style here, it could be direction or segments
+			// Don't overwrite style here if it's been set
+			if (!m_current.m_style) style("LineSegments");
 			m_current.m_lines.push_back({ a, b, colour });
 			if (colour) m_current.m_per_item_colour = true;
 			m_current.m_strip.clear();
@@ -3218,6 +3219,7 @@ namespace pr::ldraw
 		LdrLine& strip(seri::Vec3 start, seri::Colour colour = {})
 		{
 			// Don't overwrite style here
+			if (!m_current.m_style) style("LineStrip");
 			m_current.m_strip.push_back({ start, colour });
 			if (colour) m_current.m_per_item_colour = true;
 			m_current.m_lines.clear();
@@ -4341,9 +4343,11 @@ namespace pr::ldraw
 					outpath.replace_extension(binary ? ".bdr" : ".ldr");
 
 				// Replace/rename
+				// 'std::filesystem::rename' does not replace existing files on windows...
+				//  Need to use ReplaceFileW or MoveFileExW(fpath.c_str(), outpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+				//  but that means including windows :(
+				std::filesystem::remove(outpath);
 				std::filesystem::rename(tmp_path, outpath);
-				// 'std::filesystem::rename' might not replace existing files on windows...
-				//MoveFileExW(fpath.c_str(), outpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
 			}
 			catch (std::exception const& ex)
 			{

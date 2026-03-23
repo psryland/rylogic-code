@@ -549,14 +549,18 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return the axis and angle from a quaternion</summary>
-		public static (v4 axis, float angle) AxisAngle(Quat quat)
+		public static (v4 axis, float angle) AxisAngle(Quat q)
 		{
-			var w = (float)Clamp(quat.w, -1.0, 1.0);
-			var s = (float)Math.Sqrt(1.0f - w * w);
-			var angle = (float)(2.0 * Math.Acos(w));
-			var axis = Math.Abs(s) > Math_.TinyF
-				? new(quat.x / s, quat.y / s, quat.z / s, 0.0f)
-				: v4.Zero; // axis is (0,0,0) when angle == 1
+			//assert(IsNormalised(q.xyzw) && "quaternion isn't normalised");
+
+			// Use atan2 for the angle — well-conditioned everywhere, unlike acos
+			var sin_half_angle = q.xyz.Length;
+			var angle = (float)(2 * Math.Atan2(sin_half_angle, Abs(q.w)));
+
+			// Normalise the xyz part directly (avoids sqrt(1-w²) cancellation)
+			var axis = sin_half_angle > Math_.TinyF
+				? new v4(q.x / sin_half_angle, q.y / sin_half_angle, q.z / sin_half_angle, 0)
+				: new v4(0, 0, 1, 0); // arbitrary axis for identity
 
 			return (axis, angle);
 		}
