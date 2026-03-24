@@ -300,7 +300,7 @@ namespace Rylogic.Gui.WPF
 					try
 					{
 						var data = Clipboard.GetDataObject();
-						if (data.GetDataPresent(typeof(string)) && data.GetData(typeof(string)) is string str)
+						if (data != null && data.GetDataPresent(typeof(string)) && data.GetData(typeof(string)) is string str)
 						{
 							var ms = new MemoryStream(Encoding.UTF8.GetBytes(str), false);
 							csv = CSVData.Load(ms, true);
