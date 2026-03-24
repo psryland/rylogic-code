@@ -32,8 +32,12 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "src/compute/physics_types.hlsli"
 
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
+
 // Per-dispatch constants
-cbuffer cbResolve : register(b0)
+cbuffer cbResolve : reg(b0)
 {
 	int g_max_contacts; // The max capacity of the contacts buffer
 	int g_body_count;   // The number of bodies in the scene
@@ -47,13 +51,13 @@ cbuffer cbResolve : register(b0)
 };
 
 // Shader resources
-StructuredBuffer<GpuCollisionCounters> g_counters : register(t0);
-StructuredBuffer<GpuMaterial> g_materials : register(t1);
-RWStructuredBuffer<GpuRigidBody> g_bodies : register(u0);
-RWStructuredBuffer<uint> g_colours : register(u1);
-RWStructuredBuffer<GpuResolveContact> g_contacts : register(u2);
-RWStructuredBuffer<float> g_contact_times : register(u3); // scratch: collision_time keys for radix sort
-RWStructuredBuffer<uint> g_contact_order: register(u4);   // scratch: contact indices for radix sort
+StructuredBuffer<GpuCollisionCounters> resource(g_counters, t0);
+StructuredBuffer<GpuMaterial> resource(g_materials, t1);
+RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
+RWStructuredBuffer<uint> resource(g_colours, u1);
+RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u2);
+RWStructuredBuffer<float> resource(g_contact_times, u3); // scratch: collision_time keys for radix sort
+RWStructuredBuffer<uint> resource(g_contact_order, u4);   // scratch: contact indices for radix sort
 
 // ----- Helper functions -----
 
@@ -328,7 +332,7 @@ bool SupportStillSleeping(GpuRigidBody body)
 
 // ----- CSComputeCollisionTimes -----
 // Parallel: one thread per contact. Computes collision time
-[numthreads(ResolveThreadCount, 1, 1)]
+numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
 void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 {
 	int idx = dtid.x;
@@ -375,7 +379,7 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 // ----- CSAssignColours -----
 // Serial: single thread. Walks contacts in order sorted by collision time.
 // Uses per-body colour bitmasks stored in g_bodies[].colour_used.
-[numthreads(1, 1, 1)]
+numthreads(CSAssignColours, 1, 1, 1)
 void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 {
 	for (int i = 0; i != g_counters[0].contact_count; ++i)
@@ -404,7 +408,7 @@ void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 // ----- CSResolve -----
 // Dispatched once per colour from the CPU loop. Each thread processes one contact.
 // Only contacts matching the current colour are processed — all others return immediately.
-[numthreads(ResolveThreadCount, 1, 1)]
+numthreads(CSResolve, ResolveThreadCount, 1, 1)
 void CSResolve(int3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= g_counters[0].contact_count)
@@ -527,7 +531,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 //   2. Gravity is non-zero (no sleeping in zero-g)
 //   3. Contact simplex indicates support (CoM above contact points, or degenerate fallback)
 //   4. Support bodies are still sleeping/static (cascade wake-up if support wakes)
-[numthreads(ResolveThreadCount, 1, 1)]
+numthreads(CSUpdateSleepState, ResolveThreadCount, 1, 1)
 void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 {
 	int body_idx = dtid.x;
@@ -578,3 +582,7 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 	body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, is_supported);
 	g_bodies[body_idx] = body;
 }
+
+#ifdef __cplusplus
+}
+#endif

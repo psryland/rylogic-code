@@ -71,7 +71,13 @@ namespace pr::math
 				static_cast<S2>(w)
 			);
 		}
-			
+
+		// Explicit cast to bool. True if any component is non-zero.
+		constexpr explicit operator bool() const
+		{
+			return Any(*this);
+		}
+
 		// Create a quaternion from an axis and an angle
 		Quat(Vec3<S> axis, S angle) noexcept
 		{

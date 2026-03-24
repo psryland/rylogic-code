@@ -16,40 +16,48 @@
 
 #ifdef __cplusplus
 #include "pr/hlsl/interop.h"
-namespace pr::hlsl
-{
+
 	// Note:
 	//   This error: "error X3000: syntax error: unexpected token 'enum'"
 	//   means you have an hlsl file somewhere that hasn't been set to 'Custom Build Tool'.
 	//   It will be using the HLSL Compiler build type, which doesn't know about the 'SHADER_BUILD' define
 
+	// Macros mapping HLSL keywords to C++ equivalents.
+	// These are outside any namespace because #define is namespace-independent.
+	// Previously wrapped in 'namespace pr::hlsl { }' but that creates a spurious
+	// pr::<enclosing>::pr namespace when this file is included inside a namespace.
 	#define cbuffer struct
-	#define numthreads(x, y, z) static int3 constexpr NumThreads = {x,y,z};
-	#define reg(reg_number, space) ShaderReg<decltype(reg_number), reg_number, space>
+	#define numthreads(kernel, x, y, z) static int3 constexpr kernel ## _NumThreads = {x,y,z};
+	#define reg(reg_number) ShaderReg<decltype(reg_number), reg_number, 0>
 	#define resource(name, reg_number) name 
 	#define semantic(semantic_name)
+	#define arrayout_(ty, name, size) ty (&name)[size]
+	#define inout_(ty) ty&
+	#define out_(ty) ty&
+	#define in_(ty) ty const&
 	#define row_major
-	#define uniform
-	#define row_major
-	#define line
-	#define inout
+	//#define uniform
+	//#define line
 
 	#define DTID(name) name
 	#define GID(name) name
 	#define GTID(name) name
 	#define GIDX(name) name
-}
 
-// Make HLSL types visible at the including scope so that .hlsli
-// files included from C++ can use float4, int4, float4x4, etc.
-using namespace pr::hlsl;
+	// Make HLSL types visible at the including scope so that .hlsli
+	// files included from C++ can use float4, int4, float4x4, etc.
+	using namespace pr::hlsl;
 
 #else
 
-	#define numthreads(x, y, z) [numthreads(x, y, z)]
-	#define reg(reg_number, space) : register(reg_number)
+	#define numthreads(kernel, x, y, z) [numthreads(x, y, z)]
+	#define reg(reg_number) register(reg_number)
 	#define resource(name, reg_number) name : register(reg_number)
 	#define semantic(semantic_name) :semantic_name
+	#define arrayout_(ty, name, size) out ty name[size]
+	#define inout_(ty) inout ty
+	#define out_(ty) out ty
+	#define in_(ty) in ty
 	#define voidp uint2
 
 	#define DTID(name) name : SV_DispatchThreadID

@@ -64,7 +64,7 @@ namespace pr::physics
 		// Midpoint predictor for the rotation step: estimate the angular velocity at
 		// the midpoint rotation to account for precession of anisotropic bodies.
 		// This gives second-order accuracy instead of first-order.
-		auto half_dR = m3x4::Rotation(vel_ang * (elapsed_seconds * 0.5f));
+		auto half_dR = m3x4::Rotation(vel_ang.xyz * (elapsed_seconds * 0.5f));
 		auto mid_rot = half_dR * rot;
 		auto mid_b2a = InvertOrthonormal(mid_rot);
 		auto ws_iinv_mid = mid_rot * os_iinv_unit * mid_b2a;
@@ -76,7 +76,7 @@ namespace pr::physics
 			ws_iinv_mid.y * inv_mass,
 			ws_iinv_mid.z * inv_mass,
 		};
-		auto vel_ang_mid = ws_iinv_mid_scaled * dyn.momentum_ang;
+		auto vel_ang_mid = ws_iinv_mid_scaled * dyn.momentum_ang.xyz;
 
 		// CoM-based position update: translate CoM, derive model origin from new rotation.
 		auto com_ws = rot * os_com;

@@ -5,14 +5,14 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 // Texture to compute mips for
-Texture2D<float4> m_src_texture : reg(t0, 0);
-SamplerState m_src_sampler : reg(s0, 0);
+Texture2D<float4> m_src_texture : reg(t0);
+SamplerState m_src_sampler : reg(s0);
 
 // Output texture containing mips
-RWTexture2D<float4> m_dst_texture : reg(u0, 0);
+RWTexture2D<float4> m_dst_texture : reg(u0);
 
 // Constants
-cbuffer CBufGenMips : reg(b0, 0)
+cbuffer CBufGenMips : reg(b0)
 {
 	float2 TexelSize; // 1.0 / destination dimension
 }
@@ -32,7 +32,7 @@ void CSMipMapGenerator(uint3 DTid : SV_DispatchThreadID)
 
 // Computer shader
 #ifdef PR_RDR_CSHADER_mipmap_generator
-[numthreads( 8, 8, 1 )]
+numthreads(main, 8, 8, 1)
 void main(uint3 DTid : SV_DispatchThreadID)
 {
 	CSMipMapGenerator(DTid);

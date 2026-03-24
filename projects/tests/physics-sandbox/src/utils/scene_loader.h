@@ -23,6 +23,7 @@ namespace physics_sandbox::scene_loader
 	//                 "name": "box1",
 	//                 "shape": { "type": "box", "dimensions": [2, 2, 2] },
 	//                 "mass": 10.0, "position": [x, y, z],
+	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
 	//                 "velocity": [vx, vy, vz],        // Optional
 	//                 "angular_velocity": [wx, wy, wz]  // Optional
 	//             },
@@ -54,6 +55,7 @@ namespace physics_sandbox::scene_loader
 
 		float mass = 0;          // 0 = static (immovable) body with infinite mass
 		v4 position = Origin<v4>();
+		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
 	};

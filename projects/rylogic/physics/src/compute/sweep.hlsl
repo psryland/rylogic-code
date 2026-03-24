@@ -11,8 +11,12 @@
 #include "pr/hlsl/bounding_box.hlsli"
 #include "src/compute/physics_types.hlsli"
 
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
+
 // Shader parameters
-cbuffer cbSweep : register(b0)
+cbuffer cbSweep : reg(b0)
 {
 	int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
 	int g_body_count;
@@ -21,13 +25,13 @@ cbuffer cbSweep : register(b0)
 };
 
 // Shader Resources
-RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
-RWStructuredBuffer<GpuCollisionPair> g_collision_pairs : register(u1);
-RWStructuredBuffer<DispatchArguments> g_dispatch_args : register(u2);
-StructuredBuffer<GpuRigidBody> g_bodies : register(t0);
-StructuredBuffer<int> g_aabb_idx : register(t1);
+RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
+RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
+RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
+StructuredBuffer<GpuRigidBody> resource(g_bodies, t0);
+StructuredBuffer<int> resource(g_aabb_idx, t1);
 
-[numthreads(SweepThreadCount, 1, 1)]
+numthreads(CSSweep, SweepThreadCount, 1, 1)
 void CSSweep(int3 dtid : SV_DispatchThreadID)
 {
 	// 'aabb_idx' is a list of encoded body indices sorted on some axes.
@@ -101,7 +105,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 
 // This shader is dispatched with 1 thread. It calculates the number of thread groups needed for the collision detection
 // shader based on the number of pairs found in the sweep step, and writes that to the dispatch arguments buffer.
-[numthreads(1,1,1)]
+numthreads(CSCalcCDDispatch, 1,1,1)
 void CSCalcCDDispatch(int3 dtid : SV_DispatchThreadID)
 {
 	uint pair_count = g_counters[0].pair_count;
@@ -109,3 +113,7 @@ void CSCalcCDDispatch(int3 dtid : SV_DispatchThreadID)
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }
+
+#ifdef __cplusplus
+}
+#endif

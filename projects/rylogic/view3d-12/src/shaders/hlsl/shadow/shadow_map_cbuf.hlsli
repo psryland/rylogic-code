@@ -10,7 +10,7 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 // Camera to world transform and view frustum
-cbuffer CBufFrame :reg(b0,0)
+cbuffer CBufFrame :reg(b0)
 {
 	// Not using 'Shadow' from types because the shadow map generation
 	// shaders operate on one shadow map at a time. The main render can
@@ -20,7 +20,7 @@ cbuffer CBufFrame :reg(b0,0)
 };
 
 // Constants per render nugget.
-cbuffer CBufNugget :reg(b1,0)
+cbuffer CBufNugget :reg(b1)
 {
 	// Sync with:
 	//   forward_cbuf.hlsli

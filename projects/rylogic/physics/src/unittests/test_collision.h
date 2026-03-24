@@ -28,7 +28,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/inertia.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	using collision::ShapeBox;
 	PRUnitTestClass(CollisionTests)

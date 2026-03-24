@@ -7,24 +7,24 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 
 // Texture2D /w sampler
-Texture2D<float4> m_texture0 :reg(t0, 0);
-SamplerState      m_sampler0 :reg(s0, 0);
+Texture2D<float4> m_texture0 :reg(t0);
+SamplerState      m_sampler0 :reg(s0);
 
 // Environment map
-TextureCube<float4> m_envmap_texture :reg(t1, 0);
-SamplerState        m_envmap_sampler :reg(s1, 0);
+TextureCube<float4> m_envmap_texture :reg(t1);
+SamplerState        m_envmap_sampler :reg(s1);
 
 // Shadow map
-Texture2D<float2> m_smap_texture[MaxShadowMaps] :reg(t2, 0);
-SamplerComparisonState m_smap_sampler           :reg(s2, 0);
+Texture2D<float2> m_smap_texture[MaxShadowMaps] :reg(t2);
+SamplerComparisonState m_smap_sampler           :reg(s2);
 
 // Projected textures
-Texture2D<float4> m_proj_texture[MaxProjectedTextures] :reg(t3, 0);
-SamplerState      m_proj_sampler[MaxProjectedTextures] :reg(s3, 0);
+Texture2D<float4> m_proj_texture[MaxProjectedTextures] :reg(t3);
+SamplerState      m_proj_sampler[MaxProjectedTextures] :reg(s3);
 
 // Skinned Meshes
-StructuredBuffer<Mat4x4> m_pose : reg(t4, 0);
-StructuredBuffer<Skinfluence> m_skin : reg(t5, 0);
+StructuredBuffer<Mat4x4> m_pose : reg(t4);
+StructuredBuffer<Skinfluence> m_skin : reg(t5);
 
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
@@ -46,7 +46,7 @@ PSIn VSDefault(VSIn In)
 	float4 os_vert = mul(In.vert, m_m2o);
 	float4 os_norm = mul(In.norm, m_m2o);
 	
-	if (IsSkinned)
+	if (IsSkinned(m_flags))
 	{
 		os_vert = SkinVertex(m_pose, m_skin[In.idx0.x], os_vert);
 		os_norm = SkinNormal(m_pose, m_skin[In.idx0.x], os_norm);
@@ -85,7 +85,7 @@ PSOut PSDefault(PSIn In)
 	Out.diff = In.diff;
 
 	// Transform
-	if (HasNormals)
+	if (HasNormals(m_flags))
 	{
 		// If the normal is (0,0,0), use a vector to the light source
 		In.ws_norm =
@@ -97,9 +97,9 @@ PSOut PSDefault(PSIn In)
 	}
 
 	// Texture2D (with transform)
-	if (HasTex0)
+	if (HasTex0(m_flags))
 	{
-		if (EnvMapProj)
+		if (EnvMapProj(m_flags))
 		{
 			float3 dir = mul(In.ws_vert, m_tex2surf0).xyz;
 			Out.diff = m_envmap_texture.Sample(m_envmap_sampler, dir);
@@ -112,7 +112,7 @@ PSOut PSDefault(PSIn In)
 	}
 
 	// Env Map
-	if (HasEnvMap && HasNormals)
+	if (HasEnvMap(m_flags) && HasNormals(m_flags))
 		Out.diff = EnvironmentMap(m_env_map, In.ws_vert, In.ws_norm, m_cam.m_c2w[3], Out.diff);
 
 	// Shadows
@@ -121,11 +121,11 @@ PSOut PSDefault(PSIn In)
 		light_visible = LightVisibility(m_shadow, In.ws_vert);
 
 	// Lighting
-	if (HasNormals)
+	if (HasNormals(m_flags))
 		Out.diff = Illuminate(m_global_light, In.ws_vert, In.ws_norm, m_cam.m_c2w[3], light_visible, Out.diff);
 
 	// If not alpha blending, clip alpha pixels
-	if (!HasAlpha)
+	if (!HasAlpha(m_flags))
 		clip(Out.diff.a - 0.5);
 
 	return Out;

@@ -10,20 +10,20 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 // Camera to world transform
-cbuffer CBufCamera :reg(b0,0)
+cbuffer CBufCamera :reg(b0)
 {
 	Camera m_cam;
 	float4 m_frustum[4]; // View frustum corners in camera space
 };
 
 // Global lighting
-cbuffer CBufLighting :reg(b1,0)
+cbuffer CBufLighting :reg(b1)
 {
 	Light m_light;
 };
 
 // Constants per render nugget.
-cbuffer CBufNugget :reg(b2,0)
+cbuffer CBufNugget :reg(b2)
 {
 	// Sync with:
 	//   forward_cbuf.hlsli

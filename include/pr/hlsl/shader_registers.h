@@ -4,7 +4,7 @@
 //*********************************************
 #pragma once
 
-namespace pr::rdr12
+namespace pr::hlsl
 {
 	// Constant buffer registers
 	enum ECBufReg
@@ -34,7 +34,7 @@ namespace pr::rdr12
 	};
 
 	// Base class to define a shader register type and value
-	template <typename TShaderReg, TShaderReg rn, UINT sp> struct ShaderReg
+	template <typename TShaderReg, TShaderReg rn, int sp> struct ShaderReg
 	{
 		inline static constexpr TShaderReg shader_register = rn;
 		inline static constexpr UINT register_space = sp;

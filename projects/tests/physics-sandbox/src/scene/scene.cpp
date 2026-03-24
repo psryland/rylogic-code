@@ -359,7 +359,8 @@ namespace physics_sandbox
 			for (auto const& bd : scene_desc.bodies)
 			{
 				Body body(nullptr);
-				body.O2W(m4x4::Translation(bd.position));
+				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
+				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				m_body.push_back(std::move(body));

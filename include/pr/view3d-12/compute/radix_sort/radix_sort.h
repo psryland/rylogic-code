@@ -53,13 +53,13 @@ namespace pr::rdr12::compute::gpu_radix_sort
 
 		struct EReg
 		{
-			inline static constexpr auto Constants = ECBufReg::b0;
-			inline static constexpr auto Sort0 = EUAVReg::u0;
-			inline static constexpr auto Sort1 = EUAVReg::u1;
-			inline static constexpr auto Payload0 = EUAVReg::u2;
-			inline static constexpr auto Payload1 = EUAVReg::u3;
-			inline static constexpr auto GlobalHistogram = EUAVReg::u4;
-			inline static constexpr auto PassHistogram = EUAVReg::u5;
+			inline static constexpr auto Constants = hlsl::ECBufReg::b0;
+			inline static constexpr auto Sort0 = hlsl::EUAVReg::u0;
+			inline static constexpr auto Sort1 = hlsl::EUAVReg::u1;
+			inline static constexpr auto Payload0 = hlsl::EUAVReg::u2;
+			inline static constexpr auto Payload1 = hlsl::EUAVReg::u3;
+			inline static constexpr auto GlobalHistogram = hlsl::EUAVReg::u4;
+			inline static constexpr auto PassHistogram = hlsl::EUAVReg::u5;
 		};
 
 		struct TuningParams

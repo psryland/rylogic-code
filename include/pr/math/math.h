@@ -5,7 +5,6 @@
 #pragma once
 
 // Define switches:
-// PR_MATHS_USE_DIRECTMATH
 // PR_MATHS_USE_INTRINSICS
 // Also remember NOMINMAX
 

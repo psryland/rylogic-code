@@ -47,6 +47,7 @@ namespace pr::hlsl
 	using float2   = math::Vec2<float>;
 	using float3   = math::Vec3<float>;
 	using float4   = math::Vec4<float>;
+	using float3x3 = math::Mat3x4<float>;
 	using float4x4 = math::Mat4x4<float>;
 	using voidp    = void const*;
 
@@ -123,6 +124,14 @@ namespace pr::hlsl
 	inline int abs(int x)
 	{
 		return math::Abs(x);
+	}
+	inline int64_t abs(int64_t x)
+	{
+		return math::Abs(x);
+	}
+	inline uint abs(uint x)
+	{
+		return x;
 	}
 	inline float2 abs(float2 v)
 	{
@@ -861,6 +870,10 @@ namespace pr::hlsl
 	}
 
 	// --- dot ---
+	inline float dot(float1 a, float1 b)
+	{
+		return a * b;
+	}
 	inline float dot(float2 a, float2 b)
 	{
 		return math::Dot(a, b);
@@ -874,21 +887,11 @@ namespace pr::hlsl
 		return math::Dot(a, b);
 	}
 
-	// --- length_sq ---
-	inline float length_sq(float2 v)
-	{
-		return math::LengthSq(v);
-	}
-	inline float length_sq(float3 v)
-	{
-		return math::LengthSq(v);
-	}
-	inline float length_sq(float4 v)
-	{
-		return math::LengthSq(v);
-	}
-
 	// --- length ---
+	inline float length(float1 v)
+	{
+		return abs(v);
+	}
 	inline float length(float2 v)
 	{
 		return math::Length(v);
@@ -903,6 +906,10 @@ namespace pr::hlsl
 	}
 
 	// --- distance ---
+	inline float distance(float1 a, float1 b)
+	{
+		return abs(a - b);
+	}
 	inline float distance(float2 a, float2 b)
 	{
 		return math::Length(a - b);
@@ -917,6 +924,10 @@ namespace pr::hlsl
 	}
 
 	// --- normalize ---
+	inline float1 normalize(float1)
+	{
+		return 1.0f;
+	}
 	inline float2 normalize(float2 v)
 	{
 		return math::Normalise(v);
@@ -1080,32 +1091,36 @@ namespace pr::hlsl
 
 	// --- mul ---
 	// HLSL mul(vector, matrix) = row-vector × matrix
+	inline float3 mul(float3 v, float3x3 const& m)
+	{
+		return m * v;
+	}
 	inline float4 mul(float4 v, float4x4 const& m)
 	{
-		return float4(
-			dot(v, float4(m.x.x, m.y.x, m.z.x, m.w.x)),
-			dot(v, float4(m.x.y, m.y.y, m.z.y, m.w.y)),
-			dot(v, float4(m.x.z, m.y.z, m.z.z, m.w.z)),
-			dot(v, float4(m.x.w, m.y.w, m.z.w, m.w.w)));
+		return m * v;
 	}
 
 	// HLSL mul(matrix, vector) = matrix × column-vector
 	inline float4 mul(float4x4 const& m, float4 v)
 	{
-		return float4(
-			dot(float4(m.x.x, m.x.y, m.x.z, m.x.w), v),
-			dot(float4(m.y.x, m.y.y, m.y.z, m.y.w), v),
-			dot(float4(m.z.x, m.z.y, m.z.z, m.z.w), v),
-			dot(float4(m.w.x, m.w.y, m.w.z, m.w.w), v));
+		return Transpose(m) * v;
 	}
 
 	// HLSL mul(matrix, matrix)
+	inline float3x3 mul(float3x3 const& a, float3x3 const& b)
+	{
+		return b * a; // Rylogic uses row-major matrices and right to left matrix multiplication
+	}
 	inline float4x4 mul(float4x4 const& a, float4x4 const& b)
 	{
-		return a * b;
+		return b * a; // Rylogic uses row-major matrices and right to left matrix multiplication
 	}
 
 	// --- transpose ---
+	inline float3x3 transpose(float3x3 const& m)
+	{
+		return math::Transpose(m);
+	}
 	inline float4x4 transpose(float4x4 const& m)
 	{
 		return math::Transpose(m);
@@ -1115,6 +1130,13 @@ namespace pr::hlsl
 	inline float determinant(float4x4 const& m)
 	{
 		return math::Determinant(m);
+	}
+	#pragma endregion
+
+	#pragma region Wave Intrinsics
+	inline bool WaveActiveAllEqual(bool)
+	{
+		return true;
 	}
 	#pragma endregion
 

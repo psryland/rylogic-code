@@ -31,9 +31,14 @@ namespace pr::math
 		#pragma warning(pop)
 
 		// Construct
-		Mat4x4() = default;
+		constexpr Mat4x4() noexcept
+			: x()
+			, y()
+			, z()
+			, w()
+		{}
 		constexpr explicit Mat4x4(S x_) noexcept
-			:x(x_)
+			: x(x_)
 			, y(x_)
 			, z(x_)
 			, w(x_)
@@ -63,6 +68,22 @@ namespace pr::math
 				static_cast<Vec4<S2>>(z),
 				static_cast<Vec4<S2>>(w)
 			);
+		}
+
+		// Explicit cast to Mat3x4. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
+		template <ScalarType S2> constexpr explicit operator Mat3x4<S2>() const noexcept
+		{
+			return Mat3x4<S2>(
+				static_cast<Vec4<S2>>(x),
+				static_cast<Vec4<S2>>(y),
+				static_cast<Vec4<S2>>(z)
+			);
+		}
+
+		// Explicit cast to bool. True if any component is non-zero.
+		constexpr explicit operator bool() const
+		{
+			return Any(*this);
 		}
 
 		// Array access
@@ -177,19 +198,19 @@ namespace pr::math
 		// Create from an axis and angle. 'axis' should be normalised
 		static Mat4x4 Transform(Vec4<S> axis, S angle, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(axis, angle), pos };
+			return Mat4x4{ math::Rotation<Mat3x4<S>>(axis.xyz, angle), pos };
 		}
 
 		// Create from an angular displacement vector. length = angle(rad), direction = axis
 		static Mat4x4 Transform(Vec4<S> angular_displacement, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(angular_displacement), pos };
+			return Mat4x4{ math::Rotation<Mat3x4<S>>(angular_displacement.xyz), pos };
 		}
 
 		// Create a transform representing the rotation from one vector to another. (Vectors do not need to be normalised)
 		static Mat4x4 Transform(Vec4<S> from, Vec4<S> to, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(from, to), pos };
+			return Mat4x4{ math::Rotation<Mat3x4<S>>(from.xyz, to.xyz), pos };
 		}
 
 		// Create a transform from one basis axis to another
@@ -205,7 +226,7 @@ namespace pr::math
 		}
 		static Mat4x4 Scale(S sx, S sy, S sz, Vec4<S> pos) noexcept
 		{
-			return Mat4x4{ math::Scale<Mat3x4<S>>(Vec4<S>(sx, sy, sz, S(1))), pos };
+			return Mat4x4{ math::Scale<Mat3x4<S>>(Vec3<S>(sx, sy, sz)), pos };
 		}
 
 		// Create a shear matrix
@@ -256,7 +277,7 @@ namespace pr::math
 		}
 
 		#pragma region Operators
-		friend Vec4<S> pr_vectorcall operator * (Mat4x4 const& a2b, Vec4<S> v) noexcept
+		friend constexpr Vec4<S> pr_vectorcall operator * (Mat4x4 const& a2b, Vec4<S> v) noexcept
 		{
 			if consteval
 			{
@@ -311,7 +332,7 @@ namespace pr::math
 				}
 			}
 		}
-		friend Mat4x4 pr_vectorcall operator * (Mat4x4 const& b2c, Mat4x4 const& a2b) noexcept
+		friend constexpr Mat4x4 pr_vectorcall operator * (Mat4x4 const& b2c, Mat4x4 const& a2b) noexcept
 		{
 			// Note:
 			//  - The reason for this order is because matrices are applied from right to left
@@ -387,7 +408,7 @@ namespace pr::math
 		#pragma endregion
 
 		// Return the 4x4 transpose of 'mat'
-		friend Mat4x4 pr_vectorcall Transpose(Mat4x4 const& mat) noexcept
+		friend constexpr Mat4x4 pr_vectorcall Transpose(Mat4x4 const& mat) noexcept
 		{
 			if consteval
 			{

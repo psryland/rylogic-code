@@ -44,8 +44,13 @@
 #define PR_PHYSICS_COLLISION_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "src/compute/physics_types.hlsli"
 #include "src/compute/gjk.hlsli"
+
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
 
 // ---- Constants ----
 static const float Eps = 1e-8f;
@@ -53,9 +58,9 @@ static const float Eps = 1e-8f;
 // ---- Sphere vs Sphere ----
 // Direct distance test between two sphere centres.
 bool SphereVsSphere(
-	GpuShape sa, float4x4 a2w,
-	GpuShape sb, float4x4 b2w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) sa, float4x4 a2w,
+	in_(GpuShape) sb, float4x4 b2w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -85,9 +90,9 @@ bool SphereVsSphere(
 // Find the closest point on the OBB to the sphere centre.
 // If the distance is less than the sphere radius, there's a collision.
 bool SphereVsBox(
-	GpuShape sphere, float4x4 sphere_w,
-	GpuShape box, float4x4 box_w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) sphere, float4x4 sphere_w,
+	in_(GpuShape) box, float4x4 box_w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -170,9 +175,9 @@ bool SphereVsBox(
 // Find the closest point on the line segment to the sphere centre.
 // The line has hemispherical end-caps of thickness 'data.y'.
 bool SphereVsLine(
-	GpuShape sphere, float4x4 sphere_w,
-	GpuShape seg, float4x4 seg_w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) sphere, float4x4 sphere_w,
+	in_(GpuShape) seg, float4x4 seg_w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -212,11 +217,11 @@ bool SphereVsLine(
 // sphere centre (treating it as a point), then check distance < radius.
 // This avoids EPA entirely and gives exact contact normals.
 bool SphereVsConvex(
-	GpuShape sphere, float4x4 sphere_w,
-	GpuShape convex, float4x4 convex_w,
-	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth,
-	out int out_gjk_iters)
+	in_(GpuShape) sphere, float4x4 sphere_w,
+	in_(GpuShape) convex, float4x4 convex_w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
+	out_(int) out_gjk_iters)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -379,7 +384,7 @@ bool SphereVsConvex(
 void ClosestPointSegmentSegment(
 	float4 p0, float4 d0, float len0,
 	float4 p1, float4 d1, float len1,
-	out float t0, out float t1)
+	out_(float) t0, out_(float) t1)
 {
 	float4 r = p0 - p1;
 	float a = dot(d0, d0); // len0*len0 but d0 might not be unit
@@ -437,7 +442,7 @@ float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
 }
 
 // Get the world-space vertices of a triangle shape
-void GetTriangleVerts(GpuShape tri, float4x4 tri_w, StructuredBuffer<float4> verts, out float4 v0, out float4 v1, out float4 v2)
+void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
 {
 	v0 = mul(mul(verts[tri.vert_offset + 0], tri.s2rb), tri_w);
 	v1 = mul(mul(verts[tri.vert_offset + 1], tri.s2rb), tri_w);
@@ -454,9 +459,9 @@ float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float 
 // ---- Line vs Line ----
 // Closest points between two capsules (line segments with thickness).
 bool LineVsLine(
-	GpuShape la, float4x4 la_w,
-	GpuShape lb, float4x4 lb_w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) la, float4x4 la_w,
+	in_(GpuShape) lb, float4x4 lb_w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -491,9 +496,9 @@ bool LineVsLine(
 // Closest point between the line skeleton (segment) and the box surface,
 // then add the line thickness as a margin.
 bool LineVsBox(
-	GpuShape seg, float4x4 seg_w,
-	GpuShape box, float4x4 box_w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) seg, float4x4 seg_w,
+	in_(GpuShape) box, float4x4 box_w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -585,10 +590,10 @@ bool LineVsBox(
 // ---- Line vs Triangle ----
 // Closest point between the line skeleton and the triangle, plus thickness margin.
 bool LineVsTriangle(
-	GpuShape seg, float4x4 seg_w,
-	GpuShape tri, float4x4 tri_w,
-	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) seg, float4x4 seg_w,
+	in_(GpuShape) tri, float4x4 tri_w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -659,11 +664,11 @@ bool LineVsTriangle(
 // Uses "GJK with margins": run closest-point GJK between the line skeleton
 // (a segment, no thickness) and the convex shape, then add thickness margin.
 bool LineVsConvex(
-	GpuShape seg, float4x4 seg_w,
-	GpuShape convex, float4x4 convex_w,
-	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth,
-	out int out_gjk_iters)
+	in_(GpuShape) seg, float4x4 seg_w,
+	in_(GpuShape) convex, float4x4 convex_w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
+	out_(int) out_gjk_iters)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -708,10 +713,10 @@ bool LineVsConvex(
 // Both shapes are polyhedral so EPA would also work, but SAT is faster
 // and gives exact results with fixed cost (no iteration).
 bool TriangleVsTriangle(
-	GpuShape ta, float4x4 ta_w,
-	GpuShape tb, float4x4 tb_w,
-	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) ta, float4x4 ta_w,
+	in_(GpuShape) tb, float4x4 tb_w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -776,10 +781,202 @@ bool TriangleVsTriangle(
 // ---- Box vs Box (SAT) ----
 // The Minkowski difference of two boxes is a larger box, and EPA struggles
 // to resolve the face normal precisely. SAT gives the exact separating axis.
+
+// Clip a line segment's parametric range [t0,t1] against a half-plane.
+// Half-plane: dot(P - plane_pt, plane_n) >= 0. Returns false if fully clipped.
+bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, float3 plane_n, inout_(float) t0, inout_(float) t1)
+{
+	if (t0 >= t1)
+		return false;
+
+	float ds = dot(seg_s - plane_pt, plane_n);
+	float de = dot(seg_e - plane_pt, plane_n);
+
+	if (ds >= 0 && de >= 0) return true;
+	if (ds < 0 && de < 0) { t1 = t0; return false; }
+
+	float t_cross = ds / (ds - de);
+	if (ds < 0)
+		t0 = max(t0, t_cross);
+	else
+		t1 = min(t1, t_cross);
+
+	return t0 < t1;
+}
+
+// Determine the support feature of a box in a given direction.
+// Returns the feature vertex count (1=vert, 2=edge, 4=quad) and fills 'pts'.
+// Mirrors the CPU SupportFeature() in support.h.
+int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+{
+	float threshold = 1e-4f;
+	pts[0] = pts[1] = pts[2] = pts[3] = pos;
+	int count = 1;
+
+	for (int i = 0; i != 3; ++i)
+	{
+		float d = dot(rot[i], dir);
+		if (d > threshold)
+		{
+			for (int f = 0; f < count; ++f)
+				pts[f] += rot[i] * h[i];
+		}
+		else if (d < -threshold)
+		{
+			for (int f = 0; f < count; ++f)
+				pts[f] -= rot[i] * h[i];
+		}
+		else if (count == 1)
+		{
+			// Vert → Edge
+			pts[1] = pts[0];
+			pts[0] += rot[i] * h[i];
+			pts[1] -= rot[i] * h[i];
+			count = 2;
+		}
+		else if (count == 2)
+		{
+			// Edge → Quad
+			pts[3] = pts[0];
+			pts[2] = pts[1];
+			pts[0] += rot[i] * h[i];
+			pts[1] += rot[i] * h[i];
+			pts[2] -= rot[i] * h[i];
+			pts[3] -= rot[i] * h[i];
+
+			// Fix winding so face normal matches 'dir'
+			if (dot(dir, cross(pts[1] - pts[0], pts[2] - pts[0])) < 0)
+			{
+				float3 tmp = pts[1];
+				pts[1] = pts[3];
+				pts[3] = tmp;
+			}
+			count = 4;
+		}
+	}
+	return count;
+}
+
+// Find the single contact point between two box support features.
+// Mirrors the CPU FindContactPoint() in support.h. 'axis' points from A toward B.
+float3 FindBoxContactPoint(float3 ptsA[4], int countA, float3 ptsB[4], int countB, float3 axis, float depth)
+{
+	int i, j;
+
+	// Vert-Vert: midpoint
+	if (countA == 1 && countB == 1)
+		return 0.5f * (ptsA[0] + ptsB[0]);
+
+	// Vert-*: contact at the vertex, shifted halfway along axis toward the other feature
+	if (countA == 1)
+		return ptsA[0] + axis * (0.5f * dot(axis, ptsB[0] - ptsA[0]));
+	if (countB == 1)
+		return ptsB[0] + axis * (0.5f * dot(axis, ptsA[0] - ptsB[0]));
+
+	// Edge-Edge: closest points on the two line segments
+	if (countA == 2 && countB == 2)
+	{
+		float3 da = ptsA[1] - ptsA[0];
+		float3 db = ptsB[1] - ptsB[0];
+		float3 r = ptsA[0] - ptsB[0];
+		float a = dot(da, da);
+		float e = dot(db, db);
+		float f = dot(db, r);
+		float b = dot(da, db);
+		float c = dot(da, r);
+		float denom = a * e - b * b;
+		float s, t;
+		if (denom > 1e-10f)
+		{
+			s = clamp((b * f - c * e) / denom, 0.0f, 1.0f);
+			t = clamp((b * s + f) / max(e, 1e-10f), 0.0f, 1.0f);
+			s = clamp((b * t - c) / max(a, 1e-10f), 0.0f, 1.0f);
+		}
+		else
+		{
+			s = 0.5f;
+			t = clamp(f / max(e, 1e-10f), 0.0f, 1.0f);
+		}
+		return 0.5f * (ptsA[0] + s * da + ptsB[0] + t * db);
+	}
+
+	// Edge-Face: clip the edge against the face's side planes
+	if (countA == 2)
+	{
+		float t0 = 0.0f, t1 = 1.0f;
+		for (i = 0; i < countB; ++i)
+		{
+			float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
+			ClipSegmentToHalfPlane(ptsA[0], ptsA[1], ptsB[i], n, t0, t1);
+		}
+		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
+		return ptsA[0] + 0.5f * (t0 + t1) * (ptsA[1] - ptsA[0]) - 0.5f * depth * axis;
+	}
+	if (countB == 2)
+	{
+		float t0 = 0.0f, t1 = 1.0f;
+		for (i = 0; i < countA; ++i)
+		{
+			float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
+			ClipSegmentToHalfPlane(ptsB[0], ptsB[1], ptsA[i], n, t0, t1);
+		}
+		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
+		return ptsB[0] + 0.5f * (t0 + t1) * (ptsB[1] - ptsB[0]) + 0.5f * depth * axis;
+	}
+
+	// Face-Face: clip both quads against each other, average the centroids
+	float2 edgesA[4], edgesB[4];
+	for (j = 0; j < 4; ++j) { edgesA[j] = float2(0, 1); edgesB[j] = float2(0, 1); }
+
+	// Clip B's edges against A's side planes
+	for (i = 0; i < countA; ++i)
+	{
+		float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
+		for (j = 0; j < countB; ++j)
+			ClipSegmentToHalfPlane(ptsB[j], ptsB[(j + 1) % countB], ptsA[i], n, edgesB[j].x, edgesB[j].y);
+	}
+
+	// Clip A's edges against B's side planes
+	for (i = 0; i < countB; ++i)
+	{
+		float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
+		for (j = 0; j < countA; ++j)
+			ClipSegmentToHalfPlane(ptsA[j], ptsA[(j + 1) % countA], ptsB[i], n, edgesA[j].x, edgesA[j].y);
+	}
+
+	// Pool surviving edge midpoints from both faces into a single centroid.
+	// When one face fully contains the other, the larger face's edges are all clipped
+	// and only the contained face's edges contribute — giving the correct overlap centroid.
+	float3 centre = float3(0, 0, 0);
+	float total = 0;
+	for (j = 0; j < countA; ++j)
+	{
+		if (edgesA[j].x >= edgesA[j].y) continue;
+		centre += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
+		total += 1.0f;
+	}
+	for (j = 0; j < countB; ++j)
+	{
+		if (edgesB[j].x >= edgesB[j].y) continue;
+		centre += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
+		total += 1.0f;
+	}
+
+	// Fallback for degenerate cases (all edges clipped from both faces)
+	if (total == 0)
+	{
+		for (j = 0; j < countA; ++j) centre += ptsA[j];
+		for (j = 0; j < countB; ++j) centre += ptsB[j];
+		total = (float)(countA + countB);
+	}
+
+	return centre / total;
+}
+
 bool BoxVsBox(
-	GpuShape sa, float4x4 a2w,
-	GpuShape sb, float4x4 b2w,
-	out float4 out_axis, out float4 out_point, out float out_depth)
+	in_(GpuShape) sa, float4x4 a2w,
+	in_(GpuShape) sb, float4x4 b2w,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -788,8 +985,8 @@ bool BoxVsBox(
 	
 	float3 ha = sa.data.xyz;
 	float3 hb = sb.data.xyz;
-	float3x3 rot_a = (float3x3)a2w;
-	float3x3 rot_b = (float3x3)b2w;
+	float3x3 rot_a = (float3x3) a2w;
+	float3x3 rot_b = (float3x3) b2w;
 	float3 pos_a = a2w[3].xyz;
 	float3 pos_b = b2w[3].xyz;
 	float3 d = pos_b - pos_a;
@@ -817,7 +1014,8 @@ bool BoxVsBox(
 		float ra_proj = ha[i];
 		float rb_proj = hb[0] * absR[i][0] + hb[1] * absR[i][1] + hb[2] * absR[i][2];
 		float sep = abs(t[i]) - (ra_proj + rb_proj);
-		if (sep > 0) return false;
+		if (sep > 0)
+			return false;
 		if (-sep < best_depth)
 		{
 			best_depth = -sep;
@@ -834,13 +1032,54 @@ bool BoxVsBox(
 		float rb_proj = hb[i];
 		float sep_val = dot(float3(R[0][i], R[1][i], R[2][i]), t);
 		float sep = abs(sep_val) - (ra_proj + rb_proj);
-		if (sep > 0) return false;
+		if (sep > 0)
+			return false;
 		if (-sep < best_depth)
 		{
 			best_depth = -sep;
 			float3 axis = float3(0, 0, 0);
-			axis[i] = sep_val > 0 ? -1.0f : 1.0f; // Negate to point sa→sb
+			axis[i] = sep_val > 0 ? -1.0f : 1.0f;
 			best_axis = mul(axis, rot_b);
+		}
+	}
+
+	// Edge-edge cross product axes (9 axes: each edge of A × each edge of B).
+	// Required for correct SAT — face axes alone miss edge-edge separating planes.
+	for (i = 0; i < 3; ++i)
+	{
+		for (int j = 0; j < 3; ++j)
+		{
+			float3 cross_axis = cross(rot_a[i], rot_b[j]);
+			float len_sq = dot(cross_axis, cross_axis);
+
+			// Skip near-parallel edges (degenerate cross product)
+			if (len_sq < 1e-6f)
+				continue;
+
+			float inv_len = rsqrt(len_sq);
+			cross_axis *= inv_len;
+
+			// Project half-extents onto the cross axis
+			float ra_proj = 0;
+			float rb_proj = 0;
+			for (int k = 0; k < 3; ++k)
+			{
+				ra_proj += ha[k] * abs(dot(rot_a[k], cross_axis));
+				rb_proj += hb[k] * abs(dot(rot_b[k], cross_axis));
+			}
+
+			float sp = abs(dot(d, cross_axis));
+			float sep = sp - (ra_proj + rb_proj);
+			if (sep > 0)
+				return false;
+
+			// Prefer face axes over edge axes when depths are similar,
+			// to avoid noisy edge contacts on nearly-flat surfaces.
+			if (-sep + 1e-4f < best_depth)
+			{
+				best_depth = -sep;
+				best_axis = dot(d, cross_axis) > 0 ? cross_axis : -cross_axis;
+			}
 		}
 	}
 
@@ -851,9 +1090,20 @@ bool BoxVsBox(
 		best_axis = -best_axis;
 
 	out_axis = float4(normalize(best_axis), 0);
-	float3 pt = pos_a + dot(d, out_axis.xyz) * 0.5f * out_axis.xyz;
-	out_point = float4(pt, 1);
+
+	// Compute support features for both boxes and derive the contact point.
+	// This mirrors the CPU FindContactPoint pipeline: determine the contact feature
+	// type (vert/edge/face) for each box, then specialise the contact point computation
+	// based on the feature combination (vert-vert, vert-face, edge-edge, edge-face, face-face).
+	float3 ptsA[4], ptsB[4];
+	int countA = BoxSupportFeature(pos_a, rot_a, ha, +out_axis.xyz, ptsA);
+	int countB = BoxSupportFeature(pos_b, rot_b, hb, -out_axis.xyz, ptsB);
+
+	out_point = float4(FindBoxContactPoint(ptsA, countA, ptsB, countB, out_axis.xyz, out_depth), 1);
 	return true;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

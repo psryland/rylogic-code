@@ -450,9 +450,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_ray_cast.h">
       <Filter>src\shaders</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_registers.h">
-      <Filter>src\shaders</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_show_normals.h">
       <Filter>src\shaders</Filter>
     </ClInclude>
@@ -768,6 +765,12 @@
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\hlsl\interop.h">
+      <Filter>pr\hlsl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\hlsl\shader_registers.h">
+      <Filter>pr\hlsl</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -860,7 +863,6 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
     <None Include="src\compute\particle_collision\particle.hlsli">
       <Filter>src\compute\particle_collision</Filter>
     </None>
@@ -871,6 +873,9 @@
       <Filter>src\compute\particle_collision</Filter>
     </None>
     <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
   </ItemGroup>

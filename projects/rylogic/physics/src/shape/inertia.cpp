@@ -126,7 +126,7 @@ namespace pr::physics
 		if (CoM() == v4{})
 			return Ic;
 
-		auto cx = CPM<m3x4>(CoM());
+		auto cx = CPM<m3x4>(CoM().xyz);
 		auto Io = Ic - mass * cx * cx;
 		return Io;
 	}
@@ -137,7 +137,7 @@ namespace pr::physics
 			return Mat6x8<float, Motion, Force>{m6x8::Identity()};
 
 		auto Ic = Ic3x3(mass);
-		auto cx = CPM<m3x4>(CoM());
+		auto cx = CPM<m3x4>(CoM().xyz);
 
 		// The m00 block is Ic - mass*cx*cx which is algebraically symmetric (cx*cx is symmetric
 		// because (cxcx)^T = cx^T*cx^T = (-cx)(-cx) = cxcx). Float arithmetic in the triple
@@ -455,7 +455,7 @@ namespace pr::physics
 		//'     = Ic¯ + (1/m - Ic¯cxcx)¯Ic¯cxcxIc¯               '
 
 		// This is cheaper
-		auto cx = CPM<m3x4>(CoM());
+		auto cx = CPM<m3x4>(CoM().xyz);
 		auto Io = Invert(Ic_inv) - (1.0f / inv_mass) * cx * cx;
 		auto Io_inv = Invert(Io);
 		return Io_inv;
@@ -467,7 +467,7 @@ namespace pr::physics
 			return Mat6x8<float, Force, Motion>{m6x8::Identity()};
 
 		auto Ic_inv = Ic3x3(inv_mass);
-		auto cx = CPM<m3x4>(CoM());
+		auto cx = CPM<m3x4>(CoM().xyz);
 
 		// The m11 block is cx*Ic_inv*cx which is algebraically symmetric (since Ic_inv is
 		// symmetric and cx is antisymmetric: (cSc)^T = c^T S c^T = (-c)S(-c) = cSc). Float
@@ -564,6 +564,13 @@ namespace pr::physics
 	bool operator != (InertiaInv const& lhs, InertiaInv const& rhs)
 	{
 		return !(lhs == rhs);
+	}
+	v3 operator * (InertiaInv const& inertia_inv, v3 h)
+	{
+		if (inertia_inv.CoM() == v4{})
+			return inertia_inv.To3x3() * h;
+		else
+			return Translate(inertia_inv, -inertia_inv.CoM(), ETranslateInertia::AwayFromCoM).To3x3() * h;
 	}
 	v4 operator * (InertiaInv const& inertia_inv, v4 h)
 	{

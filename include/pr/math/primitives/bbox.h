@@ -288,8 +288,8 @@ namespace pr::math
 			auto mat = Transpose(m);
 			for (int i = 0; i != 3; ++i)
 			{
-				bb.m_centre[i] += Dot(    mat[i] , rhs.m_centre);
-				bb.m_radius[i] += Dot(Abs(mat[i]), rhs.m_radius);
+				bb.m_centre[i] += Dot(    mat[i] , rhs.m_centre.xyz);
+				bb.m_radius[i] += Dot(Abs(mat[i]), rhs.m_radius.xyz);
 			}
 			return bb;
 		}

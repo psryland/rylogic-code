@@ -6,6 +6,10 @@
 #define PR_HLSL_VECTOR_HLSLI
 #include "pr/hlsl/core.hlsli"
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 // Returns true if all vector elements are 0
 bool AllZero(float2 a)
 {
@@ -58,10 +62,9 @@ float Triple(float4 a, float4 b, float4 c)
 float3x3 CrossProductMatrix(float3 r)
 {
 	return float3x3(
-		 0,    -r.z,  r.y,
-		 r.z,  0,    -r.x,
-		-r.y,  r.x,  0
-	);
+		float3(0, r.z, -r.y),
+		float3(-r.z, 0, r.x),
+		float3(r.y, -r.x, 0));
 }
 
 // Rotate a 2D vector
@@ -146,13 +149,14 @@ float4x4 InvertOrthonormal(float4x4 mat)
 {
 	// This assumes row_major float4x4's
 	return float4x4(
-		mat._m00, mat._m10, mat._m20, 0,
-		mat._m01, mat._m11, mat._m21, 0,
-		mat._m02, mat._m12, mat._m22, 0,
-		-dot(mat._m00_m01_m02_m03, mat._m30_m31_m32_m33),
-		-dot(mat._m10_m11_m12_m13, mat._m30_m31_m32_m33),
-		-dot(mat._m20_m21_m22_m23, mat._m30_m31_m32_m33),
-		1);
+		float4(mat[0].x, mat[1].x, mat[2].x, 0),
+		float4(mat[0].y, mat[1].y, mat[2].y, 0),
+		float4(mat[0].z, mat[1].z, mat[2].z, 0),
+		float4(
+			-dot(mat[0], mat[3]),
+			-dot(mat[1], mat[3]),
+			-dot(mat[2], mat[3]),
+			1));
 }
 
 // Invert a matrix assuming that it's an affine matrix
@@ -184,10 +188,10 @@ float4x4 InvertAffine(float4x4 mat)
 
 	// Reconstruct the inverse matrix
 	return float4x4(
-		rt[0].x, rt[0].y, rt[0].z, 0,
-		rt[1].x, rt[1].y, rt[1].z, 0,
-		rt[2].x, rt[2].y, rt[2].z, 0,
-		inv_t.x, inv_t.y, inv_t.z, 1
+		float4(rt[0].x, rt[0].y, rt[0].z, 0),
+		float4(rt[1].x, rt[1].y, rt[1].z, 0),
+		float4(rt[2].x, rt[2].y, rt[2].z, 0),
+		float4(inv_t.x, inv_t.y, inv_t.z, 1)
 	);
 }
 
@@ -235,4 +239,7 @@ float3 RotationVectorApprox(float3x3 from, float3x3 to)
 	return float3(cpm[1].z, cpm[2].x, cpm[0].y);
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

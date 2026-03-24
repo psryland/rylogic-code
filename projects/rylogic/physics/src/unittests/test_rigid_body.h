@@ -75,7 +75,7 @@ namespace pr::physics
 			// Rotation: O = Oo + Wot + 0.5At²; Oo = 0, Wo = 0, t = 1, A = I^T, T = 2  =>  O = 0.5*I^(0,0,2)
 			auto o2w = rb.O2W();
 			auto pos = v4{0.5f / mass,0,0,1};
-			auto rot = m3x4::Rotation(0.5f * (rb.InertiaInvWS() * v4{0,0,2,0}));
+			auto rot = m3x4::Rotation(0.5f * (rb.InertiaInvWS() * v3{0,0,2}));
 			auto invrot = InvertOrthonormal(rot);
 			PR_EXPECT(FEql(o2w.pos, pos));
 			PR_EXPECT(FEql(o2w.rot, rot));
@@ -169,12 +169,12 @@ namespace pr::physics
 
 			// One refinement iteration (matching Evolve)
 			auto ws_vel_est = ws_iinv * ws_mom_mid;
-			auto do2w = m3x4::Rotation(ws_vel_est.ang * 0.5f);
+			auto do2w = m3x4::Rotation(ws_vel_est.ang.xyz * 0.5f);
 			ws_iinv = Rotate(ws_iinv, do2w);
 
 			auto ws_vel = ws_iinv * ws_mom_mid;
 			auto pos = (ws_vel.lin * 1.0f).w1();
-			auto rot = m3x4::Rotation(ws_vel.ang * 1.0f) * rb.O2W().rot;
+			auto rot = m3x4::Rotation(ws_vel.ang.xyz * 1.0f) * rb.O2W().rot;
 			auto invrot = InvertOrthonormal(rot);
 
 			// Integrate for 1 sec
@@ -234,12 +234,12 @@ namespace pr::physics
 			auto ws_mom_mid = ws_force * 0.5f;
 
 			auto ws_vel_est = ws_iinv * ws_mom_mid;
-			auto do2w = m3x4::Rotation(ws_vel_est.ang * 0.5f);
+			auto do2w = m3x4::Rotation(ws_vel_est.ang.xyz * 0.5f);
 			ws_iinv = Rotate(ws_iinv, do2w);
 
 			auto ws_vel = ws_iinv * ws_mom_mid;
 			auto pos = (ws_vel.lin * 1.0f).w1();
-			auto rot = m3x4::Rotation(ws_vel.ang * 1.0f) * rb.O2W().rot;
+			auto rot = m3x4::Rotation(ws_vel.ang.xyz * 1.0f) * rb.O2W().rot;
 
 			// Integrate for 1 sec
 			Evolve(rb, 1.0f);

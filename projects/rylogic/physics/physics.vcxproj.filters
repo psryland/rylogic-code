@@ -188,6 +188,9 @@
     <ClInclude Include="..\..\..\include\pr\physics\integrator\engine_config.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
+    <ClInclude Include="src\unittests\test_gpu_collide.h">
+      <Filter>src\unittests</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\collision.hlsli">

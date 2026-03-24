@@ -17,7 +17,7 @@ namespace shader
 	{
 		// Do buffer setup here
 
-		GpuEmulator emu(CSFaceNormal, NumThreads);
+		GpuEmulator emu(CSFaceNormal, CSFaceNormal_NumThreads);
 		emu.Dispatch({ 1, 1, 1 });
 		return 0;
 	}

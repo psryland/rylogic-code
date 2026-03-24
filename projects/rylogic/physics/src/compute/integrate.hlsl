@@ -26,8 +26,12 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "src/compute/physics_types.hlsli"
 
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
+
 // Integration parameters
-cbuffer cbIntegrate : register(b0)
+cbuffer cbIntegrate : reg(b0)
 {
 	float g_dt;
 	int g_body_count;
@@ -36,14 +40,14 @@ cbuffer cbIntegrate : register(b0)
 };
 
 // Shader resources
-RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
-RWStructuredBuffer<GpuRigidBody> g_bodies : register(u1);
-RWStructuredBuffer<float> g_aabb_x : register(u2);
-RWStructuredBuffer<float> g_aabb_y : register(u3);
-RWStructuredBuffer<float> g_aabb_z : register(u4);
-RWStructuredBuffer<int> g_aabb_idx : register(u5);
+RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
+RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u1);
+RWStructuredBuffer<float> resource(g_aabb_x, u2);
+RWStructuredBuffer<float> resource(g_aabb_y, u3);
+RWStructuredBuffer<float> resource(g_aabb_z, u4);
+RWStructuredBuffer<int> resource(g_aabb_idx, u5);
 #if PR_COLLISION_DIAGNOSTICS
-RWStructuredBuffer<GpuIntegrateDiag> g_diag : register(u6);
+RWStructuredBuffer<GpuIntegrateDiag> resource(g_diag, u6);
 #endif
 
 // Compute the world-space AABB for a body and write it to the output buffers.
@@ -69,8 +73,8 @@ void UpdateAABB(GpuRigidBody body, int idx)
 	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1;
 }
 
-[numthreads(IntegrateThreadCount, 1, 1)]
-void CSIntegrate(int3 dtid : SV_DispatchThreadID)
+numthreads(CSIntegrate, IntegrateThreadCount, 1, 1)
+void CSIntegrate(int3 DTID(dtid))
 {
 	int idx = dtid.x;
 	if (idx >= g_body_count)
@@ -210,3 +214,7 @@ void CSIntegrate(int3 dtid : SV_DispatchThreadID)
 	g_diag[idx].pad1 = 0;
 	#endif
 }
+
+#ifdef __cplusplus
+}
+#endif

@@ -29,8 +29,8 @@
 #include "view3d-12/src/shaders/hlsl/ray_cast/ray_cast_cbuf.hlsli"
 
 // Skinned Meshes
-StructuredBuffer<Mat4x4> m_pose : reg(t4, 0);
-StructuredBuffer<Skinfluence> m_skin : reg(t5, 0);
+StructuredBuffer<Mat4x4> m_pose : reg(t4);
+StructuredBuffer<Skinfluence> m_skin : reg(t5);
 
 #include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
 
@@ -70,7 +70,7 @@ GSIn_RayCast VSDefault(VSIn In)
 	float4 os_vert = mul(In.vert, m_m2o);
 	float4 os_norm = mul(In.norm, m_m2o);
 	
-	if (IsSkinned)
+	if (IsSkinned(m_flags))
 	{
 		os_vert = SkinVertex(m_pose, m_skin[In.idx0.x], os_vert);
 		os_norm = SkinNormal(m_pose, m_skin[In.idx0.x], os_norm);

@@ -4,9 +4,12 @@
 //***********************************************
 #ifndef PR_HLSL_GEOMETRY_HLSLI
 #define PR_HLSL_GEOMETRY_HLSLI
-
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
 
 // Project 'pt' onto the plane with normal 'direction'
 float3 Project(float3 pt, float3 direction)
@@ -181,6 +184,9 @@ inline float4 FibonacciSpiral(int i, int N)
 	return float4(x, y, z, 0);
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif
 
 

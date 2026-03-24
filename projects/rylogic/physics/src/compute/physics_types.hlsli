@@ -4,7 +4,12 @@
 //*********************************************
 #ifndef PR_PHYSICS_GPU_PHYSICS_TYPES_HLSLI
 #define PR_PHYSICS_GPU_PHYSICS_TYPES_HLSLI
+#include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
+
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
 
 static const int IntegrateThreadCount = 64;
 static const int SweepThreadCount = 64;
@@ -145,4 +150,7 @@ struct DispatchArguments // D3D12_DISPATCH_ARGUMENTS
 	uint ThreadGroupCountZ;
 };
 
+#ifdef __cplusplus
+}
+#endif
 #endif

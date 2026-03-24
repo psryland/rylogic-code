@@ -2234,8 +2234,13 @@
         5
       ]
     },
+    "material": {
+      "elasticity": 0.3,
+      "friction": 0.5
+    },
     "ground_plane": {
-      "height": 0.0
+      "height": 0.0,
+      "size": [ 200.0, 200.0 ]
     }
   }
 }

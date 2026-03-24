@@ -29,6 +29,10 @@
 #include "src/compute/collision.hlsli"
 #include "src/compute/gjk.hlsli"
 
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
+
 // Shader parameters
 cbuffer cbCollision : register(b0)
 {
@@ -38,23 +42,23 @@ cbuffer cbCollision : register(b0)
 	uint g_pad2;
 };
 
-RWStructuredBuffer<GpuCollisionCounters> g_counters : register(u0);
-RWStructuredBuffer<GpuResolveContact> g_contacts : register(u1);
-RWStructuredBuffer<DispatchArguments> g_dispatch_args : register(u2);
-StructuredBuffer<GpuCollisionPair> g_pairs : register(t0);
-StructuredBuffer<GpuShape> g_shapes : register(t1);
-StructuredBuffer<float4> g_verts : register(t2);
+RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
+RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u1);
+RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
+StructuredBuffer<GpuCollisionPair> resource(g_pairs, t0);
+StructuredBuffer<GpuShape> resource(g_shapes, t1);
+StructuredBuffer<float4> resource(g_verts, t2);
 #if PR_COLLISION_DIAGNOSTICS
-RWStructuredBuffer<GpuPairDiag> g_diag : register(u3);
+RWStructuredBuffer<GpuPairDiag> resource(g_diag, u3);
 #endif
 
-[numthreads(CollideThreadCount, 1, 1)]
-void CSCollide(int3 ThreadID : SV_DispatchThreadID)
+numthreads(CSCollide, CollideThreadCount, 1, 1)
+void CSCollide(int3 dtid : SV_DispatchThreadID)
 {
-	if (ThreadID.x >= g_counters[0].pair_count)
+	if (dtid.x >= g_counters[0].pair_count)
 		return;
 
-	GpuCollisionPair pair = g_pairs[ThreadID.x];
+	GpuCollisionPair pair = g_pairs[dtid.x];
 	GpuShape shape_a = g_shapes[pair.shape_idx_a];
 	GpuShape shape_b = g_shapes[pair.shape_idx_b];
 
@@ -156,7 +160,7 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 		diag.epa_iters = epa_iters;
 		diag.hit = hit ? 1 : 0;
 		diag.pad0 = 0;
-		g_diag[ThreadID.x] = diag;
+		g_diag[dtid.x] = diag;
 	}
 	#endif
 
@@ -187,7 +191,7 @@ void CSCollide(int3 ThreadID : SV_DispatchThreadID)
 
 // Calculates the number of thread groups needed for the resolve shader
 // based on the number of contacts found, and writes to the dispatch arguments buffer.
-[numthreads(1,1,1)]
+numthreads(CSCalcResolveDispatch, 1,1,1)
 void CSCalcResolveDispatch(int3 dtid : SV_DispatchThreadID)
 {
 	// Ensure that there is always at least one thread group dispatched in the resolve shader,
@@ -197,3 +201,7 @@ void CSCalcResolveDispatch(int3 dtid : SV_DispatchThreadID)
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }
+
+#ifdef __cplusplus
+}
+#endif

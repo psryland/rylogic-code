@@ -2,6 +2,10 @@
 #define PR_HLSL_BOUNDING_BOX_HLSLI
 #include "pr/hlsl/core.hlsli"
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 // Axis aligned bounding box (centre + half-extents)
 struct BBox
 {
@@ -10,7 +14,7 @@ struct BBox
 };
 
 // An empty bounding box (negative radius means no content)
-BBox BBox_Reset()
+inline BBox BBox_Reset()
 {
 	BBox bbox;
 	bbox.centre = float4(0, 0, 0, 1);
@@ -19,7 +23,7 @@ BBox BBox_Reset()
 }
 
 // Create a bounding box from centre and half-extents
-BBox BBox_Create(float4 centre, float4 radius)
+inline BBox BBox_Create(float4 centre, float4 radius)
 {
 	BBox bbox;
 	bbox.centre = centre;
@@ -28,7 +32,7 @@ BBox BBox_Create(float4 centre, float4 radius)
 }
 
 // Create a bounding box from min and max corners (w components preserved from mn)
-BBox BBox_FromMinMax(float4 mn, float4 mx)
+inline BBox BBox_FromMinMax(float4 mn, float4 mx)
 {
 	BBox bbox;
 	bbox.centre = (mn + mx) * 0.5f;
@@ -39,25 +43,25 @@ BBox BBox_FromMinMax(float4 mn, float4 mx)
 }
 
 // True if the bounding box has no content
-bool BBox_IsEmpty(BBox bbox)
+inline bool BBox_IsEmpty(BBox bbox)
 {
 	return bbox.radius.x < 0 || bbox.radius.y < 0 || bbox.radius.z < 0;
 }
 
 // Lower corner (w = 1)
-float4 BBox_Min(BBox bbox)
+inline float4 BBox_Min(BBox bbox)
 {
 	return float4((bbox.centre - bbox.radius).xyz, 1);
 }
 
 // Upper corner (w = 1)
-float4 BBox_Max(BBox bbox)
+inline float4 BBox_Max(BBox bbox)
 {
 	return float4((bbox.centre + bbox.radius).xyz, 1);
 }
 
 // Expand a bounding box to include a point
-BBox BBox_Grow(BBox bbox, float4 pt)
+inline BBox BBox_Grow(BBox bbox, float4 pt)
 {
 	if (BBox_IsEmpty(bbox))
 	{
@@ -76,7 +80,7 @@ BBox BBox_Grow(BBox bbox, float4 pt)
 }
 
 // Union of two bounding boxes
-BBox BBox_Union(BBox a, BBox b)
+inline BBox BBox_Union(BBox a, BBox b)
 {
 	if (BBox_IsEmpty(a)) return b;
 	if (BBox_IsEmpty(b)) return a;
@@ -92,7 +96,7 @@ BBox BBox_Union(BBox a, BBox b)
 }
 
 // True if two bounding boxes overlap
-bool BBox_IsIntersection(BBox a, BBox b)
+inline bool BBox_IsIntersection(BBox a, BBox b)
 {
 	float4 d = abs(a.centre - b.centre);
 	float4 r = a.radius + b.radius;
@@ -101,7 +105,7 @@ bool BBox_IsIntersection(BBox a, BBox b)
 
 // Transform a bounding box by a row-major float4x4 (row-vector convention).
 // The radius is recomputed by projecting the rotated half-extents onto each target axis.
-BBox Transform(BBox bbox, float4x4 a2b)
+inline BBox Transform(BBox bbox, float4x4 a2b)
 {
 	// Transpose so that absM[j] contains the j-th column of the abs rotation.
 	// Then dot(absM[j], radius) gives the new half-extent along target axis j.
@@ -118,4 +122,7 @@ BBox Transform(BBox bbox, float4x4 a2b)
 	return result;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

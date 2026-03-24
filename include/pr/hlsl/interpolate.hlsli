@@ -8,6 +8,10 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/hermite_spline.hlsli"
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 // Vector interpolator using Hermite splines
 struct InterpolateVector
 {
@@ -197,4 +201,7 @@ float3 VelCorrectedHermite_EvalDerivative2(VelCorrectedHermite interp, float t)
 	return HermiteSpline_Acceleration(interp.m_p, u) / interp.m_interval;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

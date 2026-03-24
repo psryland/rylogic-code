@@ -5,6 +5,10 @@
 #ifndef PR_HLSL_HERMITE_SPLINE_HLSLI
 #define PR_HLSL_HERMITE_SPLINE_HLSLI
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 struct HermiteSpline
 {
 	float4x4 m_coeff;
@@ -52,4 +56,7 @@ float3 HermiteSpline_Jolt(HermiteSpline hs)
 	return p.xyz;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -92,6 +92,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* jpos = jbody.find("position"))
 			desc.position = ReadVec3(*jpos, 1.0f);
 
+		// Rotation — Euler angles in degrees, applied in X, Y, Z order
+		if (auto* jrot = jbody.find("rotation"))
+			desc.rotation = ReadVec3(*jrot, 0.0f);
+
 		// Velocity (optional, defaults to zero)
 		if (auto* jvel = jbody.find("velocity"))
 			desc.velocity = ReadVec3(*jvel, 0.0f);

@@ -9,7 +9,8 @@ namespace physics_sandbox
 			.name("physics-sandbox")
 			.title(L"Rylogic Physics Sandbox")
 			.wh(1600, 1000)
-			.start_pos(EStartPosition::CentreParent)
+			.xy(10, 10)
+			.start_pos(EStartPosition::Manual)
 			.padding(0)
 			.menu({ {L"&File", Menu(Menu::EKind::Popup, {
 				MenuItem(L"&Open Scene...\tCtrl+O", MenuID::OpenFile),

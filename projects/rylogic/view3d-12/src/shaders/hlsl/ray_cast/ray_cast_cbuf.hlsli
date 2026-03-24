@@ -54,7 +54,7 @@ struct Intercept
 };
 
 // Per-frame constants
-cbuffer CBufFrame :reg(b0, 0)
+cbuffer CBufFrame :reg(b0)
 {
 	// The rays to cast
 	Ray m_rays[MaxRays];
@@ -68,7 +68,7 @@ cbuffer CBufFrame :reg(b0, 0)
 };
 
 // Per-nugget constants
-cbuffer CBufNugget :reg(b1, 0)
+cbuffer CBufNugget :reg(b1)
 {
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

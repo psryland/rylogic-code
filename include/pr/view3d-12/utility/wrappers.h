@@ -6,7 +6,6 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/image.h"
 #include "pr/view3d-12/utility/utility.h"
-#include "pr/view3d-12/shaders/shader_registers.h"
 
 namespace pr::rdr12
 {
@@ -1136,13 +1135,13 @@ namespace pr::rdr12
 	// Static sampler description
 	struct SamDescStatic :D3D12_STATIC_SAMPLER_DESC
 	{
-		constexpr SamDescStatic(ESamReg shader_register)
+		constexpr SamDescStatic(hlsl::ESamReg shader_register)
 			:SamDescStatic(shader_register, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_FILTER_MIN_MAG_MIP_LINEAR)
 		{}
-		constexpr SamDescStatic(ESamReg shader_register, D3D12_TEXTURE_ADDRESS_MODE addr, D3D12_FILTER filter)
+		constexpr SamDescStatic(hlsl::ESamReg shader_register, D3D12_TEXTURE_ADDRESS_MODE addr, D3D12_FILTER filter)
 			:SamDescStatic(shader_register, addr, addr, addr, filter)
 		{}
-		constexpr SamDescStatic(ESamReg shader_register, D3D12_TEXTURE_ADDRESS_MODE addrU, D3D12_TEXTURE_ADDRESS_MODE addrV, D3D12_TEXTURE_ADDRESS_MODE addrW, D3D12_FILTER filter)
+		constexpr SamDescStatic(hlsl::ESamReg shader_register, D3D12_TEXTURE_ADDRESS_MODE addrU, D3D12_TEXTURE_ADDRESS_MODE addrV, D3D12_TEXTURE_ADDRESS_MODE addrW, D3D12_FILTER filter)
 			:D3D12_STATIC_SAMPLER_DESC()
 		{
 			Filter           = filter;

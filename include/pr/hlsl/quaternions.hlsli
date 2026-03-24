@@ -5,6 +5,10 @@
 #ifndef PR_HLSL_QUATERNIONS_HLSLI
 #define PR_HLSL_QUATERNIONS_HLSLI
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 // Quaternion math utilities for HLSL.
 // Quaternions are represented as float4 with layout {x, y, z, w}.
 static const float TinyAngle = 1e-8;
@@ -190,4 +194,7 @@ float3 quat_tangent(float4 q, float3 w)
 	return 0.5 * tangent;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

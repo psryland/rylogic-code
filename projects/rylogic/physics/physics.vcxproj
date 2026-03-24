@@ -127,6 +127,7 @@
     <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
+    <ClInclude Include="src\unittests\test_gpu_collide.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--

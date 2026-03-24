@@ -10,7 +10,7 @@
 #include "pr/hlsl/interop.hlsli"
 
 // Distant ocean constant buffer. Bound to b3 (same slot as other overlays).
-cbuffer CBufDistantOcean :reg(b3,0)
+cbuffer CBufDistantOcean :reg(b3)
 {
 	// Camera world-space position (xyz), w = unused
 	float4 m_camera_pos;

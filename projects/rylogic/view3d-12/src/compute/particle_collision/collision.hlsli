@@ -4,7 +4,6 @@
 //*********************************************
 #ifndef PR_COMPUTE_COLLISION_HLSLI
 #define PR_COMPUTE_COLLISION_HLSLI
-
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/geometry.hlsli"
 #include "pr/hlsl/intercept.hlsli"
@@ -468,7 +467,6 @@ inline bool Intercept_RayVsBox(float4 pos, float4 ray, float4 radii, inout float
 	float tmax = +FLT_MAX;
 	
 	// For all three slabs
-	[unroll]
 	for (int i = 0; i != 3; ++i)
 	{
 		// If the ray is parallel to the slab, then no hit if origin not within slab
@@ -488,7 +486,11 @@ inline bool Intercept_RayVsBox(float4 pos, float4 ray, float4 radii, inout float
 
 			// Make 'ta' be intersection with near plane, 'tb' with far plane
 			if (ta > tb)
-				swap(ta, tb);
+			{
+				float t = ta;
+				ta = tb;
+				tb = t;
+			}
 
 			// Compute the intersection of slab intersection intervals
 			if (ta > tmin) { tmin = ta; axis = i; }

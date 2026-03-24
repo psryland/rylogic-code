@@ -528,7 +528,7 @@ namespace pr::geometry::intersect
 		// Test axes L = rhs.x, L = rhs.y, L = rhs.z
 		for (int i = 0; i != 3; ++i)
 		{
-			ra = Dot3(lhs.m_radius, r2l_abs[i]);
+			ra = Dot(lhs.m_radius.xyz, r2l_abs[i]);
 			rb = rhs.m_radius[i];
 			sp = Abs(Dot3(r2l.pos, r2l[i]));
 			if (Sign(ra + rb - sp) < 0)

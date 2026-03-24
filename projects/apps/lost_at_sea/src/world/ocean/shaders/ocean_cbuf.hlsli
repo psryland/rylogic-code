@@ -13,7 +13,7 @@ static const int MaxOceanWaves = 4;
 
 // Ocean constant buffer. Bound to b3 (reusing the CBufScreenSpace slot since
 // the ocean shader does not use screen-space geometry).
-cbuffer CBufOcean :reg(b3,0)
+cbuffer CBufOcean :reg(b3)
 {
 	// Wave component directions. xy = normalised direction, zw = unused
 	float4 m_wave_dirs[MaxOceanWaves];

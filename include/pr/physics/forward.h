@@ -34,6 +34,7 @@
 #include "pr/collision/collision.h"
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
+#include "pr/hlsl/interop.h"
 
 #ifndef PR_COLLISION_DIAGNOSTICS
 #define PR_COLLISION_DIAGNOSTICS 0
@@ -47,6 +48,9 @@ namespace pr::physics
 	// Import types into this namespace
 	using namespace math::spatial;
 	using namespace collision;
+	using namespace hlsl;
+
+	using BBox = math::BoundingBox<float>;
 
 	// Custom deleter for smart pointers
 	template <typename T> struct Deleter {

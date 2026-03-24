@@ -5,6 +5,7 @@
 #if PR_UNITTESTS
 #include "src/unittests/test_collision.h"
 #include "src/unittests/test_field.h"
+#include "src/unittests/test_gpu_collide.h"
 #include "src/unittests/test_gpu_collision.h"
 #include "src/unittests/test_impulse.h"
 #include "src/unittests/test_inertia.h"

@@ -16,9 +16,9 @@ namespace pr::rdr12
 	constexpr int HeapCapacityView = 256;
 	struct EReg
 	{
-		inline static constexpr ECBufReg Constants = ECBufReg::b0;
-		inline static constexpr ESRVReg SrcTexture = ESRVReg::t0;
-		inline static constexpr EUAVReg DstTexture = EUAVReg::u0;
+		inline static constexpr auto Constants = hlsl::ECBufReg::b0;
+		inline static constexpr auto SrcTexture = hlsl::ESRVReg::t0;
+		inline static constexpr auto DstTexture = hlsl::EUAVReg::u0;
 	};
 	enum class EMipMapParam { Constants, SrcTexture, DstTexture };
 	enum class EMipMapSamp { Samp0 };

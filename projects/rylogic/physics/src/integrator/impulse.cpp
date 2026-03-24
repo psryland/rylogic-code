@@ -42,8 +42,8 @@ namespace pr::physics
 		// Momentum/forces are stored at the CoM, so lever arms must be from CoM.
 		auto com_A_in_A = v4::Origin() + objA.CentreOfMassOS();
 		auto com_B_in_A = c.m_b2a.pos + c.m_b2a.rot * objB.CentreOfMassOS();
-		auto rA = pt - com_A_in_A;
-		auto rB = pt - com_B_in_A;
+		auto rA = (pt - com_A_in_A).xyz;
+		auto rB = (pt - com_B_in_A).xyz;
 
 		// Relative velocity at the contact point.
 		auto V_inv  = c.m_velocity.LinAt(pt);

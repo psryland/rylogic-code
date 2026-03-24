@@ -11,7 +11,6 @@
 #include "pr/view3d-12/compute/radix_sort/radix_sort.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_include_handler.h"
-#include "pr/view3d-12/shaders/shader_registers.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/pix.h"

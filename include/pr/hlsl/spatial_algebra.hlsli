@@ -20,6 +20,10 @@
 #ifndef PR_HLSL_SPATIAL_ALGEBRA_HLSLI
 #define PR_HLSL_SPATIAL_ALGEBRA_HLSLI
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 // Rodrigues' rotation formula: exponential map from axis-angle vector to rotation matrix.
 // 'axis_angle' encodes both the rotation axis (direction) and angle (magnitude).
 // Returns the rotation matrix in row-vector convention (rows = basis vectors = R^T).
@@ -187,4 +191,7 @@ float spatial_dot(float3 ang_a, float3 lin_a, float3 ang_b, float3 lin_b)
 	return dot(ang_a, ang_b) + dot(lin_a, lin_b);
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

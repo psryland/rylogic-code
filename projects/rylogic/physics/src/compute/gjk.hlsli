@@ -30,7 +30,12 @@
 #define PR_PHYSICS_GJK_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "src/compute/physics_types.hlsli"
+
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
 
 // ---- Constants ----
 static const int MaxGjkIter = 32;
@@ -40,36 +45,16 @@ static const int MaxEpaEdges = 96;
 static const float GjkEps = 1e-8f;
 static const float EpaEps = 1e-6f;
 
-// ---- Vector helpers ----
-
-//float4 Normalise3(float4 v)
-//{
-//	float len = length(v.xyz);
-//	return len > GjkEps ? v / len : float4(1, 0, 0, 0);
-//}
-
-//// Transform a point by a row_major float4x4 (point has w=1)
-//float4 TransformPoint(float4x4 m, float4 p)
-//{
-//	return mul(float4(p.xyz, 1), m);
-//}
-
-//// Transform a direction by a row_major float4x4 (direction has w=0)
-//float4 TransformDir(float4x4 m, float4 d)
-//{
-//	return float4(mul(float4(d.xyz, 0), m).xyz, 0);
-//}
-
 // ---- Support vertex functions ----
 // Each function returns the furthest point on the shape boundary in the given direction.
-float4 SupportVertex_Sphere(GpuShape shape, float4 dir)
+float4 SupportVertex_Sphere(in_(GpuShape) shape, float4 dir)
 {
 	float4 centre = shape.s2rb[3];
 	float radius = shape.data.x;
 	return centre + radius * normalize(dir);
 }
 
-float4 SupportVertex_Box(GpuShape shape, float4 dir)
+float4 SupportVertex_Box(in_(GpuShape) shape, float4 dir)
 {
 	float3 half_ext = shape.data.xyz;
 	float4 result = shape.s2rb[3];
@@ -82,7 +67,7 @@ float4 SupportVertex_Box(GpuShape shape, float4 dir)
 	return result;
 }
 
-float4 SupportVertex_Line(GpuShape shape, float4 dir)
+float4 SupportVertex_Line(in_(GpuShape) shape, float4 dir)
 {
 	float half_len = shape.data.x;
 	float thickness = shape.data.y;
@@ -100,7 +85,7 @@ float4 SupportVertex_Line(GpuShape shape, float4 dir)
 	return result;
 }
 
-float4 SupportVertex_Triangle(GpuShape shape, float4 dir, StructuredBuffer<float4> verts)
+float4 SupportVertex_Triangle(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	float4 v0 = verts[shape.vert_offset + 0];
 	float4 v1 = verts[shape.vert_offset + 1];
@@ -116,7 +101,7 @@ float4 SupportVertex_Triangle(GpuShape shape, float4 dir, StructuredBuffer<float
 	return p2;
 }
 
-float4 SupportVertex_Polytope(GpuShape shape, float4 dir, StructuredBuffer<float4> verts)
+float4 SupportVertex_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	float best_dot = -1e30f;
 	float4 best_vert = float4(0, 0, 0, 1);
@@ -134,7 +119,7 @@ float4 SupportVertex_Polytope(GpuShape shape, float4 dir, StructuredBuffer<float
 }
 
 // Unified support vertex dispatcher
-float4 SupportVertex(GpuShape shape, float4 dir, StructuredBuffer<float4> verts)
+float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	switch (shape.type)
 	{
@@ -156,9 +141,9 @@ struct MkSup
 };
 
 MkSup MkSupport(
-	GpuShape shape_a, float4x4 a2w, float4x4 w2a,
-	GpuShape shape_b, float4x4 b2w, float4x4 w2b,
-	float4 dir, StructuredBuffer<float4> verts)
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
+	float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	float4 dir_a = mul(+dir, w2a);
 	float4 dir_b = mul(-dir, w2b);
@@ -178,7 +163,7 @@ struct Simplex
 	int n;
 };
 
-void SimplexPush(inout Simplex sx, MkSup p)
+void SimplexPush(inout_(Simplex) sx, MkSup p)
 {
 	for (int i = sx.n; i > 0; --i)
 		sx.s[i] = sx.s[i - 1];
@@ -187,7 +172,7 @@ void SimplexPush(inout Simplex sx, MkSup p)
 }
 
 // ---- Simplex reduction cases ----
-bool SimplexLine(inout Simplex sx, inout float4 dir)
+bool SimplexLine(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ao = -sx.s[0].w;
@@ -205,7 +190,7 @@ bool SimplexLine(inout Simplex sx, inout float4 dir)
 	return false;
 }
 
-bool SimplexTri(inout Simplex sx, inout float4 dir)
+bool SimplexTri(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ac = sx.s[2].w - sx.s[0].w;
@@ -249,7 +234,7 @@ bool SimplexTri(inout Simplex sx, inout float4 dir)
 	return false;
 }
 
-bool SimplexTetra(inout Simplex sx, inout float4 dir)
+bool SimplexTetra(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ac = sx.s[2].w - sx.s[0].w;
@@ -264,7 +249,7 @@ bool SimplexTetra(inout Simplex sx, inout float4 dir)
 	return true;
 }
 
-bool DoSimplex(inout Simplex sx, inout float4 dir)
+bool DoSimplex(inout_(Simplex) sx, inout_(float4) dir)
 {
 	switch (sx.n)
 	{
@@ -288,11 +273,11 @@ struct EpaEdge
 };
 
 bool Epa(
-	GpuShape shape_a, float4x4 a2w, float4x4 w2a,
-	GpuShape shape_b, float4x4 b2w, float4x4 w2b,
-	Simplex gjk_sx, StructuredBuffer<float4> verts,
-	out float4 out_normal, out float out_depth, out float4 out_ptA, out float4 out_ptB,
-	out int out_epa_iters)
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
+	in_(Simplex) gjk_sx, in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_normal, out_(float) out_depth, out_(float4) out_ptA, out_(float4) out_ptB,
+	out_(int) out_epa_iters)
 {
 	out_normal = float4(0, 0, 0, 0);
 	out_depth = 0;
@@ -478,11 +463,11 @@ bool Epa(
 
 // ---- GJK + EPA entry point ----
 bool GjkCollide(
-	GpuShape shape_a, float4x4 a2w,
-	GpuShape shape_b, float4x4 b2w,
-	StructuredBuffer<float4> verts,
-	out float4 out_axis, out float4 out_point, out float out_depth,
-	out int out_gjk_iters, out int out_epa_iters)
+	in_(GpuShape) shape_a, float4x4 a2w,
+	in_(GpuShape) shape_b, float4x4 b2w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
+	out_(int) out_gjk_iters, out_(int) out_epa_iters)
 {
 	out_axis = float4(0, 0, 0, 0);
 	out_point = float4(0, 0, 0, 1);
@@ -543,4 +528,7 @@ bool GjkCollide(
 	return false;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif
