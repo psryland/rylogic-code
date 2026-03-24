@@ -3032,27 +3032,41 @@ namespace pr::math
 
 		Mat m = mat;
 
-		auto scale = Vec{ LengthSq(vec(mat).x), LengthSq(vec(mat).y), LengthSq(vec(mat).z) };
-		if (!FEql(scale, One<Vec>()))
-		{
-			pr_assert(vec(scale).x != 0 && vec(scale).y != 0 && vec(scale).z != 0 && "Cannot invert a degenerate matrix");
-			scale = CompSqrt(scale);
-		}
+		// Extract per-axis scale from row lengths.
+		// This assumes 'mat' was constructed as R with each row scaled independently.
+		auto scale = Vec{
+			Length(vec(mat).x),
+			Length(vec(mat).y),
+			Length(vec(mat).z)
+		};
+		pr_assert(vec(scale).x != 0 && vec(scale).y != 0 && vec(scale).z != 0 && "Cannot invert a degenerate matrix");
 
-		// Remove scale
+		// Remove scale from rows
 		vec(m).x /= vec(scale).x;
 		vec(m).y /= vec(scale).y;
 		vec(m).z /= vec(scale).z;
 
-		// Invert rotation
+		// Invert rotation: R^T
 		m = Transpose3x3(m);
 
-		// Invert scale
-		vec(m).x /= vec(scale).x;
-		vec(m).y /= vec(scale).y;
-		vec(m).z /= vec(scale).z;
+		// Apply inverse scale: R^T * S^-1 (divide columns by scale)
+		// After transpose, column j corresponds to original row j which had scale s_j.
+		// Dividing each element [i][j] by scale[j] is equivalent to dividing each row by the scale vector component-wise.
+		auto scale_inv = S(1) / scale;
 
-		// Invert translation
+		vec(vec(m).x).x *= vec(scale_inv).x;
+		vec(vec(m).x).y *= vec(scale_inv).y;
+		vec(vec(m).x).z *= vec(scale_inv).z;
+
+		vec(vec(m).y).x *= vec(scale_inv).x;
+		vec(vec(m).y).y *= vec(scale_inv).y;
+		vec(vec(m).y).z *= vec(scale_inv).z;
+
+		vec(vec(m).z).x *= vec(scale_inv).x;
+		vec(vec(m).z).y *= vec(scale_inv).y;
+		vec(vec(m).z).z *= vec(scale_inv).z;
+
+		// Invert translation: t' = -inv_rot_scale * t
 		if constexpr (vt::dimension == 4)
 		{
 			vec(m).w = Vec{

@@ -66,7 +66,7 @@ inline float3 quat_rotation_vector(float4 q_from, float4 q_to)
 	return scale * qd.xyz;
 }
 
-// Convert a unit quaternion to a 3x3 rotation matrix (row-major)
+// Convert a unit quaternion to a 3x3 rotation matrix
 inline float3x3 quat_to_float3x3(float4 q)
 {
 	float x2 = 2.0f * q.x * q.x;
@@ -80,20 +80,20 @@ inline float3x3 quat_to_float3x3(float4 q)
 	float wz = 2.0f * q.w * q.z;
 
 	return float3x3(
-		float3(1 - y2 - z2,     xy - wz,     xz + wy),
-		float3(    xy + wz, 1 - x2 - z2,     yz - wx),
-		float3(    xz - wy,     yz + wx, 1 - x2 - y2)
+		float3(1 - y2 - z2,     xy + wz,     xz - wy),
+		float3(    xy - wz, 1 - x2 - z2,     yz + wx),
+		float3(    xz + wy,     yz - wx, 1 - x2 - y2)
 	);
 }
 
-// Convert a unit quaternion + translation to a 4x4 affine matrix (row-major)
+// Convert a unit quaternion + translation to a 4x4 affine matrix
 inline float4x4 quat_to_float4x4(float4 q, float3 pos)
 {
 	float3x3 r = quat_to_float3x3(q);
 	return float4x4(
-		float4(r[0].x, r[1].y, r[2].z, 0),
-		float4(r[0].x, r[1].y, r[2].z, 0),
-		float4(r[0].x, r[1].y, r[2].z, 0),
+		float4(r[0].x, r[0].y, r[0].z, 0),
+		float4(r[1].x, r[1].y, r[1].z, 0),
+		float4(r[2].x, r[2].y, r[2].z, 0),
 		float4( pos.x,  pos.y,  pos.z, 1)
 	);
 }

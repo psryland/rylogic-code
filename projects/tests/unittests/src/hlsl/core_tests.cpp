@@ -41,7 +41,7 @@ namespace pr::hlsl::tests
 
 			auto a2c = b2c * a2b; // Rylogic uses row-major matrices and right to left matrix multiplication
 			auto A2C = mul(a2b, b2c); // HLSL mul does left to right multiplication, so the order of the matrices is reversed
-			PR_EXPECT(FEql(a2b, A2C));
+			PR_EXPECT(FEql(a2c, A2C));
 		}
 		PRUnitTestMethod(SignNZ)
 		{

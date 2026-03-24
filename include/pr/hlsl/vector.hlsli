@@ -174,10 +174,10 @@ inline float4x4 InvertAffine(float4x4 mat)
 	// Invert rotation
 	float3x3 rt = transpose(r);
 
-	// Invert scale
-	rt[0] /= s.x;
-	rt[1] /= s.y;
-	rt[2] /= s.z;
+	// Apply inverse scale: R^T * S^-1 (divide each row by the full scale vector, i.e. column j by s_j)
+	rt[0] /= s;
+	rt[1] /= s;
+	rt[2] /= s;
 
 	// Invert translation
 	float3 inv_t = float3(

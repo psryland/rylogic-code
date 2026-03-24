@@ -1520,6 +1520,29 @@ namespace pr::math::tests
 				auto m_inv = InvertAffine(m);
 				PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
 			}
+
+			// Non-uniform scale + rotation + translation
+			{
+				auto rot2 = Mat3x4<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(60)));
+				rot2.x = rot2.x * S(2);
+				rot2.y = rot2.y * S(3);
+				rot2.z = rot2.z * S(4);
+				if constexpr (vt::dimension == 4)
+				{
+					auto pos = vec4_t(S(1), S(2), S(3), S(1));
+					auto m = mat_t(rot2, pos);
+					auto m_inv = InvertAffine(m);
+					PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
+					PR_EXPECT(FEql(m_inv * m, Identity<mat_t>()));
+				}
+				else
+				{
+					auto m = mat_t(rot2);
+					auto m_inv = InvertAffine(m);
+					PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
+					PR_EXPECT(FEql(m_inv * m, Identity<mat_t>()));
+				}
+			}
 		}
 
 		// ---- Invert (functions.h line ~2016) ----
