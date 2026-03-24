@@ -20,7 +20,7 @@
 #include "pr/common/cast.h"
 #include "pr/macros/link.h"
 #include "pr/math/math.h"
-#include "pr/physics-2/physics.h"
+#include "pr/physics/physics.h"
 #include "pr/lua/lua.h"
 #include "lua/include/lstate.h"
 

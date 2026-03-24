@@ -10,7 +10,7 @@
 #include "pr/hlsl/interop.hlsli"
 
 // Procedural sky constant buffer. Bound to b3.
-cbuffer CBufProceduralSky :reg(b3,0)
+cbuffer CBufProceduralSky :reg(b3)
 {
 	// Sun direction (world space, normalised, points toward sun)
 	float4 m_sun_direction;

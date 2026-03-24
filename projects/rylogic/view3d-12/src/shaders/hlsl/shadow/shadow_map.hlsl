@@ -5,15 +5,16 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/camera.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_map_cbuf.hlsli"
 
 // Texture2D /w sampler
-Texture2D<float4> m_texture0 :reg(t0,0);
-SamplerState      m_sampler0 :reg(s0,0);
+Texture2D<float4> resource(m_texture0, t0);
+SamplerState      resource(m_sampler0, s0);
 
 // Skinned Meshes
-StructuredBuffer<Mat4x4> m_pose : reg(t4, 0);
-StructuredBuffer<Skinfluence> m_skin : reg(t5, 0);
+StructuredBuffer<Mat4x4> resource(m_pose, t4);
+StructuredBuffer<Skinfluence> resource(m_skin, t5);
 
 #include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
 
@@ -37,7 +38,7 @@ PSIn_ShadowMap VSDefault(VSIn In)
 	// Transform
 	float4 os_vert = mul(In.vert, m_m2o);
 	
-	if (IsSkinned)
+	if (IsSkinned(m_flags))
 	{
 		os_vert = SkinVertex(m_pose, m_skin[In.idx0.x], os_vert);
 	}
@@ -71,11 +72,11 @@ PSOut PSDefault(PSIn_ShadowMap In)
 	float4 diff = In.diff;
 
 	// Texture2D (with transform)
-	if (HasTex0)
+	if (HasTex0(m_flags))
 		diff = m_texture0.Sample(m_sampler0, In.tex0) * diff;
 
 	// If not alpha blending, clip alpha pixels
-	if (!HasAlpha)
+	if (!HasAlpha(m_flags))
 		clip(diff.a - 0.5);
 
 	Out.shade = In.ws_vert.w;

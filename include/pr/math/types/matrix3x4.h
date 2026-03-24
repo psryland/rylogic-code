@@ -18,57 +18,69 @@ namespace pr::math
 		#pragma warning(disable:4201) // nameless struct
 		union
 		{
-			struct { Vec4<S> x, y, z; };
+			// Vec3 members are first so they're the active union member for constexpr.
+			// Vec4/arr aliases are used only at runtime for SSE intrinsic loads.
+			struct { Vec3<S> x; S xw; Vec3<S> y; S yw; Vec3<S> z; S zw; };
+			struct { Vec4<S> x4, y4, z4; };
 			struct { Vec4<S> arr[3]; };
 		};
 		#pragma warning(pop)
 
-		// Construct
-		Mat3x4() = default;
+		// Construct (zero-initialise padding to keep constexpr evaluator happy)
+		constexpr Mat3x4() noexcept
+			:x(), xw()
+			,y(), yw()
+			,z(), zw()
+		{}
 		constexpr explicit Mat3x4(S x_) noexcept
-			:x(x_)
-			,y(x_)
-			,z(x_)
+			:x(x_, x_, x_), xw()
+			,y(x_, x_, x_), yw()
+			,z(x_, x_, x_), zw()
 		{}
 		constexpr Mat3x4(Vec3<S> x_, Vec3<S> y_, Vec3<S> z_) noexcept
-			:x(x_, S(0))
-			,y(y_, S(0))
-			,z(z_, S(0))
+			:x(x_), xw()
+			,y(y_), yw()
+			,z(z_), zw()
 		{}
 		constexpr Mat3x4(Vec4<S> x_, Vec4<S> y_, Vec4<S> z_) noexcept
-			:x(x_)
-			,y(y_)
-			,z(z_)
+			:x(x_.x, x_.y, x_.z), xw()
+			,y(y_.x, y_.y, y_.z), yw()
+			,z(z_.x, z_.y, z_.z), zw()
 		{}
-		constexpr Mat3x4(std::ranges::random_access_range auto&& v) noexcept // 12 scalars
-			:Mat3x4(
-				Vec4<S>(v[0], v[1], v[2], v[3]),
-				Vec4<S>(v[4], v[5], v[6], v[7]),
-				Vec4<S>(v[8], v[9], v[10], v[11]))
+		constexpr Mat3x4(std::ranges::random_access_range auto&& v) noexcept // 9 scalars
+			:x(v[0], v[1], v[2]), xw()
+			,y(v[3], v[4], v[5]), yw()
+			,z(v[6], v[7], v[8]), zw()
 		{}
 
 		// Explicit cast to different Scalar type
 		template <ScalarType S2> constexpr explicit operator Mat3x4<S2>() const noexcept
 		{
 			return Mat3x4<S2>(
-				static_cast<Vec4<S2>>(x),
-				static_cast<Vec4<S2>>(y),
-				static_cast<Vec4<S2>>(z)
+				static_cast<Vec3<S2>>(x),
+				static_cast<Vec3<S2>>(y),
+				static_cast<Vec3<S2>>(z)
 			);
 		}
 
-		// Array access
-		constexpr Vec4<S> const& operator [](int i) const noexcept
+		// Explicit cast to bool. True if any component is non-zero.
+		constexpr explicit operator bool() const
 		{
-			pr_assert(i >= 0 && i < 3 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i]; }
+			return Any(*this);
 		}
-		constexpr Vec4<S>& operator [](int i) noexcept
+
+		// Array access
+		constexpr Vec3<S> const& operator [](int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 3 && "index out of range");
 			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i]; }
+			else { return arr[i].xyz; }
+		}
+		constexpr Vec3<S>& operator [](int i) noexcept
+		{
+			pr_assert(i >= 0 && i < 3 && "index out of range");
+			if consteval { return i == 0 ? x : i == 1 ? y : z; }
+			else { return arr[i].xyz; }
 		}
 
 		// Constants
@@ -83,24 +95,24 @@ namespace pr::math
 			return s_identity;
 		}
 
-		// Get/Set by row or column. Note: x,y,z are column vectors
-		Vec4<S> col(int i) const noexcept
+		// Get/Set by row or column. Note: x,y,z are column vectors (Vec4 with w=0)
+		Vec3<S> col(int i) const noexcept
 		{
-			return arr[i];
+			return arr[i].xyz;
 		}
-		Vec4<S> row(int i) const noexcept
+		Vec3<S> row(int i) const noexcept
 		{
-			return Vec4<S>{x[i], y[i], z[i], 0};
+			return Vec3<S>{x[i], y[i], z[i]};
 		}
-		void col(int i, Vec4<S> col) noexcept
+		void col(int i, Vec3<S> c) noexcept
 		{
-			arr[i] = col;
+			arr[i] = Vec4<S>{c, S(0)};
 		}
-		void row(int i, Vec4<S> row) noexcept
+		void row(int i, Vec3<S> r) noexcept
 		{
-			x[i] = row.x;
-			y[i] = row.y;
-			z[i] = row.z;
+			x[i] = r.x;
+			y[i] = r.y;
+			z[i] = r.z;
 		}
 
 		// Create a 4x4 matrix from this 3x4 matrix
@@ -108,7 +120,7 @@ namespace pr::math
 		constexpr Mat4x4<S> w1(Vec4<S> xyz) const noexcept;
 
 		// Return the diagonal elements of this matrix
-		constexpr Vec4<S> diagonal() const noexcept
+		constexpr Vec3<S> diagonal() const noexcept
 		{
 			return math::Diagonal(*this);
 		}
@@ -136,25 +148,25 @@ namespace pr::math
 		}
 
 		// Create from an axis, angle
-		static Mat3x4 pr_vectorcall Rotation(Vec4<S> axis_norm, Vec4<S> axis_sine_angle, S cos_angle) noexcept
+		static Mat3x4 pr_vectorcall Rotation(Vec3<S> axis_norm, Vec3<S> axis_sine_angle, S cos_angle) noexcept
 		{
 			return math::Rotation<Mat3x4>(axis_norm, axis_sine_angle, cos_angle);
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
-		static Mat3x4 pr_vectorcall Rotation(Vec4<S> axis_norm, S angle) noexcept
+		static Mat3x4 pr_vectorcall Rotation(Vec3<S> axis_norm, S angle) noexcept
 		{
 			return math::Rotation<Mat3x4>(axis_norm, angle);
 		}
 
 		// Create from an angular displacement vector. length = angle(rad), direction = axis
-		static Mat3x4 pr_vectorcall Rotation(Vec4<S> angular_displacement) noexcept // This is ExpMap3x3.
+		static Mat3x4 pr_vectorcall Rotation(Vec3<S> angular_displacement) noexcept // This is ExpMap3x3.
 		{
 			return math::Rotation<Mat3x4>(angular_displacement);
 		}
 
 		// Create a transform representing the rotation from one vector to another. (Vectors do not need to be normalised)
-		static Mat3x4 pr_vectorcall Rotation(Vec4<S> from, Vec4<S> to) noexcept
+		static Mat3x4 pr_vectorcall Rotation(Vec3<S> from, Vec3<S> to) noexcept
 		{
 			return math::Rotation<Mat3x4>(from, to);
 		}
@@ -172,11 +184,11 @@ namespace pr::math
 		}
 		static Mat3x4 Scale(S sx, S sy, S sz) noexcept
 		{
-			return math::Scale<Mat3x4>(Vec4<S>(sx, sy, sz, S(0)));
+			return math::Scale<Mat3x4>(Vec3<S>(sx, sy, sz));
 		}
 		static Mat3x4 Scale(Vec3<S> scale) noexcept
 		{
-			return math::Scale<Mat3x4>(Vec4<S>(scale.x, scale.y, scale.z, S(0)));
+			return math::Scale<Mat3x4>(scale);
 		}
 
 		// Create a shear matrix
@@ -185,6 +197,169 @@ namespace pr::math
 			return math::Shear<Mat3x4>(sxy, sxz, syx, syz, szx, szy);
 		}
 
+		#pragma region Operators
+		friend constexpr Vec3<S> pr_vectorcall operator * (Mat3x4 const& a2b, Vec3<S> v) noexcept
+		{
+			if consteval
+			{
+				return math::operator*(a2b, v);
+			}
+			else
+			{
+				if constexpr (Vec4<S>::IntrinsicF)
+				{
+					auto x = _mm_load_ps(a2b.x4.arr);
+					auto y = _mm_load_ps(a2b.y4.arr);
+					auto z = _mm_load_ps(a2b.z4.arr);
+
+					auto brod1 = _mm_set_ps(0, v.x, v.x, v.x);
+					auto brod2 = _mm_set_ps(0, v.y, v.y, v.y);
+					auto brod3 = _mm_set_ps(0, v.z, v.z, v.z);
+
+					auto ans = _mm_add_ps(
+						_mm_add_ps(
+						_mm_mul_ps(brod1, x),
+						_mm_mul_ps(brod2, y)),
+						_mm_mul_ps(brod3, z));
+
+					return Vec3<S>{
+						ans.m128_f32[0],
+						ans.m128_f32[1],
+						ans.m128_f32[2]
+					};
+				}
+				else
+				{
+					return math::operator*(a2b, v);
+				}
+			}
+		}
+		friend constexpr Vec4<S> pr_vectorcall operator * (Mat3x4 const& a2b, Vec4<S> v) noexcept
+		{
+			if consteval
+			{
+				return Vec4<S>(math::operator*(a2b, Vec3<S>(v.x, v.y, v.z)), v.w);
+			}
+			else
+			{
+				if constexpr (Vec4<S>::IntrinsicF)
+				{
+					auto x = _mm_load_ps(a2b.x4.arr);
+					auto y = _mm_load_ps(a2b.y4.arr);
+					auto z = _mm_load_ps(a2b.z4.arr);
+
+					// Zero the w lane so the padding doesn't contribute to result.xyz
+					auto brod1 = _mm_set_ps(0, v.x, v.x, v.x);
+					auto brod2 = _mm_set_ps(0, v.y, v.y, v.y);
+					auto brod3 = _mm_set_ps(0, v.z, v.z, v.z);
+
+					auto ans = _mm_add_ps(
+						_mm_add_ps(
+						_mm_mul_ps(brod1, x),
+						_mm_mul_ps(brod2, y)),
+						_mm_add_ps(
+						_mm_mul_ps(brod3, z),
+						_mm_set_ps(v.w, 0, 0, 0))
+					);
+					return Vec4<S>{ans};
+				}
+				else
+				{
+					return Vec4<S>(math::operator*(a2b, v.xyz), v.w);
+				}
+			}
+		}
+		friend constexpr Mat3x4 pr_vectorcall operator * (Mat3x4 const& b2c, Mat3x4 const& a2b) noexcept
+		{
+			if consteval
+			{
+				return math::operator*(b2c, a2b);
+			}
+			else
+			{
+				if constexpr (Vec4<S>::IntrinsicF)
+				{
+					auto a2c = Mat3x4<S>{};
+					auto x = _mm_load_ps(b2c.x4.arr);
+					auto y = _mm_load_ps(b2c.y4.arr);
+					auto z = _mm_load_ps(b2c.z4.arr);
+					for (int i = 0; i != 3; ++i)
+					{
+						auto brod1 = _mm_set_ps(0, a2b.arr[i].x, a2b.arr[i].x, a2b.arr[i].x);
+						auto brod2 = _mm_set_ps(0, a2b.arr[i].y, a2b.arr[i].y, a2b.arr[i].y);
+						auto brod3 = _mm_set_ps(0, a2b.arr[i].z, a2b.arr[i].z, a2b.arr[i].z);
+						auto row = _mm_add_ps(
+							_mm_add_ps(
+							_mm_mul_ps(brod1, x),
+							_mm_mul_ps(brod2, y)),
+							_mm_mul_ps(brod3, z));
+
+						_mm_store_ps(a2c.arr[i].arr, row);
+					}
+					return a2c;
+				}
+				else
+				{
+					return math::operator*(b2c, a2b);
+				}
+			}
+		}
+		#pragma endregion
+
+		// Return the 3x3 transpose of 'mat' (w components remain 0)
+		friend constexpr Mat3x4 pr_vectorcall Transpose(Mat3x4 const& mat) noexcept
+		{
+			if consteval
+			{
+				return math::Transpose<Mat3x4>(mat);
+			}
+			else
+			{
+				if constexpr (Vec4<S>::IntrinsicF)
+				{
+					auto m = mat;
+					auto r0 = _mm_load_ps(m.x4.arr);
+					auto r1 = _mm_load_ps(m.y4.arr);
+					auto r2 = _mm_load_ps(m.z4.arr);
+					auto r3 = _mm_setzero_ps();
+
+					auto t0 = _mm_unpacklo_ps(r0, r1); // x0,y0,x1,y1
+					auto t1 = _mm_unpackhi_ps(r0, r1); // x2,y2,x3,y3
+					auto t2 = _mm_unpacklo_ps(r2, r3); // z0, 0,z1, 0
+					auto t3 = _mm_unpackhi_ps(r2, r3); // z2, 0,z3, 0
+
+					_mm_store_ps(m.x4.arr, _mm_movelh_ps(t0, t2)); // x0,y0,z0,0
+					_mm_store_ps(m.y4.arr, _mm_movehl_ps(t2, t0)); // x1,y1,z1,0
+					_mm_store_ps(m.z4.arr, _mm_movelh_ps(t1, t3)); // x2,y2,z2,0
+
+					return m;
+				}
+				else if constexpr (Vec4<S>::IntrinsicD)
+				{
+					auto m = mat;
+					auto x_lo = _mm_load_pd(&m.x4.arr[0]); // x0, x1
+					auto x_hi = _mm_load_pd(&m.x4.arr[2]); // x2, x3
+					auto y_lo = _mm_load_pd(&m.y4.arr[0]); // y0, y1
+					auto y_hi = _mm_load_pd(&m.y4.arr[2]); // y2, y3
+					auto z_lo = _mm_load_pd(&m.z4.arr[0]); // z0, z1
+					auto z_hi = _mm_load_pd(&m.z4.arr[2]); // z2, z3
+					auto zero = _mm_setzero_pd();
+
+					_mm_store_pd(&m.x4.arr[0], _mm_unpacklo_pd(x_lo, y_lo)); // x0, y0
+					_mm_store_pd(&m.x4.arr[2], _mm_unpacklo_pd(z_lo, zero)); // z0,  0
+					_mm_store_pd(&m.y4.arr[0], _mm_unpackhi_pd(x_lo, y_lo)); // x1, y1
+					_mm_store_pd(&m.y4.arr[2], _mm_unpackhi_pd(z_lo, zero)); // z1,  0
+					_mm_store_pd(&m.z4.arr[0], _mm_unpacklo_pd(x_hi, y_hi)); // x2, y2
+					_mm_store_pd(&m.z4.arr[2], _mm_unpacklo_pd(z_hi, zero)); // z2,  0
+
+					return m;
+				}
+				else
+				{
+					return math::Transpose<Mat3x4>(mat);
+				}
+			}
+		}
 	};
 
 	#define PR_MATH_DEFINE_TYPE(component, element)\
@@ -198,10 +373,10 @@ namespace pr::math
 	static_assert(sizeof(Mat3x4<element>) == 3*4*sizeof(element), "Mat3x4<"#element"> has the wrong size");\
 	static_assert(std::is_trivially_copyable_v<Mat3x4<element>>, "Mat3x4<"#element"> is not trivially copyable");
 
-	PR_MATH_DEFINE_TYPE(Vec4<float>, float);
-	PR_MATH_DEFINE_TYPE(Vec4<double>, double);
-	PR_MATH_DEFINE_TYPE(Vec4<int32_t>, int32_t);
-	PR_MATH_DEFINE_TYPE(Vec4<int64_t>, int64_t);
+	PR_MATH_DEFINE_TYPE(Vec3<float>, float);
+	PR_MATH_DEFINE_TYPE(Vec3<double>, double);
+	PR_MATH_DEFINE_TYPE(Vec3<int32_t>, int32_t);
+	PR_MATH_DEFINE_TYPE(Vec3<int64_t>, int64_t);
 	#undef PR_MATH_DEFINE_TYPE
 }
 

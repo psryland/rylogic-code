@@ -71,6 +71,15 @@ namespace pr
 			}
 		}
 
+		// Convert a string to a standard resource name
+		inline std::wstring Name(std::wstring_view name)
+		{
+			std::wstring out(name);
+			for (auto& ch : out)
+				ch = static_cast<wchar_t>(::towupper(ch));
+			return out;
+		}
+
 		// Check for the existence of a resource named 'name'. module = 0 means 'this exe'
 		// If you're resource is in a dll, you need to use the HMODULE passed to the DllMain function.
 		// Note: you can use pr::GetCurrentModule() for 'module'
@@ -80,13 +89,13 @@ namespace pr
 			//  - Using raw pointer for 'type' because it's typically a literal. e.g. "TEXT"
 
 			// Get a handle to the resource
-			auto handle = ::FindResourceW(module, std::wstring(name).c_str(), type);
+			auto handle = ::FindResourceW(module, Name(name).c_str(), type);
 			if (handle != nullptr)
 				return true;
 
 			// No handle? Check the error was data not found
 			auto last_error = GetLastError();
-			if (last_error == ERROR_RESOURCE_DATA_NOT_FOUND)
+			if (last_error == ERROR_RESOURCE_NAME_NOT_FOUND)
 				return false;
 
 			// Throw for other errors
@@ -101,7 +110,7 @@ namespace pr
 		Resource<Type> Read(std::wstring_view name, wchar_t const* type, HMODULE module = nullptr)
 		{
 			// Get a handle to the resource
-			auto handle = ::FindResourceW(module, std::wstring(name).c_str(), type);
+			auto handle = ::FindResourceW(module, Name(name).c_str(), type);
 			if (!handle)
 			{
 				auto last_error = ::GetLastError();

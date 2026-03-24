@@ -16,7 +16,6 @@
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
-#include "pr/view3d-12/shaders/shader_registers.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"

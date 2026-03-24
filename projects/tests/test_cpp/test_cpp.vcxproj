@@ -27,7 +27,6 @@
 			<PreprocessorDefinitions>
 				;%(PreprocessorDefinitions)
 				;PR_MATHS_USE_INTRINSICS=1
-				;PR_PIX_ENABLED=0
 			</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)include

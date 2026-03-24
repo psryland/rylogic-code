@@ -4,7 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/shaders/shader_registers.h"
 
 namespace pr::rdr12
 {
@@ -28,7 +27,7 @@ namespace pr::rdr12
 		{}
 
 		// Add a u32 constant parameter
-		RootSig& U32(ECBufReg reg, int num_values, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL)
+		RootSig& U32(hlsl::ECBufReg reg, int num_values, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL)
 		{
 			param() = D3D12_ROOT_PARAMETER1{
 				.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
@@ -38,7 +37,7 @@ namespace pr::rdr12
 			return *this;
 		}
 		template <typename CBufType>
-		RootSig& U32(ECBufReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL)
+		RootSig& U32(hlsl::ECBufReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL)
 		{
 			static_assert(sizeof(CBufType) % sizeof(uint32_t) == 0);
 			auto count = s_cast<int>(sizeof(CBufType) / sizeof(uint32_t));
@@ -46,7 +45,7 @@ namespace pr::rdr12
 		}
 
 		// Add a constant buffer root parameter
-		RootSig& CBuf(ECBufReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
+		RootSig& CBuf(hlsl::ECBufReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
 		{
 			param() = D3D12_ROOT_PARAMETER1{
 				.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV,
@@ -57,7 +56,7 @@ namespace pr::rdr12
 		}
 
 		// Add a constant buffer range parameter
-		RootSig& CBuf(ECBufReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
+		RootSig& CBuf(hlsl::ECBufReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
 		{
 			m_des_range.push_back(D3D12_DESCRIPTOR_RANGE1 {
 				.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
@@ -77,7 +76,7 @@ namespace pr::rdr12
 		}
 
 		// Add a SRV/texture descriptor root parameter
-		RootSig& SRV(ESRVReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
+		RootSig& SRV(hlsl::ESRVReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
 		{
 			param() = D3D12_ROOT_PARAMETER1 {
 				.ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV,
@@ -88,7 +87,7 @@ namespace pr::rdr12
 		}
 
 		// Add a SRV/texture descriptor range parameter
-		RootSig& SRV(ESRVReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
+		RootSig& SRV(hlsl::ESRVReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
 		{
 			m_des_range.push_back(D3D12_DESCRIPTOR_RANGE1 {
 				.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
@@ -107,7 +106,7 @@ namespace pr::rdr12
 		}
 
 		// Add an Unordered access view root descriptor parameter
-		RootSig& UAV(EUAVReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
+		RootSig& UAV(hlsl::EUAVReg reg, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_ROOT_DESCRIPTOR_FLAGS flags = D3D12_ROOT_DESCRIPTOR_FLAG_NONE)
 		{
 			param() = D3D12_ROOT_PARAMETER1{
 				.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV,
@@ -118,7 +117,7 @@ namespace pr::rdr12
 		}
 
 		// Add an Unordered access view descriptor range parameter
-		RootSig& UAV(EUAVReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
+		RootSig& UAV(hlsl::EUAVReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
 		{
 			m_des_range.push_back(D3D12_DESCRIPTOR_RANGE1{
 				.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
@@ -137,7 +136,7 @@ namespace pr::rdr12
 		}
 
 		// Add a sampler descriptor range parameter
-		RootSig& Samp(ESamReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
+		RootSig& Samp(hlsl::ESamReg reg, int count, D3D12_SHADER_VISIBILITY shader_visibility = D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAGS flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE)
 		{
 			m_des_range.push_back(D3D12_DESCRIPTOR_RANGE1{
 				.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,

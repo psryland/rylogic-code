@@ -4,9 +4,12 @@
 //*********************************************
 #ifndef PR_HLSL_INTERCEPT_HLSLI
 #define PR_HLSL_INTERCEPT_HLSLI
-
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
 
 // Notes:
 //  - Convention is: float Intercept_XVsY(...), i.e. Intercept finds the parametric values of the intercept
@@ -83,6 +86,9 @@ float Intercept_LineVsFrustum(float4 s, float4 e, float4x4 frust)
 	return t;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif
 
 

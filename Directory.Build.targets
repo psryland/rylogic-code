@@ -10,17 +10,14 @@
 		<CodeSyncTool>$(ToolsPath)code_sync/code_sync.exe</CodeSyncTool>
 		<CodeSyncTabSize>4</CodeSyncTabSize>
 	</PropertyGroup>
-
-	<!-- Determine the correct hook target based on project type -->
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
 		<CodeSyncHookTarget>BuildGenerateSources</CodeSyncHookTarget>
 	</PropertyGroup>
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<CodeSyncHookTarget>BeforeBuild</CodeSyncHookTarget>
 	</PropertyGroup>
-
-	<!-- Run CodeSync. The tool handles serialisation and stamp checking internally. -->
 	<Target Name="CodeSyncTarget" BeforeTargets="$(CodeSyncHookTarget)" Condition="'$(CodeSyncHookTarget)' != ''">
+		<!-- Run CodeSync. The tool handles serialisation and stamp checking internally. -->
 		<Exec
 			Command="$(CodeSyncTool) &quot;$(RylogicRoot)projects&quot; &quot;$(RylogicRoot)include&quot; --tab-size $(CodeSyncTabSize) --stamp &quot;$(CodeSyncStamp)&quot;"
 			ConsoleToMSBuild="true"

@@ -1,4 +1,11 @@
 // Shader source files for runtime compilation
 // Includes HLSL files that shared across multiple shaders
+#ifndef LOST_AT_SEA_RC
+#define LOST_AT_SEA_RC
+
+#include "pr/hlsl/pr_hlsl.rc"
+
 TYPES_HLSLI        TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/types.hlsli"
 FORWARD_CBUF_HLSLI TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
+
+#endif

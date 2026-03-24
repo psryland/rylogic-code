@@ -45,7 +45,7 @@ namespace pr::collision
 		// Test axes L = rhs.x, L = rhs.y, L = rhs.z
 		for (int i = 0; i != 3; ++i)
 		{
-			ra = Dot3(lhs.m_radius, r2l_abs[i]);
+			ra = Dot(lhs.m_radius.xyz, r2l_abs[i]);
 			rb = rhs.m_radius[i];
 			sp = Abs(Dot3(r2l.pos, r2l[i]));
 			if (!pen(ra + rb - sp, [&]{ return sep_axis(r2w[i]); }, lhs_.m_material_id, rhs_.m_material_id))

@@ -4,9 +4,12 @@
 //*********************************************
 #ifndef PR_HLSL_CLOSEST_POINT_HLSLI
 #define PR_HLSL_CLOSEST_POINT_HLSLI
-
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/geometry.hlsli"
+
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
 
 // Notes:
 //  - Convention is: ClosestPoint_XToY(...)
@@ -104,6 +107,9 @@ float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4
 // They aren't general purpose because the require transforming in to primitive space
 // Don't move them here, but they might be good starting points for more general purpose functions.
 
+#ifdef __cplusplus
+}
+#endif
 #endif
 
 

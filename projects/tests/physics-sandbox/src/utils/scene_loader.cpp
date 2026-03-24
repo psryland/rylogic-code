@@ -92,6 +92,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* jpos = jbody.find("position"))
 			desc.position = ReadVec3(*jpos, 1.0f);
 
+		// Rotation — Euler angles in degrees, applied in X, Y, Z order
+		if (auto* jrot = jbody.find("rotation"))
+			desc.rotation = ReadVec3(*jrot, 0.0f);
+
 		// Velocity (optional, defaults to zero)
 		if (auto* jvel = jbody.find("velocity"))
 			desc.velocity = ReadVec3(*jvel, 0.0f);
@@ -108,6 +112,9 @@ namespace physics_sandbox::scene_loader
 	{
 		GroundPlaneDesc ground;
 		auto const& jgp = jgp_.to_object();
+
+		if (auto* s = jgp.find("size"))
+			ground.size = v2(s->to_array()[0].to<float>(), s->to_array()[1].to<float>());
 
 		if (auto* h = jgp.find("height"))
 			ground.height = h->to<float>();

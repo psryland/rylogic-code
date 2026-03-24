@@ -114,6 +114,7 @@
 #include "pr/gfx/colour.h"
 #include "pr/gui/gdiplus.h"
 #include "pr/hlsl/interop.h"
+#include "pr/hlsl/shader_registers.h"
 #include "pr/macros/enum.h"
 #include "pr/math/math.h"
 #include "pr/math/conversion.h"
@@ -130,6 +131,7 @@
 #include "pr/win32/dummy_window.h"
 #include "pr/win32/key_codes.h"
 #include "pr/win32/win32.h"
+
 
 namespace pr::rdr12
 {
@@ -154,6 +156,13 @@ namespace pr::rdr12
 	template <typename T> using alloc_traits = std::allocator_traits<Allocator<T>>;
 	template <typename T> using RefCounted = pr::RefCount<T>;
 	template <typename T> using RefPtr = pr::RefPtr<T>;
+
+	// Use the shader register types from pr::hlsl
+	using hlsl::ECBufReg;
+	using hlsl::ESRVReg;
+	using hlsl::EUAVReg;
+	using hlsl::ESamReg;
+	using hlsl::ShaderReg;
 
 	// Fixed size strings
 	using string32 = pr::string<char, 32>;

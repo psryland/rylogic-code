@@ -176,10 +176,10 @@ namespace pr::math::tests
 			static_assert(V0 == vec_t(T(2)));
 			static_assert(V0 != vec_t(T(3)));
 
-			static_assert(V0 < V1);
-			static_assert(V1 > V0);
-			static_assert(!(V0 >= V1));
-			static_assert(!(V1 <= V0));
+			static_assert(All(V0 < V1));
+			static_assert(All(V1 > V0));
+			static_assert(!Any(V0 >= V1));
+			static_assert(!Any(V1 <= V0));
 
 			// Bitwise, shift, and logical operators (integer types only)
 			if constexpr (std::integral<typename vector_traits<vec_t>::element_t>)
@@ -321,20 +321,20 @@ namespace pr::math::tests
 			constexpr auto V_pos = vec_t(S(5));
 			constexpr auto V_zero = vec_t(S(0));
 
-			// For matrices, All/Any iterates over components (vectors), not scalars
-			if constexpr (IsRank2<vec_t>)
-			{
-				PR_EXPECT(All(V_pos, [](C x) { return x > C(S(0)); }));
-				PR_EXPECT(Any(V_pos, [](C x) { return x > C(S(0)); }));
-				PR_EXPECT(!Any(V_zero, [](C x) { return x > C(S(0)); }));
-				PR_EXPECT(!All(V_zero, [](C x) { return x > C(S(0)); }));
-			}
-			else
+			// All/Any recurse through components to reach scalars for both rank-1 and rank-2
+			if constexpr (IsRank1<vec_t>)
 			{
 				static_assert(All(V_pos, [](S x) { return x > S(0); }));
 				static_assert(Any(V_pos, [](S x) { return x > S(0); }));
 				static_assert(!Any(V_zero, [](S x) { return x > S(0); }));
 				static_assert(!All(V_zero, [](S x) { return x > S(0); }));
+			}
+			else
+			{
+				PR_EXPECT(All(V_pos, [](S x) { return x > S(0); }));
+				PR_EXPECT(Any(V_pos, [](S x) { return x > S(0); }));
+				PR_EXPECT(!Any(V_zero, [](S x) { return x > S(0); }));
+				PR_EXPECT(!All(V_zero, [](S x) { return x > S(0); }));
 			}
 		}
 
@@ -1501,10 +1501,10 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(scaled * scaled_inv, Identity<mat_t>()));
 
 			// Rotation + uniform scale
-			auto rot = Mat3x4<S>::Rotation(vec4_t::ZAxis(), DegreesToRadians(S(30)));
-			rot.x = Vec4<S>(rot.x) * S(3);
-			rot.y = Vec4<S>(rot.y) * S(3);
-			rot.z = Vec4<S>(rot.z) * S(3);
+			auto rot = Mat3x4<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(30)));
+			rot.x = rot.x * S(3);
+			rot.y = rot.y * S(3);
+			rot.z = rot.z * S(3);
 			if constexpr (vt::dimension == 4)
 			{
 				// Mat4x4: build full affine with translation
@@ -2276,23 +2276,14 @@ namespace pr::math::tests
 			// Result should be within [vmin, vmax] per element
 			if constexpr (IsRank1<vec_t>)
 			{
-				for (int i = 0; i != vt::dimension; ++i)
-				{
-					PR_EXPECT(v[i] >= S(-1));
-					PR_EXPECT(v[i] <= S(1));
-				}
+				PR_EXPECT(All(v, [](auto s) { return s >= S(-1) && s <= S(+1); }));
 			}
 			else if constexpr (IsRank2<vec_t>)
 			{
 				using C = typename vt::component_t;
 				for (int i = 0; i != vt::dimension; ++i)
 				{
-					auto comp = v[i];
-					for (int j = 0; j != vector_traits<C>::dimension; ++j)
-					{
-						PR_EXPECT(comp[j] >= S(-1));
-						PR_EXPECT(comp[j] <= S(1));
-					}
+					PR_EXPECT(All(v[i], [](auto s) { return s >= S(-1) && s <= S(+1); }));
 				}
 			}
 		}

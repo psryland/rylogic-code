@@ -12,7 +12,7 @@
 // the terrain shader does not use screen-space geometry).
 // Shared parameters set once per frame in SetupFrame.
 // Per-patch morph range updated per instance in SetupElement.
-cbuffer CBufTerrain :reg(b3,0)
+cbuffer CBufTerrain :reg(b3)
 {
 	// Camera world-space position (xyz), w = unused
 	float4 m_camera_pos;

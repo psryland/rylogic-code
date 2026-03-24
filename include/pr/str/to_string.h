@@ -186,7 +186,6 @@ namespace pr::str
 		std_wstr swstr  = L"junk_str_junk";
 		pr_cstr  pcstr  =  "junk_str_junk";
 		pr_wstr  pwstr  = L"junk_str_junk";
-		std_cstr tau    = "6.28";
 
 		PR_EXPECT(To<std::string>(narr) == scstr);
 		PR_EXPECT(To<std::string>(wide) == scstr);

@@ -9,8 +9,8 @@
 #include "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
 
 // Environment map cubemap (bound by forward render step when scene env map is set)
-TextureCube<float4> m_envmap_texture :reg(t1, 0);
-SamplerState        m_envmap_sampler :reg(s1, 0);
+TextureCube<float4> m_envmap_texture :reg(t1);
+SamplerState        m_envmap_sampler :reg(s1);
 
 struct PSOut
 {

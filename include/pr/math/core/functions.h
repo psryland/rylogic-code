@@ -194,12 +194,63 @@ namespace pr::math
 	}
 	template <TensorType Vec> constexpr auto pr_vectorcall operator <=> (Vec lhs, Vec rhs) noexcept
 	{
+		// Lexicographic three-way comparison (used by std::sort, std::partial_order, etc.)
+		// The explicit component-wise operators (<, >, <=, >=) take priority in direct use.
 		using vt = vector_traits<Vec>;
 		if constexpr (vt::dimension > 0) if (auto cmp = std::partial_order(vec(lhs).x, vec(rhs).x); cmp != 0) return cmp;
 		if constexpr (vt::dimension > 1) if (auto cmp = std::partial_order(vec(lhs).y, vec(rhs).y); cmp != 0) return cmp;
 		if constexpr (vt::dimension > 2) if (auto cmp = std::partial_order(vec(lhs).z, vec(rhs).z); cmp != 0) return cmp;
 		if constexpr (vt::dimension > 3) if (auto cmp = std::partial_order(vec(lhs).w, vec(rhs).w); cmp != 0) return cmp;
 		return std::partial_ordering::equivalent;
+	}
+	template <TensorType Vec> constexpr Vec pr_vectorcall operator < (Vec lhs, Vec rhs) noexcept
+	{
+		// Component-wise comparison operators (HLSL semantics: return Vec with 0/1 per component)
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x < vec(rhs).x);
+		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y < vec(rhs).y);
+		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z < vec(rhs).z);
+		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w < vec(rhs).w);
+		return res;
+	}
+	template <TensorType Vec> constexpr Vec pr_vectorcall operator > (Vec lhs, Vec rhs) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x > vec(rhs).x);
+		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y > vec(rhs).y);
+		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z > vec(rhs).z);
+		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w > vec(rhs).w);
+		return res;
+	}
+	template <TensorType Vec> constexpr Vec pr_vectorcall operator <= (Vec lhs, Vec rhs) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x <= vec(rhs).x);
+		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y <= vec(rhs).y);
+		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z <= vec(rhs).z);
+		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w <= vec(rhs).w);
+		return res;
+	}
+	template <TensorType Vec> constexpr Vec pr_vectorcall operator >= (Vec lhs, Vec rhs) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		Vec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x >= vec(rhs).x);
+		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y >= vec(rhs).y);
+		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z >= vec(rhs).z);
+		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w >= vec(rhs).w);
+		return res;
 	}
 	template <TensorType Vec> constexpr bool pr_vectorcall operator == (Vec lhs, Vec rhs) noexcept
 	{
@@ -683,27 +734,67 @@ namespace pr::math
 		return yes;
 	}
 
-	// Return true if any element satisfies 'Pred'
+	// Return true if any element is != 0, or satisfies 'Pred'
+	template <ScalarType S> constexpr bool Any(S v) noexcept
+	{
+		return v != S(0);
+	}
+	template <ScalarType S, typename Pred> constexpr bool Any(S v, Pred pred) noexcept
+	{
+		return pred(v);
+	}
+	template <TensorType Vec> constexpr bool pr_vectorcall Any(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+
+		bool yes = false;
+		if constexpr (vt::dimension > 0) yes = yes || Any(vec(v).x);
+		if constexpr (vt::dimension > 1) yes = yes || Any(vec(v).y);
+		if constexpr (vt::dimension > 2) yes = yes || Any(vec(v).z);
+		if constexpr (vt::dimension > 3) yes = yes || Any(vec(v).w);
+		return yes;
+	}
 	template <TensorType Vec, typename Pred> constexpr bool pr_vectorcall Any(Vec v, Pred pred) noexcept
 	{
 		using vt = vector_traits<Vec>;
+
 		bool yes = false;
-		if constexpr (vt::dimension > 0) yes = yes || pred(vec(v).x);
-		if constexpr (vt::dimension > 1) yes = yes || pred(vec(v).y);
-		if constexpr (vt::dimension > 2) yes = yes || pred(vec(v).z);
-		if constexpr (vt::dimension > 3) yes = yes || pred(vec(v).w);
+		if constexpr (vt::dimension > 0) yes = yes || Any(vec(v).x, pred);
+		if constexpr (vt::dimension > 1) yes = yes || Any(vec(v).y, pred);
+		if constexpr (vt::dimension > 2) yes = yes || Any(vec(v).z, pred);
+		if constexpr (vt::dimension > 3) yes = yes || Any(vec(v).w, pred);
 		return yes;
 	}
 
-	// Return true if all elements satisfy 'Pred'
+	// Return true if all elements are != 0, or satisfy 'Pred'
+	template <ScalarType S> constexpr bool pr_vectorcall All(S v) noexcept
+	{
+		return v != S(0);
+	}
+	template <ScalarType S, typename Pred> constexpr bool pr_vectorcall All(S v, Pred pred) noexcept
+	{
+		return pred(v);
+	}
+	template <TensorType Vec> constexpr bool pr_vectorcall All(Vec v) noexcept
+	{
+		using vt = vector_traits<Vec>;
+
+		bool yes = true;
+		if constexpr (vt::dimension > 0) yes = yes && All(vec(v).x);
+		if constexpr (vt::dimension > 1) yes = yes && All(vec(v).y);
+		if constexpr (vt::dimension > 2) yes = yes && All(vec(v).z);
+		if constexpr (vt::dimension > 3) yes = yes && All(vec(v).w);
+		return yes;
+	}
 	template <TensorType Vec, typename Pred> constexpr bool pr_vectorcall All(Vec v, Pred pred) noexcept
 	{
 		using vt = vector_traits<Vec>;
+
 		bool yes = true;
-		if constexpr (vt::dimension > 0) yes = yes && pred(vec(v).x);
-		if constexpr (vt::dimension > 1) yes = yes && pred(vec(v).y);
-		if constexpr (vt::dimension > 2) yes = yes && pred(vec(v).z);
-		if constexpr (vt::dimension > 3) yes = yes && pred(vec(v).w);
+		if constexpr (vt::dimension > 0) yes = yes && All(vec(v).x, pred);
+		if constexpr (vt::dimension > 1) yes = yes && All(vec(v).y, pred);
+		if constexpr (vt::dimension > 2) yes = yes && All(vec(v).z, pred);
+		if constexpr (vt::dimension > 3) yes = yes && All(vec(v).w, pred);
 		return yes;
 	}
 	template <std::ranges::input_range Range, typename Pred> constexpr bool Any(Range&& range, Pred pred) noexcept requires (!TensorType<std::decay_t<Range>>)
@@ -2545,15 +2636,17 @@ namespace pr::math
 	constexpr bool pr_vectorcall IsAffine(Mat const& mat) noexcept
 	{
 		using vt = vector_traits<Mat>;
+		using C = typename vt::component_t;
 		using S = typename vt::element_t;
 
-		if constexpr (vt::dimension >= 3)
+		// Only check w components if the component type has them (dimension >= 4)
+		if constexpr (vt::dimension >= 3 && vector_traits<C>::dimension >= 4)
 		{
 			if (vec(vec(mat).x).w != S(0)) return false;
 			if (vec(vec(mat).y).w != S(0)) return false;
 			if (vec(vec(mat).z).w != S(0)) return false;
 		}
-		if constexpr (vt::dimension >= 4)
+		if constexpr (vt::dimension >= 4 && vector_traits<C>::dimension >= 4)
 		{
 			if (vec(vec(mat).w).w != S(1)) return false;
 		}
@@ -3316,7 +3409,6 @@ namespace pr::math
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
-		pr_assert(angular_displacement.w == S(0) && "'angular_displacement' should be a scaled direction vector");
 
 		// Rodrigues' formula:  exp(omega) = I + (sin(theta)/theta) * omega + ((1 - cos(theta)/theta²) * omega²
 		auto len = Length(angular_displacement);
@@ -3628,7 +3720,7 @@ namespace pr::math
 		auto angle = std::acos(S(0.5) * (Trace(mat) - S(1)));
 		auto axis = S(1000) * Kernel(Identity<Mat>() - mat);
 		if (axis == Vec{})
-			return { Vec{1, 0, 0, 0}, S(0) };
+			return { Vec{1, 0, 0}, S(0) };
 		
 		axis = Normalise(axis);
 
@@ -4034,7 +4126,7 @@ namespace pr::math
 		using C = typename vt::component_t;
 
 		std::uniform_real_distribution<S> dist(S(0), constants<S>::tau);
-		auto axis = RandomN<Vec3<S>>(rng).w0();
+		auto axis = Normalise(RandomN<C>(rng));
 		return Rotation<Mat>(axis, dist(rng));
 	}
 
@@ -4058,4 +4150,67 @@ namespace pr::math
 
 		return Random<Mat>(rng, S(0), constants<S>::tau);
 	}
+
+	// Lexicographic comparison for ordering (used by std::less etc.)
+	// Returns negative if lhs < rhs, positive if lhs > rhs, 0 if equal.
+	template <TensorType Vec> constexpr int pr_vectorcall LexicographicCompare(Vec lhs, Vec rhs) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using C = typename vt::component_t;
+
+		if constexpr (TensorType<C>) // rank-2: recurse into components
+		{
+			if constexpr (vt::dimension > 0) if (auto cmp = LexicographicCompare(vec(lhs).x, vec(rhs).x); cmp != 0) return cmp;
+			if constexpr (vt::dimension > 1) if (auto cmp = LexicographicCompare(vec(lhs).y, vec(rhs).y); cmp != 0) return cmp;
+			if constexpr (vt::dimension > 2) if (auto cmp = LexicographicCompare(vec(lhs).z, vec(rhs).z); cmp != 0) return cmp;
+			if constexpr (vt::dimension > 3) if (auto cmp = LexicographicCompare(vec(lhs).w, vec(rhs).w); cmp != 0) return cmp;
+		}
+		else // rank-1: compare scalar components
+		{
+			if constexpr (vt::dimension > 0) { if (vec(lhs).x < vec(rhs).x) return -1; if (vec(rhs).x < vec(lhs).x) return +1; }
+			if constexpr (vt::dimension > 1) { if (vec(lhs).y < vec(rhs).y) return -1; if (vec(rhs).y < vec(lhs).y) return +1; }
+			if constexpr (vt::dimension > 2) { if (vec(lhs).z < vec(rhs).z) return -1; if (vec(rhs).z < vec(lhs).z) return +1; }
+			if constexpr (vt::dimension > 3) { if (vec(lhs).w < vec(rhs).w) return -1; if (vec(rhs).w < vec(lhs).w) return +1; }
+		}
+		return 0;
+	}
+}
+
+// Specialise std comparators for vector types so that std::set, std::map, etc. use
+// lexicographic ordering. This is necessary because operator< returns Vec (HLSL
+// component-wise semantics) rather than bool.
+namespace std
+{
+	template <typename Vec> requires pr::math::VectorType<Vec>
+	struct less<Vec>
+	{
+		constexpr bool operator()(Vec const& lhs, Vec const& rhs) const noexcept
+		{
+			return pr::math::LexicographicCompare(lhs, rhs) < 0;
+		}
+	};
+	template <typename Vec> requires pr::math::VectorType<Vec>
+	struct greater<Vec>
+	{
+		constexpr bool operator()(Vec const& lhs, Vec const& rhs) const noexcept
+		{
+			return pr::math::LexicographicCompare(lhs, rhs) > 0;
+		}
+	};
+	template <typename Vec> requires pr::math::VectorType<Vec>
+	struct less_equal<Vec>
+	{
+		constexpr bool operator()(Vec const& lhs, Vec const& rhs) const noexcept
+		{
+			return pr::math::LexicographicCompare(lhs, rhs) <= 0;
+		}
+	};
+	template <typename Vec> requires pr::math::VectorType<Vec>
+	struct greater_equal<Vec>
+	{
+		constexpr bool operator()(Vec const& lhs, Vec const& rhs) const noexcept
+		{
+			return pr::math::LexicographicCompare(lhs, rhs) >= 0;
+		}
+	};
 }

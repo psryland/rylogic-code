@@ -1,0 +1,2246 @@
+{
+  "scene": {
+    "description": "Pathological: 10x10 brick wall (running bond pattern) resting on ground",
+    "gravity": [
+      0,
+      0,
+      -9.81
+    ],
+    "bodies": [
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_0",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -9.09,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_1",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -7.07,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_2",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -5.05,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_3",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -3.03,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_4",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -1.01,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_5",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          1.01,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_6",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          3.03,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_7",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          5.05,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_8",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          7.07,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_9",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          9.09,
+          0,
+          0.5
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_10",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -8.09,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_11",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -6.07,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_12",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -4.05,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_13",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -2.03,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_14",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -0.01,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_15",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          2.01,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_16",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          4.03,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_17",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          6.05,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_18",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          8.07,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_19",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          10.09,
+          0,
+          1.52
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_20",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -9.09,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_21",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -7.07,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_22",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -5.05,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_23",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -3.03,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_24",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -1.01,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_25",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          1.01,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_26",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          3.03,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_27",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          5.05,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_28",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          7.07,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_29",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          9.09,
+          0,
+          2.54
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_30",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -8.09,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_31",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -6.07,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_32",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -4.05,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_33",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -2.03,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_34",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -0.01,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_35",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          2.01,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_36",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          4.03,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_37",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          6.05,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_38",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          8.07,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_39",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          10.09,
+          0,
+          3.56
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_40",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -9.09,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_41",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -7.07,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_42",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -5.05,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_43",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -3.03,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_44",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -1.01,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_45",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          1.01,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_46",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          3.03,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_47",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          5.05,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_48",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          7.07,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_49",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          9.09,
+          0,
+          4.58
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_50",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -8.09,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_51",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -6.07,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_52",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -4.05,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_53",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -2.03,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_54",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -0.01,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_55",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          2.01,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_56",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          4.03,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_57",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          6.05,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_58",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          8.07,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_59",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          10.09,
+          0,
+          5.6
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_60",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -9.09,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_61",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -7.07,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_62",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -5.05,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_63",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -3.03,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_64",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -1.01,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_65",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          1.01,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_66",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          3.03,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_67",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          5.05,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_68",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          7.07,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_69",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          9.09,
+          0,
+          6.62
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_70",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -8.09,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_71",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -6.07,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_72",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -4.05,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_73",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -2.03,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_74",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -0.01,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_75",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          2.01,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_76",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          4.03,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_77",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          6.05,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_78",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          8.07,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_79",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          10.09,
+          0,
+          7.64
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_80",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -9.09,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_81",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -7.07,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_82",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -5.05,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_83",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -3.03,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_84",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -1.01,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_85",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          1.01,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_86",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          3.03,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_87",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          5.05,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_88",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          7.07,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_89",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          9.09,
+          0,
+          8.66
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_90",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -8.09,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_91",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -6.07,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_92",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -4.05,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_93",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -2.03,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_94",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          -0.01,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_95",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          2.01,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_96",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          4.03,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_97",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          6.05,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_98",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          8.07,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "name": "brick_99",
+        "shape": {
+          "type": "box",
+          "dimensions": [
+            2.0,
+            1.0,
+            1.0
+          ]
+        },
+        "position": [
+          10.09,
+          0,
+          9.68
+        ],
+        "mass": 5.0
+      },
+      {
+        "name": "wrecking_ball",
+        "shape": {
+          "type": "sphere",
+          "radius": 2.0
+        },
+        "position": [0, 10, 5],
+        "velocity": [0, -20, 0],
+        "mass": 50.0
+      }
+    ],
+    "material": {
+      "elasticity": 0.1,
+      "friction": 0.6
+    },
+    "camera": {
+      "position": [
+        0,
+        -25,
+        6
+      ],
+      "lookat": [
+        0,
+        0,
+        5
+      ]
+    },
+    "material": {
+      "elasticity": 0.3,
+      "friction": 0.5
+    },
+    "ground_plane": {
+      "height": 0.0,
+      "size": [ 200.0, 200.0 ]
+    }
+  }
+}

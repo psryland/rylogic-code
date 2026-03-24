@@ -60,9 +60,9 @@ namespace pr
 				(int(normal.z >= 0) << 0);
 
 			// Project onto the plane x+y+z=1
-			auto x = abs(normal.x);
-			auto y = abs(normal.y);
-			auto z = abs(normal.z);
+			auto x = std::abs(normal.x);
+			auto y = std::abs(normal.y);
+			auto z = std::abs(normal.z);
 			auto sum = x + y + z;
 			x /= sum;
 			y /= sum;
@@ -167,9 +167,9 @@ namespace pr
 				(int(normal.z >= 0) << 0);
 
 			// Project onto the plane x+y+z=1
-			auto x = abs(normal.x);
-			auto y = abs(normal.y);
-			auto z = abs(normal.z);
+			auto x = std::abs(normal.x);
+			auto y = std::abs(normal.y);
+			auto z = std::abs(normal.z);
 			auto sum = x + y + z;
 			x /= sum;
 			y /= sum;

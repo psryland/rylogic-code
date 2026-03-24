@@ -99,6 +99,12 @@ namespace pr::math
 			);
 		}
 
+		// Explicit cast to bool. True if any component is non-zero.
+		constexpr explicit operator bool() const
+		{
+			return Any(*this);
+		}
+
 		// Array access
 		constexpr S operator [] (int i) const noexcept
 		{

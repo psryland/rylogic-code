@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\dll">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\dll\dll.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dll\context.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\dll\context.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClInclude Include="src\dll\dll_forward.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

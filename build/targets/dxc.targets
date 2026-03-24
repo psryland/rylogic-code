@@ -18,4 +18,13 @@
 		<BuildArtifacts Include="$(DxcPackagePath)build\native\bin\x64\dxcompiler.dll" />
 	</ItemGroup>
 
+	<ItemDefinitionGroup>
+		<Link>
+			<AdditionalDependencies>
+				;dxcompiler.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+
 </Project>

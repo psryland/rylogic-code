@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -333,6 +333,12 @@ namespace pr::rdr12
 		void Dispatch(iv3 ThreadGroupCount)
 		{
 			m_list->Dispatch(s_cast<UINT>(ThreadGroupCount.x), s_cast<UINT>(ThreadGroupCount.y), s_cast<UINT>(ThreadGroupCount.z));
+		}
+
+		// Dispatch indirect (thread counts provided by a GPU buffer)
+		void ExecuteIndirect(ID3D12CommandSignature* pCommandSignature, UINT MaxCommandCount, ID3D12Resource* pArgumentBuffer, UINT64 ArgumentBufferOffset = 0, ID3D12Resource* pCountBuffer = nullptr, UINT64 CountBufferOffset = 0)
+		{
+			m_list->ExecuteIndirect(pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 		}
 
 		// Resolve an MSAA texture to a non-MSAA texture

@@ -695,14 +695,14 @@ namespace pr::rdr12
 		// Convert a stream of points into a stream of transforms
 		// At each vertex, ori.z should be the tangent to the extrusion path.
 		auto ori = m4x4::Identity();
-		auto yaxis = Perpendicular(path[1] - path[0], v4::YAxis());
+		auto yaxis = Perpendicular((path[1] - path[0]).xyz, v3::YAxis());
 		auto make_path = [&](int p_, int pcount_)
 		{
 			size_t p = p_, pcount = pcount_;
 			if (p == 0)
 			{
-				auto tang = path[1] - path[0];
-				if (!FEql(tang, v4::Zero()))
+				auto tang = (path[1] - path[0]).xyz;
+				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
 					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
@@ -710,8 +710,8 @@ namespace pr::rdr12
 			}
 			else if (p == pcount - 1)
 			{
-				auto tang = path[p] - path[p - 1];
-				if (!FEql(tang, v4::Zero()))
+				auto tang = (path[p] - path[p - 1]).xyz;
+				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
 					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
@@ -719,10 +719,10 @@ namespace pr::rdr12
 			}
 			else
 			{
-				auto a = Normalise(path[p] - path[p - 1], v4::Zero());
-				auto b = Normalise(path[p + 1] - path[p], v4::Zero());
+				auto a = Normalise((path[p] - path[p - 1]).xyz, v3::Zero());
+				auto b = Normalise((path[p + 1] - path[p]).xyz, v3::Zero());
 				auto tang = a + b;
-				if (!FEql(tang, v4::Zero()))
+				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
 					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);

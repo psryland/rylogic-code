@@ -12,7 +12,6 @@
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/resource/stock_resources.h"
-#include "pr/view3d-12/shaders/shader_registers.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"

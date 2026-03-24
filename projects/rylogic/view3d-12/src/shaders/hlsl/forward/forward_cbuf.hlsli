@@ -10,7 +10,7 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 // Constants per frame.
-cbuffer CBufFrame :reg(b0,0)
+cbuffer CBufFrame :reg(b0)
 {
 	// Camera transform
 	Camera m_cam;
@@ -29,7 +29,7 @@ cbuffer CBufFrame :reg(b0,0)
 };
 
 // Constants per render nugget.
-cbuffer CBufNugget :reg(b1,0)
+cbuffer CBufNugget :reg(b1)
 {
 	// Sync with:
 	//   forward_cbuf.hlsli
@@ -61,7 +61,7 @@ cbuffer CBufNugget :reg(b1,0)
 };
 
 // Constants used for radial fading.
-cbuffer CBufFade :reg(b2,0)
+cbuffer CBufFade :reg(b2)
 {
 	// The centre of the fade region. Set to (0,0,0,0) to use the camera position
 	float4 m_fade_centre;
@@ -76,7 +76,7 @@ cbuffer CBufFade :reg(b2,0)
 };
 
 // Constants used for screen space geometry shaders.
-cbuffer CBufScreenSpace :reg(b3,0)
+cbuffer CBufScreenSpace :reg(b3)
 {
 	float2 m_screen_dim; // x = screen width, y = screen height, 
 	float2 m_size;       // x = width in pixels, y = height in pixels
@@ -85,7 +85,7 @@ cbuffer CBufScreenSpace :reg(b3,0)
 };
 
 // Constants used for diagnostic shaders
-cbuffer CBufDiag :reg(b3,0) //can b3 be reused?
+cbuffer CBufDiag :reg(b3) //can b3 be reused?
 {
 	float4 m_colour;
 	float  m_length;

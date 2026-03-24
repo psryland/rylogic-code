@@ -35,6 +35,11 @@
 	
 	<ItemDefinitionGroup>
 		<ClCompile>
+			<PreprocessorDefinitions>
+				;PR_PIX_ENABLED=0
+				;PR_COMPUTE_SHADER_DEBUG=0
+				;%(PreprocessorDefinitions)
+			</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(PixPackagePath)Include\WinPixEventRuntime
 				;%(AdditionalIncludeDirectories)

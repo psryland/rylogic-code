@@ -1,13 +1,17 @@
-#include "pr/physics-2/utility/ldraw.h"
+#include "pr/physics/utility/ldraw.h"
 #include "src/scene/scene.h"
 #include "src/utils/scene_loader.h"
 
 namespace physics_sandbox
 {
+	physics::EngineConfig DefaultEngineConfig()
+	{
+		return physics::EngineConfig{};
+	}
+
 	Scene::Scene(rdr12::Renderer* rdr)
 		: m_rdr(rdr)
-		, m_materials()
-		, m_physics(m_materials, rdr ? rdr->d3d() : nullptr)
+		, m_physics(DefaultEngineConfig(), rdr ? rdr->d3d() : nullptr)
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
@@ -16,33 +20,34 @@ namespace physics_sandbox
 		, m_ground_gfx()
 		, m_origin_gfx()
 		, m_clock()
-		, m_diag()
 		, m_current_scenario()
+		, m_diag()
+		, m_step_count()
 	{
-		// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
-		m_physics.PostCollisionDetection += [&](auto&, auto args)
-		{
-			if (args.m_contacts.empty())
-				return;
+		//// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
+		//m_physics.PostCollisionDetection += [&](auto&, auto args)
+		//{
+		//	if (args.m_contacts.empty())
+		//		return;
 
-			// Lightweight: just track that a collision occurred (used by UI title bar)
-			m_diag.occurred = true;
-			m_diag.count++;
+		//	// Lightweight: just track that a collision occurred (used by UI title bar)
+		//	m_diag.occurred = true;
+		//	m_diag.count++;
 
-			#ifdef PR_PHYSICS_DIAGNOSTICS
-			{
-				// Capture pre-impulse state for first two bodies
-				m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
-				m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
+		//	#ifdef PR_PHYSICS_DIAGNOSTICS
+		//	{
+		//		// Capture pre-impulse state for first two bodies
+		//		m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
+		//		m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
 
-				// Capture contact info (collision data is in objA space, transform to world)
-				auto const& c = collisions[0];
-				m_diag.contact_point_ws = m_body[0].O2W() * c.m_point_at_t;
-				m_diag.contact_normal_ws = (m_body[0].O2W().rot * c.m_axis).w0();
-				m_diag.depth = c.m_depth;
-			}
-			#endif
-		};
+		//		// Capture contact info (collision data is in objA space, transform to world)
+		//		auto const& c = collisions[0];
+		//		m_diag.contact_point_ws = m_body[0].O2W() * c.m_point_at_t;
+		//		m_diag.contact_normal_ws = (m_body[0].O2W().rot * c.m_axis).w0();
+		//		m_diag.depth = c.m_depth;
+		//	}
+		//	#endif
+		//};
 
 		// Create a coordinate frame at the origin for visual reference
 		if (m_rdr)
@@ -59,6 +64,7 @@ namespace physics_sandbox
 	void Scene::Reset()
 	{
 		m_clock = 0;
+		m_step_count = 0;
 		m_diag.Reset();
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
@@ -66,20 +72,18 @@ namespace physics_sandbox
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
 
-		// Clear the broadphasebefore modifying bodies. The broadphase holds raw
-		// pointers to RigidBody objects, which become invalid if the vector resizes.
-		m_physics.Broadphase().Clear();
-
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
 		m_shape_buffer.resize(0);
 
 		// Set up perfectly elastic, frictionless material for clean collision tests
-		auto& mat = m_materials(0);
-		mat.m_elasticity_norm = 1.0f;
-		mat.m_elasticity_tang = 0.0f;
-		mat.m_elasticity_tors = 0.0f;
-		mat.m_friction_static = 0.0f;
+		m_physics.Material(physics::Material{
+			.m_id = physics::Material::DefaultID,
+			.m_friction_static = 0.0f,
+			.m_elasticity_norm = 1.0f,
+			.m_elasticity_tang = 0.0f,
+			.m_elasticity_tors = 0.0f,
+		});
 	}
 
 	// Advance the simulation by one time step.
@@ -97,17 +101,15 @@ namespace physics_sandbox
 		// Forces are cleared by Evolve() at the end of each step, so we re-apply each frame.
 		if (m_gravity != v4::Zero())
 		{
-			for (int i = 0; i != std::ssize(m_body); ++i)
-			{
-				auto mass = m_body[i].Mass();
-				if (mass < physics::InfiniteMass * 0.5f)
-					m_body[i].ApplyForceWS(m_gravity * mass, v4::Zero(), m_body[i].O2W().rot * m_body[i].CentreOfMassOS());
-			}
+			for (auto& body : m_body)
+				body.GravityWS(m_gravity);
 		}
 
 		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
 		auto bodies = std::span(m_body);
 		m_physics.Step(dt, bodies);
+
+		++m_step_count;
 
 		#ifdef PR_PHYSICS_DIAGNOSTICS
 		{
@@ -235,12 +237,7 @@ namespace physics_sandbox
 			}
 		}
 
-		// Rebuild the broadphase with the active bodies
-		m_physics.Broadphase().Clear();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-			m_physics.Broadphase().Add(m_body[i]);
-
-		auto const& mat = m_materials(0);
+		auto mat = m_physics.Material(0);
 
 		DbgLog("\n--- Reset: Scenario %d [%s] ---\n", static_cast<int>(scenario), ScenarioName(scenario));
 		DbgLog("  Material: elasticity_norm=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
@@ -263,14 +260,11 @@ namespace physics_sandbox
 	{
 		// Reset simulation state
 		m_clock = 0;
+		m_step_count = 0;
 		m_diag.Reset();
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
-
-		// Clear the broadphase before modifying bodies. The broadphase holds raw
-		// pointers to RigidBody objects, which become invalid if the vector resizes.
-		m_physics.Broadphase().Clear();
 
 		// Clear existing bodies and owned shapes
 		m_body.resize(0);
@@ -284,11 +278,13 @@ namespace physics_sandbox
 		m_kill_zone_height = (scene_desc.ground ? scene_desc.ground->height : 0) - 50.0f;
 
 		// Apply material properties from the scene file
-		auto& mat = m_materials(0);
-		mat.m_elasticity_norm = scene_desc.elasticity;
-		mat.m_elasticity_tang = 0.0f;
-		mat.m_elasticity_tors = 0.0f;
-		mat.m_friction_static = scene_desc.friction;
+		m_physics.Material(physics::Material{
+			.m_id = physics::Material::DefaultID,
+			.m_friction_static = scene_desc.friction,
+			.m_elasticity_norm = scene_desc.elasticity,
+			.m_elasticity_tang = 0.0f,
+			.m_elasticity_tors = 0.0f,
+		});
 
 		// Count total bodies: scene bodies + optional ground plane body
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
@@ -346,8 +342,9 @@ namespace physics_sandbox
 			if (scene_desc.ground)
 			{
 				// Create the ground plane body as a large thin box with infinite mass.
-				auto ground_half_extent = 10.0f * Length(scene_bbox.Radius().xy);
-				m_shape_buffer.push_back(collision::ShapeBox(v4{ ground_half_extent, ground_half_extent, ground_thickness, 0 }));
+				v2 extent = scene_desc.ground->size;
+				if (extent == Zero<v2>()) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
+				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
 			}
 		}
 
@@ -362,7 +359,8 @@ namespace physics_sandbox
 			for (auto const& bd : scene_desc.bodies)
 			{
 				Body body(nullptr);
-				body.O2W(m4x4::Translation(bd.position));
+				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
+				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				m_body.push_back(std::move(body));
@@ -436,13 +434,10 @@ namespace physics_sandbox
 			}
 		}
 
-		// Rebuild the broadphase with the new bodies
-		m_physics.Broadphase().Clear();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-			m_physics.Broadphase().Add(m_body[i]);
-
 		// Logging
 		{
+			auto mat = m_physics.Material(0);
+
 			DbgLog("\n--- Loaded scene from: %ls ---\n", scene_desc.filepath.c_str());
 			if (!scene_desc.description.empty())
 				DbgLog("  Description: %s\n", scene_desc.description.c_str());

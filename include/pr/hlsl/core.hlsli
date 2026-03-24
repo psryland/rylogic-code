@@ -5,6 +5,10 @@
 #ifndef PR_HLSL_CORE_HLSLI
 #define PR_HLSL_CORE_HLSLI
 
+#ifdef __cplusplus
+namespace pr::hlsl {
+#endif
+
 static const float tau = 6.28318530717958647693f;
 static const float root2_by_2 = 0.70710678118f;
 static const float float_max = 3.402823466e+38f;
@@ -26,15 +30,15 @@ inline float sign_nz(float x)
 }
 inline float2 sign_nz(float2 x)
 {
-	return 2.0f * (x >= 0.0f) - 1.0f;
+	return 2.0f * (x >= float2(0,0)) - float2(1,1);
 }
 inline float3 sign_nz(float3 x)
 {
-	return 2.0f * (x >= 0.0f) - 1.0f;
+	return 2.0f * (x >= float3(0,0,0)) - float3(1,1,1);
 }
 inline float4 sign_nz(float4 x)
 {
-	return 2.0f * (x >= 0.0f) - 1.0f;
+	return 2.0f * (x >= float4(0,0,0,0)) - float4(1,1,1,1);
 }
 
 // Component square functions
@@ -93,32 +97,6 @@ inline float3 signed_sqr(float3 v)
 inline float4 signed_sqr(float4 v)
 {
 	return sign(v) * sqr(v);
-}
-
-// Swap two values
-inline void swap(inout float a, inout float b)
-{
-	float t = a;
-	a = b;
-	b = t;
-}
-inline void swap(inout float2 a, inout float2 b)
-{
-	float2 t = a;
-	a = b;
-	b = t;
-}
-inline void swap(inout float3 a, inout float3 b)
-{
-	float3 t = a;
-	a = b;
-	b = t;
-}
-inline void swap(inout float4 a, inout float4 b)
-{
-	float4 t = a;
-	a = b;
-	b = t;
 }
 
 // Length squared functions
@@ -219,27 +197,31 @@ inline int max_component_index(float4 v)
 }
 
 // Bit flag test
-bool HasFlag(int mask, int flag)
+inline bool HasFlag(int mask, int flag)
 {
 	return (mask & flag) != 0;
 }
-bool HasFlag(uint mask, uint flag)
+inline bool HasFlag(uint mask, uint flag)
 {
 	return (mask & flag) != 0;
+}
+inline int SetFlag(int mask, int flag, bool on)
+{
+	return select(on, mask | flag, mask & ~flag);
 }
 
 // Return the parametric position of 'x' on the range [mn, mx]
-float Frac(float mn, float x, float mx)
+inline float Frac(float mn, float x, float mx)
 {
 	return (x - mn) / (mx - mn);
 }
-float4 Frac(float4 mn, float4 x, float4 mx)
+inline float4 Frac(float4 mn, float4 x, float4 mx)
 {
 	return (x - mn) / (mx - mn);
 }
 
 // Integer square root
-int64_t ISqrt(int64_t x)
+inline int64_t ISqrt(int64_t x)
 {
 	// Compile time version of the square root.
 	//  - For a finite and non-negative value of "x", returns an approximation for the square root of "x"
@@ -268,8 +250,8 @@ inline uint Hash(int value, uint hash = FNV_offset_basis32)
 inline float RandomN(float2 seed)
 {
 	// float2(e^pi = 'Gelfond's constant), 2^sqrt(2) = 'Gelfond Schneider's constant)
-	const float2 K1 = float2(23.14069263277926, 2.665144142690225);
-	return 2.0f * frac(cos(dot(seed, K1)) * 12345.6789) - 1.0f;
+	const float2 K1 = float2(23.14069263277926f, 2.665144142690225f);
+	return 2.0f * frac(cos(dot(seed, K1)) * 12345.6789f) - 1.0f;
 }
 
 // A random normalised direction vector on the interval (-1, +1)
@@ -277,27 +259,20 @@ inline float4 Random2N(float2 seed)
 {
 	float t = RandomN(seed) * tau * 0.5f;
 	return float4(cos(t), sin(t), 0, 0);
-	//float x = RandomN(seed);
-	//float y = RandomN(x);
-	//return normalize(float2(x, y));
 }
 inline float4 Random3N(float2 seed)
 {
 	float t = RandomN(seed) * tau * 0.5f;
-	float z = RandomN(t);
+	float z = RandomN(float2(t,t));
 	float r = sqrt(1 - sqr(z));
 	return float4(r * cos(t), r * sin(t), z, 0);
-	//float x = RandomN(seed);
-	//float y = RandomN(x);
-	//float z = RandomN(y);
-	//return normalize(float4(x, y, z, 0));
 }
 inline float4 Random4(float2 seed)
 {
 	float x = RandomN(seed);
-	float y = RandomN(x);
-	float z = RandomN(y);
-	float w = RandomN(z);
+	float y = RandomN(float2(x,x));
+	float z = RandomN(float2(y,y));
+	float w = RandomN(float2(z,z));
 	return normalize(float4(x, y, z, w));
 }
 
@@ -311,4 +286,7 @@ inline bool WaveActiveOrThisThreadTrue(bool condition)
 	return condition;
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

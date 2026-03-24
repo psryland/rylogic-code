@@ -1,0 +1,8 @@
+// HLSL source for runtime compilation
+src/compute/fluid_simulation/fluid_simulation.hlsl     TEXT DISCARDABLE "src/compute/fluid_simulation/fluid_simulation.hlsl"
+src/compute/particle_collision/collision.hlsli         TEXT DISCARDABLE "src/compute/particle_collision/collision.hlsli"
+src/compute/particle_collision/particle.hlsli          TEXT DISCARDABLE "src/compute/particle_collision/particle.hlsli"
+src/compute/particle_collision/particle_collision.hlsl TEXT DISCARDABLE "src/compute/particle_collision/particle_collision.hlsl"
+src/compute/radix_sort/radix_sort.hlsl                 TEXT DISCARDABLE "src/compute/radix_sort/radix_sort.hlsl"
+src/compute/spatial_partition/spatial_partition.hlsl   TEXT DISCARDABLE "src/compute/spatial_partition/spatial_partition.hlsl"
+src/compute/spatial_partition/spatial_partition.hlsli  TEXT DISCARDABLE "src/compute/spatial_partition/spatial_partition.hlsli"

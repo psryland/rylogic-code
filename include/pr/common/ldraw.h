@@ -4097,10 +4097,6 @@ namespace pr::ldraw
 			m_radius = radius;
 			return *this;
 		}
-		LdrSphere& radius(seri::Vec4 r)
-		{
-			return radius({ r.x, r.y, r.z });
-		}
 		LdrSphere& radius(float rx, float ry, float rz)
 		{
 			return radius({rx, ry, rz});
@@ -4650,7 +4646,7 @@ namespace pr::ldraw
 				"	}\n"
 				"}");
 
-			auto bdr = builder.ToBinary();
+			auto bdr = builder.ToBinary(); // @copilot ToBinary has unimplemented code paths for some property types - fix me
 		}
 		PRUnitTestMethod(Line)
 		{

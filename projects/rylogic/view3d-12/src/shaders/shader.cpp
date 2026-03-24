@@ -135,8 +135,8 @@ namespace pr::rdr12
 	}
 	std::vector<uint8_t> ShaderCompiler::Compile()
 	{
-		#if _DEBUG
-		DebugInfo().Arg(L"-WX").Optimise(false).PDBOutput(L"E:\\Dump\\Symbols");
+		#if PR_PIX_ENABLED && PR_COMPUTE_SHADER_DEBUG
+		DebugInfo().Arg(L"-WX").Optimise(false).PDBOutput(std::filesystem::temp_directory_path() / L"Rylogic" / L"Symbols");
 		#pragma message(PR_LINK "WARNING: ************************************************** Debug Shader Compiling enabled")
 		#endif
 
@@ -156,6 +156,7 @@ namespace pr::rdr12
 		{
 			m_args.push_back(L"-Fd");
 			m_args.push_back(m_pdb_path.c_str());
+			std::filesystem::create_directories(m_pdb_path);
 		}
 		for (auto& extra : m_extras)
 		{

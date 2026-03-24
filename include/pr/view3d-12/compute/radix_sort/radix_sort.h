@@ -42,7 +42,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 		using Gpu = Gpu<QueueType>;
 		using CmdList = CmdList<QueueType>;
 
-		static constexpr int KeyBits = sizeof(Key)*8; // 32-bit keys atm
+		static constexpr int KeyBits = sizeof(Key) * 8; // 32-bit keys atm
 		static constexpr int RadixBits = 8;
 		static constexpr int Radix = 1 << RadixBits; // The number of digit bins
 		static constexpr int RadixPasses = KeyBits / RadixBits;
@@ -53,13 +53,13 @@ namespace pr::rdr12::compute::gpu_radix_sort
 
 		struct EReg
 		{
-			inline static constexpr auto Constants = ECBufReg::b0;
-			inline static constexpr auto Sort0 = EUAVReg::u0;
-			inline static constexpr auto Sort1 = EUAVReg::u1;
-			inline static constexpr auto Payload0 = EUAVReg::u2;
-			inline static constexpr auto Payload1 = EUAVReg::u3;
-			inline static constexpr auto GlobalHistogram = EUAVReg::u4;
-			inline static constexpr auto PassHistogram = EUAVReg::u5;
+			inline static constexpr auto Constants = hlsl::ECBufReg::b0;
+			inline static constexpr auto Sort0 = hlsl::EUAVReg::u0;
+			inline static constexpr auto Sort1 = hlsl::EUAVReg::u1;
+			inline static constexpr auto Payload0 = hlsl::EUAVReg::u2;
+			inline static constexpr auto Payload1 = hlsl::EUAVReg::u3;
+			inline static constexpr auto GlobalHistogram = hlsl::EUAVReg::u4;
+			inline static constexpr auto PassHistogram = hlsl::EUAVReg::u5;
 		};
 
 		struct TuningParams
@@ -110,7 +110,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			, m_size()
 		{
 			auto compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"RADIX_SORT_HLSL", L"TEXT"))
+				.Source(resource::Read<char>(L"src/compute/radix_sort/radix_sort.hlsl", L"TEXT"))
 				.ShaderModel(m_tuning.shader_model)
 				.Optimise()
 				.Define(L"KEYS_PER_THREAD", std::to_wstring(m_tuning.keys_per_thread))
@@ -120,7 +120,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			else if constexpr (std::is_same_v<Key, uint32_t>) compiler.Define(L"KEY_TYPE_ID", L"1");
 			else if constexpr (std::is_same_v<Key, float>)    compiler.Define(L"KEY_TYPE_ID", L"2");
 			else static_assert(false, "Unsupported key type");
-			
+
 			if      constexpr (std::is_same_v<Value, int>)      compiler.Define(L"PAYLOAD_TYPE_ID", L"0");
 			else if constexpr (std::is_same_v<Value, uint32_t>) compiler.Define(L"PAYLOAD_TYPE_ID", L"1");
 			else if constexpr (std::is_same_v<Value, float>)    compiler.Define(L"PAYLOAD_TYPE_ID", L"2");
@@ -197,9 +197,26 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			}
 		}
 
+		// Create sort-size independent buffers
+		void CreateStaticSizeBuffers(CmdList& cmd_list)
+		{
+			if (m_global_histogram == nullptr)
+			{
+				ResDesc desc = ResDesc::Buf<Key>(Radix * RadixPasses, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_global_histogram = m_gpu->CreateResource(desc, cmd_list, "RadixSort:histogram");
+			}
+			if (m_error_count == nullptr)
+			{
+				ResDesc desc = ResDesc::Buf<Key>(1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_error_count = m_gpu->CreateResource(desc, cmd_list, "RadixSort:error_count");
+			}
+		}
+
 		// Bind the given resources for sorting
 		void Bind(CmdList& cmd_list, int64_t size, D3DPtr<ID3D12Resource> sort0, D3DPtr<ID3D12Resource> payload0)
 		{
+			CreateStaticSizeBuffers(cmd_list);
+
 			// Create binding-size dependent buffers
 			{
 				ResDesc desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
@@ -227,17 +244,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			if (size == m_size)
 				return;
 
-			// Create sort-size independent buffers
-			if (m_global_histogram == nullptr)
-			{
-				ResDesc desc = ResDesc::Buf<Key>(Radix * RadixPasses, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_global_histogram = m_gpu->CreateResource(desc, cmd_list, "RadixSort:histogram");
-			}
-			if (m_error_count == nullptr)
-			{
-				ResDesc desc = ResDesc::Buf<Key>(1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_error_count = m_gpu->CreateResource(desc, cmd_list, "RadixSort:error_count");
-			}
+			CreateStaticSizeBuffers(cmd_list);
 
 			// Create sort-size dependent buffers
 			{
@@ -318,8 +325,8 @@ namespace pr::rdr12::compute::gpu_radix_sort
 				cmd_list.CopyBufferRegion(m_payload[0].get(), 0, buf.m_res, buf.m_ofs, buf.m_size);
 			}
 
-			barriers.Transition(m_sort[0].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			barriers.Transition(m_payload[0].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			barriers.Transition(m_sort[0].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			barriers.Transition(m_payload[0].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
 			// Sort the buffers on the GPU

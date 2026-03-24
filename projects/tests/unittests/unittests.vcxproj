@@ -41,7 +41,7 @@
 			</AdditionalLibraryDirectories>
       <AdditionalDependencies>
 				;lua-static.lib
-				;physics-2-static.lib
+				;physics-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
@@ -371,6 +371,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\forward.h" />
     <ClInclude Include="..\..\..\include\pr\common\task_graph.h" />
     <ClInclude Include="..\..\..\include\pr\hlsl\hlsl_proxy.h" />
+    <ClInclude Include="..\..\..\include\pr\hlsl\interop.h" />
     <ClInclude Include="..\..\..\include\pr\math\conversion.h" />
     <ClInclude Include="..\..\..\include\pr\math\core\axis_id.h" />
     <ClInclude Include="..\..\..\include\pr\math\core\constants.h" />
@@ -434,8 +435,8 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\geometry.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\collision.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli" />

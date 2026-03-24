@@ -770,7 +770,7 @@ namespace pr::script
 		}
 		bool Matrix3x3(m3x4& transform)
 		{
-			return Vector3(transform.x, 0) && Vector3(transform.y, 0) && Vector3(transform.z, 0);
+			return Vector3(transform.x4, 0) && Vector3(transform.y4, 0) && Vector3(transform.z4, 0);
 		}
 		bool Matrix3x3S(m3x4& transform)
 		{

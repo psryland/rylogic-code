@@ -68,6 +68,9 @@
     <Filter Include="pr\common">
       <UniqueIdentifier>{e222861f-dc20-4879-a5bb-3f324787147a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="pr\hlsl">
+      <UniqueIdentifier>{77a1cf2b-0340-40a2-86d3-977e01a04a11}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\collision\collision.h">
@@ -130,61 +133,61 @@
     <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h">
       <Filter>pr\gui</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\broadphase\brute.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\broadphase\brute.h">
       <Filter>pr\physics\broadphase</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\constants.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\forward.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\contact.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\engine.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\impulse.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\integrator.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\integrator\jacobian.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\jacobian.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\material\material.h">
       <Filter>pr\physics\material</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\material\material_map.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\material\material_map.h">
       <Filter>pr\physics\material</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\physics.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\rigid_body\rigid_body.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>pr\physics\rigid_body</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\inertia.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\inertia.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\mass.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\mass.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_builder.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_builder.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\shape\shape_mass.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_mass.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\field.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h">
       <Filter>pr\physics\utility</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\ldraw.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h">
       <Filter>pr\physics\utility</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics-2\utility\misc.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h">
       <Filter>pr\physics\utility</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h">
@@ -285,6 +288,51 @@
     <None Include="scenes\stress_test_1000.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="..\..\..\include\pr\hlsl\camera.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\closest_point.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\core.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\geometry.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\hermite_spline.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\intercept.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\interpolate.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\quaternions.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\spatial_algebra.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\vector.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="scenes\all_shapes_drop.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\brick_wall.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\simultaneous_impact_1000.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\stacked_column.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">
@@ -316,7 +364,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="res\compute_shaders.rc">
+    <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
       <Filter>res</Filter>
     </ResourceCompile>
   </ItemGroup>

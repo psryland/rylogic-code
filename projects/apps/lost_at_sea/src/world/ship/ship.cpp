@@ -6,9 +6,9 @@
 #include "src/world/ship/ship.h"
 #include "src/world/ocean/ocean.h"
 #include "src/world/terrain/height_field.h"
-#include "pr/physics-2/collision/contact.h"
-#include "pr/physics-2/integrator/integrator.h"
-#include "pr/physics-2/integrator/impulse.h"
+#include "pr/physics/collision/contact.h"
+#include "pr/physics/integrator/integrator.h"
+#include "pr/physics/integrator/impulse.h"
 
 namespace las
 {

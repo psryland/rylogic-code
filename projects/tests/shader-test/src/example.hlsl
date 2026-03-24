@@ -38,8 +38,8 @@ float4 FaceNormal(float4 a, float4 b, float4 c)
 }
 
 // Compute shader entry point - one thread per triangle
-numthreads(ThreadGroupSize, 1, 1)
-void CSFaceNormal(int3 DTID(dtid), int3 GID(gid), int3 GTID(GTid), int GIDX(gi))
+numthreads(CSFaceNormal, ThreadGroupSize, 1, 1)
+void CSFaceNormal(int3 DTID(dtid))
 {
 	OutputNormals[dtid.x] = FaceNormal(
 		InputTriangles[dtid.x].a,

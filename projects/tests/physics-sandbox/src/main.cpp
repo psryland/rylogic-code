@@ -9,6 +9,8 @@
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
 #include "src/unittests/sandbox_tests.h"
+#include "src/unittests/gpu_compare_tests.h"
+#include "src/unittests/collision_pair_tests.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
 #pragma comment(linker, "\"/manifestdependency:type='win32' \
@@ -35,7 +37,7 @@ namespace physics_sandbox
 		freopen_s(&fp, "CONOUT$", "w", stdout);
 		freopen_s(&fp, "CONOUT$", "w", stderr);
 
-		printf("Physics-2 Sandbox: Running unit tests...\n");
+		printf("Physics Sandbox: Running unit tests...\n");
 
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.

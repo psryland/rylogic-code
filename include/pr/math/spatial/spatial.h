@@ -180,8 +180,8 @@ namespace pr::math::spatial
 	//' i.e. b = a x m = CPM(a) * m, where m is a motion vector
 	template <ScalarTypeFP S> constexpr Mat6x8<S, Motion, Motion> CPM(Vec8<S, Motion> a) noexcept
 	{
-		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang);
-		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin);
+		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang.xyz);
+		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin.xyz);
 		return Mat6x8<S, Motion, Motion>(cx_ang, Zero<Mat3x4<S>>(), cx_lin, cx_ang);
 	}
 
@@ -189,8 +189,8 @@ namespace pr::math::spatial
 	// i.e. b = a x* f = CPM(a) * f, where f is a force vector
 	template <ScalarTypeFP S> constexpr Mat6x8<S, Force, Force> CPM(Vec8<S, Force> a) noexcept
 	{
-		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang);
-		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin);
+		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang.xyz);
+		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin.xyz);
 		return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x4<S>>(), cx_ang);
 	}
 
@@ -201,9 +201,9 @@ namespace pr::math::spatial
 		//  [ E    0] = motion         [E   r^E]
 		//  [r^E   E]          force = [0    E ]
 		if constexpr (std::same_as<VecSpace, Motion>)
-			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x4<S>>(), math::CPM<Mat3x4<S>>(a2b.pos) * a2b.rot, a2b.rot};
+			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x4<S>>(), math::CPM<Mat3x4<S>>(a2b.pos.xyz) * a2b.rot, a2b.rot};
 		else if constexpr (std::same_as<VecSpace, Force>)
-			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x4<S>>(a2b.pos) * a2b.rot, Zero<Mat3x4<S>>(), a2b.rot};
+			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x4<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x4<S>>(), a2b.rot};
 		else
 			static_assert(std::is_same_v<VecSpace, void>, "Invalid VecSpace");
 	}
@@ -211,7 +211,7 @@ namespace pr::math::spatial
 	// Spatial inertia matrix
 	template <ScalarTypeFP S> inline Mat6x8<S, Motion, Force> Inertia(Mat3x4<S> unit_inertia, Vec4<S> com, S mass) noexcept
 	{
-		auto cx = math::CPM<Mat3x4<S>>(com);
+		auto cx = math::CPM<Mat3x4<S>>(com.xyz);
 		auto mcx = mass * cx;
 		return Mat6x8<S, Motion, Force>{
 			mass * unit_inertia - mass * cx * cx, mcx,
@@ -276,9 +276,9 @@ namespace pr::math::spatial::tests
 			auto b2c = Mat4x4::Transform(YAxis<Vec4>(), constants<T>::tau_by_8, Vec4{-1,2,-3,1});
 			auto a2c = b2c * a2b;
 
-			auto A2B = Mat6x8MM{a2b.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2b.pos) * a2b.rot, a2b.rot};
-			auto B2C = Mat6x8MM{b2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(b2c.pos) * b2c.rot, b2c.rot};
-			auto A2C = Mat6x8MM{a2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2c.pos) * a2c.rot, a2c.rot};
+			auto A2B = Mat6x8MM{a2b.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2b.pos.xyz) * a2b.rot, a2b.rot};
+			auto B2C = Mat6x8MM{b2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(b2c.pos.xyz) * b2c.rot, b2c.rot};
+			auto A2C = Mat6x8MM{a2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2c.pos.xyz) * a2c.rot, a2c.rot};
 
 			auto r = B2C * A2B;
 			PR_EXPECT(FEql(A2C, r));
@@ -500,18 +500,19 @@ namespace pr::math::spatial::tests
 		{
 			using Mat3x4 = Mat3x4<T>;
 			using Vec4 = Vec4<T>;
+			using Vec3 = Vec3<T>;
 
 			// Bug test: spatial::Inertia() must include parallel axis term in m00 for non-zero CoM
 			// The m00 block should be Io = Ic - m*S(c)², not just Ic.
 			// The off-diagonal blocks (m01, m10) and m11 are correct, only m00 is missing the correction.
-			auto unit_inertia = Scale<Mat3x4>(Vec4{ T(0.4), T(0.4), T(0.4), T(0) }); // sphere radius 1
+			auto unit_inertia = Scale<Mat3x4>(Vec3{ T(0.4), T(0.4), T(0.4) }); // sphere radius 1
 			auto com = Vec4{0, 1, 0, 0};
 			auto mass = T(5.0);
 
 			auto si = Inertia(unit_inertia, com, mass);
 
 			// Expected m00: Io = Ic - m*CPM(c)*CPM(c), where Ic = m * unit_inertia
-			auto cx = math::CPM<Mat3x4>(com);
+			auto cx = math::CPM<Mat3x4>(com.xyz);
 			auto Ic = mass * unit_inertia;
 			auto Io = Ic - mass * cx * cx;
 			PR_EXPECT(FEql(si.m00, Io)); // Bug: si.m00 == Ic, missing the -m*cx*cx term

@@ -81,6 +81,8 @@ namespace physics_sandbox
 			ss << L"--- Body " << i << L" ---\r\n";
 			ss << L"  Pos:   " << std::fixed << std::setprecision(2)
 				<< pos.x << L", " << pos.y << L", " << pos.z << L"\r\n";
+			ss << L"  State: " << (body.Sleeping() ? L"Sleeping" : L"Awake")
+				<< L" (simplex:" << body.ContactSimplexCount() << L")\r\n";
 			ss << L"  Vel:   "
 				<< vel.lin.x << L", " << vel.lin.y << L", " << vel.lin.z << L"\r\n";
 			ss << L"  AngV:  "

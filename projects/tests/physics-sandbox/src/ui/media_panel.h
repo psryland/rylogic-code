@@ -10,6 +10,7 @@ namespace physics_sandbox
 	{
 		Button m_btn_play;
 		Button m_btn_pause;
+		Button m_btn_step;
 		Button m_btn_reset;
 		Label  m_lbl_speed;  // Shows current time scale, e.g. "Speed: 1.00x"
 		HWND   m_slider;     // Win32 trackbar for time scale (no wingui wrapper exists)
@@ -23,6 +24,7 @@ namespace physics_sandbox
 		// Events fired when buttons are clicked
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnPlay;
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnPause;
+		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnStep;
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnReset;
 
 		MediaPanel(Panel::Params<> p = Panel::Params<>());

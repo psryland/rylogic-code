@@ -1,0 +1,52 @@
+{
+"scene": {
+  "description": "All shape types drop test: one of each collision shape falling onto a ground plane.",
+  "gravity": [0, 0, -9.81],
+  "material": { "elasticity": 0.8, "friction": 0.3 },
+  "ground_plane": { "height": 0.0, "texture": "#checker" },
+  "bodies": [
+    {
+      "name": "box",
+      "shape": { "type": "box", "dimensions": [1.0, 1.0, 1.0] },
+      "mass": 10.0,
+      "position": [-4.0, 0.0, 5.0]
+    },
+    {
+      "name": "sphere",
+      "shape": { "type": "sphere", "radius": 0.5 },
+      "mass": 8.0,
+      "position": [-2.0, 0.0, 5.0]
+    },
+    {
+      "name": "line",
+      "shape": { "type": "line", "length": 2.0, "thickness": 0.1 },
+      "mass": 5.0,
+      "position": [0.0, 0.0, 5.0]
+    },
+    {
+      "name": "polytope",
+      "shape": {
+        "type": "polytope",
+        "vertices": [
+          [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5],
+          [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
+          [0.0, 0.0, 0.7]
+        ]
+      },
+      "mass": 12.0,
+      "position": [2.0, 0.0, 5.0]
+    },
+    {
+      "name": "triangle",
+      "shape": {
+        "type": "triangle",
+        "vertices": [
+          [-0.5, -0.5, 0.0], [0.5, -0.5, 0.0], [0.0, 0.5, 0.0]
+        ]
+      },
+      "mass": 3.0,
+      "position": [4.0, 0.0, 5.0]
+    }
+  ]
+}
+}

@@ -611,7 +611,7 @@ namespace pr::rdr12::compute::fluid
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
 			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"FLUID_SIMULATION_HLSL", L"TEXT"))
+				.Source(resource::Read<char>(L"src/compute/fluid_simulation/fluid_simulation.hlsl", L"TEXT"))
 				.Includes({ new ResourceIncludeHandler, true })
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)

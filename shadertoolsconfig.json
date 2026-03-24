@@ -1,6 +1,8 @@
 {
+	"root": true,
 	"hlsl.additionalIncludeDirectories": [
-		"E:/Rylogic/Code/include",
-		"E:/Rylogic/Code/projects/rylogic"
+		"include",
+		"projects/rylogic/view3d-12",
+		"projects/rylogic/physics"
 	]
 }
