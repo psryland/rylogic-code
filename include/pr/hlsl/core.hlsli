@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // HLSL
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -135,29 +135,6 @@ inline float sum(float4 v)
 	return dot(v, float4(1,1,1,1));
 }
 
-// Intrinsic for condition ? true_case : false_case
-inline int select(bool condition, int true_case, int false_case)
-{
-	int mask = -(int)condition;
-	return (mask & true_case) | (~mask & false_case);
-}
-inline float1 select(bool condition, float1 true_case, float1 false_case)
-{
-	return lerp(false_case, true_case, float(condition));
-}
-inline float2 select(bool condition, float2 true_case, float2 false_case)
-{
-	return lerp(false_case, true_case, float(condition));
-}
-inline float3 select(bool condition, float3 true_case, float3 false_case)
-{
-	return lerp(false_case, true_case, float(condition));
-}
-inline float4 select(bool condition, float4 true_case, float4 false_case)
-{
-	return lerp(false_case, true_case, float(condition));
-}
-
 // Return the index of the component with the minimum value
 inline int min_component_index(float2 v)
 {
@@ -168,14 +145,14 @@ inline int min_component_index(float3 v)
 {
 	// step(b,a) == (a >= b) ? 1 : 0 == (b < a) ? 1 : 0
 	int xy = (int)step(v.y, v.x); // y < x ? 1 : 0
-	return select(v[xy] < v.z, xy, 2);
+	return (v[xy] < v.z) ? xy : 2;
 }
 inline int min_component_index(float4 v)
 {
 	// step(b,a) == (a >= b) ? 1 : 0 == (b < a) ? 1 : 0
 	int xy = (int)step(v.y, v.x) + 0; // y < x ? 1 : 0
 	int zw = (int)step(v.w, v.z) + 2; // w < z ? 3 : 2
-	return select(v[xy] < v[zw], xy, zw);
+	return (v[xy] < v[zw]) ? xy : zw;
 }
 inline int max_component_index(float2 v)
 {
@@ -186,14 +163,14 @@ inline int max_component_index(float3 v)
 {
 	// step(b,a) == (a >= b) ? 1 : 0 == (b < a) ? 1 : 0
 	int xy = (int)step(v.x, v.y) + 0; // x < y ? 1 : 0
-	return select(v[xy] > v.z, xy, 2);
+	return (v[xy] > v.z) ? xy : 2;
 }
 inline int max_component_index(float4 v)
 {
 	// step(b,a) == (a >= b) ? 1 : 0 == (b < a) ? 1 : 0
 	int xy = (int)step(v.x, v.y) + 0; // x < y ? 1 : 0
 	int zw = (int)step(v.z, v.w) + 2; // z < w ? 3 : 2
-	return select(v[xy] > v[zw], xy, zw);
+	return (v[xy] > v[zw]) ? xy : zw;
 }
 
 // Bit flag test
@@ -207,7 +184,7 @@ inline bool HasFlag(uint mask, uint flag)
 }
 inline int SetFlag(int mask, int flag, bool on)
 {
-	return select(on, mask | flag, mask & ~flag);
+	return on ? (mask | flag) : (mask & ~flag);
 }
 
 // Return the parametric position of 'x' on the range [mn, mx]

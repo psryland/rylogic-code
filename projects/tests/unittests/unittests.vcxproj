@@ -364,13 +364,21 @@
 			</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="src\dependecy_check_new_math.cpp" />
+    <ClCompile Include="src\hlsl\bounding_box_tests.cpp" />
+    <ClCompile Include="src\hlsl\closest_point_tests.cpp" />
+    <ClCompile Include="src\hlsl\core_tests.cpp" />
+    <ClCompile Include="src\hlsl\geometry_tests.cpp" />
+    <ClCompile Include="src\hlsl\intercept_tests.cpp" />
+    <ClCompile Include="src\hlsl\interpolate_tests.cpp" />
+    <ClCompile Include="src\hlsl\quaternion_tests.cpp" />
+    <ClCompile Include="src\hlsl\spatial_algebra_tests.cpp" />
+    <ClCompile Include="src\hlsl\vector_tests.cpp" />
     <ClCompile Include="src\unittests.cpp" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\core\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\math.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\tests\vector2_tests.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\forward.h" />
     <ClInclude Include="..\..\..\include\pr\common\task_graph.h" />
-    <ClInclude Include="..\..\..\include\pr\hlsl\hlsl_proxy.h" />
     <ClInclude Include="..\..\..\include\pr\hlsl\interop.h" />
     <ClInclude Include="..\..\..\include\pr\math\conversion.h" />
     <ClInclude Include="..\..\..\include\pr\math\core\axis_id.h" />

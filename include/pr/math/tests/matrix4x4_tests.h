@@ -21,10 +21,10 @@ namespace pr::math::tests
 
 			// From scalar broadcast
 			auto M0 = mat4_t(T(1));
-			PR_EXPECT(M0.x == vec4_t(T(1)));
-			PR_EXPECT(M0.y == vec4_t(T(1)));
-			PR_EXPECT(M0.z == vec4_t(T(1)));
-			PR_EXPECT(M0.w == vec4_t(T(1)));
+			PR_EXPECT(All(M0.x == vec4_t(T(1))));
+			PR_EXPECT(All(M0.y == vec4_t(T(1))));
+			PR_EXPECT(All(M0.z == vec4_t(T(1))));
+			PR_EXPECT(All(M0.w == vec4_t(T(1))));
 
 			// From Vec4 columns
 			auto M1 = mat4_t(
@@ -32,23 +32,23 @@ namespace pr::math::tests
 				vec4_t(T(5), T(6), T(7), T(8)),
 				vec4_t(T(9), T(10), T(11), T(12)),
 				vec4_t(T(13), T(14), T(15), T(16)));
-			PR_EXPECT(M1.x == vec4_t(T(1), T(2), T(3), T(4)));
-			PR_EXPECT(M1.w == vec4_t(T(13), T(14), T(15), T(16)));
+			PR_EXPECT(All(M1.x == vec4_t(T(1), T(2), T(3), T(4))));
+			PR_EXPECT(All(M1.w == vec4_t(T(13), T(14), T(15), T(16))));
 
 			// From Mat3x4 + position
 			auto rot = mat3_t::Identity();
 			auto pos = vec4_t(T(1), T(2), T(3), T(1));
 			auto M2 = mat4_t(rot, pos);
-			PR_EXPECT(M2.x == rot.x4);
-			PR_EXPECT(M2.y == rot.y4);
-			PR_EXPECT(M2.z == rot.z4);
-			PR_EXPECT(M2.w == pos);
+			PR_EXPECT(All(M2.x == rot.x4));
+			PR_EXPECT(All(M2.y == rot.y4));
+			PR_EXPECT(All(M2.z == rot.z4));
+			PR_EXPECT(All(M2.w == pos));
 
 			// Array access
-			PR_EXPECT(M1[0] == M1.x);
-			PR_EXPECT(M1[1] == M1.y);
-			PR_EXPECT(M1[2] == M1.z);
-			PR_EXPECT(M1[3] == M1.w);
+			PR_EXPECT(All(M1[0] == M1.x));
+			PR_EXPECT(All(M1[1] == M1.y));
+			PR_EXPECT(All(M1[2] == M1.z));
+			PR_EXPECT(All(M1[3] == M1.w));
 		}
 		PRUnitTestMethod(ColRow, float, double, int32_t, int64_t)
 		{
@@ -62,17 +62,17 @@ namespace pr::math::tests
 				vec4_t(T(13), T(14), T(15), T(16)));
 
 			// col(i) returns the i-th column
-			PR_EXPECT(M.col(0) == vec4_t(T(1), T(2), T(3), T(4)));
-			PR_EXPECT(M.col(3) == vec4_t(T(13), T(14), T(15), T(16)));
+			PR_EXPECT(All(M.col(0) == vec4_t(T(1), T(2), T(3), T(4))));
+			PR_EXPECT(All(M.col(3) == vec4_t(T(13), T(14), T(15), T(16))));
 
 			// row(i) returns the i-th row
-			PR_EXPECT(M.row(0) == vec4_t(T(1), T(5), T(9), T(13)));
-			PR_EXPECT(M.row(3) == vec4_t(T(4), T(8), T(12), T(16)));
+			PR_EXPECT(All(M.row(0) == vec4_t(T(1), T(5), T(9), T(13))));
+			PR_EXPECT(All(M.row(3) == vec4_t(T(4), T(8), T(12), T(16))));
 
 			// Set col/row
 			auto M2 = M;
 			M2.col(2, vec4_t(T(90), T(100), T(110), T(120)));
-			PR_EXPECT(M2.col(2) == vec4_t(T(90), T(100), T(110), T(120)));
+			PR_EXPECT(All(M2.col(2) == vec4_t(T(90), T(100), T(110), T(120))));
 
 			auto M3 = M;
 			M3.row(0, vec4_t(T(10), T(50), T(90), T(130)));
@@ -83,16 +83,16 @@ namespace pr::math::tests
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
 
-			PR_EXPECT(mat4_t::Zero() == mat4_t(T(0)));
+			PR_EXPECT(All(mat4_t::Zero() == mat4_t(T(0))));
 
 			auto I = mat4_t::Identity();
-			PR_EXPECT(I.x == vec4_t(T(1), T(0), T(0), T(0)));
-			PR_EXPECT(I.y == vec4_t(T(0), T(1), T(0), T(0)));
-			PR_EXPECT(I.z == vec4_t(T(0), T(0), T(1), T(0)));
-			PR_EXPECT(I.w == vec4_t(T(0), T(0), T(0), T(1)));
+			PR_EXPECT(All(I.x == vec4_t(T(1), T(0), T(0), T(0))));
+			PR_EXPECT(All(I.y == vec4_t(T(0), T(1), T(0), T(0))));
+			PR_EXPECT(All(I.z == vec4_t(T(0), T(0), T(1), T(0))));
+			PR_EXPECT(All(I.w == vec4_t(T(0), T(0), T(0), T(1))));
 
 			// Identity * Identity = Identity
-			PR_EXPECT(I * I == I);
+			PR_EXPECT(All(I * I == I));
 		}
 		PRUnitTestMethod(TraceScaleUnscaled, float, double)
 		{
@@ -117,16 +117,16 @@ namespace pr::math::tests
 			auto pos = vec4_t(T(1), T(2), T(3), T(1));
 			auto M1 = mat4_t::Translation(pos);
 			auto M2 = mat4_t::Translation(T(1), T(2), T(3));
-			PR_EXPECT(M1 == M2);
+			PR_EXPECT(All(M1 == M2));
 
 			// Translating a position should add the translation
 			auto p = vec4_t(T(0), T(0), T(0), T(1));
 			auto r = M1 * p;
-			PR_EXPECT(r == vec4_t(T(1), T(2), T(3), T(1)));
+			PR_EXPECT(All(r == vec4_t(T(1), T(2), T(3), T(1))));
 
 			// Translating a direction should not change it
 			auto d = vec4_t(T(1), T(0), T(0), T(0));
-			PR_EXPECT(M1 * d == d);
+			PR_EXPECT(All(M1 * d == d));
 		}
 		PRUnitTestMethod(TransformComposition, float, double)
 		{
@@ -182,8 +182,8 @@ namespace pr::math::tests
 
 			// w0 strips the translation, setting w column to Origin
 			auto M0 = M.w1();
-			PR_EXPECT(M0.w == vec4_t::Origin());
-			PR_EXPECT(M0.x == M.x && M0.y == M.y && M0.z == M.z);
+			PR_EXPECT(All(M0.w == vec4_t::Origin()));
+			PR_EXPECT(All(M0.x == M.x) && All(M0.y == M.y) && All(M0.z == M.z));
 		}
 		PRUnitTestMethod(IntrinsicValidation)
 		{

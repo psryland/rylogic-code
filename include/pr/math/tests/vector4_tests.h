@@ -89,13 +89,13 @@ namespace pr::math::tests
 		{
 			using vec4_t = Vec4<T>;
 
-			static_assert(Zero<vec4_t>() == vec4_t(T(0), T(0), T(0), T(0)));
-			static_assert(One<vec4_t>() == vec4_t(T(1), T(1), T(1), T(1)));
-			static_assert(XAxis<vec4_t>() == vec4_t(T(1), T(0), T(0), T(0)));
-			static_assert(YAxis<vec4_t>() == vec4_t(T(0), T(1), T(0), T(0)));
-			static_assert(ZAxis<vec4_t>() == vec4_t(T(0), T(0), T(1), T(0)));
-			static_assert(WAxis<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1)));
-			static_assert(Origin<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1)));
+			static_assert(All(Zero<vec4_t>() == vec4_t(T(0), T(0), T(0), T(0))));
+			static_assert(All(One<vec4_t>() == vec4_t(T(1), T(1), T(1), T(1))));
+			static_assert(All(XAxis<vec4_t>() == vec4_t(T(1), T(0), T(0), T(0))));
+			static_assert(All(YAxis<vec4_t>() == vec4_t(T(0), T(1), T(0), T(0))));
+			static_assert(All(ZAxis<vec4_t>() == vec4_t(T(0), T(0), T(1), T(0))));
+			static_assert(All(WAxis<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1))));
+			static_assert(All(Origin<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1))));
 		}
 		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
 		{
@@ -105,19 +105,19 @@ namespace pr::math::tests
 			auto a = vec4_t(T(10), T(20), T(30), T(40));
 			auto b = vec4_t(T(-40), T(-30), T(-20), T(-10));
 
-			PR_EXPECT(a + b == vec4_t(T(-30), T(-10), T(+10), T(+30)));
-			PR_EXPECT(a - b == vec4_t(T(+50), T(+50), T(+50), T(+50)));
-			PR_EXPECT(a * T(3) == vec4_t(T(+30), T(+60), T(+90), T(+120)));
-			PR_EXPECT(T(3) * a == vec4_t(T(+30), T(+60), T(+90), T(+120)));
-			PR_EXPECT(a / T(2) == vec4_t(T(5), T(10), T(15), T(20)));
+			PR_EXPECT(All(a + b == vec4_t(T(-30), T(-10), T(+10), T(+30))));
+			PR_EXPECT(All(a - b == vec4_t(T(+50), T(+50), T(+50), T(+50))));
+			PR_EXPECT(All(a * T(3) == vec4_t(T(+30), T(+60), T(+90), T(+120))));
+			PR_EXPECT(All(T(3) * a == vec4_t(T(+30), T(+60), T(+90), T(+120))));
+			PR_EXPECT(All(a / T(2) == vec4_t(T(5), T(10), T(15), T(20))));
 
-			PR_EXPECT(+a == vec4_t(T(+10), T(+20), T(+30), T(+40)));
-			PR_EXPECT(-a == vec4_t(T(-10), T(-20), T(-30), T(-40)));
+			PR_EXPECT(All(+a == vec4_t(T(+10), T(+20), T(+30), T(+40))));
+			PR_EXPECT(All(-a == vec4_t(T(-10), T(-20), T(-30), T(-40))));
 
 			auto c = vec4_t(T(+1), T(-2), T(+3), T(-4));
 			auto d = vec4_t(T(-1), T(+2), T(-3), T(+4));
-			PR_EXPECT((c == d) == !(c != d));
-			PR_EXPECT((c != d) == !(c == d));
+			PR_EXPECT(All((c == d) == !(c != d)));
+			PR_EXPECT(All((c != d) == !(c == d)));
 		}
 		PRUnitTestMethod(Dot4, float, double, int32_t, int64_t)
 		{

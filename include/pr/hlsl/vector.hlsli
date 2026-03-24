@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // HLSL
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -11,55 +11,55 @@ namespace pr::hlsl {
 #endif
 
 // Returns true if all vector elements are 0
-bool AllZero(float2 a)
+inline bool AllZero(float2 a)
 {
 	return !any(a);
 }
-bool AllZero(float3 a)
+inline bool AllZero(float3 a)
 {
 	return !any(a);
 }
-bool AllZero(float4 a)
+inline bool AllZero(float4 a)
 {
 	return !any(a);
 }
 
 // Returns true if all vector elements are >= 0
-bool AllZeroOrPositive(float2 a)
+inline bool AllZeroOrPositive(float2 a)
 {
 	return !any(abs(a) - a);
 }
-bool AllZeroOrPositive(float3 a)
+inline bool AllZeroOrPositive(float3 a)
 {
 	return !any(abs(a) - a);
 }
-bool AllZeroOrPositive(float4 a)
+inline bool AllZeroOrPositive(float4 a)
 {
 	return !any(abs(a) - a);
 }
 
 // Return the sum of the components of 'vec'
-float SumComponents(float2 vec)
+inline float SumComponents(float2 vec)
 {
 	return dot(vec, float2(1, 1));
 }
-float SumComponents(float3 vec)
+inline float SumComponents(float3 vec)
 {
 	return dot(vec, float3(1, 1, 1));
 }
-float SumComponents(float4 vec)
+inline float SumComponents(float4 vec)
 {
 	return dot(vec, float4(1,1,1,1));
 }
 
 // Triple product
-float Triple(float4 a, float4 b, float4 c)
+inline float Triple(float4 a, float4 b, float4 c)
 {
 	return dot(a, float4(cross(b.xyz, c.xyz), 0));
 }
 
 // Cross-product matrix: CPM(r) * v = cross(r, v)
-float3x3 CrossProductMatrix(float3 r)
+inline float3x3 CrossProductMatrix(float3 r)
 {
 	return float3x3(
 		float3(0, r.z, -r.y),
@@ -68,17 +68,17 @@ float3x3 CrossProductMatrix(float3 r)
 }
 
 // Rotate a 2D vector
-float2 RotateCW(float2 a)
+inline float2 RotateCW(float2 a)
 {
 	return float2(a.y, -a.x);
 }
-float2 RotateCCW(float2 a)
+inline float2 RotateCCW(float2 a)
 {
 	return float2(-a.y, a.x);
 }
 
 // 2D cross product
-float Cross2D(float2 lhs, float2 rhs)
+inline float Cross2D(float2 lhs, float2 rhs)
 {
 	return lhs.x * rhs.y - lhs.y * rhs.x;
 }
@@ -87,17 +87,17 @@ float Cross2D(float2 lhs, float2 rhs)
 inline float2 NotParallel(float2 v)
 {
 	v = abs(v);
-	return select(v.x > v.y, float2(0,1), float2(1,0));
+	return (v.x > v.y) ? float2(0,1) : float2(1,0);
 }
 inline float3 NotParallel(float3 v)
 {
 	v = abs(v);
-	return select(v.x > v.y && v.x > v.z, float3(0,0,1), float3(1,0,0));
+	return (v.x > v.y && v.x > v.z) ? float3(0,0,1) : float3(1,0,0);
 }
 inline float4 NotParallel(float4 v)
 {
 	v = abs(v);
-	return select(v.x > v.y && v.x > v.z, float4(0,0,1,0), float4(1,0,0,0));
+	return (v.x > v.y && v.x > v.z) ? float4(0,0,1,0) : float4(1,0,0,0);
 }
 
 // Return a vector perpendicular to 'v'
@@ -115,28 +115,28 @@ inline float3 Perpendicular(float3 v)
 inline float2 NormaliseOrZero(float2 vec)
 {
 	float len = length(vec);
-	return select(len != 0, vec / len, float2(0,0));
+	return (len != 0) ? vec / len : float2(0,0);
 }
 inline float3 NormaliseOrZero(float3 vec)
 {
 	float len = length(vec);
-	return select(len != 0, vec / len, float3(0,0,0));
+	return (len != 0) ? vec / len : float3(0,0,0);
 }
 inline float4 NormaliseOrZero(float4 vec)
 {
 	float len = length(vec);
-	return select(len != 0, vec / len, float4(0,0,0,0));
+	return (len != 0) ? vec / len : float4(0,0,0,0);
 }
 
 // Orthonormalise a rotation matrix
-float3x3 Orthonormalise(float3x3 mat)
+inline float3x3 Orthonormalise(float3x3 mat)
 {
 	mat[0] = normalize(mat[0]);
 	mat[1] = normalize(cross(mat[2], mat[0]));
 	mat[2] = cross(mat[0], mat[1]);
 	return mat;
 }
-float4x4 Orthonormalise(float4x4 mat)
+inline float4x4 Orthonormalise(float4x4 mat)
 {
 	mat[0].xyz = normalize(mat[0].xyz);
 	mat[1].xyz = normalize(cross(mat[2].xyz, mat[0].xyz));
@@ -145,7 +145,7 @@ float4x4 Orthonormalise(float4x4 mat)
 }
 
 // Invert an orthonormal matrix
-float4x4 InvertOrthonormal(float4x4 mat)
+inline float4x4 InvertOrthonormal(float4x4 mat)
 {
 	// This assumes row_major float4x4's
 	return float4x4(
@@ -160,7 +160,7 @@ float4x4 InvertOrthonormal(float4x4 mat)
 }
 
 // Invert a matrix assuming that it's an affine matrix
-float4x4 InvertAffine(float4x4 mat)
+inline float4x4 InvertAffine(float4x4 mat)
 {
 	float3 t = mat[3].xyz;
 	float3x3 r = (float3x3)mat;
@@ -174,10 +174,10 @@ float4x4 InvertAffine(float4x4 mat)
 	// Invert rotation
 	float3x3 rt = transpose(r);
 
-	// Invert scale
-	rt[0] /= s.x;
-	rt[1] /= s.y;
-	rt[2] /= s.z;
+	// Apply inverse scale: R^T * S^-1 (divide each row by the full scale vector, i.e. column j by s_j)
+	rt[0] /= s;
+	rt[1] /= s;
+	rt[2] /= s;
 
 	// Invert translation
 	float3 inv_t = float3(
@@ -196,7 +196,7 @@ float4x4 InvertAffine(float4x4 mat)
 }
 
 // Invert a 3x3 matrix using cofactor expansion
-float3x3 Invert(float3x3 m)
+inline float3x3 Invert(float3x3 m)
 {
 	float3 c0 = cross(m[1], m[2]);
 	float3 c1 = cross(m[2], m[0]);
@@ -207,7 +207,7 @@ float3x3 Invert(float3x3 m)
 }
 
 // Return a vector representing the approximate rotation between two orthonormal transforms
-float3 RotationVectorApprox(float3x3 from, float3x3 to)
+inline float3 RotationVectorApprox(float3x3 from, float3x3 to)
 {
 	// Note: 'from' and 'to' must be orthonormal matrices.
 	//

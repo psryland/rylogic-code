@@ -901,7 +901,7 @@ namespace pr::script
 					SectionEnd();
 
 					v4 axis = AxisId(axis_id);
-					if (axis == v4::Zero())
+					if (LengthSq(axis) == 0)
 					{
 						ReportError(EResult::UnknownValue, Location(), "axis_id must one of \xc2\xb1""1, \xc2\xb1""2, \xc2\xb1""3");
 						break;

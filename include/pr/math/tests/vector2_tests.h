@@ -52,7 +52,7 @@ namespace pr::math::tests
 				if constexpr (std::floating_point<T>)
 					return FEql(lhs, rhs);
 				else
-					return lhs == rhs;
+					return All(lhs == rhs);
 			};
 
 			constexpr auto V0 = vec2_t(T(10), T(8));
@@ -73,8 +73,8 @@ namespace pr::math::tests
 			static_assert(Eql(+V0, vec2_t(T(+10), T(+8))));
 			static_assert(Eql(-V0, vec2_t(T(-10), T(-8))));
 
-			static_assert(V0 == vec2_t(T(10), T(8)));
-			static_assert(V0 != vec2_t(T(2), T(1)));
+			static_assert(All(V0 == vec2_t(T(10), T(8))));
+			static_assert(Any(V0 != vec2_t(T(2), T(1))));
 		}
 		PRUnitTestMethod(DotProduct, float, double, int32_t, int64_t)
 		{
@@ -125,13 +125,13 @@ namespace pr::math::tests
 			constexpr auto V0 = vec2_t(T(1), T(2));
 
 			// Permute by 0 is identity
-			static_assert(Permute(V0, 0) == vec2_t(T(1), T(2)));
+			static_assert(All(Permute(V0, 0) == vec2_t(T(1), T(2))));
 
 			// Permute by 1 swaps x and y
-			static_assert(Permute(V0, 1) == vec2_t(T(2), T(1)));
+			static_assert(All(Permute(V0, 1) == vec2_t(T(2), T(1))));
 
 			// Permute by 2 is back to identity
-			static_assert(Permute(V0, 2) == vec2_t(T(1), T(2)));
+			static_assert(All(Permute(V0, 2) == vec2_t(T(1), T(2))));
 		}
 		PRUnitTestMethod(Orthant, float, double, int32_t, int64_t)
 		{
@@ -167,22 +167,22 @@ namespace pr::math::tests
 			constexpr auto V0 = vec2_t(T(1), T(0));
 
 			// Rotate CW: (1,0) -> (0,1). CW rotates +X toward +Y.
-			static_assert(Rotate90CW(V0) == vec2_t(T(0), T(1)));
+			static_assert(All(Rotate90CW(V0) == vec2_t(T(0), T(1))));
 
 			// Rotate CCW: (1,0) -> (0,-1). CCW rotates +X toward -Y.
-			static_assert(Rotate90CCW(V0) == vec2_t(T(0), T(-1)));
+			static_assert(All(Rotate90CCW(V0) == vec2_t(T(0), T(-1))));
 
 			// Full rotation: 4x CW should return to original
 			constexpr auto V1 = Rotate90CW(Rotate90CW(Rotate90CW(Rotate90CW(V0))));
-			static_assert(V1 == V0);
+			static_assert(All(V1 == V0));
 
 			// Full rotation: 4x CCW should return to original
 			constexpr auto V2 = Rotate90CCW(Rotate90CCW(Rotate90CCW(Rotate90CCW(V0))));
-			static_assert(V2 == V0);
+			static_assert(All(V2 == V0));
 
 			// CW then CCW is identity
 			constexpr auto V3 = Rotate90CCW(Rotate90CW(V0));
-			static_assert(V3 == V0);
+			static_assert(All(V3 == V0));
 		}
 	};
 }

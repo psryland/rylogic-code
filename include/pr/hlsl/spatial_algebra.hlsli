@@ -19,6 +19,7 @@
 //     rows are basis vectors (the transpose of the mathematical rotation matrix).
 #ifndef PR_HLSL_SPATIAL_ALGEBRA_HLSLI
 #define PR_HLSL_SPATIAL_ALGEBRA_HLSLI
+#include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
 namespace pr::hlsl {
@@ -36,7 +37,7 @@ namespace pr::hlsl {
 //   R_math = I + (sin θ / θ) [v]× + ((1 - cos θ) / θ²) [v]×²
 // where θ = |axis_angle|, [v]× is the skew-symmetric cross-product matrix.
 // We return transpose(R_math) for our row-vector convention.
-float3x3 rodrigues_rotation(float3 axis_angle)
+inline float3x3 rodrigues_rotation(float3 axis_angle)
 {
 	float theta_sq = dot(axis_angle, axis_angle);
 
@@ -80,12 +81,12 @@ float3x3 rodrigues_rotation(float3 axis_angle)
 // This reconstructs the inverse inertia tensor from its compact storage form.
 //   diag = {Ixx, Iyy, Izz}
 //   prod = {Ixy, Ixz, Iyz}
-float3x3 build_symmetric_3x3(float3 diag, float3 prod)
+inline float3x3 build_symmetric_3x3(float3 diag, float3 prod)
 {
 	return float3x3(
-		diag.x, prod.x, prod.y,
-		prod.x, diag.y, prod.z,
-		prod.y, prod.z, diag.z
+		float3(diag.x, prod.x, prod.y),
+		float3(prod.x, diag.y, prod.z),
+		float3(prod.y, prod.z, diag.z)
 	);
 }
 
@@ -97,7 +98,7 @@ float3x3 build_symmetric_3x3(float3 diag, float3 prod)
 // Since 'rot' stores R^T (rows = basis vectors), the formula becomes:
 //   I⁻¹_B = transpose(rot) * I⁻¹_A * rot
 // The result is symmetrized to counteract floating-point drift after repeated rotations.
-float3x3 rotate_inertia_inv(float3x3 iinv, float3x3 rot)
+inline float3x3 rotate_inertia_inv(float3x3 iinv, float3x3 rot)
 {
 	// rot = R^T in row-vector convention, so:
 	//   transpose(rot) = R
@@ -116,7 +117,7 @@ float3x3 rotate_inertia_inv(float3x3 iinv, float3x3 rot)
 // After repeated small rotations, floating-point drift causes the matrix to lose
 // orthonormality. This function restores it by re-orthogonalizing the basis vectors
 // and renormalizing them. The X axis is taken as the reference direction.
-float3x3 orthonorm3x3(float3x3 m)
+inline float3x3 orthonorm3x3(float3x3 m)
 {
 	// Start from the X axis (row 0), normalize it
 	float3 x = normalize(m[0]);
@@ -157,10 +158,10 @@ float3x3 orthonorm3x3(float3x3 m)
 //   force      — Linear component of the spatial force (momentum.lin)
 //   out_ang    — [out] Angular velocity
 //   out_lin    — [out] Linear velocity
-void spatial_multiply_inertia_inv(
+inline void spatial_multiply_inertia_inv(
 	float3x3 iinv_3x3, float inv_mass, float3 com,
 	float3 torque, float3 force,
-	out float3 out_ang, out float3 out_lin)
+	out_(float3) out_ang, out_(float3) out_lin)
 {
 	// Check if com is effectively zero (block-diagonal case)
 	if (dot(com, com) < 1e-12f)
@@ -186,7 +187,7 @@ void spatial_multiply_inertia_inv(
 
 // Compute the dot product of two spatial vectors (angular + linear parts).
 // Used for kinetic energy: KE = 0.5 * dot(velocity, momentum)
-float spatial_dot(float3 ang_a, float3 lin_a, float3 ang_b, float3 lin_b)
+inline float spatial_dot(float3 ang_a, float3 lin_a, float3 ang_b, float3 lin_b)
 {
 	return dot(ang_a, ang_b) + dot(lin_a, lin_b);
 }

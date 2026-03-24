@@ -63,7 +63,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	int end_idx = g_aabb_idx[idx] | 1;
 
 	// The world-space bbox of the object we're testing
-	BBox ws_bbox = Transform(rb.os_bbox, rb.o2w);
+	BBox ws_bbox = BBox_Transform(rb.os_bbox, rb.o2w);
 	
 	// Search for overlaps on this axis.
 	// Walk forward from this body's start bound until our end bound is reached.
@@ -77,7 +77,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 		int rbB_idx = payload >> 1;
 		
 		GpuRigidBody other_rb = g_bodies[rbB_idx];
-		BBox other_ws_bbox = Transform(other_rb.os_bbox, other_rb.o2w);
+		BBox other_ws_bbox = BBox_Transform(other_rb.os_bbox, other_rb.o2w);
 		
 		// If intersection on all three axes, add a pair to the output buffer.
 		// Canonicalise pair so lower body index is always 'a'.

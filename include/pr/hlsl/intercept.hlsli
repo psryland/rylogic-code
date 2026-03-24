@@ -6,6 +6,7 @@
 #define PR_HLSL_INTERCEPT_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
 namespace pr::hlsl {
@@ -21,19 +22,19 @@ namespace pr::hlsl {
 
 // Forwards
 float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c);
-float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out float f2b);
+float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out_(float) f2b);
 
 // Calculate the barycentric coordinates for the intersection of a line passing through 's -> s+d' and a triangle 'a-b-c'.
 // Returns xyz = bary coords of intercept on the triangle, w = unused.
 // Returns (0,0,0,0) if the ray is in the plane of 'a-b-c'.
 // The ray intersects the triangle if: !AllZero(para) && all(saturate(para) == para);
 // The intersection is at: BaryPoint(a, b, c, return.xyz), return.w is unused.
-float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c)
+inline float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c)
 {
 	float f2b;
 	return Intercept_RayVsTriangle(s, d, a, b, c, f2b);
 }
-float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out float f2b)
+inline float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out_(float) f2b)
 {
 	float4 sa = a - s;
 	float4 sb = b - s;
@@ -58,9 +59,9 @@ float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c,
 
 // Returns the parametric value of the intersection between the line between 's' and 'e', with 'frust'.
 // Assumes 's' is within the frustum to start with.
-float Intercept_LineVsFrustum(float4 s, float4 e, float4x4 frust)
+inline float Intercept_LineVsFrustum(float4 s, float4 e, float4x4 frust)
 {
-	const float4 T = 1e10f;
+	const float4 T = float4(1e10f, 1e10f, 1e10f, 1e10f);
 	
 	// Find the distance from each frustum face for 's' and 'e'
 	float4 d0 = mul(s, frust);
@@ -125,7 +126,7 @@ inline bool Intercept_RayVsPlane(float4 pos, float4 ray, float4 plane, inout flo
 
 // Intersects a ray with a sphere, returning true if there is an intercept
 // 'sphere.xyz' is the center of the sphere, 'sphere.w' is the radius
-bool Intercept_RayVsSphere(float4 pos, float4 ray, float4 sphere, inout float t1, inout float4 normal)
+inline bool Intercept_RayVsSphere(float4 pos, float4 ray, float4 sphere, inout float t1, inout float4 normal)
 {
 	float4 p = pos - float4(sphere.xyz, 1);
 	float4 q = ray;
@@ -165,7 +166,7 @@ bool Intercept_RayVsSphere(float4 pos, float4 ray, float4 sphere, inout float t1
 }
 
 // Intersects a ray with a triangle, returning true if there is an intercept
-bool Intercept_RayVsTriangle(float4 pos, float4 ray, float4 tri[3], inout float t1, inout float4 normal)
+inline bool Intercept_RayVsTriangle(float4 pos, float4 ray, float4 tri[3], inout float t1, inout float4 normal)
 {
 	float4 e0 = tri[1] - tri[0];
 	float4 e1 = tri[2] - tri[0];

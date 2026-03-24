@@ -116,7 +116,7 @@ inline float4 ClosestPoint_PointToQuad(float4 pos, float2 radii)
 inline float4 ClosestPoint_PointToQuad(float4 pos, float2 radii, out float4 normal)
 {
 	float4 pt = ClosestPoint_PointToQuad(pos, radii);
-	normal = select(any(pos.xy - pt.xy), normalize(pos - pt), float4(0, 0, sign_nz(pos.z), 0));
+	normal = any(pos.xy - pt.xy) ? normalize(pos - pt) : float4(0, 0, sign_nz(pos.z), 0);
 	return pt;
 }
 
@@ -203,7 +203,7 @@ inline float4 ClosestPoint_PointToTriangle(float4 pos, float2 a, float2 b, float
 inline float4 ClosestPoint_PointToTriangle(float4 pos, float2 a, float2 b, float2 c, out float4 bary, out float4 normal)
 {
 	float4 pt = ClosestPoint_PointToTriangle(pos, a, b, c, bary);
-	normal = select(any(pos.xy - pt.xy), normalize(pos - pt), float4(0, 0, sign_nz(pos.z), 0));
+	normal = any(pos.xy - pt.xy) ? normalize(pos - pt) : float4(0, 0, sign_nz(pos.z), 0);
 	return pt;
 }
 
@@ -224,7 +224,7 @@ inline float4 ClosestPoint_PointToEllipse(float4 pos, float2 radii)
 inline float4 ClosestPoint_PointToEllipse(float4 pos, float2 radii, out float4 normal)
 {
 	float4 pt = ClosestPoint_PointToEllipse(pos, radii);
-	normal = select(any(pos.xy - pt.xy), normalize(pos - pt), float4(0, 0, sign_nz(pos.z), 0));
+	normal = any(pos.xy - pt.xy) ? normalize(pos - pt) : float4(0, 0, sign_nz(pos.z), 0);
 	return pt;
 }
 
@@ -509,9 +509,9 @@ inline bool Intercept_RayVsBox(float4 pos, float4 ray, float4 radii, inout float
 	// 'tmin' is the nearest intersection
 	t1 = max(0, tmin);
 	normal = float4(
-		select(axis == 0, sign_nz(pos.x), 0),
-		select(axis == 1, sign_nz(pos.y), 0),
-		select(axis == 2, sign_nz(pos.z), 0),
+		axis == 0 ? sign_nz(pos.x) : 0,
+		axis == 1 ? sign_nz(pos.y) : 0,
+		axis == 2 ? sign_nz(pos.z) : 0,
 	0);
 	return true;
 }
@@ -675,7 +675,7 @@ inline int Intercept_RayVsPrimitive(float4 pos, float4 ray, Prim prim, inout flo
 	}
 	
 	// Transform the normal back into world space
-	normal = select(intercept, mul(normal, prim.o2w), normal);
+	normal = intercept ? mul(normal, prim.o2w) : normal;
 	return intercept;
 }
 

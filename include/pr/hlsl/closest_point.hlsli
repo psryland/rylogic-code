@@ -6,6 +6,7 @@
 #define PR_HLSL_CLOSEST_POINT_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/geometry.hlsli"
+#include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
 namespace pr::hlsl {
@@ -21,14 +22,14 @@ namespace pr::hlsl {
 float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c);
 
 // Finds the parametric value of the closest point on a ray to 'pt'
-float ClosestPoint_PointVsRay(float4 pt, float4 s, float4 d)
+inline float ClosestPoint_PointVsRay(float4 pt, float4 s, float4 d)
 {
 	return dot(pt - s, d) / dot(d, d);
 }
 
 // Returns the parametric values of the closest points on two rays
 // Closest points are: p0 = s0 + return.x * d0, p1 = s1 + return.y * d1
-float2 ClosestPoint_RayToRay(float4 s0, float4 d0, float4 s1, float4 d1)
+inline float2 ClosestPoint_RayToRay(float4 s0, float4 d0, float4 s1, float4 d1)
 {
 	float4 r = s0 - s1;
 	float a = dot(d0, d0);
@@ -37,17 +38,15 @@ float2 ClosestPoint_RayToRay(float4 s0, float4 d0, float4 s1, float4 d1)
 	float c = dot(d0, r);
 	float f = dot(d1, r);
 	float denom = a * e - b * b;
-	return select(
-		abs(denom) > 1e-6f,
-		float2((b * f - c * e) / denom, (a * f - b * c) / denom),
-		float2(0, -dot(r, d0) / a) // If the lines are parallel, return the 's0' as the nearest point
-	);
+	return abs(denom) > 1e-6f
+		? float2((b * f - c * e) / denom, (a * f - b * c) / denom)
+		: float2(0, -dot(r, d0) / a);
 }
 
 // Returns the parametric values of the closest point between a ray 's -> s+d' and a triangle 'a,b,c'
 // The closest point on the triangle is at: BaryPoint(a, b, c, return.xyz)
 // The closest point on the ray is at: s + return.w * d
-float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out bool intercept)
+inline float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out_(bool) intercept)
 {
 	// If the ray intersects the triangle, then the intersection point is the closest point
 	float4 bary = Intercept_RayVsTriangle(s, d, a, b, c);
@@ -70,7 +69,7 @@ float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4
 			{ c, a - c },
 		};
 
-		float2 best_t;
+		float2 best_t = float2(0, 0);
 		int best_edge = -1;
 		float best_dist_sq = float_max;
 
@@ -97,7 +96,7 @@ float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4
 		return float4(bary.xyz, best_t.x);
 	}
 }
-float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4 c)
+inline float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4 c)
 {
 	bool intercept;
 	return ClosestPoint_RayToTriangle(s, d, a, b, c, intercept);
@@ -121,7 +120,7 @@ inline float4 ClosestPoint_PointToPlane(float4 pos, float4 plane)
 	float dist = dot(pos, plane);
 	return pos - dist * plane;
 }
-inline float4 ClosestPoint_PointToPlane(float4 pos, float4 plane, out float4 normal)
+inline float4 ClosestPoint_PointToPlane(float4 pos, float4 plane, out_(float4) normal)
 {
 	normal = float4(plane.xyz, 0);
 	return ClosestPoint_PointToPlane(pos, plane);
@@ -133,12 +132,12 @@ inline float4 ClosestPoint_PointToSphere(float4 pos, float4 sphere)
 	float4 normal;
 	return ClosestPoint_PointToSphere(pos, sphere, normal);
 }
-inline float4 ClosestPoint_PointToSphere(float4 pos, float4 sphere, out float4 normal)
+inline float4 ClosestPoint_PointToSphere(float4 pos, float4 sphere, out_(float4) normal)
 {
 	float4 ray = pos - float4(sphere.xyz, 1);
 	float dist_sq = sqr(ray);
 	
-	normal = select(dist_sq != 0, ray / sqrt(dist_sq), float4(1, 0, 0, 0));
+	normal = (dist_sq != 0) ? ray / sqrt(dist_sq) : float4(1, 0, 0, 0);
 	return float4(sphere.xyz + ray.xyz * sphere.w, 1);
 }
 
@@ -148,7 +147,7 @@ inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3])
 	float4 bary;
 	return ClosestPoint_PointToTriangle(pos, tri, bary);
 }
-inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3], out float4 bary)
+inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3], out_(float4) bary)
 {
 	float4 ab = tri[1] - tri[0];
 	float4 ac = tri[2] - tri[0];
@@ -221,7 +220,7 @@ inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3], out float4
 	bary = float4(1.0f - v - w, v, w, 0.0f);
 	return tri[0] + ab * v + ac * w;
 }
-inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3], out float4 bary, out float4 normal)
+inline float4 ClosestPoint_PointToTriangle(float4 pos, float4 tri[3], out_(float4) bary, out_(float4) normal)
 {
 	float4 pt = ClosestPoint_PointToTriangle(pos, tri, bary);
 	float4 ray = pos - pt;

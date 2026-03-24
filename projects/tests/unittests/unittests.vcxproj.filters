@@ -140,6 +140,9 @@
     <Filter Include="pr\math\utils">
       <UniqueIdentifier>{a13adaa5-4f48-412f-95bd-e9985b551009}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\hlsl">
+      <UniqueIdentifier>{9bd956b7-0122-4eac-9ecf-d9799a636ed6}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\algorithm.h">
@@ -1254,9 +1257,6 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="cpp.hint">
-      <Filter>src</Filter>
-    </None>
     <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
@@ -1275,6 +1275,7 @@
     <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
+    <None Include="cpp.hint" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="$(RylogicRoot)include\pr\collision\_readme.txt">
@@ -1284,6 +1285,33 @@
   <ItemGroup>
     <ClCompile Include="src\dependecy_check_new_math.cpp">
       <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\vector_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\bounding_box_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\closest_point_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\core_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\geometry_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\intercept_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\interpolate_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\quaternion_tests.cpp">
+      <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hlsl\spatial_algebra_tests.cpp">
+      <Filter>src\hlsl</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

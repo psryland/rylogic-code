@@ -300,7 +300,7 @@ namespace pr::algorithm::tests
 			{
 				auto index = COrder2D(iv2(x,y));
 				auto pt = COrder2D(index);
-				PR_EXPECT(pt == iv2(x,y));
+				PR_EXPECT(All(pt == iv2(x,y)));
 			}
 		}
 

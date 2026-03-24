@@ -542,9 +542,9 @@ namespace pr::math::tests
 			PR_EXPECT(To<std::string>(Vec2<int>(12, -34))          == "12 -34");
 			PR_EXPECT(To<std::string>(Vec2<long long>(12, -34))    == "12 -34");
 
-			PR_EXPECT((To<Vec2<double>>("1.2 3.4")) == (Vec2<double>(1.2, 3.4)));
-			PR_EXPECT((To<Vec2<int>>("1 -2")      ) == (Vec2<int>(1, -2)));
-			PR_EXPECT((To<Vec2<int>>("AA 55", 16) ) == (Vec2<int>(170, 85)));
+			PR_EXPECT(All((To<Vec2<double>>("1.2 3.4")) == (Vec2<double>(1.2, 3.4))));
+			PR_EXPECT(All((To<Vec2<int>>("1 -2")      ) == (Vec2<int>(1, -2))));
+			PR_EXPECT(All((To<Vec2<int>>("AA 55", 16) ) == (Vec2<int>(170, 85))));
 		}
 		PRUnitTestMethod(Vec3)
 		{
@@ -725,8 +725,8 @@ namespace pr::math::tests
 		{
 			PR_EXPECT(To<std::string>(v4(1, 2, 3, 4)) == "1 2 3 4");
 
-			PR_EXPECT(To<v2>("2 3") == v2(2, 3));
-			PR_EXPECT(To<v4>("1 2 3 4") == v4(1, 2, 3, 4));
+			PR_EXPECT(All(To<v2>("2 3") == v2(2, 3)));
+			PR_EXPECT(All(To<v4>("1 2 3 4") == v4(1, 2, 3, 4)));
 
 			PR_EXPECT(ToBinaryStr<std::string>(uint8_t(0b11001010)) == "11001010");
 		}

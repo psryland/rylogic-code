@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -50,12 +50,6 @@ namespace pr::math
 				static_cast<Vec2<S2>>(x),
 				static_cast<Vec2<S2>>(y)
 			);
-		}
-
-		// Explicit cast to bool. True if any component is non-zero.
-		constexpr explicit operator bool() const
-		{
-			return Any(*this);
 		}
 
 		// Array access
@@ -111,7 +105,9 @@ namespace pr::math
 	template <> struct vector_traits<Mat2x2<element>>\
 		: vector_traits_base<element, component, 2>\
 		, vector_access_member<Mat2x2<element>, component, 2>\
-	{};\
+	{\
+		template <ScalarType S> using rebind = Mat2x2<S>;\
+	};\
 	\
 	static_assert(VectorType<Mat2x2<element>>, "Mat2x2<"#element"> is not a valid vector type");\
 	static_assert(IsRank2<Mat2x2<element>>, "Mat2x2<"#element"> is not rank 2");\
@@ -122,6 +118,9 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(Vec2<double>, double);
 	PR_MATH_DEFINE_TYPE(Vec2<int32_t>, int32_t);
 	PR_MATH_DEFINE_TYPE(Vec2<int64_t>, int64_t);
+	PR_MATH_DEFINE_TYPE(Vec2<uint32_t>, uint32_t);
+	PR_MATH_DEFINE_TYPE(Vec2<uint64_t>, uint64_t);
+	PR_MATH_DEFINE_TYPE(Vec2<bool>, bool);
 	#undef PR_MATH_DEFINE_TYPE
 }
 

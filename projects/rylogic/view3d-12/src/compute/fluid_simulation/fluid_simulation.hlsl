@@ -155,7 +155,7 @@ inline float4 RandomNWithDim(uniform float2 seed, uniform int spatial_dimensions
 // Return a volume for a neighbour search
 inline float4 SearchVolume(float radius, uniform int spatial_dimensions)
 {
-	return float4(radius, radius, select(spatial_dimensions == 3, radius, 0), 0);
+	return float4(radius, radius, spatial_dimensions == 3 ? radius : 0, 0);
 }
 
 // Return the colour interpolated on the colour scale
@@ -174,7 +174,7 @@ inline Particle ReflectParticle(Particle particle, float dist_n, float4 surface)
 {
 	Particle reflection;
 	dist_n += surface.w;
-	dist_n = select(dist_n != 0, dist_n, TINY);
+	dist_n = dist_n != 0 ? dist_n : TINY;
 	reflection.pos = particle.pos - 2.0f * dist_n * float4(surface.xyz, 0);
 	reflection.vel = float4(0, 0, 0, 0);
 	return reflection;
@@ -186,7 +186,7 @@ inline float ViscosityKernel(float normalised_distance, uniform float viscosity_
 	// -pow(x, viscosity_power) + 1
 	float x = clamp(normalised_distance, 0.0f, 1.0f);
 	float viscosity = -pow(x, sqr(viscosity_power)) + 1.0f;
-	return select(viscosity_power != 0, viscosity, 0.0f);
+	return viscosity_power != 0 ? viscosity : 0.0f;
 }
 
 // Contribution to density based on distance
@@ -207,7 +207,7 @@ inline float DensityKernel(float normalised_distance, uniform int spatial_dimens
 // The density at normalized particle relative position 'pos_r' (assumes the particle is at the origin, and particle radius is 1)
 inline float DensityAt(float4 pos_r, uniform int spatial_dimensions)
 {
-	float dist = select(any(pos_r), length(pos_r), TINY);
+	float dist = any(pos_r) ? length(pos_r) : TINY;
 	float density = DensityKernel(dist, spatial_dimensions);
 	return density;
 }
@@ -270,7 +270,7 @@ inline float dForceKernel(float normalised_distance, uniform ForceControls force
 // The pressure gradient at normalized particle relative position 'pos_r' (assumes the particle is at the origin, and particle radius is 1)
 inline float4 PressureAt(float4 pos_r, uniform ForceControls force)
 {
-	float dist = select(any(pos_r), length(pos_r), TINY);
+	float dist = any(pos_r) ? length(pos_r) : TINY;
 	float pressure = -dForceKernel(dist, force);
 	return (pressure / dist) * pos_r;
 }
@@ -343,7 +343,7 @@ inline float4 DisplacementAt(float4 pos, Particle neighbour, uniform float time_
 
 
 // Calculates forces at each particle position
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(ApplyForces, ThreadGroupSize, 1, 1)
 void ApplyForces(uint3 dtid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
 	if (dtid.x >= Sim.NumParticles)
@@ -444,7 +444,7 @@ void ApplyForces(uint3 dtid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
 }
 
 // Apply an attractor to the particles
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(ApplyProbe, ThreadGroupSize, 1, 1)
 void ApplyProbe(uint3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= Probe.NumParticles)
@@ -460,13 +460,13 @@ void ApplyProbe(uint3 dtid : SV_DispatchThreadID)
 		return;
 
 	float influence = saturate(dist / Probe.Radius); // 1 at range, 0 in the centre
-	float4 direction = select(dist > 0.0001f, r / dist, float4(0, 0, 0, 0));
+	float4 direction = dist > 0.0001f ? r / dist : float4(0, 0, 0, 0);
 	float4 force = influence * (Probe.Force * direction - target.vel);
 	m_dynamics[dtid.x].accel += force; // Probe ignores mass
 }
 
 // Remove NaN particles
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(CullParticles, ThreadGroupSize, 1, 1)
 void CullParticles(uint3 dtid : SV_DispatchThreadID)
 {
 	// Expect the spatial partitioning to have sorted the NaN particles to the end.
@@ -506,7 +506,7 @@ void CullParticles(uint3 dtid : SV_DispatchThreadID)
 }
 
 // Apply colours to the particles
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(ColourParticles, ThreadGroupSize, 1, 1)
 void ColourParticles(uint3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= Col.NumParticles)
@@ -538,7 +538,7 @@ void ColourParticles(uint3 dtid : SV_DispatchThreadID)
 }
 
 // Populate a texture with each pixel representing the property at that point
-[numthreads(32, 32, 1)]
+numthreads(GenerateMap, 32, 32, 1)
 void GenerateMap(uint3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x > Map.TexDim.x || dtid.y > Map.TexDim.y)
@@ -588,7 +588,7 @@ void GenerateMap(uint3 dtid : SV_DispatchThreadID)
 }
 
 // Test function
-[numthreads(1, 1, 1)]
+numthreads(Debugging, 1, 1, 1)
 void Debugging(uint3 dtid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
 	Particle p = GetParticle(0);
@@ -640,7 +640,7 @@ inline float4 ParticleInteraction(uniform int idx, Particle target, Particle nei
 		neighbour.pos + 0.5f * time_step * neighbour.vel;
 	
 	float distance = length(pos_r);
-	float4 direction = select(distance != 0, pos_r / distance, Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions));
+	float4 direction = distance != 0 ? pos_r / distance : Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions);
 	
 	// Push 'target' away from 'neighbour'. This is a 'force' in the star wars sense.
 	float force = ForceKernel(distance / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip);
@@ -660,18 +660,18 @@ inline float PotentialEnergy(float normalised_distance, uniform float range, uni
 	//  Attractive force: -dip * sqr(sqr(Cx - C + 1) - 1), where C = 2 / (1 - balance), for x in [balance,1]
 	float x = clamp(normalised_distance, 0.0001f, 1.0f);
 	float C = 2.0f / (1.0f - balance);
-	return select(x <= balance,
-		+(range * balance / x) * sqr(1.0f - x / balance),
-		-(dip) * sqr(sqr(C * x - C + 1) - 1));
+	return x <= balance
+		? +(range * balance / x) * sqr(1.0f - x / balance)
+		: -dip * sqr(sqr(C * x - C + 1) - 1);
 }
 inline float dPotentialEnergy(float normalised_distance, uniform float range, uniform float balance, uniform float dip)
 {
 	float x = clamp(normalised_distance, 0.0001f, 1.0f);
 	float C = 2.0f / (1.0f - balance);
 	float D = C * x - C + 1;
-	return select(x <= range,
-		+(balance / range) - (balance * range / sqr(x)),
-		-(4 * C * dip) * D * (sqr(D) - 1));
+	return x <= range
+		? +(balance / range) - (balance * range / sqr(x))
+		: -(4 * C * dip) * D * (sqr(D) - 1);
 }
 inline float dForceKernal(float normalised_distance, uniform float range, uniform float balance, uniform float dip)
 {
@@ -679,9 +679,9 @@ inline float dForceKernal(float normalised_distance, uniform float range, unifor
 	// The slope of the attractive force is: -4 * dip * C * (C * x - C + 1) * (sqr(C * x - C + 1) - 1), where C = 2 / (1 - balance)
 	float x = clamp(normalised_distance, 0.0001f, 1.0f);
 	float C = 2.0f / (1.0f - balance);
-	return select(x <= range,
-		(range / balance) - (range * balance / sqr(x)),
-		-4.0f * dip * C * (C * x - C + 1) * (sqr(C * x - C + 1) - 1));
+	return x <= range
+		? (range / balance) - (range * balance / sqr(x))
+		: -4.0f * dip * C * (C * x - C + 1) * (sqr(C * x - C + 1) - 1);
 }
 
 
@@ -722,7 +722,7 @@ inline float4 ParticleInteraction(uniform int idx, Particle target, Particle nei
 		// Apply the impulse at time 't' (mass = 1)
 		float distance = length(pos);
 		float accel = -dPotentialEnergy(distance / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip);
-		vel1 += accel * select(distance != 0, pos / distance, float4(0,0,0,0));
+		vel1 += accel * (distance != 0 ? pos / distance : float4(0,0,0,0));
 		
 		float4 pos1 = pos + vel1 * time_step * (1 - t);
 		float nrg1 = 0.5f * length_sq(vel1) + PotentialEnergy(length(pos1) / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip);
@@ -731,7 +731,7 @@ inline float4 ParticleInteraction(uniform int idx, Particle target, Particle nei
 		{
 			// 'vel1' is the expected final relative velocity of 'neighbour'. 'vel1 - vel0' is an acceleration that gives this result.
 			// The acceleration is shared between both particles, and we're returning the acceleration for 'target'.
-			return select(attempts != 0, -0.5f * (vel1 - vel0), float4(0,0,0,0));
+			return attempts != 0 ? -0.5f * (vel1 - vel0) : float4(0,0,0,0);
 		}
 		
 		if (nrg1 > nrg0)
@@ -774,14 +774,14 @@ inline float4 ParticleInteraction(uniform int idx, Particle target, Particle nei
 
 		// Determine a step time / size
 		float dt = min(MaxStepTime, time_remaining);
-		dt = select(length_sq(vel * dt) > sqr(MaxStepLength), MaxStepLength / length(vel), dt);
+		dt = length_sq(vel * dt) > sqr(MaxStepLength) ? MaxStepLength / length(vel) : dt;
 
 		// Integrate the force kernel over the step
 		{
 			float4 hstep = pos + 0.5f * vel * dt;
 			float hstep_dist = length(hstep);
 			float force = ForceKernel(hstep_dist / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip) * Sim.ForceScale;
-			float4 direction = select(hstep_dist != 0, hstep / hstep_dist, Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions));
+			float4 direction = hstep_dist != 0 ? hstep / hstep_dist : Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions);
 			vel += force * /*target.density * neighbour.density **/ direction;
 		}
 
@@ -847,7 +847,7 @@ inline float4 ParticleInteractions(uniform int idx, uniform int gidx, int neighb
 				continue;
 			
 			// Set the step size based on the largest relative velocity
-			dt = select(length_sq(vel * dt) > sqr(MaxStepLength), MaxStepLength / length(vel), dt);
+			dt = length_sq(vel * dt) > sqr(MaxStepLength) ? MaxStepLength / length(vel) : dt;
 		}
 
 		// Calculate the change of velocity experienced by 'target'
@@ -867,7 +867,7 @@ inline float4 ParticleInteractions(uniform int idx, uniform int gidx, int neighb
 			
 			// Measure the force between the particles
 			float force = Sim.ForceScale * ForceKernel(distance / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip);
-			float4 direction = select(distance != 0, hstep / distance, Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions));
+			float4 direction = distance != 0 ? hstep / distance : Random3WithDim(float2(idx, Sim.RandomSeed), Sim.Dimensions);
 
 			// Apply half the acceleration to each particle
 			float4 accel = (0.5f * force * dt) * direction;
@@ -951,7 +951,7 @@ inline float4 ParticleInteractions(uniform int idx, uniform int gidx, int neighb
 					// Get the separating vector and distance
 					float4 sep = t_pos_half_step - n_pos_half_step;
 					float distance = length(sep);
-					float4 direction = select(distance != 0, sep / distance, Random3WithDim(float2(dtid.x, Sim.RandomSeed), Sim.Dimensions)); // points at target
+					float4 direction = distance != 0 ? sep / distance : Random3WithDim(float2(dtid.x, Sim.RandomSeed), Sim.Dimensions); // points at target
 
 					// Calculate the acceleration due to particle forces
 					float force = ForceKernel(distance / Sim.ParticleRadius, Sim.ForceRange, Sim.ForceBalance, Sim.ForceDip);

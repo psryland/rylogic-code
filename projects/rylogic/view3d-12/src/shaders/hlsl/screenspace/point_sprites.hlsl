@@ -13,8 +13,8 @@ void GSPointSprites(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 	PSIn Out;
 
 	// Size (in pixels) of the sprite. Use the size in the input tex0.xy unless it's zero,
-	float w = select(In[0].tex0.x > 0.0001f, In[0].tex0.x, m_size.x * 0.5f);
-	float h = select(In[0].tex0.y > 0.0001f, In[0].tex0.y, m_size.y * 0.5f);
+	float w = In[0].tex0.x > 0.0001f ? In[0].tex0.x : m_size.x * 0.5f;
+	float h = In[0].tex0.y > 0.0001f ? In[0].tex0.y : m_size.y * 0.5f;
 
 	// The output normal is the camera forward vector
 	float4 ws_norm = m_cam.m_c2w[2];

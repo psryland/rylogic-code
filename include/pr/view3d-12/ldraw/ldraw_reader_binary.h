@@ -1,4 +1,4 @@
-﻿//********************************
+//********************************
 // Ldraw Script Binary Serialiser
 //  Copyright (c) Rylogic Ltd 2025
 //********************************
@@ -255,9 +255,9 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 1, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(2, 2, 2, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(3, 3, 3, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 1, 1, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(2, 2, 2, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(3, 3, 3, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -286,10 +286,10 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector3f().w1() == v4(-1, -1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(+1, +1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(-1, +1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(+1, -1, 0, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(-1, -1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(+1, +1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(-1, +1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(+1, -1, 0, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -368,9 +368,9 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -395,10 +395,10 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF0000FF);
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -611,9 +611,9 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF8800);
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(2, 0, 0, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(2, 0, 0, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -666,9 +666,9 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFFFF00);
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
-				PR_EXPECT(reader.Vector2f() == v2(0, 0));
-				PR_EXPECT(reader.Vector2f() == v2(1, 0));
-				PR_EXPECT(reader.Vector2f() == v2(0.5f, 1));
+				PR_EXPECT(All(reader.Vector2f() == v2(0, 0)));
+				PR_EXPECT(All(reader.Vector2f() == v2(1, 0)));
+				PR_EXPECT(All(reader.Vector2f() == v2(0.5f, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
@@ -747,9 +747,9 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF0000);
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Faces);
 				PR_EXPECT(reader.Int<int>() == 0);
@@ -780,10 +780,10 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(1, 0, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 1, 0, 1));
-				PR_EXPECT(reader.Vector3f().w1() == v4(0, 0, 1, 1));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 0, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));
+				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 1, 1)));
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));

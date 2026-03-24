@@ -46,12 +46,12 @@ namespace pr::math::tests
 			using V2 = Vec2<T>;
 
 			auto zero = Rect::Zero();
-			PR_EXPECT(zero.m_min == Zero<V2>());
-			PR_EXPECT(zero.m_max == Zero<V2>());
+			PR_EXPECT(All(zero.m_min == Zero<V2>()));
+			PR_EXPECT(All(zero.m_max == Zero<V2>()));
 
 			auto unit = Rect::Unit();
-			PR_EXPECT(unit.m_min == Zero<V2>());
-			PR_EXPECT(unit.m_max == One<V2>());
+			PR_EXPECT(All(unit.m_min == Zero<V2>()));
+			PR_EXPECT(All(unit.m_max == One<V2>()));
 
 			auto reset = Rect::Reset();
 			PR_EXPECT(reset.empty());

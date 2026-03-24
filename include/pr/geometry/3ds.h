@@ -662,7 +662,7 @@ namespace pr::geometry::max_3ds
 
 				// If the smoothing group intersects, accumulate 'norm'
 				// and return the vertex index of this vert
-				if ((sg == 0 && vert.m_smooth == 0) || (sg & vert.m_smooth) != 0 || (vert.m_norm == v4::Zero()))
+				if ((sg == 0 && vert.m_smooth == 0) || (sg & vert.m_smooth) != 0 || LengthSq(vert.m_norm) == 0)
 				{
 					vert.m_norm += norm;
 					vert.m_col = col;

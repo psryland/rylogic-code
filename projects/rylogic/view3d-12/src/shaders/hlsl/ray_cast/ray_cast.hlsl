@@ -85,7 +85,7 @@ GSIn_RayCast VSDefault(VSIn In)
 bool DoesSnap(float4 pt_ws, float depth, float4 target_ws, int snap_mode, float snap_distance)
 {
 	float4 sep = pt_ws - target_ws;
-	float distance = select(HasFlag(snap_mode, ESnapMode_Perspective), depth * snap_distance, snap_distance);
+	float distance = HasFlag(snap_mode, ESnapMode_Perspective) ? depth * snap_distance : snap_distance;
 	return length(sep) < distance;
 }
 
@@ -136,7 +136,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		int snap_type = ESnapType_None;
 		
 		// See if we should snap to verts before snapping to edges or faces
-		jend = select(HasFlag(snap_mode, ESnapMode_Vert) && snap_distance != 0, SnapPointCount, 0);
+		jend = HasFlag(snap_mode, ESnapMode_Vert) && snap_distance != 0 ? SnapPointCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = points[j].vert;
@@ -150,7 +150,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		}
 
 		// If not snapped to a vert, try snapping to the edge
-		jend = select(HasFlag(snap_mode, ESnapMode_Edge) && snap_distance != 0 && snap_type == ESnapType_None, SnapEdgeCount, 0);
+		jend = HasFlag(snap_mode, ESnapMode_Edge) && snap_distance != 0 && snap_type == ESnapType_None ? SnapEdgeCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = edges[j].vert + saturate(ClosestPoint_PointVsRay(pt, edges[j].vert, edges[j].edge)) * edges[j].edge;
@@ -181,7 +181,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 
 			GSOut_RayCast Out = (GSOut_RayCast) 0;
 			Out.ws_intercept = float4(intercept.xyz, depth);
-			Out.ws_normal = select(snap_type == ESnapType_Face, normal, float4(0, 0, 0, 0));
+			Out.ws_normal = snap_type == ESnapType_Face ? normal : float4(0, 0, 0, 0);
 			Out.snap_type = snap_type;
 			Out.ray_index = i;
 			Out.inst_ptr = m_inst_ptr;
@@ -229,7 +229,7 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 		int snap_type = ESnapType_None;
 
 		// See if we should snap to verts before snapping to the edge
-		jend = select(HasFlag(snap_mode, ESnapMode_Vert), SnapPointCount, 0);
+		jend = HasFlag(snap_mode, ESnapMode_Vert) ? SnapPointCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = points[j].vert;

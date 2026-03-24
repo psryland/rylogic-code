@@ -64,12 +64,6 @@ namespace pr::math
 			);
 		}
 
-		// Explicit cast to bool. True if any component is non-zero.
-		constexpr explicit operator bool() const
-		{
-			return Any(*this);
-		}
-
 		// Array access
 		constexpr S operator [] (int i) const noexcept
 		{
@@ -165,7 +159,9 @@ namespace pr::math
 	template <> struct vector_traits<Vec3<element>>\
 		: vector_traits_base<element, element, 3>\
 		, vector_access_member<Vec3<element>, element, 3>\
-	{};\
+	{\
+		template <ScalarType S> using rebind = Vec3<S>;\
+	};\
 	\
 	static_assert(VectorType<Vec3<element>>, "Vec3<"#element"> is not a valid vector type");\
 	static_assert(IsRank1<Vec3<element>>, "Vec3<"#element"> is not rank 1");\

@@ -149,7 +149,7 @@ namespace pr::math
 		{
 			// If none of the plane normals have a z component,
 			// then they are all parallel to the z axis.
-			return m_Tplanes.z == Zero<Vec4>();
+			return All(m_Tplanes.z == Zero<Vec4>());
 		}
 
 		// Get/Set the distance to the far clip plane.
@@ -461,7 +461,7 @@ namespace pr::math
 		auto dots = frustum.m_Tplanes * pt + Vec4<S>(radius);
 
 		// If all dot products are >= 0 then some part of the sphere is within the frustum
-		return dots == Abs(dots); 
+		return All(dots == Abs(dots));
 	}
 	template <ScalarTypeFP S> inline bool pr_vectorcall IsWithin(Frustum3<S> const& frustum, BoundingSphere<S> bsphere, Vec2<S> nf = Zero<Vec2<S>>()) noexcept
 	{

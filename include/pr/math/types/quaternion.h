@@ -506,7 +506,7 @@ namespace pr::math
 		using mt = vector_traits<Mat>;
 		using Vec = typename mt::component_t;
 		using S = typename qt::element_t;
-		pr_assert(q != Quat{} && "'quat' is a zero quaternion");
+		pr_assert(LengthSq(q.xyzw) != 0 && "'quat' is a zero quaternion");
 
 		auto s = S(2) / LengthSq(q.xyzw);
 		S xs = vec(q).x *  s, ys = vec(q).y *  s, zs = vec(q).z *  s;

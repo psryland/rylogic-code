@@ -103,7 +103,7 @@ namespace pr::rdr12::ldraw
 			m_gfx = nullptr;
 
 			// Create graphics for the two measurement points
-			if (m_point0 != m_point1)
+			if (Any(m_point0 != m_point1))
 			{
 				auto p0 = v4(m_point1.x, m_point0.y, m_point0.z, 1.0f);
 				auto p1 = v4(m_point1.x, m_point1.y, m_point0.z, 1.0f);

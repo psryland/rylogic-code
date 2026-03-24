@@ -168,9 +168,9 @@ extern "C"
 		m2x2 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 		
-		if (mat == m2x2::Identity())
+		if (All(mat == m2x2::Identity()))
 			_snprintf(pResult, max, "identity");
-		else if (mat == m2x2::Zero())
+		else if (All(mat == m2x2::Zero()))
 			_snprintf(pResult, max, "zero");
 		else
 		{
@@ -197,9 +197,9 @@ extern "C"
 		m3x4 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (mat == m3x4::Identity())
+		if (All(mat == m3x4::Identity()))
 			_snprintf(pResult, max, "identity");
-		else if (mat == m3x4::Zero())
+		else if (All(mat == m3x4::Zero()))
 			_snprintf(pResult, max, "zero");
 		else
 		{
@@ -229,9 +229,9 @@ extern "C"
 		m4x4 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (mat == m4x4::Identity())
+		if (All(mat == m4x4::Identity()))
 			_snprintf(pResult, max, "identity");
-		else if (mat == m4x4::Zero())
+		else if (All(mat == m4x4::Zero()))
 			_snprintf(pResult, max, "zero");
 		else
 		{

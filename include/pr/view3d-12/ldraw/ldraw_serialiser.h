@@ -135,7 +135,7 @@ namespace pr::rdr12::ldraw
 		bool m_is_default;
 		Dashed() : m_dash(v2::Zero()), m_is_default(true) {}
 		Dashed(v2 dash) : m_dash(dash), m_is_default(false) {}
-		explicit operator bool() const { return !m_is_default || m_dash != v2::Zero(); }
+		explicit operator bool() const { return !m_is_default || !All(m_dash == v2::Zero()); }
 	};
 	struct DataPoints
 	{
@@ -145,7 +145,7 @@ namespace pr::rdr12::ldraw
 		bool m_is_default;
 		DataPoints() : m_size(v2::Zero()), m_colour(Colour32White), m_style(EPointStyle::Square), m_is_default(true) {}
 		DataPoints(v2 size, Colour32 colour, EPointStyle style) : m_size(size), m_colour(colour), m_style(style), m_is_default(false) {}
-		explicit operator bool() const { return !m_is_default || m_size != v2::Zero() || m_colour != Colour32White || m_style != EPointStyle::Square; }
+		explicit operator bool() const { return !m_is_default || !All(m_size == v2::Zero()) || m_colour != Colour32White || m_style != EPointStyle::Square; }
 	};
 	struct LeftHanded
 	{
@@ -194,7 +194,7 @@ namespace pr::rdr12::ldraw
 		Pos() : m_pos(v4::Origin()) {}
 		Pos(v4 pos) : m_pos(pos) {}
 		Pos(m4x4 const& mat) : Pos(mat.pos) {}
-		bool IsOrigin() const { return m_pos == v4::Origin(); }
+		bool IsOrigin() const { return All(m_pos == v4::Origin()); }
 	};
 	struct O2W
 	{
@@ -202,8 +202,8 @@ namespace pr::rdr12::ldraw
 		O2W() : m_mat(m4x4::Identity()) {}
 		O2W(m4x4 const& mat) :m_mat(mat) {}
 		O2W(v4 pos) : m_mat(m4x4::Identity()) { m_mat.pos = pos; }
-		bool IsIdentity() const { return m_mat == m4x4::Identity(); }
-		bool IsTranslation() const { return m_mat.x == v4::XAxis() && m_mat.y == v4::YAxis() && m_mat.z == v4::ZAxis() && m_mat.pos.w == 1; }
+		bool IsIdentity() const { return All(m_mat == m4x4::Identity()); }
+		bool IsTranslation() const { return All(m_mat.x == v4::XAxis()) && All(m_mat.y == v4::YAxis()) && All(m_mat.z == v4::ZAxis()) && m_mat.pos.w == 1; }
 		bool IsAffine() const { return pr::IsAffine(m_mat); }
 	};
 	struct VariableInt

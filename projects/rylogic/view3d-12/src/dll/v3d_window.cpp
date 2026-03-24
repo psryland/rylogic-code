@@ -78,7 +78,7 @@ namespace pr::rdr12
 
 			// Set the initial aspect ratio
 			auto rt_area = m_wnd.BackBufferSize();
-			if (rt_area != iv2::Zero())
+			if (LengthSq(rt_area) != 0)
 				m_scene.m_cam.Aspect(rt_area.x / float(rt_area.y));
 
 			// The light for the scene
@@ -553,7 +553,7 @@ namespace pr::rdr12
 		// If the viewport is empty, nothing to draw.
 		// This is could be an error, but setting the viewport to empty could
 		// also be a way to stop rendering when a window is minimised, etc..
-		if (m_scene.m_viewport.AsIRect().Size() == iv2::Zero())
+		if (LengthSq(m_scene.m_viewport.AsIRect().Size()) == 0)
 		{
 			Validate();
 			return;
@@ -895,7 +895,7 @@ namespace pr::rdr12
 	}
 	void V3dWindow::FocusPoint(v4 position)
 	{
-		if (FocusPoint() == position)
+		if (All(FocusPoint() == position))
 			return;
 
 		m_scene.m_cam.FocusPoint(position);
@@ -947,7 +947,7 @@ namespace pr::rdr12
 	}
 	void V3dWindow::Fov(v2 fov)
 	{
-		if (fov == Fov())
+		if (All(fov == Fov()))
 			return;
 
 		m_scene.m_cam.Fov(fov.x, fov.y);
@@ -970,7 +970,7 @@ namespace pr::rdr12
 	}
 	void V3dWindow::ViewRectAtDistance(v2 rect, float focus_dist)
 	{
-		if (ViewRectAtDistance(focus_dist) == rect)
+		if (All(ViewRectAtDistance(focus_dist) == rect))
 			return;
 
 		m_scene.m_cam.ViewRectAtDistance(rect, focus_dist);
@@ -989,7 +989,7 @@ namespace pr::rdr12
 		auto cp = ClipPlanes(flags);
 		if (AllSet(flags, view3d::EClipPlanes::Near)) cp.x = near_;
 		if (AllSet(flags, view3d::EClipPlanes::Far)) cp.y = far_;
-		if (ClipPlanes(flags) == cp)
+		if (All(ClipPlanes(flags) == cp))
 			return;
 
 		m_scene.m_cam.ClipPlanes(cp.x, cp.y, AllSet(flags, view3d::EClipPlanes::CameraRelative));
@@ -1021,7 +1021,7 @@ namespace pr::rdr12
 	}
 	void V3dWindow::AlignAxis(v4 axis)
 	{
-		if (AlignAxis() == axis)
+		if (All(AlignAxis() == axis))
 			return;
 
 		m_scene.m_cam.Align(axis);
@@ -1070,8 +1070,8 @@ namespace pr::rdr12
 
 		auto settings = view3d::ESettings::Lighting;
 		if (m_scene.m_global_light.m_type != light.m_type) settings |= view3d::ESettings::Lighting_Type;
-		if (m_scene.m_global_light.m_position != light.m_position) settings |= view3d::ESettings::Lighting_Position;
-		if (m_scene.m_global_light.m_direction != light.m_direction) settings |= view3d::ESettings::Lighting_Direction;
+		if (Any(m_scene.m_global_light.m_position != light.m_position)) settings |= view3d::ESettings::Lighting_Position;
+		if (Any(m_scene.m_global_light.m_direction != light.m_direction)) settings |= view3d::ESettings::Lighting_Direction;
 		if (m_scene.m_global_light.m_ambient != light.m_ambient) settings |= view3d::ESettings::Lighting_Colour;
 		if (m_scene.m_global_light.m_diffuse != light.m_diffuse) settings |= view3d::ESettings::Lighting_Colour;
 		if (m_scene.m_global_light.m_specular != light.m_specular) settings |= view3d::ESettings::Lighting_Colour;
@@ -1505,7 +1505,7 @@ namespace pr::rdr12
 	void V3dWindow::SelectionBox(BBox const& bbox, m3x4 const& ori)
 	{
 		auto [b, o] = SelectionBox();
-		if (b == bbox && o == ori)
+		if (b == bbox && All(o == ori))
 			return;
 
 		if (bbox == BBox::Reset())
@@ -1580,7 +1580,7 @@ namespace pr::rdr12
 	}
 	void V3dWindow::FillModePointsSize(v2 size)
 	{
-		if (FillModePointsSize() == size)
+		if (All(FillModePointsSize() == size))
 			return;
 		
 		auto shdr = static_cast<shaders::PointSpriteGS*>(m_wnd.m_diag.m_gs_fillmode_points.get());

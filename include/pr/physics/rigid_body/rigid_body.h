@@ -408,7 +408,7 @@ namespace pr::physics
 			// Do NOT set inertia.CoM() — we want it zero so operator*(InertiaInv, v8force)
 			// takes the block-diagonal path (no angular-linear coupling).
 			auto inertia = os_inertia;
-			if (os_model_to_com != v4{})
+			if (LengthSq(os_model_to_com) != 0)
 				inertia = Translate(inertia, os_model_to_com, ETranslateInertia::TowardCoM);
 
 			// Object space inverse inertia, measured at the CoM
