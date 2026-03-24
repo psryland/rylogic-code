@@ -213,7 +213,7 @@ namespace pr::algorithm::tests
 			});
 
 			PR_EXPECT(results.size() == 1);
-			PR_EXPECT(results[0] == points[2]);
+			PR_EXPECT(All(results[0] == points[2]));
 		}
 		{
 			results.resize(0);
@@ -223,8 +223,8 @@ namespace pr::algorithm::tests
 			});
 
 			PR_EXPECT(results.size() == 2);
-			PR_EXPECT(std::ranges::contains(results, points[2]));
-			PR_EXPECT(std::ranges::contains(results, points[5]));
+			PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[2]); }));
+			PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[5]); }));
 		}
 	}
 	PRUnitTest(DimensionIndexLdrTests)

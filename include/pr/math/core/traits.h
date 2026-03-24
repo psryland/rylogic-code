@@ -15,6 +15,7 @@ namespace pr::math
 		inline static constexpr int dimension = 0;
 		inline static constexpr bool is_vector_v = false;
 		inline static constexpr bool is_quaternion_v = false;
+		template <ScalarType S> using rebind = void;
 	};
 
 	// Concept for vector-like types. Note, can be rank-1 (e.g. Vec3) or rank-2 (e.g. Mat4x4) vectors
@@ -28,6 +29,10 @@ namespace pr::math
 	// Concept for floating point vectors
 	template <typename T>
 	concept VectorTypeFP = VectorType<T> && std::floating_point<typename vector_traits<std::remove_cv_t<T>>::element_t>;
+
+	// Concept for boolean vectors
+	template <typename T>
+	concept VectorTypeBool = VectorType<T> && std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, bool>;
 
 	// Concept for quaternion-like types
 	template <typename T>
@@ -76,6 +81,7 @@ namespace pr::math
 		inline static constexpr int dimension = 4;
 		inline static constexpr bool is_vector_v = false;
 		inline static constexpr bool is_quaternion_v = true;
+		template <ScalarType S> using rebind = Vec4<S>;
 	};
 
 	// Adapters for accessing the members of typical vector types

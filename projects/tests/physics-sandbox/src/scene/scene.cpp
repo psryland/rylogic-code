@@ -99,7 +99,7 @@ namespace physics_sandbox
 		// Apply gravity as an external force: F = m * g.
 		// Static bodies (infinite mass) are skipped — they should not accelerate.
 		// Forces are cleared by Evolve() at the end of each step, so we re-apply each frame.
-		if (m_gravity != v4::Zero())
+		if (LengthSq(m_gravity) != 0)
 		{
 			for (auto& body : m_body)
 				body.GravityWS(m_gravity);
@@ -343,7 +343,7 @@ namespace physics_sandbox
 			{
 				// Create the ground plane body as a large thin box with infinite mass.
 				v2 extent = scene_desc.ground->size;
-				if (extent == Zero<v2>()) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
+				if (LengthSq(extent) == 0) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
 				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
 			}
 		}

@@ -90,12 +90,12 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 
-			static_assert(Zero<vec3_t>() == vec3_t(T(0), T(0), T(0)));
-			static_assert(One<vec3_t>() == vec3_t(T(1), T(1), T(1)));
-			static_assert(XAxis<vec3_t>() == vec3_t(T(1), T(0), T(0)));
-			static_assert(YAxis<vec3_t>() == vec3_t(T(0), T(1), T(0)));
-			static_assert(ZAxis<vec3_t>() == vec3_t(T(0), T(0), T(1)));
-			static_assert(Origin<vec3_t>() == vec3_t(T(0), T(0), T(0)));
+			static_assert(All(Zero<vec3_t>() == vec3_t(T(0), T(0), T(0))));
+			static_assert(All(One<vec3_t>() == vec3_t(T(1), T(1), T(1))));
+			static_assert(All(XAxis<vec3_t>() == vec3_t(T(1), T(0), T(0))));
+			static_assert(All(YAxis<vec3_t>() == vec3_t(T(0), T(1), T(0))));
+			static_assert(All(ZAxis<vec3_t>() == vec3_t(T(0), T(0), T(1))));
+			static_assert(All(Origin<vec3_t>() == vec3_t(T(0), T(0), T(0))));
 		}
 		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
 		{
@@ -105,7 +105,7 @@ namespace pr::math::tests
 				if constexpr (std::floating_point<T>)
 					return FEql(lhs, rhs);
 				else
-					return lhs == rhs;
+					return All(lhs == rhs);
 			};
 
 			constexpr auto V0 = vec3_t(T(10), T(8), T(6));
@@ -123,8 +123,8 @@ namespace pr::math::tests
 			static_assert(Eql(+V0, vec3_t(T(+10), T(+8), T(+6))));
 			static_assert(Eql(-V0, vec3_t(T(-10), T(-8), T(-6))));
 
-			static_assert(V0 == vec3_t(T(10), T(8), T(6)));
-			static_assert(V0 != vec3_t(T(2), T(1), T(3)));
+			static_assert(All(V0 == vec3_t(T(10), T(8), T(6))));
+			static_assert(Any(V0 != vec3_t(T(2), T(1), T(3))));
 		}
 	};
 }

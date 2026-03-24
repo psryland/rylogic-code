@@ -19,7 +19,7 @@ struct InterpolateVector
 	float3 m_x1;
 	float m_interval;
 };
-InterpolateVector InterpolateVector_Create(float3 x0, float3 v0, float3 x1, float3 v1, float interval)
+inline InterpolateVector InterpolateVector_Create(float3 x0, float3 v0, float3 x1, float3 v1, float interval)
 {
 	InterpolateVector interp;
 	interp.m_p = HermiteSpline_Create(x0 - x1, v0 * interval, float3(0, 0, 0), v1 * interval);
@@ -27,15 +27,15 @@ InterpolateVector InterpolateVector_Create(float3 x0, float3 v0, float3 x1, floa
 	interp.m_interval = interval;
 	return interp;
 }
-float3 InterpolateVector_Eval(InterpolateVector interp, float t)
+inline float3 InterpolateVector_Eval(InterpolateVector interp, float t)
 {
 	return interp.m_x1 + HermiteSpline_Position(interp.m_p, t / interp.m_interval);
 }
-float3 InterpolateVector_EvalDerivative(InterpolateVector interp, float t)
+inline float3 InterpolateVector_EvalDerivative(InterpolateVector interp, float t)
 {
 	return HermiteSpline_Velocity(interp.m_p, t / interp.m_interval) / interp.m_interval;
 }
-float3 InterpolateVector_EvalDerivative2(InterpolateVector interp, float t)
+inline float3 InterpolateVector_EvalDerivative2(InterpolateVector interp, float t)
 {
 	return HermiteSpline_Acceleration(interp.m_p, t / interp.m_interval) / interp.m_interval;
 }
@@ -47,7 +47,7 @@ struct InterpolateRotation
 	float4 m_q1;
 	float m_interval;
 };
-InterpolateRotation InterpolateRotation_Create(float4 q0, float3 w0, float4 q1, float3 w1, float interval)
+inline InterpolateRotation InterpolateRotation_Create(float4 q0, float3 w0, float4 q1, float3 w1, float interval)
 {
 	float4 q1_inv = quat_conjugate(q1);
 	float4 q_delta = quat_mul(q1_inv, q0);
@@ -63,13 +63,13 @@ InterpolateRotation InterpolateRotation_Create(float4 q0, float3 w0, float4 q1, 
 	interp.m_interval = interval;
 	return interp;
 }
-float4 InterpolateRotation_Eval(InterpolateRotation interp, float t)
+inline float4 InterpolateRotation_Eval(InterpolateRotation interp, float t)
 {
 	// Evaluate the curve in the log domain and convert to quaternion
 	float3 u = HermiteSpline_Position(interp.m_p, t / interp.m_interval);
 	return quat_mul(interp.m_q1, quat_exp(u));
 }
-float3 InterpolateRotation_EvalDerivative(InterpolateRotation interp, float t)
+inline float3 InterpolateRotation_EvalDerivative(InterpolateRotation interp, float t)
 {
 	// To calculate 'W' from log(q) and log(q)':   (x' means derivative of x)
 	// Say:
@@ -107,8 +107,8 @@ float3 InterpolateRotation_EvalDerivative(InterpolateRotation interp, float t)
 	float cos_r = cos(r);
 
 	// f(r) and f'(r)
-	float f     = r > SmallAngle ? (sin_r / r) : (1.0 - r * r / 6.0);
-	float f_dot = r > SmallAngle ? (r * cos_r - sin_r) / (r * r) : (-r / 3.0);
+	float f     = r > SmallAngle ? (sin_r / r) : (1.0f - r * r / 6.0f);
+	float f_dot = r > SmallAngle ? (r * cos_r - sin_r) / (r * r) : (-r / 3.0f);
 
 	// q = [u*f, cos(r)]
 	float3 qv = u * f;
@@ -131,7 +131,7 @@ struct Interpolators
 	InterpolateVector pos;
 	InterpolateRotation rot;
 };
-Interpolators Interpolators_Create(
+inline Interpolators Interpolators_Create(
 	float3 x0, float3 v0, float3 x1, float3 v1,
 	float4 q0, float3 w0, float4 q1, float3 w1,
 	float interval)
@@ -141,7 +141,7 @@ Interpolators Interpolators_Create(
 	interp.rot = InterpolateRotation_Create(q0, w0, q1, w1, interval);
 	return interp;
 }
-Transform Interpolators_Eval(Interpolators interp, float t)
+inline Transform Interpolators_Eval(Interpolators interp, float t)
 {
 	Transform xform;
 	xform.translation = float4(InterpolateVector_Eval(interp.pos, t),1);
@@ -161,7 +161,7 @@ struct VelCorrectedHermite
 	float3 m_x1;
 	float m_interval;
 };
-VelCorrectedHermite VelCorrectedHermite_Create(float3 pos_prev, float3 pos_next, float3 pos, float3 vel, float interval)
+inline VelCorrectedHermite VelCorrectedHermite_Create(float3 pos_prev, float3 pos_next, float3 pos, float3 vel, float interval)
 {
 	// Construct a vel-corrected Hermite from:
 	//   pos_prev, pos_next: actual positions at t-T and t+T
@@ -179,21 +179,21 @@ VelCorrectedHermite VelCorrectedHermite_Create(float3 pos_prev, float3 pos_next,
 	interp.m_interval = interval;
 	return interp;
 }
-float3 VelCorrectedHermite_Eval(VelCorrectedHermite interp, float t)
+inline float3 VelCorrectedHermite_Eval(VelCorrectedHermite interp, float t)
 {
 	// Evaluate position. 't' is time relative to the midpoint (t=0 at PDP time, t=-T at pos_prev, t=+T at pos_next).
 	float T = interp.m_interval * 0.5f;
 	float u = (t + T) / interp.m_interval;
 	return interp.m_x1 + HermiteSpline_Position(interp.m_p, u);
 }
-float3 VelCorrectedHermite_EvalDerivative(VelCorrectedHermite interp, float t)
+inline float3 VelCorrectedHermite_EvalDerivative(VelCorrectedHermite interp, float t)
 {
 	// Evaluate velocity (in world-space units per second).
 	float T = interp.m_interval * 0.5f;
 	float u = (t + T) / interp.m_interval;
 	return HermiteSpline_Velocity(interp.m_p, u) / interp.m_interval;
 }
-float3 VelCorrectedHermite_EvalDerivative2(VelCorrectedHermite interp, float t)
+inline float3 VelCorrectedHermite_EvalDerivative2(VelCorrectedHermite interp, float t)
 {
 	// Evaluate acceleration (in world-space units per second^2).
 	float T = interp.m_interval * 0.5f;

@@ -455,8 +455,8 @@ namespace pr::storage
 		PR_EXPECT(s.m_scale == 3.14f);
 		PR_EXPECT(s.m_mask == 0xABCU);
 		PR_EXPECT(s.m_colour == pr::Colour32Green);
-		PR_EXPECT(s.m_area == pr::v2(1,2));
-		PR_EXPECT(s.m_position == pr::v4(1,2,3,1));
+		PR_EXPECT(All(s.m_area == pr::v2(1,2)));
+		PR_EXPECT(All(s.m_position == pr::v4(1,2,3,1)));
 		PR_EXPECT(s.m_name == "hello settings");
 		PR_EXPECT(s.m_emun == Enum1::Two);
 		PR_EXPECT(s.m_emun2 == Enum2::Free);
@@ -476,8 +476,8 @@ namespace pr::storage
 		PR_EXPECT(s.m_scale == 1.6f);
 		PR_EXPECT(s.m_mask == 0xCDEU);
 		PR_EXPECT(s.m_colour == pr::Colour32Blue);
-		PR_EXPECT(s.m_area == pr::v2::One());
-		PR_EXPECT(s.m_position == pr::v4(3,2,1,1) );
+		PR_EXPECT(All(s.m_area == pr::v2::One()));
+		PR_EXPECT(All(s.m_position == pr::v4(3,2,1,1)));
 		PR_EXPECT(s.m_name == "renamed");
 		PR_EXPECT(s.m_emun == Enum1::Three);
 		PR_EXPECT(s.m_emun2 == Enum2::Won);
@@ -501,8 +501,8 @@ namespace pr::storage
 		PR_EXPECT(s2.m_scale == 1.6f);
 		PR_EXPECT(s2.m_mask == 0xCDEU);
 		PR_EXPECT(s2.m_colour == pr::Colour32Blue);
-		PR_EXPECT(s2.m_area == pr::v2::One());
-		PR_EXPECT(s2.m_position == pr::v4(3,2,1,1) );
+		PR_EXPECT(All(s2.m_area == pr::v2::One()));
+		PR_EXPECT(All(s2.m_position == pr::v4(3,2,1,1)));
 		PR_EXPECT(s2.m_name == "renamed");
 		PR_EXPECT(s2.m_emun == Enum1::Three);
 		PR_EXPECT(s2.m_emun2 == Enum2::Won);

@@ -125,7 +125,7 @@ namespace pr::geometry
 	template <VertOutputFn VOut, IndexOutputFn IOut>
 	Props Boxes(int num_boxes, VertCIter auto points, m4x4 const& o2w, std::span<Colour32 const> colours, VOut vout, IOut iout)
 	{
-		if (o2w == m4x4::Identity())
+		if (All(o2w == m4x4::Identity()))
 			return Boxes(num_boxes, points, colours, vout, iout);
 
 		// An iterator wrapper for applying a transform to 'points'

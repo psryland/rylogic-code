@@ -80,7 +80,7 @@ void RemoveDegenerateVerts(p3d::Mesh& mesh_, int quantisation, float smoothing_a
 			auto vj = *map[j].kept;
 
 			// If the vertex position is different, move on to the next vert
-			if (vi != vj)
+			if (Any(vi != vj))
 				break;
 
 			// Not a degenerate if the geometry has normals and they don't match, but keep searching
@@ -158,7 +158,7 @@ void RemoveDegenerateVerts(p3d::Mesh& mesh_, int quantisation, float smoothing_a
 		for (j = i + 1; j != iend; ++j)
 		{
 			// If the next vert has a different position, then we've reached the end of the degenerate verts
-			if (*map[j].orig != *map[i].orig)
+			if (Any(*map[j].orig != *map[i].orig))
 				break;
 
 			// 'map[i]' is degenerate with 'map[j]' if their 'kept' pointers are the same.

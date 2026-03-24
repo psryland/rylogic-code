@@ -25,6 +25,7 @@
 #include <ranges>
 #include <cstdint>
 #include <cmath>
+#include <bit>
 
 #include "pr/math/math.h"
 
@@ -47,6 +48,7 @@ namespace pr::hlsl
 	using float2   = math::Vec2<float>;
 	using float3   = math::Vec3<float>;
 	using float4   = math::Vec4<float>;
+	using float2x2 = math::Mat2x2<float>;
 	using float3x3 = math::Mat3x4<float>;
 	using float4x4 = math::Mat4x4<float>;
 	using voidp    = void const*;
@@ -110,6 +112,45 @@ namespace pr::hlsl
 
 	// Shader intrinsic functions
 	#pragma region Intrinsics
+
+	// --- asfloat / asuint / asint (bit-level reinterpretation) ---
+	inline float asfloat(uint32_t x)
+	{
+		return std::bit_cast<float>(x);
+	}
+	inline float2 asfloat(uint2 v)
+	{
+		return { asfloat(v.x), asfloat(v.y) };
+	}
+	inline float3 asfloat(uint3 v)
+	{
+		return { asfloat(v.x), asfloat(v.y), asfloat(v.z) };
+	}
+	inline float4 asfloat(uint4 v)
+	{
+		return { asfloat(v.x), asfloat(v.y), asfloat(v.z), asfloat(v.w) };
+	}
+	inline uint32_t asuint(float x)
+	{
+		return std::bit_cast<uint32_t>(x);
+	}
+	inline uint2 asuint(float2 v)
+	{
+		return { asuint(v.x), asuint(v.y) };
+	}
+	inline uint3 asuint(float3 v)
+	{
+		return { asuint(v.x), asuint(v.y), asuint(v.z) };
+	}
+	inline uint4 asuint(float4 v)
+	{
+		return { asuint(v.x), asuint(v.y), asuint(v.z), asuint(v.w) };
+	}
+	inline int32_t asint(float x)
+	{
+		return std::bit_cast<int32_t>(x);
+	}
+
 	// --- clip ---
 	constexpr bool clip(float x)
 	{
@@ -1101,6 +1142,14 @@ namespace pr::hlsl
 	}
 
 	// HLSL mul(matrix, vector) = matrix × column-vector
+	inline float2 mul(float2x2 const& m, float2 v)
+	{
+		return Transpose(m) * v;
+	}
+	inline float3 mul(float3x3 const& m, float3 v)
+	{
+		return Transpose(m) * v;
+	}
 	inline float4 mul(float4x4 const& m, float4 v)
 	{
 		return Transpose(m) * v;

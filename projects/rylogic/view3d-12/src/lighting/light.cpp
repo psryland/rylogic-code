@@ -32,8 +32,8 @@ namespace pr::rdr12
 		{
 			case ELight::Ambient:     return true;
 			case ELight::Point:       return m_position.w == 1.0f;
-			case ELight::Spot:        return m_direction != v4::Zero();
-			case ELight::Directional: return m_direction != v4::Zero();
+			case ELight::Spot:        return LengthSq(m_direction) != 0;
+			case ELight::Directional: return LengthSq(m_direction) != 0;
 			default: return false;
 		}
 	}

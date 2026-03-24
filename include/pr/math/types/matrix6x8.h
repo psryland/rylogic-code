@@ -120,11 +120,12 @@ namespace pr::math
 		#pragma region Operators
 		friend constexpr bool pr_vectorcall operator == (Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs) noexcept
 		{
-			return
+			return All(
 				lhs.m00 == rhs.m00 &&
 				lhs.m01 == rhs.m01 &&
 				lhs.m10 == rhs.m10 &&
-				lhs.m11 == rhs.m11;
+				lhs.m11 == rhs.m11
+			);
 		}
 		friend constexpr bool pr_vectorcall operator != (Mat6x8<S, A, B> const& lhs, Mat6x8<S, A, B> const& rhs) noexcept
 		{

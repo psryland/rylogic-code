@@ -469,8 +469,8 @@ namespace pr::eval
 			{
 			case EType::Intg: return lhs.ll() == rhs.ll();
 			case EType::Real: return lhs.db() == rhs.db();
-			case EType::Intg4: return lhs.i4() == rhs.i4();
-			case EType::Real4: return lhs.v4() == rhs.v4();
+			case EType::Intg4: return All(lhs.i4() == rhs.i4());
+			case EType::Real4: return All(lhs.v4() == rhs.v4());
 			default: throw std::runtime_error("Unknown value type");
 			}
 		}

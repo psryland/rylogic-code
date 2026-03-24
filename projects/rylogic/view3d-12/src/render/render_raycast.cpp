@@ -417,7 +417,7 @@ namespace pr::rdr12
 		constexpr auto Eql = [](Intercept const& l, Intercept const& r)
 		{
 			return
-				l.ws_intercept == r.ws_intercept &&
+				All(l.ws_intercept == r.ws_intercept) &&
 				l.inst_ptr == r.inst_ptr &&
 				l.ray_index == r.ray_index;
 		};

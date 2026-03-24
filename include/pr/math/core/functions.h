@@ -203,67 +203,78 @@ namespace pr::math
 		if constexpr (vt::dimension > 3) if (auto cmp = std::partial_order(vec(lhs).w, vec(rhs).w); cmp != 0) return cmp;
 		return std::partial_ordering::equivalent;
 	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall operator < (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator < (Vec lhs, Vec rhs) noexcept
 	{
 		// Component-wise comparison operators (HLSL semantics: return Vec with 0/1 per component)
 		using vt = vector_traits<Vec>;
-		using C = typename vt::component_t;
+		using BoolVec = typename vt::template rebind<bool>;
 
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x < vec(rhs).x);
-		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y < vec(rhs).y);
-		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z < vec(rhs).z);
-		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w < vec(rhs).w);
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x < vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y < vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z < vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w < vec(rhs).w;
 		return res;
 	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall operator > (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator > (Vec lhs, Vec rhs) noexcept
 	{
 		using vt = vector_traits<Vec>;
-		using C = typename vt::component_t;
+		using BoolVec = typename vt::template rebind<bool>;
 
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x > vec(rhs).x);
-		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y > vec(rhs).y);
-		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z > vec(rhs).z);
-		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w > vec(rhs).w);
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x > vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y > vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z > vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w > vec(rhs).w;
 		return res;
 	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall operator <= (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator <= (Vec lhs, Vec rhs) noexcept
 	{
 		using vt = vector_traits<Vec>;
-		using C = typename vt::component_t;
+		using BoolVec = typename vt::template rebind<bool>;
 
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x <= vec(rhs).x);
-		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y <= vec(rhs).y);
-		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z <= vec(rhs).z);
-		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w <= vec(rhs).w);
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x <= vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y <= vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z <= vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w <= vec(rhs).w;
 		return res;
 	}
-	template <TensorType Vec> constexpr Vec pr_vectorcall operator >= (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator >= (Vec lhs, Vec rhs) noexcept
 	{
 		using vt = vector_traits<Vec>;
-		using C = typename vt::component_t;
+		using BoolVec = typename vt::template rebind<bool>;
 
-		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = static_cast<C>(vec(lhs).x >= vec(rhs).x);
-		if constexpr (vt::dimension > 1) vec(res).y = static_cast<C>(vec(lhs).y >= vec(rhs).y);
-		if constexpr (vt::dimension > 2) vec(res).z = static_cast<C>(vec(lhs).z >= vec(rhs).z);
-		if constexpr (vt::dimension > 3) vec(res).w = static_cast<C>(vec(lhs).w >= vec(rhs).w);
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x >= vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y >= vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z >= vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w >= vec(rhs).w;
 		return res;
 	}
-	template <TensorType Vec> constexpr bool pr_vectorcall operator == (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator == (Vec lhs, Vec rhs) noexcept
 	{
 		using vt = vector_traits<Vec>;
-		if constexpr (vt::dimension > 0) if (!(vec(lhs).x == vec(rhs).x)) return false;
-		if constexpr (vt::dimension > 1) if (!(vec(lhs).y == vec(rhs).y)) return false;
-		if constexpr (vt::dimension > 2) if (!(vec(lhs).z == vec(rhs).z)) return false;
-		if constexpr (vt::dimension > 3) if (!(vec(lhs).w == vec(rhs).w)) return false;
-		return true;
+		using BoolVec = typename vt::template rebind<bool>;
+
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x == vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y == vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z == vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w == vec(rhs).w;
+		return res;
 	}
-	template <TensorType Vec> constexpr bool pr_vectorcall operator != (Vec lhs, Vec rhs) noexcept
+	template <TensorType Vec> constexpr auto pr_vectorcall operator != (Vec lhs, Vec rhs) noexcept
 	{
-		return !(lhs == rhs);
+		using vt = vector_traits<Vec>;
+		using BoolVec = typename vt::template rebind<bool>;
+
+		BoolVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x != vec(rhs).x;
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y != vec(rhs).y;
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z != vec(rhs).z;
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w != vec(rhs).w;
+		return res;
 	}
 
 	// Bitwise operators(only for integral vectors)
@@ -376,6 +387,24 @@ namespace pr::math
 		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z && vec(rhs).z;
 		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w && vec(rhs).w;
 		return res;
+	}
+
+	// Bool vector operators
+	template <VectorTypeBool Vec, ScalarType S> constexpr auto pr_vectorcall operator * (Vec lhs, S rhs) noexcept
+	{
+		using vt = vector_traits<Vec>;
+		using ScalarVec = typename vt::template rebind<S>;
+
+		ScalarVec res = {};
+		if constexpr (vt::dimension > 0) vec(res).x = vec(lhs).x ? rhs : S(0);
+		if constexpr (vt::dimension > 1) vec(res).y = vec(lhs).y ? rhs : S(0);
+		if constexpr (vt::dimension > 2) vec(res).z = vec(lhs).z ? rhs : S(0);
+		if constexpr (vt::dimension > 3) vec(res).w = vec(lhs).w ? rhs : S(0);
+		return res;
+	}
+	template <VectorTypeBool Vec, ScalarType S> constexpr auto pr_vectorcall operator * (S lhs, Vec rhs) noexcept
+	{
+		return rhs * lhs;
 	}
 
 	// Quaternion Operators
@@ -1860,7 +1889,7 @@ namespace pr::math
 	// Spherical linear interpolation from 'a' to 'b' for t=[0,1]
 	template <VectorTypeFP Vec> inline Vec pr_vectorcall Slerp(Vec a, Vec b, typename vector_traits<Vec>::element_t frac) noexcept
 	{
-		pr_assert("Cannot spherically interpolate to/from the zero vector" && a != Zero<Vec>() && b != Zero<Vec>());
+		pr_assert("Cannot spherically interpolate to/from the zero vector" && LengthSq(a) != 0 && LengthSq(b) != 0);
 
 		auto a_len = Length(a);
 		auto b_len = Length(b);
@@ -2776,7 +2805,7 @@ namespace pr::math
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
-		pr_assert(vec != Zero<Vec>() && "Cannot make a perpendicular to a zero vector");
+		pr_assert(LengthSq(vec) != 0 && "Cannot make a perpendicular to a zero vector");
 
 		Vec v;
 		if constexpr (vt::dimension == 2)
@@ -2800,10 +2829,10 @@ namespace pr::math
 
 		// The length of the returned vector will be 'Length(vec)' or 'Length(previous)' (typically they'd be the same)
 		// Either 'vec' or 'previous' can be zero, but not both.
-		if (vec == Zero<Vec>())
+		if (LengthSq(vec) == 0)
 		{
 			// Both 'vec' and 'previous' cannot be zero
-			pr_assert(previous != Zero<Vec>() && "Cannot make a perpendicular to a zero vector");
+			pr_assert(LengthSq(previous) != 0 && "Cannot make a perpendicular to a zero vector");
 			return previous;
 		}
 		if (IsParallel(vec, previous)) // includes 'previous' == zero
@@ -3534,7 +3563,7 @@ namespace pr::math
 		using S = typename vt::element_t;
 		using Vec = typename vt::component_t;
 		pr_assert(vec(eye).w == S(1) && vec(at).w == S(1) && vec(up).w == S(0) && "Invalid position/direction vectors passed to LookAt");
-		pr_assert(eye - at != Zero<Vec>() && "LookAt 'eye' and 'at' positions are coincident");
+		pr_assert(LengthSq(eye - at) != 0 && "LookAt 'eye' and 'at' positions are coincident");
 		pr_assert(!IsParallel(eye - at, up, S(0)) && "LookAt 'forward' and 'up' axes are aligned");
 
 		Mat mat = {};
@@ -3719,7 +3748,7 @@ namespace pr::math
 
 		auto angle = std::acos(S(0.5) * (Trace(mat) - S(1)));
 		auto axis = S(1000) * Kernel(Identity<Mat>() - mat);
-		if (axis == Vec{})
+		if (LengthSq(axis) == 0)
 			return { Vec{1, 0, 0}, S(0) };
 		
 		axis = Normalise(axis);
@@ -3806,7 +3835,7 @@ namespace pr::math
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
 		using Vec = typename vt::component_t;
-		pr_assert(dir != Zero<Vec>() && "'dir' cannot be a zero vector");
+		pr_assert(LengthSq(dir) != 0 && "'dir' cannot be a zero vector");
 
 		// Get the preferred up direction (handling parallel cases)
 		auto up = Perpendicular(dir, up_);

@@ -167,7 +167,7 @@ namespace pr::math
 		}
 		friend bool pr_vectorcall operator == (Vec8 lhs, Vec8 rhs) noexcept
 		{
-			return lhs.ang == rhs.ang && lhs.lin == rhs.lin;
+			return All(lhs.ang == rhs.ang) && All(lhs.lin == rhs.lin);
 		}
 		friend bool pr_vectorcall operator != (Vec8 lhs, Vec8 rhs) noexcept
 		{

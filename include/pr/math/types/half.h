@@ -237,13 +237,13 @@ namespace pr::math::tests
 				auto x0 = Vec4<float>{};
 				auto x1 = F32toF16(x0);
 				auto x2 = F16toF32<Vec4<float>>(x1);
-				PR_EXPECT(x2 == x0);
+				PR_EXPECT(All(x2 == x0));
 			}
 			{// Integer-valued components
 				auto x0 = Vec4<float>{1, 2, 3, 4};
 				auto x1 = F32toF16(x0);
 				auto x2 = F16toF32<Vec4<float>>(x1);
-				PR_EXPECT(x2 == x0);
+				PR_EXPECT(All(x2 == x0));
 			}
 			{// Mixed values
 				auto x0 = Vec4<float>{-4000.0f, -200.0f, 0.003f, -4.125e-6f};

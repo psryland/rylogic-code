@@ -25,7 +25,7 @@ namespace pr::geometry::closest_point
 	inline v4 pr_vectorcall PointToRay(v4 point, v4 s, v4 d, void*, float& t)
 	{
 		assert(point.w == 1 && s.w == 1.0f && d.w == 0.0f);
-		assert(d != v4::Zero());
+		assert(LengthSq(d) != 0);
 		t = Dot(point - s, d) / LengthSq(d);
 		return s + t * d;
 	}
@@ -285,8 +285,8 @@ namespace pr::geometry::closest_point
 	inline v2 pr_vectorcall RayToRay(v4 s0, v4 d0, v4 s1, v4 d1)
 	{
 		// Degenerate lines should not be passed to this function
-		assert(d0 != v4::Zero());
-		assert(d1 != v4::Zero());
+		assert(LengthSq(d0) != 0);
+		assert(LengthSq(d1) != 0);
 		assert(s0.w == 1.0f && d0.w == 0.0f && s1.w == 1.0f && d1.w == 0.0f);
 
 		v4 r = s0 - s1;
@@ -378,7 +378,7 @@ namespace pr::geometry::closest_point
 	inline void pr_vectorcall LineToRay(v4 s0, v4 e0, v4 s1, v4 line1, float& t0, float& t1)
 	{
 		assert(s0.w == 1.0f && e0.w == 1.0f && s1.w == 1.0f && line1.w == 0.0f);
-		assert(line1 != v4::Zero() && "The infinite line should not be degenerate");
+		assert(LengthSq(line1) != 0 && "The infinite line should not be degenerate");
 
 		auto line0 = e0 - s0;
 		auto line0_length_sq = LengthSq(line0);
@@ -530,7 +530,7 @@ namespace pr::geometry::closest_point
 	{
 		assert(s.w == 1.0f && d.w == 0.0f);
 		assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
-		assert(d != v4::Zero());
+		assert(LengthSq(d) != 0);
 
 		// If the ray intersects the triangle, then the intersection point is the closest point
 		v4 bary = {};

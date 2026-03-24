@@ -99,12 +99,6 @@ namespace pr::math
 			);
 		}
 
-		// Explicit cast to bool. True if any component is non-zero.
-		constexpr explicit operator bool() const
-		{
-			return Any(*this);
-		}
-
 		// Array access
 		constexpr S operator [] (int i) const noexcept
 		{
@@ -405,28 +399,6 @@ namespace pr::math
 				}
 			}
 		}
-		friend constexpr bool pr_vectorcall operator == (Vec4 lhs, Vec4 rhs) noexcept
-		{
-			if consteval
-			{
-				return math::operator==<Vec4>(lhs, rhs);
-			}
-			else
-			{
-				if constexpr (IntrinsicF)
-				{
-					return _mm_movemask_ps(_mm_cmpeq_ps(lhs.vec, rhs.vec)) == 0xF;
-				}
-				else if constexpr (IntrinsicD)
-				{
-					return _mm256_movemask_pd(_mm256_cmp_pd(lhs.vec, rhs.vec, _CMP_EQ_OQ)) == 0xF;
-				}
-				else
-				{
-					return math::operator==<Vec4>(lhs, rhs);
-				}
-			}
-		}
 		#pragma endregion
 
 		// --- SIMD-optimised free functions ---
@@ -661,7 +633,9 @@ namespace pr::math
 	template <> struct vector_traits<Vec4<element>>\
 		: vector_traits_base<element, element, 4>\
 		, vector_access_member<Vec4<element>, element, 4>\
-	{};\
+	{\
+		template <ScalarType S> using rebind = Vec4<S>;\
+	};\
 	\
 	static_assert(VectorType<Vec4<element>>, "Vec4<"#element"> is not a valid vector type");\
 	static_assert(IsRank1<Vec4<element>>, "Vec4<"#element"> is not rank 1");\

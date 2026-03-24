@@ -325,7 +325,7 @@ namespace pr::rdr12
 			throw std::runtime_error("Back buffer size must be greater than zero");
 
 		// No-op if not a resize
-		if (!force && BackBufferSize() == size)
+		if (!force && All(BackBufferSize() == size))
 			return;
 
 		// Flush any GPU commands that are still in flight

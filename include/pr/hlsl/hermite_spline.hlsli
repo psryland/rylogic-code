@@ -21,7 +21,7 @@ static const float4x4 Hermite = {
 	{+2.f, +1.f, -2.f, +1.f},
 };
 
-HermiteSpline HermiteSpline_Create(float3 x0, float3 v0, float3 x1, float3 v1)
+inline HermiteSpline HermiteSpline_Create(float3 x0, float3 v0, float3 x1, float3 v1)
 {
 	HermiteSpline hs;
 	hs.m_coeff = mul(Hermite, float4x4(
@@ -32,25 +32,25 @@ HermiteSpline HermiteSpline_Create(float3 x0, float3 v0, float3 x1, float3 v1)
 	);
 	return hs;
 }
-float3 HermiteSpline_Position(HermiteSpline hs, float t)
+inline float3 HermiteSpline_Position(HermiteSpline hs, float t)
 {
 	t = saturate(t);
 	float4 p = mul(float4(1, t, t * t, t * t * t), hs.m_coeff);
 	return p.xyz;
 }
-float3 HermiteSpline_Velocity(HermiteSpline hs, float t)
+inline float3 HermiteSpline_Velocity(HermiteSpline hs, float t)
 {
 	t = saturate(t);
 	float4 p = mul(float4(0, 1, 2 * t, 3 * t * t), hs.m_coeff);
 	return p.xyz;
 }
-float3 HermiteSpline_Acceleration(HermiteSpline hs, float t)
+inline float3 HermiteSpline_Acceleration(HermiteSpline hs, float t)
 {
 	t = saturate(t);
 	float4 p = mul(float4(0, 0, 2, 6 * t), hs.m_coeff);
 	return p.xyz;
 }
-float3 HermiteSpline_Jolt(HermiteSpline hs)
+inline float3 HermiteSpline_Jolt(HermiteSpline hs)
 {
 	float4 p = mul(float4(0, 0, 0, 6), hs.m_coeff);
 	return p.xyz;

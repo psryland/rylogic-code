@@ -136,7 +136,7 @@ PSOut PSRadialFade(PSIn In)
 	PSOut Out = PSDefault(In);
 
 	// Fade pixels radially from 'centre'
-	float4 centre = select(m_fade_centre != float4(0, 0, 0, 0), m_fade_centre, m_cam.m_c2w[3]);
+	float4 centre = any(m_fade_centre) ? m_fade_centre : m_cam.m_c2w[3];
 	float4 radial = In.ws_vert - centre;
 	float radius =
 		m_fade_type == 0 ? length(radial) : // Spherical

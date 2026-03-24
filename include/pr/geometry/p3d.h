@@ -663,7 +663,7 @@ namespace pr::geometry::p3d
 				}
 
 				// Different to the first element, fill to 'vcount' and add the new element
-				if (cont.size() == 1 && cont[0] != elem)
+				if (cont.size() == 1 && !All(cont[0] == elem))
 				{
 					cont.resize(vcount - 1, cont[0]);
 					cont.push_back(elem);
@@ -671,7 +671,7 @@ namespace pr::geometry::p3d
 				}
 				
 				// Not equal to the default elem, fill to 'vcount' and add the new element
-				if (elem != ContType::Default)
+				if (!All(elem == ContType::Default))
 				{
 					cont.resize(vcount - 1, ContType::Default);
 					cont.push_back(elem);
@@ -1179,7 +1179,7 @@ namespace pr::geometry::p3d
 	// Write a mesh to parent transform to 'out'
 	template <typename TOut> uint32_t WriteMeshTransform(TOut& out, m4x4 const& o2p)
 	{
-		if (o2p == m4x4::Identity())
+		if (All(o2p == m4x4::Identity()))
 			return 0;
 
 		ChunkHeader hdr(EChunkId::MeshTransform, sizeof(m4x4));
@@ -2664,7 +2664,7 @@ namespace pr::geometry
 				{
 					auto& v0 = m0.m_vert[j];
 					auto& v1 = m1.m_vert[j];
-					PR_EXPECT(v0 == v1);
+					PR_EXPECT(All(v0 == v1));
 				}
 				for (int j = 0; j != (int)m1.m_diff.size(); ++j)
 				{
@@ -2676,13 +2676,13 @@ namespace pr::geometry
 				{
 					auto& n0 = m0.m_norm[j];
 					auto& n1 = m1.m_norm[j];
-					PR_EXPECT(n0 == n1);
+					PR_EXPECT(All(n0 == n1));
 				}
 				for (int j = 0; j != (int)m1.m_tex0.size(); ++j)
 				{
 					auto& t0 = m0.m_tex0[j];
 					auto& t1 = m1.m_tex0[j];
-					PR_EXPECT(t0 == t1);
+					PR_EXPECT(All(t0 == t1));
 				}
 				for (int j = 0; j != (int)m1.m_nugget.size(); ++j)
 				{
@@ -2736,11 +2736,11 @@ namespace pr::geometry
 			for (auto const& v : mesh.fat_verts())
 				fat.push_back(v);
 
-			PR_EXPECT(fat[0].m_vert == v4(-1, -1, 0, 1));
+			PR_EXPECT(All(fat[0].m_vert == v4(-1, -1, 0, 1)));
 			PR_EXPECT(fat[1].m_diff == Colour(Colour32Green));
-			PR_EXPECT(fat[2].m_norm == v4(0, 0, 1, 0));
-			PR_EXPECT(fat[1].m_tex0 == v2(0.5f, 0.0f));
-			PR_EXPECT(fat[2].pad == v2(0.0f, 0.0f));
+			PR_EXPECT(All(fat[2].m_norm == v4(0, 0, 1, 0)));
+			PR_EXPECT(All(fat[1].m_tex0 == v2(0.5f, 0.0f)));
+			PR_EXPECT(All(fat[2].pad == v2(0.0f, 0.0f)));
 		}
 		//std::ifstream ifile("\\dump\\test2.3ds", std::ifstream::binary);
 		//Read3DSMaterials(ifile, [](max_3ds::Material&&){});

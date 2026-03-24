@@ -2380,7 +2380,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height,
 		tex->m_t2s = To<m4x4>(options.m_t2s);
 		tex->m_t2s =
 			IsAffine(tex->m_t2s) ? tex->m_t2s :
-			tex->m_t2s == m4x4::Zero() ? m4x4::Identity() :
+			All(tex->m_t2s == m4x4::Zero()) ? m4x4::Identity() :
 			throw std::runtime_error("Invalid texture to surface transform");
 
 		// Rely on the caller for correct reference counting
@@ -2421,7 +2421,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreateFromUri(char const* res
 		tex->m_t2s = To<m4x4>(options.m_t2s);
 		tex->m_t2s =
 			IsAffine(tex->m_t2s) ? tex->m_t2s :
-			tex->m_t2s == m4x4::Zero() ? m4x4::Identity() :
+			All(tex->m_t2s == m4x4::Zero()) ? m4x4::Identity() :
 			throw std::runtime_error("Invalid texture to surface transform");
 
 		// Rely on the caller for correct reference counting
@@ -2441,7 +2441,7 @@ VIEW3D_API view3d::CubeMap __stdcall View3D_CubeMapCreateFromUri(char const* res
 		auto tex = factory.CreateTextureCube(resource, tdesc);
 
 		// Set the cube map to world transform
-		if (m4x4 cube2w; (cube2w = To<m4x4>(options.m_cube2w)) != m4x4::Zero())
+		if (m4x4 cube2w; Any((cube2w = To<m4x4>(options.m_cube2w)) != m4x4::Zero()))
 		{
 			if (!IsAffine(cube2w)) throw std::runtime_error("Invalid cube map orientation transform");
 			tex->m_cube2w = cube2w;

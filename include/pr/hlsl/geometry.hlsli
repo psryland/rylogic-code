@@ -12,18 +12,18 @@ namespace pr::hlsl {
 #endif
 
 // Project 'pt' onto the plane with normal 'direction'
-float3 Project(float3 pt, float3 direction)
+inline float3 Project(float3 pt, float3 direction)
 {
 	return pt - dot(pt, direction) * direction;
 }
-float4 Project(float4 pt, float4 direction)
+inline float4 Project(float4 pt, float4 direction)
 {
 	return pt - dot(pt, direction) * direction;
 }
 
 // Return the normal for the triangle (a,b,c)
 // Returns 'def' if the triangle is degenerate
-float4 FaceNormal(float4 a, float4 b, float4 c, float4 def = float4(0,0,0,0))
+inline float4 FaceNormal(float4 a, float4 b, float4 c, float4 def = float4(0,0,0,0))
 {
 	float3 n = cross((b - a).xyz, (c - b).xyz);
 	float len = length(n);
@@ -33,7 +33,7 @@ float4 FaceNormal(float4 a, float4 b, float4 c, float4 def = float4(0,0,0,0))
 // Measure the coplanarity of the two triangles (a,b,c) and (a,c,d)
 // Returns 1 for parallel normals, -1 for opposing normals.
 // Returns 0 if either of the triangles are degenerate.
-float Coplanarity(float4 a, float4 b, float4 c, float4 d)
+inline float Coplanarity(float4 a, float4 b, float4 c, float4 d)
 {
 	float4 n0 = FaceNormal(a, b, c);
 	float4 n1 = FaceNormal(a, c, d);
@@ -115,7 +115,7 @@ inline float4 Barycentric(float4 pos, float4 a, float4 b, float4 c)
 // Returns 1.0 if point 'p' lies inside triangle (a,b,c), otherwise 0.0.
 // 'p' - Point to test (does NOT need to lie in triangle plane)
 // a,b,c - Triangle vertices
-float PointInTriangle(float3 p, float3 a, float3 b, float3 c)
+inline float PointInTriangle(float3 p, float3 a, float3 b, float3 c)
 {
 	// Notes:
 	//   - Internally computes the triangle normal
@@ -154,7 +154,7 @@ float PointInTriangle(float3 p, float3 a, float3 b, float3 c)
 }
 
 // Returns 1.0 if 'p' is inside the quad '(a,b,c,d)', otherwise 0.0.
-float PointInQuad(float3 p, float3 a, float3 b, float3 c, float3 d)
+inline float PointInQuad(float3 p, float3 a, float3 b, float3 c, float3 d)
 {
 	float t0 = PointInTriangle(p, a, b, c);
 	float t1 = PointInTriangle(p, a, b, d);
@@ -173,7 +173,7 @@ inline float4 FibonacciSpiral(int i, int N)
 	float z = -1.0f + (2.0f * i + 1.0f) / N;
 
 	// Radius at z
-	float r = sqrt(1.0 - z * z);
+	float r = sqrt(1.0f - z * z);
 
 	// Golden angle increment
 	static const float GoldenAngle = 2.39996322972865332223f;
@@ -194,7 +194,7 @@ inline float4 FibonacciSpiral(int i, int N)
 #if 0
 
 // This needs moving to where 'm_proj_tex_count' is defined
-float4 ProjTex(float4 ws_pos, float4 in_diff)
+inline float4 ProjTex(float4 ws_pos, float4 in_diff)
 {
 	float4 out_diff = in_diff;
 	for (int i = 0; i < m_proj_tex_count.x; i += 1.0)

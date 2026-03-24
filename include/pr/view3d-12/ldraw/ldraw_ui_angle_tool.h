@@ -109,7 +109,7 @@ namespace pr::rdr12::ldraw
 			m_gfx = nullptr;
 
 			// Create graphics
-			if (m_origin != m_point0 || m_origin != m_point1)
+			if (Any(m_origin != m_point0) || Any(m_origin != m_point1))
 			{
 				pr::ldraw::Builder ldr;
 				auto& group = ldr.Group("Angle");

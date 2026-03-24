@@ -117,7 +117,7 @@ inline float4 CullCheck(float4 pos, uniform int cull_mode)
 }
 
 // Evolves the particles forward in time while resolving collisions
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(Integrate, ThreadGroupSize, 1, 1)
 void Integrate(int3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= Sim.NumParticles)
@@ -152,17 +152,17 @@ void Integrate(int3 dtid : SV_DispatchThreadID)
 		if (WaveActiveOrThisThreadTrue(done))
 		{
 			target.pos += ray * t;
-			target.vel = select(attempt != MaxCollisionResolutionSteps, vel1, float4(0,0,0,0));
+			target.vel = attempt != MaxCollisionResolutionSteps ? vel1 : float4(0,0,0,0);
 			
 			// Use for highlighting stuck particles
 			#if SHOW_STUCK_PARTICLES
-			target.colour = select(attempt != MaxCollisionResolutionSteps, target.colour, float4(1,0,1,1));
+			target.colour = attempt != MaxCollisionResolutionSteps ? target.colour : float4(1,0,1,1);
 			#endif
 			break;
 		}
 		
 		// Constrain to 2D
-		normal.z = select(Sim.SpatialDimensions == 3, normal.z, 0);
+		normal.z = Sim.SpatialDimensions == 3 ? normal.z : 0;
 		
 		// Advance the point to the intercept
 		target.pos += ray * t;
@@ -209,7 +209,7 @@ void Integrate(int3 dtid : SV_DispatchThreadID)
 }
 
 // Find nearby surfaces for particles
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(DetectBoundaries, ThreadGroupSize, 1, 1)
 void DetectBoundaries(int3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= Bound.NumParticles)
@@ -244,14 +244,14 @@ void DetectBoundaries(int3 dtid : SV_DispatchThreadID)
 	}
 
 	// Constrain to 2D
-	target.surface = select(any(boundary_normal), float4(normalize(boundary_normal).xyz, boundary_distance), float4(0,0,0,Bound.ParticleRadius));
-	target.surface.z = select(Bound.SpatialDimensions == 3, target.surface.z, 0);
+	target.surface = any(boundary_normal) ? float4(normalize(boundary_normal).xyz, boundary_distance) : float4(0,0,0,Bound.ParticleRadius);
+	target.surface.z = Bound.SpatialDimensions == 3 ? target.surface.z : 0;
 
 	m_dynamics[dtid.x].surface = target.surface;
 }
 
 // Mark culled particles with NaN positions
-[numthreads(ThreadGroupSize, 1, 1)]
+numthreads(CullDeadParticles, ThreadGroupSize, 1, 1)
 void CullDeadParticles(int3 dtid : SV_DispatchThreadID)
 {
 	if (dtid.x >= Cull.NumParticles)

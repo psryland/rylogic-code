@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -61,12 +61,6 @@ namespace pr::math
 				static_cast<Vec3<S2>>(y),
 				static_cast<Vec3<S2>>(z)
 			);
-		}
-
-		// Explicit cast to bool. True if any component is non-zero.
-		constexpr explicit operator bool() const
-		{
-			return Any(*this);
 		}
 
 		// Array access
@@ -366,7 +360,9 @@ namespace pr::math
 	template <> struct vector_traits<Mat3x4<element>>\
 		: vector_traits_base<element, component, 3>\
 		, vector_access_member<Mat3x4<element>, component, 3>\
-	{};\
+	{\
+		template <ScalarType S> using rebind = Mat3x4<S>;\
+	};\
 	\
 	static_assert(VectorType<Mat3x4<element>>, "Mat3x4<"#element"> is not a valid vector type");\
 	static_assert(IsRank2<Mat3x4<element>>, "Mat3x4<"#element"> is not rank 2");\
@@ -377,6 +373,9 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(Vec3<double>, double);
 	PR_MATH_DEFINE_TYPE(Vec3<int32_t>, int32_t);
 	PR_MATH_DEFINE_TYPE(Vec3<int64_t>, int64_t);
+	PR_MATH_DEFINE_TYPE(Vec3<uint32_t>, uint32_t);
+	PR_MATH_DEFINE_TYPE(Vec3<uint64_t>, uint64_t);
+	PR_MATH_DEFINE_TYPE(Vec3<bool>, bool);
 	#undef PR_MATH_DEFINE_TYPE
 }
 

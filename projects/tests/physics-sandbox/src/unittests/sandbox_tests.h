@@ -473,7 +473,7 @@ namespace physics_sandbox::tests
 
 			// Translate to CoM frame
 			auto inertia = inertia_at_origin;
-			if (mp.m_centre_of_mass != v4{})
+			if (LengthSq(mp.m_centre_of_mass) != 0)
 				inertia = physics::Translate(inertia, mp.m_centre_of_mass, physics::ETranslateInertia::TowardCoM);
 
 			// CoM inertia should still be valid
@@ -490,7 +490,7 @@ namespace physics_sandbox::tests
 			PR_EXPECT(inv.Check());
 
 			// InertiaInv CoM should be zero (we're storing at CoM)
-			PR_EXPECT(inv.CoM() == v4{});
+			PR_EXPECT(All(inv.CoM() == v4{}));
 
 			// Roundtrip: Invert(Invert(I)) ≈ I
 			auto roundtrip = physics::Invert(inv);

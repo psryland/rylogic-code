@@ -66,7 +66,7 @@ namespace pr::math
 		// Returns true if this BoundingBox encloses a single point
 		constexpr bool is_point() const noexcept
 		{
-			return m_radius == Zero<Vec4>();
+			return All(m_radius == Zero<Vec4>());
 		}
 
 		// Returns true if all of the radii are non zero

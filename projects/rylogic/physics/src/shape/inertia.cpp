@@ -123,7 +123,7 @@ namespace pr::physics
 			return m3x4::Identity();
 
 		auto Ic = Ic3x3(mass);
-		if (CoM() == v4{})
+		if (LengthSq(CoM()) == 0)
 			return Ic;
 
 		auto cx = CPM<m3x4>(CoM().xyz);
@@ -152,7 +152,7 @@ namespace pr::physics
 	}
 	bool Inertia::Check() const
 	{
-		return CoM() == v4{} ? Inertia::Check(To3x3()) : Inertia::Check(To6x6());
+		return LengthSq(CoM()) == 0 ? Inertia::Check(To3x3()) : Inertia::Check(To6x6());
 	}
 	bool Inertia::Check(m3x4 const& inertia)
 	{
@@ -297,10 +297,10 @@ namespace pr::physics
 
 	bool operator == (Inertia const& lhs, Inertia const& rhs)
 	{
-		return
+		return All(
 			lhs.m_diagonal == rhs.m_diagonal &&
 			lhs.m_products == rhs.m_products &&
-			lhs.m_com_and_mass == rhs.m_com_and_mass;
+			lhs.m_com_and_mass == rhs.m_com_and_mass);
 	}
 	bool operator != (Inertia const& lhs, Inertia const& rhs)
 	{
@@ -308,7 +308,7 @@ namespace pr::physics
 	}
 	v4 operator * (Inertia const& inertia, v4 v)
 	{
-		if (inertia.CoM() == v4{})
+		if (LengthSq(inertia.CoM()) == 0)
 			return inertia.To3x3() * v;
 		else
 			return Translate(inertia, -inertia.CoM(), ETranslateInertia::AwayFromCoM).To3x3() * v;
@@ -326,7 +326,7 @@ namespace pr::physics
 		//             [-cx       ,  1]   [lin]
 
 		// Special case when the inertia is in CoM frame.
-		if (inertia.CoM() == v4{})
+		if (LengthSq(inertia.CoM()) == 0)
 			return v8force{inertia.To3x3() * motion.ang, inertia.Mass() * motion.lin};
 		else
 			return inertia.To6x6() * motion;
@@ -444,7 +444,7 @@ namespace pr::physics
 			return m3x4::Identity();
 
 		auto Ic_inv = Ic3x3(inv_mass);
-		if (CoM() == v4{})
+		if (LengthSq(CoM()) == 0)
 			return Ic_inv;
 
 		//' Io¯ = (Ic - mcxcx)¯                                  '
@@ -482,7 +482,7 @@ namespace pr::physics
 	}
 	bool InertiaInv::Check() const
 	{
-		return CoM() == v4{} ? InertiaInv::Check(To3x3()) : InertiaInv::Check(To6x6());
+		return LengthSq(CoM()) == 0 ? InertiaInv::Check(To3x3()) : InertiaInv::Check(To6x6());
 	}
 	bool InertiaInv::Check(m3x4 const& inertia_inv)
 	{
@@ -556,10 +556,10 @@ namespace pr::physics
 
 	bool operator == (InertiaInv const& lhs, InertiaInv const& rhs)
 	{
-		return
+		return All(
 			lhs.m_diagonal == rhs.m_diagonal &&
 			lhs.m_products == rhs.m_products &&
-			lhs.m_com_and_invmass == rhs.m_com_and_invmass;
+			lhs.m_com_and_invmass == rhs.m_com_and_invmass);
 	}
 	bool operator != (InertiaInv const& lhs, InertiaInv const& rhs)
 	{
@@ -567,14 +567,14 @@ namespace pr::physics
 	}
 	v3 operator * (InertiaInv const& inertia_inv, v3 h)
 	{
-		if (inertia_inv.CoM() == v4{})
+		if (LengthSq(inertia_inv.CoM()) == 0)
 			return inertia_inv.To3x3() * h;
 		else
 			return Translate(inertia_inv, -inertia_inv.CoM(), ETranslateInertia::AwayFromCoM).To3x3() * h;
 	}
 	v4 operator * (InertiaInv const& inertia_inv, v4 h)
 	{
-		if (inertia_inv.CoM() == v4{})
+		if (LengthSq(inertia_inv.CoM()) == 0)
 			return inertia_inv.To3x3() * h;
 		else
 			return Translate(inertia_inv, -inertia_inv.CoM(), ETranslateInertia::AwayFromCoM).To3x3() * h;
@@ -582,7 +582,7 @@ namespace pr::physics
 	v8motion operator * (InertiaInv const& inertia_inv, v8force const& force)
 	{
 		// Special case when the inertia is in CoM frame.
-		if (inertia_inv.CoM() == v4{})
+		if (LengthSq(inertia_inv.CoM()) == 0)
 			return v8motion{inertia_inv.To3x3() * force.ang, inertia_inv.InvMass() * force.lin};
 		else
 			return inertia_inv.To6x6() * force;
@@ -595,7 +595,7 @@ namespace pr::physics
 	{
 		// Todo: this is not the correct check, so long as the inertias are in the same frame
 		// they can be added after parallel axis transformed to a common point.
-		if (lhs.CoM() != rhs.CoM())
+		if (Any(lhs.CoM() != rhs.CoM()))
 			throw std::runtime_error("Inertias must be in the same space");
 
 		auto& Ia = lhs;
@@ -630,7 +630,7 @@ namespace pr::physics
 	}
 	Inertia Split(Inertia const& lhs, Inertia const& rhs)
 	{
-		if (lhs.CoM() != rhs.CoM())
+		if (Any(lhs.CoM() != rhs.CoM()))
 			throw std::runtime_error("Inertias must be in the same space");
 
 		auto& Ia = lhs;
@@ -655,7 +655,7 @@ namespace pr::physics
 	// Add/Subtract inverse inertias. 'lhs' and 'rhs' must be in the same frame.
 	InertiaInv Join(InertiaInv const& lhs, InertiaInv const& rhs)
 	{
-		if (lhs.CoM() != rhs.CoM())
+		if (Any(lhs.CoM() != rhs.CoM()))
 			throw std::runtime_error("Inertias must be in the same space");
 
 		auto& Ia_inv = lhs;
@@ -674,7 +674,7 @@ namespace pr::physics
 	}
 	InertiaInv Split(InertiaInv const& lhs, InertiaInv const& rhs)
 	{
-		if (lhs.CoM() != rhs.CoM())
+		if (Any(lhs.CoM() != rhs.CoM()))
 			throw std::runtime_error("Inertias must be in the same space");
 
 		auto& Ia_inv = lhs;
@@ -766,7 +766,7 @@ namespace pr::physics
 		// at a point other than where the inertia was measured at. Translate()
 		// moves the measure point, so if 'com' is non-zero, update it to reflect
 		// the new offset.
-		if (inertia0.CoM() != v4{})
+		if (LengthSq(inertia0.CoM()) != 0)
 			inertia1.m_com_and_mass.xyz -= sign * offset.xyz;
 
 		return inertia1;

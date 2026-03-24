@@ -1235,7 +1235,7 @@ namespace pr::rdr12::ldraw
 			}
 			explicit operator bool() const
 			{
-				return m_size != v2::Zero();
+				return LengthSq(m_size) != 0;
 			}
 		};
 
@@ -1335,7 +1335,7 @@ namespace pr::rdr12::ldraw
 			}
 			explicit operator bool() const
 			{
-				return m_size != v2::Zero();
+				return LengthSq(m_size) != 0;
 			}
 		};
 
@@ -1516,7 +1516,7 @@ namespace pr::rdr12::ldraw
 			}
 			explicit operator bool() const
 			{
-				return m_dash != v2(1, 0);
+				return Any(m_dash != v2(1, 0));
 			}
 		};
 
@@ -2173,7 +2173,7 @@ namespace pr::rdr12::ldraw
 					auto colrs = m_colours.span(ccount, segment.m_ccount);
 					auto segment_idx = s_cast<int>(&segment - m_segments.data());
 					auto size = segment.m_arrow_heads.m_size =
-						segment.m_arrow_heads.m_size != v2::Zero() ? segment.m_arrow_heads.m_size :
+						LengthSq(segment.m_arrow_heads.m_size) != 0 ? segment.m_arrow_heads.m_size :
 						segment.m_thick.m_width != 0 ? v2{ segment.m_thick.m_width * 2 } :
 						v2{ 8.0f };
 
@@ -3097,7 +3097,7 @@ namespace pr::rdr12::ldraw
 				{
 					m_dim.x = reader.Real<float>();
 					m_dim.y = reader.IsSectionEnd() ? m_dim.x : reader.Real<float>();
-					if (Abs(m_dim) != m_dim)
+					if (Any(Abs(m_dim) != m_dim))
 					{
 						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Circle dimensions contain a negative value");
 						m_dim = Abs(m_dim);
@@ -3228,7 +3228,7 @@ namespace pr::rdr12::ldraw
 					m_dim.y = reader.IsSectionEnd() ? m_dim.x : reader.Real<float>();
 					m_dim *= 0.5f;
 
-					if (Abs(m_dim) != m_dim)
+					if (Any(Abs(m_dim) != m_dim))
 					{
 						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Rect dimensions contain a negative value");
 						m_dim = Abs(m_dim);
@@ -3523,7 +3523,7 @@ namespace pr::rdr12::ldraw
 		}
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
-			if (m_dim == v2::Zero())
+			if (LengthSq(m_dim) == 0)
 				return;
 
 			v4 verts[4] = {
@@ -6426,7 +6426,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::M4x4:
 				{
 					auto m = Matrix4x4();
-					if (m.w.w == 0 && m == m4x4::Zero())
+					if (m.w.w == 0 && All(m == m4x4::Zero()))
 					{
 						ReportError(EParseError::InvalidValue, Loc(), "Invalid transform.");
 						m = m4x4::Identity();
@@ -6457,7 +6457,7 @@ namespace pr::rdr12::ldraw
 					auto direction = Vector3f().w0();
 
 					v4 axis = axis_id;
-					if (axis == v4::Zero())
+					if (LengthSq(axis) == 0)
 					{
 						ReportError(EParseError::InvalidValue, Loc(), "axis_id must one of \xc2\xb1""1, \xc2\xb1""2, \xc2\xb1""3");
 						axis = v4::ZAxis();
