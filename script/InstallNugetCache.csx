@@ -1,4 +1,4 @@
-#! "net9.0"
+#! "net10.0"
 #nullable enable
 
 // Write the sha512 hash and metadata files for a nuget package in the global cache.

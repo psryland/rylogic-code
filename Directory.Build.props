@@ -17,7 +17,7 @@
 
 	<!-- C# -->
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-		<PrimaryTarget>net9.0-windows</PrimaryTarget>
+		<PrimaryTarget>net10.0-windows</PrimaryTarget>
 		<TargetFrameworks>$(PrimaryTarget);net481</TargetFrameworks>
 		<WarningsAsErrors>Nullable</WarningsAsErrors>
 		<GeneratePackageOnBuild>False</GeneratePackageOnBuild>

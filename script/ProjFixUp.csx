@@ -1,4 +1,4 @@
-#! "net9.0"
+#! "net10.0"
 #r "System.Xml.Linq"
 #load "UserVars.csx"
 #nullable enable

@@ -17,7 +17,7 @@
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>
 				;%(PreprocessorDefinitions)
-				;PR_MATHS_USE_DIRECTMATH=1
+				;PR_MATHS_USE_INTRINSICS=1
 				;PR_UNITTESTS=1
 				;PR_UNITTESTS_VISUALISE=0
 			</PreprocessorDefinitions>
