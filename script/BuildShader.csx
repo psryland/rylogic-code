@@ -1,4 +1,4 @@
-#! "net9.0"
+#! "net10.0"
 // Build shaders using fxc.exe
 // Use:
 //  dotnet-script.exe BuildShader.csx $(Fullpath) $(PlatformTarget) $(Configuration) [obj] [dbg] [trace] [pp]

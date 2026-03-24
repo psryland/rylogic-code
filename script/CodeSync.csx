@@ -1,4 +1,4 @@
-#! "net9.0"
+#! "net10.0"
 #load "UserVars.csx"
 #load "Tools.csx"
 #nullable enable

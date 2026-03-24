@@ -1,4 +1,4 @@
-﻿#! "net9.0"
+#! "net10.0"
 #r "System.IO"
 #r "System.Text.Json"
 #r "nuget: Rylogic.Core, 2.0.2"
