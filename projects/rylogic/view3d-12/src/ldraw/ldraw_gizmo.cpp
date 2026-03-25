@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -1140,6 +1140,6 @@ namespace pr::rdr12::ldraw
 
 		// Special case the gizmo transform, since we don't want to scale the gizmo
 		t[k] = t[k] > 1.0f ? 1.05f : 0.95f;
-		m_attached_ptr[0]->rot = giz2w.rot * m3x4::Scale(t[0], t[1], t[2]);
+		m_attached_ptr[0]->rot = giz2w.rot * m3x3::Scale(t[0], t[1], t[2]);
 	}
 }

@@ -9,7 +9,7 @@
 #include "pr/common/unittests.h"
 namespace pr::math::tests
 {
-	PRUnitTestClass(Matrix3x4)
+	PRUnitTestClass(Matrix3x3)
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
@@ -17,7 +17,7 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			// From scalar broadcast (w padding is always 0)
 			auto M0 = mat3_t(T(1));
@@ -51,7 +51,7 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			auto M = mat3_t(
 				vec3_t(T(1), T(2), T(3)),
@@ -80,7 +80,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			PR_EXPECT(All(mat3_t::Zero() == mat3_t(T(0))));
 
@@ -95,7 +95,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(W1Factory, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 			using mat4_t = Mat4x4<T>;
 
 			auto rot = mat3_t::Identity();
@@ -111,7 +111,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(TraceScaleUnscaled, float, double)
 		{
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			auto M = mat3_t(
 				vec4_t(T(2), T(0), T(0), T(0)),
@@ -136,22 +136,22 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
-			// Mat3x4 is a 3x3 matrix (w=0 invariant). Columns are x,y,z.
+			// Mat3x3 is a 3x3 matrix (w=0 invariant). Columns are x,y,z.
 			auto m = mat3_t(
 				vec3_t(T(1), T(2), T(3)),
 				vec3_t(T(1), T(1), T(1)),
 				vec3_t(T(4), T(3), T(2)));
 
-			// Mat3x4 * Vec3: 3x3 rotation of a direction
+			// Mat3x3 * Vec3: 3x3 rotation of a direction
 			auto v3 = vec3_t(T(-3), T(4), T(2));
 			
 			// result[j] = v.x*x[j] + v.y*y[j] + v.z*z[j]
 			auto R3 = vec3_t(T(-3*1 + 4*1 + 2*4), T(-3*2 + 4*1 + 2*3), T(-3*3 + 4*1 + 2*2));
 			PR_EXPECT(All(m * v3 == R3));
 
-			// Mat3x4 * Vec4: 3x3 rotation, w preserved
+			// Mat3x3 * Vec4: 3x3 rotation, w preserved
 			auto v4 = vec4_t(T(-3), T(4), T(2), T(-2));
 			auto R4 = vec4_t(R3.x, R3.y, R3.z, T(-2));
 			PR_EXPECT(All(m * v4 == R4));
@@ -160,7 +160,7 @@ namespace pr::math::tests
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			// Rotation from axis + angle
 			auto axis = vec3_t::Normal(T(0), T(0), T(1));
@@ -186,7 +186,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(ScaleFactory, float, double)
 		{
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 
 			// Uniform scale
 			auto s1 = mat3_t::Scale(T(3));
@@ -204,7 +204,7 @@ namespace pr::math::tests
 			using S = float;
 			using vec3_t = Vec3<S>;
 			using vec4_t = Vec4<S>;
-			using mat3_t = Mat3x4<S>;
+			using mat3_t = Mat3x3<S>;
 
 			// Construct test matrices from explicit values (constexpr-friendly, no sin/cos)
 			constexpr auto A = mat3_t(
@@ -250,7 +250,7 @@ namespace pr::math::tests
 			{
 				using Sd = double;
 				using vec3d = Vec3<Sd>;
-				using mat3d = Mat3x4<Sd>;
+				using mat3d = Mat3x3<Sd>;
 
 				constexpr auto Ad = mat3d(
 					vec3d(Sd(0.936), Sd(0.312), Sd(-0.159)),

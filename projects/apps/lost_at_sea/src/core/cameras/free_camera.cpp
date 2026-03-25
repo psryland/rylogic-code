@@ -73,7 +73,7 @@ namespace las::camera
 			// Rotation: immediate (inertia on rotation feels bad)
 			case input::EAction::FreeCamera_Yaw:
 			{
-				auto rot = m3x4::Rotation(v3{0, 0, 1}, action.m_axis);
+				auto rot = m3x3::Rotation(v3{0, 0, 1}, action.m_axis);
 				auto pos = c2w.pos;
 				c2w = m4x4(rot * c2w.rot, pos);
 				m_cam.CameraToWorld(c2w);
@@ -82,7 +82,7 @@ namespace las::camera
 			case input::EAction::FreeCamera_Pitch:
 			{
 				auto right = c2w.x.xyz;
-				auto rot = m3x4::Rotation(right, action.m_axis);
+				auto rot = m3x3::Rotation(right, action.m_axis);
 				auto pos = c2w.pos;
 				c2w = m4x4(rot * c2w.rot, pos);
 				m_cam.CameraToWorld(c2w);

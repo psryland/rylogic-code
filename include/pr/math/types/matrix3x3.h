@@ -12,7 +12,7 @@
 namespace pr::math
 {
 	template <ScalarType S>
-	struct Mat3x4
+	struct Mat3x3
 	{
 		#pragma warning(push)
 		#pragma warning(disable:4201) // nameless struct
@@ -27,36 +27,36 @@ namespace pr::math
 		#pragma warning(pop)
 
 		// Construct (zero-initialise padding to keep constexpr evaluator happy)
-		constexpr Mat3x4() noexcept
+		constexpr Mat3x3() noexcept
 			:x(), xw()
 			,y(), yw()
 			,z(), zw()
 		{}
-		constexpr explicit Mat3x4(S x_) noexcept
+		constexpr explicit Mat3x3(S x_) noexcept
 			:x(x_, x_, x_), xw()
 			,y(x_, x_, x_), yw()
 			,z(x_, x_, x_), zw()
 		{}
-		constexpr Mat3x4(Vec3<S> x_, Vec3<S> y_, Vec3<S> z_) noexcept
+		constexpr Mat3x3(Vec3<S> x_, Vec3<S> y_, Vec3<S> z_) noexcept
 			:x(x_), xw()
 			,y(y_), yw()
 			,z(z_), zw()
 		{}
-		constexpr Mat3x4(Vec4<S> x_, Vec4<S> y_, Vec4<S> z_) noexcept
+		constexpr Mat3x3(Vec4<S> x_, Vec4<S> y_, Vec4<S> z_) noexcept
 			:x(x_.x, x_.y, x_.z), xw()
 			,y(y_.x, y_.y, y_.z), yw()
 			,z(z_.x, z_.y, z_.z), zw()
 		{}
-		constexpr Mat3x4(std::ranges::random_access_range auto&& v) noexcept // 9 scalars
+		constexpr Mat3x3(std::ranges::random_access_range auto&& v) noexcept // 9 scalars
 			:x(v[0], v[1], v[2]), xw()
 			,y(v[3], v[4], v[5]), yw()
 			,z(v[6], v[7], v[8]), zw()
 		{}
 
 		// Explicit cast to different Scalar type
-		template <ScalarType S2> constexpr explicit operator Mat3x4<S2>() const noexcept
+		template <ScalarType S2> constexpr explicit operator Mat3x3<S2>() const noexcept
 		{
-			return Mat3x4<S2>(
+			return Mat3x3<S2>(
 				static_cast<Vec3<S2>>(x),
 				static_cast<Vec3<S2>>(y),
 				static_cast<Vec3<S2>>(z)
@@ -78,14 +78,14 @@ namespace pr::math
 		}
 
 		// Constants
-		static constexpr Mat3x4 const& Zero() noexcept
+		static constexpr Mat3x3 const& Zero() noexcept
 		{
-			static auto s_zero = math::Zero<Mat3x4>();
+			static auto s_zero = math::Zero<Mat3x3>();
 			return s_zero;
 		}
-		static constexpr Mat3x4 const& Identity() noexcept
+		static constexpr Mat3x3 const& Identity() noexcept
 		{
-			static auto s_identity = math::Identity<Mat3x4>();
+			static auto s_identity = math::Identity<Mat3x3>();
 			return s_identity;
 		}
 
@@ -120,79 +120,79 @@ namespace pr::math
 		}
 
 		// Return the scale of this matrix
-		constexpr Mat3x4 scale() const noexcept
+		constexpr Mat3x3 scale() const noexcept
 		{
-			return math::ScaleFrom<Mat3x4>(*this);
+			return math::ScaleFrom<Mat3x3>(*this);
 		}
 
 		// Return this matrix with the scale removed
-		constexpr Mat3x4 unscaled() const noexcept
+		constexpr Mat3x3 unscaled() const noexcept
 		{
-			return math::Unscaled<Mat3x4>(*this);
+			return math::Unscaled<Mat3x3>(*this);
 		}
 
 		// Construct a rotation matrix from Euler angles. Order is: roll, pitch, yaw (to match DirectX)
-		static Mat3x4 RotationRad(S pitch, S yaw, S roll) noexcept
+		static Mat3x3 RotationRad(S pitch, S yaw, S roll) noexcept
 		{
-			return math::RotationRad<Mat3x4>(pitch, yaw, roll);
+			return math::RotationRad<Mat3x3>(pitch, yaw, roll);
 		}
-		static Mat3x4 RotationDeg(S pitch, S yaw, S roll) noexcept
+		static Mat3x3 RotationDeg(S pitch, S yaw, S roll) noexcept
 		{
-			return math::RotationDeg<Mat3x4>(pitch, yaw, roll);
+			return math::RotationDeg<Mat3x3>(pitch, yaw, roll);
 		}
 
 		// Create from an axis, angle
-		static Mat3x4 pr_vectorcall Rotation(Vec3<S> axis_norm, Vec3<S> axis_sine_angle, S cos_angle) noexcept
+		static Mat3x3 pr_vectorcall Rotation(Vec3<S> axis_norm, Vec3<S> axis_sine_angle, S cos_angle) noexcept
 		{
-			return math::Rotation<Mat3x4>(axis_norm, axis_sine_angle, cos_angle);
+			return math::Rotation<Mat3x3>(axis_norm, axis_sine_angle, cos_angle);
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
-		static Mat3x4 pr_vectorcall Rotation(Vec3<S> axis_norm, S angle) noexcept
+		static Mat3x3 pr_vectorcall Rotation(Vec3<S> axis_norm, S angle) noexcept
 		{
-			return math::Rotation<Mat3x4>(axis_norm, angle);
+			return math::Rotation<Mat3x3>(axis_norm, angle);
 		}
 
 		// Create from an angular displacement vector. length = angle(rad), direction = axis
-		static Mat3x4 pr_vectorcall Rotation(Vec3<S> angular_displacement) noexcept // This is ExpMap3x3.
+		static Mat3x3 pr_vectorcall Rotation(Vec3<S> angular_displacement) noexcept // This is ExpMap3x3.
 		{
-			return math::Rotation<Mat3x4>(angular_displacement);
+			return math::Rotation<Mat3x3>(angular_displacement);
 		}
 
 		// Create a transform representing the rotation from one vector to another. (Vectors do not need to be normalised)
-		static Mat3x4 pr_vectorcall Rotation(Vec3<S> from, Vec3<S> to) noexcept
+		static Mat3x3 pr_vectorcall Rotation(Vec3<S> from, Vec3<S> to) noexcept
 		{
-			return math::Rotation<Mat3x4>(from, to);
+			return math::Rotation<Mat3x3>(from, to);
 		}
 
 		// Create a transform from one basis axis to another. Remember AxisId can be cast to Vec4
-		static Mat3x4 Rotation(AxisId from_axis, AxisId to_axis) noexcept
+		static Mat3x3 Rotation(AxisId from_axis, AxisId to_axis) noexcept
 		{
-			return math::Rotation<Mat3x4>(from_axis, to_axis);
+			return math::Rotation<Mat3x3>(from_axis, to_axis);
 		}
 
 		// Create a scale matrix
-		static Mat3x4 Scale(S scale) noexcept
+		static Mat3x3 Scale(S scale) noexcept
 		{
-			return math::Scale<Mat3x4>(scale);
+			return math::Scale<Mat3x3>(scale);
 		}
-		static Mat3x4 Scale(S sx, S sy, S sz) noexcept
+		static Mat3x3 Scale(S sx, S sy, S sz) noexcept
 		{
-			return math::Scale<Mat3x4>(Vec3<S>(sx, sy, sz));
+			return math::Scale<Mat3x3>(Vec3<S>(sx, sy, sz));
 		}
-		static Mat3x4 Scale(Vec3<S> scale) noexcept
+		static Mat3x3 Scale(Vec3<S> scale) noexcept
 		{
-			return math::Scale<Mat3x4>(scale);
+			return math::Scale<Mat3x3>(scale);
 		}
 
 		// Create a shear matrix
-		static Mat3x4 Shear(S sxy, S sxz, S syx, S syz, S szx, S szy) noexcept
+		static Mat3x3 Shear(S sxy, S sxz, S syx, S syz, S szx, S szy) noexcept
 		{
-			return math::Shear<Mat3x4>(sxy, sxz, syx, syz, szx, szy);
+			return math::Shear<Mat3x3>(sxy, sxz, syx, syz, szx, szy);
 		}
 
 		#pragma region Operators
-		friend constexpr Vec3<S> pr_vectorcall operator * (Mat3x4 const& a2b, Vec3<S> v) noexcept
+		friend constexpr Vec3<S> pr_vectorcall operator * (Mat3x3 const& a2b, Vec3<S> v) noexcept
 		{
 			if consteval
 			{
@@ -228,7 +228,7 @@ namespace pr::math
 				}
 			}
 		}
-		friend constexpr Vec4<S> pr_vectorcall operator * (Mat3x4 const& a2b, Vec4<S> v) noexcept
+		friend constexpr Vec4<S> pr_vectorcall operator * (Mat3x3 const& a2b, Vec4<S> v) noexcept
 		{
 			if consteval
 			{
@@ -263,7 +263,7 @@ namespace pr::math
 				}
 			}
 		}
-		friend constexpr Mat3x4 pr_vectorcall operator * (Mat3x4 const& b2c, Mat3x4 const& a2b) noexcept
+		friend constexpr Mat3x3 pr_vectorcall operator * (Mat3x3 const& b2c, Mat3x3 const& a2b) noexcept
 		{
 			if consteval
 			{
@@ -273,7 +273,7 @@ namespace pr::math
 			{
 				if constexpr (Vec4<S>::IntrinsicF)
 				{
-					auto a2c = Mat3x4<S>{};
+					auto a2c = Mat3x3<S>{};
 					auto x = _mm_load_ps(b2c.x4.arr);
 					auto y = _mm_load_ps(b2c.y4.arr);
 					auto z = _mm_load_ps(b2c.z4.arr);
@@ -301,11 +301,11 @@ namespace pr::math
 		#pragma endregion
 
 		// Return the 3x3 transpose of 'mat' (w components remain 0)
-		friend constexpr Mat3x4 pr_vectorcall Transpose(Mat3x4 const& mat) noexcept
+		friend constexpr Mat3x3 pr_vectorcall Transpose(Mat3x3 const& mat) noexcept
 		{
 			if consteval
 			{
-				return math::Transpose<Mat3x4>(mat);
+				return math::Transpose<Mat3x3>(mat);
 			}
 			else
 			{
@@ -350,24 +350,24 @@ namespace pr::math
 				}
 				else
 				{
-					return math::Transpose<Mat3x4>(mat);
+					return math::Transpose<Mat3x3>(mat);
 				}
 			}
 		}
 	};
 
 	#define PR_MATH_DEFINE_TYPE(component, element)\
-	template <> struct vector_traits<Mat3x4<element>>\
+	template <> struct vector_traits<Mat3x3<element>>\
 		: vector_traits_base<element, component, 3>\
-		, vector_access_member<Mat3x4<element>, component, 3>\
+		, vector_access_member<Mat3x3<element>, component, 3>\
 	{\
-		template <ScalarType S> using rebind = Mat3x4<S>;\
+		template <ScalarType S> using rebind = Mat3x3<S>;\
 	};\
 	\
-	static_assert(VectorType<Mat3x4<element>>, "Mat3x4<"#element"> is not a valid vector type");\
-	static_assert(IsRank2<Mat3x4<element>>, "Mat3x4<"#element"> is not rank 2");\
-	static_assert(sizeof(Mat3x4<element>) == 3*4*sizeof(element), "Mat3x4<"#element"> has the wrong size");\
-	static_assert(std::is_trivially_copyable_v<Mat3x4<element>>, "Mat3x4<"#element"> is not trivially copyable");
+	static_assert(VectorType<Mat3x3<element>>, "Mat3x3<"#element"> is not a valid vector type");\
+	static_assert(IsRank2<Mat3x3<element>>, "Mat3x3<"#element"> is not rank 2");\
+	static_assert(sizeof(Mat3x3<element>) == 3*4*sizeof(element), "Mat3x3<"#element"> has the wrong size");\
+	static_assert(std::is_trivially_copyable_v<Mat3x3<element>>, "Mat3x3<"#element"> is not trivially copyable");
 
 	PR_MATH_DEFINE_TYPE(Vec3<float>, float);
 	PR_MATH_DEFINE_TYPE(Vec3<double>, double);
@@ -382,46 +382,46 @@ namespace pr::math
 
 
 #if 0
-	struct Mat3x4
+	struct Mat3x3
 	{
 		#pragma region Operators
-		friend constexpr Mat3x4 pr_vectorcall operator + (Mat3x4<S,A,B> const& mat) noexcept
+		friend constexpr Mat3x3 pr_vectorcall operator + (Mat3x3<S,A,B> const& mat) noexcept
 		{
 			return mat;
 		}
-		friend constexpr Mat3x4 pr_vectorcall operator - (Mat3x4<S,A,B> const& mat) noexcept
+		friend constexpr Mat3x3 pr_vectorcall operator - (Mat3x3<S,A,B> const& mat) noexcept
 		{
-			return Mat3x4{-mat.x, -mat.y, -mat.z};
+			return Mat3x3{-mat.x, -mat.y, -mat.z};
 		}
-		friend Mat3x4 pr_vectorcall operator * (S lhs, Mat3x4<S,A,B> const& rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator * (S lhs, Mat3x3<S,A,B> const& rhs) noexcept
 		{
 			return rhs * lhs;
 		}
-		friend Mat3x4 pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator * (Mat3x3<S,A,B> const& lhs, S rhs) noexcept
 		{
-			return Mat3x4{lhs.x * rhs, lhs.y * rhs, lhs.z * rhs};
+			return Mat3x3{lhs.x * rhs, lhs.y * rhs, lhs.z * rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator / (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
-		{
-			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
-			//pr_assert("divide by zero" && rhs != 0);
-			return Mat3x4{lhs.x / rhs, lhs.y / rhs, lhs.z / rhs};
-		}
-		friend Mat3x4 pr_vectorcall operator % (Mat3x4<S,A,B> const& lhs, S rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator / (Mat3x3<S,A,B> const& lhs, S rhs) noexcept
 		{
 			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
 			//pr_assert("divide by zero" && rhs != 0);
-			return Mat3x4{lhs.x % rhs, lhs.y % rhs, lhs.z % rhs};
+			return Mat3x3{lhs.x / rhs, lhs.y / rhs, lhs.z / rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator + (Mat3x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator % (Mat3x3<S,A,B> const& lhs, S rhs) noexcept
 		{
-			return Mat3x4{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
+			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
+			//pr_assert("divide by zero" && rhs != 0);
+			return Mat3x3{lhs.x % rhs, lhs.y % rhs, lhs.z % rhs};
 		}
-		friend Mat3x4 pr_vectorcall operator - (Mat3x4<S,A,B> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator + (Mat3x3<S,A,B> const& lhs, Mat3x3<S,A,B> const& rhs) noexcept
 		{
-			return Mat3x4{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
+			return Mat3x3{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
 		}
-		friend Vec4<S, B> pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, Vec4<S, A> rhs) noexcept
+		friend Mat3x3 pr_vectorcall operator - (Mat3x3<S,A,B> const& lhs, Mat3x3<S,A,B> const& rhs) noexcept
+		{
+			return Mat3x3{lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z};
+		}
+		friend Vec4<S, B> pr_vectorcall operator * (Mat3x3<S,A,B> const& lhs, Vec4<S, A> rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{
@@ -449,7 +449,7 @@ namespace pr::math
 				return Vec4<S, B>{Dot3(lhsT.x, rhs), Dot3(lhsT.y, rhs), Dot3(lhsT.z, rhs), rhs.w};
 			}
 		}
-		friend Vec3<S,B> pr_vectorcall operator * (Mat3x4<S,A,B> const& lhs, Vec3<S,A> rhs) noexcept
+		friend Vec3<S,B> pr_vectorcall operator * (Mat3x3<S,A,B> const& lhs, Vec3<S,A> rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{
@@ -475,11 +475,11 @@ namespace pr::math
 				return Vec3<S, B>{Dot(lhsT.x.xyz, rhs), Dot(lhsT.y.xyz, rhs), Dot(lhsT.z.xyz, rhs)};
 			}
 		}
-		template <typename C> friend Mat3x4<S,A,C> pr_vectorcall operator * (Mat3x4<S,B,C> const& lhs, Mat3x4<S,A,B> const& rhs) noexcept
+		template <typename C> friend Mat3x3<S,A,C> pr_vectorcall operator * (Mat3x3<S,B,C> const& lhs, Mat3x3<S,A,B> const& rhs) noexcept
 		{
 			if constexpr (Vec4<S, A>::IntrinsicF)
 			{
-				auto ans = Mat3x4<S, A, C>{};
+				auto ans = Mat3x3<S, A, C>{};
 				auto x = _mm_load_ps(lhs.x.arr);
 				auto y = _mm_load_ps(lhs.y.arr);
 				auto z = _mm_load_ps(lhs.z.arr);
@@ -500,7 +500,7 @@ namespace pr::math
 			}
 			else
 			{
-				auto ans = Mat3x4<S, A, C>{};
+				auto ans = Mat3x3<S, A, C>{};
 				auto lhsT = Transpose(lhs);
 				ans.x = Vec4<S, void>{Dot3(lhsT.x, rhs.x), Dot3(lhsT.y, rhs.x), Dot3(lhsT.z, rhs.x), S(0)};
 				ans.y = Vec4<S, void>{Dot3(lhsT.x, rhs.y), Dot3(lhsT.y, rhs.y), Dot3(lhsT.z, rhs.y), S(0)};

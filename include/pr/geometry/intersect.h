@@ -1,4 +1,4 @@
-﻿//********************************
+//********************************
 // Geometry
 //  Copyright (c) Rylogic Ltd 2014
 //********************************
@@ -508,7 +508,7 @@ namespace pr::geometry::intersect
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(math::tiny<float>);
+		auto r2l_abs = Abs(r2l.rot) + m3x3(math::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };

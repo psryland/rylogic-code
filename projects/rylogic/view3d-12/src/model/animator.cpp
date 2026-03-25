@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -178,7 +178,7 @@ namespace pr::rdr12
 				rot = quat::Identity();
 
 			// Update the bone
-			bone = m4x4{ToMatrix<m3x4>(rot), pos};
+			bone = m4x4{ToMatrix<m3x3>(rot), pos};
 		}
 	}
 

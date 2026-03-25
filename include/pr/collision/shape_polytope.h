@@ -588,7 +588,7 @@ namespace pr::collision
 		// Check the polytope is in centre of mass frame
 		if (check_com)
 		{
-			//m3x4 inertia = CalcInertia(shape);
+			//m3x3 inertia = CalcInertia(shape);
 		}
 
 		return true;

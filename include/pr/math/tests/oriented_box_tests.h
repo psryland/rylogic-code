@@ -14,7 +14,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 			using M4 = Mat4x4<T>;
 			using OB = OrientedBox<T>;
 
@@ -34,7 +34,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(SizeAndVolume, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(2, 3, 4, 0), Identity<M3>());
@@ -47,7 +47,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(DiametreTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(1, 1, 1, 0), Identity<M3>());
@@ -58,7 +58,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(GetBSphereTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 			using OB = OrientedBox<T>;
 			using BS = BoundingSphere<T>;
 
@@ -71,7 +71,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(TranslationOps, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 			using OB = OrientedBox<T>;
 
 			auto ob = OB(V4(0, 0, 0, 1), V4(1, 1, 1, 0), Identity<M3>());

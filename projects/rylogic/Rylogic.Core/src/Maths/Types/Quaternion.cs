@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Quaternion
 //  Copyright (c) Rylogic Ltd 2008
 //***************************************************
@@ -77,7 +77,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a quaternion from a rotation matrix</summary>
-		public Quat(m3x4 m)
+		public Quat(m3x3 m)
 			: this()
 		{
 			Debug.Assert(Math_.IsOrthonormal(m), "Only orientation matrices can be converted into quaternions");
@@ -749,7 +749,7 @@ namespace Rylogic.UnitTests
 		public void QuatMatrixRoundTrip()
 		{
 			var ori0 = Quat.Random(new Random(1));
-			var m0 = new m3x4(ori0);
+			var m0 = new m3x3(ori0);
 			var ori1 = new Quat(m0);
 			Assert.True(Math_.FEql(ori0, ori1));
 		}
@@ -789,12 +789,12 @@ namespace Rylogic.UnitTests
 				var avl = new v4(0.6f, 0, 0.6f, 0);
 				var aac = new v4(0, 0, 0, 0);
 
-				var rot = new m3x4(ori);
+				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
 				{
 					var ORI = Math_.RotationAt(t, ori, avl, aac);
 					var ROT = Math_.RotationAt(t, rot, avl, aac);
-					var ROT2 = new m3x4(ORI);
+					var ROT2 = new m3x3(ORI);
 
 					Assert.True(Math_.FEql(ROT, ROT2));
 				}
@@ -804,12 +804,12 @@ namespace Rylogic.UnitTests
 				var avl = new v4(1.2f, 0, 0, 0);
 				var aac = new v4(0, 0, 0.1f, 0);
 
-				var rot = new m3x4(ori);
+				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
 				{
 					var ORI = Math_.RotationAt(t, ori, avl, aac);
 					var ROT = Math_.RotationAt(t, rot, avl, aac);
-					var ROT2 = new m3x4(ORI);
+					var ROT2 = new m3x3(ORI);
 
 					Assert.True(Math_.FEql(ROT, ROT2));
 				}

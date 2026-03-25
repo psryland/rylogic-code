@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Matrix
 //  Copyright (c) Rylogic Ltd 2008
 //***************************************************
@@ -214,11 +214,11 @@ namespace Rylogic.Maths
 		}
 
 		///// <summary>Create a random 2D rotation matrix</summary>
-		//public static m3x4 Random(Random r, float min_angle, float max_angle)
+		//public static m3x3 Random(Random r, float min_angle, float max_angle)
 		//{
 		//	return Rotation(axis, r.Float(min_angle, max_angle));
 		//}
-		//public static m3x4 Random(Random r)
+		//public static m3x3 Random(Random r)
 		//{
 		//	return Random(r, v4.Random3N(0.0f, r), 0.0f, (float)Math_.Tau);
 		//}
@@ -404,9 +404,9 @@ namespace Rylogic.UnitTests
 			var rng = new Random();
 			//{
 			//	var m = m2x2.Random(rng, v4.Random3N(0, rng), -(float)Math_.Tau, +(float)Math_.Tau);
-			//	var inv_m0 = m3x4.InvertAffine(m);
-			//	var inv_m1 = m3x4.Invert(m);
-			//	Assert.True(m3x4.FEql(inv_m0, inv_m1, 0.001f));
+			//	var inv_m0 = m3x3.InvertAffine(m);
+			//	var inv_m1 = m3x3.Invert(m);
+			//	Assert.True(m3x3.FEql(inv_m0, inv_m1, 0.001f));
 			//}
 			{
 				//m2x2.Random(rng, -5.0f, +5.0f);

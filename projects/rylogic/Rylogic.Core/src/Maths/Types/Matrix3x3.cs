@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Matrix4x4
 //  Copyright (c) Rylogic Ltd 2008
 //***************************************************
@@ -15,22 +15,22 @@ namespace Rylogic.Maths
 	[Serializable]
 	[StructLayout(LayoutKind.Explicit)]
 	[DebuggerDisplay("{Description,nq}")]
-	public struct m3x4
+	public struct m3x3
 	{
 		[FieldOffset( 0)] public v4 x;
 		[FieldOffset(16)] public v4 y;
 		[FieldOffset(32)] public v4 z;
 
-		public m3x4(float x)
+		public m3x3(float x)
 			:this(new v4(x), new v4(x), new v4(x))
 		{}
-		public m3x4(v4 x, v4 y, v4 z) :this()
+		public m3x3(v4 x, v4 y, v4 z) :this()
 		{
 			this.x = x;
 			this.y = y;
 			this.z = z;
 		}
-		public m3x4(Quat quaternion) :this()
+		public m3x3(Quat quaternion) :this()
 		{
 			Debug.Assert(!Math_.FEql(quaternion, Quat.Zero), "'quaternion' is a zero quaternion");
 
@@ -116,7 +116,7 @@ namespace Rylogic.Maths
 		/// <summary>
 		/// Create from an pitch, yaw, and roll (in radians).
 		/// Order is roll, pitch, yaw because objects usually face along Z and have Y as up. (And to match DirectX)</summary>
-		public static m3x4 RotationRad(float pitch, float yaw, float roll)
+		public static m3x3 RotationRad(float pitch, float yaw, float roll)
 		{
 			float cos_p = (float)Math.Cos(pitch), sin_p = (float)Math.Sin(pitch);
 			float cos_y = (float)Math.Cos(yaw  ), sin_y = (float)Math.Sin(yaw  );
@@ -126,7 +126,7 @@ namespace Rylogic.Maths
 				new v4(-cos_y*sin_r + sin_y*sin_p*cos_r , cos_p*cos_r ,  sin_y*sin_r + cos_y*sin_p*cos_r , 0.0f),
 				new v4( sin_y*cos_p                     ,      -sin_p ,                      cos_y*cos_p , 0.0f));
 		}
-		public static m3x4 RotationDeg(float pitch, float yaw, float roll)
+		public static m3x3 RotationDeg(float pitch, float yaw, float roll)
 		{
 			return RotationRad(
 				Math_.DegreesToRadians(pitch),
@@ -135,11 +135,11 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a rotation from an axis and angle</summary>
-		public static m3x4 Rotation(v4 axis_norm, v4 axis_sine_angle, float cos_angle)
+		public static m3x3 Rotation(v4 axis_norm, v4 axis_sine_angle, float cos_angle)
 		{
 			Debug.Assert(Math_.FEql(axis_norm.LengthSq, 1f), "'axis_norm' should be normalised");
 
-			var mat = new m3x4();
+			var mat = new m3x3();
 
 			v4 trace_vec = axis_norm * (1.0f - cos_angle);
 
@@ -165,14 +165,14 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create from an axis and angle. 'axis' should be normalised. 'angle' is in radians</summary>
-		public static m3x4 Rotation(v4 axis_norm, float angle)
+		public static m3x3 Rotation(v4 axis_norm, float angle)
 		{
 			Debug.Assert(Math_.FEql(axis_norm.LengthSq, 1f), "'axis_norm' should be normalised");
 			return Rotation(axis_norm, axis_norm * (float)Math.Sin(angle), (float)Math.Cos(angle));
 		}
 
 		/// <summary>Create from an angular displacement vector. length = angle(rad), direction = axis</summary>
-		public static m3x4 Rotation(v4 angular_displacement) // This is ExpMap
+		public static m3x3 Rotation(v4 angular_displacement) // This is ExpMap
 		{
 			Debug.Assert(angular_displacement.w == 0, "'angular_displacement' should be a scaled direction vector");
 			var len = angular_displacement.Length;
@@ -182,7 +182,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a transform representing the rotation from one vector to another. 'from' and 'to' do not have to be normalised</summary>
-		public static m3x4 Rotation(v4 from, v4 to)
+		public static m3x3 Rotation(v4 from, v4 to)
 		{
 			Debug.Assert(!Math_.FEql(from.Length, 0));
 			Debug.Assert(!Math_.FEql(to.Length, 0));
@@ -201,12 +201,12 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a rotation transform that maps 'from' to 'to'</summary>
-		public static m3x4 Rotation(AxisId from, AxisId to)
+		public static m3x3 Rotation(AxisId from, AxisId to)
 		{
 			// 'o2f' = the rotation from Z to 'from_axis'
 			// 'o2t' = the rotation from Z to 'to_axis'
 			// 'f2t' = o2t * Invert(o2f)
-			m3x4 o2f, o2t;
+			m3x3 o2f, o2t;
 			switch (from)
 			{
 				case -1: o2f = RotationRad(0f, (float)+Math_.TauBy4, 0f); break;
@@ -231,21 +231,21 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a scale matrix</summary>
-		public static m3x4 Scale(float s)
+		public static m3x3 Scale(float s)
 		{
 			return Scale(s, s, s);
 		}
-		public static m3x4 Scale(v3 s)
+		public static m3x3 Scale(v3 s)
 		{
 			return Scale(s.x, s.y, s.z);
 		}
-		public static m3x4 Scale(float sx, float sy, float sz)
+		public static m3x3 Scale(float sx, float sy, float sz)
 		{
 			return new(sx * v4.XAxis, sy * v4.YAxis, sz * v4.ZAxis);
 		}
 
 		/// <summary>Create a shear matrix</summary>
-		public static m3x4 Shear(float sxy, float sxz, float syx, float syz, float szx, float szy)
+		public static m3x3 Shear(float sxy, float sxz, float syx, float syz, float szx, float szy)
 		{
 			return new(
 				new(1.0f, sxy, sxz, 0.0f),
@@ -255,52 +255,52 @@ namespace Rylogic.Maths
 		}
 
 		#region Statics
-		public static readonly m3x4 Zero = new(v4.Zero, v4.Zero, v4.Zero);
-		public static readonly m3x4 Identity = new(v4.XAxis, v4.YAxis, v4.ZAxis);
+		public static readonly m3x3 Zero = new(v4.Zero, v4.Zero, v4.Zero);
+		public static readonly m3x3 Identity = new(v4.XAxis, v4.YAxis, v4.ZAxis);
 		#endregion
 
 		#region Operators
-		public static m3x4 operator +(m3x4 rhs)
+		public static m3x3 operator +(m3x3 rhs)
 		{
 			return rhs;
 		}
-		public static m3x4 operator -(m3x4 rhs)
+		public static m3x3 operator -(m3x3 rhs)
 		{
 			return new(-rhs.x, -rhs.y, -rhs.z);
 		}
-		public static m3x4 operator +(m3x4 lhs, m3x4 rhs)
+		public static m3x3 operator +(m3x3 lhs, m3x3 rhs)
 		{
 			return new(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
 		}
-		public static m3x4 operator -(m3x4 lhs, m3x4 rhs)
+		public static m3x3 operator -(m3x3 lhs, m3x3 rhs)
 		{
 			return new(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
 		}
-		public static m3x4 operator *(m3x4 lhs, float rhs)
+		public static m3x3 operator *(m3x3 lhs, float rhs)
 		{
 			return new(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs);
 		}
-		public static m3x4 operator *(float lhs, m3x4 rhs)
+		public static m3x3 operator *(float lhs, m3x3 rhs)
 		{
 			return new(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z);
 		}
-		public static m3x4 operator /(m3x4 lhs, float rhs)
+		public static m3x3 operator /(m3x3 lhs, float rhs)
 		{
 			return new(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs);
 		}
-		public static m3x4 operator %(m3x4 lhs, float rhs)
+		public static m3x3 operator %(m3x3 lhs, float rhs)
 		{
 			return new(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs);
 		}
-		public static m3x4 operator %(m3x4 lhs, double rhs)
+		public static m3x3 operator %(m3x3 lhs, double rhs)
 		{
 			return lhs % (float)rhs;
 		}
-		public static m3x4 operator %(m3x4 lhs, m3x4 rhs)
+		public static m3x3 operator %(m3x3 lhs, m3x3 rhs)
 		{
 			return new(lhs.x % rhs.x, lhs.y % rhs.y, lhs.z % rhs.z);
 		}
-		public static m3x4 operator * (m3x4 lhs, m3x4 rhs)
+		public static m3x3 operator * (m3x3 lhs, m3x3 rhs)
 		{
 			Math_.Transpose(ref lhs);
 			return new(
@@ -308,7 +308,7 @@ namespace Rylogic.Maths
 				new v4(Math_.Dot(lhs.x.xyz, rhs.y.xyz), Math_.Dot(lhs.y.xyz, rhs.y.xyz), Math_.Dot(lhs.z.xyz, rhs.y.xyz), 0f),
 				new v4(Math_.Dot(lhs.x.xyz, rhs.z.xyz), Math_.Dot(lhs.y.xyz, rhs.z.xyz), Math_.Dot(lhs.z.xyz, rhs.z.xyz), 0f));
 		}
-		public static v3 operator * (m3x4 lhs, v3 rhs)
+		public static v3 operator * (m3x3 lhs, v3 rhs)
 		{
 			Math_.Transpose(ref lhs);
 			return new v3(
@@ -316,7 +316,7 @@ namespace Rylogic.Maths
 				Math_.Dot(lhs.y.xyz, rhs),
 				Math_.Dot(lhs.z.xyz, rhs));
 		}
-		public static v4 operator * (m3x4 lhs, v4 rhs)
+		public static v4 operator * (m3x3 lhs, v4 rhs)
 		{
 			Math_.Transpose(ref lhs);
 			return new v4(
@@ -328,17 +328,17 @@ namespace Rylogic.Maths
 		#endregion
 
 		#region Equals
-		public static bool operator == (m3x4 lhs, m3x4 rhs)
+		public static bool operator == (m3x3 lhs, m3x3 rhs)
 		{
 			return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
 		}
-		public static bool operator != (m3x4 lhs, m3x4 rhs)
+		public static bool operator != (m3x3 lhs, m3x3 rhs)
 		{
 			return !(lhs == rhs);
 		}
 		public override bool Equals(object? o)
 		{
-			return o is m3x4 m && m == this;
+			return o is m3x3 m && m == this;
 		}
 		public override int GetHashCode()
 		{
@@ -364,22 +364,22 @@ namespace Rylogic.Maths
 		#endregion
 
 		#region Parse
-		public static m3x4 Parse(string s)
+		public static m3x3 Parse(string s)
 		{
 			s = s ?? throw new ArgumentNullException("s", $"{nameof(Parse)}:string argument was null");
 			return TryParse(s, out var result) ? result : throw new FormatException($"{nameof(Parse)}: string argument does not represent a 4x4 matrix");
 		}
-		public static m3x4 Parse3x3(string s)
+		public static m3x3 Parse3x3(string s)
 		{
 			s = s ?? throw new ArgumentNullException("s", $"{nameof(Parse3x3)}:string argument was null");
 			return TryParse3x3(s, out var result) ? result : throw new FormatException($"{nameof(Parse3x3)}: string argument does not represent a 3x3 matrix");
 		}
-		public static m3x4 Parse4x3(string s)
+		public static m3x3 Parse4x3(string s)
 		{
 			s = s ?? throw new ArgumentNullException("s", $"{nameof(Parse4x3)}:string argument was null");
 			return TryParse4x3(s, out var result) ? result : throw new FormatException($"{nameof(Parse4x3)}: string argument does not represent a 3x4 matrix");
 		}
-		public static bool TryParse(string s, out m3x4 mat, bool row_major = true)
+		public static bool TryParse(string s, out m3x3 mat, bool row_major = true)
 		{
 			if (s == null)
 			{
@@ -405,7 +405,7 @@ namespace Rylogic.Maths
 					new v4(float.Parse(values[2]), float.Parse(values[5]), float.Parse(values[8]), float.Parse(values[11])));
 			return true;
 		}
-		public static bool TryParse3x3(string s, out m3x4 mat, bool row_major = true)
+		public static bool TryParse3x3(string s, out m3x3 mat, bool row_major = true)
 		{
 			if (s == null)
 			{
@@ -431,7 +431,7 @@ namespace Rylogic.Maths
 					new v4(float.Parse(values[2]), float.Parse(values[5]), float.Parse(values[8]), 0));
 			return true;
 		}
-		public static bool TryParse4x3(string s, out m3x4 mat)
+		public static bool TryParse4x3(string s, out m3x3 mat)
 		{
 			if (s == null)
 			{
@@ -457,14 +457,14 @@ namespace Rylogic.Maths
 		#region Random
 
 		/// <summary>Create a random 3x4 matrix</summary>
-		public static m3x4 Random(float min_value, float max_value, Random r)
+		public static m3x3 Random(float min_value, float max_value, Random r)
 		{
 			return new(
 				new v4(r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value)),
 				new v4(r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value)),
 				new v4(r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value)));
 		}
-		public static m3x4 Random(float min_value, float max_value, float w, Random r)
+		public static m3x3 Random(float min_value, float max_value, float w, Random r)
 		{
 			return new(
 				new v4(r.Float(min_value, max_value), r.Float(min_value, max_value), r.Float(min_value, max_value), w),
@@ -473,11 +473,11 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a random 3D rotation matrix</summary>
-		public static m3x4 Random(v4 axis, float min_angle, float max_angle, Random r)
+		public static m3x3 Random(v4 axis, float min_angle, float max_angle, Random r)
 		{
 			return Rotation(axis, r.Float(min_angle, max_angle));
 		}
-		public static m3x4 Random(Random r)
+		public static m3x3 Random(Random r)
 		{
 			return Random(v4.Random3N(0.0f, r), 0.0f, (float)Math_.Tau, r);
 		}
@@ -491,14 +491,14 @@ namespace Rylogic.Maths
 	public static partial class Math_
 	{
 		/// <summary>Approximate equal</summary>
-		public static bool FEqlAbsolute(m3x4 a, m3x4 b, float tol)
+		public static bool FEqlAbsolute(m3x3 a, m3x3 b, float tol)
 		{
 			return
 				FEqlAbsolute(a.x, b.x, tol) &&
 				FEqlAbsolute(a.y, b.y, tol) &&
 				FEqlAbsolute(a.z, b.z, tol);
 		}
-		public static bool FEqlRelative(m3x4 a, m3x4 b, float tol)
+		public static bool FEqlRelative(m3x3 a, m3x3 b, float tol)
 		{
 			var max_a = MaxElement(Abs(a));
 			var max_b = MaxElement(Abs(b));
@@ -507,14 +507,14 @@ namespace Rylogic.Maths
 			var abs_max_element = Max(max_a, max_b);
 			return FEqlAbsolute(a, b, tol * abs_max_element);
 		}
-		public static bool FEql(m3x4 a, m3x4 b)
+		public static bool FEql(m3x3 a, m3x3 b)
 		{
 			return
 				FEqlRelative(a, b, TinyF);
 		}
 
 		/// <summary>Absolute value of 'x'</summary>
-		public static m3x4 Abs(m3x4 x)
+		public static m3x3 Abs(m3x3 x)
 		{
 			return new(
 				Abs(x.x),
@@ -523,7 +523,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return the maximum element value in 'mm'</summary>
-		public static float MaxElement(m3x4 m)
+		public static float MaxElement(m3x3 m)
 		{
 			return Max(
 				MaxElement(m.x),
@@ -532,7 +532,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return the minimum element value in 'm'</summary>
-		public static float MinElement(m3x4 m)
+		public static float MinElement(m3x3 m)
 		{
 			return Min(
 				MinElement(m.x),
@@ -541,7 +541,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Finite test of matrix elements</summary>
-		public static bool IsFinite(m3x4 m)
+		public static bool IsFinite(m3x3 m)
 		{
 			return
 				IsFinite(m.x) &&
@@ -550,7 +550,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return true if any components of 'm' are NaN</summary>
-		public static bool IsNaN(m3x4 m)
+		public static bool IsNaN(m3x3 m)
 		{
 			return
 				IsNaN(m.x) ||
@@ -559,7 +559,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>True if 'm' is orthogonal</summary>
-		public static bool IsOrthogonal(m3x4 m)
+		public static bool IsOrthogonal(m3x3 m)
 		{
 			return
 				FEql(Dot(m.x, m.y), 0f) &&
@@ -568,7 +568,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>True if 'm' is orthonormal</summary>
-		public static bool IsOrthonormal(m3x4 m)
+		public static bool IsOrthonormal(m3x3 m)
 		{
 			return
 				FEql(m.x.LengthSq, 1f) &&
@@ -578,7 +578,7 @@ namespace Rylogic.Maths
 		}
 
 		// Return true if 'mat' is an affine transform
-		public static bool IsAffine(m3x4 mat)
+		public static bool IsAffine(m3x3 mat)
 		{
 			return
 				mat.x.w == 0.0f &&
@@ -587,37 +587,37 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>True if 'm' can be inverted</summary>
-		public static bool IsInvertible(m3x4 m)
+		public static bool IsInvertible(m3x3 m)
 		{
 			return Determinant(m) != 0;
 		}
 
 		/// <summary>Return the determinant of 'm'</summary>
-		public static float Determinant(m3x4 m)
+		public static float Determinant(m3x3 m)
 		{
 			return Triple(m.x, m.y, m.z);
 		}
 
 		/// <summary>Return the trace of 'm'</summary>
-		public static float Trace(m3x4 m)
+		public static float Trace(m3x3 m)
 		{
 			return m.x.x + m.y.y + m.z.z;
 		}
 
 		/// <summary>Return the kernel of 'm'</summary>
-		public static v4 Kernel(m3x4 m)
+		public static v4 Kernel(m3x3 m)
 		{
 			return new v4(m.y.y* m.z.z - m.y.z * m.z.y, -m.y.x * m.z.z + m.y.z * m.z.x, m.y.x* m.z.y - m.y.y * m.z.x, 0);
 		}
 
 		/// <summary>Return the diagonal elements of 'm'</summary>
-		public static v4 Diagonal(m3x4 m)
+		public static v4 Diagonal(m3x3 m)
 		{
 			return new v4(m.x.x, m.y.y, m.z.z, 0);
 		}
 
 		/// <summary>Transpose 'm' in-place</summary>
-		public static void Transpose(ref m3x4 m)
+		public static void Transpose(ref m3x3 m)
 		{
 			Swap(ref m.x.y, ref m.y.x);
 			Swap(ref m.x.z, ref m.z.x);
@@ -625,28 +625,28 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return the transpose of 'm'</summary>
-		public static m3x4 Transpose(m3x4 m)
+		public static m3x3 Transpose(m3x3 m)
 		{
 			Transpose(ref m);
 			return m;
 		}
 
 		/// <summary>Invert 'm' in-place assuming m is orthonormal</summary>
-		public static void InvertOrthonormal(ref m3x4 m)
+		public static void InvertOrthonormal(ref m3x3 m)
 		{
 			Debug.Assert(IsOrthonormal(m), "Matrix is not orthonormal");
 			Transpose(ref m);
 		}
 
 		/// <summary>Return the inverse of 'm' assuming m is orthonormal</summary>
-		public static m3x4 InvertOrthonormal(m3x4 m)
+		public static m3x3 InvertOrthonormal(m3x3 m)
 		{
 			InvertOrthonormal(ref m);
 			return m;
 		}
 
 		/// <summary>Invert 'm' in-place assuming m is affine</summary>
-		public static void InvertAffine(ref m3x4 m)
+		public static void InvertAffine(ref m3x3 m)
 		{
 			Debug.Assert(IsAffine(m), "Matrix is not affine");
 			
@@ -673,20 +673,20 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return the inverse of 'm' assuming m is orthonormal</summary>
-		public static m3x4 InvertAffine(m3x4 m)
+		public static m3x3 InvertAffine(m3x3 m)
 		{
 			InvertAffine(ref m);
 			return m;
 		}
 
 		/// <summary>Invert the matrix 'm'</summary>
-		public static m3x4 Invert(m3x4 m)
+		public static m3x3 Invert(m3x3 m)
 		{
 			if (!IsInvertible(m))
 				throw new Exception("Matrix is singular");
 
 			var det = Determinant(m);
-			var tmp = new m3x4(
+			var tmp = new m3x3(
 				Cross(m.y, m.z) / det,
 				Cross(m.z, m.x) / det,
 				Cross(m.x, m.y) / det);
@@ -695,7 +695,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Normalise the columns of 'm' returning the lengths prior to renormalising</summary>
-		public static (m3x4, v3) Normalise(m3x4 m)
+		public static (m3x3, v3) Normalise(m3x3 m)
 		{
 			var scale = new v3(m.x.Length, m.y.Length, m.z.Length);
 			m.x /= scale.x;
@@ -705,7 +705,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Orthonormalise 'm' in-place</summary>
-		public static void Orthonormalise(ref m3x4 m)
+		public static void Orthonormalise(ref m3x3 m)
 		{
 			Normalise(ref m.x);
 			m.y = Normalise(Cross(m.z, m.x));
@@ -713,7 +713,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return an orthonormalised version of 'm'</summary>
-		public static m3x4 Orthonormalise(m3x4 m)
+		public static m3x3 Orthonormalise(m3x3 m)
 		{
 			Orthonormalise(ref m);
 			return m;
@@ -724,7 +724,7 @@ namespace Rylogic.Maths
 		/// n == 0 : x  y  z<para/>
 		/// n == 1 : z  x  y<para/>
 		/// n == 2 : y  z  x<para/></summary>
-		public static m3x4 PermuteRotation(m3x4 mat, int n)
+		public static m3x3 PermuteRotation(m3x3 mat, int n)
 		{
 			switch (n % 3)
 			{
@@ -735,7 +735,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return possible Euler angles for the rotation matrix 'mat'</summary>
-		public static v4 EulerAngles(m3x4 mat)
+		public static v4 EulerAngles(m3x3 mat)
 		{
 			var q = new Quat(mat);
 			return EulerAngles(q);
@@ -744,12 +744,12 @@ namespace Rylogic.Maths
 		/// <summary>
 		/// Make an orientation matrix from a direction. Note the rotation around the direction
 		/// vector is not defined. 'axis' is the axis that 'direction' will become.</summary>
-		public static m3x4 OriFromDir(AxisId axis, v4 dir, v4? up = null)
+		public static m3x3 OriFromDir(AxisId axis, v4 dir, v4? up = null)
 		{
 			// Get the preferred up direction (handling parallel cases)
 			var up_ = up == null || Parallel(up.Value, dir) ? Perpendicular(dir) : up.Value;
 
-			var ori = m3x4.Identity;
+			var ori = m3x3.Identity;
 			ori.z = Normalise(Sign(axis) * dir);
 			ori.x = Normalise(Cross(up_, ori.z));
 			ori.y = Cross(ori.z, ori.x);
@@ -759,19 +759,19 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Spherically interpolate between two rotations</summary>
-		public static m3x4 Slerp(m3x4 lhs, m3x4 rhs, double frac)
+		public static m3x3 Slerp(m3x3 lhs, m3x3 rhs, double frac)
 		{
 			return new(Slerp(new Quat(lhs), new Quat(rhs), frac));
 		}
 
 		/// <summary>Return the average of a collection of rotations transforms</summary>
-		public static m3x4 Average(IEnumerable<m3x4> a2b)
+		public static m3x3 Average(IEnumerable<m3x3> a2b)
 		{
 			return new(Average(a2b.Select(x => new Quat(x))));
 		}
 
 		/// <summary>Return the cross product matrix for 'vec'</summary>
-		public static m3x4 CPM(v4 vec)
+		public static m3x3 CPM(v4 vec)
 		{
 			// This matrix can be used to calculate the cross product with
 			// another vector: e.g. Cross3(v1, v2) == CPM(v1) * v2
@@ -782,13 +782,13 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Return 'exp(omega)' (Rodriges' formula)</summary>
-		public static m3x4 ExpMap3x3(v4 omega)
+		public static m3x3 ExpMap3x3(v4 omega)
 		{
-			return m3x4.Rotation(omega);
+			return m3x3.Rotation(omega);
 		}
 
 		// Returns the Axis*Angle vector representation of a rotation matrix (Inverse of ExpMap)
-		public static v4 LogMap(m3x4 rot)
+		public static v4 LogMap(m3x3 rot)
 		{
 			var cos_angle = Clamp((Trace(rot) - 1.0f) / 2.0f, -1.0f, +1.0f);
 			var theta = Math.Acos(cos_angle);
@@ -801,7 +801,7 @@ namespace Rylogic.Maths
 		}
 		
 		/// <summary>Evaluates 'ori' after 'time' for a constant angular velocity and angular acceleration</summary>
-		public static m3x4 RotationAt(float time, m3x4 ori, v4 avel, v4 aacc)
+		public static m3x3 RotationAt(float time, m3x3 ori, v4 avel, v4 aacc)
 		{
 			// Orientation can be computed analytically if angular velocity
 			// and angular acceleration are parallel or angular acceleration is zero.
@@ -845,9 +845,9 @@ namespace Rylogic.UnitTests
 		[Test]
 		public void TestMultiply()
 		{
-			var m1 = new m3x4(new v4(1,2,3,4), new v4(1,1,1,1), new v4(4,3,2,1));
-			var m2 = new m3x4(new v4(1,1,1,1), new v4(2,2,2,2), new v4(-2,-2,-2,-2));
-			var m3 = new m3x4(new v4(6,6,6,0), new v4(12,12,12,0), new v4(-12,-12,-12,0));
+			var m1 = new m3x3(new v4(1,2,3,4), new v4(1,1,1,1), new v4(4,3,2,1));
+			var m2 = new m3x3(new v4(1,1,1,1), new v4(2,2,2,2), new v4(-2,-2,-2,-2));
+			var m3 = new m3x3(new v4(6,6,6,0), new v4(12,12,12,0), new v4(-12,-12,-12,0));
 			var r = m1 * m2;
 			Assert.True(Math_.FEql(r, m3));
 		}
@@ -874,29 +874,29 @@ namespace Rylogic.UnitTests
 			var rng = new Random(1);
 
 			{
-				var m = m3x4.Random(v4.Random3N(0, rng), -Math_.TauF, +Math_.TauF, rng);
+				var m = m3x3.Random(v4.Random3N(0, rng), -Math_.TauF, +Math_.TauF, rng);
 				var inv_m0 = Math_.InvertAffine(m);
 				var inv_m1 = Math_.Invert(m);
 				Assert.True(Math_.FEqlRelative(inv_m0, inv_m1, 0.001f));
 			}
 			{
-				var a2b = m3x4.Rotation(v4.Random3N(0, rng), rng.FloatC(-5f, +5f)) * m3x4.Scale(2.0f);
+				var a2b = m3x3.Rotation(v4.Random3N(0, rng), rng.FloatC(-5f, +5f)) * m3x3.Scale(2.0f);
 				Assert.True(Math_.IsAffine(a2b));
 
 				var b2a = Math_.Invert(a2b);
 				var a2a = b2a * a2b;
-				Assert.True(Math_.FEql(m3x4.Identity, a2a));
+				Assert.True(Math_.FEql(m3x3.Identity, a2a));
 
 				var b2a_fast = Math_.InvertAffine(a2b);
 				Assert.True(Math_.FEql(b2a_fast, b2a));
 			}
 			{
-				var a2b = m3x4.Rotation(v4.Random3N(0, rng), rng.FloatC(-5f, +5f));
+				var a2b = m3x3.Rotation(v4.Random3N(0, rng), rng.FloatC(-5f, +5f));
 				Assert.True(Math_.IsOrthonormal(a2b));
 
 				var b2a = Math_.Invert(a2b);
 				var a2a = b2a * a2b;
-				Assert.True(Math_.FEql(m3x4.Identity, a2a));
+				Assert.True(Math_.FEql(m3x3.Identity, a2a));
 
 				var b2a_fast = Math_.InvertOrthonormal(a2b);
 				Assert.True(Math_.FEql(b2a_fast, b2a));
@@ -904,24 +904,24 @@ namespace Rylogic.UnitTests
 			{
 				for (; ; )
 				{
-					var m = m3x4.Random(-5.0f, +5.0f, 0, rng);
+					var m = m3x3.Random(-5.0f, +5.0f, 0, rng);
 					if (!Math_.IsInvertible(m)) continue;
 					var inv_m = Math_.Invert(m);
 					var I0 = inv_m * m;
 					var I1 = m * inv_m;
 
-					Assert.True(Math_.FEqlRelative(I0, m3x4.Identity, 0.001f));
-					Assert.True(Math_.FEqlRelative(I1, m3x4.Identity, 0.001f));
+					Assert.True(Math_.FEqlRelative(I0, m3x3.Identity, 0.001f));
+					Assert.True(Math_.FEqlRelative(I1, m3x3.Identity, 0.001f));
 					break;
 				}
 			}
 
 			{
-				var m = new m3x4(
+				var m = new m3x3(
 					new v4(0.25f, 0.5f, 1.0f, 0.0f),
 					new v4(0.49f, 0.7f, 1.0f, 0.0f),
 					new v4(1.0f, 1.0f, 1.0f, 0.0f));
-				var INV_M = new m3x4(
+				var INV_M = new m3x3(
 					new v4(10.0f, -16.666667f, 6.66667f, 0.0f),
 					new v4(-17.0f, 25.0f, -8.0f, 0.0f),
 					new v4(7.0f, -8.333333f, 2.333333f, 0.0f));
@@ -939,19 +939,19 @@ namespace Rylogic.UnitTests
 		public void Parse()
 		{
 			{
-				var mat = new m3x4(
+				var mat = new m3x3(
 					new v4(1, 2, 3, 4),
 					new v4(4, 3, 2, 1),
 					new v4(4, 4, 4, 4));
-				var MAT = m3x4.Parse4x3(mat.ToString4x3());
+				var MAT = m3x3.Parse4x3(mat.ToString4x3());
 				Assert.Equals(mat, MAT);
 			}
 			{
-				var mat = new m3x4(
+				var mat = new m3x3(
 					new v4(1, 2, 3, 0),
 					new v4(4, 3, 2, 0),
 					new v4(4, 4, 4, 0));
-				var MAT = m3x4.Parse3x3(mat.ToString3x3());
+				var MAT = m3x3.Parse3x3(mat.ToString3x3());
 				Assert.Equals(mat, MAT);
 			}
 		}
@@ -965,7 +965,7 @@ namespace Rylogic.UnitTests
 			var w_len = w.Length;
 			w *= (w_len % Math_.TauBy2F) / w_len;
 
-			var rot1 = m3x4.Rotation(w);
+			var rot1 = m3x3.Rotation(w);
 			var rot2 = Math_.ExpMap3x3(w);
 			var W = Math_.LogMap(rot2);
 

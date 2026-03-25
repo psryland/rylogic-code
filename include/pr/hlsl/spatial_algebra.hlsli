@@ -28,7 +28,7 @@ namespace pr::hlsl {
 // Rodrigues' rotation formula: exponential map from axis-angle vector to rotation matrix.
 // 'axis_angle' encodes both the rotation axis (direction) and angle (magnitude).
 // Returns the rotation matrix in row-vector convention (rows = basis vectors = R^T).
-// This matches the C++ m3x4::Rotation() layout where x/y/z members are column vectors.
+// This matches the C++ m3x3::Rotation() layout where x/y/z members are column vectors.
 //
 // To apply the rotation to a vector: mul(v, R) — row-vector convention.
 // To compose rotations: mul(R_old, R_new) — applies R_new after R_old.

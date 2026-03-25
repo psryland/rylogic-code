@@ -10,11 +10,11 @@
 namespace pr::physics
 {
 	// Return the unit inertia for the sphere
-	inline m3x4 UnitInertia(ShapeSphere const& shape)
+	inline m3x3 UnitInertia(ShapeSphere const& shape)
 	{
 		// A solid sphere:  'Ixx = Iyy = Izz = (2/5)mr^2'
 		// A hollow sphere: 'Ixx = Iyy = Izz = (2/3)mr^2'
-		auto inertia = m3x4{};
+		auto inertia = m3x3{};
 		inertia.x.x = float(shape.m_hollow ? (2.0/3.0) : (2.0/5.0)) * Sqr(shape.m_radius);
 		inertia.y.y = inertia.x.x;
 		inertia.z.z = inertia.x.x;
@@ -22,9 +22,9 @@ namespace pr::physics
 	}
 
 	// Return the unit inertia for the box
-	inline m3x4 UnitInertia(ShapeBox const& shape)
+	inline m3x3 UnitInertia(ShapeBox const& shape)
 	{
-		auto inertia = m3x4{};
+		auto inertia = m3x3{};
 		inertia.x.x = (1.0f / 3.0f) * (Sqr(shape.m_radius.y) + Sqr(shape.m_radius.z)); // (1/12)m(Y^2 + Z^2)
 		inertia.y.y = (1.0f / 3.0f) * (Sqr(shape.m_radius.z) + Sqr(shape.m_radius.x)); // (1/12)m(Z^2 + X^2)
 		inertia.z.z = (1.0f / 3.0f) * (Sqr(shape.m_radius.x) + Sqr(shape.m_radius.y)); // (1/12)m(X^2 + Y^2)
@@ -34,11 +34,11 @@ namespace pr::physics
 	// Return the unit inertia for the triangle.
 	// Computed about the model origin. SetMassProperties applies the parallel axis
 	// theorem to translate from origin to centre of mass using mp.m_centre_of_mass.
-	inline m3x4 UnitInertia(ShapeTriangle const& shape)
+	inline m3x3 UnitInertia(ShapeTriangle const& shape)
 	{
 		// Compute the inertia tensor about the origin using the vertex positions.
 		// For a surface element (thin plate), each vertex contributes equally (1/3).
-		auto inertia = m3x4{};
+		auto inertia = m3x3{};
 		for (int i = 0; i != 3; ++i)
 		{
 			auto v = shape.m_v[i];
@@ -62,11 +62,11 @@ namespace pr::physics
 	// Modelled as a thin rod along Z (length = 2*m_radius) with optional cylindrical thickness.
 	// When thickness > 0, uses a solid cylinder inertia: Ixx = Iyy = (1/12)*(3r^2 + L^2), Izz = (1/2)*r^2
 	// When thickness == 0, uses a thin rod: Ixx = Iyy = (1/12)*L^2, Izz ≈ 0
-	inline m3x4 UnitInertia(ShapeLine const& shape)
+	inline m3x3 UnitInertia(ShapeLine const& shape)
 	{
 		auto L = 2.0f * shape.m_radius;     // Full length
 		auto r = shape.m_thickness;          // Collision radius (half-thickness)
-		auto inertia = m3x4{};
+		auto inertia = m3x3{};
 		if (r > math::tiny<float>)
 		{
 			// Solid cylinder inertia (per unit mass)
@@ -88,7 +88,7 @@ namespace pr::physics
 	// SetMassProperties applies the parallel axis theorem to translate from origin
 	// to the centre of mass using mp.m_centre_of_mass.
 	// Uses the divergence theorem to integrate x², y², z² etc. over the volume.
-	inline m3x4 UnitInertia(ShapePolytope const& shape)
+	inline m3x3 UnitInertia(ShapePolytope const& shape)
 	{
 		// Notes:
 		//  Ensure the polytope is in it's final space before calculating its inertia.
@@ -142,7 +142,7 @@ namespace pr::physics
 		volume   /= 6.0f;
 		diagonal /= volume * 60.0f;
 		off_diag /= volume * 120.0f;
-		auto Io = m3x4{
+		auto Io = m3x3{
 			v4{diagonal.y + diagonal.z , -off_diag.z             , -off_diag.y           ,0},
 			v4{-off_diag.z             , diagonal.x + diagonal.z , -off_diag.x           ,0},
 			v4{-off_diag.y             , -off_diag.x             , diagonal.x+diagonal.y ,0}};

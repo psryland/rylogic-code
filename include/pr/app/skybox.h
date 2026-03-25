@@ -1,4 +1,4 @@
-﻿//*****************************************************************************************
+//*****************************************************************************************
 // Application Framework
 //  Copyright (c) Rylogic Ltd 2012
 //*****************************************************************************************
@@ -46,7 +46,7 @@ namespace pr::app
 
 		// Constructs a sky box model and instance.
 		// 'texpath' should be an unrolled cube texture
-		Skybox(rdr12::Renderer& rdr, std::filesystem::path const& texpath, EStyle tex_style, float scale = 100.0f, m3x4 const& ori = m3x4::Identity())
+		Skybox(rdr12::Renderer& rdr, std::filesystem::path const& texpath, EStyle tex_style, float scale = 100.0f, m3x3 const& ori = m3x3::Identity())
 			:m_inst()
 			,m_tex()
 			,m_scale(scale)

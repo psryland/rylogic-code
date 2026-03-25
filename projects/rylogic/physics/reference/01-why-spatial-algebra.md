@@ -67,7 +67,7 @@ A `v8motion` and a `v8force` are both `Vec8<float, T>` with `.ang` and `.lin` me
 |---------|------------------|-----------------|
 | Velocity | `v4 vel`, `v4 ang_vel` (2 variables) | `v8motion vel` (1 variable) |
 | Force + torque | `v4 force`, `v4 torque` (2 variables) | `v8force force` (1 variable) |
-| Inertia | `m3x4 I`, `float mass`, `v4 com` (3 variables) | `Inertia` → `Mat6x8<Motion,Force>` (1 matrix) |
+| Inertia | `m3x3 I`, `float mass`, `v4 com` (3 variables) | `Inertia` → `Mat6x8<Motion,Force>` (1 matrix) |
 | Transform | Different formulas for vel vs. force | `a2b * motion_vec` or `a2b * force_vec` (operator overloads handle the duality) |
 
 ## What's Next

@@ -7,7 +7,7 @@
 #include "pr/math/core/traits.h"
 #include "pr/math/core/constants.h"
 #include "pr/math/types/vector4.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/quaternion.h"
 
 namespace pr::math
@@ -25,7 +25,7 @@ namespace pr::math
 		union
 		{
 			struct { Vec4<S> x, y, z, w; };
-			struct { Mat3x4<S> rot; Vec4<S> pos; };
+			struct { Mat3x3<S> rot; Vec4<S> pos; };
 			struct { Vec4<S> arr[4]; };
 		};
 		#pragma warning(pop)
@@ -51,7 +51,7 @@ namespace pr::math
 			, w(w_)
 		{
 		}
-		constexpr Mat4x4(Mat3x4<S> const& rot_, Vec4<S> pos_) noexcept
+		constexpr Mat4x4(Mat3x3<S> const& rot_, Vec4<S> pos_) noexcept
 			:rot(rot_)
 			, pos(pos_)
 		{
@@ -70,10 +70,10 @@ namespace pr::math
 			);
 		}
 
-		// Explicit cast to Mat3x4. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
-		template <ScalarType S2> constexpr explicit operator Mat3x4<S2>() const noexcept
+		// Explicit cast to Mat3x3. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
+		template <ScalarType S2> constexpr explicit operator Mat3x3<S2>() const noexcept
 		{
-			return Mat3x4<S2>(
+			return Mat3x3<S2>(
 				static_cast<Vec4<S2>>(x),
 				static_cast<Vec4<S2>>(y),
 				static_cast<Vec4<S2>>(z)
@@ -169,15 +169,15 @@ namespace pr::math
 		// Create a rotation matrix from Euler angles.  Order is: roll, pitch, yaw (to match DirectX)
 		static Mat4x4 TransformRad(S pitch, S yaw, S roll, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::RotationRad<Mat3x4<S>>(pitch, yaw, roll), pos };
+			return Mat4x4{ math::RotationRad<Mat3x3<S>>(pitch, yaw, roll), pos };
 		}
 		static Mat4x4 TransformDeg(S pitch, S yaw, S roll, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::RotationDeg<Mat3x4<S>>(pitch, yaw, roll), pos };
+			return Mat4x4{ math::RotationDeg<Mat3x3<S>>(pitch, yaw, roll), pos };
 		}
 
 		// Create from rotation and translation
-		static Mat4x4 Transform(Mat3x4<S> const& rot, Vec4<S> pos) noexcept
+		static Mat4x4 Transform(Mat3x3<S> const& rot, Vec4<S> pos) noexcept
 		{
 			return Mat4x4{ rot, pos };
 		}
@@ -186,47 +186,47 @@ namespace pr::math
 		template <typename Q = S> requires std::floating_point<Q>
 		static Mat4x4 Transform(Quat<Q> q, Vec4<S> pos) noexcept
 		{
-			return Mat4x4{ math::ToMatrix<Mat3x4<Q>>(q), pos };
+			return Mat4x4{ math::ToMatrix<Mat3x3<Q>>(q), pos };
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
 		static Mat4x4 Transform(Vec4<S> axis, S angle, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(axis.xyz, angle), pos };
+			return Mat4x4{ math::Rotation<Mat3x3<S>>(axis.xyz, angle), pos };
 		}
 
 		// Create from an angular displacement vector. length = angle(rad), direction = axis
 		static Mat4x4 Transform(Vec4<S> angular_displacement, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(angular_displacement.xyz), pos };
+			return Mat4x4{ math::Rotation<Mat3x3<S>>(angular_displacement.xyz), pos };
 		}
 
 		// Create a transform representing the rotation from one vector to another. (Vectors do not need to be normalised)
 		static Mat4x4 Transform(Vec4<S> from, Vec4<S> to, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(from.xyz, to.xyz), pos };
+			return Mat4x4{ math::Rotation<Mat3x3<S>>(from.xyz, to.xyz), pos };
 		}
 
 		// Create a transform from one basis axis to another
 		static Mat4x4 Transform(AxisId from_axis, AxisId to_axis, Vec4<S> pos) requires std::floating_point<S>
 		{
-			return Mat4x4{ math::Rotation<Mat3x4<S>>(from_axis, to_axis), pos };
+			return Mat4x4{ math::Rotation<Mat3x3<S>>(from_axis, to_axis), pos };
 		}
 
 		// Create a scale matrix
 		static Mat4x4 Scale(S scale, Vec4<S> pos) noexcept
 		{
-			return Mat4x4{ math::Scale<Mat3x4<S>>(scale), pos };
+			return Mat4x4{ math::Scale<Mat3x3<S>>(scale), pos };
 		}
 		static Mat4x4 Scale(S sx, S sy, S sz, Vec4<S> pos) noexcept
 		{
-			return Mat4x4{ math::Scale<Mat3x4<S>>(Vec3<S>(sx, sy, sz)), pos };
+			return Mat4x4{ math::Scale<Mat3x3<S>>(Vec3<S>(sx, sy, sz)), pos };
 		}
 
 		// Create a shear matrix
 		static Mat4x4 Shear(S sxy, S sxz, S syx, S syz, S szx, S szy, Vec4<S> pos) noexcept
 		{
-			return Mat4x4{ math::Shear<Mat3x4<S>>(sxy, sxz, syx, syz, szx, szy), pos };
+			return Mat4x4{ math::Shear<Mat3x3<S>>(sxy, sxz, syx, syz, szx, szy), pos };
 		}
 
 		// Orientation matrix to "look" at a point
@@ -265,7 +265,7 @@ namespace pr::math
 		{
 			// This is a helper wrapper really
 			return Transform(
-				math::Random<Mat3x4<S>>(rng),
+				math::Random<Mat3x3<S>>(rng),
 				math::Random<Vec3<S>>(rng, {}, radius).w0() + centre
 			);
 		}
@@ -465,11 +465,11 @@ namespace pr::math
 	#undef PR_MATH_DEFINE_TYPE
 
 	// Create a 4x4 matrix from this 3x4 matrix
-	template <ScalarType S> constexpr Mat4x4<S> Mat3x4<S>::w1() const noexcept
+	template <ScalarType S> constexpr Mat4x4<S> Mat3x3<S>::w1() const noexcept
 	{
 		return Mat4x4{ *this, Origin<Vec4<S>>() };
 	}
-	template <ScalarType S> constexpr Mat4x4<S> Mat3x4<S>::w1(Vec4<S> xyz) const noexcept
+	template <ScalarType S> constexpr Mat4x4<S> Mat3x3<S>::w1(Vec4<S> xyz) const noexcept
 	{
 		return Mat4x4{ *this, xyz };
 	}

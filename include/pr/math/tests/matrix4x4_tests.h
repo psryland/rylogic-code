@@ -16,7 +16,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 			using mat4_t = Mat4x4<T>;
 
 			// From scalar broadcast
@@ -35,7 +35,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(M1.x == vec4_t(T(1), T(2), T(3), T(4))));
 			PR_EXPECT(All(M1.w == vec4_t(T(13), T(14), T(15), T(16))));
 
-			// From Mat3x4 + position
+			// From Mat3x3 + position
 			auto rot = mat3_t::Identity();
 			auto pos = vec4_t(T(1), T(2), T(3), T(1));
 			auto M2 = mat4_t(rot, pos);

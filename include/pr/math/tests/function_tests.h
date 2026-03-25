@@ -30,7 +30,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -96,7 +96,7 @@ namespace pr::math::tests
 				{
 					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<float>>(m); PR_EXPECT(All(c == Mat2x2<float>::Identity())); }
-					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<float>>(m); PR_EXPECT(All(c == Mat3x4<float>::Identity())); }
+					if constexpr (dim == 3) { auto c = static_cast<Mat3x3<float>>(m); PR_EXPECT(All(c == Mat3x3<float>::Identity())); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<float>>(m); PR_EXPECT(All(c == Mat4x4<float>::Identity())); }
 				}
 
@@ -105,7 +105,7 @@ namespace pr::math::tests
 				{
 					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<double>>(m); PR_EXPECT(All(c == Mat2x2<double>::Identity())); }
-					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<double>>(m); PR_EXPECT(All(c == Mat3x4<double>::Identity())); }
+					if constexpr (dim == 3) { auto c = static_cast<Mat3x3<double>>(m); PR_EXPECT(All(c == Mat3x3<double>::Identity())); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<double>>(m); PR_EXPECT(All(c == Mat4x4<double>::Identity())); }
 				}
 
@@ -114,7 +114,7 @@ namespace pr::math::tests
 				{
 					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<int32_t>>(m); PR_EXPECT(All(c == Mat2x2<int32_t>::Identity())); }
-					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<int32_t>>(m); PR_EXPECT(All(c == Mat3x4<int32_t>::Identity())); }
+					if constexpr (dim == 3) { auto c = static_cast<Mat3x3<int32_t>>(m); PR_EXPECT(All(c == Mat3x3<int32_t>::Identity())); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<int32_t>>(m); PR_EXPECT(All(c == Mat4x4<int32_t>::Identity())); }
 				}
 
@@ -123,7 +123,7 @@ namespace pr::math::tests
 				{
 					constexpr auto m = Identity<vec_t>();
 					if constexpr (dim == 2) { auto c = static_cast<Mat2x2<int64_t>>(m); PR_EXPECT(All(c == Mat2x2<int64_t>::Identity())); }
-					if constexpr (dim == 3) { auto c = static_cast<Mat3x4<int64_t>>(m); PR_EXPECT(All(c == Mat3x4<int64_t>::Identity())); }
+					if constexpr (dim == 3) { auto c = static_cast<Mat3x3<int64_t>>(m); PR_EXPECT(All(c == Mat3x3<int64_t>::Identity())); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<int64_t>>(m); PR_EXPECT(All(c == Mat4x4<int64_t>::Identity())); }
 				}
 			}
@@ -135,7 +135,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -210,7 +210,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -258,7 +258,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -284,7 +284,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -310,7 +310,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -344,7 +344,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -362,7 +362,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -385,7 +385,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -431,7 +431,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -458,7 +458,7 @@ namespace pr::math::tests
 		, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using S = T;
@@ -489,7 +489,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -514,7 +514,7 @@ namespace pr::math::tests
 		// ---- CompMul (functions.h line ~865) ----
 		PRUnitTestMethod(CompMulTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -536,7 +536,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -570,7 +570,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -591,7 +591,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -608,7 +608,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -626,7 +626,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -652,7 +652,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using S = T;
@@ -668,7 +668,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -699,7 +699,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -737,7 +737,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -753,7 +753,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using vec_t = T;
@@ -769,7 +769,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -786,7 +786,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -977,7 +977,7 @@ namespace pr::math::tests
 		// ---- Trace (functions.h line ~1429) ----
 		PRUnitTestMethod(TraceTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -991,7 +991,7 @@ namespace pr::math::tests
 		// ---- Determinant (functions.h line ~1444) ----
 		PRUnitTestMethod(DeterminantTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1026,7 +1026,7 @@ namespace pr::math::tests
 		// ---- Diagonal (functions.h line ~1502) ----
 		PRUnitTestMethod(DiagonalTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1048,7 +1048,7 @@ namespace pr::math::tests
 		// ---- Kernel (functions.h line ~1527) ----
 		PRUnitTestMethod(KernelTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1098,7 +1098,7 @@ namespace pr::math::tests
 		// ---- Normalise(Mat) (functions.h line ~1588) ----
 		PRUnitTestMethod(NormaliseMatTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1118,7 +1118,7 @@ namespace pr::math::tests
 		// ---- IsOrthogonal (functions.h line ~1608) ----
 		PRUnitTestMethod(IsOrthogonalTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1138,7 +1138,7 @@ namespace pr::math::tests
 		// ---- IsOrthonormal (functions.h line ~1639) ----
 		PRUnitTestMethod(IsOrthonormalTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1151,7 +1151,7 @@ namespace pr::math::tests
 
 		// ---- IsAffine (functions.h line ~1654) ----
 		PRUnitTestMethod(IsAffineTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1170,7 +1170,7 @@ namespace pr::math::tests
 		// ---- IsInvertible (functions.h line ~1674) ----
 		PRUnitTestMethod(IsInvertibleTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1182,7 +1182,7 @@ namespace pr::math::tests
 		// ---- IsSymmetric (functions.h line ~1684) ----
 		PRUnitTestMethod(IsSymmetricTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1194,7 +1194,7 @@ namespace pr::math::tests
 		// ---- IsAntiSymmetric (functions.h line ~1711) ----
 		PRUnitTestMethod(IsAntiSymmetricTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1373,7 +1373,7 @@ namespace pr::math::tests
 		// ---- Permute rank-2 (functions.h line ~1857) ----
 		PRUnitTestMethod(PermuteMatrix
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1403,7 +1403,7 @@ namespace pr::math::tests
 		// ---- Transpose (functions.h line ~1909) ----
 		PRUnitTestMethod(TransposeTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1418,7 +1418,7 @@ namespace pr::math::tests
 
 		// ---- Transpose3x3 (functions.h line ~1932) ----
 		PRUnitTestMethod(Transpose3x3Tests
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1481,7 +1481,7 @@ namespace pr::math::tests
 
 		// ---- InvertAffine (functions.h line ~1971) ----
 		PRUnitTestMethod(InvertAffineTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1501,7 +1501,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(scaled * scaled_inv, Identity<mat_t>()));
 
 			// Rotation + uniform scale
-			auto rot = Mat3x4<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(30)));
+			auto rot = Mat3x3<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(30)));
 			rot.x = rot.x * S(3);
 			rot.y = rot.y * S(3);
 			rot.z = rot.z * S(3);
@@ -1515,7 +1515,7 @@ namespace pr::math::tests
 			}
 			else
 			{
-				// Mat3x4: just rotation + scale
+				// Mat3x3: just rotation + scale
 				auto m = mat_t(rot);
 				auto m_inv = InvertAffine(m);
 				PR_EXPECT(FEql(m * m_inv, Identity<mat_t>()));
@@ -1523,7 +1523,7 @@ namespace pr::math::tests
 
 			// Non-uniform scale + rotation + translation
 			{
-				auto rot2 = Mat3x4<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(60)));
+				auto rot2 = Mat3x3<S>::Rotation(ZAxis<Vec3<S>>(), DegreesToRadians(S(60)));
 				rot2.x = rot2.x * S(2);
 				rot2.y = rot2.y * S(3);
 				rot2.z = rot2.z * S(4);
@@ -1548,7 +1548,7 @@ namespace pr::math::tests
 		// ---- Invert (functions.h line ~2016) ----
 		PRUnitTestMethod(InvertTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1596,7 +1596,7 @@ namespace pr::math::tests
 		// ---- Sqrt matrix (functions.h line ~2159) ----
 		PRUnitTestMethod(MatrixSqrtTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1608,7 +1608,7 @@ namespace pr::math::tests
 		// ---- Orthonorm (functions.h line ~2179) ----
 		PRUnitTestMethod(OrthonormTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1647,7 +1647,7 @@ namespace pr::math::tests
 		// ---- Matrix multiply (functions.h line ~2190) ----
 		PRUnitTestMethod(MatrixMultiply
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1721,7 +1721,7 @@ namespace pr::math::tests
 			PR_EXPECT(IsOrthonormal(R90));
 		}
 		PRUnitTestMethod(RotationTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1740,7 +1740,7 @@ namespace pr::math::tests
 
 		// ---- Rotation overloads (functions.h line ~2340) ----
 		PRUnitTestMethod(RotationAxisAngleOverloads
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1783,7 +1783,7 @@ namespace pr::math::tests
 		// ---- Scale (functions.h line ~2413) ----
 		PRUnitTestMethod(ScaleTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1806,7 +1806,7 @@ namespace pr::math::tests
 			static_assert(All(Shear<mat_t>(S(0), S(0)) == Identity<mat_t>()));
 		}
 		PRUnitTestMethod(Shear3DTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
@@ -1865,7 +1865,7 @@ namespace pr::math::tests
 
 		// ---- Diagonalise (functions.h line ~2675) ----
 		PRUnitTestMethod(DiagonaliseTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1888,7 +1888,7 @@ namespace pr::math::tests
 
 		// ---- AxisAngle (functions.h line ~2679) ----
 		PRUnitTestMethod(AxisAngleTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using S = typename vector_traits<mat_t>::element_t;
@@ -1900,7 +1900,7 @@ namespace pr::math::tests
 		// ---- ScaleFrom (functions.h line ~2706) ----
 		PRUnitTestMethod(ScaleFromTests
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
@@ -1914,7 +1914,7 @@ namespace pr::math::tests
 		// ---- Unscaled (functions.h line ~2721) ----
 		PRUnitTestMethod(UnscaledTests
 		, Mat2x2<float>, Mat2x2<double>
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1930,7 +1930,7 @@ namespace pr::math::tests
 
 		// ---- RotationToZAxis (functions.h line ~2739) ----
 		PRUnitTestMethod(RotationToZAxisTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1948,7 +1948,7 @@ namespace pr::math::tests
 
 		// ---- OriFromDir (functions.h line ~2773) ----
 		PRUnitTestMethod(OriFromDirTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1968,7 +1968,7 @@ namespace pr::math::tests
 
 		// ---- ScaledOriFromDir (functions.h line ~2795) ----
 		PRUnitTestMethod(ScaledOriFromDirTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1986,7 +1986,7 @@ namespace pr::math::tests
 
 		// ---- RotationVectorApprox (functions.h line ~2805) ----
 		PRUnitTestMethod(RotationVectorApproxTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -1999,7 +1999,7 @@ namespace pr::math::tests
 
 		// ---- CPM (functions.h line ~2824) ----
 		PRUnitTestMethod(CPMTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -2017,7 +2017,7 @@ namespace pr::math::tests
 
 		// ---- ExpMap3x3 (functions.h line ~2841) ----
 		PRUnitTestMethod(ExpMap3x3Tests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -2030,7 +2030,7 @@ namespace pr::math::tests
 
 		// ---- LogMap3x3 (functions.h line ~2857) ----
 		PRUnitTestMethod(LogMap3x3Tests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -2043,7 +2043,7 @@ namespace pr::math::tests
 
 		// ---- RotationAt (functions.h line ~2882) ----
 		PRUnitTestMethod(RotationAtTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;
@@ -2242,7 +2242,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -2284,7 +2284,7 @@ namespace pr::math::tests
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
-		, Mat3x4<float>, Mat3x4<double>, Mat3x4<int32_t>, Mat3x4<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using vec_t = T;
@@ -2313,7 +2313,7 @@ namespace pr::math::tests
 
 		// ---- Random rotation (functions.h line ~3035) ----
 		PRUnitTestMethod(RandomRotationTests
-		, Mat3x4<float>, Mat3x4<double>
+		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
 			using vt = vector_traits<mat_t>;

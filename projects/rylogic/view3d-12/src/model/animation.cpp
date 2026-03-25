@@ -78,7 +78,7 @@ namespace pr::rdr12
 	{
 		auto time = static_cast<float>(AdjTime(time_s, TimeRange{ 0.0, m_period }, m_style));
 		auto lin = 0.5f * m_acc * Sqr(time) + m_vel * time + v4::Origin();
-		auto ang = RotationAt(time, m3x4::Identity(), m_avel.xyz, m_aacc.xyz);
+		auto ang = RotationAt(time, m3x3::Identity(), m_avel.xyz, m_aacc.xyz);
 		return m4x4{ ang, lin };
 	}
 

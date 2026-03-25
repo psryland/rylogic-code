@@ -13,7 +13,7 @@ namespace pr::physics
 		,m_products(0, 0, 0, 0)
 		,m_com_and_mass(0, 0, 0, InfiniteMass)
 	{}
-	Inertia::Inertia(m3x4 const& unit_inertia, float mass, v4 com)
+	Inertia::Inertia(m3x3 const& unit_inertia, float mass, v4 com)
 		:m_diagonal(unit_inertia.x.x, unit_inertia.y.y, unit_inertia.z.z, 0)
 		,m_products(unit_inertia.x.y, unit_inertia.x.z, unit_inertia.y.z, 0)
 		,m_com_and_mass(com.xyz, mass)
@@ -102,31 +102,31 @@ namespace pr::physics
 	{
 		return -Mass() * CoM();
 	}
-	m3x4 Inertia::Ic3x3(float mass) const
+	m3x3 Inertia::Ic3x3(float mass) const
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return m3x4::Identity();
+			return m3x3::Identity();
 
 		auto dia = mass * m_diagonal;
 		auto off = mass * m_products;
-		auto Ic = m3x4{
+		auto Ic = m3x3{
 			v4{dia.x, off.x, off.y, 0},
 			v4{off.x, dia.y, off.z, 0},
 			v4{off.y, off.z, dia.z, 0}};
 		return Ic;
 	}
-	m3x4 Inertia::To3x3(float mass) const
+	m3x3 Inertia::To3x3(float mass) const
 	{
 		mass = mass >= 0 ? mass : Mass();
 		if (mass < ZeroMass || mass >= InfiniteMass)
-			return m3x4::Identity();
+			return m3x3::Identity();
 
 		auto Ic = Ic3x3(mass);
 		if (LengthSq(CoM()) == 0)
 			return Ic;
 
-		auto cx = CPM<m3x4>(CoM().xyz);
+		auto cx = CPM<m3x3>(CoM().xyz);
 		auto Io = Ic - mass * cx * cx;
 		return Io;
 	}
@@ -137,7 +137,7 @@ namespace pr::physics
 			return Mat6x8<float, Motion, Force>{m6x8::Identity()};
 
 		auto Ic = Ic3x3(mass);
-		auto cx = CPM<m3x4>(CoM().xyz);
+		auto cx = CPM<m3x3>(CoM().xyz);
 
 		// The m00 block is Ic - mass*cx*cx which is algebraically symmetric (cx*cx is symmetric
 		// because (cxcx)^T = cx^T*cx^T = (-cx)(-cx) = cxcx). Float arithmetic in the triple
@@ -147,14 +147,14 @@ namespace pr::physics
 		m00.x.z = m00.z.x = 0.5f * (m00.x.z + m00.z.x);
 		m00.y.z = m00.z.y = 0.5f * (m00.y.z + m00.z.y);
 
-		auto Io = Mat6x8<float, Motion, Force>{m00, mass * cx, -mass * cx, mass * m3x4::Identity()};
+		auto Io = Mat6x8<float, Motion, Force>{m00, mass * cx, -mass * cx, mass * m3x3::Identity()};
 		return Io;
 	}
 	bool Inertia::Check() const
 	{
 		return LengthSq(CoM()) == 0 ? Inertia::Check(To3x3()) : Inertia::Check(To6x6());
 	}
-	bool Inertia::Check(m3x4 const& inertia)
+	bool Inertia::Check(m3x3 const& inertia)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia))
@@ -202,7 +202,7 @@ namespace pr::physics
 			!IsSymmetric(inertia.m11) ||
 			!IsAntiSymmetric(inertia.m01) ||
 			!IsAntiSymmetric(inertia.m10) ||
-			!FEql(inertia.m01 + inertia.m10, m3x4{}))
+			!FEql(inertia.m01 + inertia.m10, m3x3{}))
 			return assert(false), false;
 
 		// Check 'mass * 1'
@@ -339,7 +339,7 @@ namespace pr::physics
 		,m_products(0, 0, 0, 0)
 		,m_com_and_invmass(0, 0, 0, 0)
 	{}
-	InertiaInv::InertiaInv(m3x4 const& unit_inertia_inv, float invmass, v4 com)
+	InertiaInv::InertiaInv(m3x3 const& unit_inertia_inv, float invmass, v4 com)
 		:m_diagonal(unit_inertia_inv.x.x, unit_inertia_inv.y.y, unit_inertia_inv.z.z, 0)
 		,m_products(unit_inertia_inv.x.y, unit_inertia_inv.x.z, unit_inertia_inv.y.z, 0)
 		,m_com_and_invmass(com.xyz, invmass)
@@ -414,34 +414,34 @@ namespace pr::physics
 	{
 		m_com_and_invmass.xyz = com.xyz;
 	}
-	m3x4 InertiaInv::Ic3x3(float inv_mass) const
+	m3x3 InertiaInv::Ic3x3(float inv_mass) const
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
 
 		// For immovable bodies (inv_mass ≈ 0), the inverse inertia is zero.
 		// For massless bodies (inv_mass → ∞), treat as degenerate.
 		if (inv_mass < ZeroMass)
-			return m3x4{};
+			return m3x3{};
 		if (inv_mass >= InfiniteMass)
-			return m3x4::Identity();
+			return m3x3::Identity();
 
 		auto dia = inv_mass * m_diagonal;
 		auto off = inv_mass * m_products;
-		auto Ic_inv = m3x4{
+		auto Ic_inv = m3x3{
 			v4{dia.x, off.x, off.y, 0},
 			v4{off.x, dia.y, off.z, 0},
 			v4{off.y, off.z, dia.z, 0}};
 		return Ic_inv;
 	}
-	m3x4 InertiaInv::To3x3(float inv_mass) const
+	m3x3 InertiaInv::To3x3(float inv_mass) const
 	{
 		inv_mass = inv_mass >= 0 ? inv_mass : InvMass();
 
 		// For immovable bodies (inv_mass ≈ 0), the inverse inertia is zero.
 		if (inv_mass < ZeroMass)
-			return m3x4{};
+			return m3x3{};
 		if (inv_mass >= InfiniteMass)
-			return m3x4::Identity();
+			return m3x3::Identity();
 
 		auto Ic_inv = Ic3x3(inv_mass);
 		if (LengthSq(CoM()) == 0)
@@ -455,7 +455,7 @@ namespace pr::physics
 		//'     = Ic¯ + (1/m - Ic¯cxcx)¯Ic¯cxcxIc¯               '
 
 		// This is cheaper
-		auto cx = CPM<m3x4>(CoM().xyz);
+		auto cx = CPM<m3x3>(CoM().xyz);
 		auto Io = Invert(Ic_inv) - (1.0f / inv_mass) * cx * cx;
 		auto Io_inv = Invert(Io);
 		return Io_inv;
@@ -467,12 +467,12 @@ namespace pr::physics
 			return Mat6x8<float, Force, Motion>{m6x8::Identity()};
 
 		auto Ic_inv = Ic3x3(inv_mass);
-		auto cx = CPM<m3x4>(CoM().xyz);
+		auto cx = CPM<m3x3>(CoM().xyz);
 
 		// The m11 block is cx*Ic_inv*cx which is algebraically symmetric (since Ic_inv is
 		// symmetric and cx is antisymmetric: (cSc)^T = c^T S c^T = (-c)S(-c) = cSc). Float
 		// arithmetic in the triple product introduces tiny asymmetry, so explicitly symmetrize.
-		auto m11 = inv_mass * m3x4::Identity() - cx * Ic_inv * cx;
+		auto m11 = inv_mass * m3x3::Identity() - cx * Ic_inv * cx;
 		m11.x.y = m11.y.x = 0.5f * (m11.x.y + m11.y.x);
 		m11.x.z = m11.z.x = 0.5f * (m11.x.z + m11.z.x);
 		m11.y.z = m11.z.y = 0.5f * (m11.y.z + m11.z.y);
@@ -484,7 +484,7 @@ namespace pr::physics
 	{
 		return LengthSq(CoM()) == 0 ? InertiaInv::Check(To3x3()) : InertiaInv::Check(To6x6());
 	}
-	bool InertiaInv::Check(m3x4 const& inertia_inv)
+	bool InertiaInv::Check(m3x3 const& inertia_inv)
 	{
 		// Check for any value == NaN
 		if (IsNaN(inertia_inv))
@@ -709,7 +709,7 @@ namespace pr::physics
 	}
 
 	// Rotate an inertia in frame 'a' to frame 'b'
-	Inertia Rotate(Inertia const& inertia, m3x4 const& a2b)
+	Inertia Rotate(Inertia const& inertia, m3x3 const& a2b)
 	{
 		// Ib = a2b*Ia*b2a
 		// Explicitly symmetrize because R*S*R^T introduces tiny float asymmetry.
@@ -721,7 +721,7 @@ namespace pr::physics
 		auto com = a2b * inertia.CoM();
 		return Inertia{Ic, inertia.Mass(), com};
 	}
-	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x4 const& a2b)
+	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x3 const& a2b)
 	{
 		// Ib¯ = (a2b*Ia*b2a)¯ = b2a¯*Ia¯*a2b¯ = a2b*Ia¯*b2a
 		// Explicitly symmetrize the result because R*S*R^T introduces tiny float

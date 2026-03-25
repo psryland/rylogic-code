@@ -1,4 +1,4 @@
-﻿//***********************************************
+//***********************************************
 // LineDrawer helper
 //  Copyright (c) Rylogic Ltd 2008
 //***********************************************
@@ -410,15 +410,15 @@ namespace Rylogic.LDraw
 			m_o2w.m_mat = o2w * m_o2w.m_mat;
 			return (TDerived)this;
 		}
-		public TDerived o2w(m3x4 rot, v4 pos)
+		public TDerived o2w(m3x3 rot, v4 pos)
 		{
 			return o2w(new m4x4(rot, pos));
 		}
 		public TDerived ori(v4 dir, AxisId axis)
 		{
-			return ori(m3x4.Rotation(axis.Axis, dir));
+			return ori(m3x3.Rotation(axis.Axis, dir));
 		}
-		public TDerived ori(m3x4 rot)
+		public TDerived ori(m3x3 rot)
 		{
 			return o2w(rot, v4.Origin);
 		}
@@ -444,15 +444,15 @@ namespace Rylogic.LDraw
 		}
 		public TDerived scale(float sx, float sy, float sz)
 		{
-			return ori(m3x4.Scale(sx, sy, sz));
+			return ori(m3x3.Scale(sx, sy, sz));
 		}
 		public TDerived scale(v4 s)
 		{
-			return ori(m3x4.Scale(s.x, s.y, s.z));
+			return ori(m3x3.Scale(s.x, s.y, s.z));
 		}
 		public TDerived euler(float pitch_deg, float yaw_deg, float roll_deg)
 		{
-			return ori(m3x4.RotationDeg(pitch_deg, yaw_deg, roll_deg));
+			return ori(m3x3.RotationDeg(pitch_deg, yaw_deg, roll_deg));
 		}
 
 		/// <summary>Wire frame</summary>
@@ -569,15 +569,15 @@ namespace Rylogic.LDraw
 			m_o2w.m_mat = o2w * m_o2w.m_mat;
 			return this;
 		}
-		public LdrTransform o2w(m3x4 rot, v4 pos)
+		public LdrTransform o2w(m3x3 rot, v4 pos)
 		{
 			return o2w(new m4x4(rot, pos));
 		}
 		public LdrTransform ori(v4 dir, AxisId axis)
 		{
-			return ori(m3x4.Rotation(axis.Axis, dir));
+			return ori(m3x3.Rotation(axis.Axis, dir));
 		}
-		public LdrTransform ori(m3x4 rot)
+		public LdrTransform ori(m3x3 rot)
 		{
 			return o2w(rot, v4.Origin);
 		}
@@ -603,15 +603,15 @@ namespace Rylogic.LDraw
 		}
 		public LdrTransform scale(float sx, float sy, float sz)
 		{
-			return ori(m3x4.Scale(sx, sy, sz));
+			return ori(m3x3.Scale(sx, sy, sz));
 		}
 		public LdrTransform scale(v4 s)
 		{
-			return ori(m3x4.Scale(s.x, s.y, s.z));
+			return ori(m3x3.Scale(s.x, s.y, s.z));
 		}
 		public LdrTransform euler(float pitch_deg, float yaw_deg, float roll_deg)
 		{
-			return ori(m3x4.RotationDeg(pitch_deg, yaw_deg, roll_deg));
+			return ori(m3x3.RotationDeg(pitch_deg, yaw_deg, roll_deg));
 		}
 
 		// Write to 'out'
@@ -2948,7 +2948,7 @@ namespace Rylogic.LDraw
 		{
 			return
 				o2w == m4x4.Identity ? string.Empty :
-				o2w.rot == m3x4.Identity ? Position(o2w.pos, newline) :
+				o2w.rot == m3x3.Identity ? Position(o2w.pos, newline) :
 				$"*o2w{{*m4x4{{{Mat4x4(o2w)}}}}}{(newline ? "\n" : "")}";
 		}
 		public static string Transform(m4x4? o2w, bool newline = false)
@@ -3392,7 +3392,7 @@ namespace Rylogic.LDraw
 		{
 			return Axis(m4x4.Identity);
 		}
-		public LdrBuilder Axis(m3x4 basis)
+		public LdrBuilder Axis(m3x3 basis)
 		{
 			return Axis(new m4x4(basis, v4.Origin));
 		}
@@ -3400,7 +3400,7 @@ namespace Rylogic.LDraw
 		{
 			return Axis(string.Empty, Color_.FromArgb(0xFFFFFFFF), basis);
 		}
-		public LdrBuilder Axis(string name, Colour32 colour, m3x4 basis)
+		public LdrBuilder Axis(string name, Colour32 colour, m3x3 basis)
 		{
 			return Axis(name, colour, new m4x4(basis, v4.Origin));
 		}
@@ -3408,7 +3408,7 @@ namespace Rylogic.LDraw
 		{
 			return Axis(name, colour, basis, 0.1f);
 		}
-		public LdrBuilder Axis(string name, Colour32 colour, m3x4 basis, double scale)
+		public LdrBuilder Axis(string name, Colour32 colour, m3x3 basis, double scale)
 		{
 			return Axis(name, colour, new m4x4(basis, v4.Origin), scale);
 		}

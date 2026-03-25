@@ -1301,7 +1301,7 @@ namespace pr::rdr12::ldraw
 				{
 					tex.filepath("#checker3")
 						.addr(EAddrMode::Wrap, EAddrMode::Wrap)
-						.t2s(m3x4::Scale(10, 10, 1));
+						.t2s(m3x3::Scale(10, 10, 1));
 				})
 				.axis(pr::ldraw::seri::AxisId::PosY);
 		}

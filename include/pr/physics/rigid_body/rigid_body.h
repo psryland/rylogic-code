@@ -220,14 +220,14 @@ namespace pr::physics
 
 		// Return the inertia rotated from object space to 'A' space
 		// 'com' is the position of this object's CoM in 'A' space
-		Inertia InertiaOS(m3x4 const& o2a, v4 com = v4{}) const
+		Inertia InertiaOS(m3x3 const& o2a, v4 com = v4{}) const
 		{
 			auto inertia = InertiaOS();
 			inertia = Rotate(inertia, o2a);
 			inertia.CoM(com);
 			return inertia;
 		}
-		InertiaInv InertiaInvOS(m3x4 const& o2a, v4 com = v4{}) const
+		InertiaInv InertiaInvOS(m3x3 const& o2a, v4 com = v4{}) const
 		{
 			auto inertia_inv = InertiaInvOS();
 			inertia_inv = Rotate(inertia_inv, o2a);

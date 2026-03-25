@@ -55,8 +55,8 @@ namespace pr::physics
 		auto Ib_inv_3x3 = objB.InertiaInvOS(c.m_b2a.rot).To3x3();
 
 		// Collision inverse-mass matrix.
-		auto col_Ia_inv = (1/objA.Mass()) * m3x4::Identity() - CPM<m3x4>(rA) * Ia_inv_3x3 * CPM<m3x4>(rA);
-		auto col_Ib_inv = (1/objB.Mass()) * m3x4::Identity() - CPM<m3x4>(rB) * Ib_inv_3x3 * CPM<m3x4>(rB);
+		auto col_Ia_inv = (1/objA.Mass()) * m3x3::Identity() - CPM<m3x3>(rA) * Ia_inv_3x3 * CPM<m3x3>(rA);
+		auto col_Ib_inv = (1/objB.Mass()) * m3x3::Identity() - CPM<m3x3>(rB) * Ib_inv_3x3 * CPM<m3x3>(rB);
 		auto col_I_inv = col_Ia_inv + col_Ib_inv;
 
 		// The collision mass matrix.

@@ -194,12 +194,12 @@ extern "C"
 	ADDIN_API HRESULT WINAPI AddIn_m3x4(DWORD, DbgHelper* pHelper, int, BOOL, char *pResult, size_t max, DWORD)
 	{
 		ReentryGuard guard;
-		m3x4 mat;
+		m3x3 mat;
 		if (FAILED(pHelper->Read(mat))) return E_FAIL;
 
-		if (All(mat == m3x4::Identity()))
+		if (All(mat == m3x3::Identity()))
 			_snprintf(pResult, max, "identity");
-		else if (All(mat == m3x4::Zero()))
+		else if (All(mat == m3x3::Zero()))
 			_snprintf(pResult, max, "zero");
 		else
 		{
@@ -378,7 +378,7 @@ extern "C"
 		quat q;
 		if (FAILED(pHelper->Read(q))) return E_FAIL;
 
-		auto mat = ToMatrix<m3x4>(q);
+		auto mat = ToMatrix<m3x3>(q);
 		_snprintf(pResult, max,
 			"{%+g %+g %+g} \n"
 			"{%+g %+g %+g} \n"

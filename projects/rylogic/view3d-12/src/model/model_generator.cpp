@@ -705,7 +705,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x3>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			else if (p == pcount - 1)
@@ -714,7 +714,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x3>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			else
@@ -725,7 +725,7 @@ namespace pr::rdr12
 				if (!FEql(tang, v3::Zero()))
 				{
 					yaxis = Perpendicular(tang, yaxis);
-					ori.rot = OriFromDir<m3x4>(tang, AxisId::PosZ, yaxis);
+					ori.rot = OriFromDir<m3x3>(tang, AxisId::PosZ, yaxis);
 				}
 			}
 			ori.pos = path[p];

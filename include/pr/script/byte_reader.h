@@ -1,4 +1,4 @@
-﻿//**********************************
+//**********************************
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
@@ -403,19 +403,19 @@ namespace pr::script
 		}
 
 		// Extract a 3x3 matrix from the source
-		m3x4 Matrix3x3()
+		m3x3 Matrix3x3()
 		{
 			throw std::runtime_error("not implemented");
 			//auto* ptr = &m_ptr.read<v3>(3);
-			//return m3x4{ ptr[0].w0(), ptr[1].w0(), ptr[2].w0() };
+			//return m3x3{ ptr[0].w0(), ptr[1].w0(), ptr[2].w0() };
 		}
-		void Matrix3x3(std::span<m3x4> transforms)
+		void Matrix3x3(std::span<m3x3> transforms)
 		{
 			(void)transforms;
 			throw std::runtime_error("not implemented");
 			//auto* ptr = &m_ptr.read<v3>(3 * transforms.size());
 			//for (auto& t : transforms)
-			//	t = m3x4{ ptr[0].w0(), ptr[1].w0(), ptr[2].w0() };
+			//	t = m3x3{ ptr[0].w0(), ptr[1].w0(), ptr[2].w0() };
 		}
 
 		// Extract a 4x4 matrix from the source
@@ -503,7 +503,7 @@ namespace pr::script
 				{
 					auto centre = Vector3(1.0f);
 					auto radius = Real<float>();
-					auto rot = Random<m3x4>(rng);
+					auto rot = Random<m3x3>(rng);
 					auto pos = Random<v4>(rng, centre, radius);
 					p2w = m4x4{rot, pos} * p2w;
 					continue;
@@ -517,7 +517,7 @@ namespace pr::script
 				}
 				if (kw == ETransformKeyword::RandOri)
 				{
-					auto m = m4x4(Random<m3x4>(rng), v4::Origin());
+					auto m = m4x4(Random<m3x3>(rng), v4::Origin());
 					p2w = m * p2w;
 					continue;
 				}
@@ -593,7 +593,7 @@ namespace pr::script
 			float fval = 0.0f, farray[4];
 			pr::v4 vec = pr::v4::Zero();
 			pr::quat q = pr::QuatIdentity;
-			pr::m3x4 mat3;
+			pr::m3x3 mat3;
 			pr::m4x4 mat4;
 
 			ByteReader reader(src);
@@ -636,7 +636,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "Quaternion");
 			PR_EXPECT(reader.Quaternion(q)               ,true); PR_EXPECT(pr::FEql(q, pr::quat(0.0f, -1.0f, -2.0f, -3.0f)), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M3x3");
-			PR_EXPECT(reader.Matrix3x3(mat3)             ,true); PR_EXPECT(pr::FEql(mat3, pr::m3x4::Identity()), true);
+			PR_EXPECT(reader.Matrix3x3(mat3)             ,true); PR_EXPECT(pr::FEql(mat3, pr::m3x3::Identity()), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "M4x4");
 			PR_EXPECT(reader.Matrix4x4(mat4)             ,true); PR_EXPECT(pr::FEql(mat4, pr::m4x4::Identity()), true);
 			PR_EXPECT(reader.NextKeywordS(kw)            ,true); PR_EXPECT(std::string(kw) , "Data");

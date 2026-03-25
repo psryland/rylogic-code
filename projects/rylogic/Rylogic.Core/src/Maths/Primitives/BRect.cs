@@ -34,7 +34,7 @@ namespace Rylogic.Maths
 		public static BRect operator - (BRect lhs, v2 offset) { lhs.m_centre -= offset; return lhs; }
 		public static BRect operator * (BRect lhs, float s)   { lhs.m_radius *= s; return lhs; }
 		public static BRect operator / (BRect lhs, float s)   { lhs.m_radius /= s; return lhs; }
-		//public static BRect operator * (m3x4 m, BRect rhs)
+		//public static BRect operator * (m3x3 m, BRect rhs)
 		//{
 		//	Debug.Assert(rhs.IsValid, "Transforming an invalid bounding rectangle");
 		//	BRect bb = new BRect(m.p, v2.Zero);

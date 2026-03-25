@@ -25,7 +25,7 @@ namespace pr::collision
 
 		// Compute common sub expressions. Add in an epsilon term to counteract arithmetic
 		// errors when two edges are parallel and their cross product is (near) 0
-		auto r2l_abs = Abs(r2l.rot) + m3x4(math::tiny<float>);
+		auto r2l_abs = Abs(r2l.rot) + m3x3(math::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
@@ -167,10 +167,10 @@ namespace pr::collision::tests
 			};
 			m4x4 r2w_[] =
 			{
-				m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, 0, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x4>(0, constants<float>::tau_by_8, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x4>(0, 0, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x4>(0, 0, -3 * constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(0, 0, -3 * constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
 			};
 
 			std::default_random_engine rng;
@@ -236,7 +236,7 @@ namespace pr::collision::tests
 			auto l2w = m4x4::Identity();
 
 			// Rotate rhs 45° about Z and offset so edges overlap
-			auto r2w = m4x4::Transform(RotationRad<m3x4>(0, 0, constants<float>::tau_by_8), v4{1.3f, 1.3f, 0, 1});
+			auto r2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4{1.3f, 1.3f, 0, 1});
 
 			// The rotated box edge should be close to lhs corner
 			Contact c;
@@ -255,7 +255,7 @@ namespace pr::collision::tests
 			auto l2w = m4x4::Identity();
 
 			// Rotate rhs by 45° on two axes so its corner points into lhs face
-			auto r2w = m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, constants<float>::tau_by_8, 0), v4{2.0f, 0, 0, 1});
+			auto r2w = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, 0), v4{2.0f, 0, 0, 1});
 
 			Contact c;
 			auto result = BoxVsBox(box, l2w, box, r2w, c);

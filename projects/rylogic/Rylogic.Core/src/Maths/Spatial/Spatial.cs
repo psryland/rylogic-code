@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Rylogic.Extn;
@@ -93,13 +93,13 @@ namespace Rylogic.Maths
 	[DebuggerDisplay("{m00} {m01} {m10} {m11}")]
 	public struct m6x8<T,U> where T : IVectorSpace where U : IVectorSpace
 	{
-		public m3x4 m00;
-		public m3x4 m01;
-		public m3x4 m10;
-		public m3x4 m11;
+		public m3x3 m00;
+		public m3x3 m01;
+		public m3x3 m10;
+		public m3x3 m11;
 
 		// Constructors
-		public m6x8(m3x4 m00, m3x4 m01, m3x4 m10, m3x4 m11)
+		public m6x8(m3x3 m00, m3x3 m01, m3x3 m10, m3x3 m11)
 			: this()
 		{
 			this.m00 = m00;
@@ -296,7 +296,7 @@ namespace Rylogic.Maths
 		{
 			var cx_ang = CPM(a.ang);
 			var cx_lin = CPM(a.lin);
-			return new m6x8<Motion, Motion>(cx_ang, m3x4.Zero, cx_lin, cx_ang);
+			return new m6x8<Motion, Motion>(cx_ang, m3x3.Zero, cx_lin, cx_ang);
 		}
 
 		/// <summary>
@@ -306,7 +306,7 @@ namespace Rylogic.Maths
 		{
 			var cx_ang = CPM(a.ang);
 			var cx_lin = CPM(a.lin);
-			return new m6x8<Force, Force>(cx_ang, cx_lin, m3x4.Zero, cx_ang);
+			return new m6x8<Force, Force>(cx_ang, cx_lin, m3x3.Zero, cx_ang);
 		}
 
 		/// <summary>Return the transpose of a spatial matrix</summary>

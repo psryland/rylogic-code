@@ -125,7 +125,7 @@ namespace pr::collision::tests
 			auto box = ShapeBox{v4{0.3f, 0.5f, 0.2f, 0.0f}};
 			m4x4 l2w_[] =
 			{
-				m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
 			};
 			m4x4 b2w_[] =
 			{
@@ -195,7 +195,7 @@ namespace pr::collision::tests
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 
 			// Rotate line 45° about Y so it crosses the box diagonally
-			auto l2w = m4x4::Transform(RotationRad<m3x4>(0, constants<float>::tau_by_8, 0), v4::Origin());
+			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4::Origin());
 			auto b2w = m4x4::Identity();
 
 			PR_EXPECT(LineVsBox(line, l2w, box, b2w));

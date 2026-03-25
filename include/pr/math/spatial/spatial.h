@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -39,7 +39,7 @@
 #include "pr/math/types/vector8.h"
 #include "pr/math/types/matrix6x8.h"
 #include "pr/math/types/matrix4x4.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/vector4.h"
 
 namespace pr::math::spatial
@@ -51,7 +51,7 @@ namespace pr::math::spatial
 	#pragma region Operators
 
 	// Rotate a spatial motion vector
-	template <ScalarTypeFP S> constexpr Vec8<S, Motion> pr_vectorcall operator * (Mat3x4<S> const& a2b, Vec8<S, Motion> vec) noexcept
+	template <ScalarTypeFP S> constexpr Vec8<S, Motion> pr_vectorcall operator * (Mat3x3<S> const& a2b, Vec8<S, Motion> vec) noexcept
 	{
 		// [ E    0] * [v.ang] = [E*v.ang              ]
 		// [r^E   E]   [v.lin]   [E*v.lin + r^(E*v.ang)] where r^ = (0,0,0) for pure rotation
@@ -61,7 +61,7 @@ namespace pr::math::spatial
 	}
 
 	// Rotate a spatial force vector
-	template <ScalarTypeFP S> constexpr Vec8<S, Force> pr_vectorcall operator * (Mat3x4<S> const& a2b, Vec8<S, Force> vec) noexcept
+	template <ScalarTypeFP S> constexpr Vec8<S, Force> pr_vectorcall operator * (Mat3x3<S> const& a2b, Vec8<S, Force> vec) noexcept
 	{
 		// [E   r^E] * [v.ang] = [E*v.ang + r^(E*v.lin)]
 		// [0    E ]   [v.lin]   [E*v.lin              ] where r^ = (0,0,0) for pure rotation
@@ -180,18 +180,18 @@ namespace pr::math::spatial
 	//' i.e. b = a x m = CPM(a) * m, where m is a motion vector
 	template <ScalarTypeFP S> constexpr Mat6x8<S, Motion, Motion> CPM(Vec8<S, Motion> a) noexcept
 	{
-		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang.xyz);
-		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin.xyz);
-		return Mat6x8<S, Motion, Motion>(cx_ang, Zero<Mat3x4<S>>(), cx_lin, cx_ang);
+		auto cx_ang = math::CPM<Mat3x3<S>>(a.ang.xyz);
+		auto cx_lin = math::CPM<Mat3x3<S>>(a.lin.xyz);
+		return Mat6x8<S, Motion, Motion>(cx_ang, Zero<Mat3x3<S>>(), cx_lin, cx_ang);
 	}
 
 	// Returns the spatial cross product matrix for 'a', for use with force vectors.
 	// i.e. b = a x* f = CPM(a) * f, where f is a force vector
 	template <ScalarTypeFP S> constexpr Mat6x8<S, Force, Force> CPM(Vec8<S, Force> a) noexcept
 	{
-		auto cx_ang = math::CPM<Mat3x4<S>>(a.ang.xyz);
-		auto cx_lin = math::CPM<Mat3x4<S>>(a.lin.xyz);
-		return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x4<S>>(), cx_ang);
+		auto cx_ang = math::CPM<Mat3x3<S>>(a.ang.xyz);
+		auto cx_lin = math::CPM<Mat3x3<S>>(a.lin.xyz);
+		return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x3<S>>(), cx_ang);
 	}
 
 	// Create a spatial coordinate transform
@@ -201,21 +201,21 @@ namespace pr::math::spatial
 		//  [ E    0] = motion         [E   r^E]
 		//  [r^E   E]          force = [0    E ]
 		if constexpr (std::same_as<VecSpace, Motion>)
-			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x4<S>>(), math::CPM<Mat3x4<S>>(a2b.pos.xyz) * a2b.rot, a2b.rot};
+			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x3<S>>(), math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, a2b.rot};
 		else if constexpr (std::same_as<VecSpace, Force>)
-			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x4<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x4<S>>(), a2b.rot};
+			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x3<S>>(), a2b.rot};
 		else
 			static_assert(std::is_same_v<VecSpace, void>, "Invalid VecSpace");
 	}
 
 	// Spatial inertia matrix
-	template <ScalarTypeFP S> inline Mat6x8<S, Motion, Force> Inertia(Mat3x4<S> unit_inertia, Vec4<S> com, S mass) noexcept
+	template <ScalarTypeFP S> inline Mat6x8<S, Motion, Force> Inertia(Mat3x3<S> unit_inertia, Vec4<S> com, S mass) noexcept
 	{
-		auto cx = math::CPM<Mat3x4<S>>(com.xyz);
+		auto cx = math::CPM<Mat3x3<S>>(com.xyz);
 		auto mcx = mass * cx;
 		return Mat6x8<S, Motion, Force>{
 			mass * unit_inertia - mass * cx * cx, mcx,
-			-mcx, Scale<Mat3x4<S>>(mass)
+			-mcx, Scale<Mat3x3<S>>(mass)
 		};
 	}
 
@@ -269,16 +269,16 @@ namespace pr::math::spatial::tests
 		{
 			using Mat6x8MM = Mat6x8<T, Motion, Motion>;
 			using Mat4x4 = Mat4x4<T>;
-			using Mat3x4 = Mat3x4<T>;
+			using Mat3x3 = Mat3x3<T>;
 			using Vec4 = Vec4<T>;
 
 			auto a2b = Mat4x4::Transform(ZAxis<Vec4>(), constants<T>::tau_by_4, Vec4{1,1,1,1});
 			auto b2c = Mat4x4::Transform(YAxis<Vec4>(), constants<T>::tau_by_8, Vec4{-1,2,-3,1});
 			auto a2c = b2c * a2b;
 
-			auto A2B = Mat6x8MM{a2b.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2b.pos.xyz) * a2b.rot, a2b.rot};
-			auto B2C = Mat6x8MM{b2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(b2c.pos.xyz) * b2c.rot, b2c.rot};
-			auto A2C = Mat6x8MM{a2c.rot, Zero<Mat3x4>(), math::CPM<Mat3x4>(a2c.pos.xyz) * a2c.rot, a2c.rot};
+			auto A2B = Mat6x8MM{a2b.rot, Zero<Mat3x3>(), math::CPM<Mat3x3>(a2b.pos.xyz) * a2b.rot, a2b.rot};
+			auto B2C = Mat6x8MM{b2c.rot, Zero<Mat3x3>(), math::CPM<Mat3x3>(b2c.pos.xyz) * b2c.rot, b2c.rot};
+			auto A2C = Mat6x8MM{a2c.rot, Zero<Mat3x3>(), math::CPM<Mat3x3>(a2c.pos.xyz) * a2c.rot, a2c.rot};
 
 			auto r = B2C * A2B;
 			PR_EXPECT(FEql(A2C, r));
@@ -311,7 +311,7 @@ namespace pr::math::spatial::tests
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
 			using Mat4x4 = Mat4x4<T>;
-			using Mat3x4 = Mat3x4<T>;
+			using Mat3x3 = Mat3x3<T>;
 			using Vec4 = Vec4<T>;
 			using Vec3 = Vec3<T>;
 
@@ -498,21 +498,21 @@ namespace pr::math::spatial::tests
 		}
 		PRUnitTestMethod(BugTest_Inertia, float, double)
 		{
-			using Mat3x4 = Mat3x4<T>;
+			using Mat3x3 = Mat3x3<T>;
 			using Vec4 = Vec4<T>;
 			using Vec3 = Vec3<T>;
 
 			// Bug test: spatial::Inertia() must include parallel axis term in m00 for non-zero CoM
 			// The m00 block should be Io = Ic - m*S(c)², not just Ic.
 			// The off-diagonal blocks (m01, m10) and m11 are correct, only m00 is missing the correction.
-			auto unit_inertia = Scale<Mat3x4>(Vec3{ T(0.4), T(0.4), T(0.4) }); // sphere radius 1
+			auto unit_inertia = Scale<Mat3x3>(Vec3{ T(0.4), T(0.4), T(0.4) }); // sphere radius 1
 			auto com = Vec4{0, 1, 0, 0};
 			auto mass = T(5.0);
 
 			auto si = Inertia(unit_inertia, com, mass);
 
 			// Expected m00: Io = Ic - m*CPM(c)*CPM(c), where Ic = m * unit_inertia
-			auto cx = math::CPM<Mat3x4>(com.xyz);
+			auto cx = math::CPM<Mat3x3>(com.xyz);
 			auto Ic = mass * unit_inertia;
 			auto Io = Ic - mass * cx * cx;
 			PR_EXPECT(FEql(si.m00, Io)); // Bug: si.m00 == Ic, missing the -m*cx*cx term

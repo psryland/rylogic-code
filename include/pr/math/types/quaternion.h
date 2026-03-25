@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -59,7 +59,7 @@ namespace pr::math
 		{}
 
 		// Create a quaternion from a rotation matrix
-		explicit Quat(Mat3x4<S> const& m) noexcept;
+		explicit Quat(Mat3x3<S> const& m) noexcept;
 
 		// Explicit cast to different Scalar type
 		template <ScalarTypeFP S2> constexpr explicit operator Quat<S2>() const noexcept
@@ -544,13 +544,13 @@ namespace pr::math
 		if constexpr (vt::dimension == 4)
 		{
 			auto p = vec(lhs).w + frac * (vec(rhs).w - vec(lhs).w);
-			return Mat{ ToMatrix<Mat3x4<S>>(q), p };
+			return Mat{ ToMatrix<Mat3x3<S>>(q), p };
 		}
 	}
 
-	// Deferred definition of Quat(Mat3x4) constructor
+	// Deferred definition of Quat(Mat3x3) constructor
 	template <ScalarTypeFP S>
-	Quat<S>::Quat(Mat3x4<S> const& m) noexcept
+	Quat<S>::Quat(Mat3x3<S> const& m) noexcept
 		: Quat(ToQuat<Quat<S>>(m))
 	{}
 }

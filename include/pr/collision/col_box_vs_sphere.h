@@ -130,7 +130,7 @@ namespace pr::collision::tests
 			auto rhs = ShapeSphere{0.3f};
 			m4x4 l2w_[] =
 			{
-				m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
 			};
 			m4x4 r2w_[] =
 			{

@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Chart Control
 // Copyright (C) Rylogic Ltd 2016
 //***************************************************
@@ -4160,13 +4160,13 @@ namespace Rylogic.Gui.WinForms
 				{
 					// Shift the position to the centre of the camera view
 					var o2w = new m4x4(Camera.O2W.rot, Camera.O2W * new v4(0, pt_cs.y, pt_cs.z, 1f));
-					m_tools.CrossHairH.O2P = o2w * m3x4.Scale(view.x, 1f, 1f).m4x4;
+					m_tools.CrossHairH.O2P = o2w * m3x3.Scale(view.x, 1f, 1f).m4x4;
 				}
 				if (m_tools.CrossHairV != null)
 				{
 					// Shift the position to the centre of the camera view
 					var o2w = new m4x4(Camera.O2W.rot, Camera.O2W * new v4(pt_cs.x, 0, pt_cs.z, 1f));
-					m_tools.CrossHairV.O2P = o2w * m3x4.Scale(1f, view.y, 1f).m4x4;
+					m_tools.CrossHairV.O2P = o2w * m3x3.Scale(1f, view.y, 1f).m4x4;
 				}
 
 				// Notify of the new cross hair location

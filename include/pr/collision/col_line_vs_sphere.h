@@ -111,7 +111,7 @@ namespace pr::collision::tests
 			m4x4 l2w_[] =
 			{
 				m4x4::Identity(),
-				m4x4::Transform(RotationRad<m3x4>(0, constants<float>::tau_by_8, 0), v4::Origin()),
+				m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4::Origin()),
 			};
 			m4x4 r2w_[] =
 			{

@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -6,7 +6,7 @@
 #include "pr/math/core/forward.h"
 #include "pr/math/core/traits.h"
 #include "pr/math/core/functions.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/matrix.h"
 
 namespace pr::math
@@ -185,7 +185,7 @@ namespace pr::math
 			using vt = vector_traits<Vec>;
 			using S = typename vt::element_t;
 
-			auto M = Transpose(Mat3x4<S>(
+			auto M = Transpose(Mat3x3<S>(
 				Vec4<S>(vec(a).x*vec(a).x, vec(a).x, S(1), S(0)),
 				Vec4<S>(vec(b).x*vec(b).x, vec(b).x, S(1), S(0)),
 				Vec4<S>(vec(c).x*vec(c).x, vec(c).x, S(1), S(0))));

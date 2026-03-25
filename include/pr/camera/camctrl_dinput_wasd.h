@@ -104,7 +104,7 @@ namespace pr::camera
 
 			// Rotate heading
 			if (rot != 0.0f)
-				m_heading = m3x4::Rotation(v4YAxis, rot) * m_heading;
+				m_heading = m3x3::Rotation(v4YAxis, rot) * m_heading;
 
 			//// Integrate the rate of change of orientation implied by m_avel
 			//// Note: rate of change of orientation is not the same as angular velocity

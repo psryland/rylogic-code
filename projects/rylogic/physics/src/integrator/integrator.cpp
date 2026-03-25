@@ -27,7 +27,7 @@ namespace pr::physics
 		// Build the object-space unit inverse inertia 3x3 from compact storage
 		auto const& dia = dyn.inertia_inv_diagonal;
 		auto const& off = dyn.inertia_inv_products;
-		auto os_iinv_unit = m3x4
+		auto os_iinv_unit = m3x3
 		{
 			v4{dia.x, off.x, off.y, 0},
 			v4{off.x, dia.y, off.z, 0},
@@ -48,7 +48,7 @@ namespace pr::physics
 		ws_iinv_unit.y.z = ws_iinv_unit.z.y = 0.5f * (ws_iinv_unit.y.z + ws_iinv_unit.z.y);
 
 		// Mass-scaled world-space inverse inertia
-		auto ws_iinv = m3x4
+		auto ws_iinv = m3x3
 		{
 			ws_iinv_unit.x * inv_mass,
 			ws_iinv_unit.y * inv_mass,
@@ -64,14 +64,14 @@ namespace pr::physics
 		// Midpoint predictor for the rotation step: estimate the angular velocity at
 		// the midpoint rotation to account for precession of anisotropic bodies.
 		// This gives second-order accuracy instead of first-order.
-		auto half_dR = m3x4::Rotation(vel_ang.xyz * (elapsed_seconds * 0.5f));
+		auto half_dR = m3x3::Rotation(vel_ang.xyz * (elapsed_seconds * 0.5f));
 		auto mid_rot = half_dR * rot;
 		auto mid_b2a = InvertOrthonormal(mid_rot);
 		auto ws_iinv_mid = mid_rot * os_iinv_unit * mid_b2a;
 		ws_iinv_mid.x.y = ws_iinv_mid.y.x = 0.5f * (ws_iinv_mid.x.y + ws_iinv_mid.y.x);
 		ws_iinv_mid.x.z = ws_iinv_mid.z.x = 0.5f * (ws_iinv_mid.x.z + ws_iinv_mid.z.x);
 		ws_iinv_mid.y.z = ws_iinv_mid.z.y = 0.5f * (ws_iinv_mid.y.z + ws_iinv_mid.z.y);
-		auto ws_iinv_mid_scaled = m3x4{
+		auto ws_iinv_mid_scaled = m3x3{
 			ws_iinv_mid.x * inv_mass,
 			ws_iinv_mid.y * inv_mass,
 			ws_iinv_mid.z * inv_mass,
@@ -82,7 +82,7 @@ namespace pr::physics
 		auto com_ws = rot * os_com;
 		auto com_pos = pos + com_ws;
 
-		auto dR = m3x4::Rotation(vel_ang_mid * elapsed_seconds);
+		auto dR = m3x3::Rotation(vel_ang_mid * elapsed_seconds);
 		auto new_rot = dR * rot;
 		auto new_com_pos = com_pos + vel_lin * elapsed_seconds;
 		auto new_pos = new_com_pos - new_rot * os_com;
@@ -162,13 +162,13 @@ namespace pr::physics
 
 		// Midpoint predictor: estimate the angular velocity at the half-step rotation
 		// to account for precession of anisotropic bodies (see Evolve() for details).
-		auto mid_rot = m3x4::Rotation(ws_velocity.ang * (elapsed_seconds * 0.5f)) * rb.O2W().rot;
+		auto mid_rot = m3x3::Rotation(ws_velocity.ang * (elapsed_seconds * 0.5f)) * rb.O2W().rot;
 		auto mid_iinv_ws = Rotate(rb.InertiaInvOS(), mid_rot);
 		auto ws_velocity_mid = mid_iinv_ws * ws_momentum;
 
 		// Apply rotation using the midpoint angular velocity
 		auto drot = ws_velocity_mid.ang * elapsed_seconds;
-		auto new_rot = m3x4::Rotation(drot) * rb.O2W().rot;
+		auto new_rot = m3x3::Rotation(drot) * rb.O2W().rot;
 
 		// Translate the CoM by the linear velocity, then derive the model origin
 		// from the new rotation. This ensures the model origin orbits around the
@@ -226,7 +226,7 @@ namespace pr::physics
 		// By estimating the rotation at the midpoint and recomputing omega there, we get
 		// second-order accuracy, significantly reducing secular energy drift for bodies
 		// whose angular velocity changes at collisions (polytopes, non-face contacts).
-		auto mid_rot = m3x4::Rotation(ws_velocity.ang * (elapsed_seconds * 0.5f)) * rb.O2W().rot;
+		auto mid_rot = m3x3::Rotation(ws_velocity.ang * (elapsed_seconds * 0.5f)) * rb.O2W().rot;
 		auto mid_iinv_ws = Rotate(rb.InertiaInvOS(), mid_rot);
 		auto ws_velocity_mid = mid_iinv_ws * ws_momentum;
 
@@ -237,7 +237,7 @@ namespace pr::physics
 
 		// Apply rotation using the midpoint angular velocity
 		auto drot = ws_velocity_mid.ang * elapsed_seconds;
-		auto new_rot = m3x4::Rotation(drot) * rb.O2W().rot;
+		auto new_rot = m3x3::Rotation(drot) * rb.O2W().rot;
 
 		// Translate the CoM by the CoM velocity, then derive the model origin position
 		// from the new rotation. This ensures the model origin orbits around the CoM

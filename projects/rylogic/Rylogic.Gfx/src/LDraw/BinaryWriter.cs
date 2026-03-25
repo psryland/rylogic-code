@@ -328,7 +328,7 @@ namespace Rylogic.LDraw
 			if (o2w.m_mat == m4x4.Identity)
 				return;
 
-			if (o2w.m_mat.rot == m3x4.Identity && o2w.m_mat.pos.w == 1)
+			if (o2w.m_mat.rot == m3x3.Identity && o2w.m_mat.pos.w == 1)
 			{
 				Write(EKeyword.O2W, () =>
 				{

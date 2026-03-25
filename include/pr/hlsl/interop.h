@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // Shader Interop
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -49,7 +49,7 @@ namespace pr::hlsl
 	using float3   = math::Vec3<float>;
 	using float4   = math::Vec4<float>;
 	using float2x2 = math::Mat2x2<float>;
-	using float3x3 = math::Mat3x4<float>;
+	using float3x3 = math::Mat3x3<float>;
 	using float4x4 = math::Mat4x4<float>;
 	using voidp    = void const*;
 

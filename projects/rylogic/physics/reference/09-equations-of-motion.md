@@ -94,7 +94,7 @@ for (int i = 0; i != 1; ++i)
 {
     auto ws_velocity = ws_inertia_inv * ws_momentum;
     auto dpos = ws_velocity * elapsed_seconds * 0.5f;
-    auto do2w = m3x4::Rotation(dpos.ang);       // Estimated rotation at midpoint
+    auto do2w = m3x3::Rotation(dpos.ang);       // Estimated rotation at midpoint
     ws_inertia_inv = Rotate(ws_inertia_inv, do2w); // Inertia at midpoint orientation
 }
 ```
@@ -120,7 +120,7 @@ The position change has angular and linear parts:
 ```cpp
 auto o2w = m4x4
 {
-    m3x4::Rotation(dpos.ang) * rb.O2W().rot,  // Incremental rotation
+    m3x3::Rotation(dpos.ang) * rb.O2W().rot,  // Incremental rotation
     dpos.lin                 + rb.O2W().pos    // Linear displacement
 };
 rb.O2W(o2w);
