@@ -182,3 +182,8 @@ The public method wraps the private `_`-suffixed extern.
 - **C# builds** (`build-csharp-projects.yml`): Builds all C# projects on `windows-latest`. Removes `.vcxproj` (C++) and VSIX projects since the runner lacks the full VS C++ toolset.
 - **Native builds** (`build-native-projects.yml`): Builds C++ projects with MSBuild (v143 toolset on CI runner). Removes C# projects first.
 - Both workflows trigger on push/PR to `main` with path filters.
+
+## Skills
+
+### Always-Active Skills
+The **continuous-skill-improvement** skill should be activated at the end of every task. Before completing a session, reflect on any learnings gained and capture them via this skill.
