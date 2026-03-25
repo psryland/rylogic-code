@@ -1,19 +1,19 @@
-//************************************
-// Physics Sandbox
-//  Copyright (c) Rylogic Ltd 2026
-//************************************
-// Embedded unit tests for the physics sandbox application.
-// Run with the `-unittest` command line argument.
-// These tests use the PR_UNITTESTS framework and run headlessly
-// (no View3D, no window) — they operate directly on RigidBody objects.
-//
-// For a broader set of collision tests, see also:
-//   projects/rylogic/physics/src/unittests/test_collision.h
-//
-#pragma once
-#include "src/forward.h"
+//*********************************************
+// Physics Engine
+//  Copyright (C) Rylogic Ltd 2016
+//*********************************************
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
 
-namespace physics_sandbox::tests
+#if 0 // TODO, are these tests covered by the GPU collision tests?
+
+#include "src/forward.h"
+//#include "pr/physics/forward.h"
+//#include "pr/physics/shape/inertia.h"
+//#include "pr/physics/shape/shape_mass.h"
+//#include "pr/physics/rigid_body/state_flags.h"
+//#include "pr/physics/utility/misc.h"
+namespace pr::physics::tests
 {
 	// Common test infrastructure shared by all collision test classes.
 	// Captures conserved quantities and runs a two-body elastic collision
@@ -76,17 +76,6 @@ namespace physics_sandbox::tests
 			// Configure perfectly elastic, frictionless collisions
 			physics::Engine engine;
 
-			//// Capture the "before" state on the step where collision is first detected,
-			//// before the impulse is applied.
-			//engine.PostCollisionDetection += [&](auto&, auto args)
-			//{
-			//	if (args.m_contacts.empty())
-			//		return;
-
-			//	result.before = SystemState::Capture(body_a, body_b);
-			//	result.collision_occurred = true;
-			//};
-
 			// Step until a collision occurs (or timeout after 5000 steps)
 			auto const dt = 1.0f / 100.0f;
 			for (int step = 0; step != 5000; ++step)
@@ -95,7 +84,7 @@ namespace physics_sandbox::tests
 				body_b.ZeroForces();
 				engine.Step(dt, bodies);
 
-				if (result.collision_occurred)
+				if (AllSet(body_a.StateFlags(), ERigidBodySta result.collision_occurred)
 				{
 					result.after = SystemState::Capture(body_a, body_b);
 					result.vel_a = body_a.VelocityWS();
@@ -947,3 +936,5 @@ namespace physics_sandbox::tests
 		}
 	};
 }
+#endif
+#endif

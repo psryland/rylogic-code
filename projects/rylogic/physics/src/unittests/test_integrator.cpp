@@ -9,7 +9,7 @@
 #include "pr/physics/integrator/integrator.h"
 #include "pr/physics/shape/inertia.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(IntegratorTests)
 	{

@@ -69,7 +69,6 @@ namespace pr::physics::tests
 			SystemState after;
 			v8motion vel_a; // Post-collision velocity of body A
 			v8motion vel_b; // Post-collision velocity of body B
-			bool collision_occurred;
 		};
 
 		// Run a two-body collision scenario to completion.
@@ -83,7 +82,6 @@ namespace pr::physics::tests
 			v4 ang_vel_a = v4::Zero(), v4 ang_vel_b = v4::Zero())
 		{
 			auto result = CollisionResult{};
-			result.collision_occurred = false;
 
 			// Create rigid bodies using the template constructor which handles shape_cast internally.
 			// We use the Inertia::Box overload that takes half-extents and mass.
@@ -97,20 +95,11 @@ namespace pr::physics::tests
 			auto& body_b = bodies[1];
 			body_a.VelocityWS(ang_vel_a, vel_a);
 			body_b.VelocityWS(ang_vel_b, vel_b);
+			body_a.Collided += [&](RigidBody& self, auto&) { SystemState::Capture(body_a, body_b); };
+			body_b.Collided += [&](RigidBody& self, auto&) { SystemState::Capture(body_a, body_b); };
 
 			// Set up the engine with perfectly elastic, frictionless material
 			Engine engine;
-
-			//// Hook the PostCollisionDetection event to capture pre-impulse state.
-			//// This fires after Evolve and collision detection, but before impulse resolution.
-			//engine.PostCollisionDetection += [&](auto&, auto args)
-			//{
-			//	if (args.m_contacts.empty())
-			//		return;
-
-			//	result.before = SystemState::Capture(body_a, body_b);
-			//	result.collision_occurred = true;
-			//};
 
 			// Step until collision or timeout.
 			// Fixed 100 Hz timestep; 5000 steps = 50 seconds of simulation time.
@@ -123,7 +112,8 @@ namespace pr::physics::tests
 
 				engine.Step(dt, bodies);
 
-				if (result.collision_occurred)
+				if (AllSet(body_a.StateFlags(), ERigidBodyStateFlags::Collided) ||
+					AllSet(body_b.StateFlags(), ERigidBodyStateFlags::Collided))
 				{
 					// Capture post-impulse state immediately after the collision step
 					result.after = SystemState::Capture(body_a, body_b);

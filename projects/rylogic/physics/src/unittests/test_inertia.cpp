@@ -11,7 +11,7 @@
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/shape_box.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(InertiaTests)
 	{

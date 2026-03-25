@@ -440,8 +440,10 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	float3 pt = c.contact_point.xyz;
 
 	// Adjust the contact point to the estimated collision time.
-	// point_at_t ≈ point + 0.5 * collision_time * relative_velocity_at_point
-	// (midpoint between pre- and post-collision positions)
+	// Only adjust along the contact normal to avoid introducing tangential offsets
+	// that produce spurious torque for face-face contacts. The full V_rel includes
+	// tangential sliding velocity which would shift the contact point sideways,
+	// creating a systematic lever arm that generates angular momentum from normal impulses.
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
@@ -459,9 +461,9 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// Compute relative velocity at the contact point (in A's object space)
 	float3 V_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
 
-	// Adjust contact point to estimated collision time
+	// Adjust contact point along the normal only
 	if (abs(ct) > 1e-6f)
-		pt += 0.5f * ct * V_rel;
+		pt += (0.5f * ct * dot(V_rel, axis)) * axis;
 
 	// Baumgarte velocity bias: add a corrective velocity proportional to penetration depth.
 	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes).
@@ -521,6 +523,8 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	}
 	
 	// Write updated bodies
+	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
+	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
 }

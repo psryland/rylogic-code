@@ -60,6 +60,7 @@ namespace pr::physics
 		// Rigid body state flags
 		ERigidBodyStateFlags m_state_flags;
 
+		friend struct Engine;
 		friend struct BodyHistory;
 		friend GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id);
 		friend void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb);
@@ -89,6 +90,10 @@ namespace pr::physics
 
 		// Raised after the collision shape changes.
 		EventHandler<RigidBody&, ChangeEventArgs<collision::Shape const*>> ShapeChange;
+		
+		// Raised when involved in a collision, just prior to the collision response being applied.
+		struct CollidedArgs { RigidBody* other; RbContact const& contacts; };
+		EventHandler<RigidBody&, CollidedArgs const&> Collided;
 
 		// Get/Set the collision shape for the rigid body
 		template <ShapeType TShape> TShape const& Shape() const
@@ -342,7 +347,7 @@ namespace pr::physics
 			return m_contact_simplex_count;
 		}
 
-		// Get/Set the current forces applied to this body.
+		// Get/Set the current forces applied to this body (measured at the centre of mass).
 		v8force ForceWS() const
 		{
 			return m_ws_force;
@@ -352,7 +357,7 @@ namespace pr::physics
 			return W2O().rot * ForceWS();
 		}
 
-		// Add a force acting on the rigid body at position 'at' (world space, model origin relative).
+		// Add a force acting on the rigid body at position 'ws_at' (world space, model origin relative).
 		// The force is shifted from the application point to the centre of mass before accumulation.
 		// For gravity: pass ws_at = O2W().rot * CentreOfMassOS() so gravity produces no torque about CoM.
 		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4::Zero())
@@ -371,7 +376,7 @@ namespace pr::physics
 			m_ws_force += ws_force;
 		}
 
-		// Add a force acting on the rigid body at position 'at' (object space, model origin relative)
+		// Add a force acting on the rigid body at position 'os_at' (object space, model origin relative)
 		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4::Zero())
 		{
 			assert("'at' should be an offset (in object space) from the object origin" && os_at.w == 0);

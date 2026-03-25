@@ -8,7 +8,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/shape/shape_builder.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(ShapeBuilderTests)
 	{

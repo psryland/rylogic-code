@@ -21,6 +21,7 @@ static const int MaxColours = 32;
 static const int ERigidBodyStateFlags_None = 0;
 static const int ERigidBodyStateFlags_Static = 1 << 0;
 static const int ERigidBodyStateFlags_Sleeping = 1 << 1;
+static const int ERigidBodyStateFlags_Collided = 1 << 2;
 
 // Collision shape types:
 static const int SHAPE_SPHERE   = 0;

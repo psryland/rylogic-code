@@ -8,7 +8,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/integrator/impulse.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	//HACK todo fix this!
 	PRUnitTestClass(ImpulseTests)

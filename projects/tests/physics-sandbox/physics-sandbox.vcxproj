@@ -118,7 +118,6 @@
     <ClInclude Include="src\ui\menu_id.h" />
     <ClInclude Include="src\ui\recent_files.h" />
     <ClInclude Include="src\ui\sandbox_ui.h" />
-    <ClInclude Include="src\unittests\sandbox_tests.h" />
     <ClInclude Include="src\utils\scene_loader.h" />
     <ClCompile Include="src\main.cpp" />
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />

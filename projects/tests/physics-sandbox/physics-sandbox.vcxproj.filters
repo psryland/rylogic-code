@@ -56,9 +56,6 @@
     <Filter Include="src\scene">
       <UniqueIdentifier>{28a8bcdd-bc1b-4028-85d2-e4cd908391d2}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\unittests">
-      <UniqueIdentifier>{c3d4e5f6-a7b8-9012-cdef-012345678912}</UniqueIdentifier>
-    </Filter>
     <Filter Include="pr\physics\compute">
       <UniqueIdentifier>{48da3655-f908-4ac8-ad93-f33464cec890}</UniqueIdentifier>
     </Filter>
@@ -219,9 +216,6 @@
     </ClInclude>
     <ClInclude Include="src\scene\scene.h">
       <Filter>src\scene</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\sandbox_tests.h">
-      <Filter>src\unittests</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\collision\forward.h">
       <Filter>pr\collision</Filter>

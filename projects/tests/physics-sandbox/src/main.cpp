@@ -4,11 +4,11 @@
 //************************************
 // Entry point for the physics sandbox application.
 // Two modes:
-//   -unittest : Allocate a console, run embedded unit tests, and exit.
+//   -unittest [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
+//     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
-#include "src/unittests/sandbox_tests.h"
 #include "src/unittests/gpu_compare_tests.h"
 #include "src/unittests/collision_pair_tests.h"
 
@@ -24,7 +24,8 @@ using namespace physics_sandbox;
 namespace physics_sandbox
 {
 	// Run embedded unit tests to a console window and exit.
-	int RunUnitTests()
+	// Optional class name filters are passed via 'filter' (substring match on class names).
+	int RunUnitTests(std::span<std::string_view const> filter = {})
 	{
 		// Uses AllocConsole() to create a console for the WinApp process,
 		// then redirects stdout so PR_EXPECT output is visible.
@@ -41,7 +42,7 @@ namespace physics_sandbox
 
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
-		auto failed = pr::unittests::RunAllTests(true);
+		auto failed = pr::unittests::RunAllTests(true, filter);
 		return failed > 0 ? 1 : 0;
 	}
 
@@ -71,9 +72,14 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	// but CmdLine's string_view constructor skips argv[0] as the exe name.
 	auto cmd = pr::CmdLine("app " + std::string(lpCmdLine ? lpCmdLine : ""));
 
-	// Check for -unittest mode before initialising any GUI resources
+	// Check for -unittest mode before initialising any GUI resources.
+	// Usage: -unittest [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
 	if (cmd.count("unittest"))
-		return physics_sandbox::RunUnitTests();
+	{
+		auto const& arg = cmd("unittest");
+		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
+		return physics_sandbox::RunUnitTests(filter);
+	}
 
 	// Interactive sandbox mode.
 	// Must use STA (apartment-threaded) because COM UI components like IFileDialog

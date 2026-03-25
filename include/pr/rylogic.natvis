@@ -193,7 +193,7 @@ old:
 		</Expand>
 	</Type>
 	<Type Name="pr::math::Vec8&lt;*,*&gt;">
-		<DisplayString>{ang}  {lin}</DisplayString>
+		<DisplayString>Ang=[{ang.xyz}]  Lin=[{lin.xyz}]</DisplayString>
 		<!--
 		<DisplayString LegacyAddin="p:\pr\lib\x86\release\prautoexp.dll" Export="AddIn_v8"></DisplayString>
 		-->
