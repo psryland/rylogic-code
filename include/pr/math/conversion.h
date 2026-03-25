@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -314,11 +314,11 @@ namespace pr
 		}
 	};
 
-	// Mat3x4
+	// Mat3x3
 	template <StringTypeDynamic Str, math::ScalarType S>
-	struct Convert<Str, math::Mat3x4<S>>
+	struct Convert<Str, math::Mat3x3<S>>
 	{
-		static Str Func(math::Mat3x4<S> const& x)
+		static Str Func(math::Mat3x3<S> const& x)
 		{
 			using Char = typename string_traits<Str>::value_type;
 			return
@@ -328,11 +328,11 @@ namespace pr
 		}
 	};
 	template <math::ScalarType S, typename TFrom>
-	struct Convert<math::Mat3x4<S>, TFrom>
+	struct Convert<math::Mat3x3<S>, TFrom>
 	{
-		// String to Mat3x4
+		// String to Mat3x3
 		template <StringType Str>
-		static math::Mat3x4<S> Func(Str const& s, typename string_traits<Str>::value_type const** end = nullptr) noexcept
+		static math::Mat3x3<S> Func(Str const& s, typename string_traits<Str>::value_type const** end = nullptr) noexcept
 		{
 			using Char = typename string_traits<Str>::value_type;
 
@@ -341,7 +341,7 @@ namespace pr
 			auto y = To<Vec3<S, void>>(e, &e);
 			auto z = To<Vec3<S, void>>(e, &e);
 			if (end) *end = e;
-			return math::Mat3x4<S>(x, y, z);
+			return math::Mat3x3<S>(x, y, z);
 		}
 	};
 
@@ -401,10 +401,10 @@ namespace pr
 		template <math::ScalarType SS, typename AA, typename BB> static math::Mat6x8<S, A, B> Func(math::Mat6x8<SS, AA, BB> const& v) noexcept
 		{
 			return math::Mat6x8<S, A, B>(
-				To<math::Mat3x4<S>>(v.m00),
-				To<math::Mat3x4<S>>(v.m01),
-				To<math::Mat3x4<S>>(v.m10),
-				To<math::Mat3x4<S>>(v.m11));
+				To<math::Mat3x3<S>>(v.m00),
+				To<math::Mat3x3<S>>(v.m01),
+				To<math::Mat3x3<S>>(v.m10),
+				To<math::Mat3x3<S>>(v.m11));
 		}
 
 		// String to Mat6x8
@@ -505,7 +505,7 @@ namespace pr::math
 		return out << mat.x << " " << mat.y;
 	}
 	template <typename Char, ScalarType S>
-	inline std::basic_ostream<Char>& operator << (std::basic_ostream<Char>& out, Mat3x4<S> const& mat)
+	inline std::basic_ostream<Char>& operator << (std::basic_ostream<Char>& out, Mat3x3<S> const& mat)
 	{
 		auto m = mat;
 		auto sep = " ";
@@ -596,30 +596,30 @@ namespace pr::math::tests
 				"12 -34 "
 				"56 -78");
 		}
-		PRUnitTestMethod(Mat3x4)
+		PRUnitTestMethod(Mat3x3)
 		{
-			PR_EXPECT(To<std::string>(Mat3x4<float>(
+			PR_EXPECT(To<std::string>(Mat3x3<float>(
 				Vec4<float>(1.2f, 2.4f, -4.8f, -8.16f),
 				Vec4<float>(2.1f, 4.2f, -8.4f, -1.68f),
 				Vec4<float>(1.1f, 2.2f, -3.3f, -4.44f))) ==
 				"1.2 2.4 -4.8 "
 				"2.1 4.2 -8.4 "
 				"1.1 2.2 -3.3");
-			PR_EXPECT(To<std::string>(Mat3x4<double>(
+			PR_EXPECT(To<std::string>(Mat3x3<double>(
 				Vec4<double>(1.2, 2.4, -4.8, -8.16),
 				Vec4<double>(2.1, 4.2, -8.4, -1.68),
 				Vec4<double>(1.1, 2.2, -3.3, -4.44))) ==
 				"1.2 2.4 -4.8 "
 				"2.1 4.2 -8.4 "
 				"1.1 2.2 -3.3");
-			PR_EXPECT(To<std::string>(Mat3x4<int>(
+			PR_EXPECT(To<std::string>(Mat3x3<int>(
 				Vec4<int>(1, 2, -3, -4),
 				Vec4<int>(5, 6, -7, -8),
 				Vec4<int>(9, 0, -1, -2))) ==
 				"1 2 -3 "
 				"5 6 -7 "
 				"9 0 -1");
-			PR_EXPECT(To<std::string>(Mat3x4<long long>(
+			PR_EXPECT(To<std::string>(Mat3x3<long long>(
 				Vec4<long long>(1, 2, -3, -4),
 				Vec4<long long>(5, 6, -7, -8),
 				Vec4<long long>(9, 0, -1, -2))) ==

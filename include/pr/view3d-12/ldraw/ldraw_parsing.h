@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -274,9 +274,9 @@ namespace pr::rdr12::ldraw
 		}
 
 		// Read matrix types
-		m3x4 Matrix3x3()
+		m3x3 Matrix3x3()
 		{
-			return m3x4{ Vector3f().w0(), Vector3f().w0(), Vector3f().w0() };
+			return m3x3{ Vector3f().w0(), Vector3f().w0(), Vector3f().w0() };
 		}
 		m4x4 Matrix4x4()
 		{

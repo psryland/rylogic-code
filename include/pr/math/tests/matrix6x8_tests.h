@@ -14,7 +14,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(Construction, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
 
@@ -31,7 +31,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(MultiplyVector, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
-			using mat3_t = Mat3x4<T>;
+			using mat3_t = Mat3x3<T>;
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
 

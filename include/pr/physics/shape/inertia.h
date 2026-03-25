@@ -88,8 +88,8 @@ namespace pr::physics
 	InertiaInv Split(InertiaInv const& lhs, InertiaInv const& rhs);
 	InertiaInv Invert(Inertia const& inertia);
 	Inertia Invert(InertiaInv const& inertia_inv);
-	Inertia Rotate(Inertia const& inertia, m3x4 const& a2b);
-	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x4 const& a2b);
+	Inertia Rotate(Inertia const& inertia, m3x3 const& a2b);
+	InertiaInv Rotate(InertiaInv const& inertia_inv, m3x3 const& a2b);
 	Inertia Translate(Inertia const& inertia0, v4 offset, ETranslateInertia direction);
 	InertiaInv Translate(InertiaInv const& inertia0_inv, v4 offset, ETranslateInertia direction);
 	Inertia Transform(Inertia const& inertia0, m4x4 const& a2b, ETranslateInertia direction);
@@ -109,7 +109,7 @@ namespace pr::physics
 		v4 m_com_and_mass; // Offset from the origin to the centre of mass, and the mass.
 
 		Inertia();
-		Inertia(m3x4 const& unit_inertia, float mass, v4 com = v4{});
+		Inertia(m3x3 const& unit_inertia, float mass, v4 com = v4{});
 		Inertia(v4 diagonal, v4 products, float mass, v4 com = v4{});
 		Inertia(float diagonal, float mass, v4 com = v4{});
 		Inertia(Inertia const& rhs, v4 com);
@@ -133,17 +133,17 @@ namespace pr::physics
 		v4 MassMoment() const;
 
 		// Return the centre of mass inertia (mass scaled by default, excludes 'com')
-		m3x4 Ic3x3(float mass = -1) const;
+		m3x3 Ic3x3(float mass = -1) const;
 
 		// The 3x3 inertia matrix (mass scaled by default, includes 'com')
-		m3x4 To3x3(float mass = -1) const;
+		m3x3 To3x3(float mass = -1) const;
 
 		// The 6x6 inertia matrix (mass scaled by default)
 		Mat6x8<float, Motion, Force> To6x6(float mass = -1) const;
 
 		// Sanity check
 		bool Check() const;
-		static bool Check(m3x4 const& inertia);
+		static bool Check(m3x3 const& inertia);
 		static bool Check(Mat6x8<float, Motion, Force> const& inertia);
 
 		// An immovable object
@@ -201,7 +201,7 @@ namespace pr::physics
 		v4 m_com_and_invmass; // Offset from the origin to the centre of mass, and the inverse mass.
 
 		InertiaInv();
-		InertiaInv(m3x4 const& unit_inertia_inv, float invmass, v4 com = v4{});
+		InertiaInv(m3x3 const& unit_inertia_inv, float invmass, v4 com = v4{});
 		InertiaInv(v4 diagonal, v4 products, float invmass, v4 com = v4{});
 		InertiaInv(InertiaInv const& rhs, v4 com);
 		InertiaInv(Mat6x8<float, Force, Motion> const& inertia_inv, float invmass = -1);
@@ -219,17 +219,17 @@ namespace pr::physics
 		void CoM(v4 com);
 
 		// The centre of mass inverse inertia (mass scaled by default, excludes 'com')
-		m3x4 Ic3x3(float inv_mass = -1) const;
+		m3x3 Ic3x3(float inv_mass = -1) const;
 
 		// The mass scaled inverse inertia matrix
-		m3x4 To3x3(float inv_mass = -1) const;
+		m3x3 To3x3(float inv_mass = -1) const;
 
 		// Return the inverse inertia matrix as a full spatial matrix
 		Mat6x8<float, Force, Motion> To6x6(float inv_mass = -1) const;
 
 		// Sanity check
 		bool Check() const;
-		static bool Check(m3x4 const& inertia_inv);
+		static bool Check(m3x3 const& inertia_inv);
 		static bool Check(Mat6x8<float, Force, Motion> const& inertia_inv);
 
 		// An immovable object

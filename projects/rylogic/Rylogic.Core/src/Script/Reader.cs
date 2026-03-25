@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Text;
 using Rylogic.Extn;
@@ -584,25 +584,28 @@ namespace Rylogic.Script
 		}
 
 		/// <summary>Extract a 3x3 matrix from the source</summary>
-		public m3x4 Matrix3x3()
+		public m3x3 Matrix3x3()
 		{
-			return Matrix3x3(out var transform) ? transform : m3x4.Identity;
+			return Matrix3x3(out var transform) ? transform : m3x3.Identity;
 		}
-		public m3x4 Matrix3x3S()
+		public m3x3 Matrix3x3S()
 		{
-			return Matrix3x3S(out var transform) ? transform : m3x4.Identity;
+			return Matrix3x3S(out var transform) ? transform : m3x3.Identity;
 		}
-		public bool Matrix3x3(out m3x4 transform)
+		public bool Matrix3x3(out m3x3 transform)
 		{
-			transform = m3x4.Identity;
-			return
-				Vector3(out transform.x, 0) &&
-				Vector3(out transform.y, 0) &&
-				Vector3(out transform.z, 0);
+			transform = m3x3.Identity;
+			v4 rx, ry, rz;
+			if (!Vector3(out rx, 0) || !Vector3(out ry, 0) || !Vector3(out rz, 0))
+				return false;
+			transform.x = rx.xyz;
+			transform.y = ry.xyz;
+			transform.z = rz.xyz;
+			return true;
 		}
-		public bool Matrix3x3S(out m3x4 transform)
+		public bool Matrix3x3S(out m3x3 transform)
 		{
-			transform = m3x4.Identity;
+			transform = m3x3.Identity;
 			return SectionStart() && Matrix3x3(out transform) && SectionEnd();
 		}
 
@@ -665,17 +668,17 @@ namespace Rylogic.Script
 		}
 
 		/// <summary>Extract a transform description. 'rot' should be a valid initial transform</summary>
-		public m3x4 Rotation()
+		public m3x3 Rotation()
 		{
-			var rot = m3x4.Identity;
-			return Rotation(ref rot) ? rot : m3x4.Identity;
+			var rot = m3x3.Identity;
+			return Rotation(ref rot) ? rot : m3x3.Identity;
 		}
-		public m3x4 RotationS()
+		public m3x3 RotationS()
 		{
-			var rot = m3x4.Identity;
-			return RotationS(ref rot) ? rot : m3x4.Identity;
+			var rot = m3x3.Identity;
+			return RotationS(ref rot) ? rot : m3x3.Identity;
 		}
-		public bool Rotation(ref m3x4 rot)
+		public bool Rotation(ref m3x3 rot)
 		{
 			if (!Math_.IsFinite(rot))
 				throw new Exception("A valid matrix must be passed to this function, as it pre-multiplies the transform with the one read from the script");
@@ -685,7 +688,7 @@ namespace Rylogic.Script
 			rot = o2w.rot;
 			return true;
 		}
-		public bool RotationS(ref m3x4 rot)
+		public bool RotationS(ref m3x3 rot)
 		{
 			if (!Math_.IsFinite(rot))
 				throw new Exception("A valid matrix must be passed to this function, as it pre-multiplies the transform with the one read from the script");
@@ -735,7 +738,7 @@ namespace Rylogic.Script
 				case "pos":
 					{
 						var pos = Vector3S(1.0f);
-						p2w = new m4x4(m3x4.Identity, pos) * p2w;
+						p2w = new m4x4(m3x3.Identity, pos) * p2w;
 						break;
 					}
 				case "align":
@@ -789,7 +792,7 @@ namespace Rylogic.Script
 					}
 				case "randori":
 					{
-						var rot = m3x4.Random(m_rng);
+						var rot = m3x3.Random(m_rng);
 						p2w = new m4x4(rot, v4.Origin) * p2w;
 						break;
 					}
@@ -986,7 +989,7 @@ namespace Rylogic.UnitTests
 			Assert.True(reader.NextKeyword(out kw)); Assert.Equal("Quaternion", kw);
 			Assert.True(reader.Quaternion(out var quat0)); Assert.Equal(new Quat(0.0f, -1.0f, -2.0f, -3.0f), quat0);
 			Assert.True(reader.NextKeyword(out kw)); Assert.Equal("M3x3", kw);
-			Assert.True(reader.Matrix3x3(out var mat0)); Assert.Equal(m3x4.Identity, mat0);
+			Assert.True(reader.Matrix3x3(out var mat0)); Assert.Equal(m3x3.Identity, mat0);
 			Assert.True(reader.NextKeyword(out kw)); Assert.Equal("M4x4", kw);
 			Assert.True(reader.Matrix4x4(out var mat1)); Assert.Equal(m4x4.Identity, mat1);
 			Assert.True(reader.NextKeyword(out kw)); Assert.Equal("Data", kw);

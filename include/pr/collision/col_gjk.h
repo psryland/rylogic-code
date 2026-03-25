@@ -545,7 +545,7 @@ namespace pr::collision::tests
 			auto sph = ShapeSphere{0.3f};
 
 			// Rotate box 45° about Z, place sphere near a corner
-			auto l2w = m4x4::Transform(RotationRad<m3x4>(0, 0, constants<float>::tau_by_8), v4::Origin());
+			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin());
 			auto r2w = m4x4::Translation(v4{0.9f, 0.9f, 0, 0});
 
 			Contact gjk_c;

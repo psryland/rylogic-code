@@ -107,7 +107,7 @@ namespace pr::math::tests
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
 			using Vec3 = Vec3<T>;
-			using Mat3x4 = Mat3x4<T>;
+			using Mat3x3 = Mat3x3<T>;
 
 			// Rotating (1,0,0) by 90 deg around Z should give (0,1,0)
 			auto Q = Quat(Vec4(T(0), T(0), T(1), T(0)), DegreesToRadians(T(90)));
@@ -124,7 +124,7 @@ namespace pr::math::tests
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
-			using Mat3x4 = Mat3x4<T>;
+			using Mat3x3 = Mat3x3<T>;
 
 			// Create a quaternion from axis-angle
 			std::uniform_real_distribution<T> rng_angle(T(-3.14), T(+3.14));
@@ -133,7 +133,7 @@ namespace pr::math::tests
 				auto ang = rng_angle(rng);
 				auto axis = Vec4::Normal(T(1), T(2), T(3), T(0));
 				auto q0 = Quat(axis, ang);
-				auto mat = ToMatrix<Mat3x4>(q0);
+				auto mat = ToMatrix<Mat3x3>(q0);
 				auto q1 = ToQuat<Quat>(mat);
 
 				// Rotate a test vector with both and compare

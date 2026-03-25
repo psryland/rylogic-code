@@ -1117,7 +1117,7 @@ namespace pr::rdr12
 	}
 
 	// Set the position and size of the selection box. If 'bbox' is 'BBox::Reset()' the selection box is not shown
-	void V3dWindow::SetSelectionBox(BBox const& bbox, m3x4 const& ori)
+	void V3dWindow::SetSelectionBox(BBox const& bbox, m3x3 const& ori)
 	{
 		if (bbox == BBox::Reset())
 		{
@@ -1491,10 +1491,10 @@ namespace pr::rdr12
 	}
 
 	// Get/Set the position and size of the selection box. If 'bbox' is 'BBox::Reset()' the selection box is not shown
-	std::tuple<BBox, m3x4> V3dWindow::SelectionBox() const
+	std::tuple<BBox, m3x3> V3dWindow::SelectionBox() const
 	{
 		if (m_selection_box.m_i2w.pos.w == 0)
-			return { BBox::Reset(), m3x4::Identity() };
+			return { BBox::Reset(), m3x3::Identity() };
 
 		auto const& i2w = m_selection_box.m_i2w;
 		auto bbox = BBox(i2w.pos, v4(Length(i2w.x), Length(i2w.y), Length(i2w.z), 0));
@@ -1502,7 +1502,7 @@ namespace pr::rdr12
 		return { bbox, ori };
 
 	}
-	void V3dWindow::SelectionBox(BBox const& bbox, m3x4 const& ori)
+	void V3dWindow::SelectionBox(BBox const& bbox, m3x3 const& ori)
 	{
 		auto [b, o] = SelectionBox();
 		if (b == bbox && All(o == ori))

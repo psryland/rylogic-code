@@ -287,8 +287,8 @@ namespace pr::collision::tests
 			auto box = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
 
 			// Rotate both by different angles
-			auto l2w = m4x4::Transform(RotationRad<m3x4>(constants<float>::tau_by_8, 0, 0), v4{0.1f, 0, 0, 1});
-			auto r2w = m4x4::Transform(RotationRad<m3x4>(0, constants<float>::tau_by_8, 0), v4{0.3f, 0.2f, 0, 1});
+			auto l2w = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{0.1f, 0, 0, 1});
+			auto r2w = m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4{0.3f, 0.2f, 0, 1});
 
 			// Just verify it doesn't crash and returns a reasonable result
 			Contact c;

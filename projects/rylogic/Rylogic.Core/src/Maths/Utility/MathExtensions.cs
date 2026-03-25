@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Rylogic.Extn;
 
 namespace Rylogic.Maths
@@ -78,13 +78,13 @@ namespace Rylogic.Maths
 		{
 			return
 				ty == typeof(m2x2) ||
-				ty == typeof(m3x4) ||
+				ty == typeof(m3x3) ||
 				ty == typeof(m4x4) ||
 				ty == typeof(Matrix) ||
 				(ty.IsGenericType && ty.GetGenericTypeDefinition() == typeof(m6x8<,>));
 		}
 
-		/// <summary>True if 'ty' is one of 'm2x2', 'm3x4', 'm4x4'</summary>
+		/// <summary>True if 'ty' is one of 'm2x2', 'm3x3', 'm4x4'</summary>
 		public static bool IsVecMatType(Type ty)
 		{
 			return IsVectorType(ty) || IsMatrixType(ty);

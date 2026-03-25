@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -7,7 +7,7 @@
 #include "pr/math/core/traits.h"
 #include "pr/math/types/vector4.h"
 #include "pr/math/types/vector8.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/matrix4x4.h"
 
 namespace pr::math
@@ -33,7 +33,7 @@ namespace pr::math
 		//  A,B should be the vector space that the transform operates on.
 		//  Transforms within the same vector space should have A == B (e.g. coordinate transforms).
 		//  Transforms from one to another vector space have A != B (e.g. inertia transforms).
-		Mat3x4<S> m00, m10, m01, m11;
+		Mat3x3<S> m00, m10, m01, m11;
 
 		// Construct from sub matrices. WARNING: careful with layout.
 		Mat6x8() = default;
@@ -44,7 +44,7 @@ namespace pr::math
 			, m11(x_)
 		{
 		}
-		constexpr Mat6x8(Mat3x4<S> const& m00_, Mat3x4<S> const& m01_, Mat3x4<S> const& m10_, Mat3x4<S> const& m11_) noexcept
+		constexpr Mat6x8(Mat3x3<S> const& m00_, Mat3x3<S> const& m01_, Mat3x3<S> const& m10_, Mat3x3<S> const& m11_) noexcept
 			:m00(m00_)
 			, m10(m10_)
 			, m01(m01_)
@@ -103,16 +103,16 @@ namespace pr::math
 		static constexpr Mat6x8 const& Zero() noexcept
 		{
 			static auto s_zero = Mat6x8{
-				math::Zero<Mat3x4<S>>(), math::Zero<Mat3x4<S>>(),
-				math::Zero<Mat3x4<S>>(), math::Zero<Mat3x4<S>>()
+				math::Zero<Mat3x3<S>>(), math::Zero<Mat3x3<S>>(),
+				math::Zero<Mat3x3<S>>(), math::Zero<Mat3x3<S>>()
 			};
 			return s_zero;
 		}
 		static constexpr Mat6x8 const& Identity() noexcept
 		{
 			static auto s_identity = Mat6x8{
-				math::Identity<Mat3x4<S>>(), math::Zero<Mat3x4<S>>(),
-				math::Zero<Mat3x4<S>>(), math::Identity<Mat3x4<S>>()
+				math::Identity<Mat3x3<S>>(), math::Zero<Mat3x3<S>>(),
+				math::Zero<Mat3x3<S>>(), math::Identity<Mat3x3<S>>()
 			};
 			return s_identity;
 		}

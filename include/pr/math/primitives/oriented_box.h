@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -6,7 +6,7 @@
 #include "pr/math/core/forward.h"
 #include "pr/math/types/vector4.h"
 #include "pr/math/types/matrix4x4.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/primitives/bsphere.h"
 
 namespace pr::math
@@ -15,7 +15,7 @@ namespace pr::math
 	struct OrientedBox
 	{
 		using Mat4 = Mat4x4<S>;
-		using Mat3 = Mat3x4<S>;
+		using Mat3 = Mat3x3<S>;
 		using Vec4 = Vec4<S>;
 
 		enum { Point = 1 << 0, Edge = 1 << 1, Face = 1 << 2, Bits = 1 << 3, Mask = Bits - 1 };

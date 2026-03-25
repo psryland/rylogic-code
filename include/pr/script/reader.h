@@ -1,4 +1,4 @@
-﻿//**********************************
+//**********************************
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
@@ -758,21 +758,21 @@ namespace pr::script
 		}
 
 		// Extract a 3x3 matrix from the source
-		m3x4 Matrix3x3()
+		m3x3 Matrix3x3()
 		{
-			m3x4 transform;
-			return Matrix3x3(transform) ? transform : m3x4{};
+			m3x3 transform;
+			return Matrix3x3(transform) ? transform : m3x3{};
 		}
-		m3x4 Matrix3x3S()
+		m3x3 Matrix3x3S()
 		{
-			m3x4 transform;
-			return Matrix3x3S(transform) ? transform : m3x4{};
+			m3x3 transform;
+			return Matrix3x3S(transform) ? transform : m3x3{};
 		}
-		bool Matrix3x3(m3x4& transform)
+		bool Matrix3x3(m3x3& transform)
 		{
 			return Vector3(transform.x4, 0) && Vector3(transform.y4, 0) && Vector3(transform.z4, 0);
 		}
-		bool Matrix3x3S(m3x4& transform)
+		bool Matrix3x3S(m3x3& transform)
 		{
 			return SectionStart() && Matrix3x3(transform) && SectionEnd();
 		}
@@ -818,23 +818,23 @@ namespace pr::script
 		}
 
 		// Extract a transform description. 'rot' should be a valid initial transform
-		m3x4 Rotation()
+		m3x3 Rotation()
 		{
-			m3x4 rot = m3x4::Identity();
-			return Rotation(rot) ? rot : m3x4::Identity();
+			m3x3 rot = m3x3::Identity();
+			return Rotation(rot) ? rot : m3x3::Identity();
 		}
-		m3x4 RotationS()
+		m3x3 RotationS()
 		{
-			m3x4 rot = m3x4::Identity();
-			return RotationS(rot) ? rot : m3x4::Identity();
+			m3x3 rot = m3x3::Identity();
+			return RotationS(rot) ? rot : m3x3::Identity();
 		}
-		bool Rotation(m3x4& rot)
+		bool Rotation(m3x3& rot)
 		{
 			assert(IsFinite(rot) && "A valid 'rot' must be passed to this function as it pre-multiplies the transform with the one read from the script");
 			auto o2w = m4x4{ rot, v4::Origin() };
 			return Transform(o2w) ? (rot = o2w.rot, true) : false;
 		}
-		bool RotationS(m3x4& o2w)
+		bool RotationS(m3x3& o2w)
 		{
 			return SectionStart() && Rotation(o2w) && SectionEnd();
 		}
@@ -936,7 +936,7 @@ namespace pr::script
 					Vector3(centre, 1.0f);
 					Real(radius);
 					SectionEnd();
-					auto rot = Random<m3x4>(rng);
+					auto rot = Random<m3x3>(rng);
 					auto pos = Random<v4>(rng, centre, radius);
 					p2w = m4x4{rot, pos} * p2w;
 					continue;
@@ -954,7 +954,7 @@ namespace pr::script
 				}
 				if (kw == ETransformKeyword::RandOri)
 				{
-					auto m = m4x4(Random<m3x4>(rng), v4::Origin());
+					auto m = m4x4(Random<m3x3>(rng), v4::Origin());
 					p2w = m * p2w;
 					continue;
 				}
@@ -1166,7 +1166,7 @@ namespace pr::script
 			float fval = 0.0f, farray[4];
 			pr::v4 vec = pr::v4::Zero();
 			pr::quat q = pr::quat::Identity();
-			pr::m3x4 mat3;
+			pr::m3x3 mat3;
 			pr::m4x4 mat4;
 
 			Reader reader(Script, true);
@@ -1210,7 +1210,7 @@ namespace pr::script
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "Quaternion");
 			PR_EXPECT(reader.Quaternion(q) && FEql(q, quat(0.0f, -1.0f, -2.0f, -3.0f)));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M3x3");
-			PR_EXPECT(reader.Matrix3x3(mat3) && FEql(mat3, m3x4::Identity()));
+			PR_EXPECT(reader.Matrix3x3(mat3) && FEql(mat3, m3x3::Identity()));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "M4x4");
 			PR_EXPECT(reader.Matrix4x4(mat4) && FEql(mat4, m4x4::Identity()));
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "Data");

@@ -1,11 +1,11 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
 #pragma once
 #include "pr/math/core/forward.h"
 #include "pr/math/types/vector4.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/matrix4x4.h"
 #include "pr/math/primitives/bsphere.h"
 #include "pr/math/primitives/plane.h"
@@ -280,7 +280,7 @@ namespace pr::math
 			}
 			return bb;
 		}
-		friend BoundingBox pr_vectorcall operator * (Mat3x4<S> const& m, BoundingBox rhs) noexcept
+		friend BoundingBox pr_vectorcall operator * (Mat3x3<S> const& m, BoundingBox rhs) noexcept
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
@@ -684,7 +684,7 @@ namespace pr::math
 			auto bb = bbox_t(vec4_t(S(0), S(0), S(0), S(1)), vec4_t(S(1), S(1), S(1), S(0)));
 
 			// Pure translation: corners should shift
-			auto translate = mat4_t::Transform(Identity<Mat3x4<S>>(), vec4_t(S(5), S(0), S(0), S(1)));
+			auto translate = mat4_t::Transform(Identity<Mat3x3<S>>(), vec4_t(S(5), S(0), S(0), S(1)));
 			auto moved = translate * bb;
 			PR_EXPECT(FEql(moved.Centre(), vec4_t(S(5), S(0), S(0), S(1))));
 			PR_EXPECT(FEql(moved.Radius(), bb.Radius()));

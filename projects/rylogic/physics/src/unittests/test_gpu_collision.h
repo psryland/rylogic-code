@@ -154,7 +154,7 @@ namespace pr::physics
 			auto sb = collision::ShapeSphere{0.5f};
 
 			// Rotate the box 45 degrees about the Z axis
-			auto l2w = m4x4::Transform(RotationRad<m3x4>(0, 0, constants<float>::tau_by_8), v4::Origin());
+			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin());
 			auto r2w = m4x4::Translation(v4{1.8f, 0, 0, 0});
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);

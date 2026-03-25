@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -87,7 +87,7 @@ namespace pr::math
 	template <ScalarType S, typename T> struct Vec8;
 	template <ScalarTypeFP S> struct Quat;
 	template <ScalarType S> struct Mat2x2;
-	template <ScalarType S> struct Mat3x4;
+	template <ScalarType S> struct Mat3x3;
 	template <ScalarType S> struct Mat4x4;
 	template <ScalarType S, typename A, typename B> struct Mat6x8;
 	template <ScalarType S> struct Xform;

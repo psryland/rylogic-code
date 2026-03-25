@@ -223,7 +223,7 @@ namespace pr::physics
 		{
 			auto& model = *m_model;
 
-			auto model_inertia = m3x4{};
+			auto model_inertia = m3x3{};
 			for (auto& p : model.m_prim_list)
 			{
 				auto& prim = *p;

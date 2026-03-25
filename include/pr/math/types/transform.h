@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -8,7 +8,7 @@
 #include "pr/math/types/vector2.h"
 #include "pr/math/types/vector4.h"
 #include "pr/math/types/quaternion.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/matrix4x4.h"
 
 namespace pr::math
@@ -44,7 +44,7 @@ namespace pr::math
 			, rot(r)
 			, scl(Vec4<S>::One())
 		{}
-		Xform(Vec4<S> p, Mat3x4<S> const& r) noexcept
+		Xform(Vec4<S> p, Mat3x3<S> const& r) noexcept
 		{
 			auto [r_norm, scale] = Normalise(r);
 			pos = p;
@@ -106,8 +106,8 @@ namespace pr::math
 	template <ScalarType S>
 	constexpr Mat4x4<S>::Mat4x4(Xform<S> const& xform) noexcept requires (std::floating_point<S>)
 	{
-		auto rotation = math::ToMatrix<Mat3x4<S>>(xform.rot);
-		auto scale_mat = math::Scale<Mat3x4<S>>(xform.scl.xyz);
+		auto rotation = math::ToMatrix<Mat3x3<S>>(xform.rot);
+		auto scale_mat = math::Scale<Mat3x3<S>>(xform.scl.xyz);
 		rot = rotation * scale_mat;
 		pos = xform.pos;
 	}

@@ -48,7 +48,7 @@
 #include "pr/math/types/quaternion.h"
 #include "pr/math/types/transform.h"
 #include "pr/math/types/matrix2x2.h"
-#include "pr/math/types/matrix3x4.h"
+#include "pr/math/types/matrix3x3.h"
 #include "pr/math/types/matrix4x4.h"
 #include "pr/math/types/matrix6x8.h"
 #include "pr/math/types/matrix.h"
@@ -85,7 +85,7 @@ namespace pr
 	using quat = math::Quat<float>;
 	using xform = math::Xform<float>;
 	using m2x2 = math::Mat2x2<float>;
-	using m3x4 = math::Mat3x4<float>;
+	using m3x3 = math::Mat3x3<float>;
 	using m4x4 = math::Mat4x4<float>;
 	using m6x8 = math::Mat6x8<float, void, void>;
 	using BBox = math::BoundingBox<float>;

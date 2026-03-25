@@ -25,7 +25,7 @@ namespace pr::physics
 
 		// CoM-based position update: translate CoM, derive model origin from new rotation
 		auto com_ws = o2w.pos + o2w.rot * com_os;
-		auto new_rot = m3x4::Rotation(dx.ang.xyz) * o2w.rot;
+		auto new_rot = m3x3::Rotation(dx.ang.xyz) * o2w.rot;
 		auto new_com = com_ws + dx.lin;
 		auto new_pos = new_com - new_rot * com_os;
 

@@ -1,4 +1,4 @@
-﻿#include <thread>
+#include <thread>
 #include "pr/math/math.h"
 #include "pr/network/winsock.h"
 #include "pr/network/socket_stream.h"
@@ -38,7 +38,7 @@ namespace tests
 			}
 
 			frame.Commands()
-				.object_transform("g", m4x4::Transform(RotationRad<m3x4>(0, t, 0), v4::Origin()))
+				.object_transform("g", m4x4::Transform(RotationRad<m3x3>(0, t, 0), v4::Origin()))
 				.render(0);
 
 			if (use_text)

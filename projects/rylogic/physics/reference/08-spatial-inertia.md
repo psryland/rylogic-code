@@ -54,8 +54,8 @@ Key design choices:
 float Mass() const;           // Mass of the body
 float InvMass() const;        // 1/mass
 v4 CoM() const;               // Centre of mass offset
-m3x4 Ic3x3(float scale) const; // 3×3 unit inertia at CoM, multiplied by scale
-m3x4 To3x3() const;           // 3×3 inertia at reference point (parallel-axis translated)
+m3x3 Ic3x3(float scale) const; // 3×3 unit inertia at CoM, multiplied by scale
+m3x3 To3x3() const;           // 3×3 inertia at reference point (parallel-axis translated)
 Mat6x8<float,Motion,Force> To6x6() const;  // Full 6×6 spatial inertia matrix
 ```
 
@@ -67,7 +67,7 @@ Mat6x8<float, Motion, Force> To6x6() const
     auto mcx = CPM(Mass() * CoM());
     return Mat6x8<float,Motion,Force>(
         Mass() * Ic3x3(1),  mcx,     // [Ic  , mcx ]
-        -mcx,                m3x4::Scale(Mass()));  // [-mcx, m*1 ]
+        -mcx,                m3x3::Scale(Mass()));  // [-mcx, m*1 ]
     //  m00                  m01
     //  m10                  m11
 }

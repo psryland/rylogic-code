@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Matrix4x4
 //  Copyright (c) Rylogic Ltd 2008
 //***************************************************
@@ -29,7 +29,7 @@ namespace Rylogic.Maths
 		public Xform(v4 pos, Quat rot)
 			:this(pos, rot, v4.One)
 		{}
-		public Xform(v4 pos, m3x4 rot)
+		public Xform(v4 pos, m3x3 rot)
 			:this()
 		{
 			var (r, s) = Math_.Normalise(rot);

@@ -68,7 +68,7 @@ When $\mathbf{d} = 0$ (rotation only), both transforms simplify to the same thin
 
 $$\begin{bmatrix} E & 0 \\ 0 & E \end{bmatrix}$$
 
-Rotate both components independently. This is why `m3x4 * v8motion` and `m3x4 * v8force` have the same implementation — there's no translation term to handle differently.
+Rotate both components independently. This is why `m3x3 * v8motion` and `m3x3 * v8force` have the same implementation — there's no translation term to handle differently.
 
 ## Explicit Spatial Transform Matrices
 

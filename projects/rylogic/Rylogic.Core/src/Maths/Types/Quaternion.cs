@@ -1,4 +1,4 @@
-﻿//***************************************************
+//***************************************************
 // Quaternion
 //  Copyright (c) Rylogic Ltd 2008
 //***************************************************
@@ -77,7 +77,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Create a quaternion from a rotation matrix</summary>
-		public Quat(m3x4 m)
+		public Quat(m3x3 m)
 			: this()
 		{
 			Debug.Assert(Math_.IsOrthonormal(m), "Only orientation matrices can be converted into quaternions");
@@ -494,7 +494,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Evaluates 'ori' after 'time' for a constant angular velocity and angular acceleration</summary>
-		public static Quat RotationAt(float time, Quat ori, v4 avel, v4 aacc)
+		public static Quat RotationAt(float time, Quat ori, v3 avel, v3 aacc)
 		{
 			// Orientation can be computed analytically if angular velocity
 			// and angular acceleration are parallel or angular acceleration is zero.
@@ -749,7 +749,7 @@ namespace Rylogic.UnitTests
 		public void QuatMatrixRoundTrip()
 		{
 			var ori0 = Quat.Random(new Random(1));
-			var m0 = new m3x4(ori0);
+			var m0 = new m3x3(ori0);
 			var ori1 = new Quat(m0);
 			Assert.True(Math_.FEql(ori0, ori1));
 		}
@@ -786,30 +786,30 @@ namespace Rylogic.UnitTests
 		{
 			{// Analytic solution case
 				var ori = Quat.Random(new Random(1));
-				var avl = new v4(0.6f, 0, 0.6f, 0);
-				var aac = new v4(0, 0, 0, 0);
+				var avl = new v3(0.6f, 0, 0.6f);
+				var aac = new v3(0, 0, 0);
 
-				var rot = new m3x4(ori);
+				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
 				{
 					var ORI = Math_.RotationAt(t, ori, avl, aac);
 					var ROT = Math_.RotationAt(t, rot, avl, aac);
-					var ROT2 = new m3x4(ORI);
+					var ROT2 = new m3x3(ORI);
 
 					Assert.True(Math_.FEql(ROT, ROT2));
 				}
 			}
 			{// Non-analytic solution case
 				var ori = Quat.Random(new Random(1));
-				var avl = new v4(1.2f, 0, 0, 0);
-				var aac = new v4(0, 0, 0.1f, 0);
+				var avl = new v3(1.2f, 0, 0);
+				var aac = new v3(0, 0, 0.1f);
 
-				var rot = new m3x4(ori);
+				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
 				{
 					var ORI = Math_.RotationAt(t, ori, avl, aac);
 					var ROT = Math_.RotationAt(t, rot, avl, aac);
-					var ROT2 = new m3x4(ORI);
+					var ROT2 = new m3x3(ORI);
 
 					Assert.True(Math_.FEql(ROT, ROT2));
 				}

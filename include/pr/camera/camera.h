@@ -1,4 +1,4 @@
-﻿//******************************************
+//******************************************
 // Camera
 //  Copyright (c) Rylogic Ltd 2009
 //******************************************
@@ -845,7 +845,7 @@ namespace pr
 			v4 old_focus = FocusPoint();
 
 			// Rotate the camera matrix
-			m_c2w = m_nav.m_c2w0 * m4x4::Transform(m3x4::RotationRad(s_cast<float>(pitch), s_cast<float>(yaw), s_cast<float>(roll)), v4::Origin());
+			m_c2w = m_nav.m_c2w0 * m4x4::Transform(m3x3::RotationRad(s_cast<float>(pitch), s_cast<float>(yaw), s_cast<float>(roll)), v4::Origin());
 
 			// Position the camera so that the focus is still in the same position
 			m_c2w.pos = old_focus + s_cast<float>(m_focus_dist) * m_c2w.z;
@@ -977,7 +977,7 @@ namespace pr
 			if (!preserve_aspect)
 			{
 				// Get the camera orientation matrix
-				m3x4 c2w(Cross(up, forward), up, forward);
+				m3x3 c2w(Cross(up, forward), up, forward);
 				auto w2c = InvertOrthonormal(c2w);
 
 				auto bbox_cs = w2c * bbox;

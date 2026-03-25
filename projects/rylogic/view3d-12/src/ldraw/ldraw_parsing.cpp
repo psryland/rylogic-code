@@ -6447,7 +6447,7 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Pos:
 				{
-					auto m = m4x4{ m3x4::Identity(), Vector3f().w1() };
+					auto m = m4x4{ m3x3::Identity(), Vector3f().w1() };
 					p2w = m * p2w;
 					break;
 				}
@@ -6491,7 +6491,7 @@ namespace pr::rdr12::ldraw
 				{
 					auto centre = Vector3f().w1();
 					auto radius = Real<float>();
-					p2w = m4x4{Random<m3x4>(g_rng()), Random<v4>(g_rng(), centre, radius).w1()} * p2w;
+					p2w = m4x4{Random<m3x3>(g_rng()), Random<v4>(g_rng(), centre, radius).w1()} * p2w;
 					break;
 				}
 				case EKeyword::RandPos:
@@ -6503,7 +6503,7 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::RandOri:
 				{
-					auto m = m4x4{Random<m3x4>(g_rng()), v4::Origin()};
+					auto m = m4x4{Random<m3x3>(g_rng()), v4::Origin()};
 					p2w = m * p2w;
 					break;
 				}

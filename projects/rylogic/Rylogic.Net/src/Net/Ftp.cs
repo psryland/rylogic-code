@@ -596,6 +596,7 @@ namespace Rylogic.Net
 				"Is Encrypted: {2}\n"+
 				"Is Signed: {3}\n"+
 				"Is Mutually Authenticated: {4}\n\n"+
+#if NETFRAMEWORK
 				"Hash Algorithm: {5}\n"+
 				"Hash Strength: {6}\n"+
 				"Cipher Algorithm: {7}\n"+
@@ -608,13 +609,26 @@ namespace Rylogic.Net
 				,ssl_stream.IsEncrypted
 				,ssl_stream.IsSigned
 				,ssl_stream.IsMutuallyAuthenticated
+#pragma warning disable SYSLIB0058
 				,ssl_stream.HashAlgorithm
 				,ssl_stream.HashStrength
 				,ssl_stream.CipherAlgorithm
 				,ssl_stream.CipherStrength
 				,ssl_stream.KeyExchangeAlgorithm
 				,ssl_stream.KeyExchangeStrength
+#pragma warning restore SYSLIB0058
 				,ssl_stream.SslProtocol
+#else
+				"Negotiated Cipher Suite: {5}\n"+
+				"SSL Protocol: {6}"
+				,server_name
+				,ssl_stream.IsAuthenticated
+				,ssl_stream.IsEncrypted
+				,ssl_stream.IsSigned
+				,ssl_stream.IsMutuallyAuthenticated
+				,ssl_stream.NegotiatedCipherSuite
+				,ssl_stream.SslProtocol
+#endif
 				).ToString();
 		}
 	}

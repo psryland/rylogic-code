@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -75,7 +75,7 @@ namespace pr::math::spatial::tests
 		PRUnitTestMethod(InertiaTest, float, double)
 		{
 			using V4 = Vec4<T>;
-			using M3 = Mat3x4<T>;
+			using M3 = Mat3x3<T>;
 
 			// Solid sphere inertia at CoM: I = 2/5 * m * r²
 			auto mass = T(10);

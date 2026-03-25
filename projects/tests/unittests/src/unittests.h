@@ -112,7 +112,7 @@
 #include "pr/math/tests/interpolate_tests.h"
 #include "pr/math/tests/matrix_tests.h"
 #include "pr/math/tests/matrix2x2_tests.h"
-#include "pr/math/tests/matrix3x4_tests.h"
+#include "pr/math/tests/matrix3x3_tests.h"
 #include "pr/math/tests/matrix4x4_tests.h"
 #include "pr/math/tests/matrix6x8_tests.h"
 #include "pr/math/tests/oriented_box_tests.h"

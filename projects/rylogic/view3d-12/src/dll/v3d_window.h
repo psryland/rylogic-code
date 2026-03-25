@@ -296,7 +296,7 @@ namespace pr::rdr12
 		void DepthBufferEnabled(bool enabled);
 
 		// Set the position and size of the selection box. If 'bbox' is 'BBoxReset' the selection box is not shown
-		void SetSelectionBox(BBox const& bbox, m3x4 const& ori = m3x4::Identity());
+		void SetSelectionBox(BBox const& bbox, m3x3 const& ori = m3x3::Identity());
 
 		// Position the selection box to include the selected objects
 		void SelectionBoxFitToSelected();
@@ -349,8 +349,8 @@ namespace pr::rdr12
 		void OriginPointSize(float size);
 
 		// Get/Set the position and size of the selection box. If 'bbox' is 'BBox::Reset()' the selection box is not shown
-		std::tuple<BBox, m3x4> SelectionBox() const;
-		void SelectionBox(BBox const& bbox, m3x4 const& ori);
+		std::tuple<BBox, m3x3> SelectionBox() const;
+		void SelectionBox(BBox const& bbox, m3x3 const& ori);
 
 		// Show/Hide the bounding boxes
 		bool BBoxesVisible() const;

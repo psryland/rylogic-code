@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -258,7 +258,7 @@ namespace Rylogic.Maths
 			//' A = |a.x² a.x 1| x = |A| y = |a.y|
 			//'     |b.x² b.x 1|     |B|     |b.y|
 			//'     |c.x² c.x 1|     |C|     |c.y|
-			var M = Math_.Transpose(new m3x4(
+			var M = Math_.Transpose(new m3x3(
 				new v4(a.x*a.x, a.x, 1, 0),
 				new v4(b.x*b.x, b.x, 1, 0),
 				new v4(c.x*c.x, c.x, 1, 0)));
@@ -297,7 +297,7 @@ namespace Rylogic.Maths
 			//   [S30, S20, S10] * [b] = [S11]
 			//   [S20, S10, S00]   [c]   [S01]
 
-			var M = m3x4.Zero;
+			var M = m3x3.Zero;
 			var b = v3.Zero;
 			foreach (var pt in points)
 			{

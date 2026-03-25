@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "src/forward.h"
 #include "src/idemo_scene.h"
 
@@ -31,32 +31,32 @@ namespace pr::fluid
 			//v4 dim;
 
 			// Floor
-			o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::PosY), v4{ 0, -0.5f, 0, 1 } };
+			o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::PosY), v4{ 0, -0.5f, 0, 1 } };
 			m_ldr.Plane("floor", 0xFFade3ff).wh({ 1, 1 }).o2w(o2w);
 			m_col.Plane().o2w(o2w);
 
 			// Ceiling
-			//o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::NegY), v4{ 0, +0.5f, 0, 1 } };
+			//o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::NegY), v4{ 0, +0.5f, 0, 1 } };
 			//m_ldr.Plane("ceiling", 0x10ade3ff).wh({ 1, 1 }).o2w(o2w);
 			//m_col.Plane().o2w(o2w);
 
 			// Left Wall
-			o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::PosX), v4{ -0.5f, -0.25f, 0, 1 } };
+			o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::PosX), v4{ -0.5f, -0.25f, 0, 1 } };
 			m_ldr.Plane("left_wall", 0x40ade3ff).wh({ 1, 0.5f }).o2w(o2w);
 			m_col.Plane().o2w(o2w);
 
 			// Right Wall
-			o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::NegX), v4{ +0.5f, -0.25f, 0, 1 } };
+			o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::NegX), v4{ +0.5f, -0.25f, 0, 1 } };
 			m_ldr.Plane("right_wall", 0x40ade3ff).wh({ 1, 0.5f }).o2w(o2w);
 			m_col.Plane().o2w(o2w);
 
 			// Front Wall
-			o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::PosZ), v4{ 0, -0.25f, -0.5f, 1 } };
+			o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::PosZ), v4{ 0, -0.25f, -0.5f, 1 } };
 			m_ldr.Plane("left_wall", 0x40ade3ff).wh({ 1, 0.5f }).o2w(o2w);
 			m_col.Plane().o2w(o2w);
 
 			// Back Wall
-			o2w = m4x4{ m3x4::Rotation(AxisId::PosZ, AxisId::NegZ), v4{ 0, -0.25f, +0.5f, 1 } };
+			o2w = m4x4{ m3x3::Rotation(AxisId::PosZ, AxisId::NegZ), v4{ 0, -0.25f, +0.5f, 1 } };
 			m_ldr.Plane("right_wall", 0x40ade3ff).wh({ 1, 0.5f }).o2w(o2w);
 			m_col.Plane().o2w(o2w);
 

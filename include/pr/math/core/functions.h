@@ -4125,7 +4125,7 @@ namespace pr::math
 	constexpr Vec pr_vectorcall Random(Rng& rng, Vec centre, typename vector_traits<Vec>::element_t radius) noexcept
 	{
 		// Note: This cannot be used to create a random Mat4x4 transform at a centre position, because
-		// these functions can't create an Mat3x4 type from a Mat4x4 type. You have to create the transform
+		// these functions can't create an Mat3x3 type from a Mat4x4 type. You have to create the transform
 		// using an explicit type: e.g. Mat4x4(Random<Mat3>(), Random<Vec3>().w1())
 
 		using vt = vector_traits<Vec>;
