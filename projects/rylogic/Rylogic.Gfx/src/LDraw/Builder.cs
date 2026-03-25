@@ -416,7 +416,7 @@ namespace Rylogic.LDraw
 		}
 		public TDerived ori(v4 dir, AxisId axis)
 		{
-			return ori(m3x3.Rotation(axis.Axis, dir));
+			return ori(m3x3.Rotation(axis.Axis.xyz, dir.xyz));
 		}
 		public TDerived ori(m3x3 rot)
 		{
@@ -575,7 +575,7 @@ namespace Rylogic.LDraw
 		}
 		public LdrTransform ori(v4 dir, AxisId axis)
 		{
-			return ori(m3x3.Rotation(axis.Axis, dir));
+			return ori(m3x3.Rotation(axis.Axis.xyz, dir.xyz));
 		}
 		public LdrTransform ori(m3x3 rot)
 		{

@@ -595,10 +595,13 @@ namespace Rylogic.Script
 		public bool Matrix3x3(out m3x3 transform)
 		{
 			transform = m3x3.Identity;
-			return
-				Vector3(out transform.x, 0) &&
-				Vector3(out transform.y, 0) &&
-				Vector3(out transform.z, 0);
+			v4 rx, ry, rz;
+			if (!Vector3(out rx, 0) || !Vector3(out ry, 0) || !Vector3(out rz, 0))
+				return false;
+			transform.x = rx.xyz;
+			transform.y = ry.xyz;
+			transform.z = rz.xyz;
+			return true;
 		}
 		public bool Matrix3x3S(out m3x3 transform)
 		{

@@ -188,15 +188,15 @@ namespace Rylogic.Maths
 		}
 		public static m4x4 Transform(v4 axis_norm, float angle, v4 translation)
 		{
-			return new(m3x3.Rotation(axis_norm, angle), translation);
+			return new(m3x3.Rotation(axis_norm.xyz, angle), translation);
 		}
 		public static m4x4 Transform(v4 angular_displacement, v4 translation)
 		{
-			return new(m3x3.Rotation(angular_displacement), translation);
+			return new(m3x3.Rotation(angular_displacement.xyz), translation);
 		}
 		public static m4x4 Transform(v4 from, v4 to, v4 translation)
 		{
-			return new(m3x3.Rotation(from, to), translation);
+			return new(m3x3.Rotation(from.xyz, to.xyz), translation);
 		}
 		public static m4x4 Transform(Quat rot, v4 translation)
 		{
@@ -796,7 +796,7 @@ namespace Rylogic.Maths
 		{
 			// Notes: use 'up' = Math_.Perpendicular(direction)
 			Debug.Assert(FEql(translation.w, 1f), "'translation' must be a position vector");
-			return new(OriFromDir(axis, direction, up), translation);
+			return new(OriFromDir(axis, direction.xyz, up?.xyz), translation);
 		}
 
 		/// <summary>Spherically interpolate between two affine transforms</summary>
@@ -815,7 +815,7 @@ namespace Rylogic.Maths
 		/// product of another vector: e.g. Cross(v1, v2) == CrossProductMatrix4x4(v1) * v2</summary>
 		public static m4x4 CPM(v4 vec, v4 pos)
 		{
-			return new(CPM(vec), pos);
+			return new(CPM(vec.xyz), pos);
 		}
 
 		/// <summary>Return the average of a collection of affine transforms</summary>
@@ -930,7 +930,7 @@ namespace Rylogic.UnitTests
 		{
 			var rng = new Random(1);
 			{
-				var a2b = new m4x4(m3x3.Rotation(v4.Random3N(0.0f, rng), rng.FloatC(-5f, +5f)) * m3x3.Scale(2.0f), v4.Random3(0.0f, 10.0f, 1.0f, rng));
+				var a2b = new m4x4(m3x3.Rotation(v3.Random3N(rng), rng.FloatC(-5f, +5f)) * m3x3.Scale(2.0f), v4.Random3(0.0f, 10.0f, 1.0f, rng));
 				Assert.True(Math_.IsAffine(a2b));
 
 				var b2a = Math_.Invert(a2b);
@@ -941,7 +941,7 @@ namespace Rylogic.UnitTests
 				Assert.True(Math_.FEql(b2a_fast, b2a));
 			}
 			{
-				var a2b = new m4x4(m3x3.Rotation(v4.Random3N(0.0f, rng), rng.FloatC(-5f, +5f)), v4.Random3(0.0f, 10.0f, 1.0f, rng));
+				var a2b = new m4x4(m3x3.Rotation(v3.Random3N(rng), rng.FloatC(-5f, +5f)), v4.Random3(0.0f, 10.0f, 1.0f, rng));
 				Assert.True(Math_.IsOrthonormal(a2b));
 
 				var b2a = Math_.Invert(a2b);

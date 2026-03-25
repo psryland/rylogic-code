@@ -494,7 +494,7 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>Evaluates 'ori' after 'time' for a constant angular velocity and angular acceleration</summary>
-		public static Quat RotationAt(float time, Quat ori, v4 avel, v4 aacc)
+		public static Quat RotationAt(float time, Quat ori, v3 avel, v3 aacc)
 		{
 			// Orientation can be computed analytically if angular velocity
 			// and angular acceleration are parallel or angular acceleration is zero.
@@ -786,8 +786,8 @@ namespace Rylogic.UnitTests
 		{
 			{// Analytic solution case
 				var ori = Quat.Random(new Random(1));
-				var avl = new v4(0.6f, 0, 0.6f, 0);
-				var aac = new v4(0, 0, 0, 0);
+				var avl = new v3(0.6f, 0, 0.6f);
+				var aac = new v3(0, 0, 0);
 
 				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
@@ -801,8 +801,8 @@ namespace Rylogic.UnitTests
 			}
 			{// Non-analytic solution case
 				var ori = Quat.Random(new Random(1));
-				var avl = new v4(1.2f, 0, 0, 0);
-				var aac = new v4(0, 0, 0.1f, 0);
+				var avl = new v3(1.2f, 0, 0);
+				var aac = new v3(0, 0, 0.1f);
 
 				var rot = new m3x3(ori);
 				for (float t = 0; t < 5.0f; t += 0.1f)
