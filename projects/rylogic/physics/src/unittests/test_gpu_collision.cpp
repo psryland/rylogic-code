@@ -11,11 +11,12 @@
 #include "pr/common/unittests.h"
 #include "pr/collision/col_gjk.h"
 #include "pr/collision/shapes.h"
+#include "pr/physics/integrator/engine_config.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/collide_gpu.h"
 #include "src/collision/shape_cache.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(GpuCollisionTests)
 	{

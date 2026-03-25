@@ -93,7 +93,6 @@
     <ClCompile Include="src\integrator\impulse.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
     <ClCompile Include="src\integrator\integrator.cpp" />
-    <ClCompile Include="src\unittests\unittests.cpp" />
   </ItemGroup>
   <!--
   Public headers
@@ -127,7 +126,8 @@
     <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
-    <ClInclude Include="src\unittests\test_gpu_collide.h" />
+    <ClInclude Include="src\unittests\test_engine.cpp" />
+    <ClInclude Include="src\unittests\test_gpu_collide.cpp" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--
@@ -137,14 +137,14 @@
     <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h" />
     <ClInclude Include="..\..\..\include\pr\physics\materials\material.h" />
-    <ClInclude Include="src\unittests\test_collision.h" />
-    <ClInclude Include="src\unittests\test_field.h" />
-    <ClInclude Include="src\unittests\test_impulse.h" />
-    <ClInclude Include="src\unittests\test_inertia.h" />
-    <ClInclude Include="src\unittests\test_integrator.h" />
-    <ClInclude Include="src\unittests\test_rigid_body.h" />
-    <ClInclude Include="src\unittests\test_shape_builder.h" />
-    <ClInclude Include="src\unittests\test_gpu_collision.h" />
+    <ClInclude Include="src\unittests\test_collision.cpp" />
+    <ClInclude Include="src\unittests\test_field.cpp" />
+    <ClInclude Include="src\unittests\test_impulse.cpp" />
+    <ClInclude Include="src\unittests\test_inertia.cpp" />
+    <ClInclude Include="src\unittests\test_integrator.cpp" />
+    <ClInclude Include="src\unittests\test_rigid_body.cpp" />
+    <ClInclude Include="src\unittests\test_shape_builder.cpp" />
+    <ClInclude Include="src\unittests\test_gpu_collision.cpp" />
   </ItemGroup>
   <!--
   Resources

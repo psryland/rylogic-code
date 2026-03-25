@@ -36,6 +36,7 @@ namespace pr::unittests
 #include <memory>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <sstream>
 #include <fstream>
 #include <vector>
@@ -305,8 +306,9 @@ namespace pr::unittests
 		}
 	};
 
-	// Run all of the registered unit tests
-	inline int RunAllTests(bool wordy)
+	// Run all of the registered unit tests.
+	// If 'filter' is non-empty, only test classes whose name contains one of the filter strings are run.
+	inline int RunAllTests(bool wordy, std::span<std::string_view const> filter = {})
 	{
 		using namespace std::chrono;
 		try
@@ -314,12 +316,24 @@ namespace pr::unittests
 			TestFramework::out() << " **** Begin Unit Tests **** " << std::endl;
 			std::sort(std::begin(TestFramework::Tests), std::end(TestFramework::Tests));
 
-			int passed = 0, failed = 0;
+			int passed = 0, failed = 0, skipped = 0;
 			auto T0 = high_resolution_clock::now();
 
 			// Run the tests
 			for (auto const& test : TestFramework::Tests)
 			{
+				// Apply the class name filter (substring match)
+				if (!filter.empty())
+				{
+					auto class_name = std::string_view(test.m_class->name());
+					auto match = std::ranges::any_of(filter, [&](auto const& f) { return class_name.find(f) != std::string_view::npos; });
+					if (!match)
+					{
+						++skipped;
+						continue;
+					}
+				}
+
 				try
 				{
 					if (wordy)
@@ -351,9 +365,17 @@ namespace pr::unittests
 
 			// Print the results
 			if (failed == 0)
-				TestFramework::out() << std::format(" **** UnitTest results: All {} unit tests passed. (taking {:1.3f} ms) ****\n", (failed+passed), 0.001 * duration_cast<microseconds>(T1-T0).count());
+			{
+				TestFramework::out() << std::format(" **** UnitTest results: All {} unit tests passed.", passed);
+				if (skipped > 0) TestFramework::out() << std::format(" ({} skipped by filter)", skipped);
+				TestFramework::out() << std::format(" (taking {:1.3f} ms) ****\n", 0.001 * duration_cast<microseconds>(T1-T0).count());
+			}
 			else
-				TestFramework::out() << std::format(" **** UnitTest results: {} of {} failed. ****\n", failed, failed+passed);
+			{
+				TestFramework::out() << std::format(" **** UnitTest results: {} of {} failed.", failed, failed + passed);
+				if (skipped > 0) TestFramework::out() << std::format(" ({} skipped by filter)", skipped);
+				TestFramework::out() << " ****\n";
+			}
 
 			return failed == 0 ? 0 : -1;
 		}

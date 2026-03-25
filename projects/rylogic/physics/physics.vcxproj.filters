@@ -48,9 +48,6 @@
     <ClCompile Include="src\collision\contact.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
-    <ClCompile Include="src\unittests\unittests.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
     <ClCompile Include="src\collision\broadphase_brute.cpp">
       <Filter>src\collision</Filter>
     </ClCompile>
@@ -80,25 +77,25 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h">
       <Filter>src\utility</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_field.h">
+    <ClInclude Include="src\unittests\test_field.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_impulse.h">
+    <ClInclude Include="src\unittests\test_impulse.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_inertia.h">
+    <ClInclude Include="src\unittests\test_inertia.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_integrator.h">
+    <ClInclude Include="src\unittests\test_integrator.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_rigid_body.h">
+    <ClInclude Include="src\unittests\test_rigid_body.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_shape_builder.h">
+    <ClInclude Include="src\unittests\test_shape_builder.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_gpu_collision.h">
+    <ClInclude Include="src\unittests\test_gpu_collision.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h">
@@ -143,7 +140,7 @@
     <ClInclude Include="..\..\..\include\pr\physics\materials\material.h">
       <Filter>src\materials</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_collision.h">
+    <ClInclude Include="src\unittests\test_collision.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
     <ClInclude Include="src\utility\gpu.h">
@@ -188,7 +185,10 @@
     <ClInclude Include="..\..\..\include\pr\physics\integrator\engine_config.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_gpu_collide.h">
+    <ClInclude Include="src\unittests\test_gpu_collide.cpp">
+      <Filter>src\unittests</Filter>
+    </ClInclude>
+    <ClInclude Include="src\unittests\test_engine.cpp">
       <Filter>src\unittests</Filter>
     </ClInclude>
   </ItemGroup>

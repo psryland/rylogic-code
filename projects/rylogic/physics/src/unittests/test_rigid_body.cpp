@@ -10,7 +10,7 @@
 #include "pr/physics/shape/inertia.h"
 #include "pr/physics/integrator/integrator.h"
 
-namespace pr::physics
+namespace pr::physics::tests
 {
 	PRUnitTestClass(RigidBodyTests)
 	{
@@ -51,7 +51,6 @@ namespace pr::physics
 			PR_EXPECT(FEql(ws_vel, v8motion{0,0,0, 1/mass,0,0}));
 			PR_EXPECT(FEql(os_vel, v8motion{0,0,0, 1/mass,0,0}));
 		}
-
 		PRUnitTestMethod(SimpleCaseWithRotation)
 		{
 			auto mass = 5.0f;
@@ -98,7 +97,6 @@ namespace pr::physics
 			PR_EXPECT(FEql(ws_vel, WS_VEL));
 			PR_EXPECT(FEql(os_vel, OS_VEL));
 		}
-
 		PRUnitTestMethod(OffCentreCoM)
 		{
 			auto mass = 5.0f;
@@ -107,43 +105,38 @@ namespace pr::physics
 			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
 			PR_EXPECT(FEql(rb.InertiaOS().To3x3(1), m3x3::Scale(1.4f,0.4f,1.4f)));
 
-			// Apply a force and torque at the CoM.
+			// Apply a force at the CoM (no torque about CoM).
 			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassWS());
 
-			// Check force applied
-			// Spatial force measured at the model origin. A force at the CoM creates
-			// a torque about the model origin due to the lever arm.
+			// Check force applied.
+			// Spatial force measured at the CoM. Since ws_at == CoM, zero moment arm — no torque.
 			auto ws_force = rb.ForceWS();
 			auto os_force = rb.ForceOS();
-			PR_EXPECT(FEql(ws_force, v8force{0,0,-1, 1,0,0}));
-			PR_EXPECT(FEql(os_force, v8force{0,0,-1, 1,0,0}));
+			PR_EXPECT(FEql(ws_force, v8force{0,0,0, 1,0,0}));
+			PR_EXPECT(FEql(os_force, v8force{0,0,0, 1,0,0}));
 
 			// Integrate for 1 sec
 			Evolve(rb, 1.0f);
 
 			// Check position
 			// A force through the CoM produces pure translation — no rotation.
-			// The 6x6 spatial inertia handles the coupling correctly.
 			auto o2w = rb.O2W();
 			PR_EXPECT(FEql(o2w.rot, m3x3::Identity()));
 			PR_EXPECT(FEql(o2w.pos, v4{0.5f / mass,0,0,1}));
 
-			// Check the momentum
-			// Momentum at model origin includes the torque component
+			// Check the momentum (at CoM — no angular component)
 			auto ws_mom = rb.MomentumWS();
 			auto os_mom = rb.MomentumOS();
-			PR_EXPECT(FEql(ws_mom, v8force{0,0,-1, 1,0,0}));
-			PR_EXPECT(FEql(os_mom, v8force{0,0,-1, 1,0,0}));
+			PR_EXPECT(FEql(ws_mom, v8force{0,0,0, 1,0,0}));
+			PR_EXPECT(FEql(os_mom, v8force{0,0,0, 1,0,0}));
 
 			// Check the velocity
-			// Despite non-zero angular momentum at the origin, the velocity
-			// has zero angular component because the coupling cancels it.
+			// Zero angular velocity because force through CoM produces no torque.
 			auto ws_vel = rb.VelocityWS();
 			auto os_vel = rb.VelocityOS();
 			PR_EXPECT(FEql(ws_vel, v8motion{0,0,0, 1/mass,0,0}));
 			PR_EXPECT(FEql(os_vel, v8motion{0,0,0, 1/mass,0,0}));
 		}
-
 		PRUnitTestMethod(OffCentreCoMWithRotation)
 		{
 			auto mass = 5.0f;
@@ -151,15 +144,16 @@ namespace pr::physics
 			auto model_to_com = v4{0,1,0,0};
 			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
 
-			// Apply a force and torque at the model origin.
+			// Apply a force and torque at the model origin (ws_at defaults to 0).
 			rb.ApplyForceWS(v4{1,0,0,0}, v4{0,0,1,0});
 
-			// Check force applied
-			// Spatial force measured at the model origin (ws_at = 0, no shift needed)
+			// Check force applied.
+			// Spatial force shifted from model origin (ws_at = 0) to CoM (offset = (0,1,0)).
+			// Shift adds Cross(force, offset) = Cross((1,0,0),(0,1,0)) = (0,0,1) to the torque.
 			auto ws_force = rb.ForceWS();
 			auto os_force = rb.ForceOS();
-			PR_EXPECT(FEql(ws_force, v8force{0,0,1, 1,0,0}));
-			PR_EXPECT(FEql(os_force, v8force{0,0,1, 1,0,0}));
+			PR_EXPECT(FEql(ws_force, v8force{0,0,2, 1,0,0}));
+			PR_EXPECT(FEql(os_force, v8force{0,0,2, 1,0,0}));
 
 			// Predict the Evolve result by replicating the integration logic.
 			// The full 6x6 inertia (with angular/linear coupling from offset CoM)
@@ -201,7 +195,6 @@ namespace pr::physics
 			PR_EXPECT(FEqlRelative(ws_vel_final, WS_VEL, 0.01f));
 			PR_EXPECT(FEqlRelative(os_vel_final, OS_VEL, 0.01f));
 		}
-
 		PRUnitTestMethod(OffCentreCoMWithComplexRotation)
 		{
 			auto mass = 5.0f;
@@ -210,24 +203,23 @@ namespace pr::physics
 			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
 
 			// Apply forces and torques at various points.
-			// Forces are shifted to model origin (ws_at → origin).
+			// Forces are shifted from ws_at to CoM (ws_com = (0,1,0)).
 			rb.ApplyForceWS(v4{1,0,0,0}, v4{0,-1,0,0}, v4{0,1,1,0}); // +X push at (0,1,1) + -Y twist
 			rb.ApplyForceWS(v4{0,-1,0,0}, v4{0,-1,0,0}, v4{1,1,0,0}); // -Y push at (1,1,0) + -Y twist
 
-			// Check force applied
-			// Spatial force measured at the model origin
+			// Check force applied (spatial force at CoM)
 			auto ws_force = rb.ForceWS();
 			auto os_force = rb.ForceOS();
 
-			// Force 1: v8force{(0,-1,0), (1,0,0)} shifted by -(0,1,1)
-			//   ang += Cross((1,0,0),(0,-1,-1)) = (0*(-1)-0*(-1), 0*0-1*(-1), 1*(-1)-0*0) = (0,1,-1)
-			//   total: (0,-1+1,-1) = (0,0,-1), (1,0,0)
-			// Force 2: v8force{(0,-1,0), (0,-1,0)} shifted by -(1,1,0)
-			//   ang += Cross((0,-1,0),(-1,-1,0)) = ((-1)*0-0*(-1), 0*(-1)-0*0, 0*(-1)-(-1)*(-1)) = (0,0,-1)
+			// Force 1: v8force{(0,-1,0), (1,0,0)} shifted by (ws_com - ws_at) = (0,0,-1)
+			//   ang += Cross((1,0,0),(0,0,-1)) = (0,1,0)
+			//   total: (0,-1+1,0) = (0,0,0), (1,0,0)
+			// Force 2: v8force{(0,-1,0), (0,-1,0)} shifted by (ws_com - ws_at) = (-1,0,0)
+			//   ang += Cross((0,-1,0),(-1,0,0)) = (0,0,-1)
 			//   total: (0,-1+0,-1) = (0,-1,-1), (0,-1,0)
-			// Combined: (0+0, 0-1, -1-1, 1+0, 0-1, 0+0) = (0,-1,-2, 1,-1,0)
-			PR_EXPECT(FEql(ws_force, v8force{0,-1,-2, 1,-1,0}));
-			PR_EXPECT(FEql(os_force, v8force{0,-1,-2, 1,-1,0}));
+			// Combined: (0+0, 0-1, 0-1, 1+0, 0-1, 0+0) = (0,-1,-1, 1,-1,0)
+			PR_EXPECT(FEql(ws_force, v8force{0,-1,-1, 1,-1,0}));
+			PR_EXPECT(FEql(os_force, v8force{0,-1,-1, 1,-1,0}));
 
 			// Predict Evolve result using the integration logic
 			auto ws_iinv = rb.InertiaInvWS();
@@ -249,7 +241,6 @@ namespace pr::physics
 			PR_EXPECT(FEql(o2w.pos, pos));
 			PR_EXPECT(FEqlRelative(o2w.rot, rot, 0.01f));
 		}
-
 		PRUnitTestMethod(Extrapolation)
 		{
 			auto mass = 5.0f;
@@ -275,7 +266,6 @@ namespace pr::physics
 			auto O2W3 = m4x4::Transform(-2*vel.ang, (-2*vel.lin).w1());
 			PR_EXPECT(FEql(o2w3, O2W3));
 		}
-
 		PRUnitTestMethod(KineticEnergy)
 		{
 			auto mass = 5.0f;
@@ -291,32 +281,9 @@ namespace pr::physics
 			auto os_ke = 0.5f * Dot(rb.VelocityOS(), rb.MomentumOS());
 			PR_EXPECT(FEql(ws_ke, os_ke));
 		}
-
-		PRUnitTestMethod(ApplyForceWS_ShiftToOrigin)
+		PRUnitTestMethod(VelocityOS_ShiftsToCoM)
 		{
-			// Bug: ApplyForceWS shifts force to CoM instead of model origin.
-			// When applying a pure force at the model origin (ws_at=0), no shift is needed
-			// because the accumulator is already at the model origin. The bug shifts by CoM,
-			// creating a phantom torque from Cross(force, CoM).
-			auto mass = 5.0f;
-			auto rb = RigidBody{};
-			auto model_to_com = v4{0, 1, 0, 0};
-			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
-
-			// Apply pure force at model origin (ws_at = 0, torque = 0)
-			rb.ApplyForceWS(v4{1, 0, 0, 0}, v4{}, v4{});
-
-			// The spatial force at the model origin should have no torque
-			// because the force is applied AT the origin — zero moment arm.
-			auto ws_force = rb.ForceWS();
-			PR_EXPECT(FEql(ws_force, v8force{0, 0, 0, 1, 0, 0}));
-		}
-
-		PRUnitTestMethod(VelocityOS_PassesOffset)
-		{
-			// Bug: VelocityOS(ang, lin, os_at) computes ws_at from os_at
-			// but then calls VelocityWS(ws_ang, ws_lin) without passing ws_at.
-			// The os_at parameter is silently ignored.
+			// Verify that VelocityOS(ang, lin, os_at) shifts the velocity from os_at to the CoM.
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1, mass), v4{});
@@ -328,32 +295,13 @@ namespace pr::physics
 			auto os_at = v4{0, 1, 0, 0};
 			rb.VelocityOS(os_ang, os_lin, os_at);
 
-			// Shift from os_at to origin: ofs = -os_at = (0,-1,0)
+			// Shift from os_at to CoM (CoM = origin here): ofs = ws_com - ws_at = -os_at = (0,-1,0)
 			// Shift(v8motion{ang, lin}, ofs) = {ang, lin + Cross(ang, ofs)}
 			// Cross((0,0,1), (0,-1,0)) = (1, 0, 0)
 			// shifted_lin = (1,0,0) + (1,0,0) = (2,0,0)
 			auto ws_vel = rb.VelocityWS();
 			PR_EXPECT(FEql(ws_vel, v8motion{0, 0, 1, 2, 0, 0}));
 		}
-
-		PRUnitTestMethod(VelocityWS_ShiftToOrigin)
-		{
-			// Bug: VelocityWS(ang, lin, ws_at) shifts to CoM instead of model origin.
-			// When ws_at=0, the velocity is already at the origin — no shift needed.
-			// The bug shifts by CoM, corrupting the linear component.
-			auto mass = 5.0f;
-			auto rb = RigidBody{};
-			auto model_to_com = v4{0, 1, 0, 0};
-			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
-
-			// Set velocity at origin
-			rb.VelocityWS(v4{0, 0, 1, 0}, v4{1, 0, 0, 0}, v4{});
-
-			// Read back: should round-trip to the same velocity since ws_at = origin
-			auto ws_vel = rb.VelocityWS();
-			PR_EXPECT(FEql(ws_vel, v8motion{0, 0, 1, 1, 0, 0}));
-		}
-
 		PRUnitTestMethod(DzhanibekovEffect)
 		{
 			// The Dzhanibekov effect (intermediate axis theorem / tennis racket theorem):
