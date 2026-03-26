@@ -28,51 +28,51 @@ struct Mat4x4
 // Camera
 struct Camera
 {
-	row_major float4x4 m_c2w; // camera to world
-	row_major float4x4 m_c2s; // camera to screen
-	row_major float4x4 m_w2c; // world to camera
-	row_major float4x4 m_w2s; // world to screen
+	row_major float4x4 c2w; // camera to world
+	row_major float4x4 c2s; // camera to screen
+	row_major float4x4 w2c; // world to camera
+	row_major float4x4 w2s; // world to screen
 };
 
 // Lights
 struct Light
 {
 	// x = light type = 0 - ambient, 1 - directional, 2 - point, 3 - spot
-	int4   m_info;         // Encoded info for global lighting
-	float4 m_ws_direction; // The direction of the global light source
-	float4 m_ws_position;  // The position of the global light source
-	float4 m_ambient;      // The colour of the ambient light
-	float4 m_colour;       // The colour of the directional light
-	float4 m_specular;     // The colour of the specular light. alpha channel is specular power
-	float4 m_spot;         // x = inner angle, y = outer angle, z = range, w = falloff
+	int4   info;         // Encoded info for global lighting
+	float4 ws_direction; // The direction of the global light source
+	float4 ws_position;  // The position of the global light source
+	float4 ambient;      // The colour of the ambient light
+	float4 colour;       // The colour of the directional light
+	float4 specular;     // The colour of the specular light. alpha channel is specular power
+	float4 spot;         // x = inner angle, y = outer angle, z = range, w = falloff
 };
 
 // EnvMap
 struct EnvMap
 {
-	row_major float4x4 m_w2env; // world to environment map to transform
+	row_major float4x4 w2env; // world to environment map to transform
 };
 
 // Shadows
 struct Shadow
 {
-	int4 m_info;  // x = count of smaps, y = smap size
-	row_major float4x4 m_w2l[MaxShadowMaps]; // World space to light space
-	row_major float4x4 m_l2s[MaxShadowMaps]; // Light space to shadow map space
+	int4 info;  // x = count of smaps, y = smap size
+	row_major float4x4 w2l[MaxShadowMaps]; // World space to light space
+	row_major float4x4 l2s[MaxShadowMaps]; // Light space to shadow map space
 };
 
 // Projected textures
 struct ProjTexture
 {
-	int4 m_info; // x = count of projected textures
-	row_major float4x4 m_w2t[MaxProjectedTextures]; // World to texture space projection transform
+	int4 info; // x = count of projected textures
+	row_major float4x4 w2t[MaxProjectedTextures]; // World to texture space projection transform
 };
 
 // Skinned Meshes
 struct Skinfluence
 {
-	int4 m_bones;    // 8 16-bit bone indices
-	uint4 m_weights; // 8 16-bit bone weights
+	int4 bones;    // 8 16-bit bone indices
+	uint4 weights; // 8 16-bit bone weights
 };
 
 // Models
@@ -84,13 +84,13 @@ inline bool EnvMapProj (int4 flags) { return flags.y & TextureFlags_ProjectFromE
 inline bool HasAlpha   (int4 flags) { return flags.z & AlphaFlags_HasAlpha; }
 
 // Light types
-inline bool AmbientLight(Light light)     { return light.m_info.x == 0; }
-inline bool DirectionalLight(Light light) { return light.m_info.x == 1; }
-inline bool PointLight(Light light)       { return light.m_info.x == 2; }
-inline bool SpotLight(Light light)        { return light.m_info.x == 3; }
+inline bool AmbientLight(Light light)     { return light.info.x == 0; }
+inline bool DirectionalLight(Light light) { return light.info.x == 1; }
+inline bool PointLight(Light light)       { return light.info.x == 2; }
+inline bool SpotLight(Light light)        { return light.info.x == 3; }
 
 // Shadows
-inline int ShadowMapCount(Shadow shdw) { return shdw.m_info.x; }
+inline int ShadowMapCount(Shadow shdw) { return shdw.info.x; }
 
 // Vertex shader input format
 struct VSIn

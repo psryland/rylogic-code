@@ -67,14 +67,12 @@ namespace pr::math
 		constexpr Vec3<S> const& operator [](int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 3 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i].xyz; }
+			if consteval { return i == 0 ? x : i == 1 ? y : z; } else { return arr[i].xyz; }
 		}
 		constexpr Vec3<S>& operator [](int i) noexcept
 		{
 			pr_assert(i >= 0 && i < 3 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i].xyz; }
+			if consteval { return i == 0 ? x : i == 1 ? y : z; } else { return arr[i].xyz; }
 		}
 
 		// Constants

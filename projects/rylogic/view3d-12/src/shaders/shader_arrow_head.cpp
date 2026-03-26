@@ -27,9 +27,9 @@ namespace pr::rdr12::shaders
 	void ArrowHeadGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {
-			.m_screen_dim = To<v2>(scene.wnd().BackBufferSize()),
-			.m_size = m_size, // Default if 'size' is not read from 'tex0' in the vertex
-			.m_depth = m_depth,
+			.screen_dim = To<v2>(scene.wnd().BackBufferSize()),
+			.size = m_size, // Default if 'size' is not read from 'tex0' in the vertex
+			.depth = m_depth,
 		};
 		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);

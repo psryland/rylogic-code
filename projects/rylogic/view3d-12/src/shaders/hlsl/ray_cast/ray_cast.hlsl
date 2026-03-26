@@ -28,9 +28,13 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/ray_cast/ray_cast_cbuf.hlsli"
 
+// Constant buffers
+ConstantBuffer<CBufFrame> g_frame : register(b0);
+ConstantBuffer<CBufNugget> g_nugget : register(b1);
+
 // Skinned Meshes
-StructuredBuffer<Mat4x4> m_pose : reg(t4);
-StructuredBuffer<Skinfluence> m_skin : reg(t5);
+StructuredBuffer<Mat4x4> g_pose : register(t4);
+StructuredBuffer<Skinfluence> g_skin : register(t5);
 
 #include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
 
@@ -67,16 +71,16 @@ GSIn_RayCast VSDefault(VSIn In)
 	GSIn_RayCast Out = (GSIn_RayCast) 0;
 
 	// Transform
-	float4 os_vert = mul(In.vert, m_m2o);
-	float4 os_norm = mul(In.norm, m_m2o);
+	float4 os_vert = mul(In.vert, g_nugget.m2o);
+	float4 os_norm = mul(In.norm, g_nugget.m2o);
 	
-	if (IsSkinned(m_flags))
+	if (IsSkinned(g_nugget.flags))
 	{
-		os_vert = SkinVertex(m_pose, m_skin[In.idx0.x], os_vert);
-		os_norm = SkinNormal(m_pose, m_skin[In.idx0.x], os_norm);
+		os_vert = SkinVertex(g_pose, g_skin[In.idx0.x], os_vert);
+		os_norm = SkinNormal(g_pose, g_skin[In.idx0.x], os_norm);
 	}
 
-	Out.ws_vert = mul(os_vert, m_o2w);
+	Out.ws_vert = mul(os_vert, g_nugget.o2w);
 
 	return Out;
 }
@@ -113,12 +117,12 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		{v2, v0 - v2, ESnapType_Edge},
 	};
 
-	for (int i = 0; i != m_ray_count; ++i)
+	for (int i = 0; i != g_frame.ray_count; ++i)
 	{
-		float4 origin       = m_rays[i].ws_origin;
-		float4 direction    = m_rays[i].ws_direction;
-		float snap_distance = m_rays[i].m_snap_distance;
-		int snap_mode       = m_rays[i].m_snap_mode;
+		float4 origin       = g_frame.rays[i].ws_origin;
+		float4 direction    = g_frame.rays[i].ws_direction;
+		float snap_distance = g_frame.rays[i].snap_distance;
+		int snap_mode       = g_frame.rays[i].snap_mode;
 		
 		// Find the closest point on the triangle to the ray
 		bool face_intercept;
@@ -184,7 +188,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 			Out.ws_normal = snap_type == ESnapType_Face ? normal : float4(0, 0, 0, 0);
 			Out.snap_type = snap_type;
 			Out.ray_index = i;
-			Out.inst_ptr = m_inst_ptr;
+			Out.inst_ptr = g_nugget.inst_ptr;
 			OutStream.Append(Out);
 		}
 	}
@@ -202,12 +206,12 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 		{ (v0 + v1) / 2, ESnapType_EdgeMiddle },
 	};
 
-	for (int i = 0; i != m_ray_count; ++i)
+	for (int i = 0; i != g_frame.ray_count; ++i)
 	{
-		float4 origin       = m_rays[i].ws_origin;
-		float4 direction    = m_rays[i].ws_direction;
-		float snap_distance = m_rays[i].m_snap_distance;
-		int snap_mode       = m_rays[i].m_snap_mode;
+		float4 origin       = g_frame.rays[i].ws_origin;
+		float4 direction    = g_frame.rays[i].ws_direction;
+		float snap_distance = g_frame.rays[i].snap_distance;
+		int snap_mode       = g_frame.rays[i].snap_mode;
 
 		// Can't snap to points/edges when the snap distance is 0
 		if (snap_distance == 0)
@@ -261,7 +265,7 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 			Out.ws_normal = float4(0, 0, 0, 0);
 			Out.snap_type = snap_type;
 			Out.ray_index = i;
-			Out.inst_ptr = m_inst_ptr;
+			Out.inst_ptr = g_nugget.inst_ptr;
 			OutStream.Append(Out);
 		}
 	}
@@ -270,12 +274,12 @@ void RayCastVert(point GSIn_RayCast In[1], inout PointStream<GSOut_RayCast> OutS
 {
 	float4 v0 = In[0].ws_vert;
 
-	for (int i = 0; i != m_ray_count; ++i)
+	for (int i = 0; i != g_frame.ray_count; ++i)
 	{
-		float4 origin       = m_rays[i].ws_origin;
-		float4 direction    = m_rays[i].ws_direction;
-		float snap_distance = m_rays[i].m_snap_distance;
-		int snap_mode       = m_rays[i].m_snap_mode;
+		float4 origin       = g_frame.rays[i].ws_origin;
+		float4 direction    = g_frame.rays[i].ws_direction;
+		float snap_distance = g_frame.rays[i].snap_distance;
+		int snap_mode       = g_frame.rays[i].snap_mode;
 
 		// Can't snap to points/edges when the snap distance is 0
 		if (snap_distance == 0)
@@ -300,7 +304,7 @@ void RayCastVert(point GSIn_RayCast In[1], inout PointStream<GSOut_RayCast> OutS
 			Out.ws_normal = float4(0, 0, 0, 0);
 			Out.snap_type = ESnapType_Vert;
 			Out.ray_index = i;
-			Out.inst_ptr = m_inst_ptr;
+			Out.inst_ptr = g_nugget.inst_ptr;
 			OutStream.Append(Out);
 		}
 	}

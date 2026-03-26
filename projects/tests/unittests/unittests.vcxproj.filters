@@ -1102,7 +1102,7 @@
     <ClInclude Include="..\..\..\include\pr\math\types\matrix2x2.h">
       <Filter>pr\math\types</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\math\types\matrix3x4.h">
+    <ClInclude Include="..\..\..\include\pr\math\types\matrix3x3.h">
       <Filter>pr\math\types</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\math\types\matrix6x8.h">

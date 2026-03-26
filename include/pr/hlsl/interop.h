@@ -6,7 +6,6 @@
 // Usage:
 /*
 	// test.cpp
-	using namespace pr::hlsl;
 	#include "src/example.hlsl"
 	void EntryPoint()
 	{
@@ -26,6 +25,7 @@
 #include <cstdint>
 #include <cmath>
 #include <bit>
+#include <atomic>
 
 #include "pr/math/math.h"
 
@@ -55,33 +55,59 @@ namespace pr::hlsl
 
 	// Shader structure types
 	#pragma region Shader structures
+
 	template <typename T>
-	struct StructuredBuffer
+	using ConstantBuffer = T;
+
+	template <typename T>
+	struct StructuredBuffer : std::vector<T>
 	{
-		std::vector<T> m_data;
-		T operator[] (int index) const
+		void reset(size_t count = 0)
 		{
-			return m_data[index];
+			std::vector<T>::resize(0);
+			std::vector<T>::resize(count);
 		}
-		virtual T Read(int index)
+		template <typename U> void assign(std::span<U const> data)
 		{
-			return m_data[index];
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<T const*>(data.data());
+			std::vector<T>::assign(ptr, ptr + data.size());
+		}
+		template <typename U> std::span<U const> as_span() const
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
+			return std::span<U const>(ptr, std::vector<T>::size());
 		}
 	};
 
 	template <typename T>
-	struct RWStructuredBuffer
+	struct RWStructuredBuffer : std::vector<T>
 	{
-		std::vector<T> m_data;
-		T& operator[] (int index)
+		void reset(size_t count = 0)
 		{
-			return m_data[index];
+			std::vector<T>::resize(0);
+			std::vector<T>::resize(count);
+		}
+		template <typename U> void assign(std::span<U const> data)
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<T const*>(data.data());
+			std::vector<T>::assign(ptr, ptr + data.size());
+		}
+		template <typename U> std::span<U const> as_span() const
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
+			return std::span<U const>(ptr, std::vector<T>::size());
 		}
 	};
 
-	struct SamplerState
-	{
-	};
+	struct SamplerState {};
 
 	template <typename Format>
 	struct Texture2D
@@ -1176,6 +1202,16 @@ namespace pr::hlsl
 	{
 		return math::Determinant(m);
 	}
+
+	// --- radians / degrees ---
+	inline float radians(float degrees)
+	{
+		return degrees * (constants<float>::tau / 360.0f);
+	}
+	inline float degrees(float radians)
+	{
+		return radians * (360.0f / constants<float>::tau);
+	}
 	#pragma endregion
 
 	#pragma region Wave Intrinsics
@@ -1185,8 +1221,16 @@ namespace pr::hlsl
 	}
 	#pragma endregion
 
-	// GPU Kernel signature: void(DTID, GID, GTID, GIDX)
-	using Kernel = std::function<void(int3, int3, int3, int)>;
+	#pragma region Atomic Intrinsics
+
+	// C++ equivalent of HLSL InterlockedAdd. Thread-safe using std::atomic_ref.
+	inline void InterlockedAdd(int& dest, int value, int& original_value)
+	{
+		auto atomic = std::atomic_ref(dest);
+		original_value = atomic.fetch_add(value);
+	}
+
+	#pragma endregion
 
 	// Execution emulator for running HLSL compute shaders.
 	// Supports kernel functions with any subset of the standard parameters:
@@ -1194,34 +1238,17 @@ namespace pr::hlsl
 	//   void fn(int3 dtid, int3 gid)
 	//   void fn(int3 dtid, int3 gid, int3 gtid)
 	//   void fn(int3 dtid, int3 gid, int3 gtid, int gidx)
+	// Usage:
+	//   GpuEmulator emu(CSFaceNormal, CSFaceNormal_NumThreads);                       // serial
+	//   GpuEmulator emu(CSFaceNormal, CSFaceNormal_NumThreads, std::execution::par);  // parallel
+	template <typename Kernel, typename ExecutionPolicy = std::execution::sequenced_policy>
 	struct GpuEmulator
 	{
 		Kernel m_kernel;
 		int3 m_num_threads;
 
-		explicit GpuEmulator(Kernel kernel, int3 num_threads)
-			: m_kernel(std::move(kernel))
-			, m_num_threads(num_threads)
-		{
-		}
-
-		// Overload: void(int3 dtid)
-		explicit GpuEmulator(std::function<void(int3)> kernel, int3 num_threads)
-			: m_kernel([k = std::move(kernel)](int3 dtid, int3, int3, int) { k(dtid); })
-			, m_num_threads(num_threads)
-		{
-		}
-
-		// Overload: void(int3 dtid, int3 gid)
-		explicit GpuEmulator(std::function<void(int3, int3)> kernel, int3 num_threads)
-			: m_kernel([k = std::move(kernel)](int3 dtid, int3 gid, int3, int) { k(dtid, gid); })
-			, m_num_threads(num_threads)
-		{
-		}
-
-		// Overload: void(int3 dtid, int3 gid, int3 gtid)
-		explicit GpuEmulator(std::function<void(int3, int3, int3)> kernel, int3 num_threads)
-			: m_kernel([k = std::move(kernel)](int3 dtid, int3 gid, int3 gtid, int) { k(dtid, gid, gtid); })
+		explicit GpuEmulator(Kernel kernel, int3 num_threads, ExecutionPolicy = std::execution::seq)
+			: m_kernel(kernel)
 			, m_num_threads(num_threads)
 		{
 		}
@@ -1248,7 +1275,7 @@ namespace pr::hlsl
 			int threads_per_group = m_num_threads.x * m_num_threads.y * m_num_threads.z;
 
 			auto threads = std::ranges::views::iota(0, threads_per_group);
-			std::for_each(std::execution::par, threads.begin(), threads.end(), [gid = group, this](int i)
+			std::for_each(ExecutionPolicy{}, threads.begin(), threads.end(), [gid = group, this](int i)
 			{
 				// Thread id within the group
 				int3 gtid = {
@@ -1270,7 +1297,15 @@ namespace pr::hlsl
 					gtid.y * m_num_threads.x +
 					gtid.x;
 
-				m_kernel(dtid, gid, gtid, gi);
+				// Call the kernel with as many parameters as it accepts
+				if constexpr (std::is_invocable_v<Kernel, int3, int3, int3, int>)
+					m_kernel(dtid, gid, gtid, gi);
+				else if constexpr (std::is_invocable_v<Kernel, int3, int3, int3>)
+					m_kernel(dtid, gid, gtid);
+				else if constexpr (std::is_invocable_v<Kernel, int3, int3>)
+					m_kernel(dtid, gid);
+				else if constexpr (std::is_invocable_v<Kernel, int3>)
+					m_kernel(dtid);
 			});
 		}
 	};

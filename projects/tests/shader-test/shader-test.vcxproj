@@ -67,13 +67,28 @@
 	-->
   <ItemGroup>
     <ClInclude Include="..\..\..\include\pr\hlsl\interop.h" />
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
+  <!--
+  Shaders
+  -->
+  <ItemDefinitionGroup>
+    <FxCompile>
+      <ShaderType>Compute</ShaderType>
+      <ShaderModel>6.6</ShaderModel>
+      <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include\
+        ;$(RylogicRoot)projects\rylogic\
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+    </FxCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="..\..\..\include\pr\hlsl\interop.hlsli" />
-    <None Include="src\example.hlsl" />
+    <FxCompile Include="src\example.hlsl" EntryPointName="CSFaceNormal"/>
   </ItemGroup>
   <!--
 	Targets

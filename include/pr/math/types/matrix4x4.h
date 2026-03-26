@@ -16,6 +16,20 @@ namespace pr::math
 	struct Mat4x4
 	{
 		// Notes:
+		//  - Matrix members 'x, y, z, w' are column vectors stored contigously.
+		//    Don't get confused into thinking they are row vectors. The mathematical layout is not the same as the in-memory layout.
+		//    This matrix, in mathematical layout would be this:
+		//        <x> <y> <z> <w>     <v>
+		//       [ 0  -1   0  10 ]    [1]
+		//       [ 1   0   0  20 ]  * [0]
+		//       [ 0   0   1  30 ]    [0]
+		//       [ 0   0   0   1 ]    [1]
+		//    auto a2b = Mat4x4{
+		//        Vec4{ 0,  1 , 0, 0}, // x-column
+		//        Vec4{-1,  0,  0, 0}, // y-column
+		//        Vec4{ 0,  0,  1, 0}, // z-column
+		//        Vec4{10, 20, 30, 1}, // w-column
+		//    };
 		//  - Don't add Mat4x4(v4 v) or equivalent. It's ambiguous between being this:
 		//    x = v4(v.x, v.x, v.x, v.x), y = v4(v.y, v.y, v.y, v.y), etc and
 		//    x = v4(v.x, v.y, v.z, v.w), y = v4(v.x, v.y, v.z, v.w), etc...
@@ -71,27 +85,21 @@ namespace pr::math
 		}
 
 		// Explicit cast to Mat3x3. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
-		template <ScalarType S2> constexpr explicit operator Mat3x3<S2>() const noexcept
+		constexpr explicit operator Mat3x3<S>() const noexcept
 		{
-			return Mat3x3<S2>(
-				static_cast<Vec4<S2>>(x),
-				static_cast<Vec4<S2>>(y),
-				static_cast<Vec4<S2>>(z)
-			);
+			return Mat3x3<S>(x.xyz, y.xyz, z.xyz);
 		}
 
 		// Array access
 		constexpr Vec4<S> const& operator [](int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 4 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; } else { return arr[i]; }
 		}
 		constexpr Vec4<S>& operator [](int i) noexcept
 		{
 			pr_assert(i >= 0 && i < 4 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; } else { return arr[i]; }
 		}
 
 		// Constants
