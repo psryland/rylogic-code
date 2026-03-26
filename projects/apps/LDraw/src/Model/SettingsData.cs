@@ -57,6 +57,8 @@ namespace LDraw
 			ClearErrorLogOnReload = true;
 			CheckForChangesPollPeriodS = 1.0;
 			IncludePaths = Array.Empty<string>();
+			TextEditorPath = string.Empty;
+			TextEditorArguments = "\"{file}\" --goto {line}";
 			StreamingPort = 1976;
 			SceneState = new List<SceneStateData>();
 			UILayout = null;
@@ -129,6 +131,20 @@ namespace LDraw
 		{
 			get => get<string[]>(nameof(IncludePaths));
 			set => set(nameof(IncludePaths), value);
+		}
+
+		/// <summary>Path to the text editor executable used for opening source files from error logs</summary>
+		public string TextEditorPath
+		{
+			get => get<string>(nameof(TextEditorPath));
+			set => set(nameof(TextEditorPath), value);
+		}
+
+		/// <summary>Command line arguments pattern for the text editor. Use {file} and {line} as placeholders.</summary>
+		public string TextEditorArguments
+		{
+			get => get<string>(nameof(TextEditorArguments));
+			set => set(nameof(TextEditorArguments), value);
 		}
 
 		/// <summary>The port to listen to for incoming streaming connections</summary>

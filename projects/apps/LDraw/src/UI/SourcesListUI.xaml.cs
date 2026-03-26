@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -25,6 +26,7 @@ namespace LDraw.UI
 
 			AddSource = Command.Create(this, AddSourceInternal);
 			OpenInEditor = Command.Create(this, OpenInEditorInternal, OpenInEditorAvailable);
+			OpenInExternalEditor = Command.Create(this, OpenInExternalEditorInternal, OpenInExternalEditorAvailable);
 			DataContext = this;
 		}
 		public void Dispose()
@@ -94,6 +96,7 @@ namespace LDraw.UI
 				void HandleCurrentSelectionChanged(object? sender, EventArgs e)
 				{
 					OpenInEditor.NotifyCanExecuteChanged();
+					OpenInExternalEditor.NotifyCanExecuteChanged();
 				}
 			}
 		} = new ListCollectionView(new List<SourceItemUI>());
@@ -129,6 +132,40 @@ namespace LDraw.UI
 			{
 				Log.Write(ELogLevel.Info, ex, "Open-in-editor for this file source failed.");
 				MsgBox.Show(Window.GetWindow(this), $"Open-in-editor for this file source failed.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
+			}
+		}
+
+		/// <summary>Open the selected source in an external text editor</summary>
+		public Command OpenInExternalEditor { get; }
+		private bool OpenInExternalEditorAvailable()
+		{
+			return
+				!string.IsNullOrEmpty(Model.Profile.TextEditorPath) &&
+				Sources.CurrentItem is SourceItemUI item &&
+				item.Source.FilePath.Length != 0;
+		}
+		private void OpenInExternalEditorInternal()
+		{
+			try
+			{
+				if (Sources.CurrentItem is not SourceItemUI item || item.Source.FilePath.Length == 0)
+					return;
+
+				var editor_path = Model.Profile.TextEditorPath;
+				var arguments = Model.Profile.TextEditorArguments
+					.Replace("{file}", item.Source.FilePath)
+					.Replace("{line}", "1");
+
+				Process.Start(new ProcessStartInfo
+				{
+					FileName = editor_path,
+					Arguments = arguments,
+					UseShellExecute = false,
+				});
+			}
+			catch (Exception ex)
+			{
+				Log.Write(ELogLevel.Error, ex, "Failed to launch text editor");
 			}
 		}
 

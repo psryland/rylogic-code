@@ -1104,6 +1104,7 @@ namespace Rylogic.LDraw
 		// Lines
 		public LdrLine line(v4 a, v4 b, Colour32? colour = null)
 		{
+			if (!m_current.m_style) m_current.m_style = new(ELineStyle.LineSegments);
 			m_current.m_lines.Add(new Ln{ a = a, b = b, col = colour ?? Colour32.White });
 			if (colour != null) m_current.m_per_item_colour.m_per_item_colour = true;
 			m_current.m_strip.Clear();
@@ -1125,6 +1126,7 @@ namespace Rylogic.LDraw
 		// Line strip
 		public LdrLine strip(v4 start, Colour32? colour = null)
 		{
+			if (!m_current.m_style) m_current.m_style = new(ELineStyle.LineStrip);
 			m_current.m_strip.Add(new Pt { a = start, col = colour ?? Colour32.White });
 			if (colour != null) m_current.m_per_item_colour.m_per_item_colour = true;
 			m_current.m_lines.Clear();

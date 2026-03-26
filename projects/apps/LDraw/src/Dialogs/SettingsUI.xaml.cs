@@ -32,6 +32,7 @@ namespace LDraw.Dialogs
 			MoveIncludePathUp = Command.Create(this, MoveIncludePathUpInternal, MoveIncludePathUpAvailable);
 			MoveIncludePathDown = Command.Create(this, MoveIncludePathDownInternal, MoveIncludePathDownAvailable);
 			ResetToDefaults = Command.Create(this, ResetToDefaultsInternal, ResetToDefaultsAvailable);
+			BrowseTextEditor = Command.Create(this, BrowseTextEditorInternal);
 
 			DataContext = this;
 		}
@@ -238,6 +239,26 @@ namespace LDraw.Dialogs
 		private bool MoveIncludePathDownAvailable(object? parameter)
 		{
 			return Profile is not null && parameter is int index && index >= 0 && index < Profile.IncludePaths.Length - 1;
+		}
+
+		/// <summary>Browse for a text editor executable</summary>
+		public Command BrowseTextEditor { get; }
+		private void BrowseTextEditorInternal()
+		{
+			if (Profile is null)
+				return;
+
+			var dlg = new Microsoft.Win32.OpenFileDialog
+			{
+				Title = "Select a Text Editor",
+				Filter = "Executables (*.exe)|*.exe|All Files (*.*)|*.*",
+				CheckFileExists = true,
+			};
+			if (!string.IsNullOrEmpty(Profile.TextEditorPath))
+				dlg.InitialDirectory = System.IO.Path.GetDirectoryName(Profile.TextEditorPath) ?? string.Empty;
+
+			if (dlg.ShowDialog(this) == true)
+				Profile.TextEditorPath = dlg.FileName;
 		}
 
 		/// <summary>Reset the settings to defaults</summary>
