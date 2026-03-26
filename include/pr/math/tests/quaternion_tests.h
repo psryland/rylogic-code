@@ -53,7 +53,8 @@ namespace pr::math::tests
 			auto Q0 = Quat(T(1), T(2), T(3), T(4));
 
 			// Unary plus
-			PR_EXPECT(All(+Q0 == Q0));
+			auto pos = +Q0;
+			PR_EXPECT(pos.x == T(1) && pos.y == T(2) && pos.z == T(3) && pos.w == T(4));
 
 			// Unary negate (NOT conjugate)
 			auto neg = -Q0;
@@ -66,7 +67,7 @@ namespace pr::math::tests
 			// Scalar multiply
 			auto scaled = Q0 * T(2);
 			PR_EXPECT(scaled.x == T(2) && scaled.y == T(4) && scaled.z == T(6) && scaled.w == T(8));
-			PR_EXPECT(All(T(2) * Q0 == scaled));
+			PR_EXPECT(T(2) * Q0 == scaled);
 
 			// Scalar divide
 			auto halved = Q0 / T(2);

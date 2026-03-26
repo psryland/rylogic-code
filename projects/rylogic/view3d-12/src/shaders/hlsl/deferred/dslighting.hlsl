@@ -2,7 +2,6 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2014
 //***********************************************
-
 #include "view3d-12/src/shaders/hlsl/deferred/gbuffer_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/deferred/gbuffer.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
@@ -24,8 +23,8 @@ struct PSOut
 PSIn_DSLighting VSDefault(VSIn In)
 {
 	PSIn_DSLighting Out;
-	Out.cs_vdir = m_frustum[(int) In.vert.x];
-	Out.ss_vert = mul(Out.cs_vdir, m_cam.m_c2s);
+	Out.cs_vdir = g_cam.frustum[(int) In.vert.x];
+	Out.ss_vert = mul(Out.cs_vdir, g_cam.cam.c2s);
 	Out.tex0 = In.tex0;
 	return Out;
 }
@@ -36,13 +35,13 @@ PSOut PSDefault(PSIn_DSLighting In)
 
 	// Sample the gbuffer
 	GPixel px = ReadGBuffer(In.tex0, normalize(In.cs_vdir.xyz));
-	float4 ws_vert = mul(px.cs_vert, m_cam.m_c2w);
+	float4 ws_vert = mul(px.cs_vert, g_cam.cam.c2w);
 
 	// Basic diffuse
 	Out.diff = px.diff;
 
 	// Do lighting...
-	Out.diff = Illuminate(m_light, ws_vert, px.ws_norm, m_cam.m_c2w[3], 1.0f, Out.diff);
+	Out.diff = Illuminate(g_light.light, ws_vert, px.ws_norm, g_cam.cam.c2w[3], 1.0f, Out.diff);
 
 	//Out.diff = float4(1,0,1,1);
 	//Out.diff = px.diff;

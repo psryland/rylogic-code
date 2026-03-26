@@ -3893,6 +3893,75 @@ namespace pr::rdr12::ldraw
 		}
 	};
 
+	// ELdrObject::SphereList
+	template <> struct ObjectCreator<ELdrObject::SphereList> :IObjectCreator
+	{
+		creation::Textured m_tex;
+		vector<v4, 4> m_radii;
+		vector<v4, 4> m_positions;
+		int m_facets;
+		bool m_per_item_colour;
+
+		ObjectCreator(ParseParams& pp)
+			: IObjectCreator(pp)
+			, m_tex(SamDesc::AnisotropicClamp())
+			, m_radii()
+			, m_positions()
+			, m_facets(3)
+			, m_per_item_colour()
+		{}
+		bool ParseKeyword(IReader& reader, EKeyword kw) override
+		{
+			switch (kw)
+			{
+				case EKeyword::PerItemColour:
+				{
+					m_per_item_colour = reader.IsSectionEnd() ? true : reader.Bool();
+					return true;
+				}
+				case EKeyword::Facets:
+				{
+					m_facets = reader.Int<int>(10);
+					return true;
+				}
+				case EKeyword::Data:
+				{
+					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
+					{
+						m_pp.ReportProgress(reader, r);
+						v4 rad = {};
+						rad.x = reader.Real<float>();
+						rad.y = reader.IsSectionEnd() ? rad.x : reader.Real<float>();
+						rad.z = reader.IsSectionEnd() ? rad.y : reader.Real<float>();
+						auto xyz = reader.Vector3f().w1();
+						m_radii.push_back(rad);
+						m_positions.push_back(xyz);
+						if (m_per_item_colour)
+							m_colours.push_back(reader.Int<uint32_t>(16));
+					}
+					return true;
+				}
+				default:
+				{
+					return
+						m_tex.ParseKeyword(reader, m_pp, kw) ||
+						IObjectCreator::ParseKeyword(reader, kw);
+				}
+			}
+		}
+		void CreateModel(LdrObject* obj, Location const&) override
+		{
+			// Validate
+			if (m_radii.empty())
+				return;
+
+			// Create the model
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			obj->m_model = ModelGenerator::SphereList(m_pp.m_factory, m_radii, m_positions, m_facets, &opts);
+			obj->m_model->m_name = obj->TypeAndName();
+		}
+	};
+
 	// ELdrObject::Cylinder
 	template <> struct ObjectCreator<ELdrObject::Cylinder> :IObjectCreator
 	{

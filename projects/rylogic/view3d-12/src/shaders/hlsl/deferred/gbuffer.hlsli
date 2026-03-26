@@ -4,14 +4,15 @@
 //***********************************************
 #ifndef PR_VIEW3D_SHADER_GBUFFER_HLSLI
 #define PR_VIEW3D_SHADER_GBUFFER_HLSLI
-
 #include "view3d-12/src/shaders/hlsl/deferred/gbuffer_cbuf.hlsli"
 
 // Sampler and gbuffer textures
-SamplerState      m_point_sampler :register(s0);
-Texture2D<float4> m_tex_diffuse   :register(t0);
-Texture2D<float2> m_tex_normals   :register(t1);
-Texture2D<float>  m_tex_depth     :register(t2);
+ConstantBuffer<CBufCamera>   g_cam           : register(b0);
+ConstantBuffer<CBufLighting> g_light         : register(b1);
+SamplerState                 g_point_sampler : register(s0);
+Texture2D<float4>            g_tex_diffuse   : register(t0);
+Texture2D<float2>            g_tex_normals   : register(t1);
+Texture2D<float>             g_tex_depth     : register(t2);
 
 // Gbuffer Px out format
 struct PSOut_GBuffer
@@ -36,7 +37,7 @@ PSOut_GBuffer WriteGBuffer(float4 diff, float4 ws_pos, float4 ws_norm)
 	PSOut_GBuffer Out;
 	Out.diff = float4(diff.xyz, sign(ws_norm.z) * 0.5f + 0.5f);
 	Out.ws_norm = ws_norm.xy * 0.5f + 0.5f;
-	Out.cs_depth = length(ws_pos - m_cam.m_c2w[3]);
+	Out.cs_depth = length(ws_pos - g_cam.cam.c2w[3]);
 	return Out;
 }
 
@@ -44,9 +45,9 @@ PSOut_GBuffer WriteGBuffer(float4 diff, float4 ws_pos, float4 ws_norm)
 GPixel ReadGBuffer(float2 tex, float3 cs_vdir)
 {
 	GPixel Out;
-	float4 diff = m_tex_diffuse.Sample(m_point_sampler, tex);
-	float2 norm = m_tex_normals.Sample(m_point_sampler, tex);
-	float depth = m_tex_depth.Sample(m_point_sampler, tex);
+	float4 diff = g_tex_diffuse.Sample(g_point_sampler, tex);
+	float2 norm = g_tex_normals.Sample(g_point_sampler, tex);
+	float depth = g_tex_depth.Sample(g_point_sampler, tex);
 
 	Out.diff = float4(diff.xyz, 1);
 

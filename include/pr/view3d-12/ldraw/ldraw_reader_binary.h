@@ -297,7 +297,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestSphere)
 		{
 			Builder builder;
-			builder.Sphere("TestSphere", 0xFFFF0000).radius(1.0f);
+			builder.Sphere("TestSphere", 0xFFFF0000).sphere(1.0f);
 			auto const bin = builder.ToBinary();
 			Dump(bin);
 

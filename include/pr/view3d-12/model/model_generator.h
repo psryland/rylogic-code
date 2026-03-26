@@ -198,6 +198,8 @@ namespace pr::rdr12
 		static ModelPtr Geosphere(ResourceFactory& factory, v4 radius, int divisions = 3, CreateOptions const* opts = nullptr);
 		static ModelPtr Sphere(ResourceFactory& factory, float radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
 		static ModelPtr Sphere(ResourceFactory& factory, v4 radius, int wedges = 20, int layers = 5, CreateOptions const* opts = nullptr);
+		static ModelPtr SphereList(ResourceFactory& factory, std::span<v4 const> radii, std::span<v4 const> positions, int divisions = 3, CreateOptions const* opts = nullptr);
+		static ModelPtr SphereList(ResourceFactory& factory, std::span<BSphere const> spheres, int divisions = 3, CreateOptions const* opts = nullptr);
 
 		// Cylinder ***************************************************************************
 		static ModelPtr Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale = 1.0f, float yscale = 1.0f, int wedges = 20, int layers = 1, CreateOptions const* opts = nullptr);

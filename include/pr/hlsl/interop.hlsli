@@ -13,6 +13,7 @@
 // - use float4x4 not matrix... they're not the same (don't know why tho)
 // - HLSL float4x4 is column major (by default) but pr::m4x4 is row major.
 //   Remember to transpose matrices or use 'row_major' before any float4x4's.
+// - Use ConstantBuffer<T> rather than 'cbuffer' for better C++ interop.
 
 #ifdef __cplusplus
 #include "pr/hlsl/interop.h"
@@ -22,13 +23,7 @@
 	//   means you have an hlsl file somewhere that hasn't been set to 'Custom Build Tool'.
 	//   It will be using the HLSL Compiler build type, which doesn't know about the 'SHADER_BUILD' define
 
-	// Macros mapping HLSL keywords to C++ equivalents.
-	// These are outside any namespace because #define is namespace-independent.
-	// Previously wrapped in 'namespace pr::hlsl { }' but that creates a spurious
-	// pr::<enclosing>::pr namespace when this file is included inside a namespace.
-	#define cbuffer struct
 	#define numthreads(kernel, x, y, z) static int3 constexpr kernel ## _NumThreads = {x,y,z};
-	#define reg(reg_number) ShaderReg<decltype(reg_number), reg_number, 0>
 	#define resource(name, reg_number) name 
 	#define semantic(semantic_name)
 	#define arrayout_(ty, name, size) ty (&name)[size]
@@ -36,8 +31,6 @@
 	#define out_(ty) ty&
 	#define in_(ty) ty const&
 	#define row_major
-	//#define uniform
-	//#define line
 
 	#define DTID(name) name
 	#define GID(name) name
@@ -51,7 +44,6 @@
 #else
 
 	#define numthreads(kernel, x, y, z) [numthreads(x, y, z)]
-	#define reg(reg_number) register(reg_number)
 	#define resource(name, reg_number) name : register(reg_number)
 	#define semantic(semantic_name) :semantic_name
 	#define arrayout_(ty, name, size) out ty name[size]

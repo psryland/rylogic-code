@@ -2,10 +2,12 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2010
 //***********************************************
-
 #include "pr/hlsl/vector.hlsli"
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
+
+// Constant buffers
+ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 
 // Converts line geometry into tristrip
 void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
@@ -47,9 +49,9 @@ void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 	float2 lin0 = (p1 - p0).xy;
 	float2 lin1 = (p2 - p1).xy;
 	float2 lin2 = (p3 - p2).xy;
-	float2 dir0 = normalize(lin0 * m_screen_dim.xy);
-	float2 dir1 = normalize(lin1 * m_screen_dim.xy);
-	float2 dir2 = normalize(lin2 * m_screen_dim.xy);
+	float2 dir0 = normalize(lin0 * g_ss.screen_dim.xy);
+	float2 dir1 = normalize(lin1 * g_ss.screen_dim.xy);
+	float2 dir2 = normalize(lin2 * g_ss.screen_dim.xy);
 	float2 perp0 = RotateCCW(dir0);
 	float2 perp1 = RotateCCW(dir1);
 	float2 perp2 = RotateCCW(dir2);
@@ -60,7 +62,7 @@ void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 	float bi_scale1 = dot(bisector1, perp1);
 	float bi_scale2 = dot(bisector2, perp1);
 
-	float2 width = max(1.0f, m_size.x * 0.5f) / m_screen_dim.xy;
+	float2 width = max(1.0f, g_ss.size.x * 0.5f) / g_ss.screen_dim.xy;
 
 	// Use end caps if 'lin0' or 'lin1' is too short, or degenerate
 	line_beg = line_beg || bi_lensq1 < 0.05f;

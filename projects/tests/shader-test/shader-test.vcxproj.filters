@@ -1,17 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClInclude Include="src\hlsl_compat.h">
-      <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="src\shared_types.h">
-      <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\hlsl\hlsl_proxy.h">
-      <Filter>pr\hlsl</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
     <Filter Include="src">
       <UniqueIdentifier>{cd4405c2-9fdb-4b99-a5c1-1b71bf262728}</UniqueIdentifier>
     </Filter>
@@ -31,8 +20,16 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\example_face_normal_compute.hlsl">
+    <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
+      <Filter>pr\hlsl</Filter>
+    </None>
+    <None Include="src\example.hlsl">
       <Filter>shaders</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\include\pr\hlsl\interop.h">
+      <Filter>pr\hlsl</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

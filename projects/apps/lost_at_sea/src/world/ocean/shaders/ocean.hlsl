@@ -14,6 +14,10 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 
+#ifdef __cplusplus
+namespace las {
+#endif
+
 // Environment map cubemap (bound by forward render step when scene env map is set)
 TextureCube<float4> m_envmap_texture :reg(t1);
 SamplerState        m_envmap_sampler :reg(s1);
@@ -213,7 +217,7 @@ PSIn VSOcean(VSIn In)
 // Pixel shader
 PSOut PSOcean(PSIn In)
 {
-	PSOut Out = (PSOut)0;
+	PSOut Out = (PSOut) 0;
 
 	// Surface normal and view direction
 	float3 N = normalize(In.ws_norm.xyz);
@@ -269,3 +273,7 @@ PSOut PSOcean(PSIn In)
 	Out.diff = float4(colour, alpha);
 	return Out;
 }
+
+#ifdef __cplusplus
+}
+#endif

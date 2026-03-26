@@ -31,15 +31,16 @@ namespace pr::physics {
 #endif
 
 // Integration parameters
-cbuffer cbIntegrate : reg(b0)
+struct cbIntegrate
 {
-	float g_dt;
-	int g_body_count;
-	float g_sleep_velocity_threshold_lin;
-	float g_sleep_velocity_threshold_ang;
+	float dt;
+	int body_count;
+	float sleep_velocity_threshold_lin;
+	float sleep_velocity_threshold_ang;
 };
 
 // Shader resources
+ConstantBuffer<cbIntegrate> resource(g, b0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u1);
 RWStructuredBuffer<float> resource(g_aabb_x, u2);
@@ -77,12 +78,12 @@ numthreads(CSIntegrate, IntegrateThreadCount, 1, 1)
 void CSIntegrate(int3 DTID(dtid))
 {
 	int idx = dtid.x;
-	if (idx >= g_body_count)
+	if (idx >= g.body_count)
 		return;
 
 	// Load the body's dynamic state
 	GpuRigidBody body = g_bodies[idx];
-	float half_dt = g_dt * 0.5f;
+	float half_dt = g.dt * 0.5f;
 	float inv_mass = body.os_com_and_invmass.w;
 	float3 os_com = body.os_com_and_invmass.xyz;
 
@@ -92,8 +93,8 @@ void CSIntegrate(int3 DTID(dtid))
 
 	// ---- Sleep check: if body is sleeping and momentum is below thresholds, skip dynamics ----
 	bool low_velocity =
-		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g_sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
-		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g_sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
+		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g.sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
+		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g.sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
 
 	bool stay_asleep = HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
 	if (stay_asleep)
@@ -155,7 +156,7 @@ void CSIntegrate(int3 DTID(dtid))
 	// because the world-space inertia tensor changes with orientation (precession).
 	// By estimating the rotation at the midpoint and recomputing omega there, we get
 	// second-order accuracy, significantly reducing secular energy drift.
-	float3x3 half_dR = rodrigues_rotation(vel_ang * (g_dt * 0.5f));
+	float3x3 half_dR = rodrigues_rotation(vel_ang * (g.dt * 0.5f));
 	float3x3 mid_rot = mul(rot, half_dR);
 	mid_rot = orthonorm3x3(mid_rot);
 	float3x3 ws_iinv_mid_unit = rotate_inertia_inv(os_iinv_unit, mid_rot);
@@ -163,7 +164,7 @@ void CSIntegrate(int3 DTID(dtid))
 	float3 vel_ang_mid = mul(ws_iinv_mid, body.momentum_ang.xyz);
 
 	// Compute the angular displacement using the midpoint angular velocity
-	float3 drot = vel_ang_mid * g_dt;
+	float3 drot = vel_ang_mid * g.dt;
 
 	// Apply rotation: R_new = Rodrigues(drot) * R_old
 	// In row-vector convention (rows = basis vectors): new_rot = mul(rot, dR)
@@ -176,7 +177,7 @@ void CSIntegrate(int3 DTID(dtid))
 	// CoM-based position update: translate CoM, derive model origin from new rotation.
 	float3 com_ws = mul(os_com, rot);          // world-space CoM offset
 	float3 com_pos = body.o2w[3].xyz + com_ws; // world-space CoM position
-	float3 new_com_pos = com_pos + vel_lin * g_dt;
+	float3 new_com_pos = com_pos + vel_lin * g.dt;
 	float3 new_pos = new_com_pos - mul(os_com, new_rot);
 
 	// Write back the updated transform

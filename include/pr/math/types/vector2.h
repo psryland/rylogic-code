@@ -63,14 +63,12 @@ namespace pr::math
 		constexpr S operator [] (int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 2 && "index out of range");
-			if consteval { return i == 0 ? x : y; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : y; } else { return arr[i]; }
 		}
 		constexpr S& operator [] (int i) noexcept
 		{
 			pr_assert(i >= 0 && i < 2 && "index out of range");
-			if consteval { return i == 0 ? x : y; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : y; } else { return arr[i]; }
 		}
 
 		// Constants

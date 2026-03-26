@@ -26,6 +26,11 @@
 				Command="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInEditor}"
 				IsEnabled="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInEditor.Available}"
 			/>
+			<MenuItem
+				Header="Open in External Editor"
+				Command="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInExternalEditor}"
+				IsEnabled="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInExternalEditor.Available}"
+			/>
 		</ContextMenu>
 	</UserControl.Resources>
 	<ListView

@@ -37,20 +37,21 @@ namespace pr::physics {
 #endif
 
 // Per-dispatch constants
-cbuffer cbResolve : reg(b0)
+struct cbResolve
 {
-	int g_max_contacts; // The max capacity of the contacts buffer
-	int g_body_count;   // The number of bodies in the scene
-	int g_colour;       // Current colour batch being processed (for CSResolve)
+	int max_contacts; // The max capacity of the contacts buffer
+	int body_count;   // The number of bodies in the scene
+	int colour;       // Current colour batch being processed (for CSResolve)
 	int pad0;
 
-	float g_dt;         // timestep in seconds
-	float g_sleep_velocity_threshold_lin;
-	float g_sleep_velocity_threshold_ang;
+	float dt;         // timestep in seconds
+	float sleep_velocity_threshold_lin;
+	float sleep_velocity_threshold_ang;
 	float pad1;
 };
 
 // Shader resources
+ConstantBuffer<cbResolve> resource(g, b0);
 StructuredBuffer<GpuCollisionCounters> resource(g_counters, t0);
 StructuredBuffer<GpuMaterial> resource(g_materials, t1);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
@@ -251,10 +252,10 @@ float EstimateCollisionTime(GpuResolveContact c)
 		rot_a, os_com_a, com_b_in_a);
 
 	// Project backward to estimate collision time
-	float3 point_at_t0 = c.contact_point.xyz - g_dt * rel_vel;
+	float3 point_at_t0 = c.contact_point.xyz - g.dt * rel_vel;
 	float distance = abs(dot(c.contact_point.xyz - point_at_t0, c.axis.xyz));
 	float sub_step = distance > c.depth ? -c.depth / distance : 0.0f;
-	return sub_step * g_dt;
+	return sub_step * g.dt;
 }
 
 // Add a contact point to the body's contact simplex, maintaining a maximum of 4 points.
@@ -367,11 +368,11 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 		int i;
 	
 		// Zero the body colour_used bitmask (one thread per body, reusing the same dispatch)
-		for (i = 0; i != g_body_count; ++i)
+		for (i = 0; i != g.body_count; ++i)
 			g_bodies[i].colour_used = 0;
 		
 		// Set the out of bounds contact times to a large positive value so they sort to the end
-		for (i = g_counters[0].contact_count; i != g_max_contacts; ++i)
+		for (i = g_counters[0].contact_count; i != g.max_contacts; ++i)
 			g_contact_times[i] = 1e30f;
 	}
 }
@@ -417,7 +418,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	uint idx = g_contact_order[dtid.x];
 
 	// Only process contacts assigned to the current colour batch
-	if (g_colours[idx] != (uint)g_colour)
+	if (g_colours[idx] != (uint)g.colour)
 		return;
 
 	// Load the contact and both bodies
@@ -470,7 +471,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// The bias only activates when depth exceeds a small slop tolerance, avoiding jitter.
 	float slop = 0.005f;
 	float baumgarte = 0.2f;
-	float bias = (baumgarte / g_dt) * max(c.depth - slop, 0.0f);
+	float bias = (baumgarte / g.dt) * max(c.depth - slop, 0.0f);
 
 	// Skip if already separating faster than the bias correction requires
 	float closing_speed = dot(V_rel, axis);
@@ -539,7 +540,7 @@ numthreads(CSUpdateSleepState, ResolveThreadCount, 1, 1)
 void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 {
 	int body_idx = dtid.x;
-	if (body_idx >= g_body_count)
+	if (body_idx >= g.body_count)
 		return;
 
 	GpuRigidBody body = g_bodies[body_idx];
@@ -559,8 +560,8 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 
 	// Check basic sleep conditions
 	bool can_sleep =
-		vel_lin_sq < sqr(g_sleep_velocity_threshold_lin) &&
-		vel_ang_sq < sqr(g_sleep_velocity_threshold_ang) &&
+		vel_lin_sq < sqr(g.sleep_velocity_threshold_lin) &&
+		vel_ang_sq < sqr(g.sleep_velocity_threshold_ang) &&
 		has_gravity &&
 		SupportStillSleeping(body);
 

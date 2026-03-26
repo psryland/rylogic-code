@@ -177,6 +177,7 @@ namespace pr::rdr12::ldraw
 		x(Source                   )\
 		x(Specular                 )\
 		x(Sphere                   )\
+		x(SphereList               )\
 		x(Square                   )\
 		x(Step                     )\
 		x(Stretch                  )\
@@ -251,6 +252,7 @@ namespace pr::rdr12::ldraw
 		x(Ribbon     )\
 		x(Series     )\
 		x(Sphere     )\
+		x(SphereList )\
 		x(Text       )\
 		x(Triangle   )\
 		x(Tube       )\

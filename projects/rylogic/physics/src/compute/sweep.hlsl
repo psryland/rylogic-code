@@ -16,15 +16,16 @@ namespace pr::physics {
 #endif
 
 // Shader parameters
-cbuffer cbSweep : reg(b0)
+struct cbSweep
 {
-	int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
-	int g_body_count;
-	int g_pad0;
-	int g_pad1;
+	int max_pair_count; // The maximum length of the g_collision_pairs buffer
+	int body_count;
+	int pad0;
+	int pad1;
 };
 
 // Shader Resources
+ConstantBuffer<cbSweep>resource(g, b0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
@@ -44,7 +45,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	//   end = (body_index << 1) | 1
 	
 	// The number of bounds in the 'g_aabb_idx' buffer.
-	int bounds_count = 2 * g_body_count;
+	int bounds_count = 2 * g.body_count;
 
 	// The index into 'g_aabb_idx'
 	int idx = dtid.x;
@@ -88,7 +89,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 			// Allocate a slot in the collision pairs buffer atomically
 			uint slot;
 			InterlockedAdd(g_counters[0].pair_count, 1, slot);
-			if (slot >= g_max_pair_count)
+			if (slot >= g.max_pair_count)
 				return;
 
 			// Write the contact

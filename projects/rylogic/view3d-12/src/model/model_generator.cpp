@@ -656,6 +656,54 @@ namespace pr::rdr12
 		// Create the model
 		return Create(factory, cache, opts);
 	}
+	ModelPtr ModelGenerator::SphereList(ResourceFactory& factory, std::span<v4 const> radii, std::span<v4 const> positions, int divisions, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes
+		auto num_spheres = isize(radii);
+		auto [vcount, icount] = geometry::GeosphereListSize(num_spheres, divisions);
+		auto colours = opts ? opts->m_colours : std::span<Colour32 const>{};
+		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
+
+		// Generate the geometry
+		Cache cache{ vcount, icount, 0, idx_stride };
+		auto vptr = cache.m_vcont.data();
+		auto iptr = cache.m_icont.begin<int>();
+		auto props = geometry::GeosphereList(num_spheres, radii, positions, divisions, colours,
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](int idx) { *iptr++ = idx; }
+		);
+
+		// Create a nugget
+		cache.m_ncont.push_back(NuggetDesc(ETopo::TriList, props.m_geom).alpha_geom(props.m_has_alpha));
+		cache.m_bbox = props.m_bbox;
+
+		// Create the model
+		return Create(factory, cache, opts);
+	}
+	ModelPtr ModelGenerator::SphereList(ResourceFactory& factory, std::span<BSphere const> spheres, int divisions, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes
+		auto num_spheres = isize(spheres);
+		auto [vcount, icount] = geometry::GeosphereListSize(num_spheres, divisions);
+		auto colours = opts ? opts->m_colours : std::span<Colour32 const>{};
+		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
+
+		// Generate the geometry
+		Cache cache{ vcount, icount, 0, idx_stride };
+		auto vptr = cache.m_vcont.data();
+		auto iptr = cache.m_icont.begin<int>();
+		auto props = geometry::GeosphereList(spheres, divisions, colours,
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
+			[&](int idx) { *iptr++ = idx; }
+		);
+
+		// Create a nugget
+		cache.m_ncont.push_back(NuggetDesc(ETopo::TriList, props.m_geom).alpha_geom(props.m_has_alpha));
+		cache.m_bbox = props.m_bbox;
+
+		// Create the model
+		return Create(factory, cache, opts);
+	}
 
 	// Cylinder ***************************************************************************
 	ModelPtr ModelGenerator::Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale, float yscale, int wedges, int layers, CreateOptions const* opts)

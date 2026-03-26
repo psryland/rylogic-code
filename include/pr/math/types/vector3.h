@@ -68,14 +68,12 @@ namespace pr::math
 		constexpr S operator [] (int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 3 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : z; } else { return arr[i]; }
 		}
 		constexpr S& operator [] (int i) noexcept
 		{
 			pr_assert(i >= 0 && i < 3 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : z; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : z; } else { return arr[i]; }
 		}
 
 		// Create other vector types

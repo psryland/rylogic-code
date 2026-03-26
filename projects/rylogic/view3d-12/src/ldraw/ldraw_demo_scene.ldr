@@ -696,7 +696,7 @@
 	*PerItemColour {}
 	*Data
 	{
-		// width,height,depth, x,y,z
+		// width,height,depth, x,y,z [colour]
 		0.7 0.2 0.2  -1.00 0.00 0.0  FFFF0000
 		0.6 0.3 0.2  -0.50 0.00 0.0	 FFFF0000
 		0.5 0.4 0.3  +0.00 0.00 0.0	 FF00FF00
@@ -753,6 +753,32 @@
 	*RootAnimation {*Style {Continuous} *Period {1.6} *AngVelocity {0 0 +1}}
 	*RandColour {}
 	*o2w{*euler{90 0 0} *pos{-10 1.25 8}}
+}
+
+// A list of spheres with different radii at the given locations
+*SphereList sphere_cluster
+{
+	*PerItemColour {}
+	*Data
+	{
+		// rx,ry,rz, x,y,z [colour]
+		0.30 0.25 0.20  -1.00 0.00 0.0  FFFF0000
+		0.25 0.20 0.15  -0.50 0.00 0.0  FFFF0000
+		0.20 0.15 0.35  +0.00 0.00 0.0  FF00FF00
+		0.15 0.35 0.10  +0.50 0.00 0.0  FFFFFF00
+		0.35 0.10 0.40  +1.00 0.00 0.0  FF00FFFF
+		0.10 0.40 0.20  -0.75 0.40 0.0  FF0000FF
+		0.40 0.20 0.15  -0.25 0.40 0.0  FF0000FF
+		0.20 0.15 0.25  +0.25 0.40 0.0  FFFF0000
+		0.15 0.25 0.30  +0.75 0.40 0.0  FFFF0000
+		0.25 0.30 0.20  -0.50 0.80 0.0  FF00FF00
+		0.30 0.20 0.35  +0.00 0.80 0.0  FFFFFF00
+		0.20 0.35 0.15  +0.50 0.80 0.0  FF00FFFF
+		0.35 0.15 0.45  -0.25 1.20 0.0  FF0000FF
+		0.15 0.45 0.30  +0.25 1.20 0.0  FF0000FF
+		0.45 0.30 0.25  +0.00 1.60 0.0  FFF0000F
+	}
+	*o2w{*pos{-8 0.1 8}}
 }
 
 // A group used to set the parent space of the ellipsoid

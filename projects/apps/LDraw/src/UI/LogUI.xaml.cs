@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -55,13 +57,50 @@ namespace LDraw
 		/// <summary>Handle a log entry being double clicked in the log view</summary>
 		private void HandleLogEntryDoubleClick(object? sender, LogControl.LogEntryDoubleClickEventArgs e)
 		{
-			// Find the script associated with the file, bring it into view, and scroll to the associated line
-			var script = Model.Scripts.FirstOrDefault(x => Path_.Compare(e.Entry.File, x.FilePath) == 0);
+			var file = e.Entry.File;
+			var line = e.Entry.Line;
+
+			// No source file associated with this entry
+			if (string.IsNullOrEmpty(file))
+				return;
+
+			// If an external text editor is configured, use it
+			var editor_path = Model.Profile.TextEditorPath;
+			if (!string.IsNullOrEmpty(editor_path))
+			{
+				OpenInExternalEditor(editor_path, Model.Profile.TextEditorArguments, file, line);
+				return;
+			}
+
+			// Otherwise, find the script in the built-in editor and navigate to it
+			var script = Model.Scripts.FirstOrDefault(x => Path_.Compare(file, x.FilePath) == 0);
 			if (script == null)
 				return;
 
 			script.DockControl.IsActiveContent = true;
-			script.ScrollTo(e.Entry.Line, 0, true);
+			script.ScrollTo(line, 0, true);
+		}
+
+		/// <summary>Launch an external text editor at the given file and line</summary>
+		private static void OpenInExternalEditor(string editor_path, string arguments_pattern, string file, int line)
+		{
+			try
+			{
+				var arguments = arguments_pattern
+					.Replace("{file}", file)
+					.Replace("{line}", line.ToString());
+
+				Process.Start(new ProcessStartInfo
+				{
+					FileName = editor_path,
+					Arguments = arguments,
+					UseShellExecute = false,
+				});
+			}
+			catch (Exception ex)
+			{
+				Log.Write(ELogLevel.Error, ex, "Failed to launch text editor");
+			}
 		}
 	}
 }

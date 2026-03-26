@@ -29,6 +29,13 @@ namespace pr::geometry
 		};
 	}
 
+	// Returns the number of verts and number of indices needed to hold geometry for an array of 'num_spheres' geospheres with 'divisions' divisions
+	constexpr BufSizes GeosphereListSize(int num_spheres, int divisions)
+	{
+		auto per = GeosphereSize(divisions);
+		return { per.vcount * num_spheres, per.icount * num_spheres };
+	}
+
 	namespace geosphere
 	{
 		using VIndex = int;
@@ -288,5 +295,49 @@ namespace pr::geometry
 		}
 
 		return props;
+	}
+
+	// Generate a list of geospheres at different positions and radii
+	template <VertOutputFn VOut, IndexOutputFn IOut>
+	Props GeosphereList(int num_spheres, std::span<v4 const> radii, std::span<v4 const> positions, int divisions, std::span<Colour32 const> colours, VOut vout, IOut iout)
+	{
+		Props props;
+		props.m_geom = EGeom::Vert | EGeom::Colr | EGeom::Norm | EGeom::Tex0;
+
+		auto per = GeosphereSize(divisions);
+		int ibase = 0;
+
+		for (int s = 0; s != num_spheres; ++s)
+		{
+			auto rad = radii[s];
+			auto pos = positions[s];
+			auto col = s < isize(colours) ? colours[s] : Colour32White;
+			props.m_has_alpha |= HasAlpha(col);
+
+			// Generate each geosphere with offset position
+			auto sphere_props = Geosphere(rad, divisions, col,
+				[&](v4 p, Colour32 c, v4 n, v2 t) { vout(p + pos.w0(), c, n, t); },
+				[&](int idx) { iout(idx + ibase); }
+			);
+
+			Grow(props.m_bbox, BBox(pos, rad));
+			ibase += per.vcount;
+		}
+
+		return props;
+	}
+
+	// Create the bounding spheres in 'spheres'
+	template <VertOutputFn VOut, IndexOutputFn IOut>
+	Props GeosphereList(std::span<BSphere const> spheres, int divisions, std::span<Colour32 const> colours, VOut vout, IOut iout)
+	{
+		vector<v4, 64> radii; radii.reserve(spheres.size());
+		vector<v4, 64> positions; positions.reserve(spheres.size());
+		for (auto const& bsphere : spheres)
+		{
+			radii.push_back(v4(bsphere.Radius()));
+			positions.push_back(bsphere.Centre());
+		}
+		return GeosphereList(isize(spheres), radii, positions, divisions, colours, vout, iout);
 	}
 }

@@ -8,6 +8,10 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
 
+#ifdef __cplusplus
+namespace las {
+#endif
+
 // Environment map cubemap (bound by forward render step when scene env map is set)
 TextureCube<float4> m_envmap_texture :reg(t1);
 SamplerState        m_envmap_sampler :reg(s1);
@@ -55,7 +59,7 @@ PSIn VSDistantOcean(VSIn In)
 // Pixel shader: ocean colour + Fresnel reflection + distance fog
 PSOut PSDistantOcean(PSIn In)
 {
-	PSOut Out = (PSOut)0;
+	PSOut Out = (PSOut) 0;
 
 	float3 N = float3(0, 0, 1);
 	float3 V = normalize(m_cam.m_c2w[3].xyz - In.ws_vert.xyz);
@@ -94,3 +98,7 @@ PSOut PSDistantOcean(PSIn In)
 	Out.diff = float4(colour, 1.0);
 	return Out;
 }
+
+#ifdef __cplusplus
+}
+#endif
