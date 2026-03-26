@@ -987,10 +987,6 @@ namespace pr::hlsl
 	{
 		return math::Cross(a, b);
 	}
-	inline float4 cross(float4 a, float4 b)
-	{
-		return math::Cross(a, b);
-	}
 
 	// --- reflect ---
 	// Reflects the incident vector v off a surface with normal n

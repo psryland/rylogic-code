@@ -89,9 +89,6 @@ Example Use:
 #include <cassert>
 
 #include <Windows.h>
-#include <winsdkver.h>
-#include <sdkddkver.h>
-#include <winuser.h>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <richedit.h>
@@ -100,7 +97,10 @@ Example Use:
 #include <shlguid.h>
 #include <shlwapi.h>
 #include <uxtheme.h>
+#pragma warning(push)
+#pragma warning(disable: 5260) // Windows SDK GdiplusEnums.h: const with internal/external linkage mismatch
 #include <gdiplus.h>
+#pragma warning(pop)
 #include <tchar.h>
 
 inline static constexpr bool PR_WNDPROCDEBUG = false;

@@ -197,7 +197,10 @@ namespace pr::math
 	template <> struct vector_traits<Quat<element>>\
 		: quaternion_traits_base<element>\
 		, vector_access_member<Quat<element>, element, 4>\
-	{};\
+	{\
+		template <ScalarType S> using rebind = Vec4<S>;\
+		static Vec4<element> cast_vec4(Quat<element> q) noexcept { return q.xyzw; }\
+	};\
 	\
 	static_assert(QuaternionType<Quat<element>>, "Quat<"#element"> is not a valid quaternion type");\
 	static_assert(sizeof(Quat<element>) == 4*sizeof(element), "Quat<"#element"> has the wrong size");\
@@ -206,22 +209,6 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(float);
 	PR_MATH_DEFINE_TYPE(double);
 	#undef PR_MATH_DEFINE_TYPE
-
-	// Normalise a quaternion to unit length
-	template <QuaternionType Quat>
-	inline Quat pr_vectorcall Normalise(Quat q) noexcept
-	{
-		using S = typename vector_traits<Quat>::element_t;
-		auto len = Length(q.xyzw);
-		return Quat{ q.x / len, q.y / len, q.z / len, q.w / len };
-	}
-	template <QuaternionType Quat>
-	inline Quat pr_vectorcall Normalise(Quat q, Quat value_if_zero_length) noexcept
-	{
-		using S = typename vector_traits<Quat>::element_t;
-		auto len = Length(q.xyzw);
-		return len > tiny<S> ? Quat{ q.x / len, q.y / len, q.z / len, q.w / len } : value_if_zero_length;
-	}
 
 	// Decompose a quaternion into axis (normalised) and angle (radians)
 	template <QuaternionType Quat>
@@ -247,41 +234,9 @@ namespace pr::math
 	template <QuaternionType Quat>
 	inline bool FEqlOrientation(Quat lhs, Quat rhs, typename vector_traits<Quat>::element_t tol = tiny<typename vector_traits<Quat>::element_t>) noexcept
 	{
+		// Tolerance is on 'angle' rather than the quaternion components
 		using S = typename vector_traits<Quat>::element_t;
 		return FEqlAbsolute(AxisAngle(rhs * ~lhs).angle, S(0), tol);
-	}
-
-	// Quaternion FEql. Note: q == -q
-	template <QuaternionType Quat>
-	constexpr bool pr_vectorcall FEql(Quat lhs, Quat rhs) noexcept
-	{
-		using vt = vector_traits<Quat>;
-		using S = typename vt::element_t;
-
-		return
-			FEqlRelative(lhs.xyzw, +rhs.xyzw, tiny<S>) ||
-			FEqlRelative(lhs.xyzw, -rhs.xyzw, tiny<S>);
-	}
-
-	// Squared length of a quaternion
-	template <QuaternionType Quat>
-	constexpr typename vector_traits<Quat>::element_t pr_vectorcall LengthSq(Quat q) noexcept
-	{
-		return Dot(q.xyzw, q.xyzw);
-	}
-
-	// Length of a quaternion
-	template <QuaternionType Quat>
-	constexpr typename vector_traits<Quat>::element_t pr_vectorcall Length(Quat q) noexcept
-	{
-		return Sqrt(LengthSq(q));
-	}
-
-	// Dot product of two quaternions. Note: q and -q represent the same rotation, but have opposite signs for the dot product
-	template <QuaternionType Quat>
-	constexpr typename vector_traits<Quat>::element_t pr_vectorcall Dot(Quat lhs, Quat rhs) noexcept
-	{
-		return Dot(lhs.xyzw, rhs.xyzw); // = Cos(theta/2)
 	}
 
 	// Returns the value of 'cos(theta / 2)', where 'theta' is the angle between 'a' and 'b'

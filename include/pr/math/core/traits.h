@@ -30,6 +30,10 @@ namespace pr::math
 	template <typename T>
 	concept VectorTypeFP = VectorType<T> && std::floating_point<typename vector_traits<std::remove_cv_t<T>>::element_t>;
 
+	// Concept for integral vectors
+	template <typename T>
+	concept VectorTypeInt = VectorType<T> && std::integral<typename vector_traits<std::remove_cv_t<T>>::element_t>;
+
 	// Concept for boolean vectors
 	template <typename T>
 	concept VectorTypeBool = VectorType<T> && std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, bool>;
@@ -37,14 +41,6 @@ namespace pr::math
 	// Concept for quaternion-like types
 	template <typename T>
 	concept QuaternionType = vector_traits<std::remove_cv_t<T>>::is_quaternion_v;
-
-	// Concept for either a vector or quaternion-like type
-	template <typename T>
-	concept TensorType = VectorType<T> || QuaternionType<T>;
-
-	// Concept for either a vector or quaternion-like type with a floating point element type
-	template <typename T>
-	concept TensorTypeFP = VectorTypeFP<T> || QuaternionType<T>;
 
 	// Concept for rank-1 vectors
 	template <typename T>
@@ -54,9 +50,9 @@ namespace pr::math
 	template <typename T>
 	concept IsRank2 = VectorType<T> && VectorType<typename vector_traits<T>::component_t> && !VectorType<typename vector_traits<typename vector_traits<T>::component_t>::component_t>;
 
-	// Concept to ensure two vector types have the same element type
+	// Concept to ensure two vector/quaternion types have the same element type
 	template <typename T, typename U>
-	concept SameS = TensorType<T> && TensorType<U> && std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, typename vector_traits<std::remove_cv_t<U>>::element_t>;
+	concept SameS = std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, typename vector_traits<std::remove_cv_t<U>>::element_t>;
 
 	// Concept for vector types that support array access (e.g. m[i])
 	template <typename T>
@@ -81,7 +77,7 @@ namespace pr::math
 		inline static constexpr int dimension = 4;
 		inline static constexpr bool is_vector_v = false;
 		inline static constexpr bool is_quaternion_v = true;
-		template <ScalarType S> using rebind = Vec4<S>;
+		static void cast_vec4(...) noexcept { static_assert(sizeof(ElementType) == 0, "cast_vec4 not implemented for this type"); }
 	};
 
 	// Adapters for accessing the members of typical vector types
@@ -123,7 +119,7 @@ namespace pr::math
 	};
 
 	// Vector component access
-	template <TensorType Vec> [[msvc::forceinline]] constexpr auto vec(Vec& v) noexcept
+	template <typename Vec> [[msvc::forceinline]] constexpr auto vec(Vec& v) noexcept requires (VectorType<Vec> || QuaternionType<Vec>)
 	{
 		using vt = vector_traits<std::remove_cv_t<Vec>>;
 		using S = std::conditional_t<std::is_const_v<Vec>, typename vt::component_t, typename vt::component_t&>;
@@ -139,7 +135,7 @@ namespace pr::math
 		else if constexpr (vt::dimension == 4) return Proxy4{vt::x(v), vt::y(v), vt::z(v), vt::w(v)};
 		else static_assert(vt::dimension <= 4);
 	}
-	template <TensorType Vec> [[msvc::forceinline]] constexpr auto vec(Vec&& v) noexcept
+	template <typename Vec> [[msvc::forceinline]] constexpr auto vec(Vec&& v) noexcept requires (VectorType<Vec> || QuaternionType<Vec>)
 	{
 		using vt = vector_traits<std::remove_cv_t<Vec>>;
 		using S = typename vt::component_t;
