@@ -15,15 +15,15 @@ float LightVisibility(uniform Shadow shadow, float4 ws_pos)
 	float visibility = 1.0f;
 	for (int i = 0; i != ShadowMapCount(shadow); ++i)
 	{
-		float2 nf = ClipPlanes(shadow.m_l2s[i]);
+		float2 nf = ClipPlanes(shadow.l2s[i]);
 
 		// Get the distance from the light, normalised within the projection volume
-		float4 ls_pos = mul(ws_pos, shadow.m_w2l[i]);
+		float4 ls_pos = mul(ws_pos, shadow.w2l[i]);
 		float z = Frac(nf.y, -ls_pos.z, nf.x);
 		z = saturate(z);
 
 		// Get the distance from the light, from the shadow map
-		float4 ss_pos = mul(ls_pos, shadow.m_l2s[i]);
+		float4 ss_pos = mul(ls_pos, shadow.l2s[i]);
 		float2 uv = 0.5*float2(1.0 + ss_pos.x, 1.0 - ss_pos.y);
 
 		// Sample the SMAP in a patch
@@ -39,7 +39,7 @@ float LightVisibility(uniform Shadow shadow, float4 ws_pos)
 		float lit = 0.0;
 		[unroll] for (int s = 0; s != NumSmapSamples; ++s)
 		{
-			lit += m_smap_texture[i].SampleCmpLevelZero(m_smap_sampler, uv, z + Eps, Ofs[s]);
+			lit += g_smap_texture[i].SampleCmpLevelZero(g_smap_sampler, uv, z + Eps, Ofs[s]);
 		}
 		lit /= NumSmapSamples;
 

@@ -16,7 +16,13 @@ struct Triangle
 
 static const int ThreadGroupSize = 32;
 
+struct CbParams
+{
+	int NumTriangles;
+};
+
 // Buffer bindings
+ConstantBuffer<CbParams> resource(Constants, b0);
 StructuredBuffer<Triangle> resource(InputTriangles, t0);
 RWStructuredBuffer<float4> resource(OutputNormals, u0);
 
@@ -41,6 +47,9 @@ float4 FaceNormal(float4 a, float4 b, float4 c)
 numthreads(CSFaceNormal, ThreadGroupSize, 1, 1)
 void CSFaceNormal(int3 DTID(dtid))
 {
+	if (dtid.x >= Constants.NumTriangles)
+		return;
+	
 	OutputNormals[dtid.x] = FaceNormal(
 		InputTriangles[dtid.x].a,
 		InputTriangles[dtid.x].b,

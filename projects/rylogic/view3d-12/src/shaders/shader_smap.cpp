@@ -52,8 +52,8 @@ namespace pr::rdr12::shaders
 	{
 		// Set the frame constants
 		CBufFrame cb0 = {};
-		cb0.m_w2l = caster.m_params.m_w2ls;
-		cb0.m_l2s = caster.m_params.m_ls2s;
+		cb0.w2l = caster.m_params.m_w2ls;
+		cb0.l2s = caster.m_params.m_ls2s;
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
 	}

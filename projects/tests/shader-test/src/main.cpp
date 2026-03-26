@@ -16,6 +16,12 @@ namespace shader
 	int EntryPoint()
 	{
 		// Do buffer setup here
+		InputTriangles.push_back({ {}, {}, {} });
+		InputTriangles.push_back({ {}, {}, {} });
+		InputTriangles.push_back({ {}, {}, {} });
+		InputTriangles.push_back({ {}, {}, {} });
+		Constants.NumTriangles = int(InputTriangles.size());
+		OutputNormals.resize(Constants.NumTriangles);
 
 		GpuEmulator emu(CSFaceNormal, CSFaceNormal_NumThreads);
 		emu.Dispatch({ 1, 1, 1 });

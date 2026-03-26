@@ -91,7 +91,7 @@ namespace pr::rdr12
 	template <typename T> constexpr size_t cbuf_size_aligned_v = PadTo<size_t>(sizeof(T), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 
 	// Set the CBuffer model constants flags
-	template <typename TCBuf> requires(requires(TCBuf x) { x.m_flags; })
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.flags; })
 	void SetFlags(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug, bool env_mapped)
 	{
 		auto model_flags = 0;
@@ -140,26 +140,26 @@ namespace pr::rdr12
 			inst_id = UniqueId(inst);
 		}
 
-		cb.m_flags = iv4{ model_flags, texture_flags, alpha_flags, inst_id };
+		cb.flags = iv4{ model_flags, texture_flags, alpha_flags, inst_id };
 	}
 
 	// Set the transform properties of a constants buffer
-	template <typename TCBuf> requires(requires(TCBuf x) { x.m_o2w; x.m_n2w; })
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2w; cb.n2w; })
 	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model)
 	{
 		m4x4 o2w = GetO2W(inst);
 		m4x4 m2o = model ? model->m_m2root : m4x4::Identity();
 
-		cb.m_m2o = m2o;
-		cb.m_o2w = o2w;
+		cb.m2o = m2o;
+		cb.o2w = o2w;
 
 		// Orthonormalise the rotation part of the normal to world transform (allowing for scale matrices)
-		cb.m_n2w = cb.m_o2w;
-		cb.m_n2w.x = Normalise(cb.m_n2w.x, v4::Zero());
-		cb.m_n2w.y = Normalise(Cross(cb.m_n2w.z, cb.m_n2w.x), v4::Zero());
-		cb.m_n2w.z = Cross(cb.m_n2w.x, cb.m_n2w.y);
+		cb.n2w = cb.o2w;
+		cb.n2w.x = Normalise(cb.n2w.x, v4::Zero());
+		cb.n2w.y = Normalise(Cross(cb.n2w.z, cb.n2w.x), v4::Zero());
+		cb.n2w.z = Cross(cb.n2w.x, cb.n2w.y);
 	}
-	template <typename TCBuf> requires(requires(TCBuf x) { x.m_o2s; x.m_o2w; x.m_n2w; })
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2s; cb.o2w; cb.n2w; })
 	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model, SceneCamera const& view)
 	{
 		SetTxfm(cb, inst, model);
@@ -169,56 +169,56 @@ namespace pr::rdr12
 		m4x4 c2s = FindC2S(inst, c2s) ? c2s : view.CameraToScreen();
 
 		// Set the object to screen projection
-		cb.m_o2s = c2s * w2c * o2w;
+		cb.o2s = c2s * w2c * o2w;
 	}
 
 	// Set the tint properties of a constants buffer
-	template <typename TCBuf> requires(requires(TCBuf x) { x.m_tint; })
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; })
 	void SetTint(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
 	{
 		auto col = inst.find<Colour32>(EInstComp::TintColour32);
 		auto c = Colour((col ? *col : Colour32White) * nug.m_tint);
-		cb.m_tint = c.rgba;
+		cb.tint = c.rgba;
 	}
 
 	// Set the texture properties of a constants buffer
-	template <typename TCBuf> requires (requires(TCBuf x) { x.m_tex2surf0; })
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.tex2surf0; })
 	void SetTex2Surf(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
 	{
 		auto tex = coalesce(FindDiffTexture(inst), nug.m_tex_diffuse);
-		cb.m_tex2surf0 = tex != nullptr
+		cb.tex2surf0 = tex != nullptr
 			? tex->m_t2s
 			: m4x4::Identity();
 	}
 
 	// Set the environment map properties of a constants buffer
-	template <typename TCBuf> requires (requires(TCBuf x) { x.m_env_reflectivity; })
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.env_reflectivity; })
 	void SetReflectivity(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
 	{
 		auto reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
-		cb.m_env_reflectivity = reflectivity != nullptr
+		cb.env_reflectivity = reflectivity != nullptr
 			? *reflectivity * nug.m_rel_reflec
 			: 0.0f;
 	}
 
 	// Set screen space, per instance constants
-	template <typename TCBuf> requires (requires(TCBuf x) { x.m_screen_dim; x.m_size; x.m_depth; })
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.screen_dim; cb.size; cb.depth; })
 	void SetScreenSpace(TCBuf& cb, BaseInstance const& inst, Scene const& scene, v2 size, bool depth)
 	{
 		auto sz = inst.find<v2>(EInstComp::SSSize);
 		auto rt_size = scene.wnd().BackBufferSize();
-		cb.m_screen_dim = To<v2>(rt_size);
-		cb.m_size = sz ? *sz : size;
-		cb.m_depth = depth;
+		cb.screen_dim = To<v2>(rt_size);
+		cb.size = sz ? *sz : size;
+		cb.depth = depth;
 	}
 
 	// Set the scene view constants
 	inline void SetViewConstants(shaders::Camera& cb, SceneCamera const& view)
 	{
-		cb.m_c2w = view.CameraToWorld();
-		cb.m_c2s = view.CameraToScreen();
-		cb.m_w2c = InvertOrthonormal(cb.m_c2w);
-		cb.m_w2s = cb.m_c2s * cb.m_w2c;
+		cb.c2w = view.CameraToWorld();
+		cb.c2s = view.CameraToScreen();
+		cb.w2c = InvertOrthonormal(cb.c2w);
+		cb.w2s = cb.c2s * cb.w2c;
 	}
 
 	// Set the lighting constants
@@ -228,13 +228,13 @@ namespace pr::rdr12
 		auto pos = light.m_cam_relative ? view.CameraToWorld() * light.m_position : light.m_position;
 		auto dir = light.m_cam_relative ? view.CameraToWorld() * light.m_direction : light.m_direction;
 
-		cb.m_info         = iv4(int(light.m_type),0,0,0);
-		cb.m_ws_direction = dir;
-		cb.m_ws_position  = pos;
-		cb.m_ambient      = Colour(light.m_ambient).rgba;
-		cb.m_colour       = Colour(light.m_diffuse).rgba;
-		cb.m_specular     = Colour(light.m_specular, light.m_specular_power).rgba;
-		cb.m_spot         = v4(light.m_inner_angle, light.m_outer_angle, light.m_range, light.m_falloff);
+		cb.info         = iv4(int(light.m_type),0,0,0);
+		cb.ws_direction = dir;
+		cb.ws_position  = pos;
+		cb.ambient      = Colour(light.m_ambient).rgba;
+		cb.colour       = Colour(light.m_diffuse).rgba;
+		cb.specular     = Colour(light.m_specular, light.m_specular_power).rgba;
+		cb.spot         = v4(light.m_inner_angle, light.m_outer_angle, light.m_range, light.m_falloff);
 	}
 
 	// Set the shadow map constants
@@ -251,10 +251,10 @@ namespace pr::rdr12
 			if (i == shaders::MaxShadowMaps)
 				break;
 
-			cb.m_info.x = i + 1;
-			cb.m_info.y = caster.m_size;
-			cb.m_w2l[i] = caster.m_params.m_w2ls;
-			cb.m_l2s[i] = caster.m_params.m_ls2s;
+			cb.info.x = i + 1;
+			cb.info.y = caster.m_size;
+			cb.w2l[i] = caster.m_params.m_w2ls;
+			cb.l2s[i] = caster.m_params.m_ls2s;
 			++i;
 		}
 	}
@@ -263,6 +263,6 @@ namespace pr::rdr12
 	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map)
 	{
 		if (env_map == nullptr) return;
-		cb.m_w2env = InvertOrthonormal(env_map->m_cube2w);
+		cb.w2env = InvertOrthonormal(env_map->m_cube2w);
 	}
 }

@@ -7,6 +7,9 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 
+// ConstantBuffers
+ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
+
 // Converts line segments into tristrip
 void GSThickLineList(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
 {
@@ -31,11 +34,11 @@ void GSThickLineList(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
 	p1 /= p1.w;
 
 	// Line direction and perpendicular in screen space
-	float width = max(1.0f, m_size.x * 0.5f);
+	float width = max(1.0f, g_ss.size.x * 0.5f);
 	float2 lin = (p1 - p0).xy;
-	float2 dir = normalize(lin * m_screen_dim.xy);
-	float2 tang = dir / m_screen_dim.xy;
-	float2 perp = float2(-dir.y, dir.x) / m_screen_dim.xy;
+	float2 dir = normalize(lin * g_ss.screen_dim.xy);
+	float2 tang = dir / g_ss.screen_dim.xy;
+	float2 perp = float2(-dir.y, dir.x) / g_ss.screen_dim.xy;
 
 	// {0, cos(tau/16), cos(tau*2/16), cos(tau*3/16)};
 	const float X[5] = { 1, 0.92387953251, 0.70710678118, 0.38268343236, 0 };

@@ -29,8 +29,8 @@ namespace pr::rdr12::shaders
 			auto& diag = scene.wnd().m_diag;
 
 			fwd::CBufDiag cb = {
-				.m_colour = Colour(diag.m_normal_colour).rgba,
-				.m_length = diag.m_normal_lengths,
+				.colour = Colour(diag.m_normal_colour).rgba,
+				.length = diag.m_normal_lengths,
 			};
 			auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 			cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);

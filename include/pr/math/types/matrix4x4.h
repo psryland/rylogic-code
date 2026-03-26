@@ -71,12 +71,12 @@ namespace pr::math
 		}
 
 		// Explicit cast to Mat3x3. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
-		template <ScalarType S2> constexpr explicit operator Mat3x3<S2>() const noexcept
+		constexpr explicit operator Mat3x3<S>() const noexcept
 		{
-			return Mat3x3<S2>(
-				static_cast<Vec4<S2>>(x),
-				static_cast<Vec4<S2>>(y),
-				static_cast<Vec4<S2>>(z)
+			return Mat3x3<S>(
+				static_cast<Vec4<S>>(x),
+				static_cast<Vec4<S>>(y),
+				static_cast<Vec4<S>>(z)
 			);
 		}
 
@@ -84,14 +84,12 @@ namespace pr::math
 		constexpr Vec4<S> const& operator [](int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < 4 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; } else { return arr[i]; }
 		}
 		constexpr Vec4<S>& operator [](int i) noexcept
 		{
 			pr_assert(i >= 0 && i < 4 && "index out of range");
-			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; }
-			else { return arr[i]; }
+			if consteval { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; } else { return arr[i]; }
 		}
 
 		// Constants

@@ -8,6 +8,10 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
 
+#ifdef __cplusplus
+namespace las {
+#endif
+
 struct PSOut
 {
 	float4 diff :SV_TARGET;
@@ -92,7 +96,7 @@ PSIn VSProceduralSky(VSIn In)
 // Pixel shader: procedural atmospheric sky
 PSOut PSProceduralSky(PSIn In)
 {
-	PSOut Out = (PSOut)0;
+	PSOut Out = (PSOut) 0;
 
 	float3 view_dir = normalize(In.ws_norm.xyz);
 	float3 sky = AtmosphericSky(view_dir, m_sun_direction.xyz, m_sun_intensity);
@@ -100,3 +104,7 @@ PSOut PSProceduralSky(PSIn In)
 	Out.diff = float4(sky, 1.0);
 	return Out;
 }
+
+#ifdef __cplusplus
+}
+#endif

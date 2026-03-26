@@ -2,7 +2,6 @@
 	"root": true,
 	"hlsl.additionalIncludeDirectories": [
 		"include",
-		"projects/rylogic/view3d-12",
-		"projects/rylogic/physics"
+		"projects/rylogic"
 	]
 }

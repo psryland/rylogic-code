@@ -26,9 +26,9 @@ namespace pr::rdr12::shaders
 	void ThickLineStripGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {};
-		cb.m_size = v2(m_width, m_width);
-		cb.m_screen_dim = To<v2>(scene.wnd().BackBufferSize());
-		cb.m_depth = false;
+		cb.size = v2(m_width, m_width);
+		cb.screen_dim = To<v2>(scene.wnd().BackBufferSize());
+		cb.depth = false;
 		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);
 	}
@@ -50,9 +50,9 @@ namespace pr::rdr12::shaders
 	void ThickLineListGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {};
-		cb.m_size = v2(m_width, m_width);
-		cb.m_screen_dim = To<v2>(scene.wnd().BackBufferSize());
-		cb.m_depth = false;
+		cb.size = v2(m_width, m_width);
+		cb.screen_dim = To<v2>(scene.wnd().BackBufferSize());
+		cb.depth = false;
 		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);
 	}

@@ -4,7 +4,6 @@
 //***********************************************
 #ifndef PR_VIEW3D_SHADER_RAY_CAST_CBUF_HLSL
 #define PR_VIEW3D_SHADER_RAY_CAST_CBUF_HLSL
-
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 // The maximum number of rays in a single pass
@@ -32,14 +31,14 @@ struct Ray
 	float4 ws_direction;
 	
 	// Combination of 'ESnapMode'. What sort of snapping to perform
-	int m_snap_mode;
+	int snap_mode;
 
 	// The snap distance.
 	// If 'snap_mode' is not perspective, then this is the distance in world space units.
 	// If 'snap_mode' is perspective, then distance is calculated from 'distance-from-ray-origin * snap_distance'.
-	float m_snap_distance;
+	float snap_distance;
 
-	int m_id;
+	int id;
 	int pad0;
 };
 
@@ -54,13 +53,13 @@ struct Intercept
 };
 
 // Per-frame constants
-cbuffer CBufFrame :reg(b0)
+struct CBufFrame //:reg(b0)
 {
 	// The rays to cast
-	Ray m_rays[MaxRays];
+	Ray rays[MaxRays];
 
 	// The number of rays to cast
-	uint m_ray_count;
+	uint ray_count;
 
 	uint pad0;
 	uint pad1;
@@ -68,21 +67,21 @@ cbuffer CBufFrame :reg(b0)
 };
 
 // Per-nugget constants
-cbuffer CBufNugget :reg(b1)
+struct CBufNugget //:reg(b1)
 {
 	// x = Model flags - See types.hlsli
 	// y = Texture flags
 	// z = Alpha flags
 	// w = Instance Id
-	int4 m_flags;
+	int4 flags;
 
 	// Object transform
-	row_major float4x4 m_m2o; // model to object space
-	row_major float4x4 m_o2w; // object to world
-	row_major float4x4 m_n2w; // normal to world
+	row_major float4x4 m2o; // model to object space
+	row_major float4x4 o2w; // object to world
+	row_major float4x4 n2w; // normal to world
 
 	// Instance pointer
-	voidp m_inst_ptr;
+	voidp inst_ptr;
 };
 
 #endif
