@@ -5,13 +5,10 @@
 // Unit tests that compare GPU GJK collision results against CPU GJK collision results.
 // Each test creates a pair of shapes, runs both the CPU path (GjkCollide) and the
 // GPU path (GpuDetectCollisions), and verifies the results match within tolerance.
-#pragma once
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/col_gjk.h"
-#include "pr/collision/shapes.h"
-#include "pr/physics/integrator/engine_config.h"
+#include "pr/physics/physics.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/collide_gpu.h"
 #include "src/collision/shape_cache.h"
@@ -182,4 +179,5 @@ namespace pr::physics::tests
 		}
 	};
 }
+namespace pr::physics::tests { void ForceLink_GpuCollision() {} }
 #endif

@@ -2,214 +2,196 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2016
 //************************************
-#pragma once
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/physics/integrator/impulse.h"
+#include "pr/physics/physics.h"
 
 namespace pr::physics::tests
 {
-	//HACK todo fix this!
 	PRUnitTestClass(ImpulseTests)
 	{
-		PRUnitTestMethod(ImpulseTests)
+		// Head-on collision through CoM, unequal masses.
+		// ObjA (10kg, stationary) vs ObjB (5kg, moving at -1 m/s along X).
+		// Perfectly elastic, frictionless.
+		PRUnitTestMethod(HeadOnThroughCoM)
 		{
-			#if 0
-			ShapeSphere sph(0.5f);
-			ShapeBox    box(v4{maths::inv_root2f, maths::inv_root2f, maths::inv_root2f, 0}, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4::Origin()));
-			RigidBody objA(&box, m4x4::Transform(0, 0, 0, v4{-0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
-			RigidBody objB(&box, m4x4::Transform(0, 0, 0, v4{+0.5f, 0, 1, 1}), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
+			RigidBody objA(&box, m4x4::Translation(-0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			RigidBody objB(&box, m4x4::Translation(+0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 5.0f));
 
-			Contact c(objA, objB);
-			ImpulsePair impulse_pair;
-			{
-				// Normal collision through the CoM for both objects, unequal masses.
-				objA.Mass(10);
-				objB.Mass(5);
-				objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
-				objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1, 0, 0, 0});
-				c.m_axis = v4{1,0,0,0};
-				c.m_point = v4{0.5f, 0, 0, 0};
-				c.m_mat.m_friction_static =  0.0f; // frictionless
-				c.m_mat.m_elasticity_norm = +1.0f; // elastic
-				c.m_mat.m_elasticity_tors = +1.0f; // elastic
-				c.update(0);
-				Dump(c);
+			Material bouncy = {
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 1.0f,
+				.m_elasticity_tang = 0.0f,
+			};
 
-				impulse_pair = RestitutionImpulse(c);
-				objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
-				objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-				auto velA = objA.VelocityWS();
-				auto velB = objB.VelocityWS();
-				PR_EXPECT(FEql(velA, v8motion{0,0,0, -2.0f/3.0f,0,0}));
-				PR_EXPECT(FEql(velB, v8motion{0,0,0, +1.0f/3.0f,0,0}));
-			}
-			{
-				// Normal collision, not through the CoM for both objects, unequal masses.
-				objA.Mass(10);
-				objB.Mass(5);
-				objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
-				objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1,-1, 0, 0});
-				c.m_axis = Normalise(v4{1,1,0,0});
-				c.m_point = v4{0.5f, 0, 0, 0};
-				c.m_mat.m_friction_static = 1.0f; // sticky
-				c.m_mat.m_elasticity_norm = 1.0f; // elastic
-				c.m_mat.m_elasticity_tors = 1.0f; // elastic
-				c.update(0);
-				Dump(c);
+			objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
+			objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1, 0, 0, 0});
 
-				// Tangential component is frictionless so velocity should be reflected
-				impulse_pair = RestitutionImpulse(c);
-				objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
-				objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-				auto velA = objA.VelocityWS();
-				auto velB = objB.VelocityWS();
-				PR_EXPECT(FEql(velA, v8motion{0,0,-1.14286f, -2.0f/3.0f,-0.285714f, 0}));
-				PR_EXPECT(FEql(velB, v8motion{0,0,-1.14286f, +1.0f/3.0f,-0.428572f, 0}));
-			}
-			{
-				// Off-Normal collision, not through the CoM for both objects, equal masses.
-				objA.Mass(10);
-				objB.Mass(10);
-				objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
-				objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1,-1, 0, 0});
-				c.m_axis = Normalise(v4{Cos(constants<float>::tau/16), Sin(constants<float>::tau/16),0,0});
-				c.m_point = v4{0.5f, 0, 0, 0};
-				c.m_mat.m_friction_static = 0.0f; // frictionless
-				c.m_mat.m_elasticity_norm = 1.0f; // elastic
-				c.m_mat.m_elasticity_tors = -1.0f; // anti-elastic
-				c.update(0);
-				Dump(c);
+			RbContact c(objA, objB);
+			c.m_axis = v4{1,0,0,0};
+			c.m_point = v4{0.5f, 0, 0, 0};
+			c.m_mat = bouncy;
+			c.Update(0);
 
-				// Tangential component is frictionless so velocity should be reflected
-				impulse_pair = RestitutionImpulse(c);
-				objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
-				objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-				auto velA = objA.VelocityWS();
-				auto velB = objB.VelocityWS();
-				//PR_EXPECT(FEql(velA, v8motion{0,0,-0.228571f, -0.733333f,-0.228571f, 0}));
-				//PR_EXPECT(FEql(velB, v8motion{0,0,-2.28571f, +0.466666f,-0.542857f, 0}));
+			auto impulse_pair = RestitutionImpulse(c);
+			objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
+			objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
+			auto velA = objA.VelocityWS();
+			auto velB = objB.VelocityWS();
 
-				auto dvel = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
-				auto vout = dvel.LinAt(c.m_point);
-				auto expected_vout = v4{-1,-1,0,0} - 2 * Dot(v4{-1,-1,0,0}, c.m_axis) * c.m_axis;
-				PR_EXPECT(FEql(vout, expected_vout));
-			}
-			{
-				// Tangential impulse. Glancing collision from two rotating, but not translating, objects.
-				objA.Mass(10);
-				objB.Mass(10);
-				objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
-				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
-				c.m_axis = v4{1,0,0,0};
-				c.m_point = v4{0.5f, 0, 0, 0};
-				c.m_mat.m_friction_static = 1.0f; // sticky
-				c.m_mat.m_elasticity_norm = 1.0f; // elastic
-				c.m_mat.m_elasticity_tors = 1.0f; // elastic
-				c.update(0);
-				Dump(c);
+			// 1D elastic: vA' = 2*5*(-1)/(10+5) = -2/3, vB' = ((5-10)*(-1))/(10+5) = 1/3
+			PR_EXPECT(FEql(velA, v8motion{0,0,0, -2.0f/3.0f,0,0}));
+			PR_EXPECT(FEql(velB, v8motion{0,0,0, +1.0f/3.0f,0,0}));
+		}
 
-				// Collision should produce a near-zero impulse because the collision is
-				// friction less, there is a tiny normal component, and the relative
-				// velocity at the contact point is nearly zero.
-				impulse_pair = RestitutionImpulse(c);
-				PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objA, v8force{}, 0.001f));
-				PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objB, v8force{}, 0.001f));
-			}
-			{
-				// Change the angular velocity so that the collision point now does have opposing velocity.
-				objA.Mass(10);
-				objB.Mass(10);
-				objA.VelocityWS(v4{0, 0, +1, 0}, v4{});
-				objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
-				c.m_axis = v4{1,0,0,0};
-				c.m_point = v4{0.5f, 0, 0, 0};
-				c.m_mat.m_friction_static = 1.0f; // sticky
-				c.m_mat.m_elasticity_norm = 1.0f; // elastic
-				c.m_mat.m_elasticity_tors = 1.0f; // elastic
-				c.update(0);
-				Dump(c);
+		// Off-normal collision with sticky (friction + tangential elasticity) material.
+		// Contact normal is at 45° between X and Y.
+		PRUnitTestMethod(OffNormalSticky)
+		{
+			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
+			RigidBody objA(&box, m4x4::Translation(-0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			RigidBody objB(&box, m4x4::Translation(+0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 5.0f));
 
-				// Impulses are still near zero because the normal component of the impulse is zero
-				impulse_pair = RestitutionImpulse(c);
-				PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objA, v8force{0,0,-2, 0,-4,0}, 0.001f));
-				PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objB, v8force{0,0,-2, 0,+4,0}, 0.001f));
-			}
-			//{
-			//	// Same setup, but with elastic tangential should still be zero because
-			//	// the relative velocity is nearly zero at the contact point
-			//	objA.Mass(10);
-			//	objB.Mass(10);
-			//	objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
-			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
-			//	c.m_axis = v4{1,0,0,0};
-			//	c.m_point = v4{0.5f, 0, 0, 0};
-			//	c.m_mat.m_friction_static = 1.0f;
-			//	c.m_mat.m_elasticity_norm = 1.0f; // elastic
-			//	c.m_mat.m_elasticity_tors = -1.0f; // elastic
-			//	c.update();
-			//	Dump(c);
+			Material sticky = {
+				.m_friction_static = 1.0f,
+				.m_elasticity_norm = 1.0f,
+				.m_elasticity_tang = 1.0f,
+			};
 
-			//	impulse_pair = RestitutionImpulse(c);
-			//	PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objA, v8force{}, 0.001f));
-			//	PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objB, v8force{}, 0.001f));
-			//}
-			//{
-			//	// Glancing collision from two rotating, but not translating, objects.
-			//	// Collision should reverse the rotations because the collision is tangentially elastic.
-			//	RigidBody objA(&sph, m4x4::Transform(0, 0,                0, v4{-0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
-			//	RigidBody objB(&box, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));//Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
-			//
-			//	// Spin the same way so that the contact point has opposing velocity.
-			//	objA.VelocityWS(v4{0, 0, +1, 0}, v4{});
-			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{});
-			//
-			//	Contact c(objA, objB);
-			//	c.m_axis = v4{1,0,0,0};
-			//	c.m_point = v4{0.5f, 0, 0, 0};
-			//	c.m_velocity = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
-			//	c.m_mat.m_elasticity_norm = 1.0f; // elastic
-			//	c.m_mat.m_elasticity_tang = -1.0f; // elastic
-			//
-			//	Dump(c);
-			//
-			//	auto impulse_pair = RestitutionImpulse(c);
-			//	objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
-			//	objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-			//
-			//	auto velA = objA.VelocityWS();
-			//	auto velB = objB.VelocityWS();
-			//	PR_EXPECT(FEql(velA, v8motion{0, 0, -0.428571f,  0, -0.285714f, +0}));
-			//	PR_EXPECT(FEql(velB, v8motion{0, 0, -0.428571f,  0, +0.285714f, +0}));
-			//}
-			//{// ObjA and ObjB rotating in opposite directions, should stop after collision impulses
-			//	ShapeSphere sph(0.5f);
-			//	RigidBody objA(&sph, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{-0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
-			//	RigidBody objB(&sph, m4x4::Transform(0, 0, constants<float>::tau_by_8, v4{+0.5f, 0, 1, 1}), Inertia::Sphere(0.5f, 10.0f));
-			//
-			//	objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
-			//	objB.VelocityWS(v4{0, 0, +1, 0}, v4{});
-			//
-			//	Contact c(objA, objB);
-			//	c.m_axis = v4{1,0,0,0};
-			//	c.m_point = v4{0.5f, 0, 0, 0};
-			//	c.m_velocity = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
-			//	c.m_mat.m_elasticity_norm = 1.0f;
-			//	c.m_mat.m_elasticity_tang = 0.0f;
-			//
-			//	auto impulse_pair = RestitutionImpulse(c);
-			//	objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
-			//	objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
-			//
-			//	// 
-			//	PR_EXPECT(FEql(objA.O2W().pos, v4{-0.5f, 0, 1, 1}));
-			//	PR_EXPECT(FEql(objB.O2W().pos, v4{+0.5f, 0, 1, 1}));
-			//	PR_EXPECT(FEql(objA.VelocityWS(), v8motion{}));
-			//	PR_EXPECT(FEql(objB.VelocityWS(), v8motion{}));
-			//}
-			#endif
+			objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
+			objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1,-1, 0, 0});
+
+			RbContact c(objA, objB);
+			c.m_axis = Normalise(v4{1,1,0,0});
+			c.m_point = v4{0.5f, 0, 0, 0};
+			c.m_mat = sticky;
+			c.Update(0);
+
+			auto impulse_pair = RestitutionImpulse(c);
+			objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
+			objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
+			auto velA = objA.VelocityWS();
+			auto velB = objB.VelocityWS();
+
+			// Verify momentum conservation (total momentum before = after)
+			// Before: pA = 0, pB = 5*(-1,-1,0) = (-5,-5,0). Total = (-5,-5,0)
+			// After:  pA = 10*velA.lin, pB = 5*velB.lin
+			auto total_lin_before = v4{-5, -5, 0, 0};
+			auto total_lin_after = 10.0f * velA.lin + 5.0f * velB.lin;
+			PR_EXPECT(FEqlRelative(total_lin_after, total_lin_before, 0.001f));
+		}
+
+		// Off-normal frictionless collision between equal masses.
+		// Only the normal component should change; tangential velocity is preserved.
+		PRUnitTestMethod(OffNormalFrictionless)
+		{
+			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
+			RigidBody objA(&box, m4x4::Translation(-0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			RigidBody objB(&box, m4x4::Translation(+0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+
+			Material bouncy = {
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 1.0f,
+				.m_elasticity_tang = 0.0f,
+			};
+
+			objA.VelocityWS(v4{0, 0, 0, 0}, v4{+0, 0, 0, 0});
+			objB.VelocityWS(v4{0, 0, 0, 0}, v4{-1,-1, 0, 0});
+
+			auto axis = Normalise(v4{Cos(constants<float>::tau/16), Sin(constants<float>::tau/16),0,0});
+			RbContact c(objA, objB);
+			c.m_axis = axis;
+			c.m_point = v4{0.5f, 0, 0, 0};
+			c.m_mat = bouncy;
+			c.Update(0);
+
+			auto impulse_pair = RestitutionImpulse(c);
+			objA.MomentumOS(objA.MomentumOS() + impulse_pair.m_os_impulse_objA);
+			objB.MomentumOS(objB.MomentumOS() + impulse_pair.m_os_impulse_objB);
+
+			// The contact-point relative velocity should have its normal component reversed
+			// (elastic), and since this is frictionless the tangential component is unchanged.
+			auto dvel = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
+			auto vout = dvel.LinAt(c.m_point);
+			auto vn_out = Dot(vout, c.m_axis);
+
+			// For elastic collision, the normal component of relative velocity at the
+			// contact point should reverse sign.
+			auto vin = v4{-1,-1,0,0};
+			auto vn_in = Dot(vin, c.m_axis);
+			PR_EXPECT(FEqlRelative(vn_out, -vn_in, 0.05f));
+		}
+
+		// Glancing collision: rotating objects with nearly-zero normal approach.
+		// With frictionless material and tiny normal component, the impulse should be near zero.
+		PRUnitTestMethod(GlancingFrictionless)
+		{
+			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
+			RigidBody objA(&box, m4x4::Translation(-0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			RigidBody objB(&box, m4x4::Translation(+0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+
+			Material bouncy = {
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 1.0f,
+				.m_elasticity_tang = 0.0f,
+			};
+
+			// Spin both objects so the contact point moves but with near-zero normal approach
+			objA.VelocityWS(v4{0, 0, -1, 0}, v4{});
+			objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
+
+			RbContact c(objA, objB);
+			c.m_axis = v4{1,0,0,0};
+			c.m_point = v4{0.5f, 0, 0, 0};
+			c.m_mat = bouncy;
+			c.Update(0);
+
+			auto impulse_pair = RestitutionImpulse(c);
+			PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objA, v8force{}, 0.001f));
+			PR_EXPECT(FEqlRelative(impulse_pair.m_os_impulse_objB, v8force{}, 0.001f));
+		}
+
+		// Spinning objects with sticky material — contact point has opposing velocity.
+		// With tangential elasticity, this should produce an angular impulse.
+		PRUnitTestMethod(SpinningSticky)
+		{
+			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
+				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
+			RigidBody objA(&box, m4x4::Translation(-0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+			RigidBody objB(&box, m4x4::Translation(+0.5f, 0, 1), Inertia::Box(v4{0.5f,0.5f,0.5f,0}, 10.0f));
+
+			Material sticky = {
+				.m_friction_static = 1.0f,
+				.m_elasticity_norm = 1.0f,
+				.m_elasticity_tang = 1.0f,
+			};
+
+			// Spin the same way so the contact point has opposing velocity
+			objA.VelocityWS(v4{0, 0, +1, 0}, v4{});
+			objB.VelocityWS(v4{0, 0, +1, 0}, v4{-tiny<float>, 0, 0, 0});
+
+			RbContact c(objA, objB);
+			c.m_axis = v4{1,0,0,0};
+			c.m_point = v4{0.5f, 0, 0, 0};
+			c.m_mat = sticky;
+			c.Update(0);
+
+			// With sticky material and opposing tangential velocity, the impulse should be non-zero
+			auto impulse_pair = RestitutionImpulse(c);
+			PR_EXPECT(!FEqlRelative(impulse_pair.m_os_impulse_objA, v8force{}, 0.001f));
+			PR_EXPECT(!FEqlRelative(impulse_pair.m_os_impulse_objB, v8force{}, 0.001f));
+
+			// Momentum conservation: impulse on A should equal -impulse on B
+			auto total_impulse = impulse_pair.m_os_impulse_objA + impulse_pair.m_os_impulse_objB;
+			PR_EXPECT(FEqlRelative(total_impulse.lin, v4{}, 0.001f));
 		}
 	};
 }
+namespace pr::physics::tests { void ForceLink_Impulse() {} }
 #endif

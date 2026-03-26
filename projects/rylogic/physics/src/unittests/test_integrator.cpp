@@ -2,12 +2,11 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2016
 //************************************
-#pragma once
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/physics/integrator/integrator.h"
-#include "pr/physics/shape/inertia.h"
+#include "pr/physics/physics.h"
+#include "src/collision/shape_cache.h"
 
 namespace pr::physics::tests
 {
@@ -215,4 +214,5 @@ namespace pr::physics::tests
 		}
 	};
 }
+namespace pr::physics::tests { void ForceLink_Integrator() {} }
 #endif

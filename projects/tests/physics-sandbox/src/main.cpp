@@ -9,8 +9,7 @@
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
-#include "src/unittests/gpu_compare_tests.h"
-#include "src/unittests/collision_pair_tests.h"
+#include "physics/src/unittests/force_link.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
 #pragma comment(linker, "\"/manifestdependency:type='win32' \
@@ -39,6 +38,9 @@ namespace physics_sandbox
 		freopen_s(&fp, "CONOUT$", "w", stderr);
 
 		printf("Physics Sandbox: Running unit tests...\n");
+
+		// Ensure physics library test .obj files are linked in
+		pr::physics::tests::ForceLink_PhysicsTests();
 
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
