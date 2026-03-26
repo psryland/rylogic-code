@@ -150,6 +150,7 @@ namespace Rylogic.LDraw
 		Source = unchecked((int)466561496),
 		Specular = unchecked((int)3195258592),
 		Sphere = unchecked((int)2950268184),
+		SphereList = unchecked((int)3185373280),
 		Square = unchecked((int)3031831110),
 		Step = unchecked((int)3343129103),
 		Stretch = unchecked((int)3542801962),

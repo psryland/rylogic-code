@@ -267,6 +267,7 @@ class EKeyword(Enum):
 	Source = 466561496
 	Specular = 3195258592
 	Sphere = 2950268184
+	SphereList = 3185373280
 	Square = 3031831110
 	Step = 3343129103
 	Stretch = 3542801962

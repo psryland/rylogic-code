@@ -47,6 +47,72 @@ namespace Rylogic.LDraw
 		}
 
 		/// <summary>Create child object</summary>
+		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrBox();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrChart Chart(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrChart();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCircle();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCommands Command()
+		{
+			var child = new LdrCommands();
+			m_objects.Add(child);
+			return child;
+		}
+		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCone();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrConvexHull ConvexHull(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrConvexHull();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCoordFrame();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrCylinder();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrEquation Equation(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrEquation();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrFrustum();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrGrid Grid(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrGrid();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
 		public LdrGroup Group(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrGroup();
@@ -59,21 +125,9 @@ namespace Rylogic.LDraw
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrText Text(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrText();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
 		public LdrLightSource LightSource(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLightSource();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrPoint();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
@@ -89,123 +143,9 @@ namespace Rylogic.LDraw
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrGrid Grid(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrGrid();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCoordFrame();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCircle();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrPie Pie(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrPie();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrRect Rect(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrRect();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrPolygon Polygon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrPolygon();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrTriangle();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrQuad Quad(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrQuad();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrPlane();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrRibbon Ribbon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrRibbon();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrBox();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrBoxList BoxList(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrBoxList();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrFrustum();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrSphere();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCylinder();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrCone();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrTube Tube(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrTube();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
 		public LdrMesh Mesh(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrMesh();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrConvexHull ConvexHull(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrConvexHull();
-			m_objects.Add(child);
-			return child.name(name ?? new()).colour(colour ?? new());
-		}
-		public LdrChart Chart(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var child = new LdrChart();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
@@ -215,17 +155,71 @@ namespace Rylogic.LDraw
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrEquation Equation(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		public LdrPie Pie(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
-			var child = new LdrEquation();
+			var child = new LdrPie();
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrCommands Command()
+		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
-			var child = new LdrCommands();
+			var child = new LdrPoint();
 			m_objects.Add(child);
-			return child;
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPolygon Polygon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPolygon();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrPlane();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrQuad Quad(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrQuad();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrRect Rect(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrRect();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrRibbon Ribbon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrRibbon();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrSphere();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrText Text(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrText();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrTriangle();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
+		}
+		public LdrTube Tube(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var child = new LdrTube();
+			m_objects.Add(child);
+			return child.name(name ?? new()).colour(colour ?? new());
 		}
 
 		/// <summary>Switch data stream modes</summary>
@@ -917,7 +911,6 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
-
 	public class LdrRootAnimation
 	{
 		private string? m_style = null;
@@ -974,68 +967,783 @@ namespace Rylogic.LDraw
 	}
 
 	// Object types
-	public class LdrPoint : LdrBase<LdrPoint>
+	public class LdrBinaryStream : LdrBase<LdrBinaryStream>
 	{
-		private class Pt { public v4 pt; public Colour32 col; };
-		private readonly List<Pt> m_points = [];
-		private Serialiser.Size2 m_size = new();
-		private Serialiser.Depth m_depth = new();
-		private Serialiser.PointStyle m_style = new();
-		private Serialiser.PerItemColour m_per_item_colour = new();
-
-		public LdrPoint style(EPointStyle s)
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
 		{
-			m_style = new(s);
+			res.Write(EKeyword.BinaryStream);
+		}
+	}
+	public class LdrBox : LdrBase<LdrBox>
+	{
+		private class BoxData
+		{
+			public v4 m_whd;
+			public v4? m_pos;
+			public Colour32? m_col;
+		}
+		private readonly List<BoxData> m_boxes = [];
+
+		public LdrBox box(v4 whd, v4? pos = null, Colour32? col = null)
+		{
+			m_boxes.Add(new BoxData{ m_whd = whd, m_pos = pos, m_col = col });
+			return this;
+		}
+		public LdrBox box(float w, float h, float d, v4? pos = null, Colour32? col = null)
+		{
+			return box(new v4(w, h, d, 0), pos, col);
+		}
+		public LdrBox box(float s)
+		{
+			return box(s, s, s);
+		}
+		public LdrBox box(BBox bbox)
+		{
+			if (bbox == BBox.Reset) return this;
+			return box(2 * bbox.Radius, bbox.Centre);
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			var single = m_boxes.Count == 1 && m_boxes[0].m_pos == null && m_boxes[0].m_col == null;
+			var per_item_colour = m_boxes.Any(x => x.m_col != null);
+
+			res.Write(single ? EKeyword.Box : EKeyword.BoxList, m_name, m_colour, () =>
+			{
+				if (single)
+				{
+					res.Write(EKeyword.Data, m_boxes[0].m_whd);
+				}
+				else
+				{
+					if (per_item_colour)
+						res.Append(EKeyword.PerItemColour);
+
+					res.Write(EKeyword.Data, () =>
+					{
+						foreach (var b in m_boxes)
+						{
+							res.Append(b.m_whd.xyz, (b.m_pos ?? v4.Origin).xyz);
+							if (b.m_col != null)
+								res.Append(b.m_col);
+						}
+					});
+				}
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrChart : LdrBase<LdrChart>
+	{
+		public class LdrSeries
+		{
+			private Serialiser.Name m_name = new();
+			private Serialiser.Colour m_colour = new();
+			private string m_xaxis = string.Empty;
+			private string m_yaxis = string.Empty;
+			private Serialiser.Width m_width = new();
+			private Serialiser.Dashed m_dashed = new();
+			private Serialiser.Smooth m_smooth = new();
+			private Serialiser.DataPoints m_data_points = new();
+
+			/// <summary>Series name</summary>
+			public LdrSeries name(Serialiser.Name name)
+			{
+				m_name = name;
+				return this;
+			}
+
+			/// <summary>Series colour</summary>
+			public LdrSeries colour(Serialiser.Colour colour)
+			{
+				m_colour = colour;
+				return this;
+			}
+
+			/// <summary>X-axis expression (e.g. "C0", "CI")</summary>
+			public LdrSeries xaxis(string expr)
+			{
+				m_xaxis = expr;
+				return this;
+			}
+
+			/// <summary>Y-axis expression (e.g. "C1", "abs(C2 - C1)")</summary>
+			public LdrSeries yaxis(string expr)
+			{
+				m_yaxis = expr;
+				return this;
+			}
+
+			/// <summary>Line width</summary>
+			public LdrSeries width(float w)
+			{
+				m_width = new(w);
+				return this;
+			}
+
+			/// <summary>Dashed line pattern</summary>
+			public LdrSeries dashed(v2 dash)
+			{
+				m_dashed = new Serialiser.Dashed(dash);
+				return this;
+			}
+
+			/// <summary>Smooth the line</summary>
+			public LdrSeries smooth(bool on = true)
+			{
+				m_smooth = new(on);
+				return this;
+			}
+
+			/// <summary>Data point markers</summary>
+			public LdrSeries data_points(float size, Colour32? colour = null, EPointStyle? style = null)
+			{
+				return data_points(new v2(size, size), colour, style);
+			}
+			public LdrSeries data_points(v2 size, Colour32? colour = null, EPointStyle? style = null)
+			{
+				m_data_points = new Serialiser.DataPoints(size, colour, style);
+				return this;
+			}
+
+			// Write to 'out'
+			public void WriteTo(IWriter res)
+			{
+				res.Write(EKeyword.Series, m_name, m_colour, () =>
+				{
+					if (m_xaxis.Length != 0)
+						res.Write(EKeyword.XAxis, $"\"{m_xaxis}\"");
+					if (m_yaxis.Length != 0)
+						res.Write(EKeyword.YAxis, $"\"{m_yaxis}\"");
+					res.Append(m_width, m_dashed, m_smooth, m_data_points);
+				});
+			}
+		}
+		private string? m_filepath = null;
+		private int m_dim_columns = 0;
+		private int m_dim_rows = 0;
+		private readonly List<double> m_data = [];
+		private readonly List<LdrSeries> m_series = [];
+
+		/// <summary>Reference an external CSV data file (mutually exclusive with data)</summary>
+		public LdrChart filepath(string filepath)
+		{
+			m_filepath = Path_.Canonicalise(filepath);
 			return this;
 		}
 
-		// Points
-		public LdrPoint pt(v4 point, Colour32? colour = null)
+		/// <summary>Set the data dimensions (columns, and optionally rows)</summary>
+		public LdrChart dim(int columns, int rows = 0)
 		{
-			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrPoint pt(v3 point, Colour32? colour = null)
-		{
-			return pt(point.w1, colour);
-		}
-
-		// Point size (in pixels if depth == false, in world space if depth == true)
-		public LdrPoint size(float s)
-		{
-			m_size = new v2(s);
-			return this;
-		}
-		public LdrPoint size(v2 s)
-		{
-			m_size = s;
+			m_dim_columns = columns;
+			m_dim_rows = rows;
 			return this;
 		}
 
-		// Points have depth
-		public LdrPoint depth(bool d = true)
+		/// <summary>Add data values to the chart</summary>
+		public LdrChart data(params double[] values)
 		{
-			m_depth = new(d);
+			m_data.AddRange(values);
+			return this;
+		}
+
+		/// <summary>Add data values to the chart</summary>
+		public LdrChart data(IEnumerable<double> values)
+		{
+			m_data.AddRange(values);
+			return this;
+		}
+
+		/// <summary>Add a series to the chart</summary>
+		public LdrSeries Series(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
+		{
+			var s = new LdrSeries();
+			m_series.Add(s);
+			return s.name(name ?? new()).colour(colour ?? new());
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Chart, m_name, m_colour, () =>
+			{
+				if (m_filepath != null)
+				{
+					res.Write(EKeyword.FilePath, $"\"{m_filepath}\"");
+				}
+				if (m_dim_columns != 0)
+				{
+					if (m_dim_rows != 0)
+						res.Write(EKeyword.Dim, m_dim_columns, m_dim_rows);
+					else
+						res.Write(EKeyword.Dim, m_dim_columns);
+				}
+				if (m_data.Count != 0)
+				{
+					res.Write(EKeyword.Data, () =>
+					{
+						foreach (var value in m_data)
+							res.Append(value);
+					});
+				}
+				foreach (var series in m_series)
+					series.WriteTo(res);
+
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrCircle : LdrBase<LdrCircle>
+	{
+		private float m_radius = 1.0f;
+		private Serialiser.Facets m_facets = new();
+
+		public LdrCircle radius(float r)
+		{
+			m_radius = r;
+			return this;
+		}
+		public LdrCircle facets(int count)
+		{
+			m_facets = new(count);
 			return this;
 		}
 
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter res)
 		{
-			res.Write(EKeyword.Point, m_name, m_colour, () =>
+			res.Write(EKeyword.Circle, m_name, m_colour, () =>
 			{
-				res.Append(m_style);
-				res.Append(m_size, m_depth, m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
+				res.Write(EKeyword.Data, m_radius);
+				res.Append(m_facets);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrCommands : LdrBase<LdrCommands>
+	{
+		private struct Cmd
+		{
+			public ECommandId m_id;
+			public List<object> m_params;
+		}
+
+		private readonly List<Cmd> m_cmds = [];
+
+		// Add objects created by this script to scene 'scene_id'
+		public LdrCommands add_to_scene(int scene_id)
+		{
+			m_cmds.Add(new Cmd{ m_id = ECommandId.AddToScene, m_params = [scene_id] });
+			return this;
+		}
+
+		// Apply a transform to an object with the given name
+		public LdrCommands object_transform(string object_name, m4x4 o2w)
+		{
+			m_cmds.Add(new Cmd{ m_id = ECommandId.ObjectToWorld, m_params = [new Serialiser.StringWithLength(object_name), o2w] });
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Commands, () =>
+			{
+				foreach (var cmd in m_cmds)
 				{
-					foreach (var point in m_points)
+					res.Write(EKeyword.Data, () =>
 					{
-						res.Append(point.pt.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(point.col);
-					}
+						res.Append((int)cmd.m_id);
+						foreach (var p in cmd.m_params)
+						{
+							if (p is bool   bool_ ) { res.Append(bool_ ); continue; }
+							if (p is int    int_  ) { res.Append(int_  ); continue; }
+							if (p is float  float_) { res.Append(float_); continue; }
+							if (p is Serialiser.StringWithLength str_  ) { res.Append(str_  ); continue; }
+							if (p is v2     v2_   ) { res.Append(v2_   ); continue; }
+							if (p is v4     v4_   ) { res.Append(v4_   ); continue; }
+							if (p is m4x4   m4_   ) { res.Append(m4_   ); continue; }
+						}
+					});
+				}
+			});
+		}
+	}
+	public class LdrCone : LdrBase<LdrCone>
+	{
+		private v2 m_distance = new(0f, 1f);
+		private Serialiser.Scale2 m_scale = new();
+		private float m_angle = 45.0f;
+
+		// Height/Radius
+		public LdrCone angle(float solid_angle_deg)
+		{
+			m_angle = solid_angle_deg;
+			return this;
+		}
+		public LdrCone height(float height)
+		{
+			m_distance = new v2(m_distance.x, m_distance.x + height);
+			return this;
+		}
+		public LdrCone dist(float dist0, float dist1)
+		{
+			m_distance = new v2(dist0, dist1);
+			return this;
+		}
+
+		// Scale
+		public LdrCone scale(Serialiser.Scale2 scale)
+		{
+			m_scale = scale;
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Cone, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_angle, m_distance.x, m_distance.y);
+				res.Append(m_scale);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrConvexHull : LdrBase<LdrConvexHull>
+	{
+		private readonly List<v4> m_verts = [];
+		private Serialiser.GenerateNormals m_gen_normals = new();
+
+		public LdrConvexHull vert(v4 v)
+		{
+			m_verts.Add(v);
+			return this;
+		}
+		public LdrConvexHull vert(float x, float y, float z)
+		{
+			return vert(new v4(x, y, z, 1));
+		}
+		public LdrConvexHull verts(IEnumerable<v4> pts)
+		{
+			m_verts.AddRange(pts);
+			return this;
+		}
+		public LdrConvexHull generate_normals(float smoothing_angle)
+		{
+			m_gen_normals = new(smoothing_angle);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.ConvexHull, m_name, m_colour, () =>
+			{
+				if (m_verts.Count != 0)
+				{
+					res.Write(EKeyword.Verts, () =>
+					{
+						foreach (var v in m_verts)
+							res.Append(v.xyz);
+					});
+				}
+				res.Append(m_gen_normals);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrCoordFrame : LdrBase<LdrCoordFrame>
+	{
+		private Serialiser.Scale m_scale = new();
+		private Serialiser.LeftHanded m_lh = new();
+		private Serialiser.Width m_width = new();
+
+		// Scale size
+		public new LdrCoordFrame scale(float s)
+		{
+			m_scale = s;
+			return this;
+		}
+
+		// Left handed axis
+		public LdrCoordFrame left_handed(bool lh = true)
+		{
+			m_lh = new(lh);
+			return this;
+		}
+
+		// Width
+		public LdrCoordFrame width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.CoordFrame, m_name, m_colour, () =>
+			{
+				res.Append(m_scale, m_lh);
+				res.Append(m_width);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrCylinder : LdrBase<LdrCylinder>
+	{
+		private v2 m_radius = new(0.5f);
+		private Serialiser.Scale2 m_scale = new();
+		private float m_height = 1.0f;
+
+		// Height/Radius
+		public LdrCylinder cylinder(float height, float radius)
+		{
+			return cylinder(height, radius, radius);
+		}
+		public LdrCylinder cylinder(float height, float radius_base, float radius_tip)
+		{
+			m_radius = new v2(radius_base, radius_tip);
+			m_height = height;
+			return this;
+		}
+
+		// Scale
+		public LdrCylinder scale(Serialiser.Scale2 scale)
+		{
+			m_scale = scale;
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Cylinder, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_height, m_radius.x, m_radius.y);
+				res.Append(m_scale);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrEquation : LdrBase<LdrEquation>
+	{
+		private string m_equation = string.Empty;
+		private int m_resolution = 0;
+		private readonly List<(string name, float value)> m_params = [];
+		private float? m_weight = null;
+
+		public LdrEquation equation(string eq)
+		{
+			m_equation = eq;
+			return this;
+		}
+		public LdrEquation resolution(int res)
+		{
+			m_resolution = res;
+			return this;
+		}
+		public LdrEquation param(string name, float value)
+		{
+			m_params.Add((name, value));
+			return this;
+		}
+		public LdrEquation weight(float w)
+		{
+			m_weight = w;
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Equation, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, $"\"{m_equation}\"");
+				if (m_resolution != 0)
+					res.Write(EKeyword.Resolution, m_resolution);
+				foreach (var p in m_params)
+					res.Write(EKeyword.Param, p.name, p.value);
+				if (m_weight is float w)
+					res.Write(EKeyword.Weight, w);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrFrustum : LdrBase<LdrFrustum>
+	{
+		private v2 m_wh = new(1f, 1f);
+		private v2 m_nf = new(0.1f, 2f);
+		private float m_fovY = Math_.TauBy4F;
+		private float m_aspect = 1f;
+		private bool m_ortho = false;
+
+		// Orthographic
+		public LdrFrustum ortho(bool ortho = true)
+		{
+			m_ortho = ortho;
+			return this;
+		}
+
+		// Near/Far
+		public LdrFrustum nf(float n, float f)
+		{
+			m_nf = new v2(n, f);
+			return this;
+		}
+		public LdrFrustum nf(v2 nf_)
+		{
+			return nf(nf_.x, nf_.y);
+		}
+
+		// Frustum dimensions
+		public LdrFrustum wh(float w, float h)
+		{
+			m_wh = new v2(w, h);
+			m_fovY = 0;
+			m_aspect = 0;
+			return this;
+		}
+		public LdrFrustum wh(v2 sz)
+		{
+			return wh(sz.x, sz.y);
+		}
+
+		// Frustum angles
+		public LdrFrustum fov(float fovY, float aspect)
+		{
+			m_ortho = false;
+			m_wh = v2.Zero;
+			m_fovY = fovY;
+			m_aspect = aspect;
+			return this;
+		}
+
+		//// From maths frustum
+		//public LdrFrustum frustum(Frustum const& f)
+		//{
+		//	return nf(0, f.zfar()).fov(f.fovY(), f.aspect());
+		//}
+
+		// From projection matrix
+		public LdrFrustum proj(m4x4 c2s)
+		{
+			if (c2s.w.w == 1) // If orthographic
+			{
+				var rh = -Math_.Sign(c2s.z.z);
+				var zn = Math_.Div(c2s.w.z, c2s.z.z, 0.0f);
+				var zf = Math_.Div(zn * (c2s.w.z - rh), c2s.w.z, 1.0f);
+				var w = 2.0f / c2s.x.x;
+				var h = 2.0f / c2s.y.y;
+				return ortho(true).nf(zn, zf).wh(w,h);
+			}
+			else // Otherwise perspective
+			{
+				var rh = -Math_.Sign(c2s.z.w);
+				var zn = rh * c2s.w.z / c2s.z.z;
+				var zf = Math_.Div(zn * c2s.z.z, (rh + c2s.z.z), zn * 1000.0f);
+				var w = 2.0f * zn / c2s.x.x;
+				var h = 2.0f * zn / c2s.y.y;
+				return ortho(false).nf(zn, zf).wh(w, h);
+			}
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			if (m_ortho)
+			{
+				res.Write(EKeyword.Box, m_name, m_colour, () =>
+				{
+					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_nf.y - m_nf.x);
+					res.Append(new Serialiser.O2W(new v4(0, 0, -0.5f * (float)(m_nf.x + m_nf.y), 1)));
+					base.WriteTo(res);
 				});
+			}
+			else if (m_wh != v2.Zero)
+			{
+				res.Write(EKeyword.FrustumWH, m_name, m_colour, () =>
+				{
+					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_nf.x, m_nf.y);
+					base.WriteTo(res);
+				});
+			}
+			else
+			{
+				res.Write(EKeyword.FrustumFA, m_name, m_colour, () =>
+				{
+					res.Write(EKeyword.Data, Math_.RadiansToDegrees(m_fovY), m_aspect, m_nf.x, m_nf.y);
+					base.WriteTo(res);
+				});
+			}
+		}
+
+	}
+	public class LdrGrid : LdrBase<LdrGrid>
+	{
+		private v2 m_wh = new(1f, 1f);
+		private int m_div_w = 0;
+		private int m_div_h = 0;
+		private Serialiser.Width m_width = new();
+		private Serialiser.Dashed m_dashed = new();
+
+		public LdrGrid wh(float w, float h)
+		{
+			m_wh = new v2(w, h);
+			return this;
+		}
+		public LdrGrid divisions(int w, int h)
+		{
+			m_div_w = w;
+			m_div_h = h;
+			return this;
+		}
+		public LdrGrid width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+		public LdrGrid dashed(v2 dash)
+		{
+			m_dashed = new Serialiser.Dashed(dash);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Grid, m_name, m_colour, () =>
+			{
+				if (m_div_w != 0 && m_div_h != 0)
+					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_div_w, m_div_h);
+				else
+					res.Write(EKeyword.Data, m_wh);
+				res.Append(m_width, m_dashed);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrGroup : LdrBase<LdrGroup>
+	{
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Group, m_name, m_colour, () =>
+			{
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrInstance : LdrBase<LdrInstance>
+	{
+		private string m_address = string.Empty;
+		private LdrAnimation? m_anim = null;
+		private LdrMontage? m_montage = null;
+
+		/// <summary>Set the object address that this is an instance of</summary>
+		public LdrInstance inst(string address)
+		{
+			m_address = address;
+			return this;
+		}
+
+		/// <summary>Add animation to the instance (mutually exclusive with montage)</summary>
+		public LdrAnimation anim()
+		{
+			if (m_montage != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Instance");
+			m_anim ??= new();
+			return m_anim;
+		}
+		public LdrInstance anim(Action<LdrAnimation> a)
+		{
+			a(anim());
+			return this;
+		}
+
+		/// <summary>Add a montage to the instance (mutually exclusive with animation)</summary>
+		public LdrMontage montage()
+		{
+			if (m_anim != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Instance");
+			m_montage ??= new();
+			return m_montage;
+		}
+		public LdrInstance montage(Action<LdrMontage> a)
+		{
+			a(montage());
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Instance, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_address);
+				m_anim?.WriteTo(res);
+				m_montage?.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrLightSource : LdrBase<LdrLightSource>
+	{
+		private string m_style = "Point";
+		private Colour32? m_ambient = null;
+		private Colour32? m_diffuse = null;
+		private Colour32? m_specular = null;
+		private float? m_specular_power = null;
+		private v2? m_range = null;
+		private v2? m_cone = null;
+		private float? m_cast_shadow = null;
+
+		public LdrLightSource style(string style)
+		{
+			m_style = style;
+			return this;
+		}
+		public LdrLightSource ambient(Colour32 col)
+		{
+			m_ambient = col;
+			return this;
+		}
+		public LdrLightSource diffuse(Colour32 col)
+		{
+			m_diffuse = col;
+			return this;
+		}
+		public LdrLightSource specular(Colour32 col, float power)
+		{
+			m_specular = col;
+			m_specular_power = power;
+			return this;
+		}
+		public LdrLightSource range(float range, float falloff)
+		{
+			m_range = new v2(range, falloff);
+			return this;
+		}
+		public LdrLightSource cone(float inner, float outer)
+		{
+			m_cone = new v2(inner, outer);
+			return this;
+		}
+		public LdrLightSource cast_shadow(float range)
+		{
+			m_cast_shadow = range;
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.LightSource, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Style, m_style);
+				if (m_ambient is Colour32 a) res.Write(EKeyword.Ambient, a);
+				if (m_diffuse is Colour32 d) res.Write(EKeyword.Diffuse, d);
+				if (m_specular is Colour32 s && m_specular_power is float p) res.Write(EKeyword.Specular, s, p);
+				if (m_range is v2 r) res.Write(EKeyword.Range, r);
+				if (m_cone is v2 c) res.Write(EKeyword.Cone, c);
+				if (m_cast_shadow is float cs) res.Write(EKeyword.CastShadow, cs);
 				base.WriteTo(res);
 			});
 		}
@@ -1228,718 +1936,6 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
-	public class LdrGrid : LdrBase<LdrGrid>
-	{
-		private v2 m_wh = new(1f, 1f);
-		private int m_div_w = 0;
-		private int m_div_h = 0;
-		private Serialiser.Width m_width = new();
-		private Serialiser.Dashed m_dashed = new();
-
-		public LdrGrid wh(float w, float h)
-		{
-			m_wh = new v2(w, h);
-			return this;
-		}
-		public LdrGrid divisions(int w, int h)
-		{
-			m_div_w = w;
-			m_div_h = h;
-			return this;
-		}
-		public LdrGrid width(float w)
-		{
-			m_width = new(w);
-			return this;
-		}
-		public LdrGrid dashed(v2 dash)
-		{
-			m_dashed = new Serialiser.Dashed(dash);
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Grid, m_name, m_colour, () =>
-			{
-				if (m_div_w != 0 && m_div_h != 0)
-					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_div_w, m_div_h);
-				else
-					res.Write(EKeyword.Data, m_wh);
-				res.Append(m_width, m_dashed);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrCoordFrame : LdrBase<LdrCoordFrame>
-	{
-		private Serialiser.Scale m_scale = new();
-		private Serialiser.LeftHanded m_lh = new();
-		private Serialiser.Width m_width = new();
-
-		// Scale size
-		public new LdrCoordFrame scale(float s)
-		{
-			m_scale = s;
-			return this;
-		}
-
-		// Left handed axis
-		public LdrCoordFrame left_handed(bool lh = true)
-		{
-			m_lh = new(lh);
-			return this;
-		}
-
-		// Width
-		public LdrCoordFrame width(float w)
-		{
-			m_width = new(w);
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.CoordFrame, m_name, m_colour, () =>
-			{
-				res.Append(m_scale, m_lh);
-				res.Append(m_width);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrTriangle : LdrBase<LdrTriangle>
-	{
-		private struct Tri { public v4 a, b, c; public Colour32 col; };
-		private readonly List<Tri> m_tris = [];
-		private Serialiser.PerItemColour m_per_item_colour = new();
-
-		public LdrTriangle tri(v4 a, v4 b, v4 c, Colour32? colour = null)
-		{
-			m_tris.Add(new Tri{ a = a, b = b, c = c, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrTriangle tris(Span<v4> verts, Span<int> faces)
-		{
-			Debug.Assert((faces.Length % 3) == 0);
-			for (var i = 0; i < faces.Length; i += 3)
-				tri(verts[faces[i+0]], verts[faces[i+1]], verts[faces[i+2]]);
-
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Triangle, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var tri in m_tris)
-					{
-						res.Append(tri.a.xyz, tri.b.xyz, tri.c.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(tri.col);
-					}
-				});
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrQuad : LdrBase<LdrQuad>
-	{
-		private struct Qd { public v4 a, b, c, d; public Colour32 col_a, col_b, col_c, col_d; }
-		private readonly List<Qd> m_quads = [];
-		private Serialiser.PerItemColour m_per_item_colour = new();
-		private LdrTexture m_tex = new();
-
-		public LdrQuad quad(v4 a, v4 b, v4 c, v4 d, Colour32? col_a = null, Colour32? col_b = null, Colour32? col_c = null, Colour32? col_d = null)
-		{
-			m_quads.Add(new Qd
-			{
-				a = a, b = b, c = c, d = d,
-				col_a = col_a ?? Colour32.White,
-				col_b = col_b ?? Colour32.White,
-				col_c = col_c ?? Colour32.White,
-				col_d = col_d ?? Colour32.White,
-			});
-			if (col_a != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrTexture texture()
-		{
-			return m_tex;
-		}
-		public LdrQuad texture(Action<LdrTexture> a)
-		{
-			a(texture());
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Quad, m_name, m_colour, () =>
-			{
-				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var q in m_quads)
-					{
-						res.Append(q.a.xyz, q.b.xyz, q.c.xyz, q.d.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(q.col_a, q.col_b, q.col_c, q.col_d);
-					}
-				});
-				m_tex.WriteTo(res);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrPlane : LdrBase<LdrPlane>
-	{
-		private v4 m_position = v4.Origin;
-		private v4 m_direction = v4.ZAxis;
-		private v2 m_wh = new(1,1);
-		private LdrTexture m_tex = new();
-
-		public LdrPlane plane(v4 p)
-		{
-			pos((p.xyz * -p.w).w1);
-			ori(Math_.Normalise(p.xyz.w0), EAxisId.PosZ);
-			return this;
-		}
-		public LdrPlane wh(float width, float height)
-		{
-			m_wh = new(width, height);
-			return this;
-		}
-		public LdrPlane wh(v2 wh)
-		{
-			m_wh = wh;
-			return this;
-		}
-
-		public LdrTexture texture()
-		{
-			return m_tex;
-		}
-		public LdrPlane texture(Action<LdrTexture> a)
-		{
-			a(texture());
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Plane, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_wh);
-				m_tex.WriteTo(res);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrRibbon : LdrBase<LdrRibbon>
-	{
-		private class Pt { public v4 pt; public Colour32 col; }
-		private readonly List<Pt> m_points = [];
-		private Serialiser.PerItemColour m_per_item_colour = new();
-		private Serialiser.Width m_width = new();
-		private Serialiser.Smooth m_smooth = new();
-		private LdrTexture m_tex = new();
-
-		public LdrRibbon pt(v4 point, Colour32? colour = null)
-		{
-			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrRibbon pt(v3 point, Colour32? colour = null)
-		{
-			return pt(point.w1, colour);
-		}
-		public LdrRibbon width(float w)
-		{
-			m_width = new(w);
-			return this;
-		}
-		public LdrRibbon smooth(bool on = true)
-		{
-			m_smooth = new(on);
-			return this;
-		}
-		public LdrTexture texture()
-		{
-			return m_tex;
-		}
-		public LdrRibbon texture(Action<LdrTexture> a)
-		{
-			a(texture());
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Ribbon, m_name, m_colour, () =>
-			{
-				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var p in m_points)
-					{
-						res.Append(p.pt.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(p.col);
-					}
-				});
-				res.Append(m_width, m_smooth);
-				m_tex.WriteTo(res);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrCircle : LdrBase<LdrCircle>
-	{
-		private float m_radius = 1.0f;
-		private Serialiser.Facets m_facets = new();
-
-		public LdrCircle radius(float r)
-		{
-			m_radius = r;
-			return this;
-		}
-		public LdrCircle facets(int count)
-		{
-			m_facets = new(count);
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Circle, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_radius);
-				res.Append(m_facets);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrPie : LdrBase<LdrPie>
-	{
-		private float m_angle0 = 0f;
-		private float m_angle1 = 90f;
-		private float m_inner_radius = 0f;
-		private float m_outer_radius = 1f;
-		private Serialiser.Facets m_facets = new();
-		private Serialiser.Scale2 m_scale = new();
-
-		public LdrPie pie(float angle0, float angle1, float inner_radius, float outer_radius)
-		{
-			m_angle0 = angle0;
-			m_angle1 = angle1;
-			m_inner_radius = inner_radius;
-			m_outer_radius = outer_radius;
-			return this;
-		}
-		public LdrPie facets(int count)
-		{
-			m_facets = new(count);
-			return this;
-		}
-		public LdrPie scale(Serialiser.Scale2 s)
-		{
-			m_scale = s;
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Pie, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
-				res.Append(m_facets, m_scale);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrRect : LdrBase<LdrRect>
-	{
-		private v2 m_wh = new(1f, 1f);
-		private Serialiser.CornerRadius m_corner_radius = new();
-		private Serialiser.Facets m_facets = new();
-
-		public LdrRect wh(float w, float h)
-		{
-			m_wh = new v2(w, h);
-			return this;
-		}
-		public LdrRect wh(float s)
-		{
-			return wh(s, s);
-		}
-		public LdrRect corner_radius(float r)
-		{
-			m_corner_radius = new(r);
-			return this;
-		}
-		public LdrRect facets(int count)
-		{
-			m_facets = new(count);
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Rect, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_wh);
-				res.Append(m_corner_radius, m_facets);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrPolygon : LdrBase<LdrPolygon>
-	{
-		private class Pt { public v2 pt; public Colour32 col; }
-		private readonly List<Pt> m_points = [];
-		private Serialiser.PerItemColour m_per_item_colour = new();
-
-		public LdrPolygon pt(v2 point, Colour32? colour = null)
-		{
-			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrPolygon pt(float x, float y, Colour32? colour = null)
-		{
-			return pt(new v2(x, y), colour);
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Polygon, m_name, m_colour, () =>
-			{
-				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var p in m_points)
-					{
-						res.Append(p.pt);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(p.col);
-					}
-				});
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrSphere : LdrBase<LdrSphere>
-	{
-		private v4 m_radius = new(1.0f);
-		private Serialiser.Facets m_facets = new();
-
-		// Radius
-		public LdrSphere radius(float r)
-		{
-			return radius(new v4(r));
-		}
-		public LdrSphere radius(v4 r)
-		{
-			m_radius = r;
-			return this;
-		}
-		public LdrSphere facets(int count)
-		{
-			m_facets = new(count);
-			return this;
-		}
-
-		// Create from bounding sphere
-		public LdrSphere bsphere(BSphere bsphere)
-		{
-			if (bsphere == BSphere.Reset) return this;
-			return radius(bsphere.Radius).pos(bsphere.Centre);
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Sphere, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_radius.xyz);
-				res.Append(m_facets);
-				base.WriteTo(res);
-			});
-		}
-
-	}
-	public class LdrBox : LdrBase<LdrBox>
-	{
-		private v4 m_dim = new(0.5f);
-
-		// Box dimensions
-		public LdrBox radii(float radii)
-		{
-			return dim(radii * 2);
-		}
-		public LdrBox radii(v4 radii)
-		{
-			return dim(radii * 2);
-		}
-		public LdrBox dim(float d)
-		{
-			return dim(d, d, d);
-		}
-		public LdrBox dim(float sx, float sy, float sz)
-		{
-			return dim(new v4(sx, sy, sz, 0));
-		}
-		public LdrBox dim(v4 dim)
-		{
-			m_dim = new v4(dim.x, dim.y, dim.z, 0);
-			return this;
-		}
-
-		// Create from bounding box
-		public LdrBox bbox(BBox bbox)
-		{
-			if (bbox == BBox.Reset) return this;
-			return dim(2 * bbox.Radius).pos(bbox.Centre);
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Box, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_dim.xyz);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrBoxList : LdrBase<LdrBoxList>
-	{
-		private class Entry { public v4 dim; public v4 pos; public Colour32 col; }
-		private readonly List<Entry> m_boxes = [];
-		private Serialiser.PerItemColour m_per_item_colour = new();
-
-		public LdrBoxList box(v4 dim, v4 pos, Colour32? colour = null)
-		{
-			m_boxes.Add(new Entry { dim = dim, pos = pos, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrBoxList box(float w, float h, float d, float x, float y, float z, Colour32? colour = null)
-		{
-			return box(new v4(w, h, d, 0), new v4(x, y, z, 1), colour);
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.BoxList, m_name, m_colour, () =>
-			{
-				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var b in m_boxes)
-					{
-						res.Append(b.dim.xyz, b.pos.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(b.col);
-					}
-				});
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrCylinder : LdrBase<LdrCylinder>
-	{
-		private v2 m_radius = new(0.5f);
-		private Serialiser.Scale2 m_scale = new();
-		private float m_height = 1.0f;
-
-		// Height/Radius
-		public LdrCylinder cylinder(float height, float radius)
-		{
-			return cylinder(height, radius, radius);
-		}
-		public LdrCylinder cylinder(float height, float radius_base, float radius_tip)
-		{
-			m_radius = new v2(radius_base, radius_tip);
-			m_height = height;
-			return this;
-		}
-
-		// Scale
-		public LdrCylinder scale(Serialiser.Scale2 scale)
-		{
-			m_scale = scale;
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Cylinder, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_height, m_radius.x, m_radius.y);
-				res.Append(m_scale);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrCone : LdrBase<LdrCone>
-	{
-		private v2 m_distance = new(0f, 1f);
-		private Serialiser.Scale2 m_scale = new();
-		private float m_angle = 45.0f;
-
-		// Height/Radius
-		public LdrCone angle(float solid_angle_deg)
-		{
-			m_angle = solid_angle_deg;
-			return this;
-		}
-		public LdrCone height(float height)
-		{
-			m_distance = new v2(m_distance.x, m_distance.x + height);
-			return this;
-		}
-		public LdrCone dist(float dist0, float dist1)
-		{
-			m_distance = new v2(dist0, dist1);
-			return this;
-		}
-
-		// Scale
-		public LdrCone scale(Serialiser.Scale2 scale)
-		{
-			m_scale = scale;
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Cone, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, m_angle, m_distance.x, m_distance.y);
-				res.Append(m_scale);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrTube : LdrBase<LdrTube>
-	{
-		// Cross section types
-		public enum ECrossSection { Round, Square, Polygon }
-
-		private class Pt { public v4 pt; public Colour32 col; }
-		private readonly List<Pt> m_points = [];
-		private ECrossSection m_cs_type = ECrossSection.Round;
-		private v2 m_cs_radius = new(0.2f, 0.2f);
-		private readonly List<v2> m_cs_polygon = [];
-		private Serialiser.Facets m_cs_facets = new();
-		private Serialiser.Smooth m_cs_smooth = new();
-		private Serialiser.PerItemColour m_per_item_colour = new();
-		private Serialiser.Smooth m_smooth = new();
-		private Serialiser.Closed m_closed = new();
-
-		// Cross section configuration
-		public LdrTube cross_section_round(float rx, float ry = 0)
-		{
-			m_cs_type = ECrossSection.Round;
-			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
-			return this;
-		}
-		public LdrTube cross_section_square(float rx, float ry = 0)
-		{
-			m_cs_type = ECrossSection.Square;
-			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
-			return this;
-		}
-		public LdrTube cross_section_polygon(IEnumerable<v2> pts)
-		{
-			m_cs_type = ECrossSection.Polygon;
-			m_cs_polygon.AddRange(pts);
-			return this;
-		}
-		public LdrTube cross_section_facets(int facets)
-		{
-			m_cs_facets = new(facets);
-			return this;
-		}
-		public LdrTube cross_section_smooth(bool on = true)
-		{
-			m_cs_smooth = new(on);
-			return this;
-		}
-
-		// Path points
-		public LdrTube pt(v4 point, Colour32? colour = null)
-		{
-			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
-			if (colour != null) m_per_item_colour.m_per_item_colour = true;
-			return this;
-		}
-		public LdrTube pt(v3 point, Colour32? colour = null)
-		{
-			return pt(point.w1, colour);
-		}
-		public LdrTube smooth(bool on = true)
-		{
-			m_smooth = new(on);
-			return this;
-		}
-		public LdrTube closed(bool on = true)
-		{
-			m_closed = new(on);
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Tube, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.CrossSection, () =>
-				{
-					switch (m_cs_type)
-					{
-						case ECrossSection.Round:
-							res.Write(EKeyword.Round, m_cs_radius);
-							break;
-						case ECrossSection.Square:
-							res.Write(EKeyword.Square, m_cs_radius);
-							break;
-						case ECrossSection.Polygon:
-							res.Write(EKeyword.Polygon, () =>
-							{
-								foreach (var p in m_cs_polygon)
-									res.Append(p);
-							});
-							break;
-					}
-					res.Append(m_cs_facets, m_cs_smooth);
-				});
-				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
-				{
-					foreach (var p in m_points)
-					{
-						res.Append(p.pt.xyz);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(p.col);
-					}
-				});
-				res.Append(m_smooth, m_closed);
-				base.WriteTo(res);
-			});
-		}
-	}
 	public class LdrMesh : LdrBase<LdrMesh>
 	{
 		private readonly List<v4> m_verts = [];
@@ -2113,157 +2109,6 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
-	public class LdrConvexHull : LdrBase<LdrConvexHull>
-	{
-		private readonly List<v4> m_verts = [];
-		private Serialiser.GenerateNormals m_gen_normals = new();
-
-		public LdrConvexHull vert(v4 v)
-		{
-			m_verts.Add(v);
-			return this;
-		}
-		public LdrConvexHull vert(float x, float y, float z)
-		{
-			return vert(new v4(x, y, z, 1));
-		}
-		public LdrConvexHull verts(IEnumerable<v4> pts)
-		{
-			m_verts.AddRange(pts);
-			return this;
-		}
-		public LdrConvexHull generate_normals(float smoothing_angle)
-		{
-			m_gen_normals = new(smoothing_angle);
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.ConvexHull, m_name, m_colour, () =>
-			{
-				if (m_verts.Count != 0)
-				{
-					res.Write(EKeyword.Verts, () =>
-					{
-						foreach (var v in m_verts)
-							res.Append(v.xyz);
-					});
-				}
-				res.Append(m_gen_normals);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrFrustum : LdrBase<LdrFrustum>
-	{
-		private v2 m_wh = new(1f, 1f);
-		private v2 m_nf = new(0.1f, 2f);
-		private float m_fovY = Math_.TauBy4F;
-		private float m_aspect = 1f;
-		private bool m_ortho = false;
-
-		// Orthographic
-		public LdrFrustum ortho(bool ortho = true)
-		{
-			m_ortho = ortho;
-			return this;
-		}
-
-		// Near/Far
-		public LdrFrustum nf(float n, float f)
-		{
-			m_nf = new v2(n, f);
-			return this;
-		}
-		public LdrFrustum nf(v2 nf_)
-		{
-			return nf(nf_.x, nf_.y);
-		}
-
-		// Frustum dimensions
-		public LdrFrustum wh(float w, float h)
-		{
-			m_wh = new v2(w, h);
-			m_fovY = 0;
-			m_aspect = 0;
-			return this;
-		}
-		public LdrFrustum wh(v2 sz)
-		{
-			return wh(sz.x, sz.y);
-		}
-
-		// Frustum angles
-		public LdrFrustum fov(float fovY, float aspect)
-		{
-			m_ortho = false;
-			m_wh = v2.Zero;
-			m_fovY = fovY;
-			m_aspect = aspect;
-			return this;
-		}
-
-		//// From maths frustum
-		//public LdrFrustum frustum(Frustum const& f)
-		//{
-		//	return nf(0, f.zfar()).fov(f.fovY(), f.aspect());
-		//}
-
-		// From projection matrix
-		public LdrFrustum proj(m4x4 c2s)
-		{
-			if (c2s.w.w == 1) // If orthographic
-			{
-				var rh = -Math_.Sign(c2s.z.z);
-				var zn = Math_.Div(c2s.w.z, c2s.z.z, 0.0f);
-				var zf = Math_.Div(zn * (c2s.w.z - rh), c2s.w.z, 1.0f);
-				var w = 2.0f / c2s.x.x;
-				var h = 2.0f / c2s.y.y;
-				return ortho(true).nf(zn, zf).wh(w,h);
-			}
-			else // Otherwise perspective
-			{
-				var rh = -Math_.Sign(c2s.z.w);
-				var zn = rh * c2s.w.z / c2s.z.z;
-				var zf = Math_.Div(zn * c2s.z.z, (rh + c2s.z.z), zn * 1000.0f);
-				var w = 2.0f * zn / c2s.x.x;
-				var h = 2.0f * zn / c2s.y.y;
-				return ortho(false).nf(zn, zf).wh(w, h);
-			}
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			if (m_ortho)
-			{
-				res.Write(EKeyword.Box, m_name, m_colour, () =>
-				{
-					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_nf.y - m_nf.x);
-					res.Append(new Serialiser.O2W(new v4(0, 0, -0.5f * (float)(m_nf.x + m_nf.y), 1)));
-					base.WriteTo(res);
-				});
-			}
-			else if (m_wh != v2.Zero)
-			{
-				res.Write(EKeyword.FrustumWH, m_name, m_colour, () =>
-				{
-					res.Write(EKeyword.Data, m_wh.x, m_wh.y, m_nf.x, m_nf.y);
-					base.WriteTo(res);
-				});
-			}
-			else
-			{
-				res.Write(EKeyword.FrustumFA, m_name, m_colour, () =>
-				{
-					res.Write(EKeyword.Data, Math_.RadiansToDegrees(m_fovY), m_aspect, m_nf.x, m_nf.y);
-					base.WriteTo(res);
-				});
-			}
-		}
-
-	}
 	public class LdrModel : LdrBase<LdrModel>
 	{
 		private string m_filepath = string.Empty;
@@ -2324,53 +2169,401 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
-	public class LdrInstance : LdrBase<LdrInstance>
+	public class LdrPie : LdrBase<LdrPie>
 	{
-		private string m_address = string.Empty;
-		private LdrAnimation? m_anim = null;
-		private LdrMontage? m_montage = null;
+		private float m_angle0 = 0f;
+		private float m_angle1 = 90f;
+		private float m_inner_radius = 0f;
+		private float m_outer_radius = 1f;
+		private Serialiser.Facets m_facets = new();
+		private Serialiser.Scale2 m_scale = new();
 
-		/// <summary>Set the object address that this is an instance of</summary>
-		public LdrInstance inst(string address)
+		public LdrPie pie(float angle0, float angle1, float inner_radius, float outer_radius)
 		{
-			m_address = address;
+			m_angle0 = angle0;
+			m_angle1 = angle1;
+			m_inner_radius = inner_radius;
+			m_outer_radius = outer_radius;
+			return this;
+		}
+		public LdrPie facets(int count)
+		{
+			m_facets = new(count);
+			return this;
+		}
+		public LdrPie scale(Serialiser.Scale2 s)
+		{
+			m_scale = s;
 			return this;
 		}
 
-		/// <summary>Add animation to the instance (mutually exclusive with montage)</summary>
-		public LdrAnimation anim()
+		public override void WriteTo(IWriter res)
 		{
-			if (m_montage != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Instance");
-			m_anim ??= new();
-			return m_anim;
+			res.Write(EKeyword.Pie, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
+				res.Append(m_facets, m_scale);
+				base.WriteTo(res);
+			});
 		}
-		public LdrInstance anim(Action<LdrAnimation> a)
+	}
+	public class LdrPlane : LdrBase<LdrPlane>
+	{
+		private v4 m_position = v4.Origin;
+		private v4 m_direction = v4.ZAxis;
+		private v2 m_wh = new(1,1);
+		private LdrTexture m_tex = new();
+
+		public LdrPlane plane(v4 p)
 		{
-			a(anim());
+			pos((p.xyz * -p.w).w1);
+			ori(Math_.Normalise(p.xyz.w0), EAxisId.PosZ);
+			return this;
+		}
+		public LdrPlane wh(float width, float height)
+		{
+			m_wh = new(width, height);
+			return this;
+		}
+		public LdrPlane wh(v2 wh)
+		{
+			m_wh = wh;
 			return this;
 		}
 
-		/// <summary>Add a montage to the instance (mutually exclusive with animation)</summary>
-		public LdrMontage montage()
+		public LdrTexture texture()
 		{
-			if (m_anim != null) throw new InvalidOperationException("Cannot use both *Animation and *Montage on the same *Instance");
-			m_montage ??= new();
-			return m_montage;
+			return m_tex;
 		}
-		public LdrInstance montage(Action<LdrMontage> a)
+		public LdrPlane texture(Action<LdrTexture> a)
 		{
-			a(montage());
+			a(texture());
 			return this;
 		}
 
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter res)
 		{
-			res.Write(EKeyword.Instance, m_name, m_colour, () =>
+			res.Write(EKeyword.Plane, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Data, m_address);
-				m_anim?.WriteTo(res);
-				m_montage?.WriteTo(res);
+				res.Write(EKeyword.Data, m_wh);
+				m_tex.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrPoint : LdrBase<LdrPoint>
+	{
+		private class Pt { public v4 pt; public Colour32 col; };
+		private readonly List<Pt> m_points = [];
+		private Serialiser.Size2 m_size = new();
+		private Serialiser.Depth m_depth = new();
+		private Serialiser.PointStyle m_style = new();
+		private Serialiser.PerItemColour m_per_item_colour = new();
+
+		public LdrPoint style(EPointStyle s)
+		{
+			m_style = new(s);
+			return this;
+		}
+
+		// Points
+		public LdrPoint pt(v4 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrPoint pt(v3 point, Colour32? colour = null)
+		{
+			return pt(point.w1, colour);
+		}
+
+		// Point size (in pixels if depth == false, in world space if depth == true)
+		public LdrPoint size(float s)
+		{
+			m_size = new v2(s);
+			return this;
+		}
+		public LdrPoint size(v2 s)
+		{
+			m_size = s;
+			return this;
+		}
+
+		// Points have depth
+		public LdrPoint depth(bool d = true)
+		{
+			m_depth = new(d);
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Point, m_name, m_colour, () =>
+			{
+				res.Append(m_style);
+				res.Append(m_size, m_depth, m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var point in m_points)
+					{
+						res.Append(point.pt.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(point.col);
+					}
+				});
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrPolygon : LdrBase<LdrPolygon>
+	{
+		private class Pt { public v2 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+
+		public LdrPolygon pt(v2 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrPolygon pt(float x, float y, Colour32? colour = null)
+		{
+			return pt(new v2(x, y), colour);
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Polygon, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrQuad : LdrBase<LdrQuad>
+	{
+		private struct Qd { public v4 a, b, c, d; public Colour32 col_a, col_b, col_c, col_d; }
+		private readonly List<Qd> m_quads = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private LdrTexture m_tex = new();
+
+		public LdrQuad quad(v4 a, v4 b, v4 c, v4 d, Colour32? col_a = null, Colour32? col_b = null, Colour32? col_c = null, Colour32? col_d = null)
+		{
+			m_quads.Add(new Qd
+			{
+				a = a, b = b, c = c, d = d,
+				col_a = col_a ?? Colour32.White,
+				col_b = col_b ?? Colour32.White,
+				col_c = col_c ?? Colour32.White,
+				col_d = col_d ?? Colour32.White,
+			});
+			if (col_a != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+		public LdrQuad texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Quad, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var q in m_quads)
+					{
+						res.Append(q.a.xyz, q.b.xyz, q.c.xyz, q.d.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(q.col_a, q.col_b, q.col_c, q.col_d);
+					}
+				});
+				m_tex.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrRect : LdrBase<LdrRect>
+	{
+		private v2 m_wh = new(1f, 1f);
+		private Serialiser.CornerRadius m_corner_radius = new();
+		private Serialiser.Facets m_facets = new();
+
+		public LdrRect wh(float w, float h)
+		{
+			m_wh = new v2(w, h);
+			return this;
+		}
+		public LdrRect wh(float s)
+		{
+			return wh(s, s);
+		}
+		public LdrRect corner_radius(float r)
+		{
+			m_corner_radius = new(r);
+			return this;
+		}
+		public LdrRect facets(int count)
+		{
+			m_facets = new(count);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Rect, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, m_wh);
+				res.Append(m_corner_radius, m_facets);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrRibbon : LdrBase<LdrRibbon>
+	{
+		private class Pt { public v4 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private Serialiser.Width m_width = new();
+		private Serialiser.Smooth m_smooth = new();
+		private LdrTexture m_tex = new();
+
+		public LdrRibbon pt(v4 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrRibbon pt(v3 point, Colour32? colour = null)
+		{
+			return pt(point.w1, colour);
+		}
+		public LdrRibbon width(float w)
+		{
+			m_width = new(w);
+			return this;
+		}
+		public LdrRibbon smooth(bool on = true)
+		{
+			m_smooth = new(on);
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+		public LdrRibbon texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Ribbon, m_name, m_colour, () =>
+			{
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
+				res.Append(m_width, m_smooth);
+				m_tex.WriteTo(res);
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrSphere : LdrBase<LdrSphere>
+	{
+		private class SphereData
+		{
+			public v4 m_radius;
+			public v4? m_pos;
+			public Colour32? m_col;
+		}
+		private readonly List<SphereData> m_spheres = [];
+		private Serialiser.Facets m_facets = new();
+
+		// Radius
+		public LdrSphere sphere(v4 radius, v4? pos = null, Colour32? col = null)
+		{
+			m_spheres.Add(new SphereData{ m_radius = radius, m_pos = pos, m_col = col });
+			return this;
+		}
+		public LdrSphere sphere(float radius, v4? pos = null, Colour32? col = null)
+		{
+			return sphere(new v4(radius, radius, radius, 0), pos, col);
+		}
+		public LdrSphere sphere(float rx, float ry, float rz, v4? pos = null, Colour32? col = null)
+		{
+			return sphere(new v4(rx, ry, rz, 0), pos, col);
+		}
+		public LdrSphere facets(int f)
+		{
+			m_facets = new(f);
+			return this;
+		}
+
+		// Create from bounding sphere
+		public LdrSphere bsphere(BSphere bsphere)
+		{
+			if (bsphere == BSphere.Reset) return this;
+			return sphere(bsphere.Radius).pos(bsphere.Centre);
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			var single = m_spheres.Count == 1 && !m_spheres[0].m_pos.HasValue && m_spheres[0].m_col == null;
+			var per_item_colour = m_spheres.Any(x => x.m_col != null);
+
+			res.Write(single ? EKeyword.Sphere : EKeyword.SphereList, m_name, m_colour, () =>
+			{
+				if (single)
+				{
+					var rad = m_spheres[0].m_radius;
+					res.Write(EKeyword.Data, rad);
+				}
+				else
+				{
+					if (per_item_colour)
+						res.Write(EKeyword.PerItemColour);
+
+					res.Write(EKeyword.Data, () =>
+					{
+						foreach (var s in m_spheres)
+						{
+							res.Append(s.m_radius, (s.m_pos ?? v4.Origin).xyz);
+							if (per_item_colour)
+								res.Append(s.m_col ?? Colour32.White);
+						}
+					});
+				}
+				res.Append(m_facets);
 				base.WriteTo(res);
 			});
 		}
@@ -2509,346 +2702,158 @@ namespace Rylogic.LDraw
 		}
 
 	}
-	public class LdrGroup : LdrBase<LdrGroup>
-	{
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Group, m_name, m_colour, () =>
-			{
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrLightSource : LdrBase<LdrLightSource>
-	{
-		private string m_style = "Point";
-		private Colour32? m_ambient = null;
-		private Colour32? m_diffuse = null;
-		private Colour32? m_specular = null;
-		private float? m_specular_power = null;
-		private v2? m_range = null;
-		private v2? m_cone = null;
-		private float? m_cast_shadow = null;
-
-		public LdrLightSource style(string style)
-		{
-			m_style = style;
-			return this;
-		}
-		public LdrLightSource ambient(Colour32 col)
-		{
-			m_ambient = col;
-			return this;
-		}
-		public LdrLightSource diffuse(Colour32 col)
-		{
-			m_diffuse = col;
-			return this;
-		}
-		public LdrLightSource specular(Colour32 col, float power)
-		{
-			m_specular = col;
-			m_specular_power = power;
-			return this;
-		}
-		public LdrLightSource range(float range, float falloff)
-		{
-			m_range = new v2(range, falloff);
-			return this;
-		}
-		public LdrLightSource cone(float inner, float outer)
-		{
-			m_cone = new v2(inner, outer);
-			return this;
-		}
-		public LdrLightSource cast_shadow(float range)
-		{
-			m_cast_shadow = range;
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.LightSource, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Style, m_style);
-				if (m_ambient is Colour32 a) res.Write(EKeyword.Ambient, a);
-				if (m_diffuse is Colour32 d) res.Write(EKeyword.Diffuse, d);
-				if (m_specular is Colour32 s && m_specular_power is float p) res.Write(EKeyword.Specular, s, p);
-				if (m_range is v2 r) res.Write(EKeyword.Range, r);
-				if (m_cone is v2 c) res.Write(EKeyword.Cone, c);
-				if (m_cast_shadow is float cs) res.Write(EKeyword.CastShadow, cs);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrSeries
-	{
-		private Serialiser.Name m_name = new();
-		private Serialiser.Colour m_colour = new();
-		private string m_xaxis = string.Empty;
-		private string m_yaxis = string.Empty;
-		private Serialiser.Width m_width = new();
-		private Serialiser.Dashed m_dashed = new();
-		private Serialiser.Smooth m_smooth = new();
-		private Serialiser.DataPoints m_data_points = new();
-
-		/// <summary>Series name</summary>
-		public LdrSeries name(Serialiser.Name name)
-		{
-			m_name = name;
-			return this;
-		}
-
-		/// <summary>Series colour</summary>
-		public LdrSeries colour(Serialiser.Colour colour)
-		{
-			m_colour = colour;
-			return this;
-		}
-
-		/// <summary>X-axis expression (e.g. "C0", "CI")</summary>
-		public LdrSeries xaxis(string expr)
-		{
-			m_xaxis = expr;
-			return this;
-		}
-
-		/// <summary>Y-axis expression (e.g. "C1", "abs(C2 - C1)")</summary>
-		public LdrSeries yaxis(string expr)
-		{
-			m_yaxis = expr;
-			return this;
-		}
-
-		/// <summary>Line width</summary>
-		public LdrSeries width(float w)
-		{
-			m_width = new(w);
-			return this;
-		}
-
-		/// <summary>Dashed line pattern</summary>
-		public LdrSeries dashed(v2 dash)
-		{
-			m_dashed = new Serialiser.Dashed(dash);
-			return this;
-		}
-
-		/// <summary>Smooth the line</summary>
-		public LdrSeries smooth(bool on = true)
-		{
-			m_smooth = new(on);
-			return this;
-		}
-
-		/// <summary>Data point markers</summary>
-		public LdrSeries data_points(float size, Colour32? colour = null, EPointStyle? style = null)
-		{
-			return data_points(new v2(size, size), colour, style);
-		}
-		public LdrSeries data_points(v2 size, Colour32? colour = null, EPointStyle? style = null)
-		{
-			m_data_points = new Serialiser.DataPoints(size, colour, style);
-			return this;
-		}
-
-		// Write to 'out'
-		public void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Series, m_name, m_colour, () =>
-			{
-				if (m_xaxis.Length != 0)
-					res.Write(EKeyword.XAxis, $"\"{m_xaxis}\"");
-				if (m_yaxis.Length != 0)
-					res.Write(EKeyword.YAxis, $"\"{m_yaxis}\"");
-				res.Append(m_width, m_dashed, m_smooth, m_data_points);
-			});
-		}
-	}
-	public class LdrChart : LdrBase<LdrChart>
-	{
-		private string? m_filepath = null;
-		private int m_dim_columns = 0;
-		private int m_dim_rows = 0;
-		private readonly List<double> m_data = [];
-		private readonly List<LdrSeries> m_series = [];
-
-		/// <summary>Reference an external CSV data file (mutually exclusive with data)</summary>
-		public LdrChart filepath(string filepath)
-		{
-			m_filepath = Path_.Canonicalise(filepath);
-			return this;
-		}
-
-		/// <summary>Set the data dimensions (columns, and optionally rows)</summary>
-		public LdrChart dim(int columns, int rows = 0)
-		{
-			m_dim_columns = columns;
-			m_dim_rows = rows;
-			return this;
-		}
-
-		/// <summary>Add data values to the chart</summary>
-		public LdrChart data(params double[] values)
-		{
-			m_data.AddRange(values);
-			return this;
-		}
-
-		/// <summary>Add data values to the chart</summary>
-		public LdrChart data(IEnumerable<double> values)
-		{
-			m_data.AddRange(values);
-			return this;
-		}
-
-		/// <summary>Add a series to the chart</summary>
-		public LdrSeries Series(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
-		{
-			var s = new LdrSeries();
-			m_series.Add(s);
-			return s.name(name ?? new()).colour(colour ?? new());
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Chart, m_name, m_colour, () =>
-			{
-				if (m_filepath != null)
-				{
-					res.Write(EKeyword.FilePath, $"\"{m_filepath}\"");
-				}
-				if (m_dim_columns != 0)
-				{
-					if (m_dim_rows != 0)
-						res.Write(EKeyword.Dim, m_dim_columns, m_dim_rows);
-					else
-						res.Write(EKeyword.Dim, m_dim_columns);
-				}
-				if (m_data.Count != 0)
-				{
-					res.Write(EKeyword.Data, () =>
-					{
-						foreach (var value in m_data)
-							res.Append(value);
-					});
-				}
-				foreach (var series in m_series)
-					series.WriteTo(res);
-
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrEquation : LdrBase<LdrEquation>
-	{
-		private string m_equation = string.Empty;
-		private int m_resolution = 0;
-		private readonly List<(string name, float value)> m_params = [];
-		private float? m_weight = null;
-
-		public LdrEquation equation(string eq)
-		{
-			m_equation = eq;
-			return this;
-		}
-		public LdrEquation resolution(int res)
-		{
-			m_resolution = res;
-			return this;
-		}
-		public LdrEquation param(string name, float value)
-		{
-			m_params.Add((name, value));
-			return this;
-		}
-		public LdrEquation weight(float w)
-		{
-			m_weight = w;
-			return this;
-		}
-
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Equation, m_name, m_colour, () =>
-			{
-				res.Write(EKeyword.Data, $"\"{m_equation}\"");
-				if (m_resolution != 0)
-					res.Write(EKeyword.Resolution, m_resolution);
-				foreach (var p in m_params)
-					res.Write(EKeyword.Param, p.name, p.value);
-				if (m_weight is float w)
-					res.Write(EKeyword.Weight, w);
-				base.WriteTo(res);
-			});
-		}
-	}
-	public class LdrCommands : LdrBase<LdrCommands>
-	{
-		private struct Cmd
-		{
-			public ECommandId m_id;
-			public List<object> m_params;
-		}
-
-		private readonly List<Cmd> m_cmds = [];
-
-		// Add objects created by this script to scene 'scene_id'
-		public LdrCommands add_to_scene(int scene_id)
-		{
-			m_cmds.Add(new Cmd{ m_id = ECommandId.AddToScene, m_params = [scene_id] });
-			return this;
-		}
-
-		// Apply a transform to an object with the given name
-		public LdrCommands object_transform(string object_name, m4x4 o2w)
-		{
-			m_cmds.Add(new Cmd{ m_id = ECommandId.ObjectToWorld, m_params = [new Serialiser.StringWithLength(object_name), o2w] });
-			return this;
-		}
-
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.Commands, () =>
-			{
-				foreach (var cmd in m_cmds)
-				{
-					res.Write(EKeyword.Data, () =>
-					{
-						res.Append((int)cmd.m_id);
-						foreach (var p in cmd.m_params)
-						{
-							if (p is bool   bool_ ) { res.Append(bool_ ); continue; }
-							if (p is int    int_  ) { res.Append(int_  ); continue; }
-							if (p is float  float_) { res.Append(float_); continue; }
-							if (p is Serialiser.StringWithLength str_  ) { res.Append(str_  ); continue; }
-							if (p is v2     v2_   ) { res.Append(v2_   ); continue; }
-							if (p is v4     v4_   ) { res.Append(v4_   ); continue; }
-							if (p is m4x4   m4_   ) { res.Append(m4_   ); continue; }
-						}
-					});
-				}
-			});
-		}
-	}
-	public class LdrBinaryStream : LdrBase<LdrBinaryStream>
-	{
-		/// <inheritdoc/>
-		public override void WriteTo(IWriter res)
-		{
-			res.Write(EKeyword.BinaryStream);
-		}
-	}
 	public class LdrTextStream : LdrBase<LdrTextStream>
 	{
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter res)
 		{
 			res.Write(EKeyword.TextStream);
+		}
+	}
+	public class LdrTriangle : LdrBase<LdrTriangle>
+	{
+		private struct Tri { public v4 a, b, c; public Colour32 col; };
+		private readonly List<Tri> m_tris = [];
+		private Serialiser.PerItemColour m_per_item_colour = new();
+
+		public LdrTriangle tri(v4 a, v4 b, v4 c, Colour32? colour = null)
+		{
+			m_tris.Add(new Tri{ a = a, b = b, c = c, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrTriangle tris(Span<v4> verts, Span<int> faces)
+		{
+			Debug.Assert((faces.Length % 3) == 0);
+			for (var i = 0; i < faces.Length; i += 3)
+				tri(verts[faces[i+0]], verts[faces[i+1]], verts[faces[i+2]]);
+
+			return this;
+		}
+
+		/// <inheritdoc/>
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Triangle, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var tri in m_tris)
+					{
+						res.Append(tri.a.xyz, tri.b.xyz, tri.c.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(tri.col);
+					}
+				});
+				base.WriteTo(res);
+			});
+		}
+	}
+	public class LdrTube : LdrBase<LdrTube>
+	{
+		// Cross section types
+		public enum ECrossSection { Round, Square, Polygon }
+
+		private class Pt { public v4 pt; public Colour32 col; }
+		private readonly List<Pt> m_points = [];
+		private ECrossSection m_cs_type = ECrossSection.Round;
+		private v2 m_cs_radius = new(0.2f, 0.2f);
+		private readonly List<v2> m_cs_polygon = [];
+		private Serialiser.Facets m_cs_facets = new();
+		private Serialiser.Smooth m_cs_smooth = new();
+		private Serialiser.PerItemColour m_per_item_colour = new();
+		private Serialiser.Smooth m_smooth = new();
+		private Serialiser.Closed m_closed = new();
+
+		// Cross section configuration
+		public LdrTube cross_section_round(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection.Round;
+			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
+			return this;
+		}
+		public LdrTube cross_section_square(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection.Square;
+			m_cs_radius = new v2(rx, ry != 0 ? ry : rx);
+			return this;
+		}
+		public LdrTube cross_section_polygon(IEnumerable<v2> pts)
+		{
+			m_cs_type = ECrossSection.Polygon;
+			m_cs_polygon.AddRange(pts);
+			return this;
+		}
+		public LdrTube cross_section_facets(int facets)
+		{
+			m_cs_facets = new(facets);
+			return this;
+		}
+		public LdrTube cross_section_smooth(bool on = true)
+		{
+			m_cs_smooth = new(on);
+			return this;
+		}
+
+		// Path points
+		public LdrTube pt(v4 point, Colour32? colour = null)
+		{
+			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (colour != null) m_per_item_colour.m_per_item_colour = true;
+			return this;
+		}
+		public LdrTube pt(v3 point, Colour32? colour = null)
+		{
+			return pt(point.w1, colour);
+		}
+		public LdrTube smooth(bool on = true)
+		{
+			m_smooth = new(on);
+			return this;
+		}
+		public LdrTube closed(bool on = true)
+		{
+			m_closed = new(on);
+			return this;
+		}
+
+		public override void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Tube, m_name, m_colour, () =>
+			{
+				res.Write(EKeyword.CrossSection, () =>
+				{
+					switch (m_cs_type)
+					{
+						case ECrossSection.Round:
+							res.Write(EKeyword.Round, m_cs_radius);
+							break;
+						case ECrossSection.Square:
+							res.Write(EKeyword.Square, m_cs_radius);
+							break;
+						case ECrossSection.Polygon:
+							res.Write(EKeyword.Polygon, () =>
+							{
+								foreach (var p in m_cs_polygon)
+									res.Append(p);
+							});
+							break;
+					}
+					res.Append(m_cs_facets, m_cs_smooth);
+				});
+				res.Append(m_per_item_colour);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var p in m_points)
+					{
+						res.Append(p.pt.xyz);
+						if (m_per_item_colour.m_per_item_colour)
+							res.Append(p.col);
+					}
+				});
+				res.Append(m_smooth, m_closed);
+				base.WriteTo(res);
+			});
 		}
 	}
 
@@ -3656,7 +3661,7 @@ namespace Rylogic.UnitTests
 		public void TestTextBox()
 		{
 			var builder = new LDraw.Builder();
-			builder.Box("b", new Colour32(0xFF00FF00)).dim(1).o2w(m4x4.Identity);
+			builder.Box("b", new Colour32(0xFF00FF00)).box(1).o2w(m4x4.Identity);
 			var str = builder.ToString();
 			Assert.Equal(str, "*Box b FF00FF00 {*Data {1 1 1}}");
 		}
@@ -3818,7 +3823,7 @@ namespace Rylogic.UnitTests
 		public void TestBoxList()
 		{
 			var builder = new LDraw.Builder();
-			builder.BoxList("bl", 0xFF00FF00u).box(1, 1, 1, 0, 0, 0).box(2, 2, 2, 3, 0, 0);
+			builder.Box("bl", 0xFF00FF00u).box(1, 1, 1).box(2, 2, 2, new v4(3, 0, 0, 1));
 			var str = builder.ToString();
 			Assert.Equal(str, "*BoxList bl FF00FF00 {*Data {1 1 1 0 0 0 2 2 2 3 0 0}}");
 		}
@@ -3836,7 +3841,7 @@ namespace Rylogic.UnitTests
 		public void TestSphere()
 		{
 			var builder = new LDraw.Builder();
-			builder.Sphere("s", 0xFF00FF00u).radius(3);
+			builder.Sphere("s", 0xFF00FF00u).sphere(3);
 			var str = builder.ToString();
 			Assert.Equal(str, "*Sphere s FF00FF00 {*Data {3 3 3}}");
 		}
@@ -3854,9 +3859,9 @@ namespace Rylogic.UnitTests
 		public void TestCone()
 		{
 			var builder = new LDraw.Builder();
-			builder.Cone("cn", 0xFF00FF00u).angle(30).height(5);
+			builder.Cone("cone", 0xFF00FF00u).angle(30).height(5);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Cone cn FF00FF00 {*Data {30 0 5}}");
+			Assert.Equal(str, "*Cone cone FF00FF00 {*Data {30 0 5}}");
 		}
 
 		[Test]
@@ -3913,7 +3918,7 @@ namespace Rylogic.UnitTests
 		public void TestTextBox()
 		{
 			var builder = new LDraw.Builder();
-			builder.Box("b", 0xFF00FF00).dim(1).o2w(m4x4.Identity);
+			builder.Box("b", 0xFF00FF00).box(1).o2w(m4x4.Identity);
 			var mem = builder.ToBinary().ToArray();
 			Assert.Equal(mem.Length, 49);
 			View3dValidator.ValidateBinary(builder);
@@ -3944,7 +3949,7 @@ namespace Rylogic.UnitTests
 		{
 			// Commands are control data, not geometry — skip View3d validation
 			var builder = new LDraw.Builder();
-			builder.Box("b", 0xFF00FF00).dim(1);
+			builder.Box("b", 0xFF00FF00).box(1);
 			builder.Command()
 				.add_to_scene(0)
 				.object_transform("b", m4x4.Transform(v4.ZAxis, 0.3f, v4.Origin));
@@ -4116,7 +4121,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryBox()
 		{
 			var builder = new LDraw.Builder();
-			builder.Box("b", 0xFF00FF00u).dim(2, 3, 4);
+			builder.Box("b", 0xFF00FF00u).box(2, 3, 4);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);
@@ -4126,7 +4131,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryBoxList()
 		{
 			var builder = new LDraw.Builder();
-			builder.BoxList("bl", 0xFF00FF00u).box(1, 1, 1, 0, 0, 0).box(2, 2, 2, 3, 0, 0);
+			builder.Box("bl", 0xFF00FF00u).box(1, 1, 1).box(2, 2, 2, new v4(3, 0, 0, 1));
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);
@@ -4146,7 +4151,7 @@ namespace Rylogic.UnitTests
 		public void TestBinarySphere()
 		{
 			var builder = new LDraw.Builder();
-			builder.Sphere("s", 0xFF00FF00u).radius(3);
+			builder.Sphere("s", 0xFF00FF00u).sphere(3);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);
@@ -4166,7 +4171,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryCone()
 		{
 			var builder = new LDraw.Builder();
-			builder.Cone("cn", 0xFF00FF00u).angle(30).height(5);
+			builder.Cone("cone", 0xFF00FF00u).angle(30).height(5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);

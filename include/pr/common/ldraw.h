@@ -28,12 +28,14 @@ namespace pr::ldraw
 	struct LdrBase;
 	struct LdrBinaryStream;
 	struct LdrBox;
+	struct LdrChart;
 	struct LdrCircle;
 	struct LdrCommands;
 	struct LdrCone;
 	struct LdrConvexHull;
 	struct LdrCoordFrame;
 	struct LdrCylinder;
+	struct LdrEquation;
 	struct LdrFrustum;
 	struct LdrGrid;
 	struct LdrGroup;
@@ -54,6 +56,7 @@ namespace pr::ldraw
 	struct LdrText;
 	struct LdrTextStream;
 	struct LdrTriangle;
+	struct LdrTube;
 
 	using ObjPtr = std::shared_ptr<LdrBase>;
 	using textbuf = std::string;
@@ -273,6 +276,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Source = {"*Source", 466561496};
 		inline static constexpr NameValue Specular = {"*Specular", 3195258592};
 		inline static constexpr NameValue Sphere = {"*Sphere", 2950268184};
+		inline static constexpr NameValue SphereList = {"*SphereList", 3185373280};
 		inline static constexpr NameValue Square = {"*Square", 3031831110};
 		inline static constexpr NameValue Step = {"*Step", 3343129103};
 		inline static constexpr NameValue Stretch = {"*Stretch", 3542801962};
@@ -2151,12 +2155,14 @@ namespace pr::ldraw
 		// Children
 		LdrBinaryStream& BinaryStream();
 		LdrBox& Box(seri::Name name = {}, seri::Colour colour = {});
+		LdrChart& Chart(seri::Name name = {}, seri::Colour colour = {});
 		LdrCircle& Circle(seri::Name name = {}, seri::Colour colour = {});
 		LdrCommands& Commands();
 		LdrCone& Cone(seri::Name name = {}, seri::Colour colour = {});
 		LdrConvexHull& ConvexHull(seri::Name name = {}, seri::Colour colour = {});
 		LdrCoordFrame& CoordFrame(seri::Name name = {}, seri::Colour colour = {});
 		LdrCylinder& Cylinder(seri::Name name = {}, seri::Colour colour = {});
+		LdrEquation& Equation(seri::Name name = {}, seri::Colour colour = {});
 		LdrFrustum& Frustum(seri::Name name = {}, seri::Colour colour = {});
 		LdrGrid& Grid(seri::Name name = {}, seri::Colour colour = {});
 		LdrGroup& Group(seri::Name name = {}, seri::Colour colour = {});
@@ -2177,6 +2183,7 @@ namespace pr::ldraw
 		LdrText& Text(seri::Name name = {}, seri::Colour colour = {});
 		LdrTextStream& TextStream();
 		LdrTriangle& Triangle(seri::Name name = {}, seri::Colour colour = {});
+		LdrTube& Tube(seri::Name name = {}, seri::Colour colour = {});
 
 		// Extension objects. Use: `builder._<LdrCustom>("name", 0xFFFFFFFF)`
 		template <typename LdrCustom> requires std::is_base_of_v<LdrBase, LdrCustom>
@@ -2421,6 +2428,20 @@ namespace pr::ldraw
 				LdrBase::Write(out);
 			}
 		}
+	};
+	struct LdrChart : LdrBase
+	{
+		struct LdrSeries
+		{
+			// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
+		};
+
+		LdrChart(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
+		{}
+
+		
+		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
 	};
 	struct LdrCircle : LdrBase
 	{
@@ -2846,6 +2867,13 @@ namespace pr::ldraw
 				LdrBase::Write(out);
 			}
 		}
+	};
+	struct LdrEquation : LdrBase
+	{
+		LdrEquation(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
+		{}
+		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
 	};
 	struct LdrFrustum : LdrBase
 	{
@@ -4085,25 +4113,31 @@ namespace pr::ldraw
 	};
 	struct LdrSphere : LdrBase
 	{
-		seri::Vec3 m_radius = {};
+		struct SphereData
+		{
+			seri::Vec3 m_radius = {};
+			seri::Vec3 m_pos = {};
+			seri::Colour m_col = {};
+		};
+		std::vector<SphereData> m_spheres;
 		seri::Facets m_facets;
 
 		LdrSphere(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
 		{}
 
-		LdrSphere& radius(seri::Vec3 radius)
+		LdrSphere& sphere(seri::Vec3 radius, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			m_radius = radius;
+			m_spheres.push_back(SphereData{ radius, pos, col });
 			return *this;
 		}
-		LdrSphere& radius(float rx, float ry, float rz)
+		LdrSphere& sphere(float radius, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			return radius({rx, ry, rz});
+			return sphere(seri::Vec3(radius, radius, radius), pos, col);
 		}
-		LdrSphere& radius(float r)
+		LdrSphere& sphere(float rx, float ry, float rz, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			return radius(r, r, r);
+			return sphere(seri::Vec3{rx, ry, rz}, pos, col);
 		}
 		LdrSphere& facets(int f)
 		{
@@ -4114,12 +4148,33 @@ namespace pr::ldraw
 		virtual void Write(textbuf& out) const override
 		{
 			using namespace seri;
-			Append(out, EKeywords::Sphere, m_name, m_colour, "{");
+			auto single = m_spheres.size() == 1 && !m_spheres[0].m_pos && !m_spheres[0].m_col;
+			auto per_item_colour = std::ranges::any_of(m_spheres, [](auto const& x) { return !!x.m_col; });
+
+			Append(out, single ? EKeywords::Sphere : EKeywords::SphereList, m_name, m_colour, "{");
 			{
-				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
-				Append(out, EKeywords::Data, "{", m_radius.x, "}");
+				if (single)
+				{
+					auto rad = m_spheres[0].m_radius;
+					if (rad.x == rad.y && rad.y == rad.z)
+						Append(out, EKeywords::Data, "{", rad.x, "}");
+					else
+						Append(out, EKeywords::Data, "{", rad, "}");
+				}
 				else
-				Append(out, EKeywords::Data, "{", m_radius, "}");
+				{
+					if (per_item_colour)
+						Append(out, EKeywords::PerItemColour, "{}");
+				
+					Append(out, EKeywords::Data, "{");
+					for (auto const& s : m_spheres)
+					{
+						Append(out, s.m_radius, s.m_pos);
+						if (per_item_colour)
+							Append(out, s.m_col);
+					}
+					Append(out, "}");
+				}
 				Append(out, m_facets);
 				LdrBase::Write(out);
 			}
@@ -4128,12 +4183,31 @@ namespace pr::ldraw
 		virtual void Write(bytebuf& out) const override
 		{
 			using namespace seri;
-			auto s = Append(out, seri::Header{ EKeywords::Sphere, m_name, m_colour });
+			auto single = m_spheres.size() == 1 && !m_spheres[0].m_pos && !m_spheres[0].m_col;
+			auto per_item_colour = std::ranges::any_of(m_spheres, [](auto const& x) { return !!x.m_col; });
+
+			auto s = Append(out, seri::Header{ single ? EKeywords::Sphere : EKeywords::SphereList, m_name, m_colour });
 			{
-				if (m_radius.x == m_radius.y && m_radius.y == m_radius.z)
-				Append(out, seri::Header{ EKeywords::Data }, m_radius.x);
+				if (single)
+				{
+					auto rad = m_spheres[0].m_radius;
+					Append(out, seri::Header{ EKeywords::Data }, rad);
+				}
 				else
-				Append(out, seri::Header{ EKeywords::Data }, m_radius);
+				{
+					if (per_item_colour)
+						Append(out, seri::Header{ EKeywords::PerItemColour });
+
+					{
+						auto sd = Append(out, seri::Header{ EKeywords::Data });
+						for (auto const& sp : m_spheres)
+						{
+							Append(out, sp.m_radius, sp.m_pos);
+							if (per_item_colour)
+								Append(out, sp.m_col);
+						}
+					}
+				}
 				Append(out, m_facets);
 				LdrBase::Write(out);
 			}
@@ -4290,6 +4364,13 @@ namespace pr::ldraw
 				LdrBase::Write(out);
 			}
 		}
+	};
+	struct LdrTube : LdrBase
+	{
+		LdrTube(seri::Name name, seri::Colour colour)
+			:LdrBase(name, colour)
+		{}
+		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
 	};
 	struct Builder : LdrBase
 	{
@@ -4466,6 +4547,11 @@ namespace pr::ldraw
 		m_children.push_back(ObjPtr{ new LdrBox(name, colour) });
 		return *static_cast<LdrBox*>(m_children.back().get());
 	}
+	inline LdrChart& LdrBase::Chart(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrChart(name, colour) });
+		return *static_cast<LdrChart*>(m_children.back().get());
+	}
 	inline LdrCircle& LdrBase::Circle(seri::Name name, seri::Colour colour)
 	{
 		m_children.push_back(ObjPtr{ new LdrCircle(name, colour) });
@@ -4495,6 +4581,11 @@ namespace pr::ldraw
 	{
 		m_children.push_back(ObjPtr{ new LdrCylinder(name, colour) });
 		return *static_cast<LdrCylinder*>(m_children.back().get());
+	}
+	inline LdrEquation& LdrBase::Equation(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrEquation(name, colour) });
+		return *static_cast<LdrEquation*>(m_children.back().get());
 	}
 	inline LdrFrustum& LdrBase::Frustum(seri::Name name, seri::Colour colour)
 	{
@@ -4595,6 +4686,11 @@ namespace pr::ldraw
 	{
 		m_children.push_back(ObjPtr{ new LdrTriangle(name, colour) });
 		return *static_cast<LdrTriangle*>(m_children.back().get());
+	}
+	inline LdrTube& LdrBase::Tube(seri::Name name, seri::Colour colour)
+	{
+		m_children.push_back(ObjPtr{ new LdrTube(name, colour) });
+		return *static_cast<LdrTube*>(m_children.back().get());
 	}
 
 	// Extension objects. Use: `builder._<LdrCustom>("name", 0xFFFFFFFF)`
@@ -4824,7 +4920,7 @@ namespace pr::ldraw
 		PRUnitTestMethod(Sphere)
 		{
 			Builder builder;
-			builder.Sphere("s", 0xFF00FF00).radius(5).facets(16);
+			builder.Sphere("s", 0xFF00FF00).sphere(5).facets(16);
 			auto ldr = builder.ToString();
 			PR_EXPECT(ldr == "*Sphere s ff00ff00 {*Data {5} *Facets {16}}");
 		}

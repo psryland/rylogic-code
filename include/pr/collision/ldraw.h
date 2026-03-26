@@ -33,7 +33,7 @@ namespace pr::ldraw
 				case EShape::Sphere:
 				{
 					auto& s = shape_cast<ShapeSphere>(shape);
-					Sphere().radius(s.m_radius).o2w(s.m_base.m_s2p);
+					Sphere().sphere(s.m_radius).o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape::Box:

@@ -713,7 +713,7 @@ namespace pr::rdr12::ldraw
 			"	*PerItemColour {}\n"
 			"	*Data\n"
 			"	{\n"
-			"		// width,height,depth, x,y,z\n"
+			"		// width,height,depth, x,y,z [colour]\n"
 			"		0.7 0.2 0.2  -1.00 0.00 0.0  FFFF0000\n"
 			"		0.6 0.3 0.2  -0.50 0.00 0.0	 FFFF0000\n"
 			"		0.5 0.4 0.3  +0.00 0.00 0.0	 FF00FF00\n"
@@ -770,6 +770,32 @@ namespace pr::rdr12::ldraw
 			"	*RootAnimation {*Style {Continuous} *Period {1.6} *AngVelocity {0 0 +1}}\n"
 			"	*RandColour {}\n"
 			"	*o2w{*euler{90 0 0} *pos{-10 1.25 8}}\n"
+			"}\n"
+			"\n"
+			"// A list of spheres with different radii at the given locations\n"
+			"*SphereList sphere_cluster\n"
+			"{\n"
+			"	*PerItemColour {}\n"
+			"	*Data\n"
+			"	{\n"
+			"		// rx,ry,rz, x,y,z [colour]\n"
+			"		0.30 0.25 0.20  -1.00 0.00 0.0  FFFF0000\n"
+			"		0.25 0.20 0.15  -0.50 0.00 0.0  FFFF0000\n"
+			"		0.20 0.15 0.35  +0.00 0.00 0.0  FF00FF00\n"
+			"		0.15 0.35 0.10  +0.50 0.00 0.0  FFFFFF00\n"
+			"		0.35 0.10 0.40  +1.00 0.00 0.0  FF00FFFF\n"
+			"		0.10 0.40 0.20  -0.75 0.40 0.0  FF0000FF\n"
+			"		0.40 0.20 0.15  -0.25 0.40 0.0  FF0000FF\n"
+			"		0.20 0.15 0.25  +0.25 0.40 0.0  FFFF0000\n"
+			"		0.15 0.25 0.30  +0.75 0.40 0.0  FFFF0000\n"
+			"		0.25 0.30 0.20  -0.50 0.80 0.0  FF00FF00\n"
+			"		0.30 0.20 0.35  +0.00 0.80 0.0  FFFFFF00\n"
+			"		0.20 0.35 0.15  +0.50 0.80 0.0  FF00FFFF\n"
+			"		0.35 0.15 0.45  -0.25 1.20 0.0  FF0000FF\n"
+			"		0.15 0.45 0.30  +0.25 1.20 0.0  FF0000FF\n"
+			"		0.45 0.30 0.25  +0.00 1.60 0.0  FFF0000F\n"
+			"	}\n"
+			"	*o2w{*pos{-8 0.1 8}}\n"
 			"}\n"
 			"\n"
 			"// A group used to set the parent space of the ellipsoid\n"
@@ -1266,19 +1292,19 @@ namespace pr::rdr12::ldraw
 
 		// Nesting
 		{
-			ldr.Sphere("nesting0", 0xA0FFFF00).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 5, -7 }).group_colour(0xFFFF00FF)
-				.Sphere("nested1", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
-				.Sphere("nested2", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
-				.Sphere("nested3", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
-				.Sphere("nested4", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
-				.Sphere("nested5", 0xFF00FFFF).radius(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 });
+			ldr.Sphere("nesting0", 0xA0FFFF00).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 5, -7 }).group_colour(0xFFFF00FF)
+				.Sphere("nested1", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested2", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested3", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested4", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
+				.Sphere("nested5", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 });
 		}
 
 		// Groups
 		{
 			auto& grp = ldr.Group("group").pos(-10, 1.5f, -5);
 			grp.Cylinder("barrel", 0xFFE0A060).hr(3, 1).axis(pr::AxisId::PosZ);
-			grp.Sphere("bullet", 0xFF0000FF).radius(0.7f);
+			grp.Sphere("bullet", 0xFF0000FF).sphere(0.7f);
 			//{
 			//	*RootAnimation
 			//	{
