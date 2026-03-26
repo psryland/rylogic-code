@@ -1014,7 +1014,7 @@ namespace Rylogic.LDraw
 			{
 				if (single)
 				{
-					res.Write(EKeyword.Data, m_boxes[0].m_whd);
+					res.Write(EKeyword.Data, m_boxes[0].m_whd.xyz);
 				}
 				else
 				{
@@ -2254,7 +2254,7 @@ namespace Rylogic.LDraw
 	}
 	public class LdrPoint : LdrBase<LdrPoint>
 	{
-		private class Pt { public v4 pt; public Colour32 col; };
+		private class Pt { public v4 pt; public Colour32 col; }
 		private readonly List<Pt> m_points = [];
 		private Serialiser.Size2 m_size = new();
 		private Serialiser.Depth m_depth = new();
@@ -2545,8 +2545,7 @@ namespace Rylogic.LDraw
 			{
 				if (single)
 				{
-					var rad = m_spheres[0].m_radius;
-					res.Write(EKeyword.Data, rad);
+					res.Write(EKeyword.Data, m_spheres[0].m_radius.xyz);
 				}
 				else
 				{
@@ -2557,7 +2556,7 @@ namespace Rylogic.LDraw
 					{
 						foreach (var s in m_spheres)
 						{
-							res.Append(s.m_radius, (s.m_pos ?? v4.Origin).xyz);
+							res.Append(s.m_radius.xyz, (s.m_pos ?? v4.Origin).xyz);
 							if (per_item_colour)
 								res.Append(s.m_col ?? Colour32.White);
 						}
@@ -3329,15 +3328,11 @@ namespace Rylogic.LDraw
 		}
 		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, v4 position)
 		{
-			return Pie(name, colour, axis_id, solid, ang0, ang1, 0f, 1f, position);
+			return Pie(name, colour, axis_id, solid, ang0, ang1, 0f, 1f, 3, position);
 		}
-		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, double rad0, double rad1, v4 position)
+		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, double rad0, double rad1, int facets, v4 position)
 		{
-			return Pie(name, colour, axis_id, solid, ang0, ang1, rad0, rad1, 1f, 1f, 40, position);
-		}
-		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, double rad0, double rad1, double sx, double sy, int facets, v4 position)
-		{
-			return Append("*Pie ", name, " ", colour, " {", ang0, " ", ang1, " ", rad0, " ", rad1, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Facets(facets), " *Scale ", sx, " ", sy, " ", Ldr.Position(position), "}\n");
+			return Append("*Pie ", name, " ", colour, " {", ang0, " ", ang1, " ", rad0, " ", rad1, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Facets(facets), " ", Ldr.Position(position), "}\n");
 		}
 
 		public LdrBuilder Rect()
@@ -3663,7 +3658,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Box("b", new Colour32(0xFF00FF00)).box(1).o2w(m4x4.Identity);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Box b FF00FF00 {*Data {1 1 1}}");
+			Assert.Equal("*Box b FF00FF00 {*Data {1 1 1}}", str);
 		}
 
 		[Test]
@@ -3672,7 +3667,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Line("a", 0xFF00FF00).style(LDraw.ELineStyle.LineStrip).line_to(v4.ZAxis.w1);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Line a FF00FF00 {*Style {LineStrip} *Data {0 0 1 0 0 1}}");
+			Assert.Equal("*Line a FF00FF00 {*Style {LineStrip} *Data {0 0 1 0 0 1}}", str);
 		}
 
 		[Test]
@@ -3681,7 +3676,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Group("g", 0xFF00FF00u);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Group g FF00FF00 {}");
+			Assert.Equal("*Group g FF00FF00 {}", str);
 		}
 
 		[Test]
@@ -3690,7 +3685,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Instance("i", 0xFFFF0000u).inst("model_ref");
 			var str = builder.ToString();
-			Assert.Equal(str, "*Instance i FFFF0000 {*Data {model_ref}}");
+			Assert.Equal("*Instance i FFFF0000 {*Data {model_ref}}", str);
 		}
 
 		[Test]
@@ -3699,7 +3694,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Text("t", 0xFF00FF00u).text("hello");
 			var str = builder.ToString();
-			Assert.Equal(str, "*Text t FF00FF00 {*Data {\"hello\"}}");
+			Assert.Equal("*Text t FF00FF00 {*Data {\"hello\"}}", str);
 		}
 
 		[Test]
@@ -3708,7 +3703,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.LightSource("light", 0xFF00FF00u).style("Spot").diffuse(new Colour32(0xFF0000FF));
 			var str = builder.ToString();
-			Assert.Equal(str, "*LightSource light FF00FF00 {*Style {Spot} *Diffuse {FF0000FF}}");
+			Assert.Equal("*LightSource light FF00FF00 {*Style {Spot} *Diffuse {FF0000FF}}", str);
 		}
 
 		[Test]
@@ -3717,7 +3712,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Point("p", 0xFF00FF00u).style(LDraw.EPointStyle.Circle).pt(new v4(1, 2, 3, 1));
 			var str = builder.ToString();
-			Assert.Equal(str, "*Point p FF00FF00 {*Style {Circle} *Data {1 2 3}}");
+			Assert.Equal("*Point p FF00FF00 {*Style {Circle} *Data {1 2 3}}", str);
 		}
 
 		[Test]
@@ -3726,7 +3721,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.LineBox("lb", 0xFF00FF00u).dim(2, 3, 4);
 			var str = builder.ToString();
-			Assert.Equal(str, "*LineBox lb FF00FF00 {*Data {2 3 4}}");
+			Assert.Equal("*LineBox lb FF00FF00 {*Data {2 3 4}}", str);
 		}
 
 		[Test]
@@ -3735,7 +3730,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Grid("grid", 0xFF00FF00u).wh(10, 10).divisions(5, 5);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Grid grid FF00FF00 {*Data {10 10 5 5}}");
+			Assert.Equal("*Grid grid FF00FF00 {*Data {10 10 5 5}}", str);
 		}
 
 		[Test]
@@ -3744,7 +3739,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.CoordFrame("cf", 0xFF00FF00u).scale(2);
 			var str = builder.ToString();
-			Assert.Equal(str, "*CoordFrame cf FF00FF00 {*Scale {2}}");
+			Assert.Equal("*CoordFrame cf FF00FF00 {*Scale {2}}", str);
 		}
 
 		[Test]
@@ -3753,7 +3748,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Circle("c", 0xFF00FF00u).radius(5).solid(true);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Circle c FF00FF00 {*Data {5} *Solid {true}}");
+			Assert.Equal("*Circle c FF00FF00 {*Data {5} *Solid {true}}", str);
 		}
 
 		[Test]
@@ -3762,7 +3757,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Pie("pie", 0xFF00FF00u).pie(0, 90, 0.5f, 1.5f);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Pie pie FF00FF00 {*Data {0 90 0.5 1.5}}");
+			Assert.Equal("*Pie pie FF00FF00 {*Data {0 90 0.5 1.5}}", str);
 		}
 
 		[Test]
@@ -3771,7 +3766,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Rect r FF00FF00 {*Data {3 2}}");
+			Assert.Equal("*Rect r FF00FF00 {*Data {3 2}}", str);
 		}
 
 		[Test]
@@ -3780,7 +3775,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Polygon pg FF00FF00 {*Data {0 0 1 0 0.5 1}}");
+			Assert.Equal("*Polygon pg FF00FF00 {*Data {0 0 1 0 0.5 1}}", str);
 		}
 
 		[Test]
@@ -3789,7 +3784,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Triangle("tri", 0xFF00FF00u).tri(v4.Origin, new v4(1, 0, 0, 1), new v4(0, 1, 0, 1));
 			var str = builder.ToString();
-			Assert.Equal(str, "*Triangle tri FF00FF00 {*Data {0 0 0 1 0 0 0 1 0}}");
+			Assert.Equal("*Triangle tri FF00FF00 {*Data {0 0 0 1 0 0 0 1 0}}", str);
 		}
 
 		[Test]
@@ -3798,7 +3793,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Quad("q", 0xFF00FF00u).quad(new v4(0, 0, 0, 1), new v4(1, 0, 0, 1), new v4(1, 1, 0, 1), new v4(0, 1, 0, 1));
 			var str = builder.ToString();
-			Assert.Equal(str, "*Quad q FF00FF00 {*Data {0 0 0 1 0 0 1 1 0 0 1 0}}");
+			Assert.Equal("*Quad q FF00FF00 {*Data {0 0 0 1 0 0 1 1 0 0 1 0}}", str);
 		}
 
 		[Test]
@@ -3807,7 +3802,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Plane("pl", 0xFF00FF00u).wh(5, 5);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Plane pl FF00FF00 {*Data {5 5}}");
+			Assert.Equal("*Plane pl FF00FF00 {*Data {5 5}}", str);
 		}
 
 		[Test]
@@ -3816,7 +3811,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Ribbon("rib", 0xFF00FF00u).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 0, 0, 1)).width(0.5f);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Ribbon rib FF00FF00 {*Data {0 0 0 1 0 0 2 0 0} *Width {0.5}}");
+			Assert.Equal("*Ribbon rib FF00FF00 {*Data {0 0 0 1 0 0 2 0 0} *Width {0.5}}", str);
 		}
 
 		[Test]
@@ -3825,7 +3820,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Box("bl", 0xFF00FF00u).box(1, 1, 1).box(2, 2, 2, new v4(3, 0, 0, 1));
 			var str = builder.ToString();
-			Assert.Equal(str, "*BoxList bl FF00FF00 {*Data {1 1 1 0 0 0 2 2 2 3 0 0}}");
+			Assert.Equal("*BoxList bl FF00FF00 {*Data {1 1 1 0 0 0 2 2 2 3 0 0}}", str);
 		}
 
 		[Test]
@@ -3834,7 +3829,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Frustum("fr", 0xFF00FF00u).wh(4, 3).nf(1, 100);
 			var str = builder.ToString();
-			Assert.Equal(str, "*FrustumWH fr FF00FF00 {*Data {4 3 1 100}}");
+			Assert.Equal("*FrustumWH fr FF00FF00 {*Data {4 3 1 100}}", str);
 		}
 
 		[Test]
@@ -3843,7 +3838,16 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Sphere("s", 0xFF00FF00u).sphere(3);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Sphere s FF00FF00 {*Data {3 3 3}}");
+			Assert.Equal("*Sphere s FF00FF00 {*Data {3 3 3}}", str);
+		}
+
+		[Test]
+		public void TestSphereList()
+		{
+			var builder = new LDraw.Builder();
+			builder.Sphere("s", 0xFF00FF00u).sphere(3, new v4(1,1,1,1)).sphere(1, 2, 3, new v4(2,2,2,1));
+			var str = builder.ToString();
+			Assert.Equal("*SphereList s FF00FF00 {*Data {3 3 3 1 1 1 1 2 3 2 2 2}}", str);
 		}
 
 		[Test]
@@ -3852,7 +3856,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Cylinder cyl FF00FF00 {*Data {3 1 1}}");
+			Assert.Equal("*Cylinder cyl FF00FF00 {*Data {3 1 1}}", str);
 		}
 
 		[Test]
@@ -3861,16 +3865,16 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Cone("cone", 0xFF00FF00u).angle(30).height(5);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Cone cone FF00FF00 {*Data {30 0 5}}");
+			Assert.Equal("*Cone cone FF00FF00 {*Data {30 0 5}}", str);
 		}
 
 		[Test]
 		public void TestTube()
 		{
 			var builder = new LDraw.Builder();
-			builder.Tube("tube", 0xFF00FF00u).cross_section_round(0.5f).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 1, 0, 1));
+			builder.Tube("tube", 0xFF00FF00u).cross_section_round(0.5f).pt(new v4(0, 0, 0, 1)).pt(new v4(1, 0, 0, 1)).pt(new v4(2, 0, 0, 1));
 			var str = builder.ToString();
-			Assert.Equal(str, "*Tube tube FF00FF00 {*CrossSection {*Round {0.5 0.5}} *Data {0 0 0 1 0 0 2 1 0}}");
+			Assert.Equal("*Tube tube FF00FF00 {*CrossSection {*Round {0.5 0.5}} *Data {0 0 0 1 0 0 2 0 0}}", str);
 		}
 
 		[Test]
@@ -3879,7 +3883,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Mesh("m", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).face(0, 1, 2);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Mesh m FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0} *Faces {0 1 2}}");
+			Assert.Equal("*Mesh m FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0} *Faces {0 1 2}}", str);
 		}
 
 		[Test]
@@ -3888,7 +3892,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.ConvexHull("ch", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
 			var str = builder.ToString();
-			Assert.Equal(str, "*ConvexHull ch FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0 0 0 1}}");
+			Assert.Equal("*ConvexHull ch FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0 0 0 1}}", str);
 		}
 
 		[Test]
@@ -3898,7 +3902,7 @@ namespace Rylogic.UnitTests
 			var chart = builder.Chart("chart", 0xFF00FF00u).dim(2).data(0, 1, 1, 2, 2, 3);
 			chart.Series("plot", 0xFF0000FFu).xaxis("C0").yaxis("C1");
 			var str = builder.ToString();
-			Assert.Equal(str, "*Chart chart FF00FF00 {*Dim {2} *Data {0 1 1 2 2 3} *Series plot FF0000FF {*XAxis {\"C0\"} *YAxis {\"C1\"}}}");
+			Assert.Equal("*Chart chart FF00FF00 {*Dim {2} *Data {0 1 1 2 2 3} *Series plot FF0000FF {*XAxis {\"C0\"} *YAxis {\"C1\"}}}", str);
 		}
 
 		[Test]
@@ -3907,7 +3911,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Equation("eq", 0xFF00FF00u).equation("sin(x)").resolution(100);
 			var str = builder.ToString();
-			Assert.Equal(str, "*Equation eq FF00FF00 {*Data {\"sin(x)\"} *Resolution {100}}");
+			Assert.Equal("*Equation eq FF00FF00 {*Data {\"sin(x)\"} *Resolution {100}}", str);
 		}
 	}
 
@@ -4211,7 +4215,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryChart()
 		{
 			var builder = new LDraw.Builder();
-			var chart = builder.Chart("chart", 0xFF00FF00u).dim(2).data(0, 1, 1, 2);
+			var chart = builder.Chart("chart", 0xFF00FF00u).dim(2).data(0, 1, 1, 2, 2, 3);
 			chart.Series("plot", 0xFF0000FFu).xaxis("C0").yaxis("C1");
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
