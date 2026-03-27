@@ -109,8 +109,6 @@ namespace pr::hlsl
 
 	struct SamplerState {};
 
-	struct SamplerState {};
-
 	template <typename Format>
 	struct Texture2D
 	{

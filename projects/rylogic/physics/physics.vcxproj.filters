@@ -63,6 +63,39 @@
     <ClCompile Include="src\compute\sweep_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\unittests\test_collision_pairs.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_gpu_compare.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_collision_resolution.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_engine.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_gpu_collide.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_gpu_collision.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_impulse.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_inertia.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_integrator.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_rigid_body.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_shape_builder.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
@@ -76,33 +109,6 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h">
       <Filter>src\utility</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_field.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_impulse.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_inertia.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_integrator.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_rigid_body.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_shape_builder.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_gpu_collision.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h">
-      <Filter>src\collision</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h">
-      <Filter>src\collision</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h">
       <Filter>src\integrator</Filter>
@@ -137,12 +143,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\materials\material.h">
-      <Filter>src\materials</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\test_collision.cpp">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
     <ClInclude Include="src\utility\gpu.h">
       <Filter>src\utility</Filter>
     </ClInclude>
@@ -170,26 +170,29 @@
     <ClInclude Include="src\diagnostics\physics_log.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\diagnostics\body_history.h">
-      <Filter>src\diagnostics</Filter>
-    </ClInclude>
     <ClInclude Include="src\diagnostics\dbg_physics.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
     <ClInclude Include="src\integrator\engine_buffer_cache.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\state_flags.h">
-      <Filter>src\rigid_body</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h">
+      <Filter>src\diagnostics</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\physics\integrator\engine_config.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\contact.h">
+      <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_gpu_collide.cpp">
-      <Filter>src\unittests</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\materials\material.h">
+      <Filter>src\materials</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\test_engine.cpp">
-      <Filter>src\unittests</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\state_flags.h">
+      <Filter>src\rigid_body</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

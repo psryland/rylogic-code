@@ -75,7 +75,6 @@ namespace pr::collision
 
 		inline bool SimplexLine(Simplex& sx, v4& dir);
 		inline bool SimplexTri(Simplex& sx, v4& dir);
-
 		inline bool SimplexLine(Simplex& sx, v4& dir)
 		{
 			// A = newest (sx.s[0]), B = previous (sx.s[1])
@@ -98,7 +97,6 @@ namespace pr::collision
 			}
 			return false;
 		}
-
 		inline bool SimplexTri(Simplex& sx, v4& dir)
 		{
 			// A = newest (sx.s[0]), B = sx.s[1], C = sx.s[2]
@@ -148,7 +146,6 @@ namespace pr::collision
 			}
 			return false;
 		}
-
 		inline bool SimplexTetra(Simplex& sx, v4& dir)
 		{
 			// A = newest (sx.s[0]), B = sx.s[1], C = sx.s[2], D = sx.s[3]
@@ -182,7 +179,6 @@ namespace pr::collision
 			// Origin is inside the tetrahedron
 			return true;
 		}
-
 		inline bool DoSimplex(Simplex& sx, v4& dir)
 		{
 			switch (sx.n)

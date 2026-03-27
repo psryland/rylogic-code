@@ -13,10 +13,12 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
-		PRUnitTestMethod(Mul_Mat_Vec)
+		PRUnitTestMethod(Mul_Mat_Vec, float, double)
 		{
 			// Matrix * Vector convention: Vb = a2b * Va (right-to-left, column-vector)
 			// Use a 90° rotation around Z that maps X→Y, Y→-X, plus translation (10,20,30)
+			using Mat4x4 = Mat4x4<T>;
+			using Vec4 = Vec4<T>;
 
 			// Matrix members 'x, y, z, w' are column vectors stored contigously.
 			// Don't get confused into thinking they are row vectors. The mathematical layout is not the same as the in-memory layout.
@@ -36,23 +38,26 @@ namespace pr::math::tests
 			// Point (1,0,0,1) in space A should become: rotated X = (0,1,0) + translation = (10,21,30,1)
 			{
 				auto Vb = a2b * Vec4{ 1, 0, 0, 1 };
-				PR_EXPECT(FEql(Vb, Vec4{ S(10), S(21), S(30), S(1) }));
+				PR_EXPECT(FEql(Vb, Vec4{ 10, 21, 30, 1 }));
 			}
 
 			// Direction (1,0,0,0) should just rotate, no translation
 			{
 				auto Vb = a2b * Vec4{ 1, 0, 0, 0 };
-				PR_EXPECT(FEql(Vb, Vec4{ S(0), S(1), S(0), S(0) }));
+				PR_EXPECT(FEql(Vb, Vec4{ 0, 1, 0, 0 }));
 			}
 
 			// Point (0,1,0,1) should become: rotated Y = (-1,0,0) + translation = (9,20,30,1)
 			{
 				auto Vb = a2b * Vec4{ 0, 1, 0, 1 };
-				PR_EXPECT(FEql(Vb, Vec4{ S(9), S(20), S(30), S(1) }));
+				PR_EXPECT(FEql(Vb, Vec4{ 9, 20, 30, 1 }));
 			}
 		}
-		PRUnitTestMethod(Mul_Mat_Mat)
+		PRUnitTestMethod(Mul_Mat_Mat, float, double)
 		{
+			using Mat4x4 = Mat4x4<T>;
+			using Vec4 = Vec4<T>;
+
 			// Matrix * Matrix convention: a2c = b2c * a2b (right-to-left)
 			// a2b: 90° around Z + translate (10,0,0)
 			// b2c: 90° around Z + translate (0,5,0)

@@ -11,10 +11,13 @@
 //   2. Collision resolution: GPU CSResolve vs CPU ResolveCollision()
 //   3. Analytic results: free-flight, elastic collisions
 //
-#pragma once
-#include "src/forward.h"
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+#include "pr/physics/physics.h"
+#include <fstream>
+#include <format>
 
-namespace physics_sandbox::tests
+namespace pr::physics::tests
 {
 	namespace gpu_compare
 	{
@@ -65,6 +68,7 @@ namespace physics_sandbox::tests
 		// Helper: compare a RigidBody (GPU output) with a RigidBodyDynamics (CPU output).
 		// Returns true if they match within tolerance. Prints diagnostics on mismatch.
 		inline bool CompareIntegration(
+			std::ostream& log,
 			char const* label,
 			physics::RigidBody const& gpu_rb,
 			physics::RigidBody const& cpu_rb,
@@ -84,20 +88,20 @@ namespace physics_sandbox::tests
 			if (pos_err > pos_tol || rot_err > rot_tol || ang_err > mom_tol || lin_err > mom_tol)
 			{
 				ok = false;
-				printf("  [%s] MISMATCH:\n", label);
-				printf("    pos_err=%.6f rot_err=%.6f ang_err=%.6f lin_err=%.6f\n", pos_err, rot_err, ang_err, lin_err);
-				printf("    GPU pos=(%.6f, %.6f, %.6f)\n", gpu_rb.O2W().pos.x, gpu_rb.O2W().pos.y, gpu_rb.O2W().pos.z);
-				printf("    CPU pos=(%.6f, %.6f, %.6f)\n", cpu_rb.O2W().pos.x, cpu_rb.O2W().pos.y, cpu_rb.O2W().pos.z);
-				printf("    GPU mom_ang=(%.6f, %.6f, %.6f) mom_lin=(%.6f, %.6f, %.6f)\n",
+				log << std::format("  [{}] MISMATCH:\n", label);
+				log << std::format("    pos_err={:.6f} rot_err={:.6f} ang_err={:.6f} lin_err={:.6f}\n", pos_err, rot_err, ang_err, lin_err);
+				log << std::format("    GPU pos=({:.6f}, {:.6f}, {:.6f})\n", gpu_rb.O2W().pos.x, gpu_rb.O2W().pos.y, gpu_rb.O2W().pos.z);
+				log << std::format("    CPU pos=({:.6f}, {:.6f}, {:.6f})\n", cpu_rb.O2W().pos.x, cpu_rb.O2W().pos.y, cpu_rb.O2W().pos.z);
+				log << std::format("    GPU mom_ang=({:.6f}, {:.6f}, {:.6f}) mom_lin=({:.6f}, {:.6f}, {:.6f})\n",
 					gpu_rb.MomentumWS().ang.x, gpu_rb.MomentumWS().ang.y, gpu_rb.MomentumWS().ang.z,
 					gpu_rb.MomentumWS().lin.x, gpu_rb.MomentumWS().lin.y, gpu_rb.MomentumWS().lin.z);
-				printf("    CPU mom_ang=(%.6f, %.6f, %.6f) mom_lin=(%.6f, %.6f, %.6f)\n",
+				log << std::format("    CPU mom_ang=({:.6f}, {:.6f}, {:.6f}) mom_lin=({:.6f}, {:.6f}, {:.6f})\n",
 					cpu_rb.MomentumWS().ang.x, cpu_rb.MomentumWS().ang.y, cpu_rb.MomentumWS().ang.z,
 					cpu_rb.MomentumWS().lin.x, cpu_rb.MomentumWS().lin.y, cpu_rb.MomentumWS().lin.z);
 			}
 			else
 			{
-				printf("  [%s] OK (pos_err=%.2e rot_err=%.2e ang_err=%.2e lin_err=%.2e)\n",
+				log << std::format("  [{}] OK (pos_err={:.2e} rot_err={:.2e} ang_err={:.2e} lin_err={:.2e})\n",
 					label, pos_err, rot_err, ang_err, lin_err);
 			}
 			return ok;
@@ -125,7 +129,8 @@ namespace physics_sandbox::tests
 				collision::shape_cast(&sphere), 10.0f, o2w, ang_vel, lin_vel,
 				v4{}, v4{}, dt);
 
-			PR_EXPECT(gpu_compare::CompareIntegration("SphereLinear", gpu_rb, cpu_dyn));
+			auto log = std::ofstream(temp_dir() / "SphereLinearOnly.log");
+			PR_EXPECT(gpu_compare::CompareIntegration(log, "SphereLinear", gpu_rb, cpu_dyn));
 
 			// Analytic check: position should be (3*0.01, 0, 5) = (0.03, 0, 5)
 			auto expected_pos = v4{0.03f, 0, 5, 1};
@@ -149,7 +154,8 @@ namespace physics_sandbox::tests
 				collision::shape_cast(&box), 10.0f, o2w, ang_vel, lin_vel,
 				v4{}, v4{}, dt);
 
-			PR_EXPECT(gpu_compare::CompareIntegration("BoxAngular", gpu_rb, cpu_dyn));
+			auto log = std::ofstream(temp_dir() / "BoxAngularOnly.log");
+			PR_EXPECT(gpu_compare::CompareIntegration(log, "BoxAngular", gpu_rb, cpu_dyn));
 
 			// KE should be conserved (no forces)
 			physics::RigidBody cpu_rb;
@@ -187,7 +193,8 @@ namespace physics_sandbox::tests
 				collision::shape_cast(&poly), 10.0f, o2w, ang_vel, lin_vel,
 				v4{}, v4{}, dt);
 
-			PR_EXPECT(gpu_compare::CompareIntegration("PolytopeOffCentre", gpu_rb, cpu_dyn));
+			auto log = std::ofstream(temp_dir() / "PolytopeOffCentreCoM.log");
+			PR_EXPECT(gpu_compare::CompareIntegration(log, "PolytopeOffCentre", gpu_rb, cpu_dyn));
 		}
 
 		// Test 4: Integration with external forces (gravity)
@@ -209,7 +216,8 @@ namespace physics_sandbox::tests
 				collision::shape_cast(&sphere), mass, o2w, ang_vel, lin_vel,
 				v4{}, gravity, dt);
 
-			PR_EXPECT(gpu_compare::CompareIntegration("SphereGravity", gpu_rb, cpu_dyn));
+			auto log = std::ofstream(temp_dir() / "SphereWithGravity.log");
+			PR_EXPECT(gpu_compare::CompareIntegration(log, "SphereGravity", gpu_rb, cpu_dyn));
 
 			// Analytic: after one kick-drift-kick step with constant gravity
 			// Störmer-Verlet: v_half = v0 + a*dt/2, x1 = x0 + v_half*dt, v1 = v_half + a*dt/2
@@ -261,7 +269,8 @@ namespace physics_sandbox::tests
 			}
 
 			// Compare after 100 steps (allow larger tolerance for accumulated float differences)
-			PR_EXPECT(gpu_compare::CompareIntegration("MultiStep100", gpu_bodies[0], cpu_rb, 1e-3f, 1e-3f, 1e-3f));
+			auto log = std::ofstream(temp_dir() / "MultiStepBoxWithSpin.log");
+			PR_EXPECT(gpu_compare::CompareIntegration(log, "MultiStep100", gpu_bodies[0], cpu_rb, 1e-3f, 1e-3f, 1e-3f));
 		}
 	};
 
@@ -362,7 +371,8 @@ namespace physics_sandbox::tests
 				sphere, inertia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere, inertia, v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0});
 
-			printf("  GPU collision: %s, CPU collision: %s\n",
+			auto log = std::ofstream(temp_dir() / "SphereHeadOn.log");
+			log << std::format("  GPU collision: {}, CPU collision: {}\n",
 				r.gpu_collision ? "yes" : "no", r.cpu_collision ? "yes" : "no");
 
 			PR_EXPECT(r.gpu_collision);
@@ -375,8 +385,8 @@ namespace physics_sandbox::tests
 				auto ang_diff_b = Length(r.gpu_momentum_b.ang - r.cpu_momentum_b.ang);
 				auto lin_diff_b = Length(r.gpu_momentum_b.lin - r.cpu_momentum_b.lin);
 
-				printf("  Body A: ang_diff=%.6f lin_diff=%.6f\n", ang_diff_a, lin_diff_a);
-				printf("  Body B: ang_diff=%.6f lin_diff=%.6f\n", ang_diff_b, lin_diff_b);
+				log << std::format("  Body A: ang_diff={:.6f} lin_diff={:.6f}\n", ang_diff_a, lin_diff_a);
+				log << std::format("  Body B: ang_diff={:.6f} lin_diff={:.6f}\n", ang_diff_b, lin_diff_b);
 
 				// GPU and CPU resolve should produce very similar results
 				PR_EXPECT(ang_diff_a < 0.01f);
@@ -398,7 +408,8 @@ namespace physics_sandbox::tests
 				box, inertia_box, v4{0, 0, 2, 1}, v4{0, 0, -3, 0},
 				ground, inertia_ground, v4{0, 0, -0.5f, 1}, v4{0, 0, 0, 0});
 
-			printf("  GPU collision: %s, CPU collision: %s\n",
+			auto log = std::ofstream(temp_dir() / "BoxOnGround.log");
+			log << std::format("  GPU collision: {}, CPU collision: {}\n",
 				r.gpu_collision ? "yes" : "no", r.cpu_collision ? "yes" : "no");
 
 			PR_EXPECT(r.gpu_collision);
@@ -407,10 +418,10 @@ namespace physics_sandbox::tests
 			if (r.gpu_collision && r.cpu_collision)
 			{
 				auto lin_diff = Length(r.gpu_momentum_a.lin - r.cpu_momentum_a.lin);
-				printf("  Box lin_diff=%.6f\n", lin_diff);
-				printf("  GPU box mom_lin=(%.4f, %.4f, %.4f)\n",
+				log << std::format("  Box lin_diff={:.6f}\n", lin_diff);
+				log << std::format("  GPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n",
 					r.gpu_momentum_a.lin.x, r.gpu_momentum_a.lin.y, r.gpu_momentum_a.lin.z);
-				printf("  CPU box mom_lin=(%.4f, %.4f, %.4f)\n",
+				log << std::format("  CPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n",
 					r.cpu_momentum_a.lin.x, r.cpu_momentum_a.lin.y, r.cpu_momentum_a.lin.z);
 				PR_EXPECT(lin_diff < 0.1f);
 			}
@@ -449,9 +460,10 @@ namespace physics_sandbox::tests
 			auto expected_pos = v4{0, 0, 100, 1} + lin_vel * 1.0f;
 			expected_pos.w = 1;
 			auto pos_err = Length(bodies[0].O2W().pos - expected_pos);
-			printf("  Position after 100 steps: (%.6f, %.6f, %.6f)\n",
+			auto log = std::ofstream(temp_dir() / "FreeFlight100Steps.log");
+			log << std::format("  Position after 100 steps: ({:.6f}, {:.6f}, {:.6f})\n",
 				bodies[0].O2W().pos.x, bodies[0].O2W().pos.y, bodies[0].O2W().pos.z);
-			printf("  Expected: (%.6f, %.6f, %.6f) err=%.6f\n",
+			log << std::format("  Expected: ({:.6f}, {:.6f}, {:.6f}) err={:.6f}\n",
 				expected_pos.x, expected_pos.y, expected_pos.z, pos_err);
 			PR_EXPECT(pos_err < 1e-3f);
 		}
@@ -488,7 +500,8 @@ namespace physics_sandbox::tests
 				max_drift = std::max(max_drift, drift);
 			}
 
-			printf("  Initial KE: %.6f, Final KE: %.6f, Max drift: %.4f%%\n",
+			auto log = std::ofstream(temp_dir() / "AngularKEConservation.log");
+			log << std::format("  Initial KE: {:.6f}, Final KE: {:.6f}, Max drift: {:.4f}%\n",
 				ke0, bodies[0].KineticEnergy(), max_drift * 100.0f);
 
 			// Symplectic integrator should conserve KE to within 1%
@@ -512,14 +525,12 @@ namespace physics_sandbox::tests
 
 			physics::Engine engine;
 
-			// Step until the bodies should be close enough to overlap
+			// Detect collision via the Collided event on the bodies
 			bool collision_detected = false;
-			//engine.PostCollisionDetection += [&](auto&, auto args)
-			//{
-			//	if (!args.m_contacts.empty())
-			//		collision_detected = true;
-			//};
+			bodies[0].Collided += [&](auto&, auto&) { collision_detected = true; };
+			bodies[1].Collided += [&](auto&, auto&) { collision_detected = true; };
 
+			auto log = std::ofstream(temp_dir() / "BroadphaseDiagnostic.log");
 			for (int step = 0; step != 500; ++step)
 			{
 				bodies[0].ZeroForces();
@@ -528,7 +539,7 @@ namespace physics_sandbox::tests
 
 				if (step % 50 == 0)
 				{
-					printf("  Step %d: A pos=(%.2f,%.2f,%.2f) B pos=(%.2f,%.2f,%.2f)\n",
+					log << std::format("  Step {}: A pos=({:.2f},{:.2f},{:.2f}) B pos=({:.2f},{:.2f},{:.2f})\n",
 						step,
 						bodies[0].O2W().pos.x, bodies[0].O2W().pos.y, bodies[0].O2W().pos.z,
 						bodies[1].O2W().pos.x, bodies[1].O2W().pos.y, bodies[1].O2W().pos.z);
@@ -536,7 +547,7 @@ namespace physics_sandbox::tests
 
 				if (collision_detected)
 				{
-					printf("  Collision detected at step %d!\n", step);
+					log << std::format("  Collision detected at step {}!\n", step);
 					break;
 				}
 			}
@@ -588,21 +599,22 @@ namespace physics_sandbox::tests
 			auto [sat_gpu_va, sat_gpu_vb] = run_collision(false, true); // CPU detect + GPU resolve
 			auto [full_cpu_va, full_cpu_vb] = run_collision(false, false);
 
-			printf("  Full GPU  (GJK+GPUres): va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+			auto log = std::ofstream(temp_dir() / "FullGpuVsCpuSphereSphere.log");
+			log << std::format("  Full GPU  (GJK+GPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
 				full_gpu_va.lin.x, full_gpu_va.lin.y, full_gpu_va.lin.z, full_gpu_vb.lin.x, full_gpu_vb.lin.y, full_gpu_vb.lin.z);
-			printf("  GJK+CPUres:             va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+			log << std::format("  GJK+CPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
 				gjk_cpu_va.lin.x, gjk_cpu_va.lin.y, gjk_cpu_va.lin.z, gjk_cpu_vb.lin.x, gjk_cpu_vb.lin.y, gjk_cpu_vb.lin.z);
-			printf("  SAT+GPUres:             va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+			log << std::format("  SAT+GPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
 				sat_gpu_va.lin.x, sat_gpu_va.lin.y, sat_gpu_va.lin.z, sat_gpu_vb.lin.x, sat_gpu_vb.lin.y, sat_gpu_vb.lin.z);
-			printf("  Full CPU  (SAT+CPUres): va=(%.6f, %.6f, %.6f) vb=(%.6f, %.6f, %.6f)\n",
+			log << std::format("  Full CPU  (SAT+CPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
 				full_cpu_va.lin.x, full_cpu_va.lin.y, full_cpu_va.lin.z, full_cpu_vb.lin.x, full_cpu_vb.lin.y, full_cpu_vb.lin.z);
-			printf("  Expected analytic:      va=(-3, 0, 0) vb=(+3, 0, 0)\n");
+			log << "  Expected analytic:      va=(-3, 0, 0) vb=(+3, 0, 0)\n";
 
 			// The key diagnostic: which combination breaks?
 			auto diff_gjk_cpu = Length(gjk_cpu_va.lin - full_cpu_va.lin);
 			auto diff_sat_gpu = Length(sat_gpu_va.lin - full_cpu_va.lin);
-			printf("  GJK+CPUres diff from ref: %.6f (if large → GPU GJK contact data is wrong)\n", diff_gjk_cpu);
-			printf("  SAT+GPUres diff from ref: %.6f (if large → GPU resolve is wrong)\n", diff_sat_gpu);
+			log << std::format("  GJK+CPUres diff from ref: {:.6f} (if large → GPU GJK contact data is wrong)\n", diff_gjk_cpu);
+			log << std::format("  SAT+GPUres diff from ref: {:.6f} (if large → GPU resolve is wrong)\n", diff_sat_gpu);
 
 			// Both combinations should be close to the full CPU result
 			PR_EXPECT(diff_gjk_cpu < 0.1f);
@@ -610,3 +622,5 @@ namespace physics_sandbox::tests
 		}
 	};
 }
+namespace pr::physics::tests { void ForceLink_GpuCompare() {} }
+#endif
