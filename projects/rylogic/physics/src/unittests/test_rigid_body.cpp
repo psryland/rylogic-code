@@ -2,13 +2,10 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2016
 //************************************
-#pragma once
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/physics/rigid_body/rigid_body.h"
-#include "pr/physics/shape/inertia.h"
-#include "pr/physics/integrator/integrator.h"
+#include "pr/physics/physics.h"
 
 namespace pr::physics::tests
 {
@@ -364,4 +361,5 @@ namespace pr::physics::tests
 		}
 	};
 }
+namespace pr::physics::tests { void ForceLink_RigidBody() {} }
 #endif

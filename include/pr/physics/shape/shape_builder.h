@@ -6,6 +6,7 @@
 #include "pr/physics/forward.h"
 #include "pr/physics/shape/mass.h"
 #include "pr/physics/shape/inertia.h"
+#include "pr/physics/shape/shape_mass.h"
 #include "pr/physics/materials/material.h"
 
 namespace pr::physics

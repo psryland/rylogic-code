@@ -83,29 +83,41 @@
   Source files
   -->
   <ItemGroup>
-    <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
+    <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
     <ClCompile Include="src\compute\sweep_gpu.cpp" />
-    <ClCompile Include="src\shape\inertia.cpp" />
-    <ClCompile Include="src\integrator\impulse.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
+    <ClCompile Include="src\integrator\impulse.cpp" />
     <ClCompile Include="src\integrator\integrator.cpp" />
-  </ItemGroup>
-  <!--
-  Public headers
-  -->
-  <ItemGroup>
+    <ClCompile Include="src\shape\inertia.cpp" />
+    <ClCompile Include="src\unittests\test_collision_pairs.cpp" />
+    <ClCompile Include="src\unittests\test_collision_resolution.cpp" />
+    <ClCompile Include="src\unittests\test_engine.cpp" />
+    <ClCompile Include="src\unittests\test_gpu_collide.cpp" />
+    <ClCompile Include="src\unittests\test_gpu_collision.cpp" />
+    <ClCompile Include="src\unittests\test_gpu_compare.cpp" />
+    <ClCompile Include="src\unittests\test_impulse.cpp" />
+    <ClCompile Include="src\unittests\test_inertia.cpp" />
+    <ClCompile Include="src\unittests\test_integrator.cpp" />
+    <ClCompile Include="src\unittests\test_rigid_body.cpp" />
+    <ClCompile Include="src\unittests\test_shape_builder.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\contact.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\jacobian.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\materials\material.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\state_flags.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\inertia.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\mass.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_builder.h" />
@@ -113,38 +125,17 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\diagnostics\body_history.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\integrator\engine_config.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\state_flags.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
-    <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
+    <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
     <ClInclude Include="src\diagnostics\dbg_physics.h" />
     <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
-    <ClInclude Include="src\unittests\test_engine.cpp" />
-    <ClInclude Include="src\unittests\test_gpu_collide.cpp" />
     <ClInclude Include="src\utility\gpu.h" />
-  </ItemGroup>
-  <!--
-  Unit test headers
-  -->
-  <ItemGroup>
-    <ClInclude Include="..\..\..\include\pr\physics\collision\broadphase_brute.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\collision\contact.h" />
-    <ClInclude Include="..\..\..\include\pr\physics\materials\material.h" />
-    <ClInclude Include="src\unittests\test_collision.cpp" />
-    <ClInclude Include="src\unittests\test_field.cpp" />
-    <ClInclude Include="src\unittests\test_impulse.cpp" />
-    <ClInclude Include="src\unittests\test_inertia.cpp" />
-    <ClInclude Include="src\unittests\test_integrator.cpp" />
-    <ClInclude Include="src\unittests\test_rigid_body.cpp" />
-    <ClInclude Include="src\unittests\test_shape_builder.cpp" />
-    <ClInclude Include="src\unittests\test_gpu_collision.cpp" />
   </ItemGroup>
   <!--
   Resources

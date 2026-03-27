@@ -3,18 +3,10 @@
 //  Copyright (c) Rylogic Ltd 2016
 //************************************
 // Unit tests that compare GPU collision functions (compiled as C++) against CPU collision functions.
-#pragma once
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/math/math.h"
-#include "pr/hlsl/interop.h"
-#include "pr/collision/col_sphere_vs_sphere.h"
-#include "pr/collision/col_box_vs_sphere.h"
-#include "pr/collision/col_line_vs_sphere.h"
-#include "pr/collision/col_line_vs_line.h"
-#include "pr/collision/col_line_vs_box.h"
-#include "pr/collision/col_box_vs_box.h"
+#include "pr/physics/physics.h"
 #include "src/compute/collision.hlsli"
 
 namespace pr::physics::tests
@@ -325,4 +317,5 @@ namespace pr::physics::tests
 	};
 }
 
+namespace pr::physics::tests { void ForceLink_GpuCollide() {} }
 #endif
