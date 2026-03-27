@@ -49,7 +49,7 @@ namespace pr::physics
 		
 		friend struct DbgPhysics;
 		bool m_gpu_integrate = true;
-		bool m_gpu_sorter = true;
+		bool m_gpu_broadphase = true;
 		bool m_gpu_detect = true;
 		bool m_gpu_resolve = true;
 
@@ -57,9 +57,9 @@ namespace pr::physics
 
 		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
 
-		// Get/Set whether the GPU is used for integration and collision detection.
-		bool UseGpu() const;
-		void UseGpu(bool use_gpu);
+		// Get/Set whether the GPU is used for integration
+		bool UseGpuIntegation() const;
+		void UseGpuIntegation(bool use);
 
 		// Get/Set whether the GPU is used for narrow-phase collision detection (GJK).
 		bool UseGpuDetect() const;
@@ -86,17 +86,23 @@ namespace pr::physics
 
 	private:
 
-		// CPU integration for testing and debugging.
-		void CpuIntegrate(std::span<GpuRigidBody> bodies, float dt);
+		// Pack the body data into GPU buffers for the current frame.
+		void Pack(std::span<RigidBody*> rigid_bodies);
 
-		// CPU broadphase for testing and debugging
-		void CpuSweep();
+		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
+		void Integrate(float dt);
 
-		// CPU collision detection for testing and debugging.
-		void CpuCollide(std::span<GpuCollisionPair> pairs);
+		// Broadphase collision detection to generate potential collision pairs.
+		void BroadPhase();
 
-		// CPU collision resolution for testing and debugging
-		void CpuResolve();
+		// Narrow phase collision detection to generate contact points.
+		void Collide();
+
+		// Apply impulses to resolve collisions and update body dynamics.
+		void Resolve(float dt);
+
+		// Update rigid bodies with results from the step
+		void Unpack(std::span<RigidBody*> rigid_bodies);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

@@ -93,10 +93,6 @@ namespace physics_sandbox
 			if (args.m_vk_key == 'C')
 				m_pause_on_collision = !m_pause_on_collision;
 
-			// U=toggle GPU/CPU integration
-			if (args.m_vk_key == 'U')
-				m_scene.m_physics.UseGpu(!m_scene.m_physics.UseGpu());
-
 			// T=run all test scenarios
 			if (args.m_vk_key == 'T')
 				m_scene.RunAllTests();
@@ -389,12 +385,11 @@ namespace physics_sandbox
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} col={}  {}  FPS: {:.0f}",
+			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} col={}  FPS: {:.0f}",
 				static_cast<int>(m_scene.m_current_scenario),
 				ScenarioName(m_scene.m_current_scenario),
 				m_scene.m_clock,
 				m_scene.m_diag.count,
-				m_scene.m_physics.UseGpu() ? "GPU" : "CPU",
 				m_fps).c_str());
 		}
 

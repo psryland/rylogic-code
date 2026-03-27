@@ -19,60 +19,58 @@ namespace pr::physics
 	// Convert CPU collision shapes into the flat GPU format.
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
-		GpuShape g = {};
-		g.s2rb = p2rb * shape.m_base.m_s2p;
-		g.type = static_cast<int>(collision::EShape::Sphere);
-		g.vert_offset = 0;
-		g.vert_count = 0;
-		g.material_id = shape.m_base.m_material_id;
-		g.data = v4(shape.m_radius, 0, 0, 0);
-		return g;
+		return GpuShape {
+			.s2rb = p2rb * shape.m_base.m_s2p,
+			.type = static_cast<int>(collision::EShape::Sphere),
+			.vert_offset = 0,
+			.vert_count = 0,
+			.material_id = shape.m_base.m_material_id,
+			.data = v4(shape.m_radius, 0, 0, 0),
+		};		
 	}
 	inline GpuShape PackShape(collision::ShapeBox const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
-		GpuShape g = {};
-		g.s2rb = p2rb * shape.m_base.m_s2p;
-		g.type = static_cast<int>(collision::EShape::Box);
-		g.vert_offset = 0;
-		g.vert_count = 0;
-		g.material_id = shape.m_base.m_material_id;
-		g.data = shape.m_radius; // half-extents (xyz), w=0
-		return g;
+		return GpuShape {
+			.s2rb = p2rb * shape.m_base.m_s2p,
+			.type = static_cast<int>(collision::EShape::Box),
+			.vert_offset = 0,
+			.vert_count = 0,
+			.material_id = shape.m_base.m_material_id,
+			.data = shape.m_radius, // half-extents (xyz), w=0
+		};
 	}
 	inline GpuShape PackShape(collision::ShapeLine const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
-		GpuShape g = {};
-		g.s2rb = p2rb * shape.m_base.m_s2p;
-		g.type = static_cast<int>(collision::EShape::Line);
-		g.vert_offset = 0;
-		g.vert_count = 0;
-		g.material_id = shape.m_base.m_material_id;
-		g.data = v4(shape.m_radius, shape.m_thickness, 0, 0);
-		return g;
+		return GpuShape {
+			.s2rb = p2rb * shape.m_base.m_s2p,
+			.type = static_cast<int>(collision::EShape::Line),
+			.vert_offset = 0,
+			.vert_count = 0,
+			.material_id = shape.m_base.m_material_id,
+			.data = v4(shape.m_radius, shape.m_thickness, 0, 0),
+		};
 	}
 	inline GpuShape PackShape(collision::ShapeTriangle const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
-		// Triangle vertices are packed into the shared vertex buffer.
-		// The 3 vertices are stored at vert_offset..vert_offset+2.
-		GpuShape g = {};
-		g.s2rb = p2rb * shape.m_base.m_s2p;
-		g.type = static_cast<int>(collision::EShape::Triangle);
-		g.vert_offset = vert_offset;
-		g.vert_count = 3;
-		g.material_id = shape.m_base.m_material_id;
-		g.data = v4::Zero();
-		return g;
+		return GpuShape {
+			.s2rb = p2rb * shape.m_base.m_s2p,
+			.type = static_cast<int>(collision::EShape::Triangle),
+			.vert_offset = vert_offset,
+			.vert_count = 3, // The 3 vertices are stored at vert_offset..vert_offset+2.
+			.material_id = shape.m_base.m_material_id,
+			.data = v4::Zero(),
+		};
 	}
 	inline GpuShape PackShape(collision::ShapePolytope const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
-		GpuShape g = {};
-		g.s2rb = p2rb * shape.m_base.m_s2p;
-		g.type = static_cast<int>(collision::EShape::Polytope);
-		g.vert_offset = vert_offset;
-		g.vert_count = shape.m_vert_count;
-		g.material_id = shape.m_base.m_material_id;
-		g.data = v4::Zero();
-		return g;
+		return GpuShape {
+			.s2rb = p2rb * shape.m_base.m_s2p,
+			.type = static_cast<int>(collision::EShape::Polytope),
+			.vert_offset = vert_offset,
+			.vert_count = shape.m_vert_count,
+			.material_id = shape.m_base.m_material_id,
+			.data = v4::Zero(),
+		};
 	}
 	inline GpuShape PackShape(collision::Shape const& shape, std::vector<v4>& vertex_buffer, m4x4 const& p2rb = m4x4::Identity())
 	{
@@ -80,6 +78,17 @@ namespace pr::physics
 
 		switch (shape.m_type)
 		{
+			case EShape::NoShape:
+			{
+				return GpuShape {
+					.s2rb = p2rb * shape.m_s2p,
+					.type = static_cast<int>(collision::EShape::NoShape),
+					.vert_offset = 0,
+					.vert_count = 0,
+					.material_id = 0,
+					.data = v4::Zero(),
+				};
+			}
 			case EShape::Sphere:
 			{
 				return PackShape(shape_cast<ShapeSphere>(shape), p2rb);

@@ -31,19 +31,19 @@ namespace pr::physics
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, config))
 		, m_materials(new MaterialMap)
-		, m_cache(new EngineBufferCache)
+		, m_cache(new EngineBufferCache(*this))
 	{
 	}
 
 	// Get/Set whether the GPU is used for integration and collision detection.
-	bool Engine::UseGpu() const
+	bool Engine::UseGpuIntegation() const
 	{
-		return true;
+		return m_gpu_integrate;
 	}
-	void Engine::UseGpu(bool use_gpu)
+	void Engine::UseGpuIntegation(bool use)
 	{
 		// Dropping non-gpu support
-		(void)use_gpu;
+		m_gpu_integrate = use;
 	}
 
 	// Get/Set whether the GPU is used for narrow-phase collision detection (GJK).
@@ -66,125 +66,6 @@ namespace pr::physics
 		m_gpu_resolve = use;
 	}
 
-	// Evolve the physics objects forward in time and resolve any collisions.
-	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
-	{
-		// Notes:
-		//  - There is a limitation on the number of collision pairs that can be generated per frame.
-		//    If this limit becomes a problem, the options are increase the max number of collision pairs
-		//    or run Engine::Step() multiple times on "islands" of physics objects
-		int body_count = static_cast<int>(rigid_bodies.size());
-		if (body_count == 0)
-			return;
-
-		#if PR_PIX_ENABLED
-		static bool capture = false;
-		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
-		capture = false;
-		#endif
-		#if PR_DBG_PHYSICS
-		DbgPhysics dbg(*this);
-		{
-			m_cache->m_history.BeginFrame(rigid_bodies);
-		}
-		#endif
-
-		// Populate the shape cache
-		m_cache->m_shape_cache.BeginFrame();
-
-		// Pack all bodies into a GPU-friendly format
-		{
-			m_cache->m_rb_dynamics.resize(0);
-			for (auto body : rigid_bodies)
-			{
-				body->m_state_flags = SetBits(body->m_state_flags, ERigidBodyStateFlags::Collided, false);
-				auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
-				m_cache->m_rb_dynamics.push_back(PackDynamics(*body, shape_id));
-			}
-		}
-
-		// Integrate -> Updates dynamics, generates AABBs, debug data
-		{
-			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
-			#if PR_DBG_PHYSICS
-			dbg.ReadbackIntegrate(body_count);
-			#endif
-		}
-
-		// Broadphase -> uses AABBs from integrate -> generates collision pairs
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
-			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
-			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
-			#if PR_DBG_PHYSICS
-			dbg.ReadbackSweep(counters);
-			#endif
-		}
-
-		// Narrow phase -> uses collision pairs -> generates contacts
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
-			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
-			#if PR_DBG_PHYSICS
-			dbg.ReadbackCollide(counters);
-			#endif
-		}
-
-		// Resolve -> uses contacts -> applies impulses to bodies
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
-			auto contacts = m_gpu_collision_detector->Contacts();
-			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
-			#if PR_DBG_PHYSICS
-			dbg.ReadbackResolve(body_count, bodies);
-			#endif
-		}
-
-		// Readback dynamics from GPU and unpack into bodies
-		{
-			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Readback(m_gpu->m_job, bodies, m_cache->m_rb_dynamics);
-			// Todo, readback contact data for collision events, but only wait on the GPU job once
-
-			// This will wait on the gpu work to complete
-			for (auto [body, i] : with_index(rigid_bodies))
-			{
-				// Before updating the body with new dynamics, we can raise a collision event
-				if (body->Collided)
-				{
-					// todo, can also pass the new dynamics data 
-					RbContact contact = {}; // todo construct from 'GpuResolveContact'
-					body->Collided(*body, {body, contact}); // todo 'body' should be the other body in the collision,
-				}
-
-				// Update the body with the new dynamics data from the GPU
-				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
-			}
-
-			#if PR_DBG_PHYSICS
-			{
-				// Look for anomolies in the dynamics and log them.
-				m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
-				{
-					// Return true if rb0 was below ground and rb1 is worse
-					float ground_z = -0.5f;
-					if (rb0.O2W().pos.z < ground_z && rb1.O2W().pos.z < rb0.O2W().pos.z)
-						return true;
-
-					return false;
-				});
-			}
-			#endif
-		}
-	}
-
 	// Access the physics material properties for a given material ID.
 	physics::Material Engine::Material(int id) const
 	{
@@ -195,30 +76,192 @@ namespace pr::physics
 		(*m_materials).Set(mat);
 	}
 
-	// CPU integration for testing and debugging.
-	void Engine::CpuIntegrate(std::span<GpuRigidBody> bodies, float dt)
+	// Evolve the physics objects forward in time and resolve any collisions.
+	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
 	{
-		for (auto& body : bodies)
-			Evolve(body, dt);
-	}
-	
-	// CPU broadphase for testing and debugging
-	void Engine::CpuSweep()
-	{
-		// todo
+		// Notes:
+		//  - There is a limitation on the number of collision pairs that can be generated per frame.
+		//    If this limit becomes a problem, the options are increase the max number of collision pairs
+		//    or run Engine::Step() multiple times on "islands" of physics objects
+		if (rigid_bodies.empty())
+			return;
+
+		#if PR_PIX_ENABLED
+		static bool capture = false;
+		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
+		capture = false;
+		#endif
+
+		m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+
+		// Pack all bodies into a GPU-friendly format
+		Pack(rigid_bodies);
+
+		// Integrate -> Updates dynamics, generates AABBs, debug data
+		Integrate(dt);
+
+		// Broadphase -> uses AABBs from integrate -> generates collision pairs
+		BroadPhase();
+
+		// Narrow phase -> uses collision pairs -> generates contacts
+		Collide();
+
+		// Resolve -> uses contacts -> applies impulses to bodies
+		Resolve(dt);
+
+		// Readback dynamics from GPU and unpack into bodies
+		Unpack(rigid_bodies);
 	}
 
-	// CPU collision detection for testing and debugging.
-	void Engine::CpuCollide(std::span<GpuCollisionPair> pairs)
+	// Pack the body data into GPU buffers for the current frame.
+	void Engine::Pack(std::span<RigidBody*> rigid_bodies)
 	{
-		(void)pairs;
-		// todo, Will call 'NarrowPhaseCollision
+		for (auto body : rigid_bodies)
+		{
+			// Clear flags from the previous frame
+			body->m_state_flags = SetBits(body->m_state_flags, ERigidBodyStateFlags::Collided, false);
+
+			// Populate the shape cache
+			auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
+
+			// Copy the body data into the GPU staging buffer
+			m_cache->m_rb_dynamics.push_back(PackDynamics(*body, shape_id));
+		}
 	}
-	
-	// CPU collision resolution for testing and debugging
-	void Engine::CpuResolve()
+
+	// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
+	void Engine::Integrate(float dt)
 	{
-		// todo, will call ResolveCollision
+		if (m_gpu_integrate)
+		{
+			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
+
+			#if PR_DBG_PHYSICS
+			auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+			DbgPhysics(*this).ReadbackIntegrate(body_count);
+			#endif
+		}
+		else
+		{
+			for (auto& body : m_cache->m_rb_dynamics)
+				Evolve(body, dt);
+		}
+	}
+
+	// Broadphase collision detection to generate potential collision pairs.
+	void Engine::BroadPhase()
+	{
+		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+
+		if (m_gpu_broadphase)
+		{
+			auto counters = m_gpu_integrator->Counters();
+			auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
+			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
+			auto bodies = m_gpu_integrator->Bodies();
+			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
+			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
+
+			#if PR_DBG_PHYSICS
+			DbgPhysics(*this).ReadbackSweep(counters);
+			#endif
+		}
+		else
+		{
+			// todo...
+		}
+	}
+
+	// Narrow phase collision detection to generate contact points.
+	void Engine::Collide()
+	{
+		if (m_gpu_detect)
+		{
+			auto counters = m_gpu_integrator->Counters();
+			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
+			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
+			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+
+			#if PR_DBG_PHYSICS
+			DbgPhysics(*this).ReadbackCollide(counters);
+			#endif
+		}
+		else
+		{
+			// todo, Will call 'NarrowPhaseCollision'
+		}
+	}
+
+	// Apply impulses to resolve collisions and update body dynamics.
+	void Engine::Resolve(float dt)
+	{
+		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+
+		if (m_gpu_resolve)
+		{
+			auto counters = m_gpu_integrator->Counters();
+			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+			auto contacts = m_gpu_collision_detector->Contacts();
+			auto bodies = m_gpu_integrator->Bodies();
+			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
+
+			#if PR_DBG_PHYSICS
+			DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+			#endif
+		}
+		else
+		{
+			// todo, will call ResolveCollision
+		}
+	}
+
+	// Update rigid bodies with results from the step
+	void Engine::Unpack(std::span<RigidBody*> rigid_bodies)
+	{
+		// Read back the body dynamics from the GPU.
+		auto bodies = m_gpu_integrator->Bodies();
+		m_gpu_resolver->Readback(m_gpu->m_job, bodies, m_cache->m_rb_dynamics);
+		
+		// Read back the contact data for collision events. This is needed to raise collision events on the CPU side.
+		auto contacts = m_gpu_collision_detector->Contacts();
+		m_gpu_collision_detector->Readback(m_gpu->m_job, m_gpu_integrator->Counters(), m_cache->m_contacts, {});
+
+		// @Copilot, currently each 'Readback' method is calling m_gpu->m_job.Run() internally, which means we're waiting for the GPU
+		// to finish multiple times per frame. Ideally, we should only wait once after all GPU work is done, and read back all the necessary
+		// data in one go. Can we split each of the 'Readback' functions into two steps: 'ReadBack' and 'ReadData'?  Then call the m_job.Run()
+		// here:
+		// m_gpu->m_job.Run();
+
+		// Then read the data here.
+
+		for (auto [body, i] : with_index(rigid_bodies))
+		{
+			// Before updating the body with new dynamics, we can raise a collision event
+			if (body->Collided)
+			{
+				// todo, can also pass the new dynamics data 
+				RbContact contact = {}; // todo construct from 'GpuResolveContact'
+				body->Collided(*body, { body, contact }); // todo 'body' should be the other body in the collision,
+			}
+
+			// Update the body with the new dynamics data from the GPU
+			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
+		}
+
+		#if PR_DBG_PHYSICS
+		{
+			// Look for anomolies in the dynamics and log them.
+			m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
+			{
+				// Return true if rb0 was below ground and rb1 is worse
+				float ground_z = -0.5f;
+				if (rb0.O2W().pos.z < ground_z && rb1.O2W().pos.z < rb0.O2W().pos.z)
+					return true;
+
+				return false;
+			});
+		}
+		#endif
 	}
 
 	// Narrow phase collision detection.

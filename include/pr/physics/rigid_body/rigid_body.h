@@ -102,8 +102,7 @@ namespace pr::physics
 		}
 		collision::Shape const& Shape() const
 		{
-			assert(HasShape());
-			return *m_shape;
+			return m_shape ? *m_shape : NoShape();
 		}
 		bool HasShape() const
 		{
