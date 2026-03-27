@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+	<Extern href="stdidcmd.h"/>
+	<Extern href="vsshlids.h"/>
+
+	<Commands package="LDrawVisualiserPkg">
+
+		<Groups>
+			<Group guid="guidLDrawVisualiserCmdSet" id="LDrawVisualiserMenuGroup" priority="0x0600">
+				<Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW"/>
+			</Group>
+		</Groups>
+
+		<Buttons>
+			<Button guid="guidLDrawVisualiserCmdSet" id="cmdidShowVisualiser" priority="0x0100" type="Button">
+				<Parent guid="guidLDrawVisualiserCmdSet" id="LDrawVisualiserMenuGroup"/>
+				<Strings>
+					<ToolTipText>Opens the LDraw Debugger Visualiser tool window</ToolTipText>
+					<CommandName>ShowLDrawVisualiser</CommandName>
+					<ButtonText>LDraw &amp;Visualiser</ButtonText>
+				</Strings>
+			</Button>
+		</Buttons>
+
+	</Commands>
+
+	<Symbols>
+		<GuidSymbol name="LDrawVisualiserPkg" value="{B8E3A1F2-7D4C-4A5B-9E6F-1C2D3E4F5A6B}"/>
+		<GuidSymbol name="guidLDrawVisualiserCmdSet" value="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
+			<IDSymbol name="LDrawVisualiserMenuGroup" value="0x1020"/>
+			<IDSymbol name="cmdidShowVisualiser" value="0x0100"/>
+		</GuidSymbol>
+	</Symbols>
+
+</CommandTable>
