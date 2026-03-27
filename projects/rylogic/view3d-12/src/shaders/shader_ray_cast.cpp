@@ -46,8 +46,8 @@ namespace pr::rdr12::shaders
 			auto& ray = cb0.rays[&r - rays.data()];
 			ray.ws_direction = r.m_ws_direction.w0();
 			ray.ws_origin = r.m_ws_origin.w1();
-			ray.m_snap_mode = s_cast<int>(r.m_snap_mode);
-			ray.m_snap_distance = r.m_snap_distance;
+			ray.snap_mode = s_cast<int>(r.m_snap_mode);
+			ray.snap_distance = r.m_snap_distance;
 		}
 		cb0.ray_count = s_cast<int>(rays.size());
 

@@ -55,14 +55,57 @@ namespace pr::hlsl
 
 	// Shader structure types
 	#pragma region Shader structures
+
 	template <typename T>
 	using ConstantBuffer = T;
 
 	template <typename T>
-	using StructuredBuffer = std::vector<T>;
+	struct StructuredBuffer : std::vector<T>
+	{
+		void reset(size_t count = 0)
+		{
+			std::vector<T>::resize(0);
+			std::vector<T>::resize(count);
+		}
+		template <typename U> void assign(std::span<U const> data)
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<T const*>(data.data());
+			std::vector<T>::assign(ptr, ptr + data.size());
+		}
+		template <typename U> std::span<U const> as_span() const
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
+			return std::span<U const>(ptr, std::vector<T>::size());
+		}
+	};
 
 	template <typename T>
-	using RWStructuredBuffer = std::vector<T>;
+	struct RWStructuredBuffer : std::vector<T>
+	{
+		void reset(size_t count = 0)
+		{
+			std::vector<T>::resize(0);
+			std::vector<T>::resize(count);
+		}
+		template <typename U> void assign(std::span<U const> data)
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<T const*>(data.data());
+			std::vector<T>::assign(ptr, ptr + data.size());
+		}
+		template <typename U> std::span<U const> as_span() const
+		{
+			static_assert(sizeof(U) == sizeof(T), "Data type size must match buffer element size");
+			static_assert(alignof(U) == alignof(T), "Data type alignment must match buffer element alignment");
+			auto const* ptr = reinterpret_cast<U const*>(std::vector<T>::data());
+			return std::span<U const>(ptr, std::vector<T>::size());
+		}
+	};
 
 	struct SamplerState {};
 
@@ -1158,6 +1201,16 @@ namespace pr::hlsl
 	inline float determinant(float4x4 const& m)
 	{
 		return math::Determinant(m);
+	}
+
+	// --- radians / degrees ---
+	inline float radians(float degrees)
+	{
+		return degrees * (constants<float>::tau / 360.0f);
+	}
+	inline float degrees(float radians)
+	{
+		return radians * (360.0f / constants<float>::tau);
 	}
 	#pragma endregion
 

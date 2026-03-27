@@ -13,6 +13,89 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
+		PRUnitTestMethod(Mul_Mat_Vec, float, double)
+		{
+			// Matrix * Vector convention: Vb = a2b * Va (right-to-left, column-vector)
+			// Use a 90° rotation around Z that maps X→Y, Y→-X, plus translation (10,20,30)
+			using Mat4x4 = Mat4x4<T>;
+			using Vec4 = Vec4<T>;
+
+			// Matrix members 'x, y, z, w' are column vectors stored contigously.
+			// Don't get confused into thinking they are row vectors. The mathematical layout is not the same as the in-memory layout.
+			// This matrix, in mathematical layout would be this:
+			//   <x> <y> <z> <w>     <v>
+			//  [ 0  -1   0  10 ]    [1]
+			//  [ 1   0   0  20 ]  * [0]
+			//  [ 0   0   1  30 ]	 [0]
+			//  [ 0   0   0   1 ]	 [1]
+			auto a2b = Mat4x4{
+				Vec4{ 0,  1 , 0, 0}, // x-column
+				Vec4{-1,  0,  0, 0}, // y-column
+				Vec4{ 0,  0,  1, 0}, // z-column
+				Vec4{10, 20, 30, 1}, // w-column
+			};
+
+			// Point (1,0,0,1) in space A should become: rotated X = (0,1,0) + translation = (10,21,30,1)
+			{
+				auto Vb = a2b * Vec4{ 1, 0, 0, 1 };
+				PR_EXPECT(FEql(Vb, Vec4{ 10, 21, 30, 1 }));
+			}
+
+			// Direction (1,0,0,0) should just rotate, no translation
+			{
+				auto Vb = a2b * Vec4{ 1, 0, 0, 0 };
+				PR_EXPECT(FEql(Vb, Vec4{ 0, 1, 0, 0 }));
+			}
+
+			// Point (0,1,0,1) should become: rotated Y = (-1,0,0) + translation = (9,20,30,1)
+			{
+				auto Vb = a2b * Vec4{ 0, 1, 0, 1 };
+				PR_EXPECT(FEql(Vb, Vec4{ 9, 20, 30, 1 }));
+			}
+		}
+		PRUnitTestMethod(Mul_Mat_Mat, float, double)
+		{
+			using Mat4x4 = Mat4x4<T>;
+			using Vec4 = Vec4<T>;
+
+			// Matrix * Matrix convention: a2c = b2c * a2b (right-to-left)
+			// a2b: 90° around Z + translate (10,0,0)
+			// b2c: 90° around Z + translate (0,5,0)
+			// a2c should be 180° around Z + translate(-5,10,0)
+			auto a2b = Mat4x4{
+				Vec4{ 0,  1,  0, 0}, // x-column
+				Vec4{-1,  0,  0, 0}, // y-column
+				Vec4{ 0,  0,  1, 0}, // z-column
+				Vec4{10,  0,  0, 1}, // w-column
+			};
+			auto b2c = Mat4x4{
+				Vec4{ 0,  1,  0, 0}, // x-column
+				Vec4{-1,  0,  0, 0}, // y-column
+				Vec4{ 0,  0,  1, 0}, // z-column
+				Vec4{ 0,  5,  0, 1}, // w-column
+			};
+			auto a2c = b2c * a2b;
+
+			// (1,0,0,0) through a2b gives (0,1,0,0), through b2c gives (-1,0,0,0)
+			{
+				auto Vc = a2c * Vec4{ 1, 0, 0, 0 };
+				PR_EXPECT(FEql(Vc, Vec4{ -1, 0, 0, 0 }));
+			}
+
+			// Origin (0,0,0,1) through a2b gives (10,0,0,1), through b2c gives (0,10+5,0,1) = (0,15,0,1)
+			{
+				auto Vc = a2c * Vec4{ 0, 0, 0, 1 };
+				PR_EXPECT(FEql(Vc, Vec4{ 0, 15, 0, 1 }));
+			}
+
+			// Same result from chaining: b2c * (a2b * v) == (b2c * a2b) * v
+			{
+				auto Va = Vec4{ 3, -2, 7, 1 };
+				auto Vc_0 = a2c * Va;
+				auto Vc_1 = b2c * (a2b * Va);
+				PR_EXPECT(FEql(Vc_1, Vc_0));
+			}
+		}
 		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;

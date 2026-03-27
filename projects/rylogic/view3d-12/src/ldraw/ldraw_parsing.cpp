@@ -3934,6 +3934,11 @@ namespace pr::rdr12::ldraw
 						rad.y = reader.IsSectionEnd() ? rad.x : reader.Real<float>();
 						rad.z = reader.IsSectionEnd() ? rad.y : reader.Real<float>();
 						auto xyz = reader.Vector3f().w1();
+						if (Any(rad < Zero<v4>()))
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Spheres cannot have negative radii");
+							continue;
+						}
 						m_radii.push_back(rad);
 						m_positions.push_back(xyz);
 						if (m_per_item_colour)
