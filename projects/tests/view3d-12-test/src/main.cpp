@@ -54,7 +54,8 @@ struct Main :Form
 			.alt_enter()
 			.multisamp(8)
 			.name("TestWnd")
-			.xr_support();
+			//.xr_support()
+			;
 	}
 
 	Main(HINSTANCE)
@@ -94,7 +95,7 @@ struct Main :Form
 
 			m_obj0 = View3D_ObjectCreateLdrA(
 				//"*Triangle nice_tri FF00FF00 { *Data { -1 -1 0  +1 -1 0  0 +1 0} }"
-				//"*Box nice_box FF00FF00 { *Data {1 2 3} }"
+				"*Box nice_box FF00FF00 { *Data {1 2 3} }"
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\Pendulum\\Pendulum.fbx\" } }"
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx\" } }"
 				//"*Model { *Filepath { \"E:\\Dump\\Hyperpose\\fbx\\hyperpose_sample.fbx\" } }"
@@ -102,7 +103,7 @@ struct Main :Form
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx\" } *Animation{*Style{PingPong}} }"
 				//"*Model { *Filepath { \"E:\\Dump\\Hyperpose\\fbx\\hyperpose_sample.fbx\" } *Animation{*Style{PingPong}} }"
 				//"*Model { *Filepath { \"E:\\Dump\\Hyperpose\\fbx\\hyperpose_sample2.fbx\" } *Animation{*Style{PingPong}} }"
-				"*Model { *Filepath { \"E:\\Dump\\Hyperpose\\fbx\\Extra_Wall_Flip.fbx\" } *LoadAtFrame {20} }"//*Animation{*Style{PingPong}} }"
+				//"*Model { *Filepath { \"E:\\Dump\\Hyperpose\\fbx\\Extra_Wall_Flip.fbx\" } *LoadAtFrame {20} }"//*Animation{*Style{PingPong}} }"
 				, false, nullptr, nullptr);
 
 			m_obj1 = View3D_ObjectCreateLdrA(

@@ -2,8 +2,10 @@
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:avalonedit="http://icsharpcode.net/sharpdevelop/avalonedit"
-	Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
-	Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}">
+	xmlns:vs_shell="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
+	xmlns:vs_ui="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+	Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
+	Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}">
 
 	<Grid>
 		<Grid.RowDefinitions>
@@ -19,14 +21,54 @@
 
 		<!-- Connection Bar -->
 		<StackPanel Grid.Row="0" Orientation="Horizontal" Margin="4">
-			<TextBlock Text="Address:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-			<TextBox x:Name="m_address_box" Text="localhost:1976" Width="160" VerticalAlignment="Center" Margin="0,0,4,0"/>
-			<Button x:Name="m_connect_btn" Content="Connect" Click="OnConnectClick" Width="70" VerticalAlignment="Center" Margin="0,0,4,0"/>
-			<Ellipse x:Name="m_status_indicator" Width="12" Height="12" Fill="Gray" VerticalAlignment="Center" Margin="4,0,8,0"
-				ToolTip="Disconnected"/>
-			<Button x:Name="m_refresh_btn" Content="⟳ Refresh" Click="OnRefreshClick" Width="80" VerticalAlignment="Center" Margin="0,0,4,0"/>
-			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break" VerticalAlignment="Center" Margin="8,0,0,0"
-				IsChecked="True"/>
+			<TextBlock
+				Text="Address:"
+				VerticalAlignment="Center"
+				Margin="0,0,4,0"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
+			/>
+			<TextBox
+				x:Name="m_address_box"
+				Text="localhost:1976"
+				Width="160"
+				VerticalAlignment="Center"
+				Margin="0,0,4,0"
+				Background="{DynamicResource {x:Static vs_ui:VsBrushes.WindowKey}}"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
+			/>
+			<Button
+				x:Name="m_connect_btn"
+				Content="Connect"
+				Click="OnConnectClick"
+				Width="70"
+				VerticalAlignment="Center"
+				Margin="0,0,4,0"
+			/>
+			<Ellipse
+				x:Name="m_status_indicator"
+				Width="12"
+				Height="12"
+				Fill="Gray"
+				VerticalAlignment="Center"
+				Margin="4,0,8,0"
+				ToolTip="Disconnected"
+			/>
+			<Button
+				x:Name="m_refresh_btn"
+				Content="⟳ Refresh"
+				Click="OnRefreshClick"
+				Width="80"
+				VerticalAlignment="Center"
+				Margin="0,0,4,0"
+			/>
+			<CheckBox
+				x:Name="m_auto_refresh_check"
+				Content="Auto-refresh on break"
+				VerticalAlignment="Center"
+				Margin="8,0,0,0"
+				IsChecked="True"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
+			/>
 		</StackPanel>
 
 		<!-- Script Editor -->
@@ -43,12 +85,14 @@
 
 		<!-- Error Panel (auto-hides when empty) -->
 		<Border Grid.Row="2" x:Name="m_error_panel" Visibility="Collapsed"
-			BorderBrush="DarkRed" BorderThickness="0,1,0,0" Background="#FFF8F0F0" MaxHeight="120">
+			BorderBrush="DarkRed" BorderThickness="0,1,0,0"
+			Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
+			MaxHeight="120">
 			<ScrollViewer VerticalScrollBarVisibility="Auto">
 				<ItemsControl x:Name="m_error_list">
 					<ItemsControl.ItemTemplate>
 						<DataTemplate>
-							<TextBlock Text="{Binding}" Foreground="DarkRed" FontFamily="Consolas" FontSize="11" Margin="4,1"/>
+							<TextBlock Text="{Binding}" Foreground="Salmon" FontFamily="Consolas" FontSize="11" Margin="4,1"/>
 						</DataTemplate>
 					</ItemsControl.ItemTemplate>
 				</ItemsControl>
@@ -56,8 +100,9 @@
 		</Border>
 
 		<!-- Status Bar -->
-		<Border Grid.Row="3" BorderBrush="LightGray" BorderThickness="0,1,0,0" Padding="4,2">
-			<TextBlock x:Name="m_status_text" Text="Ready" FontSize="11"/>
+		<Border Grid.Row="3" BorderBrush="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBorderBrushKey}}" BorderThickness="0,1,0,0" Padding="4,2">
+			<TextBlock x:Name="m_status_text" Text="Ready" FontSize="11"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"/>
 		</Border>
 	</Grid>
 </UserControl>
