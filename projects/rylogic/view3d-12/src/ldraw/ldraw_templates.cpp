@@ -552,6 +552,10 @@ namespace pr::rdr12::ldraw
 			"	$ObjectModifiers\n"
 			"	&Recursive\n"
 			"}\n"
+			"*Commands\n"
+			"{\n"
+			"	(*Data {<command-id> [(<arg>)]})\n"
+			"}\n"
 		);
 		return str;
 	}

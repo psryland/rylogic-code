@@ -1,4 +1,4 @@
-﻿//******************************************
+//******************************************
 // pr::vector<>
 //  Copyright (c) Rylogic Ltd 2003
 //******************************************
@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <type_traits>
 #include <span>
+#include <ranges>
 #include <cassert>
 #include "pr/common/allocator.h"
 
@@ -868,6 +869,33 @@ namespace pr
 		{
 			impl_assign(std::forward< vector<Type,L,F,A> >(right));
 			return *this;
+		}
+
+		// Append a range to the end of the vector
+		template <std::ranges::input_range Range>
+		void append_range(Range&& range)
+		{
+			if constexpr (std::ranges::contiguous_range<std::remove_reference_t<Range>> && std::ranges::sized_range<std::remove_reference_t<Range>>)
+			{
+				// Fast path for contiguous memory (std::vector, std::array, std::span, etc.)
+				auto count = std::ranges::size(range);
+				ensure_space(m_count + count, true);
+				traits::copy_constr(alloc(), m_ptr + m_count, std::ranges::data(range), count);
+				m_count += count;
+			}
+			else if constexpr (std::ranges::sized_range<std::remove_reference_t<Range>>)
+			{
+				// Pre-allocate for sized but non-contiguous ranges
+				auto count = std::ranges::size(range);
+				ensure_space(m_count + count, true);
+				for (auto&& item : range)
+					traits::copy_constr(alloc(), m_ptr + m_count++, std::forward<decltype(item)>(item));
+			}
+			else
+			{
+				for (auto&& item : range)
+					push_back(std::forward<decltype(item)>(item));
+			}
 		}
 
 		// assign count * value
@@ -1758,6 +1786,47 @@ namespace pr::container
 					PR_EXPECT(arr1[4] == 4);
 					PR_EXPECT(arr1[5] == 5);
 				}
+			}
+		}
+		PRUnitTestMethod(AppendRange)
+		{
+			Check chk;
+			{
+				// Append from a sized range (std::vector)
+				Array0 arr0;
+				std::vector<Type> src = { Type(1), Type(2), Type(3) };
+				arr0.append_range(src);
+				PR_EXPECT(arr0.ssize() == 3);
+				PR_EXPECT(arr0[0].val == 1);
+				PR_EXPECT(arr0[1].val == 2);
+				PR_EXPECT(arr0[2].val == 3);
+
+				// Append more to an existing vector
+				std::vector<Type> src2 = { Type(4), Type(5) };
+				arr0.append_range(src2);
+				PR_EXPECT(arr0.ssize() == 5);
+				PR_EXPECT(arr0[3].val == 4);
+				PR_EXPECT(arr0[4].val == 5);
+			}
+			if constexpr (std::is_copy_constructible_v<Type>)
+			{
+				// Append from a non-sized range (filtered view)
+				Array1 arr1;
+				std::vector<Type> src = { Type(1), Type(2), Type(3), Type(4), Type(5) };
+				auto evens = src | std::views::filter([](Type const& t) { return t.val % 2 == 0; });
+				arr1.append_range(evens);
+				PR_EXPECT(arr1.ssize() == 2);
+				PR_EXPECT(arr1[0].val == 2);
+				PR_EXPECT(arr1[1].val == 4);
+			}
+			{
+				// Append empty range
+				Array0 arr;
+				arr.push_back(Type(99));
+				std::vector<Type> empty_src;
+				arr.append_range(empty_src);
+				PR_EXPECT(arr.ssize() == 1);
+				PR_EXPECT(arr[0].val == 99);
 			}
 		}
 		PRUnitTestMethod(PushPop)

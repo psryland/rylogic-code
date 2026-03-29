@@ -13,34 +13,27 @@ namespace pr::rdr12::ldraw
 		ECommandId m_id;
 		uint8_t pad[12];
 	};
-	struct alignas(16) Command_AddToScene
-	{
-		ECommandId m_id;
-		int m_scene_id;
-		uint8_t pad[8];
-	};
-	struct alignas(16) Command_CameraToWorld
+	struct alignas(16) Command_Clear
 	{
 		ECommandId m_id;
 		uint8_t pad[12];
-		m4x4 m_c2w;
-	};
-	struct alignas(16) Command_CameraPosition
-	{
-		ECommandId m_id;
-		uint8_t pad[12];
-		v4 m_pos;
 	};
 	struct alignas(16) Command_ObjectToWorld
 	{
 		ECommandId m_id;
-		char m_object_name[60];
+		char m_obj_addr[60];
 		m4x4 m_o2w;
+	};
+	struct alignas(16) Command_ObjectColour
+	{
+		ECommandId m_id;
+		char m_obj_addr[60];
+		Colour32 m_col;
+		uint8_t pad[12];
 	};
 	struct alignas(16) Command_Render
 	{
 		ECommandId m_id;
-		int m_scene_id;
-		uint8_t pad[8];
+		uint8_t pad[12];
 	};
 }

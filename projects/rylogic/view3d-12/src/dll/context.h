@@ -140,6 +140,6 @@ namespace pr::rdr12
 		void OnStoreChange(ldraw::StoreChangeEventArgs const&) override;
 
 		// Process any received commands in the source
-		void OnHandleCommands(ldraw::SourceBase& source) override;
+		void OnRenderRequest(Guid const& context_id) override;
 	};
 }

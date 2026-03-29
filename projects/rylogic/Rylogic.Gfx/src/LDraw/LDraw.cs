@@ -193,10 +193,9 @@ namespace Rylogic.LDraw
 	{
 		// AUTO-GENERATED-COMMANDS-BEGIN
 		Invalid = unchecked((int)3419534640),
-		AddToScene = unchecked((int)3734185163),
-		CameraToWorld = unchecked((int)1798355577),
-		CameraPosition = unchecked((int)109155401),
+		Clear = unchecked((int)1550717474),
 		ObjectToWorld = unchecked((int)1059927965),
+		ObjectColour = unchecked((int)886758798),
 		Render = unchecked((int)4009327117),
 		// AUTO-GENERATED-COMMANDS-END
 	}

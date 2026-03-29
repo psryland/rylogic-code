@@ -1222,14 +1222,13 @@
 // Commands are defined in batches. Each batch is a set of commands that are executed in order.
 *Commands
 {
-	// <command-id> <value> <value> <value> ... (depending on the command)
-	*Data {Render 0}
+	// <command-id> <arg> <arg> <arg> ... (depending on the command)
+	*Data {Render}
 
 	// Commands:
-	//  *Data {AddToScene <scene-id>} - Add all objects created by this source to a scene with the given id.
-	//  *Data {CameraToWorld <scene-id> <o2w>} - Update the camera to world transform for the given scene id.
-	//  *Data {CameraPosition <scene-id> <pos>} - Update the camera position for the given scene id.
+	//  *Data {Clear} - Remove any previous objects associated with this source
 	//  *Data {ObjectToWorld <object-name> <o2w>} - Update the object to world transform for the given object name.
-	//  *Data {Render <scene-id>} - Force a render of the given scene id.
+	//  *Data {ObjectColour <object-name> <colour>} - Update the object colour for the given object name.
+	//  *Data {Render} - Force a render of any scene that is displaying this source
 }
 
