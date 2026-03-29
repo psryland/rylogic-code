@@ -235,9 +235,8 @@ namespace pr::rdr12::ldraw
 		Colour32 NuggetTint(char const* name, int index) const;
 		void NuggetTint(Colour32 tint, char const* name, int index);
 
-		// Get/Set the colour of this object or child objects matching 'name' (see Apply)
-		// For 'Get', the colour of the first object to match 'name' is returned
-		// For 'Set', the object base colour is not changed, only the instance colour
+		// Get/Set the tint or base colour of this object or child objects matching 'name' (see Apply)
+		// If 'base_colour' is true, then the object's colour is change to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
 		Colour32 Colour(bool base_colour, char const* name = nullptr) const;
 		void Colour(bool base_colour, Colour32 colour, char const* name = nullptr, EColourOp op = EColourOp::Overwrite, float op_value = 0.0f);
 

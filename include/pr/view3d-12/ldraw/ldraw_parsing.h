@@ -55,7 +55,7 @@ namespace pr::rdr12::ldraw
 
 		ObjectCont   m_objects;    // Reference to the objects container to fill
 		CommandBuf   m_commands;   // A buffer of Ldraw commands (todo: replace 'm_cam' with these)
-		ObjectLookup m_lookup;     // A lookup map for objects by hashed object name
+		ObjectLookup m_lookup;     // A lookup map for objects by hashed object name (includes child objects, e.g. Hash(Parent.Child.GrandChild))
 		Camera       m_cam;        // Camera description has been read
 		ECamField    m_cam_fields; // Bitmask of fields in 'm_cam' that were given in the camera description
 		bool         m_wireframe;  // True if '*Wireframe' was read in the script
@@ -64,7 +64,7 @@ namespace pr::rdr12::ldraw
 		void reset();
 		size_t count() const;
 		LdrObjectPtr operator[](size_t index) const;
-		ParseResult& operator += (ParseResult const& rhs);
+		ParseResult& Merge(ParseResult const& rhs, bool include_commands = true);
 		explicit operator bool() const;
 	};
 

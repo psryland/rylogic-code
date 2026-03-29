@@ -56,8 +56,8 @@ namespace pr::rdr12::ldraw
 		// Store change event. Called before and after a change to the collection of objects in the store.
 		virtual void OnStoreChange(StoreChangeEventArgs const&) = 0;
 
-		// Process any received commands in the source. All commands are expected to be processed
-		virtual void OnHandleCommands(SourceBase& source) = 0;
+		// Handle a render request from source 'context_id'.
+		virtual void OnRenderRequest(Guid const& context_id) = 0;
 	};
 
 	// Predicates for matching context ids
@@ -187,5 +187,8 @@ namespace pr::rdr12::ldraw
 
 		// Handler for when new data is received from a source
 		void SourceNotifyHandler(std::shared_ptr<SourceBase> src, NotifyEventArgs const& args);
+
+		// Process any commands received in a source updated
+		void ProcessCommands(ParseResult::CommandBuf const& commands, std::shared_ptr<SourceBase> src, ParseResult& previous_data);
 	};
 }

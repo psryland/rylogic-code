@@ -14,6 +14,7 @@
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
+#include "pr/view3d-12/ldraw/ldraw_commands.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/main/renderer.h"
 
@@ -176,13 +177,13 @@ namespace pr::rdr12::ldraw
 		{
 			auto& src = m_srcs[id];
 			auto output = src->Load(rdr());
-			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, nullptr });
+			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, nullptr });
 		});
 
-		// Queue a notify load complete after all reloads have been queued
+		// Queue a "store change after", after all reloads have been queued
 		rdr().RunOnMainThread([this, ids = std::move(ids)]() mutable noexcept
 		{
-			m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsChanged, ids, nullptr, false });
+			m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, ids, nullptr, false });
 		});
 	}
 
@@ -662,20 +663,85 @@ namespace pr::rdr12::ldraw
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ExistingObjectsRefreshed))
 			std::swap(previous_data, existing->m_output);
 
+		// Process any received commands
+		// Process before merging the new output, so that commands can operate on the existing data if needed.
+		ProcessCommands(args.m_output.m_commands, existing, previous_data);
+
+		// Remove any objects associated with this context id
+		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
+			Remove(context_id, args.m_initiator);
+
 		// Merged the output with the existing output.
 		// This is a merge, rather than a replace, because stream sources add data incrementally
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ObjectsAdded))
-			existing->m_output += args.m_output;
-
-		// Process any commands
-		if (!existing->m_output.m_commands.empty())
-			m_events->OnHandleCommands(*existing);
-
-		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
-			Remove(src->m_context_id, args.m_initiator);
+			existing->m_output.Merge(args.m_output, false);
 
 		// Notify of the store change
 		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &existing->m_output, false });
 		if (args.m_add_complete) args.m_add_complete(context_id, false);
+	}
+
+
+	// Process any commands received in a source updated
+	void ScriptSources::ProcessCommands(ParseResult::CommandBuf const& commands, std::shared_ptr<SourceBase> src, ParseResult& previous_data)
+	{
+		using namespace ldraw;
+
+		// Process any commands
+		byte_data_cptr ptr(commands);
+		for (; ptr; )
+		{
+			try
+			{
+				switch (ptr.as<ECommandId>())
+				{
+					case ECommandId::Invalid:
+					{
+						ptr.read<Command_Invalid>();
+						break;
+					}
+					case ECommandId::Clear:
+					{
+						ptr.read<Command_Clear>();
+
+						// Move any objects to 'previous_data'
+						previous_data.m_objects.append_range(src->m_output.m_objects);
+						src->m_output.m_objects.resize(0);
+						break;
+					}
+					case ECommandId::ObjectToWorld:
+					{
+						// Find the object that matches 'cmd.m_object_name' and apply the transform to it.
+						// The object name might be an address, e.g., 'Root.Child.GrandChild', so we need to search for it.
+						auto const& cmd = ptr.read<Command_ObjectToWorld>();
+						if (auto it = src->m_output.m_lookup.find(hash::Hash(cmd.m_obj_addr)); it != std::end(src->m_output.m_lookup))
+							it->second->O2W(cmd.m_o2w);
+						break;
+					}
+					case ECommandId::ObjectColour:
+					{
+						auto const& cmd = ptr.read<Command_ObjectColour>();
+						if (auto it = src->m_output.m_lookup.find(hash::Hash(cmd.m_obj_addr)); it != std::end(src->m_output.m_lookup))
+							it->second->Colour(true, cmd.m_col);
+						break;
+					}
+					case ECommandId::Render:
+					{
+						ptr.read<Command_Render>();
+						m_events->OnRenderRequest(src->m_context_id);
+						break;
+					}
+					default:
+					{
+						assert(false); // to trap them here
+						throw std::runtime_error("Unsupported command");
+					}
+				}
+			}
+			catch (std::exception const& ex)
+			{
+				m_events->OnError(ParseErrorEventArgs(std::format("Command Error: {}", ex.what()), {}, {}));
+			}
+		}
 	}
 }

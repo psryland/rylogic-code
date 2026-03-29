@@ -192,10 +192,9 @@ enum <uint> ECommandId
 {
 	// AUTO-GENERATED-COMMANDS-BEGIN
 	Invalid = 3419534640,
-	AddToScene = 3734185163,
-	CameraToWorld = 1798355577,
-	CameraPosition = 109155401,
+	Clear = 1550717474,
 	ObjectToWorld = 1059927965,
+	ObjectColour = 886758798,
 	Render = 4009327117,
 	// AUTO-GENERATED-COMMANDS-END
 };

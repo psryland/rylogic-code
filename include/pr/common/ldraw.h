@@ -319,10 +319,9 @@ namespace pr::ldraw
 		#pragma region Commands
 		// AUTO-GENERATED-COMMANDS-BEGIN
 		inline static constexpr NameValue Invalid = {"Invalid", 3419534640};
-		inline static constexpr NameValue AddToScene = {"AddToScene", 3734185163};
-		inline static constexpr NameValue CameraToWorld = {"CameraToWorld", 1798355577};
-		inline static constexpr NameValue CameraPosition = {"CameraPosition", 109155401};
+		inline static constexpr NameValue Clear = {"Clear", 1550717474};
 		inline static constexpr NameValue ObjectToWorld = {"ObjectToWorld", 1059927965};
+		inline static constexpr NameValue ObjectColour = {"ObjectColour", 886758798};
 		inline static constexpr NameValue Render = {"Render", 4009327117};
 		// AUTO-GENERATED-COMMANDS-END
 		#pragma endregion
@@ -2075,7 +2074,7 @@ namespace pr::ldraw
 		};
 		struct StringWithLength
 		{
-			std::string_view m_value;
+			std::string m_value;
 			StringWithLength() : m_value() {}
 			StringWithLength(std::string_view value) : m_value(value) {}
 			friend void Append(bytebuf& out, seri::StringWithLength sl)
@@ -2487,16 +2486,8 @@ namespace pr::ldraw
 	};
 	struct LdrCommands :LdrBase
 	{
-		using param_t = union param_t // Don't need type descrimination, the command implies the parameter types
-		{
-			seri::Mat4 mat4;
-			seri::Vec4 vec4;
-			seri::Vec2 vec2;
-			seri::StringWithLength nstr;
-			float f;
-			int i;
-			bool b;
-		};
+		// Don't need type descrimination, the command implies the parameter types
+		using param_t = std::variant<seri::Mat4, seri::Vec4, seri::Vec2, seri::Colour, seri::StringWithLength, float, int, bool>;
 		using cmd_t = struct Cmd
 		{
 			NameValue m_id;
@@ -2505,36 +2496,30 @@ namespace pr::ldraw
 
 		std::vector<cmd_t> m_cmds;
 
-		// Add objects created by this script to scene 'scene_id'
-		LdrCommands& add_to_scene(int scene_id)
+		// Remove any previous objects from this source
+		LdrCommands& clear()
 		{
-			m_cmds.push_back({ ECommands::AddToScene, {{.i = scene_id}} });
-			return *this;
-		}
-
-		// Position the camera within the scene
-		LdrCommands& camera_to_world(TMat4 auto&& c2w)
-		{
-			m_cmds.push_back({ ECommands::CameraToWorld, {{.mat4 = c2w}} });
-			return *this;
-		}
-		LdrCommands& camera_position(TVec3 auto&& pos)
-		{
-			m_cmds.push_back({ ECommands::CameraPosition, {{.vec3 = pos}} });
-			return *this;
+			m_cmds.push_back(cmd_t{ ECommands::Clear, {} });
 		}
 
 		// Apply a transform to an object with the given name
-		LdrCommands& object_transform(std::string_view object_name, TMat4 auto&& o2w)
+		LdrCommands& object_transform(std::string_view obj_addr, TMat4 auto&& o2w)
 		{
-			m_cmds.push_back({ ECommands::ObjectToWorld, {{.nstr = object_name}, {.mat4 = o2w}} });
+			m_cmds.push_back(cmd_t{ ECommands::ObjectToWorld, {{seri::StringWithLength(obj_addr)}, {seri::Mat4(o2w)}} });
+			return *this;
+		}
+
+		// Set the colour of an object
+		LdrCommands& object_colour(std::string_view obj_addr, seri::Colour colour)
+		{
+			m_cmds.push_back(cmd_t{ ECommands::ObjectColour, {{seri::StringWithLength(obj_addr)}, {seri::Colour(colour)}} });
 			return *this;
 		}
 
 		// Trigger a frame render
-		LdrCommands& render(int scene_id)
+		LdrCommands& render()
 		{
-			m_cmds.push_back({ ECommands::Render, {{.i = scene_id}} });
+			m_cmds.push_back(cmd_t{ ECommands::Render, {} });
 			return *this;
 		}
 
@@ -2550,30 +2535,22 @@ namespace pr::ldraw
 					Append(out, cmd.m_id);
 					switch (cmd.m_id.value)
 					{
-						case ECommands::AddToScene.value:
+						case ECommands::Clear.value:
 						{
-							Append(out, cmd.m_params[0].i);
-							break;
-						}
-						case ECommands::CameraToWorld.value:
-						{
-							Append(out, cmd.m_params[0].mat4);
-							break;
-						}
-						case ECommands::CameraPosition.value: 
-						{
-							Append(out, cmd.m_params[0].vec4);
 							break;
 						}
 						case ECommands::ObjectToWorld.value:
 						{
-							Append(out, cmd.m_params[0].nstr);
-							Append(out, cmd.m_params[1].mat4);
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
+							break;
+						}
+						case ECommands::ObjectColour.value:
+						{
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
 							break;
 						}
 						case ECommands::Render.value:
 						{
-							Append(out, cmd.m_params[0].i);
 							break;
 						}
 						default:
@@ -2595,30 +2572,22 @@ namespace pr::ldraw
 					Append(out, cmd.m_id);
 					switch (cmd.m_id.value)
 					{
-						case ECommands::AddToScene.value:
+						case ECommands::Clear.value:
 						{
-							Append(out, cmd.m_params[0].i);
-							break;
-						}
-						case ECommands::CameraToWorld.value:
-						{
-							Append(out, cmd.m_params[0].mat4);
-							break;
-						}
-						case ECommands::CameraPosition.value: 
-						{
-							Append(out, cmd.m_params[0].vec4);
 							break;
 						}
 						case ECommands::ObjectToWorld.value:
 						{
-							Append(out, cmd.m_params[0].nstr);
-							Append(out, cmd.m_params[1].mat4);
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
+							break;
+						}
+						case ECommands::ObjectColour.value:
+						{
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
 							break;
 						}
 						case ECommands::Render.value:
 						{
-							Append(out, cmd.m_params[0].i);
 							break;
 						}
 						default:

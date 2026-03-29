@@ -624,26 +624,36 @@ namespace pr::rdr12
 	// Store change event. Called before and after a change to the collection of objects in the store.
 	void Context::OnStoreChange(ldraw::StoreChangeEventArgs const& args)
 	{
+		// This method handles a number of use cases:
+		//  - A new file is loaded => initiator = NewSource, change_flags = ContentIdAdded|ObjectsAdded
+		//  - A file is removed => initiator = SourceRemoved, change_flags = ContentIdRemoved|ObjectsRemoved
+		//  - A source is refreshed (via "F5") => initiator = Reload, change_flags = ObjectsAdded|ObjectsRemoved
+		//  - A streaming source receives data => initiator = AppendData, change_flags = ObjectsAdded
+
 		if (args.m_before)
 		{
-			// Keep the context ids on reloads
-			auto keep_context_ids = AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed);
-
-			for (auto& wnd : m_windows)
-				wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, keep_context_ids);
+			// Only remove items if not appending data.
+			if (args.m_initiator != ldraw::EStoreChangeInitiator::AppendData)
+			{
+				// Keep the context ids on reloads
+				auto keep_context_ids = AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed);
+				for (auto& wnd : m_windows)
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, keep_context_ids);
+			}
 		}
 		else // after
 		{
-			// Re-Add objects for the context ids after reload
-			if (AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
+			struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; };
+			auto ReAdd = [](void* ctx, Guid const& id)
 			{
-				struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; };
-				auto ReAdd = [](void* ctx, Guid const& id)
-				{
-					auto& x = *static_cast<Ids*>(ctx);
-					return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
-				};
+				auto& x = *static_cast<Ids*>(ctx);
+				return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
+			};
 
+			// Re-Add objects for the context ids after reload
+			if (args.m_initiator == ldraw::EStoreChangeInitiator::AppendData ||
+				AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
+			{
 				for (auto& wnd : m_windows)
 				{
 					// After reload, each window re-adds objects from the previous contexts
@@ -660,88 +670,13 @@ namespace pr::rdr12
 	}
 
 	// Process any received commands in the source
-	void Context::OnHandleCommands(ldraw::SourceBase& source)
+	void Context::OnRenderRequest(Guid const& context_id)
 	{
-		using namespace ldraw;
-
-		byte_data_cptr ptr(source.m_output.m_commands);
-		for (; ptr; )
+		// Invalidate any window that contains 'source'
+		for (auto& window : m_windows)
 		{
-			try
-			{
-				// Process the command
-				switch (ptr.as<ldraw::ECommandId>())
-				{
-					case ECommandId::Invalid:
-					{
-						ptr.read<Command_Invalid>();
-						break;
-					}
-					case ECommandId::AddToScene:
-					{
-						auto const& cmd = ptr.read<Command_AddToScene>();
-
-						// Look for the window to add objects to. Ignore windows out of range
-						if (cmd.m_scene_id < 0 || cmd.m_scene_id >= isize(m_windows))
-							break;
-
-						// Add all objects from 'source' to 'window'
-						auto& window = *m_windows[cmd.m_scene_id];
-						for (auto& obj : source.m_output.m_objects)
-							window.Add(obj.get());
-
-						break;
-					}
-					case ECommandId::CameraToWorld:
-					{
-						throw std::runtime_error("not implemented");
-					}
-					case ECommandId::CameraPosition:
-					{
-						throw std::runtime_error("not implemented");
-					}
-					case ECommandId::ObjectToWorld:
-					{
-						// TODO: Support 'Parent.Child.Child' syntax
-						auto const& cmd = ptr.read<Command_ObjectToWorld>();
-						auto target = string32(cmd.m_object_name);
-
-						// Find the first object matching 'cmd.m_object_name' (in 'source.m_context')
-						auto iter = pr::find_if(source.m_output.m_objects, [&target](LdrObjectPtr& ptr) { return ptr->m_name == target; });
-						if (iter == std::end(source.m_output.m_objects))
-							break;
-
-						// Update the object to world transform for the object
-						(*iter)->O2W(cmd.m_o2w);
-						break;
-					}
-					case ECommandId::Render:
-					{
-						auto const& cmd = ptr.read<Command_Render>();
-
-						// Look for the window to add objects to. Ignore windows out of range
-						if (cmd.m_scene_id < 0 || cmd.m_scene_id >= isize(m_windows))
-							break;
-
-						// Render the window
-						auto& window = *m_windows[cmd.m_scene_id];
-						window.Invalidate();
-						break;
-					}
-					default:
-					{
-						assert(false); // to trap them here
-						throw std::runtime_error("Unsupported command");
-					}
-				}
-			}
-			catch (std::exception const& ex)
-			{
-				ReportError(std::format("Command Error: {}", ex.what()).c_str(), "", 0, 0);
-			}
+			if (window->m_guids.count(context_id) != 0)
+				window->Invalidate();
 		}
-
-		// All commands have been executed
-		source.m_output.m_commands.resize(0);
 	}
 }
