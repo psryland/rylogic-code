@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -451,20 +451,29 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		// Note:
+		//  - Although the ChartPanel subclasses this type, it does *NOT* use these methods
+		//    for navigation bceause mouse input depends on context for the chart control.
+		//    (see Rylogic.Gfx\src\Gui\ChartControl\MouseOps.cs)
+
 		/// <summary>Mouse navigation - public to allow users to forward mouse calls to us.</summary>
-		public void OnMouseDown(object sender, MouseButtonEventArgs e)
+		public void OnMouseDown(object? sender, MouseButtonEventArgs e)
 		{
 			if (Window == null) return;
 			if (CaptureMouse())
 			{
 				Cursor = Cursors.SizeAll;
 				m_mouse_down_at = Environment.TickCount;
+
+				// Begin navigation with the initial mouse position
 				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), true))
 					Invalidate();
 			}
 		}
-		public void OnMouseUp(object sender, MouseButtonEventArgs e)
+		public void OnMouseUp(object? sender, MouseButtonEventArgs e)
 		{
+			// This is only called when legacy messages are active (i.e., raw input
+			// mode is not engaged, or has already been deactivated by the raw input handler).
 			if (Window == null) return;
 			if (IsMouseCaptured)
 			{
@@ -489,8 +498,10 @@ namespace Rylogic.Gui.WPF
 				e.Handled = true;
 			}
 		}
-		public void OnMouseMove(object sender, MouseEventArgs e)
+		public void OnMouseMove(object? sender, MouseEventArgs e)
 		{
+			// During raw input mode, WM_MOUSEMOVE is suppressed so this won't fire.
+			// In normal mode, handle navigation as usual.
 			if (Window == null) return;
 			if (IsMouseCaptured)
 			{
@@ -498,7 +509,7 @@ namespace Rylogic.Gui.WPF
 					Invalidate();
 			}
 		}
-		public void OnMouseWheel(object sender, MouseWheelEventArgs e)
+		public void OnMouseWheel(object? sender, MouseWheelEventArgs e)
 		{
 			if (Window == null) return;
 			if (Window.MouseNavigateZ(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), e.Delta, true))
@@ -574,8 +585,8 @@ namespace Rylogic.Gui.WPF
 			Window.GSyncWait();
 
 			// Update the "front buffer" in the D3DImage
+			// Use this 'D3DImage.Save("P:\\dump\\d3dimage.png");' to captures the D3DImage to a file
 			D3DImage.Flip();
-			//D3DImage.Save("P:\\dump\\d3dimage.png");
 		}
 		private bool m_render_pending;
 

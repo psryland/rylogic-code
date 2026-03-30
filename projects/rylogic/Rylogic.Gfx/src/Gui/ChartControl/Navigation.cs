@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Maths;
@@ -30,6 +32,22 @@ namespace Rylogic.Gui.WPF
 			};
 		}
 
+		/// <summary>Called from OnInitialized()</summary>
+		private void LoadedNav()
+		{
+			// Hmm, I know that RawMouseInput results in much smoother navigation
+			// but it's really hard to turn on/off without breaking the existing mouse
+			// navigation... Ideally, I'd like it enabled for all mouse activity in the 
+			// ChartPanel...
+
+			RawMouse.Source = PresentationSource.FromVisual(this) as HwndSource;
+			//RawMouse.MouseDown += (s,a) => OnMouseDown(a);
+			//RawMouse.MouseUp += (s,a) => OnMouseUp(a);
+			//RawMouse.MouseMove += (s,a) => OnMouseMove(a);
+			//RawMouse.MouseWheel += (s,a) => OnMouseWheel(a);
+			RawMouse.Enabled = false;
+		}
+
 		/// <summary>Enable/Disable mouse navigation</summary>
 		public bool DefaultMouseControl
 		{
@@ -54,10 +72,12 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>Raw mouse input handler</summary>
+		public RawMouseInput RawMouse { get; } = new();
+
 		/// <summary>Mouse/key events on the chart</summary>
 		protected override void OnMouseDown(MouseButtonEventArgs args)
 		{
-			//
 			//  *** Use PreviewMouseDown to set pending MouseOps ***
 			//  *** Don't set e.Handled = true, SetPending() is enough ***
 			//
@@ -72,7 +92,6 @@ namespace Rylogic.Gui.WPF
 			//  - PreviewMouseDown is a tunnelling 'event', it starts at the window and drills
 			//    down the tree to the leaves. If 'e.Handled = true' in a PreviewMouseDown handler
 			//    then MouseDown is never raised, and override OnMouseDown isn't called.
-
 			base.OnMouseDown(args);
 
 			// If a mouse op is already active, ignore mouse down

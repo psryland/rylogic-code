@@ -11,6 +11,18 @@ namespace Rylogic.Gui.WPF
 {
 	public partial class ChartControl
 	{
+		// Note:
+		//  - The chain of mouse events starts in 'Navigation.cs'
+		//
+		// The general process goes like this:
+		//  - A mouse op is created and set as the pending operation in 'MouseOps'.
+		//  - MouseDown on the chart calls 'BeginOp' which moves the pending op to 'Active'.
+		//  - Mouse events on the chart are forwarded to the active op.
+		//  - MouseUp ends the current Active op, if the pending op should start immediately
+		//    then mouse up causes the next op to start (with a faked MouseDown event).
+		//  - If at any point a mouse op is cancelled, no further mouse events are forwarded
+		//    to the op. When EndOp is called, a notification can be sent by the op to indicate cancelled.
+
 		/// <summary>Manages per-button mouse operations</summary>
 		public class MouseOps :IDisposable
 		{
@@ -138,15 +150,6 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Base class for a mouse operation performed with the mouse 'down -> [drag] -> up' sequence</summary>
 		public abstract class MouseOp :IDisposable
 		{
-			// The general process goes:
-			//  - A mouse op is created and set as the pending operation in 'MouseOps'.
-			//  - MouseDown on the chart calls 'BeginOp' which moves the pending op to 'Active'.
-			//  - Mouse events on the chart are forwarded to the active op.
-			//  - MouseUp ends the current Active op, if the pending op should start immediately
-			//    then mouse up causes the next op to start (with a faked MouseDown event).
-			//  - If at any point a mouse op is cancelled, no further mouse events are forwarded
-			//    to the op. When EndOp is called, a notification can be sent by the op to indicate cancelled.
-
 			protected IDisposable? m_suspended_chart_changed;
 			public MouseOp(ChartControl chart, bool allow_cancel = false)
 			{
@@ -352,8 +355,8 @@ namespace Rylogic.Gui.WPF
 					args.Handled = true;
 				}
 
-				// Otherwise, interpret drag as a navigation
-				if (args.Handled) { }
+				// Otherwise, interpret the drag as a navigation
+				if (args.Handled) {}
 				else if (Chart.Options.NavigationMode == ENavMode.Chart2D)
 				{
 					if (Chart.DoChartAreaSelect(HitResult.ModifierKeys))
