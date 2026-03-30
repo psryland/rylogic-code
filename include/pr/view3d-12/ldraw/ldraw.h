@@ -130,8 +130,8 @@ namespace pr::rdr12::ldraw
 		x(NoMaterials              )\
 		x(Normalise                )\
 		x(Normals                  )\
-		x(NoRootTranslation        )\
-		x(NoRootRotation           )\
+		x(NoTranslation            )\
+		x(NoRotation               )\
 		x(NoZTest                  )\
 		x(NoZWrite                 )\
 		x(O2W                      )\

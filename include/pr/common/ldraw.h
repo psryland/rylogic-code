@@ -229,8 +229,8 @@ namespace pr::ldraw
 		inline static constexpr NameValue NoMaterials = {"*NoMaterials", 762077060};
 		inline static constexpr NameValue Normalise = {"*Normalise", 4066511049};
 		inline static constexpr NameValue Normals = {"*Normals", 247908339};
-		inline static constexpr NameValue NoRootTranslation = {"*NoRootTranslation", 3287374065};
-		inline static constexpr NameValue NoRootRotation = {"*NoRootRotation", 3606635828};
+		inline static constexpr NameValue NoTranslation = {"*NoTranslation", 864235717};
+		inline static constexpr NameValue NoRotation = {"*NoRotation", 4019988840};
 		inline static constexpr NameValue NoZTest = {"*NoZTest", 329427844};
 		inline static constexpr NameValue NoZWrite = {"*NoZWrite", 1339143375};
 		inline static constexpr NameValue O2W = {"*O2W", 2877203913};
@@ -1811,22 +1811,22 @@ namespace pr::ldraw
 			{
 				friend void Append(bytebuf& out, NoRootTranslation_ const&)
 				{
-					auto s = Append(out, Header{ EKeywords::NoRootTranslation });
+					auto s = Append(out, Header{ EKeywords::NoTranslation });
 				}
 				friend void Append(textbuf& out, NoRootTranslation_ const&)
 				{
-					Append(out, EKeywords::NoRootTranslation, "{}");
+					Append(out, EKeywords::NoTranslation, "{}");
 				}
 			};
 			struct NoRootRotation_
 			{
 				friend void Append(bytebuf& out, NoRootRotation_ const&)
 				{
-					auto s = Append(out, Header{ EKeywords::NoRootRotation });
+					auto s = Append(out, Header{ EKeywords::NoRotation });
 				}
 				friend void Append(textbuf& out, NoRootRotation_ const&)
 				{
-					Append(out, EKeywords::NoRootRotation, "{}");
+					Append(out, EKeywords::NoRotation, "{}");
 				}
 			};
 
@@ -2500,6 +2500,7 @@ namespace pr::ldraw
 		LdrCommands& clear()
 		{
 			m_cmds.push_back(cmd_t{ ECommands::Clear, {} });
+			return *this;
 		}
 
 		// Apply a transform to an object with the given name

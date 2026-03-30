@@ -134,9 +134,8 @@ namespace pr::hlsl::tests
 			float interval = 2.0f;
 			float T = interval * 0.5f;
 
-			auto hlsl_interp = HermiteVector_MidPoint_Create(prev, pos, vel, next, interval);
-			pr::math::HermiteVector_MidPoint<float> cpu_interp(
-				V4(prev, 1), V4(pos, 1), V4(vel, 0), V4(next, 1), nullptr, interval);
+			auto hlsl_interp = HermiteVector_MidPoint_Create(prev, pos, next, interval);
+			math::HermiteVector_MidPoint<float> cpu_interp(V4(prev, 1), V4(pos, 1), V4(next, 1), interval);
 
 			// Check endpoints and midpoint
 			for (int i = 0; i != 11; ++i)
@@ -161,13 +160,12 @@ namespace pr::hlsl::tests
 			float interval = 2.0f;
 			float T = interval * 0.5f;
 
-			auto hlsl_interp = HermiteQuaternion_MidPoint_Create(rot_prev, rot_mid, avl_mid, rot_next, interval);
-			pr::math::HermiteQuaternion_MidPoint<float> cpu_interp(
+			auto hlsl_interp = HermiteQuaternion_MidPoint_Create(rot_prev, rot_mid, rot_next, interval);
+			math::HermiteQuaternion_MidPoint<float> cpu_interp(
 				quat(rot_prev.x, rot_prev.y, rot_prev.z, rot_prev.w),
 				quat(rot_mid.x, rot_mid.y, rot_mid.z, rot_mid.w),
-				V4(avl_mid, 0),
 				quat(rot_next.x, rot_next.y, rot_next.z, rot_next.w),
-				nullptr, interval);
+				interval);
 
 			for (int i = 0; i != 11; ++i)
 			{

@@ -12,6 +12,8 @@
 namespace pr::hlsl {
 #endif
 
+// ------------------------------------------------------------------------------------------------
+
 // Vector interpolator using Hermite splines
 struct HermiteVector
 {
@@ -157,27 +159,32 @@ inline Transform HermiteTransform_Eval(HermiteTransform interp, float t)
 
 // ------------------------------------------------------------------------------------------------
 
-// Velocity-corrected Hermite spline interpolator for position.
+// Hermite spline through three positions with position-derived tangents.
+// The midpoint tangent is the finite-difference velocity: (pos_next - pos_prev) / interval.
 struct HermiteVector_MidPoint
 {
-    // Constructs a cubic Hermite spline from actual positions at t±T and (pos, vel) at the midpoint.
-    // The endpoint tangents are derived so the cubic exactly passes through (pos, vel) at u=0.5.
 	HermiteVector pos;
 };
-inline HermiteVector_MidPoint HermiteVector_MidPoint_Create(float3 pos_prev, float3 pos_mid, float3 vel_mid, float3 pos_next, float interval)
+inline HermiteVector_MidPoint HermiteVector_MidPoint_Create(float3 pos_prev, float3 pos_mid, float3 pos_next, float interval)
 {
-	// Construct a vel-corrected Hermite from:
-	//   pos_prev, pos_next: actual positions at t-T and t+T
-	//   pos_mid: actual position at the midpoint time t
-	//   vel_mid: velocity at the midpoint time t
-	//   interval: total time span from pos_prev to pos_next (= 2*T)
-
-	// Derive endpoint tangents V0, V1 in parameter space that force P(0.5) = pos_mid, P'(0.5)/interval = vel_mid
-	float3 V0 = 4.0f * pos_mid - 5.0f * pos_prev + pos_next - 2.0f * vel_mid * interval;
-	float3 V1 = -pos_prev + 5.0f * pos_next - 4.0f * pos_mid - 2.0f * vel_mid * interval;
-
+	// Hermite from u=0 (pos_prev) to u=1 (pos_next), passing through pos_mid at u=0.5.
+	// Tangent at midpoint: finite-difference velocity = (pos_next - pos_prev) / interval
+	//
+	// Solving the Hermite midpoint constraints P(0.5) = pos_mid and P'(0.5) = vel_mid:
+	//   m0 = 4*pos_mid - 5*pos_prev + pos_next - 2*vel_mid*interval
+	//   m1 = -pos_prev + 5*pos_next - 4*pos_mid - 2*vel_mid*interval
+	//
+	// With vel_mid = (pos_next - pos_prev) / interval, substituting:
+	//   vel_mid * interval = pos_next - pos_prev
+	//   m0 = 4*pos_mid - 3*pos_prev - pos_next
+	//   m1 = pos_prev + 3*pos_next - 4*pos_mid
 	HermiteVector_MidPoint interp;
-	interp.pos.m_p = HermiteSpline_Create(pos_prev - pos_next, V0, float3(0, 0, 0), V1);
+	interp.pos.m_p = HermiteSpline_Create(
+		pos_prev - pos_next,
+		4.0f * pos_mid - 3.0f * pos_prev - pos_next,
+		float3(0, 0, 0),
+		pos_prev + 3.0f * pos_next - 4.0f * pos_mid
+	);
 	interp.pos.m_x1 = pos_next;
 	interp.pos.m_interval = interval;
 	return interp;
@@ -206,28 +213,33 @@ inline float3 HermiteVector_MidPoint_EvalDerivative2(HermiteVector_MidPoint inte
 
 // ------------------------------------------------------------------------------------------------
 
-// Velocity-corrected Hermite spline interpolator for rotation (in SO(3) log space).
+// Hermite interpolation for quaternions through three orientations with orientation-derived angular velocity.
 struct HermiteQuaternion_MidPoint
 {
-    // Constructs a cubic Hermite spline from actual orientations at t±T and (rot, angvel) at the midpoint.
-    // The endpoint tangents are derived so the cubic exactly passes through (rot, angvel) at u=0.5.
 	HermiteQuaternion rot;
 };
-inline HermiteQuaternion_MidPoint HermiteQuaternion_MidPoint_Create(float4 rot_prev, float4 rot_mid, float3 avl_mid, float4 rot_next, float interval)
+inline HermiteQuaternion_MidPoint HermiteQuaternion_MidPoint_Create(float4 rot_prev, float4 rot_mid, float4 rot_next, float interval)
 {
-	// HermiteQuaternion works in the log domain relative to rot_next:
-	//   u(t) = log(~rot_next * q(t)), so u0 = log(~rot_next * rot_prev), u1 = 0
-	// The midpoint constraint is: u(0.5) = log(~rot_next * rot_mid) = u_mid
-	// and: u'(0.5) = J^{-1}(u_mid) * (~rot_next * avl_mid)
+	// Work in the log domain relative to rot_next.
+	// Derive the midpoint angular velocity from orientations only:
+	//   avl_mid = 2 * log(~rot_prev * rot_next) / interval
 	float4 rot_next_inv = quat_conjugate(rot_next);
-	float3 u0 = quat_log(quat_mul(rot_next_inv, rot_prev));
-	float3 u_mid = quat_log(quat_mul(rot_next_inv, rot_mid));
-	float3 t_mid = quat_tangent(quat_mul(rot_next_inv, rot_mid), quat_rotate(rot_next_inv, avl_mid)) * interval;
 
-	// Solve for endpoint tangents m0_r, m1_r such that the Hermite curve in log space
-	// passes through u_mid at u=0.5 with derivative t_mid:
-	//   m0_r = 4*u_mid - 5*u0 - 2*t_mid
-	//   m1_r = -u0 - 4*u_mid - 2*t_mid
+	float4 dq0 = quat_mul(rot_next_inv, rot_prev);
+	dq0 = dq0.w < 0 ? -dq0 : dq0;
+	float4 dq_mid = quat_mul(rot_next_inv, rot_mid);
+	dq_mid = dq_mid.w < 0 ? -dq_mid : dq_mid;
+
+	float3 u0 = quat_log(dq0);
+	float3 u_mid = quat_log(dq_mid);
+
+	// Finite-difference angular velocity at midpoint
+	float4 dq_prev_to_next = quat_mul(quat_conjugate(rot_prev), rot_next);
+	dq_prev_to_next = dq_prev_to_next.w < 0 ? -dq_prev_to_next : dq_prev_to_next;
+	float3 avl_mid_world = 2.0f * quat_log(dq_prev_to_next) / interval;
+	float3 t_mid = quat_tangent(dq_mid, quat_rotate(rot_next_inv, avl_mid_world)) * interval;
+
+	// Solve for endpoint tangents
 	float3 m0_r = 4.0f * u_mid - 5.0f * u0 - 2.0f * t_mid;
 	float3 m1_r = -u0 - 4.0f * u_mid - 2.0f * t_mid;
 
@@ -252,20 +264,20 @@ inline float3 HermiteQuaternion_MidPoint_EvalDerivative(HermiteQuaternion_MidPoi
 
 // ------------------------------------------------------------------------------------------------
 
-// Velocity-corrected combined transform interpolator (position + rotation).
+// Combined transform interpolator through three transforms with position/orientation-derived tangents.
 struct HermiteTransform_MidPoint
 {
 	HermiteVector_MidPoint pos;
 	HermiteQuaternion_MidPoint rot;
 };
 inline HermiteTransform_MidPoint HermiteTransform_MidPoint_Create(
-	float3 pos_prev, float3 pos_mid, float3 vel_mid, float3 pos_next,
-	float4 rot_prev, float4 rot_mid, float3 avl_mid, float4 rot_next,
+	float3 pos_prev, float3 pos_mid, float3 pos_next,
+	float4 rot_prev, float4 rot_mid, float4 rot_next,
 	float interval)
 {
 	HermiteTransform_MidPoint interp;
-	interp.pos = HermiteVector_MidPoint_Create(pos_prev, pos_mid, vel_mid, pos_next, interval);
-	interp.rot = HermiteQuaternion_MidPoint_Create(rot_prev, rot_mid, avl_mid, rot_next, interval);
+	interp.pos = HermiteVector_MidPoint_Create(pos_prev, pos_mid, pos_next, interval);
+	interp.rot = HermiteQuaternion_MidPoint_Create(rot_prev, rot_mid, rot_next, interval);
 	return interp;
 }
 inline Transform HermiteTransform_MidPoint_Eval(HermiteTransform_MidPoint interp, float t)

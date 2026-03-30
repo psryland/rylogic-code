@@ -715,11 +715,11 @@ namespace Rylogic.LDraw
 				}
 				if (m_no_translation)
 				{
-					res.Write(EKeyword.NoRootTranslation);
+					res.Write(EKeyword.NoTranslation);
 				}
 				if (m_no_rotation)
 				{
-					res.Write(EKeyword.NoRootRotation);
+					res.Write(EKeyword.NoRotation);
 				}
 			});
 		}
@@ -829,8 +829,8 @@ namespace Rylogic.LDraw
 				if (m_style != null) res.Write(EKeyword.Style, m_style);
 				if (m_stretch != null) res.Write(EKeyword.Stretch, m_stretch.Value);
 				if (m_time_bias != null) res.Write(EKeyword.TimeBias, m_time_bias.Value);
-				if (m_no_translation) res.Write(EKeyword.NoRootTranslation);
-				if (m_no_rotation) res.Write(EKeyword.NoRootRotation);
+				if (m_no_translation) res.Write(EKeyword.NoTranslation);
+				if (m_no_rotation) res.Write(EKeyword.NoRotation);
 				if (m_hide_when_not_animating) res.Write(EKeyword.HideWhenNotAnimating);
 			});
 		}

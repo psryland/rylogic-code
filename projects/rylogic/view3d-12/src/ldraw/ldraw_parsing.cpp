@@ -1544,14 +1544,14 @@ namespace pr::rdr12::ldraw
 						m_hide_when_not_animating = reader.IsSectionEnd() ? true : reader.Bool();
 						return true;
 					}
-					case EKeyword::NoRootTranslation:
+					case EKeyword::NoTranslation:
 					{
-						m_flags = SetBits(m_flags, EAnimFlags::NoRootTranslation, reader.IsSectionEnd() ? true : reader.Bool());
+						m_flags = SetBits(m_flags, EAnimFlags::NoTranslation, reader.IsSectionEnd() ? true : reader.Bool());
 						return true;
 					}
-					case EKeyword::NoRootRotation:
+					case EKeyword::NoRotation:
 					{
-						m_flags = SetBits(m_flags, EAnimFlags::NoRootRotation, reader.IsSectionEnd() ? true : reader.Bool());
+						m_flags = SetBits(m_flags, EAnimFlags::NoRotation, reader.IsSectionEnd() ? true : reader.Bool());
 						return true;
 					}
 					default:
