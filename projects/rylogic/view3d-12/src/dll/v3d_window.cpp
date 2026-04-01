@@ -778,7 +778,10 @@ namespace pr::rdr12
 		if (!gizmo_in_use)
 		{
 			if (m_scene.m_cam.MouseControl(nss_point, nav_op, nav_start_or_end))
+			{
+				Invalidate();
 				refresh |= true;
+			}
 		}
 
 		return refresh;
@@ -805,7 +808,10 @@ namespace pr::rdr12
 		if (!gizmo_in_use)
 		{
 			if (m_scene.m_cam.MouseControlZ(nss_point, delta, along_ray))
+			{
+				Invalidate();
 				refresh |= true;
+			}
 		}
 
 		return refresh;

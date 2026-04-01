@@ -263,8 +263,7 @@ namespace Rylogic.Gui.WPF
 				// For 3D scenes, left mouse rotates if mouse down is within the chart bounds
 				if (HitResult.Zone.HasFlag(EZone.Chart))
 				{
-					if (Chart.Scene.Window.MouseNavigate(GrabSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, true))
-						Chart.Invalidate();
+					Chart.Scene.Window.MouseNavigate(GrabSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, true);
 				}
 
 				// Don't swallow the event
@@ -278,12 +277,15 @@ namespace Rylogic.Gui.WPF
 				if (IsClick(DropSS))
 					return;
 
+				// Once the drag threshold is exceeded, switch to smooth navigation.
+				// This suppresses WM_MOUSEMOVE/WM_NCHITTEST/WM_SETCURSOR flooding and
+				// drives navigation at compositor frame rate via GetCursorPos instead.
 				m_drag_state = EDragState.Dragging;
 
+				// During drag, move events come from the compositor
 				if (HitResult.Zone.HasFlag(EZone.Chart))
 				{
-					if (Chart.Scene.Window.MouseNavigate(DropSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, false))
-						Chart.Invalidate();
+					Chart.Scene.Window.MouseNavigate(DropSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, false);
 				}
 
 				Chart.SetRangeFromCamera();
@@ -304,24 +306,21 @@ namespace Rylogic.Gui.WPF
 					e.Handled = args.Handled;
 				}
 
-				// Otherwise this is a drag action
-				else
+				// If dragging, commit if not cancelled
+				if (m_drag_state == EDragState.Dragging)
 				{
-					// Commit if dragging hasn't been cancelled
-					if (m_drag_state == EDragState.Dragging)
-						m_drag_state = EDragState.Commit;
+					m_drag_state = EDragState.Commit;
 
 					// Pass the drag event out to users first
 					//var delta = Chart.SceneToChart(DropSS) - GrabCS;
 					var args = new ChartDraggedEventArgs(HitResult, DeltaCS, m_drag_state);
 					Chart.OnChartDragged(args);
 					e.Handled = args.Handled;
+				}
 
-					if (!e.Handled)
-					{
-						if (Chart.Scene.Window.MouseNavigate(DropSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, true))
-							Chart.Invalidate();
-					}
+				if (!e.Handled)
+				{
+					Chart.Scene.Window.MouseNavigate(DropSS.ToPoint(), e.ToMouseBtns(), View3d.ENavOp.Rotate, true);
 				}
 			}
 			public override void OnKeyDown(KeyEventArgs e)
@@ -595,12 +594,10 @@ namespace Rylogic.Gui.WPF
 					e.Handled = args.Handled;
 				}
 
-				// Dragging
-				else
+				// If dragging, commit if not cancelled
+				if (m_drag_state == EDragState.Dragging)
 				{
-					// Commit if dragging hasn't been cancelled
-					if (m_drag_state == EDragState.Dragging)
-						m_drag_state = EDragState.Commit;
+					m_drag_state = EDragState.Commit;
 
 					// Limit the drag direction
 					var drop_loc = DropSS;
@@ -689,12 +686,10 @@ namespace Rylogic.Gui.WPF
 					e.Handled = args.Handled;
 				}
 
-				// Dragging
-				else
+				// If dragging, commit if not cancelled
+				if (m_drag_state == EDragState.Dragging)
 				{
-					// Commit if dragging hasn't been cancelled
-					if (m_drag_state == EDragState.Dragging)
-						m_drag_state = EDragState.Commit;
+					m_drag_state = EDragState.Commit;
 
 					// Limit the drag direction
 					var drop_loc = DropSS;

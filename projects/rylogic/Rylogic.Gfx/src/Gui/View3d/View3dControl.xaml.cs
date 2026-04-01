@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
+using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Utility;
 using Rylogic.Windows.Extn;
@@ -174,7 +175,7 @@ namespace Rylogic.Gui.WPF
 					field.OnInvalidated += HandleInvalidated;
 				
 					// We might have missed the first invalidate message
-					m_render_pending = true;
+					RenderPending = true;
 				}
 
 				// Handlers
@@ -237,8 +238,8 @@ namespace Rylogic.Gui.WPF
 				}
 				void HandleInvalidated(object? sender, EventArgs e)
 				{
-					if (m_render_pending) return;
-					m_render_pending = true;
+					if (RenderPending) return;
+					RenderPending = true;
 					InvalidateVisual();
 				}
 			}
@@ -470,8 +471,7 @@ namespace Rylogic.Gui.WPF
 			m_is_click = true;
 
 			// Begin navigation with the initial mouse position
-			if (Window.MouseNavigate(m_mouse_down_pos.ToPointI(), e.ToMouseBtns(), true))
-				Invalidate();
+			Window.MouseNavigate(m_mouse_down_pos.ToPointI(), e.ToMouseBtns(), true);
 		}
 		public void OnMouseMove(object? sender, MouseEventArgs e)
 		{
@@ -485,15 +485,16 @@ namespace Rylogic.Gui.WPF
 				if (m_is_click) return;
 			}
 
-			// Once the drag threshold is exceeded, switch to rendering at the compositor frame rate
-			if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false))
-				Invalidate();
+			Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false);
 		}
 		public void OnMouseUp(object? sender, MouseButtonEventArgs e)
 		{
 			if (Window == null) return;
 			Util.Dispose(ref m_capture_scope);
 			Cursor = Cursors.Arrow;
+
+			// End navigation with the final mouse position
+			Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), View3d.ENavOp.None, true);
 
 			// Click detected
 			if (m_is_click && Environment.TickCount - m_mouse_down_at < ClickTimeMS)
@@ -504,10 +505,6 @@ namespace Rylogic.Gui.WPF
 					Invalidate();
 				}
 			}
-
-			// End navigation with the final mouse position
-			if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), true))
-				Invalidate();
 		}
 		public void OnMouseWheel(object? sender, MouseWheelEventArgs e)
 		{
@@ -518,7 +515,7 @@ namespace Rylogic.Gui.WPF
 		private Point m_mouse_down_pos;
 		private int m_mouse_down_at;
 		private bool m_is_click;
-		
+
 		/// <summary>Minimum distance in pixels before a mouse down+move is treated as a drag</summary>
 		public double MinDragPixelDistance { get; set; } = 5;
 
@@ -550,15 +547,18 @@ namespace Rylogic.Gui.WPF
 			RenderTargetChanged?.Invoke(this, EventArgs.Empty);
 		}
 
+		/// <summary>True if we're waiting to render the next frame</summary>
+		public bool RenderPending { get; private set; }
+
 		/// <summary>Render</summary>
 		private void Render()
 		{
 			// Don't make this public, use 'Invalidate'
-			if (!m_render_pending)
+			if (!RenderPending)
 				return;
 
 			// Clear the render pending flag on function return
-			using var render_pending = Scope.Create(null, () => m_render_pending = false);
+			using var render_pending = Scope.Create(null, () => RenderPending = false);
 
 			// Ignore renders until we have a non-zero size, and the D3DImage has a render target
 			if (!IsVisible || RenderSize == Size.Empty || D3DImage.FrontBuffer == null || !D3DImage.IsFrontBufferAvailable)
@@ -593,7 +593,6 @@ namespace Rylogic.Gui.WPF
 			// Use this 'D3DImage.Save("P:\\dump\\d3dimage.png");' to captures the D3DImage to a file
 			D3DImage.Flip();
 		}
-		private bool m_render_pending;
 
 		/// <summary>Allow objects to be added/removed from the scene</summary>
 		public event EventHandler<BuildSceneEventArgs>? BuildScene;

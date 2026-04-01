@@ -1,13 +1,11 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
-using System.Windows.Media;
 using Rylogic.Common;
 using Rylogic.Extn;
-using Rylogic.Gui;
+using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Utility;
 using Rylogic.Windows.Extn;
@@ -17,6 +15,7 @@ namespace Rylogic.Gui.WPF
 	public partial class ChartControl
 	{
 		private UndoHistory<NavHistoryRecord> m_nav_history = null!;
+		private HwndSource? m_hwnd_source;
 
 		/// <summary>Set up the chart for MouseOps</summary>
 		private void InitNavigation()
@@ -32,6 +31,55 @@ namespace Rylogic.Gui.WPF
 					Invalidate();
 				},
 			};
+
+			Loaded += HandleLoaded;
+			void HandleLoaded(object sender, RoutedEventArgs e)
+			{
+				Loaded -= HandleLoaded;
+				m_hwnd_source = PresentationSource.FromVisual(this) as HwndSource;
+				m_hwnd_source?.AddHook(WndProcHook);
+			}
+		}
+
+		/// <summary>
+		/// HwndSource hook for coalescing WM_MOUSEMOVE messages.
+		/// WPF does not coalesce mouse moves from the hardware input queue, so during
+		/// mouse drags the queue can grow unboundedly. This hook drains all pending
+		/// WM_MOUSEMOVE messages before allowing the current one through, ensuring only
+		/// the latest mouse position is processed.
+		/// </summary>
+		private IntPtr WndProcHook(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam, ref bool handled)
+		{
+			static void DrainPending(IntPtr hwnd, int msg) { while (User32.PeekMessage(out _, hwnd, (uint)msg, (uint)msg, Win32.EPeekMessageFlags.Remove)) { } }
+			bool required = true;
+
+			// Drain all pending WM_MOUSEMOVE messages from the hardware input queue
+			if (msg == Win32.WM_MOUSEMOVE)
+			{
+				DrainPending(hwnd, msg);
+				required = false;
+			}
+			if (msg == Win32.WM_SETCURSOR)
+			{
+				DrainPending(hwnd, msg);
+				required = false;
+			}
+
+			// During drag, short-circuit WM_NCHITTEST to avoid WPF's visual tree hit testing
+			if (msg == Win32.WM_NCHITTEST && MouseOperations?.Active != null)
+			{
+				handled = true;
+				return new IntPtr((int)Win32.HitTest.HTCLIENT);
+			}
+
+			// If there is a render pending, ignore non-required messages. This prevents a backlog of events building up during expensive renders.
+			if (Scene.RenderPending && !required)
+			{
+				handled = true;
+				return IntPtr.Zero;
+			}
+
+			return IntPtr.Zero;
 		}
 
 		/// <summary>Enable/Disable mouse navigation</summary>
@@ -55,33 +103,6 @@ namespace Rylogic.Gui.WPF
 				if (field == value) return;
 				field = value;
 				NotifyPropertyChanged(nameof(DefaultKeyboardShortcuts));
-			}
-		}
-
-		/// <summary>Used to enable CompositionTarget frame</summary>
-		internal bool SmoothMouseNavigate
-		{
-			get;
-			set
-			{
-				if (SmoothMouseNavigate == value) return;
-				if (field)
-				{
-					CompositionTarget.Rendering -= HandleRendering;
-				}
-				field = value;
-				if (field)
-				{
-					CompositionTarget.Rendering += HandleRendering;
-				}
-
-				// 
-				void HandleRendering(object? sender, EventArgs? e)
-				{
-					
-
-
-				}
 			}
 		}
 
@@ -539,7 +560,7 @@ namespace Rylogic.Gui.WPF
 						Selected.Clear();
 						Selected.AddRange(Elements);
 						Invalidate();
-						Debug.Assert(CheckConsistency());
+						System.Diagnostics.Debug.Assert(CheckConsistency());
 						e.Handled = true;
 					}
 					break;
