@@ -290,4 +290,10 @@ namespace pr::rdr12::ldraw
 		}
 		return bool_;
 	}
+
+	// A helper for debug messages to show the last read keyword
+	string32 TextReader::LastKeywordString() const
+	{
+		return m_keyword;
+	}
 }

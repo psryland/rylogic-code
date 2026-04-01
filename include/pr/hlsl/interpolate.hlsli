@@ -7,6 +7,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/hermite_spline.hlsli"
+#include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
 namespace pr::hlsl {
@@ -29,15 +30,15 @@ inline HermiteVector HermiteVector_Create(float3 x0, float3 v0, float3 x1, float
 	interp.m_interval = interval;
 	return interp;
 }
-inline float3 HermiteVector_Eval(HermiteVector interp, float t)
+inline float3 HermiteVector_Eval(in_(HermiteVector) interp, float t)
 {
 	return interp.m_x1 + HermiteSpline_Position(interp.m_p, t / interp.m_interval);
 }
-inline float3 HermiteVector_EvalDerivative(HermiteVector interp, float t)
+inline float3 HermiteVector_EvalDerivative(in_(HermiteVector) interp, float t)
 {
 	return HermiteSpline_Velocity(interp.m_p, t / interp.m_interval) / interp.m_interval;
 }
-inline float3 HermiteVector_EvalDerivative2(HermiteVector interp, float t)
+inline float3 HermiteVector_EvalDerivative2(in_(HermiteVector) interp, float t)
 {
 	return HermiteSpline_Acceleration(interp.m_p, t / interp.m_interval) / interp.m_interval;
 }
@@ -70,13 +71,13 @@ inline HermiteQuaternion HermiteQuaternion_Create(float4 q0, float3 w0, float4 q
 	interp.m_interval = interval;
 	return interp;
 }
-inline float4 HermiteQuaternion_Eval(HermiteQuaternion interp, float t)
+inline float4 HermiteQuaternion_Eval(in_(HermiteQuaternion) interp, float t)
 {
 	// Evaluate the curve in the log domain and convert to quaternion
 	float3 u = HermiteSpline_Position(interp.m_p, t / interp.m_interval);
 	return quat_mul(interp.m_q1, quat_exp(u));
 }
-inline float3 HermiteQuaternion_EvalDerivative(HermiteQuaternion interp, float t)
+inline float3 HermiteQuaternion_EvalDerivative(in_(HermiteQuaternion) interp, float t)
 {
 	// To calculate 'W' from log(q) and log(q)':   (x' means derivative of x)
 	// Say:
@@ -148,7 +149,7 @@ inline HermiteTransform HermiteTransform_Create(
 	interp.rot = HermiteQuaternion_Create(q0, w0, q1, w1, interval);
 	return interp;
 }
-inline Transform HermiteTransform_Eval(HermiteTransform interp, float t)
+inline Transform HermiteTransform_Eval(in_(HermiteTransform) interp, float t)
 {
 	Transform xform;
 	xform.translation = float4(HermiteVector_Eval(interp.pos, t), 1);
@@ -189,21 +190,21 @@ inline HermiteVector_MidPoint HermiteVector_MidPoint_Create(float3 pos_prev, flo
 	interp.pos.m_interval = interval;
 	return interp;
 }
-inline float3 HermiteVector_MidPoint_Eval(HermiteVector_MidPoint interp, float t)
+inline float3 HermiteVector_MidPoint_Eval(in_(HermiteVector_MidPoint) interp, float t)
 {
 	// Evaluate position. 't' is time relative to the midpoint (t=0 at midpoint, t=-T at pos_prev, t=+T at pos_next).
 	float T = interp.pos.m_interval * 0.5f;
 	float u = (t + T) / interp.pos.m_interval;
 	return interp.pos.m_x1 + HermiteSpline_Position(interp.pos.m_p, u);
 }
-inline float3 HermiteVector_MidPoint_EvalDerivative(HermiteVector_MidPoint interp, float t)
+inline float3 HermiteVector_MidPoint_EvalDerivative(in_(HermiteVector_MidPoint) interp, float t)
 {
 	// Evaluate velocity (in world-space units per second).
 	float T = interp.pos.m_interval * 0.5f;
 	float u = (t + T) / interp.pos.m_interval;
 	return HermiteSpline_Velocity(interp.pos.m_p, u) / interp.pos.m_interval;
 }
-inline float3 HermiteVector_MidPoint_EvalDerivative2(HermiteVector_MidPoint interp, float t)
+inline float3 HermiteVector_MidPoint_EvalDerivative2(in_(HermiteVector_MidPoint) interp, float t)
 {
 	// Evaluate acceleration (in world-space units per second^2).
 	float T = interp.pos.m_interval * 0.5f;
@@ -249,14 +250,14 @@ inline HermiteQuaternion_MidPoint HermiteQuaternion_MidPoint_Create(float4 rot_p
 	interp.rot.m_interval = interval;
 	return interp;
 }
-inline float4 HermiteQuaternion_MidPoint_Eval(HermiteQuaternion_MidPoint interp, float t)
+inline float4 HermiteQuaternion_MidPoint_Eval(in_(HermiteQuaternion_MidPoint) interp, float t)
 {
 	// Evaluate rotation at time t (t=0 at midpoint, t=-T at rot_prev, t=+T at rot_next, where T = interval/2)
 	float u = (t + 0.5f * interp.rot.m_interval) / interp.rot.m_interval;
 	float3 log_u = HermiteSpline_Position(interp.rot.m_p, u);
 	return quat_mul(interp.rot.m_q1, quat_exp(log_u));
 }
-inline float3 HermiteQuaternion_MidPoint_EvalDerivative(HermiteQuaternion_MidPoint interp, float t)
+inline float3 HermiteQuaternion_MidPoint_EvalDerivative(in_(HermiteQuaternion_MidPoint) interp, float t)
 {
 	float u = (t + 0.5f * interp.rot.m_interval) / interp.rot.m_interval;
 	return quat_rotate(interp.rot.m_q1, 2.0f * (HermiteSpline_Velocity(interp.rot.m_p, u) / interp.rot.m_interval));
@@ -280,13 +281,48 @@ inline HermiteTransform_MidPoint HermiteTransform_MidPoint_Create(
 	interp.rot = HermiteQuaternion_MidPoint_Create(rot_prev, rot_mid, rot_next, interval);
 	return interp;
 }
-inline Transform HermiteTransform_MidPoint_Eval(HermiteTransform_MidPoint interp, float t)
+inline Transform HermiteTransform_MidPoint_Eval(in_(HermiteTransform_MidPoint) interp, float t)
 {
 	Transform xform;
 	xform.translation = float4(HermiteVector_MidPoint_Eval(interp.pos, t), 1);
 	xform.rotation = HermiteQuaternion_MidPoint_Eval(interp.rot, t);
 	xform.scale = float4(1, 1, 1, 1);
 	return xform;
+}
+
+// ------------------------------------------------------------------------------------------------
+
+// Piecewise Hermite trajectory.
+// Two HermiteVector splines sharing position and velocity at t=0:
+//   bck: covers t in [-T, 0], evaluated via bck.Eval(-t) with negated velocities
+//   fwd: covers t in [0, +T], evaluated directly
+struct Trajectory
+{
+	HermiteVector bck;
+	HermiteVector fwd;
+};
+inline Trajectory Trajectory_Create(
+	float3 prev_pos, float3 prev_vel,
+	float3 curr_pos, float3 curr_vel,
+	float3 next_pos, float3 next_vel,
+	float horizon_time)
+{
+	Trajectory traj;
+	traj.bck = HermiteVector_Create(curr_pos, -curr_vel, prev_pos, -prev_vel, horizon_time);
+	traj.fwd = HermiteVector_Create(curr_pos, +curr_vel, next_pos, +next_vel, horizon_time);
+	return traj;
+}
+inline float3 Trajectory_Eval(in_(Trajectory) traj, float t)
+{
+	return t < 0
+		? HermiteVector_Eval(traj.bck, -t)
+		: HermiteVector_Eval(traj.fwd, +t);
+}
+inline float3 Trajectory_EvalVelocity(in_(Trajectory) traj, float t)
+{
+	return t < 0
+		? -HermiteVector_EvalDerivative(traj.bck, -t)
+		: +HermiteVector_EvalDerivative(traj.fwd, +t);
 }
 
 #ifdef __cplusplus

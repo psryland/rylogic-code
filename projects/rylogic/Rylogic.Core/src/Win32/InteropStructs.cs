@@ -404,16 +404,19 @@ namespace Rylogic.Interop.Win32
 			public IntPtr wParam;
 		}
 
-		[StructLayout(LayoutKind.Sequential)]
+		[StructLayout(LayoutKind.Explicit)]
 		public struct RAWMOUSE
 		{
-			public ushort usFlags;
-			public ushort usButtonFlags;
-			public ushort usButtonData;
-			public uint ulRawButtons;
-			public int lLastX;
-			public int lLastY;
-			public uint ulExtraInformation;
+			// The native RAWMOUSE has a union { ULONG ulButtons; struct { USHORT usButtonFlags; USHORT usButtonData; }; }
+			// which starts at offset 4 (2-byte padding after usFlags for ULONG alignment).
+			[FieldOffset(0)] public ushort usFlags;
+			[FieldOffset(4)] public uint ulButtons;
+			[FieldOffset(4)] public ushort usButtonFlags;
+			[FieldOffset(6)] public ushort usButtonData;
+			[FieldOffset(8)] public uint ulRawButtons;
+			[FieldOffset(12)] public int lLastX;
+			[FieldOffset(16)] public int lLastY;
+			[FieldOffset(20)] public uint ulExtraInformation;
 		}
 		
 		[StructLayout(LayoutKind.Sequential)]
@@ -435,13 +438,19 @@ namespace Rylogic.Interop.Win32
 			public byte bRawData;
 		}
 
-		[StructLayout(LayoutKind.Explicit)]
+		[StructLayout(LayoutKind.Sequential)]
 		public struct RAWINPUT
 		{
-			[FieldOffset(0)] public RAWINPUTHEADER header;
-			[FieldOffset(24)] public RAWMOUSE mouse;
-			[FieldOffset(24)] public RAWKEYBOARD keyboard;
-			[FieldOffset(24)] public RAWHID hid;
+			public RAWINPUTHEADER header;
+
+			// The union (mouse/keyboard/hid) follows the header immediately.
+			// Can't use FieldOffset because RAWINPUTHEADER size differs between x86 (16) and x64 (24).
+			// Use ReadData<T>(IntPtr) to read the union member at the correct offset.
+			public static T ReadData<T>(IntPtr pRawInput) where T : struct
+			{
+				var offset = Marshal.SizeOf<RAWINPUTHEADER>();
+				return Marshal.PtrToStructure<T>(pRawInput + offset);
+			}
 		}
 
 		[StructLayout(LayoutKind.Sequential)]

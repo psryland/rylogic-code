@@ -21,6 +21,7 @@ namespace Rylogic.Gui.WPF
 		//  - This control subclasses 'Image' because the D3DImage is an 'ImageSource'
 		//  - View3dControl does not have a 'Settings' class, state changes are immediate
 		//    and storing the state is left to the caller. (Unlike ChartControl).
+		private IDisposable? m_capture_scope;
 
 		static View3dControl()
 		{
@@ -81,6 +82,7 @@ namespace Rylogic.Gui.WPF
 		protected virtual void Dispose(bool _)
 		{
 			Disposing?.Invoke(this, EventArgs.Empty);
+			Util.Dispose(ref m_capture_scope);
 			m_resize_timer?.Stop();
 			Source = null;
 			D3DImage = null!;
@@ -453,61 +455,59 @@ namespace Rylogic.Gui.WPF
 
 		// Note:
 		//  - Although the ChartPanel subclasses this type, it does *NOT* use these methods
-		//    for navigation bceause mouse input depends on context for the chart control.
+		//    for navigation because mouse input depends on context for the chart control.
 		//    (see Rylogic.Gfx\src\Gui\ChartControl\MouseOps.cs)
 
 		/// <summary>Mouse navigation - public to allow users to forward mouse calls to us.</summary>
 		public void OnMouseDown(object? sender, MouseButtonEventArgs e)
 		{
 			if (Window == null) return;
-			if (CaptureMouse())
-			{
-				Cursor = Cursors.SizeAll;
-				m_mouse_down_at = Environment.TickCount;
 
-				// Begin navigation with the initial mouse position
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), true))
-					Invalidate();
+			Cursor = Cursors.SizeAll;
+			m_mouse_down_pos = e.GetPosition(this);
+			m_mouse_down_at = Environment.TickCount;
+			m_capture_scope = this.CaptureMouseScope();
+			m_is_click = true;
+
+			// Begin navigation with the initial mouse position
+			if (Window.MouseNavigate(m_mouse_down_pos.ToPointI(), e.ToMouseBtns(), true))
+				Invalidate();
+		}
+		public void OnMouseMove(object? sender, MouseEventArgs e)
+		{
+			if (Window == null || m_capture_scope == null) return;
+
+			// Check if still a click
+			if (m_is_click)
+			{
+				var delta = e.GetPosition(this).ToV2() - m_mouse_down_pos.ToV2();
+				m_is_click = delta.LengthSq < Math_.Sqr(MinDragPixelDistance);
+				if (m_is_click) return;
 			}
+
+			// Once the drag threshold is exceeded, switch to rendering at the compositor frame rate
+			if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false))
+				Invalidate();
 		}
 		public void OnMouseUp(object? sender, MouseButtonEventArgs e)
 		{
-			// This is only called when legacy messages are active (i.e., raw input
-			// mode is not engaged, or has already been deactivated by the raw input handler).
 			if (Window == null) return;
-			if (IsMouseCaptured)
-			{
-				Cursor = Cursors.Arrow;
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), View3d.ENavOp.None, true))
-					Invalidate();
-
-				ReleaseMouseCapture();
-			}
+			Util.Dispose(ref m_capture_scope);
+			Cursor = Cursors.Arrow;
 
 			// Click detected
-			if (Environment.TickCount - m_mouse_down_at < ClickTimeMS)
+			if (m_is_click && Environment.TickCount - m_mouse_down_at < ClickTimeMS)
 			{
-				if (e.ChangedButton == MouseButton.Middle && e.MiddleButton == MouseButtonState.Released)
+				if (e.ChangedButton == MouseButton.Middle)
 				{
 					Camera.ResetZoom();
 					Invalidate();
 				}
 			}
-			else
-			{
-				e.Handled = true;
-			}
-		}
-		public void OnMouseMove(object? sender, MouseEventArgs e)
-		{
-			// During raw input mode, WM_MOUSEMOVE is suppressed so this won't fire.
-			// In normal mode, handle navigation as usual.
-			if (Window == null) return;
-			if (IsMouseCaptured)
-			{
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false))
-					Invalidate();
-			}
+
+			// End navigation with the final mouse position
+			if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), true))
+				Invalidate();
 		}
 		public void OnMouseWheel(object? sender, MouseWheelEventArgs e)
 		{
@@ -515,7 +515,12 @@ namespace Rylogic.Gui.WPF
 			if (Window.MouseNavigateZ(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), e.Delta, true))
 				Invalidate();
 		}
+		private Point m_mouse_down_pos;
 		private int m_mouse_down_at;
+		private bool m_is_click;
+		
+		/// <summary>Minimum distance in pixels before a mouse down+move is treated as a drag</summary>
+		public double MinDragPixelDistance { get; set; } = 5;
 
 		/// <summary>Called whenever an error is generated in view3d</summary>
 		public event EventHandler<ReportErrorEventArgs>? ReportError;

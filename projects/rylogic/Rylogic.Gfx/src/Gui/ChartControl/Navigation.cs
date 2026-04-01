@@ -4,8 +4,10 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using Rylogic.Common;
 using Rylogic.Extn;
+using Rylogic.Gui;
 using Rylogic.Maths;
 using Rylogic.Utility;
 using Rylogic.Windows.Extn;
@@ -32,22 +34,6 @@ namespace Rylogic.Gui.WPF
 			};
 		}
 
-		/// <summary>Called from OnInitialized()</summary>
-		private void LoadedNav()
-		{
-			// Hmm, I know that RawMouseInput results in much smoother navigation
-			// but it's really hard to turn on/off without breaking the existing mouse
-			// navigation... Ideally, I'd like it enabled for all mouse activity in the 
-			// ChartPanel...
-
-			RawMouse.Source = PresentationSource.FromVisual(this) as HwndSource;
-			//RawMouse.MouseDown += (s,a) => OnMouseDown(a);
-			//RawMouse.MouseUp += (s,a) => OnMouseUp(a);
-			//RawMouse.MouseMove += (s,a) => OnMouseMove(a);
-			//RawMouse.MouseWheel += (s,a) => OnMouseWheel(a);
-			RawMouse.Enabled = false;
-		}
-
 		/// <summary>Enable/Disable mouse navigation</summary>
 		public bool DefaultMouseControl
 		{
@@ -72,8 +58,32 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
-		/// <summary>Raw mouse input handler</summary>
-		public RawMouseInput RawMouse { get; } = new();
+		/// <summary>Used to enable CompositionTarget frame</summary>
+		internal bool SmoothMouseNavigate
+		{
+			get;
+			set
+			{
+				if (SmoothMouseNavigate == value) return;
+				if (field)
+				{
+					CompositionTarget.Rendering -= HandleRendering;
+				}
+				field = value;
+				if (field)
+				{
+					CompositionTarget.Rendering += HandleRendering;
+				}
+
+				// 
+				void HandleRendering(object? sender, EventArgs? e)
+				{
+					
+
+
+				}
+			}
+		}
 
 		/// <summary>Mouse/key events on the chart</summary>
 		protected override void OnMouseDown(MouseButtonEventArgs args)
@@ -99,13 +109,31 @@ namespace Rylogic.Gui.WPF
 				return;
 
 			// Look for the mouse op to perform
-			if (MouseOperations.Pending[args.ChangedButton] == null && DefaultMouseControl)
+			if (MouseOperations[args.ChangedButton] == null && DefaultMouseControl)
 			{
 				switch (args.ChangedButton)
 				{
-					case MouseButton.Left: MouseOperations.Pending[args.ChangedButton] = new MouseOpDefaultLButton(this); break;
-					case MouseButton.Middle: MouseOperations.Pending[args.ChangedButton] = new MouseOpDefaultMButton(this); break;
-					case MouseButton.Right: MouseOperations.Pending[args.ChangedButton] = new MouseOpDefaultRButton(this); break;
+					case MouseButton.Left:
+					{
+						MouseOperations[args.ChangedButton] =
+							Options.NavigationMode == ENavMode.Scene3D ? new MouseOp_LButton_3DScene(this) :
+							Options.NavigationMode == ENavMode.Chart2D ? new MouseOp_LButton_2DChart(this) :
+							null;
+						break;
+					}
+					case MouseButton.Right:
+					{
+						MouseOperations[args.ChangedButton] =
+							Options.NavigationMode == ENavMode.Scene3D ? new MouseOp_RButton_3DScene(this) :
+							Options.NavigationMode == ENavMode.Chart2D ? new MouseOp_RButton_2DChart(this) :
+							null;
+						break;
+					}
+					case MouseButton.Middle:
+					{
+						MouseOperations[args.ChangedButton] = new MouseOp_MButton(this);
+						break;
+					}
 					case MouseButton.XButton1: UndoNavigation(); break;
 					case MouseButton.XButton2: RedoNavigation(); break;
 					default: return;
@@ -125,8 +153,8 @@ namespace Rylogic.Gui.WPF
 				var client_point = args.GetPosition(this);
 				var scene_point = args.GetPosition(Scene).ToV2();
 
-				op.GrabScene = op.DropScene = scene_point;
-				op.GrabChart = op.DropChart = SceneToChart(scene_point);
+				op.GrabSS = op.DropSS = scene_point;
+				op.GrabCS = op.DropCS = SceneToChart(scene_point);
 				op.HitResult = HitTest(client_point, Keyboard.Modifiers, args.ToMouseBtns(), null);
 				op.MouseDown(args);
 			}
@@ -136,17 +164,13 @@ namespace Rylogic.Gui.WPF
 			base.OnMouseMove(args);
 			var client_point = args.GetPosition(this);
 
-			// Look for the mouse op to perform
+			// Look for an active mouse op to handle this message
 			var op = MouseOperations.Active;
-			if (op != null)
+			if (op != null && !op.Cancelled)
 			{
-				if (!op.Cancelled)
-				{
-					op.DropScene = Gui_.MapPoint(this, Scene, client_point).ToV2();
-					op.DropChart = SceneToChart(op.DropScene);
-					op.MouseMove(args);
-				}
+				op.MouseMove(args);
 			}
+
 			// Otherwise, provide mouse hover detection
 			else if (SceneBounds != Rect_.Zero)
 			{
@@ -175,10 +199,12 @@ namespace Rylogic.Gui.WPF
 		{
 			base.OnMouseUp(args);
 
-			// Look for the mouse op to perform
+			// Look for an active mouse op to handle this message
 			var op = MouseOperations.Active;
 			if (op != null && !op.Cancelled)
+			{
 				op.MouseUp(args);
+			}
 
 			MouseOperations.EndOp(args.ChangedButton);
 		}
@@ -191,9 +217,10 @@ namespace Rylogic.Gui.WPF
 			if (op != null && !op.Cancelled)
 			{
 				op.MouseWheel(args);
-				if (args.Handled)
-					return;
 			}
+
+			if (args.Handled)
+				return;
 
 			var client_point = args.GetPosition(this);
 			var along_ray = Options.MouseCentredZoom || Keyboard.Modifiers.HasFlag(ModifierKeys.Alt);

@@ -1761,7 +1761,7 @@ namespace pr::rdr12::ldraw
 					continue;
 
 				// Unknown token
-				m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), "Unknown keyword");
+				m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Unknown keyword: '{}'", reader.LastKeywordString()));
 				continue;
 			}
 

@@ -97,9 +97,17 @@ namespace Rylogic.Gui.WPF
 		//}
 		//public const int MouseButtonCount = 6;
 
-		/// <summary>Convert to native win32 MK values</summary>
+		/// <summary>Convert to native win32 MK values. Transparently handles RawInput event args.</summary>
 		public static EMouseBtns ToMouseBtns(this MouseEventArgs btns, ModifierKeys modifiers = ModifierKeys.None)
 		{
+			// If the event came from RawInput, use its tracked button state (WPF's Mouse.LeftButton etc. are stale under RIDEV_NOLEGACY)
+			if (btns is RawInput.MouseEventArgs raw)
+				return raw.MouseBtns;
+			if (btns is RawInput.MouseButtonEventArgs raw_btn)
+				return raw_btn.MouseBtns;
+			if (btns is RawInput.MouseWheelEventArgs raw_wheel)
+				return raw_wheel.MouseBtns;
+
 			var res = (EMouseBtns)0;
 			if (btns.LeftButton == MouseButtonState.Pressed) res |= EMouseBtns.Left;
 			if (btns.RightButton == MouseButtonState.Pressed) res |= EMouseBtns.Right;

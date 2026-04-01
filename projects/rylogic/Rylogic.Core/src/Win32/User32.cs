@@ -212,6 +212,9 @@ namespace Rylogic.Interop.Win32
 
 		[DllImport("user32.dll")]
 		public static extern HWND GetParent(HWND hwnd);
+
+		[DllImport("user32.dll")]
+		public static extern uint GetRawInputBuffer(IntPtr pRawInput, ref uint pcbSize, uint cbSizeHeader);
 		
 		[DllImport("user32.dll")]
 		public static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);

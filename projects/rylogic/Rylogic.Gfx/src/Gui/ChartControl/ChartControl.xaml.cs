@@ -75,10 +75,6 @@ namespace Rylogic.Gui.WPF
 			DefaultKeyboardShortcuts = true;
 
 			Scene.BuildScene += OnBuildScene;
-			Loaded += delegate
-			{
-				LoadedNav();
-			};
 
 			// Prevent the object manager seeing anything created in the 'CtxId' context
 			View3d.ObjectManager.ExcludeCtxIds.Add(CtxId);
