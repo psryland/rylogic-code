@@ -316,45 +316,34 @@ namespace pr::rdr12::ldraw
 				{
 					break;
 				}
-				case ECommandId::AddToScene:
+				case ECommandId::Clear:
 				{
-					out.m_commands.push_back(Command_AddToScene{
-						.m_id = id,
-						.m_scene_id = reader.Int<int>(),
-					});
-					break;
-				}
-				case ECommandId::CameraToWorld:
-				{
-					out.m_commands.push_back(Command_CameraToWorld{
-						.m_id = id,
-						.m_c2w = reader.Matrix4x4(),
-					});
-					break;
-				}
-				case ECommandId::CameraPosition:
-				{
-					out.m_commands.push_back(Command_CameraPosition{
-						.m_id = id,
-						.m_pos = reader.Vector3f().w1(),
-					});
+					out.m_commands.push_back(Command_Clear{ .m_id = id });
 					break;
 				}
 				case ECommandId::ObjectToWorld:
 				{
-					auto cmd = Command_ObjectToWorld{ .m_id = id, .m_object_name = {}, .m_o2w = {} };
-					auto obj_name = reader.Identifier<string32>();
-					memcpy(&cmd.m_object_name[0], obj_name.c_str(), std::min(_countof(cmd.m_object_name) - 1, obj_name.size()));
-					cmd.m_o2w = reader.Matrix4x4();
+					auto obj_addr = reader.Identifier<string32>();
+					auto obj_o2w = reader.Matrix4x4();
+
+					auto cmd = Command_ObjectToWorld{ .m_id = id, .m_obj_addr = {}, .m_o2w = obj_o2w };
+					memcpy(&cmd.m_obj_addr[0], obj_addr.c_str(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
+					out.m_commands.push_back(cmd);
+					break;
+				}
+				case ECommandId::ObjectColour:
+				{
+					auto obj_addr = reader.Identifier<string32>();
+					auto obj_colour = reader.Int<uint32_t>(16);
+
+					auto cmd = Command_ObjectColour{ .m_id = id, .m_obj_addr = {}, .m_col = obj_colour };
+					memcpy(&cmd.m_obj_addr[0], obj_addr.c_str(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
 					out.m_commands.push_back(cmd);
 					break;
 				}
 				case ECommandId::Render:
 				{
-					out.m_commands.push_back(Command_Render{
-						.m_id = id,
-						.m_scene_id = reader.Int<int>(),
-					});
+					out.m_commands.push_back(Command_Render{ .m_id = id });
 					break;
 				}
 				default:
@@ -1555,14 +1544,14 @@ namespace pr::rdr12::ldraw
 						m_hide_when_not_animating = reader.IsSectionEnd() ? true : reader.Bool();
 						return true;
 					}
-					case EKeyword::NoRootTranslation:
+					case EKeyword::NoTranslation:
 					{
-						m_flags = SetBits(m_flags, EAnimFlags::NoRootTranslation, reader.IsSectionEnd() ? true : reader.Bool());
+						m_flags = SetBits(m_flags, EAnimFlags::NoTranslation, reader.IsSectionEnd() ? true : reader.Bool());
 						return true;
 					}
-					case EKeyword::NoRootRotation:
+					case EKeyword::NoRotation:
 					{
-						m_flags = SetBits(m_flags, EAnimFlags::NoRootRotation, reader.IsSectionEnd() ? true : reader.Bool());
+						m_flags = SetBits(m_flags, EAnimFlags::NoRotation, reader.IsSectionEnd() ? true : reader.Bool());
 						return true;
 					}
 					default:
@@ -1772,7 +1761,7 @@ namespace pr::rdr12::ldraw
 					continue;
 
 				// Unknown token
-				m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), "Unknown keyword");
+				m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Unknown keyword: '{}'", reader.LastKeywordString()));
 				continue;
 			}
 
@@ -6670,10 +6659,14 @@ namespace pr::rdr12::ldraw
 	{
 		return m_objects[index];
 	}
-	ParseResult& ParseResult::operator += (ParseResult const& rhs)
+	ParseResult& ParseResult::Merge(ParseResult const& rhs, bool include_commands)
 	{
+		// Append the objects and commands from 'rhs' to 'this'.
 		m_objects.insert(end(m_objects), begin(rhs.m_objects), end(rhs.m_objects));
-		m_commands.append(rhs.m_commands);
+		
+		// Merge commands as well
+		if (include_commands)
+			m_commands.append(rhs.m_commands);
 
 		// The lookup maps names to objects, duplicate names will replace
 		// earlier objects with the same name. It's up to the script writer
@@ -6682,9 +6675,9 @@ namespace pr::rdr12::ldraw
 			m_lookup[p.first] = p.second;
 
 		CopyCamera(rhs.m_cam, rhs.m_cam_fields, m_cam);
-		
-		m_wireframe |= rhs.m_wireframe;
 
+		// Copy other states from 'rhs' to 'this'.
+		m_wireframe |= rhs.m_wireframe;
 		return *this;
 	}
 	ParseResult::operator bool() const

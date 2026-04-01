@@ -715,11 +715,11 @@ namespace Rylogic.LDraw
 				}
 				if (m_no_translation)
 				{
-					res.Write(EKeyword.NoRootTranslation);
+					res.Write(EKeyword.NoTranslation);
 				}
 				if (m_no_rotation)
 				{
-					res.Write(EKeyword.NoRootRotation);
+					res.Write(EKeyword.NoRotation);
 				}
 			});
 		}
@@ -829,8 +829,8 @@ namespace Rylogic.LDraw
 				if (m_style != null) res.Write(EKeyword.Style, m_style);
 				if (m_stretch != null) res.Write(EKeyword.Stretch, m_stretch.Value);
 				if (m_time_bias != null) res.Write(EKeyword.TimeBias, m_time_bias.Value);
-				if (m_no_translation) res.Write(EKeyword.NoRootTranslation);
-				if (m_no_rotation) res.Write(EKeyword.NoRootRotation);
+				if (m_no_translation) res.Write(EKeyword.NoTranslation);
+				if (m_no_rotation) res.Write(EKeyword.NoRotation);
 				if (m_hide_when_not_animating) res.Write(EKeyword.HideWhenNotAnimating);
 			});
 		}
@@ -1229,20 +1229,33 @@ namespace Rylogic.LDraw
 			public ECommandId m_id;
 			public List<object> m_params;
 		}
-
 		private readonly List<Cmd> m_cmds = [];
 
-		// Add objects created by this script to scene 'scene_id'
-		public LdrCommands add_to_scene(int scene_id)
+		// Remove any previous objects from this source
+		public LdrCommands clear()
 		{
-			m_cmds.Add(new Cmd{ m_id = ECommandId.AddToScene, m_params = [scene_id] });
+			m_cmds.Add(new Cmd{ m_id = ECommandId.Clear, m_params = [] });
 			return this;
 		}
 
 		// Apply a transform to an object with the given name
-		public LdrCommands object_transform(string object_name, m4x4 o2w)
+		public LdrCommands object_transform(string obj_addr, m4x4 o2w)
 		{
-			m_cmds.Add(new Cmd{ m_id = ECommandId.ObjectToWorld, m_params = [new Serialiser.StringWithLength(object_name), o2w] });
+			m_cmds.Add(new Cmd{ m_id = ECommandId.ObjectToWorld, m_params = [obj_addr, o2w] });
+			return this;
+		}
+
+		// Set the colour of an object
+		public LdrCommands object_colour(string obj_addr, Colour32 colour)
+		{
+			m_cmds.Add(new Cmd{ m_id = ECommandId.ObjectColour, m_params = [obj_addr, colour] });
+			return this;
+		}
+
+		// Trigger a frame render
+		public LdrCommands render_frame()
+		{
+			m_cmds.Add(new Cmd{ m_id = ECommandId.Render, m_params = [] });
 			return this;
 		}
 
@@ -1258,13 +1271,15 @@ namespace Rylogic.LDraw
 						res.Append((int)cmd.m_id);
 						foreach (var p in cmd.m_params)
 						{
-							if (p is bool   bool_ ) { res.Append(bool_ ); continue; }
-							if (p is int    int_  ) { res.Append(int_  ); continue; }
-							if (p is float  float_) { res.Append(float_); continue; }
-							if (p is Serialiser.StringWithLength str_  ) { res.Append(str_  ); continue; }
-							if (p is v2     v2_   ) { res.Append(v2_   ); continue; }
-							if (p is v4     v4_   ) { res.Append(v4_   ); continue; }
-							if (p is m4x4   m4_   ) { res.Append(m4_   ); continue; }
+							if (p is bool bool_) { res.Append(bool_); continue; }
+							if (p is int int_) { res.Append(int_); continue; }
+							if (p is float float_) { res.Append(float_); continue; }
+							if (p is string str_) { res.Append(new Serialiser.StringWithLength(str_)); continue; }
+							if (p is Colour32 col_) { res.Append(col_); continue; }
+							if (p is v2 v2_) { res.Append(v2_); continue; }
+							if (p is v4 v4_) { res.Append(v4_); continue; }
+							if (p is m4x4 m4_) { res.Append(m4_); continue; }
+							throw new InvalidOperationException($"Unsupported command parameter type: {p.GetType()}");
 						}
 					});
 				}
@@ -3955,7 +3970,6 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Box("b", 0xFF00FF00).box(1);
 			builder.Command()
-				.add_to_scene(0)
 				.object_transform("b", m4x4.Transform(v4.ZAxis, 0.3f, v4.Origin));
 			var mem = builder.ToBinary();
 			Assert.True(mem.Length > 0);

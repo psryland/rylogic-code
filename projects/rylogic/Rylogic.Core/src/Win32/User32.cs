@@ -214,6 +214,12 @@ namespace Rylogic.Interop.Win32
 		public static extern HWND GetParent(HWND hwnd);
 
 		[DllImport("user32.dll")]
+		public static extern uint GetRawInputBuffer(IntPtr pRawInput, ref uint pcbSize, uint cbSizeHeader);
+		
+		[DllImport("user32.dll")]
+		public static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
+
+		[DllImport("user32.dll")]
 		public static extern bool GetScrollInfo(HWND hwnd, int BarType, ref Win32.SCROLLINFO lpsi);
 
 		[DllImport("user32.dll")]
@@ -396,6 +402,9 @@ namespace Rylogic.Interop.Win32
 		private static extern IntPtr RegisterDeviceNotification_(IntPtr recipient, ref Win32.DEV_BROADCAST_HDR filter, int flags);
 		[DllImport("user32.dll", EntryPoint = "RegisterDeviceNotificationW", CharSet = CharSet.Unicode, SetLastError = true)]
 		private static extern IntPtr RegisterDeviceNotification_(IntPtr recipient, ref Win32.DEV_BROADCAST_DEVICEINTERFACE filter, int flags);
+		
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern bool RegisterRawInputDevices(Win32.RAWINPUTDEVICE[] pRawInputDevices, uint uiNumDevices, uint cbSize);
 
 		[DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW")]
 		public static extern uint RegisterWindowMessage([MarshalAs(UnmanagedType.LPWStr)] string lpString);

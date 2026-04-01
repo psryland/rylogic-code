@@ -567,8 +567,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Get/Set the colour of this object or child objects matching 'name' (see Apply)
-	// For 'Get', the colour of the first object to match 'name' is returned
-	// For 'Set', the object base colour is not changed, only the tint colour
+	// If 'base_colour' is true, then the object's colour is change to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
 	Colour32 LdrObject::Colour(bool base_colour, char const* name) const
 	{
 		Colour32 col;

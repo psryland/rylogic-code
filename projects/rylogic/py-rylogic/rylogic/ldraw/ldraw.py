@@ -220,8 +220,8 @@ class EKeyword(Enum):
 	NoMaterials = 762077060
 	Normalise = 4066511049
 	Normals = 247908339
-	NoRootTranslation = 3287374065
-	NoRootRotation = 3606635828
+	NoTranslation = 864235717
+	NoRotation = 4019988840
 	NoZTest = 329427844
 	NoZWrite = 1339143375
 	O2W = 2877203913
@@ -312,10 +312,9 @@ class EKeyword(Enum):
 class ECommandId(Enum):
 	# AUTO-GENERATED-COMMANDS-BEGIN
 	Invalid = 3419534640
-	AddToScene = 3734185163
-	CameraToWorld = 1798355577
-	CameraPosition = 109155401
+	Clear = 1550717474
 	ObjectToWorld = 1059927965
+	ObjectColour = 886758798
 	Render = 4009327117
 	# AUTO-GENERATED-COMMANDS-END
 	def __int__(self):

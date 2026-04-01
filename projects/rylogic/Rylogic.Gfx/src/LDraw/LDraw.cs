@@ -103,8 +103,8 @@ namespace Rylogic.LDraw
 		NoMaterials = unchecked((int)762077060),
 		Normalise = unchecked((int)4066511049),
 		Normals = unchecked((int)247908339),
-		NoRootTranslation = unchecked((int)3287374065),
-		NoRootRotation = unchecked((int)3606635828),
+		NoTranslation = unchecked((int)864235717),
+		NoRotation = unchecked((int)4019988840),
 		NoZTest = unchecked((int)329427844),
 		NoZWrite = unchecked((int)1339143375),
 		O2W = unchecked((int)2877203913),
@@ -193,10 +193,9 @@ namespace Rylogic.LDraw
 	{
 		// AUTO-GENERATED-COMMANDS-BEGIN
 		Invalid = unchecked((int)3419534640),
-		AddToScene = unchecked((int)3734185163),
-		CameraToWorld = unchecked((int)1798355577),
-		CameraPosition = unchecked((int)109155401),
+		Clear = unchecked((int)1550717474),
 		ObjectToWorld = unchecked((int)1059927965),
+		ObjectColour = unchecked((int)886758798),
 		Render = unchecked((int)4009327117),
 		// AUTO-GENERATED-COMMANDS-END
 	}

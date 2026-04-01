@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
+using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Utility;
 using Rylogic.Windows.Extn;
@@ -21,6 +22,7 @@ namespace Rylogic.Gui.WPF
 		//  - This control subclasses 'Image' because the D3DImage is an 'ImageSource'
 		//  - View3dControl does not have a 'Settings' class, state changes are immediate
 		//    and storing the state is left to the caller. (Unlike ChartControl).
+		private IDisposable? m_capture_scope;
 
 		static View3dControl()
 		{
@@ -81,6 +83,7 @@ namespace Rylogic.Gui.WPF
 		protected virtual void Dispose(bool _)
 		{
 			Disposing?.Invoke(this, EventArgs.Empty);
+			Util.Dispose(ref m_capture_scope);
 			m_resize_timer?.Stop();
 			Source = null;
 			D3DImage = null!;
@@ -172,7 +175,7 @@ namespace Rylogic.Gui.WPF
 					field.OnInvalidated += HandleInvalidated;
 				
 					// We might have missed the first invalidate message
-					m_render_pending = true;
+					RenderPending = true;
 				}
 
 				// Handlers
@@ -235,8 +238,8 @@ namespace Rylogic.Gui.WPF
 				}
 				void HandleInvalidated(object? sender, EventArgs e)
 				{
-					if (m_render_pending) return;
-					m_render_pending = true;
+					if (RenderPending) return;
+					RenderPending = true;
 					InvalidateVisual();
 				}
 			}
@@ -451,60 +454,70 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
-		/// <summary>Mouse navigation - public to allow users to forward mouse calls to us.</summary>
-		public void OnMouseDown(object sender, MouseButtonEventArgs e)
-		{
-			if (Window == null) return;
-			if (CaptureMouse())
-			{
-				Cursor = Cursors.SizeAll;
-				m_mouse_down_at = Environment.TickCount;
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), true))
-					Invalidate();
-			}
-		}
-		public void OnMouseUp(object sender, MouseButtonEventArgs e)
-		{
-			if (Window == null) return;
-			if (IsMouseCaptured)
-			{
-				Cursor = Cursors.Arrow;
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), View3d.ENavOp.None, true))
-					Invalidate();
+		// Note:
+		//  - Although the ChartPanel subclasses this type, it does *NOT* use these methods
+		//    for navigation because mouse input depends on context for the chart control.
+		//    (see Rylogic.Gfx\src\Gui\ChartControl\MouseOps.cs)
 
-				ReleaseMouseCapture();
+		/// <summary>Mouse navigation - public to allow users to forward mouse calls to us.</summary>
+		public void OnMouseDown(object? sender, MouseButtonEventArgs e)
+		{
+			if (Window == null) return;
+
+			Cursor = Cursors.SizeAll;
+			m_mouse_down_pos = e.GetPosition(this);
+			m_mouse_down_at = Environment.TickCount;
+			m_capture_scope = this.CaptureMouseScope();
+			m_is_click = true;
+
+			// Begin navigation with the initial mouse position
+			Window.MouseNavigate(m_mouse_down_pos.ToPointI(), e.ToMouseBtns(), true);
+		}
+		public void OnMouseMove(object? sender, MouseEventArgs e)
+		{
+			if (Window == null || m_capture_scope == null) return;
+
+			// Check if still a click
+			if (m_is_click)
+			{
+				var delta = e.GetPosition(this).ToV2() - m_mouse_down_pos.ToV2();
+				m_is_click = delta.LengthSq < Math_.Sqr(MinDragPixelDistance);
+				if (m_is_click) return;
 			}
+
+			Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false);
+		}
+		public void OnMouseUp(object? sender, MouseButtonEventArgs e)
+		{
+			if (Window == null) return;
+			Util.Dispose(ref m_capture_scope);
+			Cursor = Cursors.Arrow;
+
+			// End navigation with the final mouse position
+			Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), View3d.ENavOp.None, true);
 
 			// Click detected
-			if (Environment.TickCount - m_mouse_down_at < ClickTimeMS)
+			if (m_is_click && Environment.TickCount - m_mouse_down_at < ClickTimeMS)
 			{
-				if (e.ChangedButton == MouseButton.Middle && e.MiddleButton == MouseButtonState.Released)
+				if (e.ChangedButton == MouseButton.Middle)
 				{
 					Camera.ResetZoom();
 					Invalidate();
 				}
 			}
-			else
-			{
-				e.Handled = true;
-			}
 		}
-		public void OnMouseMove(object sender, MouseEventArgs e)
-		{
-			if (Window == null) return;
-			if (IsMouseCaptured)
-			{
-				if (Window.MouseNavigate(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), false))
-					Invalidate();
-			}
-		}
-		public void OnMouseWheel(object sender, MouseWheelEventArgs e)
+		public void OnMouseWheel(object? sender, MouseWheelEventArgs e)
 		{
 			if (Window == null) return;
 			if (Window.MouseNavigateZ(e.GetPosition(this).ToPointI(), e.ToMouseBtns(), e.Delta, true))
 				Invalidate();
 		}
+		private Point m_mouse_down_pos;
 		private int m_mouse_down_at;
+		private bool m_is_click;
+
+		/// <summary>Minimum distance in pixels before a mouse down+move is treated as a drag</summary>
+		public double MinDragPixelDistance { get; set; } = 5;
 
 		/// <summary>Called whenever an error is generated in view3d</summary>
 		public event EventHandler<ReportErrorEventArgs>? ReportError;
@@ -534,15 +547,18 @@ namespace Rylogic.Gui.WPF
 			RenderTargetChanged?.Invoke(this, EventArgs.Empty);
 		}
 
+		/// <summary>True if we're waiting to render the next frame</summary>
+		public bool RenderPending { get; private set; }
+
 		/// <summary>Render</summary>
 		private void Render()
 		{
 			// Don't make this public, use 'Invalidate'
-			if (!m_render_pending)
+			if (!RenderPending)
 				return;
 
 			// Clear the render pending flag on function return
-			using var render_pending = Scope.Create(null, () => m_render_pending = false);
+			using var render_pending = Scope.Create(null, () => RenderPending = false);
 
 			// Ignore renders until we have a non-zero size, and the D3DImage has a render target
 			if (!IsVisible || RenderSize == Size.Empty || D3DImage.FrontBuffer == null || !D3DImage.IsFrontBufferAvailable)
@@ -574,10 +590,9 @@ namespace Rylogic.Gui.WPF
 			Window.GSyncWait();
 
 			// Update the "front buffer" in the D3DImage
+			// Use this 'D3DImage.Save("P:\\dump\\d3dimage.png");' to captures the D3DImage to a file
 			D3DImage.Flip();
-			//D3DImage.Save("P:\\dump\\d3dimage.png");
 		}
-		private bool m_render_pending;
 
 		/// <summary>Allow objects to be added/removed from the scene</summary>
 		public event EventHandler<BuildSceneEventArgs>? BuildScene;

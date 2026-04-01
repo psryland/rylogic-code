@@ -371,9 +371,6 @@ namespace Rylogic.Gfx
 			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
 			ExistingObjectsRefreshed = 1 << 4,
 
-			ObjectsChanged = ObjectsAdded | ObjectsRemoved,
-			ContextIdsChanged = ContextIdAdded | ContextIdRemoved,
-
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END();

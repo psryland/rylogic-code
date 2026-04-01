@@ -130,8 +130,8 @@ namespace pr::rdr12::ldraw
 		x(NoMaterials              )\
 		x(Normalise                )\
 		x(Normals                  )\
-		x(NoRootTranslation        )\
-		x(NoRootRotation           )\
+		x(NoTranslation            )\
+		x(NoRotation               )\
 		x(NoZTest                  )\
 		x(NoZWrite                 )\
 		x(O2W                      )\
@@ -267,13 +267,14 @@ namespace pr::rdr12::ldraw
 	// Ldraw script commands (for streaming)
 	enum class ECommandId : int
 	{
+		// Notes: Commands apply to sources, the source has no knowledge of scenes that it's in.
+		// However, the 'Render' command triggers a refresh of any scene that contains the source.
 		#define PR_LDRAW_COMMANDS(x)\
 		x(Invalid       )\
-		x(AddToScene    ) /* <scene-id> */\
-		x(CameraToWorld ) /* <scene-id> <o2w> */\
-		x(CameraPosition) /* <scene-id> <pos> */\
+		x(Clear         ) /**/\
 		x(ObjectToWorld ) /* <object-name> <o2w> */\
-		x(Render        ) /* <scene-id> */
+		x(ObjectColour  ) /* <object-name> <colour32> */\
+		x(Render        ) /**/
 		// PR_LDRAW_COMMANDS_END
 
 		#define PR_LDRAW_ENUM_MEMBERS(name) name = HashI(#name),

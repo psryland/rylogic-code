@@ -78,8 +78,8 @@ namespace pr::rdr12
 	enum class EAnimFlags : uint32_t
 	{
 		None = 0,
-		NoRootTranslation = 1 << 0,
-		NoRootRotation = 1 << 1,
+		NoTranslation = 1 << 0,
+		NoRotation = 1 << 1,
 		_flags_enum = 0,
 	};
 
