@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.VisualStudio.Shell;
@@ -21,7 +23,10 @@ namespace Rylogic.LDrawVisualiser
 		/// <summary>The location on disk where settings are saved</summary>
 		public string SettingsFilepath => Util.ResolveAppDataPath("Rylogic", "VSExtension", "ldraw_visualiser_options.xml");
 
-		/// <summary>Default script text shown when the tool window opens</summary>
+		/// <summary>The directory where named scripts are stored</summary>
+		public string ScriptsDirectory => Util.ResolveAppDataPath("Rylogic", "VSExtension", "LDrawVisualiserScripts");
+
+		/// <summary>Default script text shown when no saved script exists</summary>
 		public string DefaultScriptText
 		{
 			get => m_default_script_text;
@@ -60,6 +65,44 @@ namespace Rylogic.LDrawVisualiser
 		}
 		private bool m_default_auto_refresh = true;
 
+		/// <summary>The name of the last selected script (persisted across restarts)</summary>
+		public string LastSelectedScript
+		{
+			get => m_last_selected_script;
+			set
+			{
+				if (m_last_selected_script == value) return;
+				m_last_selected_script = value;
+				NotifyPropertyChanged(nameof(LastSelectedScript));
+			}
+		}
+		private string m_last_selected_script = "Script";
+
+		/// <summary>Additional assembly paths to reference when compiling scripts</summary>
+		public List<string> Assemblies
+		{
+			get => m_assemblies;
+			set
+			{
+				m_assemblies = value;
+				NotifyPropertyChanged(nameof(Assemblies));
+			}
+		}
+		private List<string> m_assemblies = new();
+
+		/// <summary>Additional using namespaces (newline-delimited) to include in compiled scripts</summary>
+		public string Namespaces
+		{
+			get => m_namespaces;
+			set
+			{
+				if (m_namespaces == value) return;
+				m_namespaces = value;
+				NotifyPropertyChanged(nameof(Namespaces));
+			}
+		}
+		private string m_namespaces = "";
+
 		public override void ResetSettings()
 		{
 			DefaultScriptText = @"var b = new Builder();
@@ -68,6 +111,9 @@ namespace Rylogic.LDrawVisualiser
 return b.ToString();";
 			DefaultAddress = "localhost:1976";
 			DefaultAutoRefresh = true;
+			LastSelectedScript = "Script";
+			Assemblies = new List<string>();
+			Namespaces = "";
 		}
 
 		public override void LoadSettingsFromStorage()
@@ -83,8 +129,14 @@ return b.ToString();";
 
 				DefaultScriptText = (string?)root.Element(nameof(DefaultScriptText)) ?? DefaultScriptText;
 				DefaultAddress = (string?)root.Element(nameof(DefaultAddress)) ?? DefaultAddress;
+				LastSelectedScript = (string?)root.Element(nameof(LastSelectedScript)) ?? LastSelectedScript;
+				Namespaces = (string?)root.Element(nameof(Namespaces)) ?? Namespaces;
 				if (bool.TryParse((string?)root.Element(nameof(DefaultAutoRefresh)), out var auto_refresh))
 					DefaultAutoRefresh = auto_refresh;
+
+				var assemblies_el = root.Element(nameof(Assemblies));
+				if (assemblies_el != null)
+					Assemblies = assemblies_el.Elements("Assembly").Select(e => e.Value).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 			}
 			catch (Exception)
 			{
@@ -101,6 +153,10 @@ return b.ToString();";
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultScriptText), DefaultScriptText));
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultAddress), DefaultAddress));
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultAutoRefresh), DefaultAutoRefresh));
+				root.Add(new System.Xml.Linq.XElement(nameof(LastSelectedScript), LastSelectedScript));
+				root.Add(new System.Xml.Linq.XElement(nameof(Namespaces), Namespaces));
+				root.Add(new System.Xml.Linq.XElement(nameof(Assemblies),
+					Assemblies.Select(a => new System.Xml.Linq.XElement("Assembly", a))));
 				root.Save(SettingsFilepath);
 			}
 			catch (Exception)

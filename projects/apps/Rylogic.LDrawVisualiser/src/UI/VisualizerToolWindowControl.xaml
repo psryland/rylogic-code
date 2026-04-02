@@ -4,8 +4,13 @@
 	xmlns:avalonedit="http://icsharpcode.net/sharpdevelop/avalonedit"
 	xmlns:vs_shell="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
 	xmlns:vs_ui="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+	xmlns:local="clr-namespace:Rylogic.LDrawVisualiser"
 	Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
 	Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}">
+
+	<UserControl.InputBindings>
+		<KeyBinding Key="S" Modifiers="Ctrl" Command="{x:Static local:VisualizerCommands.SaveAndRefresh}"/>
+	</UserControl.InputBindings>
 
 	<Grid>
 		<Grid.RowDefinitions>
@@ -19,56 +24,22 @@
 			<RowDefinition Height="Auto"/>
 		</Grid.RowDefinitions>
 
-		<!-- Connection Bar -->
+		<!-- Toolbar -->
 		<StackPanel Grid.Row="0" Orientation="Horizontal" Margin="4">
-			<TextBlock
-				Text="Address:"
-				VerticalAlignment="Center"
-				Margin="0,0,4,0"
-				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
-			/>
-			<TextBox
-				x:Name="m_address_box"
-				Text="localhost:1976"
-				Width="160"
-				VerticalAlignment="Center"
-				Margin="0,0,4,0"
+			<TextBlock Text="Script:" VerticalAlignment="Center" Margin="0,0,4,0"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"/>
+			<ComboBox x:Name="m_script_name_combo" Width="200" IsEditable="True" VerticalAlignment="Center" Margin="0,0,4,0"
 				Background="{DynamicResource {x:Static vs_ui:VsBrushes.WindowKey}}"
 				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
-			/>
-			<Button
-				x:Name="m_connect_btn"
-				Content="Connect"
-				Click="OnConnectClick"
-				Width="70"
-				VerticalAlignment="Center"
-				Margin="0,0,4,0"
-			/>
-			<Ellipse
-				x:Name="m_status_indicator"
-				Width="12"
-				Height="12"
-				Fill="Gray"
-				VerticalAlignment="Center"
-				Margin="4,0,8,0"
-				ToolTip="Disconnected"
-			/>
-			<Button
-				x:Name="m_refresh_btn"
-				Content="⟳ Refresh"
-				Click="OnRefreshClick"
-				Width="80"
-				VerticalAlignment="Center"
-				Margin="0,0,4,0"
-			/>
-			<CheckBox
-				x:Name="m_auto_refresh_check"
-				Content="Auto-refresh on break"
-				VerticalAlignment="Center"
-				Margin="8,0,0,0"
+				SelectionChanged="OnScriptSelectionChanged"
+				KeyDown="OnScriptNameKeyDown"/>
+			<Button x:Name="m_connect_btn" Content="Connect" Click="OnConnectClick" Width="70" VerticalAlignment="Center" Margin="0,0,4,0"/>
+			<Ellipse x:Name="m_status_indicator" Width="12" Height="12" Fill="Gray" VerticalAlignment="Center" Margin="4,0,8,0"
+				ToolTip="Disconnected"/>
+			<Button x:Name="m_refresh_btn" Content="⟳ Refresh" Click="OnRefreshClick" Width="80" VerticalAlignment="Center" Margin="0,0,4,0"/>
+			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break" VerticalAlignment="Center" Margin="8,0,0,0"
 				IsChecked="True"
-				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
-			/>
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"/>
 		</StackPanel>
 
 		<!-- Script Editor -->

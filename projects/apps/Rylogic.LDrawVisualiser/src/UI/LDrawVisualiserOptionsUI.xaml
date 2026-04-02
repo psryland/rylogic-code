@@ -3,27 +3,57 @@
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	Padding="8">
 
-	<StackPanel>
-		<!-- Default Script Text -->
-		<TextBlock Text="Default Script Text:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-		<TextBlock Text="The initial script shown when the LDraw Visualiser tool window opens." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
-		<TextBox x:Name="m_script_text"
-			AcceptsReturn="True"
-			AcceptsTab="True"
-			TextWrapping="Wrap"
-			FontFamily="Consolas"
-			FontSize="12"
-			MinHeight="120"
-			MaxHeight="300"
-			VerticalScrollBarVisibility="Auto"
-			Margin="0,0,0,16"/>
+	<ScrollViewer VerticalScrollBarVisibility="Auto">
+		<StackPanel>
+			<!-- Default Script Text -->
+			<TextBlock Text="Default Script Text:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="The initial script shown when no saved script exists." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_script_text"
+				AcceptsReturn="True"
+				AcceptsTab="True"
+				TextWrapping="Wrap"
+				FontFamily="Consolas"
+				FontSize="12"
+				MinHeight="120"
+				MaxHeight="300"
+				VerticalScrollBarVisibility="Auto"
+				Margin="0,0,0,16"/>
 
-		<!-- Default Address -->
-		<TextBlock Text="Default Address:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-		<TextBlock Text="The default host:port for LDraw streaming (e.g. localhost:1976)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
-		<TextBox x:Name="m_address_text" Width="250" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+			<!-- Default Address -->
+			<TextBlock Text="Default Address:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="The default host:port for LDraw streaming (e.g. localhost:1976)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_address_text" Width="250" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
-		<!-- Default Auto-Refresh -->
-		<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break (default)" Margin="0,0,0,16"/>
-	</StackPanel>
+			<!-- Default Auto-Refresh -->
+			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break (default)" Margin="0,0,0,16"/>
+
+			<!-- Additional Assemblies -->
+			<TextBlock Text="Additional Assemblies:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="Extra .NET assembly references available to scripts." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<Grid Margin="0,0,0,16">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="*"/>
+					<ColumnDefinition Width="Auto"/>
+				</Grid.ColumnDefinitions>
+				<ListBox x:Name="m_assemblies_list" Grid.Column="0" MinHeight="80" MaxHeight="200"/>
+				<StackPanel Grid.Column="1" Margin="4,0,0,0">
+					<Button Content="Add..." Click="OnAddAssembly" Width="70" Margin="0,0,0,4"/>
+					<Button Content="Remove" Click="OnRemoveAssembly" Width="70"/>
+				</StackPanel>
+			</Grid>
+
+			<!-- Additional Namespaces -->
+			<TextBlock Text="Additional Namespaces:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="Extra 'using' namespaces for scripts (one per line)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_namespaces_text"
+				AcceptsReturn="True"
+				TextWrapping="Wrap"
+				FontFamily="Consolas"
+				FontSize="12"
+				MinHeight="80"
+				MaxHeight="200"
+				VerticalScrollBarVisibility="Auto"
+				Margin="0,0,0,16"/>
+		</StackPanel>
+	</ScrollViewer>
 </UserControl>
