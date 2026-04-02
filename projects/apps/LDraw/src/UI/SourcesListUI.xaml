@@ -42,6 +42,9 @@
 		ScrollViewer.VerticalScrollBarVisibility="Disabled"
 		HorizontalContentAlignment="Stretch"
 		SelectionMode="Single"
+		AllowDrop="True"
+		DragOver="HandleDragOver"
+		Drop="HandleDrop"
 	>
 		<ListView.ItemContainerStyle>
 			<Style TargetType="ListViewItem">

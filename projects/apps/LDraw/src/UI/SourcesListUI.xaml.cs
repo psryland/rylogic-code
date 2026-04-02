@@ -182,6 +182,29 @@ namespace LDraw.UI
 			}
 		}
 
+		/// <summary>Show a copy cursor when dragging files over the sources list</summary>
+		private void HandleDragOver(object sender, DragEventArgs e)
+		{
+			e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+				? DragDropEffects.Copy
+				: DragDropEffects.None;
+			e.Handled = true;
+		}
+
+		/// <summary>Add dropped files as sources</summary>
+		private void HandleDrop(object sender, DragEventArgs e)
+		{
+			if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
+				e.Data.GetData(DataFormats.FileDrop) is string[] files &&
+				Window.GetWindow(this) is MainWindow main_window)
+			{
+				foreach (var file in files)
+					main_window.AddFileSource(file);
+
+				e.Handled = true;
+			}
+		}
+
 		/// <inheritdoc/>
 		public event PropertyChangedEventHandler? PropertyChanged;
 		private void NotifyPropertyChanged(string prop_name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop_name));
