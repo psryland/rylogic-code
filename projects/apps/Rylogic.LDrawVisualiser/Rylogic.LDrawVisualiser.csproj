@@ -33,7 +33,6 @@
 		<Reference Include="WindowsFormsIntegration" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
-		<PackageReference Include="AvalonEdit" />
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" />
 		<PackageReference Include="Microsoft.CSharp" />
 		<PackageReference Include="Microsoft.VisualStudio.SDK" />

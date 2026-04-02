@@ -156,11 +156,19 @@ namespace Rylogic.LDrawVisualiser.Generated
 			{
 				var span = diagnostic.Location.GetLineSpan();
 				var adjusted_line = Math.Max(1, span.StartLinePosition.Line - wrapper_line_offset + 1);
-				var message = $"Line {adjusted_line}: {diagnostic.GetMessage()}";
-				return Diagnostic.Create(
-					diagnostic.Descriptor,
-					Location.None,
-					messageArgs: [message]);
+				var col = span.StartLinePosition.Character + 1;
+				var message = $"({adjusted_line},{col}): {diagnostic.GetMessage()}";
+
+				// Create a new descriptor with the pre-formatted message to avoid format arg issues
+				var desc = new DiagnosticDescriptor(
+					diagnostic.Id,
+					diagnostic.Descriptor.Title,
+					messageFormat: message,
+					diagnostic.Descriptor.Category,
+					diagnostic.Severity,
+					isEnabledByDefault: true);
+
+				return Diagnostic.Create(desc, Location.None);
 			}
 			return diagnostic;
 		}
