@@ -2536,13 +2536,13 @@ namespace Rylogic.LDraw
 			m_spheres.Add(new SphereData{ m_radius = radius, m_pos = pos, m_col = col });
 			return this;
 		}
-		public LdrSphere sphere(float radius, v4? pos = null, Colour32? col = null)
-		{
-			return sphere(new v4(radius, radius, radius, 0), pos, col);
-		}
 		public LdrSphere sphere(float rx, float ry, float rz, v4? pos = null, Colour32? col = null)
 		{
 			return sphere(new v4(rx, ry, rz, 0), pos, col);
+		}
+		public LdrSphere sphere(float radius, v4? pos = null, Colour32? col = null)
+		{
+			return sphere(radius, radius, radius, pos, col);
 		}
 		public LdrSphere facets(int f)
 		{

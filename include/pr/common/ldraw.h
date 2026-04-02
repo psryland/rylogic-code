@@ -2362,9 +2362,9 @@ namespace pr::ldraw
 		{
 			return box(seri::Vec3(x, y, z), pos, col);
 		}
-		LdrBox& box(float s)
+		LdrBox& box(float s, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			return box(s, s, s);
+			return box(s, s, s, pos, col);
 		}
 
 		virtual void Write(textbuf& out) const override
@@ -4101,13 +4101,13 @@ namespace pr::ldraw
 			m_spheres.push_back(SphereData{ radius, pos, col });
 			return *this;
 		}
-		LdrSphere& sphere(float radius, seri::Vec3 pos = {}, seri::Colour col = {})
-		{
-			return sphere(seri::Vec3(radius, radius, radius), pos, col);
-		}
 		LdrSphere& sphere(float rx, float ry, float rz, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
 			return sphere(seri::Vec3{rx, ry, rz}, pos, col);
+		}
+		LdrSphere& sphere(float radius, seri::Vec3 pos = {}, seri::Colour col = {})
+		{
+			return sphere(radius, radius, radius, pos, col);
 		}
 		LdrSphere& facets(int f)
 		{

@@ -17,8 +17,19 @@
 		//  - Using resources in this way allows:
 		//       - x:Shared="false" elements,
 		//       - path independence in the containing assembly
-
-
+		//
+		// - Context Menu 'IsEnabled' binding not working? Create your context menu like this:
+		//    <ContextMenu
+		//        DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+		//        >
+		//        <MenuItem
+		//            Header="Add Source..."
+		//            Command="{Binding AddSource}"
+		//        />
+		//    </ContextMenu>
+		//    The reason is that context menus are not in the same visual tree as the what they're attached to
+		//    so they don't automatically pick up the correct DataContext.
+		//
 		public static ContextMenus Instance { get; } = new ContextMenus();
 		public ContextMenus() { InitializeComponent(); }
 	}
