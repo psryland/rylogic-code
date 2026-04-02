@@ -335,7 +335,7 @@ namespace pr::algorithm
 			for (auto idx : peaks)
 				peak_pts.pt(static_cast<float>(idx), data[idx], 0.0f);
 
-			builder.Save("E:\\Dump\\PeakDetection.ldr", ldraw::ESaveFlags::Pretty);
+			builder.Save("E:\\Dump\\PeakDetection.ldr");
 		}
 	};
 }

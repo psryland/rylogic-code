@@ -202,7 +202,7 @@ namespace pr::algorithm
 				for (auto& p : result)
 					pts.pt(p.x, p.y, p.z);
 
-				builder.Save(temp_dir() / "MDS_FibSphere.ldr", ldraw::ESaveFlags::Pretty);
+				builder.Save(temp_dir() / "MDS_FibSphere.ldr");
 			}
 			#endif
 		}
@@ -289,7 +289,7 @@ namespace pr::algorithm
 						}
 				}
 
-				builder.Save(temp_dir() / "MDS.ldr", ldraw::ESaveFlags::Pretty);
+				builder.Save(temp_dir() / "MDS.ldr");
 			}
 			#endif
 		}
