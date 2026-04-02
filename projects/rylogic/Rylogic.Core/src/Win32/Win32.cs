@@ -769,6 +769,14 @@ namespace Rylogic.Interop.Win32
 		public const int MK_XBUTTON2 = 0x0040;
 		#endregion
 
+		#region MOUSE_MOVE_
+		public const uint MOUSE_MOVE_RELATIVE = 0;
+		public const uint MOUSE_MOVE_ABSOLUTE = 1;
+		public const uint MOUSE_VIRTUAL_DESKTOP = 2;  // the coordinates are mapped to the virtual desktop
+		public const uint MOUSE_ATTRIBUTES_CHANGED = 4;  // requery for mouse attributes
+		public const uint MOUSE_MOVE_NOCOALESCE = 8;
+		#endregion
+
 		#region NIN Notification Icon
 		/// <summary>
 		/// This message is only send when using NOTIFYICON_VERSION_4, the Shell now sends the associated application an NIN_SELECT notification.
@@ -1067,6 +1075,55 @@ namespace Rylogic.Interop.Win32
 
 		public const uint EM_GETSCROLLPOS                 = (WM_USER + 221);
 		public const uint EM_SETSCROLLPOS                 = (WM_USER + 222);
+		#endregion
+
+		#region RI_MOUSE_
+		public const uint RI_MOUSE_LEFT_BUTTON_DOWN   = 0x0001; // Left Button changed to down.
+		public const uint RI_MOUSE_LEFT_BUTTON_UP     = 0x0002; // Left Button changed to up.
+		public const uint RI_MOUSE_RIGHT_BUTTON_DOWN  = 0x0004; // Right Button changed to down.
+		public const uint RI_MOUSE_RIGHT_BUTTON_UP    = 0x0008; // Right Button changed to up.
+		public const uint RI_MOUSE_MIDDLE_BUTTON_DOWN = 0x0010; // Middle Button changed to down.
+		public const uint RI_MOUSE_MIDDLE_BUTTON_UP   = 0x0020; // Middle Button changed to up.
+
+		public const uint RI_MOUSE_BUTTON_1_DOWN      = RI_MOUSE_LEFT_BUTTON_DOWN;
+		public const uint RI_MOUSE_BUTTON_1_UP        = RI_MOUSE_LEFT_BUTTON_UP;
+		public const uint RI_MOUSE_BUTTON_2_DOWN      = RI_MOUSE_RIGHT_BUTTON_DOWN;
+		public const uint RI_MOUSE_BUTTON_2_UP        = RI_MOUSE_RIGHT_BUTTON_UP;
+		public const uint RI_MOUSE_BUTTON_3_DOWN      = RI_MOUSE_MIDDLE_BUTTON_DOWN;
+		public const uint RI_MOUSE_BUTTON_3_UP        = RI_MOUSE_MIDDLE_BUTTON_UP;
+
+		public const uint RI_MOUSE_BUTTON_4_DOWN      = 0x0040;
+		public const uint RI_MOUSE_BUTTON_4_UP        = 0x0080;
+		public const uint RI_MOUSE_BUTTON_5_DOWN      = 0x0100;
+		public const uint RI_MOUSE_BUTTON_5_UP        = 0x0200;
+		public const uint RI_MOUSE_WHEEL              = 0x0400;
+		public const uint RI_MOUSE_HWHEEL             = 0x0800;
+		#endregion
+
+		#region RID_
+		public const uint RID_INPUT = 0x10000003;
+		public const uint RID_HEADER = 0x10000005;
+		#endregion
+
+		#region RIM_
+		public const uint RIM_TYPEMOUSE = 0;
+		public const uint RIM_TYPEKEYBOARD = 1;
+		public const uint RIM_TYPEHID = 2;
+		public const uint RIM_TYPEMAX = 2;
+		#endregion
+
+		#region RIDEV_
+		public const uint RIDEV_REMOVE            = 0x00000001;
+		public const uint RIDEV_EXCLUDE           = 0x00000010;
+		public const uint RIDEV_PAGEONLY          = 0x00000020;
+		public const uint RIDEV_NOLEGACY          = 0x00000030;
+		public const uint RIDEV_INPUTSINK         = 0x00000100;
+		public const uint RIDEV_CAPTUREMOUSE      = 0x00000200; // effective when mouse nolegacy is specified, otherwise it would be an error
+		public const uint RIDEV_NOHOTKEYS         = 0x00000200; // effective for keyboard.
+		public const uint RIDEV_APPKEYS           = 0x00000400; // effective for keyboard.
+		public const uint RIDEV_EXINPUTSINK       = 0x00001000;
+		public const uint RIDEV_DEVNOTIFY         = 0x00002000;
+		public const uint RIDEV_EXMODEMASK        = 0x000000F0;
 		#endregion
 
 		#region Scroll Bar SB_

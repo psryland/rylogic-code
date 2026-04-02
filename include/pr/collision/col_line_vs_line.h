@@ -134,7 +134,7 @@ namespace pr::collision::tests
 					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
 					builder.Box("pt0", Colour32Yellow).box(0.005f).pos(c.m_point);
 				}
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr", ESaveFlags::Pretty);
+				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
 			}
 			#endif
 		}

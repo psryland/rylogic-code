@@ -22,10 +22,10 @@ namespace Rylogic.LDraw
 {
 	[Flags] public enum ESaveFlags
 	{
-		None = 0,
-		Binary = 1 << 0,
-		Pretty = 1 << 1,
-		Append = 1 << 2,
+		None             = 0,
+		Binary           = 1 << 0,
+		Flat             = 1 << 1, // I.e. not pretty
+		Append           = 1 << 2,
 		NoThrowOnFailure = 1 << 8,
 	}
 
@@ -283,17 +283,24 @@ namespace Rylogic.LDraw
 				if (!Path_.IsValidFilepath(tmp_path, true))
 					throw new Exception("Failed to create temporary file path for LDraw save");
 
+				// Guess flags based on filepath
+				if (flags == ESaveFlags.None)
+				{
+					if (filepath.EndsWith(".bdr", StringComparison.OrdinalIgnoreCase))
+						flags = ESaveFlags.Binary;
+				}
+
 				var binary = flags.HasFlag(ESaveFlags.Binary);
 				var append = flags.HasFlag(ESaveFlags.Append);
-				var pretty = flags.HasFlag(ESaveFlags.Pretty);
+				var flat = flags.HasFlag(ESaveFlags.Flat);
 
 				if (Path.GetDirectoryName(tmp_path) is string directory)
 					Directory.CreateDirectory(directory);
 
+				using (var file = File.Open(tmp_path, append ? FileMode.Append : FileMode.Create))
 				{
-					using var file = File.Open(tmp_path, append ? FileMode.Append : FileMode.Create);
 					var mem = binary ? ToBinary() : ToText();
-					if (!binary && pretty) mem = FormatScript(mem);
+					if (!binary && !flat) mem = FormatScript(mem);
 					mem.CopyTo(file);
 				}
 
@@ -715,11 +722,11 @@ namespace Rylogic.LDraw
 				}
 				if (m_no_translation)
 				{
-					res.Write(EKeyword.NoRootTranslation);
+					res.Write(EKeyword.NoTranslation);
 				}
 				if (m_no_rotation)
 				{
-					res.Write(EKeyword.NoRootRotation);
+					res.Write(EKeyword.NoRotation);
 				}
 			});
 		}
@@ -829,8 +836,8 @@ namespace Rylogic.LDraw
 				if (m_style != null) res.Write(EKeyword.Style, m_style);
 				if (m_stretch != null) res.Write(EKeyword.Stretch, m_stretch.Value);
 				if (m_time_bias != null) res.Write(EKeyword.TimeBias, m_time_bias.Value);
-				if (m_no_translation) res.Write(EKeyword.NoRootTranslation);
-				if (m_no_rotation) res.Write(EKeyword.NoRootRotation);
+				if (m_no_translation) res.Write(EKeyword.NoTranslation);
+				if (m_no_rotation) res.Write(EKeyword.NoRotation);
 				if (m_hide_when_not_animating) res.Write(EKeyword.HideWhenNotAnimating);
 			});
 		}
@@ -994,9 +1001,9 @@ namespace Rylogic.LDraw
 		{
 			return box(new v4(w, h, d, 0), pos, col);
 		}
-		public LdrBox box(float s)
+		public LdrBox box(float s, v4? pos = null, Colour32? col = null)
 		{
-			return box(s, s, s);
+			return box(new v4(s, s, s, 0), pos, col);
 		}
 		public LdrBox box(BBox bbox)
 		{
@@ -1019,7 +1026,7 @@ namespace Rylogic.LDraw
 				else
 				{
 					if (per_item_colour)
-						res.Append(EKeyword.PerItemColour);
+						res.Write(EKeyword.PerItemColour);
 
 					res.Write(EKeyword.Data, () =>
 					{
@@ -2529,13 +2536,13 @@ namespace Rylogic.LDraw
 			m_spheres.Add(new SphereData{ m_radius = radius, m_pos = pos, m_col = col });
 			return this;
 		}
-		public LdrSphere sphere(float radius, v4? pos = null, Colour32? col = null)
-		{
-			return sphere(new v4(radius, radius, radius, 0), pos, col);
-		}
 		public LdrSphere sphere(float rx, float ry, float rz, v4? pos = null, Colour32? col = null)
 		{
 			return sphere(new v4(rx, ry, rz, 0), pos, col);
+		}
+		public LdrSphere sphere(float radius, v4? pos = null, Colour32? col = null)
+		{
+			return sphere(radius, radius, radius, pos, col);
 		}
 		public LdrSphere facets(int f)
 		{

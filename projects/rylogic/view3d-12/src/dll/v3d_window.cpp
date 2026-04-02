@@ -778,7 +778,10 @@ namespace pr::rdr12
 		if (!gizmo_in_use)
 		{
 			if (m_scene.m_cam.MouseControl(nss_point, nav_op, nav_start_or_end))
+			{
+				Invalidate();
 				refresh |= true;
+			}
 		}
 
 		return refresh;
@@ -805,7 +808,10 @@ namespace pr::rdr12
 		if (!gizmo_in_use)
 		{
 			if (m_scene.m_cam.MouseControlZ(nss_point, delta, along_ray))
+			{
+				Invalidate();
 				refresh |= true;
+			}
 		}
 
 		return refresh;
@@ -1432,9 +1438,17 @@ namespace pr::rdr12
 		// Move the focus point to the centre of the bbox of the hit object
 		if (target.IsHit())
 		{
-			auto ldr_obj = cast<ldraw::LdrObject>(target.m_instance);
-			auto bbox = ldr_obj->BBoxWS(ldraw::EBBoxFlags::IncludeChildren);
-			FocusPoint(bbox.m_centre);
+			// If the shift key is held, focus on the exact hit point instead of the centre of the object
+			if (KeyDown(VK_SHIFT)) 
+			{
+				FocusPoint(target.m_ws_intercept);
+			}
+			else
+			{
+				auto ldr_obj = cast<ldraw::LdrObject>(target.m_instance);
+				auto bbox = ldr_obj->BBoxWS(ldraw::EBBoxFlags::IncludeChildren);
+				FocusPoint(bbox.m_centre);
+			}
 		}
 	}
 

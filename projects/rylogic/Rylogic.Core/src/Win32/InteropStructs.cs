@@ -387,6 +387,73 @@ namespace Rylogic.Interop.Win32
 		}
 
 		[StructLayout(LayoutKind.Sequential)]
+		public struct RAWINPUTDEVICE
+		{
+			public ushort usUsagePage;
+			public ushort usUsage;
+			public uint dwFlags;
+			public IntPtr hwndTarget;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RAWINPUTHEADER
+		{
+			public uint dwType;
+			public uint dwSize;
+			public IntPtr hDevice;
+			public IntPtr wParam;
+		}
+
+		[StructLayout(LayoutKind.Explicit)]
+		public struct RAWMOUSE
+		{
+			// The native RAWMOUSE has a union { ULONG ulButtons; struct { USHORT usButtonFlags; USHORT usButtonData; }; }
+			// which starts at offset 4 (2-byte padding after usFlags for ULONG alignment).
+			[FieldOffset(0)] public ushort usFlags;
+			[FieldOffset(4)] public uint ulButtons;
+			[FieldOffset(4)] public ushort usButtonFlags;
+			[FieldOffset(6)] public ushort usButtonData;
+			[FieldOffset(8)] public uint ulRawButtons;
+			[FieldOffset(12)] public int lLastX;
+			[FieldOffset(16)] public int lLastY;
+			[FieldOffset(20)] public uint ulExtraInformation;
+		}
+		
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RAWKEYBOARD
+		{
+			public ushort MakeCode;
+			public ushort Flags;
+			public ushort Reserved;
+			public ushort VKey;
+			public uint Message;
+			public uint ExtraInformation;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RAWHID
+		{
+			public uint dwSizeHid;    // byte size of each report
+			public uint dwCount;      // number of input packed
+			public byte bRawData;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RAWINPUT
+		{
+			public RAWINPUTHEADER header;
+
+			// The union (mouse/keyboard/hid) follows the header immediately.
+			// Can't use FieldOffset because RAWINPUTHEADER size differs between x86 (16) and x64 (24).
+			// Use ReadData<T>(IntPtr) to read the union member at the correct offset.
+			public static T ReadData<T>(IntPtr pRawInput) where T : struct
+			{
+				var offset = Marshal.SizeOf<RAWINPUTHEADER>();
+				return Marshal.PtrToStructure<T>(pRawInput + offset);
+			}
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
 		public struct RECT
 		{
 			public int left;

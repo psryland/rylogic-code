@@ -115,6 +115,9 @@ namespace Rylogic.Gui.WPF
 			// That way the lifetime of the elements is independent of the chart.
 			Elements.Clear();
 
+			m_hwnd_source?.RemoveHook(WndProcHook);
+			m_hwnd_source = null;
+
 			BindingOperations.ClearAllBindings(this);
 			ShowHitTestRay = false;
 			MouseOperations = null!;

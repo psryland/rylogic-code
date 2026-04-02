@@ -137,7 +137,15 @@ namespace pr::tweakables
 					for (; !m_shutdown; std::this_thread::sleep_for(poll_rate))
 					{
 						auto last_write = LastWrite();
-						if (m_last_write_time == last_write)
+
+						// Read m_last_write_time under the mutex to avoid a data race
+						ftime_t cached_write;
+						{
+							std::lock_guard<std::mutex> lock(m_mutex);
+							cached_write = m_last_write_time;
+						}
+
+						if (cached_write == last_write)
 							continue;
 
 						auto variables = LoadVariables();
@@ -160,6 +168,11 @@ namespace pr::tweakables
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
 
+			// Reject stale updates. Add() may have written a newer file
+			// between the poller's LoadVariables() and this call.
+			if (last_write <= m_last_write_time)
+				return;
+
 			m_variables = variables;
 			m_last_write_time = last_write;
 			++m_issue;
@@ -172,11 +185,16 @@ namespace pr::tweakables
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
 
-			map_ptr_t variables = m_variables;
-			if (!variables->contains(key))
+			if (!m_variables->contains(key))
 			{
+				// Copy-on-write to avoid mutating the map through other shared_ptrs
+				auto variables = std::make_shared<map_t>(*m_variables);
 				(*variables)[key] = value;
 				SaveVariables(*variables);
+				m_variables = variables;
+
+				// Update the write time so the poller doesn't overwrite with stale data
+				m_last_write_time = LastWrite();
 			}
 		}
 

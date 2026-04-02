@@ -450,7 +450,7 @@ namespace pr::rdr12
 			wnd->Remove(object);
 
 		// Delete the object from the object container
-		m_sources.Remove(object, ldraw::EStoreChangeInitiator::ObjectsDeleted);
+		m_sources.Remove(object);
 	}
 
 	// Delete all objects
@@ -472,23 +472,19 @@ namespace pr::rdr12
 			wnd->Remove(pred, false);
 
 		// Remove sources that match the given set of context ids to delete
-		m_sources.Remove(pred, ldraw::EStoreChangeInitiator::ObjectsDeleted);
+		m_sources.Remove(pred);
 	}
 
 	// Delete all objects not displayed in any windows
 	void Context::DeleteUnused(view3d::GuidPredCB pred)
 	{
-		// Build a set of context ids, included in 'context_ids', and not used in any windows
+		// Build a set of context ids that pass 'pred' and are not used in any windows
 		GuidSet unused;
-
-		// Initialise 'unused' with all context ids (filtered by 'context_ids')
 		for (auto& src : m_sources.Sources())
 		{
 			if (!pred(src.first)) continue;
 			unused.insert(src.first);
 		}
-
-		// Remove those that are used in the windows
 		for (auto& wnd : m_windows)
 		{
 			for (auto& id : wnd->m_guids)
@@ -498,7 +494,7 @@ namespace pr::rdr12
 		// Remove unused sources
 		if (!unused.empty())
 		{
-			m_sources.Remove([&unused](Guid const& id) { return unused.contains(id); }, ldraw::EStoreChangeInitiator::ObjectsDeleted);
+			m_sources.Remove([&unused](Guid const& id) { return unused.contains(id); });
 		}
 	}
 
@@ -632,13 +628,12 @@ namespace pr::rdr12
 
 		if (args.m_before)
 		{
-			// Only remove items if not appending data.
-			if (args.m_initiator != ldraw::EStoreChangeInitiator::AppendData)
+			// Remove items if the source is removed
+			if (args.m_initiator == ldraw::EStoreChangeInitiator::SourceRemoved)
 			{
-				// Keep the context ids on reloads
-				auto keep_context_ids = AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed);
+				// Remove objects from any windows they might be in
 				for (auto& wnd : m_windows)
-					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, keep_context_ids);
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, false);
 			}
 		}
 		else // after
@@ -650,9 +645,17 @@ namespace pr::rdr12
 				return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
 			};
 
-			// Re-Add objects for the context ids after reload
-			if (args.m_initiator == ldraw::EStoreChangeInitiator::AppendData ||
-				AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ExistingObjectsRefreshed))
+			// If this was a reload, remove the items just before re-adding the context ids
+			if (args.m_initiator == ldraw::EStoreChangeInitiator::Reload)
+			{
+				// Remove objects from any windows they might be in
+				for (auto& wnd : m_windows)
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, true);
+			}
+
+			// Re-Add objects for the context ids after reload or appended data (from streams)
+			if (args.m_initiator == ldraw::EStoreChangeInitiator::Reload ||
+				args.m_initiator == ldraw::EStoreChangeInitiator::AppendData)
 			{
 				for (auto& wnd : m_windows)
 				{

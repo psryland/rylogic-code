@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gui.WPF;
 using Rylogic.Utility;
@@ -140,9 +141,9 @@ namespace LDraw.UI
 		private bool OpenInExternalEditorAvailable()
 		{
 			return
-				!string.IsNullOrEmpty(Model.Profile.TextEditorPath) &&
 				Sources.CurrentItem is SourceItemUI item &&
-				item.Source.FilePath.Length != 0;
+				item.Source.FilePath.Length != 0 &&
+				Path_.FileExists(item.Source.FilePath);
 		}
 		private void OpenInExternalEditorInternal()
 		{
@@ -152,20 +153,55 @@ namespace LDraw.UI
 					return;
 
 				var editor_path = Model.Profile.TextEditorPath;
-				var arguments = Model.Profile.TextEditorArguments
-					.Replace("{file}", item.Source.FilePath)
-					.Replace("{line}", "1");
-
-				Process.Start(new ProcessStartInfo
+				if (!string.IsNullOrEmpty(editor_path))
 				{
-					FileName = editor_path,
-					Arguments = arguments,
-					UseShellExecute = false,
-				});
+					var arguments = Model.Profile.TextEditorArguments
+						.Replace("{file}", item.Source.FilePath)
+						.Replace("{line}", "1");
+
+					Process.Start(new ProcessStartInfo
+					{
+						FileName = editor_path,
+						Arguments = arguments,
+						UseShellExecute = false,
+					});
+				}
+				else
+				{
+					// Fall back to the OS default application for this file type
+					Process.Start(new ProcessStartInfo
+					{
+						FileName = item.Source.FilePath,
+						UseShellExecute = true,
+					});
+				}
 			}
 			catch (Exception ex)
 			{
 				Log.Write(ELogLevel.Error, ex, "Failed to launch text editor");
+			}
+		}
+
+		/// <summary>Show a copy cursor when dragging files over the sources list</summary>
+		private void HandleDragOver(object sender, DragEventArgs e)
+		{
+			e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+				? DragDropEffects.Copy
+				: DragDropEffects.None;
+			e.Handled = true;
+		}
+
+		/// <summary>Add dropped files as sources</summary>
+		private void HandleDrop(object sender, DragEventArgs e)
+		{
+			if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
+				e.Data.GetData(DataFormats.FileDrop) is string[] files &&
+				Window.GetWindow(this) is MainWindow main_window)
+			{
+				foreach (var file in files)
+					main_window.AddFileSourceAsync(file);
+
+				e.Handled = true;
 			}
 		}
 

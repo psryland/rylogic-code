@@ -345,7 +345,9 @@ namespace Rylogic.Gfx
 			// More data for an existing source was added (typically from streaming sources)
 			AppendData,
 
-			// The DeleteObject API call was made
+			// Objects were removed from a context, but the context itself was not deleted.
+			// The objects will have been removed from any windows before the store change event.
+			// There is not "before" event for this initiator type.
 			ObjectsDeleted,
 
 			// PR_CODE_SYNC_END();
@@ -367,9 +369,6 @@ namespace Rylogic.Gfx
 
 			// A context id was removed from the store
 			ContextIdRemoved = 1 << 3,
-
-			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
-			ExistingObjectsRefreshed = 1 << 4,
 
 			_flags_enum = 0,
 

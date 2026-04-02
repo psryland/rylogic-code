@@ -29,7 +29,9 @@ namespace pr::rdr12::ldraw
 		// More data for an existing source was added (typically from streaming sources)
 		AppendData,
 
-		// The DeleteObject API call was made
+		// Objects were removed from a context, but the context itself was not deleted.
+		// The objects will have been removed from any windows before the store change event.
+		// There is not "before" event for this initiator type.
 		ObjectsDeleted,
 	
 		// PR_CODE_SYNC_END();
@@ -53,9 +55,6 @@ namespace pr::rdr12::ldraw
 
 		// A context id was removed from the store
 		ContextIdRemoved = 1 << 3,
-
-		// Objects in the store were refreshed from the sources (e.g. after a Load() call)
-		ExistingObjectsRefreshed = 1 << 4,
 
 		_flags_enum = 0,
 
@@ -111,7 +110,7 @@ namespace pr::rdr12::ldraw
 		EventHandler<SourceBase&, ParsingProgressEventArgs&, true> ParsingProgress;
 
 		// Parse the contents of the script from this source.
-		ParseResult Load(Renderer& rdr, std::stop_token stop_token = {});
+		ParseResult Load(Renderer& rdr, std::stop_token stop_token = {}) noexcept;
 
 		// An event raised when something happens with this source (e.g, has new data, disconnected, etc)
 		// This is called from outside the class because the 'Load' method cannot both return and move the result

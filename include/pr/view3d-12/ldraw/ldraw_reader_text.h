@@ -64,6 +64,9 @@ namespace pr::rdr12::ldraw
 
 		// Read a boolean value from the current section
 		virtual bool BoolImpl() override;
+		
+		// A helper for debug messages to show the last read keyword
+		virtual string32 LastKeywordString() const override;
 	};
 }
 

@@ -17,7 +17,7 @@ namespace Rylogic.Gui.WPF
 			public TapeMeasure(ChartControl chart)
 			{
 				Chart = chart;
-				Chart.MouseOperations.Pending[MouseButton.Left] = new DrawTape(this);
+				Chart.MouseOperations[MouseButton.Left] = new DrawTape(this);
 
 				m_xhair_enabled = Chart.ShowCrossHair;
 				Chart.ShowCrossHair = true;
@@ -270,13 +270,13 @@ namespace Rylogic.Gui.WPF
 				public override void MouseDown(MouseButtonEventArgs? e)
 				{
 					if (e == null) throw new Exception("This mouse op should start on mouse down");
-					m_owner.Beg = GrabChart;
+					m_owner.Beg = GrabCS;
 					base.MouseDown(e);
 				}
 				public override void MouseMove(MouseEventArgs e)
 				{
 					base.MouseMove(e);
-					m_owner.End = DropChart;
+					m_owner.End = DropCS;
 				}
 				public override void MouseWheel(MouseWheelEventArgs e)
 				{

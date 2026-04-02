@@ -67,9 +67,9 @@ namespace pr::rdr12
 
 			// Interpolate the key
 			auto interp_key = Interp(keys[0], keys[1], frac, keys[0].m_interp);
-			if (AllSet(flags, EAnimFlags::NoRootTranslation) && track_index == RootBoneTrack)
+			if (AllSet(flags, EAnimFlags::NoTranslation) && track_index == RootBoneTrack)
 				interp_key.m_pos = v3::Zero();
-			if (AllSet(flags, EAnimFlags::NoRootRotation) && track_index == RootBoneTrack)
+			if (AllSet(flags, EAnimFlags::NoRotation) && track_index == RootBoneTrack)
 				interp_key.m_rot = quat::Identity();
 
 			// Type convert
@@ -172,9 +172,9 @@ namespace pr::rdr12
 			auto pos = interp.pos.Eval(time_s - time0);
 
 			// Apply root motion flags
-			if (AllSet(flags, EAnimFlags::NoRootTranslation) && track_index == RootBoneTrack)
+			if (AllSet(flags, EAnimFlags::NoTranslation) && track_index == RootBoneTrack)
 				pos = v4::Origin();
-			if (AllSet(flags, EAnimFlags::NoRootRotation) && track_index == RootBoneTrack)
+			if (AllSet(flags, EAnimFlags::NoRotation) && track_index == RootBoneTrack)
 				rot = quat::Identity();
 
 			// Update the bone

@@ -65,12 +65,12 @@ namespace pr::ldraw
 
 	enum class ESaveFlags : uint32_t
 	{
-		None = 0,
-		Binary = 1 << 0,
-		Pretty = 1 << 1,
-		Append = 1 << 2,
+		None             = 0,
+		Binary           = 1 << 0,
+		Flat             = 1 << 1, // i.e. not pretty
+		Append           = 1 << 2,
 		NoThrowOnFailure = 1 << 8,
-		_flags_enum = 0,
+		_flags_enum      = 0,
 	};
 
 	template <typename T> concept TVec2 = requires (T t)
@@ -229,8 +229,8 @@ namespace pr::ldraw
 		inline static constexpr NameValue NoMaterials = {"*NoMaterials", 762077060};
 		inline static constexpr NameValue Normalise = {"*Normalise", 4066511049};
 		inline static constexpr NameValue Normals = {"*Normals", 247908339};
-		inline static constexpr NameValue NoRootTranslation = {"*NoRootTranslation", 3287374065};
-		inline static constexpr NameValue NoRootRotation = {"*NoRootRotation", 3606635828};
+		inline static constexpr NameValue NoTranslation = {"*NoTranslation", 864235717};
+		inline static constexpr NameValue NoRotation = {"*NoRotation", 4019988840};
 		inline static constexpr NameValue NoZTest = {"*NoZTest", 329427844};
 		inline static constexpr NameValue NoZWrite = {"*NoZWrite", 1339143375};
 		inline static constexpr NameValue O2W = {"*O2W", 2877203913};
@@ -1811,22 +1811,22 @@ namespace pr::ldraw
 			{
 				friend void Append(bytebuf& out, NoRootTranslation_ const&)
 				{
-					auto s = Append(out, Header{ EKeywords::NoRootTranslation });
+					auto s = Append(out, Header{ EKeywords::NoTranslation });
 				}
 				friend void Append(textbuf& out, NoRootTranslation_ const&)
 				{
-					Append(out, EKeywords::NoRootTranslation, "{}");
+					Append(out, EKeywords::NoTranslation, "{}");
 				}
 			};
 			struct NoRootRotation_
 			{
 				friend void Append(bytebuf& out, NoRootRotation_ const&)
 				{
-					auto s = Append(out, Header{ EKeywords::NoRootRotation });
+					auto s = Append(out, Header{ EKeywords::NoRotation });
 				}
 				friend void Append(textbuf& out, NoRootRotation_ const&)
 				{
-					Append(out, EKeywords::NoRootRotation, "{}");
+					Append(out, EKeywords::NoRotation, "{}");
 				}
 			};
 
@@ -2362,9 +2362,9 @@ namespace pr::ldraw
 		{
 			return box(seri::Vec3(x, y, z), pos, col);
 		}
-		LdrBox& box(float s)
+		LdrBox& box(float s, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
-			return box(s, s, s);
+			return box(s, s, s, pos, col);
 		}
 
 		virtual void Write(textbuf& out) const override
@@ -2500,6 +2500,7 @@ namespace pr::ldraw
 		LdrCommands& clear()
 		{
 			m_cmds.push_back(cmd_t{ ECommands::Clear, {} });
+			return *this;
 		}
 
 		// Apply a transform to an object with the given name
@@ -4100,13 +4101,13 @@ namespace pr::ldraw
 			m_spheres.push_back(SphereData{ radius, pos, col });
 			return *this;
 		}
-		LdrSphere& sphere(float radius, seri::Vec3 pos = {}, seri::Colour col = {})
-		{
-			return sphere(seri::Vec3(radius, radius, radius), pos, col);
-		}
 		LdrSphere& sphere(float rx, float ry, float rz, seri::Vec3 pos = {}, seri::Colour col = {})
 		{
 			return sphere(seri::Vec3{rx, ry, rz}, pos, col);
+		}
+		LdrSphere& sphere(float radius, seri::Vec3 pos = {}, seri::Colour col = {})
+		{
+			return sphere(radius, radius, radius, pos, col);
 		}
 		LdrSphere& facets(int f)
 		{
@@ -4351,9 +4352,16 @@ namespace pr::ldraw
 				std::uniform_int_distribution<uint64_t> dist(0);
 				auto tmp_path = filepath.parent_path() / std::format("{}.tmp", dist(rng));
 
+				// Guess flags based on filepath
+				if (flags == ESaveFlags::None)
+				{
+					if (filepath.extension().compare(".bdr") == 0)
+						flags = ESaveFlags::Binary;
+				}
+
 				auto binary = (int64_t(flags) & int64_t(ESaveFlags::Binary)) != 0;
 				auto append = (int64_t(flags) & int64_t(ESaveFlags::Append)) != 0;
-				auto pretty = (int64_t(flags) & int64_t(ESaveFlags::Pretty)) != 0;
+				auto flat = (int64_t(flags) & int64_t(ESaveFlags::Flat)) != 0;
 
 				if (!std::filesystem::exists(tmp_path.parent_path()))
 					std::filesystem::create_directories(tmp_path.parent_path());
@@ -4374,7 +4382,7 @@ namespace pr::ldraw
 				{
 					textbuf out;
 					Write(out);
-					if (pretty) out = FormatScript(out);
+					if (!flat) out = FormatScript(out);
 					if (!out.empty())
 					{
 						std::filesystem::create_directories(tmp_path.parent_path());
@@ -4407,11 +4415,11 @@ namespace pr::ldraw
 			try
 			{
 				auto append = (int64_t(flags) & int64_t(ESaveFlags::Append)) != 0;
-				auto pretty = (int64_t(flags) & int64_t(ESaveFlags::Pretty)) != 0;
+				auto flat = (int64_t(flags) & int64_t(ESaveFlags::Flat)) != 0;
 
 				if (!append) out.resize(0);
 				Write(out);
-				if (pretty) out = FormatScript(out);
+				if (!flat) out = FormatScript(out);
 			}
 			catch (std::exception const& ex)
 			{
@@ -4697,7 +4705,7 @@ namespace pr::ldraw
 				.size({ 0.1f, 0.3f })
 				.depth()
 				.o2w().euler(10, 20, 30).pos({ -1,-1,-1 });
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 				"*Point p ff00ff00 {\n"
 				"	*Style {Star}\n"
@@ -4730,7 +4738,7 @@ namespace pr::ldraw
 				.line_to({ +1, -1, -1 })
 				.line_to({ +1, +1, -1 })
 				.line_to({ -1, +1, -1 });
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 				"*Line l ff00ff00 {\n"
 				"	*Style {LineSegments}\n"
@@ -4754,7 +4762,7 @@ namespace pr::ldraw
 				.plane({ 0, 1, 0, -1 })
 				.wh({ 10, 20 })
 				.texture([](seri::Texture& t) { t.filepath("my_texture.png").addr("Wrap").filter("Linear"); });
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 				"*Plane p ff00ff00 {\n"
 				"	*Data {10 20}\n"
@@ -4776,14 +4784,14 @@ namespace pr::ldraw
 		{
 			Builder builder;
 			builder.Box("b", 0xFF00FF00).box(1, 2, 3);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Box b ff00ff00 {*Data {1 2 3}}");
 		}
 		PRUnitTestMethod(Model)
 		{
 			Builder builder;
 			builder.Model("m").filepath("my_model.fbx").no_materials().anim().frame(10);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 				"*Model m {\n"
 				"	*FilePath {\"my_model.fbx\"}\n"
@@ -4798,7 +4806,7 @@ namespace pr::ldraw
 			Builder builder;
 			auto& grp = builder.Group("g");
 			grp.Box("b", 0xFF00FF00).box({ 1, 2, 3 }, { 1, 1, 1 }, 0xFF00FF00);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 				"*Group g {\n"
 				"	*BoxList b ff00ff00 {\n"
@@ -4811,42 +4819,42 @@ namespace pr::ldraw
 		{
 			Builder builder;
 			builder.LineBox("lb", 0xFF00FF00).dim(1, 2, 3);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*LineBox lb ff00ff00 {*Data {1 2 3}}");
 		}
 		PRUnitTestMethod(Grid)
 		{
 			Builder builder;
 			builder.Grid("g", 0xFF00FF00).wh(10, 20).divisions(5, 10);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Grid g ff00ff00 {*Data {10 20} *Divisions {5 10}}");
 		}
 		PRUnitTestMethod(CoordFrame)
 		{
 			Builder builder;
 			builder.CoordFrame("cf").scale(2);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*CoordFrame cf {*Scale {2}}");
 		}
 		PRUnitTestMethod(Triangle)
 		{
 			Builder builder;
 			builder.Triangle("t", 0xFFFF0000).tri({ 0,0,0 }, { 1,0,0 }, { 0,1,0 });
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Triangle t ffff0000 {*Data {0 0 0 1 0 0 0 1 0}}");
 		}
 		PRUnitTestMethod(Quad)
 		{
 			Builder builder;
 			builder.Quad("q", 0xFF0000FF).quad({ 0,0,0 }, { 1,0,0 }, { 1,1,0 }, { 0,1,0 });
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Quad q ff0000ff {*Data {0 0 0 1 0 0 1 1 0 0 1 0}}");
 		}
 		PRUnitTestMethod(Ribbon)
 		{
 			Builder builder;
 			builder.Ribbon("r", 0xFF00FF00).width(2).pt(0, 0, 0).pt(1, 0, 0).pt(1, 1, 0);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*Ribbon r ff00ff00 {\n"
 			"	*Width {2}\n"
@@ -4857,21 +4865,21 @@ namespace pr::ldraw
 		{
 			Builder builder;
 			builder.Circle("c", 0xFF00FF00).radius(5).facets(16);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Circle c ff00ff00 {*Data {5} *Facets {16}}");
 		}
 		PRUnitTestMethod(Pie)
 		{
 			Builder builder;
 			builder.Pie("p", 0xFF00FF00).angles(0, 90).radii(1, 5).facets(16);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Facets {16}}");
 		}
 		PRUnitTestMethod(Rect)
 		{
 			Builder builder;
 			builder.Rect("r", 0xFF00FF00).wh(10, 20).corner_radius(2).facets(8);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*Rect r ff00ff00 {\n"
 			"	*Data {10 20}\n"
@@ -4883,28 +4891,28 @@ namespace pr::ldraw
 		{
 			Builder builder;
 			builder.Polygon("p", 0xFF00FF00).pt(0, 0).pt(1, 0).pt(1, 1).pt(0, 1);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Polygon p ff00ff00 {*Data {0 0 1 0 1 1 0 1}}");
 		}
 		PRUnitTestMethod(Sphere)
 		{
 			Builder builder;
 			builder.Sphere("s", 0xFF00FF00).sphere(5).facets(16);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Sphere s ff00ff00 {*Data {5} *Facets {16}}");
 		}
 		PRUnitTestMethod(Cylinder)
 		{
 			Builder builder;
 			builder.Cylinder("c", 0xFF00FF00).height(10).radius(5).facets(16);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16}}");
 		}
 		PRUnitTestMethod(Cone)
 		{
 			Builder builder;
 			builder.Cone("c", 0xFF00FF00).angle(45).near_dist(1).far_dist(10).facets(16);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Cone c ff00ff00 {*Data {45 1 10} *Facets {16}}");
 		}
 		PRUnitTestMethod(Mesh)
@@ -4913,7 +4921,7 @@ namespace pr::ldraw
 			builder.Mesh("m", 0xFF00FF00)
 				.vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0)
 				.face(0, 1, 2);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*Mesh m ff00ff00 {\n"
 			"	*Verts {0 0 0 1 0 0 0 1 0}\n"
@@ -4925,7 +4933,7 @@ namespace pr::ldraw
 			Builder builder;
 			builder.ConvexHull("ch", 0xFF00FF00)
 				.vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*ConvexHull ch ff00ff00 {\n"
 			"	*Verts {0 0 0 1 0 0 0 1 0 0 0 1}\n"
@@ -4935,28 +4943,28 @@ namespace pr::ldraw
 		{
 			Builder builder;
 			builder.Frustum("f", 0xFF00FF00).wh(10, 20, 1, 100);
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*FrustumWH f ff00ff00 {*Data {10 20 1 100}}");
 		}
 		PRUnitTestMethod(Instance)
 		{
 			Builder builder;
 			builder.Instance("i", 0xFF00FF00).address("my_model");
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Instance i ff00ff00 {*Data {\"my_model\"}}");
 		}
 		PRUnitTestMethod(Text)
 		{
 			Builder builder;
 			builder.Text("t", 0xFF00FF00).text("Hello");
-			auto ldr = builder.ToString();
+			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Text t ff00ff00 {*Data {\"Hello\"}}");
 		}
 		PRUnitTestMethod(LightSource)
 		{
 			Builder builder;
 			builder.LightSource("ls", 0xFFFFFFFF).style("Directional").diffuse(0xFFFFFFFF).cast_shadow();
-			auto ldr = builder.ToString(ESaveFlags::Pretty);
+			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*LightSource ls ffffffff {\n"
 			"	*Style {Directional}\n"

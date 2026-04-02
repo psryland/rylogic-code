@@ -20,6 +20,7 @@ namespace pr::rdr12::ldraw
 		istream_t& m_src;            // The input byte stream
 		int64_t m_pos;               // The number of bytes read from the stream so far, or the index of the next byte to read (same thing)
 		SectionStack m_section;      // A stack of section headers. back() == top == current section.
+		EKeyword m_last_keyword;     // The last keyword read, for error reporting
 		mutable Location m_location; // Source location description
 
 		BinaryReader(istream_t& src, std::filesystem::path src_filepath, ReportErrorCB report_error_cb = nullptr, ParseProgressCB progress_cb = nullptr, IPathResolver const& resolver = PathResolver::Instance())
@@ -96,6 +97,7 @@ namespace pr::rdr12::ldraw
 			// Read the next section header at this level
 			SectionHeader header;
 			Read(&header, sizeof(header));
+			m_last_keyword = header.m_keyword;
 			kw = static_cast<int>(header.m_keyword);
 
 			// Replace the top of the stack
@@ -161,6 +163,12 @@ namespace pr::rdr12::ldraw
 		virtual bool BoolImpl() override
 		{
 			return IntImpl(1, 0) != 0;
+		}
+		
+		// A helper for debug messages to show the last read keyword
+		virtual string32 LastKeywordString() const override
+		{
+			return EKeyword_::ToStringA(m_last_keyword);
 		}
 
 	private:

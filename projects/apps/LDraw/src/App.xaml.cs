@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Windows;
 using Rylogic.Extn;
@@ -15,6 +15,10 @@ namespace LDraw
 		static App()
 		{
 			//WPFUtil.WaitForDebugger();
+
+			// Disable WPF's real-time stylus thread which posts synthetic WM_MOUSEMOVE
+			// messages that bypass Windows' normal mouse move coalescing.
+			AppContext.SetSwitch("Switch.System.Windows.Input.Stylus.DisableStylusAndTouchSupport", true);
 		}
 		protected override void OnStartup(StartupEventArgs e)
 		{
