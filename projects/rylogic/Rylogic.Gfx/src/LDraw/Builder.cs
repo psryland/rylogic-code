@@ -1026,7 +1026,7 @@ namespace Rylogic.LDraw
 				else
 				{
 					if (per_item_colour)
-						res.Append(EKeyword.PerItemColour);
+						res.Write(EKeyword.PerItemColour);
 
 					res.Write(EKeyword.Data, () =>
 					{

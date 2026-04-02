@@ -128,6 +128,30 @@ namespace LDraw
 		/// <summary>True if the source exists</summary>
 		public bool Exists => FilePath.Length == 0 || Path_.FileExists(FilePath); // Has no associated file, or it does and the file exists
 
+		/// <summary>True while this source is loading/reloading</summary>
+		public bool IsLoading
+		{
+			get;
+			set
+			{
+				if (field == value) return;
+				field = value;
+				NotifyPropertyChanged(nameof(IsLoading));
+			}
+		}
+
+		/// <summary>Loading progress as a fraction (0.0 to 1.0)</summary>
+		public double LoadFraction
+		{
+			get;
+			set
+			{
+				if (field == value) return;
+				field = value;
+				NotifyPropertyChanged(nameof(LoadFraction));
+			}
+		}
+
 		/// <summary>The names of the scenes to add this source to</summary>
 		public void ShowInScenes(IEnumerable<SceneUI> scenes, bool show)
 		{

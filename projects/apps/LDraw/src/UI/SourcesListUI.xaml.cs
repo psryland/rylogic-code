@@ -199,7 +199,7 @@ namespace LDraw.UI
 				Window.GetWindow(this) is MainWindow main_window)
 			{
 				foreach (var file in files)
-					main_window.AddFileSource(file);
+					main_window.AddFileSourceAsync(file);
 
 				e.Handled = true;
 			}

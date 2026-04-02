@@ -97,7 +97,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Remove a single object from the store
-	void ScriptSources::Remove(LdrObject* object, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(LdrObject* object)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto id = object->m_context_id;
@@ -107,17 +107,17 @@ namespace pr::rdr12::ldraw
 		auto count = src->m_output.m_objects.size();
 		ldraw::Remove(src->m_output.m_objects, object);
 
-		// Notify of the object container change
-		if (src->m_output.m_objects.size() != count)
-			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
-
-		// If that was the last object for the source, remove the source too
+		// If that was the last object for the source, remove the source
 		if (src->m_output.m_objects.empty())
-			Remove(id, trigger);
+			Remove(id);
+
+		// Notify of the object container change
+		else if (src->m_output.m_objects.size() != count)
+			m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
 	}
 
 	// Remove all objects associated with context ids filtered by 'pred'
-	void ScriptSources::Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(std::function<bool(Guid const&)> pred)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
@@ -136,7 +136,7 @@ namespace pr::rdr12::ldraw
 			return;
 
 		// Notify of the object container about to change
-		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, true });
+		m_events->OnStoreChange({ EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, true });
 
 		// Remove the sources
 		for (auto& id : removed)
@@ -156,35 +156,77 @@ namespace pr::rdr12::ldraw
 		}
 
 		// Notify of the object container change
-		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, false });
+		m_events->OnStoreChange({ EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, false });
 	}
-	void ScriptSources::Remove(Guid const& context_id, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(Guid const& context_id)
 	{
-		Remove([&](Guid const& id) { return context_id == id; }, trigger);
+		Remove([&](Guid const& id) { return context_id == id; });
 	}
 
 	// Reload a range of sources
-	void ScriptSources::Reload(std::span<Guid const> ids_)
+	void ScriptSources::Reload(std::span<Guid const> ids)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
-		pr::vector<Guid> ids = ids_;
+		if (ids.empty())
+			return;
+
+		// Make a copy of the GUIDs to reload so we can pass them to the threads
+		auto context_ids = std::make_shared<vector<Guid>>(ids);
 
 		// Notify of a reload about to start
 		m_events->OnStoreChange({ EStoreChangeInitiator::Reload, {}, ids, nullptr, true });
 
-		// Reload each source in a background thread
-		std::for_each(std::execution::par, std::begin(ids), std::end(ids), [this](Guid const& id)
-		{
-			auto& src = m_srcs[id];
-			auto output = src->Load(rdr());
-			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, nullptr });
-		});
+		// Shared countdown latch. When the last source completes, fire the "after" store change.
+		auto remaining = std::make_shared<std::atomic<int>>(isize(ids));
 
-		// Queue a "store change after", after all reloads have been queued
-		rdr().RunOnMainThread([this, ids = std::move(ids)]() mutable noexcept
+		for (auto const& id : ids)
 		{
-			m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, ids, nullptr, false });
-		});
+			// Get the source associated with the id (expected to be valid).
+			auto& src = m_srcs.at(id);
+
+			// Register in 'm_loading' for cancellation/shutdown support
+			std::stop_token ss_token;
+			{
+				auto loading = m_loading.lock();
+				if (m_shutting_down.load(std::memory_order_acquire))
+					return;
+
+				std::stop_source ss;
+				ss_token = ss.get_token();
+				loading->emplace(id, std::move(ss));
+			}
+
+			// Spawn a thread to reload this source.
+			std::thread([this, src, remaining, context_ids, ss_token = std::move(ss_token)]()
+			{
+				// Run the load (long running operation)
+				auto output = src->Load(rdr(), ss_token);
+
+				// Once complete, remove from 'm_loading'
+				{
+					auto loading = m_loading.lock();
+					loading->erase(src->m_context_id);
+				}
+
+				// Notify complete to merge results
+				if (!m_shutting_down.load(std::memory_order_acquire))
+				{
+					src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, nullptr });
+				}
+
+				// When the last source completes, fire the "after" store change on the main thread
+				if (remaining->fetch_sub(1, std::memory_order_acq_rel) == 1)
+				{
+					if (!m_shutting_down.load(std::memory_order_acquire))
+					{
+						rdr().RunOnMainThread([this, ids = std::move(*context_ids)]() mutable noexcept
+						{
+							m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, ids, nullptr, false });
+						});
+					}
+				}
+			}).detach();
+		}
 	}
 
 	// Reload all sources
@@ -585,7 +627,7 @@ namespace pr::rdr12::ldraw
 			// If shutting down, skip Notify
 			if (!m_shutting_down.load(std::memory_order_acquire))
 			{
-				auto change_flags = EStoreChangeFlags::ExistingObjectsRefreshed |
+				auto change_flags =
 					(output ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None) |
 					(src->m_output ? EStoreChangeFlags::ObjectsRemoved : EStoreChangeFlags::None);
 
@@ -660,7 +702,7 @@ namespace pr::rdr12::ldraw
 
 		// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
 		ParseResult previous_data;
-		if (AllSet(args.m_change_flags, EStoreChangeFlags::ExistingObjectsRefreshed))
+		if (args.m_initiator == EStoreChangeInitiator::Reload)
 			std::swap(previous_data, existing->m_output);
 
 		// Process any received commands
@@ -669,7 +711,7 @@ namespace pr::rdr12::ldraw
 
 		// Remove any objects associated with this context id
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
-			Remove(context_id, args.m_initiator);
+			Remove(context_id);
 
 		// Merged the output with the existing output.
 		// This is a merge, rather than a replace, because stream sources add data incrementally
@@ -680,7 +722,6 @@ namespace pr::rdr12::ldraw
 		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &existing->m_output, false });
 		if (args.m_add_complete) args.m_add_complete(context_id, false);
 	}
-
 
 	// Process any commands received in a source updated
 	void ScriptSources::ProcessCommands(ParseResult::CommandBuf const& commands, std::shared_ptr<SourceBase> src, ParseResult& previous_data)
