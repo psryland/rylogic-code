@@ -25,10 +25,7 @@ namespace Rylogic.LDrawVisualiser
 			InitializeComponent();
 
 			// Set default script text
-			m_script_editor.Text = @"var b = new Builder();
-// Access debug variables via 'vars', e.g.:
-// b.Box(""obj1"").box(1,2,3).o2w(vars.my_object.m_o2w);
-return b.ToString();";
+			m_script_editor.Text = "";
 
 			// Apply VS theme to AvalonEdit
 			ApplyThemeToEditor();
@@ -220,6 +217,15 @@ return b.ToString();";
 		internal void Initialize(LDrawVisualiserPackage package)
 		{
 			m_package = package;
+
+			// Apply options defaults
+			var options = package.Options;
+			if (!string.IsNullOrEmpty(options.DefaultScriptText))
+				m_script_editor.Text = options.DefaultScriptText;
+			if (!string.IsNullOrEmpty(options.DefaultAddress))
+				m_address_box.Text = options.DefaultAddress;
+
+			m_auto_refresh_check.IsChecked = options.DefaultAutoRefresh;
 		}
 
 		/// <summary>Clean up resources</summary>

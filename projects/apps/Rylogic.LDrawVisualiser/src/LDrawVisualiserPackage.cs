@@ -17,6 +17,7 @@ namespace Rylogic.LDrawVisualiser
 	[InstalledProductRegistration("Rylogic LDraw Visualiser", "LDraw debug visualiser for Visual Studio", "1.0.0")]
 	[ProvideMenuResource("Menus.ctmenu", 1)]
 	[ProvideToolWindow(typeof(VisualizerToolWindow), Style = VsDockStyle.Tabbed, Window = "3ae79031-e1bc-11d0-8f78-00a0c9110057")]
+	[ProvideOptionPage(typeof(LDrawVisualiserOptions), "Rylogic", "LDraw Visualiser Options", 0, 0, true)]
 	[ProvideBindingPath]
 	public sealed class LDrawVisualiserPackage : AsyncPackage
 	{
@@ -24,6 +25,9 @@ namespace Rylogic.LDrawVisualiser
 
 		/// <summary>The VS automation object</summary>
 		public DTE2? Dte { get; private set; }
+
+		/// <summary>Extension options</summary>
+		public LDrawVisualiserOptions Options => (LDrawVisualiserOptions)GetDialogPage(typeof(LDrawVisualiserOptions));
 
 		/// <summary>Debug event hooks</summary>
 		private DebuggerEvents? m_debugger_events;
