@@ -645,12 +645,20 @@ class LdrCommands(_LdrBase):
 		super().__init__()
 		self.m_cmds :List[Tuple[ECommandId, List[int|float|StringWithLength|Vec2|Vec3|Vec4|Mat4|Mat4]]] = []
 
-	def add_to_scene(self, scene_id: int):
-		self.m_cmds.append((ECommandId.AddToScene, [scene_id]))
+	def clear(self):
+		self.m_cmds.append((ECommandId.Clear, []))
 		return self
 
 	def transform_object(self, object_name: str, o2w: Mat4):
 		self.m_cmds.append((ECommandId.ObjectToWorld, [StringWithLength(object_name), o2w]))
+		return self
+
+	def object_colour(self, object_name: str, colour: int):
+		self.m_cmds.append((ECommandId.ObjectColour, [StringWithLength(object_name), colour]))
+		return self
+
+	def render_frame(self):
+		self.m_cmds.append((ECommandId.Render, []))
 		return self
 
 	def _WriteTo(self, out: List[str]|bytearray):
