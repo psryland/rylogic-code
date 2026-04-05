@@ -653,11 +653,11 @@ namespace pr::str
 		if (str.empty()) return false;
 
 		errno = 0;
-		Char const* end;
-		num = Number::From(str.c_str(), &end, radix);
+		auto [n,c] = Number::From<Char>(str, radix);
+		num = n;
 
 		// Check all of the string was used in the conversion and there wasn't an overflow
-		return static_cast<size_t>(end - str.c_str()) == str.size() && errno != ERANGE;
+		return c == str.size() && errno != ERANGE;
 	}
 	template <typename Ptr, CharType Char = char_type_t<Ptr>>
 	inline bool ExtractNumberC(Number& num, Ptr src, int radix = 0, Char const* delim = nullptr)

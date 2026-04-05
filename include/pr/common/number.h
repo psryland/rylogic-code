@@ -4,11 +4,13 @@
 //*************************************************************
 // A value type that is either a double, 'long long', or 'unsigned long long'
 #pragma once
-#include <cstdlib>
-#include <cstring>
-#include <cerrno>
+#include <charconv>
 #include <cassert>
 #include <exception>
+#include <limits>
+#include <algorithm>
+#include <string_view>
+#include <type_traits>
 
 namespace pr
 {
@@ -38,13 +40,15 @@ namespace pr
 			:m_ul(u)
 			,m_type(EType::UInt)
 		{}
-		explicit Number(char const* expr, char const** end = nullptr, int radix = 0)
+		explicit Number(std::string_view expr, int radix = 0)
 		{
-			*this = From(expr, end, radix);
+			auto [num, consumed] = From(expr, radix);
+			*this = num;
 		}
-		explicit Number(wchar_t const* expr, wchar_t const** end = nullptr, int radix = 0)
+		explicit Number(std::wstring_view expr, int radix = 0)
 		{
-			*this = From(expr, end, radix);
+			auto [num, consumed] = From(expr, radix);
+			*this = num;
 		}
 
 		Number& operator = (float              v) { m_db = v; m_type = EType::FP;   return *this; }
@@ -88,98 +92,127 @@ namespace pr
 				0ULL;
 		}
 
-		#pragma region traits
-		template <typename Char> struct traits_base;
-		template <> struct traits_base<char>
+		// Read a value (greedily) from 'expr'. Returns the number and the number of characters consumed.
+		template <typename Char>
+		static std::tuple<Number, size_t> From(std::basic_string_view<Char> expr, int radix = 0)
 		{
-			static double             strtod(char const* str, char** end)                   { return ::strtod(str, end); }
-			static long               strtol(char const* str, char** end, int radix)        { return ::strtol(str, end, radix); }
-			static unsigned long      strtoul(char const* str, char** end, int radix)       { return ::strtoul(str, end, radix); }
-			static long long          strtoi64(char const* str, char** end, int radix)      { return ::_strtoi64(str, end, radix); }
-			static unsigned long long strtoui64(char const* str, char** end, int radix)     { return ::_strtoui64(str, end, radix); }
-			static int                strnicmp(char const* lhs, char const* rhs, int count) { return ::_strnicmp(lhs, rhs, count); }
-			static char const*        str(char const* str, wchar_t const*)                  { return str; }
-		};
-		template <> struct traits_base<wchar_t>
-		{
-			static double             strtod(wchar_t const* str, wchar_t** end)                   { return ::wcstod(str, end); }
-			static long               strtol(wchar_t const* str, wchar_t** end, int radix)        { return ::wcstol(str, end, radix); }
-			static long long          strtoi64(wchar_t const* str, wchar_t** end, int radix)      { return ::_wcstoi64(str, end, radix); }
-			static unsigned long      strtoul(wchar_t const* str, wchar_t** end, int radix)       { return ::wcstoul(str, end, radix); }
-			static unsigned long long strtoui64(wchar_t const* str, wchar_t** end, int radix)     { return ::_wcstoui64(str, end, radix); }
-			static int                strnicmp(wchar_t const* lhs, wchar_t const* rhs, int count) { return ::_wcsnicmp(lhs, rhs, count); }
-			static wchar_t const*     str(char const*, wchar_t const* str)                        { return str; }
-		};
-		#pragma endregion
-
-		// Read a value (greedily) from 'expr'
-		template <typename Char> static Number From(Char const* expr, Char const** end = nullptr, int radix = 0)
-		{
-			using traits = traits_base<Char>;
-
-			// Read as a floating point number
-			Char* endf; errno = 0;
-			auto db = traits::strtod(expr, &endf);
-
-			// Read as a integer
-			Char* endi; errno = 0;
-			auto ll = traits::strtoi64(expr, &endi, radix);
-
-			// Read as an unsigned integer
-			Char* endu; errno = 0;
-			auto ul = traits::strtoui64(expr, &endu, radix);
-
 			Number num;
 
-			// If no characters contributed to the number, assume not a number
-			if (endf == expr && endi == expr && endu == expr)
+			// Narrow to char for std::from_chars (number literals are always ASCII)
+			std::string_view sv;
+			char narrow_buf[128];
 			{
-				if (end) *end = const_cast<Char*>(expr);
-				return num;
-			}
-
-			// If more chars are read as a float, then assume a float
-			if (endf > endi && endf > endu)
-			{
-				num.m_db = db;
-				num.m_type = EType::FP;
-
-				if (end)
+				if constexpr (std::is_same_v<Char, char>)
 				{
-					// Skip suffix characters
-					if (*endf == 'f' || *endf == 'F') ++endf;
-					*end = endf;
+					sv = { expr.data(), expr.size() };
+				}
+				else
+				{
+					auto n = (std::min)(expr.size(), sizeof(narrow_buf));
+					for (size_t i = 0; i != n; ++i)
+						narrow_buf[i] = static_cast<char>(expr[i]);
+
+					sv = { narrow_buf, n };
 				}
 			}
-			// If more characters are read as an unsigned int, assume unsigned int
-			else if (endu > endi)
+
+			auto const beg = sv.data();
+			auto const end = beg + sv.size();
+			if (beg == end)
+				return { num, 0 };
+
+			// Detect sign. from_chars handles '-' for floats but not '+' for either type.
+			bool is_neg = false;
+			auto after_sign = beg;
+			if (*after_sign == '+')
 			{
-				num.m_ul = ul;
-				num.m_type = EType::UInt;
-				if (end)
+				++after_sign;
+			}
+			else if (*after_sign == '-')
+			{
+				is_neg = true;
+				++after_sign;
+			}
+
+			// Detect 0x/0b prefix (after sign)
+			auto after_prefix = after_sign;
+			bool has_hex_prefix = (after_prefix + 1 < end && after_prefix[0] == '0' && (after_prefix[1] == 'x' || after_prefix[1] == 'X'));
+			bool has_bin_prefix = (after_prefix + 1 < end && after_prefix[0] == '0' && (after_prefix[1] == 'b' || after_prefix[1] == 'B'));
+			if (has_hex_prefix || has_bin_prefix)
+				after_prefix += 2;
+
+			// Try parse as floating point. from_chars handles '-' natively but not '+', so skip '+' only
+			double db_val = 0;
+			auto fp_end = beg;
+
+			if (has_hex_prefix)
+			{
+				// Hex float: from_chars(hex) doesn't expect 0x prefix
+				auto r = std::from_chars(after_prefix, end, db_val, std::chars_format::hex);
+				if (r.ec == std::errc{})
 				{
-					// Skip suffix characters
-					if (*endu == 'u' || *endu == 'U') ++endu;
-					if (*endu == 'l' || *endu == 'L') ++endu;
-					if (*endu == 'l' || *endu == 'L') ++endu;
-					*end = endu;
+					if (is_neg) db_val = -db_val;
+					fp_end = r.ptr;
 				}
 			}
-			// Otherwise assume signed integer
 			else
 			{
-				num.m_ll = ll;
-				num.m_type = EType::Int;
-				if (end)
-				{
-					// Skip suffix characters
-					if (*endi == 'u' || *endi == 'U') ++endi;
-					if (*endi == 'l' || *endi == 'L') ++endi;
-					if (*endi == 'l' || *endi == 'L') ++endi;
-					*end = endi;
-				}
+				auto fp_start = (*beg == '+') ? after_sign : beg;
+				auto r = std::from_chars(fp_start, end, db_val, std::chars_format::general);
+				if (r.ec == std::errc{})
+					fp_end = r.ptr;
 			}
-			return num;
+
+			// Try parse as integer
+			auto int_radix = radix;
+			auto digit_start = after_sign;
+
+			if (int_radix == 0)
+			{
+				if (has_hex_prefix)      { int_radix = 16; digit_start = after_prefix; }
+				else if (has_bin_prefix) { int_radix = 2;  digit_start = after_prefix; }
+				else if (after_sign != end && *after_sign == '0') int_radix = 8;
+				else                     int_radix = 10;
+			}
+			else
+			{
+				// With explicit radix, skip matching prefix if present
+				if (int_radix == 16 && has_hex_prefix) digit_start = after_prefix;
+				else if (int_radix == 2 && has_bin_prefix) digit_start = after_prefix;
+			}
+
+			// Parse digits as unsigned, then apply sign manually.
+			// from_chars can't handle sign + prefix being non-contiguous (e.g. "-0xFF" → "-" then "FF").
+			unsigned long long raw = 0;
+			auto int_result = std::from_chars(digit_start, end, raw, int_radix);
+			auto int_end = (int_result.ec == std::errc{}) ? int_result.ptr : beg;
+
+			// If no characters contributed to either parse, not a number
+			if (fp_end <= beg && int_end <= beg)
+				return { num, 0 };
+
+			// Determine the type based on which parse consumed more characters
+			if (fp_end > int_end)
+			{
+				num.m_db = db_val;
+				num.m_type = EType::FP;
+			}
+			else if (is_neg)
+			{
+				num.m_ll = -static_cast<long long>(raw);
+				num.m_type = EType::Int;
+			}
+			else if (raw <= static_cast<unsigned long long>((std::numeric_limits<long long>::max)()))
+			{
+				num.m_ll = static_cast<long long>(raw);
+				num.m_type = EType::Int;
+			}
+			else
+			{
+				num.m_ul = raw;
+				num.m_type = EType::UInt;
+			}
+			return { num, static_cast<size_t>(std::max(fp_end, int_end) - beg) };
 		}
 
 		// Comparison operators. Compare as floating point if either is floating point
@@ -277,7 +310,7 @@ namespace pr::common
 		PR_EXPECT(n5.ll() == 0xDeaDBeeFLL);
 		PR_EXPECT(n5.ul() == 0xDeaDBeeFULL);
 
-		auto n6 = Number("10110101", nullptr, 2);
+		auto n6 = Number("10110101", 2);
 		PR_EXPECT(FEql(n6.db(), static_cast<double>(0b10110101)));
 		PR_EXPECT(n6.ll() == 0b10110101LL);
 		PR_EXPECT(n6.ul() == 0b10110101ULL);
