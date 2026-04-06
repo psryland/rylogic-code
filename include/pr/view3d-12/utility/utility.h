@@ -415,7 +415,7 @@ namespace pr::rdr12
 	void DefaultResState(ID3D12Resource* res, D3D12_RESOURCE_STATES state);
 
 	// Parse an embedded resource string of the form: "@<hmodule|module_name>:<res_type>:<res_name>"
-	void ParseEmbeddedResourceUri(std::wstring const& uri, HMODULE& hmodule, wstring32& res_type, wstring32& res_name);
+	std::tuple<HMODULE, std::wstring, std::wstring> ParseEmbeddedResourceUri(std::filesystem::path const& uri);
 
 	// Return an ordered list of file paths based on 'pattern'
 	vector<std::filesystem::path> PatternToPaths(std::filesystem::path const& dir, char8_t const* pattern);

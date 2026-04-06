@@ -165,10 +165,10 @@ namespace pr::rdr12
 	using hlsl::ShaderReg;
 
 	// Fixed size strings
-	using string32 = pr::string<char, 32>;
-	using string512 = pr::string<char, 512>;
-	using wstring32 = pr::string<wchar_t, 32>;
-	using wstring256 = pr::string<wchar_t, 256>;
+	using string32 = string<char, 32>;
+	using string512 = string<char, 512>;
+	using wstring32 = string<wchar_t, 32>;
+	using wstring256 = string<wchar_t, 256>;
 
 	// Constants
 	static constexpr Range RangeZero = Range::Zero();

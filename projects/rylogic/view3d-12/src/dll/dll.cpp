@@ -92,7 +92,7 @@ VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_e
 	}
 	catch (std::exception const& e)
 	{
-		global_error_cb(FmtS("Failed to initialise View3D.\nReason: %s\n", e.what()), "", 0, 0);
+		global_error_cb(std::format("Failed to initialise View3D.\nReason: {}\n", e.what()).c_str(), "", 0, 0);
 		return nullptr;
 	}
 	catch (...)

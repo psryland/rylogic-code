@@ -105,11 +105,11 @@ namespace pr::script
 		}
 
 		// Get/Set delimiter characters
-		wchar_t const* Delimiters() const noexcept
+		std::wstring_view Delimiters() const noexcept
 		{
-			return m_delim.c_str();
+			return m_delim;
 		}
-		void Delimiters(wchar_t const* delim) noexcept
+		void Delimiters(std::wstring_view delim) noexcept
 		{
 			m_delim = delim;
 		}
@@ -134,7 +134,7 @@ namespace pr::script
 		bool IsSourceEnd()
 		{
 			auto& src = m_pp;
-			EatDelimiters(src, m_delim.c_str());
+			EatDelimiters(src, m_delim);
 			return *src == 0;
 		}
 
@@ -142,7 +142,7 @@ namespace pr::script
 		bool IsKeyword()
 		{
 			auto& src = m_pp;
-			EatDelimiters(src, m_delim.c_str());
+			EatDelimiters(src, m_delim);
 			return *src == '*';
 		}
 
@@ -150,13 +150,13 @@ namespace pr::script
 		bool IsSectionStart()
 		{
 			auto& src = m_pp;
-			EatDelimiters(src, m_delim.c_str());
+			EatDelimiters(src, m_delim);
 			return *src == L'{';
 		}
 		bool IsSectionEnd()
 		{
 			auto& src = m_pp;
-			EatDelimiters(src, m_delim.c_str());
+			EatDelimiters(src, m_delim);
 			return *src == L'}';
 		}
 
@@ -170,7 +170,7 @@ namespace pr::script
 		bool IsMatch(int n, std::wregex pattern)
 		{
 			auto& src = m_pp;
-			EatDelimiters(src, m_delim.c_str());
+			EatDelimiters(src, m_delim);
 			auto const len = src.ReadAhead(n);
 			return std::regex_match(string_t(src.Buffer(0, len)), pattern);
 		}
@@ -267,7 +267,7 @@ namespace pr::script
 			}
 			if (*src == L'*') ++src; else return false;
 			str::Resize(kw, 0);
-			if (!str::ExtractIdentifier(kw, src, m_delim.c_str())) return false;
+			if (!str::ExtractIdentifier(kw, src, m_delim)) return false;
 			if (!m_case_sensitive) str::LowerCase(kw);
 			m_last_keyword = pr::Widen(kw);
 			return true;
@@ -335,7 +335,7 @@ namespace pr::script
 		{
 			auto& src = m_pp;
 			str::Resize(token, 0);
-			return str::ExtractToken(token, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "token expected");
+			return str::ExtractToken(token, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "token expected");
 		}
 		template <typename StrType> bool TokenS(StrType& token)
 		{
@@ -379,7 +379,7 @@ namespace pr::script
 		{
 			auto& src = m_pp;
 			str::Resize(word, 0);
-			return str::ExtractIdentifier(word, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "{identifier} expected");
+			return str::ExtractIdentifier(word, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "{identifier} expected");
 		}
 		template <typename StrType> bool IdentifierS(StrType& word)
 		{
@@ -391,13 +391,13 @@ namespace pr::script
 		{
 			auto& src = m_pp;
 			str::Resize(word, 0);
-			return str::ExtractIdentifier(word, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "identifier expected");
+			return str::ExtractIdentifier(word, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "identifier expected");
 		}
 		template <typename StrType, typename... StrTypes> bool Identifiers(char sep, StrType& word, StrTypes&&... words)
 		{
 			auto& src = m_pp;
 			str::Resize(word, 0);
-			if (!str::ExtractIdentifier(word, src, m_delim.c_str())) return ReportError(EResult::TokenNotFound, Location(), "identifier expected");
+			if (!str::ExtractIdentifier(word, src, m_delim)) return ReportError(EResult::TokenNotFound, Location(), "identifier expected");
 			if (*src == sep) ++src; else return ReportError(EResult::TokenNotFound, Location(), "identifier separator expected");
 			return Identifiers(sep, std::forward<StrTypes>(words)...);
 		}
@@ -421,7 +421,7 @@ namespace pr::script
 		{
 			auto& src = m_pp;
 			str::Resize(string, 0);
-			if (str::ExtractString<StrType>(string, src, m_delim.c_str()))
+			if (str::ExtractString<StrType>(string, src, m_delim))
 			{
 				str::ProcessIndentedNewlines(string);
 				return true;
@@ -448,7 +448,7 @@ namespace pr::script
 		{
 			auto& src = m_pp;
 			str::Resize(cstring, 0);
-			return str::ExtractString<StrType>(cstring, src, L'\\', nullptr, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "'cstring' expected");
+			return str::ExtractString<StrType>(cstring, src, L'\\', {}, m_delim) || ReportError(EResult::TokenNotFound, Location(), "'cstring' expected");
 		}
 		template <typename StrType> bool CStringS(StrType& cstring)
 		{
@@ -497,7 +497,7 @@ namespace pr::script
 		bool Bool(bool& bool_)
 		{
 			auto& src = m_pp;
-			return str::ExtractBool(bool_, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "bool expected");
+			return str::ExtractBool(bool_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "bool expected");
 		}
 		bool BoolS(bool& bool_)
 		{
@@ -527,7 +527,7 @@ namespace pr::script
 		template <typename TInt> bool Int(TInt& int_, int radix)
 		{
 			auto& src = m_pp;
-			return str::ExtractInt(int_, radix, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "integral value expected");
+			return str::ExtractInt(int_, radix, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "integral value expected");
 		}
 		template <typename TInt> bool IntS(TInt& int_, int radix)
 		{
@@ -557,7 +557,7 @@ namespace pr::script
 		template <typename TReal> bool Real(TReal& real_)
 		{
 			auto& src = m_pp;
-			return str::ExtractReal(real_, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "real expected");
+			return str::ExtractReal(real_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "real expected");
 		}
 		template <typename TReal> bool RealS(TReal& real_)
 		{
@@ -587,7 +587,7 @@ namespace pr::script
 		template <typename TEnum> bool EnumValue(TEnum& enum_)
 		{
 			auto& src = m_pp;
-			return str::ExtractEnumValue(enum_, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "enum integral value expected");
+			return str::ExtractEnumValue(enum_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum integral value expected");
 		}
 		template <typename TEnum> bool EnumValueS(TEnum& enum_)
 		{
@@ -608,7 +608,7 @@ namespace pr::script
 		template <typename TEnum> bool Enum(TEnum& enum_)
 		{
 			auto& src = m_pp;
-			return str::ExtractEnum(enum_, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "enum member string name expected");
+			return str::ExtractEnum(enum_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum member string name expected");
 		}
 		template <typename TEnum> bool EnumS(TEnum& enum_)
 		{

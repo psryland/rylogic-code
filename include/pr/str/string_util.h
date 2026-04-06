@@ -188,13 +188,15 @@ namespace pr::str
 	template <StringType Str, CharType Char>
 	inline void CompressDelimiters(Str& str, Char ws_char, bool preserve_newlines)
 	{
-		return CompressDelimiters(str, Delim<Char>(nullptr), ws_char, preserve_newlines);
+		return CompressDelimiters(str, Delim<Char>(), ws_char, preserve_newlines);
 	}
 
 	// Convert a string to tokens, returning each token via 'token_cb'. Sig: token_cb(char const* s, char const* e);
-	template <StringType Str, typename TokenCB, CharType Char>
-	void TokeniseCB(Str const& str, TokenCB token_cb, Char const* delim, bool remove_quotes = true)
+	template <StringType Str, CharType Char = typename string_traits<Str>::value_type, std::invocable<std::basic_string_view<Char>> TokenCB>
+	void TokeniseCB(Str const& str, TokenCB token_cb, std::basic_string_view<std::type_identity_t<Char>> delim, bool remove_quotes = true)
 	{
+		using SV = std::basic_string_view<Char>;
+
 		auto s = BeginC(str);
 		auto end = EndC(str);
 		for (; s != end; s += int(s != end))
@@ -209,7 +211,7 @@ namespace pr::str
 				lit.WithinLiteral(*s);
 				for (++e; e != end && lit.WithinLiteral(*e); ++e) {}
 				if (*(e - 1) != quote) throw std::runtime_error("Incomplete string/character literal");
-				token_cb(s + remove_quotes, e - remove_quotes);
+				token_cb(SV{ s + remove_quotes, e - remove_quotes });
 				s = e;
 				continue;
 			}
@@ -219,25 +221,23 @@ namespace pr::str
 			{
 				auto e = s;
 				for (; e != end && *FindChar(delim, *e) == 0; ++e) {}
-				token_cb(s, e);
+				token_cb(SV{ s, e });
 				s = --e;
 				continue;
 			}
 		}
 	}
 	template <StringType Str, typename StrCont, CharType Char>
-	void Tokenise(Str const& str, StrCont& tokens, Char const* delim, bool remove_quotes = true)
+	void Tokenise(Str const& str, StrCont& tokens, std::basic_string_view<Char> delim, bool remove_quotes = true)
 	{
 		using StrOut = typename StrCont::value_type;
-		TokeniseCB(str, [&](Char const* s, Char const* e)
-		{
-			tokens.push_back(StrOut(s, e));
-		}, delim, remove_quotes);
+		TokeniseCB(str, [&](auto s) { tokens.push_back(StrOut(s)); }, delim, remove_quotes);
 	}
 	template <typename Str, typename StrCont>
 	inline void Tokenise(Str const& str, StrCont& tokens, bool remove_quotes = true)
 	{
-		return Tokenise(str, tokens, Delim<typename string_traits<Str>::value_type>(), remove_quotes);
+		using Char = typename string_traits<Str>::value_type;
+		return Tokenise(str, tokens, Delim<Char>(), remove_quotes);
 	}
 
 	// Strip blocks or lines from a string. Pass empty strings to ignore those pattern types.

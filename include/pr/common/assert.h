@@ -24,6 +24,7 @@
 //
 //"pr/common/assert.h" should be included prior to this for pr asserts
 #pragma once
+#include <string>
 
 // Assert enabler for common headers
 // If not defined, set it based on whether it's a debug build
@@ -32,17 +33,6 @@
 #    define PR_DBG 0
 #  else
 #    define PR_DBG 1
-#  endif
-#endif
-
-// Check whether the message output function has been
-// defined, if not, define it as OutputDebugString or printf
-#ifndef PR_OUTPUT_MSG
-#  ifdef OutputDebugString
-#    define PR_OUTPUT_MSG(str)   OutputDebugStringA(str)
-#  else
-#    include <cstdio>
-#    define PR_OUTPUT_MSG(str)   printf("%s", (str))
 #  endif
 #endif
 
@@ -131,8 +121,18 @@
 #define PR_EXPAND1(exp)         exp
 #define PR_EXPAND(grp, exp)     PR_JOIN(PR_EXPAND, grp)(exp)
 
-#define PR_INFO0(show, str)     do {} while (pr::impl::ConstantExpressionSink(false))
-#define PR_INFO1(show, str)     do { if (pr::impl::ConstantExpressionSink(show)) { PR_OUTPUT_MSG(str); size_t len=strlen(str); if(len&&(str)[len-1]!='\n') {PR_OUTPUT_MSG("\n");} } } while (pr::impl::ConstantExpressionSink(false))
+#define PR_INFO0(show, str)     do {} while (0)
+#define PR_INFO1(show, str)\
+do\
+{\
+	if (pr::impl::ConstantExpressionSink(show))\
+	{\
+		std::string info_str(str);\
+		if (!info_str.empty() && info_str.back() != '\n') info_str.append("\n");\
+		OutputDebugStringA(info_str.c_str());\
+	}\
+}\
+while (pr::impl::ConstantExpressionSink(false))
 
 #define PR_ASSERT0(exp, str)    do {} while (pr::impl::ConstantExpressionSink(false))
 #define PR_ASSERT1(exp, str)    do { PR_ASSERT_FUNC(exp, str); } while (pr::impl::ConstantExpressionSink(false))

@@ -15,6 +15,7 @@
 #include <span>
 #include <memory>
 #include <cstdint>
+#include <string_view>
 #include <functional>
 #include <type_traits>
 #include <windows.h>
@@ -41,7 +42,7 @@ namespace pr
 
 	namespace view3d
 	{
-		using DllHandle = unsigned char const*;
+		using DllHandle = std::byte const*;
 		using Object = rdr12::ldraw::LdrObject*;
 		using Gizmo = rdr12::ldraw::LdrGizmo*;
 		using Texture = rdr12::Texture2D*;

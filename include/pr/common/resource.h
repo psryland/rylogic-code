@@ -107,10 +107,10 @@ namespace pr
 		// If you're resource is in a dll, you need to use the HMODULE passed to the DllMain function
 		// Note: you can use pr::GetCurrentModule() for 'module'
 		template <typename Type>
-		Resource<Type> Read(std::wstring_view name, wchar_t const* type, HMODULE module = nullptr)
+		Resource<Type> Read(std::wstring_view name, std::wstring_view type, HMODULE module = nullptr)
 		{
 			// Get a handle to the resource
-			auto handle = ::FindResourceW(module, Name(name).c_str(), type);
+			auto handle = ::FindResourceW(module, Name(name).c_str(), std::wstring{ type }.c_str());
 			if (!handle)
 			{
 				auto last_error = ::GetLastError();

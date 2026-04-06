@@ -134,7 +134,7 @@ namespace pr::script
 					auto is_char = *src == '\'';
 
 					string_t str;
-					if (!str::ExtractString(str, src, L'\\', nullptr)) throw ScriptException(EResult::SyntaxError, src.Location(), "Invalid literal constant");
+					if (!str::ExtractString(str, src, L'\\')) throw ScriptException(EResult::SyntaxError, src.Location(), "Invalid literal constant");
 					if (is_char) m_tok = Token(EConstant::Integral, int64_t(str[0])); // char literals are actually integral constants
 					else if (is_wide) m_tok = Token(EConstant::WStringLiteral, str);
 					else              m_tok = Token(EConstant::StringLiteral, str);
