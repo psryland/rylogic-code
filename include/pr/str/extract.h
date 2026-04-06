@@ -4,6 +4,7 @@
 //**********************************
 #pragma once
 #include <type_traits>
+#include <charconv>
 #include <cerrno>
 #include "pr/common/number.h"
 #include "pr/str/string_core.h"
@@ -538,7 +539,8 @@ namespace pr::str
 
 		string<Char, 256> str = {};
 		BufferNumber(str, src, radix, ENumType::Int, delim);
-		if (str.empty()) return false;
+		if (str.empty())
+			return false;
 
 		errno = 0;
 		Char const* end;

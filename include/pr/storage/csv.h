@@ -108,7 +108,7 @@ namespace pr::csv
 	inline Str EscapeString(Str str)
 	{
 		// Search for characters that need escaping
-		if (!std::any_of(std::begin(str), std::end(str), [](char c){ return c == '"' || c == ',' || c == '\n'; }))
+		if (!std::any_of(std::begin(str), std::end(str), [](char c){ return c == '"' || c == ',' || c == '\n' || c == '\r'; }))
 			return str;
 
 		Str out; out.reserve(str.size() * 11 / 10);
@@ -127,13 +127,14 @@ namespace pr::csv
 			return str;
 
 		Str out; out.reserve(str.size());
-		auto ptr = str.c_str();
-		for (++ptr; *ptr != 0; ++ptr)
+		auto ptr = str.data();
+		auto end = ptr + str.size();
+		for (++ptr; ptr != end; ++ptr)
 		{
 			if (*ptr == '"' && *(++ptr) != '"') break;
 			out.push_back(*ptr);
 		}
-		if (*ptr != 0) throw std::runtime_error("'csv' string incorrectly escaped");
+		if (ptr != end) throw std::runtime_error("'csv' string incorrectly escaped");
 		return out;
 	}
 
@@ -301,7 +302,8 @@ namespace pr::csv
 	template <typename Stream>
 	inline void Write(Stream& s, Str const& item)
 	{
-		s << EscapeString(item);
+		auto escaped = EscapeString(item);
+		s.write(escaped.data(), escaped.size());
 	}
 
 	// Write one row to a stream
@@ -312,7 +314,7 @@ namespace pr::csv
 		for (auto item : row)
 		{
 			Write(s, item);
-			if (--count != 0) s << ",";
+			if (--count != 0) s.put(',');
 		}
 	}
 
@@ -324,7 +326,7 @@ namespace pr::csv
 		for (auto row : csv)
 		{
 			Write(s, row);
-			if (--count != 0) s << '\n';
+			if (--count != 0) s.put('\n');
 		}
 	}
 
