@@ -426,57 +426,8 @@ namespace pr::rdr12
 			for (auto& obj : src->m_output.m_objects)
 				m_objects.insert(obj.get());
 
-			// Apply camera settings from this source
-			if (src->m_output.m_cam_fields != ldraw::ECamField::None)
-			{
-				auto& cam = src->m_output.m_cam;
-				auto changed = view3d::ESettings::Camera;
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::C2W))
-				{
-					m_scene.m_cam.CameraToWorld(cam.CameraToWorld());
-					changed |= view3d::ESettings::Camera_Position;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Focus))
-				{
-					m_scene.m_cam.LookAt(cam.CameraToWorld().pos, cam.FocusPoint(), cam.CameraToWorld().y);
-					changed |= view3d::ESettings::Camera_Position;
-					changed |= view3d::ESettings::Camera_FocusDist;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Align))
-				{
-					m_scene.m_cam.Align(cam.Align());
-					changed |= view3d::ESettings::Camera_AlignAxis;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Aspect))
-				{
-					m_scene.m_cam.Aspect(cam.Aspect());
-					changed |= view3d::ESettings::Camera_Aspect;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::FovY))
-				{
-					m_scene.m_cam.FovY(cam.FovY());
-					changed |= view3d::ESettings::Camera_Fov;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Near))
-				{
-					m_scene.m_cam.Near(cam.Near(true), true);
-					changed |= view3d::ESettings::Camera_ClipPlanes;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Far))
-				{
-					m_scene.m_cam.Far(cam.Far(true), true);
-					changed |= view3d::ESettings::Camera_ClipPlanes;
-				}
-				if (AllSet(src->m_output.m_cam_fields, ldraw::ECamField::Ortho))
-				{
-					m_scene.m_cam.Orthographic(cam.Orthographic());
-					changed |= view3d::ESettings::Camera_Orthographic;
-				}
-
-				// Notify if the camera was changed
-				if (changed != view3d::ESettings::Camera)
-					OnSettingsChanged(this, changed);
-			}
+			// TODO: Camera settings are now applied via the command system (see ProcessCommand in ldraw_sources.cpp).
+			// Camera commands need to be added to ECommand and processed there.
 		}
 		if (m_objects.size() != old_count)
 		{

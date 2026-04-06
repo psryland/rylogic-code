@@ -50,21 +50,19 @@ namespace pr::rdr12::ldraw
 	// The results of parsing ldr script
 	struct ParseResult
 	{
-		using ObjectLookup = std::unordered_map<size_t, LdrObject*>;
+		using ObjectLookup = std::unordered_map<size_t, LdrObject const*>;
 		using CommandBuf = pr::byte_data<16>;
 
-		ObjectCont   m_objects;    // Reference to the objects container to fill
-		CommandBuf   m_commands;   // A buffer of Ldraw commands (todo: replace 'm_cam' with these)
-		ObjectLookup m_lookup;     // A lookup map for objects by hashed object name (includes child objects, e.g. Hash(Parent.Child.GrandChild))
-		Camera       m_cam;        // Camera description has been read
-		ECamField    m_cam_fields; // Bitmask of fields in 'm_cam' that were given in the camera description
-		bool         m_wireframe;  // True if '*Wireframe' was read in the script
+		ObjectCont m_objects; // Reference to the objects container to fill
+		CommandBuf m_commands; // A buffer of Ldraw commands (todo: replace 'm_cam' with these)
+		mutable ObjectLookup m_cache; // A cache of name hashes to object pointers for faster lookups
 
 		ParseResult();
 		void reset();
 		size_t count() const;
 		LdrObjectPtr operator[](size_t index) const;
-		ParseResult& Merge(ParseResult const& rhs, bool include_commands = true);
+		LdrObject const* lookup(std::string_view full_name) const;
+		LdrObject* lookup(std::string_view full_name);
 		explicit operator bool() const;
 	};
 

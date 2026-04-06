@@ -10,6 +10,20 @@
 
 namespace pr::rdr12::ldraw
 {
+	// Two main usage patterns for streaming sources:
+	// 1)
+	//    - (Re)Connect
+	//    - Command: clear()
+	//    - Create objects (using Builder)
+	//    - Command: render()
+	// 2)
+	//    - If !connected:
+	//        - Reconnect
+	//        - Command: clear()
+	//        - Create objects
+	//    - Command: Update object transforms
+	//    - Command: render()
+
 	SourceStream::SourceStream(Guid const* context_id, Renderer* rdr, Socket&& socket, sockaddr_in addr)
 		: SourceBase(context_id)
 		, m_rdr(rdr)
@@ -176,7 +190,7 @@ namespace pr::rdr12::ldraw
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
 				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, change_flags, nullptr });
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
 			}
 		}
 
@@ -244,7 +258,7 @@ namespace pr::rdr12::ldraw
 				// The notify handler handles calls from any thread.
 				auto src = shared_from_this();
 				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::AppendData, change_flags, nullptr });
+				src->Notify(src, { std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
 			}
 		}
 

@@ -14,6 +14,7 @@ namespace pr::rdr12::ldraw
 	// A container that doesn't invalidate on add/remove is needed because
 	// the file watcher contains a pointer into the 'Source' objects.
 	using SourceCont = std::unordered_map<Guid, std::shared_ptr<SourceBase>>;
+	struct CommandHeader;
 
 	// Socket listening state
 	enum class EStreamingState
@@ -188,7 +189,7 @@ namespace pr::rdr12::ldraw
 		// Handler for when new data is received from a source
 		void SourceNotifyHandler(std::shared_ptr<SourceBase> src, NotifyEventArgs const& args);
 
-		// Process any commands received in a source updated
-		void ProcessCommands(ParseResult::CommandBuf const& commands, std::shared_ptr<SourceBase> src, ParseResult& previous_data);
+		// Process a command received in a source updated
+		void ProcessCommand(std::shared_ptr<SourceBase> src, NotifyEventArgs const& args, byte_data_cptr& ptr, ParseResult& previous_data);
 	};
 }

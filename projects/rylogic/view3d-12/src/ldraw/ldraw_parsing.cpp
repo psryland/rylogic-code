@@ -167,7 +167,6 @@ namespace pr::rdr12::ldraw
 		Renderer&       m_rdr;
 		ParseResult&    m_result;
 		ObjectCont&     m_objects;
-		ObjectLookup&   m_lookup;
 		ResourceFactory m_factory;
 		ReportErrorCB   m_report_error;
 		Guid            m_context_id;
@@ -186,7 +185,6 @@ namespace pr::rdr12::ldraw
 			: m_rdr(rdr)
 			, m_result(result)
 			, m_objects(result.m_objects)
-			, m_lookup(result.m_lookup)
 			, m_factory(rdr)
 			, m_report_error(error_cb)
 			, m_context_id(context_id)
@@ -205,7 +203,6 @@ namespace pr::rdr12::ldraw
 			: m_rdr(pp.m_rdr)
 			, m_result(pp.m_result)
 			, m_objects(objects)
-			, m_lookup(pp.m_lookup)
 			, m_factory(pp.m_rdr)
 			, m_report_error(pp.m_report_error)
 			, m_context_id(pp.m_context_id)
@@ -308,8 +305,11 @@ namespace pr::rdr12::ldraw
 
 			out.m_commands.pad_to(16);
 
-			// Read the command id, then parse the associated command
+			// Read the command id
 			auto id = reader.Enum<ECommandId>();
+			auto header = CommandHeader{ .m_id = id, .m_exe_index = s_cast<int>(pp.m_result.count()) };
+
+			// Parse the associated command
 			switch (id)
 			{
 				case ECommandId::Invalid:
@@ -318,7 +318,7 @@ namespace pr::rdr12::ldraw
 				}
 				case ECommandId::Clear:
 				{
-					out.m_commands.push_back(Command_Clear{ .m_id = id });
+					out.m_commands.push_back(Command_Clear{ .m_hdr = header });
 					break;
 				}
 				case ECommandId::ObjectToWorld:
@@ -326,8 +326,8 @@ namespace pr::rdr12::ldraw
 					auto obj_addr = reader.Identifier<string32>();
 					auto obj_o2w = reader.Matrix4x4();
 
-					auto cmd = Command_ObjectToWorld{ .m_id = id, .m_obj_addr = {}, .m_o2w = obj_o2w };
-					memcpy(&cmd.m_obj_addr[0], obj_addr.c_str(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
+					auto cmd = Command_ObjectToWorld{ .m_hdr = header, .m_obj_addr = {}, .m_o2w = obj_o2w };
+					memcpy(&cmd.m_obj_addr[0], obj_addr.data(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
 					out.m_commands.push_back(cmd);
 					break;
 				}
@@ -336,109 +336,19 @@ namespace pr::rdr12::ldraw
 					auto obj_addr = reader.Identifier<string32>();
 					auto obj_colour = reader.Int<uint32_t>(16);
 
-					auto cmd = Command_ObjectColour{ .m_id = id, .m_obj_addr = {}, .m_col = obj_colour };
-					memcpy(&cmd.m_obj_addr[0], obj_addr.c_str(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
+					auto cmd = Command_ObjectColour{ .m_hdr = header, .m_obj_addr = {}, .m_col = obj_colour };
+					memcpy(&cmd.m_obj_addr[0], obj_addr.data(), std::min(_countof(cmd.m_obj_addr) - 1, obj_addr.size()));
 					out.m_commands.push_back(cmd);
 					break;
 				}
 				case ECommandId::Render:
 				{
-					out.m_commands.push_back(Command_Render{ .m_id = id });
+					out.m_commands.push_back(Command_Render{ .m_hdr = header });
 					break;
 				}
 				default:
 				{
 					pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), "Unsupported command");
-					break;
-				}
-			}
-		}
-	}
-
-	// Parse a camera description
-	void ParseCamera(IReader& reader, ParseParams& pp, ParseResult& out)
-	{
-		auto section = reader.SectionScope();
-		for (EKeyword kw; reader.NextKeyword(kw);)
-		{
-			switch (kw)
-			{
-				case EKeyword::O2W:
-				{
-					auto c2w = m4x4::Identity();
-					reader.Transform(c2w);
-					out.m_cam.CameraToWorld(c2w);
-					out.m_cam_fields |= ECamField::C2W;
-					break;
-				}
-				case EKeyword::LookAt:
-				{
-					auto lookat = reader.Vector3f().w1();
-					m4x4 c2w = out.m_cam.CameraToWorld();
-					out.m_cam.LookAt(c2w.pos, lookat, c2w.y);
-					out.m_cam_fields |= ECamField::C2W;
-					out.m_cam_fields |= ECamField::Focus;
-					break;
-				}
-				case EKeyword::Align:
-				{
-					auto align = reader.Vector3f().w0();
-					out.m_cam.Align(align);
-					out.m_cam_fields |= ECamField::Align;
-					break;
-				}
-				case EKeyword::Aspect:
-				{
-					auto aspect = reader.Real<float>();
-					out.m_cam.Aspect(aspect);
-					out.m_cam_fields |= ECamField::Align;
-					break;
-				}
-				case EKeyword::FovX:
-				{
-					auto fovX = reader.Real<float>();
-					out.m_cam.FovX(fovX);
-					out.m_cam_fields |= ECamField::FovY;
-					break;
-				}
-				case EKeyword::FovY:
-				{
-					auto fovY = reader.Real<float>();
-					out.m_cam.FovY(fovY);
-					out.m_cam_fields |= ECamField::FovY;
-					break;
-				}
-				case EKeyword::Fov:
-				{
-					auto fov = reader.Vector2f();
-					out.m_cam.Fov(fov.x, fov.y);
-					out.m_cam_fields |= ECamField::Aspect;
-					out.m_cam_fields |= ECamField::FovY;
-					break;
-				}
-				case EKeyword::Near:
-				{
-					auto near_ = reader.Real<float>();
-					out.m_cam.Near(near_, true);
-					out.m_cam_fields |= ECamField::Near;
-					break;
-				}
-				case EKeyword::Far:
-				{
-					auto far_ = reader.Real<float>();
-					out.m_cam.Far(far_, true);
-					out.m_cam_fields |= ECamField::Far;
-					break;
-				}
-				case EKeyword::Orthographic:
-				{
-					out.m_cam.Orthographic(true);
-					out.m_cam_fields |= ECamField::Ortho;
-					break;
-				}
-				default:
-				{
-					pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Camera", EKeyword_::ToStringA(kw)));
 					break;
 				}
 			}
@@ -918,7 +828,7 @@ namespace pr::rdr12::ldraw
 							//' // Load the video texture
 							//' try
 							//' {
-							//' 	vid = pp.m_rdr.m_tex_mgr.CreateVideoTexture(AutoId, filepath.c_str());
+							//' 	vid = pp.m_rdr.m_tex_mgr.CreateVideoTexture(AutoId, filepath);
 							//' }
 							//' catch (std::exception const& e)
 							//' {
@@ -1614,7 +1524,7 @@ namespace pr::rdr12::ldraw
 								break;
 
 							if (auto const* tr = dynamic_cast<TextReader const*>(&reader))
-								pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", tr->m_keyword.c_str()));
+								pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", tr->m_keyword));
 							else
 								pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", EKeyword_::ToStringA(kw)));
 							break;
@@ -2719,7 +2629,9 @@ namespace pr::rdr12::ldraw
 				for (auto& item : row)
 				{
 					double value;
-					if (!ExtractRealC(value, item.c_str())) break;
+					auto sv = std::string_view(item.data(), item.size());
+					auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), value);
+					if (ec != std::errc{}) break;
 					m_data.push_back(value);
 					++row_count;
 				}
@@ -5392,7 +5304,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Style:
 				{
 					auto ident = reader.Identifier<string32>();
-					switch (HashI(ident.c_str()))
+					switch (HashI(ident))
 					{
 						case HashI("Directional"): m_light.m_type = ELight::Directional; break;
 						case HashI("Point"): m_light.m_type = ELight::Point; break;
@@ -5523,7 +5435,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Format:
 				{
 					auto ident = reader.Identifier<string32>();
-					switch (HashI(ident.c_str()))
+					switch (HashI(ident))
 					{
 						case HashI("Left"): m_layout.m_align_h = DWRITE_TEXT_ALIGNMENT_LEADING; break;
 						case HashI("CentreH"): m_layout.m_align_h = DWRITE_TEXT_ALIGNMENT_CENTER; break;
@@ -5531,7 +5443,7 @@ namespace pr::rdr12::ldraw
 						default: m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("{} is not a valid horizontal alignment value", ident));
 					}
 					ident = reader.Identifier<string32>();
-					switch (HashI(ident.c_str()))
+					switch (HashI(ident))
 					{
 						case HashI("Top"): m_layout.m_align_v = DWRITE_PARAGRAPH_ALIGNMENT_NEAR; break;
 						case HashI("CentreV"): m_layout.m_align_v = DWRITE_PARAGRAPH_ALIGNMENT_CENTER; break;
@@ -5539,7 +5451,7 @@ namespace pr::rdr12::ldraw
 						default: m_pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("{} is not a valid vertical alignment value", ident));
 					}
 					ident = reader.Identifier<string32>();
-					switch (HashI(ident.c_str()))
+					switch (HashI(ident))
 					{
 						case HashI("Wrap"): m_layout.m_word_wrapping = DWRITE_WORD_WRAPPING_WRAP; break;
 						case HashI("NoWrap"): m_layout.m_word_wrapping = DWRITE_WORD_WRAPPING_NO_WRAP; break;
@@ -5810,7 +5722,7 @@ namespace pr::rdr12::ldraw
 				return;
 			}
 
-			LdrObject* source = nullptr;
+			LdrObject const* source = nullptr;
 			std::string_view addr{ m_source };
 			string32 path;
 
@@ -5841,8 +5753,7 @@ namespace pr::rdr12::ldraw
 			else
 			{
 				// Find the source object in the lookup
-				if (auto it = m_pp.m_lookup.find(hash::Hash(addr)); it != std::end(m_pp.m_lookup))
-					source = it->second;
+				source = m_pp.m_result.lookup(addr);
 			}
 
 			// Instance source not found?
@@ -6081,9 +5992,6 @@ namespace pr::rdr12::ldraw
 			// This is done after objects are parsed so that recursive properties can be applied
 			ApplyObjectState(obj.get());
 
-			// Add to the lookup
-			pp.m_lookup[hash::Hash(obj->FullName())] = obj.get();
-
 			// Add the object to the container
 			pp.m_objects.push_back(obj);
 		}
@@ -6109,16 +6017,6 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Commands:
 				{
 					ParseCommands(reader, pp, pp.m_result);
-					break;
-				}
-				case EKeyword::Camera:
-				{
-					ParseCamera(reader, pp, pp.m_result);
-					break;
-				}
-				case EKeyword::Wireframe:
-				{
-					pp.m_result.m_wireframe = reader.IsSectionEnd() ? true : reader.Bool();
 					break;
 				}
 				case EKeyword::Font:
@@ -6636,20 +6534,14 @@ namespace pr::rdr12::ldraw
 	ParseResult::ParseResult()
 		: m_objects()
 		, m_commands()
-		, m_lookup()
-		, m_cam()
-		, m_cam_fields()
-		, m_wireframe()
+		, m_cache()
 	{
 	}
 	void ParseResult::reset()
 	{
 		m_objects.resize(0);
 		m_commands.resize(0);
-		m_lookup.clear();
-		m_cam = {};
-		m_cam_fields = {};
-		m_wireframe = {};
+		m_cache.clear();
 	}
 	size_t ParseResult::count() const
 	{
@@ -6659,29 +6551,43 @@ namespace pr::rdr12::ldraw
 	{
 		return m_objects[index];
 	}
-	ParseResult& ParseResult::Merge(ParseResult const& rhs, bool include_commands)
+	LdrObject const* ParseResult::lookup(std::string_view full_name) const
 	{
-		// Append the objects and commands from 'rhs' to 'this'.
-		m_objects.insert(end(m_objects), begin(rhs.m_objects), end(rhs.m_objects));
-		
-		// Merge commands as well
-		if (include_commands)
-			m_commands.append(rhs.m_commands);
+		auto h = hash::Hash(full_name);
+		if (auto it = m_cache.find(h); it != m_cache.end())
+			return it->second;
 
-		// The lookup maps names to objects, duplicate names will replace
-		// earlier objects with the same name. It's up to the script writer
-		// to prevent that if they need to refer to objects by name.
-		for (auto& p : rhs.m_lookup)
-			m_lookup[p.first] = p.second;
+		// 'full_name' is a path like "root.child1.child2". Search recursively for the object with that path.
+		auto* objects = &m_objects;
+		for (;;)
+		{
+			auto dot_pos = full_name.find('.');
+			auto name = full_name.substr(0, dot_pos);
 
-		CopyCamera(rhs.m_cam, rhs.m_cam_fields, m_cam);
+			auto it = std::find_if(objects->begin(), objects->end(), [&](auto& ob) { return std::string_view{ ob->m_name } == name; });
+			if (it == objects->end())
+				return nullptr;
 
-		// Copy other states from 'rhs' to 'this'.
-		m_wireframe |= rhs.m_wireframe;
-		return *this;
+			auto* obj = it->get();
+
+			// If there are no more dots, we've found the object. Otherwise, keep searching.
+			if (dot_pos == std::string_view::npos)
+			{
+				m_cache[h] = obj; // cache the result for next time
+				return obj;
+			}
+
+			// Advance to the next level of the hierarchy
+			full_name.remove_prefix(dot_pos + 1);
+			objects = &obj->m_child;
+		}
+	}
+	LdrObject* ParseResult::lookup(std::string_view full_name)
+	{
+		return const_call(lookup(full_name));
 	}
 	ParseResult::operator bool() const
 	{
-		return !m_objects.empty() || !m_commands.empty() || !m_lookup.empty();
+		return !m_objects.empty() || !m_commands.empty();
 	}
 }

@@ -121,25 +121,26 @@ namespace pr
 		}
 
 		// Add a file to be watched
-		void Add(std::filesystem::path const& filepath, IFileChangedHandler* onchanged, pr::Guid const& id, void* user_data = nullptr)
+		void Add(std::filesystem::path const& filepath, IFileChangedHandler* onchanged, Guid const& id, void* user_data = nullptr)
 		{
 			// Remove if already added
-			Remove(filepath);
+			Remove(filepath, id);
 
 			// Add to the files collection
 			if (auto files = m_files.lock())
 				files->emplace_back(filepath.lexically_normal(), onchanged, id, user_data);
 		}
 
-		// Remove a watched file
-		void Remove(std::filesystem::path const& filepath)
+		// Remove a watched file associated with 'id'
+		void Remove(std::filesystem::path const& filepath, Guid const& id)
 		{
+			auto fpath = filepath.lexically_normal();
 			if (auto files = m_files.lock())
-				erase_first(*files, [fpath = filepath.lexically_normal()](File const& f){ return f == fpath; });
+				erase_if(*files, [fpath, id](File const& f){ return f == fpath && f.m_id == id; });
 		}
 
 		// Remove all watches where 'm_id == id'
-		void RemoveAll(pr::Guid const& id)
+		void RemoveAll(Guid const& id)
 		{
 			if (auto files = m_files.lock())
 				erase_if(*files, [=](File const& file) { return file.m_id == id; });
