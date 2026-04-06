@@ -156,7 +156,7 @@ namespace pr::rdr12
 			.ibuf(ResDesc::IBuf(cache.ICount(), cache.m_icont.stride(), cache.m_icont))
 			.bbox(cache.m_bbox)
 			.m2root(cache.m_m2root)
-			.name(cache.m_name.c_str());
+			.name(cache.m_name);
 		auto model = factory.CreateModel(mdesc);
 
 		// Create the render nuggets
@@ -943,19 +943,19 @@ namespace pr::rdr12
 	}
 	ModelPtr ModelGenerator::SkyboxSixSidedCube(ResourceFactory& factory, std::filesystem::path const& texture_path_pattern, float radius, CreateOptions const* opts)
 	{
-		wstring256 tpath = texture_path_pattern.wstring();
-		auto ofs = tpath.find(L"??");
+		auto tpath = texture_path_pattern.string();
+		auto ofs = tpath.find("??");
 		if (ofs == std::string::npos)
-			throw std::runtime_error(FmtS("Skybox texture path '%S' does not include '??' characters", texture_path_pattern.c_str()));
+			throw std::runtime_error(std::format("Skybox texture path '{}' does not include '??' characters", tpath));
 
 		Texture2DPtr tex[6] = {}; int i = 0;
-		for (auto face : { L"+X", L"-X", L"+Y", L"-Y", L"+Z", L"-Z" })
+		for (auto face : { "+X", "-X", "+Y", "-Y", "+Z", "-Z" })
 		{
 			// Load the texture for this face of the sky box
 			tpath[ofs + 0] = face[0];
 			tpath[ofs + 1] = face[1];
 			TextureDesc desc = TextureDesc(AutoId, ResDesc()).name("skybox");
-			tex[i++] = factory.CreateTexture2D(tpath.c_str(), desc);
+			tex[i++] = factory.CreateTexture2D(tpath, desc);
 		}
 
 		return SkyboxSixSidedCube(factory, tex, radius, opts);

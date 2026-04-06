@@ -39,11 +39,11 @@ namespace pr::rdr12
 	}
 
 	// Report an error handled at the DLL API layer
-	void Context::ReportAPIError(char const* func_name, view3d::Window wnd, std::exception const* ex)
+	void Context::ReportAPIError(std::string_view func_name, view3d::Window wnd, std::exception const* ex)
 	{
 		// Create the error message
-		auto msg = Fmt<pr::string<char>>("%s failed.\n%s", func_name, ex ? ex->what() : "Unknown exception occurred.");
-		if (msg.last() != '\n')
+		auto msg = std::format("{} failed.\n{}", func_name, ex ? ex->what() : "Unknown exception occurred.");
+		if (msg.back() != '\n')
 			msg.push_back('\n');
 
 		// If a window handle is provided, report via the window's event.

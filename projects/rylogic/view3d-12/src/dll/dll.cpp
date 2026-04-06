@@ -1942,7 +1942,7 @@ VIEW3D_API void __stdcall View3D_ObjectNameSet(view3d::Object object, char const
 		Validate(object);
 
 		DllLockGuard;
-		object->m_name.assign(name);
+		object->m_name.assign(std::string_view{ name });
 	}
 	CatchAndReport(View3D_ObjectNameGet, ,);
 }

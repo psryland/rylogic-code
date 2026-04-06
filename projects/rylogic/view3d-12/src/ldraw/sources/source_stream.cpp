@@ -183,7 +183,7 @@ namespace pr::rdr12::ldraw
 		if (consume != 0)
 		{
 			mem_istream<char> strm(buffer.data(), consume);
-			BinaryReader reader(strm, m_name.c_str(), { this, OnReportError }, { this, OnProgress });
+			BinaryReader reader(strm, std::string_view{ m_name }, { this, OnReportError }, { this, OnProgress });
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
 			if (out)
 			{
