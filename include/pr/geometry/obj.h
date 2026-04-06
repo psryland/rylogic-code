@@ -87,7 +87,7 @@ namespace pr::geometry::obj
 		std::vector <v2>       m_uvs;   // Texture coords
 		std::vector <Material> m_mats;  // Materials
 	};
-	static std::string_view Delim = " ";
+	static constexpr std::string_view Delim = " ";
 
 	// Options for parsing OBJ files
 	struct Options

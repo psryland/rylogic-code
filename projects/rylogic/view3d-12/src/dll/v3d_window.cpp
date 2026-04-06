@@ -146,14 +146,14 @@ namespace pr::rdr12
 	}
 
 	// Get/Set the settings
-	char const* V3dWindow::Settings() const
+	std::string_view V3dWindow::Settings() const
 	{
 		std::stringstream out;
 		out << "*Light {\n" << m_scene.m_global_light.Settings() << "}\n";
 		m_settings = out.str();
 		return m_settings.c_str();
 	}
-	void V3dWindow::Settings(char const* settings)
+	void V3dWindow::Settings(std::string_view settings)
 	{
 		// Parse the settings
 		mem_istream<char> src(settings);

@@ -540,7 +540,7 @@ namespace pr::rdr12::ldraw
 			"}\n"
 			"*!Commands\n"
 			"{\n"
-			"	(*Data {<command-id> [(<arg>)]})\n"
+			"	(*Data {<command_id> [(<arg>)]})\n"
 			"}\n"
 		);
 		return str;
