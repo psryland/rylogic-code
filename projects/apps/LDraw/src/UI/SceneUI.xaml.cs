@@ -74,7 +74,21 @@ namespace LDraw.UI
 			{
 				case Key.Space:
 				{
-					SceneView.ShowObjectManagerUI.Execute(null);
+					// Show the dockable scene manager, floating it if currently hidden
+					if (DockControl.DockContainer is DockContainer dc)
+					{
+						var mgr = dc.FindContent<ObjectManagerUI>().FirstOrDefault();
+						if (mgr != null)
+						{
+							mgr.SetScene(this);
+
+							// If it's tucked away in auto-hide, float it so it's visible
+							if (mgr.DockControl.IsAutoHide)
+								mgr.DockControl.IsFloating = true;
+
+							mgr.DockControl.IsActiveContent = true;
+						}
+					}
 					e.Handled = true;
 					break;
 				}

@@ -540,12 +540,27 @@ namespace Rylogic.Gui.WPF
 		{
 			if (m_object_manager_ui == null)
 			{
-				m_object_manager_ui = new View3dObjectManagerUI(System.Windows.Window.GetWindow(this), Window);
-				m_object_manager_ui.Closed += delegate { m_object_manager_ui = null; };
-				m_object_manager_ui.Show();
+				var ui = new View3dObjectManagerUI(Window);
+				var window = new Window
+				{
+					Title = "Scene Manager",
+					Content = ui,
+					Owner = System.Windows.Window.GetWindow(this),
+					WindowStartupLocation = WindowStartupLocation.CenterOwner,
+					ResizeMode = ResizeMode.CanResizeWithGrip,
+					Width = 500,
+					Height = 400,
+				};
+				window.Closed += delegate
+				{
+					ui.Dispose();
+					m_object_manager_ui = null;
+				};
+				m_object_manager_ui = window;
+				window.Show();
 			}
 			m_object_manager_ui.Focus();
 		}
-		private View3dObjectManagerUI? m_object_manager_ui;
+		private Window? m_object_manager_ui;
 	}
 }

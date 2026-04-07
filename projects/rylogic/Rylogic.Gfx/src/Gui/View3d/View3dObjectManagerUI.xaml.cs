@@ -12,15 +12,12 @@ using Rylogic.Utility;
 
 namespace Rylogic.Gui.WPF
 {
-	public partial class View3dObjectManagerUI : Window, INotifyPropertyChanged
+	public partial class View3dObjectManagerUI : UserControl, IDisposable, INotifyPropertyChanged
 	{
-		public View3dObjectManagerUI(Window owner, View3d.Window window, IEnumerable<Guid>? exclude = null)
+		public View3dObjectManagerUI(View3d.Window window, IEnumerable<Guid>? exclude = null)
 		{
 			InitializeComponent();
-			Owner = owner;
-			Icon = Owner?.Icon;
 
-			PinState = new PinData(this, EPin.Centre, pinned: false);
 			ObjectManager = new View3d.ObjectManager(window, exclude ?? Array.Empty<Guid>());
 			ObjectsView = new ListCollectionView(ObjectManager.Objects);
 			ObjectsView.SortDescriptions.Add(new SortDescription(nameof(View3d.Object.Name), ListSortDirection.Ascending));
@@ -35,23 +32,10 @@ namespace Rylogic.Gui.WPF
 
 			DataContext = this;
 		}
-		protected override void OnClosed(EventArgs e)
+		public void Dispose()
 		{
 			ObjectManager = null!;
-			PinState = null;
-			base.OnClosed(e);
-		}
-
-		/// <summary>Pinned window support</summary>
-		private PinData? PinState
-		{
-			get;
-			set
-			{
-				if (field == value) return;
-				Util.Dispose(ref field);
-				field = value;
-			}
+			GC.SuppressFinalize(this);
 		}
 
 		/// <summary>The view model for the object manager behaviour</summary>
