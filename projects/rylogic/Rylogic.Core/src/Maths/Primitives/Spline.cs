@@ -10,6 +10,60 @@ using Rylogic.Common;
 
 namespace Rylogic.Maths
 {
+	/// <summary>A cubic curve in 3D space, parameterised by t in [0,1].</summary>
+	/// <remarks>
+	/// The curve is stored as pre-multiplied coefficients:
+	///   P(t)   = coeff * [1, t, t², t³]
+	///   P'(t)  = coeff * [0, 1, 2t, 3t²]
+	///   P''(t) = coeff * [0, 0, 2, 6t]
+	/// </remarks>
+	public struct CubicCurve3
+	{
+		// Coefficients stored as columns of a 4x4 matrix (each column is a v4).
+		// c0 + c1*t + c2*t² + c3*t³
+		public v4 c0, c1, c2, c3;
+
+		/// <summary>Create a Hermite cubic curve from two endpoints and tangents.</summary>
+		/// <remarks>
+		/// The Hermite basis matrix maps [p0, v0, p1, v1] to polynomial coefficients:
+		///   [+1, +0, +0, +0]
+		///   [+0, +1, +0, +0]
+		///   [-3, -2, +3, -1]
+		///   [+2, +1, -2, +1]
+		/// </remarks>
+		public static CubicCurve3 Hermite(v4 p0, v4 v0, v4 p1, v4 v1)
+		{
+			return new CubicCurve3
+			{
+				c0 = p0,
+				c1 = v0,
+				c2 = -3 * p0 - 2 * v0 + 3 * p1 - v1,
+				c3 = 2 * p0 + v0 - 2 * p1 + v1,
+			};
+		}
+
+		/// <summary>Evaluate position at parameter t (clamped to [0,1]).</summary>
+		public v4 Eval(float t)
+		{
+			t = Math_.Clamp(t, 0f, 1f);
+			return c0 + c1 * t + c2 * (t * t) + c3 * (t * t * t);
+		}
+
+		/// <summary>Evaluate first derivative at parameter t (clamped to [0,1]).</summary>
+		public v4 EvalDerivative(float t)
+		{
+			t = Math_.Clamp(t, 0f, 1f);
+			return c1 + 2 * c2 * t + 3 * c3 * (t * t);
+		}
+
+		/// <summary>Evaluate second derivative at parameter t (clamped to [0,1]).</summary>
+		public v4 EvalDerivative2(float t)
+		{
+			t = Math_.Clamp(t, 0f, 1f);
+			return 2 * c2 + 6 * c3 * t;
+		}
+	}
+
 	// x = start position
 	// y = start control point. tangent = y - x
 	// z = end control point.   tangent = w - z
