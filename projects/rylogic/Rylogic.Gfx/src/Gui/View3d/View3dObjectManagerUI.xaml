@@ -4,7 +4,6 @@
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-	xmlns:gfx="clr-namespace:Rylogic.Gfx"
 	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gui.WPF"
 	xmlns:conv="clr-namespace:Rylogic.Gui.WPF.Converters;assembly=Rylogic.Gui.WPF"
 	xmlns:local="clr-namespace:Rylogic.Gui.WPF"
@@ -16,75 +15,31 @@
 		<ResourceDictionary>
 			<BitmapImage x:Key="plus" UriSource="/Rylogic.Gui.WPF;component/res/plus1.png"/>
 			<BitmapImage x:Key="minus" UriSource="/Rylogic.Gui.WPF;component/res/minus1.png"/>
-			<BitmapImage x:Key="refresh" UriSource="/Rylogic.Gui.WPF;component/res/refresh.png"/>
 			<BitmapImage x:Key="eye_visible" UriSource="/Rylogic.Gui.WPF;component/res/eye_visible.png"/>
 			<BitmapImage x:Key="eye_hidden" UriSource="/Rylogic.Gui.WPF;component/res/eye_hidden.png"/>
 
-			<SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#000000"/>
-			<SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#E0E0E0"/>
-
-			<!-- Checker brush -->
-			<DrawingBrush x:Key="CheckerBrush" AlignmentX="Left" AlignmentY="Top" TileMode="Tile" Viewport="0,0,0.25,0.25" Stretch="None">
-				<DrawingBrush.Drawing>
-					<DrawingGroup>
-						<GeometryDrawing Brush="White">
-							<GeometryDrawing.Geometry>
-								<GeometryGroup>
-									<RectangleGeometry Rect="0,0,100,100" />
-									<RectangleGeometry Rect="100,100,100,100" />
-								</GeometryGroup>
-							</GeometryDrawing.Geometry>
-						</GeometryDrawing>
-						<GeometryDrawing Brush="Gray">
-							<GeometryDrawing.Geometry>
-								<GeometryGroup>
-									<RectangleGeometry Rect="100,0,100,100" />
-									<RectangleGeometry Rect="0,100,100,100" />
-								</GeometryGroup>
-							</GeometryDrawing.Geometry>
-						</GeometryDrawing>
-					</DrawingGroup>
-				</DrawingBrush.Drawing>
-			</DrawingBrush>
-
-			<!-- Button style for state buttons -->
-			<Style x:Key="StateButtonStyle" TargetType="{x:Type ToggleButton}">
+			<!-- Chromeless toggle button (no hover/press effects) -->
+			<Style x:Key="ChromelessToggleButton" TargetType="{x:Type ToggleButton}">
 				<Setter Property="Background" Value="Transparent"/>
 				<Setter Property="Template">
 					<Setter.Value>
 						<ControlTemplate TargetType="{x:Type ToggleButton}">
 							<Border
-								HorizontalAlignment="Center"
-								VerticalAlignment="Center"
-								Background="Transparent"
-								BorderThickness="0"
-								SnapsToDevicePixels="True"
-								x:Name="border"
+								Background="{TemplateBinding Background}"
 								>
-								<ContentPresenter x:Name="contentPresenter"/>
+								<ContentPresenter
+									HorizontalAlignment="Center"
+									VerticalAlignment="Center"
+									/>
 							</Border>
-							<!--<ControlTemplate.Triggers>
-								<Trigger Property="IsMouseOver" Value="true">
-									<Setter Property="Background" TargetName="border" Value="Red"/>
-								</Trigger>
-								<Trigger Property="IsChecked" Value="true">
-									<Setter Property="Background" Value="Red"/>
-								</Trigger>
-								<MultiTrigger>
-									<MultiTrigger.Conditions>
-										<Condition Property="IsMouseOver" Value="true"/>
-										<Condition Property="IsChecked" Value="true"/>
-									</MultiTrigger.Conditions>
-									<Setter Property="Background" Value="Green"/>
-								</MultiTrigger>
-							</ControlTemplate.Triggers>-->
 						</ControlTemplate>
 					</Setter.Value>
 				</Setter>
 			</Style>
 
-			<!-- Context menu for the data grid part of the object manager -->
-			<ContextMenu x:Key="ObjectManagerListCMenu"
+			<!-- Context menu for the list -->
+			<ContextMenu
+				x:Key="ObjectManagerListCMenu"
 				DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
 				>
 				<MenuItem
@@ -144,11 +99,13 @@
 						/>
 				</MenuItem>
 			</ContextMenu>
-
 		</ResourceDictionary>
 	</UserControl.Resources>
 	<UserControl.InputBindings>
-		<KeyBinding Key="F6" Command="{Binding FocusPatternFilter}"/>
+		<KeyBinding
+			Key="F6"
+			Command="{Binding FocusPatternFilter}"
+			/>
 	</UserControl.InputBindings>
 	<Grid>
 		<Grid.RowDefinitions>
@@ -164,14 +121,12 @@
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition Width="Auto"/>
 				<ColumnDefinition Width="Auto"/>
-				<ColumnDefinition Width="Auto"/>
 				<ColumnDefinition Width="*"/>
-				<ColumnDefinition Width="Auto"/>
 			</Grid.ColumnDefinitions>
 			<Grid.Resources>
 				<Style x:Key="ExpandButtonStyle" TargetType="{x:Type Button}">
-					<Setter Property="Background" Value="Transparent" />
-					<Setter Property="BorderThickness" Value="0" />
+					<Setter Property="Background" Value="Transparent"/>
+					<Setter Property="BorderThickness" Value="0"/>
 					<Setter Property="MaxHeight" Value="22"/>
 					<Setter Property="Margin" Value="2"/>
 				</Style>
@@ -179,8 +134,8 @@
 
 			<!-- Expand All button -->
 			<Button
-				Grid.Column="1"
-				Command="{Binding ExpandAll, ElementName=m_tree}"
+				Grid.Column="0"
+				Command="{Binding ExpandAll}"
 				Style="{StaticResource ExpandButtonStyle}"
 				>
 				<Image
@@ -191,8 +146,8 @@
 
 			<!-- Collapse All button -->
 			<Button
-				Grid.Column="2"
-				Command="{Binding CollapseAll, ElementName=m_tree}"
+				Grid.Column="1"
+				Command="{Binding CollapseAll}"
 				Style="{StaticResource ExpandButtonStyle}"
 				>
 				<Image
@@ -203,128 +158,239 @@
 
 			<!-- Filter Pattern -->
 			<gui:PatternFilter
-				Grid.Column="3"
+				Grid.Column="2"
 				Command="{Binding ApplyFilter}"
 				Height="24"
 				Margin="1"
 				x:Name="m_pattern_filter"
 				/>
-
 		</Grid>
-		
-		<!-- Scene Graph -->
-		<gui:TreeViewMultiSelect
+
+		<!-- Virtualised flat tree list -->
+		<ListView
 			Grid.Row="1"
-			ItemsSource="{Binding ObjectsView}"
+			ItemsSource="{Binding VisibleNodes}"
 			ContextMenu="{StaticResource ObjectManagerListCMenu}"
-			gui:Control_.EventToCommand="SelectionChanged:UpdateSelected"
+			SelectionChanged="HandleSelectionChanged"
+			SelectionMode="Extended"
+			VirtualizingStackPanel.IsVirtualizing="True"
+			VirtualizingStackPanel.VirtualizationMode="Recycling"
+			ScrollViewer.IsDeferredScrollingEnabled="True"
 			BorderThickness="0"
 			Margin="2"
-			x:Name="m_tree"
+			x:Name="m_list"
 			>
 			<!-- Key Bindings -->
-			<gui:TreeViewMultiSelect.InputBindings>
-				<KeyBinding Key="Space"
+			<ListView.InputBindings>
+				<KeyBinding
+					Key="Space"
 					Command="{Binding SetVisibility}"
 					CommandParameter="{x:Static local:ESetVisibleCmd.ToggleSelected}"
 					/>
-				<KeyBinding Key="Space" Modifiers="Ctrl"
+				<KeyBinding
+					Key="Space"
+					Modifiers="Ctrl"
 					Command="{Binding SetVisibility}"
 					CommandParameter="{x:Static local:ESetVisibleCmd.ShowSelected}"
 					/>
-				<KeyBinding Key="Space" Modifiers="Ctrl+Shift"
+				<KeyBinding
+					Key="Space"
+					Modifiers="Ctrl+Shift"
 					Command="{Binding SetVisibility}"
 					CommandParameter="{x:Static local:ESetVisibleCmd.HideSelected}"
 					/>
-				<KeyBinding Key="W"
+				<KeyBinding
+					Key="W"
 					Command="{Binding SetWireframe}"
-					CommandParameter="0"/>
-				<KeyBinding Key="W" Modifiers="Ctrl"
+					CommandParameter="0"
+					/>
+				<KeyBinding
+					Key="W"
+					Modifiers="Ctrl"
 					Command="{Binding SetWireframe}"
-					CommandParameter="+1"/>
-				<KeyBinding Key="W" Modifiers="Ctrl+Shift"
+					CommandParameter="+1"
+					/>
+				<KeyBinding
+					Key="W"
+					Modifiers="Ctrl+Shift"
 					Command="{Binding SetWireframe}"
 					CommandParameter="-1"
 					/>
-			</gui:TreeViewMultiSelect.InputBindings>
+			</ListView.InputBindings>
 
-			<!-- Item Container Style -->
-			<gui:TreeViewMultiSelect.ItemContainerStyle>
-				<Style TargetType="{x:Type TreeViewItem}" BasedOn="{StaticResource TreeViewMSItemStyle}">
-					<!--<Setter Property="Background" Value="AliceBlue"/>-->
-					<Style.Triggers>
-						<Trigger Property="gui:TreeViewMultiSelect.IsItemSelected" Value="True">
-							<Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
-						</Trigger>
-						<!--<Trigger Property="HasItems" Value="True">
-							<Setter Property="Background" Value="Red"/>
-						</Trigger>-->
-					</Style.Triggers>
-				</Style>
-			</gui:TreeViewMultiSelect.ItemContainerStyle>
+			<!-- GridView for column headers -->
+			<ListView.View>
+				<GridView>
 
-			<!-- Item Template -->
-			<gui:TreeViewMultiSelect.ItemTemplate>
-				<HierarchicalDataTemplate ItemsSource="{Binding Children}">
-					<Grid
-						HorizontalAlignment="Stretch"
+					<!-- Name column (with indent + expand toggle) -->
+					<GridViewColumn
+						Header="Name"
+						Width="250"
 						>
-						<Grid.ColumnDefinitions>
-							<ColumnDefinition Width="Auto"/>
-							<ColumnDefinition Width="Auto"/>
-							<ColumnDefinition Width="*"/>
-							<ColumnDefinition Width="Auto"/>
-							<ColumnDefinition Width="Auto"/>
-							<ColumnDefinition Width="Auto"/>
-						</Grid.ColumnDefinitions>
+						<GridViewColumn.CellTemplate>
+							<DataTemplate>
+								<StackPanel
+									Orientation="Horizontal"
+									Margin="{Binding Indent}"
+									>
+									<!-- Expand/collapse toggle -->
+									<ToggleButton
+										Style="{StaticResource ChromelessToggleButton}"
+										IsChecked="{Binding IsExpanded, Mode=OneWay}"
+										Visibility="{Binding HasChildren, Converter={conv:BoolToVisible}}"
+										Command="{Binding DataContext.ToggleExpand, RelativeSource={RelativeSource AncestorType=ListView}}"
+										CommandParameter="{Binding}"
+										Padding="0"
+										Width="12"
+										Height="12"
+										VerticalAlignment="Center"
+										>
+										<TextBlock
+											FontSize="7"
+											VerticalAlignment="Center"
+											HorizontalAlignment="Center"
+											>
+											<TextBlock.Style>
+												<Style TargetType="TextBlock">
+													<Setter Property="Text" Value="▶"/>
+													<Style.Triggers>
+														<DataTrigger
+															Binding="{Binding IsExpanded}"
+															Value="True"
+															>
+															<Setter Property="Text" Value="▼"/>
+														</DataTrigger>
+													</Style.Triggers>
+												</Style>
+											</TextBlock.Style>
+										</TextBlock>
+									</ToggleButton>
 
-						<!-- Row controls -->
-						<TextBlock
-							Grid.Column="0"
-							Text="{Binding Name}"
-							VerticalAlignment="Center"
-							Margin="3,1,3,1"
-							/>
-						<TextBlock
-							Grid.Column="1"
-							/>
-						<ToggleButton
-							Grid.Column="2"
-							Style="{StaticResource StateButtonStyle}"
-							IsChecked="{Binding Visible}"
-							Click="OnEyeToggleClick"
-							HorizontalAlignment="Right"
-							VerticalAlignment="Center"
-							Background="Transparent"
-							BorderThickness="0"
-							Margin="3,1,3,1"
-							>
-							<Image
-								Source="{Binding Flags, Converter={conv:EnumSelect}, ConverterParameter='Hidden:eye_hidden|eye_visible'}"
-								RenderOptions.BitmapScalingMode="Fant"
-								Height="14"
-								/>
-						</ToggleButton>
-						<TextBlock
-							Grid.Column="3"
-							Text="{Binding Type}"
-							VerticalAlignment="Center"
-							MinWidth="80"
-							Margin="3,1,3,1"
-							/>
-						<TextBlock
-							Grid.Column="4"
-							Text="{Binding Colour}"
-							VerticalAlignment="Center"
-							Background="{Binding Colour, Converter={conv:ColourToBrush}}"
-							Foreground="{Binding Colour, Converter={conv:TextOverColourBrush}}"
-							MinWidth="60"
-							Margin="3,1,3,1"
-							/>
-					</Grid>
-				</HierarchicalDataTemplate>
-			</gui:TreeViewMultiSelect.ItemTemplate>
-		</gui:TreeViewMultiSelect>
+									<!-- Spacer for leaf nodes -->
+									<Border
+										Width="12"
+										Visibility="{Binding HasChildren, Converter={conv:BoolToVisible}, ConverterParameter=invert}"
+										/>
+
+									<TextBlock
+										Text="{Binding Name}"
+										VerticalAlignment="Center"
+										Margin="1,0,0,0"
+										/>
+								</StackPanel>
+							</DataTemplate>
+						</GridViewColumn.CellTemplate>
+					</GridViewColumn>
+
+					<!-- Visibility column (eye toggle) -->
+					<GridViewColumn
+						Header="Vis"
+						Width="40"
+						>
+						<GridViewColumn.CellTemplate>
+							<DataTemplate>
+								<ToggleButton
+									Style="{StaticResource ChromelessToggleButton}"
+									IsChecked="{Binding Visible}"
+									Click="OnEyeToggleClick"
+									HorizontalAlignment="Center"
+									VerticalAlignment="Center"
+									>
+									<Image
+										Source="{Binding Flags, Converter={conv:EnumSelect}, ConverterParameter='Hidden:eye_hidden|eye_visible'}"
+										RenderOptions.BitmapScalingMode="Fant"
+										Height="14"
+										/>
+								</ToggleButton>
+							</DataTemplate>
+						</GridViewColumn.CellTemplate>
+					</GridViewColumn>
+
+					<!-- Type column -->
+					<GridViewColumn
+						Header="Type"
+						Width="80"
+						>
+						<GridViewColumn.CellTemplate>
+							<DataTemplate>
+								<TextBlock
+									Text="{Binding Type}"
+									VerticalAlignment="Center"
+									Margin="3,1,3,1"
+									/>
+							</DataTemplate>
+						</GridViewColumn.CellTemplate>
+					</GridViewColumn>
+
+					<!-- Colour column -->
+					<GridViewColumn
+						Header="Colour"
+						Width="80"
+						>
+						<GridViewColumn.CellTemplate>
+							<DataTemplate>
+								<Border
+									Background="{Binding ColourValue, Converter={conv:ColourToBrush}}"
+									MouseLeftButtonDown="OnColourDoubleClick"
+									Padding="3,1"
+									>
+									<TextBlock
+										Text="{Binding Colour}"
+										Foreground="{Binding ColourValue, Converter={conv:TextOverColourBrush}}"
+										VerticalAlignment="Center"
+										/>
+								</Border>
+							</DataTemplate>
+						</GridViewColumn.CellTemplate>
+					</GridViewColumn>
+
+				</GridView>
+			</ListView.View>
+
+			<!-- Full-row selection style with flat colours (no gradient) -->
+			<ListView.ItemContainerStyle>
+				<Style TargetType="ListViewItem">
+					<Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+					<Setter Property="Padding" Value="0"/>
+					<Setter Property="Margin" Value="0"/>
+					<Setter Property="MinHeight" Value="18"/>
+					<Setter Property="Template">
+						<Setter.Value>
+							<ControlTemplate TargetType="ListViewItem">
+								<Border
+									x:Name="Bd"
+									Background="{TemplateBinding Background}"
+									BorderBrush="{TemplateBinding BorderBrush}"
+									BorderThickness="{TemplateBinding BorderThickness}"
+									Padding="{TemplateBinding Padding}"
+									SnapsToDevicePixels="True"
+									>
+									<GridViewRowPresenter
+										HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+										VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+										/>
+								</Border>
+								<ControlTemplate.Triggers>
+									<Trigger Property="IsSelected" Value="True">
+										<Setter TargetName="Bd" Property="Background" Value="#FFC4D8E0"/>
+									</Trigger>
+									<MultiTrigger>
+										<MultiTrigger.Conditions>
+											<Condition Property="IsSelected" Value="True"/>
+											<Condition Property="IsMouseOver" Value="True"/>
+										</MultiTrigger.Conditions>
+										<Setter TargetName="Bd" Property="Background" Value="#FFA0BAD4"/>
+									</MultiTrigger>
+									<Trigger Property="IsMouseOver" Value="True">
+										<Setter TargetName="Bd" Property="Background" Value="#FFDCE6F0"/>
+									</Trigger>
+								</ControlTemplate.Triggers>
+							</ControlTemplate>
+						</Setter.Value>
+					</Setter>
+				</Style>
+			</ListView.ItemContainerStyle>
+		</ListView>
 
 		<!-- Status -->
 		<StatusBar

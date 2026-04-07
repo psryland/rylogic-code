@@ -357,6 +357,9 @@ namespace Rylogic.Gui.WPF
 			m_layout_changed_notify_pending = true;
 			Dispatcher.BeginInvoke(new Action(() =>
 			{
+				// Close any floating windows that no longer have content
+				FloatingWindows.PurgeCachedFloatingWindows();
+
 				LayoutChanged?.Invoke(this, EventArgs.Empty);
 				m_layout_changed_notify_pending = false;
 			}));
@@ -850,7 +853,7 @@ namespace Rylogic.Gui.WPF
 			{
 				foreach (var fw in m_floaters.ToArray())
 				{
-					if (!fw.AllContent.Any()) continue;
+					if (fw.AllContent.Any()) continue;
 					m_floaters.Remove(fw);
 					fw.Close();
 				}
