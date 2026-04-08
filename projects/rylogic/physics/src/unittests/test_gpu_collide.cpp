@@ -35,54 +35,49 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			// Overlapping along X
+			// Compare CPU and GPU results, and check expected depth (negative = no collision)
+			auto BangTogether = [](collision::ShapeSphere const& a, m4x4 a2w, collision::ShapeSphere const& b, m4x4 b2w, float expected_depth)
 			{
-				collision::ShapeSphere a(1.0f), b(1.0f);
-				auto sa = PackShape(a);
-				auto sb = PackShape(b);
-				auto a2w = m4x4::Identity();
-				auto b2w = m4x4::Translation(1.5f, 0, 0);
-
-				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsSphere(sa, a2w, sb, b2w, axis, point, depth);
+				bool should_collide = expected_depth >= 0;
 
 				collision::Contact c;
-				auto cpu = collision::SphereVsSphere(a, a2w, b, b2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth));
-				PR_EXPECT(AxisMatch(axis, c.m_axis));
+				auto is_contact_cpu = collision::SphereVsSphere(a, a2w, b, b2w, c);
+
+				float4 axis, point; float depth;
+				auto is_contact_gpu = physics::SphereVsSphere(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
+
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth));
+					PR_EXPECT(Near(expected_depth, depth));
+					PR_EXPECT(AxisMatch(axis, c.m_axis));
+				}
+			};
+
+			// Overlapping along X: depth = 1.0 + 1.0 - 1.5 = 0.5
+			{
+				collision::ShapeSphere a(1.0f), b(1.0f);
+				BangTogether(a, m4x4::Identity(), b, m4x4::Translation(1.5f, 0, 0), 0.5f);
 			}
 
 			// Separated
 			{
 				collision::ShapeSphere a(1.0f), b(1.0f);
-				float4 axis, point; float depth;
-				PR_EXPECT(!physics::SphereVsSphere(PackShape(a), m4x4::Identity(), PackShape(b), m4x4::Translation(5, 0, 0), axis, point, depth));
+				BangTogether(a, m4x4::Identity(), b, m4x4::Translation(5, 0, 0), -1);
 			}
 
-			// Coincident centres (degenerate)
-			{
-				collision::ShapeSphere a(1.0f), b(1.0f);
-				float4 axis, point; float depth;
-				PR_EXPECT(!physics::SphereVsSphere(PackShape(a), m4x4::Identity(), PackShape(b), m4x4::Identity(), axis, point, depth));
-			}
-
-			// Diagonal overlap, different radii
+			// Diagonal overlap, different radii: depth = 2.0 + 1.0 - sqrt(3) ≈ 1.268
 			{
 				collision::ShapeSphere a(2.0f), b(1.0f);
-				auto sa = PackShape(a);
-				auto sb = PackShape(b);
-				auto a2w = m4x4::Identity();
-				auto b2w = m4x4::Translation(1, 1, 1);
+				BangTogether(a, m4x4::Identity(), b, m4x4::Translation(1, 1, 1), 3.0f - Sqrt(3.0f));
+			}
 
-				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsSphere(sa, a2w, sb, b2w, axis, point, depth);
-
-				collision::Contact c;
-				auto cpu = collision::SphereVsSphere(a, a2w, b, b2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth));
-				PR_EXPECT(AxisMatch(axis, c.m_axis));
+			// Both translated, overlapping along Y: depth = 0.5 + 0.3 - 0.6 = 0.2
+			{
+				collision::ShapeSphere a(0.5f), b(0.3f);
+				BangTogether(a, m4x4::Translation(1, 2, 3), b, m4x4::Translation(1, 2.6f, 3), 0.2f);
 			}
 		}
 
@@ -92,60 +87,47 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			// Separated: sphere at x=2, radius=0.5, box extends to x=1
+			// GPU takes (sphere, box), CPU takes (box, sphere) — argument order differs
+			auto BangTogether = [](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeBox const& box, m4x4 box2w, float expected_depth)
 			{
-				collision::ShapeSphere sph(0.5f);
-				collision::ShapeBox box(v4(1, 1, 1, 0));
-				float4 axis, point; float depth;
-				PR_EXPECT(!physics::SphereVsBox(PackShape(sph), m4x4::Translation(2.0f, 0, 0), PackShape(box), m4x4::Identity(), axis, point, depth));
-			}
-
-			// Overlapping face
-			{
-				collision::ShapeSphere sph(0.5f);
-				collision::ShapeBox box(v4(1, 1, 1, 0));
-				auto sph2w = m4x4::Translation(1.3f, 0, 0);
-				auto box2w = m4x4::Identity();
-
-				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, axis, point, depth);
+				bool should_collide = expected_depth >= 0;
 
 				collision::Contact c;
-				auto cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth));
-			}
-
-			// Sphere near box corner
-			{
-				collision::ShapeSphere sph(1.0f);
-				collision::ShapeBox box(v4(1, 1, 1, 0));
-				auto sph2w = m4x4::Translation(1.5f, 1.5f, 0);
-				auto box2w = m4x4::Identity();
+				auto is_contact_cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c);
 
 				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, axis, point, depth);
+				auto is_contact_gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, axis, point, depth);
 
-				collision::Contact c;
-				auto cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth));
-			}
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth));
+					PR_EXPECT(Near(expected_depth, depth));
+				}
+			};
 
-			// Sphere centre inside box
+			collision::ShapeBox unit_box(v4(1, 1, 1, 0)); // half-extent 0.5
+
+			// Separated: sphere at x=2, radius=0.5, box face at x=0.5, gap=1.0
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(2.0f, 0, 0), unit_box, m4x4::Identity(), -1);
+
+			// Face overlap: sphere surface at 0.8-0.5=0.3, box face at 0.5, depth=0.2
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(0.8f, 0, 0), unit_box, m4x4::Identity(), 0.2f);
+
+			// Sphere near box corner: dist to corner (0.5,0.5,0) = sqrt(0.25+0.25)≈0.707, depth=1.0-0.707≈0.293
+			BangTogether(collision::ShapeSphere(1.0f), m4x4::Translation(1.0f, 1.0f, 0), unit_box, m4x4::Identity(), 1.0f - Sqrt(0.5f));
+
+			// Sphere centre inside box: depth = dist_to_nearest_face + radius = 0.5 + 0.1 = 0.6
+			BangTogether(collision::ShapeSphere(0.1f), m4x4::Translation(0, 0, 0), collision::ShapeBox(v4(2, 2, 2, 0)), m4x4::Identity(), 1.1f);
+
+			// Both transformed
+			BangTogether(collision::ShapeSphere(0.3f), m4x4::Translation(1.5f, 2.0f, 0), unit_box, m4x4::Translation(1.2f, 2.0f, 0), 0.3f + 0.5f - 0.3f);
+
+			// Sphere overlapping rotated box corner: depth ≈ sqrt(0.5) - 0.5 ≈ 0.207
 			{
-				collision::ShapeSphere sph(0.1f);
-				collision::ShapeBox box(v4(2, 2, 2, 0));
-				auto sph2w = m4x4::Translation(0.5f, 0, 0);
-				auto box2w = m4x4::Identity();
-
-				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, axis, point, depth);
-
-				collision::Contact c;
-				auto cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth, 0.05f));
+				auto box2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 45.0f), v4(1, 0, 0, 1));
+				BangTogether(collision::ShapeSphere(0.5f), m4x4::Identity(), unit_box, box2w, Sqrt(0.5f) - 0.5f);
 			}
 		}
 
@@ -155,45 +137,39 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			// Sphere near midpoint of a Z-aligned line
+			// GPU takes (sphere, line), CPU takes (line, sphere) — argument order differs
+			auto BangTogether = [](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeLine const& line, m4x4 line2w, float expected_depth)
 			{
-				collision::ShapeSphere sph(0.5f);
-				collision::ShapeLine line(2.0f, 0.1f);
-				auto sph2w = m4x4::Translation(0.4f, 0, 0);
-				auto line2w = m4x4::Identity();
-
-				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsLine(PackShape(sph), sph2w, PackShape(line), line2w, axis, point, depth);
+				bool should_collide = expected_depth >= 0;
 
 				collision::Contact c;
-				auto cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c);
-				PR_EXPECT(gpu && cpu);
-				PR_EXPECT(Near(depth, c.m_depth));
-			}
-
-			// Sphere near endpoint
-			{
-				collision::ShapeSphere sph(0.5f);
-				collision::ShapeLine line(1.0f, 0.1f);
-				auto sph2w = m4x4::Translation(0.3f, 0, 1.3f);
-				auto line2w = m4x4::Identity();
+				auto is_contact_cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c);
 
 				float4 axis, point; float depth;
-				auto gpu = physics::SphereVsLine(PackShape(sph), sph2w, PackShape(line), line2w, axis, point, depth);
+				auto is_contact_gpu = physics::SphereVsLine(PackShape(sph), sph2w, PackShape(line), line2w, axis, point, depth);
 
-				collision::Contact c;
-				auto cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c);
-				PR_EXPECT(gpu == cpu);
-				if (gpu) PR_EXPECT(Near(depth, c.m_depth));
-			}
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth));
+					PR_EXPECT(Near(expected_depth, depth));
+				}
+			};
+
+			// Sphere near midpoint of Z-aligned line
+			// ShapeLine(2.0, 0.1) → half_len=1.0, thick_radius=0.05
+			// depth = sphere_r + thick_r - distance = 0.5 + 0.05 - 0.4 = 0.15
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(0.4f, 0, 0), collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(), 0.15f);
+
+			// Sphere near endpoint (separated): dist_to_endpoint > radius + thickness
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(0.3f, 0, 1.3f), collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(), -1);
 
 			// Separated
-			{
-				collision::ShapeSphere sph(0.5f);
-				collision::ShapeLine line(1.0f, 0.1f);
-				float4 axis, point; float depth;
-				PR_EXPECT(!physics::SphereVsLine(PackShape(sph), m4x4::Translation(3, 0, 0), PackShape(line), m4x4::Identity(), axis, point, depth));
-			}
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(3, 0, 0), collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(), -1);
+
+			// Both translated: depth = 0.5 + 0.05 - 0.4 = 0.15
+			BangTogether(collision::ShapeSphere(0.5f), m4x4::Translation(2.4f, 3, 0), collision::ShapeLine(2.0f, 0.1f), m4x4::Translation(2, 3, 0), 0.15f);
 		}
 
 		// ---- Line vs Line ----
@@ -202,42 +178,45 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			// Two perpendicular lines crossing near origin
+			auto BangTogether = [](collision::ShapeLine const& a, m4x4 a2w, collision::ShapeLine const& b, m4x4 b2w, float expected_depth)
 			{
-				collision::ShapeLine a(2.0f, 0.2f), b(2.0f, 0.2f);
-				auto a2w = m4x4::Identity();
+				bool should_collide = expected_depth >= 0;
+
+				collision::Contact c;
+				auto is_contact_cpu = collision::LineVsLine(a, a2w, b, b2w, c);
+
+				float4 axis, point; float depth;
+				auto is_contact_gpu = physics::LineVsLine(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
+
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth));
+					PR_EXPECT(Near(expected_depth, depth));
+				}
+			};
+
+			// Two perpendicular lines crossing near origin, separated by 0.3 (thickness 0.1+0.1 < 0.3)
+			{
 				auto b2w = m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.3f, 0, 1));
-
-				float4 axis, point; float depth;
-				auto gpu = physics::LineVsLine(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
-
-				collision::Contact c;
-				auto cpu = collision::LineVsLine(a, a2w, b, b2w, c);
-				PR_EXPECT(gpu == cpu);
-				if (gpu) PR_EXPECT(Near(depth, c.m_depth));
+				BangTogether(collision::ShapeLine(2.0f, 0.2f), m4x4::Identity(), collision::ShapeLine(2.0f, 0.2f), b2w, -1);
 			}
 
-			// Parallel lines, close
+			// Perpendicular lines, close enough to collide: depth = 0.1 + 0.1 - 0.15 = 0.05
 			{
-				collision::ShapeLine a(2.0f, 0.3f), b(2.0f, 0.3f);
-				auto a2w = m4x4::Identity();
-				auto b2w = m4x4::Translation(0.5f, 0, 0);
-
-				float4 axis, point; float depth;
-				auto gpu = physics::LineVsLine(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
-
-				collision::Contact c;
-				auto cpu = collision::LineVsLine(a, a2w, b, b2w, c);
-				PR_EXPECT(gpu == cpu);
-				if (gpu) PR_EXPECT(Near(depth, c.m_depth));
+				auto b2w = m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.15f, 0, 1));
+				BangTogether(collision::ShapeLine(2.0f, 0.2f), m4x4::Identity(), collision::ShapeLine(2.0f, 0.2f), b2w, 0.05f);
 			}
 
-			// Separated
-			{
-				collision::ShapeLine a(1.0f, 0.1f), b(1.0f, 0.1f);
-				float4 axis, point; float depth;
-				PR_EXPECT(!physics::LineVsLine(PackShape(a), m4x4::Identity(), PackShape(b), m4x4::Translation(5, 0, 0), axis, point, depth));
-			}
+			// Parallel lines, close but separated: gap = 0.5 - 0.15 - 0.15 = 0.2
+			BangTogether(collision::ShapeLine(2.0f, 0.3f), m4x4::Identity(), collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.5f, 0, 0), -1);
+
+			// Parallel lines, overlapping: depth = 0.15 + 0.15 - 0.2 = 0.1
+			BangTogether(collision::ShapeLine(2.0f, 0.3f), m4x4::Identity(), collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.2f, 0, 0), 0.1f);
+
+			// Separated (far apart)
+			BangTogether(collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(), collision::ShapeLine(1.0f, 0.1f), m4x4::Translation(5, 0, 0), -1);
 		}
 
 		// ---- Line vs Box ----
@@ -246,29 +225,34 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			// Line along Z approaching box face
+			auto BangTogether = [](collision::ShapeLine const& line, m4x4 line2w, collision::ShapeBox const& box, m4x4 box2w, float expected_depth)
 			{
-				collision::ShapeLine line(1.0f, 0.2f);
-				collision::ShapeBox box(v4(1, 1, 1, 0));
-				auto line2w = m4x4::Translation(1.1f, 0, 0);
-				auto box2w = m4x4::Identity();
-
-				float4 axis, point; float depth;
-				auto gpu = physics::LineVsBox(PackShape(line), line2w, PackShape(box), box2w, axis, point, depth);
+				bool should_collide = expected_depth >= 0;
 
 				collision::Contact c;
-				auto cpu = collision::LineVsBox(line, line2w, box, box2w, c);
-				PR_EXPECT(gpu == cpu);
-				if (gpu && cpu) PR_EXPECT(Near(depth, c.m_depth, 0.05f));
-			}
+				auto is_contact_cpu = collision::LineVsBox(line, line2w, box, box2w, c);
 
-			// Separated
-			{
-				collision::ShapeLine line(1.0f, 0.1f);
-				collision::ShapeBox box(v4(1, 1, 1, 0));
 				float4 axis, point; float depth;
-				PR_EXPECT(!physics::LineVsBox(PackShape(line), m4x4::Translation(5, 0, 0), PackShape(box), m4x4::Identity(), axis, point, depth));
-			}
+				auto is_contact_gpu = physics::LineVsBox(PackShape(line), line2w, PackShape(box), box2w, axis, point, depth);
+
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth, 0.05f));
+					PR_EXPECT(Near(expected_depth, depth, 0.05f));
+				}
+			};
+
+			collision::ShapeBox unit_box(v4(1, 1, 1, 0));
+
+			// Line along Z approaching box face
+			// ShapeLine(1.0, 0.2) → half_len=0.5, thick_radius=0.1
+			// Line axis at x=0.55, box face at x=0.5, gap=0.05, depth = 0.1-0.05 = 0.05
+			BangTogether(collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0.55f, 0, 0), unit_box, m4x4::Identity(), 0.05f);
+
+			// Line far from box (separated)
+			BangTogether(collision::ShapeLine(1.0f, 0.1f), m4x4::Translation(5, 0, 0), unit_box, m4x4::Identity(), -1);
 		}
 
 		// ---- Box vs Box ----
