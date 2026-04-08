@@ -234,7 +234,7 @@ namespace Rylogic.Gfx
 			set
 			{
 				if (field == value) return;
-				Hit1 = value;
+				field = value;
 				UpdateResults();
 				InvalidateGfxMeasure();
 			}
@@ -317,28 +317,27 @@ namespace Rylogic.Gfx
 		{
 			if (ActiveHit == null) return;
 			m_mouse_down_at = point_cs;
-			m_is_drag = false;
 		}
-		public void MouseMove(v2 point_cs, double drag_threshold = 5.0)
+		public void MouseMove(v2 point_cs)
 		{
 			if (ActiveHit == null) return;
 			UpdateActiveHitPosition(point_cs);
-			m_is_drag |= m_mouse_down_at != null && (point_cs - m_mouse_down_at.Value).Length > drag_threshold;
 		}
-		public void MouseUp()
+		public void MouseUp(v2 point_cs, double click_threshold = 5.0)
 		{
+			// Determine if this was a click (not a drag) by comparing mouse-down and mouse-up positions
+			var is_click = m_mouse_down_at != null && (point_cs - m_mouse_down_at.Value).Length <= click_threshold;
 			m_mouse_down_at = null;
-			if (m_is_drag) return;
+			if (!is_click) return;
 			if (ActiveHit == null) return;
 
-			// Lock the hit position
+			// Lock the hit position and advance to the next point
 			if (ActiveHit == Hit0)
 				ActiveHit = Hit1;
 			else
 				ActiveHit = null;
 		}
 		private v2? m_mouse_down_at;
-		private bool m_is_drag;
 
 		/// <summary>Graphics for the hotspot that follows the mouse around</summary>
 		private View3d.Object? GfxHotSpot0

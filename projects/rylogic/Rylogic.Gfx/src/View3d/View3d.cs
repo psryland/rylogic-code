@@ -814,7 +814,7 @@ namespace Rylogic.Gfx
 			public ulong size;
 
 			/// <summary>Convert native string view to managed string</summary>
-			public static implicit operator string(StrView sv) => Marshal.PtrToStringAnsi(sv.ptr, (int)sv.size) ?? string.Empty;
+			public static implicit operator string(StrView sv) => sv.ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(sv.ptr, (int)sv.size) ?? string.Empty : string.Empty;
 		};
 
 		/// <summary>Interop wstring view</summary>
@@ -825,7 +825,7 @@ namespace Rylogic.Gfx
 			public ulong size;
 
 			/// <summary>Convert native wide string view to managed string</summary>
-			public static implicit operator string(WStrView sv) => Marshal.PtrToStringUni(sv.ptr, (int)sv.size) ?? string.Empty;
+			public static implicit operator string(WStrView sv) => sv.ptr != IntPtr.Zero ? Marshal.PtrToStringUni(sv.ptr, (int)sv.size) ?? string.Empty : string.Empty;
 		};
 
 		/// <summary></summary>

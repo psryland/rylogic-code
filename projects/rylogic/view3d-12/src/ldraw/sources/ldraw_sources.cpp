@@ -102,24 +102,23 @@ namespace pr::rdr12::ldraw
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto id = object->m_context_id;
 
-		// Remove the object from the source it belongs to
-		auto& src = m_srcs[id];
+		// Find the source that owns this object. Use find() not operator[] to avoid inserting
+		// a default nullptr entry when the context_id is not in the map (e.g. source already removed).
+		auto it = m_srcs.find(id);
+		if (it == m_srcs.end())
+			return;
 
-		// This should be necessary, 'm_src' should never contain nullptr
-		// I've seen it happen when closing the Measurement Tool window however (as the 'HotSpots') get deleted
-		if (src != nullptr)
-		{
-			auto count = src->m_output.m_objects.size();
-			ldraw::Remove(src->m_output.m_objects, object);
+		auto& src = it->second;
+		auto count = src->m_output.m_objects.size();
+		ldraw::Remove(src->m_output.m_objects, object);
 
-			// If that was the last object for the source, remove the source
-			if (src->m_output.m_objects.empty())
-				Remove(id);
+		// If that was the last object for the source, remove the source
+		if (src->m_output.m_objects.empty())
+			Remove(id);
 
-			// Notify of the object container change
-			else if (src->m_output.m_objects.size() != count)
-				m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
-		}
+		// Notify of the object container change
+		else if (src->m_output.m_objects.size() != count)
+			m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
 	}
 
 	// Remove all objects associated with context ids filtered by 'pred'
