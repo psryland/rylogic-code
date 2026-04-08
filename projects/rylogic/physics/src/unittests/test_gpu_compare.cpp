@@ -1,7 +1,13 @@
-//************************************
-// Physics Sandbox — GPU vs CPU Comparison Tests
-//  Copyright (c) Rylogic Ltd 2026
-//************************************
+//*********************************************
+// Physics Engine
+//  Copyright (C) Rylogic Ltd 2016
+//*********************************************
+
+#if 0 // CPU is unsupported... 
+
+// These tests need updating to call the CPU functions as needed, rather than supporting
+// a CPU based Engine::Step.
+
 // Unit tests that compare each GPU compute step against the equivalent
 // CPU implementation. Each test packs known initial state, runs both
 // paths, and compares results within tolerance.
@@ -19,6 +25,7 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_GpuCompare() {}
 	namespace gpu_compare
 	{
 		// Tolerance for GPU vs CPU comparison (float32 precision across GPU boundary)
@@ -307,7 +314,6 @@ namespace pr::physics::tests
 				bodies[0].Collided += [&](auto&, auto&) { result.gpu_collision = true; };
 
 				physics::Engine engine;
-				engine.UseGpuResolve(true);
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -334,7 +340,6 @@ namespace pr::physics::tests
 				bodies[0].Collided += [&](auto&, auto&) { result.cpu_collision = true; };
 
 				physics::Engine engine;
-				engine.UseGpuResolve(false);
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -602,5 +607,5 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_GpuCompare() {} }
+#endif
 #endif

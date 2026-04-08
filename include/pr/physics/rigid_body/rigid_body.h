@@ -5,9 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "pr/physics/shape/inertia.h"
-#include "pr/physics/shape/shape_mass.h"
 #include "pr/physics/rigid_body/state_flags.h"
-#include "pr/physics/utility/misc.h"
 
 namespace pr::physics
 {
@@ -73,366 +71,112 @@ namespace pr::physics
 		explicit RigidBody(TShape const* shape, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {})
 			:RigidBody(shape_cast(shape), o2w, inertia)
 		{}
-		explicit RigidBody(collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {})
-			:m_o2w(o2w)
-			,m_os_com()
-			,m_ws_momentum()
-			,m_ws_force()
-			,m_ws_gravity()
-			,m_os_inertia_inv()
-			,m_shape(collision::shape_cast(shape))
-			,m_contact_simplex{}
-			,m_contact_simplex_count(0)
-			,m_state_flags(ERigidBodyStateFlags::None)
-		{
-			SetMassProperties(inertia);
-		}
+		explicit RigidBody(collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {});
 
 		// Raised after the collision shape changes.
 		EventHandler<RigidBody&, ChangeEventArgs<collision::Shape const*>> ShapeChange;
-		
-		// Raised when involved in a collision, just prior to the collision response being applied.
-		struct CollidedArgs { RigidBody* other; RbContact const& contacts; };
-		EventHandler<RigidBody&, CollidedArgs const&> Collided;
 
 		// Get/Set the collision shape for the rigid body
-		template <ShapeType TShape> TShape const& Shape() const
-		{
-			return shape_cast<TShape>(Shape());
-		}
-		collision::Shape const& Shape() const
-		{
-			return m_shape ? *m_shape : NoShape();
-		}
-		bool HasShape() const
-		{
-			return m_shape != nullptr;
-		}
+		template <ShapeType TShape> TShape const& Shape() const;
+		collision::Shape const& Shape() const;
+		bool HasShape() const;
 		
 		// Set the shape only, leave the mass properties unchanged
-		void Shape(collision::Shape const* shape)
-		{
-			ShapeChange(*this, ChangeEventArgs<collision::Shape const*>(m_shape, true));
-			m_shape = shape;
-			ShapeChange(*this, ChangeEventArgs<collision::Shape const*>(m_shape, false));
-		}
+		void Shape(collision::Shape const* shape);
 
 		// Set the shape and derive mass properties from the shape.
-		void Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density = false)
-		{
-			// Set the shape
-			Shape(shape);
-
-			if (mass > 0 && mass < InfiniteMass)
-			{
-				// Derive the mass properties from the shape
-				auto mp = CalcMassProperties(*m_shape, mass_is_actually_density ? mass : 1.0f);
-				if (!mass_is_actually_density) mp.m_mass = mass;
-				SetMassProperties(Inertia{ mp }, mp.m_centre_of_mass);
-			}
-			else
-			{
-				// Set the mass properties to be immovable
-				SetMassProperties(Inertia::Infinite());
-				m_os_com = v4{};
-			}
-		}
+		void Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density = false);
 
 		// Set the shape and mass properties explicitly
-		void Shape(collision::Shape const* shape, Inertia inertia, v4 com = v4{})
-		{
-			// Set the shape
-			Shape(shape);
-
-			// Set the mass properties explicitly
-			SetMassProperties(inertia, com);
-		}
+		void Shape(collision::Shape const* shape, Inertia inertia, v4 com = v4{});
 
 		// Get/Set the body object to world transform
-		m4x4 const& O2W() const
-		{
-			return m_o2w;
-		}
-		m4x4 W2O() const
-		{
-			return InvertOrthonormal(O2W());
-		}
-		void O2W(m4x4 const& o2w)
-		{
-			assert(IsOrthonormal(o2w));
-			m_o2w = o2w;
-		}
+		m4x4 const& O2W() const;
+		m4x4 W2O() const;
+		void O2W(m4x4 const& o2w);
 
 		// Extrapolate the position based on the current momentum and forces
-		m4x4 O2W(float dt) const
-		{
-			return Abs(dt) > math::tiny<float>
-				? ExtrapolateO2W(O2W(), CentreOfMassOS(), MomentumWS(), ForceWS(), InertiaInvWS(), dt)
-				: O2W();
-		}
+		m4x4 O2W(float dt) const;
 
 		// Return the world space bounding box for this object
-		BBox BBoxWS() const
-		{
-			return O2W() * Shape().m_bbox;
-		}
+		BBox BBoxWS() const;
 
 		// The mass of the rigid body
-		float Mass() const
-		{
-			return InertiaInvOS().Mass();
-		}
-		void Mass(float mass)
-		{
-			m_os_inertia_inv.Mass(mass);
-		}
-		float InvMass() const
-		{
-			return InertiaInvOS().InvMass();
-		}
-		void InvMass(float invmass)
-		{
-			return m_os_inertia_inv.InvMass(invmass);
-		}
+		float Mass() const;
+		void Mass(float mass);
+		float InvMass() const;
+		void InvMass(float invmass);
 
 		// Offset to the centre of mass (w = 0) (Object relative)
-		v4 CentreOfMassOS() const
-		{
-			return m_os_com;
-		}
-		v4 CentreOfMassWS() const
-		{
-			return O2W() * CentreOfMassOS();
-		}
+		v4 CentreOfMassOS() const;
+		v4 CentreOfMassWS() const;
 
 		// InertiaInv (use 'SetMassProperties' to change)
-		InertiaInv InertiaInvOS() const
-		{
-			return m_os_inertia_inv;
-		}
-		InertiaInv InertiaInvWS() const
-		{
-			return Rotate(InertiaInvOS(), O2W().rot);
-		}
-		Inertia InertiaOS() const
-		{
-			return Invert(InertiaInvOS());
-		}
-		Inertia InertiaWS() const
-		{
-			return Invert(InertiaInvWS());
-		}
+		InertiaInv InertiaInvOS() const;
+		InertiaInv InertiaInvWS() const;
+		Inertia InertiaOS() const;
+		Inertia InertiaWS() const;
 
 		// Return the inertia rotated from object space to 'A' space
 		// 'com' is the position of this object's CoM in 'A' space
-		Inertia InertiaOS(m3x3 const& o2a, v4 com = v4{}) const
-		{
-			auto inertia = InertiaOS();
-			inertia = Rotate(inertia, o2a);
-			inertia.CoM(com);
-			return inertia;
-		}
-		InertiaInv InertiaInvOS(m3x3 const& o2a, v4 com = v4{}) const
-		{
-			auto inertia_inv = InertiaInvOS();
-			inertia_inv = Rotate(inertia_inv, o2a);
-			inertia_inv.CoM(com);
-			return inertia_inv;
-		}
-		Inertia InertiaOS(m4x4 const& o2a) const
-		{
-			return InertiaOS(o2a.rot, o2a.pos);
-		}
-		InertiaInv InertiaInvOS(m4x4 const& o2a) const
-		{
-			return InertiaInvOS(o2a.rot, o2a.pos);
-		}
-
-		// Get/Set the velocity
-		v8motion VelocityWS() const
-		{
-			auto ws_velocity = InertiaInvWS() * MomentumWS();
-			return ws_velocity;
-		}
-		v8motion VelocityOS() const
-		{
-			return W2O().rot * VelocityWS();
-		}
-		void VelocityWS(v8motion const& ws_velocity)
-		{
-			auto ws_momentum = InertiaWS() * ws_velocity;
-			MomentumWS(ws_momentum);
-		}
-		void VelocityOS(v8motion const& os_velocity)
-		{
-			auto ws_velocity = O2W().rot * os_velocity;
-			VelocityWS(ws_velocity);
-		}
-		void VelocityWS(v4 ws_ang, v4 ws_lin, v4 ws_at = v4{})
-		{
-			// 'ws_ang' and 'ws_lin' describe velocity at 'ws_at' (offset from model origin).
-			// Shift to the centre of mass.
-			auto ws_com = O2W().rot * m_os_com;
-			auto spatial_velocity = v8motion{ws_ang, ws_lin};
-			spatial_velocity = Shift(spatial_velocity, ws_com - ws_at);
-			VelocityWS(spatial_velocity);
-		}
-		void VelocityOS(v4 os_ang, v4 os_lin, v4 os_at = v4{})
-		{
-			auto ws_ang = O2W() * os_ang;
-			auto ws_lin = O2W() * os_lin;
-			auto ws_at  = O2W() * os_at;
-			VelocityWS(ws_ang, ws_lin, ws_at);
-		}
+		Inertia InertiaOS(m3x3 const& o2a, v4 com = v4{}) const;
+		InertiaInv InertiaInvOS(m3x3 const& o2a, v4 com = v4{}) const;
+		Inertia InertiaOS(m4x4 const& o2a) const;
+		InertiaInv InertiaInvOS(m4x4 const& o2a) const;
 
 		// Get/Set the momentum of the rigid body
-		v8force MomentumWS() const
-		{
-			return m_ws_momentum;
-		}
-		v8force MomentumOS() const
-		{
-			return W2O().rot * MomentumWS();
-		}
-		void MomentumWS(v8force const& ws_momentum)
-		{
-			m_ws_momentum = ws_momentum;
-		}
-		void MomentumOS(v8force const& os_momentum)
-		{
-			auto ws_momentum = O2W().rot * os_momentum;
-			MomentumWS(ws_momentum);
-		}
+		v8force MomentumWS() const;
+		v8force MomentumOS() const;
+		void MomentumWS(v8force const& ws_momentum);
+		void MomentumOS(v8force const& os_momentum);
+
+		// Get/Set the velocity
+		v8motion VelocityWS() const;
+		v8motion VelocityOS() const;
+		void VelocityWS(v8motion const& ws_velocity);
+		void VelocityOS(v8motion const& os_velocity);
+		void VelocityWS(v4 ws_ang, v4 ws_lin, v4 ws_at = v4{});
+		void VelocityOS(v4 os_ang, v4 os_lin, v4 os_at = v4{});
 
 		// Reset the state of the body
-		void ZeroForces()
-		{
-			m_ws_force = v8force{};
-		}
-		void ZeroMomentum()
-		{
-			m_ws_momentum = v8force{};
-		}
+		void ZeroForces();
+		void ZeroMomentum();
 
 		// Apply gravity to the body. This should be called each frame to apply the gravity force
 		// to the body, even for static bodies in order to define the "down" direction for the body.
-		v4 GravityWS() const
-		{
-			return m_ws_gravity;
-		}
-		void GravityWS(v4 ws_gravity)
-		{
-			m_ws_gravity = ws_gravity;
-
-			auto mass = Mass();
-			if (mass < InfiniteMass * 0.5f)
-				ApplyForceWS(m_ws_gravity * mass, v4::Zero(), O2W().rot * CentreOfMassOS());
-		}
+		v4 GravityWS() const;
+		void GravityWS(v4 ws_gravity);
 
 		// Return the body's state flags
-		ERigidBodyStateFlags StateFlags() const
-		{
-			return m_state_flags;
-		}
+		ERigidBodyStateFlags StateFlags() const;
 
 		// True if the body is flagged as asleep
-		bool Sleeping() const
-		{
-			return (m_state_flags & ERigidBodyStateFlags::Sleeping) != ERigidBodyStateFlags::None;
-		}
+		bool Sleeping() const;
 
 		// Number of valid points in the contact support simplex
-		int ContactSimplexCount() const
-		{
-			return m_contact_simplex_count;
-		}
+		int ContactSimplexCount() const;
 
 		// Get/Set the current forces applied to this body (measured at the centre of mass).
-		v8force ForceWS() const
-		{
-			return m_ws_force;
-		}
-		v8force ForceOS() const
-		{
-			return W2O().rot * ForceWS();
-		}
+		v8force ForceWS() const;
+		v8force ForceOS() const;
 
 		// Add a force acting on the rigid body at position 'ws_at' (world space, model origin relative).
 		// The force is shifted from the application point to the centre of mass before accumulation.
 		// For gravity: pass ws_at = O2W().rot * CentreOfMassOS() so gravity produces no torque about CoM.
-		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4::Zero())
-		{
-			assert("'at' should be an offset (in world space) from the object origin" && ws_at.w == 0);
-
-			// Shift the spatial force from the application point to the centre of mass.
-			// ws_at is relative to the model origin, ws_com is the CoM relative to the model origin.
-			auto ws_com = O2W().rot * m_os_com;
-			auto spatial_force = v8force{ws_torque, ws_force};
-			spatial_force = Shift(spatial_force, ws_com - ws_at);
-			ApplyForceWS(spatial_force);
-		}
-		void ApplyForceWS(v8force ws_force)
-		{
-			m_ws_force += ws_force;
-		}
+		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4::Zero());
+		void ApplyForceWS(v8force ws_force);
 
 		// Add a force acting on the rigid body at position 'os_at' (object space, model origin relative)
-		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4::Zero())
-		{
-			assert("'at' should be an offset (in object space) from the object origin" && os_at.w == 0);
-			auto o2w = O2W();
-			auto ws_force  = o2w * os_force;
-			auto ws_torque = o2w * os_torque;
-			auto ws_at     = o2w * os_at;
-			ApplyForceWS(ws_force, ws_torque, ws_at);
-		}
-		void ApplyForceOS(v8force const& os_force)
-		{
-			auto ws_force = O2W().rot * os_force;
-			ApplyForceWS(ws_force);
-		}
+		void ApplyForceOS(v4 os_force, v4 os_torque, v4 os_at = v4::Zero());
+		void ApplyForceOS(v8force const& os_force);
 
 		// Set the mass properties of the body.
 		// 'os_inertia' is the inertia for the body, measured at the model origin (not CoM) (in object space)
 		// 'os_model_to_com' is the vector from the model origin to the body's centre of mass (in object space)
-		void SetMassProperties(Inertia const& os_inertia, v4 os_model_to_com = v4{})
-		{
-			// Notes:
-			//  - When CoM is offset from the model origin, we translate the inertia from
-			//    the model origin to the CoM using the parallel axis theorem. The stored
-			//    inverse inertia is always in the CoM frame with CoM() == 0 (block-diagonal).
-			//  - Momentum and forces are stored about the CoM, so the inertia multiply is
-			//    simple: omega = Ic_inv * h_ang, v = h_lin / m (no coupling terms).
-			//  - The CoM offset is stored separately in m_os_com for position updates
-			//    (converting CoM velocity to model-origin position changes).
-			//  - For future Featherstone articulated body support, the inertia can be shifted
-			//    to joint frames on demand using Translate()/To6x6().
-			assert("'os_model_to_com' should be an offset (in object space) from the object origin" && os_model_to_com.w == 0);
-			
-			// Translate the inertia from the model origin to the CoM.
-			// Do NOT set inertia.CoM() — we want it zero so operator*(InertiaInv, v8force)
-			// takes the block-diagonal path (no angular-linear coupling).
-			auto inertia = os_inertia;
-			if (LengthSq(os_model_to_com) != 0)
-				inertia = Translate(inertia, os_model_to_com, ETranslateInertia::TowardCoM);
-
-			// Object space inverse inertia, measured at the CoM
-			m_os_inertia_inv = Invert(inertia);
-
-			// Position of the centre of mass (in object space)
-			m_os_com = os_model_to_com;
-
-			// Set state flags
-			m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, inertia.InvMass() == 0.0f);
-		}
+		void SetMassProperties(Inertia const& os_inertia, v4 os_model_to_com = v4{});
 
 		// Return the kinetic energy of the body
-		float KineticEnergy() const
-		{
-			// KE = 0.5 v.h = 0.5 v.Iv
-			auto ke = 0.5f * Dot(VelocityWS(), MomentumWS());
-			return ke;
-		}
+		float KineticEnergy() const;
 	};
 }
 

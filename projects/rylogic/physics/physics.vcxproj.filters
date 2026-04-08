@@ -72,9 +72,6 @@
     <ClCompile Include="src\unittests\test_collision_resolution.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
-    <ClCompile Include="src\unittests\test_engine.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
     <ClCompile Include="src\unittests\test_gpu_collide.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
@@ -95,6 +92,9 @@
     </ClCompile>
     <ClCompile Include="src\unittests\test_shape_builder.cpp">
       <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\rigid_body\rigid_body.cpp">
+      <Filter>src\rigid_body</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

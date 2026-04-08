@@ -23,6 +23,7 @@ namespace pr::physics
 	using CmdList = rdr12::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 	using ComputeStep = rdr12::ComputeStep;
 	using GpuUploadBuffer = rdr12::GpuUploadBuffer;
+	using ReadbackAlloc = rdr12::GpuReadbackBuffer::Allocation;
 	using BoundsSorter = rdr12::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 
 	struct Gpu

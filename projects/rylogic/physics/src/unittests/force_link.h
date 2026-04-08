@@ -18,7 +18,6 @@ namespace pr::physics::tests
 	void ForceLink_CollisionResolution();
 	void ForceLink_GpuCollide();
 	void ForceLink_GpuCollision();
-	void ForceLink_GpuCompare();
 	void ForceLink_Impulse();
 	void ForceLink_Inertia();
 	void ForceLink_Integrator();
@@ -31,7 +30,6 @@ namespace pr::physics::tests
 		ForceLink_CollisionResolution();
 		ForceLink_GpuCollide();
 		ForceLink_GpuCollision();
-		ForceLink_GpuCompare();
 		ForceLink_Impulse();
 		ForceLink_Inertia();
 		ForceLink_Integrator();

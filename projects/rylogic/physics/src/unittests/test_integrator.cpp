@@ -10,6 +10,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_Integrator() {}
+
 	PRUnitTestClass(IntegratorTests)
 	{
 		PRUnitTestMethod(IntegratorTests)
@@ -214,5 +216,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_Integrator() {} }
 #endif

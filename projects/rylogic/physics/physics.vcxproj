@@ -92,10 +92,10 @@
     <ClCompile Include="src\integrator\engine.cpp" />
     <ClCompile Include="src\integrator\impulse.cpp" />
     <ClCompile Include="src\integrator\integrator.cpp" />
+    <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\unittests\test_collision_pairs.cpp" />
     <ClCompile Include="src\unittests\test_collision_resolution.cpp" />
-    <ClCompile Include="src\unittests\test_engine.cpp" />
     <ClCompile Include="src\unittests\test_gpu_collide.cpp" />
     <ClCompile Include="src\unittests\test_gpu_collision.cpp" />
     <ClCompile Include="src\unittests\test_gpu_compare.cpp" />

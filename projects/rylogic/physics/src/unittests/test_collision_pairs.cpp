@@ -17,6 +17,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_CollisionPairs() {}
+
 	// Drop a shape onto the ground from height 'h' and check it bounces.
 	// Returns true if the collision was detected and the body bounced (z velocity reversed).
 	struct DropResult
@@ -68,17 +70,17 @@ namespace pr::physics::tests
 		bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
 
 		physics::Engine engine;
-
 		auto result = DropResult{};
+		engine.Collisions += [&](auto&, auto)
+		{
+			++result.total_collisions;
+		};
+
 		auto const g = 9.81f;
 		auto const gravity = v4{0, 0, -g, 0};
 		auto const dt = 1.0f / 100.0f;
 		auto const m = bodies[0].Mass();
 		auto const com_os = bodies[0].CentreOfMassOS();
-		bodies[0].Collided += [&](auto&, auto&)
-		{
-			++result.total_collisions;
-		};
 
 		for (int step = 0; step != num_steps; ++step)
 		{
@@ -125,7 +127,6 @@ namespace pr::physics::tests
 
 		return result;
 	}
-
 	HeadOnResult RunHeadOnTest(std::string_view label, collision::Shape const& shape_a, physics::Inertia const& inertia_a, collision::Shape const& shape_b, physics::Inertia const& inertia_b, float separation = 10.0f, float speed = 3.0f, std::filesystem::path log_dir = {})
 	{
 		physics::RigidBody bodies[2] = {
@@ -135,13 +136,12 @@ namespace pr::physics::tests
 		bodies[0].VelocityWS(v4::Zero(), v4{+speed, 0, 0, 0});
 		bodies[1].VelocityWS(v4::Zero(), v4{-speed, 0, 0, 0});
 
+		physics::Engine engine;
 		auto result = HeadOnResult{};
-		bodies[0].Collided += [&](auto&, auto&)
+		engine.Collisions += [&](auto&, auto)
 		{
 			result.collision_occurred = true;
 		};
-
-		physics::Engine engine;
 
 		auto const dt = 1.0f / 100.0f;
 		for (int step = 0; step != 5000; ++step)
@@ -483,6 +483,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-
-namespace pr::physics::tests { void ForceLink_CollisionPairs() {} }
 #endif

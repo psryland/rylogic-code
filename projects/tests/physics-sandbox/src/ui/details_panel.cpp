@@ -79,14 +79,10 @@ namespace physics_sandbox
 			auto pos = body.O2W().pos;
 
 			ss << L"--- Body " << i << L" ---\r\n";
-			ss << L"  Pos:   " << std::fixed << std::setprecision(2)
-				<< pos.x << L", " << pos.y << L", " << pos.z << L"\r\n";
-			ss << L"  State: " << (body.Sleeping() ? L"Sleeping" : L"Awake")
-				<< L" (simplex:" << body.ContactSimplexCount() << L")\r\n";
-			ss << L"  Vel:   "
-				<< vel.lin.x << L", " << vel.lin.y << L", " << vel.lin.z << L"\r\n";
-			ss << L"  AngV:  "
-				<< vel.ang.x << L", " << vel.ang.y << L", " << vel.ang.z << L"\r\n";
+			ss << L"  Pos:   " << std::fixed << std::setprecision(2) << pos.x << L", " << pos.y << L", " << pos.z << L"\r\n";
+			ss << L"  State: " << (body.Sleeping() ? L"Sleeping" : L"Awake") << L" (simplex:" << body.ContactSimplexCount() << L")\r\n";
+			ss << L"  Vel:   " << vel.lin.x << L", " << vel.lin.y << L", " << vel.lin.z << L"\r\n";
+			ss << L"  AngV:  " << vel.ang.x << L", " << vel.ang.y << L", " << vel.ang.z << L"\r\n";
 			ss << L"  Mass:  " << std::setprecision(1) << body.Mass() << L"\r\n";
 			ss << L"  KE:    " << std::setprecision(4) << body.KineticEnergy() << L"\r\n";
 			ss << L"\r\n";

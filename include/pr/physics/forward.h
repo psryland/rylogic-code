@@ -81,6 +81,7 @@ namespace pr::physics
 	struct GpuMaterial;
 	struct GpuIntegrateDiag;
 	struct GpuPairDiag;
+	struct GpuBuffers;
 	struct EngineBufferCache;
 	struct ShapeCache;
 

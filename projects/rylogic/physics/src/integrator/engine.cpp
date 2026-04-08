@@ -23,6 +23,15 @@
 
 namespace pr::physics
 {
+	struct GpuBuffers
+	{
+		ReadbackAlloc rb_bodies;
+		ReadbackAlloc rb_counters;
+		ReadbackAlloc rb_contacts;
+		ReadbackAlloc rb_intg_diag;
+		ReadbackAlloc rb_pair_diag;
+	};
+
 	Engine::Engine(EngineConfig const& config, ID3D12Device4* existing_device)
 		: m_config(config)
 		, m_gpu(new Gpu(existing_device))
@@ -31,39 +40,8 @@ namespace pr::physics
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, config))
 		, m_materials(new MaterialMap)
-		, m_cache(new EngineBufferCache(*this))
+		, m_cache(new EngineBufferCache())
 	{
-	}
-
-	// Get/Set whether the GPU is used for integration and collision detection.
-	bool Engine::UseGpuIntegation() const
-	{
-		return m_gpu_integrate;
-	}
-	void Engine::UseGpuIntegation(bool use)
-	{
-		// Dropping non-gpu support
-		m_gpu_integrate = use;
-	}
-
-	// Get/Set whether the GPU is used for narrow-phase collision detection (GJK).
-	bool Engine::UseGpuDetect() const
-	{
-		return m_gpu_detect;
-	}
-	void Engine::UseGpuDetect(bool use)
-	{
-		m_gpu_detect = use;
-	}
-
-	// Get/Set whether the GPU is used for collision resolution (impulse application).
-	bool Engine::UseGpuResolve() const
-	{
-		return m_gpu_resolve;
-	}
-	void Engine::UseGpuResolve(bool use)
-	{
-		m_gpu_resolve = use;
 	}
 
 	// Access the physics material properties for a given material ID.
@@ -92,6 +70,7 @@ namespace pr::physics
 		capture = false;
 		#endif
 
+		GpuBuffers buffers;
 		m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
 
 		// Pack all bodies into a GPU-friendly format
@@ -109,8 +88,14 @@ namespace pr::physics
 		// Resolve -> uses contacts -> applies impulses to bodies
 		Resolve(dt);
 
+		// Read buffers back to CPU memory
+		Readback(buffers);
+		
+		// Run the GPU queue and wait for completion before using the results.
+		m_gpu->m_job.Run();
+
 		// Readback dynamics from GPU and unpack into bodies
-		Unpack(rigid_bodies);
+		Unpack(buffers, rigid_bodies);
 	}
 
 	// Pack the body data into GPU buffers for the current frame.
@@ -132,20 +117,12 @@ namespace pr::physics
 	// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 	void Engine::Integrate(float dt)
 	{
-		if (m_gpu_integrate)
-		{
-			m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
+		m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
 
-			#if PR_DBG_PHYSICS
-			auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
-			DbgPhysics(*this).ReadbackIntegrate(body_count);
-			#endif
-		}
-		else
-		{
-			for (auto& body : m_cache->m_rb_dynamics)
-				Evolve(body, dt);
-		}
+		#if PR_DBG_PHYSICS
+		//auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+		//DbgPhysics(*this).ReadbackIntegrate(body_count);
+		#endif
 	}
 
 	// Broadphase collision detection to generate potential collision pairs.
@@ -153,43 +130,30 @@ namespace pr::physics
 	{
 		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
 
-		if (m_gpu_broadphase)
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
-			auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
-			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-			m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
+		// GPU broadphase is only useful when GPU detect will consume the pairs
+		auto counters = m_gpu_integrator->Counters();
+		auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
+		auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
+		auto bodies = m_gpu_integrator->Bodies();
+		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
 
-			#if PR_DBG_PHYSICS
-			DbgPhysics(*this).ReadbackSweep(counters);
-			#endif
-		}
-		else
-		{
-			// todo...
-		}
+		#if PR_DBG_PHYSICS
+		//DbgPhysics(*this).ReadbackSweep(counters);
+		#endif
 	}
 
 	// Narrow phase collision detection to generate contact points.
 	void Engine::Collide()
 	{
-		if (m_gpu_detect)
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
-			auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-			m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+		auto counters = m_gpu_integrator->Counters();
+		auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
+		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
+		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 
-			#if PR_DBG_PHYSICS
-			DbgPhysics(*this).ReadbackCollide(counters);
-			#endif
-		}
-		else
-		{
-			// todo, Will call 'NarrowPhaseCollision'
-		}
+		#if PR_DBG_PHYSICS
+		//DbgPhysics(*this).ReadbackCollide(counters);
+		#endif
 	}
 
 	// Apply impulses to resolve collisions and update body dynamics.
@@ -197,54 +161,97 @@ namespace pr::physics
 	{
 		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
 
-		if (m_gpu_resolve)
-		{
-			auto counters = m_gpu_integrator->Counters();
-			auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
-			auto contacts = m_gpu_collision_detector->Contacts();
-			auto bodies = m_gpu_integrator->Bodies();
-			m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
+		auto counters = m_gpu_integrator->Counters();
+		auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		auto contacts = m_gpu_collision_detector->Contacts();
+		auto bodies = m_gpu_integrator->Bodies();
+		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
 
-			#if PR_DBG_PHYSICS
-			DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+		#if PR_DBG_PHYSICS
+		//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+		#endif
+	}
+
+	// Read buffers back to CPU memory
+	void Engine::Readback(GpuBuffers& buffers)
+	{
+		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+		auto contacts_count = static_cast<int>(m_cache->m_contacts.size());
+		auto bodies = m_gpu_integrator->Bodies();
+		auto counters = m_gpu_integrator->Counters();
+		auto contacts = m_gpu_collision_detector->Contacts();
+		auto intg_diags = m_gpu_integrator->Diagnostics();
+		auto pair_diags = m_gpu_collision_detector->Diagnostics();
+
+		{
+			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			#if PR_COLLISION_DIAGNOSTICS
+			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			#endif
+			m_gpu->m_job.m_barriers.Commit();
+		}
+		{
+			buffers.rb_bodies = m_gpu->m_job.m_readback.template Alloc<GpuRigidBody>(body_count);
+			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_bodies, bodies.get(), 0);
+
+			buffers.rb_counters = m_gpu->m_job.m_readback.template Alloc<GpuCollisionCounters>(1);
+			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_counters, counters.get(), 0);
+
+			buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
+			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
+
+			#if PR_COLLISION_DIAGNOSTICS
+			buffers.rb_intg_diag = m_gpu->m_job.m_readback.template Alloc<GpuIntegrateDiag>(body_count);
+			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_intg_diag, intg_diags.get(), 0);
+
+			buffers.rb_pair_diag = m_gpu->m_job.m_readback.template Alloc<GpuPairDiag>(contacts_count);
+			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_pair_diag, pair_diags.get(), 0);
 			#endif
 		}
-		else
 		{
-			// todo, will call ResolveCollision
+			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#if PR_COLLISION_DIAGNOSTICS
+			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#endif
+			m_gpu->m_job.m_barriers.Commit();
 		}
 	}
 
 	// Update rigid bodies with results from the step
-	void Engine::Unpack(std::span<RigidBody*> rigid_bodies)
+	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies)
 	{
-		// Read back the body dynamics from the GPU.
-		auto bodies = m_gpu_integrator->Bodies();
-		m_gpu_resolver->Readback(m_gpu->m_job, bodies, m_cache->m_rb_dynamics);
-		
-		// Read back the contact data for collision events. This is needed to raise collision events on the CPU side.
-		auto contacts = m_gpu_collision_detector->Contacts();
-		m_gpu_collision_detector->Readback(m_gpu->m_job, m_gpu_integrator->Counters(), m_cache->m_contacts, {});
+		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+		auto max_contacts = static_cast<int>(m_cache->m_contacts.size());
 
-		// @Copilot, currently each 'Readback' method is calling m_gpu->m_job.Run() internally, which means we're waiting for the GPU
-		// to finish multiple times per frame. Ideally, we should only wait once after all GPU work is done, and read back all the necessary
-		// data in one go. Can we split each of the 'Readback' functions into two steps: 'ReadBack' and 'ReadData'?  Then call the m_job.Run()
-		// here:
-		// m_gpu->m_job.Run();
+		// Read the results back to the CPU
+		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
+		auto contact_count = std::min(counts.contact_count, max_contacts);
+		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+		std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
+		#if PR_COLLISION_DIAGNOSTICS
+		// TODO: read the diags
+		#endif
 
-		// Then read the data here.
+		// Before updating the bodies with new dynamics, raise the collision events
+		if (contact_count != 0)
+		{
+			m_cache->m_contacts_cpu.resize(0);
+			m_cache->m_contacts_cpu.reserve(contact_count);
+			for (auto const& c : m_cache->m_contacts)
+				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
 
+			Collisions(*this, m_cache->m_contacts_cpu);
+		}
+
+		// Unpack the GPU results into the RigidBody objects
 		for (auto [body, i] : with_index(rigid_bodies))
 		{
-			// Before updating the body with new dynamics, we can raise a collision event
-			if (body->Collided)
-			{
-				// todo, can also pass the new dynamics data 
-				RbContact contact = {}; // todo construct from 'GpuResolveContact'
-				body->Collided(*body, { body, contact }); // todo 'body' should be the other body in the collision,
-			}
-
-			// Update the body with the new dynamics data from the GPU
 			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 

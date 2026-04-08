@@ -42,9 +42,7 @@ namespace pr::physics
 		, m_r_verts()
 		, m_r_contacts()
 		, m_r_resolve_dispatch()
-		#if PR_COLLISION_DIAGNOSTICS
 		, m_r_diag()
-		#endif
 		, m_max_contacts()
 		, m_max_shapes()
 		, m_max_verts()
@@ -236,70 +234,6 @@ namespace pr::physics
 		pix::EndEvent(job.m_cmd_list.get());
 	}
 
-	// Read back the results of the collision detection.
-	// This is a debug synchronisation point — it flushes all queued GPU work,
-	// then makes the narrow-phase output available on the CPU for inspection.
-	std::tuple<std::span<GpuResolveContact>, std::span<GpuPairDiag>> GpuCollisionDetector::Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuResolveContact> out_contacts, std::span<GpuPairDiag> out_diag)
-	{
-		// This is a debug synchronisation point — it flushes all queued GPU work,
-		// then makes the broadphase output available on the CPU for inspection.
-		GpuReadbackBuffer::Allocation readback_counters;
-		GpuReadbackBuffer::Allocation readback_contacts;
-		#if PR_COLLISION_DIAGNOSTICS
-		GpuReadbackBuffer::Allocation readback_diag;
-		#endif
-
-		// Readback contacts and counters
-		{
-			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#endif
-			job.m_barriers.Commit();
-
-			readback_contacts = job.m_readback.Alloc<GpuResolveContact>(static_cast<int>(out_contacts.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_contacts, m_r_contacts.get(), 0);
-
-			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
-			job.m_cmd_list.CopyBufferRegion(readback_counters, r_counters.get(), 0);
-
-			#if PR_COLLISION_DIAGNOSTICS
-			readback_diag = job.m_readback.Alloc<GpuPairDiag>(static_cast<int>(out_diag.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
-			#endif
-
-			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
-			job.m_barriers.Commit();
-		}
-
-		// Execute and wait for GPU completion
-		job.Run();
-
-		// Read back results
-		auto& counters = *readback_counters.ptr<GpuCollisionCounters>();
-		auto contact_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_contacts.size()));
-		std::memcpy(out_contacts.data(), readback_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
-
-		#if PR_COLLISION_DIAGNOSTICS
-		auto diag_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_diag.size()));
-		std::memcpy(out_diag.data(), readback_diag.ptr<GpuPairDiag>(), diag_count * sizeof(GpuPairDiag));
-		#endif
-
-		return {
-			out_contacts.subspan(0, contact_count),
-			#if PR_COLLISION_DIAGNOSTICS
-			out_diag.subspan(0, diag_count),
-			#else
-			out_diag.subspan(0, 0),
-			#endif
-		};
-	}
-
 	// Run collision detection on the GPU with CPU-side data.
 	// This overload uploads pairs from CPU, runs the GPU collision detection, reads back contacts.
 	// Used by unit tests and CPU-fallback paths. Returns the number of contacts found.
@@ -365,12 +299,82 @@ namespace pr::physics
 		return Readback(job, r_counters, out_contacts, out_diag);
 	}
 
+	// Read back the results of the collision detection.
+	// This is a debug synchronisation point — it flushes all queued GPU work,
+	// then makes the narrow-phase output available on the CPU for inspection.
+	std::tuple<std::span<GpuResolveContact>, std::span<GpuPairDiag>> GpuCollisionDetector::Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuResolveContact> out_contacts, std::span<GpuPairDiag> out_diag)
+	{
+		// This is a debug synchronisation point — it flushes all queued GPU work,
+		// then makes the broadphase output available on the CPU for inspection.
+		GpuReadbackBuffer::Allocation readback_counters;
+		GpuReadbackBuffer::Allocation readback_contacts;
+		#if PR_COLLISION_DIAGNOSTICS
+		GpuReadbackBuffer::Allocation readback_diag;
+		#endif
+
+		// Readback contacts and counters
+		{
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			#if PR_COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			#endif
+			job.m_barriers.Commit();
+
+			readback_contacts = job.m_readback.Alloc<GpuResolveContact>(static_cast<int>(out_contacts.size()));
+			job.m_cmd_list.CopyBufferRegion(readback_contacts, m_r_contacts.get(), 0);
+
+			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
+			job.m_cmd_list.CopyBufferRegion(readback_counters, r_counters.get(), 0);
+
+			#if PR_COLLISION_DIAGNOSTICS
+			readback_diag = job.m_readback.Alloc<GpuPairDiag>(static_cast<int>(out_diag.size()));
+			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
+			#endif
+
+			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#if PR_COLLISION_DIAGNOSTICS
+			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			#endif
+			job.m_barriers.Commit();
+		}
+
+		// Execute and wait for GPU completion
+		job.Run();
+
+		// Read back results
+		auto& counters = *readback_counters.ptr<GpuCollisionCounters>();
+		auto contact_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_contacts.size()));
+		std::memcpy(out_contacts.data(), readback_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
+
+		#if PR_COLLISION_DIAGNOSTICS
+		auto diag_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_diag.size()));
+		std::memcpy(out_diag.data(), readback_diag.ptr<GpuPairDiag>(), diag_count * sizeof(GpuPairDiag));
+		#endif
+
+		return {
+			out_contacts.subspan(0, contact_count),
+			#if PR_COLLISION_DIAGNOSTICS
+			out_diag.subspan(0, diag_count),
+			#else
+			out_diag.subspan(0, 0),
+			#endif
+		};
+	}
+
 	// Custom deleter implementation (GpuCollisionDetector is complete here)
 	void Deleter<GpuCollisionDetector>::operator()(GpuCollisionDetector* p) const
 	{
 		delete p;
 	}
 }
+
+
+
+
+
+
 
 #if 0 
 

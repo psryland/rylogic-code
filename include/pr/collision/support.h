@@ -196,8 +196,7 @@ namespace pr::collision
 	// Returns the *single* point of contact between two shapes, 'lhs' and 'rhs'.
 	// 'axis' is the collision separating axis.
 	// 'pen' is the depth of penetration
-	// 'l2w' and 'r2w' transform 'lhs' and 'rhs' into the same space as 'axis' and the space
-	// that the contact point is returned in (typically world space).
+	// 'l2w' and 'r2w' transform 'lhs' and 'rhs' into the same space as 'axis' and the space that the contact point is returned in (typically world space).
 	template <typename = void>
 	v4 FindContactPoint(v4* pointA, EFeature featA, v4* pointB, EFeature featB, m4x4 const& l2w, m4x4 const& r2w, v4 axis, float pen)
 	{
@@ -291,7 +290,7 @@ namespace pr::collision
 		if (featB == EFeature::Edge)
 		{
 			clip(pointA, countA, pointB, countB, edgesB, +1.0f);
-			return pointB[0] + (0.5f*(edgesB[0].t0 + edgesB[0].t1))*(pointB[1] - pointB[0]) - (0.5f * pen)*axis;
+			return pointB[0] + (0.5f*(edgesB[0].t0 + edgesB[0].t1))*(pointB[1] - pointB[0]) + (0.5f * pen)*axis;
 		}
 
 		// Face to face contact, i.e featA >= EFeature::Tri && featB >= EFeature::Tri

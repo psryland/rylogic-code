@@ -88,7 +88,7 @@ namespace pr::collision
 		
 		// Flip the contact normal back to match the original caller's argument order
 		if (flip)
-			contact.flip();
+			Flip(contact);
 
 		return result;
 	}

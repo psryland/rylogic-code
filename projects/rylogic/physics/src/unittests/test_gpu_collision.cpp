@@ -1,7 +1,7 @@
-//************************************
-// Physics Engine — GPU Collision Tests
-//  Copyright (c) Rylogic Ltd 2026
-//************************************
+//*********************************************
+// Physics Engine
+//  Copyright (C) Rylogic Ltd 2016
+//*********************************************
 // Unit tests that compare GPU GJK collision results against CPU GJK collision results.
 // Each test creates a pair of shapes, runs both the CPU path (GjkCollide) and the
 // GPU path (GpuDetectCollisions), and verifies the results match within tolerance.
@@ -15,6 +15,7 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_GpuCollision() {}
 	PRUnitTestClass(GpuCollisionTests)
 	{
 		// Tolerance thresholds for comparing CPU vs GPU results
@@ -179,5 +180,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_GpuCollision() {} }
 #endif

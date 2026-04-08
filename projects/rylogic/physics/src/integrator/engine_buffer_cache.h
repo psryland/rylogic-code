@@ -22,16 +22,20 @@ namespace pr::physics
 		// Staging buffer for collision contacts
 		std::vector<GpuResolveContact> m_contacts;
 
+		// Contact information in CPU format
+		std::vector<RbContact> m_contacts_cpu;
+
 		// Diagnostics
 		#if PR_DBG_PHYSICS
 		BodyHistory m_history;
 		PhysicsLog m_log;
 		#endif
 
-		explicit EngineBufferCache(Engine& engine)
+		EngineBufferCache()
 			: m_shape_cache()
 			, m_rb_dynamics()
 			, m_contacts()
+			, m_contacts_cpu()
 			#if PR_DBG_PHYSICS
 			, m_history()
 			, m_log()

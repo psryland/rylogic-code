@@ -944,33 +944,38 @@ float3 FindBoxContactPoint(float3 ptsA[4], int countA, float3 ptsB[4], int count
 			ClipSegmentToHalfPlane(ptsA[j], ptsA[(j + 1) % countA], ptsB[i], n, edgesA[j].x, edgesA[j].y);
 	}
 
-	// Pool surviving edge midpoints from both faces into a single centroid.
-	// When one face fully contains the other, the larger face's edges are all clipped
-	// and only the contained face's edges contribute — giving the correct overlap centroid.
-	float3 centre = float3(0, 0, 0);
-	float total = 0;
+	// Compute separate centroids for each face and average them.
+	// This gives equal weight to both surfaces regardless of how many edges survive clipping.
+	float3 centreA = float3(0, 0, 0);
+	float totalA = 0;
 	for (j = 0; j < countA; ++j)
 	{
 		if (edgesA[j].x >= edgesA[j].y) continue;
-		centre += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
-		total += 1.0f;
+		centreA += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
+		totalA += 1.0f;
 	}
+	float3 centreB = float3(0, 0, 0);
+	float totalB = 0;
 	for (j = 0; j < countB; ++j)
 	{
 		if (edgesB[j].x >= edgesB[j].y) continue;
-		centre += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
-		total += 1.0f;
+		centreB += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
+		totalB += 1.0f;
 	}
 
-	// Fallback for degenerate cases (all edges clipped from both faces)
-	if (total == 0)
+	// Fallback for degenerate cases (all edges clipped from a face)
+	if (totalA == 0)
 	{
-		for (j = 0; j < countA; ++j) centre += ptsA[j];
-		for (j = 0; j < countB; ++j) centre += ptsB[j];
-		total = (float)(countA + countB);
+		for (j = 0; j < countA; ++j) centreA += ptsA[j];
+		totalA = (float)countA;
+	}
+	if (totalB == 0)
+	{
+		for (j = 0; j < countB; ++j) centreB += ptsB[j];
+		totalB = (float)countB;
 	}
 
-	return centre / total;
+	return 0.5f * (centreA / totalA + centreB / totalB);
 }
 
 bool BoxVsBox(
