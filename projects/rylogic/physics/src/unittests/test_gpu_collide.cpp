@@ -345,6 +345,102 @@ namespace pr::physics::tests
 				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 45.0f, 45.0f), v4(1.75f, 0, 0, 1));
 				BangTogether(a, a2w, b, b2w, true);
 			}
+
+			// ---- Both boxes transformed ----
+			a = collision::ShapeBox(v4(1, 1, 1, 0));
+			b = collision::ShapeBox(v4(1, 1, 1, 0));
+
+			// Both rotated, face-face overlap
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 20.0f), v4(-0.3f, 0.1f, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, -15.0f), v4(0.6f, -0.1f, 0, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// Both rotated, separated
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 20.0f), v4(-0.3f, 0.1f, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, -15.0f), v4(1.5f, 0, 0, 1));
+				BangTogether(a, a2w, b, b2w, false);
+			}
+
+			// Both rotated around different axes, overlapping
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(30.0f, 0, 0), v4(0, 0, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 45.0f), v4(0.85f, 0, 0, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// Both rotated around all three axes
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(10.0f, 20.0f, 30.0f), v4(-0.2f, 0.1f, -0.1f, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(-15.0f, 25.0f, -10.0f), v4(0.7f, -0.1f, 0.2f, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// ---- Edge-edge contact ----
+			// Two elongated boxes crossing like an X, edges closest
+			{
+				auto thin = collision::ShapeBox(v4(0.2f, 0.2f, 3, 0));
+				auto a2w = m4x4::Identity();
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(90.0f, 0, 0), v4(0.15f, 0, 0, 1));
+				BangTogether(thin, a2w, thin, b2w, true);
+			}
+
+			// Two unit boxes positioned so an edge-edge cross-product axis is the minimum
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 45.0f), v4(0, 0, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(45.0f, 0, 0), v4(0, 0.95f, 0, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// ---- Vertex-face contact ----
+			// B's corner pokes into A's face (B rotated around two axes)
+			{
+				auto a2w = m4x4::Identity();
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(45.0f, 35.264f, 0), v4(0.95f, 0, 0, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// A's corner pokes into B's face (A rotated, B at identity)
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(45.0f, 35.264f, 0), v4(-0.95f, 0, 0, 1));
+				auto b2w = m4x4::Identity();
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// ---- Near-degenerate cases ----
+			// Nearly touching (very small overlap)
+			{
+				auto a2w = m4x4::Identity();
+				auto b2w = m4x4::Translation(0.999f, 0, 0);
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// Deep overlap (one box mostly inside the other)
+			{
+				auto small_box = collision::ShapeBox(v4(0.3f, 0.3f, 0.3f, 0));
+				auto big_box = collision::ShapeBox(v4(2, 2, 2, 0));
+				auto a2w = m4x4::Identity();
+				auto b2w = m4x4::Translation(0.1f, 0.05f, -0.02f);
+				BangTogether(big_box, a2w, small_box, b2w, true);
+			}
+
+			// Boxes touching at an edge, both translated off-origin
+			{
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 30.0f), v4(3, 5, 1, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, -20.0f), v4(3.85f, 5, 1, 1));
+				BangTogether(a, a2w, b, b2w, true);
+			}
+
+			// ---- Asymmetric shapes, both transformed ----
+			{
+				auto flat = collision::ShapeBox(v4(2, 2, 0.2f, 0));
+				auto tall = collision::ShapeBox(v4(0.4f, 0.4f, 3, 0));
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(15.0f, 0, 0), v4(0, 0, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 30.0f, 0), v4(0.8f, 0, 0.5f, 1));
+				BangTogether(flat, a2w, tall, b2w, true);
+			}
 		}
 	};
 }
