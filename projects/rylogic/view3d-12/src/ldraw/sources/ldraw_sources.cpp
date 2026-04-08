@@ -104,16 +104,22 @@ namespace pr::rdr12::ldraw
 
 		// Remove the object from the source it belongs to
 		auto& src = m_srcs[id];
-		auto count = src->m_output.m_objects.size();
-		ldraw::Remove(src->m_output.m_objects, object);
 
-		// If that was the last object for the source, remove the source
-		if (src->m_output.m_objects.empty())
-			Remove(id);
+		// This should be necessary, 'm_src' should never contain nullptr
+		// I've seen it happen when closing the Measurement Tool window however (as the 'HotSpots') get deleted
+		if (src != nullptr)
+		{
+			auto count = src->m_output.m_objects.size();
+			ldraw::Remove(src->m_output.m_objects, object);
 
-		// Notify of the object container change
-		else if (src->m_output.m_objects.size() != count)
-			m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
+			// If that was the last object for the source, remove the source
+			if (src->m_output.m_objects.empty())
+				Remove(id);
+
+			// Notify of the object container change
+			else if (src->m_output.m_objects.size() != count)
+				m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
+		}
 	}
 
 	// Remove all objects associated with context ids filtered by 'pred'

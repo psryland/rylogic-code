@@ -33,7 +33,7 @@ namespace Rylogic.Gui.WPF
 		public bool HasChildren { get; }
 
 		/// <summary>Indent margin for the Name column, based on depth</summary>
-		public Thickness Indent => new(Depth * 14, 0, 0, 0);
+		public Thickness Indent => new(Depth * 10, 0, 0, 0);
 
 		/// <summary>Expand/collapse state</summary>
 		public bool IsExpanded
