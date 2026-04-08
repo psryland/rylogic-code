@@ -153,7 +153,7 @@ namespace pr::script
 		{
 			{
 				StringSrc src(" \t\n,Text");
-				EatDelimiters(src, "\n\t ,");
+				EatDelimiters(src, L"\n\t ,");
 				PR_EXPECT(*src == 'T');
 			}
 			{

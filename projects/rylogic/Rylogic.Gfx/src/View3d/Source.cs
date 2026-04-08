@@ -45,7 +45,7 @@ namespace Rylogic.Gfx
 			/// <summary>The inner spot light cone angle (in degrees)</summary>
 			public string Name
 			{
-				get => View3D_SourceNameGetBStr(ref m_context_id);
+				get => View3D_SourceNameGet(ref m_context_id);
 				set
 				{
 					if (Name == value) return;

@@ -532,46 +532,47 @@ namespace pr::rdr12
 	}
 
 	// Parse an embedded resource string of the form: "@<hmodule|module_name>:<res_type>:<res_name>"
-	void ParseEmbeddedResourceUri(std::wstring const& uri, HMODULE& hmodule, wstring32& res_type, wstring32& res_name)
+	std::tuple<HMODULE, std::wstring, std::wstring> ParseEmbeddedResourceUri(std::filesystem::path const& uri_)
 	{
+		auto uri = uri_.wstring();
 		if (uri.empty() || uri[0] != '@')
 			throw std::runtime_error("Not an embedded resource URI");
 
-		hmodule = nullptr;
-		res_type.resize(0);
-		res_name.resize(0);
+		auto div0 = 0; // The '@' character
+		auto div1 = uri.find(':', div0 + 1);
+		auto div2 = uri.find(':', div1 + 1);
+		if (div2 == std::string::npos)
+			throw std::runtime_error(std::format("Embedded resource URI {}) invalid. Expected format \"@<hmodule|module_name>:<res_type>:<res_name>\"", uri_.string()));
 
-		auto div0 = uri.c_str();
-		auto div1 = *div0 != 0 ? str::FindChar(div0 + 1, ':') : div0;
-		auto div2 = *div1 != 0 ? str::FindChar(div1 + 1, ':') : div1;
-		if (*div2 == 0)
-			throw std::runtime_error(FmtS("Embedded resource URI (%S) invalid. Expected format \"@<hmodule|module_name>:<res_type>:<res_name>\"", uri.c_str()));
-		
 		// Read the HMODULE handle from a string name or 
-		auto HModule = [=](wchar_t const* s, wchar_t const* e)
+		auto HModule = [=](std::wstring_view module_name)
 		{
-			wstring32 name(s, e);
-			if (name.empty())
+			if (module_name.empty())
 				return HMODULE();
 
-			if (auto h = GetModuleHandleW(name.c_str()); h != nullptr)
+			// Create a null-terminated string for GetModuleHandleW.
+			wstring32 name(module_name); name.push_back({});
+			if (auto h = GetModuleHandleW(name.data()); h != nullptr)
 				return h;
 
+			// Try interpreting the module name as a hex address of the module handle.
 			auto end = (wchar_t*)nullptr;
-			auto address = std::wcstoll(s, &end, 16);
-			if (auto h = reinterpret_cast<HMODULE>((uint8_t*)nullptr + (end == e ? address : 0)); h != nullptr)
-				return h;
-
-			throw std::runtime_error(FmtS("Embedded resource URI (%S) not found. HMODULE could not be determined", uri.c_str()));
+			auto address = std::wcstoll(name.data(), &end, 16);
+			if (end - name.data() == ssize(name) - 1)
+				return reinterpret_cast<HMODULE>(address);
+			
+			throw std::runtime_error(std::format("Embedded resource URI ({}) not found. HMODULE could not be determined", Narrow(uri)));
 		};
 
-		res_name.append(div2 + 1);
-		res_type.append(div1 + 1, div2);
-		hmodule = HModule(div0 + 1, div1);
+		std::wstring res_name(uri.substr(div2 + 1));
+		std::wstring res_type(uri.substr(div1 + 1, div2 - div1 - 1));
+		HMODULE hmodule = HModule(uri.substr(0, div1 - div0 - 1));
 
 		// Both name and type are required
 		if (res_name.empty() || res_type.empty())
-			throw std::runtime_error(FmtS("Embedded resource URI (%S) not found. Resource name and type could not be determined", uri.c_str()));
+			throw std::runtime_error(std::format("Embedded resource URI ({}) not found. Resource name and type could not be determined", uri_.string()));
+
+		return { hmodule, res_type, res_name };
 	}
 
 	// Return an ordered list of filepaths based on 'pattern'

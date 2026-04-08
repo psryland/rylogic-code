@@ -14,12 +14,26 @@
 	VerticalAlignment="Top"
 >
 	<Grid>
+
 		<Grid.ColumnDefinitions>
 			<ColumnDefinition Width="*"/>
 			<ColumnDefinition Width="Auto"/>
 			<ColumnDefinition Width="Auto"/>
 			<ColumnDefinition Width="Auto"/>
 		</Grid.ColumnDefinitions>
+
+		<!-- Loading progress fill (behind all content) -->
+		<Border
+			Grid.ColumnSpan="4"
+			Background="LightSteelBlue"
+			HorizontalAlignment="Stretch"
+			Visibility="{Binding Source.IsLoading, Converter={conv:BoolToVisible}}"
+			RenderTransformOrigin="0,0.5"
+		>
+			<Border.RenderTransform>
+				<ScaleTransform ScaleX="{Binding Source.LoadFraction}" />
+			</Border.RenderTransform>
+		</Border>
 		
 		<!-- Source Name -->
 		<TextBlock

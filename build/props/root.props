@@ -17,7 +17,7 @@
 	<ItemDefinitionGroup>
 		<!-- Compiler options -->
 		<ClCompile>
-			<AdditionalOptions>/Zm200 /Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
+			<AdditionalOptions>/Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
 			<BuildStlModules>false</BuildStlModules>
 			<ConformanceMode>true</ConformanceMode>
 			<DebugInformationFormat>ProgramDatabase</DebugInformationFormat>

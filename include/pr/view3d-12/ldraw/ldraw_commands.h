@@ -7,33 +7,46 @@
 
 namespace pr::rdr12::ldraw
 {
+	struct CommandHeader
+	{
+		// The type of command this is.
+		alignas(16) ECommandId m_id;
+
+		// When to execute this command in relation to the objects in the source output.
+		// i.e. if 'm_exe_index' == 0, execute this command before any objects are processed.
+		// If 'm_exe_index' == 1, execute this command after the first object is added, etc.
+		int m_exe_index;
+
+		int pad0;
+		int pad1;
+	};
+
 	// LDraw commands - These must be POD types
-	struct alignas(16) Command_Invalid
+	struct Command_Invalid
 	{
-		ECommandId m_id;
-		uint8_t pad[12];
+		CommandHeader m_hdr;
 	};
-	struct alignas(16) Command_Clear
+	struct Command_Clear
 	{
-		ECommandId m_id;
-		uint8_t pad[12];
+		CommandHeader m_hdr;
 	};
-	struct alignas(16) Command_ObjectToWorld
+	struct Command_ObjectToWorld
 	{
-		ECommandId m_id;
-		char m_obj_addr[60];
+		CommandHeader m_hdr;
+		char m_obj_addr[64];
 		m4x4 m_o2w;
 	};
-	struct alignas(16) Command_ObjectColour
+	struct Command_ObjectColour
 	{
-		ECommandId m_id;
-		char m_obj_addr[60];
+		CommandHeader m_hdr;
+		char m_obj_addr[64];
 		Colour32 m_col;
-		uint8_t pad[12];
+		int pad0;
+		int pad1;
+		int pad2;
 	};
-	struct alignas(16) Command_Render
+	struct Command_Render
 	{
-		ECommandId m_id;
-		uint8_t pad[12];
+		CommandHeader m_hdr;
 	};
 }

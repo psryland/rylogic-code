@@ -158,7 +158,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				if ((name[0] == '#' && std::regex_match(std::string(obj->m_name.c_str()), std::regex(&name[1]))) || obj->m_name == name)
+				if ((name[0] == '#' && std::regex_match(obj->m_name.begin(), obj->m_name.end(), std::regex(&name[1]))) || obj->m_name == name)
 				{
 					if (!func(obj))
 						return false;

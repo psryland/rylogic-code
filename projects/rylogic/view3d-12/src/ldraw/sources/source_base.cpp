@@ -18,7 +18,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Parse the contents of the script
-	ParseResult SourceBase::Load(Renderer& rdr, std::stop_token stop_token) // worker thread context
+	ParseResult SourceBase::Load(Renderer& rdr, std::stop_token stop_token) noexcept // worker thread context
 	{
 		// This function may be called synchronously or in a worker thread (it's the caller's choice).
 		// This function simply returns a new ParseResults instance, it's up to the caller to manage

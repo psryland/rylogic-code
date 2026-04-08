@@ -342,10 +342,12 @@ namespace Rylogic.Gfx
 			// Existing sources refreshed their data
 			Reload,
 
-			// More data for an existing source was added (typically from streaming sources)
-			AppendData,
+			// More data from a streaming source has arrived
+			StreamData,
 
-			// The DeleteObject API call was made
+			// Objects were removed from a context, but the context itself was not deleted.
+			// The objects will have been removed from any windows before the store change event.
+			// There is not "before" event for this initiator type.
 			ObjectsDeleted,
 
 			// PR_CODE_SYNC_END();
@@ -367,9 +369,6 @@ namespace Rylogic.Gfx
 
 			// A context id was removed from the store
 			ContextIdRemoved = 1 << 3,
-
-			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
-			ExistingObjectsRefreshed = 1 << 4,
 
 			_flags_enum = 0,
 
@@ -807,6 +806,28 @@ namespace Rylogic.Gfx
 
 		#region Structures
 
+		/// <summary>Interop string view</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct StrView
+		{
+			public IntPtr ptr;
+			public ulong size;
+
+			/// <summary>Convert native string view to managed string</summary>
+			public static implicit operator string(StrView sv) => Marshal.PtrToStringAnsi(sv.ptr, (int)sv.size) ?? string.Empty;
+		};
+
+		/// <summary>Interop wstring view</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct WStrView
+		{
+			public IntPtr ptr;
+			public ulong size;
+
+			/// <summary>Convert native wide string view to managed string</summary>
+			public static implicit operator string(WStrView sv) => Marshal.PtrToStringUni(sv.ptr, (int)sv.size) ?? string.Empty;
+		};
+
 		/// <summary></summary>
 		[StructLayout(LayoutKind.Sequential)]
 		public struct VICount
@@ -1032,7 +1053,7 @@ namespace Rylogic.Gfx
 			public MultiSamp MultiSamp = msaa ?? new MultiSamp();
 			public uint ColourKey = colour_key ?? 0U;
 			public bool HasAlpha = has_alpha ?? false;
-			public string DbgName = dbg_name ?? string.Empty;
+			[MarshalAs(UnmanagedType.LPStr)] public string DbgName = dbg_name ?? string.Empty;
 		}
 
 		/// <summary></summary>
@@ -1071,7 +1092,7 @@ namespace Rylogic.Gfx
 			public bool GdiCompatibleBackBuffer;
 			public bool XrSupport;
 			public int Multisampling;
-			public string DbgName;
+			[MarshalAs(UnmanagedType.LPStr)] public string DbgName;
 
 			public static WindowOptions New(ReportErrorCB? error_cb = null, Colour32? background_colour = null, bool? allow_alt_enter = null, bool? xr_support = null, bool? gdi_compatible_bb = null, string? dbg_name = null)
 			{
@@ -1674,7 +1695,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern SourceInfo.Interop View3D_SourceInfo(ref Guid context_id);
 
 		// Get/Set the name of a source
-		[DllImport(Dll, CharSet = CharSet.Unicode)][return: MarshalAs(UnmanagedType.BStr)] private static extern string View3D_SourceNameGetBStr(ref Guid context_id);
+		[DllImport(Dll)] private static extern StrView View3D_SourceNameGet(ref Guid context_id);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_SourceNameSet(ref Guid context_id, [MarshalAs(UnmanagedType.LPStr)] string name);
 
 		// Reload script sources. This will delete all objects associated with the script sources then reload the files creating new objects with the same context ids.
@@ -1706,7 +1727,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_WindowErrorCBSet(HWindow window, ReportErrorCB error_cb, bool add);
 
 		// Get/Set the window settings (as ldr script string)
-		[DllImport(Dll, CharSet = CharSet.Unicode)][return: MarshalAs(UnmanagedType.BStr)] private static extern string View3D_WindowSettingsGetBStr(HWindow window);
+		[DllImport(Dll)] private static extern StrView View3D_WindowSettingsGet(HWindow window);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_WindowSettingsSet(HWindow window, [MarshalAs(UnmanagedType.LPStr)] string settings);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
@@ -1995,11 +2016,11 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_ObjectEnumChildren(HObject obj, EnumObjectsCB enum_objects_cb);
 
 		// Get/Set the name of 'object'
-		[DllImport(Dll, CharSet = CharSet.Unicode)][return: MarshalAs(UnmanagedType.BStr)] private static extern string View3D_ObjectNameGetBStr(HObject obj);
+		[DllImport(Dll)] private static extern StrView View3D_ObjectNameGet(HObject obj);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNameSet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string name);
 
 		// Get the type of 'object'
-		[DllImport(Dll, CharSet = CharSet.Unicode)][return: MarshalAs(UnmanagedType.BStr)] private static extern string View3D_ObjectTypeGetBStr(HObject obj);
+		[DllImport(Dll)] private static extern StrView View3D_ObjectTypeGet(HObject obj);
 
 		// Get/Set the current or base colour of an object(the first object to match 'name') (See LdrObject::Apply)
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern uint View3D_ObjectColourGet(HObject obj, bool base_colour, [MarshalAs(UnmanagedType.LPStr)] string? name);

@@ -74,7 +74,16 @@ namespace LDraw.UI
 			{
 				case Key.Space:
 				{
-					SceneView.ShowObjectManagerUI.Execute(null);
+					// Show the dockable scene manager
+					if (DockControl.DockContainer is DockContainer dc)
+					{
+						var mgr = dc.FindContent<ObjectManagerUI>().FirstOrDefault();
+						if (mgr != null)
+						{
+							mgr.SetScene(this);
+							mgr.DockControl.IsActiveContent = true;
+						}
+					}
 					e.Handled = true;
 					break;
 				}

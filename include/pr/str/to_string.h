@@ -151,7 +151,7 @@ namespace pr
 			}
 			else if constexpr (std::is_assignable_v<Str0, Str1>)
 			{
-				return s;
+				return Str0(std::basic_string_view<Char1>{s}); 
 			}
 			else if constexpr (std::is_same_v<Char0, char> && std::is_same_v<Char1, wchar_t>)
 			{

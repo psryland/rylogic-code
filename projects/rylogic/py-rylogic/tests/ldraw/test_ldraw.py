@@ -14,7 +14,6 @@ class TestLDraw(unittest.TestCase):
 		ldr_points.pt(Vec3(2, 2, 2), 0xFFFF0000)
 		ldr_group.pos(Vec3(1,1,1))
 		ldr_cmd = builder.Command()
-		ldr_cmd.add_to_scene(0)
 		ldr_cmd.transform_object('MyPoints', Mat4.Identity())
 		s = builder.ToString()
 		b = builder.ToBytes()

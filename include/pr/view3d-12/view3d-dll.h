@@ -15,6 +15,7 @@
 #include <span>
 #include <memory>
 #include <cstdint>
+#include <string_view>
 #include <functional>
 #include <type_traits>
 #include <windows.h>
@@ -41,7 +42,7 @@ namespace pr
 
 	namespace view3d
 	{
-		using DllHandle = unsigned char const*;
+		using DllHandle = std::byte const*;
 		using Object = rdr12::ldraw::LdrObject*;
 		using Gizmo = rdr12::ldraw::LdrGizmo*;
 		using Texture = rdr12::Texture2D*;
@@ -380,10 +381,12 @@ namespace pr
 			// Existing sources refreshed their data
 			Reload,
 
-			// More data for an existing source was added (typically from streaming sources)
-			AppendData,
+			// More data from a streaming source has arrived
+			StreamData,
 
-			// The DeleteObject API call was made
+			// Objects were removed from a context, but the context itself was not deleted.
+			// The objects will have been removed from any windows before the store change event.
+			// There is not "before" event for this initiator type.
 			ObjectsDeleted,
 
 			// PR_CODE_SYNC_END();
@@ -408,11 +411,8 @@ namespace pr
 			// A context id was removed from the store
 			ContextIdRemoved = 1 << 3,
 
-			// Objects in the store were refreshed from the sources (e.g. after a Load() call)
-			ExistingObjectsRefreshed = 1 << 4,
-
 			_flags_enum = 0,
-		
+
 			// PR_CODE_SYNC_END();
 		};
 		enum class ESceneChanged :int
@@ -504,6 +504,27 @@ namespace pr
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END()
+		};
+		#pragma endregion
+
+		#pragma region API Compatibility
+		struct StrView
+		{
+			char const* ptr = nullptr;
+			size_t size = 0;
+
+			operator std::string_view() const { return { ptr, size }; }
+			friend bool operator==(StrView lhs, StrView rhs) { return std::string_view{ lhs.ptr, lhs.size } == std::string_view{ rhs.ptr, rhs.size }; }
+			friend bool operator!=(StrView lhs, StrView rhs) { return !(lhs == rhs); }
+		};
+		struct WStrView
+		{
+			wchar_t const* ptr = nullptr;
+			size_t size = 0;
+
+			operator std::wstring_view() const { return { ptr, size }; }
+			friend bool operator==(WStrView lhs, WStrView rhs) { return std::wstring_view{ lhs.ptr, lhs.size } == std::wstring_view{ rhs.ptr, rhs.size }; }
+			friend bool operator!=(WStrView lhs, WStrView rhs) { return !(lhs == rhs); }
 		};
 		#pragma endregion
 
@@ -888,8 +909,7 @@ extern "C"
 	VIEW3D_API pr::view3d::SourceInfo __stdcall View3D_SourceInfo(GUID const& context_id);
 
 	// Get/Set the name of a source
-	VIEW3D_API BSTR __stdcall View3D_SourceNameGetBStr(GUID const& context_id);
-	VIEW3D_API char const* __stdcall View3D_SourceNameGet(GUID const& context_id);
+	VIEW3D_API pr::view3d::StrView __stdcall View3D_SourceNameGet(GUID const& context_id);
 	VIEW3D_API void __stdcall View3D_SourceNameSet(GUID const& context_id, char const* name);
 
 	// Reload script sources. This will delete all objects associated with the script sources then reload the files creating new objects with the same context ids.
@@ -921,8 +941,7 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_WindowErrorCBSet(pr::view3d::Window window, pr::view3d::ReportErrorCB error_cb, BOOL add);
 
 	// Get/Set the window settings (as ldr script string)
-	VIEW3D_API BSTR __stdcall View3D_WindowSettingsGetBStr(pr::view3d::Window window);
-	VIEW3D_API char const* __stdcall View3D_WindowSettingsGet(pr::view3d::Window window);
+	VIEW3D_API pr::view3d::StrView __stdcall View3D_WindowSettingsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowSettingsSet(pr::view3d::Window window, char const* settings);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
@@ -1214,13 +1233,11 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ObjectEnumChildren (pr::view3d::Object object, pr::view3d::EnumObjectsCB enum_objects_cb);
 
 	// Get/Set the name of 'object'
-	VIEW3D_API BSTR __stdcall View3D_ObjectNameGetBStr(pr::view3d::Object object);
-	VIEW3D_API char const* __stdcall View3D_ObjectNameGet(pr::view3d::Object object);
+	VIEW3D_API pr::view3d::StrView __stdcall View3D_ObjectNameGet(pr::view3d::Object object);
 	VIEW3D_API void __stdcall View3D_ObjectNameSet(pr::view3d::Object object, char const* name);
 
 	// Get the type of 'object'
-	VIEW3D_API BSTR __stdcall View3D_ObjectTypeGetBStr(pr::view3d::Object object);
-	VIEW3D_API char const* __stdcall View3D_ObjectTypeGet(pr::view3d::Object object);
+	VIEW3D_API pr::view3d::StrView __stdcall View3D_ObjectTypeGet(pr::view3d::Object object);
 
 	// Get/Set the current or base colour of an object(the first object to match 'name') (See LdrObject::Apply)
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectColourGet(pr::view3d::Object object, BOOL base_colour, char const* name);

@@ -38,7 +38,7 @@ namespace pr::rdr12
 		Renderer& rdr() { return m_rdr; }
 
 		// Report an error handled at the DLL API layer
-		void ReportAPIError(char const* func_name, view3d::Window wnd, std::exception const* ex);
+		void ReportAPIError(std::string_view func_name, view3d::Window wnd, std::exception const* ex);
 
 		// Create/Destroy windows
 		V3dWindow* WindowCreate(HWND hwnd, view3d::WindowOptions const& opts);

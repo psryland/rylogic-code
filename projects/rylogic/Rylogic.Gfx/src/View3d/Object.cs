@@ -123,7 +123,7 @@ namespace Rylogic.Gfx
 			/// <summary>Object name</summary>
 			public string Name
 			{
-				get => View3D_ObjectNameGetBStr(Handle);
+				get => View3D_ObjectNameGet(Handle);
 				set
 				{
 					View3D_ObjectNameSet(Handle, value);
@@ -134,7 +134,7 @@ namespace Rylogic.Gfx
 			/// <summary>Get the type of Ldr object this is</summary>
 			public string Type
 			{
-				get => View3D_ObjectTypeGetBStr(Handle);
+				get => View3D_ObjectTypeGet(Handle);
 			}
 
 			/// <summary>Get/Set the visibility of this object (set applies to all child objects as well)</summary>

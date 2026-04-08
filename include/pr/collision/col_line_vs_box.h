@@ -148,7 +148,7 @@ namespace pr::collision::tests
 					builder.Box("pt0", Colour32Yellow).box(0.002f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
 					builder.Box("pt1", Colour32Yellow).box(0.002f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
 				}
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr", ESaveFlags::Pretty);
+				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
 			}
 			#endif
 		}

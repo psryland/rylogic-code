@@ -97,27 +97,33 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Remove a single object from the store
-	void ScriptSources::Remove(LdrObject* object, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(LdrObject* object)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto id = object->m_context_id;
 
 		// Remove the object from the source it belongs to
 		auto& src = m_srcs[id];
-		auto count = src->m_output.m_objects.size();
-		ldraw::Remove(src->m_output.m_objects, object);
 
-		// Notify of the object container change
-		if (src->m_output.m_objects.size() != count)
-			m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
+		// This should be necessary, 'm_src' should never contain nullptr
+		// I've seen it happen when closing the Measurement Tool window however (as the 'HotSpots') get deleted
+		if (src != nullptr)
+		{
+			auto count = src->m_output.m_objects.size();
+			ldraw::Remove(src->m_output.m_objects, object);
 
-		// If that was the last object for the source, remove the source too
-		if (src->m_output.m_objects.empty())
-			Remove(id, trigger);
+			// If that was the last object for the source, remove the source
+			if (src->m_output.m_objects.empty())
+				Remove(id);
+
+			// Notify of the object container change
+			else if (src->m_output.m_objects.size() != count)
+				m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
+		}
 	}
 
 	// Remove all objects associated with context ids filtered by 'pred'
-	void ScriptSources::Remove(std::function<bool(Guid const&)> pred, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(std::function<bool(Guid const&)> pred)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
@@ -136,7 +142,7 @@ namespace pr::rdr12::ldraw
 			return;
 
 		// Notify of the object container about to change
-		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, true });
+		m_events->OnStoreChange({ EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, true });
 
 		// Remove the sources
 		for (auto& id : removed)
@@ -144,47 +150,89 @@ namespace pr::rdr12::ldraw
 			// Delete any associated files and watches
 			m_watcher.RemoveAll(id);
 
-			// Stop any worker threads before destroying the source.
-			// This prevents a race where the worker calls shared_from_this()
-			// after the last shared_ptr has been released by m_srcs.erase().
+			// Remove the source
 			auto it = m_srcs.find(id);
 			if (it != m_srcs.end())
 			{
+				// Stop any worker threads before destroying the source. This prevents a race where the worker
+				// calls shared_from_this() after the last shared_ptr has been released by m_srcs.erase().
 				it->second->Stop();
 				m_srcs.erase(it);
 			}
 		}
 
 		// Notify of the object container change
-		m_events->OnStoreChange({ trigger, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, false });
+		m_events->OnStoreChange({ EStoreChangeInitiator::SourceRemoved, EStoreChangeFlags::ObjectsRemoved | EStoreChangeFlags::ContextIdRemoved, removed, nullptr, false });
 	}
-	void ScriptSources::Remove(Guid const& context_id, EStoreChangeInitiator trigger)
+	void ScriptSources::Remove(Guid const& context_id)
 	{
-		Remove([&](Guid const& id) { return context_id == id; }, trigger);
+		Remove([&](Guid const& id) { return context_id == id; });
 	}
 
 	// Reload a range of sources
-	void ScriptSources::Reload(std::span<Guid const> ids_)
+	void ScriptSources::Reload(std::span<Guid const> ids)
 	{
 		assert(std::this_thread::get_id() == m_main_thread_id);
-		pr::vector<Guid> ids = ids_;
+		if (ids.empty())
+			return;
+
+		// Make a copy of the GUIDs to reload so we can pass them to the threads
+		auto context_ids = std::make_shared<vector<Guid>>(ids);
 
 		// Notify of a reload about to start
 		m_events->OnStoreChange({ EStoreChangeInitiator::Reload, {}, ids, nullptr, true });
 
-		// Reload each source in a background thread
-		std::for_each(std::execution::par, std::begin(ids), std::end(ids), [this](Guid const& id)
-		{
-			auto& src = m_srcs[id];
-			auto output = src->Load(rdr());
-			src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, nullptr });
-		});
+		// Shared countdown latch. When the last source completes, fire the "after" store change.
+		auto remaining = std::make_shared<std::atomic<int>>(isize(ids));
 
-		// Queue a "store change after", after all reloads have been queued
-		rdr().RunOnMainThread([this, ids = std::move(ids)]() mutable noexcept
+		for (auto const& id : ids)
 		{
-			m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, ids, nullptr, false });
-		});
+			// Get the source associated with the id (expected to be valid).
+			auto& src = m_srcs.at(id);
+
+			// Register in 'm_loading' for cancellation/shutdown support
+			std::stop_token ss_token;
+			{
+				auto loading = m_loading.lock();
+				if (m_shutting_down.load(std::memory_order_acquire))
+					return;
+
+				std::stop_source ss;
+				ss_token = ss.get_token();
+				loading->emplace(id, std::move(ss));
+			}
+
+			// Spawn a thread to reload this source.
+			std::thread([this, src, remaining, context_ids, ss_token = std::move(ss_token)]()
+			{
+				// Run the load (long running operation)
+				auto output = src->Load(rdr(), ss_token);
+
+				// Once complete, remove from 'm_loading'
+				{
+					auto loading = m_loading.lock();
+					loading->erase(src->m_context_id);
+				}
+
+				// Notify complete to merge results
+				if (!m_shutting_down.load(std::memory_order_acquire))
+				{
+					src->Notify(src, NotifyEventArgs{ std::move(output), EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, nullptr });
+				}
+
+				// When the last source completes, fire the "after" store change on the main thread
+				if (remaining->fetch_sub(1, std::memory_order_acq_rel) == 1)
+				{
+					if (!m_shutting_down.load(std::memory_order_acquire))
+					{
+						rdr().RunOnMainThread([this, ids = std::move(*context_ids)]() mutable noexcept
+						{
+							m_events->OnStoreChange({ EStoreChangeInitiator::Reload, EStoreChangeFlags::ObjectsAdded | EStoreChangeFlags::ObjectsRemoved, ids, nullptr, false });
+						});
+					}
+				}
+			}).detach();
+		}
 	}
 
 	// Reload all sources
@@ -585,7 +633,7 @@ namespace pr::rdr12::ldraw
 			// If shutting down, skip Notify
 			if (!m_shutting_down.load(std::memory_order_acquire))
 			{
-				auto change_flags = EStoreChangeFlags::ExistingObjectsRefreshed |
+				auto change_flags =
 					(output ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None) |
 					(src->m_output ? EStoreChangeFlags::ObjectsRemoved : EStoreChangeFlags::None);
 
@@ -598,18 +646,14 @@ namespace pr::rdr12::ldraw
 	void ScriptSources::SourceNotifyHandler(std::shared_ptr<SourceBase> src, NotifyEventArgs const& args) // worker thread context
 	{
 		// Notes:
-		//  - This function is called by worker threads when their source has completed loading.
-		//    **It can be called on any thread context**.
+		//  - This function is called by worker threads when their source has completed loading. *** It can be called on any thread context ***.
 		//  - Sources have a Load function that generates a ParseResult (new instance)
 		//  - Load should be threadsafe so it can be called in parallel on all sources.
-		//  - Once the new parse result is ready, 'Notify' on the source is called to tell
-		//    this function to add the new (or reloaded) data.
-		//  - This function merges or replaces the data for 'src'. Note that the old data
-		//    remains in scope until after the last StoreChanged event so that callers can
-		//    still reference the old data if needed.
+		//  - Once the new parse result is ready, 'Notify' on the source is called to tell this function to add the new (or reloaded) data.
+		//  - This function merges or replaces the data for 'src'. Note that the old data remains in scope until after the last StoreChanged
+		//    event so that callers can still reference the old data if needed.
 		//  - V3dWindows watch for the store changed event and manage their lists of objects.
-		//  - In C#, References to 'Object' need to be kept in sync with the native code by
-		//    watching for the SceneChanged events.
+		//  - In C#, References to 'Object' need to be kept in sync with the native code by watching for the SceneChanged events.
 
 		// Marshal to the main thread.
 		if (std::this_thread::get_id() != m_main_thread_id)
@@ -629,18 +673,16 @@ namespace pr::rdr12::ldraw
 		// Should be on the main thread now
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
-		// A callback that was already queued via RunOnMainThread can arrive after
-		// shutdown has started. Guard against accessing destroyed members.
+		// A callback that was already queued via RunOnMainThread can arrive after shutdown has started. Guard against accessing destroyed members.
 		if (m_shutting_down.load(std::memory_order_acquire))
 			return;
 
-		// Don't remove previous objects associated with 'context',
-		// leave that to the caller via the 'on_add' callback.
 		auto context_id = src->m_context_id;
 
-		// Notify of the store about to change
+		// Notify of the store change "before" any data is changed
 		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &args.m_output, true });
-		if (args.m_add_complete) args.m_add_complete(context_id, true);
+		if (args.m_add_complete)
+			args.m_add_complete(context_id, true);
 
 		// Add any dependent files to the file watcher
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdAdded))
@@ -653,95 +695,112 @@ namespace pr::rdr12::ldraw
 		for (auto& err : src->m_errors)
 			m_events->OnError(err);
 
-		// See if 'src' is actually an existing source
-		auto& existing = m_srcs[context_id];
-		if (existing == nullptr)
-			existing = src;
+		// Ensure 'src' is added to the 'm_srcs' collection
+		{
+			auto& existing = m_srcs[context_id];
+			if (existing == nullptr)
+				existing = src;
+		}
 
 		// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
 		ParseResult previous_data;
-		if (AllSet(args.m_change_flags, EStoreChangeFlags::ExistingObjectsRefreshed))
-			std::swap(previous_data, existing->m_output);
-
-		// Process any received commands
-		// Process before merging the new output, so that commands can operate on the existing data if needed.
-		ProcessCommands(args.m_output.m_commands, existing, previous_data);
+		if (args.m_initiator == EStoreChangeInitiator::Reload)
+			std::swap(previous_data, src->m_output);
 
 		// Remove any objects associated with this context id
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
-			Remove(context_id, args.m_initiator);
+		{
+			for (auto& fp : src->m_filepaths)
+				m_watcher.Remove(fp, context_id);
 
-		// Merged the output with the existing output.
-		// This is a merge, rather than a replace, because stream sources add data incrementally
-		if (AllSet(args.m_change_flags, EStoreChangeFlags::ObjectsAdded))
-			existing->m_output.Merge(args.m_output, false);
+			Remove(context_id);
+		}
 
-		// Notify of the store change
-		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &existing->m_output, false });
-		if (args.m_add_complete) args.m_add_complete(context_id, false);
+		// Process the commands in the output and add objects to the store.
+		int obj_index = 0;
+		for (byte_data_cptr ptr(args.m_output.m_commands); ptr; )
+		{
+			// Each command records the number of objects in the ouput when the command was received.
+			// We need to add objects up to number of each command 'exe_index', then apply the command,
+			// then add more objects until we reach the next command, etc.
+			auto const& hdr = ptr.as<CommandHeader>();
+
+			// Add objects up to the command's 'exe_index'
+			for (; obj_index < hdr.m_exe_index && obj_index < args.m_output.count(); ++obj_index)
+				src->m_output.m_objects.push_back(args.m_output[obj_index]);
+
+			// Process the command
+			ProcessCommand(src, args, ptr, previous_data);
+		}
+
+		// Merge any remaining objects after the last command
+		for (; obj_index < args.m_output.count(); ++obj_index)
+			src->m_output.m_objects.push_back(args.m_output[obj_index]);
+
+		// Notify of the store change "after" the new data is in place
+		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &src->m_output, false });
+		if (args.m_add_complete)
+			args.m_add_complete(context_id, false);
 	}
 
-
 	// Process any commands received in a source updated
-	void ScriptSources::ProcessCommands(ParseResult::CommandBuf const& commands, std::shared_ptr<SourceBase> src, ParseResult& previous_data)
+	void ScriptSources::ProcessCommand(std::shared_ptr<SourceBase> src, NotifyEventArgs const& args, byte_data_cptr& ptr, ParseResult& previous_data)
 	{
 		using namespace ldraw;
-
-		// Process any commands
-		byte_data_cptr ptr(commands);
-		for (; ptr; )
+		try
 		{
-			try
+			switch (ptr.as<CommandHeader>().m_id)
 			{
-				switch (ptr.as<ECommandId>())
+				case ECommandId::Invalid:
 				{
-					case ECommandId::Invalid:
-					{
-						ptr.read<Command_Invalid>();
-						break;
-					}
-					case ECommandId::Clear:
-					{
-						ptr.read<Command_Clear>();
+					ptr.read<Command_Invalid>();
+					break;
+				}
+				case ECommandId::Clear:
+				{
+					ptr.read<Command_Clear>();
+					
+					m_events->OnStoreChange({ args.m_initiator, EStoreChangeFlags::ObjectsRemoved, { &src->m_context_id, 1 }, &args.m_output, true });
 
-						// Move any objects to 'previous_data'
-						previous_data.m_objects.append_range(src->m_output.m_objects);
-						src->m_output.m_objects.resize(0);
-						break;
-					}
-					case ECommandId::ObjectToWorld:
-					{
-						// Find the object that matches 'cmd.m_object_name' and apply the transform to it.
-						// The object name might be an address, e.g., 'Root.Child.GrandChild', so we need to search for it.
-						auto const& cmd = ptr.read<Command_ObjectToWorld>();
-						if (auto it = src->m_output.m_lookup.find(hash::Hash(cmd.m_obj_addr)); it != std::end(src->m_output.m_lookup))
-							it->second->O2W(cmd.m_o2w);
-						break;
-					}
-					case ECommandId::ObjectColour:
-					{
-						auto const& cmd = ptr.read<Command_ObjectColour>();
-						if (auto it = src->m_output.m_lookup.find(hash::Hash(cmd.m_obj_addr)); it != std::end(src->m_output.m_lookup))
-							it->second->Colour(true, cmd.m_col);
-						break;
-					}
-					case ECommandId::Render:
-					{
-						ptr.read<Command_Render>();
-						m_events->OnRenderRequest(src->m_context_id);
-						break;
-					}
-					default:
-					{
-						assert(false); // to trap them here
-						throw std::runtime_error("Unsupported command");
-					}
+					// Move any objects to 'previous_data'
+					previous_data.m_objects.append_range(src->m_output.m_objects);
+					src->m_output.reset();
+
+					m_events->OnStoreChange({ args.m_initiator, EStoreChangeFlags::ObjectsRemoved, { &src->m_context_id, 1 }, &args.m_output, false });
+					break;
+				}
+				case ECommandId::ObjectToWorld:
+				{
+					// Find the object that matches 'cmd.m_object_name' and apply the transform to it.
+					// The object name might be an address, e.g., 'Root.Child.GrandChild', so we need to search for it.
+					auto const& cmd = ptr.read<Command_ObjectToWorld>();
+					auto obj = src->m_output.lookup(cmd.m_obj_addr);
+					if (obj) obj->O2W(cmd.m_o2w);
+					break;
+				}
+				case ECommandId::ObjectColour:
+				{
+					auto const& cmd = ptr.read<Command_ObjectColour>();
+					auto obj = src->m_output.lookup(cmd.m_obj_addr);
+					if (obj) obj->Colour(true, cmd.m_col);
+					break;
+				}
+				case ECommandId::Render:
+				{
+					ptr.read<Command_Render>();
+					m_events->OnRenderRequest(src->m_context_id);
+					break;
+				}
+				default:
+				{
+					assert(false); // to trap them here
+					throw std::runtime_error("Unsupported command");
 				}
 			}
-			catch (std::exception const& ex)
-			{
-				m_events->OnError(ParseErrorEventArgs(std::format("Command Error: {}", ex.what()), {}, {}));
-			}
+		}
+		catch (std::exception const& ex)
+		{
+			m_events->OnError(ParseErrorEventArgs(std::format("Command Error: {}", ex.what()), {}, {}));
 		}
 	}
 }

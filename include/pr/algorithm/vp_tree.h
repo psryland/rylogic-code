@@ -536,7 +536,7 @@ namespace pr::vp_tree::tests
 						builder.Circle("search", 0x2000FF00).solid().radius(p.z).pos(v4{ p.xy, p.w * 3, 1 });
 					}
 
-					builder.Save("E:/Dump/vptree.ldr", ESaveFlags::Pretty);
+					builder.Save("E:/Dump/vptree.ldr");
 				}
 				#endif
 			}
@@ -577,7 +577,7 @@ namespace pr::vp_tree::tests
 						ldr_points.pt(v4(p.xy, 0, 1), is_found ? 0xFFFF0000 : 0xFF0000FF);
 					}
 
-					builder.Save("E:/Dump/vptree.ldr", ESaveFlags::Pretty);
+					builder.Save("E:/Dump/vptree.ldr");
 				}
 				#endif
 			}

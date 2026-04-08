@@ -33,7 +33,6 @@ enum <uint> EKeyword
 	BinaryStream = 1110191492,
 	Box = 1892056626,
 	BoxList = 282663022,
-	Camera = 2663290958,
 	CastShadow = 3890809582,
 	Chart = 1487494731,
 	Circle = 673280137,

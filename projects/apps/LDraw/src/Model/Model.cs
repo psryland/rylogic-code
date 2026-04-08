@@ -116,6 +116,24 @@ namespace LDraw
 						Util.DisposeRange(old.Values);
 					}
 
+					// Clean up progress tracking for sources that have finished loading/reloading
+					if (e.After && e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ObjectsAdded))
+					{
+						foreach (var ctx_id in e.ContextIds)
+						{
+							m_progress_map.Remove(ctx_id);
+							var src = Sources.FirstOrDefault(s => s.ContextId == ctx_id);
+							if (src != null)
+							{
+								src.IsLoading = false;
+								src.LoadFraction = 0;
+							}
+						}
+						ParsingProgress = m_progress_map.Count > 0
+							? m_progress_map.Values.MinBy(p => p.Percentage)
+							: null;
+					}
+
 					// Just prior to reloading sources
 					if (e.Before && Profile.ClearErrorLogOnReload)
 						Log.Clear();
@@ -133,23 +151,45 @@ namespace LDraw
 					Sync.Post(x =>
 					{
 						var args = (View3d.ParsingProgressEventArgs)x!;
-						ParsingProgress ??= new ParsingProgressData(args.ContextId, CancelCurrentLoad);
-
-						// Only update with info from the same file
-						if (ParsingProgress.ContextId != args.ContextId)
-							return;
 
 						if (args.Complete)
 						{
-							ParsingProgress = null;
-							LoadingContextId = Guid.Empty;
+							m_progress_map.Remove(args.ContextId);
+
+							// Reset loading state on the source
+							var src = Sources.FirstOrDefault(s => s.ContextId == args.ContextId);
+							if (src != null)
+							{
+								src.IsLoading = false;
+								src.LoadFraction = 0;
+							}
 						}
 						else
 						{
-							ParsingProgress.DataSourceName = args.Filepath;
-							ParsingProgress.DataLength = args.FileSize;
-							ParsingProgress.DataOffset = args.FileOffset;
+							// Find the progress record and update it with the latest data
+							if (!m_progress_map.TryGetValue(args.ContextId, out var progress))
+							{
+								progress = new ParsingProgressData(args.ContextId, () => View3d.CancelLoad(args.ContextId));
+								m_progress_map[args.ContextId] = progress;
+							}
+
+							progress.DataSourceName = args.Filepath;
+							progress.DataLength = args.FileSize;
+							progress.DataOffset = args.FileOffset;
+
+							// Update loading state on the source
+							var src = Sources.FirstOrDefault(s => s.ContextId == args.ContextId);
+							if (src != null)
+							{
+								src.IsLoading = true;
+								src.LoadFraction = args.FileSize > 0 ? (double)args.FileOffset / args.FileSize : 0;
+							}
 						}
+
+						// Update the status bar with the lowest-progress entry
+						ParsingProgress = m_progress_map.Count > 0
+							? m_progress_map.Values.MinBy(p => p.Percentage)
+							: null;
 					}, e);
 				}
 			}
@@ -246,7 +286,7 @@ namespace LDraw
 		public event EventHandler<ValueEventArgs<string>>? FileOpening;
 		public void NotifyFileOpening(string filepath) => FileOpening?.Invoke(this, new ValueEventArgs<string>(filepath));
 
-		/// <summary>Progress updates for parsing. Null while not parsing</summary>
+		/// <summary>Progress updates for parsing. Returns the lowest-progress entry, or null while not parsing</summary>
 		public ParsingProgressData? ParsingProgress
 		{
 			get;
@@ -258,6 +298,9 @@ namespace LDraw
 				ParsingProgressChanged?.Invoke(this, EventArgs.Empty);
 			}
 		}
+		private readonly Dictionary<Guid, ParsingProgressData> m_progress_map = [];
+
+		/// <summary>Raised when a progress update is received</summary>
 		public event EventHandler? ParsingProgressChanged;
 
 		/// <summary>Timer used to watch for file changes</summary>
@@ -314,9 +357,8 @@ namespace LDraw
 			// Capture the scenes list before entering the background thread
 			var target_scenes = scenes.ToArray();
 
-			// Pre-compute the context id so cancellation works while parsing is in progress
+			// Pre-compute the context id so it's available immediately
 			var ctx_id = View3d.ContextIdFromFilepath(filepath);
-			LoadingContextId = ctx_id;
 
 			Task.Run(() =>
 			{
@@ -328,32 +370,18 @@ namespace LDraw
 
 					// 'add_completed' fires on the main thread after SourceNotifyHandler has
 					// merged results, so 'Sources' should now contain the new source.
-					LoadingContextId = Guid.Empty;
 					var src = Sources.FirstOrDefault(x => x.ContextId == id);
 					src?.ShowInScenes(target_scenes, true);
 				});
 			});
 		}
 
-		/// <summary>The context id of the currently loading source (for cancellation)</summary>
-		public Guid LoadingContextId
-		{
-			get;
-			private set
-			{
-				if (field == value) return;
-				field = value;
-				NotifyPropertyChanged(nameof(LoadingContextId));
-			}
-		}
-
-		/// <summary>Cancel the current loading operation</summary>
+		/// <summary>Cancel the current loading operation (the one with lowest progress)</summary>
 		public void CancelCurrentLoad()
 		{
-			if (LoadingContextId != Guid.Empty)
-			{
-				View3d.CancelLoad(LoadingContextId);
-			}
+			var progress = ParsingProgress;
+			if (progress != null)
+				View3d.CancelLoad(progress.ContextId);
 		}
 
 		/// <summary>Add a string ldraw source</summary>

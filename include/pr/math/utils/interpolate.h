@@ -899,7 +899,7 @@ namespace pr::math::tests
 					}
 				}
 			}
-			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+			builder.Save(temp_dir()/ "interpolation.ldr");
 		}
 		PRUnitTestMethod(LdrHermiteTransform)
 		{
@@ -938,7 +938,7 @@ namespace pr::math::tests
 					}
 				}
 			}
-			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+			builder.Save(temp_dir()/ "interpolation.ldr");
 		}
 		PRUnitTestMethod(LdrHermiteVector_MidPoint)
 		{
@@ -988,7 +988,7 @@ namespace pr::math::tests
 					}
 				}
 			}
-			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+			builder.Save(temp_dir()/ "interpolation.ldr");
 		}
 		PRUnitTestMethod(LdrHermiteTransform_MidPoint)
 		{
@@ -1036,7 +1036,7 @@ namespace pr::math::tests
 				}
 			}
 		
-			builder.Save(temp_dir()/ "interpolation.ldr", ESaveFlags::Pretty);
+			builder.Save(temp_dir()/ "interpolation.ldr");
 		}
 		#endif
 	};

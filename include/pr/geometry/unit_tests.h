@@ -99,7 +99,7 @@ namespace pr::geometry
 					builder.Triangle("tri", 0xFF0000FF).tri(a, b, c);
 					builder.Point("cp0", 0xFFFFFF00).size(20).pt(pt0);
 					builder.Point("cp1", 0xFF00FFFF).size(20).pt(pt1);
-					//builder.Save(temp_dir() / "geometry.ldr", ESaveFlags::Pretty);
+					//builder.Save(temp_dir() / "geometry.ldr");
 				}
 				#endif
 			}

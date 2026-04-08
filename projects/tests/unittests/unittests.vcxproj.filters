@@ -1237,6 +1237,9 @@
     <ClInclude Include="..\..\..\include\pr\hlsl\interop.h">
       <Filter>pr\hlsl</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\geometry\obj.h">
+      <Filter>pr\geometry</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">

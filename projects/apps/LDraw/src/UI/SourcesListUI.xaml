@@ -4,7 +4,6 @@
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gui.WPF"
 	xmlns:local="clr-namespace:LDraw.UI"
 	mc:Ignorable="d" 
 	d:DesignHeight="450"
@@ -14,22 +13,28 @@
 	Padding="0"
 >
 	<UserControl.Resources>
-		<gui:DataContextRef x:Key="MainCtx" Ctx="{Binding .}"/>
-
-		<ContextMenu x:Key="SourcesListCMenu">
+		<ContextMenu
+			x:Key="SourcesListCMenu"
+			DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+		>
 			<MenuItem
 				Header="Add Source..."
-				Command="{Binding Source={StaticResource MainCtx}, Path=Ctx.AddSource}"
+				Command="{Binding AddSource}"
 			/>
 			<MenuItem
 				Header="Edit..."
-				Command="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInEditor}"
-				IsEnabled="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInEditor.Available}"
+				Command="{Binding OpenInEditor}"
+				IsEnabled="{Binding OpenInEditor.Available}"
 			/>
 			<MenuItem
 				Header="Open in External Editor"
-				Command="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInExternalEditor}"
-				IsEnabled="{Binding Source={StaticResource MainCtx}, Path=Ctx.OpenInExternalEditor.Available}"
+				Command="{Binding OpenInExternalEditor}"
+				IsEnabled="{Binding OpenInExternalEditor.Available}"
+			/>
+			<MenuItem
+				Header="Copy Path to Clipboard"
+				Command="{Binding CopyPathToClipboard}"
+				IsEnabled="{Binding CopyPathToClipboard.Available}"
 			/>
 		</ContextMenu>
 	</UserControl.Resources>
@@ -42,6 +47,9 @@
 		ScrollViewer.VerticalScrollBarVisibility="Disabled"
 		HorizontalContentAlignment="Stretch"
 		SelectionMode="Single"
+		AllowDrop="True"
+		DragOver="HandleDragOver"
+		Drop="HandleDrop"
 	>
 		<ListView.ItemContainerStyle>
 			<Style TargetType="ListViewItem">

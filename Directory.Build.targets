@@ -27,8 +27,9 @@
 
 	<!--
 	Auto-pack library assemblies to lib/packages and purge the global cache.
-	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available. -->
-	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true'">
+	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
+	Skipped in CI where packaging is not needed and cache-purge scripts may not be available. -->
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
 		<_RylogicNuGetPackage>true</_RylogicNuGetPackage>

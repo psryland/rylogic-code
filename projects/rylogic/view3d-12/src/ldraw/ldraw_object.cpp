@@ -117,7 +117,7 @@ namespace pr::rdr12::ldraw
 	// Return the declaration name of this object
 	string32 LdrObject::TypeAndName() const
 	{
-		return string32(ELdrObject_::ToStringA(m_type)) + " " + m_name;
+		return string32(ELdrObject_::ToStringA(m_type)).append(" ").append(m_name);
 	}
 
 	// Return the full name (address) of this object

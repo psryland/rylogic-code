@@ -763,11 +763,11 @@ namespace pr::script
 	// Call '++src' until 'pred' returns false.
 	// 'eat_initial' and 'eat_final' are the number of characters to consume before
 	// applying the predicate 'pred' and the number to consume after 'pred' returns false.
-	template <typename TSrc, typename Char> inline void EatDelimiters(TSrc& src, Char const* delim)
+	template <typename TSrc> inline void EatDelimiters(TSrc& src, str::sv_type_t<TSrc> delim)
 	{
 		for (; *str::FindChar(delim, *src) != 0; ++src) {}
 	}
-	template <typename TSrc, typename Pred> void Eat(TSrc& src, int eat_initial, int eat_final, Pred pred)
+	template <typename TSrc, std::invocable<TSrc&> Pred> void Eat(TSrc& src, int eat_initial, int eat_final, Pred pred)
 	{
 		for (src += eat_initial; *src && pred(src); ++src) {}
 		src += eat_final;

@@ -8,6 +8,22 @@ namespace Rylogic.Gui.WPF
 	/// <summary>Command base class for 'ICommand'</summary>
 	public abstract class Command : ICommand, INotifyPropertyChanged
 	{
+		// Notes:
+		//
+		// - Context Menu 'Command' binding not working? Create your context menu like this:
+		//        <ContextMenu
+		//            DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+		//            >
+		//            <MenuItem
+		//                Header="MyCmd..."
+		//                Command="{Binding MyCmd}"  <-- this should hanld the 'CanExecute'
+		//                IsEnabled="{Binding MyCmd.Available}"
+		//            />
+		//        </ContextMenu>
+		//    The reason is that context menus are not in the same visual tree as the what they're attached to
+		//    so they don't automatically pick up the correct DataContext.
+		//
+
 		/// <summary>No op command</summary>
 		public static readonly Command NoOp = new Command<object>(new object(), null, null);
 
