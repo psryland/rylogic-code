@@ -90,6 +90,7 @@ namespace Rylogic.Gui.WPF
 			InvertSelection = Command.Create(this, InvertSelectionInternal);
 			ToggleShowNormals = Command.Create(this, ToggleShowNormalsInternal);
 			FocusPatternFilter = Command.Create(this, FocusPatternFilterInternal);
+			ShowMoveObjects = Command.Create(this, ShowMoveObjectsInternal);
 
 			DataContext = this;
 			RebuildFlatList();
@@ -534,6 +535,19 @@ namespace Rylogic.Gui.WPF
 				obj.ShowNormals = show.Value;
 			}
 			Invalidate();
+		}
+
+		/// <summary>Show the Move Objects tool window</summary>
+		public Command ShowMoveObjects { get; }
+		private void ShowMoveObjectsInternal()
+		{
+			if (SelectedObjects.Count == 0) return;
+
+			// Snapshot the selected objects at launch time — the Move UI is independent from here on
+			var objects = SelectedObjects.ToList();
+			var ui = new View3dMoveObjectsUI(Window.GetWindow(this), objects, ObjectManager.Window);
+			ui.Show();
+			ui.Focus();
 		}
 
 		#endregion

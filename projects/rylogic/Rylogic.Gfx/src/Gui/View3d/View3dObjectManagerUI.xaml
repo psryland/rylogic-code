@@ -98,6 +98,11 @@
 						Command="{Binding ToggleShowNormals}"
 						/>
 				</MenuItem>
+				<MenuItem
+					Header="Move..."
+					Command="{Binding ShowMoveObjects}"
+					IsEnabled="{Binding FirstSelected, Converter={conv:NotNull}}"
+					/>
 			</ContextMenu>
 		</ResourceDictionary>
 	</UserControl.Resources>
