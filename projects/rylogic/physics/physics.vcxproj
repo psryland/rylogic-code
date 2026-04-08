@@ -96,8 +96,8 @@
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\unittests\test_collision_pairs.cpp" />
     <ClCompile Include="src\unittests\test_collision_resolution.cpp" />
-    <ClCompile Include="src\unittests\test_gpu_collide.cpp" />
     <ClCompile Include="src\unittests\test_gpu_collision.cpp" />
+    <ClCompile Include="src\unittests\test_gpu_collision_detector.cpp" />
     <ClCompile Include="src\unittests\test_gpu_compare.cpp" />
     <ClCompile Include="src\unittests\test_impulse.cpp" />
     <ClCompile Include="src\unittests\test_inertia.cpp" />
@@ -135,6 +135,7 @@
     <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
+    <ClInclude Include="src\unittests\force_link.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--

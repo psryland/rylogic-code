@@ -45,8 +45,8 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/interop.hlsli"
-#include "src/compute/physics_types.hlsli"
-#include "src/compute/gjk.hlsli"
+#include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/gjk.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -55,9 +55,279 @@ namespace pr::physics {
 // ---- Constants ----
 static const float Eps = 1e-8f;
 
+// ---- Helpers ----
+// Closest point between two line segments. Returns the parameters (t0, t1) in [0,1].
+inline void ClosestPointSegmentSegment(float4 p0, float4 d0, float len0, float4 p1, float4 d1, float len1, out_(float) t0, out_(float) t1)
+{
+	float4 r = p0 - p1;
+	float a = dot(d0, d0); // len0*len0 but d0 might not be unit
+	float e = dot(d1, d1);
+	float f = dot(d1, r);
+	float b = dot(d0, d1);
+	float c = dot(d0, r);
+	float denom = a * e - b * b;
+
+	if (denom > 1e-12f)
+	{
+		t0 = clamp((b * f - c * e) / denom, -len0, len0);
+	}
+	else
+	{
+		t0 = 0; // parallel segments
+	}
+
+	// Compute t1 from t0
+	t1 = (b * t0 + f) / max(e, 1e-12f);
+
+	// Clamp t1 and recompute t0 if needed
+	if (t1 < -len1) { t1 = -len1; t0 = clamp((-b * len1 - c) / max(a, 1e-12f), -len0, len0); }
+	else if (t1 > len1) { t1 = len1; t0 = clamp((b * len1 - c) / max(a, 1e-12f), -len0, len0); }
+}
+
+// Closest point on a triangle (in world space) to a point. Returns barycentric coords.
+inline float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
+{
+	float4 ab = v1 - v0, ac = v2 - v0, ap = p - v0;
+	float d1 = dot(ab, ap), d2 = dot(ac, ap);
+	if (d1 <= 0 && d2 <= 0) return v0;
+
+	float4 bp = p - v1;
+	float d3 = dot(ab, bp), d4 = dot(ac, bp);
+	if (d3 >= 0 && d4 <= d3) return v1;
+
+	float4 cp = p - v2;
+	float d5 = dot(ab, cp), d6 = dot(ac, cp);
+	if (d6 >= 0 && d5 <= d6) return v2;
+
+	float vc = d1 * d4 - d3 * d2;
+	if (vc <= 0 && d1 >= 0 && d3 <= 0) { float v = d1 / (d1 - d3); return v0 + v * ab; }
+
+	float vb = d5 * d2 - d1 * d6;
+	if (vb <= 0 && d2 >= 0 && d6 <= 0) { float w = d2 / (d2 - d6); return v0 + w * ac; }
+
+	float va = d3 * d6 - d5 * d4;
+	if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) { float w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return v1 + w * (v2 - v1); }
+
+	float denom = 1.0f / (va + vb + vc);
+	float v = vb * denom;
+	float w = vc * denom;
+	return v0 + ab * v + ac * w;
+}
+
+// Get the world-space vertices of a triangle shape
+inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
+{
+	v0 = mul(mul(verts[tri.vert_offset + 0], tri.s2rb), tri_w);
+	v1 = mul(mul(verts[tri.vert_offset + 1], tri.s2rb), tri_w);
+	v2 = mul(mul(verts[tri.vert_offset + 2], tri.s2rb), tri_w);
+}
+
+// Closest point on a line segment to a point
+inline float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float half_len)
+{
+	float t = clamp(dot(p - seg_centre, seg_dir), -half_len, half_len);
+	return seg_centre + t * seg_dir;
+}
+
+// Clip a line segment's parametric range [t0,t1] against a half-plane.
+// Half-plane: dot(P - plane_pt, plane_n) >= 0. Returns false if fully clipped.
+inline bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, float3 plane_n, inout_(float) t0, inout_(float) t1)
+{
+	if (t0 >= t1)
+		return false;
+
+	float ds = dot(seg_s - plane_pt, plane_n);
+	float de = dot(seg_e - plane_pt, plane_n);
+
+	if (ds >= 0 && de >= 0) return true;
+	if (ds < 0 && de < 0) { t1 = t0; return false; }
+
+	float t_cross = ds / (ds - de);
+	if (ds < 0)
+		t0 = max(t0, t_cross);
+	else
+		t1 = min(t1, t_cross);
+
+	return t0 < t1;
+}
+
+// Determine the support feature of a box in a given direction.
+// Returns the feature vertex count (1=vert, 2=edge, 4=quad) and fills 'pts'.
+// Mirrors the CPU SupportFeature() in support.h.
+inline int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+{
+	float threshold = 1e-4f;
+	pts[0] = pts[1] = pts[2] = pts[3] = pos;
+	int count = 1;
+
+	for (int i = 0; i != 3; ++i)
+	{
+		float d = dot(rot[i], dir);
+		if (d > threshold)
+		{
+			for (int f = 0; f < count; ++f)
+				pts[f] += rot[i] * h[i];
+		}
+		else if (d < -threshold)
+		{
+			for (int f = 0; f < count; ++f)
+				pts[f] -= rot[i] * h[i];
+		}
+		else if (count == 1)
+		{
+			// Vert → Edge
+			pts[1] = pts[0];
+			pts[0] += rot[i] * h[i];
+			pts[1] -= rot[i] * h[i];
+			count = 2;
+		}
+		else if (count == 2)
+		{
+			// Edge → Quad
+			pts[3] = pts[0];
+			pts[2] = pts[1];
+			pts[0] += rot[i] * h[i];
+			pts[1] += rot[i] * h[i];
+			pts[2] -= rot[i] * h[i];
+			pts[3] -= rot[i] * h[i];
+
+			// Fix winding so face normal matches 'dir'
+			if (dot(dir, cross(pts[1] - pts[0], pts[2] - pts[0])) < 0)
+			{
+				float3 tmp = pts[1];
+				pts[1] = pts[3];
+				pts[3] = tmp;
+			}
+			count = 4;
+		}
+	}
+	return count;
+}
+
+// Find the single contact point between two box support features.
+// Mirrors the CPU FindContactPoint() in support.h. 'axis' points from A toward B.
+inline float3 FindBoxContactPoint(float3 ptsA[4], int countA, float3 ptsB[4], int countB, float3 axis, float depth)
+{
+	int i, j;
+
+	// Vert-Vert: midpoint
+	if (countA == 1 && countB == 1)
+		return 0.5f * (ptsA[0] + ptsB[0]);
+
+	// Vert-*: contact at the vertex, shifted halfway along axis toward the other feature
+	if (countA == 1)
+		return ptsA[0] + axis * (0.5f * dot(axis, ptsB[0] - ptsA[0]));
+	if (countB == 1)
+		return ptsB[0] + axis * (0.5f * dot(axis, ptsA[0] - ptsB[0]));
+
+	// Edge-Edge: closest points on the two line segments
+	if (countA == 2 && countB == 2)
+	{
+		float3 da = ptsA[1] - ptsA[0];
+		float3 db = ptsB[1] - ptsB[0];
+		float3 r = ptsA[0] - ptsB[0];
+		float a = dot(da, da);
+		float e = dot(db, db);
+		float f = dot(db, r);
+		float b = dot(da, db);
+		float c = dot(da, r);
+		float denom = a * e - b * b;
+		float s, t;
+		if (denom > 1e-10f)
+		{
+			s = clamp((b * f - c * e) / denom, 0.0f, 1.0f);
+			t = clamp((b * s + f) / max(e, 1e-10f), 0.0f, 1.0f);
+			s = clamp((b * t - c) / max(a, 1e-10f), 0.0f, 1.0f);
+		}
+		else
+		{
+			s = 0.5f;
+			t = clamp(f / max(e, 1e-10f), 0.0f, 1.0f);
+		}
+		return 0.5f * (ptsA[0] + s * da + ptsB[0] + t * db);
+	}
+
+	// Edge-Face: clip the edge against the face's side planes
+	if (countA == 2)
+	{
+		float t0 = 0.0f, t1 = 1.0f;
+		for (i = 0; i < countB; ++i)
+		{
+			float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
+			ClipSegmentToHalfPlane(ptsA[0], ptsA[1], ptsB[i], n, t0, t1);
+		}
+		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
+		return ptsA[0] + 0.5f * (t0 + t1) * (ptsA[1] - ptsA[0]) - 0.5f * depth * axis;
+	}
+	if (countB == 2)
+	{
+		float t0 = 0.0f, t1 = 1.0f;
+		for (i = 0; i < countA; ++i)
+		{
+			float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
+			ClipSegmentToHalfPlane(ptsB[0], ptsB[1], ptsA[i], n, t0, t1);
+		}
+		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
+		return ptsB[0] + 0.5f * (t0 + t1) * (ptsB[1] - ptsB[0]) + 0.5f * depth * axis;
+	}
+
+	// Face-Face: clip both quads against each other, average the centroids
+	float2 edgesA[4], edgesB[4];
+	for (j = 0; j < 4; ++j) { edgesA[j] = float2(0, 1); edgesB[j] = float2(0, 1); }
+
+	// Clip B's edges against A's side planes
+	for (i = 0; i < countA; ++i)
+	{
+		float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
+		for (j = 0; j < countB; ++j)
+			ClipSegmentToHalfPlane(ptsB[j], ptsB[(j + 1) % countB], ptsA[i], n, edgesB[j].x, edgesB[j].y);
+	}
+
+	// Clip A's edges against B's side planes
+	for (i = 0; i < countB; ++i)
+	{
+		float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
+		for (j = 0; j < countA; ++j)
+			ClipSegmentToHalfPlane(ptsA[j], ptsA[(j + 1) % countA], ptsB[i], n, edgesA[j].x, edgesA[j].y);
+	}
+
+	// Compute separate centroids for each face and average them.
+	// This gives equal weight to both surfaces regardless of how many edges survive clipping.
+	float3 centreA = float3(0, 0, 0);
+	float totalA = 0;
+	for (j = 0; j < countA; ++j)
+	{
+		if (edgesA[j].x >= edgesA[j].y) continue;
+		centreA += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
+		totalA += 1.0f;
+	}
+	float3 centreB = float3(0, 0, 0);
+	float totalB = 0;
+	for (j = 0; j < countB; ++j)
+	{
+		if (edgesB[j].x >= edgesB[j].y) continue;
+		centreB += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
+		totalB += 1.0f;
+	}
+
+	// Fallback for degenerate cases (all edges clipped from a face)
+	if (totalA == 0)
+	{
+		for (j = 0; j < countA; ++j) centreA += ptsA[j];
+		totalA = (float)countA;
+	}
+	if (totalB == 0)
+	{
+		for (j = 0; j < countB; ++j) centreB += ptsB[j];
+		totalB = (float)countB;
+	}
+
+	return 0.5f * (centreA / totalA + centreB / totalB);
+}
+
 // ---- Sphere vs Sphere ----
 // Direct distance test between two sphere centres.
-bool SphereVsSphere(
+inline bool SphereVsSphere(
 	in_(GpuShape) sa, float4x4 a2w,
 	in_(GpuShape) sb, float4x4 b2w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
@@ -89,7 +359,7 @@ bool SphereVsSphere(
 // ---- Sphere vs Box ----
 // Find the closest point on the OBB to the sphere centre.
 // If the distance is less than the sphere radius, there's a collision.
-bool SphereVsBox(
+inline bool SphereVsBox(
 	in_(GpuShape) sphere, float4x4 sphere_w,
 	in_(GpuShape) box, float4x4 box_w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
@@ -174,7 +444,7 @@ bool SphereVsBox(
 // ---- Sphere vs Line ----
 // Find the closest point on the line segment to the sphere centre.
 // The line has hemispherical end-caps of thickness 'data.y'.
-bool SphereVsLine(
+inline bool SphereVsLine(
 	in_(GpuShape) sphere, float4x4 sphere_w,
 	in_(GpuShape) seg, float4x4 seg_w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
@@ -216,7 +486,7 @@ bool SphereVsLine(
 // Uses "GJK with margins": find the closest point on the convex shape to the
 // sphere centre (treating it as a point), then check distance < radius.
 // This avoids EPA entirely and gives exact contact normals.
-bool SphereVsConvex(
+inline bool SphereVsConvex(
 	in_(GpuShape) sphere, float4x4 sphere_w,
 	in_(GpuShape) convex, float4x4 convex_w,
 	in_(StructuredBuffer<float4>) verts,
@@ -378,87 +648,9 @@ bool SphereVsConvex(
 	return true;
 }
 
-// ---- Helpers for line and triangle tests ----
-
-// Closest point between two line segments. Returns the parameters (t0, t1) in [0,1].
-void ClosestPointSegmentSegment(
-	float4 p0, float4 d0, float len0,
-	float4 p1, float4 d1, float len1,
-	out_(float) t0, out_(float) t1)
-{
-	float4 r = p0 - p1;
-	float a = dot(d0, d0); // len0*len0 but d0 might not be unit
-	float e = dot(d1, d1);
-	float f = dot(d1, r);
-	float b = dot(d0, d1);
-	float c = dot(d0, r);
-	float denom = a * e - b * b;
-
-	if (denom > 1e-12f)
-	{
-		t0 = clamp((b * f - c * e) / denom, -len0, len0);
-	}
-	else
-	{
-		t0 = 0; // parallel segments
-	}
-
-	// Compute t1 from t0
-	t1 = (b * t0 + f) / max(e, 1e-12f);
-
-	// Clamp t1 and recompute t0 if needed
-	if (t1 < -len1) { t1 = -len1; t0 = clamp((-b * len1 - c) / max(a, 1e-12f), -len0, len0); }
-	else if (t1 > len1) { t1 = len1; t0 = clamp((b * len1 - c) / max(a, 1e-12f), -len0, len0); }
-}
-
-// Closest point on a triangle (in world space) to a point. Returns barycentric coords.
-float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
-{
-	float4 ab = v1 - v0, ac = v2 - v0, ap = p - v0;
-	float d1 = dot(ab, ap), d2 = dot(ac, ap);
-	if (d1 <= 0 && d2 <= 0) return v0;
-
-	float4 bp = p - v1;
-	float d3 = dot(ab, bp), d4 = dot(ac, bp);
-	if (d3 >= 0 && d4 <= d3) return v1;
-
-	float4 cp = p - v2;
-	float d5 = dot(ab, cp), d6 = dot(ac, cp);
-	if (d6 >= 0 && d5 <= d6) return v2;
-
-	float vc = d1 * d4 - d3 * d2;
-	if (vc <= 0 && d1 >= 0 && d3 <= 0) { float v = d1 / (d1 - d3); return v0 + v * ab; }
-
-	float vb = d5 * d2 - d1 * d6;
-	if (vb <= 0 && d2 >= 0 && d6 <= 0) { float w = d2 / (d2 - d6); return v0 + w * ac; }
-
-	float va = d3 * d6 - d5 * d4;
-	if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) { float w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return v1 + w * (v2 - v1); }
-
-	float denom = 1.0f / (va + vb + vc);
-	float v = vb * denom;
-	float w = vc * denom;
-	return v0 + ab * v + ac * w;
-}
-
-// Get the world-space vertices of a triangle shape
-void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
-{
-	v0 = mul(mul(verts[tri.vert_offset + 0], tri.s2rb), tri_w);
-	v1 = mul(mul(verts[tri.vert_offset + 1], tri.s2rb), tri_w);
-	v2 = mul(mul(verts[tri.vert_offset + 2], tri.s2rb), tri_w);
-}
-
-// Closest point on a line segment to a point
-float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float half_len)
-{
-	float t = clamp(dot(p - seg_centre, seg_dir), -half_len, half_len);
-	return seg_centre + t * seg_dir;
-}
-
 // ---- Line vs Line ----
 // Closest points between two capsules (line segments with thickness).
-bool LineVsLine(
+inline bool LineVsLine(
 	in_(GpuShape) la, float4x4 la_w,
 	in_(GpuShape) lb, float4x4 lb_w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
@@ -495,7 +687,7 @@ bool LineVsLine(
 // ---- Line vs Box ----
 // Closest point between the line skeleton (segment) and the box surface,
 // then add the line thickness as a margin.
-bool LineVsBox(
+inline bool LineVsBox(
 	in_(GpuShape) seg, float4x4 seg_w,
 	in_(GpuShape) box, float4x4 box_w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
@@ -589,7 +781,7 @@ bool LineVsBox(
 
 // ---- Line vs Triangle ----
 // Closest point between the line skeleton and the triangle, plus thickness margin.
-bool LineVsTriangle(
+inline bool LineVsTriangle(
 	in_(GpuShape) seg, float4x4 seg_w,
 	in_(GpuShape) tri, float4x4 tri_w,
 	in_(StructuredBuffer<float4>) verts,
@@ -663,7 +855,7 @@ bool LineVsTriangle(
 // ---- Line vs Convex (Polytope) ----
 // Uses "GJK with margins": run closest-point GJK between the line skeleton
 // (a segment, no thickness) and the convex shape, then add thickness margin.
-bool LineVsConvex(
+inline bool LineVsConvex(
 	in_(GpuShape) seg, float4x4 seg_w,
 	in_(GpuShape) convex, float4x4 convex_w,
 	in_(StructuredBuffer<float4>) verts,
@@ -712,7 +904,7 @@ bool LineVsConvex(
 // Tests 11 separating axes: 2 face normals + 9 edge cross products.
 // Both shapes are polyhedral so EPA would also work, but SAT is faster
 // and gives exact results with fixed cost (no iteration).
-bool TriangleVsTriangle(
+inline bool TriangleVsTriangle(
 	in_(GpuShape) ta, float4x4 ta_w,
 	in_(GpuShape) tb, float4x4 tb_w,
 	in_(StructuredBuffer<float4>) verts,
@@ -781,204 +973,7 @@ bool TriangleVsTriangle(
 // ---- Box vs Box (SAT) ----
 // The Minkowski difference of two boxes is a larger box, and EPA struggles
 // to resolve the face normal precisely. SAT gives the exact separating axis.
-
-// Clip a line segment's parametric range [t0,t1] against a half-plane.
-// Half-plane: dot(P - plane_pt, plane_n) >= 0. Returns false if fully clipped.
-bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, float3 plane_n, inout_(float) t0, inout_(float) t1)
-{
-	if (t0 >= t1)
-		return false;
-
-	float ds = dot(seg_s - plane_pt, plane_n);
-	float de = dot(seg_e - plane_pt, plane_n);
-
-	if (ds >= 0 && de >= 0) return true;
-	if (ds < 0 && de < 0) { t1 = t0; return false; }
-
-	float t_cross = ds / (ds - de);
-	if (ds < 0)
-		t0 = max(t0, t_cross);
-	else
-		t1 = min(t1, t_cross);
-
-	return t0 < t1;
-}
-
-// Determine the support feature of a box in a given direction.
-// Returns the feature vertex count (1=vert, 2=edge, 4=quad) and fills 'pts'.
-// Mirrors the CPU SupportFeature() in support.h.
-int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
-{
-	float threshold = 1e-4f;
-	pts[0] = pts[1] = pts[2] = pts[3] = pos;
-	int count = 1;
-
-	for (int i = 0; i != 3; ++i)
-	{
-		float d = dot(rot[i], dir);
-		if (d > threshold)
-		{
-			for (int f = 0; f < count; ++f)
-				pts[f] += rot[i] * h[i];
-		}
-		else if (d < -threshold)
-		{
-			for (int f = 0; f < count; ++f)
-				pts[f] -= rot[i] * h[i];
-		}
-		else if (count == 1)
-		{
-			// Vert → Edge
-			pts[1] = pts[0];
-			pts[0] += rot[i] * h[i];
-			pts[1] -= rot[i] * h[i];
-			count = 2;
-		}
-		else if (count == 2)
-		{
-			// Edge → Quad
-			pts[3] = pts[0];
-			pts[2] = pts[1];
-			pts[0] += rot[i] * h[i];
-			pts[1] += rot[i] * h[i];
-			pts[2] -= rot[i] * h[i];
-			pts[3] -= rot[i] * h[i];
-
-			// Fix winding so face normal matches 'dir'
-			if (dot(dir, cross(pts[1] - pts[0], pts[2] - pts[0])) < 0)
-			{
-				float3 tmp = pts[1];
-				pts[1] = pts[3];
-				pts[3] = tmp;
-			}
-			count = 4;
-		}
-	}
-	return count;
-}
-
-// Find the single contact point between two box support features.
-// Mirrors the CPU FindContactPoint() in support.h. 'axis' points from A toward B.
-float3 FindBoxContactPoint(float3 ptsA[4], int countA, float3 ptsB[4], int countB, float3 axis, float depth)
-{
-	int i, j;
-
-	// Vert-Vert: midpoint
-	if (countA == 1 && countB == 1)
-		return 0.5f * (ptsA[0] + ptsB[0]);
-
-	// Vert-*: contact at the vertex, shifted halfway along axis toward the other feature
-	if (countA == 1)
-		return ptsA[0] + axis * (0.5f * dot(axis, ptsB[0] - ptsA[0]));
-	if (countB == 1)
-		return ptsB[0] + axis * (0.5f * dot(axis, ptsA[0] - ptsB[0]));
-
-	// Edge-Edge: closest points on the two line segments
-	if (countA == 2 && countB == 2)
-	{
-		float3 da = ptsA[1] - ptsA[0];
-		float3 db = ptsB[1] - ptsB[0];
-		float3 r = ptsA[0] - ptsB[0];
-		float a = dot(da, da);
-		float e = dot(db, db);
-		float f = dot(db, r);
-		float b = dot(da, db);
-		float c = dot(da, r);
-		float denom = a * e - b * b;
-		float s, t;
-		if (denom > 1e-10f)
-		{
-			s = clamp((b * f - c * e) / denom, 0.0f, 1.0f);
-			t = clamp((b * s + f) / max(e, 1e-10f), 0.0f, 1.0f);
-			s = clamp((b * t - c) / max(a, 1e-10f), 0.0f, 1.0f);
-		}
-		else
-		{
-			s = 0.5f;
-			t = clamp(f / max(e, 1e-10f), 0.0f, 1.0f);
-		}
-		return 0.5f * (ptsA[0] + s * da + ptsB[0] + t * db);
-	}
-
-	// Edge-Face: clip the edge against the face's side planes
-	if (countA == 2)
-	{
-		float t0 = 0.0f, t1 = 1.0f;
-		for (i = 0; i < countB; ++i)
-		{
-			float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
-			ClipSegmentToHalfPlane(ptsA[0], ptsA[1], ptsB[i], n, t0, t1);
-		}
-		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
-		return ptsA[0] + 0.5f * (t0 + t1) * (ptsA[1] - ptsA[0]) - 0.5f * depth * axis;
-	}
-	if (countB == 2)
-	{
-		float t0 = 0.0f, t1 = 1.0f;
-		for (i = 0; i < countA; ++i)
-		{
-			float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
-			ClipSegmentToHalfPlane(ptsB[0], ptsB[1], ptsA[i], n, t0, t1);
-		}
-		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
-		return ptsB[0] + 0.5f * (t0 + t1) * (ptsB[1] - ptsB[0]) + 0.5f * depth * axis;
-	}
-
-	// Face-Face: clip both quads against each other, average the centroids
-	float2 edgesA[4], edgesB[4];
-	for (j = 0; j < 4; ++j) { edgesA[j] = float2(0, 1); edgesB[j] = float2(0, 1); }
-
-	// Clip B's edges against A's side planes
-	for (i = 0; i < countA; ++i)
-	{
-		float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
-		for (j = 0; j < countB; ++j)
-			ClipSegmentToHalfPlane(ptsB[j], ptsB[(j + 1) % countB], ptsA[i], n, edgesB[j].x, edgesB[j].y);
-	}
-
-	// Clip A's edges against B's side planes
-	for (i = 0; i < countB; ++i)
-	{
-		float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
-		for (j = 0; j < countA; ++j)
-			ClipSegmentToHalfPlane(ptsA[j], ptsA[(j + 1) % countA], ptsB[i], n, edgesA[j].x, edgesA[j].y);
-	}
-
-	// Compute separate centroids for each face and average them.
-	// This gives equal weight to both surfaces regardless of how many edges survive clipping.
-	float3 centreA = float3(0, 0, 0);
-	float totalA = 0;
-	for (j = 0; j < countA; ++j)
-	{
-		if (edgesA[j].x >= edgesA[j].y) continue;
-		centreA += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
-		totalA += 1.0f;
-	}
-	float3 centreB = float3(0, 0, 0);
-	float totalB = 0;
-	for (j = 0; j < countB; ++j)
-	{
-		if (edgesB[j].x >= edgesB[j].y) continue;
-		centreB += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
-		totalB += 1.0f;
-	}
-
-	// Fallback for degenerate cases (all edges clipped from a face)
-	if (totalA == 0)
-	{
-		for (j = 0; j < countA; ++j) centreA += ptsA[j];
-		totalA = (float)countA;
-	}
-	if (totalB == 0)
-	{
-		for (j = 0; j < countB; ++j) centreB += ptsB[j];
-		totalB = (float)countB;
-	}
-
-	return 0.5f * (centreA / totalA + centreB / totalB);
-}
-
-bool BoxVsBox(
+inline bool BoxVsBox(
 	in_(GpuShape) sa, float4x4 a2w,
 	in_(GpuShape) sb, float4x4 b2w,
 	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
