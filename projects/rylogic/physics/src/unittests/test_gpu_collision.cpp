@@ -9,6 +9,7 @@
 #include "pr/physics/physics.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/collision.hlsli"
+#include "src/compute/gjk.hlsli"
 
 namespace pr::physics::tests
 {
@@ -424,6 +425,126 @@ namespace pr::physics::tests
 				auto a2w = m4x4::Transform(m3x3::RotationDeg(15.0f, 0, 0), v4(0, 0, 0, 1));
 				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 30.0f, 0), v4(0.8f, 0, 0.5f, 1));
 				BangTogether(flat, a2w, tall, b2w, true);
+			}
+		}
+
+		// ---- Polytope vs Polytope ----
+		PRUnitTestMethod(PolytopeVsPolytope)
+		{
+			using namespace pr;
+			using namespace pr::hlsl;
+
+			// Compare CPU GJK and GPU GJK results. GJK/EPA has wider tolerances than SAT.
+			auto BangTogether = [](collision::ShapePolytope const& a, m4x4 a2w, collision::ShapePolytope const& b, m4x4 b2w, bool should_collide)
+			{
+				collision::Contact c;
+				auto is_contact_cpu = collision::GjkCollide(a, a2w, b, b2w, c);
+
+				// Build the vertex buffer for the GPU
+				std::vector<v4> vertex_buffer;
+				auto sa = PackShape(a, static_cast<int>(vertex_buffer.size()));
+				for (auto const* v = a.vert_beg(); v != a.vert_end(); ++v)
+					vertex_buffer.push_back(*v);
+
+				auto sb = PackShape(b, static_cast<int>(vertex_buffer.size()));
+				for (auto const* v = b.vert_beg(); v != b.vert_end(); ++v)
+					vertex_buffer.push_back(*v);
+
+				auto& verts = reinterpret_cast<StructuredBuffer<float4>&>(vertex_buffer);
+				float4 axis, point; float depth;
+				int gjk_iters, epa_iters;
+				auto is_contact_gpu = physics::GjkCollide(sa, a2w, sb, b2w, verts, axis, point, depth, gjk_iters, epa_iters);
+
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					PR_EXPECT(Near(c.m_depth, depth, 0.05f));
+				}
+			};
+
+			// Two tetrahedra overlapping at origin
+			{
+				v4 tet_pts[] = {
+					v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
+					v4{0, 1, -1, 1}, v4{0, 0, 1, 1},
+				};
+				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
+				auto buf_b = collision::BuildPolytopeFromPoints(tet_pts);
+				auto& pa = buf_a.as<collision::ShapePolytope>();
+				auto& pb = buf_b.as<collision::ShapePolytope>();
+
+				// Slight overlap along X
+				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(0.5f, 0, 0), true);
+			}
+
+			// Two tetrahedra separated
+			{
+				v4 tet_pts[] = {
+					v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
+					v4{0, 1, -1, 1}, v4{0, 0, 1, 1},
+				};
+				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
+				auto buf_b = collision::BuildPolytopeFromPoints(tet_pts);
+				auto& pa = buf_a.as<collision::ShapePolytope>();
+				auto& pb = buf_b.as<collision::ShapePolytope>();
+
+				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(10, 0, 0), false);
+			}
+
+			// Two cube polytopes overlapping along X
+			{
+				v4 cube_pts[] = {
+					v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
+					v4{-1, 1, -1, 1}, v4{1, 1, -1, 1},
+					v4{-1, -1, 1, 1}, v4{1, -1, 1, 1},
+					v4{-1, 1, 1, 1}, v4{1, 1, 1, 1},
+				};
+				auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
+				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
+				auto& pa = buf_a.as<collision::ShapePolytope>();
+				auto& pb = buf_b.as<collision::ShapePolytope>();
+
+				// Overlap of 0.5 in X: cubes are ±1, so separation = 2*1 - 0.5 = 1.5
+				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(1.5f, 0, 0), true);
+			}
+
+			// Cube polytopes, both rotated
+			{
+				v4 cube_pts[] = {
+					v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
+					v4{-1, 1, -1, 1}, v4{1, 1, -1, 1},
+					v4{-1, -1, 1, 1}, v4{1, -1, 1, 1},
+					v4{-1, 1, 1, 1}, v4{1, 1, 1, 1},
+				};
+				auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
+				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
+				auto& pa = buf_a.as<collision::ShapePolytope>();
+				auto& pb = buf_b.as<collision::ShapePolytope>();
+
+				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 20.0f), v4(-0.5f, 0, 0, 1));
+				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, -15.0f), v4(2.5f, 0, 0, 1));
+				BangTogether(pa, a2w, pb, b2w, false);
+			}
+
+			// Tetrahedron vs cube, overlapping
+			{
+				v4 tet_pts[] = {
+					v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
+					v4{0, 1, -1, 1}, v4{0, 0, 1, 1},
+				};
+				v4 cube_pts[] = {
+					v4{-0.5f, -0.5f, -0.5f, 1}, v4{0.5f, -0.5f, -0.5f, 1},
+					v4{-0.5f, 0.5f, -0.5f, 1}, v4{0.5f, 0.5f, -0.5f, 1},
+					v4{-0.5f, -0.5f, 0.5f, 1}, v4{0.5f, -0.5f, 0.5f, 1},
+					v4{-0.5f, 0.5f, 0.5f, 1}, v4{0.5f, 0.5f, 0.5f, 1},
+				};
+				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
+				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
+				auto& pa = buf_a.as<collision::ShapePolytope>();
+				auto& pb = buf_b.as<collision::ShapePolytope>();
+
+				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(0.5f, 0, 0), true);
 			}
 		}
 	};

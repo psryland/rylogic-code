@@ -2,9 +2,13 @@
 // Physics Engine
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
-// Unit tests that compare GPU GJK collision results against CPU GJK collision results.
-// Each test creates a pair of shapes, runs both the CPU path (GjkCollide) and the
-// GPU path (GpuDetectCollisions), and verifies the results match within tolerance.
+// Unit tests that compare GPU collision results against CPU collision results.
+// Each test creates a pair of shapes, runs both the CPU path and the GPU path,
+// and verifies the results match within tolerance.
+// Notes:
+//  - The GPU detection actually runs on the GPU so decrepencies could indicate a difference
+//    in behaviour between the hlsl interop versions and true GPU versions.
+//  - This tests are *not* the same as test_gpu_collision.cpp because the actual GPU is used here.
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
@@ -19,9 +23,9 @@ namespace pr::physics::tests
 	PRUnitTestClass(GpuCollisionDetectorTests)
 	{
 		// Tolerance thresholds for comparing CPU vs GPU results
-		static constexpr float DepthRelTol = 0.05f;   // 5% relative depth tolerance
-		static constexpr float AxisAngleTol = 0.1f;    // radians
-		static constexpr float PointTol = 0.1f;        // world units
+		static constexpr float DepthRelTol = 0.001f;  // depth tolerance
+		static constexpr float AxisAngleTol = 0.001f; // radians
+		static constexpr float PointTol = 0.001f;     // world units
 
 		Gpu m_gpu;
 		EngineConfig m_config;
@@ -32,9 +36,7 @@ namespace pr::physics::tests
 			, m_detector(m_gpu, m_config)
 		{}
 
-		// Run both CPU GjkCollide and GPU GpuDetectCollisions for a shape pair.
-		// Returns true if both agree on collision (or both agree on no collision).
-		// When both detect collision, validates that axis/depth/point match within tolerance.
+		// Run both CPU Collide() and the GPU GpuCollisionDetector for a shape pair.
 		void CompareGpuVsCpu(
 			collision::Shape const& sa, m4x4 const& l2w,
 			collision::Shape const& sb, m4x4 const& r2w,
@@ -42,63 +44,58 @@ namespace pr::physics::tests
 		{
 			// --- CPU path ---
 			auto cpu_contact = collision::Contact{};
-			auto cpu_hit = collision::GjkCollide(sa, l2w, sb, r2w, cpu_contact);
+			auto cpu_hit = false;
+			{
+				// This runs the collision dispatch to collide using specilised functions when appropriate
+				cpu_hit = collision::Collide(sa, l2w, sb, r2w, cpu_contact);
+			}
 
 			// --- GPU path ---
-			// Pack shapes into GPU buffers
-			ShapeCache shape_cache;
-			shape_cache.GetOrAdd(sa);
-			shape_cache.GetOrAdd(sb);
+			auto gpu_contact = GpuResolveContact{};
+			auto gpu_hit = false;
+			{
+				// Pack shapes into GPU buffers
+				ShapeCache shape_cache;
+				shape_cache.GetOrAdd(sa);
+				shape_cache.GetOrAdd(sb);
 
-			// Build collision pair. GJK runs with A at identity, B at b2a.
-			auto pair = GpuCollisionPair{};
-			pair.body_idx_a = 0;
-			pair.body_idx_b = 1;
-			pair.shape_idx_a = 0;
-			pair.shape_idx_b = 1;
-			pair.b2a = InvertOrthonormal(l2w) * r2w;
+				// Build collision pair.
+				auto pair = GpuCollisionPair{};
+				pair.body_idx_a = 0;
+				pair.body_idx_b = 1;
+				pair.shape_idx_a = 0;
+				pair.shape_idx_b = 1;
+				pair.b2a = InvertOrthonormal(l2w) * r2w;
 
-			auto pairs = std::vector<GpuCollisionPair>{ pair };
-			auto out_contacts = std::vector<GpuResolveContact>{1};
-
-			// Create a GpuIntegrator (which owns the D3D12 device and command queue),
-			// then create the collision detector sharing the same Gpu instance.
-			auto [gpu_contacts, diag] = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts, {});
-			auto gpu_hit = gpu_contacts.size() > 0;
-			(void)diag; // diagnostics not used in this test
+				// Setup the GPU collision detector buffers
+				auto pairs = std::vector<GpuCollisionPair>{ pair };
+				auto out_contacts = std::vector<GpuResolveContact>{ 1 };
+				auto [gpu_contacts, diag] = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts, {});
+				gpu_hit = gpu_contacts.size() > 0;
+				(void)diag; // diagnostics not used in this test
+			}
 
 			// --- Compare collision/no-collision agreement ---
 			PR_EXPECT(cpu_hit == expect_collision);
 			PR_EXPECT(gpu_hit == expect_collision);
-
 			if (!expect_collision)
 				return;
-
-			// --- Compare contact details ---
-			PR_EXPECT(gpu_contacts.size() == 1u);
-			if (gpu_contacts.empty())
-				return;
-
-			auto const& gc = gpu_contacts[0];
 
 			// GPU contact is in objA's local space. Transform CPU contact to objA space for comparison.
 			auto w2a = InvertOrthonormal(l2w);
 			auto cpu_axis_local = (w2a * cpu_contact.m_axis.w0()).w0(); // transform direction (w=0)
 			auto cpu_point_local = w2a * cpu_contact.m_point;
 
+			// --- Compare contact details ---
 			// Depth comparison (relative tolerance, with absolute floor for near-zero depths)
-			auto depth_err = Abs(gc.depth - cpu_contact.m_depth);
-			auto depth_ref = Max(Abs(cpu_contact.m_depth), 0.01f);
-			PR_EXPECT(depth_err / depth_ref < DepthRelTol);
+			PR_EXPECT(FEqlRelative(cpu_contact.m_depth, gpu_contact.depth, DepthRelTol));
 
 			// Axis direction comparison (angle between normals, allowing sign flip)
-			auto dot = Abs(Dot3(Normalise(gc.axis), Normalise(cpu_axis_local)));
-			dot = Clamp(dot, 0.0f, 1.0f);
-			auto angle = acos(dot);
+			auto angle = Angle(Normalise(cpu_axis_local), Normalise(gpu_contact.axis));
 			PR_EXPECT(angle < AxisAngleTol);
 
 			// Contact point comparison
-			auto pt_err = Length(gc.contact_point - cpu_point_local);
+			auto pt_err = Length(gpu_contact.contact_point - cpu_point_local);
 			PR_EXPECT(pt_err < PointTol);
 		}
 

@@ -1962,7 +1962,7 @@ namespace pr::math
 	{
 		using vt = vector_traits<Vec>;
 		using S = typename vt::element_t;
-		pr_assert("CosAngle undefined for zero vectors" && lhs != Vec{} && rhs != Vec{});
+		pr_assert(LengthSq(lhs) != 0 && LengthSq(rhs) != 0 && "CosAngle undefined for zero vectors");
 		return Clamp(Dot(lhs, rhs) / Sqrt(LengthSq(lhs) * LengthSq(rhs)), -S(1), +S(1));
 	}
 
