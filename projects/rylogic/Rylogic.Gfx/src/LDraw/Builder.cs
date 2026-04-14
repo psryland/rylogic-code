@@ -65,7 +65,7 @@ namespace Rylogic.LDraw
 			m_objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrCommands Command()
+		public LdrCommands Commands()
 		{
 			var child = new LdrCommands();
 			m_objects.Add(child);
