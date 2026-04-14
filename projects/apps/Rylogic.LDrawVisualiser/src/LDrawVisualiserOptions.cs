@@ -90,30 +90,38 @@ namespace Rylogic.LDrawVisualiser
 		}
 		private List<string> m_assemblies = new();
 
-		/// <summary>Additional using namespaces (newline-delimited) to include in compiled scripts</summary>
-		public string Namespaces
+		/// <summary>Whether to automatically compile and run the script when the file is saved</summary>
+		public bool AutoCompileOnSave
 		{
-			get => m_namespaces;
+			get => m_auto_compile_on_save;
 			set
 			{
-				if (m_namespaces == value) return;
-				m_namespaces = value;
-				NotifyPropertyChanged(nameof(Namespaces));
+				if (m_auto_compile_on_save == value) return;
+				m_auto_compile_on_save = value;
+				NotifyPropertyChanged(nameof(AutoCompileOnSave));
 			}
 		}
-		private string m_namespaces = "";
+		private bool m_auto_compile_on_save = true;
 
 		public override void ResetSettings()
 		{
-			DefaultScriptText = @"var b = new Builder();
-// Access debug variables via 'vars', e.g.:
-// b.Box(""obj1"").box(1,2,3).o2w(vars.my_object.m_o2w);
+			DefaultScriptText =
+@"#load ""LDrawVisualiser.csx""
+
+using System;
+using System.Linq;
+using Rylogic.LDraw;
+using Rylogic.Maths;
+
+// Script body — this code runs inside: string Generate(dynamic vars) { ... }
+var b = new Builder();
+// b.Box(""obj1"").box(1, 1, 1).o2w(vars.o2w);
 return b.ToString();";
 			DefaultAddress = "localhost:1976";
 			DefaultAutoRefresh = true;
+			AutoCompileOnSave = true;
 			LastSelectedScript = "Script";
 			Assemblies = new List<string>();
-			Namespaces = "";
 		}
 
 		public override void LoadSettingsFromStorage()
@@ -130,9 +138,10 @@ return b.ToString();";
 				DefaultScriptText = (string?)root.Element(nameof(DefaultScriptText)) ?? DefaultScriptText;
 				DefaultAddress = (string?)root.Element(nameof(DefaultAddress)) ?? DefaultAddress;
 				LastSelectedScript = (string?)root.Element(nameof(LastSelectedScript)) ?? LastSelectedScript;
-				Namespaces = (string?)root.Element(nameof(Namespaces)) ?? Namespaces;
 				if (bool.TryParse((string?)root.Element(nameof(DefaultAutoRefresh)), out var auto_refresh))
 					DefaultAutoRefresh = auto_refresh;
+				if (bool.TryParse((string?)root.Element(nameof(AutoCompileOnSave)), out var auto_compile))
+					AutoCompileOnSave = auto_compile;
 
 				var assemblies_el = root.Element(nameof(Assemblies));
 				if (assemblies_el != null)
@@ -153,8 +162,8 @@ return b.ToString();";
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultScriptText), DefaultScriptText));
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultAddress), DefaultAddress));
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultAutoRefresh), DefaultAutoRefresh));
+				root.Add(new System.Xml.Linq.XElement(nameof(AutoCompileOnSave), AutoCompileOnSave));
 				root.Add(new System.Xml.Linq.XElement(nameof(LastSelectedScript), LastSelectedScript));
-				root.Add(new System.Xml.Linq.XElement(nameof(Namespaces), Namespaces));
 				root.Add(new System.Xml.Linq.XElement(nameof(Assemblies),
 					Assemblies.Select(a => new System.Xml.Linq.XElement("Assembly", a))));
 				root.Save(SettingsFilepath);

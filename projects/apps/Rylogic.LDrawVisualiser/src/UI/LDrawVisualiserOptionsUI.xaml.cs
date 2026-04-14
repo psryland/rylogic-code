@@ -17,7 +17,7 @@ namespace Rylogic.LDrawVisualiser
 			m_script_text.Text = m_options.DefaultScriptText;
 			m_address_text.Text = m_options.DefaultAddress;
 			m_auto_refresh_check.IsChecked = m_options.DefaultAutoRefresh;
-			m_namespaces_text.Text = m_options.Namespaces;
+			m_auto_compile_on_save_check.IsChecked = m_options.AutoCompileOnSave;
 
 			// Populate assemblies list
 			foreach (var asm in m_options.Assemblies)
@@ -28,7 +28,8 @@ namespace Rylogic.LDrawVisualiser
 			m_address_text.TextChanged += (s, e) => m_options.DefaultAddress = m_address_text.Text;
 			m_auto_refresh_check.Checked += (s, e) => m_options.DefaultAutoRefresh = true;
 			m_auto_refresh_check.Unchecked += (s, e) => m_options.DefaultAutoRefresh = false;
-			m_namespaces_text.TextChanged += (s, e) => m_options.Namespaces = m_namespaces_text.Text;
+			m_auto_compile_on_save_check.Checked += (s, e) => m_options.AutoCompileOnSave = true;
+			m_auto_compile_on_save_check.Unchecked += (s, e) => m_options.AutoCompileOnSave = false;
 		}
 
 		private void OnAddAssembly(object sender, RoutedEventArgs e)

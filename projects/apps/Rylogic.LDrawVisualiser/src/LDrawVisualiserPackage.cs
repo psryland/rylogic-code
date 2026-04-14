@@ -31,6 +31,7 @@ namespace Rylogic.LDrawVisualiser
 
 		/// <summary>Debug event hooks</summary>
 		private DebuggerEvents? m_debugger_events;
+		private DocumentEvents? m_document_events;
 
 		/// <summary>The tool window instance (if open)</summary>
 		internal VisualizerToolWindow? ToolWindow => FindToolWindow(typeof(VisualizerToolWindow), 0, false) as VisualizerToolWindow;
@@ -48,6 +49,9 @@ namespace Rylogic.LDrawVisualiser
 			{
 				m_debugger_events = Dte.Events.DebuggerEvents;
 				m_debugger_events.OnEnterBreakMode += OnEnterBreakMode;
+
+				m_document_events = Dte.Events.DocumentEvents;
+				m_document_events.DocumentSaved += OnDocumentSaved;
 			}
 
 			// Register the menu command for showing the tool window
@@ -60,10 +64,13 @@ namespace Rylogic.LDrawVisualiser
 
 		protected override void Dispose(bool disposing)
 		{
-			if (disposing && m_debugger_events != null)
+			if (disposing)
 			{
 				Microsoft.VisualStudio.Shell.ThreadHelper.ThrowIfNotOnUIThread();
-				m_debugger_events.OnEnterBreakMode -= OnEnterBreakMode;
+				if (m_debugger_events != null)
+					m_debugger_events.OnEnterBreakMode -= OnEnterBreakMode;
+				if (m_document_events != null)
+					m_document_events.DocumentSaved -= OnDocumentSaved;
 			}
 			base.Dispose(disposing);
 		}
@@ -81,6 +88,19 @@ namespace Rylogic.LDrawVisualiser
 		private void OnEnterBreakMode(dbgEventReason reason, ref dbgExecutionAction action)
 		{
 			ToolWindow?.OnEnterBreakMode();
+		}
+
+		private void OnDocumentSaved(Document document)
+		{
+			// Only trigger for .csx files in our scripts directory
+			if (!Options.AutoCompileOnSave) return;
+			if (document?.FullName == null) return;
+			if (!document.FullName.EndsWith(".csx", StringComparison.OrdinalIgnoreCase)) return;
+
+			var scripts_dir = Options.ScriptsDirectory;
+			if (!document.FullName.StartsWith(scripts_dir, StringComparison.OrdinalIgnoreCase)) return;
+
+			ToolWindow?.OnScriptSaved(document.FullName);
 		}
 	}
 

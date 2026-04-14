@@ -1260,7 +1260,7 @@ namespace Rylogic.LDraw
 		}
 
 		// Trigger a frame render
-		public LdrCommands render_frame()
+		public LdrCommands render()
 		{
 			m_cmds.Add(new Cmd{ m_id = ECommandId.Render, m_params = [] });
 			return this;

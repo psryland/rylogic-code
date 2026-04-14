@@ -33,8 +33,9 @@ namespace Rylogic.LDrawVisualiser.Core
 		/// <summary>
 		/// Compile the user script. Returns true if compilation succeeded.
 		/// The script body is the content of a method: string Generate(dynamic vars) { [script] }
+		/// Additional using directives from the .csx file are included.
 		/// </summary>
-		public bool Compile(string script_body)
+		public bool Compile(string script_body, IEnumerable<string>? extra_usings = null)
 		{
 			// Don't recompile if unchanged
 			if (script_body == LastCompiledText && CompiledScript != null)
@@ -42,7 +43,7 @@ namespace Rylogic.LDrawVisualiser.Core
 
 			try
 			{
-				var (success, diagnostics, assembly) = CompileAssembly(script_body);
+				var (success, diagnostics, assembly) = CompileAssembly(script_body, extra_usings);
 				Diagnostics = diagnostics;
 
 				if (!success || assembly == null)
@@ -72,14 +73,31 @@ namespace Rylogic.LDrawVisualiser.Core
 			}
 		}
 
-		private static (bool success, IReadOnlyList<Diagnostic> diagnostics, Assembly? assembly) CompileAssembly(string script_body)
+		private static (bool success, IReadOnlyList<Diagnostic> diagnostics, Assembly? assembly) CompileAssembly(string script_body, IEnumerable<string>? extra_usings)
 		{
+			// Build using directives
+			var usings = new List<string>
+			{
+				"using System;",
+				"using System.Linq;",
+				"using Rylogic.LDraw;",
+				"using Rylogic.Maths;",
+			};
+			if (extra_usings != null)
+			{
+				foreach (var u in extra_usings)
+				{
+					var directive = u.EndsWith(";") ? u : $"{u};";
+					if (!usings.Contains(directive))
+						usings.Add(directive);
+				}
+			}
+
+			var usings_block = string.Join("\n", usings);
+			var usings_line_count = usings.Count;
+
 			// Wrap the user script in a class with a static Generate method
-			var source = $@"
-using System;
-using System.Linq;
-using Rylogic.LDraw;
-using Rylogic.Maths;
+			var source = $@"{usings_block}
 
 namespace Rylogic.LDrawVisualiser.Generated
 {{
@@ -133,9 +151,11 @@ namespace Rylogic.LDrawVisualiser.Generated
 			var emit_result = compilation.Emit(ms);
 
 			// Map diagnostics back to user script (offset the line numbers)
+			// The wrapper adds: usings_line_count lines + 1 blank + 1 namespace + 1 { + 1 class + 1 { + 1 method + 1 { = usings_line_count + 7
+			var wrapper_line_offset = usings_line_count + 7;
 			var mapped_diagnostics = emit_result.Diagnostics
 				.Where(d => d.Severity >= DiagnosticSeverity.Warning)
-				.Select(d => MapDiagnosticToUserScript(d))
+				.Select(d => MapDiagnosticToUserScript(d, wrapper_line_offset))
 				.ToImmutableArray();
 
 			if (!emit_result.Success)
@@ -147,11 +167,8 @@ namespace Rylogic.LDrawVisualiser.Generated
 		}
 
 		/// <summary>Adjust line numbers to account for the wrapper code</summary>
-		private static Diagnostic MapDiagnosticToUserScript(Diagnostic diagnostic)
+		private static Diagnostic MapDiagnosticToUserScript(Diagnostic diagnostic, int wrapper_line_offset)
 		{
-			// The wrapper adds 12 lines before the user script body
-			const int wrapper_line_offset = 12;
-
 			if (diagnostic.Location.IsInSource)
 			{
 				var span = diagnostic.Location.GetLineSpan();

@@ -33,8 +33,8 @@ namespace Rylogic.LDrawVisualiser
 			m_project_manager = new ScriptProjectManager(package.Options);
 			m_auto_refresh_check.IsChecked = package.Options.DefaultAutoRefresh;
 
-			// Ensure the scripts project exists and populate the list
-			m_project_manager.EnsureProjectExists();
+			// Ensure the scripts directory exists and populate the list
+			m_project_manager.EnsureDirectoryExists();
 			RefreshScriptsList();
 
 			// Select the last used script
@@ -64,6 +64,15 @@ namespace Rylogic.LDrawVisualiser
 					RunActiveScript();
 				});
 			}
+		}
+
+		/// <summary>Called when a script .csx file is saved in VS. Auto-compiles and runs if it's the active script.</summary>
+		internal void OnScriptSaved(string filepath)
+		{
+			if (m_active_script == null) return;
+			if (!string.Equals(filepath, m_active_script.FilePath, StringComparison.OrdinalIgnoreCase)) return;
+
+			RunActiveScript();
 		}
 
 		// -- Script management ----------------------------------------------------
@@ -226,11 +235,12 @@ namespace Rylogic.LDrawVisualiser
 				return;
 			}
 
-			// Read the script body from the file (the file may have been edited in VS editor)
+			// Read the script body and using directives from the .csx file
 			var script_body = m_project_manager.ReadScriptBody(m_active_script);
+			var extra_usings = m_project_manager.ReadUsingDirectives(m_active_script);
 
 			// Compile
-			var compiled = m_compiler.Compile(script_body);
+			var compiled = m_compiler.Compile(script_body, extra_usings);
 			UpdateErrorPanel();
 			if (!compiled)
 			{

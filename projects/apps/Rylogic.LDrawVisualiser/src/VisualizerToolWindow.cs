@@ -22,6 +22,12 @@ namespace Rylogic.LDrawVisualiser
 			m_control.OnEnterBreakMode();
 		}
 
+		/// <summary>Called by the package when a script file is saved</summary>
+		internal void OnScriptSaved(string filepath)
+		{
+			m_control.OnScriptSaved(filepath);
+		}
+
 		/// <summary>Provide the package to the control once sited</summary>
 		protected override void OnCreate()
 		{

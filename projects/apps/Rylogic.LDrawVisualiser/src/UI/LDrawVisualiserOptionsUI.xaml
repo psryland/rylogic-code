@@ -25,7 +25,10 @@
 			<TextBox x:Name="m_address_text" Width="250" HorizontalAlignment="Left" Margin="0,0,0,16"/>
 
 			<!-- Default Auto-Refresh -->
-			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break (default)" Margin="0,0,0,16"/>
+			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break (default)" Margin="0,0,0,8"/>
+
+			<!-- Auto Compile on Save -->
+			<CheckBox x:Name="m_auto_compile_on_save_check" Content="Auto compile and run on save (Ctrl+S)" Margin="0,0,0,16"/>
 
 			<!-- Additional Assemblies -->
 			<TextBlock Text="Additional Assemblies:" FontWeight="SemiBold" Margin="0,0,0,4"/>
@@ -41,19 +44,6 @@
 					<Button Content="Remove" Click="OnRemoveAssembly" Width="70"/>
 				</StackPanel>
 			</Grid>
-
-			<!-- Additional Namespaces -->
-			<TextBlock Text="Additional Namespaces:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-			<TextBlock Text="Extra 'using' namespaces for scripts (one per line)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
-			<TextBox x:Name="m_namespaces_text"
-				AcceptsReturn="True"
-				TextWrapping="Wrap"
-				FontFamily="Consolas"
-				FontSize="12"
-				MinHeight="80"
-				MaxHeight="200"
-				VerticalScrollBarVisibility="Auto"
-				Margin="0,0,0,16"/>
 		</StackPanel>
 	</ScrollViewer>
 </UserControl>
