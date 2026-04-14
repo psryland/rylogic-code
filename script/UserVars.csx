@@ -1,6 +1,6 @@
 #! "net10.0"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.0.2"
+#r "nuget: Rylogic.Core, 2.1.0"
 #nullable enable
 
 using System;

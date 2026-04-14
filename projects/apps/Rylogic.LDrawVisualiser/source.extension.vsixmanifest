@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0"
+	xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"
+	xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+
+	<!-- Metadata -->
+	<Metadata>
+		<Identity Id="B8E3A1F2-7D4C-4A5B-9E6F-1C2D3E4F5A6B"
+			Version="|%CurrentProject%;GetVersion|"
+			Language="en-US"
+			Publisher="Rylogic" />
+		<DisplayName>Rylogic LDraw Visualiser</DisplayName>
+		<Description xml:space="preserve">Debug visualiser that streams LDraw scene descriptions to the LDraw 3D viewer, using live debugger variable values.</Description>
+		<MoreInfo>https://www.rylogic.co.nz</MoreInfo>
+		<LicenseExpressions>MIT</LicenseExpressions>
+		<Tags>ldraw, visualiser, debugger, 3d, physics, visualizer</Tags>
+	</Metadata>
+
+	<!-- Installations -->
+	<Installation AllUsers="true"
+		InstalledByMsi="false"
+		SystemComponent="false"
+		Scope="ProductExtension">
+		<InstallationTarget Id="Microsoft.VisualStudio.Community"
+			Version="[17.0, 19.0)">
+			<ProductArchitecture>amd64</ProductArchitecture>
+		</InstallationTarget>
+		<InstallationTarget Id="Microsoft.VisualStudio.Enterprise"
+			Version="[17.0, 19.0)">
+			<ProductArchitecture>amd64</ProductArchitecture>
+		</InstallationTarget>
+		<InstallationTarget Id="Microsoft.VisualStudio.Pro"
+			Version="[17.0, 19.0)">
+			<ProductArchitecture>amd64</ProductArchitecture>
+		</InstallationTarget>
+	</Installation>
+
+	<!-- Dependencies -->
+	<Dependencies>
+		<Dependency Id="Microsoft.Framework.NDP"
+			DisplayName="Microsoft .NET Framework"
+			d:Source="Manual"
+			Version="[4.7.2,)" />
+	</Dependencies>
+
+	<!-- Prerequisites -->
+	<Prerequisites>
+		<Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor"
+			Version="[17.0,19.0)"
+			DisplayName="Visual Studio core editor" />
+	</Prerequisites>
+
+	<!-- Assets -->
+	<Assets>
+		<Asset Type="Microsoft.VisualStudio.VsPackage"
+			d:Source="Project"
+			d:ProjectName="%CurrentProject%"
+			Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
+	</Assets>
+
+</PackageManifest>
