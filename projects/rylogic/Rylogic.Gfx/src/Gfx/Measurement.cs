@@ -131,6 +131,7 @@ namespace Rylogic.Gfx
 			{
 				if (BegSpotColour == value) return;
 				field = value;
+				GfxHotSpot0 = null;
 				Window?.Invalidate();
 				NotifyPropertyChanged(nameof(BegSpotColour));
 			}
@@ -144,6 +145,7 @@ namespace Rylogic.Gfx
 			{
 				if (EndSpotColour == value) return;
 				field = value;
+				GfxHotSpot1 = null;
 				Window?.Invalidate();
 				NotifyPropertyChanged(nameof(EndSpotColour));
 			}
@@ -347,8 +349,8 @@ namespace Rylogic.Gfx
 				if (field == null)
 				{
 					var ldr = new LDraw.Builder();
-					ldr.Point("hotspot0", 0xFF00FFFF).pt(new v3(0, 0, 0)).size(20).style(LDraw.EPointStyle.Circle).ztest(false).zwrite(false);
-					field = new View3d.Object(ldr.ToString(), file: false, CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
+					ldr.Point("hotspot0", BegSpotColour).pt(new v3(0, 0, 0)).size(20).style(LDraw.EPointStyle.Circle).ztest(false).zwrite(false);
+					field = new View3d.Object(ldr.ToBinary().GetBuffer(), CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
 				}
 				return field;
 			}
@@ -368,8 +370,8 @@ namespace Rylogic.Gfx
 				if (field == null)
 				{
 					var ldr = new LDraw.Builder();
-					ldr.Point("hotspot0", 0xFF00FFFF).pt(new v3(0, 0, 0)).size(20).style(LDraw.EPointStyle.Circle).ztest(false).zwrite(false);
-					field = new View3d.Object(ldr.ToString(), file: false, CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
+					ldr.Point("hotspot1", EndSpotColour).pt(new v3(0, 0, 0)).size(20).style(LDraw.EPointStyle.Circle).ztest(false).zwrite(false);
+					field = new View3d.Object(ldr.ToBinary().GetBuffer(), CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
 				}
 				return field;
 			}
@@ -414,7 +416,7 @@ namespace Rylogic.Gfx
 							.Text("lbl_d").text($"{dist}").billboard().back_colour(0xFF000000).ztest(false).pos((pt0 + pt1) / 2);
 					grp.o2w(r2w);
 
-					field = new View3d.Object(ldr.ToString(), file: false, CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
+					field = new View3d.Object(ldr.ToBinary().GetBuffer(), CtxId) { Flags = View3d.ELdrFlags.HitTestExclude | View3d.ELdrFlags.SceneBoundsExclude | View3d.ELdrFlags.ShadowCastExclude };
 				}
 				return field;
 			}

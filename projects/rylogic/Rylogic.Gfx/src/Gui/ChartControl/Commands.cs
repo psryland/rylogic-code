@@ -464,9 +464,6 @@ namespace Rylogic.Gui.WPF
 			AllowElementDragging = !AllowElementDragging;
 		}
 
-		/// <summary>Display the measurement tool</summary>
-		public ICommand ShowMeasureToolUI => Scene.ShowMeasureToolUI;
-
 		/// <summary>Tape measure tool</summary>
 		public bool ShowTapeMeasure
 		{
@@ -748,6 +745,9 @@ namespace Rylogic.Gui.WPF
 
 		/// <inheritdoc/>
 		public ICommand ShowLightingUI => Scene.ShowLightingUI;
+
+		/// <inheritdoc/>
+		public ICommand ShowMeasureToolUI => Scene.ShowMeasureToolUI;
 
 		/// <inheritdoc/>
 		public ICommand ShowObjectManagerUI => Scene.ShowObjectManagerUI;

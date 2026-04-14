@@ -243,7 +243,7 @@
 										Style="{StaticResource ChromelessToggleButton}"
 										IsChecked="{Binding IsExpanded, Mode=OneWay}"
 										Visibility="{Binding HasChildren, Converter={conv:BoolToVisible}}"
-										Command="{Binding DataContext.ToggleExpand, RelativeSource={RelativeSource AncestorType=ListView}}"
+										Command="{Binding DataContext.ToggleExpand, ElementName=m_list}"
 										CommandParameter="{Binding}"
 										Padding="0"
 										Width="8"

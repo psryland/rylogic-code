@@ -777,5 +777,20 @@ namespace Rylogic.Gui.WPF
 				Chart.Invalidate();
 			}
 		}
+
+		/// <summary>A mouse to set the measurement tool start/end points</summary>
+		public class MouseOp_LButton_MeasureTool : MouseOp
+		{
+			// Don't actually need to do anything except allow the message to pass through
+			// to the ChartPanel (Scene). This mouse op prevents the default navigation behaviour
+			public MouseOp_LButton_MeasureTool(ChartControl chart)
+				: base(chart)
+			{}
+			public override void MouseUp(MouseButtonEventArgs e)
+			{
+				base.MouseUp(e);
+				Chart.Invalidate();
+			}
+		}
 	}
 }

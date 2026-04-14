@@ -1728,7 +1728,7 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrA(char const* ldr_scri
 		auto enc = is_file ? EEncoding::auto_detect : EEncoding::utf8;
 		return Dll().ObjectCreateLdr<char>(ldr_script, is_file, enc, context_id, includes);
 	}
-	CatchAndReport(View3D_ObjectCreateLdr, , nullptr);
+	CatchAndReport(View3D_ObjectCreateLdrA, , nullptr);
 }
 VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, view3d::Includes const* includes)
 {
@@ -1739,7 +1739,18 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_s
 		auto enc = is_file ? EEncoding::auto_detect : EEncoding::already_decoded;
 		return Dll().ObjectCreateLdr<wchar_t>(ldr_script, is_file, enc, context_id, includes);
 	}
-	CatchAndReport(View3D_ObjectCreateLdr, , nullptr);
+	CatchAndReport(View3D_ObjectCreateLdrW, , nullptr);
+}
+
+// Create an graphics object from binary ldr script
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrB(void const* binary, size_t size, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateLdr(byte_span(binary, size), context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateLdrB, , nullptr);
 }
 
 // Load a p3d model file as a view3d object
