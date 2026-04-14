@@ -38,7 +38,7 @@ namespace pr::rdr12
 		Renderer& rdr() { return m_rdr; }
 
 		// Report an error handled at the DLL API layer
-		void ReportAPIError(char const* func_name, view3d::Window wnd, std::exception const* ex);
+		void ReportAPIError(std::string_view func_name, view3d::Window wnd, std::exception const* ex);
 
 		// Create/Destroy windows
 		V3dWindow* WindowCreate(HWND hwnd, view3d::WindowOptions const& opts);
@@ -76,6 +76,9 @@ namespace pr::rdr12
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>
 		ldraw::LdrObject* ObjectCreateLdr(std::basic_string_view<Char> ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
+
+		// Load/Add ldr objects and return the first object from the binary script
+		ldraw::LdrObject* ObjectCreateLdr(std::span<std::byte const> binary, Guid const* context_id);
 
 		// Create an LdrObject from the p3d model
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, Guid const* context_id);

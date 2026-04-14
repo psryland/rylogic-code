@@ -13,6 +13,7 @@
 #include "pr/common/hash.h"
 #include "pr/common/scope.h"
 #include "pr/common/hresult.h"
+#include "pr/str/string_core.h"
 #include "pr/str/string.h"
 #include "pr/crypt/md5.h"
 #include "pr/crypt/sha1.h"

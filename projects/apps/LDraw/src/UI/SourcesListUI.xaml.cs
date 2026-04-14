@@ -28,6 +28,7 @@ namespace LDraw.UI
 			AddSource = Command.Create(this, AddSourceInternal);
 			OpenInEditor = Command.Create(this, OpenInEditorInternal, OpenInEditorAvailable);
 			OpenInExternalEditor = Command.Create(this, OpenInExternalEditorInternal, OpenInExternalEditorAvailable);
+			CopyPathToClipboard = Command.Create(this, CopyPathToClipboardInternal, CopyPathToClipboardAvailable);
 			DataContext = this;
 		}
 		public void Dispose()
@@ -98,6 +99,7 @@ namespace LDraw.UI
 				{
 					OpenInEditor.NotifyCanExecuteChanged();
 					OpenInExternalEditor.NotifyCanExecuteChanged();
+					CopyPathToClipboard.NotifyCanExecuteChanged();
 				}
 			}
 		} = new ListCollectionView(new List<SourceItemUI>());
@@ -180,6 +182,20 @@ namespace LDraw.UI
 			{
 				Log.Write(ELogLevel.Error, ex, "Failed to launch text editor");
 			}
+		}
+
+		/// <summary>Copy the selected source file path to the clipboard</summary>
+		public Command CopyPathToClipboard { get; }
+		private bool CopyPathToClipboardAvailable()
+		{
+			return
+				Sources.CurrentItem is SourceItemUI item &&
+				item.Source.FilePath.Length != 0;
+		}
+		private void CopyPathToClipboardInternal()
+		{
+			if (Sources.CurrentItem is SourceItemUI item && item.Source.FilePath.Length != 0)
+				Clipboard.SetText(item.Source.FilePath);
 		}
 
 		/// <summary>Show a copy cursor when dragging files over the sources list</summary>

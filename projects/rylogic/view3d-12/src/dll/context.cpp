@@ -14,6 +14,7 @@
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
 #include "view3d-12/src/ldraw/sources/source_file.h"
+#include "view3d-12/src/ldraw/sources/source_binary.h"
 #include "view3d-12/src/ldraw/sources/source_string.h"
 #include "view3d-12/src/dll/context.h"
 #include "view3d-12/src/dll/v3d_window.h"
@@ -39,11 +40,11 @@ namespace pr::rdr12
 	}
 
 	// Report an error handled at the DLL API layer
-	void Context::ReportAPIError(char const* func_name, view3d::Window wnd, std::exception const* ex)
+	void Context::ReportAPIError(std::string_view func_name, view3d::Window wnd, std::exception const* ex)
 	{
 		// Create the error message
-		auto msg = Fmt<pr::string<char>>("%s failed.\n%s", func_name, ex ? ex->what() : "Unknown exception occurred.");
-		if (msg.last() != '\n')
+		auto msg = std::format("{} failed.\n{}", func_name, ex ? ex->what() : "Unknown exception occurred.");
+		if (msg.back() != '\n')
 			msg.push_back('\n');
 
 		// If a window handle is provided, report via the window's event.
@@ -134,6 +135,14 @@ namespace pr::rdr12
 		else
 			m_sources.StopConnections();
 	}
+
+	// Note:
+	//  Any LdrObject* we return must not get deleted by a Reload() of its source
+	//  otherwise callers will hold a pointer to a deleted object. That's why these
+	//  sources are not added to 'm_sources'. The Reload() feature only works for
+	//  objects that are managed by Guid. However, external code can watch for the
+	//  Reload notification and manually reload objects, replacing the LdrObject*
+	//  pointers they hold.
 
 	// Create an object from geometry
 	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id)
@@ -232,12 +241,6 @@ namespace pr::rdr12
 		// Create an include handler
 		auto include_handler = IncludeHandler(includes);
 
-		// Any LdrObject* we return must not get deleted by a Reload() of its source.
-		// That's why these sources are not added to 'm_sources'. The Reload() feature
-		// only works for objects that are managed by Guid. However, external code can
-		// watch for the Reload notification and manually reload objects, replacing the
-		// LdrObject* pointers they hold.
-
 		// Load the ldr script
 		ldraw::ParseResult output;
 		if (file)
@@ -260,6 +263,25 @@ namespace pr::rdr12
 	}
 	template ldraw::LdrObject* Context::ObjectCreateLdr<wchar_t>(std::wstring_view ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
 	template ldraw::LdrObject* Context::ObjectCreateLdr<char>(std::string_view ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
+
+	// Load/Add ldr objects and return the first object from the binary script
+	ldraw::LdrObject* Context::ObjectCreateLdr(std::span<std::byte const> binary, Guid const* context_id)
+	{
+		// Get the context id for this script
+		auto id = context_id ? *context_id : GenerateGUID();
+
+		// Load the ldr script
+		ldraw::ParseResult output;
+		ldraw::SourceBinary src{ &id, binary };
+		output = src.Load(rdr());
+		if (output.m_objects.empty())
+			return nullptr;
+
+		// Return the first object.
+		auto& obj = output.m_objects.front();
+		m_sources.Add(obj);
+		return obj.get();
+	}
 
 	// Create an LdrObject from the p3d model
 	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, Guid const* context_id)
@@ -625,43 +647,47 @@ namespace pr::rdr12
 		//  - A file is removed => initiator = SourceRemoved, change_flags = ContentIdRemoved|ObjectsRemoved
 		//  - A source is refreshed (via "F5") => initiator = Reload, change_flags = ObjectsAdded|ObjectsRemoved
 		//  - A streaming source receives data => initiator = AppendData, change_flags = ObjectsAdded
+		// Note: these events (before and after) occur after the parsing is complete, so there is typically not long between them.
 
 		if (args.m_before)
 		{
-			// Remove items if the source is removed
-			if (args.m_initiator == ldraw::EStoreChangeInitiator::SourceRemoved)
+			// Remove items if:
+			// - the source was removed completely,
+			// - this is a reload,
+			// - this is a clear command processed during an update from a stream source
+			if (args.m_initiator == ldraw::EStoreChangeInitiator::SourceRemoved ||
+				args.m_initiator == ldraw::EStoreChangeInitiator::Reload ||
+				(args.m_initiator == ldraw::EStoreChangeInitiator::StreamData && AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ObjectsRemoved)))
 			{
+				auto keep_context_ids =
+					args.m_initiator == ldraw::EStoreChangeInitiator::Reload ||
+					args.m_initiator == ldraw::EStoreChangeInitiator::StreamData;
+
 				// Remove objects from any windows they might be in
 				for (auto& wnd : m_windows)
-					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, false);
+					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, keep_context_ids);
 			}
 		}
 		else // after
 		{
-			struct Ids { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; };
-			auto ReAdd = [](void* ctx, Guid const& id)
-			{
-				auto& x = *static_cast<Ids*>(ctx);
-				return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
-			};
-
-			// If this was a reload, remove the items just before re-adding the context ids
-			if (args.m_initiator == ldraw::EStoreChangeInitiator::Reload)
-			{
-				// Remove objects from any windows they might be in
-				for (auto& wnd : m_windows)
-					wnd->Remove({ &args.m_context_ids, ldraw::MatchContextIdInSpan }, true);
-			}
-
-			// Re-Add objects for the context ids after reload or appended data (from streams)
+			// Automatically add objects if:
+			// - this is a reload, and the source is now updated
+			// - this is an update from a stream and new objects were added
 			if (args.m_initiator == ldraw::EStoreChangeInitiator::Reload ||
-				args.m_initiator == ldraw::EStoreChangeInitiator::AppendData)
+				(args.m_initiator == ldraw::EStoreChangeInitiator::StreamData && AllSet(args.m_change_flags, ldraw::EStoreChangeFlags::ObjectsAdded)))
 			{
+				struct ReAddCtx { std::span<Guid const> ctx_ids; GuidSet const& wnd_ids; };
+				auto ReAdd = [](void* ctx, Guid const& id)
+				{
+					auto& x = *static_cast<ReAddCtx*>(ctx);
+					return x.wnd_ids.contains(id) && std::ranges::find(x.ctx_ids, id) != end(x.ctx_ids);
+				};
+
 				for (auto& wnd : m_windows)
 				{
 					// After reload, each window re-adds objects from the previous contexts
-					Ids ids = { args.m_context_ids, wnd->m_guids };
-					wnd->Add(m_sources.Sources(), { &ids, ReAdd });
+					auto ctx = ReAddCtx{ args.m_context_ids, wnd->m_guids };
+					wnd->Add(m_sources.Sources(), { &ctx, ReAdd });
 				}
 			}
 		}

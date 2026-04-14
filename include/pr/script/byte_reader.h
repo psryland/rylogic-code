@@ -169,7 +169,7 @@ namespace pr::script
 			throw std::runtime_error("not implemented");
 			//auto& src = m_pp;
 			//str::Resize(word, 0);
-			//return str::ExtractIdentifier(word, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "{identifier} expected");
+			//return str::ExtractIdentifier(word, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "{identifier} expected");
 		}
 		template <typename StrType> bool IdentifierS(StrType& word)
 		{
@@ -183,7 +183,7 @@ namespace pr::script
 			throw std::runtime_error("not implemented");
 			//auto& src = m_pp;
 			//str::Resize(word, 0);
-			//return str::ExtractIdentifier(word, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "identifier expected");
+			//return str::ExtractIdentifier(word, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "identifier expected");
 		}
 		template <typename StrType, typename... StrTypes> bool Identifiers(char sep, StrType& word, StrTypes&&... words)
 		{
@@ -191,7 +191,7 @@ namespace pr::script
 			throw std::runtime_error("not implemented");
 			//auto& src = m_pp;
 			//str::Resize(word, 0);
-			//if (!str::ExtractIdentifier(word, src, m_delim.c_str())) return ReportError(EResult::TokenNotFound, Location(), "identifier expected");
+			//if (!str::ExtractIdentifier(word, src, m_delim)) return ReportError(EResult::TokenNotFound, Location(), "identifier expected");
 			//if (*src == sep) ++src; else return ReportError(EResult::TokenNotFound, Location(), "identifier separator expected");
 			//return Identifiers(sep, std::forward<StrTypes>(words)...);
 		}
@@ -292,7 +292,7 @@ namespace pr::script
 		{
 			throw std::runtime_error("not implemented");
 			//auto& src = m_pp;
-			//return str::ExtractEnum(enum_, src, m_delim.c_str()) || ReportError(EResult::TokenNotFound, Location(), "enum member string name expected");
+			//return str::ExtractEnum(enum_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum member string name expected");
 		}
 		template <typename TEnum> bool EnumS(TEnum& enum_)
 		{

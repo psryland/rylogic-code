@@ -68,7 +68,7 @@ namespace pr
 				// It fits, w00t!
 				if (result < int(buf.m_count))
 				{
-					dst.append(buf.m_ptr, result);
+					dst.append(std::basic_string_view<TChar>{ buf.m_ptr, buf.m_ptr + result });
 					break;
 				}
 

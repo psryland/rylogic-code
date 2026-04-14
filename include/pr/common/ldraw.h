@@ -158,7 +158,6 @@ namespace pr::ldraw
 		inline static constexpr NameValue BinaryStream = {"*BinaryStream", 1110191492};
 		inline static constexpr NameValue Box = {"*Box", 1892056626};
 		inline static constexpr NameValue BoxList = {"*BoxList", 282663022};
-		inline static constexpr NameValue Camera = {"*Camera", 2663290958};
 		inline static constexpr NameValue CastShadow = {"*CastShadow", 3890809582};
 		inline static constexpr NameValue Chart = {"*Chart", 1487494731};
 		inline static constexpr NameValue Circle = {"*Circle", 673280137};

@@ -396,7 +396,7 @@ namespace pr::rdr12
 			if (res == nullptr)
 			{
 				// If not, create the resource and add it to the lookup
-				res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+				res = CreateResource(desc.m_tdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
@@ -406,7 +406,7 @@ namespace pr::rdr12
 		// Otherwise, just create the texture
 		else
 		{
-			res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+			res = CreateResource(desc.m_tdesc, desc.m_name);
 		}
 
 		// Allocate a new texture instance
@@ -459,12 +459,10 @@ namespace pr::rdr12
 			if (res == nullptr)
 			{
 				// Parse the embedded resource string: "@<module>:<res_type>:<res_name>"
-				HMODULE hmodule;
-				wstring32 res_type, res_name;
-				ParseEmbeddedResourceUri(uri, hmodule, res_type, res_name);
+				auto [hmodule, res_type, res_name] = ParseEmbeddedResourceUri(uri);
 
 				// Get the embedded resource
-				auto emb = resource::Read<uint8_t>(res_name.c_str(), res_type.c_str(), hmodule);
+				auto emb = resource::Read<uint8_t>(res_name, res_type, hmodule);
 				auto data = std::span{ emb.m_data, emb.m_len };
 
 				// Create the texture data
@@ -473,7 +471,7 @@ namespace pr::rdr12
 				desc.m_tdesc.Data = images;
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+				res = CreateResource(desc.m_tdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
@@ -506,7 +504,7 @@ namespace pr::rdr12
 				desc.m_tdesc.Data = images;
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+				res = CreateResource(desc.m_tdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
@@ -553,9 +551,7 @@ namespace pr::rdr12
 			if (res == nullptr)
 			{
 				// Parse the embedded resource string: "@<module>:<res_type>:<res_name>"
-				HMODULE hmodule;
-				wstring32 res_type, res_name;
-				ParseEmbeddedResourceUri(resource_path.wstring(), hmodule, res_type, res_name);
+				auto [hmodule, res_type, res_name] = ParseEmbeddedResourceUri(resource_path);
 
 				// The faces of the cube
 				pr::vector<std::span<uint8_t const>> source_images;
@@ -569,13 +565,13 @@ namespace pr::rdr12
 					{
 						res_name[idx + 0] = face[0];
 						res_name[idx + 1] = face[1];
-						auto emb = resource::Read<uint8_t>(res_name.c_str(), res_type.c_str(), hmodule);
+						auto emb = resource::Read<uint8_t>(res_name, res_type, hmodule);
 						source_images.push_back(std::span{ emb.m_data, emb.m_len });
 					}
 				}
 				else // Otherwise, the resource is a single file
 				{
-					auto emb = resource::Read<uint8_t>(res_name.c_str(), res_type.c_str(), hmodule);
+					auto emb = resource::Read<uint8_t>(res_name, res_type, hmodule);
 					source_images.push_back(std::span{ emb.m_data, emb.m_len });
 				}
 
@@ -585,7 +581,7 @@ namespace pr::rdr12
 				desc.m_tdesc.Data = images;
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+				res = CreateResource(desc.m_tdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
@@ -638,7 +634,7 @@ namespace pr::rdr12
 				desc.m_tdesc.Data = images;
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name.c_str());
+				res = CreateResource(desc.m_tdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());

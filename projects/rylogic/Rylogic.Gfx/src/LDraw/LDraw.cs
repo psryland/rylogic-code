@@ -32,7 +32,6 @@ namespace Rylogic.LDraw
 		BinaryStream = unchecked((int)1110191492),
 		Box = unchecked((int)1892056626),
 		BoxList = unchecked((int)282663022),
-		Camera = unchecked((int)2663290958),
 		CastShadow = unchecked((int)3890809582),
 		Chart = unchecked((int)1487494731),
 		Circle = unchecked((int)673280137),

@@ -317,13 +317,25 @@ namespace LDraw
 			var sources = new SourcesListUI(Model);
 			m_dc.Add(sources, EDockSite.Left).IsAutoHide = true;
 
+			// Add the scene manager (object manager) window, initially hidden
+			m_object_manager = new ObjectManagerUI();
+			m_dc.Add(m_object_manager, EDockSite.Right).IsAutoHide = true;
+
 			// Update our reference to the active content whenever it changes in the dock container
-			m_dc.ActiveContentChanged += delegate { ActiveContent = m_dc.ActiveDockable; };
+			m_dc.ActiveContentChanged += delegate
+			{
+				ActiveContent = m_dc.ActiveDockable;
+
+				// Update the object manager to show objects for the active scene
+				if (m_dc.ActiveDockable is SceneUI scene)
+					m_object_manager.SetScene(scene);
+			};
 			m_dc.LayoutChanged += SaveLayout;
 
 			// Add the menu for dock container windows
 			m_menu.Items.Insert(1, m_dc.WindowsMenu());
 		}
+		private ObjectManagerUI m_object_manager = null!;
 
 		/// <summary>Update the UI layout to match the current profile</summary>
 		private void LoadProfile()

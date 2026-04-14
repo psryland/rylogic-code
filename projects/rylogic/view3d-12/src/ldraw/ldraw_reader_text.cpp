@@ -67,11 +67,11 @@ namespace pr::rdr12::ldraw
 	void TextReader::PushSection()
 	{
 		auto& pp = as<script::Preprocessor>(m_pp);
-		script::EatDelimiters(pp, m_delim.c_str());
+		script::EatDelimiters(pp, m_delim);
 		if (*pp != '{')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section start expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return;
 		}
 
@@ -84,11 +84,11 @@ namespace pr::rdr12::ldraw
 	void TextReader::PopSection()
 	{
 		auto& pp = as<script::Preprocessor>(m_pp);
-		script::EatDelimiters(pp, m_delim.c_str());
+		script::EatDelimiters(pp, m_delim);
 		if (*pp != '}')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section end expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return;
 		}
 
@@ -103,7 +103,7 @@ namespace pr::rdr12::ldraw
 		auto& pp = as<script::Preprocessor>(m_pp);
 		m_nest_level += *pp == '{';
 		pp += *pp == '{';
-		script::EatDelimiters(pp, m_delim.c_str());
+		script::EatDelimiters(pp, m_delim);
 		return *pp == '}' || *pp == 0;
 	}
 
@@ -113,7 +113,7 @@ namespace pr::rdr12::ldraw
 		auto& pp = as<script::Preprocessor>(m_pp);
 		m_nest_level += *pp == '{';
 		pp += *pp == '{';
-		EatDelimiters(pp, m_delim.c_str());
+		script::EatDelimiters(pp, m_delim);
 		return *pp == 0;
 	}
 
@@ -135,23 +135,23 @@ namespace pr::rdr12::ldraw
 			
 		// Read the keyword
 		wstring32 keyword;
-		if (!str::ExtractIdentifier(keyword, pp, m_delim.c_str())) return false;
+		if (!str::ExtractIdentifier(keyword, pp, m_delim)) return false;
 
 		// Convert the keyword to an integer
 		m_keyword = Narrow(keyword);
-		kw = HashI(m_keyword.c_str());
+		kw = HashI(m_keyword);
 
 		// Handle an optional name and colour after the keyword
 		wstring32 tokens[2]; int tcount = 0;
-		script::EatDelimiters(pp, m_delim.c_str());
-		if (*pp != '{') tcount += str::ExtractToken(tokens[0], pp, m_delim.c_str()) ? 1 : 0;
-		script::EatDelimiters(pp, m_delim.c_str());
-		if (*pp != '{') tcount += str::ExtractToken(tokens[1], pp, m_delim.c_str()) ? 1 : 0;
-		script::EatDelimiters(pp, m_delim.c_str());
+		script::EatDelimiters(pp, m_delim);
+		if (*pp != '{') tcount += str::ExtractToken(tokens[0], pp, m_delim) ? 1 : 0;
+		script::EatDelimiters(pp, m_delim);
+		if (*pp != '{') tcount += str::ExtractToken(tokens[1], pp, m_delim) ? 1 : 0;
+		script::EatDelimiters(pp, m_delim);
 		if (*pp != '{')
 		{
 			ReportError(EParseError::UnexpectedToken, Loc(), "expected '{'");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		
@@ -184,10 +184,10 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		wstring32 str = {};
-		if (!str::ExtractIdentifier(str, pp, m_delim.c_str(), incl_dot))
+		if (!str::ExtractIdentifier(str, pp, m_delim, incl_dot))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "identifier expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		return Narrow(str);
@@ -201,10 +201,10 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		wstring32 str = {};
-		if (!str::ExtractString(str, pp, wchar_t(escape_char), nullptr, m_delim.c_str()))
+		if (!str::ExtractString(str, pp, wchar_t(escape_char), {}, m_delim))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "string expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		str::ProcessIndentedNewlines(str);
@@ -219,10 +219,10 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		int64_t int_ = {};
-		if (!str::ExtractInt(int_, radix, pp, m_delim.c_str()))
+		if (!str::ExtractInt(int_, radix, pp, m_delim))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "integer value expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		return int_;
@@ -236,22 +236,22 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		double real_ = {};
-		if (!str::ExtractReal(real_, pp, m_delim.c_str()))
+		if (!str::ExtractReal(real_, pp, m_delim))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "real value expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		if (std::isnan(real_))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "real value is Not-a-Number");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		if (!std::isfinite(real_))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "real value is not finite");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		return real_;
@@ -265,10 +265,10 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		string32 ident = {};
-		if (!str::ExtractIdentifier(ident, pp, m_delim.c_str()))
+		if (!str::ExtractIdentifier(ident, pp, m_delim))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "enum identifier value expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		return parse(ident);
@@ -282,10 +282,10 @@ namespace pr::rdr12::ldraw
 		pp += *pp == '{';
 
 		bool bool_ = {};
-		if (!str::ExtractBool(bool_, pp, m_delim.c_str()))
+		if (!str::ExtractBool(bool_, pp, m_delim))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "boolean value expected");
-			str::AdvanceToDelim(pp, m_delim.c_str());
+			str::AdvanceToDelim(pp, m_delim);
 			return {};
 		}
 		return bool_;

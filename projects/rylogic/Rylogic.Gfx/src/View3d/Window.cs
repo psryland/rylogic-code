@@ -348,7 +348,7 @@ namespace Rylogic.Gfx
 			/// <summary>Import/Export a settings string</summary>
 			public string Settings
 			{
-				get => View3D_WindowSettingsGetBStr(Handle) ?? string.Empty;
+				get => View3D_WindowSettingsGet(Handle);
 				set => View3D_WindowSettingsSet(Handle, value);
 			}
 

@@ -106,6 +106,20 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>Add mouse ops for specific tool windows</summary>
+		protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+		{
+			base.OnPreviewMouseDown(e);
+
+			// The measure tool is visible
+			if (Scene.MeasurementUI != null &&
+				(Scene.MeasurementUI.StartActive || Scene.MeasurementUI.EndActive) &&
+				e.ChangedButton == MouseButton.Left)
+			{
+				MouseOperations[MouseButton.Left] = new MouseOp_LButton_MeasureTool(this);
+			}
+		}
+
 		/// <summary>Mouse/key events on the chart</summary>
 		protected override void OnMouseDown(MouseButtonEventArgs args)
 		{

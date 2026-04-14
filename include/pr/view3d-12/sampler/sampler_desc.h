@@ -37,7 +37,7 @@ namespace pr::rdr12
 			,m_name()
 		{}
 
-		SamplerDesc& name(char const* name)
+		SamplerDesc& name(std::string_view name)
 		{
 			m_name = name;
 			return *this;

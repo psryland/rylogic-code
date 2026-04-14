@@ -122,6 +122,8 @@ namespace pr
 	template <>
 	struct char_traits<char> :char_traits_common<char>
 	{
+		static inline constexpr char zero = '\0';
+
 		// String literal helper
 		static constexpr char const* str(char const* str, wchar_t const*)
 		{
@@ -188,6 +190,8 @@ namespace pr
 	template <>
 	struct char_traits<wchar_t> :char_traits_common<wchar_t>
 	{
+		static inline constexpr wchar_t zero = '\0';
+
 		// String literal helper
 		static constexpr wchar_t const* str(char const*, wchar_t const* str)
 		{
@@ -349,7 +353,7 @@ namespace pr
 
 		static value_type const* c_str(string_type const& str) { static_assert(dependent_false<Char>, "String views cannot provide null terminated strings"); }
 		static value_type const* ptr(string_type const& str)   { return str.data(); }
-		static value_type* ptr(string_type& str)               { return str.data(); }
+		static value_type const* ptr(string_type& str)         { return str.data(); }
 		static size_t size(string_type const& str)             { return str.size(); }
 		static bool empty(string_type const& str)              { return str.empty(); }
 		static void resize(string_type& str, size_t n)         { if (n <= size(str)) str = str.substr(0, n); else throw std::runtime_error("String views can only be made smaller"); }
@@ -639,11 +643,13 @@ namespace pr
 		}
 
 		// Return a pointer to delimiters, either the ones provided or the default ones
-		template <CharType Char>
-		inline Char const* Delim(Char const* delim = nullptr)
+		template <CharType Char> inline std::basic_string_view<Char> Delim(std::basic_string_view<Char> delim = {})
 		{
-			static Char const default_delim[] = {' ', '\t', '\n', '\r', 0};
-			return delim ? delim : default_delim;
+			if (!delim.empty()) return delim;
+			if constexpr (std::is_same_v<Char, char>)
+				return " \t\n\r";
+			else if constexpr (std::is_same_v<Char, wchar_t>)
+				return L" \t\n\r";
 		}
 
 		#pragma endregion
@@ -866,9 +872,9 @@ namespace pr
 
 		#pragma region FindChar
 
-		// Return a pointer to the first occurrence of 'ch' in a string
+		// Return a pointer to the first occurrence of 'ch' in a string, or a pointer to '\0' if not found
 		template <StringType Str1, CharType Char2, CharType Char1 = typename string_traits<Str1>::value_type>
-		inline Char1* FindChar(Str1&& str, Char2 ch)
+		inline Char1 const* FindChar(Str1&& str, Char2 ch)
 		{
 			if constexpr (string_traits<Str1>::null_terminated)
 			{
@@ -879,15 +885,15 @@ namespace pr
 			else
 			{
 				auto ptr = string_traits<Str1>::ptr(str);
-				auto ptr_end = ptr + string_traits<Str1>::size(str);
-				for (; ptr != ptr_end && static_cast<int>(*ptr) != static_cast<int>(ch); ++ptr) {}
-				return ptr;
+				auto end = ptr + string_traits<Str1>::size(str);
+				for (; ptr != end && static_cast<int>(*ptr) != static_cast<int>(ch); ++ptr) {}
+				return ptr != end ? ptr : &string_traits<Str1>::zero;
 			}
 		}
 
 		// Return a pointer to the first occurrence of 'ch' in a string or the string null terminator or the 'length' character
 		template <StringType Str1, CharType Char2, CharType Char1 = typename string_traits<Str1>::value_type>
-		inline Char1* FindChar(Str1&& str, Char2 ch, size_t length)
+		inline Char1 const* FindChar(Str1&& str, Char2 ch, size_t length)
 		{
 			if constexpr (string_traits<Str1>::null_terminated)
 			{
@@ -898,9 +904,9 @@ namespace pr
 			else
 			{
 				auto ptr = string_traits<Str1>::ptr(str);
-				auto ptr_end = ptr + string_traits<Str1>::size(str, length);
-				for (; ptr != ptr_end && static_cast<int>(*ptr) != static_cast<int>(ch); ++ptr) {}
-				return ptr;
+				auto end = ptr + string_traits<Str1>::size(str, length);
+				for (; ptr != end && static_cast<int>(*ptr) != static_cast<int>(ch); ++ptr) {}
+				return ptr != end ? ptr : &string_traits<Str1>::zero;
 			}
 		}
 

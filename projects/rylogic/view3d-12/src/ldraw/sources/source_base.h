@@ -9,7 +9,7 @@
 
 namespace pr::rdr12::ldraw
 {
-	// Callback after data has been added to the store
+	// Callback before/after data has been added to the store. Sig: AddCompletedCB(context_id, before)
 	using AddCompleteCB = std::function<void(Guid const&, bool)>;
 
 	// The event that triggered the store change
@@ -26,8 +26,8 @@ namespace pr::rdr12::ldraw
 		// Existing sources refreshed their data
 		Reload,
 
-		// More data for an existing source was added (typically from streaming sources)
-		AppendData,
+		// More data from a streaming source has arrived
+		StreamData,
 
 		// Objects were removed from a context, but the context itself was not deleted.
 		// The objects will have been removed from any windows before the store change event.

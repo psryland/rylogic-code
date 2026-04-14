@@ -8,7 +8,7 @@
 namespace pr::rdr12::ldraw
 {
 	// Compile time hash
-	inline constexpr int HashI(char const* str)
+	inline constexpr int HashI(std::string_view str)
 	{
 		constexpr uint32_t FNV_offset_basis32 = 2166136261U;
 		constexpr uint32_t FNV_prime32 = 16777619U;
@@ -26,9 +26,11 @@ namespace pr::rdr12::ldraw
 		{
 			return Mul32(h ^ ch, FNV_prime32);
 		};
-		constexpr auto HashI32CT = [](char const* str, uint32_t h) -> uint32_t
+		constexpr auto HashI32CT = [](std::string_view str, uint32_t h) -> uint32_t
 		{
-			for (; *str != 0; ++str) h = Hash32CT(static_cast<uint32_t>(Lower(*str)), h);
+			auto b = str.data();
+			auto e = b + str.size();
+			for (; b != e; ++b) h = Hash32CT(static_cast<uint32_t>(Lower(*b)), h);
 			return h;
 		};
 		return static_cast<int>(HashI32CT(str, FNV_offset_basis32));
@@ -59,7 +61,6 @@ namespace pr::rdr12::ldraw
 		x(BinaryStream             )\
 		x(Box                      )\
 		x(BoxList                  )\
-		x(Camera                   )\
 		x(CastShadow               )\
 		x(Chart                    )\
 		x(Circle                   )\

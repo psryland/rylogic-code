@@ -92,7 +92,7 @@ VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_e
 	}
 	catch (std::exception const& e)
 	{
-		global_error_cb(FmtS("Failed to initialise View3D.\nReason: %s\n", e.what()), "", 0, 0);
+		global_error_cb(std::format("Failed to initialise View3D.\nReason: {}\n", e.what()).c_str(), "", 0, 0);
 		return nullptr;
 	}
 	catch (...)
@@ -161,7 +161,7 @@ VIEW3D_API GUID __stdcall View3D_ContextIdFromFilepath(char const* filepath)
 	try
 	{
 		DllLockGuard;
-		return rdr12::ldraw::ContextIdFromFilepath(filepath);
+		return rdr12::ldraw::ContextIdFromFilepath(filepath ? filepath : "");
 	}
 	CatchAndReport(View3D_ContextIdFromFilepath,,GuidZero);
 }
@@ -175,7 +175,7 @@ static PathResolver GetIncludes(view3d::Includes const* includes)
 		return {};
 
 	PathResolver inc;
-	if (includes->m_include_paths != nullptr)
+	if (includes->m_include_paths)
 		inc.SearchPathList(includes->m_include_paths);
 
 	if (includes->m_module_count != 0)
@@ -194,7 +194,7 @@ VIEW3D_API GUID __stdcall View3D_LoadScriptFromString(char const* ldr_script, GU
 			? rdr12::ldraw::AddCompleteCB(on_add_cb)
 			: static_cast<rdr12::ldraw::AddCompleteCB>(nullptr);
 
-		return Dll().LoadScriptString(std::string_view(ldr_script), EEncoding::utf8, context_id, GetIncludes(includes), on_add);
+		return Dll().LoadScriptString(std::string_view(ldr_script ? ldr_script : ""), EEncoding::utf8, context_id, GetIncludes(includes), on_add);
 	}
 	CatchAndReport(View3D_LoadScriptFromString, (view3d::Window)nullptr, GuidZero);
 }
@@ -207,7 +207,7 @@ VIEW3D_API GUID __stdcall View3D_LoadScriptFromFile(char const* ldr_file, GUID c
 			? rdr12::ldraw::AddCompleteCB(on_add_cb)
 			: static_cast<rdr12::ldraw::AddCompleteCB>(nullptr);
 
-		return Dll().LoadScriptFile(std::filesystem::path(ldr_file), EEncoding::auto_detect, context_id, GetIncludes(includes), on_add);
+		return Dll().LoadScriptFile(std::filesystem::path(ldr_file ? ldr_file : ""), EEncoding::auto_detect, context_id, GetIncludes(includes), on_add);
 	}
 	CatchAndReport(View3D_LoadScriptFromFile, (view3d::Window)nullptr, GuidZero);
 }
@@ -268,23 +268,13 @@ VIEW3D_API view3d::SourceInfo __stdcall View3D_SourceInfo(GUID const& context_id
 }
 
 // Get/Set the name of a source
-VIEW3D_API BSTR __stdcall View3D_SourceNameGetBStr(GUID const& context_id)
+VIEW3D_API view3d::StrView __stdcall View3D_SourceNameGet(GUID const& context_id)
 {
 	try
 	{
 		DllLockGuard;
-		auto const& src_name = Dll().SourceName(context_id);
-		auto name = Widen(src_name);
-		return ::SysAllocStringLen(name.c_str(), UINT(name.size()));
-	}
-	CatchAndReport(View3D_SourceNameGetBStr, , {});
-}
-VIEW3D_API char const* __stdcall View3D_SourceNameGet(GUID const& context_id)
-{
-	try
-	{
-		DllLockGuard;
-		return Dll().SourceName(context_id).c_str();
+		auto const& name = Dll().SourceName(context_id);
+		return { name.data(), name.size() };
 	}
 	CatchAndReport(View3D_SourceNameGet, , {});
 }
@@ -293,7 +283,7 @@ VIEW3D_API void __stdcall View3D_SourceNameSet(GUID const& context_id, char cons
 	try
 	{
 		DllLockGuard;
-		Dll().SourceName(context_id, name);
+		Dll().SourceName(context_id, name ? name : "");
 	}
 	CatchAndReport(View3D_SourceNameSet,,);
 }
@@ -424,31 +414,22 @@ VIEW3D_API void __stdcall View3D_WindowErrorCBSet(view3d::Window window, view3d:
 }
 
 // Get/Set the window settings (as ldr script string)
-VIEW3D_API BSTR __stdcall View3D_WindowSettingsGetBStr(pr::view3d::Window window)
+VIEW3D_API view3d::StrView __stdcall View3D_WindowSettingsGet(view3d::Window window)
 {
 	try
 	{
 		Validate(window);
-		auto settings = Widen(window->Settings());
-		return ::SysAllocStringLen(settings.c_str(), UINT(settings.size()));
+		auto settings = window->Settings();
+		return { settings.data(), settings.size() };
 	}
-	CatchAndReport(View3D_WindowSettingsGetBStr, , {});
-}
-VIEW3D_API char const* __stdcall View3D_WindowSettingsGet(view3d::Window window)
-{
-	try
-	{
-		Validate(window);
-		return window->Settings();
-	}
-	CatchAndReport(View3D_WindowSettingsGet, window, "");
+	CatchAndReport(View3D_WindowSettingsGet, window, {});
 }
 VIEW3D_API void __stdcall View3D_WindowSettingsSet(view3d::Window window, char const* settings)
 {
 	try
 	{
 		Validate(window);
-		window->Settings(settings);
+		window->Settings(settings ? settings : "");
 	}
 	CatchAndReport(View3D_WindowSettingsSet, window,);
 }
@@ -1747,7 +1728,7 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrA(char const* ldr_scri
 		auto enc = is_file ? EEncoding::auto_detect : EEncoding::utf8;
 		return Dll().ObjectCreateLdr<char>(ldr_script, is_file, enc, context_id, includes);
 	}
-	CatchAndReport(View3D_ObjectCreateLdr, , nullptr);
+	CatchAndReport(View3D_ObjectCreateLdrA, , nullptr);
 }
 VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, view3d::Includes const* includes)
 {
@@ -1758,7 +1739,18 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_s
 		auto enc = is_file ? EEncoding::auto_detect : EEncoding::already_decoded;
 		return Dll().ObjectCreateLdr<wchar_t>(ldr_script, is_file, enc, context_id, includes);
 	}
-	CatchAndReport(View3D_ObjectCreateLdr, , nullptr);
+	CatchAndReport(View3D_ObjectCreateLdrW, , nullptr);
+}
+
+// Create an graphics object from binary ldr script
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrB(void const* binary, size_t size, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateLdr(byte_span(binary, size), context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateLdrB, , nullptr);
 }
 
 // Load a p3d model file as a view3d object
@@ -1943,28 +1935,16 @@ VIEW3D_API void __stdcall View3D_ObjectEnumChildren(view3d::Object object, view3
 }
 
 // Get/Set the name of 'object'
-VIEW3D_API BSTR __stdcall View3D_ObjectNameGetBStr(view3d::Object object)
+VIEW3D_API StrView __stdcall View3D_ObjectNameGet(view3d::Object object)
 {
 	try
 	{
 		Validate(object);
 
 		DllLockGuard;
-		auto name = Widen(object->m_name);
-		return ::SysAllocStringLen(name.c_str(), UINT(name.size()));
+		return { object->m_name.data(), object->m_name.size() };
 	}
-	CatchAndReport(View3D_ObjectNameGetBStr, , BSTR());
-}
-VIEW3D_API char const* __stdcall View3D_ObjectNameGet(view3d::Object object)
-{
-	try
-	{
-		Validate(object);
-
-		DllLockGuard;
-		return object->m_name.c_str();
-	}
-	CatchAndReport(View3D_ObjectNameGet, , nullptr);
+	CatchAndReport(View3D_ObjectNameGet, , {});
 }
 VIEW3D_API void __stdcall View3D_ObjectNameSet(view3d::Object object, char const* name)
 {
@@ -1973,34 +1953,23 @@ VIEW3D_API void __stdcall View3D_ObjectNameSet(view3d::Object object, char const
 		Validate(object);
 
 		DllLockGuard;
-		object->m_name.assign(name);
+		object->m_name.assign(std::string_view{ name });
 	}
 	CatchAndReport(View3D_ObjectNameGet, ,);
 }
 
 // Get the type of 'object'
-VIEW3D_API BSTR __stdcall View3D_ObjectTypeGetBStr(view3d::Object object)
+VIEW3D_API StrView __stdcall View3D_ObjectTypeGet(view3d::Object object)
 {
 	try
 	{
 		Validate(object);
 
 		DllLockGuard;
-		auto name = pr::Enum<rdr12::ldraw::ELdrObject>::ToStringW(object->m_type);
-		return ::SysAllocStringLen(name, UINT(wcslen(name)));
+		std::string_view ty(Enum<rdr12::ldraw::ELdrObject>::ToStringA(object->m_type));
+		return { ty.data(), ty.size() };
 	}
-	CatchAndReport(View3D_ObjectTypeGetBStr, , BSTR());
-}
-VIEW3D_API char const*  __stdcall View3D_ObjectTypeGet(view3d::Object object)
-{
-	try
-	{
-		Validate(object);
-
-		DllLockGuard;
-		return Enum<rdr12::ldraw::ELdrObject>::ToStringA(object->m_type);
-	}
-	CatchAndReport(View3D_ObjectTypeGet, , nullptr);
+	CatchAndReport(View3D_ObjectTypeGet, , {});
 }
 
 // Get/Set the current or base colour of an object (the first object to match 'name') (See LdrObject::Apply)
@@ -2372,7 +2341,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height,
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
-			.name(options.m_dbg_name);
+			.name(options.m_dbg_name ? options.m_dbg_name : "");
 
 		DllLockGuard;
 		ResourceFactory factory(Dll().m_rdr);
@@ -2413,11 +2382,11 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreateFromUri(char const* res
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
-			.name(options.m_dbg_name);
+			.name(options.m_dbg_name ? options.m_dbg_name : "");
 
 		DllLockGuard;
 		ResourceFactory factory(Dll().m_rdr);
-		auto tex = factory.CreateTexture2D(resource, tdesc);
+		auto tex = factory.CreateTexture2D(std::filesystem::path(resource ? resource : ""), tdesc);
 		tex->m_t2s = To<m4x4>(options.m_t2s);
 		tex->m_t2s =
 			IsAffine(tex->m_t2s) ? tex->m_t2s :
@@ -2438,7 +2407,7 @@ VIEW3D_API view3d::CubeMap __stdcall View3D_CubeMapCreateFromUri(char const* res
 		DllLockGuard;
 		ResourceFactory factory(Dll().m_rdr);
 		auto tdesc = TextureDesc(rdr12::AutoId, ResDesc::TexCube({}));
-		auto tex = factory.CreateTextureCube(resource, tdesc);
+		auto tex = factory.CreateTextureCube(std::filesystem::path(resource ? resource : ""), tdesc);
 
 		// Set the cube map to world transform
 		if (m4x4 cube2w; Any((cube2w = To<m4x4>(options.m_cube2w)) != m4x4::Zero()))
@@ -2460,7 +2429,7 @@ VIEW3D_API view3d::Sampler __stdcall View3D_SamplerCreate(view3d::SamplerOptions
 	{
 		auto desc = SamDesc(options.m_addrU, options.m_addrV, options.m_addrW, options.m_filter);
 		rdr12::SamplerDesc sdesc = rdr12::SamplerDesc(AutoId, desc)
-			.name(options.m_dbg_name);
+			.name(options.m_dbg_name ? options.m_dbg_name : "");
 
 		DllLockGuard;
 		ResourceFactory factory(Dll().m_rdr);
@@ -2990,7 +2959,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateDx9RenderTarget(HWND hwnd, UIN
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
-			.name(options.m_dbg_name);
+			.name(options.m_dbg_name ? options.m_dbg_name : "");
 
 		DllLockGuard;
 
@@ -3027,7 +2996,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateTextureFromSharedResource(IUnk
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
-			.name(options.m_dbg_name);
+			.name(options.m_dbg_name ? options.m_dbg_name : "");
 
 		DllLockGuard;
 		
@@ -3322,7 +3291,7 @@ VIEW3D_API view3d::Mat4x4 __stdcall View3D_ParseLdrTransform(char const* ldr_scr
 {
 	try
 	{
-		mem_istream<char> src(ldr_script);
+		mem_istream<char> src(std::string_view(ldr_script ? ldr_script : ""));
 		rdr12::ldraw::TextReader reader(src, {});
 		
 		auto o2w = m4x4::Identity();

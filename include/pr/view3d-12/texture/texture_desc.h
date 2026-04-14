@@ -32,7 +32,7 @@ namespace pr::rdr12
 			,m_name()
 		{}
 
-		TextureDesc& name(char const* name)
+		TextureDesc& name(std::string_view name)
 		{
 			m_name = name;
 			return *this;

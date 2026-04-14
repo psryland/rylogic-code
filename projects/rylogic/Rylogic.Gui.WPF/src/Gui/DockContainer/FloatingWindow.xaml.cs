@@ -67,16 +67,9 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 				/// <summary>Handler for when the active content changes</summary>
 				void HandleActiveContentChanged(object? sender, ActiveContentChangedEventArgs e)
 				{
-					// If the new active content is within this floating window, update the window title
+					// Update the title whenever active content changes within this floating window
 					if (ActiveContentManager.ActivePane?.RootBranch == Root)
-					{
-						var dc = e.ContentNew?.DockControl;
-						var win = GetWindow(DockContainer);
-						var window_title = win?.Title ?? string.Empty;
-						var content_title = dc?.TabText ?? string.Empty;
-						Title = $"{window_title}:{content_title}";
-						Icon = dc?.TabIcon ?? win?.Icon;
-					}
+						UpdateTitle();
 				}
 			}
 		} = null!;
@@ -116,15 +109,7 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 					case TreeChangedEventArgs.EAction.Added:
 					case TreeChangedEventArgs.EAction.Removed:
 						{
-							// This should be done by the mover, not here...
-							//// Grab 'active' when the window gets its first pane
-							//if (Root.AllContent.CountAtMost(2) == 1)
-							//	ActiveContentManager.ActivePane = Root.AllPanes.First();
-
-							// Don't bother with auto-closing the window when there is no content.
-							// It's kinda handy to be able to have empty windows around for docking things into.
-							// If you change your mind, don't close from here. The tree can become empty transiently.
-
+							UpdateTitle();
 							DockContainer.NotifyLayoutChanged();
 							break;
 						}
@@ -139,6 +124,21 @@ namespace Rylogic.Gui.WPF.DockContainerDetail
 
 		/// <summary>Enumerate the dockables in this sub-tree (breadth first, order = order of EDockSite)</summary>
 		public IEnumerable<DockControl> AllContent => Root.AllContent;
+
+		/// <summary>Update the floating window title to reflect its content</summary>
+		private void UpdateTitle()
+		{
+			var app_name = GetWindow(DockContainer)?.Title ?? string.Empty;
+			var centre_content = Root.Descendants[EDockSite.Centre]?.Item switch
+			{
+				DockPane pane => pane.VisibleContent?.TabText,
+				Branch branch => branch.AllContent.FirstOrDefault()?.TabText,
+				_ => null,
+			};
+
+			Title = centre_content != null ? $"{app_name}: {centre_content}" : app_name;
+			Icon = AllContent.FirstOrDefault()?.TabIcon ?? GetWindow(DockContainer)?.Icon;
+		}
 
 		/// <summary>The current screen location and size of this window</summary>
 		public Rect Bounds

@@ -282,12 +282,14 @@ old:
 
 	<!-- pr::string -->
 	<Type Name="pr::string&lt;char,*,*,*&gt;">
-		<DisplayString>[{m_count-1}] {m_ptr,s}</DisplayString>
-		<StringView>m_ptr,su</StringView>
+		<DisplayString Condition="m_count == 0">empty</DisplayString>
+		<DisplayString>[{m_count}] {m_ptr,[m_count]s}</DisplayString>
+		<StringView>m_ptr,[m_count]s</StringView>
 	</Type>
 	<Type Name="pr::string&lt;wchar_t,*,*,*&gt;">
-		<DisplayString>[{m_count-1}] {m_ptr,su}</DisplayString>
-		<StringView>m_ptr,su</StringView>
+		<DisplayString Condition="m_count == 0">empty</DisplayString>
+		<DisplayString>[{m_count}] {m_ptr,[m_count]su}</DisplayString>
+		<StringView>m_ptr,[m_count]su</StringView>
 	</Type>
 
 	<!-- Geometry -->

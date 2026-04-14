@@ -132,6 +132,16 @@ namespace pr
 		return s_cast<int>(sizeof(T));
 	}
 
+	// Convert {void const* + size_t} to a span of std::byte
+	constexpr std::span<std::byte const> byte_span(void const* data, size_t size)
+	{
+		return std::span<std::byte const>(byte_ptr(data), size);
+	}
+	constexpr std::span<std::byte> byte_span(void* data, size_t size)
+	{
+		return std::span<std::byte>(byte_ptr(data), size);
+	}
+
 	// Convert a span of 'T' to a span of bytes
 	template <typename T> inline std::span<std::byte const> byte_span(std::span<T const> x)
 	{

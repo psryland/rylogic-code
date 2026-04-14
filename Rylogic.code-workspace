@@ -5,18 +5,20 @@
 			"path": "./.vscode"
 		},
 		{
-			"name": "HowTos",
-			"path": "C:/Users/paulryland/OneDrive/HowTos"
-		},
-		{
 			"name": "Rylogic",
 			"path": "."
 		},
 		{
+			"name": "HowTos",
+			"path": "C:/Users/paulryland/OneDrive/HowTos"
+		},
+		{
 			"name": "Dump",
 			"path": "../../Dump"
-		}
+		}	
 	],
 	"settings": {
+		"dotnet.server.useOmnisharp": true,
+		"dotnet.defaultSolution": "E:\\Rylogic\\Code\\Rylogic.sln"
 	}
 }

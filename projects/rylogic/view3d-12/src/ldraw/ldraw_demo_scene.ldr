@@ -1183,24 +1183,6 @@
 	*o2w {*scale{0.5} *euler{-90 0 0 } *pos{15 1.1 3}}
 }
 
-// A camera section must be at the top level in the script.
-// Camera descriptions raise an event immediately after being parsed.
-// The application handles this event to set the camera position.
-*Camera
-{
-	// Note: order is important. Camera properties are set in the order declared
-	*o2w {*pos{0 30 35}}      // Camera position/orientation within the scene
-	*LookAt {0 0 0}           // Optional. Point the camera at {x,y,z} from where it currently is. Sets the focus distance
-	*Align {0 1 0}            // Optional. Lock the camera's up axis to  {x,y,z}
-	//*Aspect {1.0}           // Optional. Aspect ratio (w/h). FovY is unchanged, FovX is changed. Default is 1
-	//*FovX {45}              // Optional. X field of view (deg). Y field of view is determined by aspect ratio
-	//*FovY {45}              // Optional. Y field of view (deg). X field of view is determined by aspect ratio (default 45 deg)
-	//*Fov {45 45}            // Optional. {Horizontal,Vertical} field of view (deg). Implies aspect ratio.
-	//*Near {0.01}            // Optional. Near clip plane distance
-	//*Far {100.0}            // Optional. Far clip plane distance
-	//*Orthographic           // Optional. Use an orthographic projection rather than perspective
-}
-
 // Light sources can be top level objects, children of other objects, or contain child objects.
 // In some ways they are like a *Group object, they have no geometry of their own but can contain
 // objects with geometry.
@@ -1215,9 +1197,6 @@
 	*CastShadow {10}          // Optional. range. Shadows are cast from this light source out to this range
 	*o2w {*pos{5 5 5}}        // Position/orientation of the light. Directional lights shine down -z
 }
-
-// A global setting to draw everything in wireframe mode
-//*Wireframe {}
 
 // Commands are defined in batches. Each batch is a set of commands that are executed in order.
 *Commands

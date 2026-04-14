@@ -132,8 +132,8 @@ namespace pr::rdr12
 		MultiCast<view3d::HitTestAsyncCB, true> OnHitTestAsyncResults;
 
 		// Get/Set the settings
-		char const* Settings() const;
-		void Settings(char const* settings);
+		std::string_view Settings() const;
+		void Settings(std::string_view settings);
 
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;

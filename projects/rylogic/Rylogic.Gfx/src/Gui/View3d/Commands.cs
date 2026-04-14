@@ -464,10 +464,10 @@ namespace Rylogic.Gui.WPF
 		public ICommand ShowAnimationUI { get; private set; } = null!;
 		private void ShowAnimationUIInternal()
 		{
-			if (m_animation_ui == null)
+			if (AnimationUI == null)
 			{
 				var owner = System.Windows.Window.GetWindow(this) ?? throw new System.Exception("No owner");
-				m_animation_ui = new Window
+				AnimationUI = new Window
 				{
 					WindowStyle = WindowStyle.ToolWindow,
 					WindowStartupLocation = WindowStartupLocation.Manual,
@@ -478,74 +478,89 @@ namespace Rylogic.Gui.WPF
 					ResizeMode = ResizeMode.CanResizeWithGrip,
 					ShowInTaskbar = false,
 				};
-				m_animation_ui.Content = new View3dAnimControls
+				AnimationUI.Content = new View3dAnimControls
 				{
 					ViewWindow = Window
 				};
-				m_animation_ui.Loaded += delegate
+				AnimationUI.Loaded += delegate
 				{
-					var bounds = m_animation_ui.Bounds();
-					var owner_bounds = m_animation_ui.Owner.Bounds();
-					m_animation_ui.Left = owner_bounds.Left + (owner_bounds.Width - bounds.Width) / 2;
-					m_animation_ui.Top = owner_bounds.Bottom - bounds.Height / 2;
+					var bounds = AnimationUI.Bounds();
+					var owner_bounds = AnimationUI.Owner.Bounds();
+					AnimationUI.Left = owner_bounds.Left + (owner_bounds.Width - bounds.Width) / 2;
+					AnimationUI.Top = owner_bounds.Bottom - bounds.Height / 2;
 				};
-				m_animation_ui.Closed += delegate { m_animation_ui = null; };
-				new PinData(m_animation_ui, EPin.BottomCentre, true);
-				m_animation_ui.Show();
+				AnimationUI.Closed += delegate { AnimationUI = null; };
+				new PinData(AnimationUI, EPin.BottomCentre, true);
+				AnimationUI.Show();
 			}
-			m_animation_ui.Focus();
+			AnimationUI.Focus();
 		}
-		private Window? m_animation_ui;
+		public Window? AnimationUI { get; private set; }
 
 		/// <inheritdoc/>
 		public ICommand ShowLightingUI { get; private set; } = null!;
 		private void ShowLightingUIInternal()
 		{
-			if (m_lighting_ui == null)
+			if (LightingUI == null)
 			{
 				var light = new View3d.Light(Window.LightProperties);
 				light.PropertyChanged += (s, a) =>
 				{
-					if (m_lighting_ui == null) return;
-					Window.LightProperties = m_lighting_ui.Light;
+					if (LightingUI == null) return;
+					Window.LightProperties = LightingUI.Light;
 					Invalidate();
 				};
 
-				m_lighting_ui = new View3dLightingUI(System.Windows.Window.GetWindow(this), Window);
-				m_lighting_ui.Closed += delegate { m_lighting_ui = null; };
-				m_lighting_ui.Light = light;
-				m_lighting_ui.Show();
+				LightingUI = new View3dLightingUI(System.Windows.Window.GetWindow(this), Window);
+				LightingUI.Closed += delegate { LightingUI = null; };
+				LightingUI.Light = light;
+				LightingUI.Show();
 			}
-			m_lighting_ui.Focus();
+			LightingUI.Focus();
 		}
-		private View3dLightingUI? m_lighting_ui;
+		public View3dLightingUI? LightingUI { get; private set; }
 
 		/// <inheritdoc/>
 		public ICommand ShowMeasureToolUI { get; private set; } = null!;
 		private void ShowMeasureToolInternal()
 		{
-			if (m_measurement_ui == null)
+			if (MeasurementUI == null)
 			{
-				m_measurement_ui = new View3dMeasurementUI(this);
-				m_measurement_ui.Closed += (s, a) => { m_measurement_ui = null; Invalidate(); };
-				m_measurement_ui.Show();
+				MeasurementUI = new View3dMeasurementUI(this);
+				MeasurementUI.Closed += (s, a) => { MeasurementUI = null; Invalidate(); };
+				MeasurementUI.Show();
 			}
-			m_measurement_ui.Focus();
+			MeasurementUI.Focus();
 		}
-		private View3dMeasurementUI? m_measurement_ui;
+		public View3dMeasurementUI? MeasurementUI { get; private set; }
 
 		/// <inheritdoc/>
 		public ICommand ShowObjectManagerUI { get; private set; } = null!;
 		private void ShowObjectManagerInternal()
 		{
-			if (m_object_manager_ui == null)
+			if (ObjectManagerUI == null)
 			{
-				m_object_manager_ui = new View3dObjectManagerUI(System.Windows.Window.GetWindow(this), Window);
-				m_object_manager_ui.Closed += delegate { m_object_manager_ui = null; };
-				m_object_manager_ui.Show();
+				var ui = new View3dObjectManagerUI(Window);
+				var window = new Window
+				{
+					Title = "Scene Manager",
+					Content = ui,
+					Owner = System.Windows.Window.GetWindow(this),
+					WindowStartupLocation = WindowStartupLocation.CenterOwner,
+					ResizeMode = ResizeMode.CanResizeWithGrip,
+					Width = 500,
+					Height = 400,
+				};
+				window.Closed += delegate
+				{
+					ui.Dispose();
+					ObjectManagerUI = null;
+				};
+				ObjectManagerUI = window;
+				window.Show();
 			}
-			m_object_manager_ui.Focus();
+			ObjectManagerUI.Focus();
 		}
-		private View3dObjectManagerUI? m_object_manager_ui;
+		public Window? ObjectManagerUI { get; private set; }
 	}
 }

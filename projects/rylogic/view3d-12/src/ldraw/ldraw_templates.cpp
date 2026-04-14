@@ -65,20 +65,6 @@ namespace pr::rdr12::ldraw
 		str.append(""
 
 			// Global
-			"*!Wireframe {[true|false]}\n"
-			"*!Camera\n"
-			"{\n"
-			"	[@o2w]\n"
-			"	[*LookAt {<x> <y> <z>}]\n"
-			"	[*Align {<x> <y> <z>}]\n"
-			"	[*Aspect {<aspect>}]\n"
-			"	[*FovX {<fovx>}]\n"
-			"	[*FovY {<fovy>}]\n"
-			"	[*Fov {<fovx> <fovy>}]\n"
-			"	[*Near {<near>}]\n"
-			"	[*Far {<far>}]\n"
-			"	[*Orthographic]\n"
-			"}\n"
 			"*!Font\n"
 			"{\n"
 			"	$Font\n"
@@ -552,9 +538,9 @@ namespace pr::rdr12::ldraw
 			"	$ObjectModifiers\n"
 			"	&Recursive\n"
 			"}\n"
-			"*Commands\n"
+			"*!Commands\n"
 			"{\n"
-			"	(*Data {<command-id> [(<arg>)]})\n"
+			"	(*Data {<command_id> [(<arg>)]})\n"
 			"}\n"
 		);
 		return str;
