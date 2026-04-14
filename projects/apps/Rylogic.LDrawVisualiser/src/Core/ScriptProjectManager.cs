@@ -56,20 +56,12 @@ namespace Rylogic.LDrawVisualiser.Core
 			sb.AppendLine("// Assembly references for IntelliSense support.");
 			sb.AppendLine();
 
-			// Extension directory assemblies (Rylogic.Core, Rylogic.Gfx)
-			var ext_dir = Path.GetDirectoryName(typeof(ScriptProjectManager).Assembly.Location) ?? "";
-			foreach (var dll in new[] { "Rylogic.Core.dll", "Rylogic.Gfx.dll" })
+			// Write reference assembly directives from options
+			foreach (var reference in m_options.ReferenceAssemblies)
 			{
-				var dll_path = Path.Combine(ext_dir, dll);
-				if (File.Exists(dll_path))
-					sb.AppendLine($"#r \"{dll_path}\"");
-			}
-
-			// User-specified additional assemblies from options
-			foreach (var asm in m_options.Assemblies)
-			{
-				if (File.Exists(asm))
-					sb.AppendLine($"#r \"{asm}\"");
+				var trimmed = reference.Trim();
+				if (trimmed.Length != 0)
+					sb.AppendLine(trimmed);
 			}
 
 			try { File.WriteAllText(InitScriptPath, sb.ToString()); }

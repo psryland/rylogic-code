@@ -1,6 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
 
 namespace Rylogic.LDrawVisualiser
 {
@@ -19,9 +21,8 @@ namespace Rylogic.LDrawVisualiser
 			m_auto_refresh_check.IsChecked = m_options.DefaultAutoRefresh;
 			m_auto_compile_on_save_check.IsChecked = m_options.AutoCompileOnSave;
 
-			// Populate assemblies list
-			foreach (var asm in m_options.Assemblies)
-				m_assemblies_list.Items.Add(asm);
+			// Populate reference assemblies (one per line)
+			m_reference_assemblies_text.Text = string.Join(Environment.NewLine, m_options.ReferenceAssemblies);
 
 			// Update options on change
 			m_script_text.TextChanged += (s, e) => m_options.DefaultScriptText = m_script_text.Text;
@@ -30,36 +31,14 @@ namespace Rylogic.LDrawVisualiser
 			m_auto_refresh_check.Unchecked += (s, e) => m_options.DefaultAutoRefresh = false;
 			m_auto_compile_on_save_check.Checked += (s, e) => m_options.AutoCompileOnSave = true;
 			m_auto_compile_on_save_check.Unchecked += (s, e) => m_options.AutoCompileOnSave = false;
-		}
-
-		private void OnAddAssembly(object sender, RoutedEventArgs e)
-		{
-			var dlg = new OpenFileDialog
+			m_reference_assemblies_text.TextChanged += (s, e) =>
 			{
-				Title = "Select .NET Assembly",
-				Filter = ".NET Assemblies (*.dll)|*.dll|All Files (*.*)|*.*",
-				Multiselect = true,
+				m_options.ReferenceAssemblies = m_reference_assemblies_text.Text
+					.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+					.Select(line => line.Trim())
+					.Where(line => line.Length != 0)
+					.ToList();
 			};
-			if (dlg.ShowDialog() != true)
-				return;
-
-			foreach (var filepath in dlg.FileNames)
-			{
-				if (!m_options.Assemblies.Contains(filepath))
-				{
-					m_options.Assemblies.Add(filepath);
-					m_assemblies_list.Items.Add(filepath);
-				}
-			}
-		}
-
-		private void OnRemoveAssembly(object sender, RoutedEventArgs e)
-		{
-			if (m_assemblies_list.SelectedItem is not string selected)
-				return;
-
-			m_options.Assemblies.Remove(selected);
-			m_assemblies_list.Items.Remove(selected);
 		}
 	}
 }

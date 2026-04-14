@@ -78,17 +78,17 @@ namespace Rylogic.LDrawVisualiser
 		}
 		private string m_last_selected_script = "Script";
 
-		/// <summary>Additional assembly paths to reference when compiling scripts</summary>
-		public List<string> Assemblies
+		/// <summary>Assembly reference directives written to LDrawVisualiser.csx for IntelliSense</summary>
+		public List<string> ReferenceAssemblies
 		{
-			get => m_assemblies;
+			get => m_reference_assemblies;
 			set
 			{
-				m_assemblies = value;
-				NotifyPropertyChanged(nameof(Assemblies));
+				m_reference_assemblies = value;
+				NotifyPropertyChanged(nameof(ReferenceAssemblies));
 			}
 		}
-		private List<string> m_assemblies = new();
+		private List<string> m_reference_assemblies = new();
 
 		/// <summary>Whether to automatically compile and run the script when the file is saved</summary>
 		public bool AutoCompileOnSave
@@ -115,13 +115,17 @@ using Rylogic.Maths;
 
 // Script body — this code runs inside: string Generate(dynamic vars) { ... }
 var b = new Builder();
-// b.Box(""obj1"").box(1, 1, 1).o2w(vars.o2w);
+b.Box(""obj1"").box(1, 1, 1); //.o2w(vars.o2w);
 return b.ToString();";
 			DefaultAddress = "localhost:1976";
 			DefaultAutoRefresh = true;
 			AutoCompileOnSave = true;
 			LastSelectedScript = "Script";
-			Assemblies = new List<string>();
+			ReferenceAssemblies = new List<string>
+			{
+				"#r \"nuget: Rylogic.Core, 2.1.0\"",
+				"#r \"nuget: Rylogic.Gfx, 2.1.0\"",
+			};
 		}
 
 		public override void LoadSettingsFromStorage()
@@ -143,9 +147,9 @@ return b.ToString();";
 				if (bool.TryParse((string?)root.Element(nameof(AutoCompileOnSave)), out var auto_compile))
 					AutoCompileOnSave = auto_compile;
 
-				var assemblies_el = root.Element(nameof(Assemblies));
-				if (assemblies_el != null)
-					Assemblies = assemblies_el.Elements("Assembly").Select(e => e.Value).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+				var ref_asm_el = root.Element(nameof(ReferenceAssemblies));
+				if (ref_asm_el != null)
+					ReferenceAssemblies = ref_asm_el.Elements("Reference").Select(e => e.Value).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 			}
 			catch (Exception)
 			{
@@ -164,8 +168,8 @@ return b.ToString();";
 				root.Add(new System.Xml.Linq.XElement(nameof(DefaultAutoRefresh), DefaultAutoRefresh));
 				root.Add(new System.Xml.Linq.XElement(nameof(AutoCompileOnSave), AutoCompileOnSave));
 				root.Add(new System.Xml.Linq.XElement(nameof(LastSelectedScript), LastSelectedScript));
-				root.Add(new System.Xml.Linq.XElement(nameof(Assemblies),
-					Assemblies.Select(a => new System.Xml.Linq.XElement("Assembly", a))));
+				root.Add(new System.Xml.Linq.XElement(nameof(ReferenceAssemblies),
+					ReferenceAssemblies.Select(a => new System.Xml.Linq.XElement("Reference", a))));
 				root.Save(SettingsFilepath);
 			}
 			catch (Exception)
@@ -177,6 +181,11 @@ return b.ToString();";
 		protected override void OnDeactivate(CancelEventArgs e)
 		{
 			SaveSettingsToStorage();
+
+			// Regenerate LDrawVisualiser.csx so that IntelliSense picks up reference changes
+			var pm = new Core.ScriptProjectManager(this);
+			pm.GenerateInitScript();
+
 			base.OnDeactivate(e);
 		}
 
