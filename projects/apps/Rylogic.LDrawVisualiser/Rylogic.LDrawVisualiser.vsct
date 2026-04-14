@@ -12,9 +12,14 @@
 			</Group>
 		</Groups>
 
+		<Bitmaps>
+			<Bitmap guid="guidLDrawVisualiserIcon" href="res\menu_icon_16x16.png" usedList="bmpIcon"/>
+		</Bitmaps>
+
 		<Buttons>
 			<Button guid="guidLDrawVisualiserCmdSet" id="cmdidShowVisualiser" priority="0x0100" type="Button">
 				<Parent guid="guidLDrawVisualiserCmdSet" id="LDrawVisualiserMenuGroup"/>
+				<Icon guid="guidLDrawVisualiserIcon" id="bmpIcon"/>
 				<Strings>
 					<ToolTipText>Opens the LDraw Debugger Visualiser tool window</ToolTipText>
 					<CommandName>ShowLDrawVisualiser</CommandName>
@@ -30,6 +35,9 @@
 		<GuidSymbol name="guidLDrawVisualiserCmdSet" value="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
 			<IDSymbol name="LDrawVisualiserMenuGroup" value="0x1020"/>
 			<IDSymbol name="cmdidShowVisualiser" value="0x0100"/>
+		</GuidSymbol>
+		<GuidSymbol name="guidLDrawVisualiserIcon" value="{F3A7B2C1-D4E5-6789-0ABC-DEF123456789}">
+			<IDSymbol name="bmpIcon" value="1"/>
 		</GuidSymbol>
 	</Symbols>
 

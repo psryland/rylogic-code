@@ -49,6 +49,14 @@
 		</VSCTCompile>
 	</ItemGroup>
 
+	<!-- Menu icon -->
+	<ItemGroup>
+		<Content Include="res\menu_icon_16x16.png">
+			<IncludeInVSIX>true</IncludeInVSIX>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+
 	<Target Name="GetVersion" Returns="$(Version)" />
 
 </Project>
