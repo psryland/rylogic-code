@@ -76,6 +76,7 @@ jobs:
             projects\apps\Rylogic.TextAligner\Shared\Rylogic.TextAligner.Shared.csproj `
             projects\apps\Rylogic.TextAligner\2022\Rylogic.TextAligner.2022.csproj `
             projects\apps\Rylogic.TextAligner\2019\Rylogic.TextAligner.2019.csproj `
+            projects\apps\Rylogic.LDrawVisualiser\Rylogic.LDrawVisualiser.csproj `
             projects\apps\LDraw\LDraw.csproj `
             projects\tests\TestWPF\TestWPF.csproj
 

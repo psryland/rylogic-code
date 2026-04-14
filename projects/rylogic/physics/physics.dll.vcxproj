@@ -59,6 +59,7 @@
   -->
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
   </ItemGroup>
   <!--
   Deploy
