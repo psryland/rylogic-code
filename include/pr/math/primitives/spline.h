@@ -1129,7 +1129,7 @@ namespace pr::math
 				ldr_line.line_to(pt);
 			}
 
-			builder.Save("E:\\Dump\\Ldraw\\spline_line.ldr");
+			builder.Save(temp_dir() / "spline_line.ldr");
 			#endif
 		}
 	};
