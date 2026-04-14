@@ -115,7 +115,7 @@ using Rylogic.Maths;
 
 // Script body — this code runs inside: string Generate(dynamic vars) { ... }
 var b = new Builder();
-b.Box(""obj1"").box(1, 1, 1); //.o2w(vars.o2w);
+b.Box(""obj1"").box(1, 1, 1).o2w(vars.o2w);
 return b.ToString();";
 			DefaultAddress = "localhost:1976";
 			DefaultAutoRefresh = true;

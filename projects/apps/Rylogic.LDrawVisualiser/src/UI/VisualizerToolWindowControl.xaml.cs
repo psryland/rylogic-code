@@ -187,6 +187,25 @@ namespace Rylogic.LDrawVisualiser
 
 		// -- Connection -----------------------------------------------------------
 
+		/// <summary>Save any open .csx documents in the scripts directory before running</summary>
+		private void SaveOpenScriptDocuments()
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			if (m_package?.Dte == null) return;
+
+			var scripts_dir = m_package.Options.ScriptsDirectory;
+			foreach (Document doc in m_package.Dte.Documents)
+			{
+				if (doc.Saved) continue;
+				if (doc.FullName == null) continue;
+				if (!doc.FullName.EndsWith(".csx", StringComparison.OrdinalIgnoreCase)) continue;
+				if (!doc.FullName.StartsWith(scripts_dir, StringComparison.OrdinalIgnoreCase)) continue;
+
+				try { doc.Save(); }
+				catch { /* Ignore save failures for individual documents */ }
+			}
+		}
+
 		private void OnConnectClick(object sender, RoutedEventArgs e)
 		{
 			if (m_streamer.State == EConnectionState.Connected)
@@ -206,6 +225,7 @@ namespace Rylogic.LDrawVisualiser
 
 		private void OnRefreshClick(object sender, RoutedEventArgs e)
 		{
+			SaveOpenScriptDocuments();
 			RunActiveScript();
 		}
 
@@ -222,16 +242,9 @@ namespace Rylogic.LDrawVisualiser
 				return;
 			}
 
-			if (m_project_manager == null || m_package?.Dte == null)
+			if (m_project_manager == null || m_package == null)
 			{
 				SetStatus("Error: not initialized");
-				return;
-			}
-
-			var debugger = m_package.Dte.Debugger;
-			if (debugger.CurrentMode != dbgDebugMode.dbgBreakMode)
-			{
-				SetStatus("Not in break mode");
 				return;
 			}
 
@@ -254,11 +267,16 @@ namespace Rylogic.LDrawVisualiser
 				return;
 			}
 
-			// Evaluate
+			// Evaluate — use DebugProxy in break mode, NullProxy otherwise
 			string ldraw_script;
 			try
 			{
-				var vars = new DebugProxy(debugger);
+				var debugger = m_package.Dte?.Debugger;
+				var in_break_mode = debugger?.CurrentMode == dbgDebugMode.dbgBreakMode;
+				dynamic vars = in_break_mode && debugger != null
+					? new DebugProxy(debugger)
+					: NullProxy.Instance;
+
 				ldraw_script = m_compiler.CompiledScript(vars);
 			}
 			catch (Exception ex)
