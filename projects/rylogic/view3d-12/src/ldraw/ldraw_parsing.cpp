@@ -1871,6 +1871,7 @@ namespace pr::rdr12::ldraw
 				default:
 				{
 					return
+						m_current.m_parametric.ParseKeyword(reader, m_pp, kw) ||
 						IObjectCreator::ParseKeyword(reader, kw);
 				}
 			}

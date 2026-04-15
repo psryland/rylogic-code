@@ -3976,7 +3976,7 @@ namespace Rylogic.UnitTests
 			// Commands are control data, not geometry — skip View3d validation
 			var builder = new LDraw.Builder();
 			builder.Box("b", 0xFF00FF00).box(1);
-			builder.Command()
+			builder.Commands()
 				.object_transform("b", m4x4.Transform(v4.ZAxis, 0.3f, v4.Origin));
 			var mem = builder.ToBinary();
 			Assert.True(mem.Length > 0);
