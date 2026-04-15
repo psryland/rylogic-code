@@ -414,7 +414,6 @@ namespace pr::rdr12
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
 		pr::vector<Guid> new_guids;
-		auto old_count = m_objects.size();
 		for (auto& srcs : sources)
 		{
 			auto& src = srcs.second;
@@ -429,7 +428,9 @@ namespace pr::rdr12
 			// TODO: Camera settings are now applied via the command system (see ProcessCommand in ldraw_sources.cpp).
 			// Camera commands need to be added to ECommand and processed there.
 		}
-		if (m_objects.size() != old_count)
+
+		// Add the guids, even if no objects were added. Guids are used by refreshes to load objects belonging to the same context
+		if (!new_guids.empty())
 		{
 			m_guids.insert(std::begin(new_guids), std::end(new_guids));
 			ObjectContainerChanged(view3d::ESceneChanged::ObjectsAdded, new_guids, nullptr);
