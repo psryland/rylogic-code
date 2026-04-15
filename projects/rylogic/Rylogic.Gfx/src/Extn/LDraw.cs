@@ -2,7 +2,6 @@
 using System.Runtime.InteropServices;
 using Rylogic.Collision;
 using Rylogic.Common;
-using Rylogic.Maths;
 
 namespace Rylogic.LDraw
 {
@@ -21,9 +20,15 @@ namespace Rylogic.LDraw
 		/// <summary>Add a collision shape from a contiguous byte buffer containing the shape data</summary>
 		public LdrCollisionShape shape(byte[] data, int offset = 0)
 		{
+			// Gracefully handle empty/insufficient data
+			if (data == null || data.Length - offset < Marshal.SizeOf<Shape>())
+				return this;
+
 			using var pin = GCHandle_.Alloc(data, GCHandleType.Pinned);
 			var base_ptr = pin.Handle.AddrOfPinnedObject() + offset;
 			var header = Marshal.PtrToStructure<Shape>(base_ptr);
+			if (data.Length < header.m_size)
+				return this;
 
 			switch (header.m_type)
 			{
@@ -92,8 +97,10 @@ namespace Rylogic.LDraw
 		public override void WriteTo(IWriter res)
 		{
 			// Wrap child shapes in a group so name/colour/o2w are applied
-			res.Write(EKeyword.Group, m_name, m_colour, () =>
+			m_colour.m_kw = EKeyword.GroupColour;
+			res.Write(EKeyword.Group, m_name, () =>
 			{
+				res.Append(m_colour);
 				base.WriteTo(res);
 			});
 		}

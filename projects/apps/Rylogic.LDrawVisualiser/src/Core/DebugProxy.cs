@@ -23,6 +23,7 @@ namespace Rylogic.LDrawVisualiser.Core
 			m_path = path;
 		}
 
+		/// <inheritdoc/>
 		public override bool TryGetMember(GetMemberBinder binder, out object? result)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
@@ -32,6 +33,7 @@ namespace Rylogic.LDrawVisualiser.Core
 			return true;
 		}
 
+		/// <inheritdoc/>
 		public override bool TryGetIndex(GetIndexBinder binder, object[] indexes, out object? result)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
@@ -42,16 +44,10 @@ namespace Rylogic.LDrawVisualiser.Core
 			return true;
 		}
 
+		/// <inheritdoc/>
 		public override bool TryInvokeMember(InvokeMemberBinder binder, object?[]? args, out object? result)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
-
-			// ReadShapeBytes("expr") — read a collision shape's raw bytes from debuggee memory
-			if (binder.Name == "ReadShapeBytes" && args?.Length == 1 && args[0] is string expr)
-			{
-				result = DebugMemoryReader.ReadShapeBytes(m_debugger, expr);
-				return true;
-			}
 
 			// ReadBytes("expr", size) — read arbitrary raw bytes from debuggee memory
 			if (binder.Name == "ReadBytes" && args?.Length == 2 && args[0] is string expr2 && args[1] is int size)
@@ -64,6 +60,7 @@ namespace Rylogic.LDrawVisualiser.Core
 			return false;
 		}
 
+		/// <inheritdoc/>
 		public override bool TryConvert(ConvertBinder binder, out object? result)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
@@ -102,15 +99,21 @@ namespace Rylogic.LDrawVisualiser.Core
 			return false;
 		}
 
+		/// <summary></summary>
 		private object Evaluate(string expr)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
 
 			var dbg_expr = m_debugger.GetExpression(expr);
 			if (!dbg_expr.IsValidValue)
+				return new DebugProxy(m_debugger, expr); // Return a proxy that will also fail gracefully on further access
+
+			// Handle known types
+			if (!string.IsNullOrEmpty(dbg_expr.Type))
 			{
-				// Return a proxy that will also fail gracefully on further access
-				return new DebugProxy(m_debugger, expr);
+				// Auto-detect collision shape types and read raw memory
+				if (IsCollisionShapeType(dbg_expr.Type) && DebugMemoryReader.ReadShapeBytes(m_debugger, expr) is byte[] shape_data)
+					return shape_data;
 			}
 
 			var value = CleanNumericString(dbg_expr.Value);
@@ -128,6 +131,21 @@ namespace Rylogic.LDrawVisualiser.Core
 
 			// Not a scalar — return a new proxy for further chaining
 			return new DebugProxy(m_debugger, expr);
+		}
+
+		/// <summary>Check if a native type name is a collision shape type</summary>
+		private static bool IsCollisionShapeType(string type_name)
+		{
+			// Match pr::collision::Shape* types (with or without namespace qualifiers)
+			return
+				type_name.Contains("ShapeSphere") ||
+				type_name.Contains("ShapeBox") ||
+				type_name.Contains("ShapeLine") ||
+				type_name.Contains("ShapeTriangle") ||
+				type_name.Contains("ShapePolytope") ||
+				type_name.Contains("ShapeArray") ||
+				type_name == "pr::collision::Shape" ||
+				type_name.EndsWith("::Shape");
 		}
 
 		/// <summary>Clean natvis-formatted values (strip suffixes like 'f', braces, type prefixes)</summary>
@@ -149,15 +167,16 @@ namespace Rylogic.LDrawVisualiser.Core
 			return value;
 		}
 
+		/// <summary>Handle hex format from debugger (e.g., "0x0000000a")</summary>
 		private static bool TryParseInt(string value, out int result)
 		{
-			// Handle hex format from debugger (e.g., "0x0000000a")
 			if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
 				return int.TryParse(value.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out result);
 
 			return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
 		}
 
+		/// <inheritdoc/>
 		public override string ToString()
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();
