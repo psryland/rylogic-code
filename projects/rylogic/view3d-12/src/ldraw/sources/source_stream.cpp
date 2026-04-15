@@ -185,13 +185,11 @@ namespace pr::rdr12::ldraw
 			mem_istream<char> strm(buffer.data(), consume);
 			BinaryReader reader(strm, std::string_view{ m_name }, { this, OnReportError }, { this, OnProgress });
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
-			if (out)
-			{
-				// The notify handler handles calls from any thread.
-				auto src = shared_from_this();
-				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
-			}
+
+			// Notify even if 'out' is empty, 'src' may contain errors that need to be reported.
+			auto src = shared_from_this();
+			auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
+			src->Notify(src, { std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
 		}
 
 		// Otherwise, if 0 bytes can be consumed, check the buffer is big enough and the partial data is not invalid
@@ -253,13 +251,11 @@ namespace pr::rdr12::ldraw
 			mem_istream<char> strm(buffer.data(), consume);
 			TextReader reader(strm, m_name.c_str(), EEncoding::utf8, { this, OnReportError }, { this, OnProgress });
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
-			if (out)
-			{
-				// The notify handler handles calls from any thread.
-				auto src = shared_from_this();
-				auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
-				src->Notify(src, { std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
-			}
+
+			// Notify even if 'out' is empty, 'src' may contain errors that need to be reported.
+			auto src = shared_from_this();
+			auto change_flags = !!out ? EStoreChangeFlags::ObjectsAdded : EStoreChangeFlags::None;
+			src->Notify(src, NotifyEventArgs{ std::move(out), EStoreChangeInitiator::StreamData, change_flags, nullptr });
 		}
 
 		// Otherwise, if 0 bytes can be consumed, check the buffer is big enough and the partial data is not invalid

@@ -132,27 +132,24 @@ namespace Rylogic.Gui.WPF
 			if (m_series.Count != 0)
 			{
 				// Create the legend graphics object
-				var ldr = new LDraw.LdrBuilder();
-				ldr.Append(
-					$"*Text legend {{\n" +
-					$"  *ScreenSpace\n" +
-					$"  *BackColour {{{BackColour}}}\n" +
-					$"  *Anchor {{{Anchor.x} {Anchor.y}}}\n" +
-					$"  *Padding{{{Padding.Left} {Padding.Top} {Padding.Right} {Padding.Bottom}}}\n" +
-					$"  *Font{{ *Name{{\"{Font.FontFamily.Source}\"}} *Size{{{FontSize}}} }}\n");
+				var ldr = new LDraw.Builder();
+				var txt = ldr.Text("Legend")
+					.screen_space()
+					.back_colour(BackColour)
+					.anchor(Anchor)
+					.padding(Padding)
+					.font(f => f.name(Font.FontFamily.Source).size(FontSize));
 
 				bool newline = false;
 				foreach (var s in m_series)
 				{
-					if (newline) ldr.Append("*NewLine\n");
-					ldr.Append($"*Font {{*Colour {{{(s.Visible ? s.Options.Colour : Colour32.Gray)}}} }}\n");
-					ldr.Append($"\"{s.Name}\"\n");
+					if (newline) txt.new_block();
+					txt.font(f => f.colour(s.Visible ? s.Options.Colour : Colour32.Gray));
+					txt.text($"\"{s.Name}\"\n");
 					newline = true;
 				}
 
-				ldr.Append("}");
-
-				Gfx = new View3d.Object(ldr.ToString(), false, Id);
+				Gfx = new View3d.Object(ldr.ToBinary().GetBuffer(), Id);
 			}
 		}
 

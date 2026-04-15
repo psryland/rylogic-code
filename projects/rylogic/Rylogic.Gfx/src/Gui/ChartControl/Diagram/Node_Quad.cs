@@ -22,9 +22,9 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 			Surf = new Surface(tex_size.xi, tex_size.yi);
 
 			// Create a quad model
-			var ldr = new LdrBuilder();
-			ldr.Rect("node", Colour32.White, EAxisId.PosZ, Size.x, Size.y, true, (float)Style.CornerRadius, v4.Origin);
-			Gfx = new View3d.Object(ldr, false, null, null);
+			var ldr = new Builder();
+			ldr.Rect("node", Colour32.White).wh(Size.x, Size.y).corner_radius(Style.CornerRadius).solid().axis(EAxisId.PosZ);
+			Gfx = new View3d.Object(ldr.ToBinary().GetBuffer(), null);
 			Gfx.SetTexture(Surf.Surf);
 		}
 		protected override void Dispose(bool disposing)
@@ -151,9 +151,9 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 			// Refresh the model geometry
 			if (Size.xy != Surf.Size)
 			{
-				var ldr = new LdrBuilder();
-				ldr.Rect("node", Colour32.White, EAxisId.PosZ, Size.x, Size.y, true, (float)Style.CornerRadius, v4.Origin);
-				Gfx.UpdateModel(ldr, View3d.EUpdateObject.Model);
+				var ldr = new Builder();
+				ldr.Rect("node", Colour32.White).wh(Size.x, Size.y).corner_radius(Style.CornerRadius).solid(true).axis(EAxisId.PosZ);
+				Gfx.UpdateModel(ldr.ToString(), View3d.EUpdateObject.Model);
 				Gfx.SetTexture(Surf.Surf);
 			}
 		}

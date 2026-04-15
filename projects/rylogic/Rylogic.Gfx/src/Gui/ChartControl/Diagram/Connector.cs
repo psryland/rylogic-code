@@ -394,10 +394,10 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 			var pts = Points(false);
 			var ty = Type switch
 			{
-				EType.Line => Ldr.EArrowType.Line,
-				EType.Forward => Ldr.EArrowType.Fwd,
-				EType.Back => Ldr.EArrowType.Back,
-				EType.BiDir => Ldr.EArrowType.FwdBack,
+				EType.Line => EArrowType.Line,
+				EType.Forward => EArrowType.Fwd,
+				EType.Back => EArrowType.Back,
+				EType.BiDir => EArrowType.FwdBack,
 				_ => throw new Exception($"Unknown connector type: {Type}"),
 			};
 			var col =
@@ -407,22 +407,22 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 				Style.Line;
 
 			// Update the connector line graphics
-			var ldr = new LdrBuilder();
+			var ldr = new Builder();
 			switch (Style.EdgeStyle)
 			{
 				case EEdgeStyle.Straight:
 				{
-					ldr.Arrow("Connector", col, ty, (float)Style.Width, false, pts);
+					ldr.Line("Connector", col).arrow(ty).width(Style.Width).lines(pts);
 					break;
 				}
 				case EEdgeStyle.Rectangular:
 				{
-					ldr.Arrow("Connector", col, ty, (float)Style.Width, false, pts);
+					ldr.Line("Connector", col).arrow(ty).width(Style.Width).lines(pts);
 					break;
 				}
 				case EEdgeStyle.Smooth:
 				{
-					ldr.Arrow("Connector", col, ty, (float)Style.Width, true, pts);
+					ldr.Line("Connector", col).arrow(ty).width(Style.Width).smooth(true).lines(pts);
 					break;
 				}
 				default:
@@ -430,7 +430,7 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 					throw new Exception($"Unknown edge style: {Style.EdgeStyle}");
 				}
 			}
-			Gfx.UpdateModel(ldr);
+			Gfx.UpdateModel(ldr.ToString());
 		}
 
 		/// <inheritdoc/>

@@ -1071,7 +1071,15 @@ namespace Rylogic.Gui.WPF
 					MouseMove -= UpdateHitTestRay;
 					Util.Dispose(m_hit_test_ray);
 				}
-				m_hit_test_ray = value ? new View3d.Object(new LdrBuilder().Line("HitTestRay", Colour32.Green, v4.Origin, v4.Origin), false, null) : null;
+				if (value)
+				{
+					var ldr = new Builder().Line("HitTestRay", Colour32.Green).line(v4.Origin, v4.Origin).ToString();
+					m_hit_test_ray = new View3d.Object(ldr, false, null);
+				}
+				else
+				{
+					Util.Dispose(ref m_hit_test_ray!);
+				}
 				if (ShowHitTestRay)
 				{
 					MouseMove += UpdateHitTestRay;
@@ -1094,7 +1102,8 @@ namespace Rylogic.Gui.WPF
 						var ray = cam.RaySS(pt.ToV2());
 						var pt0 = ray.m_ws_origin + ray.m_ws_direction * cam.NearPlane / -Math_.Dot(cam.O2W.z, ray.m_ws_direction);
 						var pt1 = ray.m_ws_origin + ray.m_ws_direction * cam.FocusDist / -Math_.Dot(cam.O2W.z, ray.m_ws_direction);
-						m_hit_test_ray.UpdateModel(new LdrBuilder().Line(pt0, pt1), View3d.EUpdateObject.Model);
+						var ldr = new Builder().Line().line(pt0, pt1);
+						m_hit_test_ray.UpdateModel(ldr.ToString(), View3d.EUpdateObject.Model);
 						Scene.AddObject(m_hit_test_ray);
 					}
 					else
