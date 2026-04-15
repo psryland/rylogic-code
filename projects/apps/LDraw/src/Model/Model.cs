@@ -107,6 +107,15 @@ namespace LDraw
 
 						// Update the 'Sources' list
 						Sources.RemoveAll(x => old.ContainsKey(x.ContextId));
+
+						// Automatically add new sources to the first scene
+						foreach (var s in nue.Values)
+						{
+							if (!s.SelectedScenes.Any())
+								s.ShowInScenes(s.AvailableScenes.Take(1), true);
+						}
+
+						// Add the new scene to the sources list
 						Sources.AddRange(nue.Values);
 
 						// Notify of sources changed/deleted

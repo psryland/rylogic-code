@@ -3163,6 +3163,7 @@ namespace pr::ldraw
 
 		LdrLine& style(seri::TToString auto sty)
 		{
+			#pragma warning(suppress:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 			m_current.m_style = seri::LineStyle{sty};
 			return *this;
 		}
@@ -3188,6 +3189,7 @@ namespace pr::ldraw
 		}
 		LdrLine& arrow(seri::TToString auto style = "Fwd", float size = 10.0f)
 		{
+			#pragma warning(suppress:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 			m_current.m_arrow = seri::ArrowHeads(style, size);
 			return *this;
 		}
