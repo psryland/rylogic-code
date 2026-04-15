@@ -69,6 +69,10 @@ namespace Rylogic.LDraw
 		{
 			Append($"*{keyword}");
 		}
+		private void Append(ECommandId cmd)
+		{
+			Append(cmd.ToString());
+		}
 		private void Append(bool b)
 		{
 			Append(b ? "true" : "false");

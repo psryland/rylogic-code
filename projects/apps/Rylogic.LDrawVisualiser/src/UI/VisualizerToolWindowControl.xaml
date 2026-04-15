@@ -63,15 +63,26 @@
 		</Border>
 
 		<!-- Error Panel (auto-hides when empty) -->
-		<Border Grid.Row="2" x:Name="m_error_panel" Visibility="Collapsed"
-			BorderBrush="DarkRed" BorderThickness="0,1,0,0"
+		<Border Grid.Row="2"
+			x:Name="m_error_panel"
+			Visibility="Collapsed"
+			BorderBrush="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorBorderBrushKey}}"
+			BorderThickness="0,2,0,0"
 			Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
-			MaxHeight="120">
-			<ScrollViewer VerticalScrollBarVisibility="Auto">
+			MinHeight="40"
+			MaxHeight="160">
+			<ScrollViewer VerticalScrollBarVisibility="Auto"
+				HorizontalScrollBarVisibility="Disabled">
 				<ItemsControl x:Name="m_error_list">
 					<ItemsControl.ItemTemplate>
 						<DataTemplate>
-							<TextBlock Text="{Binding}" Foreground="Salmon" FontFamily="Consolas" FontSize="11" Margin="4,1"/>
+							<TextBlock
+								Text="{Binding}"
+								Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
+								FontFamily="Consolas"
+								FontSize="12"
+								TextWrapping="Wrap"
+								Margin="6,3"/>
 						</DataTemplate>
 					</ItemsControl.ItemTemplate>
 				</ItemsControl>

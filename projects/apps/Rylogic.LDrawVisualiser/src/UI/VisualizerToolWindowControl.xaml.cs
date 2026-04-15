@@ -58,7 +58,7 @@ namespace Rylogic.LDrawVisualiser
 		{
 			if (m_auto_refresh_check.IsChecked == true && m_active_script != null)
 			{
-				ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
+				_ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
 				{
 					await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 					RunActiveScript();
@@ -221,6 +221,8 @@ namespace Rylogic.LDrawVisualiser
 				m_streamer.Connect();
 			}
 			UpdateConnectionUI();
+			SaveOpenScriptDocuments();
+			RunActiveScript();
 		}
 
 		private void OnRefreshClick(object sender, RoutedEventArgs e)
@@ -281,9 +283,14 @@ namespace Rylogic.LDrawVisualiser
 			}
 			catch (Exception ex)
 			{
-				SetStatus($"Runtime error: {ex.Message}");
+				var script_path = m_active_script?.FilePath ?? "<unknown>";
+				ShowErrors(new[] { $"{script_path}(0,0): error: {ex.Message}" });
+				SetStatus("Runtime error");
 				return;
 			}
+
+			// Clear errors on success
+			ShowErrors(Array.Empty<string>());
 
 			// Send
 			if (m_streamer.State != EConnectionState.Connected)
@@ -308,13 +315,20 @@ namespace Rylogic.LDrawVisualiser
 
 		private void UpdateErrorPanel()
 		{
+			var script_path = m_active_script?.FilePath ?? "<unknown>";
 			var errors = new List<string>();
 			foreach (var diag in m_compiler.Diagnostics)
 			{
 				if (diag.Severity >= Microsoft.CodeAnalysis.DiagnosticSeverity.Warning)
-					errors.Add(diag.GetMessage());
+					errors.Add($"{script_path}{diag.GetMessage()}");
 			}
 
+			ShowErrors(errors);
+		}
+
+		/// <summary>Show error messages in the error panel, or hide it when empty</summary>
+		private void ShowErrors(IReadOnlyList<string> errors)
+		{
 			if (errors.Count > 0)
 			{
 				m_error_list.ItemsSource = errors;

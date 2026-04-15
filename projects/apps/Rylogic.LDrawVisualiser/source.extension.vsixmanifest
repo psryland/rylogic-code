@@ -13,6 +13,8 @@
 		<Description xml:space="preserve">Debug visualiser that streams LDraw scene descriptions to the LDraw 3D viewer, using live debugger variable values.</Description>
 		<MoreInfo>https://www.rylogic.co.nz</MoreInfo>
 		<LicenseExpressions>MIT</LicenseExpressions>
+		<Icon>res/icon.png</Icon>
+		<PreviewImage>res/icon.png</PreviewImage>
 		<Tags>ldraw, visualiser, debugger, 3d, physics, visualizer</Tags>
 	</Metadata>
 

@@ -123,8 +123,8 @@ return b.ToString();";
 			LastSelectedScript = "Script";
 			ReferenceAssemblies = new List<string>
 			{
-				"#r \"nuget: Rylogic.Core, 2.1.0\"",
-				"#r \"nuget: Rylogic.Gfx, 2.1.0\"",
+				"#r \"nuget: Rylogic.Core, *\"",
+				"#r \"nuget: Rylogic.Gfx, *\"",
 			};
 		}
 

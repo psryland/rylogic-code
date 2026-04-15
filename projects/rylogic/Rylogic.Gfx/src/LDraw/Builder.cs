@@ -1275,7 +1275,7 @@ namespace Rylogic.LDraw
 				{
 					res.Write(EKeyword.Data, () =>
 					{
-						res.Append((int)cmd.m_id);
+						res.Append(cmd.m_id);
 						foreach (var p in cmd.m_params)
 						{
 							if (p is bool bool_) { res.Append(bool_); continue; }

@@ -4,10 +4,8 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
 
 namespace Rylogic.LDrawVisualiser.Core
 {
@@ -174,9 +172,9 @@ namespace Rylogic.LDrawVisualiser.Generated
 				var span = diagnostic.Location.GetLineSpan();
 				var adjusted_line = Math.Max(1, span.StartLinePosition.Line - wrapper_line_offset + 1);
 				var col = span.StartLinePosition.Character + 1;
-				var message = $"({adjusted_line},{col}): {diagnostic.GetMessage()}";
+				var severity = diagnostic.Severity == DiagnosticSeverity.Error ? "error" : "warning";
+				var message = $"({adjusted_line},{col}): {severity} {diagnostic.Id}: {diagnostic.GetMessage()}";
 
-				// Create a new descriptor with the pre-formatted message to avoid format arg issues
 				var desc = new DiagnosticDescriptor(
 					diagnostic.Id,
 					diagnostic.Descriptor.Title,
