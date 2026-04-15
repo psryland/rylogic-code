@@ -14,8 +14,8 @@ namespace pr::collision
 		Shape m_base;
 
 		// The number of shapes in the array
-		size_t m_num_shapes;
-		size_t pad[3]; // Pad to 16 bytes
+		int m_num_shapes;
+		int pad[3]; // Pad to 16 bytes
 
 		// Followed by an array of other shape types (with different sizes):
 		// ShapeBox s0;
@@ -42,8 +42,8 @@ namespace pr::collision
 			for (Shape const* i = begin(), *i_end = end(); i != i_end; i = next(i))
 				Grow(bb, i->m_s2p * i->m_bbox);
 
-			m_num_shapes = num_shapes;
-			m_base.m_size = sizeof(ShapeArray) + byte_ptr(ptr) - byte_ptr(begin());
+			m_num_shapes = s_cast<int>(num_shapes);
+			m_base.m_size = s_cast<int>(sizeof(ShapeArray) + byte_ptr(ptr) - byte_ptr(begin()));
 			m_base.m_bbox = CalcBBox(*this);
 
 			// All shape sizes should be a multiple of 16 bytes

@@ -90,7 +90,7 @@ namespace pr::collision
 		EFlags m_flags;
 
 		// The size in bytes of this shape and its data
-		size_t m_size;
+		int m_size;
 
 		Shape() = default;
 		Shape(EShape type, size_t size, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
@@ -99,9 +99,10 @@ namespace pr::collision
 			,m_type(type)
 			,m_material_id(material_id)
 			,m_flags(flags)
-			,m_size(size)
+			,m_size(s_cast<int>(size))
 		{}
 	};
+	static_assert(sizeof(Shape) == 112, "Unexpected padding in Shape struct");
 
 	// Traits/Concepts
 	template <typename Shp> struct shape_traits

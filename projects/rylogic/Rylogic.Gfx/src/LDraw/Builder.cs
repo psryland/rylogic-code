@@ -33,16 +33,15 @@ namespace Rylogic.LDraw
 	public class Builder
 	{
 		/// <summary>Access the objects already in the builder</summary>
-		public IReadOnlyList<Builder> Objects => m_objects;
-		private List<Builder> m_objects = [];
+		public readonly List<Builder> Objects = [];
 
 		/// <summary>Reset the builder</summary>
 		public Builder Clear(int count = -1)
 		{
-			if (count >= 0 && count < m_objects.Count)
-				m_objects.RemoveRange(count, m_objects.Count - count);
+			if (count >= 0 && count < Objects.Count)
+				Objects.RemoveRange(count, Objects.Count - count);
 			else
-				m_objects.Clear();
+				Objects.Clear();
 	
 			return this;
 		}
@@ -51,175 +50,175 @@ namespace Rylogic.LDraw
 		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrBox();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrChart Chart(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrChart();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCircle();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCommands Commands()
 		{
 			var child = new LdrCommands();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCone();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrConvexHull ConvexHull(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrConvexHull();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCoordFrame();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCylinder();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrEquation Equation(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrEquation();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrFrustum();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrGrid Grid(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrGrid();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrGroup Group(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrGroup();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrInstance Instance(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrInstance();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLightSource LightSource(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLightSource();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLine Line(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLine();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLineBox LineBox(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLineBox();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrMesh Mesh(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrMesh();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrModel Model(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrModel();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPie Pie(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPie();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPoint();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPolygon Polygon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPolygon();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPlane();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrQuad Quad(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrQuad();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrRect Rect(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrRect();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrRibbon Ribbon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrRibbon();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrSphere();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrText Text(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrText();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrTriangle();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrTube Tube(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrTube();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 
@@ -227,13 +226,13 @@ namespace Rylogic.LDraw
 		public LdrBinaryStream BinaryStream()
 		{
 			var child = new LdrBinaryStream();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 		public LdrTextStream TextStream()
 		{
 			var child = new LdrTextStream();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 
@@ -270,7 +269,7 @@ namespace Rylogic.LDraw
 		/// <summary>Serialise to 'res'</summary>
 		public virtual void WriteTo(IWriter res)
 		{
-			foreach (var obj in m_objects)
+			foreach (var obj in Objects)
 				obj.WriteTo(res);
 		}
 

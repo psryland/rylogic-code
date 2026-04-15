@@ -87,7 +87,7 @@ namespace pr::physics
 		{
 			// Create a new primitive to contain the shape
 			auto prim = std::unique_ptr<Prim>(new Prim);
-			prim->m_data.push_back({ byte_ptr(&shape), shape.m_base.m_size });
+			prim->m_data.push_back({ byte_ptr(&shape), s_cast<size_t>(shape.m_base.m_size) });
 			auto& s = shape_cast<TShape>(prim->shape());
 
 			// Convert the shape to canonical form (i.e. about it's centre of mass)

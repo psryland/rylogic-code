@@ -42,6 +42,28 @@ namespace Rylogic.LDrawVisualiser.Core
 			return true;
 		}
 
+		public override bool TryInvokeMember(InvokeMemberBinder binder, object?[]? args, out object? result)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+
+			// ReadShapeBytes("expr") — read a collision shape's raw bytes from debuggee memory
+			if (binder.Name == "ReadShapeBytes" && args?.Length == 1 && args[0] is string expr)
+			{
+				result = DebugMemoryReader.ReadShapeBytes(m_debugger, expr);
+				return true;
+			}
+
+			// ReadBytes("expr", size) — read arbitrary raw bytes from debuggee memory
+			if (binder.Name == "ReadBytes" && args?.Length == 2 && args[0] is string expr2 && args[1] is int size)
+			{
+				result = DebugMemoryReader.ReadBytes(m_debugger, expr2, size);
+				return true;
+			}
+
+			result = null;
+			return false;
+		}
+
 		public override bool TryConvert(ConvertBinder binder, out object? result)
 		{
 			ThreadHelper.ThrowIfNotOnUIThread();

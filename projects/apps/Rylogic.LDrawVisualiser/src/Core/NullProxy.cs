@@ -1,5 +1,7 @@
 using System;
 using System.Dynamic;
+using System.Runtime.InteropServices;
+using Rylogic.Collision;
 using Rylogic.Maths;
 
 namespace Rylogic.LDrawVisualiser.Core
@@ -71,10 +73,50 @@ namespace Rylogic.LDrawVisualiser.Core
 
 		public override bool TryInvokeMember(InvokeMemberBinder binder, object?[]? args, out object? result)
 		{
+			// ReadShapeBytes — return a dummy unit box shape when no debugger is active
+			if (binder.Name == "ReadShapeBytes")
+			{
+				result = CreateDummyShapeBox();
+				return true;
+			}
+
+			// ReadBytes — return an empty buffer
+			if (binder.Name == "ReadBytes")
+			{
+				var size = args?.Length >= 2 && args[1] is int s ? s : 0;
+				result = new byte[size];
+				return true;
+			}
+
 			result = Instance;
 			return true;
 		}
 
 		public override string ToString() => "<NullProxy:no-debugger>";
+
+		/// <summary>Create a dummy ShapeBox byte buffer for preview when no debugger is active</summary>
+		private static byte[] CreateDummyShapeBox()
+		{
+			var box = new ShapeBox
+			{
+				m_base = new Shape
+				{
+					m_s2p = m4x4.Identity,
+					m_bbox = new BBox(v4.Origin, new v4(0.5f, 0.5f, 0.5f, 0)),
+					m_type = EShape.Box,
+					m_material_id = 0,
+					m_flags = EFlags.None,
+					m_size = Marshal.SizeOf<ShapeBox>(),
+				},
+				m_radius = new v4(0.5f, 0.5f, 0.5f, 0),
+			};
+
+			var size = Marshal.SizeOf<ShapeBox>();
+			var data = new byte[size];
+			var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
+			try { Marshal.StructureToPtr(box, handle.AddrOfPinnedObject(), false); }
+			finally { handle.Free(); }
+			return data;
+		}
 	}
 }

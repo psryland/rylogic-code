@@ -506,7 +506,7 @@ namespace pr::collision
 		auto dst  = reinterpret_cast<char*>(shape.face_beg());
 		auto size = shape.m_base.m_size;
 		auto bytes_to_move = size - (src - base);
-		auto bytes_removed = shape.m_face_count * sizeof(ShapePolyFace);
+		auto bytes_removed = s_cast<int>(shape.m_face_count * sizeof(ShapePolyFace));
 
 		// Move the remainder of the polytope data back over the face data.
 		memmove(dst, src, bytes_to_move);

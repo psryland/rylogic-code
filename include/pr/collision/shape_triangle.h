@@ -8,6 +8,7 @@
 
 namespace pr::collision
 {
+	// A triangle collision shape.
 	struct ShapeTriangle
 	{
 		Shape m_base;
