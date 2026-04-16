@@ -638,6 +638,7 @@ namespace physics_sandbox
 		// and normals in the contacts span. Use 0.5 alpha yellow spheres for contact points and
 		// yellow arrows for normals.
 		//m_contacts_gfx = ...todo
+		(void)contacts;
 	}
 
 	// Calculate the bounding box for the scene (excluding terrain)

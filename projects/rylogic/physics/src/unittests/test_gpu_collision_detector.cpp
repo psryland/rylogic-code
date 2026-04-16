@@ -72,7 +72,7 @@ namespace pr::physics::tests
 				auto out_contacts = std::vector<GpuResolveContact>{ 1 };
 				auto [gpu_contacts, diag] = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts, {});
 				gpu_hit = gpu_contacts.size() > 0;
-				(void)diag; // diagnostics not used in this test
+				if (gpu_hit) gpu_contact = gpu_contacts[0];
 			}
 
 			// --- Compare collision/no-collision agreement ---
@@ -171,7 +171,7 @@ namespace pr::physics::tests
 
 			auto sb = collision::ShapeBox{v4{2, 2, 2, 0}}; // half-extents = 1,1,1
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0.5f, 0.5f, 0}); // overlapping the tetrahedron
+			auto r2w = m4x4::Translation(v4{1.0f, 0.7f, 0.3f, 0}); // overlapping the tetrahedron (asymmetric to avoid axis ambiguity)
 
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true);
 		}

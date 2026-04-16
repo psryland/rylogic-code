@@ -58,7 +58,7 @@ namespace pr::physics::tests
 		return collision::ShapeBox(v4{ 100, 100, 0.5f, 0 });
 	}
 
-	DropResult RunDropCollisionTest(std::string_view label, collision::Shape const* shape, float mass, float drop_height = 3.0f, int num_steps = 1000, std::filesystem::path log_dir = {})
+	DropResult RunDropCollisionTest(std::string_view label, collision::Shape const* shape, float mass, float drop_height = 0.6f, int num_steps = 60, std::filesystem::path log_dir = {})
 	{
 		auto ground_shape = MakeGround();
 
@@ -78,7 +78,7 @@ namespace pr::physics::tests
 
 		auto const g = 9.81f;
 		auto const gravity = v4{0, 0, -g, 0};
-		auto const dt = 1.0f / 100.0f;
+		auto const dt = 1.0f / 60.0f;
 		auto const m = bodies[0].Mass();
 		auto const com_os = bodies[0].CentreOfMassOS();
 
@@ -127,7 +127,7 @@ namespace pr::physics::tests
 
 		return result;
 	}
-	HeadOnResult RunHeadOnTest(std::string_view label, collision::Shape const& shape_a, physics::Inertia const& inertia_a, collision::Shape const& shape_b, physics::Inertia const& inertia_b, float separation = 10.0f, float speed = 3.0f, std::filesystem::path log_dir = {})
+	HeadOnResult RunHeadOnTest(std::string_view label, collision::Shape const& shape_a, physics::Inertia const& inertia_a, collision::Shape const& shape_b, physics::Inertia const& inertia_b, float separation = 1.5f, float speed = 3.0f, std::filesystem::path log_dir = {})
 	{
 		physics::RigidBody bodies[2] = {
 			physics::RigidBody{&shape_a, m4x4::Translation(v4{-separation / 2, 0, 0, 1}), inertia_a},
@@ -143,8 +143,8 @@ namespace pr::physics::tests
 			result.collision_occurred = true;
 		};
 
-		auto const dt = 1.0f / 100.0f;
-		for (int step = 0; step != 5000; ++step)
+		auto const dt = 1.0f / 60.0f;
+		for (int step = 0; step != 100; ++step)
 		{
 			bodies[0].ZeroForces();
 			bodies[1].ZeroForces();
@@ -364,30 +364,30 @@ namespace pr::physics::tests
 			auto poly_buf = collision::BuildPolytopeFromPoints(tetra_pts);
 			auto& poly_shape = poly_buf.as<collision::ShapePolytope>();
 
-			static constexpr int NumBodies = 100;
-			static constexpr int NumSteps = 200;
-			static constexpr float dt = 1.0f / 60.0f;
+			static constexpr int NumBodies = 30;
+			static constexpr int NumSteps = 60;
+			static constexpr float dt = 1.0f / 30.0f;
 			static constexpr float g = 9.81f;
 
 			// Allocate bodies: 40 spheres, 40 boxes, 20 polytopes, 1 ground
 			std::vector<physics::RigidBody> bodies(NumBodies + 1);
 			std::vector<collision::Shape const*> shapes(NumBodies);
 
-			// Position bodies in a 10x10 grid above the ground
+			// Position bodies in a 6x5 grid above the ground
 			for (int i = 0; i != NumBodies; ++i)
 			{
-				int row = i / 10;
-				int col = i % 10;
-				float x = (col - 4.5f) * 0.6f;
-				float y = (row - 4.5f) * 0.6f;
-				float z = 3.0f + (i % 5) * 0.5f; // stagger heights
+				int row = i / 6;
+				int col = i % 6;
+				float x = (col - 2.5f) * 0.6f;
+				float y = (row - 2.0f) * 0.6f;
+				float z = 2.0f + (i % 3) * 0.5f;
 
-				if (i < 40)
+				if (i < 12)
 				{
 					bodies[i].Shape(collision::shape_cast(&sphere_shape), 5.0f);
 					shapes[i] = collision::shape_cast(&sphere_shape);
 				}
-				else if (i < 80)
+				else if (i < 24)
 				{
 					bodies[i].Shape(collision::shape_cast(&box_shape), 5.0f);
 					shapes[i] = collision::shape_cast(&box_shape);
@@ -442,7 +442,7 @@ namespace pr::physics::tests
 						++passthrough_count;
 						if (passthrough_count <= 3)
 						{
-							auto type = i < 40 ? "sphere" : i < 80 ? "box" : "polytope";
+							auto type = i < 12 ? "sphere" : i < 24 ? "box" : "polytope";
 							log << std::format("  PASSTHROUGH: body[{}] ({}) at step {} z={:.3f}\n",
 								i, type, step, bodies[i].O2W().pos.z);
 

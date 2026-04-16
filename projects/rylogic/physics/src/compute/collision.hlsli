@@ -405,12 +405,12 @@ inline bool SphereVsBox(
 		out_axis = -world_normal;
 		out_depth = radius - dist;
 
-		// Contact point on box surface in world space
+		// Contact point: midpoint between box surface and sphere surface
 		float4 closest_world = box_centre
 			+ clamped.x * box_w[0]
 			+ clamped.y * box_w[1]
 			+ clamped.z * box_w[2];
-		out_point = closest_world;
+		out_point = closest_world + (0.5f * out_depth) * out_axis;
 		return true;
 	}
 
@@ -431,13 +431,14 @@ inline bool SphereVsBox(
 	out_axis = -world_normal;
 	out_depth = radius + face_dist[min_axis];
 
-	// Contact point: box face
+	// Contact point: midpoint between box face and sphere surface
 	float4 face_pt = local;
 	face_pt[min_axis] = local_normal[min_axis] * half_ext[min_axis];
-	out_point = box_centre
+	float4 face_world = box_centre
 		+ face_pt.x * box_w[0]
 		+ face_pt.y * box_w[1]
 		+ face_pt.z * box_w[2];
+	out_point = face_world + (0.5f * out_depth) * out_axis;
 	return true;
 }
 
