@@ -328,6 +328,429 @@ namespace Rylogic.Maths
 			return m;
 		}
 
+		/// <summary>Return the dot product of two row vectors (both must be 1×N)</summary>
+		public static double Dot(Matrix lhs, Matrix rhs)
+		{
+			Util.Assert(lhs.Vecs == 1 && rhs.Vecs == 1, "Dot product is between row vectors");
+			Util.Assert(lhs.Cmps == rhs.Cmps, "Dot product must be between vectors of the same length");
+
+			var dp = 0.0;
+			for (int i = 0, iend = lhs.Cmps; i != iend; ++i)
+				dp += lhs[0, i] * rhs[0, i];
+			return dp;
+		}
+
+		/// <summary>Householder tridiagonalization: Q^T * A * Q = T</summary>
+		public static void Tridiagonalize(Matrix m, Matrix diag, Matrix sub, Matrix Q)
+		{
+			var N = m.Vecs;
+			Util.Assert(diag.Vecs == 1 && diag.Cmps == N);
+			Util.Assert(sub.Vecs == 1 && sub.Cmps >= N);
+			Util.Assert(Q.Vecs == N && Q.Cmps == N);
+
+			var A = new Matrix(m);
+			var v = new Matrix(1, 0);
+			var p = new Matrix(1, 0);
+			var kk = new Matrix(1, 0);
+			var w = new Matrix(1, 0);
+
+			for (int k = 0; k != N - 2; ++k)
+			{
+				// Build Householder vector to zero out A[k+2:N-1][k] (column k, below sub-diagonal)
+				var sigma = 0.0;
+				for (int i = k + 2; i != N; ++i)
+					sigma += A[i, k] * A[i, k];
+
+				// Machine epsilon for double (~2.22e-16), equivalent to C++ std::numeric_limits<double>::epsilon()
+				const double eps = 2.2204460492503131e-16;
+				if (sigma < eps * eps)
+					continue;
+
+				var alpha = A[k + 1, k];
+				var norm = Math.Sqrt(alpha * alpha + sigma);
+				var beta = (alpha >= 0) ? alpha + norm : alpha - norm;
+
+				// v = [1, A[k+2][k]/beta, ..., A[N-1][k]/beta]
+				v = new Matrix(1, N - k - 1);
+				v[0, 0] = 1.0;
+				for (int i = 1; i != N - k - 1; ++i)
+					v[0, i] = A[k + 1 + i, k] / beta;
+
+				var tau = 2.0 / Dot(v, v);
+
+				// p = tau * A_sub * v, where A_sub = A[k+1:N-1, k+1:N-1]
+				p = new Matrix(1, N - k - 1);
+				for (int i = 0; i != N - k - 1; ++i)
+					for (int j = 0; j != N - k - 1; ++j)
+						p[0, i] += A[k + 1 + i, k + 1 + j] * v[0, j];
+				for (int i = 0; i != p.Size; ++i)
+					p.Data[i] *= tau;
+
+				// kk = p - (tau/2)*(p·v)*v
+				var pv = Dot(p, v);
+				kk = new Matrix(1, N - k - 1);
+				for (int i = 0; i != N - k - 1; ++i)
+					kk[0, i] = p[0, i] - (tau / 2.0) * pv * v[0, i];
+
+				// Update A_sub: A_sub[i][j] -= v[i]*kk[j] + kk[i]*v[j]
+				for (int i = 0; i != N - k - 1; ++i)
+					for (int j = 0; j != N - k - 1; ++j)
+						A[k + 1 + i, k + 1 + j] -= v[0, i] * kk[0, j] + kk[0, i] * v[0, j];
+
+				// Set the sub-diagonal element
+				A[k + 1, k] = -(alpha >= 0 ? 1.0 : -1.0) * norm;
+				A[k, k + 1] = A[k + 1, k];
+				for (int i = k + 2; i != N; ++i)
+				{
+					A[i, k] = 0.0;
+					A[k, i] = 0.0;
+				}
+
+				// Accumulate Q: Q_new = Q * H, where H = I - tau*v*v^T
+				// w[i] = sum_j Q[i][k+1+j] * v[j]
+				w = new Matrix(1, N);
+				for (int i = 0; i != N; ++i)
+					for (int j = 0; j != N - k - 1; ++j)
+						w[0, i] += Q[i, j + k + 1] * v[0, j];
+
+				// Q[i][k+1+j] -= tau * v[j] * w[i]
+				for (int i = 0; i != N; ++i)
+					for (int j = 0; j != N - k - 1; ++j)
+						Q[i, j + k + 1] -= tau * v[0, j] * w[0, i];
+			}
+
+			// Extract diagonal and sub-diagonal
+			for (int i = 0; i != N; ++i)
+				diag[0, i] = A[i, i];
+			for (int i = 1; i != N; ++i)
+				sub[0, i] = A[i, i - 1];
+		}
+
+		/// <summary>Implicit QL iteration with shifts on a symmetric tridiagonal matrix</summary>
+		public static void QLIteration(Matrix d, Matrix e, Matrix Q, int max_iterations)
+		{
+			var N = d.Size;
+
+			for (int l = 0; l != N; ++l)
+			{
+				var iter = 0;
+				while (true)
+				{
+					// Find small sub-diagonal element
+					var m = l;
+					for (; m < N - 1; ++m)
+					{
+						var dd = Math.Abs(d[0, m]) + Math.Abs(d[0, m + 1]);
+						if (Math.Abs(e[0, m + 1]) + dd == dd)
+							break;
+					}
+					if (m == l)
+						break;
+
+					if (++iter > max_iterations)
+						break;
+
+					// QL shift
+					var g = (d[0, l + 1] - d[0, l]) / (2.0 * e[0, l + 1]);
+					var r = Math.Sqrt(g * g + 1.0);
+					g = d[0, m] - d[0, l] + e[0, l + 1] / (g + (g >= 0 ? r : -r));
+
+					var s = 1.0;
+					var c = 1.0;
+					var p = 0.0;
+
+					// Chase the bulge from m-1 down to l
+					for (int i = m - 1; i >= l; --i)
+					{
+						var f = s * e[0, i + 1];
+						var b = c * e[0, i + 1];
+
+						if (Math.Abs(f) >= Math.Abs(g))
+						{
+							c = g / f;
+							r = Math.Sqrt(c * c + 1.0);
+							e[0, i + 2] = f * r;
+							s = 1.0 / r;
+							c *= s;
+						}
+						else
+						{
+							s = f / g;
+							r = Math.Sqrt(s * s + 1.0);
+							e[0, i + 2] = g * r;
+							c = 1.0 / r;
+							s *= c;
+						}
+
+						g = d[0, i + 1] - p;
+						r = (d[0, i] - g) * s + 2.0 * c * b;
+						p = s * r;
+						d[0, i + 1] = g + p;
+						g = c * r - b;
+
+						// Accumulate eigenvectors: rotate columns i and i+1 of Q
+						for (int k = 0; k != N; ++k)
+						{
+							var qi1 = Q[k, i + 1];
+							Q[k, i + 1] = s * Q[k, i] + c * qi1;
+							Q[k, i]     = c * Q[k, i] - s * qi1;
+						}
+					}
+
+					d[0, l] -= p;
+					e[0, l + 1] = g;
+					e[0, m + 1] = 0.0;
+				}
+			}
+		}
+
+		/// <summary>Result of an eigen decomposition</summary>
+		public struct EigenResult
+		{
+			/// <summary>1×N row vector of eigenvalues, sorted descending. Access as Values[0, i].</summary>
+			public Matrix Values;
+
+			/// <summary>N×N (or N×k) matrix where column i is the eigenvector for Values[0, i].</summary>
+			public Matrix Vectors;
+		}
+
+		/// <summary>
+		/// Compute all eigenvalues and eigenvectors of a real symmetric matrix using
+		/// Householder tridiagonalization followed by implicit QL iteration with shifts.
+		/// Returns eigenvalues in descending order with corresponding eigenvectors as columns.
+		/// </summary>
+		public static EigenResult EigenSymmetric(Matrix m, int max_iterations = 200)
+		{
+			var N = m.Vecs;
+			if (!m.IsSquare)
+				throw new Exception("EigenSymmetric requires a square matrix");
+
+			if (N == 0)
+				return new EigenResult { Values = new Matrix(1, 0), Vectors = new Matrix(0, 0) };
+
+			if (N == 1)
+			{
+				var vals = new Matrix(1, 1, new[] { m[0, 0] });
+				var vecs = Identity(1, 1);
+				return new EigenResult { Values = vals, Vectors = vecs };
+			}
+
+			// Phase 1: Householder tridiagonalization
+			var diag = new Matrix(1, N);
+			var sub = new Matrix(1, N + 1); // +1: QL iteration may access e(N) as scratch
+			var Q = Identity(N, N);
+			Tridiagonalize(m, diag, sub, Q);
+
+			// Phase 2: Implicit QL iteration on the tridiagonal matrix
+			QLIteration(diag, sub, Q, max_iterations);
+
+			// Build result sorted by descending eigenvalue
+			var order = new int[N];
+			for (int i = 0; i != N; ++i)
+				order[i] = i;
+			Array.Sort(order, (a, b) => diag[0, b].CompareTo(diag[0, a]));
+
+			var sorted_vals = new Matrix(1, N);
+			var sorted_vecs = new Matrix(N, N);
+			for (int i = 0; i != N; ++i)
+			{
+				sorted_vals[0, i] = diag[0, order[i]];
+
+				// Copy column order[i] of Q into column i of sorted_vecs
+				for (int r = 0; r != N; ++r)
+					sorted_vecs[r, i] = Q[r, order[i]];
+			}
+			return new EigenResult { Values = sorted_vals, Vectors = sorted_vecs };
+		}
+
+		/// <summary>
+		/// Compute the top-k eigenvalues and eigenvectors of a real symmetric matrix using the Lanczos algorithm.
+		/// Much faster than full decomposition when k &lt;&lt; N (e.g., MDS needs only 3 eigenpairs from a 1000×1000 matrix).
+		/// Returns eigenvalues in descending order with corresponding eigenvectors as columns.
+		/// </summary>
+		public static EigenResult EigenTopK(Matrix m, int k_, int max_iterations = 0)
+		{
+			var N = m.Vecs;
+			if (!m.IsSquare)
+				throw new Exception("EigenTopK requires a square matrix");
+
+			var k = Math.Min(k_, N);
+			if (N == 0 || k == 0)
+				return new EigenResult { Values = new Matrix(1, 0), Vectors = new Matrix(0, 0) };
+
+			// For small matrices or when k is close to N, fall back to full decomposition
+			if (N <= 32 || k * 4 >= N * 3)
+			{
+				var full = EigenSymmetric(m);
+
+				// Truncate to top-k
+				var NN = full.Vectors.Vecs;
+				var tvals = new Matrix(1, k);
+				var tvecs = new Matrix(NN, k);
+				for (int i = 0; i != k; ++i)
+				{
+					tvals[0, i] = full.Values[0, i];
+					for (int r = 0; r != NN; ++r)
+						tvecs[r, i] = full.Vectors[r, i];
+				}
+				return new EigenResult { Values = tvals, Vectors = tvecs };
+			}
+
+			// Lanczos iteration dimension: must be >= k, use min(2k+10, N) for good convergence
+			var lanczos_dim = Math.Min(2 * k + 10, N);
+			var max_iter = max_iterations > 0 ? max_iterations : 3;
+
+			// Run Lanczos with restarts for better convergence
+			var alpha = new Matrix(1, lanczos_dim);
+			var beta_ = new Matrix(1, lanczos_dim);
+			var V = new Matrix(lanczos_dim, N);
+
+			var best_result = new EigenResult { Values = new Matrix(1, 0), Vectors = new Matrix(0, 0) };
+			var best_residual = double.MaxValue;
+
+			var q = new Matrix(1, N);
+			var q_prev = new Matrix(1, N);
+			var w = new Matrix(1, N);
+
+			for (int restart = 0; restart != max_iter; ++restart)
+			{
+				// Starting vector: use the first Ritz vector from previous run, or [1,1,...,1]/sqrt(N)
+				if (restart == 0)
+				{
+					var inv_sqrt_n = 1.0 / Math.Sqrt(N);
+					for (int i = 0; i != N; ++i)
+						q[0, i] = inv_sqrt_n;
+				}
+				else
+				{
+					for (int i = 0; i != N; ++i)
+						q[0, i] = best_result.Vectors[i, 0];
+				}
+
+				// Lanczos iteration
+				q_prev.Zero();
+				for (int j = 0; j != lanczos_dim; ++j)
+				{
+					// Store basis vector
+					for (int i = 0; i != N; ++i)
+						V[j, i] = q[0, i];
+
+					// w = A * q (A is symmetric, so A(i,j) = A(j,i))
+					w.Zero();
+					for (int i = 0; i != N; ++i)
+						for (int jj = 0; jj != N; ++jj)
+							w[0, i] += m[i, jj] * q[0, jj];
+
+					// alpha[j] = q^T * w
+					alpha[0, j] = 0.0;
+					for (int i = 0; i != N; ++i)
+						alpha[0, j] += q[0, i] * w[0, i];
+
+					// w = w - alpha[j]*q - beta[j]*q_prev
+					for (int i = 0; i != N; ++i)
+						w[0, i] -= alpha[0, j] * q[0, i] + (j > 0 ? beta_[0, j] * q_prev[0, i] : 0.0);
+
+					// Full reorthogonalization against all previous Lanczos vectors
+					for (int jj = 0; jj <= j; ++jj)
+					{
+						var dot = 0.0;
+						for (int i = 0; i != N; ++i)
+							dot += w[0, i] * V[jj, i];
+						for (int i = 0; i != N; ++i)
+							w[0, i] -= dot * V[jj, i];
+					}
+
+					// beta[j+1] = ||w||
+					var norm_w = 0.0;
+					for (int i = 0; i != N; ++i)
+						norm_w += w[0, i] * w[0, i];
+					norm_w = Math.Sqrt(norm_w);
+
+					if (j + 1 < lanczos_dim)
+					{
+						beta_[0, j + 1] = norm_w;
+
+						// Prepare next q
+						q_prev = new Matrix(q);
+						if (norm_w > 2.2204460492503131e-16 * 100.0)
+						{
+							for (int i = 0; i != N; ++i)
+								q[0, i] = w[0, i] / norm_w;
+						}
+						else
+						{
+							break; // Invariant subspace found
+						}
+					}
+				}
+
+				// Build the tridiagonal matrix T and solve its eigenproblem (small: lanczos_dim × lanczos_dim)
+				var T = new Matrix(lanczos_dim, lanczos_dim);
+				for (int i = 0; i != lanczos_dim; ++i)
+				{
+					T[i, i] = alpha[0, i];
+					if (i + 1 < lanczos_dim)
+					{
+						T[i, i + 1] = beta_[0, i + 1];
+						T[i + 1, i] = beta_[0, i + 1];
+					}
+				}
+
+				// Full eigendecomposition of small tridiagonal matrix
+				var t_eigen = EigenSymmetric(T);
+
+				// Compute Ritz vectors: eigenvectors in original space = V^T * (T's eigenvectors)
+				var result = new EigenResult
+				{
+					Values = new Matrix(1, k),
+					Vectors = new Matrix(N, k),
+				};
+
+				for (int i = 0; i != k; ++i)
+				{
+					result.Values[0, i] = t_eigen.Values[0, i];
+					for (int r = 0; r != N; ++r)
+					{
+						var val = 0.0;
+						for (int j = 0; j != lanczos_dim; ++j)
+							val += t_eigen.Vectors[j, i] * V[j, r];
+						result.Vectors[r, i] = val;
+					}
+				}
+
+				// Check convergence via residual norm of the k-th Ritz pair
+				var residual = 0.0;
+				for (int i = 0; i != k; ++i)
+				{
+					var max_res = 0.0;
+					for (int r = 0; r != N; ++r)
+					{
+						var av = 0.0;
+						for (int c = 0; c != N; ++c)
+							av += m[r, c] * result.Vectors[c, i];
+						var diff = Math.Abs(av - result.Values[0, i] * result.Vectors[r, i]);
+						max_res = Math.Max(max_res, diff);
+					}
+					residual = Math.Max(residual, max_res);
+				}
+
+				if (residual < best_residual)
+				{
+					best_residual = residual;
+					best_result = result;
+				}
+
+				// Converged if residual is small enough
+				var scale = 0.0;
+				for (int i = 0; i != k; ++i)
+					scale = Math.Max(scale, Math.Abs(best_result.Values[0, i]));
+				if (best_residual < 2.2204460492503131e-16 * scale * 100.0)
+					break;
+			}
+
+			return best_result;
+		}
+
 		/// <summary>Parse a matrix from a string</summary>
 		public static Matrix Parse(string s)
 		{
@@ -1012,6 +1435,146 @@ namespace Rylogic.UnitTests
 					Assert.True(Matrix.FEql(i0, i1));
 					Assert.True(Matrix.FEql(i0, i2));
 					break;
+				}
+			}
+		}
+
+		[Test]
+		public void DotProduct()
+		{
+			var a = new Matrix(1, 3, new double[] { 1.0, 2.0, 3.0 });
+			var b = new Matrix(1, 3, new double[] { 3.0, 2.0, 1.0 });
+			var r = Matrix.Dot(a, b);
+			Assert.True(Math.Abs(r - 10.0) < 1e-10);
+		}
+
+		[Test]
+		public void EigenSymmetricIdentity()
+		{
+			// Identity matrix: eigenvalues all 1
+			var I = Matrix.Identity(3, 3);
+			var result = Matrix.EigenSymmetric(I);
+
+			Assert.True(result.Values.Cmps == 3);
+			for (int i = 0; i != 3; ++i)
+				Assert.True(Math.Abs(result.Values[0, i] - 1.0) < 1e-10);
+		}
+
+		[Test]
+		public void EigenSymmetricDiagonal()
+		{
+			// Diagonal matrix: eigenvalues are the diagonal entries, sorted descending
+			var D = new Matrix(3, 3, new double[] { 5, 0, 0, 0, 2, 0, 0, 0, 8 });
+			var result = Matrix.EigenSymmetric(D);
+
+			Assert.True(Math.Abs(result.Values[0, 0] - 8.0) < 1e-10);
+			Assert.True(Math.Abs(result.Values[0, 1] - 5.0) < 1e-10);
+			Assert.True(Math.Abs(result.Values[0, 2] - 2.0) < 1e-10);
+		}
+
+		[Test]
+		public void EigenSymmetricKnown3x3()
+		{
+			// M = [2 1 0; 1 3 1; 0 1 2] has eigenvalues 4, 2, 1
+			var M = new Matrix(3, 3, new double[] { 2, 1, 0, 1, 3, 1, 0, 1, 2 });
+			var result = Matrix.EigenSymmetric(M);
+
+			Assert.True(Math.Abs(result.Values[0, 0] - 4.0) < 1e-8);
+			Assert.True(Math.Abs(result.Values[0, 1] - 2.0) < 1e-8);
+			Assert.True(Math.Abs(result.Values[0, 2] - 1.0) < 1e-8);
+
+			// Verify eigenvectors: M*v should equal λ*v
+			for (int k = 0; k != 3; ++k)
+			{
+				var lambda = result.Values[0, k];
+				for (int r = 0; r != 3; ++r)
+				{
+					var mv = 0.0;
+					for (int c = 0; c != 3; ++c)
+						mv += M[r, c] * result.Vectors[c, k];
+
+					var lv = lambda * result.Vectors[r, k];
+					Assert.True(Math.Abs(mv - lv) < 1e-8);
+				}
+			}
+		}
+
+		[Test]
+		public void EigenSymmetricLarger()
+		{
+			// 5×5 symmetric matrix
+			var M = new Matrix(5, 5, new double[]
+			{
+				 4, 1, -2,  2, 0,
+				 1, 2,  0,  1, 0,
+				-2, 0,  3, -2, 0,
+				 2, 1, -2,  5, 0,
+				 0, 0,  0,  0, 1,
+			});
+			var result = Matrix.EigenSymmetric(M);
+
+			// Verify A*v = lambda*v for each eigenpair
+			for (int k = 0; k != 5; ++k)
+			{
+				var lambda = result.Values[0, k];
+				for (int r = 0; r != 5; ++r)
+				{
+					var mv = 0.0;
+					for (int c = 0; c != 5; ++c)
+						mv += M[r, c] * result.Vectors[c, k];
+
+					var lv = lambda * result.Vectors[r, k];
+					Assert.True(Math.Abs(mv - lv) < 1e-6);
+				}
+			}
+		}
+
+		[Test]
+		public void EigenSymmetricSingleElement()
+		{
+			// 1×1 matrix: eigenvalue is the single element
+			var M = new Matrix(1, 1, new double[] { 7.0 });
+			var result = Matrix.EigenSymmetric(M);
+			Assert.True(result.Values.Cmps == 1);
+			Assert.True(Math.Abs(result.Values[0, 0] - 7.0) < 1e-10);
+		}
+
+		[Test]
+		public void EigenSymmetricEmpty()
+		{
+			// 0×0 matrix: empty result
+			var M = new Matrix(0, 0);
+			var result = Matrix.EigenSymmetric(M);
+			Assert.True(result.Values.Cmps == 0);
+			Assert.True(result.Vectors.Cmps == 0);
+		}
+
+		[Test]
+		public void EigenTopKSmall()
+		{
+			// Top-2 eigenpairs of a 3×3 matrix
+			var M = new Matrix(3, 3, new double[] { 2, 1, 0, 1, 3, 1, 0, 1, 2 });
+			var result = Matrix.EigenTopK(M, 2);
+
+			Assert.True(result.Values.Cmps == 2);
+			Assert.True(result.Vectors.Vecs == 3);
+			Assert.True(result.Vectors.Cmps == 2);
+
+			Assert.True(Math.Abs(result.Values[0, 0] - 4.0) < 1e-8);
+			Assert.True(Math.Abs(result.Values[0, 1] - 2.0) < 1e-8);
+
+			// Verify A*v = lambda*v
+			for (int k = 0; k != 2; ++k)
+			{
+				var lambda = result.Values[0, k];
+				for (int r = 0; r != 3; ++r)
+				{
+					var mv = 0.0;
+					for (int c = 0; c != 3; ++c)
+						mv += M[r, c] * result.Vectors[c, k];
+
+					var lv = lambda * result.Vectors[r, k];
+					Assert.True(Math.Abs(mv - lv) < 1e-8);
 				}
 			}
 		}
