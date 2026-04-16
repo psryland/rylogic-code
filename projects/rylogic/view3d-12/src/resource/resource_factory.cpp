@@ -469,6 +469,7 @@ namespace pr::rdr12
 				auto [images, tdesc] = LoadImageData(data, 1, false, 0, &rdr().Features());
 				desc.m_tdesc = tdesc;
 				desc.m_tdesc.Data = images;
+				desc.m_tdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
 				res = CreateResource(desc.m_tdesc, desc.m_name);
@@ -483,6 +484,8 @@ namespace pr::rdr12
 		{
 			using namespace std::filesystem;
 			auto filepath = resource_path.lexically_normal();
+			if (filepath.empty())
+				return CreateTexture(EStockTexture::Black);
 
 			// Generate an id from the filepath
 			desc.m_uri = MakeId(filepath.c_str());
@@ -497,11 +500,14 @@ namespace pr::rdr12
 				// If the texture filepath doesn't exist, use the resolve event
 				if (!exists(filepath))
 					filepath = rdr().ResolvePath(filepath.string());
+				if (!exists(filepath))
+					return CreateTexture(EStockTexture::Black);
 
 				// Load the texture from disk
 				auto [images, tdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features());
 				desc.m_tdesc = tdesc;
 				desc.m_tdesc.Data = images;
+				desc.m_tdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
 				res = CreateResource(desc.m_tdesc, desc.m_name);
@@ -579,6 +585,7 @@ namespace pr::rdr12
 				auto [images, tdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
 				desc.m_tdesc = tdesc;
 				desc.m_tdesc.Data = images;
+				desc.m_tdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
 				res = CreateResource(desc.m_tdesc, desc.m_name);
@@ -632,6 +639,7 @@ namespace pr::rdr12
 				tdesc.DepthOrArraySize = s_cast<UINT16>(images.ssize());
 				desc.m_tdesc = tdesc;
 				desc.m_tdesc.Data = images;
+				desc.m_tdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
 				res = CreateResource(desc.m_tdesc, desc.m_name);

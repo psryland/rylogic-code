@@ -20,7 +20,7 @@ namespace pr::rdr12
 	// Use structured binding. i.e. auto [image, desc] = LoadDDS(...);
 	struct LoadedImageResult
 	{
-		pr::vector<ImageWithData> images; // Each image is an array slice (not a mip map)
+		vector<ImageWithData> images; // Each image is an array slice (not a mip map)
 		D3D12_RESOURCE_DESC desc = {};
 	};
 
@@ -50,26 +50,26 @@ namespace pr::rdr12
 		// If the file is a DDS file, use the faster DDS loader.
 		// This does not support some DDS formats tho, so might be worth trying the 'directxtex' DDS loader
 		auto extn = filepaths[0].extension();
-		auto dds = _wcsicmp(extn.c_str(), L"dds") == 0;
+		auto dds = extn.compare(L".dds") == 0;
 
 		if (dds)
 		{
 			if (filepaths.size() != 1)
 				throw std::runtime_error("Only single DDS textures are supported since they natively support texture arrays and cube maps");
 
-			return std::move(LoadDDS(filepaths[0], mips, is_cube_map, max_dimension));
+			return LoadDDS(filepaths[0], mips, is_cube_map, max_dimension);
 		}
 		else
 		{
 			if (is_cube_map && filepaths.size() != 6)
 				throw std::runtime_error("Expected 6 images for a cube map");
 
-			return std::move(LoadWIC(filepaths, mips, max_dimension, features));
+			return LoadWIC(filepaths, mips, max_dimension, features);
 		}
 	}
 	inline LoadedImageResult LoadImageData(std::filesystem::path const& filepath, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
 	{
-		return std::move(LoadImageData({ &filepath, 1 }, mips, is_cube_map, max_dimension, features));
+		return LoadImageData({ &filepath, 1 }, mips, is_cube_map, max_dimension, features);
 	}
 	inline LoadedImageResult LoadImageData(std::span<std::span<uint8_t const>> const& images, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
 	{
@@ -83,18 +83,18 @@ namespace pr::rdr12
 			if (images.size() != 1)
 				throw std::runtime_error("Only single DDS textures are supported since they natively support texture arrays and cube maps");
 
-			return std::move(LoadDDS(images[0], mips, is_cube_map, max_dimension));
+			return LoadDDS(images[0], mips, is_cube_map, max_dimension);
 		}
 		else
 		{
 			if (is_cube_map && images.size() != 6)
 				throw std::runtime_error("Expected 6 images for a cube map");
 
-			return std::move(LoadWIC(images, mips, max_dimension, features));
+			return LoadWIC(images, mips, max_dimension, features);
 		}
 	}
 	inline LoadedImageResult LoadImageData(std::span<uint8_t const> data, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
 	{
-		return std::move(LoadImageData(std::span{ &data, 1 }, mips, is_cube_map, max_dimension, features));
+		return LoadImageData(std::span{ &data, 1 }, mips, is_cube_map, max_dimension, features);
 	}
 }

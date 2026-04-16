@@ -102,9 +102,10 @@ namespace Rylogic.Gfx
 				(byte)Math_.Clamp(lhs.B * t0 + rhs.B * t1, 0, 0xff)
 			);
 		}
+
+		/// <summary>Lerp over a range of colours. e.g. Colour32.Lerp(i/9.0, new[] { (Colour32.White, 0.2), (Colour32.Yellow, 0.5), (Colour32.Red, 1.0) });</summary>
 		public static Colour32 Lerp(double t, params (Colour32, double)[] p)
 		{
-			// e.g. Colour32.Lerp(i/9.0, new[] { (Colour32.White, 0.2), (Colour32.Yellow, 0.5), (Colour32.Red, 1.0) });
 			if (p.Length == 0)
 				throw new Exception("Colour32.Lerp requires at least one colour to blend");
 

@@ -671,7 +671,7 @@ namespace Rylogic.LDraw
 			if (m_filepath.Length == 0) return;
 			res.Write(EKeyword.Texture, () =>
 			{
-				res.Write(EKeyword.FilePath, "\"", m_filepath, "\"");
+				res.Write(EKeyword.FilePath, $"\"{m_filepath}\"");
 				res.Write(EKeyword.Addr, m_addr[0], m_addr[1]);
 				res.Write(EKeyword.Filter, m_filter);
 				res.Append(m_has_alpha);
@@ -2441,6 +2441,7 @@ namespace Rylogic.LDraw
 		private v2 m_wh = new(1f, 1f);
 		private Serialiser.CornerRadius m_corner_radius = new();
 		private Serialiser.Facets m_facets = new();
+		private LdrTexture m_tex = new();
 
 		public LdrRect wh(double w, double h)
 		{
@@ -2461,6 +2462,15 @@ namespace Rylogic.LDraw
 			m_facets = new(count);
 			return this;
 		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+		public LdrRect texture(Action<LdrTexture> a)
+		{
+			a(texture());
+			return this;
+		}
 
 		public override void WriteTo(IWriter res)
 		{
@@ -2468,6 +2478,7 @@ namespace Rylogic.LDraw
 			{
 				res.Write(EKeyword.Data, m_wh);
 				res.Append(m_corner_radius, m_facets);
+				m_tex.WriteTo(res);
 				base.WriteTo(res);
 			});
 		}

@@ -240,7 +240,10 @@ namespace Rylogic.Gui.WPF
 				{
 					if (RenderPending) return;
 					RenderPending = true;
-					InvalidateVisual();
+
+					// Defer the visual invalidation to avoid reentrancy when the native code
+					// triggers an invalidate during a store change notification (e.g. file load).
+					Dispatcher.BeginInvoke(InvalidateVisual);
 				}
 			}
 		} = null!;
