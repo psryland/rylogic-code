@@ -199,13 +199,13 @@ namespace pr::rdr12
 	}
 
 	// Return an array of 'Image's and a resource description from DDS image data.
-	LoadedImageResult LoadWIC(pr::vector<RefPtr<IWICBitmapFrameDecode>> frames, int mips, int max_dimension, FeatureSupport const* features)
+	LoadedImageResult LoadWIC(vector<RefPtr<IWICBitmapFrameDecode>> const& frames, int mips, int max_dimension, FeatureSupport const* features)
 	{
 		if (frames.empty())
 			throw std::runtime_error("No image frames provided");
 
 		// Assume the image properties are the same for all images in the array
-		auto& first = frames[0];
+		auto const& first = frames[0];
 
 		// Read the image dimensions
 		UINT width, height;
@@ -320,7 +320,7 @@ namespace pr::rdr12
 				{
 					WICPixelFormatGUID pf;
 					Check(wic->CreateBitmapScaler(scaler.address_of()));
-					Check(scaler->Initialize(frame.get(), s_cast<UINT>(dim.x), s_cast<UINT>(dim.y), WICBitmapInterpolationModeFant));
+					Check(scaler->Initialize(const_cast<IWICBitmapFrameDecode*>(frame.get()), s_cast<UINT>(dim.x), s_cast<UINT>(dim.y), WICBitmapInterpolationModeFant));
 					Check(scaler->GetPixelFormat(&pf));
 					conversion_needed = pf != dst_format;
 				}
@@ -329,7 +329,7 @@ namespace pr::rdr12
 				if (conversion_needed)
 				{
 					Check(wic->CreateFormatConverter(converter.address_of()));
-					Check(converter->Initialize(frame.get(), dst_format, WICBitmapDitherTypeErrorDiffusion, 0, 0, WICBitmapPaletteTypeCustom));
+					Check(converter->Initialize(const_cast<IWICBitmapFrameDecode*>(frame.get()), dst_format, WICBitmapDitherTypeErrorDiffusion, 0, 0, WICBitmapPaletteTypeCustom));
 				}
 
 				// Copy the data with optional reformat and resize
@@ -365,7 +365,7 @@ namespace pr::rdr12
 		auto wic = GetWIC();
 
 		// Load each image frame
-		pr::vector<RefPtr<IWICBitmapFrameDecode>> frames;
+		vector<RefPtr<IWICBitmapFrameDecode>> frames;
 		for (int i = 0, iend = s_cast<int>(images.size()); i != iend; ++i)
 		{
 			auto const& img = images[i];
@@ -386,14 +386,14 @@ namespace pr::rdr12
 		}
 
 		// Create the texture
-		return std::move(LoadWIC(frames, mips, max_dimension, features));
+		return LoadWIC(frames, mips, max_dimension, features);
 	}
 	LoadedImageResult LoadWIC(std::span<std::filesystem::path const> filepaths, int mips, int max_dimension, FeatureSupport const* features)
 	{
 		auto wic = GetWIC();
 
 		// Load each image
-		pr::vector<RefPtr<IWICBitmapFrameDecode>> frames;
+		vector<RefPtr<IWICBitmapFrameDecode>> frames;
 		for (auto& path : filepaths)
 		{
 			// Initialize WIC image decoder
@@ -409,7 +409,7 @@ namespace pr::rdr12
 		}
 
 		// Create the texture
-		return std::move(LoadWIC(frames, mips, max_dimension, features));
+		return LoadWIC(frames, mips, max_dimension, features);
 	}
 }
 

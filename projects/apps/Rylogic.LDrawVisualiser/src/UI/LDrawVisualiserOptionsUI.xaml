@@ -1,0 +1,48 @@
+<UserControl x:Class="Rylogic.LDrawVisualiser.LDrawVisualiserOptionsUI"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Padding="8">
+
+	<ScrollViewer VerticalScrollBarVisibility="Auto">
+		<StackPanel>
+			<!-- Default Script Text -->
+			<TextBlock Text="Default Script Text:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="The initial script shown when no saved script exists." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_script_text"
+				AcceptsReturn="True"
+				AcceptsTab="True"
+				TextWrapping="Wrap"
+				FontFamily="Consolas"
+				FontSize="12"
+				MinHeight="120"
+				MaxHeight="300"
+				VerticalScrollBarVisibility="Auto"
+				Margin="0,0,0,16"/>
+
+			<!-- Default Address -->
+			<TextBlock Text="Default Address:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="The default host:port for LDraw streaming (e.g. localhost:1976)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_address_text" Width="250" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+
+			<!-- Default Auto-Refresh -->
+			<CheckBox x:Name="m_auto_refresh_check" Content="Auto-refresh on break (default)" Margin="0,0,0,8"/>
+
+			<!-- Auto Compile on Save -->
+			<CheckBox x:Name="m_auto_compile_on_save_check" Content="Auto compile and run on save (Ctrl+S)" Margin="0,0,0,16"/>
+
+			<!-- Reference Assemblies -->
+			<TextBlock Text="Reference Assemblies:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+			<TextBlock Text="Assembly reference directives written to LDrawVisualiser.csx (one per line)." FontSize="11" Foreground="Gray" Margin="0,0,0,4"/>
+			<TextBox x:Name="m_reference_assemblies_text"
+				AcceptsReturn="True"
+				TextWrapping="NoWrap"
+				FontFamily="Consolas"
+				FontSize="12"
+				MinHeight="60"
+				MaxHeight="200"
+				VerticalScrollBarVisibility="Auto"
+				HorizontalScrollBarVisibility="Auto"
+				Margin="0,0,0,16"/>
+		</StackPanel>
+	</ScrollViewer>
+</UserControl>

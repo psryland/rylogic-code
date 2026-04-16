@@ -71,7 +71,7 @@ namespace Rylogic.Gui.WPF
 				void HandleMouseUp(object sender, MouseButtonEventArgs e)
 				{
 					if (e.ChangedButton == MouseButton.Left && e.LeftButton == MouseButtonState.Released)
-						Measurement.MouseUp();
+						Measurement.MouseUp(e.GetPosition(field).ToV2());
 				}
 			}
 		} = null!;

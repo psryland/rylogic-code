@@ -42,18 +42,18 @@ namespace pr::rdr12
 		, m_dsv()
 		, m_id(desc.m_id == AutoId ? MakeId(this) : desc.m_id)
 		, m_uri(desc.m_uri)
-		, m_dim(s_cast<int>(desc.m_tdesc.Width), s_cast<int>(desc.m_tdesc.Height), s_cast<int>(desc.m_tdesc.DepthOrArraySize))
+		, m_dim(s_cast<int>(desc.m_rdesc.Width), s_cast<int>(desc.m_rdesc.Height), s_cast<int>(desc.m_rdesc.DepthOrArraySize))
 		, m_tflags(desc.m_has_alpha ? ETextureFlag::HasAlpha : ETextureFlag::None)
 		, m_name(desc.m_name)
 	{
 		auto device = rdr.d3d();
-		auto tdesc = desc.m_tdesc;
+		auto const& rdesc = desc.m_rdesc;
 
 		// Create views for the texture
-		if (AllSet(tdesc.Flags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == false)
+		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == false)
 		{
 			// Check the texture format is supported
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {tdesc.Format};
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE))
 				throw std::runtime_error("Texture format is not supported as a shader resource view");
@@ -61,8 +61,8 @@ namespace pr::rdr12
 			// Create the SRV
 			ResourceStore::Access store(rdr);
 			D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
-				.Format = tdesc.Format,
-				.ViewDimension = desc.m_tdesc.SrvDimension(),
+				.Format = rdesc.Format,
+				.ViewDimension = desc.m_rdesc.SrvDimension(),
 				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				.Texture2D = {
 					.MostDetailedMip = 0,
@@ -73,10 +73,10 @@ namespace pr::rdr12
 			};
 			m_srv = store.Descriptors().Create(res, srv_desc);
 		}
-		if (AllSet(tdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
 		{
 			// Check the texture format is supported
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {tdesc.Format};
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) ||
 				!AllSet(support.Support2, D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD) ||
@@ -86,7 +86,7 @@ namespace pr::rdr12
 			// Create the UAV
 			ResourceStore::Access store(rdr);
 			D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc = {
-				.Format = tdesc.Format,
+				.Format = rdesc.Format,
 				.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
 				.Texture2D = {
 					.MipSlice = 0,
@@ -95,9 +95,9 @@ namespace pr::rdr12
 			};
 			m_uav = store.Descriptors().Create(res, uav_desc);
 		}
-		if (AllSet(tdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
 		{
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {tdesc.Format};
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
 				throw std::runtime_error("Texture format is not supported as a render target view");
@@ -105,14 +105,14 @@ namespace pr::rdr12
 			// Create the RTV
 			ResourceStore::Access store(rdr);
 			D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {
-				.Format = tdesc.Format,
-				.ViewDimension = desc.m_tdesc.RtvDimension(),
+				.Format = rdesc.Format,
+				.ViewDimension = desc.m_rdesc.RtvDimension(),
 			};
 			m_rtv = store.Descriptors().Create(res, rtv_desc);
 		}
-		if (AllSet(tdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
 		{
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {tdesc.Format};
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
 				throw std::runtime_error("Texture format is not supported as a depth stencil view");
@@ -120,8 +120,8 @@ namespace pr::rdr12
 			// Create the DSV
 			ResourceStore::Access store(rdr);
 			D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {
-				.Format = tdesc.Format,
-				.ViewDimension = desc.m_tdesc.DsvDimension(),
+				.Format = rdesc.Format,
+				.ViewDimension = desc.m_rdesc.DsvDimension(),
 				.Flags = D3D12_DSV_FLAGS::D3D12_DSV_FLAG_NONE,
 			};
 			m_dsv = store.Descriptors().Create(res, dsv_desc);

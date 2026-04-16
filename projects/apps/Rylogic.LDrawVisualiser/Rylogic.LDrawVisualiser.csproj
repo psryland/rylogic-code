@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFrameworks>net481</TargetFrameworks>
+		<RootNamespace>Rylogic.LDrawVisualiser</RootNamespace>
+		<AssemblyName>Rylogic.LDrawVisualiser</AssemblyName>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+
+	<!-- Assembly properties -->
+	<PropertyGroup>
+		<Description>LDraw Debugger Visualiser for Visual Studio by Rylogic.</Description>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<CustomAfterMicrosoftCSharpTargets Condition="$(VsSDKInstall) != ''">$(VsSDKInstall)\Microsoft.VsSDK.targets</CustomAfterMicrosoftCSharpTargets>
+		<PackageOutputPath>bin\$(Configuration)</PackageOutputPath>
+		<IncludeOutputInVSIX>true</IncludeOutputInVSIX>
+		<IncludeDebugSymbolsInVSIXContainer Condition="'$(Configuration)' == 'Debug'">true</IncludeDebugSymbolsInVSIXContainer>
+		<IncludeDebugSymbolsInLocalVSIXDeployment Condition="'$(Configuration)' == 'Debug'">true</IncludeDebugSymbolsInLocalVSIXDeployment>
+		<IsPackaging>false</IsPackaging>
+		<IsPackable>false</IsPackable>
+		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+		<Version>1.0.0</Version>
+	</PropertyGroup>
+
+	<!-- Enables F5 debugging into experimental instance -->
+	<PropertyGroup>
+		<StartAction>Program</StartAction>
+		<StartProgram>$(DevEnvDir)devenv.exe</StartProgram>
+		<StartArguments>/rootSuffix Exp /log</StartArguments>
+	</PropertyGroup>
+
+	<!-- References -->
+	<ItemGroup>
+		<Reference Include="WindowsFormsIntegration" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" />
+		<PackageReference Include="Microsoft.CSharp" />
+		<PackageReference Include="Microsoft.VisualStudio.SDK" />
+		<PackageReference Include="Microsoft.VSSDK.BuildTools">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+
+	<!-- VSCT command table -->
+	<ItemGroup>
+		<VSCTCompile Include="Rylogic.LDrawVisualiser.vsct">
+			<ResourceName>Menus.ctmenu</ResourceName>
+		</VSCTCompile>
+	</ItemGroup>
+
+	<!-- Icons -->
+	<ItemGroup>
+		<Content Include="res\menu_icon_16x16.png">
+			<IncludeInVSIX>true</IncludeInVSIX>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="res\icon.png">
+			<IncludeInVSIX>true</IncludeInVSIX>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+
+	<Target Name="GetVersion" Returns="$(Version)" />
+
+</Project>

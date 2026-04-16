@@ -94,6 +94,10 @@ namespace Rylogic.LDraw
 		{
 			Append(BitConverter.GetBytes((int)keyword));
 		}
+		private void Append(ECommandId cmd)
+		{
+			Append(BitConverter.GetBytes((int)cmd));
+		}
 		private void Append(bool b)
 		{
 			m_res.WriteByte((byte)(b ? 1 : 0));

@@ -77,6 +77,9 @@ namespace pr::rdr12
 		template <typename Char>
 		ldraw::LdrObject* ObjectCreateLdr(std::basic_string_view<Char> ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
 
+		// Load/Add ldr objects and return the first object from the binary script
+		ldraw::LdrObject* ObjectCreateLdr(std::span<std::byte const> binary, Guid const* context_id);
+
 		// Create an LdrObject from the p3d model
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, Guid const* context_id);
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::span<std::byte const> p3d_data, Guid const* context_id);

@@ -814,7 +814,7 @@ namespace Rylogic.Gfx
 			public ulong size;
 
 			/// <summary>Convert native string view to managed string</summary>
-			public static implicit operator string(StrView sv) => Marshal.PtrToStringAnsi(sv.ptr, (int)sv.size) ?? string.Empty;
+			public static implicit operator string(StrView sv) => sv.ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(sv.ptr, (int)sv.size) ?? string.Empty : string.Empty;
 		};
 
 		/// <summary>Interop wstring view</summary>
@@ -825,7 +825,7 @@ namespace Rylogic.Gfx
 			public ulong size;
 
 			/// <summary>Convert native wide string view to managed string</summary>
-			public static implicit operator string(WStrView sv) => Marshal.PtrToStringUni(sv.ptr, (int)sv.size) ?? string.Empty;
+			public static implicit operator string(WStrView sv) => sv.ptr != IntPtr.Zero ? Marshal.PtrToStringUni(sv.ptr, (int)sv.size) ?? string.Empty : string.Empty;
 		};
 
 		/// <summary></summary>
@@ -1976,6 +1976,9 @@ namespace Rylogic.Gfx
 		// Create an graphics object from ldraw script, either a string or a file 
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateLdrA([MarshalAs(UnmanagedType.LPStr)] string ldr_script, bool file, ref Guid context_id, ref Includes includes);
 		[DllImport(Dll, CharSet = CharSet.Unicode)] private static extern HObject View3D_ObjectCreateLdrW([MarshalAs(UnmanagedType.LPWStr)] string ldr_script, bool file, ref Guid context_id, ref Includes includes);
+
+		// Create an graphics object from binary ldr script
+		[DllImport(Dll)] private static extern HObject View3D_ObjectCreateLdrB(IntPtr binary, long size, ref Guid context_id);
 
 		// Load a p3d model file as a view3d object
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DFile([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, [MarshalAs(UnmanagedType.LPStr)] string p3d_filepath, ref Guid context_id);

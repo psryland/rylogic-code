@@ -25,6 +25,7 @@ namespace tests
 		pr::ldraw::Builder frame;
 		for (auto t = 0.f; t < 100000.0f; t += 0.01f, wait(10))
 		{
+			// Reset the Builder
 			frame.Clear();
 
 			if (!ldr.is_open() || !ldr.good())
@@ -32,11 +33,12 @@ namespace tests
 				std::cout << "Disconnected\n";
 				for (; !ldr.connect("localhost", 1976).good() || !ldr.is_open(); wait(100)) {}
 				std::cout << "Connected\n";
-
-				frame.Group("g", 0xFFFF0000).Box("b", 0xFF00FF00).box(1, 2, 3);
-				frame.Commands().clear();
 			}
 
+			frame.Commands().clear();
+			frame
+				.Group("g", 0xFFFF0000)
+				.Box("b", 0xFF00FF00).box(1, 2, 3);
 			frame.Commands()
 				.object_transform("g", m4x4::Transform(RotationRad<m3x3>(0, t, 0), v4::Origin()))
 				.render();

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Rylogic.Common;
@@ -45,6 +46,15 @@ namespace Rylogic.Gfx
 				Handle = View3D_ObjectCreateLdrW(ldr_script, file, ref ctx, ref inc);
 				if (Handle == HObject.Zero)
 					throw new Exception($"Failed to create object from script\r\n{ldr_script.Summary(100)}");
+			}
+			public Object(byte[] binary, Guid? context_id)
+			{
+				Owned = true;
+				var ctx = context_id ?? Guid.NewGuid();
+				using var pin = Marshal_.Pin(binary, GCHandleType.Pinned);
+				Handle = View3D_ObjectCreateLdrB(pin.Pointer, binary.LongLength, ref ctx);
+				if (Handle == HObject.Zero)
+					throw new Exception($"Failed to create object from binary script data");
 			}
 
 			/// <summary>Create an object from a P3D file</summary>

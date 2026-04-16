@@ -335,7 +335,7 @@ namespace physics_sandbox
 				// collision::next() uses m_size to advance the shape pointer, so it must account
 				// for any alignment padding between shapes.
 				m_shape_buffer.pad_to(16);
-				m_shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = m_shape_buffer.size() - ofs;
+				m_shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = s_cast<int>(m_shape_buffer.size() - ofs);
 			}
 
 			// Create a collision shape for the ground plane

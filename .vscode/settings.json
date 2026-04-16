@@ -1,4 +1,3 @@
 {
-	"dotnet.defaultSolution": "disable",
 	"python.analysis.typeCheckingMode": "basic"
 }

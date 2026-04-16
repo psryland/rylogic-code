@@ -383,7 +383,7 @@ namespace pr::rdr12
 	// Create a new texture instance.
 	Texture2DPtr ResourceFactory::CreateTexture2D(TextureDesc const& desc)
 	{
-		if (desc.m_tdesc.DepthOrArraySize != 1)
+		if (desc.m_rdesc.DepthOrArraySize != 1)
 			throw std::runtime_error("Expected a 2D texture");
 
 		D3DPtr<ID3D12Resource> res;
@@ -396,7 +396,7 @@ namespace pr::rdr12
 			if (res == nullptr)
 			{
 				// If not, create the resource and add it to the lookup
-				res = CreateResource(desc.m_tdesc, desc.m_name);
+				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
@@ -406,7 +406,7 @@ namespace pr::rdr12
 		// Otherwise, just create the texture
 		else
 		{
-			res = CreateResource(desc.m_tdesc, desc.m_name);
+			res = CreateResource(desc.m_rdesc, desc.m_name);
 		}
 
 		// Allocate a new texture instance
@@ -466,15 +466,22 @@ namespace pr::rdr12
 				auto data = std::span{ emb.m_data, emb.m_len };
 
 				// Create the texture data
-				auto [images, tdesc] = LoadImageData(data, 1, false, 0, &rdr().Features());
-				desc.m_tdesc = tdesc;
-				desc.m_tdesc.Data = images;
+				auto [images, rdesc] = LoadImageData(data, 1, false, 0, &rdr().Features());
+				desc.m_rdesc = rdesc;
+				desc.m_rdesc.Data = images;
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name);
+				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
+			}
+			else
+			{
+				// Populate the texture desc from the cached resource
+				desc.m_rdesc = ResDesc(res->GetDesc());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 
@@ -483,6 +490,8 @@ namespace pr::rdr12
 		{
 			using namespace std::filesystem;
 			auto filepath = resource_path.lexically_normal();
+			if (filepath.empty())
+				return CreateTexture(EStockTexture::Black);
 
 			// Generate an id from the filepath
 			desc.m_uri = MakeId(filepath.c_str());
@@ -497,17 +506,27 @@ namespace pr::rdr12
 				// If the texture filepath doesn't exist, use the resolve event
 				if (!exists(filepath))
 					filepath = rdr().ResolvePath(filepath.string());
+				if (!exists(filepath))
+					return CreateTexture(EStockTexture::Black);
 
 				// Load the texture from disk
-				auto [images, tdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features());
-				desc.m_tdesc = tdesc;
-				desc.m_tdesc.Data = images;
+				auto [images, rdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features());
+				desc.m_rdesc = rdesc;
+				desc.m_rdesc.Data = images;
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name);
+				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
+			}
+			else
+			{
+				// Populate the texture desc from the cached resource so the TextureBase
+				// constructor has the correct format for creating SRV/UAV views.
+				desc.m_rdesc = ResDesc(res->GetDesc());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 	
@@ -576,15 +595,21 @@ namespace pr::rdr12
 				}
 
 				// Create the texture data
-				auto [images, tdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
-				desc.m_tdesc = tdesc;
-				desc.m_tdesc.Data = images;
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				desc.m_rdesc = rdesc;
+				desc.m_rdesc.Data = images;
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name);
+				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
+			}
+			else
+			{
+				desc.m_rdesc = ResDesc(res->GetDesc());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 
@@ -628,16 +653,22 @@ namespace pr::rdr12
 				}
 
 				// Load the texture from disk (supports '??' in the filepath)
-				auto [images, tdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
-				tdesc.DepthOrArraySize = s_cast<UINT16>(images.ssize());
-				desc.m_tdesc = tdesc;
-				desc.m_tdesc.Data = images;
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				desc.m_rdesc = rdesc;
+				desc.m_rdesc.Data = images;
+				desc.m_rdesc.DepthOrArraySize = s_cast<UINT16>(images.ssize());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 				// Create the texture
-				res = CreateResource(desc.m_tdesc, desc.m_name);
+				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
 				store.Add(desc.m_uri, res.get());
+			}
+			else
+			{
+				desc.m_rdesc = ResDesc(res->GetDesc());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 
@@ -977,7 +1008,7 @@ namespace pr::rdr12
 	Texture2DPtr ResourceFactory::OpenSharedTexture2D(HANDLE shared_handle, TextureDesc const& desc)
 	{
 		// Check whether 'id' already exists, if so, throw.
-		if (desc.m_tdesc.DepthOrArraySize != 1)
+		if (desc.m_rdesc.DepthOrArraySize != 1)
 			throw std::runtime_error("Expected a 2D texture");
 
 		Texture2DPtr inst(rdr12::New<Texture2D>(rdr(), shared_handle, desc), true);

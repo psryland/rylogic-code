@@ -14,6 +14,7 @@
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
 #include "view3d-12/src/ldraw/sources/source_file.h"
+#include "view3d-12/src/ldraw/sources/source_binary.h"
 #include "view3d-12/src/ldraw/sources/source_string.h"
 #include "view3d-12/src/dll/context.h"
 #include "view3d-12/src/dll/v3d_window.h"
@@ -135,6 +136,14 @@ namespace pr::rdr12
 			m_sources.StopConnections();
 	}
 
+	// Note:
+	//  Any LdrObject* we return must not get deleted by a Reload() of its source
+	//  otherwise callers will hold a pointer to a deleted object. That's why these
+	//  sources are not added to 'm_sources'. The Reload() feature only works for
+	//  objects that are managed by Guid. However, external code can watch for the
+	//  Reload notification and manually reload objects, replacing the LdrObject*
+	//  pointers they hold.
+
 	// Create an object from geometry
 	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id)
 	{
@@ -232,12 +241,6 @@ namespace pr::rdr12
 		// Create an include handler
 		auto include_handler = IncludeHandler(includes);
 
-		// Any LdrObject* we return must not get deleted by a Reload() of its source.
-		// That's why these sources are not added to 'm_sources'. The Reload() feature
-		// only works for objects that are managed by Guid. However, external code can
-		// watch for the Reload notification and manually reload objects, replacing the
-		// LdrObject* pointers they hold.
-
 		// Load the ldr script
 		ldraw::ParseResult output;
 		if (file)
@@ -260,6 +263,25 @@ namespace pr::rdr12
 	}
 	template ldraw::LdrObject* Context::ObjectCreateLdr<wchar_t>(std::wstring_view ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
 	template ldraw::LdrObject* Context::ObjectCreateLdr<char>(std::string_view ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
+
+	// Load/Add ldr objects and return the first object from the binary script
+	ldraw::LdrObject* Context::ObjectCreateLdr(std::span<std::byte const> binary, Guid const* context_id)
+	{
+		// Get the context id for this script
+		auto id = context_id ? *context_id : GenerateGUID();
+
+		// Load the ldr script
+		ldraw::ParseResult output;
+		ldraw::SourceBinary src{ &id, binary };
+		output = src.Load(rdr());
+		if (output.m_objects.empty())
+			return nullptr;
+
+		// Return the first object.
+		auto& obj = output.m_objects.front();
+		m_sources.Add(obj);
+		return obj.get();
+	}
 
 	// Create an LdrObject from the p3d model
 	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, Guid const* context_id)

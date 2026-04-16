@@ -433,7 +433,7 @@
     <ClInclude Include="..\..\..\include\pr\math\types\vector3.h" />
     <ClInclude Include="..\..\..\include\pr\math\types\vector4.h" />
     <ClInclude Include="..\..\..\include\pr\math\types\vector8.h" />
-    <ClInclude Include="..\..\..\include\pr\algorithm\multidimensional_scaling.h" />
+    <ClInclude Include="..\..\..\include\pr\algorithm\multi_dimensional_scaling.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />

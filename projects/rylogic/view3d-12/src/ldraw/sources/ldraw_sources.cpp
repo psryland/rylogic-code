@@ -102,24 +102,23 @@ namespace pr::rdr12::ldraw
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto id = object->m_context_id;
 
-		// Remove the object from the source it belongs to
-		auto& src = m_srcs[id];
+		// Find the source that owns this object. Use find() not operator[] to avoid inserting
+		// a default nullptr entry when the context_id is not in the map (e.g. source already removed).
+		auto it = m_srcs.find(id);
+		if (it == m_srcs.end())
+			return;
 
-		// This should be necessary, 'm_src' should never contain nullptr
-		// I've seen it happen when closing the Measurement Tool window however (as the 'HotSpots') get deleted
-		if (src != nullptr)
-		{
-			auto count = src->m_output.m_objects.size();
-			ldraw::Remove(src->m_output.m_objects, object);
+		auto& src = it->second;
+		auto count = src->m_output.m_objects.size();
+		ldraw::Remove(src->m_output.m_objects, object);
 
-			// If that was the last object for the source, remove the source
-			if (src->m_output.m_objects.empty())
-				Remove(id);
+		// If that was the last object for the source, remove the source
+		if (src->m_output.m_objects.empty())
+			Remove(id);
 
-			// Notify of the object container change
-			else if (src->m_output.m_objects.size() != count)
-				m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
-		}
+		// Notify of the object container change
+		else if (src->m_output.m_objects.size() != count)
+			m_events->OnStoreChange({ EStoreChangeInitiator::ObjectsDeleted, EStoreChangeFlags::ObjectsRemoved, {&id, 1}, nullptr, false });
 	}
 
 	// Remove all objects associated with context ids filtered by 'pred'
@@ -647,6 +646,8 @@ namespace pr::rdr12::ldraw
 	{
 		// Notes:
 		//  - This function is called by worker threads when their source has completed loading. *** It can be called on any thread context ***.
+		//  - 'src' can be a transient source, or an existing source in 'm_srcs'. The purpose of this function is to merge 'args.m_output' into
+		//    the source matching 'src->m_context_id'.
 		//  - Sources have a Load function that generates a ParseResult (new instance)
 		//  - Load should be threadsafe so it can be called in parallel on all sources.
 		//  - Once the new parse result is ready, 'Notify' on the source is called to tell this function to add the new (or reloaded) data.
@@ -695,22 +696,22 @@ namespace pr::rdr12::ldraw
 		for (auto& err : src->m_errors)
 			m_events->OnError(err);
 
-		// Ensure 'src' is added to the 'm_srcs' collection
-		{
-			auto& existing = m_srcs[context_id];
-			if (existing == nullptr)
-				existing = src;
-		}
+		// Ensure there is a source associated with 'context_id'. If not, 'src' becomes it.
+		// After this point, 'src' is not needed because the commands and objects to merge are in 'args.m_output'
+		auto& existing = m_srcs[context_id];
+		if (existing == nullptr) existing = src;
+		assert(src == existing || src->m_output.count() == 0); // Either 'src' *is* 'existing', or it's transient, and the output is passed via 'args.m_output'
+		src = nullptr;
 
 		// Remove existing data if this is a reload but keep it alive until the final StoreChange event is finished.
 		ParseResult previous_data;
 		if (args.m_initiator == EStoreChangeInitiator::Reload)
-			std::swap(previous_data, src->m_output);
+			std::swap(previous_data, existing->m_output);
 
 		// Remove any objects associated with this context id
 		if (AllSet(args.m_change_flags, EStoreChangeFlags::ContextIdRemoved))
 		{
-			for (auto& fp : src->m_filepaths)
+			for (auto& fp : existing->m_filepaths)
 				m_watcher.Remove(fp, context_id);
 
 			Remove(context_id);
@@ -727,18 +728,18 @@ namespace pr::rdr12::ldraw
 
 			// Add objects up to the command's 'exe_index'
 			for (; obj_index < hdr.m_exe_index && obj_index < args.m_output.count(); ++obj_index)
-				src->m_output.m_objects.push_back(args.m_output[obj_index]);
+				existing->m_output.m_objects.push_back(args.m_output[obj_index]);
 
 			// Process the command
-			ProcessCommand(src, args, ptr, previous_data);
+			ProcessCommand(existing, args, ptr, previous_data);
 		}
 
 		// Merge any remaining objects after the last command
 		for (; obj_index < args.m_output.count(); ++obj_index)
-			src->m_output.m_objects.push_back(args.m_output[obj_index]);
+			existing->m_output.m_objects.push_back(args.m_output[obj_index]);
 
 		// Notify of the store change "after" the new data is in place
-		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &src->m_output, false });
+		m_events->OnStoreChange({ args.m_initiator, args.m_change_flags, { &context_id, 1 }, &existing->m_output, false });
 		if (args.m_add_complete)
 			args.m_add_complete(context_id, false);
 	}

@@ -36,7 +36,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Install dotnet-script
         run: dotnet tool install -g dotnet-script
@@ -76,6 +76,7 @@ jobs:
             projects\apps\Rylogic.TextAligner\Shared\Rylogic.TextAligner.Shared.csproj `
             projects\apps\Rylogic.TextAligner\2022\Rylogic.TextAligner.2022.csproj `
             projects\apps\Rylogic.TextAligner\2019\Rylogic.TextAligner.2019.csproj `
+            projects\apps\Rylogic.LDrawVisualiser\Rylogic.LDrawVisualiser.csproj `
             projects\apps\LDraw\LDraw.csproj `
             projects\tests\TestWPF\TestWPF.csproj
 

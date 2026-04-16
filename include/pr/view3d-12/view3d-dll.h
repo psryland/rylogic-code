@@ -1194,6 +1194,9 @@ extern "C"
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrA(char const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);
 
+	// Create an graphics object from binary ldr script
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrB(void const* binary, size_t size, GUID const* context_id);
+
 	// Load a p3d model file as a view3d object
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DFile(char const* name, pr::view3d::Colour colour, char const* p3d_filepath, GUID const* context_id);
 

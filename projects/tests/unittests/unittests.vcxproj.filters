@@ -991,7 +991,7 @@
     <ClInclude Include="src\unittests.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\algorithm\multidimensional_scaling.h">
+    <ClInclude Include="..\..\..\include\pr\algorithm\multi_dimensional_scaling.h">
       <Filter>pr\algorithm</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\common\task_graph.h">

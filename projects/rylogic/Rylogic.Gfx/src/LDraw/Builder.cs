@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Windows;
 using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
@@ -32,16 +33,15 @@ namespace Rylogic.LDraw
 	public class Builder
 	{
 		/// <summary>Access the objects already in the builder</summary>
-		public IReadOnlyList<Builder> Objects => m_objects;
-		private List<Builder> m_objects = [];
+		public readonly List<Builder> Objects = [];
 
 		/// <summary>Reset the builder</summary>
 		public Builder Clear(int count = -1)
 		{
-			if (count >= 0 && count < m_objects.Count)
-				m_objects.RemoveRange(count, m_objects.Count - count);
+			if (count >= 0 && count < Objects.Count)
+				Objects.RemoveRange(count, Objects.Count - count);
 			else
-				m_objects.Clear();
+				Objects.Clear();
 	
 			return this;
 		}
@@ -50,175 +50,175 @@ namespace Rylogic.LDraw
 		public LdrBox Box(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrBox();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrChart Chart(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrChart();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCircle Circle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCircle();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
-		public LdrCommands Command()
+		public LdrCommands Commands()
 		{
 			var child = new LdrCommands();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 		public LdrCone Cone(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCone();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrConvexHull ConvexHull(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrConvexHull();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCoordFrame CoordFrame(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCoordFrame();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrCylinder Cylinder(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrCylinder();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrEquation Equation(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrEquation();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrFrustum Frustum(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrFrustum();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrGrid Grid(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrGrid();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrGroup Group(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrGroup();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrInstance Instance(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrInstance();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLightSource LightSource(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLightSource();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLine Line(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLine();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrLineBox LineBox(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrLineBox();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrMesh Mesh(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrMesh();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrModel Model(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrModel();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPie Pie(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPie();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPoint Point(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPoint();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPolygon Polygon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPolygon();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrPlane Plane(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrPlane();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrQuad Quad(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrQuad();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrRect Rect(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrRect();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrRibbon Ribbon(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrRibbon();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrSphere Sphere(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrSphere();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrText Text(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrText();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrTriangle Triangle(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrTriangle();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 		public LdrTube Tube(Serialiser.Name? name = null, Serialiser.Colour? colour = null)
 		{
 			var child = new LdrTube();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child.name(name ?? new()).colour(colour ?? new());
 		}
 
@@ -226,13 +226,13 @@ namespace Rylogic.LDraw
 		public LdrBinaryStream BinaryStream()
 		{
 			var child = new LdrBinaryStream();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 		public LdrTextStream TextStream()
 		{
 			var child = new LdrTextStream();
-			m_objects.Add(child);
+			Objects.Add(child);
 			return child;
 		}
 
@@ -269,7 +269,7 @@ namespace Rylogic.LDraw
 		/// <summary>Serialise to 'res'</summary>
 		public virtual void WriteTo(IWriter res)
 		{
-			foreach (var obj in m_objects)
+			foreach (var obj in Objects)
 				obj.WriteTo(res);
 		}
 
@@ -671,7 +671,7 @@ namespace Rylogic.LDraw
 			if (m_filepath.Length == 0) return;
 			res.Write(EKeyword.Texture, () =>
 			{
-				res.Write(EKeyword.FilePath, "\"", m_filepath, "\"");
+				res.Write(EKeyword.FilePath, $"\"{m_filepath}\"");
 				res.Write(EKeyword.Addr, m_addr[0], m_addr[1]);
 				res.Write(EKeyword.Filter, m_filter);
 				res.Append(m_has_alpha);
@@ -858,9 +858,9 @@ namespace Rylogic.LDraw
 			m_name = !string.IsNullOrEmpty(name) ? name : null;
 			return this;
 		}
-		public LdrFont size(float sz)
+		public LdrFont size(double sz)
 		{
-			m_size = sz != 0 ? sz : null;
+			m_size = sz != 0 ? (float)sz : null;
 			return this;
 		}
 		public LdrFont colour(Colour32 col)
@@ -1260,7 +1260,7 @@ namespace Rylogic.LDraw
 		}
 
 		// Trigger a frame render
-		public LdrCommands render_frame()
+		public LdrCommands render()
 		{
 			m_cmds.Add(new Cmd{ m_id = ECommandId.Render, m_params = [] });
 			return this;
@@ -1275,7 +1275,7 @@ namespace Rylogic.LDraw
 				{
 					res.Write(EKeyword.Data, () =>
 					{
-						res.Append((int)cmd.m_id);
+						res.Append(cmd.m_id);
 						foreach (var p in cmd.m_params)
 						{
 							if (p is bool bool_) { res.Append(bool_); continue; }
@@ -1806,9 +1806,9 @@ namespace Rylogic.LDraw
 			m_current.m_smooth = new(smooth);
 			return this;
 		}
-		public LdrLine width(float w)
+		public LdrLine width(double w)
 		{
-			m_current.m_width = new(w);
+			m_current.m_width = new((float)w);
 			return this;
 		}
 		public LdrLine data_points(float size, Colour32? colour = null, EPointStyle? style = null)
@@ -1850,6 +1850,18 @@ namespace Rylogic.LDraw
 			for (var i = 0; i < indices.Length; i += 2)
 				line(verts[indices[i+0]], verts[indices[i+1]]);
 
+			return this;
+		}
+		public LdrLine lines(IEnumerable<v4> verts)
+		{
+			for (var iter = verts.GetEnumerator();;)
+			{
+				if (!iter.MoveNext()) break;
+				var a = iter.Current;
+				if (!iter.MoveNext()) break;
+				var b = iter.Current;
+				line(a, b);
+			}
 			return this;
 		}
 
@@ -2429,24 +2441,34 @@ namespace Rylogic.LDraw
 		private v2 m_wh = new(1f, 1f);
 		private Serialiser.CornerRadius m_corner_radius = new();
 		private Serialiser.Facets m_facets = new();
+		private LdrTexture m_tex = new();
 
-		public LdrRect wh(float w, float h)
+		public LdrRect wh(double w, double h)
 		{
-			m_wh = new v2(w, h);
+			m_wh = new v2((float)w, (float)h);
 			return this;
 		}
-		public LdrRect wh(float s)
+		public LdrRect wh(double s)
 		{
 			return wh(s, s);
 		}
-		public LdrRect corner_radius(float r)
+		public LdrRect corner_radius(double r)
 		{
-			m_corner_radius = new(r);
+			m_corner_radius = new((float)r);
 			return this;
 		}
 		public LdrRect facets(int count)
 		{
 			m_facets = new(count);
+			return this;
+		}
+		public LdrTexture texture()
+		{
+			return m_tex;
+		}
+		public LdrRect texture(Action<LdrTexture> a)
+		{
+			a(texture());
 			return this;
 		}
 
@@ -2456,6 +2478,7 @@ namespace Rylogic.LDraw
 			{
 				res.Write(EKeyword.Data, m_wh);
 				res.Append(m_corner_radius, m_facets);
+				m_tex.WriteTo(res);
 				base.WriteTo(res);
 			});
 		}
@@ -2664,6 +2687,18 @@ namespace Rylogic.LDraw
 		{
 			m_current.m_padding = new(left, top, right, bottom);
 			return this;
+		}
+		public LdrText padding(float horizontal, float vertical)
+		{
+			return padding(horizontal, vertical, horizontal, vertical);
+		}
+		public LdrText padding(Thickness p)
+		{
+			return padding((float)p.Left, (float)p.Top, (float)p.Right, (float)p.Bottom);
+		}
+		public LdrText padding(float p)
+		{
+			return padding(p, p, p, p);
 		}
 
 		/// <summary>Format string</summary>
@@ -2877,712 +2912,6 @@ namespace Rylogic.LDraw
 			});
 		}
 	}
-
-	// DEPRECATED 
-	#region DEPRECATED 
-	public static class Ldr
-	{
-		// Notes:
-		//  - The LdrBuilder is the main type for building ldr strings.
-		//  - This type is basically a namespace for converting types to ldr strings. It knows when a
-		//    string is necessary or how to simplify a string for a specific type.
-
-		/// <summary>Filepath for outputting ldr script using 'LdrOut' extension</summary>
-		public static string OutFile = "";
-
-		/// <summary>Append this string to the Ldr.OutFile</summary>
-		public static void LdrOut(this string s, bool app = true)
-		{
-			using var sw = new StreamWriter(OutFile, app);
-			sw.Write(s);
-		}
-
-		/// <summary>Write an ldr string to a file</summary>
-		public static void Write(string ldr_str, string filepath, bool append = false)
-		{
-			try
-			{
-				// Ensure the directory exists
-				var dir = Path_.Directory(filepath);
-				if (!Path_.DirExists(dir)) Directory.CreateDirectory(dir);
-
-				// Lock, then write the file
-				using (Path_.LockFile(filepath))
-				using (var f = new StreamWriter(new FileStream(filepath, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read)))
-					f.Write(ldr_str);
-			}
-			catch (Exception ex)
-			{
-				Debug.WriteLine($"Failed to write Ldr script to '{filepath}'. {ex.Message}");
-			}
-		}
-
-		// Type to string helpers
-		public static string Col(uint col)
-		{
-			return col != 0xFFFFFFFF ? col.ToString("X8") : string.Empty;
-		}
-		public static string Col(Colour32 col)
-		{
-			return col != 0xFFFFFFFF ? col.ARGB.ToString("X8") : string.Empty;
-		}
-		public static string Col(Color col)
-		{
-			return Col(col.ToArgbU());
-		}
-		public static string Vec2(v2 vec)
-		{
-			Debug.Assert(Math_.IsFinite(vec));
-			return $"{vec.x} {vec.y}";
-		}
-		public static string Vec3(v2 vec)
-		{
-			Debug.Assert(Math_.IsFinite(vec));
-			return $"{vec.x} {vec.y} 0";
-		}
-		public static string Vec3(v4 vec)
-		{
-			Debug.Assert(Math_.IsFinite(vec));
-			return $"{vec.x} {vec.y} {vec.z}";
-		}
-		public static string Vec4(v4 vec)
-		{
-			Debug.Assert(Math_.IsFinite(vec));
-			return $"{vec.x} {vec.y} {vec.z} {vec.w}";
-		}
-		public static string Mat4x4(m4x4 mat)
-		{
-			Debug.Assert(Math_.IsFinite(mat));
-			return $"{Vec4(mat.x)} {Vec4(mat.y)} {Vec4(mat.z)} {Vec4(mat.w)}";
-		}
-
-		// Ldr element helpers
-		public static string Colour(Colour32 colour)
-		{
-			return $"*Colour {{{colour.ARGB:X8}}}";
-		}
-		public static string Position(v4 position, bool newline = false)
-		{
-			return
-				position == v4.Zero ? string.Empty :
-				position == v4.Origin ? string.Empty :
-				$"*o2w{{*pos{{{Vec3(position)}}}}}{(newline ? "\n" : "")}";
-		}
-		public static string Position(v4? position, bool newline = false)
-		{
-			return position != null ? Position(position.Value, newline) : string.Empty;
-		}
-		public static string Transform(m4x4 o2w, bool newline = false)
-		{
-			return
-				o2w == m4x4.Identity ? string.Empty :
-				o2w.rot == m3x3.Identity ? Position(o2w.pos, newline) :
-				$"*o2w{{*m4x4{{{Mat4x4(o2w)}}}}}{(newline ? "\n" : "")}";
-		}
-		public static string Transform(m4x4? o2w, bool newline = false)
-		{
-			return o2w != null ? Transform(o2w.Value, newline) : string.Empty;
-		}
-		public static string Transform(m4x4? o2w, v4? pos, bool newline = false)
-		{
-			return
-				o2w != null ? Transform(o2w.Value, newline) :
-				pos != null ? Position(pos.Value, newline) :
-				string.Empty;
-		}
-		public static string Name(string? name)
-		{
-			return name != null ? $"*Name {{{name}}}" : string.Empty;
-		}
-		public static string AxisId(AxisId id)
-		{
-			return id.Id != EAxisId.PosZ ? $"*AxisId {{{id}}}" : string.Empty;
-		}
-		public static string Solid(bool solid = true)
-		{
-			return solid ? "*Solid" : string.Empty;
-		}
-		public static string Billboard3D(bool billboard = true)
-		{
-			return billboard ? "*Billboard3D" : string.Empty;
-		}
-		public static string Billboard(bool billboard = true)
-		{
-			return billboard ? "*Billboard" : string.Empty;
-		}
-		public static string ScreenSpace(bool screen_space = true)
-		{
-			return screen_space ? "*ScreenSpace" : string.Empty;
-		}
-		public static string Size(double size)
-		{
-			return $"*Size {{{size}}}";
-		}
-		public static string Scale(double scale)
-		{
-			return scale != 1 ? $"*Scale {{{scale}}}" : string.Empty;
-		}
-		public static string Width(double width)
-		{
-			return width != 0 ? $"*Width {{{width}}}" : string.Empty;
-		}
-		public static string Facets(int facets)
-		{
-			return $"*Facets {{{facets}}}";
-		}
-		public static string CornerRadius(double rad)
-		{
-			return rad != 0 ? $"*CornerRadius {{{rad}}}" : string.Empty;
-		}
-		public static string Smooth(bool smooth)
-		{
-			return smooth ? "*Smooth" : string.Empty;
-		}
-		public static string NoZTest(bool no_ztest)
-		{
-			return no_ztest ? "*NoZTest" : string.Empty;
-		}
-		public static string NoZWrite(bool no_zwrite)
-		{
-			return no_zwrite ? "*NoZWrite" : string.Empty;
-		}
-
-		// Types
-		public enum EArrowType
-		{
-			Line = 0,
-			Fwd = 1 << 0,
-			Back = 1 << 1,
-			FwdBack = Fwd | Back,
-		}
-	}
-
-	/// <summary>Like StringBuilder, but for ldr strings</summary>
-	public class LdrBuilder
-	{
-		// Notes:
-		//  - Fluent style Ldr String builder.
-
-		private readonly StringBuilder m_sb;
-		public LdrBuilder(StringBuilder sb) => m_sb = sb;
-		public LdrBuilder() : this(new StringBuilder()) { }
-		public LdrBuilder(int capacity) : this(new StringBuilder(capacity)) { }
-		public LdrBuilder(string value) : this(new StringBuilder(value)) { }
-		public LdrBuilder(int capacity, int maxCapacity) : this(new StringBuilder(capacity, maxCapacity)) { }
-		public LdrBuilder(string value, int capacity) : this(new StringBuilder(value, capacity)) { }
-		public LdrBuilder(string value, int startIndex, int length, int capacity) : this(new StringBuilder(value, startIndex, length, capacity)) { }
-
-		public LdrBuilder Clear()
-		{
-			m_sb.Clear();
-			return this;
-		}
-		public LdrBuilder Remove(int start_index, int length)
-		{
-			m_sb.Remove(start_index, length);
-			return this;
-		}
-		public LdrBuilder Append(params object[] parts)
-		{
-			foreach (var p in parts) Append(p);
-			return this;
-		}
-		public LdrBuilder Append(object part)
-		{
-			// Use this switch to convert a type directly into a string. No adorning.
-			// E.g. 'part is Colour32' just inserts "FF00FF00", not "*Colour32{FF00FF00}"
-			switch (part)
-			{
-				case null: break;
-				case string str: m_sb.Append(str); break;
-				case Color col: m_sb.Append(Ldr.Col(col)); break;
-				case v4 vec4: m_sb.Append(Ldr.Vec3(vec4)); break;
-				case v2 vec2: m_sb.Append(Ldr.Vec2(vec2)); break;
-				case m4x4 o2w: m_sb.Append(Ldr.Mat4x4(o2w)); break;
-				case AxisId axisid: m_sb.Append(Ldr.AxisId(axisid.Id)); break;
-				case EAxisId axisid2: m_sb.Append(Ldr.AxisId(axisid2)); break;
-				case IEnumerable:
-				{
-					foreach (var x in (IEnumerable)part)
-						Append(" ").Append(x);
-					break;
-				}
-				default:
-				{
-					if (part.GetType().IsAnonymousType())
-					{
-						Append("{");
-						foreach (var prop in part.GetType().AllProps(BindingFlags.Public | BindingFlags.Instance))
-						{
-							if (prop is null || prop.GetValue(part) is not object val) continue;
-							Append($"*{prop.Name} {{", val, "}} ");
-						}
-						Append("}");
-						return this;
-					}
-					else
-					{
-						m_sb.Append(part.ToString());
-					}
-					break;
-				}
-			}
-			return this;
-		}
-
-		public LdrBuilder Comment(string comments)
-		{
-			var lines = comments.Split('\n');
-			foreach (var line in lines)
-				Append($"// {line}\n");
-			return this;
-		}
-
-		public Scope Group()
-		{
-			return Group(string.Empty);
-		}
-		public Scope Group(string name)
-		{
-			return Group(name, v4.Origin);
-		}
-		public Scope Group(string name, Colour32 colour)
-		{
-			return Group(name, colour, v4.Origin);
-		}
-		public Scope Group(string name, v4 position)
-		{
-			return Group(name, 0xFFFFFFFF, position);
-		}
-		public Scope Group(string name, Colour32 colour, v4 position)
-		{
-			return Group(name, colour, m4x4.Translation(position));
-		}
-		public Scope Group(string name, m4x4 transform)
-		{
-			return Group(name, 0xFFFFFFFF, transform);
-		}
-		public Scope Group(string name, Colour32 colour, m4x4 transform)
-		{
-			return Scope.Create(
-				() => GroupOpen(name, colour),
-				() => GroupClose(transform)
-				);
-		}
-		public LdrBuilder GroupOpen(string name)
-		{
-			return GroupOpen(name, 0xFFFFFFFF);
-		}
-		public LdrBuilder GroupOpen(string name, Colour32 colour)
-		{
-			return Append("*Group ", name, " ", colour, " {\n");
-		}
-		public LdrBuilder GroupClose()
-		{
-			return GroupClose(m4x4.Identity);
-		}
-		public LdrBuilder GroupClose(m4x4 transform)
-		{
-			return Append(Ldr.Transform(transform, newline: true), "}\n");
-		}
-
-		public LdrBuilder Line(v4 start, v4 end)
-		{
-			return Line(Color.White, start, end);
-		}
-		public LdrBuilder Line(Colour32 colour, v4 start, v4 end)
-		{
-			return Line(string.Empty, colour, start, end);
-		}
-		public LdrBuilder Line(string name, Colour32 colour, v4 start, v4 end)
-		{
-			return Append("*Line ", name, " ", colour, " {", start, " ", end, "}\n");
-		}
-		public LdrBuilder Line(string name, Colour32 colour, double width, bool smooth, IEnumerable<v4> points)
-		{
-			if (!points.Any()) return this;
-			return Append("*LineStrip ", name, " ", colour, " {", Ldr.Width(width), Ldr.Smooth(smooth), points.Select(x => Ldr.Vec3(x)), "}\n");
-		}
-		public LdrBuilder Line(string name, Colour32 colour, double width, bool smooth, Func<int, v4?> points)
-		{
-			var idx = 0;
-			Append("*LineStrip ", name, " ", colour, " {", Ldr.Width(width), Ldr.Smooth(smooth));
-			for (v4? pt; (pt = points(idx++)) != null;) Append(Ldr.Vec3(pt.Value));
-			Append("}\n");
-			return this;
-		}
-		public LdrBuilder LineD(string name, Colour32 colour, v4 start, v4 direction)
-		{
-			return LineD(name, colour, start, direction, 0);
-		}
-		public LdrBuilder LineD(string name, Colour32 colour, v4 start, v4 direction, double width)
-		{
-			return Append("*LineD ", name, " ", colour, " {", Ldr.Width(width), start, " ", direction, "}");
-		}
-
-		public LdrBuilder Arrow()
-		{
-			return Arrow(string.Empty, Colour32.White, Ldr.EArrowType.Fwd, 10f, true, new[] { v4.Origin, v4.XAxis.w1 });
-		}
-		public LdrBuilder Arrow(string name, Colour32 colour, Ldr.EArrowType type, double width, bool smooth, IEnumerable<v4> points)
-		{
-			if (!points.Any()) return this;
-			return Append("*Arrow ", name, " ", colour, " {", type.ToString(), points.Select(x => Ldr.Vec3(x)), Ldr.Width(width), Ldr.Smooth(smooth), "}\n");
-		}
-		public LdrBuilder Arrow(string name, Colour32 colour, Ldr.EArrowType type, double width, bool smooth, Func<int, v4?> points)
-		{
-			var idx = 0;
-			Append("*Arrow ", name, " ", colour, " {");
-			for (v4? pt; (pt = points(idx++)) != null;) Append(Ldr.Vec3(pt.Value));
-			Append(Ldr.Width(width), Ldr.Smooth(smooth), type.ToString(), "}\n");
-			return this;
-		}
-
-		public LdrBuilder Grid(Colour32 colour, AxisId axis_id, int width, int height)
-		{
-			return Grid(string.Empty, colour, axis_id, width, height);
-		}
-		public LdrBuilder Grid(string name, Colour32 colour, AxisId axis_id, int width, int height)
-		{
-			return Grid(name, colour, axis_id, width, height, width, height, v4.Origin);
-		}
-		public LdrBuilder Grid(string name, Colour32 colour, AxisId axis_id, int width, int height, int wdiv, int hdiv, v4 position)
-		{
-			return Append("*Grid ", name, " ", colour, " {", width, " ", height, " ", wdiv, " ", hdiv, " ", axis_id, " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Box(m4x4? o2w = null, v4? pos = null)
-		{
-			return Box(string.Empty, Color.White, o2w, pos);
-		}
-		public LdrBuilder Box(Colour32 colour, double size, m4x4? o2w = null, v4? pos = null)
-		{
-			return Box(string.Empty, colour, size, o2w, pos);
-		}
-		public LdrBuilder Box(Colour32 colour, double sx, double sy, double sz, m4x4? o2w = null, v4? pos = null)
-		{
-			return Box(string.Empty, colour, sx, sy, sz, o2w, pos);
-		}
-		public LdrBuilder Box(string name, Colour32 colour, m4x4? o2w = null, v4? pos = null)
-		{
-			return Box(name, colour, 1f, o2w, pos);
-		}
-		public LdrBuilder Box(string name, Colour32 colour, double size, m4x4? o2w = null, v4? pos = null)
-		{
-			return Append("*Box ", name, " ", colour, " {", size, " ", Ldr.Transform(o2w, pos), "}\n");
-		}
-		public LdrBuilder Box(string name, Colour32 colour, double sx, double sy, double sz, m4x4? o2w = null, v4? pos = null)
-		{
-			return Append("*Box ", name, " ", colour, " {", sx, " ", sy, " ", sz, " ", Ldr.Transform(o2w, pos), "}\n");
-		}
-		public LdrBuilder Box(string name, Colour32 colour, v4 dim, m4x4? o2w = null, v4? pos = null)
-		{
-			return Append("*Box ", name, " ", colour, " {", dim.x, " ", dim.y, " ", dim.z, " ", Ldr.Transform(o2w, pos), "}\n");
-		}
-
-		public LdrBuilder Sphere()
-		{
-			return Sphere(string.Empty, Color.White);
-		}
-		public LdrBuilder Sphere(string name, Colour32 colour)
-		{
-			return Sphere(name, colour, 1f);
-		}
-		public LdrBuilder Sphere(string name, Colour32 colour, double radius)
-		{
-			return Sphere(name, colour, radius, v4.Origin);
-		}
-		public LdrBuilder Sphere(string name, Colour32 colour, double radius, v4 position)
-		{
-			return Append("*Sphere ", name, " ", colour, " {", radius, " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Cylinder(Colour32 colour, AxisId axis_id, double height, double radius, m4x4? o2w = null, v4? pos = null)
-		{
-			return Cylinder(string.Empty, colour, axis_id, height, radius, o2w, pos);
-		}
-		public LdrBuilder Cylinder(string name, Colour32 colour, AxisId axis_id, double height, double radius, m4x4? o2w = null, v4? pos = null)
-		{
-			return Append("*Cylinder ", name, " ", colour, " {", height, " ", radius, " ", axis_id, " ", Ldr.Transform(o2w, pos), "}\n");
-		}
-
-		public LdrBuilder Circle()
-		{
-			return Circle(string.Empty, Color.White, 3, true);
-		}
-		public LdrBuilder Circle(string name, Colour32 colour, AxisId axis_id, bool solid)
-		{
-			return Circle(name, colour, axis_id, solid, v4.Origin);
-		}
-		public LdrBuilder Circle(string name, Colour32 colour, AxisId axis_id, bool solid, double radius)
-		{
-			return Circle(name, colour, axis_id, solid, radius, v4.Origin);
-		}
-		public LdrBuilder Circle(string name, Colour32 colour, AxisId axis_id, bool solid, v4 position)
-		{
-			return Circle(name, colour, axis_id, solid, 1f, position);
-		}
-		public LdrBuilder Circle(string name, Colour32 colour, AxisId axis_id, bool solid, double radius, v4 position)
-		{
-			return Append("*Circle ", name, " ", colour, " {", radius, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Ellipse()
-		{
-			return Ellipse(string.Empty, Color.White, 3, true, 1f, 0.5f);
-		}
-		public LdrBuilder Ellipse(string name, Colour32 colour, AxisId axis_id, bool solid, double radiusx, double radiusy)
-		{
-			return Ellipse(name, colour, axis_id, solid, radiusx, radiusy, v4.Origin);
-		}
-		public LdrBuilder Ellipse(string name, Colour32 colour, AxisId axis_id, bool solid, double radiusx, double radiusy, v4 position)
-		{
-			return Append("*Circle ", name, " ", colour, " {", radiusx, " ", radiusy, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Pie()
-		{
-			return Pie(string.Empty, Color.White, 3, true, 0f, 45f);
-		}
-		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1)
-		{
-			return Pie(name, colour, axis_id, solid, ang0, ang1, v4.Origin);
-		}
-		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, v4 position)
-		{
-			return Pie(name, colour, axis_id, solid, ang0, ang1, 0f, 1f, 3, position);
-		}
-		public LdrBuilder Pie(string name, Colour32 colour, AxisId axis_id, bool solid, double ang0, double ang1, double rad0, double rad1, int facets, v4 position)
-		{
-			return Append("*Pie ", name, " ", colour, " {", ang0, " ", ang1, " ", rad0, " ", rad1, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Facets(facets), " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Rect()
-		{
-			return Rect(string.Empty, Color.White, 3, 1f, 1f, false, v4.Origin);
-		}
-		public LdrBuilder Rect(string name, Colour32 colour, AxisId axis_id, double width, double height, bool solid, v4 position)
-		{
-			return Append("*Rect ", name, " ", colour, " {", width, " ", height, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.Position(position), "}\n");
-		}
-		public LdrBuilder Rect(string name, Colour32 colour, AxisId axis_id, double width, double height, bool solid, double corner_radius, v4 position)
-		{
-			return Append("*Rect ", name, " ", colour, " {", width, " ", height, " ", axis_id, " ", Ldr.Solid(solid), " ", Ldr.CornerRadius(corner_radius), " ", Ldr.Position(position), "}\n");
-		}
-
-		public LdrBuilder Triangle()
-		{
-			return Triangle(string.Empty, Colour32.White, v4.Origin, v4.XAxis.w1, v4.YAxis.w1);
-		}
-		public LdrBuilder Triangle(string name, Colour32 colour, v4 a, v4 b, v4 c, m4x4? o2w = null)
-		{
-			return Append("*Triangle ", name, " ", colour, " {", a, " ", b, " ", c, " ", Ldr.Transform(o2w), "}");
-		}
-		public LdrBuilder Triangle(string name, Colour32 colour, IEnumerable<v4> pts, m4x4? o2w = null)
-		{
-			return Append("*Triangle ", name, " ", colour, " {", pts, Ldr.Transform(o2w), "}");
-		}
-
-		public LdrBuilder Quad()
-		{
-			return Quad(string.Empty, Color.White);
-		}
-		public LdrBuilder Quad(Colour32 colour)
-		{
-			return Quad(string.Empty, colour);
-		}
-		public LdrBuilder Quad(Colour32 colour, v4 tl, v4 tr, v4 br, v4 bl)
-		{
-			return Quad(string.Empty, colour, tl, tr, br, bl);
-		}
-		public LdrBuilder Quad(string name, Colour32 colour)
-		{
-			return Quad(name, colour, new v4(0, 1, 0, 1), new v4(1, 1, 0, 1), new v4(1, 0, 0, 1), new v4(0, 0, 0, 1));
-		}
-		public LdrBuilder Quad(string name, Colour32 colour, v4 tl, v4 tr, v4 br, v4 bl)
-		{
-			return Quad(name, colour, tl, tr, br, bl, v4.Origin);
-		}
-		public LdrBuilder Quad(string name, Colour32 colour, v4 tl, v4 tr, v4 br, v4 bl, v4 position)
-		{
-			return Append("*Quad ", name, " ", colour, " {", bl, " ", br, " ", tr, " ", tl, " ", Ldr.Position(position), "}\n");
-		}
-		public LdrBuilder Quad(string name, Colour32 colour, AxisId axis_id, double w, double h, v4 position)
-		{
-			return Rect(name, colour, axis_id, w, h, true, position);
-		}
-
-		public LdrBuilder Axis()
-		{
-			return Axis(m4x4.Identity);
-		}
-		public LdrBuilder Axis(m3x3 basis)
-		{
-			return Axis(new m4x4(basis, v4.Origin));
-		}
-		public LdrBuilder Axis(m4x4 basis)
-		{
-			return Axis(string.Empty, Color_.FromArgb(0xFFFFFFFF), basis);
-		}
-		public LdrBuilder Axis(string name, Colour32 colour, m3x3 basis)
-		{
-			return Axis(name, colour, new m4x4(basis, v4.Origin));
-		}
-		public LdrBuilder Axis(string name, Colour32 colour, m4x4 basis)
-		{
-			return Axis(name, colour, basis, 0.1f);
-		}
-		public LdrBuilder Axis(string name, Colour32 colour, m3x3 basis, double scale)
-		{
-			return Axis(name, colour, new m4x4(basis, v4.Origin), scale);
-		}
-		public LdrBuilder Axis(string name, Colour32 colour, m4x4 basis, double scale)
-		{
-			return Append("*Matrix3x3 ", name, " ", colour, " {", basis.x * scale, " ", basis.y * scale, " ", basis.z * scale, " ", Ldr.Position(basis.pos), "}\n");
-		}
-
-		public LdrBuilder Ribbon()
-		{
-			return Ribbon(string.Empty, Colour32.White, new[] { v4.Origin, v4.XAxis.w1 }, EAxisId.PosZ, 3f, false);
-		}
-		public LdrBuilder Ribbon(string name, Colour32 colour, IEnumerable<v4> points, AxisId axis_id, double width, bool smooth, m4x4? o2w = null)
-		{
-			return Append("*Ribbon ", name, " ", colour, " {", points, " ", axis_id, Ldr.Width(width), Ldr.Smooth(smooth), Ldr.Transform(o2w), "}\n");
-		}
-
-		public LdrBuilder Mesh(string name, Colour32 colour, IList<v4>? verts, IList<v4>? normals = null, IList<Colour32>? colours = null, IList<v2>? tex = null, IList<ushort>? faces = null, IList<ushort>? lines = null, IList<ushort>? tetra = null, bool generate_normals = false, v4? position = null)
-		{
-			Append("*Mesh ", name, " ", colour, " {\n");
-			if (verts != null) Append("*Verts {").Append(verts.Select(Ldr.Vec3)).Append("}\n");
-			if (normals != null) Append("*Normals {").Append(normals.Select(Ldr.Vec3)).Append("}\n");
-			if (colours != null) Append("*Colours {").Append(colours.Select(Ldr.Col)).Append("}\n");
-			if (tex != null) Append("*TexCoords {").Append(tex.Select(Ldr.Vec2)).Append("}\n");
-			if (verts != null && faces != null) { Debug.Assert(faces.All(i => i >= 0 && i < verts.Count)); Append("*Faces {").Append(faces).Append("}\n"); }
-			if (verts != null && lines != null) { Debug.Assert(lines.All(i => i >= 0 && i < verts.Count)); Append("*Lines {").Append(lines).Append("}\n"); }
-			if (verts != null && tetra != null) { Debug.Assert(tetra.All(i => i >= 0 && i < verts.Count)); Append("*Tetra {").Append(tetra).Append("}\n"); }
-			if (generate_normals) Append("*GenerateNormals\n");
-			if (position != null) Append(Ldr.Position(position.Value));
-			Append("}\n");
-			return this;
-		}
-
-		public LdrBuilder Graph(string name, AxisId axis_id, bool smooth, IEnumerable<v4> data)
-		{
-			var bbox = BBox.Reset;
-			foreach (var d in data)
-				BBox.Grow(ref bbox, d);
-
-			using var grp = Group(name);
-			Grid(string.Empty, 0xFFAAAAAA, axis_id, (int)(bbox.SizeX * 1.1), (int)(bbox.SizeY * 1.1), 50, 50, new v4(bbox.Centre.x, bbox.Centre.y, 0f, 1f));
-			Line("data", 0xFFFFFFFF, 1, smooth, data);
-			return this;
-		}
-
-		public LdrTextBuilder Text(string name, Colour32 colour)
-		{
-			return new LdrTextBuilder(this, name, colour);
-		}
-
-		public LdrBuilder Instance(string name, Colour32 colour, m4x4? o2w = null)
-		{
-			return Append("*Instance ", name, " ", colour, " {", Ldr.Transform(o2w), "}\n");
-		}
-
-		public override string ToString()
-		{
-			return m_sb.ToString();
-		}
-		public void ToFile(string filepath, bool append = false)
-		{
-			Ldr.Write(ToString(), filepath, append);
-		}
-		public static implicit operator string(LdrBuilder ldr) => ldr.ToString();
-	}
-
-	public class LdrTextBuilder
-	{
-		private readonly LdrBuilder m_builder;
-		internal LdrTextBuilder(LdrBuilder builder, string name, Colour32 colour)
-		{
-			m_builder = builder;
-			m_builder.Append("*Text ", name, " ", colour, " {");
-		}
-		public LdrTextBuilder String(string text)
-		{
-			m_builder.Append($"\"{text}\"");
-			return this;
-		}
-		public LdrTextBuilder CString(string cstring)
-		{
-			m_builder.Append($"*CString \"{cstring}\"");
-			return this;
-		}
-		public LdrTextBuilder Bkgd(Colour32 colour)
-		{
-			m_builder.Append("*BackColour {", colour, "}");
-			return this;
-		}
-		public LdrTextBuilder Font(string? font_name, double size, Colour32 colour)
-		{
-			m_builder.Append("*Font {", Ldr.Name(font_name), Ldr.Size(size), Ldr.Colour(colour), "}");
-			return this;
-		}
-		public LdrTextBuilder Font(double size, Colour32 colour)
-		{
-			m_builder.Append("*Font {", Ldr.Size(size), Ldr.Colour(colour), "}");
-			return this;
-		}
-		public LdrTextBuilder Billboard3D()
-		{
-			m_builder.Append(Ldr.Billboard3D(true));
-			return this;
-		}
-		public LdrTextBuilder Billboard()
-		{
-			m_builder.Append(Ldr.Billboard(true));
-			return this;
-		}
-		public LdrTextBuilder ScreenSpace()
-		{
-			m_builder.Append(Ldr.ScreenSpace(true));
-			return this;
-		}
-		public LdrTextBuilder Dim(v2 dimensions)
-		{
-			m_builder.Append($"*Dim {{{dimensions.x} {dimensions.y}}}");
-			return this;
-		}
-		public LdrTextBuilder AxisId(AxisId axis)
-		{
-			m_builder.Append(Ldr.AxisId(axis));
-			return this;
-		}
-		public LdrTextBuilder Anchor(v2 anchor)
-		{
-			m_builder.Append($"*Anchor {{{anchor.x} {anchor.y}}}");
-			return this;
-		}
-		public LdrTextBuilder Format(string h_align, string v_align, bool wrap)
-		{
-			m_builder.Append($"*Format {{{h_align} {v_align} {(wrap ? "Wrap" : "")}}}");
-			return this;
-		}
-		public LdrTextBuilder NoZTest()
-		{
-			m_builder.Append(Ldr.NoZTest(true));
-			return this;
-		}
-		public LdrTextBuilder Append(params object[] parts)
-		{
-			m_builder.Append(parts);
-			return this;
-		}
-		public LdrBuilder End()
-		{
-			return m_builder.Append("}\n");
-		}
-	}
-	#endregion
 }
 
 #if PR_UNITTESTS
@@ -3976,7 +3305,7 @@ namespace Rylogic.UnitTests
 			// Commands are control data, not geometry — skip View3d validation
 			var builder = new LDraw.Builder();
 			builder.Box("b", 0xFF00FF00).box(1);
-			builder.Command()
+			builder.Commands()
 				.object_transform("b", m4x4.Transform(v4.ZAxis, 0.3f, v4.Origin));
 			var mem = builder.ToBinary();
 			Assert.True(mem.Length > 0);
@@ -4254,32 +3583,4 @@ namespace Rylogic.UnitTests
 		}
 	}
 }
-
-#region DEPRECATED
-namespace Rylogic.UnitTests
-{
-	using LDraw;
-
-	[TestFixture]
-	public class TestLdr
-	{
-		[Test]
-		public void LdrBuilder()
-		{
-			var ldr = new LdrBuilder();
-			using (ldr.Group("g"))
-			{
-				ldr.Box("b", Color.FromArgb(0, 0xFF, 0));
-				ldr.Sphere("s", Color.Red);
-			}
-			var expected =
-				"*Group g FFFFFFFF {\n" +
-				"*Box b FF00FF00 {1 }\n" +
-				"*Sphere s FFFF0000 {1 }\n" +
-				"}\n";
-			Assert.Equal(expected, ldr.ToString());
-		}
-	}
-}
-#endregion
 #endif

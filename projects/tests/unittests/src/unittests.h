@@ -10,7 +10,7 @@
 #include "pr/algorithm/fft.h"
 #include "pr/algorithm/fibonacci_sphere.h"
 #include "pr/algorithm/kdtree.h"
-#include "pr/algorithm/multidimensional_scaling.h"
+#include "pr/algorithm/multi_dimensional_scaling.h"
 #include "pr/algorithm/peak_detection.h"
 #include "pr/algorithm/space_filling.h"
 #include "pr/algorithm/trapping_sets.h"
