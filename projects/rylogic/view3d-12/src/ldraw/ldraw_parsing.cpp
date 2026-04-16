@@ -268,9 +268,8 @@ namespace pr::rdr12::ldraw
 	{
 		m4x4 m_t2s = m4x4::Identity();
 		std::filesystem::path m_filepath = {"#white"};
-		TextureDesc m_tdesc = {};
-		SamDesc m_sdesc = {SamDesc::LinearWrap()};
-		bool m_has_alpha = false;
+		TextureDesc m_tdesc = { AutoId, {} };
+		SamDesc m_sdesc = { SamDesc::LinearWrap() };
 	};
 
 	// Information on a animation ldr object
@@ -475,6 +474,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::FilePath:
 				{
 					tex.m_filepath = reader.String<std::filesystem::path>();
+					tex.m_tdesc.name(tex.m_filepath.stem().string());
 					break;
 				}
 				case EKeyword::O2W:
@@ -496,7 +496,7 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Alpha:
 				{
-					tex.m_has_alpha = reader.IsSectionEnd() ? true : reader.Bool();;
+					tex.m_tdesc.has_alpha(reader.IsSectionEnd() ? true : reader.Bool());
 					break;
 				}
 				default:
@@ -798,7 +798,6 @@ namespace pr::rdr12::ldraw
 						// Create the texture
 						try
 						{
-							auto desc = TextureDesc(AutoId, {}).has_alpha(tex_info.m_has_alpha);
 							m_texture = pp.m_factory.CreateTexture2D(tex_info.m_filepath, tex_info.m_tdesc);
 							m_texture->m_t2s = tex_info.m_t2s;
 						}

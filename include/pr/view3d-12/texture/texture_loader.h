@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/image.h"
+#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
@@ -21,7 +22,7 @@ namespace pr::rdr12
 	struct LoadedImageResult
 	{
 		vector<ImageWithData> images; // Each image is an array slice (not a mip map)
-		D3D12_RESOURCE_DESC desc = {};
+		ResDesc desc;
 	};
 
 	// True if 'data' points at DDS data (probably)
