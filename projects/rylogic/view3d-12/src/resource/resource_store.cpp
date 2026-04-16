@@ -114,10 +114,18 @@ namespace pr::rdr12
 			: nullptr;
 	}
 
-	// Add a resource to the store
+	// Add/Remove a resource to/from the store
 	void ResourceStore::Access::Add(RdrId id, ID3D12Resource* res)
 	{
 		AddLookup(m_store.m_lookup_res, id, res);
+	}
+	void ResourceStore::Access::Remove(RdrId id, ID3D12Resource* res)
+	{
+		// This doesn't actually delete the resource, it just removes it from the lookup.
+		// The resource itself will be deleted when all RefPtr's to it are released.
+		auto jter = m_store.m_lookup_res.find(id);
+		if (jter != end(m_store.m_lookup_res) && jter->second == res)
+			m_store.m_lookup_res.erase(jter);
 	}
 
 	// Add a texture to the store
@@ -125,11 +133,16 @@ namespace pr::rdr12
 	{
 		// Check whether 'id' already exists, if so, throw. Users should use FindTexture first.
 		if (m_store.m_lookup_tex.find(tex->m_id) != end(m_store.m_lookup_tex))
-			throw std::runtime_error(FmtS("Texture Id '%d' is already in use", tex->m_id));
+			throw std::runtime_error(std::format("Texture Id '{}' is already in use", tex->m_id));
 
 		// Add the texture instance pointer (not ref counted) to the lookup table.
 		// The caller owns the texture, when released it will be removed from this lookup.
 		AddLookup(m_store.m_lookup_tex, tex->m_id, tex);
+
+		// Record that 'tex' is referencing 'tex->m_res'.
+		// This is done here rather than in the TextureBase constructor because the ref
+		// count needs to be changed within a store access scope to prevent race conditions.
+		TextureRefCount(tex->m_res.get(), +1);
 	}
 
 	// Add a sampler to the store
@@ -137,7 +150,7 @@ namespace pr::rdr12
 	{
 		// Check whether 'id' already exists, if so, throw. Users should use FindTexture first.
 		if (m_store.m_lookup_sam.find(sam->m_id) != end(m_store.m_lookup_sam))
-			throw std::runtime_error(FmtS("Sampler Id '%d' is already in use", sam->m_id));
+			throw std::runtime_error(std::format("Sampler Id '{}' is already in use", sam->m_id));
 
 		// Add the texture instance pointer (not ref counted) to the lookup table.
 		// The caller owns the texture, when released it will be removed from this lookup.
@@ -171,18 +184,19 @@ namespace pr::rdr12
 		assert(tex != nullptr);
 
 		// Find 'tex' in the map of RdrIds to texture instances
-		// We'll remove this, but first use it as a non-const reference
 		auto iter = m_store.m_lookup_tex.find(tex->m_id);
 		assert("Texture not found" && iter != end(m_store.m_lookup_tex));
-
-		// If the DX texture will be released when we clean up this texture
-		// then check whether it is in the 'fname' lookup table and remove it if it is.
-		if (tex->m_uri != 0 && tex->m_res.RefCount() == 1)
+		
+		// The texture contains a reference to a shared Dx resource. When the last texture referencing that resource is deleted,
+		// the resource should be removed from the lookup. This is done here rather than in the TextureBase destructor
+		// because the ref count needs to be changed within a store access scope to prevent race conditions.
+		// Note: We can't just use the tex->m_res.RefCount() == 1 to decide when to remove the resource, because other
+		// things hold pointers to the resource apart from textures (e.g. m_keep_alive, command lists, etc). That's why
+		// the texture-specific ref count that is stored in the resource is used.
+		if (tex->m_uri != 0)
 		{
-			// Remove the DX resource from our lookup
-			auto jter = m_store.m_lookup_res.find(tex->m_uri);
-			if (jter != end(m_store.m_lookup_res))
-				m_store.m_lookup_res.erase(jter);
+			if (TextureRefCount(tex->m_res.get(), -1) <= 0)
+				Remove(tex->m_uri, tex->m_res.get());
 		}
 
 		// Delete the texture and remove the entry from the RdrId lookup map

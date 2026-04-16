@@ -531,6 +531,23 @@ namespace pr::rdr12
 		Check(res->SetPrivateData(Guid_DefaultResourceState, s_cast<UINT>(sizeof(D3D12_RESOURCE_STATES)), &state));
 	}
 
+	// Get/Set the texture reference count for a resource
+	int TextureRefCount(ID3D12Resource const* res)
+	{
+		UINT size(sizeof(int));
+		char bytes[sizeof(int)];
+		auto hr = const_cast<ID3D12Resource*>(res)->GetPrivateData(Guid_TextureRefcount, &size, &bytes[0]);
+		return hr != DXGI_ERROR_NOT_FOUND
+			? *reinterpret_cast<int*>(&bytes[0])
+			: 0;
+	}
+	int TextureRefCount(ID3D12Resource* res, int change)
+	{
+		int new_count = TextureRefCount(res) + change;
+		Check(res->SetPrivateData(Guid_TextureRefcount, s_cast<UINT>(sizeof(int)), &new_count));
+		return new_count;
+	}
+
 	// Parse an embedded resource string of the form: "@<hmodule|module_name>:<res_type>:<res_name>"
 	std::tuple<HMODULE, std::wstring, std::wstring> ParseEmbeddedResourceUri(std::filesystem::path const& uri_)
 	{

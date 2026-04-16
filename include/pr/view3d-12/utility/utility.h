@@ -383,7 +383,7 @@ namespace pr::rdr12
 	}
 
 	// Get/Set the debug colour
-	inline static GUID const Guid_DebugColour = { 0x0405DEE4, 0xADF7, 0x4A27, { 0xBF, 0x37, 0x0B, 0x37, 0x28, 0x39, 0x39, 0x17 } };
+	inline static constexpr GUID Guid_DebugColour = { 0x0405DEE4, 0xADF7, 0x4A27, { 0xBF, 0x37, 0x0B, 0x37, 0x28, 0x39, 0x39, 0x17 } };
 	template <HasPrivateData T> Colour32 DebugColour(T const* res)
 	{
 		extern GUID const Guid_DebugColour;
@@ -410,9 +410,14 @@ namespace pr::rdr12
 	}
 
 	// Get/Set the default state for a resource
-	inline static GUID const Guid_DefaultResourceState = { 0x5DFA5A73, 0xA8A0, 0x466B, { 0xA1, 0x0A, 0x3E, 0x3A, 0x35, 0x87, 0x5B, 0xB3 } };
+	inline static constexpr GUID Guid_DefaultResourceState = { 0x5DFA5A73, 0xA8A0, 0x466B, { 0xA1, 0x0A, 0x3E, 0x3A, 0x35, 0x87, 0x5B, 0xB3 } };
 	D3D12_RESOURCE_STATES DefaultResState(ID3D12Resource const* res);
 	void DefaultResState(ID3D12Resource* res, D3D12_RESOURCE_STATES state);
+
+	// Get/Set the texture reference count for a resource
+	inline static constexpr GUID Guid_TextureRefcount = { 0xEA4CA434, 0x2176, 0x4690, { 0x89, 0xED, 0xE0, 0x0D, 0x5C, 0x11, 0xBC, 0x03 } };
+	int TextureRefCount(ID3D12Resource const* res);
+	int TextureRefCount(ID3D12Resource* res, int change);
 
 	// Parse an embedded resource string of the form: "@<hmodule|module_name>:<res_type>:<res_name>"
 	std::tuple<HMODULE, std::wstring, std::wstring> ParseEmbeddedResourceUri(std::filesystem::path const& uri);

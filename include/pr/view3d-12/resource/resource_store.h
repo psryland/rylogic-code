@@ -23,16 +23,16 @@ namespace pr::rdr12
 	private:
 
 		using Mutex          = std::recursive_mutex;
-		using ModelCont      = pr::vector<ModelPtr>;
-		using TextureCont    = pr::vector<Texture2DPtr>;
-		using SamplerCont    = pr::vector<SamplerPtr>;
+		using ModelCont      = vector<ModelPtr>;
+		using TextureCont    = vector<Texture2DPtr>;
+		using SamplerCont    = vector<SamplerPtr>;
 		using TextureLookup  = Lookup<RdrId, TextureBase*>;
 		using SamplerLookup  = Lookup<RdrId, Sampler*>;
 		using DxResLookup    = Lookup<RdrId, ID3D12Resource*>;
 
 		Renderer&       m_rdr;              // The owning renderer instance
 		Mutex           m_mutex;            // Main mutex for store access
-		DxResLookup     m_lookup_res;       // A map from hash of resource URI to existing Dx12 resource pointer.
+		DxResLookup     m_lookup_res;       // A map from resource URI hash to existing Dx12 resource pointer.
 		TextureLookup   m_lookup_tex;       // A map from texture id to existing texture instances.
 		SamplerLookup   m_lookup_sam;       // A map from sampler id to existing sampler instances.
 		DescriptorStore m_descriptor_store; // Manager of resource descriptors
@@ -83,8 +83,9 @@ namespace pr::rdr12
 			// Find an existing sampler by it's id
 			SamplerPtr FindSampler(RdrId id) const;
 
-			// Add a resource to the store
+			// Add/Remove a resource to/from the store
 			void Add(RdrId id, ID3D12Resource* res);
+			void Remove(RdrId id, ID3D12Resource* res);
 
 			// Add a texture to the store
 			void Add(TextureBase* tex);
