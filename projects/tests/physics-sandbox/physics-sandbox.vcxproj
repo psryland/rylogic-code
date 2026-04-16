@@ -20,7 +20,7 @@
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
-        ;PR_UNITTESTS=1
+        ;PR_UNITTESTS=0
       </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
@@ -46,6 +46,14 @@
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+    <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_UNITTESTS=1
+      </PreprocessorDefinitions>
+    </ClCompile>
   </ItemDefinitionGroup>
   <!-- Source -->
   <ItemGroup>

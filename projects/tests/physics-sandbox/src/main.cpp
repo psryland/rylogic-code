@@ -40,7 +40,9 @@ namespace physics_sandbox
 		printf("Physics Sandbox: Running unit tests...\n");
 
 		// Ensure physics library test .obj files are linked in
+		#if PR_UNITTESTS
 		pr::physics::tests::ForceLink_PhysicsTests();
+		#endif
 
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
