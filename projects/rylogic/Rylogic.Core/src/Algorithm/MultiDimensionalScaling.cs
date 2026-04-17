@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using Rylogic.Maths;
 
 namespace Rylogic.Algorithm.MDS
@@ -86,6 +87,151 @@ namespace Rylogic.Algorithm.MDS
 			}
 			return result;
 		}
+
+		/// <summary>Fit quality of an MDS embedding vs the target pairwise distances</summary>
+		public class FitReport
+		{
+			/// <summary>Number of unique off-diagonal pairs compared (N*(N-1)/2)</summary>
+			public int PairCount { get; set; }
+
+			/// <summary>Number of pairs that were flagged as "observed" by the optional predicate (equals PairCount if no predicate was supplied)</summary>
+			public int ObservedPairCount { get; set; }
+
+			/// <summary>Optimal uniform scale factor: Embedded * Alpha best approximates Target in a least-squares sense</summary>
+			public double Alpha { get; set; }
+
+			/// <summary>Kruskal stress-1 over all pairs after applying Alpha. &lt;0.05 excellent, &lt;0.10 good, &lt;0.20 fair, &gt;0.20 poor.</summary>
+			public double Stress { get; set; }
+
+			/// <summary>Kruskal stress-1 over just the observed pairs (0 if no predicate was supplied)</summary>
+			public double StressObserved { get; set; }
+
+			/// <summary>Pearson correlation coefficient between embedded and target distances</summary>
+			public double Pearson { get; set; }
+
+			/// <summary>Mean |Alpha*d_embedded - d_target| over all pairs</summary>
+			public double MeanAbsError { get; set; }
+
+			/// <summary>Max |Alpha*d_embedded - d_target| over all pairs</summary>
+			public double MaxAbsError { get; set; }
+
+			/// <summary>A summary string describing the fit report</summary>
+			public string Summary()
+			{
+				var summary = new StringBuilder();
+				summary.AppendLine("MDS fit report:");
+				summary.AppendLine($"  Pairs:           {PairCount} (observed: {ObservedPairCount}, {100.0 * ObservedPairCount / Math.Max(1, PairCount):F1}%)");
+				summary.AppendLine($"  Scale alpha:     {Alpha:G4} (embedded * alpha ≈ target)");
+				summary.AppendLine($"  Kruskal stress:  {Stress:F4} ({Grade(Stress)}) (all pairs)");
+				summary.AppendLine($"                   {StressObserved:F4} ({Grade(StressObserved)}) (observed pairs only)");
+				summary.AppendLine($"  Pearson r:       {Pearson:F4}");
+				summary.AppendLine($"  Mean |err|:      {MeanAbsError:G4}");
+				summary.AppendLine($"  Max  |err|:      {MaxAbsError:G4}");
+
+				return summary.ToString();
+				
+				// Rough Kruskal interpretation: <0.05 excellent, <0.10 good, <0.20 fair, >0.20 poor
+				string Grade(double s) =>
+					s < 0.05 ? "Excellent" :
+					s < 0.10 ? "Good" :
+					s < 0.20 ? "Fair" :
+					"Poor";
+			}
+		}
+
+		/// <summary>
+		/// Measure how well an MDS embedding preserves the pairwise distances of the input items.
+		/// Because MDS output has an arbitrary scale, we first compute the optimal uniform scale factor
+		///   alpha = sum(d_emb * d_tgt) / sum(d_emb^2)
+		/// and report stress/Pearson/errors using that scale. The optional 'is_observed' predicate lets
+		/// callers distinguish measured ground-truth pairs from padded or imputed pairs; when supplied,
+		/// an additional stress figure over just the observed pairs is reported.
+		/// </summary>
+		public static FitReport MeasureFit<T>(IReadOnlyList<T> items, IReadOnlyList<v4> positions, Func<T, T, double> dist, Func<T, T, bool>? is_observed = null)
+		{
+			var report = new FitReport();
+
+			var n = items.Count;
+			Debug.Assert(positions.Count >= n);
+			if (n < 2)
+				return report;
+
+			// Pass 1: gather sums needed for the optimal scale
+			double sum_emb_tgt = 0, sum_emb_sq = 0, sum_tgt_sq = 0;
+			int pair_count = 0;
+			int obs_count = 0;
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = i + 1; j != n; ++j)
+				{
+					double d_emb = (positions[i] - positions[j]).Length;
+					double d_tgt = dist(items[i], items[j]);
+
+					sum_emb_tgt += d_emb * d_tgt;
+					sum_emb_sq  += d_emb * d_emb;
+					sum_tgt_sq  += d_tgt * d_tgt;
+					++pair_count;
+
+					if (is_observed != null && is_observed(items[i], items[j]))
+						++obs_count;
+				}
+			}
+
+			double alpha = sum_emb_sq > 0 ? sum_emb_tgt / sum_emb_sq : 1.0;
+
+			// Pass 2: compute stress, Pearson, and error stats using alpha
+			double num_all = 0;
+			double num_obs = 0, den_obs = 0;
+			double abs_err_sum = 0, abs_err_max = 0;
+			double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0, sum_yy = 0;
+
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = i + 1; j != n; ++j)
+				{
+					double d_emb = (positions[i] - positions[j]).Length * alpha;
+					double d_tgt = dist(items[i], items[j]);
+					double err = d_emb - d_tgt;
+
+					num_all += err * err;
+					double aerr = Math.Abs(err);
+					abs_err_sum += aerr;
+					if (aerr > abs_err_max) abs_err_max = aerr;
+
+					if (is_observed != null && is_observed(items[i], items[j]))
+					{
+						num_obs += err * err;
+						den_obs += d_tgt * d_tgt;
+					}
+
+					sum_x  += d_emb;
+					sum_y  += d_tgt;
+					sum_xy += d_emb * d_tgt;
+					sum_xx += d_emb * d_emb;
+					sum_yy += d_tgt * d_tgt;
+				}
+			}
+
+			double stress_all = sum_tgt_sq > 0 ? Math.Sqrt(num_all / sum_tgt_sq) : 0.0;
+			double stress_obs = den_obs > 0 ? Math.Sqrt(num_obs / den_obs) : 0.0;
+
+			double pearson = 0.0;
+			double cov = sum_xy - (sum_x * sum_y) / pair_count;
+			double var_x = sum_xx - (sum_x * sum_x) / pair_count;
+			double var_y = sum_yy - (sum_y * sum_y) / pair_count;
+			if (var_x > 0 && var_y > 0)
+				pearson = cov / Math.Sqrt(var_x * var_y);
+
+			report.PairCount = pair_count;
+			report.ObservedPairCount = is_observed != null ? obs_count : pair_count;
+			report.Alpha = alpha;
+			report.Stress = stress_all;
+			report.StressObserved = stress_obs;
+			report.Pearson = pearson;
+			report.MeanAbsError = abs_err_sum / pair_count;
+			report.MaxAbsError = abs_err_max;
+			return report;
+		}
 	}
 }
 
@@ -111,6 +257,58 @@ namespace Rylogic.UnitTests
 			var result = MultiDimensionalScaling.Embed(items, (a, b) => 0.0);
 			Assert.True(result.Length == 1);
 			Assert.True(Math.Abs(result[0].w - 1.0f) < 1e-5f);
+		}
+
+		[Test]
+		public void FitPerfectEmbedding()
+		{
+			// Unit square — MDS should reconstruct distances well; stress and error should be tiny.
+			var pts = new[] { (0f, 0f), (1f, 0f), (1f, 1f), (0f, 1f) };
+			var euclidean = new Func<(float, float), (float, float), double>((a, b) =>
+			{
+				var dx = a.Item1 - b.Item1;
+				var dy = a.Item2 - b.Item2;
+				return Math.Sqrt(dx * dx + dy * dy);
+			});
+			var result = MultiDimensionalScaling.Embed(pts, euclidean, new Config { Dimensions = 2 });
+			var report = MultiDimensionalScaling.MeasureFit(pts, result, euclidean);
+
+			Assert.True(report.PairCount == 6);
+			Assert.True(report.ObservedPairCount == 6);
+			Assert.True(Math.Abs(report.Alpha - 1.0) < 0.05);
+			Assert.True(report.Stress < 0.05);
+			Assert.True(report.Pearson > 0.99);
+			Assert.True(report.MaxAbsError < 0.05);
+		}
+
+		[Test]
+		public void FitWithObservedPredicate()
+		{
+			// When some pairs are padded with an arbitrary "max" distance, the observed-pair stress
+			// should be noticeably lower than the all-pair stress.
+			var pts = new[] { (0f, 0f), (1f, 0f), (1f, 1f), (0f, 1f) };
+			var real = new Func<(float, float), (float, float), double>((a, b) =>
+			{
+				var dx = a.Item1 - b.Item1;
+				var dy = a.Item2 - b.Item2;
+				return Math.Sqrt(dx * dx + dy * dy);
+			});
+
+			// Pretend only adjacent pairs are "observed"; diagonals are padded to a large value.
+			Func<(float, float), (float, float), bool> adjacent = (a, b) =>
+			{
+				var d = real(a, b);
+				return d < 1.1; // only the 4 unit edges
+			};
+			Func<(float, float), (float, float), double> padded = (a, b) => adjacent(a, b) ? real(a, b) : 10.0;
+
+			var result = MultiDimensionalScaling.Embed(pts, padded, new Config { Dimensions = 2 });
+			var report = MultiDimensionalScaling.MeasureFit(pts, result, padded, adjacent);
+
+			Assert.True(report.PairCount == 6);
+			Assert.True(report.ObservedPairCount == 4);
+			Assert.True(report.Stress >= 0.0);
+			Assert.True(report.StressObserved >= 0.0);
 		}
 
 		[Test]

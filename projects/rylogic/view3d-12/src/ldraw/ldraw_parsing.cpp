@@ -5988,6 +5988,9 @@ namespace pr::rdr12::ldraw
 		// If an object was created add it to the parse results
 		if (obj != nullptr)
 		{
+			// A few sanity checks
+			assert(IsAffine(obj->m_o2p));
+
 			// Apply properties to the object
 			// This is done after objects are parsed so that recursive properties can be applied
 			ApplyObjectState(obj.get());

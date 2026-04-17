@@ -167,10 +167,14 @@ namespace Rylogic.Maths
 		{
 			return Translation(new v4(dxy, dz, 1f));
 		}
+		public static m4x4 Translation(v3 translation)
+		{
+			return new(m3x3.Identity, translation.w1);
+		}
 		public static m4x4 Translation(v4 translation)
 		{
-			Debug.Assert(Math_.FEql(translation.w, 1f), "'translation' must be a position vector");
-			return new(m3x3.Identity, translation);
+			Debug.Assert(Math_.FEql(translation.w, 1f), "'translation' should be a position vector");
+			return Translation(translation.xyz);
 		}
 
 		/// <summary>Create a rotation/translation matrix</summary>
