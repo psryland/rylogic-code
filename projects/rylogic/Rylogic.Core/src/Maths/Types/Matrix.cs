@@ -614,12 +614,29 @@ namespace Rylogic.Maths
 
 			for (int restart = 0; restart != max_iter; ++restart)
 			{
-				// Starting vector: use the first Ritz vector from previous run, or [1,1,...,1]/sqrt(N)
+				// Starting vector: use the first Ritz vector from previous run, or a deterministic
+				// pseudo-random vector. We deliberately avoid the all-ones vector because it is
+				// often exactly the null eigenvector of double-centred / Laplacian-like matrices
+				// (e.g. the classical MDS Gram matrix B = -0.5·J·D²·J satisfies B·1 = 0). Starting
+				// Lanczos from such a null vector causes immediate collapse: Aq = 0, so w = 0 and
+				// all subsequent alpha/beta are zero, returning eigenvalues ≈ 0.
+				// A pseudo-random vector has (with overwhelming probability) a non-zero component
+				// along every eigenvector, and Lanczos' implicit deflation will correctly drop any
+				// null directions as it builds the Krylov subspace.
 				if (restart == 0)
 				{
-					var inv_sqrt_n = 1.0 / Math.Sqrt(N);
+					// Fixed seed -> deterministic / reproducible results across runs.
+					var rng = new Random(unchecked(0x5EED0000 + N));
+					var norm_sq = 0.0;
 					for (int i = 0; i != N; ++i)
-						q[0, i] = inv_sqrt_n;
+					{
+						var v = rng.NextDouble() - 0.5;
+						q[0, i] = v;
+						norm_sq += v * v;
+					}
+					var inv_norm = 1.0 / Math.Sqrt(norm_sq);
+					for (int i = 0; i != N; ++i)
+						q[0, i] *= inv_norm;
 				}
 				else
 				{
@@ -1576,6 +1593,90 @@ namespace Rylogic.UnitTests
 					var lv = lambda * result.Vectors[r, k];
 					Assert.True(Math.Abs(mv - lv) < 1e-8);
 				}
+			}
+		}
+
+		[Test]
+		public void EigenTopKDoubleCentered()
+		{
+			// Regression test: the classical MDS Gram matrix B = -0.5·J·D²·J has 1 in its null
+			// space (B·1 = 0). A Lanczos implementation starting from [1,…,1]/√N collapses to
+			// zero eigenvalues. EigenTopK must return the true top eigenvalues regardless.
+			// Use N > 32 so the Lanczos path is exercised (small-N falls back to full decomp).
+
+			const int N = 64;
+
+			// Build a distance matrix D from random points in 3D, then double-centre D² -> B.
+			var rng = new Random(1234);
+			var pts = new double[N * 3];
+			for (int i = 0; i != N * 3; ++i)
+				pts[i] = rng.NextDouble() * 10.0;
+
+			var D2 = new Matrix(N, N);
+			for (int i = 0; i != N; ++i)
+			{
+				for (int j = 0; j != N; ++j)
+				{
+					var dx = pts[i * 3 + 0] - pts[j * 3 + 0];
+					var dy = pts[i * 3 + 1] - pts[j * 3 + 1];
+					var dz = pts[i * 3 + 2] - pts[j * 3 + 2];
+					D2[i, j] = dx * dx + dy * dy + dz * dz;
+				}
+			}
+
+			// Double centre: B = -0.5 * J * D² * J  where  J = I - (1/N)·11ᵀ
+			var row_mean = new double[N];
+			var col_mean = new double[N];
+			var grand_mean = 0.0;
+			for (int i = 0; i != N; ++i)
+			{
+				for (int j = 0; j != N; ++j)
+				{
+					row_mean[i] += D2[i, j];
+					col_mean[j] += D2[i, j];
+					grand_mean += D2[i, j];
+				}
+			}
+			for (int i = 0; i != N; ++i) { row_mean[i] /= N; col_mean[i] /= N; }
+			grand_mean /= (N * N);
+
+			var B = new Matrix(N, N);
+			for (int i = 0; i != N; ++i)
+				for (int j = 0; j != N; ++j)
+					B[i, j] = -0.5 * (D2[i, j] - row_mean[i] - col_mean[j] + grand_mean);
+
+			// Points were generated in 3D -> B has rank ≤ 3. Ask for top 3 eigenpairs.
+			var result = Matrix.EigenTopK(B, 3);
+			Assert.True(result.Values.Cmps == 3);
+
+			// For a rank-3 Euclidean configuration, the top 3 eigenvalues must be clearly positive.
+			// If Lanczos had collapsed on the null direction, all three would be ~0.
+			Assert.True(result.Values[0, 0] > 1.0);
+			Assert.True(result.Values[0, 1] > 1.0);
+			Assert.True(result.Values[0, 2] > 1.0);
+
+			// And they must be in descending order.
+			Assert.True(result.Values[0, 0] >= result.Values[0, 1]);
+			Assert.True(result.Values[0, 1] >= result.Values[0, 2]);
+
+			// Verify A*v ≈ λ*v for each returned eigenpair (relative tolerance to allow for
+			// Lanczos convergence slack vs the exact EigenSymmetric result).
+			for (int k = 0; k != 3; ++k)
+			{
+				var lambda = result.Values[0, k];
+				var err2 = 0.0;
+				var norm2 = 0.0;
+				for (int r = 0; r != N; ++r)
+				{
+					var mv = 0.0;
+					for (int c = 0; c != N; ++c)
+						mv += B[r, c] * result.Vectors[c, k];
+
+					var lv = lambda * result.Vectors[r, k];
+					err2 += (mv - lv) * (mv - lv);
+					norm2 += lv * lv;
+				}
+				Assert.True(Math.Sqrt(err2 / norm2) < 1e-4);
 			}
 		}
 	}

@@ -22,6 +22,78 @@ namespace Rylogic.Algorithm.MDS
 	public static class MultiDimensionalScaling
 	{
 		/// <summary>
+		/// Embed N items into low-dimensional space preserving pairwise distances, where some distances
+		/// may be unknown. A 'dist' result of null indicates "this pair's distance is undefined"; such
+		/// pairs are imputed as the shortest-path distance through the graph of known pairs (a.k.a. ISOMAP).
+		/// This is useful when only a subset of the distance matrix is measured — e.g. a transition graph
+		/// where edges exist between a small fraction of pairs.
+		/// Throws InvalidOperationException if the graph of known pairs has disconnected components
+		/// (i.e. some pair cannot be reached via any chain of known distances).
+		/// </summary>
+		public static v4[] Embed<T>(IReadOnlyList<T> items, Func<T, T, double?> dist, Config? config = null)
+		{
+			var cfg = config ?? new Config();
+			var n = items.Count;
+			if (n == 0) return Array.Empty<v4>();
+			if (n == 1) return new[] { new v4(0, 0, 0, 1) };
+
+			var complete = ImputeMissing(items, dist);
+			return EmbedFromMatrix(n, complete, cfg);
+		}
+
+		/// <summary>
+		/// Fill in missing pairwise distances using Floyd-Warshall shortest paths through the graph
+		/// of known pairs. Returns an N*N symmetric matrix (row-major) with zero on the diagonal.
+		/// A null return from 'dist' means the pair is unknown.
+		/// </summary>
+		public static double[] ImputeMissing<T>(IReadOnlyList<T> items, Func<T, T, double?> dist)
+		{
+			var n = items.Count;
+			var d = new double[n * n];
+			const double INF = double.PositiveInfinity;
+
+			// Seed with direct observations (null -> INF); diagonal = 0
+			for (int i = 0; i != n; ++i)
+			{
+				d[i * n + i] = 0.0;
+				for (int j = i + 1; j != n; ++j)
+				{
+					var v = dist(items[i], items[j]);
+					var dv = v.HasValue ? v.Value : INF;
+					d[i * n + j] = dv;
+					d[j * n + i] = dv;
+				}
+			}
+
+			// Floyd-Warshall: d[i,j] = min(d[i,j], d[i,k] + d[k,j])
+			for (int k = 0; k != n; ++k)
+			{
+				for (int i = 0; i != n; ++i)
+				{
+					var dik = d[i * n + k];
+					if (double.IsPositiveInfinity(dik)) continue;
+					for (int j = 0; j != n; ++j)
+					{
+						var via = dik + d[k * n + j];
+						if (via < d[i * n + j])
+							d[i * n + j] = via;
+					}
+				}
+			}
+
+			// Any remaining INF means the graph is disconnected
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = i + 1; j != n; ++j)
+				{
+					if (double.IsPositiveInfinity(d[i * n + j]))
+						throw new InvalidOperationException($"Cannot impute distance: items [{i}] and [{j}] are not connected via any chain of known pairs.");
+				}
+			}
+			return d;
+		}
+
+		/// <summary>
 		/// Embed N items into low-dimensional space preserving pairwise distances.
 		/// 'dist(items[i], items[j])' must return a double dissimilarity >= 0.
 		/// Returns an array of v4 points with w=1. Unused dimensions are zero.
@@ -31,27 +103,35 @@ namespace Rylogic.Algorithm.MDS
 			var cfg = config ?? new Config();
 			Debug.Assert(cfg.Dimensions >= 1 && cfg.Dimensions <= 3);
 
-			if (items.Count == 0)
-				return Array.Empty<v4>();
-
-			if (items.Count == 1)
-				return new[] { new v4(0, 0, 0, 1) };
-
 			var n = items.Count;
-			var dim = Math.Min(cfg.Dimensions, n - 1);
+			if (n == 0) return Array.Empty<v4>();
+			if (n == 1) return new[] { new v4(0, 0, 0, 1) };
 
-			// Step 1: Build N×N squared distance matrix D²
-			var D2 = new double[n * n];
+			// Build the complete distance matrix and hand off to EmbedFromMatrix
+			var D = new double[n * n];
 			for (int i = 0; i != n; ++i)
 			{
 				for (int j = i + 1; j != n; ++j)
 				{
-					var d = dist(items[i], items[j]);
-					var d2 = d * d;
-					D2[i * n + j] = d2;
-					D2[j * n + i] = d2;
+					var dv = dist(items[i], items[j]);
+					D[i * n + j] = dv;
+					D[j * n + i] = dv;
 				}
 			}
+			return EmbedFromMatrix(n, D, cfg);
+		}
+
+		// Core Torgerson MDS on an N*N distance matrix (row-major, symmetric, zero diagonal).
+		private static v4[] EmbedFromMatrix(int n, double[] D, Config cfg)
+		{
+			Debug.Assert(cfg.Dimensions >= 1 && cfg.Dimensions <= 3);
+			var dim = Math.Min(cfg.Dimensions, n - 1);
+
+			// Step 1: Square the distance matrix
+			var D2 = new double[n * n];
+			for (int i = 0; i != n; ++i)
+				for (int j = 0; j != n; ++j)
+					D2[i * n + j] = D[i * n + j] * D[i * n + j];
 
 			// Step 2: Double centering to get the inner-product matrix B = -1/2 * J * D² * J
 			// where J = I - (1/N) * 11ᵀ. Equivalent to: B[i][j] = -1/2 * (D²[i][j] - row_mean[i] - col_mean[j] + grand_mean)
@@ -73,6 +153,9 @@ namespace Rylogic.Algorithm.MDS
 				for (int j = 0; j != n; ++j)
 					B[i, j] = -0.5 * (D2[i * n + j] - row_mean[i] - row_mean[j] + grand_mean);
 
+			// Only the top 'dim' eigenpairs are needed. EigenTopK uses Lanczos for large N,
+			// which is O(dim · N²) per restart rather than O(N³) for the full decomposition.
+			// Critical for MDS's intended use with large point sets.
 			var eigen = Matrix.EigenTopK(B, dim);
 
 			// Step 4: Build output coordinates from top 'dim' eigenvectors scaled by sqrt(eigenvalue)
@@ -257,6 +340,54 @@ namespace Rylogic.UnitTests
 			var result = MultiDimensionalScaling.Embed(items, (a, b) => 0.0);
 			Assert.True(result.Length == 1);
 			Assert.True(Math.Abs(result[0].w - 1.0f) < 1e-5f);
+		}
+
+		[Test]
+		public void EmbedWithMissingDistances()
+		{
+			// Square: pretend only adjacent-edge distances are known; diagonals are null.
+			// ISOMAP should impute the diagonal as 1+1=2 (path through a corner).
+			var pts = new[] { (0f, 0f), (1f, 0f), (1f, 1f), (0f, 1f) };
+			Func<(float, float), (float, float), double?> sparse = (a, b) =>
+			{
+				var dx = a.Item1 - b.Item1;
+				var dy = a.Item2 - b.Item2;
+				var d = Math.Sqrt(dx * dx + dy * dy);
+				return d < 1.1 ? d : (double?)null; // only report unit edges
+			};
+
+			// Imputation step: diagonals should be filled as 2 (path-through)
+			var mat = MultiDimensionalScaling.ImputeMissing(pts, sparse);
+			Assert.True(Math.Abs(mat[0 * 4 + 1] - 1.0) < 1e-6);
+			Assert.True(Math.Abs(mat[0 * 4 + 2] - 2.0) < 1e-6);
+			Assert.True(Math.Abs(mat[1 * 4 + 3] - 2.0) < 1e-6);
+
+			// Embedding should succeed and produce 4 finite points; exact layout is a compromise
+			// because the imputed distances aren't Euclidean-consistent (4 edges of 1 and 2 diagonals of 2).
+			var result = MultiDimensionalScaling.Embed(pts, sparse, new Config { Dimensions = 2 });
+			Assert.True(result.Length == 4);
+			for (int i = 0; i != 4; ++i)
+			{
+				Assert.True(!float.IsNaN(result[i].x) && !float.IsInfinity(result[i].x));
+				Assert.True(!float.IsNaN(result[i].y) && !float.IsInfinity(result[i].y));
+			}
+		}
+
+		[Test]
+		public void ImputeMissingDisconnected()
+		{
+			// Two components with no bridge -> should throw
+			var items = new[] { 0, 1, 2, 3 };
+			Func<int, int, double?> dist = (a, b) =>
+			{
+				if ((a == 0 && b == 1) || (a == 1 && b == 0)) return 1.0;
+				if ((a == 2 && b == 3) || (a == 3 && b == 2)) return 1.0;
+				return null;
+			};
+			var threw = false;
+			try { MultiDimensionalScaling.ImputeMissing(items, dist); }
+			catch (InvalidOperationException) { threw = true; }
+			Assert.True(threw);
 		}
 
 		[Test]

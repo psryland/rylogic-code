@@ -10,6 +10,12 @@
 #include <vector>
 #include <ranges>
 #include <string>
+#include <sstream>
+#include <iomanip>
+#include <optional>
+#include <limits>
+#include <stdexcept>
+#include <functional>
 #include <algorithm>
 #include <numeric>
 #include <cmath>
@@ -25,26 +31,139 @@ namespace pr::algorithm::mds
 		int dimensions = 3;
 	};
 
-	// Concept for a distance function between items
+	// Concept for a distance function between items returning a plain dissimilarity
 	template <typename DistFunc, typename Item>
-	concept DistanceFunction = 
-		std::invocable<DistFunc, Item const&, Item const&> && 
+	concept DistanceFunction =
+		std::invocable<DistFunc, Item const&, Item const&> &&
 		std::convertible_to<std::invoke_result_t<DistFunc, Item const&, Item const&>, float>;
+
+	// Concept for a distance function that may return std::nullopt for unknown pairs
+	template <typename DistFunc, typename Item>
+	concept OptionalDistanceFunction =
+		std::invocable<DistFunc, Item const&, Item const&> &&
+		std::same_as<std::invoke_result_t<DistFunc, Item const&, Item const&>, std::optional<float>>;
+
+	// Concept for a predicate that says whether a given pair was directly observed (vs imputed/padded)
+	template <typename Pred, typename Item>
+	concept ObservedPredicate =
+		std::invocable<Pred, Item const&, Item const&> &&
+		std::convertible_to<std::invoke_result_t<Pred, Item const&, Item const&>, bool>;
+
+	namespace detail
+	{
+		// Shared core: build B from an N*N distance matrix D (row-major), eigendecompose, write out.
+		template <typename S>
+		void EmbedFromMatrix(int n, std::span<S const> D, std::span<v4> out, Config const& config)
+		{
+			assert(static_cast<int>(D.size()) == n * n);
+			assert(static_cast<int>(out.size()) >= n);
+
+			auto const dim = (std::min)(config.dimensions, n - 1);
+
+			// Step 1: Squared distances
+			auto D2 = std::vector<S>(n * n);
+			for (int i = 0; i != n * n; ++i)
+				D2[i] = D[i] * D[i];
+
+			// Step 2: Double centering  B = -1/2 * J * D² * J
+			auto row_mean = std::vector<S>(n, S(0));
+			auto grand_mean = S(0);
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = 0; j != n; ++j)
+					row_mean[i] += D2[i * n + j];
+
+				row_mean[i] /= static_cast<S>(n);
+				grand_mean += row_mean[i];
+			}
+			grand_mean /= static_cast<S>(n);
+
+			auto B = Matrix<S>(n, n);
+			for (int i = 0; i != n; ++i)
+				for (int j = 0; j != n; ++j)
+					B(i, j) = S(-0.5) * (D2[i * n + j] - row_mean[i] - row_mean[j] + grand_mean);
+
+			// Step 3: Top-k eigendecomposition. Lanczos is O(dim·n²) per restart — essential at scale.
+			auto eigen = EigenTopK(B, dim);
+
+			// Step 4: Output coordinates from top 'dim' eigenvectors scaled by sqrt(eigenvalue).
+			// Clamp negative eigenvalues to zero (numerical noise from non-Euclidean distances).
+			for (int i = 0; i != n; ++i)
+			{
+				out[i] = v4{
+					dim >= 1 ? static_cast<float>(std::sqrt((std::max)(S(0), eigen.values(0))) * eigen.vectors(i, 0)) : 0,
+					dim >= 2 ? static_cast<float>(std::sqrt((std::max)(S(0), eigen.values(1))) * eigen.vectors(i, 1)) : 0,
+					dim >= 3 ? static_cast<float>(std::sqrt((std::max)(S(0), eigen.values(2))) * eigen.vectors(i, 2)) : 0,
+					1,
+				};
+			}
+		}
+	}
+
+	// Fill in missing pairwise distances using Floyd-Warshall shortest paths through the graph of
+	// known pairs (a.k.a. ISOMAP imputation). 'dist' returns std::nullopt when the pair's distance
+	// is unknown. Returns an N*N symmetric row-major matrix with zero on the diagonal.
+	// Throws std::runtime_error if the graph of known pairs has disconnected components.
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && OptionalDistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	std::vector<float> ImputeMissing(Range&& items, DistFunc dist)
+	{
+		constexpr auto INF = std::numeric_limits<float>::infinity();
+		auto const n = static_cast<int>(std::ranges::size(items));
+		auto d = std::vector<float>(n * n);
+
+		// Seed with direct observations (nullopt -> INF); diagonal = 0
+		for (int i = 0; i != n; ++i)
+		{
+			d[i * n + i] = 0.0f;
+			for (int j = i + 1; j != n; ++j)
+			{
+				auto v = dist(items[i], items[j]);
+				auto dv = v.has_value() ? *v : INF;
+				d[i * n + j] = dv;
+				d[j * n + i] = dv;
+			}
+		}
+
+		// Floyd-Warshall: d[i,j] = min(d[i,j], d[i,k] + d[k,j])
+		for (int k = 0; k != n; ++k)
+		{
+			for (int i = 0; i != n; ++i)
+			{
+				auto dik = d[i * n + k];
+				if (std::isinf(dik)) continue;
+				for (int j = 0; j != n; ++j)
+				{
+					auto via = dik + d[k * n + j];
+					if (via < d[i * n + j])
+						d[i * n + j] = via;
+				}
+			}
+		}
+
+		// Any remaining INF means the graph is disconnected
+		for (int i = 0; i != n; ++i)
+		{
+			for (int j = i + 1; j != n; ++j)
+			{
+				if (std::isinf(d[i * n + j]))
+					throw std::runtime_error("MDS ImputeMissing: items are not connected via any chain of known pairs.");
+			}
+		}
+		return d;
+	}
 
 	// Embed N items into low-dimensional space preserving pairwise distances.
 	// 'dist(items[i], items[j])' must return a float dissimilarity >= 0.
 	// Returns a vector of v4 points with w=1. Unused dimensions are zero.
-	template <std::ranges::random_access_range Range, typename DistFunc>
-		requires std::ranges::sized_range<Range> && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
 	void Embed(Range&& items, std::span<v4> out, DistFunc dist, Config const& config = {})
 	{
 		assert(config.dimensions >= 1 && config.dimensions <= 3);
 		assert(out.size() >= std::ranges::size(items));
 
 		if (std::ranges::empty(items))
-		{
 			return;
-		}
+
 		if (std::ranges::size(items) == 1)
 		{
 			out[0] = v4{0, 0, 0, 1};
@@ -52,65 +171,219 @@ namespace pr::algorithm::mds
 		}
 
 		auto const n = static_cast<int>(std::ranges::size(items));
-		auto const dim = (std::min)(config.dimensions, n - 1);
 
-		// Step 1: Build N×N squared distance matrix D²
-		auto D2 = std::vector<float>(n * n, 0.0f);
+		// Build N*N distance matrix D
+		auto D = std::vector<float>(n * n, 0.0f);
 		for (int i = 0; i != n; ++i)
 		{
 			for (int j = i + 1; j != n; ++j)
 			{
 				auto d = static_cast<float>(dist(items[i], items[j]));
-				auto d2 = d * d;
-				D2[i * n + j] = d2;
-				D2[j * n + i] = d2;
+				D[i * n + j] = d;
+				D[j * n + i] = d;
 			}
 		}
 
-		// Step 2: Double centering to get the inner-product matrix B = -1/2 * J * D² * J
-		// where J = I - (1/N) * 11ᵀ. Equivalent to: B[i][j] = -1/2 * (D²[i][j] - row_mean[i] - col_mean[j] + grand_mean)
-		auto row_mean = std::vector<float>(n, 0.0f);
-		auto grand_mean = 0.0f;
-		for (int i = 0; i != n; ++i)
-		{
-			for (int j = 0; j != n; ++j)
-				row_mean[i] += D2[i * n + j];
-
-			row_mean[i] /= static_cast<float>(n);
-			grand_mean += row_mean[i];
-		}
-		grand_mean /= static_cast<float>(n);
-
-		// Step 3: Build the inner-product matrix B as a Matrix<float> and eigendecompose.
-		// Use EigenTopK for the top 'dim' eigenpairs, which is much faster than full decomposition for large N.
-		auto B = Matrix<float>(n, n, D2.data());
-		for (int i = 0; i != n; ++i)
-			for (int j = 0; j != n; ++j)
-				B(i, j) = -0.5f * (D2[i * n + j] - row_mean[i] - row_mean[j] + grand_mean);
-
-		auto eigen = EigenTopK(B, dim);
-
-		// Step 4: Build output coordinates from top 'dim' eigenvectors scaled by sqrt(eigenvalue)
-		for (int i = 0; i != n; ++i)
-		{
-			// Clamp negative eigenvalues to zero (numerical noise from non-Euclidean distances)
-			auto pt = v4{
-				dim >= 1 ? std::sqrt((std::max)(0.0f, eigen.values(0))) * eigen.vectors(i, 0) : 0,
-				dim >= 2 ? std::sqrt((std::max)(0.0f, eigen.values(1))) * eigen.vectors(i, 1) : 0,
-				dim >= 3 ? std::sqrt((std::max)(0.0f, eigen.values(2))) * eigen.vectors(i, 2) : 0,
-				1,
-			};
-			out[i] = pt;
-		}
+		detail::EmbedFromMatrix<float>(n, std::span<float const>{D}, out, config);
 	}
-	template <std::ranges::random_access_range Range, typename DistFunc>
-		requires std::ranges::sized_range<Range>
-		      && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
 	std::vector<v4> Embed(Range&& items, DistFunc dist, Config const& config = {})
 	{
 		auto out = std::vector<v4>(std::ranges::size(items));
-		Embed(items, out, dist, config);
+		Embed(items, std::span<v4>{out}, dist, config);
 		return out;
+	}
+
+	// Embed with sparsely observed distances. A 'dist' result of std::nullopt indicates "this pair's
+	// distance is undefined"; such pairs are imputed as shortest-path distances through the graph of
+	// known pairs (ISOMAP). Throws std::runtime_error if the known-pairs graph is disconnected.
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && OptionalDistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	void Embed(Range&& items, std::span<v4> out, DistFunc dist, Config const& config = {})
+	{
+		assert(config.dimensions >= 1 && config.dimensions <= 3);
+		assert(out.size() >= std::ranges::size(items));
+
+		if (std::ranges::empty(items))
+			return;
+
+		if (std::ranges::size(items) == 1)
+		{
+			out[0] = v4{0, 0, 0, 1};
+			return;
+		}
+
+		auto const n = static_cast<int>(std::ranges::size(items));
+		auto complete = ImputeMissing(items, dist);
+		detail::EmbedFromMatrix<float>(n, std::span<float const>{complete}, out, config);
+	}
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && OptionalDistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	std::vector<v4> Embed(Range&& items, DistFunc dist, Config const& config = {})
+	{
+		auto out = std::vector<v4>(std::ranges::size(items));
+		Embed(items, std::span<v4>{out}, dist, config);
+		return out;
+	}
+
+	// Fit quality of an MDS embedding vs the target pairwise distances.
+	struct FitReport
+	{
+		// Number of unique off-diagonal pairs compared (N*(N-1)/2)
+		int pair_count = 0;
+
+		// Number of pairs flagged as "observed" by the optional predicate (equals pair_count if none supplied)
+		int observed_pair_count = 0;
+
+		// Optimal uniform scale factor: Embedded * alpha best approximates Target in a least-squares sense
+		double alpha = 1.0;
+
+		// Kruskal stress-1 over all pairs after applying alpha. <0.05 excellent, <0.10 good, <0.20 fair, >0.20 poor.
+		double stress = 0.0;
+
+		// Kruskal stress-1 over just the observed pairs (0 if no predicate was supplied)
+		double stress_observed = 0.0;
+
+		// Pearson correlation coefficient between embedded and target distances
+		double pearson = 0.0;
+
+		// Mean |alpha*d_embedded - d_target| over all pairs
+		double mean_abs_error = 0.0;
+
+		// Max  |alpha*d_embedded - d_target| over all pairs
+		double max_abs_error = 0.0;
+
+		// Summary string describing the fit report
+		std::string summary() const
+		{
+			// Rough Kruskal interpretation: <0.05 excellent, <0.10 good, <0.20 fair, >0.20 poor
+			auto grade = [](double s) -> char const*
+			{
+				return
+					s < 0.05 ? "Excellent" :
+					s < 0.10 ? "Good" :
+					s < 0.20 ? "Fair" :
+					"Poor";
+			};
+
+			auto ss = std::ostringstream{};
+			ss << std::fixed;
+			ss << "MDS fit report:\n";
+			ss << "  Pairs:           " << pair_count
+			   << " (observed: " << observed_pair_count << ", "
+			   << std::setprecision(1) << (100.0 * observed_pair_count / (std::max)(1, pair_count))
+			   << "%)\n";
+			ss << std::setprecision(4);
+			ss << "  Scale alpha:     " << alpha << " (embedded * alpha ~= target)\n";
+			ss << "  Kruskal stress:  " << stress << " (" << grade(stress) << ") (all pairs)\n";
+			ss << "                   " << stress_observed << " (" << grade(stress_observed) << ") (observed pairs only)\n";
+			ss << "  Pearson r:       " << pearson << "\n";
+			ss << "  Mean |err|:      " << mean_abs_error << "\n";
+			ss << "  Max  |err|:      " << max_abs_error << "\n";
+			return ss.str();
+		}
+	};
+
+	// Measure how well an MDS embedding preserves the pairwise distances of the input items.
+	// Because MDS output has arbitrary scale, we first compute the optimal uniform scale factor
+	//   alpha = sum(d_emb * d_tgt) / sum(d_emb^2)
+	// and report stress/Pearson/errors using that scale. The optional 'is_observed' predicate lets
+	// callers distinguish measured ground-truth pairs from padded or imputed pairs; when supplied,
+	// an additional stress figure over just the observed pairs is reported.
+	template <std::ranges::random_access_range Range, typename DistFunc, typename ObservedFunc = std::nullptr_t> requires std::ranges::sized_range<Range> && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	FitReport MeasureFit(Range&& items, std::span<v4 const> positions, DistFunc dist, ObservedFunc is_observed = nullptr)
+	{
+		using Item = std::ranges::range_value_t<Range>;
+		constexpr bool has_observed = !std::same_as<ObservedFunc, std::nullptr_t>;
+		if constexpr (has_observed)
+			static_assert(ObservedPredicate<ObservedFunc, Item>, "is_observed must be callable (Item, Item) -> bool");
+
+		auto report = FitReport{};
+
+		auto const n = static_cast<int>(std::ranges::size(items));
+		assert(static_cast<int>(positions.size()) >= n);
+		if (n < 2)
+			return report;
+
+		// Pass 1: gather sums needed for the optimal scale
+		double sum_emb_tgt = 0, sum_emb_sq = 0, sum_tgt_sq = 0;
+		int pair_count = 0;
+		int obs_count = 0;
+		for (int i = 0; i != n; ++i)
+		{
+			for (int j = i + 1; j != n; ++j)
+			{
+				double d_emb = static_cast<double>(Length(positions[i] - positions[j]));
+				double d_tgt = static_cast<double>(dist(items[i], items[j]));
+
+				sum_emb_tgt += d_emb * d_tgt;
+				sum_emb_sq  += d_emb * d_emb;
+				sum_tgt_sq  += d_tgt * d_tgt;
+				++pair_count;
+
+				if constexpr (has_observed)
+				{
+					if (is_observed(items[i], items[j]))
+						++obs_count;
+				}
+			}
+		}
+
+		double alpha = sum_emb_sq > 0 ? sum_emb_tgt / sum_emb_sq : 1.0;
+
+		// Pass 2: compute stress, Pearson, and error stats using alpha
+		double num_all = 0;
+		double num_obs = 0, den_obs = 0;
+		double abs_err_sum = 0, abs_err_max = 0;
+		double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0, sum_yy = 0;
+
+		for (int i = 0; i != n; ++i)
+		{
+			for (int j = i + 1; j != n; ++j)
+			{
+				double d_emb = static_cast<double>(Length(positions[i] - positions[j])) * alpha;
+				double d_tgt = static_cast<double>(dist(items[i], items[j]));
+				double err = d_emb - d_tgt;
+
+				num_all += err * err;
+				double aerr = std::abs(err);
+				abs_err_sum += aerr;
+				if (aerr > abs_err_max) abs_err_max = aerr;
+
+				if constexpr (has_observed)
+				{
+					if (is_observed(items[i], items[j]))
+					{
+						num_obs += err * err;
+						den_obs += d_tgt * d_tgt;
+					}
+				}
+
+				sum_x  += d_emb;
+				sum_y  += d_tgt;
+				sum_xy += d_emb * d_tgt;
+				sum_xx += d_emb * d_emb;
+				sum_yy += d_tgt * d_tgt;
+			}
+		}
+
+		double stress_all = sum_tgt_sq > 0 ? std::sqrt(num_all / sum_tgt_sq) : 0.0;
+		double stress_obs = den_obs > 0 ? std::sqrt(num_obs / den_obs) : 0.0;
+
+		double pearson = 0.0;
+		double cov = sum_xy - (sum_x * sum_y) / pair_count;
+		double var_x = sum_xx - (sum_x * sum_x) / pair_count;
+		double var_y = sum_yy - (sum_y * sum_y) / pair_count;
+		if (var_x > 0 && var_y > 0)
+			pearson = cov / std::sqrt(var_x * var_y);
+
+		report.pair_count = pair_count;
+		report.observed_pair_count = has_observed ? obs_count : pair_count;
+		report.alpha = alpha;
+		report.stress = stress_all;
+		report.stress_observed = stress_obs;
+		report.pearson = pearson;
+		report.mean_abs_error = abs_err_sum / pair_count;
+		report.max_abs_error = abs_err_max;
+		return report;
 	}
 }
 
@@ -168,6 +441,97 @@ namespace pr::algorithm
 				PR_EXPECT(std::abs(p.z) < 1e-4f);
 				PR_EXPECT(std::abs(p.w - 1.0f) < 1e-5f);
 			}
+		}
+		PRUnitTestMethod(EmbedWithMissingDistances)
+		{
+			// Square: only adjacent-edge distances are known; diagonals are unknown (nullopt).
+			// ISOMAP should impute the diagonal as 1+1=2 via a path through a corner.
+			struct Point { float x, y; };
+			Point pts[] = { {0,0}, {1,0}, {1,1}, {0,1} };
+
+			auto sparse = [](Point const& a, Point const& b) -> std::optional<float>
+			{
+				auto dx = a.x - b.x;
+				auto dy = a.y - b.y;
+				auto d = std::sqrt(dx * dx + dy * dy);
+				if (d < 1.1f) return d; // only report unit edges
+				return std::nullopt;
+			};
+
+			// Imputation step: diagonals should be filled as 2 (path-through)
+			auto mat = mds::ImputeMissing(pts, sparse);
+			PR_EXPECT(std::abs(mat[0 * 4 + 1] - 1.0f) < 1e-5f);
+			PR_EXPECT(std::abs(mat[0 * 4 + 2] - 2.0f) < 1e-5f);
+			PR_EXPECT(std::abs(mat[1 * 4 + 3] - 2.0f) < 1e-5f);
+
+			// Embedding should succeed and produce 4 finite points; exact layout is a compromise
+			// because the imputed distances aren't Euclidean-consistent (4 edges of 1 and 2 diagonals of 2).
+			auto result = mds::Embed(pts, sparse, { .dimensions = 2 });
+			PR_EXPECT(result.size() == 4);
+			for (int i = 0; i != 4; ++i)
+			{
+				PR_EXPECT(std::isfinite(result[i].x));
+				PR_EXPECT(std::isfinite(result[i].y));
+			}
+		}
+		PRUnitTestMethod(ImputeMissingDisconnected)
+		{
+			// Two disconnected pairs: {0,1} and {2,3}. Floyd-Warshall cannot bridge them.
+			int items[] = { 0, 1, 2, 3 };
+			auto dist = [](int a, int b) -> std::optional<float>
+			{
+				if ((a == 0 && b == 1) || (a == 1 && b == 0)) return 1.0f;
+				if ((a == 2 && b == 3) || (a == 3 && b == 2)) return 1.0f;
+				return std::nullopt;
+			};
+
+			bool threw = false;
+			try { (void)mds::ImputeMissing(items, dist); }
+			catch (std::runtime_error const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+		PRUnitTestMethod(FitPerfectEmbedding)
+		{
+			// Unit square -> perfect 2D embedding. Stress should be ~0, Pearson ~1.
+			struct Point { float x, y; };
+			Point pts[] = { {0,0}, {1,0}, {1,1}, {0,1} };
+
+			auto euclidean = [](Point const& a, Point const& b)
+			{
+				auto dx = a.x - b.x;
+				auto dy = a.y - b.y;
+				return std::sqrt(dx * dx + dy * dy);
+			};
+
+			auto positions = mds::Embed(pts, euclidean, { .dimensions = 2 });
+			auto report = mds::MeasureFit(pts, std::span<v4 const>{positions}, euclidean);
+
+			PR_EXPECT(report.pair_count == 6);
+			PR_EXPECT(report.observed_pair_count == 6);
+			PR_EXPECT(report.stress < 0.01);
+			PR_EXPECT(report.pearson > 0.99);
+			PR_EXPECT(report.max_abs_error < 1e-3);
+		}
+		PRUnitTestMethod(FitWithObservedPredicate)
+		{
+			// Fit report with is_observed flags only edges (unit distance) as observed.
+			struct Point { float x, y; };
+			Point pts[] = { {0,0}, {1,0}, {1,1}, {0,1} };
+
+			auto euclidean = [](Point const& a, Point const& b)
+			{
+				auto dx = a.x - b.x;
+				auto dy = a.y - b.y;
+				return std::sqrt(dx * dx + dy * dy);
+			};
+
+			auto positions = mds::Embed(pts, euclidean, { .dimensions = 2 });
+			auto is_edge = [&](Point const& a, Point const& b) { return euclidean(a, b) < 1.01f; };
+			auto report = mds::MeasureFit(pts, std::span<v4 const>{positions}, euclidean, is_edge);
+
+			PR_EXPECT(report.pair_count == 6);
+			PR_EXPECT(report.observed_pair_count == 4); // 4 edges, 2 diagonals
+			PR_EXPECT(report.stress_observed < 0.01);
 		}
 		PRUnitTestMethod(Visualise)
 		{
