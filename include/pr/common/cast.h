@@ -66,10 +66,12 @@ namespace pr
 			if (static_cast<U>(static_cast<T>(x)) != x)
 				throw std::runtime_error("Cast loses data");
 		}
-		else
+		#ifndef NDEBUG
 		{
-			assert("Cast loses data" && static_cast<U>(static_cast<T>(x)) == x);
+			if (static_cast<U>(static_cast<T>(x)) != x)
+				assert(false && "Cast loses data");
 		}
+		#endif
 		return static_cast<T>(x);
 	}
 	template <typename T, bool RuntimeCheck = false, typename U> constexpr T s_cast(U x) requires std::is_enum_v<T> && std::is_enum_v<U>
@@ -88,6 +90,21 @@ namespace pr
 		using ut = std::underlying_type_t<T>;
 		return static_cast<T>(s_cast<ut, RuntimeCheck, U>(x));
 	}
+	template <std::floating_point T, bool RuntimeCheck = false, std::floating_point U> constexpr T s_cast(U x)
+	{
+		if constexpr (RuntimeCheck)
+		{
+			if (x < std::numeric_limits<T>::lowest() || x > std::numeric_limits<T>::max())
+				throw std::runtime_error("Cast loses data");
+		}
+		#ifndef NDEBUG
+		{
+			if (x < std::numeric_limits<T>::lowest() || x > std::numeric_limits<T>::max())
+				assert(false && "Cast loses data");
+		}
+		#endif
+		return static_cast<T>(x);
+	}
 	template <std::floating_point T, std::integral U> constexpr T s_cast(U x)
 	{
 		return static_cast<T>(x);
@@ -96,19 +113,6 @@ namespace pr
 	{
 		assert(x == x && "Can't convert NaN to an integral type");
 		assert(std::abs(x) != std::numeric_limits<U>::infinity() && "Can't convert '+/-inf' to an integral type");
-		return static_cast<T>(x);
-	}
-	template <std::floating_point T, bool RuntimeCheck = false, std::floating_point U> constexpr T s_cast(U x)
-	{
-		if constexpr (RuntimeCheck)
-		{
-			if (x < std::numeric_limits<T>::lowest() || x > std::numeric_limits<T>::max())
-				throw std::runtime_error("Cast loses data");
-		}
-		else
-		{
-			assert("Cast loses data" && x >= std::numeric_limits<T>::lowest() && x <= std::numeric_limits<T>::max());
-		}
 		return static_cast<T>(x);
 	}
 

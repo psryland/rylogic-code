@@ -14,7 +14,7 @@ namespace Rylogic.LDraw
 		private readonly StringBuilder m_sb = new();
 
 		/// <inheritdoc/>
-		public void Write(EKeyword keyword, params object[] args)
+		public void Write(EKeyword keyword, params object?[] args)
 		{
 			Append(keyword);
 
@@ -42,7 +42,12 @@ namespace Rylogic.LDraw
 		{
 			Append(args.AsEnumerable());
 		}
-		private void Append(IEnumerable<object> args)
+		private void Append<T>(T? arg) where T : struct
+		{
+			if (!arg.HasValue) return;
+			Append(arg.Value);
+		}	
+		private void Append(IEnumerable<object?> args)
 		{
 			foreach (var arg in args)
 			{

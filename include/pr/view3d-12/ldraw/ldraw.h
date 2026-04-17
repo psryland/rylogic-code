@@ -84,6 +84,7 @@ namespace pr::rdr12::ldraw
 		x(Dim                      )\
 		x(Direction                )\
 		x(Divisions                )\
+		x(EndCaps                  )\
 		x(Equation                 )\
 		x(Euler                    )\
 		x(Faces                    )\

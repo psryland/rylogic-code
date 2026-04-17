@@ -116,6 +116,7 @@ namespace pr::ldraw
 		t.push_back('c');
 		{ t.append(0, 'c') } -> std::convertible_to<T&>;
 	};
+	template <typename T> concept TOptional = std::is_same_v<std::optional<typename T::value_type>, T>;
 
 	// Enum strings
 	struct NameValue
@@ -181,6 +182,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Dim = {"*Dim", 3496118841};
 		inline static constexpr NameValue Direction = {"*Direction", 3748513642};
 		inline static constexpr NameValue Divisions = {"*Divisions", 555458703};
+		inline static constexpr NameValue EndCaps = {"*EndCaps", 2864440763};
 		inline static constexpr NameValue Equation = {"*Equation", 2486886355};
 		inline static constexpr NameValue Euler = {"*Euler", 1180123250};
 		inline static constexpr NameValue Faces = {"*Faces", 455960701};
@@ -504,6 +506,16 @@ namespace pr::ldraw
 		{
 			Append(out, { byte_ptr(&kw.value), sizeof(kw.value) });
 		}
+		inline void Append(textbuf& out, TOptional auto ty)
+		{
+			if (!ty) return;
+			Append(out, *ty);
+		}
+		inline void Append(bytebuf& out, TOptional auto ty)
+		{
+			if (!ty) return;
+			Append(out, *ty);
+		}
 
 		struct Name
 		{
@@ -752,57 +764,57 @@ namespace pr::ldraw
 		};
 		struct Scale
 		{
-			float m_scale;
-			Scale() : m_scale(1) {}
+			std::optional<float> m_scale;
+			Scale() : m_scale() {}
 			Scale(float scale) : m_scale(scale) {}
-			explicit operator bool() const { return m_scale != 1; }
+			explicit operator bool() const { return m_scale.has_value(); }
 			friend void Append(bytebuf& out, seri::Scale sc)
 			{
 				if (!sc) return;
 				auto s = Append(out, seri::Header{ EKeywords::Scale });
-				Append(out, sc.m_scale);
+				Append(out, *sc.m_scale);
 			}
 			friend void Append(textbuf& out, seri::Scale s)
 			{
 				if (!s) return;
-				Append(out, EKeywords::Scale, "{", s.m_scale, "}");
+				Append(out, EKeywords::Scale, "{", *s.m_scale, "}");
 			}
 		};
 		struct Scale2
 		{
-			Vec2 m_scale;
-			Scale2() : m_scale(1, 1) {}
+			std::optional<Vec2> m_scale;
+			Scale2() : m_scale() {}
 			Scale2(Vec2 scale) : m_scale(scale) {}
-			Scale2(float sx, float sy) : m_scale(sx, sy) {}
-			explicit operator bool() const { return !!m_scale; }
+			Scale2(float sx, float sy) : m_scale({ sx, sy }) {}
+			explicit operator bool() const { return m_scale.has_value(); }
 			friend void Append(bytebuf& out, seri::Scale2 sc)
 			{
 				if (!sc) return;
 				auto s = Append(out, seri::Header{ EKeywords::Scale });
-				Append(out, sc.m_scale);
+				Append(out, *sc.m_scale);
 			}
 			friend void Append(textbuf& out, seri::Scale2 s)
 			{
 				if (!s) return;
-				Append(out, EKeywords::Scale, "{", s.m_scale, "}");
+				Append(out, EKeywords::Scale, "{", *s.m_scale, "}");
 			}
 		};
 		struct Scale3
 		{
-			Vec3 m_scale;
-			Scale3() : m_scale(1, 1, 1) {}
+			std::optional<Vec3> m_scale;
+			Scale3() : m_scale() {}
 			Scale3(Vec3 scale) :m_scale(scale) {}
-			explicit operator bool() const { return !!m_scale; }
+			explicit operator bool() const { return m_scale.has_value(); }
 			friend void Append(bytebuf& out, seri::Scale3 sc)
 			{
 				if (!sc) return;
 				auto s = Append(out, seri::Header{ EKeywords::Scale });
-				Append(out, sc.m_scale);
+				Append(out, *sc.m_scale);
 			}
 			friend void Append(textbuf& out, seri::Scale3 s)
 			{
 				if (!s) return;
-				Append(out, EKeywords::Scale, "{", s.m_scale, "}");
+				Append(out, EKeywords::Scale, "{", *s.m_scale, "}");
 			}
 		};
 		struct PerItemColour
@@ -2607,7 +2619,6 @@ namespace pr::ldraw
 		float m_near = {};
 		float m_far = {};
 		seri::Facets m_facets;
-		bool m_scale_set = false;
 		seri::Scale2 m_scale;
 
 		LdrCone(seri::Name name, seri::Colour colour)
@@ -2642,7 +2653,6 @@ namespace pr::ldraw
 		LdrCone& scale(float sx, float sy)
 		{
 			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
 			return *this;
 		}
 
@@ -2653,7 +2663,7 @@ namespace pr::ldraw
 			{
 				Append(out, EKeywords::Data, "{", m_angle, m_near, m_far, "}");
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -2665,7 +2675,7 @@ namespace pr::ldraw
 			{
 				Append(out, seri::Header{ EKeywords::Data }, m_angle, m_near, m_far);
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
 				LdrBase::Write(out);
 			}
 		}
@@ -2763,36 +2773,27 @@ namespace pr::ldraw
 	};
 	struct LdrCylinder : LdrBase
 	{
-		float m_height = {};
-		float m_radius = {};
-		float m_tip_radius = -1.0f;
+		float m_height = 1.0f;
+		seri::Vec2 m_radius = {0.5f, 0.5f};
+		std::optional<bool> m_endcaps = {};
+		std::optional<int> m_endcap_layers = {};
 		seri::Facets m_facets;
-		bool m_scale_set = false;
 		seri::Scale2 m_scale;
 
 		LdrCylinder(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
+			:LdrBase(name, colour)
 		{}
 
-		LdrCylinder& hr(float h, float r)
+		LdrCylinder& cylinder(float height, float radius_base, float radius_tip)
 		{
-			m_height = h;
-			m_radius = r;
+			m_height = height;
+			m_radius = { radius_base, radius_tip };
 			return *this;
 		}
-		LdrCylinder& height(float h)
+		LdrCylinder& cylinder(float height, float radius)
 		{
-			m_height = h;
-			return *this;
-		}
-		LdrCylinder& radius(float r)
-		{
-			m_radius = r;
-			return *this;
-		}
-		LdrCylinder& tip_radius(float r)
-		{
-			m_tip_radius = r;
+			m_height = height;
+			m_radius = { radius, radius };
 			return *this;
 		}
 		LdrCylinder& facets(int f)
@@ -2803,7 +2804,12 @@ namespace pr::ldraw
 		LdrCylinder& scale(float sx, float sy)
 		{
 			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
+			return *this;
+		}
+		LdrCylinder& end_caps(int layers = 0)
+		{
+			m_endcaps = true;
+			m_endcap_layers = layers;
 			return *this;
 		}
 
@@ -2812,12 +2818,10 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Cylinder, m_name, m_colour, "{");
 			{
-				if (m_tip_radius >= 0)
-				Append(out, EKeywords::Data, "{", m_height, m_radius, m_tip_radius, "}");
-				else
-				Append(out, EKeywords::Data, "{", m_height, m_radius, "}");
+				Append(out, EKeywords::Data, "{", m_height, m_radius.x, m_radius.y, "}");
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
+				if (m_endcaps) Append(out, EKeywords::EndCaps, "{", m_endcap_layers, "}");
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -2827,12 +2831,10 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Cylinder, m_name, m_colour });
 			{
-				if (m_tip_radius >= 0)
-				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius, m_tip_radius);
-				else
-				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius);
+				Append(out, seri::Header{ EKeywords::Data }, m_height, m_radius.x, m_radius.y);
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
+				if (m_endcaps) Append(out, seri::Header{ EKeywords::EndCaps }, m_endcap_layers);
 				LdrBase::Write(out);
 			}
 		}
@@ -3587,7 +3589,6 @@ namespace pr::ldraw
 		float m_inner_radius = {};
 		float m_outer_radius = {};
 		seri::Facets m_facets;
-		bool m_scale_set = false;
 		seri::Scale2 m_scale;
 
 		LdrPie(seri::Name name, seri::Colour colour)
@@ -3614,7 +3615,6 @@ namespace pr::ldraw
 		LdrPie& scale(float sx, float sy)
 		{
 			m_scale = seri::Scale2(sx, sy);
-			m_scale_set = true;
 			return *this;
 		}
 
@@ -3625,7 +3625,7 @@ namespace pr::ldraw
 			{
 				Append(out, EKeywords::Data, "{", m_angle0, m_angle1, m_inner_radius, m_outer_radius, "}");
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -3637,7 +3637,7 @@ namespace pr::ldraw
 			{
 				Append(out, seri::Header{ EKeywords::Data }, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
 				Append(out, m_facets);
-				if (m_scale_set) Append(out, m_scale);
+				Append(out, m_scale);
 				LdrBase::Write(out);
 			}
 		}
@@ -4904,10 +4904,26 @@ namespace pr::ldraw
 		}
 		PRUnitTestMethod(Cylinder)
 		{
-			Builder builder;
-			builder.Cylinder("c", 0xFF00FF00).height(10).radius(5).facets(16);
-			auto ldr = builder.ToString(ESaveFlags::Flat);
-			PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16}}");
+			{
+				Builder builder;
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16);
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16}}");
+			}
+			{
+				// End caps, default layer count
+				Builder builder;
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps();
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16} *EndCaps {}}");
+			}
+			{
+				// End caps, explicit layer count
+				Builder builder;
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps(6);
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16} *EndCaps {6}}");
+			}
 		}
 		PRUnitTestMethod(Cone)
 		{

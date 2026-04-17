@@ -820,6 +820,7 @@ namespace pr::rdr12::ldraw
 			"	*Facets {3 50}                     // Optional. layers, wedges. controls the faceting of the cylinder\n"
 			"	*Scale {1 1}                       // Optional. X,Y scale factors for creating ovoid cylinders\n"
 			"	*Texture {*FilePath {\"#checker3\"}} // Optional texture\n"
+			"	*EndCaps {12}                      // Optional. End hemispheres, with optional layer subdivisions\n"
 			"	*RandColour {}\n"
 			"	*RootAnimation {*Style {Continuous} *Period {1.6} *AngVelocity {0 +1 0}}\n"
 			"	*o2w{*euler{20 0 0} *pos{-14 1.1 10}}\n"
@@ -1281,7 +1282,7 @@ namespace pr::rdr12::ldraw
 		// Groups
 		{
 			auto& grp = ldr.Group("group").pos(-10, 1.5f, -5);
-			grp.Cylinder("barrel", 0xFFE0A060).hr(3, 1).axis(pr::AxisId::PosZ);
+			grp.Cylinder("barrel", 0xFFE0A060).cylinder(3, 1).axis(pr::AxisId::PosZ);
 			grp.Sphere("bullet", 0xFF0000FF).sphere(0.7f);
 			//{
 			//	*RootAnimation

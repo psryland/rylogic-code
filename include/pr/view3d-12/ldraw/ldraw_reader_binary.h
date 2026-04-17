@@ -684,7 +684,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestCylinder)
 		{
 			Builder builder;
-			builder.Cylinder("Cy", 0xFF00FFFF).hr(2, 0.5f);
+			builder.Cylinder("Cy", 0xFF00FFFF).cylinder(2, 0.5f);
 			auto const bin = builder.ToBinary();
 			Dump(bin);
 

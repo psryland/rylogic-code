@@ -172,6 +172,7 @@ class EKeyword(Enum):
 	Dim = 3496118841
 	Direction = 3748513642
 	Divisions = 555458703
+	EndCaps = 2864440763
 	Equation = 2486886355
 	Euler = 1180123250
 	Faces = 455960701

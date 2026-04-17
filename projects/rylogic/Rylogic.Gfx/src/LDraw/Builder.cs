@@ -1416,11 +1416,13 @@ namespace Rylogic.LDraw
 	}
 	public class LdrCylinder : LdrBase<LdrCylinder>
 	{
+		private float m_height = 1.0f;
 		private v2 m_radius = new(0.5f);
 		private Serialiser.Scale2 m_scale = new();
-		private float m_height = 1.0f;
+		private Serialiser.Facets m_facets = new();
+		private bool m_endcaps = false;
+		private int? m_endcap_layers;
 
-		// Height/Radius
 		public LdrCylinder cylinder(float height, float radius)
 		{
 			return cylinder(height, radius, radius);
@@ -1431,11 +1433,20 @@ namespace Rylogic.LDraw
 			m_height = height;
 			return this;
 		}
-
-		// Scale
-		public LdrCylinder scale(Serialiser.Scale2 scale)
+		public LdrCylinder facets(int f)
 		{
-			m_scale = scale;
+			m_facets = new(f);
+			return this;
+		}
+		public LdrCylinder scale(v2 scale)
+		{
+			m_scale = new(scale);
+			return this;
+		}
+		public LdrCylinder end_caps(int? layers = null)
+		{
+			m_endcaps = true;
+			m_endcap_layers = layers;
 			return this;
 		}
 
@@ -1445,7 +1456,9 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.Cylinder, m_name, m_colour, () =>
 			{
 				res.Write(EKeyword.Data, m_height, m_radius.x, m_radius.y);
+				res.Append(m_facets);
 				res.Append(m_scale);
+				if (m_endcaps) res.Write(EKeyword.EndCaps, m_endcap_layers);
 				base.WriteTo(res);
 			});
 		}
@@ -3208,6 +3221,25 @@ namespace Rylogic.UnitTests
 			builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1);
 			var str = builder.ToString();
 			Assert.Equal("*Cylinder cyl FF00FF00 {*Data {3 1 1}}", str);
+		}
+
+		[Test]
+		public void TestCylinderEndCaps()
+		{
+			// Default layer count
+			{
+				var builder = new LDraw.Builder();
+				builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1).end_caps();
+				var str = builder.ToString();
+				Assert.Equal("*Cylinder cyl FF00FF00 {*Data {3 1 1} *EndCaps {}}", str);
+			}
+			// Explicit layer count
+			{
+				var builder = new LDraw.Builder();
+				builder.Cylinder("cyl", 0xFF00FF00u).cylinder(3, 1).end_caps(6);
+				var str = builder.ToString();
+				Assert.Equal("*Cylinder cyl FF00FF00 {*Data {3 1 1} *EndCaps {6}}", str);
+			}
 		}
 
 		[Test]
