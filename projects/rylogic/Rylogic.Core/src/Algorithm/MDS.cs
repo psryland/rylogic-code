@@ -11,16 +11,16 @@ using Rylogic.Maths;
 
 namespace Rylogic.Algorithm.MDS
 {
-	/// <summary>Configuration for MDS embedding</summary>
-	public class Config
-	{
-		/// <summary>Number of output dimensions (1, 2, or 3). Unused v4 components are zero-filled, w = 1.</summary>
-		public int Dimensions { get; set; } = 3;
-	}
-
 	/// <summary>Classical (Torgerson) Multidimensional Scaling</summary>
 	public static class MultiDimensionalScaling
 	{
+		/// <summary>Configuration for MDS embedding</summary>
+		public class Config
+		{
+			/// <summary>Number of output dimensions (1, 2, or 3). Unused v4 components are zero-filled, w = 1.</summary>
+			public int Dimensions = 3;
+		}
+
 		/// <summary>
 		/// Embed N items into low-dimensional space preserving pairwise distances, where some distances
 		/// may be unknown. A 'dist' result of null indicates "this pair's distance is undefined"; such
@@ -121,20 +121,20 @@ namespace Rylogic.Algorithm.MDS
 			return EmbedFromMatrix(n, D, cfg);
 		}
 
-		// Core Torgerson MDS on an N*N distance matrix (row-major, symmetric, zero diagonal).
-		private static v4[] EmbedFromMatrix(int n, double[] D, Config cfg)
+		/// <summary>
+		/// Build the classical MDS Gram matrix B = -1/2 * J * D² * J from an N*N distance matrix D.
+		/// J = I - (1/N) * 11ᵀ is the centring matrix. Equivalent to:
+		///   B[i,j] = -1/2 * (D²[i,j] - row_mean[i] - col_mean[j] + grand_mean)
+		/// </summary>
+		private static Matrix BuildGramMatrix(int n, double[] D)
 		{
-			Debug.Assert(cfg.Dimensions >= 1 && cfg.Dimensions <= 3);
-			var dim = Math.Min(cfg.Dimensions, n - 1);
-
-			// Step 1: Square the distance matrix
+			// Square the distance matrix
 			var D2 = new double[n * n];
 			for (int i = 0; i != n; ++i)
 				for (int j = 0; j != n; ++j)
 					D2[i * n + j] = D[i * n + j] * D[i * n + j];
 
-			// Step 2: Double centering to get the inner-product matrix B = -1/2 * J * D² * J
-			// where J = I - (1/N) * 11ᵀ. Equivalent to: B[i][j] = -1/2 * (D²[i][j] - row_mean[i] - col_mean[j] + grand_mean)
+			// Row means + grand mean (D² is symmetric, so col_mean == row_mean)
 			var row_mean = new double[n];
 			var grand_mean = 0.0;
 			for (int i = 0; i != n; ++i)
@@ -147,18 +147,28 @@ namespace Rylogic.Algorithm.MDS
 			}
 			grand_mean /= n;
 
-			// Step 3: Build the inner-product matrix B as a Matrix and eigendecompose.
 			var B = new Matrix(n, n);
 			for (int i = 0; i != n; ++i)
 				for (int j = 0; j != n; ++j)
 					B[i, j] = -0.5 * (D2[i * n + j] - row_mean[i] - row_mean[j] + grand_mean);
+
+			return B;
+		}
+
+		/// <summary>Core Torgerson MDS on an N*N distance matrix (row-major, symmetric, zero diagonal).</summary>
+		private static v4[] EmbedFromMatrix(int n, double[] D, Config cfg)
+		{
+			Debug.Assert(cfg.Dimensions >= 1 && cfg.Dimensions <= 3);
+			var dim = Math.Min(cfg.Dimensions, n - 1);
+
+			var B = BuildGramMatrix(n, D);
 
 			// Only the top 'dim' eigenpairs are needed. EigenTopK uses Lanczos for large N,
 			// which is O(dim · N²) per restart rather than O(N³) for the full decomposition.
 			// Critical for MDS's intended use with large point sets.
 			var eigen = Matrix.EigenTopK(B, dim);
 
-			// Step 4: Build output coordinates from top 'dim' eigenvectors scaled by sqrt(eigenvalue)
+			// Build output coordinates from top 'dim' eigenvectors scaled by sqrt(eigenvalue)
 			var result = new v4[n];
 			for (int i = 0; i != n; ++i)
 			{
@@ -169,6 +179,131 @@ namespace Rylogic.Algorithm.MDS
 				result[i] = new v4(x, y, z, 1);
 			}
 			return result;
+		}
+
+		/// <summary>
+		/// Diagnostic report on the eigenvalue spectrum of the MDS Gram matrix B.
+		/// Tells you the theoretical fit ceiling of a classical-MDS embedding at a given dimension,
+		/// and flags non-Euclidean distance data (many large negative eigenvalues).
+		/// </summary>
+		public class SpectrumReport
+		{
+			/// <summary>All eigenvalues of B, sorted descending (may include negatives for non-Euclidean distances)</summary>
+			public double[] Eigenvalues { get; set; } = Array.Empty<double>();
+
+			/// <summary>Sum of positive eigenvalues — total variance available to a Euclidean embedding</summary>
+			public double PositiveVariance { get; set; }
+
+			/// <summary>Sum of absolute eigenvalues — total "signal" in B including non-Euclidean deviations</summary>
+			public double TotalAbsVariance { get; set; }
+
+			/// <summary>Number of negative eigenvalues (indicator of non-Euclidean distances)</summary>
+			public int NegativeCount { get; set; }
+
+			/// <summary>Magnitude of the most-negative eigenvalue (strength of the worst triangle-inequality violation)</summary>
+			public double LargestNegative { get; set; }
+
+			/// <summary>
+			/// Upper bound on the fraction of variance a 'dim'-dimensional embedding can capture.
+			/// Closer to 1 means a clean fit is theoretically possible; low values mean the data
+			/// intrinsically needs more dimensions or is strongly non-Euclidean.
+			/// </summary>
+			public double FitCeiling(int dim)
+			{
+				if (Eigenvalues.Length == 0 || TotalAbsVariance <= 0) return 0.0;
+				double captured = 0.0;
+				int k = Math.Min(dim, Eigenvalues.Length);
+				for (int i = 0; i != k; ++i)
+					captured += Math.Max(0.0, Eigenvalues[i]);
+				return captured / TotalAbsVariance;
+			}
+
+			/// <summary>Summary string describing the spectrum</summary>
+			public string Summary()
+			{
+				var sb = new StringBuilder();
+				sb.AppendLine("MDS eigenvalue spectrum:");
+				sb.Append("  Top eigenvalues:   ");
+				int show = Math.Min(Eigenvalues.Length, 10);
+				for (int i = 0; i != show; ++i)
+					sb.Append($"{Eigenvalues[i]:G3} ");
+				sb.AppendLine();
+				sb.AppendLine($"  Positive variance: {PositiveVariance:G4}");
+				sb.AppendLine($"  Total |variance|:  {TotalAbsVariance:G4}");
+				sb.AppendLine($"  Negative λ count:  {NegativeCount} (largest |λ|: {LargestNegative:G4})");
+				sb.AppendLine($"  Fit ceiling:       1D={FitCeiling(1):P1}  2D={FitCeiling(2):P1}  3D={FitCeiling(3):P1}  5D={FitCeiling(5):P1}  10D={FitCeiling(10):P1}");
+				return sb.ToString();
+			}
+		}
+
+		/// <summary>
+		/// Compute the full eigenvalue spectrum of the MDS Gram matrix as a diagnostic.
+		/// Use this to decide whether a low-dimensional classical-MDS embedding can possibly fit your
+		/// data well, and whether the distances are badly non-Euclidean (many large negative eigenvalues
+		/// indicate triangle-inequality violations).
+		/// </summary>
+		public static SpectrumReport EigenSpectrum<T>(IReadOnlyList<T> items, Func<T, T, double> dist)
+		{
+			var n = items.Count;
+			if (n < 2) return new SpectrumReport();
+
+			var D = new double[n * n];
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = i + 1; j != n; ++j)
+				{
+					var d = dist(items[i], items[j]);
+					D[i * n + j] = d;
+					D[j * n + i] = d;
+				}
+			}
+			return EigenSpectrumFromMatrix(n, D);
+		}
+
+		/// <summary>
+		/// Eigenvalue spectrum diagnostic with sparse-observation imputation (ISOMAP). Missing pairs
+		/// (dist returns null) are filled in via shortest paths before the spectrum is computed.
+		/// </summary>
+		public static SpectrumReport EigenSpectrum<T>(IReadOnlyList<T> items, Func<T, T, double?> dist)
+		{
+			var n = items.Count;
+			if (n < 2) return new SpectrumReport();
+
+			var D = ImputeMissing(items, dist);
+			return EigenSpectrumFromMatrix(n, D);
+		}
+
+		/// <summary></summary>
+		private static SpectrumReport EigenSpectrumFromMatrix(int n, double[] D)
+		{
+			var B = BuildGramMatrix(n, D);
+
+			// Full decomposition: we want *all* eigenvalues so we can see the negative ones and the
+			// long tail. Diagnostic only, so O(N³) is acceptable.
+			var eigen = Matrix.EigenSymmetric(B);
+
+			var report = new SpectrumReport();
+			report.Eigenvalues = new double[n];
+			for (int i = 0; i != n; ++i)
+				report.Eigenvalues[i] = eigen.Values[0, i];
+
+			foreach (var ev in report.Eigenvalues)
+			{
+				var abs = Math.Abs(ev);
+				report.TotalAbsVariance += abs;
+				if (ev > 0)
+				{
+					report.PositiveVariance += ev;
+				}
+				else if (ev < 0)
+				{
+					++report.NegativeCount;
+					if (abs > report.LargestNegative)
+						report.LargestNegative = abs;
+				}
+			}
+
+			return report;
 		}
 
 		/// <summary>Fit quality of an MDS embedding vs the target pairwise distances</summary>
@@ -343,6 +478,31 @@ namespace Rylogic.UnitTests
 		}
 
 		[Test]
+		public void EigenSpectrumPlanarPoints()
+		{
+			// Points sampled from a 2D plane embedded in 3D space -> top 2 eigenvalues should dominate,
+			// the rest should be ~0, and there should be no significant negative eigenvalues.
+			var rng = new Random(1);
+			var pts = new (double x, double y, double z)[30];
+			for (int i = 0; i != pts.Length; ++i)
+				pts[i] = (rng.NextDouble() * 10, rng.NextDouble() * 10, 0.0);
+
+			var spectrum = MultiDimensionalScaling.EigenSpectrum(pts, (a, b) =>
+			{
+				var dx = a.x - b.x; var dy = a.y - b.y; var dz = a.z - b.z;
+				return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+			});
+
+			Assert.True(spectrum.Eigenvalues.Length == pts.Length);
+
+			// Top 2 eigenvalues capture essentially all the positive variance (planar data).
+			Assert.True(spectrum.FitCeiling(2) > 0.99);
+
+			// Euclidean distances -> negative eigenvalues only from numerical noise, all near zero.
+			Assert.True(spectrum.LargestNegative < 1e-6 * spectrum.PositiveVariance);
+		}
+
+		[Test]
 		public void EmbedWithMissingDistances()
 		{
 			// Square: pretend only adjacent-edge distances are known; diagonals are null.
@@ -364,7 +524,7 @@ namespace Rylogic.UnitTests
 
 			// Embedding should succeed and produce 4 finite points; exact layout is a compromise
 			// because the imputed distances aren't Euclidean-consistent (4 edges of 1 and 2 diagonals of 2).
-			var result = MultiDimensionalScaling.Embed(pts, sparse, new Config { Dimensions = 2 });
+			var result = MultiDimensionalScaling.Embed(pts, sparse, new MultiDimensionalScaling.Config { Dimensions = 2 });
 			Assert.True(result.Length == 4);
 			for (int i = 0; i != 4; ++i)
 			{
@@ -401,7 +561,7 @@ namespace Rylogic.UnitTests
 				var dy = a.Item2 - b.Item2;
 				return Math.Sqrt(dx * dx + dy * dy);
 			});
-			var result = MultiDimensionalScaling.Embed(pts, euclidean, new Config { Dimensions = 2 });
+			var result = MultiDimensionalScaling.Embed(pts, euclidean, new MultiDimensionalScaling.Config { Dimensions = 2 });
 			var report = MultiDimensionalScaling.MeasureFit(pts, result, euclidean);
 
 			Assert.True(report.PairCount == 6);
@@ -433,7 +593,7 @@ namespace Rylogic.UnitTests
 			};
 			Func<(float, float), (float, float), double> padded = (a, b) => adjacent(a, b) ? real(a, b) : 10.0;
 
-			var result = MultiDimensionalScaling.Embed(pts, padded, new Config { Dimensions = 2 });
+			var result = MultiDimensionalScaling.Embed(pts, padded, new MultiDimensionalScaling.Config { Dimensions = 2 });
 			var report = MultiDimensionalScaling.MeasureFit(pts, result, padded, adjacent);
 
 			Assert.True(report.PairCount == 6);
@@ -453,7 +613,7 @@ namespace Rylogic.UnitTests
 				var dy = a.Item2 - b.Item2;
 				return Math.Sqrt(dx * dx + dy * dy);
 			});
-			var result = MultiDimensionalScaling.Embed(pts, euclidean, new Config { Dimensions = 2 });
+			var result = MultiDimensionalScaling.Embed(pts, euclidean, new MultiDimensionalScaling.Config { Dimensions = 2 });
 			Assert.True(result.Length == 4);
 
 			// Verify pairwise distances are preserved (up to rotation/reflection)

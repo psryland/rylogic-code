@@ -263,7 +263,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\fft.h" />
+    <ClInclude Include="..\..\..\include\pr\algorithm\fast_fourier_transform.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\fibonacci_sphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\rand_mt19937.h" />
@@ -434,6 +434,7 @@
     <ClInclude Include="..\..\..\include\pr\math\types\vector4.h" />
     <ClInclude Include="..\..\..\include\pr\math\types\vector8.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\multi_dimensional_scaling.h" />
+    <ClInclude Include="..\..\..\include\pr\algorithm\umap.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />
@@ -457,7 +458,7 @@
   <ItemGroup>
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
-  <Target Name="RunUnitTests" AfterTargets="Build">
+  <Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(RunUnitTests)' != 'false'">
     <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
   </Target>
   <!-- Targets -->

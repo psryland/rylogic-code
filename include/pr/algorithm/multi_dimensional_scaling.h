@@ -385,6 +385,158 @@ namespace pr::algorithm::mds
 		report.max_abs_error = abs_err_max;
 		return report;
 	}
+
+	// Diagnostic report on the eigenvalue spectrum of the MDS Gram matrix B.
+	// Tells you the theoretical fit ceiling of a classical-MDS embedding at a given dimension,
+	// and flags non-Euclidean distance data (many large negative eigenvalues).
+	struct SpectrumReport
+	{
+		// All eigenvalues of B, sorted descending (may include negatives for non-Euclidean distances)
+		std::vector<double> eigenvalues;
+
+		// Sum of positive eigenvalues — total variance available to a Euclidean embedding
+		double positive_variance = 0.0;
+
+		// Sum of absolute eigenvalues — total "signal" in B including non-Euclidean deviations
+		double total_abs_variance = 0.0;
+
+		// Number of negative eigenvalues (indicator of non-Euclidean distances)
+		int negative_count = 0;
+
+		// Magnitude of the most-negative eigenvalue (strength of the worst triangle-inequality violation)
+		double largest_negative = 0.0;
+
+		// Upper bound on the fraction of variance a 'dim'-dimensional embedding can capture.
+		// Closer to 1 means a clean fit is theoretically possible; low values mean the data
+		// intrinsically needs more dimensions or is strongly non-Euclidean.
+		double fit_ceiling(int dim) const
+		{
+			if (eigenvalues.empty() || total_abs_variance <= 0) return 0.0;
+			auto captured = 0.0;
+			auto k = (std::min)(dim, static_cast<int>(eigenvalues.size()));
+			for (int i = 0; i != k; ++i)
+				captured += (std::max)(0.0, eigenvalues[i]);
+			return captured / total_abs_variance;
+		}
+
+		// Summary string describing the spectrum
+		std::string summary() const
+		{
+			auto ss = std::ostringstream{};
+			ss << "MDS eigenvalue spectrum:\n";
+			ss << "  Top eigenvalues:   ";
+			auto show = (std::min)(static_cast<int>(eigenvalues.size()), 10);
+			ss << std::setprecision(3);
+			for (int i = 0; i != show; ++i)
+				ss << eigenvalues[i] << " ";
+			ss << "\n";
+			ss << std::setprecision(4);
+			ss << "  Positive variance: " << positive_variance << "\n";
+			ss << "  Total |variance|:  " << total_abs_variance << "\n";
+			ss << "  Negative lambda:   " << negative_count << " (largest |lambda|: " << largest_negative << ")\n";
+			ss << std::fixed << std::setprecision(1);
+			ss << "  Fit ceiling:       "
+			   << "1D=" << 100.0 * fit_ceiling(1) << "%  "
+			   << "2D=" << 100.0 * fit_ceiling(2) << "%  "
+			   << "3D=" << 100.0 * fit_ceiling(3) << "%  "
+			   << "5D=" << 100.0 * fit_ceiling(5) << "%  "
+			   << "10D=" << 100.0 * fit_ceiling(10) << "%\n";
+			return ss.str();
+		}
+	};
+
+	namespace detail
+	{
+		// Shared core: eigendecompose the double-centred Gram matrix and populate a SpectrumReport.
+		inline SpectrumReport EigenSpectrumFromMatrix(int n, std::span<float const> D)
+		{
+			assert(static_cast<int>(D.size()) == n * n);
+			auto report = SpectrumReport{};
+			if (n < 2) return report;
+
+			// Build the double-centred Gram matrix B = -1/2 * J * D² * J (same as EmbedFromMatrix).
+			auto D2 = std::vector<double>(n * n);
+			for (int i = 0; i != n * n; ++i)
+				D2[i] = static_cast<double>(D[i]) * static_cast<double>(D[i]);
+
+			auto row_mean = std::vector<double>(n, 0.0);
+			auto grand_mean = 0.0;
+			for (int i = 0; i != n; ++i)
+			{
+				for (int j = 0; j != n; ++j)
+					row_mean[i] += D2[i * n + j];
+
+				row_mean[i] /= static_cast<double>(n);
+				grand_mean += row_mean[i];
+			}
+			grand_mean /= static_cast<double>(n);
+
+			auto B = Matrix<double>(n, n);
+			for (int i = 0; i != n; ++i)
+				for (int j = 0; j != n; ++j)
+					B(i, j) = -0.5 * (D2[i * n + j] - row_mean[i] - row_mean[j] + grand_mean);
+
+			// Full decomposition: we want *all* eigenvalues so we can see the negative ones and the
+			// long tail. Diagnostic only, so O(N³) is acceptable.
+			auto eigen = EigenSymmetric(B);
+
+			report.eigenvalues.resize(n);
+			for (int i = 0; i != n; ++i)
+				report.eigenvalues[i] = eigen.values(i);
+
+			for (auto ev : report.eigenvalues)
+			{
+				auto abs = std::abs(ev);
+				report.total_abs_variance += abs;
+				if (ev > 0)
+				{
+					report.positive_variance += ev;
+				}
+				else if (ev < 0)
+				{
+					++report.negative_count;
+					if (abs > report.largest_negative)
+						report.largest_negative = abs;
+				}
+			}
+			return report;
+		}
+	}
+
+	// Compute the full eigenvalue spectrum of the MDS Gram matrix as a diagnostic.
+	// Use this to decide whether a low-dimensional classical-MDS embedding can possibly fit your
+	// data well, and whether the distances are badly non-Euclidean (many large negative eigenvalues
+	// indicate triangle-inequality violations).
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && DistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	SpectrumReport EigenSpectrum(Range&& items, DistFunc dist)
+	{
+		auto const n = static_cast<int>(std::ranges::size(items));
+		if (n < 2) return SpectrumReport{};
+
+		auto D = std::vector<float>(n * n, 0.0f);
+		for (int i = 0; i != n; ++i)
+		{
+			for (int j = i + 1; j != n; ++j)
+			{
+				auto d = static_cast<float>(dist(items[i], items[j]));
+				D[i * n + j] = d;
+				D[j * n + i] = d;
+			}
+		}
+		return detail::EigenSpectrumFromMatrix(n, std::span<float const>{D});
+	}
+
+	// Eigenvalue spectrum diagnostic with sparse-observation imputation (ISOMAP). Missing pairs
+	// (dist returns std::nullopt) are filled in via shortest paths before the spectrum is computed.
+	template <std::ranges::random_access_range Range, typename DistFunc> requires std::ranges::sized_range<Range> && OptionalDistanceFunction<DistFunc, std::ranges::range_value_t<Range>>
+	SpectrumReport EigenSpectrum(Range&& items, DistFunc dist)
+	{
+		auto const n = static_cast<int>(std::ranges::size(items));
+		if (n < 2) return SpectrumReport{};
+
+		auto D = ImputeMissing(items, dist);
+		return detail::EigenSpectrumFromMatrix(n, std::span<float const>{D});
+	}
 }
 
 #if PR_UNITTESTS
@@ -532,6 +684,38 @@ namespace pr::algorithm
 			PR_EXPECT(report.pair_count == 6);
 			PR_EXPECT(report.observed_pair_count == 4); // 4 edges, 2 diagonals
 			PR_EXPECT(report.stress_observed < 0.01);
+		}
+		PRUnitTestMethod(EigenSpectrumPlanarPoints)
+		{
+			// 30 coplanar points sampled from a 3D space — the Gram matrix should have essentially
+			// two large positive eigenvalues (capturing the plane) and the rest near zero.
+			struct Point { float x, y, z; };
+			std::vector<Point> pts;
+			auto rng = std::mt19937(12345);
+			auto uni = std::uniform_real_distribution<float>(-1.0f, 1.0f);
+			for (int i = 0; i != 30; ++i)
+				pts.push_back({ uni(rng), uni(rng), 0.0f });
+
+			auto euclidean = [](Point const& a, Point const& b)
+			{
+				auto dx = a.x - b.x;
+				auto dy = a.y - b.y;
+				auto dz = a.z - b.z;
+				return std::sqrt(dx * dx + dy * dy + dz * dz);
+			};
+
+			auto spectrum = mds::EigenSpectrum(pts, euclidean);
+			PR_EXPECT(spectrum.eigenvalues.size() == 30);
+
+			// Top 2 eigenvalues should capture essentially all the positive variance
+			auto top2 = (std::max)(0.0, spectrum.eigenvalues[0]) + (std::max)(0.0, spectrum.eigenvalues[1]);
+			PR_EXPECT(top2 / spectrum.positive_variance > 0.99);
+
+			// Very few / very small negative eigenvalues for Euclidean data
+			PR_EXPECT(spectrum.largest_negative < 1e-3);
+
+			// 2D fit ceiling should be > 99% (essentially perfect)
+			PR_EXPECT(spectrum.fit_ceiling(2) > 0.99);
 		}
 		PRUnitTestMethod(Visualise)
 		{
