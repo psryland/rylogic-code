@@ -43,7 +43,7 @@ namespace pr::collision
 		auto c = tri.m_v.z.w1();
 
 		// Line segment endpoints in triangle space
-		auto line_dir_ws = line.m_radius * r2w.z; // half-extent vector in world space
+		auto line_dir_ws = line.m_hlength * r2w.z; // half-extent vector in world space
 		auto line_mid = t2w_inv * r2w.pos;         // line midpoint in triangle space
 		auto line_half = t2w_inv * line_dir_ws;     // half-extent vector in triangle space (direction only)
 
@@ -68,7 +68,7 @@ namespace pr::collision
 
 			// Project line segment onto axis, plus thickness envelope
 			auto lm = Dot3(axis, line_mid);
-			auto lr = Abs(Dot3(axis, line_half)) + line.m_thickness * Length(axis);
+			auto lr = Abs(Dot3(axis, line_half)) + line.m_radius * Length(axis);
 			auto l_min = lm - lr;
 			auto l_max = lm + lr;
 

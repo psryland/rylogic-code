@@ -84,7 +84,7 @@ struct GpuShape
 	int vert_offset;
 	int vert_count;
 	int material_id;
-	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,thickness)
+	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,radius)
 };
 struct GpuCollisionPair
 {

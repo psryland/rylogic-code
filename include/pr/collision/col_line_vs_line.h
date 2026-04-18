@@ -34,12 +34,12 @@ namespace pr::collision
 		auto l2w = l2w_ * lhs_.m_s2p;
 		auto r2w = r2w_ * rhs_.m_s2p;
 
-		// Line A: from (l2w.pos - lhs.m_radius * l2w.z) to (l2w.pos + lhs.m_radius * l2w.z)
-		// Line B: from (r2w.pos - rhs.m_radius * r2w.z) to (r2w.pos + rhs.m_radius * r2w.z)
-		auto a0 = l2w.pos - lhs.m_radius * l2w.z;
-		auto a1 = l2w.pos + lhs.m_radius * l2w.z;
-		auto b0 = r2w.pos - rhs.m_radius * r2w.z;
-		auto b1 = r2w.pos + rhs.m_radius * r2w.z;
+		// Line A: from (l2w.pos - lhs.m_hlength * l2w.z) to (l2w.pos + lhs.m_hlength * l2w.z)
+		// Line B: from (r2w.pos - rhs.m_hlength * r2w.z) to (r2w.pos + rhs.m_hlength * r2w.z)
+		auto a0 = l2w.pos - lhs.m_hlength * l2w.z;
+		auto a1 = l2w.pos + lhs.m_hlength * l2w.z;
+		auto b0 = r2w.pos - rhs.m_hlength * r2w.z;
+		auto b1 = r2w.pos + rhs.m_hlength * r2w.z;
 
 		// Find the closest points between the two segments
 		v4 closest_a, closest_b;
@@ -53,7 +53,7 @@ namespace pr::collision
 		// For zero-thickness lines, use a small tolerance for numerical near-contact.
 		auto constexpr tol = 1e-4f;
 		auto dist = Sqrt(dist_sq);
-		auto depth = std::max(lhs.m_thickness + rhs.m_thickness, tol) - dist;
+		auto depth = std::max(lhs.m_radius + rhs.m_radius, tol) - dist;
 
 		pen(depth, [&]
 		{

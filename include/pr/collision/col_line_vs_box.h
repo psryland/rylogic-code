@@ -29,14 +29,14 @@ namespace pr::collision
  
 		// Line segment "radius" plus an epsilon term to counteract arithmetic 
 		// errors when segment is (near) parallel to a coordinate axis. 
-		auto half = line.m_radius * l2b.z; 
+		auto half = line.m_hlength * l2b.z; 
 		auto rad = Abs(half) + v4(math::tiny<float>); 
  
 		// Try box face normals as separating axes.
 		// For thick lines, the collision envelope extends m_thickness perpendicular to the line axis.
-		if (!pen(box.m_radius.x + rad.x + line.m_thickness - Abs(mid.x), [&]{ return Sign(mid.x) * b2w.x; }, box_.m_material_id, line_.m_material_id)) return; 
-		if (!pen(box.m_radius.y + rad.y + line.m_thickness - Abs(mid.y), [&]{ return Sign(mid.y) * b2w.y; }, box_.m_material_id, line_.m_material_id)) return; 
-		if (!pen(box.m_radius.z + rad.z + line.m_thickness - Abs(mid.z), [&]{ return Sign(mid.z) * b2w.z; }, box_.m_material_id, line_.m_material_id)) return; 
+		if (!pen(box.m_radius.x + rad.x + line.m_radius - Abs(mid.x), [&]{ return Sign(mid.x) * b2w.x; }, box_.m_material_id, line_.m_material_id)) return; 
+		if (!pen(box.m_radius.y + rad.y + line.m_radius - Abs(mid.y), [&]{ return Sign(mid.y) * b2w.y; }, box_.m_material_id, line_.m_material_id)) return; 
+		if (!pen(box.m_radius.z + rad.z + line.m_radius - Abs(mid.z), [&]{ return Sign(mid.z) * b2w.z; }, box_.m_material_id, line_.m_material_id)) return; 
  
 		// Lambda for returning a separating axis with the correct sign
 		auto sep_axis = [&](v4 sa) { return Sign(Dot(l2b.pos, sa)) * sa; };
@@ -59,21 +59,21 @@ namespace pr::collision
 		//' depth = ra - rb
 		// For cross-product axes, thickness contributes m_thickness * |sin(angle_between_box_axis_and_line)|.
 		// In the unnormalized depth scale, this equals m_thickness * Len(relevant half-vector components).
-		ra = rad.z * box.m_radius.y + rad.y * box.m_radius.z + line.m_thickness * Len(half.y, half.z);
+		ra = rad.z * box.m_radius.y + rad.y * box.m_radius.z + line.m_radius * Len(half.y, half.z);
 		rb = rad.z * Abs(mid.y)     + rad.y * Abs(mid.z);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.x, l2w.z)); }, box_.m_material_id, line_.m_material_id))
+		if (!pen(ra - rb, [&]{ return line.m_hlength * sep_axis(Cross(b2w.x, l2w.z)); }, box_.m_material_id, line_.m_material_id))
 			return;
 
 		//' axis = Cross(Yaxis, line) = v4(line.z, 0, -line.x, 0) ('line' in box space)
-		ra = rad.z * box.m_radius.x + rad.x * box.m_radius.z + line.m_thickness * Len(half.x, half.z);
+		ra = rad.z * box.m_radius.x + rad.x * box.m_radius.z + line.m_radius * Len(half.x, half.z);
 		rb = rad.z * Abs(mid.x)     + rad.x * Abs(mid.z);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.y, l2w.z)); }, box_.m_material_id, line_.m_material_id))
+		if (!pen(ra - rb, [&]{ return line.m_hlength * sep_axis(Cross(b2w.y, l2w.z)); }, box_.m_material_id, line_.m_material_id))
 			return;
 
 		//' axis = Cross(Zaxis, line) = v4(-line.y, line.x, 0, 0) ('line' in box space)
-		ra = rad.y * box.m_radius.x + rad.x * box.m_radius.y + line.m_thickness * Len(half.x, half.y);
+		ra = rad.y * box.m_radius.x + rad.x * box.m_radius.y + line.m_radius * Len(half.x, half.y);
 		rb = rad.y * Abs(mid.x)     + rad.x * Abs(mid.y);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.z, l2w.z)); }, box_.m_material_id, line_.m_material_id))
+		if (!pen(ra - rb, [&]{ return line.m_hlength * sep_axis(Cross(b2w.z, l2w.z)); }, box_.m_material_id, line_.m_material_id))
 			return;
 	}
 

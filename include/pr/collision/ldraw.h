@@ -55,7 +55,7 @@ namespace pr::ldraw
 				case EShape::Line:
 				{
 					auto& s = shape_cast<ShapeLine>(shape);
-					Cylinder().hr(2 * s.m_radius, s.m_thickness).o2w(s.m_base.m_s2p);
+					Cylinder().hr(2 * s.m_hlength, s.m_radius).o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape::Polytope:

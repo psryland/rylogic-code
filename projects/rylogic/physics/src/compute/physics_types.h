@@ -47,7 +47,7 @@ namespace pr::physics
 			.vert_offset = 0,
 			.vert_count = 0,
 			.material_id = shape.m_base.m_material_id,
-			.data = v4(shape.m_radius, shape.m_thickness, 0, 0),
+			.data = v4(shape.m_hlength, shape.m_radius, 0, 0),
 		};
 	}
 	inline GpuShape PackShape(collision::ShapeTriangle const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())

@@ -50,7 +50,7 @@ namespace pr::collision
 	inline v4 SupportVertex(ShapeLine const& shape, v4 direction, EFeature& feature_type)
 	{
 		auto d = Dot(direction, shape.m_base.m_s2p.z);
-		auto r = shape.m_base.m_s2p.z * shape.m_radius;
+		auto r = shape.m_base.m_s2p.z * shape.m_hlength;
 
 		feature_type = EFeature::Vert;
 		auto vert = shape.m_base.m_s2p.pos;
@@ -59,11 +59,11 @@ namespace pr::collision
 		else feature_type = EFeature::Edge;
 
 		// Hemispherical end-cap offset for thick lines
-		if (shape.m_thickness > 0)
+		if (shape.m_radius > 0)
 		{
 			auto len_sq = LengthSq(direction);
 			if (len_sq > Sqr(math::tiny<float>))
-				vert += shape.m_thickness * direction / Sqrt(len_sq);
+				vert += shape.m_radius * direction / Sqrt(len_sq);
 		}
 		return vert;
 	}
@@ -135,15 +135,15 @@ namespace pr::collision
 	inline void SupportFeature(ShapeLine const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		auto d = Dot(axis, shape.m_base.m_s2p.z);
-		auto r = shape.m_base.m_s2p.z * shape.m_radius;
+		auto r = shape.m_base.m_s2p.z * shape.m_hlength;
 
 		// Hemispherical end-cap offset for thick lines
 		auto thickness_offset = v4::Zero();
-		if (shape.m_thickness > 0)
+		if (shape.m_radius > 0)
 		{
 			auto len_sq = LengthSq(axis);
 			if (len_sq > Sqr(math::tiny<float>))
-				thickness_offset = shape.m_thickness * axis / Sqrt(len_sq);
+				thickness_offset = shape.m_radius * axis / Sqrt(len_sq);
 		}
 
 		if (d > +math::tiny<float>)
@@ -198,14 +198,16 @@ namespace pr::collision
 	// 'pen' is the depth of penetration
 	// 'l2w' and 'r2w' transform 'lhs' and 'rhs' into the same space as 'axis' and the space that the contact point is returned in (typically world space).
 	template <typename = void>
-	v4 FindContactPoint(v4* pointA, EFeature featA, v4* pointB, EFeature featB, m4x4 const& l2w, m4x4 const& r2w, v4 axis, float pen)
+	v4 FindContactPoint(std::span<v4> pointsA, EFeature featA, std::span<v4> pointsB, EFeature featB, m4x4 const& l2w, m4x4 const& r2w, v4 axis, float pen)
 	{
 		auto countA = int(featA);
 		auto countB = int(featB);
+		pointsA = pointsA.subspan(0, countA);
+		pointsB = pointsB.subspan(0, countB);
 
 		// Transform the contact points to world space
-		for (int i = 0; i != countA; ++i) pointA[i] = l2w * pointA[i];
-		for (int i = 0; i != countB; ++i) pointB[i] = r2w * pointB[i];
+		for (auto& pt : pointsA) pt = l2w * pt;
+		for (auto& pt : pointsB) pt = r2w * pt;
 
 		// Generally, we want to project the points of featureA/B onto 'axis' to find the
 		// average position along the axis as the "single point of collision". Since the feature is 
@@ -214,24 +216,24 @@ namespace pr::collision
 		// average position perpendicular to 'axis').
 
 		// For features with area, check that the polygon is facing the correct direction, +ve for featA, -ve for featB
-		assert((featA <= EFeature::Edge || (Dot(Plane::FromBestFit({ pointA, size_t(countA) }), axis) > 0)) && "Contact polygon has incorrect winding order");
-		assert((featB <= EFeature::Edge || (Dot(Plane::FromBestFit({ pointB, size_t(countB) }), axis) < 0)) && "Contact polygon has incorrect winding order");
+		assert((featA <= EFeature::Edge || (Dot(Plane::FromBestFit(pointsA), axis) > 0)) && "Contact polygon has incorrect winding order");
+		assert((featB <= EFeature::Edge || (Dot(Plane::FromBestFit(pointsB), axis) < 0)) && "Contact polygon has incorrect winding order");
 
 		// If both shapes contact at a vert, then the separating axis passes through their average position
 		if (featA == EFeature::Vert && featB == EFeature::Vert)
-			return (pointA[0] + pointB[0]) * 0.5f;
+			return (pointsA[0] + pointsB[0]) * 0.5f;
 
 		// If one shape is contacting at a vert, then the separating axis must pass through this vert
 		if (featA == EFeature::Vert)
-			return pointA[0] + axis * (0.5f * Dot3(axis, pointB[0] - pointA[0]));
+			return pointsA[0] + axis * (0.5f * Dot3(axis, pointsB[0] - pointsA[0]));
 		if (featB == EFeature::Vert)
-			return pointB[0] + axis * (0.5f * Dot3(axis, pointA[0] - pointB[0]));
+			return pointsB[0] + axis * (0.5f * Dot3(axis, pointsA[0] - pointsB[0]));
 
 		// If this is edge-edge contact, then the separating axis passes through the closest points
 		if (featA == EFeature::Edge && featB == EFeature::Edge)
 		{
 			v4 pt0, pt1;
-			geometry::closest_point::LineToLine(pointA[0], pointA[1], pointB[0], pointB[1], pt0, pt1);
+			geometry::closest_point::LineToLine(pointsA[0], pointsA[1], pointsB[0], pointsB[1], pt0, pt1);
 			return (pt0 + pt1) * 0.5f;
 		}
 
@@ -240,73 +242,62 @@ namespace pr::collision
 		// Return the average position of the remaining verts
 
 		// Generate a container of edges for each feature
-		struct Edge { float t0, t1; operator bool() const { return t0 < t1; } };
-		auto edgesA = PR_ALLOCA_POD(Edge, countA);
-		auto edgesB = PR_ALLOCA_POD(Edge, countB);
-		for (int i = 0; i != countA; ++i) { edgesA[i].t0 = 0.0f; edgesA[i].t1 = 1.0f; }
-		for (int i = 0; i != countB; ++i) { edgesB[i].t0 = 0.0f; edgesB[i].t1 = 1.0f; }
+		struct Edge { float t0 = 0.0f; float t1 = 1.0f; operator bool() const { return t0 < t1; } };
+		vector<Edge> edgesA(countA);
+		vector<Edge> edgesB(countB);
 
 		// Clip the edges of '1' against the edges of '0'.
 		// Note: the winding order for polygon '1' is always the opposite of the winding
 		// order of polygon '0'. This is because the SupportFeature() function returns the
 		// face in the direction of the support axis which for featB is -axis.
-		auto clip = [&](v4 const* point0, int count0, v4 const* point1, int count1, Edge* edges1, float sign)
+		auto clip = [](std::span<v4 const> points0, std::span<v4 const> points1, std::span<Edge> edges1, float sign, v4 axis)
 		{
-			for (int i = 0; i != count0; ++i)
+			for (int i = 0, in = s_cast<int>(points0.size()); i != in; ++i)
 			{
-				auto& as = point0[ i          ];
-				auto& ae = point0[(i+1)%count0];
+				auto& as = points0[i];
+				auto& ae = points0[(i + 1) % in];
 				auto n = Plane{sign * Cross(axis, ae - as)};
-				for (int j = 0; j != count1; ++j)
+				for (int j = 0, jn = s_cast<int>(points1.size()); j != jn; ++j)
 				{
 					auto& edge = edges1[j];
 					if (!edge) continue; // already clipped
 
-					auto& bs = point1[ j          ];
-					auto& be = point1[(j+1)%count1];
+					auto& bs = points1[j];
+					auto& be = points1[(j + 1) % jn];
 					if (!geometry::intersect::LineVsPlane(n, bs - as.w0(), be - as.w0(), edge.t0, edge.t1))
 						edge.t1 = edge.t0;
 				}
 			}
-			#if 0 // Show the clipped polygon
-			{
-				string<> s;
-				for (int i = 0; i != count1; ++i)
-				{
-					if (!edges1[i]) continue;
-					ldr::Line(s, "e", 0xFF0000FF, point1[i], point1[(i+1)%count1], edges1[i].t0, edges1[i].t1);
-				}
-				ldr::Write(s, "collision_debug2.ldr");
-			}
-			#endif
 		};
 
 		// If this is edge-face contact, then clip the edge against the face
 		if (featA == EFeature::Edge)
 		{
-			clip(pointB, countB, pointA, countA, edgesA, -1.0f);
-			return pointA[0] + (0.5f*(edgesA[0].t0 + edgesA[0].t1))*(pointA[1] - pointA[0]) - (0.5f * pen)*axis;
+			clip(pointsB, pointsA, edgesA, -1.0f, axis);
+			auto t = 0.5f * (edgesA[0].t0 + edgesA[0].t1);
+			return pointsA[0] + t * (pointsA[1] - pointsA[0]) - (0.5f * pen) * axis;
 		}
 		if (featB == EFeature::Edge)
 		{
-			clip(pointA, countA, pointB, countB, edgesB, +1.0f);
-			return pointB[0] + (0.5f*(edgesB[0].t0 + edgesB[0].t1))*(pointB[1] - pointB[0]) + (0.5f * pen)*axis;
+			clip(pointsA, pointsB, edgesB, +1.0f, axis);
+			auto t = 0.5f * (edgesB[0].t0 + edgesB[0].t1);
+			return pointsB[0] + t * (pointsB[1] - pointsB[0]) + (0.5f * pen) * axis;
 		}
 
 		// Face to face contact, i.e featA >= EFeature::Tri && featB >= EFeature::Tri
-		clip(pointA, countA, pointB, countB, edgesB, +1.0f);
-		clip(pointB, countB, pointA, countA, edgesA, -1.0f);
+		clip(pointsA, pointsB, edgesB, +1.0f, axis);
+		clip(pointsB, pointsA, edgesA, -1.0f, axis);
 
 		// Find the average point
-		auto avr = [&](v4 const* point, int count, Edge const* edges)
+		auto avr = [](std::span<v4 const> points, std::span<Edge const> edges)
 		{
 			auto total = 0.0f;
 			auto centre = v4::Zero();
-			for (int i = 0; i != count; ++i)
+			for (int i = 0, in = s_cast<int>(points.size()); i != in; ++i)
 			{
 				if (!edges[i]) continue;
-				auto& s = point[i];
-				auto& e = point[(i+1)%count];
+				auto& s = points[i];
+				auto& e = points[(i + 1) % in];
 				auto  d = e - s;
 				centre += s + 0.5f * (edges[i].t0 + edges[i].t1) * d;
 				total += 1.0f;
@@ -316,16 +307,16 @@ namespace pr::collision
 			// share boundaries), use the centroid of the original polygon instead.
 			if (total == 0.0f)
 			{
-				for (int i = 0; i != count; ++i)
+				for (int i = 0, in = s_cast<int>(points.size()); i != in; ++i)
 				{
-					centre += point[i];
+					centre += points[i];
 					total += 1.0f;
 				}
 			}
 			return centre / total;
 		};
-		auto centreA = avr(pointA, countA, edgesA);
-		auto centreB = avr(pointB, countB, edgesB);
+		auto centreA = avr(pointsA, edgesA);
+		auto centreB = avr(pointsB, edgesB);
 
 		// Shift centre to the halfway point between the faces
 		return (0.5f * (centreA + centreB)).w1();

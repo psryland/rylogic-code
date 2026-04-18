@@ -123,9 +123,9 @@ inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBu
 }
 
 // Closest point on a line segment to a point
-inline float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float half_len)
+inline float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float hlength)
 {
-	float t = clamp(dot(p - seg_centre, seg_dir), -half_len, half_len);
+	float t = clamp(dot(p - seg_centre, seg_dir), -hlength, hlength);
 	return seg_centre + t * seg_dir;
 }
 
@@ -202,6 +202,42 @@ inline int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arr
 		}
 	}
 	return count;
+}
+
+// Determine the support feature of a line segment (possibly with thickness) in a given direction.
+// Returns 1 (vert) or 2 (edge). 'line_dir' should be unit length, 'axis' may be unnormalised.
+// Mirrors the CPU SupportFeature(ShapeLine) in support.h.
+inline int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, float line_r, float3 axis, arrayout_(float3, pts, 4))
+{
+	float threshold = 1e-4f;
+	float d = dot(axis, line_dir);
+
+	// Hemispherical thickness offset: add line_r * axis_hat (axis normalised).
+	// Note: ShapeLine has cylindrical sides (no hemispherical end-caps), but the support
+	// point for SAT still shifts by the thickness in the axis direction.
+	float3 thick_off = float3(0, 0, 0);
+	if (line_r > 0)
+	{
+		float len_sq = dot(axis, axis);
+		if (len_sq > 1e-12f)
+			thick_off = line_r * axis * rsqrt(len_sq);
+	}
+
+	if (d > threshold)
+	{
+		pts[0] = line_pos + hlength * line_dir + thick_off;
+		return 1;
+	}
+	if (d < -threshold)
+	{
+		pts[0] = line_pos - hlength * line_dir + thick_off;
+		return 1;
+	}
+
+	// Axis perpendicular to line direction — both endpoints form the edge feature
+	pts[0] = line_pos - hlength * line_dir + thick_off;
+	pts[1] = line_pos + hlength * line_dir + thick_off;
+	return 2;
 }
 
 // Find the single contact point between two box support features.
@@ -456,7 +492,7 @@ inline bool SphereVsLine(
 
 	float4 sphere_centre = sphere_w[3];
 	float sphere_r = sphere.data.x;
-	float half_len = seg.data.x;
+	float hlength = seg.data.x;
 	float thickness = seg.data.y;
 	float4 seg_centre = seg_w[3];
 	float4 seg_dir = seg_w[2]; // Z axis is the line direction
@@ -464,7 +500,7 @@ inline bool SphereVsLine(
 	// Project sphere centre onto line axis
 	float4 to_sphere = sphere_centre - seg_centre;
 	float t = dot(to_sphere, seg_dir);
-	t = clamp(t, -half_len, half_len);
+	t = clamp(t, -hlength, hlength);
 
 	// Closest point on line segment
 	float4 closest = seg_centre + t * seg_dir;
@@ -686,8 +722,12 @@ inline bool LineVsLine(
 }
 
 // ---- Line vs Box ----
-// Closest point between the line skeleton (segment) and the box surface,
-// then add the line thickness as a margin.
+// SAT between a line segment (with cylindrical thickness) and an oriented box.
+// Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h:
+//   - 3 box face axes
+//   - 3 cross-product axes (box axis × line direction)
+// Contact point is derived via BoxSupportFeature / LineSupportFeature + FindBoxContactPoint,
+// identical to the CPU pipeline.
 inline bool LineVsBox(
 	in_(GpuShape) seg, float4x4 seg_w,
 	in_(GpuShape) box, float4x4 box_w,
@@ -697,86 +737,93 @@ inline bool LineVsBox(
 	out_point = float4(0, 0, 0, 1);
 	out_depth = 0;
 
-	float4 seg_centre = seg_w[3];
-	float4 seg_dir = seg_w[2];
-	float half_len = seg.data.x;
-	float thickness = seg.data.y;
-	float4 half_ext = box.data;
-	float4 box_centre = box_w[3];
+	float hlength = seg.data.x;
+	float line_r = seg.data.y;
+	float3 hb = box.data.xyz;
 
-	// Sample several points along the line and find the closest one to the box.
-	// For a segment vs OBB, the closest feature is one of: endpoint, or the point
-	// where the segment is tangent to a box face. We approximate by testing both
-	// endpoints and the midpoint projected onto the box.
-	float best_dist_sq = 1e30f;
-	float4 best_line_pt = seg_centre;
-	float4 best_box_pt = box_centre;
+	float3 line_pos_w = seg_w[3].xyz;
+	float3 line_dir_w = seg_w[2].xyz;
+	float3 box_pos_w = box_w[3].xyz;
+	float3x3 rot_b = (float3x3) box_w;
 
-	// Test N sample points along the line
-	static const int N = 5;
-	for (int i = 0; i < N; ++i)
+	// Line centre and direction in box space
+	float3 d_w = line_pos_w - box_pos_w;
+	float3 mid_b = float3(dot(d_w, rot_b[0]), dot(d_w, rot_b[1]), dot(d_w, rot_b[2]));
+	float3 lz_b = float3(dot(line_dir_w, rot_b[0]), dot(line_dir_w, rot_b[1]), dot(line_dir_w, rot_b[2]));
+
+	// Line's axis-aligned projection half-extent (plus a tiny term to counter parallel-axis noise)
+	float3 half_b = hlength * lz_b;
+	float3 rad_b = abs(half_b) + float3(1e-6f, 1e-6f, 1e-6f);
+
+	float best_depth = 1e30f;
+	float3 best_axis_b2a_w = float3(1, 0, 0); // From box toward line in world space
+	int i;
+
+	// --- 3 box face axes ---
+	// Each axis is a unit vector (a box basis axis), so the depth scale is correct as-is.
+	for (i = 0; i < 3; ++i)
 	{
-		float t = -half_len + (2.0f * half_len) * (float)i / (float)(N - 1);
-		float4 lp = seg_centre + t * seg_dir;
-
-		// Closest point on box to this line point
-		float4 local = float4(
-			dot(lp - box_centre, box_w[0]),
-			dot(lp - box_centre, box_w[1]),
-			dot(lp - box_centre, box_w[2]),
-			0);
-		float4 clamped = clamp(local, -half_ext, half_ext);
-		float4 bp = box_centre + clamped.x * box_w[0] + clamped.y * box_w[1] + clamped.z * box_w[2];
-
-		float4 diff = lp - bp;
-		float d = dot(diff, diff);
-		if (d < best_dist_sq)
+		float pen_i = hb[i] + rad_b[i] + line_r - abs(mid_b[i]);
+		if (pen_i < 0)
+			return false;
+		if (pen_i < best_depth)
 		{
-			best_dist_sq = d;
-			best_line_pt = lp;
-			best_box_pt = bp;
+			best_depth = pen_i;
+			best_axis_b2a_w = rot_b[i] * (mid_b[i] >= 0 ? 1.0f : -1.0f);
 		}
 	}
 
-	// Refine: project the best box point back onto the line to get exact closest pair
-	float t_refine = clamp(dot(best_box_pt - seg_centre, seg_dir), -half_len, half_len);
-	float4 refined_lp = seg_centre + t_refine * seg_dir;
-	float4 local_r = float4(
-		dot(refined_lp - box_centre, box_w[0]),
-		dot(refined_lp - box_centre, box_w[1]),
-		dot(refined_lp - box_centre, box_w[2]),
-		0);
-	float4 clamped_r = clamp(local_r, -half_ext, half_ext);
-	float4 refined_bp = box_centre + clamped_r.x * box_w[0] + clamped_r.y * box_w[1] + clamped_r.z * box_w[2];
-
-	float4 diff = refined_lp - refined_bp;
-	float dist_sq = dot(diff, diff);
-
-	if (dist_sq >= thickness * thickness)
-		return false;
-
-	if (dist_sq > 1e-12f)
+	// --- 3 cross-product axes: cross(box_axis_i, line_dir) ---
+	// Expressed in box space, these are perpendicular to both the box axis i and the line direction.
+	// Axis i=0: cross((1,0,0), lz_b) = (0, -lz_b.z, lz_b.y)
+	// Axis i=1: cross((0,1,0), lz_b) = (lz_b.z, 0, -lz_b.x)
+	// Axis i=2: cross((0,0,1), lz_b) = (-lz_b.y, lz_b.x, 0)
+	for (i = 0; i < 3; ++i)
 	{
-		float dist = sqrt(dist_sq);
-		float4 normal = diff / dist;
-		out_axis = normal;
-		out_depth = thickness - dist;
-		out_point = refined_bp;
+		int j = (i + 1) % 3;
+		int k = (i + 2) % 3;
+
+		float3 axis_b = float3(0, 0, 0);
+		axis_b[j] = -lz_b[k];
+		axis_b[k] = lz_b[j];
+
+		// Degenerate if the line is parallel to box axis i
+		float len_sq = dot(axis_b, axis_b);
+		if (len_sq < 1e-10f)
+			continue;
+		axis_b *= rsqrt(len_sq);
+
+		// Since axis_b is perpendicular to both box axis i and the line direction:
+		//   box projection   = hb[j]*|axis_b[j]| + hb[k]*|axis_b[k]|
+		//   line projection  = line_r (thickness contributes fully; axial extent contributes zero)
+		//   line centre      = mid_b[j]*axis_b[j] + mid_b[k]*axis_b[k]
+		float box_r = hb[j] * abs(axis_b[j]) + hb[k] * abs(axis_b[k]);
+		float line_c = mid_b[j] * axis_b[j] + mid_b[k] * axis_b[k];
+		float pen_i = box_r + line_r - abs(line_c);
+		if (pen_i < 0)
+			return false;
+
+		// Small bias in favour of face axes to avoid noisy edge contacts when depths are similar
+		if (pen_i + 1e-4f < best_depth)
+		{
+			best_depth = pen_i;
+			float3 axis_w = axis_b.x * rot_b[0] + axis_b.y * rot_b[1] + axis_b.z * rot_b[2];
+			best_axis_b2a_w = axis_w * (line_c >= 0 ? 1.0f : -1.0f);
+		}
 	}
-	else
-	{
-		// Line skeleton is inside the box — push out along shortest box face
-		float4 face_dist = half_ext - abs(local_r);
-		int min_axis = 0;
-		if (face_dist.y < face_dist.x) min_axis = 1;
-		if (face_dist.z < face_dist[min_axis]) min_axis = 2;
-		float4 local_normal = float4(0, 0, 0, 0);
-		local_normal[min_axis] = local_r[min_axis] > 0 ? 1.0f : -1.0f;
-		float4 world_normal = local_normal.x * box_w[0] + local_normal.y * box_w[1] + local_normal.z * box_w[2];
-		out_axis = world_normal;
-		out_depth = thickness + face_dist[min_axis];
-		out_point = refined_bp;
-	}
+
+	// Contact axis convention: from shape A (line) toward shape B (box) — flip the box-to-line axis.
+	float3 contact_axis = -best_axis_b2a_w;
+	out_depth = best_depth;
+	out_axis = float4(contact_axis, 0);
+
+	// Derive the contact point from support features (same pipeline as CPU FindContactPoint).
+	// For each shape, pass the axis pointing *into* that shape's exterior.
+	float3 ptsA[4], ptsB[4];
+	int countA = LineSupportFeature(line_pos_w, line_dir_w, hlength, line_r, +contact_axis, ptsA);
+	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, ptsB);
+
+	out_point = float4(FindBoxContactPoint(ptsA, countA, ptsB, countB, contact_axis, best_depth), 1);
 	return true;
 }
 
@@ -794,8 +841,8 @@ inline bool LineVsTriangle(
 
 	float4 seg_centre = seg_w[3];
 	float4 seg_dir = seg_w[2];
-	float half_len = seg.data.x;
-	float thickness = seg.data.y;
+	float hlength = seg.data.x;
+	float line_radius = seg.data.y;
 	int i;
 	
 	float4 v0, v1, v2;
@@ -811,7 +858,7 @@ inline bool LineVsTriangle(
 	// Test segment endpoints against triangle
 	for (i = 0; i < 2; ++i)
 	{
-		float4 lp = seg_centre + (i == 0 ? -half_len : half_len) * seg_dir;
+		float4 lp = seg_centre + (i == 0 ? -hlength : hlength) * seg_dir;
 		float4 tp = ClosestPointOnTriangle(lp, v0, v1, v2);
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
@@ -821,7 +868,7 @@ inline bool LineVsTriangle(
 	float4 tri_verts[3] = {v0, v1, v2};
 	for (i = 0; i < 3; ++i)
 	{
-		float4 lp = ClosestPointOnSegment(tri_verts[i], seg_centre, seg_dir, half_len);
+		float4 lp = ClosestPointOnSegment(tri_verts[i], seg_centre, seg_dir, hlength);
 		float d = dot(lp - tri_verts[i], lp - tri_verts[i]);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tri_verts[i]; }
 	}
@@ -835,20 +882,20 @@ inline bool LineVsTriangle(
 		float4 ed = normalize(edge_b[i] - edge_a[i]);
 		float elen = length(edge_b[i] - edge_a[i]) * 0.5f;
 		float t0, t1;
-		ClosestPointSegmentSegment(seg_centre, seg_dir, half_len, ec, ed, elen, t0, t1);
+		ClosestPointSegmentSegment(seg_centre, seg_dir, hlength, ec, ed, elen, t0, t1);
 		float4 lp = seg_centre + t0 * seg_dir;
 		float4 tp = ec + t1 * ed;
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
 	}
 
-	if (best_dist_sq >= thickness * thickness || best_dist_sq < 1e-12f)
+	if (best_dist_sq >= line_radius * line_radius || best_dist_sq < 1e-12f)
 		return false;
 
 	float dist = sqrt(best_dist_sq);
 	float4 normal = (best_lp - best_tp) / dist;
 	out_axis = normal;
-	out_depth = thickness - dist;
+	out_depth = line_radius - dist;
 	out_point = best_tp;
 	return true;
 }
@@ -868,7 +915,7 @@ inline bool LineVsConvex(
 	out_depth = 0;
 	out_gjk_iters = 0;
 
-	float thickness = seg.data.y;
+	float line_radius = seg.data.y;
 
 	// Create a skeleton shape (zero thickness) and use full GJK to find
 	// closest distance between the skeleton and the convex shape.
@@ -887,7 +934,7 @@ inline bool LineVsConvex(
 	{
 		// Skeleton overlaps the convex — add thickness margin
 		out_axis = gjk_axis;
-		out_depth = gjk_depth + thickness;
+		out_depth = gjk_depth + line_radius;
 		out_point = gjk_point;
 		return true;
 	}
