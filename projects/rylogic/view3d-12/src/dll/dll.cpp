@@ -1880,6 +1880,24 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectGetParent(view3d::Object object
 	CatchAndReport(View3D_ObjectGetParent, , nullptr);
 }
 
+// Return true if 'object' is a decendant of 'parent'
+VIEW3D_API BOOL __stdcall View3D_ObjectIsDescendant(pr::view3d::Object object, pr::view3d::Object parent)
+{
+	try
+	{
+		Validate(object);
+
+		DllLockGuard;
+		for (auto const* p = object; p != nullptr; p = p->m_parent)
+		{
+			if (p != parent) continue;
+			return true;
+		}
+		return false;
+	}
+	CatchAndReport(View3D_ObjectIsDescendant, , false);
+}
+
 // Return a child object of 'object'
 VIEW3D_API view3d::Object __stdcall View3D_ObjectGetChildByName(view3d::Object object, char const* name)
 {

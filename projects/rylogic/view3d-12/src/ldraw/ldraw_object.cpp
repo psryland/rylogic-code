@@ -97,7 +97,7 @@ namespace pr::rdr12::ldraw
 		, m_name()
 		, m_context_id(context_id)
 		, m_base_colour(Colour32White)
-		, m_grp_colour()
+		, m_grp_colour(Colour32White)
 		, m_root_anim()
 		, m_bbox_instance()
 		, m_screen_space()
@@ -582,7 +582,7 @@ namespace pr::rdr12::ldraw
 	{
 		Apply([=](LdrObject* o)
 		{
-			auto& obj_colour = base_colour ? o->m_base_colour : o->m_colour;
+			auto obj_colour = o->m_base_colour;
 			switch (op)
 			{
 				case EColourOp::Overwrite:
@@ -600,11 +600,23 @@ namespace pr::rdr12::ldraw
 				case EColourOp::Lerp:
 					obj_colour = Lerp(o->m_base_colour, colour, op_value);
 					break;
+				default:
+					throw std::runtime_error("Invalid colour operation");
 			}
 
-			// If the base colour was updated, update the instance colour as well
+			// Apply the group colour of any parents
+			for (auto p = o->m_parent; p != nullptr; p = p->m_parent)
+				obj_colour = obj_colour * p->m_grp_colour;
+
+			// Update the base colour and the instance colour
 			if (base_colour)
-				o->m_colour = o->m_base_colour;
+				o->m_base_colour = obj_colour;
+
+			// Otherwise, just update the instance colour.
+			// The group colour is always the same as the instance colour for group objects,
+			o->m_colour = obj_colour;
+			if (o->m_type == ELdrObject::Group)
+				o->m_grp_colour = o->m_colour;
 
 			// Ensure the nugget has alpha variants if needed
 			if (HasAlpha(o->m_colour) && o->m_model != nullptr)
@@ -619,6 +631,27 @@ namespace pr::rdr12::ldraw
 
 			return true;
 		}, name);
+
+		// Group colours always apply recursively
+		if (m_type == ELdrObject::Group && name == nullptr)
+		{
+			// Update the colour of child objects when the group's colour changes
+			// and it hasn't already been applied recursively.
+			Apply([=, this](LdrObject* o)
+			{
+				// Don't apply to the group itself, it's been done already.
+				if (o == this)
+					return true;
+
+				// Apply the group colour of any parents
+				auto obj_colour = o->m_base_colour;
+				for (auto p = o->m_parent; p != nullptr; p = p->m_parent)
+					obj_colour = obj_colour * p->m_grp_colour;
+
+				o->m_colour = obj_colour;
+				return true;
+			}, "");
+		}
 	}
 
 	// Restore the colour to the initial colour for this object or child objects matching 'name' (see Apply)

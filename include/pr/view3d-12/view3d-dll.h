@@ -1225,6 +1225,9 @@ extern "C"
 	// Return the immediate parent of 'object'
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectGetParent(pr::view3d::Object object);
 
+	// Return true if 'object' is a decendant of 'parent'
+	VIEW3D_API BOOL __stdcall View3D_ObjectIsDescendant(pr::view3d::Object object, pr::view3d::Object parent);
+
 	// Return a child object of 'object'
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectGetChildByName(pr::view3d::Object object, char const* name);
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectGetChildByIndex(pr::view3d::Object object, int index);

@@ -2008,6 +2008,9 @@ namespace Rylogic.Gfx
 		// Return the immediate parent of 'object'
 		[DllImport(Dll)] private static extern HObject View3D_ObjectGetParent(HObject obj);
 
+		// Return true if 'object' is a decendant of 'parent'
+		[DllImport(Dll)] private static extern bool View3D_ObjectIsDescendant(HObject obj, HObject parent);
+
 		// Return a child object of 'object'
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectGetChildByName(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string name);
 		[DllImport(Dll)] private static extern HObject View3D_ObjectGetChildByIndex(HObject obj, int index);

@@ -50,7 +50,11 @@ namespace Rylogic.Gui.WPF
 		// Forwarded properties from View3d.Object
 		public string Name => Object.Name;
 		public string Type => Object.Type;
-		public bool Visible { get => Object.Visible; set { Object.Visible = value; NotifyPropertyChanged(nameof(Visible)); } }
+		public bool Visible
+		{
+			get => Object.Visible;
+			set { Object.Visible = value; NotifyPropertyChanged(nameof(Visible)); }
+		}
 		public View3d.ELdrFlags Flags => Object.Flags;
 		public string Colour => Object.Colour.ToString();
 		public Colour32 ColourValue => Object.Colour;
@@ -175,12 +179,15 @@ namespace Rylogic.Gui.WPF
 				}
 				void HandleObjectPropertyChanged(object? sender, PropertyChangedEventArgs e)
 				{
-					if (sender is not View3d.Object obj) return;
+					if (sender is not View3d.Object obj)
+						return;
 
-					// Refresh matching nodes
+					// Refresh matching nodes or nodes that have 'obj' as a parent
 					foreach (var node in FlatNodes)
 					{
 						if (node.Object == obj)
+							node.Refresh();
+						else if (obj.IsDescendant(node.Object))
 							node.Refresh();
 					}
 

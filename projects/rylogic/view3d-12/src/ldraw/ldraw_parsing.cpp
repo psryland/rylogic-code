@@ -607,8 +607,13 @@ namespace pr::rdr12::ldraw
 		// Set colour on 'obj' (so that render states are set correctly)
 		obj->Colour(true, obj->m_base_colour);
 
+		// Groups implicitly tint descendants with their base colour, unless *GroupColour was set explicitly.
+		// This makes the script read naturally (e.g. '*Group "grp" FF00FF00 { ... }' tints children green).
+		if (obj->m_type == ELdrObject::Group && obj->m_grp_colour == Colour32White)
+			obj->m_grp_colour = obj->m_base_colour;
+
 		// Apply the group colour of 'obj' to all children
-		if (obj->m_grp_colour != 0)
+		if (obj->m_grp_colour != Colour32White)
 			obj->Colour(false, obj->m_grp_colour, "", EColourOp::Multiply);
 
 		// If flagged as hidden, hide

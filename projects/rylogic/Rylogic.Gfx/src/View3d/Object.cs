@@ -157,8 +157,15 @@ namespace Rylogic.Gfx
 			/// <summary>Get/Set the visibility of this object (set applies to all child objects as well)</summary>
 			public Colour32 Colour
 			{
-				get => ColourGet(false, string.Empty);
+				get => ColourGet(false, null);
 				set => ColourSet(value, string.Empty);
+			}
+
+			/// <summary>Get/Set the base colour of this object</summary>
+			public Colour32 BaseColour
+			{
+				get => ColourGet(true, null);
+				set => ColourSet(true, value, null);
 			}
 
 			/// <summary>Get/Set the reflectivity for this object (set applies to all child objects as well)</summary>
@@ -267,6 +274,12 @@ namespace Rylogic.Gfx
 					var parent = View3D_ObjectGetParent(Handle);
 					return parent != HObject.Zero ? new Object(parent, false) : null;
 				}
+			}
+
+			/// <summary>Return true if 'obj' is a decendant of this object</summary>
+			public bool IsDescendant(Object obj)
+			{
+				return View3D_ObjectIsDescendant(obj.Handle, Handle);
 			}
 
 			/// <summary>Return a child object of this object</summary>
@@ -533,9 +546,9 @@ namespace Rylogic.Gfx
 			}
 			public void ColourSet(bool base_colour, Colour32 colour, string? name = null, EColourOp op = EColourOp.Overwrite, float op_value = 0.0f)
 			{
-				var prev = Colour;
+				var prev = base_colour ? BaseColour : Colour;
 				View3D_ObjectColourSet(Handle, base_colour, colour, name, op, op_value);
-				if (prev != Colour)
+				if (prev != (base_colour ? BaseColour : Colour))
 				{
 					NotifyPropertyChanged(nameof(Colour));
 				}
