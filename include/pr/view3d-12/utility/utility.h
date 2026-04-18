@@ -386,8 +386,6 @@ namespace pr::rdr12
 	inline static constexpr GUID Guid_DebugColour = { 0x0405DEE4, 0xADF7, 0x4A27, { 0xBF, 0x37, 0x0B, 0x37, 0x28, 0x39, 0x39, 0x17 } };
 	template <HasPrivateData T> Colour32 DebugColour(T const* res)
 	{
-		extern GUID const Guid_DebugColour;
-
 		Colour32 existing = {};
 		UINT size = sizeof(existing);
 		if (const_cast<T*>(res)->GetPrivateData(Guid_DebugColour, &size, &existing) != DXGI_ERROR_NOT_FOUND)
@@ -397,7 +395,6 @@ namespace pr::rdr12
 	}
 	template <HasPrivateData T> void DebugColour(T* res, Colour32 colour)
 	{
-		extern GUID const Guid_DebugColour;
 		Check(res->SetPrivateData(Guid_DebugColour, sizeof(colour), &colour));
 	}
 	template <HasPrivateData T> Colour32 DebugColour(D3DPtr<T>& res)

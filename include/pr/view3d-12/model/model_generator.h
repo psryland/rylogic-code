@@ -202,7 +202,7 @@ namespace pr::rdr12
 		static ModelPtr SphereList(ResourceFactory& factory, std::span<BSphere const> spheres, int divisions = 3, CreateOptions const* opts = nullptr);
 
 		// Cylinder ***************************************************************************
-		static ModelPtr Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale = 1.0f, float yscale = 1.0f, int wedges = 20, int layers = 1, CreateOptions const* opts = nullptr);
+		static ModelPtr Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale = 1.0f, float yscale = 1.0f, int wedges = 20, int layers = 1, float endcap0_extent = 0.0f, float endcap1_extent = 0.0f, int endcap_layers = 0, CreateOptions const* opts = nullptr);
 
 		// Extrude ****************************************************************************
 		static ModelPtr Extrude(ResourceFactory& factory, std::span<v2 const> cs, std::span<v4 const> path, bool closed, bool smooth_cs, CreateOptions const* opts = nullptr);

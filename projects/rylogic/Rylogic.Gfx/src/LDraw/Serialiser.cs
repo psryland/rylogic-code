@@ -13,7 +13,7 @@ namespace Rylogic.LDraw
 	public interface IWriter
 	{
 		/// <summary>Write a section to the script output</summary>
-		void Write(EKeyword keyword, params object[] args);
+		void Write(EKeyword keyword, params object?[] args);
 
 		/// <summary>Append objects to the script</summary>
 		void Append(params object[] items);

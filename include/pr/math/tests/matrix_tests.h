@@ -340,6 +340,89 @@ namespace pr::math::tests
 				}
 			}
 		}
+
+		PRUnitTestMethod(EigenTopKDoubleCentered)
+		{
+			// Regression test: the classical MDS Gram matrix B = -0.5·J·D²·J has 1 in its null
+			// space (B·1 = 0). A Lanczos implementation starting from [1,…,1]/√N collapses to
+			// zero eigenvalues. EigenTopK must return the true top eigenvalues regardless.
+			// Use N > 32 so the Lanczos path is exercised (small-N falls back to full decomp).
+
+			constexpr int N = 64;
+
+			// Build a distance matrix D from random points in 3D, then double-centre D² -> B.
+			auto local_rng = std::mt19937{ 1234u };
+			auto uni = std::uniform_real_distribution<double>(0.0, 10.0);
+			double pts[N * 3];
+			for (int i = 0; i != N * 3; ++i)
+				pts[i] = uni(local_rng);
+
+			auto D2 = Matrix<double>(N, N);
+			for (int i = 0; i != N; ++i)
+			{
+				for (int j = 0; j != N; ++j)
+				{
+					auto dx = pts[i * 3 + 0] - pts[j * 3 + 0];
+					auto dy = pts[i * 3 + 1] - pts[j * 3 + 1];
+					auto dz = pts[i * 3 + 2] - pts[j * 3 + 2];
+					D2(i, j) = dx * dx + dy * dy + dz * dz;
+				}
+			}
+
+			// Double centre: B = -0.5 * J * D² * J  where  J = I - (1/N)·11ᵀ
+			double row_mean[N] = {};
+			double col_mean[N] = {};
+			double grand_mean = 0.0;
+			for (int i = 0; i != N; ++i)
+			{
+				for (int j = 0; j != N; ++j)
+				{
+					row_mean[i] += D2(i, j);
+					col_mean[j] += D2(i, j);
+					grand_mean += D2(i, j);
+				}
+			}
+			for (int i = 0; i != N; ++i) { row_mean[i] /= N; col_mean[i] /= N; }
+			grand_mean /= (N * N);
+
+			auto B = Matrix<double>(N, N);
+			for (int i = 0; i != N; ++i)
+				for (int j = 0; j != N; ++j)
+					B(i, j) = -0.5 * (D2(i, j) - row_mean[i] - col_mean[j] + grand_mean);
+
+			// Points were generated in 3D -> B has rank ≤ 3. Ask for top 3 eigenpairs.
+			auto result = EigenTopK(B, 3);
+			PR_EXPECT(result.values.cmps() == 3);
+
+			// For a rank-3 Euclidean configuration, the top 3 eigenvalues must be clearly positive.
+			// If Lanczos had collapsed on the null direction, all three would be ~0.
+			PR_EXPECT(result.values(0, 0) > 1.0);
+			PR_EXPECT(result.values(0, 1) > 1.0);
+			PR_EXPECT(result.values(0, 2) > 1.0);
+
+			// And they must be in descending order.
+			PR_EXPECT(result.values(0, 0) >= result.values(0, 1));
+			PR_EXPECT(result.values(0, 1) >= result.values(0, 2));
+
+			// Verify B*v ≈ λ*v for each returned eigenpair
+			for (int k = 0; k != 3; ++k)
+			{
+				auto lambda = result.values(0, k);
+				auto err2 = 0.0;
+				auto norm2 = 0.0;
+				for (int r = 0; r != N; ++r)
+				{
+					auto mv = 0.0;
+					for (int c = 0; c != N; ++c)
+						mv += B(r, c) * result.vectors(c, k);
+
+					auto lv = lambda * result.vectors(r, k);
+					err2 += (mv - lv) * (mv - lv);
+					norm2 += lv * lv;
+				}
+				PR_EXPECT(std::sqrt(err2 / norm2) < 1e-4);
+			}
+		}
 	};
 }
 #endif

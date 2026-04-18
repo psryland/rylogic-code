@@ -55,6 +55,7 @@ namespace Rylogic.LDraw
 		Dim = unchecked((int)3496118841),
 		Direction = unchecked((int)3748513642),
 		Divisions = unchecked((int)555458703),
+		EndCaps = unchecked((int)2864440763),
 		Equation = unchecked((int)2486886355),
 		Euler = unchecked((int)1180123250),
 		Faces = unchecked((int)455960701),

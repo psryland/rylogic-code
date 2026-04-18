@@ -1,4 +1,4 @@
-﻿//*****************************************************************************
+//*****************************************************************************
 // Maths library
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
@@ -1417,13 +1417,32 @@ namespace pr::math
 
 		for (int restart = 0; restart != max_iter; ++restart)
 		{
-			// Starting vector: use the first Ritz vector from previous run, or [1,1,...,1]/sqrt(N)
-			//auto q = std::vector<S>(N);
+			// Starting vector: use the first Ritz vector from previous run, or a deterministic
+			// pseudo-random vector. We deliberately avoid the all-ones vector because it is
+			// often exactly the null eigenvector of double-centred / Laplacian-like matrices
+			// (e.g. the classical MDS Gram matrix B = -0.5·J·D²·J satisfies B·1 = 0). Starting
+			// Lanczos from such a null vector causes immediate collapse: Aq = 0, so w = 0 and
+			// all subsequent alpha/beta are zero, returning eigenvalues ≈ 0.
+			// A pseudo-random vector has (with overwhelming probability) a non-zero component
+			// along every eigenvector, and Lanczos' implicit deflation will correctly drop any
+			// null directions as it builds the Krylov subspace.
 			if (restart == 0)
 			{
-				auto inv_sqrt_n = S(1) / std::sqrt(static_cast<S>(N));
+				// Fixed seed -> deterministic / reproducible results across runs. minstd_rand is
+				// used (rather than mt19937) because its state is ~8 bytes vs ~2.5KB; statistical
+				// quality is irrelevant here — we only need a vector that isn't in the null space.
+				auto rng = std::minstd_rand{ static_cast<uint32_t>(0x5EED0000u + static_cast<uint32_t>(N)) };
+				auto uni = std::uniform_real_distribution<S>(S(-0.5), S(0.5));
+				auto norm_sq = S(0);
 				for (int i = 0; i != N; ++i)
-					q(i) = inv_sqrt_n;
+				{
+					auto v = uni(rng);
+					q(i) = v;
+					norm_sq += v * v;
+				}
+				auto inv_norm = S(1) / std::sqrt(norm_sq);
+				for (int i = 0; i != N; ++i)
+					q(i) *= inv_norm;
 			}
 			else
 			{

@@ -22,7 +22,7 @@ namespace Rylogic.LDraw
 		}
 
 		/// <inheritdoc/>
-		public void Write(EKeyword keyword, params object[] args)
+		public void Write(EKeyword keyword, params object?[] args)
 		{
 			var ofs = m_res.Position;
 
@@ -56,11 +56,16 @@ namespace Rylogic.LDraw
 		}
 
 		/// <inheritdoc/>
-		public void Append(params object[] args)
+		public void Append(params object?[] args)
 		{
 			Append(args.AsEnumerable());
 		}
-		private void Append(IEnumerable<object> args)
+		private void Append<T>(T? arg) where T : struct
+		{
+			if (!arg.HasValue) return;
+			Append(arg.Value);
+		}	
+		private void Append(IEnumerable<object?> args)
 		{
 			foreach (var arg in args)
 			{

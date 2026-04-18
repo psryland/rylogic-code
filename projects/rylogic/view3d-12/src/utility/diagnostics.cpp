@@ -54,6 +54,7 @@ namespace pr::rdr12
 				// Add a dependent nugget that draws the normals
 				nug.AddDependent(factory,
 					NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr)
+					.vrange(nug.m_vrange)
 					.irange(RangeZero)
 					.variant(ShowNormalsNugget)
 					.use_shader_overlay(ERenderStep::RenderForward, shdr));

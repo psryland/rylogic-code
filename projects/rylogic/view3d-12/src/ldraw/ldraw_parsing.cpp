@@ -607,8 +607,13 @@ namespace pr::rdr12::ldraw
 		// Set colour on 'obj' (so that render states are set correctly)
 		obj->Colour(true, obj->m_base_colour);
 
+		// Groups implicitly tint descendants with their base colour, unless *GroupColour was set explicitly.
+		// This makes the script read naturally (e.g. '*Group "grp" FF00FF00 { ... }' tints children green).
+		if (obj->m_type == ELdrObject::Group && obj->m_grp_colour == Colour32White)
+			obj->m_grp_colour = obj->m_base_colour;
+
 		// Apply the group colour of 'obj' to all children
-		if (obj->m_grp_colour != 0)
+		if (obj->m_grp_colour != Colour32White)
 			obj->Colour(false, obj->m_grp_colour, "", EColourOp::Multiply);
 
 		// If flagged as hidden, hide
@@ -3877,6 +3882,8 @@ namespace pr::rdr12::ldraw
 		v2 m_scale;
 		int m_layers;
 		int m_wedges;
+		bool m_endcaps;
+		int m_endcap_layers;
 
 		ObjectCreator(ParseParams& pp)
 			: IObjectCreator(pp)
@@ -3886,6 +3893,8 @@ namespace pr::rdr12::ldraw
 			, m_scale(v2::One())
 			, m_layers(1)
 			, m_wedges(20)
+			, m_endcaps(false)
+			, m_endcap_layers(0)
 		{}
 		bool ParseKeyword(IReader& reader, EKeyword kw) override
 		{
@@ -3910,6 +3919,12 @@ namespace pr::rdr12::ldraw
 					m_scale = reader.Vector2f();
 					return true;
 				}
+				case EKeyword::EndCaps:
+				{
+					m_endcaps = true;
+					m_endcap_layers = reader.IsSectionEnd() ? 0 : reader.Int<int>(10);
+					return true;
+				}
 				default:
 				{
 					return
@@ -3921,9 +3936,14 @@ namespace pr::rdr12::ldraw
 		}
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
+			// Resolve end-cap parameters
+			auto ec_layers = m_endcaps ? (m_endcap_layers > 0 ? m_endcap_layers : 10) : 0;
+			auto ec_radius0 = m_endcaps ? m_dim.x : 0.0f;
+			auto ec_radius1 = m_endcaps ? m_dim.y : 0.0f;
+
 			// Create the model
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
-			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, &opts);
+			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, ec_radius0, ec_radius1, ec_layers, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -3937,6 +3957,8 @@ namespace pr::rdr12::ldraw
 		v2 m_scale;
 		int m_layers;
 		int m_wedges;
+		bool m_endcaps;
+		int m_endcap_layers;
 
 		ObjectCreator(ParseParams& pp)
 			: IObjectCreator(pp)
@@ -3946,6 +3968,8 @@ namespace pr::rdr12::ldraw
 			, m_scale(v2::One())
 			, m_layers(1)
 			, m_wedges(20)
+			, m_endcaps(false)
+			, m_endcap_layers(0)
 		{}
 		bool ParseKeyword(IReader& reader, EKeyword kw) override
 		{
@@ -3976,6 +4000,12 @@ namespace pr::rdr12::ldraw
 					m_scale = reader.Vector2f();
 					return true;
 				}
+				case EKeyword::EndCaps:
+				{
+					m_endcaps = true;
+					m_endcap_layers = reader.IsSectionEnd() ? 0 : reader.Int<int>(10);
+					return true;
+				}
 				default:
 				{
 					return
@@ -3987,9 +4017,14 @@ namespace pr::rdr12::ldraw
 		}
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
+			// Resolve end-cap parameters
+			auto ec_layers = m_endcaps ? (m_endcap_layers > 0 ? m_endcap_layers : 10) : 0;
+			auto ec_radius0 = m_endcaps ? m_dim.x : 0.0f;
+			auto ec_radius1 = m_endcaps ? m_dim.y : 0.0f;
+
 			// Create the model
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
-			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, &opts);
+			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, ec_radius0, ec_radius1, ec_layers, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -5988,6 +6023,9 @@ namespace pr::rdr12::ldraw
 		// If an object was created add it to the parse results
 		if (obj != nullptr)
 		{
+			// A few sanity checks
+			assert(IsAffine(obj->m_o2p));
+
 			// Apply properties to the object
 			// This is done after objects are parsed so that recursive properties can be applied
 			ApplyObjectState(obj.get());

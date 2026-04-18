@@ -706,10 +706,10 @@ namespace pr::rdr12
 	}
 
 	// Cylinder ***************************************************************************
-	ModelPtr ModelGenerator::Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale, float yscale, int wedges, int layers, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Cylinder(ResourceFactory& factory, float radius0, float radius1, float height, float xscale, float yscale, int wedges, int layers, float endcap_radius0, float endcap_radius1, int endcap_layers, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::CylinderSize(wedges, layers);
+		auto [vcount, icount] = geometry::CylinderSize(wedges, layers, endcap_layers);
 		auto colours = opts ? opts->m_colours : std::span<Colour32 const>{};
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
@@ -717,7 +717,7 @@ namespace pr::rdr12
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Cylinder(radius0, radius1, height, xscale, yscale, wedges, layers, colours,
+		auto props = geometry::Cylinder(radius0, radius1, height, xscale, yscale, wedges, layers, endcap_radius0, endcap_radius1, endcap_layers, colours,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);

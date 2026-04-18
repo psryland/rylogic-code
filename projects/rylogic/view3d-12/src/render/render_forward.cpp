@@ -86,9 +86,10 @@ namespace pr::rdr12
 		{
 			for (auto& nug : nugget.Dependents())
 			{
-				// Skip the default nugget if the instance requires alpha
-				if (has_alpha == (nug.m_variant == DefaultNugget))
-					continue;
+				// Skip the default (opaque) nugget when the instance requires alpha, and skip alpha
+				// variants when it doesn't. Other variants (e.g. ShowNormalsNugget) always render.
+				if (has_alpha && nug.m_variant == DefaultNugget) continue;
+				if (!has_alpha && nug.m_variant == AlphaNugget) continue;
 
 				// Ignore if flagged as not visible
 				if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
