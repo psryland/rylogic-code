@@ -426,7 +426,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				o->m_pso.Set<EPipeState::DepthEnable>(TRUE);
+				o->m_pso.Clear<EPipeState::DepthEnable>();
 				o->m_sko = SKOverride();
 			}
 
@@ -439,7 +439,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				o->m_pso.Set<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ALL);
+				o->m_pso.Clear<EPipeState::DepthWriteMask>();
 				o->m_sko = SKOverride();
 			}
 
