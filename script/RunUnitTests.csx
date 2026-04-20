@@ -10,6 +10,9 @@ using Console = System.Console;
 
 try
 {
+	// The post-build target uses --cache-path, which only behaves correctly in dotnet-script >= 2.0.0
+	Tools.RequireDotnetScript(new Version(2, 0, 0));
+
 	List<string> args =
 		//["E:/Rylogic/Code/projects/rylogic/Rylogic.Core/bin/Debug/net9.0-windows/Rylogic.Core.dll", "true"]
 		//["E:/Rylogic/Code/projects/rylogic/Rylogic.Windows/bin/Debug/net9.0-windows/Rylogic.Windows.dll", "true", "Rylogic.Core", "WindowsBase"]
