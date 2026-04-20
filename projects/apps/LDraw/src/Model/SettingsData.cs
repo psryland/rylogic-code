@@ -7,6 +7,7 @@ using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
 using Rylogic.Gui.WPF;
+using Rylogic.Maths;
 
 namespace LDraw
 {
@@ -187,6 +188,7 @@ namespace LDraw
 				NavigationMode = ChartControl.ENavMode.Scene3D,
 				LockAspect = 1.0,
 			};
+			Lighting = new LightData();
 		}
 
 		/// <summary>The name of the scene that this state data belongs to</summary>
@@ -215,6 +217,151 @@ namespace LDraw
 		{
 			get => get<ChartControl.OptionsData>(nameof(Chart));
 			set => set(nameof(Chart), value);
+		}
+
+		/// <summary>Light source settings for this scene</summary>
+		public LightData Lighting
+		{
+			get => get<LightData>(nameof(Lighting));
+			set => set(nameof(Lighting), value);
+		}
+	}
+
+	/// <summary>Per-scene light source settings (mirrors View3d.LightInfo as a SettingsSet for persistence)</summary>
+	public class LightData :SettingsSet<LightData>
+	{
+		public LightData()
+			: this(View3d.LightInfo.Directional(-v4.ZAxis, camera_relative: true))
+		{
+		}
+		public LightData(View3d.LightInfo info)
+		{
+			Position = info.Position;
+			Direction = info.Direction;
+			Type = info.Type;
+			AmbientColour = info.AmbientColour;
+			DiffuseColour = info.DiffuseColour;
+			SpecularColour = info.SpecularColour;
+			SpecularPower = info.SpecularPower;
+			Range = info.Range;
+			Falloff = info.Falloff;
+			InnerAngle = info.InnerAngle;
+			OuterAngle = info.OuterAngle;
+			CastShadow = info.CastShadow;
+			CameraRelative = info.CameraRelative;
+			On = info.On;
+		}
+
+		public v4 Position
+		{
+			get => get<v4>(nameof(Position));
+			set => set(nameof(Position), value);
+		}
+		public v4 Direction
+		{
+			get => get<v4>(nameof(Direction));
+			set => set(nameof(Direction), value);
+		}
+		public View3d.ELight Type
+		{
+			get => get<View3d.ELight>(nameof(Type));
+			set => set(nameof(Type), value);
+		}
+		public Colour32 AmbientColour
+		{
+			get => get<Colour32>(nameof(AmbientColour));
+			set => set(nameof(AmbientColour), value);
+		}
+		public Colour32 DiffuseColour
+		{
+			get => get<Colour32>(nameof(DiffuseColour));
+			set => set(nameof(DiffuseColour), value);
+		}
+		public Colour32 SpecularColour
+		{
+			get => get<Colour32>(nameof(SpecularColour));
+			set => set(nameof(SpecularColour), value);
+		}
+		public float SpecularPower
+		{
+			get => get<float>(nameof(SpecularPower));
+			set => set(nameof(SpecularPower), value);
+		}
+		public float Range
+		{
+			get => get<float>(nameof(Range));
+			set => set(nameof(Range), value);
+		}
+		public float Falloff
+		{
+			get => get<float>(nameof(Falloff));
+			set => set(nameof(Falloff), value);
+		}
+		public float InnerAngle
+		{
+			get => get<float>(nameof(InnerAngle));
+			set => set(nameof(InnerAngle), value);
+		}
+		public float OuterAngle
+		{
+			get => get<float>(nameof(OuterAngle));
+			set => set(nameof(OuterAngle), value);
+		}
+		public float CastShadow
+		{
+			get => get<float>(nameof(CastShadow));
+			set => set(nameof(CastShadow), value);
+		}
+		public bool CameraRelative
+		{
+			get => get<bool>(nameof(CameraRelative));
+			set => set(nameof(CameraRelative), value);
+		}
+		public bool On
+		{
+			get => get<bool>(nameof(On));
+			set => set(nameof(On), value);
+		}
+
+		/// <summary>Convert to a native LightInfo struct</summary>
+		public View3d.LightInfo ToLightInfo()
+		{
+			return new View3d.LightInfo
+			{
+				Position = Position,
+				Direction = Direction,
+				Type = Type,
+				AmbientColour = AmbientColour,
+				DiffuseColour = DiffuseColour,
+				SpecularColour = SpecularColour,
+				SpecularPower = SpecularPower,
+				Range = Range,
+				Falloff = Falloff,
+				InnerAngle = InnerAngle,
+				OuterAngle = OuterAngle,
+				CastShadow = CastShadow,
+				CameraRelative = CameraRelative,
+				On = On,
+			};
+		}
+
+		/// <summary>Update from a native LightInfo struct (per-field; equal values short-circuit)</summary>
+		public void FromLightInfo(View3d.LightInfo info)
+		{
+			Position = info.Position;
+			Direction = info.Direction;
+			Type = info.Type;
+			AmbientColour = info.AmbientColour;
+			DiffuseColour = info.DiffuseColour;
+			SpecularColour = info.SpecularColour;
+			SpecularPower = info.SpecularPower;
+			Range = info.Range;
+			Falloff = info.Falloff;
+			InnerAngle = info.InnerAngle;
+			OuterAngle = info.OuterAngle;
+			CastShadow = info.CastShadow;
+			CameraRelative = info.CameraRelative;
+			On = info.On;
 		}
 	}
 
