@@ -56,7 +56,26 @@ namespace pr::rdr12
 		auto drawlist = m_drawlist.lock();
 
 		// Sort by sort key
-		pr::sort(*drawlist);
+		std::sort(std::begin(*drawlist), std::end(*drawlist));
+
+		// Find the AlphaFront and AlphaBack range, and sort them by distance from the camera
+		auto alpha_back = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::AlphaBack));
+		auto alpha_front = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::AlphaFront));
+		auto alpha_end = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::PostAlpha));
+
+		auto cam_pos = scn().m_cam.CameraToWorld().pos;
+		std::sort(alpha_back, alpha_front, [=](DrawListElement const& lhs, DrawListElement const& rhs)
+		{
+			auto dl = LengthSq(GetO2W(*lhs.m_instance).pos - cam_pos);
+			auto dr = LengthSq(GetO2W(*rhs.m_instance).pos - cam_pos);
+			return dl > dr; // back to front
+		});
+		std::sort(alpha_front, alpha_end, [=](DrawListElement const& lhs, DrawListElement const& rhs)
+		{
+			auto dl = LengthSq(GetO2W(*lhs.m_instance).pos - cam_pos);
+			auto dr = LengthSq(GetO2W(*rhs.m_instance).pos - cam_pos);
+			return dl > dr; // back to front
+		});
 
 		// Sorting done
 		m_sort_needed = false;

@@ -4900,31 +4900,31 @@ namespace pr::ldraw
 		PRUnitTestMethod(Sphere)
 		{
 			Builder builder;
-			builder.Sphere("s", 0xFF00FF00).sphere(5).facets(16);
+			builder.Sphere("s", 0xFF00FF00).sphere(5).facets(4);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
-			PR_EXPECT(ldr == "*Sphere s ff00ff00 {*Data {5} *Facets {16}}");
+			PR_EXPECT(ldr == "*Sphere s ff00ff00 {*Data {5} *Facets {4}}");
 		}
 		PRUnitTestMethod(Cylinder)
 		{
 			{
 				Builder builder;
-				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16);
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(30, 1);
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {30 1}}");
 			}
 			{
 				// End caps, default layer count
 				Builder builder;
-				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps();
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(3, 2).end_caps();
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16} *EndCaps {}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {3 2} *EndCaps {}}");
 			}
 			{
 				// End caps, explicit layer count
 				Builder builder;
-				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps(6);
+				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).end_caps(6);
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16} *EndCaps {6}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *EndCaps {6}}");
 			}
 		}
 		PRUnitTestMethod(Cone)

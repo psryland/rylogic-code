@@ -335,21 +335,11 @@ namespace pr::rdr12
 
 		for (auto& bb : m_swap_bb)
 		{
-			m_res_state.Forget(bb.m_render_target.get());
-			m_res_state.Forget(bb.m_depth_stencil.get());
-
-			bb.m_render_target = nullptr;
-			bb.m_depth_stencil = nullptr;
-			bb.m_d2d_target = nullptr;
+			bb.Release(*this);
 		}
 		if (auto& bb = m_msaa_bb; true)
 		{
-			m_res_state.Forget(bb.m_render_target.get());
-			m_res_state.Forget(bb.m_depth_stencil.get());
-
-			bb.m_render_target = nullptr;
-			bb.m_depth_stencil = nullptr;
-			bb.m_d2d_target = nullptr;
+			bb.Release(*this);
 		}
 
 		// Finished releasing references. Now to create new resources.
@@ -402,12 +392,7 @@ namespace pr::rdr12
 		// Release the MSAA render target and depth stencil
 		if (auto& bb = m_msaa_bb; true)
 		{
-			m_res_state.Forget(bb.m_render_target.get());
-			m_res_state.Forget(bb.m_depth_stencil.get());
-
-			bb.m_render_target = nullptr;
-			bb.m_depth_stencil = nullptr;
-			bb.m_d2d_target = nullptr;
+			bb.Release(*this);
 		}
 
 		// Create MSAA render target
@@ -670,52 +655,56 @@ namespace pr::rdr12
 		BackBuffer bb(*this, ms);
 
 		// Render target
-		ResDesc rtdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, rt_clear.Format }, 1U, EUsage::RenderTarget)
-			.multisamp(ms)
-			.clear(rt_clear);
-		assert(rtdesc.Check());
-		Check(device->CreateCommittedResource(
-			&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &rtdesc, D3D12_RESOURCE_STATE_RENDER_TARGET,
-			&*rtdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
-		DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-		DebugName(bb.m_render_target, "RenderTarget");
+		{
+			ResDesc rtdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, rt_clear.Format }, 1U, EUsage::RenderTarget)
+				.multisamp(ms)
+				.clear(rt_clear);
+			assert(rtdesc.Check());
+			Check(device->CreateCommittedResource(
+				&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &rtdesc, D3D12_RESOURCE_STATE_RENDER_TARGET,
+				&*rtdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_render_target.address_of()));
+			DefaultResState(bb.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			DebugName(bb.m_render_target, "RenderTarget");
+
+			// Save the pointer to where the RTV descriptor will be stored
+			D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = m_rtv_heap->GetCPUDescriptorHandleForHeapStart();
+			auto rtv_size = s_cast<int64_t>(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV));
+			rtv_handle.ptr += s_cast<size_t>(HeapIdxMsaaRtv * rtv_size);
+			bb.m_rtv = rtv_handle;
+
+			// Create RTV for the MSAA render target
+			auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{
+				.Format = m_rt_props.Format,
+				.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS,
+			};
+			device->CreateRenderTargetView(bb.m_render_target.get(), &rtvdesc, bb.m_rtv);
+		}
 
 		// Depth stencil
-		ResDesc dsdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, ds_clear.Format }, 1U, EUsage::DepthStencil | EUsage::DenyShaderResource)
-			.multisamp(ms)
-			.clear(ds_clear);
-		assert(dsdesc.Check());
-		Check(device->CreateCommittedResource(
-			&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &dsdesc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
-			&*dsdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_depth_stencil.address_of()));
-		DefaultResState(bb.m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
-		DebugName(bb.m_depth_stencil, "DepthStencil");
+		{
+			ResDesc dsdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, ds_clear.Format }, 1U, EUsage::DepthStencil | EUsage::DenyShaderResource)
+				.multisamp(ms)
+				.clear(ds_clear);
+			assert(dsdesc.Check());
+			Check(device->CreateCommittedResource(
+				&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &dsdesc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+				&*dsdesc.ClearValue, __uuidof(ID3D12Resource), (void**)bb.m_depth_stencil.address_of()));
+			DefaultResState(bb.m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			DebugName(bb.m_depth_stencil, "DepthStencil");
 
-		// Save the pointer to where the RTV descriptor will be stored
-		D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = m_rtv_heap->GetCPUDescriptorHandleForHeapStart();
-		auto rtv_size = s_cast<int64_t>(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV));
-		rtv_handle.ptr += s_cast<size_t>(HeapIdxMsaaRtv * rtv_size);
-		bb.m_rtv = rtv_handle;
+			// Save the pointer to where the DSV descriptor will be stored
+			D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = m_dsv_heap->GetCPUDescriptorHandleForHeapStart();
+			auto dsv_size = s_cast<int64_t>(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV));
+			dsv_handle.ptr += s_cast<size_t>(HeapIdxMsaaDsv * dsv_size);
+			bb.m_dsv = dsv_handle;
 
-		// Save the pointer to where the DSV descriptor will be stored
-		D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = m_dsv_heap->GetCPUDescriptorHandleForHeapStart();
-		auto dsv_size = s_cast<int64_t>(device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV));
-		dsv_handle.ptr += s_cast<size_t>(HeapIdxMsaaDsv * dsv_size);
-		bb.m_dsv = dsv_handle;
-
-		// Create RTV for the MSAA render target
-		auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{
-			.Format = m_rt_props.Format,
-			.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS,
-		};
-		device->CreateRenderTargetView(bb.m_render_target.get(), &rtvdesc, bb.m_rtv);
-
-		// Create the DSV for the MSAA depth stencil
-		auto dsvdesc = D3D12_DEPTH_STENCIL_VIEW_DESC{
-			.Format = m_ds_props.Format,
-			.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS,
-		};
-		device->CreateDepthStencilView(bb.m_depth_stencil.get(), &dsvdesc, bb.m_dsv);
+			// Create the DSV for the MSAA depth stencil
+			auto dsvdesc = D3D12_DEPTH_STENCIL_VIEW_DESC{
+				.Format = m_ds_props.Format,
+				.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS,
+			};
+			device->CreateDepthStencilView(bb.m_depth_stencil.get(), &dsvdesc, bb.m_dsv);
+		}
 
 		return bb;
 	}

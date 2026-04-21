@@ -637,6 +637,10 @@ namespace Rylogic.LDraw
 		}
 
 		// Addressing mode
+		public LdrTexture addr(View3d.EAddrMode addr_mode)
+		{
+			return addr(addr_mode, addr_mode);
+		}
 		public LdrTexture addr(View3d.EAddrMode addrU, View3d.EAddrMode addrV)
 		{
 			m_addr[0] = addrU;

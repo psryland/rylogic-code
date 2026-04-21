@@ -114,21 +114,37 @@ namespace LDraw
 		}
 		protected override void OnPreviewDrop(DragEventArgs e)
 		{
-			if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
-				e.Data.GetData(DataFormats.FileDrop) is string[] files)
+			if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.StringFormat))
 			{
-				// If dropped on a specific scene, make that the selected scene for the source
-				var scenes = e.Source is SceneUI scene
-					? new[] { scene }
-					: null;
+				void AddPaths(IEnumerable<string> paths)
+				{
+					// If dropped on a specific scene, make that the selected scene for the source
+					var scenes = e.Source is SceneUI scene ? new[] { scene } : null;
 
-				// Add each file as a source
-				foreach (var file in files)
-					AddFileSourceAsync(file, scenes);
+					// Add each file as a source
+					foreach (var file in paths)
+						AddFileSourceAsync(file, scenes);
+				}
 
-				e.Handled = true;
+				try
+				{
+					if (e.Data.GetData(DataFormats.FileDrop, autoConvert: true) is string[] paths)
+					{
+						AddPaths(paths);
+						e.Handled = true;
+					}
+					else if (e.Data.GetData(DataFormats.StringFormat, autoConvert: true) is string path_names)
+					{
+						AddPaths(path_names.Split(['\r','\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+						e.Handled = true;
+					}
+				}
+				catch (Exception ex)
+				{
+					Log.Write(ELogLevel.Info, ex, "Error handling file drop.");
+					MsgBox.Show(this, $"Error handling file drop.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
+				}
 			}
-
 			base.OnPreviewDrop(e);
 		}
 		private void PreviewMouseDoubleClick_ShowObjectInfo(object sender, MouseButtonEventArgs e)
