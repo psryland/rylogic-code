@@ -241,7 +241,7 @@ namespace pr::math
 		HermiteVector_MidPoint() noexcept
 			: pos()
 		{
-}
+		}
 		HermiteVector_MidPoint(Vec4 pos_prev, Vec4 pos_mid, Vec4 pos_next, S interval) noexcept
 			: pos()
 		{
@@ -843,7 +843,7 @@ namespace pr::math::tests
 		{
 			using namespace pr::ldraw;
 
-			grp.Sphere("start", 0xFFFF0000).radius(0.1f).pos(samples[1].pos);
+			grp.Sphere("start", 0xFFFF0000).sphere(0.1f).pos(samples[1].pos);
 
 			auto& track = grp.Line("track_in", 0x80FFFFFF).smooth().strip(samples[1].pos);
 			auto& boxes = grp.Group("boxes_in");
@@ -922,7 +922,7 @@ namespace pr::math::tests
 				auto interp = HermiteTransform<float>(
 					s0.pos, s0.vel, s0.rot, s0.avl,
 					s1.pos, s1.vel, s1.rot, s1.avl,
-					nullptr, T);
+					T);
 
 				int box_idx = 0;
 				for (float dt = 0.0f; dt <= T; dt += step)
@@ -962,8 +962,8 @@ namespace pr::math::tests
 				auto interval = next.t - prev.t;
 				if (interval < 0.001f) continue;
 
-				auto interpV = HermiteVector_MidPoint<float>(prev.pos, curr.pos, curr.vel, next.pos, nullptr, interval);
-				auto interpQ = HermiteQuaternion_MidPoint<float>(prev.rot, curr.rot, curr.avl, next.rot, nullptr, interval);
+				auto interpV = HermiteVector_MidPoint<float>(prev.pos, curr.pos, next.pos, interval);
+				auto interpQ = HermiteQuaternion_MidPoint<float>(prev.rot, curr.rot, next.rot, interval);
 
 				// Evaluate from -T to +T (centred on curr)
 				auto T = interval / 2;
@@ -1012,9 +1012,8 @@ namespace pr::math::tests
 				if (interval < 0.001f) continue;
 
 				HermiteTransform_MidPoint<float> interp(
-					prev.pos, curr.pos, curr.vel, next.pos,
-					prev.rot, curr.rot, curr.avl, next.rot,
-					nullptr,
+					prev.pos, curr.pos, next.pos,
+					prev.rot, curr.rot, next.rot,
 					interval);
 
 				auto T = interval / 2;

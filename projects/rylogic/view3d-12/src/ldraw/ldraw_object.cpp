@@ -426,7 +426,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				o->m_pso.Set<EPipeState::DepthEnable>(TRUE);
+				o->m_pso.Clear<EPipeState::DepthEnable>();
 				o->m_sko = SKOverride();
 			}
 
@@ -439,7 +439,7 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				o->m_pso.Set<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ALL);
+				o->m_pso.Clear<EPipeState::DepthWriteMask>();
 				o->m_sko = SKOverride();
 			}
 
@@ -649,6 +649,19 @@ namespace pr::rdr12::ldraw
 					obj_colour = obj_colour * p->m_grp_colour;
 
 				o->m_colour = obj_colour;
+
+				// Ensure the nugget has alpha variants if needed (the group colour may have made
+				// previously-opaque children require alpha blending).
+				if (HasAlpha(o->m_colour) && o->m_model != nullptr)
+				{
+					ResourceFactory factory(o->m_model->rdr());
+
+					// Recreate the alpha variant of the nugget.
+					// Don't clear if alpha == false because other instances might still need them.
+					for (auto& nug : Enumerate(o->m_model->m_nuggets))
+						nug.AlphaVariant(factory, true);
+				}
+
 				return true;
 			}, "");
 		}

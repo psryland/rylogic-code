@@ -456,6 +456,43 @@ public class Tools
 		}
 	}
 
+	// Ensure the installed dotnet-script tool is at least 'min_version'.
+	// Throws with a helpful message (including the upgrade command) if the version is too low
+	// or the tool isn't installed at all. Call this at the top of any script that depends on
+	// dotnet-script features that aren't present in older versions (e.g. --cache-path behaviour).
+	public static void RequireDotnetScript(Version min_version)
+	{
+		string raw_version;
+		try
+		{
+			var (ok, outp) = Run(["dotnet-script", "--version"], throw_on_error: false, return_output: true);
+			if (!ok)
+				throw new Exception(outp);
+
+			// Output may include extra noise (e.g. a banner); the version is the first
+			// whitespace-separated token that parses as a Version.
+			raw_version = outp
+				.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)
+				.FirstOrDefault(t => Version.TryParse(t, out _))
+				?? throw new Exception($"Could not parse a version from: '{outp.Trim()}'");
+		}
+		catch (Exception ex)
+		{
+			throw new Exception(
+				$"dotnet-script is required (>= {min_version}) but could not be queried. " +
+				$"Install it with: dotnet tool install -g dotnet-script\n  ({ex.Message})");
+		}
+
+		var version = Version.Parse(raw_version);
+		if (version < min_version)
+		{
+			throw new Exception(
+				$"dotnet-script {version} is installed but version {min_version} or higher is required. " +
+				$"Update with: dotnet tool update -g dotnet-script\n" +
+				$"(If updating across major versions, use: dotnet tool uninstall -g dotnet-script  &&  dotnet tool install -g dotnet-script)");
+		}
+	}
+
 	// Extract data from a text file using a regex
 	// Capture groups are defined like: (?P<name>.*) and accessed like: m.group("name")
 	// Returns the regex match object for the first match or null

@@ -37,7 +37,6 @@ namespace LDraw.UI
 			SceneName = name;
 			SceneState = Model.Profile.SceneState.get(name);
 			SceneView.Background = Colour32.LightSteelBlue.ToMediaBrush();
-			SceneView.Scene.Window.SetLightSource(v4.Origin, Math_.Normalise(new v4(0, 0, -1, 0)), true);
 			SceneView.Scene.Window.OnRendering += HandleSceneRendering;
 			SceneView.Scene.ContextMenu.DataContext = this;
 			SceneView.Scene.DefaultKeyboardShortcuts = true;
@@ -204,6 +203,17 @@ namespace LDraw.UI
 					if (e.Before)
 						return;
 
+					// Lighting changes (either replacement of the LightData object, or any inner field change that bubbles up)
+					if (e.Key == nameof(SceneStateData.Lighting) || ReferenceEquals(e.SettingSet, SceneState.Lighting))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneView.Scene.Window.LightProperties = SceneState.Lighting.ToLightInfo();
+						}
+						return;
+					}
+
 					switch (e.Key)
 					{
 						case nameof(SceneStateData.Chart):
@@ -242,9 +252,18 @@ namespace LDraw.UI
 							cmenu?.NotifyPropertyChanged(nameof(IView3dCMenu.AlignDirection));
 						}
 					}
+					if (Bit.AllSet(e.Setting, View3d.ESettings.Lighting))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.LightProperties);
+						}
+					}
 				}
 			}
 		} = null!;
+		private bool m_syncing_lighting;
 
 		/// <summary>The 3d part of the scene (i.e. the chart control)</summary>
 		public ChartControl SceneView

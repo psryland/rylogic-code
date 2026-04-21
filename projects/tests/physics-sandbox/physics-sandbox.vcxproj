@@ -52,6 +52,7 @@
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
         ;PR_UNITTESTS=1
+        ;PR_UNITTESTS_VISUALISE=0
       </PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>

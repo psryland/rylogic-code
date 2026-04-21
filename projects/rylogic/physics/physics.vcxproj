@@ -43,6 +43,7 @@
         ;PR_COLLISION_DIAGNOSTICS=1
         ;PR_DBG_PHYSICS=1
         ;PR_UNITTESTS=1
+        ;PR_UNITTESTS_VISUALISE=0
       </PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>

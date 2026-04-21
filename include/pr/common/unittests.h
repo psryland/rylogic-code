@@ -167,59 +167,6 @@ namespace pr::unittests
 		}
 	}
 
-	// Helper base class for unit test classes
-	template <typename Derived>
-	struct UnitTestBase
-	{
-		// Notes:
-		//  - There is no point adding the type-pack to the test class. Only methods can be
-		//    invoked with different types so it only makes sense to have the types specified
-		//    on the test methods.
-
-		using base_t = UnitTestBase<Derived>;
-		using test_class_type = Derived;
-	
-		mutable std::filesystem::path m_cached_temp_dir = {};
-		int m_count = 0;
-
-		virtual ~UnitTestBase()
-		{
-			if (!m_cached_temp_dir.empty())
-				std::filesystem::remove_all(m_cached_temp_dir);
-		}
-
-		// Test class name
-		std::string_view class_name() const
-		{
-			// Extract class name from type name
-			auto const* name = typeid(Derived).name();
-			for (auto const* found = strstr(name, "::"); found != nullptr; found = strstr(name, "::"))
-				name = found + 2;
-
-			return name;
-		}
-
-		// A directory for temporary files needed by unit tests. Note: automatically cleaned
-		// Use 'temp_dir' in your unit test. Also remember 'auto temp_file = temp_dir / std::filesystem::unique_path("tempfile-%%%%-%%%%-%%%%-%%%%")'
-		std::filesystem::path temp_dir() const
-		{
-			using namespace std::filesystem;
-			if (m_cached_temp_dir.empty())
-			{
-				m_cached_temp_dir = weakly_canonical(path(__FILE__).parent_path() / L".." / L".." / L".." / L"obj" / L"unittests" / class_name() / Platform / Config / "");
-				std::filesystem::create_directories(m_cached_temp_dir);
-			}
-			return m_cached_temp_dir;
-		}
-
-		// Return a path relative to the repo root
-		inline std::filesystem::path repo_path(wchar_t const* repo_path)
-		{
-			using namespace std::filesystem;
-			return weakly_canonical(path(__FILE__).parent_path() / L".." / L".." / L".." / repo_path);
-		}
-	};
-
 	// Meta data for a test case
 	struct UnitTestItem
 	{
@@ -303,6 +250,63 @@ namespace pr::unittests
 			throw std::runtime_error(std::format("{}({}): '{}' {}", file, line, impl::Narrow(expr), (threw
 				? "threw an exception of an unexpected type"
 				: "didn't throw when it was expected to")));
+		}
+	};
+
+	// Base class for unit test classes
+	template <typename Derived>
+	struct UnitTestBase
+	{
+		// Notes:
+		//  - There is no point adding the type-pack to the test class. Only methods can be
+		//    invoked with different types so it only makes sense to have the types specified
+		//    on the test methods.
+
+		using base_t = UnitTestBase<Derived>;
+		using test_class_type = Derived;
+	
+		mutable std::filesystem::path m_cached_temp_dir = {};
+		int m_count = 0;
+
+		// Test class name
+		std::string_view class_name() const
+		{
+			// Extract class name from type name
+			auto const* name = typeid(Derived).name();
+			for (auto const* found = strstr(name, "::"); found != nullptr; found = strstr(name, "::"))
+				name = found + 2;
+
+			return name;
+		}
+
+		// A directory for temporary files needed by unit tests. Note: automatically cleaned
+		// Use 'temp_dir' in your unit test. Also remember 'auto temp_file = temp_dir / std::filesystem::unique_path("tempfile-%%%%-%%%%-%%%%-%%%%")'
+		std::filesystem::path temp_dir() const
+		{
+			using namespace std::filesystem;
+			if (m_cached_temp_dir.empty())
+			{
+				m_cached_temp_dir = weakly_canonical(path(__FILE__).parent_path() / L".." / L".." / L".." / L"obj" / L"unittests" / class_name() / Platform / Config / "");
+
+				// Removed temp files from previous test runs.
+				if (std::filesystem::exists(m_cached_temp_dir))
+				{
+					try { std::filesystem::remove_all(m_cached_temp_dir); }
+					catch (std::exception const& ex)
+					{
+						TestFramework::out() << "Warning: Failed to clear temp directory. " << ex.what() << std::endl;
+					}
+				}
+				std::filesystem::create_directories(m_cached_temp_dir);
+			}
+			return m_cached_temp_dir;
+		}
+
+		// Return a path relative to the repo root
+		std::filesystem::path repo_path(wchar_t const* repo_path)
+		{
+			using namespace std::filesystem;
+			return weakly_canonical(path(__FILE__).parent_path() / L".." / L".." / L".." / repo_path);
 		}
 	};
 
@@ -452,7 +456,7 @@ struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname
 		else\
 		{\
 			typename base_t::test_class_type t;\
-			t.Test_##methodname<void>(); \
+			t.Test_##methodname<void>();\
 		}\
 	}\
 	inline static bool s_registered_##methodname = pr::unittests::TestFramework::AddTest<test_class_type>(\
