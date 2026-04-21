@@ -1902,20 +1902,22 @@ namespace pr::ldraw
 		};
 		struct Facets
 		{
-			std::optional<int> m_facets;
-			Facets() :m_facets() {}
-			Facets(int f) :m_facets(f) {}
-			explicit operator bool() const { return m_facets.has_value(); }
+			std::optional<int> m_facets0;
+			std::optional<int> m_facets1;
+			Facets() :m_facets0() ,m_facets1() {}
+			Facets(int f) :m_facets0(f), m_facets1() {}
+			Facets(int l, int w) :m_facets0(l), m_facets1(w) {}
+			explicit operator bool() const { return m_facets0.has_value(); }
 			friend void Append(bytebuf& out, seri::Facets f)
 			{
 				if (!f) return;
 				auto s = Append(out, seri::Header{ EKeywords::Facets });
-				Append(out, *f.m_facets);
+				Append(out, f.m_facets0, f.m_facets1);
 			}
 			friend void Append(textbuf& out, seri::Facets f)
 			{
 				if (!f) return;
-				Append(out, EKeywords::Facets, "{", *f.m_facets, "}");
+				Append(out, EKeywords::Facets, "{", f.m_facets0, f.m_facets1, "}");
 			}
 		};
 		struct CornerRadius
@@ -2796,9 +2798,9 @@ namespace pr::ldraw
 			m_radius = { radius, radius };
 			return *this;
 		}
-		LdrCylinder& facets(int f)
+		LdrCylinder& facets(int wedges, int layers)
 		{
-			m_facets = f;
+			m_facets = seri::Facets(wedges, layers);
 			return *this;
 		}
 		LdrCylinder& scale(float sx, float sy)
@@ -2806,7 +2808,7 @@ namespace pr::ldraw
 			m_scale = seri::Scale2(sx, sy);
 			return *this;
 		}
-		LdrCylinder& end_caps(int layers = 0)
+		LdrCylinder& end_caps(std::optional<int> layers = {})
 		{
 			m_endcaps = true;
 			m_endcap_layers = layers;
@@ -4110,9 +4112,9 @@ namespace pr::ldraw
 		{
 			return sphere(radius, radius, radius, pos, col);
 		}
-		LdrSphere& facets(int f)
+		LdrSphere& facets(int divisions)
 		{
-			m_facets = f;
+			m_facets = seri::Facets(divisions);
 			return *this;
 		}
 
@@ -4908,21 +4910,21 @@ namespace pr::ldraw
 				Builder builder;
 				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16);
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16}}");
 			}
 			{
 				// End caps, default layer count
 				Builder builder;
 				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps();
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16} *EndCaps {}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16} *EndCaps {}}");
 			}
 			{
 				// End caps, explicit layer count
 				Builder builder;
 				builder.Cylinder("c", 0xFF00FF00).cylinder(10, 5).facets(16).end_caps(6);
 				auto ldr = builder.ToString(ESaveFlags::Flat);
-				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5} *Facets {16} *EndCaps {6}}");
+				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *Facets {16} *EndCaps {6}}");
 			}
 		}
 		PRUnitTestMethod(Cone)
