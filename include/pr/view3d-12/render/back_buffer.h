@@ -26,6 +26,9 @@ namespace pr::rdr12
 		BackBuffer();
 		BackBuffer(Window& wnd, MultiSamp ms, Texture2D* render_target = nullptr, Texture2D* depth_stencil = nullptr);
 
+		// Release back buffer resources
+		void Release(Window& wnd);
+
 		// An empty back buffer
 		static BackBuffer& Null();
 

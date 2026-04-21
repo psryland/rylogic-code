@@ -51,23 +51,26 @@ float4 Illuminate(in Light light, float4 ws_pos, float4 ws_norm, float4 ws_cam, 
 	//  - Lighting should not change the alpha value.
 	//    If the thing was semi transparent coming in, casting light on it shouldn't change it.
 
-	float  has_norm      = dot(ws_norm, ws_norm); // 1 for normals, 0 for not
+	float has_norm = dot(ws_norm, ws_norm); // 1 for normals, 0 for not
 	float4 ws_toeye_norm = normalize(ws_cam - ws_pos);
-	float4 ws_light_dir  = DirectionalLight(light) ? light.ws_direction : normalize(ws_pos - light.ws_position);
+	float4 ws_light_dir = DirectionalLight(light) ? light.ws_direction : normalize(ws_pos - light.ws_position);
 
 	float intensity = 0;
-	if      (DirectionalLight(light)) intensity = LightDirectional(light.ws_direction ,ws_norm ,unlit_diff.a);
-	else if (PointLight(light))       intensity = LightPoint      (light.ws_position  ,ws_norm ,ws_pos ,unlit_diff.a);
-	else if (SpotLight(light))        intensity = LightSpot       (light.ws_position  ,light.ws_direction ,light.spot.x ,light.spot.y ,light.spot.z ,light.spot.w ,ws_norm ,ws_pos ,unlit_diff.a);
+	if (DirectionalLight(light))
+		intensity = LightDirectional(light.ws_direction, ws_norm, unlit_diff.a);
+	else if (PointLight(light))
+		intensity = LightPoint(light.ws_position, ws_norm, ws_pos, unlit_diff.a);
+	else if (SpotLight(light))
+		intensity = LightSpot(light.ws_position, light.ws_direction, light.spot.x, light.spot.y, light.spot.z, light.spot.w, ws_norm, ws_pos, unlit_diff.a);
 
-	float4 ltdiff = float4(0,0,0,0);
+	float4 ltdiff = float4(0, 0, 0, 0);
 	ltdiff.rgb += light.ambient.rgb;
 	ltdiff.rgb += intensity * light_visible * light.colour.rgb;
-	ltdiff.rgb  = 2.0 * (ltdiff.rgb - 0.5) * unlit_diff.rgb;
+	ltdiff.rgb = 2.0 * (ltdiff.rgb - 0.5) * unlit_diff.rgb;
 	ltdiff.rgb *= has_norm;
 
-	float4 ltspec = float4(0,0,0,0);
-	ltspec.rgb += intensity * light_visible * light.specular.rgb * LightSpecular(ws_light_dir ,light.specular.a ,ws_norm ,ws_toeye_norm ,unlit_diff.a);
+	float4 ltspec = float4(0, 0, 0, 0);
+	ltspec.rgb += intensity * light_visible * light.specular.rgb * LightSpecular(ws_light_dir, light.specular.a, ws_norm, ws_toeye_norm, unlit_diff.a);
 	ltspec.rgb *= has_norm;
 
 	return saturate(ltdiff + ltspec + unlit_diff);

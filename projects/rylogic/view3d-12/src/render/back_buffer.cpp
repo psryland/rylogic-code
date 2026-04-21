@@ -31,6 +31,17 @@ namespace pr::rdr12
 		, m_dsv(depth_stencil ? depth_stencil->m_dsv.m_cpu : D3D12_CPU_DESCRIPTOR_HANDLE{})
 	{}
 
+	// Release back buffer resources
+	void BackBuffer::Release(Window& wnd)
+	{
+		wnd.m_res_state.Forget(m_render_target.get());
+		wnd.m_res_state.Forget(m_depth_stencil.get());
+
+		m_render_target = nullptr;
+		m_depth_stencil = nullptr;
+		m_d2d_target = nullptr;
+	}
+
 	// An empty back buffer
 	BackBuffer& BackBuffer::Null()
 	{

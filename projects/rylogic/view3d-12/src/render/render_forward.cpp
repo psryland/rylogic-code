@@ -79,11 +79,12 @@ namespace pr::rdr12
 	// Add model nuggets to the draw list for this render step.
 	void RenderForward::AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist)
 	{
-		auto has_alpha = HasAlpha(inst);
+		auto inst_has_alpha = HasAlpha(inst);
 
 		// Add a draw list element for each nugget in the instance's model
 		for (auto& nugget : Enumerate(nuggets))
 		{
+			auto has_alpha = inst_has_alpha || nugget.RequiresAlpha();
 			for (auto& nug : nugget.Dependents())
 			{
 				// Skip the default (opaque) nugget when the instance requires alpha, and skip alpha
