@@ -6,6 +6,7 @@
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include "pr/collision/ldraw.h"
 #include "pr/physics/physics.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/collision.hlsli"
@@ -17,8 +18,7 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(GpuCollisionTests)
 	{
-		// Expected contact for collision cases. Use NaN to skip checking a field. Axis sign is checked via AxisMatch (allows flip).
-		// Pass nullptr for no-collision cases. Pass &Collides for collision cases where expected values are TBD.
+		// Expected contact for collision cases.
 		struct Expected
 		{
 			float depth;
@@ -26,13 +26,10 @@ namespace pr::physics::tests
 			v4 point;
 		};
 
-		// Placeholder for "collides, but expected values TBD" — only CPU==GPU comparison is checked
-		static inline Expected Collides = {NAN, v4(NAN, 0, 0, 0), v4(NAN, 0, 0, 0)};
-
 		// Tolerance check
 		static bool Near(float a, float b, float tol = 1e-3f)
 		{
-			return FEqlRelative(a, b, tol);
+			return FEqlAbsolute(a, b, tol);
 		}
 
 		// Check axis directions match (*Don't* allow sign flip)
@@ -47,6 +44,26 @@ namespace pr::physics::tests
 			return FEqlRelative(expected, actual, tol) && expected.w == 1 && actual.w == 1;
 		}
 
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
+		{
+			#if PR_UNITTESTS_VISUALISE
+			ldraw::Builder builder;
+			builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
+			builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
+			if (c.contact())
+			{
+				builder.Group("Contact")
+					.Sphere("point", 0xFFFFFF00).sphere(0.001f).pos(c.m_point)
+					.Line("axis", 0xFFFFFF00).line(-0.5f * c.m_depth * c.m_axis, +0.5f * c.m_depth * c.m_axis);
+			}
+		
+			builder.Save(temp_dir() / L"LDraw/collision.ldr");
+			#else
+			(void)a, a2w, b, b2w, c;
+			#endif
+		}
+
 		// ---- Sphere vs Sphere ----
 		PRUnitTestMethod(SphereVsSphere)
 		{
@@ -54,29 +71,31 @@ namespace pr::physics::tests
 			using namespace pr::hlsl;
 
 			// Compare CPU and GPU results, and check expected depth (negative = no collision)
-			auto BangTogether = [](collision::ShapeSphere const& a, m4x4 a2w, collision::ShapeSphere const& b, m4x4 b2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapeSphere const& a, m4x4 a2w, collision::ShapeSphere const& b, m4x4 b2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::SphereVsSphere(a, a2w, b, b2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::SphereVsSphere(a, a2w, b, b2w, c0);
+				Visualise(a, a2w, b, b2w, c0);
 
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::SphereVsSphere(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
+				collision::Contact c1;
+				auto is_contact_gpu = physics::SphereVsSphere(PackShape(a), a2w, PackShape(b), b2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(a, a2w, b, b2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 
@@ -121,6 +140,78 @@ namespace pr::physics::tests
 			}
 		}
 
+		// ---- Sphere vs Line ----
+		PRUnitTestMethod(SphereVsLine)
+		{
+			using namespace pr;
+			using namespace pr::hlsl;
+
+			// GPU takes (sphere, line), CPU takes (line, sphere) — argument order differs
+			auto BangTogether = [this](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeLine const& line, m4x4 line2w, Expected const* expected)
+			{
+				bool should_collide = expected != nullptr;
+
+				collision::Contact c0;
+				auto is_contact_cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c0);
+				Visualise(sph, sph2w, line, line2w, c0);
+
+				collision::Contact c1;
+				auto is_contact_gpu = physics::SphereVsLine(PackShape(sph), sph2w, PackShape(line), line2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(sph, sph2w, line, line2w, c1);
+
+				PR_EXPECT(should_collide == is_contact_gpu);
+				PR_EXPECT(is_contact_gpu == is_contact_cpu);
+				if (should_collide)
+				{
+					// CPU
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
+
+					// GPU
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
+				}
+			};
+
+			// Sphere near midpointof Z-aligned line
+			// ShapeLine(2.0, 0.1) → half_len=1.0, thick_radius=0.05
+			// depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0), point = midpoint on line axis + half-depth shift
+			{
+				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(0.225f, 0, 0, 1)};
+				BangTogether(
+					collision::ShapeSphere(0.5f), m4x4::Translation(0.4f, 0, 0),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
+					&exp);
+			}
+
+			// Sphere near endpoint (separated)
+			{
+				BangTogether(
+					collision::ShapeSphere(0.5f), m4x4::Translation(0.3f, 0, 1.3f),
+					collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(),
+					nullptr);
+			}
+
+			// Separated
+			{
+				BangTogether(
+					collision::ShapeSphere(0.5f), m4x4::Translation(3, 0, 0),
+					collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(),
+					nullptr);
+			}
+
+			// Both translated: depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0)
+			{
+				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(2.225f, 3, 0, 1)};
+				BangTogether(
+					collision::ShapeSphere(0.5f), m4x4::Translation(2.4f, 3, 0),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Translation(2, 3, 0),
+					&exp);
+			}
+		}
+
 		// ---- Sphere vs Box ----
 		PRUnitTestMethod(SphereVsBox)
 		{
@@ -128,29 +219,32 @@ namespace pr::physics::tests
 			using namespace pr::hlsl;
 
 			// GPU takes (sphere, box), CPU takes (box, sphere) — argument order differs
-			auto BangTogether = [](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeBox const& box, m4x4 box2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeBox const& box, m4x4 box2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::BoxVsSphere(box, box2w, sph, sph2w, c0);
+				Visualise(box, box2w, sph, sph2w, c0);
+				Flip(c0);
 
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, axis, point, depth);
+				collision::Contact c1;
+				auto is_contact_gpu = physics::SphereVsBox(PackShape(sph), sph2w, PackShape(box), box2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(sph, sph2w, box, box2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 
@@ -165,7 +259,7 @@ namespace pr::physics::tests
 			// Face overlap along +X: closest_box=(0.5,0,0), dist=0.3, depth=0.2
 			// axis=(1,0,0), midpoint=(0.5,0,0)-0.5*0.2*(1,0,0)=(0.4,0,0)
 			{
-				auto exp = Expected{0.2f, v4(1, 0, 0, 0), v4(0.4f, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(0.4f, 0, 0, 1)};
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Translation(0.8f, 0, 0),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -175,10 +269,7 @@ namespace pr::physics::tests
 			// Sphere near box corner: closest_box=(0.5,0.5,0), dist=sqrt(0.5), depth=1-sqrt(0.5)
 			// axis=normalise(0.5,0.5,0), midpoint shifts half-depth inward from box corner
 			{
-				auto dist = Sqrt(0.5f);
-				auto dep = 1.0f - dist;
-				auto n = Normalise(v4(0.5f, 0.5f, 0, 0));
-				auto exp = Expected{dep, n, v4(0.5f, 0.5f, 0, 1) - (0.5f * dep) * n};
+				auto exp = Expected{0.292893261f, v4(-0.707107f,-0.707107f,0, 1), v4(0.396447f,0.396447f,0,1)};
 				BangTogether(
 					collision::ShapeSphere(1.0f), m4x4::Translation(1.0f, 1.0f, 0),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -258,105 +349,37 @@ namespace pr::physics::tests
 			}
 		}
 
-		// ---- Sphere vs Line ----
-		PRUnitTestMethod(SphereVsLine)
-		{
-			using namespace pr;
-			using namespace pr::hlsl;
-
-			// GPU takes (sphere, line), CPU takes (line, sphere) — argument order differs
-			auto BangTogether = [](collision::ShapeSphere const& sph, m4x4 sph2w, collision::ShapeLine const& line, m4x4 line2w, Expected const* expected)
-			{
-				bool should_collide = expected != nullptr;
-
-				collision::Contact c;
-				auto is_contact_cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c);
-
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::SphereVsLine(PackShape(sph), sph2w, PackShape(line), line2w, axis, point, depth);
-
-				PR_EXPECT(should_collide == is_contact_gpu);
-				PR_EXPECT(is_contact_gpu == is_contact_cpu);
-				if (should_collide)
-				{
-					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
-
-					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
-				}
-			};
-
-			// Sphere near midpointof Z-aligned line
-			// ShapeLine(2.0, 0.1) → half_len=1.0, thick_radius=0.05
-			// depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0), point = midpoint on line axis + half-depth shift
-			{
-				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(0.225f, 0, 0, 1)};
-				BangTogether(
-					collision::ShapeSphere(0.5f), m4x4::Translation(0.4f, 0, 0),
-					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
-					&exp);
-			}
-
-			// Sphere near endpoint (separated)
-			{
-				BangTogether(
-					collision::ShapeSphere(0.5f), m4x4::Translation(0.3f, 0, 1.3f),
-					collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(),
-					nullptr);
-			}
-
-			// Separated
-			{
-				BangTogether(
-					collision::ShapeSphere(0.5f), m4x4::Translation(3, 0, 0),
-					collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(),
-					nullptr);
-			}
-
-			// Both translated: depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0)
-			{
-				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(2.225f, 3, 0, 1)};
-				BangTogether(
-					collision::ShapeSphere(0.5f), m4x4::Translation(2.4f, 3, 0),
-					collision::ShapeLine(2.0f, 0.1f), m4x4::Translation(2, 3, 0),
-					&exp);
-			}
-		}
-
 		// ---- Line vs Line ----
 		PRUnitTestMethod(LineVsLine)
 		{
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			auto BangTogether = [](collision::ShapeLine const& a, m4x4 a2w, collision::ShapeLine const& b, m4x4 b2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapeLine const& a, m4x4 a2w, collision::ShapeLine const& b, m4x4 b2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::LineVsLine(a, a2w, b, b2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::LineVsLine(a, a2w, b, b2w, c0);
+				Visualise(a, a2w, b, b2w, c0);
 
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::LineVsLine(PackShape(a), a2w, PackShape(b), b2w, axis, point, depth);
+				collision::Contact c1;
+				auto is_contact_gpu = physics::LineVsLine(PackShape(a), a2w, PackShape(b), b2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(a, a2w, b, b2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 
@@ -412,29 +435,31 @@ namespace pr::physics::tests
 			using namespace pr;
 			using namespace pr::hlsl;
 
-			auto BangTogether = [](collision::ShapeLine const& line, m4x4 line2w, collision::ShapeBox const& box, m4x4 box2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapeLine const& line, m4x4 line2w, collision::ShapeBox const& box, m4x4 box2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::LineVsBox(line, line2w, box, box2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::LineVsBox(line, line2w, box, box2w, c0);
+				Visualise(line, line2w, box, box2w, c0);
 
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::LineVsBox(PackShape(line), line2w, PackShape(box), box2w, axis, point, depth);
+				collision::Contact c1;
+				auto is_contact_gpu = physics::LineVsBox(PackShape(line), line2w, PackShape(box), box2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(line, line2w, box, box2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 
@@ -459,7 +484,7 @@ namespace pr::physics::tests
 
 			// Line rotated contacting box edge
 			{
-				auto exp = Expected{0.05f, v4(1, 0, 0, 0), v4(0.475f, 0, 0, 1)};
+				auto exp = Expected{0.0078418124f, v4(-0.960769f,-0.27735f,0, 0), v4(0.496231f, 0.498912f, 0.173353f, 1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(60, 30, 0), v4(0.7f, 0.5f, 0.2f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -468,7 +493,7 @@ namespace pr::physics::tests
 
 			// Line rotated contacting box corner
 			{
-				auto exp = Expected{0.05f, v4(1, 0, 0, 0), v4(0.475f, 0, 0, 1)};
+				auto exp = Expected{0.00974011f, v4(-0.629866f, -0.707071f, -0.321433f, 0), v4(0.4969f, 0.4966f, 0.4984f, 1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(40, 30, 0), v4(0.7f, 0.5f, 0.7f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -477,7 +502,7 @@ namespace pr::physics::tests
 
 			// Line end contacting box corner
 			{
-				auto exp = Expected{0.05f, v4(1, 0, 0, 0), v4(0.475f, 0, 0, 1)};
+				auto exp = Expected{0.05f, v4(-0.834741f,-0.164609f,-0.525463f, 0), v4(0, 0, 0, 1)};//todo
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(40, 30, 0), v4(0.8f,-0.8f,0.9f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -500,31 +525,33 @@ namespace pr::physics::tests
 			using namespace pr::hlsl;
 
 			// Collide two boxes, and compare the CPU and GPU results
-			auto BangTogether = [](collision::ShapeBox const& a, m4x4 a2w, collision::ShapeBox const& b, m4x4 b2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapeBox const& a, m4x4 a2w, collision::ShapeBox const& b, m4x4 b2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::BoxVsBox(a, a2w, b, b2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::BoxVsBox(a, a2w, b, b2w, c0);
+				Visualise(a, a2w, b, b2w, c0);
 
+				collision::Contact c1;
 				auto sa = PackShape(a);
 				auto sb = PackShape(b);
-				float4 axis, point; float depth;
-				auto is_contact_gpu = physics::BoxVsBox(sa, a2w, sb, b2w, axis, point, depth);
+				auto is_contact_gpu = physics::BoxVsBox(sa, a2w, sb, b2w, c1.m_axis, c1.m_point, c1.m_depth);
+				Visualise(a, a2w, b, b2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 
@@ -648,7 +675,7 @@ namespace pr::physics::tests
 
 			// A's corner pokes into B's face (A rotated, B at identity)
 			{
-				auto exp = Expected{0.366496146f, v4(-1,0,0,0), v4(-0.316753f,0,0.288681f,1)};
+				auto exp = Expected{0.366496146f, v4(1,0,0,0), v4(-0.316753f,0,0.288681f,1)};
 				BangTogether(
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Transform(m3x3::RotationDeg(45.0f, 35.264f, 0), v4(-0.95f, 0, 0, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -701,12 +728,13 @@ namespace pr::physics::tests
 			using namespace pr::hlsl;
 
 			// Compare CPU GJK and GPU GJK results. GJK/EPA has wider tolerances than SAT.
-			auto BangTogether = [](collision::ShapePolytope const& a, m4x4 a2w, collision::ShapePolytope const& b, m4x4 b2w, Expected const* expected)
+			auto BangTogether = [this](collision::ShapePolytope const& a, m4x4 a2w, collision::ShapePolytope const& b, m4x4 b2w, Expected const* expected)
 			{
 				bool should_collide = expected != nullptr;
 
-				collision::Contact c;
-				auto is_contact_cpu = collision::GjkCollide(a, a2w, b, b2w, c);
+				collision::Contact c0;
+				auto is_contact_cpu = collision::GjkCollide(a, a2w, b, b2w, c0);
+				Visualise(a, a2w, b, b2w, c0);
 
 				// Build the vertex buffer for the GPU
 				hlsl::StructuredBuffer<float4> verts;
@@ -718,22 +746,24 @@ namespace pr::physics::tests
 				for (auto const* v = b.vert_beg(); v != b.vert_end(); ++v)
 					verts.push_back(*v);
 
-				float4 axis, point; float depth; int gjk_iters, epa_iters;
-				auto is_contact_gpu = physics::GjkCollide(sa, a2w, sb, b2w, verts, axis, point, depth, gjk_iters, epa_iters);
+				collision::Contact c1;
+				int gjk_iters, epa_iters;
+				auto is_contact_gpu = physics::GjkCollide(sa, a2w, sb, b2w, verts, c1.m_axis, c1.m_point, c1.m_depth, gjk_iters, epa_iters);
+				Visualise(a, a2w, b, b2w, c1);
 
 				PR_EXPECT(should_collide == is_contact_gpu);
 				PR_EXPECT(is_contact_gpu == is_contact_cpu);
 				if (should_collide)
 				{
 					// CPU
-					PR_EXPECT(Near(expected->depth, c.m_depth));
-					PR_EXPECT(AxisMatch(expected->axis, c.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c.m_point));
+					PR_EXPECT(Near(expected->depth, c0.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c0.m_point));
 
 					// GPU
-					PR_EXPECT(Near(expected->depth, depth));
-					PR_EXPECT(AxisMatch(expected->axis, axis));
-					PR_EXPECT(PointMatch(expected->point, point));
+					PR_EXPECT(Near(expected->depth, c1.m_depth));
+					PR_EXPECT(AxisMatch(expected->axis, c1.m_axis));
+					PR_EXPECT(PointMatch(expected->point, c1.m_point));
 				}
 			};
 

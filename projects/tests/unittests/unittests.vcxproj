@@ -78,7 +78,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_line.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_polytope.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_sphere.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_sphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\col_sphere_vs_sphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\shape_triangle.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
@@ -225,6 +224,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\gui\scintilla_ctrl.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_box_vs_sphere.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />

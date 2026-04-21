@@ -29,6 +29,7 @@ static const int SHAPE_BOX      = 1;
 static const int SHAPE_LINE     = 2;
 static const int SHAPE_TRIANGLE = 3;
 static const int SHAPE_POLYTOPE = 4;
+static const int SHAPE_ARRAY    = 5;
 
 // ---- GPU data structures (must match C++ layout exactly) ----
 struct GpuRigidBody

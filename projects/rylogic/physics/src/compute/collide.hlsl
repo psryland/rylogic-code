@@ -25,9 +25,9 @@
 //   PR_COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
-#include "src/compute/physics_types.hlsli"
-#include "src/compute/collision.hlsli"
-#include "src/compute/gjk.hlsli"
+#include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/collision.hlsli"
+#include "physics/src/compute/gjk.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -79,7 +79,7 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	int epa_iters = 0;
 
 	// Canonicalise the pair so the "simpler" shape type is always 'sa'.
-	// This reduces the number of dispatch branches: sphere < line < box < triangle < polytope.
+	// This reduces the number of dispatch branches: sphere < box < line < triangle < polytope.
 	// When we swap, negate the contact axis on output.
 	bool swapped = false;
 	GpuShape sa = shape_a, sb = shape_b;

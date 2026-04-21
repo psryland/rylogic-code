@@ -41,6 +41,12 @@ namespace pr::collision
 			,pad()
 		{}
 
+		// True if this struct represents contact
+		bool contact() const
+		{
+			return m_depth > 0;
+		}
+
 		// Reverse the sense of the contact information
 		friend void Flip(Contact& c)
 		{

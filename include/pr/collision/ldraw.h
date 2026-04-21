@@ -33,7 +33,7 @@ namespace pr::ldraw
 				case EShape::Sphere:
 				{
 					auto& s = shape_cast<ShapeSphere>(shape);
-					Sphere().sphere(s.m_radius).o2w(s.m_base.m_s2p);
+					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape::Box:
@@ -55,7 +55,7 @@ namespace pr::ldraw
 				case EShape::Line:
 				{
 					auto& s = shape_cast<ShapeLine>(shape);
-					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).o2w(s.m_base.m_s2p);
+					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape::Polytope:

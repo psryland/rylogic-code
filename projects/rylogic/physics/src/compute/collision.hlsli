@@ -726,6 +726,7 @@ inline bool LineVsLine(
 // Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h:
 //   - 3 box face axes
 //   - 3 cross-product axes (box axis × line direction)
+//   - 1 closest-corner vertex-perpendicular axis (for thick lines: closest box vertex → line segment)
 // Contact point is derived via BoxSupportFeature / LineSupportFeature + FindBoxContactPoint,
 // identical to the CPU pipeline.
 inline bool LineVsBox(
@@ -809,6 +810,58 @@ inline bool LineVsBox(
 			best_depth = pen_i;
 			float3 axis_w = axis_b.x * rot_b[0] + axis_b.y * rot_b[1] + axis_b.z * rot_b[2];
 			best_axis_b2a_w = axis_w * (line_c >= 0 ? 1.0f : -1.0f);
+		}
+	}
+
+	// --- Closest-corner vertex-perpendicular axis (for thick lines / capsules) ---
+	// The 6 face+cross axes above are sufficient for OBB-vs-OBB and zero-thickness line-vs-OBB,
+	// but not for a capsule vs OBB. When a box vertex lies inside the cylinder envelope, the
+	// true minimum-translation axis runs from the vertex perpendicular to the nearest point
+	// on the line segment. Only the corner in the octant containing the closest point on the
+	// segment (to the box centre) can produce the MTV.
+	if (line_r > 0)
+	{
+		// Closest point on the segment to the box centre (origin in box space)
+		float t0 = clamp(-dot(mid_b, lz_b), -hlength, hlength);
+		float3 cp0 = mid_b + t0 * lz_b;
+
+		// Box corner in the octant containing cp0
+		float3 V = float3(
+			cp0.x >= 0 ? hb.x : -hb.x,
+			cp0.y >= 0 ? hb.y : -hb.y,
+			cp0.z >= 0 ? hb.z : -hb.z);
+
+		// Closest point on the line segment to V (in box space)
+		float t = clamp(dot(V - mid_b, lz_b), -hlength, hlength);
+		float3 cp = mid_b + t * lz_b;
+
+		// Axis from segment to vertex
+		float3 beg = V - cp;
+		float len_sq = dot(beg, beg);
+		if (len_sq >= 1e-10f)
+		{
+			float3 axis_b = beg * rsqrt(len_sq); // unit vector in box space
+
+			// SAT depth on axis_b (axis_b is unit, so depth scale is correct):
+			//   box projection  = sum |axis_b[i]| * hb[i]
+			//   capsule extent  = hlength * |axis_b . lz_b| + line_r
+			//   line centre     = |axis_b . mid_b|
+			float box_proj = abs(axis_b.x) * hb.x + abs(axis_b.y) * hb.y + abs(axis_b.z) * hb.z;
+			float cap_proj = hlength * abs(dot(lz_b, axis_b)) + line_r;
+			float centre_proj = abs(dot(axis_b, mid_b));
+			float pen_i = box_proj + cap_proj - centre_proj;
+			if (pen_i < 0)
+				return false;
+
+			if (pen_i + 1e-4f < best_depth)
+			{
+				best_depth = pen_i;
+				float3 axis_w = axis_b.x * rot_b[0] + axis_b.y * rot_b[1] + axis_b.z * rot_b[2];
+				// axis_b points from segment toward vertex. We want box→line, which is the
+				// direction of the line centre relative to the box: sign of (mid_b . axis_b).
+				float sign_m = dot(mid_b, axis_b) >= 0 ? 1.0f : -1.0f;
+				best_axis_b2a_w = axis_w * sign_m;
+			}
 		}
 	}
 
