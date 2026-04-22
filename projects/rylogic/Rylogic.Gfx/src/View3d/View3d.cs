@@ -2239,7 +2239,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Unicode)][return: MarshalAs(UnmanagedType.BStr)] private static extern string View3D_ObjectAddressAt([MarshalAs(UnmanagedType.LPWStr)] string ldr_script, long position);
 
 		// Parse a transform description using the Ldr script syntax
-		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern m4x4 View3D_ParseLdrTransform([MarshalAs(UnmanagedType.LPStr)] string ldr_script);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern m4x4 View3D_ParseLdrTransform([MarshalAs(UnmanagedType.LPStr)] string ldr_script, ref bool is_affine);
 
 		// Handle standard keyboard shortcuts. 'key_code' should be a standard VK_ key code with modifiers included in the hi word. See 'EKeyCodes'
 		[DllImport(Dll)] private static extern bool View3D_TranslateKey(HWindow window, EKeyCodes key_code, v2 ss_point);

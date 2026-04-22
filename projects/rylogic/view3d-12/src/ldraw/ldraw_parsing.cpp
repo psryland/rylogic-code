@@ -479,7 +479,13 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::O2W:
 				{
-					reader.Transform(tex.m_t2s);
+					bool affine = true;
+					reader.Transform(tex.m_t2s, affine);
+					if (!affine)
+					{
+						pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Texture transforms must be affine");
+						tex.m_t2s = m4x4::Identity();
+					}
 					break;
 				}
 				case EKeyword::Addr:
@@ -528,8 +534,9 @@ namespace pr::rdr12::ldraw
 			case EKeyword::O2W:
 			case EKeyword::Txfm:
 			{
-				reader.Transform(obj->m_o2p);
-				obj->Flags(ELdrFlags::NonAffine, !IsAffine(obj->m_o2p));
+				bool affine = true;
+				reader.Transform(obj->m_o2p, affine);
+				obj->Flags(ELdrFlags::NonAffine, !affine);
 				return true;
 			}
 			case EKeyword::GroupColour:
@@ -920,14 +927,20 @@ namespace pr::rdr12::ldraw
 		struct BakeTransform
 		{
 			m4x4 m_o2w = m4x4::Zero();
-			bool ParseKeyword(IReader& reader, ParseParams&, EKeyword kw)
+			bool ParseKeyword(IReader& reader, ParseParams& pp, EKeyword kw)
 			{
 				switch (kw)
 				{
 					case EKeyword::BakeTransform:
 					{
+						bool affine = true;
 						m_o2w = m4x4::Identity();
-						reader.Transform(m_o2w);
+						reader.Transform(m_o2w, affine);
+						if (!affine)
+						{
+							pp.ReportError(EParseError::InvalidValue, reader.Loc(), "BakeTransform must be an affine transform");
+							m_o2w = m4x4::Identity();
+						}
 						return true;
 					}
 					default:
@@ -1591,7 +1604,13 @@ namespace pr::rdr12::ldraw
 									}
 									case EKeyword::O2W:
 									{
-										reader.Transform(o2w);
+										bool affine = true;
+										reader.Transform(o2w, affine);
+										if (!affine)
+										{
+											pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Montage frame O2W must be an affine transform");
+											o2w = m4x4::Identity();
+										}
 										break;
 									}
 								}
@@ -2485,9 +2504,13 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
+					bool affine = true;
 					auto o2w = m4x4::Identity();
-					reader.Transform(o2w);
-					m_basis.push_back(o2w);
+					reader.Transform(o2w, affine);
+					if (!affine)
+						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Only affine transforms are supported for coord frames");
+					else
+						m_basis.push_back(o2w);
 					return true;
 				}
 				case EKeyword::Scale:
@@ -6024,7 +6047,7 @@ namespace pr::rdr12::ldraw
 		if (obj != nullptr)
 		{
 			// A few sanity checks
-			assert(IsAffine(obj->m_o2p));
+			assert(IsAffine(obj->m_o2p) || AllSet(obj->Flags(), ELdrFlags::NonAffine));
 
 			// Apply properties to the object
 			// This is done after objects are parsed so that recursive properties can be applied
@@ -6409,12 +6432,11 @@ namespace pr::rdr12::ldraw
 	// IReader ------------------------------------------------------------------------------------
 
 	// Reads a transform accumulatively. 'o2w' must be a valid initial transform
-	m4x4& IReader::Transform(m4x4& o2w)
+	m4x4& IReader::Transform(m4x4& o2w, bool& affine)
 	{
 		assert(IsFinite(o2w) && "A valid 'o2w' must be passed to this function as it pre-multiplies the transform with the one read from the script");
 
 		auto p2w = m4x4::Identity();
-		auto affine = IsAffine(o2w);
 		auto section = SectionScope();
 
 		// Parse the transform
