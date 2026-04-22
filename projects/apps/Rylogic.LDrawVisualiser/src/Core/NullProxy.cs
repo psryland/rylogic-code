@@ -84,6 +84,21 @@ namespace Rylogic.LDrawVisualiser.Core
 				return true;
 			}
 
+			// Print/PrintLine — still write to the output pane even when no debugger is
+			// attached, so script authors can sanity-check their formatting without being
+			// in break mode.
+			if (binder.Name == "Print" || binder.Name == "PrintLine")
+			{
+				Microsoft.VisualStudio.Shell.ThreadHelper.ThrowIfNotOnUIThread();
+				var text = args == null ? string.Empty : string.Concat(System.Linq.Enumerable.Select(args, a => a?.ToString() ?? "null"));
+				if (binder.Name == "PrintLine")
+					OutputPane.WriteLine(text);
+				else
+					OutputPane.Write(text);
+				result = null;
+				return true;
+			}
+
 			result = Instance;
 			return true;
 		}

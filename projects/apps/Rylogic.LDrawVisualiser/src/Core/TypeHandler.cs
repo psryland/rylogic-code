@@ -1,5 +1,6 @@
 namespace Rylogic.LDrawVisualiser.Core;
 
+using System;
 using System.Collections.Generic;
 using EnvDTE;
 using Microsoft.VisualStudio.Shell;
@@ -14,12 +15,17 @@ public class TypeHandler
 {
 	private readonly Debugger m_debugger;
 	private readonly List<ITypeReader> m_readers;
+	private readonly ScriptReader m_script_readers;
 
 	public TypeHandler(Debugger debugger)
 	{
 		m_debugger = debugger;
+		m_script_readers = new ScriptReader();
 		m_readers = new List<ITypeReader>
 		{
+			// Script-registered readers run first so scripts can override built-ins.
+			m_script_readers,
+
 			// Scalars
 			new SingleReader(),
 			new DoubleReader(),
@@ -46,7 +52,11 @@ public class TypeHandler
 			// Native-only collision shapes
 			new ShapeReader(),
 		};
+		m_script_readers.SetOwner(this);
 	}
+
+	/// <summary>Register a script-supplied reader for 'type_name'. See DebugProxy.RegisterReader</summary>
+	public void Register(string type_name, Func<dynamic, object?> reader) => m_script_readers.Register(type_name, reader);
 
 	/// <summary>Read the value of 'expr' (which has reported type 'ty'). Returns null if no reader matched</summary>
 	public object? Dispatch(string ty, string expr)
