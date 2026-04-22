@@ -15,8 +15,11 @@
 		<ResourceDictionary>
 			<BitmapImage x:Key="plus" UriSource="/Rylogic.Gui.WPF;component/res/plus1.png"/>
 			<BitmapImage x:Key="minus" UriSource="/Rylogic.Gui.WPF;component/res/minus1.png"/>
+			<BitmapImage x:Key="tree_expand_all" UriSource="/Rylogic.Gui.WPF;component/res/tree_expand_all.png"/>
+			<BitmapImage x:Key="tree_collapse_all" UriSource="/Rylogic.Gui.WPF;component/res/tree_collapse_all.png"/>
 			<BitmapImage x:Key="eye_visible" UriSource="/Rylogic.Gui.WPF;component/res/eye_visible.png"/>
 			<BitmapImage x:Key="eye_hidden" UriSource="/Rylogic.Gui.WPF;component/res/eye_hidden.png"/>
+			<BitmapImage x:Key="folder" UriSource="/Rylogic.Gui.WPF;component/res/folder.png"/>
 
 			<!-- Chromeless toggle button (no hover/press effects) -->
 			<Style x:Key="ChromelessToggleButton" TargetType="{x:Type ToggleButton}">
@@ -126,6 +129,7 @@
 			<Grid.ColumnDefinitions>
 				<ColumnDefinition Width="Auto"/>
 				<ColumnDefinition Width="Auto"/>
+				<ColumnDefinition Width="Auto"/>
 				<ColumnDefinition Width="*"/>
 			</Grid.ColumnDefinitions>
 			<Grid.Resources>
@@ -135,6 +139,19 @@
 					<Setter Property="MaxHeight" Value="22"/>
 					<Setter Property="Margin" Value="2"/>
 				</Style>
+				<Style x:Key="ToolToggleButtonStyle" TargetType="{x:Type ToggleButton}">
+					<Setter Property="Background" Value="Transparent"/>
+					<Setter Property="BorderThickness" Value="0"/>
+					<Setter Property="MaxHeight" Value="22"/>
+					<Setter Property="Margin" Value="2"/>
+					<Style.Triggers>
+						<Trigger Property="IsChecked" Value="True">
+							<Setter Property="Background" Value="#FFC4D8E0"/>
+							<Setter Property="BorderBrush" Value="#FF7A9CB8"/>
+							<Setter Property="BorderThickness" Value="1"/>
+						</Trigger>
+					</Style.Triggers>
+				</Style>
 			</Grid.Resources>
 
 			<!-- Expand All button -->
@@ -142,9 +159,10 @@
 				Grid.Column="0"
 				Command="{Binding ExpandAll}"
 				Style="{StaticResource ExpandButtonStyle}"
+				ToolTip="Expand All"
 				>
 				<Image
-					Source="{StaticResource plus}"
+					Source="{StaticResource tree_expand_all}"
 					RenderOptions.BitmapScalingMode="HighQuality"
 					/>
 			</Button>
@@ -154,16 +172,31 @@
 				Grid.Column="1"
 				Command="{Binding CollapseAll}"
 				Style="{StaticResource ExpandButtonStyle}"
+				ToolTip="Collapse All"
 				>
 				<Image
-					Source="{StaticResource minus}"
+					Source="{StaticResource tree_collapse_all}"
 					RenderOptions.BitmapScalingMode="HighQuality"
 					/>
 			</Button>
 
+			<!-- Group by Source toggle -->
+			<ToggleButton
+				Grid.Column="2"
+				IsChecked="{Binding GroupBySource}"
+				Style="{StaticResource ToolToggleButtonStyle}"
+				ToolTip="Group objects by source"
+				>
+				<Image
+					Source="{StaticResource folder}"
+					RenderOptions.BitmapScalingMode="HighQuality"
+					Margin="2,0"
+					/>
+			</ToggleButton>
+
 			<!-- Filter Pattern -->
 			<gui:PatternFilter
-				Grid.Column="2"
+				Grid.Column="3"
 				Command="{Binding ApplyFilter}"
 				Height="24"
 				Margin="1"
@@ -230,7 +263,7 @@
 					<!-- Name column (with indent + expand toggle) -->
 					<GridViewColumn
 						Header="Name"
-						Width="250"
+						Width="150"
 						>
 						<GridViewColumn.CellTemplate>
 							<DataTemplate>
@@ -238,7 +271,7 @@
 									Orientation="Horizontal"
 									Margin="{Binding Indent}"
 									>
-									<!-- Expand/collapse toggle -->
+									<!-- Expand/collapse toggle (sized for an easier click target; row height is bounded by other cells so this doesn't grow the row) -->
 									<ToggleButton
 										Style="{StaticResource ChromelessToggleButton}"
 										IsChecked="{Binding IsExpanded, Mode=OneWay}"
@@ -246,12 +279,12 @@
 										Command="{Binding DataContext.ToggleExpand, ElementName=m_list}"
 										CommandParameter="{Binding}"
 										Padding="0"
-										Width="8"
-										Height="12"
+										Width="12"
+										Height="18"
 										VerticalAlignment="Center"
 										>
 										<TextBlock
-											FontSize="7"
+											FontSize="10"
 											VerticalAlignment="Center"
 											HorizontalAlignment="Center"
 											>
@@ -271,9 +304,9 @@
 										</TextBlock>
 									</ToggleButton>
 
-									<!-- Spacer for leaf nodes -->
+									<!-- Spacer for leaf nodes (matches toggle width) -->
 									<Border
-										Width="8"
+										Width="2"
 										Visibility="{Binding HasChildren, Converter={conv:BoolToVisible}, ConverterParameter=invert}"
 										/>
 
