@@ -274,21 +274,52 @@ namespace LDraw.UI
 				if (field == value) return;
 				if (field != null)
 				{
+					field.PreviewMouseDown -= HandlePreviewMouseDown;
+					field.SceneObjectClicked -= HandleSceneObjectClicked;
 					field.PropertyChanged -= HandlePropertyChanged;
 				}
 				field = value;
 				if (field != null)
 				{
 					field.PropertyChanged += HandlePropertyChanged;
+					field.SceneObjectClicked += HandleSceneObjectClicked;
+					field.PreviewMouseDown += HandlePreviewMouseDown;
 				}
 
-				// Handler
+				// Handlers
 				void HandlePropertyChanged(object? sender, PropertyChangedEventArgs e)
 				{
 					// Forward property changed from the ChartControl.
 					// Probably should only forward properties of IChartCMenu and IView3dCMenu.
 					if (e.PropertyName is string prop_name)
 						NotifyPropertyChanged(prop_name);
+				}
+				void HandlePreviewMouseDown(object sender, MouseButtonEventArgs e)
+				{
+					if (e.ChangedButton == MouseButton.Left &&
+						Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&
+						DockControl.DockContainer is DockContainer dc &&
+						dc.FindContent<ObjectManagerUI>().FirstOrDefault(m => m.DockControl.IsVisible) is ObjectManagerUI mgr)
+					{
+						SceneView.MouseOperations[MouseButton.Left] = new ChartControl.MouseOp_LButton_SelectObject(SceneView);
+					}
+				}
+				void HandleSceneObjectClicked(object? sender, ChartControl.SceneObjectClickedEventArgs e)
+				{
+					// Find a Scene Manager pane that is currently visible on screen
+					if (DockControl.DockContainer is not DockContainer dc) return;
+					if (dc.FindContent<ObjectManagerUI>().FirstOrDefault(m => m.DockControl.IsVisible) is not ObjectManagerUI mgr) return;
+
+					// Make sure the manager is showing this scene's objects
+					mgr.SetScene(this);
+
+					// Modifier mapping: Ctrl+Shift => toggle, Ctrl alone => replace
+					var mode = e.Modifiers.HasFlag(ModifierKeys.Shift)
+						? View3dObjectManagerUI.ESelectFromSceneMode.Toggle
+						: View3dObjectManagerUI.ESelectFromSceneMode.Replace;
+
+					mgr.SelectFromScene(e.HitObject, mode);
+					e.Handled = true;
 				}
 			}
 		} = null!;

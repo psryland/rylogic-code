@@ -792,5 +792,49 @@ namespace Rylogic.Gui.WPF
 				Chart.Invalidate();
 			}
 		}
+
+		/// <summary>Click-to-select on scene objects.</summary>
+		public class MouseOp_LButton_SelectObject : MouseOp
+		{
+			public MouseOp_LButton_SelectObject(ChartControl chart)
+				: base(chart)
+			{}
+			public override void MouseDown(MouseButtonEventArgs? e)
+			{
+				if (e == null) return;
+
+				// Don't capture the mouse or start any navigation here.
+				// This op only fires on mouse-up if the press behaved as a click.
+				e.Handled = false;
+			}
+			public override void MouseMove(MouseEventArgs e)
+			{
+				base.MouseMove(e);
+
+				// If the user starts dragging, we're done - selection only fires on a click.
+				// Letting the op finish naturally on mouse-up keeps the state machine simple.
+				if (!IsClick(DropSS))
+					m_drag_state = EDragState.Cancel;
+			}
+			public override void MouseUp(MouseButtonEventArgs e)
+			{
+				base.MouseUp(e);
+
+				// Only fire on a true click (not a drag)
+				if (!IsClick(DropSS))
+					return;
+
+				// Cast a ray through the click point and hit-test the scene
+				var window = Chart.Scene.Window;
+				var camera = Chart.Scene.Camera;
+				var ray = camera.RaySS(GrabSS, View3d.ESnapMode.Faces, 0f);
+				var hit = window.HitTest(ray);
+
+				// Notify listeners (e.g. SceneUI -> Scene Manager)
+				var args = new SceneObjectClickedEventArgs(hit, Keyboard.Modifiers, e.ChangedButton);
+				Chart.OnSceneObjectClicked(args);
+				e.Handled = args.Handled;
+			}
+		}
 	}
 }

@@ -76,6 +76,17 @@ namespace LDraw.UI
 		}
 		private View3d.Window? m_current_window;
 
+		/// <summary>
+		/// Forward a scene-click selection into the underlying object manager. Returns
+		/// true if the selection was actually applied (i.e. there is an active manager).
+		/// </summary>
+		public bool SelectFromScene(View3d.Object? hit, View3dObjectManagerUI.ESelectFromSceneMode mode)
+		{
+			if (ManagerUI == null) return false;
+			ManagerUI.SelectFromScene(hit, mode);
+			return true;
+		}
+
 		/// <inheritdoc/>
 		public event PropertyChangedEventHandler? PropertyChanged;
 		private void NotifyPropertyChanged(string prop_name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop_name));

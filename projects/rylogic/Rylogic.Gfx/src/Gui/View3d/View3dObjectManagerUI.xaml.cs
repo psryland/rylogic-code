@@ -535,6 +535,87 @@ namespace Rylogic.Gui.WPF
 			Invalidate();
 		}
 
+		/// <summary>Selection mode for SelectFromScene</summary>
+		public enum ESelectFromSceneMode { Replace, Toggle }
+
+		/// <summary>
+		/// Apply a selection coming from a 3D scene click. 'hit' may be null to indicate the click
+		/// missed every object. In Replace mode the current selection is cleared and 'hit' becomes
+		/// the only selected object (or selection is cleared if hit is null). In Toggle mode 'hit'
+		/// is added to or removed from the existing selection (a null hit is a no-op).
+		/// Ancestors and (when grouping by source) the source group are expanded so the row appears
+		/// in the flat list, and the row is scrolled into view. The actual flag/HashSet plumbing is
+		/// left to the ListView's SelectionChanged handler.
+		/// </summary>
+		public void SelectFromScene(View3d.Object? hit, ESelectFromSceneMode mode)
+		{
+			// Make the row visible in the flat list (expand ancestors / source group)
+			if (hit != null)
+				EnsureFlatNodeVisible(hit);
+
+			// Locate the corresponding flat node (post-expansion)
+			var target = hit != null
+				? FlatNodes.FirstOrDefault(n => !n.IsGroup && n.Object!.Handle == hit.Handle)
+				: null;
+
+			// Drive the change through ListView.SelectedItems so HandleSelectionChanged
+			// performs the flag updates and HashSet bookkeeping uniformly with mouse selection.
+			switch (mode)
+			{
+				case ESelectFromSceneMode.Replace:
+				{
+					m_list.SelectedItems.Clear();
+					if (target != null)
+						m_list.SelectedItems.Add(target);
+					break;
+				}
+				case ESelectFromSceneMode.Toggle:
+				{
+					if (target == null) return;
+					if (m_list.SelectedItems.Contains(target))
+						m_list.SelectedItems.Remove(target);
+					else
+						m_list.SelectedItems.Add(target);
+					break;
+				}
+			}
+
+			if (target != null)
+				m_list.ScrollIntoView(target);
+		}
+
+		/// <summary>
+		/// Ensure 'obj' is represented by a row in the flat list by expanding its ancestor chain.
+		/// When GroupBySource is on, the synthetic source-group row that contains obj's root is
+		/// expanded first.
+		/// </summary>
+		private void EnsureFlatNodeVisible(View3d.Object obj)
+		{
+			// Walk parents from obj upward, then reverse so we expand outermost first.
+			var ancestors = new List<View3d.Object>();
+			for (var p = obj.Parent; p != null; p = p.Parent)
+				ancestors.Add(p);
+			ancestors.Reverse();
+
+			// In group-by-source mode the root ancestor is hidden under a synthetic group row;
+			// expand it so the root becomes addressable.
+			if (GroupBySource)
+			{
+				var root = ancestors.Count > 0 ? ancestors[0] : obj;
+				var group_node = FlatNodes.FirstOrDefault(n => n.IsGroup && n.ContextId == root.ContextId);
+				if (group_node != null && !group_node.IsExpanded)
+					ExpandNode(group_node);
+			}
+
+			// Expand each ancestor in turn. ExpandNode is a no-op for already-expanded nodes.
+			foreach (var a in ancestors)
+			{
+				var n = FlatNodes.FirstOrDefault(node => !node.IsGroup && node.Object!.Handle == a.Handle);
+				if (n == null) break;
+				if (!n.IsExpanded) ExpandNode(n);
+			}
+		}
+
 		/// <summary>Invert the selection status of each object</summary>
 		public Command InvertSelection { get; }
 		private void InvertSelectionInternal()
