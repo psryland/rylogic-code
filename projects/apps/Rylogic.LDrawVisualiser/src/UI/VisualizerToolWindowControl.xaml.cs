@@ -146,6 +146,53 @@ namespace Rylogic.LDrawVisualiser
 			}
 		}
 
+		private void OnRenameScript(object sender, RoutedEventArgs e)
+		{
+			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
+			if (m_project_manager == null) return;
+
+			var dlg = new RenameScriptDialog(script.Name);
+			if (dlg.ShowDialog() != true) return;
+
+			var new_name = dlg.NewName;
+			if (string.IsNullOrWhiteSpace(new_name) || new_name == script.Name) return;
+
+			// Validate the name contains no invalid filename characters
+			if (new_name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+			{
+				MessageBox.Show("The name contains invalid characters.", "Rename Script", MessageBoxButton.OK, MessageBoxImage.Warning);
+				return;
+			}
+
+			try
+			{
+				var renamed = m_project_manager.RenameScript(script, new_name);
+				if (m_active_script?.Name == script.Name)
+					m_active_script = renamed;
+
+				RefreshScriptsList();
+				SetStatus($"Renamed to: {renamed.Name}");
+			}
+			catch (IOException ex)
+			{
+				MessageBox.Show(ex.Message, "Rename Script", MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
+		}
+
+		private void OnRevealScript(object sender, RoutedEventArgs e)
+		{
+			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
+
+			try
+			{
+				System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{script.FilePath}\"");
+			}
+			catch (Exception ex)
+			{
+				SetStatus($"Failed to reveal: {ex.Message}");
+			}
+		}
+
 		private void OnDeleteScript(object sender, RoutedEventArgs e)
 		{
 			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
@@ -331,12 +378,12 @@ namespace Rylogic.LDrawVisualiser
 		{
 			if (errors.Count > 0)
 			{
-				m_error_list.ItemsSource = errors;
+				m_error_text.Text = string.Join("\n", errors);
 				m_error_panel.Visibility = Visibility.Visible;
 			}
 			else
 			{
-				m_error_list.ItemsSource = null;
+				m_error_text.Text = string.Empty;
 				m_error_panel.Visibility = Visibility.Collapsed;
 			}
 		}

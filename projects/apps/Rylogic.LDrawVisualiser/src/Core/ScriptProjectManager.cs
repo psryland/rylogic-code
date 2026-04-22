@@ -90,6 +90,17 @@ namespace Rylogic.LDrawVisualiser.Core
 			return new ScriptInfo(filepath);
 		}
 
+		/// <summary>Rename a script file, keeping the same directory and .csx extension</summary>
+		public ScriptInfo RenameScript(ScriptInfo script, string new_name)
+		{
+			var new_path = Path.Combine(ScriptsDirectory, $"{new_name}.csx");
+			if (File.Exists(new_path))
+				throw new IOException($"A script named '{new_name}' already exists.");
+
+			File.Move(script.FilePath, new_path);
+			return new ScriptInfo(new_path);
+		}
+
 		/// <summary>Delete a script file</summary>
 		public void DeleteScript(ScriptInfo script)
 		{
