@@ -269,7 +269,7 @@
 									Orientation="Horizontal"
 									Margin="{Binding Indent}"
 									>
-									<!-- Expand/collapse toggle -->
+									<!-- Expand/collapse toggle (sized for an easier click target; row height is bounded by other cells so this doesn't grow the row) -->
 									<ToggleButton
 										Style="{StaticResource ChromelessToggleButton}"
 										IsChecked="{Binding IsExpanded, Mode=OneWay}"
@@ -277,12 +277,12 @@
 										Command="{Binding DataContext.ToggleExpand, ElementName=m_list}"
 										CommandParameter="{Binding}"
 										Padding="0"
-										Width="8"
-										Height="12"
+										Width="12"
+										Height="18"
 										VerticalAlignment="Center"
 										>
 										<TextBlock
-											FontSize="7"
+											FontSize="10"
 											VerticalAlignment="Center"
 											HorizontalAlignment="Center"
 											>
@@ -302,9 +302,9 @@
 										</TextBlock>
 									</ToggleButton>
 
-									<!-- Spacer for leaf nodes -->
+									<!-- Spacer for leaf nodes (matches toggle width) -->
 									<Border
-										Width="8"
+										Width="2"
 										Visibility="{Binding HasChildren, Converter={conv:BoolToVisible}, ConverterParameter=invert}"
 										/>
 
