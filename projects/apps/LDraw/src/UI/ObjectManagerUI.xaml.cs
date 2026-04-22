@@ -62,11 +62,19 @@ namespace LDraw.UI
 		/// <summary>Update the object manager content for the given scene</summary>
 		public void SetScene(SceneUI? scene)
 		{
-			if (scene?.SceneView?.Scene?.Window is View3d.Window window)
-				ManagerUI = new View3dObjectManagerUI(window);
-			else
-				ManagerUI = null;
+			var window = scene?.SceneView?.Scene?.Window;
+
+			// No-op if we're already showing this window. Recreating ManagerUI
+			// throws away the tree's expansion/selection state, which makes the
+			// scene manager appear to "collapse itself" whenever the active
+			// dockable changes (e.g. clicking a scene to interact with it).
+			if (ReferenceEquals(window, m_current_window))
+				return;
+
+			m_current_window = window;
+			ManagerUI = window != null ? new View3dObjectManagerUI(window) : null;
 		}
+		private View3d.Window? m_current_window;
 
 		/// <inheritdoc/>
 		public event PropertyChangedEventHandler? PropertyChanged;
