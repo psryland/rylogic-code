@@ -1,109 +1,94 @@
-﻿namespace Rylogic.LDrawVisualiser.Core;
+namespace Rylogic.LDrawVisualiser.Core;
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
 using EnvDTE;
-using Rylogic.Maths;
+using Microsoft.VisualStudio.Shell;
+using Rylogic.LDrawVisualiser.Core.TypeReaders;
 
+/// <summary>
+/// Dispatches debug expressions to type-specific readers. Detects the active debug
+/// language per call (native C++ vs managed) and routes to readers that support that
+/// language. Readers live under TypeReaders/ and implement ITypeReader.
+/// </summary>
 public class TypeHandler
 {
 	private readonly Debugger m_debugger;
-	private readonly List<Pattern> m_patterns;
-
-	[System.Diagnostics.DebuggerDisplay("{Regex}")]
-	private class Pattern
-	{
-		public readonly Regex Regex;
-		public readonly Func<string, string, object?> Handler;
-
-		public Pattern(Regex regex, Func<string, string, object?> handler)
-		{
-			Regex = regex;
-			Handler = handler;
-		}
-	}
+	private readonly List<ITypeReader> m_readers;
+	private readonly ScriptReader m_script_readers;
 
 	public TypeHandler(Debugger debugger)
 	{
 		m_debugger = debugger;
-		m_patterns = [
-			new Pattern(new Regex("^int$"), HandleScalar),
-			new Pattern(new Regex("^float$"), HandleScalar),
-			new Pattern(new Regex(@"^.*pr::math::Vec4<float>.*"), HandleVec4),
-			new Pattern(new Regex(@"^.*pr::math::Mat4x4<float>.*"), HandleMat4x4),
-			new Pattern(new Regex(@"^.*pr::collision::Shape.*$"), HandleShape),
-		];
+		m_script_readers = new ScriptReader();
+		m_readers = new List<ITypeReader>
+		{
+			// Script-registered readers run first so scripts can override built-ins.
+			m_script_readers,
+
+			// Scalars
+			new SingleReader(),
+			new DoubleReader(),
+			new ScalarReader(),
+			new BoolReader(),
+			new StringReader(),
+
+			// Vectors
+			new Vec2Reader(),
+			new Vec3Reader(),
+			new Vec4Reader(),
+
+			// Quaternion
+			new QuatReader(),
+
+			// Matrices
+			new Mat2x2Reader(),
+			new Mat3x3Reader(),
+			new Mat4x4Reader(),
+
+			// Bounding box
+			new BBoxReader(),
+
+			// Native-only collision shapes
+			new ShapeReader(),
+		};
+		m_script_readers.SetOwner(this);
 	}
 
-	/// <summary>Convert a type to it's value</summary>
+	/// <summary>Register a script-supplied reader for 'type_name'. See DebugProxy.RegisterReader</summary>
+	public void Register(string type_name, Func<dynamic, object?> reader) => m_script_readers.Register(type_name, reader);
+
+	/// <summary>Read the value of 'expr' (which has reported type 'ty'). Returns null if no reader matched</summary>
 	public object? Dispatch(string ty, string expr)
 	{
-		// Return the result of the first match that produces a non-null result
-		var patterns = m_patterns.Where(x => x.Regex.IsMatch(ty)).ToArray();
-		foreach (var pattern in patterns)
+		ThreadHelper.ThrowIfNotOnUIThread();
+
+		var lang = LanguageDetector.Detect(m_debugger);
+		switch (lang)
 		{
-			var result = pattern.Handler(ty, expr);
-			if (result != null)
-				return result;
-		}
-		return null;
-	}
-
-	/// <summary>Handle a scalar type</summary>
-	private object? HandleScalar(string ty, string expr)
-	{
-		switch (ty)
-		{
-			case "int":
+			case ELanguage.Unknown:
 			{
-				if (DebugMemoryReader.ReadBytes(m_debugger, expr, 4) is not byte[] data) return null;
-				return BitConverter.ToInt32(data, 0);
+				return null;
 			}
-			case "float":
+			case ELanguage.Native:
+			case ELanguage.Managed:
 			{
-				if (DebugMemoryReader.ReadBytes(m_debugger, expr, 4) is not byte[] data) return null;
-				return BitConverter.ToSingle(data, 0);
+				// Return the result of the first reader that produces a non-null result.
+				foreach (var reader in m_readers)
+				{
+					if (!reader.CanRead(lang, ty))
+						continue;
+
+					var result = reader.Read(m_debugger, lang, ty, expr);
+					if (result != null)
+						return result;
+				}
+				return null;
+			}
+			default:
+			{
+				throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language");
 			}
 		}
-
-		return null;
-	}
-
-	/// <summary>Read a native pr::math::Vec4 from memory</summary>
-	private object? HandleVec4(string ty, string expr)
-	{
-		if (DebugMemoryReader.ReadBytes(m_debugger, expr, 4 * 4) is not byte[] data)
-			return null;
-
-		var vec = new float[4];
-		for (int i = 0; i < 4; i++)
-			vec[i] = BitConverter.ToSingle(data, i * 4);
-
-		return new v4(vec);
-	}
-
-	/// <summary>Read a native pr::math::Mat4x4 from memory</summary>
-	private object? HandleMat4x4(string ty, string expr)
-	{
-		if (DebugMemoryReader.ReadBytes(m_debugger, expr, 16 * 4) is not byte[] data)
-			return null;
-
-		var mat = new float[16];
-		for (int i = 0; i < 16; i++)
-			mat[i] = BitConverter.ToSingle(data, i * 4);
-
-		return new m4x4(mat);
-	}
-
-	/// <summary>Check if a native type name is a collision shape type</summary>
-	private object? HandleShape(string ty, string expr)
-	{
-		// Auto-detect collision shape types and read raw memory
-		if (DebugMemoryReader.ReadShapeBytes(m_debugger, expr) is not byte[] data)
-			return null;
-
-		return data;
 	}
 }

@@ -114,6 +114,30 @@ using Rylogic.LDraw;
 using Rylogic.Maths;
 
 // Script body — this code runs inside: string Generate(dynamic vars) { ... }
+// 'vars' is a dynamic proxy onto the current debugger frame. Member accesses turn
+// into debug-expression evaluations, so 'vars.foo.bar' evaluates 'foo.bar' in the
+// debuggee. Implicit conversions to known types (v4, m4x4, float, ...) are supported.
+
+// --- Output window logging ---------------------------------------------------
+// Print(...) and PrintLine(...) write to the 'LDraw Visualiser' pane in
+// View → Output. Console.WriteLine / Debug.WriteLine do nothing here because the
+// extension runs in-process inside devenv with no console attached.
+vars.PrintLine(""Script run at "", DateTime.Now.ToString(""HH:mm:ss.fff""));
+
+// --- Custom type readers -----------------------------------------------------
+// Built-in readers cover scalars, v2/v3/v4, Quat, m2x2/m3x3/m4x4, BBox and
+// pr::collision shapes (native + managed equivalents). To handle a custom type,
+// register a reader for the exact debugger-reported type name. The lambda
+// receives a DebugProxy positioned at the matched expression — chain into its
+// fields the same way you would on 'vars'. Last registration wins, so you can
+// override a built-in too.
+vars.RegisterReader(""MyApp::Particle"", (Func<dynamic, object?>)(p =>
+    new v4((float)p.pos.x, (float)p.pos.y, (float)p.pos.z, (float)p.mass)));
+
+// Tip: put shared RegisterReader calls in a #load-ed common.csx file so multiple
+// visualiser scripts can use the same custom readers.
+
+// --- Build the LDraw scene ---------------------------------------------------
 var b = new Builder();
 b.Box(""obj1"").box(1, 1, 1).o2w(vars.o2w);
 return b.ToString();";

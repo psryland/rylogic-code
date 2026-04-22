@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,7 +8,7 @@ using System.Text;
 namespace Rylogic.LDrawVisualiser.Core
 {
 	/// <summary>Info about a script file displayed in the scripts list</summary>
-	public class ScriptInfo
+	public class ScriptInfo : INotifyPropertyChanged
 	{
 		public ScriptInfo(string filepath)
 		{
@@ -17,6 +18,21 @@ namespace Rylogic.LDrawVisualiser.Core
 
 		public string Name { get; }
 		public string FilePath { get; }
+
+		/// <summary>True if this is the script whose output is currently shown in LDraw (independent of list selection)</summary>
+		public bool IsActive
+		{
+			get => m_is_active;
+			set
+			{
+				if (m_is_active == value) return;
+				m_is_active = value;
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsActive)));
+			}
+		}
+		private bool m_is_active;
+
+		public event PropertyChangedEventHandler? PropertyChanged;
 
 		public override string ToString() => Name;
 	}

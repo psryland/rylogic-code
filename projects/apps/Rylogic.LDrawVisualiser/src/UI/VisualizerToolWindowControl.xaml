@@ -123,9 +123,23 @@
 								VerticalAlignment="Center">
 								<TextBlock
 									Text="{Binding Name}"
-									FontWeight="SemiBold"
 									FontSize="13"
-									VerticalAlignment="Center"/>
+									VerticalAlignment="Center">
+									<TextBlock.Style>
+										<!-- Default: semi-bold, theme foreground.
+										     Active script (currently shown in LDraw): bold + green.
+										     Triggered on the bound ScriptInfo.IsActive property. -->
+										<Style TargetType="TextBlock">
+											<Setter Property="FontWeight" Value="SemiBold"/>
+											<Style.Triggers>
+												<DataTrigger Binding="{Binding IsActive}" Value="True">
+													<Setter Property="FontWeight" Value="Bold"/>
+													<Setter Property="Foreground" Value="#4EC9B0"/>
+												</DataTrigger>
+											</Style.Triggers>
+										</Style>
+									</TextBlock.Style>
+								</TextBlock>
 								<Button
 									Content="✏"
 									ToolTip="Rename this script"
