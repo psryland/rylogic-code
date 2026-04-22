@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Dynamic;
 using System.Globalization;
 using EnvDTE;
@@ -104,6 +103,16 @@ namespace Rylogic.LDrawVisualiser.Core
 				return true;
 			}
 
+			// IsDefined("expr") — explicit fallback for testing whether a debugger
+			// expression is valid. Equivalent to 'vars.expr != null' but lets scripts
+			// query arbitrary expressions (including chained paths or function calls).
+			if (binder.Name == "IsDefined" && args?.Length == 1 && args[0] is string defined_expr)
+			{
+				var path = string.IsNullOrEmpty(m_path) ? defined_expr : $"{m_path}.{defined_expr}";
+				result = m_debugger.GetExpression(path).IsValidValue;
+				return true;
+			}
+
 			result = null;
 			return false;
 		}
@@ -126,6 +135,31 @@ namespace Rylogic.LDrawVisualiser.Core
 			// Allow implicit conversion to numeric types by evaluating the current path
 			result = m_type_handler.Dispatch(dbg_expr.Type, m_path);
 			return result != null;
+		}
+
+		/// <inheritdoc/>
+		public override bool TryBinaryOperation(BinaryOperationBinder binder, object? arg, out object? result)
+		{
+			// Support 'vars.foo == null' / 'vars.foo != null' as a test for whether 'foo'
+			// is a valid debugger symbol in the current frame. This lets scripts write
+			// code like:
+			//   if (vars.seg_pt != null) b.Sphere(...).pos(vars.seg_pt);
+			// rather than calling IsDefined("seg_pt"). Any chained access (vars.foo.bar)
+			// still returns a fail-gracefully proxy; only direct null comparison consults
+			// the debugger.
+			if (arg == null && (binder.Operation == System.Linq.Expressions.ExpressionType.Equal || binder.Operation == System.Linq.Expressions.ExpressionType.NotEqual))
+			{
+				ThreadHelper.ThrowIfNotOnUIThread();
+
+				// Empty path = root proxy; treat as 'defined' (it's never null).
+				var is_defined = string.IsNullOrEmpty(m_path) || m_debugger.GetExpression(m_path).IsValidValue;
+				var equals_null = !is_defined;
+				result = binder.Operation == System.Linq.Expressions.ExpressionType.Equal ? equals_null : !equals_null;
+				return true;
+			}
+
+			result = null;
+			return false;
 		}
 
 		/// <summary></summary>

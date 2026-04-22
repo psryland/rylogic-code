@@ -99,8 +99,32 @@ namespace Rylogic.LDrawVisualiser.Core
 				return true;
 			}
 
+			// IsDefined — no debugger means nothing is defined.
+			if (binder.Name == "IsDefined")
+			{
+				result = false;
+				return true;
+			}
+
 			result = Instance;
 			return true;
+		}
+
+		/// <inheritdoc/>
+		public override bool TryBinaryOperation(System.Dynamic.BinaryOperationBinder binder, object? arg, out object? result)
+		{
+			// Mirror DebugProxy: 'vars.foo == null' / '!= null' tests symbol existence.
+			// With no debugger attached nothing is defined, so '== null' is true and
+			// '!= null' is false. This causes scripts that gate optional rendering on
+			// symbol presence to skip those blocks cleanly outside break mode.
+			if (arg == null && (binder.Operation == System.Linq.Expressions.ExpressionType.Equal || binder.Operation == System.Linq.Expressions.ExpressionType.NotEqual))
+			{
+				result = binder.Operation == System.Linq.Expressions.ExpressionType.Equal;
+				return true;
+			}
+
+			result = null;
+			return false;
 		}
 
 		/// <inheritdoc/>
