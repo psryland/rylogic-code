@@ -19,7 +19,7 @@
 	</Metadata>
 
 	<!-- Installations -->
-	<Installation AllUsers="true"
+	<Installation AllUsers="false"
 		InstalledByMsi="false"
 		SystemComponent="false"
 		Scope="ProductExtension">

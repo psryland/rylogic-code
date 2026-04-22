@@ -84,7 +84,7 @@ namespace pr::rdr12
 			SamplerPtr FindSampler(RdrId id) const;
 
 			// Add/Remove a resource to/from the store
-			void Add(RdrId id, ID3D12Resource* res);
+			void Add(RdrId id, ID3D12Resource* res, bool allow_replace = false);
 			void Remove(RdrId id, ID3D12Resource* res);
 
 			// Add a texture to the store

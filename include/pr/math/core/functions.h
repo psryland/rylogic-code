@@ -1350,12 +1350,16 @@ namespace pr::math
 	}
 
 	// Floating point comparisons. *WARNING* 'tol' is an absolute tolerance. Returns true if 'a' is in the range (b-tol,b+tol)
+	// Disable C4756 around the function body: the warning is emitted during constant folding when callers
+	// pass values at the type's extremes (the difference can overflow to inf), which is intentional here.
+	#pragma warning(push)
+	#pragma warning(disable:4756) // overflow in constant arithmetic
 	template <std::floating_point T> constexpr bool FEqlAbsolute(T a, T b, T tol) noexcept
 	{
-		// When float operations are performed at compile time, the compiler warnings about 'inf'
 		pr_assert(tol >= 0 || !(tol == tol)); // NaN is not an error, comparisons with NaN are defined to always be false
 		return Abs(a - b) < tol;
 	}
+	#pragma warning(pop)
 	template <VectorTypeFP Vec> constexpr bool pr_vectorcall FEqlAbsolute(Vec lhs, Vec rhs, auto tol) noexcept
 	{
 		using vt = vector_traits<Vec>;

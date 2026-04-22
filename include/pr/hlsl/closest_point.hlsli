@@ -48,9 +48,15 @@ inline float2 ClosestPoint_RayToRay(float4 s0, float4 d0, float4 s1, float4 d1)
 // The closest point on the ray is at: s + return.w * d
 inline float4 ClosestPoint_RayToTriangle(float4 s, float4 d, float4 a, float4 b, float4 c, out_(bool) intercept)
 {
-	// If the ray intersects the triangle, then the intersection point is the closest point
+	// If the ray intersects the triangle, then the intersection point is the closest point.
+	// Use a small absolute tolerance on the (already-normalised, summing to ~1) bary components so that
+	// rays passing exactly along a shared edge between two triangles are not rejected by both sides due
+	// to FP slop (which would let the ray "leak" through the seam and miss the surface entirely).
 	float4 bary = Intercept_RayVsTriangle(s, d, a, b, c);
-	intercept = !AllZero(bary) && all(saturate(bary) == bary);
+	const float bary_eps = 1e-5f;
+	intercept = !AllZero(bary)
+		&& all(bary.xyz >= float3(-bary_eps, -bary_eps, -bary_eps))
+		&& all(bary.xyz <= float3(1.0f + bary_eps, 1.0f + bary_eps, 1.0f + bary_eps));
 
 	if (intercept)
 	{

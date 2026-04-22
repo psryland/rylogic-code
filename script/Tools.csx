@@ -14,6 +14,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using Rylogic.Extn;
 using Console = System.Console;
@@ -329,12 +330,27 @@ public class Tools
 		return !errors;
 	}
 
-	// True if code signing is configured (PFX certificate available)
+	// True if code signing is configured (PFX certificate available and not expired)
 	public static bool SigningAvailable
 	{
 		get
 		{
-			try { return !string.IsNullOrEmpty(UserVars.CodeSignCert_Pfx) && !string.IsNullOrEmpty(UserVars.CodeSignCert_Pw); }
+			try
+			{
+				if (string.IsNullOrEmpty(UserVars.CodeSignCert_Pfx) || string.IsNullOrEmpty(UserVars.CodeSignCert_Pw))
+					return false;
+
+				// Check the cert is within its validity period. If it isn't, signing will fail
+				// (NU3018 etc.), so skip it cleanly rather than aborting the build.
+				using var cert = X509CertificateLoader.LoadPkcs12FromFile(UserVars.CodeSignCert_Pfx, UserVars.CodeSignCert_Pw);
+				var now = DateTime.Now;
+				if (now < cert.NotBefore || now > cert.NotAfter)
+				{
+					Console.WriteLine($"Signing disabled: certificate not within validity period ({cert.NotBefore:d} - {cert.NotAfter:d})");
+					return false;
+				}
+				return true;
+			}
 			catch { return false; }
 		}
 	}

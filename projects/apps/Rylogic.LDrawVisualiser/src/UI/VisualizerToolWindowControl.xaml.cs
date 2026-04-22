@@ -19,6 +19,10 @@ namespace Rylogic.LDrawVisualiser
 		private readonly ScriptCompiler m_compiler = new();
 		private readonly LDrawStreamer m_streamer = new();
 		private ScriptInfo? m_active_script;
+		// Name of the script whose output is currently shown in LDraw (last successfully run).
+		// Tracked separately from m_active_script (selection) since selection and "active"
+		// are independent — a user can select another script without re-running it.
+		private string? m_active_script_name;
 		private DateTime m_last_send_time;
 
 		public VisualizerToolWindowControl()
@@ -86,7 +90,12 @@ namespace Rylogic.LDrawVisualiser
 
 			m_scripts_list.Items.Clear();
 			foreach (var script in scripts)
+			{
+				// Re-apply the IsActive flag — ScriptInfo instances are recreated by
+				// GetScripts() so the flag is preserved by name across refreshes.
+				script.IsActive = script.Name == m_active_script_name;
 				m_scripts_list.Items.Add(script);
+			}
 
 			// Restore selection
 			if (selected_name != null)
@@ -95,6 +104,14 @@ namespace Rylogic.LDrawVisualiser
 				if (match != null)
 					m_scripts_list.SelectedItem = match;
 			}
+		}
+
+		/// <summary>Mark 'script' as the active script (whose output is shown in LDraw)</summary>
+		private void SetActiveScript(ScriptInfo? script)
+		{
+			m_active_script_name = script?.Name;
+			foreach (var item in m_scripts_list.Items.Cast<ScriptInfo>())
+				item.IsActive = item.Name == m_active_script_name;
 		}
 
 		private void OnNewScript(object sender, RoutedEventArgs e)
@@ -146,6 +163,55 @@ namespace Rylogic.LDrawVisualiser
 			}
 		}
 
+		private void OnRenameScript(object sender, RoutedEventArgs e)
+		{
+			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
+			if (m_project_manager == null) return;
+
+			var dlg = new RenameScriptDialog(script.Name);
+			if (dlg.ShowDialog() != true) return;
+
+			var new_name = dlg.NewName;
+			if (string.IsNullOrWhiteSpace(new_name) || new_name == script.Name) return;
+
+			// Validate the name contains no invalid filename characters
+			if (new_name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+			{
+				MessageBox.Show("The name contains invalid characters.", "Rename Script", MessageBoxButton.OK, MessageBoxImage.Warning);
+				return;
+			}
+
+			try
+			{
+				var renamed = m_project_manager.RenameScript(script, new_name);
+				if (m_active_script?.Name == script.Name)
+					m_active_script = renamed;
+				if (m_active_script_name == script.Name)
+					m_active_script_name = renamed.Name;
+
+				RefreshScriptsList();
+				SetStatus($"Renamed to: {renamed.Name}");
+			}
+			catch (IOException ex)
+			{
+				MessageBox.Show(ex.Message, "Rename Script", MessageBoxButton.OK, MessageBoxImage.Warning);
+			}
+		}
+
+		private void OnRevealScript(object sender, RoutedEventArgs e)
+		{
+			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
+
+			try
+			{
+				System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{script.FilePath}\"");
+			}
+			catch (Exception ex)
+			{
+				SetStatus($"Failed to reveal: {ex.Message}");
+			}
+		}
+
 		private void OnDeleteScript(object sender, RoutedEventArgs e)
 		{
 			if (sender is not Button btn || btn.Tag is not ScriptInfo script) return;
@@ -157,6 +223,8 @@ namespace Rylogic.LDrawVisualiser
 			m_project_manager.DeleteScript(script);
 			if (m_active_script?.Name == script.Name)
 				m_active_script = null;
+			if (m_active_script_name == script.Name)
+				m_active_script_name = null;
 
 			RefreshScriptsList();
 		}
@@ -303,6 +371,9 @@ namespace Rylogic.LDrawVisualiser
 			{
 				m_last_send_time = DateTime.Now;
 				SetStatus($"Sent {ldraw_script.Length} chars at {m_last_send_time:HH:mm:ss}");
+				// The script that just produced the visible output becomes the "active"
+				// script (bold + green in the list, distinct from selection).
+				SetActiveScript(m_active_script);
 			}
 			else
 			{
@@ -331,12 +402,12 @@ namespace Rylogic.LDrawVisualiser
 		{
 			if (errors.Count > 0)
 			{
-				m_error_list.ItemsSource = errors;
+				m_error_text.Text = string.Join("\n", errors);
 				m_error_panel.Visibility = Visibility.Visible;
 			}
 			else
 			{
-				m_error_list.ItemsSource = null;
+				m_error_text.Text = string.Empty;
 				m_error_panel.Visibility = Visibility.Collapsed;
 			}
 		}

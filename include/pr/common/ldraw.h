@@ -3165,12 +3165,14 @@ namespace pr::ldraw
 			: LdrBase(name, colour)
 		{}
 
+		#pragma warning(push)
+		#pragma warning(disable:4702) // unreachable code (optimizer inlines LineStyle/ArrowHeads ctor and proves branches dead)
 		LdrLine& style(seri::TToString auto sty)
 		{
-			#pragma warning(suppress:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 			m_current.m_style = seri::LineStyle{sty};
 			return *this;
 		}
+		#pragma warning(pop)
 		LdrLine& per_item_colour(bool on = true)
 		{
 			m_current.m_per_item_colour = on;
@@ -3191,12 +3193,14 @@ namespace pr::ldraw
 			m_current.m_dashed = seri::Dashed(dash);
 			return *this;
 		}
+		#pragma warning(push)
+		#pragma warning(disable:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 		LdrLine& arrow(seri::TToString auto style = "Fwd", float size = 10.0f)
 		{
-			#pragma warning(suppress:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 			m_current.m_arrow = seri::ArrowHeads(style, size);
 			return *this;
 		}
+		#pragma warning(pop)
 
 		LdrLine& line(seri::Vec3 a, seri::Vec3 b, seri::Colour colour = {})
 		{

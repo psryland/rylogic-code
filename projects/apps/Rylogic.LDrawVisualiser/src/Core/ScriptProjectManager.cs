@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,7 +8,7 @@ using System.Text;
 namespace Rylogic.LDrawVisualiser.Core
 {
 	/// <summary>Info about a script file displayed in the scripts list</summary>
-	public class ScriptInfo
+	public class ScriptInfo : INotifyPropertyChanged
 	{
 		public ScriptInfo(string filepath)
 		{
@@ -17,6 +18,21 @@ namespace Rylogic.LDrawVisualiser.Core
 
 		public string Name { get; }
 		public string FilePath { get; }
+
+		/// <summary>True if this is the script whose output is currently shown in LDraw (independent of list selection)</summary>
+		public bool IsActive
+		{
+			get => m_is_active;
+			set
+			{
+				if (m_is_active == value) return;
+				m_is_active = value;
+				PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsActive)));
+			}
+		}
+		private bool m_is_active;
+
+		public event PropertyChangedEventHandler? PropertyChanged;
 
 		public override string ToString() => Name;
 	}
@@ -88,6 +104,17 @@ namespace Rylogic.LDrawVisualiser.Core
 			var filepath = Path.Combine(ScriptsDirectory, $"{name}.csx");
 			File.WriteAllText(filepath, m_options.DefaultScriptText);
 			return new ScriptInfo(filepath);
+		}
+
+		/// <summary>Rename a script file, keeping the same directory and .csx extension</summary>
+		public ScriptInfo RenameScript(ScriptInfo script, string new_name)
+		{
+			var new_path = Path.Combine(ScriptsDirectory, $"{new_name}.csx");
+			if (File.Exists(new_path))
+				throw new IOException($"A script named '{new_name}' already exists.");
+
+			File.Move(script.FilePath, new_path);
+			return new ScriptInfo(new_path);
 		}
 
 		/// <summary>Delete a script file</summary>

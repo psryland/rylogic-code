@@ -1,7 +1,7 @@
 #! "net10.0"
 #r "System.IO"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.0.2"
+#r "nuget: Rylogic.Core, 2.1.0"
 #load "UserVars.csx"
 #load "Tools.csx"
 #load "BuildInstaller.csx"
@@ -307,13 +307,13 @@ public abstract class RylogicAssembly : Managed
 public class RylogicCore : RylogicAssembly
 {
 	public RylogicCore(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Core", ["net9.0", "net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Core", ["net10.0", "net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 }
 public class RylogicDB : RylogicAssembly
 {
 	public RylogicDB(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.DB", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.DB", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -324,7 +324,7 @@ public class RylogicDB : RylogicAssembly
 public class RylogicDirectShow : RylogicAssembly
 {
 	public RylogicDirectShow(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.DirectShow", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.DirectShow", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -335,7 +335,7 @@ public class RylogicDirectShow : RylogicAssembly
 public class RylogicGfx : RylogicAssembly
 {
 	public RylogicGfx(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Gfx", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Gfx", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -348,7 +348,7 @@ public class RylogicGfx : RylogicAssembly
 public class RylogicGuiWPF : RylogicAssembly
 {
 	public RylogicGuiWPF(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Gui.WPF", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Gui.WPF", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -361,7 +361,7 @@ public class RylogicGuiWPF : RylogicAssembly
 public class RylogicNet : RylogicAssembly
 {
 	public RylogicNet(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Net", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Net", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -372,7 +372,7 @@ public class RylogicNet : RylogicAssembly
 public class RylogicScintilla : RylogicAssembly
 {
 	public RylogicScintilla(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Scintilla", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Scintilla", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -386,7 +386,7 @@ public class RylogicScintilla : RylogicAssembly
 public class RylogicWindows : RylogicAssembly
 {
 	public RylogicWindows(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("Rylogic.Windows", ["net9.0-windows", "net481"], workspace, platforms, configs)
+		:base("Rylogic.Windows", ["net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 	protected override void Populate(Nuget package)
 	{
@@ -416,7 +416,7 @@ public class LDraw : Managed
 	public string? MsiPath = null;
 
 	public LDraw(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw"]), ["net9.0-windows"], workspace, ["x64"], configs)
+		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
 	{
 		DeployDir = Tools.Path([UserVars.Root, "bin/LDraw"], check_exists: false);
 	}

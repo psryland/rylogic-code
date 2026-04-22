@@ -394,6 +394,13 @@ namespace Rylogic.Gui.WPF
 			ChartClicked?.Invoke(this, args);
 		}
 
+		/// <summary>Raised when a 3D scene object is clicked (e.g. via Ctrl+Left click)</summary>
+		public event EventHandler<SceneObjectClickedEventArgs>? SceneObjectClicked;
+		protected internal virtual void OnSceneObjectClicked(SceneObjectClickedEventArgs args)
+		{
+			SceneObjectClicked?.Invoke(this, args);
+		}
+
 		/// <summary>Raised when the chart is dragged with the mouse</summary>
 		public event EventHandler<ChartDraggedEventArgs>? ChartDragged;
 		protected virtual void OnChartDragged(ChartDraggedEventArgs args)

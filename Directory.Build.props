@@ -38,7 +38,7 @@
 		<PackageReadmeFile>Readme.md</PackageReadmeFile>
 		<Description>A toolbox of extension methods, data structures, and helper classes used in tools created by Rylogic.</Description>
 		<Copyright>Copyright (c) Rylogic 2007</Copyright>
-		<RylogicLibraryVersion>2.1.0</RylogicLibraryVersion>
+		<RylogicLibraryVersion>2.1.1</RylogicLibraryVersion>
 
 		<!-- Deterministic builds -->
 		<Deterministic>true</Deterministic>

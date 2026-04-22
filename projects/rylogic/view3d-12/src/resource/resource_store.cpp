@@ -115,9 +115,9 @@ namespace pr::rdr12
 	}
 
 	// Add/Remove a resource to/from the store
-	void ResourceStore::Access::Add(RdrId id, ID3D12Resource* res)
+	void ResourceStore::Access::Add(RdrId id, ID3D12Resource* res, bool allow_replace)
 	{
-		AddLookup(m_store.m_lookup_res, id, res);
+		AddLookup(m_store.m_lookup_res, id, res, allow_replace);
 	}
 	void ResourceStore::Access::Remove(RdrId id, ID3D12Resource* res)
 	{

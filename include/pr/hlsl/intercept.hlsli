@@ -48,11 +48,15 @@ inline float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, fl
 		Triple(d, sb, sa)
 	);
 
-	// Compute the barycentric coordinates (u, v, w) determining the
-	// intersection point u*a + v*b + w*c. Note: If the line lies
-	// in the plane of the triangle then 'sum' will be zero
+	// Compute the barycentric coordinates (u, v, w) determining the intersection point u*a + v*b + w*c.
+	// 'sum' is proportional to (2 * triangle_area * cos(angle between ray and triangle normal)).
+	// When the ray is parallel to the triangle plane, 'sum' approaches zero through cancellation of the
+	// individual bary components. A relative test (sum vs. magnitude of its components) makes the
+	// coplanarity check independent of triangle size and ray-to-triangle distance, so tiny triangles
+	// (e.g. a radius=0.005 geosphere) are not rejected by an absolute floor.
 	float sum = SumComponents(bary);
-	float denom = (abs(sum) > 0.0001) ? (1 / sum) : 0;
+	float scale = abs(bary.x) + abs(bary.y) + abs(bary.z);
+	float denom = (abs(sum) > scale * 1e-6f) ? (1 / sum) : 0;
 	f2b = (denom > 0.0f) * 2.0f - 1.0f;
 	return float4(bary * denom, 0.0f);
 }

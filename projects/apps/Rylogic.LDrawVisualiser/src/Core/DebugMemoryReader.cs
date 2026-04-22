@@ -24,6 +24,54 @@ namespace Rylogic.LDrawVisualiser.Core
 		[DllImport("kernel32.dll", SetLastError = true)]
 		private static extern bool CloseHandle(IntPtr hObject);
 
+		/// <summary>Read a 32-bit signed integer from a native expression</summary>
+		public static int? ReadInt32(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, sizeof(int));
+			return data != null ? BitConverter.ToInt32(data, 0) : null;
+		}
+
+		/// <summary>Read a 64-bit signed integer from a native expression</summary>
+		public static long? ReadInt64(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, sizeof(long));
+			return data != null ? BitConverter.ToInt64(data, 0) : null;
+		}
+
+		/// <summary>Read a single-precision float from a native expression</summary>
+		public static float? ReadSingle(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, sizeof(float));
+			return data != null ? BitConverter.ToSingle(data, 0) : null;
+		}
+
+		/// <summary>Read a double-precision float from a native expression</summary>
+		public static double? ReadDouble(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, sizeof(double));
+			return data != null ? BitConverter.ToDouble(data, 0) : null;
+		}
+
+		/// <summary>Read a byte from a native expression</summary>
+		public static byte? ReadByte(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, 1);
+			return data != null ? data[0] : null;
+		}
+
+		/// <summary>Read a 1-byte bool from a native expression</summary>
+		public static bool? ReadBool(Debugger debugger, string expression)
+		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+			var data = ReadBytes(debugger, expression, 1);
+			return data != null ? data[0] != 0 : null;
+		}
+
 		/// <summary>
 		/// Read raw bytes from the debuggee process at the given expression's address.
 		/// </summary>

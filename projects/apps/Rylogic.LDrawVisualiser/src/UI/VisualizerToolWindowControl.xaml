@@ -7,6 +7,56 @@
 	Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
 	Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}">
 
+	<UserControl.Resources>
+
+		<!-- Transparent flat button style for script item actions -->
+		<Style x:Key="FlatButtonStyle" TargetType="Button">
+			<Setter Property="Background" Value="Transparent"/>
+			<Setter Property="BorderBrush" Value="Transparent"/>
+			<Setter Property="BorderThickness" Value="0"/>
+			<Setter Property="Padding" Value="3,1"/>
+			<Setter Property="Cursor" Value="Hand"/>
+			<Setter Property="Foreground" Value="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"/>
+			<Setter Property="Template">
+				<Setter.Value>
+					<ControlTemplate TargetType="Button">
+						<Border x:Name="border"
+							Background="{TemplateBinding Background}"
+							BorderBrush="{TemplateBinding BorderBrush}"
+							BorderThickness="{TemplateBinding BorderThickness}"
+							Padding="{TemplateBinding Padding}"
+							CornerRadius="2">
+							<ContentPresenter
+								HorizontalAlignment="Center"
+								VerticalAlignment="Center"/>
+						</Border>
+						<ControlTemplate.Triggers>
+							<Trigger Property="IsMouseOver" Value="True">
+								<Setter TargetName="border" Property="Background" Value="#30FFFFFF"/>
+							</Trigger>
+							<Trigger Property="IsPressed" Value="True">
+								<Setter TargetName="border" Property="Background" Value="#50FFFFFF"/>
+							</Trigger>
+						</ControlTemplate.Triggers>
+					</ControlTemplate>
+				</Setter.Value>
+			</Setter>
+		</Style>
+
+		<!-- Smaller flat button for the inline rename pencil -->
+		<Style x:Key="InlineFlatButtonStyle" TargetType="Button" BasedOn="{StaticResource FlatButtonStyle}">
+			<Setter Property="Padding" Value="2,0"/>
+			<Setter Property="FontSize" Value="10"/>
+			<Setter Property="Opacity" Value="0.5"/>
+			<Style.Triggers>
+				<Trigger Property="IsMouseOver" Value="True">
+					<Setter Property="Opacity" Value="1.0"/>
+				</Trigger>
+			</Style.Triggers>
+		</Style>
+
+	</UserControl.Resources>
+
 	<Grid>
 		<Grid.RowDefinitions>
 			<!-- Toolbar -->
@@ -32,29 +82,104 @@
 		</WrapPanel>
 
 		<!-- Scripts List -->
-		<Border Grid.Row="1" BorderBrush="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBorderBrushKey}}" BorderThickness="0,1,0,0">
+		<Border Grid.Row="1"
+			BorderBrush="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBorderBrushKey}}"
+			BorderThickness="0,1,0,0">
 			<ListBox x:Name="m_scripts_list" 
 				Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
 				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowTextBrushKey}}"
 				BorderThickness="0"
 				MouseDoubleClick="OnScriptDoubleClick"
-				SelectionChanged="OnScriptSelectionChanged">
+				SelectionChanged="OnScriptSelectionChanged"
+				HorizontalContentAlignment="Stretch">
+				<ListBox.ItemContainerStyle>
+					<Style TargetType="ListBoxItem">
+						<Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+						<Setter Property="ToolTip" Value="{Binding FilePath}"/>
+					</Style>
+				</ListBox.ItemContainerStyle>
 				<ListBox.ItemTemplate>
 					<DataTemplate>
-						<Grid Margin="2">
+						<Grid Margin="2,1">
 							<Grid.ColumnDefinitions>
+								<!-- Script icon -->
 								<ColumnDefinition Width="Auto"/>
+								<!-- Script name + rename pencil -->
 								<ColumnDefinition Width="*"/>
+								<!-- Action buttons -->
 								<ColumnDefinition Width="Auto"/>
 							</Grid.ColumnDefinitions>
-							<TextBlock Grid.Column="0" Text="📝" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
-							<StackPanel Grid.Column="1" VerticalAlignment="Center">
-								<TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"/>
-								<TextBlock Text="{Binding FilePath}" FontSize="10" Opacity="0.6"/>
+
+							<!-- Script icon -->
+							<TextBlock Grid.Column="0"
+								Text="📝"
+								FontSize="14"
+								VerticalAlignment="Center"
+								Margin="0,0,6,0"/>
+
+							<!-- Script name with inline rename pencil -->
+							<StackPanel Grid.Column="1"
+								Orientation="Horizontal"
+								VerticalAlignment="Center">
+								<TextBlock
+									Text="{Binding Name}"
+									FontSize="13"
+									VerticalAlignment="Center">
+									<TextBlock.Style>
+										<!-- Default: semi-bold, theme foreground.
+										     Active script (currently shown in LDraw): bold + green.
+										     Triggered on the bound ScriptInfo.IsActive property. -->
+										<Style TargetType="TextBlock">
+											<Setter Property="FontWeight" Value="SemiBold"/>
+											<Style.Triggers>
+												<DataTrigger Binding="{Binding IsActive}" Value="True">
+													<Setter Property="FontWeight" Value="Bold"/>
+													<Setter Property="Foreground" Value="#4EC9B0"/>
+												</DataTrigger>
+											</Style.Triggers>
+										</Style>
+									</TextBlock.Style>
+								</TextBlock>
+								<Button
+									Content="✏"
+									ToolTip="Rename this script"
+									Tag="{Binding}"
+									Click="OnRenameScript"
+									Style="{StaticResource InlineFlatButtonStyle}"
+									VerticalAlignment="Center"
+									Margin="4,0,0,0"/>
 							</StackPanel>
-							<StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-								<Button Content="▶" ToolTip="Run this script" Tag="{Binding}" Click="OnRunScript" Padding="4,1" Margin="2,0"/>
-								<Button Content="✕" ToolTip="Delete this script" Tag="{Binding}" Click="OnDeleteScript" Padding="4,1" Margin="2,0"/>
+
+							<!-- Action buttons -->
+							<StackPanel Grid.Column="2"
+								Orientation="Horizontal"
+								VerticalAlignment="Center">
+								<Button
+									Content="📂"
+									ToolTip="Reveal in Explorer"
+									Tag="{Binding}"
+									Click="OnRevealScript"
+									Style="{StaticResource FlatButtonStyle}"
+									FontSize="13"
+									Margin="2,0"/>
+								<Button
+									Content="▶"
+									ToolTip="Run this script"
+									Tag="{Binding}"
+									Click="OnRunScript"
+									Style="{StaticResource FlatButtonStyle}"
+									Foreground="#4EC9B0"
+									FontSize="13"
+									Margin="2,0"/>
+								<Button
+									Content="✕"
+									ToolTip="Delete this script"
+									Tag="{Binding}"
+									Click="OnDeleteScript"
+									Style="{StaticResource FlatButtonStyle}"
+									Foreground="#E05561"
+									FontSize="13"
+									Margin="2,0"/>
 							</StackPanel>
 						</Grid>
 					</DataTemplate>
@@ -71,21 +196,15 @@
 			Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
 			MinHeight="40"
 			MaxHeight="160">
-			<ScrollViewer VerticalScrollBarVisibility="Auto"
+			<ScrollViewer
+				VerticalScrollBarVisibility="Auto"
 				HorizontalScrollBarVisibility="Disabled">
-				<ItemsControl x:Name="m_error_list">
-					<ItemsControl.ItemTemplate>
-						<DataTemplate>
-							<TextBlock
-								Text="{Binding}"
-								Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
-								FontFamily="Consolas"
-								FontSize="12"
-								TextWrapping="Wrap"
-								Margin="6,3"/>
-						</DataTemplate>
-					</ItemsControl.ItemTemplate>
-				</ItemsControl>
+				<TextBlock x:Name="m_error_text"
+					Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
+					FontFamily="Consolas"
+					FontSize="12"
+					TextWrapping="Wrap"
+					Margin="6,3"/>
 			</ScrollViewer>
 		</Border>
 

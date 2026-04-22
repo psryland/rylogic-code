@@ -90,6 +90,33 @@ namespace Rylogic.Gui.WPF
 			public bool Handled { get; set; }
 		}
 
+		/// <summary>Event args raised when a 3D scene object is clicked (e.g. via Ctrl+Left click)</summary>
+		public class SceneObjectClickedEventArgs :EventArgs
+		{
+			public SceneObjectClickedEventArgs(View3d.HitTestResult hit, ModifierKeys modifiers, MouseButton button)
+			{
+				Hit = hit;
+				Modifiers = modifiers;
+				Button = button;
+				Handled = false;
+			}
+
+			/// <summary>The native hit test result (may have no hit)</summary>
+			public View3d.HitTestResult Hit { get; }
+
+			/// <summary>The hit object, or null if the ray missed every object</summary>
+			public View3d.Object? HitObject => Hit.HitObject;
+
+			/// <summary>The keyboard modifiers active at the time of the click</summary>
+			public ModifierKeys Modifiers { get; }
+
+			/// <summary>The mouse button that was clicked</summary>
+			public MouseButton Button { get; }
+
+			/// <summary>Set to true to suppress any default behaviour</summary>
+			public bool Handled { get; set; }
+		}
+
 		/// <summary>Event args for when an element or elements is dragged within the chart</summary>
 		public class ChartDraggedEventArgs :EventArgs
 		{
