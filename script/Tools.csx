@@ -342,7 +342,7 @@ public class Tools
 
 				// Check the cert is within its validity period. If it isn't, signing will fail
 				// (NU3018 etc.), so skip it cleanly rather than aborting the build.
-				using var cert = new X509Certificate2(UserVars.CodeSignCert_Pfx, UserVars.CodeSignCert_Pw);
+				using var cert = X509CertificateLoader.LoadPkcs12FromFile(UserVars.CodeSignCert_Pfx, UserVars.CodeSignCert_Pw);
 				var now = DateTime.Now;
 				if (now < cert.NotBefore || now > cert.NotAfter)
 				{

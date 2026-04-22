@@ -90,14 +90,21 @@ jobs:
             dotnet-script $script.FullName
           }
 
-      # Remove C# and VSIX projects, keeping only native (.vcxproj) projects
-      - name: Remove non-native projects from solution
+      # Remove C# and VSIX projects, keeping only native (.vcxproj) projects.
+      # Also remove test/sandbox vcxprojs - this workflow is a "does it compile"
+      # smoke test for the production libraries, not a test runner.
+      - name: Remove non-native and test projects from solution
         shell: pwsh
         run: |
           $csprojs = Select-String -Path Rylogic.sln -Pattern '\.csproj"' |
             ForEach-Object { if ($_ -match '"([^"]+\.csproj)"') { $matches[1] } }
           if ($csprojs) {
             dotnet sln Rylogic.sln remove @csprojs
+          }
+          $testprojs = Select-String -Path Rylogic.sln -Pattern '"[^"]*projects[\\/]tests[\\/][^"]+\.vcxproj"' |
+            ForEach-Object { if ($_ -match '"([^"]+\.vcxproj)"') { $matches[1] } }
+          if ($testprojs) {
+            dotnet sln Rylogic.sln remove @testprojs
           }
 
       # Restore NuGet packages for native projects.
