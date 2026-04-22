@@ -824,7 +824,7 @@ namespace Rylogic.Gui.WPF
 				if (!IsClick(DropSS))
 					return;
 
-				// Cast a ray through the click point and hit-test the scene
+				// Cast a pixel-accurate ray through the click point and hit-test the scene
 				var window = Chart.Scene.Window;
 				var camera = Chart.Scene.Camera;
 				var ray = camera.RaySS(GrabSS, View3d.ESnapMode.Faces, 0f);
