@@ -154,28 +154,28 @@
 				</Style>
 			</Grid.Resources>
 
-			<!-- Expand All button -->
-			<Button
-				Grid.Column="0"
-				Command="{Binding ExpandAll}"
-				Style="{StaticResource ExpandButtonStyle}"
-				ToolTip="Expand All"
-				>
-				<Image
-					Source="{StaticResource tree_expand_all}"
-					RenderOptions.BitmapScalingMode="HighQuality"
-					/>
-			</Button>
-
 			<!-- Collapse All button -->
 			<Button
-				Grid.Column="1"
+				Grid.Column="0"
 				Command="{Binding CollapseAll}"
 				Style="{StaticResource ExpandButtonStyle}"
 				ToolTip="Collapse All"
 				>
 				<Image
 					Source="{StaticResource tree_collapse_all}"
+					RenderOptions.BitmapScalingMode="HighQuality"
+					/>
+			</Button>
+
+			<!-- Expand All button -->
+			<Button
+				Grid.Column="1"
+				Command="{Binding ExpandAll}"
+				Style="{StaticResource ExpandButtonStyle}"
+				ToolTip="Expand All"
+				>
+				<Image
+					Source="{StaticResource tree_expand_all}"
 					RenderOptions.BitmapScalingMode="HighQuality"
 					/>
 			</Button>
