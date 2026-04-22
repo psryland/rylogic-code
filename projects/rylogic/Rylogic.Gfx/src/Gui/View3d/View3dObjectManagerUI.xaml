@@ -15,6 +15,8 @@
 		<ResourceDictionary>
 			<BitmapImage x:Key="plus" UriSource="/Rylogic.Gui.WPF;component/res/plus1.png"/>
 			<BitmapImage x:Key="minus" UriSource="/Rylogic.Gui.WPF;component/res/minus1.png"/>
+			<BitmapImage x:Key="tree_expand_all" UriSource="/Rylogic.Gui.WPF;component/res/tree_expand_all.png"/>
+			<BitmapImage x:Key="tree_collapse_all" UriSource="/Rylogic.Gui.WPF;component/res/tree_collapse_all.png"/>
 			<BitmapImage x:Key="eye_visible" UriSource="/Rylogic.Gui.WPF;component/res/eye_visible.png"/>
 			<BitmapImage x:Key="eye_hidden" UriSource="/Rylogic.Gui.WPF;component/res/eye_hidden.png"/>
 			<BitmapImage x:Key="folder" UriSource="/Rylogic.Gui.WPF;component/res/folder.png"/>
@@ -160,7 +162,7 @@
 				ToolTip="Expand All"
 				>
 				<Image
-					Source="{StaticResource plus}"
+					Source="{StaticResource tree_expand_all}"
 					RenderOptions.BitmapScalingMode="HighQuality"
 					/>
 			</Button>
@@ -173,7 +175,7 @@
 				ToolTip="Collapse All"
 				>
 				<Image
-					Source="{StaticResource minus}"
+					Source="{StaticResource tree_collapse_all}"
 					RenderOptions.BitmapScalingMode="HighQuality"
 					/>
 			</Button>
