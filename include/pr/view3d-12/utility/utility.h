@@ -292,9 +292,9 @@ namespace pr::rdr12
 
 	// Helper for checking values are not overwritten in a lookup table
 	template <class Table, typename Key, typename Value>
-	inline void AddLookup(Table& table, Key const& key, Value const& value)
+	inline void AddLookup(Table& table, Key const& key, Value const& value, bool allow_replace = false)
 	{
-		PR_ASSERT(PR_DBG_RDR, table.count(key) == 0, "Overwriting an existing lookup table item");
+		PR_ASSERT(PR_DBG_RDR, allow_replace || table.count(key) == 0, "Overwriting an existing lookup table item"); (void)allow_replace;
 		table[key] = value;
 	}
 

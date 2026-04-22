@@ -422,7 +422,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_)
+	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
 	{
 		if (resource_path.empty())
 			throw std::runtime_error("A resource path must be given");
@@ -501,7 +501,7 @@ namespace pr::rdr12
 			// Look for an existing DX texture corresponding to the filepath
 			ResourceStore::Access store(rdr());
 			res = store.FindRes(desc.m_uri);
-			if (res == nullptr)
+			if (res == nullptr || force_reload)
 			{
 				// If the texture filepath doesn't exist, use the resolve event
 				if (!exists(filepath))
@@ -519,7 +519,7 @@ namespace pr::rdr12
 				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
-				store.Add(desc.m_uri, res.get());
+				store.Add(desc.m_uri, res.get(), force_reload);
 			}
 			else
 			{
@@ -543,7 +543,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_)
+	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
 	{
 		// Notes:
 		//  - A cube map is an array of 6 2D textures.
@@ -627,7 +627,7 @@ namespace pr::rdr12
 			// Look for an existing DX texture corresponding to the filepath
 			ResourceStore::Access store(rdr());
 			res = store.FindRes(desc.m_uri);
-			if (res == nullptr)
+			if (res == nullptr || force_reload)
 			{
 				auto res_name = filepath.string();
 
@@ -663,7 +663,7 @@ namespace pr::rdr12
 				res = CreateResource(desc.m_rdesc, desc.m_name);
 
 				// Record the uri for reuse
-				store.Add(desc.m_uri, res.get());
+				store.Add(desc.m_uri, res.get(), force_reload);
 			}
 			else
 			{

@@ -803,7 +803,7 @@ namespace pr::rdr12::ldraw
 						// Create the texture
 						try
 						{
-							m_texture = pp.m_factory.CreateTexture2D(tex_info.m_filepath, tex_info.m_tdesc);
+							m_texture = pp.m_factory.CreateTexture2D(tex_info.m_filepath, tex_info.m_tdesc, true);
 							m_texture->m_t2s = tex_info.m_t2s;
 						}
 						catch (std::exception const& e)
