@@ -3305,15 +3305,17 @@ VIEW3D_API BSTR __stdcall View3D_ObjectAddressAt(wchar_t const* ldr_script, int6
 }
 
 // Parse a transform description using the Ldr script syntax
-VIEW3D_API view3d::Mat4x4 __stdcall View3D_ParseLdrTransform(char const* ldr_script)
+VIEW3D_API view3d::Mat4x4 __stdcall View3D_ParseLdrTransform(char const* ldr_script, BOOL* is_affine)
 {
 	try
 	{
 		mem_istream<char> src(std::string_view(ldr_script ? ldr_script : ""));
 		rdr12::ldraw::TextReader reader(src, {});
 		
+		auto affine = true;
 		auto o2w = m4x4::Identity();
-		reader.Transform(o2w);
+		reader.Transform(o2w, affine);
+		if (is_affine) *is_affine = affine;
 		return To<view3d::Mat4x4>(o2w);
 	}
 	CatchAndReport(View3D_ParseLdrTransform, , To<view3d::Mat4x4>(m4x4::Identity()));

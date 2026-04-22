@@ -1462,7 +1462,7 @@ extern "C"
 	VIEW3D_API BSTR __stdcall View3D_ObjectAddressAt(wchar_t const* ldr_script, int64_t position);
 
 	// Parse a transform description using the Ldr script syntax
-	VIEW3D_API pr::view3d::Mat4x4 __stdcall View3D_ParseLdrTransform(char const* ldr_script);
+	VIEW3D_API pr::view3d::Mat4x4 __stdcall View3D_ParseLdrTransform(char const* ldr_script, BOOL* is_affine);
 
 	// Handle standard keyboard shortcuts. 'key_code' should be a standard VK_ key code with modifiers included in the hi word. See 'EKeyCodes'. 'ss_point' is the mouse position in screen space (pixels)
 	VIEW3D_API BOOL __stdcall View3D_TranslateKey(pr::view3d::Window window, int key_code, pr::view3d::Vec2 ss_point);

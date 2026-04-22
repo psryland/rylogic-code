@@ -282,7 +282,7 @@ namespace pr::rdr12::ldraw
 		}
 
 		// Reads a transform accumulatively. 'o2w' must be a valid initial transform
-		m4x4& Transform(m4x4& o2w);
+		m4x4& Transform(m4x4& o2w, bool& affine);
 
 		// Get the next keyword within the current section. Returns false if at the end of the section
 		virtual bool NextKeywordImpl(int& kw) = 0;
