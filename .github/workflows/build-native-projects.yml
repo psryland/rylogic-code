@@ -101,12 +101,15 @@ jobs:
           }
 
       # Restore NuGet packages for native projects.
-      # Uses nuget restore for packages.config and msbuild restore for PackageReference.
+      # All native vcxproj's use packages.config (PackageReference is broken for C++
+      # projects - see build/targets/WinPixEventRuntime.targets). Running
+      # `msbuild /t:restore` here triggers the legacy Microsoft.NuGet.targets which
+      # writes a project.assets.json that then causes "Sequence contains no elements"
+      # when MSBuild tries to consume it during the build. `nuget restore` alone is
+      # the correct path for packages.config-based vcxproj's.
       - name: Restore NuGet packages
         shell: pwsh
-        run: |
-          nuget restore Rylogic.sln
-          msbuild Rylogic.sln /t:restore /p:Configuration=Release /p:Platform=x64
+        run: nuget restore Rylogic.sln
 
       # Override PlatformToolset since CI has VS 2022 (v143) but some
       # projects target older toolsets not available on the runner.
