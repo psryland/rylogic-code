@@ -1,0 +1,42 @@
+<vs_ui:DialogWindow x:Class="Rylogic.LDrawVisualiser.RenameScriptDialog"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:vs_ui="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
+	Title="Rename Script"
+	Width="350"
+	SizeToContent="Height"
+	ResizeMode="NoResize"
+	WindowStartupLocation="CenterOwner"
+	ShowInTaskbar="False">
+
+	<Grid Margin="12">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+
+		<TextBlock Grid.Row="0"
+			Text="Enter a new name for the script:"
+			Margin="0,0,0,6"/>
+
+		<TextBox x:Name="m_name_box"
+			Grid.Row="1"
+			Margin="0,0,0,12"
+			Padding="4,2"
+			KeyDown="OnKeyDown"/>
+
+		<StackPanel Grid.Row="2"
+			Orientation="Horizontal"
+			HorizontalAlignment="Right">
+			<Button Content="OK"
+				Width="75"
+				Margin="0,0,8,0"
+				IsDefault="True"
+				Click="OnOkClick"/>
+			<Button Content="Cancel"
+				Width="75"
+				IsCancel="True"/>
+		</StackPanel>
+	</Grid>
+</vs_ui:DialogWindow>
