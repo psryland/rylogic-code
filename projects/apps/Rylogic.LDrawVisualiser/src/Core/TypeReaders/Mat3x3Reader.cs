@@ -35,10 +35,10 @@ public class Mat3x3Reader : ITypeReader
 				var data = DebugMemoryReader.ReadBytes(debugger, expr, 12 * sizeof(float));
 				if (data == null) return null;
 				float F(int i) => System.BitConverter.ToSingle(data, i * sizeof(float));
-				return new m3x3(
+				return Sanitize.Finite(new m3x3(
 					new v4(F(0), F(1), F(2), F(3)),
 					new v4(F(4), F(5), F(6), F(7)),
-					new v4(F(8), F(9), F(10), F(11)));
+					new v4(F(8), F(9), F(10), F(11))));
 			}
 			case ELanguage.Managed:
 			{
@@ -52,10 +52,10 @@ public class Mat3x3Reader : ITypeReader
 				if (x == null || y == null || z == null || xw == null || yw == null || zw == null)
 					return null;
 
-				return new m3x3(
+				return Sanitize.Finite(new m3x3(
 					new v4(x.Value, xw.Value),
 					new v4(y.Value, yw.Value),
-					new v4(z.Value, zw.Value));
+					new v4(z.Value, zw.Value)));
 			}
 			default:
 			{

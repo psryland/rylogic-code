@@ -33,7 +33,7 @@ public class Vec2Reader : ITypeReader
 				// Native pr::Vec2<float> is two contiguous floats (alignas 4).
 				var data = DebugMemoryReader.ReadBytes(debugger, expr, 2 * sizeof(float));
 				if (data == null) return null;
-				return new v2(System.BitConverter.ToSingle(data, 0), System.BitConverter.ToSingle(data, 4));
+				return Sanitize.Finite(new v2(System.BitConverter.ToSingle(data, 0), System.BitConverter.ToSingle(data, 4)));
 			}
 			case ELanguage.Managed:
 			{
@@ -42,7 +42,7 @@ public class Vec2Reader : ITypeReader
 				var x = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fx}");
 				var y = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fy}");
 				if (x == null || y == null) return null;
-				return new v2(x.Value, y.Value);
+				return Sanitize.Finite(new v2(x.Value, y.Value));
 			}
 			default:
 			{

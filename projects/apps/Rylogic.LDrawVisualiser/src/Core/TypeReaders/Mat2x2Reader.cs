@@ -35,7 +35,7 @@ public class Mat2x2Reader : ITypeReader
 				if (data == null) return null;
 				var x = new v2(System.BitConverter.ToSingle(data, 0), System.BitConverter.ToSingle(data, 4));
 				var y = new v2(System.BitConverter.ToSingle(data, 8), System.BitConverter.ToSingle(data, 12));
-				return new m2x2(x, y);
+				return Sanitize.Finite(new m2x2(x, y));
 			}
 			case ELanguage.Managed:
 			{
@@ -45,7 +45,7 @@ public class Mat2x2Reader : ITypeReader
 				var y_x = ManagedFieldReader.ReadSingle(debugger, $"{expr}.y.x");
 				var y_y = ManagedFieldReader.ReadSingle(debugger, $"{expr}.y.y");
 				if (x_x == null || x_y == null || y_x == null || y_y == null) return null;
-				return new m2x2(new v2(x_x.Value, x_y.Value), new v2(y_x.Value, y_y.Value));
+				return Sanitize.Finite(new m2x2(new v2(x_x.Value, x_y.Value), new v2(y_x.Value, y_y.Value)));
 			}
 			default:
 			{

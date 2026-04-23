@@ -21,20 +21,12 @@ public class SingleReader : ITypeReader
 	/// <inheritdoc/>
 	public object? Read(Debugger debugger, ELanguage lang, string type_name, string expr)
 	{
-		switch (lang)
+		float? raw = lang switch
 		{
-			case ELanguage.Native:
-			{
-				return DebugMemoryReader.ReadSingle(debugger, expr);
-			}
-			case ELanguage.Managed:
-			{
-				return ManagedFieldReader.ReadSingle(debugger, expr);
-			}
-			default:
-			{
-				throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language");
-			}
-		}
+			ELanguage.Native => DebugMemoryReader.ReadSingle(debugger, expr),
+			ELanguage.Managed => ManagedFieldReader.ReadSingle(debugger, expr),
+			_ => throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language"),
+		};
+		return raw.HasValue ? Sanitize.Finite(raw.Value) : (object?)null;
 	}
 }

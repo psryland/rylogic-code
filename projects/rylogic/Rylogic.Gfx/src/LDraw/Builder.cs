@@ -433,7 +433,7 @@ namespace Rylogic.LDraw
 		}
 		public TDerived pos(v4 pos)
 		{
-			return o2w(m4x4.Translation(pos));
+			return o2w(m4x4.Translation(pos.xyz));
 		}
 		public TDerived pos(v3 pos)
 		{

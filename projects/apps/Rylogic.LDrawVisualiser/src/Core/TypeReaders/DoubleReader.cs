@@ -21,20 +21,12 @@ public class DoubleReader : ITypeReader
 	/// <inheritdoc/>
 	public object? Read(Debugger debugger, ELanguage lang, string type_name, string expr)
 	{
-		switch (lang)
+		double? raw = lang switch
 		{
-			case ELanguage.Native:
-			{
-				return DebugMemoryReader.ReadDouble(debugger, expr);
-			}
-			case ELanguage.Managed:
-			{
-				return ManagedFieldReader.ReadDouble(debugger, expr);
-			}
-			default:
-			{
-				throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language");
-			}
-		}
+			ELanguage.Native => DebugMemoryReader.ReadDouble(debugger, expr),
+			ELanguage.Managed => ManagedFieldReader.ReadDouble(debugger, expr),
+			_ => throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language"),
+		};
+		return raw.HasValue ? Sanitize.Finite(raw.Value) : (object?)null;
 	}
 }

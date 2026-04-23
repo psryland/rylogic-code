@@ -120,21 +120,34 @@ namespace Rylogic.LDrawVisualiser.Core
 		/// <inheritdoc/>
 		public override bool TryConvert(ConvertBinder binder, out object? result)
 		{
-			result = null;
-
-			// This looks at the target type being converted to, and if it's a known type,
-			// it tries to parse the current expression value as that type.
 			ThreadHelper.ThrowIfNotOnUIThread();
+
+			// Root proxy ('vars' itself) has no expression to evaluate — there's nothing
+			// meaningful to convert it to. Let the DLR raise its normal error.
 			if (string.IsNullOrEmpty(m_path))
+			{
+				result = null;
 				return false;
+			}
 
+			// If the symbol resolves and we have a reader for its type, return the typed value.
 			var dbg_expr = m_debugger.GetExpression(m_path);
-			if (!dbg_expr.IsValidValue)
-				return false;
+			if (dbg_expr.IsValidValue)
+			{
+				var typed = m_type_handler.Dispatch(dbg_expr.Type, m_path);
+				if (typed != null)
+				{
+					result = typed;
+					return true;
+				}
+			}
 
-			// Allow implicit conversion to numeric types by evaluating the current path
-			result = m_type_handler.Dispatch(dbg_expr.Type, m_path);
-			return result != null;
+			// Symbol undefined, or defined but no reader for its type — fall back to a
+			// default for the target type so argument binding succeeds. Scripts that
+			// guard rendering with 'vars.foo != null' still get the protection they
+			// expect; this just stops the .pos(vars.foo) call inside the guarded block
+			// from being the thing that throws when 'foo' is undefined.
+			return Defaults.TryGet(binder.Type, out result);
 		}
 
 		/// <inheritdoc/>

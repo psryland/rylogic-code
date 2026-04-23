@@ -33,11 +33,11 @@ public class QuatReader : ITypeReader
 				// Native pr::Quat<float> is alignas(16), four contiguous floats = 16 bytes.
 				var data = DebugMemoryReader.ReadBytes(debugger, expr, 4 * sizeof(float));
 				if (data == null) return null;
-				return new Quat(
+				return Sanitize.Finite(new Quat(
 					System.BitConverter.ToSingle(data, 0),
 					System.BitConverter.ToSingle(data, 4),
 					System.BitConverter.ToSingle(data, 8),
-					System.BitConverter.ToSingle(data, 12));
+					System.BitConverter.ToSingle(data, 12)));
 			}
 			case ELanguage.Managed:
 			{
@@ -47,7 +47,7 @@ public class QuatReader : ITypeReader
 				var z = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fz}");
 				var w = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fw}");
 				if (x == null || y == null || z == null || w == null) return null;
-				return new Quat(x.Value, y.Value, z.Value, w.Value);
+				return Sanitize.Finite(new Quat(x.Value, y.Value, z.Value, w.Value));
 			}
 			default:
 			{
