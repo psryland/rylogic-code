@@ -22,6 +22,12 @@ namespace Rylogic.LDrawVisualiser
 			m_control.OnEnterBreakMode();
 		}
 
+		/// <summary>Called by the package when the debugger leaves run/break mode (debug session ended)</summary>
+		internal void OnLeaveDebugMode()
+		{
+			m_control.OnLeaveDebugMode();
+		}
+
 		/// <summary>Called by the package when a script file is saved</summary>
 		internal void OnScriptSaved(string filepath)
 		{

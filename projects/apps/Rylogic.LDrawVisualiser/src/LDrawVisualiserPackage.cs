@@ -49,6 +49,7 @@ namespace Rylogic.LDrawVisualiser
 			{
 				m_debugger_events = Dte.Events.DebuggerEvents;
 				m_debugger_events.OnEnterBreakMode += OnEnterBreakMode;
+				m_debugger_events.OnEnterDesignMode += OnEnterDesignMode;
 
 				m_document_events = Dte.Events.DocumentEvents;
 				m_document_events.DocumentSaved += OnDocumentSaved;
@@ -68,7 +69,10 @@ namespace Rylogic.LDrawVisualiser
 			{
 				Microsoft.VisualStudio.Shell.ThreadHelper.ThrowIfNotOnUIThread();
 				if (m_debugger_events != null)
+				{
 					m_debugger_events.OnEnterBreakMode -= OnEnterBreakMode;
+					m_debugger_events.OnEnterDesignMode -= OnEnterDesignMode;
+				}
 				if (m_document_events != null)
 					m_document_events.DocumentSaved -= OnDocumentSaved;
 			}
@@ -88,6 +92,14 @@ namespace Rylogic.LDrawVisualiser
 		private void OnEnterBreakMode(dbgEventReason reason, ref dbgExecutionAction action)
 		{
 			ToolWindow?.OnEnterBreakMode();
+		}
+
+		// Fires when the debug session ends (target process exits or user stops debugging).
+		// We use this to drop the expression cache because cached values refer to a process
+		// that no longer exists and would be misleading on the next debug session.
+		private void OnEnterDesignMode(dbgEventReason reason)
+		{
+			ToolWindow?.OnLeaveDebugMode();
 		}
 
 		private void OnDocumentSaved(Document document)

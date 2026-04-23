@@ -3,15 +3,15 @@ namespace Rylogic.LDrawVisualiser.Core.TypeReaders;
 using System;
 using System.Collections.Generic;
 using EnvDTE;
+using Rylogic.LDrawVisualiser.Core;
 
-/// <summary>
-/// Holds type readers that scripts have registered at runtime via vars.RegisterReader(...).
-/// Checked before the built-in readers so scripts can override built-in behaviour.
-/// Registrations are scoped to the lifetime of the owning TypeHandler (one script run).
-/// Lookup is O(1) on the type-name dictionary.
-/// </summary>
 internal class ScriptReader : ITypeReader
 {
+	// Notes:
+	// - Holds type readers that scripts have registered at runtime via vars.RegisterReader(...).
+	// - Checked before the built-in readers so scripts can override built-in behaviour.
+	// - Registrations are scoped to the lifetime of the owning TypeHandler (one script run).
+	// - Lookup is O(1) on the type-name dictionary.
 	private readonly Dictionary<string, Func<dynamic, object?>> m_readers = new();
 
 	/// <summary>Register a reader for the exact debugger-reported type name 'type_name'</summary>
@@ -36,9 +36,10 @@ internal class ScriptReader : ITypeReader
 			return null;
 
 		// The lambda receives a DebugProxy positioned at 'expr' so it can chain field
-		// accesses (v.x, v.y, ...). The proxy shares this TypeHandler instance, so any
-		// nested reads will also see script-registered readers and built-ins.
-		var proxy = new DebugProxy(debugger, expr, m_owner);
+		// accesses (v.x, v.y, ...). The proxy shares this TypeHandler instance and the
+		// owning ExpressionCache so nested reads see script-registered readers, built-ins
+		// and the last-known-value cache consistently.
+		var proxy = new DebugProxy(debugger, expr, m_owner, m_owner.Cache);
 		return fn(proxy);
 	}
 

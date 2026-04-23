@@ -18,8 +18,14 @@ public class TypeHandler
 	private readonly ScriptReader m_script_readers;
 
 	public TypeHandler(Debugger debugger)
+		: this(debugger, new ExpressionCache())
+	{
+	}
+
+	public TypeHandler(Debugger debugger, ExpressionCache cache)
 	{
 		m_debugger = debugger;
+		Cache = cache;
 		m_script_readers = new ScriptReader();
 		m_readers = new List<ITypeReader>
 		{
@@ -57,6 +63,11 @@ public class TypeHandler
 
 	/// <summary>Register a script-supplied reader for 'type_name'. See DebugProxy.RegisterReader</summary>
 	public void Register(string type_name, Func<dynamic, object?> reader) => m_script_readers.Register(type_name, reader);
+
+	/// <summary>The expression-value cache shared with the owning DebugProxy chain.
+	/// Exposed so script-registered readers can spawn child proxies that honour the
+	/// same cache state as the parent.</summary>
+	public ExpressionCache Cache { get; }
 
 	/// <summary>Read the value of 'expr' (which has reported type 'ty'). Returns null if no reader matched</summary>
 	public object? Dispatch(string ty, string expr)
