@@ -81,7 +81,7 @@ namespace pr::collision
 		{
 			auto seg_pt = Clamp(-Dot3(mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
 			auto box_pt = v4(Sign(seg_pt.x, false), Sign(seg_pt.y, false), Sign(seg_pt.z, false), 0.0f) * box_radii;
-			seg_pt = Clamp(Dot3(seg_pt - mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
+			seg_pt = Clamp(Dot3(box_pt - mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
 			box_pt = Clamp(seg_pt, -box_radii, box_radii); // This extra refinement handles line ends near box corners
 			auto sep = seg_pt - box_pt;
 			if (auto len_sq = LengthSq(sep); len_sq > Sqr(math::tiny<float>))

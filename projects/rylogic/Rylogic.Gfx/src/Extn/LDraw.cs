@@ -53,7 +53,7 @@ namespace Rylogic.LDraw
 				case EShape.Line:
 				{
 					var s = Marshal.PtrToStructure<ShapeLine>(base_ptr);
-					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(50, 1).end_caps().o2w(s.m_base.m_s2p);
+					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape.Polytope:
