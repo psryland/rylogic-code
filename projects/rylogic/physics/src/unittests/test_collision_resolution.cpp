@@ -24,6 +24,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_CollisionResolution() {};
+
 	// Snapshot of the system's conserved quantities at a moment in time.
 	// Used to compare before/after collision for conservation checks.
 	struct SystemState
@@ -513,5 +515,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_CollisionResolution() {} }
 #endif

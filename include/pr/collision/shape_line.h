@@ -9,26 +9,27 @@
 namespace pr::collision
 {
 	// A Line segment shape with optional thickness.
-	// The line is aligned to the Z axis, centred on the origin, with half-length = m_radius.
-	// When m_thickness > 0, the line has a cylindrical collision envelope (without hemispherical end-caps).
+	// The line is aligned to the Z axis, centred on the origin, with half-length = m_hlength.
+	// When m_radius > 0, the line has a cylindrical collision envelope (without hemispherical end-caps).
 	// The collision normal always comes from the OTHER shape's geometry, not from the line's end-caps.
 	struct ShapeLine
 	{
 		Shape m_base;
-		float m_radius;    // Half-length along the Z axis. Length = 2 * m_radius.
-		float m_thickness; // Collision radius perpendicular to the Z axis. 0 = infinitely thin.
+		float m_hlength; // Half-length along the Z axis. Length = 2 * m_hlength.
+		float m_radius;  // Collision radius perpendicular to the Z axis. 0 = infinitely thin.
 		int pad[2];
 
 		ShapeLine() = default;
-		explicit ShapeLine(float length, float thickness = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Line, sizeof(ShapeLine), shape_to_parent, material_id, flags)
-			,m_radius(length * 0.5f)
-			,m_thickness(thickness * 0.5f)
+		explicit ShapeLine(float length, float radius = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Line, sizeof(ShapeLine), shape_to_parent, material_id, flags)
+			, m_hlength(length * 0.5f)
+			, m_radius(radius)
+			, pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}
-		explicit ShapeLine(v4 a, v4 b, float thickness = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:ShapeLine(Length(b-a), thickness, shape_to_parent * m4x4::Transform(b-a, v4::ZAxis(), (a+b)/2.0f), material_id, flags)// checkme
+		explicit ShapeLine(v4 a, v4 b, float radius = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			:ShapeLine(Length(b-a), radius, shape_to_parent * m4x4::Transform(b-a, v4::ZAxis(), (a+b)/2.0f), material_id, flags)
 		{}
 		
 		// Conversion
@@ -56,7 +57,7 @@ namespace pr::collision
 	// Includes the thickness envelope (hemispherical ends for bounding purposes).
 	inline BBox pr_vectorcall CalcBBox(ShapeLine const& shape)
 	{
-		return BBox(v4::Origin(), v4(shape.m_thickness, shape.m_thickness, shape.m_radius + shape.m_thickness, 0.0f));
+		return BBox(v4::Origin(), v4(shape.m_radius, shape.m_radius, shape.m_hlength + shape.m_radius, 0.0f));
 	}
 
 	// Shift the centre of a line
@@ -72,14 +73,14 @@ namespace pr::collision
 	{
 		// Choose the endpoint furthest in the given direction
 		sup_vert_id = direction.z >= 0;
-		auto vert = v4(0, 0, Sign(direction.z) * shape.m_radius, 1);
+		auto vert = v4(0, 0, Sign(direction.z) * shape.m_hlength, 1);
 
 		// Add hemispherical end-cap offset for thick lines
-		if (shape.m_thickness > 0)
+		if (shape.m_radius > 0)
 		{
 			auto len_sq = LengthSq(direction);
 			if (len_sq > Sqr(math::tiny<float>))
-				vert += shape.m_thickness * direction / Sqrt(len_sq);
+				vert += shape.m_radius * direction / Sqrt(len_sq);
 		}
 		return vert;
 	}
@@ -87,18 +88,18 @@ namespace pr::collision
 	// Find the nearest point and distance from a point to a shape. 'shape' and 'point' are in the same space
 	inline void pr_vectorcall ClosestPoint(ShapeLine const& shape, v4 point, float& distance, v4& closest)
 	{
-		if (Abs(point.z) < shape.m_radius)
+		if (Abs(point.z) < shape.m_hlength)
 		{
 			closest = v4(0, 0, point.z, 1);
 			distance = Len(point.x, point.y);
 		}
 		else
 		{
-			closest = v4(0, 0, Sign(point.z) * shape.m_radius, 1);
+			closest = v4(0, 0, Sign(point.z) * shape.m_hlength, 1);
 			distance = Length(point - closest);
 		}
 
-		// Reduce distance by thickness (the surface is m_thickness away from the axis)
-		distance = std::max(0.0f, distance - shape.m_thickness);
+		// Reduce distance by thickness (the surface is m_radius away from the axis)
+		distance = std::max(0.0f, distance - shape.m_radius);
 	}
 }

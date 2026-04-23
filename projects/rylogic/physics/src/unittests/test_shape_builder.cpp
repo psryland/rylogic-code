@@ -10,6 +10,7 @@
 namespace pr::physics::tests
 {
 	using namespace pr::collision;
+	void ForceLink_ShapeBuilder() {}
 
 	PRUnitTestClass(ShapeBuilderTests)
 	{
@@ -121,5 +122,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_ShapeBuilder() {} }
 #endif

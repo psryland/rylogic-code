@@ -12,69 +12,84 @@
 
 namespace pr::collision
 {
-	// Test for overlap between two shapes, with generic penetration collection
+	// Test for overlap between a capsule (ShapeLine) and an OBB (ShapeBox) using SAT.
+	//
+	// A ShapeLine is a capsule: a segment of half-length 'line_hlen' plus spherical end caps of radius 'line_radius'.
+	// For each candidate separating axis 'n' (unit, in box space):
+	//   box projection radius:      rb = |n.x|*box_radii.x + |n.y|*box_radii.y + |n.z|*box_radii.z
+	//   segment projection radius:  rs = |n.line_axis| * line_hlen
+	//   signed centre separation:   d  = n . mid     (box centre is at origin)
+	//   penetration depth:          rb + rs + line_radius - |d|
+	// If any axis gives depth <= 0 the shapes are separated. Otherwise the axis with the smallest
+	// depth is the MTV.
+	//
+	// Candidate axes (7 total):
+	//   - 3 box face normals           (face contacts)
+	//   - 3 box_axis x line_axis       (edge-edge contacts)
+	//   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
 	template <typename Penetration>
 	void pr_vectorcall LineVsBox(Shape const& line_, m4x4 const& l2w_, Shape const& box_, m4x4 const& b2w_, Penetration& pen)
-	{ 
-		auto& box = shape_cast<ShapeBox>(box_); 
-		auto& line = shape_cast<ShapeLine>(line_); 
-		auto b2w = b2w_ * box_.m_s2p; 
-		auto l2w = l2w_ * line_.m_s2p; 
- 
-		// Compute a transform for 'line' in 'box's frame 
-		auto l2b = InvertOrthonormal(b2w) * l2w; 
- 
-		// Line segment mid-point in box space 
-		auto mid = l2b.pos; 
- 
-		// Line segment "radius" plus an epsilon term to counteract arithmetic 
-		// errors when segment is (near) parallel to a coordinate axis. 
-		auto half = line.m_radius * l2b.z; 
-		auto rad = Abs(half) + v4(math::tiny<float>); 
- 
-		// Try box face normals as separating axes.
-		// For thick lines, the collision envelope extends m_thickness perpendicular to the line axis.
-		if (!pen(box.m_radius.x + rad.x + line.m_thickness - Abs(mid.x), [&]{ return Sign(mid.x) * b2w.x; }, box_.m_material_id, line_.m_material_id)) return; 
-		if (!pen(box.m_radius.y + rad.y + line.m_thickness - Abs(mid.y), [&]{ return Sign(mid.y) * b2w.y; }, box_.m_material_id, line_.m_material_id)) return; 
-		if (!pen(box.m_radius.z + rad.z + line.m_thickness - Abs(mid.z), [&]{ return Sign(mid.z) * b2w.z; }, box_.m_material_id, line_.m_material_id)) return; 
- 
-		// Lambda for returning a separating axis with the correct sign
-		auto sep_axis = [&](v4 sa) { return Sign(Dot(l2b.pos, sa)) * sa; };
-		float ra,rb;
+	{
+		auto& box = shape_cast<ShapeBox>(box_);
+		auto& line = shape_cast<ShapeLine>(line_);
+		auto b2w = b2w_ * box_.m_s2p;
+		auto l2w = l2w_ * line_.m_s2p;
 
-		// Try cross products of the segment direction with the coordinate axes.
-		// Example for XAxis x LineSegment:
-		//' axis = Cross(Xaxis, line) = v4(0, -line.z, line.y, 0) ('line' in box space)
-		//' ra = Dot(axis, box.radius) = unsigned radius of the box in the direction of 'axis'
-		//'    =  axis.y * box.radius.y + axis.z * box.radius.z;
-		//'    = -line.z * box.radius.y + line.y * box.radius.z;
-		//' rb = Dot(axis, mid) = distance to the line in the direction of 'axis' (note: line is perpendicular to axis)
-		//'    =  axis.y * mid.y + axis.z * mid.z;
-		//'    = -line.z * mid.y + line.y * mid.z;
-		//'Flip 'mid' and 'axis' into the positive octant. The length of 'line'
-		// doesn't matter so long as the length of the separating axis is scaled
-		// by the same amount, so we can use 'rad == abs(line/2)':
-		//'  ra = rad.z * box.radius.y + rad.y * box.radius.z;
-		//'  rb = rad.z * abs(mid.y)    + rad.y * abs(mid.z);
-		//' depth = ra - rb
-		// For cross-product axes, thickness contributes m_thickness * |sin(angle_between_box_axis_and_line)|.
-		// In the unnormalized depth scale, this equals m_thickness * Len(relevant half-vector components).
-		ra = rad.z * box.m_radius.y + rad.y * box.m_radius.z + line.m_thickness * Len(half.y, half.z);
-		rb = rad.z * Abs(mid.y)     + rad.y * Abs(mid.z);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.x, l2w.z)); }, box_.m_material_id, line_.m_material_id))
-			return;
+		// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
+		auto l2b         = InvertOrthonormal(b2w) * l2w;
+		auto mid         = l2b.pos.w0();
+		auto line_axis   = l2b.z;
+		auto box_radii   = box.m_radius;
+		auto line_hlen   = line.m_hlength;
+		auto line_radius = line.m_radius;
 
-		//' axis = Cross(Yaxis, line) = v4(line.z, 0, -line.x, 0) ('line' in box space)
-		ra = rad.z * box.m_radius.x + rad.x * box.m_radius.z + line.m_thickness * Len(half.x, half.z);
-		rb = rad.z * Abs(mid.x)     + rad.x * Abs(mid.z);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.y, l2w.z)); }, box_.m_material_id, line_.m_material_id))
-			return;
+		auto best_depth = limits<float>::max();
+		auto best_axis  = v4::XAxis();
 
-		//' axis = Cross(Zaxis, line) = v4(-line.y, line.x, 0, 0) ('line' in box space)
-		ra = rad.y * box.m_radius.x + rad.x * box.m_radius.y + line.m_thickness * Len(half.x, half.y);
-		rb = rad.y * Abs(mid.x)     + rad.x * Abs(mid.y);
-		if (!pen(ra - rb, [&]{ return line.m_radius * sep_axis(Cross(b2w.z, l2w.z)); }, box_.m_material_id, line_.m_material_id))
-			return;
+		// Test one unit-length axis 'n' and track the minimum penetration depth (negative = separated).
+		auto Test = [&](v4 const& n)
+		{
+			auto rb    = Dot3(Abs(n), box_radii);
+			auto rs    = Abs(Dot3(n, line_axis)) * line_hlen;
+			auto d     = Dot3(n, mid);
+			auto depth = rb + rs + line_radius - Abs(d);
+			if (depth < best_depth)
+			{
+				best_depth = depth;
+				best_axis = n;// d >= 0 ? n : -n; // Choose sign so the axis points from box toward line
+			}
+		};
+
+		// 3 box face normals
+		Test(v4::XAxis());
+		Test(v4::YAxis());
+		Test(v4::ZAxis());
+
+		// 3 cross products of line axis with box axes (edge-edge)
+		for (int i = 0; i != 3; ++i)
+		{
+			auto e = v4(float(i == 0), float(i == 1), float(i == 2), 0.0f);
+			auto n = Cross(line_axis, e);
+			auto len_sq = LengthSq(n);
+
+			// Skip if the line is parallel to this box axis — the face axis already covers this case
+			if (len_sq <= Sqr(math::tiny<float>)) continue;
+			Test(n / Sqrt(len_sq));
+		}
+
+		// Test an axis from the closest box corner to the line.
+		{
+			auto seg_pt = Clamp(-Dot3(mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
+			auto box_pt = v4(Sign(seg_pt.x, false), Sign(seg_pt.y, false), Sign(seg_pt.z, false), 0.0f) * box_radii;
+			seg_pt = Clamp(Dot3(seg_pt - mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
+			box_pt = Clamp(seg_pt, -box_radii, box_radii); // This extra refinement handles line ends near box corners
+			auto sep = seg_pt - box_pt;
+			if (auto len_sq = LengthSq(sep); len_sq > Sqr(math::tiny<float>))
+				Test(sep/ Sqrt(len_sq));
+		}
+
+		// Report the minimum-penetration axis (depth is negative if the shapes are separated).
+		pen(best_depth, [&]{ return b2w * best_axis; }, box_.m_material_id, line_.m_material_id);
 	}
 
 	// Returns true if the line intersects the orientated box
@@ -232,12 +247,12 @@ namespace pr::collision::tests
 		// Thick line: just outside the box + thickness envelope
 		PRUnitTestMethod(ThickLineSeparated)
 		{
-			auto line = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
-			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent=1
+			auto line = ShapeLine{2.0f, 0.1f};
+			auto box = ShapeBox{v4{2, 2, 2, 0}};
 			auto b2w = m4x4::Identity();
 
-			// Line offset 1.2 in X: box.m_radius.x + line.m_thickness = 1 + 0.1 = 1.1 < 1.2
-			auto l2w = m4x4::Translation(v4{1.2f, 0, 0, 0});
+			// Line offset 1.2 in X: box.m_radius.x + line.m_radius = 1 + 0.1 = 1.1 < 1.2
+			auto l2w = m4x4::Translation(1.2f, 0, 0);
 			PR_EXPECT(!LineVsBox(line, l2w, box, b2w));
 		}
 	};

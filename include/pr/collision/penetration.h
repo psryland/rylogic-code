@@ -11,22 +11,23 @@ namespace pr::collision
 	struct Contact
 	{
 		// Notes:
-		//  To find the deepest points on 'lhs','rhs' add/subtract half the 'depth' along 'axis'.
-		//  Applied impulses should be equal and opposite, and applied at the same point in space (hence one contact point).
+		//  - The space for 'm_axis' and 'm_point' is whatever the common space of the collision detection is (typically world space).
+		//  - To find the deepest points on 'shapeA' or 'shapeB', add/subtract half the 'm_depth' along 'm_axis' from 'm_point' respectively.
+		//  - Applied impulses should be equal and opposite, and applied at the same point in space (hence one contact point).
 
-		// The collision normal (normalised) from 'lhs' to 'rhs'
+		// The collision normal (normalised) from 'shapeA' to 'shapeB' (in world space)
 		v4 m_axis;
 
-		// The contact point between 'lhs' and 'rhs'. (Equal to half the penetration depth, along the collision normal)
+		// The contact point between 'shapeA' and 'shapeB'. (Equal to half the penetration depth, along the collision normal)
 		v4 m_point;
 
 		// The depth of penetration. Positive values mean overlap
 		float m_depth;
 
-		// The material id of the material associated with the contact point on 'lhs'
+		// The material id of the material associated with the contact point on 'shapeA'
 		int m_mat_idA;
 
-		// The material id of the material associated with the contact point on 'rhs'
+		// The material id of the material associated with the contact point on 'shapeB'
 		int m_mat_idB;
 
 		int pad;
@@ -40,11 +41,18 @@ namespace pr::collision
 			,pad()
 		{}
 
-		// Reverse the sense of the contact information
-		void flip()
+		// True if this struct represents contact
+		bool contact() const
 		{
-			m_axis = -m_axis;
-			std::swap(m_mat_idA, m_mat_idB);
+			return m_depth > 0;
+		}
+
+		// Reverse the sense of the contact information
+		friend void Flip(Contact& c)
+		{
+			// Note that 'm_point' is unchanged because it is the midpoint of the penetration
+			c.m_axis = -c.m_axis;
+			std::swap(c.m_mat_idA, c.m_mat_idB);
 		}
 	};
 
@@ -52,9 +60,9 @@ namespace pr::collision
 	struct Penetration
 	{
 		// Notes:
-		//  Calculate depth as: 'just-contacting-distance - actual-distance' = positive if overlapping
-		//  Initialize 'm_depth_sq' with "max penetration" since we typically want the minimum penetration.
-		//  We expect to test at least one separating axis which ensures 'm_depth_sq' is always set to a valid value.
+		//  - Calculate depth as: 'just-contacting-distance - actual-distance' = positive if overlapping.
+		//  - 'm_depth_sq' is initialised with "max penetration" since we typically want the minimum penetration.
+		//  - We expect to test at least one separating axis which ensures 'm_depth_sq' is always set to a valid value.
 
 		v4    m_axis;        // The axis of minimum penetration (not normalised)
 		float m_axis_len_sq; // The square of the separating axis length

@@ -1,7 +1,13 @@
-//************************************
-// Physics Sandbox — GPU vs CPU Comparison Tests
-//  Copyright (c) Rylogic Ltd 2026
-//************************************
+//*********************************************
+// Physics Engine
+//  Copyright (C) Rylogic Ltd 2016
+//*********************************************
+
+#if 0 // CPU is unsupported... 
+
+// These tests need updating to call the CPU functions as needed, rather than supporting
+// a CPU based Engine::Step.
+
 // Unit tests that compare each GPU compute step against the equivalent
 // CPU implementation. Each test packs known initial state, runs both
 // paths, and compares results within tolerance.
@@ -19,6 +25,7 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_GpuCompare() {}
 	namespace gpu_compare
 	{
 		// Tolerance for GPU vs CPU comparison (float32 precision across GPU boundary)
@@ -304,14 +311,9 @@ namespace pr::physics::tests
 				};
 				bodies[0].VelocityWS(v4::Zero(), vel_a);
 				bodies[1].VelocityWS(v4::Zero(), vel_b);
+				bodies[0].Collided += [&](auto&, auto&) { result.gpu_collision = true; };
 
 				physics::Engine engine;
-				engine.UseGpuResolve(true);
-				//engine.PostCollisionDetection += [&](auto&, auto args)
-				//{
-				//	if (!args.m_contacts.empty())
-				//		result.gpu_collision = true;
-				//};
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -335,14 +337,9 @@ namespace pr::physics::tests
 				};
 				bodies[0].VelocityWS(v4::Zero(), vel_a);
 				bodies[1].VelocityWS(v4::Zero(), vel_b);
+				bodies[0].Collided += [&](auto&, auto&) { result.cpu_collision = true; };
 
 				physics::Engine engine;
-				engine.UseGpuResolve(false);
-				//engine.PostCollisionDetection += [&](auto&, auto args)
-				//{
-				//	if (!args.m_contacts.empty())
-				//		result.cpu_collision = true;
-				//};
 
 				for (int step = 0; step != 5000; ++step)
 				{
@@ -409,8 +406,7 @@ namespace pr::physics::tests
 				ground, inertia_ground, v4{0, 0, -0.5f, 1}, v4{0, 0, 0, 0});
 
 			auto log = std::ofstream(temp_dir() / "BoxOnGround.log");
-			log << std::format("  GPU collision: {}, CPU collision: {}\n",
-				r.gpu_collision ? "yes" : "no", r.cpu_collision ? "yes" : "no");
+			log << std::format("  GPU collision: {}, CPU collision: {}\n", r.gpu_collision ? "yes" : "no", r.cpu_collision ? "yes" : "no");
 
 			PR_EXPECT(r.gpu_collision);
 			PR_EXPECT(r.cpu_collision);
@@ -419,10 +415,8 @@ namespace pr::physics::tests
 			{
 				auto lin_diff = Length(r.gpu_momentum_a.lin - r.cpu_momentum_a.lin);
 				log << std::format("  Box lin_diff={:.6f}\n", lin_diff);
-				log << std::format("  GPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n",
-					r.gpu_momentum_a.lin.x, r.gpu_momentum_a.lin.y, r.gpu_momentum_a.lin.z);
-				log << std::format("  CPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n",
-					r.cpu_momentum_a.lin.x, r.cpu_momentum_a.lin.y, r.cpu_momentum_a.lin.z);
+				log << std::format("  GPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n", r.gpu_momentum_a.lin.x, r.gpu_momentum_a.lin.y, r.gpu_momentum_a.lin.z);
+				log << std::format("  CPU box mom_lin=({:.4f}, {:.4f}, {:.4f})\n", r.cpu_momentum_a.lin.x, r.cpu_momentum_a.lin.y, r.cpu_momentum_a.lin.z);
 				PR_EXPECT(lin_diff < 0.1f);
 			}
 		}
@@ -566,23 +560,18 @@ namespace pr::physics::tests
 
 			auto run_collision = [&](bool gpu_detect, bool gpu_resolve) -> std::pair<v8motion, v8motion>
 			{
+				bool collision_done = false;
 				physics::RigidBody bodies[2] = {
 					physics::RigidBody{&sphere, m4x4::Translation(v4{-5, 0, 0, 1}), inertia},
 					physics::RigidBody{&sphere, m4x4::Translation(v4{+5, 0, 0, 1}), inertia},
 				};
 				bodies[0].VelocityWS(v4::Zero(), v4{+3, 0, 0, 0});
 				bodies[1].VelocityWS(v4::Zero(), v4{-3, 0, 0, 0});
+				bodies[0].Collided += [&](auto&, auto&) { collision_done = true; };
 
 				physics::Engine engine;
 				engine.UseGpuDetect(gpu_detect);
 				engine.UseGpuResolve(gpu_resolve);
-				
-				bool collision_done = false;
-				//engine.PostCollisionDetection += [&](auto&, auto args)
-				//{
-				//	if (!args.m_contacts.empty())
-				//		collision_done = true;
-				//};
 
 				for (int step = 0; step != 5000 && !collision_done; ++step)
 				{
@@ -600,14 +589,10 @@ namespace pr::physics::tests
 			auto [full_cpu_va, full_cpu_vb] = run_collision(false, false);
 
 			auto log = std::ofstream(temp_dir() / "FullGpuVsCpuSphereSphere.log");
-			log << std::format("  Full GPU  (GJK+GPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
-				full_gpu_va.lin.x, full_gpu_va.lin.y, full_gpu_va.lin.z, full_gpu_vb.lin.x, full_gpu_vb.lin.y, full_gpu_vb.lin.z);
-			log << std::format("  GJK+CPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
-				gjk_cpu_va.lin.x, gjk_cpu_va.lin.y, gjk_cpu_va.lin.z, gjk_cpu_vb.lin.x, gjk_cpu_vb.lin.y, gjk_cpu_vb.lin.z);
-			log << std::format("  SAT+GPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
-				sat_gpu_va.lin.x, sat_gpu_va.lin.y, sat_gpu_va.lin.z, sat_gpu_vb.lin.x, sat_gpu_vb.lin.y, sat_gpu_vb.lin.z);
-			log << std::format("  Full CPU  (SAT+CPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n",
-				full_cpu_va.lin.x, full_cpu_va.lin.y, full_cpu_va.lin.z, full_cpu_vb.lin.x, full_cpu_vb.lin.y, full_cpu_vb.lin.z);
+			log << std::format("  Full GPU  (GJK+GPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n", full_gpu_va.lin.x, full_gpu_va.lin.y, full_gpu_va.lin.z, full_gpu_vb.lin.x, full_gpu_vb.lin.y, full_gpu_vb.lin.z);
+			log << std::format("  GJK+CPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n", gjk_cpu_va.lin.x, gjk_cpu_va.lin.y, gjk_cpu_va.lin.z, gjk_cpu_vb.lin.x, gjk_cpu_vb.lin.y, gjk_cpu_vb.lin.z);
+			log << std::format("  SAT+GPUres:             va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n", sat_gpu_va.lin.x, sat_gpu_va.lin.y, sat_gpu_va.lin.z, sat_gpu_vb.lin.x, sat_gpu_vb.lin.y, sat_gpu_vb.lin.z);
+			log << std::format("  Full CPU  (SAT+CPUres): va=({:.6f}, {:.6f}, {:.6f}) vb=({:.6f}, {:.6f}, {:.6f})\n", full_cpu_va.lin.x, full_cpu_va.lin.y, full_cpu_va.lin.z, full_cpu_vb.lin.x, full_cpu_vb.lin.y, full_cpu_vb.lin.z);
 			log << "  Expected analytic:      va=(-3, 0, 0) vb=(+3, 0, 0)\n";
 
 			// The key diagnostic: which combination breaks?
@@ -622,5 +607,5 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_GpuCompare() {} }
+#endif
 #endif

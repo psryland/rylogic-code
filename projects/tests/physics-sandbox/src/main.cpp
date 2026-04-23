@@ -78,9 +78,9 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 
 	// Check for -unittest mode before initialising any GUI resources.
 	// Usage: -unittest [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
-	if (cmd.count("unittest"))
+	if (cmd.count("unittests"))
 	{
-		auto const& arg = cmd("unittest");
+		auto const& arg = cmd("unittests");
 		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
 		return physics_sandbox::RunUnitTests(filter);
 	}

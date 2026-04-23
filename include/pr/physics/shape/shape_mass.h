@@ -64,8 +64,8 @@ namespace pr::physics
 	// When thickness == 0, uses a thin rod: Ixx = Iyy = (1/12)*L^2, Izz ≈ 0
 	inline m3x3 UnitInertia(ShapeLine const& shape)
 	{
-		auto L = 2.0f * shape.m_radius;     // Full length
-		auto r = shape.m_thickness;          // Collision radius (half-thickness)
+		auto L = 2.0f * shape.m_hlength; // Full length
+		auto r = shape.m_radius;         // Collision radius (half-thickness)
 		auto inertia = m3x3{};
 		if (r > math::tiny<float>)
 		{
@@ -189,8 +189,8 @@ namespace pr::physics
 	{
 		// Volume depends on thickness: cylinder of radius m_thickness and length 2*m_radius.
 		// For zero-thickness lines, use a small minimum volume to avoid zero mass.
-		auto L = 2.0f * shape.m_radius;
-		auto r = shape.m_thickness;
+		auto L = 2.0f * shape.m_hlength;
+		auto r = shape.m_radius;
 		auto volume = (r > math::tiny<float>)
 			? float(constants<double>::tau_by_2) * Sqr(r) * L  // pi * r^2 * L
 			: L * math::tiny<float>;                          // Fallback: thin rod with minimal cross-section

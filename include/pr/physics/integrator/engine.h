@@ -17,6 +17,7 @@ namespace pr::physics
 		//    as a force to bodies each frame before calling Step().
 		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
 		//    even if it is a zero vector.
+		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
 
 	private:
 
@@ -48,26 +49,10 @@ namespace pr::physics
 		std::vector<RigidBody*> m_body_ptrs;
 		
 		friend struct DbgPhysics;
-		bool m_gpu_integrate = true;
-		bool m_gpu_sorter = true;
-		bool m_gpu_detect = true;
-		bool m_gpu_resolve = true;
 
 	public:
 
 		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
-
-		// Get/Set whether the GPU is used for integration and collision detection.
-		bool UseGpu() const;
-		void UseGpu(bool use_gpu);
-
-		// Get/Set whether the GPU is used for narrow-phase collision detection (GJK).
-		bool UseGpuDetect() const;
-		void UseGpuDetect(bool use);
-
-		// Get/Set whether the GPU is used for collision resolution (impulse application).
-		bool UseGpuResolve() const;
-		void UseGpuResolve(bool use);
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);
@@ -80,23 +65,35 @@ namespace pr::physics
 			Step(dt, m_body_ptrs);
 		}
 
+		// Raised at the end of step, just before object dynamics are updated
+		EventHandler<Engine&, std::span<RbContact const>> Collisions;
+
 		// Get/set the physics material properties for a given material ID.
 		physics::Material Material(int id) const;
 		void Material(physics::Material mat);
 
 	private:
 
-		// CPU integration for testing and debugging.
-		void CpuIntegrate(std::span<GpuRigidBody> bodies, float dt);
+		// Pack the body data into GPU buffers for the current frame.
+		void Pack(std::span<RigidBody*> rigid_bodies);
 
-		// CPU broadphase for testing and debugging
-		void CpuSweep();
+		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
+		void Integrate(float dt);
 
-		// CPU collision detection for testing and debugging.
-		void CpuCollide(std::span<GpuCollisionPair> pairs);
+		// Broadphase collision detection to generate potential collision pairs.
+		void BroadPhase();
 
-		// CPU collision resolution for testing and debugging
-		void CpuResolve();
+		// Narrow phase collision detection to generate contact points.
+		void Collide();
+
+		// Apply impulses to resolve collisions and update body dynamics.
+		void Resolve(float dt);
+
+		// Read buffers back to CPU memory
+		void Readback(GpuBuffers& buffers);
+
+		// Update rigid bodies with results from the step
+		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

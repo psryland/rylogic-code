@@ -44,9 +44,7 @@ namespace pr::physics
 		, m_r_aabb_y()
 		, m_r_aabb_z()
 		, m_r_aabb_idx()
-		#if PR_COLLISION_DIAGNOSTICS
 		, m_r_diag()
-		#endif
 		, m_capacity()
 	{
 		CompileShaders();
