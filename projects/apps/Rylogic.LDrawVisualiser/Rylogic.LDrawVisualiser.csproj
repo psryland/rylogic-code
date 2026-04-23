@@ -63,20 +63,6 @@
 		</Content>
 	</ItemGroup>
 
-	<!--
-		Post-build: copy debug binaries over the installed VSIX extension in the main VS instance.
-		Install the .vsix first (so VS creates the extension metadata), then rebuilds will
-		overwrite the DLLs in-place. Restart VS to pick up changes. See readme.md for details.
-	-->
-	<Target Name="DeployToMainVS" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
-		<Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)script\FindInstalledExtension.ps1&quot;" ConsoleToMsBuild="true" IgnoreExitCode="true">
-			<Output TaskParameter="ConsoleOutput" PropertyName="InstalledExtDir" />
-		</Exec>
-		<Message Text="Deployed debug binaries to: $(InstalledExtDir)" Importance="high" Condition="'$(InstalledExtDir)' != ''" />
-		<Message Text="No installed VSIX found in main VS instance — install the .vsix first." Importance="high" Condition="'$(InstalledExtDir)' == ''" />
-		<Exec Command="xcopy /Y /Q &quot;$(TargetDir)Rylogic.LDrawVisualiser.dll&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.LDrawVisualiser.pdb&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Core.dll&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Core.pdb&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Gfx.dll&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Gfx.pdb&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Gui.WPF.dll&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Gui.WPF.pdb&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Windows.dll&quot; &quot;$(InstalledExtDir)\&quot; &amp;&amp; xcopy /Y /Q &quot;$(TargetDir)Rylogic.Windows.pdb&quot; &quot;$(InstalledExtDir)\&quot;" Condition="'$(InstalledExtDir)' != ''" IgnoreExitCode="true" />
-	</Target>
-
 	<Target Name="GetVersion" Returns="$(Version)" />
 
 </Project>
