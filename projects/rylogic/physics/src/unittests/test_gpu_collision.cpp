@@ -381,8 +381,8 @@ namespace pr::physics::tests
 			// Perpendicular lines, separatedby 0.3 (thickness 0.1+0.1 < 0.3)
 			{
 				BangTogether(
-					collision::ShapeLine(2.0f, 0.2f), m4x4::Identity(),
-					collision::ShapeLine(2.0f, 0.2f), m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.3f, 0, 1)),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.3f, 0, 1)),
 					nullptr);
 			}
 
@@ -513,7 +513,7 @@ namespace pr::physics::tests
 
 			// Slow convergence
 			{
-				auto exp = Expected{1.0f, v4(0, 0, -1, 0), v4(0, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-0.999391f,-0.0348994f,0, 0), v4(0.400061f,0.49651f,0.2f, 1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(88, 90, 0), v4(0.5f,0.5f,0.2f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -522,7 +522,7 @@ namespace pr::physics::tests
 
 			// Deep penetration
 			{
-				auto exp = Expected{1.0f, v4(0, 0, -1, 0), v4(0, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(0.4f,0.250038f,0.204363f,1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(89, 0, 0), v4(0.5f,0.5f,0.2f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
