@@ -1906,7 +1906,7 @@ namespace pr::ldraw
 			std::optional<int> m_facets1;
 			Facets() :m_facets0() ,m_facets1() {}
 			Facets(int f) :m_facets0(f), m_facets1() {}
-			Facets(int l, int w) :m_facets0(l), m_facets1(w) {}
+			Facets(int layers, int wedges) :m_facets0(layers), m_facets1(wedges) {}
 			explicit operator bool() const { return m_facets0.has_value(); }
 			friend void Append(bytebuf& out, seri::Facets f)
 			{
@@ -2798,9 +2798,9 @@ namespace pr::ldraw
 			m_radius = { radius, radius };
 			return *this;
 		}
-		LdrCylinder& facets(int wedges, int layers)
+		LdrCylinder& facets(int layers, int wedges)
 		{
-			m_facets = seri::Facets(wedges, layers);
+			m_facets = seri::Facets(layers, wedges);
 			return *this;
 		}
 		LdrCylinder& scale(float sx, float sy)

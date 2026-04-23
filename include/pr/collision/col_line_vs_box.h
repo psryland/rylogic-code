@@ -12,24 +12,21 @@
 
 namespace pr::collision
 {
-	// Test for overlap between two shapes, with generic penetration collection.
+	// Test for overlap between a capsule (ShapeLine) and an OBB (ShapeBox) using SAT.
 	//
-	// A ShapeLine is a capsule (segment + spherical end caps of radius 'm_radius'). The standard
-	// analytical method for capsule-vs-OBB exploits the Minkowski sum structure of a capsule:
-	//   distance(capsule, OBB) = distance(segment, OBB) - capsule_radius
-	// and the contact normal is the unit vector between the closest points. This handles face,
-	// edge and corner contacts uniformly and produces contact points that are always on the OBB
-	// surface (i.e. inside the overlap region by construction).
+	// A ShapeLine is a capsule: a segment of half-length 'line_hlen' plus spherical end caps of radius 'line_radius'.
+	// For each candidate separating axis 'n' (unit, in box space):
+	//   box projection radius:      rb = |n.x|*box_radii.x + |n.y|*box_radii.y + |n.z|*box_radii.z
+	//   segment projection radius:  rs = |n.line_axis| * line_hlen
+	//   signed centre separation:   d  = n . mid     (box centre is at origin)
+	//   penetration depth:          rb + rs + line_radius - |d|
+	// If any axis gives depth <= 0 the shapes are separated. Otherwise the axis with the smallest
+	// depth is the MTV.
 	//
-	// Algorithm:
-	//   1. Transform line into box space; OBB becomes an axis-aligned box.
-	//   2. Iteratively find the closest points on the segment and the AABB:
-	//        seg_pt = segment(t),  box_pt = clamp(seg_pt, -hb, hb),
-	//        t_new  = clamp((box_pt - mid) . L, -hl, hl), repeat.
-	//      Converges in 1-3 iterations for any non-degenerate configuration.
-	//   3. If |seg_pt - box_pt| > 0:  depth = capsule_radius - distance, axis = (seg_pt - box_pt)/|...|
-	//   4. Otherwise (segment medial axis intersects the box — deep penetration), fall back
-	//      to face-axis SAT to pick a usable MTV.
+	// Candidate axes (7 total):
+	//   - 3 box face normals           (face contacts)
+	//   - 3 box_axis x line_axis       (edge-edge contacts)
+	//   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
 	template <typename Penetration>
 	void pr_vectorcall LineVsBox(Shape const& line_, m4x4 const& l2w_, Shape const& box_, m4x4 const& b2w_, Penetration& pen)
 	{
@@ -38,57 +35,61 @@ namespace pr::collision
 		auto b2w = b2w_ * box_.m_s2p;
 		auto l2w = l2w_ * line_.m_s2p;
 
-		// Transform 'line' into 'box' space (box becomes an AABB centred at the origin)
-		auto l2b = InvertOrthonormal(b2w) * l2w;
-		auto mid = l2b.pos;      // line segment mid-point in box space
-		auto L   = l2b.z;        // line axis in box space (unit length)
-		auto hl  = line.m_hlength;
-		auto hb  = box.m_radius;
-		auto cap_r = line.m_radius;
+		// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
+		auto l2b         = InvertOrthonormal(b2w) * l2w;
+		auto mid         = l2b.pos.w0();
+		auto line_axis   = l2b.z;
+		auto box_radii   = box.m_radius;
+		auto line_hlen   = line.m_hlength;
+		auto line_radius = line.m_radius;
 
-		// Initial guess: t that puts the segment point closest to the box centre (origin)
-		auto t = Clamp(-Dot(mid, L), -hl, hl);
-		auto seg_pt = mid + t * L;
-		auto box_pt = Clamp(seg_pt, -hb, +hb).w1();
-
-		// Iterate to convergence (1-3 iterations is typical)
-		for (int iter = 0; iter != 8; ++iter)
-		{
-			auto t_new = Clamp(Dot3(box_pt - mid, L), -hl, hl);
-			if (Abs(t_new - t) < math::tiny<float>) break;
-			t = t_new;
-			seg_pt = mid + t * L;
-			box_pt = Clamp(seg_pt, -hb, hb).w1();
-		}
-
-		auto sep = seg_pt - box_pt; // from box surface toward segment medial axis (in box space)
-		auto dist_sq = LengthSq(sep);
-		if (dist_sq >= Sqr(math::tiny<float>))
-		{
-			// Standard case: medial axis is outside the box. Capsule contact iff distance < radius.
-			auto dist = Sqrt(dist_sq);
-			auto depth = cap_r - dist;
-			pen(depth, [&]{ return b2w * (sep / dist); }, box_.m_material_id, line_.m_material_id);
-			return;
-		}
-
-		// Deep penetration: segment medial axis intersects the box. Use face-axis SAT for the MTV.
-		// (Choose the box face with the smallest projected penetration depth.)
 		auto best_depth = limits<float>::max();
-		auto best_axis_b = v4::XAxis();
+		auto best_axis  = v4::XAxis();
+
+		// Test one unit-length axis 'n' and track the minimum penetration depth (negative = separated).
+		auto Test = [&](v4 const& n)
+		{
+			auto rb    = Dot3(Abs(n), box_radii);
+			auto rs    = Abs(Dot3(n, line_axis)) * line_hlen;
+			auto d     = Dot3(n, mid);
+			auto depth = rb + rs + line_radius - Abs(d);
+			if (depth < best_depth)
+			{
+				best_depth = depth;
+				best_axis = n;// d >= 0 ? n : -n; // Choose sign so the axis points from box toward line
+			}
+		};
+
+		// 3 box face normals
+		Test(v4::XAxis());
+		Test(v4::YAxis());
+		Test(v4::ZAxis());
+
+		// 3 cross products of line axis with box axes (edge-edge)
 		for (int i = 0; i != 3; ++i)
 		{
-			// Capsule extent along box axis i: |hl * L[i]| + cap_r
-			auto cap_extent = Abs(hl * L[i]) + cap_r;
-			auto depth_i = hb[i] + cap_extent - Abs(mid[i]);
-			if (depth_i < best_depth)
-			{
-				best_depth = depth_i;
-				best_axis_b = v4::Zero();
-				best_axis_b[i] = mid[i] >= 0 ? 1.0f : -1.0f;
-			}
+			auto e = v4(float(i == 0), float(i == 1), float(i == 2), 0.0f);
+			auto n = Cross(line_axis, e);
+			auto len_sq = LengthSq(n);
+
+			// Skip if the line is parallel to this box axis — the face axis already covers this case
+			if (len_sq <= Sqr(math::tiny<float>)) continue;
+			Test(n / Sqrt(len_sq));
 		}
-		pen(best_depth, [&]{ return b2w * best_axis_b; }, box_.m_material_id, line_.m_material_id);
+
+		// Test an axis from the closest box corner to the line.
+		{
+			auto seg_pt = Clamp(-Dot3(mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
+			auto box_pt = v4(Sign(seg_pt.x, false), Sign(seg_pt.y, false), Sign(seg_pt.z, false), 0.0f) * box_radii;
+			seg_pt = Clamp(Dot3(seg_pt - mid, line_axis), -line_hlen, line_hlen) * line_axis + mid;
+			box_pt = Clamp(seg_pt, -box_radii, box_radii); // This extra refinement handles line ends near box corners
+			auto sep = seg_pt - box_pt;
+			if (auto len_sq = LengthSq(sep); len_sq > Sqr(math::tiny<float>))
+				Test(sep/ Sqrt(len_sq));
+		}
+
+		// Report the minimum-penetration axis (depth is negative if the shapes are separated).
+		pen(best_depth, [&]{ return b2w * best_axis; }, box_.m_material_id, line_.m_material_id);
 	}
 
 	// Returns true if the line intersects the orientated box
@@ -246,8 +247,8 @@ namespace pr::collision::tests
 		// Thick line: just outside the box + thickness envelope
 		PRUnitTestMethod(ThickLineSeparated)
 		{
-			auto line = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
-			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent=1
+			auto line = ShapeLine{2.0f, 0.1f};
+			auto box = ShapeBox{v4{2, 2, 2, 0}};
 			auto b2w = m4x4::Identity();
 
 			// Line offset 1.2 in X: box.m_radius.x + line.m_radius = 1 + 0.1 = 1.1 < 1.2

@@ -146,13 +146,16 @@ namespace pr::collision
 				thickness_offset = shape.m_radius * axis / Sqrt(len_sq);
 		}
 
-		if (d > +math::tiny<float>)
+		// Allow a more relaxed tolerance for perpendicular 'axis because the edge
+		// feature includes the end points, but not the other way round.
+		constexpr float tol = 1e-3f;
+		if (d > +tol)
 		{
 			// Line points in the direction of the axis, return the end point
 			feature_type = EFeature::Vert;
 			points[0] = shape.m_base.m_s2p.pos + r + thickness_offset;
 		}
-		else if (d < -math::tiny<float>)
+		else if (d < -tol)
 		{
 			// Line points against the direction of the axis, return the start point
 			feature_type = EFeature::Vert;

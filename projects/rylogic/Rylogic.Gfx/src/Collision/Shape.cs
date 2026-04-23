@@ -70,8 +70,8 @@ public struct ShapeBox
 public struct ShapeLine
 {
 	public Shape m_base;
-	public float m_radius;    // Half-length along the Z axis. Length = 2 * m_radius.
-	public float m_thickness; // Collision radius perpendicular to the Z axis. 0 = infinitely thin.
+	public float m_hlength;
+	public float m_radius;
 	private int pad0;
 	private int pad1;
 }
