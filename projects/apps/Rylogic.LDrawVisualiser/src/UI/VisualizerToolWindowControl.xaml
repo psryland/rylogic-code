@@ -196,16 +196,22 @@
 			Background="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowBackgroundBrushKey}}"
 			MinHeight="40"
 			MaxHeight="160">
-			<ScrollViewer
+			<!-- TextBox (read-only) instead of TextBlock so the user can select and copy
+			     the error message (e.g. to paste into a search or bug report). Borderless
+			     and transparent so it visually matches the previous TextBlock. -->
+			<TextBox x:Name="m_error_text"
+				IsReadOnly="True"
+				IsReadOnlyCaretVisible="False"
+				BorderThickness="0"
+				Background="Transparent"
+				Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
+				FontFamily="Consolas"
+				FontSize="12"
+				TextWrapping="Wrap"
+				AcceptsReturn="True"
 				VerticalScrollBarVisibility="Auto"
-				HorizontalScrollBarVisibility="Disabled">
-				<TextBlock x:Name="m_error_text"
-					Foreground="{DynamicResource {x:Static vs_shell:EnvironmentColors.ToolWindowValidationErrorTextBrushKey}}"
-					FontFamily="Consolas"
-					FontSize="12"
-					TextWrapping="Wrap"
-					Margin="6,3"/>
-			</ScrollViewer>
+				HorizontalScrollBarVisibility="Disabled"
+				Padding="6,3"/>
 		</Border>
 
 		<!-- Status Bar -->

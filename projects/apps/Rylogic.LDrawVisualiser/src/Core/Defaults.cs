@@ -9,6 +9,12 @@ namespace Rylogic.LDrawVisualiser.Core
 	/// Returning a default is preferable to letting the DLR throw RuntimeBinderException —
 	/// scripts that gate optional rendering on null-checks (vars.foo != null) only protect
 	/// the rendering, not the argument-binding path that would otherwise fail first.
+	///
+	/// Note on overload ambiguity: when a method has multiple overloads accepting types
+	/// for which TryConvert succeeds (e.g. pos(v4) and pos(v3)), the DLR reports "best
+	/// overloaded match has some invalid arguments" because it cannot pick between
+	/// equally-applicable candidates. The script must disambiguate with an explicit cast
+	/// at the call site, e.g. `.pos((v4)vars.seg_pt)`.
 	/// </summary>
 	internal static class Defaults
 	{
