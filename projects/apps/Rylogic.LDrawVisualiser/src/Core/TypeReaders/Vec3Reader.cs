@@ -33,10 +33,10 @@ public class Vec3Reader : ITypeReader
 				// Native pr::Vec3<float> is three contiguous floats (alignas 4).
 				var data = DebugMemoryReader.ReadBytes(debugger, expr, 3 * sizeof(float));
 				if (data == null) return null;
-				return new v3(
+				return Sanitize.Finite(new v3(
 					System.BitConverter.ToSingle(data, 0),
 					System.BitConverter.ToSingle(data, 4),
-					System.BitConverter.ToSingle(data, 8));
+					System.BitConverter.ToSingle(data, 8)));
 			}
 			case ELanguage.Managed:
 			{
@@ -45,7 +45,7 @@ public class Vec3Reader : ITypeReader
 				var y = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fy}");
 				var z = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fz}");
 				if (x == null || y == null || z == null) return null;
-				return new v3(x.Value, y.Value, z.Value);
+				return Sanitize.Finite(new v3(x.Value, y.Value, z.Value));
 			}
 			default:
 			{

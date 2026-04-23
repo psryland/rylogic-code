@@ -36,7 +36,7 @@ public class Mat4x4Reader : ITypeReader
 				var f = new float[16];
 				for (var i = 0; i != 16; ++i)
 					f[i] = System.BitConverter.ToSingle(data, i * sizeof(float));
-				return new m4x4(f);
+				return Sanitize.Finite(new m4x4(f));
 			}
 			case ELanguage.Managed:
 			{
@@ -51,11 +51,11 @@ public class Mat4x4Reader : ITypeReader
 					var c4 = (F(1, 4), F(2, 4), F(3, 4), F(4, 4));
 					if (!HasAll(c1) || !HasAll(c2) || !HasAll(c3) || !HasAll(c4))
 						return null;
-					return new m4x4(
+					return Sanitize.Finite(new m4x4(
 						new v4(c1.Item1!.Value, c1.Item2!.Value, c1.Item3!.Value, c1.Item4!.Value),
 						new v4(c2.Item1!.Value, c2.Item2!.Value, c2.Item3!.Value, c2.Item4!.Value),
 						new v4(c3.Item1!.Value, c3.Item2!.Value, c3.Item3!.Value, c3.Item4!.Value),
-						new v4(c4.Item1!.Value, c4.Item2!.Value, c4.Item3!.Value, c4.Item4!.Value));
+						new v4(c4.Item1!.Value, c4.Item2!.Value, c4.Item3!.Value, c4.Item4!.Value)));
 				}
 
 				// Rylogic.Maths.m4x4: v4 x, y, z, w columns.
@@ -64,7 +64,7 @@ public class Mat4x4Reader : ITypeReader
 				var z = ReadV4(debugger, $"{expr}.z");
 				var w = ReadV4(debugger, $"{expr}.w");
 				if (x == null || y == null || z == null || w == null) return null;
-				return new m4x4(x.Value, y.Value, z.Value, w.Value);
+				return Sanitize.Finite(new m4x4(x.Value, y.Value, z.Value, w.Value));
 			}
 			default:
 			{

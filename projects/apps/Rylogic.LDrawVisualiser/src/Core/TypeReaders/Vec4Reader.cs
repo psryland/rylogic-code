@@ -36,7 +36,7 @@ public class Vec4Reader : ITypeReader
 				var v = new float[4];
 				for (var i = 0; i != 4; ++i)
 					v[i] = System.BitConverter.ToSingle(data, i * sizeof(float));
-				return new v4(v);
+				return Sanitize.Finite(new v4(v));
 			}
 			case ELanguage.Managed:
 			{
@@ -46,7 +46,7 @@ public class Vec4Reader : ITypeReader
 				var z = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fz}");
 				var w = ManagedFieldReader.ReadSingle(debugger, $"{expr}.{fw}");
 				if (x == null || y == null || z == null || w == null) return null;
-				return new v4(x.Value, y.Value, z.Value, w.Value);
+				return Sanitize.Finite(new v4(x.Value, y.Value, z.Value, w.Value));
 			}
 			default:
 			{

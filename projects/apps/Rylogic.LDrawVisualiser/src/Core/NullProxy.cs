@@ -56,21 +56,9 @@ namespace Rylogic.LDrawVisualiser.Core
 		/// <inheritdoc/>
 		public override bool TryConvert(ConvertBinder binder, out object? result)
 		{
-			if (binder.Type == typeof(string)) { result = string.Empty; return true; }
-			if (binder.Type == typeof(m4x4)) { result = m4x4.Identity; return true; }
-			if (binder.Type == typeof(m3x3)) { result = m3x3.Identity; return true; }
-			if (binder.Type == typeof(m2x2)) { result = m2x2.Identity; return true; }
-			if (binder.Type == typeof(Quat)) { result = Quat.Identity; return true; }
-			if (binder.Type == typeof(v4)) { result = v4.Zero; return true; }
-			if (binder.Type == typeof(v3)) { result = v3.Zero; return true; }
-			if (binder.Type == typeof(v2)) { result = v2.Zero; return true; }
-			if (binder.Type.IsValueType) // For any other value type, return default
-			{
-				result = Activator.CreateInstance(binder.Type);
-				return true;
-			}
-			result = null;
-			return true;
+			// Defer to the shared default-value helper so DebugProxy and NullProxy
+			// produce the same fallback values for any given type.
+			return Defaults.TryGet(binder.Type, out result);
 		}
 
 		/// <inheritdoc/>
