@@ -9,6 +9,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_Inertia() {}
+
 	PRUnitTestClass(InertiaTests)
 	{
 		PRUnitTestMethod(InertiaConstruction)
@@ -604,5 +606,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_Inertia() {} }
 #endif

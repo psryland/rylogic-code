@@ -9,6 +9,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_RigidBody() {}
+
 	PRUnitTestClass(RigidBodyTests)
 	{
 		PRUnitTestMethod(SimpleCase)
@@ -361,5 +363,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_RigidBody() {} }
 #endif

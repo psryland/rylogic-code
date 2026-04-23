@@ -19,9 +19,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_y;   // GPU buffer: RWStructuredBuffer<float> bounding box y bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_z;   // GPU buffer: RWStructuredBuffer<float> bounding box z bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
-		#if PR_COLLISION_DIAGNOSTICS
 		D3DPtr<ID3D12Resource> m_r_diag;     // GPU buffer: RWStructuredBuffer<GpuIntegrateDiag>
-		#endif
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 
 		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
@@ -31,7 +29,7 @@ namespace pr::physics
 
 		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
 		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs);
-		
+
 		// Readback data into the provided buffers. 0-length means "don't readback".
 		void Readback(GpuJob& job, std::span<GpuRigidBody> bodies, std::span<BBox> aabbs, std::span<GpuIntegrateDiag> diag);
 
@@ -42,6 +40,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> AABBAxisY() { return m_r_aabb_y; }
 		D3DPtr<ID3D12Resource> AABBAxisZ() { return m_r_aabb_z; }
 		D3DPtr<ID3D12Resource> AABBBodyIndices() { return m_r_aabb_idx; }
+		D3DPtr<ID3D12Resource> Diagnostics() { return m_r_diag; }
 
 	private:
 

@@ -9,6 +9,8 @@
 
 namespace pr::physics::tests
 {
+	void ForceLink_Impulse() {}
+
 	PRUnitTestClass(ImpulseTests)
 	{
 		// Head-on collision through CoM, unequal masses.
@@ -193,5 +195,4 @@ namespace pr::physics::tests
 		}
 	};
 }
-namespace pr::physics::tests { void ForceLink_Impulse() {} }
 #endif

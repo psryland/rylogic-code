@@ -19,35 +19,37 @@ namespace physics_sandbox
 		, m_kill_zone_height(-100.0f)
 		, m_ground_gfx()
 		, m_origin_gfx()
+		, m_contacts_gfx()
+		, m_show_contacts(true)
 		, m_clock()
 		, m_current_scenario()
 		, m_diag()
 		, m_step_count()
 	{
-		//// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
-		//m_physics.PostCollisionDetection += [&](auto&, auto args)
-		//{
-		//	if (args.m_contacts.empty())
-		//		return;
+		// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
+		m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
+		{
+			UpdateCollisionGfx(contacts);
+			#ifdef PR_PHYSICS_DIAGNOSTICS
+			{
+				//	// Lightweight: just track that a collision occurred (used by UI title bar)
+				//	m_diag.occurred = true;
+				//	m_diag.count++;
 
-		//	// Lightweight: just track that a collision occurred (used by UI title bar)
-		//	m_diag.occurred = true;
-		//	m_diag.count++;
+				//	{
+				//		// Capture pre-impulse state for first two bodies
+				//		m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
+				//		m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
 
-		//	#ifdef PR_PHYSICS_DIAGNOSTICS
-		//	{
-		//		// Capture pre-impulse state for first two bodies
-		//		m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
-		//		m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
-
-		//		// Capture contact info (collision data is in objA space, transform to world)
-		//		auto const& c = collisions[0];
-		//		m_diag.contact_point_ws = m_body[0].O2W() * c.m_point_at_t;
-		//		m_diag.contact_normal_ws = (m_body[0].O2W().rot * c.m_axis).w0();
-		//		m_diag.depth = c.m_depth;
-		//	}
-		//	#endif
-		//};
+				//		// Capture contact info (collision data is in objA space, transform to world)
+				//		auto const& c = collisions[0];
+				//		m_diag.contact_point_ws = m_body[0].O2W() * c.m_point_at_t;
+				//		m_diag.contact_normal_ws = (m_body[0].O2W().rot * c.m_axis).w0();
+				//		m_diag.depth = c.m_depth;
+				//	}
+			}
+			#endif
+		};
 
 		// Create a coordinate frame at the origin for visual reference
 		if (m_rdr)
@@ -86,8 +88,7 @@ namespace physics_sandbox
 		});
 	}
 
-	// Advance the simulation by one time step.
-	// Returns true if a collision occurred during this step.
+	// Advance the simulation by one time step. Returns true if a collision occurred during this step.
 	bool Scene::Step(double elapsed_seconds)
 	{
 		m_clock += elapsed_seconds;
@@ -106,8 +107,7 @@ namespace physics_sandbox
 		}
 
 		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
-		auto bodies = std::span(m_body);
-		m_physics.Step(dt, bodies);
+		m_physics.Step(dt, std::span{ m_body });
 
 		++m_step_count;
 
@@ -620,7 +620,7 @@ namespace physics_sandbox
 		DbgLog("################################################################\n");
 	}
 
-	// Export the scene as LDraw script
+	// Dump the current scene to an LDraw file for offline analysis. This is useful for
 	void Scene::Dump()
 	{
 		using namespace pr::ldraw;
@@ -629,6 +629,16 @@ namespace physics_sandbox
 		builder.Add<LdrRigidBody>("body0", 0x8000FF00).rigid_body(m_body[0]);
 		builder.Add<LdrRigidBody>("body1", 0x10FF0000).rigid_body(m_body[1]);
 		builder.Save(L"dump\\physics_dump.ldr");
+	}
+
+	// Create/update the graphics objects for
+	void Scene::UpdateCollisionGfx(std::span<physics::RbContact const> contacts)
+	{
+		// @Copilot, please create ldraw graphics for all the contact points
+		// and normals in the contacts span. Use 0.5 alpha yellow spheres for contact points and
+		// yellow arrows for normals.
+		//m_contacts_gfx = ...todo
+		(void)contacts;
 	}
 
 	// Calculate the bounding box for the scene (excluding terrain)

@@ -72,13 +72,10 @@
     <ClCompile Include="src\unittests\test_collision_resolution.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
-    <ClCompile Include="src\unittests\test_engine.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_gpu_collide.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
     <ClCompile Include="src\unittests\test_gpu_collision.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_gpu_collision_detector.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
     <ClCompile Include="src\unittests\test_impulse.cpp">
@@ -95,6 +92,9 @@
     </ClCompile>
     <ClCompile Include="src\unittests\test_shape_builder.cpp">
       <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\rigid_body\rigid_body.cpp">
+      <Filter>src\rigid_body</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -193,6 +193,9 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\state_flags.h">
       <Filter>src\rigid_body</Filter>
+    </ClInclude>
+    <ClInclude Include="src\unittests\force_link.h">
+      <Filter>src\unittests</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

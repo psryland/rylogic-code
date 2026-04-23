@@ -416,7 +416,7 @@ extern "C"
 			{
 				ShapeLine shape;
 				if (FAILED(pHelper->Read(shape))) return E_FAIL;
-				_snprintf(pResult, max, "Line(%d): <%3.3f>", (int)shape.m_base.m_size, shape.m_radius);
+				_snprintf(pResult, max, "Line(%d): l=%f r=%f", (int)shape.m_base.m_size, shape.m_hlength, shape.m_radius);
 				break;
 			}
 			case EShape::Triangle:

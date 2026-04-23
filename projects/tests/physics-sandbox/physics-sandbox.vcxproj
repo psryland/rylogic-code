@@ -47,12 +47,12 @@
       </AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-    <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
         ;PR_UNITTESTS=1
-        ;PR_UNITTESTS_VISUALISE=0
+        ;PR_UNITTESTS_VISUALISE=1
       </PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -71,7 +71,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_sphere.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_sphere_vs_box.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\col_sphere_vs_sphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\collision\penetration.h" />

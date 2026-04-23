@@ -62,7 +62,7 @@ namespace pr::collision
 	}
 
 	// Physics material id
-	using MaterialId = unsigned int;
+	using MaterialId = int;
 
 	// Shape base. All shapes must have this as their first member.
 	struct Shape

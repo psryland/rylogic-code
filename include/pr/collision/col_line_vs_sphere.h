@@ -7,7 +7,7 @@
 // Algorithm:
 //  Find the closest point on the line segment to the sphere centre.
 //  The separating axis is the vector from that closest point to the sphere centre.
-//  Penetration depth = (line.m_thickness + sphere_radius) - distance.
+//  Penetration depth = (line.m_radius + sphere_radius) - distance.
 //
 // When the line has non-zero thickness, it behaves as a capsule for collision
 // depth calculation (the cylindrical envelope extends m_thickness from the axis).
@@ -38,7 +38,7 @@ namespace pr::collision
 
 		// Clamp the sphere centre's Z-coordinate to the line segment extent.
 		// This gives the closest point on the segment to the sphere centre.
-		auto t = Clamp(s2l.z, -line.m_radius, +line.m_radius);
+		auto t = Clamp(s2l.z, -line.m_hlength, +line.m_hlength);
 		auto closest_on_line = v4(0, 0, t, 1);
 
 		// Vector from closest point on line to sphere centre (in line space)
@@ -48,7 +48,7 @@ namespace pr::collision
 		// Penetration depth: positive means overlap.
 		// For thick lines, the collision envelope extends m_thickness from the line axis.
 		auto dist = Sqrt(dist_sq + math::tiny<float>);
-		auto depth = (line.m_thickness + sph.m_radius) - dist;
+		auto depth = (line.m_radius + sph.m_radius) - dist;
 
 		pen(depth, [&]
 		{

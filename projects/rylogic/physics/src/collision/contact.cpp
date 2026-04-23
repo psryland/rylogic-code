@@ -10,7 +10,7 @@
 namespace pr::physics
 {
 	RbContact::RbContact()
-		:m_b2a()
+		: m_b2a()
 		, m_velocity()
 		, m_point_at_t()
 		, m_objA()
@@ -45,9 +45,8 @@ namespace pr::physics
 		// 'm_point_at_t' is adjusted by half 'dt' because it is the average of the overlap.
 		m_b2a = InvertOrthonormal(m_objA->O2W(dt_sub)) * m_objB->O2W(dt_sub);
 
-		// VelocityOS() returns the spatial velocity at the CoM (because momentum and
-		// inertia are stored at the CoM). The collision code expects velocity at the
-		// model origin so that LinAt(pt) gives the correct velocity at contact points
+		// VelocityOS() returns the spatial velocity at the CoM (because momentum and inertia are stored at the CoM).
+		// The collision code expects velocity at the model origin so that LinAt(pt) gives the correct velocity at contact points
 		// measured from the model origin. Shift each body's velocity from CoM to origin.
 		auto va = Shift(m_objA->VelocityOS(), -m_objA->CentreOfMassOS());
 		auto vb = Shift(m_objB->VelocityOS(), -m_objB->CentreOfMassOS());
@@ -55,6 +54,30 @@ namespace pr::physics
 
 		m_point_at_t = m_point + 0.5f * dt_sub * m_velocity.LinAt(m_point);
 		m_time = dt_sub;
+	}
+
+	// Reverse the sense of the contact information
+	void Flip(RbContact& c)
+	{
+		// Transform from old A space to old B space (which becomes new A space after the swap)
+		auto a2b = InvertOrthonormal(c.m_b2a);
+
+		// Reverse the collision normal and transform to new A space
+		c.m_axis = a2b * (-c.m_axis);
+
+		// Transform the contact point to new A space
+		c.m_point = a2b * c.m_point;
+
+		// Depth is sign-symmetric — positive means overlap regardless of A/B assignment
+		// c.m_depth unchanged
+
+		// Swap material IDs and object pointers
+		std::swap(c.m_mat_idA, c.m_mat_idB);
+		std::swap(c.m_objA, c.m_objB);
+
+		// Recompute derived fields (m_b2a, m_velocity, m_point_at_t) for the swapped pair
+		auto time = c.m_time;
+		c.Update(time);
 	}
 
 	// Dump the collision scene to LDraw script (best-effort, won't throw)

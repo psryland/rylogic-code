@@ -1437,9 +1437,9 @@ namespace Rylogic.LDraw
 			m_height = height;
 			return this;
 		}
-		public LdrCylinder facets(int f)
+		public LdrCylinder facets(int layers, int wedges)
 		{
-			m_facets = new(f);
+			m_facets = new(layers, wedges);
 			return this;
 		}
 		public LdrCylinder scale(v2 scale)
@@ -2584,9 +2584,9 @@ namespace Rylogic.LDraw
 		{
 			return sphere(radius, radius, radius, pos, col);
 		}
-		public LdrSphere facets(int f)
+		public LdrSphere facets(int divisions)
 		{
-			m_facets = new(f);
+			m_facets = new(divisions);
 			return this;
 		}
 

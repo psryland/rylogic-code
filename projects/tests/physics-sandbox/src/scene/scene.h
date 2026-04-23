@@ -41,6 +41,12 @@ namespace physics_sandbox
 		// Origin coordinate frame visual
 		rdr12::ldraw::LdrObjectPtr m_origin_gfx;
 
+		// Contact point and normal visualization overlay
+		rdr12::ldraw::LdrObjectPtr m_contacts_gfx;
+
+		// Whether to display contact points and collision normals
+		bool m_show_contacts;
+
 		// Simulation state
 		double m_clock;
 
@@ -78,6 +84,9 @@ namespace physics_sandbox
 
 		// Export the scene as LDraw script
 		void Dump();
+
+		// Create/update the graphics objects for
+		void UpdateCollisionGfx(std::span<physics::RbContact const> contacts);
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;

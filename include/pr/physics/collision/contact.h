@@ -41,6 +41,9 @@ namespace pr::physics
 		// Adjust the collision data to the given sub-step time.
 		void Update(float dt_sub);
 
+		// Reverse the sense of the contact information
+		friend void Flip(RbContact& c);
+
 		// Dump the collision scene to LDraw script (best-effort, won't throw)
 		friend void Dump(RbContact const& c);
 	};
