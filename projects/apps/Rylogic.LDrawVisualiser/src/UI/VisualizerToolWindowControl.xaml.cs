@@ -18,10 +18,8 @@ namespace Rylogic.LDrawVisualiser
 		private ScriptProjectManager? m_project_manager;
 		private readonly ScriptCompiler m_compiler = new();
 		private readonly LDrawStreamer m_streamer = new();
+		private readonly ExpressionCache m_expr_cache = new();
 		private ScriptInfo? m_active_script;
-		// Name of the script whose output is currently shown in LDraw (last successfully run).
-		// Tracked separately from m_active_script (selection) since selection and "active"
-		// are independent — a user can select another script without re-running it.
 		private string? m_active_script_name;
 		private DateTime m_last_send_time;
 
@@ -68,6 +66,14 @@ namespace Rylogic.LDrawVisualiser
 					RunActiveScript();
 				});
 			}
+		}
+
+		/// <summary>Called when the debugger leaves break/run mode (debug session ended).</summary>
+		internal void OnLeaveDebugMode()
+		{
+			// Clear the expression cache because cached values refer to the now-defunct
+			// process and would be misleading if the user starts a new debug session.
+			m_expr_cache.Clear();
 		}
 
 		/// <summary>Called when a script .csx file is saved in VS. Auto-compiles and runs if it's the active script.</summary>
@@ -344,7 +350,7 @@ namespace Rylogic.LDrawVisualiser
 				var debugger = m_package.Dte?.Debugger;
 				var in_break_mode = debugger?.CurrentMode == dbgDebugMode.dbgBreakMode;
 				dynamic vars = in_break_mode && debugger != null
-					? new DebugProxy(debugger)
+					? new DebugProxy(debugger, "", m_expr_cache)
 					: NullProxy.Instance;
 
 				ldraw_script = m_compiler.CompiledScript(vars);
