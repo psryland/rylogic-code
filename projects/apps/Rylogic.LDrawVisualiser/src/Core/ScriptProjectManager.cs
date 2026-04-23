@@ -163,6 +163,61 @@ namespace Rylogic.LDrawVisualiser.Core
 			}
 		}
 
+		/// <summary>Parse '#r "nuget: PackageId[, Version]"' lines from the script file.
+		/// Both quote styles and any leading whitespace are accepted. Versions may be an
+		/// explicit version string, '*', or absent — see NuGetResolver for resolution.</summary>
+		public List<NuGetReference> ReadNuGetReferences(ScriptInfo script)
+		{
+			var refs = new List<NuGetReference>();
+			if (!File.Exists(script.FilePath))
+				return refs;
+
+			try
+			{
+				foreach (var raw in File.ReadAllLines(script.FilePath))
+				{
+					var line = raw.TrimStart();
+					if (!line.StartsWith("#r"))
+						continue;
+
+					// Find quoted payload after #r — accept "..." only (matches dotnet-script).
+					var first_quote = line.IndexOf('"');
+					var last_quote = line.LastIndexOf('"');
+					if (first_quote < 0 || last_quote <= first_quote)
+						continue;
+
+					var payload = line.Substring(first_quote + 1, last_quote - first_quote - 1).Trim();
+					if (!payload.StartsWith("nuget:", StringComparison.OrdinalIgnoreCase))
+						continue;
+
+					var spec = payload.Substring("nuget:".Length).Trim();
+					var comma = spec.IndexOf(',');
+					string id;
+					string? version;
+					if (comma < 0)
+					{
+						id = spec;
+						version = null;
+					}
+					else
+					{
+						id = spec.Substring(0, comma).Trim();
+						version = spec.Substring(comma + 1).Trim();
+						if (version.Length == 0) version = null;
+					}
+
+					if (!string.IsNullOrEmpty(id))
+						refs.Add(new NuGetReference(id, version));
+				}
+			}
+			catch
+			{
+				// Best effort — caller falls back to bundled DLLs.
+			}
+
+			return refs;
+		}
+
 		/// <summary>Generate the .csx file content for a new script</summary>
 		public string GenerateScriptContent(string body)
 		{

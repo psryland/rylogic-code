@@ -327,9 +327,10 @@ namespace Rylogic.LDrawVisualiser
 			// Read the script body and using directives from the .csx file
 			var script_body = m_project_manager.ReadScriptBody(m_active_script);
 			var extra_usings = m_project_manager.ReadUsingDirectives(m_active_script);
+			var nuget_refs = m_project_manager.ReadNuGetReferences(m_active_script);
 
 			// Compile
-			var compiled = m_compiler.Compile(script_body, extra_usings);
+			var compiled = m_compiler.Compile(script_body, extra_usings, nuget_refs);
 			UpdateErrorPanel();
 			if (!compiled)
 			{
