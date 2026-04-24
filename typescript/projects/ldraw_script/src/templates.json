@@ -494,7 +494,7 @@
     },
     "Line": {
       "keyword": "Line",
-      "display": "*Line[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[@PerItemParametrics]\n\t[*Style {LineSegments|LineStrip|Direction|BezierSpline|HermiteSpline|BSplineSpline|CatmullRom}]\n\t[*Arrow {Line|Fwd|Back|FwdBack [<size> [<length>]]}]\n\t[@Width]\n\t[@Smooth]\n\t[@Dashed]\n\t[@DataPoints]\n\t(*Data {(<x0> <y0> <z0>  <x1> <y1> <z1> [<line_colour>] [<t0> <t1>])})\n\t[@Parametrics]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Line[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[@PerItemParametrics]\n\t[*Style {LineSegments|LineStrip|Direction|Bezier|Hermite|BSpline|CatmullRom}]\n\t[*Arrow {Line|Fwd|Back|FwdBack [<size> [<length>]]}]\n\t[@Width]\n\t[@Smooth]\n\t[@Dashed]\n\t[@DataPoints]\n\t(*Data {(<x0> <y0> <z0>  <x1> <y1> <z1> [<line_colour>] [<t0> <t1>])})\n\t[@Parametrics]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,

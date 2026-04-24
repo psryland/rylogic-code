@@ -306,9 +306,9 @@ namespace pr::rdr12::ldraw
 		x(LineSegments)\
 		x(LineStrip)\
 		x(Direction)\
-		x(BezierSpline)\
-		x(HermiteSpline)\
-		x(BSplineSpline)\
+		x(Bezier)\
+		x(Hermite)\
+		x(BSpline)\
 		x(CatmullRom)
 		
 		#define PR_LDRAW_ENUM_MEMBERS(name) name,

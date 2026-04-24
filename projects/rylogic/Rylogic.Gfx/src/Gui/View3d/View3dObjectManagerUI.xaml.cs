@@ -32,6 +32,7 @@ namespace Rylogic.Gui.WPF
 			ToggleShowNormals = Command.Create(this, ToggleShowNormalsInternal);
 			FocusPatternFilter = Command.Create(this, FocusPatternFilterInternal);
 			ShowMoveObjects = Command.Create(this, ShowMoveObjectsInternal);
+			CentreView = Command.Create(this, CentreViewInternal);
 
 			DataContext = this;
 			RebuildFlatList();
@@ -658,6 +659,20 @@ namespace Rylogic.Gui.WPF
 			var ui = new View3dMoveObjectsUI(Window.GetWindow(this), objects, ObjectManager.Window);
 			ui.Show();
 			ui.Focus();
+		}
+
+		/// <summary>Reset the camera to frame the currently selected objects</summary>
+		public Command CentreView { get; }
+		private void CentreViewInternal()
+		{
+			if (SelectedObjects.Count == 0) return;
+
+			var window = ObjectManager.Window;
+			var bounds = window.SceneBounds(View3d.ESceneBounds.Selected);
+			if (!bounds.IsValid) return;
+
+			window.Camera.ResetView(bounds);
+			Invalidate();
 		}
 
 		#endregion

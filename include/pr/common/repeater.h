@@ -216,8 +216,8 @@ namespace pr::common
 		{
 			constexpr int count = 3;
 			std::vector<int> ints = { 0, 1, 2, 3 };
-			auto rep = CreateRepeater<int>(ints, count * isize(ints), -1);
-			for (int i = 0; i != isize(ints); ++i)
+			auto rep = CreateRepeater<int>(ints, static_cast<int>(count * ints.size()), -1);
+			for (int i = 0, iend = static_cast<int>(ints.size()); i != iend; ++i)
 			{
 				for (int j = 0; j != count; ++j)
 				{

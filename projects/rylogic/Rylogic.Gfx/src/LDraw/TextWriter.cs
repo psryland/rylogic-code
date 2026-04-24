@@ -126,69 +126,39 @@ namespace Rylogic.LDraw
 		{
 			switch (addr)
 			{
-				case View3d.EAddrMode.Wrap:
-					Append("Wrap");
-					break;
-				case View3d.EAddrMode.Mirror:
-					Append("Mirror");
-					break;
-				case View3d.EAddrMode.Clamp:
-					Append("Clamp");
-					break;
-				case View3d.EAddrMode.Border:
-					Append("Border");
-					break;
-				case View3d.EAddrMode.MirrorOnce:
-					Append("MirrorOnce");
-					break;
-				default:
-					throw new Exception($"Unknown texture addressing mode ({addr})");
+				case View3d.EAddrMode.Wrap: Append(nameof(View3d.EAddrMode.Wrap)); break;
+				case View3d.EAddrMode.Mirror: Append(nameof(View3d.EAddrMode.Mirror)); break;
+				case View3d.EAddrMode.Clamp: Append(nameof(View3d.EAddrMode.Clamp)); break;
+				case View3d.EAddrMode.Border: Append(nameof(View3d.EAddrMode.Border)); break;
+				case View3d.EAddrMode.MirrorOnce: Append(nameof(View3d.EAddrMode.MirrorOnce)); break;
+				default: throw new Exception($"Unknown texture addressing mode ({addr})");
 			}
 		}
 		private void Append(View3d.EFilter filter)
 		{
 			switch (filter)
 			{
-				case View3d.EFilter.Point:
-					Append("Point");
-					break;
-				case View3d.EFilter.PointPointLinear:
-					Append("PointPointLinear");
-					break;
-				case View3d.EFilter.PointLinearPoint:
-					Append("PointLinearPoint");
-					break;
-				case View3d.EFilter.PointLinearLinear:
-					Append("PointLinearLinear");
-					break;
-				case View3d.EFilter.LinearPointPoint:
-					Append("LinearPointPoint");
-					break;
-				case View3d.EFilter.LinearPointLinear:
-					Append("LinearPointLinear");
-					break;
-				case View3d.EFilter.LinearLinearPoint:
-					Append("LinearLinearPoint");
-					break;
-				case View3d.EFilter.Linear:
-					Append("Linear");
-					break;
-				case View3d.EFilter.Anisotropic:
-					Append("Anisotropic");
-					break;
-				default:
-					throw new Exception($"Unknown texture addressing mode ({filter})");
+				case View3d.EFilter.Point: Append(nameof(View3d.EFilter.Point)); break;
+				case View3d.EFilter.PointPointLinear: Append(nameof(View3d.EFilter.PointPointLinear)); break;
+				case View3d.EFilter.PointLinearPoint: Append(nameof(View3d.EFilter.PointLinearPoint)); break;
+				case View3d.EFilter.PointLinearLinear: Append(nameof(View3d.EFilter.PointLinearLinear)); break;
+				case View3d.EFilter.LinearPointPoint: Append(nameof(View3d.EFilter.LinearPointPoint)); break;
+				case View3d.EFilter.LinearPointLinear: Append(nameof(View3d.EFilter.LinearPointLinear)); break;
+				case View3d.EFilter.LinearLinearPoint: Append(nameof(View3d.EFilter.LinearLinearPoint)); break;
+				case View3d.EFilter.Linear:Append(nameof(View3d.EFilter.Linear)); break;
+				case View3d.EFilter.Anisotropic: Append(nameof(View3d.EFilter.Anisotropic)); break;
+				default: throw new Exception($"Unknown texture addressing mode ({filter})");
 			}
 		}
 		private void Append(EPointStyle style)
 		{
 			switch (style)
 			{
-				case EPointStyle.Square: Append("Square"); break;
-				case EPointStyle.Circle: Append("Circle"); break;
-				case EPointStyle.Triangle: Append("Triangle"); break;
-				case EPointStyle.Star: Append("Star"); break;
-				case EPointStyle.Annulus: Append("Annulus"); break;
+				case EPointStyle.Square: Append(nameof(EPointStyle.Square)); break;
+				case EPointStyle.Circle: Append(nameof(EPointStyle.Circle)); break;
+				case EPointStyle.Triangle: Append(nameof(EPointStyle.Triangle)); break;
+				case EPointStyle.Star: Append(nameof(EPointStyle.Star)); break;
+				case EPointStyle.Annulus: Append(nameof(EPointStyle.Annulus)); break;
 				default: throw new Exception($"Unknown point style ({style})");
 			}
 		}
@@ -196,13 +166,13 @@ namespace Rylogic.LDraw
 		{
 			switch (style)
 			{
-				case ELineStyle.LineSegments: Append("LineSegments"); break;
-				case ELineStyle.LineStrip: Append("LineStrip"); break;
-				case ELineStyle.Direction: Append("Direction"); break;
-				case ELineStyle.BezierSpline: Append("BezierSpline"); break;
-				case ELineStyle.HermiteSpline: Append("HermiteSpline"); break;
-				case ELineStyle.BSplineSpline: Append("BSplineSpline"); break;
-				case ELineStyle.CatmullRom: Append("CatmullRom"); break;
+				case ELineStyle.LineSegments: Append(nameof(ELineStyle.LineSegments)); break;
+				case ELineStyle.LineStrip: Append(nameof(ELineStyle.LineStrip)); break;
+				case ELineStyle.Direction: Append(nameof(ELineStyle.Direction)); break;
+				case ELineStyle.Bezier: Append(nameof(ELineStyle.Bezier)); break;
+				case ELineStyle.Hermite: Append(nameof(ELineStyle.Hermite)); break;
+				case ELineStyle.BSpline: Append(nameof(ELineStyle.BSpline)); break;
+				case ELineStyle.CatmullRom: Append(nameof(ELineStyle.CatmullRom)); break;
 				default: throw new Exception($"Unknown line style ({style})");
 			}
 		}
@@ -210,10 +180,10 @@ namespace Rylogic.LDraw
 		{
 			switch (type)
 			{
-				case EArrowType.Line: Append("Line"); break;
-				case EArrowType.Fwd:  Append("Fwd"); break;
-				case EArrowType.Back: Append("Back"); break;
-				case EArrowType.FwdBack: Append("FwdBack"); break;
+				case EArrowType.Line: Append(nameof(EArrowType.Line)); break;
+				case EArrowType.Fwd:  Append(nameof(EArrowType.Fwd)); break;
+				case EArrowType.Back: Append(nameof(EArrowType.Back)); break;
+				case EArrowType.FwdBack: Append(nameof(EArrowType.FwdBack)); break;
 				default: throw new Exception("Unknown arrow type");
 			}
 		}

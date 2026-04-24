@@ -49,7 +49,10 @@
 	-->
 	<ItemGroup>
 		<ClCompile Include="src\main.cpp" />
-		<ClCompile Include="src\tests\test_ldraw.cpp" />
+		<ClCompile Include="src\tests\test_ldraw.cpp">
+			<ExcludedFromBuild>true</ExcludedFromBuild>
+		</ClCompile>
+		<ClCompile Include="src\tests\test_input.cpp" />
 	</ItemGroup>
 	<!--
 	Dependencies

@@ -432,8 +432,20 @@
 {
 	// Lines support multiple data blocks.
 	// Attributes and modifiers are processed in declaration order and apply to any following data blocks
-	*Style {LineSegments} // One of LineSegments (default), LineStrip, Direction, BezierSpline, HermiteSpline, BSplineSpline, CatmullRom
-	*Data                 // A block of start/end point pairs forming line segments
+
+	// One of LineSegments (default), LineStrip, Direction, Bezier, Hermite, BSpline, CatmullRom
+	// Data interpretation for each style:
+	//  LineSegements  <x0 y0 z0>  <x1 y1 z1> - Line segment start/end points
+	//  LineStrip      <x y z>                - Points along the line
+	//  Direction      <x y z> <dx dy dz>     - Point and directions
+	//  Bezier         <pos0> <pos1> <pos2> <pos3> - Bezier control points (4 positions)
+	//  Hermite        <pos0> <vel0> <pos1> <vel1> - Hermite control points (start position/velocity, end position/velocity)
+	//  BSpline        <pos0> <pos1> <pos2> <pos3> - B-Spline control points (4 positions)
+	//  CatmullRom     <pos0> <pos1> <pos2> <pos3> - CatmullRom control points (4 positions)
+	*Style {LineSegments}
+
+	// A block of line data. e.g. start/end point pairs, spline control points, etc
+	*Data
 	{
 		0 0 0.0  +1 +0 0.0
 		0 0 0.1  +0 +1 0.1

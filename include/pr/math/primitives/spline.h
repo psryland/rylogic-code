@@ -76,10 +76,10 @@ namespace pr::math
 		//
 		//      Name      | Deg | Continuity | Tangents | Interpolates |         Use Cases
 		//  --------------+-----+------------+----------+--------------+----------------------------------
-		//    Bezier      |  3  |   C0/C1    |  manual  | some points	 | Shapes, fonts, vector graphics
-		//    Hermite     |  3  |   C0/C1    | explicit |  all points	 | animation, physics sim, interpolation
-		//    Catmull-Rom |  3  |    C1      |  auto    |  all points	 | animation, path smoothing
-		//    B-Spline    |  3  |    C2      |  auto    |   no points	 | curvature-sensitive shapes (e.g. reflective), animations, camera paths
+		//    Bezier      |  3  |   C0/C1    |  manual  | some points  | Shapes, fonts, vector graphics
+		//    Hermite     |  3  |   C0/C1    | explicit |  all points  | animation, physics sim, interpolation
+		//    Catmull-Rom |  3  |    C1      |  auto    |  all points  | animation, path smoothing
+		//    B-Spline    |  3  |    C2      |  auto    |   no points  | curvature-sensitive shapes (e.g. reflective), animations, camera paths
 		//    Linear      |  1  |    C0      |  auto    |  all points  | 
 		//  
 		//        Time Continuity: C(N) => C(N-1) (derivatives: position <= velocity <= acceleration <= jolt)
@@ -196,6 +196,10 @@ namespace pr::math
 	template <ScalarTypeFP S, template<typename...> class Container = std::vector> requires StdContainer<Container, CubicCurve3<S>>
 	struct CubicSpline
 	{
+		// Notes:
+		//  - Spline time runs from 0 to T where T is the number of curves in the spline.
+		//  - Each curve runs from [0,1] in its local time.
+
 		using Vec4 = Vec4<S>;
 		using Mat4x4 = Mat4x4<S>;
 		using CurveType = CurveType<S>;
@@ -225,9 +229,22 @@ namespace pr::math
 			return static_cast<S>(m_curves.size());
 		}
 
+		// The number of curves in this spline
+		int CurveCount() const noexcept
+		{
+			return static_cast<int>(m_curves.size());
+		}
+
+		// Add a curve to the end of the spline
+		void AddCurve(CubicCurve3 const& curve)
+		{
+			m_curves.push_back(curve);
+		}
+
 		// Return the index of the curve that 'time' falls within
 		int CurveIndex(S time) const noexcept
 		{
+			assert(CurveCount() != 0 && "Spline contains no curves");
 			return std::clamp<int>(static_cast<int>(time), 0, static_cast<int>(m_curves.size() - 1));
 		}
 
@@ -456,7 +473,7 @@ namespace pr::math
 				Elem init = {};
 				init.m_p0 = m_spline.Position(t0); init.m_p0.w = t0;
 				init.m_p1 = m_spline.Position(t1); init.m_p1.w = t1;
-				init.m_err = (std::numeric_limits<S>::max)();
+				init.m_err = std::numeric_limits<S>::max();
 				init.m_idx = 1;
 
 				pr_assert(ssize(m_out) >= 2);
