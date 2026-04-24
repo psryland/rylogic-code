@@ -26,6 +26,7 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 
 #include "pr/str/extract.h"
+#include "pr/common/repeater.h"
 #include "pr/geometry/convex_hull.h"
 #include "pr/geometry/index_buffer.h"
 #include "pr/container/byte_data.h"
@@ -1108,20 +1109,20 @@ namespace pr::rdr12::ldraw
 					}
 				}
 			}
-			ShaderPtr CreateShader(Renderer& rdr, ELineStyle line_style) const
+			ShaderPtr CreateShader(Renderer& rdr, ETopo topo) const
 			{
 				return
-					line_style == ELineStyle::LineSegments ? static_cast<ShaderPtr>(Shader::Create<shaders::ThickLineListGS>(rdr, m_width)) :
-					line_style == ELineStyle::LineStrip ? static_cast<ShaderPtr>(Shader::Create<shaders::ThickLineStripGS>(rdr, m_width)) :
-					throw std::runtime_error(std::format("Unsupported line style: {}", ELineStyle_::ToStringA(line_style)));
+					topo == ETopo::LineList ? static_cast<ShaderPtr>(Shader::Create<shaders::ThickLineListGS>(rdr, m_width)) :
+					topo == ETopo::LineStrip ? static_cast<ShaderPtr>(Shader::Create<shaders::ThickLineStripGS>(rdr, m_width)) :
+					throw std::runtime_error(std::format("Unsupported line style: {}", To<std::string_view>(topo)));
 
 			}
-			void ConvertNuggets(Renderer& rdr, ELineStyle line_style, LdrObject* obj)
+			void ConvertNuggets(Renderer& rdr, ETopo topo, LdrObject* obj)
 			{
-				auto shdr = CreateShader(rdr, line_style);
+				auto shdr = CreateShader(rdr, topo);
 				for (auto& nug : Enumerate(obj->m_model->m_nuggets))
 				{
-					nug.m_topo = line_style == ELineStyle::LineSegments ? ETopo::LineList : ETopo::LineStripAdj;
+					nug.m_topo = topo;
 					nug.m_shdr_overlays.push_back({ shdr, ERenderStep::RenderForward });
 				}
 			}
@@ -1298,15 +1299,15 @@ namespace pr::rdr12::ldraw
 				m_index.push_back(idx);
 				m_para.push_back(para);
 			}
-			void MoveEndpoints(ELineStyle line_style, std::span<v4> verts, ParseParams& pp, Location const& loc)
+			void MoveEndpoints(ETopo topo, std::span<v4> verts, ParseParams& pp, Location const& loc)
 			{
 				for (int i = 0, iend = isize(m_index); i != iend; ++i)
 				{
 					auto idx = m_index[i];
 					auto para = m_para[i];
-					switch (line_style)
+					switch (topo)
 					{
-						case ELineStyle::LineSegments:
+						case ETopo::LineList:
 						{
 							if (idx >= isize(verts) / 2)
 							{
@@ -1322,7 +1323,7 @@ namespace pr::rdr12::ldraw
 							p1 = pt + para.y * dir;
 							break;
 						}
-						case ELineStyle::LineStrip:
+						case ETopo::LineStrip:
 						{
 							if (idx >= isize(verts) - 1)
 							{
@@ -1340,7 +1341,7 @@ namespace pr::rdr12::ldraw
 						}
 						default:
 						{
-							pp.ReportError(EParseError::InvalidValue, loc, std::format("Parametrics not support for line style {}", ELineStyle_::ToStringA(line_style)));
+							pp.ReportError(EParseError::InvalidValue, loc, std::format("Parametrics not support for line style '{}'", To<std::string_view>(topo)));
 							return;
 						}
 					}
@@ -1371,16 +1372,16 @@ namespace pr::rdr12::ldraw
 					}
 				}
 			}
-			VCont CreateSegments(ELineStyle& line_style, std::span<v4 const> verts, ParseParams& pp, Location const& loc)
+			[[nodiscard]] std::tuple<VCont, ETopo> CreateSegments(ETopo topo, std::span<v4 const> verts, ParseParams& pp, Location const& loc)
 			{
 				VCont out;
 				VCont const& in = verts;
 				out.reserve(1024);
 
 				// Convert each line segment to dashed lines
-				switch (line_style)
+				switch (topo)
 				{
-					case ELineStyle::LineSegments:
+					case ETopo::LineList:
 					{
 						assert("Expected line segments to be vertex pairs" && (ssize(in) & 1) == 0);
 
@@ -1400,7 +1401,7 @@ namespace pr::rdr12::ldraw
 						}
 						break;
 					}
-					case ELineStyle::LineStrip:
+					case ETopo::LineStrip:
 					{
 						assert("Expected a line strip with at last two points" && ssize(in) >= 2);
 
@@ -1419,16 +1420,16 @@ namespace pr::rdr12::ldraw
 							t -= len + m_dash.x + m_dash.y;
 						}
 
-						line_style = ELineStyle::LineSegments;
+						topo = ETopo::LineList;
 						break;
 					}
 					default:
 					{
-						pp.ReportError(EParseError::InvalidValue, loc, std::format("Dashed lines not support for line style {}", ELineStyle_::ToStringA(line_style)));
+						pp.ReportError(EParseError::InvalidValue, loc, std::format("Dashed lines not support for topology {}", To<std::string_view>(topo)));
 						return {};
 					}
 				}
-				return out;
+				return { out, topo };
 			}
 			explicit operator bool() const
 			{
@@ -1806,7 +1807,8 @@ namespace pr::rdr12::ldraw
 		//  - Each *Data {} block is one segment.
 		//  - Each segment captures the current line style, arrow type, etc. So segments can be different types.
 		//  - Segments are used for strip-cuts or disjoint splines.
-		//  ///- All segments must be the same line style because they are turned into one model
+		//  - There is one nugget per segment, so each segment can have different topology and shader.
+		//  - All segments share the same vertex buffer however
 		//  - Arrow type applies to each segment
 		//  - Smooth and Splines are orthogonal, Splines are how the data points are given, smooth is used to sub-sample lines.
 		//  - One colour per line element
@@ -1839,6 +1841,20 @@ namespace pr::rdr12::ldraw
 			, m_per_item_parametrics()
 			, m_per_item_colour()
 		{}
+		ETopo Topology(ELineStyle sty) const
+		{
+			switch (sty)
+			{
+				case ELineStyle::LineSegments: return ETopo::LineList;
+				case ELineStyle::LineStrip: return ETopo::LineStrip;
+				case ELineStyle::Direction: return ETopo::LineList;
+				case ELineStyle::Bezier: return ETopo::LineStrip;
+				case ELineStyle::Hermite: return ETopo::LineStrip;
+				case ELineStyle::BSpline: return ETopo::LineStrip;
+				case ELineStyle::CatmullRom: return ETopo::LineStrip;
+				default: throw std::runtime_error("Unexpected line style");
+			}
+		}
 		bool ParseKeyword(IReader& reader, EKeyword kw) override
 		{
 			switch (kw)
@@ -1901,18 +1917,37 @@ namespace pr::rdr12::ldraw
 		}
 		void ReadSegmentData(IReader& reader)
 		{
+			// Copy the current segment state
 			Segment segment = m_current;
+
+			// Data point template
+			auto dp = Vert{
+				.m_diff = pr::Colour(segment.m_data_points.m_colour),
+				.m_norm = v4{segment.m_data_points.m_size, 0, 0},
+				.m_tex0 = {},
+				.m_idx0 = {isize(m_segments), 0},
+			};
+
+			// Read the segment line data
 			switch (segment.m_style)
 			{
 				// Read pairs of points, each pair is a line segment
 				case ELineStyle::LineSegments:
+				case ELineStyle::Direction:
 				{
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						m_verts.push_back(reader.Vector3f().w1());
-						m_verts.push_back(reader.Vector3f().w1());
+						auto p0 = reader.Vector3f();
+						auto p1 = reader.Vector3f();
+						m_verts.push_back(p0.w1());
+						m_verts.push_back(
+							segment.m_style == ELineStyle::LineSegments ? p1.w1() :
+							segment.m_style == ELineStyle::Direction ? p0.w1() + p1.w0() :
+							throw std::runtime_error("Unexpected line style")
+						);
 						segment.m_vcount += 2;
+
 						if (m_per_item_colour)
 						{
 							Colour32 col = reader.Int<uint32_t>(16);
@@ -1925,6 +1960,18 @@ namespace pr::rdr12::ldraw
 							auto para = reader.Vector2f();
 							segment.m_parametric.Add(segment.m_count, para);
 						}
+						if (segment.m_data_points)
+						{
+							dp.m_vert = *(m_verts.end() - 2);
+							m_data_points.push_back(dp);
+
+							// For 'directions' only the first point is a data point
+							if (segment.m_style != ELineStyle::Direction)
+							{
+								dp.m_vert = *(m_verts.end() - 1);
+								m_data_points.push_back(dp);
+							}
+						}
 						++segment.m_count;
 					}
 					break;
@@ -1933,6 +1980,13 @@ namespace pr::rdr12::ldraw
 				// Read single points, each point is a continuation of a line strip. Use separate *Data sections to create strip cuts.
 				case ELineStyle::LineStrip:
 				{
+					// Can't use parametrics on line strips
+					if (m_per_item_parametrics)
+					{
+						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Per-item parametrics cannot be used with LineStrip (line strip topology)");
+						m_per_item_parametrics = false;
+					}
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
@@ -1943,87 +1997,99 @@ namespace pr::rdr12::ldraw
 							m_colours.push_back(reader.Int<uint32_t>(16));
 							segment.m_ccount += 1;
 						}
-						if (m_per_item_parametrics)
+						if (segment.m_data_points)
 						{
-							auto para = reader.Vector2f();
-							segment.m_parametric.Add(segment.m_count, para);
+							dp.m_vert = *(m_verts.end() - 1);
+							m_data_points.push_back(dp);
 						}
 						++segment.m_count;
 					}
-					break;
-				}
-
-				// Read pairs of points, each pair is a (pt, pt + dir) line segment
-				case ELineStyle::Direction:
-				{
-					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
-					{
-						m_pp.ReportProgress(reader, r);
-						auto p = reader.Vector3f().w1();
-						auto d = reader.Vector3f().w0();
-						m_verts.push_back(p);
-						m_verts.push_back(p + d);
-						segment.m_vcount += 2;
-						if (m_per_item_colour)
-						{
-							Colour32 col = reader.Int<uint32_t>(16);
-							m_colours.push_back(col);
-							m_colours.push_back(col);
-							segment.m_ccount += 2;
-						}
-						if (m_per_item_parametrics)
-						{
-							auto para = reader.Vector2f();
-							segment.m_parametric.Add(segment.m_count, para);
-						}
-						++segment.m_count;
-					}
-					segment.m_style = ELineStyle::LineSegments;
 					break;
 				}
 
 				// Read control points in sets of 4
-				case ELineStyle::BezierSpline:
+				case ELineStyle::Bezier:
+				case ELineStyle::Hermite:
+				case ELineStyle::BSpline:
+				case ELineStyle::CatmullRom:
 				{
+					// Can't use parametrics on splines/curves
+					if (m_per_item_parametrics)
+					{
+						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Per-item parametrics cannot be used with splines (line strip topology)");
+						m_per_item_parametrics = false;
+					}
+
+					// Read the curve control points
+					CubicSpline<float> spline;
+					vector<Colour32> colours; // Temp buffer for per-curve colours, applied after rasterization
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						auto p0 = reader.Vector3f().w1();
-						auto p1 = reader.Vector3f().w1();
-						auto p2 = reader.Vector3f().w1();
-						auto p3 = reader.Vector3f().w1();
-						(void)p0, p1, p2, p3;
-						// Todo: Fill 'm_verts' with the rendered spline
-						// m_verts.push_back(p0);
-						// m_verts.push_back(p1);
-						// m_verts.push_back(p2);
-						// m_verts.push_back(p3);
-						// if (m_per_item_colour)
-						// {
-						// 	Colour32 col = reader.Int<uint32_t>(16);
-						// 	m_colours.push_back(col);
-						// 	m_colours.push_back(col);
-						// }
-						// if (m_per_item_parametrics)
-						// {
-						// 	auto para = reader.Vector2f();
-						// 	segment.m_parametric.Add(isize(m_verts) / 2 - 1, para);
-						// }
-					}
-					
-					break;
-				}
+						auto p0 = reader.Vector3f();
+						auto p1 = reader.Vector3f();
+						auto p2 = reader.Vector3f();
+						auto p3 = reader.Vector3f();
+						spline.m_curves.push_back(
+							segment.m_style == ELineStyle::Bezier ? CubicCurve3<float>(p0.w1(), p1.w1(), p2.w1(), p3.w1(), CurveType<float>::Bezier) :
+							segment.m_style == ELineStyle::Hermite ? CubicCurve3<float>(p0.w1(), p1.w0(), p2.w1(), p3.w0(), CurveType<float>::Hermite) :
+							segment.m_style == ELineStyle::BSpline ? CubicCurve3<float>(p0.w1(), p1.w1(), p2.w1(), p3.w1(), CurveType<float>::BSpline) :
+							segment.m_style == ELineStyle::CatmullRom ? CubicCurve3<float>(p0.w1(), p1.w1(), p2.w1(), p3.w1(), CurveType<float>::CatmullRom) :
+							throw std::runtime_error("Unexpected line style")
+						);
 
-				case ELineStyle::HermiteSpline:
-				{
-					break;
-				}
-				case ELineStyle::BSplineSpline:
-				{
-					break;
-				}
-				case ELineStyle::CatmullRom:
-				{
+						if (m_per_item_colour)
+						{
+							colours.push_back(reader.Int<uint32_t>(16));
+						}
+						if (segment.m_data_points)
+						{
+							if (r == 1)
+							{
+								dp.m_vert =
+									segment.m_style == ELineStyle::Bezier ? p0.w1() :
+									segment.m_style == ELineStyle::Hermite ? p0.w1() :
+									segment.m_style == ELineStyle::BSpline ? p0.w1() : // DataPoints are not well defined for B-Splines
+									segment.m_style == ELineStyle::CatmullRom ? p1.w1() : // P1,P2 are the points that CatmullRom goes through
+									throw std::runtime_error("Unexpected line style");
+								m_data_points.push_back(dp);
+							}
+							dp.m_vert =
+								segment.m_style == ELineStyle::Bezier ? p3.w1() :
+								segment.m_style == ELineStyle::Hermite ? p2.w1() :
+								segment.m_style == ELineStyle::BSpline ? p3.w1() :
+								segment.m_style == ELineStyle::CatmullRom ? p2.w1() :
+								throw std::runtime_error("Unexpected line style");
+							m_data_points.push_back(dp);
+						}
+					}
+
+					// Make space for the rastered spline
+					constexpr auto PointsPerCurve = 50;
+					auto resolution = PointsPerCurve * spline.m_curves.size();
+					m_verts.resize(m_verts.size() + resolution);
+					auto vspan = std::span{ m_verts.end() - resolution, m_verts.end() };
+
+					// Raster the spline into 'm_verts' (storing time in 'w' so we know which curve each point came from for colouring)
+					vspan = math::Raster<float>(spline, 0, 1.0f * spline.m_curves.size(), vspan, m_per_item_colour);
+					m_verts.resize(m_verts.size() - (resolution - vspan.size())); // Remove any unused space from the end
+					segment.m_vcount += isize(vspan);
+
+					// Add colours and parametrics if needed
+					if (m_per_item_colour)
+					{
+						m_colours.reserve(m_colours.size() + vspan.size());
+						for (int i = 0, iend = isize(vspan); i != iend; ++i)
+						{
+							auto curve_idx = std::clamp(static_cast<int>(vspan[i].w), 0, isize(spline.m_curves) - 1);
+							m_colours.push_back(colours[curve_idx]);
+							segment.m_ccount += 1;
+						}
+
+						// Clear the time from 'w' now that we've used it for colouring
+						for (auto& v : vspan)
+							v.w = 1;
+					}
 					break;
 				}
 				default:
@@ -2039,8 +2105,8 @@ namespace pr::rdr12::ldraw
 		}
 		std::tuple<int, int, int> ProcessSegments(Location const& loc)
 		{
-			// If a segments needs to change it's verts, it should remove them from 'm_verts'
-			// and insert the new verts at 'm_verts.begin() + vcount'
+			// If a segment needs to change its verts, it should erase them from 'm_verts'
+			// and then insert the new verts at 'm_verts.begin() + vcount' (i.e. replace the range for the segment)
 
 			int vcount = 0;
 			int ccount = 0;
@@ -2049,28 +2115,11 @@ namespace pr::rdr12::ldraw
 			// Process each segment
 			for (auto& segment : m_segments)
 			{
-				// Copy the data points to a separate buffer because later steps can change them.
-				if (segment.m_data_points)
-				{
-					auto verts = m_verts.span(vcount, segment.m_vcount);
-					auto segment_idx = s_cast<int>(&segment - m_segments.data());
-					for (auto const& v : verts)
-					{
-						m_data_points.push_back(Vert{
-							.m_vert = v,
-							.m_diff = pr::Colour(segment.m_data_points.m_colour),
-							.m_norm = v4{segment.m_data_points.m_size, 0, 0},
-							.m_tex0 = {},
-							.m_idx0 = {segment_idx, 0},
-						});
-					}
-				}
-
 				// Clip lines to parametric values
 				if (segment.m_parametric)
 				{
 					auto verts = m_verts.span(vcount, segment.m_vcount);
-					segment.m_parametric.MoveEndpoints(segment.m_style, verts, m_pp, loc);
+					segment.m_parametric.MoveEndpoints(Topology(segment.m_style), verts, m_pp, loc);
 				}
 
 				// Smooth the points
@@ -2100,9 +2149,9 @@ namespace pr::rdr12::ldraw
 						segment.m_thick.m_width != 0 ? v2{ segment.m_thick.m_width * 2 } :
 						v2{ 8.0f };
 
-					switch (segment.m_style)
+					switch (Topology(segment.m_style))
 					{
-						case ELineStyle::LineSegments:
+						case ETopo::LineList:
 						{
 							// Add arrow heads for each line segment
 							for (int i = 0; i != segment.m_vcount; i += 2)
@@ -2131,7 +2180,7 @@ namespace pr::rdr12::ldraw
 							}
 							break;
 						}
-						case ELineStyle::LineStrip:
+						case ETopo::LineStrip:
 						{
 							if (AllSet(segment.m_arrow_heads.m_style, EArrowType::Fwd))
 							{
@@ -2168,11 +2217,12 @@ namespace pr::rdr12::ldraw
 				if (segment.m_dashed)
 				{
 					auto verts = m_verts.span(vcount, segment.m_vcount);
-					auto new_verts = segment.m_dashed.CreateSegments(segment.m_style, verts, m_pp, loc);
+					auto [new_verts, topo] = segment.m_dashed.CreateSegments(Topology(segment.m_style), verts, m_pp, loc);
 
 					// Replace the verts with the dashed verts
 					m_verts.erase(begin(m_verts) + vcount, begin(m_verts) + vcount + segment.m_vcount);
 					m_verts.insert(begin(m_verts) + vcount, begin(new_verts), end(new_verts));
+					segment.m_style = topo == ETopo::LineList ? ELineStyle::LineSegments : ELineStyle::LineStrip;
 					segment.m_vcount = isize(new_verts);
 				}
 
@@ -2216,6 +2266,7 @@ namespace pr::rdr12::ldraw
 			if (m_segments.empty())
 				return;
 
+			// Determine the topology to use for the combined line model.
 			auto [vcount, ccount, ncount] = ProcessSegments(loc);
 
 			ModelGenerator::Cache<Vert> cache{ 0, 0, 0, isizeof<uint16_t>() };
@@ -2252,11 +2303,7 @@ namespace pr::rdr12::ldraw
 					SetPC(*vptr++, bb(v, cache.m_bbox), cc(*col++, has_alpha));
 
 				// Add a nugget for this line segment
-				auto topo =
-					segment.m_style == ELineStyle::LineSegments ? ETopo::LineList :
-					segment.m_style == ELineStyle::LineStrip ? ETopo::LineStrip :
-					throw std::runtime_error(std::format("Unsupported line style: {}", ELineStyle_::ToStringA(segment.m_style)));
-
+				auto topo = Topology(segment.m_style);
 				NuggetDesc nugget = NuggetDesc(topo, EGeom::Vert | EGeom::Colr)
 					.vrange(vcount, vcount + segment.m_vcount)
 					.alpha_geom(has_alpha);
@@ -2264,9 +2311,9 @@ namespace pr::rdr12::ldraw
 				// Use the thick line shader
 				if (segment.m_thick)
 				{
-					auto shdr = segment.m_thick.CreateShader(m_pp.m_rdr, segment.m_style);
+					auto shdr = segment.m_thick.CreateShader(m_pp.m_rdr, topo);
 					nugget.use_shader_overlay(ERenderStep::RenderForward, shdr);
-					if (segment.m_style == ELineStyle::LineStrip)
+					if (topo == ETopo::LineStrip)
 						nugget.topo(ETopo::LineStripAdj);
 				}
 
@@ -2388,11 +2435,12 @@ namespace pr::rdr12::ldraw
 			if (m_verts.empty())
 				return;
 
-			auto line_style = ELineStyle::LineSegments;
-
 			// Convert lines to dashed lines
 			if (m_dashed)
-				m_dashed.CreateSegments(line_style, m_verts, m_pp, loc);
+			{
+				auto [verts, topo] = m_dashed.CreateSegments(ETopo::LineList, m_verts, m_pp, loc);
+				m_verts = std::move(verts);
+			}
 
 			m_nuggets.push_back(NuggetDesc(ETopo::LineList, EGeom::Vert|EGeom::Colr));
 
@@ -2407,7 +2455,7 @@ namespace pr::rdr12::ldraw
 
 			// Use thick lines
 			if (m_thick)
-				m_thick.ConvertNuggets(m_pp.m_rdr, line_style, obj);
+				m_thick.ConvertNuggets(m_pp.m_rdr, ETopo::LineList, obj);
 		}
 	};
 
@@ -2462,11 +2510,12 @@ namespace pr::rdr12::ldraw
 			if (m_verts.empty())
 				return;
 
-			auto line_style = ELineStyle::LineSegments;
-
 			// Convert lines to dashed lines
 			if (m_dashed)
-				m_dashed.CreateSegments(line_style, m_verts, m_pp, loc);
+			{
+				auto [verts, topo] = m_dashed.CreateSegments(ETopo::LineList, m_verts, m_pp, loc);
+				m_verts = std::move(verts);
+			}
 
 			// Apply main axis transform
 			if (m_axis)
@@ -2479,7 +2528,7 @@ namespace pr::rdr12::ldraw
 
 			// Use thick lines
 			if (m_thick)
-				m_thick.ConvertNuggets(m_pp.m_rdr, line_style, obj);
+				m_thick.ConvertNuggets(m_pp.m_rdr, ETopo::LineList, obj);
 		}
 	};
 
@@ -2564,7 +2613,7 @@ namespace pr::rdr12::ldraw
 
 			// Use thick lines
 			if (m_thick)
-				m_thick.ConvertNuggets(m_pp.m_rdr, ELineStyle::LineSegments, obj);
+				m_thick.ConvertNuggets(m_pp.m_rdr, ETopo::LineList, obj);
 		}
 	};
 
@@ -2899,7 +2948,7 @@ namespace pr::rdr12::ldraw
 			if (verts.empty())
 				return;
 
-			auto line_style = ELineStyle::LineStrip;
+			auto topo = ETopo::LineStrip;
 
 			// If we're showing data points, save the verts that represent actual data
 			VCont data_verts;
@@ -2912,10 +2961,14 @@ namespace pr::rdr12::ldraw
 
 			// Convert lines to dashed lines
 			if (m_dashed)
-				m_dashed.CreateSegments(line_style, verts, m_pp, loc);
+			{
+				auto [new_verts, t] = m_dashed.CreateSegments(ETopo::LineStrip, verts, m_pp, loc);
+				verts = std::move(new_verts);
+				topo = t;
+			}
 
 			// The thick line strip shader uses LineAdj which requires an extra first and last vert
-			if (line_style == ELineStyle::LineStrip && m_thick.m_width != 0.0f)
+			if (topo == ETopo::LineStrip && m_thick.m_width != 0.0f)
 			{
 				verts.insert(std::begin(verts), verts.front());
 				verts.insert(std::end(verts), verts.back());
@@ -2927,7 +2980,7 @@ namespace pr::rdr12::ldraw
 
 			// Use thick lines
 			if (m_thick)
-				m_thick.ConvertNuggets(m_pp.m_rdr, line_style, obj);
+				m_thick.ConvertNuggets(m_pp.m_rdr, topo, obj);
 
 			// Add data points as a child object
 			if (m_data_points)

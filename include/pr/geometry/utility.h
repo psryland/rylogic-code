@@ -8,6 +8,7 @@
 #include <cassert>
 #include "pr/geometry/common.h"
 #include "pr/geometry/triangle.h"
+#include "pr/container/deque.h"
 
 namespace pr::geometry
 {

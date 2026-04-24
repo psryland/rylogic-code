@@ -6,16 +6,10 @@
 #include <cassert>
 #include <concepts>
 #include <type_traits>
-#include "pr/common/cast.h"
-#include "pr/common/range.h"
-#include "pr/common/fmt.h"
-#include "pr/common/repeater.h"
-#include "pr/common/interpolate.h"
+#include "pr/common/to.h"
 #include "pr/common/flags_enum.h"
-#include "pr/algorithm/algorithm.h"
-#include "pr/container/vector.h"
-#include "pr/container/deque.h"
-#include "pr/container/ring.h"
+#include "pr/common/bit_fields.h"
+#include "pr/common/repeater.h"
 #include "pr/gfx/colour.h"
 #include "pr/math/math.h"
 
@@ -30,12 +24,12 @@ namespace pr::geometry
 	enum class EGeom
 	{
 		Invalid = 0,
-		None    = 0,
-		Vert    = 1 << 0, // Object space 3D position
-		Colr    = 1 << 1, // Diffuse base colour
-		Norm    = 1 << 2, // Object space 3D normal
-		Tex0    = 1 << 3, // Diffuse texture
-		All     = Vert | Colr | Norm | Tex0,
+		None = 0,
+		Vert = 1 << 0, // Object space 3D position
+		Colr = 1 << 1, // Diffuse base colour
+		Norm = 1 << 2, // Object space 3D normal
+		Tex0 = 1 << 3, // Diffuse texture
+		All = Vert | Colr | Norm | Tex0,
 
 		_flags_enum = 0,
 	};
@@ -69,18 +63,18 @@ namespace pr::geometry
 	// Parts of an model file scene
 	enum class ESceneParts
 	{
-		None           = 0,
+		None = 0,
 		GlobalSettings = 1 << 0,
-		NodeHierarchy  = 1 << 1,
-		Materials      = 1 << 2,
-		Meshes         = 1 << 3,
-		Skeletons      = 1 << 4,
-		Skins          = 1 << 5 | Meshes | Skeletons,
-		Animation      = 1 << 6,
-		MainObjects    = 1 << 7,
+		NodeHierarchy = 1 << 1,
+		Materials = 1 << 2,
+		Meshes = 1 << 3,
+		Skeletons = 1 << 4,
+		Skins = 1 << 5 | Meshes | Skeletons,
+		Animation = 1 << 6,
+		MainObjects = 1 << 7,
 
-		All           = Meshes | Materials | Skeletons | Skins | Animation,
-		ModelOnly     = Meshes | Materials,
+		All = Meshes | Materials | Skeletons | Skins | Animation,
+		ModelOnly = Meshes | Materials,
 		SkinnedModels = ModelOnly | Skins,
 		AnimationOnly = Skeletons | Animation,
 
@@ -103,10 +97,11 @@ namespace pr::geometry
 		bool  m_has_alpha; // True if the model contains any alpha
 
 		Props()
-			:m_bbox(BBox::Reset())
-			,m_geom(EGeom::Vert)
-			,m_has_alpha(false)
-		{}
+			: m_bbox(BBox::Reset())
+			, m_geom(EGeom::Vert)
+			, m_has_alpha(false)
+		{
+		}
 	};
 
 	// Vertex and Index buffer sizes
@@ -116,9 +111,10 @@ namespace pr::geometry
 		int icount;
 
 		constexpr BufSizes(int nv, int ni)
-			:vcount(nv)
-			,icount(ni)
-		{}
+			: vcount(nv)
+			, icount(ni)
+		{
+		}
 	};
 
 	// Classify topology types
@@ -147,8 +143,9 @@ namespace pr::geometry
 
 		Transformer(TVertCIter points, m4x4 const& o2w)
 			:m_pt(points)
-			,m_o2w(&o2w)
-		{}
+			, m_o2w(&o2w)
+		{
+		}
 		v4 operator*() const
 		{
 			return *m_o2w * *m_pt;
@@ -185,10 +182,11 @@ namespace pr::geometry
 		int m_count;
 
 		FaceFlipper(TIdxIter out)
-			:m_out(out)
-			,m_idx()
-			,m_count()
-		{}
+			: m_out(out)
+			, m_idx()
+			, m_count()
+		{
+		}
 		FaceFlipper& operator*()
 		{
 			return *this;
@@ -220,10 +218,11 @@ namespace pr::geometry
 		float m_depth_sq;
 
 		MinSeparation()
-			:m_axis()
-			,m_axis_len_sq()
-			,m_depth_sq(limits<float>::infinity())
-		{}
+			: m_axis()
+			, m_axis_len_sq()
+			, m_depth_sq(limits<float>::infinity())
+		{
+		}
 
 		// Boolean test of penetration
 		bool Contact() const
@@ -339,5 +338,43 @@ namespace pr::geometry
 		bool pr_vectorcall BBoxVsBBox(BBox lhs, BBox rhs);
 		bool pr_vectorcall OBoxVsOBox(OBox const& lhs, OBox const& rhs);
 		bool pr_vectorcall ConvexPolygonVsConvexPolygon(v4 const* poly0, int count0, v4 const* poly1, int count1, v4 norm, std::invocable<v4> auto& out);
+	}
 }
+namespace pr
+{
+	template <> struct Convert<std::string, geometry::EGeom>
+	{
+		static std::string Func(geometry::EGeom geom)
+		{
+			if (geom == geometry::EGeom::None)
+				return "";
+
+			std::string s = {};
+			if (AllSet(geom, geometry::EGeom::Vert)) s.append(s.empty() ? "" : "|").append("Vert");
+			if (AllSet(geom, geometry::EGeom::Colr)) s.append(s.empty() ? "" : "|").append("Colr");
+			if (AllSet(geom, geometry::EGeom::Norm)) s.append(s.empty() ? "" : "|").append("Norm");
+			if (AllSet(geom, geometry::EGeom::Tex0)) s.append(s.empty() ? "" : "|").append("Tex0");
+			return s;
+		}
+	};
+	template <> struct Convert<std::string_view, geometry::ETopo>
+	{
+		static std::string_view Func(geometry::ETopo topo)
+		{
+			switch (topo)
+			{
+				case geometry::ETopo::Undefined: return "Undefined";
+				case geometry::ETopo::PointList: return "PointList";
+				case geometry::ETopo::LineList: return "LineList";
+				case geometry::ETopo::LineStrip: return "LineStrip";
+				case geometry::ETopo::TriList: return "TriList";
+				case geometry::ETopo::TriStrip: return "TriStrip";
+				case geometry::ETopo::LineListAdj: return "LineListAdj";
+				case geometry::ETopo::LineStripAdj: return "LineStripAdj";
+				case geometry::ETopo::TriListAdj: return "TriListAdj";
+				case geometry::ETopo::TriStripAdj: return "TriStripAdj";
+				default: return "Unknown";
+			}
+		}
+	};
 }

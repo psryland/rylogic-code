@@ -11,6 +11,7 @@
 #include "pr/common/cast.h"
 #include "pr/common/scope.h"
 #include "pr/common/alloca.h"
+#include "pr/common/fmt.h"
 #include "pr/container/vector.h"
 #include "pr/container/tri_table.h"
 #include "pr/geometry/point.h"

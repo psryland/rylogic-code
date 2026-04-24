@@ -216,9 +216,9 @@ namespace Rylogic.LDraw
 		LineSegments,
 		LineStrip,
 		Direction,
-		BezierSpline,
-		HermiteSpline,
-		BSplineSpline,
+		Bezier,
+		Hermite,
+		BSpline,
 		CatmullRom,
 	}
 
