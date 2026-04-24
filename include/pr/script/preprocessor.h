@@ -377,21 +377,35 @@ namespace pr::script
 							str::Replace(expr, L"}", L")");
 
 							// Evaluate the expression and push the result as a string onto the stack
-							double result;
 							try
 							{
 								auto expression = eval::Compile(expr);
-								result = expression().db();
+								auto result = expression();
+								switch (result.type())
+								{
+									case eval::Val::EType::Intg:
+									case eval::Val::EType::Real:
+									{
+										expr = std::format(L"{}", result.db());
+										break;
+									}
+									case eval::Val::EType::Intg4:
+									case eval::Val::EType::Real4:
+									{
+										auto v = result.vec();
+										if (result.dim() == 1) expr = std::format(L"{}", v.x);
+										if (result.dim() == 2) expr = std::format(L"{} {}", v.x, v.y);
+										if (result.dim() == 3) expr = std::format(L"{} {} {}", v.x, v.y, v.z);
+										if (result.dim() == 4) expr = std::format(L"{} {} {} {}", v.x, v.y, v.z, v.w);
+										break;
+									}
+									default: throw std::runtime_error("Unknown expression result type");
+								}
 							}
 							catch (std::exception const& ex)
 							{
 								throw ScriptException(EResult::ExpressionSyntaxError, loc_beg, Fmt("#eval expression cannot be evaluated: %s", ex.what()));
 							}
-
-							// Convert the result to a string
-							expr = (static_cast<long long>(result) == result)
-								? FmtS(L"%lld", static_cast<long long>(result))
-								: FmtS(L"%f", result);
 
 							// Push the 'eval' result onto the input stack
 							auto eval_src = std::unique_ptr<StringSrc>(new StringSrc(expr, StringSrc::EFlags::BufferLocally));

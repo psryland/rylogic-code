@@ -168,18 +168,21 @@ namespace pr::eval
 			IVec4 m_i4;
 		};
 		EType m_ty;
-		uint8_t pad[28];
+		uint8_t m_dim;  // For vector types: the number of significant components (1..4). For scalars: 0.
+		uint8_t pad[27];
 
 		Val() = default;
 		Val(long long ll) noexcept
 			:m_ll(ll)
 			, m_ty(EType::Intg)
+			, m_dim(0)
 			, pad()
 		{
 		}
 		Val(double db) noexcept
 			:m_db(db)
 			, m_ty(EType::Real)
+			, m_dim(0)
 			, pad()
 		{
 		}
@@ -191,62 +194,72 @@ namespace pr::eval
 			:Val(static_cast<double>(f))
 		{
 		}
-		template <math::ScalarType S> Val(math::Vec4<S> vec) noexcept requires std::integral<S>
+		template <math::ScalarType S> Val(math::Vec4<S> vec, int dim = 4) noexcept requires std::integral<S>
 			:m_i4(vec)
 			,m_ty(EType::Intg4)
+			,m_dim(static_cast<uint8_t>(dim))
 			,pad()
 		{}
-		template <math::ScalarType S> Val(math::Vec4<S> vec) noexcept requires std::floating_point<S>
+		template <math::ScalarType S> Val(math::Vec4<S> vec, int dim = 4) noexcept requires std::floating_point<S>
 			:m_v4(vec)
 			,m_ty(EType::Real4)
+			,m_dim(static_cast<uint8_t>(dim))
 			,pad()
 		{}
 		template <math::ScalarType S> Val& operator = (math::Vec4<S> v) noexcept requires std::integral<S>
 		{
 			m_i4 = v;
 			m_ty = EType::Intg4;
+			m_dim = 4;
 			return *this;
 		}
 		template <math::ScalarType S> Val& operator = (math::Vec4<S> v) noexcept requires std::floating_point<S>
 		{
 			m_v4 = v;
 			m_ty = EType::Real4;
+			m_dim = 4;
 			return *this;
 		}
 		Val& operator = (unsigned long long v) noexcept
 		{
 			m_ll = static_cast<long long>(v);
 			m_ty = EType::Intg;
+			m_dim = 0;
 			return *this;
 		}
 		Val& operator = (long long v) noexcept
 		{
 			m_ll = v;
 			m_ty = EType::Intg;
+			m_dim = 0;
 			return *this;
 		}
 		Val& operator = (double v) noexcept
 		{
 			m_db = v;
 			m_ty = EType::Real;
+			m_dim = 0;
 			return *this;
 		}
 		Val& operator = (wchar_t v) noexcept
 		{
 			m_ll = v;
 			m_ty = EType::Intg;
+			m_dim = 0;
 			return *this;
 		}
 		Val& operator = (char v) noexcept
 		{
 			m_ll = v;
 			m_ty = EType::Intg;
+			m_dim = 0;
 			return *this;
 		}
 		Val& operator = (bool v) noexcept
 		{
 			m_ll = v;
 			m_ty = EType::Intg;
+			m_dim = 0;
 			return *this;
 		}
 
@@ -254,6 +267,18 @@ namespace pr::eval
 		bool has_value() const
 		{
 			return is_valid(m_ty);
+		}
+
+		// Return the type this value is
+		EType type() const
+		{
+			return m_ty;
+		}
+
+		// The number of significant components in a vector value (1..4), or 0 for scalars.
+		int dim() const
+		{
+			return m_dim;
 		}
 
 		// Read the value, promoting if needed
@@ -325,8 +350,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(-rhs.ll());
 				case EType::Real: return Val(-rhs.db());
-				case EType::Intg4: return Val(-rhs.ivec());
-				case EType::Real4: return Val(-rhs.vec());
+				case EType::Intg4: return Val(-rhs.ivec(), rhs.m_dim);
+				case EType::Real4: return Val(-rhs.vec(), rhs.m_dim);
 				default: throw std::runtime_error("Unknown value type for unary minus");
 			}
 		}
@@ -336,8 +361,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() + rhs.ll());
 				case EType::Real: return Val(lhs.db() + rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() + rhs.ivec());
-				case EType::Real4: return Val(lhs.vec() + rhs.vec());
+				case EType::Intg4: return Val(lhs.ivec() + rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Real4: return Val(lhs.vec() + rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
@@ -347,8 +372,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() - rhs.ll());
 				case EType::Real: return Val(lhs.db() - rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() - rhs.ivec());
-				case EType::Real4: return Val(lhs.vec() - rhs.vec());
+				case EType::Intg4: return Val(lhs.ivec() - rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Real4: return Val(lhs.vec() - rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
@@ -358,8 +383,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() * rhs.ll());
 				case EType::Real: return Val(lhs.db() * rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() * rhs.ivec());
-				case EType::Real4: return Val(lhs.vec() * rhs.vec());
+				case EType::Intg4: return Val(lhs.ivec() * rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Real4: return Val(lhs.vec() * rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
@@ -369,8 +394,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() / rhs.ll());
 				case EType::Real: return Val(lhs.db() / rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() / rhs.ivec());
-				case EType::Real4: return Val(lhs.vec() / rhs.vec());
+				case EType::Intg4: return Val(lhs.ivec() / rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Real4: return Val(lhs.vec() / rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
@@ -380,8 +405,8 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() % rhs.ll());
 				case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
-				case EType::Intg4: return Val(lhs.ivec() % rhs.ivec());
-				case EType::Real4: return Val(lhs.vec() % rhs.vec());
+				case EType::Intg4: return Val(lhs.ivec() % rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Real4: return Val(lhs.vec() % rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
@@ -391,7 +416,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(~rhs.ll());
 				case EType::Real: throw std::runtime_error("Twos complement is not supported for double");
-				case EType::Intg4: return Val(~rhs.ivec());
+				case EType::Intg4: return Val(~rhs.ivec(), rhs.m_dim);
 				case EType::Real4: throw std::runtime_error("Twos complement is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -402,7 +427,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(!rhs.ll());
 				case EType::Real: throw std::runtime_error("Logical NOT is not supported for double");
-				case EType::Intg4: return Val(!rhs.ivec());
+				case EType::Intg4: return Val(!rhs.ivec(), rhs.m_dim);
 				case EType::Real4: throw std::runtime_error("Logical NOT is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -413,7 +438,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() | rhs.ll());
 				case EType::Real: throw std::runtime_error("Bitwise OR is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() | rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() | rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Bitwise OR is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -424,7 +449,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() & rhs.ll());
 				case EType::Real: throw std::runtime_error("Bitwise AND is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() & rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() & rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Bitwise AND is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -435,7 +460,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() ^ rhs.ll());
 				case EType::Real: throw std::runtime_error("Bitwise XOR is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() ^ rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() ^ rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Bitwise XOR is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -446,7 +471,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) << rhs.ll()));
 				case EType::Real: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() << rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() << rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -457,7 +482,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) >> rhs.ll()));
 				case EType::Real: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() >> rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() >> rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -468,7 +493,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() || rhs.ll());
 				case EType::Real: throw std::runtime_error("Logical OR is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() || rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() || rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Logical OR is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -479,7 +504,7 @@ namespace pr::eval
 			{
 				case EType::Intg: return Val(lhs.ll() && rhs.ll());
 				case EType::Real: throw std::runtime_error("Logical AND is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() && rhs.ivec());
+				case EType::Intg4: return Val(lhs.ivec() && rhs.ivec(), result_dim(lhs, rhs));
 				case EType::Real4: throw std::runtime_error("Logical AND is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -540,6 +565,13 @@ namespace pr::eval
 				(lhs == EType::Intg4 || rhs == EType::Intg4) ? EType::Intg4 :
 				(lhs == EType::Real || rhs == EType::Real) ? EType::Real :
 				EType::Intg;
+		}
+
+		// The dimension of a value resulting from a binary op on 'lhs' and 'rhs'. Scalars contribute 0,
+		// so a scalar+vec keeps the vector's dim; vec+vec takes the larger of the two operand dims.
+		static constexpr uint8_t result_dim(Val const& lhs, Val const& rhs)
+		{
+			return lhs.m_dim > rhs.m_dim ? lhs.m_dim : rhs.m_dim;
 		}
 	};
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
@@ -651,6 +683,20 @@ namespace pr::eval
 		{
 			assert(Val::is_valid(val));
 			add_internal(hash, val);
+		}
+
+		// Add or replace a vector-valued argument with an explicit dimension (1..4) by name
+		void add(std::string_view name, pr::v4 const& v, int dim)
+		{
+			assert(dim >= 1 && dim <= 4);
+			add_internal(hashname(name), Val(Val::Vec4(v), dim));
+		}
+
+		// Add or replace a vector-valued argument with an explicit dimension (1..4) by hash
+		void add(IdentHash hash, pr::v4 const& v, int dim)
+		{
+			assert(dim >= 1 && dim <= 4);
+			add_internal(hash, Val(Val::Vec4(v), dim));
 		}
 
 		// Add or replace arguments from another arg set
@@ -865,8 +911,20 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(m_op.read<long long>(i)); break;
 							case Val::EType::Real: stack.push_back(m_op.read<double>(i)); break;
-							case Val::EType::Intg4: stack.push_back(m_op.read<Val::IVec4>(i)); break;
-							case Val::EType::Real4: stack.push_back(m_op.read<Val::Vec4>(i)); break;
+							case Val::EType::Intg4:
+							{
+								auto v = m_op.read<Val::IVec4>(i);
+								auto dim = m_op.read<uint8_t>(i);
+								stack.push_back(Val(v, dim));
+								break;
+							}
+							case Val::EType::Real4:
+							{
+								auto v = m_op.read<Val::Vec4>(i);
+								auto dim = m_op.read<uint8_t>(i);
+								stack.push_back(Val(v, dim));
+								break;
+							}
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -887,7 +945,7 @@ namespace pr::eval
 								throw std::runtime_error("Vector literal elements must be scalar");
 							r[k] = e.db();
 						}
-						stack.push_back(r);
+						stack.push_back(Val(r, n));
 						break;
 					}
 					case ETok::Add:
@@ -2011,8 +2069,8 @@ namespace pr::eval
 					{
 						case Val::EType::Intg:  compiled.m_op.push_back(val.m_ll); break;
 						case Val::EType::Real:  compiled.m_op.push_back(val.m_db); break;
-						case Val::EType::Intg4: compiled.m_op.push_back(val.m_i4); break;
-						case Val::EType::Real4: compiled.m_op.push_back(val.m_v4); break;
+						case Val::EType::Intg4: compiled.m_op.push_back(val.m_i4); compiled.m_op.push_back(val.m_dim); break;
+						case Val::EType::Real4: compiled.m_op.push_back(val.m_v4); compiled.m_op.push_back(val.m_dim); break;
 						default: throw std::runtime_error("Invalid literal value");
 					}
 					break;
@@ -2646,6 +2704,7 @@ namespace pr::common::tests
 				PR_EXPECT(Compile("[1 2 3 4] + [4 3 2 1]")() == Val(v4(5, 5, 5, 5)));
 				PR_EXPECT(Compile("[1 2 3 4] - [1 1 1 1]")() == Val(v4(0, 1, 2, 3)));
 				PR_EXPECT(Compile("[2 4 6 8] / 2")()       == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("0.3 * [0 0 200]")() == Val(v4(0, 0, 60, 0)));
 			}
 			{ // vector variables (bound via ArgSet)
 				auto expr0 = Compile("v");
@@ -2665,6 +2724,41 @@ namespace pr::common::tests
 			{ // vector + scalar functions still parse alongside vector literals
 				PR_EXPECT(Compile("abs([-1 -2 -3 -4])")() == Val(v4(1, 2, 3, 4)));
 				PR_EXPECT(Compile("min([1 2 3 4],[4 3 2 1])")() == Val(v4(1, 2, 2, 1)));
+			}
+			{ // vector dimension tracking
+				// Literal dim follows the element count
+				PR_EXPECT(Compile("[1]")().dim() == 1);
+				PR_EXPECT(Compile("[1 2]")().dim() == 2);
+				PR_EXPECT(Compile("[1 2 3]")().dim() == 3);
+				PR_EXPECT(Compile("[1 2 3 4]")().dim() == 4);
+
+				// Scalars have dim 0
+				PR_EXPECT(Compile("1 + 2")().dim() == 0);
+				PR_EXPECT(Compile("3.14")().dim() == 0);
+
+				// Scalar * vector keeps the vector's dim
+				PR_EXPECT(Compile("2 * [1 2 3]")().dim() == 3);
+				PR_EXPECT(Compile("[1 2] * 5")().dim() == 2);
+
+				// Vector + vector takes max dim
+				PR_EXPECT(Compile("[1 2] + [1 2 3]")().dim() == 3);
+				PR_EXPECT(Compile("[1 2 3 4] - [1 2]")().dim() == 4);
+				PR_EXPECT(Compile("[1] + [1 2 3 4]")().dim() == 4);
+
+				// Unary op preserves dim
+				PR_EXPECT(Compile("-[1 2 3]")().dim() == 3);
+
+				// Vector arg via the dim-preserving overload
+				ArgSet args;
+				args.add("v", v4(1, 2, 3, 4), 3);
+				auto e = Compile("v");
+				PR_EXPECT(e(args).dim() == 3);
+
+				// Mixing args with different dims propagates max
+				ArgSet args2;
+				args2.add("v", v4(1, 2, 0, 0), 2);
+				args2.add("w", v4(1, 2, 3, 0), 3);
+				PR_EXPECT(Compile("v + w")(args2).dim() == 3);
 			}
 			{ // error cases
 				PR_THROWS(Compile("[]"), std::exception);                       // empty
