@@ -115,8 +115,8 @@ namespace pr::collision::tests
 			};
 			m4x4 r2w_[] =
 			{
-				m4x4::Translation(v4{0.3f, 0.0f, 0.0f, 0}),
-				m4x4::Translation(v4{0.5f, 0.3f, 0.5f, 0}),
+				m4x4::Translation(v4{0.3f, 0.0f, 0.0f, 1}),
+				m4x4::Translation(v4{0.5f, 0.3f, 0.5f, 1}),
 			};
 
 			std::default_random_engine rng;
@@ -164,7 +164,7 @@ namespace pr::collision::tests
 
 			// Place sphere just beyond the +Z end of the line
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.2f, 0, 1.2f, 0});
+			auto r2w = m4x4::Translation(v4{0.2f, 0, 1.2f, 1});
 
 			// Distance from endpoint (0,0,1) to sphere centre (0.2,0,1.2) = sqrt(0.04+0.04) ≈ 0.283
 			// Depth = 0.3 - 0.283 ≈ 0.017 → should be touching
@@ -177,7 +177,7 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f};
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{2.0f, 0, 0, 0}); // far away laterally
+			auto r2w = m4x4::Translation(v4{2.0f, 0, 0, 1}); // far away laterally
 
 			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
 		}
@@ -188,7 +188,7 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f}; // half-length = 1
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 0, 3.0f, 0}); // well past +Z end
+			auto r2w = m4x4::Translation(v4{0, 0, 3.0f, 1}); // well past +Z end
 
 			// Distance from endpoint (0,0,1) to (0,0,3) = 2.0, depth = 0.5 - 2.0 = -1.5
 			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
@@ -200,7 +200,7 @@ namespace pr::collision::tests
 			auto line = ShapeLine{0.0f}; // degenerate point
 			auto sph = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 0});
+			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 1});
 
 			// Distance = 0.5, depth = 1.0 - 0.5 = 0.5
 			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w));
@@ -218,7 +218,7 @@ namespace pr::collision::tests
 
 			// Rotate line so its Z-axis maps to the X-axis
 			auto l2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin());
-			auto r2w = m4x4::Translation(v4{1.0f, 0.3f, 0, 0});
+			auto r2w = m4x4::Translation(v4{1.0f, 0.3f, 0, 1});
 
 			// Line now runs along X from -2 to +2. Sphere at (1, 0.3, 0).
 			// Closest point on line = (1, 0, 0). Distance = 0.3. Depth = 0.5-0.3 = 0.2.
@@ -233,7 +233,7 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f};
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 0}); // sphere offset in +X
+			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 1}); // sphere offset in +X
 
 			Contact c;
 			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
@@ -245,18 +245,18 @@ namespace pr::collision::tests
 		// Thick line: sphere within thickness envelope but beyond zero-thickness range
 		PRUnitTestMethod(ThickLineVsSphere)
 		{
-			auto line = ShapeLine{2.0f, 0.4f}; // half-length=1, half-thickness=0.2
+			auto line = ShapeLine{2.0f, 0.2f};
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
+			auto s2w = m4x4::Translation(v4{0.4f, 0, 0, 1});
 
 			// Place sphere 0.4 away laterally: zero-thickness line misses (0.3 < 0.4),
 			// but thick line should hit (0.2 + 0.3 = 0.5 > 0.4)
-			auto r2w = m4x4::Translation(v4{0.4f, 0, 0, 0});
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w));
+			PR_EXPECT(LineVsSphere(line, l2w, sph, s2w));
 
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 0.1f, 0.01f)); // (0.2 + 0.3) - 0.4 = 0.1
+			PR_EXPECT(LineVsSphere(line, l2w, sph, s2w, c));
+			PR_EXPECT(FEqlRelative(c.m_depth, 0.1f, 0.001f)); // (0.2 + 0.3) - 0.4 = 0.1
 		}
 
 		// Thick line: sphere just outside thickness envelope
@@ -265,9 +265,9 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 1});
 
 			// Distance 0.5 laterally: 0.1 + 0.3 = 0.4 < 0.5, should not collide
-			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 0});
 			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
 		}
 
@@ -278,7 +278,7 @@ namespace pr::collision::tests
 			auto line_default = ShapeLine{2.0f};       // default (no thickness)
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 0});
+			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 1});
 
 			Contact c1, c2;
 			PR_EXPECT(LineVsSphere(line_thick, l2w, sph, r2w, c1));

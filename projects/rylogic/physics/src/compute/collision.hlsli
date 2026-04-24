@@ -512,10 +512,16 @@ inline bool SphereVsLine(
 		return false;
 
 	float dist = sqrt(dist_sq);
-	float4 normal = diff / dist;
+	// Normal points from sphere toward line (matches CPU convention: axis from first arg → second arg).
+	float4 normal = (closest - sphere_centre) / dist;
 	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = closest + thickness * normal;
+	// Contact point is the midpoint between the sphere surface and the line surface.
+	//   line_surface   = closest + thickness * (-normal)   (line surface toward sphere)
+	//   sphere_surface = sphere_centre + sphere_r * normal (sphere surface toward line)
+	//   midpoint       = 0.5 * (closest + sphere_centre + (sphere_r - thickness) * normal)
+	float4 mid = 0.5f * (closest + sphere_centre + (sphere_r - thickness) * normal);
+	out_point = float4(mid.xyz, 1);
 	return true;
 }
 
@@ -717,7 +723,12 @@ inline bool LineVsLine(
 	float4 normal = diff / dist;
 	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = pa + ta * normal;
+
+	// Contact point on the midplane between the two capsule surfaces:
+	//   A_surf = pa + ta * normal      (A's surface in the direction of B)
+	//   B_surf = pb - tb * normal      (B's surface in the direction of A)
+	//   contact = (A_surf + B_surf)/2 = pa + (ta - depth/2) * normal
+	out_point = pa + (ta - 0.5f * out_depth) * normal;
 	return true;
 }
 

@@ -329,26 +329,50 @@ namespace pr::geometry::closest_point
 		auto b = Dot3(line0, line1);
 		auto denom = len_sq0 * len_sq1 - b * b; // Always non-negative
 
-		// If segments not parallel, calculate closest point on infinite line 'line0'
-		// to infinite line 'line1', and clamp to segment 1. Otherwise pick arbitrary t0
-		t0 = denom != 0.0f ? Clamp((b * f - c * len_sq1) / denom, 0.0f, 1.0f) : 0.0f;
-
-		// Calculate point on infinite line 'line1' closest to segment 'line0' at t0
-		// using t1 = Dot3(pt0 - s1, line1) / len_sq1 = (b*t0 + f) / len_sq1
-		t1 = (b * t0 + f) / len_sq1;
-
-		// If t1 in [0,1] then done. Otherwise, clamp t1, recompute t0 for the new value
-		// of t1 using t0 = Dot3(pt1 - s0, line0) / len_sq0 = (b*t1 - c) / len_sq0
-		// and clamped t0 to [0, 1]
-		if (t1 < 0.0f)
+		// If the lines are parallel, pick the centre of the overlapping portions of
+		// the line. The choice of closest point is arbitrary, but the symmetric centre feels natural
+		if (FEql(denom, 0.0f))
 		{
-			t1 = 0.0f;
-			t0 = Clamp((0 - c) / len_sq0, 0.0f, 1.0f);
+			// Project line1's endpoints onto line0's parameter space (where 0 is s0 and 1 is e0).
+			//   project p onto line0 -> t = Dot3(p - s0, line0) / len_sq0
+			// For p = s1: Dot3(s1 - s0, line0) / len_sq0 = -c / len_sq0
+			// For p = e1: Dot3(s1 + line1 - s0, line0) / len_sq0 = (b - c) / len_sq0
+			auto u_a = -c / len_sq0;
+			auto u_b = (b - c) / len_sq0;
+
+			// Overlap of line1's projection with line0's [0,1] range
+			auto lo = std::max(0.0f, std::min(u_a, u_b));
+			auto hi = std::min(1.0f, std::max(u_a, u_b));
+
+			// If the projections overlap, take the midpoint; otherwise take the nearest line0 endpoint.
+			t0 = (lo <= hi) ? 0.5f * (lo + hi) : (hi < 0.0f ? 0.0f : 1.0f);
+
+			// Find the corresponding point on line1: t1 = Dot3(s0 + t0*line0 - s1, line1) / len_sq1 = (b*t0 + f) / len_sq1
+			t1 = Clamp((b * t0 + f) / len_sq1, 0.0f, 1.0f);
 		}
-		else if (t1 > 1.0f)
+		else
 		{
-			t1 = 1.0f;
-			t0 = Clamp((b - c) / len_sq0, 0.0f, 1.0f);
+			// If segments not parallel, calculate closest point on infinite line 'line0'
+			// to infinite line 'line1', and clamp to segment 1.
+			t0 = Clamp((b * f - c * len_sq1) / denom, 0.0f, 1.0f);
+
+			// Calculate point on infinite line 'line1' closest to segment 'line0' at t0
+			// using t1 = Dot3(pt0 - s1, line1) / len_sq1 = (b*t0 + f) / len_sq1
+			t1 = (b * t0 + f) / len_sq1;
+
+			// If t1 in [0,1] then done. Otherwise, clamp t1, recompute t0 for the new value
+			// of t1 using t0 = Dot3(pt1 - s0, line0) / len_sq0 = (b*t1 - c) / len_sq0
+			// and clamped t0 to [0, 1]
+			if (t1 < 0.0f)
+			{
+				t1 = 0.0f;
+				t0 = Clamp((0 - c) / len_sq0, 0.0f, 1.0f);
+			}
+			else if (t1 > 1.0f)
+			{
+				t1 = 1.0f;
+				t0 = Clamp((b - c) / len_sq0, 0.0f, 1.0f);
+			}
 		}
 	}
 	inline void pr_vectorcall LineToLine(v4 s0, v4 e0, v4 s1, v4 e1, v4& pt0, v4& pt1)

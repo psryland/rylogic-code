@@ -18,6 +18,7 @@
 #pragma once
 #include "pr/collision/forward.h"
 #include "pr/collision/shape.h"
+#include "pr/collision/support.h"
 #include "pr/collision/penetration.h"
 
 namespace pr::collision
@@ -51,6 +52,70 @@ namespace pr::collision
 			ha = ia;
 			hb = ib;
 			return { (va - vb).w0(), va, vb };
+		}
+
+		// Returns the centroid (in shape's parent/root space) of the shape's support face
+		// in the given direction. For face-on contact the support is a polygon (multiple
+		// vertices tied for max dot); the centroid of that polygon is a stable, geometrically
+		// meaningful contact-point candidate. For non-degenerate contact, only one vertex
+		// ties and this reduces to the standard support point.
+		inline v4 pr_vectorcall SupportFaceCentre(Shape const& shape, v4 direction)
+		{
+			// Use SupportFeature for shapes that have it (Sphere/Box/Line/Triangle): it returns
+			// up to FeaturePolygonMaxSides vertices of the support face — average them.
+			switch (shape.m_type)
+			{
+				case EShape::Sphere:
+				case EShape::Box:
+				case EShape::Line:
+				case EShape::Triangle:
+				{
+					EFeature ft = EFeature::Vert;
+					v4 pts[FeaturePolygonMaxSides];
+					switch (shape.m_type)
+					{
+						case EShape::Sphere:   SupportFeature(shape_cast<ShapeSphere>(shape),   direction, ft, pts); break;
+						case EShape::Box:      SupportFeature(shape_cast<ShapeBox>(shape),      direction, ft, pts); break;
+						case EShape::Line:     SupportFeature(shape_cast<ShapeLine>(shape),     direction, ft, pts); break;
+						case EShape::Triangle: SupportFeature(shape_cast<ShapeTriangle>(shape), direction, ft, pts); break;
+						default: break;
+					}
+					int n = int(ft);
+					if (n <= 0) return v4::Origin();
+					v4 sum = v4::Zero();
+					for (int i = 0; i != n; ++i) sum += pts[i];
+					return (sum / static_cast<float>(n)).w1();
+				}
+				case EShape::Polytope:
+				{
+					constexpr float TieEps = 1e-4f;
+					auto& poly = shape_cast<ShapePolytope>(shape);
+					if (poly.m_vert_count == 0) return v4::Origin();
+					float best_dot = Dot3(direction, poly.vertex(0));
+					for (int i = 1; i != poly.m_vert_count; ++i)
+					{
+						auto d = Dot3(direction, poly.vertex(i));
+						if (d > best_dot) best_dot = d;
+					}
+					v4 sum = v4::Zero();
+					int count = 0;
+					for (int i = 0; i != poly.m_vert_count; ++i)
+					{
+						auto d = Dot3(direction, poly.vertex(i));
+						if (d >= best_dot - TieEps)
+						{
+							sum += poly.vertex(i);
+							++count;
+						}
+					}
+					return count > 0 ? (sum / static_cast<float>(count)).w1() : v4::Origin();
+				}
+				default:
+				{
+					int dummy_id;
+					return SupportVertex(shape, direction, 0, dummy_id).w1();
+				}
+			}
 		}
 
 		// GJK simplex: up to 4 points (line, triangle, tetrahedron).
@@ -261,9 +326,6 @@ namespace pr::collision
 
 				auto cf_normal = faces[ci].normal;
 				auto cf_dist = faces[ci].dist;
-				auto cf_i0 = faces[ci].i[0];
-				auto cf_i1 = faces[ci].i[1];
-				auto cf_i2 = faces[ci].i[2];
 
 				// Get new support in the closest face's normal direction
 				auto sup = MkSupport(sa, a2w, w2a, sb, b2w, w2b, cf_normal, ha, hb);
@@ -275,30 +337,16 @@ namespace pr::collision
 					normal = cf_normal;
 					depth = cf_dist;
 
-					// Interpolate contact points using barycentric coordinates
-					// on the closest face projected onto the origin.
-					auto& va = verts[cf_i0];
-					auto& vb = verts[cf_i1];
-					auto& vc = verts[cf_i2];
-					auto proj = depth * normal; // closest point on face to origin
-					auto e0 = vb.w - va.w, e1 = vc.w - va.w, e2 = proj - va.w;
-					auto d00 = Dot3(e0, e0), d01 = Dot3(e0, e1), d11 = Dot3(e1, e1);
-					auto d20 = Dot3(e2, e0), d21 = Dot3(e2, e1);
-					auto denom = d00 * d11 - d01 * d01;
-
-					if (Abs(denom) > Eps)
-					{
-						auto u = (d11 * d20 - d01 * d21) / denom;
-						auto v = (d00 * d21 - d01 * d20) / denom;
-						auto w = 1.0f - u - v;
-						ptA = w * va.a + u * vb.a + v * vc.a;
-						ptB = w * va.b + u * vb.b + v * vc.b;
-					}
-					else
-					{
-						ptA = va.a;
-						ptB = va.b;
-					}
+					// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
+					// minimum distance and the EPA polytope only sparsely samples the contact
+					// face. Single-triangle barycentric witness points are biased toward whichever
+					// triangle won the tie. To produce a stable, geometrically meaningful contact
+					// point, query the support face centroid on each shape along the contact
+					// normal — averaging all vertices tied for the maximum dot product gives the
+					// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
+					// ties and this reduces to the standard support point.
+					ptA = (a2w * SupportFaceCentre(sa, w2a * +cf_normal)).w1();
+					ptB = (b2w * SupportFaceCentre(sb, w2b * -cf_normal)).w1();
 					return true;
 				}
 
