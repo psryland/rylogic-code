@@ -106,6 +106,12 @@
 					Command="{Binding ShowMoveObjects}"
 					IsEnabled="{Binding FirstSelected, Converter={conv:NotNull}}"
 					/>
+				<Separator/>
+				<MenuItem
+					Header="Centre View"
+					Command="{Binding CentreView}"
+					IsEnabled="{Binding FirstSelected, Converter={conv:NotNull}}"
+					/>
 			</ContextMenu>
 		</ResourceDictionary>
 	</UserControl.Resources>

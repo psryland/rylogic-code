@@ -332,12 +332,24 @@ namespace pr::rdr12
 			case view3d::ESceneBounds::Selected:
 			{
 				bbox = BBox::Reset();
+				auto add_selected = [&](this auto&& self, ldraw::LdrObject const& o) -> void
+				{
+					if (!pred(o)) return;
+
+					// A Selected node contributes its full subtree bbox, then we don't recurse —
+					// nested selected descendants are already covered by the parent's bbox.
+					if (AllSet(o.Flags(), ldraw::ELdrFlags::Selected))
+					{
+						Grow(bbox, o.BBoxWS(ldraw::EBBoxFlags::IncludeChildren, pred));
+						return;
+					}
+					for (auto& child : o.m_child)
+						self(*child.m_ptr);
+				};
 				for (auto& obj : m_objects)
 				{
-					if (!pred(*obj)) continue;
-					if (!AllSet(obj->Flags(), ldraw::ELdrFlags::Selected)) continue;
 					if (pr::contains(except_arr, obj->m_context_id)) continue;
-					Grow(bbox, obj->BBoxWS(ldraw::EBBoxFlags::IncludeChildren, pred));
+					add_selected(*obj);
 				}
 				break;
 			}
