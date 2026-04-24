@@ -1241,6 +1241,18 @@
     <ClInclude Include="..\..\..\include\pr\collision\col_box_vs_sphere.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\input\joystick.h">
+      <Filter>pr\input</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\input\keyboard.h">
+      <Filter>pr\input</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\input\mouse.h">
+      <Filter>pr\input</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\camera\flight.h">
+      <Filter>pr\camera</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">

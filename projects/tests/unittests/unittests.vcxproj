@@ -224,6 +224,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\gui\scintilla_ctrl.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\dimension_index.h" />
     <ClInclude Include="..\..\..\include\pr\algorithm\vp_tree.h" />
+    <ClInclude Include="..\..\..\include\pr\camera\flight.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_box_vs_sphere.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_gjk.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
@@ -381,6 +382,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\forward.h" />
     <ClInclude Include="..\..\..\include\pr\common\task_graph.h" />
     <ClInclude Include="..\..\..\include\pr\hlsl\interop.h" />
+    <ClInclude Include="..\..\..\include\pr\input\joystick.h" />
+    <ClInclude Include="..\..\..\include\pr\input\keyboard.h" />
+    <ClInclude Include="..\..\..\include\pr\input\mouse.h" />
     <ClInclude Include="..\..\..\include\pr\math\conversion.h" />
     <ClInclude Include="..\..\..\include\pr\math\core\axis_id.h" />
     <ClInclude Include="..\..\..\include\pr\math\core\constants.h" />

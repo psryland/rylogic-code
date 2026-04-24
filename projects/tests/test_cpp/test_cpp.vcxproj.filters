@@ -15,5 +15,8 @@
     <ClCompile Include="src\tests\test_ldraw.cpp">
       <Filter>src\tests</Filter>
     </ClCompile>
+    <ClCompile Include="src\tests\test_input.cpp">
+      <Filter>src\tests</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
