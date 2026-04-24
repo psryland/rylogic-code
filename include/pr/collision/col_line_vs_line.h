@@ -219,8 +219,8 @@ namespace pr::collision::tests
 		// Thick lines: perpendicular, separated by less than combined thickness
 		PRUnitTestMethod(ThickLinesCrossing)
 		{
-			auto line_a = ShapeLine{2.0f, 0.4f}; // half-thickness=0.2
-			auto line_b = ShapeLine{2.0f, 0.4f}; // half-thickness=0.2
+			auto line_a = ShapeLine{2.0f, 0.2f};
+			auto line_b = ShapeLine{2.0f, 0.2f};
 
 			// line_a along Z, line_b along X, offset 0.3 in Y
 			auto l2w = m4x4::Identity();
@@ -237,8 +237,8 @@ namespace pr::collision::tests
 		// Thick lines: separated beyond combined thickness
 		PRUnitTestMethod(ThickLinesSeparated)
 		{
-			auto line_a = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
-			auto line_b = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
+			auto line_a = ShapeLine{2.0f, 0.1f};
+			auto line_b = ShapeLine{2.0f, 0.1f};
 
 			// Offset 0.3 in Y: combined thickness = 0.2 < 0.3 → no contact
 			auto l2w = m4x4::Identity();

@@ -18,6 +18,8 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(GpuCollisionTests)
 	{
+		static constexpr bool CreateVisuals = false;
+
 		// Expected contact for collision cases.
 		struct Expected
 		{
@@ -48,20 +50,22 @@ namespace pr::physics::tests
 		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
 			#if PR_UNITTESTS_VISUALISE
-			ldraw::Builder builder;
-			builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
-			builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
-			if (c.contact())
+			if constexpr (CreateVisuals)
 			{
-				builder.Group("Contact")
-					.Sphere("point", 0xFFFFFF00).sphere(0.001f).pos(c.m_point)
-					.Line("axis", 0xFFFFFF00).line(-0.5f * c.m_depth * c.m_axis, +0.5f * c.m_depth * c.m_axis);
+				ldraw::Builder builder;
+				builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
+				builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
+				if (c.contact())
+				{
+					builder.Group("Contact")
+						.Sphere("point", 0xFFFFFF00).sphere(0.008f).pos(c.m_point)
+						.Line("axis", 0xFFFFFF00).line(-0.5f * c.m_depth * c.m_axis, +0.5f * c.m_depth * c.m_axis);
+				}
+
+				builder.Save(temp_dir() / L"LDraw/collision.ldr");
 			}
-		
-			builder.Save(temp_dir() / L"LDraw/collision.ldr");
-			#else
-			(void)a, a2w, b, b2w, c;
 			#endif
+			(void)a, a2w, b, b2w, c;
 		}
 
 		// ---- Sphere vs Sphere ----
@@ -151,7 +155,7 @@ namespace pr::physics::tests
 				bool should_collide = expected != nullptr;
 
 				collision::Contact c0;
-				auto is_contact_cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c0);
+				auto is_contact_cpu = collision::LineVsSphere(line, line2w, sph, sph2w, c0); Flip(c0);
 				Visualise(sph, sph2w, line, line2w, c0);
 				PR_EXPECT(should_collide == is_contact_cpu);
 				if (should_collide)
@@ -173,11 +177,11 @@ namespace pr::physics::tests
 				}
 			};
 
-			// Sphere near midpointof Z-aligned line
-			// ShapeLine(2.0, 0.1) → half_len=1.0, thick_radius=0.05
-			// depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0), point = midpoint on line axis + half-depth shift
+			// Sphere near midpoint of Z-aligned line.
+			// ShapeLine(2.0, 0.1) → half_len=1.0, thick_radius=0.1
+			// depth = 0.5+0.1-0.4 = 0.2, axis points sphere→line = (-1,0,0); midpoint = (0,0,0)
 			{
-				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(0.225f, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(0, 0, 0, 1)};
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Translation(0.4f, 0, 0),
 					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
@@ -200,14 +204,24 @@ namespace pr::physics::tests
 					nullptr);
 			}
 
-			// Both translated: depth = 0.5+0.05-0.4 = 0.15, axis=(1,0,0)
+			// Both translated
 			{
-				auto exp = Expected{0.15f, v4(1, 0, 0, 0), v4(2.225f, 3, 0, 1)};
+				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(2.0f, 3, 0, 1)};
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Translation(2.4f, 3, 0),
 					collision::ShapeLine(2.0f, 0.1f), m4x4::Translation(2, 3, 0),
 					&exp);
 			}
+
+			// Sphere vs line end
+			{
+				auto exp = Expected{0.0406945869f, v4(-0.715183f,-0.583503f,0.384755f, 0), v4(0.0569633f,-0.179877f,0.184547f,1)};
+				BangTogether(
+					collision::ShapeSphere(0.5f), m4x4::Translation(0.4f, 0.1f, 0),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::TransformDeg(10, 0, 25, v4(0,-0.4f,1.2f,1)),
+					&exp);
+			}
+
 		}
 
 		// ---- Sphere vs Box ----
@@ -244,7 +258,7 @@ namespace pr::physics::tests
 				}
 			};
 
-			// Separated: sphere at x=2, radius=0.5, box face at x=0.5, gap=1.0
+			// Separated
 			{
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Translation(2.0f, 0, 0),
@@ -252,8 +266,7 @@ namespace pr::physics::tests
 					nullptr);
 			}
 
-			// Face overlap along +X: closest_box=(0.5,0,0), dist=0.3, depth=0.2
-			// axis=(1,0,0), midpoint=(0.5,0,0)-0.5*0.2*(1,0,0)=(0.4,0,0)
+			// Sphere to face
 			{
 				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(0.4f, 0, 0, 1)};
 				BangTogether(
@@ -262,85 +275,57 @@ namespace pr::physics::tests
 					&exp);
 			}
 
-			// Sphere near box corner: closest_box=(0.5,0.5,0), dist=sqrt(0.5), depth=1-sqrt(0.5)
-			// axis=normalise(0.5,0.5,0), midpoint shifts half-depth inward from box corner
+			// Sphere to edge
 			{
-				auto exp = Expected{0.292893261f, v4(-0.707107f,-0.707107f,0, 1), v4(0.396447f,0.396447f,0,1)};
+				auto exp = Expected{0.292893261f, v4(-0.707107f,-0.707107f,0, 0), v4(0.396447f,0.396447f,0,1)};
 				BangTogether(
 					collision::ShapeSphere(1.0f), m4x4::Translation(1.0f, 1.0f, 0),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
 					&exp);
 			}
 
-			// Sphere centre inside box (non-degenerate): sph(r=0.1) at (0.2,0,0), box(half=1)
-			// Nearest face is +X at x=1, dist=0.8. depth=0.8+0.1=0.9
-			// axis=(1,0,0), face_pt=(1,0,0), midpoint=(1,0,0)-0.5*0.9*(1,0,0)=(0.55,0,0)
+			// Sphere inside box
 			{
-				auto exp = Expected{0.9f, v4(1, 0, 0, 0), v4(0.55f, 0, 0, 1)};
+				auto exp = Expected{0.9f, v4(-1, 0, 0, 0), v4(0.55f, 0, 0, 1)};
 				BangTogether(
 					collision::ShapeSphere(0.1f), m4x4::Translation(0.2f, 0, 0),
 					collision::ShapeBox(v4(2, 2, 2, 0)), m4x4::Identity(),
 					&exp);
 			}
 
-			// Both transformed: sph(r=0.3) at (1.5,2,0), box(half=0.5) at (1.2,2,0)
-			// Sphere centre is inside box. Nearest face is +X at 1.7, face_dist=0.2. depth=0.3+0.2=0.5
-			// axis=(1,0,0), face_pt=(1.7,2,0), midpoint=(1.7,2,0)-0.5*0.5*(1,0,0)=(1.45,2,0)
+			// Sphere inside box, both transformed
 			{
-				auto exp = Expected{0.5f, v4(1, 0, 0, 0), v4(1.45f, 2, 0, 1)};
+				auto exp = Expected{0.5f, v4(-1, 0, 0, 0), v4(1.45f, 2, 0, 1)};
 				BangTogether(
 					collision::ShapeSphere(0.3f), m4x4::Translation(1.5f, 2.0f, 0),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Translation(1.2f, 2.0f, 0),
 					&exp);
 			}
 
-			// Rotated box corner: sph(r=0.5) at origin, box(half=0.5) rotated 45°Z at (1,0,0)
-			// In box local frame: sphere at (-cos45, sin45, 0). Clamped to (-0.5, 0.5, 0).
-			// delta=(-cos45+0.5, sin45-0.5, 0), dist=sqrt(2)*|sin45-0.5|, depth=0.5-dist
+			// Sphere vs box edge, box rotated
 			{
-				auto c45 = Sqrt(0.5f);
-				auto delta_l = v4(-c45 + 0.5f, c45 - 0.5f, 0, 0);
-				auto dist = Length(delta_l);
-				auto dep = 0.5f - dist;
-				auto local_n = Normalise(delta_l);
-
-				// Transform clamped point and normal to world space (rotation 45°Z at (1,0,0))
-				auto box2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 45.0f), v4(1, 0, 0, 1));
-				auto clamped_w = box2w * v4(-0.5f, 0.5f, 0, 1);
-				auto axis_w = Normalise((box2w * local_n.w0()).w0());
-				auto midpoint = clamped_w - (0.5f * dep) * axis_w;
-
-				auto exp = Expected{dep, axis_w, midpoint};
+				auto exp = Expected{0.207106814f,  v4(1, 0, 0, 0), v4(0.396447f,0,0,1)};
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Identity(),
-					collision::ShapeBox(v4(1, 1, 1, 0)), box2w,
+					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::TransformDeg(0, 0, 45.0f, v4(1, 0, 0, 1)),
 					&exp);
 			}
 
-			// Face overlap matching detector test: box(half=1) at identity, sphere(r=0.8) at x=1.5
-			// closest_box=(1,0,0), dist=0.5, depth=0.3, axis=(1,0,0), midpoint=(0.85,0,0)
+			// Sphere vs corner
 			{
-				auto exp = Expected{0.3f, v4(1, 0, 0, 0), v4(0.85f, 0, 0, 1)};
+				auto exp = Expected{0.0742516518f, v4(-0.630542f,-0.17236f,0.756775f, 0), v4(1.14508f,0.402983f,-0.974031f, 1)};
 				BangTogether(
-					collision::ShapeSphere(0.8f), m4x4::Translation(1.5f, 0, 0),
-					collision::ShapeBox(v4(2, 2, 2, 0)), m4x4::Identity(),
+					collision::ShapeSphere(0.6f), m4x4::Translation(1.5f, 0.5f, -1.4f),
+					collision::ShapeBox(v4(2, 1, 0.5f, 0)), m4x4::TransformDeg(10, 20, 30, v4(0.2f, 0.3f, -0.4f, 1)),
 					&exp);
 			}
 
-			// Rotated box vs sphere: box(half=1,2,1) rotated 45° around Z, sphere(r=0.5) at x=1.8
-			// In box local: sphere at (1.8*c45, -1.8*c45, 0). Clamped x to 1. delta=(0.9√2-1, 0, 0). depth=0.5-(0.9√2-1)=1.5-0.9√2
+			// box rotated, sphere vs face
 			{
-				auto c45 = Sqrt(0.5f);
-				auto box2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 45.0f), v4::Origin());
-				auto local_sph = v4(1.8f * c45, -1.8f * c45, 0, 0);
-				auto dist = 1.8f * c45 - 1.0f; // delta_x only (clamped at x=1)
-				auto dep = 0.5f - dist;
-				auto world_n = Normalise((box2w * v4(1, 0, 0, 0)).w0()); // local normal (1,0,0) → world
-				auto clamped_w = box2w * v4(1.0f, local_sph.y, 0, 1);
-				auto exp = Expected{dep, world_n, clamped_w - (0.5f * dep) * world_n};
+				auto exp = Expected{0.227207914f, v4(-0.707107f,-0.707107f,0,0), v4(1.52678f,-0.273223f,0,1)};
 				BangTogether(
 					collision::ShapeSphere(0.5f), m4x4::Translation(1.8f, 0, 0),
-					collision::ShapeBox(v4(2, 4, 2, 0)), box2w,
+					collision::ShapeBox(v4(2, 4, 2, 0)), m4x4::TransformDeg(0, 0, 45.0f, v4::Origin()),
 					&exp);
 			}
 		}
@@ -381,16 +366,14 @@ namespace pr::physics::tests
 			// Perpendicular lines, separatedby 0.3 (thickness 0.1+0.1 < 0.3)
 			{
 				BangTogether(
-					collision::ShapeLine(2.0f, 0.2f), m4x4::Identity(),
-					collision::ShapeLine(2.0f, 0.2f), m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.3f, 0, 1)),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.3f, 0, 1)),
 					nullptr);
 			}
 
-			// Perpendicular lines, colliding: depth = 0.1+0.1-0.15 = 0.05
-			// Line A along Z at origin, line B along X at y=0.15. Closest points at origin and (0,0.15,0).
-			// axis = (0,1,0), point = midpoint = (0, 0.075, 0)
+			// Perpendicular lines, colliding
 			{
-				auto exp = Expected{0.05f, v4(0, 1, 0, 0), v4(0, 0.075f, 0, 1)};
+				auto exp = Expected{0.25f, v4(0, 1, 0, 0), v4(0,0.075f,0, 1)};
 				BangTogether(
 					collision::ShapeLine(2.0f, 0.2f), m4x4::Identity(),
 					collision::ShapeLine(2.0f, 0.2f), m4x4::Transform(v4(0, 1, 0, 0), float(math::constants<float>::tau_by_4), v4(0, 0.15f, 0, 1)),
@@ -400,18 +383,18 @@ namespace pr::physics::tests
 			// Parallel lines, separated
 			{
 				BangTogether(
-					collision::ShapeLine(2.0f, 0.3f), m4x4::Identity(),
-					collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.5f, 0, 0),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Identity(),
+					collision::ShapeLine(2.0f, 0.1f), m4x4::Translation(0.5f, 0, 0),
 					nullptr);
 			}
 
-			// Parallel lines, overlapping: depth = 0.15+0.15-0.2 = 0.1
+			// Parallel lines, not at the origin, overlapping: depth = 0.15+0.15-0.2 = 0.1
 			// axis = (1,0,0), point = midpoint = (0.1, 0, 0)
 			{
-				auto exp = Expected{0.1f, v4(1, 0, 0, 0), v4(0.1f, 0, 0, 1)};
+				auto exp = Expected{0.4f, v4(1, 0, 0, 0), v4(0.3f, 0.1f, 0.2f, 1)};
 				BangTogether(
-					collision::ShapeLine(2.0f, 0.3f), m4x4::Identity(),
-					collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.2f, 0, 0),
+					collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.2f, 0.1f, 0.2f),
+					collision::ShapeLine(2.0f, 0.3f), m4x4::Translation(0.4f, 0.1f, 0.2f),
 					&exp);
 			}
 
@@ -421,6 +404,33 @@ namespace pr::physics::tests
 					collision::ShapeLine(1.0f, 0.1f), m4x4::Identity(),
 					collision::ShapeLine(1.0f, 0.1f), m4x4::Translation(5, 0, 0),
 					nullptr);
+			}
+
+			// Arbitrary orientation, edge-to edge
+			{
+				auto exp = Expected{0.0498910546f, v4(0.597628f,0.720062f,0.352634f, 0), v4(0.610105f,-0.114319f,0.722602f, 1)};
+				BangTogether(
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(40, 30, 20, v4(0.2f, 0.1f, 0.2f, 1)),
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(10,-20, 30, v4(1.0f, 0.2f, 0.2f, 1)),
+					&exp);
+			}
+
+			// End-to-edge contact
+			{
+				auto exp = Expected{ 0.0792064667f, v4(-0.923698f,-0.259704f,0.281668f, 0), v4(0.132932f,-0.258726f,0.573786f, 1) };
+				BangTogether(
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(40, 30, 20, v4(0.2f, 0.1f, 0.2f, 1)),
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(10, -30, 0, v4(-0.6f, -0.5f, 1.5f, 1)),
+					&exp);
+			}
+
+			// End-to-end contact
+			{
+				auto exp = Expected{ 0.146075100f, v4(0.240969f, 0.47681f, 0.845332f, 0), v4(0.637713f,-0.43457f,1.05527f, 1) };
+				BangTogether(
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(40, 30, 20, v4(0.2f, 0.1f, 0.2f, 1)),
+					collision::ShapeLine(2.0f, 0.3f), m4x4::TransformDeg(10, -30, 30, v4(0.2f, -0.5f, 2.1f, 1)),
+					&exp);
 			}
 		}
 
@@ -513,7 +523,7 @@ namespace pr::physics::tests
 
 			// Slow convergence
 			{
-				auto exp = Expected{1.0f, v4(0, 0, -1, 0), v4(0, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-0.999391f,-0.0348994f,0, 0), v4(0.400061f,0.49651f,0.2f, 1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(88, 90, 0), v4(0.5f,0.5f,0.2f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -522,7 +532,7 @@ namespace pr::physics::tests
 
 			// Deep penetration
 			{
-				auto exp = Expected{1.0f, v4(0, 0, -1, 0), v4(0, 0, 0, 1)};
+				auto exp = Expected{0.2f, v4(-1, 0, 0, 0), v4(0.4f,0.250038f,0.204363f,1)};
 				BangTogether(
 					collision::ShapeLine(1.0f, 0.2f), m4x4::Transform(m3x3::RotationDeg(89, 0, 0), v4(0.5f,0.5f,0.2f, 1)),
 					collision::ShapeBox(v4(1, 1, 1, 0)), m4x4::Identity(),
@@ -785,12 +795,13 @@ namespace pr::physics::tests
 				};
 				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
 				auto buf_b = collision::BuildPolytopeFromPoints(tet_pts);
-				auto& pa = buf_a.as<collision::ShapePolytope>();
-				auto& pb = buf_b.as<collision::ShapePolytope>();
-
+				
 				// Slight overlap along X
-				auto exp = Expected{0.0f, v4(0,0,0,0), v4(0,0,0,1)};
-				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(0.5f, 0, 0), &exp);
+				auto exp = Expected{1.11417198f, v4(0.742781f,-0.371391f,0.557086f,0), v4(0.25f,-0.25f,-0.5f,1)};
+				BangTogether(
+					buf_a.as<collision::ShapePolytope>(), m4x4::Identity(),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(0.5f, 0, 0),
+					&exp);
 			}
 
 			// Two tetrahedra separated
@@ -801,10 +812,11 @@ namespace pr::physics::tests
 				};
 				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
 				auto buf_b = collision::BuildPolytopeFromPoints(tet_pts);
-				auto& pa = buf_a.as<collision::ShapePolytope>();
-				auto& pb = buf_b.as<collision::ShapePolytope>();
-
-				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(10, 0, 0), nullptr);
+				
+				BangTogether(
+					buf_a.as<collision::ShapePolytope>(), m4x4::Identity(),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(10, 0, 0),
+					nullptr);
 			}
 
 			// Two cube polytopes overlapping along X
@@ -817,12 +829,13 @@ namespace pr::physics::tests
 				};
 				auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
 				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
-				auto& pa = buf_a.as<collision::ShapePolytope>();
-				auto& pb = buf_b.as<collision::ShapePolytope>();
 
 				// Overlap of 0.5 in X: cubes are ±1, so separation = 2*1 - 0.5 = 1.5
-				auto exp = Expected{0.0f, v4(0,0,0,0), v4(0,0,0,1)};
-				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(1.5f, 0, 0), &exp);
+				auto exp = Expected{0.5f, v4(1,0,0,0), v4(0.75f,0,0,1)};
+				BangTogether(
+					buf_a.as<collision::ShapePolytope>(), m4x4::Identity(),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(1.5f, 0, 0),
+					&exp);
 			}
 
 			// Cube polytopes, both rotated
@@ -835,12 +848,11 @@ namespace pr::physics::tests
 				};
 				auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
 				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
-				auto& pa = buf_a.as<collision::ShapePolytope>();
-				auto& pb = buf_b.as<collision::ShapePolytope>();
-
-				auto a2w = m4x4::Transform(m3x3::RotationDeg(0, 0, 20.0f), v4(-0.5f, 0, 0, 1));
-				auto b2w = m4x4::Transform(m3x3::RotationDeg(0, 0, -15.0f), v4(2.5f, 0, 0, 1));
-				BangTogether(pa, a2w, pb, b2w, nullptr);
+				
+				BangTogether(
+					buf_a.as<collision::ShapePolytope>(), m4x4::Transform(m3x3::RotationDeg(0, 0, 20.0f), v4(-0.5f, 0, 0, 1)),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Transform(m3x3::RotationDeg(0, 0, -15.0f), v4(2.5f, 0, 0, 1)),
+					nullptr);
 			}
 
 			// Tetrahedron vs cube, overlapping
@@ -857,11 +869,12 @@ namespace pr::physics::tests
 				};
 				auto buf_a = collision::BuildPolytopeFromPoints(tet_pts);
 				auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
-				auto& pa = buf_a.as<collision::ShapePolytope>();
-				auto& pb = buf_b.as<collision::ShapePolytope>();
-
-				auto exp = Expected{0.0f, v4(0,0,0,0), v4(0,0,0,1)};
-				BangTogether(pa, m4x4::Identity(), pb, m4x4::Translation(0.5f, 0, 0), &exp);
+				
+				auto exp = Expected{0.545545f, v4(0.872872f,0.436436f,0.218218f,0), v4(0.166667f,-0.25f,-0.416667f,1)};
+				BangTogether(
+					buf_a.as<collision::ShapePolytope>(), m4x4::Identity(),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(0.5f, 0, 0),
+					&exp);
 			}
 		}
 	};

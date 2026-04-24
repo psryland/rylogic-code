@@ -126,6 +126,62 @@ inline float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffe
 	}
 }
 
+// ---- Support face centroid functions ----
+// For face-on contact, the "support point" is degenerate: many vertices tie for the
+// maximum dot product. The centroid of those tied vertices is the centre of the
+// support face — a stable contact point. For non-degenerate (vertex/edge) contact,
+// only one vertex ties and the result equals the standard SupportVertex.
+// 'dir' is in the shape's rigid-body frame (same convention as SupportVertex).
+inline float4 SupportFaceCentre_Box(in_(GpuShape) shape, float4 dir)
+{
+	const float TieEps = 1e-4f;
+	float3 half_ext = shape.data.xyz;
+	float4 result = shape.s2rb[3];
+	float4 ax = float4(shape.s2rb[0].xyz, 0);
+	float4 ay = float4(shape.s2rb[1].xyz, 0);
+	float4 az = float4(shape.s2rb[2].xyz, 0);
+	float dx = dot(dir.xyz, ax.xyz);
+	float dy = dot(dir.xyz, ay.xyz);
+	float dz = dot(dir.xyz, az.xyz);
+	result += (abs(dx) < TieEps ? 0.0f : (dx > 0 ? half_ext.x : -half_ext.x)) * ax;
+	result += (abs(dy) < TieEps ? 0.0f : (dy > 0 ? half_ext.y : -half_ext.y)) * ay;
+	result += (abs(dz) < TieEps ? 0.0f : (dz > 0 ? half_ext.z : -half_ext.z)) * az;
+	return result;
+}
+inline float4 SupportFaceCentre_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+{
+	const float TieEps = 1e-4f;
+	float best_dot = -1e30f;
+	for (int i = 0; i < shape.vert_count; ++i)
+	{
+		float4 v = mul(verts[shape.vert_offset + i], shape.s2rb);
+		float d = dot(dir.xyz, v.xyz);
+		if (d > best_dot) best_dot = d;
+	}
+	float4 sum = float4(0, 0, 0, 0);
+	int count = 0;
+	for (int j = 0; j < shape.vert_count; ++j)
+	{
+		float4 v = mul(verts[shape.vert_offset + j], shape.s2rb);
+		float d = dot(dir.xyz, v.xyz);
+		if (d >= best_dot - TieEps)
+		{
+			sum += v;
+			++count;
+		}
+	}
+	return float4(sum.xyz / max((float)count, 1.0f), 1);
+}
+inline float4 SupportFaceCentre(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+{
+	switch (shape.type)
+	{
+		case SHAPE_BOX:      return SupportFaceCentre_Box(shape, dir);
+		case SHAPE_POLYTOPE: return SupportFaceCentre_Polytope(shape, dir, verts);
+		default:             return float4(SupportVertex(shape, dir, verts).xyz, 1);
+	}
+}
+
 // ---- Minkowski difference support ----
 struct MkSup
 {
@@ -342,9 +398,6 @@ inline bool Epa(
 
 		float4 cf_normal = epa_faces[ci].normal;
 		float cf_dist = epa_faces[ci].dist;
-		int cf_i0 = epa_faces[ci].i0;
-		int cf_i1 = epa_faces[ci].i1;
-		int cf_i2 = epa_faces[ci].i2;
 
 		MkSup sup = MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, verts);
 		float d = dot(sup.w.xyz, cf_normal.xyz);
@@ -354,30 +407,20 @@ inline bool Epa(
 			out_normal = cf_normal;
 			out_depth = cf_dist;
 
-			// Barycentric interpolation for contact points
-			MkSup va = epa_verts[cf_i0];
-			MkSup vb = epa_verts[cf_i1];
-			MkSup vc = epa_verts[cf_i2];
-			float4 proj = cf_dist * cf_normal;
-			float4 e0 = vb.w - va.w;
-			float4 e1 = vc.w - va.w;
-			float4 e2 = proj - va.w;
-			float d00 = dot(e0.xyz, e0.xyz), d01 = dot(e0.xyz, e1.xyz), d11 = dot(e1.xyz, e1.xyz);
-			float d20 = dot(e2.xyz, e0.xyz), d21 = dot(e2.xyz, e1.xyz);
-			float denom = d00 * d11 - d01 * d01;
-			if (abs(denom) > GjkEps)
-			{
-				float u = (d11 * d20 - d01 * d21) / denom;
-				float v = (d00 * d21 - d01 * d20) / denom;
-				float w = 1.0f - u - v;
-				out_ptA = w * va.a + u * vb.a + v * vc.a;
-				out_ptB = w * va.b + u * vb.b + v * vc.b;
-			}
-			else
-			{
-				out_ptA = va.a;
-				out_ptB = va.b;
-			}
+			// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
+			// minimum distance and the EPA polytope only sparsely samples the contact
+			// face. Single-triangle barycentric witness points are biased toward whichever
+			// triangle won the tie. To produce a stable, geometrically meaningful contact
+			// point, query the support face centroid on each shape along the contact
+			// normal — averaging all vertices tied for the maximum dot product gives the
+			// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
+			// ties and this reduces to the standard support point.
+			float4 dir_a = mul(+cf_normal, w2a);
+			float4 dir_b = mul(-cf_normal, w2b);
+			float4 ca_local = SupportFaceCentre(shape_a, dir_a, verts);
+			float4 cb_local = SupportFaceCentre(shape_b, dir_b, verts);
+			out_ptA = float4(mul(ca_local, a2w).xyz, 1);
+			out_ptB = float4(mul(cb_local, b2w).xyz, 1);
 			return true;
 		}
 

@@ -512,10 +512,16 @@ inline bool SphereVsLine(
 		return false;
 
 	float dist = sqrt(dist_sq);
-	float4 normal = diff / dist;
+	// Normal points from sphere toward line (matches CPU convention: axis from first arg → second arg).
+	float4 normal = (closest - sphere_centre) / dist;
 	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = closest + thickness * normal;
+	// Contact point is the midpoint between the sphere surface and the line surface.
+	//   line_surface   = closest + thickness * (-normal)   (line surface toward sphere)
+	//   sphere_surface = sphere_centre + sphere_r * normal (sphere surface toward line)
+	//   midpoint       = 0.5 * (closest + sphere_centre + (sphere_r - thickness) * normal)
+	float4 mid = 0.5f * (closest + sphere_centre + (sphere_r - thickness) * normal);
+	out_point = float4(mid.xyz, 1);
 	return true;
 }
 
@@ -717,18 +723,31 @@ inline bool LineVsLine(
 	float4 normal = diff / dist;
 	out_axis = normal;
 	out_depth = combined_r - dist;
-	out_point = pa + ta * normal;
+
+	// Contact point on the midplane between the two capsule surfaces:
+	//   A_surf = pa + ta * normal      (A's surface in the direction of B)
+	//   B_surf = pb - tb * normal      (B's surface in the direction of A)
+	//   contact = (A_surf + B_surf)/2 = pa + (ta - depth/2) * normal
+	out_point = pa + (ta - 0.5f * out_depth) * normal;
 	return true;
 }
 
 // ---- Line vs Box ----
-// SAT between a line segment (with cylindrical thickness) and an oriented box.
-// Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h:
-//   - 3 box face axes
-//   - 3 cross-product axes (box axis × line direction)
-//   - 1 closest-corner vertex-perpendicular axis (for thick lines: closest box vertex → line segment)
-// Contact point is derived via BoxSupportFeature / LineSupportFeature + FindBoxContactPoint,
-// identical to the CPU pipeline.
+// SAT between a capsule (line segment with cylindrical thickness + spherical end caps) and an OBB.
+// Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h.
+//
+// For each candidate separating axis 'n' (unit, in box space):
+//   box projection radius:      rb = |n.x|*hb.x + |n.y|*hb.y + |n.z|*hb.z
+//   segment projection radius:  rs = |n . line_axis| * hlength
+//   signed centre separation:   d  = n . mid     (box centre is at origin)
+//   penetration depth:          rb + rs + line_radius - |d|
+// If any axis gives depth <= 0 the shapes are separated. Otherwise the axis with the smallest
+// depth is the MTV.
+//
+// Candidate axes (7 total):
+//   - 3 box face normals           (face contacts)
+//   - 3 line_axis x box_axis       (edge-edge contacts; skipped if parallel)
+//   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
 inline bool LineVsBox(
 	in_(GpuShape) seg, float4x4 seg_w,
 	in_(GpuShape) box, float4x4 box_w,
@@ -747,123 +766,70 @@ inline bool LineVsBox(
 	float3 box_pos_w = box_w[3].xyz;
 	float3x3 rot_b = (float3x3) box_w;
 
-	// Line centre and direction in box space
+	// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
 	float3 d_w = line_pos_w - box_pos_w;
-	float3 mid_b = float3(dot(d_w, rot_b[0]), dot(d_w, rot_b[1]), dot(d_w, rot_b[2]));
-	float3 lz_b = float3(dot(line_dir_w, rot_b[0]), dot(line_dir_w, rot_b[1]), dot(line_dir_w, rot_b[2]));
-
-	// Line's axis-aligned projection half-extent (plus a tiny term to counter parallel-axis noise)
-	float3 half_b = hlength * lz_b;
-	float3 rad_b = abs(half_b) + float3(1e-6f, 1e-6f, 1e-6f);
+	float3 mid = float3(dot(d_w, rot_b[0]), dot(d_w, rot_b[1]), dot(d_w, rot_b[2]));
+	float3 line_axis = float3(dot(line_dir_w, rot_b[0]), dot(line_dir_w, rot_b[1]), dot(line_dir_w, rot_b[2]));
 
 	float best_depth = 1e30f;
-	float3 best_axis_b2a_w = float3(1, 0, 0); // From box toward line in world space
-	int i;
+	float3 best_axis = float3(1, 0, 0); // unit, in box space
 
-	// --- 3 box face axes ---
-	// Each axis is a unit vector (a box basis axis), so the depth scale is correct as-is.
-	for (i = 0; i < 3; ++i)
-	{
-		float pen_i = hb[i] + rad_b[i] + line_r - abs(mid_b[i]);
-		if (pen_i < 0)
-			return false;
-		if (pen_i < best_depth)
-		{
-			best_depth = pen_i;
-			best_axis_b2a_w = rot_b[i] * (mid_b[i] >= 0 ? 1.0f : -1.0f);
-		}
+	// Test one unit axis 'n' (in box space) and track the minimum penetration depth.
+	#define TEST_AXIS(n) { \
+		float3 _n = (n); \
+		float _rb = abs(_n.x) * hb.x + abs(_n.y) * hb.y + abs(_n.z) * hb.z; \
+		float _rs = abs(dot(_n, line_axis)) * hlength; \
+		float _d  = dot(_n, mid); \
+		float _depth = _rb + _rs + line_r - abs(_d); \
+		if (_depth < best_depth) { best_depth = _depth; best_axis = _n; } \
 	}
 
-	// --- 3 cross-product axes: cross(box_axis_i, line_dir) ---
-	// Expressed in box space, these are perpendicular to both the box axis i and the line direction.
-	// Axis i=0: cross((1,0,0), lz_b) = (0, -lz_b.z, lz_b.y)
-	// Axis i=1: cross((0,1,0), lz_b) = (lz_b.z, 0, -lz_b.x)
-	// Axis i=2: cross((0,0,1), lz_b) = (-lz_b.y, lz_b.x, 0)
-	for (i = 0; i < 3; ++i)
+	// 3 box face normals
+	TEST_AXIS(float3(1, 0, 0));
+	TEST_AXIS(float3(0, 1, 0));
+	TEST_AXIS(float3(0, 0, 1));
+
+	// 3 cross products of line axis with box axes (edge-edge)
+	for (int i = 0; i < 3; ++i)
 	{
-		int j = (i + 1) % 3;
-		int k = (i + 2) % 3;
+		float3 e = float3(i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
+		float3 n = cross(line_axis, e);
+		float len_sq = dot(n, n);
 
-		float3 axis_b = float3(0, 0, 0);
-		axis_b[j] = -lz_b[k];
-		axis_b[k] = lz_b[j];
-
-		// Degenerate if the line is parallel to box axis i
-		float len_sq = dot(axis_b, axis_b);
-		if (len_sq < 1e-10f)
-			continue;
-		axis_b *= rsqrt(len_sq);
-
-		// Since axis_b is perpendicular to both box axis i and the line direction:
-		//   box projection   = hb[j]*|axis_b[j]| + hb[k]*|axis_b[k]|
-		//   line projection  = line_r (thickness contributes fully; axial extent contributes zero)
-		//   line centre      = mid_b[j]*axis_b[j] + mid_b[k]*axis_b[k]
-		float box_r = hb[j] * abs(axis_b[j]) + hb[k] * abs(axis_b[k]);
-		float line_c = mid_b[j] * axis_b[j] + mid_b[k] * axis_b[k];
-		float pen_i = box_r + line_r - abs(line_c);
-		if (pen_i < 0)
-			return false;
-
-		// Small bias in favour of face axes to avoid noisy edge contacts when depths are similar
-		if (pen_i + 1e-4f < best_depth)
-		{
-			best_depth = pen_i;
-			float3 axis_w = axis_b.x * rot_b[0] + axis_b.y * rot_b[1] + axis_b.z * rot_b[2];
-			best_axis_b2a_w = axis_w * (line_c >= 0 ? 1.0f : -1.0f);
-		}
+		// Skip if the line is parallel to this box axis — the face axis already covers this case
+		if (len_sq <= 1e-12f) continue;
+		TEST_AXIS(n * rsqrt(len_sq));
 	}
 
-	// --- Closest-corner vertex-perpendicular axis (for thick lines / capsules) ---
-	// The 6 face+cross axes above are sufficient for OBB-vs-OBB and zero-thickness line-vs-OBB,
-	// but not for a capsule vs OBB. When a box vertex lies inside the cylinder envelope, the
-	// true minimum-translation axis runs from the vertex perpendicular to the nearest point
-	// on the line segment. Only the corner in the octant containing the closest point on the
-	// segment (to the box centre) can produce the MTV.
-	if (line_r > 0)
+	// Test an axis from the closest box corner to the line.
+	// Identifying the corner without scanning all 8: take the closest point on the segment to the box centre,
+	// then pick the corner in that octant. Then form the axis between that corner and the closest segment
+	// point to the corner. The extra Clamp on box_pt handles the case where a line end sits near a corner.
 	{
-		// Closest point on the segment to the box centre (origin in box space)
-		float t0 = clamp(-dot(mid_b, lz_b), -hlength, hlength);
-		float3 cp0 = mid_b + t0 * lz_b;
-
-		// Box corner in the octant containing cp0
-		float3 V = float3(
-			cp0.x >= 0 ? hb.x : -hb.x,
-			cp0.y >= 0 ? hb.y : -hb.y,
-			cp0.z >= 0 ? hb.z : -hb.z);
-
-		// Closest point on the line segment to V (in box space)
-		float t = clamp(dot(V - mid_b, lz_b), -hlength, hlength);
-		float3 cp = mid_b + t * lz_b;
-
-		// Axis from segment to vertex
-		float3 beg = V - cp;
-		float len_sq = dot(beg, beg);
-		if (len_sq >= 1e-10f)
-		{
-			float3 axis_b = beg * rsqrt(len_sq); // unit vector in box space
-
-			// SAT depth on axis_b (axis_b is unit, so depth scale is correct):
-			//   box projection  = sum |axis_b[i]| * hb[i]
-			//   capsule extent  = hlength * |axis_b . lz_b| + line_r
-			//   line centre     = |axis_b . mid_b|
-			float box_proj = abs(axis_b.x) * hb.x + abs(axis_b.y) * hb.y + abs(axis_b.z) * hb.z;
-			float cap_proj = hlength * abs(dot(lz_b, axis_b)) + line_r;
-			float centre_proj = abs(dot(axis_b, mid_b));
-			float pen_i = box_proj + cap_proj - centre_proj;
-			if (pen_i < 0)
-				return false;
-
-			if (pen_i + 1e-4f < best_depth)
-			{
-				best_depth = pen_i;
-				float3 axis_w = axis_b.x * rot_b[0] + axis_b.y * rot_b[1] + axis_b.z * rot_b[2];
-				// axis_b points from segment toward vertex. We want box→line, which is the
-				// direction of the line centre relative to the box: sign of (mid_b . axis_b).
-				float sign_m = dot(mid_b, axis_b) >= 0 ? 1.0f : -1.0f;
-				best_axis_b2a_w = axis_w * sign_m;
-			}
-		}
+		float t0 = clamp(-dot(mid, line_axis), -hlength, hlength);
+		float3 seg_pt = mid + t0 * line_axis;
+		float3 box_pt = float3(
+			seg_pt.x >= 0 ? hb.x : -hb.x,
+			seg_pt.y >= 0 ? hb.y : -hb.y,
+			seg_pt.z >= 0 ? hb.z : -hb.z);
+		float t1 = clamp(dot(box_pt - mid, line_axis), -hlength, hlength);
+		seg_pt = mid + t1 * line_axis;
+		box_pt = clamp(seg_pt, -hb, hb);
+		float3 sep = seg_pt - box_pt;
+		float len_sq = dot(sep, sep);
+		if (len_sq > 1e-12f)
+			TEST_AXIS(sep * rsqrt(len_sq));
 	}
+	#undef TEST_AXIS
+
+	// Negative depth means a separating axis was found
+	if (best_depth <= 0)
+		return false;
+
+	// Convert axis to world space and orient it to point box -> line (sign from centre separation)
+	float3 axis_w = best_axis.x * rot_b[0] + best_axis.y * rot_b[1] + best_axis.z * rot_b[2];
+	float sign_m = dot(mid, best_axis) >= 0 ? 1.0f : -1.0f;
+	float3 best_axis_b2a_w = axis_w * sign_m;
 
 	// Contact axis convention: from shape A (line) toward shape B (box) — flip the box-to-line axis.
 	float3 contact_axis = -best_axis_b2a_w;
