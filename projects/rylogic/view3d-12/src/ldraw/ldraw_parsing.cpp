@@ -2030,7 +2030,7 @@ namespace pr::rdr12::ldraw
 						auto p1 = reader.Vector3f();
 						auto p2 = reader.Vector3f();
 						auto p3 = reader.Vector3f();
-						spline.m_curves.push_back(
+						spline.AddCurve(
 							segment.m_style == ELineStyle::Bezier ? CubicCurve3<float>(p0.w1(), p1.w1(), p2.w1(), p3.w1(), CurveType<float>::Bezier) :
 							segment.m_style == ELineStyle::Hermite ? CubicCurve3<float>(p0.w1(), p1.w0(), p2.w1(), p3.w0(), CurveType<float>::Hermite) :
 							segment.m_style == ELineStyle::BSpline ? CubicCurve3<float>(p0.w1(), p1.w1(), p2.w1(), p3.w1(), CurveType<float>::BSpline) :
@@ -2064,31 +2064,34 @@ namespace pr::rdr12::ldraw
 						}
 					}
 
-					// Make space for the rastered spline
-					constexpr auto PointsPerCurve = 50;
-					auto resolution = PointsPerCurve * spline.m_curves.size();
-					m_verts.resize(m_verts.size() + resolution);
-					auto vspan = std::span{ m_verts.end() - resolution, m_verts.end() };
-
-					// Raster the spline into 'm_verts' (storing time in 'w' so we know which curve each point came from for colouring)
-					vspan = math::Raster<float>(spline, 0, 1.0f * spline.m_curves.size(), vspan, m_per_item_colour);
-					m_verts.resize(m_verts.size() - (resolution - vspan.size())); // Remove any unused space from the end
-					segment.m_vcount += isize(vspan);
-
-					// Add colours and parametrics if needed
-					if (m_per_item_colour)
+					if (spline.CurveCount() != 0)
 					{
-						m_colours.reserve(m_colours.size() + vspan.size());
-						for (int i = 0, iend = isize(vspan); i != iend; ++i)
-						{
-							auto curve_idx = std::clamp(static_cast<int>(vspan[i].w), 0, isize(spline.m_curves) - 1);
-							m_colours.push_back(colours[curve_idx]);
-							segment.m_ccount += 1;
-						}
+						// Make space for the rastered spline
+						constexpr auto PointsPerCurve = 50;
+						auto resolution = PointsPerCurve * spline.CurveCount();
+						m_verts.resize(m_verts.size() + resolution);
+						auto vspan = std::span{ m_verts.end() - resolution, m_verts.end() };
 
-						// Clear the time from 'w' now that we've used it for colouring
-						for (auto& v : vspan)
-							v.w = 1;
+						// Raster the spline into 'm_verts' (storing time in 'w' so we know which curve each point came from for colouring)
+						vspan = math::Raster<float>(spline, 0, 1.0f * spline.CurveCount(), vspan, m_per_item_colour);
+						m_verts.resize(m_verts.size() - (resolution - vspan.size())); // Remove any unused space from the end
+						segment.m_vcount += isize(vspan);
+
+						// Add colours and parametrics if needed
+						if (m_per_item_colour)
+						{
+							m_colours.reserve(m_colours.size() + vspan.size());
+							for (int i = 0, iend = isize(vspan); i != iend; ++i)
+							{
+								auto curve_idx = std::clamp(static_cast<int>(vspan[i].w), 0, spline.CurveCount() - 1);
+								m_colours.push_back(colours[curve_idx]);
+								segment.m_ccount += 1;
+							}
+
+							// Clear the time from 'w' now that we've used it for colouring
+							for (auto& v : vspan)
+								v.w = 1;
+						}
 					}
 					break;
 				}
@@ -2227,7 +2230,7 @@ namespace pr::rdr12::ldraw
 				}
 
 				// The thick line strip shader uses LineAdj which requires an extra first and last vert
-				if (segment.m_thick && segment.m_style == ELineStyle::LineStrip)
+				if (segment.m_thick && Topology(segment.m_style) == ETopo::LineStrip)
 				{
 					if (segment.m_vcount != 0)
 					{

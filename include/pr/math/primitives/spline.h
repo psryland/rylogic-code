@@ -229,9 +229,22 @@ namespace pr::math
 			return static_cast<S>(m_curves.size());
 		}
 
+		// The number of curves in this spline
+		int CurveCount() const noexcept
+		{
+			return static_cast<int>(m_curves.size());
+		}
+
+		// Add a curve to the end of the spline
+		void AddCurve(CubicCurve3 const& curve)
+		{
+			m_curves.push_back(curve);
+		}
+
 		// Return the index of the curve that 'time' falls within
 		int CurveIndex(S time) const noexcept
 		{
+			assert(CurveCount() != 0 && "Spline contains no curves");
 			return std::clamp<int>(static_cast<int>(time), 0, static_cast<int>(m_curves.size() - 1));
 		}
 
@@ -460,7 +473,7 @@ namespace pr::math
 				Elem init = {};
 				init.m_p0 = m_spline.Position(t0); init.m_p0.w = t0;
 				init.m_p1 = m_spline.Position(t1); init.m_p1.w = t1;
-				init.m_err = (std::numeric_limits<S>::max)();
+				init.m_err = std::numeric_limits<S>::max();
 				init.m_idx = 1;
 
 				pr_assert(ssize(m_out) >= 2);
