@@ -99,6 +99,21 @@ namespace pr::math
 			);
 		}
 
+		// Implicit widening from a smaller-precision Vec4 of the same scalar kind.
+		// Allowed: float -> double, int32 -> int64 (and equivalent same-kind size increases).
+		// Narrowing conversions remain explicit (use `static_cast<Vec4<S2>>(...)`).
+		template <ScalarType S2> requires
+		(
+			!std::is_same_v<S, S2> &&
+			(
+				(std::floating_point<S2> && std::floating_point<S> && sizeof(S2) < sizeof(S)) ||
+				(std::integral<S2> && std::integral<S> && std::is_signed_v<S2> == std::is_signed_v<S> && sizeof(S2) < sizeof(S))
+			)
+		)
+		constexpr Vec4(Vec4<S2> const& v) noexcept
+			:Vec4(static_cast<S>(v.x), static_cast<S>(v.y), static_cast<S>(v.z), static_cast<S>(v.w))
+		{}
+
 		// Array access
 		constexpr S operator [] (int i) const noexcept
 		{

@@ -1,4 +1,4 @@
-﻿//*************************************************************
+//*************************************************************
 // Expression Evaluator
 //  Copyright (c) Rylogic Ltd 2008
 //*************************************************************
@@ -79,6 +79,9 @@ namespace pr::eval
 		Hash,
 		OpenParenthesis,
 		CloseParenthesis,
+		OpenBracket,
+		CloseBracket,
+		MakeVec,
 		Value,
 		Identifier,
 	};
@@ -150,20 +153,22 @@ namespace pr::eval
 	}
 
 	// An integral or floating point value
-	struct alignas(16) Val
+	struct alignas(32) Val
 	{
 		enum class EType :int { Unknown, Intg, Real, Intg4, Real4 };
+		using IVec4 = math::Vec4<int64_t>;
+		using Vec4 = math::Vec4<double>;
 
 		// The value
 		union
 		{
 			long long m_ll;
 			double m_db;
-			v4 m_v4;
-			iv4 m_i4;
+			Vec4 m_v4;
+			IVec4 m_i4;
 		};
 		EType m_ty;
-		uint8_t pad[12];
+		uint8_t pad[28];
 
 		Val() = default;
 		Val(long long ll) noexcept
@@ -186,23 +191,23 @@ namespace pr::eval
 			:Val(static_cast<double>(f))
 		{
 		}
-		Val(iv4 vec) noexcept
+		template <math::ScalarType S> Val(math::Vec4<S> vec) noexcept requires std::integral<S>
 			:m_i4(vec)
 			,m_ty(EType::Intg4)
 			,pad()
 		{}
-		Val(v4 vec) noexcept
+		template <math::ScalarType S> Val(math::Vec4<S> vec) noexcept requires std::floating_point<S>
 			:m_v4(vec)
 			,m_ty(EType::Real4)
 			,pad()
 		{}
-		Val& operator = (iv4 v) noexcept
+		template <math::ScalarType S> Val& operator = (math::Vec4<S> v) noexcept requires std::integral<S>
 		{
 			m_i4 = v;
 			m_ty = EType::Intg4;
 			return *this;
 		}
-		Val& operator = (v4 v) noexcept
+		template <math::ScalarType S> Val& operator = (math::Vec4<S> v) noexcept requires std::floating_point<S>
 		{
 			m_v4 = v;
 			m_ty = EType::Real4;
@@ -278,18 +283,34 @@ namespace pr::eval
 		}
 		iv4 i4() const
 		{
-			if (m_ty == EType::Intg4) return m_i4;
-			if (m_ty == EType::Real4) return To<iv4>(m_v4);
+			if (m_ty == EType::Intg4) return static_cast<iv4>(m_i4);
+			if (m_ty == EType::Real4) return static_cast<iv4>(m_v4);
 			if (m_ty == EType::Intg) return iv4(static_cast<int>(m_ll));
 			if (m_ty == EType::Real) return iv4(static_cast<int>(m_db));
 			throw std::runtime_error("Value not given. Value type is unknown");
 		}
 		pr::v4 v4() const
 		{
-			if (m_ty == EType::Real4) return m_v4;
-			if (m_ty == EType::Intg4) return To<pr::v4>(m_i4);
+			if (m_ty == EType::Real4) return static_cast<pr::v4>(m_v4);
+			if (m_ty == EType::Intg4) return static_cast<pr::v4>(m_i4);
 			if (m_ty == EType::Intg) return pr::v4(static_cast<float>(m_ll));
 			if (m_ty == EType::Real) return pr::v4(static_cast<float>(m_db));
+			throw std::runtime_error("Value not given. Value type is unknown");
+		}
+		IVec4 ivec() const
+		{
+			if (m_ty == EType::Intg4) return m_i4;
+			if (m_ty == EType::Real4) return static_cast<IVec4>(m_v4);
+			if (m_ty == EType::Intg) return IVec4(m_ll);
+			if (m_ty == EType::Real) return IVec4(static_cast<int64_t>(m_db));
+			throw std::runtime_error("Value not given. Value type is unknown");
+		}
+		Vec4 vec() const
+		{
+			if (m_ty == EType::Real4) return m_v4;
+			if (m_ty == EType::Intg4) return static_cast<Vec4>(m_i4);
+			if (m_ty == EType::Intg) return Vec4(static_cast<double>(m_ll));
+			if (m_ty == EType::Real) return Vec4(m_db);
 			throw std::runtime_error("Value not given. Value type is unknown");
 		}
 
@@ -302,176 +323,176 @@ namespace pr::eval
 		{
 			switch (rhs.m_ty)
 			{
-			case EType::Intg: return Val(-rhs.ll());
-			case EType::Real: return Val(-rhs.db());
-			case EType::Intg4: return Val(-rhs.i4());
-			case EType::Real4: return Val(-rhs.v4());
-			default: throw std::runtime_error("Unknown value type for unary minus");
+				case EType::Intg: return Val(-rhs.ll());
+				case EType::Real: return Val(-rhs.db());
+				case EType::Intg4: return Val(-rhs.ivec());
+				case EType::Real4: return Val(-rhs.vec());
+				default: throw std::runtime_error("Unknown value type for unary minus");
 			}
 		}
 		friend Val  operator +  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() + rhs.ll());
-			case EType::Real: return Val(lhs.db() + rhs.db());
-			case EType::Intg4: return Val(lhs.i4() + rhs.i4());
-			case EType::Real4: return Val(lhs.v4() + rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() + rhs.ll());
+				case EType::Real: return Val(lhs.db() + rhs.db());
+				case EType::Intg4: return Val(lhs.ivec() + rhs.ivec());
+				case EType::Real4: return Val(lhs.vec() + rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator -  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() - rhs.ll());
-			case EType::Real: return Val(lhs.db() - rhs.db());
-			case EType::Intg4: return Val(lhs.i4() - rhs.i4());
-			case EType::Real4: return Val(lhs.v4() - rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() - rhs.ll());
+				case EType::Real: return Val(lhs.db() - rhs.db());
+				case EType::Intg4: return Val(lhs.ivec() - rhs.ivec());
+				case EType::Real4: return Val(lhs.vec() - rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator *  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() * rhs.ll());
-			case EType::Real: return Val(lhs.db() * rhs.db());
-			case EType::Intg4: return Val(lhs.i4() * rhs.i4());
-			case EType::Real4: return Val(lhs.v4() * rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() * rhs.ll());
+				case EType::Real: return Val(lhs.db() * rhs.db());
+				case EType::Intg4: return Val(lhs.ivec() * rhs.ivec());
+				case EType::Real4: return Val(lhs.vec() * rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator /  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() / rhs.ll());
-			case EType::Real: return Val(lhs.db() / rhs.db());
-			case EType::Intg4: return Val(lhs.i4() / rhs.i4());
-			case EType::Real4: return Val(lhs.v4() / rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() / rhs.ll());
+				case EType::Real: return Val(lhs.db() / rhs.db());
+				case EType::Intg4: return Val(lhs.ivec() / rhs.ivec());
+				case EType::Real4: return Val(lhs.vec() / rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator %  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() % rhs.ll());
-			case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
-			case EType::Intg4: return Val(lhs.i4() % rhs.i4());
-			case EType::Real4: return Val(lhs.v4() % rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() % rhs.ll());
+				case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
+				case EType::Intg4: return Val(lhs.ivec() % rhs.ivec());
+				case EType::Real4: return Val(lhs.vec() % rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator ~  (Val const& rhs)
 		{
 			switch (rhs.m_ty)
 			{
-			case EType::Intg: return Val(~rhs.ll());
-			case EType::Real: throw std::runtime_error("Twos complement is not supported for double");
-			case EType::Intg4: return Val(~rhs.i4());
-			case EType::Real4: throw std::runtime_error("Twos complement is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(~rhs.ll());
+				case EType::Real: throw std::runtime_error("Twos complement is not supported for double");
+				case EType::Intg4: return Val(~rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Twos complement is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator !  (Val const& rhs)
 		{
 			switch (rhs.m_ty)
 			{
-			case EType::Intg: return Val(!rhs.ll());
-			case EType::Real: throw std::runtime_error("Logical NOT is not supported for double");
-			case EType::Intg4: return Val(!rhs.i4());
-			case EType::Real4: throw std::runtime_error("Logical NOT is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(!rhs.ll());
+				case EType::Real: throw std::runtime_error("Logical NOT is not supported for double");
+				case EType::Intg4: return Val(!rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Logical NOT is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator |  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() | rhs.ll());
-			case EType::Real: throw std::runtime_error("Bitwise OR is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() | rhs.i4());
-			case EType::Real4: throw std::runtime_error("Bitwise OR is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() | rhs.ll());
+				case EType::Real: throw std::runtime_error("Bitwise OR is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() | rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Bitwise OR is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator &  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() & rhs.ll());
-			case EType::Real: throw std::runtime_error("Bitwise AND is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() & rhs.i4());
-			case EType::Real4: throw std::runtime_error("Bitwise AND is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() & rhs.ll());
+				case EType::Real: throw std::runtime_error("Bitwise AND is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() & rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Bitwise AND is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator ^  (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() ^ rhs.ll());
-			case EType::Real: throw std::runtime_error("Bitwise XOR is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() ^ rhs.i4());
-			case EType::Real4: throw std::runtime_error("Bitwise XOR is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() ^ rhs.ll());
+				case EType::Real: throw std::runtime_error("Bitwise XOR is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() ^ rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Bitwise XOR is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator << (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) << rhs.ll()));
-			case EType::Real: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() << rhs.i4());
-			case EType::Real4: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) << rhs.ll()));
+				case EType::Real: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() << rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator >> (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) >> rhs.ll()));
-			case EType::Real: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() >> rhs.i4());
-			case EType::Real4: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) >> rhs.ll()));
+				case EType::Real: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() >> rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator || (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() || rhs.ll());
-			case EType::Real: throw std::runtime_error("Logical OR is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() || rhs.i4());
-			case EType::Real4: throw std::runtime_error("Logical OR is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() || rhs.ll());
+				case EType::Real: throw std::runtime_error("Logical OR is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() || rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Logical OR is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator && (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return Val(lhs.ll() && rhs.ll());
-			case EType::Real: throw std::runtime_error("Logical AND is not supported for double");
-			case EType::Intg4: return Val(lhs.i4() && rhs.i4());
-			case EType::Real4: throw std::runtime_error("Logical AND is not supported for vector4");
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return Val(lhs.ll() && rhs.ll());
+				case EType::Real: throw std::runtime_error("Logical AND is not supported for double");
+				case EType::Intg4: return Val(lhs.ivec() && rhs.ivec());
+				case EType::Real4: throw std::runtime_error("Logical AND is not supported for vector4");
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend bool operator == (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return lhs.ll() == rhs.ll();
-			case EType::Real: return lhs.db() == rhs.db();
-			case EType::Intg4: return All(lhs.i4() == rhs.i4());
-			case EType::Real4: return All(lhs.v4() == rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return lhs.ll() == rhs.ll();
+				case EType::Real: return lhs.db() == rhs.db();
+				case EType::Intg4: return All(lhs.ivec() == rhs.ivec());
+				case EType::Real4: return All(lhs.vec() == rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend bool operator != (Val const& lhs, Val const& rhs)
@@ -482,22 +503,22 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return lhs.ll() < rhs.ll();
-			case EType::Real: return lhs.db() < rhs.db();
-			case EType::Intg4: return All(lhs.i4() < rhs.i4());
-			case EType::Real4: return All(lhs.v4() < rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return lhs.ll() < rhs.ll();
+				case EType::Real: return lhs.db() < rhs.db();
+				case EType::Intg4: return All(lhs.ivec() < rhs.ivec());
+				case EType::Real4: return All(lhs.vec() < rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend bool operator <= (Val const& lhs, Val const& rhs)
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-			case EType::Intg: return lhs.ll() <= rhs.ll();
-			case EType::Real: return lhs.db() <= rhs.db();
-			case EType::Intg4: return All(lhs.i4() <= rhs.i4());
-			case EType::Real4: return All(lhs.v4() <= rhs.v4());
-			default: throw std::runtime_error("Unknown value type");
+				case EType::Intg: return lhs.ll() <= rhs.ll();
+				case EType::Real: return lhs.db() <= rhs.db();
+				case EType::Intg4: return All(lhs.ivec() <= rhs.ivec());
+				case EType::Real4: return All(lhs.vec() <= rhs.vec());
+				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend bool operator >  (Val const& lhs, Val const& rhs)
@@ -522,7 +543,7 @@ namespace pr::eval
 		}
 	};
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
-	static_assert(std::alignment_of_v<Val> == 16, "Val should have 16 byte alignment");
+	static_assert(std::alignment_of_v<Val> == 32, "Val should have 32 byte alignment");
 
 	// A collection of args with some rules enforced
 	struct ArgSet
@@ -844,10 +865,29 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(m_op.read<long long>(i)); break;
 							case Val::EType::Real: stack.push_back(m_op.read<double>(i)); break;
-							case Val::EType::Intg4: stack.push_back(m_op.read<v4>(i)); break;
-							case Val::EType::Real4: stack.push_back(m_op.read<iv4>(i)); break;
+							case Val::EType::Intg4: stack.push_back(m_op.read<Val::IVec4>(i)); break;
+							case Val::EType::Real4: stack.push_back(m_op.read<Val::Vec4>(i)); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
+						break;
+					}
+					case ETok::MakeVec:
+					{
+						// Construct a vec4 from N (1..4) scalar values popped from the stack.
+						// Missing components default to 0. Vector-valued elements are not allowed.
+						auto n = m_op.read<uint8_t>(i);
+						if (n < 1 || n > 4) throw std::runtime_error("Invalid vector literal element count");
+						if (stack.size() < n) throw std::runtime_error("Insufficient arguments for vector literal");
+
+						Val::Vec4 r{0, 0, 0, 0};
+						for (int k = n - 1; k >= 0; --k)
+						{
+							auto e = stack.back(); stack.pop_back();
+							if (e.m_ty == Val::EType::Intg4 || e.m_ty == Val::EType::Real4)
+								throw std::runtime_error("Vector literal elements must be scalar");
+							r[k] = e.db();
+						}
+						stack.push_back(r);
 						break;
 					}
 					case ETok::Add:
@@ -1030,8 +1070,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Ceil(x.db())); break;
 							case Val::EType::Real: stack.push_back(Ceil(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Ceil(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Ceil(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Ceil(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Ceil(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1044,8 +1084,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Floor(x.db())); break;
 							case Val::EType::Real: stack.push_back(Floor(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Floor(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Floor(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Floor(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Floor(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1058,8 +1098,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Round(x.db())); break;
 							case Val::EType::Real: stack.push_back(Round(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Round(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Round(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Round(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Round(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1073,8 +1113,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Min(a.ll(), b.ll())); break;
 							case Val::EType::Real: stack.push_back(Min(a.db(), b.db())); break;
-							case Val::EType::Intg4: stack.push_back(Min(a.i4(), b.i4())); break;
-							case Val::EType::Real4: stack.push_back(Min(a.v4(), b.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Min(a.ivec(), b.ivec())); break;
+							case Val::EType::Real4: stack.push_back(Min(a.vec(), b.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1088,8 +1128,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Max(a.ll(), b.ll())); break;
 							case Val::EType::Real: stack.push_back(Max(a.db(), b.db())); break;
-							case Val::EType::Intg4: stack.push_back(Max(a.i4(), b.i4())); break;
-							case Val::EType::Real4: stack.push_back(Max(a.v4(), b.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Max(a.ivec(), b.ivec())); break;
+							case Val::EType::Real4: stack.push_back(Max(a.vec(), b.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1104,8 +1144,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Clamp(x.ll(), mn.ll(), mx.ll())); break;
 							case Val::EType::Real: stack.push_back(Clamp(x.db(), mn.db(), mx.db())); break;
-							case Val::EType::Intg4: stack.push_back(Clamp(x.i4(), mn.i4(), mx.i4())); break;
-							case Val::EType::Real4: stack.push_back(Clamp(x.v4(), mn.v4(), mx.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Clamp(x.ivec(), mn.ivec(), mx.ivec())); break;
+							case Val::EType::Real4: stack.push_back(Clamp(x.vec(), mn.vec(), mx.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1118,8 +1158,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Abs(x.ll())); break;
 							case Val::EType::Real: stack.push_back(Abs(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Abs(x.i4())); break;
-							case Val::EType::Real4: stack.push_back(Abs(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Abs(x.ivec())); break;
+							case Val::EType::Real4: stack.push_back(Abs(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1132,8 +1172,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Sin(x.db())); break;
 							case Val::EType::Real: stack.push_back(Sin(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Sin(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Sin(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Sin(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Sin(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1146,8 +1186,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Cos(x.db())); break;
 							case Val::EType::Real: stack.push_back(Cos(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Cos(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Cos(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Cos(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Cos(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1160,8 +1200,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Tan(x.db())); break;
 							case Val::EType::Real: stack.push_back(Tan(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Tan(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Tan(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Tan(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Tan(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1174,8 +1214,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Asin(x.db())); break;
 							case Val::EType::Real: stack.push_back(Asin(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Asin(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Asin(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Asin(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Asin(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1188,8 +1228,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Acos(x.db())); break;
 							case Val::EType::Real: stack.push_back(Acos(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Acos(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Acos(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Acos(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Acos(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1202,8 +1242,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Atan(x.db())); break;
 							case Val::EType::Real: stack.push_back(Atan(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Atan(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Atan(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Atan(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Atan(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1217,8 +1257,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Atan2(y.db(), x.db())); break;
 							case Val::EType::Real: stack.push_back(Atan2(y.db(), x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Atan2(y.v4(), x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Atan2(y.v4(), x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Atan2(y.vec(), x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Atan2(y.vec(), x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1231,8 +1271,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Sinh(x.db())); break;
 							case Val::EType::Real: stack.push_back(Sinh(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Sinh(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Sinh(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Sinh(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Sinh(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1245,8 +1285,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Cosh(x.db())); break;
 							case Val::EType::Real: stack.push_back(Cosh(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Cosh(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Cosh(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Cosh(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Cosh(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1259,8 +1299,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Tanh(x.db())); break;
 							case Val::EType::Real: stack.push_back(Tanh(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Tanh(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Tanh(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Tanh(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Tanh(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1273,8 +1313,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Exp(x.db())); break;
 							case Val::EType::Real: stack.push_back(Exp(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Exp(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Exp(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Exp(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Exp(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1287,8 +1327,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Log(x.db())); break;
 							case Val::EType::Real: stack.push_back(Log(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Log(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Log(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Log(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Log(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1301,8 +1341,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Log10(x.db())); break;
 							case Val::EType::Real: stack.push_back(Log10(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Log10(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(Log10(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Log10(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(Log10(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1316,8 +1356,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Pow(x.db(), y.db())); break;
 							case Val::EType::Real: stack.push_back(Pow(x.db(), y.db())); break;
-							case Val::EType::Intg4: stack.push_back(Pow(x.v4(), y.v4())); break;
-							case Val::EType::Real4: stack.push_back(Pow(x.v4(), y.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Pow(x.vec(), y.vec())); break;
+							case Val::EType::Real4: stack.push_back(Pow(x.vec(), y.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1330,8 +1370,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Sqr(x.ll())); break;
 							case Val::EType::Real: stack.push_back(Sqr(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Sqr(x.i4())); break;
-							case Val::EType::Real4: stack.push_back(Sqr(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(Sqr(x.ivec())); break;
+							case Val::EType::Real4: stack.push_back(Sqr(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1344,8 +1384,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Sqrt(x.db())); break;
 							case Val::EType::Real: stack.push_back(Sqrt(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(CompSqrt(x.v4())); break;
-							case Val::EType::Real4: stack.push_back(CompSqrt(x.v4())); break;
+							case Val::EType::Intg4: stack.push_back(CompSqrt(x.vec())); break;
+							case Val::EType::Real4: stack.push_back(CompSqrt(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1359,8 +1399,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Len(x.db(), y.db())); break;
 							case Val::EType::Real: stack.push_back(Len(x.db(), y.db())); break;
-							case Val::EType::Intg4: stack.push_back(CompOp(x.v4(), y.v4(), [](auto x, auto y) { return Len(x, y); })); break;
-							case Val::EType::Real4: stack.push_back(CompOp(x.v4(), y.v4(), [](auto x, auto y) { return Len(x, y); })); break;
+							case Val::EType::Intg4: stack.push_back(CompOp(x.vec(), y.vec(), [](auto x, auto y) { return Len(x, y); })); break;
+							case Val::EType::Real4: stack.push_back(CompOp(x.vec(), y.vec(), [](auto x, auto y) { return Len(x, y); })); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1375,8 +1415,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Len(x.db(), y.db(), z.db())); break;
 							case Val::EType::Real: stack.push_back(Len(x.db(), y.db(), z.db())); break;
-							case Val::EType::Intg4: stack.push_back(CompOp(x.v4(), y.v4(), z.v4(), [](auto x, auto y, auto z) { return Len(x, y, z); })); break;
-							case Val::EType::Real4: stack.push_back(CompOp(x.v4(), y.v4(), z.v4(), [](auto x, auto y, auto z) { return Len(x, y, z); })); break;
+							case Val::EType::Intg4: stack.push_back(CompOp(x.vec(), y.vec(), z.vec(), [](auto x, auto y, auto z) { return Len(x, y, z); })); break;
+							case Val::EType::Real4: stack.push_back(CompOp(x.vec(), y.vec(), z.vec(), [](auto x, auto y, auto z) { return Len(x, y, z); })); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1392,8 +1432,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(Len(x.db(), y.db(), z.db(), w.db())); break;
 							case Val::EType::Real: stack.push_back(Len(x.db(), y.db(), z.db(), w.db())); break;
-							case Val::EType::Intg4: stack.push_back(CompOp(x.v4(), y.v4(), z.v4(), w.v4(), [](auto x, auto y, auto z, auto w) { return Len(x, y, z, w); })); break;
-							case Val::EType::Real4: stack.push_back(CompOp(x.v4(), y.v4(), z.v4(), w.v4(), [](auto x, auto y, auto z, auto w) { return Len(x, y, z, w); })); break;
+							case Val::EType::Intg4: stack.push_back(CompOp(x.vec(), y.vec(), z.vec(), w.vec(), [](auto x, auto y, auto z, auto w) { return Len(x, y, z, w); })); break;
+							case Val::EType::Real4: stack.push_back(CompOp(x.vec(), y.vec(), z.vec(), w.vec(), [](auto x, auto y, auto z, auto w) { return Len(x, y, z, w); })); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1406,8 +1446,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
 							case Val::EType::Real: stack.push_back(x.db() * constants<double>::E60_by_tau); break;
-							case Val::EType::Intg4: stack.push_back(x.v4() * constants<float>::E60_by_tau); break;
-							case Val::EType::Real4: stack.push_back(x.v4() * constants<float>::E60_by_tau); break;
+							case Val::EType::Intg4: stack.push_back(x.vec() * constants<float>::E60_by_tau); break;
+							case Val::EType::Real4: stack.push_back(x.vec() * constants<float>::E60_by_tau); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1420,8 +1460,8 @@ namespace pr::eval
 						{
 							case Val::EType::Intg: stack.push_back(x.db() * constants<double>::tau_by_360); break;
 							case Val::EType::Real: stack.push_back(x.db() * constants<double>::tau_by_360); break;
-							case Val::EType::Intg4: stack.push_back(x.v4() * constants<float>::tau_by_360); break;
-							case Val::EType::Real4: stack.push_back(x.v4() * constants<float>::tau_by_360); break;
+							case Val::EType::Intg4: stack.push_back(x.vec() * constants<float>::tau_by_360); break;
+							case Val::EType::Real4: stack.push_back(x.vec() * constants<float>::tau_by_360); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
 						break;
@@ -1474,66 +1514,69 @@ namespace pr::eval
 	{
 		switch (tok)
 		{
-		default: throw std::runtime_error("Unknown token");
-		case ETok::None            : return   0;
-		case ETok::Comma           : return  20;
-		case ETok::If              : return  30;
-		case ETok::Else            : return  30;
-		case ETok::LogOR           : return  40;
-		case ETok::LogAND          : return  50;
-		case ETok::BitOR           : return  60;
-		case ETok::BitXOR          : return  70;
-		case ETok::BitAND          : return  80;
-		case ETok::LogEql          : return  90;
-		case ETok::LogNEql         : return  90;
-		case ETok::LogLT           : return 100;
-		case ETok::LogLTEql        : return 100;
-		case ETok::LogGT           : return 100;
-		case ETok::LogGTEql        : return 100;
-		case ETok::LeftShift       : return 110;
-		case ETok::RightShift      : return 110;
-		case ETok::Add             : return 120;
-		case ETok::Sub             : return 120;
-		case ETok::Mul             : return 130;
-		case ETok::Div             : return 130;
-		case ETok::Mod             : return 130;
-		case ETok::UnaryPlus       : return 140;
-		case ETok::UnaryMinus      : return 140;
-		case ETok::Comp            : return 140;
-		case ETok::Not             : return 140;
-		case ETok::Abs             : return 200;
-		case ETok::Ceil            : return 200;
-		case ETok::Floor           : return 200;
-		case ETok::Round           : return 200;
-		case ETok::Min             : return 200;
-		case ETok::Max             : return 200;
-		case ETok::Clamp           : return 200;
-		case ETok::Sin             : return 200;
-		case ETok::Cos             : return 200;
-		case ETok::Tan             : return 200;
-		case ETok::ASin            : return 200;
-		case ETok::ACos            : return 200;
-		case ETok::ATan            : return 200;
-		case ETok::ATan2           : return 200;
-		case ETok::SinH            : return 200;
-		case ETok::CosH            : return 200;
-		case ETok::TanH            : return 200;
-		case ETok::Exp             : return 200;
-		case ETok::Log             : return 200;
-		case ETok::Log10           : return 200;
-		case ETok::Pow             : return 200;
-		case ETok::Sqr             : return 200;
-		case ETok::Sqrt            : return 200;
-		case ETok::Len2            : return 200;
-		case ETok::Len3            : return 200;
-		case ETok::Len4            : return 200;
-		case ETok::Deg             : return 200;
-		case ETok::Rad             : return 200;
-		case ETok::Hash            : return 200;
-		case ETok::OpenParenthesis : return 300;
-		case ETok::CloseParenthesis: return 300;
-		case ETok::Value           : return 1000;
-		case ETok::Identifier      : return 1000;
+			case ETok::None: return   0;
+			case ETok::Comma: return  20;
+			case ETok::If: return  30;
+			case ETok::Else: return  30;
+			case ETok::LogOR: return  40;
+			case ETok::LogAND: return  50;
+			case ETok::BitOR: return  60;
+			case ETok::BitXOR: return  70;
+			case ETok::BitAND: return  80;
+			case ETok::LogEql: return  90;
+			case ETok::LogNEql: return  90;
+			case ETok::LogLT: return 100;
+			case ETok::LogLTEql: return 100;
+			case ETok::LogGT: return 100;
+			case ETok::LogGTEql: return 100;
+			case ETok::LeftShift: return 110;
+			case ETok::RightShift: return 110;
+			case ETok::Add: return 120;
+			case ETok::Sub: return 120;
+			case ETok::Mul: return 130;
+			case ETok::Div: return 130;
+			case ETok::Mod: return 130;
+			case ETok::UnaryPlus: return 140;
+			case ETok::UnaryMinus: return 140;
+			case ETok::Comp: return 140;
+			case ETok::Not: return 140;
+			case ETok::Abs: return 200;
+			case ETok::Ceil: return 200;
+			case ETok::Floor: return 200;
+			case ETok::Round: return 200;
+			case ETok::Min: return 200;
+			case ETok::Max: return 200;
+			case ETok::Clamp: return 200;
+			case ETok::Sin: return 200;
+			case ETok::Cos: return 200;
+			case ETok::Tan: return 200;
+			case ETok::ASin: return 200;
+			case ETok::ACos: return 200;
+			case ETok::ATan: return 200;
+			case ETok::ATan2: return 200;
+			case ETok::SinH: return 200;
+			case ETok::CosH: return 200;
+			case ETok::TanH: return 200;
+			case ETok::Exp: return 200;
+			case ETok::Log: return 200;
+			case ETok::Log10: return 200;
+			case ETok::Pow: return 200;
+			case ETok::Sqr: return 200;
+			case ETok::Sqrt: return 200;
+			case ETok::Len2: return 200;
+			case ETok::Len3: return 200;
+			case ETok::Len4: return 200;
+			case ETok::Deg: return 200;
+			case ETok::Rad: return 200;
+			case ETok::Hash: return 200;
+			case ETok::OpenParenthesis: return 300;
+			case ETok::CloseParenthesis: return 300;
+			case ETok::OpenBracket: return 300;
+			case ETok::CloseBracket: return 300;
+			case ETok::MakeVec: return 1000;
+			case ETok::Value: return 1000;
+			case ETok::Identifier: return 1000;
+			default: throw std::runtime_error("Unknown token");
 		}
 	}
 
@@ -1601,22 +1644,21 @@ namespace pr::eval
 			{
 				switch (*++src)
 				{
-				default: break;
-				case 'a':  v = '\a'; ++src; break;
-				case 'b':  v = '\b'; ++src; break;
-				case 'f':  v = '\f'; ++src; break;
-				case 'n':  v = '\n'; ++src; break;
-				case 'r':  v = '\r'; ++src; break;
-				case 't':  v = '\t'; ++src; break;
-				case 'v':  v = '\v'; ++src; break;
-				case '\'': v = '\''; ++src; break;
-				case '\"': v = '\"'; ++src; break;
-				case '\\': v = '\\'; ++src; break;
-				case '\?': v = '\?'; ++src; break;
-				case '0':
-				case '1':
-				case '2':
-				case '3':
+					case 'a':  v = '\a'; ++src; break;
+					case 'b':  v = '\b'; ++src; break;
+					case 'f':  v = '\f'; ++src; break;
+					case 'n':  v = '\n'; ++src; break;
+					case 'r':  v = '\r'; ++src; break;
+					case 't':  v = '\t'; ++src; break;
+					case 'v':  v = '\v'; ++src; break;
+					case '\'': v = '\''; ++src; break;
+					case '\"': v = '\"'; ++src; break;
+					case '\\': v = '\\'; ++src; break;
+					case '\?': v = '\?'; ++src; break;
+					case '0':
+					case '1':
+					case '2':
+					case '3':
 					{
 						// ASCII character in octal
 						std::basic_string<Char> oct;
@@ -1625,13 +1667,17 @@ namespace pr::eval
 						catch (std::out_of_range const&) { return 0; }
 						break;
 					}
-				case 'x':
+					case 'x':
 					{
 						// ASCII or UNICODE character in hex
 						std::basic_string<Char> hex;
 						for (; *src && std::isxdigit(*src); ++src) hex.append(1, *src);
 						try { v = std::stoll(hex, nullptr, 16); }
 						catch (std::out_of_range const&) { return 0; }
+						break;
+					}
+					default:
+					{
 						break;
 					}
 				}
@@ -1678,7 +1724,7 @@ namespace pr::eval
 
 	// Extract a token from 'expr'
 	// 'follows_value' should be true if the preceding expression evaluates to a value
-	template <typename Char> ETok Token(char_range<Char>& expr, Val& val, char_range<Char>& ident, bool follows_value)
+	template <typename Char> ETok Token(char_range<Char>& expr, Val& val, char_range<Char>& ident, bool follows_value, bool ws_is_separator = false)
 	{
 		// Case insensitive string compare
 		auto cmp = [](char_range<Char> s, char const* pattern)
@@ -1686,6 +1732,12 @@ namespace pr::eval
 			for (; s && *pattern == std::tolower(*s); ++s, ++pattern) {}
 			return *pattern == 0;
 		};
+
+		// Inside [...] (and at parenthesis depth 0), whitespace acts as an element
+		// separator. Return a synthetic Comma without consuming the whitespace; the
+		// caller will consume it after handling the separator.
+		if (ws_is_separator && follows_value && expr && std::isspace(*expr))
+			return ETok::Comma;
 
 		// Skip any leading whitespace
 		if (!EatWS(expr))
@@ -1696,105 +1748,114 @@ namespace pr::eval
 		// If the previous expression evaluates to a value then Add/Sub are binary expressions
 		switch (std::tolower(*expr))
 		{
-		default: break;
-		case '+': 
+			case '+':
 			{
 				expr += 1;
 				return follows_value ? ETok::Add : ETok::UnaryPlus;
 			}
-		case '-': 
+			case '-':
 			{
 				expr += 1;
 				return follows_value ? ETok::Sub : ETok::UnaryMinus;
 			}
-		case '*': 
+			case '*':
 			{
 				expr += 1;
 				return ETok::Mul;
 			}
-		case '/': 
+			case '/':
 			{
 				expr += 1;
 				return ETok::Div;
 			}
-		case '%':
+			case '%':
 			{
 				expr += 1;
 				return ETok::Mod;
 			}
-		case '~':
+			case '~':
 			{
 				expr += 1;
 				return ETok::Comp;
 			}
-		case ',':
+			case ',':
 			{
 				expr += 1;
 				return ETok::Comma;
 			}
-		case '^':
+			case '^':
 			{
 				expr += 1;
 				return ETok::BitXOR;
 			}
-		case '(':
+			case '(':
 			{
 				expr += 1;
 				return ETok::OpenParenthesis;
 			}
-		case ')': 
+			case ')':
 			{
 				expr += 1;
 				return ETok::CloseParenthesis;
 			}
-		case '?':
+			case '[':
+			{
+				expr += 1;
+				return ETok::OpenBracket;
+			}
+			case ']':
+			{
+				expr += 1;
+				return ETok::CloseBracket;
+			}
+			case '?':
 			{
 				expr += 1;
 				return ETok::If;
 			}
-		case ':':
+			case ':':
 			{
 				expr += 1;
 				return ETok::Else;
 			}
-		case '<':
+			case '<':
 			{
 				if (cmp(expr, "<<")) { expr += 2; return ETok::LeftShift; }
 				if (cmp(expr, "<=")) { expr += 2; return ETok::LogLTEql; }
 				expr += 1;
 				return ETok::LogLT;
 			}
-		case '>':
+			case '>':
 			{
 				if (cmp(expr, ">>")) { expr += 2; return ETok::RightShift; }
 				if (cmp(expr, ">=")) { expr += 2; return ETok::LogGTEql; }
 				expr += 1;
 				return ETok::LogGT;
 			}
-		case '|':
+			case '|':
 			{
 				if (cmp(expr, "||")) { expr += 2; return ETok::LogOR; }
 				expr += 1;
 				return ETok::BitOR;
 			}
-		case '&':
+			case '&':
 			{
 				if (cmp(expr, "&&")) { expr += 2; return ETok::LogAND; }
 				expr += 1;
 				return ETok::BitAND;
 			}
-		case '=':
+			case '=':
 			{
 				if (cmp(expr, "==")) { expr += 2; return ETok::LogEql; }
 				break;
 			}
-		case '!':
+			case '!':
 			{
 				if (cmp(expr, "!=")) { expr += 2; return ETok::LogNEql; }
 				expr += 1;
 				return ETok::Not;
 			}
-		case 'a':
+			case 'a':
 			{
 				if (cmp(expr, "abs")) { expr += 3; return ETok::Abs; }
 				if (cmp(expr, "asin")) { expr += 4; return ETok::ASin; }
@@ -1803,7 +1864,7 @@ namespace pr::eval
 				if (cmp(expr, "atan")) { expr += 4; return ETok::ATan; }
 				break;
 			}
-		case 'c':
+			case 'c':
 			{
 				if (cmp(expr, "clamp")) { expr += 5; return ETok::Clamp; }
 				if (cmp(expr, "ceil")) { expr += 4; return ETok::Ceil; }
@@ -1811,28 +1872,28 @@ namespace pr::eval
 				if (cmp(expr, "cos")) { expr += 3; return ETok::Cos; }
 				break;
 			}
-		case 'd':
+			case 'd':
 			{
 				if (cmp(expr, "deg")) { expr += 3; return ETok::Deg; }
 				break;
 			}
-		case 'e':
+			case 'e':
 			{
 				if (cmp(expr, "exp")) { expr += 3; return ETok::Exp; }
 				break;
 			}
-		case 'f':
+			case 'f':
 			{
 				if (cmp(expr, "floor")) { expr += 5; return ETok::Floor; }
 				if (cmp(expr, "false")) { expr += 5; val = 0LL; return ETok::Value; }
 				break;
 			}
-		case 'h':
+			case 'h':
 			{
 				if (cmp(expr, "hash")) { expr += 4; return ETok::Hash; }
 				break;
 			}
-		case 'l':
+			case 'l':
 			{
 				if (cmp(expr, "log10")) { expr += 5; return ETok::Log10; }
 				if (cmp(expr, "log")) { expr += 3; return ETok::Log; }
@@ -1841,26 +1902,26 @@ namespace pr::eval
 				if (cmp(expr, "len4")) { expr += 4; return ETok::Len4; }
 				break;
 			}
-		case 'm':
+			case 'm':
 			{
 				if (cmp(expr, "min")) { expr += 3; return ETok::Min; }
 				if (cmp(expr, "max")) { expr += 3; return ETok::Max; }
 				break;
 			}
-		case 'p':
+			case 'p':
 			{
 				if (cmp(expr, "pow")) { expr += 3; return ETok::Pow; }
 				if (cmp(expr, "phi")) { expr += 3; val = constants<double>::golden_ratio; return ETok::Value; }
 				if (cmp(expr, "pi")) { expr += 2; val = constants<double>::tau_by_2; return ETok::Value; }
 				break;
 			}
-		case 'r':
+			case 'r':
 			{
 				if (cmp(expr, "round")) { expr += 5; return ETok::Round; }
 				if (cmp(expr, "rad")) { expr += 3; return ETok::Rad; }
 				break;
 			}
-		case 's':
+			case 's':
 			{
 				if (cmp(expr, "sinh")) { expr += 4; return ETok::SinH; }
 				if (cmp(expr, "sin")) { expr += 3; return ETok::Sin; }
@@ -1868,12 +1929,17 @@ namespace pr::eval
 				if (cmp(expr, "sqr")) { expr += 3; return ETok::Sqr; }
 				break;
 			}
-		case 't':
+			case 't':
 			{
 				if (cmp(expr, "tanh")) { expr += 4; return ETok::TanH; }
 				if (cmp(expr, "tan")) { expr += 3; return ETok::Tan; }
 				if (cmp(expr, "tau")) { expr += 3; val = constants<double>::tau; return ETok::Value; }
 				if (cmp(expr, "true")) { expr += 4; val = 1LL; return ETok::Value; }
+				break;
+			}
+			default:
+			{
+				// Fallthrough to identifier or value token
 				break;
 			}
 		}
@@ -1891,7 +1957,7 @@ namespace pr::eval
 
 	// Compile an expression
 	// Returns true if a complete expression is consumed from 'expr'. False if the expression is incomplete.
-	template <typename Char> bool Compile(char_range<Char>& expr, Expression& compiled, ETok parent_op, bool l2r = true)
+	template <typename Char> bool Compile(char_range<Char>& expr, Expression& compiled, ETok parent_op, bool l2r = true, bool ws_is_separator = false)
 	{
 		// A flag used to distingush ambiguous operators such as + and -
 		bool follows_value = false;
@@ -1903,7 +1969,7 @@ namespace pr::eval
 			Val val;
 			char_range<Char> ident;
 			auto expr0 = expr;
-			auto tok = Token(expr, val, ident, follows_value);
+			auto tok = Token(expr, val, ident, follows_value, ws_is_separator);
 			follows_value = true;
 
 			// If the next token has lower precedence than the parent operation
@@ -1941,9 +2007,14 @@ namespace pr::eval
 					// want to pollute the 'eval' namespace.
 					compiled.m_op.push_back(tok);
 					compiled.m_op.push_back(val.m_ty);
-					val.m_ty == Val::EType::Intg ? compiled.m_op.push_back(val.m_ll) :
-						val.m_ty == Val::EType::Real ? compiled.m_op.push_back(val.m_db) :
-						throw std::runtime_error("Invalid literal value");
+					switch (val.m_ty)
+					{
+						case Val::EType::Intg:  compiled.m_op.push_back(val.m_ll); break;
+						case Val::EType::Real:  compiled.m_op.push_back(val.m_db); break;
+						case Val::EType::Intg4: compiled.m_op.push_back(val.m_i4); break;
+						case Val::EType::Real4: compiled.m_op.push_back(val.m_v4); break;
+						default: throw std::runtime_error("Invalid literal value");
+					}
 					break;
 				}
 				case ETok::Add:
@@ -1952,7 +2023,7 @@ namespace pr::eval
 				case ETok::Div:
 				case ETok::Mod:
 				{
-					if (!Compile(expr, compiled, tok)) return false;
+					if (!Compile(expr, compiled, tok, true, ws_is_separator)) return false;
 					compiled.m_op.push_back(tok);
 					break;
 				}
@@ -1961,7 +2032,7 @@ namespace pr::eval
 				case ETok::Not:
 				case ETok::Comp:
 				{
-					if (!Compile(expr, compiled, tok, false)) return false;
+					if (!Compile(expr, compiled, tok, false, ws_is_separator)) return false;
 					compiled.m_op.push_back(tok);
 					break;
 				}
@@ -1974,7 +2045,7 @@ namespace pr::eval
 				case ETok::LogLT:
 				case ETok::LogGT:
 				{
-					if (!Compile(expr, compiled, tok)) return false;
+					if (!Compile(expr, compiled, tok, true, ws_is_separator)) return false;
 					compiled.m_op.push_back(tok);
 					break;
 				}
@@ -1984,7 +2055,7 @@ namespace pr::eval
 				case ETok::LeftShift:
 				case ETok::RightShift:
 				{
-					if (!Compile(expr, compiled, tok)) return false;
+					if (!Compile(expr, compiled, tok, true, ws_is_separator)) return false;
 					compiled.m_op.push_back(tok);
 					break;
 				}
@@ -2017,7 +2088,7 @@ namespace pr::eval
 				case ETok::Deg:
 				case ETok::Rad:
 				{
-					if (!Compile(expr, compiled, tok)) return false;
+					if (!Compile(expr, compiled, tok, true, ws_is_separator)) return false;
 					compiled.m_op.push_back(tok);
 					break;
 				}
@@ -2045,13 +2116,59 @@ namespace pr::eval
 				}
 				case ETok::OpenParenthesis:
 				{
-					// Parent op is 'None' because it has the lowest precedence
-					if (!Compile(expr, compiled, ETok::None)) return false;
+					// Parent op is 'None' because it has the lowest precedence.
+					// Whitespace inside parentheses is *not* a separator, even when
+					// the parenthesised sub-expression is itself inside a vector literal.
+					if (!Compile(expr, compiled, ETok::None, true, false)) return false;
 					break;
 				}
 				case ETok::CloseParenthesis:
 				{
 					// Wait for the parent op to be the 'Open Parenthesis'
+					if (parent_op != ETok::None) expr += -1;
+					return true;
+				}
+				case ETok::OpenBracket:
+				{
+					// Vector literal: parse 1..4 element sub-expressions separated by
+					// whitespace and/or comma, terminated by ']'. Emit MakeVec + count.
+					int n = 0;
+					while (true)
+					{
+						EatWS(expr);
+						if (!expr)
+							throw std::runtime_error("Unterminated vector literal '['");
+
+						// Empty element (e.g. '[]' or '[1,,2]') is an error
+						if (*expr == ']')
+						{
+							if (n == 0)
+								throw std::runtime_error("Vector literal must contain at least one element");
+							++expr;
+							break;
+						}
+
+						auto size_before = compiled.m_op.size();
+						if (!Compile(expr, compiled, ETok::Comma, true, true /*ws_is_separator*/))
+							return false;
+						if (compiled.m_op.size() == size_before)
+							throw std::runtime_error("Empty element in vector literal");
+
+						++n;
+						if (n > 4)
+							throw std::runtime_error("Vector literal supports at most 4 elements");
+
+						// Consume optional comma between elements (whitespace alone is sufficient).
+						EatWS(expr);
+						if (expr && *expr == ',') ++expr;
+					}
+					compiled.m_op.push_back(ETok::MakeVec);
+					compiled.m_op.push_back(static_cast<uint8_t>(n));
+					break;
+				}
+				case ETok::CloseBracket:
+				{
+					// Wait for the parent op to be the bracket loop's element compile.
 					if (parent_op != ETok::None) expr += -1;
 					return true;
 				}
@@ -2070,7 +2187,7 @@ namespace pr::eval
 					compiled.m_op.push_back(0);
 
 					// Compile the 'if' body
-					if (!Compile(expr, compiled, ETok::If))
+					if (!Compile(expr, compiled, ETok::If, true, ws_is_separator))
 						return false;
 
 					// Determine the offset to jump over the if body. The jump is from the byte after the jump value.
@@ -2090,7 +2207,7 @@ namespace pr::eval
 					compiled.m_op.push_back(0);
 
 					// Compile the else body
-					if (!Compile(expr, compiled, ETok::Else))
+					if (!Compile(expr, compiled, ETok::Else, true, ws_is_separator))
 						return false;
 
 					// Determine the offset to jump over the else body
@@ -2500,6 +2617,65 @@ namespace pr::common::tests
 			{ // literals
 				auto expr = Compile("'1' + '2'");
 				PR_EXPECT(expr() == Val('1' + '2'));
+			}
+			{ // vector literals - basic forms
+				PR_EXPECT(Compile("[1 2 3 4]")() == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("[1 2 3]")()   == Val(v4(1, 2, 3, 0)));
+				PR_EXPECT(Compile("[1 2]")()     == Val(v4(1, 2, 0, 0)));
+				PR_EXPECT(Compile("[7]")()       == Val(v4(7, 0, 0, 0)));
+			}
+			{ // vector literals - separators (whitespace, comma, mixed)
+				PR_EXPECT(Compile("[1,2,3,4]")()       == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("[1, 2, 3, 4]")()    == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("[1 ,2  ,3,  4]")()  == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("  [ 1  2  3  4 ] ")() == Val(v4(1, 2, 3, 4)));
+			}
+			{ // vector literals - sub-expression elements
+				PR_EXPECT(Compile("[1+2 3*4 5-1 8/2]")() == Val(v4(3, 12, 4, 4)));
+				PR_EXPECT(Compile("[(1+2) (3*4) (5-1) (8/2)]")() == Val(v4(3, 12, 4, 4)));
+				// Whitespace inside parens does not split elements
+				PR_EXPECT(Compile("[(1 + 2) (3 * 4) 5]")() == Val(v4(3, 12, 5, 0)));
+				// Function calls as elements
+				PR_EXPECT(Compile("[abs(-1) max(2,3) min(4,5)]")() == Val(v4(1, 3, 4, 0)));
+				// Unary minus
+				PR_EXPECT(Compile("[-1 -2 -3 -4]")() == Val(v4(-1, -2, -3, -4)));
+			}
+			{ // scalar * vector and vector arithmetic
+				PR_EXPECT(Compile("2.0 * [1 2 3]")()       == Val(v4(2, 4, 6, 0)));
+				PR_EXPECT(Compile("[1 2 3 4] * 2")()       == Val(v4(2, 4, 6, 8)));
+				PR_EXPECT(Compile("[1 2 3 4] + [4 3 2 1]")() == Val(v4(5, 5, 5, 5)));
+				PR_EXPECT(Compile("[1 2 3 4] - [1 1 1 1]")() == Val(v4(0, 1, 2, 3)));
+				PR_EXPECT(Compile("[2 4 6 8] / 2")()       == Val(v4(1, 2, 3, 4)));
+			}
+			{ // vector variables (bound via ArgSet)
+				auto expr0 = Compile("v");
+				PR_EXPECT(expr0(v4(1, 2, 3, 4)) == Val(v4(1, 2, 3, 4)));
+
+				auto expr1 = Compile("v * 3 + [1 0 0 0]");
+				PR_EXPECT(expr1(v4(1, 2, 3, 4)) == Val(v4(4, 6, 9, 12)));
+
+				auto expr2 = Compile("v + w");
+				PR_EXPECT(expr2({{"v", v4(1, 2, 3, 4)}, {"w", v4(4, 3, 2, 1)}}) == Val(v4(5, 5, 5, 5)));
+
+				// Mixing literals with variable elements? Vector elements must be scalar,
+				// so a vector identifier inside [..] is a runtime error (see error cases).
+				auto expr3 = Compile("[x y z 1]");
+				PR_EXPECT(expr3({{"x", 1.0}, {"y", 2.0}, {"z", 3.0}}) == Val(v4(1, 2, 3, 1)));
+			}
+			{ // vector + scalar functions still parse alongside vector literals
+				PR_EXPECT(Compile("abs([-1 -2 -3 -4])")() == Val(v4(1, 2, 3, 4)));
+				PR_EXPECT(Compile("min([1 2 3 4],[4 3 2 1])")() == Val(v4(1, 2, 2, 1)));
+			}
+			{ // error cases
+				PR_THROWS(Compile("[]"), std::exception);                       // empty
+				PR_THROWS(Compile("[1 2 3 4 5]"), std::exception);              // too many
+				PR_THROWS(Compile("[1,,2]"), std::exception);                   // empty element
+				PR_THROWS(Compile("[1 2 3"), std::exception);                   // unterminated
+				{
+					// Vector-typed element is rejected at evaluation time
+					auto expr = Compile("[v 1 2 3]");
+					PR_THROWS(expr(v4(1, 2, 3, 4)), std::exception);
+				}
 			}
 		}
 	}
