@@ -13,16 +13,16 @@
 #include "pr/input/joystick.h"
 #include "pr/camera/flight.h" // compile-only check
 
-namespace tests
-{
-	using namespace pr;
+using namespace pr;
 
+namespace tests::input
+{
 	// Dummy window subclass that owns the keyboard / mouse and forwards WM_INPUT.
 	struct InputWindow : pr::DummyWindow
 	{
-		input::Keyboard m_kb;
-		input::Mouse    m_mouse;
-		std::atomic<bool> m_quit{false};
+		pr::input::Keyboard m_kb;
+		pr::input::Mouse    m_mouse;
+		std::atomic<bool>   m_quit{false};
 
 		InputWindow()
 			:DummyWindow()
@@ -83,15 +83,15 @@ namespace tests
 
 		// Joysticks - enumerate up-front. New devices plugged in later won't appear
 		// until the next call to Enumerate(), but existing entries keep working.
-		auto sticks = input::Joystick::Enumerate();
+		auto sticks = pr::input::Joystick::Enumerate();
 		std::cout << "Joysticks detected: " << sticks.size() << "\n";
 		for (auto& js : sticks)
 		{
-			std::wcout << L"  " << js.name() << L"  axes=" << js.axis_count()
-				<< L" buttons=" << js.button_count()
-				<< L" switches=" << js.switch_count()
-				<< (js.is_gamepad() ? L" [gamepad]" : L"")
-				<< L"\n";
+			std::cout << "  " << js.name() << "  axes=" << js.axis_count()
+				<< " buttons=" << js.button_count()
+				<< " switches=" << js.switch_count()
+				<< (js.is_gamepad() ? " [gamepad]" : "")
+				<< "\n";
 		}
 		std::cout << "\n";
 
@@ -137,11 +137,11 @@ namespace tests
 			// Mouse - read deltas then snapshot to clear them.
 			long dx = win.m_mouse.dx(), dy = win.m_mouse.dy(), dz = win.m_mouse.dz();
 			std::cout << "Mouse:   dx=" << dx << " dy=" << dy << " dz=" << dz
-				<< "  L=" << int(win.m_mouse.btn(input::Mouse::Left))
-				<< " R=" << int(win.m_mouse.btn(input::Mouse::Right))
-				<< " M=" << int(win.m_mouse.btn(input::Mouse::Middle))
-				<< " X1=" << int(win.m_mouse.btn(input::Mouse::X1))
-				<< " X2=" << int(win.m_mouse.btn(input::Mouse::X2))
+				<< "  L=" << int(win.m_mouse.btn(pr::input::Mouse::Left))
+				<< " R=" << int(win.m_mouse.btn(pr::input::Mouse::Right))
+				<< " M=" << int(win.m_mouse.btn(pr::input::Mouse::Middle))
+				<< " X1=" << int(win.m_mouse.btn(pr::input::Mouse::X1))
+				<< " X2=" << int(win.m_mouse.btn(pr::input::Mouse::X2))
 				<< "                       \n";
 			win.m_mouse.Snapshot();
 
@@ -156,7 +156,15 @@ namespace tests
 				{
 					std::cout << "L(" << js.lx() << "," << js.ly() << ") R(" << js.rx() << "," << js.ry()
 						<< ") LT=" << js.lt() << " RT=" << js.rt()
-						<< " btns=0x" << std::hex << uint16_t(js.buttons()) << std::dec;
+						<< " btns=0x" << std::hex << uint16_t(js.buttons()) << std::dec
+						<< "  raw_axes[";
+					for (size_t a = 0; a != js.axis_count(); ++a)
+					{
+						if (a) std::cout << ',';
+						std::cout << js.axis(a);
+					}
+					std::cout << "] raw_btns=";
+					for (size_t b = 0; b != js.button_count(); ++b) std::cout << int(js.btn(b));
 				}
 				else
 				{

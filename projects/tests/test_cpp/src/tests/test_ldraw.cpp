@@ -6,7 +6,7 @@
 
 using namespace pr;
 
-namespace tests
+namespace tests::ldraw
 {
 	void Run()
 	{
