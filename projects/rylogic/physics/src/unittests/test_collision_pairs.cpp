@@ -355,7 +355,9 @@ namespace pr::physics::tests
 	{
 		PRUnitTestMethod(ManyBodiesFalling)
 		{
-			auto ground_shape = collision::ShapeBox(v4{50, 50, 5.0f, 0});
+			// ShapeBox(dim) stores half-extents = dim * 0.5, so v4{100,100,10} gives a
+			// 100x100x10 box. Centred at z=-5 this puts the top surface at z=0.
+			auto ground_shape = collision::ShapeBox(v4{100, 100, 10.0f, 0});
 			auto sphere_shape = collision::ShapeSphere(0.2f);
 			auto box_shape = collision::ShapeBox(v4{0.2f, 0.2f, 0.2f, 0});
 			auto tetra_pts = std::array<v4, 4>{
@@ -445,31 +447,6 @@ namespace pr::physics::tests
 							auto type = i < 12 ? "sphere" : i < 24 ? "box" : "polytope";
 							log << std::format("  PASSTHROUGH: body[{}] ({}) at step {} z={:.3f}\n",
 								i, type, step, bodies[i].O2W().pos.z);
-
-							// Run CPU collision test on this pair to check if CPU GJK catches it
-							auto w2g = InvertOrthonormal(bodies[NumBodies].O2W());
-							auto b2g = w2g * bodies[i].O2W();
-							collision::Contact cpu_contact;
-							bool cpu_hit = collision::Collide(
-								bodies[NumBodies].Shape(), m4x4::Identity(),
-								bodies[i].Shape(), b2g, cpu_contact);
-							log << std::format("  CPU Collide: {} (depth={:.6f} axis=({:.3f},{:.3f},{:.3f}))\n",
-								cpu_hit ? "HIT" : "MISS", cpu_contact.m_depth,
-								cpu_contact.m_axis.x, cpu_contact.m_axis.y, cpu_contact.m_axis.z);
-
-							// Also try CPU GJK directly
-							collision::Contact gjk_contact;
-							bool gjk_hit = collision::GjkCollide(
-								bodies[NumBodies].Shape(), m4x4::Identity(),
-								bodies[i].Shape(), b2g, gjk_contact);
-							log << std::format("  CPU GJK:     {} (depth={:.6f} axis=({:.3f},{:.3f},{:.3f}))\n",
-								gjk_hit ? "HIT" : "MISS", gjk_contact.m_depth,
-								gjk_contact.m_axis.x, gjk_contact.m_axis.y, gjk_contact.m_axis.z);
-
-							// Log the exact transform for reproduction
-							auto& o = bodies[i].O2W();
-							log << std::format("  O2W: x=({:.6f},{:.6f},{:.6f}) y=({:.6f},{:.6f},{:.6f}) z=({:.6f},{:.6f},{:.6f}) pos=({:.6f},{:.6f},{:.6f})\n",
-								o.x.x, o.x.y, o.x.z, o.y.x, o.y.y, o.y.z, o.z.x, o.z.y, o.z.z, o.pos.x, o.pos.y, o.pos.z);
 						}
 					}
 				}

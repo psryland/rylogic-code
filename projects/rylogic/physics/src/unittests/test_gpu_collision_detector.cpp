@@ -175,6 +175,43 @@ namespace pr::physics::tests
 
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true);
 		}
+
+		// 7. Tumbling tetrahedron deeply penetrating a large ground box.
+		// Captured from the StressDropTests scenario (body[24] at step 27) where
+		// the GPU GJK fails to detect the collision while CPU GJK reports HIT
+		// at depth ~2.3m. The body had been falling freely for ~10 simulation
+		// steps before this state, indicating GPU detection had been failing
+		// throughout that period.
+		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)
+		{
+			// Tetrahedron from StressDropTests
+			v4 tet_pts[] = {
+				v4{0, 0.3f, 0, 1}, v4{0.25f, -0.15f, 0, 1},
+				v4{-0.125f, -0.15f, 0.22f, 1}, v4{-0.125f, -0.15f, -0.22f, 1},
+			};
+			auto poly_buf = collision::BuildPolytopeFromPoints(tet_pts);
+			auto const& poly = poly_buf.as<collision::ShapePolytope>();
+
+			// Ground box: 100x100x10, centred at z=-5 (top surface at z=0)
+			auto ground = collision::ShapeBox{v4{100, 100, 10, 0}};
+			auto ground_l2w = m4x4::Translation(v4{0, 0, -5, 0});
+
+			// Polytope captured orientation/position from the failing log
+			auto poly_o2w = m4x4{
+				v4{-0.197323f,  0.977689f, -0.072023f, 0},
+				v4{ 0.907228f,  0.154274f, -0.391326f, 0},
+				v4{-0.371484f, -0.142558f, -0.917429f, 0},
+				v4{-1.505407f,  1.204721f, -2.204973f, 1},
+			};
+
+			// Confirm CPU detects this collision (sanity check)
+			auto cpu_contact = collision::Contact{};
+			auto cpu_hit = collision::Collide(ground, ground_l2w, poly, poly_o2w, cpu_contact);
+			PR_EXPECT(cpu_hit);
+			PR_EXPECT(cpu_contact.m_depth > 2.0f); // expected deep penetration
+
+			CompareGpuVsCpu(ground, ground_l2w, poly, poly_o2w, true);
+		}
 	};
 }
 #endif

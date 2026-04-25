@@ -360,6 +360,52 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 		float height_bias = height * 1e-6f; // contacts lower along gravity sort first (more negative = earlier)
 		g_contact_times[idx] = collision_time + height_bias;
 		g_contact_order[idx] = idx;
+
+		// Baumgarte position correction: apply ONCE per contact, before the iterative solver.
+		// Putting it here (rather than inside CSResolve) ensures the correction is applied
+		// exactly once per step regardless of how many solver iterations run, and avoids
+		// a subtle issue where the per-iteration UAV barrier did not appear to make
+		// repeated position writes accumulate as expected.
+		// Direction convention: GJK/EPA returns a separation axis with no guaranteed sign,
+		// so we explicitly orient it from A's centre toward B's centre and push A in -axis,
+		// B in +axis (the standard split-by-mass convention). Static bodies (inv_mass=0)
+		// receive zero correction.
+		float inv_mass_a = g_bodies[c.body_idx_a].os_com_and_invmass.w;
+		float inv_mass_b = g_bodies[c.body_idx_b].os_com_and_invmass.w;
+		float total_inv = inv_mass_a + inv_mass_b;
+		// Only apply Baumgarte for significant penetration (deep tunneling).
+		// For light contacts, the iterative impulse solver already handles separation
+		// via velocity correction; preempting it with a position lift can break
+		// bounce/restitution behaviour and invalidate the impulse calculation.
+		// Only apply Baumgarte position correction for clear tunneling (deep penetration).
+		// For shallow contacts, the iterative impulse solver + velocity bias inside CSResolve
+		// handles separation; preempting it with a position lift here can break bounce
+		// behaviour and prevent the velocity reversal that callers rely on.
+		// The threshold is chosen well above any depth produced by normal one-step penetration
+		// at typical drop velocities (~0.1m/step), so only true tunneling triggers it.
+		float deep_threshold = 0.3f;
+		float pen = max(c.depth - deep_threshold, 0.0f);
+		if (pen > 0.0f && total_inv > 0.0f)
+		{
+			// Ramp baumgarte from 0.2 (just past the threshold) to 0.8 (deep tunneling)
+			// as penetration depth grows beyond an extra ~0.4m past the threshold.
+			float baumgarte = lerp(0.2f, 0.8f, saturate(pen / 0.4f));
+			float lift_a = baumgarte * pen * (inv_mass_a / total_inv);
+			float lift_b = baumgarte * pen * (inv_mass_b / total_inv);
+			float3 axis_ws = mul(c.axis.xyz, rot_a);
+			// Orient axis from A to B
+			float3 com_a_ws = g_bodies[c.body_idx_a].o2w[3].xyz + mul(g_bodies[c.body_idx_a].os_com_and_invmass.xyz, rot_a);
+			float3 com_b_ws = g_bodies[c.body_idx_b].o2w[3].xyz + mul(g_bodies[c.body_idx_b].os_com_and_invmass.xyz, (float3x3)g_bodies[c.body_idx_b].o2w);
+			if (dot(axis_ws, com_b_ws - com_a_ws) < 0.0f)
+				axis_ws = -axis_ws;
+			// Write back through full row (HLSL can fail to store back through a swizzle of an indexed matrix row).
+			float4 posA = g_bodies[c.body_idx_a].o2w[3];
+			float4 posB = g_bodies[c.body_idx_b].o2w[3];
+			posA.xyz -= lift_a * axis_ws;
+			posB.xyz += lift_b * axis_ws;
+			g_bodies[c.body_idx_a].o2w[3] = posA;
+			g_bodies[c.body_idx_b].o2w[3] = posB;
+		}
 	}
 
 	// Get thread 0 to do serial operations
@@ -453,6 +499,14 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
 
+	// GJK/EPA returns a separation axis with no guaranteed sign; the impulse-solver
+	// convention is that 'axis' points from A toward B, so explicitly orient it.
+	// Without this, a wrong-sign axis flips the sign of closing_speed and the early-out
+	// `if (closing_speed > bias) return;` skips the impulse, leaving the bodies to
+	// interpenetrate without a separating impulse.
+	if (dot(axis, com_b_in_a - com_a_in_a) < 0.0f)
+		axis = -axis;
+
 	// Compute inverse inertia tensors
 	float3x3 os_iinv_a = OsInverseInertia(bodyA);
 	float3x3 os_iinv_b = OsInverseInertia(bodyB);
@@ -466,9 +520,14 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	if (abs(ct) > 1e-6f)
 		pt += (0.5f * ct * dot(V_rel, axis)) * axis;
 
+	// Position correction (Baumgarte) is performed once per contact in CSComputeCollisionTimes,
+	// before this iterative velocity solver runs. Doing it there avoids both the iteration
+	// stacking issue and gives a single, predictable shift per step.
+
 	// Baumgarte velocity bias: add a corrective velocity proportional to penetration depth.
-	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes).
-	// The bias only activates when depth exceeds a small slop tolerance, avoiding jitter.
+	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes)
+	// and ensures the impulse solver produces a non-zero separation impulse for shallow
+	// penetrations that the position correction skips.
 	float slop = 0.005f;
 	float baumgarte = 0.2f;
 	float bias = (baumgarte / g.dt) * max(c.depth - slop, 0.0f);
@@ -493,7 +552,6 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	GpuMaterial mat_b = g_materials[c.mat_id_b];
 
 	// For resting contacts (low closing speed), reduce elasticity to prevent bouncing.
-	// The Baumgarte bias provides the corrective velocity; restitution would amplify it.
 	float rest_factor = saturate(abs(closing_speed) * 10.0f); // fade from 0 at rest to 1 at speed 0.1
 	float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
 	float friction = sqrt(mat_a.friction_static * mat_b.friction_static);
