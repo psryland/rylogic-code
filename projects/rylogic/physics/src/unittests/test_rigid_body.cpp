@@ -102,7 +102,16 @@ namespace pr::physics::tests
 			auto rb = RigidBody{};
 			auto model_to_com = v4{0,1,0,0};
 			rb.SetMassProperties(Inertia::Sphere(1, mass, model_to_com), model_to_com);
-			PR_EXPECT(FEql(rb.InertiaOS().To3x3(1), m3x3::Scale(1.4f,0.4f,1.4f)));
+
+			// InertiaOS() returns the inertia about the CoM (block-diagonal storage —
+			// see RigidBody::SetMassProperties). For a sphere of radius 1, this is
+			// (2/5)*I regardless of the model_to_com offset.
+			PR_EXPECT(FEql(rb.InertiaOS().To3x3(1), m3x3::Scale(0.4f, 0.4f, 0.4f)));
+
+			// Translating the CoM-frame inertia to the model origin via the parallel-axis
+			// theorem should give diag(1+0.4, 0.4, 1+0.4) for offset (0,1,0).
+			auto inertia_at_origin = Translate(rb.InertiaOS(), model_to_com, ETranslateInertia::AwayFromCoM);
+			PR_EXPECT(FEql(inertia_at_origin.To3x3(1), m3x3::Scale(1.4f, 0.4f, 1.4f)));
 
 			// Apply a force at the CoM (no torque about CoM).
 			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassWS());
@@ -155,19 +164,26 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(os_force, v8force{0,0,2, 1,0,0}));
 
 			// Predict the Evolve result by replicating the integration logic.
-			// The full 6x6 inertia (with angular/linear coupling from offset CoM)
-			// means we can't separate angular and linear components.
+			// Inertia is stored at the CoM (block-diagonal), so linear and angular are
+			// decoupled in the multiply: v_lin = h_lin/m, omega = Ic_inv * h_ang.
+			// The CoM travels in a straight line under linear momentum; the model origin
+			// orbits the CoM as the body rotates.
+			auto com_os = rb.CentreOfMassOS();
+			auto com_ws_init = rb.O2W().pos + rb.O2W().rot * com_os;
 			auto ws_iinv = rb.InertiaInvWS();
 			auto ws_mom_mid = ws_force * 0.5f;
 
-			// One refinement iteration (matching Evolve)
+			// One refinement iteration (matching Evolve's midpoint predictor for rotation)
 			auto ws_vel_est = ws_iinv * ws_mom_mid;
 			auto do2w = m3x3::Rotation(ws_vel_est.ang.xyz * 0.5f);
 			ws_iinv = Rotate(ws_iinv, do2w);
 
 			auto ws_vel = ws_iinv * ws_mom_mid;
-			auto pos = (ws_vel.lin * 1.0f).w1();
 			auto rot = m3x3::Rotation(ws_vel.ang.xyz * 1.0f) * rb.O2W().rot;
+
+			// CoM advances linearly; model origin = new_CoM - new_rot * com_os
+			auto new_com_ws = com_ws_init + ws_vel.lin * 1.0f;
+			auto pos = (new_com_ws - rot * com_os).w1();
 			auto invrot = InvertOrthonormal(rot);
 
 			// Integrate for 1 sec
@@ -220,7 +236,10 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(ws_force, v8force{0,-1,-1, 1,-1,0}));
 			PR_EXPECT(FEql(os_force, v8force{0,-1,-1, 1,-1,0}));
 
-			// Predict Evolve result using the integration logic
+			// Predict Evolve result using the integration logic. The CoM travels linearly
+			// while the model origin orbits the CoM as the body rotates.
+			auto com_os = rb.CentreOfMassOS();
+			auto com_ws_init = rb.O2W().pos + rb.O2W().rot * com_os;
 			auto ws_iinv = rb.InertiaInvWS();
 			auto ws_mom_mid = ws_force * 0.5f;
 
@@ -229,8 +248,10 @@ namespace pr::physics::tests
 			ws_iinv = Rotate(ws_iinv, do2w);
 
 			auto ws_vel = ws_iinv * ws_mom_mid;
-			auto pos = (ws_vel.lin * 1.0f).w1();
 			auto rot = m3x3::Rotation(ws_vel.ang.xyz * 1.0f) * rb.O2W().rot;
+
+			auto new_com_ws = com_ws_init + ws_vel.lin * 1.0f;
+			auto pos = (new_com_ws - rot * com_os).w1();
 
 			// Integrate for 1 sec
 			Evolve(rb, 1.0f);
