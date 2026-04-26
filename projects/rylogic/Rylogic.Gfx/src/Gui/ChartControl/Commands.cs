@@ -70,6 +70,7 @@ namespace Rylogic.Gui.WPF
 			DoAspect11 = Command.Create(this, DoAspect11Internal);
 			ToggleLockAspect = Command.Create(this, ToggleLockAspectInternal);
 			ToggleOrthographic = Command.Create(this, ToggleOrthographicInternal);
+			ToggleFlightCamera = Command.Create(this, ToggleFlightCameraInternal);
 			ToggleMouseCentredZoom = Command.Create(this, ToggleMouseCentredZoomInternal);
 
 			// Rendering
@@ -550,6 +551,37 @@ namespace Rylogic.Gui.WPF
 		private void ToggleOrthographicInternal()
 		{
 			Orthographic = !Orthographic;
+		}
+
+		/// <inheritdoc/>
+		public bool FlightCamera
+		{
+			get;
+			set
+			{
+				if (FlightCamera == value) return;
+
+				if (FlightCamera)
+				{
+					if (MouseOperations.Active is MouseOp_FlightCamera op)
+						MouseOperations.EndModalOp(op);
+					else if (Scene.Window.FlightCameraEnabled)
+						Scene.Window.FlightCameraEnabled = false;
+				}
+
+				field = value;
+
+				if (FlightCamera)
+					MouseOperations.BeginModalOp(new MouseOp_FlightCamera(this));
+
+				NotifyPropertyChanged(nameof(FlightCamera));
+				Invalidate();
+			}
+		}
+		public ICommand ToggleFlightCamera { get; private set; } = null!;
+		private void ToggleFlightCameraInternal()
+		{
+			FlightCamera = !FlightCamera;
 		}
 
 		/// <inheritdoc/>

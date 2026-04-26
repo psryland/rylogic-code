@@ -56,6 +56,7 @@
 
 #include "pr/algorithm/algorithm.h"
 #include "pr/camera/camera.h"
+#include "pr/camera/flight.h"
 #include "pr/common/alloca.h"
 #include "pr/common/allocator.h"
 #include "pr/common/assert.h"

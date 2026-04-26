@@ -90,6 +90,14 @@
 		DataContext="{Binding View3dCMenuContext}"
 		Name="View3dMenuItem_Orthographic"
 		/>
+	<MenuItem x:Key="View3dMenuItem_FlightCamera" x:Shared="False"
+		Header="Flight Camera"
+		StaysOpenOnClick="False"
+		IsChecked="{Binding FlightCamera, Mode=OneWay}"
+		Command="{Binding ToggleFlightCamera}"
+		DataContext="{Binding View3dCMenuContext}"
+		Name="View3dMenuItem_FlightCamera"
+		/>
 	<MenuItem x:Key="View3dMenuItem_AlignUp" x:Shared="False"
 		StaysOpenOnClick="True"
 		DataContext="{Binding View3dCMenuContext}"
@@ -511,6 +519,7 @@
 		<MenuItem Header="Camera">
 			<StaticResource ResourceKey="View3dMenuItem_AutoRangeView"/>
 			<StaticResource ResourceKey="View3dMenuItem_Orthographic"/>
+			<StaticResource ResourceKey="View3dMenuItem_FlightCamera"/>
 			<StaticResource ResourceKey="View3dMenuItem_AlignUp"/>
 			<StaticResource ResourceKey="View3dMenuItem_ViewPresets"/>
 			<StaticResource	ResourceKey="View3dMenuItem_SavedViews"/>
@@ -681,6 +690,7 @@
 			<StaticResource ResourceKey="ChartMenuItem_Aspect11"/>
 			<StaticResource ResourceKey="ChartMenuItem_LockAspect"/>
 			<StaticResource ResourceKey="View3dMenuItem_Orthographic"/>
+			<StaticResource ResourceKey="View3dMenuItem_FlightCamera"/>
 			<StaticResource ResourceKey="ChartMenuItem_MouseCentredZoom"/>
 			<StaticResource ResourceKey="ChartMenuItem_NavMode"/>
 		</MenuItem>

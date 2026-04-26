@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "view3d-12/src/dll/v3d_window.h"
+#include "view3d-12/src/dll/v3d_flight_camera.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_gizmo.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
@@ -131,6 +132,11 @@ namespace pr::rdr12
 	V3dWindow::~V3dWindow()
 	{
 		AnimControl(view3d::EAnimCommand::Stop);
+
+		// Disable the flight camera before tearing down the renderer / scene.
+		// FlightCameraController owns a renderer poll-callback registration and
+		// a Raw Input registration that must be released while everything is alive.
+		m_flight_cam.reset();
 
 		m_hwnd = 0;
 		m_scene.RemoveInstance(m_focus_point);
@@ -779,6 +785,27 @@ namespace pr::rdr12
 		}
 
 		return refresh;
+	}
+
+	// Enable / disable the native flight-camera controller for this window.
+	void V3dWindow::FlightCameraEnable(bool on)
+	{
+		assert(std::this_thread::get_id() == m_main_thread_id);
+
+		if (on)
+		{
+			if (m_flight_cam == nullptr)
+				m_flight_cam = std::make_unique<FlightCameraController>(*this);
+			m_flight_cam->Enable(true);
+		}
+		else if (m_flight_cam != nullptr)
+		{
+			m_flight_cam->Enable(false);
+		}
+	}
+	bool V3dWindow::FlightCameraIsEnabled() const
+	{
+		return m_flight_cam != nullptr && m_flight_cam->IsEnabled();
 	}
 
 	// Get/Set the window background colour
@@ -1689,6 +1716,8 @@ namespace pr::rdr12
 		//  - This method is intended as a simple default for key bindings. Applications should
 		//    probably not call this, but handled the keys bindings separately. This helps to show
 		//    the expected behaviour of some common bindings though.
+		if (FlightCameraIsEnabled())
+			return false;
 
 		auto code = key & EKeyCodes::KeyCode;
 		auto modifiers = key & EKeyCodes::Modifiers;

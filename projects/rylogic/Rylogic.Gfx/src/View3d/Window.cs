@@ -210,6 +210,13 @@ namespace Rylogic.Gfx
 			/// <summary>Camera controls</summary>
 			public Camera Camera { get; }
 
+			/// <summary>Enable / disable the native flight-camera controller (FPS/flight-sim style WASD + mouse + gamepad).</summary>
+			public bool FlightCameraEnabled
+			{
+				get { return View3D_CameraFlightControlIsEnabled(Handle); }
+				set { View3D_CameraFlightControl(Handle, value); }
+			}
+
 			/// <summary>Handle navigation in WndProcFilter</summary>
 			public bool DefaultNavigation { get; set; }
 
@@ -224,6 +231,9 @@ namespace Rylogic.Gfx
 			{
 				// This function is not in the CameraControls object because it is not solely used
 				// for camera navigation. It can also be used to manipulate objects in the scene.
+				if (FlightCameraEnabled)
+					return false;
+
 				if (m_in_mouse_navigate != 0) return false;
 				using (Scope.Create(() => ++m_in_mouse_navigate, () => --m_in_mouse_navigate))
 				{
@@ -253,6 +263,9 @@ namespace Rylogic.Gfx
 			/// Returns true if the scene requires refreshing</summary>
 			public bool MouseNavigateZ(Point point, EMouseBtns btns, float delta, bool along_ray)
 			{
+				if (FlightCameraEnabled)
+					return false;
+
 				if (m_in_mouse_navigate != 0) return false;
 				using (Scope.Create(() => ++m_in_mouse_navigate, () => --m_in_mouse_navigate))
 				{

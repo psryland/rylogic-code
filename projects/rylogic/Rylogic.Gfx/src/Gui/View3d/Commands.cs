@@ -7,6 +7,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using Rylogic.Gfx;
+using Rylogic.Utility;
 
 namespace Rylogic.Gui.WPF
 {
@@ -42,6 +43,7 @@ namespace Rylogic.Gui.WPF
 			// Camera Menu
 			AutoRangeView = Command.Create(this, AutoRangeViewInternal);
 			ToggleOrthographic = Command.Create(this, ToggleOrthographicInternal);
+			ToggleFlightCamera = Command.Create(this, ToggleFlightCameraInternal);
 			ApplySavedView = Command.Create(this, ApplySavedViewInternal);
 			SaveCurrentView = Command.Create(this, SaveCurrentViewInternal);
 			RemoveSavedView = Command.Create(this, RemoveSavedViewInternal);
@@ -189,6 +191,46 @@ namespace Rylogic.Gui.WPF
 			Orthographic = !Orthographic;
 			Invalidate();
 		}
+
+		/// <inheritdoc/>
+		public bool FlightCamera
+		{
+			get;
+			set
+			{
+				if (FlightCamera == value) return;
+
+				if (FlightCamera)
+					Util.Dispose(ref m_flight_camera_session);
+
+				field = value;
+
+				if (FlightCamera)
+				{
+					m_flight_camera_session = new FlightCameraSession(Window, this, () => FlightCamera = false, () =>
+					{
+						var mouse_navigation = MouseNavigation;
+						var keyboard_shortcuts = DefaultKeyboardShortcuts;
+						MouseNavigation = false;
+						DefaultKeyboardShortcuts = false;
+						return Scope.Create(null, () =>
+						{
+							MouseNavigation = mouse_navigation;
+							DefaultKeyboardShortcuts = keyboard_shortcuts;
+						});
+					});
+				}
+
+				NotifyPropertyChanged(nameof(FlightCamera));
+				Invalidate();
+			}
+		}
+		public ICommand ToggleFlightCamera { get; private set; } = null!;
+		private void ToggleFlightCameraInternal()
+		{
+			FlightCamera = !FlightCamera;
+		}
+		private FlightCameraSession? m_flight_camera_session;
 
 		/// <inheritdoc/>
 		public EAlignDirection AlignDirection

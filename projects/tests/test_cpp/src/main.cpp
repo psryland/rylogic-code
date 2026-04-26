@@ -3,8 +3,8 @@
 
 namespace tests
 {
-	// Enable a test file
-	void Run();
+	namespace input { void Run(); }
+	namespace ldraw { void Run(); }
 }
 
 #if 0
@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) { (void)argc, argv;
 #endif
 	try
 	{
-		tests::Run();
+		tests::input::Run();
 		return 0;
 	}
 	catch (std::exception const& ex)

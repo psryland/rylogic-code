@@ -1924,6 +1924,10 @@ namespace Rylogic.Gfx
 		// Commit the current O2W position as the reference position
 		[DllImport(Dll)] private static extern void View3D_CameraCommit(HWindow window);
 
+		// Enable / disable the native flight-camera controller
+		[DllImport(Dll)] private static extern void View3D_CameraFlightControl(HWindow window, bool enable);
+		[DllImport(Dll)] private static extern bool View3D_CameraFlightControlIsEnabled(HWindow window);
+
 		// Navigation *****************************
 
 		// Direct movement of the camera

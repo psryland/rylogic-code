@@ -1474,6 +1474,30 @@ VIEW3D_API void __stdcall View3D_CameraCommit(view3d::Window window)
 	CatchAndReport(View3D_CameraCommit, window,);
 }
 
+// Enable / disable the native flight-camera controller.
+VIEW3D_API void __stdcall View3D_CameraFlightControl(view3d::Window window, BOOL enable)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->FlightCameraEnable(enable != 0);
+	}
+	CatchAndReport(View3D_CameraFlightControl, window,);
+}
+VIEW3D_API BOOL __stdcall View3D_CameraFlightControlIsEnabled(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FlightCameraIsEnabled() ? TRUE : FALSE;
+	}
+	CatchAndReport(View3D_CameraFlightControlIsEnabled, window, FALSE);
+}
+
 // Navigation *****************************
 
 // Direct movement of the camera
