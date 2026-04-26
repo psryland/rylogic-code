@@ -30,5 +30,11 @@
     <ClInclude Include="src\dll\v3d_window.h">
       <Filter>src\dll</Filter>
     </ClInclude>
+    <ClCompile Include="src\dll\v3d_flight_camera.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+    <ClInclude Include="src\dll\v3d_flight_camera.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -111,6 +111,9 @@ namespace Rylogic.Gui.WPF
 		{
 			base.OnPreviewMouseDown(e);
 
+			if (MouseOperations.Active != null)
+				return;
+
 			// The measure tool is visible
 			if (Scene.MeasurementUI != null &&
 				(Scene.MeasurementUI.StartActive || Scene.MeasurementUI.EndActive) &&

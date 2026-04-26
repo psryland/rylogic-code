@@ -38,6 +38,7 @@
 					<StaticResource	ResourceKey="ChartMenuItem_LockAspect"/>
 					<StaticResource	ResourceKey="View3dMenuItem_Orthographic"/>
 					<StaticResource	ResourceKey="ChartMenuItem_MouseCentredZoom"/>
+					<StaticResource	ResourceKey="View3dMenuItem_FlightCamera"/>
 					<StaticResource	ResourceKey="ChartMenuItem_LinkCamera"/>
 					<StaticResource	ResourceKey="View3dMenuItem_AlignUp"/>
 					<StaticResource	ResourceKey="View3dMenuItem_ViewPresets"/>

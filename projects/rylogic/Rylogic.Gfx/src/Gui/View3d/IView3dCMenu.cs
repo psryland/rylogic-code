@@ -90,6 +90,10 @@ namespace Rylogic.Gui.WPF
 		bool Orthographic { get; set; }
 		ICommand ToggleOrthographic { get; }
 
+		/// <summary>Flight-camera mode (FPS/flight-sim style WASD + mouse + gamepad)</summary>
+		bool FlightCamera { get; set; }
+		ICommand ToggleFlightCamera { get; }
+
 		/// <summary>Directions to align the camera up-axis to</summary>
 		EAlignDirection AlignDirection { get; set; }
 

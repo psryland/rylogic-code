@@ -82,6 +82,9 @@ namespace Rylogic.Gui.WPF
 		}
 		protected virtual void Dispose(bool _)
 		{
+			if (Window != null && Window.FlightCameraEnabled)
+				FlightCamera = false;
+
 			Disposing?.Invoke(this, EventArgs.Empty);
 			Util.Dispose(ref m_capture_scope);
 			m_resize_timer?.Stop();

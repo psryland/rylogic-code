@@ -100,6 +100,10 @@ namespace pr::rdr12
 		LdrMeasureUIPtr m_ui_measure_tool;         // A UI for measuring distances between points within the 3d environment
 		LdrAngleUIPtr m_ui_angle_tool;             // A UI for measuring angles between points within the 3d environment
 
+		// Flight camera controller (lazy-created on first FlightCameraEnable(true)).
+		// Forward-declared below; full type lives in v3d_flight_camera.h.
+		std::unique_ptr<struct FlightCameraController> m_flight_cam;
+
 		V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts);
 		V3dWindow(V3dWindow&&) = default;
 		V3dWindow(V3dWindow const&) = delete;
@@ -220,6 +224,13 @@ namespace pr::rdr12
 		// BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint) { if (nFlags == 0) View3D_MouseNavigateZ(win, 0, 0, zDelta / 120.0f); return TRUE; }
 		bool MouseNavigate(v2 ss_point, camera::ENavOp nav_op, bool nav_start_or_end);
 		bool MouseNavigateZ(v2 ss_point, float delta, bool along_ray);
+
+		// Enable / disable the native flight-camera controller for this window.
+		// While enabled, the controller registers Raw Input on a hidden message-only
+		// window and drives the scene camera via a poll callback. Cursor visibility
+		// and clipping are the host's responsibility (not done in native code).
+		void FlightCameraEnable(bool on);
+		bool FlightCameraIsEnabled() const;
 
 		// Get/Set the window background colour
 		Colour BackgroundColour() const;

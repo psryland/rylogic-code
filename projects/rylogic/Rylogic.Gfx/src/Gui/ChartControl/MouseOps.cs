@@ -101,13 +101,25 @@ namespace Rylogic.Gui.WPF
 				Active = this[btn];
 				this[btn] = null;
 			}
+			public void BeginModalOp(MouseOp op)
+			{
+				Active = op;
+			}
 			public void EndOp(MouseButton btn)
 			{
+				if (Active != null && Active.IsModal)
+					return;
+
 				Active = null;
 
 				// If the next op starts immediately, begin it now
 				if (this[btn] is MouseOp op && !op.StartOnMouseDown)
 					BeginOp(btn);
+			}
+			public void EndModalOp(MouseOp op)
+			{
+				if (Active == op)
+					Active = null;
 			}
 		}
 
@@ -168,6 +180,9 @@ namespace Rylogic.Gui.WPF
 
 			/// <summary>True if mouse down starts the op, false if the op should start as soon as possible (default is true)</summary>
 			public bool StartOnMouseDown { get; set; }
+
+			/// <summary>True for modal operations that remain active until explicitly ended</summary>
+			public bool IsModal { get; set; }
 
 			/// <summary>True if the op was aborted</summary>
 			public bool Cancelled { get; protected set; }
@@ -834,6 +849,47 @@ namespace Rylogic.Gui.WPF
 				var args = new SceneObjectClickedEventArgs(hit, Keyboard.Modifiers, e.ChangedButton);
 				Chart.OnSceneObjectClicked(args);
 				e.Handled = args.Handled;
+			}
+		}
+
+		/// <summary>Modal flight-camera operation for 3D scenes</summary>
+		public class MouseOp_FlightCamera : MouseOp
+		{
+			private FlightCameraSession? m_session;
+
+			public MouseOp_FlightCamera(ChartControl chart)
+				: base(chart, allow_cancel: true)
+			{
+				StartOnMouseDown = false;
+				IsModal = true;
+			}
+			protected override void Dispose(bool _)
+			{
+				Util.Dispose(ref m_session);
+				base.Dispose(_);
+			}
+			public override void MouseDown(MouseButtonEventArgs? e)
+			{
+				m_session = new FlightCameraSession(Chart.Scene.Window, Chart.Scene, () => Chart.FlightCamera = false, () =>
+				{
+					var keyboard_shortcuts = Chart.DefaultKeyboardShortcuts;
+					Chart.DefaultKeyboardShortcuts = false;
+					return Scope.Create(null, () => Chart.DefaultKeyboardShortcuts = keyboard_shortcuts);
+				});
+				if (e != null)
+					e.Handled = true;
+			}
+			public override void MouseMove(MouseEventArgs e)
+			{
+				e.Handled = true;
+			}
+			public override void MouseUp(MouseButtonEventArgs e)
+			{
+				e.Handled = true;
+			}
+			public override void MouseWheel(MouseWheelEventArgs e)
+			{
+				e.Handled = true;
 			}
 		}
 	}

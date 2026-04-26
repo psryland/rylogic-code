@@ -1137,6 +1137,13 @@ extern "C"
 	// Commit the current O2W position as the reference position
 	VIEW3D_API void __stdcall View3D_CameraCommit(pr::view3d::Window window);
 
+	// Enable / disable the native flight-camera controller. When enabled the window
+	// captures Raw Input (keyboard + mouse + first connected gamepad) and drives the
+	// scene camera in FPS / flight-sim style. Cursor visibility and clipping are the
+	// host's responsibility - this API only controls the camera-update side.
+	VIEW3D_API void __stdcall View3D_CameraFlightControl(pr::view3d::Window window, BOOL enable);
+	VIEW3D_API BOOL __stdcall View3D_CameraFlightControlIsEnabled(pr::view3d::Window window);
+
 	// Navigation *****************************
 
 	// Direct movement of the camera

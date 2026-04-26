@@ -105,6 +105,10 @@ namespace Rylogic.Gui.WPF
 		}
 		protected virtual void Dispose(bool _)
 		{
+			var window = Scene.Window;
+			if (window != null && window.FlightCameraEnabled)
+				FlightCamera = false;
+
 			// Note: if 'Gui_.DisposeChildren()' is used, the View3dControl will
 			// be disposed before this control, because it is a child.
 			Disposing?.Invoke(this, EventArgs.Empty);

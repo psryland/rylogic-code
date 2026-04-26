@@ -29,40 +29,41 @@ namespace pr::camera
 {
 	struct FlightCtrl
 	{
+		struct Config
+		{
+			float m_max_lvel = 10.0f;                            // Maximum linear velocity (units / s)
+			float m_max_avel = float(constants<float>::tau_by_2); // Maximum angular velocity (rad / s)
+			float m_roll_rate_scale = 0.5f;                       // Roll rate relative to pitch/yaw
+			float m_accel_time = 0.5f;                           // Time to reach max linear velocity (s)
+			float m_aaccel_time = 0.25f;                         // Time to reach max angular velocity (s)
+			float m_drag_time = 0.5f;                            // Time to decay velocity to zero (s)
+			float m_mouse_sensitivity = 0.003f;                  // Radians per mouse-pixel delta
+			float m_initial_speed_scale = 1.0f;                  // Initial movement-speed scale
+			float m_min_speed_scale = 0.01f;                     // Lower bound for wheel-adjusted movement-speed scale
+			float m_max_speed_scale = 100.0f;                    // Upper bound for wheel-adjusted movement-speed scale
+			float m_wheel_speed_step = 1.25f;                    // Multiplicative speed-scale change per wheel detent
+			float m_stick_deadzone = 0.15f;                      // Joystick stick deadzone (0..1)
+			bool  m_mouse_look_requires_rmb = true;              // If true, mouse only rotates while RMB held
+		};
+
 		Camera*          m_cam;       // The camera being controlled
 		input::Keyboard* m_kb;        // Optional - keyboard input source
 		input::Mouse*    m_mouse;     // Optional - mouse input source
 		input::Joystick* m_js;        // Optional - joystick / gamepad input source
-
-		// Tuning (defaults chosen for general-purpose flight feel)
-		float m_max_lvel;             // Maximum linear velocity (units / s)
-		float m_max_avel;             // Maximum angular velocity (rad / s)
-		float m_accel_time;           // Time to reach max linear velocity (s)
-		float m_aaccel_time;          // Time to reach max angular velocity (s)
-		float m_drag_time;            // Time to decay velocity to zero (s)
-		float m_mouse_sensitivity;    // Radians per mouse-pixel delta
-		float m_zoom_speed;           // Scale of wheel-driven forward acceleration
-		float m_stick_deadzone;       // Joystick stick deadzone (0..1)
-		bool  m_mouse_look_requires_rmb; // If true, mouse only rotates while RMB held
+		Config           m_cfg;       // Tuning parameters
 
 		// State
+		float m_speed_scale;          // Current movement-speed scale, adjusted by the mouse wheel
 		v4 m_lin_vel;                 // Linear velocity in camera-local space
 		v4 m_ang_vel;                 // Angular velocity in camera-local axes (pitch/yaw/roll)
 
-		FlightCtrl(Camera& cam, input::Keyboard* kb, input::Mouse* mouse, input::Joystick* js)
+		FlightCtrl(Camera& cam, input::Keyboard* kb, input::Mouse* mouse, input::Joystick* js, Config cfg = {})
 			:m_cam(&cam)
 			,m_kb(kb)
 			,m_mouse(mouse)
 			,m_js(js)
-			,m_max_lvel(10.0f)
-			,m_max_avel(float(constants<float>::tau_by_2))
-			,m_accel_time(0.5f)
-			,m_aaccel_time(0.25f)
-			,m_drag_time(0.5f)
-			,m_mouse_sensitivity(0.003f)
-			,m_zoom_speed(1.0f)
-			,m_stick_deadzone(0.15f)
-			,m_mouse_look_requires_rmb(true)
+			,m_cfg(cfg)
+			,m_speed_scale(cfg.m_initial_speed_scale)
 			,m_lin_vel(v4::Zero())
 			,m_ang_vel(v4::Zero())
 		{}
@@ -71,8 +72,9 @@ namespace pr::camera
 		// exponential drag, and applies the result to the camera.
 		void Step(float dt)
 		{
-			float const lacc = m_max_lvel / m_accel_time;
-			float const aacc = m_max_avel / m_aaccel_time;
+			auto const max_lvel = m_cfg.m_max_lvel * m_speed_scale;
+			float const lacc = max_lvel / m_cfg.m_accel_time;
+			float const aacc = m_cfg.m_max_avel / m_cfg.m_aaccel_time;
 
 			// Accumulate accelerations from each available input source.
 			v4 lin_acc = v4::Zero();
@@ -83,16 +85,17 @@ namespace pr::camera
 
 			// Integrate velocity. Exponential drag decays towards zero only on the
 			// axes that have no current input, so a held key sustains motion.
-			ApplyAxis(m_lin_vel.x, lin_acc.x, dt, m_drag_time);
-			ApplyAxis(m_lin_vel.y, lin_acc.y, dt, m_drag_time);
-			ApplyAxis(m_lin_vel.z, lin_acc.z, dt, m_drag_time);
-			ApplyAxis(m_ang_vel.x, ang_acc.x, dt, m_drag_time);
-			ApplyAxis(m_ang_vel.y, ang_acc.y, dt, m_drag_time);
-			ApplyAxis(m_ang_vel.z, ang_acc.z, dt, m_drag_time);
+			ApplyAxis(m_lin_vel.x, lin_acc.x, dt, m_cfg.m_drag_time);
+			ApplyAxis(m_lin_vel.y, lin_acc.y, dt, m_cfg.m_drag_time);
+			ApplyAxis(m_lin_vel.z, lin_acc.z, dt, m_cfg.m_drag_time);
+			ApplyAxis(m_ang_vel.x, ang_acc.x, dt, m_cfg.m_drag_time);
+			ApplyAxis(m_ang_vel.y, ang_acc.y, dt, m_cfg.m_drag_time);
+			ApplyAxis(m_ang_vel.z, ang_acc.z, dt, m_cfg.m_drag_time);
 
 			// Clamp to per-class maximums.
-			ClampLength(m_lin_vel, m_max_lvel);
-			ClampLength(m_ang_vel, m_max_avel);
+			ClampLength(m_lin_vel, max_lvel);
+			ClampAbs(m_ang_vel.z, m_cfg.m_max_avel * m_cfg.m_roll_rate_scale);
+			ClampLength(m_ang_vel, m_cfg.m_max_avel);
 
 			// Compose the new camera-to-world transform.
 			auto c2w = m_cam->CameraToWorld();
@@ -115,7 +118,7 @@ namespace pr::camera
 
 	private:
 
-		// WASD + QE for translation, ZC for roll.
+		// WASD for planar translation, LShift/LCtrl for vertical translation, QE for roll.
 		void ReadKeyboard(v4& lin_acc, v4& ang_acc, float lacc, float aacc)
 		{
 			if (m_kb == nullptr) return;
@@ -124,12 +127,13 @@ namespace pr::camera
 			if (m_kb->KeyDown('S')) lin_acc.z += lacc;
 			if (m_kb->KeyDown('A')) lin_acc.x -= lacc;
 			if (m_kb->KeyDown('D')) lin_acc.x += lacc;
-			if (m_kb->KeyDown('E')) lin_acc.y += lacc;  // ascend
-			if (m_kb->KeyDown('Q')) lin_acc.y -= lacc;  // descend
+			if (m_kb->KeyDown(VK_LSHIFT))   lin_acc.y += lacc;  // ascend
+			if (m_kb->KeyDown(VK_LCONTROL)) lin_acc.y -= lacc;  // descend
 
 			// Roll about the forward axis.
-			if (m_kb->KeyDown('Z')) ang_acc.z += aacc;
-			if (m_kb->KeyDown('C')) ang_acc.z -= aacc;
+			auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
+			if (m_kb->KeyDown('Q')) ang_acc.z += roll_aacc;
+			if (m_kb->KeyDown('E')) ang_acc.z -= roll_aacc;
 
 			// Keyboard arrow keys for explicit pitch / yaw.
 			if (m_kb->KeyDown(VK_LEFT))  ang_acc.y += aacc;
@@ -138,26 +142,34 @@ namespace pr::camera
 			if (m_kb->KeyDown(VK_DOWN))  ang_acc.x -= aacc;
 		}
 
-		// Mouse delta drives pitch / yaw, wheel drives forward thrust.
+		// Mouse delta drives pitch / yaw, wheel adjusts movement speed.
 		// Always Snapshots the mouse so accumulated deltas don't carry into the next frame.
-		void ReadMouse(v4& lin_acc, v4& /*ang_acc*/, float lacc, float /*aacc*/)
+		void ReadMouse(v4& /*lin_acc*/, v4& /*ang_acc*/, float /*lacc*/, float /*aacc*/)
 		{
 			if (m_mouse == nullptr) return;
 
 			bool rmb_held = m_mouse->btn(input::Mouse::Right);
-			if (!m_mouse_look_requires_rmb || rmb_held)
+			if (!m_cfg.m_mouse_look_requires_rmb || rmb_held)
 			{
 				// dx -> yaw (rotate around local Y), dy -> pitch (rotate around local X).
 				// Mouse delta is integrated as an immediate angular velocity rather than
 				// an acceleration so it tracks the cursor without lag.
-				float yaw_rate   = -m_mouse->dx() * m_mouse_sensitivity;
-				float pitch_rate = -m_mouse->dy() * m_mouse_sensitivity;
+				float yaw_rate   = -m_mouse->dx() * m_cfg.m_mouse_sensitivity;
+				float pitch_rate = -m_mouse->dy() * m_cfg.m_mouse_sensitivity;
 				m_ang_vel.y += yaw_rate;
 				m_ang_vel.x += pitch_rate;
 			}
 
-			// Wheel thrust: dz is in WHEEL_DELTA units (120 per detent).
-			lin_acc.z -= (m_mouse->dz() / 120.0f) * m_zoom_speed * lacc;
+			// Wheel scale: dz is in WHEEL_DELTA units (120 per detent).
+			auto const wheel_steps = m_mouse->dz() / 120.0f;
+			if (wheel_steps != 0.0f)
+			{
+				m_speed_scale *= std::pow(m_cfg.m_wheel_speed_step, wheel_steps);
+				if (m_speed_scale < m_cfg.m_min_speed_scale)
+					m_speed_scale = m_cfg.m_min_speed_scale;
+				if (m_speed_scale > m_cfg.m_max_speed_scale)
+					m_speed_scale = m_cfg.m_max_speed_scale;
+			}
 
 			// Clear accumulated deltas so the next Step sees a fresh sample.
 			m_mouse->Snapshot();
@@ -171,7 +183,7 @@ namespace pr::camera
 			m_js->Sample();
 			if (!m_js->valid()) return;
 
-			float dz = m_stick_deadzone;
+			float dz = m_cfg.m_stick_deadzone;
 			if (m_js->is_gamepad())
 			{
 				// Left stick: strafe (lx) and forward / back (ly). WGI ly is +up so invert for forward.
@@ -186,8 +198,9 @@ namespace pr::camera
 				lin_acc.y += float(m_js->rt() - m_js->lt()) * lacc;
 
 				// Shoulders: roll.
-				if (m_js->gp_btn(input::EGpBtn::LeftShoulder))  ang_acc.z += aacc;
-				if (m_js->gp_btn(input::EGpBtn::RightShoulder)) ang_acc.z -= aacc;
+				auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
+				if (m_js->gp_btn(input::EGpBtn::LeftShoulder))  ang_acc.z += roll_aacc;
+				if (m_js->gp_btn(input::EGpBtn::RightShoulder)) ang_acc.z -= roll_aacc;
 			}
 			else
 			{
@@ -198,7 +211,8 @@ namespace pr::camera
 					return i < m_js->axis_count() ? float(input::Joystick::deadzone(m_js->axis(i) * 2.0 - 1.0, dz)) : 0.0f;
 				};
 
-				ang_acc.z -= raw_axis(0) * aacc;  // X -> roll
+				auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
+				ang_acc.z -= raw_axis(0) * roll_aacc;  // X -> roll
 				ang_acc.x -= raw_axis(1) * aacc;  // Y -> pitch (stick forward = nose down)
 				ang_acc.y -= raw_axis(2) * aacc;  // twist -> yaw
 				lin_acc.z -= raw_axis(3) * lacc;  // throttle -> forward
@@ -220,6 +234,19 @@ namespace pr::camera
 			if (lsq < constants<float>::tiny) { v = v4::Zero(); return; }
 			if (lsq > max_len * max_len)
 				v *= max_len / std::sqrt(lsq);
+		}
+		static void ClampAbs(float& value, float max_abs)
+		{
+			if (value < -max_abs)
+			{
+				value = -max_abs;
+				return;
+			}
+			if (value > +max_abs)
+			{
+				value = +max_abs;
+				return;
+			}
 		}
 	};
 }
