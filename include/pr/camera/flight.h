@@ -138,7 +138,7 @@ namespace pr::camera
 
 	private:
 
-		// WASD for planar translation, LShift/LCtrl for vertical translation, QE for roll.
+		// WASD for planar translation, QE for vertical translation, LShift+QE for roll.
 		void ReadKeyboard(v4& lin_acc, v4& ang_acc, float lacc, float aacc)
 		{
 			if (m_kb == nullptr) return;
@@ -147,13 +147,19 @@ namespace pr::camera
 			if (m_kb->KeyDown('S')) lin_acc.z += lacc;
 			if (m_kb->KeyDown('A')) lin_acc.x -= lacc;
 			if (m_kb->KeyDown('D')) lin_acc.x += lacc;
-			if (m_kb->KeyDown(VK_LSHIFT))   lin_acc.y += lacc;  // ascend
-			if (m_kb->KeyDown(VK_LCONTROL)) lin_acc.y -= lacc;  // descend
 
-			// Roll about the forward axis.
-			auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
-			if (m_kb->KeyDown('Q')) ang_acc.z += roll_aacc;
-			if (m_kb->KeyDown('E')) ang_acc.z -= roll_aacc;
+			if (m_kb->KeyDown(VK_LSHIFT))
+			{
+				// Roll about the forward axis.
+				auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
+				if (m_kb->KeyDown('Q')) ang_acc.z += roll_aacc;
+				if (m_kb->KeyDown('E')) ang_acc.z -= roll_aacc;
+			}
+			else
+			{
+				if (m_kb->KeyDown('Q')) lin_acc.y -= lacc; // descend
+				if (m_kb->KeyDown('E')) lin_acc.y += lacc; // ascend
+			}
 
 			// Keyboard arrow keys for explicit pitch / yaw.
 			if (m_kb->KeyDown(VK_LEFT))  ang_acc.y += aacc;
