@@ -20,6 +20,7 @@
 //   while (running) { window.Pump(); ctrl.Step(dt); render(); }
 #pragma once
 #include <cmath>
+#include <stdexcept>
 #include "pr/math/math.h"
 #include "pr/camera/camera.h"
 #include "pr/input/keyboard.h"
@@ -30,6 +31,68 @@ namespace pr::camera
 {
 	struct FlightCtrl
 	{
+		struct KeyBindings
+		{
+			int m_forward       = 'W';       // Translate forward
+			int m_back          = 'S';       // Translate backward
+			int m_left          = 'A';       // Translate left
+			int m_right         = 'D';       // Translate right
+			int m_down          = 'Q';       // Translate down
+			int m_up            = 'E';       // Translate up
+			int m_roll_modifier = VK_LSHIFT; // Modifier for roll controls
+			int m_roll_left     = 'Q';       // Roll left while 'm_roll_modifier' is held
+			int m_roll_right    = 'E';       // Roll right while 'm_roll_modifier' is held
+			int m_yaw_left      = VK_LEFT;   // Yaw left
+			int m_yaw_right     = VK_RIGHT;  // Yaw right
+			int m_pitch_up      = VK_UP;     // Pitch up
+			int m_pitch_down    = VK_DOWN;   // Pitch down
+		};
+
+		enum class EGamepadAxis
+		{
+			None,
+			LeftStickX,
+			LeftStickY,
+			RightStickX,
+			RightStickY,
+			LeftTrigger,
+			RightTrigger,
+		};
+
+		struct GamepadAxisBinding
+		{
+			EGamepadAxis m_axis = EGamepadAxis::None;
+			float m_scale = 0.0f;
+		};
+
+		struct GamepadBindings
+		{
+			GamepadAxisBinding m_translate_x = { EGamepadAxis::LeftStickX, +1.0f };
+			GamepadAxisBinding m_translate_y = { EGamepadAxis::RightTrigger, +1.0f };
+			GamepadAxisBinding m_translate_y_alt = { EGamepadAxis::LeftTrigger, -1.0f };
+			GamepadAxisBinding m_translate_z = { EGamepadAxis::LeftStickY, -1.0f };
+			GamepadAxisBinding m_pitch = { EGamepadAxis::RightStickY, +1.0f };
+			GamepadAxisBinding m_yaw = { EGamepadAxis::RightStickX, -1.0f };
+			GamepadAxisBinding m_roll = { EGamepadAxis::RightStickX, -1.0f };
+			input::EGpBtn m_roll_modifier = input::EGpBtn::RightThumbstick;
+			input::EGpBtn m_speed_down = input::EGpBtn::LeftShoulder;
+			input::EGpBtn m_speed_up = input::EGpBtn::RightShoulder;
+		};
+
+		struct JoystickAxisBinding
+		{
+			size_t m_axis = 0;
+			float m_scale = 0.0f;
+		};
+
+		struct JoystickBindings
+		{
+			JoystickAxisBinding m_roll = { 0, -1.0f };
+			JoystickAxisBinding m_pitch = { 1, -1.0f };
+			JoystickAxisBinding m_yaw = { 2, -1.0f };
+			JoystickAxisBinding m_translate_z = { 3, -1.0f };
+		};
+
 		struct Config
 		{
 			float m_max_lvel = 10.0f;                            // Maximum linear velocity (units / s)
@@ -54,6 +117,9 @@ namespace pr::camera
 		input::Keyboard* m_kb;        // Optional - keyboard input source
 		input::Mouse*    m_mouse;     // Optional - mouse input source
 		input::Joystick* m_js;        // Optional - joystick / gamepad input source
+		KeyBindings      m_key;       // Keyboard bindings
+		GamepadBindings  m_gamepad;   // Xbox-style gamepad bindings
+		JoystickBindings m_joystick;  // Generic HID joystick bindings
 		Config           m_cfg;       // Tuning parameters
 
 		// State
@@ -63,11 +129,22 @@ namespace pr::camera
 		v4 m_mouse_ang_vel;           // Mouse angular velocity (pitch/world-yaw)
 		v4 m_gamepad_ang_vel;         // Gamepad right-stick angular velocity (pitch/world-yaw/roll)
 
-		FlightCtrl(Camera& cam, input::Keyboard* kb, input::Mouse* mouse, input::Joystick* js, Config cfg = {})
+		FlightCtrl(
+			Camera& cam,
+			input::Keyboard* kb,
+			input::Mouse* mouse,
+			input::Joystick* js,
+			Config cfg = {},
+			KeyBindings key_bindings = {},
+			GamepadBindings gamepad_bindings = {},
+			JoystickBindings joystick_bindings = {})
 			:m_cam(&cam)
 			,m_kb(kb)
 			,m_mouse(mouse)
 			,m_js(js)
+			,m_key(key_bindings)
+			,m_gamepad(gamepad_bindings)
+			,m_joystick(joystick_bindings)
 			,m_cfg(cfg)
 			,m_speed_scale(cfg.m_initial_speed_scale)
 			,m_lin_vel(v4::Zero())
@@ -143,29 +220,29 @@ namespace pr::camera
 		{
 			if (m_kb == nullptr) return;
 
-			if (m_kb->KeyDown('W')) lin_acc.z -= lacc;  // forward (camera looks down -Z)
-			if (m_kb->KeyDown('S')) lin_acc.z += lacc;
-			if (m_kb->KeyDown('A')) lin_acc.x -= lacc;
-			if (m_kb->KeyDown('D')) lin_acc.x += lacc;
+			if (m_kb->KeyDown(m_key.m_forward)) lin_acc.z -= lacc;  // forward (camera looks down -Z)
+			if (m_kb->KeyDown(m_key.m_back))    lin_acc.z += lacc;
+			if (m_kb->KeyDown(m_key.m_left))    lin_acc.x -= lacc;
+			if (m_kb->KeyDown(m_key.m_right))   lin_acc.x += lacc;
 
-			if (m_kb->KeyDown(VK_LSHIFT))
+			if (m_kb->KeyDown(m_key.m_roll_modifier))
 			{
 				// Roll about the forward axis.
 				auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
-				if (m_kb->KeyDown('Q')) ang_acc.z += roll_aacc;
-				if (m_kb->KeyDown('E')) ang_acc.z -= roll_aacc;
+				if (m_kb->KeyDown(m_key.m_roll_left))  ang_acc.z += roll_aacc;
+				if (m_kb->KeyDown(m_key.m_roll_right)) ang_acc.z -= roll_aacc;
 			}
 			else
 			{
-				if (m_kb->KeyDown('Q')) lin_acc.y -= lacc; // descend
-				if (m_kb->KeyDown('E')) lin_acc.y += lacc; // ascend
+				if (m_kb->KeyDown(m_key.m_down)) lin_acc.y -= lacc; // descend
+				if (m_kb->KeyDown(m_key.m_up))   lin_acc.y += lacc; // ascend
 			}
 
 			// Keyboard arrow keys for explicit pitch / yaw.
-			if (m_kb->KeyDown(VK_LEFT))  ang_acc.y += aacc;
-			if (m_kb->KeyDown(VK_RIGHT)) ang_acc.y -= aacc;
-			if (m_kb->KeyDown(VK_UP))    ang_acc.x += aacc;
-			if (m_kb->KeyDown(VK_DOWN))  ang_acc.x -= aacc;
+			if (m_kb->KeyDown(m_key.m_yaw_left))    ang_acc.y += aacc;
+			if (m_kb->KeyDown(m_key.m_yaw_right))   ang_acc.y -= aacc;
+			if (m_kb->KeyDown(m_key.m_pitch_up))    ang_acc.x += aacc;
+			if (m_kb->KeyDown(m_key.m_pitch_down))  ang_acc.x -= aacc;
 		}
 
 		// Mouse delta drives world-up look, wheel adjusts movement speed.
@@ -205,44 +282,83 @@ namespace pr::camera
 			float dz = m_cfg.m_stick_deadzone;
 			if (m_js->is_gamepad())
 			{
-				// Left stick: strafe (lx) and forward / back (ly). WGI ly is +up so invert for forward.
-				lin_acc.x += float(input::Joystick::deadzone(m_js->lx(), dz)) * lacc;
-				lin_acc.z -= float(input::Joystick::deadzone(m_js->ly(), dz)) * lacc;
+				// Left stick and triggers provide camera-relative translation.
+				lin_acc.x += ReadGamepadAxis(m_gamepad.m_translate_x, dz) * lacc;
+				lin_acc.y += (ReadGamepadAxis(m_gamepad.m_translate_y, dz) + ReadGamepadAxis(m_gamepad.m_translate_y_alt, dz)) * lacc;
+				lin_acc.z += ReadGamepadAxis(m_gamepad.m_translate_z, dz) * lacc;
 
 				// Right stick: yaw/pitch normally, roll/pitch while the right stick is clicked.
 				auto const gamepad_aacc = aacc * m_cfg.m_gamepad_look_scale;
-				auto const right_stick_x = float(input::Joystick::deadzone(m_js->rx(), dz));
-				auto const right_stick_y = float(input::Joystick::deadzone(m_js->ry(), dz));
-				if (m_js->gp_btn(input::EGpBtn::RightThumbstick))
-					gamepad_ang_acc.z -= right_stick_x * gamepad_aacc * m_cfg.m_roll_rate_scale;
+				if (m_js->gp_btn(m_gamepad.m_roll_modifier))
+					gamepad_ang_acc.z += ReadGamepadAxis(m_gamepad.m_roll, dz) * gamepad_aacc * m_cfg.m_roll_rate_scale;
 				else
-					gamepad_ang_acc.y -= right_stick_x * gamepad_aacc;
-				gamepad_ang_acc.x += right_stick_y * gamepad_aacc * (m_cfg.m_gamepad_invert_y ? -1.0f : +1.0f);
-
-				// Triggers: vertical translate (rt = up, lt = down).
-				lin_acc.y += float(m_js->rt() - m_js->lt()) * lacc;
+					gamepad_ang_acc.y += ReadGamepadAxis(m_gamepad.m_yaw, dz) * gamepad_aacc;
+				gamepad_ang_acc.x += ReadGamepadAxis(m_gamepad.m_pitch, dz) * gamepad_aacc * (m_cfg.m_gamepad_invert_y ? -1.0f : +1.0f);
 
 				// Shoulders: movement speed scale, matching mouse-wheel scaling.
 				auto speed_steps = 0.0f;
-				if (m_js->gp_btn(input::EGpBtn::LeftShoulder))  speed_steps -= m_cfg.m_button_speed_steps_per_second * dt;
-				if (m_js->gp_btn(input::EGpBtn::RightShoulder)) speed_steps += m_cfg.m_button_speed_steps_per_second * dt;
+				if (m_js->gp_btn(m_gamepad.m_speed_down)) speed_steps -= m_cfg.m_button_speed_steps_per_second * dt;
+				if (m_js->gp_btn(m_gamepad.m_speed_up))   speed_steps += m_cfg.m_button_speed_steps_per_second * dt;
 				AdjustSpeedScale(speed_steps);
 			}
 			else
 			{
-				// Generic HID stick (e.g. T.16000M). WGI raw axes are 0..1 - recentre to -1..+1.
+				// Generic HID stick (e.g. T.16000M). GameInput raw axes are 0..1 - recentre to -1..+1.
 				// Common convention: axis 0 = X (roll), 1 = Y (pitch), 2 = twist (yaw / rudder), 3 = throttle (forward).
-				auto raw_axis = [&](size_t i) -> float
-				{
-					return i < m_js->axis_count() ? float(input::Joystick::deadzone(m_js->axis(i) * 2.0 - 1.0, dz)) : 0.0f;
-				};
-
 				auto const roll_aacc = aacc * m_cfg.m_roll_rate_scale;
-				ang_acc.z -= raw_axis(0) * roll_aacc;  // X -> roll
-				ang_acc.x -= raw_axis(1) * aacc;  // Y -> pitch (stick forward = nose down)
-				ang_acc.y -= raw_axis(2) * aacc;  // twist -> yaw
-				lin_acc.z -= raw_axis(3) * lacc;  // throttle -> forward
+				ang_acc.z += ReadJoystickAxis(m_joystick.m_roll, dz) * roll_aacc;  // X -> roll
+				ang_acc.x += ReadJoystickAxis(m_joystick.m_pitch, dz) * aacc;  // Y -> pitch (stick forward = nose down)
+				ang_acc.y += ReadJoystickAxis(m_joystick.m_yaw, dz) * aacc;  // twist -> yaw
+				lin_acc.z += ReadJoystickAxis(m_joystick.m_translate_z, dz) * lacc;  // throttle -> forward
 			}
+		}
+
+		float ReadGamepadAxis(GamepadAxisBinding const& binding, float dz) const
+		{
+			switch (binding.m_axis)
+			{
+				case EGamepadAxis::None:
+				{
+					return 0.0f;
+				}
+				case EGamepadAxis::LeftStickX:
+				{
+					return float(input::Joystick::deadzone(m_js->lx(), dz)) * binding.m_scale;
+				}
+				case EGamepadAxis::LeftStickY:
+				{
+					return float(input::Joystick::deadzone(m_js->ly(), dz)) * binding.m_scale;
+				}
+				case EGamepadAxis::RightStickX:
+				{
+					return float(input::Joystick::deadzone(m_js->rx(), dz)) * binding.m_scale;
+				}
+				case EGamepadAxis::RightStickY:
+				{
+					return float(input::Joystick::deadzone(m_js->ry(), dz)) * binding.m_scale;
+				}
+				case EGamepadAxis::LeftTrigger:
+				{
+					return float(m_js->lt()) * binding.m_scale;
+				}
+				case EGamepadAxis::RightTrigger:
+				{
+					return float(m_js->rt()) * binding.m_scale;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown gamepad axis binding");
+				}
+			}
+		}
+		float ReadJoystickAxis(JoystickAxisBinding const& binding, float dz) const
+		{
+			if (binding.m_scale == 0.0f)
+				return 0.0f;
+
+			return binding.m_axis < m_js->axis_count()
+				? float(input::Joystick::deadzone(m_js->axis(binding.m_axis) * 2.0 - 1.0, dz)) * binding.m_scale
+				: 0.0f;
 		}
 
 		// Integrate one velocity component with exponential drag.
