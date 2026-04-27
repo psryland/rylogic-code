@@ -90,8 +90,11 @@ namespace pr::physics::tests
 			// Depth comparison (relative tolerance, with absolute floor for near-zero depths)
 			PR_EXPECT(FEqlRelative(cpu_contact.m_depth, gpu_contact.depth, DepthRelTol));
 
-			// Axis direction comparison (angle between normals, allowing sign flip)
-			auto angle = Angle(Normalise(cpu_axis_local), Normalise(gpu_contact.axis));
+			// Axis direction comparison. Contact normals must point from object A toward object B.
+			auto cpu_axis = Normalise(cpu_axis_local);
+			auto gpu_axis = Normalise(gpu_contact.axis);
+			PR_EXPECT(dot(cpu_axis, gpu_axis) > 0.0f);
+			auto angle = Angle(cpu_axis, gpu_axis);
 			PR_EXPECT(angle < AxisAngleTol);
 
 			// Contact point comparison
@@ -132,7 +135,29 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
 
-		// 4. Separated shapes (should both return no collision)
+		// 4. Line vs box overlap
+		PRUnitTestMethod(LineVsBox_Overlap)
+		{
+			auto sa = collision::ShapeLine{1.0f, 0.2f};
+			auto sb = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Translation(v4{0.65f, 0, 0, 0});
+			auto r2w = m4x4::Identity();
+
+			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
+		}
+
+		// 5. Box vs line overlap
+		PRUnitTestMethod(BoxVsLine_Overlap)
+		{
+			auto sa = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto sb = collision::ShapeLine{1.0f, 0.2f};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(v4{0.65f, 0, 0, 0});
+
+			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
+		}
+
+		// 6. Separated shapes (should both return no collision)
 		PRUnitTestMethod(SphereVsSphere_Separated)
 		{
 			auto sa = collision::ShapeSphere{1.0f};
@@ -143,7 +168,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, false);
 		}
 
-		// 5. Rotated box vs sphere
+		// 7. Rotated box vs sphere
 		PRUnitTestMethod(RotatedBoxVsSphere)
 		{
 			auto sa = collision::ShapeBox{v4{2, 4, 2, 0}};  // half-extents = 1,2,1
@@ -156,7 +181,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
 
-		// 6. Polytope (tetrahedron) vs box
+		// 8. Polytope (tetrahedron) vs box
 		PRUnitTestMethod(PolytopeVsBox)
 		{
 			// Build a tetrahedron from 4 points
@@ -176,7 +201,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true);
 		}
 
-		// 7. Tumbling tetrahedron deeply penetrating a large ground box.
+		// 9. Tumbling tetrahedron deeply penetrating a large ground box.
 		// Captured from the StressDropTests scenario to guard the deep polytope-vs-ground
 		// case that exposed resolver issues after the GPU and CPU GJK paths already agreed.
 		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)

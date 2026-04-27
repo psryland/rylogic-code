@@ -394,7 +394,9 @@ namespace pr::physics
 		auto contact_count = static_cast<int>(contacts.size());
 		auto body_count = static_cast<int>(bodies.size());
 		if (contact_count == 0 || body_count == 0)
+		{
 			return;
+		}
 
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");

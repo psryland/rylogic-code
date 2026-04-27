@@ -112,7 +112,13 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 			switch (sb.type)
 			{
 			case SHAPE_BOX:      hit = BoxVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_LINE:     hit = LineVsBox(sb, wb, sa, wa, col_axis, col_point, depth); break;
+			case SHAPE_LINE:
+			{
+				hit = LineVsBox(sb, wb, sa, wa, col_axis, col_point, depth);
+				if (hit)
+					col_axis = -col_axis;
+				break;
+			}
 			case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
 			case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
 			}

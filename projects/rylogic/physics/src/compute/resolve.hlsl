@@ -299,15 +299,7 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	if (correction <= 0.0f || total_inv <= 0.0f)
 		return;
 
-	float3x3 rot_a = (float3x3)bodyA.o2w;
-	float3x3 rot_b = (float3x3)bodyB.o2w;
-	float3 axis_ws = mul(c.axis.xyz, rot_a);
-	float3 com_a_ws = bodyA.o2w[3].xyz + mul(bodyA.os_com_and_invmass.xyz, rot_a);
-	float3 com_b_ws = bodyB.o2w[3].xyz + mul(bodyB.os_com_and_invmass.xyz, rot_b);
-
-	if (dot(axis_ws, com_b_ws - com_a_ws) < 0.0f)
-		axis_ws = -axis_ws;
-
+	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
 	float lift_a = correction * (inv_mass_a / total_inv);
 	float lift_b = correction * (inv_mass_b / total_inv);
 	float4 posA = bodyA.o2w[3];
@@ -532,14 +524,6 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	float3x3 rot_a = (float3x3)bodyA.o2w;
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
-
-	// GJK/EPA returns a separation axis with no guaranteed sign; the impulse-solver
-	// convention is that 'axis' points from A toward B, so explicitly orient it.
-	// Without this, a wrong-sign axis flips the sign of closing_speed and the early-out
-	// `if (closing_speed > bias) return;` skips the impulse, leaving the bodies to
-	// interpenetrate without a separating impulse.
-	if (dot(axis, com_b_in_a - com_a_in_a) < 0.0f)
-		axis = -axis;
 
 	// Compute inverse inertia tensors
 	float3x3 os_iinv_a = OsInverseInertia(bodyA);

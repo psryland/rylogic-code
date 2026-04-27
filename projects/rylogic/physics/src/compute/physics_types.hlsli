@@ -97,7 +97,7 @@ struct GpuCollisionPair
 };
 struct GpuResolveContact
 {
-	float4 axis;            // collision normal (in A's object space)
+	float4 axis;            // collision normal (in A's object space), pointing from body_idx_a toward body_idx_b
 	float4 contact_point;   // contact point at estimated collision time (in A's space)
 	row_major float4x4 b2a; // B-to-A transform
 	int body_idx_a;         // index into GpuRigidBody buffer
