@@ -177,11 +177,8 @@ namespace pr::physics::tests
 		}
 
 		// 7. Tumbling tetrahedron deeply penetrating a large ground box.
-		// Captured from the StressDropTests scenario (body[24] at step 27) where
-		// the GPU GJK fails to detect the collision while CPU GJK reports HIT
-		// at depth ~2.3m. The body had been falling freely for ~10 simulation
-		// steps before this state, indicating GPU detection had been failing
-		// throughout that period.
+		// Captured from the StressDropTests scenario to guard the deep polytope-vs-ground
+		// case that exposed resolver issues after the GPU and CPU GJK paths already agreed.
 		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)
 		{
 			// Tetrahedron from StressDropTests

@@ -243,7 +243,7 @@ namespace pr::physics
 		{
 			m_cache->m_contacts_cpu.resize(0);
 			m_cache->m_contacts_cpu.reserve(contact_count);
-			for (auto const& c : m_cache->m_contacts)
+			for (auto const& c : std::span{ m_cache->m_contacts }.subspan(0, contact_count))
 				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
 
 			Collisions(*this, m_cache->m_contacts_cpu);

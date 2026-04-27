@@ -30,23 +30,19 @@ namespace physics_sandbox
 		m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
 		{
 			UpdateCollisionGfx(contacts);
+			m_diag.occurred = true;
+			++m_diag.count;
+
 			#ifdef PR_PHYSICS_DIAGNOSTICS
+			if (std::ssize(m_body) == 2 && !contacts.empty())
 			{
-				//	// Lightweight: just track that a collision occurred (used by UI title bar)
-				//	m_diag.occurred = true;
-				//	m_diag.count++;
+				m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
+				m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
 
-				//	{
-				//		// Capture pre-impulse state for first two bodies
-				//		m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
-				//		m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
-
-				//		// Capture contact info (collision data is in objA space, transform to world)
-				//		auto const& c = collisions[0];
-				//		m_diag.contact_point_ws = m_body[0].O2W() * c.m_point_at_t;
-				//		m_diag.contact_normal_ws = (m_body[0].O2W().rot * c.m_axis).w0();
-				//		m_diag.depth = c.m_depth;
-				//	}
+				auto const& c = contacts.front();
+				m_diag.contact_point_ws = c.m_objA->O2W() * c.m_point_at_t;
+				m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
+				m_diag.depth = c.m_depth;
 			}
 			#endif
 		};
@@ -153,6 +149,8 @@ namespace physics_sandbox
 		m_body.push_back(Body(m_rdr));
 		auto& objA = m_body[0];
 		auto& objB = m_body[1];
+		objA.m_colour = Colour32(0xFFFFA040U);
+		objB.m_colour = Colour32(0xFF40A0FFU);
 
 		// Common setup: zero forces/momentum
 		for (int i = 0; i != std::ssize(m_body); ++i)
@@ -584,8 +582,8 @@ namespace physics_sandbox
 
 		for (int s = 1; s <= 5; ++s)
 		{
-			//m_scenario = static_cast<EScenario>(s);
 			Reset();
+			SetupScenario(static_cast<EScenario>(s));
 
 			for (int step = 0; step < max_steps && m_diag.count == 0; ++step)
 			{

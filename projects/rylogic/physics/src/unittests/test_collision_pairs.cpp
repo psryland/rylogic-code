@@ -273,7 +273,8 @@ namespace pr::physics::tests
 			auto ib = physics::Inertia::Box(v4{0.5f, 0.5f, 0.5f, 0}, 10.0f);
 			auto r = RunHeadOnTest("Box-Box", sa, ia, sb, ib);
 			PR_EXPECT(r.collision_occurred);
-			// Equal mass head-on: body A should reverse direction
+			PR_EXPECT(r.vel_a.lin.x < -1.0f);
+			PR_EXPECT(r.vel_b.lin.x > +1.0f);
 		}
 
 		PRUnitTestMethod(BoxVsLine)
@@ -350,7 +351,7 @@ namespace pr::physics::tests
 
 	// ===== Stress test: many bodies falling onto ground =====
 	// Reproduces the stress test scenario to detect TDR and passthrough bugs.
-	// Uses 100 bodies (40 boxes, 40 spheres, 20 polytopes) falling under gravity onto a box ground.
+	// Uses 30 bodies (12 spheres, 12 boxes, 6 polytopes) falling under gravity onto a box ground.
 	PRUnitTestClass(StressDropTests)
 	{
 		PRUnitTestMethod(ManyBodiesFalling)
@@ -371,9 +372,8 @@ namespace pr::physics::tests
 			static constexpr float dt = 1.0f / 30.0f;
 			static constexpr float g = 9.81f;
 
-			// Allocate bodies: 40 spheres, 40 boxes, 20 polytopes, 1 ground
+			// Allocate bodies: 12 spheres, 12 boxes, 6 polytopes, 1 ground
 			std::vector<physics::RigidBody> bodies(NumBodies + 1);
-			std::vector<collision::Shape const*> shapes(NumBodies);
 
 			// Position bodies in a 6x5 grid above the ground
 			for (int i = 0; i != NumBodies; ++i)
@@ -387,17 +387,14 @@ namespace pr::physics::tests
 				if (i < 12)
 				{
 					bodies[i].Shape(collision::shape_cast(&sphere_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&sphere_shape);
 				}
 				else if (i < 24)
 				{
 					bodies[i].Shape(collision::shape_cast(&box_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&box_shape);
 				}
 				else
 				{
 					bodies[i].Shape(collision::shape_cast(&poly_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&poly_shape);
 				}
 				bodies[i].O2W(m4x4::Translation(v4{x, y, z, 0}));
 			}
@@ -414,8 +411,6 @@ namespace pr::physics::tests
 			});
 
 			int passthrough_count = 0;
-
-			auto log = std::ofstream(temp_dir() / "stress_drop.log");
 
 			for (int step = 0; step != NumSteps; ++step)
 			{
@@ -440,20 +435,9 @@ namespace pr::physics::tests
 				for (int i = 0; i != NumBodies; ++i)
 				{
 					if (bodies[i].O2W().pos.z < -2.0f)
-					{
 						++passthrough_count;
-						if (passthrough_count <= 3)
-						{
-							auto type = i < 12 ? "sphere" : i < 24 ? "box" : "polytope";
-							log << std::format("  PASSTHROUGH: body[{}] ({}) at step {} z={:.3f}\n",
-								i, type, step, bodies[i].O2W().pos.z);
-						}
-					}
 				}
 			}
-
-			log << std::format("  Stress test: {} bodies, {} steps, {} passthroughs\n",
-				NumBodies, NumSteps, passthrough_count);
 
 			// No body should fall through the ground
 			PR_EXPECT(passthrough_count == 0);

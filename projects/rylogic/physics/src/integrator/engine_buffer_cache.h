@@ -56,6 +56,8 @@ namespace pr::physics
 
 			#if PR_DBG_PHYSICS
 			m_history.BeginFrame(rigid_bodies);
+			#else
+			(void)rigid_bodies;
 			#endif
 		}
 	};

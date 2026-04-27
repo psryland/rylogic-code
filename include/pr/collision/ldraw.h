@@ -21,8 +21,9 @@ namespace pr::ldraw
 	struct LdrCollisionShape : LdrGroup
 	{
 		LdrCollisionShape(seri::Name name = {}, seri::Colour colour = {})
-			: LdrGroup(name, colour)
+			: LdrGroup(name, 0xFFFFFFFF)
 		{
+			group_colour(colour);
 		}
 
 		LdrCollisionShape& shape(collision::Shape const& shape)

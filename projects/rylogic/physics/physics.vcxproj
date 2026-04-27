@@ -40,8 +40,6 @@
     <ClCompile>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
-        ;PR_COLLISION_DIAGNOSTICS=1
-        ;PR_DBG_PHYSICS=1
         ;PR_UNITTESTS=1
         ;PR_UNITTESTS_VISUALISE=1
       </PreprocessorDefinitions>

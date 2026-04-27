@@ -620,9 +620,10 @@ namespace pr::rdr12::ldraw
 		if (obj->m_type == ELdrObject::Group && obj->m_grp_colour == Colour32White)
 			obj->m_grp_colour = obj->m_base_colour;
 
-		// Apply the group colour of 'obj' to all children
+		// Recalculate colours after setting 'm_grp_colour'. 'Colour' already applies the parent
+		// group-colour chain, so use the identity multiplier here.
 		if (obj->m_grp_colour != Colour32White)
-			obj->Colour(false, obj->m_grp_colour, "", EColourOp::Multiply);
+			obj->Colour(false, Colour32White, "", EColourOp::Multiply);
 
 		// If flagged as hidden, hide
 		if (AllSet(obj->Flags(), ELdrFlags::Hidden))

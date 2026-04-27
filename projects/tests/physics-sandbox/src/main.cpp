@@ -4,7 +4,7 @@
 //************************************
 // Entry point for the physics sandbox application.
 // Two modes:
-//   -unittest [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
+//   -unittests [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
@@ -76,8 +76,8 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	// but CmdLine's string_view constructor skips argv[0] as the exe name.
 	auto cmd = pr::CmdLine("app " + std::string(lpCmdLine ? lpCmdLine : ""));
 
-	// Check for -unittest mode before initialising any GUI resources.
-	// Usage: -unittest [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
+	// Check for -unittests mode before initialising any GUI resources.
+	// Usage: -unittests [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
 	if (cmd.count("unittests"))
 	{
 		auto const& arg = cmd("unittests");
