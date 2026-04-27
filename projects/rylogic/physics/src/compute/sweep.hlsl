@@ -7,9 +7,10 @@
 // and outputs a list of potential collision pairs.
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
-#include "src/compute/physics_types.hlsli"
+#include "physics/src/compute/physics_types.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -25,7 +26,7 @@ struct cbSweep
 };
 
 // Shader Resources
-ConstantBuffer<cbSweep>resource(g, b0);
+ConstantBuffer<cbSweep> resource(g, b0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
