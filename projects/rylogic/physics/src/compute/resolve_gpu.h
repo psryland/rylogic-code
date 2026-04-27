@@ -15,6 +15,7 @@ namespace pr::physics
 		BoundsSorter m_contact_sorter;            // Radix sort: key=collision_time (float), payload=contact_index (uint32)
 		ComputeStep m_cs_compute_times;           // Parallel: compute collision times per contact
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
+		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
 		ComputeStep m_cs_update_sleep;            // Parallel: update sleep state per body
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig; // Command signature for indirect dispatch

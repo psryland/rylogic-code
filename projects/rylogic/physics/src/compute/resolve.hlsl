@@ -5,9 +5,10 @@
 // Graph-coloured batch collision resolution running on the GPU.
 //
 // Pipeline:
-//   1. CSPrepareContacts — converts GpuContact → GpuResolveContact (one thread per contact)
-//   2. CSGraphColouring  — assigns colours to contacts, single thread, O(n²)
-//   3. CSResolve          — dispatched once per colour from CPU loop (fixed MaxColours iterations)
+//   1. CSComputeCollisionTimes — estimates contact time and prepares sorting keys
+//   2. CSAssignColours         — assigns graph colours to sorted contacts
+//   3. CSPositionSolve         — split position correction, dispatched per colour
+//   4. CSResolve               — velocity impulse solve, dispatched per colour
 //
 // Within a colour batch, no two contacts share a body, so writes to body
 // momenta are data-race free.
@@ -58,6 +59,11 @@ struct cbResolve
 	float deep_penetration_baumgarte_max;
 	float pad2;
 	float pad3;
+
+	float position_slop;
+	float position_baumgarte;
+	float position_correction_scale;
+	float pad4;
 };
 
 // Shader resources
@@ -268,6 +274,53 @@ float EstimateCollisionTime(GpuResolveContact c)
 	return sub_step * g.dt;
 }
 
+float PositionCorrectionDistance(float depth)
+{
+	float position_pen = max(depth - g.position_slop, 0.0f);
+	float position_correction = g.position_baumgarte * position_pen;
+
+	float deep_pen = max(depth - g.deep_penetration_threshold, 0.0f);
+	float deep_range = max(g.deep_penetration_range, 1e-6f);
+	float deep_baumgarte = lerp(g.deep_penetration_baumgarte_min, g.deep_penetration_baumgarte_max, saturate(deep_pen / deep_range));
+	float deep_correction = deep_baumgarte * deep_pen;
+
+	return g.position_correction_scale * max(position_correction, deep_correction);
+}
+
+void ApplyPositionCorrection(GpuResolveContact c)
+{
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+
+	float inv_mass_a = bodyA.os_com_and_invmass.w;
+	float inv_mass_b = bodyB.os_com_and_invmass.w;
+	float total_inv = inv_mass_a + inv_mass_b;
+	float correction = PositionCorrectionDistance(c.depth);
+	if (correction <= 0.0f || total_inv <= 0.0f)
+		return;
+
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3x3 rot_b = (float3x3)bodyB.o2w;
+	float3 axis_ws = mul(c.axis.xyz, rot_a);
+	float3 com_a_ws = bodyA.o2w[3].xyz + mul(bodyA.os_com_and_invmass.xyz, rot_a);
+	float3 com_b_ws = bodyB.o2w[3].xyz + mul(bodyB.os_com_and_invmass.xyz, rot_b);
+
+	if (dot(axis_ws, com_b_ws - com_a_ws) < 0.0f)
+		axis_ws = -axis_ws;
+
+	float lift_a = correction * (inv_mass_a / total_inv);
+	float lift_b = correction * (inv_mass_b / total_inv);
+	float4 posA = bodyA.o2w[3];
+	float4 posB = bodyB.o2w[3];
+	posA.xyz -= lift_a * axis_ws;
+	posB.xyz += lift_b * axis_ws;
+	bodyA.o2w[3] = posA;
+	bodyB.o2w[3] = posB;
+
+	g_bodies[c.body_idx_a] = bodyA;
+	g_bodies[c.body_idx_b] = bodyB;
+}
+
 // Add a contact point to the body's contact simplex, maintaining a maximum of 4 points.
 // The .w component stores the body index of the support body (as asfloat(int)).
 void AddSupportContact(inout GpuRigidBody body, float3 ws_pt, int support_body_idx)
@@ -371,49 +424,7 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 		g_contact_times[idx] = collision_time + height_bias;
 		g_contact_order[idx] = idx;
 
-		// Baumgarte position correction: apply ONCE per contact, before the iterative solver.
-		// Putting it here (rather than inside CSResolve) ensures the correction is applied
-		// exactly once per step regardless of how many solver iterations run, and avoids
-		// a subtle issue where the per-iteration UAV barrier did not appear to make
-		// repeated position writes accumulate as expected.
-		// Direction convention: GJK/EPA returns a separation axis with no guaranteed sign,
-		// so we explicitly orient it from A's centre toward B's centre and push A in -axis,
-		// B in +axis (the standard split-by-mass convention). Static bodies (inv_mass=0)
-		// receive zero correction.
-		float inv_mass_a = g_bodies[c.body_idx_a].os_com_and_invmass.w;
-		float inv_mass_b = g_bodies[c.body_idx_b].os_com_and_invmass.w;
-		float total_inv = inv_mass_a + inv_mass_b;
-		// Only apply Baumgarte for significant penetration (deep tunneling).
-		// For light contacts, the iterative impulse solver already handles separation
-		// via velocity correction; preempting it with a position lift can break
-		// bounce/restitution behaviour and invalidate the impulse calculation.
-		// Only apply Baumgarte position correction for clear tunneling (deep penetration).
-		// For shallow contacts, the iterative impulse solver + velocity bias inside CSResolve
-		// handles separation; preempting it with a position lift here can break bounce
-		// behaviour and prevent the velocity reversal that callers rely on.
-		// The threshold is chosen well above any depth produced by normal one-step penetration
-		// at typical drop velocities (~0.1m/step), so only true tunneling triggers it.
-		float pen = max(c.depth - g.deep_penetration_threshold, 0.0f);
-		if (pen > 0.0f && total_inv > 0.0f)
-		{
-			// Ramp the correction factor as penetration depth grows beyond the deep-contact threshold.
-			float baumgarte = lerp(g.deep_penetration_baumgarte_min, g.deep_penetration_baumgarte_max, saturate(pen / g.deep_penetration_range));
-			float lift_a = baumgarte * pen * (inv_mass_a / total_inv);
-			float lift_b = baumgarte * pen * (inv_mass_b / total_inv);
-			float3 axis_ws = mul(c.axis.xyz, rot_a);
-			// Orient axis from A to B
-			float3 com_a_ws = g_bodies[c.body_idx_a].o2w[3].xyz + mul(g_bodies[c.body_idx_a].os_com_and_invmass.xyz, rot_a);
-			float3 com_b_ws = g_bodies[c.body_idx_b].o2w[3].xyz + mul(g_bodies[c.body_idx_b].os_com_and_invmass.xyz, (float3x3)g_bodies[c.body_idx_b].o2w);
-			if (dot(axis_ws, com_b_ws - com_a_ws) < 0.0f)
-				axis_ws = -axis_ws;
-			// Write back through full row (HLSL can fail to store back through a swizzle of an indexed matrix row).
-			float4 posA = g_bodies[c.body_idx_a].o2w[3];
-			float4 posB = g_bodies[c.body_idx_b].o2w[3];
-			posA.xyz -= lift_a * axis_ws;
-			posB.xyz += lift_b * axis_ws;
-			g_bodies[c.body_idx_a].o2w[3] = posA;
-			g_bodies[c.body_idx_b].o2w[3] = posB;
-		}
+		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
 	}
 
 	// Get thread 0 to do serial operations
@@ -458,6 +469,21 @@ void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
 		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
 	}
+}
+
+// ----- CSPositionSolve -----
+// Dispatched once per colour from the CPU loop. Each thread processes one contact and only moves body transforms.
+numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
+void CSPositionSolve(int3 dtid : SV_DispatchThreadID)
+{
+	if (dtid.x >= g_counters[0].contact_count)
+		return;
+
+	uint idx = g_contact_order[dtid.x];
+	if (g_colours[idx] != (uint)g.colour)
+		return;
+
+	ApplyPositionCorrection(g_contacts[idx]);
 }
 
 // ----- CSResolve -----
@@ -528,9 +554,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	if (abs(ct) > 1e-6f)
 		pt += (0.5f * ct * dot(V_rel, axis)) * axis;
 
-	// Position correction (Baumgarte) is performed once per contact in CSComputeCollisionTimes,
-	// before this iterative velocity solver runs. Doing it there avoids both the iteration
-	// stacking issue and gives a single, predictable shift per step.
+	// Position correction is handled separately by CSPositionSolve. This pass only changes momenta.
 
 	// Baumgarte velocity bias: add a corrective velocity proportional to penetration depth.
 	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes)

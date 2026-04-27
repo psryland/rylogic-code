@@ -32,6 +32,11 @@ namespace pr::physics
 		float g_deep_penetration_baumgarte_max;
 		float pad2;
 		float pad3;
+
+		float g_position_slop;
+		float g_position_baumgarte;
+		float g_position_correction_scale;
+		float pad4;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -54,6 +59,7 @@ namespace pr::physics
 		, m_contact_sorter(gpu.m_gpu)
 		, m_cs_compute_times()
 		, m_cs_assign_colours()
+		, m_cs_position_solve()
 		, m_cs_resolve()
 		, m_cs_update_sleep()
 		, m_cmd_sig()
@@ -121,6 +127,22 @@ namespace pr::physics
 			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), bytecode).Create(m_gpu, "Physics:AssignColoursPSO");
 		}
 
+		// m_cs_position_solve
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbResolve>(EReg::Params)
+				.SRV(EReg::Counters)
+				.UAV(EReg::Bodies)
+				.UAV(EReg::Colours)
+				.UAV(EReg::Contacts)
+				.UAV(EReg::ContactOrder);
+
+			auto bytecode = compiler.EntryPoint(L"CSPositionSolve").Compile();
+
+			m_cs_position_solve.m_sig = sig.Create(m_gpu, "Physics:PositionSolveSig");
+			m_cs_position_solve.m_pso = ComputePSO(m_cs_position_solve.m_sig.get(), bytecode).Create(m_gpu, "Physics:PositionSolvePSO");
+		}
+
 		// m_cs_resolve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -181,6 +203,10 @@ namespace pr::physics
 
 		ResizeBuffers(job.m_cmd_list, max_contacts, material_count);
 
+		assert(m_config.position_iterations >= 0);
+		auto const position_iterations = std::max(0, m_config.position_iterations);
+		auto const position_correction_scale = position_iterations != 0 ? 1.0f / position_iterations : 0.0f;
+
 		cbResolve cb_resolve = {
 			.g_max_contacts = max_contacts,
 			.g_body_count = body_count,
@@ -198,6 +224,10 @@ namespace pr::physics
 			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
 			.pad2 = 0,
 			.pad3 = 0,
+			.g_position_slop = m_config.position_slop,
+			.g_position_baumgarte = m_config.position_baumgarte,
+			.g_position_correction_scale = position_correction_scale,
+			.pad4 = 0,
 		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
@@ -277,7 +307,35 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Resolve each colour batch.
+		// Split position correction in colour batches. The contact depths are from the collision pass, so the correction is split across
+		// iterations rather than re-applying the full depth each sweep.
+		if (position_iterations != 0)
+		{
+			job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+
+			for (int iter = 0; iter != position_iterations; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+				{
+					cb_resolve.g_colour = colour;
+					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+
+					job.m_barriers.UAV(bodies.get());
+					job.m_barriers.Commit();
+				}
+			}
+			cb_resolve.g_colour = 0;
+		}
+
+		// Velocity resolve each colour batch.
 		// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
 		// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
 		// The energy guard in CSResolve prevents energy injection across iterations.

@@ -226,7 +226,9 @@ namespace pr::physics
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			if (buffers.read_contacts)
+			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			}
 			#if PR_COLLISION_DIAGNOSTICS
 			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -258,7 +260,9 @@ namespace pr::physics
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			if (buffers.read_contacts)
+			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			}
 			#if PR_COLLISION_DIAGNOSTICS
 			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
