@@ -160,7 +160,7 @@ float3x3 CollisionMassMatrix(float3 rA, float3 rB, float inv_mass_a, float inv_m
 	float3x3 cpm_rA = CrossProductMatrix(rA);
 	float3x3 cpm_rB = CrossProductMatrix(rB);
 
-	float3x3 I = float3x3(1,0,0, 0,1,0, 0,0,1);
+	float3x3 I = float3x3(float3(1,0,0), float3(0,1,0), float3(0,0,1));
 	float3x3 col_I_inv = (inv_mass_a * I - mul(mul(cpm_rA, Ia_inv), cpm_rA))
 	                    + (inv_mass_b * I - mul(mul(cpm_rB, Ib_inv), cpm_rB));
 
@@ -203,7 +203,7 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 // Convert a point impulse at 'pt' (in A's space) into world-space momentum changes,
 // apply to both bodies, and clamp using an energy conservation guard.
 void ApplyImpulseWithEnergyGuard(
-	inout GpuRigidBody bodyA, inout GpuRigidBody bodyB,
+	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
 	float inv_mass_a, float inv_mass_b)
@@ -315,7 +315,7 @@ void ApplyPositionCorrection(GpuResolveContact c)
 
 // Add a contact point to the body's contact simplex, maintaining a maximum of 4 points.
 // The .w component stores the body index of the support body (as asfloat(int)).
-void AddSupportContact(inout GpuRigidBody body, float3 ws_pt, int support_body_idx)
+void AddSupportContact(inout_(GpuRigidBody) body, float3 ws_pt, int support_body_idx)
 {
 	if (body.contact_simplex_count == 4)
 	{
@@ -389,7 +389,7 @@ bool SupportStillSleeping(GpuRigidBody body)
 // ----- CSComputeCollisionTimes -----
 // Parallel: one thread per contact. Computes collision time
 numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
-void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
+void CSComputeCollisionTimes(int3 DTID(dtid))
 {
 	int idx = dtid.x;
 	if (idx < g_counters[0].contact_count)
@@ -438,8 +438,11 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 // Serial: single thread. Walks contacts in order sorted by collision time.
 // Uses per-body colour bitmasks stored in g_bodies[].colour_used.
 numthreads(CSAssignColours, 1, 1, 1)
-void CSAssignColours(int3 dtid : SV_DispatchThreadID)
+void CSAssignColours(int3 DTID(dtid))
 {
+	if (dtid.x != 0)
+		return;
+
 	for (int i = 0; i != g_counters[0].contact_count; ++i)
 	{
 		int idx = g_contact_order[i]; // get contact index from sorted order
@@ -455,7 +458,7 @@ void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
 
 		uint used = used_a | used_b;
-		uint colour = min(firstbitlow(~used), MaxColours);
+		uint colour = min(firstbitlow(~used), (uint)MaxColours);
 
 		g_colours[idx] = colour;
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
@@ -466,7 +469,7 @@ void CSAssignColours(int3 dtid : SV_DispatchThreadID)
 // ----- CSPositionSolve -----
 // Dispatched once per colour from the CPU loop. Each thread processes one contact and only moves body transforms.
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
-void CSPositionSolve(int3 dtid : SV_DispatchThreadID)
+void CSPositionSolve(int3 DTID(dtid))
 {
 	if (dtid.x >= g_counters[0].contact_count)
 		return;
@@ -482,7 +485,7 @@ void CSPositionSolve(int3 dtid : SV_DispatchThreadID)
 // Dispatched once per colour from the CPU loop. Each thread processes one contact.
 // Only contacts matching the current colour are processed — all others return immediately.
 numthreads(CSResolve, ResolveThreadCount, 1, 1)
-void CSResolve(int3 dtid : SV_DispatchThreadID)
+void CSResolve(int3 DTID(dtid))
 {
 	if (dtid.x >= g_counters[0].contact_count)
 		return;
@@ -609,7 +612,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 //   3. Contact simplex indicates support (CoM above contact points, or degenerate fallback)
 //   4. Support bodies are still sleeping/static (cascade wake-up if support wakes)
 numthreads(CSUpdateSleepState, ResolveThreadCount, 1, 1)
-void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
+void CSUpdateSleepState(int3 DTID(dtid))
 {
 	int body_idx = dtid.x;
 	if (body_idx >= g.body_count)

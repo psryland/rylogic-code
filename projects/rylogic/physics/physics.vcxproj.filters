@@ -19,6 +19,9 @@
     <Filter Include="src\compute">
       <UniqueIdentifier>{0ec91900-7759-4f59-b73e-b425b89fa64c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\compute\interop">
+      <UniqueIdentifier>{4f1e4d0f-8e92-407d-9153-9a29d8e663c6}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\rigid_body">
       <UniqueIdentifier>{E4F5A6B7-C8D9-E0F1-A2B3-C4D5E6F7A8B9}</UniqueIdentifier>
     </Filter>
@@ -54,6 +57,9 @@
     <ClCompile Include="src\compute\collide_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\integrate_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -85,6 +91,9 @@
       <Filter>src\unittests</Filter>
     </ClCompile>
     <ClCompile Include="src\unittests\test_integrator.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_resolve_runner.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
     <ClCompile Include="src\unittests\test_rigid_body.cpp">
@@ -157,6 +166,9 @@
     </ClInclude>
     <ClInclude Include="src\compute\collide_gpu.h">
       <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\resolve_runner.h">
+      <Filter>src\compute\interop</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\integrate_gpu.h">
       <Filter>src\compute</Filter>

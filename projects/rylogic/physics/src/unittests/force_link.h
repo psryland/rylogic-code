@@ -21,6 +21,7 @@ namespace pr::physics::tests
 	void ForceLink_Impulse();
 	void ForceLink_Inertia();
 	void ForceLink_Integrator();
+	void ForceLink_ResolveRunner();
 	void ForceLink_RigidBody();
 	void ForceLink_ShapeBuilder();
 
@@ -33,6 +34,7 @@ namespace pr::physics::tests
 		ForceLink_Impulse();
 		ForceLink_Inertia();
 		ForceLink_Integrator();
+		ForceLink_ResolveRunner();
 		ForceLink_RigidBody();
 		ForceLink_ShapeBuilder();
 	}
