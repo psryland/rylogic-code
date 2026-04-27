@@ -25,6 +25,7 @@
 //   PR_COLLISION_DIAGNOSTICS — enable per-pair iteration count output to u3
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/compute/collision.hlsli"
 #include "physics/src/compute/gjk.hlsli"
@@ -34,14 +35,15 @@ namespace pr::physics {
 #endif
 
 // Shader parameters
-cbuffer cbCollision : register(b0)
+struct cbCollision
 {
-	uint g_max_contacts;
-	uint g_pad0;
-	uint g_pad1;
-	uint g_pad2;
+	uint max_contacts;
+	uint pad0;
+	uint pad1;
+	uint pad2;
 };
 
+ConstantBuffer<cbCollision> resource(g, b0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
@@ -170,7 +172,7 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	// Allocate a slot in the contact buffer atomically
 	uint slot;
 	InterlockedAdd(g_counters[0].contact_count, 1, slot);
-	if (slot >= g_max_contacts)
+	if (slot >= g.max_contacts)
 		return;
 
 	// Write the resolve contact directly (no intermediate GpuContact)

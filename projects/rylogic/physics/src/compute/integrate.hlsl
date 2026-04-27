@@ -23,8 +23,9 @@
 //   See spatial_algebra.hlsli for full convention documentation.
 
 #include "pr/hlsl/core.hlsli"
+#include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-#include "src/compute/physics_types.hlsli"
+#include "physics/src/compute/physics_types.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -52,7 +53,7 @@ RWStructuredBuffer<GpuIntegrateDiag> resource(g_diag, u6);
 #endif
 
 // Compute the world-space AABB for a body and write it to the output buffers.
-void UpdateAABB(GpuRigidBody body, int idx)
+inline void UpdateAABB(in_(GpuRigidBody) body, int idx)
 {
 	float3x3 rot = (float3x3)body.o2w;
 	float3 os_centre = body.os_bbox.centre.xyz;
