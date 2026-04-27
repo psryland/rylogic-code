@@ -22,6 +22,16 @@ namespace pr::physics
 		float g_sleep_velocity_threshold_lin = 0.1f;
 		float g_sleep_velocity_threshold_ang = 0.05f;
 		float pad1;
+
+		float g_penetration_slop;
+		float g_velocity_baumgarte;
+		float g_deep_penetration_threshold;
+		float g_deep_penetration_range;
+
+		float g_deep_penetration_baumgarte_min;
+		float g_deep_penetration_baumgarte_max;
+		float pad2;
+		float pad3;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -180,6 +190,14 @@ namespace pr::physics
 			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
 			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
 			.pad1 = 0,
+			.g_penetration_slop = m_config.penetration_slop,
+			.g_velocity_baumgarte = m_config.velocity_baumgarte,
+			.g_deep_penetration_threshold = m_config.deep_penetration_threshold,
+			.g_deep_penetration_range = m_config.deep_penetration_range,
+			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
+			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
+			.pad2 = 0,
+			.pad3 = 0,
 		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
@@ -263,7 +281,8 @@ namespace pr::physics
 		// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
 		// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
 		// The energy guard in CSResolve prevents energy injection across iterations.
-		constexpr int SolverIterations = 8;
+		assert(m_config.solver_iterations >= 0);
+		auto const solver_iterations = std::max(0, m_config.solver_iterations);
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
@@ -275,7 +294,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
 
-			for (int iter = 0; iter != SolverIterations; ++iter)
+			for (int iter = 0; iter != solver_iterations; ++iter)
 			{
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{

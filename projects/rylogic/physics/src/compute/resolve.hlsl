@@ -48,6 +48,16 @@ struct cbResolve
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
 	float pad1;
+
+	float penetration_slop;
+	float velocity_baumgarte;
+	float deep_penetration_threshold;
+	float deep_penetration_range;
+
+	float deep_penetration_baumgarte_min;
+	float deep_penetration_baumgarte_max;
+	float pad2;
+	float pad3;
 };
 
 // Shader resources
@@ -383,13 +393,11 @@ void CSComputeCollisionTimes(int3 dtid : SV_DispatchThreadID)
 		// behaviour and prevent the velocity reversal that callers rely on.
 		// The threshold is chosen well above any depth produced by normal one-step penetration
 		// at typical drop velocities (~0.1m/step), so only true tunneling triggers it.
-		float deep_threshold = 0.3f;
-		float pen = max(c.depth - deep_threshold, 0.0f);
+		float pen = max(c.depth - g.deep_penetration_threshold, 0.0f);
 		if (pen > 0.0f && total_inv > 0.0f)
 		{
-			// Ramp baumgarte from 0.2 (just past the threshold) to 0.8 (deep tunneling)
-			// as penetration depth grows beyond an extra ~0.4m past the threshold.
-			float baumgarte = lerp(0.2f, 0.8f, saturate(pen / 0.4f));
+			// Ramp the correction factor as penetration depth grows beyond the deep-contact threshold.
+			float baumgarte = lerp(g.deep_penetration_baumgarte_min, g.deep_penetration_baumgarte_max, saturate(pen / g.deep_penetration_range));
 			float lift_a = baumgarte * pen * (inv_mass_a / total_inv);
 			float lift_b = baumgarte * pen * (inv_mass_b / total_inv);
 			float3 axis_ws = mul(c.axis.xyz, rot_a);
@@ -528,9 +536,7 @@ void CSResolve(int3 dtid : SV_DispatchThreadID)
 	// This prevents resting contacts from sinking under sustained load (e.g., stacked boxes)
 	// and ensures the impulse solver produces a non-zero separation impulse for shallow
 	// penetrations that the position correction skips.
-	float slop = 0.005f;
-	float baumgarte = 0.2f;
-	float bias = (baumgarte / g.dt) * max(c.depth - slop, 0.0f);
+	float bias = (g.velocity_baumgarte / g.dt) * max(c.depth - g.penetration_slop, 0.0f);
 
 	// Skip if already separating faster than the bias correction requires
 	float closing_speed = dot(V_rel, axis);

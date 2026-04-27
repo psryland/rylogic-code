@@ -4,6 +4,16 @@
 
 namespace physics_sandbox
 {
+	namespace
+	{
+		using Clock = std::chrono::steady_clock;
+
+		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
+		{
+			return std::chrono::duration<double, std::milli>(end - beg).count();
+		}
+	}
+
 	physics::EngineConfig DefaultEngineConfig()
 	{
 		return physics::EngineConfig{};
@@ -26,14 +36,13 @@ namespace physics_sandbox
 		, m_diag()
 		, m_step_count()
 	{
-		// Hook collision detection for diagnostics. This fires AFTER Evolve but BEFORE impulse resolution.
+		// Hook collision detection for detailed diagnostics only. The normal UI path uses the GPU contact counter
+		// after Step(), avoiding a full contact-buffer readback when contact details are not needed.
+		#ifdef PR_PHYSICS_DIAGNOSTICS
 		m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
 		{
 			UpdateCollisionGfx(contacts);
-			m_diag.occurred = true;
-			++m_diag.count;
 
-			#ifdef PR_PHYSICS_DIAGNOSTICS
 			if (std::ssize(m_body) == 2 && !contacts.empty())
 			{
 				m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
@@ -44,8 +53,8 @@ namespace physics_sandbox
 				m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
 				m_diag.depth = c.m_depth;
 			}
-			#endif
 		};
+		#endif
 
 		// Create a coordinate frame at the origin for visual reference
 		if (m_rdr)
@@ -87,6 +96,7 @@ namespace physics_sandbox
 	// Advance the simulation by one time step. Returns true if a collision occurred during this step.
 	bool Scene::Step(double elapsed_seconds)
 	{
+		auto const step_beg = Clock::now();
 		m_clock += elapsed_seconds;
 		auto dt = float(elapsed_seconds);
 
@@ -96,14 +106,23 @@ namespace physics_sandbox
 		// Apply gravity as an external force: F = m * g.
 		// Static bodies (infinite mass) are skipped — they should not accelerate.
 		// Forces are cleared by Evolve() at the end of each step, so we re-apply each frame.
+		auto const gravity_beg = Clock::now();
 		if (LengthSq(m_gravity) != 0)
 		{
 			for (auto& body : m_body)
 				body.GravityWS(m_gravity);
 		}
+		auto const gravity_end = Clock::now();
 
 		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
+		auto const physics_beg = Clock::now();
 		m_physics.Step(dt, std::span{ m_body });
+		auto const physics_end = Clock::now();
+		if (m_physics.LastContactCount() != 0)
+		{
+			m_diag.occurred = true;
+			++m_diag.count;
+		}
 
 		++m_step_count;
 
@@ -123,6 +142,7 @@ namespace physics_sandbox
 		// Kill zone: freeze bodies that have fallen below the threshold.
 		// This prevents escaped bodies from accumulating extreme velocities
 		// that corrupt float precision for the entire simulation.
+		auto const kill_beg = Clock::now();
 		for (int i = 0; i != std::ssize(m_body); ++i)
 		{
 			auto mass = m_body[i].Mass();
@@ -136,6 +156,13 @@ namespace physics_sandbox
 				m_body[i].ZeroForces();
 			}
 		}
+		auto const kill_end = Clock::now();
+
+		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
+		m_last_step_profile.m_gravity_ms = ElapsedMs(gravity_beg, gravity_end);
+		m_last_step_profile.m_physics_ms = ElapsedMs(physics_beg, physics_end);
+		m_last_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
+		m_last_step_profile.m_engine = m_physics.LastStepProfile();
 
 		return m_diag.occurred;
 	}
@@ -632,10 +659,8 @@ namespace physics_sandbox
 	// Create/update the graphics objects for
 	void Scene::UpdateCollisionGfx(std::span<physics::RbContact const> contacts)
 	{
-		// @Copilot, please create ldraw graphics for all the contact points
-		// and normals in the contacts span. Use 0.5 alpha yellow spheres for contact points and
-		// yellow arrows for normals.
-		//m_contacts_gfx = ...todo
+		// Contact graphics are currently disabled. Keep this path opt-in because reading detailed
+		// contacts back from the GPU has a measurable cost in large scenes.
 		(void)contacts;
 	}
 

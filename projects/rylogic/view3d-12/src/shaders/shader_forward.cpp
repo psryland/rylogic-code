@@ -93,7 +93,7 @@ namespace pr::rdr12::shaders
 		SetTint(cb1, inst, nug);
 		SetTex2Surf(cb1, inst, nug);
 		SetReflectivity(cb1, inst, nug);
-		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
+		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
 	}
 }

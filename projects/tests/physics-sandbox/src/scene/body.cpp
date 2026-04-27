@@ -65,7 +65,22 @@ namespace physics_sandbox
 	// Add the body's graphics to a scene for rendering this frame
 	void Body::AddToScene(rdr12::Scene& scene)
 	{
-		if (m_gfx)
-			m_gfx->AddToScene(scene);
+		AddToScene(scene, scene.m_cam.WorldToCamera(), scene.m_cam.ViewFrustum(), scene.m_cam.ClipPlanes(false));
+	}
+	void Body::AddToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes)
+	{
+		if (!m_gfx)
+			return;
+
+		if (HasShape())
+		{
+			auto const& shape = Shape();
+			auto bbox_cs = (w2c * m_o2w * shape.m_s2p) * shape.m_bbox;
+			auto radius = Length(bbox_cs.m_radius);
+			if (!IsWithin(frustum, bbox_cs.m_centre, radius, clip_planes))
+				return;
+		}
+
+		m_gfx->AddToScene(scene);
 	}
 }

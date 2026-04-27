@@ -36,6 +36,6 @@ namespace pr::rdr12
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
 
 		// Draw a single nugget
-		void DrawNugget(Nugget const& nugget, PipeStateDesc& desc);
+		void DrawNugget(Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
 	};
 }

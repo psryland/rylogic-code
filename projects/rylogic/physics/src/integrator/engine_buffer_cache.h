@@ -51,8 +51,8 @@ namespace pr::physics
 			m_rb_dynamics.resize(0);
 
 			// Reset the GPU staging buffer for contacts.
-			m_contacts.resize(0);
-			m_contacts.resize(max_contacts);
+			if (std::ssize(m_contacts) < max_contacts)
+				m_contacts.resize(max_contacts);
 
 			#if PR_DBG_PHYSICS
 			m_history.BeginFrame(rigid_bodies);

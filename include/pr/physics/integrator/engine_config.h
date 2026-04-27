@@ -16,5 +16,25 @@ namespace pr::physics
 		// These thresholds are in world units (e.g., m/s for linear, rad/s for angular).
 		float sleep_velocity_threshold_lin = 0.1f;
 		float sleep_velocity_threshold_ang = 0.05f;
+
+		// Number of coloured Gauss-Seidel contact solver iterations.
+		int solver_iterations = 8;
+
+		// Number of coloured split-position solver iterations.
+		int position_iterations = 4;
+
+		// Velocity-level Baumgarte bias for shallow penetrations.
+		float penetration_slop = 0.005f;
+		float velocity_baumgarte = 0.2f;
+
+		// Position-level split correction. This moves bodies only; momenta are unchanged.
+		float position_slop = 0.005f;
+		float position_baumgarte = 0.2f;
+
+		// Existing deep-penetration positional correction parameters.
+		float deep_penetration_threshold = 0.3f;
+		float deep_penetration_range = 0.4f;
+		float deep_penetration_baumgarte_min = 0.2f;
+		float deep_penetration_baumgarte_max = 0.8f;
 	};
 }

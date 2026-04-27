@@ -20,5 +20,6 @@ namespace physics_sandbox
 
 		// Add the body's graphics to a scene for rendering
 		void AddToScene(rdr12::Scene& scene);
+		void AddToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes);
 	};
 }
