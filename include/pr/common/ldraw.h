@@ -1517,6 +1517,162 @@ namespace pr::ldraw
 				Append(out, EKeywords::FilePath, std::string("{\"") + f.m_path + "\"}");
 			}
 		};
+		struct Font
+		{
+			struct Name_
+			{
+				std::string name; // Arial, Times New Roman
+				friend void Append(bytebuf& out, Name_ const& v)
+				{
+					if (v.name.empty()) return;
+					auto s = Append(out, Header{ EKeywords::Name });
+					Append(out, v.name);
+				}
+				friend void Append(textbuf& out, Name_ const& v)
+				{
+					if (v.name.empty()) return;
+					Append(out, EKeywords::Name, "{", v.name, "}");
+				}
+			};
+			struct Style_
+			{
+				std::string style; // Regular, Italic, Oblique, etc.
+				friend void Append(bytebuf& out, Style_ const& v)
+				{
+					if (v.style.empty()) return;
+					auto s = Append(out, Header{ EKeywords::Style });
+					Append(out, v.style);
+				}
+				friend void Append(textbuf& out, Style_ const& v)
+				{
+					if (v.style.empty()) return;
+					Append(out, EKeywords::Style, "{", v.style, "}");
+				}
+			};
+			struct Weight_
+			{
+				int weight = {};
+				friend void Append(bytebuf& out, Weight_ const& v)
+				{
+					if (v.weight == 0) return;
+					auto s = Append(out, Header{ EKeywords::Weight });
+					Append(out, v.weight);
+				}
+				friend void Append(textbuf& out, Weight_ const& v)
+				{
+					if (v.weight == 0) return;
+					Append(out, EKeywords::Weight, "{", v.weight, "}");
+				}
+			};
+			struct Stretch_
+			{
+				int stretch = {};
+				friend void Append(bytebuf& out, Stretch_ const& v)
+				{
+					if (v.stretch == 0) return;
+					auto s = Append(out, Header{ EKeywords::Stretch });
+					Append(out, v.stretch);
+				}
+				friend void Append(textbuf& out, Stretch_ const& v)
+				{
+					if (v.stretch == 0) return;
+					Append(out, EKeywords::Stretch, "{", v.stretch, "}");
+				}
+			};
+			struct Underline_
+			{
+				bool underline = {};
+				friend void Append(bytebuf& out, Underline_ const& v)
+				{
+					if (!v.underline) return;
+					auto s = Append(out, Header{ EKeywords::Underline });
+					Append(out, v.underline);
+				}
+				friend void Append(textbuf& out, Underline_ const& v)
+				{
+					if (!v.underline) return;
+					Append(out, EKeywords::Underline, "{", v.underline, "}");
+				}
+			};
+			struct Strikeout_
+			{
+				bool strikeout = {};
+				friend void Append(bytebuf& out, Strikeout_ const& v)
+				{
+					if (!v.strikeout) return;
+					auto s = Append(out, Header{ EKeywords::Strikeout });
+					Append(out, v.strikeout);
+				}
+				friend void Append(textbuf& out, Strikeout_ const& v)
+				{
+					if (!v.strikeout) return;
+					Append(out, EKeywords::Strikeout, "{", v.strikeout, "}");
+				}
+			};
+
+			using parts_t = std::variant<Name_, Size, Colour, Style_, Weight_, Stretch_, Underline_, Strikeout_>;
+			std::vector<parts_t> m_parts;
+
+			Font& name(std::string_view name)
+			{
+				m_parts.push_back(Name_{ std::string{name} });
+				return *this;
+			}
+			Font& size(float sz)
+			{
+				m_parts.push_back(Size(sz));
+				return *this;
+			}
+			Font& colour(uint32_t col)
+			{
+				m_parts.push_back(Colour(EKeywords::Colour, col));
+				return *this;
+			}
+			Font& style(std::string_view s)
+			{
+				m_parts.push_back(Style_{ std::string(s) });
+				return *this;
+			}
+			Font& weight(int w)
+			{
+				m_parts.push_back(Weight_{ w });
+				return *this;
+			}
+			Font& stretch(int s)
+			{
+				m_parts.push_back(Stretch_{ s });
+				return *this;
+			}
+			Font& underline(bool on = true)
+			{
+				m_parts.push_back(Underline_{ on });
+				return *this;
+			}
+			Font& strikeout(bool on = true)
+			{
+				m_parts.push_back(Strikeout_{ on });
+				return *this;
+			}
+			explicit operator bool() const
+			{
+				return !m_parts.empty();
+			}
+			friend void Append(bytebuf& out, Font const& f)
+			{
+				if (!f) return;
+				auto s = Append(out, seri::Header{ EKeywords::Font });
+				for (auto const& part : f.m_parts)
+					std::visit([&out](auto const& p) { Append(out, p); }, part);
+			}
+			friend void Append(textbuf& out, Font const& f)
+			{
+				if (!f) return;
+				Append(out, EKeywords::Font, "{");
+				for (auto const& part : f.m_parts)
+					std::visit([&out](auto const& p) { Append(out, p); }, part);
+				Append(out, "}");
+			}
+		};
 		struct Texture
 		{
 			struct Addr_
@@ -2064,6 +2220,24 @@ namespace pr::ldraw
 			{
 				if (!p) return;
 				Append(out, EKeywords::Padding, "{", p.m_left, p.m_top, p.m_right, p.m_bottom, "}");
+			}
+		};
+		struct Format
+		{
+			std::string m_format;
+			Format() : m_format() {}
+			Format(TToString auto fmt) : m_format(conv(fmt)) {}
+			explicit operator bool() const { return !m_format.empty(); }
+			friend void Append(bytebuf& out, Format v)
+			{
+				if (!v) return;
+				auto s = Append(out, seri::Header{ EKeywords::Format });
+				Append(out, v.m_format);
+			}
+			friend void Append(textbuf& out, Format v)
+			{
+				if (!v) return;
+				Append(out, EKeywords::Format, std::string("{\"").append(v.m_format).append("\"}"));
 			}
 		};
 		struct VariableInt
@@ -3205,7 +3379,7 @@ namespace pr::ldraw
 		LdrLine& line(seri::Vec3 a, seri::Vec3 b, seri::Colour colour = {})
 		{
 			// Don't overwrite style here if it's been set
-			if (!m_current.m_style) style("LineSegments");
+			if (!m_current.m_style) style(std::string_view("LineSegments"));
 			m_current.m_lines.push_back({ a, b, colour });
 			if (colour) m_current.m_per_item_colour = true;
 			m_current.m_strip.clear();
@@ -3226,7 +3400,7 @@ namespace pr::ldraw
 		LdrLine& strip(seri::Vec3 start, seri::Colour colour = {})
 		{
 			// Don't overwrite style here
-			if (!m_current.m_style) style("LineStrip");
+			if (!m_current.m_style) style(std::string_view("LineStrip"));
 			m_current.m_strip.push_back({ start, colour });
 			if (colour) m_current.m_per_item_colour = true;
 			m_current.m_lines.clear();
@@ -4192,51 +4366,75 @@ namespace pr::ldraw
 	};
 	struct LdrText : LdrBase
 	{
-		std::string m_text;
-		std::string m_font;
-		seri::Billboard m_billboard;
-		seri::BackColour m_back_colour;
-		seri::Anchor m_anchor;
-		seri::Padding m_padding;
-		std::string m_format;
+		struct Block
+		{
+			std::string m_text;
+			seri::Font m_font;
+			seri::Billboard m_billboard;
+			seri::BackColour m_back_colour;
+			seri::Anchor m_anchor;
+			seri::Padding m_padding;
+			seri::Format m_format;
+			explicit operator bool() const { return !m_text.empty(); }
+		};
+		std::vector<Block> m_blocks;
+		Block m_current;
 
 		LdrText(seri::Name name, seri::Colour colour)
-		:LdrBase(name, colour)
+			: LdrBase(name, colour)
 		{}
 
 		LdrText& text(std::string_view t)
 		{
-			m_text = t;
-			return *this;
-		}
-		LdrText& font(std::string_view f)
-		{
-			m_font = f;
+			m_current.m_text = t;
 			return *this;
 		}
 		LdrText& billboard(bool b = true)
 		{
-			m_billboard = b;
+			m_current.m_billboard = b;
 			return *this;
 		}
 		LdrText& back_colour(uint32_t c)
 		{
-			m_back_colour = c;
+			m_current.m_back_colour = c;
 			return *this;
 		}
 		LdrText& anchor(float x, float y)
 		{
-			m_anchor = seri::Anchor(x, y);
+			m_current.m_anchor = seri::Anchor(x, y);
 			return *this;
 		}
 		LdrText& padding(float l, float t, float r, float b)
 		{
-			m_padding = seri::Padding(l, t, r, b);
+			m_current.m_padding = seri::Padding(l, t, r, b);
 			return *this;
 		}
 		LdrText& format(std::string_view f)
 		{
-			m_format = f;
+			m_current.m_format = seri::Format(f);
+			return *this;
+		}
+		LdrText& font(std::invocable<seri::Font&> auto&& cb)
+		{
+			cb(m_current.m_font);
+			return *this;
+		}
+		LdrText& font(std::string_view name, std::optional<float> size = {}, std::optional<uint32_t> colour = {})
+		{
+			m_current.m_font.name(name);
+			if (size) m_current.m_font.size(*size);
+			if (colour) m_current.m_font.colour(*colour);
+			return *this;
+		}
+		seri::Font& font()
+		{
+			return m_current.m_font;
+		}
+
+		LdrText& new_block()
+		{
+			m_blocks.push_back(std::move(m_current));
+			m_current = {};
 			return *this;
 		}
 
@@ -4245,12 +4443,17 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Text, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, std::string("{\"") + m_text + "\"}");
-				if (!m_font.empty())
-				Append(out, EKeywords::Font, std::string("{\"") + m_font + "\"}");
-				if (!m_format.empty())
-				Append(out, EKeywords::Format, std::string("{\"") + m_format + "\"}");
-				Append(out, m_billboard, m_back_colour, m_anchor, m_padding);
+				auto WriteBlock = [](textbuf& out, Block const& block)
+				{
+					Append(out, block.m_font, block.m_billboard, block.m_back_colour, block.m_anchor, block.m_padding, block.m_format);
+					Append(out, EKeywords::Data, std::string("{\"") + block.m_text + "\"}");
+				};
+
+				for (auto& block : m_blocks)
+					WriteBlock(out, block);
+				if (m_current)
+					WriteBlock(out, m_current);
+
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -4260,12 +4463,17 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Text, m_name, m_colour });
 			{
-				Append(out, seri::Header{ EKeywords::Data }, m_text);
-				if (!m_font.empty())
-				Append(out, seri::Header{ EKeywords::Font }, m_font);
-				if (!m_format.empty())
-				Append(out, seri::Header{ EKeywords::Format }, m_format);
-				Append(out, m_billboard, m_back_colour, m_anchor, m_padding);
+				auto WriteBlock = [](bytebuf& out, Block const& block)
+				{
+					Append(out, block.m_font, block.m_billboard, block.m_back_colour, block.m_anchor, block.m_padding, block.m_format);
+					Append(out, seri::Header{ EKeywords::Data }, block.m_text);
+				};
+
+				for (auto& block : m_blocks)
+					WriteBlock(out, block);
+				if (m_current)
+					WriteBlock(out, m_current);
+
 				LdrBase::Write(out);
 			}
 		}

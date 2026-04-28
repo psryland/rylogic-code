@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -6,6 +6,7 @@
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
+#include "pr/view3d-12/ldraw/ldraw_svg.h"
 
 namespace pr::rdr12::ldraw
 {
@@ -85,6 +86,17 @@ namespace pr::rdr12::ldraw
 				// Parse the ldr script file
 				std::ifstream src(m_filepath, std::ios::binary);
 				ldraw::BinaryReader reader(src, m_filepath, { this, OnReportError }, { this, OnProgress }, m_includes);
+				return Parse(rdr, reader, m_context_id, stop_token);
+			}
+
+			// SVG = Scalable Vector Graphics, translated to LDraw script
+			case HashI(".svg"):
+			{
+				auto ldr_script = pr::ldraw::svg::Read(m_filepath).ToString();
+				m_text_format = true;
+
+				mem_istream<char> src{ ldr_script, 0 };
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 

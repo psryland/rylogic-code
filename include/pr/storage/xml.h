@@ -3,9 +3,7 @@
 //	Copyright (C) Paul Ryland 2009
 //*****************************************
 // Required lib: xmllite.lib
-
 #pragma once
-
 #include <vector>
 #include <string>
 #include <locale>
@@ -357,6 +355,7 @@ namespace pr::xml
 				Check(reader->GetValue(&value, 0));
 				node.m_attr.push_back(Attr(prefix, localname, value));
 			}
+			Check(reader->MoveToElement());
 		}
 
 		// Parse an ending XML tag
@@ -368,6 +367,18 @@ namespace pr::xml
 			Check(reader->GetLocalName(&localname, 0));
 			node.m_prefix = prefix;
 			node.m_tag = localname;
+		}
+
+		// Parse an opening XML tag
+		template <typename Node>
+		void ParseStartElement(Ptr<IXmlReader>& reader, Node& node)
+		{
+			WCHAR const *prefix, *localname;
+			Check(reader->GetPrefix(&prefix, 0));
+			Check(reader->GetLocalName(&localname, 0));
+			node.m_prefix = prefix;
+			node.m_tag = localname;
+			ParseAttributes(reader, node);
 		}
 
 		// Parse a string value between tags
@@ -403,8 +414,12 @@ namespace pr::xml
 		template <typename Node>
 		void ParseElement(Ptr<IXmlReader>& reader, Node& node, bool top_level)
 		{
-			if (reader->IsEmptyElement())
-				return ParseEndElement(reader, node);
+			if (!top_level)
+			{
+				ParseStartElement(reader, node);
+				if (reader->IsEmptyElement())
+					return;
+			}
 
 			HRESULT hr;
 			XmlNodeType xml_node;
@@ -419,7 +434,10 @@ namespace pr::xml
 					break;
 				case XmlNodeType_Element:
 					if (top_level)
+					{
 						ParseElement(reader, node, false);
+						return;
+					}
 					else
 					{
 						Node child;
