@@ -31,7 +31,7 @@ namespace pr::physics
 	{
 		// Copy geometric data from GPU contact (already in objA's space)
 		m_axis = contact.axis;
-		m_point = contact.contact_point;
+		SetPoint(contact.contact_point);
 		m_depth = contact.depth;
 		m_mat_idA = contact.mat_id_a;
 		m_mat_idB = contact.mat_id_b;
@@ -52,7 +52,8 @@ namespace pr::physics
 		auto vb = Shift(m_objB->VelocityOS(), -m_objB->CentreOfMassOS());
 		m_velocity = m_b2a * vb - va;
 
-		m_point_at_t = m_point + 0.5f * dt_sub * m_velocity.LinAt(m_point);
+		auto point = Point();
+		m_point_at_t = point + 0.5f * dt_sub * m_velocity.LinAt(point);
 		m_time = dt_sub;
 	}
 
@@ -65,8 +66,11 @@ namespace pr::physics
 		// Reverse the collision normal and transform to new A space
 		c.m_axis = a2b * (-c.m_axis);
 
-		// Transform the contact point to new A space
-		c.m_point = a2b * c.m_point;
+		// Transform the contact manifold to new A space
+		for (auto& point : std::span{ c.m_manifold }.subspan(0, c.Count()))
+			point = a2b * point;
+		if (auto count = c.Count(); count > 1)
+			std::reverse(c.m_manifold.begin(), c.m_manifold.begin() + count);
 
 		// Depth is sign-symmetric — positive means overlap regardless of A/B assignment
 		// c.m_depth unchanged

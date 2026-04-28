@@ -338,7 +338,8 @@ namespace pr::physics
 
 		// If the collision point is moving out of collision, ignore the collision.
 		// This prevents re-resolving contacts that are already separating.
-		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point);
+		auto point = c.Point();
+		auto rel_vel_at_point = c.m_velocity.LinAt(point);
 		if (Dot(rel_vel_at_point, c.m_axis) > 0)
 			return false;
 
@@ -352,8 +353,8 @@ namespace pr::physics
 		// pre-overlap position, then compute sub_step as the fraction of dt to
 		// rewind. This gives a more accurate contact point and lever arms for
 		// the impulse calculation.
-		auto point_at_t0 = c.m_point - dt * c.m_velocity.LinAt(c.m_point);
-		auto distance = Abs(Dot(c.m_point - point_at_t0, c.m_axis));
+		auto point_at_t0 = point - dt * c.m_velocity.LinAt(point);
+		auto distance = Abs(Dot(point - point_at_t0, c.m_axis));
 		auto sub_step = distance > c.m_depth ? -c.m_depth / distance : 0.0f;
 
 		// Recompute contact data (b2a, velocity, contact point) at the estimated collision time.

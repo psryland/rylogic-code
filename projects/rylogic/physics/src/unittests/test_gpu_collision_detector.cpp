@@ -84,7 +84,7 @@ namespace pr::physics::tests
 			// GPU contact is in objA's local space. Transform CPU contact to objA space for comparison.
 			auto w2a = InvertOrthonormal(l2w);
 			auto cpu_axis_local = (w2a * cpu_contact.m_axis.w0()).w0(); // transform direction (w=0)
-			auto cpu_point_local = w2a * cpu_contact.m_point;
+			auto cpu_point_local = w2a * cpu_contact.Point();
 
 			// --- Compare contact details ---
 			// Depth comparison (relative tolerance, with absolute floor for near-zero depths)

@@ -13,7 +13,7 @@ namespace pr::physics
 	{
 		// Notes:
 		//  - Collision detection is performed in objA space to prevent floating point accuracy issues.
-		//  - The results of the collision; 'axis' and 'point', are in 'objA' space.
+		//  - The results of the collision; 'axis' and 'manifold', are in 'objA' space.
 
 		// Transform from B to A space
 		m4x4 m_b2a;

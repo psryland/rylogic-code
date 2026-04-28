@@ -25,7 +25,6 @@ namespace pr::ldraw
 		{
 			group_colour(colour);
 		}
-
 		LdrCollisionShape& shape(collision::Shape const& shape)
 		{
 			using namespace collision;
@@ -88,6 +87,57 @@ namespace pr::ldraw
 				{
 					throw std::runtime_error("Unknown shape type");
 				}
+			}
+			return *this;
+		}
+	};
+
+	struct LdrCollisionContact : LdrGroup
+	{
+		LdrCollisionContact(seri::Name name = {}, seri::Colour colour = {})
+			: LdrGroup(name, 0xFFFFFFFF)
+		{
+			group_colour(colour);
+		}
+		LdrCollisionContact& contact(collision::Contact const& contact, float scale = 1.0f)
+		{
+			using namespace collision;
+			switch (contact.m_feature)
+			{
+				case EFeature::None:
+				{
+					break;
+				}
+				case EFeature::Vert:
+				{
+					Sphere("Manifold").sphere(0.01f * scale).facets(2).pos(contact.m_manifold[0]);
+					break;
+				}
+				case EFeature::Edge:
+				{
+					Line("Manifold").line(contact.m_manifold[0], contact.m_manifold[1]);
+					break;
+				}
+				case EFeature::Tri:
+				{
+					Triangle("Manifold").tri(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[2]);
+					break;
+				}
+				case EFeature::Quad:
+				{
+					Quad("Manifold").quad(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[2], contact.m_manifold[3]);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown contact feature type");
+				}
+			}
+			auto& norm = Line("Normal");
+			for (auto const& pt : contact.Points())
+			{
+				norm.line(pt , pt + 0.5f * contact.m_axis * contact.m_depth);
+				norm.line(pt , pt - 0.5f * contact.m_axis * contact.m_depth);
 			}
 			return *this;
 		}

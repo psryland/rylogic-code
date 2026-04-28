@@ -450,7 +450,7 @@ namespace pr::collision
 				auto pb = Dot3(normal, b2w.pos);
 				contact.m_axis = Bool2SignF(pa < pb) * normal;
 				contact.m_depth = depth;
-				contact.m_point = ((ptA + ptB) * 0.5f).w1();
+				contact.SetPoint(((ptA + ptB) * 0.5f).w1());
 				contact.m_mat_idA = lhs.m_material_id;
 				contact.m_mat_idB = rhs.m_material_id;
 				return true;

@@ -99,14 +99,18 @@ namespace pr::collision
 			return false;
 
 		// Determine the sign of the separating axis to make it the normal from 'lhs' to 'rhs'
+		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
 		auto p0 = Dot3(sep_axis, (l2w * lhs.m_s2p).pos);
 		auto p1 = Dot3(sep_axis, (r2w * rhs.m_s2p).pos);
-		auto sign = Bool2SignF(p0 < p1);
+		sep_axis = Bool2SignF(p0 < p1) * sep_axis;
 
-		contact.m_depth   = p.Depth();
-		contact.m_axis    = sign * sep_axis;
-		contact.m_point   = FindContactPoint(shape_cast<ShapeBox>(lhs), l2w, shape_cast<ShapeSphere>(rhs), r2w, contact.m_axis, contact.m_depth);
+		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeBox>(lhs), l2w, shape_cast<ShapeSphere>(rhs), r2w, sep_axis, depth);
+
+		contact.m_depth = depth;
+		contact.m_axis = sep_axis;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
 		contact.m_mat_idA = p.m_mat_idA;
 		contact.m_mat_idB = p.m_mat_idB;
 		return true;
@@ -148,11 +152,8 @@ namespace pr::collision::tests
 				builder.Group("lhs", 0x3000FF00).o2w(l2w).Add<LdrCollisionShape>().shape(lhs);
 				builder.Group("rhs", 0x30FF0000).o2w(r2w).Add<LdrCollisionShape>().shape(rhs);
 				if (BoxVsSphere(lhs, l2w, rhs, r2w, c))
-				{
-					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
-					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
-					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
-				}
+					builder.Add<LdrCollisionContact>().contact(c);
+
 				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
 			}
 			#endif

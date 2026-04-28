@@ -29,6 +29,7 @@
 #include "pr/collision/col_triangle_vs_sphere.h"
 #include "pr/collision/col_triangle_vs_triangle.h"
 #include "pr/collision/shape_polytope.h"
+#include "pr/collision/support.h"
 #include "pr/common/alloca.h"
 #include "pr/common/arena_allocator.h"
 #include "pr/common/async_wrap.h"
