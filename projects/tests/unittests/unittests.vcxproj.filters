@@ -502,9 +502,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h">
       <Filter>pr\filesys</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h">
-      <Filter>pr\filesys</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h">
       <Filter>pr\filesys</Filter>
     </ClInclude>

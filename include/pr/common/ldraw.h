@@ -1531,7 +1531,7 @@ namespace pr::ldraw
 				friend void Append(textbuf& out, Name_ const& v)
 				{
 					if (v.name.empty()) return;
-					Append(out, EKeywords::Name, "{", v.name, "}");
+					Append(out, EKeywords::Name, std::string("{\"") + v.name + "\"}");
 				}
 			};
 			struct Style_

@@ -1,4 +1,4 @@
-//*********************************************
+﻿//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -14,7 +14,7 @@ namespace pr::rdr12::ldraw
 		: SourceBase(context_id)
 		, m_filepath(filepath.lexically_normal())
 		, m_includes(includes)
-		, m_encoding(enc != EEncoding::auto_detect ? enc : filesys::DetectFileEncoding(m_filepath))
+		, m_encoding(enc)
 		, m_text_format()
 	{
 		m_name = m_filepath.filename().string();
@@ -50,29 +50,31 @@ namespace pr::rdr12::ldraw
 			// LDR = Text ldr script file
 			case HashI(".ldr"):
 			{
-				filesys::LockFile lock(m_filepath, 10, 5000);
+				auto snapshot = filesys::FileSnapshot(m_filepath);
+				auto bom_size = 0;
+				auto encoding = m_encoding;
+				if (encoding == EEncoding::auto_detect)
+					encoding = filesys::DetectFileEncoding(snapshot.bytes(), bom_size);
+
 				m_text_format = true;
 
 				// Parse the ldr script text file
-				switch (m_encoding)
+				switch (encoding)
 				{
+					case EEncoding::ascii:
+					case EEncoding::ascii_extended:
+					case EEncoding::utf8:
 					case EEncoding::utf16_le:
 					case EEncoding::utf16_be:
 					{
-						std::wifstream src(m_filepath);
-						TextReader reader(src, m_filepath, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
-						return Parse(rdr, reader, m_context_id, stop_token);
-					}
-					case EEncoding::ascii:
-					case EEncoding::utf8:
-					{
-						std::ifstream src(m_filepath);
-						TextReader reader(src, m_filepath, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
+						auto data = snapshot.str().substr(static_cast<size_t>(bom_size));
+						mem_istream<char> src{ data, 0 };
+						TextReader reader(src, m_filepath, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
 						return Parse(rdr, reader, m_context_id, stop_token);
 					}
 					default:
 					{
-						throw std::runtime_error(std::format("Unsupported file encoding: {}", int(m_encoding)));
+						throw std::runtime_error(std::format("Unsupported file encoding: {}", int(encoding)));
 					}
 				}
 			}
@@ -80,11 +82,11 @@ namespace pr::rdr12::ldraw
 			// BDR = Binary ldr script file
 			case HashI(".bdr"):
 			{
-				filesys::LockFile lock(m_filepath, 10, 5000);
+				auto snapshot = filesys::FileSnapshot(m_filepath);
 				m_text_format = false;
 
 				// Parse the ldr script file
-				std::ifstream src(m_filepath, std::ios::binary);
+				mem_istream<char> src{ snapshot.str(), 0 };
 				ldraw::BinaryReader reader(src, m_filepath, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
@@ -92,7 +94,8 @@ namespace pr::rdr12::ldraw
 			// SVG = Scalable Vector Graphics, translated to LDraw script
 			case HashI(".svg"):
 			{
-				auto ldr_script = pr::ldraw::svg::Read(m_filepath).ToString();
+				auto snapshot = filesys::FileSnapshot(m_filepath);
+				auto ldr_script = pr::ldraw::svg::Read(snapshot.str()).ToString();
 				m_text_format = true;
 
 				mem_istream<char> src{ ldr_script, 0 };

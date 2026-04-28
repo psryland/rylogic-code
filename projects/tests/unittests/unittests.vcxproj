@@ -173,7 +173,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_encoding.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_snapshot.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\3ds.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_box.h" />
