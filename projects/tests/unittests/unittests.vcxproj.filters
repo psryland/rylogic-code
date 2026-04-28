@@ -499,9 +499,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h">
       <Filter>pr\filesys</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h">
-      <Filter>pr\filesys</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h">
       <Filter>pr\filesys</Filter>
     </ClInclude>
@@ -1249,6 +1246,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\camera\flight.h">
       <Filter>pr\camera</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\ldraw\ldraw_svg.h">
+      <Filter>pr\view3d-12</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

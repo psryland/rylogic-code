@@ -2691,6 +2691,18 @@ namespace Rylogic.LDraw
 			m_current.m_font ??= new();
 			return m_current.m_font;
 		}
+		public new LdrText font(Action<LdrFont> a)
+		{
+			a(font());
+			return this;
+		}
+		public LdrText font(string name, double? size = null, Colour32? colour = null)
+		{
+			font().name(name);
+			if (size != null) font().size(size.Value);
+			if (colour != null) font().colour(colour.Value);
+			return this;
+		}
 
 		/// <summary>Anchor position</summary>
 		public LdrText anchor(v2 anchor)

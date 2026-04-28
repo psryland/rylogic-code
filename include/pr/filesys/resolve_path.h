@@ -16,6 +16,7 @@
 #include "pr/common/event_handler.h"
 #include "pr/common/flags_enum.h"
 #include "pr/common/bit_fields.h"
+#include "pr/filesys/file_snapshot.h"
 
 namespace pr::filesys
 {
@@ -364,8 +365,9 @@ namespace pr::filesys
 			auto local_dir = AllSet(flags, EFlags::IncludeLocalDir) ? &m_local_dir : nullptr;
 			if (AllSet(m_sources, ESources::Files) && ResolveFileInclude(include, local_dir, fullpath, searched_paths))
 			{
+				auto snapshot = FileSnapshot(fullpath);
 				FileOpened(*this, fullpath);
-				return std::unique_ptr<std::ifstream>(new std::ifstream(fullpath, AllSet(flags, EFlags::Binary) ? std::istream::binary : 0));
+				return std::make_unique<FileSnapshotStream>(std::move(snapshot.m_data));
 			}
 
 			// Try resources

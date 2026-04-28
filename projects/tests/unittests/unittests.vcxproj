@@ -172,7 +172,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_encoding.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_snapshot.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_time.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\lock_file.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\resolve_path.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\3ds.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_box.h" />
@@ -442,6 +441,7 @@
     <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\primes.h" />
+    <ClInclude Include="..\..\..\include\pr\view3d-12\ldraw\ldraw_svg.h" />
     <ClInclude Include="src\unittests.h" />
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\core.hlsli" />

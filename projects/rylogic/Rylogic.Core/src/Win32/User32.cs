@@ -39,6 +39,20 @@ namespace Rylogic.Interop.Win32
 		[DllImport("user32.dll")]
 		public static extern HWND ChildWindowFromPointEx(HWND parent, Win32.POINT point, int flags);
 
+		/// <summary>Confine the cursor to 'rect' in screen coordinates, or release it if 'rect' is null</summary>
+		public static void ClipCursor(Win32.RECT? rect)
+		{
+			var success = rect is Win32.RECT r
+				? ClipCursor_(ref r)
+				: ClipCursor_(IntPtr.Zero);
+			if (!success)
+				throw new Win32Exception("ClipCursor failed");
+		}
+		[DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)]
+		private static extern bool ClipCursor_(ref Win32.RECT rect);
+		[DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)]
+		private static extern bool ClipCursor_(IntPtr rect);
+
 		[DllImport("user32.dll")]
 		public static extern bool ClientToScreen(HWND hwnd, ref Win32.POINT pt);
 
