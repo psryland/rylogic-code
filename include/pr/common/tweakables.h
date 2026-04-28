@@ -13,6 +13,7 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <thread>
 #include "pr/common/to.h"
 #include "pr/common/hresult.h"
 #include "pr/math/math.h"
@@ -138,18 +139,15 @@ namespace pr::tweakables
 					{
 						auto last_write = LastWrite();
 
-						// Read m_last_write_time under the mutex to avoid a data race
-						ftime_t cached_write;
+						// Keep file reads serialized with SaveVariables. On Windows, std::ifstream can block MoveFileExW replacement while the file is open.
 						{
 							std::lock_guard<std::mutex> lock(m_mutex);
-							cached_write = m_last_write_time;
+							if (m_last_write_time == last_write)
+								continue;
+
+							auto variables = LoadVariables();
+							VariablesLocked(variables, last_write);
 						}
-
-						if (cached_write == last_write)
-							continue;
-
-						auto variables = LoadVariables();
-						Variables(variables, last_write);
 					}
 				});
 			}
@@ -167,7 +165,12 @@ namespace pr::tweakables
 		void Variables(map_ptr_t variables, ftime_t last_write)
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
+			VariablesLocked(variables, last_write);
+		}
 
+		// Return a pointer to the latest version of the variables. Requires 'm_mutex'.
+		void VariablesLocked(map_ptr_t variables, ftime_t last_write)
+		{
 			// Reject stale updates. Add() may have written a newer file
 			// between the poller's LoadVariables() and this call.
 			if (last_write <= m_last_write_time)
@@ -260,7 +263,11 @@ namespace pr::tweakables
 			}
 			auto p0 = tmp_filepath.wstring();
 			auto p1 = filepath.wstring();
-			Check(MoveFileExW(p0.c_str(), p1.c_str(), MOVEFILE_REPLACE_EXISTING), HrMsg(GetLastError()));
+			if (!MoveFileExW(p0.c_str(), p1.c_str(), MOVEFILE_REPLACE_EXISTING))
+			{
+				auto const err = GetLastError();
+				throw std::runtime_error(std::format("Failed to update tweakables file '{}': {}", filepath.string(), HrMsg(err)));
+			}
 		}
 
 		#if PR_UNITTESTS
@@ -347,7 +354,10 @@ namespace pr::tweakables
 			variables["MY_INT"] = "3";
 			variables["MY_FLOAT"] = "-1.0";
 			variables["MY_STRING"] = "world";
-			Tweakables::Instance().SaveVariables(variables);
+			{
+				std::lock_guard<std::mutex> lock(Tweakables::Instance().m_mutex);
+				Tweakables::Instance().SaveVariables(variables);
+			}
 
 			for (; issue == Tweakables::Instance().m_issue; )
 				std::this_thread::sleep_for(Tweakables::poll_rate);
