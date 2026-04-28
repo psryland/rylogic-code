@@ -134,13 +134,14 @@ float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
 }
 
 // Compute a body's velocity at a point, expressed in A's object space.
-// 'rot_a' transforms from world space to A's object space.
+// 'rot_a' is body A's object-to-world rotation.
 float3 BodyVelocityAtPoint(GpuRigidBody body, float3x3 os_iinv, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
 {
 	float inv_mass = body.os_com_and_invmass.w;
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	float3 omega_in_a = mul(rot_a, mul(ws_iinv, body.momentum_ang.xyz));
-	float3 v_com_in_a = mul(rot_a, inv_mass * body.momentum_lin.xyz);
+	float3x3 w2a_rot = transpose(rot_a);
+	float3 omega_in_a = mul(w2a_rot, mul(ws_iinv, body.momentum_ang.xyz));
+	float3 v_com_in_a = mul(w2a_rot, inv_mass * body.momentum_lin.xyz);
 	return v_com_in_a + cross(omega_in_a, pt_in_a - com_in_a);
 }
 
@@ -206,7 +207,7 @@ void ApplyImpulseWithEnergyGuard(
 	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
-	float inv_mass_a, float inv_mass_b)
+	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)  // @Copilot, turning the energy guard off isn't desireable... we need to revisit this
 {
 	// Convert point impulse to spatial wrenches at each body's CoM
 	float3 forceA_in_a = -impulse;
@@ -239,7 +240,7 @@ void ApplyImpulseWithEnergyGuard(
 	// Energy conservation guard: if KE increased, scale the impulse down
 	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
-	if (delta > 0 && A > 1e-12f)
+	if (enable_energy_guard && delta > 0 && A > 1e-12f)
 	{
 		float correction = 1.0f - clamp((A - delta) / A, 0.0f, 1.0f);
 		bodyA.momentum_ang.xyz -= correction * torqueA_ws;
@@ -554,15 +555,12 @@ void CSResolve(int3 DTID(dtid))
 	if (closing_speed > bias)
 		return;
 
-	// Inject the bias as a virtual closing velocity so the impulse computation
-	// generates a corrective force to push overlapping bodies apart.
-	V_rel -= bias * axis;
-
 	// Build collision mass matrix
 	float3x3 col_I = CollisionMassMatrix(
 		pt - com_a_in_a, pt - com_b_in_a,
 		inv_mass_a, inv_mass_b,
 		os_iinv_a, rotate_inertia_inv(os_iinv_b, b2a_rot));
+	float3x3 col_I_inv = Invert(col_I);
 
 	// Load material properties
 	GpuMaterial mat_a = g_materials[c.mat_id_a];
@@ -573,13 +571,35 @@ void CSResolve(int3 DTID(dtid))
 	float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
 	float friction = sqrt(mat_a.friction_static * mat_b.friction_static);
 
-	// Compute impulse with friction cone clamping
-	float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
+	// Apply the physical contact impulse first, using only the measured contact velocity. The Baumgarte
+	// bias is a positional correction term, not real kinetic energy; folding it into this impulse makes
+	// the energy guard scale down the real collision response as well.
+	if (closing_speed < 0.0f)
+	{
+		float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
+		ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
+			com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
+			inv_mass_a, inv_mass_b, true);
 
-	// Apply impulse with energy conservation guard
-	ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
-		com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-		inv_mass_a, inv_mass_b);
+		V_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+		closing_speed = dot(V_rel, axis);
+	}
+
+	// Apply the Baumgarte bias as a separate normal-only pseudo impulse. It is deliberately not energy
+	// guarded because its purpose is to add the small separating velocity needed to stop persistent
+	// penetration; the physical restitution impulse above remains energy guarded.
+	float remaining_bias = bias - closing_speed;
+	if (remaining_bias > 0.0f)
+	{
+		float denom = dot(axis, mul(col_I_inv, axis));
+		if (abs(denom) > 1e-12f)
+		{
+			float3 impulse = (remaining_bias / denom) * axis;
+			ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
+				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
+				inv_mass_a, inv_mass_b, false);
+		}
+	}
 
 	// Add support contacts for sleep testing.
 	// Body A is pushed in -axis direction, body B in +axis direction.

@@ -175,26 +175,86 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	if (!hit)
 		return;
 
-	// Allocate a slot in the contact buffer atomically
-	uint slot;
-	InterlockedAdd(g_counters[0].contact_count, 1, slot);
-	if (slot >= g.max_contacts)
-		return;
+	// @Copilot, this code can be simplified once the contact manifold is generalised to all contacts
+	float4 contact_points[4];
+	int contact_points_count = 1;
+	contact_points[0] = col_point;
 
-	// Write the resolve contact directly (no intermediate GpuContact)
-	GpuResolveContact contact;
-	contact.axis = col_axis;
-	contact.contact_point = col_point;
-	contact.b2a = pair.b2a;
-	contact.body_idx_a = pair.body_idx_a;
-	contact.body_idx_b = pair.body_idx_b;
-	contact.mat_id_a = shape_a.material_id;
-	contact.mat_id_b = shape_b.material_id;
-	contact.depth = depth;
-	contact.collision_time = 0;
-	contact.pad0 = 0;
-	contact.pad1 = 0;
-	g_contacts[slot] = contact;
+	// When a polytope rests face-on against a box, a single contact at the face centroid does not constrain the rotational
+	// degrees of freedom that drive the other face vertices through the box. Emit the tied support vertices as a small
+	// manifold so the coloured solver can apply normal impulses at separate lever arms.
+	if (shape_a.type == SHAPE_POLYTOPE && shape_b.type == SHAPE_BOX)
+	{
+		const float TieEps = 1e-4f;
+		float best_dot = -1e30f;
+		for (int i = 0; i < shape_a.vert_count; ++i)
+		{
+			float4 v = mul(g_verts[shape_a.vert_offset + i], shape_a.s2rb);
+			best_dot = max(best_dot, dot(v.xyz, col_axis.xyz));
+		}
+
+		int support_count = 0;
+		for (int j = 0; j < shape_a.vert_count && support_count != 4; ++j)
+		{
+			float4 v = mul(g_verts[shape_a.vert_offset + j], shape_a.s2rb);
+			if (dot(v.xyz, col_axis.xyz) >= best_dot - TieEps)
+			{
+				contact_points[support_count] = float4((v - 0.5f * depth * col_axis).xyz, 1);
+				++support_count;
+			}
+		}
+
+		if (support_count > 1)
+			contact_points_count = support_count;
+	}
+	else if (shape_a.type == SHAPE_BOX && shape_b.type == SHAPE_POLYTOPE)
+	{
+		const float TieEps = 1e-4f;
+		float best_dot = -1e30f;
+		for (int i = 0; i < shape_b.vert_count; ++i)
+		{
+			float4 v = mul(g_verts[shape_b.vert_offset + i], b2w);
+			best_dot = max(best_dot, dot(v.xyz, -col_axis.xyz));
+		}
+
+		int support_count = 0;
+		for (int j = 0; j < shape_b.vert_count && support_count != 4; ++j)
+		{
+			float4 v = mul(g_verts[shape_b.vert_offset + j], b2w);
+			if (dot(v.xyz, -col_axis.xyz) >= best_dot - TieEps)
+			{
+				contact_points[support_count] = float4((v + 0.5f * depth * col_axis).xyz, 1);
+				++support_count;
+			}
+		}
+
+		if (support_count > 1)
+			contact_points_count = support_count;
+	}
+
+	for (int k = 0; k != contact_points_count; ++k)
+	{
+		// Allocate a slot in the contact buffer atomically
+		uint slot;
+		InterlockedAdd(g_counters[0].contact_count, 1, slot);
+		if (slot >= g.max_contacts)
+			return;
+
+		// Write the resolve contact directly (no intermediate GpuContact)
+		GpuResolveContact contact;
+		contact.axis = col_axis;
+		contact.contact_point = contact_points[k];
+		contact.b2a = pair.b2a;
+		contact.body_idx_a = pair.body_idx_a;
+		contact.body_idx_b = pair.body_idx_b;
+		contact.mat_id_a = shape_a.material_id;
+		contact.mat_id_b = shape_b.material_id;
+		contact.depth = depth;
+		contact.collision_time = 0;
+		contact.pad0 = 0;
+		contact.pad1 = 0;
+		g_contacts[slot] = contact;
+	}
 }
 
 // Calculates the number of thread groups needed for the resolve shader
