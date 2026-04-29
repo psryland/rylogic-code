@@ -10,8 +10,7 @@ namespace fbx_cmd
 		std::filesystem::path ifilepath{
 			//"E:\\Rylogic\\Code\\art\\models\\pendulum\\pendulum.fbx"
 			//"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx"
-			"E:\\Dump\\Hyperpose\\fbx\\hyperpose_sample.fbx"
-			//"E:\\Dump\\biplane.fbx"
+			"E:\\Dump\\biplane.fbx"
 		};
 		std::filesystem::path p3doutpath{
 			"E:\\Dump\\model.p3d"

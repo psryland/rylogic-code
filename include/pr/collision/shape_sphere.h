@@ -21,6 +21,7 @@ namespace pr::collision
 			:m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_parent, material_id, flags)
 			,m_radius(radius)
 			,m_hollow(hollow)
+			,pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}

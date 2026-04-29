@@ -45,7 +45,7 @@ namespace pr::physics::tests
 			bodies[0].O2W(o2w);
 			bodies[0].VelocityWS(ang_vel, lin_vel);
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0})); // far away
+			bodies[1].O2W(m4x4::Translation(0, 0, -1000)); // far away
 
 			physics::Engine engine;
 
@@ -124,7 +124,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto const dt = 1.0f / 100.0f;
-			auto const o2w = m4x4::Translation(v4{0, 0, 5, 0});
+			auto const o2w = m4x4::Translation(0, 0, 5);
 			auto const ang_vel = v4{0, 0, 0, 0};
 			auto const lin_vel = v4{3, 0, 0, 0};
 
@@ -149,7 +149,7 @@ namespace pr::physics::tests
 		{
 			auto box = collision::ShapeBox(v4{1, 2, 0.5f, 0});
 			auto const dt = 1.0f / 100.0f;
-			auto const o2w = m4x4::Translation(v4{0, 0, 5, 0});
+			auto const o2w = m4x4::Translation(0, 0, 5);
 			auto const ang_vel = v4{0.5f, 0.3f, 0.0f, 0.0f};
 			auto const lin_vel = v4{0, 0, 0, 0};
 
@@ -188,7 +188,7 @@ namespace pr::physics::tests
 			auto& poly = buf.as<collision::ShapePolytope>();
 
 			auto const dt = 1.0f / 100.0f;
-			auto const o2w = m4x4::Translation(v4{0, 0, 10, 0});
+			auto const o2w = m4x4::Translation(0, 0, 10);
 			auto const ang_vel = v4{0.5f, 0.3f, 0.1f, 0.0f};
 			auto const lin_vel = v4{2, 0, 0, 0};
 
@@ -209,7 +209,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto const dt = 1.0f / 100.0f;
-			auto const o2w = m4x4::Translation(v4{0, 0, 10, 0});
+			auto const o2w = m4x4::Translation(0, 0, 10);
 			auto const ang_vel = v4{0, 0, 0, 0};
 			auto const lin_vel = v4{0, 0, 0, 0};
 			auto const mass = 10.0f;
@@ -249,10 +249,10 @@ namespace pr::physics::tests
 			auto ground_shape = collision::ShapeBox(v4{1, 1, 1, 0});
 			physics::RigidBody gpu_bodies[2];
 			gpu_bodies[0].Shape(collision::shape_cast(&box), mass);
-			gpu_bodies[0].O2W(m4x4::Translation(v4{0, 0, 10, 0}));
+			gpu_bodies[0].O2W(m4x4::Translation(0, 0, 10));
 			gpu_bodies[0].VelocityWS(ang_vel, lin_vel);
 			gpu_bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			gpu_bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
+			gpu_bodies[1].O2W(m4x4::Translation(0, 0, -1000));
 
 			physics::Engine engine;
 
@@ -266,7 +266,7 @@ namespace pr::physics::tests
 			// CPU path: run 100 steps through Evolve(dyn, dt)
 			physics::RigidBody cpu_rb;
 			cpu_rb.Shape(collision::shape_cast(&box), mass);
-			cpu_rb.O2W(m4x4::Translation(v4{0, 0, 10, 0}));
+			cpu_rb.O2W(m4x4::Translation(0, 0, 10));
 			cpu_rb.VelocityWS(ang_vel, lin_vel);
 
 			for (int step = 0; step != 100; ++step)
@@ -436,10 +436,10 @@ namespace pr::physics::tests
 			auto ground_shape = collision::ShapeBox(v4{1, 1, 1, 0});
 			physics::RigidBody bodies[2];
 			bodies[0].Shape(collision::shape_cast(&sphere), mass);
-			bodies[0].O2W(m4x4::Translation(v4{0, 0, 100, 0}));
+			bodies[0].O2W(m4x4::Translation(0, 0, 100));
 			bodies[0].VelocityWS(v4::Zero(), lin_vel);
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
+			bodies[1].O2W(m4x4::Translation(0, 0, -1000));
 
 			physics::Engine engine;
 
@@ -473,10 +473,10 @@ namespace pr::physics::tests
 			auto ground_shape = collision::ShapeBox(v4{1, 1, 1, 0});
 			physics::RigidBody bodies[2];
 			bodies[0].Shape(collision::shape_cast(&box), mass);
-			bodies[0].O2W(m4x4::Translation(v4{0, 0, 100, 0}));
+			bodies[0].O2W(m4x4::Translation(0, 0, 100));
 			bodies[0].VelocityWS(ang_vel, v4::Zero());
 			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			bodies[1].O2W(m4x4::Translation(v4{0, 0, -1000, 0}));
+			bodies[1].O2W(m4x4::Translation(0, 0, -1000));
 
 			physics::Engine engine;
 
@@ -511,10 +511,10 @@ namespace pr::physics::tests
 
 			physics::RigidBody bodies[2];
 			bodies[0].Shape(collision::shape_cast(&box), 10.0f);
-			bodies[0].O2W(m4x4::Translation(v4{-5, 0, 0, 1}));
+			bodies[0].O2W(m4x4::Translation(-5, 0, 0));
 			bodies[0].VelocityWS(v4::Zero(), v4{+3, 0, 0, 0});
 			bodies[1].Shape(collision::shape_cast(&box), 10.0f);
-			bodies[1].O2W(m4x4::Translation(v4{+5, 0, 0, 1}));
+			bodies[1].O2W(m4x4::Translation(+5, 0, 0));
 			bodies[1].VelocityWS(v4::Zero(), v4{0, 0, 0, 0});
 
 			physics::Engine engine;
@@ -562,8 +562,8 @@ namespace pr::physics::tests
 			{
 				bool collision_done = false;
 				physics::RigidBody bodies[2] = {
-					physics::RigidBody{&sphere, m4x4::Translation(v4{-5, 0, 0, 1}), inertia},
-					physics::RigidBody{&sphere, m4x4::Translation(v4{+5, 0, 0, 1}), inertia},
+					physics::RigidBody{&sphere, m4x4::Translation(-5, 0, 0), inertia},
+					physics::RigidBody{&sphere, m4x4::Translation(+5, 0, 0), inertia},
 				};
 				bodies[0].VelocityWS(v4::Zero(), v4{+3, 0, 0, 0});
 				bodies[1].VelocityWS(v4::Zero(), v4{-3, 0, 0, 0});

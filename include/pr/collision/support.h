@@ -192,6 +192,9 @@ namespace pr::collision
 	}
 	inline void SupportFeature(ShapeTriangle const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
+		constexpr auto tol = 1e-5f;
+		constexpr auto tol_sq = Sqr(tol);
+
 		// Project each vertex onto the axis
 		auto d0 = Dot3(axis, shape.m_v.x);
 		auto d1 = Dot3(axis, shape.m_v.y);
@@ -199,22 +202,80 @@ namespace pr::collision
 		auto d_max = std::max({d0, d1, d2});
 
 		// Count how many vertices are at the maximum projection (within tolerance).
-		// 1 vertex  → Vert feature, 2 vertices → Edge feature, 3 vertices → Tri (face) feature.
-		auto tol = math::tiny<float>;
+		// 1 vertex → Vert feature, 2 vertices → Edge feature, 3 vertices → Tri (face) feature.
 		int count = 0;
 		int indices[3] = {};
-		if (d0 >= d_max - tol) indices[count++] = 0;
-		if (d1 >= d_max - tol) indices[count++] = 1;
-		if (d2 >= d_max - tol) indices[count++] = 2;
+		d_max -= math::tiny<float>;
+		if (d0 >= d_max) indices[count++] = 0;
+		if (d1 >= d_max) indices[count++] = 1;
+		if (d2 >= d_max) indices[count++] = 2;
 
-		// Triangle vertices are stored as offsets (w=0), return as positions (w=1)
-		feature_type = EFeature(count);
-		for (int i = 0; i != count; ++i)
-			points[i] = shape.m_v[indices[i]].w1();
+		// Return the support feature, while handling degenerate vertices in the triangle.
+		switch (count)
+		{
+			case 0:
+			{
+				feature_type = EFeature::None;
+				return;
+			}
+			case 1:
+			{
+				feature_type = EFeature::Vert;
+				points[0] = shape.m_v[indices[0]];
+				return;
+			}
+			case 2:
+			{
+				points[0] = shape.m_v[indices[0]];
+				points[1] = shape.m_v[indices[1]];
+				feature_type = LengthSq(points[1] - points[0]) < tol_sq ? EFeature::Vert : EFeature::Edge;
+				return;
+			}
+			case 3:
+			{
+				points[0] = shape.m_v.x;
+				points[1] = shape.m_v.y;
+				points[2] = shape.m_v.z;
 
-		// For the face case, ensure winding order matches the axis direction
-		if (count == 3 && Triple(axis, points[1] - points[0], points[2] - points[0]) < 0)
-			std::swap(points[1], points[2]);
+				auto e0 = points[1] - points[0];
+				auto e1 = points[2] - points[1];
+				auto e2 = points[0] - points[2];
+				auto l0 = LengthSq(e0);
+				auto l1 = LengthSq(e1);
+				auto l2 = LengthSq(e2);
+		
+				// If any edge is degenerate, or the verts are collinear, return the longest edge as the feature instead of the face.
+				if (l0 < tol_sq || l1 < tol_sq || l2 < tol_sq || LengthSq(Cross(e0, e1)) < tol_sq)
+				{
+					// Find the longest edge
+					auto p0 = points[0];
+					auto p1 = points[1];
+					auto len_sq = l0;
+					if (l1 >= len_sq)
+					{
+						p0 = points[1];
+						p1 = points[2];
+						len_sq = l1;
+					}
+					if (l2 >= len_sq)
+					{
+						p0 = points[2];
+						p1 = points[0];
+						len_sq = l2;
+					}
+					points[0] = p0;
+					points[1] = p1;
+					feature_type = len_sq < tol_sq ? EFeature::Vert : EFeature::Edge;
+					return;
+				}
+
+				// Valid face feature. Ensure the points are in the correct winding order (CCW when viewed from the direction of 'axis').
+				feature_type = EFeature::Tri;
+				if (Triple(axis, points[1] - points[0], points[2] - points[0]) < 0)
+					std::swap(points[1], points[2]);
+				return;
+			}
+		}
 	}
 	inline void SupportFeature(ShapePolytope const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
@@ -223,51 +284,52 @@ namespace pr::collision
 		constexpr auto tol = 1e-4f;
 		constexpr auto tol_sq = Sqr(tol);
 		auto s2p = shape.m_base.m_s2p;
+		auto local_axis = (InvertOrthonormal(s2p) * axis.w0()).w0();
 
 		auto best_dist = -limits<float>::max();
 		for (int i = 0; i != shape.m_vert_count; ++i)
-		{
-			auto point = (s2p * shape.vertex(i)).w1();
-			best_dist = Max(best_dist, Dot3(axis, point));
-		}
+			best_dist = Max(best_dist, Dot3(local_axis, shape.vertex(i)));
 
-		vector<v4> support_points;
+		std::array<v4, 256> support_points;
+		assert("Polytope has too many vertices" && shape.m_vert_count <= static_cast<int>(support_points.size()));
+
+		auto support_count = 0;
 		for (int i = 0; i != shape.m_vert_count; ++i)
 		{
-			auto point = (s2p * shape.vertex(i)).w1();
-			if (Dot3(axis, point) < best_dist - tol)
+			if (Dot3(local_axis, shape.vertex(i)) < best_dist - tol)
 				continue;
 
+			auto point = (s2p * shape.vertex(i)).w1();
 			auto duplicate = false;
-			for (auto const& existing : support_points)
+			for (int j = 0; j != support_count; ++j)
 			{
-				if (LengthSq(point - existing) < tol_sq)
+				if (LengthSq(point - support_points[j]) < tol_sq)
 				{
 					duplicate = true;
 					break;
 				}
 			}
 			if (!duplicate)
-				support_points.push_back(point);
+				support_points[support_count++] = point;
 		}
 
-		if (support_points.empty())
+		if (support_count == 0)
 		{
 			feature_type = EFeature::None;
 			return;
 		}
-		if (support_points.size() != 1)
+		if (support_count != 1)
 		{
 			auto centre = v4::Zero();
-			for (auto const& point : support_points)
-				centre += point;
-			centre = (centre / static_cast<float>(support_points.size())).w1();
+			for (int i = 0; i != support_count; ++i)
+				centre += support_points[i];
+			centre = (centre / static_cast<float>(support_count)).w1();
 
 			auto norm = Normalise(axis);
 			auto basis_x = v4::Zero();
-			for (auto const& point : support_points)
+			for (int i = 0; i != support_count; ++i)
 			{
-				auto radial = (point - centre).w0();
+				auto radial = (support_points[i] - centre).w0();
 				radial -= Dot3(radial, norm) * norm;
 				auto len_sq = LengthSq(radial);
 				if (len_sq > tol_sq)
@@ -280,7 +342,7 @@ namespace pr::collision
 			if (LengthSq(basis_x) > tol_sq)
 			{
 				auto basis_y = Cross(norm, basis_x);
-				std::sort(support_points.begin(), support_points.end(), [&](v4 const& lhs, v4 const& rhs)
+				std::sort(support_points.begin(), support_points.begin() + support_count, [&](v4 const& lhs, v4 const& rhs)
 				{
 					auto dl = (lhs - centre).w0();
 					auto dr = (rhs - centre).w0();
@@ -291,16 +353,16 @@ namespace pr::collision
 			}
 		}
 
-		if (support_points.size() > FeaturePolygonMaxSides)
+		if (support_count > FeaturePolygonMaxSides)
 		{
-			auto [manifold, feature] = ReduceContactManifold(support_points, axis);
+			auto [manifold, feature] = ReduceContactManifold(std::span<v4>{support_points.data(), static_cast<size_t>(support_count)}, axis);
 			feature_type = feature;
 			for (int i = 0, iend = int(feature); i != iend; ++i)
 				points[i] = manifold[i];
 			return;
 		}
 
-		feature_type = static_cast<EFeature>(support_points.size());
+		feature_type = static_cast<EFeature>(support_count);
 		for (int i = 0, iend = int(feature_type); i != iend; ++i)
 			points[i] = support_points[i];
 	}
@@ -660,6 +722,45 @@ namespace pr::collision::tests
 
 			v4 quad[] = { v4{-1, -1, 0, 1}, v4{+1, -1, 0, 1}, v4{+1, +1, 0, 1}, v4{-1, +1, 0, 1} };
 			expect_positive_area(quad, EFeature::Quad);
+		}
+
+		PRUnitTestMethod(DegenerateTriangleSupportFeatureTest)
+		{
+			auto axis = v4::ZAxis();
+			auto expect_feature = [&](ShapeTriangle const& tri, EFeature expected)
+			{
+				auto feature = EFeature{};
+				v4 points[FeaturePolygonMaxSides] = {};
+				SupportFeature(tri, axis, feature, points);
+				PR_EXPECT(feature == expected);
+				for (int i = 0, iend = int(feature); i != iend; ++i)
+					PR_EXPECT(points[i].w == 1.0f);
+				
+				auto manifold = Contact::Manifold{};
+				for (int i = 0, iend = int(feature); i != iend; ++i)
+					manifold[i] = points[i];
+				return std::tuple{ feature, manifold };
+			};
+
+			{
+				auto tri = ShapeTriangle{ v4{0, 0, 0, 1}, v4{0, 0, 0, 1}, v4{0, 0, 0, 1} };
+				expect_feature(tri, EFeature::Vert);
+			}
+			{
+				auto tri = ShapeTriangle{ v4{0, 0, 0, 1}, v4{0, 0, 0, 1}, v4{1, 0, 0, 1} };
+				auto [feature, points] = expect_feature(tri, EFeature::Edge);
+				PR_EXPECT(LengthSq(points[1] - points[0]) > Sqr(1e-5f));
+			}
+			{
+				auto tri = ShapeTriangle{ v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{2, 0, 0, 1} };
+				auto [feature, points] = expect_feature(tri, EFeature::Edge);
+				PR_EXPECT(FEql(LengthSq(points[1] - points[0]), 4.0f));
+			}
+			{
+				auto tri = ShapeTriangle{ v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1} };
+				auto [feature, points] = expect_feature(tri, EFeature::Tri);
+				PR_EXPECT(Dot(axis, Cross(points[1] - points[0], points[2] - points[0])) > 0);
+			}
 		}
 	};
 }

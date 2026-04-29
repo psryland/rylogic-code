@@ -45,17 +45,29 @@ namespace pr::ldraw
 				case EShape::Triangle:
 				{
 					auto& s = shape_cast<ShapeTriangle>(shape);
-					Triangle().tri(
-						seri::Vec3{ s.m_v.x.x, s.m_v.x.y, s.m_v.x.z },
-						seri::Vec3{ s.m_v.y.x, s.m_v.y.y, s.m_v.y.z },
-						seri::Vec3{ s.m_v.z.x, s.m_v.z.y, s.m_v.z.z }
-					).o2w(s.m_base.m_s2p);
+					if (LengthSq(s.m_v.w) < math::tiny<float>)
+					{
+						Line()
+							.line(s.m_v.x, s.m_v.y)
+							.line(s.m_v.y, s.m_v.z)
+							.line(s.m_v.z, s.m_v.x)
+							.o2w(s.m_base.m_s2p);
+					}
+					else
+					{
+						Triangle()
+							.tri(s.m_v.x, s.m_v.y, s.m_v.z)
+							.o2w(s.m_base.m_s2p);
+					}
 					break;
 				}
 				case EShape::Line:
 				{
 					auto& s = shape_cast<ShapeLine>(shape);
-					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
+					if (s.m_radius != 0)
+						Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
+					else
+						Line().line(v4(0,0,-s.m_hlength,1), v4(0,0,+s.m_hlength,1)).o2w(s.m_base.m_s2p);
 					break;
 				}
 				case EShape::Polytope:

@@ -1,5 +1,7 @@
-﻿// HyperPose
-// Copyright (c) 2025
+﻿//**********************************
+// UTF-8
+//  Copyright (c) Rylogic Ltd 2025
+//**********************************
 #pragma once
 #include <cstdint>
 #include <stdexcept>

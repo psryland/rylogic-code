@@ -145,47 +145,26 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 
 namespace pr::collision::tests
 {
 	PRUnitTestClass(TriangleVsLineTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = true;
 
-		PRUnitTestMethod(Visualise)
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
-			{
-				using namespace pr::ldraw;
-				auto tri = ShapeTriangle{ v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0} };
-				auto line = ShapeLine{ 2.0f };
-
-				std::default_random_engine rng;
-				for (int i = 0; i != 20; ++i)
-				{
-					Contact c;
-					auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-					auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-
-					Builder builder;
-					builder.Group("tri", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(tri);
-					builder.Group("line", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(line);
-					if (TriangleVsLine(tri, l2w, line, r2w, c))
-						builder.Add<LdrCollisionContact>().contact(c);
-
-					builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
-				}
-			}
-			#endif
+			if constexpr (CreateVisuals)
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Line piercing through the triangle
 		PRUnitTestMethod(LinePiercesTriangle)
 		{
 			// Triangle on XY plane
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f}; // along Z from -1 to +1
 
 			// Line passes vertically through the centre of the triangle
@@ -193,99 +172,139 @@ namespace pr::collision::tests
 			auto r2w = m4x4::Identity();
 
 			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(-0.89442718f, -0.44721359f, 0, 0),
+				.m_manifold = {
+					v4(-0.400000036f, -0.700000048f, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.44721359f,
+			}));
 		}
 
 		// Line parallel to triangle, in the plane
 		PRUnitTestMethod(LineInTrianglePlane)
 		{
-			auto tri = ShapeTriangle{v4{-2, -1, 0, 0}, v4{2, -1, 0, 0}, v4{0, 2, 0, 0}};
+			auto tri = ShapeTriangle{v4{-2, -1, 0, 1}, v4{2, -1, 0, 1}, v4{0, 2, 0, 1}};
 
 			// Line along X-axis (rotated from Z to X), in the XY plane
 			auto line = ShapeLine{2.0f};
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin());
 
-			// Line lies in the triangle's plane, overlapping → contact
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			// Line lies in the triangle's plane, but zero-thickness coplanar contact has no positive penetration depth.
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Line parallel to triangle but offset: should not collide
 		PRUnitTestMethod(LineParallelSeparated)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f};
 
 			// Line along X-axis, offset 2 units above the triangle
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0, 2, 1});
 
-			PR_EXPECT(!TriangleVsLine(tri, l2w, line, r2w));
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Line endpoint touching the triangle
 		PRUnitTestMethod(EndpointTouchesTriangle)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f}; // half-length = 1, along Z
 
 			// Place line so its -Z end is at the triangle (z=0)
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 0, 1.0f, 0}); // line from z=0 to z=2
+			auto r2w = m4x4::Translation(0, 0, 1.0f); // line from z=0 to z=2
 
-			// Line endpoint just touches the triangle plane
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			// Line endpoint just touches the triangle plane, so there is no positive penetration depth.
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Line misses the triangle entirely: passes beside it
 		PRUnitTestMethod(LineMissesTriangle)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f};
 
 			// Line along Z but offset far in X, passing beside the triangle
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{5, 0, 0, 0});
+			auto r2w = m4x4::Translation(5, 0, 0);
 
-			PR_EXPECT(!TriangleVsLine(tri, l2w, line, r2w));
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Line along a triangle edge: coplanar edge contact
 		PRUnitTestMethod(LineAlongTriangleEdge)
 		{
-			auto tri = ShapeTriangle{v4{-1, 0, 0, 0}, v4{1, 0, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f}; // half-length = 1
 
 			// Rotate line to align with X-axis, place on the bottom edge
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin());
 
-			// Line from (-1,0,0) to (+1,0,0) coincides with triangle edge
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			// Line from (-1,0,0) to (+1,0,0) coincides with triangle edge, but zero-thickness contact has no positive penetration depth.
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Thick line: collision detected when thickness bridges the gap to the triangle
 		PRUnitTestMethod(ThickLinePiercesTriangle)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{2.0f, 0.4f}; // half-length=1, half-thickness=0.2
 
 			// Line along Z, offset 0.15 above the XY plane: zero-thickness pierces but
 			// the thick envelope should give a larger penetration depth.
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 0, 0.15f, 0});
-
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			auto r2w = m4x4::Translation(0, 0, 0.15f);
 
 			Contact c;
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w, c));
-			// Penetration should be greater than zero-thickness case
-			PR_EXPECT(c.m_depth > 0.0f);
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(-0.89442718f, -0.44721359f, 0, 0),
+				.m_manifold = {
+					v4(-0.221114576f, -0.610557318f, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.847213626f,
+			}));
 		}
 
 		// Thick line: parallel to triangle, within thickness envelope
 		PRUnitTestMethod(ThickLineParallelNearTriangle)
 		{
-			auto tri = ShapeTriangle{v4{-2, -2, 0, 0}, v4{2, -2, 0, 0}, v4{0, 2, 0, 0}};
+			auto tri = ShapeTriangle{v4{-2, -2, 0, 1}, v4{2, -2, 0, 1}, v4{0, 2, 0, 1}};
 			auto line = ShapeLine{1.0f, 0.4f}; // half-length=0.5, half-thickness=0.2
 
 			// Line along X-axis, 0.1 above the triangle: zero-thickness line doesn't intersect
@@ -293,20 +312,37 @@ namespace pr::collision::tests
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0, 0.1f, 1});
 
-			PR_EXPECT(TriangleVsLine(tri, l2w, line, r2w));
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0, 1, 0),
+				.m_manifold = {
+					v4(0.5f, 0, -0.150000006f, 1),
+					v4(-0.5f, 0, -0.150000006f, 1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.300000012f,
+			}));
 		}
 
 		// Thick line: parallel but too far away
 		PRUnitTestMethod(ThickLineParallelSeparated)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
+			auto tri = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto line = ShapeLine{1.0f, 0.2f}; // half-thickness=0.1
 
 			// Line along X-axis, 0.5 above the triangle: thickness 0.1 can't bridge 0.5 gap
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0, 0.5f, 1});
 
-			PR_EXPECT(!TriangleVsLine(tri, l2w, line, r2w));
+			Contact c;
+			auto r = TriangleVsLine(tri, l2w, line, r2w, c);
+			Visualise(tri, l2w, line, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 	};
 }

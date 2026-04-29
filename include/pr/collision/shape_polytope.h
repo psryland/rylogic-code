@@ -66,9 +66,10 @@ namespace pr::collision
 		// Idx  padding[] to make the total size a multiple of 16 bytes
 
 		explicit ShapePolytope(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_parent, material_id, flags)
-			,m_vert_count()
-			,m_face_count()
+			: m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_parent, material_id, flags)
+			, m_vert_count()
+			, m_face_count()
+			, pad()
 		{
 			// Careful: We can't be sure of what follows this object in memory.
 			// The polytope data that belongs to this array may not be there yet.

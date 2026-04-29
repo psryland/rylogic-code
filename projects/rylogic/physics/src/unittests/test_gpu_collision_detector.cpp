@@ -115,7 +115,7 @@ namespace pr::physics::tests
 			auto sa = collision::ShapeSphere{1.0f};
 			auto sb = collision::ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0}); // overlap by 1.0 unit
+			auto r2w = m4x4::Translation(1.0f, 0, 0); // overlap by 1.0 unit
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
@@ -126,7 +126,7 @@ namespace pr::physics::tests
 			auto sa = collision::ShapeBox{v4{2, 2, 2, 0}};  // half-extents = 1,1,1
 			auto sb = collision::ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // overlap by 0.5 unit
+			auto r2w = m4x4::Translation(1.5f, 0, 0); // overlap by 0.5 unit
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
@@ -137,7 +137,7 @@ namespace pr::physics::tests
 			auto sa = collision::ShapeBox{v4{2, 2, 2, 0}};  // half-extents = 1,1,1
 			auto sb = collision::ShapeSphere{0.8f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // sphere centre 1.5 from box centre
+			auto r2w = m4x4::Translation(1.5f, 0, 0); // sphere centre 1.5 from box centre
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
@@ -147,7 +147,7 @@ namespace pr::physics::tests
 		{
 			auto sa = collision::ShapeLine{1.0f, 0.2f};
 			auto sb = collision::ShapeBox{v4{1, 1, 1, 0}};
-			auto l2w = m4x4::Translation(v4{0.65f, 0, 0, 0});
+			auto l2w = m4x4::Translation(0.65f, 0, 0);
 			auto r2w = m4x4::Identity();
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
@@ -159,7 +159,7 @@ namespace pr::physics::tests
 			auto sa = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto sb = collision::ShapeLine{1.0f, 0.2f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.65f, 0, 0, 0});
+			auto r2w = m4x4::Translation(0.65f, 0, 0);
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
@@ -170,7 +170,7 @@ namespace pr::physics::tests
 			auto sa = collision::ShapeSphere{1.0f};
 			auto sb = collision::ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{3.0f, 0, 0, 0}); // gap of 1.0 unit
+			auto r2w = m4x4::Translation(3.0f, 0, 0); // gap of 1.0 unit
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, false);
 		}
@@ -183,7 +183,7 @@ namespace pr::physics::tests
 
 			// Rotate the box 45 degrees about the Z axis
 			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin());
-			auto r2w = m4x4::Translation(v4{1.8f, 0, 0, 0});
+			auto r2w = m4x4::Translation(1.8f, 0, 0);
 
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
@@ -203,7 +203,7 @@ namespace pr::physics::tests
 
 			auto sb = collision::ShapeBox{v4{2, 2, 2, 0}}; // half-extents = 1,1,1
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0.7f, 0.3f, 0}); // overlapping the tetrahedron (asymmetric to avoid axis ambiguity)
+			auto r2w = m4x4::Translation(1.0f, 0.7f, 0.3f); // overlapping the tetrahedron (asymmetric to avoid axis ambiguity)
 
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true);
 		}
@@ -223,7 +223,7 @@ namespace pr::physics::tests
 
 			// Ground box: 100x100x10, centred at z=-5 (top surface at z=0)
 			auto ground = collision::ShapeBox{v4{100, 100, 10, 0}};
-			auto ground_l2w = m4x4::Translation(v4{0, 0, -5, 0});
+			auto ground_l2w = m4x4::Translation(0, 0, -5);
 
 			// Polytope captured orientation/position from the failing log
 			auto poly_o2w = m4x4{

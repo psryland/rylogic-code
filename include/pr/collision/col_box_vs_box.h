@@ -153,46 +153,18 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 namespace pr::collision::tests
 {
 	PRUnitTestClass(BoxVsBoxTests)
 	{
-		inline static constexpr bool CreateVisuals = true;
-		inline static constexpr float Tol = 1e-4f;
+		inline static constexpr bool CreateVisuals = false;
 
 		// Draw the scene
 		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			#if PR_UNITTESTS_VISUALISE
 			if constexpr (CreateVisuals)
-			{
-				ldraw::Builder builder;
-				builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
-				builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
-				if (c.contact())
-					builder.Add<ldraw::LdrCollisionContact>("Contact").contact(c);
-
-				builder.Save(temp_dir() / L"LDraw/collision.ldr");
-			}
-			#endif
-			(void)a, a2w, b, b2w, c;
-		}
-
-		// Validate the contact information is as expected, within tolerance
-		bool Check(Contact const& c, Contact const& expected)
-		{
-			PR_EXPECT(FEqlAbsolute(c.m_depth, expected.m_depth, Tol));
-			PR_EXPECT(FEqlRelative(c.m_axis, expected.m_axis, Tol));
-			PR_EXPECT(FEqlRelative(c.Point(), expected.Point(), Tol));
-
-			PR_EXPECT(c.Count() == expected.Count());
-			PR_EXPECT(c.m_feature == expected.m_feature);
-			for (int i = 0, iend = expected.Count(); i != iend; ++i)
-			{
-				PR_EXPECT(FEqlRelative(c.m_manifold[i], expected.m_manifold[i], Tol));
-			}
-			return true;
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Coincident boxes: maximum overlap
@@ -200,14 +172,14 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(Tol, 0, 0);
+			auto r2w = m4x4::Translation(1e-4f, 0, 0);
 
 			Contact c;
 			auto r = BoxVsBox(box, l2w, box, r2w, c);
 			Visualise(box, l2w, box, r2w, c);
 			
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(1,0,0,0),
 				.m_manifold = {
 					v4(0, -0.5f, -0.5f, 1),
@@ -225,14 +197,14 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.9f, 0.3f, -0.2f, 0});
+			auto r2w = m4x4::Translation(0.9f, 0.3f, -0.2f);
 
 			Contact c;
 			auto r = BoxVsBox(box, l2w, box, r2w, c);
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(1,0,0,0),
 				.m_manifold = {
 					v4(0.449992f, +0.5f, +0.3f, 1),
@@ -257,7 +229,7 @@ namespace pr::collision::tests
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(1,0,0,0),
 				.m_manifold = {
 					v4(0.449992f, +0.500000f, +0.4535900f, 1),
@@ -275,13 +247,14 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.2f, 0, 0, 1});
+			auto r2w = m4x4::Translation(1.2f, 0, 0);
 
 			Contact c;
 			auto r = BoxVsBox(box, l2w, box, r2w);
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(!r);
+			PR_EXPECT(!c.contact());
 		}
 
 		// Edge-to-Edge
@@ -297,7 +270,7 @@ namespace pr::collision::tests
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(0.57735f,0.816497f,0,0),
 				.m_manifold = {
 					v4(0.45f,0.429289f,0.265685f,1),
@@ -323,7 +296,7 @@ namespace pr::collision::tests
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(0.707107f,0.707107f,0, 0),
 				.m_manifold = {
 					v4(0.423218f,0.423218f,+0.5f,1),
@@ -348,7 +321,7 @@ namespace pr::collision::tests
 			Visualise(box, l2w, box, r2w, c);
 
 			PR_EXPECT(r);
-			PR_EXPECT(Check(c, Contact{
+			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(1,0,0,0),
 				.m_manifold = {
 					v4(0.323223f,0,-0.146447f,1),

@@ -64,10 +64,10 @@ namespace pr::physics::tests
 
 		RigidBody bodies[2];
 		bodies[0].Shape(shape, mass);
-		bodies[0].O2W(m4x4::Translation(v4{0, 0, drop_height, 0}));
+		bodies[0].O2W(m4x4::Translation(0, 0, drop_height));
 		bodies[0].VelocityWS(v4::Zero(), v4::Zero());
 		bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-		bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
+		bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
 
 		physics::Engine engine;
 		auto result = DropResult{};
@@ -130,8 +130,8 @@ namespace pr::physics::tests
 	HeadOnResult RunHeadOnTest(std::string_view label, collision::Shape const& shape_a, physics::Inertia const& inertia_a, collision::Shape const& shape_b, physics::Inertia const& inertia_b, float separation = 1.5f, float speed = 3.0f, std::filesystem::path log_dir = {})
 	{
 		physics::RigidBody bodies[2] = {
-			physics::RigidBody{&shape_a, m4x4::Translation(v4{-separation / 2, 0, 0, 1}), inertia_a},
-			physics::RigidBody{&shape_b, m4x4::Translation(v4{+separation / 2, 0, 0, 1}), inertia_b},
+			physics::RigidBody{&shape_a, m4x4::Translation(-separation / 2, 0, 0), inertia_a},
+			physics::RigidBody{&shape_b, m4x4::Translation(+separation / 2, 0, 0), inertia_b},
 		};
 		bodies[0].VelocityWS(v4::Zero(), v4{+speed, 0, 0, 0});
 		bodies[1].VelocityWS(v4::Zero(), v4{-speed, 0, 0, 0});
@@ -396,12 +396,12 @@ namespace pr::physics::tests
 				{
 					bodies[i].Shape(collision::shape_cast(&poly_shape), 5.0f);
 				}
-				bodies[i].O2W(m4x4::Translation(v4{x, y, z, 0}));
+				bodies[i].O2W(m4x4::Translation(x, y, z));
 			}
 
 			// Ground: infinite mass, top surface at z=0
 			bodies[NumBodies].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			bodies[NumBodies].O2W(m4x4::Translation(v4{0, 0, -5.0f, 0}));
+			bodies[NumBodies].O2W(m4x4::Translation(0, 0, -5.0f));
 
 			physics::Engine engine;
 			engine.Material(physics::Material{

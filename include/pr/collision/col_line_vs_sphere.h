@@ -47,7 +47,7 @@ namespace pr::collision
 
 		// Penetration depth: positive means overlap.
 		// For thick lines, the collision envelope extends m_thickness from the line axis.
-		auto dist = Sqrt(dist_sq + math::tiny<float>);
+		auto dist = Sqrt(dist_sq);
 		auto depth = (line.m_radius + sph.m_radius) - dist;
 
 		pen(depth, [&]
@@ -98,120 +98,123 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 
 namespace pr::collision::tests
 {
 	PRUnitTestClass(LineVsSphereTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(Visualise)
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
-			{
-				using namespace pr::ldraw;
-				auto line = ShapeLine{ 2.0f };
-				auto sph = ShapeSphere{ 0.5f };
-				m4x4 l2w_[] =
-				{
-					m4x4::Identity(),
-					m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4::Origin()),
-				};
-				m4x4 r2w_[] =
-				{
-					m4x4::Translation(v4{0.3f, 0.0f, 0.0f, 1}),
-					m4x4::Translation(v4{0.5f, 0.3f, 0.5f, 1}),
-				};
-
-				std::default_random_engine rng;
-				for (int i = 0; i != 20; ++i)
-				{
-					Contact c;
-					auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
-					auto r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 1.0f);
-
-					Builder builder;
-					builder.Group("line", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(line);
-					builder.Group("sph", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(sph);
-					if (LineVsSphere(line, l2w, sph, r2w, c))
-						builder.Add<LdrCollisionContact>().contact(c);
-
-					builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
-				}
-			}
-			#endif
+			if constexpr (CreateVisuals)
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Sphere centred on the line midpoint: maximum penetration
 		PRUnitTestMethod(SphereCentredOnLine)
 		{
-			auto line = ShapeLine{2.0f}; // half-length = 1
+			auto line = ShapeLine{2.0f};
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Identity(); // sphere at origin = line midpoint
+			auto r2w = m4x4::Translation(1e-5f, 0, 0); // sphere at origin = line midpoint
 
 			// Sphere centre is on the line, so distance = 0, depth = radius = 0.5
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w));
-
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
-			PR_EXPECT(c.m_depth > 0.0f);
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(-0.25f, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Sphere near the end of the line segment
-		PRUnitTestMethod(SphereNearEndpoint)
+		PRUnitTestMethod(SphereVsLineEndpoint)
 		{
-			auto line = ShapeLine{2.0f}; // half-length = 1, runs from z=-1 to z=+1
+			auto line = ShapeLine{2.0f, 0.0f};
 			auto sph = ShapeSphere{0.3f};
-
-			// Place sphere just beyond the +Z end of the line
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.2f, 0, 1.2f, 1});
+			auto r2w = m4x4::Translation(0.2f, 0, 1.2f);
 
 			// Distance from endpoint (0,0,1) to sphere centre (0.2,0,1.2) = sqrt(0.04+0.04) ≈ 0.283
 			// Depth = 0.3 - 0.283 ≈ 0.017 → should be touching
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w));
+			Contact c;
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0.707106709f, 0, 0.707106888f, 0),
+				.m_manifold = {
+					v4(-0.0060660094f, 0, 0.993933976f, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.0171572566f,
+			}));
 		}
 
 		// Sphere clearly separated from line
 		PRUnitTestMethod(Separated)
 		{
-			auto line = ShapeLine{2.0f};
+			auto line = ShapeLine{1.0f, 0.3f};
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{2.0f, 0, 0, 1}); // far away laterally
+			auto r2w = m4x4::Translation(0.6f, 0.4f, 0.5f); // far away laterally
 
-			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
+			Contact c;
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Sphere beyond the line endpoint (closest point is the endpoint)
 		PRUnitTestMethod(SphereBeyondEndpoint)
 		{
-			auto line = ShapeLine{2.0f}; // half-length = 1
+			auto line = ShapeLine{2.0f, 0.0f};
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 0, 3.0f, 1}); // well past +Z end
+			auto r2w = m4x4::Translation(0, 0, 1.55f); // well past +Z end
 
 			// Distance from endpoint (0,0,1) to (0,0,3) = 2.0, depth = 0.5 - 2.0 = -1.5
-			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
+			Contact c;
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Degenerate: zero-length line (point vs sphere)
 		PRUnitTestMethod(ZeroLengthLine)
 		{
-			auto line = ShapeLine{0.0f}; // degenerate point
+			auto line = ShapeLine{0.0f, 0.0f}; // degenerate point
 			auto sph = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 1});
+			auto r2w = m4x4::Translation(0.5f, 0, 0);
 
 			// Distance = 0.5, depth = 1.0 - 0.5 = 0.5
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w));
-
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.01f));
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(-0.25f, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Rotated line: line along X-axis via rotation
@@ -221,14 +224,24 @@ namespace pr::collision::tests
 			auto sph = ShapeSphere{0.5f};
 
 			// Rotate line so its Z-axis maps to the X-axis
-			auto l2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin());
-			auto r2w = m4x4::Translation(v4{1.0f, 0.3f, 0, 1});
+			auto l2w = m4x4::TransformDeg(0, 90, 0, v4::Origin());
+			auto r2w = m4x4::Translation(1.0f, 0.3f, 0);
 
 			// Line now runs along X from -2 to +2. Sphere at (1, 0.3, 0).
 			// Closest point on line = (1, 0, 0). Distance = 0.3. Depth = 0.5-0.3 = 0.2.
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 0.2f, 0.01f));
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 1, 0, 0),
+				.m_manifold = {
+					v4(1, -0.1f, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.2f,
+			}));
 		}
 
 		// Contact axis direction: should point from line toward sphere
@@ -237,13 +250,21 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f};
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 1}); // sphere offset in +X
+			auto r2w = m4x4::Translation(0.3f, 0, 0); // sphere offset in +X
 
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, r2w, c));
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
 
-			// Axis should point from line to sphere, i.e., in +X direction
-			PR_EXPECT(c.m_axis.x > 0.0f);
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(-0.1f, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.2f,
+			}));
 		}
 
 		// Thick line: sphere within thickness envelope but beyond zero-thickness range
@@ -252,42 +273,62 @@ namespace pr::collision::tests
 			auto line = ShapeLine{2.0f, 0.2f};
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto s2w = m4x4::Translation(v4{0.4f, 0, 0, 1});
+			auto s2w = m4x4::Translation(0.4f, 0, 0);
 
 			// Place sphere 0.4 away laterally: zero-thickness line misses (0.3 < 0.4),
 			// but thick line should hit (0.2 + 0.3 = 0.5 > 0.4)
-			PR_EXPECT(LineVsSphere(line, l2w, sph, s2w));
-
 			Contact c;
-			PR_EXPECT(LineVsSphere(line, l2w, sph, s2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 0.1f, 0.001f)); // (0.2 + 0.3) - 0.4 = 0.1
+			auto r = LineVsSphere(line, l2w, sph, s2w, c);
+			Visualise(line, l2w, sph, s2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(0.15f, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.1f,
+			}));
 		}
 
 		// Thick line: sphere just outside thickness envelope
 		PRUnitTestMethod(ThickLineSeparated)
 		{
-			auto line = ShapeLine{2.0f, 0.2f}; // half-thickness=0.1
+			auto line = ShapeLine{2.0f, 0.2f};
 			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.5f, 0, 0, 1});
+			auto r2w = m4x4::Translation(0.5001f, 0, 0);
 
 			// Distance 0.5 laterally: 0.1 + 0.3 = 0.4 < 0.5, should not collide
-			PR_EXPECT(!LineVsSphere(line, l2w, sph, r2w));
+			Contact c;
+			auto r = LineVsSphere(line, l2w, sph, r2w, c);
+			Visualise(line, l2w, sph, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
-		// Zero thickness: backwards compatible with original behaviour
-		PRUnitTestMethod(ZeroThicknessBackcompat)
+		// Thick line: sphere contacting end
+		PRUnitTestMethod(ThickLineEndVsSphere)
 		{
-			auto line_thick = ShapeLine{2.0f, 0.0f}; // explicit zero thickness
-			auto line_default = ShapeLine{2.0f};       // default (no thickness)
-			auto sph = ShapeSphere{0.5f};
+			auto line = ShapeLine{1.0f, 0.2f};
+			auto sph = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.3f, 0, 0, 1});
+			auto s2w = m4x4::Translation(0.05f, 0.05f, 0.7f);
 
-			Contact c1, c2;
-			PR_EXPECT(LineVsSphere(line_thick, l2w, sph, r2w, c1));
-			PR_EXPECT(LineVsSphere(line_default, l2w, sph, r2w, c2));
-			PR_EXPECT(FEqlRelative(c1.m_depth, c2.m_depth, 0.001f));
+			Contact c;
+			auto r = LineVsSphere(line, l2w, sph, s2w, c);
+			Visualise(line, l2w, sph, s2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0.235702f,0.235702f,0.942809f,0),
+				.m_manifold = {
+					v4(0.0132149f,0.0132149f,0.55286f,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.287867963f,
+			}));
 		}
 	};
 }

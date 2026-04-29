@@ -194,8 +194,8 @@ namespace physics_sandbox
 				// Default sandbox: two boxes approaching each other gently
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, 0, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, 0, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, 0, 0));
+				objB.O2W(m4x4::Translation( +5.0f, 0, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +2.0f, 0, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4{ -2.0f, 0, 0, 0 });
 				break;
@@ -206,8 +206,8 @@ namespace physics_sandbox
 				// Elastic collision should swap velocities exactly.
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, 0, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, 0, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, 0, 0));
+				objB.O2W(m4x4::Translation( +5.0f, 0, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +3.0f, 0, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4{ -3.0f, 0, 0, 0 });
 				break;
@@ -219,8 +219,8 @@ namespace physics_sandbox
 				// v2' = 2*m1/(m1+m2)*v1 + (m2-m1)/(m1+m2)*v2
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 5.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, 0, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, 0, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, 0, 0));
+				objB.O2W(m4x4::Translation( +5.0f, 0, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +3.0f, 0, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4{ -3.0f, 0, 0, 0 });
 				break;
@@ -230,8 +230,8 @@ namespace physics_sandbox
 				// Moving box hits a stationary box (classic billiard scenario)
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, 0, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, 0, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, 0, 0));
+				objB.O2W(m4x4::Translation( +5.0f, 0, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +3.0f, 0, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4::Zero());
 				break;
@@ -243,8 +243,8 @@ namespace physics_sandbox
 				// point is not aligned with the centres of mass.
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, +0.8f, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, 0, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, +0.8f, 0));
+				objB.O2W(m4x4::Translation( +5.0f, 0, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +3.0f, 0, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4::Zero());
 				break;
@@ -254,8 +254,8 @@ namespace physics_sandbox
 				// Oblique collision: bodies approaching at an angle
 				objA.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
 				objB.Shape(m_box, physics::Inertia::Box(v4{ 1, 1, 1, 0 }, 10.0f));
-				objA.O2W(m4x4::Translation(v4{ -5.0f, -2.0f, 0, 1 }));
-				objB.O2W(m4x4::Translation(v4{ +5.0f, +2.0f, 0, 1 }));
+				objA.O2W(m4x4::Translation( -5.0f, -2.0f, 0));
+				objB.O2W(m4x4::Translation( +5.0f, +2.0f, 0));
 				objA.VelocityWS(v4::Zero(), v4{ +3.0f, +1.0f, 0, 0 });
 				objB.VelocityWS(v4::Zero(), v4{ -3.0f, -1.0f, 0, 0 });
 				break;
@@ -398,7 +398,7 @@ namespace physics_sandbox
 			if (scene_desc.ground)
 			{
 				Body ground(nullptr);
-				ground.O2W(m4x4::Translation(v4{ 0, 0, scene_desc.ground->height - 0.5f * ground_thickness, 1 }));
+				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
 				ground.Shape(shape_ptr, -1.0f);
 				m_body.push_back(std::move(ground));
 

@@ -1,5 +1,7 @@
-﻿// HyperPose Tools
-// Copyright (c) 2025
+﻿//**********************************
+// View3D
+//  Copyright (c) Rylogic Ltd 2015
+//**********************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/utility/gpu_sync.h"

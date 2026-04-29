@@ -461,13 +461,15 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(GjkTests)
 	{
+		inline static constexpr bool CreateVisuals = true;
+
 		// Two overlapping spheres: GJK should detect contact
 		PRUnitTestMethod(OverlappingSpheres)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0}); // centres 1.0 apart, radii sum = 2
+			auto r2w = m4x4::Translation(1.0f, 0, 0); // centres 1.0 apart, radii sum = 2
 
 			Contact gjk_c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, gjk_c));
@@ -485,7 +487,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{0.5f};
 			auto sb = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{3.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(3, 0, 0);
 
 			Contact c;
 			PR_EXPECT(!GjkCollide(sa, l2w, sb, r2w, c));
@@ -497,7 +499,7 @@ namespace pr::collision::tests
 			auto ba = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // overlap of 0.5 in X
+			auto r2w = m4x4::Translation(1.5f, 0, 0); // overlap of 0.5 in X
 
 			Contact gjk_c;
 			PR_EXPECT(GjkCollide(ba, l2w, bb, r2w, gjk_c));
@@ -514,7 +516,7 @@ namespace pr::collision::tests
 			auto ba = ShapeBox{v4{2, 2, 2, 0}};
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{5.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(5, 0, 0);
 
 			Contact c;
 			PR_EXPECT(!GjkCollide(ba, l2w, bb, r2w, c));
@@ -526,7 +528,7 @@ namespace pr::collision::tests
 			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.2f, 0, 0, 0}); // sphere centre 1.2 from box centre
+			auto r2w = m4x4::Translation(1.2f, 0, 0); // sphere centre 1.2 from box centre
 
 			// Box surface at x=1, sphere surface at x=0.7..1.7 → overlap 0.3
 			Contact gjk_c;
@@ -540,7 +542,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(1.0f, 0, 0);
 
 			Contact c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, c));
@@ -555,7 +557,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.99f, 0, 0, 0}); // overlap = 0.01
+			auto r2w = m4x4::Translation(1.99f, 0, 0); // overlap = 0.01
 
 			Contact c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, c));
@@ -583,7 +585,7 @@ namespace pr::collision::tests
 
 			// Rotate box 45° about Z, place sphere near a corner
 			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin());
-			auto r2w = m4x4::Translation(v4{0.9f, 0.9f, 0, 0});
+			auto r2w = m4x4::Translation(0.9f, 0.9f, 0);
 
 			Contact gjk_c;
 			auto gjk_result = GjkCollide(box, l2w, sph, r2w, gjk_c);
@@ -619,7 +621,7 @@ namespace pr::collision::tests
 			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Identity(), c));
 
 			// Separated — should not collide
-			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(v4{10, 0, 0, 0}), c));
+			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(10, 0, 0), c));
 		}
 
 		PRUnitTestMethod(PolytopeFaceManifold)
@@ -637,7 +639,7 @@ namespace pr::collision::tests
 			auto& pb = buf_b.as<ShapePolytope>();
 
 			Contact c;
-			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(v4{1.5f, 0, 0, 0}), c));
+			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(1.5f, 0, 0), c));
 			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.05f));
 			PR_EXPECT(c.Count() == 4);
 			PR_EXPECT(c.m_feature == EFeature::Quad);

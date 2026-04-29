@@ -21,7 +21,7 @@ namespace pr::physics::tests
 
 			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto body_a = RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
-			auto body_b = RigidBody{&box, m4x4::Translation(v4{0.9f, 0, 0, 0}), Inertia::Box(box.m_radius, 1.0f)};
+			auto body_b = RigidBody{&box, m4x4::Translation(0.9f, 0, 0), Inertia::Box(box.m_radius, 1.0f)};
 			auto bodies = std::vector<GpuRigidBody>{
 				PackDynamics(body_a, 0),
 				PackDynamics(body_b, 0),
@@ -72,7 +72,7 @@ namespace pr::physics::tests
 			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto ground = collision::ShapeBox{v4{10, 10, 0.5f, 0}};
 			auto body_a = RigidBody{&box, m4x4::TransformDeg(10, 20, 30, v4{0, 0, 0.5f, 1}), Inertia::Box(box.m_radius, 1.0f)};
-			auto body_b = RigidBody{&ground, m4x4::Translation(v4{0, 0, -0.5f, 1}), Inertia::Infinite()};
+			auto body_b = RigidBody{&ground, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()};
 			body_a.VelocityWS(v4::Zero(), v4{0, 0, -10.0f, 0});
 
 			auto const w2a = InvertOrthonormal(body_a.O2W());
@@ -128,8 +128,8 @@ namespace pr::physics::tests
 
 			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto ground = collision::ShapeBox{v4{10, 10, 0.5f, 0}};
-			auto body_a = RigidBody{&box, m4x4::Translation(v4{0, 0, 0.5f, 1}), Inertia::Box(box.m_radius, 1.0f)};
-			auto body_b = RigidBody{&ground, m4x4::Translation(v4{0, 0, -0.5f, 1}), Inertia::Infinite()};
+			auto body_a = RigidBody{&box, m4x4::Translation(0, 0, 0.5f), Inertia::Box(box.m_radius, 1.0f)};
+			auto body_b = RigidBody{&ground, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()};
 
 			auto const contact_point_ws = v4{0.2f, -0.15f, 0, 1};
 			auto const axis_ws = v4{0, 0, -1, 0};

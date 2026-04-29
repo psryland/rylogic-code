@@ -11,15 +11,19 @@ namespace pr::collision
 	// A triangle collision shape.
 	struct ShapeTriangle
 	{
+		// Note:
+		//  - The triangle *can* be degenerate
+		//  - Degenerate triangles have normal == (0,0,0)
+
 		Shape m_base;
 		m4x4  m_v; // <x,y,z> = verts of the triangle, w = normal. Cross(w, y-x) should point toward the interior of the triangle
 
 		ShapeTriangle() = default;
 		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			:m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_parent, material_id, flags)
-			,m_v(a, b, c, Normalise(Cross(b-a,c-b)))
+			,m_v(a, b, c, Normalise(Cross(b-a,c-b), v4::Zero()))
 		{
-			assert(a.w == 0.0f && b.w == 0.0f && c.w == 0.0f);
+			assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
 			m_base.m_bbox = CalcBBox(*this);
 		}
 		operator Shape const&() const
@@ -47,9 +51,9 @@ namespace pr::collision
 	{
 		// Triangle vertices are offsets with w=0, but BBox::Grow requires w=1 (positions)
 		auto bb = BBox::Reset();
-		Grow(bb, shape.m_v.x.w1());
-		Grow(bb, shape.m_v.y.w1());
-		Grow(bb, shape.m_v.z.w1());
+		Grow(bb, shape.m_v.x);
+		Grow(bb, shape.m_v.y);
+		Grow(bb, shape.m_v.z);
 		return bb;
 	}
 

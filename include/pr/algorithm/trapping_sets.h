@@ -31,7 +31,7 @@
 //
 // Check unit tests for usage
 
-namespace hyperpose::trapping_sets
+namespace pr::trapping_sets
 {
 	// A single trapping set (subgraph that cannot be exited)
 	struct TrappingSet
@@ -1023,10 +1023,8 @@ namespace hyperpose::trapping_sets
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace hyperpose::trapping_sets::unittest
+namespace pr::trapping_sets::tests
 {
-	using namespace hyperpose::trapping_sets;
-
 	// Helper: build a get_successors function from an edge list
 	inline auto MakeSuccessors(int node_count, std::vector<std::pair<int, int>> const& edges)
 	{
