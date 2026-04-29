@@ -115,28 +115,32 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(LineVsLineTests)
 	{
+		inline static constexpr bool CreateVisualizations = false;
+
 		PRUnitTestMethod(Visualise)
 		{
-			using namespace pr::ldraw;
-
 			#if PR_UNITTESTS_VISUALISE
-			auto line_a = ShapeLine{2.0f};
-			auto line_b = ShapeLine{2.0f};
-
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
+			if constexpr (CreateVisualizations)
 			{
-				Contact c;
-				auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-				auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+				using namespace pr::ldraw;
+				auto line_a = ShapeLine{ 2.0f };
+				auto line_b = ShapeLine{ 2.0f };
 
-				Builder builder;
-				builder.Group("lineA", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(line_a);
-				builder.Group("lineB", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(line_b);
-				if (LineVsLine(line_a, l2w, line_b, r2w, c))
-					builder.Add<LdrCollisionContact>().contact(c);
+				std::default_random_engine rng;
+				for (int i = 0; i != 20; ++i)
+				{
+					Contact c;
+					auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+					auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
 
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+					Builder builder;
+					builder.Group("lineA", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(line_a);
+					builder.Group("lineB", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(line_b);
+					if (LineVsLine(line_a, l2w, line_b, r2w, c))
+						builder.Add<LdrCollisionContact>().contact(c);
+
+					builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+				}
 			}
 			#endif
 		}

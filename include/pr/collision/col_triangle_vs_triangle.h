@@ -161,28 +161,32 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(TriangleVsTriangleTests)
 	{
+		inline static constexpr bool CreateVisualizations = false;
+
 		PRUnitTestMethod(Visualise)
 		{
-			using namespace pr::ldraw;
-
 			#if PR_UNITTESTS_VISUALISE
-			auto tri_a = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
-			auto tri_b = ShapeTriangle{v4{-1, 0, 0, 0}, v4{1, 0, 0, 0}, v4{0, 0, 1, 0}};
-
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
+			if constexpr (CreateVisualizations)
 			{
-				Contact c;
-				auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-				auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+				using namespace pr::ldraw;
+				auto tri_a = ShapeTriangle{ v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0} };
+				auto tri_b = ShapeTriangle{ v4{-1, 0, 0, 0}, v4{1, 0, 0, 0}, v4{0, 0, 1, 0} };
 
-				Builder builder;
-				builder.Group("tri_a", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(tri_a);
-				builder.Group("tri_b", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(tri_b);
-				if (TriangleVsTriangle(tri_a, l2w, tri_b, r2w, c))
-					builder.Add<LdrCollisionContact>().contact(c);
+				std::default_random_engine rng;
+				for (int i = 0; i != 20; ++i)
+				{
+					Contact c;
+					auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
+					auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
 
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+					Builder builder;
+					builder.Group("tri_a", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(tri_a);
+					builder.Group("tri_b", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(tri_b);
+					if (TriangleVsTriangle(tri_a, l2w, tri_b, r2w, c))
+						builder.Add<LdrCollisionContact>().contact(c);
+
+					builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+				}
 			}
 			#endif
 		}

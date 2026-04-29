@@ -229,12 +229,14 @@ namespace pr::rdr12::ldraw::tests
 {
 	PRUnitTestClass(LDrawBinarySerialiserTests)
 	{
+		inline static constexpr bool CreateVisualizations = false;
 		using Builder = pr::ldraw::Builder;
 
 		void Dump(std::span<std::byte const> data)
 		{
 			(void)data;
 			#if PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisualizations)
 			{
 				std::ofstream ofile(temp_dir() / L"ldraw_test.bdr", std::ios::binary);
 				ofile.write(reinterpret_cast<char const*>(data.data()), data.size());

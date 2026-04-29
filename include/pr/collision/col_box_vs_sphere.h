@@ -125,36 +125,40 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(BoxVsSphereTests)
 	{
+		inline static constexpr bool CreateVisualizations = false;
+
 		PRUnitTestMethod(Visualise)
 		{
-			using namespace pr::ldraw;
-
 			#if PR_UNITTESTS_VISUALISE
-			auto lhs = ShapeBox{v4{0.3f, 0.4f, 0.5f, 0.0f}};
-			auto rhs = ShapeSphere{0.3f};
-			m4x4 l2w_[] =
+			if constexpr (CreateVisualizations)
 			{
-				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			};
-			m4x4 r2w_[] =
-			{
-				m4x4::Identity(),
-			};
+				using namespace pr::ldraw;
+				auto lhs = ShapeBox{ v4{0.3f, 0.4f, 0.5f, 0.0f} };
+				auto rhs = ShapeSphere{ 0.3f };
+				m4x4 l2w_[] =
+				{
+					m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
+				};
+				m4x4 r2w_[] =
+				{
+					m4x4::Identity(),
+				};
 
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
-			{
-				Contact c;
-				auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
-				auto r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+				std::default_random_engine rng;
+				for (int i = 0; i != 20; ++i)
+				{
+					Contact c;
+					auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
+					auto r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
 
-				Builder builder;
-				builder.Group("lhs", 0x3000FF00).o2w(l2w).Add<LdrCollisionShape>().shape(lhs);
-				builder.Group("rhs", 0x30FF0000).o2w(r2w).Add<LdrCollisionShape>().shape(rhs);
-				if (BoxVsSphere(lhs, l2w, rhs, r2w, c))
-					builder.Add<LdrCollisionContact>().contact(c);
+					Builder builder;
+					builder.Group("lhs", 0x3000FF00).o2w(l2w).Add<LdrCollisionShape>().shape(lhs);
+					builder.Group("rhs", 0x30FF0000).o2w(r2w).Add<LdrCollisionShape>().shape(rhs);
+					if (BoxVsSphere(lhs, l2w, rhs, r2w, c))
+						builder.Add<LdrCollisionContact>().contact(c);
 
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+					builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+				}
 			}
 			#endif
 		}

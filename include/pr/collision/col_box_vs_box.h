@@ -158,41 +158,41 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(BoxVsBoxTests)
 	{
-		PRUnitTestMethod(Visualise)
+		inline static constexpr bool CreateVisuals = true;
+		inline static constexpr float Tol = 1e-4f;
+
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			using namespace pr::ldraw;
-
 			#if PR_UNITTESTS_VISUALISE
-			auto lhs = ShapeBox{ v4(0.3f, 0.4f, 0.5f, 0.0f) };
-			auto rhs = ShapeBox{ v4(0.3f, 0.4f, 0.5f, 0.0f) };
-			m4x4 l2w_[] =
+			if constexpr (CreateVisuals)
 			{
-				m4x4::Identity(),
-			};
-			m4x4 r2w_[] =
-			{
-				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-				m4x4::Transform(RotationRad<m3x3>(0, 0, -3 * constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			};
+				ldraw::Builder builder;
+				builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
+				builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
+				if (c.contact())
+					builder.Add<ldraw::LdrCollisionContact>("Contact").contact(c);
 
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
-			{
-				Contact c;
-				auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
-				auto r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, v4::Origin(), 0.5f);
-
-				Builder builder;
-				builder.Group("lhs", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(lhs);
-				builder.Group("rhs", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(rhs);
-				if (BoxVsBox(lhs, l2w, rhs, r2w, c))
-					builder.Add<LdrCollisionContact>().contact(c);
-
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
+				builder.Save(temp_dir() / L"LDraw/collision.ldr");
 			}
 			#endif
+			(void)a, a2w, b, b2w, c;
+		}
+
+		// Validate the contact information is as expected, within tolerance
+		bool Check(Contact const& c, Contact const& expected)
+		{
+			PR_EXPECT(FEqlAbsolute(c.m_depth, expected.m_depth, Tol));
+			PR_EXPECT(FEqlRelative(c.m_axis, expected.m_axis, Tol));
+			PR_EXPECT(FEqlRelative(c.Point(), expected.Point(), Tol));
+
+			PR_EXPECT(c.Count() == expected.Count());
+			PR_EXPECT(c.m_feature == expected.m_feature);
+			for (int i = 0, iend = expected.Count(); i != iend; ++i)
+			{
+				PR_EXPECT(FEqlRelative(c.m_manifold[i], expected.m_manifold[i], Tol));
+			}
+			return true;
 		}
 
 		// Coincident boxes: maximum overlap
@@ -200,24 +200,74 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(Tol, 0, 0);
 
-			PR_EXPECT(BoxVsBox(box, l2w, box, r2w));
 			Contact c;
-			PR_EXPECT(BoxVsBox(box, l2w, box, r2w, c));
-			PR_EXPECT(c.m_depth > 0.0f);
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+			
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = {
+					v4(0, -0.5f, -0.5f, 1),
+					v4(0, +0.5f, -0.5f, 1),
+					v4(0, +0.5f, +0.5f, 1),
+					v4(0, -0.5f, +0.5f, 1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 1.0f,
+			}));
 		}
 
 		// Face-to-face overlap: boxes separated along X
 		PRUnitTestMethod(FaceToFaceOverlap)
 		{
-			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent (1,1,1)
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // overlap of 0.5 in X
+			auto r2w = m4x4::Translation(v4{0.9f, 0.3f, -0.2f, 0});
 
 			Contact c;
-			PR_EXPECT(BoxVsBox(box, l2w, box, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.02f));
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = {
+					v4(0.449992f, +0.5f, +0.3f, 1),
+					v4(0.450007f, -0.2f, +0.3f, 1),
+					v4(0.449992f, -0.2f, -0.5f, 1),
+					v4(0.449992f, +0.5f, -0.5f, 1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 0.1f,
+			}));
+		}
+
+		// Face-to-face overlap, twisted
+		PRUnitTestMethod(FaceToFaceTwistedOverlap)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::TransformDeg(30, 0, 0, v4{0.9f, 0.3f, -0.2f, 1});
+
+			Contact c;
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = {
+					v4(0.449992f, +0.500000f, +0.4535900f, 1),
+					v4(0.450007f, -0.383013f, -0.0169873f, 1),
+					v4(0.449992f, -0.104145f, -0.5000000f, 1),
+					v4(0.449992f, +0.500000f, -0.5000000f, 1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 0.1f,
+			}));
 		}
 
 		// Separated: gap between boxes
@@ -225,28 +275,65 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{3, 0, 0, 0});
+			auto r2w = m4x4::Translation(v4{1.2f, 0, 0, 1});
 
-			PR_EXPECT(!BoxVsBox(box, l2w, box, r2w));
+			Contact c;
+			auto r = BoxVsBox(box, l2w, box, r2w);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
-		// Edge-to-edge: rotated box touching via edges
-		PRUnitTestMethod(EdgeContact)
+		// Edge-to-Edge
+		PRUnitTestMethod(EdgeEdgeContact)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-
-			// Rotate rhs 45° about Z and offset so edges overlap
-			auto r2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4{1.3f, 1.3f, 0, 1});
+			auto r2w = m4x4::TransformDeg(45, 0, 45, v4{0.7f, 1.0f, 0.2f, 1});
 
 			// The rotated box edge should be close to lhs corner
 			Contact c;
-			auto result = BoxVsBox(box, l2w, box, r2w, c);
-			if (result)
-			{
-				PR_EXPECT(c.m_depth > 0.0f);
-				PR_EXPECT(IsNormalised(c.m_axis));
-			}
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(0.57735f,0.816497f,0,0),
+				.m_manifold = {
+					v4(0.45f,0.429289f,0.265685f,1),
+					v4(0,0,0,1),
+					v4(0,0,0,1),
+					v4(0,0,0,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.173228189f,
+			}));
+		}
+
+		// Edge-to-Face: rotated box touching via edges
+		PRUnitTestMethod(EdgeFaceContact)
+		{
+			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::TransformDeg(0, 0, 45, v4{0.7f, 0.7f, 0.2f, 1});
+
+			// The rotated box edge should be close to lhs corner
+			Contact c;
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(0.707107f,0.707107f,0, 0),
+				.m_manifold = {
+					v4(0.423218f,0.423218f,+0.5f,1),
+					v4(0.423218f,0.423218f,-0.3f,1),
+					v4(0,0,0,1),
+					v4(0,0,0,1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.217172399f,
+			}));
 		}
 
 		// Corner-to-face: rotated box poking into face
@@ -254,16 +341,24 @@ namespace pr::collision::tests
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-
-			// Rotate rhs by 45° on two axes so its corner points into lhs face
-			auto r2w = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, 0), v4{2.0f, 0, 0, 1});
+			auto r2w = m4x4::TransformDeg(45, 45, 0, v4{1, 0, 0, 1});
 
 			Contact c;
-			auto result = BoxVsBox(box, l2w, box, r2w, c);
-			if (result)
-			{
-				PR_EXPECT(c.m_depth > 0.0f);
-			}
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(Check(c, Contact{
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = {
+					v4(0.323223f,0,-0.146447f,1),
+					v4(0,0,0,1),
+					v4(0,0,0,1),
+					v4(0,0,0,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.353568316f,
+			}));
 		}
 	};
 }

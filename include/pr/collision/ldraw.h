@@ -97,7 +97,7 @@ namespace pr::ldraw
 		LdrCollisionContact(seri::Name name = {}, seri::Colour colour = {})
 			: LdrGroup(name, 0xFFFFFFFF)
 		{
-			group_colour(colour);
+			group_colour(colour ? colour : 0xFFFFFF00);
 		}
 		LdrCollisionContact& contact(collision::Contact const& contact, float scale = 1.0f)
 		{
@@ -111,21 +111,36 @@ namespace pr::ldraw
 				case EFeature::Vert:
 				{
 					Sphere("Manifold").sphere(0.01f * scale).facets(2).pos(contact.m_manifold[0]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0]);
 					break;
 				}
 				case EFeature::Edge:
 				{
 					Line("Manifold").line(contact.m_manifold[0], contact.m_manifold[1]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1]);
 					break;
 				}
 				case EFeature::Tri:
 				{
 					Triangle("Manifold").tri(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[2]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1])
+						.box(0.005f, contact.m_manifold[2]);
 					break;
 				}
 				case EFeature::Quad:
 				{
-					Quad("Manifold").quad(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[2], contact.m_manifold[3]);
+					// LDraw expects quads in 'S' vert order
+					Quad("Manifold").quad(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[3], contact.m_manifold[2]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1])
+						.box(0.005f, contact.m_manifold[2])
+						.box(0.005f, contact.m_manifold[3]);
 					break;
 				}
 				default:
@@ -139,6 +154,7 @@ namespace pr::ldraw
 				norm.line(pt , pt + 0.5f * contact.m_axis * contact.m_depth);
 				norm.line(pt , pt - 0.5f * contact.m_axis * contact.m_depth);
 			}
+			Sphere("Point").sphere(0.008f).pos(contact.Point());
 			return *this;
 		}
 	};

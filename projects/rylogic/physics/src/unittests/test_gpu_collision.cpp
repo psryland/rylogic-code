@@ -56,11 +56,7 @@ namespace pr::physics::tests
 				builder.Add<ldraw::LdrCollisionShape>("ObjA", 0x80FF8000).shape(a).o2w(a2w);
 				builder.Add<ldraw::LdrCollisionShape>("ObjB", 0x800080FF).shape(b).o2w(b2w);
 				if (c.contact())
-				{
-					builder.Group("Contact")
-						.Sphere("point", 0xFFFFFF00).sphere(0.008f).pos(c.Point())
-						.Line("axis", 0xFFFFFF00).line(-0.5f * c.m_depth * c.m_axis, +0.5f * c.m_depth * c.m_axis);
-				}
+					builder.Add<ldraw::LdrCollisionContact>().contact(c);
 
 				builder.Save(temp_dir() / L"LDraw/collision.ldr");
 			}
@@ -774,7 +770,6 @@ namespace pr::physics::tests
 				{
 					PR_EXPECT(Near(expected->depth, c0.m_depth));
 					PR_EXPECT(AxisMatch(expected->axis, c0.m_axis));
-					PR_EXPECT(PointMatch(expected->point, c0.Point()));
 				}
 
 				// Build the vertex buffer for the GPU

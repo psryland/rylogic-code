@@ -11,6 +11,8 @@ namespace pr::collision
 {
 	using ManifoldCorners = vector<v4, 4 * FeaturePolygonMaxSides>;
 
+	inline std::tuple<Contact::Manifold, EFeature> ReduceContactManifold(std::span<v4> corners, v4 axis);
+
 	// Returns a support vertex for a shape for a given direction.
 	// Assumes 'direction' is in the shape's root parent space (i.e. transformed
 	// by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
@@ -61,6 +63,38 @@ namespace pr::collision
 		v4 d(Dot3(direction, shape.m_v.x), Dot3(direction, shape.m_v.y), Dot3(direction, shape.m_v.z), 0.0f);
 		feature_type = EFeature::Vert;
 		return shape.m_v[MaxElementIndex(d.xyz)].w1();
+	}
+	inline v4 SupportVertex(ShapePolytope const& shape, v4 direction, EFeature& feature_type)
+	{
+		assert("Invalid polytope" && shape.m_vert_count != 0);
+
+		feature_type = EFeature::Vert;
+		auto s2p = shape.m_base.m_s2p;
+		auto best = (s2p * shape.vertex(0)).w1();
+		auto best_dist = Dot3(direction, best);
+		for (int i = 1; i != shape.m_vert_count; ++i)
+		{
+			auto point = (s2p * shape.vertex(i)).w1();
+			auto dist = Dot3(direction, point);
+			if (dist > best_dist)
+			{
+				best = point;
+				best_dist = dist;
+			}
+		}
+		return best;
+	}
+	inline v4 SupportVertex(Shape const& shape, v4 direction, EFeature& feature_type)
+	{
+		switch (shape.m_type)
+		{
+		case EShape::Sphere:   { return SupportVertex(shape_cast<ShapeSphere>(shape), direction, feature_type); }
+		case EShape::Box:      { return SupportVertex(shape_cast<ShapeBox>(shape), direction, feature_type); }
+		case EShape::Line:     { return SupportVertex(shape_cast<ShapeLine>(shape), direction, feature_type); }
+		case EShape::Triangle: { return SupportVertex(shape_cast<ShapeTriangle>(shape), direction, feature_type); }
+		case EShape::Polytope: { return SupportVertex(shape_cast<ShapePolytope>(shape), direction, feature_type); }
+		default:               { throw std::runtime_error("Shape type does not support SupportVertex"); }
+		}
 	}
 	inline v4 SupportVertex(ShapeType auto const& shape, v4 direction)
 	{
@@ -181,6 +215,106 @@ namespace pr::collision
 		// For the face case, ensure winding order matches the axis direction
 		if (count == 3 && Triple(axis, points[1] - points[0], points[2] - points[0]) < 0)
 			std::swap(points[1], points[2]);
+	}
+	inline void SupportFeature(ShapePolytope const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	{
+		assert("Invalid polytope" && shape.m_vert_count != 0);
+
+		constexpr auto tol = 1e-4f;
+		constexpr auto tol_sq = Sqr(tol);
+		auto s2p = shape.m_base.m_s2p;
+
+		auto best_dist = -limits<float>::max();
+		for (int i = 0; i != shape.m_vert_count; ++i)
+		{
+			auto point = (s2p * shape.vertex(i)).w1();
+			best_dist = Max(best_dist, Dot3(axis, point));
+		}
+
+		vector<v4> support_points;
+		for (int i = 0; i != shape.m_vert_count; ++i)
+		{
+			auto point = (s2p * shape.vertex(i)).w1();
+			if (Dot3(axis, point) < best_dist - tol)
+				continue;
+
+			auto duplicate = false;
+			for (auto const& existing : support_points)
+			{
+				if (LengthSq(point - existing) < tol_sq)
+				{
+					duplicate = true;
+					break;
+				}
+			}
+			if (!duplicate)
+				support_points.push_back(point);
+		}
+
+		if (support_points.empty())
+		{
+			feature_type = EFeature::None;
+			return;
+		}
+		if (support_points.size() != 1)
+		{
+			auto centre = v4::Zero();
+			for (auto const& point : support_points)
+				centre += point;
+			centre = (centre / static_cast<float>(support_points.size())).w1();
+
+			auto norm = Normalise(axis);
+			auto basis_x = v4::Zero();
+			for (auto const& point : support_points)
+			{
+				auto radial = (point - centre).w0();
+				radial -= Dot3(radial, norm) * norm;
+				auto len_sq = LengthSq(radial);
+				if (len_sq > tol_sq)
+				{
+					basis_x = radial / Sqrt(len_sq);
+					break;
+				}
+			}
+
+			if (LengthSq(basis_x) > tol_sq)
+			{
+				auto basis_y = Cross(norm, basis_x);
+				std::sort(support_points.begin(), support_points.end(), [&](v4 const& lhs, v4 const& rhs)
+				{
+					auto dl = (lhs - centre).w0();
+					auto dr = (rhs - centre).w0();
+					auto al = Atan2(Dot3(dl, basis_y), Dot3(dl, basis_x));
+					auto ar = Atan2(Dot3(dr, basis_y), Dot3(dr, basis_x));
+					return al < ar;
+				});
+			}
+		}
+
+		if (support_points.size() > FeaturePolygonMaxSides)
+		{
+			auto [manifold, feature] = ReduceContactManifold(support_points, axis);
+			feature_type = feature;
+			for (int i = 0, iend = int(feature); i != iend; ++i)
+				points[i] = manifold[i];
+			return;
+		}
+
+		feature_type = static_cast<EFeature>(support_points.size());
+		for (int i = 0, iend = int(feature_type); i != iend; ++i)
+			points[i] = support_points[i];
+	}
+	inline void SupportFeature(Shape const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
+	{
+		switch (shape.m_type)
+		{
+		case EShape::Sphere:   { return SupportFeature(shape_cast<ShapeSphere>(shape), axis, feature_type, points); }
+		case EShape::Box:      { return SupportFeature(shape_cast<ShapeBox>(shape), axis, feature_type, points); }
+		case EShape::Line:     { return SupportFeature(shape_cast<ShapeLine>(shape), axis, feature_type, points); }
+		case EShape::Triangle: { return SupportFeature(shape_cast<ShapeTriangle>(shape), axis, feature_type, points); }
+		case EShape::Polytope: { return SupportFeature(shape_cast<ShapePolytope>(shape), axis, feature_type, points); }
+		default:               { throw std::runtime_error("Shape type does not support SupportFeature"); }
+		}
 	}
 
 	// Returns the centroid of a set of points

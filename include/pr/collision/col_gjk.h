@@ -269,7 +269,7 @@ namespace pr::collision
 			Shape const& sa, m4x4 const& a2w, m4x4 const& w2a,
 			Shape const& sb, m4x4 const& b2w, m4x4 const& w2b,
 			Simplex const& gjk_sx, int& ha, int& hb,
-			v4& normal, float& depth, v4& ptA, v4& ptB)
+			v4& normal, float& depth)
 		{
 			if (gjk_sx.n < 4) return false;
 
@@ -336,17 +336,6 @@ namespace pr::collision
 				{
 					normal = cf_normal;
 					depth = cf_dist;
-
-					// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
-					// minimum distance and the EPA polytope only sparsely samples the contact
-					// face. Single-triangle barycentric witness points are biased toward whichever
-					// triangle won the tie. To produce a stable, geometrically meaningful contact
-					// point, query the support face centroid on each shape along the contact
-					// normal — averaging all vertices tied for the maximum dot product gives the
-					// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
-					// ties and this reduces to the standard support point.
-					ptA = (a2w * SupportFaceCentre(sa, w2a * +cf_normal)).w1();
-					ptB = (b2w * SupportFaceCentre(sb, w2b * -cf_normal)).w1();
 					return true;
 				}
 
@@ -440,17 +429,21 @@ namespace pr::collision
 			if (DoSimplex(sx, dir))
 			{
 				// Origin enclosed — shapes overlap. Run EPA for penetration info.
-				v4 normal, ptA, ptB;
+				v4 normal;
 				float depth;
-				if (!Epa(lhs, a2w, w2a, rhs, b2w, w2b, sx, ha, hb, normal, depth, ptA, ptB))
+				if (!Epa(lhs, a2w, w2a, rhs, b2w, w2b, sx, ha, hb, normal, depth))
 					return false;
 
 				// Orient axis from lhs toward rhs (convention: axis points A→B)
 				auto pa = Dot3(normal, a2w.pos);
 				auto pb = Dot3(normal, b2w.pos);
-				contact.m_axis = Bool2SignF(pa < pb) * normal;
+				auto sep_axis = Bool2SignF(pa < pb) * normal;
+				auto [manifold, feature] = FindContactManifold(lhs, l2w, rhs, r2w, sep_axis, depth);
+
+				contact.m_axis = sep_axis;
 				contact.m_depth = depth;
-				contact.SetPoint(((ptA + ptB) * 0.5f).w1());
+				contact.m_manifold = manifold;
+				contact.m_feature = feature;
 				contact.m_mat_idA = lhs.m_material_id;
 				contact.m_mat_idB = rhs.m_material_id;
 				return true;
@@ -627,6 +620,29 @@ namespace pr::collision::tests
 
 			// Separated — should not collide
 			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(v4{10, 0, 0, 0}), c));
+		}
+
+		PRUnitTestMethod(PolytopeFaceManifold)
+		{
+			v4 cube_pts[] = {
+				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
+				v4{-1, +1, -1, 1}, v4{+1, +1, -1, 1},
+				v4{-1, -1, +1, 1}, v4{+1, -1, +1, 1},
+				v4{-1, +1, +1, 1}, v4{+1, +1, +1, 1},
+			};
+
+			auto buf_a = BuildPolytopeFromPoints(cube_pts);
+			auto buf_b = BuildPolytopeFromPoints(cube_pts);
+			auto& pa = buf_a.as<ShapePolytope>();
+			auto& pb = buf_b.as<ShapePolytope>();
+
+			Contact c;
+			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(v4{1.5f, 0, 0, 0}), c));
+			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.05f));
+			PR_EXPECT(c.Count() == 4);
+			PR_EXPECT(c.m_feature == EFeature::Quad);
+			PR_EXPECT(FEqlRelative(c.Point(), v4{0.75f, 0, 0, 1}, 0.01f));
+			PR_EXPECT(Dot(c.m_axis, Cross(c.m_manifold[1] - c.m_manifold[0], c.m_manifold[2] - c.m_manifold[0])) > 0.0f);
 		}
 	};
 }
