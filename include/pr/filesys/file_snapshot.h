@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 #include "pr/common/memstream.h"
 #include "pr/win32/win32.h"
 
@@ -161,10 +162,28 @@ namespace pr::filesys
 	{
 		using storage_t = std::string;
 
-		FileSnapshotStream(std::string data)
-			:storage_t(std::move(data))
-			,mem_istream<char>(std::string_view(static_cast<storage_t const&>(*this)), 0)
+		std::filesystem::path m_filepath;
+
+		FileSnapshotStream(std::filesystem::path filepath, std::string data)
+			: storage_t(std::move(data))
+			, mem_istream<char>(std::string_view(static_cast<storage_t const&>(*this)), 0)
+			, m_filepath(std::move(filepath))
 		{}
+		FileSnapshotStream(std::string data)
+			: FileSnapshotStream(std::filesystem::path{}, std::move(data))
+		{}
+		FileSnapshotStream(FileSnapshot snapshot)
+			: FileSnapshotStream(std::move(snapshot.m_filepath), std::move(snapshot.m_data))
+		{}
+
+		std::filesystem::path const& filepath() const noexcept
+		{
+			return m_filepath;
+		}
+		std::streamsize file_size() const noexcept
+		{
+			return static_cast<std::streamsize>(static_cast<storage_t const&>(*this).size());
+		}
 	};
 }
 
@@ -184,6 +203,10 @@ namespace pr::filesys
 		auto snapshot = FileSnapshot(filepath);
 		PR_EXPECT(snapshot.str() == "snapshot data");
 		PR_EXPECT(snapshot.m_stable);
+
+		auto stream = FileSnapshotStream(std::move(snapshot));
+		PR_EXPECT(stream.filepath() == filepath);
+		PR_EXPECT(stream.file_size() == 13);
 
 		auto busy = win32::FileOpen(filepath, GENERIC_WRITE, FILE_SHARE_READ, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL);
 		PR_EXPECT(!!busy);

@@ -7,12 +7,25 @@
 
 namespace pr::rdr12::ldraw
 {
-	// Convert opaque storage to a typed reference
-	template <typename T, int N, typename B = std::conditional_t<std::is_const_v<T>, std::byte const, std::byte>>
-	inline T& as(B (&storage)[N])
+	namespace
 	{
-		static_assert(sizeof(T) <= sizeof(storage));
-		return reinterpret_cast<T&>(storage);
+		// Generate a 'Loc' from a stream and associated source file
+		script::Loc SourceLocation(std::istream const& stream, std::filesystem::path const& src_filepath)
+		{
+			auto const* snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(&stream);
+			if (snapshot != nullptr && !snapshot->filepath().empty())
+				return script::Loc(snapshot->filepath(), snapshot->file_size(), 0, 0, 1, 1, true);
+
+			return script::Loc(src_filepath);
+		}
+
+		// Convert opaque storage to a typed reference
+		template <typename T, int N, typename B = std::conditional_t<std::is_const_v<T>, std::byte const, std::byte>>
+		inline T& as(B(&storage)[N])
+		{
+			static_assert(sizeof(T) <= sizeof(storage));
+			return reinterpret_cast<T&>(storage);
+		}
 	}
 
 	TextReader::TextReader(std::istream& stream, std::filesystem::path src_filepath, EEncoding enc, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
@@ -27,7 +40,7 @@ namespace pr::rdr12::ldraw
 	{
 		static_assert(sizeof(m_src) >= sizeof(script::StreamSrc<char>));
 		static_assert(sizeof(m_pp) >= sizeof(script::Preprocessor));
-		new (m_src) script::StreamSrc<char>(stream, enc, script::Loc(src_filepath));
+		new (m_src) script::StreamSrc<char>(stream, enc, SourceLocation(stream, src_filepath));
 		new (m_pp) script::Preprocessor(as<script::Src>(m_src), nullptr, nullptr, nullptr);
 	}
 	TextReader::TextReader(std::wistream& stream, std::filesystem::path src_filepath, EEncoding enc, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)

@@ -28,7 +28,7 @@ namespace pr::rdr12::ldraw
 			, m_src(src)
 			, m_pos()
 			, m_section({ {0, std::numeric_limits<int64_t>::max()} })
-			, m_location({ src_filepath, ReadSourceLength(src_filepath) })
+			, m_location(ReadSourceLocation(src, src_filepath))
 		{
 			PushSection();
 		}
@@ -213,7 +213,15 @@ namespace pr::rdr12::ldraw
 		}
 
 		// Read the size of the input file/source
-		static int64_t ReadSourceLength(std::filesystem::path src_filepath)
+		static Location ReadSourceLocation(istream_t const& src, std::filesystem::path const& src_filepath)
+		{
+			auto const* snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(&src);
+			if (snapshot != nullptr && !snapshot->filepath().empty())
+				return { snapshot->filepath(), snapshot->file_size() };
+
+			return { src_filepath, ReadSourceLength(src_filepath) };
+		}
+		static int64_t ReadSourceLength(std::filesystem::path const& src_filepath)
 		{
 			if (!src_filepath.empty() && std::filesystem::exists(src_filepath))
 				return std::filesystem::file_size(src_filepath);

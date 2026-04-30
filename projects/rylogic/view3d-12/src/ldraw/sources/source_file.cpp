@@ -115,7 +115,7 @@ namespace pr::rdr12::ldraw
 				m_text_format = false;
 
 				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
@@ -126,7 +126,7 @@ namespace pr::rdr12::ldraw
 				m_text_format = true;
 
 				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
