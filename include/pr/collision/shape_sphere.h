@@ -17,11 +17,11 @@ namespace pr::collision
 		int pad[2];
 
 		ShapeSphere() = default;
-		explicit ShapeSphere(float radius, m4x4 const& shape_to_parent = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_parent, material_id, flags)
-			,m_radius(radius)
-			,m_hollow(hollow)
-			,pad()
+		explicit ShapeSphere(float radius, m4x4 const& shape_to_root = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_root, material_id, flags)
+			, m_radius(radius)
+			, m_hollow(hollow)
+			, pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}

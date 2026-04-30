@@ -333,6 +333,31 @@ namespace pr::collision::tests
 				.m_depth = 0.353568316f,
 			}));
 		}
+
+		// Box-vs-Box with s2p transforms
+		PRUnitTestMethod(BoxVsBoxWithS2P)
+		{
+			auto box = ShapeBox{ v4{1, 1, 1, 0} };
+			auto l2w = m4x4::Identity() * m4x4::Translation(0.5f, 0, 0);
+			auto r2w = m4x4::Identity() * m4x4::Translation(0.5f, 0, 0);
+
+			Contact c;
+			auto r = BoxVsBox(box, l2w, box, r2w, c);
+			Visualise(box, l2w, box, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = {
+					v4(0.5f,-0.5f,-0.5f,1),
+					v4(0.5f,+0.5f,-0.5f,1),
+					v4(0.5f,+0.5f,+0.5f,1),
+					v4(0.5f,-0.5f,+0.5f,1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 1.0f,
+				}));
+		}
 	};
 }
 #endif

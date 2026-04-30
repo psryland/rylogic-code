@@ -22,8 +22,8 @@ namespace pr::collision
 		// ShapeSphere s1;
 		// ...
 
-		explicit ShapeArray(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			: m_base(EShape::Array, sizeof(ShapeArray), shape_to_parent, material_id, flags)
+		explicit ShapeArray(m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Array, sizeof(ShapeArray), shape_to_root, material_id, flags)
 			, m_num_shapes()
 			, pad()
 		{

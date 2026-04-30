@@ -65,8 +65,8 @@ namespace pr::collision
 		// Idx  m_nbr[sum(m_nbrs[i].m_count)]
 		// Idx  padding[] to make the total size a multiple of 16 bytes
 
-		explicit ShapePolytope(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			: m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_parent, material_id, flags)
+		explicit ShapePolytope(m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_root, material_id, flags)
 			, m_vert_count()
 			, m_face_count()
 			, pad()
@@ -599,7 +599,7 @@ namespace pr::collision
 	// Returns the polytope packed into a byte_data<16> buffer suitable for use as a collision shape.
 	// The caller owns the buffer and can access the shape via: buf.as<ShapePolytope>()
 	// Note: ShapePolytope uses uint8_t vertex indices, so max 255 vertices.
-	inline byte_data<16> BuildPolytopeFromPoints(std::span<v4 const> points, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+	inline byte_data<16> BuildPolytopeFromPoints(std::span<v4 const> points, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 	{
 		using Idx  = ShapePolytope::Idx;
 		using Face = ShapePolytope::Face;
@@ -702,7 +702,7 @@ namespace pr::collision
 		buf.resize(buf_size, std::byte{0});
 
 		// Placement-new the ShapePolytope header at the start of the buffer
-		auto& poly = *new (buf.data()) ShapePolytope(shape_to_parent, material_id, flags);
+		auto& poly = *new (buf.data()) ShapePolytope(shape_to_root, material_id, flags);
 
 		// Set counts so that the accessor methods (vert_beg, face_beg, nbrs_beg) work
 		poly.m_vert_count = vc;

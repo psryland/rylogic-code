@@ -195,6 +195,9 @@ namespace pr::collision
 		constexpr auto tol = 1e-5f;
 		constexpr auto tol_sq = Sqr(tol);
 
+		// Transform the support axis into shape space
+		axis = InvertOrthonormal(shape.m_base.m_s2p) * axis;
+
 		// Project each vertex onto the axis
 		auto d0 = Dot3(axis, shape.m_v.x);
 		auto d1 = Dot3(axis, shape.m_v.y);
@@ -639,9 +642,12 @@ namespace pr::collision
 	}
 	inline std::tuple<Contact::Manifold, EFeature> FindContactManifold(ShapeType auto const& lhs, m4x4 const& l2w, ShapeType auto const& rhs, m4x4 const& r2w, v4 axis, float pen)
 	{
+
+// TODO: The SupportFeature functions are not taking m_s2p into account, generally.
+
 		// Find the support feature on each shape (in each shape's space)
-		auto featA = EFeature{};
-		auto featB = EFeature{};
+		EFeature featA = {};
+		EFeature featB = {};
 		v4 pointA[FeaturePolygonMaxSides] = {};
 		v4 pointB[FeaturePolygonMaxSides] = {};
 		SupportFeature(lhs, InvertOrthonormal(l2w) * +axis, featA, pointA);
@@ -723,7 +729,6 @@ namespace pr::collision::tests
 			v4 quad[] = { v4{-1, -1, 0, 1}, v4{+1, -1, 0, 1}, v4{+1, +1, 0, 1}, v4{-1, +1, 0, 1} };
 			expect_positive_area(quad, EFeature::Quad);
 		}
-
 		PRUnitTestMethod(DegenerateTriangleSupportFeatureTest)
 		{
 			auto axis = v4::ZAxis();

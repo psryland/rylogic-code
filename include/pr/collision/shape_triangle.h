@@ -12,18 +12,26 @@ namespace pr::collision
 	struct ShapeTriangle
 	{
 		// Note:
-		//  - The triangle *can* be degenerate
-		//  - Degenerate triangles have normal == (0,0,0)
+		//  - The positions of 'a,b,c' are moved so that the centre of the object is within the triangle
+		//    This is a requirement of collision detection.
+		//  - The triangle *can* be degenerate.
+		//  - Degenerate triangles have normal == (0,0,0).
 
 		Shape m_base;
 		m4x4  m_v; // <x,y,z> = verts of the triangle, w = normal. Cross(w, y-x) should point toward the interior of the triangle
 
 		ShapeTriangle() = default;
-		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_parent, material_id, flags)
-			,m_v(a, b, c, Normalise(Cross(b-a,c-b), v4::Zero()))
+		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_root, material_id, flags)
+			, m_v()
 		{
 			assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
+			auto ofs = geometry::BaryPoint(a, b, c, v4(0.5f, 0.5f, 0.5f, 0)).w0();
+			m_v.x = a - ofs;
+			m_v.y = b - ofs;
+			m_v.z = c - ofs;
+			m_v.w = Normalise(Cross(m_v.y - m_v.x, m_v.z - m_v.y), v4::Zero());
+			m_base.m_s2p.pos += ofs;
 			m_base.m_bbox = CalcBBox(*this);
 		}
 		operator Shape const&() const

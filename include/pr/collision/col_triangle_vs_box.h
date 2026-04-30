@@ -38,9 +38,9 @@ namespace pr::collision
 		auto b2w_inv = InvertOrthonormal(r2w);
 
 		// Triangle vertices in box space (as positions)
-		auto tv0 = b2w_inv * (l2w * tri.m_v.x.w1());
-		auto tv1 = b2w_inv * (l2w * tri.m_v.y.w1());
-		auto tv2 = b2w_inv * (l2w * tri.m_v.z.w1());
+		auto tv0 = b2w_inv * (l2w * tri.m_v.x);
+		auto tv1 = b2w_inv * (l2w * tri.m_v.y);
+		auto tv2 = b2w_inv * (l2w * tri.m_v.z);
 
 		// Triangle edges in box space
 		auto e0 = tv1 - tv0;

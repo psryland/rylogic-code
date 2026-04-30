@@ -114,6 +114,7 @@ namespace pr::collision
 				if (axis_len_sq < Sqr(math::tiny<float>))
 					continue;
 
+				axis /= Sqrt(axis_len_sq);
 				auto depth = test_axis(axis);
 				if (!pen(depth, [&]{ return make_sep_axis(axis); }, lhs_.m_material_id, rhs_.m_material_id))
 					return;

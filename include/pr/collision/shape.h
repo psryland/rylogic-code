@@ -74,8 +74,9 @@ namespace pr::collision
 			_flags_enum = 0,
 		};
 
-		// Transform from shape space to parent shape space (or physics model space for root objects)
-		m4x4 m_s2p;
+		// Transform from shape space to physics model root space. This is not shape to parent
+		// because evaluating a tree of transforms is too expensive for collision detection
+		m4x4 m_s2r;
 
 		// A bounding box for the shape (and its children) (in shape space).
 		BBox m_bbox;
@@ -93,8 +94,8 @@ namespace pr::collision
 		int m_size;
 
 		Shape() = default;
-		Shape(EShape type, size_t size, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
-			:m_s2p(shape_to_parent)
+		Shape(EShape type, size_t size, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
+			:m_s2r(shape_to_root)
 			,m_bbox(BBox::Reset())
 			,m_type(type)
 			,m_material_id(material_id)
