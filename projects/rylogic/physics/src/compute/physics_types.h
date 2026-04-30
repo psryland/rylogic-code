@@ -191,3 +191,19 @@ namespace pr::physics
 		rb.m_contact_simplex_count = dyn.contact_simplex_count;
 	}
 }
+namespace pr
+{
+	template <> struct Convert<collision::Contact, physics::GpuContact>
+	{
+		static collision::Contact Func(physics::GpuContact const& contact)
+		{
+			collision::Contact result = {};
+			result.m_axis = contact.axis;
+			result.m_feature = static_cast<collision::EFeature>(contact.feature);
+			result.m_depth = contact.depth;
+			for (int i = 0, iend = result.Count(); i != iend; ++i)
+				result.m_manifold[i] = contact.manifold[i];
+			return result;
+		}
+	};
+}

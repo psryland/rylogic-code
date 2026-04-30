@@ -113,10 +113,15 @@ namespace pr::physics
 			for (int i = 0; i != n_contacts; ++i)
 			{
 				auto& c = contacts[i];
-				Write(std::format("    contact[{}]: body({},{}) axis=({:.4f},{:.4f},{:.4f}) pt=({:.4f},{:.4f},{:.4f}) depth={:.6f}\n",
+				Write(std::format("    contact[{}]: body({},{}) axis=({:.4f},{:.4f},{:.4f}) centroid=({:.4f},{:.4f},{:.4f}) feature={} depth={:.6f}\n",
 					i, c.body_idx_a, c.body_idx_b,
 					c.axis.x, c.axis.y, c.axis.z,
-					c.contact_point.x, c.contact_point.y, c.contact_point.z, c.depth));
+					c.contact_point.x, c.contact_point.y, c.contact_point.z, c.feature, c.depth));
+				for (int j = 0, jend = std::clamp(c.feature, 0, GpuContactMaxPoints); j != jend; ++j)
+				{
+					auto const& point = c.manifold[j];
+					Write(std::format("      manifold[{}]=({:.4f},{:.4f},{:.4f})\n", j, point.x, point.y, point.z));
+				}
 			}
 		}
 

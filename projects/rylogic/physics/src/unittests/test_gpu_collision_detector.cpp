@@ -12,6 +12,7 @@
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include "pr/collision/unittest_helpers.h"
 #include "pr/physics/physics.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/collide_gpu.h"
@@ -83,30 +84,30 @@ namespace pr::physics::tests
 
 			// GPU contact is in objA's local space. Transform CPU contact to objA space for comparison.
 			auto w2a = InvertOrthonormal(l2w);
-			auto cpu_axis_local = (w2a * cpu_contact.m_axis.w0()).w0(); // transform direction (w=0)
-			auto cpu_point_local = w2a * cpu_contact.Point();
+			auto cpu_contact_local = cpu_contact;
+			cpu_contact_local.m_axis = (w2a * cpu_contact.m_axis.w0()).w0();
+			for (auto& point : std::span{cpu_contact_local.m_manifold}.subspan(0, cpu_contact_local.Count()))
+				point = w2a * point;
+
+			auto gpu_contact_local = collision::Contact{};
+			gpu_contact_local.m_axis = gpu_contact.axis;
+			gpu_contact_local.m_feature = static_cast<collision::EFeature>(gpu_contact.feature);
+			gpu_contact_local.m_depth = gpu_contact.depth;
+			for (int i = 0, iend = gpu_contact_local.Count(); i != iend; ++i)
+				gpu_contact_local.m_manifold[i] = gpu_contact.manifold[i];
 
 			// --- Compare contact details ---
 			// Depth comparison (relative tolerance, with absolute floor for near-zero depths)
 			PR_EXPECT(FEqlRelative(cpu_contact.m_depth, gpu_contact.depth, DepthRelTol));
 
 			// Axis direction comparison. Contact normals must point from object A toward object B.
-			auto cpu_axis = Normalise(cpu_axis_local);
+			auto cpu_axis = Normalise(cpu_contact_local.m_axis);
 			auto gpu_axis = Normalise(gpu_contact.axis);
 			PR_EXPECT(dot(cpu_axis, gpu_axis) > 0.0f);
 			auto angle = Angle(cpu_axis, gpu_axis);
 			PR_EXPECT(angle < AxisAngleTol);
 
-			// Contact point comparison. Polytope/box contacts can emit a small support-face manifold rather than the CPU's
-			// single centroid contact, so the individual manifold points are not expected to match the CPU point.
-			auto const polytope_box_manifold =
-				(sa.m_type == collision::EShape::Polytope && sb.m_type == collision::EShape::Box) ||
-				(sa.m_type == collision::EShape::Box && sb.m_type == collision::EShape::Polytope);
-			if (!polytope_box_manifold)
-			{
-				auto pt_err = Length(gpu_contact.contact_point - cpu_point_local);
-				PR_EXPECT(pt_err < PointTol);
-			}
+			PR_EXPECT(collision::tests::CheckContact(gpu_contact_local, cpu_contact_local, PointTol));
 		}
 
 		// 1. Overlapping spheres (same radius)

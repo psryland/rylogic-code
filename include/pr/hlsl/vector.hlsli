@@ -10,6 +10,32 @@
 namespace pr::hlsl {
 #endif
 
+// Return an identity transform
+inline float2x2 Identity2x2()
+{
+	return float2x2(
+		float2(1,0),
+		float2(0,1)
+	);
+}
+inline float3x3 Identity3x3()
+{
+	return float3x3(
+		float3(1,0,0),
+		float3(0,1,0),
+		float3(0,0,1)
+	);
+}
+inline float4x4 Identity4x4()
+{
+	return float4x4(
+		float4(1,0,0,0),
+		float4(0,1,0,0),
+		float4(0,0,1,0),
+		float4(0,0,0,1)
+	);
+}
+
 // Returns true if all vector elements are 0
 inline bool AllZero(float2 a)
 {

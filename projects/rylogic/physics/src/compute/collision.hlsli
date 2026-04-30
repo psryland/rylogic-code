@@ -117,9 +117,9 @@ inline float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
 // Get the world-space vertices of a triangle shape
 inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
 {
-	v0 = mul(mul(verts[tri.vert_offset + 0], tri.s2rb), tri_w);
-	v1 = mul(mul(verts[tri.vert_offset + 1], tri.s2rb), tri_w);
-	v2 = mul(mul(verts[tri.vert_offset + 2], tri.s2rb), tri_w);
+	v0 = mul(float4(verts[tri.vert_offset + 0].xyz, 1), tri_w);
+	v1 = mul(float4(verts[tri.vert_offset + 1].xyz, 1), tri_w);
+	v2 = mul(float4(verts[tri.vert_offset + 2].xyz, 1), tri_w);
 }
 
 // Closest point on a line segment to a point
@@ -240,137 +240,16 @@ inline int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, f
 	return 2;
 }
 
-// Find the single contact point between two box support features.
-// Mirrors the CPU FindContactPoint() in support.h. 'axis' points from A toward B.
-inline float3 FindBoxContactPoint(float3 ptsA[4], int countA, float3 ptsB[4], int countB, float3 axis, float depth)
-{
-	int i, j;
-
-	// Vert-Vert: midpoint
-	if (countA == 1 && countB == 1)
-		return 0.5f * (ptsA[0] + ptsB[0]);
-
-	// Vert-*: contact at the vertex, shifted halfway along axis toward the other feature
-	if (countA == 1)
-		return ptsA[0] + axis * (0.5f * dot(axis, ptsB[0] - ptsA[0]));
-	if (countB == 1)
-		return ptsB[0] + axis * (0.5f * dot(axis, ptsA[0] - ptsB[0]));
-
-	// Edge-Edge: closest points on the two line segments
-	if (countA == 2 && countB == 2)
-	{
-		float3 da = ptsA[1] - ptsA[0];
-		float3 db = ptsB[1] - ptsB[0];
-		float3 r = ptsA[0] - ptsB[0];
-		float a = dot(da, da);
-		float e = dot(db, db);
-		float f = dot(db, r);
-		float b = dot(da, db);
-		float c = dot(da, r);
-		float denom = a * e - b * b;
-		float s, t;
-		if (denom > 1e-10f)
-		{
-			s = clamp((b * f - c * e) / denom, 0.0f, 1.0f);
-			t = clamp((b * s + f) / max(e, 1e-10f), 0.0f, 1.0f);
-			s = clamp((b * t - c) / max(a, 1e-10f), 0.0f, 1.0f);
-		}
-		else
-		{
-			s = 0.5f;
-			t = clamp(f / max(e, 1e-10f), 0.0f, 1.0f);
-		}
-		return 0.5f * (ptsA[0] + s * da + ptsB[0] + t * db);
-	}
-
-	// Edge-Face: clip the edge against the face's side planes
-	if (countA == 2)
-	{
-		float t0 = 0.0f, t1 = 1.0f;
-		for (i = 0; i < countB; ++i)
-		{
-			float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
-			ClipSegmentToHalfPlane(ptsA[0], ptsA[1], ptsB[i], n, t0, t1);
-		}
-		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
-		return ptsA[0] + 0.5f * (t0 + t1) * (ptsA[1] - ptsA[0]) - 0.5f * depth * axis;
-	}
-	if (countB == 2)
-	{
-		float t0 = 0.0f, t1 = 1.0f;
-		for (i = 0; i < countA; ++i)
-		{
-			float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
-			ClipSegmentToHalfPlane(ptsB[0], ptsB[1], ptsA[i], n, t0, t1);
-		}
-		if (t0 >= t1) { t0 = 0.0f; t1 = 1.0f; }
-		return ptsB[0] + 0.5f * (t0 + t1) * (ptsB[1] - ptsB[0]) + 0.5f * depth * axis;
-	}
-
-	// Face-Face: clip both quads against each other, average the centroids
-	float2 edgesA[4], edgesB[4];
-	for (j = 0; j < 4; ++j) { edgesA[j] = float2(0, 1); edgesB[j] = float2(0, 1); }
-
-	// Clip B's edges against A's side planes
-	for (i = 0; i < countA; ++i)
-	{
-		float3 n = cross(axis, ptsA[(i + 1) % countA] - ptsA[i]);
-		for (j = 0; j < countB; ++j)
-			ClipSegmentToHalfPlane(ptsB[j], ptsB[(j + 1) % countB], ptsA[i], n, edgesB[j].x, edgesB[j].y);
-	}
-
-	// Clip A's edges against B's side planes
-	for (i = 0; i < countB; ++i)
-	{
-		float3 n = -cross(axis, ptsB[(i + 1) % countB] - ptsB[i]);
-		for (j = 0; j < countA; ++j)
-			ClipSegmentToHalfPlane(ptsA[j], ptsA[(j + 1) % countA], ptsB[i], n, edgesA[j].x, edgesA[j].y);
-	}
-
-	// Compute separate centroids for each face and average them.
-	// This gives equal weight to both surfaces regardless of how many edges survive clipping.
-	float3 centreA = float3(0, 0, 0);
-	float totalA = 0;
-	for (j = 0; j < countA; ++j)
-	{
-		if (edgesA[j].x >= edgesA[j].y) continue;
-		centreA += ptsA[j] + 0.5f * (edgesA[j].x + edgesA[j].y) * (ptsA[(j + 1) % countA] - ptsA[j]);
-		totalA += 1.0f;
-	}
-	float3 centreB = float3(0, 0, 0);
-	float totalB = 0;
-	for (j = 0; j < countB; ++j)
-	{
-		if (edgesB[j].x >= edgesB[j].y) continue;
-		centreB += ptsB[j] + 0.5f * (edgesB[j].x + edgesB[j].y) * (ptsB[(j + 1) % countB] - ptsB[j]);
-		totalB += 1.0f;
-	}
-
-	// Fallback for degenerate cases (all edges clipped from a face)
-	if (totalA == 0)
-	{
-		for (j = 0; j < countA; ++j) centreA += ptsA[j];
-		totalA = (float)countA;
-	}
-	if (totalB == 0)
-	{
-		for (j = 0; j < countB; ++j) centreB += ptsB[j];
-		totalB = (float)countB;
-	}
-
-	return 0.5f * (centreA / totalA + centreB / totalB);
-}
-
 // ---- Sphere vs Sphere ----
 // Direct distance test between two sphere centres.
 inline bool SphereVsSphere(
-	in_(GpuShape) sa, float4x4 a2w,
-	in_(GpuShape) sb, float4x4 b2w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	in_(GpuShape) sa, float4x4 a2w_,
+	in_(GpuShape) sb, float4x4 b2w_,
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 a2w = mul(sa.s2rb, a2w_);
+	float4x4 b2w = mul(sb.s2rb, b2w_);
 
 	float3 ca = a2w[3].xyz;
 	float3 cb = b2w[3].xyz;
@@ -385,10 +264,9 @@ inline bool SphereVsSphere(
 
 	float dist = sqrt(dist_sq);
 	float3 normal = diff / dist;
-	out_axis = float4(normal, 0);
-	out_depth = radii_sum - dist;
-	float3 pt = ca + normal * (ra - out_depth * 0.5f);
-	out_point = float4(pt, 1);
+	float depth = radii_sum - dist;
+	float3 pt = ca + normal * (ra - depth * 0.5f);
+	ContactSetPoint(out_contact, float4(normal, 0), float4(pt, 1), depth);
 	return true;
 }
 
@@ -396,13 +274,13 @@ inline bool SphereVsSphere(
 // Find the closest point on the OBB to the sphere centre.
 // If the distance is less than the sphere radius, there's a collision.
 inline bool SphereVsBox(
-	in_(GpuShape) sphere, float4x4 sphere_w,
-	in_(GpuShape) box, float4x4 box_w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	in_(GpuShape) sphere, float4x4 sphere_w_,
+	in_(GpuShape) box, float4x4 box_w_,
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
+	float4x4 box_w = mul(box.s2rb, box_w_);
 
 	float4 sphere_centre = sphere_w[3];
 	float radius = sphere.data.x;
@@ -438,15 +316,15 @@ inline bool SphereVsBox(
 		                    + local_normal.z * box_w[2];
 
 		// Axis from sphere toward box (sa→sb convention)
-		out_axis = -world_normal;
-		out_depth = radius - dist;
+		float4 axis = -world_normal;
+		float depth = radius - dist;
 
 		// Contact point: midpoint between box surface and sphere surface
 		float4 closest_world = box_centre
 			+ clamped.x * box_w[0]
 			+ clamped.y * box_w[1]
 			+ clamped.z * box_w[2];
-		out_point = closest_world + (0.5f * out_depth) * out_axis;
+		ContactSetPoint(out_contact, axis, closest_world + (0.5f * depth) * axis, depth);
 		return true;
 	}
 
@@ -464,8 +342,8 @@ inline bool SphereVsBox(
 	                    + local_normal.z * box_w[2];
 
 	// Axis from sphere toward box (sa→sb convention)
-	out_axis = -world_normal;
-	out_depth = radius + face_dist[min_axis];
+	float4 axis = -world_normal;
+	float depth = radius + face_dist[min_axis];
 
 	// Contact point: midpoint between box face and sphere surface
 	float4 face_pt = local;
@@ -474,7 +352,7 @@ inline bool SphereVsBox(
 		+ face_pt.x * box_w[0]
 		+ face_pt.y * box_w[1]
 		+ face_pt.z * box_w[2];
-	out_point = face_world + (0.5f * out_depth) * out_axis;
+	ContactSetPoint(out_contact, axis, face_world + (0.5f * depth) * axis, depth);
 	return true;
 }
 
@@ -482,13 +360,13 @@ inline bool SphereVsBox(
 // Find the closest point on the line segment to the sphere centre.
 // The line has hemispherical end-caps of thickness 'data.y'.
 inline bool SphereVsLine(
-	in_(GpuShape) sphere, float4x4 sphere_w,
-	in_(GpuShape) seg, float4x4 seg_w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	in_(GpuShape) sphere, float4x4 sphere_w_,
+	in_(GpuShape) seg, float4x4 seg_w_,
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
+	float4x4 seg_w = mul(seg.s2rb, seg_w_);
 
 	float4 sphere_centre = sphere_w[3];
 	float sphere_r = sphere.data.x;
@@ -514,14 +392,13 @@ inline bool SphereVsLine(
 	float dist = sqrt(dist_sq);
 	// Normal points from sphere toward line (matches CPU convention: axis from first arg → second arg).
 	float4 normal = (closest - sphere_centre) / dist;
-	out_axis = normal;
-	out_depth = combined_r - dist;
+	float depth = combined_r - dist;
 	// Contact point is the midpoint between the sphere surface and the line surface.
 	//   line_surface   = closest + thickness * (-normal)   (line surface toward sphere)
 	//   sphere_surface = sphere_centre + sphere_r * normal (sphere surface toward line)
 	//   midpoint       = 0.5 * (closest + sphere_centre + (sphere_r - thickness) * normal)
 	float4 mid = 0.5f * (closest + sphere_centre + (sphere_r - thickness) * normal);
-	out_point = float4(mid.xyz, 1);
+	ContactSetPoint(out_contact, normal, float4(mid.xyz, 1), depth);
 	return true;
 }
 
@@ -530,15 +407,15 @@ inline bool SphereVsLine(
 // sphere centre (treating it as a point), then check distance < radius.
 // This avoids EPA entirely and gives exact contact normals.
 inline bool SphereVsConvex(
-	in_(GpuShape) sphere, float4x4 sphere_w,
-	in_(GpuShape) convex, float4x4 convex_w,
+	in_(GpuShape) sphere, float4x4 sphere_w_,
+	in_(GpuShape) convex, float4x4 convex_w_,
 	in_(StructuredBuffer<float4>) verts,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
+	out_(GpuContact) out_contact,
 	out_(int) out_gjk_iters)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
+	float4x4 convex_w = mul(convex.s2rb, convex_w_);
 	out_gjk_iters = 0;
 
 	float4 sphere_centre = sphere_w[3];
@@ -673,20 +550,17 @@ inline bool SphereVsConvex(
 	if (dist > Eps)
 	{
 		float4 normal = w / dist;
-		out_axis = normal;
-		out_depth = radius - dist;
+		float depth = radius - dist;
 
 		// Contact point: on the convex surface (closest point to sphere centre)
 		// Reconstruct from simplex
 		float4 contact_on_convex = sphere_centre + normal * dist;
-		out_point = contact_on_convex;
+		ContactSetPoint(out_contact, normal, contact_on_convex, depth);
 	}
 	else
 	{
 		// Sphere centre is on/inside the convex — use an approximate axis
-		out_axis = normalize(sphere_centre - convex_w[3]);
-		out_depth = radius;
-		out_point = sphere_centre;
+		ContactSetPoint(out_contact, NormaliseSafe(sphere_centre - convex_w[3], float4(1, 0, 0, 0)), sphere_centre, radius);
 	}
 	return true;
 }
@@ -694,13 +568,13 @@ inline bool SphereVsConvex(
 // ---- Line vs Line ----
 // Closest points between two capsules (line segments with thickness).
 inline bool LineVsLine(
-	in_(GpuShape) la, float4x4 la_w,
-	in_(GpuShape) lb, float4x4 lb_w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	in_(GpuShape) la, float4x4 la_w_,
+	in_(GpuShape) lb, float4x4 lb_w_,
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 la_w = mul(la.s2rb, la_w_);
+	float4x4 lb_w = mul(lb.s2rb, lb_w_);
 
 	float4 ca = la_w[3], cb = lb_w[3];
 	float4 da = la_w[2], db = lb_w[2];
@@ -721,142 +595,27 @@ inline bool LineVsLine(
 
 	float dist = sqrt(dist_sq);
 	float4 normal = diff / dist;
-	out_axis = normal;
-	out_depth = combined_r - dist;
+	float depth = combined_r - dist;
 
 	// Contact point on the midplane between the two capsule surfaces:
 	//   A_surf = pa + ta * normal      (A's surface in the direction of B)
 	//   B_surf = pb - tb * normal      (B's surface in the direction of A)
 	//   contact = (A_surf + B_surf)/2 = pa + (ta - depth/2) * normal
-	out_point = pa + (ta - 0.5f * out_depth) * normal;
-	return true;
-}
-
-// ---- Line vs Box ----
-// SAT between a capsule (line segment with cylindrical thickness + spherical end caps) and an OBB.
-// Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h.
-//
-// For each candidate separating axis 'n' (unit, in box space):
-//   box projection radius:      rb = |n.x|*hb.x + |n.y|*hb.y + |n.z|*hb.z
-//   segment projection radius:  rs = |n . line_axis| * hlength
-//   signed centre separation:   d  = n . mid     (box centre is at origin)
-//   penetration depth:          rb + rs + line_radius - |d|
-// If any axis gives depth <= 0 the shapes are separated. Otherwise the axis with the smallest
-// depth is the MTV.
-//
-// Candidate axes (7 total):
-//   - 3 box face normals           (face contacts)
-//   - 3 line_axis x box_axis       (edge-edge contacts; skipped if parallel)
-//   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
-inline bool LineVsBox(
-	in_(GpuShape) seg, float4x4 seg_w,
-	in_(GpuShape) box, float4x4 box_w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
-{
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
-
-	float hlength = seg.data.x;
-	float line_r = seg.data.y;
-	float3 hb = box.data.xyz;
-
-	float3 line_pos_w = seg_w[3].xyz;
-	float3 line_dir_w = seg_w[2].xyz;
-	float3 box_pos_w = box_w[3].xyz;
-	float3x3 rot_b = (float3x3) box_w;
-
-	// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
-	float3 d_w = line_pos_w - box_pos_w;
-	float3 mid = float3(dot(d_w, rot_b[0]), dot(d_w, rot_b[1]), dot(d_w, rot_b[2]));
-	float3 line_axis = float3(dot(line_dir_w, rot_b[0]), dot(line_dir_w, rot_b[1]), dot(line_dir_w, rot_b[2]));
-
-	float best_depth = 1e30f;
-	float3 best_axis = float3(1, 0, 0); // unit, in box space
-
-	// Test one unit axis 'n' (in box space) and track the minimum penetration depth.
-	#define TEST_AXIS(n) { \
-		float3 _n = (n); \
-		float _rb = abs(_n.x) * hb.x + abs(_n.y) * hb.y + abs(_n.z) * hb.z; \
-		float _rs = abs(dot(_n, line_axis)) * hlength; \
-		float _d  = dot(_n, mid); \
-		float _depth = _rb + _rs + line_r - abs(_d); \
-		if (_depth < best_depth) { best_depth = _depth; best_axis = _n; } \
-	}
-
-	// 3 box face normals
-	TEST_AXIS(float3(1, 0, 0));
-	TEST_AXIS(float3(0, 1, 0));
-	TEST_AXIS(float3(0, 0, 1));
-
-	// 3 cross products of line axis with box axes (edge-edge)
-	for (int i = 0; i < 3; ++i)
-	{
-		float3 e = float3(i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
-		float3 n = cross(line_axis, e);
-		float len_sq = dot(n, n);
-
-		// Skip if the line is parallel to this box axis — the face axis already covers this case
-		if (len_sq <= 1e-12f) continue;
-		TEST_AXIS(n * rsqrt(len_sq));
-	}
-
-	// Test an axis from the closest box corner to the line.
-	// Identifying the corner without scanning all 8: take the closest point on the segment to the box centre,
-	// then pick the corner in that octant. Then form the axis between that corner and the closest segment
-	// point to the corner. The extra Clamp on box_pt handles the case where a line end sits near a corner.
-	{
-		float t0 = clamp(-dot(mid, line_axis), -hlength, hlength);
-		float3 seg_pt = mid + t0 * line_axis;
-		float3 box_pt = float3(
-			seg_pt.x >= 0 ? hb.x : -hb.x,
-			seg_pt.y >= 0 ? hb.y : -hb.y,
-			seg_pt.z >= 0 ? hb.z : -hb.z);
-		float t1 = clamp(dot(box_pt - mid, line_axis), -hlength, hlength);
-		seg_pt = mid + t1 * line_axis;
-		box_pt = clamp(seg_pt, -hb, hb);
-		float3 sep = seg_pt - box_pt;
-		float len_sq = dot(sep, sep);
-		if (len_sq > 1e-12f)
-			TEST_AXIS(sep * rsqrt(len_sq));
-	}
-	#undef TEST_AXIS
-
-	// Negative depth means a separating axis was found
-	if (best_depth <= 0)
-		return false;
-
-	// Convert axis to world space and orient it to point box -> line (sign from centre separation)
-	float3 axis_w = best_axis.x * rot_b[0] + best_axis.y * rot_b[1] + best_axis.z * rot_b[2];
-	float sign_m = dot(mid, best_axis) >= 0 ? 1.0f : -1.0f;
-	float3 best_axis_b2a_w = axis_w * sign_m;
-
-	// Contact axis convention: from shape A (line) toward shape B (box) — flip the box-to-line axis.
-	float3 contact_axis = -best_axis_b2a_w;
-	out_depth = best_depth;
-	out_axis = float4(contact_axis, 0);
-
-	// Derive the contact point from support features (same pipeline as CPU FindContactPoint).
-	// For each shape, pass the axis pointing *into* that shape's exterior.
-	float3 ptsA[4], ptsB[4];
-	int countA = LineSupportFeature(line_pos_w, line_dir_w, hlength, line_r, +contact_axis, ptsA);
-	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, ptsB);
-
-	out_point = float4(FindBoxContactPoint(ptsA, countA, ptsB, countB, contact_axis, best_depth), 1);
+	ContactSetPoint(out_contact, normal, pa + (ta - 0.5f * depth) * normal, depth);
 	return true;
 }
 
 // ---- Line vs Triangle ----
 // Closest point between the line skeleton and the triangle, plus thickness margin.
 inline bool LineVsTriangle(
-	in_(GpuShape) seg, float4x4 seg_w,
-	in_(GpuShape) tri, float4x4 tri_w,
+	in_(GpuShape) seg, float4x4 seg_w_,
+	in_(GpuShape) tri, float4x4 tri_w_,
 	in_(StructuredBuffer<float4>) verts,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 seg_w = mul(seg.s2rb, seg_w_);
+	float4x4 tri_w = mul(tri.s2rb, tri_w_);
 
 	float4 seg_centre = seg_w[3];
 	float4 seg_dir = seg_w[2];
@@ -913,9 +672,7 @@ inline bool LineVsTriangle(
 
 	float dist = sqrt(best_dist_sq);
 	float4 normal = (best_lp - best_tp) / dist;
-	out_axis = normal;
-	out_depth = line_radius - dist;
-	out_point = best_tp;
+	ContactSetPoint(out_contact, normal, best_tp, line_radius - dist);
 	return true;
 }
 
@@ -923,15 +680,16 @@ inline bool LineVsTriangle(
 // Uses "GJK with margins": run closest-point GJK between the line skeleton
 // (a segment, no thickness) and the convex shape, then add thickness margin.
 inline bool LineVsConvex(
-	in_(GpuShape) seg, float4x4 seg_w,
-	in_(GpuShape) convex, float4x4 convex_w,
+	in_(GpuShape) seg, float4x4 seg_w_,
+	in_(GpuShape) convex, float4x4 convex_w_,
 	in_(StructuredBuffer<float4>) verts,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
+	out_(GpuContact) out_contact,
 	out_(int) out_gjk_iters)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 seg_w = mul(seg.s2rb, seg_w_);
+	float4x4 convex_w = mul(convex.s2rb, convex_w_);
+
 	out_gjk_iters = 0;
 
 	float line_radius = seg.data.y;
@@ -944,17 +702,15 @@ inline bool LineVsConvex(
 
 	// Use full GJK+EPA on skeleton vs convex
 	int gjk_iters, epa_iters;
-	float4 gjk_axis, gjk_point;
-	float gjk_depth;
-	bool overlap = GjkCollide(skeleton, seg_w, convex, convex_w, verts, gjk_axis, gjk_point, gjk_depth, gjk_iters, epa_iters);
+	GpuContact gjk_contact;
+	bool overlap = GjkCollide(skeleton, seg_w, convex, convex_w, verts, gjk_contact, gjk_iters, epa_iters);
 	out_gjk_iters = gjk_iters;
 
 	if (overlap)
 	{
 		// Skeleton overlaps the convex — add thickness margin
-		out_axis = gjk_axis;
-		out_depth = gjk_depth + line_radius;
-		out_point = gjk_point;
+		out_contact = gjk_contact;
+		out_contact.depth = gjk_contact.depth + line_radius;
 		return true;
 	}
 
@@ -972,14 +728,14 @@ inline bool LineVsConvex(
 // Both shapes are polyhedral so EPA would also work, but SAT is faster
 // and gives exact results with fixed cost (no iteration).
 inline bool TriangleVsTriangle(
-	in_(GpuShape) ta, float4x4 ta_w,
-	in_(GpuShape) tb, float4x4 tb_w,
+	in_(GpuShape) ta, float4x4 ta_w_,
+	in_(GpuShape) tb, float4x4 tb_w_,
 	in_(StructuredBuffer<float4>) verts,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 ta_w = mul(ta.s2rb, ta_w_);
+	float4x4 tb_w = mul(tb.s2rb, tb_w_);
 
 	float4 a0, a1, a2, b0, b1, b2;
 	GetTriangleVerts(ta, ta_w, verts, a0, a1, a2);
@@ -1022,18 +778,13 @@ inline bool TriangleVsTriangle(
 
 	#undef TEST_AXIS
 
-	out_depth = best_depth;
-
 	// Ensure axis points sa→sb (from triangle A toward triangle B)
 	float4 centre_a = (a0 + a1 + a2) / 3.0f;
 	float4 centre_b = (b0 + b1 + b2) / 3.0f;
 	if (dot(best_axis, (centre_b - centre_a).xyz) < 0)
 		best_axis = -best_axis;
 
-	out_axis = float4(best_axis, 0);
-
-	// Contact point: midpoint of the overlap region
-	out_point = (centre_a + centre_b) * 0.5f;
+	FindContactManifold(ta, ta_w, tb, tb_w, float4(best_axis, 0), best_depth, verts, out_contact);
 	return true;
 }
 
@@ -1041,13 +792,14 @@ inline bool TriangleVsTriangle(
 // The Minkowski difference of two boxes is a larger box, and EPA struggles
 // to resolve the face normal precisely. SAT gives the exact separating axis.
 inline bool BoxVsBox(
-	in_(GpuShape) sa, float4x4 a2w,
-	in_(GpuShape) sb, float4x4 b2w,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth)
+	in_(GpuShape) sa, float4x4 a2w_,
+	in_(GpuShape) sb, float4x4 b2w_,
+	out_(GpuContact) out_contact)
 {
-	out_axis = float4(0, 0, 0, 0);
-	out_point = float4(0, 0, 0, 1);
-	out_depth = 0;
+	ContactClear(out_contact);
+	float4x4 a2w = mul(sa.s2rb, a2w_);
+	float4x4 b2w = mul(sb.s2rb, b2w_);
+
 	int i;
 	
 	float3 ha = sa.data.xyz;
@@ -1150,24 +902,231 @@ inline bool BoxVsBox(
 		}
 	}
 
-	out_depth = best_depth;
-
 	// Ensure axis points sa→sb (from box A toward box B)
 	if (dot(best_axis, d) < 0)
 		best_axis = -best_axis;
 
-	out_axis = float4(normalize(best_axis), 0);
+	float4 axis = float4(normalize(best_axis), 0);
 
-	// Compute support features for both boxes and derive the contact point.
-	// This mirrors the CPU FindContactPoint pipeline: determine the contact feature
-	// type (vert/edge/face) for each box, then specialise the contact point computation
-	// based on the feature combination (vert-vert, vert-face, edge-edge, edge-face, face-face).
+	// Compute support features for both boxes and derive the contact manifold.
 	float3 ptsA[4], ptsB[4];
-	int countA = BoxSupportFeature(pos_a, rot_a, ha, +out_axis.xyz, ptsA);
-	int countB = BoxSupportFeature(pos_b, rot_b, hb, -out_axis.xyz, ptsB);
+	int countA = BoxSupportFeature(pos_a, rot_a, ha, +axis.xyz, ptsA);
+	int countB = BoxSupportFeature(pos_b, rot_b, hb, -axis.xyz, ptsB);
 
-	out_point = float4(FindBoxContactPoint(ptsA, countA, ptsB, countB, out_axis.xyz, out_depth), 1);
+	GpuFeature featA, featB;
+	FeatureClear(featA);
+	FeatureClear(featB);
+	featA.count = countA;
+	featB.count = countB;
+	for (int j = 0; j != countA; ++j) featA.points[j] = float4(ptsA[j], 1);
+	for (int k = 0; k != countB; ++k) featB.points[k] = float4(ptsB[k], 1);
+	FindContactManifold(featA, featB, axis, best_depth, out_contact);
 	return true;
+}
+
+// ---- Line vs Box ----
+// SAT between a capsule (line segment with cylindrical thickness + spherical end caps) and an OBB.
+// Mirrors the CPU LineVsBox() algorithm in col_line_vs_box.h.
+//
+// For each candidate separating axis 'n' (unit, in box space):
+//   box projection radius:      rb = |n.x|*hb.x + |n.y|*hb.y + |n.z|*hb.z
+//   segment projection radius:  rs = |n . line_axis| * hlength
+//   signed centre separation:   d  = n . mid     (box centre is at origin)
+//   penetration depth:          rb + rs + line_radius - |d|
+// If any axis gives depth <= 0 the shapes are separated. Otherwise the axis with the smallest
+// depth is the MTV.
+//
+// Candidate axes (7 total):
+//   - 3 box face normals           (face contacts)
+//   - 3 line_axis x box_axis       (edge-edge contacts; skipped if parallel)
+//   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
+inline bool LineVsBox(
+	in_(GpuShape) seg, float4x4 seg_w_,
+	in_(GpuShape) box, float4x4 box_w_,
+	out_(GpuContact) out_contact)
+{
+	ContactClear(out_contact);
+	float4x4 seg_w = mul(seg.s2rb, seg_w_);
+	float4x4 box_w = mul(box.s2rb, box_w_);
+
+	float hlength = seg.data.x;
+	float line_r = seg.data.y;
+	float3 hb = box.data.xyz;
+
+	float3 line_pos_w = seg_w[3].xyz;
+	float3 line_dir_w = seg_w[2].xyz;
+	float3 box_pos_w = box_w[3].xyz;
+	float3x3 rot_b = (float3x3) box_w;
+
+	// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
+	float3 d_w = line_pos_w - box_pos_w;
+	float3 mid = float3(dot(d_w, rot_b[0]), dot(d_w, rot_b[1]), dot(d_w, rot_b[2]));
+	float3 line_axis = float3(dot(line_dir_w, rot_b[0]), dot(line_dir_w, rot_b[1]), dot(line_dir_w, rot_b[2]));
+
+	float best_depth = 1e30f;
+	float3 best_axis = float3(1, 0, 0); // unit, in box space
+
+	// Test one unit axis 'n' (in box space) and track the minimum penetration depth.
+	#define TEST_AXIS(n) { \
+		float3 _n = (n); \
+		float _rb = abs(_n.x) * hb.x + abs(_n.y) * hb.y + abs(_n.z) * hb.z; \
+		float _rs = abs(dot(_n, line_axis)) * hlength; \
+		float _d  = dot(_n, mid); \
+		float _depth = _rb + _rs + line_r - abs(_d); \
+		if (_depth < best_depth) { best_depth = _depth; best_axis = _n; } \
+	}
+
+	// 3 box face normals
+	TEST_AXIS(float3(1, 0, 0));
+	TEST_AXIS(float3(0, 1, 0));
+	TEST_AXIS(float3(0, 0, 1));
+
+	// 3 cross products of line axis with box axes (edge-edge)
+	for (int i = 0; i < 3; ++i)
+	{
+		float3 e = float3(i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
+		float3 n = cross(line_axis, e);
+		float len_sq = dot(n, n);
+
+		// Skip if the line is parallel to this box axis — the face axis already covers this case
+		if (len_sq <= 1e-12f) continue;
+		TEST_AXIS(n * rsqrt(len_sq));
+	}
+
+	// Test an axis from the closest box corner to the line.
+	// Identifying the corner without scanning all 8: take the closest point on the segment to the box centre,
+	// then pick the corner in that octant. Then form the axis between that corner and the closest segment
+	// point to the corner. The extra Clamp on box_pt handles the case where a line end sits near a corner.
+	{
+		float t0 = clamp(-dot(mid, line_axis), -hlength, hlength);
+		float3 seg_pt = mid + t0 * line_axis;
+		float3 box_pt = float3(
+			seg_pt.x >= 0 ? hb.x : -hb.x,
+			seg_pt.y >= 0 ? hb.y : -hb.y,
+			seg_pt.z >= 0 ? hb.z : -hb.z);
+		float t1 = clamp(dot(box_pt - mid, line_axis), -hlength, hlength);
+		seg_pt = mid + t1 * line_axis;
+		box_pt = clamp(seg_pt, -hb, hb);
+		float3 sep = seg_pt - box_pt;
+		float len_sq = dot(sep, sep);
+		if (len_sq > 1e-12f)
+			TEST_AXIS(sep * rsqrt(len_sq));
+	}
+	#undef TEST_AXIS
+
+	// Negative depth means a separating axis was found
+	if (best_depth <= 0)
+		return false;
+
+	// Convert axis to world space and orient it to point box -> line (sign from centre separation)
+	float3 axis_w = best_axis.x * rot_b[0] + best_axis.y * rot_b[1] + best_axis.z * rot_b[2];
+	float sign_m = dot(mid, best_axis) >= 0 ? 1.0f : -1.0f;
+	float3 best_axis_b2a_w = axis_w * sign_m;
+
+	// Contact axis convention: from shape A (line) toward shape B (box) — flip the box-to-line axis.
+	float3 contact_axis = -best_axis_b2a_w;
+	float4 axis = float4(contact_axis, 0);
+
+	// Derive the contact manifold from support features (same pipeline as the CPU).
+	// For each shape, pass the axis pointing *into* that shape's exterior.
+	float3 ptsA[4], ptsB[4];
+	int countA = LineSupportFeature(line_pos_w, line_dir_w, hlength, line_r, +contact_axis, ptsA);
+	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, ptsB);
+
+	GpuFeature featA, featB;
+	FeatureClear(featA);
+	FeatureClear(featB);
+	featA.count = countA;
+	featB.count = countB;
+	for (int i = 0; i != countA; ++i) featA.points[i] = float4(ptsA[i], 1);
+	for (int j = 0; j != countB; ++j) featB.points[j] = float4(ptsB[j], 1);
+	FindContactManifold(featA, featB, axis, best_depth, out_contact);
+	return true;
+}
+
+// ---- Collision Dispatch ----
+inline bool CollideShapes(
+	in_(GpuShape) a, float4x4 a2w,
+	in_(GpuShape) b, float4x4 b2w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact)
+{
+	// Canonicalise the pair so the "simpler" shape type is always 'sa'.
+	// This reduces the number of dispatch branches: sphere < box < line < triangle < polytope.
+	// When we swap, negate the contact axis on output.
+	GpuShape sa, sb;
+	float4x4 wa, wb;
+	bool swapped = a.type > b.type;
+	if (swapped) { sa = b; sb = a; wa = b2w; wb = a2w; }
+	else         { sa = a; sb = b; wa = a2w; wb = b2w; }
+	
+	int gjk_iters = 0;
+	int epa_iters = 0;
+
+	// sa.type <= sb.type is guaranteed
+	bool hit = false;
+	switch (sa.type)
+	{
+		case SHAPE_SPHERE:
+		{
+			switch (sb.type)
+			{
+				case SHAPE_SPHERE:   hit = SphereVsSphere(sa, wa, sb, wb, out_contact); break;
+				case SHAPE_BOX:      hit = SphereVsBox(sa, wa, sb, wb, out_contact); break;
+				case SHAPE_LINE:     hit = SphereVsLine(sa, wa, sb, wb, out_contact); break;
+				case SHAPE_TRIANGLE: hit = SphereVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
+				case SHAPE_POLYTOPE: hit = SphereVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
+			}
+			break;
+		}
+		case SHAPE_BOX:
+		{
+			switch (sb.type)
+			{
+				case SHAPE_BOX: hit = BoxVsBox(sa, wa, sb, wb, out_contact); break;
+				case SHAPE_LINE:
+				{
+					hit = LineVsBox(sb, wb, sa, wa, out_contact);
+					if (hit)
+						ContactFlip(out_contact);
+					break;
+				}
+				case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+			}
+			break;
+		}
+		case SHAPE_LINE:
+		{
+			switch (sb.type)
+			{
+				case SHAPE_LINE:     hit = LineVsLine(sa, wa, sb, wb, out_contact); break;
+				case SHAPE_TRIANGLE: hit = LineVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
+				case SHAPE_POLYTOPE: hit = LineVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
+			}
+			break;
+		}
+		case SHAPE_TRIANGLE:
+		{
+			switch (sb.type)
+			{
+				case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
+				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+			}
+			break;
+		}
+		case SHAPE_POLYTOPE:
+		{
+			hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters);
+			break;
+		}
+	}
+
+	// If we swapped A and B, negate the contact axis
+	if (swapped && hit)
+		ContactFlip(out_contact);
+	
+	return hit;
 }
 
 #ifdef __cplusplus

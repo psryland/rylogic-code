@@ -6,9 +6,8 @@
 // for simple/curved shape pairs, or falls through to generic GJK + EPA for
 // purely polyhedral pairs.
 //
-// Outputs GpuResolveContact directly (no intermediate GpuContact). The collide
-// shader has access to the pair data (b2a, body indices) and the materials buffer,
-// so it can build the complete resolve contact inline.
+	// Outputs one GpuResolveContact per colliding pair. The narrow phase returns a
+	// manifold contact; contact_point is kept as the centroid for the point-based resolver.
 //
 // Buffer layout:
 //   b0: cbuffer with max contacts
@@ -68,93 +67,12 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	// Shape A is at identity (collision runs in A's space).
 	// Shape B is at b2a (the relative transform from B to A).
 	// "World" here means RigidBody-A's local space.
-	float4x4 a2w = shape_a.s2rb;
-	float4x4 b2w = mul(shape_b.s2rb, pair.b2a);
+	float4x4 a2w = Identity4x4();
+	float4x4 b2w = pair.b2a;
 
-	// Dispatch to specialised collision tests for shape pairs involving
-	// implicit curved surfaces (sphere, thick line), or fall through to
-	// generic GJK + EPA for purely polyhedral pairs.
-	float4 col_axis;
-	float4 col_point;
-	float depth;
-	int gjk_iters = 0;
-	int epa_iters = 0;
-
-	// Canonicalise the pair so the "simpler" shape type is always 'sa'.
-	// This reduces the number of dispatch branches: sphere < box < line < triangle < polytope.
-	// When we swap, negate the contact axis on output.
-	bool swapped = false;
-	GpuShape sa = shape_a, sb = shape_b;
-	float4x4 wa = a2w, wb = b2w;
-	if (sa.type > sb.type)
-	{
-		sa = shape_b; sb = shape_a;
-		wa = b2w; wb = a2w;
-		swapped = true;
-	}
-
-	// sa.type <= sb.type is guaranteed
-	bool hit = false;
-	switch (sa.type)
-	{
-		case SHAPE_SPHERE:
-		{
-			switch (sb.type)
-			{
-			case SHAPE_SPHERE:   hit = SphereVsSphere(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_BOX:      hit = SphereVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_LINE:     hit = SphereVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_TRIANGLE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
-			case SHAPE_POLYTOPE: hit = SphereVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
-			}
-			break;
-		}
-		case SHAPE_BOX:
-		{
-			switch (sb.type)
-			{
-			case SHAPE_BOX:      hit = BoxVsBox(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_LINE:
-			{
-				hit = LineVsBox(sb, wb, sa, wa, col_axis, col_point, depth);
-				if (hit)
-					col_axis = -col_axis;
-				break;
-			}
-			case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
-			case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
-			}
-			break;
-		}
-		case SHAPE_LINE:
-		{
-			switch (sb.type)
-			{
-			case SHAPE_LINE:     hit = LineVsLine(sa, wa, sb, wb, col_axis, col_point, depth); break;
-			case SHAPE_TRIANGLE: hit = LineVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
-			case SHAPE_POLYTOPE: hit = LineVsConvex(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters); break;
-			}
-			break;
-		}
-		case SHAPE_TRIANGLE:
-		{
-			switch (sb.type)
-			{
-			case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, g_verts, col_axis, col_point, depth); break;
-			case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters); break;
-			}
-			break;
-		}
-		case SHAPE_POLYTOPE:
-		{
-			hit = GjkCollide(sa, wa, sb, wb, g_verts, col_axis, col_point, depth, gjk_iters, epa_iters);
-			break;
-		}
-	}
-
-	// If we swapped A and B, negate the contact axis
-	if (swapped && hit)
-		col_axis = -col_axis;
+	// Dispatch to specialised collision tests for shape pairs
+	GpuContact col;
+	bool hit = CollideShapes(shape_a, a2w, shape_b, b2w, g_verts, col);
 
 	// Write per-pair diagnostics (every pair, not just colliding ones)
 	#if PR_COLLISION_DIAGNOSTICS
@@ -164,8 +82,6 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 		diag.body_idx_b = pair.body_idx_b;
 		diag.shape_type_a = shape_a.type;
 		diag.shape_type_b = shape_b.type;
-		diag.gjk_iters = gjk_iters;
-		diag.epa_iters = epa_iters;
 		diag.hit = hit ? 1 : 0;
 		diag.pad0 = 0;
 		g_diag[dtid.x] = diag;
@@ -175,86 +91,26 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	if (!hit)
 		return;
 
-	// @Copilot, this code can be simplified once the contact manifold is generalised to all contacts
-	float4 contact_points[4];
-	int contact_points_count = 1;
-	contact_points[0] = col_point;
+	uint slot;
+	InterlockedAdd(g_counters[0].contact_count, 1, slot);
+	if (slot >= g.max_contacts)
+		return;
 
-	// When a polytope rests face-on against a box, a single contact at the face centroid does not constrain the rotational
-	// degrees of freedom that drive the other face vertices through the box. Emit the tied support vertices as a small
-	// manifold so the coloured solver can apply normal impulses at separate lever arms.
-	if (shape_a.type == SHAPE_POLYTOPE && shape_b.type == SHAPE_BOX)
-	{
-		const float TieEps = 1e-4f;
-		float best_dot = -1e30f;
-		for (int i = 0; i < shape_a.vert_count; ++i)
-		{
-			float4 v = mul(g_verts[shape_a.vert_offset + i], shape_a.s2rb);
-			best_dot = max(best_dot, dot(v.xyz, col_axis.xyz));
-		}
-
-		int support_count = 0;
-		for (int j = 0; j < shape_a.vert_count && support_count != 4; ++j)
-		{
-			float4 v = mul(g_verts[shape_a.vert_offset + j], shape_a.s2rb);
-			if (dot(v.xyz, col_axis.xyz) >= best_dot - TieEps)
-			{
-				contact_points[support_count] = float4((v - 0.5f * depth * col_axis).xyz, 1);
-				++support_count;
-			}
-		}
-
-		if (support_count > 1)
-			contact_points_count = support_count;
-	}
-	else if (shape_a.type == SHAPE_BOX && shape_b.type == SHAPE_POLYTOPE)
-	{
-		const float TieEps = 1e-4f;
-		float best_dot = -1e30f;
-		for (int i = 0; i < shape_b.vert_count; ++i)
-		{
-			float4 v = mul(g_verts[shape_b.vert_offset + i], b2w);
-			best_dot = max(best_dot, dot(v.xyz, -col_axis.xyz));
-		}
-
-		int support_count = 0;
-		for (int j = 0; j < shape_b.vert_count && support_count != 4; ++j)
-		{
-			float4 v = mul(g_verts[shape_b.vert_offset + j], b2w);
-			if (dot(v.xyz, -col_axis.xyz) >= best_dot - TieEps)
-			{
-				contact_points[support_count] = float4((v + 0.5f * depth * col_axis).xyz, 1);
-				++support_count;
-			}
-		}
-
-		if (support_count > 1)
-			contact_points_count = support_count;
-	}
-
-	for (int k = 0; k != contact_points_count; ++k)
-	{
-		// Allocate a slot in the contact buffer atomically
-		uint slot;
-		InterlockedAdd(g_counters[0].contact_count, 1, slot);
-		if (slot >= g.max_contacts)
-			return;
-
-		// Write the resolve contact directly (no intermediate GpuContact)
-		GpuResolveContact contact;
-		contact.axis = col_axis;
-		contact.contact_point = contact_points[k];
-		contact.b2a = pair.b2a;
-		contact.body_idx_a = pair.body_idx_a;
-		contact.body_idx_b = pair.body_idx_b;
-		contact.mat_id_a = shape_a.material_id;
-		contact.mat_id_b = shape_b.material_id;
-		contact.depth = depth;
-		contact.collision_time = 0;
-		contact.pad0 = 0;
-		contact.pad1 = 0;
-		g_contacts[slot] = contact;
-	}
+	GpuResolveContact contact;
+	contact.axis = col.axis;
+	contact.contact_point = ContactCentroid(col);
+	for (int i = 0; i != GpuContactMaxPoints; ++i)
+		contact.manifold[i] = col.manifold[i];
+	contact.b2a = pair.b2a;
+	contact.body_idx_a = pair.body_idx_a;
+	contact.body_idx_b = pair.body_idx_b;
+	contact.mat_id_a = shape_a.material_id;
+	contact.mat_id_b = shape_b.material_id;
+	contact.depth = col.depth;
+	contact.collision_time = 0;
+	contact.feature = col.feature;
+	contact.pad1 = 0;
+	g_contacts[slot] = contact;
 }
 
 // Calculates the number of thread groups needed for the resolve shader

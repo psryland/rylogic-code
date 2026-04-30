@@ -31,7 +31,12 @@ namespace pr::physics
 	{
 		// Copy geometric data from GPU contact (already in objA's space)
 		m_axis = contact.axis;
-		SetPoint(contact.contact_point);
+		m_manifold = {};
+		m_feature = static_cast<collision::EFeature>(contact.feature);
+		for (int i = 0, iend = Count(); i != iend; ++i)
+			m_manifold[i] = contact.manifold[i];
+		if (Count() == 0)
+			SetPoint(contact.contact_point);
 		m_depth = contact.depth;
 		m_mat_idA = contact.mat_id_a;
 		m_mat_idB = contact.mat_id_b;
