@@ -248,12 +248,12 @@ namespace pr::collision::tests
  
 			PR_EXPECT(r); 
 			PR_EXPECT(CheckContact(c, Contact{ 
-				.m_axis = v4(-0.353553f,0.707107f,-0.612373f,0),
+				.m_axis = v4(0.353553f,-0.707107f,0.612373f,0),
 				.m_manifold = { 
-					v4(1.09881f,-0.19761f,0.171136f,1),
+					v4(0.880362f,0.239276f,-0.207219f,1),
 				}, 
 				.m_feature = EFeature::Vert,
-				.m_depth = 0.441074461f,
+				.m_depth = 0.323223f,
 			})); 
 		} 
 	};

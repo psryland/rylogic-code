@@ -320,10 +320,10 @@ namespace pr::collision::tests
 			PR_EXPECT(CheckContact(c, Contact{ 
 				.m_axis = v4(0.940947f,-0.19229f,-0.278645f,0),
 				.m_manifold = { 
-					v4(0.98419f,-0.0020251f,0.0147336f,1),
+					v4(0.858888f,0.111573f,-0.116431f,1),
 				}, 
 				.m_feature = EFeature::Vert,
-				.m_depth = 0.362814397f,
+				.m_depth = 0.15642f,
 			})); 
 		}
 	};

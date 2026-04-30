@@ -60,8 +60,7 @@ namespace pr::physics::tests
 			v4 model_to_com;
 			auto* shape = sb.BuildShape(data, mp, model_to_com);
 
-			// BuildShape shifts geometry to the CoM frame. The original CoM offset
-			// is returned via model_to_com.
+			// BuildShape moves the primitive transform to the CoM frame. The original CoM offset is returned via model_to_com.
 			PR_EXPECT(FEqlRelative(model_to_com, offset, 0.001f));
 			PR_EXPECT(mp.m_mass > 0.0f);
 			PR_EXPECT(shape != nullptr);
@@ -107,8 +106,7 @@ namespace pr::physics::tests
 			v4 model_to_com;
 			auto* shape = sb.BuildShape(data, mp, model_to_com);
 
-			// BuildShape shifts geometry to CoM frame. The model_to_com shift
-			// should be positive X (biased toward the larger box).
+			// BuildShape moves primitive transforms to the CoM frame. The model_to_com shift should be positive X (biased toward the larger box).
 			PR_EXPECT(model_to_com.x > 0.0f);
 			PR_EXPECT(mp.m_mass > 0.0f);
 			PR_EXPECT(shape != nullptr);

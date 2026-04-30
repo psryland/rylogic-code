@@ -136,14 +136,12 @@ namespace pr::collision
 
 	// Standard shape functions
 	BBox pr_vectorcall CalcBBox(Shape const& shape);
-	void pr_vectorcall ShiftCentre(Shape&, v4 shift);
 	v4   pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id);
 	void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest);
 
 	#define PR_ENUM(name, comp)\
 	struct Shape##name; /*forward declaration*/ \
 	BBox pr_vectorcall CalcBBox(Shape##name const& shape);\
-	void pr_vectorcall ShiftCentre(Shape##name& shape, v4 shift);\
 	v4   pr_vectorcall SupportVertex(Shape##name const& shape, v4 direction, int hnt_vert_id, int& sup_vert_id);\
 	void pr_vectorcall ClosestPoint(Shape##name const& shape, v4 point, float& distance, v4& closest);
 	PR_COLLISION_SHAPES(PR_ENUM)
@@ -249,18 +247,6 @@ namespace pr::collision
 			PR_COLLISION_SHAPES(PR_ENUM)
 			#undef PR_ENUM
 			default: assert("Unknown primitive type" && false); return BBox::Reset();
-		}
-	}
-
-	// Shift the centre a shape. Updates 'shape.m_s2r' and 'shift'
-	inline void pr_vectorcall ShiftCentre(Shape& shape, v4 shift)
-	{
-		switch (shape.m_type)
-		{
-			#define PR_ENUM(name, comp) case EShape::name: return ShiftCentre(shape_cast<Shape##name>(shape), shift);
-			PR_COLLISION_SHAPES(PR_ENUM)
-			#undef PR_ENUM
-			default: assert("Unknown primitive type" && false); return;
 		}
 	}
 

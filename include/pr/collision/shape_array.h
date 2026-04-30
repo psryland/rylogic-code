@@ -101,13 +101,6 @@ namespace pr::collision
 		return bb;
 	}
 
-	// Shift the centre a shape. Updates 'shape.m_s2r' and 'shift'
-	inline void pr_vectorcall ShiftCentre(ShapeArray& shape, v4 shift)
-	{
-		(void)shape, shift;
-		throw std::runtime_error("Not implemented");
-	}
-
 	// Returns the support vertex for 'shape' in 'direction'. 'direction' is in shape space
 	inline v4 pr_vectorcall SupportVertex(ShapeArray const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
 	{

@@ -387,8 +387,7 @@ namespace pr::physics::tests
 		}
 		PRUnitTestMethod(PolytopeVsBoxInertia_OffsetCube)
 		{
-			// Validate polytope inertia for an offset cube (CoM not at origin).
-			// The unit inertia should be measured at the model origin, not the centroid.
+			// Validate polytope inertia for an offset cube. BuildPolytopeFromPoints keeps the local polytope centred and stores the offset in m_s2r.
 			using namespace pr::collision;
 
 			auto s = 1.0f;
@@ -402,29 +401,20 @@ namespace pr::physics::tests
 
 			auto density = 1.0f;
 			auto mp_poly = CalcMassProperties(poly, density);
+			ShapeBox box(v4{2 * s, 2 * s, 2 * s, 0});
+			auto mp_box = CalcMassProperties(box, density);
 
-			// CoM should be at (ox, oy, oz)
-			PR_EXPECT(FEqlRelative(mp_poly.m_centre_of_mass.x, ox, 0.001f));
-			PR_EXPECT(FEqlRelative(mp_poly.m_centre_of_mass.y, oy, 0.001f));
-			PR_EXPECT(FEqlRelative(mp_poly.m_centre_of_mass.z, oz, 0.001f));
-
-			// The unit inertia is measured at the model ORIGIN (parallel axis theorem).
-			// Io = Ic + (d·d)I - d⊗d  where Ic is the centroidal inertia, d is the offset
-			auto Ic_diag = (1.0f / 3.0f) * (s * s + s * s); // centroidal unit cube
-			auto Io_xx = Ic_diag + (oy * oy + oz * oz);
-			auto Io_yy = Ic_diag + (ox * ox + oz * oz);
-			auto Io_zz = Ic_diag + (ox * ox + oy * oy);
-			auto Io_xy = -(ox * oy);
-			auto Io_xz = -(ox * oz);
-			auto Io_yz = -(oy * oz);
+			PR_EXPECT(FEql(mp_poly.m_centre_of_mass, v4{}));
+			PR_EXPECT(FEql(poly.m_base.m_s2r.pos, v4{ox, oy, oz, 1.0f}));
 
 			auto& Ip = mp_poly.m_os_unit_inertia;
-			PR_EXPECT(FEqlRelative(Ip.x.x, Io_xx, 0.001f));
-			PR_EXPECT(FEqlRelative(Ip.y.y, Io_yy, 0.001f));
-			PR_EXPECT(FEqlRelative(Ip.z.z, Io_zz, 0.001f));
-			PR_EXPECT(FEqlRelative(Ip.x.y, Io_xy, 0.001f));
-			PR_EXPECT(FEqlRelative(Ip.x.z, Io_xz, 0.001f));
-			PR_EXPECT(FEqlRelative(Ip.y.z, Io_yz, 0.001f));
+			auto& Ib = mp_box.m_os_unit_inertia;
+			PR_EXPECT(FEqlRelative(Ip.x.x, Ib.x.x, 0.001f));
+			PR_EXPECT(FEqlRelative(Ip.y.y, Ib.y.y, 0.001f));
+			PR_EXPECT(FEqlRelative(Ip.z.z, Ib.z.z, 0.001f));
+			PR_EXPECT(FEql(Ip.x.y, 0.0f));
+			PR_EXPECT(FEql(Ip.x.z, 0.0f));
+			PR_EXPECT(FEql(Ip.y.z, 0.0f));
 		}
 		PRUnitTestMethod(PolytopeInertia_RegularTetrahedron)
 		{

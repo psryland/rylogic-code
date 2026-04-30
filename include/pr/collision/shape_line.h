@@ -60,13 +60,6 @@ namespace pr::collision
 		return BBox(v4::Origin(), v4(shape.m_radius, shape.m_radius, shape.m_hlength + shape.m_radius, 0.0f));
 	}
 
-	// Shift the centre of a line
-	inline void pr_vectorcall ShiftCentre(ShapeLine&, v4 shift)
-	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
-		(void)shift; 
-	}
-
 	// Return a support vertex for a line.
 	// Uses hemispherical end-caps for accurate contact point calculation.
 	inline v4 pr_vectorcall SupportVertex(ShapeLine const& shape, v4 direction, int, int& sup_vert_id)

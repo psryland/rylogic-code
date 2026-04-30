@@ -31,7 +31,7 @@ namespace pr::collision
 			m_v.y = b - ofs;
 			m_v.z = c - ofs;
 			m_v.w = Normalise(Cross(m_v.y - m_v.x, m_v.z - m_v.y), v4::Zero());
-			m_base.m_s2r.pos += ofs;
+			m_base.m_s2r = m_base.m_s2r * m4x4::Translation(ofs);
 			m_base.m_bbox = CalcBBox(*this);
 		}
 		operator Shape const&() const
@@ -63,17 +63,6 @@ namespace pr::collision
 		Grow(bb, shape.m_v.y);
 		Grow(bb, shape.m_v.z);
 		return bb;
-	}
-
-	// Shift the centre of a triangle
-	inline void pr_vectorcall ShiftCentre(ShapeTriangle& shape, v4 shift)
-	{
-		assert(shift.w == 0.0f);
-		if (FEql(shift, v4::Zero())) return;
-		shape.m_v.x -= shift;
-		shape.m_v.y -= shift;
-		shape.m_v.z -= shift;
-		shape.m_base.m_s2r.pos += shift;
 	}
 
 	// Return a support vertex for a triangle.

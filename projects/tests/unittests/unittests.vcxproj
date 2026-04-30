@@ -236,6 +236,7 @@
     <ClInclude Include="..\..\..\include\pr\collision\ray.h" />
     <ClInclude Include="..\..\..\include\pr\collision\ray_cast.h" />
     <ClInclude Include="..\..\..\include\pr\collision\ray_cast_result.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\unittest_helpers.h" />
     <ClInclude Include="..\..\..\include\pr\geometry\obj.h" />
     <ClInclude Include="..\..\..\include\pr\gui\message_loop.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\gui\vt100.h" />

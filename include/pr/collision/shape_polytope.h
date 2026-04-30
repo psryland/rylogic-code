@@ -203,16 +203,6 @@ namespace pr::collision
 		return com.w0() / volume;
 	}
 
-	// Shift the verts of the polytope so they are centred on a new position.
-	// 'shift' should be in 'shape' space. NOTE: This invalidates the inertia matrix.
-	// You will need to translate the inertia matrix by the same shift.
-	inline void pr_vectorcall ShiftCentre(ShapePolytope& shape, v4 shift)
-	{
-		assert(shift.w == 0.0f);
-		for (v4 *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) *v -= shift;
-		shape.m_base.m_s2r.pos += shift;
-	}
-
 	// Return a support vertex for a polytope
 	inline v4 pr_vectorcall SupportVertex(ShapePolytope const& shape, v4 direction, int hint_vert_id, int& sup_vert_id)
 	{
@@ -746,6 +736,18 @@ namespace pr::collision
 			}
 		}
 
+		// Keep the local shape origin at the volume centre. The original placement is preserved by moving the whole shape via m_s2r.
+		{
+			auto centre = CalcCentreOfMass(poly);
+			if (!FEql(centre, v4::Zero()))
+			{
+				for (auto *vert = poly.vert_beg(), *vert_end = poly.vert_end(); vert != vert_end; ++vert)
+					*vert -= centre;
+
+				poly.m_base.m_s2r = poly.m_base.m_s2r * m4x4::Translation(centre);
+			}
+		}
+
 		// Build the neighbour headers and index data.
 		// Each Nbrs header stores a byte offset (m_first) from its own address
 		// to the start of its neighbour index array in the trailing Idx data.
@@ -874,20 +876,22 @@ namespace pr::collision::tests
 			auto buf = BuildPolytopeFromPoints(pts);
 			auto& poly = buf.as<ShapePolytope>();
 
-			// Support in +X direction should be the vertex at (3,0,0)
+			PR_EXPECT(FEql(poly.m_base.m_s2r.pos, v4{0.75f, 0.75f, 0.75f, 1.0f}));
+
+			// Support in +X direction should be the vertex at (3,0,0), relative to the local centre.
 			int hint = 0, sup_id = 0;
 			auto sv = collision::SupportVertex(poly, v4{1, 0, 0, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{3, 0, 0, 1}));
+			PR_EXPECT(FEql(sv, v4{2.25f, -0.75f, -0.75f, 1.0f}));
 
-			// Support in +Y direction should be (0,3,0)
+			// Support in +Y direction should be (0,3,0), relative to the local centre.
 			hint = 0;
 			sv = collision::SupportVertex(poly, v4{0, 1, 0, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{0, 3, 0, 1}));
+			PR_EXPECT(FEql(sv, v4{-0.75f, 2.25f, -0.75f, 1.0f}));
 
-			// Support in +Z direction should be (0,0,3)
+			// Support in +Z direction should be (0,0,3), relative to the local centre.
 			hint = 0;
 			sv = collision::SupportVertex(poly, v4{0, 0, 1, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{0, 0, 3, 1}));
+			PR_EXPECT(FEql(sv, v4{-0.75f, -0.75f, 2.25f, 1.0f}));
 		}
 
 	};

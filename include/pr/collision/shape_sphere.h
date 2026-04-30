@@ -51,13 +51,6 @@ namespace pr::collision
 		return BBox(v4::Origin(), v4(shape.m_radius, shape.m_radius, shape.m_radius, 0.0f));
 	}
 
-	// Shift the centre of a sphere
-	inline void pr_vectorcall ShiftCentre(ShapeSphere&, v4 shift)
-	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
-		(void)shift; 
-	}
-
 	// Return a support vertex for a sphere
 	inline v4 pr_vectorcall SupportVertex(ShapeSphere const& shape, v4 direction, int, int& sup_vert_id)
 	{
