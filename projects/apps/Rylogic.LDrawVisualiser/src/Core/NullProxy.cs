@@ -72,6 +72,13 @@ namespace Rylogic.LDrawVisualiser.Core
 				return true;
 			}
 
+			// ReadExpr — return a chainable placeholder just like member access.
+			if (binder.Name == "ReadExpr")
+			{
+				result = Instance;
+				return true;
+			}
+
 			// Print/PrintLine — still write to the output pane even when no debugger is
 			// attached, so script authors can sanity-check their formatting without being
 			// in break mode.

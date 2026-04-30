@@ -117,6 +117,8 @@ using Rylogic.Maths;
 // 'vars' is a dynamic proxy onto the current debugger frame. Member accesses turn
 // into debug-expression evaluations, so 'vars.foo.bar' evaluates 'foo.bar' in the
 // debuggee. Implicit conversions to known types (v4, m4x4, float, ...) are supported.
+// Use vars.ReadExpr(""expr"") for debugger expressions that cannot be written as a
+// member/index chain.
 
 // --- Output window logging ---------------------------------------------------
 // Print(...) and PrintLine(...) write to the 'LDraw Visualiser' pane in
