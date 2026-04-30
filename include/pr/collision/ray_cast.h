@@ -493,12 +493,13 @@ namespace pr::collision
 		for (Shape const *s = shape.begin(), *s_end = shape.end(); s != s_end; s = next(s))
 		{
 			// Transform the ray into shape space and call recursively
-			auto res = RayCast(InvertOrthonormal(s->m_s2p) * ray, *s);
+			auto s2a = InvertOrthonormal(shape.m_base.m_s2r) * s->m_s2r;
+			auto res = RayCast(InvertOrthonormal(s2a) * ray, *s);
 			if (res.m_shape != nullptr && res.m_t0 < result.m_t0)
 			{
 				// Record the nearest intersect
 				result = res;
-				result.m_normal = s->m_s2p * result.m_normal;
+				result.m_normal = s2a * result.m_normal;
 			}
 		}
 		return result;

@@ -33,13 +33,13 @@ namespace pr::ldraw
 				case EShape::Sphere:
 				{
 					auto& s = shape_cast<ShapeSphere>(shape);
-					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2p);
+					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Box:
 				{
 					auto& s = shape_cast<ShapeBox>(shape);
-					Box().box(2 * s.m_radius).o2w(s.m_base.m_s2p);
+					Box().box(2 * s.m_radius).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Triangle:
@@ -51,13 +51,13 @@ namespace pr::ldraw
 							.line(s.m_v.x, s.m_v.y)
 							.line(s.m_v.y, s.m_v.z)
 							.line(s.m_v.z, s.m_v.x)
-							.o2w(s.m_base.m_s2p);
+							.o2w(s.m_base.m_s2r);
 					}
 					else
 					{
 						Triangle()
 							.tri(s.m_v.x, s.m_v.y, s.m_v.z)
-							.o2w(s.m_base.m_s2p);
+							.o2w(s.m_base.m_s2r);
 					}
 					break;
 				}
@@ -65,9 +65,9 @@ namespace pr::ldraw
 				{
 					auto& s = shape_cast<ShapeLine>(shape);
 					if (s.m_radius != 0)
-						Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
+						Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2r);
 					else
-						Line().line(v4(0,0,-s.m_hlength,1), v4(0,0,+s.m_hlength,1)).o2w(s.m_base.m_s2p);
+						Line().line(v4(0,0,-s.m_hlength,1), v4(0,0,+s.m_hlength,1)).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Polytope:
@@ -81,7 +81,7 @@ namespace pr::ldraw
 						auto c = s.vertex(face.m_index[2]);
 						p.tri(seri::Vec3{ a.x, a.y, a.z }, seri::Vec3{ b.x, b.y, b.z }, seri::Vec3{ c.x, c.y, c.z });
 					}
-					p.o2w(s.m_base.m_s2p);
+					p.o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Array:
@@ -92,7 +92,6 @@ namespace pr::ldraw
 					{
 						grp.Add<LdrCollisionShape>().shape(*sub);
 					}
-					grp.o2w(s.m_base.m_s2p);
 					break;
 				}
 				default:

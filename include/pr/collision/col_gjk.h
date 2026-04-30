@@ -54,7 +54,7 @@ namespace pr::collision
 			return { (va - vb).w0(), va, vb };
 		}
 
-		// Returns the centroid (in shape's parent/root space) of the shape's support face
+		// Returns the centroid (in shape space) of the shape's support face
 		// in the given direction. For face-on contact the support is a polygon (multiple
 		// vertices tied for max dot); the centroid of that polygon is a stable, geometrically
 		// meaningful contact-point candidate. For non-degenerate contact, only one vertex
@@ -394,8 +394,8 @@ namespace pr::collision
 		using namespace gjk;
 
 		// Compute shape-to-world and world-to-shape transforms
-		auto a2w = l2w * lhs.m_s2p;
-		auto b2w = r2w * rhs.m_s2p;
+		auto a2w = l2w * lhs.m_s2r;
+		auto b2w = r2w * rhs.m_s2r;
 		auto w2a = InvertOrthonormal(a2w);
 		auto w2b = InvertOrthonormal(b2w);
 
@@ -434,10 +434,19 @@ namespace pr::collision
 				if (!Epa(lhs, a2w, w2a, rhs, b2w, w2b, sx, ha, hb, normal, depth))
 					return false;
 
-				// Orient axis from lhs toward rhs (convention: axis points A→B)
-				auto pa = Dot3(normal, a2w.pos);
-				auto pb = Dot3(normal, b2w.pos);
-				auto sep_axis = Bool2SignF(pa < pb) * normal;
+				// Orient axis from lhs toward rhs (convention: axis points A->B)
+				auto projection_centre = [&](Shape const& shape, m4x4 const& s2w, m4x4 const& w2s)
+				{
+					auto axis = w2s * normal;
+					EFeature feature_type;
+					auto smax = s2w * SupportVertex(shape, +axis, feature_type);
+					auto smin = s2w * SupportVertex(shape, -axis, feature_type);
+					return 0.5f * (Dot3(normal, smin) + Dot3(normal, smax));
+				};
+
+				auto pa = projection_centre(lhs, a2w, w2a);
+				auto pb = projection_centre(rhs, b2w, w2b);
+				auto sep_axis = Bool2SignF(pa <= pb) * normal;
 				auto [manifold, feature] = FindContactManifold(lhs, l2w, rhs, r2w, sep_axis, depth);
 
 				contact.m_axis = sep_axis;

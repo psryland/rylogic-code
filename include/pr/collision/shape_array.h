@@ -38,11 +38,6 @@ namespace pr::collision
 			for (auto i = num_shapes; i-- != 0;)
 				ptr = next(ptr);
 
-			// Calculate the bounding box
-			auto bb = BBox::Reset();
-			for (Shape const* i = begin(), *i_end = end(); i != i_end; i = next(i))
-				Grow(bb, i->m_s2p * i->m_bbox);
-
 			m_num_shapes = s_cast<int>(num_shapes);
 			m_base.m_size = s_cast<int>(sizeof(ShapeArray) + byte_ptr(ptr) - byte_ptr(begin()));
 			m_base.m_bbox = CalcBBox(*this);
@@ -99,13 +94,14 @@ namespace pr::collision
 	inline BBox pr_vectorcall CalcBBox(ShapeArray const& shape)
 	{
 		auto bb = BBox::Reset();
+		auto r2a = InvertOrthonormal(shape.m_base.m_s2r);
 		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
-			Grow(bb, CalcBBox(*i));
+			Grow(bb, (r2a * i->m_s2r) * CalcBBox(*i));
 
 		return bb;
 	}
 
-	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
+	// Shift the centre a shape. Updates 'shape.m_s2r' and 'shift'
 	inline void pr_vectorcall ShiftCentre(ShapeArray& shape, v4 shift)
 	{
 		(void)shape, shift;

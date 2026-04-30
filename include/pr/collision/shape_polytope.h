@@ -210,7 +210,7 @@ namespace pr::collision
 	{
 		assert(shift.w == 0.0f);
 		for (v4 *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) *v -= shift;
-		shape.m_base.m_s2p.pos += shift;
+		shape.m_base.m_s2r.pos += shift;
 	}
 
 	// Return a support vertex for a polytope

@@ -17,8 +17,8 @@ namespace pr::collision
 	{
 		auto& lhs = shape_cast<ShapeBox>(lhs_);
 		auto& rhs = shape_cast<ShapeBox>(rhs_);
-		auto l2w = l2w_ * lhs_.m_s2p;
-		auto r2w = r2w_ * rhs_.m_s2p;
+		auto l2w = l2w_ * lhs_.m_s2r;
+		auto r2w = r2w_ * rhs_.m_s2r;
 
 		// Compute a transform for 'rhs' in 'lhs's frame
 		auto r2l = InvertOrthonormal(l2w) * r2w;
@@ -28,7 +28,8 @@ namespace pr::collision
 		auto r2l_abs = Abs(r2l.rot) + m3x3(math::tiny<float>);
 
 		// Lambda for returning a separating axis with the correct sign
-		auto sep_axis = [&](v4 sa) { return Sign(Dot(r2l.pos, sa)) * sa; };
+		auto centre_delta = r2w.pos - l2w.pos;
+		auto sep_axis = [&](v4 sa) { return Sign(Dot3(centre_delta, sa)) * sa; };
 
 		float ra, rb, sp;
 
@@ -132,13 +133,8 @@ namespace pr::collision
 		if (!p.Contact())
 			return false;
 
-		// Determine the sign of the separating axis to make it the normal from 'lhs' to 'rhs'
 		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot(sep_axis, (l2w * lhs.m_s2p).pos);
-		auto p1 = Dot(sep_axis, (r2w * rhs.m_s2p).pos);
-		sep_axis = Bool2SignF(p0 < p1) * sep_axis;
-
 		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeBox>(lhs), l2w, shape_cast<ShapeBox>(rhs), r2w, sep_axis, depth);
 
 		contact.m_depth = depth;
@@ -177,7 +173,7 @@ namespace pr::collision::tests
 			Contact c;
 			auto r = BoxVsBox(box, l2w, box, r2w, c);
 			Visualise(box, l2w, box, r2w, c);
-			
+
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(1,0,0,0),
@@ -334,29 +330,27 @@ namespace pr::collision::tests
 			}));
 		}
 
-		// Box-vs-Box with s2p transforms
-		PRUnitTestMethod(BoxVsBoxWithS2P)
+		// Box-vs-Box with s2r transforms
+		PRUnitTestMethod(BoxVsBoxWithS2R)
 		{
-			auto box = ShapeBox{ v4{1, 1, 1, 0} };
-			auto l2w = m4x4::Identity() * m4x4::Translation(0.5f, 0, 0);
-			auto r2w = m4x4::Identity() * m4x4::Translation(0.5f, 0, 0);
+			auto lhs = ShapeBox{ v4{1, 1, 1, 0}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
+			auto rhs = ShapeBox{ v4{1, 1, 1, 0}, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Identity();
 
 			Contact c;
-			auto r = BoxVsBox(box, l2w, box, r2w, c);
-			Visualise(box, l2w, box, r2w, c);
+			auto r = BoxVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
-				.m_axis = v4(1,0,0,0),
+				.m_axis = v4(0.984923f,0.150384f,-0.0855051f,0),
 				.m_manifold = {
-					v4(0.5f,-0.5f,-0.5f,1),
-					v4(0.5f,+0.5f,-0.5f,1),
-					v4(0.5f,+0.5f,+0.5f,1),
-					v4(0.5f,-0.5f,+0.5f,1),
+					v4(0.946343f,-0.242302f,0.156031f,1),
 				},
-				.m_feature = EFeature::Quad,
-				.m_depth = 1.0f,
-				}));
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.794759154f,
+			}));
 		}
 	};
 }

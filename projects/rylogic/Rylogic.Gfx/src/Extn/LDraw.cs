@@ -35,25 +35,25 @@ namespace Rylogic.LDraw
 				case EShape.Sphere:
 				{
 					var s = Marshal.PtrToStructure<ShapeSphere>(base_ptr);
-					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2p);
+					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape.Box:
 				{
 					var s = Marshal.PtrToStructure<ShapeBox>(base_ptr);
-					Box().box(2f * s.m_radius).o2w(s.m_base.m_s2p);
+					Box().box(2f * s.m_radius).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape.Triangle:
 				{
 					var s = Marshal.PtrToStructure<ShapeTriangle>(base_ptr);
-					Triangle().tri(s.m_v.x, s.m_v.y, s.m_v.z).o2w(s.m_base.m_s2p);
+					Triangle().tri(s.m_v.x, s.m_v.y, s.m_v.z).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape.Line:
 				{
 					var s = Marshal.PtrToStructure<ShapeLine>(base_ptr);
-					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
+					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape.Polytope:
@@ -68,7 +68,7 @@ namespace Rylogic.LDraw
 						var c = poly.Vertex(face.m_i2);
 						tri.tri(a, b, c);
 					}
-					tri.o2w(poly.Header.m_base.m_s2p);
+					tri.o2w(poly.Header.m_base.m_s2r);
 					break;
 				}
 				case EShape.Array:
@@ -82,7 +82,6 @@ namespace Rylogic.LDraw
 						grp.Objects.Add(child);
 						child.shape(data, child_offset);
 					}
-					grp.o2w(arr.Header.m_base.m_s2p);
 					break;
 				}
 				default:

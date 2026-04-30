@@ -31,7 +31,7 @@ namespace pr::collision
 			m_v.y = b - ofs;
 			m_v.z = c - ofs;
 			m_v.w = Normalise(Cross(m_v.y - m_v.x, m_v.z - m_v.y), v4::Zero());
-			m_base.m_s2p.pos += ofs;
+			m_base.m_s2r.pos += ofs;
 			m_base.m_bbox = CalcBBox(*this);
 		}
 		operator Shape const&() const
@@ -73,7 +73,7 @@ namespace pr::collision
 		shape.m_v.x -= shift;
 		shape.m_v.y -= shift;
 		shape.m_v.z -= shift;
-		shape.m_base.m_s2p.pos += shift;
+		shape.m_base.m_s2r.pos += shift;
 	}
 
 	// Return a support vertex for a triangle.

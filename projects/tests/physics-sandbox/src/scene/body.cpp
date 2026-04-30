@@ -75,7 +75,7 @@ namespace physics_sandbox
 		if (HasShape())
 		{
 			auto const& shape = Shape();
-			auto bbox_cs = (w2c * m_o2w * shape.m_s2p) * shape.m_bbox;
+			auto bbox_cs = (w2c * m_o2w * shape.m_s2r) * shape.m_bbox;
 			auto radius = Length(bbox_cs.m_radius);
 			if (!IsWithin(frustum, bbox_cs.m_centre, radius, clip_planes))
 				return;

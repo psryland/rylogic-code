@@ -31,8 +31,8 @@ namespace pr::collision
 	{
 		auto& lhs = shape_cast<ShapeLine>(lhs_);
 		auto& rhs = shape_cast<ShapeLine>(rhs_);
-		auto l2w = l2w_ * lhs_.m_s2p;
-		auto r2w = r2w_ * rhs_.m_s2p;
+		auto l2w = l2w_ * lhs_.m_s2r;
+		auto r2w = r2w_ * rhs_.m_s2r;
 
 		// Line A: from (l2w.pos - lhs.m_hlength * l2w.z) to (l2w.pos + lhs.m_hlength * l2w.z)
 		// Line B: from (r2w.pos - rhs.m_hlength * r2w.z) to (r2w.pos + rhs.m_hlength * r2w.z)
@@ -91,10 +91,6 @@ namespace pr::collision
 
 		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot3(sep_axis, (l2w * lhs.m_s2p).pos);
-		auto p1 = Dot3(sep_axis, (r2w * rhs.m_s2p).pos);
-		sep_axis = Bool2SignF(p0 < p1) * sep_axis;
-
 		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeLine>(lhs), l2w, shape_cast<ShapeLine>(rhs), r2w, sep_axis, depth);
 
 		contact.m_depth = depth;
@@ -127,16 +123,14 @@ namespace pr::collision::tests
 		// Two crossing lines at the origin: should detect contact
 		PRUnitTestMethod(CrossingAtOrigin)
 		{
-			auto line_a = ShapeLine{2.0f}; // along Z
-			auto line_b = ShapeLine{2.0f}; // along Z, rotated to X
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin()); // line B along X
+			auto r2w = m4x4::TransformDeg(0, 90, 0, v4::Origin());
 
-			// Both pass through origin, perpendicular → distance = 0 → contact
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
@@ -152,15 +146,14 @@ namespace pr::collision::tests
 		// Parallel lines separated: should not detect contact
 		PRUnitTestMethod(ParallelSeparated)
 		{
-			auto line_a = ShapeLine{2.0f};
-			auto line_b = ShapeLine{2.0f};
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(1.0f, 0, 0); // offset in X, parallel along Z
+			auto r2w = m4x4::Translation(1.0f, 0, 0);
 
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(!r);
 		}
@@ -168,17 +161,14 @@ namespace pr::collision::tests
 		// Skew lines: close but not touching
 		PRUnitTestMethod(SkewSeparated)
 		{
-			auto line_a = ShapeLine{2.0f};
-			auto line_b = ShapeLine{2.0f};
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			// line_b along X, offset 0.5 in Y
-			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0.5f, 0, 1});
+			auto r2w = m4x4::TransformDeg(0, 90, 0, v4{0, 0.5f, 0, 1});
 
-			// Skew lines at distance 0.5 → no contact
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(!r);
 		}
@@ -186,20 +176,18 @@ namespace pr::collision::tests
 		// Collinear overlapping lines
 		PRUnitTestMethod(CollinearOverlapping)
 		{
-			auto line_a = ShapeLine{2.0f}; // z: [-1, +1]
-			auto line_b = ShapeLine{2.0f}; // z: [-1, +1]
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(0, 0, 0.5f); // shifted along Z, overlapping
+			auto r2w = m4x4::Translation(0, 0, 0.5f);
 
-			// Collinear and overlapping → distance = 0 → contact
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
-				.m_axis = v4(0, -1, 0, 0),
+				.m_axis = v4(0, 1, 0, 0),
 				.m_manifold = {
 					v4(0, 0, 0.25f, 1),
 				},
@@ -211,40 +199,37 @@ namespace pr::collision::tests
 		// End-to-end touching: endpoints just meet
 		PRUnitTestMethod(EndToEndTouching)
 		{
-			auto line_a = ShapeLine{2.0f}; // z: [-1, +1]
-			auto line_b = ShapeLine{2.0f}; // z: [-1, +1]
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(0, 0, 2.0f); // B starts where A ends
+			auto r2w = m4x4::Translation(0, 0, 1.9999f);
 
-			// Endpoints meet exactly at z=1 → distance ≈ 0 → contact
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
-				.m_axis = v4(0, -1, 0, 0),
+				.m_axis = v4(0, 1, 0, 0),
 				.m_manifold = {
 					v4(0, 0, 1, 1),
 				},
 				.m_feature = EFeature::Vert,
-				.m_depth = 9.99999975e-05f,
+				.m_depth = 0.0001f,
 			}));
 		}
 
 		// Clearly separated: endpoints don't reach
 		PRUnitTestMethod(ClearlySeparated)
 		{
-			auto line_a = ShapeLine{2.0f};
-			auto line_b = ShapeLine{2.0f};
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f, 0.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(0, 0, 5.0f); // gap of 3 units
+			auto r2w = m4x4::Translation(0, 0, 5.0f);
 
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(!r);
 		}
@@ -252,42 +237,37 @@ namespace pr::collision::tests
 		// Thick lines: perpendicular, separated by less than combined thickness
 		PRUnitTestMethod(ThickLinesCrossing)
 		{
-			auto line_a = ShapeLine{2.0f, 0.2f};
-			auto line_b = ShapeLine{2.0f, 0.2f};
-
-			// line_a along Z, line_b along X, offset 0.3 in Y
+			auto lhs = ShapeLine{2.0f, 0.2f};
+			auto rhs = ShapeLine{2.0f, 0.2f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0.3f, 0, 1});
+			auto r2w = m4x4::TransformDeg(0, 90, 0, v4{0, 0.3f, 0, 1});
 
-			// Skew distance = 0.3, combined thickness = 0.2 + 0.2 = 0.4 > 0.3 → contact
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(0, 1, 0, 0),
 				.m_manifold = {
-					v4(0, 0.150000006f, 0, 1),
+					v4(0, 0.15f, 0, 1),
 				},
 				.m_feature = EFeature::Vert,
-				.m_depth = 0.099999994f,
+				.m_depth = 0.1f,
 			}));
 		}
 
 		// Thick lines: separated beyond combined thickness
 		PRUnitTestMethod(ThickLinesSeparated)
 		{
-			auto line_a = ShapeLine{2.0f, 0.1f};
-			auto line_b = ShapeLine{2.0f, 0.1f};
-
-			// Offset 0.3 in Y: combined thickness = 0.2 < 0.3 → no contact
+			auto lhs = ShapeLine{2.0f, 0.1f};
+			auto rhs = ShapeLine{2.0f, 0.1f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4{0, 0.3f, 0, 1});
+			auto r2w = m4x4::TransformDeg(0, 90, 0, v4{0, 0.3f, 0, 1});
 
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(!r);
 		}
@@ -295,16 +275,14 @@ namespace pr::collision::tests
 		// Zero thickness: backward compatible (crossing lines still touch)
 		PRUnitTestMethod(ZeroThicknessBackcompat)
 		{
-			auto line_a = ShapeLine{2.0f, 0.0f}; // explicit zero
-			auto line_b = ShapeLine{2.0f};
-
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeLine{2.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Transform(v4::XAxis(), v4::ZAxis(), v4::Origin());
+			auto r2w = m4x4::TransformDeg(0, 90, 0, v4::Origin());
 
-			// Crossing at origin → distance = 0 → contact (via tolerance)
 			Contact c;
-			auto r = LineVsLine(line_a, l2w, line_b, r2w, c);
-			Visualise(line_a, l2w, line_b, r2w, c);
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
 
 			PR_EXPECT(r);
 			PR_EXPECT(CheckContact(c, Contact{
@@ -315,6 +293,29 @@ namespace pr::collision::tests
 				.m_feature = EFeature::Vert,
 				.m_depth = 9.99999975e-05f,
 			}));
+		}
+
+		// Line-vs-Line with s2r transforms 
+		PRUnitTestMethod(LineVsLineWithS2R) 
+		{ 
+			auto lhs = ShapeLine{1.0f, 0.3f, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) }; 
+			auto rhs = ShapeLine{1.0f, 0.3f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) }; 
+			auto l2w = m4x4::Identity(); 
+			auto r2w = m4x4::Identity(); 
+ 
+			Contact c; 
+			auto r = LineVsLine(lhs, l2w, rhs, r2w, c); 
+			Visualise(lhs, l2w, rhs, r2w, c); 
+ 
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{ 
+				.m_axis = v4(0.921425f,0.383518f,0.0623677f,0),
+				.m_manifold = { 
+					v4(0.867661f,-0.274103f,0.319106f,1),
+				}, 
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.185676128f,
+			})); 
 		}
 	};
 }

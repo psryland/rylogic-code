@@ -20,7 +20,7 @@ namespace pr::physics
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2p,
+			.s2rb = p2rb * shape.m_base.m_s2r,
 			.type = static_cast<int>(collision::EShape::Sphere),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -31,7 +31,7 @@ namespace pr::physics
 	inline GpuShape PackShape(collision::ShapeBox const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2p,
+			.s2rb = p2rb * shape.m_base.m_s2r,
 			.type = static_cast<int>(collision::EShape::Box),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -42,7 +42,7 @@ namespace pr::physics
 	inline GpuShape PackShape(collision::ShapeLine const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2p,
+			.s2rb = p2rb * shape.m_base.m_s2r,
 			.type = static_cast<int>(collision::EShape::Line),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -53,7 +53,7 @@ namespace pr::physics
 	inline GpuShape PackShape(collision::ShapeTriangle const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2p,
+			.s2rb = p2rb * shape.m_base.m_s2r,
 			.type = static_cast<int>(collision::EShape::Triangle),
 			.vert_offset = vert_offset,
 			.vert_count = 3, // The 3 vertices are stored at vert_offset..vert_offset+2.
@@ -64,7 +64,7 @@ namespace pr::physics
 	inline GpuShape PackShape(collision::ShapePolytope const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2p,
+			.s2rb = p2rb * shape.m_base.m_s2r,
 			.type = static_cast<int>(collision::EShape::Polytope),
 			.vert_offset = vert_offset,
 			.vert_count = shape.m_vert_count,
@@ -81,7 +81,7 @@ namespace pr::physics
 			case EShape::NoShape:
 			{
 				return GpuShape {
-					.s2rb = p2rb * shape.m_s2p,
+					.s2rb = p2rb * shape.m_s2r,
 					.type = static_cast<int>(collision::EShape::NoShape),
 					.vert_offset = 0,
 					.vert_count = 0,
@@ -129,11 +129,10 @@ namespace pr::physics
 				#if 0
 				auto& array = shape_cast<ShapeArray>(shape);
 
-				auto s2rb = p2rb * shape.m_s2p;
 				for (auto& subshape : array.shapes())
-					PackShape(subshape, vertex_buffer, s2rb);
+					PackShape(subshape, vertex_buffer, p2rb);
 
-				return {}; // Array shapes are not directly represented on the GPU, their sub-shapes are packed individually with the array's transform applied.
+				return {}; // Array shapes are not directly represented on the GPU; their sub-shapes already carry root-space transforms.
 				#endif
 				throw std::runtime_error("not implemented"); // This needs more thought...
 			}

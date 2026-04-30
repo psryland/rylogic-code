@@ -240,7 +240,7 @@ namespace pr::collision
 		return s_no_shape;
 	}
 
-	// Calculate the bounding box for a shape (in parent space, i.e. includes m_s2p)
+	// Calculate the bounding box for a shape (in shape space)
 	inline BBox pr_vectorcall CalcBBox(Shape const& shape)
 	{
 		switch (shape.m_type)
@@ -252,7 +252,7 @@ namespace pr::collision
 		}
 	}
 
-	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
+	// Shift the centre a shape. Updates 'shape.m_s2r' and 'shift'
 	inline void pr_vectorcall ShiftCentre(Shape& shape, v4 shift)
 	{
 		switch (shape.m_type)

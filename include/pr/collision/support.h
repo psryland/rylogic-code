@@ -14,36 +14,37 @@ namespace pr::collision
 	inline std::tuple<Contact::Manifold, EFeature> ReduceContactManifold(std::span<v4> corners, v4 axis);
 
 	// Returns a support vertex for a shape for a given direction.
-	// Assumes 'direction' is in the shape's root parent space (i.e. transformed
-	// by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
+	// Assumes 'direction' is in shape space. Returns a point in shape space.
 	inline v4 SupportVertex(ShapeSphere const& shape, v4 direction, EFeature& feature_type)
 	{
 		assert(IsNormalised(direction));
 		feature_type = EFeature::Vert;
-		return shape.m_base.m_s2p.pos + shape.m_radius * direction;
+		return (shape.m_radius * direction).w1();
 	}
 	inline v4 SupportVertex(ShapeBox const& shape, v4 direction, EFeature& feature_type)
 	{
 		feature_type = EFeature::Vert;
 
-		auto vert = shape.m_base.m_s2p.pos;
+		auto vert = v4::Origin();
 		for (int i = 0; i != 3; ++i)
 		{
-			float d = Dot3(direction, shape.m_base.m_s2p[i]);
+			auto basis = v4::Zero();
+			basis[i] = 1.0f;
 
-			if      (d > +math::tiny<float>) vert += shape.m_base.m_s2p[i] * shape.m_radius[i];
-			else if (d < -math::tiny<float>) vert -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+			float d = direction[i];
+			if      (d > +math::tiny<float>) vert += basis * shape.m_radius[i];
+			else if (d < -math::tiny<float>) vert -= basis * shape.m_radius[i];
 			else feature_type = EFeature(int(feature_type) << 1);
 		}
 		return vert;
 	}
 	inline v4 SupportVertex(ShapeLine const& shape, v4 direction, EFeature& feature_type)
 	{
-		auto d = Dot(direction, shape.m_base.m_s2p.z);
-		auto r = shape.m_base.m_s2p.z * shape.m_hlength;
+		auto d = direction.z;
+		auto r = v4::ZAxis() * shape.m_hlength;
 
 		feature_type = EFeature::Vert;
-		auto vert = shape.m_base.m_s2p.pos;
+		auto vert = v4::Origin();
 		if      (d > +math::tiny<float>) vert += r;
 		else if (d < -math::tiny<float>) vert -= r;
 		else feature_type = EFeature::Edge;
@@ -59,7 +60,6 @@ namespace pr::collision
 	}
 	inline v4 SupportVertex(ShapeTriangle const& shape, v4 direction, EFeature& feature_type)
 	{
-		// Triangle vertices are stored as offsets (w=0), return as positions (w=1)
 		v4 d(Dot3(direction, shape.m_v.x), Dot3(direction, shape.m_v.y), Dot3(direction, shape.m_v.z), 0.0f);
 		feature_type = EFeature::Vert;
 		return shape.m_v[MaxElementIndex(d.xyz)].w1();
@@ -69,12 +69,11 @@ namespace pr::collision
 		assert("Invalid polytope" && shape.m_vert_count != 0);
 
 		feature_type = EFeature::Vert;
-		auto s2p = shape.m_base.m_s2p;
-		auto best = (s2p * shape.vertex(0)).w1();
+		auto best = shape.vertex(0).w1();
 		auto best_dist = Dot3(direction, best);
 		for (int i = 1; i != shape.m_vert_count; ++i)
 		{
-			auto point = (s2p * shape.vertex(i)).w1();
+			auto point = shape.vertex(i).w1();
 			auto dist = Dot3(direction, point);
 			if (dist > best_dist)
 			{
@@ -102,10 +101,10 @@ namespace pr::collision
 		return SupportVertex(shape, direction, feature_type);
 	}
 
-	// Return the feature of the shape in a given direction.
-	// 'points' returns the feature polygon. The number of sides equals 'int(feature_type)'
-	// Assumes 'axis' is in the shape's root parent space (i.e. transformed by Invert(shape2world) but not 'shape.m_s2p' or any nested shapes)
+	// Return the feature of the shape in the given direction 'axis'.
+	// Assumes 'axis' is in shape space. Points are returned in shape space.
 	// When a face is returned, the points should be in order such that the face normal == 'axis'
+	// 'points' returns the feature polygon. The number of sides equals 'int(feature_type)'
 	inline void SupportFeature(ShapeSphere const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		points[0] = SupportVertex(shape, axis, feature_type);
@@ -114,19 +113,22 @@ namespace pr::collision
 	inline void SupportFeature(ShapeBox const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		feature_type = EFeature::Vert;
-		*points = shape.m_base.m_s2p.pos;
+		*points = v4::Origin();
 		for (int i = 0; i != 3; ++i)
 		{
-			float d = Dot3(axis, shape.m_base.m_s2p[i]);
+			auto basis = v4::Zero();
+			basis[i] = 1.0f;
+
+			float d = axis[i];
 			if (d > +math::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
-					points[f] += shape.m_base.m_s2p[i] * shape.m_radius[i];
+					points[f] += basis * shape.m_radius[i];
 			}
 			else if (d < -math::tiny<float>)
 			{
 				for (int f = 0; f != int(feature_type); ++f)
-					points[f] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+					points[f] -= basis * shape.m_radius[i];
 			}
 			else
 			{
@@ -135,17 +137,17 @@ namespace pr::collision
 				case EFeature::Vert:
 					feature_type = EFeature::Edge;
 					points[1]  = points[0];
-					points[0] += shape.m_base.m_s2p[i] * shape.m_radius[i];
-					points[1] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+					points[0] += basis * shape.m_radius[i];
+					points[1] -= basis * shape.m_radius[i];
 					break;
 				case EFeature::Edge:
 					feature_type = EFeature::Quad;
 					points[3]  = points[0];
 					points[2]  = points[1];
-					points[0] += shape.m_base.m_s2p[i] * shape.m_radius[i];
-					points[1] += shape.m_base.m_s2p[i] * shape.m_radius[i];
-					points[2] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
-					points[3] -= shape.m_base.m_s2p[i] * shape.m_radius[i];
+					points[0] += basis * shape.m_radius[i];
+					points[1] += basis * shape.m_radius[i];
+					points[2] -= basis * shape.m_radius[i];
+					points[3] -= basis * shape.m_radius[i];
 					if (Triple(axis, points[1] - points[0], points[2] - points[0]) < 0)
 						std::swap(points[1],points[3]); // Flip the winding order
 					break;
@@ -155,8 +157,8 @@ namespace pr::collision
 	}
 	inline void SupportFeature(ShapeLine const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
-		auto d = Dot(axis, shape.m_base.m_s2p.z);
-		auto r = shape.m_base.m_s2p.z * shape.m_hlength;
+		auto d = axis.z;
+		auto r = v4::ZAxis() * shape.m_hlength;
 
 		// Hemispherical end-cap offset for thick lines
 		auto thickness_offset = v4::Zero();
@@ -174,29 +176,26 @@ namespace pr::collision
 		{
 			// Line points in the direction of the axis, return the end point
 			feature_type = EFeature::Vert;
-			points[0] = shape.m_base.m_s2p.pos + r + thickness_offset;
+			points[0] = v4::Origin() + r + thickness_offset;
 		}
 		else if (d < -tol)
 		{
 			// Line points against the direction of the axis, return the start point
 			feature_type = EFeature::Vert;
-			points[0] = shape.m_base.m_s2p.pos - r + thickness_offset;
+			points[0] = v4::Origin() - r + thickness_offset;
 		}
 		else
 		{
 			// Line is perpendicular to the axis, return the line (both endpoints offset by thickness)
 			feature_type = EFeature::Edge;
-			points[0] = shape.m_base.m_s2p.pos - r + thickness_offset;
-			points[1] = shape.m_base.m_s2p.pos + r + thickness_offset;
+			points[0] = v4::Origin() - r + thickness_offset;
+			points[1] = v4::Origin() + r + thickness_offset;
 		}
 	}
 	inline void SupportFeature(ShapeTriangle const& shape, v4 axis, EFeature& feature_type, v4 (&points)[FeaturePolygonMaxSides])
 	{
 		constexpr auto tol = 1e-5f;
 		constexpr auto tol_sq = Sqr(tol);
-
-		// Transform the support axis into shape space
-		axis = InvertOrthonormal(shape.m_base.m_s2p) * axis;
 
 		// Project each vertex onto the axis
 		auto d0 = Dot3(axis, shape.m_v.x);
@@ -286,12 +285,10 @@ namespace pr::collision
 
 		constexpr auto tol = 1e-4f;
 		constexpr auto tol_sq = Sqr(tol);
-		auto s2p = shape.m_base.m_s2p;
-		auto local_axis = (InvertOrthonormal(s2p) * axis.w0()).w0();
 
 		auto best_dist = -limits<float>::max();
 		for (int i = 0; i != shape.m_vert_count; ++i)
-			best_dist = Max(best_dist, Dot3(local_axis, shape.vertex(i)));
+			best_dist = Max(best_dist, Dot3(axis, shape.vertex(i)));
 
 		std::array<v4, 256> support_points;
 		assert("Polytope has too many vertices" && shape.m_vert_count <= static_cast<int>(support_points.size()));
@@ -299,10 +296,10 @@ namespace pr::collision
 		auto support_count = 0;
 		for (int i = 0; i != shape.m_vert_count; ++i)
 		{
-			if (Dot3(local_axis, shape.vertex(i)) < best_dist - tol)
+			if (Dot3(axis, shape.vertex(i)) < best_dist - tol)
 				continue;
 
-			auto point = (s2p * shape.vertex(i)).w1();
+			auto point = shape.vertex(i).w1();
 			auto duplicate = false;
 			for (int j = 0; j != support_count; ++j)
 			{
@@ -640,10 +637,11 @@ namespace pr::collision
 		auto manifold = ReduceContactManifold(corners, axis);
 		return std::get<1>(manifold) != EFeature::None ? manifold : fallback();
 	}
-	inline std::tuple<Contact::Manifold, EFeature> FindContactManifold(ShapeType auto const& lhs, m4x4 const& l2w, ShapeType auto const& rhs, m4x4 const& r2w, v4 axis, float pen)
+	inline std::tuple<Contact::Manifold, EFeature> FindContactManifold(ShapeType auto const& lhs, m4x4 const& l2w_, ShapeType auto const& rhs, m4x4 const& r2w_, v4 axis, float pen)
 	{
-
-// TODO: The SupportFeature functions are not taking m_s2p into account, generally.
+		// Shape local to "world" space. (world space is just the 'common' space, probably physic object root space)
+		auto l2w = l2w_ * shape_cast(lhs).m_s2r;
+		auto r2w = r2w_ * shape_cast(rhs).m_s2r;
 
 		// Find the support feature on each shape (in each shape's space)
 		EFeature featA = {};
