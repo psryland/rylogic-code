@@ -13,7 +13,7 @@
 //   - Energy drift in the physics simulation
 //
 // For pairs involving implicit shapes (sphere, thick line), use either:
-//   - Direct analytic tests (sphere-sphere, sphere-box, sphere-line, line-line)
+//   - Direct analytic tests (sphere-sphere, box-sphere, line-sphere, line-line)
 //   - "GJK with margins": run closest-point GJK on the core shape (sphere centre
 //     or line skeleton) vs the convex shape, then add the radius/thickness margin
 //     analytically. This avoids EPA entirely and gives exact normals.
@@ -22,23 +22,23 @@
 //
 //   Analytic (no GJK):
 //     Sphere vs Sphere         — distance test
-//     Sphere vs Box            — closest point on OBB
-//     Sphere vs Line           — closest point on segment + combined radii
+//     Box vs Sphere            — closest point on OBB
+//     Line vs Sphere           — closest point on segment + combined radii
 //     Line vs Line             — closest segment-segment + combined thickness
 //     Line vs Box              — iterative closest point on OBB + thickness
-//     Line vs Triangle         — closest segment-triangle + thickness
+//     Triangle vs Line         — closest segment-triangle + thickness
 //     Box vs Box               — SAT (6 face axes)
 //     Triangle vs Triangle     — SAT (2 face + 9 edge axes)
 //
 //   GJK with margins (GJK on core shape, add radius analytically):
-//     Sphere vs Triangle       — GJK point-vs-triangle + radius
-//     Sphere vs Polytope       — GJK point-vs-polytope + radius
-//     Line vs Polytope         — GJK skeleton-vs-polytope + thickness
+//     Triangle vs Sphere       — GJK point-vs-triangle + radius
+//     Polytope vs Sphere       — GJK point-vs-polytope + radius
+//     Polytope vs Line         — GJK skeleton-vs-polytope + thickness
 //
 //   GJK + EPA (both shapes polyhedral, Minkowski boundary is polyhedral):
-//     Box vs Triangle
-//     Box vs Polytope
-//     Triangle vs Polytope
+//     Triangle vs Box
+//     Polytope vs Box
+//     Polytope vs Triangle
 //     Polytope vs Polytope
 #ifndef PR_PHYSICS_COLLISION_HLSLI
 #define PR_PHYSICS_COLLISION_HLSLI
@@ -270,17 +270,17 @@ inline bool SphereVsSphere(
 	return true;
 }
 
-// ---- Sphere vs Box ----
+// ---- Box vs Sphere ----
 // Find the closest point on the OBB to the sphere centre.
 // If the distance is less than the sphere radius, there's a collision.
-inline bool SphereVsBox(
-	in_(GpuShape) sphere, float4x4 sphere_w_,
+inline bool BoxVsSphere(
 	in_(GpuShape) box, float4x4 box_w_,
+	in_(GpuShape) sphere, float4x4 sphere_w_,
 	out_(GpuContact) out_contact)
 {
 	ContactClear(out_contact);
-	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 	float4x4 box_w = mul(box.s2rb, box_w_);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 
 	float4 sphere_centre = sphere_w[3];
 	float radius = sphere.data.x;
@@ -315,8 +315,8 @@ inline bool SphereVsBox(
 		                    + local_normal.y * box_w[1]
 		                    + local_normal.z * box_w[2];
 
-		// Axis from sphere toward box (sa→sb convention)
-		float4 axis = -world_normal;
+		// Axis from box toward sphere.
+		float4 axis = world_normal;
 		float depth = radius - dist;
 
 		// Contact point: midpoint between box surface and sphere surface
@@ -324,7 +324,7 @@ inline bool SphereVsBox(
 			+ clamped.x * box_w[0]
 			+ clamped.y * box_w[1]
 			+ clamped.z * box_w[2];
-		ContactSetPoint(out_contact, axis, closest_world + (0.5f * depth) * axis, depth);
+		ContactSetPoint(out_contact, axis, closest_world - (0.5f * depth) * axis, depth);
 		return true;
 	}
 
@@ -341,8 +341,8 @@ inline bool SphereVsBox(
 	                    + local_normal.y * box_w[1]
 	                    + local_normal.z * box_w[2];
 
-	// Axis from sphere toward box (sa→sb convention)
-	float4 axis = -world_normal;
+	// Axis from box toward sphere.
+	float4 axis = world_normal;
 	float depth = radius + face_dist[min_axis];
 
 	// Contact point: midpoint between box face and sphere surface
@@ -352,21 +352,21 @@ inline bool SphereVsBox(
 		+ face_pt.x * box_w[0]
 		+ face_pt.y * box_w[1]
 		+ face_pt.z * box_w[2];
-	ContactSetPoint(out_contact, axis, face_world + (0.5f * depth) * axis, depth);
+	ContactSetPoint(out_contact, axis, face_world - (0.5f * depth) * axis, depth);
 	return true;
 }
 
-// ---- Sphere vs Line ----
+// ---- Line vs Sphere ----
 // Find the closest point on the line segment to the sphere centre.
 // The line has hemispherical end-caps of thickness 'data.y'.
-inline bool SphereVsLine(
-	in_(GpuShape) sphere, float4x4 sphere_w_,
+inline bool LineVsSphere(
 	in_(GpuShape) seg, float4x4 seg_w_,
+	in_(GpuShape) sphere, float4x4 sphere_w_,
 	out_(GpuContact) out_contact)
 {
 	ContactClear(out_contact);
-	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 	float4x4 seg_w = mul(seg.s2rb, seg_w_);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 
 	float4 sphere_centre = sphere_w[3];
 	float sphere_r = sphere.data.x;
@@ -390,32 +390,32 @@ inline bool SphereVsLine(
 		return false;
 
 	float dist = sqrt(dist_sq);
-	// Normal points from sphere toward line (matches CPU convention: axis from first arg → second arg).
-	float4 normal = (closest - sphere_centre) / dist;
+	// Normal points from line toward sphere.
+	float4 normal = diff / dist;
 	float depth = combined_r - dist;
 	// Contact point is the midpoint between the sphere surface and the line surface.
-	//   line_surface   = closest + thickness * (-normal)   (line surface toward sphere)
-	//   sphere_surface = sphere_centre + sphere_r * normal (sphere surface toward line)
-	//   midpoint       = 0.5 * (closest + sphere_centre + (sphere_r - thickness) * normal)
-	float4 mid = 0.5f * (closest + sphere_centre + (sphere_r - thickness) * normal);
+	//   line_surface   = closest + thickness * normal       (line surface toward sphere)
+	//   sphere_surface = sphere_centre - sphere_r * normal  (sphere surface toward line)
+	//   midpoint       = 0.5 * (closest + sphere_centre + (thickness - sphere_r) * normal)
+	float4 mid = 0.5f * (closest + sphere_centre + (thickness - sphere_r) * normal);
 	ContactSetPoint(out_contact, normal, float4(mid.xyz, 1), depth);
 	return true;
 }
 
-// ---- Sphere vs Convex (Polytope/Triangle) ----
+// ---- Convex vs Sphere (Triangle/Polytope) ----
 // Uses "GJK with margins": find the closest point on the convex shape to the
 // sphere centre (treating it as a point), then check distance < radius.
 // This avoids EPA entirely and gives exact contact normals.
-inline bool SphereVsConvex(
-	in_(GpuShape) sphere, float4x4 sphere_w_,
+inline bool ConvexVsSphere(
 	in_(GpuShape) convex, float4x4 convex_w_,
+	in_(GpuShape) sphere, float4x4 sphere_w_,
 	in_(StructuredBuffer<float4>) verts,
 	out_(GpuContact) out_contact,
 	out_(int) out_gjk_iters)
 {
 	ContactClear(out_contact);
-	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 	float4x4 convex_w = mul(convex.s2rb, convex_w_);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
 	out_gjk_iters = 0;
 
 	float4 sphere_centre = sphere_w[3];
@@ -555,11 +555,11 @@ inline bool SphereVsConvex(
 		// Contact point: on the convex surface (closest point to sphere centre)
 		// Reconstruct from simplex
 		float4 contact_on_convex = sphere_centre + normal * dist;
-		ContactSetPoint(out_contact, normal, contact_on_convex, depth);
+		ContactSetPoint(out_contact, -normal, contact_on_convex, depth);
 	}
 	else
 	{
-		// Sphere centre is on/inside the convex — use an approximate axis
+		// Sphere centre is on/inside the convex — use an approximate convex-to-sphere axis.
 		ContactSetPoint(out_contact, NormaliseSafe(sphere_centre - convex_w[3], float4(1, 0, 0, 0)), sphere_centre, radius);
 	}
 	return true;
@@ -605,17 +605,17 @@ inline bool LineVsLine(
 	return true;
 }
 
-// ---- Line vs Triangle ----
+// ---- Triangle vs Line ----
 // Closest point between the line skeleton and the triangle, plus thickness margin.
-inline bool LineVsTriangle(
-	in_(GpuShape) seg, float4x4 seg_w_,
+inline bool TriangleVsLine(
 	in_(GpuShape) tri, float4x4 tri_w_,
+	in_(GpuShape) seg, float4x4 seg_w_,
 	in_(StructuredBuffer<float4>) verts,
 	out_(GpuContact) out_contact)
 {
 	ContactClear(out_contact);
-	float4x4 seg_w = mul(seg.s2rb, seg_w_);
 	float4x4 tri_w = mul(tri.s2rb, tri_w_);
+	float4x4 seg_w = mul(seg.s2rb, seg_w_);
 
 	float4 seg_centre = seg_w[3];
 	float4 seg_dir = seg_w[2];
@@ -676,20 +676,17 @@ inline bool LineVsTriangle(
 	return true;
 }
 
-// ---- Line vs Convex (Polytope) ----
+// ---- Polytope vs Line ----
 // Uses "GJK with margins": run closest-point GJK between the line skeleton
 // (a segment, no thickness) and the convex shape, then add thickness margin.
-inline bool LineVsConvex(
+inline bool PolytopeVsLine(
+	in_(GpuShape) polytope, float4x4 polytope_w_,
 	in_(GpuShape) seg, float4x4 seg_w_,
-	in_(GpuShape) convex, float4x4 convex_w_,
 	in_(StructuredBuffer<float4>) verts,
 	out_(GpuContact) out_contact,
 	out_(int) out_gjk_iters)
 {
 	ContactClear(out_contact);
-	float4x4 seg_w = mul(seg.s2rb, seg_w_);
-	float4x4 convex_w = mul(convex.s2rb, convex_w_);
-
 	out_gjk_iters = 0;
 
 	float line_radius = seg.data.y;
@@ -700,10 +697,10 @@ inline bool LineVsConvex(
 	GpuShape skeleton = seg;
 	skeleton.data.y = 0;
 
-	// Use full GJK+EPA on skeleton vs convex
+	// Use full GJK+EPA on polytope vs skeleton, preserving the higher-vs-lower contact convention.
 	int gjk_iters, epa_iters;
 	GpuContact gjk_contact;
-	bool overlap = GjkCollide(skeleton, seg_w, convex, convex_w, verts, gjk_contact, gjk_iters, epa_iters);
+	bool overlap = GjkCollide(polytope, polytope_w_, skeleton, seg_w_, verts, gjk_contact, gjk_iters, epa_iters);
 	out_gjk_iters = gjk_iters;
 
 	if (overlap)
@@ -719,7 +716,7 @@ inline bool LineVsConvex(
 	// Fall back to a simpler test: sample points along the line and check distance
 	// to the convex shape's AABB as a conservative approximation.
 	// For now, if GJK says no overlap and thickness is small, we report no collision.
-	// TODO: implement proper closest-point GJK for line-vs-convex margin test.
+	// TODO: implement proper closest-point GJK for polytope-vs-line margin test.
 	return false;
 }
 
@@ -1051,81 +1048,76 @@ inline bool CollideShapes(
 	in_(StructuredBuffer<float4>) verts,
 	out_(GpuContact) out_contact)
 {
-	// Canonicalise the pair so the "simpler" shape type is always 'sa'.
-	// This reduces the number of dispatch branches: sphere < box < line < triangle < polytope.
-	// When we swap, negate the contact axis on output.
+	// Canonicalise the pair so 'sb' has the higher shape type and can dispatch to the CPU-style HigherVsLower functions.
 	GpuShape sa, sb;
 	float4x4 wa, wb;
 	bool swapped = a.type > b.type;
 	if (swapped) { sa = b; sb = a; wa = b2w; wb = a2w; }
 	else         { sa = a; sb = b; wa = a2w; wb = b2w; }
-	
+
 	int gjk_iters = 0;
 	int epa_iters = 0;
 
 	// sa.type <= sb.type is guaranteed
 	bool hit = false;
-	switch (sa.type)
+	switch (sb.type)
 	{
 		case SHAPE_SPHERE:
 		{
-			switch (sb.type)
+			switch (sa.type)
 			{
-				case SHAPE_SPHERE:   hit = SphereVsSphere(sa, wa, sb, wb, out_contact); break;
-				case SHAPE_BOX:      hit = SphereVsBox(sa, wa, sb, wb, out_contact); break;
-				case SHAPE_LINE:     hit = SphereVsLine(sa, wa, sb, wb, out_contact); break;
-				case SHAPE_TRIANGLE: hit = SphereVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
-				case SHAPE_POLYTOPE: hit = SphereVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
+				case SHAPE_SPHERE: hit = SphereVsSphere(sa, wa, sb, wb, out_contact); break;
 			}
 			break;
 		}
 		case SHAPE_BOX:
 		{
-			switch (sb.type)
+			switch (sa.type)
 			{
-				case SHAPE_BOX: hit = BoxVsBox(sa, wa, sb, wb, out_contact); break;
-				case SHAPE_LINE:
-				{
-					hit = LineVsBox(sb, wb, sa, wa, out_contact);
-					if (hit)
-						ContactFlip(out_contact);
-					break;
-				}
-				case SHAPE_TRIANGLE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
-				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_SPHERE: hit = BoxVsSphere(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_BOX:    hit = BoxVsBox(sa, wa, sb, wb, out_contact); break;
 			}
 			break;
 		}
 		case SHAPE_LINE:
 		{
-			switch (sb.type)
+			switch (sa.type)
 			{
-				case SHAPE_LINE:     hit = LineVsLine(sa, wa, sb, wb, out_contact); break;
-				case SHAPE_TRIANGLE: hit = LineVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
-				case SHAPE_POLYTOPE: hit = LineVsConvex(sa, wa, sb, wb, verts, out_contact, gjk_iters); break;
+				case SHAPE_SPHERE: hit = LineVsSphere(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_BOX:    hit = LineVsBox(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_LINE:   hit = LineVsLine(sa, wa, sb, wb, out_contact); break;
 			}
 			break;
 		}
 		case SHAPE_TRIANGLE:
 		{
-			switch (sb.type)
+			switch (sa.type)
 			{
+				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_LINE:     hit = TriangleVsLine(sb, wb, sa, wa, verts, out_contact); break;
 				case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
-				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
 			}
 			break;
 		}
 		case SHAPE_POLYTOPE:
 		{
-			hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters);
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_LINE:     hit = PolytopeVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_TRIANGLE: hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+			}
 			break;
 		}
 	}
 
-	// If we swapped A and B, negate the contact axis
-	if (swapped && hit)
+	// HigherVsLower functions return contact in canonical order. Flip back if the caller supplied lower-vs-higher.
+	if (a.type < b.type && hit)
 		ContactFlip(out_contact);
-	
+
 	return hit;
 }
 
