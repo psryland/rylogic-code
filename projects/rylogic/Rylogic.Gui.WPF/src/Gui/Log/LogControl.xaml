@@ -28,12 +28,24 @@
 			<gui:LocaleString x:Key="Str_Offset" Key="Log_Offset" Fallback="Offset"/>
 			<gui:LocaleString x:Key="Str_Occurrences" Key="Log_Occurrences" Fallback="Occurrences"/>
 			<gui:LocaleString x:Key="Str_Text" Key="Log_Text" Fallback="Text"/>
+			<gui:LocaleString x:Key="Str_GoToError" Key="Log_GoToError" Fallback="Go to Error"/>
 			<gui:LocaleString x:Key="Str_CopyLogEntries" Key="Log_CopyLogEntries" Fallback="Copy Log Entries"/>
 			<gui:LocaleString x:Key="Str_CopyMessages" Key="Log_CopyMessages" Fallback="Copy Messages"/>
 			<gui:LocaleString x:Key="Str_ElapsedTimeFormat" Key="Log_ElapsedTimeFormat" Fallback="Elapsed Format:"/>
 			<gui:LocaleString x:Key="Str_TimestampFormat" Key="Log_TimestampFormat" Fallback="Timestamp Format:"/>
 			
 			<!-- Default context menu -->
+			<MenuItem
+				x:Key="LogControlCMenu_GoToError"
+				Header="{Binding Source={StaticResource Str_GoToError}, Path=Value}"
+				Command="{Binding GoToLogEntry}"
+				IsEnabled="{Binding GoToLogEntry.Available}"
+				Visibility="{Binding GoToLogEntry, Converter={conv:NullToCollapsed}}"
+				/>
+			<Separator
+				x:Key="LogControlCMenu_GoToErrorSep"
+				Visibility="{Binding GoToLogEntry, Converter={conv:NullToCollapsed}}"
+				/>
 			<MenuItem
 				x:Key="LogControlCMenu_CopyLogEntries"
 				Header="{Binding Source={StaticResource Str_CopyLogEntries}, Path=Value}"
@@ -82,7 +94,12 @@
 					</StackPanel>
 				</MenuItem.Header>
 			</MenuItem>
-			<ContextMenu x:Key="LogControlCMenu">
+			<ContextMenu
+				x:Key="LogControlCMenu"
+				DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+				>
+				<StaticResource ResourceKey="LogControlCMenu_GoToError"/>
+				<StaticResource ResourceKey="LogControlCMenu_GoToErrorSep"/>
 				<StaticResource ResourceKey="LogControlCMenu_CopyLogEntries"/>
 				<StaticResource ResourceKey="LogControlCMenu_CopyMessages"/>
 				<StaticResource ResourceKey="LogControlCMenu_ElapsedFormat"/>
@@ -244,6 +261,7 @@
 			MouseDoubleClick="HandleMouseDoubleClick"
 			CanUserResizeColumns="True"
 			CanUserSortColumns="False"
+			IsSynchronizedWithCurrentItem="True"
 			IsReadOnly="True"
 			>
 			<DataGrid.Columns>

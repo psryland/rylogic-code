@@ -383,7 +383,7 @@ namespace LDraw
 		}
 
 		/// <summary>Open 'source' in a script editor</summary>
-		public void OpenInEditor(Source source)
+		public ScriptUI? OpenInEditor(Source source)
 		{
 			try
 			{
@@ -391,13 +391,22 @@ namespace LDraw
 				var ui = Model.OpenInEditor(source) ?? throw new Exception("Failed to open the editor for the new script file");
 
 				// Display the editor
-				m_dc.Add(ui, EDockSite.Left).IsFloating = true;
+				ShowScriptEditor(ui);
+				return ui;
 			}
 			catch (Exception ex)
 			{
 				Log.Write(ELogLevel.Info, ex, "Opening source in editor failed.");
 				MsgBox.Show(this, $"Opening source in editor failed.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
+				return null;
 			}
+		}
+		private void ShowScriptEditor(ScriptUI ui)
+		{
+			if (ui.DockControl.DockContainer != m_dc)
+				m_dc.Add(ui, EDockSite.Left).IsFloating = true;
+
+			m_dc.FindAndShow(ui.DockControl);
 		}
 
 		/// <summary>Add a file source (synchronous — for NewScript which needs immediate Source ref)</summary>
@@ -473,7 +482,7 @@ namespace LDraw
 				var ui = Model.OpenInEditor(src) ?? throw new Exception("Failed to open the editor for the new script file");
 
 				// Display the editor
-				m_dc.Add(ui, EDockSite.Left).IsFloating = true;
+				ShowScriptEditor(ui);
 			}
 			catch (Exception ex)
 			{
@@ -564,7 +573,7 @@ namespace LDraw
 				var ui = Model.OpenInEditor(src) ?? throw new Exception("Failed to open the editor for the new script file");
 
 				// Display the editor
-				m_dc.Add(ui, EDockSite.Left).IsFloating = true;
+				ShowScriptEditor(ui);
 			}
 			catch (Exception ex)
 			{

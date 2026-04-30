@@ -217,7 +217,7 @@ namespace pr::rdr12::ldraw
 		{
 			auto const* snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(&src);
 			if (snapshot != nullptr && !snapshot->filepath().empty())
-				return { snapshot->filepath(), snapshot->file_size() };
+				return { snapshot->filepath(), snapshot->file_size(), snapshot->file_offset() };
 
 			return { src_filepath, ReadSourceLength(src_filepath) };
 		}

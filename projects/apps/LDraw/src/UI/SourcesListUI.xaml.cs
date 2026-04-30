@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -157,16 +157,7 @@ namespace LDraw.UI
 				var editor_path = Model.Profile.TextEditorPath;
 				if (!string.IsNullOrEmpty(editor_path))
 				{
-					var arguments = Model.Profile.TextEditorArguments
-						.Replace("{file}", item.Source.FilePath)
-						.Replace("{line}", "1");
-
-					Process.Start(new ProcessStartInfo
-					{
-						FileName = editor_path,
-						Arguments = arguments,
-						UseShellExecute = false,
-					});
+					ExternalTextEditor.Launch(editor_path, Model.Profile.TextEditorArguments, item.Source.FilePath, 1);
 				}
 				else
 				{

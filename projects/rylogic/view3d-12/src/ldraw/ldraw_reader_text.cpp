@@ -14,9 +14,30 @@ namespace pr::rdr12::ldraw
 		{
 			auto const* snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(&stream);
 			if (snapshot != nullptr && !snapshot->filepath().empty())
-				return script::Loc(snapshot->filepath(), snapshot->file_size(), 0, 0, 1, 1, true);
+				return script::Loc(snapshot->filepath(), snapshot->file_size(), snapshot->file_offset(), snapshot->file_offset(), 1, 1, true);
 
 			return script::Loc(src_filepath);
+		}
+		bool IsDefaultLocation(script::Loc const& loc)
+		{
+			return
+				loc.Filepath().empty() &&
+				loc.FileSize() == 0 &&
+				loc.Pos() == 0 &&
+				loc.LinePos() == 0 &&
+				loc.Line() == 1 &&
+				loc.Col() == 1;
+		}
+		Location ToLocation(script::Loc const& loc)
+		{
+			return
+			{
+				.m_filepath = loc.Filepath(),
+				.m_filesize = loc.FileSize(),
+				.m_offset = loc.Pos(),
+				.m_column = loc.Col(),
+				.m_line = loc.Line(),
+			};
 		}
 
 		// Convert opaque storage to a typed reference
@@ -40,7 +61,9 @@ namespace pr::rdr12::ldraw
 	{
 		static_assert(sizeof(m_src) >= sizeof(script::StreamSrc<char>));
 		static_assert(sizeof(m_pp) >= sizeof(script::Preprocessor));
-		new (m_src) script::StreamSrc<char>(stream, enc, SourceLocation(stream, src_filepath));
+		auto const loc = SourceLocation(stream, src_filepath);
+		m_location = ToLocation(loc);
+		new (m_src) script::StreamSrc<char>(stream, enc, loc);
 		new (m_pp) script::Preprocessor(as<script::Src>(m_src), nullptr, nullptr, nullptr);
 	}
 	TextReader::TextReader(std::wistream& stream, std::filesystem::path src_filepath, EEncoding enc, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
@@ -55,7 +78,9 @@ namespace pr::rdr12::ldraw
 	{
 		static_assert(sizeof(m_src) >= sizeof(script::StreamSrc<wchar_t>));
 		static_assert(sizeof(m_pp) >= sizeof(script::Preprocessor));
-		new (m_src) script::StreamSrc<wchar_t>(stream, enc, script::Loc(src_filepath));
+		auto const loc = script::Loc(src_filepath);
+		m_location = ToLocation(loc);
+		new (m_src) script::StreamSrc<wchar_t>(stream, enc, loc);
 		new (m_pp) script::Preprocessor(as<script::Src>(m_src), nullptr, nullptr, nullptr);
 	}
 	TextReader::~TextReader()
@@ -68,11 +93,9 @@ namespace pr::rdr12::ldraw
 	Location const& TextReader::Loc() const
 	{
 		auto loc = as<script::Preprocessor const>(m_pp).Location();
-		m_location.m_filepath = loc.Filepath();
-		m_location.m_filesize = loc.FileSize();
-		m_location.m_offset = loc.Pos();
-		m_location.m_column = loc.Col();
-		m_location.m_line = loc.Line();
+		if (!IsDefaultLocation(loc))
+			m_location = ToLocation(loc);
+
 		return m_location;
 	}
 

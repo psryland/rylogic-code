@@ -163,17 +163,19 @@ namespace pr::filesys
 		using storage_t = std::string;
 
 		std::filesystem::path m_filepath;
+		std::streamoff m_file_offset;
 
-		FileSnapshotStream(std::filesystem::path filepath, std::string data)
+		FileSnapshotStream(std::filesystem::path filepath, std::string data, size_t offset = 0)
 			: storage_t(std::move(data))
-			, mem_istream<char>(std::string_view(static_cast<storage_t const&>(*this)), 0)
+			, mem_istream<char>(DataView(static_cast<storage_t const&>(*this), offset), 0)
 			, m_filepath(std::move(filepath))
+			, m_file_offset(static_cast<std::streamoff>(std::min(offset, static_cast<storage_t const&>(*this).size())))
 		{}
 		FileSnapshotStream(std::string data)
 			: FileSnapshotStream(std::filesystem::path{}, std::move(data))
 		{}
-		FileSnapshotStream(FileSnapshot snapshot)
-			: FileSnapshotStream(std::move(snapshot.m_filepath), std::move(snapshot.m_data))
+		FileSnapshotStream(FileSnapshot snapshot, size_t offset = 0)
+			: FileSnapshotStream(std::move(snapshot.m_filepath), std::move(snapshot.m_data), offset)
 		{}
 
 		std::filesystem::path const& filepath() const noexcept
@@ -183,6 +185,18 @@ namespace pr::filesys
 		std::streamsize file_size() const noexcept
 		{
 			return static_cast<std::streamsize>(static_cast<storage_t const&>(*this).size());
+		}
+		std::streamoff file_offset() const noexcept
+		{
+			return m_file_offset;
+		}
+
+	private:
+
+		static std::string_view DataView(storage_t const& data, size_t offset)
+		{
+			offset = std::min(offset, data.size());
+			return std::string_view(data.data() + offset, data.size() - offset);
 		}
 	};
 }
@@ -207,6 +221,7 @@ namespace pr::filesys
 		auto stream = FileSnapshotStream(std::move(snapshot));
 		PR_EXPECT(stream.filepath() == filepath);
 		PR_EXPECT(stream.file_size() == 13);
+		PR_EXPECT(stream.file_offset() == 0);
 
 		auto busy = win32::FileOpen(filepath, GENERIC_WRITE, FILE_SHARE_READ, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL);
 		PR_EXPECT(!!busy);

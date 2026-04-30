@@ -59,7 +59,7 @@ namespace LDraw
 			CheckForChangesPollPeriodS = 1.0;
 			IncludePaths = Array.Empty<string>();
 			TextEditorPath = string.Empty;
-			TextEditorArguments = "\"{file}\" --goto {line}";
+			TextEditorArguments = "--reuse-window --goto \"{file}:{line}\"";
 			StreamingPort = 1976;
 			SceneState = new List<SceneStateData>();
 			UILayout = null;
