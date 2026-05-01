@@ -699,5 +699,87 @@ namespace pr::physics::tests
 			}
 		}
 	};
+
+	PRUnitTestClass(GpuContactManifoldReducerTests)
+	{
+		static void CheckBoxDropContact(GpuContact const& contact)
+		{
+			constexpr auto Tol = 1e-5f;
+
+			PR_EXPECT(contact.feature == FEATURE_QUAD);
+			PR_EXPECT(FEqlRelative(contact.axis, v4(0, 0, -1, 0), Tol));
+			PR_EXPECT(FEqlAbsolute(contact.depth, 0.01f, Tol));
+
+			auto centroid = ContactCentroid(contact);
+			PR_EXPECT(FEqlAbsolute(centroid.x, 0.0f, Tol));
+			PR_EXPECT(FEqlAbsolute(centroid.y, 0.0f, Tol));
+			PR_EXPECT(FEqlAbsolute(centroid.z, -0.005f, Tol));
+			PR_EXPECT(FEqlAbsolute(centroid.w, 1.0f, Tol));
+
+			for (int i = 0; i != contact.feature; ++i)
+			{
+				auto pt = contact.manifold[i];
+				PR_EXPECT(pt.x >= -0.5f - Tol && pt.x <= +0.5f + Tol);
+				PR_EXPECT(pt.y >= -0.5f - Tol && pt.y <= +0.5f + Tol);
+				PR_EXPECT(FEqlAbsolute(pt.z, -0.005f, Tol));
+				PR_EXPECT(FEqlAbsolute(pt.w, 1.0f, Tol));
+			}
+		}
+
+		PRUnitTestMethod(BoxDropSupportFeatures)
+		{
+			using namespace pr::hlsl;
+
+			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
+			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
+			auto box_to_world = m4x4::Translation(0, 0, 0.49f);
+			auto grd_to_world = m4x4::Translation(0, 0, -0.5f);
+
+			StructuredBuffer<float4> verts;
+			auto sbox = PackShape(box, verts);
+			auto sgrd = PackShape(grd, verts);
+			auto axis = float4(0, 0, -1, 0);
+
+			float3 pts_box[4], pts_grd[4];
+			auto count_box = BoxSupportFeature(box_to_world[3].xyz, (float3x3)box_to_world, sbox.data.xyz, +axis.xyz, pts_box);
+			auto count_grd = BoxSupportFeature(grd_to_world[3].xyz, (float3x3)grd_to_world, sgrd.data.xyz, -axis.xyz, pts_grd);
+			PR_EXPECT(count_box == FEATURE_QUAD);
+			PR_EXPECT(count_grd == FEATURE_QUAD);
+
+			GpuFeature feat_box, feat_grd;
+			FeatureClear(feat_box);
+			FeatureClear(feat_grd);
+			feat_box.count = count_box;
+			feat_grd.count = count_grd;
+			for (int i = 0; i != count_box; ++i)
+				feat_box.points[i] = float4(pts_box[i], 1);
+			for (int i = 0; i != count_grd; ++i)
+				feat_grd.points[i] = float4(pts_grd[i], 1);
+
+			GpuContact contact;
+			FindContactManifold(feat_box, feat_grd, axis, 0.01f, contact);
+			CheckBoxDropContact(contact);
+		}
+
+		PRUnitTestMethod(BoxDropBoxVsBox)
+		{
+			using namespace pr::hlsl;
+
+			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
+			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
+			auto box_to_world = m4x4::Translation(0, 0, 0.49f);
+			auto grd_to_world = m4x4::Translation(0, 0, -0.5f);
+
+			StructuredBuffer<float4> verts;
+			auto sbox = PackShape(box, verts);
+			auto sgrd = PackShape(grd, verts);
+
+			GpuContact contact;
+			auto hit = BoxVsBox(sbox, box_to_world, sgrd, grd_to_world, contact);
+			collision::tests::VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", box, box_to_world, grd, grd_to_world, To<collision::Contact>(contact));
+			PR_EXPECT(hit);
+			CheckBoxDropContact(contact);
+		}
+	};
 }
 #endif

@@ -111,7 +111,7 @@ numthreads(CSCalcCDDispatch, 1,1,1)
 void CSCalcCDDispatch(int3 dtid : SV_DispatchThreadID)
 {
 	uint pair_count = g_counters[0].pair_count;
-	g_dispatch_args[0].ThreadGroupCountX = (pair_count + CollideThreadCount) / CollideThreadCount;
+	g_dispatch_args[0].ThreadGroupCountX = (pair_count + CollideThreadCount - 1) / CollideThreadCount;
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;
 }

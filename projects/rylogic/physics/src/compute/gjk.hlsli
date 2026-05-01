@@ -30,6 +30,7 @@
 #define PR_PHYSICS_GJK_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/closest_point.hlsli"
 #include "pr/hlsl/interop.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
@@ -47,6 +48,13 @@ static const int GpuManifoldMaxCorners = 64;
 static const float GjkEps = 1e-8f;
 static const float EpaEps = 1e-6f;
 
+#ifdef __cplusplus
+#define PR_HLSL_BRANCH
+#else
+#define PR_HLSL_BRANCH [branch]
+#endif
+
+// ---- Local data structures ----
 struct GpuFeature
 {
 	int count;
@@ -69,41 +77,15 @@ struct GpuCornerSet
 	float4 points[GpuManifoldMaxCorners];
 };
 
+// ---- Utility helpers ----
 inline float4 NormaliseSafe(float4 v, float4 fallback)
 {
 	float len_sq = dot(v.xyz, v.xyz);
 	return len_sq > GjkEps * GjkEps ? float4(v.xyz * rsqrt(len_sq), 0) : fallback;
 }
-inline void ContactClosestPointSegmentSegment(float4 p0, float4 d0, float len0, float4 p1, float4 d1, float len1, out_(float) t0, out_(float) t1)
-{
-	float4 r = p0 - p1;
-	float a = dot(d0.xyz, d0.xyz);
-	float e = dot(d1.xyz, d1.xyz);
-	float f = dot(d1.xyz, r.xyz);
-	float b = dot(d0.xyz, d1.xyz);
-	float c = dot(d0.xyz, r.xyz);
-	float denom = a * e - b * b;
 
-	if (denom > 1e-12f)
-		t0 = clamp((b * f - c * e) / denom, -len0, len0);
-	else
-		t0 = 0;
-
-	t1 = (b * t0 + f) / max(e, 1e-12f);
-	if (t1 < -len1)
-	{
-		t1 = -len1;
-		t0 = clamp((-b * len1 - c) / max(a, 1e-12f), -len0, len0);
-	}
-	else if (t1 > len1)
-	{
-		t1 = len1;
-		t0 = clamp((b * len1 - c) / max(a, 1e-12f), -len0, len0);
-	}
-}
-
-// ---- Support vertex functions ----
-// Each function returns the furthest point on the shape boundary in the given shape-space direction.
+// ---- Support vertex queries ----
+// Furthest boundary point in a shape-space direction. Shape-specific overloads follow EShape order.
 inline float4 SupportVertex_Sphere(in_(GpuShape) shape, float4 dir)
 {
 	float radius = shape.data.x;
@@ -172,6 +154,7 @@ inline float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffe
 	}
 }
 
+// ---- Feature accumulation helpers ----
 inline void FeatureClear(out_(GpuFeature) feature)
 {
 	feature.count = 0;
@@ -199,6 +182,40 @@ inline float4 FeatureCentroid(in_(GpuFeature) feature)
 		centre += feature.points[i];
 
 	return float4(centre.xyz / max((float)feature.count, 1.0f), 1);
+}
+inline bool FeatureIsPlanar(in_(GpuFeature) feature, float4 axis)
+{
+	if (feature.count < 3)
+		return true;
+
+	const float Tol = 1e-4f;
+	const float TolSq = Tol * Tol;
+	float4 normal = float4(0, 0, 0, 0);
+	for (int i = 1; i != feature.count - 1; ++i)
+	{
+		float4 e0 = feature.points[i] - feature.points[0];
+		float4 e1 = feature.points[i + 1] - feature.points[0];
+		normal = float4(cross(e0.xyz, e1.xyz), 0);
+		float len_sq = length_sq(normal.xyz);
+		if (len_sq > TolSq)
+		{
+			normal = float4(normal.xyz * rsqrt(len_sq), 0);
+			break;
+		}
+	}
+	if (length_sq(normal.xyz) <= TolSq)
+		return false;
+
+	float4 axis_norm = NormaliseSafe(axis, float4(1, 0, 0, 0));
+	if (abs(dot(normal.xyz, axis_norm.xyz)) < 0.5f)
+		return false;
+
+	for (int j = 0; j != feature.count; ++j)
+	{
+		if (abs(dot((feature.points[j] - feature.points[0]).xyz, normal.xyz)) > Tol)
+			return false;
+	}
+	return true;
 }
 inline void FeatureSortAroundAxis(inout_(GpuFeature) feature, float4 axis)
 {
@@ -242,183 +259,8 @@ inline void FeatureSortAroundAxis(inout_(GpuFeature) feature, float4 axis)
 		}
 	}
 }
-inline void ContactClear(out_(GpuContact) contact)
-{
-	contact.axis = float4(0, 0, 0, 0);
-	contact.feature = FEATURE_NONE;
-	contact.depth = 0;
-	contact.pad0 = 0;
-	contact.pad1 = 0;
-	for (int i = 0; i != GpuContactMaxPoints; ++i)
-		contact.manifold[i] = float4(0, 0, 0, 1);
-}
-inline int ContactCount(in_(GpuContact) contact)
-{
-	return clamp(contact.feature, FEATURE_NONE, GpuContactMaxPoints);
-}
-inline float4 ContactCentroid(in_(GpuContact) contact)
-{
-	float4 centre = float4(0, 0, 0, 0);
-	int count = ContactCount(contact);
-	for (int i = 0; i != count; ++i)
-		centre += contact.manifold[i];
 
-	return count != 0 ? float4(centre.xyz / (float)count, 1) : float4(0, 0, 0, 1);
-}
-inline void ContactSetPoint(out_(GpuContact) contact, float4 axis, float4 pt, float depth)
-{
-	ContactClear(contact);
-	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
-	contact.manifold[0] = float4(pt.xyz, 1);
-	contact.feature = FEATURE_VERT;
-	contact.depth = depth;
-}
-inline void ContactSetManifold(out_(GpuContact) contact, float4 axis, float4 manifold[GpuContactMaxPoints], int feature, float depth)
-{
-	ContactClear(contact);
-	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
-	contact.feature = clamp(feature, FEATURE_NONE, GpuContactMaxPoints);
-	contact.depth = depth;
-	for (int i = 0; i != contact.feature; ++i)
-		contact.manifold[i] = float4(manifold[i].xyz, 1);
-}
-inline void ContactFlip(inout_(GpuContact) contact)
-{
-	contact.axis = -contact.axis;
-	int count = ContactCount(contact);
-	for (int i = 0; i != count / 2; ++i)
-	{
-		float4 tmp = contact.manifold[i];
-		contact.manifold[i] = contact.manifold[count - 1 - i];
-		contact.manifold[count - 1 - i] = tmp;
-	}
-}
-
-inline void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(GpuContact) contact)
-{
-	ContactClear(contact);
-	const float Tol = 1e-5f;
-	const float TolSq = Tol * Tol;
-
-	if (corners.count == 0)
-		return;
-	if (corners.count == 1)
-	{
-		ContactSetPoint(contact, axis, corners.points[0], 0);
-		return;
-	}
-	if (corners.count == 2)
-	{
-		if (length_sq((corners.points[1] - corners.points[0]).xyz) < TolSq)
-		{
-			ContactSetPoint(contact, axis, corners.points[0], 0);
-			return;
-		}
-
-		float4 manifold[GpuContactMaxPoints];
-		manifold[0] = corners.points[0];
-		manifold[1] = corners.points[1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
-		return;
-	}
-	if (corners.count == 3)
-	{
-		float4 e0 = corners.points[1] - corners.points[0];
-		float4 e1 = corners.points[2] - corners.points[1];
-		float4 e2 = corners.points[0] - corners.points[2];
-		float l0 = length_sq(e0.xyz);
-		float l1 = length_sq(e1.xyz);
-		float l2 = length_sq(e2.xyz);
-		float sign = dot(axis.xyz, cross(e0.xyz, e1.xyz));
-
-		if (l0 < TolSq && l1 < TolSq && l2 < TolSq)
-		{
-			ContactSetPoint(contact, axis, corners.points[0], 0);
-			return;
-		}
-		if (l0 < TolSq || l1 < TolSq || l2 < TolSq || abs(sign) < TolSq)
-		{
-			float4 manifold[GpuContactMaxPoints];
-			int i0 = 0, i1 = 1;
-			if (l1 >= l0 && l1 >= l2) { i0 = 1; i1 = 2; }
-			else if (l2 >= l0 && l2 >= l1) { i0 = 2; i1 = 0; }
-			manifold[0] = corners.points[i0];
-			manifold[1] = corners.points[i1];
-			ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
-			return;
-		}
-
-		float4 manifold[GpuContactMaxPoints];
-		manifold[0] = corners.points[0];
-		manifold[1] = sign > 0 ? corners.points[1] : corners.points[2];
-		manifold[2] = sign > 0 ? corners.points[2] : corners.points[1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
-		return;
-	}
-
-	int i0 = 0, i1 = 1;
-	float max_dist_sq = length_sq((corners.points[i1] - corners.points[i0]).xyz);
-	for (int i = 2; ; i = (i + 1) % corners.count)
-	{
-		if (i == i0)
-			break;
-
-		float dist_sq = length_sq((corners.points[i] - corners.points[i0]).xyz);
-		if (dist_sq > max_dist_sq)
-		{
-			i1 = i0;
-			i0 = i;
-			max_dist_sq = dist_sq;
-		}
-	}
-	if (max_dist_sq < TolSq)
-	{
-		ContactSetPoint(contact, axis, corners.points[i0], 0);
-		return;
-	}
-
-	int j0 = i0, j1 = i0;
-	float max_dist0 = -Tol;
-	float max_dist1 = +Tol;
-	float4 bi_norm = NormaliseSafe(float4(cross(axis.xyz, (corners.points[i1] - corners.points[i0]).xyz), 0), float4(1, 0, 0, 0));
-	for (int j = 0; j != corners.count; ++j)
-	{
-		if (j == i0 || j == i1)
-			continue;
-
-		float dist = dot((corners.points[j] - corners.points[i0]).xyz, bi_norm.xyz);
-		if (dist < max_dist0) { j0 = j; max_dist0 = dist; }
-		if (dist > max_dist1) { j1 = j; max_dist1 = dist; }
-	}
-
-	float4 manifold[GpuContactMaxPoints];
-	manifold[0] = corners.points[i0];
-	if (j0 == i0 && j1 == i0)
-	{
-		manifold[1] = corners.points[i1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
-	}
-	else if (j0 == i0)
-	{
-		manifold[1] = corners.points[i1];
-		manifold[2] = corners.points[j1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
-	}
-	else if (j1 == i0)
-	{
-		manifold[1] = corners.points[j0];
-		manifold[2] = corners.points[i1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
-	}
-	else
-	{
-		manifold[1] = corners.points[j0];
-		manifold[2] = corners.points[i1];
-		manifold[3] = corners.points[j1];
-		ContactSetManifold(contact, axis, manifold, FEATURE_QUAD, 0);
-	}
-}
-
+// ---- Support feature queries ----
 inline void SupportFeature_Box(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
 {
 	FeatureClear(feature);
@@ -555,6 +397,60 @@ inline void TransformFeature(inout_(GpuFeature) feature, float4x4 s2w)
 		feature.points[i] = float4(mul(feature.points[i], s2w).xyz, 1);
 }
 
+// ---- Contact record helpers ----
+inline void ContactClear(out_(GpuContact) contact)
+{
+	contact.axis = float4(0, 0, 0, 0);
+	contact.feature = FEATURE_NONE;
+	contact.depth = 0;
+	contact.pad0 = 0;
+	contact.pad1 = 0;
+	for (int i = 0; i != GpuContactMaxPoints; ++i)
+		contact.manifold[i] = float4(0, 0, 0, 1);
+}
+inline int ContactCount(in_(GpuContact) contact)
+{
+	return clamp(contact.feature, FEATURE_NONE, GpuContactMaxPoints);
+}
+inline float4 ContactCentroid(in_(GpuContact) contact)
+{
+	float4 centre = float4(0, 0, 0, 0);
+	int count = ContactCount(contact);
+	for (int i = 0; i != count; ++i)
+		centre += contact.manifold[i];
+
+	return count != 0 ? float4(centre.xyz / (float)count, 1) : float4(0, 0, 0, 1);
+}
+inline void ContactSetPoint(out_(GpuContact) contact, float4 axis, float4 pt, float depth)
+{
+	ContactClear(contact);
+	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
+	contact.manifold[0] = float4(pt.xyz, 1);
+	contact.feature = FEATURE_VERT;
+	contact.depth = depth;
+}
+inline void ContactSetManifold(out_(GpuContact) contact, float4 axis, float4 manifold[GpuContactMaxPoints], int feature, float depth)
+{
+	ContactClear(contact);
+	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
+	contact.feature = clamp(feature, FEATURE_NONE, GpuContactMaxPoints);
+	contact.depth = depth;
+	for (int i = 0; i != contact.feature; ++i)
+		contact.manifold[i] = float4(manifold[i].xyz, 1);
+}
+inline void ContactFlip(inout_(GpuContact) contact)
+{
+	contact.axis = -contact.axis;
+	int count = ContactCount(contact);
+	for (int i = 0; i != count / 2; ++i)
+	{
+		float4 tmp = contact.manifold[i];
+		contact.manifold[i] = contact.manifold[count - 1 - i];
+		contact.manifold[count - 1 - i] = tmp;
+	}
+}
+
+// ---- Manifold clipping helpers ----
 inline void CornerSetClear(out_(GpuCornerSet) corners)
 {
 	corners.count = 0;
@@ -565,6 +461,18 @@ inline void CornerSetAdd(inout_(GpuCornerSet) corners, float4 pt)
 {
 	if (corners.count < GpuManifoldMaxCorners)
 		corners.points[corners.count++] = float4(pt.xyz, 1);
+}
+inline void ClipEdgeClear(inout_(GpuClipEdge) edge)
+{
+	edge.t0 = 0.0f;
+	edge.t1 = 1.0f;
+	edge.valid = 1;
+	edge.pad0 = 0;
+}
+inline void ClipEdgeSetClear(GpuClipEdgeSet edgeset)
+{
+	for (int i = 0; i != GpuFeatureMaxPoints; ++i)
+		ClipEdgeClear(edgeset.edges[i]);
 }
 inline void ClipFeatureEdges(in_(GpuFeature) points0, in_(GpuFeature) points1, inout_(GpuClipEdgeSet) edges1, float sign, float4 axis)
 {
@@ -612,43 +520,186 @@ inline void AppendClippedEdge(inout_(GpuCornerSet) corners, in_(GpuFeature) poin
 	CornerSetAdd(corners, pt0 + edge.t0 * (pt1 - pt0) + offset);
 	CornerSetAdd(corners, pt0 + edge.t1 * (pt1 - pt0) + offset);
 }
-inline void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
-{
-	ContactSetPoint(contact, axis, 0.5f * (FeatureCentroid(featA) + FeatureCentroid(featB)), depth);
-}
-inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+
+// Build the best representative point for simple feature pairs without invoking the polygon clipper.
+inline bool ContactTrySetPoint(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
 {
 	ContactClear(contact);
-
 	int countA = featA.count;
 	int countB = featB.count;
-	if (countA == 0 || countB == 0)
-		return;
+	PR_HLSL_BRANCH if (countA == 0 || countB == 0)
+		return true;
 
-	if (countA == 1 && countB == 1)
+	PR_HLSL_BRANCH if (countA == 1 && countB == 1)
 	{
 		ContactSetPoint(contact, axis, 0.5f * (featA.points[0] + featB.points[0]), depth);
-		return;
+		return true;
 	}
-	if (countA == 1)
+	PR_HLSL_BRANCH if (countA == 1)
 	{
 		ContactSetPoint(contact, axis, featA.points[0] + axis * (0.5f * dot(axis.xyz, (featB.points[0] - featA.points[0]).xyz)), depth);
-		return;
+		return true;
 	}
-	if (countB == 1)
+	PR_HLSL_BRANCH if (countB == 1)
 	{
 		ContactSetPoint(contact, axis, featB.points[0] + axis * (0.5f * dot(axis.xyz, (featA.points[0] - featB.points[0]).xyz)), depth);
-		return;
+		return true;
 	}
-	if (countA == 2 && countB == 2)
+	PR_HLSL_BRANCH if (countA == 2 && countB == 2)
 	{
-		float ta, tb;
 		float4 da = featA.points[1] - featA.points[0];
 		float4 db = featB.points[1] - featB.points[0];
 		float4 ca = 0.5f * (featA.points[0] + featA.points[1]);
 		float4 cb = 0.5f * (featB.points[0] + featB.points[1]);
-		ContactClosestPointSegmentSegment(ca, NormaliseSafe(da, float4(1, 0, 0, 0)), 0.5f * length(da.xyz), cb, NormaliseSafe(db, float4(1, 0, 0, 0)), 0.5f * length(db.xyz), ta, tb);
-		ContactSetPoint(contact, axis, 0.5f * (ca + ta * NormaliseSafe(da, float4(1, 0, 0, 0)) + cb + tb * NormaliseSafe(db, float4(1, 0, 0, 0))), depth);
+		float2 t = ClosestPoint_SegmentToSegment(ca, NormaliseSafe(da, float4(1, 0, 0, 0)), 0.5f * length(da.xyz), cb, NormaliseSafe(db, float4(1, 0, 0, 0)), 0.5f * length(db.xyz));
+		ContactSetPoint(contact, axis, 0.5f * (ca + t.x * NormaliseSafe(da, float4(1, 0, 0, 0)) + cb + t.y * NormaliseSafe(db, float4(1, 0, 0, 0))), depth);
+		return true;
+	}
+	return false;
+}
+
+// Reduce clipped corner candidates to the largest point/edge/triangle/quad representative manifold.
+inline void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(GpuContact) contact)
+{
+	ContactClear(contact);
+	const float Tol = 1e-5f;
+	const float TolSq = Tol * Tol;
+
+	if (corners.count == 0)
+		return;
+	if (corners.count == 1)
+	{
+		ContactSetPoint(contact, axis, corners.points[0], 0);
+		return;
+	}
+	if (corners.count == 2)
+	{
+		if (length_sq((corners.points[1] - corners.points[0]).xyz) < TolSq)
+		{
+			ContactSetPoint(contact, axis, corners.points[0], 0);
+			return;
+		}
+
+		float4 manifold[GpuContactMaxPoints];
+		manifold[0] = corners.points[0];
+		manifold[1] = corners.points[1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
+		return;
+	}
+	if (corners.count == 3)
+	{
+		float4 e0 = corners.points[1] - corners.points[0];
+		float4 e1 = corners.points[2] - corners.points[1];
+		float4 e2 = corners.points[0] - corners.points[2];
+		float l0 = length_sq(e0.xyz);
+		float l1 = length_sq(e1.xyz);
+		float l2 = length_sq(e2.xyz);
+		float sign = dot(axis.xyz, cross(e0.xyz, e1.xyz));
+
+		if (l0 < TolSq && l1 < TolSq && l2 < TolSq)
+		{
+			ContactSetPoint(contact, axis, corners.points[0], 0);
+			return;
+		}
+		if (l0 < TolSq || l1 < TolSq || l2 < TolSq || abs(sign) < TolSq)
+		{
+			float4 manifold[GpuContactMaxPoints];
+			int i0 = 0, i1 = 1;
+			if (l1 >= l0 && l1 >= l2) { i0 = 1; i1 = 2; }
+			else if (l2 >= l0 && l2 >= l1) { i0 = 2; i1 = 0; }
+			manifold[0] = corners.points[i0];
+			manifold[1] = corners.points[i1];
+			ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
+			return;
+		}
+
+		float4 manifold[GpuContactMaxPoints];
+		manifold[0] = corners.points[0];
+		manifold[1] = sign > 0 ? corners.points[1] : corners.points[2];
+		manifold[2] = sign > 0 ? corners.points[2] : corners.points[1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
+		return;
+	}
+
+	int corner_count = min(corners.count, GpuManifoldMaxCorners);
+	int i0 = 0, i1 = 1;
+	float max_dist_sq = length_sq((corners.points[i1] - corners.points[i0]).xyz);
+	for (int step = 0, i = 2; step != 2 * corner_count; ++step, i = (i + 1) % corner_count)
+	{
+		if (i == i0)
+			break;
+
+		float dist_sq = length_sq((corners.points[i] - corners.points[i0]).xyz);
+		if (dist_sq > max_dist_sq)
+		{
+			i1 = i0;
+			i0 = i;
+			max_dist_sq = dist_sq;
+		}
+	}
+	if (max_dist_sq < TolSq)
+	{
+		ContactSetPoint(contact, axis, corners.points[i0], 0);
+		return;
+	}
+
+	int j0 = i0, j1 = i0;
+	float max_dist0 = -Tol;
+	float max_dist1 = +Tol;
+	float4 bi_norm = NormaliseSafe(float4(cross(axis.xyz, (corners.points[i1] - corners.points[i0]).xyz), 0), float4(1, 0, 0, 0));
+	for (int j = 0; j != corner_count; ++j)
+	{
+		if (j == i0 || j == i1)
+			continue;
+
+		float dist = dot((corners.points[j] - corners.points[i0]).xyz, bi_norm.xyz);
+		if (dist < max_dist0) { j0 = j; max_dist0 = dist; }
+		if (dist > max_dist1) { j1 = j; max_dist1 = dist; }
+	}
+
+	float4 manifold[GpuContactMaxPoints];
+	manifold[0] = corners.points[i0];
+	if (j0 == i0 && j1 == i0)
+	{
+		manifold[1] = corners.points[i1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, 0);
+	}
+	else if (j0 == i0)
+	{
+		manifold[1] = corners.points[i1];
+		manifold[2] = corners.points[j1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
+	}
+	else if (j1 == i0)
+	{
+		manifold[1] = corners.points[j0];
+		manifold[2] = corners.points[i1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_TRI, 0);
+	}
+	else
+	{
+		manifold[1] = corners.points[j0];
+		manifold[2] = corners.points[i1];
+		manifold[3] = corners.points[j1];
+		ContactSetManifold(contact, axis, manifold, FEATURE_QUAD, 0);
+	}
+}
+inline void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+{
+	ContactSetPoint(contact, axis, 0.5f * (FeatureCentroid(featA) + FeatureCentroid(featB)), depth);
+}
+
+// Clip support features in world space, then shift the surviving boundary to the contact mid-plane.
+inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+{
+	if (ContactTrySetPoint(featA, featB, axis, depth, contact))
+		return;
+
+	int countA = featA.count;
+	int countB = featB.count;
+	PR_HLSL_BRANCH if (!FeatureIsPlanar(featA, axis) || !FeatureIsPlanar(featB, axis))
+	{
+		ContactFallback(featA, featB, axis, depth, contact);
 		return;
 	}
 
@@ -800,8 +851,6 @@ inline void SimplexPush(inout_(Simplex) sx, MkSup p)
 	sx.s[0] = p;
 	sx.n++;
 }
-
-// ---- Simplex reduction cases ----
 inline bool SimplexLine(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
@@ -1132,7 +1181,15 @@ inline bool GjkCollide(
 			float pb = dot(normal.xyz, centre_b.xyz);
 			float sign = (pa < pb) ? 1.0f : -1.0f;
 			float4 axis = sign * normal;
-			FindContactManifold(shape_a, a2w, shape_b, b2w, axis, depth, verts, out_contact);
+
+			// Generic EPA normals can produce support polygons that are unstable on the GPU; specialised SAT paths build full manifolds where stable features are available.
+			GpuFeature featA, featB;
+			SupportFeature(shape_a, mul(+axis, w2a), verts, featA);
+			SupportFeature(shape_b, mul(-axis, w2b), verts, featB);
+			TransformFeature(featA, a2w);
+			TransformFeature(featB, b2w);
+			if (!ContactTrySetPoint(featA, featB, axis, depth, out_contact))
+				ContactFallback(featA, featB, axis, depth, out_contact);
 			return true;
 		}
 	}

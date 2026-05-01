@@ -45,6 +45,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/interop.hlsli"
+#include "pr/hlsl/closest_point.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/compute/gjk.hlsli"
 
@@ -56,77 +57,12 @@ namespace pr::physics {
 static const float Eps = 1e-8f;
 
 // ---- Helpers ----
-// Closest point between two line segments. Returns the parameters (t0, t1) in [0,1].
-inline void ClosestPointSegmentSegment(float4 p0, float4 d0, float len0, float4 p1, float4 d1, float len1, out_(float) t0, out_(float) t1)
-{
-	float4 r = p0 - p1;
-	float a = dot(d0, d0); // len0*len0 but d0 might not be unit
-	float e = dot(d1, d1);
-	float f = dot(d1, r);
-	float b = dot(d0, d1);
-	float c = dot(d0, r);
-	float denom = a * e - b * b;
-
-	if (denom > 1e-12f)
-	{
-		t0 = clamp((b * f - c * e) / denom, -len0, len0);
-	}
-	else
-	{
-		t0 = 0; // parallel segments
-	}
-
-	// Compute t1 from t0
-	t1 = (b * t0 + f) / max(e, 1e-12f);
-
-	// Clamp t1 and recompute t0 if needed
-	if (t1 < -len1) { t1 = -len1; t0 = clamp((-b * len1 - c) / max(a, 1e-12f), -len0, len0); }
-	else if (t1 > len1) { t1 = len1; t0 = clamp((b * len1 - c) / max(a, 1e-12f), -len0, len0); }
-}
-
-// Closest point on a triangle (in world space) to a point. Returns barycentric coords.
-inline float4 ClosestPointOnTriangle(float4 p, float4 v0, float4 v1, float4 v2)
-{
-	float4 ab = v1 - v0, ac = v2 - v0, ap = p - v0;
-	float d1 = dot(ab, ap), d2 = dot(ac, ap);
-	if (d1 <= 0 && d2 <= 0) return v0;
-
-	float4 bp = p - v1;
-	float d3 = dot(ab, bp), d4 = dot(ac, bp);
-	if (d3 >= 0 && d4 <= d3) return v1;
-
-	float4 cp = p - v2;
-	float d5 = dot(ab, cp), d6 = dot(ac, cp);
-	if (d6 >= 0 && d5 <= d6) return v2;
-
-	float vc = d1 * d4 - d3 * d2;
-	if (vc <= 0 && d1 >= 0 && d3 <= 0) { float v = d1 / (d1 - d3); return v0 + v * ab; }
-
-	float vb = d5 * d2 - d1 * d6;
-	if (vb <= 0 && d2 >= 0 && d6 <= 0) { float w = d2 / (d2 - d6); return v0 + w * ac; }
-
-	float va = d3 * d6 - d5 * d4;
-	if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) { float w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return v1 + w * (v2 - v1); }
-
-	float denom = 1.0f / (va + vb + vc);
-	float v = vb * denom;
-	float w = vc * denom;
-	return v0 + ab * v + ac * w;
-}
-
 // Get the world-space vertices of a triangle shape
 inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
 {
 	v0 = mul(float4(verts[tri.vert_offset + 0].xyz, 1), tri_w);
 	v1 = mul(float4(verts[tri.vert_offset + 1].xyz, 1), tri_w);
 	v2 = mul(float4(verts[tri.vert_offset + 2].xyz, 1), tri_w);
-}
-
-// Closest point on a line segment to a point
-inline float4 ClosestPointOnSegment(float4 p, float4 seg_centre, float4 seg_dir, float hlength)
-{
-	float t = clamp(dot(p - seg_centre, seg_dir), -hlength, hlength);
-	return seg_centre + t * seg_dir;
 }
 
 // Clip a line segment's parametric range [t0,t1] against a half-plane.
@@ -582,11 +518,10 @@ inline bool LineVsLine(
 	float ta = la.data.y, tb = lb.data.y;
 	float combined_r = ta + tb;
 
-	float t0, t1;
-	ClosestPointSegmentSegment(ca, da, ha, cb, db, hb, t0, t1);
+	float2 t = ClosestPoint_SegmentToSegment(ca, da, ha, cb, db, hb);
 
-	float4 pa = ca + t0 * da;
-	float4 pb = cb + t1 * db;
+	float4 pa = ca + t.x * da;
+	float4 pb = cb + t.y * db;
 	float4 diff = pb - pa;
 	float dist_sq = dot(diff, diff);
 
@@ -637,7 +572,7 @@ inline bool TriangleVsLine(
 	for (i = 0; i < 2; ++i)
 	{
 		float4 lp = seg_centre + (i == 0 ? -hlength : hlength) * seg_dir;
-		float4 tp = ClosestPointOnTriangle(lp, v0, v1, v2);
+		float4 tp = ClosestPoint_PointToTriangle(lp, v0, v1, v2);
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
 	}
@@ -646,7 +581,7 @@ inline bool TriangleVsLine(
 	float4 tri_verts[3] = {v0, v1, v2};
 	for (i = 0; i < 3; ++i)
 	{
-		float4 lp = ClosestPointOnSegment(tri_verts[i], seg_centre, seg_dir, hlength);
+		float4 lp = ClosestPoint_PointToSegment(tri_verts[i], seg_centre, seg_dir, hlength);
 		float d = dot(lp - tri_verts[i], lp - tri_verts[i]);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tri_verts[i]; }
 	}
@@ -659,10 +594,9 @@ inline bool TriangleVsLine(
 		float4 ec = (edge_a[i] + edge_b[i]) * 0.5f;
 		float4 ed = normalize(edge_b[i] - edge_a[i]);
 		float elen = length(edge_b[i] - edge_a[i]) * 0.5f;
-		float t0, t1;
-		ClosestPointSegmentSegment(seg_centre, seg_dir, hlength, ec, ed, elen, t0, t1);
-		float4 lp = seg_centre + t0 * seg_dir;
-		float4 tp = ec + t1 * ed;
+		float2 t = ClosestPoint_SegmentToSegment(seg_centre, seg_dir, hlength, ec, ed, elen);
+		float4 lp = seg_centre + t.x * seg_dir;
+		float4 tp = ec + t.y * ed;
 		float d = dot(lp - tp, lp - tp);
 		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
 	}
