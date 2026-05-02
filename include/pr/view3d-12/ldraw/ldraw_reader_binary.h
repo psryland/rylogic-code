@@ -795,7 +795,7 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF00FF00);
 
-				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
 				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 0, 0, 1)));
 				PR_EXPECT(All(reader.Vector3f().w1() == v4(1, 0, 0, 1)));
 				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));

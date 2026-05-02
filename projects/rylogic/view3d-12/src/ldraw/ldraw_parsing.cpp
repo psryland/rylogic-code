@@ -4526,7 +4526,7 @@ namespace pr::rdr12::ldraw
 		{
 			switch (kw)
 			{
-				case EKeyword::Verts:
+				case EKeyword::Data:
 				{
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
