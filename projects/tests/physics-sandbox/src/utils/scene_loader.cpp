@@ -63,9 +63,9 @@ namespace physics_sandbox::scene_loader
 				if (verts.size() < 3)
 					throw std::runtime_error("Triangle shape requires 3 vertices");
 
-				desc.tri_verts[0] = ReadVec3(verts[0], 0);
-				desc.tri_verts[1] = ReadVec3(verts[1], 0);
-				desc.tri_verts[2] = ReadVec3(verts[2], 0);
+				desc.tri_verts[0] = ReadVec3(verts[0], 1);
+				desc.tri_verts[1] = ReadVec3(verts[1], 1);
+				desc.tri_verts[2] = ReadVec3(verts[2], 1);
 			}
 			else if (shape_type == "polytope")
 			{

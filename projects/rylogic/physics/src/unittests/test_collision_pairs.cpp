@@ -207,6 +207,131 @@ namespace pr::physics::tests
 			PR_EXPECT(r.collision_occurred);
 			PR_EXPECT(r.final_z > -1.0f);
 		}
+
+		// Helper for the BoxDropEnergy* tests below. Drops a 1.0 x 1.3 x 1.8 box of mass 10
+		// onto the ground from height 3 with a small lateral velocity. Asserts:
+		//   1. Body never reaches more than 1.2 * starting_height (no upward explosion).
+		//   2. Total energy (KE + PE) never exceeds initial energy substantially.
+		//   3. Body does not fall through the ground.
+		//   4. After settling, max penetration depth stays small (no Baumgarte runaway).
+		static void BoxDropEnergyImpl(bool rotated, std::string_view trace_filename)
+		{
+			auto box_shape = collision::ShapeBox(v4{0.5f, 0.65f, 0.9f, 0});
+			auto ground_shape = MakeGround();
+
+			RigidBody bodies[2];
+			bodies[0].Shape(collision::shape_cast(&box_shape), 10.0f);
+			auto initial_z = 3.0f;
+			auto rot = rotated
+				? m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{-5, 0, initial_z, 1})
+				: m4x4::Translation(-5, 0, initial_z);
+			bodies[0].O2W(rot);
+			bodies[0].VelocityWS(v4::Zero(), v4{0.8f, 0, 0, 0});
+
+			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
+			bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
+
+			physics::Engine engine;
+			engine.Material(physics::Material{
+				.m_id = physics::Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.3f,
+			});
+
+			auto max_depth_per_frame = std::vector<float>{};
+			engine.Collisions += [&](auto&, std::span<RbContact const> contacts)
+			{
+				auto max_depth = 0.0f;
+				for (auto const& c : contacts)
+					max_depth = std::max(max_depth, c.m_depth);
+				max_depth_per_frame.push_back(max_depth);
+			};
+
+			auto const g = 9.81f;
+			auto const dt = 1.0f / 60.0f;
+			auto const num_steps = 200;
+			auto const m = bodies[0].Mass();
+			auto const com_os = bodies[0].CentreOfMassOS();
+
+			// Initial total energy: KE = 0, PE = m * g * z (relative to ground top z=0)
+			auto const initial_total_energy = m * g * initial_z;
+
+			auto max_z = initial_z;
+			auto max_total_energy = initial_total_energy;
+
+			// Per-frame trace (for diagnostic when assertions fail)
+			struct FrameTrace { int step; float z; float vz; float ke; float pe; float total; float max_depth; };
+			auto trace = std::vector<FrameTrace>{};
+
+			for (int step = 0; step != num_steps; ++step)
+			{
+				bodies[0].ZeroForces();
+				bodies[1].ZeroForces();
+				auto ws_com = bodies[0].O2W().rot * com_os;
+				bodies[0].ApplyForceWS(v4{0, 0, -g * m, 0}, v4::Zero(), ws_com);
+
+				engine.Step(dt, bodies);
+
+				auto z = bodies[0].O2W().pos.z;
+				auto vz = bodies[0].VelocityWS().lin.z;
+				auto ke = bodies[0].KineticEnergy();
+				auto pe = m * g * z;
+				auto total = ke + pe;
+				auto md = max_depth_per_frame.empty() ? 0.0f : max_depth_per_frame.back();
+				trace.push_back({step, z, vz, ke, pe, total, md});
+
+				max_z = std::max(max_z, z);
+				max_total_energy = std::max(max_total_energy, total);
+
+				// Bail out early on catastrophic failure to avoid noisy logs but still report
+				if (z > initial_z * 5.0f || total > initial_total_energy * 10.0f)
+					break;
+			}
+
+			// Diagnostic dump: print per-frame state for post-mortem
+			auto dump_path = std::filesystem::path("C:/Users/paulryland/.copilot/session-state/1277a797-7dbe-4e04-9ffb-e2e396f6db2a/files") / trace_filename;
+			{
+				auto f = std::ofstream(dump_path);
+				f << std::format("step,z,vz,ke,pe,total,max_depth (initial_total={:.2f})\n", initial_total_energy);
+				for (auto const& t : trace)
+					f << std::format("{},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.4f}\n", t.step, t.z, t.vz, t.ke, t.pe, t.total, t.max_depth);
+			}
+
+			// (1) Body must never reach more than 20% above its initial height.
+			PR_EXPECT(max_z < initial_z * 1.2f);
+
+			// (2) Total energy must never substantially exceed the initial energy.
+			PR_EXPECT(max_total_energy < initial_total_energy * 1.5f);
+
+			// (3) Body must not have fallen through the ground.
+			PR_EXPECT(bodies[0].O2W().pos.z > -1.0f);
+
+			// (4) After settling, max penetration depth must stay small (no runaway).
+			if (max_depth_per_frame.size() > 60)
+			{
+				auto window_start = max_depth_per_frame.size() - 30;
+				auto max_in_window = 0.0f;
+				for (auto i = window_start; i != max_depth_per_frame.size(); ++i)
+					max_in_window = std::max(max_in_window, max_depth_per_frame[i]);
+				PR_EXPECT(max_in_window < 0.2f);
+			}
+		}
+
+		// Reproduces the failing 'drop_test.json' visual scene: a rotated, asymmetric box
+		// dropped onto the ground with a small lateral velocity. With the per-point Baumgarte
+		// resolver bug, the box explodes around frame 80 (z velocity → +158 m/s, KE → 264k J).
+		PRUnitTestMethod(BoxDropEnergyConservation)
+		{
+			BoxDropEnergyImpl(/*rotated=*/true, "boxdrop_trace_rotated.log");
+		}
+
+		// Diagnostic variant: same scene but box NOT rotated. If this passes but the rotated
+		// variant fails, the bug is rotation-specific (e.g. SAT axis-selection producing a
+		// skewed contact normal that doesn't fully oppose gravity).
+		PRUnitTestMethod(BoxDropEnergyConservationAxisAligned)
+		{
+			BoxDropEnergyImpl(/*rotated=*/false, "boxdrop_trace_aligned.log");
+		}
 	};
 
 	// ===== Head-on collision tests for all 15 shape pairs =====

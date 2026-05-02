@@ -7,6 +7,9 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/compute/interop/resolve_runner.h"
+#include <filesystem>
+#include <fstream>
+#include <format>
 
 namespace pr::physics::tests
 {
@@ -170,6 +173,109 @@ namespace pr::physics::tests
 			auto const vel_at_contact = vel_after.LinAt(contact_point_ws - body_a.CentreOfMassWS());
 			auto const sep_speed = Dot3(-vel_at_contact, axis_ws);
 			PR_EXPECT(sep_speed > 0.5f);
+		}
+
+		// Diagnostic: replicate the failing-frame state of BoxDropEnergyConservation around frame 100.
+		// At that point the trace shows the rotated box at z=-0.32, vz=-8 m/s, with contact depth 0.55.
+		// The bias should reverse vz to ~+5 m/s but it doesn't — body keeps falling.
+		// This test runs ONE Resolve pass on that exact state and asserts vz separates.
+		PRUnitTestMethod(BoxDropFailingFrameDiagnostic)
+		{
+			auto config = EngineConfig{};
+			config.position_iterations = 0;     // isolate velocity solver
+			config.solver_iterations = 1;       // ONE pass to see what happens
+			config.velocity_baumgarte = 0.2f;
+			config.penetration_slop = 0.005f;
+
+			auto box = collision::ShapeBox{v4{0.5f, 0.65f, 0.9f, 0}};
+			auto ground = collision::ShapeBox{v4{50.0f, 50.0f, 0.5f, 0}};
+
+			// State as captured at frame ~100 of the failing trace
+			auto box_o2w = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{-3.67f, 0, -0.32f, 1});
+			auto body_a = RigidBody{&box, box_o2w, Inertia::Box(box.m_radius, 10.0f)};
+			body_a.VelocityWS(v4::Zero(), v4{0.8f, 0, -8.38f, 0});
+
+			auto body_b = RigidBody{&ground, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()};
+
+			// Contact roughly matches what BoxVsBox SAT would produce: ground top normal in world.
+			// Contact point = lowest box corner projected onto ground top.
+			auto const contact_point_ws = v4{-3.67f, 0, 0, 1};
+			auto const axis_ws = v4{0, 0, -1, 0};  // A=box → B=ground points DOWN
+			auto const w2a = InvertOrthonormal(body_a.O2W());
+
+			auto bodies = std::vector<GpuRigidBody>{
+				PackDynamics(body_a, 0),
+				PackDynamics(body_b, 1),
+			};
+			auto contacts = std::vector<GpuResolveContact>{
+				GpuResolveContact{
+					.axis = w2a * axis_ws,
+					.contact_point = w2a * contact_point_ws,
+					.b2a = w2a * body_b.O2W(),
+					.body_idx_a = 0,
+					.body_idx_b = 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.depth = 0.55f,
+					.collision_time = 0,
+					.feature = 1,
+				},
+			};
+			contacts[0].manifold[0] = w2a * contact_point_ws;
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 0.3f,
+				},
+			};
+
+			auto const ke_before = body_a.KineticEnergy();
+			auto const vz_before = body_a.VelocityWS().lin.z;
+
+			// Step the simulation iteration-by-iteration to see how velocity evolves
+			auto runner = ResolveInteropRunner{config};
+			auto buffers = ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			};
+			runner.Load(buffers);
+			runner.ComputeCollisionTimes();
+			runner.SortContacts();
+			runner.AssignColours();
+
+			// Dump file
+			auto dump_path = std::filesystem::path("C:/Users/paulryland/.copilot/session-state/1277a797-7dbe-4e04-9ffb-e2e396f6db2a/files/boxdrop_diag_frame.log");
+			auto f = std::ofstream(dump_path);
+			f << std::format("Failing-frame diagnostic: rotated box at deep penetration\n");
+			f << std::format("  vz_before = {:.3f}, KE_before = {:.3f}\n", vz_before, ke_before);
+
+			auto contact_pt_a = contacts[0].contact_point;
+			auto axis_a = contacts[0].axis;
+			f << std::format("  contact_pt_in_A = ({:.3f}, {:.3f}, {:.3f})\n", contact_pt_a.x, contact_pt_a.y, contact_pt_a.z);
+			f << std::format("  axis_in_A      = ({:.3f}, {:.3f}, {:.3f})\n", axis_a.x, axis_a.y, axis_a.z);
+
+			for (int iter = 0; iter != 8; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+					runner.ResolveVelocity(colour);
+
+				runner.Store(buffers);
+				UnpackDynamics(bodies[0], body_a);
+				auto v = body_a.VelocityWS();
+				f << std::format("  iter {}: vz={:.3f} vx={:.3f} omega=({:.3f},{:.3f},{:.3f}) KE={:.3f}\n",
+					iter, v.lin.z, v.lin.x, v.ang.x, v.ang.y, v.ang.z, body_a.KineticEnergy());
+			}
+			f.close();
+
+			runner.Store(buffers);
+			UnpackDynamics(bodies[0], body_a);
+			auto const vel_after = body_a.VelocityWS();
+			auto const vz_after = vel_after.lin.z;
+
+			// After resolve, body should be moving UP (vz > 0) — bias should overcome gravity.
+			PR_EXPECT(vz_after > 0.0f);
 		}
 	};
 }
