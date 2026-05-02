@@ -185,7 +185,7 @@ namespace pr::rdr12
 			m_alpha_cmd_list.RSSetScissorRects(vp.m_clip);
 
 			BarrierBatch bb(m_alpha_cmd_list);
-			bb.Transition(kbuffer.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_READ);
+			bb.Transition(kbuffer.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 			bb.Transition(kbuffer.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Transition(kbuffer.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Commit();

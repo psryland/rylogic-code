@@ -166,7 +166,7 @@ void PSAlphaCollect(PSIn In)
 	clip(diff.a - (1.0f / 255.0f));
 
 	uint2 pix = uint2(In.ss_vert.xy);
-	float view_z = mul(In.ws_vert, g_frame.cam.w2c).z;
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepth24(view_z, ClipPlanes(g_frame.cam.c2s));
 	uint colour = PackRGBA8(diff);
 

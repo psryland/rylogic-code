@@ -158,6 +158,8 @@ namespace pr::rdr12
 		bb.Transition(m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		bb.Commit();
 
+		cmd_list.ClearDepthStencilView(m_opaque_depth_1x->m_dsv.m_cpu, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0);
+
 		shaders::fwd::CBufKBufferResolve cb = {};
 		cb.screen_dim = iv2(s_cast<int>(viewport.Width), s_cast<int>(viewport.Height));
 		cb.sample_count = sample_count;
