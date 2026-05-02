@@ -19,7 +19,7 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(GpuCollisionTests)
 	{
-		static constexpr bool CreateVisuals = true;
+		static constexpr bool CreateVisuals = false;
 
 		// Draw the scene
 		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
@@ -41,12 +41,13 @@ namespace pr::physics::tests
 			collision::Contact c0;
 			collision::Collide(a, a2w, b, b2w, c0);
 			Visualise(a, a2w, b, b2w, c0);
-			collision::tests::CheckContact(c0, expected);
 
 			auto gpu_contact = GpuContact{};
 			physics::CollideShapes(sa, a2w, sb, b2w, verts, gpu_contact);
 			auto c1 = To<collision::Contact>(gpu_contact);
 			Visualise(a, a2w, b, b2w, c1);
+
+			collision::tests::CheckContact(c0, expected);
 			collision::tests::CheckContact(c1, expected);
 		}
 
@@ -922,7 +923,7 @@ namespace pr::physics::tests
 					&exp);
 			}
 		}
-		#if 0
+
 		// ---- Polytope vs Line ----
 		PRUnitTestMethod(PolytopeVsLine)
 		{
@@ -938,96 +939,97 @@ namespace pr::physics::tests
 			// Line-edge vs face
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{0.862366f,0.431183f,0.265343f,0},
+					.m_axis = v4{0.524098f,-0.851658f, 0, 0},
 					.m_manifold = {
-						v4{0.213439f,-0.0932803f,-0.0574033f,1},
+						v4(0.249307f, -0.217623f, -0.305579f, 1),
+						v4(0.249307f, -0.217623f, +0.305580f, 1),
 					},
-					.m_feature = EFeature::Vert,
-					.m_depth = 0.167328164f,
+					.m_feature = EFeature::Edge,
+					.m_depth = 0.206549749f,
 				};
 				BangTogether(
-					polytope, m4x4::Identity(),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0.4f, 0, 0),
+					polytope, m4x4::TransformDeg(0, 90, 0, v4::Origin()),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0.3f, -0.3f, 0),
 					&exp);
 			}
 
 			// Line-edge vs edge
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{-0.380810f, 0.775708f, 0.503250f, 0},
+					.m_axis = v4{-0.933257f,-0.311085f,-0.179605f,0},
 					.m_manifold = {
-						v4{0.005338f, 0.385428f, -0.139206f, 1},
+						v4{0.316191f,-0.311744f,-0.467195f,1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 0.046770f,
+					.m_depth = 0.365301728f,
 				};
 				BangTogether(
 					polytope, m4x4::TransformDeg(0, 0, 45, v4(0.4f, 0, 0, 1)),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(-0.1f, 0.6f, 0),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::TransformDeg(30, 0, 0, v4(0.3f, -0.3f, -0.5f, 1)),
 					&exp);
 			}
 
 			// Line-edge vs point
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{0.565852f, 0.0f, -0.824507f, 0},
+					.m_axis = v4{1, 0, 0, 0},
 					.m_manifold = {
-						v4{1.480808f, 0.0f, -0.426324f, 1},
+						v4{0.79f, 0, 0, 1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 0.178715f,
+					.m_depth = 0.02f,
 				};
 				BangTogether(
-					polytope, m4x4::TransformDeg(0, 0, 45, v4(0.4f, 0, 0, 1)),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(1.6f, 0, -0.6f),
+					polytope, m4x4::TransformDeg(0, 90, 0, v4::Origin()),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0.98f, 0, 0),
 					&exp);
 			}
 
 			// Line-end vs face
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{0.862366f,0.431183f,0.265343f,0},
+					.m_axis = v4{0.862364f,0.431187f,0.26534f,0},
 					.m_manifold = {
-						v4{0.213439f,-0.0932803f,-0.0574033f,1},
+						v4{0.0805324f,-0.0329575f,0.126166f,1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 0.167328164f,
+					.m_depth = 0.247123376f,
 				};
 				BangTogether(
 					polytope, m4x4::Identity(),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0.4f, 0, 0),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::TransformDeg(0, 45, 0, v4(0.5f, 0, 0.5f, 1)),
 					&exp);
 			}
 
 			// Line-end vs edge
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{-0.380810f, 0.775708f, 0.503250f, 0},
+					.m_axis = v4{-0.602213f,0.602213f,0.524097f, 0},
 					.m_manifold = {
-						v4{0.005338f, 0.385428f, -0.139206f, 1},
+						v4{0.1106f,0.2894f,0.103746f,1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 0.046770f,
+					.m_depth = 0.0326877534f,
 				};
 				BangTogether(
 					polytope, m4x4::TransformDeg(0, 0, 45, v4(0.4f, 0, 0, 1)),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(-0.1f, 0.6f, 0),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(0, 0.4f, 0.7f),
 					&exp);
 			}
 
 			// Line-edge vs point
 			{
 				auto exp = collision::Contact{
-					.m_axis = v4{0.565852f, 0.0f, -0.824507f, 0},
+					.m_axis = v4{0, 0.627985f,0.778226f,0},
 					.m_manifold = {
-						v4{1.480808f, 0.0f, -0.426324f, 1},
+						v4{0.4f,-0.0193864f,0.775976f,1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 0.178715f,
+					.m_depth = 0.0617417544f,
 				};
 				BangTogether(
 					polytope, m4x4::TransformDeg(0, 0, 45, v4(0.4f, 0, 0, 1)),
-					collision::ShapeLine(1.0f, 0.2f), m4x4::Translation(1.6f, 0, -0.6f),
+					collision::ShapeLine(1.0f, 0.2f), m4x4::TransformDeg(10, 0, 0, v4(0.4f, 0, 1.4f, 1)),
 					&exp);
 			}
 		}
@@ -1041,11 +1043,118 @@ namespace pr::physics::tests
 				v4(+0.0f, +0.8f, -0.5f, 1),
 				v4(+0.0f, +0.0f, +0.8f, 1),
 			};
+			constexpr v4 tri_pts[] = {
+				v4(-0.5f, -0.5f, 0, 1),
+				v4(+0.5f, -0.5f, 0, 1),
+				v4(0, +0.5f, 0, 1),
+			};
 			auto buf = collision::BuildPolytopeFromPoints(tet_pts);
 			auto& polytope = buf.as<collision::ShapePolytope>();
+			auto triangle = collision::ShapeTriangle(tri_pts[0], tri_pts[1], tri_pts[2]);
 
+			// Tri-Face vs face
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{0, 0, -1, 0},
+					.m_manifold = {
+						v4(+0.0f, +0.5f, -0.3f, 1),
+						v4(+0.5f, -0.5f, -0.3f, 1),
+						v4(-0.5f, -0.5f, -0.3f, 1),
+					},
+					.m_feature = EFeature::Tri,
+					.m_depth = 0.4f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(0, 0, 0, v4(0, 0, -0.1f, 1)),
+					&exp);
+			}
+			
+			// Tri-Face vs edge
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{0, -1, 0, 0},
+					.m_manifold = {
+						v4(-0.4f, -0.79f, -0.5f, 1),
+						v4(+0.4f, -0.79f, -0.5f, 1),
+					},
+					.m_feature = EFeature::Edge,
+					.m_depth = 0.02f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(90, 0, 0, v4(0, -0.78f, -0.2f, 1)),
+					&exp);
+			}
+
+			// Tri-Face vs point
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{0, 0, 1, 0},
+					.m_manifold = {
+						v4(0, 0, 0.775f, 1),
+					},
+					.m_feature = EFeature::Vert,
+					.m_depth = 0.05f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0.75f, 1)),
+					&exp);
+			}
+
+			// Tri-Edge vs face
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{0, 0, -1, 0},
+					.m_manifold = {
+						v4(-0.4f, 0, -0.4f, 1),
+						v4(+0.4f, 0, -0.4f, 1),
+					},
+					.m_feature = EFeature::Edge,
+					.m_depth = 0.2f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(-90, 0, 0, v4(0, 0, -0.8f, 1)),
+					&exp);
+			}
+
+			// Tri-Edge vs edge
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{0, -1, 0, 0},
+					.m_manifold = {
+						v4(0.21f,-0.718223f,-0.5f,1),
+					},
+					.m_feature = EFeature::Vert,
+					.m_depth = 0.163553417f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(-135, 45, 0, v4(0, -0.99f, -0.79f, 1)),
+					&exp);
+			}
+
+			// Tri-Vert vs face
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4{-0.862366f,0.431183f,0.265343f,0},
+					.m_manifold = {
+						v4(-0.121166f,0.0105831f,0.296513f,1),
+					},
+					.m_feature = EFeature::Vert,
+					.m_depth = 0.0490884483f,
+				};
+				BangTogether(
+					polytope, m4x4::TransformDeg(0, 0, 0, v4(0, 0, 0, 1)),
+					triangle, m4x4::TransformDeg(90, 0, 0, v4(-0.6f, 0, 0.79f, 1)),
+					&exp);
+			}
+
+			// Point/Edge vs point isn't possible
 		}
-		#endif
+
 		// ---- Polytope vs Polytope ----
 		PRUnitTestMethod(PolytopeVsPolytope)
 		{

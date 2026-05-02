@@ -559,22 +559,21 @@ namespace pr::collision
 	//
 	// Uses the standard Voronoi-style simplex reduction (DoSimplex) which keeps
 	// the most recent support vertex at index 0 — this guarantees progress.
-	inline bool pr_vectorcall GjkClosestPointToPoint(
-		Shape const& shape_a, m4x4 const& a2w, m4x4 const& w2a,
-		v4 point_b, v4& out_w_closest)
+	// ---- Generic closest-point GJK loop ----
+	// Shared between GjkClosestPointToPoint and GjkClosestPointShapeToShape.
+	// 'mk_support' is any callable with signature: gjk::Sup(v4 dir).
+	// Returns false if the origin is enclosed in the Minkowski difference (i.e.
+	// the two "shapes" overlap — caller is responsible for the deep-penetration
+	// fallback). On success, 'out_w_closest' is the closest Minkowski-space
+	// point to the origin (whose magnitude is the core-to-core distance).
+	template <typename MkSupportFn>
+	inline bool GjkClosestPointLoop(MkSupportFn mk_support, v4 init_dir, v4& out_w_closest)
 	{
 		using namespace gjk;
 
 		out_w_closest = v4::Zero();
-		int ha = 0;
-
-		// Initial search direction: from point_b toward shape_a's centre.
-		auto dir = (a2w.pos - point_b).w0();
-		if (LengthSq(dir) < Eps)
-			dir = v4::XAxis();
-
 		Simplex sx;
-		auto sup = MkSupportPoint(shape_a, a2w, w2a, point_b, dir, ha);
+		auto sup = mk_support(init_dir);
 		sx.Push(sup);
 
 		auto w_closest = sup.w;
@@ -583,12 +582,12 @@ namespace pr::collision
 		for (int iter = 0; iter < MaxIter; ++iter)
 		{
 			// Search toward the origin from the current closest Minkowski point.
-			dir = -w_closest.w0();
+			auto dir = -w_closest.w0();
 			auto dir_sq = Dot3(dir, dir);
 			if (dir_sq < Eps)
 				break;
 
-			sup = MkSupportPoint(shape_a, a2w, w2a, point_b, dir, ha);
+			sup = mk_support(dir);
 
 			// Standard GJK termination: if the new support doesn't extend further
 			// along the search direction than the current closest point, we've
@@ -617,9 +616,8 @@ namespace pr::collision
 			sx.Push(sup);
 
 			// Voronoi reduction. Returns true only if a tetrahedron encloses the
-			// origin (point_b inside shape_a) — for a strictly external point this
-			// never fires. The dummy_dir output is unused here because we recompute
-			// the closest point from the simplex directly.
+			// origin (the two "shapes" overlap). The dummy_dir output is unused
+			// here because we recompute the closest point from the simplex directly.
 			auto dummy_dir = dir;
 			if (DoSimplex(sx, dummy_dir))
 				return false;
@@ -630,6 +628,53 @@ namespace pr::collision
 
 		out_w_closest = w_closest;
 		return true;
+	}
+
+	// Closest-point GJK: find the closest point on the Minkowski difference
+	// (shape_a - point_b) to the origin in world space. Equivalent to the closest
+	// point on shape_a to point_b minus point_b. Returns false if point_b is
+	// strictly inside shape_a (origin enclosed in the Minkowski difference) — the
+	// caller is responsible for the deep-penetration fallback. On success,
+	// |out_w_closest| equals the distance from point_b to shape_a.
+	inline bool pr_vectorcall GjkClosestPointToPoint(
+		Shape const& shape_a, m4x4 const& a2w, m4x4 const& w2a,
+		v4 point_b, v4& out_w_closest)
+	{
+		using namespace gjk;
+
+		// Initial search direction: from point_b toward shape_a's centre.
+		auto dir = (a2w.pos - point_b).w0();
+		if (LengthSq(dir) < Eps)
+			dir = v4::XAxis();
+
+		int ha = 0;
+		auto mk = [&](v4 d) { return MkSupportPoint(shape_a, a2w, w2a, point_b, d, ha); };
+		return GjkClosestPointLoop(mk, dir, out_w_closest);
+	}
+
+	// Closest-point GJK between two arbitrary convex shapes. Returns false if
+	// the shapes overlap (origin enclosed in the Minkowski difference) — the
+	// caller is responsible for the deep-penetration fallback. On success,
+	// |out_w_closest| equals the distance between the shapes.
+	//
+	// Note: this operates on the shapes as defined by their SupportVertex
+	// functions, including any intrinsic margin (e.g. ShapeLine::m_radius).
+	// To compute the distance between cores (excluding margins), pass shapes
+	// with the margin stripped (e.g. ShapeLine with m_radius set to 0).
+	inline bool pr_vectorcall GjkClosestPointShapeToShape(
+		Shape const& shape_a, m4x4 const& a2w, m4x4 const& w2a,
+		Shape const& shape_b, m4x4 const& b2w, m4x4 const& w2b,
+		v4& out_w_closest)
+	{
+		using namespace gjk;
+
+		auto dir = (a2w.pos - b2w.pos).w0();
+		if (LengthSq(dir) < Eps)
+			dir = v4::XAxis();
+
+		int ha = 0, hb = 0;
+		auto mk = [&](v4 d) { return MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, d, ha, hb); };
+		return GjkClosestPointLoop(mk, dir, out_w_closest);
 	}
 
 	// Convex-vs-Sphere collision via "GJK with margins": run closest-point GJK on
@@ -701,6 +746,86 @@ namespace pr::collision
 		contact.m_manifold = {};
 		contact.m_manifold[0] = mid;
 		contact.m_feature = EFeature::Vert;
+		contact.m_mat_idA = lhs.m_material_id;
+		contact.m_mat_idB = rhs.m_material_id;
+		return true;
+	}
+
+	// Convex-vs-Line collision via "GJK with margins": run closest-point GJK on
+	// the convex shape vs the line's CORE (line segment with radius stripped to 0),
+	// then check distance < line.m_radius and add the margin analytically. This
+	// avoids EPA against the curved Minkowski boundary near a polytope edge/vertex
+	// (capsule lateral surface), giving exact contact normals.
+	//
+	// Compatible with the tri-table function signature. Expects lhs to be the
+	// convex shape (Polytope) and rhs to be the line/capsule.
+	//
+	// The contact manifold is built via FindContactManifold using the GJK-derived
+	// axis, which correctly handles the parallel-edge case (line parallel to a
+	// polytope edge produces a 2-point edge manifold).
+	inline bool pr_vectorcall ConvexVsLine(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
+	{
+		using namespace gjk;
+		assert(rhs.m_type == EShape::Line && "ConvexVsLine requires rhs to be a Line");
+
+		auto const& line_orig = shape_cast<ShapeLine>(rhs);
+		auto line_radius = line_orig.m_radius;
+
+		// 1D line with no margin: nothing to strip; defer to GjkCollide on the raw shapes.
+		if (line_radius == 0.0f)
+			return GjkCollide(lhs, l2w, rhs, r2w, contact);
+
+		auto a2w = l2w * lhs.m_s2r;
+		auto b2w = r2w * rhs.m_s2r;
+		auto w2a = InvertOrthonormal(a2w);
+		auto w2b = InvertOrthonormal(b2w);
+
+		// Build a "core" copy of the line with the margin stripped — used only
+		// for the GJK closest-point query. The original line (with radius) is
+		// passed to FindContactManifold so capsule edge contacts are recognised.
+		auto line_core = line_orig;
+		line_core.m_radius = 0.0f;
+
+		// Run closest-point GJK on (convex, line_core). Returns false if the
+		// line core is fully inside the convex (deep penetration) — fall back to
+		// full GJK+EPA on the inflated shapes for that case.
+		v4 w_closest;
+		if (!GjkClosestPointShapeToShape(lhs, a2w, w2a, line_core, b2w, w2b, w_closest))
+			return GjkCollide(lhs, l2w, rhs, r2w, contact);
+
+		auto dist_sq = Dot3(w_closest, w_closest);
+		auto dist = Sqrt(dist_sq);
+		if (dist >= line_radius)
+			return false;
+
+		v4 axis;
+		float depth;
+		if (dist <= Eps)
+		{
+			// Line core touches convex surface — degenerate normal direction.
+			axis = Normalise((b2w.pos - a2w.pos).w0(), v4::XAxis());
+			depth = line_radius;
+		}
+		else
+		{
+			// w_closest = sup_a - sup_b, points FROM the line core TOWARD the
+			// convex. Contact axis convention is "from A (convex) to B (line)",
+			// i.e. opposite to w_closest.
+			auto normal = w_closest / dist;
+			axis = -normal;
+			depth = line_radius - dist;
+		}
+
+		// Construct the contact manifold from the GJK-derived axis. SupportFeature
+		// on the line returns its full edge when the axis is perpendicular to the
+		// line direction, so a parallel-edge contact correctly reduces to a 2-point
+		// edge manifold via the existing FindContactManifold edge-edge case.
+		auto [manifold, feature] = FindContactManifold(lhs, l2w, rhs, r2w, axis, depth);
+
+		contact.m_axis = axis;
+		contact.m_depth = depth;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
 		contact.m_mat_idA = lhs.m_material_id;
 		contact.m_mat_idB = rhs.m_material_id;
 		return true;

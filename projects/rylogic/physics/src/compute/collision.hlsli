@@ -517,50 +517,6 @@ inline bool TriangleVsLine(
 	return true;
 }
 
-// ---- Polytope vs Line ----
-// Uses "GJK with margins": run closest-point GJK between the line skeleton
-// (a segment, no thickness) and the convex shape, then add thickness margin.
-inline bool PolytopeVsLine(
-	in_(GpuShape) polytope, float4x4 polytope_w_,
-	in_(GpuShape) seg, float4x4 seg_w_,
-	in_(StructuredBuffer<float4>) verts,
-	out_(GpuContact) out_contact,
-	out_(int) out_gjk_iters)
-{
-	ContactClear(out_contact);
-	out_gjk_iters = 0;
-
-	float line_radius = seg.data.y;
-
-	// Create a skeleton shape (zero thickness) and use full GJK to find
-	// closest distance between the skeleton and the convex shape.
-	// If the distance is less than the thickness, there's a collision.
-	GpuShape skeleton = seg;
-	skeleton.data.y = 0;
-
-	// Use full GJK+EPA on polytope vs skeleton, preserving the higher-vs-lower contact convention.
-	int gjk_iters, epa_iters;
-	GpuContact gjk_contact;
-	bool overlap = GjkCollide(polytope, polytope_w_, skeleton, seg_w_, verts, gjk_contact, gjk_iters, epa_iters);
-	out_gjk_iters = gjk_iters;
-
-	if (overlap)
-	{
-		// Skeleton overlaps the convex — add thickness margin
-		out_contact = gjk_contact;
-		out_contact.depth = gjk_contact.depth + line_radius;
-		return true;
-	}
-
-	// Skeleton doesn't overlap — check if the closest distance is within thickness.
-	// For this we need closest-point GJK, which the current GJK doesn't expose.
-	// Fall back to a simpler test: sample points along the line and check distance
-	// to the convex shape's AABB as a conservative approximation.
-	// For now, if GJK says no overlap and thickness is small, we report no collision.
-	// TODO: implement proper closest-point GJK for polytope-vs-line margin test.
-	return false;
-}
-
 // ---- Triangle vs Triangle (SAT) ----
 // Tests 11 separating axes: 2 face normals + 9 edge cross products.
 // Both shapes are polyhedral so EPA would also work, but SAT is faster
@@ -947,7 +903,7 @@ inline bool CollideShapes(
 			{
 				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
 				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
-				case SHAPE_LINE:     hit = PolytopeVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_LINE:     hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
 				case SHAPE_TRIANGLE: hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
 				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
 			}

@@ -347,7 +347,13 @@ inline void SupportFeature_Triangle(in_(GpuShape) shape, float4 axis, in_(Struct
 	float d0 = dot(axis.xyz, v0.xyz);
 	float d1 = dot(axis.xyz, v1.xyz);
 	float d2 = dot(axis.xyz, v2.xyz);
-	float dmax = max(max(d0, d1), d2) - GjkEps;
+
+	// Tolerance for "tied" vertex inclusion. Looser than GjkEps because the input
+	// axis is post-EPA and transformed via the inverse-shape matrix, so it carries
+	// accumulated floating-point error. Matches the tolerance used by
+	// SupportFeature_Polytope so that face-vs-face contacts with co-planar verts
+	// reliably return the full face feature.
+	float dmax = max(max(d0, d1), d2) - 1e-4f;
 
 	if (d0 >= dmax) FeatureAddUnique(feature, v0);
 	if (d1 >= dmax) FeatureAddUnique(feature, v1);
@@ -1268,9 +1274,26 @@ inline bool GjkCollide(
 			}
 			out_epa_iters = epa_iters;
 
-			float pa = dot(normal.xyz, centre_a.xyz);
-			float pb = dot(normal.xyz, centre_b.xyz);
-			float sign = (pa < pb) ? 1.0f : -1.0f;
+			// Orient axis from shape A toward shape B (convention: axis = +normal when
+			// B is on the +normal side of A). Use the midpoint of each shape's support
+			// extent along the contact normal — NOT the transform origin / centroid.
+			// For asymmetric shapes (e.g. a tetrahedron with three vertices on one face
+			// and one on the opposite apex) the centroid lies off the centre of the
+			// projected extent, which can flip the sign of the chosen axis. Matches the
+			// CPU `projection_centre` logic in col_gjk.h.
+			float4 dir_pa = mul(+normal, w2a);
+			float4 dir_na = mul(-normal, w2a);
+			float4 sa_max = mul(SupportVertex(shape_a, dir_pa, verts), a2w);
+			float4 sa_min = mul(SupportVertex(shape_a, dir_na, verts), a2w);
+			float pa = 0.5f * (dot(normal.xyz, sa_max.xyz) + dot(normal.xyz, sa_min.xyz));
+
+			float4 dir_pb = mul(+normal, w2b);
+			float4 dir_nb = mul(-normal, w2b);
+			float4 sb_max = mul(SupportVertex(shape_b, dir_pb, verts), b2w);
+			float4 sb_min = mul(SupportVertex(shape_b, dir_nb, verts), b2w);
+			float pb = 0.5f * (dot(normal.xyz, sb_max.xyz) + dot(normal.xyz, sb_min.xyz));
+
+			float sign = (pa <= pb) ? 1.0f : -1.0f;
 			float4 axis = sign * normal;
 
 			// Generic EPA normals can produce support polygons that are unstable on the GPU; specialised SAT paths build full manifolds where stable features are available.
@@ -1374,6 +1397,89 @@ inline bool GjkClosestPointToPoint(
 	return true;
 }
 
+// ---- Closest-point GJK between two shapes ----
+// Mirrors GjkClosestPointToPoint but uses the general MkSupport (shape-vs-shape)
+// instead of MkSupportPoint (shape-vs-point). Returns the closest point on the
+// Minkowski difference (shape_a - shape_b) to the origin in world space — its
+// magnitude is the world-space distance between the two shapes (using their
+// SupportVertex definitions, so any intrinsic margin like ShapeLine::m_radius
+// is included; strip the margin in the caller if you want core-to-core distance).
+//
+// Returns false if the shapes overlap (origin enclosed in the Minkowski
+// difference) — caller must provide the deep-penetration fallback.
+//
+// HLSL has no templates, so this duplicates the loop body of
+// GjkClosestPointToPoint with the support call substituted. Keep both copies
+// in sync; the only difference is the MkSupport vs MkSupportPoint call.
+inline bool GjkClosestPointShapeToShape(
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_w_closest, out_(int) out_iters)
+{
+	out_iters = 0;
+	out_w_closest = float4(0, 0, 0, 0);
+
+	// Initial search direction: from shape_b's centre toward shape_a's centre.
+	float4 dir = float4((a2w[3] - b2w[3]).xyz, 0);
+	if (length_sq(dir.xyz) < GjkEps)
+		dir = float4(1, 0, 0, 0);
+
+	// Seed the simplex with the first support point.
+	Simplex sx;
+	sx.n = 0;
+	MkSup sup = MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, dir, verts);
+	SimplexPush(sx, sup);
+
+	float4 w_closest = sup.w;
+	float closest_dist_sq = dot(w_closest.xyz, w_closest.xyz);
+
+	for (int iter = 0; iter < MaxGjkIter; ++iter)
+	{
+		out_iters = iter + 1;
+
+		// Search toward the origin from the current closest Minkowski point.
+		dir = -float4(w_closest.xyz, 0);
+		float dir_sq = dot(dir.xyz, dir.xyz);
+		if (dir_sq < GjkEps)
+			break;
+
+		sup = MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, dir, verts);
+
+		// Standard GJK termination: see GjkClosestPointToPoint for derivation.
+		float proj = dot(sup.w.xyz, dir.xyz);
+		if (proj < 0 && proj * proj > closest_dist_sq * dir_sq * 0.99999f)
+			break;
+
+		// Reject duplicate support vertices (rounding noise after convergence).
+		bool duplicate = false;
+		for (int i = 0; i < sx.n; ++i)
+		{
+			if (length_sq((sup.w - sx.s[i].w).xyz) < GjkEps)
+			{
+				duplicate = true;
+				break;
+			}
+		}
+		if (duplicate)
+			break;
+
+		SimplexPush(sx, sup);
+
+		// Voronoi reduction. Returns true only if a tetrahedron encloses the
+		// origin (shapes overlap). The dummy_dir output is unused here.
+		float4 dummy_dir = dir;
+		if (DoSimplex(sx, dummy_dir))
+			return false;
+
+		w_closest = SimplexClosestPoint(sx);
+		closest_dist_sq = dot(w_closest.xyz, w_closest.xyz);
+	}
+
+	out_w_closest = w_closest;
+	return true;
+}
+
 // ---- Convex vs Sphere ----
 // "GJK with margins": run closest-point GJK on the convex shape vs the sphere
 // centre (a single point), then check distance < radius and add the margin
@@ -1427,6 +1533,87 @@ inline bool ConvexVsSphere(
 	float depth = radius - dist;
 	float4 mid = sphere_centre + normal * (radius - 0.5f * depth);
 	ContactSetPoint(out_contact, -normal, mid, depth);
+	return true;
+}
+
+// ---- Convex vs Line (capsule) ----
+// "GJK with margins": run closest-point GJK on the convex shape vs the line's
+// CORE (segment, radius=0), then check distance < line.m_radius and add the
+// margin analytically. Avoids EPA against the curved (capsule lateral) Minkowski
+// boundary near a polytope edge, giving exact contact normals.
+//
+// Compatible with the dispatch signature. Expects 'convex' to be a Polytope
+// (or any convex shape with a SupportVertex) and 'line' to be SHAPE_LINE.
+//
+// The contact manifold is built via FindContactManifold using the GJK-derived
+// axis. SupportFeature on a thick line returns a 2-vertex edge feature when the
+// axis is perpendicular to the line direction, so a parallel-edge contact
+// correctly reduces to a 2-point edge manifold via the existing edge-edge case.
+inline bool ConvexVsLine(
+	in_(GpuShape) convex, float4x4 convex_w_,
+	in_(GpuShape) seg, float4x4 seg_w_,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact,
+	out_(int) out_gjk_iters)
+{
+	ContactClear(out_contact);
+	out_gjk_iters = 0;
+
+	float line_radius = seg.data.y;
+
+	float4x4 convex_w = mul(convex.s2rb, convex_w_);
+	float4x4 line_w = mul(seg.s2rb, seg_w_);
+	float4x4 w2c = InvertOrthonormal(convex_w);
+	float4x4 w2l = InvertOrthonormal(line_w);
+
+	// Build a "core" copy of the line with the margin stripped — used only for
+	// the GJK closest-point query. The original line (with radius) is passed
+	// to FindContactManifold so capsule edge contacts are recognised.
+	GpuShape line_core = seg;
+	line_core.data.y = 0;
+
+	// 1D line with no margin: nothing to strip; defer to GjkCollide on raw shapes.
+	if (line_radius == 0)
+	{
+		int gjk_iters_unused, epa_iters_unused;
+		return GjkCollide(convex, convex_w_, seg, seg_w_, verts, out_contact, gjk_iters_unused, epa_iters_unused);
+	}
+
+	// Run closest-point GJK on (convex, line_core).
+	float4 w_closest;
+	if (!GjkClosestPointShapeToShape(convex, convex_w, w2c, line_core, line_w, w2l, verts, w_closest, out_gjk_iters))
+	{
+		// Line core is fully inside the convex (deep penetration). Fall back to
+		// full GJK+EPA on the inflated shapes — gives a best-effort axis/depth.
+		int gjk_iters_unused, epa_iters_unused;
+		return GjkCollide(convex, convex_w_, seg, seg_w_, verts, out_contact, gjk_iters_unused, epa_iters_unused);
+	}
+
+	float dist_sq = dot(w_closest.xyz, w_closest.xyz);
+	float dist = sqrt(dist_sq);
+	if (dist >= line_radius)
+		return false;
+
+	float4 axis;
+	float depth;
+	if (dist <= GjkEps)
+	{
+		// Line core touches convex surface — degenerate normal direction.
+		axis = NormaliseSafe(float4((line_w[3] - convex_w[3]).xyz, 0), float4(1, 0, 0, 0));
+		depth = line_radius;
+	}
+	else
+	{
+		// w_closest = sup_a - sup_b, points FROM line core TOWARD convex.
+		// Axis convention is "from A (convex) to B (line)", i.e. opposite to w_closest.
+		float4 normal = w_closest / dist;
+		axis = -normal;
+		depth = line_radius - dist;
+	}
+
+	// Construct manifold using the original (thick) line so SupportFeature
+	// returns vertices on the capsule surface, not the core.
+	FindContactManifold(convex, convex_w, seg, line_w, axis, depth, verts, out_contact);
 	return true;
 }
 
