@@ -462,14 +462,14 @@ inline void CornerSetAdd(inout_(GpuCornerSet) corners, float4 pt)
 	if (corners.count < GpuManifoldMaxCorners)
 		corners.points[corners.count++] = float4(pt.xyz, 1);
 }
-inline void ClipEdgeClear(inout_(GpuClipEdge) edge)
+inline void ClipEdgeClear(out_(GpuClipEdge) edge)
 {
 	edge.t0 = 0.0f;
 	edge.t1 = 1.0f;
 	edge.valid = 1;
 	edge.pad0 = 0;
 }
-inline void ClipEdgeSetClear(GpuClipEdgeSet edgeset)
+inline void ClipEdgeSetClear(out_(GpuClipEdgeSet) edgeset)
 {
 	for (int i = 0; i != GpuFeatureMaxPoints; ++i)
 		ClipEdgeClear(edgeset.edges[i]);
@@ -521,41 +521,10 @@ inline void AppendClippedEdge(inout_(GpuCornerSet) corners, in_(GpuFeature) poin
 	CornerSetAdd(corners, pt0 + edge.t1 * (pt1 - pt0) + offset);
 }
 
-// Build the best representative point for simple feature pairs without invoking the polygon clipper.
-inline bool ContactTrySetPoint(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+// If clipping causes all candidates to be removed, fallback to a single contact at the feature centroids.
+inline void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
 {
-	ContactClear(contact);
-	int countA = featA.count;
-	int countB = featB.count;
-	PR_HLSL_BRANCH if (countA == 0 || countB == 0)
-		return true;
-
-	PR_HLSL_BRANCH if (countA == 1 && countB == 1)
-	{
-		ContactSetPoint(contact, axis, 0.5f * (featA.points[0] + featB.points[0]), depth);
-		return true;
-	}
-	PR_HLSL_BRANCH if (countA == 1)
-	{
-		ContactSetPoint(contact, axis, featA.points[0] + axis * (0.5f * dot(axis.xyz, (featB.points[0] - featA.points[0]).xyz)), depth);
-		return true;
-	}
-	PR_HLSL_BRANCH if (countB == 1)
-	{
-		ContactSetPoint(contact, axis, featB.points[0] + axis * (0.5f * dot(axis.xyz, (featA.points[0] - featB.points[0]).xyz)), depth);
-		return true;
-	}
-	PR_HLSL_BRANCH if (countA == 2 && countB == 2)
-	{
-		float4 da = featA.points[1] - featA.points[0];
-		float4 db = featB.points[1] - featB.points[0];
-		float4 ca = 0.5f * (featA.points[0] + featA.points[1]);
-		float4 cb = 0.5f * (featB.points[0] + featB.points[1]);
-		float2 t = ClosestPoint_SegmentToSegment(ca, NormaliseSafe(da, float4(1, 0, 0, 0)), 0.5f * length(da.xyz), cb, NormaliseSafe(db, float4(1, 0, 0, 0)), 0.5f * length(db.xyz));
-		ContactSetPoint(contact, axis, 0.5f * (ca + t.x * NormaliseSafe(da, float4(1, 0, 0, 0)) + cb + t.y * NormaliseSafe(db, float4(1, 0, 0, 0))), depth);
-		return true;
-	}
-	return false;
+	ContactSetPoint(contact, axis, 0.5f * (FeatureCentroid(featA) + FeatureCentroid(featB)), depth);
 }
 
 // Reduce clipped corner candidates to the largest point/edge/triangle/quad representative manifold.
@@ -684,19 +653,98 @@ inline void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(G
 		ContactSetManifold(contact, axis, manifold, FEATURE_QUAD, 0);
 	}
 }
-inline void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
-{
-	ContactSetPoint(contact, axis, 0.5f * (FeatureCentroid(featA) + FeatureCentroid(featB)), depth);
-}
 
 // Clip support features in world space, then shift the surviving boundary to the contact mid-plane.
 inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
 {
-	if (ContactTrySetPoint(featA, featB, axis, depth, contact))
-		return;
-
+	ContactClear(contact);
 	int countA = featA.count;
 	int countB = featB.count;
+	PR_HLSL_BRANCH if (countA == 0 || countB == 0)
+	{
+		return;
+	}
+	PR_HLSL_BRANCH if (countA == 1 && countB == 1)
+	{
+		ContactSetPoint(contact, axis, 0.5f * (featA.points[0] + featB.points[0]), depth);
+		return;
+	}
+	PR_HLSL_BRANCH if (countA == 1)
+	{
+		ContactSetPoint(contact, axis, featA.points[0] + axis * (0.5f * dot(axis.xyz, (featB.points[0] - featA.points[0]).xyz)), depth);
+		return;
+	}
+	PR_HLSL_BRANCH if (countB == 1)
+	{
+		ContactSetPoint(contact, axis, featB.points[0] + axis * (0.5f * dot(axis.xyz, (featA.points[0] - featB.points[0]).xyz)), depth);
+		return;
+	}
+	PR_HLSL_BRANCH if (countA == 2 && countB == 2)
+	{
+		const float Tol = 1e-5f;
+		const float TolSq = Tol * Tol;
+
+		float4 da = featA.points[1] - featA.points[0];
+		float4 db = featB.points[1] - featB.points[0];
+		float4 sep = featA.points[0] - featB.points[0];
+		float len_sq_a = dot(da.xyz, da.xyz);
+		float len_sq_b = dot(db.xyz, db.xyz);
+		float dot_ab = dot(da.xyz, db.xyz);
+		float c = dot(da.xyz, sep.xyz);
+
+		// Lagrange identity: |a × b|² = |a|²|b|² - (a·b)², zero when 'a' and 'b' are colinear.
+		// Use a relative tolerance so the test is independent of edge length.
+		float denom = len_sq_a * len_sq_b - dot_ab * dot_ab;
+
+		// If the edges are not parallel, the contact is the midpoint of the closest-point pair.
+		// (Inlines closest_point::LineToLine's non-parallel branch to share already-computed values.)
+		PR_HLSL_BRANCH if (denom > TolSq * len_sq_a * len_sq_b)
+		{
+			float f = dot(db.xyz, sep.xyz);
+			float t0 = clamp((dot_ab * f - c * len_sq_b) / denom, 0.0f, 1.0f);
+			float t1 = (dot_ab * t0 + f) / len_sq_b;
+			if      (t1 < 0.0f) { t1 = 0.0f; t0 = clamp((    - c) / len_sq_a, 0.0f, 1.0f); }
+			else if (t1 > 1.0f) { t1 = 1.0f; t0 = clamp((dot_ab - c) / len_sq_a, 0.0f, 1.0f); }
+
+			float4 pt_a = featA.points[0] + t0 * da;
+			float4 pt_b = featB.points[0] + t1 * db;
+			ContactSetPoint(contact, axis, 0.5f * (pt_a + pt_b), depth);
+			return;
+		}
+		// Otherwise the edges are parallel; emit a 2-point edge manifold over the overlapping portion.
+		else
+		{
+			// Project B's endpoints into A's parameter space (0 = pointsA[0], 1 = pointsA[1])
+			// then clip to A's [0,1] range to get the overlap interval.
+			//   u for pointsB[0] = (pointsB[0] - pointsA[0]) · da / len_sq_a = -c / len_sq_a
+			//   u for pointsB[1] = (pointsB[1] - pointsA[0]) · da / len_sq_a = (dot_ab - c) / len_sq_a
+			float u0 = -c / len_sq_a;
+			float u1 = (dot_ab - c) / len_sq_a;
+			float t_lo = max(0.0f, min(u0, u1));
+			float t_hi = min(1.0f, max(u0, u1));
+
+			// 'axis' is perpendicular to both edges for a valid edge-edge support feature, so the
+			// axial separation between A and B is the same anywhere along the overlap. Compute the
+			// half-way shift once and apply to both endpoints.
+			float4 half_axis_shift = axis * (-0.5f * dot(axis.xyz, sep.xyz));
+
+			// Degenerate overlap (touching end-to-end or no overlap): fall back to a single contact
+			// point at the clipped midpoint.
+			PR_HLSL_BRANCH if (t_hi - t_lo < Tol)
+			{
+				float t_mid = 0.5f * (clamp(u0, 0.0f, 1.0f) + clamp(u1, 0.0f, 1.0f));
+				float4 pt = featA.points[0] + t_mid * da + half_axis_shift;
+				ContactSetPoint(contact, axis, pt, depth);
+				return;
+			}
+
+			float4 manifold[GpuContactMaxPoints];
+			manifold[0] = featA.points[0] + t_lo * da + half_axis_shift;
+			manifold[1] = featA.points[0] + t_hi * da + half_axis_shift;
+			ContactSetManifold(contact, axis, manifold, FEATURE_EDGE, depth);
+			return;
+		}
+	}
 	PR_HLSL_BRANCH if (!FeatureIsPlanar(featA, axis) || !FeatureIsPlanar(featB, axis))
 	{
 		ContactFallback(featA, featB, axis, depth, contact);
@@ -705,16 +753,14 @@ inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, fl
 
 	GpuClipEdgeSet edgesA;
 	GpuClipEdgeSet edgesB;
-	for (int i = 0; i != GpuFeatureMaxPoints; ++i)
-	{
-		edgesA.edges[i].t0 = 0.0f; edgesA.edges[i].t1 = 1.0f; edgesA.edges[i].valid = 1; edgesA.edges[i].pad0 = 0;
-		edgesB.edges[i].t0 = 0.0f; edgesB.edges[i].t1 = 1.0f; edgesB.edges[i].valid = 1; edgesB.edges[i].pad0 = 0;
-	}
+	ClipEdgeSetClear(edgesA);
+	ClipEdgeSetClear(edgesB);
 
 	GpuCornerSet corners;
 	CornerSetClear(corners);
 
-	if (countA == 2)
+	// Feature A or featue B is an edge, clip the edge against the face
+	PR_HLSL_BRANCH if (countA == 2)
 	{
 		ClipFeatureEdges(featB, featA, edgesA, -1.0f, axis);
 		AppendClippedEdge(corners, featA, 0, edgesA.edges[0], -(0.5f * depth) * axis);
@@ -725,7 +771,7 @@ inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, fl
 			ContactFallback(featA, featB, axis, depth, contact);
 		return;
 	}
-	if (countB == 2)
+	PR_HLSL_BRANCH if (countB == 2)
 	{
 		ClipFeatureEdges(featA, featB, edgesB, +1.0f, axis);
 		AppendClippedEdge(corners, featB, 0, edgesB.edges[0], +(0.5f * depth) * axis);
@@ -737,6 +783,7 @@ inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, fl
 		return;
 	}
 
+	// Face-vs-face contact: clip both features against each other, then combine the survivors to get the contact manifold candidates.
 	ClipFeatureEdges(featA, featB, edgesB, +1.0f, axis);
 	ClipFeatureEdges(featB, featA, edgesA, -1.0f, axis);
 	for (int j = 0; j != countA; ++j)
@@ -750,11 +797,7 @@ inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, fl
 	if (contact.feature == FEATURE_NONE)
 		ContactFallback(featA, featB, axis, depth, contact);
 }
-inline void FindContactManifold(
-	in_(GpuShape) shape_a, float4x4 a2w,
-	in_(GpuShape) shape_b, float4x4 b2w,
-	float4 axis, float depth, in_(StructuredBuffer<float4>) verts,
-	out_(GpuContact) contact)
+inline void FindContactManifold(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) shape_b, float4x4 b2w, float4 axis, float depth, in_(StructuredBuffer<float4>) verts, out_(GpuContact) contact)
 {
 	GpuFeature featA, featB;
 	SupportFeature(shape_a, mul(+axis, InvertOrthonormal(a2w)), verts, featA);
@@ -1188,27 +1231,12 @@ inline bool GjkCollide(
 			SupportFeature(shape_b, mul(-axis, w2b), verts, featB);
 			TransformFeature(featA, a2w);
 			TransformFeature(featB, b2w);
-			if (!ContactTrySetPoint(featA, featB, axis, depth, out_contact))
-				ContactFallback(featA, featB, axis, depth, out_contact);
+			FindContactManifold(featA, featB, axis, depth, out_contact);
 			return true;
 		}
 	}
 
 	return false;
-}
-inline bool GjkCollide(
-	in_(GpuShape) shape_a, float4x4 a2w,
-	in_(GpuShape) shape_b, float4x4 b2w,
-	in_(StructuredBuffer<float4>) verts,
-	out_(float4) out_axis, out_(float4) out_point, out_(float) out_depth,
-	out_(int) out_gjk_iters, out_(int) out_epa_iters)
-{
-	GpuContact contact;
-	bool hit = GjkCollide(shape_a, a2w, shape_b, b2w, verts, contact, out_gjk_iters, out_epa_iters);
-	out_axis = contact.axis;
-	out_point = ContactCentroid(contact);
-	out_depth = contact.depth;
-	return hit;
 }
 
 #ifdef __cplusplus

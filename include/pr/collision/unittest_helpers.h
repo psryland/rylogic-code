@@ -40,5 +40,13 @@ namespace pr::collision::tests
 		}
 		return true;
 	}
+	inline bool CheckContact(Contact const& c, Contact const* expected, float tol = 1e-4f)
+	{
+		PR_EXPECT(c.contact() == (expected != nullptr));
+		if (expected == nullptr)
+			return true;
+
+		return CheckContact(c, *expected, tol);
+	}
 }
 #endif

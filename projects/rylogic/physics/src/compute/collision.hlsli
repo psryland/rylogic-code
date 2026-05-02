@@ -145,7 +145,10 @@ inline int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arr
 // Mirrors the CPU SupportFeature(ShapeLine) in support.h.
 inline int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, float line_r, float3 axis, arrayout_(float3, pts, 4))
 {
-	float threshold = 1e-4f;
+	// Relaxed tolerance for the "axis perpendicular to line" case: the edge feature
+	// includes both endpoints, so we want to fall through to it whenever the dot
+	// product is small. Matches CPU SupportFeature(ShapeLine) and SupportFeature_Line in gjk.hlsli.
+	float threshold = 1e-3f;
 	float d = dot(axis, line_dir);
 
 	// Hemispherical thickness offset: add line_r * axis_hat (axis normalised).
@@ -502,7 +505,19 @@ inline bool ConvexVsSphere(
 }
 
 // ---- Line vs Line ----
-// Closest points between two capsules (line segments with thickness).
+// SAT-style contact between two capsules (line segments with optional cylindrical thickness).
+//
+// Algorithm (mirrors CPU col_line_vs_line.h + support.h FindContactManifold):
+//   1. Run segment-to-segment closest-point to find the candidate contact axis.
+//   2. Determine the contact axis with three fallback levels:
+//        a. closest points distinct  → axis = (pb - pa) / dist          (already A→B)
+//        b. lines intersect (cross of directions valid) → axis = normalised cross
+//        c. parallel coincident      → arbitrary perpendicular to line direction
+//   3. Reject if the closest distance exceeds the combined thickness envelope.
+//   4. Build support features for both lines via LineSupportFeature (perpendicular axis
+//      yields a 2-point edge feature, allowing the manifold builder to emit a parallel
+//      overlap segment instead of collapsing to a single midpoint).
+//   5. Hand the feature pair to FindContactManifold.
 inline bool LineVsLine(
 	in_(GpuShape) la, float4x4 la_w_,
 	in_(GpuShape) lb, float4x4 lb_w_,
@@ -516,32 +531,85 @@ inline bool LineVsLine(
 	float4 da = la_w[2], db = lb_w[2];
 	float ha = la.data.x, hb = lb.data.x;
 	float ta = la.data.y, tb = lb.data.y;
-	float combined_r = ta + tb;
+
+	// Match CPU semantics (col_line_vs_line.h:54-57): zero-thickness lines register near-contact.
+	const float tol = 1e-4f;
+	float effective_r = max(ta + tb, tol);
 
 	float2 t = ClosestPoint_SegmentToSegment(ca, da, ha, cb, db, hb);
-
 	float4 pa = ca + t.x * da;
 	float4 pb = cb + t.y * db;
-	float4 diff = pb - pa;
+	float3 diff = (pb - pa).xyz;
 	float dist_sq = dot(diff, diff);
 
-	if (dist_sq >= combined_r * combined_r || dist_sq < 1e-12f)
+	if (dist_sq >= effective_r * effective_r)
 		return false;
 
 	float dist = sqrt(dist_sq);
-	float4 normal = diff / dist;
-	float depth = combined_r - dist;
+	float depth = effective_r - dist;
 
-	// Contact point on the midplane between the two capsule surfaces:
-	//   A_surf = pa + ta * normal      (A's surface in the direction of B)
-	//   B_surf = pb - tb * normal      (B's surface in the direction of A)
-	//   contact = (A_surf + B_surf)/2 = pa + (ta - depth/2) * normal
-	ContactSetPoint(out_contact, normal, pa + (ta - 0.5f * depth) * normal, depth);
+	// Determine the contact axis (oriented A→B).
+	float3 axis;
+	if (dist_sq > 1e-12f)
+	{
+		axis = diff / dist;
+	}
+	else
+	{
+		// Lines intersect — use the cross of the two line directions.
+		float3 cr = cross(da.xyz, db.xyz);
+		float cr_sq = dot(cr, cr);
+		if (cr_sq > 1e-12f)
+		{
+			axis = cr * rsqrt(cr_sq);
+
+			// Tie-break orientation only when centres are clearly separated along this
+			// axis. When they are not, the cross-product sign is itself the canonical
+			// answer and centre-based flipping just adds noise.
+			float orient = dot(axis, (cb - ca).xyz);
+			if (abs(orient) > 1e-4f && orient < 0)
+				axis = -axis;
+		}
+		else
+		{
+			// Parallel and coincident — pick any perpendicular to the line direction.
+			float3 alt = abs(da.x) < 0.9f ? float3(1, 0, 0) : float3(0, 1, 0);
+			axis = normalize(cross(da.xyz, alt));
+		}
+	}
+
+	// Build support features (axis convention: +axis for A's exterior, -axis for B's exterior).
+	// LineSupportFeature returns 2 points (the full edge) when the axis is perpendicular to the line,
+	// which lets FindContactManifold's edge-edge path emit a parallel-overlap manifold.
+	float3 ptsA[4], ptsB[4];
+	int countA = LineSupportFeature(ca.xyz, da.xyz, ha, ta, +axis, ptsA);
+	int countB = LineSupportFeature(cb.xyz, db.xyz, hb, tb, -axis, ptsB);
+
+	GpuFeature featA, featB;
+	FeatureClear(featA);
+	FeatureClear(featB);
+	featA.count = countA;
+	featB.count = countB;
+	for (int i = 0; i != countA; ++i) featA.points[i] = float4(ptsA[i], 1);
+	for (int j = 0; j != countB; ++j) featB.points[j] = float4(ptsB[j], 1);
+	FindContactManifold(featA, featB, float4(axis, 0), depth, out_contact);
 	return true;
 }
 
 // ---- Triangle vs Line ----
-// Closest point between the line skeleton and the triangle, plus thickness margin.
+// SAT-based contact, mirrors the CPU col_triangle_vs_line.h algorithm.
+//
+// Tests 4 candidate separating axes:
+//   - 1 triangle face normal             (face-vs-anything contact)
+//   - 3 triangle edges × line direction  (edge-vs-edge contact; degenerate axes are skipped)
+//
+// For each axis, projects the triangle's 3 vertices and the line interval
+// (centre ± half-length·dir, expanded by the line radius) onto the axis. Any axis with
+// negative overlap is a separating axis. Otherwise the axis with the smallest overlap is
+// the MTV. The axis is oriented immediately at the test step using the projected interval
+// centres — global centroid orientation does NOT match the per-axis SAT result.
+//
+// Strict positive depth required for contact (matches CPU ContactPenetration semantics).
 inline bool TriangleVsLine(
 	in_(GpuShape) tri, float4x4 tri_w_,
 	in_(GpuShape) seg, float4x4 seg_w_,
@@ -552,61 +620,63 @@ inline bool TriangleVsLine(
 	float4x4 tri_w = mul(tri.s2rb, tri_w_);
 	float4x4 seg_w = mul(seg.s2rb, seg_w_);
 
-	float4 seg_centre = seg_w[3];
-	float4 seg_dir = seg_w[2];
-	float hlength = seg.data.x;
-	float line_radius = seg.data.y;
-	int i;
-	
 	float4 v0, v1, v2;
 	GetTriangleVerts(tri, tri_w, verts, v0, v1, v2);
 
-	// Find closest point pair between segment and triangle.
-	// Test: closest point on triangle to each segment endpoint, and
-	// closest point on segment to each triangle vertex/edge.
-	float best_dist_sq = 1e30f;
-	float4 best_lp = seg_centre;
-	float4 best_tp = v0;
+	float3 seg_centre = seg_w[3].xyz;
+	float3 seg_dir = seg_w[2].xyz; // unit (column of orthonormal transform)
+	float hlength = seg.data.x;
+	float line_radius = seg.data.y;
+	float3 seg_half = hlength * seg_dir;
 
-	// Test segment endpoints against triangle
-	for (i = 0; i < 2; ++i)
-	{
-		float4 lp = seg_centre + (i == 0 ? -hlength : hlength) * seg_dir;
-		float4 tp = ClosestPoint_PointToTriangle(lp, v0, v1, v2);
-		float d = dot(lp - tp, lp - tp);
-		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
+	float best_depth = 1e30f;
+	float3 best_axis = float3(0, 0, 0);
+
+	// Project the triangle and the (thickness-expanded) line interval onto a normalised
+	// axis. Update best_depth/best_axis with the minimum overlap and orient the chosen
+	// axis from the triangle's projected interval toward the line's projected interval.
+	// Returns false (via the caller's return) if the axis fully separates the shapes.
+	#define TEST_AXIS(axis_expr) { \
+		float3 ax = (axis_expr); \
+		float ax_len_sq = dot(ax, ax); \
+		if (ax_len_sq >= 1e-16f) { \
+			ax *= rsqrt(ax_len_sq); \
+			float d0 = dot(ax, v0.xyz); \
+			float d1 = dot(ax, v1.xyz); \
+			float d2 = dot(ax, v2.xyz); \
+			float t_min = min(min(d0, d1), d2); \
+			float t_max = max(max(d0, d1), d2); \
+			float lm = dot(ax, seg_centre); \
+			float lr = abs(dot(ax, seg_half)) + line_radius; \
+			float l_min = lm - lr; \
+			float l_max = lm + lr; \
+			float overlap = min(t_max - l_min, l_max - t_min); \
+			if (overlap < 0) return false; \
+			if (overlap < best_depth) { \
+				best_depth = overlap; \
+				best_axis = (t_min + t_max <= l_min + l_max) ? ax : -ax; \
+			} \
+		} \
 	}
 
-	// Test triangle vertices against segment
-	float4 tri_verts[3] = {v0, v1, v2};
-	for (i = 0; i < 3; ++i)
-	{
-		float4 lp = ClosestPoint_PointToSegment(tri_verts[i], seg_centre, seg_dir, hlength);
-		float d = dot(lp - tri_verts[i], lp - tri_verts[i]);
-		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tri_verts[i]; }
-	}
+	// Triangle face normal
+	TEST_AXIS(cross((v1 - v0).xyz, (v2 - v1).xyz))
 
-	// Test segment against triangle edges
-	float4 edge_a[3] = {v0, v1, v2};
-	float4 edge_b[3] = {v1, v2, v0};
-	for (i = 0; i < 3; ++i)
-	{
-		float4 ec = (edge_a[i] + edge_b[i]) * 0.5f;
-		float4 ed = normalize(edge_b[i] - edge_a[i]);
-		float elen = length(edge_b[i] - edge_a[i]) * 0.5f;
-		float2 t = ClosestPoint_SegmentToSegment(seg_centre, seg_dir, hlength, ec, ed, elen);
-		float4 lp = seg_centre + t.x * seg_dir;
-		float4 tp = ec + t.y * ed;
-		float d = dot(lp - tp, lp - tp);
-		if (d < best_dist_sq) { best_dist_sq = d; best_lp = lp; best_tp = tp; }
-	}
+	// Triangle edges × line direction
+	TEST_AXIS(cross((v1 - v0).xyz, seg_dir))
+	TEST_AXIS(cross((v2 - v1).xyz, seg_dir))
+	TEST_AXIS(cross((v0 - v2).xyz, seg_dir))
 
-	if (best_dist_sq >= line_radius * line_radius || best_dist_sq < 1e-12f)
+	#undef TEST_AXIS
+
+	// Strict positive depth — touching/coplanar zero-overlap is not a contact.
+	if (best_depth <= 0)
 		return false;
 
-	float dist = sqrt(best_dist_sq);
-	float4 normal = (best_lp - best_tp) / dist;
-	ContactSetPoint(out_contact, normal, best_tp, line_radius - dist);
+	// Build the manifold via the templated helper. It transforms the world axis into each
+	// shape's local space, calls SupportFeature (Triangle and Line), brings the resulting
+	// features back to world space, and runs the manifold reducer.
+	FindContactManifold(tri, tri_w, seg, seg_w, float4(best_axis, 0), best_depth, verts, out_contact);
 	return true;
 }
 

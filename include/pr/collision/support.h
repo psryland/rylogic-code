@@ -518,11 +518,68 @@ namespace pr::collision
 		// If this is edge-edge contact, then the separating axis passes through the closest points
 		if (featA == EFeature::Edge && featB == EFeature::Edge)
 		{
-			v4 pt0, pt1;
-			geometry::closest_point::LineToLine(pointsA[0], pointsA[1], pointsB[0], pointsB[1], pt0, pt1);
+			// This is a specialised version of the closest_point::LineVsLine function that returns
+			// the overlapping segment for parallel edges instead of the closest points.
+			constexpr auto tol = 1e-5f;
+			constexpr auto tol_sq = Sqr(tol);
 
-			auto point = (pt0 + pt1) * 0.5f;
-			return { { point }, EFeature::Vert }; // Ignoring parallel edges for now
+			auto edge_a = pointsA[1] - pointsA[0];
+			auto edge_b = pointsB[1] - pointsB[0];
+			auto sep = pointsA[0] - pointsB[0];
+			auto len_sq_a = LengthSq(edge_a);
+			auto len_sq_b = LengthSq(edge_b);
+			auto dot_ab = Dot3(edge_a, edge_b);
+			auto c = Dot3(edge_a, sep);
+
+			// Lagrange identity: |a × b|² = |a|²|b|² - (a·b)², zero when 'a' and 'b' are colinear.
+			// Use a relative tolerance so the test is independent of edge length.
+			auto denom = len_sq_a * len_sq_b - dot_ab * dot_ab;
+
+			// If the edges are not parallel, return the midpoint of the closest-point pair.
+			// Inlines closest_point::LineToLine's non-parallel branch to avoid recomputing
+			// edge_a/edge_b/sep/lengths/dots already in scope.
+			if (denom > tol_sq * len_sq_a * len_sq_b)
+			{
+				auto f = Dot3(edge_b, sep);
+				auto t0 = Clamp((dot_ab * f - c * len_sq_b) / denom, 0.0f, 1.0f);
+				auto t1 = (dot_ab * t0 + f) / len_sq_b;
+				if      (t1 < 0.0f) { t1 = 0.0f; t0 = Clamp((    - c) / len_sq_a, 0.0f, 1.0f); }
+				else if (t1 > 1.0f) { t1 = 1.0f; t0 = Clamp((dot_ab - c) / len_sq_a, 0.0f, 1.0f); }
+
+				auto pt_a = pointsA[0] + edge_a * t0;
+				auto pt_b = pointsB[0] + edge_b * t1;
+				auto point = (pt_a + pt_b) * 0.5f;
+				return { { point }, EFeature::Vert };
+			}
+			// Otherwise the edges are parallel; find the overlapping portion.
+			else
+			{
+				// Project B's endpoints into A's parameter space (0 = pointsA[0], 1 = pointsA[1])
+				// then clip to A's [0,1] range to get the overlap interval.
+				//   u for pointsB[0] = Dot3(pointsB[0] - pointsA[0], edge_a) / len_sq_a = -c / len_sq_a
+				//   u for pointsB[1] = Dot3(pointsB[1] - pointsA[0], edge_a) / len_sq_a = (dot_ab - c) / len_sq_a
+				auto u0 = -c / len_sq_a;
+				auto u1 = (dot_ab - c) / len_sq_a;
+				auto t_lo = std::max(0.0f, std::min(u0, u1));
+				auto t_hi = std::min(1.0f, std::max(u0, u1));
+
+				// 'axis' is perpendicular to both edges for a valid edge-edge support feature, so
+				// the axial separation between A and B is the same anywhere along the overlap.
+				// Compute the half-way shift once and apply to both endpoints.
+				auto half_axis_shift = axis * (-0.5f * Dot3(axis, sep));
+
+				// Degenerate overlap (e.g., touching end-to-end or no overlap):
+				// fall back to a single contact point at the clipped midpoint.
+				if (t_hi - t_lo < tol)
+				{
+					auto t_mid = 0.5f * (Clamp(u0, 0.0f, 1.0f) + Clamp(u1, 0.0f, 1.0f));
+					return { { pointsA[0] + edge_a * t_mid + half_axis_shift }, EFeature::Vert };
+				}
+
+				auto pt0 = pointsA[0] + edge_a * t_lo + half_axis_shift;
+				auto pt1 = pointsA[0] + edge_a * t_hi + half_axis_shift;
+				return { { pt0, pt1 }, EFeature::Edge };
+			}
 		}
 
 		// Face-Face or Face-Edge contacts require clipping.
