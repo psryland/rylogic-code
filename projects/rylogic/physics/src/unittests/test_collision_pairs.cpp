@@ -14,35 +14,11 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {
 	void ForceLink_CollisionPairs() {}
-
-	// Lazy-initialised engine shared by every test in this file. Constructing a physics::Engine
-	// triggers GPU shader compilation which takes seconds; doing that for every PRUnitTestMethod
-	// dominates total test time. The unit-test framework instantiates the test class fresh for
-	// each method (see PRUnitTestMethod macro), so an engine member would be re-constructed too —
-	// hence the function-local static. All tests in this file use the default EngineConfig, so
-	// one shared instance is sufficient.
-	inline physics::Engine& SharedEngine()
-	{
-		static physics::Engine s_engine;
-		return s_engine;
-	}
-
-	// Reset per-test engine state before each test. The engine config is const at construction,
-	// but the materials map and Collisions handler list both need clearing to keep tests isolated.
-	// Default material values match those installed by MaterialMap's constructor.
-	inline void ResetEngineForNextTest(physics::Engine& engine)
-	{
-		engine.Collisions.reset();
-		engine.Material(physics::Material{
-			.m_id = physics::Material::DefaultID,
-			.m_friction_static = 0.0f,
-			.m_elasticity_norm = 1.0f,
-		});
-	}
 
 	// Drop a shape onto the ground from height 'h' and check it bounces.
 	// Returns true if the collision was detected and the body bounced (z velocity reversed).

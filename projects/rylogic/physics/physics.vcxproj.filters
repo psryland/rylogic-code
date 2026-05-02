@@ -105,6 +105,9 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp">
       <Filter>src\rigid_body</Filter>
     </ClCompile>
+    <ClCompile Include="src\unittests\test_interop_engine.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
@@ -207,6 +210,9 @@
       <Filter>src\rigid_body</Filter>
     </ClInclude>
     <ClInclude Include="src\unittests\force_link.h">
+      <Filter>src\unittests</Filter>
+    </ClInclude>
+    <ClInclude Include="src\unittests\shared_engine.h">
       <Filter>src\unittests</Filter>
     </ClInclude>
   </ItemGroup>
