@@ -37,9 +37,17 @@
 	#define GTID(name) name
 	#define GIDX(name) name
 
-	// Make HLSL types visible at the including scope so that .hlsli
-	// files included from C++ can use float4, int4, float4x4, etc.
-	using namespace pr::hlsl;
+	// Function-definition decorators that work in both C++ and HLSL contexts.
+	//   odr           - allow a function definition to live in a header. In C++ it expands to
+	//                   'template <typename = void>' so each call instantiates a single weak-linkage
+	//                   instance (no ODR violation across translation units). In HLSL it is empty,
+	//                   leaving the function as an ordinary definition that DXC can inline freely.
+	//   hlsl_noinline - request that DXC keep the function out-of-line (one shared body, called
+	//                   indirectly). No effect in C++ (where ordinary inlining decisions apply).
+	//                   Use sparingly on large functions that have multiple call sites in the same
+	//                   compute shader, where inlining produces excessive bytecode and slow compiles.
+	#define odr template <typename = void>
+	#define hlsl_noinline
 
 #else
 
@@ -56,6 +64,12 @@
 	#define GID(name) name : SV_GroupID
 	#define GTID(name) name : SV_GroupThreadID
 	#define GIDX(name) name : SV_GroupIndex
+
+	// See the C++ branch above for documentation. In HLSL, 'odr' is empty (DXC inlines by default
+	// for compute targets), and 'hlsl_noinline' becomes the [noinline] attribute, which forces DXC
+	// to emit one shared DXIL function body instead of duplicating it at every call site.
+	#define odr
+	#define hlsl_noinline [noinline]
 
 #endif
 

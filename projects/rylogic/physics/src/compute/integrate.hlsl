@@ -53,7 +53,7 @@ RWStructuredBuffer<GpuIntegrateDiag> resource(g_diag, u6);
 #endif
 
 // Compute the world-space AABB for a body and write it to the output buffers.
-inline void UpdateAABB(in_(GpuRigidBody) body, int idx)
+odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
 {
 	float3x3 rot = (float3x3)body.o2w;
 	float3 os_centre = body.os_bbox.centre.xyz;

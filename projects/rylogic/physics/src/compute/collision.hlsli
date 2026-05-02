@@ -58,7 +58,7 @@ static const float Eps = 1e-8f;
 
 // ---- Helpers ----
 // Get the world-space vertices of a triangle shape
-inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
+odr void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBuffer<float4>) verts, out_(float4) v0, out_(float4) v1, out_(float4) v2)
 {
 	v0 = mul(float4(verts[tri.vert_offset + 0].xyz, 1), tri_w);
 	v1 = mul(float4(verts[tri.vert_offset + 1].xyz, 1), tri_w);
@@ -67,7 +67,7 @@ inline void GetTriangleVerts(in_(GpuShape) tri, float4x4 tri_w, in_(StructuredBu
 
 // Clip a line segment's parametric range [t0,t1] against a half-plane.
 // Half-plane: dot(P - plane_pt, plane_n) >= 0. Returns false if fully clipped.
-inline bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, float3 plane_n, inout_(float) t0, inout_(float) t1)
+odr bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, float3 plane_n, inout_(float) t0, inout_(float) t1)
 {
 	if (t0 >= t1)
 		return false;
@@ -90,7 +90,7 @@ inline bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, 
 // Determine the support feature of a box in a given direction.
 // Returns the feature vertex count (1=vert, 2=edge, 4=quad) and fills 'pts'.
 // Mirrors the CPU SupportFeature() in support.h.
-inline int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
 {
 	float threshold = 1e-4f;
 	pts[0] = pts[1] = pts[2] = pts[3] = pos;
@@ -143,7 +143,7 @@ inline int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arr
 // Determine the support feature of a line segment (possibly with thickness) in a given direction.
 // Returns 1 (vert) or 2 (edge). 'line_dir' should be unit length, 'axis' may be unnormalised.
 // Mirrors the CPU SupportFeature(ShapeLine) in support.h.
-inline int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, float line_r, float3 axis, arrayout_(float3, pts, 4))
+odr int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, float line_r, float3 axis, arrayout_(float3, pts, 4))
 {
 	// Relaxed tolerance for the "axis perpendicular to line" case: the edge feature
 	// includes both endpoints, so we want to fall through to it whenever the dot
@@ -181,7 +181,7 @@ inline int LineSupportFeature(float3 line_pos, float3 line_dir, float hlength, f
 
 // ---- Sphere vs Sphere ----
 // Direct distance test between two sphere centres.
-inline bool SphereVsSphere(
+odr bool SphereVsSphere(
 	in_(GpuShape) sa, float4x4 a2w_,
 	in_(GpuShape) sb, float4x4 b2w_,
 	out_(GpuContact) out_contact)
@@ -212,7 +212,7 @@ inline bool SphereVsSphere(
 // ---- Box vs Sphere ----
 // Find the closest point on the OBB to the sphere centre.
 // If the distance is less than the sphere radius, there's a collision.
-inline bool BoxVsSphere(
+odr bool BoxVsSphere(
 	in_(GpuShape) box, float4x4 box_w_,
 	in_(GpuShape) sphere, float4x4 sphere_w_,
 	out_(GpuContact) out_contact)
@@ -298,7 +298,7 @@ inline bool BoxVsSphere(
 // ---- Line vs Sphere ----
 // Find the closest point on the line segment to the sphere centre.
 // The line has hemispherical end-caps of thickness 'data.y'.
-inline bool LineVsSphere(
+odr bool LineVsSphere(
 	in_(GpuShape) seg, float4x4 seg_w_,
 	in_(GpuShape) sphere, float4x4 sphere_w_,
 	out_(GpuContact) out_contact)
@@ -355,7 +355,7 @@ inline bool LineVsSphere(
 //      yields a 2-point edge feature, allowing the manifold builder to emit a parallel
 //      overlap segment instead of collapsing to a single midpoint).
 //   5. Hand the feature pair to FindContactManifold.
-inline bool LineVsLine(
+odr bool LineVsLine(
 	in_(GpuShape) la, float4x4 la_w_,
 	in_(GpuShape) lb, float4x4 lb_w_,
 	out_(GpuContact) out_contact)
@@ -447,7 +447,7 @@ inline bool LineVsLine(
 // centres — global centroid orientation does NOT match the per-axis SAT result.
 //
 // Strict positive depth required for contact (matches CPU ContactPenetration semantics).
-inline bool TriangleVsLine(
+odr bool TriangleVsLine(
 	in_(GpuShape) tri, float4x4 tri_w_,
 	in_(GpuShape) seg, float4x4 seg_w_,
 	in_(StructuredBuffer<float4>) verts,
@@ -521,7 +521,7 @@ inline bool TriangleVsLine(
 // Tests 11 separating axes: 2 face normals + 9 edge cross products.
 // Both shapes are polyhedral so EPA would also work, but SAT is faster
 // and gives exact results with fixed cost (no iteration).
-inline bool TriangleVsTriangle(
+odr bool TriangleVsTriangle(
 	in_(GpuShape) ta, float4x4 ta_w_,
 	in_(GpuShape) tb, float4x4 tb_w_,
 	in_(StructuredBuffer<float4>) verts,
@@ -585,7 +585,7 @@ inline bool TriangleVsTriangle(
 // ---- Box vs Box (SAT) ----
 // The Minkowski difference of two boxes is a larger box, and EPA struggles
 // to resolve the face normal precisely. SAT gives the exact separating axis.
-inline bool BoxVsBox(
+odr bool BoxVsBox(
 	in_(GpuShape) sa, float4x4 a2w_,
 	in_(GpuShape) sb, float4x4 b2w_,
 	out_(GpuContact) out_contact)
@@ -734,7 +734,7 @@ inline bool BoxVsBox(
 //   - 3 box face normals           (face contacts)
 //   - 3 line_axis x box_axis       (edge-edge contacts; skipped if parallel)
 //   - 1 closest-corner axis        (corner contacts; the other 6 can't produce this direction)
-inline bool LineVsBox(
+odr bool LineVsBox(
 	in_(GpuShape) seg, float4x4 seg_w_,
 	in_(GpuShape) box, float4x4 box_w_,
 	out_(GpuContact) out_contact)
@@ -839,7 +839,7 @@ inline bool LineVsBox(
 }
 
 // ---- Collision Dispatch ----
-inline bool CollideShapes(
+odr bool CollideShapes(
 	in_(GpuShape) a, float4x4 a2w,
 	in_(GpuShape) b, float4x4 b2w,
 	in_(StructuredBuffer<float4>) verts,
@@ -854,6 +854,16 @@ inline bool CollideShapes(
 
 	int gjk_iters = 0;
 	int epa_iters = 0;
+
+	// To keep the inlined CSCollide bytecode small, every shape pair that resolves to a generic
+	// GJK/EPA / convex-vs-implicit test is funnelled through a single call site at the end of this
+	// function. DXC fully inlines GjkCollide and friends into the entry point, so each duplicate
+	// call site would emit its own copy of the EPA loop (~tens of KB each). The flags below let the
+	// large helpers appear exactly once in the compiled bytecode, which dramatically reduces both
+	// the bytecode size and the time DXC spends optimising it.
+	bool need_gjk = false;
+	bool need_cv_sphere = false;
+	bool need_cv_line = false;
 
 	// sa.type <= sb.type is guaranteed
 	bool hit = false;
@@ -890,8 +900,8 @@ inline bool CollideShapes(
 		{
 			switch (sa.type)
 			{
-				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
-				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_SPHERE:   need_cv_sphere = true; break;
+				case SHAPE_BOX:      need_gjk = true; break;
 				case SHAPE_LINE:     hit = TriangleVsLine(sb, wb, sa, wa, verts, out_contact); break;
 				case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
 			}
@@ -901,15 +911,26 @@ inline bool CollideShapes(
 		{
 			switch (sa.type)
 			{
-				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
-				case SHAPE_BOX:      hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
-				case SHAPE_LINE:     hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
-				case SHAPE_TRIANGLE: hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters); break;
-				case SHAPE_POLYTOPE: hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters); break;
+				case SHAPE_SPHERE:   need_cv_sphere = true; break;
+				case SHAPE_BOX:      need_gjk = true; break;
+				case SHAPE_LINE:     need_cv_line = true; break;
+				case SHAPE_TRIANGLE: need_gjk = true; break;
+
+				// For same-type pairs the canonical (sb, sa) ordering produces the same contact as
+				// (sa, sb), so we route polytope-vs-polytope through the shared (sb, sa) call site.
+				case SHAPE_POLYTOPE: need_gjk = true; break;
 			}
 			break;
 		}
 	}
+
+	// Single-call-site dispatch for the heavy generic tests.
+	if (need_gjk)
+		hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters);
+	else if (need_cv_sphere)
+		hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters);
+	else if (need_cv_line)
+		hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters);
 
 	// HigherVsLower functions return contact in canonical order. Flip back if the caller supplied lower-vs-higher.
 	if (a.type < b.type && hit)

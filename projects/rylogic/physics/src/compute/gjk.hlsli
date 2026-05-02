@@ -78,7 +78,7 @@ struct GpuCornerSet
 };
 
 // ---- Utility helpers ----
-inline float4 NormaliseSafe(float4 v, float4 fallback)
+odr float4 NormaliseSafe(float4 v, float4 fallback)
 {
 	float len_sq = dot(v.xyz, v.xyz);
 	return len_sq > GjkEps * GjkEps ? float4(v.xyz * rsqrt(len_sq), 0) : fallback;
@@ -86,12 +86,12 @@ inline float4 NormaliseSafe(float4 v, float4 fallback)
 
 // ---- Support vertex queries ----
 // Furthest boundary point in a shape-space direction. Shape-specific overloads follow EShape order.
-inline float4 SupportVertex_Sphere(in_(GpuShape) shape, float4 dir)
+odr float4 SupportVertex_Sphere(in_(GpuShape) shape, float4 dir)
 {
 	float radius = shape.data.x;
 	return float4(radius * NormaliseSafe(dir, float4(1, 0, 0, 0)).xyz, 1);
 }
-inline float4 SupportVertex_Box(in_(GpuShape) shape, float4 dir)
+odr float4 SupportVertex_Box(in_(GpuShape) shape, float4 dir)
 {
 	float3 half_ext = shape.data.xyz;
 	return float4(
@@ -100,7 +100,7 @@ inline float4 SupportVertex_Box(in_(GpuShape) shape, float4 dir)
 		dir.z > 0 ? +half_ext.z : -half_ext.z,
 		1);
 }
-inline float4 SupportVertex_Line(in_(GpuShape) shape, float4 dir)
+odr float4 SupportVertex_Line(in_(GpuShape) shape, float4 dir)
 {
 	float half_len = shape.data.x;
 	float thickness = shape.data.y;
@@ -113,7 +113,7 @@ inline float4 SupportVertex_Line(in_(GpuShape) shape, float4 dir)
 	}
 	return result;
 }
-inline float4 SupportVertex_Triangle(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+odr float4 SupportVertex_Triangle(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	float4 v0 = verts[shape.vert_offset + 0];
 	float4 v1 = verts[shape.vert_offset + 1];
@@ -125,7 +125,7 @@ inline float4 SupportVertex_Triangle(in_(GpuShape) shape, float4 dir, in_(Struct
 	if (d1 >= d0 && d1 >= d2) return float4(v1.xyz, 1);
 	return float4(v2.xyz, 1);
 }
-inline float4 SupportVertex_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+odr float4 SupportVertex_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	float best_dot = -1e30f;
 	float4 best_vert = float4(0, 0, 0, 1);
@@ -141,7 +141,7 @@ inline float4 SupportVertex_Polytope(in_(GpuShape) shape, float4 dir, in_(Struct
 	}
 	return best_vert;
 }
-inline float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+odr float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	switch (shape.type)
 	{
@@ -155,13 +155,13 @@ inline float4 SupportVertex(in_(GpuShape) shape, float4 dir, in_(StructuredBuffe
 }
 
 // ---- Feature accumulation helpers ----
-inline void FeatureClear(out_(GpuFeature) feature)
+odr void FeatureClear(out_(GpuFeature) feature)
 {
 	feature.count = 0;
 	for (int i = 0; i != GpuFeatureMaxPoints; ++i)
 		feature.points[i] = float4(0, 0, 0, 1);
 }
-inline void FeatureAddUnique(inout_(GpuFeature) feature, float4 pt)
+odr void FeatureAddUnique(inout_(GpuFeature) feature, float4 pt)
 {
 	const float TolSq = 1e-8f;
 	if (feature.count >= GpuFeatureMaxPoints)
@@ -175,7 +175,7 @@ inline void FeatureAddUnique(inout_(GpuFeature) feature, float4 pt)
 
 	feature.points[feature.count++] = float4(pt.xyz, 1);
 }
-inline float4 FeatureCentroid(in_(GpuFeature) feature)
+odr float4 FeatureCentroid(in_(GpuFeature) feature)
 {
 	float4 centre = float4(0, 0, 0, 0);
 	for (int i = 0; i != feature.count; ++i)
@@ -183,7 +183,7 @@ inline float4 FeatureCentroid(in_(GpuFeature) feature)
 
 	return float4(centre.xyz / max((float)feature.count, 1.0f), 1);
 }
-inline bool FeatureIsPlanar(in_(GpuFeature) feature, float4 axis)
+odr bool FeatureIsPlanar(in_(GpuFeature) feature, float4 axis)
 {
 	if (feature.count < 3)
 		return true;
@@ -217,7 +217,7 @@ inline bool FeatureIsPlanar(in_(GpuFeature) feature, float4 axis)
 	}
 	return true;
 }
-inline void FeatureSortAroundAxis(inout_(GpuFeature) feature, float4 axis)
+odr void FeatureSortAroundAxis(inout_(GpuFeature) feature, float4 axis)
 {
 	if (feature.count < 3)
 		return;
@@ -261,7 +261,7 @@ inline void FeatureSortAroundAxis(inout_(GpuFeature) feature, float4 axis)
 }
 
 // ---- Support feature queries ----
-inline void SupportFeature_Box(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
+odr void SupportFeature_Box(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
 {
 	FeatureClear(feature);
 	feature.count = 1;
@@ -309,7 +309,7 @@ inline void SupportFeature_Box(in_(GpuShape) shape, float4 axis, out_(GpuFeature
 		}
 	}
 }
-inline void SupportFeature_Line(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
+odr void SupportFeature_Line(in_(GpuShape) shape, float4 axis, out_(GpuFeature) feature)
 {
 	FeatureClear(feature);
 	float half_len = shape.data.x;
@@ -338,7 +338,7 @@ inline void SupportFeature_Line(in_(GpuShape) shape, float4 axis, out_(GpuFeatur
 		feature.points[1] = float4((+r + thickness_offset).xyz, 1);
 	}
 }
-inline void SupportFeature_Triangle(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
+odr void SupportFeature_Triangle(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
 {
 	FeatureClear(feature);
 	float4 v0 = float4(verts[shape.vert_offset + 0].xyz, 1);
@@ -368,7 +368,7 @@ inline void SupportFeature_Triangle(in_(GpuShape) shape, float4 axis, in_(Struct
 		}
 	}
 }
-inline void SupportFeature_Polytope(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
+odr void SupportFeature_Polytope(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
 {
 	FeatureClear(feature);
 	float best_dist = -1e30f;
@@ -385,7 +385,7 @@ inline void SupportFeature_Polytope(in_(GpuShape) shape, float4 axis, in_(Struct
 	}
 	FeatureSortAroundAxis(feature, axis);
 }
-inline void SupportFeature(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
+odr void SupportFeature(in_(GpuShape) shape, float4 axis, in_(StructuredBuffer<float4>) verts, out_(GpuFeature) feature)
 {
 	switch (shape.type)
 	{
@@ -397,14 +397,14 @@ inline void SupportFeature(in_(GpuShape) shape, float4 axis, in_(StructuredBuffe
 		default:             { FeatureClear(feature); return; }
 	}
 }
-inline void TransformFeature(inout_(GpuFeature) feature, float4x4 s2w)
+odr void TransformFeature(inout_(GpuFeature) feature, float4x4 s2w)
 {
 	for (int i = 0; i != feature.count; ++i)
 		feature.points[i] = float4(mul(feature.points[i], s2w).xyz, 1);
 }
 
 // ---- Contact record helpers ----
-inline void ContactClear(out_(GpuContact) contact)
+odr void ContactClear(out_(GpuContact) contact)
 {
 	contact.axis = float4(0, 0, 0, 0);
 	contact.feature = FEATURE_NONE;
@@ -414,11 +414,11 @@ inline void ContactClear(out_(GpuContact) contact)
 	for (int i = 0; i != GpuContactMaxPoints; ++i)
 		contact.manifold[i] = float4(0, 0, 0, 1);
 }
-inline int ContactCount(in_(GpuContact) contact)
+odr int ContactCount(in_(GpuContact) contact)
 {
 	return clamp(contact.feature, FEATURE_NONE, GpuContactMaxPoints);
 }
-inline float4 ContactCentroid(in_(GpuContact) contact)
+odr float4 ContactCentroid(in_(GpuContact) contact)
 {
 	float4 centre = float4(0, 0, 0, 0);
 	int count = ContactCount(contact);
@@ -427,7 +427,7 @@ inline float4 ContactCentroid(in_(GpuContact) contact)
 
 	return count != 0 ? float4(centre.xyz / (float)count, 1) : float4(0, 0, 0, 1);
 }
-inline void ContactSetPoint(out_(GpuContact) contact, float4 axis, float4 pt, float depth)
+odr void ContactSetPoint(out_(GpuContact) contact, float4 axis, float4 pt, float depth)
 {
 	ContactClear(contact);
 	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
@@ -435,7 +435,7 @@ inline void ContactSetPoint(out_(GpuContact) contact, float4 axis, float4 pt, fl
 	contact.feature = FEATURE_VERT;
 	contact.depth = depth;
 }
-inline void ContactSetManifold(out_(GpuContact) contact, float4 axis, float4 manifold[GpuContactMaxPoints], int feature, float depth)
+odr void ContactSetManifold(out_(GpuContact) contact, float4 axis, float4 manifold[GpuContactMaxPoints], int feature, float depth)
 {
 	ContactClear(contact);
 	contact.axis = float4(NormaliseSafe(axis, float4(1, 0, 0, 0)).xyz, 0);
@@ -444,7 +444,7 @@ inline void ContactSetManifold(out_(GpuContact) contact, float4 axis, float4 man
 	for (int i = 0; i != contact.feature; ++i)
 		contact.manifold[i] = float4(manifold[i].xyz, 1);
 }
-inline void ContactFlip(inout_(GpuContact) contact)
+odr void ContactFlip(inout_(GpuContact) contact)
 {
 	contact.axis = -contact.axis;
 	int count = ContactCount(contact);
@@ -457,30 +457,30 @@ inline void ContactFlip(inout_(GpuContact) contact)
 }
 
 // ---- Manifold clipping helpers ----
-inline void CornerSetClear(out_(GpuCornerSet) corners)
+odr void CornerSetClear(out_(GpuCornerSet) corners)
 {
 	corners.count = 0;
 	for (int i = 0; i != GpuManifoldMaxCorners; ++i)
 		corners.points[i] = float4(0, 0, 0, 1);
 }
-inline void CornerSetAdd(inout_(GpuCornerSet) corners, float4 pt)
+odr void CornerSetAdd(inout_(GpuCornerSet) corners, float4 pt)
 {
 	if (corners.count < GpuManifoldMaxCorners)
 		corners.points[corners.count++] = float4(pt.xyz, 1);
 }
-inline void ClipEdgeClear(out_(GpuClipEdge) edge)
+odr void ClipEdgeClear(out_(GpuClipEdge) edge)
 {
 	edge.t0 = 0.0f;
 	edge.t1 = 1.0f;
 	edge.valid = 1;
 	edge.pad0 = 0;
 }
-inline void ClipEdgeSetClear(out_(GpuClipEdgeSet) edgeset)
+odr void ClipEdgeSetClear(out_(GpuClipEdgeSet) edgeset)
 {
 	for (int i = 0; i != GpuFeatureMaxPoints; ++i)
 		ClipEdgeClear(edgeset.edges[i]);
 }
-inline void ClipFeatureEdges(in_(GpuFeature) points0, in_(GpuFeature) points1, inout_(GpuClipEdgeSet) edges1, float sign, float4 axis)
+odr void ClipFeatureEdges(in_(GpuFeature) points0, in_(GpuFeature) points1, inout_(GpuClipEdgeSet) edges1, float sign, float4 axis)
 {
 	const float Tol = 1e-5f;
 	for (int i = 0; i != points0.count; ++i)
@@ -516,7 +516,7 @@ inline void ClipFeatureEdges(in_(GpuFeature) points0, in_(GpuFeature) points1, i
 		}
 	}
 }
-inline void AppendClippedEdge(inout_(GpuCornerSet) corners, in_(GpuFeature) points, int edge_index, GpuClipEdge edge, float4 offset)
+odr void AppendClippedEdge(inout_(GpuCornerSet) corners, in_(GpuFeature) points, int edge_index, GpuClipEdge edge, float4 offset)
 {
 	if (edge.valid == 0 || edge.t0 > edge.t1 + 1e-5f)
 		return;
@@ -528,13 +528,13 @@ inline void AppendClippedEdge(inout_(GpuCornerSet) corners, in_(GpuFeature) poin
 }
 
 // If clipping causes all candidates to be removed, fallback to a single contact at the feature centroids.
-inline void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+odr void ContactFallback(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
 {
 	ContactSetPoint(contact, axis, 0.5f * (FeatureCentroid(featA) + FeatureCentroid(featB)), depth);
 }
 
 // Reduce clipped corner candidates to the largest point/edge/triangle/quad representative manifold.
-inline void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(GpuContact) contact)
+odr void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(GpuContact) contact)
 {
 	ContactClear(contact);
 	const float Tol = 1e-5f;
@@ -661,7 +661,7 @@ inline void ContactReduceManifold(in_(GpuCornerSet) corners, float4 axis, out_(G
 }
 
 // Clip support features in world space, then shift the surviving boundary to the contact mid-plane.
-inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
+odr void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, float4 axis, float depth, out_(GpuContact) contact)
 {
 	ContactClear(contact);
 	int countA = featA.count;
@@ -803,7 +803,7 @@ inline void FindContactManifold(in_(GpuFeature) featA, in_(GpuFeature) featB, fl
 	if (contact.feature == FEATURE_NONE)
 		ContactFallback(featA, featB, axis, depth, contact);
 }
-inline void FindContactManifold(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) shape_b, float4x4 b2w, float4 axis, float depth, in_(StructuredBuffer<float4>) verts, out_(GpuContact) contact)
+odr void FindContactManifold(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) shape_b, float4x4 b2w, float4 axis, float depth, in_(StructuredBuffer<float4>) verts, out_(GpuContact) contact)
 {
 	GpuFeature featA, featB;
 	SupportFeature(shape_a, mul(+axis, InvertOrthonormal(a2w)), verts, featA);
@@ -819,7 +819,7 @@ inline void FindContactManifold(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShap
 // support face — a stable contact point. For non-degenerate (vertex/edge) contact,
 // only one vertex ties and the result equals the standard SupportVertex.
 // 'dir' is in shape space (same convention as SupportVertex).
-inline float4 SupportFaceCentre_Box(in_(GpuShape) shape, float4 dir)
+odr float4 SupportFaceCentre_Box(in_(GpuShape) shape, float4 dir)
 {
 	const float TieEps = 1e-4f;
 	float3 half_ext = shape.data.xyz;
@@ -829,7 +829,7 @@ inline float4 SupportFaceCentre_Box(in_(GpuShape) shape, float4 dir)
 	result.z = abs(dir.z) < TieEps ? 0.0f : (dir.z > 0 ? half_ext.z : -half_ext.z);
 	return result;
 }
-inline float4 SupportFaceCentre_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+odr float4 SupportFaceCentre_Polytope(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	const float TieEps = 1e-4f;
 	float best_dot = -1e30f;
@@ -853,7 +853,7 @@ inline float4 SupportFaceCentre_Polytope(in_(GpuShape) shape, float4 dir, in_(St
 	}
 	return float4(sum.xyz / max((float)count, 1.0f), 1);
 }
-inline float4 SupportFaceCentre(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
+odr float4 SupportFaceCentre(in_(GpuShape) shape, float4 dir, in_(StructuredBuffer<float4>) verts)
 {
 	switch (shape.type)
 	{
@@ -870,7 +870,7 @@ struct MkSup
 	float4 a; // Support vertex on shape A (world space), w=1
 	float4 b; // Support vertex on shape B (world space), w=1
 };
-inline MkSup MkSupport(
+odr MkSup MkSupport(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
 	float4 dir, in_(StructuredBuffer<float4>) verts)
@@ -885,7 +885,7 @@ inline MkSup MkSupport(
 	s.b = float4(vb.xyz, 1);
 	return s;
 }
-inline MkSup MkSupportPoint(
+odr MkSup MkSupportPoint(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	float4 point_b,
 	float4 dir, in_(StructuredBuffer<float4>) verts)
@@ -908,7 +908,7 @@ struct Simplex
 	MkSup s[4];
 	int n;
 };
-inline void SimplexPush(inout_(Simplex) sx, MkSup p)
+odr void SimplexPush(inout_(Simplex) sx, MkSup p)
 {
 	for (int i = sx.n; i > 0; --i)
 		sx.s[i] = sx.s[i - 1];
@@ -916,7 +916,7 @@ inline void SimplexPush(inout_(Simplex) sx, MkSup p)
 	sx.s[0] = p;
 	sx.n++;
 }
-inline bool SimplexLine(inout_(Simplex) sx, inout_(float4) dir)
+odr bool SimplexLine(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ao = -sx.s[0].w;
@@ -933,7 +933,7 @@ inline bool SimplexLine(inout_(Simplex) sx, inout_(float4) dir)
 	}
 	return false;
 }
-inline bool SimplexTri(inout_(Simplex) sx, inout_(float4) dir)
+odr bool SimplexTri(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ac = sx.s[2].w - sx.s[0].w;
@@ -976,7 +976,7 @@ inline bool SimplexTri(inout_(Simplex) sx, inout_(float4) dir)
 	}
 	return false;
 }
-inline bool SimplexTetra(inout_(Simplex) sx, inout_(float4) dir)
+odr bool SimplexTetra(inout_(Simplex) sx, inout_(float4) dir)
 {
 	float4 ab = sx.s[1].w - sx.s[0].w;
 	float4 ac = sx.s[2].w - sx.s[0].w;
@@ -990,7 +990,7 @@ inline bool SimplexTetra(inout_(Simplex) sx, inout_(float4) dir)
 	if (dot(adb.xyz, ao.xyz) > 0) { MkSup tmp = sx.s[1]; sx.s[1] = sx.s[3]; sx.s[2] = tmp; sx.n = 3; return SimplexTri(sx, dir); }
 	return true;
 }
-inline bool DoSimplex(inout_(Simplex) sx, inout_(float4) dir)
+odr bool DoSimplex(inout_(Simplex) sx, inout_(float4) dir)
 {
 	switch (sx.n)
 	{
@@ -1006,7 +1006,7 @@ inline bool DoSimplex(inout_(Simplex) sx, inout_(float4) dir)
 // has been pruned to the closest sub-feature; this means the origin's projection
 // onto that sub-feature lies inside it (up to FP noise). Robust to degenerate
 // simplices: line/triangle helpers fall back to a vertex on degeneracy.
-inline float4 SimplexClosestPoint(in_(Simplex) sx)
+odr float4 SimplexClosestPoint(in_(Simplex) sx)
 {
 	if (sx.n == 1)
 		return sx.s[0].w;
@@ -1044,7 +1044,7 @@ struct EpaEdge
 {
 	int a, b;
 };
-inline bool Epa(
+odr bool Epa(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
 	in_(Simplex) gjk_sx, in_(StructuredBuffer<float4>) verts,
@@ -1221,7 +1221,7 @@ inline bool Epa(
 }
 
 // ---- GJK + EPA entry point ----
-inline bool GjkCollide(
+odr bool GjkCollide(
 	in_(GpuShape) shape_a, float4x4 a2w_,
 	in_(GpuShape) shape_b, float4x4 b2w_,
 	in_(StructuredBuffer<float4>) verts,
@@ -1320,7 +1320,7 @@ inline bool GjkCollide(
 // Uses the standard Voronoi-style simplex reduction (DoSimplex) which keeps the
 // most recent support vertex at index 0 — this guarantees progress and avoids
 // the all-edges fallback that can drop the new vertex and stall the algorithm.
-inline bool GjkClosestPointToPoint(
+odr bool GjkClosestPointToPoint(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	float4 point_b,
 	in_(StructuredBuffer<float4>) verts,
@@ -1411,7 +1411,7 @@ inline bool GjkClosestPointToPoint(
 // HLSL has no templates, so this duplicates the loop body of
 // GjkClosestPointToPoint with the support call substituted. Keep both copies
 // in sync; the only difference is the MkSupport vs MkSupportPoint call.
-inline bool GjkClosestPointShapeToShape(
+odr bool GjkClosestPointShapeToShape(
 	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
 	in_(GpuShape) shape_b, float4x4 b2w, float4x4 w2b,
 	in_(StructuredBuffer<float4>) verts,
@@ -1485,7 +1485,7 @@ inline bool GjkClosestPointShapeToShape(
 // centre (a single point), then check distance < radius and add the margin
 // analytically. This avoids EPA entirely and gives exact contact normals — far
 // more accurate than EPA against a curved Minkowski boundary.
-inline bool ConvexVsSphere(
+odr bool ConvexVsSphere(
 	in_(GpuShape) convex, float4x4 convex_w_,
 	in_(GpuShape) sphere, float4x4 sphere_w_,
 	in_(StructuredBuffer<float4>) verts,
@@ -1549,7 +1549,7 @@ inline bool ConvexVsSphere(
 // axis. SupportFeature on a thick line returns a 2-vertex edge feature when the
 // axis is perpendicular to the line direction, so a parallel-edge contact
 // correctly reduces to a 2-point edge manifold via the existing edge-edge case.
-inline bool ConvexVsLine(
+odr bool ConvexVsLine(
 	in_(GpuShape) convex, float4x4 convex_w_,
 	in_(GpuShape) seg, float4x4 seg_w_,
 	in_(StructuredBuffer<float4>) verts,
