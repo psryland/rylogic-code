@@ -879,6 +879,22 @@ inline MkSup MkSupport(
 	s.b = float4(vb.xyz, 1);
 	return s;
 }
+inline MkSup MkSupportPoint(
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	float4 point_b,
+	float4 dir, in_(StructuredBuffer<float4>) verts)
+{
+	// Specialised Minkowski support when shape B is a single point (e.g. sphere centre).
+	// The support of a point in any direction is just the point itself, so no support
+	// query is needed for B.
+	float4 dir_a = mul(+dir, w2a);
+	float4 va = mul(SupportVertex(shape_a, dir_a, verts), a2w);
+	MkSup s;
+	s.w = float4((va - point_b).xyz, 0);
+	s.a = float4(va.xyz, 1);
+	s.b = float4(point_b.xyz, 1);
+	return s;
+}
 
 // ---- GJK Simplex ----
 struct Simplex
@@ -977,6 +993,38 @@ inline bool DoSimplex(inout_(Simplex) sx, inout_(float4) dir)
 		case 4: return SimplexTetra(sx, dir);
 	}
 	return false;
+}
+
+// Project the origin onto the (Voronoi-reduced) simplex, returning the closest
+// point in Minkowski space. Caller must have just run DoSimplex so the simplex
+// has been pruned to the closest sub-feature; this means the origin's projection
+// onto that sub-feature lies inside it (up to FP noise). Robust to degenerate
+// simplices: line/triangle helpers fall back to a vertex on degeneracy.
+inline float4 SimplexClosestPoint(in_(Simplex) sx)
+{
+	if (sx.n == 1)
+		return sx.s[0].w;
+
+	if (sx.n == 2)
+	{
+		float4 a = sx.s[0].w, b = sx.s[1].w;
+		float4 ab = b - a;
+		float ab_sq = dot(ab.xyz, ab.xyz);
+		if (ab_sq < GjkEps)
+			return a;
+		float t = saturate(-dot(a.xyz, ab.xyz) / ab_sq);
+		return a + t * ab;
+	}
+
+	if (sx.n == 3)
+	{
+		// Use the robust Voronoi-region triangle helper from closest_point.hlsli.
+		float4 origin = float4(0, 0, 0, 0);
+		return float4(ClosestPoint_PointToTriangle(origin, sx.s[0].w, sx.s[1].w, sx.s[2].w).xyz, 0);
+	}
+
+	// Tetrahedron — origin is enclosed if DoSimplex returned true.
+	return float4(0, 0, 0, 0);
 }
 
 // ---- EPA (Expanding Polytope Algorithm) ----
@@ -1237,6 +1285,149 @@ inline bool GjkCollide(
 	}
 
 	return false;
+}
+
+// ---- GJK closest-point query (shape vs point) ----
+// Computes the closest point on the Minkowski difference (shape_a - point_b) to
+// the origin in world space. Equivalent to: closest_point_on_shape_a_to_point_b
+// minus point_b. Returns false if point_b is inside shape_a (origin enclosed in
+// the Minkowski difference) — the caller is responsible for the deep-penetration
+// fallback. On success, |out_w_closest| is the distance from point_b to shape_a.
+//
+// Uses the standard Voronoi-style simplex reduction (DoSimplex) which keeps the
+// most recent support vertex at index 0 — this guarantees progress and avoids
+// the all-edges fallback that can drop the new vertex and stall the algorithm.
+inline bool GjkClosestPointToPoint(
+	in_(GpuShape) shape_a, float4x4 a2w, float4x4 w2a,
+	float4 point_b,
+	in_(StructuredBuffer<float4>) verts,
+	out_(float4) out_w_closest, out_(int) out_iters)
+{
+	out_iters = 0;
+	out_w_closest = float4(0, 0, 0, 0);
+
+	// Initial search direction: from point_b toward shape_a's centre.
+	float4 dir = float4((a2w[3] - point_b).xyz, 0);
+	if (length_sq(dir.xyz) < GjkEps)
+		dir = float4(1, 0, 0, 0);
+
+	// Seed the simplex with the first support point.
+	Simplex sx;
+	sx.n = 0;
+	MkSup sup = MkSupportPoint(shape_a, a2w, w2a, point_b, dir, verts);
+	SimplexPush(sx, sup);
+
+	float4 w_closest = sup.w;
+	float closest_dist_sq = dot(w_closest.xyz, w_closest.xyz);
+
+	for (int iter = 0; iter < MaxGjkIter; ++iter)
+	{
+		out_iters = iter + 1;
+
+		// Search toward the origin from the current closest Minkowski point.
+		dir = -float4(w_closest.xyz, 0);
+		float dir_sq = dot(dir.xyz, dir.xyz);
+		if (dir_sq < GjkEps)
+			break;
+
+		sup = MkSupportPoint(shape_a, a2w, w2a, point_b, dir, verts);
+
+		// Standard GJK termination: if the new support doesn't extend further
+		// along the search direction than the current closest point, we've
+		// converged. Equivalent to: dot(sup.w, dir) <= dot(w_closest, dir) + tol.
+		// Since dot(w_closest, dir) = -closest_dist_sq, the test becomes:
+		//   proj < 0 && proj^2 >= closest_dist_sq * |dir|^2 (modulo a small tol).
+		float proj = dot(sup.w.xyz, dir.xyz);
+		if (proj < 0 && proj * proj > closest_dist_sq * dir_sq * 0.99999f)
+			break;
+
+		// Reject duplicate support vertices (GJK has converged but rounding
+		// nudged the projection check). Without this the simplex can end up
+		// with two coincident vertices and the next reduction degenerates.
+		bool duplicate = false;
+		for (int i = 0; i < sx.n; ++i)
+		{
+			if (length_sq((sup.w - sx.s[i].w).xyz) < GjkEps)
+			{
+				duplicate = true;
+				break;
+			}
+		}
+		if (duplicate)
+			break;
+
+		SimplexPush(sx, sup);
+
+		// Voronoi reduction. Returns true only if a tetrahedron encloses the
+		// origin (point_b inside shape_a) — for a strictly external point this
+		// never fires. The dummy_dir output is unused here because we recompute
+		// the closest point from the simplex directly.
+		float4 dummy_dir = dir;
+		if (DoSimplex(sx, dummy_dir))
+			return false;
+
+		w_closest = SimplexClosestPoint(sx);
+		closest_dist_sq = dot(w_closest.xyz, w_closest.xyz);
+	}
+
+	out_w_closest = w_closest;
+	return true;
+}
+
+// ---- Convex vs Sphere ----
+// "GJK with margins": run closest-point GJK on the convex shape vs the sphere
+// centre (a single point), then check distance < radius and add the margin
+// analytically. This avoids EPA entirely and gives exact contact normals — far
+// more accurate than EPA against a curved Minkowski boundary.
+inline bool ConvexVsSphere(
+	in_(GpuShape) convex, float4x4 convex_w_,
+	in_(GpuShape) sphere, float4x4 sphere_w_,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact,
+	out_(int) out_gjk_iters)
+{
+	ContactClear(out_contact);
+	out_gjk_iters = 0;
+
+	float4x4 convex_w = mul(convex.s2rb, convex_w_);
+	float4x4 sphere_w = mul(sphere.s2rb, sphere_w_);
+	float4x4 w2c = InvertOrthonormal(convex_w);
+
+	float4 sphere_centre = float4(sphere_w[3].xyz, 1);
+	float radius = sphere.data.x;
+
+	// Find the closest point on the convex to the sphere centre.
+	float4 w_closest;
+	if (!GjkClosestPointToPoint(convex, convex_w, w2c, sphere_centre, verts, w_closest, out_gjk_iters))
+	{
+		// Sphere centre is inside the convex (deep penetration). Use the convex
+		// centre to sphere centre direction as a best-effort axis.
+		ContactSetPoint(out_contact, NormaliseSafe(float4((sphere_centre - convex_w[3]).xyz, 0), float4(1, 0, 0, 0)), sphere_centre, radius);
+		return true;
+	}
+
+	float dist_sq = dot(w_closest.xyz, w_closest.xyz);
+	float dist = sqrt(dist_sq);
+	if (dist >= radius)
+		return false;
+
+	if (dist <= GjkEps)
+	{
+		// Sphere centre is on the convex surface — degenerate normal direction.
+		ContactSetPoint(out_contact, NormaliseSafe(float4((sphere_centre - convex_w[3]).xyz, 0), float4(1, 0, 0, 0)), sphere_centre, radius);
+		return true;
+	}
+
+	// w_closest = closest_convex_pt - sphere_centre, so it points FROM sphere
+	// centre TOWARD the convex. The CPU axis convention is "from A to B" where
+	// A=convex, B=sphere, i.e. opposite to w_closest. Midplane contact point
+	// matches SphereVsSphere/CPU convention: midpoint of the two penetrating
+	// surface points (closest convex pt and sphere surface in the same direction).
+	float4 normal = w_closest / dist;
+	float depth = radius - dist;
+	float4 mid = sphere_centre + normal * (radius - 0.5f * depth);
+	ContactSetPoint(out_contact, -normal, mid, depth);
+	return true;
 }
 
 #ifdef __cplusplus

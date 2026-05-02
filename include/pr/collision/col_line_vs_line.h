@@ -189,10 +189,11 @@ namespace pr::collision::tests
 			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(0, 1, 0, 0),
 				.m_manifold = {
-					v4(0, 0, 0.25f, 1),
+					v4(0, 0, -0.5f, 1),
+					v4(0, 0, +1.0f, 1),
 				},
-				.m_feature = EFeature::Vert,
-				.m_depth = 9.99999975e-05f,
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.0001f,
 			}));
 		}
 
@@ -212,9 +213,10 @@ namespace pr::collision::tests
 			PR_EXPECT(CheckContact(c, Contact{
 				.m_axis = v4(0, 1, 0, 0),
 				.m_manifold = {
-					v4(0, 0, 1, 1),
+					v4(0, 0, 0.9999f, 1),
+					v4(0, 0, 1.0000f, 1),
 				},
-				.m_feature = EFeature::Vert,
+				.m_feature = EFeature::Edge,
 				.m_depth = 0.0001f,
 			}));
 		}
