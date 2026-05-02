@@ -102,6 +102,7 @@
     <ClCompile Include="src\unittests\test_impulse.cpp" />
     <ClCompile Include="src\unittests\test_inertia.cpp" />
     <ClCompile Include="src\unittests\test_integrator.cpp" />
+    <ClCompile Include="src\unittests\test_interop_engine.cpp" />
     <ClCompile Include="src\unittests\test_resolve_runner.cpp" />
     <ClCompile Include="src\unittests\test_rigid_body.cpp" />
     <ClCompile Include="src\unittests\test_shape_builder.cpp" />
