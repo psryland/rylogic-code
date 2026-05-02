@@ -771,6 +771,9 @@
     <ClInclude Include="..\..\..\include\pr\hlsl\shader_registers.h">
       <Filter>pr\hlsl</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\render\alpha_kbuffer.h">
+      <Filter>src\render</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -878,6 +881,12 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
+    <None Include="src\shaders\hlsl\forward\kbuffer.hlsli">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </None>
+    <None Include="src\shaders\hlsl\forward\kbuffer_resolve_cbuf.hlsli">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">
@@ -892,6 +901,9 @@
     <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl">
       <Filter>src\compute\spatial_partition</Filter>
     </FxCompile>
+    <FxCompile Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <CSharpScript Include="auto_gen.csx" />
@@ -902,6 +914,9 @@
     </ClCompile>
     <ClCompile Include="src\instance\instance.cpp">
       <Filter>src\instance</Filter>
+    </ClCompile>
+    <ClCompile Include="src\render\alpha_kbuffer.cpp">
+      <Filter>src\render</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -157,6 +157,9 @@ namespace pr::rdr12
 		barriers.Transition(res.get(), desc.DefaultState);
 		barriers.Commit();
 
+		// Note if a flush is required
+		m_flush_required = m_flush_required || has_init_data || desc.DefaultState != D3D12_RESOURCE_STATE_COMMON;
+
 		// Trace the pointers of resources that have been created
 		#if 0
 		{

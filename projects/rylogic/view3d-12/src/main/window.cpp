@@ -6,9 +6,11 @@
 #include "pr/view3d-12/main/settings.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/frame.h"
+#include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/openxr/openxr.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
+#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -77,6 +79,7 @@ namespace pr::rdr12
 		, m_heap_view(HeapCapacityView, m_gsync)
 		, m_heap_samp(HeapCapacitySamp, m_gsync)
 		, m_res_state()
+		, m_alpha_kbuffer()
 		, m_frame(rdr.d3d(), m_gsync, m_cmd_alloc_pool, m_msaa_bb, BackBuffer::Null())
 		, m_diag(*this)
 		, m_frame_number()
@@ -116,6 +119,10 @@ namespace pr::rdr12
 			Check(false, "Device does not support MSAA for requested render target format");
 		if (multisamp.Count != 1 && !features.Format(m_ds_props.Format).Check(D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET))
 			Check(false, "Device does not support MSAA for requested depth stencil format");
+		if (!features.Options.ROVsSupported)
+			Check(false, "K-buffer alpha sorting requires Rasterizer Ordered Views");
+		if (!features.Format(DXGI_FORMAT_R32G32B32A32_UINT).CheckUAV())
+			Check(false, "K-buffer alpha sorting requires R32G32B32A32_UINT typed UAV support");
 
 		// Get the factory that was used to create 'rdr.m_device'
 		D3DPtr<IDXGIFactory4> factory;
@@ -355,6 +362,7 @@ namespace pr::rdr12
 		{
 			multisamp = multisamp != nullptr ? multisamp : &bb.m_multisamp;
 			bb = CreateRenderTarget(size, *multisamp, m_rt_props, m_ds_props);
+			m_alpha_kbuffer.Resize(rdr(), size, m_rt_props, m_ds_props);
 		}
 
 		// Notify subscribers that the back buffer size has changed.
@@ -478,6 +486,9 @@ namespace pr::rdr12
 		// Create the frame object to be passed to the scenes 
 		m_frame.Reset(bb_main, bb_post);
 
+		auto heaps = { m_heap_view.get() };
+		m_frame.m_prepare.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+
 		// Prepare
 		if (bb_main.m_render_target != nullptr && bb_post.m_render_target != nullptr)
 		{
@@ -489,6 +500,7 @@ namespace pr::rdr12
 
 			m_frame.m_prepare.ClearRenderTargetView(bb_main.m_rtv, bb_main.rt_clear());
 			m_frame.m_prepare.ClearDepthStencilView(bb_main.m_dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, bb_main.ds_depth(), bb_main.ds_stencil());
+			m_alpha_kbuffer.Clear(m_frame.m_prepare, m_heap_view);
 		}
 		else if (bb_main.m_render_target != nullptr)
 		{
@@ -511,6 +523,7 @@ namespace pr::rdr12
 
 				// Resolve the MSAA render target into the swap chain render target
 				m_frame.m_resolve.ResolveSubresource(bb_post.m_render_target.get(), bb_main.m_render_target.get(), m_rt_props.Format);
+				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, true);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -526,6 +539,7 @@ namespace pr::rdr12
 				bb.Commit();
 
 				m_frame.m_resolve.CopyResource(bb_post.m_render_target.get(), bb_main.m_render_target.get());
+				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, false);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -682,7 +696,7 @@ namespace pr::rdr12
 
 		// Depth stencil
 		{
-			ResDesc dsdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, ds_clear.Format }, 1U, EUsage::DepthStencil | EUsage::DenyShaderResource)
+			ResDesc dsdesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DepthResourceFormat(ds_clear.Format) }, 1U, EUsage::DepthStencil)
 				.multisamp(ms)
 				.clear(ds_clear);
 			assert(dsdesc.Check());
@@ -704,6 +718,15 @@ namespace pr::rdr12
 				.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS,
 			};
 			device->CreateDepthStencilView(bb.m_depth_stencil.get(), &dsvdesc, bb.m_dsv);
+
+			// Create the SRV for the MSAA depth stencil
+			auto srvdesc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DepthSrvFormat(m_ds_props.Format),
+				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+			};
+			ResourceStore::Access store(rdr());
+			bb.m_depth_srv = store.Descriptors().Create(bb.m_depth_stencil.get(), srvdesc);
 		}
 
 		return bb;

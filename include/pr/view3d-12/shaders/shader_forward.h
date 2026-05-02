@@ -25,6 +25,8 @@ namespace pr::rdr12::shaders
 			Pose,
 			Skin,
 			DiffTextureSampler,
+			AlphaColour,
+			AlphaDepth,
 		};
 
 		enum class ESampParam

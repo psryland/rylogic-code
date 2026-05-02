@@ -55,7 +55,7 @@ namespace pr::rdr12
 			// Check the texture format is supported
 			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
-			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE))
+			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
 				throw std::runtime_error("Texture format is not supported as a shader resource view");
 
 			// Create the SRV
