@@ -485,9 +485,13 @@ namespace pr::rdr12
 
 		// Create the frame object to be passed to the scenes 
 		m_frame.Reset(bb_main, bb_post);
+		auto vp = Viewport(bb_main.rt_size());
+		auto scissor = vp.m_clip[0];
 
 		auto heaps = { m_heap_view.get() };
 		m_frame.m_prepare.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		m_frame.m_resolve.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		m_frame.m_present.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
 
 		// Prepare
 		if (bb_main.m_render_target != nullptr && bb_post.m_render_target != nullptr)
@@ -524,6 +528,7 @@ namespace pr::rdr12
 				// Resolve the MSAA render target into the swap chain render target
 				m_frame.m_resolve.ResolveSubresource(bb_post.m_render_target.get(), bb_main.m_render_target.get(), m_rt_props.Format);
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, true);
+				m_alpha_kbuffer.ResolveDepth(m_frame.m_resolve, m_heap_view, m_frame.m_upload, bb_main.m_depth_stencil.get(), bb_main.m_depth_srv, bb_main.m_multisamp.Count, vp, scissor);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -540,6 +545,7 @@ namespace pr::rdr12
 
 				m_frame.m_resolve.CopyResource(bb_post.m_render_target.get(), bb_main.m_render_target.get());
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, false);
+				m_alpha_kbuffer.ResolveDepth(m_frame.m_resolve, m_heap_view, m_frame.m_upload, bb_main.m_depth_stencil.get(), bb_main.m_depth_srv, bb_main.m_multisamp.Count, vp, scissor);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -551,6 +557,8 @@ namespace pr::rdr12
 		// Present
 		if (bb_post.m_render_target != nullptr)
 		{
+			m_alpha_kbuffer.ResolveAlpha(m_frame.m_present, m_heap_view, m_frame.m_upload, bb_post, vp, scissor);
+
 			// The swap chain render target goes to the 'present' state
 			BarrierBatch bb(m_frame.m_present);
 			bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);

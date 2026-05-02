@@ -20,6 +20,7 @@
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler.h"
+#include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "view3d-12/src/shaders/common.h"
@@ -30,6 +31,7 @@ namespace pr::rdr12
 		: RenderStep(Id, scene)
 		, m_shader(scene.rdr())
 		, m_cmd_list(scene.d3d(), nullptr, "RenderForward", EColours::Blue)
+		, m_alpha_cmd_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
 	{
@@ -69,6 +71,15 @@ namespace pr::rdr12
 			},
 			.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
 		};
+
+		// Duplicate the PSO for the alpha pass with some modifications
+		auto psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
+		psdesc.PS = shader_code::forward_alpha_collect_ps;
+		psdesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+		psdesc.NumRenderTargets = 0U;
+		psdesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+		psdesc.SampleDesc = MultiSamp(1, 0);
+		m_alpha_pipe_state = psdesc;
 	}
 	RenderForward::~RenderForward()
 	{
@@ -137,9 +148,11 @@ namespace pr::rdr12
 	{
 		// Reset the command list with a new allocator for this frame
 		m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
+		m_alpha_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
 
 		// Add the command lists we're using to the frame.
 		frame.m_main.push_back(m_cmd_list);
+		frame.m_post.push_back(m_alpha_cmd_list);
 
 		// Sort the draw list if needed
 		SortIfNeeded();
@@ -156,37 +169,84 @@ namespace pr::rdr12
 		m_cmd_list.RSSetViewports({ &vp, 1 });
 		m_cmd_list.RSSetScissorRects(vp.m_clip);
 
+		// Setup and run the opaques pass
+		{
+			BindFrameResources(m_cmd_list);
+			DrawNuggets(m_cmd_list, m_default_pipe_state, false);
+		}
+
+		// Setup and run the alpha pass
+		if (wnd().m_alpha_kbuffer.m_alpha_colour != nullptr && wnd().m_alpha_kbuffer.m_alpha_depth != nullptr && wnd().m_alpha_kbuffer.m_opaque_depth_1x != nullptr)
+		{
+			auto const& kbuffer = wnd().m_alpha_kbuffer;
+			m_alpha_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
+			m_alpha_cmd_list.OMSetRenderTargets({}, FALSE, &kbuffer.m_opaque_depth_1x->m_dsv.m_cpu);
+			m_alpha_cmd_list.RSSetViewports({ &vp, 1 });
+			m_alpha_cmd_list.RSSetScissorRects(vp.m_clip);
+
+			BarrierBatch bb(m_alpha_cmd_list);
+			bb.Transition(kbuffer.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_READ);
+			bb.Transition(kbuffer.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Transition(kbuffer.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Commit();
+
+			BindFrameResources(m_alpha_cmd_list);
+
+			auto alpha_colour = wnd().m_heap_view.Add(kbuffer.m_alpha_colour->m_uav);
+			auto alpha_depth = wnd().m_heap_view.Add(kbuffer.m_alpha_depth->m_uav);
+			m_alpha_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaColour, alpha_colour);
+			m_alpha_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaDepth, alpha_depth);
+
+			DrawNuggets(m_alpha_cmd_list, m_alpha_pipe_state, true);
+		}
+
+		// Close the command list now that we've finished rendering this scene
+		m_cmd_list.Close();
+		m_alpha_cmd_list.Close();
+	}
+
+	// Set up shader resources that are common to all nuggets in this render step.
+	void RenderForward::BindFrameResources(GfxCmdList& cmd_list)
+	{
 		// Set the signature for the shader used for this nugget
-		m_cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
+		cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
 
 		// Set shader constants for the frame
-		m_shader.SetupFrame(m_cmd_list.get(), m_upload_buffer, scn());
+		m_shader.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
 
 		// Add the shadow map textures
 		if (auto* smap_step = scn().FindRStep<RenderSmap>())
 		{
 			// Todo: consider array-of-structs layout for casters
-			pr::vector<Descriptor, 8> descriptors;
+			vector<Descriptor, 8> descriptors;
 			for (auto& caster : smap_step->Casters())
 				descriptors.push_back(caster.m_smap->m_srv);
 
 			auto gpu = wnd().m_heap_view.Add(descriptors);
-			m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SMap, gpu);
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SMap, gpu);
 		}
 
 		// Add the global environment map
 		if (auto* envmap = scn().m_global_envmap.get())
 		{
 			auto gpu = wnd().m_heap_view.Add(envmap->m_srv);
-			m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMap, gpu);
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMap, gpu);
 		}
+	}
 
+	//
+	void RenderForward::DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, bool alpha_pass)
+	{
 		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
 
 		// Draw each element in the draw list
 		auto drawlist = m_drawlist.lock();
 		for (auto& dle : *drawlist)
 		{
+			auto is_alpha = dle.m_sort_key.Group() > ESortGroup::PreAlpha;
+			if (alpha_pass != is_alpha)
+				continue;
+
 			// Something not rendering?
 			//  - Check the tint for the nugget isn't 0x00000000.
 			// Tips:
@@ -194,13 +254,13 @@ namespace pr::rdr12
 			//    Then in the shader, use: if (m_flags.w == 1234) ...
 			auto const& nugget = *dle.m_nugget;
 			auto const& instance = *dle.m_instance;
-			auto desc = m_default_pipe_state;
+			auto desc = default_pipe_state;
 
 			// Set pipeline state
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
-			m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-			m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
-			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
+			cmd_list.IASetPrimitiveTopology(nugget.m_topo);
+			cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Bind textures to the pipeline
 			if (Texture2DPtr tex = coalesce(FindDiffTexture(instance), nugget.m_tex_diffuse, m_default_tex))
@@ -208,13 +268,13 @@ namespace pr::rdr12
 				auto srv_descriptor = wnd().m_heap_view.Add(tex->m_srv);
 				if (srv_descriptor.ptr != last_tex.ptr)
 				{
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTexture, srv_descriptor);
+					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTexture, srv_descriptor);
 					last_tex = srv_descriptor;
 				}
 				if constexpr (PR_DBG_RDR)
 				{
 					// Ensure the diffuse texture is in the correct state
-					auto state = m_cmd_list.ResState(tex->m_res.get()).Mip0State();
+					auto state = cmd_list.ResState(tex->m_res.get()).Mip0State();
 					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
 				}
 			}
@@ -225,7 +285,7 @@ namespace pr::rdr12
 				auto sam_descriptor = wnd().m_heap_samp.Add(sam->m_samp);
 				if (sam_descriptor.ptr != last_sam.ptr)
 				{
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTextureSampler, sam_descriptor);
+					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTextureSampler, sam_descriptor);
 					last_sam = sam_descriptor;
 				}
 			}
@@ -233,15 +293,15 @@ namespace pr::rdr12
 			// Add skinning data for skinned meshes
 			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
 			{
-				pose->Update(m_cmd_list, m_upload_buffer);
+				pose->Update(cmd_list, m_upload_buffer);
 				auto srv_pose = wnd().m_heap_view.Add(pose->m_srv);
 				auto srv_skin = wnd().m_heap_view.Add(nugget.m_model->m_skin.m_srv);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Pose, srv_pose);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Skin, srv_skin);
+				cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Pose, srv_pose);
+				cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Skin, srv_skin);
 			}
 
 			// Set shader constants for the nugget
-			m_shader.SetupElement(m_cmd_list.get(), m_upload_buffer, scn(), &dle);
+			m_shader.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
 
 			// Apply scene pipe state overrides
 			{
@@ -271,20 +331,23 @@ namespace pr::rdr12
 				if (overlay.m_code.GS) desc.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
 
 				// Set constants for the shader
-				overlay.SetupFrame(m_cmd_list.get(), m_upload_buffer, scn());
-				overlay.SetupElement(m_cmd_list.get(), m_upload_buffer, scn(), &dle);
+				overlay.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
+				overlay.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
 			}
 
-			// Draw the nugget **** 
-			DrawNugget(nugget, desc);
-		}
+			if (alpha_pass)
+			{
+				desc.Apply(PSO<EPipeState::PS>(shader_code::forward_alpha_collect_ps));
+				desc.Apply(PSO<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO));
+			}
 
-		// Close the command list now that we've finished rendering this scene
-		m_cmd_list.Close();
+			// Draw the nugget ****
+			DrawNugget(cmd_list, nugget, desc);
+		}
 	}
 
 	// Draw a single nugget
-	void RenderForward::DrawNugget(Nugget const& nugget, PipeStateDesc& desc)
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc)
 	{
 		// Resolve the effective fill mode: per-nugget override wins, else scene-level
 		auto fill_mode = nugget.FillMode() != EFillMode::Default
@@ -301,16 +364,16 @@ namespace pr::rdr12
 			if (fill_mode == EFillMode::Wireframe)
 				desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 
-			m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 			if (nugget.m_irange.empty())
 			{
-				m_cmd_list.DrawInstanced(
+				cmd_list.DrawInstanced(
 					s_cast<size_t>(nugget.m_vrange.size()), 1U,
 					s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 			}
 			else
 			{
-				m_cmd_list.DrawIndexedInstanced(
+				cmd_list.DrawIndexedInstanced(
 					s_cast<size_t>(nugget.m_irange.size()), 1U,
 					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 			}
@@ -328,9 +391,9 @@ namespace pr::rdr12
 			auto prev_fill_mode = desc.Get<EPipeState::FillMode>();
 			desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 			desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
-			m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 
-			m_cmd_list.DrawIndexedInstanced(
+			cmd_list.DrawIndexedInstanced(
 				s_cast<size_t>(nugget.m_irange.size()), 1U,
 				s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 
@@ -343,16 +406,16 @@ namespace pr::rdr12
 		{
 			// Configure the shader for point sprites
 			// Don't need 'dle' if the points aren't in screen space
-			wnd().m_diag.m_gs_fillmode_points->SetupElement(m_cmd_list.get(), m_upload_buffer, scn(), nullptr);
+			wnd().m_diag.m_gs_fillmode_points->SetupElement(cmd_list.get(), m_upload_buffer, scn(), nullptr);
 
 			// Change the pipe state and IA topology to point list.
 			// Both must agree: PSO topology type and IA primitive topology.
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(ETopo::PointList)));
 			desc.Apply(PSO<EPipeState::GS>(wnd().m_diag.m_gs_fillmode_points->m_code.GS));
-			m_cmd_list.IASetPrimitiveTopology(ETopo::PointList);
-			m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			cmd_list.IASetPrimitiveTopology(ETopo::PointList);
+			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 
-			m_cmd_list.DrawInstanced(
+			cmd_list.DrawInstanced(
 				s_cast<size_t>(nugget.m_vrange.size()), 1U,
 				s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 		}

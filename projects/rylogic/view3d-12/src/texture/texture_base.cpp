@@ -30,12 +30,20 @@ namespace pr::rdr12
 		Check(dxgi_resource->GetSharedHandle(&shared_handle));
 		return shared_handle;
 	}
+	ID3D12Resource* OpenSharedResource(Renderer& rdr, HANDLE shared_handle)
+	{
+		// Open the shared resource before creating any views. View descriptors created against a null
+		// resource are valid descriptors for null bindings, not late-bound references to this resource.
+		D3DPtr<ID3D12Resource> resource;
+		Check(rdr.d3d()->OpenSharedHandle(shared_handle, __uuidof(ID3D12Resource), (void**)resource.address_of()));
+		return resource.release();
+	}
 
 	// Constructors
-	TextureBase::TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc)
+	TextureBase::TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc, bool add_ref)
 		: RefCounted<TextureBase>()
 		, m_rdr(&rdr)
-		, m_res(res, true)
+		, m_res(res, add_ref)
 		, m_srv()
 		, m_uav()
 		, m_rtv()
@@ -128,15 +136,8 @@ namespace pr::rdr12
 		}
 	}
 	TextureBase::TextureBase(Renderer& rdr, HANDLE shared_handle, TextureDesc const& desc)
-		: TextureBase(rdr, static_cast<ID3D12Resource*>(nullptr), desc)
-	{
-		// Open the shared resource in our d3d device
-		D3DPtr<IUnknown> resource;
-		Check(rdr.d3d()->OpenSharedHandle(shared_handle, __uuidof(ID3D12Resource), (void**)resource.address_of()));
-
-		// Query the resource interface from the resource
-		Check(resource->QueryInterface(__uuidof(ID3D12Resource), (void**)m_res.address_of()));
-	}
+		: TextureBase(rdr, OpenSharedResource(rdr, shared_handle), desc, false)
+	{}
 	TextureBase::TextureBase(Renderer& rdr, IUnknown* shared_resource, TextureDesc const& desc)
 		: TextureBase(rdr, SharedHandleFromSharedResource(shared_resource), desc)
 	{

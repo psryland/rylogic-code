@@ -412,6 +412,16 @@ namespace pr::rdr12
 		}
 
 		// Set a GPU descriptor handle for a constant buffer view
+		template <RootParamIdx Idx> void SetGraphicsRootConstantBufferView(Idx RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
+		{
+			m_list->SetGraphicsRootConstantBufferView(s_cast<UINT>(RootParameterIndex), BufferLocation);
+		}
+		void AddGraphicsRootConstantBufferView(D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
+		{
+			SetGraphicsRootConstantBufferView(m_root_sig_idx++, BufferLocation);
+		}
+
+		// Set a GPU descriptor handle for a constant buffer view
 		template <RootParamIdx Idx> void SetComputeRootConstantBufferView(Idx RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
 		{
 			m_list->SetComputeRootConstantBufferView(s_cast<UINT>(RootParameterIndex), BufferLocation);

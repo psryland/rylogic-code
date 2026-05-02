@@ -4,6 +4,7 @@
 //*********************************************
 #ifndef PR_VIEW3D_SHADER_KBUFFER_RESOLVE_CBUF_HLSLI
 #define PR_VIEW3D_SHADER_KBUFFER_RESOLVE_CBUF_HLSLI
+#include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 struct CBufKBufferResolve// :reg(b0)
 {
