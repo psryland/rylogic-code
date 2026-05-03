@@ -10,10 +10,11 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/shaders/shader.h"
-#include "view3d-12/src/shaders/common.h"
+#include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/root_signature.h"
+#include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
@@ -229,4 +230,12 @@ namespace pr::rdr12
 		cmd_list.IASetPrimitiveTopology(ETopo::TriList);
 		cmd_list.DrawInstanced(3, 1, 0, 0);
 	}
+
+	// True if this AlphaKBuffer is valid and ready for use
+	AlphaKBuffer::operator bool() const
+	{
+		// It should be all non-null or all null
+		return m_alpha_colour != nullptr && m_alpha_depth != nullptr;
+	}
 }
+

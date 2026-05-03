@@ -31,7 +31,7 @@ namespace pr::rdr12
 		: RenderStep(Id, scene)
 		, m_shader(scene.rdr())
 		, m_cmd_list(scene.d3d(), nullptr, "RenderForward", EColours::Blue)
-		, m_alpha_cmd_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)
+		, m_alp_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
 	{
@@ -148,61 +148,70 @@ namespace pr::rdr12
 	{
 		// Reset the command list with a new allocator for this frame
 		m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
-		m_alpha_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
+		m_alp_list.Reset(frame.m_cmd_alloc_pool.Get());
 
 		// Add the command lists we're using to the frame.
 		frame.m_main.push_back(m_cmd_list);
-		frame.m_post.push_back(m_alpha_cmd_list);
+		frame.m_post.push_back(m_alp_list);
 
 		// Sort the draw list if needed
-		SortIfNeeded();
+		dl_boundaries boundaries;
+		SortIfNeeded(&boundaries);
 
 		// Bind the descriptor heaps
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
-
-		// Get the back buffer view handle and set the back buffer as the render target.
-		m_cmd_list.OMSetRenderTargets({ &frame.bb_main().m_rtv, 1 }, FALSE, &frame.bb_main().m_dsv);
+		m_alp_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 
 		// Set the viewport and scissor rect.
 		auto const& vp = scn().m_viewport;
 		m_cmd_list.RSSetViewports({ &vp, 1 });
+		m_alp_list.RSSetViewports({ &vp, 1 });
 		m_cmd_list.RSSetScissorRects(vp.m_clip);
+		m_alp_list.RSSetScissorRects(vp.m_clip);
 
-		// Setup and run the opaques pass
+		// Render the opaque nuggets first
 		{
 			BindFrameResources(m_cmd_list);
-			DrawNuggets(m_cmd_list, m_default_pipe_state, false);
+
+			// Get the back buffer view handle and set the back buffer as the render target.
+			m_cmd_list.OMSetRenderTargets({ &frame.bb_main().m_rtv, 1 }, FALSE, &frame.bb_main().m_dsv);
+
+			// Draw the opaques
+			auto drawlist = m_drawlist.lock();
+			DrawNuggets(m_cmd_list, m_default_pipe_state, *drawlist);
 		}
 
-		// Setup and run the alpha pass
-		if (wnd().m_alpha_kbuffer.m_alpha_colour != nullptr && wnd().m_alpha_kbuffer.m_alpha_depth != nullptr && wnd().m_alpha_kbuffer.m_opaque_depth_1x != nullptr)
+		// Render the alpha nuggets
+		if (auto& kbuf = wnd().m_alpha_kbuffer; kbuf)
 		{
-			auto const& kbuffer = wnd().m_alpha_kbuffer;
-			m_alpha_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
-			m_alpha_cmd_list.OMSetRenderTargets({}, FALSE, &kbuffer.m_opaque_depth_1x->m_dsv.m_cpu);
-			m_alpha_cmd_list.RSSetViewports({ &vp, 1 });
-			m_alpha_cmd_list.RSSetScissorRects(vp.m_clip);
+			BindFrameResources(m_alp_list);
 
-			BarrierBatch bb(m_alpha_cmd_list);
-			bb.Transition(kbuffer.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
-			bb.Transition(kbuffer.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			bb.Transition(kbuffer.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			// Bind the alpha depth buffer
+			m_alp_list.OMSetRenderTargets({}, FALSE, &kbuf.m_opaque_depth_1x->m_dsv.m_cpu);
+
+			BarrierBatch bb(m_alp_list);
+			bb.Transition(kbuf.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			bb.Transition(kbuf.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Transition(kbuf.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Commit();
 
-			BindFrameResources(m_alpha_cmd_list);
+			auto alpha_colour = wnd().m_heap_view.Add(kbuf.m_alpha_colour->m_uav);
+			auto alpha_depth = wnd().m_heap_view.Add(kbuf.m_alpha_depth->m_uav);
+			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaColour, alpha_colour);
+			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaDepth, alpha_depth);
 
-			auto alpha_colour = wnd().m_heap_view.Add(kbuffer.m_alpha_colour->m_uav);
-			auto alpha_depth = wnd().m_heap_view.Add(kbuffer.m_alpha_depth->m_uav);
-			m_alpha_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaColour, alpha_colour);
-			m_alpha_cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaDepth, alpha_depth);
-
-			DrawNuggets(m_alpha_cmd_list, m_alpha_pipe_state, true);
+			// Draw the alphas
+			auto drawlist = m_drawlist.lock();
+			auto alpha_start = boundaries[ESortGroup::AlphaBack];
+			
+			// Use the alpha collect shader and disable depth writes for the alpha pass
+			DrawNuggets(m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(alpha_start));
 		}
 
 		// Close the command list now that we've finished rendering this scene
 		m_cmd_list.Close();
-		m_alpha_cmd_list.Close();
+		m_alp_list.Close();
 	}
 
 	// Set up shader resources that are common to all nuggets in this render step.
@@ -234,19 +243,14 @@ namespace pr::rdr12
 		}
 	}
 
-	//
-	void RenderForward::DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, bool alpha_pass)
+	// Add the nuggets in the draw list to 'cmd_list' for rendering.
+	void RenderForward::DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist)
 	{
 		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
 
 		// Draw each element in the draw list
-		auto drawlist = m_drawlist.lock();
-		for (auto& dle : *drawlist)
+		for (auto& dle : drawlist)
 		{
-			auto is_alpha = dle.m_sort_key.Group() > ESortGroup::PreAlpha;
-			if (alpha_pass != is_alpha)
-				continue;
-
 			// Something not rendering?
 			//  - Check the tint for the nugget isn't 0x00000000.
 			// Tips:
@@ -333,12 +337,6 @@ namespace pr::rdr12
 				// Set constants for the shader
 				overlay.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
 				overlay.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
-			}
-
-			if (alpha_pass)
-			{
-				desc.Apply(PSO<EPipeState::PS>(shader_code::forward_alpha_collect_ps));
-				desc.Apply(PSO<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO));
 			}
 
 			// Draw the nugget ****

@@ -43,5 +43,8 @@ namespace pr::rdr12
 
 		// Composite the collected alpha buffer over the resolved opaque colour
 		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, GpuUploadBuffer& upload, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor);
+
+		// True if this AlphaKBuffer is valid and ready for use
+		explicit operator bool() const;
 	};
 }
