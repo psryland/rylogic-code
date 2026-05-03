@@ -149,13 +149,16 @@ namespace pr::rdr12
 				m_mipmap_gen.Generate(res.get());
 		}
 
-		// Set the true default state for the resource now that it's initialised
-		DefaultResState(res.get(), desc.DefaultState);
-
 		// Transition the resource to the default state
 		BarrierBatch barriers(m_gfx_cmd_list);
 		barriers.Transition(res.get(), desc.DefaultState);
 		barriers.Commit();
+
+		// Set the true default state for the resource now that the transition from COMMON has been recorded.
+		DefaultResState(res.get(), desc.DefaultState);
+
+		// Note if a flush is required
+		m_flush_required = m_flush_required || has_init_data || desc.DefaultState != D3D12_RESOURCE_STATE_COMMON;
 
 		// Trace the pointers of resources that have been created
 		#if 0

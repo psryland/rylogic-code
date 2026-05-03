@@ -31,10 +31,19 @@ SamplerState      g_proj_sampler[MaxProjectedTextures] :register(s3);
 StructuredBuffer<Mat4x4> g_pose : register(t4);
 StructuredBuffer<Skinfluence> g_skin : register(t5);
 
+// Opaque depth
+Texture2DMS<float> g_opaque_depth : register(t6);
+
+// Alpha sorting
+RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
+RasterizerOrderedTexture2D<uint4> g_alpha_depth  :register(u1);
+
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
 #include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
+#include "pr/hlsl/camera.hlsli"
 
 // PS output format
 struct PSOut
@@ -154,7 +163,32 @@ PSOut PSRadialFade(PSIn In)
 	return Out;
 }
 
-// Main vertex shader
+void PSAlphaCollect(PSIn In)
+{
+	float4 diff = PSDefault(In).diff;
+	clip(diff.a - (1.0f / 255.0f));
+
+	uint2 pix = uint2(In.ss_vert.xy);
+	uint width, height, sample_count;
+	g_opaque_depth.GetDimensions(width, height, sample_count);
+
+	float opaque_depth = 1.0f;
+	for (uint sample = 0; sample != sample_count; ++sample)
+		opaque_depth = min(opaque_depth, g_opaque_depth.Load(pix, sample));
+	if (In.ss_vert.z >= opaque_depth)
+		discard;
+
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
+	uint colour = PackRGBA8(diff);
+
+	uint4 alpha_colour = g_alpha_colour[pix];
+	uint4 alpha_depth = g_alpha_depth[pix];
+	InsertKBufferLayer(alpha_colour, alpha_depth, colour, depth);
+	g_alpha_colour[pix] = alpha_colour;
+	g_alpha_depth[pix] = alpha_depth;
+}
+
 #ifdef PR_RDR_VSHADER_forward
 PSIn main(VSIn In)
 {
@@ -162,7 +196,6 @@ PSIn main(VSIn In)
 }
 #endif
 
-// Main pixel shader
 #ifdef PR_RDR_PSHADER_forward
 PSOut main(PSIn In)
 {
@@ -170,10 +203,16 @@ PSOut main(PSIn In)
 }
 #endif
 
-// Main pixel shader
 #ifdef PR_RDR_PSHADER_forward_radial_fade
 PSOut main(PSIn In)
 {
 	return PSRadialFade(In);
+}
+#endif
+
+#ifdef PR_RDR_PSHADER_forward_alpha_collect
+void main(PSIn In)
+{
+	PSAlphaCollect(In);
 }
 #endif

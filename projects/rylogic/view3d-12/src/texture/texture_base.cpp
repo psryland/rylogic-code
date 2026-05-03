@@ -30,12 +30,23 @@ namespace pr::rdr12
 		Check(dxgi_resource->GetSharedHandle(&shared_handle));
 		return shared_handle;
 	}
+	D3DPtr<ID3D12Resource> OpenSharedResource(Renderer& rdr, HANDLE shared_handle)
+	{
+		// Open the shared resource before creating any views. View descriptors created against a null
+		// resource are valid descriptors for null bindings, not late-bound references to this resource.
+		D3DPtr<ID3D12Resource> resource;
+		Check(rdr.d3d()->OpenSharedHandle(shared_handle, __uuidof(ID3D12Resource), (void**)resource.address_of()));
+		return resource;
+	}
 
 	// Constructors
 	TextureBase::TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc)
+		: TextureBase(rdr, D3DPtr<ID3D12Resource>(res, true), desc)
+	{}
+	TextureBase::TextureBase(Renderer& rdr, D3DPtr<ID3D12Resource>&& res, TextureDesc const& desc)
 		: RefCounted<TextureBase>()
 		, m_rdr(&rdr)
-		, m_res(res, true)
+		, m_res(std::move(res))
 		, m_srv()
 		, m_uav()
 		, m_rtv()
@@ -55,7 +66,7 @@ namespace pr::rdr12
 			// Check the texture format is supported
 			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
-			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE))
+			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
 				throw std::runtime_error("Texture format is not supported as a shader resource view");
 
 			// Create the SRV
@@ -71,7 +82,7 @@ namespace pr::rdr12
 					.ResourceMinLODClamp = 0.f,
 				},
 			};
-			m_srv = store.Descriptors().Create(res, srv_desc);
+			m_srv = store.Descriptors().Create(m_res.get(), srv_desc);
 		}
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
 		{
@@ -93,7 +104,7 @@ namespace pr::rdr12
 					.PlaneSlice = 0,
 				},
 			};
-			m_uav = store.Descriptors().Create(res, uav_desc);
+			m_uav = store.Descriptors().Create(m_res.get(), uav_desc);
 		}
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
 		{
@@ -108,7 +119,7 @@ namespace pr::rdr12
 				.Format = rdesc.Format,
 				.ViewDimension = desc.m_rdesc.RtvDimension(),
 			};
-			m_rtv = store.Descriptors().Create(res, rtv_desc);
+			m_rtv = store.Descriptors().Create(m_res.get(), rtv_desc);
 		}
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
 		{
@@ -124,19 +135,12 @@ namespace pr::rdr12
 				.ViewDimension = desc.m_rdesc.DsvDimension(),
 				.Flags = D3D12_DSV_FLAGS::D3D12_DSV_FLAG_NONE,
 			};
-			m_dsv = store.Descriptors().Create(res, dsv_desc);
+			m_dsv = store.Descriptors().Create(m_res.get(), dsv_desc);
 		}
 	}
 	TextureBase::TextureBase(Renderer& rdr, HANDLE shared_handle, TextureDesc const& desc)
-		: TextureBase(rdr, static_cast<ID3D12Resource*>(nullptr), desc)
-	{
-		// Open the shared resource in our d3d device
-		D3DPtr<IUnknown> resource;
-		Check(rdr.d3d()->OpenSharedHandle(shared_handle, __uuidof(ID3D12Resource), (void**)resource.address_of()));
-
-		// Query the resource interface from the resource
-		Check(resource->QueryInterface(__uuidof(ID3D12Resource), (void**)m_res.address_of()));
-	}
+		: TextureBase(rdr, OpenSharedResource(rdr, shared_handle), desc)
+	{}
 	TextureBase::TextureBase(Renderer& rdr, IUnknown* shared_resource, TextureDesc const& desc)
 		: TextureBase(rdr, SharedHandleFromSharedResource(shared_resource), desc)
 	{

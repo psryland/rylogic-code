@@ -19,17 +19,19 @@ namespace pr::rdr12
 
 		// Draw list element container
 		using drawlist_t       = vector<DrawListElement, 1024, false, alignof(DrawListElement), Allocator<DrawListElement>>;
-		using drawlist_async_t = pr::AsyncWrap<drawlist_t>;
+		using drawlist_async_t = AsyncWrap<drawlist_t>;
 		using dl_mutex_t       = std::recursive_mutex;
+		using dl_boundaries    = vector_map<ESortGroup, int, vector<std::pair<ESortGroup, int>, 4, true>>;
 
-		ERenderStep const  m_step_id;            // Derived type Id
-		Scene*             m_scene;              // The scene this render step is owned by
-		drawlist_async_t   m_drawlist;           // The draw list for this render step. Access via 'Lock'
-		bool               m_sort_needed;        // True when the list needs sorting
-		GpuUploadBuffer    m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
-		PipeStateDesc      m_default_pipe_state; // Default settings for the pipeline state
-		PipeStatePool      m_pipe_state_pool;    // Pool of pipeline state objects
-		AutoSub            m_evt_model_delete;   // Event subscription for model deleted notification
+		ERenderStep const m_step_id;            // Derived type Id
+		Scene*            m_scene;              // The scene this render step is owned by
+		drawlist_async_t  m_drawlist;           // The draw list for this render step. Access via 'Lock'
+		dl_boundaries     m_boundaries;         // The index offsets to the different
+		bool              m_sort_needed;        // True when the list needs sorting
+		GpuUploadBuffer   m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
+		PipeStateDesc     m_default_pipe_state; // Default settings for the pipeline state
+		PipeStatePool     m_pipe_state_pool;    // Pool of pipeline state objects
+		AutoSub           m_evt_model_delete;   // Event subscription for model deleted notification
 
 		RenderStep(ERenderStep id, Scene& scene);
 		RenderStep(RenderStep&&) = default;
@@ -49,7 +51,7 @@ namespace pr::rdr12
 
 		// Sort the draw list based on sort key
 		void Sort();
-		void SortIfNeeded();
+		void SortIfNeeded(dl_boundaries* boundies = nullptr);
 
 		// Add an instance. The instance,model,and nuggets must be resident for the entire time
 		// that it is in the draw list, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.

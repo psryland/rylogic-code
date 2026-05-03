@@ -60,6 +60,7 @@ namespace pr::rdr12
 		string32               m_name;   // Human readable id for the texture
 
 		TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc);
+		TextureBase(Renderer& rdr, D3DPtr<ID3D12Resource>&& res, TextureDesc const& desc);
 		TextureBase(Renderer& rdr, HANDLE shared_handle, TextureDesc const& desc);
 		TextureBase(Renderer& rdr, IUnknown* shared_resource, TextureDesc const& desc);
 		TextureBase(TextureBase&&) = delete;

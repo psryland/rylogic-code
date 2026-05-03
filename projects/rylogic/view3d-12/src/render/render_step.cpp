@@ -18,6 +18,7 @@ namespace pr::rdr12
 		: m_step_id(id)
 		, m_scene(&scene)
 		, m_drawlist()
+		, m_boundaries()
 		, m_sort_needed(true)
 		, m_upload_buffer(wnd().m_gsync, 1ULL * 1024 * 1024)
 		, m_default_pipe_state()
@@ -78,12 +79,18 @@ namespace pr::rdr12
 		});
 
 		// Sorting done
+		m_boundaries[ESortGroup::AlphaBack] = s_cast<int>(std::distance(drawlist->begin(), alpha_back));
+		m_boundaries[ESortGroup::AlphaFront] = s_cast<int>(std::distance(drawlist->begin(), alpha_front));
+		m_boundaries[ESortGroup::PostAlpha] = s_cast<int>(std::distance(drawlist->begin(), alpha_end));
 		m_sort_needed = false;
 	}
-	void RenderStep::SortIfNeeded()
+	void RenderStep::SortIfNeeded(dl_boundaries* alpha_start)
 	{
-		if (!m_sort_needed) return;
-		Sort();
+		if (m_sort_needed)
+			Sort();
+
+		if (alpha_start)
+			*alpha_start = m_boundaries;
 	}
 
 	// Add an instance. The instance, model, and nuggets must be resident for the entire time

@@ -16,6 +16,8 @@ namespace pr::rdr12
 
 		shaders::Forward m_shader;
 		GfxCmdList m_cmd_list;
+		GfxCmdList m_alp_list;
+		PipeStateDesc m_alpha_pipe_state;
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;
 	
@@ -35,7 +37,13 @@ namespace pr::rdr12
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;
 
+		// Set up shader resources that are common to all nuggets in this render step.
+		void BindFrameResources(GfxCmdList& cmd_list);
+
+		// Add the nuggets in the draw list to 'cmd_list' for rendering.
+		void DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist);
+
 		// Draw a single nugget
-		void DrawNugget(Nugget const& nugget, PipeStateDesc& desc);
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc);
 	};
 }

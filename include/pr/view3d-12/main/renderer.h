@@ -250,6 +250,12 @@ namespace pr::rdr12
 		{
 			m_gsync.AddSyncPoint(GfxQueue());
 		}
+		void FlushDeferredReleases()
+		{
+			AddDeferredSyncPoint();
+			m_gsync.Wait();
+			m_gsync.Poll();
+		}
 
 		// Run the given function on the Main/GUI thread
 		// 'policy = std::launch::deferred' means the function is executed by the main thread during 'RunTasks'

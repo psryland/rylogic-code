@@ -358,7 +358,7 @@ namespace Rylogic.Gui.WPF
 			Dispatcher.BeginInvoke(new Action(() =>
 			{
 				// Close any floating windows that no longer have content
-				FloatingWindows.PurgeCachedFloatingWindows();
+				FloatingWindows?.PurgeCachedFloatingWindows();
 
 				LayoutChanged?.Invoke(this, EventArgs.Empty);
 				m_layout_changed_notify_pending = false;

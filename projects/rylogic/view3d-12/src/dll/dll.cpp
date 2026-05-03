@@ -3013,11 +3013,12 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateDx9RenderTarget(HWND hwnd, UIN
 		// Save the surface 0 pointer in the private data of the texture. (Adds a reference)
 		t->m_res->SetPrivateDataInterface(rdr12::Texture2D::Surface0Pointer, surf0.get());
 
-		// Add a handler to clean up this reference when the texture is destroyed
-		auto surf0_ptr = surf0.get(); // Don't capture the RefPtr
+		// Clear the private data before the D3D12 resource is deferred for release, so the D3D9 surface
+		// reference does not extend the lifetime of the interop object graph during renderer shutdown.
+		auto res = t->m_res.get();
 		t->OnDestruction += [=](TextureBase&, EmptyArgs const&)
 		{
-			surf0_ptr->Release();
+			(void)res->SetPrivateDataInterface(rdr12::Texture2D::Surface0Pointer, nullptr);
 		};
 
 		return t.release();
