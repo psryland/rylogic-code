@@ -59,7 +59,8 @@ namespace pr::rdr12
 		ETextureFlag           m_tflags; // Flags for boolean properties of the texture
 		string32               m_name;   // Human readable id for the texture
 
-		TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc, bool add_ref = true);
+		TextureBase(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc);
+		TextureBase(Renderer& rdr, D3DPtr<ID3D12Resource>&& res, TextureDesc const& desc);
 		TextureBase(Renderer& rdr, HANDLE shared_handle, TextureDesc const& desc);
 		TextureBase(Renderer& rdr, IUnknown* shared_resource, TextureDesc const& desc);
 		TextureBase(TextureBase&&) = delete;
