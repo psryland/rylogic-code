@@ -36,7 +36,8 @@ namespace pr::physics
 	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_cs_collide()
+		, m_cs_collide_simple()
+		, m_cs_collide_generic()
 		, m_cmd_sig()
 		, m_r_shapes()
 		, m_r_verts()
@@ -71,9 +72,9 @@ namespace pr::physics
 			.Define(L"PR_COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(PR_COLLISION_DIAGNOSTICS))
 			.Optimise();
 
-		// m_cs_collide
+		auto make_collide_sig = [&]()
 		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+			return RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::Contacts)
@@ -81,16 +82,25 @@ namespace pr::physics
 				.SRV(EReg::Pairs)
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
-				#if PR_DBG
+				#if PR_COLLISION_DIAGNOSTICS
 				.UAV(EReg::Diag)
 				#endif
 				;
+		};
 
-			auto bytecode = compiler.EntryPoint(L"CSCollide").Compile();
+		auto compile_collide = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
+		{
+			auto sig = make_collide_sig();
+			auto bytecode = compiler.Optimise().EntryPoint(entry_point).Compile();
 
-			m_cs_collide.m_sig = sig.Create(m_gpu, "Physics:CollideSig");
-			m_cs_collide.m_pso = ComputePSO(m_cs_collide.m_sig.get(), bytecode).Create(m_gpu, "Physics:CollidePSO");
-		}
+			step.m_sig = sig.Create(m_gpu, sig_name);
+			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
+		};
+
+		// Keep simple analytic pairs and generic GJK/EPA pairs in separate shaders so simple pairs don't execute inside a
+		// monolithic dispatcher that also contains all generic collision code.
+		compile_collide(m_cs_collide_simple, L"CSCollideSimple", "Physics:CollideSimpleSig", "Physics:CollideSimplePSO");
+		compile_collide(m_cs_collide_generic, L"CSCollideGeneric", "Physics:CollideGenericSig", "Physics:CollideGenericPSO");
 
 		// m_cs_calc_dispatch
 		{
@@ -98,7 +108,7 @@ namespace pr::physics
 				.UAV(EReg::Counters)
 				.UAV(EReg::DispatchArgs);
 
-			auto bytecode = compiler.EntryPoint(L"CSCalcResolveDispatch").Compile();
+			auto bytecode = compiler.Optimise().EntryPoint(L"CSCalcResolveDispatch").Compile();
 
 			m_cs_calc_dispatch.m_sig = sig.Create(m_gpu, "Physics:CalcResolveDispatchSig");
 			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), bytecode).Create(m_gpu, "Physics:CalcResolveDispatchPSO");
@@ -192,30 +202,36 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Dispatch the collision compute shader
+		// Dispatch the collision compute shaders
 		{
-			job.m_cmd_list.SetPipelineState(m_cs_collide.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_collide.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cbCollision{ .g_max_contacts = max_contacts });
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
-			#endif
+			auto dispatch_collide = [&](ComputeStep& step)
+			{
+				job.m_cmd_list.SetPipelineState(step.m_pso.get());
+				job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+				job.m_cmd_list.AddComputeRoot32BitConstants(cbCollision{ .g_max_contacts = max_contacts });
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+				#if PR_COLLISION_DIAGNOSTICS
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
+				#endif
 
-			// Dispatch with the count provided by the broad phase shader
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+				// Dispatch with the count provided by the broad phase shader
+				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
-			job.m_barriers.UAV(counters.get());
-			job.m_barriers.UAV(m_r_contacts.get());
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.UAV(m_r_diag.get());
-			#endif
-			job.m_barriers.Commit();
+				job.m_barriers.UAV(counters.get());
+				job.m_barriers.UAV(m_r_contacts.get());
+				#if PR_COLLISION_DIAGNOSTICS
+				job.m_barriers.UAV(m_r_diag.get());
+				#endif
+				job.m_barriers.Commit();
+			};
+
+			dispatch_collide(m_cs_collide_simple);
+			dispatch_collide(m_cs_collide_generic);
 		}
 
 		// Dispatch the calculate dispatch size shader
@@ -398,7 +414,7 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
-		#if PR_DBG
+		#if PR_COLLISION_DIAGNOSTICS
 		GpuReadbackBuffer::Allocation readback_diag;
 		{
 			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -420,7 +436,7 @@ namespace pr::physics
 		contact_count = std::min(contact_count, pair_count); // safety clamp
 
 		// Log per-pair diagnostics
-		#if PR_DBG
+		#if PR_COLLISION_DIAGNOSTICS
 		if (pair_count > 10)
 		{
 			auto t_end = std::chrono::high_resolution_clock::now();

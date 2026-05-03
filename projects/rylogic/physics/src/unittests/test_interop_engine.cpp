@@ -184,6 +184,84 @@ namespace pr::physics::tests
 			}
 			PR_EXPECT(collision_occurred);
 		}
+
+		// Captured from DropOnGroundTests.BoxDropEnergyConservation at step 44, after integration. This keeps a CPU-debuggable
+		// repro for the box/ground narrow-phase arrangement that originally exposed the GPU dispatcher stall.
+		PRUnitTestMethod(BoxDropEnergyCapturedPreCollide)
+		{
+			auto box = collision::ShapeBox(v4{0.5f, 0.65f, 0.9f, 0});
+			auto ground = collision::ShapeBox(v4{100, 100, 0.5f, 0});
+			auto box_o2w = m4x4{
+				v4{1.0f, 0.0f, 0.0f, 0.0f},
+				v4{-0.0f, 0.707106829f, 0.707106829f, 0.0f},
+				v4{0.0f, -0.707106829f, 0.707106829f, 0.0f},
+				v4{-4.40000057f, 0.0f, 0.240934849f, 1.0f},
+			};
+			auto ground_o2w = m4x4{
+				v4{1.0f, 0.0f, 0.0f, 0.0f},
+				v4{0.0f, 1.0f, 0.0f, 0.0f},
+				v4{0.0f, 0.0f, 1.0f, 0.0f},
+				v4{0.0f, 0.0f, -0.5f, 1.0f},
+			};
+
+			hlsl::StructuredBuffer<float4> verts;
+			auto sbox = PackShape(box, verts);
+			auto sground = PackShape(ground, verts);
+			auto ground_to_box = InvertOrthonormal(box_o2w) * ground_o2w;
+
+			auto contact = GpuContact{};
+			auto hit = physics::CollideShapes(sbox, m4x4::Identity(), sground, ground_to_box, verts, contact);
+			PR_EXPECT(hit);
+			PR_EXPECT(contact.depth > 0.0f);
+		}
+
+		// Mirror of test_collision_resolution.cpp::BoxVsSphereCollisionTests.LightBoxHeavySphere driven entirely through the
+		// C++ interop pipeline. Running it through the C++-compiled HLSL isolates collision/resolve logic from the GPU runtime.
+		PRUnitTestMethod(LightBoxHeavySphere)
+		{
+			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
+			auto sphere = collision::ShapeSphere(1.5f);
+			auto inertia_box = physics::Inertia::Box(v4{2, 2, 2, 0}, 5.0f);
+			auto inertia_sphere = physics::Inertia::Sphere(1.5f, 20.0f);
+
+			physics::RigidBody bodies[2] = {
+				physics::RigidBody{collision::shape_cast(&box), m4x4::Translation(-5, 0, 0), inertia_box},
+				physics::RigidBody{collision::shape_cast(&sphere), m4x4::Translation(+5, 0, 0), inertia_sphere},
+			};
+			bodies[0].VelocityWS(v4::Zero(), v4{+4.0f, 0, 0, 0});
+			bodies[1].VelocityWS(v4::Zero(), v4{ 0.0f, 0, 0, 0});
+
+			physics::RigidBody* body_ptrs[2] = {&bodies[0], &bodies[1]};
+
+			InteropEngine engine{};
+
+			// 1D elastic with m_a=5,v_a=+4, m_b=20,v_b=0:
+			//   v_a' = ((5-20)*4 + 2*20*0)/25 = -2.4
+			//   v_b' = ((20-5)*0 + 2*5*4)/25  = +1.6
+			float const expected_va = -2.4f;
+			float const expected_vb = +1.6f;
+
+			bool collision_occurred = false;
+			auto const dt = 1.0f / 100.0f;
+			auto const max_steps = 5000;
+			int step_count = 0;
+			for (int step = 0; step != max_steps && !collision_occurred; ++step)
+			{
+				bodies[0].ZeroForces();
+				bodies[1].ZeroForces();
+				auto stats = engine.Step(dt, body_ptrs);
+				++step_count;
+				if (stats.contact_count > 0)
+				{
+					collision_occurred = true;
+					PR_EXPECT(FEqlRelative(bodies[0].VelocityWS().lin.x, expected_va, 0.05f));
+					PR_EXPECT(FEqlRelative(bodies[1].VelocityWS().lin.x, expected_vb, 0.05f));
+					PR_EXPECT(bodies[0].VelocityWS().lin.x < 0.0f);
+				}
+			}
+			PR_EXPECT(collision_occurred);
+			PR_EXPECT(step_count < 200); // contact expected at ~step 163
+		}
 	};
 }
 #endif

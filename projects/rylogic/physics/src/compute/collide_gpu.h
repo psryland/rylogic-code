@@ -15,7 +15,8 @@ namespace pr::physics
 	{
 		Gpu& m_gpu;                                  // Lightweight D3D12 wrapper (device + command queue)
 		EngineConfig const& m_config;                // Engine configuration parameters
-		ComputeStep m_cs_collide;                    // Root signature + PSO for the collide shader
+		ComputeStep m_cs_collide_simple;             // Root signature + PSO for the simple-pair collide shader
+		ComputeStep m_cs_collide_generic;            // Root signature + PSO for the generic GJK collide shader
 		ComputeStep m_cs_calc_dispatch;              // Root signature + PSO for calculating the dispatch size of the resolve shader
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;    // Command signature for indirect dispatch of the collision shader
 		D3DPtr<ID3D12Resource> m_r_shapes;           // GPU buffer: StructuredBuffer<GpuShape>

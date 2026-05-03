@@ -53,44 +53,165 @@ StructuredBuffer<float4> resource(g_verts, t2);
 RWStructuredBuffer<GpuPairDiag> resource(g_diag, u3);
 #endif
 
-numthreads(CSCollide, CollideThreadCount, 1, 1)
-void CSCollide(int3 dtid : SV_DispatchThreadID)
+// Keep analytic/simple pairs and generic GJK/EPA pairs in separate entry points. The monolithic dispatcher creates very large
+// bytecode, and untaken generic paths can still affect execution of simple box/box-style pairs on some drivers.
+bool IsGenericCollisionPair(int type_a, int type_b)
 {
-	if (dtid.x >= g_counters[0].pair_count)
-		return;
-
-	GpuCollisionPair pair = g_pairs[dtid.x];
-	GpuShape shape_a = g_shapes[pair.shape_idx_a];
-	GpuShape shape_b = g_shapes[pair.shape_idx_b];
-
-	// Build the transforms for each shape.
-	// Shape A is at identity (collision runs in A's space).
-	// Shape B is at b2a (the relative transform from B to A).
-	// "World" here means RigidBody-A's local space.
-	float4x4 a2w = Identity4x4();
-	float4x4 b2w = pair.b2a;
-
-	// Dispatch to specialised collision tests for shape pairs
-	GpuContact col;
-	bool hit = CollideShapes(shape_a, a2w, shape_b, b2w, g_verts, col);
-
-	// Write per-pair diagnostics (every pair, not just colliding ones)
-	#if PR_COLLISION_DIAGNOSTICS
+	int type_lo = min(type_a, type_b);
+	int type_hi = max(type_a, type_b);
+	switch (type_hi)
 	{
-		GpuPairDiag diag;
-		diag.body_idx_a = pair.body_idx_a;
-		diag.body_idx_b = pair.body_idx_b;
-		diag.shape_type_a = shape_a.type;
-		diag.shape_type_b = shape_b.type;
-		diag.hit = hit ? 1 : 0;
-		diag.pad0 = 0;
-		g_diag[dtid.x] = diag;
+		case SHAPE_TRIANGLE:
+		{
+			return type_lo == SHAPE_SPHERE || type_lo == SHAPE_BOX;
+		}
+		case SHAPE_POLYTOPE:
+		{
+			return
+				type_lo == SHAPE_SPHERE ||
+				type_lo == SHAPE_BOX ||
+				type_lo == SHAPE_LINE ||
+				type_lo == SHAPE_TRIANGLE ||
+				type_lo == SHAPE_POLYTOPE;
+		}
+		default:
+		{
+			return false;
+		}
 	}
-	#endif
+}
 
-	if (!hit)
-		return;
+bool CollideShapesSimple(
+	in_(GpuShape) a, float4x4 a2w,
+	in_(GpuShape) b, float4x4 b2w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact)
+{
+	GpuShape sa, sb;
+	float4x4 wa, wb;
+	bool swapped = a.type > b.type;
+	if (swapped) { sa = b; sb = a; wa = b2w; wb = a2w; }
+	else         { sa = a; sb = b; wa = a2w; wb = b2w; }
 
+	bool hit = false;
+	switch (sb.type)
+	{
+		case SHAPE_SPHERE:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE: hit = SphereVsSphere(sa, wa, sb, wb, out_contact); break;
+			}
+			break;
+		}
+		case SHAPE_BOX:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE: hit = BoxVsSphere(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_BOX:    hit = BoxVsBox(sa, wa, sb, wb, out_contact); break;
+			}
+			break;
+		}
+		case SHAPE_LINE:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE: hit = LineVsSphere(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_BOX:    hit = LineVsBox(sb, wb, sa, wa, out_contact); break;
+				case SHAPE_LINE:   hit = LineVsLine(sa, wa, sb, wb, out_contact); break;
+			}
+			break;
+		}
+		case SHAPE_TRIANGLE:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_LINE:     hit = TriangleVsLine(sb, wb, sa, wa, verts, out_contact); break;
+				case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
+			}
+			break;
+		}
+	}
+
+	if (a.type < b.type && hit)
+		ContactFlip(out_contact);
+
+	return hit;
+}
+
+bool CollideShapesGeneric(
+	in_(GpuShape) a, float4x4 a2w,
+	in_(GpuShape) b, float4x4 b2w,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact)
+{
+	GpuShape sa, sb;
+	float4x4 wa, wb;
+	bool swapped = a.type > b.type;
+	if (swapped) { sa = b; sb = a; wa = b2w; wb = a2w; }
+	else         { sa = a; sb = b; wa = a2w; wb = b2w; }
+
+	bool need_gjk = false;
+	bool need_cv_sphere = false;
+	bool need_cv_line = false;
+	switch (sb.type)
+	{
+		case SHAPE_TRIANGLE:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE: need_cv_sphere = true; break;
+				case SHAPE_BOX:    need_gjk = true; break;
+			}
+			break;
+		}
+		case SHAPE_POLYTOPE:
+		{
+			switch (sa.type)
+			{
+				case SHAPE_SPHERE:   need_cv_sphere = true; break;
+				case SHAPE_BOX:      need_gjk = true; break;
+				case SHAPE_LINE:     need_cv_line = true; break;
+				case SHAPE_TRIANGLE: need_gjk = true; break;
+				case SHAPE_POLYTOPE: need_gjk = true; break;
+			}
+			break;
+		}
+	}
+
+	int gjk_iters = 0;
+	int epa_iters = 0;
+	bool hit = false;
+	if (need_gjk)
+		hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters);
+	else if (need_cv_sphere)
+		hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters);
+	else if (need_cv_line)
+		hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters);
+
+	if (a.type < b.type && hit)
+		ContactFlip(out_contact);
+
+	return hit;
+}
+
+#if PR_COLLISION_DIAGNOSTICS
+void StoreDiag(uint pair_index, in_(GpuCollisionPair) pair, in_(GpuShape) shape_a, in_(GpuShape) shape_b, bool hit)
+{
+	GpuPairDiag diag;
+	diag.body_idx_a = pair.body_idx_a;
+	diag.body_idx_b = pair.body_idx_b;
+	diag.shape_type_a = shape_a.type;
+	diag.shape_type_b = shape_b.type;
+	diag.hit = hit ? 1 : 0;
+	diag.pad0 = 0;
+	g_diag[pair_index] = diag;
+}
+#endif
+
+void StoreContact(in_(GpuCollisionPair) pair, in_(GpuShape) shape_a, in_(GpuShape) shape_b, in_(GpuContact) col)
+{
 	uint slot;
 	InterlockedAdd(g_counters[0].contact_count, 1, slot);
 	if (slot >= g.max_contacts)
@@ -111,6 +232,61 @@ void CSCollide(int3 dtid : SV_DispatchThreadID)
 	contact.feature = col.feature;
 	contact.pad1 = 0;
 	g_contacts[slot] = contact;
+}
+
+numthreads(CSCollideSimple, CollideThreadCount, 1, 1)
+void CSCollideSimple(int3 dtid : SV_DispatchThreadID)
+{
+	if (dtid.x >= g_counters[0].pair_count)
+		return;
+
+	GpuCollisionPair pair = g_pairs[dtid.x];
+	GpuShape shape_a = g_shapes[pair.shape_idx_a];
+	GpuShape shape_b = g_shapes[pair.shape_idx_b];
+	if (IsGenericCollisionPair(shape_a.type, shape_b.type))
+		return;
+
+	float4x4 a2w = Identity4x4();
+	float4x4 b2w = pair.b2a;
+
+	GpuContact col;
+	bool hit = CollideShapesSimple(shape_a, a2w, shape_b, b2w, g_verts, col);
+
+#if PR_COLLISION_DIAGNOSTICS
+	StoreDiag(dtid.x, pair, shape_a, shape_b, hit);
+#endif
+
+	if (!hit)
+		return;
+
+	StoreContact(pair, shape_a, shape_b, col);
+}
+
+numthreads(CSCollideGeneric, CollideThreadCount, 1, 1)
+void CSCollideGeneric(int3 dtid : SV_DispatchThreadID)
+{
+	if (dtid.x >= g_counters[0].pair_count)
+		return;
+
+	GpuCollisionPair pair = g_pairs[dtid.x];
+	GpuShape shape_a = g_shapes[pair.shape_idx_a];
+	GpuShape shape_b = g_shapes[pair.shape_idx_b];
+	if (!IsGenericCollisionPair(shape_a.type, shape_b.type))
+		return;
+
+	float4x4 a2w = Identity4x4();
+	float4x4 b2w = pair.b2a;
+
+	GpuContact col;
+	bool hit = CollideShapesGeneric(shape_a, a2w, shape_b, b2w, g_verts, col);
+#if PR_COLLISION_DIAGNOSTICS
+	StoreDiag(dtid.x, pair, shape_a, shape_b, hit);
+#endif
+
+	if (!hit)
+		return;
+
+	StoreContact(pair, shape_a, shape_b, col);
 }
 
 // Calculates the number of thread groups needed for the resolve shader

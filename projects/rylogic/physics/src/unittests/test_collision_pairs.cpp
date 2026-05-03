@@ -266,6 +266,8 @@ namespace pr::physics::tests
 			// Per-frame trace (for diagnostic when assertions fail)
 			struct FrameTrace { int step; float z; float vz; float ke; float pe; float total; float max_depth; };
 			auto trace = std::vector<FrameTrace>{};
+			auto dump_dir = std::filesystem::path("dump");
+			std::filesystem::create_directories(dump_dir);
 
 			for (int step = 0; step != num_steps; ++step)
 			{
@@ -293,7 +295,7 @@ namespace pr::physics::tests
 			}
 
 			// Diagnostic dump: print per-frame state for post-mortem
-			auto dump_path = std::filesystem::path("C:/Users/paulryland/.copilot/session-state/1277a797-7dbe-4e04-9ffb-e2e396f6db2a/files") / trace_filename;
+			auto dump_path = dump_dir / trace_filename;
 			{
 				auto f = std::ofstream(dump_path);
 				f << std::format("step,z,vz,ke,pe,total,max_depth (initial_total={:.2f})\n", initial_total_energy);
