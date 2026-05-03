@@ -113,8 +113,10 @@ namespace pr::rdr12
 			.CachedPSO = {},
 			.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
 		};
-		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)m_pso_depth_resolve.address_of()));
-		DebugName(m_pso_depth_resolve, "KBufferDepthResolvePSO");
+		D3DPtr<ID3D12PipelineState> pso_depth_resolve;
+		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)pso_depth_resolve.address_of()));
+		DebugName(pso_depth_resolve, "KBufferDepthResolvePSO");
+		m_pso_depth_resolve = std::move(pso_depth_resolve);
 
 		desc.PS = shader_code::kbuffer_alpha_resolve_ps;
 		desc.pRootSignature = m_signature_alpha_resolve.get();
@@ -122,8 +124,10 @@ namespace pr::rdr12
 		desc.NumRenderTargets = 1U;
 		desc.RTVFormats[0] = rt_clear.Format;
 		desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)m_pso_alpha_resolve.address_of()));
-		DebugName(m_pso_alpha_resolve, "KBufferAlphaResolvePSO");
+		D3DPtr<ID3D12PipelineState> pso_alpha_resolve;
+		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)pso_alpha_resolve.address_of()));
+		DebugName(pso_alpha_resolve, "KBufferAlphaResolvePSO");
+		m_pso_alpha_resolve = std::move(pso_alpha_resolve);
 	}
 
 	// Create the buffers for the next frame
