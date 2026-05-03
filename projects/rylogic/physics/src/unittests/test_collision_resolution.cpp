@@ -21,6 +21,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {

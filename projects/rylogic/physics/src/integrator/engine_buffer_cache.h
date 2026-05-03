@@ -60,5 +60,20 @@ namespace pr::physics
 			(void)rigid_bodies;
 			#endif
 		}
+
+		// Drop all cached state. Call when the previously-seen shapes/bodies may no
+		// longer be valid (e.g. between independent unit-test scenarios that share a
+		// single engine).
+		void Reset()
+		{
+			m_shape_cache.Reset();
+			m_rb_dynamics.clear();
+			m_contacts.clear();
+			m_contacts_cpu.clear();
+
+			#if PR_DBG_PHYSICS
+			m_history = BodyHistory{};
+			#endif
+		}
 	};
 }

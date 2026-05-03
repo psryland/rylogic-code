@@ -67,6 +67,12 @@ namespace pr::physics
 		(*m_materials).Set(mat);
 	}
 
+	// Drop all internally-cached references to caller-supplied data.
+	void Engine::ResetCaches()
+	{
+		m_cache->Reset();
+	}
+
 	// Evolve the physics objects forward in time and resolve any collisions.
 	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
 	{

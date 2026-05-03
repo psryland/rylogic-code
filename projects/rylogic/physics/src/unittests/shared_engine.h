@@ -31,8 +31,9 @@ namespace pr::physics::tests
 	}
 
 	// Reset per-test engine state before a test runs. Clears registered Collisions
-	// handlers and restores the default material (matches MaterialMap's defaults:
-	// frictionless, perfectly elastic).
+	// handlers, restores the default material (matches MaterialMap's defaults:
+	// frictionless, perfectly elastic), and drops the engine's internal caches so
+	// stale Shape pointers from previous tests cannot be hit by ShapeCache lookups.
 	inline void ResetEngineForNextTest(physics::Engine& engine)
 	{
 		engine.Collisions.reset();
@@ -41,6 +42,7 @@ namespace pr::physics::tests
 			.m_friction_static = 0.0f,
 			.m_elasticity_norm = 1.0f,
 		});
+		engine.ResetCaches();
 	}
 }
 #endif

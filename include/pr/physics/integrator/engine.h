@@ -85,6 +85,16 @@ namespace pr::physics
 		physics::Material Material(int id) const;
 		void Material(physics::Material mat);
 
+		// Drop all internally-cached references to caller-supplied data.
+		// Specifically: the shape cache (which keys entries by Shape pointer) is cleared
+		// so that any pointers it still holds to caller-owned shapes are forgotten, and
+		// the per-frame staging buffers (rb dynamics, contacts, contacts_cpu) are cleared.
+		// GPU resources owned by the engine are *not* recreated.
+		// Call this whenever the set of Shape objects the engine has previously seen may
+		// have been destroyed, e.g. between independent unit-test scenarios that share a
+		// single engine via SharedEngine().
+		void ResetCaches();
+
 		// Timing from the most recent call to Step().
 		StepProfile const& LastStepProfile() const
 		{
