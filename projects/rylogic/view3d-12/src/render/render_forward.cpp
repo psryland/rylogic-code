@@ -75,9 +75,10 @@ namespace pr::rdr12
 		// Duplicate the PSO for the alpha pass with some modifications
 		auto psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
 		psdesc.PS = shader_code::forward_alpha_collect_ps;
-		psdesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+		psdesc.DepthStencilState = DepthStateDesc{}.Enabled(false);
 		psdesc.NumRenderTargets = 0U;
 		psdesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+		psdesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 		psdesc.SampleDesc = MultiSamp(1, 0);
 		m_alpha_pipe_state = psdesc;
 	}
@@ -170,6 +171,8 @@ namespace pr::rdr12
 		m_cmd_list.RSSetScissorRects(vp.m_clip);
 		m_alp_list.RSSetScissorRects(vp.m_clip);
 
+		auto& kbuf = wnd().m_alpha_kbuffer;
+
 		// Render the opaque nuggets first
 		{
 			BindFrameResources(m_cmd_list);
@@ -179,34 +182,41 @@ namespace pr::rdr12
 
 			// Draw the opaques
 			auto drawlist = m_drawlist.lock();
-			DrawNuggets(m_cmd_list, m_default_pipe_state, *drawlist);
+			auto opaque_end = kbuf ? boundaries[ESortGroup::AlphaBack] : s_cast<int>(drawlist->size());
+			DrawNuggets(m_cmd_list, m_default_pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)));
 		}
 
 		// Render the alpha nuggets
-		if (auto& kbuf = wnd().m_alpha_kbuffer; kbuf)
+		if (kbuf)
 		{
 			BindFrameResources(m_alp_list);
 
-			// Bind the alpha depth buffer
-			m_alp_list.OMSetRenderTargets({}, FALSE, &kbuf.m_opaque_depth_1x->m_dsv.m_cpu);
+			m_alp_list.OMSetRenderTargets({}, FALSE, nullptr);
 
 			BarrierBatch bb(m_alp_list);
-			bb.Transition(kbuf.m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			bb.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 			bb.Transition(kbuf.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Transition(kbuf.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Commit();
 
 			auto alpha_colour = wnd().m_heap_view.Add(kbuf.m_alpha_colour->m_uav);
 			auto alpha_depth = wnd().m_heap_view.Add(kbuf.m_alpha_depth->m_uav);
+			auto opaque_depth = wnd().m_heap_view.Add(frame.bb_main().m_depth_srv);
+			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::OpaqueDepth, opaque_depth);
 			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaColour, alpha_colour);
 			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaDepth, alpha_depth);
 
 			// Draw the alphas
 			auto drawlist = m_drawlist.lock();
 			auto alpha_start = boundaries[ESortGroup::AlphaBack];
+			auto alpha_end = boundaries[ESortGroup::PostAlpha];
 			
 			// Use the alpha collect shader and disable depth writes for the alpha pass
-			DrawNuggets(m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(alpha_start));
+			DrawNuggets(m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)));
+
+			BarrierBatch bb_end(m_alp_list);
+			bb_end.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+			bb_end.Commit();
 		}
 
 		// Close the command list now that we've finished rendering this scene

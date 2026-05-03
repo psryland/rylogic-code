@@ -9,6 +9,8 @@
 static const uint KBufferDepthMask = 0x00FFFFFFu;
 static const uint KBufferOiaMask   = 0xFF000000u;
 static const uint KBufferDepthFar  = 0x00FFFFFFu;
+static const uint KBufferTieBits   = 4u;
+static const uint KBufferTieMask   = (1u << KBufferTieBits) - 1u;
 
 uint PackRGBA8(float4 colour)
 {
@@ -26,6 +28,11 @@ uint PackDepth24(float view_z, float2 near_far)
 {
 	float t = saturate((view_z - near_far.x) / max(near_far.y - near_far.x, 1e-6f));
 	return uint(round(t * float(KBufferDepthFar)));
+}
+
+uint PackDepthKey(float view_z, float2 near_far, uint tie_break)
+{
+	return ((PackDepth24(view_z, near_far) >> KBufferTieBits) << KBufferTieBits) | (tie_break & KBufferTieMask);
 }
 
 uint DepthOf(uint packed_depth)

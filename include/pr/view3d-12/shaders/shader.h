@@ -130,7 +130,6 @@ namespace pr::rdr12
 
 		// Screen Space
 		extern ByteCode const kbuffer_resolve_vs;
-		extern ByteCode const kbuffer_depth_resolve_ps;
 		extern ByteCode const kbuffer_alpha_resolve_ps;
 		extern ByteCode const point_sprites_gs;
 		extern ByteCode const thick_line_list_gs;

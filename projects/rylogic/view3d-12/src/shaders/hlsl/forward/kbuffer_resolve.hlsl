@@ -2,12 +2,8 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
-#include "view3d-12/src/shaders/hlsl/forward/kbuffer_resolve_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 
-ConstantBuffer<CBufKBufferResolve> g_resolve :register(b0);
-
-Texture2DMS<float> g_msaa_depth :register(t0);
 Texture2D<float4>  g_opaque_colour :register(t0);
 Texture2D<uint4>   g_alpha_colour :register(t1);
 Texture2D<uint4>   g_alpha_depth :register(t2);
@@ -24,16 +20,6 @@ PSIn_KBufferResolve VSFullScreenTriangle(uint vid :SV_VertexID)
 	Out.tex0 = float2((vid << 1) & 2, vid & 2);
 	Out.ss_vert = float4(Out.tex0 * float2(2, -2) + float2(-1, 1), 0, 1);
 	return Out;
-}
-
-float PSDepthResolve(PSIn_KBufferResolve In) :SV_Depth
-{
-	int2 pix = int2(In.ss_vert.xy);
-	float depth = 1.0f;
-	for (int i = 0; i != g_resolve.sample_count; ++i)
-		depth = min(depth, g_msaa_depth.Load(pix, i));
-
-	return depth;
 }
 
 float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
@@ -76,13 +62,6 @@ float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 PSIn_KBufferResolve main(uint vid :SV_VertexID)
 {
 	return VSFullScreenTriangle(vid);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_kbuffer_depth_resolve
-float main(PSIn_KBufferResolve In) :SV_Depth
-{
-	return PSDepthResolve(In);
 }
 #endif
 

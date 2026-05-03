@@ -60,13 +60,11 @@ namespace pr::rdr12
 		namespace fwd
 		{
 			#include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
-			#include "view3d-12/src/shaders/hlsl/forward/kbuffer_resolve_cbuf.hlsli"
 			static_assert((sizeof(CBufFrame) % 16) == 0);
 			static_assert((sizeof(CBufNugget) % 16) == 0);
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
 			static_assert((sizeof(CBufDiag) % 16) == 0);
-			static_assert((sizeof(CBufKBufferResolve) % 16) == 0);
 		}
 		namespace ds
 		{

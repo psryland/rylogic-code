@@ -24,6 +24,7 @@ namespace pr::rdr12::shaders
 			ProjTex,
 			Pose,
 			Skin,
+			OpaqueDepth,
 			DiffTextureSampler,
 			AlphaColour,
 			AlphaDepth,

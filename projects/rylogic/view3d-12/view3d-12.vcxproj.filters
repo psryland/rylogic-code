@@ -884,9 +884,6 @@
     <None Include="src\shaders\hlsl\forward\kbuffer.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>
-    <None Include="src\shaders\hlsl\forward\kbuffer_resolve_cbuf.hlsli">
-      <Filter>src\shaders\hlsl\forward</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">

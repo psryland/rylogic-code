@@ -20,25 +20,20 @@ namespace pr::rdr12
 {
 	struct EReg
 	{
-		inline static constexpr auto CBufKBufferResolve = ECBufReg::b0;
 		inline static constexpr auto OpaqueColour = ESRVReg::t0;
 		inline static constexpr auto AlphaColour = ESRVReg::t1;
 		inline static constexpr auto AlphaDepth = ESRVReg::t2;
 	};
 	enum class EResolveRootParam
 	{
-		CBufResolve = 0,
-		Textures,
+		Textures = 0,
 	};
 
 	AlphaKBuffer::AlphaKBuffer()
 		: m_opaque_colour_1x()
-		, m_opaque_depth_1x()
 		, m_alpha_colour()
 		, m_alpha_depth()
-		, m_signature_depth_resolve()
 		, m_signature_alpha_resolve()
-		, m_pso_depth_resolve()
 		, m_pso_alpha_resolve()
 	{}
 
@@ -46,17 +41,14 @@ namespace pr::rdr12
 	void AlphaKBuffer::Release()
 	{
 		m_opaque_colour_1x = nullptr;
-		m_opaque_depth_1x = nullptr;
 		m_alpha_colour = nullptr;
 		m_alpha_depth = nullptr;
-		m_signature_depth_resolve = nullptr;
 		m_signature_alpha_resolve = nullptr;
-		m_pso_depth_resolve = nullptr;
 		m_pso_alpha_resolve = nullptr;
 	}
 
 	// Resize the buffers to 'size'
-	void AlphaKBuffer::Resize(Renderer& rdr, iv2 size, ClearValue rt_clear, ClearValue ds_clear)
+	void AlphaKBuffer::Resize(Renderer& rdr, iv2 size, ClearValue rt_clear)
 	{
 		if (size.x == 0 || size.y == 0)
 		{
@@ -68,33 +60,23 @@ namespace pr::rdr12
 		auto colour_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, rt_clear.Format }, 1U, EUsage::RenderTarget)
 			.clear(rt_clear)
 			.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-		auto depth_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, ds_clear.Format }, 1U, EUsage::DepthStencil | EUsage::DenyShaderResource)
-			.clear(ds_clear)
-			.def_state(D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		auto kbuffer_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DXGI_FORMAT_R32G32B32A32_UINT }, 1U, EUsage::UnorderedAccess)
 			.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
 		m_opaque_colour_1x = factory.CreateTexture2D(TextureDesc(AutoId, colour_desc).name("KBuffer-OpaqueColour1x"));
-		m_opaque_depth_1x = factory.CreateTexture2D(TextureDesc(AutoId, depth_desc).name("KBuffer-OpaqueDepth1x"));
 		m_alpha_colour = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaColour"));
 		m_alpha_depth = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaDepth"));
 
-		// Create the root signatures for resolve passes
-		m_signature_depth_resolve = RootSig(ERootSigFlags::GraphicsOnly)
-			.CBuf(EReg::CBufKBufferResolve, D3D12_SHADER_VISIBILITY_PIXEL)
-			.SRV(EReg::OpaqueColour, 1, D3D12_SHADER_VISIBILITY_PIXEL)
-			.Create(rdr.d3d(), "KBufferDepthResolveSig");
-
+		// Create the root signature for the alpha resolve pass
 		m_signature_alpha_resolve = RootSig(ERootSigFlags::GraphicsOnly)
-			.CBuf(EReg::CBufKBufferResolve, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::OpaqueColour, 3, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "KBufferAlphaResolveSig");
 
-		// Create the pipeline state objects for the resolve passes
+		// Create the pipeline state object for the alpha resolve pass
 		auto desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC{
-			.pRootSignature = m_signature_depth_resolve.get(),
+			.pRootSignature = m_signature_alpha_resolve.get(),
 			.VS = shader_code::kbuffer_resolve_vs,
-			.PS = shader_code::kbuffer_depth_resolve_ps,
+			.PS = shader_code::kbuffer_alpha_resolve_ps,
 			.DS = shader_code::none,
 			.HS = shader_code::none,
 			.GS = shader_code::none,
@@ -102,29 +84,18 @@ namespace pr::rdr12
 			.BlendState = BlendStateDesc{},
 			.SampleMask = UINT_MAX,
 			.RasterizerState = RasterStateDesc{},
-			.DepthStencilState = DepthStateDesc{},
+			.DepthStencilState = DepthStateDesc{}.Enabled(false),
 			.InputLayout = {},
 			.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-			.NumRenderTargets = 0U,
-			.RTVFormats = {},
-			.DSVFormat = ds_clear.Format,
+			.NumRenderTargets = 1U,
+			.RTVFormats = { rt_clear.Format },
+			.DSVFormat = DXGI_FORMAT_UNKNOWN,
 			.SampleDesc = MultiSamp(1, 0),
 			.NodeMask = 0U,
 			.CachedPSO = {},
 			.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
 		};
-		D3DPtr<ID3D12PipelineState> pso_depth_resolve;
-		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)pso_depth_resolve.address_of()));
-		DebugName(pso_depth_resolve, "KBufferDepthResolvePSO");
-		m_pso_depth_resolve = std::move(pso_depth_resolve);
-
-		desc.PS = shader_code::kbuffer_alpha_resolve_ps;
-		desc.pRootSignature = m_signature_alpha_resolve.get();
-		desc.DepthStencilState = DepthStateDesc{}.Enabled(false);
-		desc.NumRenderTargets = 1U;
-		desc.RTVFormats[0] = rt_clear.Format;
-		desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 		D3DPtr<ID3D12PipelineState> pso_alpha_resolve;
 		Check(rdr.d3d()->CreateGraphicsPipelineState(&desc, __uuidof(ID3D12PipelineState), (void**)pso_alpha_resolve.address_of()));
 		DebugName(pso_alpha_resolve, "KBufferAlphaResolvePSO");
@@ -169,38 +140,8 @@ namespace pr::rdr12
 		bb.Commit();
 	}
 
-	// Resolve the MSAA depth buffer into the 1x opaque depth buffer
-	void AlphaKBuffer::ResolveDepth(GfxCmdList& cmd_list, GpuViewHeap& heap_view, GpuUploadBuffer& upload, ID3D12Resource* msaa_depth, Descriptor const& msaa_depth_srv, int sample_count, Viewport const& viewport, D3D12_RECT const& scissor)
-	{
-		if (m_opaque_depth_1x == nullptr || msaa_depth == nullptr)
-			return;
-
-		BarrierBatch bb(cmd_list);
-		bb.Transition(msaa_depth, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		bb.Transition(m_opaque_depth_1x->m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
-		bb.Commit();
-
-		cmd_list.ClearDepthStencilView(m_opaque_depth_1x->m_dsv.m_cpu, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0);
-
-		shaders::fwd::CBufKBufferResolve cb = {};
-		cb.screen_dim = iv2(s_cast<int>(viewport.Width), s_cast<int>(viewport.Height));
-		cb.sample_count = sample_count;
-		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
-		auto msaa_depth_handle = heap_view.Add(msaa_depth_srv);
-
-		cmd_list.SetPipelineState(m_pso_depth_resolve.get());
-		cmd_list.SetGraphicsRootSignature(m_signature_depth_resolve.get());
-		cmd_list.SetGraphicsRootConstantBufferView(EResolveRootParam::CBufResolve, gpu_address);
-		cmd_list.SetGraphicsRootDescriptorTable(EResolveRootParam::Textures, msaa_depth_handle);
-		cmd_list.OMSetRenderTargets({}, FALSE, &m_opaque_depth_1x->m_dsv.m_cpu);
-		cmd_list.RSSetViewports({ &viewport, 1U });
-		cmd_list.RSSetScissorRects({ &scissor, 1U });
-		cmd_list.IASetPrimitiveTopology(ETopo::TriList);
-		cmd_list.DrawInstanced(3, 1, 0, 0);
-	}
-
 	// Composite the collected alpha buffer over the resolved opaque colour
-	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, GpuUploadBuffer& upload, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor)
+	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor)
 	{
 		if (m_opaque_colour_1x == nullptr || m_alpha_colour == nullptr || m_alpha_depth == nullptr || bb_post.m_render_target == nullptr)
 			return;
@@ -212,17 +153,11 @@ namespace pr::rdr12
 		bb.Transition(m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Commit();
 
-		shaders::fwd::CBufKBufferResolve cb = {};
-		cb.screen_dim = iv2(s_cast<int>(viewport.Width), s_cast<int>(viewport.Height));
-		cb.sample_count = 1;
-		auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
-
 		Descriptor descriptors[] = { m_opaque_colour_1x->m_srv, m_alpha_colour->m_srv, m_alpha_depth->m_srv };
 		auto textures = heap_view.Add(descriptors);
 
 		cmd_list.SetPipelineState(m_pso_alpha_resolve.get());
 		cmd_list.SetGraphicsRootSignature(m_signature_alpha_resolve.get());
-		cmd_list.SetGraphicsRootConstantBufferView(EResolveRootParam::CBufResolve, gpu_address);
 		cmd_list.SetGraphicsRootDescriptorTable(EResolveRootParam::Textures, textures);
 		cmd_list.OMSetRenderTargets({ &bb_post.m_rtv, 1 }, FALSE, nullptr);
 		cmd_list.RSSetViewports({ &viewport, 1U });

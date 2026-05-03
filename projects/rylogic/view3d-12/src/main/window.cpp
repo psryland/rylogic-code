@@ -362,7 +362,7 @@ namespace pr::rdr12
 		{
 			multisamp = multisamp != nullptr ? multisamp : &bb.m_multisamp;
 			bb = CreateRenderTarget(size, *multisamp, m_rt_props, m_ds_props);
-			m_alpha_kbuffer.Resize(rdr(), size, m_rt_props, m_ds_props);
+			m_alpha_kbuffer.Resize(rdr(), size, m_rt_props);
 		}
 
 		// Notify subscribers that the back buffer size has changed.
@@ -528,7 +528,6 @@ namespace pr::rdr12
 				// Resolve the MSAA render target into the swap chain render target
 				m_frame.m_resolve.ResolveSubresource(bb_post.m_render_target.get(), bb_main.m_render_target.get(), m_rt_props.Format);
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, true);
-				m_alpha_kbuffer.ResolveDepth(m_frame.m_resolve, m_heap_view, m_frame.m_upload, bb_main.m_depth_stencil.get(), bb_main.m_depth_srv, bb_main.m_multisamp.Count, vp, scissor);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -545,7 +544,6 @@ namespace pr::rdr12
 
 				m_frame.m_resolve.CopyResource(bb_post.m_render_target.get(), bb_main.m_render_target.get());
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, false);
-				m_alpha_kbuffer.ResolveDepth(m_frame.m_resolve, m_heap_view, m_frame.m_upload, bb_main.m_depth_stencil.get(), bb_main.m_depth_srv, bb_main.m_multisamp.Count, vp, scissor);
 
 				// The swap chain render target goes to the 'render target' state
 				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -557,7 +555,7 @@ namespace pr::rdr12
 		// Present
 		if (bb_post.m_render_target != nullptr)
 		{
-			m_alpha_kbuffer.ResolveAlpha(m_frame.m_present, m_heap_view, m_frame.m_upload, bb_post, vp, scissor);
+			m_alpha_kbuffer.ResolveAlpha(m_frame.m_present, m_heap_view, bb_post, vp, scissor);
 
 			// The swap chain render target goes to the 'present' state
 			BarrierBatch bb(m_frame.m_present);

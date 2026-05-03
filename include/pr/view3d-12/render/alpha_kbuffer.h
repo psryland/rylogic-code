@@ -16,12 +16,9 @@ namespace pr::rdr12
 		using GpuViewHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
 
 		Texture2DPtr m_opaque_colour_1x; // 1x resolved opaque colour used as the base for alpha resolve
-		Texture2DPtr m_opaque_depth_1x;  // 1x resolved opaque depth used by the alpha collect pass
 		Texture2DPtr m_alpha_colour;     // Per-pixel nearest four alpha colours, RGBA8 packed in uint lanes
 		Texture2DPtr m_alpha_depth;      // Per-pixel nearest four D24 depths, with packed OIA bytes in high bits
-		D3DPtr<ID3D12RootSignature> m_signature_depth_resolve;
 		D3DPtr<ID3D12RootSignature> m_signature_alpha_resolve;
-		D3DPtr<ID3D12PipelineState> m_pso_depth_resolve;
 		D3DPtr<ID3D12PipelineState> m_pso_alpha_resolve;
 
 		AlphaKBuffer();
@@ -30,7 +27,7 @@ namespace pr::rdr12
 		void Release();
 
 		// Resize the buffers to 'size'
-		void Resize(Renderer& rdr, iv2 size, ClearValue rt_clear, ClearValue ds_clear);
+		void Resize(Renderer& rdr, iv2 size, ClearValue rt_clear);
 
 		// Create the buffers for the next frame
 		void Clear(GfxCmdList& cmd_list, GpuViewHeap& heap_view);
@@ -38,11 +35,8 @@ namespace pr::rdr12
 		// Copy the opaque buffer 'source' into the 1x resolved buffer using resolve or direct copy
 		void CopyOpaqueBuffer(GfxCmdList& cmd_list, ID3D12Resource* source, DXGI_FORMAT format, bool resolve);
 
-		// Resolve the MSAA depth buffer into the 1x opaque depth buffer
-		void ResolveDepth(GfxCmdList& cmd_list, GpuViewHeap& heap_view, GpuUploadBuffer& upload, ID3D12Resource* msaa_depth, Descriptor const& msaa_depth_srv, int sample_count, Viewport const& viewport, D3D12_RECT const& scissor);
-
 		// Composite the collected alpha buffer over the resolved opaque colour
-		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, GpuUploadBuffer& upload, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor);
+		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor);
 
 		// True if this AlphaKBuffer is valid and ready for use
 		explicit operator bool() const;

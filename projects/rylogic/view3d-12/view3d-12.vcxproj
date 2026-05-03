@@ -345,7 +345,6 @@
     <None Include="src\shaders\hlsl\deferred\gbuffer_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\forward\forward_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\forward\kbuffer.hlsli" />
-    <None Include="src\shaders\hlsl\forward\kbuffer_resolve_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\lighting\phong_lighting.hlsli" />
     <None Include="src\shaders\hlsl\ray_cast\ray_cast_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
