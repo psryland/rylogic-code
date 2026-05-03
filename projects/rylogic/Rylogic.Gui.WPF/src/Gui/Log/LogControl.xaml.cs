@@ -47,6 +47,8 @@ namespace Rylogic.Gui.WPF
 		{
 			InitializeComponent();
 			m_view.MouseRightButtonUp += DataGrid_.ColumnVisibility;
+			m_view.SelectionChanged += HandleSelectionChanged;
+			m_view.ContextMenuOpening += HandleContextMenuOpening;
 
 			// Support for dock container controls
 			DockControl = new DockControl(this, "log")
@@ -115,6 +117,9 @@ namespace Rylogic.Gui.WPF
 		}
 		protected virtual void Dispose(bool _)
 		{
+			m_view.ContextMenuOpening -= HandleContextMenuOpening;
+			m_view.SelectionChanged -= HandleSelectionChanged;
+			m_view.MouseRightButtonUp -= DataGrid_.ColumnVisibility;
 			BindingOperations.ClearAllBindings(this);
 			LogEntries = null!;
 			LogFilepath = null;
@@ -333,6 +338,19 @@ namespace Rylogic.Gui.WPF
 		}
 		public static readonly DependencyProperty LineWrapProperty = Gui_.DPRegister<LogControl>(nameof(LineWrap), Boxed.False, Gui_.EDPFlags.TwoWay);
 
+		/// <summary>Command to invoke for navigating to the selected log entry's source location</summary>
+		public Command? GoToLogEntry
+		{
+			get => (Command?)GetValue(GoToLogEntryProperty);
+			set => SetValue(GoToLogEntryProperty, value);
+		}
+		private void GoToLogEntry_Changed()
+		{
+			GoToLogEntry?.NotifyCanExecuteChanged();
+			NotifyPropertyChanged(nameof(GoToLogEntry));
+		}
+		public static readonly DependencyProperty GoToLogEntryProperty = Gui_.DPRegister<LogControl>(nameof(GoToLogEntry), null, Gui_.EDPFlags.None);
+
 		/// <summary>Scroll the view to the last entry</summary>
 		public bool TailScroll
 		{
@@ -491,10 +509,23 @@ namespace Rylogic.Gui.WPF
 			private set
 			{
 				if (field == value) return;
+				if (field != null)
+				{
+					field.CurrentChanged -= HandleLogEntriesViewCurrentChanged;
+				}
 				field = value;
-				field.Filter = obj => obj is LogEntry le && le.Level >= FilterLevel;
+				if (field != null)
+				{
+					field.Filter = obj => obj is LogEntry le && le.Level >= FilterLevel;
+					field.CurrentChanged += HandleLogEntriesViewCurrentChanged;
+				}
 			}
 		} = null!;
+		private void HandleLogEntriesViewCurrentChanged(object? sender, EventArgs e)
+		{
+			NotifyPropertyChanged(nameof(CurrentLogEntry));
+			GoToLogEntry?.NotifyCanExecuteChanged();
+		}
 
 		/// <summary>Trigger a refresh</summary>
 		private void SignalRefresh()
@@ -545,6 +576,12 @@ namespace Rylogic.Gui.WPF
 		/// <summary>The currently visible columns of the log grid</summary>
 		public IEnumerable<DataGridColumn> VisibleColumns => m_view.Columns.Where(x => x.Visibility == Visibility.Visible);
 		public IEnumerable<string> VisibleColumnNames => VisibleColumns.Select(x => x.Header as string).NotNull();
+
+		/// <summary>The currently selected log entry</summary>
+		public LogEntry? CurrentLogEntry =>
+			m_view.SelectedItem as LogEntry ??
+			m_view.CurrentItem as LogEntry ??
+			LogEntriesView.CurrentItem as LogEntry;
 
 		/// <summary>Use the log entry pattern to create columns</summary>
 		private void UpdateColumnVisibility()
@@ -746,6 +783,19 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Switch out of tail scroll mode when a row other than the last is selected</summary>
 		private void HandleMouseDown(object sender, MouseButtonEventArgs e)
 		{
+			if (e.ChangedButton == MouseButton.Right &&
+				e.OriginalSource is DependencyObject hit &&
+				Gui_.FindVisualParent<DataGridRow>(hit, root: m_view) is DataGridRow row)
+			{
+				if (!row.IsSelected)
+				{
+					m_view.SelectedItems.Clear();
+					m_view.SelectedItem = row.Item;
+				}
+				m_view.CurrentItem = row.Item;
+				LogEntriesView.MoveCurrentTo(row.Item);
+			}
+
 			Dispatcher.BeginInvoke(new Action(() =>
 			{
 				// Have to dispatcher this because the current position isn't updated until
@@ -755,10 +805,23 @@ namespace Rylogic.Gui.WPF
 			}));
 		}
 
+		/// <summary>Update context menu command availability before the menu is shown</summary>
+		private void HandleContextMenuOpening(object sender, ContextMenuEventArgs e)
+		{
+			GoToLogEntry?.NotifyCanExecuteChanged();
+		}
+
+		/// <summary>Update commands that depend on the selected log entry</summary>
+		private void HandleSelectionChanged(object sender, SelectionChangedEventArgs e)
+		{
+			NotifyPropertyChanged(nameof(CurrentLogEntry));
+			GoToLogEntry?.NotifyCanExecuteChanged();
+		}
+
 		/// <summary>Allow double click on a log entry to do something</summary>
 		private void HandleMouseDoubleClick(object sender, MouseButtonEventArgs e)
 		{
-			if (LogEntriesView.CurrentItem is LogEntry le)
+			if (CurrentLogEntry is LogEntry le)
 				LogEntryDoubleClick?.Invoke(this, new LogEntryDoubleClickEventArgs(le));
 		}
 

@@ -562,11 +562,8 @@ namespace pr::rdr12::ldraw
 		if (m_listen_thread.joinable())
 			m_listen_thread.join();
 
-		// Remove any stream sources
-		std::erase_if(m_srcs, [](auto& src)
-		{
-			return dynamic_cast<SourceStream*>(src.second.get()) != nullptr;
-		});
+		// Remove the stream sources
+		Remove([this](Guid const& id) { return dynamic_cast<SourceStream*>(m_srcs[id].get()) != nullptr; });
 	}
 
 	// Create a gizmo object and add it to the gizmo collection

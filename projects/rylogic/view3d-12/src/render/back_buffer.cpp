@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/scene/scene.h"
+#include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/texture/texture_2D.h"
 
 namespace pr::rdr12
@@ -19,6 +20,7 @@ namespace pr::rdr12
 		, m_d2d_target()
 		, m_rtv()
 		, m_dsv()
+		, m_depth_srv()
 	{}
 	BackBuffer::BackBuffer(Window& wnd, MultiSamp ms, Texture2D* render_target, Texture2D* depth_stencil)
 		: m_wnd(&wnd)
@@ -29,6 +31,7 @@ namespace pr::rdr12
 		, m_d2d_target()
 		, m_rtv(render_target ? render_target->m_rtv.m_cpu : D3D12_CPU_DESCRIPTOR_HANDLE{})
 		, m_dsv(depth_stencil ? depth_stencil->m_dsv.m_cpu : D3D12_CPU_DESCRIPTOR_HANDLE{})
+		, m_depth_srv(depth_stencil ? depth_stencil->m_srv : Descriptor{})
 	{}
 
 	// Release back buffer resources
@@ -36,10 +39,16 @@ namespace pr::rdr12
 	{
 		wnd.m_res_state.Forget(m_render_target.get());
 		wnd.m_res_state.Forget(m_depth_stencil.get());
+		if (m_depth_srv)
+		{
+			ResourceStore::Access store(wnd.rdr());
+			store.Descriptors().Release(m_depth_srv);
+		}
 
 		m_render_target = nullptr;
 		m_depth_stencil = nullptr;
 		m_d2d_target = nullptr;
+		m_depth_srv = {};
 	}
 
 	// An empty back buffer

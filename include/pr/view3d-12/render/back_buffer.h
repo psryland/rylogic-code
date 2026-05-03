@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/resource/descriptor.h"
 #include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
@@ -22,6 +23,7 @@ namespace pr::rdr12
 		D3DPtr<ID2D1Bitmap1>        m_d2d_target;    // D2D render target
 		D3D12_CPU_DESCRIPTOR_HANDLE m_rtv;           // The descriptor of the back buffer as a RTV
 		D3D12_CPU_DESCRIPTOR_HANDLE m_dsv;           // The descriptor of the back buffer as a DSV
+		Descriptor                  m_depth_srv;     // Shader resource view for the depth buffer
 
 		BackBuffer();
 		BackBuffer(Window& wnd, MultiSamp ms, Texture2D* render_target = nullptr, Texture2D* depth_stencil = nullptr);

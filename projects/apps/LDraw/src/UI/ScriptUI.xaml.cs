@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -38,6 +39,7 @@ namespace LDraw.UI
 		// Notes:
 		//  - A script editor is used to edit existing script files.
 		private CancellationTokenSource m_cancel_load = new();
+		private TaskCompletionSource<object?> m_initial_load = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		static ScriptUI()
 		{
@@ -83,6 +85,10 @@ namespace LDraw.UI
 				catch (Exception ex)
 				{
 					Editor.Text = $"Error loading file: {ex.Message}";
+				}
+				finally
+				{
+					m_initial_load.TrySetResult(null);
 				}
 			};
 		}
@@ -542,10 +548,18 @@ namespace LDraw.UI
 		}
 		public void ScrollTo(int line, int column, bool move_caret)
 		{
+			line = Math.Clamp(line, 1, Editor.Document.LineCount);
+			column = Math.Clamp(column, 1, Editor.Document.GetLineByNumber(line).Length + 1);
+
 			if (move_caret)
 				Editor.CaretOffset = Editor.Document.GetOffset(line, column);
 
 			Editor.ScrollTo(line, column);
+		}
+		public async Task ScrollToAsync(int line, int column, bool move_caret)
+		{
+			await m_initial_load.Task;
+			ScrollTo(line, column, move_caret);
 		}
 
 		/// <summary>The range of selected characters</summary>

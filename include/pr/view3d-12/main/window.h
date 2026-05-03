@@ -7,6 +7,7 @@
 #include "pr/view3d-12/main/frame.h"
 #include "pr/view3d-12/openxr/openxr.h"
 #include "pr/view3d-12/render/back_buffer.h"
+#include "pr/view3d-12/render/alpha_kbuffer.h"
 #include "pr/view3d-12/resource/gpu_descriptor_heap.h"
 #include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/cmd_alloc.h"
@@ -65,6 +66,7 @@ namespace pr::rdr12
 		GpuViewHeap                  m_heap_view;        // Shader visible heap for CBV/SRV/UAV
 		GpuSampHeap                  m_heap_samp;        // Shader visible heap for Samplers
 		ResStateStore                m_res_state;        // Tracks the resource state of render targets and depth stencil resources
+		AlphaKBuffer                 m_alpha_kbuffer;    // 1x K-buffer resources used for alpha sorting
 		Frame                        m_frame;            // Class for managing the rendering of a frame (for reuse)
 		DiagState                    m_diag;             // Diagnostic variables
 		int64_t                      m_frame_number;     // The number of times 'RenderFrame' has been called.

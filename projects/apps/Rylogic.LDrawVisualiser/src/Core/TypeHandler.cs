@@ -2,6 +2,7 @@ namespace Rylogic.LDrawVisualiser.Core;
 
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using EnvDTE;
 using Microsoft.VisualStudio.Shell;
 using Rylogic.LDrawVisualiser.Core.TypeReaders;
@@ -84,14 +85,24 @@ public class TypeHandler
 			case ELanguage.Native:
 			case ELanguage.Managed:
 			{
+				if (TryRead(m_script_readers, lang, ty, expr, out var script_result))
+					return script_result;
+
+				ty = NormaliseTypeName(ty);
+
+				// Let exact script readers handle indexed types, but don't let built-ins match
+				// an element type substring within a bracketed declaration. Returning null keeps
+				// the expression chainable so an indexer can be appended and evaluated.
+				if (IsIndexableType(ty))
+					return null;
+
 				// Return the result of the first reader that produces a non-null result.
 				foreach (var reader in m_readers)
 				{
-					if (!reader.CanRead(lang, ty))
+					if (ReferenceEquals(reader, m_script_readers))
 						continue;
 
-					var result = reader.Read(m_debugger, lang, ty, expr);
-					if (result != null)
+					if (TryRead(reader, lang, ty, expr, out var result))
 						return result;
 				}
 				return null;
@@ -101,5 +112,38 @@ public class TypeHandler
 				throw new System.ArgumentOutOfRangeException(nameof(lang), lang, "Unsupported language");
 			}
 		}
+	}
+
+	/// <summary>Try to read an expression using 'reader'</summary>
+	private bool TryRead(ITypeReader reader, ELanguage lang, string ty, string expr, out object? result)
+	{
+		if (!reader.CanRead(lang, ty))
+		{
+			result = null;
+			return false;
+		}
+
+		result = reader.Read(m_debugger, lang, ty, expr);
+		return result != null;
+	}
+
+	/// <summary>Remove CV and refs from a typename</summary>
+	private static string NormaliseTypeName(string ty)
+	{
+		// Const/volatile qualifiers don't change the type from a debugging point of view
+		ty = Regex.Replace(ty, @"\b(const|volatile)\b", "").Trim();
+		ty = Regex.Replace(ty, @"\s+", " ");
+
+		// Nor do reference qualifiers
+		while (ty.EndsWith("&", StringComparison.Ordinal))
+			ty = ty.Substring(0, ty.Length - 1).TrimEnd();
+
+		return ty;
+	}
+
+	/// <summary>True if the type is an indexable type</summary>
+	private static bool IsIndexableType(string type_name)
+	{
+		return Regex.IsMatch(type_name, @"\[[^\]]*\]");
 	}
 }

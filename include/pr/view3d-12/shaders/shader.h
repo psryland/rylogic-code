@@ -116,6 +116,7 @@ namespace pr::rdr12
 		extern ByteCode const forward_vs;
 		extern ByteCode const forward_ps;
 		extern ByteCode const forward_radial_fade_ps;
+		extern ByteCode const forward_alpha_collect_ps;
 
 		// Deferred rendering
 		extern ByteCode const gbuffer_vs;
@@ -128,6 +129,8 @@ namespace pr::rdr12
 		extern ByteCode const shadow_map_ps;
 
 		// Screen Space
+		extern ByteCode const kbuffer_resolve_vs;
+		extern ByteCode const kbuffer_alpha_resolve_ps;
 		extern ByteCode const point_sprites_gs;
 		extern ByteCode const thick_line_list_gs;
 		extern ByteCode const thick_line_strip_gs;

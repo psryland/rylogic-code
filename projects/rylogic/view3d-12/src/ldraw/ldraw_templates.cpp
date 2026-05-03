@@ -487,7 +487,7 @@ namespace pr::rdr12::ldraw
 			"}\n"
 			"*ConvexHull [<name>] [<colour>]\n"
 			"{\n"
-			"	*Verts {(<x> <y> <z>)}\n"
+			"	*Data {(<x> <y> <z>)}\n"
 			"	[@GenerateNormals]\n"
 			"	$Textured\n"
 			"	$ObjectModifiers\n"

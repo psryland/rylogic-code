@@ -367,7 +367,7 @@ namespace pr::filesys
 			{
 				auto snapshot = FileSnapshot(fullpath);
 				FileOpened(*this, fullpath);
-				return std::make_unique<FileSnapshotStream>(std::move(snapshot.m_data));
+				return std::make_unique<FileSnapshotStream>(std::move(snapshot));
 			}
 
 			// Try resources

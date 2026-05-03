@@ -218,10 +218,16 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_radial_fade_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_resolve_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_alpha_resolve_ps.h)
 		}
 		ByteCode const forward_vs(compiled::forward_vs);
 		ByteCode const forward_ps(compiled::forward_ps);
 		ByteCode const forward_radial_fade_ps(compiled::forward_radial_fade_ps);
+		ByteCode const forward_alpha_collect_ps(compiled::forward_alpha_collect_ps);
+		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
+		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
 		// Deferred rendering
 		namespace compiled

@@ -87,6 +87,7 @@
 #include "pr/container/deque.h"
 #include "pr/container/ring.h"
 #include "pr/container/vector.h"
+#include "pr/container/vector_map.h"
 #include "pr/filesys/file_encoding.h"
 #include "pr/filesys/file_snapshot.h"
 #include "pr/filesys/filewatch.h"

@@ -14,7 +14,7 @@ namespace Rylogic.LDrawVisualiser
 {
 	[Guid(PackageGuidString)]
 	[PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-	[InstalledProductRegistration("Rylogic LDraw Visualiser", "LDraw debug visualiser for Visual Studio", "1.0.0")]
+	[InstalledProductRegistration("Rylogic LDraw Visualiser", "LDraw debug visualiser for Visual Studio", VersionInfo.Version)]
 	[ProvideMenuResource("Menus.ctmenu", 1)]
 	[ProvideToolWindow(typeof(VisualizerToolWindow), Style = VsDockStyle.Tabbed, Window = "3ae79031-e1bc-11d0-8f78-00a0c9110057")]
 	[ProvideOptionPage(typeof(LDrawVisualiserOptions), "Rylogic", "LDraw Visualiser Options", 0, 0, true)]

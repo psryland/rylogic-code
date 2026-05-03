@@ -1086,7 +1086,7 @@
 // Find the convex hull of a point cloud
 *ConvexHull convexhull FFFFFF00
 {
-	*Verts
+	*Data
 	{
 		// A cloud of points to wrap in a convex hull
 		-0.998  0.127 -0.614

@@ -241,6 +241,28 @@ namespace pr::rdr12
 		static_assert(dx_format_v<uint32_t>.format == DXGI_FORMAT_R32_UINT);
 		static_assert(dx_format_v<uint16_t>.format == DXGI_FORMAT_R16_UINT);
 
+	// Return the corresponding typeless format for a depth format, for use in shader resource views.
+	constexpr DXGI_FORMAT DepthResourceFormat(DXGI_FORMAT format)
+	{
+		switch (format)
+		{
+			case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_TYPELESS;
+			case DXGI_FORMAT_D24_UNORM_S8_UINT: return DXGI_FORMAT_R24G8_TYPELESS;
+			case DXGI_FORMAT_D16_UNORM: return DXGI_FORMAT_R16_TYPELESS;
+			default: throw std::runtime_error("Unsupported shader-readable depth format");
+		}
+	}
+	constexpr DXGI_FORMAT DepthSrvFormat(DXGI_FORMAT format)
+	{
+		switch (format)
+		{
+			case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
+			case DXGI_FORMAT_D24_UNORM_S8_UINT: return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+			case DXGI_FORMAT_D16_UNORM: return DXGI_FORMAT_R16_UNORM;
+			default: throw std::runtime_error("Unsupported depth SRV format");
+		}
+	}
+
 	// The number of supported quality levels for the given format and sample count
 	UINT MultisampleQualityLevels(ID3D12Device* device, DXGI_FORMAT format, UINT sample_count);
 

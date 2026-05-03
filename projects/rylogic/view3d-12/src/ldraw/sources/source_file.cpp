@@ -67,9 +67,8 @@ namespace pr::rdr12::ldraw
 					case EEncoding::utf16_le:
 					case EEncoding::utf16_be:
 					{
-						auto data = snapshot.str().substr(static_cast<size_t>(bom_size));
-						mem_istream<char> src{ data, 0 };
-						TextReader reader(src, m_filepath, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
+						auto src = filesys::FileSnapshotStream(std::move(snapshot), static_cast<size_t>(bom_size));
+						TextReader reader(src, {}, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
 						return Parse(rdr, reader, m_context_id, stop_token);
 					}
 					default:
@@ -86,8 +85,8 @@ namespace pr::rdr12::ldraw
 				m_text_format = false;
 
 				// Parse the ldr script file
-				mem_istream<char> src{ snapshot.str(), 0 };
-				ldraw::BinaryReader reader(src, m_filepath, { this, OnReportError }, { this, OnProgress }, m_includes);
+				auto src = filesys::FileSnapshotStream(std::move(snapshot));
+				ldraw::BinaryReader reader(src, {}, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
@@ -115,7 +114,7 @@ namespace pr::rdr12::ldraw
 				m_text_format = false;
 
 				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 
@@ -126,7 +125,7 @@ namespace pr::rdr12::ldraw
 				m_text_format = true;
 
 				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, {}, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
 				return Parse(rdr, reader, m_context_id, stop_token);
 			}
 

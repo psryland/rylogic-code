@@ -2891,7 +2891,7 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::ConvexHull, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Verts, "{");
+				Append(out, EKeywords::Data, "{");
 				for (auto& v : m_verts) Append(out, v);
 				Append(out, "}");
 				Append(out, m_gen_normals);
@@ -2905,7 +2905,7 @@ namespace pr::ldraw
 			auto s = Append(out, seri::Header{ EKeywords::ConvexHull, m_name, m_colour });
 			{
 				{
-					auto sv = Append(out, seri::Header{ EKeywords::Verts });
+					auto sv = Append(out, seri::Header{ EKeywords::Data });
 					for (auto& v : m_verts) Append(out, v);
 				}
 				Append(out, m_gen_normals);
@@ -5190,7 +5190,7 @@ namespace pr::ldraw
 			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*ConvexHull ch ff00ff00 {\n"
-			"	*Verts {0 0 0 1 0 0 0 1 0 0 0 1}\n"
+			"	*Data {0 0 0 1 0 0 0 1 0 0 0 1}\n"
 			"}");
 		}
 		PRUnitTestMethod(Frustum)

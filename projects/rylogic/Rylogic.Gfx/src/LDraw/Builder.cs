@@ -4,20 +4,15 @@
 //***********************************************
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Windows;
 using Rylogic.Common;
-using Rylogic.Extn;
 using Rylogic.Gfx;
 using Rylogic.Maths;
-using Rylogic.Utility;
 
 namespace Rylogic.LDraw
 {
@@ -1369,7 +1364,7 @@ namespace Rylogic.LDraw
 			{
 				if (m_verts.Count != 0)
 				{
-					res.Write(EKeyword.Verts, () =>
+					res.Write(EKeyword.Data, () =>
 					{
 						foreach (var v in m_verts)
 							res.Append(v.xyz);
@@ -3291,7 +3286,7 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.ConvexHull("ch", 0xFF00FF00u).vert(0, 0, 0).vert(1, 0, 0).vert(0, 1, 0).vert(0, 0, 1);
 			var str = builder.ToString();
-			Assert.Equal("*ConvexHull ch FF00FF00 {*Verts {0 0 0 1 0 0 0 1 0 0 0 1}}", str);
+			Assert.Equal("*ConvexHull ch FF00FF00 {*Data {0 0 0 1 0 0 0 1 0 0 0 1}}", str);
 		}
 
 		[Test]

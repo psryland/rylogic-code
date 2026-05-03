@@ -1103,7 +1103,7 @@ namespace pr::rdr12::ldraw
 			"// Find the convex hull of a point cloud\n"
 			"*ConvexHull convexhull FFFFFF00\n"
 			"{\n"
-			"	*Verts\n"
+			"	*Data\n"
 			"	{\n"
 			"		// A cloud of points to wrap in a convex hull\n"
 			"		-0.998  0.127 -0.614\n"

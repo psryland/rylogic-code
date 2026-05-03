@@ -310,7 +310,7 @@ namespace pr::rdr12
 	}
 	bool FeatureSupport::FormatData::CheckSRV() const
 	{
-		return Check(D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE);
+		return Check(D3D12_FORMAT_SUPPORT1_SHADER_LOAD);
 	}
 	bool FeatureSupport::FormatData::CheckUAV() const
 	{

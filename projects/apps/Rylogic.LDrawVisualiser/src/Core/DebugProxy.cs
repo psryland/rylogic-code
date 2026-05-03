@@ -87,6 +87,14 @@ namespace Rylogic.LDrawVisualiser.Core
 				return true;
 			}
 
+			// ReadExpr("expr") — evaluate an arbitrary debugger expression. This is for
+			// expressions that cannot be represented by normal member/index chaining.
+			if (binder.Name == "ReadExpr" && args?.Length == 1 && args[0] is string read_expr)
+			{
+				result = Evaluate(read_expr);
+				return true;
+			}
+
 			// RegisterReader("TypeName", v => ...) — install a script-supplied reader for
 			// the exact debugger-reported type name. The lambda receives a DebugProxy
 			// positioned at the matched expression and returns the parsed value (any type).
@@ -185,6 +193,8 @@ namespace Rylogic.LDrawVisualiser.Core
 		/// <inheritdoc/>
 		public override bool TryBinaryOperation(BinaryOperationBinder binder, object? arg, out object? result)
 		{
+			ThreadHelper.ThrowIfNotOnUIThread();
+
 			// Support 'vars.foo == null' / 'vars.foo != null' as a test for whether 'foo'
 			// is a valid debugger symbol in the current frame. This lets scripts write
 			// code like:
@@ -194,8 +204,6 @@ namespace Rylogic.LDrawVisualiser.Core
 			// the debugger.
 			if (arg == null && (binder.Operation == System.Linq.Expressions.ExpressionType.Equal || binder.Operation == System.Linq.Expressions.ExpressionType.NotEqual))
 			{
-				ThreadHelper.ThrowIfNotOnUIThread();
-
 				// Empty path = root proxy; treat as 'defined' (it's never null).
 				// Otherwise the symbol is "defined" if either the debugger reports
 				// it as valid in the current frame OR we have a cached last value

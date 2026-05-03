@@ -1,9 +1,10 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using LDraw.UI;
 using Rylogic.Common;
 using Rylogic.Gui.WPF;
 using Rylogic.Utility;
@@ -17,8 +18,10 @@ namespace LDraw
 			InitializeComponent();
 			DockControl.Owner = this;
 			Model = model;
+			GoToError = Command.Create(this, GoToErrorInternal, GoToErrorAvailable);
 			m_log.LogEntries = Log.Entries;
 			m_log.LogEntryPattern = Log.PatternRegex;
+			m_log.GoToLogEntry = GoToError;
 			m_log.PopOutOnNewMessages = false;
 			m_log.FilterLevel = ELogLevel.Debug;
 			m_log.LogEntryDoubleClick += HandleLogEntryDoubleClick;
@@ -31,6 +34,7 @@ namespace LDraw
 		{
 			Model = null!;
 			m_log.LogEntryDoubleClick -= HandleLogEntryDoubleClick;
+			m_log.GoToLogEntry = null;
 			m_log.Dispose();
 		}
 
@@ -55,52 +59,86 @@ namespace LDraw
 		} = null!;
 
 		/// <summary>Handle a log entry being double clicked in the log view</summary>
-		private void HandleLogEntryDoubleClick(object? sender, LogControl.LogEntryDoubleClickEventArgs e)
+		private async void HandleLogEntryDoubleClick(object? sender, LogControl.LogEntryDoubleClickEventArgs e)
 		{
-			var file = e.Entry.File;
-			var line = e.Entry.Line;
-
-			// No source file associated with this entry
-			if (string.IsNullOrEmpty(file))
-				return;
-
-			// If an external text editor is configured, use it
-			var editor_path = Model.Profile.TextEditorPath;
-			if (!string.IsNullOrEmpty(editor_path))
-			{
-				OpenInExternalEditor(editor_path, Model.Profile.TextEditorArguments, file, line);
-				return;
-			}
-
-			// Otherwise, find the script in the built-in editor and navigate to it
-			var script = Model.Scripts.FirstOrDefault(x => Path_.Compare(file, x.FilePath) == 0);
-			if (script == null)
-				return;
-
-			script.DockControl.IsActiveContent = true;
-			script.ScrollTo(line, 0, true);
+			await NavigateToErrorAsync(e.Entry);
 		}
 
-		/// <summary>Launch an external text editor at the given file and line</summary>
-		private static void OpenInExternalEditor(string editor_path, string arguments_pattern, string file, int line)
+		/// <summary>Navigate to the selected log entry's source location</summary>
+		public Command GoToError { get; private set; } = null!;
+		private bool GoToErrorAvailable()
+		{
+			return CanGoToError(m_log.CurrentLogEntry);
+		}
+		private async void GoToErrorInternal()
+		{
+			if (m_log.CurrentLogEntry is LogControl.LogEntry entry)
+				await NavigateToErrorAsync(entry);
+		}
+		private bool CanGoToError(LogControl.LogEntry? entry)
+		{
+			if (entry == null || entry.File.Length == 0 || entry.Line <= 0 || !Path_.FileExists(entry.File))
+				return false;
+
+			if (!string.IsNullOrEmpty(Model.Profile.TextEditorPath))
+				return true;
+
+			return
+				Model.Scripts.Any(x => Path_.Compare(entry.File, x.FilePath) == 0) ||
+				Model.Sources.Any(x => Path_.Compare(entry.File, x.FilePath) == 0 && x.CanEdit);
+		}
+		private async Task NavigateToErrorAsync(LogControl.LogEntry entry)
 		{
 			try
 			{
-				var arguments = arguments_pattern
-					.Replace("{file}", file)
-					.Replace("{line}", line.ToString());
+				if (!CanGoToError(entry))
+					return;
 
-				Process.Start(new ProcessStartInfo
+				// If an external text editor is configured, use it
+				var file = entry.File;
+				var line = Math.Max(1, entry.Line);
+				var editor_path = Model.Profile.TextEditorPath;
+				if (!string.IsNullOrEmpty(editor_path))
 				{
-					FileName = editor_path,
-					Arguments = arguments,
-					UseShellExecute = false,
-				});
+					ExternalTextEditor.Launch(editor_path, Model.Profile.TextEditorArguments, file, line);
+					return;
+				}
+
+				// Otherwise, find/show the script in the built-in editor and navigate to it
+				var script = OpenInBuiltInEditor(file);
+				if (script == null)
+					return;
+
+				await script.ScrollToAsync(line, 1, true);
+				script.Editor.Focus();
 			}
 			catch (Exception ex)
 			{
-				Log.Write(ELogLevel.Error, ex, "Failed to launch text editor");
+				Log.Write(ELogLevel.Error, ex, "Failed to go to error");
 			}
+		}
+		private ScriptUI? OpenInBuiltInEditor(string file)
+		{
+			var script = Model.Scripts.FirstOrDefault(x => Path_.Compare(file, x.FilePath) == 0);
+			var source = script?.Source ?? Model.Sources.FirstOrDefault(x => Path_.Compare(file, x.FilePath) == 0 && x.CanEdit);
+			if (source != null)
+				script = Model.OpenInEditor(source);
+
+			if (script == null)
+				return null;
+
+			var dock_container = DockControl.DockContainer;
+			if (dock_container == null)
+			{
+				script.DockControl.IsActiveContent = true;
+				return script;
+			}
+
+			if (script.DockControl.DockContainer != dock_container)
+				dock_container.Add(script, EDockSite.Left).IsFloating = true;
+
+			dock_container.FindAndShow(script.DockControl);
+			return script;
 		}
 	}
 }
