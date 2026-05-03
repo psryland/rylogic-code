@@ -26,9 +26,9 @@ namespace pr::ldraw
 	{
 		physics::RigidBody m_rb;
 		LdrRigidBody(seri::Name name = {}, seri::Colour colour = {})
-			: LdrGroup(name, colour)
+			: LdrGroup(name, 0xFFFFFFFF)
 		{
-			group_colour(m_colour);
+			group_colour(colour);
 		}
 
 		LdrRigidBody& rigid_body(physics::RigidBody const& rb)

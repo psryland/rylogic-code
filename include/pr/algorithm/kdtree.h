@@ -608,6 +608,8 @@ namespace pr::algorithm::tests
 {
 	PRUnitTestClass(KDTreeTests)
 	{
+		inline static constexpr bool CreateVisualizations = false;
+
 		using Pt = v3; // sorting axis in 'z'
 		using KDTree = kdtree::KDTree<2, Pt, float>;
 		std::default_random_engine m_rng;
@@ -750,6 +752,7 @@ namespace pr::algorithm::tests
 
 				// Draw results
 				#if PR_UNITTESTS_VISUALISE
+				if constexpr (CreateVisualizations)
 				{
 					using namespace pr::ldraw;
 
@@ -763,7 +766,7 @@ namespace pr::algorithm::tests
 						ldr_points.pt(v4(p.xy, 0, 1), is_found ? 0xFFFF0000 : 0xFF0000FF);
 					}
 
-					builder.Save("E:/Dump/kdtree.ldr", ESaveFlags::Pretty);
+					builder.Save("E:/Dump/kdtree.ldr");
 				}
 				#endif
 
@@ -786,6 +789,7 @@ namespace pr::algorithm::tests
 				));
 
 				#if PR_UNITTESTS_VISUALISE
+				if constexpr (CreateVisualizations)
 				{
 					using namespace pr::ldraw;
 
@@ -801,7 +805,7 @@ namespace pr::algorithm::tests
 						ldr_points.pt(p.w1(), is_found ? 0xFFFF0000 : 0xFF0000FF);
 					}
 
-					builder.Save("E:/Dump/kdtree.ldr", ESaveFlags::Pretty);
+					builder.Save("E:/Dump/kdtree.ldr");
 				}
 				#endif
 
@@ -825,6 +829,7 @@ namespace pr::algorithm::tests
 				CheckPairs(points, max_separation, pairs);
 
 				#if	PR_UNITTESTS_VISUALISE
+				if constexpr (CreateVisualizations)
 				{
 					using namespace pr::ldraw;
 
@@ -841,10 +846,10 @@ namespace pr::algorithm::tests
 						auto p1 = v4(p.item1->xy, 0, 1);
 
 						ldr_lines.line(p0, p1);
-						builder.Sphere("Found", 0x80FF0000).radius(sqrt(p.squared_distance) * 0.5f).pos((p0 + p1) * 0.5f);
+						builder.Sphere("Found", 0x80FF0000).sphere(sqrt(p.squared_distance) * 0.5f).pos((p0 + p1) * 0.5f);
 					}
 
-					builder.Save("E:/Dump/kdtree.ldr", ESaveFlags::Pretty);
+					builder.Save("E:/Dump/kdtree.ldr");
 				}
 				#endif
 			}
@@ -1028,9 +1033,9 @@ namespace pr::algorithm::tests
 				CheckPairs(points, search_radius, pairs);
 			}
 		}
-		#if 0
 		PRUnitTestMethod(Farthest)
 		{
+			#if 0
 			std::default_random_engine rng(1u);
 			std::uniform_real_distribution dist_pos(0.0f, 1.0f);
 
@@ -1101,6 +1106,7 @@ namespace pr::algorithm::tests
 
 			// Show output
 			#if	PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisualizations)
 			{
 				pr::ldraw::Builder builder;
 
@@ -1117,11 +1123,11 @@ namespace pr::algorithm::tests
 					ldr_lines.line(p0, p1);
 				}
 
-				builder.Save("E:/Dump/kdtree.ldr");
+				builder.Save(temp_dir() / "kdtree.ldr");
 			}
 			#endif
+			#endif
 		}
-		#endif
 	};
 }
 #endif

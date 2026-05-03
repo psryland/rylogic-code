@@ -342,7 +342,7 @@ namespace pr::unittests
 				{
 					if (wordy)
 					{
-						auto name_width = 80;
+						auto name_width = std::max(100, static_cast<int>(strlen(test.m_name)));
 						auto test_name = std::format("{}.{}", test.m_class->name() + 7, test.m_name);
 						TestFramework::out() << std::format("{:.<{}}", test_name, name_width);
 					}

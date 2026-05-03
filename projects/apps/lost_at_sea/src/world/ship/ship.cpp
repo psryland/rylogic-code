@@ -78,7 +78,7 @@ namespace las
 			auto os_contact = v4{os_corner.x, os_corner.y, os_corner.z, 0};
 
 			contact.m_axis = os_normal;
-			contact.m_point = os_contact;
+			contact.SetPoint(os_contact);
 			contact.m_point_at_t = os_contact;
 			contact.m_depth = penetration;
 			contact.m_mat = physics::Material{

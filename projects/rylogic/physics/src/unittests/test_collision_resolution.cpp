@@ -21,6 +21,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {
@@ -91,12 +92,15 @@ namespace pr::physics::tests
 		body_a.VelocityWS(ang_vel_a, vel_a);
 		body_b.VelocityWS(ang_vel_b, vel_b);
 
-		Engine engine;
+		auto& engine = SharedEngine();
+		ResetEngineForNextTest(engine);
 
 		// Step until collision or timeout.
 		// Fixed 100 Hz timestep; 5000 steps = 50 seconds of simulation time.
 		auto const dt = 1.0f / 100.0f;
 		auto const max_steps = 5000;
+		auto run_t0 = std::chrono::steady_clock::now();
+		auto last_log_t = run_t0;
 		for (int step = 0; step != max_steps; ++step)
 		{
 			body_a.ZeroForces();
@@ -105,7 +109,27 @@ namespace pr::physics::tests
 			// Capture pre-step state (no forces applied, so momentum is unmodified)
 			auto pre_step = SystemState::Capture(body_a, body_b);
 
+			auto step_t0 = std::chrono::steady_clock::now();
 			engine.Step(dt, bodies);
+			auto step_t1 = std::chrono::steady_clock::now();
+
+			// Diagnostic: emit a one-line progress report every ~5 seconds of wall time.
+			auto step_ms = std::chrono::duration<double, std::milli>(step_t1 - step_t0).count();
+			auto since_last_log = std::chrono::duration<double>(step_t1 - last_log_t).count();
+			if (since_last_log >= 5.0 || step_ms > 200.0)
+			{
+				auto const& prof = engine.LastStepProfile();
+				std::fprintf(stderr,
+					"[scenario] step=%d wall=%.1fms (pack=%.1f intg=%.1f bp=%.1f col=%.1f res=%.1f rb=%.1f gpu=%.1f unp=%.1f) contacts=%d a.x=%.3f b.x=%.3f a.flag=%d b.flag=%d\n",
+					step, step_ms,
+					prof.m_pack_ms, prof.m_integrate_ms, prof.m_broadphase_ms, prof.m_collide_ms,
+					prof.m_resolve_ms, prof.m_readback_ms, prof.m_gpu_run_ms, prof.m_unpack_ms,
+					engine.LastContactCount(),
+					body_a.O2W().pos.x, body_b.O2W().pos.x,
+					(int)body_a.StateFlags(), (int)body_b.StateFlags());
+				std::fflush(stderr);
+				last_log_t = step_t1;
+			}
 
 			if (AllSet(body_a.StateFlags(), ERigidBodyStateFlags::Collided) ||
 				AllSet(body_b.StateFlags(), ERigidBodyStateFlags::Collided))

@@ -1,5 +1,7 @@
-﻿// HyperPose Tools
-// Copyright (c) 2025
+﻿//**********************************
+// View3D
+//  Copyright (c) Rylogic Ltd 2015
+//**********************************
 #include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/update_resource.h"

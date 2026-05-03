@@ -110,7 +110,7 @@ namespace pr::physics::tests
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1.0f, 10.0f));
-			rb.O2W(m4x4::Translation(v4{0, 0, 5, 1}));
+			rb.O2W(m4x4::Translation(0, 0, 5));
 			rb.VelocityWS(v4{0.5f, 0.3f, 0, 0}, v4{1.0f, 0, -2.0f, 0});
 
 			for (int step = 0; step != 100; ++step)
@@ -126,7 +126,7 @@ namespace pr::physics::tests
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Box(v4{1, 2, 0.5f, 0}, 10.0f));
-			rb.O2W(m4x4::Translation(v4{0, 0, 5, 1}));
+			rb.O2W(m4x4::Translation(0, 0, 5));
 			rb.VelocityWS(v4{0.5f, -0.3f, 0.2f, 0}, v4{1.0f, 0, -2.0f, 0});
 
 			for (int step = 0; step != 100; ++step)
@@ -166,7 +166,7 @@ namespace pr::physics::tests
 			auto com = v4{0.3f, -0.2f, 0.1f, 0};
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1.0f, 10.0f, com), com);
-			rb.O2W(m4x4::Translation(v4{0, 0, 5, 1}));
+			rb.O2W(m4x4::Translation(0, 0, 5));
 			rb.VelocityWS(v4{0.5f, 0.3f, 0, 0}, v4{1.0f, 0, -2.0f, 0});
 
 			for (int step = 0; step != 100; ++step)
@@ -183,7 +183,7 @@ namespace pr::physics::tests
 			auto com = v4{0.5f, 0.0f, -0.3f, 0};
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Box(v4{1, 2, 0.5f, 0}, 10.0f, com), com);
-			rb.O2W(m4x4::Translation(v4{0, 0, 5, 1}));
+			rb.O2W(m4x4::Translation(0, 0, 5));
 			rb.VelocityWS(v4{0.5f, -0.3f, 0.2f, 0}, v4{1.0f, 0, -2.0f, 0});
 
 			for (int step = 0; step != 100; ++step)

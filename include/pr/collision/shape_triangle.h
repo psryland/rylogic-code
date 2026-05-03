@@ -11,15 +11,27 @@ namespace pr::collision
 	// A triangle collision shape.
 	struct ShapeTriangle
 	{
+		// Note:
+		//  - The positions of 'a,b,c' are moved so that the centre of the object is within the triangle
+		//    This is a requirement of collision detection.
+		//  - The triangle *can* be degenerate.
+		//  - Degenerate triangles have normal == (0,0,0).
+
 		Shape m_base;
 		m4x4  m_v; // <x,y,z> = verts of the triangle, w = normal. Cross(w, y-x) should point toward the interior of the triangle
 
 		ShapeTriangle() = default;
-		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_parent, material_id, flags)
-			,m_v(a, b, c, Normalise(Cross(b-a,c-b)))
+		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_root, material_id, flags)
+			, m_v()
 		{
-			assert(a.w == 0.0f && b.w == 0.0f && c.w == 0.0f);
+			assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);
+			auto ofs = geometry::BaryPoint(a, b, c, v4(0.5f, 0.5f, 0.5f, 0)).w0();
+			m_v.x = a - ofs;
+			m_v.y = b - ofs;
+			m_v.z = c - ofs;
+			m_v.w = Normalise(Cross(m_v.y - m_v.x, m_v.z - m_v.y), v4::Zero());
+			m_base.m_s2r = m_base.m_s2r * m4x4::Translation(ofs);
 			m_base.m_bbox = CalcBBox(*this);
 		}
 		operator Shape const&() const
@@ -47,21 +59,10 @@ namespace pr::collision
 	{
 		// Triangle vertices are offsets with w=0, but BBox::Grow requires w=1 (positions)
 		auto bb = BBox::Reset();
-		Grow(bb, shape.m_v.x.w1());
-		Grow(bb, shape.m_v.y.w1());
-		Grow(bb, shape.m_v.z.w1());
+		Grow(bb, shape.m_v.x);
+		Grow(bb, shape.m_v.y);
+		Grow(bb, shape.m_v.z);
 		return bb;
-	}
-
-	// Shift the centre of a triangle
-	inline void pr_vectorcall ShiftCentre(ShapeTriangle& shape, v4 shift)
-	{
-		assert(shift.w == 0.0f);
-		if (FEql(shift, v4::Zero())) return;
-		shape.m_v.x -= shift;
-		shape.m_v.y -= shift;
-		shape.m_v.z -= shift;
-		shape.m_base.m_s2p.pos += shift;
 	}
 
 	// Return a support vertex for a triangle.

@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2014
 //********************************
 #pragma once
-#include "pr/math/math.h"
+#include "pr/collision/forward.h"
 
 namespace pr::collision
 {
@@ -11,35 +11,29 @@ namespace pr::collision
 	struct Contact
 	{
 		// Notes:
-		//  - The space for 'm_axis' and 'm_point' is whatever the common space of the collision detection is (typically world space).
-		//  - To find the deepest points on 'shapeA' or 'shapeB', add/subtract half the 'm_depth' along 'm_axis' from 'm_point' respectively.
-		//  - Applied impulses should be equal and opposite, and applied at the same point in space (hence one contact point).
+		//  - The space for 'm_axis' and 'm_manifold' is whatever the common space of the collision detection is (typically world space).
+		//  - To find the deepest points on 'shapeA' or 'shapeB', add/subtract half the 'm_depth' along 'm_axis' from each manifold point respectively.
+		static constexpr int MaxManifoldPoints = 4;
+		using Manifold = std::array<v4, MaxManifoldPoints>;
 
 		// The collision normal (normalised) from 'shapeA' to 'shapeB' (in world space)
-		v4 m_axis;
+		v4 m_axis = {};
 
-		// The contact point between 'shapeA' and 'shapeB'. (Equal to half the penetration depth, along the collision normal)
-		v4 m_point;
+		// The contact manifold between 'shapeA' and 'shapeB'. Positioned at half the penetration depth, along the collision normal (typically in world space).
+		// The winding order of the points is such that the face normal matches 'm_axis' (i.e. the points are ordered clockwise when looking along 'm_axis' from 'shapeA' to 'shapeB').
+		Manifold m_manifold = {};
+
+		// The contact manifold feature type. The enum value is also the manifold point count.
+		EFeature m_feature = {};
 
 		// The depth of penetration. Positive values mean overlap
-		float m_depth;
+		float m_depth = {};
 
 		// The material id of the material associated with the contact point on 'shapeA'
-		int m_mat_idA;
+		int m_mat_idA = {};
 
 		// The material id of the material associated with the contact point on 'shapeB'
-		int m_mat_idB;
-
-		int pad;
-
-		Contact()
-			:m_axis()
-			,m_point()
-			,m_depth()
-			,m_mat_idA()
-			,m_mat_idB()
-			,pad()
-		{}
+		int m_mat_idB = {};
 
 		// True if this struct represents contact
 		bool contact() const
@@ -47,11 +41,48 @@ namespace pr::collision
 			return m_depth > 0;
 		}
 
+		// The number of points in the contact manifold.
+		int Count() const
+		{
+			auto count = static_cast<int>(m_feature);
+			return std::clamp(count, 0, MaxManifoldPoints);
+		}
+
+		// The points of contact manifold.
+		std::span<v4 const> Points() const
+		{
+			return { m_manifold.data(), static_cast<size_t>(Count()) };
+		}
+
+		// The centroid of the contact manifold.
+		v4 Point() const
+		{
+			auto points = Points();
+			if (points.empty())
+				return v4::Origin();
+
+			auto centre = v4::Zero();
+			for (auto const& point : points)
+				centre += point;
+
+			return (centre / static_cast<float>(points.size())).w1();
+		}
+
+		// Set a single-point manifold.
+		void SetPoint(v4 point)
+		{
+			m_manifold = {};
+			m_manifold[0] = point.w1();
+			m_feature = EFeature::Vert;
+		}
+
 		// Reverse the sense of the contact information
 		friend void Flip(Contact& c)
 		{
-			// Note that 'm_point' is unchanged because it is the midpoint of the penetration
 			c.m_axis = -c.m_axis;
+			if (auto count = c.Count(); count > 1)
+				std::reverse(c.m_manifold.begin(), c.m_manifold.begin() + count);
+
 			std::swap(c.m_mat_idA, c.m_mat_idB);
 		}
 	};

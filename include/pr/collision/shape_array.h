@@ -22,9 +22,10 @@ namespace pr::collision
 		// ShapeSphere s1;
 		// ...
 
-		explicit ShapeArray(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Array, sizeof(ShapeArray), shape_to_parent, material_id, flags)
-			,m_num_shapes()
+		explicit ShapeArray(m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Array, sizeof(ShapeArray), shape_to_root, material_id, flags)
+			, m_num_shapes()
+			, pad()
 		{
 			// Careful: We can't be sure of what follows this object in memory.
 			// The shapes that belong to this array may not be there yet.
@@ -36,11 +37,6 @@ namespace pr::collision
 			auto ptr = begin();
 			for (auto i = num_shapes; i-- != 0;)
 				ptr = next(ptr);
-
-			// Calculate the bounding box
-			auto bb = BBox::Reset();
-			for (Shape const* i = begin(), *i_end = end(); i != i_end; i = next(i))
-				Grow(bb, i->m_s2p * i->m_bbox);
 
 			m_num_shapes = s_cast<int>(num_shapes);
 			m_base.m_size = s_cast<int>(sizeof(ShapeArray) + byte_ptr(ptr) - byte_ptr(begin()));
@@ -98,17 +94,11 @@ namespace pr::collision
 	inline BBox pr_vectorcall CalcBBox(ShapeArray const& shape)
 	{
 		auto bb = BBox::Reset();
+		auto r2a = InvertOrthonormal(shape.m_base.m_s2r);
 		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
-			Grow(bb, CalcBBox(*i));
+			Grow(bb, (r2a * i->m_s2r) * CalcBBox(*i));
 
 		return bb;
-	}
-
-	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
-	inline void pr_vectorcall ShiftCentre(ShapeArray& shape, v4 shift)
-	{
-		(void)shape, shift;
-		throw std::runtime_error("Not implemented");
 	}
 
 	// Returns the support vertex for 'shape' in 'direction'. 'direction' is in shape space

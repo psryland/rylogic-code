@@ -13,7 +13,7 @@
 //   // Each frame, between pipeline stages:
 //   log.LogIntegrate(frame, bodies, aabbs, dt);
 //   log.LogBroadphase(frame, pairs);
-//   log.LogNarrowPhase(frame, contacts, diag);
+//   log.LogNarrowPhase(frame, contacts);
 //   log.EndFrame();
 #pragma once
 #include "pr/physics/forward.h"
@@ -95,28 +95,25 @@ namespace pr::physics
 			}
 		}
 
-		void LogNarrowPhase(std::span<GpuResolveContact const> contacts, std::span<GpuPairDiag const> diag)
+		void LogNarrowPhase(std::span<GpuResolveContact const> contacts)
 		{
 			if (!IsActive())
 				return;
 
-			Write(std::format("  NarrowPhase: {} contacts, {} diag\n", contacts.size(), diag.size()));
-			auto n_diag = std::min(static_cast<int>(diag.size()), m_max_items);
-			for (int i = 0; i != n_diag; ++i)
-			{
-				auto& d = diag[i];
-				Write(std::format("    diag[{}]: body({},{}) shape({},{}) gjk={} epa={} hit={}\n",
-					i, d.body_idx_a, d.body_idx_b, d.shape_type_a, d.shape_type_b,
-					d.gjk_iters, d.epa_iters, d.hit));
-			}
+			Write(std::format("  NarrowPhase: {} contacts\n", contacts.size()));
 			auto n_contacts = std::min(static_cast<int>(contacts.size()), m_max_items);
 			for (int i = 0; i != n_contacts; ++i)
 			{
 				auto& c = contacts[i];
-				Write(std::format("    contact[{}]: body({},{}) axis=({:.4f},{:.4f},{:.4f}) pt=({:.4f},{:.4f},{:.4f}) depth={:.6f}\n",
+				Write(std::format("    contact[{}]: body({},{}) axis=({:.4f},{:.4f},{:.4f}) centroid=({:.4f},{:.4f},{:.4f}) feature={} depth={:.6f}\n",
 					i, c.body_idx_a, c.body_idx_b,
 					c.axis.x, c.axis.y, c.axis.z,
-					c.contact_point.x, c.contact_point.y, c.contact_point.z, c.depth));
+					c.contact_point.x, c.contact_point.y, c.contact_point.z, c.feature, c.depth));
+				for (int j = 0, jend = std::clamp(c.feature, 0, GpuContactMaxPoints); j != jend; ++j)
+				{
+					auto const& point = c.manifold[j];
+					Write(std::format("      manifold[{}]=({:.4f},{:.4f},{:.4f})\n", j, point.x, point.y, point.z));
+				}
 			}
 		}
 

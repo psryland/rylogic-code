@@ -23,24 +23,35 @@
 
 namespace pr::physics
 {
+	namespace
+	{
+		using Clock = std::chrono::steady_clock;
+
+		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
+		{
+			return std::chrono::duration<double, std::milli>(end - beg).count();
+		}
+	}
+
 	struct GpuBuffers
 	{
 		ReadbackAlloc rb_bodies;
 		ReadbackAlloc rb_counters;
 		ReadbackAlloc rb_contacts;
-		ReadbackAlloc rb_intg_diag;
-		ReadbackAlloc rb_pair_diag;
+		bool read_contacts;
 	};
 
 	Engine::Engine(EngineConfig const& config, ID3D12Device4* existing_device)
 		: m_config(config)
 		, m_gpu(new Gpu(existing_device))
-		, m_gpu_integrator(new GpuIntegrator(*m_gpu, config))
-		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, config))
-		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, config))
-		, m_gpu_resolver(new GpuResolver(*m_gpu, config))
+		, m_gpu_integrator(new GpuIntegrator(*m_gpu, m_config))
+		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config))
+		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
+		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
+		, m_last_step_profile()
+		, m_last_contact_count()
 	{
 	}
 
@@ -54,6 +65,12 @@ namespace pr::physics
 		(*m_materials).Set(mat);
 	}
 
+	// Drop all internally-cached references to caller-supplied data.
+	void Engine::ResetCaches()
+	{
+		m_cache->Reset();
+	}
+
 	// Evolve the physics objects forward in time and resolve any collisions.
 	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
 	{
@@ -62,7 +79,11 @@ namespace pr::physics
 		//    If this limit becomes a problem, the options are increase the max number of collision pairs
 		//    or run Engine::Step() multiple times on "islands" of physics objects
 		if (rigid_bodies.empty())
+		{
+			m_last_step_profile = {};
+			m_last_contact_count = 0;
 			return;
+		}
 
 		#if PR_PIX_ENABLED
 		static bool capture = false;
@@ -70,32 +91,53 @@ namespace pr::physics
 		capture = false;
 		#endif
 
+		m_last_step_profile = {};
+		m_last_contact_count = 0;
+
 		GpuBuffers buffers;
+		auto beg = Clock::now();
 		m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+		m_last_step_profile.m_new_frame_ms = ElapsedMs(beg, Clock::now());
 
 		// Pack all bodies into a GPU-friendly format
+		beg = Clock::now();
 		Pack(rigid_bodies);
+		m_last_step_profile.m_pack_ms = ElapsedMs(beg, Clock::now());
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
+		beg = Clock::now();
 		Integrate(dt);
+		m_last_step_profile.m_integrate_ms = ElapsedMs(beg, Clock::now());
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
+		beg = Clock::now();
 		BroadPhase();
+		m_last_step_profile.m_broadphase_ms = ElapsedMs(beg, Clock::now());
 
 		// Narrow phase -> uses collision pairs -> generates contacts
+		beg = Clock::now();
 		Collide();
+		m_last_step_profile.m_collide_ms = ElapsedMs(beg, Clock::now());
 
 		// Resolve -> uses contacts -> applies impulses to bodies
+		beg = Clock::now();
 		Resolve(dt);
+		m_last_step_profile.m_resolve_ms = ElapsedMs(beg, Clock::now());
 
 		// Read buffers back to CPU memory
+		beg = Clock::now();
 		Readback(buffers);
+		m_last_step_profile.m_readback_ms = ElapsedMs(beg, Clock::now());
 		
 		// Run the GPU queue and wait for completion before using the results.
+		beg = Clock::now();
 		m_gpu->m_job.Run();
+		m_last_step_profile.m_gpu_run_ms = ElapsedMs(beg, Clock::now());
 
 		// Readback dynamics from GPU and unpack into bodies
+		beg = Clock::now();
 		Unpack(buffers, rigid_bodies);
+		m_last_step_profile.m_unpack_ms = ElapsedMs(beg, Clock::now());
 	}
 
 	// Pack the body data into GPU buffers for the current frame.
@@ -149,7 +191,7 @@ namespace pr::physics
 		auto counters = m_gpu_integrator->Counters();
 		auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 
 		#if PR_DBG_PHYSICS
 		//DbgPhysics(*this).ReadbackCollide(counters);
@@ -180,17 +222,15 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		auto intg_diags = m_gpu_integrator->Diagnostics();
-		auto pair_diags = m_gpu_collision_detector->Diagnostics();
+		buffers.read_contacts = static_cast<bool>(Collisions);
 
 		{
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#if PR_COLLISION_DIAGNOSTICS
-			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#endif
+			if (buffers.read_contacts)
+			{
+				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
 		{
@@ -200,25 +240,19 @@ namespace pr::physics
 			buffers.rb_counters = m_gpu->m_job.m_readback.template Alloc<GpuCollisionCounters>(1);
 			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_counters, counters.get(), 0);
 
-			buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
-
-			#if PR_COLLISION_DIAGNOSTICS
-			buffers.rb_intg_diag = m_gpu->m_job.m_readback.template Alloc<GpuIntegrateDiag>(body_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_intg_diag, intg_diags.get(), 0);
-
-			buffers.rb_pair_diag = m_gpu->m_job.m_readback.template Alloc<GpuPairDiag>(contacts_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_pair_diag, pair_diags.get(), 0);
-			#endif
+			if (buffers.read_contacts)
+			{
+				buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
+				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
+			}
 		}
 		{
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#if PR_COLLISION_DIAGNOSTICS
-			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
+			if (buffers.read_contacts)
+			{
+				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
 	}
@@ -232,18 +266,17 @@ namespace pr::physics
 		// Read the results back to the CPU
 		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
 		auto contact_count = std::min(counts.contact_count, max_contacts);
+		m_last_contact_count = contact_count;
 		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
-		std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
-		#if PR_COLLISION_DIAGNOSTICS
-		// TODO: read the diags
-		#endif
+		if (buffers.read_contacts)
+			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
 
 		// Before updating the bodies with new dynamics, raise the collision events
-		if (contact_count != 0)
+		if (contact_count != 0 && buffers.read_contacts)
 		{
 			m_cache->m_contacts_cpu.resize(0);
 			m_cache->m_contacts_cpu.reserve(contact_count);
-			for (auto const& c : m_cache->m_contacts)
+			for (auto const& c : std::span{ m_cache->m_contacts }.subspan(0, contact_count))
 				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
 
 			Collisions(*this, m_cache->m_contacts_cpu);
@@ -288,7 +321,8 @@ namespace pr::physics
 
 		// If the collision point is moving out of collision, ignore the collision.
 		// This prevents re-resolving contacts that are already separating.
-		auto rel_vel_at_point = c.m_velocity.LinAt(c.m_point);
+		auto point = c.Point();
+		auto rel_vel_at_point = c.m_velocity.LinAt(point);
 		if (Dot(rel_vel_at_point, c.m_axis) > 0)
 			return false;
 
@@ -302,8 +336,8 @@ namespace pr::physics
 		// pre-overlap position, then compute sub_step as the fraction of dt to
 		// rewind. This gives a more accurate contact point and lever arms for
 		// the impulse calculation.
-		auto point_at_t0 = c.m_point - dt * c.m_velocity.LinAt(c.m_point);
-		auto distance = Abs(Dot(c.m_point - point_at_t0, c.m_axis));
+		auto point_at_t0 = point - dt * c.m_velocity.LinAt(point);
+		auto distance = Abs(Dot(point - point_at_t0, c.m_axis));
 		auto sub_step = distance > c.m_depth ? -c.m_depth / distance : 0.0f;
 
 		// Recompute contact data (b2a, velocity, contact point) at the estimated collision time.
@@ -379,21 +413,6 @@ namespace pr::physics
 			auto correction = 1.0f - alpha;
 			objA.MomentumOS(objA.MomentumOS() - correction * ja);
 			objB.MomentumOS(objB.MomentumOS() - correction * jb);
-
-			#if PR_DBG
-			{
-				auto ke_clamped = objA.KineticEnergy() + objB.KineticEnergy();
-				if (delta > 0.1f || alpha < 0.5f)
-				{
-					char buf[256];
-					snprintf(buf, sizeof(buf),
-						"[CLAMP] ke_before=%.4f delta=%.4f A=%.4f alpha=%.4f ke_clamped=%.4f\n",
-						ke_before, delta, A, alpha, ke_clamped);
-					auto f = fopen("dump\\clamp.log", "a");
-					if (f) { fputs(buf, f); fclose(f); }
-				}
-			}
-			#endif
 		}
 	}
 

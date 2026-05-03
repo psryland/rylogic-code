@@ -65,10 +65,11 @@ namespace pr::collision
 		// Idx  m_nbr[sum(m_nbrs[i].m_count)]
 		// Idx  padding[] to make the total size a multiple of 16 bytes
 
-		explicit ShapePolytope(m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_parent, material_id, flags)
-			,m_vert_count()
-			,m_face_count()
+		explicit ShapePolytope(m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Polytope, sizeof(ShapePolytope), shape_to_root, material_id, flags)
+			, m_vert_count()
+			, m_face_count()
+			, pad()
 		{
 			// Careful: We can't be sure of what follows this object in memory.
 			// The polytope data that belongs to this array may not be there yet.
@@ -200,16 +201,6 @@ namespace pr::collision
 		}
 
 		return com.w0() / volume;
-	}
-
-	// Shift the verts of the polytope so they are centred on a new position.
-	// 'shift' should be in 'shape' space. NOTE: This invalidates the inertia matrix.
-	// You will need to translate the inertia matrix by the same shift.
-	inline void pr_vectorcall ShiftCentre(ShapePolytope& shape, v4 shift)
-	{
-		assert(shift.w == 0.0f);
-		for (v4 *v = shape.vert_beg(), *vend = shape.vert_end(); v != vend; ++v) *v -= shift;
-		shape.m_base.m_s2p.pos += shift;
 	}
 
 	// Return a support vertex for a polytope
@@ -598,7 +589,7 @@ namespace pr::collision
 	// Returns the polytope packed into a byte_data<16> buffer suitable for use as a collision shape.
 	// The caller owns the buffer and can access the shape via: buf.as<ShapePolytope>()
 	// Note: ShapePolytope uses uint8_t vertex indices, so max 255 vertices.
-	inline byte_data<16> BuildPolytopeFromPoints(std::span<v4 const> points, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+	inline byte_data<16> BuildPolytopeFromPoints(std::span<v4 const> points, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 	{
 		using Idx  = ShapePolytope::Idx;
 		using Face = ShapePolytope::Face;
@@ -701,7 +692,7 @@ namespace pr::collision
 		buf.resize(buf_size, std::byte{0});
 
 		// Placement-new the ShapePolytope header at the start of the buffer
-		auto& poly = *new (buf.data()) ShapePolytope(shape_to_parent, material_id, flags);
+		auto& poly = *new (buf.data()) ShapePolytope(shape_to_root, material_id, flags);
 
 		// Set counts so that the accessor methods (vert_beg, face_beg, nbrs_beg) work
 		poly.m_vert_count = vc;
@@ -742,6 +733,18 @@ namespace pr::collision
 			{
 				for (int f = 0; f != fc; ++f)
 					std::swap(faces[f].m_index[1], faces[f].m_index[2]);
+			}
+		}
+
+		// Keep the local shape origin at the volume centre. The original placement is preserved by moving the whole shape via m_s2r.
+		{
+			auto centre = CalcCentreOfMass(poly);
+			if (!FEql(centre, v4::Zero()))
+			{
+				for (auto *vert = poly.vert_beg(), *vert_end = poly.vert_end(); vert != vert_end; ++vert)
+					*vert -= centre;
+
+				poly.m_base.m_s2r = poly.m_base.m_s2r * m4x4::Translation(centre);
 			}
 		}
 
@@ -873,20 +876,22 @@ namespace pr::collision::tests
 			auto buf = BuildPolytopeFromPoints(pts);
 			auto& poly = buf.as<ShapePolytope>();
 
-			// Support in +X direction should be the vertex at (3,0,0)
+			PR_EXPECT(FEql(poly.m_base.m_s2r.pos, v4{0.75f, 0.75f, 0.75f, 1.0f}));
+
+			// Support in +X direction should be the vertex at (3,0,0), relative to the local centre.
 			int hint = 0, sup_id = 0;
 			auto sv = collision::SupportVertex(poly, v4{1, 0, 0, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{3, 0, 0, 1}));
+			PR_EXPECT(FEql(sv, v4{2.25f, -0.75f, -0.75f, 1.0f}));
 
-			// Support in +Y direction should be (0,3,0)
+			// Support in +Y direction should be (0,3,0), relative to the local centre.
 			hint = 0;
 			sv = collision::SupportVertex(poly, v4{0, 1, 0, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{0, 3, 0, 1}));
+			PR_EXPECT(FEql(sv, v4{-0.75f, 2.25f, -0.75f, 1.0f}));
 
-			// Support in +Z direction should be (0,0,3)
+			// Support in +Z direction should be (0,0,3), relative to the local centre.
 			hint = 0;
 			sv = collision::SupportVertex(poly, v4{0, 0, 1, 0}, hint, sup_id);
-			PR_EXPECT(FEql(sv, v4{0, 0, 3, 1}));
+			PR_EXPECT(FEql(sv, v4{-0.75f, -0.75f, 2.25f, 1.0f}));
 		}
 
 	};

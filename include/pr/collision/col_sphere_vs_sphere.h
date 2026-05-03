@@ -17,14 +17,14 @@ namespace pr::collision
 	{
 		auto& lhs = shape_cast<ShapeSphere>(lhs_);
 		auto& rhs = shape_cast<ShapeSphere>(rhs_);
-		auto l2w = l2w_ * lhs_.m_s2p;
-		auto r2w = r2w_ * rhs_.m_s2p;
+		auto l2w = l2w_ * lhs_.m_s2r;
+		auto r2w = r2w_ * rhs_.m_s2r;
 
 		// Distance between centres
 		auto r2l = r2w.pos - l2w.pos;
 		auto len = Length(r2l);
 		auto sep = lhs.m_radius + rhs.m_radius - len;
-		
+
 		// Use default axis if centres coincide to avoid division by zero
 		pen(sep, [&]{ return len > math::tiny<float> ? r2l/len : v4{1,0,0,0}; }, lhs_.m_material_id, rhs_.m_material_id);
 	}
@@ -45,15 +45,14 @@ namespace pr::collision
 		if (!p.Contact())
 			return false;
 
-		// Determine the sign of the separating axis to make it the normal from 'lhs' to 'rhs'
+		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot3(sep_axis, (l2w * lhs.m_s2p).pos);
-		auto p1 = Dot3(sep_axis, (r2w * rhs.m_s2p).pos);
-		auto sign = Bool2SignF(p0 < p1);
+		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeSphere>(lhs), l2w, shape_cast<ShapeSphere>(rhs), r2w, sep_axis, depth);
 
-		contact.m_depth   = p.Depth();
-		contact.m_axis    = sign * sep_axis;
-		contact.m_point   = FindContactPoint(shape_cast<ShapeSphere>(lhs), l2w, shape_cast<ShapeSphere>(rhs), r2w, contact.m_axis, contact.m_depth);
+		contact.m_depth = depth;
+		contact.m_axis = sep_axis;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
 		contact.m_mat_idA = p.m_mat_idA;
 		contact.m_mat_idB = p.m_mat_idB;
 		return true;
@@ -62,60 +61,42 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 
 namespace pr::collision::tests
 {
 	PRUnitTestClass(SphereVsSphereTests)
 	{
-		PRUnitTestMethod(Visualise)
+		inline static constexpr bool CreateVisuals = false;
+
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			using namespace pr::ldraw;
-
-			#if PR_UNITTESTS_VISUALISE
-			auto lhs = ShapeSphere{0.3f};
-			auto rhs = ShapeSphere{0.4f};
-			m4x4 l2w_[] =
-			{
-				m4x4::Identity(),
-			};
-			m4x4 r2w_[] =
-			{
-				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			};
-
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
-			{
-				Contact c;
-				m4x4 l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, Origin<v4>(), 0.5f);
-				m4x4 r2w = i < _countof(r2w_) ? r2w_[i] : m4x4::Random(rng, Origin<v4>(), 0.5f);
-
-				Builder builder;
-				builder.Group("lhs", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(lhs);
-				builder.Group("rhs", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(rhs);
-				if (SphereVsSphere(lhs, l2w, rhs, r2w, c))
-				{
-					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
-					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f*c.m_depth*c.m_axis);
-					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f*c.m_depth*c.m_axis);
-				}
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
-			}
-			#endif
+			if constexpr (CreateVisuals)
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Overlapping: spheres centred at the same point
 		PRUnitTestMethod(CoincidentCentres)
 		{
-			auto sph = ShapeSphere{1.0f};
+			auto lhs = ShapeSphere{1.0f};
+			auto rhs = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(1e-5f, 0, 0);
 
-			PR_EXPECT(SphereVsSphere(sph, l2w, sph, r2w));
 			Contact c;
-			PR_EXPECT(SphereVsSphere(sph, l2w, sph, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 2.0f, 0.01f)); // full overlap = 2 * radius
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(0, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 2.0f,
+			}));
 		}
 
 		// Barely touching: distance = sum of radii
@@ -124,12 +105,21 @@ namespace pr::collision::tests
 			auto lhs = ShapeSphere{0.5f};
 			auto rhs = ShapeSphere{0.3f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0.8f, 0, 0, 0}); // distance = 0.8 = 0.5+0.3
+			auto r2w = m4x4::Translation(0.7999f, 0, 0);
 
-			// Exactly touching → depth = 0
 			Contact c;
-			auto result = SphereVsSphere(lhs, l2w, rhs, r2w, c);
-			if (result) PR_EXPECT(c.m_depth <= 0.01f);
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(0.5f, 0, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.000100016594f,
+			}));
 		}
 
 		// Clearly separated
@@ -138,9 +128,14 @@ namespace pr::collision::tests
 			auto lhs = ShapeSphere{0.5f};
 			auto rhs = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{3.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(1.1f, 0, 0);
 
-			PR_EXPECT(!SphereVsSphere(lhs, l2w, rhs, r2w));
+			Contact c;
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(!r);
+			PR_EXPECT(!c.contact());
 		}
 
 		// Axis direction: should point from lhs centre to rhs centre
@@ -149,12 +144,21 @@ namespace pr::collision::tests
 			auto lhs = ShapeSphere{1.0f};
 			auto rhs = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 1.0f, 0, 0}); // rhs above lhs
+			auto r2w = m4x4::Translation(0, 1.0f, 0);
 
 			Contact c;
-			PR_EXPECT(SphereVsSphere(lhs, l2w, rhs, r2w, c));
-			PR_EXPECT(c.m_axis.y > 0.0f); // axis points toward rhs (+Y)
-			PR_EXPECT(FEqlRelative(c.m_depth, 1.0f, 0.01f)); // depth = 2-1 = 1
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 1, 0, 0),
+				.m_manifold = {
+					v4(0, 0.5f, 0, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 1.0f,
+			}));
 		}
 
 		// Different radii: large sphere engulfing small sphere
@@ -163,14 +167,45 @@ namespace pr::collision::tests
 			auto lhs = ShapeSphere{5.0f};
 			auto rhs = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(1, 1, 1);
 
-			// Small sphere fully inside large sphere
-			PR_EXPECT(SphereVsSphere(lhs, l2w, rhs, r2w));
 			Contact c;
-			PR_EXPECT(SphereVsSphere(lhs, l2w, rhs, r2w, c));
-			PR_EXPECT(FEqlRelative(c.m_depth, 4.5f, 0.01f)); // 5+0.5-1 = 4.5
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0.57735f,0.57735f,0.57735f,0),
+				.m_manifold = {
+					v4(1.79904f,1.79904f,1.79904f,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 3.76794910f,
+			}));
 		}
+
+		// Sphere-vs-Spherewith s2r transforms 
+		PRUnitTestMethod(SphereVsSphereWithS2R) 
+		{ 
+			auto lhs = ShapeSphere{0.6f, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) }; 
+			auto rhs = ShapeSphere{0.5f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) }; 
+			auto l2w = m4x4::Identity(); 
+			auto r2w = m4x4::Identity(); 
+ 
+			Contact c; 
+			auto r = SphereVsSphere(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c); 
+ 
+			PR_EXPECT(r); 
+			PR_EXPECT(CheckContact(c, Contact{ 
+				.m_axis = v4(1,0,0,0),
+				.m_manifold = { 
+					v4(0.8f,0,0,1),
+				}, 
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.6f,
+			})); 
+		} 
 	};
 }
 #endif

@@ -31,16 +31,16 @@ namespace pr::collision
 	{
 		auto& tri = shape_cast<ShapeTriangle>(lhs_);
 		auto& box = shape_cast<ShapeBox>(rhs_);
-		auto l2w = l2w_ * lhs_.m_s2p;
-		auto r2w = r2w_ * rhs_.m_s2p;
+		auto l2w = l2w_ * lhs_.m_s2r;
+		auto r2w = r2w_ * rhs_.m_s2r;
 
 		// Work in box space to simplify box projection
 		auto b2w_inv = InvertOrthonormal(r2w);
 
 		// Triangle vertices in box space (as positions)
-		auto tv0 = b2w_inv * (l2w * tri.m_v.x.w1());
-		auto tv1 = b2w_inv * (l2w * tri.m_v.y.w1());
-		auto tv2 = b2w_inv * (l2w * tri.m_v.z.w1());
+		auto tv0 = b2w_inv * (l2w * tri.m_v.x);
+		auto tv1 = b2w_inv * (l2w * tri.m_v.y);
+		auto tv2 = b2w_inv * (l2w * tri.m_v.z);
 
 		// Triangle edges in box space
 		auto e0 = tv1 - tv0;
@@ -49,18 +49,6 @@ namespace pr::collision
 
 		// Triangle normal in box space (not necessarily normalised)
 		auto tri_norm = Cross(e0, e1);
-
-		// Triangle centroid in box space
-		auto tri_ctr = (tv0 + tv1 + tv2) / 3.0f;
-
-		// Lambda for returning a separating axis with correct sign (in world space)
-		auto sep_axis = [&](v4 sa_boxspace)
-		{
-			auto sa = r2w * sa_boxspace;
-			auto tri_proj = Dot3(sa, l2w * ((tri.m_v.x + tri.m_v.y + tri.m_v.z) / 3.0f).w1());
-			auto box_proj = Dot3(sa, r2w.pos);
-			return Bool2SignF(tri_proj < box_proj) * sa;
-		};
 
 		// Helper: project triangle vertices onto an axis and get min/max
 		auto tri_interval = [&](v4 axis, float& tri_min, float& tri_max)
@@ -78,26 +66,18 @@ namespace pr::collision
 			return box.m_radius.x * Abs(axis.x) + box.m_radius.y * Abs(axis.y) + box.m_radius.z * Abs(axis.z);
 		};
 
-		float tri_min, tri_max, br, depth;
+		auto test_axis = [&](v4 axis)
+		{
+			float tri_min, tri_max;
+			tri_interval(axis, tri_min, tri_max);
+
+			auto radius = box_radius(axis);
+			auto depth = std::min(tri_max + radius, radius - tri_min);
+			return pen(depth, [&]{ return Bool2SignF(tri_min + tri_max <= 0.0f) * (r2w * axis); }, lhs_.m_material_id, rhs_.m_material_id);
+		};
 
 		// --- Axis 1: Triangle face normal ---
-		tri_interval(tri_norm, tri_min, tri_max);
-		br = box_radius(tri_norm);
-		depth = br + tri_max - std::max(tri_min, -br); // overlap
-		depth = std::min(br - tri_min, tri_max + br);   // min penetration along this axis
-		// Simpler: project onto normal, both intervals relative to box centre at 0
-		{
-			auto c = Dot3(tri_norm, tri_ctr);
-			auto r = box_radius(tri_norm);
-			auto e0_ = Dot3(tri_norm, tv0) - c;
-			auto e1_ = Dot3(tri_norm, tv1) - c;
-			auto e2_ = Dot3(tri_norm, tv2) - c;
-			auto t_min = std::min({e0_, e1_, e2_}) + c;
-			auto t_max = std::max({e0_, e1_, e2_}) + c;
-			// overlap = min(t_max - (-r), r - t_min) = min(t_max + r, r - t_min)
-			depth = std::min(t_max + r, r - t_min);
-		}
-		if (!pen(depth, [&]{ return sep_axis(tri_norm); }, lhs_.m_material_id, rhs_.m_material_id))
+		if (!test_axis(tri_norm))
 			return;
 
 		// --- Axes 2-4: Box face normals (x, y, z axes in box space) ---
@@ -105,10 +85,7 @@ namespace pr::collision
 		{
 			auto axis = v4::Zero();
 			axis[i] = 1.0f;
-			tri_interval(axis, tri_min, tri_max);
-			// Box interval: [-radius, +radius]
-			depth = std::min(tri_max + box.m_radius[i], box.m_radius[i] - tri_min);
-			if (!pen(depth, [&]{ return sep_axis(axis); }, lhs_.m_material_id, rhs_.m_material_id))
+			if (!test_axis(axis))
 				return;
 		}
 
@@ -127,10 +104,7 @@ namespace pr::collision
 				if (axis_len_sq < Sqr(math::tiny<float>))
 					continue;
 
-				tri_interval(axis, tri_min, tri_max);
-				auto r = box_radius(axis);
-				depth = std::min(tri_max + r, r - tri_min);
-				if (!pen(depth, [&]{ return sep_axis(axis); }, lhs_.m_material_id, rhs_.m_material_id))
+				if (!test_axis(axis))
 					return;
 			}
 		}
@@ -152,14 +126,14 @@ namespace pr::collision
 		if (!p.Contact())
 			return false;
 
+		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot3(sep_axis, (l2w * lhs.m_s2p).pos);
-		auto p1 = Dot3(sep_axis, (r2w * rhs.m_s2p).pos);
-		auto sign = Bool2SignF(p0 < p1);
+		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeTriangle>(lhs), l2w, shape_cast<ShapeBox>(rhs), r2w, sep_axis, depth);
 
-		contact.m_depth = p.Depth();
-		contact.m_axis = sign * sep_axis;
-		contact.m_point = FindContactPoint(shape_cast<ShapeTriangle>(lhs), l2w, shape_cast<ShapeBox>(rhs), r2w, contact.m_axis, contact.m_depth);
+		contact.m_depth = depth;
+		contact.m_axis = sep_axis;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
 		contact.m_mat_idA = p.m_mat_idA;
 		contact.m_mat_idB = p.m_mat_idB;
 		return true;
@@ -168,137 +142,198 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 
 namespace pr::collision::tests
 {
 	PRUnitTestClass(TriangleVsBoxTests)
 	{
-		PRUnitTestMethod(Visualise)
+		inline static constexpr bool CreateVisuals = false;
+
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			using namespace pr::ldraw;
-
-			#if PR_UNITTESTS_VISUALISE
-			auto tri = ShapeTriangle{v4{-1, 0, 0, 0}, v4{1, 0, 0, 0}, v4{0, 1, 0, 0}};
-			auto box = ShapeBox{v4{0.3f, 0.4f, 0.5f, 0.0f}};
-
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
-			{
-				Contact c;
-				auto l2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-				auto r2w = m4x4::Random(rng, v4::Origin(), 0.5f);
-
-				Builder builder;
-				builder.Group("tri", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(tri);
-				builder.Group("box", 0x3000FF00).o2w(r2w).Add<LdrCollisionShape>().shape(box);
-				if (TriangleVsBox(tri, l2w, box, r2w, c))
-				{
-					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point, c.m_axis);
-					builder.Box("pt0", Colour32Yellow).box(0.01f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
-					builder.Box("pt1", Colour32Yellow).box(0.01f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
-				}
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
-			}
-			#endif
+			if constexpr (CreateVisuals)
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Triangle face-on to a box face: clear overlap
 		PRUnitTestMethod(FaceOnOverlap)
 		{
-			// Triangle on XY plane, embedded in the unit box
-			auto tri = ShapeTriangle{v4{-0.5f, -0.5f, 0, 0}, v4{0.5f, -0.5f, 0, 0}, v4{0, 0.5f, 0, 0}};
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
-
+			auto lhs = ShapeTriangle{v4{-0.5f, -0.5f, 0, 1}, v4{0.5f, -0.5f, 0, 1}, v4{0, 0.5f, 0, 1}};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Identity();
 
-			PR_EXPECT(TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0, 1, 0),
+				.m_manifold = {
+					v4(0, 0.5f, -0.25f, 1),
+					v4(-0.5f, -0.5f, -0.25f, 1),
+					v4(+0.5f, -0.5f, -0.25f, 1),
+				},
+				.m_feature = EFeature::Tri,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Triangle entirely outside box
 		PRUnitTestMethod(Separated)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
-			auto box = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
-
+			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
+			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{5, 0, 0, 0});
+			auto r2w = m4x4::Translation(5, 0, 0);
 
-			PR_EXPECT(!TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Triangle edge intersects box face
 		PRUnitTestMethod(EdgeIntersectsBoxFace)
 		{
-			auto tri = ShapeTriangle{v4{-2, 0, 0, 0}, v4{2, 0, 0, 0}, v4{0, 2, 0, 0}};
-			auto box = ShapeBox{v4{0.3f, 0.3f, 0.3f, 0.0f}};
-
-			// Box slightly above, triangle edge passes through it
+			auto lhs = ShapeTriangle{v4{-2, 0, 0, 1}, v4{2, 0, 0, 1}, v4{0, 2, 0, 1}};
+			auto rhs = ShapeBox{v4{0.3f, 0.3f, 0.3f, 0.0f}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{0, 0.1f, 0, 0});
+			auto r2w = m4x4::Translation(0, 0.1f, 0);
 
-			PR_EXPECT(TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0, 1, 0),
+				.m_manifold = {
+					v4(0.150000006f, 0.25f, -0.075000003f, 1),
+					v4(-0.150000006f, 0.25f, -0.075000003f, 1),
+					v4(-0.150000095f, 0, -0.075000003f, 1),
+					v4(0.150000095f, 0, -0.075000003f, 1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 0.150000006f,
+			}));
 		}
 
 		// Triangle vertex inside box
 		PRUnitTestMethod(VertexInsideBox)
 		{
-			auto tri = ShapeTriangle{v4{0, 0, 0, 0}, v4{5, 0, 0, 0}, v4{0, 5, 0, 0}};
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
-
-			// Triangle vertex at origin is inside the unit box
+			auto lhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{5, 0, 0, 1}, v4{0, 5, 0, 1}};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
 			auto r2w = m4x4::Identity();
 
-			PR_EXPECT(TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0, 1, 0),
+				.m_manifold = {
+					v4(0.5f, 0.5f, -0.25f, 1),
+					v4(0, 0.5f, -0.25f, 1),
+					v4(0, 0, -0.25f, 1),
+					v4(0.5f, 0, -0.25f, 1),
+				},
+				.m_feature = EFeature::Quad,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Triangle parallel to box face, barely touching
 		PRUnitTestMethod(BarleyTouching)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
-			auto box = ShapeBox{v4{2, 2, 1.0f, 0.0f}}; // half-extent (1, 1, 0.5)
-
-			// Triangle at z=0.49 (just inside box top face at z=0.5)
-			auto l2w = m4x4::Translation(v4{0, 0, 0.49f, 0});
+			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
+			auto rhs = ShapeBox{v4{2, 2, 1.0f, 0.0f}};
+			auto l2w = m4x4::Translation(0, 0, 0.49f);
 			auto r2w = m4x4::Identity();
 
-			PR_EXPECT(TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0, -1, 0),
+				.m_manifold = {
+					v4(-1, -1, 0.495000005f, 1),
+					v4(0, +1, 0.495000005f, 1),
+					v4(+1, -1, 0.495000005f, 1),
+				},
+				.m_feature = EFeature::Tri,
+				.m_depth = 0.00999999046f,
+			}));
 		}
 
 		// Triangle parallel to box face, barely separated
 		PRUnitTestMethod(BarelySeparated)
 		{
-			auto tri = ShapeTriangle{v4{-1, -1, 0, 0}, v4{1, -1, 0, 0}, v4{0, 1, 0, 0}};
-			auto box = ShapeBox{v4{2, 2, 1.0f, 0.0f}}; // half-extent (1, 1, 0.5)
-
-			// Triangle at z=0.51 (just above box top face at z=0.5)
-			auto l2w = m4x4::Translation(v4{0, 0, 0.51f, 0});
+			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
+			auto rhs = ShapeBox{v4{2, 2, 1.0f, 0.0f}};
+			auto l2w = m4x4::Translation(0, 0, 0.51f);
 			auto r2w = m4x4::Identity();
 
-			PR_EXPECT(!TriangleVsBox(tri, l2w, box, r2w));
+			Contact c;
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Rotated triangle intersecting rotated box: tests cross-product axes
 		PRUnitTestMethod(RotatedIntersection)
 		{
-			auto tri = ShapeTriangle{v4{-1, 0, 0, 0}, v4{1, 0, 0, 0}, v4{0, 1, 0, 0}};
-			auto box = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
-
-			// Rotate both by different angles
+			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}};
+			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
 			auto l2w = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{0.1f, 0, 0, 1});
 			auto r2w = m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4{0.3f, 0.2f, 0, 1});
 
-			// Just verify it doesn't crash and returns a reasonable result
 			Contact c;
-			auto result = TriangleVsBox(tri, l2w, box, r2w, c);
-			if (result)
-			{
-				PR_EXPECT(c.m_depth > 0.0f);
-				PR_EXPECT(IsNormalised(c.m_axis));
-			}
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 0.707106829f, -0.707106769f, 0),
+				.m_manifold = {
+					v4(0.300000012f, 0.0508883521f, 0.252665043f, 1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.285355419f,
+			}));
 		}
+
+		// Triangle-vs-Box with s2r transforms 
+		PRUnitTestMethod(TriangleVsBoxWithS2R) 
+		{ 
+			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
+			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}, m4x4::TransformDeg(30, 10, -80, v4{0.8f, 0, 0, 1}) };
+			auto l2w = m4x4::Identity(); 
+			auto r2w = m4x4::Identity(); 
+ 
+			Contact c; 
+			auto r = TriangleVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c); 
+ 
+			PR_EXPECT(r); 
+			PR_EXPECT(CheckContact(c, Contact{ 
+				.m_axis = v4(0.353553f,-0.707107f,0.612372f,0),
+				.m_manifold = { 
+					v4(0.539528f,0.21116f,0.0144039f,1),
+				}, 
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.253034f,
+			})); 
+		} 
 	};
 }
 #endif

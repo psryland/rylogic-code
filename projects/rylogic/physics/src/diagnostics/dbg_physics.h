@@ -32,8 +32,7 @@ namespace pr::physics
 			{
 				std::vector<GpuRigidBody> bodies(body_count);
 				std::vector<BBox> aabbs(body_count);
-				std::vector<GpuIntegrateDiag> diag(body_count);
-				me.m_gpu_integrator->Readback(me.m_gpu->m_job, bodies, aabbs, diag);
+				me.m_gpu_integrator->Readback(me.m_gpu->m_job, bodies, aabbs);
 				log.LogIntegrate(body_count, 0, bodies, aabbs);
 			}
 			#else
@@ -62,10 +61,9 @@ namespace pr::physics
 			if (log.IsActive())
 			{
 				std::vector<GpuResolveContact> out_contacts(me.m_config.max_collision_pairs);
-				std::vector<GpuPairDiag> out_diag(me.m_config.max_collision_pairs);
-				auto [contacts, diag] = me.m_gpu_collision_detector->Readback(me.m_gpu->m_job, counters, out_contacts, out_diag);
+				auto contacts = me.m_gpu_collision_detector->Readback(me.m_gpu->m_job, counters, out_contacts);
 				assert(contacts.size() < me.m_config.max_collision_pairs && "Hit capacity on contacts");
-				log.LogNarrowPhase(contacts, diag);
+				log.LogNarrowPhase(contacts);
 				log.EndFrame();
 			}
 			#else
@@ -79,8 +77,6 @@ namespace pr::physics
 			if (capture)
 			{
 				std::vector<GpuRigidBody> bodies(body_count);
-				std::vector<GpuResolveContact> contacts(me.m_config.max_collision_pairs);
-				std::vector<GpuPairDiag> diag(me.m_config.max_collision_pairs);
 				me.m_gpu_resolver->Readback(me.m_gpu->m_job, r_bodies, bodies);
 			}
 			#else

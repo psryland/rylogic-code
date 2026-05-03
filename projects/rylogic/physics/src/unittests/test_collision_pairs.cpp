@@ -14,6 +14,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {
@@ -64,12 +65,13 @@ namespace pr::physics::tests
 
 		RigidBody bodies[2];
 		bodies[0].Shape(shape, mass);
-		bodies[0].O2W(m4x4::Translation(v4{0, 0, drop_height, 0}));
+		bodies[0].O2W(m4x4::Translation(0, 0, drop_height));
 		bodies[0].VelocityWS(v4::Zero(), v4::Zero());
 		bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-		bodies[1].O2W(m4x4::Translation(v4{0, 0, -0.5f, 0}));
+		bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
 
-		physics::Engine engine;
+		auto& engine = SharedEngine();
+		ResetEngineForNextTest(engine);
 		auto result = DropResult{};
 		engine.Collisions += [&](auto&, auto)
 		{
@@ -130,13 +132,14 @@ namespace pr::physics::tests
 	HeadOnResult RunHeadOnTest(std::string_view label, collision::Shape const& shape_a, physics::Inertia const& inertia_a, collision::Shape const& shape_b, physics::Inertia const& inertia_b, float separation = 1.5f, float speed = 3.0f, std::filesystem::path log_dir = {})
 	{
 		physics::RigidBody bodies[2] = {
-			physics::RigidBody{&shape_a, m4x4::Translation(v4{-separation / 2, 0, 0, 1}), inertia_a},
-			physics::RigidBody{&shape_b, m4x4::Translation(v4{+separation / 2, 0, 0, 1}), inertia_b},
+			physics::RigidBody{&shape_a, m4x4::Translation(-separation / 2, 0, 0), inertia_a},
+			physics::RigidBody{&shape_b, m4x4::Translation(+separation / 2, 0, 0), inertia_b},
 		};
 		bodies[0].VelocityWS(v4::Zero(), v4{+speed, 0, 0, 0});
 		bodies[1].VelocityWS(v4::Zero(), v4{-speed, 0, 0, 0});
 
-		physics::Engine engine;
+		auto& engine = SharedEngine();
+		ResetEngineForNextTest(engine);
 		auto result = HeadOnResult{};
 		engine.Collisions += [&](auto&, auto)
 		{
@@ -207,6 +210,134 @@ namespace pr::physics::tests
 			PR_EXPECT(r.collision_occurred);
 			PR_EXPECT(r.final_z > -1.0f);
 		}
+
+		// Helper for the BoxDropEnergy* tests below. Drops a 1.0 x 1.3 x 1.8 box of mass 10
+		// onto the ground from height 3 with a small lateral velocity. Asserts:
+		//   1. Body never reaches more than 1.2 * starting_height (no upward explosion).
+		//   2. Total energy (KE + PE) never exceeds initial energy substantially.
+		//   3. Body does not fall through the ground.
+		//   4. After settling, max penetration depth stays small (no Baumgarte runaway).
+		static void BoxDropEnergyImpl(bool rotated, std::string_view trace_filename)
+		{
+			auto box_shape = collision::ShapeBox(v4{0.5f, 0.65f, 0.9f, 0});
+			auto ground_shape = MakeGround();
+
+			RigidBody bodies[2];
+			bodies[0].Shape(collision::shape_cast(&box_shape), 10.0f);
+			auto initial_z = 3.0f;
+			auto rot = rotated
+				? m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{-5, 0, initial_z, 1})
+				: m4x4::Translation(-5, 0, initial_z);
+			bodies[0].O2W(rot);
+			bodies[0].VelocityWS(v4::Zero(), v4{0.8f, 0, 0, 0});
+
+			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
+			bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
+
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Material(physics::Material{
+				.m_id = physics::Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.3f,
+			});
+
+			auto max_depth_per_frame = std::vector<float>{};
+			engine.Collisions += [&](auto&, std::span<RbContact const> contacts)
+			{
+				auto max_depth = 0.0f;
+				for (auto const& c : contacts)
+					max_depth = std::max(max_depth, c.m_depth);
+				max_depth_per_frame.push_back(max_depth);
+			};
+
+			auto const g = 9.81f;
+			auto const dt = 1.0f / 60.0f;
+			auto const num_steps = 200;
+			auto const m = bodies[0].Mass();
+			auto const com_os = bodies[0].CentreOfMassOS();
+
+			// Initial total energy: KE = 0, PE = m * g * z (relative to ground top z=0)
+			auto const initial_total_energy = m * g * initial_z;
+
+			auto max_z = initial_z;
+			auto max_total_energy = initial_total_energy;
+
+			// Per-frame trace (for diagnostic when assertions fail)
+			struct FrameTrace { int step; float z; float vz; float ke; float pe; float total; float max_depth; };
+			auto trace = std::vector<FrameTrace>{};
+			auto dump_dir = std::filesystem::path("dump");
+			std::filesystem::create_directories(dump_dir);
+
+			for (int step = 0; step != num_steps; ++step)
+			{
+				bodies[0].ZeroForces();
+				bodies[1].ZeroForces();
+				auto ws_com = bodies[0].O2W().rot * com_os;
+				bodies[0].ApplyForceWS(v4{0, 0, -g * m, 0}, v4::Zero(), ws_com);
+
+				engine.Step(dt, bodies);
+
+				auto z = bodies[0].O2W().pos.z;
+				auto vz = bodies[0].VelocityWS().lin.z;
+				auto ke = bodies[0].KineticEnergy();
+				auto pe = m * g * z;
+				auto total = ke + pe;
+				auto md = max_depth_per_frame.empty() ? 0.0f : max_depth_per_frame.back();
+				trace.push_back({step, z, vz, ke, pe, total, md});
+
+				max_z = std::max(max_z, z);
+				max_total_energy = std::max(max_total_energy, total);
+
+				// Bail out early on catastrophic failure to avoid noisy logs but still report
+				if (z > initial_z * 5.0f || total > initial_total_energy * 10.0f)
+					break;
+			}
+
+			// Diagnostic dump: print per-frame state for post-mortem
+			auto dump_path = dump_dir / trace_filename;
+			{
+				auto f = std::ofstream(dump_path);
+				f << std::format("step,z,vz,ke,pe,total,max_depth (initial_total={:.2f})\n", initial_total_energy);
+				for (auto const& t : trace)
+					f << std::format("{},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.4f}\n", t.step, t.z, t.vz, t.ke, t.pe, t.total, t.max_depth);
+			}
+
+			// (1) Body must never reach more than 20% above its initial height.
+			PR_EXPECT(max_z < initial_z * 1.2f);
+
+			// (2) Total energy must never substantially exceed the initial energy.
+			PR_EXPECT(max_total_energy < initial_total_energy * 1.5f);
+
+			// (3) Body must not have fallen through the ground.
+			PR_EXPECT(bodies[0].O2W().pos.z > -1.0f);
+
+			// (4) After settling, max penetration depth must stay small (no runaway).
+			if (max_depth_per_frame.size() > 60)
+			{
+				auto window_start = max_depth_per_frame.size() - 30;
+				auto max_in_window = 0.0f;
+				for (auto i = window_start; i != max_depth_per_frame.size(); ++i)
+					max_in_window = std::max(max_in_window, max_depth_per_frame[i]);
+				PR_EXPECT(max_in_window < 0.2f);
+			}
+		}
+
+		// Reproduces the failing 'drop_test.json' visual scene: a rotated, asymmetric box
+		// dropped onto the ground with a small lateral velocity. With the per-point Baumgarte
+		// resolver bug, the box explodes around frame 80 (z velocity → +158 m/s, KE → 264k J).
+		PRUnitTestMethod(BoxDropEnergyConservation)
+		{
+			BoxDropEnergyImpl(/*rotated=*/true, "boxdrop_trace_rotated.log");
+		}
+
+		// Diagnostic variant: same scene but box NOT rotated. If this passes but the rotated
+		// variant fails, the bug is rotation-specific (e.g. SAT axis-selection producing a
+		// skewed contact normal that doesn't fully oppose gravity).
+		PRUnitTestMethod(BoxDropEnergyConservationAxisAligned)
+		{
+			BoxDropEnergyImpl(/*rotated=*/false, "boxdrop_trace_aligned.log");
+		}
 	};
 
 	// ===== Head-on collision tests for all 15 shape pairs =====
@@ -273,7 +404,8 @@ namespace pr::physics::tests
 			auto ib = physics::Inertia::Box(v4{0.5f, 0.5f, 0.5f, 0}, 10.0f);
 			auto r = RunHeadOnTest("Box-Box", sa, ia, sb, ib);
 			PR_EXPECT(r.collision_occurred);
-			// Equal mass head-on: body A should reverse direction
+			PR_EXPECT(r.vel_a.lin.x < -1.0f);
+			PR_EXPECT(r.vel_b.lin.x > +1.0f);
 		}
 
 		PRUnitTestMethod(BoxVsLine)
@@ -350,12 +482,14 @@ namespace pr::physics::tests
 
 	// ===== Stress test: many bodies falling onto ground =====
 	// Reproduces the stress test scenario to detect TDR and passthrough bugs.
-	// Uses 100 bodies (40 boxes, 40 spheres, 20 polytopes) falling under gravity onto a box ground.
+	// Uses 30 bodies (12 spheres, 12 boxes, 6 polytopes) falling under gravity onto a box ground.
 	PRUnitTestClass(StressDropTests)
 	{
 		PRUnitTestMethod(ManyBodiesFalling)
 		{
-			auto ground_shape = collision::ShapeBox(v4{50, 50, 5.0f, 0});
+			// ShapeBox(dim) stores half-extents = dim * 0.5, so v4{100,100,10} gives a
+			// 100x100x10 box. Centred at z=-5 this puts the top surface at z=0.
+			auto ground_shape = collision::ShapeBox(v4{100, 100, 10.0f, 0});
 			auto sphere_shape = collision::ShapeSphere(0.2f);
 			auto box_shape = collision::ShapeBox(v4{0.2f, 0.2f, 0.2f, 0});
 			auto tetra_pts = std::array<v4, 4>{
@@ -369,9 +503,8 @@ namespace pr::physics::tests
 			static constexpr float dt = 1.0f / 30.0f;
 			static constexpr float g = 9.81f;
 
-			// Allocate bodies: 40 spheres, 40 boxes, 20 polytopes, 1 ground
+			// Allocate bodies: 12 spheres, 12 boxes, 6 polytopes, 1 ground
 			std::vector<physics::RigidBody> bodies(NumBodies + 1);
-			std::vector<collision::Shape const*> shapes(NumBodies);
 
 			// Position bodies in a 6x5 grid above the ground
 			for (int i = 0; i != NumBodies; ++i)
@@ -385,26 +518,24 @@ namespace pr::physics::tests
 				if (i < 12)
 				{
 					bodies[i].Shape(collision::shape_cast(&sphere_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&sphere_shape);
 				}
 				else if (i < 24)
 				{
 					bodies[i].Shape(collision::shape_cast(&box_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&box_shape);
 				}
 				else
 				{
 					bodies[i].Shape(collision::shape_cast(&poly_shape), 5.0f);
-					shapes[i] = collision::shape_cast(&poly_shape);
 				}
-				bodies[i].O2W(m4x4::Translation(v4{x, y, z, 0}));
+				bodies[i].O2W(m4x4::Translation(x, y, z));
 			}
 
 			// Ground: infinite mass, top surface at z=0
 			bodies[NumBodies].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
-			bodies[NumBodies].O2W(m4x4::Translation(v4{0, 0, -5.0f, 0}));
+			bodies[NumBodies].O2W(m4x4::Translation(0, 0, -5.0f));
 
-			physics::Engine engine;
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
 			engine.Material(physics::Material{
 				.m_id = physics::Material::DefaultID,
 				.m_friction_static = 0.3f,
@@ -412,8 +543,6 @@ namespace pr::physics::tests
 			});
 
 			int passthrough_count = 0;
-
-			auto log = std::ofstream(temp_dir() / "stress_drop.log");
 
 			for (int step = 0; step != NumSteps; ++step)
 			{
@@ -438,45 +567,9 @@ namespace pr::physics::tests
 				for (int i = 0; i != NumBodies; ++i)
 				{
 					if (bodies[i].O2W().pos.z < -2.0f)
-					{
 						++passthrough_count;
-						if (passthrough_count <= 3)
-						{
-							auto type = i < 12 ? "sphere" : i < 24 ? "box" : "polytope";
-							log << std::format("  PASSTHROUGH: body[{}] ({}) at step {} z={:.3f}\n",
-								i, type, step, bodies[i].O2W().pos.z);
-
-							// Run CPU collision test on this pair to check if CPU GJK catches it
-							auto w2g = InvertOrthonormal(bodies[NumBodies].O2W());
-							auto b2g = w2g * bodies[i].O2W();
-							collision::Contact cpu_contact;
-							bool cpu_hit = collision::Collide(
-								bodies[NumBodies].Shape(), m4x4::Identity(),
-								bodies[i].Shape(), b2g, cpu_contact);
-							log << std::format("  CPU Collide: {} (depth={:.6f} axis=({:.3f},{:.3f},{:.3f}))\n",
-								cpu_hit ? "HIT" : "MISS", cpu_contact.m_depth,
-								cpu_contact.m_axis.x, cpu_contact.m_axis.y, cpu_contact.m_axis.z);
-
-							// Also try CPU GJK directly
-							collision::Contact gjk_contact;
-							bool gjk_hit = collision::GjkCollide(
-								bodies[NumBodies].Shape(), m4x4::Identity(),
-								bodies[i].Shape(), b2g, gjk_contact);
-							log << std::format("  CPU GJK:     {} (depth={:.6f} axis=({:.3f},{:.3f},{:.3f}))\n",
-								gjk_hit ? "HIT" : "MISS", gjk_contact.m_depth,
-								gjk_contact.m_axis.x, gjk_contact.m_axis.y, gjk_contact.m_axis.z);
-
-							// Log the exact transform for reproduction
-							auto& o = bodies[i].O2W();
-							log << std::format("  O2W: x=({:.6f},{:.6f},{:.6f}) y=({:.6f},{:.6f},{:.6f}) z=({:.6f},{:.6f},{:.6f}) pos=({:.6f},{:.6f},{:.6f})\n",
-								o.x.x, o.x.y, o.x.z, o.y.x, o.y.y, o.y.z, o.z.x, o.z.y, o.z.z, o.pos.x, o.pos.y, o.pos.z);
-						}
-					}
 				}
 			}
-
-			log << std::format("  Stress test: {} bodies, {} steps, {} passthroughs\n",
-				NumBodies, NumSteps, passthrough_count);
 
 			// No body should fall through the ground
 			PR_EXPECT(passthrough_count == 0);

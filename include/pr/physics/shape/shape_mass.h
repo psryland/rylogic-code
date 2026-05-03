@@ -32,7 +32,7 @@ namespace pr::physics
 	}
 
 	// Return the unit inertia for the triangle.
-	// Computed about the model origin. SetMassProperties applies the parallel axis
+	// Computed about the shape origin. SetMassProperties applies the parallel axis
 	// theorem to translate from origin to centre of mass using mp.m_centre_of_mass.
 	inline m3x3 UnitInertia(ShapeTriangle const& shape)
 	{
@@ -84,16 +84,12 @@ namespace pr::physics
 		return inertia;
 	}
 
-	// Returns the unit inertia for the polytope, computed about the model origin.
+	// Returns the unit inertia for the polytope, computed about the shape origin.
 	// SetMassProperties applies the parallel axis theorem to translate from origin
 	// to the centre of mass using mp.m_centre_of_mass.
 	// Uses the divergence theorem to integrate x², y², z² etc. over the volume.
 	inline m3x3 UnitInertia(ShapePolytope const& shape)
 	{
-		// Notes:
-		//  Ensure the polytope is in it's final space before calculating its inertia.
-		//  Calling 'ShiftCentre' invalidates the inertia matrix.
-
 		auto volume   = 0.0f; // Technically this variable accumulates the volume times 6
 		auto diagonal = v4{}; // Accumulate matrix main diagonals [x*x, y*y, z*z]
 		auto off_diag = v4{}; // Accumulate matrix off-diagonals  [y*z, x*z, x*y]

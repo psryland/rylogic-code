@@ -15,9 +15,8 @@ namespace pr::physics
 	{
 		// Notes:
 		//  - An object for building collision shapes.
-		//  - The shape builder is part of the physics library, not the collision library
-		//    because it's main job is to determine the inertia properties of the shape, which
-		//    depends on physics materials, inertia matrices, etc.
+		//  - The shape builder is part of the physics library, not the collision library because it's main job
+		//    is to determine the inertia properties of the shape, which depend on physics materials, inertia matrices, etc.
 
 		// Settings for the shape builder
 		struct Settings
@@ -27,9 +26,9 @@ namespace pr::physics
 			std::function<Material const&(MaterialId)> m_mat_lookup;
 
 			Settings()
-				:m_min_mass(1.0f)
-				,m_min_volume(0.001f * 0.001f * 0.001f)
-				,m_mat_lookup(NoMaterial)
+				: m_min_mass(1.0f)
+				, m_min_volume(0.001f * 0.001f * 0.001f)
+				, m_mat_lookup(NoMaterial)
 			{}
 			static Material const& NoMaterial(MaterialId)
 			{
@@ -41,12 +40,11 @@ namespace pr::physics
 		// Instances of primitives
 		struct alignas(16) Prim
 		{
-			byte_data<16>   m_data;  // Data containing the shape
-			MassProperties  m_mp;    // Mass properties for the primitive
-			BBox            m_bbox;  // Bounding box for the primitive
-			Shape mutable*  m_shape; // Used in the debugger only
+			byte_data<16>  m_data;  // Data containing the shape
+			MassProperties m_mp;    // Mass properties for the primitive
+			BBox           m_bbox;  // Bounding box for the primitive
+			Shape*         m_shape; // Used in the debugger only
 
-			//Shape const& shape() const { m_shape = m_data.cbegin<Shape>(); return *m_shape; }
 			Shape& shape()
 			{
 				m_shape = m_data.begin<Shape>();
@@ -71,8 +69,8 @@ namespace pr::physics
 		std::unique_ptr<Model> m_model;
 
 		ShapeBuilder(Settings const& settings = Settings())
-			:m_settings(settings)
-			,m_model(std::unique_ptr<Model>(new Model))
+			: m_settings(settings)
+			, m_model(std::unique_ptr<Model>(new Model))
 		{}
 
 		// Begin a new physics model
@@ -90,10 +88,9 @@ namespace pr::physics
 			prim->m_data.push_back({ byte_ptr(&shape), s_cast<size_t>(shape.m_base.m_size) });
 			auto& s = shape_cast<TShape>(prim->shape());
 
-			// Convert the shape to canonical form (i.e. about it's centre of mass)
+			// Capture the primitive mass properties. Shape-local geometry is fixed at construction time; any local CoM offset is folded in when the model properties are calculated.
 			auto density = m_settings.m_mat_lookup(s.m_base.m_material_id).m_density;
 			prim->m_mp = CalcMassProperties(s, density);
-			ShiftCentre(s, prim->m_mp.m_centre_of_mass);
 
 			// Set the bounding box
 			prim->m_bbox = CalcBBox(s);
@@ -110,11 +107,14 @@ namespace pr::physics
 		}
 
 		// Serialise the shape data.
-		// It should be possible to insert the shape returned from here into a larger shape.
-		// The highest level shape in a composite shape should have a shape_to_parent transform of identity.
-		// Shape flags only apply to composite shape types
 		Shape* BuildShape(byte_data<16>& model_data, MassProperties& mp, v4& model_to_CoMframe, EShape container = EShape::Array, Shape::EFlags shape_flags = Shape::EFlags::None)
 		{
+			// Notes:
+			//  - It should be possible to insert the shape returned from here into a larger shape.
+			//  - The shape-to-root transform in each shape is independent of the shape hierarchy, because evaluating a tree of transforms
+			//    is too expensive for collision detection. This means attaching a shape to a parent composite shape requires updating the
+			//    shape-to-root transform of the child shapes.
+			//  - Shape flags only apply to composite shape types.
 			auto& model = *m_model;
 
 			assert("No shapes have been added" && !model.m_prim_list.empty());
@@ -156,9 +156,6 @@ namespace pr::physics
 					auto& arr = model_data.at_byte_ofs<ShapeArray>(base);
 					arr.Complete(model.m_prim_list.size());
 					arr.m_base.m_flags = shape_flags;
-					//auto& arr = model_data.at_byte_ofs<ShapeArray>(base);
-					//arr = ShapeArray(model.m_prim_list.size(), model_data.size() - base, m4x4::Identity(), 0, shape_flags);
-					//arr.m_base.m_bbox = model.m_bbox;
 
 					// Return the shape
 					return &arr.m_base;
@@ -170,22 +167,33 @@ namespace pr::physics
 			}
 		}
 
-		// Calculate the mass of the mode' by adding up the mass of all of the primitives.
-		// Also, calculate the centre of mass for the object
+		// Return the primitive centre of mass in model space.
+		static v4 PrimitiveCentreOfMass(Prim& prim)
+		{
+			return (prim.shape().m_s2r * prim.m_mp.m_centre_of_mass.w1()).w0();
+		}
+
+		// Return the primitive centre-of-mass frame to model-space transform.
+		static m4x4 PrimitiveCoMToModel(Prim& prim)
+		{
+			return prim.shape().m_s2r * m4x4::Translation(prim.m_mp.m_centre_of_mass);
+		}
+
+		// Calculate the mass of the model by adding up the mass of all of the primitives.
+		// Also, calculate the centre of mass for the object.
 		void CalculateMassAndCentreOfMass()
 		{
 			auto& model = *m_model;
 
 			model.m_mp.m_mass = 0.0f;
-			model.m_mp.m_centre_of_mass = pr::v4::Zero();
+			model.m_mp.m_centre_of_mass = v4::Zero();
 			for (auto& prim_ptr : model.m_prim_list)
 			{
 				auto& prim = *prim_ptr;
-				assert("All shapes should be centred on their centre of mass when added to the builder" && FEql(prim.m_mp.m_centre_of_mass, v4::Zero()));
 
 				// Accumulate mass and centre of mass
 				model.m_mp.m_mass           += prim.m_mp.m_mass;
-				model.m_mp.m_centre_of_mass += prim.m_mp.m_mass * prim.shape().m_s2p.pos;
+				model.m_mp.m_centre_of_mass += prim.m_mp.m_mass * PrimitiveCentreOfMass(prim);
 			}
 
 			// Find the centre of mass position
@@ -203,7 +211,7 @@ namespace pr::physics
 
 			// Now move all of the models so that they are centred around the centre of mass
 			for (auto& prim : model.m_prim_list)
-				prim->shape().m_s2p.pos -= model.m_mp.m_centre_of_mass;
+				prim->shape().m_s2r.pos -= model.m_mp.m_centre_of_mass;
 
 			// The offset to the centre of mass is now zero
 			model.m_mp.m_centre_of_mass = v4::Zero();
@@ -216,7 +224,7 @@ namespace pr::physics
 
 			model.m_bbox = BBox::Reset();
 			for (auto& prim : model.m_prim_list)
-				Grow(model.m_bbox, prim->shape().m_s2p * prim->m_bbox);
+				Grow(model.m_bbox, prim->shape().m_s2r * prim->m_bbox);
 		}
 
 		// Calculates the inertia for 'm_model'
@@ -228,13 +236,13 @@ namespace pr::physics
 			for (auto& p : model.m_prim_list)
 			{
 				auto& prim = *p;
-				assert("All primitives should be in centre of mass frame" && FEql(prim.m_mp.m_centre_of_mass, v4::Zero()));
 
-				// The CoM frame inertia of the primitive
-				auto primitive_inertia = Inertia{prim.m_mp};
+				// The primitive mass properties are measured about the shape origin. Translate to the primitive CoM, then into the model CoM frame.
+				auto primitive_inertia = Inertia{prim.m_mp.m_os_unit_inertia, prim.m_mp.m_mass};
+				primitive_inertia = Translate(primitive_inertia, prim.m_mp.m_centre_of_mass, ETranslateInertia::TowardCoM);
 
 				// Transform it to object space
-				primitive_inertia = Transform(primitive_inertia, prim.shape().m_s2p, ETranslateInertia::AwayFromCoM);
+				primitive_inertia = Transform(primitive_inertia, PrimitiveCoMToModel(prim), ETranslateInertia::AwayFromCoM);
 
 				// Add the inertia to the object inertia (mass divided out at the end)
 				model_inertia += primitive_inertia.To3x3();

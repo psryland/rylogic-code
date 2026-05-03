@@ -17,10 +17,11 @@ namespace pr::collision
 		int pad[2];
 
 		ShapeSphere() = default;
-		explicit ShapeSphere(float radius, m4x4 const& shape_to_parent = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_parent, material_id, flags)
-			,m_radius(radius)
-			,m_hollow(hollow)
+		explicit ShapeSphere(float radius, m4x4 const& shape_to_root = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_root, material_id, flags)
+			, m_radius(radius)
+			, m_hollow(hollow)
+			, pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}
@@ -48,13 +49,6 @@ namespace pr::collision
 	inline BBox pr_vectorcall CalcBBox(ShapeSphere const& shape)
 	{
 		return BBox(v4::Origin(), v4(shape.m_radius, shape.m_radius, shape.m_radius, 0.0f));
-	}
-
-	// Shift the centre of a sphere
-	inline void pr_vectorcall ShiftCentre(ShapeSphere&, v4 shift)
-	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
-		(void)shift; 
 	}
 
 	// Return a support vertex for a sphere

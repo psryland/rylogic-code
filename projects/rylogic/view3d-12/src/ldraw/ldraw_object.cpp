@@ -582,41 +582,41 @@ namespace pr::rdr12::ldraw
 	{
 		Apply([=](LdrObject* o)
 		{
-			auto obj_colour = o->m_base_colour;
+			auto base = o->m_base_colour;
 			switch (op)
 			{
 				case EColourOp::Overwrite:
-					obj_colour = colour;
+					base = colour;
 					break;
 				case EColourOp::Add:
-					obj_colour = o->m_base_colour + colour;
+					base = o->m_base_colour + colour;
 					break;
 				case EColourOp::Subtract:
-					obj_colour = o->m_base_colour - colour;
+					base = o->m_base_colour - colour;
 					break;
 				case EColourOp::Multiply:
-					obj_colour = o->m_base_colour * colour;
+					base = o->m_base_colour * colour;
 					break;
 				case EColourOp::Lerp:
-					obj_colour = Lerp(o->m_base_colour, colour, op_value);
+					base = Lerp(o->m_base_colour, colour, op_value);
 					break;
 				default:
 					throw std::runtime_error("Invalid colour operation");
 			}
 
+			// Update the base colour before applying parent group colours.
+			if (base_colour)
+				o->m_base_colour = base;
+
+			auto obj_colour = base;
+
 			// Apply the group colour of any parents
 			for (auto p = o->m_parent; p != nullptr; p = p->m_parent)
 				obj_colour = obj_colour * p->m_grp_colour;
 
-			// Update the base colour and the instance colour
-			if (base_colour)
-				o->m_base_colour = obj_colour;
-
-			// Otherwise, just update the instance colour.
-			// The group colour is always the same as the instance colour for group objects,
+			// Otherwise, just update the instance colour. Group colour is an independent multiplier,
+			// not the already inherited instance colour.
 			o->m_colour = obj_colour;
-			if (o->m_type == ELdrObject::Group)
-				o->m_grp_colour = o->m_colour;
 
 			// Ensure the nugget has alpha variants if needed
 			if (HasAlpha(o->m_colour) && o->m_model != nullptr)

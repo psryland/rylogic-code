@@ -32,8 +32,8 @@ namespace pr::collision
 	{
 		auto& box = shape_cast<ShapeBox>(box_);
 		auto& line = shape_cast<ShapeLine>(line_);
-		auto b2w = b2w_ * box_.m_s2p;
-		auto l2w = l2w_ * line_.m_s2p;
+		auto b2w = b2w_ * box_.m_s2r;
+		auto l2w = l2w_ * line_.m_s2r;
 
 		// Work in box space: box is an AABB centred at the origin, line centre at 'mid' with unit direction 'line_axis'.
 		auto l2b         = InvertOrthonormal(b2w) * l2w;
@@ -56,7 +56,7 @@ namespace pr::collision
 			if (depth < best_depth)
 			{
 				best_depth = depth;
-				best_axis = n;// d >= 0 ? n : -n; // Choose sign so the axis points from box toward line
+				best_axis = d <= 0.0f ? n : -n; // Choose sign so the axis points from line toward box
 			}
 		};
 
@@ -89,7 +89,7 @@ namespace pr::collision
 		}
 
 		// Report the minimum-penetration axis (depth is negative if the shapes are separated).
-		pen(best_depth, [&]{ return b2w * best_axis; }, box_.m_material_id, line_.m_material_id);
+		pen(best_depth, [&]{ return b2w * best_axis; }, line_.m_material_id, box_.m_material_id);
 	}
 
 	// Returns true if the line intersects the orientated box
@@ -108,15 +108,14 @@ namespace pr::collision
 		if (!p.Contact())
 			return false;
 
-		// Determine the sign of the separating axis to make it the normal from 'line' to 'box'
+		auto depth = p.Depth();
 		auto sep_axis = p.SeparatingAxis();
-		auto p0 = Dot3(sep_axis, l2w * line.m_s2p.pos);
-		auto p1 = Dot3(sep_axis, b2w * box.m_s2p.pos);
-		auto sign = Bool2SignF(p0 < p1);
+		auto [manifold, feature] = FindContactManifold(shape_cast<ShapeLine>(line), l2w, shape_cast<ShapeBox>(box), b2w, sep_axis, depth);
 
-		contact.m_depth = p.Depth();
-		contact.m_axis  = sign * sep_axis;
-		contact.m_point = FindContactPoint(shape_cast<ShapeLine>(line), l2w, shape_cast<ShapeBox>(box), b2w, contact.m_axis, contact.m_depth);
+		contact.m_depth = depth;
+		contact.m_axis = sep_axis;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
 		contact.m_mat_idA = p.m_mat_idA;
 		contact.m_mat_idB = p.m_mat_idB;
 		return true;
@@ -125,136 +124,231 @@ namespace pr::collision
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include "pr/collision/ldraw.h"
+#include "pr/collision/unittest_helpers.h"
 
 namespace pr::collision::tests
 {
 	PRUnitTestClass(LineVsBoxTests)
 	{
-		PRUnitTestMethod(Visualise)
+		inline static constexpr bool CreateVisuals = false;
+
+		// Draw the scene
+		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
 		{
-			using namespace pr::ldraw;
-
-			#if PR_UNITTESTS_VISUALISE
-			auto line = ShapeLine{3.0f};
-			auto box = ShapeBox{v4{0.3f, 0.5f, 0.2f, 0.0f}};
-			m4x4 l2w_[] =
-			{
-				m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, constants<float>::tau_by_8, constants<float>::tau_by_8), v4(0.2f, 0.3f, 0.1f, 1.0f)),
-			};
-			m4x4 b2w_[] =
-			{
-				m4x4::Identity(),
-			};
-
-			std::default_random_engine rng;
-			for (int i = 0; i != 20; ++i)
-			{
-				Contact c;
-				auto l2w = i < _countof(l2w_) ? l2w_[i] : m4x4::Random(rng, v4::Origin(), 0.3f);
-				auto b2w = i < _countof(b2w_) ? b2w_[i] : m4x4::Random(rng, v4::Origin(), 0.3f);
-
-				Builder builder;
-				builder.Group("line", 0x30FF0000).o2w(l2w).Add<LdrCollisionShape>().shape(line);
-				builder.Group("box", 0x3000FF00).o2w(b2w).Add<LdrCollisionShape>().shape(box);
-				if (LineVsBox(line, l2w, box, b2w, c))
-				{
-					builder.Line("sep_axis", Colour32Yellow).style("Direction").line(c.m_point - 0.5f * c.m_depth * c.m_axis, c.m_axis);
-					builder.Box("pt0", Colour32Yellow).box(0.002f).pos(c.m_point - 0.5f * c.m_depth * c.m_axis);
-					builder.Box("pt1", Colour32Yellow).box(0.002f).pos(c.m_point + 0.5f * c.m_depth * c.m_axis);
-				}
-				builder.Save(temp_dir() / L"LDraw/collision_unittests.ldr");
-			}
-			#endif
+			if constexpr (CreateVisuals)
+				VisualiseCollision(temp_dir() / L"LDraw/collision.ldr", a, a2w, b, b2w, c);
 		}
 
 		// Line through centre of box along Z
 		PRUnitTestMethod(LineThroughCentre)
 		{
-			auto line = ShapeLine{4.0f}; // half-length = 2, along Z from -2 to +2
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
+			auto lhs = ShapeLine{4.0f, 0.0f};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
-			auto b2w = m4x4::Identity();
+			auto b2w = m4x4::Translation(1e-5f, 0, 0);
 
-			PR_EXPECT(LineVsBox(line, l2w, box, b2w));
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, b2w, c);
+			Visualise(lhs, l2w, rhs, b2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(-0.25f, 0, -0.5f, 1),
+					v4(-0.25f, 0, +0.5f, 1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Line parallel to box face, outside
 		PRUnitTestMethod(LineParallelOutside)
 		{
-			auto line = ShapeLine{4.0f};
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
-			auto l2w = m4x4::Translation(v4{2, 0, 0, 0}); // offset in X
+			auto lhs = ShapeLine{4.0f, 0.0f};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Translation(2, 0, 0);
 			auto b2w = m4x4::Identity();
 
-			PR_EXPECT(!LineVsBox(line, l2w, box, b2w));
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, b2w, c);
+			Visualise(lhs, l2w, rhs, b2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Line endpoint inside box
 		PRUnitTestMethod(EndpointInsideBox)
 		{
-			auto line = ShapeLine{2.0f}; // half-length = 1
-			auto box = ShapeBox{v4{2, 2, 2, 0}};
-
-			// Line from (0,0,-1) to (0,0,1), box extends ±2 → fully inside
+			auto lhs = ShapeLine{1.0f, 0.0f};
+			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto b2w = m4x4::Identity();
+			auto b2w = m4x4::Translation(1e-5f, 0, 0);
 
-			PR_EXPECT(LineVsBox(line, l2w, box, b2w));
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, b2w, c);
+			Visualise(lhs, l2w, rhs, b2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(1, 0, 0, 0),
+				.m_manifold = {
+					v4(-0.5f, 0, -0.5f, 1),
+					v4(-0.5f, 0, +0.5f, 1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 1.0f,
+			}));
 		}
 
 		// Line at 45° piercing a box face
 		PRUnitTestMethod(AngledPiercing)
 		{
-			auto line = ShapeLine{4.0f};
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
-
-			// Rotate line 45° about Y so it crosses the box diagonally
-			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4::Origin());
+			auto lhs = ShapeLine{4.0f, 0.0f};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::TransformDeg(0, 45, 0, v4{0, 0, -1e-5f, 1});
 			auto b2w = m4x4::Identity();
 
-			PR_EXPECT(LineVsBox(line, l2w, box, b2w));
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, b2w, c);
+			Visualise(lhs, l2w, rhs, b2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, 1, 0, 0),
+				.m_manifold = {
+					v4(-0.5f, -0.25f, -0.5f, 1),
+					v4(+0.5f, -0.25f, +0.5f, 1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.5f,
+			}));
 		}
 
 		// Separated: line well beyond box extents
 		PRUnitTestMethod(Separated)
 		{
-			auto line = ShapeLine{2.0f};
-			auto box = ShapeBox{v4{1, 1, 1, 0}};
-			auto l2w = m4x4::Translation(v4{0, 0, 5, 0}); // line at z=[4,6], box at z=[-1,+1]
+			auto lhs = ShapeLine{2.0f, 0.0f};
+			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Translation(0, 0, 5); // line at z=[4,6], box at z=[-1,+1]
 			auto b2w = m4x4::Identity();
 
-			PR_EXPECT(!LineVsBox(line, l2w, box, b2w));
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, b2w, c);
+			Visualise(lhs, l2w, rhs, b2w, c);
+
+			PR_EXPECT(!r);
 		}
 
 		// Thick line: collision detected when thickness bridges the gap
 		PRUnitTestMethod(ThickLineVsBox)
 		{
-			auto line = ShapeLine{2.0f, 0.6f}; // half-length=1, half-thickness=0.3
-			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent=1
-			auto b2w = m4x4::Identity();
-
-			// Line offset 1.2 in X: zero-thickness line misses (1 < 1.2),
-			// but thick line should hit (1 + 0.3 = 1.3 > 1.2)
-			auto l2w = m4x4::Translation(v4{1.2f, 0, 0, 0});
-			PR_EXPECT(LineVsBox(line, l2w, box, b2w));
+			auto lhs = ShapeLine{2.0f, 0.6f};
+			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
+			auto l2w = m4x4::Translation(1.2f, 0, 0);
+			auto r2w = m4x4::Identity();
 
 			Contact c;
-			PR_EXPECT(LineVsBox(line, l2w, box, b2w, c));
-			PR_EXPECT(c.m_depth > 0.0f);
+			auto r = LineVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(-1, 0, 0, 0),
+				.m_manifold = {
+					v4(0.8f, 0, -1.0f, 1),
+					v4(0.8f, 0, +1.0f, 1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.4f,
+			}));
+		}
+
+		// Thick line: end vs box corner
+		PRUnitTestMethod(ThickLineVsBoxCorner)
+		{
+			auto lhs = ShapeLine{2.0f, 0.6f};
+			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
+			auto l2w = m4x4::TransformDeg(0, 45, 0, v4(1, 1.2f, 1.1f, 1));
+			auto r2w = m4x4::Identity();
+
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0, -1, 0, 0),
+				.m_manifold = {
+					v4(0.292893f,0.8f,0.392893f,1),
+					v4(0.9f,0.8f,1,1),
+				},
+				.m_feature = EFeature::Edge,
+				.m_depth = 0.4f,
+			}));
+		}
+
+		// Thick line: end vs box corner
+		PRUnitTestMethod(ThickLineVsBoxCornerAngled)
+		{
+			auto lhs = ShapeLine{2.0f, 0.6f};
+			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
+			auto l2w = m4x4::TransformDeg(45, 45, 45, v4(1, 1.2f, 1.1f, 1));
+			auto r2w = m4x4::Identity();
+
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(-0.224002f,-0.663298f,-0.714044f,0),
+				.m_manifold = {
+					v4(0.955655f,0.868688f,0.858642f,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 0.395936102f,
+			}));
 		}
 
 		// Thick line: just outside the box + thickness envelope
 		PRUnitTestMethod(ThickLineSeparated)
 		{
-			auto line = ShapeLine{2.0f, 0.1f};
-			auto box = ShapeBox{v4{2, 2, 2, 0}};
-			auto b2w = m4x4::Identity();
-
-			// Line offset 1.2 in X: box.m_radius.x + line.m_radius = 1 + 0.1 = 1.1 < 1.2
+			auto lhs = ShapeLine{2.0f, 0.1f};
+			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Translation(1.2f, 0, 0);
-			PR_EXPECT(!LineVsBox(line, l2w, box, b2w));
+			auto r2w = m4x4::Identity();
+
+			Contact c;
+			auto r = LineVsBox(lhs, l2w, rhs, r2w, c);
+			Visualise(lhs, l2w, rhs, r2w, c);
+
+			PR_EXPECT(!r);
 		}
+ 
+		// Box-vs-Box with s2r transforms 
+		PRUnitTestMethod(LineVsBoxWithS2R) 
+		{ 
+			auto lhs = ShapeLine{2.0f, 0.6f,  m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
+			auto rhs = ShapeBox{v4{2, 2, 2, 0},  m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };
+			auto l2w = m4x4::Identity(); 
+			auto r2w = m4x4::Identity(); 
+ 
+			Contact c; 
+			auto r = LineVsBox(lhs, l2w, rhs, r2w, c); 
+			Visualise(lhs, l2w, rhs, r2w, c); 
+ 
+			PR_EXPECT(r);
+			PR_EXPECT(CheckContact(c, Contact{
+				.m_axis = v4(0.984923f,0.150384f,-0.0855051f,0),
+				.m_manifold = {
+					v4(0.805754f,-0.714405f,0.616522f,1),
+				},
+				.m_feature = EFeature::Vert,
+				.m_depth = 1.29706311f,
+			})); 
+		} 
 	};
 }
 #endif

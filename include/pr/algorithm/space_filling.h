@@ -236,125 +236,129 @@ namespace pr::space_filling
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::algorithm::tests
+namespace pr::space_filling::tests
 {
-	PRUnitTest(SpaceFillingTests)
+	PRUnitTestClass(SpaceFillingTests)
 	{
-		using namespace pr::space_filling;
+		inline static constexpr bool CreateVisualisations = false;
 
-		//*
-		// Generate the indices for points around the origin
-		constexpr int range = 1;
-		std::vector<int64_t> indices;
-		indices.reserve(Cube(2 * range));
-
-		auto i0 = COrder2D(iv2(-1, -1));
-		auto i1 = COrder3D(iv4(-1, -1, -1, 0));
-
-		auto v0 = COrder2D(i0);
-		auto v1 = COrder3D(i1);
-
-		for (int z = -range; z != range; ++z)
-			for (int y = -range; y != range; ++y)
-				for (int x = -range; x != range; ++x)
-					indices.push_back(COrder3D(iv4(x, y, z, 1)));
-		//for (int i = -1000; i != 0; ++i)
-		//	indices.push_back(i);
-
-		// Convert to curve order
-		std::sort(std::begin(indices), std::end(indices));
-
-		#if PR_UNITTESTS_VISUALISE
+		PRUnitTestMethod(COrderTest)
 		{
-			// Plot them by converting indices to points.
-			pr::ldraw::Builder builder;
-			auto& line1 = builder.Line("COrder", 0xFFFF0000).strip(v4::Origin());
-			for (auto idx : indices)
+			// Generate the indices for points around the origin
+			constexpr int range = 1;
+			std::vector<int64_t> indices;
+			indices.reserve(Cube(2 * range));
+
+			auto i0 = COrder2D(iv2(-1, -1));
+			auto i1 = COrder3D(iv4(-1, -1, -1, 0));
+
+			auto v0 = COrder2D(i0);
+			auto v1 = COrder3D(i1);
+
+			for (int z = -range; z != range; ++z)
+				for (int y = -range; y != range; ++y)
+					for (int x = -range; x != range; ++x)
+						indices.push_back(COrder3D(iv4(x, y, z, 1)));
+			//for (int i = -1000; i != 0; ++i)
+			//	indices.push_back(i);
+
+			// Convert to curve order
+			std::sort(std::begin(indices), std::end(indices));
+
+			#if PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisualisations)
 			{
-				auto pt = COrder3D(idx);
-				//line1.line_to(v4(To<v2>(pt), 0, 1));
-				line1.line_to(To<v4>(pt));
+				// Plot them by converting indices to points.
+				ldraw::Builder builder;
+				auto& line1 = builder.Line("COrder", 0xFFFF0000).strip(v4::Origin());
+				for (auto idx : indices)
+				{
+					auto pt = COrder3D(idx);
+					//line1.line_to(v4(To<v2>(pt), 0, 1));
+					line1.line_to(To<v4>(pt));
+				}
+				builder.Save("E:\\dump\\space_filling.ldr");
 			}
-			builder.Save("E:\\dump\\space_filling.ldr");
+			#endif
 		}
-		#endif
-
-		// Round-trip tests
-
-		// ]-Order
-		for (int i = -1000; i != 1000; ++i)
+		PRUnitTestMethod(JOrderTest)
 		{
-			auto pt = COrder2D(i);
-			auto index = COrder2D(pt);
-			PR_EXPECT(index == i);
-		}
-		for (int i = 0; i != 64; ++i)
-		{
-			auto pt = COrder3D(i);
-			auto index = COrder3D(pt);
-			PR_EXPECT(index == i);
-		}
-		for (int y = -100; y != 100; ++y)
-		{
-			for (int x = -100; x != 100; ++x)
+			// ]-Order
+			for (int i = -1000; i != 1000; ++i)
 			{
-				auto index = COrder2D(iv2(x,y));
-				auto pt = COrder2D(index);
-				PR_EXPECT(All(pt == iv2(x,y)));
+				auto pt = COrder2D(i);
+				auto index = COrder2D(pt);
+				PR_EXPECT(index == i);
 			}
-		}
-
-		// Z-Order
-		for (int i = 0; i != 1000; ++i)
-		{
-			auto pt = ZOrder2D(i);
-			auto index = ZOrder2D(pt);
-			PR_EXPECT(index == i);
-		}
-		for (int i = 0; i != 1000; ++i)
-		{
-			auto pt = ZOrder3D(i);
-			auto index = ZOrder3D(pt);
-			PR_EXPECT(index == i);
-		}
-
-		/* failing
-		for (int i = 0; i != 16384; ++i)
-		{
-			auto pt = Hilbert2D<4>(i);
-			auto index = Hilbert2D<4>(pt);
-			PR_EXPECT(index == i);
-		}
-		for (int i = 0; i != 1000; ++i)
-		{
-			auto pt = Hilbert3D(i);
-			auto index = Hilbert3D(pt);
-			PR_EXPECT(index == i);
-		}
-		*/
-
-		#if PR_UNITTESTS_VISUALISE
-		{
-			using namespace pr::ldraw;
-
-			// Draw the Hilbert curve
-			Builder builder;
-			builder.Box("bound", 0xFF00FF00).box(4, 4, 0.1f).pos(2, 2, 0).wireframe();
-			auto& line1 = builder.Line("hilbert", 0xFF0000FF).strip(v4::Origin());
-			for (int32_t i = 0; i != 16; ++i)
+			for (int i = 0; i != 64; ++i)
 			{
-				auto pt = Hilbert2D<2>(i);
-				line1.line_to(v4(pt.x * 1.0f, pt.y * 1.0f, 0, 1));
+				auto pt = COrder3D(i);
+				auto index = COrder3D(pt);
+				PR_EXPECT(index == i);
 			}
-			auto& line2 = builder.Line("hilbert", 0xFFFF0000).strip(v4::Origin());
-			for (int32_t i = 0; i != 64; ++i)
+			for (int y = -100; y != 100; ++y)
 			{
-				auto pt = Hilbert2D<3>(i);
-				line2.line_to(v4(pt.x * 0.5f, pt.y * 0.5f, 0.1f, 1));
+				for (int x = -100; x != 100; ++x)
+				{
+					auto index = COrder2D(iv2(x, y));
+					auto pt = COrder2D(index);
+					PR_EXPECT(All(pt == iv2(x, y)));
+				}
 			}
-			builder.Save(temp_dir() / L"LDraw/hilbert.ldr", ESaveFlags::Pretty);
+
+			// Z-Order
+			for (int i = 0; i != 1000; ++i)
+			{
+				auto pt = ZOrder2D(i);
+				auto index = ZOrder2D(pt);
+				PR_EXPECT(index == i);
+			}
+			for (int i = 0; i != 1000; ++i)
+			{
+				auto pt = ZOrder3D(i);
+				auto index = ZOrder3D(pt);
+				PR_EXPECT(index == i);
+			}
+
+			/* failing
+			for (int i = 0; i != 16384; ++i)
+			{
+				auto pt = Hilbert2D<4>(i);
+				auto index = Hilbert2D<4>(pt);
+				PR_EXPECT(index == i);
+			}
+			for (int i = 0; i != 1000; ++i)
+			{
+				auto pt = Hilbert3D(i);
+				auto index = Hilbert3D(pt);
+				PR_EXPECT(index == i);
+			}
+			*/
+
+			#if PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisualisations)
+			{
+				using namespace pr::ldraw;
+
+				// Draw the Hilbert curve
+				Builder builder;
+				builder.Box("bound", 0xFF00FF00).box(4, 4, 0.1f).pos(2, 2, 0).wireframe();
+				auto& line1 = builder.Line("hilbert", 0xFF0000FF).strip(v4::Origin());
+				for (int32_t i = 0; i != 16; ++i)
+				{
+					auto pt = Hilbert2D<2>(i);
+					line1.line_to(v4(pt.x * 1.0f, pt.y * 1.0f, 0, 1));
+				}
+				auto& line2 = builder.Line("hilbert", 0xFFFF0000).strip(v4::Origin());
+				for (int32_t i = 0; i != 64; ++i)
+				{
+					auto pt = Hilbert2D<3>(i);
+					line2.line_to(v4(pt.x * 0.5f, pt.y * 0.5f, 0.1f, 1));
+				}
+				builder.Save(temp_dir() / L"LDraw/hilbert.ldr");
+			}
+			#endif
 		}
-		#endif
-	}
+	};
 }
 #endif

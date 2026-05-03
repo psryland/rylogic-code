@@ -19,8 +19,7 @@ namespace fbx_cmd
 			{
 				//NEW_COMMAND - Test the new command
 				//if (!args.empty()) printf("warning: debugging overriding arguments");
-				//args = L"-dump E:\Rylogic\Code\art\models\AnimCharacter\AnimatedCharacter.fbx";
-				args = L"-dump E:/Dump/Hyperpose/fbx/hyperpose_sample.fbx";
+				args = L"-dump E:/Rylogic/Code/art/models/AnimCharacter/AnimatedCharacter.fbx";
 
 				// Parse the command line, show help if invalid
 				if (!EnumCommandLine(Narrow(args).c_str(), *this))

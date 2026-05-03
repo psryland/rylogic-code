@@ -187,9 +187,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_box.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\collision\col_box_vs_line.h">
-      <Filter>pr\collision</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\collision\col_sphere_vs_sphere.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
@@ -1252,6 +1249,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\view3d-12\ldraw\ldraw_svg.h">
       <Filter>pr\view3d-12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\unittest_helpers.h">
+      <Filter>pr\collision</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -1093,6 +1093,8 @@ namespace pr::math
 {
 	PRUnitTestClass(SplineTests)
 	{
+		inline static constexpr bool CreateVisuals = false;
+
 		PRUnitTestMethod(CubicCurveLength, float, double)
 		{
 			using Vec4 = Vec4<T>;
@@ -1129,26 +1131,28 @@ namespace pr::math
 			(void)rastered;
 		}
 
+		#if PR_UNITTESTS_VISUALISE
 		template <ScalarTypeFP S>
 		void DumpToLDraw(CubicCurve3<S> const& curve)
 		{
-			#if PR_UNITTESTS_VISUALISE
-			using namespace pr::ldraw;
-
-			Builder builder;
-
-			builder.Box("bound", 0x200000FF).dim(1, 0.01f, 1).pos(0.5f, 0, 0.5f);
-
-			auto& ldr_line = builder.Line("SplineLine", 0xFF00FF00);
-			for (float t = 0.0f; t <= 1.0f; t += 0.01f)
+			if constexpr (CreateVisuals)
 			{
-				auto pt = curve.Eval(t);
-				ldr_line.line_to(pt);
-			}
+				using namespace pr::ldraw;
 
-			builder.Save(temp_dir() / "spline_line.ldr");
-			#endif
+				Builder builder;
+				builder.Box("bound", 0x200000FF).dim(1, 0.01f, 1).pos(0.5f, 0, 0.5f);
+
+				auto& ldr_line = builder.Line("SplineLine", 0xFF00FF00);
+				for (float t = 0.0f; t <= 1.0f; t += 0.01f)
+				{
+					auto pt = curve.Eval(t);
+					ldr_line.line_to(pt);
+				}
+
+				builder.Save(temp_dir() / "spline_line.ldr");
+			}
 		}
+		#endif
 	};
 }
 #endif

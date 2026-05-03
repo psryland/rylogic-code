@@ -11,7 +11,6 @@ namespace fbx_cmd
 		// Notes:
 		//  - Test command lines:
 		//   fbx-cmd -dump E:\Rylogic\Code\art\models\AnimCharacter\AnimatedCharacter.fbx
-		//   fbx-cmd -dump E:/Dump/Hyperpose/fbx/hyperpose_sample.fbx
 
 		std::filesystem::path m_filepath;
 		ESceneParts m_parts = ESceneParts::All;

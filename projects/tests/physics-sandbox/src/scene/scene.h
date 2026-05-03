@@ -12,6 +12,15 @@ namespace physics_sandbox
 	// the interactive sandbox and the headless unit test mode.
 	struct Scene
 	{
+		struct StepProfile
+		{
+			double m_total_ms = 0;
+			double m_gravity_ms = 0;
+			double m_physics_ms = 0;
+			double m_kill_zone_ms = 0;
+			physics::Engine::StepProfile m_engine;
+		};
+
 		rdr12::Renderer* m_rdr;
 
 		// Broadphase — either brute-force (CPU) or GPU sort-and-sweep.
@@ -55,6 +64,7 @@ namespace physics_sandbox
 
 		// Diagnostics
 		CollisionDiag m_diag;
+		StepProfile m_last_step_profile;
 		int m_step_count;
 
 		explicit Scene(rdr12::Renderer* rdr);

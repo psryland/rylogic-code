@@ -51,11 +51,28 @@ namespace pr::physics
 			m_rb_dynamics.resize(0);
 
 			// Reset the GPU staging buffer for contacts.
-			m_contacts.resize(0);
-			m_contacts.resize(max_contacts);
+			if (std::ssize(m_contacts) < max_contacts)
+				m_contacts.resize(max_contacts);
 
 			#if PR_DBG_PHYSICS
 			m_history.BeginFrame(rigid_bodies);
+			#else
+			(void)rigid_bodies;
+			#endif
+		}
+
+		// Drop all cached state. Call when the previously-seen shapes/bodies may no
+		// longer be valid (e.g. between independent unit-test scenarios that share a
+		// single engine).
+		void Reset()
+		{
+			m_shape_cache.Reset();
+			m_rb_dynamics.clear();
+			m_contacts.clear();
+			m_contacts_cpu.clear();
+
+			#if PR_DBG_PHYSICS
+			m_history = BodyHistory{};
 			#endif
 		}
 	};

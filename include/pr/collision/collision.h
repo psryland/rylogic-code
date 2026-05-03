@@ -60,9 +60,9 @@ namespace pr::collision
 			TriangleVsLine,          // (3 v 2) - Triangle v Line
 			TriangleVsTriangle,      // (3 v 3) - Triangle v Triangle
 
-			GjkCollide,              // (4 v 0) - Polytope v Sphere
+			ConvexVsSphere,          // (4 v 0) - Polytope v Sphere (closest-point GJK; bypasses EPA's curved-boundary error)
 			GjkCollide,              // (4 v 1) - Polytope v Box
-			GjkCollide,              // (4 v 2) - Polytope v Line
+			ConvexVsLine,            // (4 v 2) - Polytope v Line (closest-point GJK on line core; analytic margin)
 			GjkCollide,              // (4 v 3) - Polytope v Triangle
 			GjkCollide,              // (4 v 4) - Polytope v Polytope
 

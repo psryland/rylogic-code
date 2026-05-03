@@ -15,7 +15,9 @@ namespace pr::collision
 		float m_thickness; // The thickness of the ray
 
 		Ray()
-			:m_thickness(0.0f)
+			:m_point()
+			,m_direction()
+			,m_thickness(0.0f)
 		{}
 		Ray(v4 point, v4 direction)
 			:m_point(point)

@@ -40,8 +40,6 @@
     <ClCompile>
       <PreprocessorDefinitions>
         ;%(PreprocessorDefinitions)
-        ;PR_COLLISION_DIAGNOSTICS=1
-        ;PR_DBG_PHYSICS=1
         ;PR_UNITTESTS=1
         ;PR_UNITTESTS_VISUALISE=1
       </PreprocessorDefinitions>
@@ -87,6 +85,7 @@
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
+    <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
     <ClCompile Include="src\compute\sweep_gpu.cpp" />
@@ -103,6 +102,8 @@
     <ClCompile Include="src\unittests\test_impulse.cpp" />
     <ClCompile Include="src\unittests\test_inertia.cpp" />
     <ClCompile Include="src\unittests\test_integrator.cpp" />
+    <ClCompile Include="src\unittests\test_interop_engine.cpp" />
+    <ClCompile Include="src\unittests\test_resolve_runner.cpp" />
     <ClCompile Include="src\unittests\test_rigid_body.cpp" />
     <ClCompile Include="src\unittests\test_shape_builder.cpp" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h" />
@@ -128,6 +129,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
+    <ClInclude Include="src\compute\interop\resolve_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
@@ -137,6 +139,7 @@
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
     <ClInclude Include="src\unittests\force_link.h" />
+    <ClInclude Include="src\unittests\shared_engine.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--
@@ -150,7 +153,7 @@
   <ItemGroup>
     <FxCompile Include="src\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
     <FxCompile Include="src\compute\sweep.hlsl" EntryPointName="CSSweep" />
-    <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSCollide" />
+    <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSBinCollisionPairs" />
     <FxCompile Include="src\compute\resolve.hlsl" EntryPointName="CSResolve" />
   </ItemGroup>
   <ItemGroup>

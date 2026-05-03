@@ -54,7 +54,20 @@ namespace pr::collision
 			return { (va - vb).w0(), va, vb };
 		}
 
-		// Returns the centroid (in shape's parent/root space) of the shape's support face
+		// Specialised Minkowski support when shape B is a single point (e.g. sphere centre).
+		// The support of a point in any direction is just the point itself, so no support
+		// query is needed for B.
+		inline Sup MkSupportPoint(
+			Shape const& sa, m4x4 const& a2w, m4x4 const& w2a,
+			v4 point_b, v4 dir, int& ha)
+		{
+			int ia;
+			auto va = (a2w * SupportVertex(sa, w2a * dir, ha, ia)).w1();
+			ha = ia;
+			return { (va - point_b).w0(), va, point_b.w1() };
+		}
+
+		// Returns the centroid (in shape space) of the shape's support face
 		// in the given direction. For face-on contact the support is a polygon (multiple
 		// vertices tied for max dot); the centroid of that polygon is a stable, geometrically
 		// meaningful contact-point candidate. For non-degenerate contact, only one vertex
@@ -255,6 +268,82 @@ namespace pr::collision
 			return false;
 		}
 
+		// Project the origin onto the closest point of a triangle in Minkowski space.
+		// Uses Voronoi-region barycentric projection (Christer Ericke's "Real-Time Collision
+		// Detection" §5.1.5). Robust to degenerate triangles — falls through to a vertex
+		// or edge if the triangle is near-degenerate.
+		inline v4 ClosestPointToTriangle(v4 p, v4 a, v4 b, v4 c)
+		{
+			auto ab = b - a, ac = c - a, ap = p - a;
+			auto d1 = Dot3(ab, ap), d2 = Dot3(ac, ap);
+			if (d1 <= 0 && d2 <= 0)
+				return a;
+
+			auto bp = p - b;
+			auto d3 = Dot3(ab, bp), d4 = Dot3(ac, bp);
+			if (d3 >= 0 && d4 <= d3)
+				return b;
+
+			auto cp = p - c;
+			auto d5 = Dot3(ab, cp), d6 = Dot3(ac, cp);
+			if (d6 >= 0 && d5 <= d6)
+				return c;
+
+			auto vc = d1 * d4 - d3 * d2;
+			if (vc <= 0 && d1 >= 0 && d3 <= 0)
+			{
+				auto v = d1 / (d1 - d3);
+				return a + v * ab;
+			}
+
+			auto vb = d5 * d2 - d1 * d6;
+			if (vb <= 0 && d2 >= 0 && d6 <= 0)
+			{
+				auto w = d2 / (d2 - d6);
+				return a + w * ac;
+			}
+
+			auto va = d3 * d6 - d5 * d4;
+			if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0)
+			{
+				auto w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+				return b + w * (c - b);
+			}
+
+			auto denom = 1.0f / (va + vb + vc);
+			auto v = vb * denom;
+			auto w = vc * denom;
+			return a + ab * v + ac * w;
+		}
+
+		// Project the origin onto the (Voronoi-reduced) simplex, returning the closest
+		// point in Minkowski space. Caller must have just run DoSimplex so the simplex
+		// has been pruned to the closest sub-feature; this means the origin's projection
+		// onto that sub-feature lies inside it (up to FP noise). Robust to degenerate
+		// simplices: line/triangle helpers fall back to a vertex on degeneracy.
+		inline v4 SimplexClosestPoint(Simplex const& sx)
+		{
+			if (sx.n == 1)
+				return sx.s[0].w;
+
+			if (sx.n == 2)
+			{
+				auto a = sx.s[0].w, b = sx.s[1].w;
+				auto ab = b - a;
+				auto ab_sq = Dot3(ab, ab);
+				if (ab_sq < Eps)
+					return a;
+				auto t = std::clamp(-Dot3(a, ab) / ab_sq, 0.0f, 1.0f);
+				return a + t * ab;
+			}
+
+			if (sx.n == 3)
+				return ClosestPointToTriangle(v4::Origin().w0(), sx.s[0].w, sx.s[1].w, sx.s[2].w).w0();
+
+			// Tetrahedron — origin is enclosed if DoSimplex returned true.
+			return v4::Zero();
+		}
+
 		// ---- EPA (Expanding Polytope Algorithm) ----
 
 		struct Face
@@ -269,7 +358,7 @@ namespace pr::collision
 			Shape const& sa, m4x4 const& a2w, m4x4 const& w2a,
 			Shape const& sb, m4x4 const& b2w, m4x4 const& w2b,
 			Simplex const& gjk_sx, int& ha, int& hb,
-			v4& normal, float& depth, v4& ptA, v4& ptB)
+			v4& normal, float& depth)
 		{
 			if (gjk_sx.n < 4) return false;
 
@@ -336,17 +425,6 @@ namespace pr::collision
 				{
 					normal = cf_normal;
 					depth = cf_dist;
-
-					// For face-on contact (e.g. cube-vs-cube), many EPA triangles tie for the
-					// minimum distance and the EPA polytope only sparsely samples the contact
-					// face. Single-triangle barycentric witness points are biased toward whichever
-					// triangle won the tie. To produce a stable, geometrically meaningful contact
-					// point, query the support face centroid on each shape along the contact
-					// normal — averaging all vertices tied for the maximum dot product gives the
-					// true face centre. For non-degenerate (vertex/edge) contact, only one vertex
-					// ties and this reduces to the standard support point.
-					ptA = (a2w * SupportFaceCentre(sa, w2a * +cf_normal)).w1();
-					ptB = (b2w * SupportFaceCentre(sb, w2b * -cf_normal)).w1();
 					return true;
 				}
 
@@ -405,8 +483,8 @@ namespace pr::collision
 		using namespace gjk;
 
 		// Compute shape-to-world and world-to-shape transforms
-		auto a2w = l2w * lhs.m_s2p;
-		auto b2w = r2w * rhs.m_s2p;
+		auto a2w = l2w * lhs.m_s2r;
+		auto b2w = r2w * rhs.m_s2r;
 		auto w2a = InvertOrthonormal(a2w);
 		auto w2b = InvertOrthonormal(b2w);
 
@@ -440,23 +518,317 @@ namespace pr::collision
 			if (DoSimplex(sx, dir))
 			{
 				// Origin enclosed — shapes overlap. Run EPA for penetration info.
-				v4 normal, ptA, ptB;
+				v4 normal;
 				float depth;
-				if (!Epa(lhs, a2w, w2a, rhs, b2w, w2b, sx, ha, hb, normal, depth, ptA, ptB))
+				if (!Epa(lhs, a2w, w2a, rhs, b2w, w2b, sx, ha, hb, normal, depth))
 					return false;
 
-				// Orient axis from lhs toward rhs (convention: axis points A→B)
-				auto pa = Dot3(normal, a2w.pos);
-				auto pb = Dot3(normal, b2w.pos);
-				contact.m_axis = Bool2SignF(pa < pb) * normal;
+				// Orient axis from lhs toward rhs (convention: axis points A->B)
+				auto projection_centre = [&](Shape const& shape, m4x4 const& s2w, m4x4 const& w2s)
+				{
+					auto axis = w2s * normal;
+					EFeature feature_type;
+					auto smax = s2w * SupportVertex(shape, +axis, feature_type);
+					auto smin = s2w * SupportVertex(shape, -axis, feature_type);
+					return 0.5f * (Dot3(normal, smin) + Dot3(normal, smax));
+				};
+
+				auto pa = projection_centre(lhs, a2w, w2a);
+				auto pb = projection_centre(rhs, b2w, w2b);
+				auto sep_axis = Bool2SignF(pa <= pb) * normal;
+				auto [manifold, feature] = FindContactManifold(lhs, l2w, rhs, r2w, sep_axis, depth);
+
+				contact.m_axis = sep_axis;
 				contact.m_depth = depth;
-				contact.m_point = ((ptA + ptB) * 0.5f).w1();
+				contact.m_manifold = manifold;
+				contact.m_feature = feature;
 				contact.m_mat_idA = lhs.m_material_id;
 				contact.m_mat_idB = rhs.m_material_id;
 				return true;
 			}
 		}
 		return false; // GJK did not converge
+	}
+
+	// Closest-point GJK: find the closest point on the Minkowski difference
+	// (shape_a - point_b) to the origin in world space. Equivalent to the closest
+	// point on shape_a to point_b minus point_b. Returns false if point_b is
+	// strictly inside shape_a (origin enclosed in the Minkowski difference) — the
+	// caller is responsible for the deep-penetration fallback. On success,
+	// |out_w_closest| equals the distance from point_b to shape_a.
+	//
+	// Uses the standard Voronoi-style simplex reduction (DoSimplex) which keeps
+	// the most recent support vertex at index 0 — this guarantees progress.
+	// ---- Generic closest-point GJK loop ----
+	// Shared between GjkClosestPointToPoint and GjkClosestPointShapeToShape.
+	// 'mk_support' is any callable with signature: gjk::Sup(v4 dir).
+	// Returns false if the origin is enclosed in the Minkowski difference (i.e.
+	// the two "shapes" overlap — caller is responsible for the deep-penetration
+	// fallback). On success, 'out_w_closest' is the closest Minkowski-space
+	// point to the origin (whose magnitude is the core-to-core distance).
+	template <typename MkSupportFn>
+	inline bool GjkClosestPointLoop(MkSupportFn mk_support, v4 init_dir, v4& out_w_closest)
+	{
+		using namespace gjk;
+
+		out_w_closest = v4::Zero();
+		Simplex sx;
+		auto sup = mk_support(init_dir);
+		sx.Push(sup);
+
+		auto w_closest = sup.w;
+		auto closest_dist_sq = Dot3(w_closest, w_closest);
+
+		for (int iter = 0; iter < MaxIter; ++iter)
+		{
+			// Search toward the origin from the current closest Minkowski point.
+			auto dir = -w_closest.w0();
+			auto dir_sq = Dot3(dir, dir);
+			if (dir_sq < Eps)
+				break;
+
+			sup = mk_support(dir);
+
+			// Standard GJK termination: if the new support doesn't extend further
+			// along the search direction than the current closest point, we've
+			// converged. Equivalent to: dot(sup.w, dir) <= dot(w_closest, dir) + tol.
+			// Since dot(w_closest, dir) = -closest_dist_sq, the test becomes:
+			//   proj < 0 && proj^2 >= closest_dist_sq * |dir|^2 (modulo a small tol).
+			auto proj = Dot3(sup.w, dir);
+			if (proj < 0 && proj * proj > closest_dist_sq * dir_sq * 0.99999f)
+				break;
+
+			// Reject duplicate support vertices (GJK has converged but rounding
+			// nudged the projection check). Without this the simplex can end up
+			// with two coincident vertices and the next reduction degenerates.
+			bool duplicate = false;
+			for (int i = 0; i != sx.n; ++i)
+			{
+				if (LengthSq(sup.w - sx.s[i].w) < Eps)
+				{
+					duplicate = true;
+					break;
+				}
+			}
+			if (duplicate)
+				break;
+
+			sx.Push(sup);
+
+			// Voronoi reduction. Returns true only if a tetrahedron encloses the
+			// origin (the two "shapes" overlap). The dummy_dir output is unused
+			// here because we recompute the closest point from the simplex directly.
+			auto dummy_dir = dir;
+			if (DoSimplex(sx, dummy_dir))
+				return false;
+
+			w_closest = SimplexClosestPoint(sx);
+			closest_dist_sq = Dot3(w_closest, w_closest);
+		}
+
+		out_w_closest = w_closest;
+		return true;
+	}
+
+	// Closest-point GJK: find the closest point on the Minkowski difference
+	// (shape_a - point_b) to the origin in world space. Equivalent to the closest
+	// point on shape_a to point_b minus point_b. Returns false if point_b is
+	// strictly inside shape_a (origin enclosed in the Minkowski difference) — the
+	// caller is responsible for the deep-penetration fallback. On success,
+	// |out_w_closest| equals the distance from point_b to shape_a.
+	inline bool pr_vectorcall GjkClosestPointToPoint(
+		Shape const& shape_a, m4x4 const& a2w, m4x4 const& w2a,
+		v4 point_b, v4& out_w_closest)
+	{
+		using namespace gjk;
+
+		// Initial search direction: from point_b toward shape_a's centre.
+		auto dir = (a2w.pos - point_b).w0();
+		if (LengthSq(dir) < Eps)
+			dir = v4::XAxis();
+
+		int ha = 0;
+		auto mk = [&](v4 d) { return MkSupportPoint(shape_a, a2w, w2a, point_b, d, ha); };
+		return GjkClosestPointLoop(mk, dir, out_w_closest);
+	}
+
+	// Closest-point GJK between two arbitrary convex shapes. Returns false if
+	// the shapes overlap (origin enclosed in the Minkowski difference) — the
+	// caller is responsible for the deep-penetration fallback. On success,
+	// |out_w_closest| equals the distance between the shapes.
+	//
+	// Note: this operates on the shapes as defined by their SupportVertex
+	// functions, including any intrinsic margin (e.g. ShapeLine::m_radius).
+	// To compute the distance between cores (excluding margins), pass shapes
+	// with the margin stripped (e.g. ShapeLine with m_radius set to 0).
+	inline bool pr_vectorcall GjkClosestPointShapeToShape(
+		Shape const& shape_a, m4x4 const& a2w, m4x4 const& w2a,
+		Shape const& shape_b, m4x4 const& b2w, m4x4 const& w2b,
+		v4& out_w_closest)
+	{
+		using namespace gjk;
+
+		auto dir = (a2w.pos - b2w.pos).w0();
+		if (LengthSq(dir) < Eps)
+			dir = v4::XAxis();
+
+		int ha = 0, hb = 0;
+		auto mk = [&](v4 d) { return MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, d, ha, hb); };
+		return GjkClosestPointLoop(mk, dir, out_w_closest);
+	}
+
+	// Convex-vs-Sphere collision via "GJK with margins": run closest-point GJK on
+	// the convex shape vs the sphere centre (a single point), then check distance
+	// < radius and add the margin analytically. This avoids EPA entirely and gives
+	// exact contact normals — far more accurate than EPA against a curved Minkowski
+	// boundary near a polytope edge.
+	//
+	// Compatible with the tri-table function signature. Expects lhs to be the
+	// convex shape (Polytope) and rhs to be the sphere.
+	inline bool pr_vectorcall ConvexVsSphere(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
+	{
+		using namespace gjk;
+		assert(rhs.m_type == EShape::Sphere && "ConvexVsSphere requires rhs to be a Sphere");
+
+		auto a2w = l2w * lhs.m_s2r;
+		auto b2w = r2w * rhs.m_s2r;
+		auto w2a = InvertOrthonormal(a2w);
+
+		auto sphere_centre = b2w.pos.w1();
+		auto radius = shape_cast<ShapeSphere>(rhs).m_radius;
+
+		// Find the closest point on the convex to the sphere centre.
+		v4 w_closest;
+		if (!GjkClosestPointToPoint(lhs, a2w, w2a, sphere_centre, w_closest))
+		{
+			// Sphere centre is inside the convex (deep penetration). Use the convex
+			// centre to sphere centre direction as a best-effort axis.
+			auto axis = Normalise((sphere_centre - a2w.pos).w0(), v4::XAxis());
+			contact.m_axis = axis;
+			contact.m_depth = radius;
+			contact.m_manifold = {};
+			contact.m_manifold[0] = sphere_centre;
+			contact.m_feature = EFeature::Vert;
+			contact.m_mat_idA = lhs.m_material_id;
+			contact.m_mat_idB = rhs.m_material_id;
+			return true;
+		}
+
+		auto dist_sq = Dot3(w_closest, w_closest);
+		auto dist = Sqrt(dist_sq);
+		if (dist >= radius)
+			return false;
+
+		v4 axis;
+		v4 mid;
+		if (dist <= Eps)
+		{
+			// Sphere centre lies on the convex surface — degenerate normal direction.
+			axis = Normalise((sphere_centre - a2w.pos).w0(), v4::XAxis());
+			mid = sphere_centre;
+		}
+		else
+		{
+			// w_closest = closest_convex_pt - sphere_centre, so it points FROM the
+			// sphere centre TOWARD the convex. Contact axis convention is "from A
+			// (convex) to B (sphere)", i.e. opposite to w_closest. Midplane contact
+			// point matches SphereVsSphere convention: midpoint between the two
+			// penetrating surface points (closest convex pt and sphere surface in
+			// the same direction).
+			auto normal = w_closest / dist;
+			auto depth = radius - dist;
+			axis = -normal;
+			mid = sphere_centre + normal * (radius - 0.5f * depth);
+		}
+
+		contact.m_axis = axis;
+		contact.m_depth = radius - dist;
+		contact.m_manifold = {};
+		contact.m_manifold[0] = mid;
+		contact.m_feature = EFeature::Vert;
+		contact.m_mat_idA = lhs.m_material_id;
+		contact.m_mat_idB = rhs.m_material_id;
+		return true;
+	}
+
+	// Convex-vs-Line collision via "GJK with margins": run closest-point GJK on
+	// the convex shape vs the line's CORE (line segment with radius stripped to 0),
+	// then check distance < line.m_radius and add the margin analytically. This
+	// avoids EPA against the curved Minkowski boundary near a polytope edge/vertex
+	// (capsule lateral surface), giving exact contact normals.
+	//
+	// Compatible with the tri-table function signature. Expects lhs to be the
+	// convex shape (Polytope) and rhs to be the line/capsule.
+	//
+	// The contact manifold is built via FindContactManifold using the GJK-derived
+	// axis, which correctly handles the parallel-edge case (line parallel to a
+	// polytope edge produces a 2-point edge manifold).
+	inline bool pr_vectorcall ConvexVsLine(Shape const& lhs, m4x4 const& l2w, Shape const& rhs, m4x4 const& r2w, Contact& contact)
+	{
+		using namespace gjk;
+		assert(rhs.m_type == EShape::Line && "ConvexVsLine requires rhs to be a Line");
+
+		auto const& line_orig = shape_cast<ShapeLine>(rhs);
+		auto line_radius = line_orig.m_radius;
+
+		// 1D line with no margin: nothing to strip; defer to GjkCollide on the raw shapes.
+		if (line_radius == 0.0f)
+			return GjkCollide(lhs, l2w, rhs, r2w, contact);
+
+		auto a2w = l2w * lhs.m_s2r;
+		auto b2w = r2w * rhs.m_s2r;
+		auto w2a = InvertOrthonormal(a2w);
+		auto w2b = InvertOrthonormal(b2w);
+
+		// Build a "core" copy of the line with the margin stripped — used only
+		// for the GJK closest-point query. The original line (with radius) is
+		// passed to FindContactManifold so capsule edge contacts are recognised.
+		auto line_core = line_orig;
+		line_core.m_radius = 0.0f;
+
+		// Run closest-point GJK on (convex, line_core). Returns false if the
+		// line core is fully inside the convex (deep penetration) — fall back to
+		// full GJK+EPA on the inflated shapes for that case.
+		v4 w_closest;
+		if (!GjkClosestPointShapeToShape(lhs, a2w, w2a, line_core, b2w, w2b, w_closest))
+			return GjkCollide(lhs, l2w, rhs, r2w, contact);
+
+		auto dist_sq = Dot3(w_closest, w_closest);
+		auto dist = Sqrt(dist_sq);
+		if (dist >= line_radius)
+			return false;
+
+		v4 axis;
+		float depth;
+		if (dist <= Eps)
+		{
+			// Line core touches convex surface — degenerate normal direction.
+			axis = Normalise((b2w.pos - a2w.pos).w0(), v4::XAxis());
+			depth = line_radius;
+		}
+		else
+		{
+			// w_closest = sup_a - sup_b, points FROM the line core TOWARD the
+			// convex. Contact axis convention is "from A (convex) to B (line)",
+			// i.e. opposite to w_closest.
+			auto normal = w_closest / dist;
+			axis = -normal;
+			depth = line_radius - dist;
+		}
+
+		// Construct the contact manifold from the GJK-derived axis. SupportFeature
+		// on the line returns its full edge when the axis is perpendicular to the
+		// line direction, so a parallel-edge contact correctly reduces to a 2-point
+		// edge manifold via the existing FindContactManifold edge-edge case.
+		auto [manifold, feature] = FindContactManifold(lhs, l2w, rhs, r2w, axis, depth);
+
+		contact.m_axis = axis;
+		contact.m_depth = depth;
+		contact.m_manifold = manifold;
+		contact.m_feature = feature;
+		contact.m_mat_idA = lhs.m_material_id;
+		contact.m_mat_idB = rhs.m_material_id;
+		return true;
 	}
 }
 
@@ -468,13 +840,15 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(GjkTests)
 	{
+		inline static constexpr bool CreateVisuals = false;
+
 		// Two overlapping spheres: GJK should detect contact
 		PRUnitTestMethod(OverlappingSpheres)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0}); // centres 1.0 apart, radii sum = 2
+			auto r2w = m4x4::Translation(1.0f, 0, 0); // centres 1.0 apart, radii sum = 2
 
 			Contact gjk_c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, gjk_c));
@@ -492,7 +866,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{0.5f};
 			auto sb = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{3.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(3, 0, 0);
 
 			Contact c;
 			PR_EXPECT(!GjkCollide(sa, l2w, sb, r2w, c));
@@ -504,7 +878,7 @@ namespace pr::collision::tests
 			auto ba = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.5f, 0, 0, 0}); // overlap of 0.5 in X
+			auto r2w = m4x4::Translation(1.5f, 0, 0); // overlap of 0.5 in X
 
 			Contact gjk_c;
 			PR_EXPECT(GjkCollide(ba, l2w, bb, r2w, gjk_c));
@@ -521,7 +895,7 @@ namespace pr::collision::tests
 			auto ba = ShapeBox{v4{2, 2, 2, 0}};
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{5.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(5, 0, 0);
 
 			Contact c;
 			PR_EXPECT(!GjkCollide(ba, l2w, bb, r2w, c));
@@ -533,7 +907,7 @@ namespace pr::collision::tests
 			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto sph = ShapeSphere{0.5f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.2f, 0, 0, 0}); // sphere centre 1.2 from box centre
+			auto r2w = m4x4::Translation(1.2f, 0, 0); // sphere centre 1.2 from box centre
 
 			// Box surface at x=1, sphere surface at x=0.7..1.7 → overlap 0.3
 			Contact gjk_c;
@@ -547,7 +921,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.0f, 0, 0, 0});
+			auto r2w = m4x4::Translation(1.0f, 0, 0);
 
 			Contact c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, c));
@@ -562,7 +936,7 @@ namespace pr::collision::tests
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
 			auto l2w = m4x4::Identity();
-			auto r2w = m4x4::Translation(v4{1.99f, 0, 0, 0}); // overlap = 0.01
+			auto r2w = m4x4::Translation(1.99f, 0, 0); // overlap = 0.01
 
 			Contact c;
 			PR_EXPECT(GjkCollide(sa, l2w, sb, r2w, c));
@@ -590,7 +964,7 @@ namespace pr::collision::tests
 
 			// Rotate box 45° about Z, place sphere near a corner
 			auto l2w = m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin());
-			auto r2w = m4x4::Translation(v4{0.9f, 0.9f, 0, 0});
+			auto r2w = m4x4::Translation(0.9f, 0.9f, 0);
 
 			Contact gjk_c;
 			auto gjk_result = GjkCollide(box, l2w, sph, r2w, gjk_c);
@@ -626,7 +1000,30 @@ namespace pr::collision::tests
 			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Identity(), c));
 
 			// Separated — should not collide
-			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(v4{10, 0, 0, 0}), c));
+			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(10, 0, 0), c));
+		}
+
+		PRUnitTestMethod(PolytopeFaceManifold)
+		{
+			v4 cube_pts[] = {
+				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
+				v4{-1, +1, -1, 1}, v4{+1, +1, -1, 1},
+				v4{-1, -1, +1, 1}, v4{+1, -1, +1, 1},
+				v4{-1, +1, +1, 1}, v4{+1, +1, +1, 1},
+			};
+
+			auto buf_a = BuildPolytopeFromPoints(cube_pts);
+			auto buf_b = BuildPolytopeFromPoints(cube_pts);
+			auto& pa = buf_a.as<ShapePolytope>();
+			auto& pb = buf_b.as<ShapePolytope>();
+
+			Contact c;
+			PR_EXPECT(GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(1.5f, 0, 0), c));
+			PR_EXPECT(FEqlRelative(c.m_depth, 0.5f, 0.05f));
+			PR_EXPECT(c.Count() == 4);
+			PR_EXPECT(c.m_feature == EFeature::Quad);
+			PR_EXPECT(FEqlRelative(c.Point(), v4{0.75f, 0, 0, 1}, 0.01f));
+			PR_EXPECT(Dot(c.m_axis, Cross(c.m_manifold[1] - c.m_manifold[0], c.m_manifold[2] - c.m_manifold[0])) > 0.0f);
 		}
 	};
 }

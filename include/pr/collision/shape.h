@@ -74,8 +74,9 @@ namespace pr::collision
 			_flags_enum = 0,
 		};
 
-		// Transform from shape space to parent shape space (or physics model space for root objects)
-		m4x4 m_s2p;
+		// Transform from shape space to physics model root space. This is not shape to parent
+		// because evaluating a tree of transforms is too expensive for collision detection
+		m4x4 m_s2r;
 
 		// A bounding box for the shape (and its children) (in shape space).
 		BBox m_bbox;
@@ -93,8 +94,8 @@ namespace pr::collision
 		int m_size;
 
 		Shape() = default;
-		Shape(EShape type, size_t size, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
-			:m_s2p(shape_to_parent)
+		Shape(EShape type, size_t size, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
+			:m_s2r(shape_to_root)
 			,m_bbox(BBox::Reset())
 			,m_type(type)
 			,m_material_id(material_id)
@@ -135,14 +136,12 @@ namespace pr::collision
 
 	// Standard shape functions
 	BBox pr_vectorcall CalcBBox(Shape const& shape);
-	void pr_vectorcall ShiftCentre(Shape&, v4 shift);
 	v4   pr_vectorcall SupportVertex(Shape const& shape, v4 direction, int hint_vert_id, int& sup_vert_id);
 	void pr_vectorcall ClosestPoint(Shape const& shape, v4 point, float& distance, v4& closest);
 
 	#define PR_ENUM(name, comp)\
 	struct Shape##name; /*forward declaration*/ \
 	BBox pr_vectorcall CalcBBox(Shape##name const& shape);\
-	void pr_vectorcall ShiftCentre(Shape##name& shape, v4 shift);\
 	v4   pr_vectorcall SupportVertex(Shape##name const& shape, v4 direction, int hnt_vert_id, int& sup_vert_id);\
 	void pr_vectorcall ClosestPoint(Shape##name const& shape, v4 point, float& distance, v4& closest);
 	PR_COLLISION_SHAPES(PR_ENUM)
@@ -239,7 +238,7 @@ namespace pr::collision
 		return s_no_shape;
 	}
 
-	// Calculate the bounding box for a shape (in parent space, i.e. includes m_s2p)
+	// Calculate the bounding box for a shape (in shape space)
 	inline BBox pr_vectorcall CalcBBox(Shape const& shape)
 	{
 		switch (shape.m_type)
@@ -248,18 +247,6 @@ namespace pr::collision
 			PR_COLLISION_SHAPES(PR_ENUM)
 			#undef PR_ENUM
 			default: assert("Unknown primitive type" && false); return BBox::Reset();
-		}
-	}
-
-	// Shift the centre a shape. Updates 'shape.m_shape_to_model' and 'shift'
-	inline void pr_vectorcall ShiftCentre(Shape& shape, v4 shift)
-	{
-		switch (shape.m_type)
-		{
-			#define PR_ENUM(name, comp) case EShape::name: return ShiftCentre(shape_cast<Shape##name>(shape), shift);
-			PR_COLLISION_SHAPES(PR_ENUM)
-			#undef PR_ENUM
-			default: assert("Unknown primitive type" && false); return;
 		}
 	}
 

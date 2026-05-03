@@ -4,7 +4,17 @@
 
 namespace physics_sandbox
 {
-	SandboxUI::SandboxUI()
+	namespace
+	{
+		using Clock = std::chrono::steady_clock;
+
+		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
+		{
+			return std::chrono::duration<double, std::milli>(end - beg).count();
+		}
+	}
+
+	SandboxUI::SandboxUI(bool profile_enabled)
 		: Form(Params<>()
 			.name("physics-sandbox")
 			.title(L"Rylogic Physics Sandbox")
@@ -41,8 +51,11 @@ namespace physics_sandbox
 		, m_title_elapsed(0)
 		, m_details_elapsed(0)
 		, m_status_elapsed(0)
+		, m_profile(profile_enabled)
 		, m_closing(false)
 	{
+		m_profile.Open(AppDataPath() / "profile.csv");
+
 		// Load the recent files list from disk and populate the submenu
 		m_recent.Load();
 		RebuildRecentFilesMenu();
@@ -119,8 +132,12 @@ namespace physics_sandbox
 		// objects to the scene's drawlist before rendering.
 		m_view3d.OnAddToScene += [&](auto&, rdr12::Scene& scene)
 		{
+			auto const beg = Clock::now();
+			auto const w2c = scene.m_cam.WorldToCamera();
+			auto const frustum = scene.m_cam.ViewFrustum();
+			auto const clip_planes = scene.m_cam.ClipPlanes(false);
 			for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
-				m_scene.m_body[i].AddToScene(scene);
+				m_scene.m_body[i].AddToScene(scene, w2c, frustum, clip_planes);
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
@@ -128,6 +145,9 @@ namespace physics_sandbox
 				m_scene.m_origin_gfx->AddToScene(scene);
 			if (m_scene.m_contacts_gfx)
 				m_scene.m_contacts_gfx->AddToScene(scene);
+
+			if (m_profile.Enabled())
+				m_profile.RecordAddScene(ElapsedMs(beg, Clock::now()));
 		};
 
 		// Start with the sandbox scenario
@@ -314,6 +334,8 @@ namespace physics_sandbox
 	// Advance the simulation by one timestep
 	void SandboxUI::Step(double elapsed_seconds)
 	{
+		auto const step_beg = Clock::now();
+
 		// Don't step after close begins
 		if (m_closing)
 			return;
@@ -331,6 +353,8 @@ namespace physics_sandbox
 
 		// Step the physics scene with the scaled timestep
 		auto collision = m_scene.Step(sim_dt);
+		if (m_profile.Enabled())
+			m_profile.RecordStep(m_scene.m_last_step_profile, ElapsedMs(step_beg, Clock::now()));
 
 		// Pause on first collision if requested
 		if (collision && m_pause_on_collision && m_scene.m_diag.count == 1)
@@ -341,20 +365,43 @@ namespace physics_sandbox
 	// Expensive UI operations are rate-limited to avoid dominating frame time.
 	void SandboxUI::Render(double elapsed_seconds)
 	{
+		auto const render_beg = Clock::now();
+
 		// Don't render after close begins
 		if (m_closing)
 			return;
 
 		++m_frame_count;
+		auto profile_sample = SandboxProfiler::RenderSample{};
 
 		// Sync each body's View3D graphics to its physics transform.
 		// This is cheap — just copying an O2W matrix per body.
+		auto const sync_beg = Clock::now();
 		for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 			m_scene.m_body[i].UpdateGfx();
+		auto const sync_end = Clock::now();
 
 		// Render the 3D viewport. Objects are added to the scene via the
 		// OnAddToScene event during DoRender(), so no explicit Add/Remove needed.
-		m_view3d.DoRender();
+		auto const render3d_beg = Clock::now();
+		auto const clear_beg = Clock::now();
+		m_view3d.m_scene.ClearDrawlists();
+		auto const clear_end = Clock::now();
+
+		m_view3d.OnAddToScene(m_view3d, m_view3d.m_scene);
+
+		auto const new_frame_beg = Clock::now();
+		auto& frame = m_view3d.m_wnd.NewFrame();
+		auto const new_frame_end = Clock::now();
+
+		auto const scene_render_beg = Clock::now();
+		m_view3d.m_scene.Render(frame);
+		auto const scene_render_end = Clock::now();
+
+		auto const present_beg = Clock::now();
+		m_view3d.m_wnd.Present(frame, rdr12::EGpuFlush::Async);
+		auto const present_end = Clock::now();
+		auto const render3d_end = Clock::now();
 
 		// Accumulate time for FPS measurement and rate-limited UI updates.
 		// These use wall-clock time (not scaled time) so the UI stays responsive.
@@ -371,11 +418,15 @@ namespace physics_sandbox
 			m_fps_elapsed = 0;
 		}
 
-		// Update the details panel text at reduced rate (~5 Hz).
-		if (m_details_elapsed >= 0.2)
+		// Update the details panel only while paused. Formatting thousands of bodies is expensive
+		// and it is usually unreadable while the simulation is running anyway.
+		if (m_steps_remaining == 0 && m_details_elapsed >= 0.2)
 		{
 			m_details_elapsed = 0;
+			auto const details_beg = Clock::now();
 			m_details.Update(m_scene);
+			if (m_profile.Enabled())
+				profile_sample.m_details_ms += ElapsedMs(details_beg, Clock::now());
 		}
 
 		// Update title bar at reduced rate (~4 Hz). SetWindowTextA triggers
@@ -383,22 +434,28 @@ namespace physics_sandbox
 		if (m_title_elapsed >= 0.25)
 		{
 			m_title_elapsed = 0;
+			auto const title_beg = Clock::now();
 
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} col={}  FPS: {:.0f}",
+			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} frame={} col={}  FPS: {:.0f}",
 				static_cast<int>(m_scene.m_current_scenario),
 				ScenarioName(m_scene.m_current_scenario),
 				m_scene.m_clock,
+				m_scene.m_step_count,
 				m_scene.m_diag.count,
 				m_fps).c_str());
+
+			if (m_profile.Enabled())
+				profile_sample.m_title_ms += ElapsedMs(title_beg, Clock::now());
 		}
 
 		// Update status bar (only when text changes to avoid flicker)
 		if (m_status_elapsed >= 0.2)
 		{
 			m_status_elapsed = 0;
+			auto const status_beg = Clock::now();
 			auto new_status = std::format(L"t={:.3f}  {}  Collisions: {}  {}  FPS: {:.0f}",
 				m_scene.m_clock,
 				pr::Widen(ScenarioName(m_scene.m_current_scenario)),
@@ -411,6 +468,21 @@ namespace physics_sandbox
 				m_last_status = std::move(new_status);
 				m_status.Text(0, m_last_status.c_str());
 			}
+
+			if (m_profile.Enabled())
+				profile_sample.m_status_ms += ElapsedMs(status_beg, Clock::now());
+		}
+
+		if (m_profile.Enabled())
+		{
+			profile_sample.m_sync_gfx_ms = ElapsedMs(sync_beg, sync_end);
+			profile_sample.m_do_render_ms = ElapsedMs(render3d_beg, render3d_end);
+			profile_sample.m_clear_drawlists_ms = ElapsedMs(clear_beg, clear_end);
+			profile_sample.m_new_frame_ms = ElapsedMs(new_frame_beg, new_frame_end);
+			profile_sample.m_scene_render_ms = ElapsedMs(scene_render_beg, scene_render_end);
+			profile_sample.m_present_ms = ElapsedMs(present_beg, present_end);
+			profile_sample.m_render_ms = ElapsedMs(render_beg, Clock::now());
+			m_profile.RecordRender(m_scene, profile_sample);
 		}
 	}
 

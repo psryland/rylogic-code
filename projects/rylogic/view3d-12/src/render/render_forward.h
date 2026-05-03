@@ -44,6 +44,6 @@ namespace pr::rdr12
 		void DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist);
 
 		// Draw a single nugget
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc);
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
 	};
 }

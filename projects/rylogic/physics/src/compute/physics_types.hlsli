@@ -16,6 +16,7 @@ static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
 static const int MaxColours = 32;
+static const int GpuContactMaxPoints = 4;
 
 // Rigid body state flags:
 static const int ERigidBodyStateFlags_None = 0;
@@ -30,6 +31,31 @@ static const int SHAPE_LINE     = 2;
 static const int SHAPE_TRIANGLE = 3;
 static const int SHAPE_POLYTOPE = 4;
 static const int SHAPE_ARRAY    = 5;
+
+// Collision pair bins. These are unordered shape pairs canonicalised by shape type.
+static const int COLLISION_BIN_SPHERE_VS_SPHERE     = 0;
+static const int COLLISION_BIN_BOX_VS_SPHERE        = 1;
+static const int COLLISION_BIN_BOX_VS_BOX           = 2;
+static const int COLLISION_BIN_LINE_VS_SPHERE       = 3;
+static const int COLLISION_BIN_LINE_VS_BOX          = 4;
+static const int COLLISION_BIN_LINE_VS_LINE         = 5;
+static const int COLLISION_BIN_TRIANGLE_VS_SPHERE   = 6;
+static const int COLLISION_BIN_TRIANGLE_VS_BOX      = 7;
+static const int COLLISION_BIN_TRIANGLE_VS_LINE     = 8;
+static const int COLLISION_BIN_TRIANGLE_VS_TRIANGLE = 9;
+static const int COLLISION_BIN_POLYTOPE_VS_SPHERE   = 10;
+static const int COLLISION_BIN_POLYTOPE_VS_BOX      = 11;
+static const int COLLISION_BIN_POLYTOPE_VS_LINE     = 12;
+static const int COLLISION_BIN_POLYTOPE_VS_TRIANGLE = 13;
+static const int COLLISION_BIN_POLYTOPE_VS_POLYTOPE = 14;
+static const int COLLISION_BIN_COUNT                = 15;
+
+// Collision feature types. The value is the manifold point count.
+static const int FEATURE_NONE = 0;
+static const int FEATURE_VERT = 1;
+static const int FEATURE_EDGE = 2;
+static const int FEATURE_TRI  = 3;
+static const int FEATURE_QUAD = 4;
 
 // ---- GPU data structures (must match C++ layout exactly) ----
 struct GpuRigidBody
@@ -95,10 +121,20 @@ struct GpuCollisionPair
 	int shape_idx_b;       // Collision shape index for B
 	row_major float4x4 b2a; // transform B into A's space
 };
+struct GpuContact
+{
+	float4 axis;                           // collision normal, pointing from shape A toward shape B
+	float4 manifold[GpuContactMaxPoints]; // contact manifold points in the collision function's common space
+	int feature;                          // FEATURE_*; also the number of valid manifold points
+	float depth;                          // Penetration depth (positive = overlapping).
+	int pad0;
+	int pad1;
+};
 struct GpuResolveContact
 {
-	float4 axis;            // collision normal (in A's object space)
-	float4 contact_point;   // contact point at estimated collision time (in A's space)
+	float4 axis;            // collision normal (in A's object space), pointing from body_idx_a toward body_idx_b
+	float4 contact_point;   // centroid of the manifold, used by the resolver until it becomes manifold-aware
+	float4 manifold[GpuContactMaxPoints]; // manifold points at estimated collision time (in A's space)
 	row_major float4x4 b2a; // B-to-A transform
 	int body_idx_a;         // index into GpuRigidBody buffer
 	int body_idx_b;         // index into GpuRigidBody buffer
@@ -106,7 +142,7 @@ struct GpuResolveContact
 	int mat_id_b;           // Material IDs from each shape
 	float depth;            // Penetration depth (positive = overlapping).
 	float collision_time;   // Estimated sub-step collision time. Written by CSComputeCollisionTimes.
-	int pad0;
+	int feature;            // FEATURE_*; also the number of valid manifold points
 	int pad1;
 };
 struct GpuCollisionCounters
@@ -126,24 +162,6 @@ struct GpuMaterial
 	float pad0;
 	float pad1;
 	float pad2;
-};
-struct GpuIntegrateDiag
-{
-	float ke_before;
-	float ke_after;
-	float pad0;
-	float pad1;
-};
-struct GpuPairDiag
-{
-	int body_idx_a;  // Rigid body index for A
-	int body_idx_b;  // Rigid body index for B
-	int shape_type_a;
-	int shape_type_b;
-	int gjk_iters;
-	int epa_iters;
-	int hit;
-	int pad0;
 };
 struct DispatchArguments // D3D12_DISPATCH_ARGUMENTS
 {

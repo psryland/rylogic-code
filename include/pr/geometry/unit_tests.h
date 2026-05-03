@@ -44,6 +44,8 @@ namespace pr::geometry
 	};
 	PRUnitTestClass(ClosestPointTests)
 	{
+		inline static constexpr bool CreateVisuals = false;
+
 		PRUnitTestMethod(PointToPlane)
 		{
 		}
@@ -62,6 +64,7 @@ namespace pr::geometry
 				auto axis = sep.SeparatingAxis();
 
 				#if PR_UNITTESTS_VISUALISE
+				if constexpr (CreateVisuals)
 				{
 					pr::ldraw::Builder builder;
 					builder.Box("bbox", 0x8000FF00).box(bbox.m_radius.x * 2, bbox.m_radius.y * 2, bbox.m_radius.z * 2).pos(bbox.m_centre);
@@ -69,7 +72,7 @@ namespace pr::geometry
 					builder.Box("cp1", 0xFF0000FF).box(0.01f).pos(pt0);
 					builder.Box("cp2", 0xFF0000FF).box(0.01f).pos(pt1);
 					builder.Line("axis", 0xFF0000FF).line(pt0, pt1);
-					//builder.Save(temp_dir() / "test.ldr");
+					builder.Save(temp_dir() / "test.ldr");
 				}
 				#endif
 			}
@@ -93,13 +96,14 @@ namespace pr::geometry
 				auto pt1 = BaryPoint(a, b, c, para.xyz);
 
 				#if PR_UNITTESTS_VISUALISE
+				if constexpr (CreateVisuals)
 				{
 					Builder builder;
 					builder.Line("ray", 0xFFFF0000).style("Direction").line(s, 5 * d);
 					builder.Triangle("tri", 0xFF0000FF).tri(a, b, c);
 					builder.Point("cp0", 0xFFFFFF00).size(20).pt(pt0);
 					builder.Point("cp1", 0xFF00FFFF).size(20).pt(pt1);
-					//builder.Save(temp_dir() / "geometry.ldr");
+					builder.Save(temp_dir() / "geometry.ldr");
 				}
 				#endif
 			}

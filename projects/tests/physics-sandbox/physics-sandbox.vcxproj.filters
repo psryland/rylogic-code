@@ -208,6 +208,9 @@
     <ClInclude Include="src\diagnostics\diagnostics.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
+    <ClInclude Include="src\diagnostics\stack_diagnostic.h">
+      <Filter>src\diagnostics</Filter>
+    </ClInclude>
     <ClInclude Include="src\utils\scene_loader.h">
       <Filter>src\utils</Filter>
     </ClInclude>
@@ -248,6 +251,9 @@
       <Filter>src\ui</Filter>
     </ClInclude>
     <ClInclude Include="src\ui\menu_id.h">
+      <Filter>src\ui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\sandbox_profiler.h">
       <Filter>src\ui</Filter>
     </ClInclude>
     <ClInclude Include="src\scene\scenario.h">
@@ -341,7 +347,13 @@
     <ClCompile Include="src\diagnostics\diagnostics.cpp">
       <Filter>src\diagnostics</Filter>
     </ClCompile>
+    <ClCompile Include="src\diagnostics\stack_diagnostic.cpp">
+      <Filter>src\diagnostics</Filter>
+    </ClCompile>
     <ClCompile Include="src\ui\media_panel.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\sandbox_profiler.cpp">
       <Filter>src\ui</Filter>
     </ClCompile>
     <ClCompile Include="src\ui\sandbox_ui.cpp">

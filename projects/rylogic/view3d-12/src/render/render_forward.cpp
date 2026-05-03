@@ -257,6 +257,8 @@ namespace pr::rdr12
 	void RenderForward::DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist)
 	{
 		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
+		auto pipe_state_bound = false;
+		auto pipe_state_hash = 0;
 
 		// Draw each element in the draw list
 		for (auto& dle : drawlist)
@@ -284,12 +286,13 @@ namespace pr::rdr12
 				{
 					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTexture, srv_descriptor);
 					last_tex = srv_descriptor;
-				}
-				if constexpr (PR_DBG_RDR)
-				{
-					// Ensure the diffuse texture is in the correct state
-					auto state = cmd_list.ResState(tex->m_res.get()).Mip0State();
-					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
+
+					if constexpr (PR_DBG_RDR)
+					{
+						// Ensure the diffuse texture is in the correct state
+						auto state = cmd_list.ResState(tex->m_res.get()).Mip0State();
+						assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
+					}
 				}
 			}
 
@@ -349,14 +352,25 @@ namespace pr::rdr12
 				overlay.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
 			}
 
-			// Draw the nugget ****
-			DrawNugget(cmd_list, nugget, desc);
+			// Draw the nugget
+			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash);
 		}
 	}
 
 	// Draw a single nugget
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc)
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
 	{
+		auto set_pipe_state = [&]
+		{
+			auto hash = desc.hash();
+			if (pipe_state_bound && pipe_state_hash == hash)
+				return;
+
+			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			pipe_state_bound = true;
+			pipe_state_hash = hash;
+		};
+
 		// Resolve the effective fill mode: per-nugget override wins, else scene-level
 		auto fill_mode = nugget.FillMode() != EFillMode::Default
 			? nugget.FillMode()
@@ -372,7 +386,7 @@ namespace pr::rdr12
 			if (fill_mode == EFillMode::Wireframe)
 				desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 
-			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			set_pipe_state();
 			if (nugget.m_irange.empty())
 			{
 				cmd_list.DrawInstanced(
@@ -399,7 +413,7 @@ namespace pr::rdr12
 			auto prev_fill_mode = desc.Get<EPipeState::FillMode>();
 			desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 			desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
-			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			set_pipe_state();
 
 			cmd_list.DrawIndexedInstanced(
 				s_cast<size_t>(nugget.m_irange.size()), 1U,
@@ -421,7 +435,7 @@ namespace pr::rdr12
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(ETopo::PointList)));
 			desc.Apply(PSO<EPipeState::GS>(wnd().m_diag.m_gs_fillmode_points->m_code.GS));
 			cmd_list.IASetPrimitiveTopology(ETopo::PointList);
-			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+			set_pipe_state();
 
 			cmd_list.DrawInstanced(
 				s_cast<size_t>(nugget.m_vrange.size()), 1U,

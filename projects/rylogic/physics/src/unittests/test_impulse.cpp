@@ -34,7 +34,7 @@ namespace pr::physics::tests
 
 			RbContact c(objA, objB);
 			c.m_axis = v4{1,0,0,0};
-			c.m_point = v4{0.5f, 0, 0, 0};
+			c.SetPoint(v4{0.5f, 0, 0, 0});
 			c.m_mat = bouncy;
 			c.Update(0);
 
@@ -69,7 +69,7 @@ namespace pr::physics::tests
 
 			RbContact c(objA, objB);
 			c.m_axis = Normalise(v4{1,1,0,0});
-			c.m_point = v4{0.5f, 0, 0, 0};
+			c.SetPoint(v4{0.5f, 0, 0, 0});
 			c.m_mat = sticky;
 			c.Update(0);
 
@@ -108,7 +108,7 @@ namespace pr::physics::tests
 			auto axis = Normalise(v4{Cos(constants<float>::tau/16), Sin(constants<float>::tau/16),0,0});
 			RbContact c(objA, objB);
 			c.m_axis = axis;
-			c.m_point = v4{0.5f, 0, 0, 0};
+			c.SetPoint(v4{0.5f, 0, 0, 0});
 			c.m_mat = bouncy;
 			c.Update(0);
 
@@ -119,7 +119,7 @@ namespace pr::physics::tests
 			// The contact-point relative velocity should have its normal component reversed
 			// (elastic), and since this is frictionless the tangential component is unchanged.
 			auto dvel = c.m_b2a * objB.VelocityOS() - objA.VelocityOS();
-			auto vout = dvel.LinAt(c.m_point);
+			auto vout = dvel.LinAt(c.Point());
 			auto vn_out = Dot(vout, c.m_axis);
 
 			// For elastic collision, the normal component of relative velocity at the
@@ -150,7 +150,7 @@ namespace pr::physics::tests
 
 			RbContact c(objA, objB);
 			c.m_axis = v4{1,0,0,0};
-			c.m_point = v4{0.5f, 0, 0, 0};
+			c.SetPoint(v4{0.5f, 0, 0, 0});
 			c.m_mat = bouncy;
 			c.Update(0);
 
@@ -180,7 +180,7 @@ namespace pr::physics::tests
 
 			RbContact c(objA, objB);
 			c.m_axis = v4{1,0,0,0};
-			c.m_point = v4{0.5f, 0, 0, 0};
+			c.SetPoint(v4{0.5f, 0, 0, 0});
 			c.m_mat = sticky;
 			c.Update(0);
 

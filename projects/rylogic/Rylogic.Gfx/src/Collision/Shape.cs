@@ -26,8 +26,8 @@ public enum EFlags : int
 [StructLayout(LayoutKind.Sequential)]
 public struct Shape
 {
-	// Transform from shape space to parent shape space (or physics model space for root objects)
-	public m4x4 m_s2p;        // offset 0, 64 bytes
+	// Transform from shape space to physics model root space
+	public m4x4 m_s2r;        // offset 0, 64 bytes
 
 	// A bounding box for the shape (and its children) (in shape space).
 	public BBox m_bbox;        // offset 64, 32 bytes

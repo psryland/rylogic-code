@@ -49,6 +49,20 @@ namespace pr::physics
 				Flush();
 		}
 
+		// Drop all cached shapes and entries. Call after any caller-owned Shape that has
+		// been passed to GetOrAdd() may have been destroyed — entry keys are raw Shape
+		// pointers and the cache cannot detect dangling pointers itself. The next
+		// GetOrAdd() will rebuild from scratch and will set m_changed so the GPU
+		// re-uploads the new shape buffer.
+		void Reset()
+		{
+			m_shapes.clear();
+			m_verts.clear();
+			m_entries.clear();
+			m_frame = 0;
+			m_changed = true;
+		}
+
 		// Get the GPU shape index for a collision shape, adding it to the cache if new.
 		// Returns the index into m_shapes.
 		int GetOrAdd(Shape const& shape)

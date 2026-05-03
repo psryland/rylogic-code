@@ -241,57 +241,63 @@ namespace pr::geometry
 #include "pr/common/unittests.h"
 namespace pr::geometry::tests
 {
-	PRUnitTest(ScatterTests)
+	PRUnitTestClass(ScatterTests)
 	{
-		constexpr int Dim = 3;
-		std::default_random_engine rng;
+		inline static constexpr bool CreateVisuals = false;
 
-		std::vector<Body> bodies(100);
-		for (auto& body : bodies)
+		PRUnitTestMethod(ScatterTest)
 		{
-			body.m_point = Random<v3>(rng, v3::Zero(), 100.0f).w1();
-			body.m_size = Abs(Random<v3>(rng, v3(1.0f), v3(5.0f))).w0();
-			if constexpr (Dim == 2)
+			constexpr int Dim = 3;
+			std::default_random_engine rng;
+
+			std::vector<Body> bodies(100);
+			for (auto& body : bodies)
 			{
-				body.m_point.z = 0.0f;
-				body.m_size.z = 0.0f;
+				body.m_point = Random<v3>(rng, v3::Zero(), 100.0f).w1();
+				body.m_size = Abs(Random<v3>(rng, v3(1.0f), v3(5.0f))).w0();
+				if constexpr (Dim == 2)
+				{
+					body.m_point.z = 0.0f;
+					body.m_size.z = 0.0f;
+				}
 			}
-		}
 
-		constexpr int LinksPerBody = 3;
-		std::vector<Link> links(bodies.size() * LinksPerBody);
-		for (auto& link : links)
-		{
-			do
+			constexpr int LinksPerBody = 3;
+			std::vector<Link> links(bodies.size() * LinksPerBody);
+			for (auto& link : links)
 			{
-				link.m_body0 = static_cast<int>(&link - links.data()) % isize(bodies);
-				link.m_body1 = std::uniform_int_distribution(0, isize(bodies) - 1)(rng);
-			} while (link.m_body0 == link.m_body1);
-		}
-
-		Scatterer<Dim> scat(bodies, links, {});
-		scat.Step();
-
-		#if PR_UNITTESTS_VISUALISE
-		{
-			auto LdrDump = [&]
-			{
-				auto ldr = pr::ldraw::Builder{};
-				auto& ldr_bodies = ldr.Group("Body");
-				for (auto const& body : bodies)
-					ldr_bodies.Box("Box", 0xFF00FF00).box(body.m_size).pos(body.m_point);
-				auto& ldr_links = ldr.Line("Link", 0xFF005000);
-				for (auto const& link : links)
-					ldr_links.line(bodies[link.m_body0].m_point, bodies[link.m_body1].m_point);
-				ldr.Save(temp_dir() / "scatter.ldr");
-			};
-			for (; !scat.m_equalibrium; )
-			{
-				LdrDump();
-				scat.Step();
+				do
+				{
+					link.m_body0 = static_cast<int>(&link - links.data()) % isize(bodies);
+					link.m_body1 = std::uniform_int_distribution(0, isize(bodies) - 1)(rng);
+				} while (link.m_body0 == link.m_body1);
 			}
+
+			Scatterer<Dim> scat(bodies, links, {});
+			scat.Step();
+
+			#if PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisuals)
+			{
+				auto LdrDump = [&]
+				{
+					auto ldr = pr::ldraw::Builder{};
+					auto& ldr_bodies = ldr.Group("Body");
+					for (auto const& body : bodies)
+						ldr_bodies.Box("Box", 0xFF00FF00).box(body.m_size).pos(body.m_point);
+					auto& ldr_links = ldr.Line("Link", 0xFF005000);
+					for (auto const& link : links)
+						ldr_links.line(bodies[link.m_body0].m_point, bodies[link.m_body1].m_point);
+					ldr.Save(temp_dir() / "scatter.ldr");
+				};
+				for (; !scat.m_equalibrium; )
+				{
+					LdrDump();
+					scat.Step();
+				}
+			}
+			#endif
 		}
-		#endif
-	}
+	};
 }
 #endif

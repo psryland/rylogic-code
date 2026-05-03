@@ -1212,6 +1212,19 @@ namespace pr::hlsl
 	{
 		return radians * (360.0f / constants<float>::tau);
 	}
+
+	// --- firstbitlow ---
+	inline uint firstbitlow(uint v)
+	{
+		if (v == 0)
+			return 0xFFFFFFFFu;
+
+		return static_cast<uint>(std::countr_zero(v));
+	}
+	inline int firstbitlow(int v)
+	{
+		return static_cast<int>(firstbitlow(static_cast<uint>(v)));
+	}
 	#pragma endregion
 
 	#pragma region Wave Intrinsics

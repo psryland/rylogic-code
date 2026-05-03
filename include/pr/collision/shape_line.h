@@ -20,16 +20,16 @@ namespace pr::collision
 		int pad[2];
 
 		ShapeLine() = default;
-		explicit ShapeLine(float length, float radius = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			: m_base(EShape::Line, sizeof(ShapeLine), shape_to_parent, material_id, flags)
+		explicit ShapeLine(float length, float radius = 0, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			: m_base(EShape::Line, sizeof(ShapeLine), shape_to_root, material_id, flags)
 			, m_hlength(length * 0.5f)
 			, m_radius(radius)
 			, pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);
 		}
-		explicit ShapeLine(v4 a, v4 b, float radius = 0, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:ShapeLine(Length(b-a), radius, shape_to_parent * m4x4::Transform(b-a, v4::ZAxis(), (a+b)/2.0f), material_id, flags)
+		explicit ShapeLine(v4 a, v4 b, float radius = 0, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			:ShapeLine(Length(b-a), radius, shape_to_root * m4x4::Transform(b-a, v4::ZAxis(), (a+b)/2.0f), material_id, flags)
 		{}
 		
 		// Conversion
@@ -58,13 +58,6 @@ namespace pr::collision
 	inline BBox pr_vectorcall CalcBBox(ShapeLine const& shape)
 	{
 		return BBox(v4::Origin(), v4(shape.m_radius, shape.m_radius, shape.m_hlength + shape.m_radius, 0.0f));
-	}
-
-	// Shift the centre of a line
-	inline void pr_vectorcall ShiftCentre(ShapeLine&, v4 shift)
-	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
-		(void)shift; 
 	}
 
 	// Return a support vertex for a line.

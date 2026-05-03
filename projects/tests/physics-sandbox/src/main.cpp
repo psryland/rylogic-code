@@ -4,11 +4,12 @@
 //************************************
 // Entry point for the physics sandbox application.
 // Two modes:
-//   -unittest [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
+//   -unittests [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
+#include "src/diagnostics/stack_diagnostic.h"
 #include "physics/src/unittests/force_link.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
@@ -22,20 +23,22 @@ using namespace physics_sandbox;
 
 namespace physics_sandbox
 {
+	// Attach stdout/stderr to the parent console, or allocate one when launched from Explorer.
+	void OpenConsoleOutput()
+	{
+		if (!AttachConsole(DWORD(-1)))
+			AllocConsole();
+
+		FILE* fp = nullptr;
+		freopen_s(&fp, "CONOUT$", "w", stdout);
+		freopen_s(&fp, "CONOUT$", "w", stderr);
+	}
+
 	// Run embedded unit tests to a console window and exit.
 	// Optional class name filters are passed via 'filter' (substring match on class names).
 	int RunUnitTests(std::span<std::string_view const> filter = {})
 	{
-		// Uses AllocConsole() to create a console for the WinApp process,
-		// then redirects stdout so PR_EXPECT output is visible.
-		// Attach to parent console (if launched from cmd) or allocate a new one
-		if (!AttachConsole(DWORD(-1)))
-			AllocConsole();
-
-		// Redirect stdout/stderr to the console
-		FILE* fp = nullptr;
-		freopen_s(&fp, "CONOUT$", "w", stdout);
-		freopen_s(&fp, "CONOUT$", "w", stderr);
+		OpenConsoleOutput();
 
 		printf("Physics Sandbox: Running unit tests...\n");
 
@@ -48,6 +51,39 @@ namespace physics_sandbox
 		// RunAllTests() executes them and prints results.
 		auto failed = pr::unittests::RunAllTests(true, filter);
 		return failed > 0 ? 1 : 0;
+	}
+
+	// Run a headless stacked-object diagnostic and print post-step penetration metrics.
+	int RunStackDiagnostic(pr::CmdLine const& cmd)
+	{
+		OpenConsoleOutput();
+		auto log_path = AppDataPath() / "stackdiag.log";
+
+		auto options = diag::StackDiagnosticOptions{
+			.m_scene_filepath = "projects\\tests\\physics-sandbox\\scenes\\stacked_column.json",
+		};
+		if (cmd.count("scene"))
+			options.m_scene_filepath = cmd("scene").as<std::filesystem::path>();
+		if (cmd.count("steps"))
+			options.m_steps = cmd("steps").as<int>();
+		if (cmd.count("dt"))
+			options.m_dt = cmd("dt").as<double>();
+		if (cmd.count("report"))
+			options.m_report_interval = cmd("report").as<int>();
+
+		try
+		{
+			diag::RunStackDiagnostic(options);
+			return 0;
+		}
+		catch (std::exception const& ex)
+		{
+			if (auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc))
+				log << "EXCEPTION: " << ex.what() << "\n";
+
+			fprintf(stderr, "EXCEPTION: %s\n", ex.what());
+			return -1;
+		}
 	}
 
 	// The user's app data directory.
@@ -76,13 +112,17 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	// but CmdLine's string_view constructor skips argv[0] as the exe name.
 	auto cmd = pr::CmdLine("app " + std::string(lpCmdLine ? lpCmdLine : ""));
 
-	// Check for -unittest mode before initialising any GUI resources.
-	// Usage: -unittest [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
+	// Check for -unittests mode before initialising any GUI resources.
+	// Usage: -unittests [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
 	if (cmd.count("unittests"))
 	{
 		auto const& arg = cmd("unittests");
 		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
 		return physics_sandbox::RunUnitTests(filter);
+	}
+	if (cmd.count("stackdiag"))
+	{
+		return physics_sandbox::RunStackDiagnostic(cmd);
 	}
 
 	// Interactive sandbox mode.
@@ -108,7 +148,7 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		// Create the message loop first so the form can reference it for clean shutdown
 		WinGuiMsgLoop loop;
 
-		SandboxUI sandbox;
+		SandboxUI sandbox(cmd.count("profile") != 0);
 		sandbox.cp().msg_loop(&loop);
 
 		// Load a scene file on startup if specified: -scene <filepath>

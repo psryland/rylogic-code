@@ -4,6 +4,7 @@
 #include "src/ui/recent_files.h"
 #include "src/ui/media_panel.h"
 #include "src/ui/details_panel.h"
+#include "src/ui/sandbox_profiler.h"
 
 namespace physics_sandbox
 {
@@ -48,10 +49,13 @@ namespace physics_sandbox
 		double m_details_elapsed; // Details panel update interval (every 0.2s)
 		double m_status_elapsed;  // Status panel update interval (every 0.2s)
 
+		// Lightweight frame profiler enabled with '-profile'.
+		SandboxProfiler m_profile;
+
 		// Set when WM_CLOSE is received to prevent step/render after destruction begins
 		bool m_closing;
 
-		SandboxUI();
+		SandboxUI(bool profile_enabled = false);
 		~SandboxUI();
 
 		// Process window messages for this form.
@@ -77,5 +81,6 @@ namespace physics_sandbox
 
 		// Compute a bounding box that encompasses all bodies in the scene
 		BBox ComputeSceneBBox() const;
+
 	};
 }

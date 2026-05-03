@@ -21,10 +21,10 @@ namespace pr::ldraw
 	struct LdrCollisionShape : LdrGroup
 	{
 		LdrCollisionShape(seri::Name name = {}, seri::Colour colour = {})
-			: LdrGroup(name, colour)
+			: LdrGroup(name, 0xFFFFFFFF)
 		{
+			group_colour(colour);
 		}
-
 		LdrCollisionShape& shape(collision::Shape const& shape)
 		{
 			using namespace collision;
@@ -33,29 +33,41 @@ namespace pr::ldraw
 				case EShape::Sphere:
 				{
 					auto& s = shape_cast<ShapeSphere>(shape);
-					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2p);
+					Sphere().sphere(s.m_radius).facets(5).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Box:
 				{
 					auto& s = shape_cast<ShapeBox>(shape);
-					Box().box(2 * s.m_radius).o2w(s.m_base.m_s2p);
+					Box().box(2 * s.m_radius).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Triangle:
 				{
 					auto& s = shape_cast<ShapeTriangle>(shape);
-					Triangle().tri(
-						seri::Vec3{ s.m_v.x.x, s.m_v.x.y, s.m_v.x.z },
-						seri::Vec3{ s.m_v.y.x, s.m_v.y.y, s.m_v.y.z },
-						seri::Vec3{ s.m_v.z.x, s.m_v.z.y, s.m_v.z.z }
-					).o2w(s.m_base.m_s2p);
+					if (LengthSq(s.m_v.w) < math::tiny<float>)
+					{
+						Line()
+							.line(s.m_v.x, s.m_v.y)
+							.line(s.m_v.y, s.m_v.z)
+							.line(s.m_v.z, s.m_v.x)
+							.o2w(s.m_base.m_s2r);
+					}
+					else
+					{
+						Triangle()
+							.tri(s.m_v.x, s.m_v.y, s.m_v.z)
+							.o2w(s.m_base.m_s2r);
+					}
 					break;
 				}
 				case EShape::Line:
 				{
 					auto& s = shape_cast<ShapeLine>(shape);
-					Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2p);
+					if (s.m_radius != 0)
+						Cylinder().cylinder(2 * s.m_hlength, s.m_radius).facets(1, 50).end_caps().o2w(s.m_base.m_s2r);
+					else
+						Line().line(v4(0,0,-s.m_hlength,1), v4(0,0,+s.m_hlength,1)).o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Polytope:
@@ -69,7 +81,7 @@ namespace pr::ldraw
 						auto c = s.vertex(face.m_index[2]);
 						p.tri(seri::Vec3{ a.x, a.y, a.z }, seri::Vec3{ b.x, b.y, b.z }, seri::Vec3{ c.x, c.y, c.z });
 					}
-					p.o2w(s.m_base.m_s2p);
+					p.o2w(s.m_base.m_s2r);
 					break;
 				}
 				case EShape::Array:
@@ -80,7 +92,6 @@ namespace pr::ldraw
 					{
 						grp.Add<LdrCollisionShape>().shape(*sub);
 					}
-					grp.o2w(s.m_base.m_s2p);
 					break;
 				}
 				default:
@@ -88,6 +99,74 @@ namespace pr::ldraw
 					throw std::runtime_error("Unknown shape type");
 				}
 			}
+			return *this;
+		}
+	};
+
+	struct LdrCollisionContact : LdrGroup
+	{
+		LdrCollisionContact(seri::Name name = {}, seri::Colour colour = {})
+			: LdrGroup(name, 0xFFFFFFFF)
+		{
+			group_colour(colour ? colour : 0xFFFFFF00);
+		}
+		LdrCollisionContact& contact(collision::Contact const& contact, float scale = 1.0f)
+		{
+			using namespace collision;
+			switch (contact.m_feature)
+			{
+				case EFeature::None:
+				{
+					break;
+				}
+				case EFeature::Vert:
+				{
+					Sphere("Manifold").sphere(0.01f * scale).facets(2).pos(contact.m_manifold[0]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0]);
+					break;
+				}
+				case EFeature::Edge:
+				{
+					Line("Manifold").line(contact.m_manifold[0], contact.m_manifold[1]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1]);
+					break;
+				}
+				case EFeature::Tri:
+				{
+					Triangle("Manifold").tri(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[2]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1])
+						.box(0.005f, contact.m_manifold[2]);
+					break;
+				}
+				case EFeature::Quad:
+				{
+					// LDraw expects quads in 'S' vert order
+					Quad("Manifold").quad(contact.m_manifold[0], contact.m_manifold[1], contact.m_manifold[3], contact.m_manifold[2]);
+					Box("Corners")
+						.box(0.005f, contact.m_manifold[0])
+						.box(0.005f, contact.m_manifold[1])
+						.box(0.005f, contact.m_manifold[2])
+						.box(0.005f, contact.m_manifold[3]);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown contact feature type");
+				}
+			}
+
+			// Draw the contact normal as an arrow centred on the contact manifold centroid, and scaled by the penetration depth
+			auto& norm = Line("Normal").arrow("Fwd", 50.0f).width(5);
+			auto axis = 0.5f * contact.m_axis * contact.m_depth;
+			for (auto const& pt : contact.Points())
+				norm.line(pt - axis, pt + axis);
+
+			Sphere("Point").sphere(0.008f).pos(contact.Point());
 			return *this;
 		}
 	};

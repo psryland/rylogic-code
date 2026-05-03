@@ -10,6 +10,19 @@ namespace pr::physics
 {
 	struct Engine
 	{
+		struct StepProfile
+		{
+			double m_new_frame_ms = 0;
+			double m_pack_ms = 0;
+			double m_integrate_ms = 0;
+			double m_broadphase_ms = 0;
+			double m_collide_ms = 0;
+			double m_resolve_ms = 0;
+			double m_readback_ms = 0;
+			double m_gpu_run_ms = 0;
+			double m_unpack_ms = 0;
+		};
+
 		// Notes:
 		//  - The engine does not own the bodies. The caller is responsible for managing their
 		//    lifetime and ensuring they remain valid while being used by the engine.
@@ -72,6 +85,28 @@ namespace pr::physics
 		physics::Material Material(int id) const;
 		void Material(physics::Material mat);
 
+		// Drop all internally-cached references to caller-supplied data.
+		// Specifically: the shape cache (which keys entries by Shape pointer) is cleared
+		// so that any pointers it still holds to caller-owned shapes are forgotten, and
+		// the per-frame staging buffers (rb dynamics, contacts, contacts_cpu) are cleared.
+		// GPU resources owned by the engine are *not* recreated.
+		// Call this whenever the set of Shape objects the engine has previously seen may
+		// have been destroyed, e.g. between independent unit-test scenarios that share a
+		// single engine via SharedEngine().
+		void ResetCaches();
+
+		// Timing from the most recent call to Step().
+		StepProfile const& LastStepProfile() const
+		{
+			return m_last_step_profile;
+		}
+
+		// Number of contacts generated during the most recent call to Step().
+		int LastContactCount() const
+		{
+			return m_last_contact_count;
+		}
+
 	private:
 
 		// Pack the body data into GPU buffers for the current frame.
@@ -101,5 +136,8 @@ namespace pr::physics
 
 		// Calculate and apply the restitution impulse to resolve a collision.
 		void ResolveCollision(RbContact& c);
+
+		StepProfile m_last_step_profile;
+		int m_last_contact_count;
 	};
 }

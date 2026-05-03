@@ -184,93 +184,101 @@ namespace pr::algorithm
 #include "pr/math/math.h"
 namespace pr::algorithm::tests
 {
-	PRUnitTest(DimensionIndexTests)
+	PRUnitTestClass(DimensionIndexTests)
 	{
-		std::vector<v2> points =
-		{
-			{ 0.2f, 0.5f },
-			{ 0.6f, 0.2f },
-			{ 0.3f, 0.3f },
-			{ 0.5f, 0.6f },
-			{ 0.1f, 0.1f },
-			{ 0.4f, 0.4f },
-		};
+		inline static constexpr bool CreateVisuals = false;
 
-		auto GetValue = [](v2 const& p, int i)
+		PRUnitTestMethod(Basic)
 		{
-			return p[i];
-		};
-
-		std::vector<v2> results;
-		DimensionIndex<2, float> index;
-		index.Build<v2>(points, GetValue);
-
-		{
-			results.resize(0);
-			index.Find<v2>(points, { 0.3f, 0.3f }, 0.01f, GetValue, [&](v2 const& a, float)
+			std::vector<v2> points =
 			{
-				results.push_back(a);
-			});
+				{ 0.2f, 0.5f },
+				{ 0.6f, 0.2f },
+				{ 0.3f, 0.3f },
+				{ 0.5f, 0.6f },
+				{ 0.1f, 0.1f },
+				{ 0.4f, 0.4f },
+			};
 
-			PR_EXPECT(results.size() == 1);
-			PR_EXPECT(All(results[0] == points[2]));
-		}
-		{
-			results.resize(0);
-			index.Find<v2>(points, { 0.3f, 0.3f }, 0.2f, GetValue, [&](v2 const& a, float)
+			auto GetValue = [](v2 const& p, int i)
 			{
-				results.push_back(a);
-			});
+				return p[i];
+			};
 
-			PR_EXPECT(results.size() == 2);
-			PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[2]); }));
-			PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[5]); }));
-		}
-	}
-	PRUnitTest(DimensionIndexLdrTests)
-	{
-		#if PR_UNITTESTS_VISUALISE
-		std::random_device rd;
-		std::default_random_engine rng(rd());
-		std::uniform_real_distribution dist(0.2f, 0.5f);
+			std::vector<v2> results;
+			DimensionIndex<2, float> index;
+			index.Build<v2>(points, GetValue);
 
-		pr::ldraw::Builder builder;
-
-		const int N = 10000;
-		std::vector<v4> points;
-		{
-			auto& input = builder.Point("points", 0xFFA0A0A0).size(3.0f);
-			for (int i = 0; i != N; ++i)
 			{
-				points.push_back(Random<v3>(rng, -v3::One(), +v3::One()).w1());
-				input.pt(points.back());
+				results.resize(0);
+				index.Find<v2>(points, { 0.3f, 0.3f }, 0.01f, GetValue, [&](v2 const& a, float)
+				{
+					results.push_back(a);
+				});
+
+				PR_EXPECT(results.size() == 1);
+				PR_EXPECT(All(results[0] == points[2]));
+			}
+			{
+				results.resize(0);
+				index.Find<v2>(points, { 0.3f, 0.3f }, 0.2f, GetValue, [&](v2 const& a, float)
+				{
+					results.push_back(a);
+				});
+
+				PR_EXPECT(results.size() == 2);
+				PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[2]); }));
+				PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[5]); }));
 			}
 		}
-
-		auto GetValue = [](v4 p, int i)
+		PRUnitTestMethod(Visualise)
 		{
-			return p[i];
-		};
-
-		DimensionIndex<3, float> index;
-		index.Build<v4>(points, GetValue);
-
-		auto search = Random<v3>(rng, -v3::One(), +v3::One()).w1();
-		auto radius = dist(rng);
-		builder.Sphere("search", 0x8000FF00).radius(radius).pos(search);
-
-		{
-			auto& results = builder.Point("results", 0xFF00FF00).size(10.0f);
-			index.Find<v4>(points, search.xyz.arr, radius, GetValue, [&](v4 a, float dist_sq)
+			#if PR_UNITTESTS_VISUALISE
+			if constexpr (CreateVisuals)
 			{
-				PR_EXPECT(dist_sq < radius * radius + math::tiny<float>);
-				results.pt(a);
-			});
-		}
+				std::random_device rd;
+				std::default_random_engine rng(rd());
+				std::uniform_real_distribution dist(0.2f, 0.5f);
 
-		builder.Save("E:/Dump/dimension_index.ldr");
-		#endif
-	}
+				pr::ldraw::Builder builder;
+
+				const int N = 10000;
+				std::vector<v4> points;
+				{
+					auto& input = builder.Point("points", 0xFFA0A0A0).size(3.0f);
+					for (int i = 0; i != N; ++i)
+					{
+						points.push_back(Random<v3>(rng, -v3::One(), +v3::One()).w1());
+						input.pt(points.back());
+					}
+				}
+
+				auto GetValue = [](v4 p, int i)
+				{
+					return p[i];
+				};
+
+				DimensionIndex<3, float> index;
+				index.Build<v4>(points, GetValue);
+
+				auto search = Random<v3>(rng, -v3::One(), +v3::One()).w1();
+				auto radius = dist(rng);
+				builder.Sphere("search", 0x8000FF00).sphere(radius).pos(search);
+
+				{
+					auto& results = builder.Point("results", 0xFF00FF00).size(10.0f);
+					index.Find<v4>(points, search.xyz.arr, radius, GetValue, [&](v4 a, float dist_sq)
+					{
+						PR_EXPECT(dist_sq < radius * radius + math::tiny<float>);
+						results.pt(a);
+					});
+				}
+
+				builder.Save("E:/Dump/dimension_index.ldr");
+			}
+			#endif
+		}
+	};
 }
 
 #endif

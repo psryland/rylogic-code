@@ -15,8 +15,8 @@ namespace pr::collision
 		v4    m_radius;
 
 		ShapeBox() = default;
-		explicit ShapeBox(v4 dim, m4x4 const& shape_to_parent = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			:m_base(EShape::Box, sizeof(ShapeBox), shape_to_parent, material_id, flags)
+		explicit ShapeBox(v4 dim, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+			:m_base(EShape::Box, sizeof(ShapeBox), shape_to_root, material_id, flags)
 			,m_radius(dim * 0.5f)
 		{
 			assert(dim.x > 0 && dim.y > 0 && dim.z > 0 && dim.w == 0);
@@ -52,13 +52,6 @@ namespace pr::collision
 	inline BBox pr_vectorcall CalcBBox(ShapeBox const& shape)
 	{
 		return BBox(v4::Origin(), shape.m_radius);
-	}
-
-	// Shift the centre of a box shape
-	inline void pr_vectorcall ShiftCentre(ShapeBox&, v4 shift)
-	{
-		assert("impossible to shift the centre of an implicit object" && FEql(shift, v4::Zero()));
-		(void)shift; 
 	}
 
 	// Return a support vertex for a box shape
