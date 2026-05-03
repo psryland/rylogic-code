@@ -261,6 +261,43 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(o2w.pos, pos));
 			PR_EXPECT(FEqlRelative(o2w.rot, rot, 0.01f));
 		}
+		PRUnitTestMethod(AsymmetricPolytopeRotatesAboutCentreOfMass)
+		{
+			constexpr v4 verts[] = {
+				v4{-0.8f, -0.8f, -0.5f, 1},
+				v4{+0.8f, -0.8f, -0.5f, 1},
+				v4{+0.0f, +0.1f, -0.1f, 1},
+				v4{+0.0f, +0.0f, +0.8f, 1},
+			};
+			auto true_com = (0.25f * (verts[0] + verts[1] + verts[2] + verts[3])).w0();
+			auto buf = collision::BuildPolytopeFromPoints(verts);
+			auto& polytope = buf.as<collision::ShapePolytope>();
+
+			// BuildPolytopeFromPoints keeps the local vertices centred and stores the true object-space offset in m_s2r.
+			PR_EXPECT(FEqlAbsolute(collision::CalcCentreOfMass(polytope), v4{}, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(polytope.m_base.m_s2r.pos.w0(), true_com, 1e-5f));
+
+			auto mp = CalcMassProperties(polytope, 1.0f);
+			PR_EXPECT(FEqlAbsolute(mp.m_centre_of_mass, true_com, 1e-5f));
+
+			auto rb = RigidBody{};
+			rb.O2W(m4x4::Translation(v4{0, 0, 2.5f, 1}));
+			rb.Shape(&polytope.m_base, 10.0f);
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOS(), true_com, 1e-5f));
+
+			auto ang_vel = v4{-11.72f, -13.07f, +0.65f, 0};
+			auto lin_vel = v4{0, 0, +5.60f, 0};
+			rb.VelocityWS(v8motion{ang_vel, lin_vel});
+
+			auto dt = 1.0f / 60.0f;
+			auto com_ws0 = rb.O2W().pos + rb.O2W().rot * true_com;
+			Evolve(rb, dt);
+
+			auto com_ws1 = rb.O2W().pos + rb.O2W().rot * true_com;
+			auto expected_com_ws1 = com_ws0 + lin_vel * dt;
+			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.O2W().rot * true_com, 1e-4f));
+		}
 		PRUnitTestMethod(Extrapolation)
 		{
 			auto mass = 5.0f;

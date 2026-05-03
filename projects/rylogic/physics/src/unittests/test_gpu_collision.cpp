@@ -922,6 +922,31 @@ namespace pr::physics::tests
 					collision::ShapeBox(v4(100, 100, 1.0, 0)), m4x4::Translation(0, 0, -0.5f),
 					&exp);
 			}
+
+			// Runtime narrow-phase works in body-A space. Near-axis box support queries should still return a face feature, otherwise the contact point
+			// can snap to a far corner of the large ground box and give the resolver a bogus lever arm.
+			{
+				auto ground = collision::ShapeBox(v4(100, 100, 1.0, 0));
+				auto a2w = m4x4::TransformDeg(-80, 25, 0, v4(0, 0, 0.6f, 1));
+				auto b2w = m4x4::Translation(0, 0, -0.5f);
+				auto b2a = InvertOrthonormal(a2w) * b2w;
+
+				collision::Contact cpu_contact;
+				PR_EXPECT(collision::Collide(polytope, a2w, ground, b2w, cpu_contact));
+
+				hlsl::StructuredBuffer<float4> verts;
+				auto sa = PackShape(polytope, verts);
+				auto sb = PackShape(ground, verts);
+
+				GpuContact gpu_contact{};
+				PR_EXPECT(physics::CollideShapes(sa, m4x4::Identity(), sb, b2a, verts, gpu_contact));
+
+				auto gpu_axis_ws = a2w * gpu_contact.axis;
+				auto gpu_point_ws = a2w * ContactCentroid(gpu_contact);
+				PR_EXPECT(FEqlRelative(gpu_axis_ws, cpu_contact.m_axis, 1e-4f));
+				PR_EXPECT(FEqlRelative(gpu_point_ws, cpu_contact.Point(), 1e-4f));
+				PR_EXPECT(FEqlAbsolute(gpu_contact.depth, cpu_contact.m_depth, 1e-4f));
+			}
 		}
 
 		// ---- Polytope vs Line ----

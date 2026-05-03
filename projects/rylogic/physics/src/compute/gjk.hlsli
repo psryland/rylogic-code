@@ -268,18 +268,22 @@ odr void SupportFeature_Box(in_(GpuShape) shape, float4 axis, out_(GpuFeature) f
 	feature.points[0] = float4(0, 0, 0, 1);
 
 	float3 radius = shape.data.xyz;
+
+	// The input axis often comes from EPA then crosses shape-space transforms. Treat near-zero components as tied so face contacts don't collapse to an
+	// arbitrary far corner on large boxes.
+	const float Tol = 1e-4f;
 	for (int i = 0; i != 3; ++i)
 	{
 		float4 basis = float4(0, 0, 0, 0);
 		basis[i] = 1.0f;
 
 		float d = axis[i];
-		if (d > +GjkEps)
+		if (d > +Tol)
 		{
 			for (int f = 0; f != feature.count; ++f)
 				feature.points[f] += basis * radius[i];
 		}
-		else if (d < -GjkEps)
+		else if (d < -Tol)
 		{
 			for (int f = 0; f != feature.count; ++f)
 				feature.points[f] -= basis * radius[i];
