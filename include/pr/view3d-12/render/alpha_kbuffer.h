@@ -24,6 +24,11 @@ namespace pr::rdr12
 		D3DPtr<ID3D12PipelineState> m_pso_depth_resolve;
 		D3DPtr<ID3D12PipelineState> m_pso_alpha_resolve;
 
+		AlphaKBuffer();
+
+		// Release all owned resources
+		void Release();
+
 		// Resize the buffers to 'size'
 		void Resize(Renderer& rdr, iv2 size, ClearValue rt_clear, ClearValue ds_clear);
 

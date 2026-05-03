@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -240,15 +240,16 @@ namespace pr::rdr12
 		{
 			if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
 			{
-				// Note: this will report that the D3D device is still live
 				/*
-				D3DPtr<ID3D12Debug> dbg;
-				Check(m_d3d_device->QueryInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
-				Check(dbg->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL|D3D11_RLDO_IGNORE_INTERNAL));
+				D3DPtr<ID3D12DebugDevice> dbg;
+				Check(m_d3d_device->QueryInterface(__uuidof(ID3D12DebugDevice), (void**)dbg.address_of()));
+				Check(dbg->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL)); // |D3D12_RLDO_IGNORE_INTERNAL
 				*/
 			}
-			PR_EXPAND(PR_DBG_RDR, auto rcnt = m_d3d_device.RefCount());
-			PR_ASSERT(PR_DBG_RDR, rcnt == 1, "Outstanding references to the dx device");
+			#if PR_DBG_RDR
+			auto rcnt = m_d3d_device.RefCount();
+			if (rcnt != 1) _CrtDbgBreak(); // Outstanding references to the dx device
+			#endif
 			m_d3d_device = nullptr;
 		}
 	}
@@ -305,8 +306,9 @@ namespace pr::rdr12
 	Renderer::~Renderer()
 	{
 		LastTask();
+		FlushDeferredReleases();
 
-		// Remove the GpuSync poll callback and flush deferred deletions
+		// Remove the GpuSync poll callback
 		RemovePollCB({ &m_gsync, &GpuSync::Poll });
 
 		// Release the dummy window

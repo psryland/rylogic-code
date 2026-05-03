@@ -30,19 +30,36 @@ namespace pr::rdr12
 		Textures,
 	};
 
+	AlphaKBuffer::AlphaKBuffer()
+		: m_opaque_colour_1x()
+		, m_opaque_depth_1x()
+		, m_alpha_colour()
+		, m_alpha_depth()
+		, m_signature_depth_resolve()
+		, m_signature_alpha_resolve()
+		, m_pso_depth_resolve()
+		, m_pso_alpha_resolve()
+	{}
+
+	// Release D3D resources
+	void AlphaKBuffer::Release()
+	{
+		m_opaque_colour_1x = nullptr;
+		m_opaque_depth_1x = nullptr;
+		m_alpha_colour = nullptr;
+		m_alpha_depth = nullptr;
+		m_signature_depth_resolve = nullptr;
+		m_signature_alpha_resolve = nullptr;
+		m_pso_depth_resolve = nullptr;
+		m_pso_alpha_resolve = nullptr;
+	}
+
 	// Resize the buffers to 'size'
 	void AlphaKBuffer::Resize(Renderer& rdr, iv2 size, ClearValue rt_clear, ClearValue ds_clear)
 	{
 		if (size.x == 0 || size.y == 0)
 		{
-			m_opaque_colour_1x = nullptr;
-			m_opaque_depth_1x = nullptr;
-			m_alpha_colour = nullptr;
-			m_alpha_depth = nullptr;
-			m_signature_depth_resolve = nullptr;
-			m_signature_alpha_resolve = nullptr;
-			m_pso_depth_resolve = nullptr;
-			m_pso_alpha_resolve = nullptr;
+			Release();
 			return;
 		}
 
