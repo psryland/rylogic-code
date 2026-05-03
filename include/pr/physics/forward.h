@@ -36,10 +36,6 @@
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
 
-#ifndef PR_COLLISION_DIAGNOSTICS
-#define PR_COLLISION_DIAGNOSTICS 0
-#endif
-
 // Forward declare D3D12 device (avoids including d3d12.h)
 struct ID3D12Device4;
 
@@ -79,8 +75,6 @@ namespace pr::physics
 	struct GpuResolveContact;
 	struct GpuCollisionCounters;
 	struct GpuMaterial;
-	struct GpuIntegrateDiag;
-	struct GpuPairDiag;
 	struct GpuBuffers;
 	struct EngineBufferCache;
 	struct ShapeCache;

@@ -114,7 +114,7 @@ namespace pr::physics::tests
 				// Setup the GPU collision detector buffers
 				auto pairs = std::vector<GpuCollisionPair>{ pair };
 				auto out_contacts = std::vector<GpuResolveContact>{ 1 };
-				auto [gpu_contacts, diag] = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts, {});
+				auto gpu_contacts = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts);
 				gpu_hit = gpu_contacts.size() > 0;
 				if (gpu_hit) gpu_contact = gpu_contacts[0];
 			}

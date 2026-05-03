@@ -38,8 +38,6 @@ namespace pr::physics
 		ReadbackAlloc rb_bodies;
 		ReadbackAlloc rb_counters;
 		ReadbackAlloc rb_contacts;
-		ReadbackAlloc rb_intg_diag;
-		ReadbackAlloc rb_pair_diag;
 		bool read_contacts;
 	};
 
@@ -193,7 +191,7 @@ namespace pr::physics
 		auto counters = m_gpu_integrator->Counters();
 		auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
-		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 
 		#if PR_DBG_PHYSICS
 		//DbgPhysics(*this).ReadbackCollide(counters);
@@ -224,8 +222,6 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		auto intg_diags = m_gpu_integrator->Diagnostics();
-		auto pair_diags = m_gpu_collision_detector->Diagnostics();
 		buffers.read_contacts = static_cast<bool>(Collisions);
 
 		{
@@ -235,10 +231,6 @@ namespace pr::physics
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			}
-			#if PR_COLLISION_DIAGNOSTICS
-			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#endif
 			m_gpu->m_job.m_barriers.Commit();
 		}
 		{
@@ -253,14 +245,6 @@ namespace pr::physics
 				buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
 				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
 			}
-
-			#if PR_COLLISION_DIAGNOSTICS
-			buffers.rb_intg_diag = m_gpu->m_job.m_readback.template Alloc<GpuIntegrateDiag>(body_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_intg_diag, intg_diags.get(), 0);
-
-			buffers.rb_pair_diag = m_gpu->m_job.m_readback.template Alloc<GpuPairDiag>(contacts_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_pair_diag, pair_diags.get(), 0);
-			#endif
 		}
 		{
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -269,10 +253,6 @@ namespace pr::physics
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			}
-			#if PR_COLLISION_DIAGNOSTICS
-			m_gpu->m_job.m_barriers.Transition(intg_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_gpu->m_job.m_barriers.Transition(pair_diags.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
 			m_gpu->m_job.m_barriers.Commit();
 		}
 	}
@@ -290,9 +270,6 @@ namespace pr::physics
 		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
 		if (buffers.read_contacts)
 			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
-		#if PR_COLLISION_DIAGNOSTICS
-		// TODO: read the diags
-		#endif
 
 		// Before updating the bodies with new dynamics, raise the collision events
 		if (contact_count != 0 && buffers.read_contacts)

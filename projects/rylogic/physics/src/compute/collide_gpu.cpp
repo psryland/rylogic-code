@@ -14,7 +14,7 @@ namespace pr::physics
 	struct alignas(16) cbCollision
 	{
 		int g_max_contacts;
-		int pad0;
+		int g_max_pair_count;
 		int pad1;
 		int pad2;
 	};
@@ -27,24 +27,32 @@ namespace pr::physics
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto Contacts = EUAVReg::u1;
 		inline static constexpr auto DispatchArgs = EUAVReg::u2;
+		inline static constexpr auto BinCounts = EUAVReg::u3;
+		inline static constexpr auto BinPairIndices = EUAVReg::u4;
+		inline static constexpr auto BinDispatchArgs = EUAVReg::u5;
 		inline static constexpr auto Pairs = ESRVReg::t0;
 		inline static constexpr auto Shapes = ESRVReg::t1;
 		inline static constexpr auto Verts = ESRVReg::t2;
-		inline static constexpr auto Diag = EUAVReg::u3;
 	};
 
 	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_cs_collide_simple()
-		, m_cs_collide_generic()
+		, m_cs_clear_bins()
+		, m_cs_bin_pairs()
+		, m_cs_build_bin_dispatch()
+		, m_cs_collide_bins()
+		, m_cs_calc_dispatch()
 		, m_cmd_sig()
 		, m_r_shapes()
 		, m_r_verts()
 		, m_r_contacts()
 		, m_r_resolve_dispatch()
-		, m_r_diag()
+		, m_r_bin_counts()
+		, m_r_bin_pair_indices()
+		, m_r_bin_dispatch()
 		, m_max_contacts()
+		, m_max_pairs()
 		, m_max_shapes()
 		, m_max_verts()
 	{
@@ -69,25 +77,45 @@ namespace pr::physics
 			.Source(resource::Read<char>(L"src/compute/collide.hlsl", L"TEXT"))
 			.Includes({ new ResourceIncludeHandler, true })
 			.ShaderModel(L"cs_6_0")
-			.Define(L"PR_COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(PR_COLLISION_DIAGNOSTICS))
 			.Optimise();
 
-		auto make_collide_sig = [&]()
+		auto make_setup_sig = [&]()
 		{
 			return RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::Contacts)
 				.UAV(EReg::DispatchArgs)
+				.UAV(EReg::BinCounts)
+				.UAV(EReg::BinPairIndices)
+				.UAV(EReg::BinDispatchArgs)
 				.SRV(EReg::Pairs)
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
-				#if PR_COLLISION_DIAGNOSTICS
-				.UAV(EReg::Diag)
-				#endif
+				;
+		};
+		auto make_collide_sig = [&]()
+		{
+			return RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbCollision>(EReg::Params)
+				.UAV(EReg::Counters)
+				.UAV(EReg::Contacts)
+				.UAV(EReg::BinCounts)
+				.UAV(EReg::BinPairIndices)
+				.SRV(EReg::Pairs)
+				.SRV(EReg::Shapes)
+				.SRV(EReg::Verts)
 				;
 		};
 
+		auto compile_setup = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
+		{
+			auto sig = make_setup_sig();
+			auto bytecode = compiler.Optimise().EntryPoint(entry_point).Compile();
+
+			step.m_sig = sig.Create(m_gpu, sig_name);
+			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
+		};
 		auto compile_collide = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
 		{
 			auto sig = make_collide_sig();
@@ -97,10 +125,36 @@ namespace pr::physics
 			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
 		};
 
-		// Keep simple analytic pairs and generic GJK/EPA pairs in separate shaders so simple pairs don't execute inside a
-		// monolithic dispatcher that also contains all generic collision code.
-		compile_collide(m_cs_collide_simple, L"CSCollideSimple", "Physics:CollideSimpleSig", "Physics:CollideSimplePSO");
-		compile_collide(m_cs_collide_generic, L"CSCollideGeneric", "Physics:CollideGenericSig", "Physics:CollideGenericPSO");
+		compile_setup(m_cs_clear_bins, L"CSClearCollisionBins", "Physics:ClearCollisionBinsSig", "Physics:ClearCollisionBinsPSO");
+		compile_setup(m_cs_bin_pairs, L"CSBinCollisionPairs", "Physics:BinCollisionPairsSig", "Physics:BinCollisionPairsPSO");
+		compile_setup(m_cs_build_bin_dispatch, L"CSBuildCollisionBinDispatch", "Physics:BuildCollisionBinDispatchSig", "Physics:BuildCollisionBinDispatchPSO");
+
+		struct BinShader
+		{
+			ComputeStep* step;
+			wchar_t const* entry_point;
+			char const* sig_name;
+			char const* pso_name;
+		};
+		std::array<BinShader, COLLISION_BIN_COUNT> bin_shaders = {{
+			{&m_cs_collide_bins[COLLISION_BIN_SPHERE_VS_SPHERE],     L"CSCollideSphereVsSphere",     "Physics:CollideSphereVsSphereSig",     "Physics:CollideSphereVsSpherePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_SPHERE],        L"CSCollideBoxVsSphere",        "Physics:CollideBoxVsSphereSig",        "Physics:CollideBoxVsSpherePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_BOX],           L"CSCollideBoxVsBox",           "Physics:CollideBoxVsBoxSig",           "Physics:CollideBoxVsBoxPSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_SPHERE],       L"CSCollideLineVsSphere",       "Physics:CollideLineVsSphereSig",       "Physics:CollideLineVsSpherePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_BOX],          L"CSCollideLineVsBox",          "Physics:CollideLineVsBoxSig",          "Physics:CollideLineVsBoxPSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_LINE],         L"CSCollideLineVsLine",         "Physics:CollideLineVsLineSig",         "Physics:CollideLineVsLinePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_SPHERE],   L"CSCollideTriangleVsSphere",   "Physics:CollideTriangleVsSphereSig",   "Physics:CollideTriangleVsSpherePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_BOX],      L"CSCollideTriangleVsBox",      "Physics:CollideTriangleVsBoxSig",      "Physics:CollideTriangleVsBoxPSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_LINE],     L"CSCollideTriangleVsLine",     "Physics:CollideTriangleVsLineSig",     "Physics:CollideTriangleVsLinePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_TRIANGLE], L"CSCollideTriangleVsTriangle", "Physics:CollideTriangleVsTriangleSig", "Physics:CollideTriangleVsTrianglePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_SPHERE],   L"CSCollidePolytopeVsSphere",   "Physics:CollidePolytopeVsSphereSig",   "Physics:CollidePolytopeVsSpherePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_BOX],      L"CSCollidePolytopeVsBox",      "Physics:CollidePolytopeVsBoxSig",      "Physics:CollidePolytopeVsBoxPSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_LINE],     L"CSCollidePolytopeVsLine",     "Physics:CollidePolytopeVsLineSig",     "Physics:CollidePolytopeVsLinePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_TRIANGLE], L"CSCollidePolytopeVsTriangle", "Physics:CollidePolytopeVsTriangleSig", "Physics:CollidePolytopeVsTrianglePSO"},
+			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_POLYTOPE], L"CSCollidePolytopeVsPolytope", "Physics:CollidePolytopeVsPolytopeSig", "Physics:CollidePolytopeVsPolytopePSO"},
+		}};
+		for (auto const& bin_shader : bin_shaders)
+			compile_collide(*bin_shader.step, bin_shader.entry_point, bin_shader.sig_name, bin_shader.pso_name);
 
 		// m_cs_calc_dispatch
 		{
@@ -117,9 +171,10 @@ namespace pr::physics
 
 	// Create GPU buffers for collision pipeline.
 	// Returns true if shape or vertex buffers were reallocated (requiring re-upload).
-	bool GpuCollisionDetector::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_shapes, int max_verts)
+	bool GpuCollisionDetector::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_pairs, int max_shapes, int max_verts)
 	{
 		max_contacts = std::max(1, max_contacts);
+		max_pairs = std::max(1, max_pairs);
 		max_shapes = std::max(1, max_shapes);
 		max_verts = std::max(1, max_verts);
 
@@ -140,20 +195,30 @@ namespace pr::physics
 		if (m_r_contacts == nullptr || max_contacts > m_max_contacts)
 		{
 			m_r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:Contacts");
-			#if PR_COLLISION_DIAGNOSTICS
-			m_r_diag = m_gpu.CreateResource(ResDesc::Buf<GpuPairDiag>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactDiag");
-			#endif
 			m_max_contacts = max_contacts;
+		}
+		if (m_r_bin_pair_indices == nullptr || max_pairs > m_max_pairs)
+		{
+			m_r_bin_pair_indices = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT * max_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinPairIndices");
+			m_max_pairs = max_pairs;
 		}
 		if (m_r_resolve_dispatch == nullptr)
 		{
 			m_r_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveDispatchArgs");
 		}
+		if (m_r_bin_counts == nullptr)
+		{
+			m_r_bin_counts = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinCounts");
+		}
+		if (m_r_bin_dispatch == nullptr)
+		{
+			m_r_bin_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinDispatchArgs");
+		}
 		return shapes_resized;
 	}
 
 	// Run collision detection on the GPU.
-	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache)
+	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache)
 	{
 		// Notes:
 		//  - Assumes that the counters.contact_count has been zeroed already by the broad phase shader.
@@ -165,7 +230,7 @@ namespace pr::physics
 
 		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
 		// regardless of the caller's dirty flag (the new buffers contain garbage).
-		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, shape_count, vert_count);
+		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count);
 		if (shapes_upload_needed)
 		{
 			// Upload shapes and vertex buffers
@@ -196,42 +261,84 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_resolve_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
+			job.m_barriers.Transition(m_r_bin_counts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_bin_pair_indices.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_bin_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
 
-		// Dispatch the collision compute shaders
+		auto cb_collision = cbCollision{
+			.g_max_contacts = max_contacts,
+			.g_max_pair_count = max_pairs,
+		};
+		auto bind_setup = [&](ComputeStep& step)
 		{
-			auto dispatch_collide = [&](ComputeStep& step)
-			{
-				job.m_cmd_list.SetPipelineState(step.m_pso.get());
-				job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-				job.m_cmd_list.AddComputeRoot32BitConstants(cbCollision{ .g_max_contacts = max_contacts });
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(dispatch->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
-				#if PR_COLLISION_DIAGNOSTICS
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diag->GetGPUVirtualAddress());
-				#endif
+			job.m_cmd_list.SetPipelineState(step.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_resolve_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_counts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_pair_indices->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+		};
+		auto bind_collide = [&](ComputeStep& step)
+		{
+			job.m_cmd_list.SetPipelineState(step.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_counts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_pair_indices->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+		};
 
-				// Dispatch with the count provided by the broad phase shader
-				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+		// Clear all exact pair bins.
+		{
+			bind_setup(m_cs_clear_bins);
+			job.m_cmd_list.Dispatch(1, 1, 1);
 
-				job.m_barriers.UAV(counters.get());
-				job.m_barriers.UAV(m_r_contacts.get());
-				#if PR_COLLISION_DIAGNOSTICS
-				job.m_barriers.UAV(m_r_diag.get());
-				#endif
-				job.m_barriers.Commit();
-			};
+			job.m_barriers.UAV(m_r_bin_counts.get());
+			job.m_barriers.UAV(m_r_bin_dispatch.get());
+			job.m_barriers.Commit();
+		}
 
-			dispatch_collide(m_cs_collide_simple);
-			dispatch_collide(m_cs_collide_generic);
+		// Classify broadphase pairs into exact shape-pair bins.
+		{
+			bind_setup(m_cs_bin_pairs);
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+
+			job.m_barriers.UAV(m_r_bin_counts.get());
+			job.m_barriers.UAV(m_r_bin_pair_indices.get());
+			job.m_barriers.Commit();
+		}
+
+		// Build one indirect dispatch record per exact pair bin.
+		{
+			bind_setup(m_cs_build_bin_dispatch);
+			job.m_cmd_list.Dispatch(1, 1, 1);
+
+			job.m_barriers.UAV(m_r_bin_dispatch.get());
+			job.m_barriers.Transition(m_r_bin_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+			job.m_barriers.Commit();
+		}
+
+		// Dispatch the exact pair-type collision kernels. Empty bins have a zero-sized dispatch.
+		for (int bin = 0; bin != COLLISION_BIN_COUNT; ++bin)
+		{
+			bind_collide(m_cs_collide_bins[bin]);
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, m_r_bin_dispatch.get(), static_cast<UINT64>(bin) * sizeof(D3D12_DISPATCH_ARGUMENTS));
+
+			job.m_barriers.UAV(counters.get());
+			job.m_barriers.UAV(m_r_contacts.get());
+			job.m_barriers.Commit();
 		}
 
 		// Dispatch the calculate dispatch size shader
@@ -252,8 +359,8 @@ namespace pr::physics
 
 	// Run collision detection on the GPU with CPU-side data.
 	// This overload uploads pairs from CPU, runs the GPU collision detection, reads back contacts.
-	// Used by unit tests and CPU-fallback paths. Returns the number of contacts found.
-	std::tuple<std::span<GpuResolveContact>, std::span<GpuPairDiag>> GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuResolveContact> out_contacts, std::span<GpuPairDiag> out_diag)
+	// Used by unit tests and CPU-fallback paths. Returns the contacts found.
+	std::span<GpuResolveContact> GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuResolveContact> out_contacts)
 	{
 		auto pair_count = static_cast<int>(pairs.size());
 		if (pair_count == 0)
@@ -309,32 +416,26 @@ namespace pr::physics
 		}
 
 		// Run the GPU collision detection
-		DetectCollisions(job, static_cast<int>(out_contacts.size()), r_dispatch, r_pairs, r_counters, shape_cache);
+		DetectCollisions(job, static_cast<int>(out_contacts.size()), pair_count, r_dispatch, r_pairs, r_counters, shape_cache);
 
 		// Readback the data from the GPU
-		return Readback(job, r_counters, out_contacts, out_diag);
+		return Readback(job, r_counters, out_contacts);
 	}
 
 	// Read back the results of the collision detection.
 	// This is a debug synchronisation point — it flushes all queued GPU work,
 	// then makes the narrow-phase output available on the CPU for inspection.
-	std::tuple<std::span<GpuResolveContact>, std::span<GpuPairDiag>> GpuCollisionDetector::Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuResolveContact> out_contacts, std::span<GpuPairDiag> out_diag)
+	std::span<GpuResolveContact> GpuCollisionDetector::Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuResolveContact> out_contacts)
 	{
 		// This is a debug synchronisation point — it flushes all queued GPU work,
 		// then makes the broadphase output available on the CPU for inspection.
 		GpuReadbackBuffer::Allocation readback_counters;
 		GpuReadbackBuffer::Allocation readback_contacts;
-		#if PR_COLLISION_DIAGNOSTICS
-		GpuReadbackBuffer::Allocation readback_diag;
-		#endif
 
 		// Readback contacts and counters
 		{
 			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			#endif
 			job.m_barriers.Commit();
 
 			readback_contacts = job.m_readback.Alloc<GpuResolveContact>(static_cast<int>(out_contacts.size()));
@@ -343,16 +444,8 @@ namespace pr::physics
 			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
 			job.m_cmd_list.CopyBufferRegion(readback_counters, r_counters.get(), 0);
 
-			#if PR_COLLISION_DIAGNOSTICS
-			readback_diag = job.m_readback.Alloc<GpuPairDiag>(static_cast<int>(out_diag.size()));
-			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
-			#endif
-
 			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#if PR_COLLISION_DIAGNOSTICS
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			#endif
 			job.m_barriers.Commit();
 		}
 
@@ -364,19 +457,7 @@ namespace pr::physics
 		auto contact_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_contacts.size()));
 		std::memcpy(out_contacts.data(), readback_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
 
-		#if PR_COLLISION_DIAGNOSTICS
-		auto diag_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_diag.size()));
-		std::memcpy(out_diag.data(), readback_diag.ptr<GpuPairDiag>(), diag_count * sizeof(GpuPairDiag));
-		#endif
-
-		return {
-			out_contacts.subspan(0, contact_count),
-			#if PR_COLLISION_DIAGNOSTICS
-			out_diag.subspan(0, diag_count),
-			#else
-			out_diag.subspan(0, 0),
-			#endif
-		};
+		return out_contacts.subspan(0, contact_count);
 	}
 
 	// Custom deleter implementation (GpuCollisionDetector is complete here)
@@ -385,107 +466,3 @@ namespace pr::physics
 		delete p;
 	}
 }
-
-
-
-
-
-
-
-#if 0 
-
-	void Readback()
-	{
-		// Read back contacts, counter, and diagnostics
-		GpuReadbackBuffer::Allocation readback_contacts;
-		GpuReadbackBuffer::Allocation readback_counters;
-		{
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Commit();
-
-			readback_contacts = job.m_readback.Alloc<GpuContact>(pair_count);
-			job.m_cmd_list.CopyBufferRegion(readback_contacts, m_r_contacts.get(), 0);
-
-			readback_counters = job.m_readback.Alloc<GpuCollisionCounters>(1);
-			job.m_cmd_list.CopyBufferRegion(readback_counters, m_r_counters.get(), 0);
-
-			// Transition back for next frame
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
-		#if PR_COLLISION_DIAGNOSTICS
-		GpuReadbackBuffer::Allocation readback_diag;
-		{
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Commit();
-
-			readback_diag = job.m_readback.Alloc<GpuPairDiag>(pair_count);
-			job.m_cmd_list.CopyBufferRegion(readback_diag, m_r_diag.get(), 0);
-
-			job.m_barriers.Transition(m_r_diag.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
-		#endif
-
-		// Execute and wait for GPU completion
-		job.Run();
-
-		// Read the contact count
-		auto* counters = readback_counters.ptr<GpuCollisionCounters>();
-		auto contact_count = static_cast<int>(counters->contact_count);
-		contact_count = std::min(contact_count, pair_count); // safety clamp
-
-		// Log per-pair diagnostics
-		#if PR_COLLISION_DIAGNOSTICS
-		if (pair_count > 10)
-		{
-			auto t_end = std::chrono::high_resolution_clock::now();
-			static auto t_start = t_end;
-			auto gpu_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-			t_start = t_end;
-
-			static FILE* f_timing = nullptr;
-			if (!f_timing) f_timing = fopen("dump\\gjk_timing.log", "w");
-			if (f_timing)
-			{
-				static char const* shape_names[] = {"sphere", "box", "line", "tri", "poly"};
-				fprintf(f_timing, "--- pairs=%d contacts=%d gpu=%.2fms ---\n", pair_count, contact_count, gpu_ms);
-
-				auto* diag = readback_diag.ptr<GpuPairDiag>();
-				int max_gjk = 0, max_epa = 0;
-				int total_gjk = 0, total_epa = 0;
-				int gjk_pairs = 0;
-				for (int i = 0; i != pair_count; ++i)
-				{
-					auto& d = diag[i];
-					if (d.gjk_iters > 0) ++gjk_pairs;
-					total_gjk += d.gjk_iters;
-					total_epa += d.epa_iters;
-					if (d.gjk_iters > max_gjk) max_gjk = d.gjk_iters;
-					if (d.epa_iters > max_epa) max_epa = d.epa_iters;
-
-					if (d.gjk_iters + d.epa_iters > 20)
-					{
-						auto sa = (d.shape_type_a >= 0 && d.shape_type_a <= 4) ? shape_names[d.shape_type_a] : "?";
-						auto sb = (d.shape_type_b >= 0 && d.shape_type_b <= 4) ? shape_names[d.shape_type_b] : "?";
-						fprintf(f_timing, "  pair[%d] %s vs %s: gjk=%d epa=%d hit=%d\n",
-							d.pair_index, sa, sb, d.gjk_iters, d.epa_iters, d.hit);
-					}
-				}
-				fprintf(f_timing, "  summary: gjk_pairs=%d max_gjk=%d max_epa=%d avg_gjk=%.1f avg_epa=%.1f\n",
-					gjk_pairs, max_gjk, max_epa,
-					gjk_pairs > 0 ? (float)total_gjk / gjk_pairs : 0.0f,
-					gjk_pairs > 0 ? (float)total_epa / gjk_pairs : 0.0f);
-				fflush(f_timing);
-			}
-		}
-		#endif
-
-		// Copy contacts to output
-		out_contacts.resize(contact_count);
-		if (contact_count > 0)
-			memcpy(out_contacts.data(), readback_contacts.ptr<GpuContact>(), contact_count * sizeof(GpuContact));
-
-		return contact_count;
-	}
-#endif

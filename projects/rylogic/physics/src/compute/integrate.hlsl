@@ -7,8 +7,8 @@
 // Evolve() function in integrator.cpp — see that file for detailed comments.
 //
 // Buffer layout:
-//   u0: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
-//   u1: RWStructuredBuffer<IntegrateOutput>   — per-body KE debug output (write)
+//   u0: RWStructuredBuffer<GpuCollisionCounters> - shared step counters
+//   u1: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
 //   u2: RWStructuredBuffer<float>             — per-body world-space AABB X value (write)
 //   u3: RWStructuredBuffer<float>             — per-body world-space AABB Y value (write)
 //   u4: RWStructuredBuffer<float>             — per-body world-space AABB Z value (write)
@@ -48,9 +48,6 @@ RWStructuredBuffer<float> resource(g_aabb_x, u2);
 RWStructuredBuffer<float> resource(g_aabb_y, u3);
 RWStructuredBuffer<float> resource(g_aabb_z, u4);
 RWStructuredBuffer<int> resource(g_aabb_idx, u5);
-#if PR_COLLISION_DIAGNOSTICS
-RWStructuredBuffer<GpuIntegrateDiag> resource(g_diag, u6);
-#endif
 
 // Compute the world-space AABB for a body and write it to the output buffers.
 odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
@@ -109,13 +106,6 @@ void CSIntegrate(int3 DTID(dtid))
 
 		// Still need to output the AABBs so the broadphase can detect collisions that wake us
 		UpdateAABB(body, idx);
-
-		#if PR_COLLISION_DIAGNOSTICS
-		g_diag[idx].ke_before = 0;
-		g_diag[idx].ke_after = 0;
-		g_diag[idx].pad0 = 0;
-		g_diag[idx].pad1 = 0;
-		#endif
 		return;
 	}
 
@@ -138,14 +128,6 @@ void CSIntegrate(int3 DTID(dtid))
 
 	// Mass-scaled world-space inverse inertia
 	float3x3 ws_iinv = inv_mass * ws_iinv_unit;
-
-	// Compute KE before drift (for debug output).
-	// Momentum is at CoM, inertia is block-diagonal — no coupling.
-	#if PR_COLLISION_DIAGNOSTICS
-	float3 vel_ang_pre = mul(ws_iinv, body.momentum_ang.xyz);
-	float3 vel_lin_pre = inv_mass * body.momentum_lin.xyz;
-	float ke_before = 0.5f * spatial_dot(vel_ang_pre, vel_lin_pre, body.momentum_ang.xyz, body.momentum_lin.xyz);
-	#endif
 
 	// Compute velocity from momentum (block-diagonal — no coupling terms).
 	// omega = Ic_inv * h_ang, v_com = h_lin / m.
@@ -200,21 +182,6 @@ void CSIntegrate(int3 DTID(dtid))
 
 	// Compute world-space AABB from object-space bbox and the updated transform.
 	UpdateAABB(body, idx);
-
-	// ---- Debug: compute KE after integration ----
-	#if PR_COLLISION_DIAGNOSTICS
-	// Block-diagonal: no coupling, velocity is simple.
-	float3x3 new_ws_iinv_unit = rotate_inertia_inv(os_iinv_unit, new_rot);
-	float3x3 new_ws_iinv = inv_mass * new_ws_iinv_unit;
-	float3 vel_ang_post = mul(new_ws_iinv, body.momentum_ang.xyz);
-	float3 vel_lin_post = inv_mass * body.momentum_lin.xyz;
-	float ke_after = 0.5f * spatial_dot(vel_ang_post, vel_lin_post, body.momentum_ang.xyz, body.momentum_lin.xyz);
-
-	g_diag[idx].ke_before = ke_before;
-	g_diag[idx].ke_after = ke_after;
-	g_diag[idx].pad0 = 0;
-	g_diag[idx].pad1 = 0;
-	#endif
 }
 
 #ifdef __cplusplus

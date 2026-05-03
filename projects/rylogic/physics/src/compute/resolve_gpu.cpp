@@ -90,7 +90,6 @@ namespace pr::physics
 		auto compiler = ShaderCompiler{}
 			.Source(resource::Read<char>(L"src/compute/resolve.hlsl", L"TEXT"))
 			.Includes({new ResourceIncludeHandler, true})
-			.Define(L"PR_COLLISION_DIAGNOSTICS", L"" PR_STRINGISE(PR_COLLISION_DIAGNOSTICS))
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
