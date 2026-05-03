@@ -459,9 +459,9 @@ void CollidePairPolytopeVsPolytope(uint pair_index)
 	int epa_iters = 0;
 	GpuContact col;
 
-	// Match the previous dispatcher ordering for same-type polytope pairs. This keeps the generated contact orientation consistent with the
-	// validated pre-binning path.
-	bool hit = GjkCollide(shape_b, b2w, shape_a, a2w, g_verts, col, gjk_iters, epa_iters);
+	// Same-type bins keep the original broadphase ordering. GjkCollide returns the axis from its first shape toward its second, so reversing the call
+	// here would produce a B->A axis while the stored contact still uses body_idx_a/body_idx_b.
+	bool hit = GjkCollide(shape_a, a2w, shape_b, b2w, g_verts, col, gjk_iters, epa_iters);
 	StoreCollisionResult(pair, shape_a, shape_b, hit, col);
 }
 

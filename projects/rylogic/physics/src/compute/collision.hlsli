@@ -915,9 +915,6 @@ odr bool CollideShapes(
 				case SHAPE_BOX:      need_gjk = true; break;
 				case SHAPE_LINE:     need_cv_line = true; break;
 				case SHAPE_TRIANGLE: need_gjk = true; break;
-
-				// For same-type pairs the canonical (sb, sa) ordering produces the same contact as
-				// (sa, sb), so we route polytope-vs-polytope through the shared (sb, sa) call site.
 				case SHAPE_POLYTOPE: need_gjk = true; break;
 			}
 			break;
@@ -926,7 +923,14 @@ odr bool CollideShapes(
 
 	// Single-call-site dispatch for the heavy generic tests.
 	if (need_gjk)
-		hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters);
+	{
+		// Same-type pairs must keep the caller's ordering because GjkCollide orients the
+		// output axis from its first shape toward its second.
+		if (sa.type == sb.type)
+			hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters);
+		else
+			hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters);
+	}
 	else if (need_cv_sphere)
 		hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters);
 	else if (need_cv_line)

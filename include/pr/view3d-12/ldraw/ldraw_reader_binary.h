@@ -229,14 +229,14 @@ namespace pr::rdr12::ldraw::tests
 {
 	PRUnitTestClass(LDrawBinarySerialiserTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 		using Builder = pr::ldraw::Builder;
 
 		void Dump(std::span<std::byte const> data)
 		{
 			(void)data;
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				std::ofstream ofile(temp_dir() / L"ldraw_test.bdr", std::ios::binary);
 				ofile.write(reinterpret_cast<char const*>(data.data()), data.size());
@@ -275,7 +275,12 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestLine)
 		{
 			Builder builder;
-			builder.Line("TestLines", 0xFF0000FF).style(ELineStyle::LineSegments).line(v3(-1, -1, 0), v3(1, 1, 0)).line(v3(-1, 1, 0), v3(1, -1, 0));
+			builder.Line("TestLines", 0xFF0000FF)
+				.style(ELineStyle::LineSegments)
+				.arrow("Fwd")
+				.data_points("Circle")
+				.line(v3(-1, -1, 0), v3(1, 1, 0))
+				.line(v3(-1, 1, 0), v3(1, -1, 0));
 			auto const bin = builder.ToBinary();
 			Dump(bin);
 
@@ -294,6 +299,20 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.Int<uint32_t>() == 0xFF0000FF);
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
+				PR_EXPECT(reader.Enum<ELineStyle>() == ELineStyle::LineSegments);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Arrow);
+				{
+					auto s = reader.SectionScope();
+					PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
+					PR_EXPECT(reader.Enum<EArrowType>() == EArrowType::Fwd);
+				}
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::DataPoints);
+				{
+					auto s = reader.SectionScope();
+					PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Style);
+					PR_EXPECT(reader.Enum<EPointStyle>() == EPointStyle::Circle);
+				}
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Data);
 				PR_EXPECT(All(reader.Vector3f().w1() == v4(-1, -1, 0, 1)));

@@ -44,7 +44,7 @@ namespace pr::geometry
 	};
 	PRUnitTestClass(ClosestPointTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		PRUnitTestMethod(PointToPlane)
 		{
@@ -64,7 +64,7 @@ namespace pr::geometry
 				auto axis = sep.SeparatingAxis();
 
 				#if PR_UNITTESTS_VISUALISE
-				if constexpr (CreateVisualizations)
+				if constexpr (CreateVisuals)
 				{
 					pr::ldraw::Builder builder;
 					builder.Box("bbox", 0x8000FF00).box(bbox.m_radius.x * 2, bbox.m_radius.y * 2, bbox.m_radius.z * 2).pos(bbox.m_centre);
@@ -96,7 +96,7 @@ namespace pr::geometry
 				auto pt1 = BaryPoint(a, b, c, para.xyz);
 
 				#if PR_UNITTESTS_VISUALISE
-				if constexpr (CreateVisualizations)
+				if constexpr (CreateVisuals)
 				{
 					Builder builder;
 					builder.Line("ray", 0xFFFF0000).style("Direction").line(s, 5 * d);

@@ -159,12 +159,13 @@ namespace pr::ldraw
 					throw std::runtime_error("Unknown contact feature type");
 				}
 			}
-			auto& norm = Line("Normal");
+
+			// Draw the contact normal as an arrow centred on the contact manifold centroid, and scaled by the penetration depth
+			auto& norm = Line("Normal").arrow("Fwd", 50.0f).width(5);
+			auto axis = 0.5f * contact.m_axis * contact.m_depth;
 			for (auto const& pt : contact.Points())
-			{
-				norm.line(pt , pt + 0.5f * contact.m_axis * contact.m_depth);
-				norm.line(pt , pt - 0.5f * contact.m_axis * contact.m_depth);
-			}
+				norm.line(pt - axis, pt + axis);
+
 			Sphere("Point").sphere(0.008f).pos(contact.Point());
 			return *this;
 		}

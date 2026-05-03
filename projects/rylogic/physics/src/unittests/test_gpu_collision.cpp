@@ -1158,9 +1158,6 @@ namespace pr::physics::tests
 		// ---- Polytope vs Polytope ----
 		PRUnitTestMethod(PolytopeVsPolytope)
 		{
-			using namespace pr;
-			using namespace pr::hlsl;
-
 			// Two tetrahedra overlapping at origin
 			{
 				v4 tet_pts[] = {
@@ -1172,16 +1169,16 @@ namespace pr::physics::tests
 				
 				// Slight overlap along X
 				auto exp = collision::Contact{
-					.m_axis = v4{0.742781f,-0.371391f,0.557086f,0},
+					.m_axis = v4{0.742781f,0.371391f,-0.557086f, 0},
 					.m_manifold = {
-						v4{0.275862f, -0.482759f, -0.689655f, 1},
+						v4{0.224136f,-0.48275f,-0.689656f,1},
 					},
 					.m_feature = EFeature::Vert,
-					.m_depth = 1.11417198f,
+					.m_depth = 1.11416829f,
 				};
 				BangTogether(
 					buf_a.as<collision::ShapePolytope>(), m4x4::Identity(),
-					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(0.5f, 0, 0),
+					buf_b.as<collision::ShapePolytope>(), m4x4::Translation(0.5f, 1e-5f, 0),
 					&exp);
 			}
 
@@ -1304,8 +1301,6 @@ namespace pr::physics::tests
 
 		PRUnitTestMethod(BoxDropSupportFeatures)
 		{
-			using namespace pr::hlsl;
-
 			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
 			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
 			auto box_to_world = m4x4::Translation(0, 0, 0.49f);
@@ -1339,8 +1334,6 @@ namespace pr::physics::tests
 
 		PRUnitTestMethod(BoxDropBoxVsBox)
 		{
-			using namespace pr::hlsl;
-
 			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
 			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
 			auto box_to_world = m4x4::Translation(0, 0, 0.49f);

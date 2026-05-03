@@ -840,7 +840,7 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(GjkTests)
 	{
-		inline static constexpr bool CreateVisuals = true;
+		inline static constexpr bool CreateVisuals = false;
 
 		// Two overlapping spheres: GJK should detect contact
 		PRUnitTestMethod(OverlappingSpheres)

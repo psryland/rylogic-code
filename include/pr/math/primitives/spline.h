@@ -1093,7 +1093,7 @@ namespace pr::math
 {
 	PRUnitTestClass(SplineTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		PRUnitTestMethod(CubicCurveLength, float, double)
 		{
@@ -1135,7 +1135,7 @@ namespace pr::math
 		template <ScalarTypeFP S>
 		void DumpToLDraw(CubicCurve3<S> const& curve)
 		{
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				using namespace pr::ldraw;
 

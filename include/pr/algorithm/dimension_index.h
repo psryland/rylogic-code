@@ -186,7 +186,7 @@ namespace pr::algorithm::tests
 {
 	PRUnitTestClass(DimensionIndexTests)
 	{
-		inline static constexpr bool CreateVisualisations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		PRUnitTestMethod(Basic)
 		{
@@ -234,7 +234,7 @@ namespace pr::algorithm::tests
 		PRUnitTestMethod(Visualise)
 		{
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualisations)
+			if constexpr (CreateVisuals)
 			{
 				std::random_device rd;
 				std::default_random_engine rng(rd());

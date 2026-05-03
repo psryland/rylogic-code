@@ -1293,7 +1293,7 @@ odr bool GjkCollide(
 			float4 sb_min = mul(SupportVertex(shape_b, dir_nb, verts), b2w);
 			float pb = 0.5f * (dot(normal.xyz, sb_max.xyz) + dot(normal.xyz, sb_min.xyz));
 
-			float sign = (pa <= pb) ? 1.0f : -1.0f;
+			float sign = (pa <= pb) ? +1.0f : -1.0f;
 			float4 axis = sign * normal;
 
 			// Generic EPA normals can produce support polygons that are unstable on the GPU; specialised SAT paths build full manifolds where stable features are available.

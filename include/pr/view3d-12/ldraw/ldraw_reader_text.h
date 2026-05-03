@@ -78,14 +78,14 @@ namespace pr::rdr12::ldraw::tests
 {
 	PRUnitTestClass(LDrawTextSerialiserTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 		using Builder = pr::ldraw::Builder;
 
 		void Dump(std::string const& data)
 		{
 			(void)data;
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				std::ofstream ofile(temp_dir() / "ldraw_test.ldr");
 				ofile.write(data.data(), data.size());

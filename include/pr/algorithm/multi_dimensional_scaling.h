@@ -546,7 +546,7 @@ namespace pr::algorithm
 {
 	PRUnitTestClass(MDSTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		PRUnitTestMethod(Empty)
 		{
@@ -746,7 +746,7 @@ namespace pr::algorithm
 			PR_EXPECT(result.size() == static_cast<size_t>(N));
 
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				ldraw::Builder builder;
 				auto& pts = builder.Point("points", 0xFF00CC00).size(4.0f);
@@ -803,7 +803,7 @@ namespace pr::algorithm
 			PR_EXPECT(result.size() == static_cast<size_t>(n));
 
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				ldraw::Builder builder;
 

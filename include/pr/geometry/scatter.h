@@ -243,7 +243,7 @@ namespace pr::geometry::tests
 {
 	PRUnitTestClass(ScatterTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		PRUnitTestMethod(ScatterTest)
 		{
@@ -277,7 +277,7 @@ namespace pr::geometry::tests
 			scat.Step();
 
 			#if PR_UNITTESTS_VISUALISE
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				auto LdrDump = [&]
 				{

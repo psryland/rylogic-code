@@ -404,7 +404,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(InterpolatorTests)
 	{
-		inline static constexpr bool CreateVisualizations = false;
+		inline static constexpr bool CreateVisuals = false;
 
 		using V4 = Vec4<float>;
 		using Q = Quat<float>;
@@ -863,7 +863,7 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(LdrHermiteVec)
 		{
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				using namespace pr::ldraw;
 				auto samples = GenerateTestData(N);
@@ -908,7 +908,7 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(LdrHermiteTransform)
 		{
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				using namespace pr::ldraw;
 				auto samples = GenerateTestData(N);
@@ -950,7 +950,7 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(LdrHermiteVector_MidPoint)
 		{
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				using namespace pr::ldraw;
 				auto samples = GenerateTestData(N);
@@ -1003,7 +1003,7 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(LdrHermiteTransform_MidPoint)
 		{
-			if constexpr (CreateVisualizations)
+			if constexpr (CreateVisuals)
 			{
 				using namespace pr::ldraw;
 				auto samples = GenerateTestData(N);

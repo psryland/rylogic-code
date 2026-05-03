@@ -1137,7 +1137,7 @@ namespace pr::ldraw
 		{
 			static constexpr std::string_view Styles[] = { "Line", "Fwd", "Back", "FwdBack" };
 			std::optional<int> m_style;
-			float m_size;
+			std::optional<float> m_size;
 			ArrowHeads() : m_style(), m_size() {}
 			ArrowHeads(TToString auto style, float size = 10) : m_style(static_cast<int>(std::distance(Styles, std::find(std::begin(Styles), std::end(Styles), conv(style))))), m_size(size) {}
 			explicit operator bool() const { return m_style.has_value(); }
@@ -1145,12 +1145,18 @@ namespace pr::ldraw
 			{
 				if (!a) return;
 				auto s = Append(out, seri::Header{ EKeywords::Arrow });
-				Append(out, *a.m_style, a.m_size);
+				if (a.m_style)
+					Append(out, seri::Header{ EKeywords::Style }, *a.m_style);
+				if (a.m_size)
+					Append(out, seri::Header{ EKeywords::Size }, *a.m_size);
 			}
 			friend void Append(textbuf& out, seri::ArrowHeads a)
 			{
 				if (!a) return;
-				Append(out, EKeywords::Arrow, "{", Styles[*a.m_style], a.m_size, "}");
+				Append(out, EKeywords::Arrow, "{",
+					EKeywords::Style, "{", Styles[*a.m_style], "}",
+					EKeywords::Size, "{", *a.m_size, "}",
+				"}");
 			}
 		};
 		struct DataPoints
@@ -3346,7 +3352,6 @@ namespace pr::ldraw
 			m_current.m_style = seri::LineStyle{sty};
 			return *this;
 		}
-		#pragma warning(pop)
 		LdrLine& per_item_colour(bool on = true)
 		{
 			m_current.m_per_item_colour = on;
@@ -3367,11 +3372,14 @@ namespace pr::ldraw
 			m_current.m_dashed = seri::Dashed(dash);
 			return *this;
 		}
-		#pragma warning(push)
-		#pragma warning(disable:4702) // unreachable code (optimizer inlines ArrowHeads ctor and proves branches dead)
 		LdrLine& arrow(seri::TToString auto style = "Fwd", float size = 10.0f)
 		{
 			m_current.m_arrow = seri::ArrowHeads(style, size);
+			return *this;
+		}
+		LdrLine& data_points(seri::TToString auto style = "Square", seri::Vec2 size = { 10.0f, 10.0f }, seri::Colour colour = {})
+		{
+			m_current.m_data_points = seri::DataPoints(size, colour, style);
 			return *this;
 		}
 		#pragma warning(pop)
@@ -4945,6 +4953,7 @@ namespace pr::ldraw
 				.width(10)
 				.dashed({ 0.2f, 0.4f })
 				.arrow("Fwd", 5.0f)
+				.data_points("Square")
 				.line({ -1, -1, -1 }, { +1, +1, +1 }, 0xFFFF0000)
 				.line({ -1, +1, -1 }, { +1, -1, +1 }, 0xFF0000FF)
 				.new_block()
@@ -4959,13 +4968,27 @@ namespace pr::ldraw
 				"	*Style {LineSegments}\n"
 				"	*Width {10}\n"
 				"	*Dashed {0.2 0.4}\n"
-				"	*Arrow {Fwd 5}\n"
+				"	*Arrow {\n"
+				"		*Style {Fwd}\n"
+				"		*Size {5}\n"
+				"	}\n"
+				"	*DataPoints {\n"
+				"		*Style {Square}\n"
+				"		*Size {10 10}\n"
+				"	}\n"
 				"	*PerItemColour {true}\n"
 				"	*Data {-1 -1 -1 1 1 1 ffff0000 -1 1 -1 1 -1 1 ff0000ff}\n"
 				"	*Style {LineStrip}\n"
 				"	*Width {10}\n"
 				"	*Dashed {0.2 0.4}\n"
-				"	*Arrow {Fwd 5}\n"
+				"	*Arrow {\n"
+				"		*Style {Fwd}\n"
+				"		*Size {5}\n"
+				"	}\n"
+				"	*DataPoints {\n"
+				"		*Style {Square}\n"
+				"		*Size {10 10}\n"
+				"	}\n"
 				"	*PerItemColour {true}\n"
 				"	*Data {-1 -1 -1 ffffffff 1 -1 -1 ffffffff 1 1 -1 ffffffff -1 1 -1 ffffffff}\n"
 				"}");
