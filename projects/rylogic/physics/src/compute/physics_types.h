@@ -157,7 +157,7 @@ namespace pr::physics
 			.inertia_inv_diagonal = rb.m_os_inertia_inv.m_diagonal,
 			.inertia_inv_products = rb.m_os_inertia_inv.m_products,
 			.os_com_and_invmass = v4{rb.CentreOfMassOS().xyz, rb.m_os_inertia_inv.InvMass()},
-			.os_bbox = rb.Shape().m_bbox,
+			.os_bbox = rb.Shape().m_s2r * rb.Shape().m_bbox,
 			.state_flags = static_cast<int>(rb.m_state_flags),
 			.shape_id = shape_id,
 			.colour_used = 0,

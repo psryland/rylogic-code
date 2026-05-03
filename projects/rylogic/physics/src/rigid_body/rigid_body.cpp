@@ -104,7 +104,8 @@ namespace pr::physics
 	// Return the world space bounding box for this object
 	BBox RigidBody::BBoxWS() const
 	{
-		return O2W() * Shape().m_bbox;
+		auto const& shape = Shape();
+		return O2W() * (shape.m_s2r * shape.m_bbox);
 	}
 
 	// The mass of the rigid body

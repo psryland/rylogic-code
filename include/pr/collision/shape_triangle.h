@@ -22,7 +22,7 @@ namespace pr::collision
 
 		ShapeTriangle() = default;
 		explicit ShapeTriangle(v4 a, v4 b, v4 c, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			: m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_root, material_id, flags)
+			: m_base(EShape::Triangle, sizeof(ShapeTriangle), shape_to_root, BBox::Reset(), material_id, flags)
 			, m_v()
 		{
 			assert(a.w == 1.0f && b.w == 1.0f && c.w == 1.0f);

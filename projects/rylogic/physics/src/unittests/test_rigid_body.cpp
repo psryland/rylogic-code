@@ -6,6 +6,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics::tests
 {
@@ -284,6 +285,15 @@ namespace pr::physics::tests
 			rb.O2W(m4x4::Translation(v4{0, 0, 2.5f, 1}));
 			rb.Shape(&polytope.m_base, 10.0f);
 			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOS(), true_com, 1e-5f));
+			auto bbox_os = rb.Shape().m_s2r * rb.Shape().m_bbox;
+			auto bbox_ws = rb.BBoxWS();
+			auto dyn = PackDynamics(rb, 0);
+			for (auto const& vert : verts)
+			{
+				PR_EXPECT(IsWithin(bbox_os, vert, 1e-5f));
+				PR_EXPECT(IsWithin(bbox_ws, rb.O2W() * vert, 1e-5f));
+				PR_EXPECT(IsWithin(dyn.os_bbox, vert, 1e-5f));
+			}
 
 			auto ang_vel = v4{-11.72f, -13.07f, +0.65f, 0};
 			auto lin_vel = v4{0, 0, +5.60f, 0};
