@@ -316,6 +316,7 @@ namespace physics_sandbox
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
 		auto scene_bbox = CalculateSceneBBox(scene_desc);
 		const auto ground_thickness = 10.0f;
+		auto colour_rng = std::default_random_engine(scene_desc.colour_seed);
 
 		// Shapes for the bodies in the scene.
 		{
@@ -388,6 +389,7 @@ namespace physics_sandbox
 				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
+				body.m_colour = bd.colour ? *bd.colour : RandomRGB(colour_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
 
 				shape_ptr = collision::next(shape_ptr);
@@ -400,6 +402,7 @@ namespace physics_sandbox
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
 				ground.Shape(shape_ptr, -1.0f);
+				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(colour_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
 
 				shape_ptr = collision::next(shape_ptr);
@@ -413,26 +416,23 @@ namespace physics_sandbox
 		if (m_rdr)
 		{
 			using namespace pr::ldraw;
-			static std::default_random_engine rng;
 
 			// Build a single script with one root object per body
 			Builder builder;
-			for (auto const& [bd, i] : with_index(scene_desc.bodies))
+			for (int i = 0; i != num_scene_bodies; ++i)
 			{
 				auto& body = m_body[i];
 				if (!body.HasShape())
 					continue;
 
-				auto colour = bd.colour ? *bd.colour : RandomRGB(rng, 0.0f, 1.0f);
-				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
+				builder.Add<LdrRigidBody>("Body", body.m_colour.argb).rigid_body(body);
 			}
 
 			// Add ground plane shape
 			if (scene_desc.ground)
 			{
 				auto& body = m_body.back();
-				auto colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(rng, 0.0f, 1.0f);
-				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
+				builder.Add<LdrRigidBody>("Body", body.m_colour.argb).rigid_body(body);
 			}
 
 			// Parse all shapes in one batch
@@ -440,7 +440,7 @@ namespace physics_sandbox
 
 			// Assign each parsed object to its corresponding body
 			int obj_idx = 0;
-			for (auto const& [bd, i] : with_index(scene_desc.bodies))
+			for (int i = 0; i != num_scene_bodies; ++i)
 			{
 				auto& body = m_body[i];
 				if (!body.HasShape())
