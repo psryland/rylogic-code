@@ -20,6 +20,8 @@
 //   t0: StructuredBuffer<GpuCollisionPair>       - broadphase overlap pairs
 //   t1: StructuredBuffer<GpuShape>               - all unique shapes in the scene
 //   t2: StructuredBuffer<float4>                 - shared vertex buffer (polytope/triangle)
+//   t3: StructuredBuffer<GpuPolytopeFace>        - shared polytope face topology
+//   t4: StructuredBuffer<GpuPolytopeEdge>        - shared polytope edge topology
 //
 // Runtime order, as recorded by GpuCollisionDetector:
 //   1. CSClearCollisionBins
@@ -62,6 +64,8 @@ RWStructuredBuffer<DispatchArguments> resource(g_bin_dispatch_args, u5);
 StructuredBuffer<GpuCollisionPair> resource(g_pairs, t0);
 StructuredBuffer<GpuShape> resource(g_shapes, t1);
 StructuredBuffer<float4> resource(g_verts, t2);
+StructuredBuffer<GpuPolytopeFace> resource(g_faces, t3);
+StructuredBuffer<GpuPolytopeEdge> resource(g_edges, t4);
 
 // Map an unordered pair of shape types to the exact bin that owns it. The broadphase preserves body order so that contacts are stored as A->B,
 // but the binning only cares about the shape type combination.
@@ -460,13 +464,11 @@ void CollidePairPolytopeVsPolytope(uint pair_index)
 	float4x4 a2w, b2w;
 	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
 
-	int gjk_iters = 0;
-	int epa_iters = 0;
 	GpuContact col;
 
-	// Same-type bins keep the original broadphase ordering. GjkCollide returns the axis from its first shape toward its second, so reversing the call
-	// here would produce a B->A axis while the stored contact still uses body_idx_a/body_idx_b.
-	bool hit = GjkCollide(shape_a, a2w, shape_b, b2w, g_verts, col, gjk_iters, epa_iters);
+	// Same-type bins keep the original broadphase ordering. PolytopeVsPolytope returns the axis from its first shape toward its second, so reversing the
+	// call here would produce a B->A axis while the stored contact still uses body_idx_a/body_idx_b.
+	bool hit = PolytopeVsPolytope(shape_a, a2w, shape_b, b2w, g_verts, g_faces, g_edges, col);
 	StoreCollisionResult(pair, shape_a, shape_b, hit, col);
 }
 

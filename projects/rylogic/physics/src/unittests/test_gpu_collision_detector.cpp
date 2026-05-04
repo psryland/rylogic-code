@@ -255,7 +255,27 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true, true);
 		}
 
-		// 9. Tumbling tetrahedron deeply penetrating a large ground box.
+		// 9. Polytope vs polytope face contact
+		PRUnitTestMethod(PolytopeVsPolytope)
+		{
+			v4 cube_pts[] = {
+				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
+				v4{-1, +1, -1, 1}, v4{+1, +1, -1, 1},
+				v4{-1, -1, +1, 1}, v4{+1, -1, +1, 1},
+				v4{-1, +1, +1, 1}, v4{+1, +1, +1, 1},
+			};
+			auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
+			auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
+			auto const& poly_a = buf_a.as<collision::ShapePolytope>();
+			auto const& poly_b = buf_b.as<collision::ShapePolytope>();
+
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(1.5f, 0, 0);
+
+			CompareGpuVsCpu(poly_a, l2w, poly_b, r2w, true);
+		}
+
+		// 10. Tumbling tetrahedron deeply penetrating a large ground box.
 		// Captured from the StressDropTests scenario to guard the deep polytope-vs-ground
 		// case that exposed resolver issues after the GPU and CPU GJK paths already agreed.
 		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)
@@ -289,7 +309,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(ground, ground_l2w, poly, poly_o2w, true);
 		}
 
-		// 10. Shallow polytope/ground contact captured from stress_test_1000.
+		// 11. Shallow polytope/ground contact captured from stress_test_1000.
 		// The CPU path detects contact before the body gets deeply embedded; the GPU
 		// path must not miss this or the eventual deep correction can launch the body.
 		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble)

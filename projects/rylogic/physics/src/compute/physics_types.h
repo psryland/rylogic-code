@@ -25,6 +25,10 @@ namespace pr::physics
 			.vert_offset = 0,
 			.vert_count = 0,
 			.material_id = shape.m_base.m_material_id,
+			.face_offset = 0,
+			.face_count = 0,
+			.edge_offset = 0,
+			.edge_count = 0,
 			.data = v4(shape.m_radius, 0, 0, 0),
 		};		
 	}
@@ -36,6 +40,10 @@ namespace pr::physics
 			.vert_offset = 0,
 			.vert_count = 0,
 			.material_id = shape.m_base.m_material_id,
+			.face_offset = 0,
+			.face_count = 0,
+			.edge_offset = 0,
+			.edge_count = 0,
 			.data = shape.m_radius, // half-extents (xyz), w=0
 		};
 	}
@@ -47,6 +55,10 @@ namespace pr::physics
 			.vert_offset = 0,
 			.vert_count = 0,
 			.material_id = shape.m_base.m_material_id,
+			.face_offset = 0,
+			.face_count = 0,
+			.edge_offset = 0,
+			.edge_count = 0,
 			.data = v4(shape.m_hlength, shape.m_radius, 0, 0),
 		};
 	}
@@ -58,10 +70,14 @@ namespace pr::physics
 			.vert_offset = vert_offset,
 			.vert_count = 3, // The 3 vertices are stored at vert_offset..vert_offset+2.
 			.material_id = shape.m_base.m_material_id,
+			.face_offset = 0,
+			.face_count = 0,
+			.edge_offset = 0,
+			.edge_count = 0,
 			.data = v4::Zero(),
 		};
 	}
-	inline GpuShape PackShape(collision::ShapePolytope const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
+	inline GpuShape PackShape(collision::ShapePolytope const& shape, int vert_offset, int face_offset = 0, int edge_offset = 0, m4x4 const& p2rb = m4x4::Identity())
 	{
 		return GpuShape {
 			.s2rb = p2rb * shape.m_base.m_s2r,
@@ -69,10 +85,14 @@ namespace pr::physics
 			.vert_offset = vert_offset,
 			.vert_count = shape.m_vert_count,
 			.material_id = shape.m_base.m_material_id,
+			.face_offset = face_offset,
+			.face_count = shape.m_face_count,
+			.edge_offset = edge_offset,
+			.edge_count = shape.m_edge_count,
 			.data = v4::Zero(),
 		};
 	}
-	inline GpuShape PackShape(collision::Shape const& shape, std::vector<v4>& vertex_buffer, m4x4 const& p2rb = m4x4::Identity())
+	inline GpuShape PackShape(collision::Shape const& shape, std::vector<v4>& vertex_buffer, std::vector<GpuPolytopeFace>* face_buffer = nullptr, std::vector<GpuPolytopeEdge>* edge_buffer = nullptr, m4x4 const& p2rb = m4x4::Identity())
 	{
 		using namespace collision;
 
@@ -86,6 +106,10 @@ namespace pr::physics
 					.vert_offset = 0,
 					.vert_count = 0,
 					.material_id = 0,
+					.face_offset = 0,
+					.face_count = 0,
+					.edge_offset = 0,
+					.edge_count = 0,
 					.data = v4::Zero(),
 				};
 			}
@@ -118,11 +142,47 @@ namespace pr::physics
 				auto& poly = shape_cast<ShapePolytope>(shape);
 
 				// Copy polytope vertices into the shared vertex buffer
-				auto offset = static_cast<int>(vertex_buffer.size());
+				auto vert_offset = static_cast<int>(vertex_buffer.size());
 				for (auto const* v = poly.vert_beg(); v != poly.vert_end(); ++v)
 					vertex_buffer.push_back(*v);
 
-				return PackShape(poly, offset, p2rb);
+				auto face_offset = 0;
+				if (face_buffer != nullptr)
+				{
+					face_offset = static_cast<int>(face_buffer->size());
+					for (auto const& face : poly.faces())
+					{
+						face_buffer->push_back(GpuPolytopeFace{
+							.plane = face.m_plane,
+							.index0 = face.m_index[0],
+							.index1 = face.m_index[1],
+							.index2 = face.m_index[2],
+							.flags = static_cast<uint32_t>(face.m_flags),
+						});
+					}
+				}
+
+				auto edge_offset = 0;
+				if (edge_buffer != nullptr)
+				{
+					edge_offset = static_cast<int>(edge_buffer->size());
+					for (auto const& edge : poly.edges())
+					{
+						edge_buffer->push_back(GpuPolytopeEdge{
+							.direction = edge.m_direction,
+							.v0 = edge.m_v0,
+							.v1 = edge.m_v1,
+							.face0 = edge.m_face0,
+							.face1 = edge.m_face1,
+							.flags = static_cast<uint32_t>(edge.m_flags),
+							.pad0 = 0,
+							.pad1 = 0,
+							.pad2 = 0,
+						});
+					}
+				}
+
+				return PackShape(poly, vert_offset, face_offset, edge_offset, p2rb);
 			}
 			case EShape::Array:
 			{

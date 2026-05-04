@@ -33,6 +33,8 @@ namespace pr::physics
 		inline static constexpr auto Pairs = ESRVReg::t0;
 		inline static constexpr auto Shapes = ESRVReg::t1;
 		inline static constexpr auto Verts = ESRVReg::t2;
+		inline static constexpr auto Faces = ESRVReg::t3;
+		inline static constexpr auto Edges = ESRVReg::t4;
 	};
 
 	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
@@ -46,6 +48,8 @@ namespace pr::physics
 		, m_cmd_sig()
 		, m_r_shapes()
 		, m_r_verts()
+		, m_r_faces()
+		, m_r_edges()
 		, m_r_contacts()
 		, m_r_resolve_dispatch()
 		, m_r_bin_counts()
@@ -55,6 +59,8 @@ namespace pr::physics
 		, m_max_pairs()
 		, m_max_shapes()
 		, m_max_verts()
+		, m_max_faces()
+		, m_max_edges()
 	{
 		CompileShaders();
 
@@ -92,6 +98,8 @@ namespace pr::physics
 				.SRV(EReg::Pairs)
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
+				.SRV(EReg::Faces)
+				.SRV(EReg::Edges)
 				;
 		};
 		auto make_collide_sig = [&]()
@@ -105,6 +113,8 @@ namespace pr::physics
 				.SRV(EReg::Pairs)
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
+				.SRV(EReg::Faces)
+				.SRV(EReg::Edges)
 				;
 		};
 
@@ -172,12 +182,14 @@ namespace pr::physics
 
 	// Create GPU buffers for collision pipeline.
 	// Returns true if shape or vertex buffers were reallocated (requiring re-upload).
-	bool GpuCollisionDetector::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_pairs, int max_shapes, int max_verts)
+	bool GpuCollisionDetector::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_pairs, int max_shapes, int max_verts, int max_faces, int max_edges)
 	{
 		max_contacts = std::max(1, max_contacts);
 		max_pairs = std::max(1, max_pairs);
 		max_shapes = std::max(1, max_shapes);
 		max_verts = std::max(1, max_verts);
+		max_faces = std::max(1, max_faces);
+		max_edges = std::max(1, max_edges);
 
 		bool shapes_resized = false;
 
@@ -191,6 +203,18 @@ namespace pr::physics
 		{
 			m_r_verts = m_gpu.CreateResource(ResDesc::Buf<v4>(max_verts, {}), cmd_list, "Physics:ShapeVerts");
 			m_max_verts = max_verts;
+			shapes_resized = true;
+		}
+		if (m_r_faces == nullptr || max_faces > m_max_faces)
+		{
+			m_r_faces = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeFace>(max_faces, {}), cmd_list, "Physics:ShapeFaces");
+			m_max_faces = max_faces;
+			shapes_resized = true;
+		}
+		if (m_r_edges == nullptr || max_edges > m_max_edges)
+		{
+			m_r_edges = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeEdge>(max_edges, {}), cmd_list, "Physics:ShapeEdges");
+			m_max_edges = max_edges;
 			shapes_resized = true;
 		}
 		if (m_r_contacts == nullptr || max_contacts > m_max_contacts)
@@ -225,18 +249,22 @@ namespace pr::physics
 		//  - Assumes that the counters.contact_count has been zeroed already by the broad phase shader.
 		auto shape_count = static_cast<int>(shape_cache.m_shapes.size());
 		auto vert_count = static_cast<int>(shape_cache.m_verts.size());
+		auto face_count = static_cast<int>(shape_cache.m_faces.size());
+		auto edge_count = static_cast<int>(shape_cache.m_edges.size());
 		auto shapes_upload_needed = shape_cache.m_changed;
 
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFFf245bc, "Physics::Collide");
 
 		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
 		// regardless of the caller's dirty flag (the new buffers contain garbage).
-		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count);
+		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
 		if (shapes_upload_needed)
 		{
 			// Upload shapes and vertex buffers
 			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
 			auto shape_upload = job.m_upload.Alloc<GpuShape>(shape_count);
@@ -248,8 +276,18 @@ namespace pr::physics
 			memcpy(vert_upload.ptr<v4>(), shape_cache.m_verts.data(), vert_count * sizeof(v4));
 			job.m_cmd_list.CopyBufferRegion(m_r_verts.get(), 0, vert_upload);
 
+			auto face_upload = job.m_upload.Alloc<GpuPolytopeFace>(std::max(1, face_count));
+			memcpy(face_upload.ptr<GpuPolytopeFace>(), shape_cache.m_faces.data(), face_count * sizeof(GpuPolytopeFace));
+			job.m_cmd_list.CopyBufferRegion(m_r_faces.get(), 0, face_upload);
+
+			auto edge_upload = job.m_upload.Alloc<GpuPolytopeEdge>(std::max(1, edge_count));
+			memcpy(edge_upload.ptr<GpuPolytopeEdge>(), shape_cache.m_edges.data(), edge_count * sizeof(GpuPolytopeEdge));
+			job.m_cmd_list.CopyBufferRegion(m_r_edges.get(), 0, edge_upload);
+
 			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
@@ -261,6 +299,8 @@ namespace pr::physics
 			job.m_barriers.Transition(pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_resolve_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bin_counts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bin_pair_indices.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -286,6 +326,8 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_faces->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_edges->GetGPUVirtualAddress());
 		};
 		auto bind_collide = [&](ComputeStep& step)
 		{
@@ -299,6 +341,8 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_shapes->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_verts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_faces->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_edges->GetGPUVirtualAddress());
 		};
 
 		// Clear all exact pair bins.

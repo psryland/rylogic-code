@@ -39,6 +39,8 @@
 //     Triangle vs Box
 //     Polytope vs Box
 //     Polytope vs Triangle
+//
+//   Topology SAT:
 //     Polytope vs Polytope
 #ifndef PR_PHYSICS_COLLISION_HLSLI
 #define PR_PHYSICS_COLLISION_HLSLI
@@ -835,6 +837,152 @@ odr bool LineVsBox(
 	for (int i = 0; i != countA; ++i) featA.points[i] = float4(ptsA[i], 1);
 	for (int j = 0; j != countB; ++j) featB.points[j] = float4(ptsB[j], 1);
 	FindContactManifold(featA, featB, axis, best_depth, out_contact);
+	return true;
+}
+
+// ---- Polytope vs Polytope ----
+odr float4 PolytopeFaceNormal(in_(GpuShape) shape, float4x4 s2w, uint face_index, in_(StructuredBuffer<GpuPolytopeFace>) faces)
+{
+	GpuPolytopeFace face = faces[shape.face_offset + face_index];
+	return NormaliseSafe(float4(mul(float4(face.plane.xyz, 0), s2w).xyz, 0), float4(1, 0, 0, 0));
+}
+odr void PolytopeProject(in_(GpuShape) shape, float4x4 s2w, float4 axis, in_(StructuredBuffer<float4>) verts, out_(float) min_dist, out_(float) max_dist)
+{
+	min_dist = +1e30f;
+	max_dist = -1e30f;
+	for (int i = 0; i != shape.vert_count; ++i)
+	{
+		float4 vert = float4(verts[shape.vert_offset + i].xyz, 1);
+		float dist = dot(axis.xyz, mul(vert, s2w).xyz);
+		min_dist = min(min_dist, dist);
+		max_dist = max(max_dist, dist);
+	}
+}
+odr bool PolytopeTestAxis(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) shape_b, float4x4 b2w, float4 axis, in_(StructuredBuffer<float4>) verts, inout_(float) best_depth, inout_(float4) best_axis)
+{
+	float axis_len_sq = length_sq(axis.xyz);
+	if (axis_len_sq < 1e-12f)
+		return true;
+
+	axis = float4(axis.xyz * rsqrt(axis_len_sq), 0);
+
+	float a_min, a_max, b_min, b_max;
+	PolytopeProject(shape_a, a2w, axis, verts, a_min, a_max);
+	PolytopeProject(shape_b, b2w, axis, verts, b_min, b_max);
+
+	float depth = min(a_max - b_min, b_max - a_min);
+	if (depth < 0)
+		return false;
+
+	if (depth < best_depth)
+	{
+		best_depth = depth;
+		best_axis = (a_min + a_max <= b_min + b_max) ? axis : -axis;
+	}
+
+	return true;
+}
+odr bool PolytopeAxisInEdgeNormalCone(in_(GpuShape) shape, float4x4 s2w, in_(GpuPolytopeEdge) edge, float4 axis, in_(StructuredBuffer<GpuPolytopeFace>) faces)
+{
+	const float Tol = 1e-5f;
+	float axis_len_sq = length_sq(axis.xyz);
+	if (axis_len_sq < 1e-12f)
+		return false;
+
+	axis = float4(axis.xyz * rsqrt(axis_len_sq), 0);
+	float4 normal0 = PolytopeFaceNormal(shape, s2w, edge.face0, faces);
+	float4 normal1 = PolytopeFaceNormal(shape, s2w, edge.face1, faces);
+	float cos_angle = clamp(dot(normal0.xyz, normal1.xyz), -1.0f, +1.0f);
+	float det = 1.0f - cos_angle * cos_angle;
+	if (det < Tol * Tol)
+		return false;
+
+	float dot0 = dot(axis.xyz, normal0.xyz);
+	float dot1 = dot(axis.xyz, normal1.xyz);
+	float weight0 = (dot0 - cos_angle * dot1) / det;
+	float weight1 = (dot1 - cos_angle * dot0) / det;
+	return weight0 >= -Tol && weight1 >= -Tol;
+}
+odr bool PolytopeEdgePairCompatible(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuPolytopeEdge) edge_a, in_(GpuShape) shape_b, float4x4 b2w, in_(GpuPolytopeEdge) edge_b, float4 axis, in_(StructuredBuffer<GpuPolytopeFace>) faces)
+{
+	return
+		(PolytopeAxisInEdgeNormalCone(shape_a, a2w, edge_a, +axis, faces) && PolytopeAxisInEdgeNormalCone(shape_b, b2w, edge_b, -axis, faces)) ||
+		(PolytopeAxisInEdgeNormalCone(shape_a, a2w, edge_a, -axis, faces) && PolytopeAxisInEdgeNormalCone(shape_b, b2w, edge_b, +axis, faces));
+}
+odr bool PolytopeVsPolytope(
+	in_(GpuShape) shape_a, float4x4 a2w_,
+	in_(GpuShape) shape_b, float4x4 b2w_,
+	in_(StructuredBuffer<float4>) verts,
+	in_(StructuredBuffer<GpuPolytopeFace>) faces,
+	in_(StructuredBuffer<GpuPolytopeEdge>) edges,
+	out_(GpuContact) out_contact)
+{
+	ContactClear(out_contact);
+	if (shape_a.face_count == 0 || shape_b.face_count == 0 || shape_a.edge_count == 0 || shape_b.edge_count == 0)
+		return false;
+
+	float4x4 a2w = mul(shape_a.s2rb, a2w_);
+	float4x4 b2w = mul(shape_b.s2rb, b2w_);
+	float4x4 a2p = a2w;
+	float4x4 b2p = b2w;
+
+	// Recentre only the projection transforms to reduce cancellation; contact generation must still use the unshifted transforms.
+	float4 ofs = 0.5f * float4((a2p[3] + b2p[3]).xyz, 0);
+	a2p[3] -= ofs;
+	b2p[3] -= ofs;
+
+	float best_depth = +1e30f;
+	float4 best_axis = float4(1, 0, 0, 0);
+
+	for (int i = 0; i != shape_a.face_count; ++i)
+	{
+		GpuPolytopeFace face = faces[shape_a.face_offset + i];
+		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+			continue;
+
+		float4 axis = mul(float4(face.plane.xyz, 0), a2p);
+		if (!PolytopeTestAxis(shape_a, a2p, shape_b, b2p, axis, verts, best_depth, best_axis))
+			return false;
+	}
+
+	for (int i = 0; i != shape_b.face_count; ++i)
+	{
+		GpuPolytopeFace face = faces[shape_b.face_offset + i];
+		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+			continue;
+
+		float4 axis = mul(float4(face.plane.xyz, 0), b2p);
+		if (!PolytopeTestAxis(shape_a, a2p, shape_b, b2p, axis, verts, best_depth, best_axis))
+			return false;
+	}
+
+	for (int i = 0; i != shape_a.edge_count; ++i)
+	{
+		GpuPolytopeEdge edge_a = edges[shape_a.edge_offset + i];
+		if ((edge_a.flags & POLY_EDGE_IGNORE_AXES) != 0)
+			continue;
+
+		float4 dir_a = mul(edge_a.direction, a2p);
+		for (int j = 0; j != shape_b.edge_count; ++j)
+		{
+			GpuPolytopeEdge edge_b = edges[shape_b.edge_offset + j];
+			if ((edge_b.flags & POLY_EDGE_IGNORE_AXES) != 0)
+				continue;
+
+			float4 dir_b = mul(edge_b.direction, b2p);
+			float4 axis = float4(cross(dir_a.xyz, dir_b.xyz), 0);
+			if (length_sq(axis.xyz) < 1e-12f)
+				continue;
+
+			if (!PolytopeEdgePairCompatible(shape_a, a2p, edge_a, shape_b, b2p, edge_b, axis, faces))
+				continue;
+
+			if (!PolytopeTestAxis(shape_a, a2p, shape_b, b2p, axis, verts, best_depth, best_axis))
+				return false;
+		}
+	}
+
+	FindContactManifold(shape_a, a2w, shape_b, b2w, best_axis, best_depth, verts, out_contact);
 	return true;
 }
 

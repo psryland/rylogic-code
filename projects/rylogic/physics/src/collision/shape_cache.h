@@ -22,11 +22,17 @@ namespace pr::physics
 			int gpu_index;      // Index into m_shapes / m_verts arrays
 			int vert_offset;    // For polytopes/triangles: offset into m_verts
 			int vert_count;     // For polytopes/triangles: number of vertices
+			int face_offset;    // For polytopes: offset into m_faces
+			int face_count;     // For polytopes: number of faces
+			int edge_offset;    // For polytopes: offset into m_edges
+			int edge_count;     // For polytopes: number of edges
 			int last_used;      // Frame counter when last referenced
 		};
 
 		std::vector<GpuShape> m_shapes;                    // Packed GPU shapes
 		std::vector<v4> m_verts;                           // Shared vertex buffer (polytope/triangle verts)
+		std::vector<GpuPolytopeFace> m_faces;              // Shared polytope face buffer
+		std::vector<GpuPolytopeEdge> m_edges;              // Shared polytope edge buffer
 		std::unordered_map<Shape const*, Entry> m_entries; // Shape pointer → cache entry
 		int m_frame;                                       // Current frame counter
 		bool m_changed;                                    // True if shapes were added/removed since last upload
@@ -34,6 +40,8 @@ namespace pr::physics
 		ShapeCache()
 			: m_shapes()
 			, m_verts()
+			, m_faces()
+			, m_edges()
 			, m_entries()
 			, m_frame(0)
 			, m_changed(true)
@@ -58,6 +66,8 @@ namespace pr::physics
 		{
 			m_shapes.clear();
 			m_verts.clear();
+			m_faces.clear();
+			m_edges.clear();
 			m_entries.clear();
 			m_frame = 0;
 			m_changed = true;
@@ -77,13 +87,21 @@ namespace pr::physics
 			// New shape — pack it into the GPU buffers
 			auto idx = static_cast<int>(m_shapes.size());
 			auto vert_offset = static_cast<int>(m_verts.size());
-			m_shapes.push_back(PackShape(shape, m_verts));
+			auto face_offset = static_cast<int>(m_faces.size());
+			auto edge_offset = static_cast<int>(m_edges.size());
+			m_shapes.push_back(PackShape(shape, m_verts, &m_faces, &m_edges));
 			auto vert_count = static_cast<int>(m_verts.size()) - vert_offset;
+			auto face_count = static_cast<int>(m_faces.size()) - face_offset;
+			auto edge_count = static_cast<int>(m_edges.size()) - edge_offset;
 
 			m_entries[&shape] = Entry{
 				.gpu_index = idx,
 				.vert_offset = vert_offset,
 				.vert_count = vert_count,
+				.face_offset = face_offset,
+				.face_count = face_count,
+				.edge_offset = edge_offset,
+				.edge_count = edge_count,
 				.last_used = m_frame,
 			};
 
@@ -113,6 +131,8 @@ namespace pr::physics
 			m_entries.clear();
 			m_shapes.clear();
 			m_verts.clear();
+			m_faces.clear();
+			m_edges.clear();
 
 			for (auto& [ptr, entry] : old_entries)
 			{
@@ -122,13 +142,21 @@ namespace pr::physics
 				// Re-pack this shape at its new index
 				auto new_idx = static_cast<int>(m_shapes.size());
 				auto new_vert_offset = static_cast<int>(m_verts.size());
-				m_shapes.push_back(PackShape(*ptr, m_verts));
+				auto new_face_offset = static_cast<int>(m_faces.size());
+				auto new_edge_offset = static_cast<int>(m_edges.size());
+				m_shapes.push_back(PackShape(*ptr, m_verts, &m_faces, &m_edges));
 				auto new_vert_count = static_cast<int>(m_verts.size()) - new_vert_offset;
+				auto new_face_count = static_cast<int>(m_faces.size()) - new_face_offset;
+				auto new_edge_count = static_cast<int>(m_edges.size()) - new_edge_offset;
 
 				m_entries[ptr] = Entry{
 					.gpu_index = new_idx,
 					.vert_offset = new_vert_offset,
 					.vert_count = new_vert_count,
+					.face_offset = new_face_offset,
+					.face_count = new_face_count,
+					.edge_offset = new_edge_offset,
+					.edge_count = new_edge_count,
 					.last_used = entry.last_used,
 				};
 			}

@@ -138,6 +138,15 @@ namespace pr::collision
 	using ShapePolyFace = ShapePolytope::Face;
 	using ShapePolyEdge = ShapePolytope::Edge;
 
+	inline bool IgnoreFaceAxis(ShapePolyFace const& face)
+	{
+		return AllSet(face.m_flags, ShapePolytope::EFaceFlags::IgnoreFaceAxis);
+	}
+	inline bool IgnoreEdgeAxes(ShapePolyEdge const& edge)
+	{
+		return AllSet(edge.m_flags, ShapePolytope::EEdgeFlags::IgnoreEdgeAxes);
+	}
+
 	// Return the bounding box for a polytope
 	inline BBox pr_vectorcall CalcBBox(ShapePolytope const& shape)
 	{
@@ -579,6 +588,22 @@ namespace pr::collision
 			}
 		}
 
+		// Mark duplicate face axes. SAT only needs one representative for each axis line, and the support-feature pass will still find the correct face.
+		constexpr auto duplicate_axis_tol = 1e-4f;
+		for (int f = 0; f != fc; ++f)
+		{
+			auto& face = faces[f];
+			auto normal = face.m_plane.direction();
+			for (int i = 0; i != f; ++i)
+			{
+				if (Abs(Dot3(normal, faces[i].m_plane.direction())) > 1.0f - duplicate_axis_tol)
+				{
+					face.m_flags = SetBits(face.m_flags, ShapePolytope::EFaceFlags::IgnoreFaceAxis, true);
+					break;
+				}
+			}
+		}
+
 		for (int e = 0; e != ec; ++e)
 		{
 			auto& edge = edges[e];
@@ -588,6 +613,11 @@ namespace pr::collision
 				throw std::runtime_error("ConvexHull produced a zero-length polytope edge");
 
 			edge.m_direction = (dir / len).w0();
+
+			auto normal0 = faces[edge.m_face0].m_plane.direction();
+			auto normal1 = faces[edge.m_face1].m_plane.direction();
+			if (Abs(Dot3(normal0, normal1)) > 1.0f - duplicate_axis_tol)
+				edge.m_flags = SetBits(edge.m_flags, ShapePolytope::EEdgeFlags::IgnoreEdgeAxes, true);
 		}
 
 		// Finalize. Complete() recalculates m_base.m_size and the bounding box.
@@ -639,9 +669,21 @@ namespace pr::collision::tests
 
 			PR_EXPECT(poly.m_vert_count == 8);
 			PR_EXPECT(poly.m_face_count == 12); // 6 quads = 12 triangles
+			PR_EXPECT(poly.m_edge_count == 18); // 12 polyhedron edges plus 6 coplanar face diagonals
 
 			char const* err = nullptr;
 			PR_EXPECT(Validate(poly, false, &err));
+
+			auto ignored_faces = 0;
+			for (auto const& face : poly.faces())
+				ignored_faces += IgnoreFaceAxis(face) ? 1 : 0;
+
+			auto ignored_edges = 0;
+			for (auto const& edge : poly.edges())
+				ignored_edges += IgnoreEdgeAxes(edge) ? 1 : 0;
+
+			PR_EXPECT(ignored_faces == 9);
+			PR_EXPECT(ignored_edges == 6);
 		}
 
 		// Build a polytope with interior points. Only hull verts should appear.

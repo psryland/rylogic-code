@@ -57,6 +57,9 @@ static const int FEATURE_EDGE = 2;
 static const int FEATURE_TRI  = 3;
 static const int FEATURE_QUAD = 4;
 
+static const uint POLY_FACE_IGNORE_AXIS = 1 << 0;
+static const uint POLY_EDGE_IGNORE_AXES = 1 << 0;
+
 // ---- GPU data structures (must match C++ layout exactly) ----
 struct GpuRigidBody
 {
@@ -111,7 +114,31 @@ struct GpuShape
 	int vert_offset;
 	int vert_count;
 	int material_id;
+	int face_offset;
+	int face_count;
+	int edge_offset;
+	int edge_count;
 	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,radius)
+};
+struct GpuPolytopeFace
+{
+	float4 plane; // xyz = local outward unit normal, w matches Plane3 convention
+	uint index0;
+	uint index1;
+	uint index2;
+	uint flags;
+};
+struct GpuPolytopeEdge
+{
+	float4 direction; // local-space, normalised
+	uint v0;
+	uint v1;
+	uint face0;
+	uint face1;
+	uint flags;
+	uint pad0;
+	uint pad1;
+	uint pad2;
 };
 struct GpuCollisionPair
 {
