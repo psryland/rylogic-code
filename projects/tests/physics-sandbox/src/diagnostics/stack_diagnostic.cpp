@@ -19,6 +19,7 @@ namespace physics_sandbox::diag
 
 		struct BodyTraceState
 		{
+			m4x4 m_o2w = {};
 			v4 m_pos = {};
 			v4 m_lin_vel = {};
 			v4 m_ang_vel = {};
@@ -117,6 +118,7 @@ namespace physics_sandbox::diag
 		{
 			auto vel = body.VelocityWS();
 			return BodyTraceState{
+				.m_o2w = body.O2W(),
 				.m_pos = body.O2W().pos,
 				.m_lin_vel = vel.lin,
 				.m_ang_vel = vel.ang,
@@ -213,8 +215,12 @@ namespace physics_sandbox::diag
 				after.m_sleeping ? "sleep" : "awake",
 				after.m_simplex_count));
 
-			if (contacts.empty())
-				return;
+			Emit(log, std::format(
+				"  o2w x=({:8.5f},{:8.5f},{:8.5f}) y=({:8.5f},{:8.5f},{:8.5f}) z=({:8.5f},{:8.5f},{:8.5f}) pos=({:8.5f},{:8.5f},{:8.5f})\n",
+				after.m_o2w.x.x, after.m_o2w.x.y, after.m_o2w.x.z,
+				after.m_o2w.y.x, after.m_o2w.y.y, after.m_o2w.y.z,
+				after.m_o2w.z.x, after.m_o2w.z.y, after.m_o2w.z.z,
+				after.m_o2w.pos.x, after.m_o2w.pos.y, after.m_o2w.pos.z));
 
 			for (auto const& contact : contacts)
 			{
@@ -254,6 +260,32 @@ namespace physics_sandbox::diag
 			if (contact_count == 0)
 				Emit(log, std::format("  body {} contacts: none\n", body_index));
 		}
+
+		void PrintCpuGroundContact(std::ofstream& log, Scene const& scene, int body_index, int ground_body_index)
+		{
+			if (body_index < 0 || body_index >= std::ssize(scene.m_body))
+				return;
+			if (ground_body_index < 0 || ground_body_index >= std::ssize(scene.m_body) || ground_body_index == body_index)
+				return;
+
+			auto const& body = scene.m_body[body_index];
+			auto const& ground = scene.m_body[ground_body_index];
+			if (!body.HasShape() || !ground.HasShape())
+				return;
+
+			auto const bbox_overlap = IsIntersection(body.BBoxWS(), ground.BBoxWS());
+			auto contact = collision::Contact{};
+			auto const hit = collision::Collide(body.Shape(), body.O2W(), ground.Shape(), ground.O2W(), contact);
+			Emit(log, std::format(
+				"  cpu_ground pair=({:4d},{:4d}) bbox_overlap={} hit={} depth={:10.6f} axis_a=({:8.4f},{:8.4f},{:8.4f}) point_a=({:8.4f},{:8.4f},{:8.4f})\n",
+				body_index,
+				ground_body_index,
+				bbox_overlap ? "true" : "false",
+				hit ? "true" : "false",
+				hit ? contact.m_depth : 0.0f,
+				hit ? contact.m_axis.x : 0.0f, hit ? contact.m_axis.y : 0.0f, hit ? contact.m_axis.z : 0.0f,
+				hit ? contact.Point().x : 0.0f, hit ? contact.Point().y : 0.0f, hit ? contact.Point().z : 0.0f));
+		}
 	}
 
 	StackDiagnosticResult RunStackDiagnostic(StackDiagnosticOptions const& options)
@@ -278,6 +310,7 @@ namespace physics_sandbox::diag
 			throw std::runtime_error(std::format("Scene file not found: {}", options.m_scene_filepath.string()));
 
 		auto scene_desc = scene_loader::LoadFromFile(options.m_scene_filepath);
+		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
 
@@ -334,7 +367,7 @@ namespace physics_sandbox::diag
 
 			if (options.m_engine_profile)
 			{
-				profile.Add(scene.m_last_step_profile, scene.m_physics.LastContactCount());
+				profile.Add(scene.m_last_step_profile, scene.m_physics.LastCollisionStats().LastContactCount());
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 				{
@@ -417,7 +450,10 @@ namespace physics_sandbox::diag
 				auto in_window = step + 1 >= options.m_trace_start && step + 1 <= options.m_trace_end;
 				auto report_jump = dke >= options.m_trace_ke_jump || !trace_contacts.empty();
 				if (in_window || report_jump || step + 1 == options.m_steps)
+				{
 					PrintBodyTrace(log, step + 1, scene.m_clock, options.m_trace_body, before, after, TotalKineticEnergy(scene), trace_contacts);
+					PrintCpuGroundContact(log, scene, options.m_trace_body, ground_body_index);
+				}
 
 				continue;
 			}

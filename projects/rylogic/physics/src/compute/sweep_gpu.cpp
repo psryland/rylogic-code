@@ -72,6 +72,7 @@ namespace pr::physics
 		// m_cs_calc_dispatch: Root signature: constants + 1 SRV (Counters) + 1 UAV (DispatchArgs)
 		{
 			auto sig= RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbSweep>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::DispatchArgs);
 
@@ -152,6 +153,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_calc_dispatch.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_sweep);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch->GetGPUVirtualAddress());
 
@@ -192,7 +194,15 @@ namespace pr::physics
 		job.Run();
 
 		auto& counters = *readback_counters.ptr<GpuCollisionCounters>();
-		auto pair_count = std::min(counters.pair_count, static_cast<int>(out_pairs.size()));
+		auto max_pairs = static_cast<int>(out_pairs.size());
+		if (counters.pair_count > max_pairs)
+		{
+			throw std::runtime_error(std::format(
+				"GPU broadphase pair readback overflow: {} potential pairs generated for {} output slots.",
+				counters.pair_count,
+				max_pairs));
+		}
+		auto pair_count = std::min(counters.pair_count, max_pairs);
 		std::memcpy(out_pairs.data(), readback_pairs.ptr<GpuCollisionPair>(), pair_count * sizeof(GpuCollisionPair));
 		return out_pairs.subspan(0, pair_count);
 	}
@@ -218,7 +228,7 @@ namespace pr::physics
 
 			auto upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
 			*upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
-				.pair_count = pair_count,
+				.pair_count = 0,
 				.contact_count = 0,
 			};
 			job.m_cmd_list.CopyBufferRegion(r_counters.get(), 0, upload);

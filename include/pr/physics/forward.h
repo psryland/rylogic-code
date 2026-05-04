@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cassert>
+#include <stdexcept>
 
 #include "pr/common/to.h"
 #include "pr/common/cast.h"

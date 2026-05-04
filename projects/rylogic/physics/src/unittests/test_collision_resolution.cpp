@@ -124,7 +124,7 @@ namespace pr::physics::tests
 					step, step_ms,
 					prof.m_pack_ms, prof.m_integrate_ms, prof.m_broadphase_ms, prof.m_collide_ms,
 					prof.m_resolve_ms, prof.m_readback_ms, prof.m_gpu_run_ms, prof.m_unpack_ms,
-					engine.LastContactCount(),
+					engine.LastCollisionStats().LastContactCount(),
 					body_a.O2W().pos.x, body_b.O2W().pos.x,
 					(int)body_a.StateFlags(), (int)body_b.StateFlags());
 				std::fflush(stderr);

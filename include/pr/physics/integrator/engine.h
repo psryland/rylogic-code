@@ -22,6 +22,35 @@ namespace pr::physics
 			double m_gpu_run_ms = 0;
 			double m_unpack_ms = 0;
 		};
+		struct CollisionStats
+		{
+			int m_pair_count = 0;
+			int m_contact_count = 0;
+			int m_max_pairs = 0;
+			int m_max_contacts = 0;
+
+			// Number of contacts stored during the most recent call to Step().
+			int LastContactCount() const
+			{
+				return std::min(m_contact_count, m_max_contacts);
+			}
+			bool PairLimitReached() const
+			{
+				return m_max_pairs != 0 && m_pair_count >= m_max_pairs;
+			}
+			bool PairLimitExceeded() const
+			{
+				return m_max_pairs != 0 && m_pair_count > m_max_pairs;
+			}
+			bool ContactLimitReached() const
+			{
+				return m_max_contacts != 0 && m_contact_count >= m_max_contacts;
+			}
+			bool ContactLimitExceeded() const
+			{
+				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
+			}
+		};
 
 		// Notes:
 		//  - The engine does not own the bodies. The caller is responsible for managing their
@@ -60,6 +89,10 @@ namespace pr::physics
 
 		// Storage for body pointers
 		std::vector<RigidBody*> m_body_ptrs;
+
+		// Diagnostics
+		StepProfile m_last_step_profile;
+		CollisionStats m_last_collision_stats;
 		
 		friend struct DbgPhysics;
 
@@ -101,10 +134,10 @@ namespace pr::physics
 			return m_last_step_profile;
 		}
 
-		// Number of contacts generated during the most recent call to Step().
-		int LastContactCount() const
+		// Raw collision counts from the most recent call to Step().
+		CollisionStats const& LastCollisionStats() const
 		{
-			return m_last_contact_count;
+			return m_last_collision_stats;
 		}
 
 	private:
@@ -136,8 +169,5 @@ namespace pr::physics
 
 		// Calculate and apply the restitution impulse to resolve a collision.
 		void ResolveCollision(RbContact& c);
-
-		StepProfile m_last_step_profile;
-		int m_last_contact_count;
 	};
 }

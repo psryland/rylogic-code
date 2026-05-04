@@ -31,6 +31,23 @@ namespace pr::physics
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+		void CheckCollisionCapacity(Engine::CollisionStats const& stats)
+		{
+			if (stats.PairLimitReached())
+			{
+				throw std::runtime_error(std::format(
+					"GPU collision pair buffer capacity reached: {} potential pairs generated for {} slots. Increase EngineConfig::max_collision_pairs.",
+					stats.m_pair_count,
+					stats.m_max_pairs));
+			}
+			if (stats.ContactLimitReached())
+			{
+				throw std::runtime_error(std::format(
+					"GPU collision contact buffer capacity reached: {} contacts generated for {} slots. Increase EngineConfig::max_collision_pairs.",
+					stats.m_contact_count,
+					stats.m_max_contacts));
+			}
+		}
 	}
 
 	struct GpuBuffers
@@ -50,8 +67,9 @@ namespace pr::physics
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
+		, m_body_ptrs()
 		, m_last_step_profile()
-		, m_last_contact_count()
+		, m_last_collision_stats()
 	{
 	}
 
@@ -81,7 +99,7 @@ namespace pr::physics
 		if (rigid_bodies.empty())
 		{
 			m_last_step_profile = {};
-			m_last_contact_count = 0;
+			m_last_collision_stats = {};
 			return;
 		}
 
@@ -92,7 +110,7 @@ namespace pr::physics
 		#endif
 
 		m_last_step_profile = {};
-		m_last_contact_count = 0;
+		m_last_collision_stats = {};
 
 		GpuBuffers buffers;
 		auto beg = Clock::now();
@@ -265,8 +283,15 @@ namespace pr::physics
 
 		// Read the results back to the CPU
 		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
+		m_last_collision_stats = Engine::CollisionStats{
+			.m_pair_count = counts.pair_count,
+			.m_contact_count = counts.contact_count,
+			.m_max_pairs = m_config.max_collision_pairs,
+			.m_max_contacts = max_contacts,
+		};
+		CheckCollisionCapacity(m_last_collision_stats);
+
 		auto contact_count = std::min(counts.contact_count, max_contacts);
-		m_last_contact_count = contact_count;
 		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
 		if (buffers.read_contacts)
 			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));

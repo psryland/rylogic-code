@@ -110,7 +110,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 numthreads(CSCalcCDDispatch, 1,1,1)
 void CSCalcCDDispatch(int3 dtid : SV_DispatchThreadID)
 {
-	uint pair_count = g_counters[0].pair_count;
+	uint pair_count = min(g_counters[0].pair_count, g.max_pair_count);
 	g_dispatch_args[0].ThreadGroupCountX = (pair_count + CollideThreadCount - 1) / CollideThreadCount;
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;

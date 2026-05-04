@@ -159,6 +159,7 @@ namespace pr::physics
 		// m_cs_calc_dispatch
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::DispatchArgs);
 
@@ -345,6 +346,7 @@ namespace pr::physics
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_calc_dispatch.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_resolve_dispatch->GetGPUVirtualAddress());
 
@@ -454,7 +456,15 @@ namespace pr::physics
 
 		// Read back results
 		auto& counters = *readback_counters.ptr<GpuCollisionCounters>();
-		auto contact_count = std::min(static_cast<int>(counters.contact_count), static_cast<int>(out_contacts.size()));
+		auto max_contacts = static_cast<int>(out_contacts.size());
+		if (counters.contact_count > max_contacts)
+		{
+			throw std::runtime_error(std::format(
+				"GPU collision contact readback overflow: {} contacts generated for {} output slots.",
+				counters.contact_count,
+				max_contacts));
+		}
+		auto contact_count = std::min(counters.contact_count, max_contacts);
 		std::memcpy(out_contacts.data(), readback_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
 
 		return out_contacts.subspan(0, contact_count);

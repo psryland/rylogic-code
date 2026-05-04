@@ -86,6 +86,10 @@ RWStructuredBuffer<float> resource(g_contact_times, u3); // scratch: collision_t
 RWStructuredBuffer<uint> resource(g_contact_order, u4);   // scratch: contact indices for radix sort
 
 // ----- Helper functions -----
+int ContactCount()
+{
+	return min(g_counters[0].contact_count, g.max_contacts);
+}
 
 // Compute kinetic energy from momentum and inverse inertia (world space).
 // Momentum is at CoM, inertia is block-diagonal.
@@ -436,7 +440,8 @@ numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
 void CSComputeCollisionTimes(int3 DTID(dtid))
 {
 	int idx = dtid.x;
-	if (idx < g_counters[0].contact_count)
+	int contact_count = ContactCount();
+	if (idx < contact_count)
 	{
 		// Calculate the estimated collision time for this contact
 		GpuResolveContact c = g_contacts[idx];
@@ -473,7 +478,7 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 			g_bodies[i].colour_used = 0;
 		
 		// Set the out of bounds contact times to a large positive value so they sort to the end
-		for (i = g_counters[0].contact_count; i != g.max_contacts; ++i)
+		for (i = contact_count; i != g.max_contacts; ++i)
 			g_contact_times[i] = 1e30f;
 	}
 }
@@ -487,7 +492,8 @@ void CSAssignColours(int3 DTID(dtid))
 	if (dtid.x != 0)
 		return;
 
-	for (int i = 0; i != g_counters[0].contact_count; ++i)
+	int contact_count = ContactCount();
+	for (int i = 0; i != contact_count; ++i)
 	{
 		int idx = g_contact_order[i]; // get contact index from sorted order
 		int a = g_contacts[idx].body_idx_a;
@@ -515,7 +521,7 @@ void CSAssignColours(int3 DTID(dtid))
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
 void CSPositionSolve(int3 DTID(dtid))
 {
-	if (dtid.x >= g_counters[0].contact_count)
+	if (dtid.x >= ContactCount())
 		return;
 
 	uint idx = g_contact_order[dtid.x];
@@ -544,7 +550,7 @@ void CSPositionSolve(int3 DTID(dtid))
 numthreads(CSResolve, ResolveThreadCount, 1, 1)
 void CSResolve(int3 DTID(dtid))
 {
-	if (dtid.x >= g_counters[0].contact_count)
+	if (dtid.x >= ContactCount())
 		return;
 
 	uint idx = g_contact_order[dtid.x];

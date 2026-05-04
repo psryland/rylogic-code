@@ -118,7 +118,7 @@ namespace physics_sandbox
 		auto const physics_beg = Clock::now();
 		m_physics.Step(dt, std::span{ m_body });
 		auto const physics_end = Clock::now();
-		if (m_physics.LastContactCount() != 0)
+		if (m_physics.LastCollisionStats().LastContactCount() != 0)
 		{
 			m_diag.occurred = true;
 			++m_diag.count;
