@@ -111,13 +111,15 @@ namespace Rylogic.Gui.WPF
 			{
 				var item = new MenuItem()
 				{
-					Header = f,
+					Header = DisplayText(f),
+					Tag = f,
 				};
 				item.Click += (s, a) =>
 				{
 					var menu = (MenuItem)s;
-					Add((string)menu.Header, true);
-					RecentFileSelected?.Invoke((string)menu.Header);
+					var filepath = (string)menu.Tag;
+					Add(filepath, true);
+					RecentFileSelected?.Invoke(filepath);
 				};
 				item.PreviewMouseDown += (s, a) =>
 				{
@@ -161,7 +163,7 @@ namespace Rylogic.Gui.WPF
 			{
 				// Remove
 				var item = new MenuItem { Header = "Remove" };
-				item.Click += (s, e) => Remove((string)menu_item.Header, true);
+				item.Click += (s, e) => Remove((string)menu_item.Tag, true);
 				cmenu.Items.Add(item);
 			}
 			{
@@ -169,13 +171,19 @@ namespace Rylogic.Gui.WPF
 				var item = new MenuItem { Header = "Copy to Clipboard" };
 				item.Click += (s, e) =>
 				{
-					try { Clipboard.SetText((string)menu_item.Header); }
+					try { Clipboard.SetText((string)menu_item.Tag); }
 					catch { }
 				};
 				cmenu.Items.Add(item);
 			}
 			cmenu.Closed += (s, a) => on_close?.Invoke();
 			cmenu.IsOpen = true;
+		}
+
+		/// <summary>Escape access-key markers in display text</summary>
+		private static string DisplayText(string text)
+		{
+			return text.Replace("_", "__");
 		}
 
 		/// <summary>Export recent files to a single string</summary>

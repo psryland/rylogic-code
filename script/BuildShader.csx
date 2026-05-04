@@ -13,7 +13,7 @@
 //  that can be used with the runtime shader support in the renderer.
 #r "System.IO"
 #r "System.Text.Json"
-#r "nuget: Rylogic.Core, 2.1.0"
+#r "nuget: Rylogic.Core, 2.1.1"
 #load "UserVars.csx"
 #nullable enable
 

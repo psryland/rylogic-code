@@ -153,7 +153,7 @@ namespace pr::rdr12
 
 		// Add the command lists we're using to the frame.
 		frame.m_main.push_back(m_cmd_list);
-		frame.m_post.push_back(m_alp_list);
+		frame.m_main.push_back(m_alp_list);
 
 		// Sort the draw list if needed
 		dl_boundaries boundaries;
