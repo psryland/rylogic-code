@@ -3,7 +3,7 @@
 
 namespace physics_sandbox::diag
 {
-	struct StackDiagnosticOptions
+	struct SceneDiagnosticOptions
 	{
 		std::filesystem::path m_scene_filepath;
 		int m_steps = 600;
@@ -17,7 +17,7 @@ namespace physics_sandbox::diag
 		bool m_engine_profile = false;
 	};
 
-	struct StackDiagnosticResult
+	struct SceneDiagnosticResult
 	{
 		float m_max_depth = 0.0f;
 		int m_max_depth_step = 0;
@@ -25,5 +25,5 @@ namespace physics_sandbox::diag
 		int m_body_b = -1;
 	};
 
-	StackDiagnosticResult RunStackDiagnostic(StackDiagnosticOptions const& options);
+	SceneDiagnosticResult RunSceneDiagnostic(SceneDiagnosticOptions const& options);
 }

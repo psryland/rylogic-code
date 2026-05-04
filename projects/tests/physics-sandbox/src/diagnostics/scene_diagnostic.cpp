@@ -1,6 +1,6 @@
 #include "src/forward.h"
 #include "pr/collision/collision.h"
-#include "src/diagnostics/stack_diagnostic.h"
+#include "src/diagnostics/scene_diagnostic.h"
 #include "src/scene/scene.h"
 #include "src/utils/scene_loader.h"
 
@@ -288,14 +288,14 @@ namespace physics_sandbox::diag
 		}
 	}
 
-	StackDiagnosticResult RunStackDiagnostic(StackDiagnosticOptions const& options)
+	SceneDiagnosticResult RunSceneDiagnostic(SceneDiagnosticOptions const& options)
 	{
-		auto log_path = AppDataPath() / "stackdiag.log";
+		auto log_path = AppDataPath() / "scene_diagnostic.log";
 		auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc);
-		auto result = StackDiagnosticResult{};
+		auto result = SceneDiagnosticResult{};
 
-		Emit(log, std::format("Stack diagnostic log: {}\n", log_path.string()));
-		Emit(log, std::format("Stack diagnostic scene: {}\n", options.m_scene_filepath.string()));
+		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
+		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
 			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,integrate_ms,broadphase_ms,collide_ms,resolve_ms,readback_ms,gpu_run_ms,unpack_ms\n");
