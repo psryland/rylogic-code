@@ -27,7 +27,8 @@
 //     Line vs Line             — closest segment-segment + combined thickness
 //     Line vs Box              — iterative closest point on OBB + thickness
 //     Triangle vs Line         — closest segment-triangle + thickness
-//     Box vs Box               — SAT (6 face axes)
+//     Box vs Box               — SAT (15 axes)
+//     Triangle vs Box          — SAT (13 axes)
 //     Triangle vs Triangle     — SAT (2 face + 9 edge axes)
 //
 //   GJK with margins (GJK on core shape, add radius analytically):
@@ -35,12 +36,9 @@
 //     Polytope vs Sphere       — GJK point-vs-polytope + radius
 //     Polytope vs Line         — GJK skeleton-vs-polytope + thickness
 //
-//   GJK + EPA (both shapes polyhedral, Minkowski boundary is polyhedral):
-//     Triangle vs Box
+//   Topology SAT:
 //     Polytope vs Box
 //     Polytope vs Triangle
-//
-//   Topology SAT:
 //     Polytope vs Polytope
 #ifndef PR_PHYSICS_COLLISION_HLSLI
 #define PR_PHYSICS_COLLISION_HLSLI
@@ -432,6 +430,89 @@ odr bool LineVsLine(
 	for (int i = 0; i != countA; ++i) featA.points[i] = float4(ptsA[i], 1);
 	for (int j = 0; j != countB; ++j) featB.points[j] = float4(ptsB[j], 1);
 	FindContactManifold(featA, featB, float4(axis, 0), depth, out_contact);
+	return true;
+}
+
+// ---- Triangle Vs Box ----
+// SAT contact between a triangle and an OBB, mirrors the CPU col_triangle_vs_box.h algorithm.
+//
+// Tests 13 candidate separating axes:
+//   - 1 triangle face normal
+//   - 3 box face normals
+//   - 9 triangle-edge x box-edge axes
+odr bool TriangleVsBox(
+	in_(GpuShape) tri, float4x4 tri_w_,
+	in_(GpuShape) box, float4x4 box_w_,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) out_contact)
+{
+	ContactClear(out_contact);
+	float4x4 tri_w = mul(tri.s2rb, tri_w_);
+	float4x4 box_w = mul(box.s2rb, box_w_);
+
+	float4 w0, w1, w2;
+	GetTriangleVerts(tri, tri_w, verts, w0, w1, w2);
+
+	float3 hb = box.data.xyz;
+	float3 box_pos = box_w[3].xyz;
+	float3x3 rot_b = (float3x3)box_w;
+
+	float3 d0 = w0.xyz - box_pos;
+	float3 d1 = w1.xyz - box_pos;
+	float3 d2 = w2.xyz - box_pos;
+	float3 v0 = float3(dot(d0, rot_b[0]), dot(d0, rot_b[1]), dot(d0, rot_b[2]));
+	float3 v1 = float3(dot(d1, rot_b[0]), dot(d1, rot_b[1]), dot(d1, rot_b[2]));
+	float3 v2 = float3(dot(d2, rot_b[0]), dot(d2, rot_b[1]), dot(d2, rot_b[2]));
+
+	float3 tri_edges[3] = { v1 - v0, v2 - v1, v0 - v2 };
+	float best_depth = 1e30f;
+	float3 best_axis = float3(1, 0, 0);
+
+	#define TEST_AXIS(axis_expr) { \
+		float3 ax = (axis_expr); \
+		float ax_len_sq = dot(ax, ax); \
+		if (ax_len_sq >= 1e-16f) { \
+			ax *= rsqrt(ax_len_sq); \
+			float p0 = dot(ax, v0); \
+			float p1 = dot(ax, v1); \
+			float p2 = dot(ax, v2); \
+			float tri_min = min(min(p0, p1), p2); \
+			float tri_max = max(max(p0, p1), p2); \
+			float radius = dot(abs(ax), hb); \
+			float depth = min(tri_max + radius, radius - tri_min); \
+			if (depth < 0) return false; \
+			if (depth < best_depth) { \
+				best_depth = depth; \
+				best_axis = (tri_min + tri_max <= 0.0f) ? ax : -ax; \
+			} \
+		} \
+	}
+
+	TEST_AXIS(cross(tri_edges[0], tri_edges[1]))
+
+	for (int i = 0; i != 3; ++i)
+	{
+		float3 box_axis = float3(i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
+		TEST_AXIS(box_axis)
+	}
+
+	for (int i = 0; i != 3; ++i)
+	{
+		for (int j = 0; j != 3; ++j)
+		{
+			float3 box_axis = float3(j == 0 ? 1.0f : 0.0f, j == 1 ? 1.0f : 0.0f, j == 2 ? 1.0f : 0.0f);
+			TEST_AXIS(cross(tri_edges[i], box_axis))
+		}
+	}
+
+	#undef TEST_AXIS
+
+	if (best_depth <= 0)
+		return false;
+
+	float3 axis_w = best_axis.x * rot_b[0] + best_axis.y * rot_b[1] + best_axis.z * rot_b[2];
+	float4 axis = NormaliseSafe(float4(axis_w, 0), float4(1, 0, 0, 0));
+	FindContactManifold(tri, tri_w, box, box_w, axis, best_depth, verts, out_contact);
 	return true;
 }
 
@@ -882,6 +963,72 @@ odr bool PolytopeTestAxis(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) sha
 
 	return true;
 }
+odr void BoxProject(in_(GpuShape) box, float4x4 box2w, float4 axis, out_(float) min_dist, out_(float) max_dist)
+{
+	float centre = dot(axis.xyz, box2w[3].xyz);
+	float radius =
+		box.data.x * abs(dot(axis.xyz, box2w[0].xyz)) +
+		box.data.y * abs(dot(axis.xyz, box2w[1].xyz)) +
+		box.data.z * abs(dot(axis.xyz, box2w[2].xyz));
+	min_dist = centre - radius;
+	max_dist = centre + radius;
+}
+odr bool PolytopeBoxTestAxis(in_(GpuShape) poly, float4x4 poly2w, in_(GpuShape) box, float4x4 box2w, float4 axis, in_(StructuredBuffer<float4>) verts, inout_(float) best_depth, inout_(float4) best_axis)
+{
+	float axis_len_sq = length_sq(axis.xyz);
+	if (axis_len_sq < 1e-12f)
+		return true;
+
+	axis = float4(axis.xyz * rsqrt(axis_len_sq), 0);
+
+	float poly_min, poly_max, box_min, box_max;
+	PolytopeProject(poly, poly2w, axis, verts, poly_min, poly_max);
+	BoxProject(box, box2w, axis, box_min, box_max);
+
+	float depth = min(poly_max - box_min, box_max - poly_min);
+	if (depth < 0)
+		return false;
+
+	if (depth < best_depth)
+	{
+		best_depth = depth;
+		best_axis = (poly_min + poly_max <= box_min + box_max) ? axis : -axis;
+	}
+
+	return true;
+}
+odr void TriangleProject(float4 v0, float4 v1, float4 v2, float4 axis, out_(float) min_dist, out_(float) max_dist)
+{
+	float d0 = dot(axis.xyz, v0.xyz);
+	float d1 = dot(axis.xyz, v1.xyz);
+	float d2 = dot(axis.xyz, v2.xyz);
+	min_dist = min(min(d0, d1), d2);
+	max_dist = max(max(d0, d1), d2);
+}
+odr bool PolytopeTriangleTestAxis(in_(GpuShape) poly, float4x4 poly2w, float4 v0, float4 v1, float4 v2, float4 axis, in_(StructuredBuffer<float4>) verts, inout_(float) best_depth, inout_(float4) best_axis)
+{
+	float axis_len_sq = length_sq(axis.xyz);
+	if (axis_len_sq < 1e-12f)
+		return true;
+
+	axis = float4(axis.xyz * rsqrt(axis_len_sq), 0);
+
+	float poly_min, poly_max, tri_min, tri_max;
+	PolytopeProject(poly, poly2w, axis, verts, poly_min, poly_max);
+	TriangleProject(v0, v1, v2, axis, tri_min, tri_max);
+
+	float depth = min(poly_max - tri_min, tri_max - poly_min);
+	if (depth < 0)
+		return false;
+
+	if (depth < best_depth)
+	{
+		best_depth = depth;
+		best_axis = (poly_min + poly_max <= tri_min + tri_max) ? axis : -axis;
+	}
+
+	return true;
+}
 odr bool PolytopeAxisInEdgeNormalCone(in_(GpuShape) shape, float4x4 s2w, in_(GpuPolytopeEdge) edge, float4 axis, in_(StructuredBuffer<GpuPolytopeFace>) faces)
 {
 	const float Tol = 1e-5f;
@@ -908,6 +1055,12 @@ odr bool PolytopeEdgePairCompatible(in_(GpuShape) shape_a, float4x4 a2w, in_(Gpu
 	return
 		(PolytopeAxisInEdgeNormalCone(shape_a, a2w, edge_a, +axis, faces) && PolytopeAxisInEdgeNormalCone(shape_b, b2w, edge_b, -axis, faces)) ||
 		(PolytopeAxisInEdgeNormalCone(shape_a, a2w, edge_a, -axis, faces) && PolytopeAxisInEdgeNormalCone(shape_b, b2w, edge_b, +axis, faces));
+}
+odr bool PolytopeBoxEdgePairCompatible(in_(GpuShape) poly, float4x4 poly2w, in_(GpuPolytopeEdge) edge, float4 axis, in_(StructuredBuffer<GpuPolytopeFace>) faces)
+{
+	return
+		PolytopeAxisInEdgeNormalCone(poly, poly2w, edge, +axis, faces) ||
+		PolytopeAxisInEdgeNormalCone(poly, poly2w, edge, -axis, faces);
 }
 odr bool PolytopeVsPolytope(
 	in_(GpuShape) shape_a, float4x4 a2w_,
@@ -985,12 +1138,150 @@ odr bool PolytopeVsPolytope(
 	FindContactManifold(shape_a, a2w, shape_b, b2w, best_axis, best_depth, verts, out_contact);
 	return true;
 }
+odr bool PolytopeVsBox(
+	in_(GpuShape) poly, float4x4 poly2w_,
+	in_(GpuShape) box, float4x4 box2w_,
+	in_(StructuredBuffer<float4>) verts,
+	in_(StructuredBuffer<GpuPolytopeFace>) faces,
+	in_(StructuredBuffer<GpuPolytopeEdge>) edges,
+	out_(GpuContact) out_contact)
+{
+	ContactClear(out_contact);
+	if (poly.face_count == 0 || poly.edge_count == 0)
+		return false;
+
+	float4x4 poly2w = mul(poly.s2rb, poly2w_);
+	float4x4 box2w = mul(box.s2rb, box2w_);
+	float4x4 poly2p = poly2w;
+	float4x4 box2p = box2w;
+
+	// Recentre only the projection transforms to reduce cancellation; contact generation must still use the unshifted transforms.
+	float4 ofs = 0.5f * float4((poly2p[3] + box2p[3]).xyz, 0);
+	poly2p[3] -= ofs;
+	box2p[3] -= ofs;
+
+	float best_depth = +1e30f;
+	float4 best_axis = float4(1, 0, 0, 0);
+
+	for (int i = 0; i != poly.face_count; ++i)
+	{
+		GpuPolytopeFace face = faces[poly.face_offset + i];
+		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+			continue;
+
+		float4 axis = mul(float4(face.plane.xyz, 0), poly2p);
+		if (!PolytopeBoxTestAxis(poly, poly2p, box, box2p, axis, verts, best_depth, best_axis))
+			return false;
+	}
+
+	for (int i = 0; i != 3; ++i)
+	{
+		float4 axis = float4(box2p[i].xyz, 0);
+		if (!PolytopeBoxTestAxis(poly, poly2p, box, box2p, axis, verts, best_depth, best_axis))
+			return false;
+	}
+
+	for (int i = 0; i != poly.edge_count; ++i)
+	{
+		GpuPolytopeEdge edge = edges[poly.edge_offset + i];
+		if ((edge.flags & POLY_EDGE_IGNORE_AXES) != 0)
+			continue;
+
+		float4 poly_dir = mul(edge.direction, poly2p);
+		for (int j = 0; j != 3; ++j)
+		{
+			float4 box_dir = float4(box2p[j].xyz, 0);
+			float4 axis = float4(cross(poly_dir.xyz, box_dir.xyz), 0);
+			if (length_sq(axis.xyz) < 1e-12f)
+				continue;
+
+			if (!PolytopeBoxEdgePairCompatible(poly, poly2p, edge, axis, faces))
+				continue;
+
+			if (!PolytopeBoxTestAxis(poly, poly2p, box, box2p, axis, verts, best_depth, best_axis))
+				return false;
+		}
+	}
+
+	FindContactManifold(poly, poly2w, box, box2w, best_axis, best_depth, verts, out_contact);
+	return true;
+}
+odr bool PolytopeVsTriangle(
+	in_(GpuShape) poly, float4x4 poly2w_,
+	in_(GpuShape) tri, float4x4 tri2w_,
+	in_(StructuredBuffer<float4>) verts,
+	in_(StructuredBuffer<GpuPolytopeFace>) faces,
+	in_(StructuredBuffer<GpuPolytopeEdge>) edges,
+	out_(GpuContact) out_contact)
+{
+	ContactClear(out_contact);
+	if (poly.face_count == 0 || poly.edge_count == 0)
+		return false;
+
+	float4x4 poly2w = mul(poly.s2rb, poly2w_);
+	float4x4 tri2w = mul(tri.s2rb, tri2w_);
+	float4x4 poly2p = poly2w;
+	float4x4 tri2p = tri2w;
+
+	// Recentre only the projection transforms to reduce cancellation; contact generation must still use the unshifted transforms.
+	float4 ofs = 0.5f * float4((poly2p[3] + tri2p[3]).xyz, 0);
+	poly2p[3] -= ofs;
+	tri2p[3] -= ofs;
+
+	float4 v0, v1, v2;
+	GetTriangleVerts(tri, tri2p, verts, v0, v1, v2);
+	float4 tri_edges[3] = { v1 - v0, v2 - v1, v0 - v2 };
+
+	float best_depth = +1e30f;
+	float4 best_axis = float4(1, 0, 0, 0);
+
+	for (int i = 0; i != poly.face_count; ++i)
+	{
+		GpuPolytopeFace face = faces[poly.face_offset + i];
+		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+			continue;
+
+		float4 axis = mul(float4(face.plane.xyz, 0), poly2p);
+		if (!PolytopeTriangleTestAxis(poly, poly2p, v0, v1, v2, axis, verts, best_depth, best_axis))
+			return false;
+	}
+
+	float4 tri_axis = float4(cross(tri_edges[0].xyz, tri_edges[1].xyz), 0);
+	if (!PolytopeTriangleTestAxis(poly, poly2p, v0, v1, v2, tri_axis, verts, best_depth, best_axis))
+		return false;
+
+	for (int i = 0; i != poly.edge_count; ++i)
+	{
+		GpuPolytopeEdge edge = edges[poly.edge_offset + i];
+		if ((edge.flags & POLY_EDGE_IGNORE_AXES) != 0)
+			continue;
+
+		float4 poly_dir = mul(edge.direction, poly2p);
+		for (int j = 0; j != 3; ++j)
+		{
+			float4 axis = float4(cross(poly_dir.xyz, tri_edges[j].xyz), 0);
+			if (length_sq(axis.xyz) < 1e-12f)
+				continue;
+
+			if (!PolytopeBoxEdgePairCompatible(poly, poly2p, edge, axis, faces))
+				continue;
+
+			if (!PolytopeTriangleTestAxis(poly, poly2p, v0, v1, v2, axis, verts, best_depth, best_axis))
+				return false;
+		}
+	}
+
+	FindContactManifold(poly, poly2w, tri, tri2w, best_axis, best_depth, verts, out_contact);
+	return true;
+}
 
 // ---- Collision Dispatch ----
 odr bool CollideShapes(
 	in_(GpuShape) a, float4x4 a2w,
 	in_(GpuShape) b, float4x4 b2w,
 	in_(StructuredBuffer<float4>) verts,
+	in_(StructuredBuffer<GpuPolytopeFace>) faces,
+	in_(StructuredBuffer<GpuPolytopeEdge>) edges,
 	out_(GpuContact) out_contact)
 {
 	// Canonicalise the pair so 'sb' has the higher shape type and can dispatch to the CPU-style HigherVsLower functions.
@@ -1001,17 +1292,6 @@ odr bool CollideShapes(
 	else         { sa = a; sb = b; wa = a2w; wb = b2w; }
 
 	int gjk_iters = 0;
-	int epa_iters = 0;
-
-	// To keep the inlined CSCollide bytecode small, every shape pair that resolves to a generic
-	// GJK/EPA / convex-vs-implicit test is funnelled through a single call site at the end of this
-	// function. DXC fully inlines GjkCollide and friends into the entry point, so each duplicate
-	// call site would emit its own copy of the EPA loop (~tens of KB each). The flags below let the
-	// large helpers appear exactly once in the compiled bytecode, which dramatically reduces both
-	// the bytecode size and the time DXC spends optimising it.
-	bool need_gjk = false;
-	bool need_cv_sphere = false;
-	bool need_cv_line = false;
 
 	// sa.type <= sb.type is guaranteed
 	bool hit = false;
@@ -1048,8 +1328,8 @@ odr bool CollideShapes(
 		{
 			switch (sa.type)
 			{
-				case SHAPE_SPHERE:   need_cv_sphere = true; break;
-				case SHAPE_BOX:      need_gjk = true; break;
+				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_BOX:      hit = TriangleVsBox(sb, wb, sa, wa, verts, out_contact); break;
 				case SHAPE_LINE:     hit = TriangleVsLine(sb, wb, sa, wa, verts, out_contact); break;
 				case SHAPE_TRIANGLE: hit = TriangleVsTriangle(sa, wa, sb, wb, verts, out_contact); break;
 			}
@@ -1059,30 +1339,15 @@ odr bool CollideShapes(
 		{
 			switch (sa.type)
 			{
-				case SHAPE_SPHERE:   need_cv_sphere = true; break;
-				case SHAPE_BOX:      need_gjk = true; break;
-				case SHAPE_LINE:     need_cv_line = true; break;
-				case SHAPE_TRIANGLE: need_gjk = true; break;
-				case SHAPE_POLYTOPE: need_gjk = true; break;
+				case SHAPE_SPHERE:   hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_BOX:      hit = PolytopeVsBox(sb, wb, sa, wa, verts, faces, edges, out_contact); break;
+				case SHAPE_LINE:     hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters); break;
+				case SHAPE_TRIANGLE: hit = PolytopeVsTriangle(sb, wb, sa, wa, verts, faces, edges, out_contact); break;
+				case SHAPE_POLYTOPE: hit = PolytopeVsPolytope(sa, wa, sb, wb, verts, faces, edges, out_contact); break;
 			}
 			break;
 		}
 	}
-
-	// Single-call-site dispatch for the heavy generic tests.
-	if (need_gjk)
-	{
-		// Same-type pairs must keep the caller's ordering because GjkCollide orients the
-		// output axis from its first shape toward its second.
-		if (sa.type == sb.type)
-			hit = GjkCollide(sa, wa, sb, wb, verts, out_contact, gjk_iters, epa_iters);
-		else
-			hit = GjkCollide(sb, wb, sa, wa, verts, out_contact, gjk_iters, epa_iters);
-	}
-	else if (need_cv_sphere)
-		hit = ConvexVsSphere(sb, wb, sa, wa, verts, out_contact, gjk_iters);
-	else if (need_cv_line)
-		hit = ConvexVsLine(sb, wb, sa, wa, verts, out_contact, gjk_iters);
 
 	// HigherVsLower functions return contact in canonical order. Flip back if the caller supplied lower-vs-higher.
 	if (a.type < b.type && hit)

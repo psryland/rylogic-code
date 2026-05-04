@@ -15,6 +15,8 @@
 #include "pr/collision/col_triangle_vs_box.h"
 #include "pr/collision/col_triangle_vs_line.h"
 #include "pr/collision/col_triangle_vs_triangle.h"
+#include "pr/collision/col_polytope_vs_box.h"
+#include "pr/collision/col_polytope_vs_triangle.h"
 #include "pr/collision/col_polytope_vs_polytope.h"
 #include "pr/collision/col_gjk.h"
 #include "pr/collision/penetration.h"
@@ -62,10 +64,10 @@ namespace pr::collision
 			TriangleVsTriangle,      // (3 v 3) - Triangle v Triangle
 
 			ConvexVsSphere,          // (4 v 0) - Polytope v Sphere (closest-point GJK; bypasses EPA's curved-boundary error)
-			GjkCollide,              // (4 v 1) - Polytope v Box
+			PolytopeVsBox,           // (4 v 1) - Polytope v Box
 			ConvexVsLine,            // (4 v 2) - Polytope v Line (closest-point GJK on line core; analytic margin)
-			GjkCollide,              // (4 v 3) - Polytope v Triangle
-			GjkCollide,              // (4 v 4) - Polytope v Polytope
+			PolytopeVsTriangle,      // (4 v 3) - Polytope v Triangle
+			PolytopeVsPolytope,      // (4 v 4) - Polytope v Polytope
 
 			CollisionNotImplemented, // (5 v 0) - Array v Sphere
 			CollisionNotImplemented, // (5 v 1) - Array v Box

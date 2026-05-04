@@ -1256,6 +1256,15 @@
     <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_polytope.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_view.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_box.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_triangle.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">

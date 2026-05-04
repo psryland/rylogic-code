@@ -63,13 +63,15 @@ namespace pr::physics::tests
 
 			// 1. Pack bodies and shapes into GPU-format buffers.
 			hlsl::StructuredBuffer<float4> verts;
+			hlsl::StructuredBuffer<GpuPolytopeFace> faces;
+			hlsl::StructuredBuffer<GpuPolytopeEdge> edges;
 			std::vector<GpuShape> shapes;
 			std::vector<GpuRigidBody> gpu_bodies;
 			shapes.reserve(bodies.size());
 			gpu_bodies.reserve(bodies.size());
 			for (size_t i = 0; i != bodies.size(); ++i)
 			{
-				shapes.push_back(PackShape(bodies[i]->Shape(), verts));
+				shapes.push_back(PackShape(bodies[i]->Shape(), verts, &faces, &edges));
 				gpu_bodies.push_back(PackDynamics(*bodies[i], static_cast<int>(i)));
 			}
 
@@ -102,7 +104,7 @@ namespace pr::physics::tests
 
 					// CollideShapes runs in body-A's local space (matches CSCollide semantics).
 					GpuContact gc{};
-					if (!physics::CollideShapes(shapes[a], m4x4::Identity(), shapes[b], b2a, verts, gc))
+					if (!physics::CollideShapes(shapes[a], m4x4::Identity(), shapes[b], b2a, verts, faces, edges, gc))
 						continue;
 
 					GpuResolveContact rc{};
@@ -205,12 +207,14 @@ namespace pr::physics::tests
 			};
 
 			hlsl::StructuredBuffer<float4> verts;
-			auto sbox = PackShape(box, verts);
-			auto sground = PackShape(ground, verts);
+			hlsl::StructuredBuffer<GpuPolytopeFace> faces;
+			hlsl::StructuredBuffer<GpuPolytopeEdge> edges;
+			auto sbox = PackShape(box, verts, &faces, &edges);
+			auto sground = PackShape(ground, verts, &faces, &edges);
 			auto ground_to_box = InvertOrthonormal(box_o2w) * ground_o2w;
 
 			auto contact = GpuContact{};
-			auto hit = physics::CollideShapes(sbox, m4x4::Identity(), sground, ground_to_box, verts, contact);
+			auto hit = physics::CollideShapes(sbox, m4x4::Identity(), sground, ground_to_box, verts, faces, edges, contact);
 			PR_EXPECT(hit);
 			PR_EXPECT(contact.depth > 0.0f);
 		}

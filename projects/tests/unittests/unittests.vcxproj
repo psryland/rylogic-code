@@ -228,7 +228,10 @@
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_view.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_polytope.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_triangle.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h" />

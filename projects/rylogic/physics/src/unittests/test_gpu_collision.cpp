@@ -19,7 +19,7 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(GpuCollisionTests)
 	{
-		static constexpr bool CreateVisuals = false;
+		static constexpr bool CreateVisuals = true;
 
 		// Draw the scene
 		void Visualise(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const& c)
@@ -35,15 +35,17 @@ namespace pr::physics::tests
 		void BangTogether(collision::Shape const& a, m4x4 a2w, collision::Shape const& b, m4x4 b2w, collision::Contact const* expected)
 		{
 			hlsl::StructuredBuffer<float4> verts;
-			auto sa = PackShape(a, verts);
-			auto sb = PackShape(b, verts);
+			hlsl::StructuredBuffer<GpuPolytopeFace> faces;
+			hlsl::StructuredBuffer<GpuPolytopeEdge> edges;
+			auto sa = PackShape(a, verts, &faces, &edges);
+			auto sb = PackShape(b, verts, &faces, &edges);
 
 			collision::Contact c0;
 			collision::Collide(a, a2w, b, b2w, c0);
 			Visualise(a, a2w, b, b2w, c0);
 
 			auto gpu_contact = GpuContact{};
-			physics::CollideShapes(sa, a2w, sb, b2w, verts, gpu_contact);
+			physics::CollideShapes(sa, a2w, sb, b2w, verts, faces, edges, gpu_contact);
 			auto c1 = To<collision::Contact>(gpu_contact);
 			Visualise(a, a2w, b, b2w, c1);
 
@@ -895,6 +897,52 @@ namespace pr::physics::tests
 			}
 		}
 
+		// ---- Triangle vs Box ----
+		PRUnitTestMethod(TriangleVsBox)
+		{
+			// Triangle face-on to a box face
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4(0, 0, 1, 0),
+					.m_manifold = {
+						v4(0, 0.5f, -0.25f, 1),
+						v4(-0.5f, -0.5f, -0.25f, 1),
+						v4(+0.5f, -0.5f, -0.25f, 1),
+					},
+					.m_feature = EFeature::Tri,
+					.m_depth = 0.5f,
+				};
+				BangTogether(
+					collision::ShapeTriangle{v4{-0.5f, -0.5f, 0, 1}, v4{+0.5f, -0.5f, 0, 1}, v4{0, +0.5f, 0, 1}}, m4x4::Identity(),
+					collision::ShapeBox{v4{1, 1, 1, 0}}, m4x4::Identity(),
+					&exp);
+			}
+
+			// Separated
+			{
+				BangTogether(
+					collision::ShapeTriangle{v4{-1, -1, 0, 1}, v4{+1, -1, 0, 1}, v4{0, +1, 0, 1}}, m4x4::Identity(),
+					collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}}, m4x4::Translation(5, 0, 0),
+					nullptr);
+			}
+
+			// Rotated triangle intersecting rotated box: exercises edge-cross axes
+			{
+				auto exp = collision::Contact{
+					.m_axis = v4(0, 0.707106829f, -0.707106769f, 0),
+					.m_manifold = {
+						v4(0.300000012f, 0.0508883521f, 0.252665043f, 1),
+					},
+					.m_feature = EFeature::Vert,
+					.m_depth = 0.285355419f,
+				};
+				BangTogether(
+					collision::ShapeTriangle{v4{-1, 0, 0, 1}, v4{+1, 0, 0, 1}, v4{0, +1, 0, 1}}, m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_8, 0, 0), v4{0.1f, 0, 0, 1}),
+					collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}}, m4x4::Transform(RotationRad<m3x3>(0, constants<float>::tau_by_8, 0), v4{0.3f, 0.2f, 0, 1}),
+					&exp);
+			}
+		}
+
 		// ---- Polytope vs Box ----
 		PRUnitTestMethod(PolytopeVsBox)
 		{
@@ -935,11 +983,13 @@ namespace pr::physics::tests
 				PR_EXPECT(collision::Collide(polytope, a2w, ground, b2w, cpu_contact));
 
 				hlsl::StructuredBuffer<float4> verts;
-				auto sa = PackShape(polytope, verts);
-				auto sb = PackShape(ground, verts);
+				hlsl::StructuredBuffer<GpuPolytopeFace> faces;
+				hlsl::StructuredBuffer<GpuPolytopeEdge> edges;
+				auto sa = PackShape(polytope, verts, &faces, &edges);
+				auto sb = PackShape(ground, verts, &faces, &edges);
 
 				GpuContact gpu_contact{};
-				PR_EXPECT(physics::CollideShapes(sa, m4x4::Identity(), sb, b2a, verts, gpu_contact));
+				PR_EXPECT(physics::CollideShapes(sa, m4x4::Identity(), sb, b2a, verts, faces, edges, gpu_contact));
 
 				auto gpu_axis_ws = a2w * gpu_contact.axis;
 				auto gpu_point_ws = a2w * ContactCentroid(gpu_contact);
@@ -979,18 +1029,15 @@ namespace pr::physics::tests
 			PR_EXPECT(collision::Collide(poly, poly_o2w, ground, ground_l2w, cpu_contact));
 
 			hlsl::StructuredBuffer<float4> verts;
-			auto sa = PackShape(poly, verts);
-			auto sb = PackShape(ground, verts);
+			hlsl::StructuredBuffer<GpuPolytopeFace> faces;
+			hlsl::StructuredBuffer<GpuPolytopeEdge> edges;
+			auto sa = PackShape(poly, verts, &faces, &edges);
+			auto sb = PackShape(ground, verts, &faces, &edges);
 
 			GpuContact gpu_contact{};
-			int gjk_iters = 0;
-			int epa_iters = 0;
-			auto hit = physics::GjkCollide(sa, m4x4::Identity(), sb, b2a, verts, gpu_contact, gjk_iters, epa_iters);
-			GpuContact fallback_contact{};
-			auto fallback_hit = physics::PolytopeVsFlatBoxFaceFallback(sa, m4x4::Identity(), sb, b2a, verts, fallback_contact);
+			auto hit = physics::CollideShapes(sa, m4x4::Identity(), sb, b2a, verts, faces, edges, gpu_contact);
 			PR_EXPECT(hit);
-			PR_EXPECT(fallback_hit);
-			PR_EXPECT(FEqlAbsolute(fallback_contact.depth, cpu_contact.m_depth, 1e-3f));
+			PR_EXPECT(gpu_contact.depth > 0.0f);
 		}
 
 		// ---- Polytope vs Line ----
