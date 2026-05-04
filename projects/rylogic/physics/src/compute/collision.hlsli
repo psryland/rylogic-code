@@ -90,21 +90,20 @@ odr bool ClipSegmentToHalfPlane(float3 seg_s, float3 seg_e, float3 plane_pt, flo
 // Determine the support feature of a box in a given direction.
 // Returns the feature vertex count (1=vert, 2=edge, 4=quad) and fills 'pts'.
 // Mirrors the CPU SupportFeature() in support.h.
-odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, float feature_tol, arrayout_(float3, pts, 4))
 {
-	float threshold = 1e-4f;
 	pts[0] = pts[1] = pts[2] = pts[3] = pos;
 	int count = 1;
 
 	for (int i = 0; i != 3; ++i)
 	{
 		float d = dot(rot[i], dir);
-		if (d > threshold)
+		if (d > feature_tol)
 		{
 			for (int f = 0; f < count; ++f)
 				pts[f] += rot[i] * h[i];
 		}
-		else if (d < -threshold)
+		else if (d < -feature_tol)
 		{
 			for (int f = 0; f < count; ++f)
 				pts[f] -= rot[i] * h[i];
@@ -138,6 +137,31 @@ odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayo
 		}
 	}
 	return count;
+}
+odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+{
+	return BoxSupportFeature(pos, rot, h, dir, 1e-4f, pts);
+}
+odr int BoxSupportFeatureContact(float3 pos, float3x3 rot, float3x3 other_rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+{
+	static const float face_feature_tol = 2e-2f;
+	static const float parallel_face_tol = 1.0f - 0.5f * face_feature_tol * face_feature_tol;
+
+	float3 local_dir = float3(dot(rot[0], dir), dot(rot[1], dir), dot(rot[2], dir));
+	int near_face_axis =
+		(abs(local_dir.x) < face_feature_tol ? 1 : 0) +
+		(abs(local_dir.y) < face_feature_tol ? 1 : 0) +
+		(abs(local_dir.z) < face_feature_tol ? 1 : 0);
+	int major_axis = abs(local_dir.x) > abs(local_dir.y) ? (abs(local_dir.x) > abs(local_dir.z) ? 0 : 2) : (abs(local_dir.y) > abs(local_dir.z) ? 1 : 2);
+	float parallel_face = max(max(
+		abs(dot(rot[major_axis], other_rot[0])),
+		abs(dot(rot[major_axis], other_rot[1]))),
+		abs(dot(rot[major_axis], other_rot[2])));
+
+	// Resting face contacts need a little angular slack so tiny rotations do not collapse the manifold to an edge or a vertex.
+	// Gate it on a matching face from the other box so arbitrary corner contacts keep the strict support feature.
+	float feature_tol = near_face_axis >= 2 && parallel_face > parallel_face_tol ? face_feature_tol : 1e-4f;
+	return BoxSupportFeature(pos, rot, h, dir, feature_tol, pts);
 }
 
 // Determine the support feature of a line segment (possibly with thickness) in a given direction.
@@ -787,8 +811,8 @@ odr bool BoxVsBox(
 
 	// Compute support features for both boxes and derive the contact manifold.
 	float3 ptsA[4], ptsB[4];
-	int countA = BoxSupportFeature(pos_a, rot_a, ha, +axis.xyz, ptsA);
-	int countB = BoxSupportFeature(pos_b, rot_b, hb, -axis.xyz, ptsB);
+	int countA = BoxSupportFeatureContact(pos_a, rot_a, rot_b, ha, +axis.xyz, ptsA);
+	int countB = BoxSupportFeatureContact(pos_b, rot_b, rot_a, hb, -axis.xyz, ptsB);
 
 	GpuFeature featA, featB;
 	FeatureClear(featA);
@@ -908,7 +932,7 @@ odr bool LineVsBox(
 	// For each shape, pass the axis pointing *into* that shape's exterior.
 	float3 ptsA[4], ptsB[4];
 	int countA = LineSupportFeature(line_pos_w, line_dir_w, hlength, line_r, +contact_axis, ptsA);
-	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, ptsB);
+	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, 1e-4f, ptsB);
 
 	GpuFeature featA, featB;
 	FeatureClear(featA);

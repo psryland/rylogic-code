@@ -1465,6 +1465,23 @@ namespace pr::physics::tests
 			PR_EXPECT(hit);
 			CheckBoxDropContact(contact);
 		}
+
+		PRUnitTestMethod(NearFaceBoxVsBox)
+		{
+			auto brick = collision::ShapeBox(v4(2, 1, 1, 0));
+			auto lower_to_world = m4x4::Identity();
+			auto upper_to_world = m4x4::Transform(m3x3::RotationDeg(0.75f, 0, 0), v4(0.5f, 0, 0.99f, 1));
+
+			StructuredBuffer<float4> verts;
+			auto lower = PackShape(brick, verts);
+			auto upper = PackShape(brick, verts);
+
+			GpuContact contact;
+			auto hit = BoxVsBox(lower, lower_to_world, upper, upper_to_world, contact);
+			PR_EXPECT(hit);
+			PR_EXPECT(contact.feature == FEATURE_QUAD);
+			PR_EXPECT(contact.axis.z > 0.999f);
+		}
 	};
 }
 #endif
