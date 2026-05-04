@@ -10,6 +10,12 @@
 
 namespace pr::physics
 {
+	namespace
+	{
+		constexpr int AngularDriftSubstepMax = 32;
+		constexpr float AngularDriftMaxRadians = 0.25f;
+	}
+
 	// Performs Störmer-Verlet kick-drift-kick on a GpuRigidBody.
 	// This mirrors the GPU compute shader exactly, allowing A/B comparison for debugging.
 	void Evolve(GpuRigidBody& dyn, float elapsed_seconds)
@@ -61,29 +67,47 @@ namespace pr::physics
 		auto vel_ang = ws_iinv * dyn.momentum_ang;
 		auto vel_lin = inv_mass * dyn.momentum_lin;
 
-		// Midpoint predictor for the rotation step: estimate the angular velocity at
-		// the midpoint rotation to account for precession of anisotropic bodies.
-		// This gives second-order accuracy instead of first-order.
-		auto half_dR = m3x3::Rotation(vel_ang.xyz * (elapsed_seconds * 0.5f));
-		auto mid_rot = half_dR * rot;
-		auto mid_b2a = InvertOrthonormal(mid_rot);
-		auto ws_iinv_mid = mid_rot * os_iinv_unit * mid_b2a;
-		ws_iinv_mid.x.y = ws_iinv_mid.y.x = 0.5f * (ws_iinv_mid.x.y + ws_iinv_mid.y.x);
-		ws_iinv_mid.x.z = ws_iinv_mid.z.x = 0.5f * (ws_iinv_mid.x.z + ws_iinv_mid.z.x);
-		ws_iinv_mid.y.z = ws_iinv_mid.z.y = 0.5f * (ws_iinv_mid.y.z + ws_iinv_mid.z.y);
-		auto ws_iinv_mid_scaled = m3x3{
-			ws_iinv_mid.x * inv_mass,
-			ws_iinv_mid.y * inv_mass,
-			ws_iinv_mid.z * inv_mass,
-		};
-		auto vel_ang_mid = ws_iinv_mid_scaled * dyn.momentum_ang.xyz;
-
 		// CoM-based position update: translate CoM, derive model origin from new rotation.
 		auto com_ws = rot * os_com;
 		auto com_pos = pos + com_ws;
 
-		auto dR = m3x3::Rotation(vel_ang_mid * elapsed_seconds);
-		auto new_rot = dR * rot;
+		// Midpoint predictor for the rotation step:
+		// For anisotropic bodies, angular velocity changes during the drift step because the world-space inertia tensor changes with orientation. Large
+		// angular displacements amplify this approximation error, so split the drift into small rotation increments while keeping the same angular momentum.
+		auto angular_steps = std::clamp(static_cast<int>(std::ceil(Length(vel_ang.xyz) * elapsed_seconds / AngularDriftMaxRadians)), 1, AngularDriftSubstepMax);
+		auto angular_dt = elapsed_seconds / static_cast<float>(angular_steps);
+		auto new_rot = rot;
+		for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
+		{
+			auto step_b2a = InvertOrthonormal(new_rot);
+			auto step_iinv_unit = new_rot * os_iinv_unit * step_b2a;
+			step_iinv_unit.x.y = step_iinv_unit.y.x = 0.5f * (step_iinv_unit.x.y + step_iinv_unit.y.x);
+			step_iinv_unit.x.z = step_iinv_unit.z.x = 0.5f * (step_iinv_unit.x.z + step_iinv_unit.z.x);
+			step_iinv_unit.y.z = step_iinv_unit.z.y = 0.5f * (step_iinv_unit.y.z + step_iinv_unit.z.y);
+			auto step_iinv = m3x3{
+				step_iinv_unit.x * inv_mass,
+				step_iinv_unit.y * inv_mass,
+				step_iinv_unit.z * inv_mass,
+			};
+			auto step_vel_ang = step_iinv * dyn.momentum_ang.xyz;
+
+			auto half_dR = m3x3::Rotation(step_vel_ang * (angular_dt * 0.5f));
+			auto mid_rot = half_dR * new_rot;
+			auto mid_b2a = InvertOrthonormal(mid_rot);
+			auto mid_iinv_unit = mid_rot * os_iinv_unit * mid_b2a;
+			mid_iinv_unit.x.y = mid_iinv_unit.y.x = 0.5f * (mid_iinv_unit.x.y + mid_iinv_unit.y.x);
+			mid_iinv_unit.x.z = mid_iinv_unit.z.x = 0.5f * (mid_iinv_unit.x.z + mid_iinv_unit.z.x);
+			mid_iinv_unit.y.z = mid_iinv_unit.z.y = 0.5f * (mid_iinv_unit.y.z + mid_iinv_unit.z.y);
+			auto mid_iinv = m3x3{
+				mid_iinv_unit.x * inv_mass,
+				mid_iinv_unit.y * inv_mass,
+				mid_iinv_unit.z * inv_mass,
+			};
+			auto mid_vel_ang = mid_iinv * dyn.momentum_ang.xyz;
+
+			auto dR = m3x3::Rotation(mid_vel_ang * angular_dt);
+			new_rot = Orthonorm(dR * new_rot);
+		}
 		auto new_com_pos = com_pos + vel_lin * elapsed_seconds;
 		auto new_pos = new_com_pos - new_rot * os_com;
 

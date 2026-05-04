@@ -70,9 +70,25 @@ namespace physics_sandbox
 			options.m_dt = cmd("dt").as<double>();
 		if (cmd.count("report"))
 			options.m_report_interval = cmd("report").as<int>();
+		if (cmd.count("body"))
+			options.m_trace_body = cmd("body").as<int>();
+		if (cmd.count("trace_start"))
+			options.m_trace_start = cmd("trace_start").as<int>();
+		if (cmd.count("trace_end"))
+			options.m_trace_end = cmd("trace_end").as<int>();
+		if (cmd.count("ke_jump"))
+			options.m_trace_ke_jump = cmd("ke_jump").as<float>();
+		if (cmd.count("scan"))
+			options.m_scan_bodies = true;
 
 		try
 		{
+			if (cmd.count("quiet"))
+			{
+				FILE* out = nullptr;
+				freopen_s(&out, "NUL", "w", stdout);
+			}
+
 			diag::RunStackDiagnostic(options);
 			return 0;
 		}

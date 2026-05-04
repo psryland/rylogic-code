@@ -9,6 +9,11 @@ namespace physics_sandbox::diag
 		int m_steps = 600;
 		double m_dt = 1.0 / 60.0;
 		int m_report_interval = 60;
+		int m_trace_body = -1;
+		int m_trace_start = 0;
+		int m_trace_end = 0x7fffffff;
+		float m_trace_ke_jump = 1000.0f;
+		bool m_scan_bodies = false;
 	};
 
 	struct StackDiagnosticResult

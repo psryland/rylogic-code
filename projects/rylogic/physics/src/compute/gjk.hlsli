@@ -1133,7 +1133,7 @@ odr bool Epa(
 		MkSup sup = MkSupport(shape_a, a2w, w2a, shape_b, b2w, w2b, cf_normal, verts);
 		float d = dot(sup.w.xyz, cf_normal.xyz);
 
-		if (d - cf_dist < EpaEps || nv >= MaxEpaVerts)
+		if (d - cf_dist < EpaEps)
 		{
 			out_normal = cf_normal;
 			out_depth = cf_dist;
@@ -1154,6 +1154,8 @@ odr bool Epa(
 			out_ptB = float4(mul(cb_local, b2w).xyz, 1);
 			return true;
 		}
+		if (nv >= MaxEpaVerts)
+			return false;
 
 		epa_verts[nv] = sup;
 		int ni = nv++;
@@ -1181,8 +1183,11 @@ odr bool Epa(
 						break;
 					}
 				}
-				if (!is_shared && ne < MaxEpaEdges)
+				if (!is_shared)
 				{
+					if (ne >= MaxEpaEdges)
+						return false;
+
 					edges[ne].a = ea;
 					edges[ne].b = eb;
 					ne++;
@@ -1219,6 +1224,8 @@ odr bool Epa(
 			epa_faces[nf].dist = fd;
 			nf++;
 		}
+		if (i != ne)
+			return false;
 	}
 
 	return false; // EPA did not converge
