@@ -39,6 +39,37 @@ namespace physics_sandbox::diag
 			int m_feature_count = 0;
 		};
 
+		struct EngineProfileAccumulator
+		{
+			int m_sample_count = 0;
+			int m_contact_count = 0;
+			double m_scene_step_ms = 0.0;
+			double m_physics_ms = 0.0;
+			physics::Engine::StepProfile m_engine = {};
+
+			void Add(Scene::StepProfile const& profile, int contact_count)
+			{
+				++m_sample_count;
+				m_contact_count += contact_count;
+				m_scene_step_ms += profile.m_total_ms;
+				m_physics_ms += profile.m_physics_ms;
+				m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
+				m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
+				m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
+				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
+				m_engine.m_collide_ms += profile.m_engine.m_collide_ms;
+				m_engine.m_resolve_ms += profile.m_engine.m_resolve_ms;
+				m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
+				m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
+				m_engine.m_unpack_ms += profile.m_engine.m_unpack_ms;
+			}
+
+			void Reset()
+			{
+				*this = {};
+			}
+		};
+
 		PenetrationSample MeasurePenetration(Scene const& scene)
 		{
 			auto sample = PenetrationSample{};
@@ -134,6 +165,28 @@ namespace physics_sandbox::diag
 				sample.m_kinetic_energy));
 		}
 
+		void PrintEngineProfile(std::ofstream& log, int step, double time_s, EngineProfileAccumulator const& profile)
+		{
+			auto count = std::max(profile.m_sample_count, 1);
+			Emit(log, std::format(
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				step,
+				time_s,
+				profile.m_sample_count,
+				static_cast<double>(profile.m_contact_count) / count,
+				profile.m_scene_step_ms / count,
+				profile.m_physics_ms / count,
+				profile.m_engine.m_new_frame_ms / count,
+				profile.m_engine.m_pack_ms / count,
+				profile.m_engine.m_integrate_ms / count,
+				profile.m_engine.m_broadphase_ms / count,
+				profile.m_engine.m_collide_ms / count,
+				profile.m_engine.m_resolve_ms / count,
+				profile.m_engine.m_readback_ms / count,
+				profile.m_engine.m_gpu_run_ms / count,
+				profile.m_engine.m_unpack_ms / count));
+		}
+
 		void PrintBodyTrace(
 			std::ofstream& log,
 			int step,
@@ -212,7 +265,9 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Stack diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Stack diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
-		if (options.m_scan_bodies)
+		if (options.m_engine_profile)
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,integrate_ms,broadphase_ms,collide_ms,resolve_ms,readback_ms,gpu_run_ms,unpack_ms\n");
+		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true ke_jump={:.3f}\n", options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
 			Emit(log, " step    time_s  hits   max_depth    a    b            KE\n");
@@ -266,6 +321,7 @@ namespace physics_sandbox::diag
 		for (int i = 0; i != std::ssize(scene.m_body); ++i)
 			prev_kinetic_energy[i] = scene.m_body[i].KineticEnergy();
 
+		auto profile = EngineProfileAccumulator{};
 		for (int step = 0; step != options.m_steps; ++step)
 		{
 			auto before = BodyTraceState{};
@@ -275,6 +331,19 @@ namespace physics_sandbox::diag
 				trace_contacts.resize(0);
 
 			scene.Step(options.m_dt);
+
+			if (options.m_engine_profile)
+			{
+				profile.Add(scene.m_last_step_profile, scene.m_physics.LastContactCount());
+				auto report_interval = std::max(options.m_report_interval, 1);
+				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+				{
+					PrintEngineProfile(log, step + 1, scene.m_clock, profile);
+					profile.Reset();
+				}
+
+				continue;
+			}
 
 			if (options.m_scan_bodies)
 			{
@@ -369,7 +438,7 @@ namespace physics_sandbox::diag
 			}
 		}
 
-		if (options.m_trace_body == -1)
+		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies)
 		{
 			Emit(log, std::format("worst: step={} max_depth={:.6f} pair=({},{})\n",
 				result.m_max_depth_step,
