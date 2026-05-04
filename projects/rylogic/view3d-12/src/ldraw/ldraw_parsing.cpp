@@ -114,6 +114,7 @@ namespace pr::rdr12::ldraw
 			, m_texts(m_bptr->m_texts)
 			, m_nugts(m_bptr->m_nugts)
 		{
+			m_bptr->Reset();
 		}
 		~Cache()
 		{
