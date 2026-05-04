@@ -15,6 +15,7 @@
 #include "pr/collision/col_triangle_vs_box.h"
 #include "pr/collision/col_triangle_vs_line.h"
 #include "pr/collision/col_triangle_vs_triangle.h"
+#include "pr/collision/col_polytope_vs_polytope.h"
 #include "pr/collision/col_gjk.h"
 #include "pr/collision/penetration.h"
 #include "pr/collision/support.h"

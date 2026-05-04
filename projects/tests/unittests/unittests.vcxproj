@@ -19,7 +19,7 @@
 				;%(PreprocessorDefinitions)
 				;PR_MATHS_USE_INTRINSICS=1
 				;PR_UNITTESTS=1
-				;PR_UNITTESTS_VISUALISE=0
+				;PR_UNITTESTS_VISUALISE=1
 			</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
 				;$(ProjectDir)
@@ -228,6 +228,7 @@
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_line.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_line_vs_sphere.h" />
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_polytope.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_box.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_line.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_triangle_vs_sphere.h" />

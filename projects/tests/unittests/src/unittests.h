@@ -23,6 +23,7 @@
 #include "pr/collision/col_line_vs_box.h"
 #include "pr/collision/col_line_vs_line.h"
 #include "pr/collision/col_line_vs_sphere.h"
+#include "pr/collision/col_polytope_vs_polytope.h"
 #include "pr/collision/col_sphere_vs_sphere.h"
 #include "pr/collision/col_triangle_vs_box.h"
 #include "pr/collision/col_triangle_vs_line.h"

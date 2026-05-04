@@ -1253,6 +1253,9 @@
     <ClInclude Include="..\..\..\include\pr\collision\unittest_helpers.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_polytope.h">
+      <Filter>pr\collision</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">
