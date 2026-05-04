@@ -949,6 +949,50 @@ namespace pr::physics::tests
 			}
 		}
 
+		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble)
+		{
+			v4 poly_pts[] = {
+				v4{-1.0296705f,  0.2203998f, -0.1274743f, 1},
+				v4{ 0.2744289f, -0.4075151f, -0.0194631f, 1},
+				v4{ 0.2335063f, -0.0944359f, -0.4734315f, 1},
+				v4{-0.1430905f,  0.3362911f,  0.0826810f, 1},
+				v4{ 0.0412595f, -0.4096290f, -0.3432735f, 1},
+				v4{ 0.3788538f,  0.3895851f,  0.5945120f, 1},
+				v4{-0.1899699f, -0.1738422f, -0.2568449f, 1},
+				v4{ 0.5233417f,  0.1291325f, -0.6528223f, 1},
+				v4{-0.2173630f, -0.1193020f,  0.2580981f, 1},
+			};
+			auto poly_buf = collision::BuildPolytopeFromPoints(poly_pts);
+			auto const& poly = poly_buf.as<collision::ShapePolytope>();
+
+			auto ground = collision::ShapeBox{v4{790.38454f, 790.38454f, 10.0f, 0}};
+			auto ground_l2w = m4x4::Translation(0, 0, -5);
+			auto poly_o2w = m4x4{
+				v4{-0.48897f, -0.03973f, -0.87140f, 0},
+				v4{ 0.39218f,  0.88229f, -0.26030f, 0},
+				v4{ 0.77917f, -0.46902f, -0.41583f, 0},
+				v4{18.36216f,-60.80049f,  0.39107f, 1},
+			};
+			auto b2a = InvertOrthonormal(poly_o2w) * ground_l2w;
+
+			collision::Contact cpu_contact;
+			PR_EXPECT(collision::Collide(poly, poly_o2w, ground, ground_l2w, cpu_contact));
+
+			hlsl::StructuredBuffer<float4> verts;
+			auto sa = PackShape(poly, verts);
+			auto sb = PackShape(ground, verts);
+
+			GpuContact gpu_contact{};
+			int gjk_iters = 0;
+			int epa_iters = 0;
+			auto hit = physics::GjkCollide(sa, m4x4::Identity(), sb, b2a, verts, gpu_contact, gjk_iters, epa_iters);
+			GpuContact fallback_contact{};
+			auto fallback_hit = physics::PolytopeVsFlatBoxFaceFallback(sa, m4x4::Identity(), sb, b2a, verts, fallback_contact);
+			PR_EXPECT(hit);
+			PR_EXPECT(fallback_hit);
+			PR_EXPECT(FEqlAbsolute(fallback_contact.depth, cpu_contact.m_depth, 1e-3f));
+		}
+
 		// ---- Polytope vs Line ----
 		PRUnitTestMethod(PolytopeVsLine)
 		{

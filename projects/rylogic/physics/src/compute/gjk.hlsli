@@ -817,6 +817,104 @@ odr void FindContactManifold(in_(GpuShape) shape_a, float4x4 a2w, in_(GpuShape) 
 	FindContactManifold(featA, featB, axis, depth, contact);
 }
 
+odr bool PolytopeVsFlatBoxFaceFallback(
+	in_(GpuShape) poly, float4x4 poly2w_,
+	in_(GpuShape) box, float4x4 box2w_,
+	in_(StructuredBuffer<float4>) verts,
+	out_(GpuContact) contact)
+{
+	ContactClear(contact);
+
+	float3 half_ext = box.data.xyz;
+	int axis_index = 0;
+	float axis_half_ext = half_ext.x;
+	float min_tangent_extent = min(half_ext.y, half_ext.z);
+	if (half_ext.y < axis_half_ext)
+	{
+		axis_index = 1;
+		axis_half_ext = half_ext.y;
+		min_tangent_extent = min(half_ext.x, half_ext.z);
+	}
+	if (half_ext.z < axis_half_ext)
+	{
+		axis_index = 2;
+		axis_half_ext = half_ext.z;
+		min_tangent_extent = min(half_ext.x, half_ext.y);
+	}
+
+	if (min_tangent_extent < 8.0f * axis_half_ext)
+		return false;
+
+	float4x4 poly2w = mul(poly.s2rb, poly2w_);
+	float4x4 box2w = mul(box.s2rb, box2w_);
+	float4x4 w2box = InvertOrthonormal(box2w);
+	float3 poly_min = float3(+1e30f, +1e30f, +1e30f);
+	float3 poly_max = float3(-1e30f, -1e30f, -1e30f);
+
+	for (int i = 0; i != poly.vert_count; ++i)
+	{
+		float4 p = float4(verts[poly.vert_offset + i].xyz, 1);
+		float4 p_box = mul(mul(p, poly2w), w2box);
+		poly_min = min(poly_min, p_box.xyz);
+		poly_max = max(poly_max, p_box.xyz);
+	}
+
+	float edge_margin = axis_half_ext;
+	if (axis_index != 0 && (poly_min.x < -half_ext.x + edge_margin || poly_max.x > +half_ext.x - edge_margin))
+		return false;
+	if (axis_index != 1 && (poly_min.y < -half_ext.y + edge_margin || poly_max.y > +half_ext.y - edge_margin))
+		return false;
+	if (axis_index != 2 && (poly_min.z < -half_ext.z + edge_margin || poly_max.z > +half_ext.z - edge_margin))
+		return false;
+
+	float poly_min_axis = poly_min.x;
+	float poly_max_axis = poly_max.x;
+	if (axis_index == 1)
+	{
+		poly_min_axis = poly_min.y;
+		poly_max_axis = poly_max.y;
+	}
+	else if (axis_index == 2)
+	{
+		poly_min_axis = poly_min.z;
+		poly_max_axis = poly_max.z;
+	}
+
+	float slab_min = -axis_half_ext;
+	float slab_max = +axis_half_ext;
+	float overlap = min(poly_max_axis, slab_max) - max(poly_min_axis, slab_min);
+	if (overlap <= 0.0f)
+		return false;
+
+	float max_fallback_depth = min(1.0f, 0.25f * axis_half_ext);
+	float centre = 0.5f * (poly_min_axis + poly_max_axis);
+	float depth = 0.0f;
+	float local_sign = 0.0f;
+	if (centre >= 0.0f)
+	{
+		depth = slab_max - poly_min_axis;
+		local_sign = -1.0f;
+	}
+	else
+	{
+		depth = poly_max_axis - slab_min;
+		local_sign = +1.0f;
+	}
+	if (depth <= 0.0f || depth > max_fallback_depth)
+		return false;
+
+	float4 local_axis = float4(0, 0, 0, 0);
+	if (axis_index == 0)
+		local_axis.x = local_sign;
+	else if (axis_index == 1)
+		local_axis.y = local_sign;
+	else
+		local_axis.z = local_sign;
+	float4 axis = float4(mul(local_axis, box2w).xyz, 0);
+	FindContactManifold(poly, poly2w_, box, box2w_, axis, depth, verts, contact);
+	return true;
+}
+
 // ---- Support face centroid functions ----
 // For face-on contact, the "support point" is degenerate: many vertices tie for the
 // maximum dot product. The centroid of those tied vertices is the centre of the

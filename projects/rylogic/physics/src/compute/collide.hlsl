@@ -364,6 +364,8 @@ void CollidePairTriangleVsBox(uint pair_index)
 	int epa_iters = 0;
 	GpuContact col;
 	bool hit = GjkCollide(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters, epa_iters);
+	if (!hit)
+		hit = PolytopeVsFlatBoxFaceFallback(shape_hi, hi2w, shape_lo, lo2w, g_verts, col);
 	StoreCanonicalResult(pair, shape_a, shape_b, hit, col);
 }
 void CollidePairTriangleVsLine(uint pair_index)
@@ -412,11 +414,14 @@ void CollidePairPolytopeVsBox(uint pair_index)
 	LoadPair(pair_index, pair, shape_a, shape_b, a2w, b2w);
 	CanonicalisePair(shape_a, a2w, shape_b, b2w, shape_lo, lo2w, shape_hi, hi2w);
 
-	// Polytope/box is a pure polyhedral pair, so it goes through GJK/EPA.
+	// Interior contacts against a very flat box face are better handled as a box-face SAT case. This avoids rare GPU GJK/EPA misses for shallow
+	// ground contacts while leaving edge/corner cases to the generic polyhedral path.
 	int gjk_iters = 0;
 	int epa_iters = 0;
 	GpuContact col;
-	bool hit = GjkCollide(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters, epa_iters);
+	bool hit = PolytopeVsFlatBoxFaceFallback(shape_hi, hi2w, shape_lo, lo2w, g_verts, col);
+	if (!hit)
+		hit = GjkCollide(shape_hi, hi2w, shape_lo, lo2w, g_verts, col, gjk_iters, epa_iters);
 	StoreCanonicalResult(pair, shape_a, shape_b, hit, col);
 }
 void CollidePairPolytopeVsLine(uint pair_index)
