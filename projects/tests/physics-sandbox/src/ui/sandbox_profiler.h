@@ -30,6 +30,7 @@ namespace physics_sandbox
 		void Reset();
 		void RecordStep(Scene::StepProfile const& profile, double elapsed_ms);
 		void RecordAddScene(double elapsed_ms);
+		void RecordLoadScene(std::filesystem::path const& filepath, double total_ms, double wait_gpu_ms, double json_ms, double camera_ms, Scene::LoadProfile const& profile);
 		void RecordRender(Scene const& scene, RenderSample const& sample);
 
 	private:

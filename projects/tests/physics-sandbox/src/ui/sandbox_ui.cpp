@@ -286,6 +286,9 @@ namespace physics_sandbox
 	{
 		try
 		{
+			auto const load_beg = Clock::now();
+			auto mark = load_beg;
+
 			// Pause the simulation
 			m_steps_remaining = 0;
 
@@ -298,10 +301,18 @@ namespace physics_sandbox
 
 			// Wait for the GPU to finish before loading. LoadFromJson triggers ShapeChange events which destroy old LdrObjects. 
 			m_view3d.WaitForGpu();
+			auto const wait_gpu_end = Clock::now();
+			auto const wait_gpu_ms = ElapsedMs(mark, wait_gpu_end);
+			mark = wait_gpu_end;
 
 			// Load the scene from JSON (creates new body graphics automatically)
 			auto scene_desc = scene_loader::LoadFromFile(filepath);
+			auto const json_end = Clock::now();
+			auto const json_ms = ElapsedMs(mark, json_end);
+			mark = json_end;
+
 			m_scene.LoadScene(scene_desc);
+			auto const scene_load_end = Clock::now();
 
 			// Frame the camera to see all loaded bodies
 			auto bbox = ComputeSceneBBox();
@@ -315,6 +326,9 @@ namespace physics_sandbox
 					v4{ 0, -1, 0, 0 },  // Forward direction
 					v4{ 0, 0, 1, 0 });  // Up direction (Z-up)
 			}
+			auto const camera_end = Clock::now();
+			auto const camera_ms = ElapsedMs(scene_load_end, camera_end);
+			m_profile.RecordLoadScene(filepath, ElapsedMs(load_beg, camera_end), wait_gpu_ms, json_ms, camera_ms, m_scene.m_last_load_profile);
 
 			Render(0);
 		}

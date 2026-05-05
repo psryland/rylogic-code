@@ -161,6 +161,9 @@ namespace physics_sandbox::scene_loader
 			desc.gravity = ReadVec3(*jgravity, 0.0f);
 
 		// Generated scene content
+		if (jscene.find("colour_seed") != nullptr)
+			throw std::runtime_error("Scene property 'colour_seed' has been replaced by 'seed'");
+
 		if (auto* jseed = jscene.find("seed"))
 			desc.seed = static_cast<unsigned int>(jseed->to<int>());
 

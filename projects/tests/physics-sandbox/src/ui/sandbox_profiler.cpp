@@ -41,6 +41,7 @@ namespace physics_sandbox
 		m_log.open(filepath, std::ios::out | std::ios::trunc);
 		if (m_log)
 		{
+			m_log << "load_profile,file,total_ms,wait_gpu_ms,json_ms,scene_load_ms,prepare_ms,bbox_ms,shapes_ms,bodies_ms,ldraw_build_ms,ldraw_serialise_ms,ldraw_parse_ms,ldraw_assign_ms,logging_ms,camera_ms,bodies,shapes,ldraw_objects,ldraw_bytes,has_renderer\n";
 			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_integrate_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
 			m_log.flush();
 		}
@@ -88,6 +89,45 @@ namespace physics_sandbox
 			return;
 
 		m_add_scene_ms += elapsed_ms;
+	}
+	void SandboxProfiler::RecordLoadScene(std::filesystem::path const& filepath, double total_ms, double wait_gpu_ms, double json_ms, double camera_ms, Scene::LoadProfile const& profile)
+	{
+		if (!Enabled())
+			return;
+
+		if (m_log)
+		{
+			m_log << std::format("load_profile,{},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{},{},{},{},{}\n",
+				filepath.string(),
+				total_ms,
+				wait_gpu_ms,
+				json_ms,
+				profile.m_total_ms,
+				profile.m_prepare_ms,
+				profile.m_bbox_ms,
+				profile.m_shapes_ms,
+				profile.m_bodies_ms,
+				profile.m_ldraw_build_ms,
+				profile.m_ldraw_serialise_ms,
+				profile.m_ldraw_parse_ms,
+				profile.m_ldraw_assign_ms,
+				profile.m_logging_ms,
+				camera_ms,
+				profile.m_body_count,
+				profile.m_shape_count,
+				profile.m_ldraw_object_count,
+				profile.m_ldraw_byte_count,
+				profile.m_has_renderer ? 1 : 0);
+			m_log.flush();
+		}
+
+		OutputDebugStringA(std::format(
+			"PhysicsSandbox load profile: total={:.1f}ms json={:.1f}ms scene={:.1f}ms ldraw_parse={:.1f}ms bodies={}\n",
+			total_ms,
+			json_ms,
+			profile.m_total_ms,
+			profile.m_ldraw_parse_ms,
+			profile.m_body_count).c_str());
 	}
 
 	void SandboxProfiler::RecordRender(Scene const& scene, RenderSample const& sample)
