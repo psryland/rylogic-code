@@ -10,7 +10,7 @@ namespace physics_sandbox::scene_loader
 	//     "scene": {
 	//         "description": "Optional description of the scene",
 	//         "gravity": [0, 0, -9.81],       // Optional, defaults to [0,0,0]
-	//         "colour_seed": 1547575334,      // Optional seed used for generated colours
+	//         "seed": 1547575334,             // Optional seed used for generated content
 	//         "material": {                    // Optional global material properties
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
@@ -90,8 +90,8 @@ namespace physics_sandbox::scene_loader
 		float elasticity = 1.0f;
 		float friction = 0.0f;
 
-		// Seed for generated colours
-		unsigned int colour_seed = 0x5C3E2026u;
+		// Seed for generated scene content
+		unsigned int seed = 0x5C3E2026u;
 
 		// Camera settings
 		std::optional<CameraDesc> camera;

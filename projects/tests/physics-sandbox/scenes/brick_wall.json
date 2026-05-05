@@ -2213,8 +2213,8 @@
                 "type": "sphere",
                 "radius": 2.0
             },
-            "position": [ 0, 10, 5 ],
-            "velocity": [ 0, 0, 0 ], //[0, -20, 0],
+            "position": [ 0, 30, 5 ],
+            "velocity": [ 0, -30, 0 ],
             "mass": 50.0
         }
     ],

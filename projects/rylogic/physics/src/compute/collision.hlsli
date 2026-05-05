@@ -55,6 +55,9 @@ namespace pr::physics {
 
 // ---- Constants ----
 static const float Eps = 1e-8f;
+static const float ContactStrictFeatureTol = 1e-4f;
+static const float ContactFaceFeatureTol = 2e-2f;
+static const float ContactParallelFaceTol = 1.0f - 0.5f * ContactFaceFeatureTol * ContactFaceFeatureTol;
 
 // ---- Helpers ----
 // Get the world-space vertices of a triangle shape
@@ -138,30 +141,22 @@ odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, float 
 	}
 	return count;
 }
-odr int BoxSupportFeature(float3 pos, float3x3 rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
+odr bool BoxHasSupportFace(float3x3 rot, float3 dir)
 {
-	return BoxSupportFeature(pos, rot, h, dir, 1e-4f, pts);
-}
-odr int BoxSupportFeatureContact(float3 pos, float3x3 rot, float3x3 other_rot, float3 h, float3 dir, arrayout_(float3, pts, 4))
-{
-	static const float face_feature_tol = 2e-2f;
-	static const float parallel_face_tol = 1.0f - 0.5f * face_feature_tol * face_feature_tol;
+	float len_sq = dot(dir, dir);
+	if (len_sq < Eps * Eps)
+		return false;
 
+	dir *= rsqrt(len_sq);
 	float3 local_dir = float3(dot(rot[0], dir), dot(rot[1], dir), dot(rot[2], dir));
-	int near_face_axis =
-		(abs(local_dir.x) < face_feature_tol ? 1 : 0) +
-		(abs(local_dir.y) < face_feature_tol ? 1 : 0) +
-		(abs(local_dir.z) < face_feature_tol ? 1 : 0);
-	int major_axis = abs(local_dir.x) > abs(local_dir.y) ? (abs(local_dir.x) > abs(local_dir.z) ? 0 : 2) : (abs(local_dir.y) > abs(local_dir.z) ? 1 : 2);
-	float parallel_face = max(max(
-		abs(dot(rot[major_axis], other_rot[0])),
-		abs(dot(rot[major_axis], other_rot[1]))),
-		abs(dot(rot[major_axis], other_rot[2])));
-
+	return max(max(abs(local_dir.x), abs(local_dir.y)), abs(local_dir.z)) > ContactParallelFaceTol;
+}
+odr int BoxSupportFeatureContact(float3 pos, float3x3 rot_a, float3x3 rot_b, float3 h, float3 dir, arrayout_(float3, pts, 4))
+{
 	// Resting face contacts need a little angular slack so tiny rotations do not collapse the manifold to an edge or a vertex.
 	// Gate it on a matching face from the other box so arbitrary corner contacts keep the strict support feature.
-	float feature_tol = near_face_axis >= 2 && parallel_face > parallel_face_tol ? face_feature_tol : 1e-4f;
-	return BoxSupportFeature(pos, rot, h, dir, feature_tol, pts);
+	float feature_tol = BoxHasSupportFace(rot_a, dir) && BoxHasSupportFace(rot_b, -dir) ? ContactFaceFeatureTol : ContactStrictFeatureTol;
+	return BoxSupportFeature(pos, rot_a, h, dir, feature_tol, pts);
 }
 
 // Determine the support feature of a line segment (possibly with thickness) in a given direction.
@@ -932,7 +927,7 @@ odr bool LineVsBox(
 	// For each shape, pass the axis pointing *into* that shape's exterior.
 	float3 ptsA[4], ptsB[4];
 	int countA = LineSupportFeature(line_pos_w, line_dir_w, hlength, line_r, +contact_axis, ptsA);
-	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, 1e-4f, ptsB);
+	int countB = BoxSupportFeature(box_pos_w, rot_b, hb, -contact_axis, ContactStrictFeatureTol, ptsB);
 
 	GpuFeature featA, featB;
 	FeatureClear(featA);

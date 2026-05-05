@@ -316,7 +316,7 @@ namespace physics_sandbox
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
 		auto scene_bbox = CalculateSceneBBox(scene_desc);
 		const auto ground_thickness = 10.0f;
-		auto colour_rng = std::default_random_engine(scene_desc.colour_seed);
+		auto scene_rng = std::default_random_engine(scene_desc.seed);
 
 		// Shapes for the bodies in the scene.
 		{
@@ -389,7 +389,7 @@ namespace physics_sandbox
 				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
-				body.m_colour = bd.colour ? *bd.colour : RandomRGB(colour_rng, 0.0f, 1.0f);
+				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
 
 				shape_ptr = collision::next(shape_ptr);
@@ -402,7 +402,7 @@ namespace physics_sandbox
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
 				ground.Shape(shape_ptr, -1.0f);
-				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(colour_rng, 0.0f, 1.0f);
+				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
 
 				shape_ptr = collision::next(shape_ptr);

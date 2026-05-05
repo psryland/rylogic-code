@@ -160,9 +160,9 @@ namespace physics_sandbox::scene_loader
 		if (auto* jgravity = jscene.find("gravity"))
 			desc.gravity = ReadVec3(*jgravity, 0.0f);
 
-		// Colour generation
-		if (auto* jcolour_seed = jscene.find("colour_seed"))
-			desc.colour_seed = static_cast<unsigned int>(jcolour_seed->to<int>());
+		// Generated scene content
+		if (auto* jseed = jscene.find("seed"))
+			desc.seed = static_cast<unsigned int>(jseed->to<int>());
 
 		// Material properties
 		if (auto* jmat = jscene.find("material"))

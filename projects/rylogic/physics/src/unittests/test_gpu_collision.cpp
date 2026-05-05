@@ -1428,8 +1428,8 @@ namespace pr::physics::tests
 			auto axis = float4(0, 0, -1, 0);
 
 			float3 pts_box[4], pts_grd[4];
-			auto count_box = BoxSupportFeature(box_to_world[3].xyz, (float3x3)box_to_world, sbox.data.xyz, +axis.xyz, pts_box);
-			auto count_grd = BoxSupportFeature(grd_to_world[3].xyz, (float3x3)grd_to_world, sgrd.data.xyz, -axis.xyz, pts_grd);
+			auto count_box = BoxSupportFeature(box_to_world[3].xyz, (float3x3)box_to_world, sbox.data.xyz, +axis.xyz, ContactStrictFeatureTol, pts_box);
+			auto count_grd = BoxSupportFeature(grd_to_world[3].xyz, (float3x3)grd_to_world, sgrd.data.xyz, -axis.xyz, ContactStrictFeatureTol, pts_grd);
 			PR_EXPECT(count_box == FEATURE_QUAD);
 			PR_EXPECT(count_grd == FEATURE_QUAD);
 
