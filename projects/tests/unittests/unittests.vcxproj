@@ -92,7 +92,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\cast.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\clipboard.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\command_line.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\compress.h" />
+    <ClInclude Include="..\..\..\include\pr\common\packing.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\console.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\coroutine.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\crc.h" />

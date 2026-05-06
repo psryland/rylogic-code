@@ -259,7 +259,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\command_line.h">
       <Filter>pr\common</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\common\compress.h">
+    <ClInclude Include="..\..\..\include\pr\common\packing.h">
       <Filter>pr\common</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\console.h">

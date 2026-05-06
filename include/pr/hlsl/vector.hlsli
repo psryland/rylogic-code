@@ -265,6 +265,42 @@ inline float3 RotationVectorApprox(float3x3 from, float3x3 to)
 	return float3(cpm[1].z, cpm[2].x, cpm[0].y);
 }
 
+// Octahedron encoding of normal vectors (See: "A Survey of Efficient Representations for Independent Unit Vectors", Cigolle 2014)
+inline float3 OctDecode(float2 oct_encoded)
+{
+	float3 norm = float3(oct_encoded, 1 - abs(oct_encoded.x) - abs(oct_encoded.y));
+	float t = max(-norm.z, 0.0f);
+	norm.xy += (float2(1,1) - 2 * step(float2(0,0), norm.xy)) * t;
+	return normalize(norm);
+}
+inline float2 OctEncode(float3 norm)
+{
+	norm.xy /= dot(float3(1,1,1), abs(norm));
+
+	float m = step(norm.z, 0.0); // Mask: 1 when norm.z <= 0, else 0
+	float2 s = 2 * step(float2(0,0), norm.xy) - float2(1,1); // Sign: +1 where norm.xy >= 0, -1 otherwise
+	float2 folded = (float2(1,1) - abs(norm.xy)) * s; // Folded value used when norm.z <= 0
+	norm.xy = lerp(norm.xy, folded, m); // Blend between original and folded based on the hemisphere mask
+	return norm.xy;
+}
+
+// HemiOctahedral encoding of positive hemisphere normals
+inline float3 HemiOctDecode(float2 hemi_oct_encoded)
+{
+	hemi_oct_encoded = float2(
+		hemi_oct_encoded.x + hemi_oct_encoded.y,
+		hemi_oct_encoded.x - hemi_oct_encoded.y);
+	float3 norm = float3(
+		hemi_oct_encoded,
+		2.0f - abs(hemi_oct_encoded.x) - abs(hemi_oct_encoded.y));
+	return normalize(norm);
+}
+inline float2 HemiOctEncode(float3 norm)
+{
+	norm.xy /= dot(float3(1,1,1), abs(norm));
+	return float2(norm.x + norm.y, norm.x - norm.y);
+}
+
 #ifdef __cplusplus
 }
 #endif

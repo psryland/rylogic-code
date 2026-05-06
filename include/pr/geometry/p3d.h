@@ -15,7 +15,7 @@
 #include "pr/common/cast.h"
 #include "pr/common/fmt.h"
 #include "pr/common/scope.h"
-#include "pr/common/compress.h"
+#include "pr/common/packing.h"
 #include "pr/common/range.h"
 #include "pr/math/math.h"
 #include "pr/gfx/colour.h"
