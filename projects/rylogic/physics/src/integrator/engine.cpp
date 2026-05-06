@@ -124,6 +124,10 @@ namespace pr::physics
 		Pack(rigid_bodies);
 		m_last_step_profile.m_pack_ms = ElapsedMs(beg, Clock::now());
 
+		// If nothing dynamic is awake then no GPU stage can change the world state.
+		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0)
+			return;
+
 		// Upload -> transfers staged body dynamics and resets GPU counters
 		beg = Clock::now();
 		Upload();
@@ -156,7 +160,7 @@ namespace pr::physics
 
 		// SleepUpdate -> persists wake-ups caused by resolver impulses
 		beg = Clock::now();
-		SleepUpdate();
+		SleepUpdate(dt);
 		m_last_step_profile.m_sleepupdate_ms = ElapsedMs(beg, Clock::now());
 
 		// Read buffers back to CPU memory
@@ -188,6 +192,7 @@ namespace pr::physics
 
 			// Copy the body data into the GPU staging buffer
 			auto dyn = PackDynamics(*body, shape_id);
+			m_cache->CountAwakeDynamic(*body);
 			m_cache->PackSleepIsland(*body, dyn);
 			m_cache->m_rb_dynamics.push_back(dyn);
 		}
@@ -270,11 +275,14 @@ namespace pr::physics
 	}
 
 	// Persist wake-ups and update sleep state after collision resolution.
-	void Engine::SleepUpdate()
+	void Engine::SleepUpdate(float dt)
 	{
 		auto body_count = m_cache->RigidBodyCount();
+		auto island_count = m_cache->SleepIslandCount();
 		auto bodies = m_gpu_integrator->Bodies();
-		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, body_count, bodies);
+		auto counters = m_gpu_integrator->Counters();
+		auto contacts = m_gpu_collision_detector->Contacts();
+		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, bodies);
 	}
 
 	// Read buffers back to CPU memory

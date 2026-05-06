@@ -69,6 +69,12 @@ static const uint GpuSleepIslandFlags_Sleeping = 1 << 1;
 static const uint GpuSleepIslandFlags_Disturbed = 1 << 2;
 static const uint GpuSleepIslandFlags_HitThisFrame = 1 << 3;
 
+// Sleep island stats flags:
+static const uint GpuSleepIslandStatsFlags_Valid = 1 << 0;
+static const uint GpuSleepIslandStatsFlags_AllLow = 1 << 1;
+static const uint GpuSleepIslandStatsFlags_AllReady = 1 << 2;
+static const uint GpuSleepIslandStatsFlags_Wake = 1 << 3;
+
 // ---- GPU data structures ----
 struct GpuSleepData
 {
@@ -129,6 +135,13 @@ struct GpuSleepIsland
 	uint body_count;
 	uint generation;
 	uint pad0;
+};
+struct GpuSleepIslandStats
+{
+	uint flags;
+	uint body_count;
+	uint pad0;
+	uint pad1;
 };
 struct GpuShape
 {

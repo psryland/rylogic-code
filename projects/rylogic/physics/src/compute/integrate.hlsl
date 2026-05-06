@@ -101,11 +101,11 @@ void CSIntegrate(int3 DTID(dtid))
 		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g.sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
 		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g.sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
 
-	bool force_awake = !g.sleeping_enabled || HasFlag(body.state_flags, ERigidBodyStateFlags_NeverSleep);
+	bool force_awake = !g.sleeping_enabled || AllSet(body.state_flags, ERigidBodyStateFlags_NeverSleep);
 	if (force_awake)
 		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
 
-	bool stay_asleep = !force_awake && HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
+	bool stay_asleep = !force_awake && AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
 	if (stay_asleep)
 	{
 		// Sleeping body: zero momentum and forces, keep position unchanged.
@@ -119,7 +119,7 @@ void CSIntegrate(int3 DTID(dtid))
 		UpdateAABB(body, idx);
 		return;
 	}
-	if (HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping))
+	if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping))
 	{
 		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
 		body.sleep.timer_s = 0.0f;

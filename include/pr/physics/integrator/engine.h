@@ -170,7 +170,7 @@ namespace pr::physics
 		void Resolve(float dt);
 
 		// Persist wake-ups and update sleep state after collision resolution.
-		void SleepUpdate();
+		void SleepUpdate(float dt);
 
 		// Read buffers back to CPU memory
 		void Readback(GpuBuffers& buffers);

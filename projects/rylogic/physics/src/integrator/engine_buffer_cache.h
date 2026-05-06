@@ -30,6 +30,7 @@ namespace pr::physics
 		std::vector<int> m_sleep_gpu_to_cpu_island_id;
 		std::unordered_map<int, int> m_sleep_cpu_to_gpu_island_id;
 		int m_next_sleep_island_id;
+		int m_awake_dynamic_count;
 
 		// Diagnostics
 		#if PR_DBG_PHYSICS
@@ -46,6 +47,7 @@ namespace pr::physics
 			, m_sleep_gpu_to_cpu_island_id()
 			, m_sleep_cpu_to_gpu_island_id()
 			, m_next_sleep_island_id()
+			, m_awake_dynamic_count()
 			#if PR_DBG_PHYSICS
 			, m_history()
 			, m_log()
@@ -60,6 +62,7 @@ namespace pr::physics
 			
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
+			m_awake_dynamic_count = 0;
 
 			// Reset the GPU staging buffer for contacts.
 			if (std::ssize(m_contacts) < max_contacts)
@@ -89,6 +92,7 @@ namespace pr::physics
 			m_sleep_gpu_to_cpu_island_id.clear();
 			m_sleep_cpu_to_gpu_island_id.clear();
 			m_next_sleep_island_id = 0;
+			m_awake_dynamic_count = 0;
 
 			#if PR_DBG_PHYSICS
 			m_history = BodyHistory{};
@@ -111,6 +115,19 @@ namespace pr::physics
 		int SleepIslandCount() const
 		{
 			return static_cast<int>(m_sleep_islands.size());
+		}
+
+		// Number of dynamic bodies that can move this frame.
+		int AwakeDynamicCount() const
+		{
+			return m_awake_dynamic_count;
+		}
+
+		// Track whether the body requires GPU work this frame.
+		void CountAwakeDynamic(RigidBody const& body)
+		{
+			if (body.InvMass() > 0.0f && !body.Sleeping() && !AllSet(body.m_state_flags, ERigidBodyStateFlags::Static))
+				++m_awake_dynamic_count;
 		}
 
 		// Map a sleeping dynamic body onto a dense GPU island and grow that island's bounds.
@@ -155,18 +172,18 @@ namespace pr::physics
 		}
 
 		// Convert frame-local GPU island ids back to persistent CPU ids before unpacking.
-		void UnpackSleepIsland(GpuRigidBody& dyn) const
+		void UnpackSleepIsland(GpuRigidBody& dyn)
 		{
 			auto const gpu_id = dyn.sleep.island_id;
 			if (gpu_id < 0)
 				return;
 
-			assert(gpu_id < std::ssize(m_sleep_gpu_to_cpu_island_id));
 			if (gpu_id >= std::ssize(m_sleep_gpu_to_cpu_island_id))
 			{
-				dyn.sleep.island_id = -1;
-				return;
+				m_sleep_gpu_to_cpu_island_id.resize(gpu_id + 1, -1);
 			}
+			if (m_sleep_gpu_to_cpu_island_id[gpu_id] < 0)
+				m_sleep_gpu_to_cpu_island_id[gpu_id] = m_next_sleep_island_id++;
 
 			dyn.sleep.island_id = m_sleep_gpu_to_cpu_island_id[gpu_id];
 		}

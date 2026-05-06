@@ -18,6 +18,7 @@ namespace pr::physics
 {
 	static_assert((sizeof(GpuSleepData) & 0xf) == 0);
 	static_assert((sizeof(GpuSleepIsland) & 0xf) == 0);
+	static_assert((sizeof(GpuSleepIslandStats) & 0xf) == 0);
 	static_assert((sizeof(GpuRigidBody) & 0xf) == 0);
 	static_assert((sizeof(GpuShape) & 0xf) == 0);
 	static_assert((sizeof(GpuPolytopeFace) & 0xf) == 0);

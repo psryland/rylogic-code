@@ -13,9 +13,12 @@ namespace pr::physics
 		Gpu& m_gpu;                              // Lightweight D3D12 wrapper (device + command queue)
 		EngineConfig const& m_config;            // Engine configuration parameters
 		ComputeStep m_cs_disturb_islands;        // Root signature + PSO for awake-body vs sleeping-island disturbance
-		ComputeStep m_cs_wake_collided;          // Root signature + PSO for clearing Sleeping on collided bodies
+		ComputeStep m_cs_update_sleep_state;     // Root signature + PSO for contact island building and sleep-state updates
 		D3DPtr<ID3D12Resource> m_r_sleep_islands;// GPU buffer: RWStructuredBuffer<GpuSleepIsland>
-		int m_capacity;                          // Maximum number of islands the buffer can hold
+		D3DPtr<ID3D12Resource> m_r_sleep_parents;// GPU buffer: RWStructuredBuffer<int> for union-find parent links
+		D3DPtr<ID3D12Resource> m_r_sleep_stats;  // GPU buffer: RWStructuredBuffer<GpuSleepIslandStats>
+		int m_island_capacity;                   // Maximum number of islands the island buffer can hold
+		int m_body_capacity;                     // Maximum number of bodies the scratch buffers can hold
 
 		explicit GpuSleepManager(Gpu& gpu, EngineConfig const& config);
 
@@ -25,8 +28,8 @@ namespace pr::physics
 		// Mark sleeping islands whose world-space bounds are overlapped by actually-awake bodies.
 		void SleepWake(GpuJob& job, int body_count, int island_count, D3DPtr<ID3D12Resource> bodies);
 
-		// Persist wake-ups for sleeping bodies that received resolver impulses.
-		void SleepUpdate(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> bodies);
+		// Persist wake-ups and update automatic sleeping from the resolved contact graph.
+		void SleepUpdate(GpuJob& job, float dt, int body_count, int island_count, int max_contacts, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> SleepIslands() { return m_r_sleep_islands; }
@@ -37,6 +40,9 @@ namespace pr::physics
 		void CompileShaders();
 
 		// Resize the buffers to support 'capacity' sleep islands.
-		void ResizeBuffers(CmdList& cmd_list, int capacity);
+		void ResizeIslandBuffers(CmdList& cmd_list, int capacity);
+
+		// Resize scratch buffers to support 'capacity' bodies.
+		void ResizeBodyBuffers(CmdList& cmd_list, int capacity);
 	};
 }

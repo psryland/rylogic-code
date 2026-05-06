@@ -1109,7 +1109,7 @@ odr bool PolytopeVsPolytope(
 	for (int i = 0; i != shape_a.face_count; ++i)
 	{
 		GpuPolytopeFace face = faces[shape_a.face_offset + i];
-		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+		if (AnySet(face.flags, POLY_FACE_IGNORE_AXIS))
 			continue;
 
 		float4 axis = mul(float4(face.plane.xyz, 0), a2p);
@@ -1120,7 +1120,7 @@ odr bool PolytopeVsPolytope(
 	for (int i = 0; i != shape_b.face_count; ++i)
 	{
 		GpuPolytopeFace face = faces[shape_b.face_offset + i];
-		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+		if (AnySet(face.flags, POLY_FACE_IGNORE_AXIS))
 			continue;
 
 		float4 axis = mul(float4(face.plane.xyz, 0), b2p);
@@ -1131,14 +1131,14 @@ odr bool PolytopeVsPolytope(
 	for (int i = 0; i != shape_a.edge_count; ++i)
 	{
 		GpuPolytopeEdge edge_a = edges[shape_a.edge_offset + i];
-		if ((edge_a.flags & POLY_EDGE_IGNORE_AXES) != 0)
+		if (AnySet(edge_a.flags, POLY_EDGE_IGNORE_AXES))
 			continue;
 
 		float4 dir_a = mul(edge_a.direction, a2p);
 		for (int j = 0; j != shape_b.edge_count; ++j)
 		{
 			GpuPolytopeEdge edge_b = edges[shape_b.edge_offset + j];
-			if ((edge_b.flags & POLY_EDGE_IGNORE_AXES) != 0)
+			if (AnySet(edge_b.flags, POLY_EDGE_IGNORE_AXES))
 				continue;
 
 			float4 dir_b = mul(edge_b.direction, b2p);
@@ -1185,7 +1185,7 @@ odr bool PolytopeVsBox(
 	for (int i = 0; i != poly.face_count; ++i)
 	{
 		GpuPolytopeFace face = faces[poly.face_offset + i];
-		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+		if (AnySet(face.flags, POLY_FACE_IGNORE_AXIS))
 			continue;
 
 		float4 axis = mul(float4(face.plane.xyz, 0), poly2p);
@@ -1203,7 +1203,7 @@ odr bool PolytopeVsBox(
 	for (int i = 0; i != poly.edge_count; ++i)
 	{
 		GpuPolytopeEdge edge = edges[poly.edge_offset + i];
-		if ((edge.flags & POLY_EDGE_IGNORE_AXES) != 0)
+		if (AnySet(edge.flags, POLY_EDGE_IGNORE_AXES))
 			continue;
 
 		float4 poly_dir = mul(edge.direction, poly2p);
@@ -1257,7 +1257,7 @@ odr bool PolytopeVsTriangle(
 	for (int i = 0; i != poly.face_count; ++i)
 	{
 		GpuPolytopeFace face = faces[poly.face_offset + i];
-		if ((face.flags & POLY_FACE_IGNORE_AXIS) != 0)
+		if (AnySet(face.flags, POLY_FACE_IGNORE_AXIS))
 			continue;
 
 		float4 axis = mul(float4(face.plane.xyz, 0), poly2p);
@@ -1272,7 +1272,7 @@ odr bool PolytopeVsTriangle(
 	for (int i = 0; i != poly.edge_count; ++i)
 	{
 		GpuPolytopeEdge edge = edges[poly.edge_offset + i];
-		if ((edge.flags & POLY_EDGE_IGNORE_AXES) != 0)
+		if (AnySet(edge.flags, POLY_EDGE_IGNORE_AXES))
 			continue;
 
 		float4 poly_dir = mul(edge.direction, poly2p);

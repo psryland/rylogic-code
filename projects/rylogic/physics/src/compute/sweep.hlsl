@@ -37,7 +37,7 @@ StructuredBuffer<GpuSleepIsland> resource(g_sleep_islands, t2);
 odr bool DynamicBody(in_(GpuRigidBody) body)
 {
 	return body.os_com_and_invmass.w > 0.0f &&
-		!HasFlag(body.state_flags, ERigidBodyStateFlags_Static);
+		!AllSet(body.state_flags, ERigidBodyStateFlags_Static);
 }
 
 odr bool EffectiveAwake(in_(GpuRigidBody) body)
@@ -45,12 +45,12 @@ odr bool EffectiveAwake(in_(GpuRigidBody) body)
 	if (!DynamicBody(body))
 		return false;
 
-	if (g.sleeping_enabled == 0 || !HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping))
+	if (g.sleeping_enabled == 0 || !AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping))
 		return true;
 
 	int island_id = body.sleep.island_id;
 	return island_id >= 0 && island_id < g.sleep_island_count &&
-		(g_sleep_islands[island_id].flags & GpuSleepIslandFlags_Disturbed) != 0;
+		AnySet(g_sleep_islands[island_id].flags, GpuSleepIslandFlags_Disturbed);
 }
 
 numthreads(CSSweep, SweepThreadCount, 1, 1)
