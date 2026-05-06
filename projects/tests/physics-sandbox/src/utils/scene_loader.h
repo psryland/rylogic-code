@@ -33,6 +33,19 @@ namespace physics_sandbox::scene_loader
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
 	//             { "name": "t1", "shape": { "type": "triangle", "vertices": [[0,0,0],[1,0,0],[0,1,0]] }, ... },
 	//             { "name": "p1", "shape": { "type": "polytope", "vertices": [[x,y,z], ...] }, ... }
+	//         ],
+	//         "body_generators": [
+	//             {
+	//                 "name": "heavy_box_#",                 // '#' is replaced by the generated body index
+	//                 "selector": "random",                  // Optional: "random" or "linear", defaults to "random"
+	//                 "instance_count": 20,                  // Optional, defaults to 1
+	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
+	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
+	//                 "shape": { "type": "box", "dimensions": [[1,1,1], [8,8,8]] },
+	//                 "mass": [1.0, 10.0],
+	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
+	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
+	//             }
 	//         ]
 	//     }
 	// }

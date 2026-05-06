@@ -52,6 +52,48 @@ namespace physics_sandbox
 				}
 			}
 		}
+		void AppendShape(byte_data<16>& shape_buffer, scene_loader::BodyDesc const& bd)
+		{
+			auto ofs = shape_buffer.size();
+			switch (bd.shape_type)
+			{
+				case scene_loader::BodyDesc::EShape::Box:
+				{
+					shape_buffer.push_back(collision::ShapeBox(bd.box_dimensions));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Sphere:
+				{
+					shape_buffer.push_back(collision::ShapeSphere(bd.sphere_radius));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Line:
+				{
+					shape_buffer.push_back(collision::ShapeLine(bd.line_length, bd.line_thickness));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Triangle:
+				{
+					shape_buffer.push_back(collision::ShapeTriangle(bd.tri_verts[0], bd.tri_verts[1], bd.tri_verts[2]));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Polytope:
+				{
+					shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown shape type in scene description");
+				}
+			}
+
+			// Pad to 16-byte alignment and update the shape's m_size to include the padding.
+			// collision::next() uses m_size to advance the shape pointer, so it must account
+			// for any alignment padding between shapes.
+			shape_buffer.pad_to(16);
+			shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = s_cast<int>(shape_buffer.size() - ofs);
+		}
 		m4x4 PrimitiveShapeToBody(Body const& body)
 		{
 			using namespace collision;
@@ -394,7 +436,6 @@ namespace physics_sandbox
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
 		m_last_load_profile.m_body_count = total_bodies;
-		m_last_load_profile.m_shape_count = total_bodies;
 		auto scene_bbox = CalculateSceneBBox(scene_desc);
 		const auto ground_thickness = 10.0f;
 		auto scene_rng = std::default_random_engine(scene_desc.seed);
@@ -402,51 +443,35 @@ namespace physics_sandbox
 		m_last_load_profile.m_bbox_ms = ElapsedMs(mark, bbox_end);
 		mark = bbox_end;
 
-		// Shapes for the bodies in the scene.
+		// Shapes for the bodies in the scene. Generated bodies deliberately reuse a small shape palette, and this de-duplicates identical
+		// descriptors across the whole scene so collision shapes are shared instead of rebuilt per body.
+		auto shape_lookup = std::vector<int>(num_scene_bodies, -1);
+		auto unique_shape_body_index = std::vector<int>{};
+		unique_shape_body_index.reserve(num_scene_bodies);
+		for (auto i = 0; i != num_scene_bodies; ++i)
 		{
-			m_shape_buffer.reserve(total_bodies * 512);
-			for (auto const& bd : scene_desc.bodies)
+			auto const& bd = scene_desc.bodies[i];
+			for (auto j = 0; j != isize(unique_shape_body_index); ++j)
 			{
-				auto ofs = m_shape_buffer.size();
-				switch (bd.shape_type)
+				if (SameShapeDesc(bd, scene_desc.bodies[unique_shape_body_index[j]]))
 				{
-					case scene_loader::BodyDesc::EShape::Box:
-					{
-						m_shape_buffer.push_back(collision::ShapeBox(bd.box_dimensions));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Sphere:
-					{
-						m_shape_buffer.push_back(collision::ShapeSphere(bd.sphere_radius));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Line:
-					{
-						m_shape_buffer.push_back(collision::ShapeLine(bd.line_length, bd.line_thickness));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Triangle:
-					{
-						m_shape_buffer.push_back(collision::ShapeTriangle(bd.tri_verts[0], bd.tri_verts[1], bd.tri_verts[2]));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Polytope:
-					{
-						m_shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
-						break;
-					}
-					default:
-					{
-						throw std::runtime_error("Unknown shape type in scene description");
-					}
+					shape_lookup[i] = j;
+					break;
 				}
-
-				// Pad to 16-byte alignment and update the shape's m_size to include the padding.
-				// collision::next() uses m_size to advance the shape pointer, so it must account
-				// for any alignment padding between shapes.
-				m_shape_buffer.pad_to(16);
-				m_shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = s_cast<int>(m_shape_buffer.size() - ofs);
 			}
+
+			if (shape_lookup[i] == -1)
+			{
+				shape_lookup[i] = isize(unique_shape_body_index);
+				unique_shape_body_index.push_back(i);
+			}
+		}
+
+		m_last_load_profile.m_shape_count = isize(unique_shape_body_index) + (scene_desc.ground ? 1 : 0);
+		{
+			m_shape_buffer.reserve(m_last_load_profile.m_shape_count * 512);
+			for (auto body_index : unique_shape_body_index)
+				AppendShape(m_shape_buffer, scene_desc.bodies[body_index]);
 
 			// Create a collision shape for the ground plane
 			if (scene_desc.ground)
@@ -454,7 +479,10 @@ namespace physics_sandbox
 				// Create the ground plane body as a large thin box with infinite mass.
 				v2 extent = scene_desc.ground->size;
 				if (LengthSq(extent) == 0) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
-				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
+				auto bd = scene_loader::BodyDesc{};
+				bd.shape_type = scene_loader::BodyDesc::EShape::Box;
+				bd.box_dimensions = v4{ extent.x, extent.y, ground_thickness, 0 };
+				AppendShape(m_shape_buffer, bd);
 			}
 		}
 		auto const shapes_end = Clock::now();
@@ -463,25 +491,29 @@ namespace physics_sandbox
 
 		// Bodies from the scene description.
 		{
-			auto shape_ptr = m_shape_buffer.data<collision::Shape>();
+			auto shape_ptrs = std::vector<collision::Shape const*>{};
+			shape_ptrs.reserve(m_last_load_profile.m_shape_count);
+			for (auto shape_ptr = m_shape_buffer.data<collision::Shape>(); shape_ptr != nullptr && isize(shape_ptrs) != m_last_load_profile.m_shape_count; shape_ptr = collision::next(shape_ptr))
+				shape_ptrs.push_back(shape_ptr);
+			if (isize(shape_ptrs) != m_last_load_profile.m_shape_count)
+				throw std::runtime_error("Scene shape buffer ended before all shapes were read");
 
 			// Phase 1: Create bodies WITHOUT the renderer so the ShapeChange handler doesn't
 			// try to create graphics yet. This avoids dangling pointer issues during the
 			// construction loop (graphics creation calls AddShape which reads the shape data).
 			m_body.reserve(total_bodies);
-			for (auto const& bd : scene_desc.bodies)
+			for (auto body_index = 0; body_index != num_scene_bodies; ++body_index)
 			{
+				auto const& bd = scene_desc.bodies[body_index];
 				Body body(nullptr);
 				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
 				body.O2W(o2w);
-				body.Shape(shape_ptr, bd.mass);
+				body.Shape(shape_ptrs[shape_lookup[body_index]], bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				if (bd.sleeping)
 					body.Sleep();
 				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
-
-				shape_ptr = collision::next(shape_ptr);
 			}
 
 			// Create the ground plane body as a large thin box with infinite mass.
@@ -490,11 +522,9 @@ namespace physics_sandbox
 			{
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
-				ground.Shape(shape_ptr, -1.0f);
+				ground.Shape(shape_ptrs.back(), -1.0f);
 				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
-
-				shape_ptr = collision::next(shape_ptr);
 			}
 		}
 		auto const bodies_end = Clock::now();

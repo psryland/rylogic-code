@@ -229,7 +229,7 @@ namespace pr::collision
 	inline void GetAxis(ShapePolytope const& shape, v4& direction, int hint_vert_id, int& vert_id0, int& vert_id1, bool major)
 	{
 		assert("Invalid polytope" && shape.m_vert_count >= 2);
-		assert(hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count);
+		assert(hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count); (void)hint_vert_id;
 
 		vert_id0 = 0;
 		vert_id1 = 1;

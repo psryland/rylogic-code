@@ -1,0 +1,53 @@
+{
+    "scene": {
+        "description": "Generator-based stress scene for exercising physics body creation and shared shape palettes.",
+        "seed": 1547575334,
+        "gravity": [ 0, 0, -9.81 ],
+        "material": {
+            "friction": 0.5,
+            "elasticity": 0.25
+        },
+        "ground_plane": {
+            "height": 0.0,
+            "size": [ 80.0, 80.0 ],
+            "texture": "#checker3"
+        },
+        "camera": {
+            "position": [ 0.0, -70.0, 45.0 ],
+            "lookat": [ 0.0, 0.0, 30.0 ]
+        },
+        "body_generators": [
+            {
+                "name": "stress_box_#",
+                "selector": "random",
+                "instance_count": 620,
+                "shape_palette_count": 24,
+                "colour": [ "0xFF2060A0", "0xFF60C0FF" ],
+                "shape": {
+                    "type": "box",
+                    "dimensions": [[ 0.6, 0.6, 0.6 ], [ 3.0, 3.0, 3.0 ]]
+                },
+                "mass": [ 1.0, 12.0 ],
+                "position": [[ -25.0, -25.0, 4.0 ], [ 25.0, 25.0, 90.0 ]],
+                "rotation": [[ 0.0, 0.0, 0.0 ], [ 180.0, 180.0, 180.0 ]],
+                "velocity": [[ -1.0, -1.0, -0.5 ], [ 1.0, 1.0, 0.5 ]],
+                "angular_velocity": [[ -0.25, -0.25, -0.25 ], [ 0.25, 0.25, 0.25 ]]
+            },
+            {
+                "name": "stress_sphere_#",
+                "selector": "random",
+                "instance_count": 380,
+                "shape_palette_count": 16,
+                "colour": [ "0xFFA06020", "0xFFFFC060" ],
+                "shape": {
+                    "type": "sphere",
+                    "radius": [ 0.35, 1.5 ]
+                },
+                "mass": [ 0.5, 8.0 ],
+                "position": [[ -25.0, -25.0, 4.0 ], [ 25.0, 25.0, 90.0 ]],
+                "velocity": [[ -2.0, -2.0, -1.0 ], [ 2.0, 2.0, 1.0 ]],
+                "angular_velocity": [[ -0.5, -0.5, -0.5 ], [ 0.5, 0.5, 0.5 ]]
+            }
+        ]
+    }
+}

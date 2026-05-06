@@ -3,6 +3,260 @@
 
 namespace physics_sandbox::scene_loader
 {
+	namespace
+	{
+		enum class EGeneratorSelector
+		{
+			Random,
+			Linear,
+		};
+
+		bool IsNumber(pr::json::Value const& jv)
+		{
+			return jv.as<double>() != nullptr;
+		}
+		bool IsVec3(pr::json::Value const& jv)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>())
+				return arr->size() >= 3 && IsNumber((*arr)[0]) && IsNumber((*arr)[1]) && IsNumber((*arr)[2]);
+
+			return false;
+		}
+		float LinearT(int index, int count)
+		{
+			return count <= 1 ? 0.0f : float(index) / float(count - 1);
+		}
+		float SelectFloat(float min_value, float max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			switch (selector)
+			{
+				case EGeneratorSelector::Random:
+				{
+					auto range = std::uniform_real_distribution<float>(std::min(min_value, max_value), std::max(min_value, max_value));
+					return range(rng);
+				}
+				case EGeneratorSelector::Linear:
+				{
+					auto t = LinearT(index, count);
+					return Lerp(min_value, max_value, t);
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown body generator selector");
+				}
+			}
+		}
+		v4 SelectVec3(v4 const& min_value, v4 const& max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			return v4{
+				SelectFloat(min_value.x, max_value.x, selector, index, count, rng),
+				SelectFloat(min_value.y, max_value.y, selector, index, count, rng),
+				SelectFloat(min_value.z, max_value.z, selector, index, count, rng),
+				min_value.w,
+			};
+		}
+		float ReadFloatRange(pr::json::Value const& jv, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>(); arr != nullptr && arr->size() == 2 && IsNumber((*arr)[0]) && IsNumber((*arr)[1]))
+				return SelectFloat((*arr)[0].to<float>(), (*arr)[1].to<float>(), selector, index, count, rng);
+
+			return jv.to<float>();
+		}
+		v4 ReadVec3Range(pr::json::Value const& jv, float w, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>(); arr != nullptr && arr->size() == 2 && IsVec3((*arr)[0]) && IsVec3((*arr)[1]))
+				return SelectVec3(ReadVec3((*arr)[0], w), ReadVec3((*arr)[1], w), selector, index, count, rng);
+
+			return ReadVec3(jv, w);
+		}
+		Colour32 ReadColour(pr::json::Value const& jv)
+		{
+			if (auto const* str = jv.as<std::string>())
+				return To<Colour32>(*str);
+			if (auto const* num = jv.as<double>())
+				return Colour32(static_cast<uint32_t>(std::llround(*num)));
+
+			throw std::runtime_error("Expected a colour string or integer value");
+		}
+		Colour32 SelectColour(Colour32 min_value, Colour32 max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			switch (selector)
+			{
+				case EGeneratorSelector::Random:
+				{
+					auto channel = [&](int min_channel, int max_channel)
+					{
+						auto range = std::uniform_int_distribution<int>(std::min(min_channel, max_channel), std::max(min_channel, max_channel));
+						return range(rng);
+					};
+					return Colour32(
+						channel(min_value.r, max_value.r),
+						channel(min_value.g, max_value.g),
+						channel(min_value.b, max_value.b),
+						channel(min_value.a, max_value.a));
+				}
+				case EGeneratorSelector::Linear:
+				{
+					auto t = LinearT(index, count);
+					auto channel = [&](int min_channel, int max_channel)
+					{
+						return static_cast<int>(std::lround(Lerp(float(min_channel), float(max_channel), t)));
+					};
+					return Colour32(
+						channel(min_value.r, max_value.r),
+						channel(min_value.g, max_value.g),
+						channel(min_value.b, max_value.b),
+						channel(min_value.a, max_value.a));
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown body generator selector");
+				}
+			}
+		}
+		Colour32 ReadColourRange(pr::json::Value const& jv, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>(); arr != nullptr && arr->size() == 2)
+				return SelectColour(ReadColour((*arr)[0]), ReadColour((*arr)[1]), selector, index, count, rng);
+
+			return ReadColour(jv);
+		}
+		EGeneratorSelector ReadGeneratorSelector(pr::json::Object const& jgen)
+		{
+			auto selector = std::string("random");
+			if (auto const* jselector = jgen.find("selector"))
+				selector = jselector->to<std::string>();
+
+			if (selector == "random")
+				return EGeneratorSelector::Random;
+			if (selector == "linear")
+				return EGeneratorSelector::Linear;
+
+			throw std::runtime_error(pr::FmtS("Unknown body generator selector: '%s'", selector.c_str()));
+		}
+		std::string GeneratedName(std::string name, int index, int count)
+		{
+			if (name.empty())
+				name = "body_#";
+
+			auto replacement = std::format("{}", index);
+			auto ofs = size_t{};
+			for (auto pos = name.find('#', ofs); pos != std::string::npos; pos = name.find('#', ofs))
+			{
+				name.replace(pos, 1, replacement);
+				ofs = pos + replacement.size();
+			}
+
+			if (ofs == 0 && count > 1)
+				name += std::format("_{}", index);
+
+			return name;
+		}
+		int SelectPaletteIndex(EGeneratorSelector selector, int index, int count, int palette_count, std::default_random_engine& rng)
+		{
+			switch (selector)
+			{
+				case EGeneratorSelector::Random:
+				{
+					auto range = std::uniform_int_distribution<int>(0, palette_count - 1);
+					return range(rng);
+				}
+				case EGeneratorSelector::Linear:
+				{
+					return palette_count <= 1 ? 0 : static_cast<int>(std::lround(LinearT(index, count) * (palette_count - 1)));
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown body generator selector");
+				}
+			}
+		}
+		BodyDesc ReadGeneratorShape(pr::json::Value const& jshape, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			BodyDesc desc;
+			auto const& jshape_obj = jshape.to_object();
+			auto shape_type = jshape_obj["type"].to<std::string>();
+			if (shape_type == "box")
+			{
+				desc.shape_type = BodyDesc::EShape::Box;
+				desc.box_dimensions = ReadVec3Range(jshape_obj["dimensions"], 0.0f, selector, index, count, rng);
+			}
+			else if (shape_type == "sphere")
+			{
+				desc.shape_type = BodyDesc::EShape::Sphere;
+				desc.sphere_radius = ReadFloatRange(jshape_obj["radius"], selector, index, count, rng);
+			}
+			else if (shape_type == "line")
+			{
+				desc.shape_type = BodyDesc::EShape::Line;
+				desc.line_length = ReadFloatRange(jshape_obj["length"], selector, index, count, rng);
+				if (auto const* thickness = jshape_obj.find("thickness"))
+					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
+			}
+			else
+			{
+				throw std::runtime_error(pr::FmtS("Generated bodies currently support box, sphere, and line shapes, not '%s'", shape_type.c_str()));
+			}
+
+			return desc;
+		}
+		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, std::default_random_engine& rng)
+		{
+			auto const& jgen = jv_generator.to_object();
+			auto selector = ReadGeneratorSelector(jgen);
+			auto instance_count = 1;
+			if (auto const* jcount = jgen.find("instance_count"))
+				instance_count = jcount->to<int>();
+			if (instance_count <= 0)
+				throw std::runtime_error("Body generator 'instance_count' must be greater than zero");
+
+			auto const* jshape = jgen.find("shape");
+			if (jshape == nullptr)
+				throw std::runtime_error("Body generator requires a 'shape' object");
+
+			auto shape_palette_count = std::min(instance_count, 16);
+			if (auto const* jpalette_count = jgen.find("shape_palette_count"))
+				shape_palette_count = jpalette_count->to<int>();
+			if (shape_palette_count <= 0)
+				throw std::runtime_error("Body generator 'shape_palette_count' must be greater than zero");
+
+			shape_palette_count = std::min(shape_palette_count, instance_count);
+
+			auto shape_palette = std::vector<BodyDesc>{};
+			shape_palette.reserve(shape_palette_count);
+			for (auto shape_index = 0; shape_index != shape_palette_count; ++shape_index)
+				shape_palette.push_back(ReadGeneratorShape(*jshape, selector, shape_index, shape_palette_count, rng));
+
+			auto name = std::string{};
+			if (auto const* jname = jgen.find("name"))
+				name = jname->to<std::string>();
+
+			for (auto body_index = 0; body_index != instance_count; ++body_index)
+			{
+				auto palette_index = SelectPaletteIndex(selector, body_index, instance_count, shape_palette_count, rng);
+				auto body = shape_palette[palette_index];
+				body.name = GeneratedName(name, body_index, instance_count);
+
+				if (auto const* jcolour = jgen.find("colour"))
+					body.colour = ReadColourRange(*jcolour, selector, body_index, instance_count, rng);
+				if (auto const* jmass = jgen.find("mass"))
+					body.mass = ReadFloatRange(*jmass, selector, body_index, instance_count, rng);
+				if (auto const* jposition = jgen.find("position"))
+					body.position = ReadVec3Range(*jposition, 1.0f, selector, body_index, instance_count, rng);
+				if (auto const* jrotation = jgen.find("rotation"))
+					body.rotation = ReadVec3Range(*jrotation, 0.0f, selector, body_index, instance_count, rng);
+				if (auto const* jvelocity = jgen.find("velocity"))
+					body.velocity = ReadVec3Range(*jvelocity, 0.0f, selector, body_index, instance_count, rng);
+				if (auto const* jangular_velocity = jgen.find("angular_velocity"))
+					body.angular_velocity = ReadVec3Range(*jangular_velocity, 0.0f, selector, body_index, instance_count, rng);
+				if (auto const* jsleeping = jgen.find("sleeping"))
+					body.sleeping = jsleeping->to<bool>();
+
+				desc.bodies.push_back(std::move(body));
+			}
+		}
+	}
+
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).
 	v4 ReadVec3(pr::json::Value const& arr, float w)
 	{
@@ -30,7 +284,7 @@ namespace physics_sandbox::scene_loader
 		
 		// Colour
 		if (auto* jcolour = jbody.find("colour"))
-			desc.colour = To<Colour32>(jcolour->to<std::string>());
+			desc.colour = ReadColour(*jcolour);
 
 		// Shape
 		if (auto* jshape = jbody.find("shape"))
@@ -124,7 +378,7 @@ namespace physics_sandbox::scene_loader
 			ground.height = h->to<float>();
 
 		if (auto* c = jgp.find("colour"))
-			ground.colour = To<Colour32>(c->to<std::string>());
+			ground.colour = ReadColour(*c);
 
 		if (auto* t = jgp.find("texture"))
 			ground.texture = t->to<std::string>();
@@ -171,6 +425,8 @@ namespace physics_sandbox::scene_loader
 		if (auto* jseed = jscene.find("seed"))
 			desc.seed = static_cast<unsigned int>(jseed->to<int>());
 
+		auto scene_rng = std::default_random_engine(desc.seed);
+
 		// Material properties
 		if (auto* jmat = jscene.find("material"))
 		{
@@ -188,8 +444,15 @@ namespace physics_sandbox::scene_loader
 		// Bodies
 		if (auto* jbodies = jscene.find("bodies"))
 		{
-			for (auto const& jbody : jscene["bodies"].to_array())
+			for (auto const& jbody : jbodies->to_array())
 				desc.bodies.push_back(ReadBody(jbody));
+		}
+
+		// Generated bodies
+		if (auto* jgenerators = jscene.find("body_generators"))
+		{
+			for (auto const& jgenerator : jgenerators->to_array())
+				AppendGeneratedBodies(desc, jgenerator, scene_rng);
 		}
 
 		// Camera
