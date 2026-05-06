@@ -104,6 +104,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* javl = jbody.find("angular_velocity"))
 			desc.angular_velocity = ReadVec3(*javl, 0.0f);
 
+		// Initial sleep state
+		if (auto* jsleeping = jbody.find("sleeping"))
+			desc.sleeping = jsleeping->to<bool>();
+
 		return desc;
 	}
 

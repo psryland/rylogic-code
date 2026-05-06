@@ -11,6 +11,7 @@
 #include "pr/physics/diagnostics/body_history.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/integrate_gpu.h"
+#include "src/compute/sleep_gpu.h"
 #include "src/compute/sweep_gpu.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
@@ -62,6 +63,7 @@ namespace pr::physics
 		: m_config(config)
 		, m_gpu(new Gpu(existing_device))
 		, m_gpu_integrator(new GpuIntegrator(*m_gpu, m_config))
+		, m_gpu_sleep_manager(new GpuSleepManager(*m_gpu, m_config))
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config))
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config))
@@ -122,10 +124,20 @@ namespace pr::physics
 		Pack(rigid_bodies);
 		m_last_step_profile.m_pack_ms = ElapsedMs(beg, Clock::now());
 
+		// Upload -> transfers staged body dynamics and resets GPU counters
+		beg = Clock::now();
+		Upload();
+		m_last_step_profile.m_upload_ms = ElapsedMs(beg, Clock::now());
+
 		// Integrate -> Updates dynamics, generates AABBs, debug data
 		beg = Clock::now();
 		Integrate(dt);
 		m_last_step_profile.m_integrate_ms = ElapsedMs(beg, Clock::now());
+
+		// SleepWake -> marks sleeping islands disturbed by awake body AABBs
+		beg = Clock::now();
+		SleepWake();
+		m_last_step_profile.m_sleepwake_ms = ElapsedMs(beg, Clock::now());
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
 		beg = Clock::now();
@@ -141,6 +153,11 @@ namespace pr::physics
 		beg = Clock::now();
 		Resolve(dt);
 		m_last_step_profile.m_resolve_ms = ElapsedMs(beg, Clock::now());
+
+		// SleepUpdate -> persists wake-ups caused by resolver impulses
+		beg = Clock::now();
+		SleepUpdate();
+		m_last_step_profile.m_sleepupdate_ms = ElapsedMs(beg, Clock::now());
 
 		// Read buffers back to CPU memory
 		beg = Clock::now();
@@ -170,33 +187,53 @@ namespace pr::physics
 			auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
 
 			// Copy the body data into the GPU staging buffer
-			m_cache->m_rb_dynamics.push_back(PackDynamics(*body, shape_id));
+			auto dyn = PackDynamics(*body, shape_id);
+			m_cache->PackSleepIsland(*body, dyn);
+			m_cache->m_rb_dynamics.push_back(dyn);
 		}
+	}
+
+	// Upload staged body data into GPU buffers for the current frame.
+	void Engine::Upload()
+	{
+		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics);
+		m_gpu_sleep_manager->Upload(m_gpu->m_job, m_cache->m_sleep_islands);
 	}
 
 	// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 	void Engine::Integrate(float dt)
 	{
-		m_gpu_integrator->Integrate(m_gpu->m_job, m_cache->m_rb_dynamics, dt);
+		auto body_count = m_cache->RigidBodyCount();
+		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt);
 
 		#if PR_DBG_PHYSICS
-		//auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
 		//DbgPhysics(*this).ReadbackIntegrate(body_count);
 		#endif
+	}
+
+	// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
+	void Engine::SleepWake()
+	{
+		auto body_count = m_cache->RigidBodyCount();
+		auto island_count = m_cache->SleepIslandCount();
+		auto bodies = m_gpu_integrator->Bodies();
+		m_gpu_sleep_manager->SleepWake(m_gpu->m_job, body_count, island_count, bodies);
 	}
 
 	// Broadphase collision detection to generate potential collision pairs.
 	void Engine::BroadPhase()
 	{
-		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+		auto body_count = m_cache->RigidBodyCount();
 
 		// GPU broadphase is only useful when GPU detect will consume the pairs
 		auto counters = m_gpu_integrator->Counters();
 		auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
 		auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
 		auto bodies = m_gpu_integrator->Bodies();
+		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
+		auto sleep_island_count = m_cache->SleepIslandCount();
 		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands);
 
 		#if PR_DBG_PHYSICS
 		//DbgPhysics(*this).ReadbackSweep(counters);
@@ -219,7 +256,7 @@ namespace pr::physics
 	// Apply impulses to resolve collisions and update body dynamics.
 	void Engine::Resolve(float dt)
 	{
-		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
+		auto body_count = m_cache->RigidBodyCount();
 
 		auto counters = m_gpu_integrator->Counters();
 		auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
@@ -232,11 +269,19 @@ namespace pr::physics
 		#endif
 	}
 
+	// Persist wake-ups and update sleep state after collision resolution.
+	void Engine::SleepUpdate()
+	{
+		auto body_count = m_cache->RigidBodyCount();
+		auto bodies = m_gpu_integrator->Bodies();
+		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, body_count, bodies);
+	}
+
 	// Read buffers back to CPU memory
 	void Engine::Readback(GpuBuffers& buffers)
 	{
-		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
-		auto contacts_count = static_cast<int>(m_cache->m_contacts.size());
+		auto body_count = m_cache->RigidBodyCount();
+		auto contacts_count = m_cache->MaxContactsCount();
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
@@ -278,8 +323,8 @@ namespace pr::physics
 	// Update rigid bodies with results from the step
 	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies)
 	{
-		auto body_count = static_cast<int>(m_cache->m_rb_dynamics.size());
-		auto max_contacts = static_cast<int>(m_cache->m_contacts.size());
+		auto body_count = m_cache->RigidBodyCount();
+		auto max_contacts = m_cache->MaxContactsCount();
 
 		// Read the results back to the CPU
 		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
@@ -310,6 +355,7 @@ namespace pr::physics
 		// Unpack the GPU results into the RigidBody objects
 		for (auto [body, i] : with_index(rigid_bodies))
 		{
+			m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
 			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 

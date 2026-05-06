@@ -14,8 +14,10 @@ namespace pr::physics
 		// Sleep thresholds: if a body has linear velocity below 'sleep_velocity_threshold_lin' and
 		// angular velocity below 'sleep_velocity_threshold_ang' for some time, it can be put to sleep.
 		// These thresholds are in world units (e.g., m/s for linear, rad/s for angular).
-		float sleep_velocity_threshold_lin = 0.1f;
-		float sleep_velocity_threshold_ang = 0.05f;
+		bool sleeping_enabled = true;
+		float sleep_velocity_threshold_lin = 0.01f;
+		float sleep_velocity_threshold_ang = 0.001f;
+		float sleep_delay_s = 1.0f;
 
 		// Number of coloured Gauss-Seidel contact solver iterations.
 		int solver_iterations = 8;

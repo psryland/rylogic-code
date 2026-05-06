@@ -18,6 +18,7 @@
 #include <format>
 #include <chrono>
 #include <cstdio>
+#include <cstdint>
 #include <cassert>
 #include <stdexcept>
 
@@ -66,10 +67,12 @@ namespace pr::physics
 
 	struct Gpu;
 	struct GpuIntegrator;
+	struct GpuSleepManager;
 	struct GpuSortAndSweep;
 	struct GpuCollisionDetector;
 	struct GpuResolver;
 	struct GpuRigidBody;
+	struct GpuSleepIsland;
 	struct GpuShape;
 	struct GpuCollisionPair;
 	struct GpuContact;
@@ -83,6 +86,7 @@ namespace pr::physics
 	using MaterialMapPtr = std::unique_ptr<MaterialMap, Deleter<MaterialMap>>;
 	using GpuPtr = std::unique_ptr<Gpu, Deleter<Gpu>>;
 	using GpuIntegratorPtr = std::unique_ptr<GpuIntegrator, Deleter<GpuIntegrator>>;
+	using GpuSleepManagerPtr = std::unique_ptr<GpuSleepManager, Deleter<GpuSleepManager>>;
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
 	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;

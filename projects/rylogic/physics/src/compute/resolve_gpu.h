@@ -17,7 +17,6 @@ namespace pr::physics
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
-		ComputeStep m_cs_update_sleep;            // Parallel: update sleep state per body
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig; // Command signature for indirect dispatch
 		D3DPtr<ID3D12Resource> m_r_materials;     // GPU buffer: StructuredBuffer<GpuMaterial>
 		D3DPtr<ID3D12Resource> m_r_colours;       // GPU buffer: RWStructuredBuffer<uint> per-contact colour assignment

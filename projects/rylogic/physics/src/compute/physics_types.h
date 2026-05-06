@@ -16,6 +16,18 @@
 
 namespace pr::physics
 {
+	static_assert((sizeof(GpuSleepData) & 0xf) == 0);
+	static_assert((sizeof(GpuSleepIsland) & 0xf) == 0);
+	static_assert((sizeof(GpuRigidBody) & 0xf) == 0);
+	static_assert((sizeof(GpuShape) & 0xf) == 0);
+	static_assert((sizeof(GpuPolytopeFace) & 0xf) == 0);
+	static_assert((sizeof(GpuPolytopeEdge) & 0xf) == 0);
+	static_assert((sizeof(GpuCollisionPair) & 0xf) == 0);
+	static_assert((sizeof(GpuContact) & 0xf) == 0);
+	static_assert((sizeof(GpuResolveContact) & 0xf) == 0);
+	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
+	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
+
 	// Convert CPU collision shapes into the flat GPU format.
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
@@ -221,34 +233,36 @@ namespace pr::physics
 			.state_flags = static_cast<int>(rb.m_state_flags),
 			.shape_id = shape_id,
 			.colour_used = 0,
-			.contact_simplex_count = rb.m_contact_simplex_count,
-			.contact_simplex = {
-				rb.m_contact_simplex[0],
-				rb.m_contact_simplex[1],
-				rb.m_contact_simplex[2],
-				rb.m_contact_simplex[3]
+			.pad0 = 0,
+			.sleep = GpuSleepData{
+				.timer_s = rb.m_sleep.m_timer_s,
+				.island_id = rb.m_sleep.m_island_id,
+				.generation = rb.m_sleep.m_generation,
+				.flags = rb.m_sleep.m_flags,
 			},
 		};
 	}
 	inline void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb)
 	{
-		rb.O2W(dyn.o2w);
+		assert(IsOrthonormal(dyn.o2w));
+		rb.m_o2w = dyn.o2w;
 
 		// Update momentum (the integrator advanced it by the full step)
-		rb.MomentumWS(v8force{ dyn.momentum_ang, dyn.momentum_lin });
+		rb.m_ws_momentum = v8force{ dyn.momentum_ang, dyn.momentum_lin };
 
 		// Forces are zeroed by the integrator after the second half-kick
-		rb.ZeroForces();
+		rb.m_ws_force = v8force{};
 
 		// Preserve the state flags
 		rb.m_state_flags = static_cast<ERigidBodyStateFlags>(dyn.state_flags);
 
-		// Preserve the contact simplex
-		rb.m_contact_simplex[0] = dyn.contact_simplex[0];
-		rb.m_contact_simplex[1] = dyn.contact_simplex[1];
-		rb.m_contact_simplex[2] = dyn.contact_simplex[2];
-		rb.m_contact_simplex[3] = dyn.contact_simplex[3];
-		rb.m_contact_simplex_count = dyn.contact_simplex_count;
+		// Preserve the sleeping state
+		rb.m_sleep = SleepData{
+			.m_timer_s = dyn.sleep.timer_s,
+			.m_island_id = dyn.sleep.island_id,
+			.m_generation = dyn.sleep.generation,
+			.m_flags = dyn.sleep.flags,
+		};
 	}
 }
 namespace pr

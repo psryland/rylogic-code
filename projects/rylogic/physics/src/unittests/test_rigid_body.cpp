@@ -369,6 +369,69 @@ namespace pr::physics::tests
 			auto ws_vel = rb.VelocityWS();
 			PR_EXPECT(FEql(ws_vel, v8motion{0, 0, 1, 2, 0, 0}));
 		}
+		PRUnitTestMethod(SleepState)
+		{
+			auto rb = RigidBody{};
+			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
+			rb.MomentumWS(v8force{0, 0, 1, 1, 2, 3});
+			rb.ApplyForceWS(v8force{0, 1, 0, 4, 5, 6});
+
+			rb.Sleep();
+			PR_EXPECT(rb.Sleeping());
+			PR_EXPECT(FEql(rb.MomentumWS(), v8force{}));
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+
+			rb.Wake();
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleeping(true);
+			PR_EXPECT(rb.Sleeping());
+
+			rb.NeverSleep(true);
+			PR_EXPECT(rb.NeverSleep());
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.NeverSleep(false);
+			rb.Sleeping(true);
+			PR_EXPECT(rb.Sleeping());
+		}
+		PRUnitTestMethod(SleepWakeRules)
+		{
+			auto rb = RigidBody{};
+			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
+
+			rb.Sleep();
+			rb.ApplyForceWS(v8force{});
+			PR_EXPECT(rb.Sleeping());
+
+			rb.ApplyForceWS(v8force{0, 0, 0, 1, 0, 0});
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleep();
+			rb.GravityWS(v4{0, -9.8f, 0, 0});
+			PR_EXPECT(rb.Sleeping());
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+
+			rb.Wake();
+			rb.GravityWS(v4{0, -9.8f, 0, 0});
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{0, 0, 0, 0, -49.0f, 0}));
+
+			rb.ZeroForces();
+			rb.Sleep();
+			rb.O2W(rb.O2W());
+			PR_EXPECT(!rb.Sleeping()); // Setting o2w always wakes an object
+
+			rb.Sleep();
+			rb.O2W(m4x4::Translation(v4{1, 0, 0, 1}));
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleep();
+			rb.Mass(rb.Mass());
+			PR_EXPECT(rb.Sleeping());
+
+			rb.Mass(10.0f);
+			PR_EXPECT(!rb.Sleeping());
+		}
 		PRUnitTestMethod(DzhanibekovEffect)
 		{
 			// The Dzhanibekov effect (intermediate axis theorem / tennis racket theorem):

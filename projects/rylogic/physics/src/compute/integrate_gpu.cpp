@@ -15,10 +15,14 @@ namespace pr::physics
 	{
 		float g_dt;
 		int g_body_count;
+		int g_sleeping_enabled;
+		float pad0;
 		float g_sleep_velocity_threshold_lin;
 		float g_sleep_velocity_threshold_ang;
+		float pad1;
+		float pad2;
 	};
-	static_assert(sizeof(cbIntegrate) == 16);
+	static_assert(sizeof(cbIntegrate) == 32);
 
 	// Register assignments for the root signature
 	struct EReg
@@ -36,6 +40,7 @@ namespace pr::physics
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_integrate()
+		, m_r_counters()
 		, m_r_bodies()
 		, m_r_aabb_x()
 		, m_r_aabb_y()
@@ -94,24 +99,17 @@ namespace pr::physics
 		}
 	}
 
-	// Integrate bodies on GPU
-	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt)
+	// Upload staged body dynamics and reset collision counters.
+	void GpuIntegrator::Upload(GpuJob& job, std::span<GpuRigidBody> bodies)
 	{
 		auto body_count = static_cast<int>(bodies.size());
 		if (body_count == 0)
 			return;
 
-		pix::BeginEvent(job.m_cmd_list.get(), 0xFFbc45f2, "Physics::Integrate");
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFF9a6ce7, "Physics::Upload");
 
 		// Ensure the buffers are large enough to hold the body count.
 		ResizeBuffers(job.m_cmd_list, body_count);
-		
-		cbIntegrate cb_integrate = {
-			.g_dt = dt,
-			.g_body_count = body_count,
-			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
-			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
-		};
 
 		// Initialise and upload the counters
 		{
@@ -141,6 +139,31 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
+
+		pix::EndEvent(job.m_cmd_list.get());
+	}
+
+	// Integrate bodies on GPU
+	void GpuIntegrator::Integrate(GpuJob& job, int body_count, float dt)
+	{
+		if (body_count == 0)
+			return;
+
+		assert(m_r_counters != nullptr);
+		assert(m_r_bodies != nullptr && m_capacity >= body_count);
+
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFFbc45f2, "Physics::Integrate");
+
+		cbIntegrate cb_integrate = {
+			.g_dt = dt,
+			.g_body_count = body_count,
+			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
+			.pad0 = 0,
+			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
+			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
+			.pad1 = 0,
+			.pad2 = 0,
+		};
 
 		// Switch states for resources
 		{
@@ -183,7 +206,8 @@ namespace pr::physics
 	// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
 	void GpuIntegrator::Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs)
 	{
-		Integrate(job, bodies, dt);
+		Upload(job, bodies);
+		Integrate(job, static_cast<int>(bodies.size()), dt);
 		Readback(job, bodies, aabbs);
 	}
 

@@ -19,9 +19,9 @@ namespace pr::physics
 		int pad0;
 
 		float g_dt;         // timestep in seconds
-		float g_sleep_velocity_threshold_lin = 0.1f;
-		float g_sleep_velocity_threshold_ang = 0.05f;
 		float pad1;
+		float pad2;
+		float pad3;
 
 		float g_penetration_slop;
 		float g_velocity_baumgarte;
@@ -30,13 +30,13 @@ namespace pr::physics
 
 		float g_deep_penetration_baumgarte_min;
 		float g_deep_penetration_baumgarte_max;
-		float pad2;
-		float pad3;
+		float pad4;
+		float pad5;
 
 		float g_position_slop;
 		float g_position_baumgarte;
 		float g_position_correction_scale;
-		float pad4;
+		float pad6;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -61,7 +61,6 @@ namespace pr::physics
 		, m_cs_assign_colours()
 		, m_cs_position_solve()
 		, m_cs_resolve()
-		, m_cs_update_sleep()
 		, m_cmd_sig()
 		, m_r_materials()
 		, m_r_colours()
@@ -159,19 +158,6 @@ namespace pr::physics
 			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
 		}
 
-		// m_cs_update_sleep: update contact simplex and sleep state per body
-		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
-				.SRV(EReg::Counters)
-				.UAV(EReg::Bodies)
-				.UAV(EReg::Contacts);
-
-			auto bytecode = compiler.EntryPoint(L"CSUpdateSleepState").Compile();
-
-			m_cs_update_sleep.m_sig = sig.Create(m_gpu, "Physics:UpdateSleepSig");
-			m_cs_update_sleep.m_pso = ComputePSO(m_cs_update_sleep.m_sig.get(), bytecode).Create(m_gpu, "Physics:UpdateSleepPSO");
-		}
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
@@ -212,21 +198,21 @@ namespace pr::physics
 			.g_colour = 0,
 			.pad0 = 0,
 			.g_dt = dt,
-			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
-			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
 			.pad1 = 0,
+			.pad2 = 0,
+			.pad3 = 0,
 			.g_penetration_slop = m_config.penetration_slop,
 			.g_velocity_baumgarte = m_config.velocity_baumgarte,
 			.g_deep_penetration_threshold = m_config.deep_penetration_threshold,
 			.g_deep_penetration_range = m_config.deep_penetration_range,
 			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
 			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
-			.pad2 = 0,
-			.pad3 = 0,
+			.pad4 = 0,
+			.pad5 = 0,
 			.g_position_slop = m_config.position_slop,
 			.g_position_baumgarte = m_config.position_baumgarte,
 			.g_position_correction_scale = position_correction_scale,
-			.pad4 = 0,
+			.pad6 = 0,
 		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
@@ -364,24 +350,6 @@ namespace pr::physics
 				}
 			}
 			cb_resolve.g_colour = 0;
-		}
-
-		// Update sleep state for all bodies based on post-resolve momenta and contact simplex.
-		static bool enable_sleeping = false;
-		if (enable_sleeping)
-		{
-			job.m_cmd_list.SetPipelineState(m_cs_update_sleep.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_update_sleep.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-
-			auto sleep_dispatch = (body_count + ResolveThreadCount - 1) / ResolveThreadCount;
-			job.m_cmd_list.Dispatch(sleep_dispatch, 1, 1);
-
-			job.m_barriers.UAV(bodies.get());
-			job.m_barriers.Commit();
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());

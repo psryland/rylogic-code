@@ -36,8 +36,12 @@ struct cbIntegrate
 {
 	float dt;
 	int body_count;
+	int sleeping_enabled;
+	float pad0;
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
+	float pad1;
+	float pad2;
 };
 
 // Shader resources
@@ -97,7 +101,11 @@ void CSIntegrate(int3 DTID(dtid))
 		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g.sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
 		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g.sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
 
-	bool stay_asleep = HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
+	bool force_awake = !g.sleeping_enabled || HasFlag(body.state_flags, ERigidBodyStateFlags_NeverSleep);
+	if (force_awake)
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+
+	bool stay_asleep = !force_awake && HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
 	if (stay_asleep)
 	{
 		// Sleeping body: zero momentum and forces, keep position unchanged.
@@ -111,10 +119,14 @@ void CSIntegrate(int3 DTID(dtid))
 		UpdateAABB(body, idx);
 		return;
 	}
-
-	// If the velocities are too high, reset the contact simplex
-	if (!low_velocity)
-		body.contact_simplex_count = 0;
+	if (HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping))
+	{
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+		body.sleep.timer_s = 0.0f;
+		body.sleep.island_id = -1;
+		body.sleep.generation++;
+		body.sleep.flags = 0;
+	}
 
 	// ---- Step 2: Drift — update position and orientation ----
 	// Build the object-space unit inverse inertia (not mass-scaled)

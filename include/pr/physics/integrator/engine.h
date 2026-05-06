@@ -14,10 +14,13 @@ namespace pr::physics
 		{
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
+			double m_upload_ms = 0;
 			double m_integrate_ms = 0;
+			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_resolve_ms = 0;
+			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
 			double m_unpack_ms = 0;
@@ -69,16 +72,19 @@ namespace pr::physics
 		// GPU device and command queue wrapper, shared by the integrator and collision detector.
 		GpuPtr m_gpu;
 
-		// GPU integrator (opaque)
+		// GPU integrator
 		GpuIntegratorPtr m_gpu_integrator;
 
-		// GPU broadphase (opaque)
+		// GPU sleep/wake management
+		GpuSleepManagerPtr m_gpu_sleep_manager;
+
+		// GPU broadphase
 		GpuSortAndSweepPtr m_gpu_sort_and_sweep;
 
-		// GPU collision detector (opaque)
+		// GPU collision detector
 		GpuCollisionDetectorPtr m_gpu_collision_detector;
 
-		// GPU collision resolver (opaque)
+		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
 
 		// Material map for looking up combined material properties during collision resolution.
@@ -145,8 +151,14 @@ namespace pr::physics
 		// Pack the body data into GPU buffers for the current frame.
 		void Pack(std::span<RigidBody*> rigid_bodies);
 
+		// Upload staged body data into GPU buffers for the current frame.
+		void Upload();
+
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 		void Integrate(float dt);
+
+		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
+		void SleepWake();
 
 		// Broadphase collision detection to generate potential collision pairs.
 		void BroadPhase();
@@ -156,6 +168,9 @@ namespace pr::physics
 
 		// Apply impulses to resolve collisions and update body dynamics.
 		void Resolve(float dt);
+
+		// Persist wake-ups and update sleep state after collision resolution.
+		void SleepUpdate();
 
 		// Read buffers back to CPU memory
 		void Readback(GpuBuffers& buffers);

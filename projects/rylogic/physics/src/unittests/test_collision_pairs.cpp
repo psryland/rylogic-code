@@ -173,6 +173,44 @@ namespace pr::physics::tests
 		return result;
 	}
 
+	PRUnitTestClass(SleepingBroadphaseTests)
+	{
+		PRUnitTestMethod(SleepingPairsAreFilteredUntilDisturbed)
+		{
+			auto box = MakeBox();
+			auto const dt = 1.0f / 60.0f;
+			auto& engine = SharedEngine();
+
+			{
+				RigidBody bodies[2];
+				bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[0].O2W(m4x4::Translation(0, 0, 0));
+				bodies[0].Sleep();
+				bodies[1].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[1].O2W(m4x4::Translation(0.25f, 0, 0));
+				bodies[1].Sleep();
+
+				ResetEngineForNextTest(engine);
+				engine.Step(dt, bodies);
+				PR_EXPECT(engine.LastCollisionStats().m_pair_count == 0);
+			}
+
+			{
+				RigidBody bodies[2];
+				bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[0].O2W(m4x4::Translation(0, 0, 0));
+				bodies[1].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[1].O2W(m4x4::Translation(0.25f, 0, 0));
+				bodies[1].Sleep();
+
+				ResetEngineForNextTest(engine);
+				engine.Step(dt, bodies);
+				PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+				PR_EXPECT(!bodies[1].Sleeping());
+			}
+		}
+	};
+
 	// ===== Drop-onto-ground tests for every shape type =====
 	// Ground is a large box. This tests the most critical collision pairs
 	// in typical scenes (everything falls onto a box ground plane).

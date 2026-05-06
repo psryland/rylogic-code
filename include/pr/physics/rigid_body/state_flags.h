@@ -18,9 +18,12 @@ namespace pr::physics
 		// True if a body is in the sleep state. Impulses can wake it up.
 		Sleeping = 1 << 1,
 
+		// True if the body is immune to automatic sleeping.
+		NeverSleep = 1 << 2,
+
 		// True if the body was involved in a collision and recieved an impulse
 		// in the current step. Cleared at the start of each step.
-		Collided = 1 << 2,
+		Collided = 1 << 3,
 
 		_flags_enum = 0,
 	};

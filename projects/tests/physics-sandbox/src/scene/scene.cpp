@@ -476,6 +476,8 @@ namespace physics_sandbox
 				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
+				if (bd.sleeping)
+					body.Sleep();
 				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
 

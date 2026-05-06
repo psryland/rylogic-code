@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "pr/physics/shape/inertia.h"
+#include "pr/physics/rigid_body/sleep_data.h"
 #include "pr/physics/rigid_body/state_flags.h"
 
 namespace pr::physics
@@ -51,17 +52,23 @@ namespace pr::physics
 		// Collision shape
 		collision::Shape const* m_shape;
 
-		// Contact simplex. Points are in world space relative to the model origin.
-		v4 m_contact_simplex[4];
-		int m_contact_simplex_count;
-
 		// Rigid body state flags
 		ERigidBodyStateFlags m_state_flags;
 
+		// Sleep state. Island membership is implementation-owned and caller-invisible.
+		SleepData m_sleep;
+
 		friend struct Engine;
+		friend struct EngineBufferCache;
 		friend struct BodyHistory;
 		friend GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id);
 		friend void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb);
+
+		// Invalidate cached sleep island membership.
+		void InvalidateSleepIsland();
+
+		// Add force without changing sleep state.
+		void AccumulateForceWS(v8force const& ws_force);
 
 	public:
 
@@ -152,9 +159,15 @@ namespace pr::physics
 
 		// True if the body is flagged as asleep
 		bool Sleeping() const;
+		void Sleeping(bool sleeping);
 
-		// Number of valid points in the contact support simplex
-		int ContactSimplexCount() const;
+		// Put the body to sleep immediately, or wake it up immediately.
+		void Sleep();
+		void Wake();
+
+		// True if the body is immune to automatic sleeping
+		bool NeverSleep() const;
+		void NeverSleep(bool never_sleep);
 
 		// Get/Set the current forces applied to this body (measured at the centre of mass).
 		v8force ForceWS() const;

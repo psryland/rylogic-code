@@ -58,7 +58,7 @@ namespace physics_sandbox
 			if (sleeping != m_was_sleeping)
 			{
 				m_was_sleeping = sleeping;
-				m_gfx->m_grp_colour = m_gfx->m_grp_colour.alpha(sleeping ? 0.5f : 1.0f);
+				m_gfx->m_grp_colour = m_gfx->m_grp_colour.alpha(sleeping ? 0.3f : 1.0f);
 				m_gfx->Colour(false, Colour32White, "", rdr12::ldraw::EColourOp::Multiply);
 			}
 		}

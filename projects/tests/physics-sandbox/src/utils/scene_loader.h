@@ -25,8 +25,9 @@ namespace physics_sandbox::scene_loader
 	//                 "shape": { "type": "box", "dimensions": [2, 2, 2] },
 	//                 "mass": 10.0, "position": [x, y, z],
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
-	//                 "velocity": [vx, vy, vz],        // Optional
-	//                 "angular_velocity": [wx, wy, wz]  // Optional
+	//                 "velocity": [vx, vy, vz],             // Optional
+	//                 "angular_velocity": [wx, wy, wz],     // Optional
+	//                 "sleeping": true                      // Optional
 	//             },
 	//             { "name": "s1", "shape": { "type": "sphere", "radius": 1.0 }, ... },
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
@@ -59,6 +60,7 @@ namespace physics_sandbox::scene_loader
 		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
+		bool sleeping = false;
 	};
 
 	// Parsed description of a ground plane

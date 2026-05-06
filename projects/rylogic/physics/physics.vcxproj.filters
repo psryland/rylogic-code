@@ -66,6 +66,9 @@
     <ClCompile Include="src\compute\resolve_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\sleep_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\sweep_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -179,6 +182,9 @@
     <ClInclude Include="src\compute\resolve_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\sleep_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
     <ClInclude Include="src\compute\sweep_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
@@ -215,6 +221,9 @@
     <ClInclude Include="src\unittests\shared_engine.h">
       <Filter>src\unittests</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h">
+      <Filter>src\rigid_body</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\collision.hlsli">
@@ -235,6 +244,9 @@
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="src\compute\resolve.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\sleep.hlsl">
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="src\compute\sweep.hlsl">

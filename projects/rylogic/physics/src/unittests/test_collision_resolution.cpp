@@ -120,9 +120,9 @@ namespace pr::physics::tests
 			{
 				auto const& prof = engine.LastStepProfile();
 				std::fprintf(stderr,
-					"[scenario] step=%d wall=%.1fms (pack=%.1f intg=%.1f bp=%.1f col=%.1f res=%.1f rb=%.1f gpu=%.1f unp=%.1f) contacts=%d a.x=%.3f b.x=%.3f a.flag=%d b.flag=%d\n",
+					"[scenario] step=%d wall=%.1fms (pack=%.1f upl=%.1f intg=%.1f bp=%.1f col=%.1f res=%.1f rb=%.1f gpu=%.1f unp=%.1f) contacts=%d a.x=%.3f b.x=%.3f a.flag=%d b.flag=%d\n",
 					step, step_ms,
-					prof.m_pack_ms, prof.m_integrate_ms, prof.m_broadphase_ms, prof.m_collide_ms,
+					prof.m_pack_ms, prof.m_upload_ms, prof.m_integrate_ms, prof.m_broadphase_ms, prof.m_collide_ms,
 					prof.m_resolve_ms, prof.m_readback_ms, prof.m_gpu_run_ms, prof.m_unpack_ms,
 					engine.LastCollisionStats().LastContactCount(),
 					body_a.O2W().pos.x, body_b.O2W().pos.x,

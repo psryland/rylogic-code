@@ -25,7 +25,6 @@ namespace physics_sandbox::diag
 			v4 m_ang_vel = {};
 			float m_mass = 0.0f;
 			float m_kinetic_energy = 0.0f;
-			int m_simplex_count = 0;
 			bool m_sleeping = false;
 		};
 
@@ -56,10 +55,13 @@ namespace physics_sandbox::diag
 				m_physics_ms += profile.m_physics_ms;
 				m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
 				m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
+				m_engine.m_upload_ms += profile.m_engine.m_upload_ms;
 				m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
+				m_engine.m_sleepwake_ms += profile.m_engine.m_sleepwake_ms;
 				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
 				m_engine.m_collide_ms += profile.m_engine.m_collide_ms;
 				m_engine.m_resolve_ms += profile.m_engine.m_resolve_ms;
+				m_engine.m_sleepupdate_ms += profile.m_engine.m_sleepupdate_ms;
 				m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
 				m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
 				m_engine.m_unpack_ms += profile.m_engine.m_unpack_ms;
@@ -124,7 +126,6 @@ namespace physics_sandbox::diag
 				.m_ang_vel = vel.ang,
 				.m_mass = body.Mass(),
 				.m_kinetic_energy = body.KineticEnergy(),
-				.m_simplex_count = body.ContactSimplexCount(),
 				.m_sleeping = body.Sleeping(),
 			};
 		}
@@ -171,7 +172,7 @@ namespace physics_sandbox::diag
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
 				step,
 				time_s,
 				profile.m_sample_count,
@@ -180,10 +181,13 @@ namespace physics_sandbox::diag
 				profile.m_physics_ms / count,
 				profile.m_engine.m_new_frame_ms / count,
 				profile.m_engine.m_pack_ms / count,
+				profile.m_engine.m_upload_ms / count,
 				profile.m_engine.m_integrate_ms / count,
+				profile.m_engine.m_sleepwake_ms / count,
 				profile.m_engine.m_broadphase_ms / count,
 				profile.m_engine.m_collide_ms / count,
 				profile.m_engine.m_resolve_ms / count,
+				profile.m_engine.m_sleepupdate_ms / count,
 				profile.m_engine.m_readback_ms / count,
 				profile.m_engine.m_gpu_run_ms / count,
 				profile.m_engine.m_unpack_ms / count));
@@ -201,7 +205,7 @@ namespace physics_sandbox::diag
 		{
 			auto dke = after.m_kinetic_energy - before.m_kinetic_energy;
 			Emit(log, std::format(
-				"trace step={:5d} t={:8.4f} body={} pos=({:8.3f},{:8.3f},{:8.3f}) vel=({:8.3f},{:8.3f},{:8.3f}) ang=({:8.3f},{:8.3f},{:8.3f}) KE={:12.4f} dKE={:12.4f} totalKE={:12.4f} contacts={} state={} simplex={}\n",
+				"trace step={:5d} t={:8.4f} body={} pos=({:8.3f},{:8.3f},{:8.3f}) vel=({:8.3f},{:8.3f},{:8.3f}) ang=({:8.3f},{:8.3f},{:8.3f}) KE={:12.4f} dKE={:12.4f} totalKE={:12.4f} contacts={} state={}\n",
 				step,
 				time_s,
 				body_index,
@@ -212,8 +216,7 @@ namespace physics_sandbox::diag
 				dke,
 				total_kinetic_energy,
 				std::ssize(contacts),
-				after.m_sleeping ? "sleep" : "awake",
-				after.m_simplex_count));
+				after.m_sleeping ? "sleep" : "awake"));
 
 			Emit(log, std::format(
 				"  o2w x=({:8.5f},{:8.5f},{:8.5f}) y=({:8.5f},{:8.5f},{:8.5f}) z=({:8.5f},{:8.5f},{:8.5f}) pos=({:8.5f},{:8.5f},{:8.5f})\n",
@@ -298,7 +301,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,integrate_ms,broadphase_ms,collide_ms,resolve_ms,readback_ms,gpu_run_ms,unpack_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true ke_jump={:.3f}\n", options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
