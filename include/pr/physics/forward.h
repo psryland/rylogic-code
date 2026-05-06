@@ -22,6 +22,7 @@
 #include <cassert>
 #include <stdexcept>
 
+#include "pr/common/assert.h"
 #include "pr/common/to.h"
 #include "pr/common/cast.h"
 #include "pr/common/flags_enum.h"
@@ -37,6 +38,19 @@
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
+
+// Physics diagnostics/profile code defaults to debug-only. Define these explicitly to opt in/out per build.
+#ifndef PR_DBG_PHYSICS
+#define PR_DBG_PHYSICS PR_DBG
+#endif
+
+#ifndef PR_PHYSICS_DIAGNOSTICS
+#define PR_PHYSICS_DIAGNOSTICS PR_DBG_PHYSICS
+#endif
+
+#ifndef PR_PHYSICS_PROFILE
+#define PR_PHYSICS_PROFILE PR_DBG_PHYSICS
+#endif
 
 // Forward declare D3D12 device (avoids including d3d12.h)
 struct ID3D12Device4;

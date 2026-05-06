@@ -32,6 +32,32 @@ namespace pr::physics
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+		template <bool Enabled, auto Field> struct StepProfileScope;
+		template <auto Field> struct StepProfileScope<true, Field>
+		{
+			Engine::StepProfile& m_profile;
+			Clock::time_point m_beg;
+
+			explicit StepProfileScope(Engine::StepProfile& profile)
+				: m_profile(profile)
+				, m_beg(Clock::now())
+			{
+			}
+			~StepProfileScope()
+			{
+				m_profile.*Field = ElapsedMs(m_beg, Clock::now());
+			}
+		};
+		template <auto Field> struct StepProfileScope<false, Field>
+		{
+			explicit StepProfileScope(Engine::StepProfile&)
+			{
+			}
+		};
+		template <auto Field> auto ProfileScope(Engine::StepProfile& profile)
+		{
+			return StepProfileScope<PR_PHYSICS_PROFILE != 0, Field>(profile);
+		}
 		void CheckCollisionCapacity(Engine::CollisionStats const& stats)
 		{
 			if (stats.PairLimitReached())
@@ -115,68 +141,80 @@ namespace pr::physics
 		m_last_collision_stats = {};
 
 		GpuBuffers buffers;
-		auto beg = Clock::now();
-		m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
-		m_last_step_profile.m_new_frame_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+		}
 
 		// Pack all bodies into a GPU-friendly format
-		beg = Clock::now();
-		Pack(rigid_bodies);
-		m_last_step_profile.m_pack_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+			Pack(rigid_bodies);
+		}
 
 		// If nothing dynamic is awake then no GPU stage can change the world state.
 		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0)
 			return;
 
 		// Upload -> transfers staged body dynamics and resets GPU counters
-		beg = Clock::now();
-		Upload();
-		m_last_step_profile.m_upload_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+			Upload();
+		}
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
-		beg = Clock::now();
-		Integrate(dt);
-		m_last_step_profile.m_integrate_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+			Integrate(dt);
+		}
 
 		// SleepWake -> marks sleeping islands disturbed by awake body AABBs
-		beg = Clock::now();
-		SleepWake();
-		m_last_step_profile.m_sleepwake_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
+			SleepWake();
+		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
-		beg = Clock::now();
-		BroadPhase();
-		m_last_step_profile.m_broadphase_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
+			BroadPhase();
+		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
-		beg = Clock::now();
-		Collide();
-		m_last_step_profile.m_collide_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
+			Collide();
+		}
 
 		// Resolve -> uses contacts -> applies impulses to bodies
-		beg = Clock::now();
-		Resolve(dt);
-		m_last_step_profile.m_resolve_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
+			Resolve(dt);
+		}
 
 		// SleepUpdate -> persists wake-ups caused by resolver impulses
-		beg = Clock::now();
-		SleepUpdate(dt);
-		m_last_step_profile.m_sleepupdate_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+			SleepUpdate(dt);
+		}
 
 		// Read buffers back to CPU memory
-		beg = Clock::now();
-		Readback(buffers);
-		m_last_step_profile.m_readback_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+			Readback(buffers);
+		}
 		
 		// Run the GPU queue and wait for completion before using the results.
-		beg = Clock::now();
-		m_gpu->m_job.Run();
-		m_last_step_profile.m_gpu_run_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
+			m_gpu->m_job.Run();
+		}
 
 		// Readback dynamics from GPU and unpack into bodies
-		beg = Clock::now();
-		Unpack(buffers, rigid_bodies);
-		m_last_step_profile.m_unpack_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
+			Unpack(buffers, rigid_bodies);
+		}
 	}
 
 	// Pack the body data into GPU buffers for the current frame.
@@ -211,9 +249,10 @@ namespace pr::physics
 		auto body_count = m_cache->RigidBodyCount();
 		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt);
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackIntegrate(body_count);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackIntegrate(body_count);
+		}
 	}
 
 	// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
@@ -240,9 +279,10 @@ namespace pr::physics
 		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
 		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands);
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackSweep(counters);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackSweep(counters);
+		}
 	}
 
 	// Narrow phase collision detection to generate contact points.
@@ -253,9 +293,10 @@ namespace pr::physics
 		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackCollide(counters);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackCollide(counters);
+		}
 	}
 
 	// Apply impulses to resolve collisions and update body dynamics.
@@ -269,9 +310,10 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+		}
 	}
 
 	// Persist wake-ups and update sleep state after collision resolution.
@@ -367,7 +409,7 @@ namespace pr::physics
 			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 
-		#if PR_DBG_PHYSICS
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
 			// Look for anomolies in the dynamics and log them.
 			m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
@@ -380,7 +422,6 @@ namespace pr::physics
 				return false;
 			});
 		}
-		#endif
 	}
 
 	// Narrow phase collision detection.

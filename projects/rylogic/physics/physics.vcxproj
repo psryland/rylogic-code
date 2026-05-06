@@ -20,6 +20,10 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="$(PropsPath)view3d_shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
+  <PropertyGroup>
+    <PhysicsProfile Condition="'$(PhysicsProfile)'==''">Default</PhysicsProfile>
+    <PhysicsDiagnostics Condition="'$(PhysicsDiagnostics)'==''">Default</PhysicsDiagnostics>
+  </PropertyGroup>
   <!--
   Build options
   -->
@@ -34,6 +38,38 @@
         ;$(RylogicRoot)projects\rylogic
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsProfile)'=='true' Or '$(PhysicsProfile)'=='1'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_PROFILE=1
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsProfile)'=='false' Or '$(PhysicsProfile)'=='0'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_PROFILE=0
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsDiagnostics)'=='true' Or '$(PhysicsDiagnostics)'=='1'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_DIAGNOSTICS=1
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsDiagnostics)'=='false' Or '$(PhysicsDiagnostics)'=='0'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_DIAGNOSTICS=0
+      </PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">

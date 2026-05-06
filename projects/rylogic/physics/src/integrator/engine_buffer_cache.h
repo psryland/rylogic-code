@@ -11,6 +11,48 @@
 
 namespace pr::physics
 {
+	struct NullBodyHistory
+	{
+		template <typename... Args> void BeginFrame(Args&&...)
+		{
+		}
+		template <typename... Args> void EndFrame(Args&&...)
+		{
+		}
+		void Reset()
+		{
+		}
+	};
+	struct NullPhysicsLog
+	{
+		int m_frame = 0;
+
+		template <typename... Args> void Open(Args&&...)
+		{
+		}
+		void Close()
+		{
+		}
+		bool IsActive() const
+		{
+			return false;
+		}
+		template <typename... Args> void LogIntegrate(Args&&...)
+		{
+		}
+		template <typename... Args> void LogBroadphase(Args&&...)
+		{
+		}
+		template <typename... Args> void LogNarrowPhase(Args&&...)
+		{
+		}
+		void EndFrame()
+		{
+		}
+	};
+	using BodyHistoryT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, BodyHistory, NullBodyHistory>;
+	using PhysicsLogT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, PhysicsLog, NullPhysicsLog>;
+
 	struct EngineBufferCache
 	{
 		// Persists across frames
@@ -33,10 +75,8 @@ namespace pr::physics
 		int m_awake_dynamic_count;
 
 		// Diagnostics
-		#if PR_DBG_PHYSICS
-		BodyHistory m_history;
-		PhysicsLog m_log;
-		#endif
+		BodyHistoryT m_history;
+		PhysicsLogT m_log;
 
 		EngineBufferCache()
 			: m_shape_cache()
@@ -48,11 +88,10 @@ namespace pr::physics
 			, m_sleep_cpu_to_gpu_island_id()
 			, m_next_sleep_island_id()
 			, m_awake_dynamic_count()
-			#if PR_DBG_PHYSICS
 			, m_history()
 			, m_log()
-			#endif
-		{}
+		{
+		}
 
 		// Prepare for a new Engine::Step()
 		void NewFrame(std::span<RigidBody*> rigid_bodies, int max_contacts)
@@ -73,11 +112,7 @@ namespace pr::physics
 			m_sleep_gpu_to_cpu_island_id.resize(0);
 			m_sleep_cpu_to_gpu_island_id.clear();
 
-			#if PR_DBG_PHYSICS
 			m_history.BeginFrame(rigid_bodies);
-			#else
-			(void)rigid_bodies;
-			#endif
 		}
 
 		// Drop all cached state.
@@ -93,10 +128,8 @@ namespace pr::physics
 			m_sleep_cpu_to_gpu_island_id.clear();
 			m_next_sleep_island_id = 0;
 			m_awake_dynamic_count = 0;
-
-			#if PR_DBG_PHYSICS
-			m_history = BodyHistory{};
-			#endif
+			m_history.Reset();
+			m_log.Close();
 		}
 
 		// Number of cached rigid bodies staged for GPU upload this frame.
