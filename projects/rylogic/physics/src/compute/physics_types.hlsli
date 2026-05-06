@@ -159,22 +159,22 @@ struct GpuShape
 struct GpuPolytopeFace
 {
 	float4 plane; // xyz = local outward unit normal, w matches Plane3 convention
-	uint index0;
-	uint index1;
-	uint index2;
+	int index0;
+	int index1;
+	int index2;
 	uint flags;
 };
 struct GpuPolytopeEdge
 {
 	float4 direction; // local-space, normalised
-	uint v0;
-	uint v1;
-	uint face0;
-	uint face1;
+	int v0;
+	int v1;
+	int face0;
+	int face1;
 	uint flags;
-	uint pad0;
-	uint pad1;
-	uint pad2;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 struct GpuCollisionPair
 {

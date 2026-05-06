@@ -34,6 +34,12 @@ namespace pr::collision
 			m_base.m_s2r = m_base.m_s2r * m4x4::Translation(ofs);
 			m_base.m_bbox = CalcBBox(*this);
 		}
+
+		v4 normal() const
+		{
+			return m_v.w;
+		}
+
 		operator Shape const&() const
 		{
 			return m_base;
