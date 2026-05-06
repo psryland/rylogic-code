@@ -123,7 +123,7 @@ namespace pr::rdr12::ldraw
 			"	*Data {55 0 2}             // See *Cone example below for parameter meaning\n"
 			"	*AxisId {1}                // Axis to align the cone to. One of: X = \\xc2\\xb1\"\"1, Y = \\xc2\\xb1\"\"2, Z = \\xc2\\xb1\"\"3\n"
 			"	*Colour {FFFF00FF}         // Override the base colour of the model\n"
-			"	*GroupColour {FFFF80FF}    // applies: 'child.colour = child.base_colour * obj.group_colour' to all children recursively\n"
+			"	*GroupTint {FFFF80FF}      // applies: 'child.colour = clamp(child.base_colour, 0, obj.group_tint)' to all children recursively\n"
 			"	*Reflectivity {0.3}        // Reflectivity (used with environment mapping)\n"
 			"	*RandColour {}             // Apply a random colour to this object\n"
 			"	//*Hidden {}               // Object is created in an invisible state\n"
@@ -169,7 +169,7 @@ namespace pr::rdr12::ldraw
 			"{\n"
 			"	*Data {0.8 1.4 0.5}\n"
 			"	*o2w {*pos {0 5 -7}}\n"
-			"	*GroupColour { FFFFFFFF80 } // This colour mask is applied to all child recursively\n"
+			"	*GroupTint { FFFFFFFF80 } // This colour mask is applied to all child recursively\n"
 			"	*Sphere nested1 FF00FFFF\n"
 			"	{\n"
 			"		*Data {0.8 1.4 0.5}\n"
@@ -1276,14 +1276,14 @@ namespace pr::rdr12::ldraw
 				.height(2)
 				.axis(pr::AxisId::PosX)
 				.colour(0xFFFF00FF)
-				.group_colour(0xFFFF00FF)
+				.group_tint(0xFFFF00FF)
 				.euler(0, 0, 90)
 				.pos(15, 7, -10);
 		}
 
 		// Nesting
 		{
-			ldr.Sphere("nesting0", 0xA0FFFF00).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 5, -7 }).group_colour(0xFFFF00FF)
+			ldr.Sphere("nesting0", 0xA0FFFF00).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 5, -7 }).group_tint(0xFFFF00FF)
 				.Sphere("nested1", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
 				.Sphere("nested2", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })
 				.Sphere("nested3", 0xFF00FFFF).sphere(v3{ 0.8f, 1.4f, 0.5f }).pos(v3{ 0, 1.4f, 0 }).euler(0, 0, 60).pos(v4{ 0, -1.4f, 0 })

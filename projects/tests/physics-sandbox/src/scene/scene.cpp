@@ -12,6 +12,77 @@ namespace physics_sandbox
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+		bool SameVec(v4 const& lhs, v4 const& rhs)
+		{
+			return std::memcmp(&lhs, &rhs, sizeof(v4)) == 0;
+		}
+		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
+		{
+			if (lhs.shape_type != rhs.shape_type)
+				return false;
+
+			switch (lhs.shape_type)
+			{
+				case scene_loader::BodyDesc::EShape::Box:
+				{
+					return SameVec(lhs.box_dimensions, rhs.box_dimensions);
+				}
+				case scene_loader::BodyDesc::EShape::Sphere:
+				{
+					return lhs.sphere_radius == rhs.sphere_radius;
+				}
+				case scene_loader::BodyDesc::EShape::Line:
+				{
+					return lhs.line_length == rhs.line_length && lhs.line_thickness == rhs.line_thickness;
+				}
+				case scene_loader::BodyDesc::EShape::Triangle:
+				{
+					return SameVec(lhs.tri_verts[0], rhs.tri_verts[0]) && SameVec(lhs.tri_verts[1], rhs.tri_verts[1]) && SameVec(lhs.tri_verts[2], rhs.tri_verts[2]);
+				}
+				case scene_loader::BodyDesc::EShape::Polytope:
+				{
+					if (lhs.polytope_verts.size() != rhs.polytope_verts.size())
+						return false;
+
+					return std::memcmp(lhs.polytope_verts.data(), rhs.polytope_verts.data(), lhs.polytope_verts.size() * sizeof(v4)) == 0;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown shape type in scene description");
+				}
+			}
+		}
+		m4x4 PrimitiveShapeToBody(Body const& body)
+		{
+			using namespace collision;
+
+			auto& shape = body.Shape();
+			switch (shape.m_type)
+			{
+				case EShape::Sphere:
+				{
+					auto& sphere = shape_cast<ShapeSphere>(shape);
+					return sphere.m_base.m_s2r * m4x4::Scale(sphere.m_radius, v4::Origin());
+				}
+				case EShape::Box:
+				{
+					auto& box = shape_cast<ShapeBox>(shape);
+					return box.m_base.m_s2r * m4x4::Scale(box.m_radius.x, box.m_radius.y, box.m_radius.z, v4::Origin());
+				}
+				case EShape::Line:
+				{
+					auto& line = shape_cast<ShapeLine>(shape);
+					if (line.m_radius != 0)
+						return line.m_base.m_s2r * m4x4::Scale(line.m_radius, line.m_radius, line.m_hlength, v4::Origin());
+
+					return line.m_base.m_s2r * m4x4::Scale(1.0f, 1.0f, line.m_hlength, v4::Origin());
+				}
+				default:
+				{
+					throw std::runtime_error("Unsupported shared primitive shape type");
+				}
+			}
+		}
 	}
 
 	physics::EngineConfig DefaultEngineConfig()
@@ -118,7 +189,7 @@ namespace physics_sandbox
 		auto const physics_beg = Clock::now();
 		m_physics.Step(dt, std::span{ m_body });
 		auto const physics_end = Clock::now();
-		if (m_physics.LastContactCount() != 0)
+		if (m_physics.LastCollisionStats().LastContactCount() != 0)
 		{
 			m_diag.occurred = true;
 			++m_diag.count;
@@ -283,6 +354,11 @@ namespace physics_sandbox
 	// Shapes are heap-allocated and owned by m_owned_shapes.
 	void Scene::LoadScene(scene_loader::SceneDesc scene_desc)
 	{
+		auto const load_beg = Clock::now();
+		auto mark = load_beg;
+		m_last_load_profile = {};
+		m_last_load_profile.m_has_renderer = m_rdr != nullptr;
+
 		// Reset simulation state
 		m_clock = 0;
 		m_step_count = 0;
@@ -310,12 +386,21 @@ namespace physics_sandbox
 			.m_elasticity_tang = 0.0f,
 			.m_elasticity_tors = 0.0f,
 		});
+		auto const prepare_end = Clock::now();
+		m_last_load_profile.m_prepare_ms = ElapsedMs(mark, prepare_end);
+		mark = prepare_end;
 
 		// Count total bodies: scene bodies + optional ground plane body
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
+		m_last_load_profile.m_body_count = total_bodies;
+		m_last_load_profile.m_shape_count = total_bodies;
 		auto scene_bbox = CalculateSceneBBox(scene_desc);
 		const auto ground_thickness = 10.0f;
+		auto scene_rng = std::default_random_engine(scene_desc.seed);
+		auto const bbox_end = Clock::now();
+		m_last_load_profile.m_bbox_ms = ElapsedMs(mark, bbox_end);
+		mark = bbox_end;
 
 		// Shapes for the bodies in the scene.
 		{
@@ -372,6 +457,9 @@ namespace physics_sandbox
 				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
 			}
 		}
+		auto const shapes_end = Clock::now();
+		m_last_load_profile.m_shapes_ms = ElapsedMs(mark, shapes_end);
+		mark = shapes_end;
 
 		// Bodies from the scene description.
 		{
@@ -388,6 +476,9 @@ namespace physics_sandbox
 				body.O2W(o2w);
 				body.Shape(shape_ptr, bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
+				if (bd.sleeping)
+					body.Sleep();
+				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
 
 				shape_ptr = collision::next(shape_ptr);
@@ -400,11 +491,15 @@ namespace physics_sandbox
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
 				ground.Shape(shape_ptr, -1.0f);
+				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
 
 				shape_ptr = collision::next(shape_ptr);
 			}
 		}
+		auto const bodies_end = Clock::now();
+		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);
+		mark = bodies_end;
 
 		// Create the graphics now that all bodies and shapes are stable in memory.
 		// Build a single LDraw script containing all body shapes, then parse it in one
@@ -413,52 +508,176 @@ namespace physics_sandbox
 		if (m_rdr)
 		{
 			using namespace pr::ldraw;
-			static std::default_random_engine rng;
 
-			// Build a single script with one root object per body
-			Builder builder;
-			for (auto const& [bd, i] : with_index(scene_desc.bodies))
+			// Share canonical renderer models for primitive shapes and keep exact prototypes only for geometry that cannot be represented by
+			// a simple scale transform. Renderer model creation dominates large scene loads, so this avoids reparsing hundreds of boxes and spheres.
+			auto use_box_prototype = false;
+			auto use_sphere_prototype = false;
+			auto use_thick_line_prototype = false;
+			auto use_thin_line_prototype = false;
+			auto exact_prototype_lookup = std::vector<int>(total_bodies, -1);
+			auto exact_prototype_body_index = std::vector<int>{};
+			for (int i = 0; i != total_bodies; ++i)
 			{
 				auto& body = m_body[i];
 				if (!body.HasShape())
 					continue;
 
-				auto colour = bd.colour ? *bd.colour : RandomRGB(rng, 0.0f, 1.0f);
-				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
+				switch (body.Shape().m_type)
+				{
+					case collision::EShape::Box:
+					{
+						use_box_prototype = true;
+						break;
+					}
+					case collision::EShape::Sphere:
+					{
+						use_sphere_prototype = true;
+						break;
+					}
+					case collision::EShape::Line:
+					{
+						auto& line = collision::shape_cast<collision::ShapeLine>(body.Shape());
+						if (line.m_radius != 0)
+							use_thick_line_prototype = true;
+						else
+							use_thin_line_prototype = true;
+						break;
+					}
+					default:
+					{
+						for (int j = 0; j != isize(exact_prototype_body_index); ++j)
+						{
+							auto const prototype_body = exact_prototype_body_index[j];
+							if (i < num_scene_bodies && prototype_body < num_scene_bodies && SameShapeDesc(scene_desc.bodies[i], scene_desc.bodies[prototype_body]))
+							{
+								exact_prototype_lookup[i] = j;
+								break;
+							}
+						}
+						if (exact_prototype_lookup[i] == -1)
+						{
+							exact_prototype_lookup[i] = isize(exact_prototype_body_index);
+							exact_prototype_body_index.push_back(i);
+						}
+						break;
+					}
+				}
 			}
 
-			// Add ground plane shape
-			if (scene_desc.ground)
+			Builder builder;
+			auto prototype_count = 0;
+			auto const box_prototype_name = std::string("ShapeBox");
+			auto const sphere_prototype_name = std::string("ShapeSphere");
+			auto const thick_line_prototype_name = std::string("ShapeThickLine");
+			auto const thin_line_prototype_name = std::string("ShapeThinLine");
+			if (use_box_prototype)
 			{
-				auto& body = m_body.back();
-				auto colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(rng, 0.0f, 1.0f);
-				builder.Add<LdrRigidBody>("Body", colour.argb).rigid_body(body);
+				builder.Box(box_prototype_name).box(2, 2, 2).hide();
+				++prototype_count;
 			}
+			if (use_sphere_prototype)
+			{
+				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).hide();
+				++prototype_count;
+			}
+			if (use_thick_line_prototype)
+			{
+				builder.Cylinder(thick_line_prototype_name).cylinder(2, 1).facets(1, 50).end_caps().hide();
+				++prototype_count;
+			}
+			if (use_thin_line_prototype)
+			{
+				builder.Line(thin_line_prototype_name).line(v4(0, 0, -1, 1), v4(0, 0, +1, 1)).hide();
+				++prototype_count;
+			}
+
+			auto exact_prototype_names = std::vector<std::string>{};
+			exact_prototype_names.reserve(exact_prototype_body_index.size());
+			for (int i = 0; i != isize(exact_prototype_body_index); ++i)
+			{
+				auto const body_index = exact_prototype_body_index[i];
+				auto const prototype_name = std::format("ShapeExact{}", i);
+				exact_prototype_names.push_back(prototype_name);
+				builder.Add<LdrCollisionShape>(prototype_name).shape(m_body[body_index].Shape()).hide();
+				++prototype_count;
+			}
+
+			for (int i = 0; i != total_bodies; ++i)
+			{
+				auto& body = m_body[i];
+				if (!body.HasShape())
+					continue;
+
+				auto prototype_name = std::string_view{};
+				body.m_gfx_o2b = m4x4::Identity();
+				switch (body.Shape().m_type)
+				{
+					case collision::EShape::Box:
+					{
+						prototype_name = box_prototype_name;
+						body.m_gfx_o2b = PrimitiveShapeToBody(body);
+						break;
+					}
+					case collision::EShape::Sphere:
+					{
+						prototype_name = sphere_prototype_name;
+						body.m_gfx_o2b = PrimitiveShapeToBody(body);
+						break;
+					}
+					case collision::EShape::Line:
+					{
+						auto& line = collision::shape_cast<collision::ShapeLine>(body.Shape());
+						prototype_name = line.m_radius != 0 ? std::string_view(thick_line_prototype_name) : std::string_view(thin_line_prototype_name);
+						body.m_gfx_o2b = PrimitiveShapeToBody(body);
+						break;
+					}
+					default:
+					{
+						prototype_name = exact_prototype_names[exact_prototype_lookup[i]];
+						break;
+					}
+				}
+
+				builder.Instance(std::format("Body{}", i), body.m_colour.argb)
+					.address(prototype_name)
+					.group_tint(body.m_colour.argb)
+					.o2w(body.O2W() * body.m_gfx_o2b);
+			}
+			auto const ldraw_build_end = Clock::now();
+			m_last_load_profile.m_ldraw_build_ms = ElapsedMs(mark, ldraw_build_end);
+			mark = ldraw_build_end;
 
 			// Parse all shapes in one batch
-			auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToBinary());
+			auto ldr_script = builder.ToBinary();
+			m_last_load_profile.m_ldraw_byte_count = ldr_script.size();
+			auto const ldraw_serialise_end = Clock::now();
+			m_last_load_profile.m_ldraw_serialise_ms = ElapsedMs(mark, ldraw_serialise_end);
+			mark = ldraw_serialise_end;
 
-			// Assign each parsed object to its corresponding body
-			int obj_idx = 0;
-			for (auto const& [bd, i] : with_index(scene_desc.bodies))
+			auto result = rdr12::ldraw::Parse(*m_rdr, ldr_script);
+			m_last_load_profile.m_ldraw_object_count = static_cast<int>(result.m_objects.size());
+			auto const ldraw_parse_end = Clock::now();
+			m_last_load_profile.m_ldraw_parse_ms = ElapsedMs(mark, ldraw_parse_end);
+			mark = ldraw_parse_end;
+
+			// Assign each parsed instance object to its corresponding body. The prototype objects are first in the result list.
+			for (int i = 0; i != total_bodies; ++i)
 			{
 				auto& body = m_body[i];
 				if (!body.HasShape())
 					continue;
 
+				auto const obj_idx = prototype_count + i;
 				if (obj_idx < static_cast<int>(result.m_objects.size()))
-					body.m_gfx = result.m_objects[obj_idx++];
+					body.m_gfx = result.m_objects[obj_idx];
 
 				body.UpdateGfx();
 			}
-
-			// Assign ground plane graphics
-			if (scene_desc.ground && obj_idx < static_cast<int>(result.m_objects.size()))
-			{
-				m_body.back().m_gfx = result.m_objects[obj_idx++];
-			}
+			auto const ldraw_assign_end = Clock::now();
+			m_last_load_profile.m_ldraw_assign_ms = ElapsedMs(mark, ldraw_assign_end);
+			mark = ldraw_assign_end;
 		}
-
 		// Logging
 		{
 			auto mat = m_physics.Material(0);
@@ -477,6 +696,9 @@ namespace physics_sandbox
 				snap.Log(FmtS("Body %d '%s'", i, name));
 			}
 		}
+		auto const logging_end = Clock::now();
+		m_last_load_profile.m_logging_ms = ElapsedMs(mark, logging_end);
+		m_last_load_profile.m_total_ms = ElapsedMs(load_beg, logging_end);
 	}
 
 	// Log comprehensive collision diagnostics and analytic comparisons

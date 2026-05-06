@@ -104,6 +104,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* javl = jbody.find("angular_velocity"))
 			desc.angular_velocity = ReadVec3(*javl, 0.0f);
 
+		// Initial sleep state
+		if (auto* jsleeping = jbody.find("sleeping"))
+			desc.sleeping = jsleeping->to<bool>();
+
 		return desc;
 	}
 
@@ -159,6 +163,13 @@ namespace physics_sandbox::scene_loader
 		// Gravity
 		if (auto* jgravity = jscene.find("gravity"))
 			desc.gravity = ReadVec3(*jgravity, 0.0f);
+
+		// Generated scene content
+		if (jscene.find("colour_seed") != nullptr)
+			throw std::runtime_error("Scene property 'colour_seed' has been replaced by 'seed'");
+
+		if (auto* jseed = jscene.find("seed"))
+			desc.seed = static_cast<unsigned int>(jseed->to<int>());
 
 		// Material properties
 		if (auto* jmat = jscene.find("material"))

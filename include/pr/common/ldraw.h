@@ -204,7 +204,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue GenerateNormals = {"*GenerateNormals", 750341558};
 		inline static constexpr NameValue Grid = {"*Grid", 2944866961};
 		inline static constexpr NameValue Group = {"*Group", 1605967500};
-		inline static constexpr NameValue GroupColour = {"*GroupColour", 2738848320};
+		inline static constexpr NameValue GroupTint = {"*GroupTint", 381584201};
 		inline static constexpr NameValue Hidden = {"*Hidden", 4128829753};
 		inline static constexpr NameValue HideWhenNotAnimating = {"*HideWhenNotAnimating", 2975106646};
 		inline static constexpr NameValue Instance = {"*Instance", 193386898};
@@ -2301,7 +2301,7 @@ namespace pr::ldraw
 		std::vector<ObjPtr> m_children;
 		seri::Name m_name;
 		seri::Colour m_colour;
-		seri::Colour m_group_colour;
+		seri::Colour m_group_tint;
 		seri::Hidden m_hide;
 		seri::Wireframe m_wire;
 		seri::AxisId m_axis_id;
@@ -2330,7 +2330,7 @@ namespace pr::ldraw
 			m_children.clear();
 			m_name = {};
 			m_colour = {};
-			m_group_colour = {};
+			m_group_tint = {};
 			m_hide = {};
 			m_wire = {};
 			m_axis_id = {};
@@ -2401,10 +2401,10 @@ namespace pr::ldraw
 			m_colour.m_kw = EKeywords::RandColour;
 			return *this;
 		}
-		LdrBase& group_colour(seri::Colour colour)
+		LdrBase& group_tint(seri::Colour colour)
 		{
-			m_group_colour = colour;
-			m_group_colour.m_kw = EKeywords::GroupColour;
+			m_group_tint = colour;
+			m_group_tint.m_kw = EKeywords::GroupTint;
 			return *this;
 		}
 		LdrBase& hide(bool hidden = true)
@@ -2495,7 +2495,7 @@ namespace pr::ldraw
 		{
 			m_name = rhs.m_name;
 			m_colour = rhs.m_colour;
-			m_group_colour = rhs.m_group_colour;
+			m_group_tint = rhs.m_group_tint;
 			m_hide = rhs.m_hide;
 			m_wire = rhs.m_wire;
 			m_axis_id = rhs.m_axis_id;
@@ -2507,13 +2507,13 @@ namespace pr::ldraw
 		// Serializing
 		virtual void Write(textbuf& out) const
 		{
-			Append(out, m_group_colour, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
+			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
 			for (auto const& child : m_children)
 				child->Write(out);
 		}
 		virtual void Write(bytebuf& out) const
 		{
-			Append(out, m_group_colour, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
+			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
 			for (auto const& child : m_children)
 				child->Write(out);
 		}

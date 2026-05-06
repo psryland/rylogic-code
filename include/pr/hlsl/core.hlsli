@@ -174,15 +174,27 @@ inline int max_component_index(float4 v)
 }
 
 // Bit flag test
-inline bool HasFlag(int mask, int flag)
+inline bool AllSet(int mask, int flags)
 {
-	return (mask & flag) != 0;
+	return (mask & flags) == flags;
 }
-inline bool HasFlag(uint mask, uint flag)
+inline bool AllSet(uint mask, uint flags)
 {
-	return (mask & flag) != 0;
+	return (mask & flags) == flags;
+}
+inline bool AnySet(int mask, int flags)
+{
+	return (mask & flags) != 0;
+}
+inline bool AnySet(uint mask, uint flags)
+{
+	return (mask & flags) != 0;
 }
 inline int SetFlag(int mask, int flag, bool on)
+{
+	return on ? (mask | flag) : (mask & ~flag);
+}
+inline uint SetFlag(uint mask, uint flag, bool on)
 {
 	return on ? (mask | flag) : (mask & ~flag);
 }

@@ -10,6 +10,7 @@ namespace physics_sandbox::scene_loader
 	//     "scene": {
 	//         "description": "Optional description of the scene",
 	//         "gravity": [0, 0, -9.81],       // Optional, defaults to [0,0,0]
+	//         "seed": 1547575334,             // Optional seed used for generated content
 	//         "material": {                    // Optional global material properties
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
@@ -24,8 +25,9 @@ namespace physics_sandbox::scene_loader
 	//                 "shape": { "type": "box", "dimensions": [2, 2, 2] },
 	//                 "mass": 10.0, "position": [x, y, z],
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
-	//                 "velocity": [vx, vy, vz],        // Optional
-	//                 "angular_velocity": [wx, wy, wz]  // Optional
+	//                 "velocity": [vx, vy, vz],             // Optional
+	//                 "angular_velocity": [wx, wy, wz],     // Optional
+	//                 "sleeping": true                      // Optional
 	//             },
 	//             { "name": "s1", "shape": { "type": "sphere", "radius": 1.0 }, ... },
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
@@ -58,6 +60,7 @@ namespace physics_sandbox::scene_loader
 		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
+		bool sleeping = false;
 	};
 
 	// Parsed description of a ground plane
@@ -88,6 +91,9 @@ namespace physics_sandbox::scene_loader
 		// Material properties (applied to material slot 0)
 		float elasticity = 1.0f;
 		float friction = 0.0f;
+
+		// Seed for generated scene content
+		unsigned int seed = 0x5C3E2026u;
 
 		// Camera settings
 		std::optional<CameraDesc> camera;

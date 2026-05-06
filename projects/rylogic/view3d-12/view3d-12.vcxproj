@@ -389,7 +389,14 @@
         ;$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw.h 
         ;$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_commands.h 
       </AdditionalInputs>
-      <Outputs>;$(ProjectDir)src\ldraw\ldraw_demo_scene.cpp</Outputs>
+      <Outputs>
+        ;$(ProjectDir)src\ldraw\ldraw_demo_scene.cpp
+        ;$(RylogicRoot)projects\rylogic\Rylogic.Gfx\src\LDraw\LDraw.cs
+        ;$(RylogicRoot)projects\rylogic\py-rylogic\rylogic\ldraw\ldraw.py
+        ;$(RylogicRoot)include\pr\common\ldraw.h
+        ;$(RylogicRoot)miscellaneous\010 templates\LDRTemplate.bt
+        ;$(RylogicRoot)projects\apps\LDraw\res\LdrSyntaxRules.xshd
+      </Outputs>
     </CSharpScript>
   </ItemGroup>
   <!--

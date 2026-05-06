@@ -17,6 +17,7 @@ namespace physics_sandbox
 	Body::Body(rdr12::Renderer* rdr, collision::Shape const* shape, m4x4 const& o2w, physics::Inertia const& inertia)
 		: physics::RigidBody(shape, o2w, inertia)
 		, m_gfx()
+		, m_gfx_o2b(m4x4::Identity())
 		, m_colour(NextBodyColour())
 	{
 		// Rebuild graphics whenever the collision shape changes.
@@ -31,6 +32,7 @@ namespace physics_sandbox
 			{
 				// Create new graphics from the physics shape
 				self.m_gfx = nullptr;
+				self.m_gfx_o2b = m4x4::Identity();
 				if (self.HasShape() && rdr != nullptr)
 				{
 					Builder builder;
@@ -49,15 +51,14 @@ namespace physics_sandbox
 	{
 		if (m_gfx)
 		{
-			m_gfx->O2W(m_o2w);
+			m_gfx->O2W(m_o2w * m_gfx_o2b);
 
 			// Make sleeping bodies semi-transparent for debugging
 			bool sleeping = Sleeping();
 			if (sleeping != m_was_sleeping)
 			{
 				m_was_sleeping = sleeping;
-				m_gfx->m_grp_colour = m_gfx->m_grp_colour.alpha(sleeping ? 0.5f : 1.0f);
-				m_gfx->Colour(false, Colour32White, "", rdr12::ldraw::EColourOp::Multiply);
+				m_gfx->GroupTint(sleeping ? 0x30FFFFFF : 0xFFFFFFFF);
 			}
 		}
 	}

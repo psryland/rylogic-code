@@ -18,9 +18,8 @@ namespace pr::physics
 		,m_ws_gravity()
 		,m_os_inertia_inv()
 		,m_shape(collision::shape_cast(shape))
-		,m_contact_simplex{}
-		,m_contact_simplex_count(0)
 		,m_state_flags(ERigidBodyStateFlags::None)
+		,m_sleep()
 	{
 		SetMassProperties(inertia);
 	}
@@ -42,6 +41,9 @@ namespace pr::physics
 	// Set the shape only, leave the mass properties unchanged
 	void RigidBody::Shape(collision::Shape const* shape)
 	{
+		if (shape != m_shape)
+			Wake();
+
 		ShapeChange(*this, ChangeEventArgs<collision::Shape const*>(m_shape, true));
 		m_shape = shape;
 		ShapeChange(*this, ChangeEventArgs<collision::Shape const*>(m_shape, false));
@@ -91,7 +93,8 @@ namespace pr::physics
 	{
 		assert(IsOrthonormal(o2w));
 		m_o2w = o2w;
-}
+		Wake(); // For performance, assume any o2w change is a wake-up signal as well
+	}
 
 	// Extrapolate the position based on the current momentum and forces
 	m4x4 RigidBody::O2W(float dt) const
@@ -104,7 +107,8 @@ namespace pr::physics
 	// Return the world space bounding box for this object
 	BBox RigidBody::BBoxWS() const
 	{
-		return O2W() * Shape().m_bbox;
+		auto const& shape = Shape();
+		return O2W() * (shape.m_s2r * shape.m_bbox);
 	}
 
 	// The mass of the rigid body
@@ -114,6 +118,9 @@ namespace pr::physics
 	}
 	void RigidBody::Mass(float mass)
 	{
+		if (!FEql(m_os_inertia_inv.Mass(), mass))
+			Wake();
+
 		m_os_inertia_inv.Mass(mass);
 	}
 	float RigidBody::InvMass() const
@@ -122,7 +129,10 @@ namespace pr::physics
 	}
 	void RigidBody::InvMass(float invmass)
 	{
-		return m_os_inertia_inv.InvMass(invmass);
+		if (!FEql(m_os_inertia_inv.InvMass(), invmass))
+			Wake();
+
+		m_os_inertia_inv.InvMass(invmass);
 	}
 
 	// Offset to the centre of mass (w = 0) (Object relative)
@@ -189,6 +199,9 @@ namespace pr::physics
 	}
 	void RigidBody::MomentumWS(v8force const& ws_momentum)
 	{
+		if (!FEql(m_ws_momentum, ws_momentum))
+			Wake();
+
 		m_ws_momentum = ws_momentum;
 	}
 	void RigidBody::MomentumOS(v8force const& os_momentum)
@@ -241,7 +254,7 @@ namespace pr::physics
 	}
 	void RigidBody::ZeroMomentum()
 	{
-		m_ws_momentum = v8force{};
+		MomentumWS(v8force{});
 	}
 
 	// Apply gravity to the body. This should be called each frame to apply the gravity force
@@ -253,10 +266,18 @@ namespace pr::physics
 	void RigidBody::GravityWS(v4 ws_gravity)
 	{
 		m_ws_gravity = ws_gravity;
+		if (Sleeping())
+			return;
 
 		auto mass = Mass();
 		if (mass < InfiniteMass * 0.5f)
-			ApplyForceWS(m_ws_gravity * mass, v4::Zero(), O2W().rot * CentreOfMassOS());
+		{
+			auto ws_com = O2W().rot * m_os_com;
+			auto ws_at = O2W().rot * CentreOfMassOS();
+			auto spatial_force = v8force{v4::Zero(), m_ws_gravity * mass};
+			spatial_force = Shift(spatial_force, ws_com - ws_at);
+			AccumulateForceWS(spatial_force);
+		}
 	}
 
 	// Return the body's state flags
@@ -268,13 +289,61 @@ namespace pr::physics
 	// True if the body is flagged as asleep
 	bool RigidBody::Sleeping() const
 	{
-		return (m_state_flags & ERigidBodyStateFlags::Sleeping) != ERigidBodyStateFlags::None;
+		return AllSet(m_state_flags, ERigidBodyStateFlags::Sleeping);
+	}
+	void RigidBody::Sleeping(bool sleeping)
+	{
+		if (sleeping)
+			Sleep();
+		else
+			Wake();
+	}
+	
+	// Put the body to sleep immediately, or wake it up immediately.
+	void RigidBody::Sleep()
+	{
+		assert(!NeverSleep());
+		if (NeverSleep())
+			return;
+
+		InvalidateSleepIsland();
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Sleeping, true);
+		m_ws_momentum = v8force{};
+		m_ws_force = v8force{};
+		m_sleep.m_timer_s = 0.0f;
+	}
+	void RigidBody::Wake()
+	{
+		InvalidateSleepIsland();
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Sleeping, false);
+		m_sleep.m_timer_s = 0.0f;
 	}
 
-	// Number of valid points in the contact support simplex
-	int RigidBody::ContactSimplexCount() const
+	// True if the body is immune to automatic sleeping
+	bool RigidBody::NeverSleep() const
 	{
-		return m_contact_simplex_count;
+		return AllSet(m_state_flags, ERigidBodyStateFlags::NeverSleep);
+	}
+	void RigidBody::NeverSleep(bool never_sleep)
+	{
+		if (never_sleep)
+			Wake();
+
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::NeverSleep, never_sleep);
+	}
+
+	// Invalidate cached sleep island membership.
+	void RigidBody::InvalidateSleepIsland()
+	{
+		m_sleep.m_island_id = -1;
+		m_sleep.m_generation += 1;
+		m_sleep.m_flags = 0;
+	}
+	
+	// Add force without changing sleep state.
+	void RigidBody::AccumulateForceWS(v8force const& ws_force)
+	{
+		m_ws_force += ws_force;
 	}
 
 	// Get/Set the current forces applied to this body (measured at the centre of mass).
@@ -303,7 +372,10 @@ namespace pr::physics
 	}
 	void RigidBody::ApplyForceWS(v8force ws_force)
 	{
-		m_ws_force += ws_force;
+		if (!FEql(ws_force, v8force{}))
+			Wake();
+
+		AccumulateForceWS(ws_force);
 	}
 
 	// Add a force acting on the rigid body at position 'os_at' (object space, model origin relative)
@@ -347,7 +419,12 @@ namespace pr::physics
 			inertia = Translate(inertia, os_model_to_com, ETranslateInertia::TowardCoM);
 
 		// Object space inverse inertia, measured at the CoM
-		m_os_inertia_inv = Invert(inertia);
+		auto inertia_inv = Invert(inertia);
+		auto changed = !FEql(m_os_inertia_inv, inertia_inv) || !FEql(m_os_com, os_model_to_com);
+		if (changed)
+			Wake();
+
+		m_os_inertia_inv = inertia_inv;
 
 		// Position of the centre of mass (in object space)
 		m_os_com = os_model_to_com;

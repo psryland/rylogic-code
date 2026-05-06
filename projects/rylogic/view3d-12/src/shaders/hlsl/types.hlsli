@@ -4,6 +4,7 @@
 //***********************************************
 #ifndef PR_VIEW3D_SHADER_TYPES_HLSLI
 #define PR_VIEW3D_SHADER_TYPES_HLSLI
+#include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
 
 static const float TINY = 0.0001f;
@@ -76,12 +77,12 @@ struct Skinfluence
 };
 
 // Models
-inline bool HasNormals (int4 flags) { return flags.x & ModelFlags_HasNormals; }
-inline bool IsSkinned  (int4 flags) { return flags.x & ModelFlags_IsSkinned; }
-inline bool HasTex0    (int4 flags) { return flags.y & TextureFlags_HasDiffuse; }
-inline bool HasEnvMap  (int4 flags) { return flags.y & TextureFlags_IsReflective; }
-inline bool EnvMapProj (int4 flags) { return flags.y & TextureFlags_ProjectFromEnvMap; }
-inline bool HasAlpha   (int4 flags) { return flags.z & AlphaFlags_HasAlpha; }
+inline bool HasNormals (int4 flags) { return AnySet(flags.x, ModelFlags_HasNormals); }
+inline bool IsSkinned  (int4 flags) { return AnySet(flags.x, ModelFlags_IsSkinned); }
+inline bool HasTex0    (int4 flags) { return AnySet(flags.y, TextureFlags_HasDiffuse); }
+inline bool HasEnvMap  (int4 flags) { return AnySet(flags.y, TextureFlags_IsReflective); }
+inline bool EnvMapProj (int4 flags) { return AnySet(flags.y, TextureFlags_ProjectFromEnvMap); }
+inline bool HasAlpha   (int4 flags) { return AnySet(flags.z, AlphaFlags_HasAlpha); }
 
 // Light types
 inline bool AmbientLight(Light light)     { return light.info.x == 0; }

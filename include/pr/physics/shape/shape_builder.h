@@ -88,7 +88,7 @@ namespace pr::physics
 			prim->m_data.push_back({ byte_ptr(&shape), s_cast<size_t>(shape.m_base.m_size) });
 			auto& s = shape_cast<TShape>(prim->shape());
 
-			// Capture the primitive mass properties. Shape-local geometry is fixed at construction time; any local CoM offset is folded in when the model properties are calculated.
+			// Capture the primitive mass properties in model space.
 			auto density = m_settings.m_mat_lookup(s.m_base.m_material_id).m_density;
 			prim->m_mp = CalcMassProperties(s, density);
 
@@ -170,13 +170,7 @@ namespace pr::physics
 		// Return the primitive centre of mass in model space.
 		static v4 PrimitiveCentreOfMass(Prim& prim)
 		{
-			return (prim.shape().m_s2r * prim.m_mp.m_centre_of_mass.w1()).w0();
-		}
-
-		// Return the primitive centre-of-mass frame to model-space transform.
-		static m4x4 PrimitiveCoMToModel(Prim& prim)
-		{
-			return prim.shape().m_s2r * m4x4::Translation(prim.m_mp.m_centre_of_mass);
+			return prim.m_mp.m_centre_of_mass;
 		}
 
 		// Calculate the mass of the model by adding up the mass of all of the primitives.
@@ -237,12 +231,9 @@ namespace pr::physics
 			{
 				auto& prim = *p;
 
-				// The primitive mass properties are measured about the shape origin. Translate to the primitive CoM, then into the model CoM frame.
-				auto primitive_inertia = Inertia{prim.m_mp.m_os_unit_inertia, prim.m_mp.m_mass};
-				primitive_inertia = Translate(primitive_inertia, prim.m_mp.m_centre_of_mass, ETranslateInertia::TowardCoM);
-
-				// Transform it to object space
-				primitive_inertia = Transform(primitive_inertia, PrimitiveCoMToModel(prim), ETranslateInertia::AwayFromCoM);
+				// Shapes have been moved into the model CoM frame, so recalculate the unit inertia in that frame while preserving the primitive mass.
+				auto primitive_mp = CalcMassProperties(prim.shape(), 1.0f);
+				auto primitive_inertia = Inertia{primitive_mp.m_os_unit_inertia, prim.m_mp.m_mass};
 
 				// Add the inertia to the object inertia (mass divided out at the end)
 				model_inertia += primitive_inertia.To3x3();

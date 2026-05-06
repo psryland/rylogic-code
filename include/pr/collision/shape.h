@@ -94,9 +94,9 @@ namespace pr::collision
 		int m_size;
 
 		Shape() = default;
-		Shape(EShape type, size_t size, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, EFlags flags = EFlags::None)
+		Shape(EShape type, size_t size, m4x4 const& shape_to_root = m4x4::Identity(), BBox bbox = BBox::Reset(), MaterialId material_id = 0, EFlags flags = EFlags::None)
 			:m_s2r(shape_to_root)
-			,m_bbox(BBox::Reset())
+			,m_bbox(bbox)
 			,m_type(type)
 			,m_material_id(material_id)
 			,m_flags(flags)
@@ -234,7 +234,7 @@ namespace pr::collision
 	// Return a shape to use in place of a real shape for objects that don't need a shape really
 	inline Shape& NoShape()
 	{
-		static Shape s_no_shape(EShape::NoShape, sizeof(Shape));
+		static Shape s_no_shape(EShape::NoShape, sizeof(Shape), m4x4::Identity(), BBox::Zero());
 		return s_no_shape;
 	}
 

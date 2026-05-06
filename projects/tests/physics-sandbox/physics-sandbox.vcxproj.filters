@@ -208,7 +208,7 @@
     <ClInclude Include="src\diagnostics\diagnostics.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
-    <ClInclude Include="src\diagnostics\stack_diagnostic.h">
+    <ClInclude Include="src\diagnostics\scene_diagnostic.h">
       <Filter>src\diagnostics</Filter>
     </ClInclude>
     <ClInclude Include="src\utils\scene_loader.h">
@@ -347,7 +347,7 @@
     <ClCompile Include="src\diagnostics\diagnostics.cpp">
       <Filter>src\diagnostics</Filter>
     </ClCompile>
-    <ClCompile Include="src\diagnostics\stack_diagnostic.cpp">
+    <ClCompile Include="src\diagnostics\scene_diagnostic.cpp">
       <Filter>src\diagnostics</Filter>
     </ClCompile>
     <ClCompile Include="src\ui\media_panel.cpp">

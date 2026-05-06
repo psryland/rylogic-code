@@ -89,7 +89,7 @@ GSIn_RayCast VSDefault(VSIn In)
 bool DoesSnap(float4 pt_ws, float depth, float4 target_ws, int snap_mode, float snap_distance)
 {
 	float4 sep = pt_ws - target_ws;
-	float distance = HasFlag(snap_mode, ESnapMode_Perspective) ? depth * snap_distance : snap_distance;
+	float distance = AllSet(snap_mode, ESnapMode_Perspective) ? depth * snap_distance : snap_distance;
 	return length(sep) < distance;
 }
 
@@ -140,7 +140,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		int snap_type = ESnapType_None;
 		
 		// See if we should snap to verts before snapping to edges or faces
-		jend = HasFlag(snap_mode, ESnapMode_Vert) && snap_distance != 0 ? SnapPointCount : 0;
+		jend = AllSet(snap_mode, ESnapMode_Vert) && snap_distance != 0 ? SnapPointCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = points[j].vert;
@@ -154,7 +154,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		}
 
 		// If not snapped to a vert, try snapping to the edge
-		jend = HasFlag(snap_mode, ESnapMode_Edge) && snap_distance != 0 && snap_type == ESnapType_None ? SnapEdgeCount : 0;
+		jend = AllSet(snap_mode, ESnapMode_Edge) && snap_distance != 0 && snap_type == ESnapType_None ? SnapEdgeCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = edges[j].vert + saturate(ClosestPoint_PointVsRay(pt, edges[j].vert, edges[j].edge)) * edges[j].edge;
@@ -168,7 +168,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		}
 
 		// If not snapped to a vert or edge, try snapping to the face
-		if (snap_type == ESnapType_None && HasFlag(snap_mode, ESnapMode_Face))
+		if (snap_type == ESnapType_None && AllSet(snap_mode, ESnapMode_Face))
 		{
 			// If the point is within the triangle, snap to the face
 			if (face_intercept)
@@ -233,7 +233,7 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 		int snap_type = ESnapType_None;
 
 		// See if we should snap to verts before snapping to the edge
-		jend = HasFlag(snap_mode, ESnapMode_Vert) ? SnapPointCount : 0;
+		jend = AllSet(snap_mode, ESnapMode_Vert) ? SnapPointCount : 0;
 		for (j = 0; j != jend; ++j)
 		{
 			float4 target = points[j].vert;
@@ -247,7 +247,7 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 		}
 
 		// If not snapped to a vert, try snapping to the edge
-		if (snap_type == ESnapType_None && HasFlag(snap_mode, ESnapMode_Edge))
+		if (snap_type == ESnapType_None && AllSet(snap_mode, ESnapMode_Edge))
 		{
 			float4 target = v0 + para.x * edge;
 			if (DoesSnap(pt, depth, target, snap_mode, snap_distance))

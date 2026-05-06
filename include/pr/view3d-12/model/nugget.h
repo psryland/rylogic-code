@@ -344,6 +344,7 @@ namespace pr::rdr12
 		// Enable/Disable alpha variant for this nugget.
 		// Alpha can be enabled or disabled independent of the geometry colours or diffuse texture colour.
 		// When setting 'Alpha(enable)' be sure to consider all sources of alpha.
+		bool HasAlphaVariant() const;
 		void AlphaVariant(ResourceFactory& factory, bool enable);
 
 		// Ref-counting clean up function

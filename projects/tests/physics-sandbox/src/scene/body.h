@@ -9,6 +9,7 @@ namespace physics_sandbox
 	struct Body : physics::RigidBody
 	{
 		rdr12::ldraw::LdrObjectPtr m_gfx;
+		m4x4 m_gfx_o2b;
 		Colour32 m_colour = Colour32White;
 		bool m_was_sleeping = false;
 

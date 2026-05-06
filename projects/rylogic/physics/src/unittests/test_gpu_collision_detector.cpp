@@ -211,7 +211,21 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
 
-		// 6. Separated shapes (should both return no collision)
+		// 6. Triangle vs box overlap
+		PRUnitTestMethod(TriangleVsBox)
+		{
+			auto sa = collision::ShapeTriangle{
+				v4{-0.5f, -0.5f, 0, 1},
+				v4{+0.5f, -0.5f, 0, 1},
+				v4{0, +0.5f, 0, 1}};
+			auto sb = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Identity();
+
+			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
+		}
+
+		// 7. Separated shapes (should both return no collision)
 		PRUnitTestMethod(SphereVsSphere_Separated)
 		{
 			auto sa = collision::ShapeSphere{1.0f};
@@ -222,7 +236,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, false);
 		}
 
-		// 7. Rotated box vs sphere
+		// 8. Rotated box vs sphere
 		PRUnitTestMethod(RotatedBoxVsSphere)
 		{
 			auto sa = collision::ShapeBox{v4{2, 4, 2, 0}};  // half-extents = 1,2,1
@@ -235,7 +249,7 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(sa, l2w, sb, r2w, true);
 		}
 
-		// 8. Polytope (tetrahedron) vs box
+		// 9. Polytope (tetrahedron) vs box
 		PRUnitTestMethod(PolytopeVsBox)
 		{
 			// Build a tetrahedron from 4 points
@@ -255,7 +269,50 @@ namespace pr::physics::tests
 			CompareGpuVsCpu(poly, l2w, sb, r2w, true, true);
 		}
 
-		// 9. Tumbling tetrahedron deeply penetrating a large ground box.
+		// 10. Polytope vs polytope face contact
+		PRUnitTestMethod(PolytopeVsTriangle)
+		{
+			v4 tet_pts[] = {
+				v4{-0.8f, -0.8f, -0.5f, 1},
+				v4{+0.8f, -0.8f, -0.5f, 1},
+				v4{+0.0f, +0.8f, -0.5f, 1},
+				v4{+0.0f, +0.0f, +0.8f, 1},
+			};
+			auto poly_buf = collision::BuildPolytopeFromPoints(tet_pts);
+			auto const& poly = poly_buf.as<collision::ShapePolytope>();
+
+			auto triangle = collision::ShapeTriangle(
+				v4{-0.5f, -0.5f, 0, 1},
+				v4{+0.5f, -0.5f, 0, 1},
+				v4{+0.0f, +0.5f, 0, 1});
+
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(0, 0, -0.1f);
+
+			CompareGpuVsCpu(poly, l2w, triangle, r2w, true);
+		}
+
+		// 11. Polytope vs polytope face contact
+		PRUnitTestMethod(PolytopeVsPolytope)
+		{
+			v4 cube_pts[] = {
+				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
+				v4{-1, +1, -1, 1}, v4{+1, +1, -1, 1},
+				v4{-1, -1, +1, 1}, v4{+1, -1, +1, 1},
+				v4{-1, +1, +1, 1}, v4{+1, +1, +1, 1},
+			};
+			auto buf_a = collision::BuildPolytopeFromPoints(cube_pts);
+			auto buf_b = collision::BuildPolytopeFromPoints(cube_pts);
+			auto const& poly_a = buf_a.as<collision::ShapePolytope>();
+			auto const& poly_b = buf_b.as<collision::ShapePolytope>();
+
+			auto l2w = m4x4::Identity();
+			auto r2w = m4x4::Translation(1.5f, 0, 0);
+
+			CompareGpuVsCpu(poly_a, l2w, poly_b, r2w, true);
+		}
+
+		// 11. Tumbling tetrahedron deeply penetrating a large ground box.
 		// Captured from the StressDropTests scenario to guard the deep polytope-vs-ground
 		// case that exposed resolver issues after the GPU and CPU GJK paths already agreed.
 		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)
@@ -287,6 +344,56 @@ namespace pr::physics::tests
 			PR_EXPECT(cpu_contact.m_depth > 2.0f); // expected deep penetration
 
 			CompareGpuVsCpu(ground, ground_l2w, poly, poly_o2w, true);
+		}
+
+		// 12. Shallow polytope/ground contact captured from stress_test_1000.
+		// The CPU path detects contact before the body gets deeply embedded; the GPU
+		// path must not miss this or the eventual deep correction can launch the body.
+		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble)
+		{
+			v4 poly_pts[] = {
+				v4{-1.0296705f,  0.2203998f, -0.1274743f, 1},
+				v4{ 0.2744289f, -0.4075151f, -0.0194631f, 1},
+				v4{ 0.2335063f, -0.0944359f, -0.4734315f, 1},
+				v4{-0.1430905f,  0.3362911f,  0.0826810f, 1},
+				v4{ 0.0412595f, -0.4096290f, -0.3432735f, 1},
+				v4{ 0.3788538f,  0.3895851f,  0.5945120f, 1},
+				v4{-0.1899699f, -0.1738422f, -0.2568449f, 1},
+				v4{ 0.5233417f,  0.1291325f, -0.6528223f, 1},
+				v4{-0.2173630f, -0.1193020f,  0.2580981f, 1},
+			};
+			auto poly_buf = collision::BuildPolytopeFromPoints(poly_pts);
+			auto const& poly = poly_buf.as<collision::ShapePolytope>();
+
+			auto ground = collision::ShapeBox{v4{790.38454f, 790.38454f, 10.0f, 0}};
+			auto ground_l2w = m4x4::Translation(0, 0, -5);
+			auto poly_o2w = m4x4{
+				v4{-0.48897f, -0.03973f, -0.87140f, 0},
+				v4{ 0.39218f,  0.88229f, -0.26030f, 0},
+				v4{ 0.77917f, -0.46902f, -0.41583f, 0},
+				v4{18.36216f,-60.80049f,  0.39107f, 1},
+			};
+
+			auto cpu_contact = collision::Contact{};
+			auto cpu_hit = collision::Collide(poly, poly_o2w, ground, ground_l2w, cpu_contact);
+			PR_EXPECT(cpu_hit);
+			PR_EXPECT(cpu_contact.m_depth > 0.2f);
+
+			auto shape_cache = ShapeCache{};
+			shape_cache.GetOrAdd(poly);
+			shape_cache.GetOrAdd(ground);
+
+			auto pair = GpuCollisionPair{};
+			pair.body_idx_a = 0;
+			pair.body_idx_b = 1;
+			pair.shape_idx_a = 0;
+			pair.shape_idx_b = 1;
+			pair.b2a = InvertOrthonormal(poly_o2w) * ground_l2w;
+
+			auto pairs = std::vector<GpuCollisionPair>{ pair };
+			auto out_contacts = std::vector<GpuResolveContact>{ 1 };
+			auto gpu_contacts = m_detector.DetectCollisions(m_gpu.m_job, pairs, shape_cache, out_contacts);
+			PR_EXPECT(!gpu_contacts.empty());
 		}
 	};
 }

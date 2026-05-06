@@ -364,7 +364,7 @@ namespace Rylogic.LDraw
 	{
 		protected Serialiser.Name m_name = new();
 		protected Serialiser.Colour m_colour = new();
-		protected Serialiser.Colour m_group_colour = new();
+		protected Serialiser.Colour m_group_tint = new();
 		protected Serialiser.O2W m_o2w = new();
 		protected Serialiser.Wireframe m_wire = new();
 		protected Serialiser.AxisId m_axis_id = new();
@@ -393,10 +393,10 @@ namespace Rylogic.LDraw
 		}
 
 		/// <summary>Object colour mask</summary>
-		public TDerived group_colour(Serialiser.Colour colour)
+		public TDerived group_tint(Serialiser.Colour colour)
 		{
-			m_group_colour = colour;
-			m_group_colour.m_kw = EKeyword.GroupColour;
+			m_group_tint = colour;
+			m_group_tint.m_kw = EKeyword.GroupTint;
 			return (TDerived)this;
 		}
 
@@ -546,7 +546,7 @@ namespace Rylogic.LDraw
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter writer)
 		{
-			writer.Append(m_axis_id, m_wire, m_solid, m_hidden, m_group_colour, m_reflectivity, m_screen_space, m_ztest, m_zwrite, m_o2w);
+			writer.Append(m_axis_id, m_wire, m_solid, m_hidden, m_group_tint, m_reflectivity, m_screen_space, m_ztest, m_zwrite, m_o2w);
 			if (m_font != null) m_font.WriteTo(writer);
 			if (m_bake != null) m_bake.WriteTo(writer);
 			if (m_root_anim != null) m_root_anim.WriteTo(writer);

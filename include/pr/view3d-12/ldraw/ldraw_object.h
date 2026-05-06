@@ -101,7 +101,7 @@ namespace pr::rdr12::ldraw
 		string32          m_name;            // A name for the object
 		GUID              m_context_id;      // The id of the context this instance was created in
 		Colour32          m_base_colour;     // The original colour of this object
-		Colour32          m_grp_colour;      // A Colour multiplier that is applied to all child objects
+		Colour32          m_group_tint;      // A colour channel max applied recursively to all child objects
 		RootAnimation     m_root_anim;       // Animation of the model root position
 		BBoxInstance      m_bbox_instance;   // Used for rendering the bounding box for this instance
 		Sub               m_screen_space;    // True if this object should be rendered in screen space
@@ -235,8 +235,12 @@ namespace pr::rdr12::ldraw
 		Colour32 NuggetTint(char const* name, int index) const;
 		void NuggetTint(Colour32 tint, char const* name, int index);
 
+		// Get/Set the group tint of this object or child objects matching 'name' (see Apply)
+		Colour32 GroupTint(char const* name = nullptr) const;
+		void GroupTint(Colour32 colour, char const* name = nullptr);
+
 		// Get/Set the tint or base colour of this object or child objects matching 'name' (see Apply)
-		// If 'base_colour' is true, then the object's colour is change to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
+		// If 'base_colour' is true, then the object's colour is changed to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
 		Colour32 Colour(bool base_colour, char const* name = nullptr) const;
 		void Colour(bool base_colour, Colour32 colour, char const* name = nullptr, EColourOp op = EColourOp::Overwrite, float op_value = 0.0f);
 

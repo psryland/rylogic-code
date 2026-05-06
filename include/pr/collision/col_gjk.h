@@ -354,6 +354,8 @@ namespace pr::collision
 		};
 
 		// Find penetration depth and contact info from a GJK simplex containing the origin.
+		// Epa can fail to converge, in that case it's better to return no result than a bad contact.
+		// Hopefully, next frame, a better contact will be found
 		inline bool Epa(
 			Shape const& sa, m4x4 const& a2w, m4x4 const& w2a,
 			Shape const& sb, m4x4 const& b2w, m4x4 const& w2b,
@@ -361,6 +363,7 @@ namespace pr::collision
 			v4& normal, float& depth)
 		{
 			if (gjk_sx.n < 4) return false;
+			auto fail_on_exhaustion = sa.m_type != EShape::Sphere && sb.m_type != EShape::Sphere;
 
 			Sup verts[MaxEpaVerts];
 			Face faces[MaxEpaFaces];
@@ -421,8 +424,17 @@ namespace pr::collision
 				auto d = Dot3(sup.w, cf_normal);
 
 				// Convergence: new support doesn't extend the polytope significantly
-				if (d - cf_dist < EpaEps || nv >= MaxEpaVerts)
+				if (d - cf_dist < EpaEps)
 				{
+					normal = cf_normal;
+					depth = cf_dist;
+					return true;
+				}
+				if (nv >= MaxEpaVerts)
+				{
+					if (fail_on_exhaustion)
+						return false;
+
 					normal = cf_normal;
 					depth = cf_dist;
 					return true;
@@ -459,8 +471,20 @@ namespace pr::collision
 								break;
 							}
 						}
-						if (!shared && ne < MaxEpaFaces * 3)
+						if (!shared)
+						{
+							if (ne >= MaxEpaFaces * 3)
+							{
+								if (fail_on_exhaustion)
+									return false;
+
+								normal = cf_normal;
+								depth = cf_dist;
+								return true;
+							}
+
 							edges[ne++] = { ea, eb };
+						}
 					}
 
 					// Remove the visible face (swap with last)
@@ -469,7 +493,17 @@ namespace pr::collision
 
 				// Create new faces from horizon edges to the new vertex
 				for (int i = 0; i < ne; ++i)
-					add_face(edges[i].a, edges[i].b, ni);
+				{
+					if (!add_face(edges[i].a, edges[i].b, ni))
+					{
+						if (fail_on_exhaustion)
+							return false;
+
+						normal = cf_normal;
+						depth = cf_dist;
+						return true;
+					}
+				}
 			}
 
 			return false; // EPA did not converge

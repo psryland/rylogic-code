@@ -96,7 +96,7 @@ namespace Rylogic.LDraw
 		public override void WriteTo(IWriter res)
 		{
 			// Wrap child shapes in a group so name/colour/o2w are applied
-			m_colour.m_kw = EKeyword.GroupColour;
+			m_colour.m_kw = EKeyword.GroupTint;
 			res.Write(EKeyword.Group, m_name, () =>
 			{
 				res.Append(m_colour);

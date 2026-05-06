@@ -88,6 +88,7 @@
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
+    <ClCompile Include="src\compute\sleep_gpu.cpp" />
     <ClCompile Include="src\compute\sweep_gpu.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
     <ClCompile Include="src\integrator\impulse.cpp" />
@@ -127,12 +128,14 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\ldraw.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
+    <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
     <ClInclude Include="src\compute\interop\resolve_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
+    <ClInclude Include="src\compute\sleep_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
     <ClInclude Include="src\diagnostics\dbg_physics.h" />
     <ClInclude Include="src\diagnostics\physics_log.h" />
@@ -152,6 +155,7 @@
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
+    <FxCompile Include="src\compute\sleep.hlsl" EntryPointName="CSDisturbIslands" />
     <FxCompile Include="src\compute\sweep.hlsl" EntryPointName="CSSweep" />
     <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSBinCollisionPairs" />
     <FxCompile Include="src\compute\resolve.hlsl" EntryPointName="CSResolve" />

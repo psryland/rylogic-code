@@ -87,6 +87,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 
 		TuningParams m_tuning;
 		int64_t m_size;
+		bool m_bound_to_external;
 
 		struct Result
 		{
@@ -108,6 +109,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			, m_error_count()
 			, m_tuning(tuning)
 			, m_size()
+			, m_bound_to_external()
 		{
 			auto compiler = ShaderCompiler{}
 				.Source(resource::Read<char>(L"src/compute/radix_sort/radix_sort.hlsl", L"TEXT"))
@@ -217,31 +219,30 @@ namespace pr::rdr12::compute::gpu_radix_sort
 		{
 			CreateStaticSizeBuffers(cmd_list);
 
-			// Create binding-size dependent buffers
+			if (size != m_size || m_sort[1] == nullptr || m_payload[1] == nullptr || m_pass_histogram == nullptr)
 			{
-				ResDesc desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_sort[0] = sort0;
-				m_sort[1] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:sort1");
-			}
-			{
+				ResDesc sort_desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_sort[1] = m_gpu->CreateResource(sort_desc, cmd_list, "RadixSort:sort1");
+
 				using T = std::conditional_t<HasPayload, Value, int>;
-				ResDesc desc = ResDesc::Buf<T>(HasPayload ? size : 1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_payload[0] = payload0;
-				m_payload[1] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:payload1");
-			}
-			{
+				ResDesc payload_desc = ResDesc::Buf<T>(HasPayload ? size : 1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_payload[1] = m_gpu->CreateResource(payload_desc, cmd_list, "RadixSort:payload1");
+
 				auto partitions = DispatchCount(s_cast<int>(size), m_tuning.partition_size);
-				ResDesc desc = ResDesc::Buf<Key>(s_cast<int64_t>(Radix) * partitions, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_pass_histogram = m_gpu->CreateResource(desc, cmd_list, "RadixSort:passHistBuffer");
+				ResDesc histogram_desc = ResDesc::Buf<Key>(s_cast<int64_t>(Radix) * partitions, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
+				m_pass_histogram = m_gpu->CreateResource(histogram_desc, cmd_list, "RadixSort:passHistBuffer");
 			}
 
+			m_sort[0] = sort0;
+			m_payload[0] = payload0;
 			m_size = size;
+			m_bound_to_external = true;
 		}
 
 		// Resize the GPU buffers in preparation for sorting 'size' elements
 		void Resize(CmdList& cmd_list, int64_t size)
 		{
-			if (size == m_size)
+			if (size == m_size && !m_bound_to_external)
 				return;
 
 			CreateStaticSizeBuffers(cmd_list);
@@ -265,6 +266,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			}
 
 			m_size = size;
+			m_bound_to_external = false;
 		}
 
 		// Sort 'values' by 'keys' in-place

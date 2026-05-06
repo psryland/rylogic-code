@@ -23,7 +23,7 @@ namespace pr::ldraw
 		LdrCollisionShape(seri::Name name = {}, seri::Colour colour = {})
 			: LdrGroup(name, 0xFFFFFFFF)
 		{
-			group_colour(colour);
+			group_tint(colour);
 		}
 		LdrCollisionShape& shape(collision::Shape const& shape)
 		{
@@ -108,7 +108,7 @@ namespace pr::ldraw
 		LdrCollisionContact(seri::Name name = {}, seri::Colour colour = {})
 			: LdrGroup(name, 0xFFFFFFFF)
 		{
-			group_colour(colour ? colour : 0xFFFFFF00);
+			group_tint(colour ? colour : 0xFFFFFF00);
 		}
 		LdrCollisionContact& contact(collision::Contact const& contact, float scale = 1.0f)
 		{

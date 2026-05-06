@@ -146,6 +146,25 @@ namespace pr::physics
 		return Io;
 	}
 
+	// Transform mass properties from shape-local space into the rigid-body root space.
+	inline MassProperties TransformMassProperties(MassProperties mp, m4x4 const& s2r)
+	{
+		auto local_com = mp.m_centre_of_mass;
+		auto root_com = (s2r * local_com.w1()).w0();
+
+		auto inertia = Inertia{mp.m_os_unit_inertia, 1.0f};
+		if (LengthSq(local_com) != 0)
+			inertia = Translate(inertia, local_com, ETranslateInertia::TowardCoM);
+
+		inertia = Rotate(inertia, s2r.rot);
+		if (LengthSq(root_com) != 0)
+			inertia = Translate(inertia, root_com, ETranslateInertia::AwayFromCoM);
+
+		mp.m_centre_of_mass = root_com;
+		mp.m_os_unit_inertia = inertia.To3x3(1);
+		return mp;
+	}
+
 	// Return the mass properties
 	inline MassProperties CalcMassProperties(ShapeSphere const& shape, float density)
 	{
@@ -155,7 +174,7 @@ namespace pr::physics
 		mp.m_centre_of_mass  = v4{};
 		mp.m_mass            = volume * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
-		return mp;
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
 	// Return the mass properties
@@ -167,7 +186,7 @@ namespace pr::physics
 		mp.m_centre_of_mass  = v4{};
 		mp.m_mass            = volume * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
-		return mp;
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
 	// Return the mass properties
@@ -177,7 +196,7 @@ namespace pr::physics
 		mp.m_centre_of_mass  = (1.0f / 3.0f) * (shape.m_v.x + shape.m_v.y + shape.m_v.z).w0();
 		mp.m_mass            = 0.5f * Length(Cross(shape.m_v.y - shape.m_v.x, shape.m_v.z - shape.m_v.y)) * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
-		return mp;
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
 	// Return the mass properties for the line shape
@@ -195,7 +214,7 @@ namespace pr::physics
 		mp.m_centre_of_mass  = v4{};
 		mp.m_mass            = volume * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
-		return mp;
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
 	// Return mass properties for the polytope
@@ -205,7 +224,7 @@ namespace pr::physics
 		mp.m_centre_of_mass  = CalcCentreOfMass(shape);
 		mp.m_mass            = CalcVolume(shape) * density;
 		mp.m_os_unit_inertia = UnitInertia(shape);
-		return mp;
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
 	// Calculate the mass properties of a shape

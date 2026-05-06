@@ -110,12 +110,19 @@ namespace pr::hlsl::tests
 			auto h2 = Hash(0, Hash(1));
 			PR_EXPECT(h1 != h2);
 		}
-		PRUnitTestMethod(HasFlag)
+		PRUnitTestMethod(AllSet)
 		{
-			PR_EXPECT(HasFlag(0xFF, 0x01));
-			PR_EXPECT(HasFlag(0xFF, 0x80));
-			PR_EXPECT(!HasFlag(0x0F, 0x10));
-			PR_EXPECT(!HasFlag(0, 0x01));
+			PR_EXPECT(AllSet(0xAA, 0b00001010));
+			PR_EXPECT(AllSet(0xAA, 0b10101010));
+			PR_EXPECT(!AllSet(0xAA, 0b10101011));
+			PR_EXPECT(!AllSet(0xAA, 0b00000011));
+		}
+		PRUnitTestMethod(AnySet)
+		{
+			PR_EXPECT(AnySet(0xAA, 0b00001111));
+			PR_EXPECT(AnySet(0xAA, 0b10101010));
+			PR_EXPECT(!AnySet(0xAA, 0b01010101));
+			PR_EXPECT(!AnySet(0xAA, 0b00000001));
 		}
 		PRUnitTestMethod(SetFlag)
 		{
