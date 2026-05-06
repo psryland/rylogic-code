@@ -67,7 +67,7 @@ namespace pr::physics
 	private:
 
 		// Engine configuration parameters.
-		EngineConfig const m_config;
+		EngineConfig m_config;
 
 		// GPU device and command queue wrapper, shared by the integrator and collision detector.
 		GpuPtr m_gpu;
@@ -107,10 +107,8 @@ namespace pr::physics
 		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
 
 		// Engine configuration in use by this instance.
-		EngineConfig const& Config() const
-		{
-			return m_config;
-		}
+		EngineConfig const& Config() const;
+		void Config(EngineConfig const& config);
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);

@@ -111,6 +111,16 @@ namespace pr::physics
 		(*m_materials).Set(mat);
 	}
 
+	// Update runtime-tunable engine configuration.
+	EngineConfig const& Engine::Config() const
+	{
+		return m_config;
+	}
+	void Engine::Config(EngineConfig const& config)
+	{
+		m_config = config;
+	}
+
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()
 	{
