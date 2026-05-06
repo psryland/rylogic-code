@@ -17,6 +17,7 @@
 #include <type_traits>
 #include <format>
 #include <span>
+#include <iterator>
 
 // Example use:
 #if 0
@@ -917,6 +918,57 @@ namespace pr::json
 				}
 			}
 		}
+
+		// Try to get the remaining byte count without changing the stream position.
+		inline size_t StreamSizeRemaining(std::istream& in)
+		{
+			auto const pos = in.tellg();
+			if (pos == std::streampos{ -1 })
+			{
+				in.clear();
+				return std::dynamic_extent;
+			}
+
+			in.seekg(0, std::ios::end);
+			auto const end = in.tellg();
+			in.seekg(pos);
+			if (!in.good())
+				in.clear();
+
+			return end != std::streampos{ -1 } && end >= pos
+				? static_cast<size_t>(end - pos)
+				: std::dynamic_extent;
+		}
+
+		// Read 'size_estimate' bytes from the stream, or until the end of the stream if 'size_estimate' is std::dynamic_extent
+		inline std::string ReadStreamData(std::istream& in, size_t size_estimate)
+		{
+			auto exact_size = false;
+			auto size = size_estimate;
+			if (size == std::dynamic_extent)
+			{
+				size = StreamSizeRemaining(in);
+				exact_size = size != std::dynamic_extent;
+			}
+
+			if (exact_size)
+			{
+				if (size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max()))
+					throw std::runtime_error("JSON stream is too large");
+
+				std::string data(size, '\0');
+				in.read(data.data(), static_cast<std::streamsize>(data.size()));
+				data.resize(static_cast<size_t>(in.gcount()));
+				return data;
+			}
+
+			std::string data;
+			if (size != std::dynamic_extent)
+				data.reserve(size);
+
+			data.assign(std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{});
+			return data;
+		}
 	}
 
 	// Static null value returned for non-existent keys/indices
@@ -1317,28 +1369,20 @@ namespace pr::json
 	// Read JSON data from a stream into a DOM tree.
 	inline Value Read(std::istream& in, Options const& opts = {}, size_t size_estimate = std::dynamic_extent)
 	{
-		size_estimate = size_estimate != std::dynamic_extent ? size_estimate : 1ULL * 1024 * 1024;
-		
-		std::string data(size_estimate, '\0');
-		for (size_t i = 0; in.good(); )
-		{
-			auto read = in.read(data.data() + i, data.size() - i).gcount();
-			if (i + read != data.size())
-			{
-				data.resize(i + read);
-				break;
-			}
+		using namespace impl;
 
-			data.resize(data.size() * 2);
-			i += read;
-		}
-		return Read(std::string_view{ data }, opts);
+		auto data = ReadStreamData(in, size_estimate);
+		auto src = std::string_view{ data };
+		if (utf8::IsBOM(src))
+			src.remove_prefix(3);
+
+		return Read(src, opts);
 	}
 
 	// Read a JSON file into a DOM tree.
 	inline Value Read(std::filesystem::path const& path, Options const& opts = {})
 	{
-		std::ifstream file(path);
+		std::ifstream file(path, std::ios::binary);
 		if (!file.is_open())
 			throw std::runtime_error(std::format("Failed to open file '{}'", path.string()));
 
@@ -1428,6 +1472,20 @@ namespace pr::storage
 			auto root = json::Read(std::string_view{ test_data }, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
 			PR_EXPECT(root["SearchPaths"][0].to<std::string>() == "C:\\Work\\Path");
 			PR_EXPECT(root["EscapedString"].to<std::string>() == "This is a string with a \"quote\" in it");
+		}
+		PRUnitTestMethod(ReadingStream)
+		{
+			char const test_data[] =
+				"\xEF\xBB\xBF"
+				"{\"key\":123}";
+
+			std::istringstream stream(test_data);
+			auto root = json::Read(stream);
+			PR_EXPECT(root["key"].to<int>() == 123);
+
+			std::istringstream stream_with_estimate("{\"key\":456}");
+			root = json::Read(stream_with_estimate, {}, 4);
+			PR_EXPECT(root["key"].to<int>() == 456);
 		}
 		PRUnitTestMethod(Writing)
 		{
