@@ -115,6 +115,11 @@ namespace pr::rdr12
 	}
 
 	// Enable/Disable alpha for this nugget
+	bool Nugget::HasAlphaVariant() const
+	{
+		// If the first nugget does, then all will
+		return std::any_of(Dependents().begin(), Dependents().end(), [](auto& n) { return n.m_variant == AlphaNugget; });
+	}
 	void Nugget::AlphaVariant(ResourceFactory& factory, bool enable)
 	{
 		// Should only enable/disable the alpha variant from the default nugget

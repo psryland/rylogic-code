@@ -194,7 +194,7 @@ class EKeyword(Enum):
 	GenerateNormals = 750341558
 	Grid = 2944866961
 	Group = 1605967500
-	GroupColour = 2738848320
+	GroupTint = 381584201
 	Hidden = 4128829753
 	HideWhenNotAnimating = 2975106646
 	Instance = 193386898

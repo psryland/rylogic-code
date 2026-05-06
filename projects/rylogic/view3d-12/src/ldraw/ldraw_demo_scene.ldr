@@ -106,7 +106,7 @@
 	*Data {55 0 2}             // See *Cone example below for parameter meaning
 	*AxisId {1}                // Axis to align the cone to. One of: X = \xc2\xb1""1, Y = \xc2\xb1""2, Z = \xc2\xb1""3
 	*Colour {FFFF00FF}         // Override the base colour of the model
-	*GroupColour {FFFF80FF}    // applies: 'child.colour = child.base_colour * obj.group_colour' to all children recursively
+	*GroupTint {FFFF80FF}      // applies: 'child.colour = clamp(child.base_colour, 0, obj.group_tint)' to all children recursively
 	*Reflectivity {0.3}        // Reflectivity (used with environment mapping)
 	*RandColour {}             // Apply a random colour to this object
 	//*Hidden {}               // Object is created in an invisible state
@@ -152,7 +152,7 @@
 {
 	*Data {0.8 1.4 0.5}
 	*o2w {*pos {0 5 -7}}
-	*GroupColour { FFFFFFFF80 } // This colour mask is applied to all child recursively
+	*GroupTint { FFFFFFFF80 } // This colour mask is applied to all child recursively
 	*Sphere nested1 FF00FFFF
 	{
 		*Data {0.8 1.4 0.5}

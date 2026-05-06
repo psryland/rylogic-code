@@ -641,7 +641,7 @@ namespace physics_sandbox
 
 				builder.Instance(std::format("Body{}", i), body.m_colour.argb)
 					.address(prototype_name)
-					.group_colour(body.m_colour.argb)
+					.group_tint(body.m_colour.argb)
 					.o2w(body.O2W() * body.m_gfx_o2b);
 			}
 			auto const ldraw_build_end = Clock::now();

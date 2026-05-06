@@ -80,6 +80,11 @@ namespace physics_sandbox
 			options.m_trace_ke_jump = cmd("ke_jump").as<float>();
 		if (cmd.count("scan"))
 			options.m_scan_bodies = true;
+		if (cmd.count("scan_non_spheres"))
+		{
+			options.m_scan_bodies = true;
+			options.m_scan_non_spheres = true;
+		}
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 

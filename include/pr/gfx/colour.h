@@ -187,13 +187,13 @@ namespace pr
 
 	#pragma region Colour32
 
-	inline uint8_t Saturate8(std::integral auto x)
+	inline uint8_t Saturate8(std::integral auto x, int mn = 0, int mx = 255)
 	{
-		return Clamp<uint8_t>(static_cast<uint8_t>(x), 0, 255);
+		return Clamp<uint8_t>(static_cast<uint8_t>(x), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
 	}
-	inline uint8_t Saturate8(std::floating_point auto x)
+	inline uint8_t Saturate8(std::floating_point auto x, int mn = 0, int mx = 255)
 	{
-		return Clamp<uint8_t>(static_cast<uint8_t>(std::round(x)), 0, 255);
+		return Clamp<uint8_t>(static_cast<uint8_t>(std::round(x)), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
 	}
 
 	// Equivalent to D3DCOLOR
@@ -465,6 +465,7 @@ namespace pr
 		);
 	}
 
+	// Linearly interpolate between a list of colours on the interval [0, colours.size()]
 	inline Colour32 Lerp(std::span<Colour32 const> colours, double frac)
 	{
 		if (colours.empty())
@@ -478,6 +479,15 @@ namespace pr
 		return Lerp(colours[idx], colours[idx + 1], f);
 	}
 
+	// Saturate the colour components of 'col' to 'maximum'
+	inline Colour32 Clamp(Colour32 col, Colour32 mn, Colour32 mx)
+	{
+		return Colour32(
+			Saturate8(col.r, mn.r, mx.r),
+			Saturate8(col.g, mn.g, mx.g),
+			Saturate8(col.b, mn.b, mx.b),
+			Saturate8(col.a, mn.a, mx.a));
+	}
 	// Convert this colour to it's associated gray-scale value
 	inline Colour32 ToGrayScale(Colour32 col)
 	{

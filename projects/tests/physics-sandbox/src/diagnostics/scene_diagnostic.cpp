@@ -38,6 +38,27 @@ namespace physics_sandbox::diag
 			v4 m_point_a = {};
 			int m_feature_count = 0;
 		};
+		struct SleepScanSample
+		{
+			int m_dynamic_count = 0;
+			int m_sleeping_count = 0;
+			int m_low_velocity_count = 0;
+			int m_never_sleep_count = 0;
+			int m_max_lin_body = -1;
+			int m_max_ang_body = -1;
+			float m_avg_lin_speed = 0.0f;
+			float m_avg_ang_speed = 0.0f;
+			float m_p50_lin_speed = 0.0f;
+			float m_p90_lin_speed = 0.0f;
+			float m_p95_lin_speed = 0.0f;
+			float m_p99_lin_speed = 0.0f;
+			float m_p50_ang_speed = 0.0f;
+			float m_p90_ang_speed = 0.0f;
+			float m_p95_ang_speed = 0.0f;
+			float m_p99_ang_speed = 0.0f;
+			float m_max_lin_speed = 0.0f;
+			float m_max_ang_speed = 0.0f;
+		};
 
 		struct EngineProfileAccumulator
 		{
@@ -138,6 +159,72 @@ namespace physics_sandbox::diag
 
 			return kinetic_energy;
 		}
+		SleepScanSample MeasureSleep(Scene const& scene, bool non_spheres_only)
+		{
+			auto sample = SleepScanSample{};
+			auto const& config = scene.m_physics.Config();
+			auto lin_speeds = std::vector<float>{};
+			auto ang_speeds = std::vector<float>{};
+			lin_speeds.reserve(scene.m_body.size());
+			ang_speeds.reserve(scene.m_body.size());
+
+			for (int i = 0; i != std::ssize(scene.m_body); ++i)
+			{
+				auto const& body = scene.m_body[i];
+				if (body.InvMass() <= 0.0f)
+					continue;
+				if (non_spheres_only && body.HasShape() && body.Shape().m_type == collision::EShape::Sphere)
+					continue;
+
+				auto vel = body.VelocityWS();
+				auto lin_speed = Length(vel.lin);
+				auto ang_speed = Length(vel.ang);
+				auto low_velocity =
+					lin_speed < config.sleep_velocity_threshold_lin &&
+					ang_speed < config.sleep_velocity_threshold_ang;
+
+				sample.m_dynamic_count += 1;
+				sample.m_sleeping_count += body.Sleeping() ? 1 : 0;
+				sample.m_low_velocity_count += low_velocity ? 1 : 0;
+				sample.m_never_sleep_count += body.NeverSleep() ? 1 : 0;
+				sample.m_avg_lin_speed += lin_speed;
+				sample.m_avg_ang_speed += ang_speed;
+				lin_speeds.push_back(lin_speed);
+				ang_speeds.push_back(ang_speed);
+				if (lin_speed > sample.m_max_lin_speed)
+				{
+					sample.m_max_lin_speed = lin_speed;
+					sample.m_max_lin_body = i;
+				}
+				if (ang_speed > sample.m_max_ang_speed)
+				{
+					sample.m_max_ang_speed = ang_speed;
+					sample.m_max_ang_body = i;
+				}
+			}
+			if (sample.m_dynamic_count != 0)
+			{
+				auto percentile = [](std::vector<float>& speeds, float pct)
+				{
+					std::sort(std::begin(speeds), std::end(speeds));
+					auto idx = static_cast<int>(std::round(pct * (std::ssize(speeds) - 1)));
+					return speeds[std::clamp(idx, 0, static_cast<int>(std::ssize(speeds) - 1))];
+				};
+
+				sample.m_avg_lin_speed /= sample.m_dynamic_count;
+				sample.m_avg_ang_speed /= sample.m_dynamic_count;
+				sample.m_p50_lin_speed = percentile(lin_speeds, 0.50f);
+				sample.m_p90_lin_speed = percentile(lin_speeds, 0.90f);
+				sample.m_p95_lin_speed = percentile(lin_speeds, 0.95f);
+				sample.m_p99_lin_speed = percentile(lin_speeds, 0.99f);
+				sample.m_p50_ang_speed = percentile(ang_speeds, 0.50f);
+				sample.m_p90_ang_speed = percentile(ang_speeds, 0.90f);
+				sample.m_p95_ang_speed = percentile(ang_speeds, 0.95f);
+				sample.m_p99_ang_speed = percentile(ang_speeds, 0.99f);
+			}
+
+			return sample;
+		}
 
 		int BodyIndex(Scene const& scene, physics::RigidBody const* body)
 		{
@@ -191,6 +278,36 @@ namespace physics_sandbox::diag
 				profile.m_engine.m_readback_ms / count,
 				profile.m_engine.m_gpu_run_ms / count,
 				profile.m_engine.m_unpack_ms / count));
+		}
+		void PrintSleepScan(std::ofstream& log, int step, double time_s, Scene const& scene, bool non_spheres_only)
+		{
+			auto sample = MeasureSleep(scene, non_spheres_only);
+			auto const& config = scene.m_physics.Config();
+			Emit(log, std::format(
+				"sleep step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} never={} lin(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f}) ang(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f})\n",
+				step,
+				time_s,
+				non_spheres_only ? "non-spheres" : "all",
+				sample.m_dynamic_count,
+				sample.m_sleeping_count,
+				sample.m_low_velocity_count,
+				sample.m_never_sleep_count,
+				sample.m_avg_lin_speed,
+				sample.m_p50_lin_speed,
+				sample.m_p90_lin_speed,
+				sample.m_p95_lin_speed,
+				sample.m_p99_lin_speed,
+				sample.m_max_lin_body,
+				sample.m_max_lin_speed,
+				config.sleep_velocity_threshold_lin,
+				sample.m_avg_ang_speed,
+				sample.m_p50_ang_speed,
+				sample.m_p90_ang_speed,
+				sample.m_p95_ang_speed,
+				sample.m_p99_ang_speed,
+				sample.m_max_ang_body,
+				sample.m_max_ang_speed,
+				config.sleep_velocity_threshold_ang));
 		}
 
 		void PrintBodyTrace(
@@ -303,7 +420,7 @@ namespace physics_sandbox::diag
 		if (options.m_engine_profile)
 			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
 		else if (options.m_scan_bodies)
-			Emit(log, std::format("scan_bodies=true ke_jump={:.3f}\n", options.m_trace_ke_jump));
+			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
 			Emit(log, " step    time_s  hits   max_depth    a    b            KE\n");
 		else
@@ -441,6 +558,7 @@ namespace physics_sandbox::diag
 
 					if (report_jump)
 						PrintBodyContacts(log, max_delta_kinetic_energy_body, trace_contacts);
+					PrintSleepScan(log, step + 1, scene.m_clock, scene, options.m_scan_non_spheres);
 				}
 
 				continue;

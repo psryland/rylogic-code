@@ -97,7 +97,7 @@ namespace pr::rdr12::ldraw
 		, m_name()
 		, m_context_id(context_id)
 		, m_base_colour(Colour32White)
-		, m_grp_colour(Colour32White)
+		, m_group_tint(Colour32White)
 		, m_root_anim()
 		, m_bbox_instance()
 		, m_screen_space()
@@ -566,8 +566,76 @@ namespace pr::rdr12::ldraw
 		}, name);
 	}
 
+	// Colour assignment helpers
+	namespace
+	{
+		// Walk the parents of 'obj' combining the group colours of each parent.
+		Colour32 CalculateInstanceColour(LdrObject const* obj, Colour32 col)
+		{
+			for (auto p = obj->m_parent; p != nullptr; p = p->m_parent)
+				col = Clamp(col, Colour32Zero, p->m_group_tint);
+			return col;
+		}
+
+		// Assigns 'new_colour' to 'obj' and ensures that the nugget has alpha variants if needed. Not recursive.
+		void AssignColour(LdrObject* obj, Colour32 new_colour, bool base_colour)
+		{
+			// Update the base colour before applying parent group colours.
+			if (base_colour)
+				obj->m_base_colour = new_colour;
+
+			// Update the instance colour
+			obj->m_colour = CalculateInstanceColour(obj, new_colour);
+
+			// Ensure the nuggets have alpha variants if needed.
+			if (HasAlpha(obj->m_colour) && obj->m_model != nullptr && !obj->m_model->m_nuggets->HasAlphaVariant())
+			{
+				// This is a one-way operation because models/nuggets are shared by instances,
+				// and we can't tell whether existing instances are still using alpha colours.
+				ResourceFactory factory(obj->m_model->rdr());
+
+				// Recreate the alpha variant of the nugget
+				// Don't clear if alpha == false because other instances might still need them
+				for (auto& nug : Enumerate(obj->m_model->m_nuggets))
+					nug.AlphaVariant(factory, true);
+			}
+		}
+	}
+
+	// The group colour is a multiplier applied to the colour of all child objects.
+	Colour32 LdrObject::GroupTint(char const* name) const
+	{
+		auto obj = Child(name);
+		return obj ? obj->m_group_tint : Colour32White;
+	}
+	void LdrObject::GroupTint(Colour32 colour, char const* name)
+	{
+		Apply([=](LdrObject* o)
+		{
+			o->m_group_tint = colour;
+
+			// If group colour is being applied recursively, then we don't need to recurse here
+			// Just assign the colour, the outer Apply will visit all children
+			if (name && *name == 0)
+			{
+				AssignColour(o, CalculateInstanceColour(o, o->m_base_colour), false);
+			}
+			// If not recurse, then we need to update the instance colour of this and all child objects
+			else
+			{
+				// Update the instance colour of this and all child objects
+				o->Apply([](LdrObject* oo)
+				{
+					AssignColour(oo, CalculateInstanceColour(oo, oo->m_base_colour), false);
+					return true;
+				}, "");
+			}
+			return true;
+		}, name);
+	}
+
 	// Get/Set the colour of this object or child objects matching 'name' (see Apply)
-	// If 'base_colour' is true, then the object's colour is change to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
+	// If 'base_colour' is true, then the object's colour is changed to the given value. If false, then the colour is combined with the base colour as a tint using 'op'
 	Colour32 LdrObject::Colour(bool base_colour, char const* name) const
 	{
 		Colour32 col;
@@ -582,6 +650,7 @@ namespace pr::rdr12::ldraw
 	{
 		Apply([=](LdrObject* o)
 		{
+			// Calculate the new colour based on the operation
 			auto base = o->m_base_colour;
 			switch (op)
 			{
@@ -604,81 +673,23 @@ namespace pr::rdr12::ldraw
 					throw std::runtime_error("Invalid colour operation");
 			}
 
-			// Update the base colour before applying parent group colours.
-			if (base_colour)
-				o->m_base_colour = base;
+			// Assign the colour
+			AssignColour(o, base, base_colour);
 
-			auto obj_colour = base;
-
-			// Apply the group colour of any parents
-			for (auto p = o->m_parent; p != nullptr; p = p->m_parent)
-				obj_colour = obj_colour * p->m_grp_colour;
-
-			// Otherwise, just update the instance colour. Group colour is an independent multiplier,
-			// not the already inherited instance colour.
-			o->m_colour = obj_colour;
-
-			// Ensure the nugget has alpha variants if needed
-			if (HasAlpha(o->m_colour) && o->m_model != nullptr)
-			{
-				ResourceFactory factory(o->m_model->rdr());
-
-				// Recreate the alpha variant of the nugget
-				// Don't clear if alpha == false because other instances might still need them
-				for (auto& nug : Enumerate(o->m_model->m_nuggets))
-					nug.AlphaVariant(factory, true);
-			}
-
+			// We don't need to worry about recursion because instance colour is based
+			// on group colour so settings the colour does not effect child objects.
 			return true;
 		}, name);
 
-		// Group colours always apply recursively
+		// Setting the colour of a LdrGroup is the same as setting the group tint
 		if (m_type == ELdrObject::Group && name == nullptr)
-		{
-			// Update the colour of child objects when the group's colour changes
-			// and it hasn't already been applied recursively.
-			Apply([=, this](LdrObject* o)
-			{
-				// Don't apply to the group itself, it's been done already.
-				if (o == this)
-					return true;
-
-				// Apply the group colour of any parents
-				auto obj_colour = o->m_base_colour;
-				for (auto p = o->m_parent; p != nullptr; p = p->m_parent)
-					obj_colour = obj_colour * p->m_grp_colour;
-
-				o->m_colour = obj_colour;
-
-				// Ensure the nugget has alpha variants if needed (the group colour may have made
-				// previously-opaque children require alpha blending).
-				if (HasAlpha(o->m_colour) && o->m_model != nullptr)
-				{
-					ResourceFactory factory(o->m_model->rdr());
-
-					// Recreate the alpha variant of the nugget.
-					// Don't clear if alpha == false because other instances might still need them.
-					for (auto& nug : Enumerate(o->m_model->m_nuggets))
-						nug.AlphaVariant(factory, true);
-				}
-
-				return true;
-			}, "");
-		}
+			GroupTint(m_colour, nullptr);
 	}
 
 	// Restore the colour to the initial colour for this object or child objects matching 'name' (see Apply)
 	void LdrObject::ResetColour(char const* name)
 	{
-		Apply([=](LdrObject* o)
-		{
-			o->m_colour = o->m_base_colour;
-			if (o->m_model == nullptr)
-				return true;
-
-			// Don't clear if not alpha because other instances might still need them
-			return true;
-		}, name);
+		Colour(false, m_base_colour, name, EColourOp::Overwrite);
 	}
 
 	// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)

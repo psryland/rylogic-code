@@ -81,7 +81,7 @@ void AutoGen()
 		"// AUTO-GENERATED-COMMANDS-END",
 		TransformEnumLineToNameValueNoStar);
 
-	// Update keywords in LDRTemplate.bt
+	// Update 'LDRTemplate.bt' keywords
 	ReplaceSection(
 		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
 		Path.Join(Root, "miscellaneous/010 templates/LDRTemplate.bt"),
@@ -98,6 +98,32 @@ void AutoGen()
 		"// AUTO-GENERATED-COMMANDS-BEGIN",
 		"// AUTO-GENERATED-COMMANDS-END",
 		TransformEnumLineTo010Template);
+
+	// Update 'LdrSyntaxRules.xshd' keywords
+	ReplaceSection(
+		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
+		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		"#define PR_LDRAW_OBJECTS(x)",
+		"PR_LDRAW_OBJECTS_END",
+		"<!-- ##AUTO-GENERATED## ELdrObject Begin -->",
+		"<!-- ##AUTO-GENERATED## ELdrObject End -->",
+		TransformEnumLineToXshdObject);
+	ReplaceSection(
+		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
+		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		"#define PR_LDRAW_KEYWORDS(x)",
+		"PR_LDRAW_KEYWORDS_END",
+		"<!-- ##AUTO-GENERATED## EKeyword Begin -->",
+		"<!-- ##AUTO-GENERATED## EKeyword End -->",
+		TransformEnumLineToXshdKeyword);
+	ReplaceSection(
+		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
+		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		"#define PR_LDRAW_COMMANDS(x)",
+		"PR_LDRAW_COMMANDS_END",
+		"<!-- ##AUTO-GENERATED## ECommandId Begin -->",
+		"<!-- ##AUTO-GENERATED## ECommandId End -->",
+		TransformEnumLineToXshdCommand);
 }
 
 // Convert from a line of text to a C++ string literal
@@ -143,10 +169,39 @@ string TransformEnumLineTo010Template(string line)
 	return match.Success ? $"{match.Groups[1].Value} = {HashI(match.Groups[1].Value)}," : line.Trim();
 }
 
+// Convert from C++ code macro to an AvalonEdit object keyword
+string TransformEnumLineToXshdObject(string line)
+{
+	var match = Pattern.Match(line.Trim());
+	if (!match.Success)
+		return line.Trim();
+
+	var name = match.Groups[1].Value;
+	return name != "Unknown" ? $"<Word>*{name}</Word>" : "";
+}
+
+// Convert from C++ code macro to an AvalonEdit syntax keyword
+string TransformEnumLineToXshdKeyword(string line)
+{
+	var match = Pattern.Match(line.Trim());
+	return match.Success ? $"<Word>*{match.Groups[1].Value}</Word>" : line.Trim();
+}
+
+// Convert from C++ code macro to an AvalonEdit syntax command
+string TransformEnumLineToXshdCommand(string line)
+{
+	var match = Pattern.Match(line.Trim());
+	if (!match.Success)
+		return line.Trim();
+
+	var name = match.Groups[1].Value;
+	return name != "Invalid" ? $"<Word>{name}</Word>" : "";
+}
+
 // Replace a block of lines within a file from lines from another file
 // If 'src_tag_begin' and 'src_tag_end' are None, the entire file is used
 // If 'dst_tag_begin' and 'dst_tag_end' are None, the entire file is replaced
-// 'transform' has a signature of: "transform(line) -> line". Result should have no trailing newline or leading whitespace
+// 'transform' has a signature of: "transform(line) -> line". Result should have no trailing newline or leading whitespace. Empty results are skipped.
 void ReplaceSection(string src_file, string dst_file, string? src_tag_begin, string? src_tag_end, string? dst_tag_begin, string? dst_tag_end, Func<string, string> transform)
 {
 	if (!File.Exists(src_file))
@@ -187,7 +242,14 @@ void ReplaceSection(string src_file, string dst_file, string? src_tag_begin, str
 			within_tags = true;
 			indent = line[..line.IndexOf(dst_tag_begin)];
 			lines.Add(line);
-			lines.AddRange(embed.Select(l => $"{indent}{transform(l)}"));
+			foreach (var embed_line in embed)
+			{
+				var replace_line = transform(embed_line);
+				if (replace_line.Length == 0)
+					continue;
+
+				lines.Add($"{indent}{replace_line}");
+			}
 			continue;
 		}
 		if (dst_tag_end is not null && line.Contains(dst_tag_end))
