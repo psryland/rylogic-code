@@ -6,6 +6,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/compute/physics_types.h"
 
 namespace pr::physics::tests
 {
@@ -261,6 +262,52 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(o2w.pos, pos));
 			PR_EXPECT(FEqlRelative(o2w.rot, rot, 0.01f));
 		}
+		PRUnitTestMethod(AsymmetricPolytopeRotatesAboutCentreOfMass)
+		{
+			constexpr v4 verts[] = {
+				v4{-0.8f, -0.8f, -0.5f, 1},
+				v4{+0.8f, -0.8f, -0.5f, 1},
+				v4{+0.0f, +0.1f, -0.1f, 1},
+				v4{+0.0f, +0.0f, +0.8f, 1},
+			};
+			auto true_com = (0.25f * (verts[0] + verts[1] + verts[2] + verts[3])).w0();
+			auto buf = collision::BuildPolytopeFromPoints(verts);
+			auto& polytope = buf.as<collision::ShapePolytope>();
+
+			// BuildPolytopeFromPoints keeps the local vertices centred and stores the true object-space offset in m_s2r.
+			PR_EXPECT(FEqlAbsolute(collision::CalcCentreOfMass(polytope), v4{}, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(polytope.m_base.m_s2r.pos.w0(), true_com, 1e-5f));
+
+			auto mp = CalcMassProperties(polytope, 1.0f);
+			PR_EXPECT(FEqlAbsolute(mp.m_centre_of_mass, true_com, 1e-5f));
+
+			auto rb = RigidBody{};
+			rb.O2W(m4x4::Translation(v4{0, 0, 2.5f, 1}));
+			rb.Shape(&polytope.m_base, 10.0f);
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOS(), true_com, 1e-5f));
+			auto bbox_os = rb.Shape().m_s2r * rb.Shape().m_bbox;
+			auto bbox_ws = rb.BBoxWS();
+			auto dyn = PackDynamics(rb, 0);
+			for (auto const& vert : verts)
+			{
+				PR_EXPECT(IsWithin(bbox_os, vert, 1e-5f));
+				PR_EXPECT(IsWithin(bbox_ws, rb.O2W() * vert, 1e-5f));
+				PR_EXPECT(IsWithin(dyn.os_bbox, vert, 1e-5f));
+			}
+
+			auto ang_vel = v4{-11.72f, -13.07f, +0.65f, 0};
+			auto lin_vel = v4{0, 0, +5.60f, 0};
+			rb.VelocityWS(v8motion{ang_vel, lin_vel});
+
+			auto dt = 1.0f / 60.0f;
+			auto com_ws0 = rb.O2W().pos + rb.O2W().rot * true_com;
+			Evolve(rb, dt);
+
+			auto com_ws1 = rb.O2W().pos + rb.O2W().rot * true_com;
+			auto expected_com_ws1 = com_ws0 + lin_vel * dt;
+			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.O2W().rot * true_com, 1e-4f));
+		}
 		PRUnitTestMethod(Extrapolation)
 		{
 			auto mass = 5.0f;
@@ -321,6 +368,69 @@ namespace pr::physics::tests
 			// shifted_lin = (1,0,0) + (1,0,0) = (2,0,0)
 			auto ws_vel = rb.VelocityWS();
 			PR_EXPECT(FEql(ws_vel, v8motion{0, 0, 1, 2, 0, 0}));
+		}
+		PRUnitTestMethod(SleepState)
+		{
+			auto rb = RigidBody{};
+			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
+			rb.MomentumWS(v8force{0, 0, 1, 1, 2, 3});
+			rb.ApplyForceWS(v8force{0, 1, 0, 4, 5, 6});
+
+			rb.Sleep();
+			PR_EXPECT(rb.Sleeping());
+			PR_EXPECT(FEql(rb.MomentumWS(), v8force{}));
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+
+			rb.Wake();
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleeping(true);
+			PR_EXPECT(rb.Sleeping());
+
+			rb.NeverSleep(true);
+			PR_EXPECT(rb.NeverSleep());
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.NeverSleep(false);
+			rb.Sleeping(true);
+			PR_EXPECT(rb.Sleeping());
+		}
+		PRUnitTestMethod(SleepWakeRules)
+		{
+			auto rb = RigidBody{};
+			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
+
+			rb.Sleep();
+			rb.ApplyForceWS(v8force{});
+			PR_EXPECT(rb.Sleeping());
+
+			rb.ApplyForceWS(v8force{0, 0, 0, 1, 0, 0});
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleep();
+			rb.GravityWS(v4{0, -9.8f, 0, 0});
+			PR_EXPECT(rb.Sleeping());
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+
+			rb.Wake();
+			rb.GravityWS(v4{0, -9.8f, 0, 0});
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{0, 0, 0, 0, -49.0f, 0}));
+
+			rb.ZeroForces();
+			rb.Sleep();
+			rb.O2W(rb.O2W());
+			PR_EXPECT(!rb.Sleeping()); // Setting o2w always wakes an object
+
+			rb.Sleep();
+			rb.O2W(m4x4::Translation(v4{1, 0, 0, 1}));
+			PR_EXPECT(!rb.Sleeping());
+
+			rb.Sleep();
+			rb.Mass(rb.Mass());
+			PR_EXPECT(rb.Sleeping());
+
+			rb.Mass(10.0f);
+			PR_EXPECT(!rb.Sleeping());
 		}
 		PRUnitTestMethod(DzhanibekovEffect)
 		{

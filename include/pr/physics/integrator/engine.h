@@ -14,13 +14,45 @@ namespace pr::physics
 		{
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
+			double m_upload_ms = 0;
 			double m_integrate_ms = 0;
+			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_resolve_ms = 0;
+			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
 			double m_unpack_ms = 0;
+		};
+		struct CollisionStats
+		{
+			int m_pair_count = 0;
+			int m_contact_count = 0;
+			int m_max_pairs = 0;
+			int m_max_contacts = 0;
+
+			// Number of contacts stored during the most recent call to Step().
+			int LastContactCount() const
+			{
+				return std::min(m_contact_count, m_max_contacts);
+			}
+			bool PairLimitReached() const
+			{
+				return m_max_pairs != 0 && m_pair_count >= m_max_pairs;
+			}
+			bool PairLimitExceeded() const
+			{
+				return m_max_pairs != 0 && m_pair_count > m_max_pairs;
+			}
+			bool ContactLimitReached() const
+			{
+				return m_max_contacts != 0 && m_contact_count >= m_max_contacts;
+			}
+			bool ContactLimitExceeded() const
+			{
+				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
+			}
 		};
 
 		// Notes:
@@ -40,16 +72,19 @@ namespace pr::physics
 		// GPU device and command queue wrapper, shared by the integrator and collision detector.
 		GpuPtr m_gpu;
 
-		// GPU integrator (opaque)
+		// GPU integrator
 		GpuIntegratorPtr m_gpu_integrator;
 
-		// GPU broadphase (opaque)
+		// GPU sleep/wake management
+		GpuSleepManagerPtr m_gpu_sleep_manager;
+
+		// GPU broadphase
 		GpuSortAndSweepPtr m_gpu_sort_and_sweep;
 
-		// GPU collision detector (opaque)
+		// GPU collision detector
 		GpuCollisionDetectorPtr m_gpu_collision_detector;
 
-		// GPU collision resolver (opaque)
+		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
 
 		// Material map for looking up combined material properties during collision resolution.
@@ -60,12 +95,22 @@ namespace pr::physics
 
 		// Storage for body pointers
 		std::vector<RigidBody*> m_body_ptrs;
+
+		// Diagnostics
+		StepProfile m_last_step_profile;
+		CollisionStats m_last_collision_stats;
 		
 		friend struct DbgPhysics;
 
 	public:
 
 		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
+
+		// Engine configuration in use by this instance.
+		EngineConfig const& Config() const
+		{
+			return m_config;
+		}
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);
@@ -101,10 +146,10 @@ namespace pr::physics
 			return m_last_step_profile;
 		}
 
-		// Number of contacts generated during the most recent call to Step().
-		int LastContactCount() const
+		// Raw collision counts from the most recent call to Step().
+		CollisionStats const& LastCollisionStats() const
 		{
-			return m_last_contact_count;
+			return m_last_collision_stats;
 		}
 
 	private:
@@ -112,8 +157,14 @@ namespace pr::physics
 		// Pack the body data into GPU buffers for the current frame.
 		void Pack(std::span<RigidBody*> rigid_bodies);
 
+		// Upload staged body data into GPU buffers for the current frame.
+		void Upload();
+
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 		void Integrate(float dt);
+
+		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
+		void SleepWake();
 
 		// Broadphase collision detection to generate potential collision pairs.
 		void BroadPhase();
@@ -123,6 +174,9 @@ namespace pr::physics
 
 		// Apply impulses to resolve collisions and update body dynamics.
 		void Resolve(float dt);
+
+		// Persist wake-ups and update sleep state after collision resolution.
+		void SleepUpdate(float dt);
 
 		// Read buffers back to CPU memory
 		void Readback(GpuBuffers& buffers);
@@ -136,8 +190,5 @@ namespace pr::physics
 
 		// Calculate and apply the restitution impulse to resolve a collision.
 		void ResolveCollision(RbContact& c);
-
-		StepProfile m_last_step_profile;
-		int m_last_contact_count;
 	};
 }

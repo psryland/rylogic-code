@@ -173,6 +173,112 @@ namespace pr::physics::tests
 		return result;
 	}
 
+	PRUnitTestClass(SleepingBroadphaseTests)
+	{
+		PRUnitTestMethod(LowVelocityBodySleepsAfterDelay)
+		{
+			auto box = MakeBox();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+
+			RigidBody body;
+			body.Shape(collision::shape_cast(&box), 1.0f);
+			body.O2W(m4x4::Translation(0, 0, 5));
+			RigidBody* body_ptrs[] = { &body };
+
+			ResetEngineForNextTest(engine);
+			for (int step = 0; step != 61; ++step)
+				engine.Step(dt, body_ptrs);
+
+			PR_EXPECT(body.Sleeping());
+		}
+
+		PRUnitTestMethod(StaticContactsDoNotPreventSleep)
+		{
+			auto box = MakeBox();
+			auto ground_shape = MakeGround();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+
+			RigidBody bodies[2];
+			bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+			bodies[0].O2W(m4x4::Translation(0, 0, 0.49f));
+			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
+			bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
+
+			ResetEngineForNextTest(engine);
+			for (int step = 0; step != 61; ++step)
+				engine.Step(dt, bodies);
+
+			PR_EXPECT(bodies[0].Sleeping());
+		}
+
+		PRUnitTestMethod(AllSleepingSceneSkipsGpuPipeline)
+		{
+			auto box = MakeBox();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+			auto bodies = std::vector<RigidBody>(10000);
+
+			for (int i = 0; i != std::ssize(bodies); ++i)
+			{
+				auto& body = bodies[i];
+				auto x = static_cast<float>(i % 100) * 3.0f;
+				auto y = static_cast<float>(i / 100) * 3.0f;
+				body.Shape(collision::shape_cast(&box), 1.0f);
+				body.O2W(m4x4::Translation(x, y, 5.0f));
+				body.Sleep();
+			}
+
+			ResetEngineForNextTest(engine);
+			engine.Step(dt, bodies);
+
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 0);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
+			PR_EXPECT(engine.LastStepProfile().m_gpu_run_ms == 0.0);
+			PR_EXPECT(engine.LastStepProfile().m_broadphase_ms == 0.0);
+			PR_EXPECT(std::all_of(std::begin(bodies), std::end(bodies), [](RigidBody const& body)
+			{
+				return body.Sleeping();
+			}));
+		}
+
+		PRUnitTestMethod(SleepingPairsAreFilteredUntilDisturbed)
+		{
+			auto box = MakeBox();
+			auto const dt = 1.0f / 60.0f;
+			auto& engine = SharedEngine();
+
+			{
+				RigidBody bodies[2];
+				bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[0].O2W(m4x4::Translation(0, 0, 0));
+				bodies[0].Sleep();
+				bodies[1].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[1].O2W(m4x4::Translation(0.25f, 0, 0));
+				bodies[1].Sleep();
+
+				ResetEngineForNextTest(engine);
+				engine.Step(dt, bodies);
+				PR_EXPECT(engine.LastCollisionStats().m_pair_count == 0);
+			}
+
+			{
+				RigidBody bodies[2];
+				bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[0].O2W(m4x4::Translation(0, 0, 0));
+				bodies[1].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[1].O2W(m4x4::Translation(0.25f, 0, 0));
+				bodies[1].Sleep();
+
+				ResetEngineForNextTest(engine);
+				engine.Step(dt, bodies);
+				PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+				PR_EXPECT(!bodies[1].Sleeping());
+			}
+		}
+	};
+
 	// ===== Drop-onto-ground tests for every shape type =====
 	// Ground is a large box. This tests the most critical collision pairs
 	// in typical scenes (everything falls onto a box ground plane).

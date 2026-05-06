@@ -338,7 +338,7 @@ namespace pr
 			Transform    = 1 << 2,
 			Children     = 1 << 3,
 			Colour       = 1 << 4,
-			GroupColour  = 1 << 5,
+			GroupTint    = 1 << 5,
 			Reflectivity = 1 << 6,
 			Flags        = 1 << 7,
 			Animation    = 1 << 8,

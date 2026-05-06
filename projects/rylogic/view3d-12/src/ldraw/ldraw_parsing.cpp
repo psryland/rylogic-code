@@ -541,9 +541,9 @@ namespace pr::rdr12::ldraw
 				obj->Flags(ELdrFlags::NonAffine, !affine);
 				return true;
 			}
-			case EKeyword::GroupColour:
+			case EKeyword::GroupTint:
 			{
-				obj->m_grp_colour = reader.Int<uint32_t>(16);
+				obj->m_group_tint = reader.Int<uint32_t>(16);
 				return true;
 			}
 			case EKeyword::Reflectivity:
@@ -616,15 +616,14 @@ namespace pr::rdr12::ldraw
 		// Set colour on 'obj' (so that render states are set correctly)
 		obj->Colour(true, obj->m_base_colour);
 
-		// Groups implicitly tint descendants with their base colour, unless *GroupColour was set explicitly.
+		// Groups implicitly tint descendants with their base colour, unless *GroupTint was set explicitly.
 		// This makes the script read naturally (e.g. '*Group "grp" FF00FF00 { ... }' tints children green).
-		if (obj->m_type == ELdrObject::Group && obj->m_grp_colour == Colour32White)
-			obj->m_grp_colour = obj->m_base_colour;
+		if (obj->m_type == ELdrObject::Group && obj->m_group_tint == Colour32White)
+			obj->m_group_tint = obj->m_base_colour;
 
-		// Recalculate colours after setting 'm_grp_colour'. 'Colour' already applies the parent
-		// group-colour chain, so use the identity multiplier here.
-		if (obj->m_grp_colour != Colour32White)
-			obj->Colour(false, Colour32White, "", EColourOp::Multiply);
+		// Recalculate colours after setting 'm_group_tint'.
+		if (obj->m_group_tint != Colour32White)
+			obj->ResetColour("");
 
 		// If flagged as hidden, hide
 		if (AllSet(obj->Flags(), ELdrFlags::Hidden))
@@ -5899,11 +5898,12 @@ namespace pr::rdr12::ldraw
 			{
 				obj->m_o2p = source->m_o2p;
 				obj->m_base_colour = source->m_base_colour;
-				obj->m_grp_colour = source->m_grp_colour;
+				obj->m_group_tint = source->m_group_tint;
 				obj->m_root_anim = source->m_root_anim;
 				obj->m_screen_space = source->m_screen_space;
 				obj->m_flags_local = source->m_flags_local;
 				obj->m_flags_recursive = source->m_flags_recursive;
+				obj->ResetColour();
 			}
 
 			for (auto source_child : source->m_child)
@@ -6373,8 +6373,8 @@ namespace pr::rdr12::ldraw
 				std::swap(object->m_flags_recursive, rhs->m_flags_recursive);
 			if (AllSet(flags, EUpdateObject::Animation))
 				std::swap(object->m_root_anim, rhs->m_root_anim);
-			if (AllSet(flags, EUpdateObject::GroupColour))
-				std::swap(object->m_grp_colour, rhs->m_grp_colour);
+			if (AllSet(flags, EUpdateObject::GroupTint))
+				std::swap(object->m_group_tint, rhs->m_group_tint);
 			if (AllSet(flags, EUpdateObject::Reflectivity))
 				std::swap(object->m_env, rhs->m_env);
 			if (AllSet(flags, EUpdateObject::Colour))

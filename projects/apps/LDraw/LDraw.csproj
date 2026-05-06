@@ -37,7 +37,7 @@
 
 	<!-- Pre Build -->
 	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)UpdateLDrawSyntax.csx" />
+		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(RylogicRoot)projects\rylogic\view3d-12\auto_gen.csx $(RylogicRoot)" />
 	</Target>
 
 	<!-- Targets  -->

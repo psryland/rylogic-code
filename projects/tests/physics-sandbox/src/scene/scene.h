@@ -20,6 +20,24 @@ namespace physics_sandbox
 			double m_kill_zone_ms = 0;
 			physics::Engine::StepProfile m_engine;
 		};
+		struct LoadProfile
+		{
+			double m_total_ms = 0;
+			double m_prepare_ms = 0;
+			double m_bbox_ms = 0;
+			double m_shapes_ms = 0;
+			double m_bodies_ms = 0;
+			double m_ldraw_build_ms = 0;
+			double m_ldraw_serialise_ms = 0;
+			double m_ldraw_parse_ms = 0;
+			double m_ldraw_assign_ms = 0;
+			double m_logging_ms = 0;
+			int m_body_count = 0;
+			int m_shape_count = 0;
+			int m_ldraw_object_count = 0;
+			size_t m_ldraw_byte_count = 0;
+			bool m_has_renderer = false;
+		};
 
 		rdr12::Renderer* m_rdr;
 
@@ -65,6 +83,7 @@ namespace physics_sandbox
 		// Diagnostics
 		CollisionDiag m_diag;
 		StepProfile m_last_step_profile;
+		LoadProfile m_last_load_profile;
 		int m_step_count;
 
 		explicit Scene(rdr12::Renderer* rdr);

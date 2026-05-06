@@ -151,7 +151,7 @@ namespace pr::rdr12::ldraw
 			"{\n"
 			"	[@o2w]\n"
 			"	[*Colour {<colour>}]\n"
-			"	[*GroupColour {<colour>}]\n"
+			"	[*GroupTint {<colour>}]\n"
 			"	[*Reflectivity {<amount>}]\n"
 			"	[*RandColour {}]\n"
 			"	[*Hidden {[true|false]}]\n"

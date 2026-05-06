@@ -20,8 +20,6 @@
 		<!-- Ldr Objects -->
 		<Keywords color="Object">
 			<!-- ##AUTO-GENERATED## ELdrObject Begin -->
-			<Word>*Arrow</Word>
-			<Word>*Bar</Word>
 			<Word>*Box</Word>
 			<Word>*BoxList</Word>
 			<Word>*Chart</Word>
@@ -38,11 +36,8 @@
 			<Word>*Group</Word>
 			<Word>*Instance</Word>
 			<Word>*LightSource</Word>
-			<Word>*LineNew</Word>
 			<Word>*Line</Word>
 			<Word>*LineBox</Word>
-			<Word>*LineD</Word>
-			<Word>*LineStrip</Word>
 			<Word>*Mesh</Word>
 			<Word>*Model</Word>
 			<Word>*Pie</Word>
@@ -54,7 +49,7 @@
 			<Word>*Ribbon</Word>
 			<Word>*Series</Word>
 			<Word>*Sphere</Word>
-			<Word>*Spline</Word>
+			<Word>*SphereList</Word>
 			<Word>*Text</Word>
 			<Word>*Triangle</Word>
 			<Word>*Tube</Word>
@@ -76,6 +71,7 @@
 			<Word>*Anchor</Word>
 			<Word>*AngAccel</Word>
 			<Word>*AngVelocity</Word>
+			<Word>*AnimSource</Word>
 			<Word>*Animation</Word>
 			<Word>*Arrow</Word>
 			<Word>*Aspect</Word>
@@ -83,13 +79,11 @@
 			<Word>*AxisId</Word>
 			<Word>*BackColour</Word>
 			<Word>*BakeTransform</Word>
-			<Word>*Bar</Word>
 			<Word>*Billboard</Word>
 			<Word>*Billboard3D</Word>
 			<Word>*BinaryStream</Word>
 			<Word>*Box</Word>
 			<Word>*BoxList</Word>
-			<Word>*Camera</Word>
 			<Word>*CastShadow</Word>
 			<Word>*Chart</Word>
 			<Word>*Circle</Word>
@@ -107,11 +101,13 @@
 			<Word>*Cylinder</Word>
 			<Word>*Dashed</Word>
 			<Word>*Data</Word>
+			<Word>*DataPoints</Word>
 			<Word>*Depth</Word>
 			<Word>*Diffuse</Word>
 			<Word>*Dim</Word>
 			<Word>*Direction</Word>
 			<Word>*Divisions</Word>
+			<Word>*EndCaps</Word>
 			<Word>*Equation</Word>
 			<Word>*Euler</Word>
 			<Word>*Faces</Word>
@@ -127,37 +123,40 @@
 			<Word>*FovY</Word>
 			<Word>*Frame</Word>
 			<Word>*FrameRange</Word>
+			<Word>*FrameRate</Word>
 			<Word>*FrustumFA</Word>
 			<Word>*FrustumWH</Word>
 			<Word>*GenerateNormals</Word>
 			<Word>*Grid</Word>
 			<Word>*Group</Word>
-			<Word>*GroupColour</Word>
+			<Word>*GroupTint</Word>
 			<Word>*Hidden</Word>
+			<Word>*HideWhenNotAnimating</Word>
 			<Word>*Instance</Word>
 			<Word>*Inverse</Word>
 			<Word>*Layers</Word>
 			<Word>*LeftHanded</Word>
 			<Word>*LightSource</Word>
-			<Word>*LineNew</Word>
 			<Word>*Line</Word>
 			<Word>*LineBox</Word>
-			<Word>*LineD</Word>
 			<Word>*LineList</Word>
 			<Word>*Lines</Word>
 			<Word>*LineStrip</Word>
-			<Word>*LoadAtFrame</Word>
 			<Word>*LookAt</Word>
 			<Word>*M3x3</Word>
 			<Word>*M4x4</Word>
 			<Word>*Mesh</Word>
 			<Word>*Model</Word>
+			<Word>*Montage</Word>
 			<Word>*Name</Word>
 			<Word>*Near</Word>
 			<Word>*NewLine</Word>
 			<Word>*NonAffine</Word>
+			<Word>*NoMaterials</Word>
 			<Word>*Normalise</Word>
 			<Word>*Normals</Word>
+			<Word>*NoTranslation</Word>
+			<Word>*NoRotation</Word>
 			<Word>*NoZTest</Word>
 			<Word>*NoZWrite</Word>
 			<Word>*O2W</Word>
@@ -174,6 +173,9 @@
 			<Word>*Pie</Word>
 			<Word>*Plane</Word>
 			<Word>*Point</Word>
+			<Word>*PointDepth</Word>
+			<Word>*PointSize</Word>
+			<Word>*PointStyle</Word>
 			<Word>*Polygon</Word>
 			<Word>*Pos</Word>
 			<Word>*Position</Word>
@@ -200,7 +202,7 @@
 			<Word>*Source</Word>
 			<Word>*Specular</Word>
 			<Word>*Sphere</Word>
-			<Word>*Spline</Word>
+			<Word>*SphereList</Word>
 			<Word>*Square</Word>
 			<Word>*Step</Word>
 			<Word>*Stretch</Word>
@@ -212,6 +214,7 @@
 			<Word>*TextLayout</Word>
 			<Word>*TextStream</Word>
 			<Word>*Texture</Word>
+			<Word>*TimeBias</Word>
 			<Word>*TimeRange</Word>
 			<Word>*Transpose</Word>
 			<Word>*Triangle</Word>
@@ -235,6 +238,16 @@
 			<Word>*YAxis</Word>
 			<Word>*ZAxis</Word>
 			<!-- ##AUTO-GENERATED## EKeyword End -->
+		</Keywords>
+
+		<!-- Ldr Commands -->
+		<Keywords color="Keyword">
+			<!-- ##AUTO-GENERATED## ECommandId Begin -->
+			<Word>Clear</Word>
+			<Word>ObjectToWorld</Word>
+			<Word>ObjectColour</Word>
+			<Word>Render</Word>
+			<!-- ##AUTO-GENERATED## ECommandId End -->
 		</Keywords>
 
 		<!-- Preprocessor -->

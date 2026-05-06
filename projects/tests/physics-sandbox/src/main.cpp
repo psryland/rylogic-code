@@ -9,7 +9,7 @@
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
-#include "src/diagnostics/stack_diagnostic.h"
+#include "src/diagnostics/scene_diagnostic.h"
 #include "physics/src/unittests/force_link.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
@@ -53,13 +53,13 @@ namespace physics_sandbox
 		return failed > 0 ? 1 : 0;
 	}
 
-	// Run a headless stacked-object diagnostic and print post-step penetration metrics.
-	int RunStackDiagnostic(pr::CmdLine const& cmd)
+	// Run a headless scene diagnostic and print post-step penetration metrics.
+	int RunSceneDiagnostic(pr::CmdLine const& cmd)
 	{
 		OpenConsoleOutput();
-		auto log_path = AppDataPath() / "stackdiag.log";
+		auto log_path = AppDataPath() / "scene_diagnostic.log";
 
-		auto options = diag::StackDiagnosticOptions{
+		auto options = diag::SceneDiagnosticOptions{
 			.m_scene_filepath = "projects\\tests\\physics-sandbox\\scenes\\stacked_column.json",
 		};
 		if (cmd.count("scene"))
@@ -70,10 +70,33 @@ namespace physics_sandbox
 			options.m_dt = cmd("dt").as<double>();
 		if (cmd.count("report"))
 			options.m_report_interval = cmd("report").as<int>();
+		if (cmd.count("body"))
+			options.m_trace_body = cmd("body").as<int>();
+		if (cmd.count("trace_start"))
+			options.m_trace_start = cmd("trace_start").as<int>();
+		if (cmd.count("trace_end"))
+			options.m_trace_end = cmd("trace_end").as<int>();
+		if (cmd.count("ke_jump"))
+			options.m_trace_ke_jump = cmd("ke_jump").as<float>();
+		if (cmd.count("scan"))
+			options.m_scan_bodies = true;
+		if (cmd.count("scan_non_spheres"))
+		{
+			options.m_scan_bodies = true;
+			options.m_scan_non_spheres = true;
+		}
+		if (cmd.count("engine_profile"))
+			options.m_engine_profile = true;
 
 		try
 		{
-			diag::RunStackDiagnostic(options);
+			if (cmd.count("quiet"))
+			{
+				FILE* out = nullptr;
+				freopen_s(&out, "NUL", "w", stdout);
+			}
+
+			diag::RunSceneDiagnostic(options);
 			return 0;
 		}
 		catch (std::exception const& ex)
@@ -120,9 +143,9 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
 		return physics_sandbox::RunUnitTests(filter);
 	}
-	if (cmd.count("stackdiag"))
+	if (cmd.count("stackdiag") || cmd.count("scenediag"))
 	{
-		return physics_sandbox::RunStackDiagnostic(cmd);
+		return physics_sandbox::RunSceneDiagnostic(cmd);
 	}
 
 	// Interactive sandbox mode.

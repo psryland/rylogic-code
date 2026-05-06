@@ -23,8 +23,11 @@ namespace pr::physics
 
 		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
 
-		// Integrate bodies on GPU and readback AABBs (but keep bodies GPU-resident for later readback).
-		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt);
+		// Upload staged body dynamics and reset collision counters.
+		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies);
+
+		// Integrate bodies on GPU and write AABBs (but keep bodies GPU-resident for later readback).
+		void Integrate(GpuJob& job, int body_count, float dt);
 
 		// CPU-side testing: upload bodies, integrate on GPU, readback results. Calls job.Run() internally.
 		void Integrate(GpuJob& job, std::span<GpuRigidBody> bodies, float dt, std::span<BBox> aabbs);

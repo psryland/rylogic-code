@@ -37,6 +37,11 @@ namespace pr::math
 			static auto s_unit = BoundingBox{ math::Origin<Vec4>(), S(0.5) * math::One<Vec4>().w0() };
 			return s_unit;
 		}
+		static constexpr BoundingBox const& Zero() noexcept
+		{
+			static auto s_zero = BoundingBox{ math::Origin<Vec4>(), S(0.5) * math::Zero<Vec4>().w0() };
+			return s_zero;
+		}
 		static constexpr BoundingBox const& Reset() noexcept
 		{
 			static auto s_reset = BoundingBox{ math::Origin<Vec4>(), -math::One<Vec4>().w0() };
@@ -66,7 +71,7 @@ namespace pr::math
 		// Returns true if this BoundingBox encloses a single point
 		constexpr bool is_point() const noexcept
 		{
-			return All(m_radius == Zero<Vec4>());
+			return All(m_radius == math::Zero<Vec4>());
 		}
 
 		// Returns true if all of the radii are non zero
@@ -78,7 +83,7 @@ namespace pr::math
 		// Set this BoundingBox to a unit cube centred on the origin
 		BoundingBox& unit() noexcept
 		{
-			m_centre = Origin<Vec4>();
+			m_centre = math::Origin<Vec4>();
 			m_radius = Vec4{ S(0.5), S(0.5), S(0.5), S(0) };
 			return *this;
 		}
@@ -271,7 +276,7 @@ namespace pr::math
 			pr_assert("m4x4 * BoundingBox: Transform is not affine" && IsAffine(m));
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BoundingBox bb(m.pos, Zero<Vec4>());
+			BoundingBox bb(m.pos, math::Zero<Vec4>());
 			auto mat = Transpose3x3(m);
 			for (int i = 0; i != 3; ++i)
 			{
@@ -284,7 +289,7 @@ namespace pr::math
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BoundingBox bb(Origin<Vec4>(), Zero<Vec4>());
+			BoundingBox bb(Origin<Vec4>(), math::Zero<Vec4>());
 			auto mat = Transpose(m);
 			for (int i = 0; i != 3; ++i)
 			{

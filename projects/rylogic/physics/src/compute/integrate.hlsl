@@ -36,8 +36,12 @@ struct cbIntegrate
 {
 	float dt;
 	int body_count;
+	int sleeping_enabled;
+	float pad0;
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
+	float pad1;
+	float pad2;
 };
 
 // Shader resources
@@ -48,6 +52,9 @@ RWStructuredBuffer<float> resource(g_aabb_x, u2);
 RWStructuredBuffer<float> resource(g_aabb_y, u3);
 RWStructuredBuffer<float> resource(g_aabb_z, u4);
 RWStructuredBuffer<int> resource(g_aabb_idx, u5);
+
+static const int AngularDriftSubstepMax = 32;
+static const float AngularDriftMaxRadians = 0.25f;
 
 // Compute the world-space AABB for a body and write it to the output buffers.
 odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
@@ -94,7 +101,11 @@ void CSIntegrate(int3 DTID(dtid))
 		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g.sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
 		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g.sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
 
-	bool stay_asleep = HasFlag(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
+	bool force_awake = !g.sleeping_enabled || AllSet(body.state_flags, ERigidBodyStateFlags_NeverSleep);
+	if (force_awake)
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+
+	bool stay_asleep = !force_awake && AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) && low_velocity;
 	if (stay_asleep)
 	{
 		// Sleeping body: zero momentum and forces, keep position unchanged.
@@ -108,10 +119,14 @@ void CSIntegrate(int3 DTID(dtid))
 		UpdateAABB(body, idx);
 		return;
 	}
-
-	// If the velocities are too high, reset the contact simplex
-	if (!low_velocity)
-		body.contact_simplex_count = 0;
+	if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping))
+	{
+		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
+		body.sleep.timer_s = 0.0f;
+		body.sleep.island_id = -1;
+		body.sleep.generation++;
+		body.sleep.flags = 0;
+	}
 
 	// ---- Step 2: Drift — update position and orientation ----
 	// Build the object-space unit inverse inertia (not mass-scaled)
@@ -135,27 +150,29 @@ void CSIntegrate(int3 DTID(dtid))
 	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
 
 	// Midpoint predictor for the rotation step:
-	// For anisotropic bodies, the angular velocity changes during the drift step
-	// because the world-space inertia tensor changes with orientation (precession).
-	// By estimating the rotation at the midpoint and recomputing omega there, we get
-	// second-order accuracy, significantly reducing secular energy drift.
-	float3x3 half_dR = rodrigues_rotation(vel_ang * (g.dt * 0.5f));
-	float3x3 mid_rot = mul(rot, half_dR);
-	mid_rot = orthonorm3x3(mid_rot);
-	float3x3 ws_iinv_mid_unit = rotate_inertia_inv(os_iinv_unit, mid_rot);
-	float3x3 ws_iinv_mid = inv_mass * ws_iinv_mid_unit;
-	float3 vel_ang_mid = mul(ws_iinv_mid, body.momentum_ang.xyz);
+	// For anisotropic bodies, angular velocity changes during the drift step because the world-space inertia tensor changes with orientation. Large
+	// angular displacements amplify this approximation error, so split the drift into small rotation increments while keeping the same angular momentum.
+	int angular_steps = clamp((int)ceil(length(vel_ang) * g.dt / AngularDriftMaxRadians), 1, AngularDriftSubstepMax);
+	float angular_dt = g.dt / (float)angular_steps;
+	float3x3 new_rot = rot;
+	for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
+	{
+		float3x3 step_iinv_unit = rotate_inertia_inv(os_iinv_unit, new_rot);
+		float3x3 step_iinv = inv_mass * step_iinv_unit;
+		float3 step_vel_ang = mul(step_iinv, body.momentum_ang.xyz);
 
-	// Compute the angular displacement using the midpoint angular velocity
-	float3 drot = vel_ang_mid * g.dt;
+		float3x3 half_dR = rodrigues_rotation(step_vel_ang * (angular_dt * 0.5f));
+		float3x3 mid_rot = mul(new_rot, half_dR);
+		mid_rot = orthonorm3x3(mid_rot);
 
-	// Apply rotation: R_new = Rodrigues(drot) * R_old
-	// In row-vector convention (rows = basis vectors): new_rot = mul(rot, dR)
-	float3x3 dR = rodrigues_rotation(drot);
-	float3x3 new_rot = mul(rot, dR);
+		float3x3 mid_iinv_unit = rotate_inertia_inv(os_iinv_unit, mid_rot);
+		float3x3 mid_iinv = inv_mass * mid_iinv_unit;
+		float3 mid_vel_ang = mul(mid_iinv, body.momentum_ang.xyz);
 
-	// Re-orthonormalize to prevent drift accumulation
-	new_rot = orthonorm3x3(new_rot);
+		float3x3 dR = rodrigues_rotation(mid_vel_ang * angular_dt);
+		new_rot = mul(new_rot, dR);
+		new_rot = orthonorm3x3(new_rot);
+	}
 
 	// CoM-based position update: translate CoM, derive model origin from new rotation.
 	float3 com_ws = mul(os_com, rot);          // world-space CoM offset

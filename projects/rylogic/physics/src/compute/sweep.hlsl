@@ -21,8 +21,8 @@ struct cbSweep
 {
 	int max_pair_count; // The maximum length of the g_collision_pairs buffer
 	int body_count;
-	int pad0;
-	int pad1;
+	int sleeping_enabled;
+	int sleep_island_count;
 };
 
 // Shader Resources
@@ -32,6 +32,26 @@ RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
 StructuredBuffer<GpuRigidBody> resource(g_bodies, t0);
 StructuredBuffer<int> resource(g_aabb_idx, t1);
+StructuredBuffer<GpuSleepIsland> resource(g_sleep_islands, t2);
+
+odr bool DynamicBody(in_(GpuRigidBody) body)
+{
+	return body.os_com_and_invmass.w > 0.0f &&
+		!AllSet(body.state_flags, ERigidBodyStateFlags_Static);
+}
+
+odr bool EffectiveAwake(in_(GpuRigidBody) body)
+{
+	if (!DynamicBody(body))
+		return false;
+
+	if (g.sleeping_enabled == 0 || !AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping))
+		return true;
+
+	int island_id = body.sleep.island_id;
+	return island_id >= 0 && island_id < g.sleep_island_count &&
+		AnySet(g_sleep_islands[island_id].flags, GpuSleepIslandFlags_Disturbed);
+}
 
 numthreads(CSSweep, SweepThreadCount, 1, 1)
 void CSSweep(int3 dtid : SV_DispatchThreadID)
@@ -85,8 +105,12 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 		// Canonicalise pair so lower body index is always 'a'.
 		if (BBox_IsIntersection(ws_bbox, other_ws_bbox))
 		{
+			if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb))
+				continue;
+
 			int idxA = min(rbA_idx, rbB_idx);
 			int idxB = max(rbA_idx, rbB_idx);
+			
 			// Allocate a slot in the collision pairs buffer atomically
 			uint slot;
 			InterlockedAdd(g_counters[0].pair_count, 1, slot);
@@ -110,7 +134,7 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 numthreads(CSCalcCDDispatch, 1,1,1)
 void CSCalcCDDispatch(int3 dtid : SV_DispatchThreadID)
 {
-	uint pair_count = g_counters[0].pair_count;
+	uint pair_count = min(g_counters[0].pair_count, g.max_pair_count);
 	g_dispatch_args[0].ThreadGroupCountX = (pair_count + CollideThreadCount - 1) / CollideThreadCount;
 	g_dispatch_args[0].ThreadGroupCountY = 1;
 	g_dispatch_args[0].ThreadGroupCountZ = 1;

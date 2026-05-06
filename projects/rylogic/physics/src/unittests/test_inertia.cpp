@@ -401,10 +401,10 @@ namespace pr::physics::tests
 
 			auto density = 1.0f;
 			auto mp_poly = CalcMassProperties(poly, density);
-			ShapeBox box(v4{2 * s, 2 * s, 2 * s, 0});
+			ShapeBox box(v4{2 * s, 2 * s, 2 * s, 0}, m4x4::Translation(v4{ox, oy, oz, 1}));
 			auto mp_box = CalcMassProperties(box, density);
 
-			PR_EXPECT(FEql(mp_poly.m_centre_of_mass, v4{}));
+			PR_EXPECT(FEql(mp_poly.m_centre_of_mass, v4{ox, oy, oz, 0}));
 			PR_EXPECT(FEql(poly.m_base.m_s2r.pos, v4{ox, oy, oz, 1.0f}));
 
 			auto& Ip = mp_poly.m_os_unit_inertia;
@@ -412,9 +412,9 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(Ip.x.x, Ib.x.x, 0.001f));
 			PR_EXPECT(FEqlRelative(Ip.y.y, Ib.y.y, 0.001f));
 			PR_EXPECT(FEqlRelative(Ip.z.z, Ib.z.z, 0.001f));
-			PR_EXPECT(FEql(Ip.x.y, 0.0f));
-			PR_EXPECT(FEql(Ip.x.z, 0.0f));
-			PR_EXPECT(FEql(Ip.y.z, 0.0f));
+			PR_EXPECT(FEqlRelative(Ip.x.y, Ib.x.y, 0.001f));
+			PR_EXPECT(FEqlRelative(Ip.x.z, Ib.x.z, 0.001f));
+			PR_EXPECT(FEqlRelative(Ip.y.z, Ib.y.z, 0.001f));
 		}
 		PRUnitTestMethod(PolytopeInertia_RegularTetrahedron)
 		{

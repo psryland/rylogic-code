@@ -77,7 +77,7 @@ namespace Rylogic.LDraw
 		GenerateNormals = unchecked((int)750341558),
 		Grid = unchecked((int)2944866961),
 		Group = unchecked((int)1605967500),
-		GroupColour = unchecked((int)2738848320),
+		GroupTint = unchecked((int)381584201),
 		Hidden = unchecked((int)4128829753),
 		HideWhenNotAnimating = unchecked((int)2975106646),
 		Instance = unchecked((int)193386898),

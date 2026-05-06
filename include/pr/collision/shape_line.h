@@ -21,7 +21,7 @@ namespace pr::collision
 
 		ShapeLine() = default;
 		explicit ShapeLine(float length, float radius = 0, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
-			: m_base(EShape::Line, sizeof(ShapeLine), shape_to_root, material_id, flags)
+			: m_base(EShape::Line, sizeof(ShapeLine), shape_to_root, BBox::Reset(), material_id, flags)
 			, m_hlength(length * 0.5f)
 			, m_radius(radius)
 			, pad()

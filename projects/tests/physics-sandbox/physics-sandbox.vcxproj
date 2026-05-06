@@ -61,7 +61,7 @@
     <ClCompile Include="src\ui\recent_files.cpp" />
     <ClCompile Include="src\utils\collision_dependency_check.cpp" />
     <ClCompile Include="src\diagnostics\diagnostics.cpp" />
-    <ClCompile Include="src\diagnostics\stack_diagnostic.cpp" />
+    <ClCompile Include="src\diagnostics\scene_diagnostic.cpp" />
     <ClCompile Include="src\scene\body.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
     <ClCompile Include="src\utils\scene_loader.cpp" />
@@ -121,7 +121,7 @@
     <ClInclude Include="..\..\..\include\pr\common\ldraw.h" />
     <ClInclude Include="src\forward.h" />
     <ClInclude Include="src\diagnostics\diagnostics.h" />
-    <ClInclude Include="src\diagnostics\stack_diagnostic.h" />
+    <ClInclude Include="src\diagnostics\scene_diagnostic.h" />
     <ClInclude Include="src\scene\body.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />

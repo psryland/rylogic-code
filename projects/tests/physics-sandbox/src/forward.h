@@ -17,6 +17,7 @@
 #include <format>
 #include <variant>
 #include <chrono>
+#include <random>
 #include <crtdbg.h>
 
 #include "pr/common/assert.h"

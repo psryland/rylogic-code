@@ -12,6 +12,7 @@ namespace pr::physics {
 #endif
 
 static const int IntegrateThreadCount = 64;
+static const int SleepThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
@@ -22,7 +23,8 @@ static const int GpuContactMaxPoints = 4;
 static const int ERigidBodyStateFlags_None = 0;
 static const int ERigidBodyStateFlags_Static = 1 << 0;
 static const int ERigidBodyStateFlags_Sleeping = 1 << 1;
-static const int ERigidBodyStateFlags_Collided = 1 << 2;
+static const int ERigidBodyStateFlags_NeverSleep = 1 << 2;
+static const int ERigidBodyStateFlags_Collided = 1 << 3;
 
 // Collision shape types:
 static const int SHAPE_SPHERE   = 0;
@@ -57,7 +59,30 @@ static const int FEATURE_EDGE = 2;
 static const int FEATURE_TRI  = 3;
 static const int FEATURE_QUAD = 4;
 
-// ---- GPU data structures (must match C++ layout exactly) ----
+static const uint POLY_FACE_IGNORE_AXIS = 1 << 0;
+static const uint POLY_EDGE_IGNORE_AXES = 1 << 0;
+
+// Sleep island flags:
+static const uint GpuSleepIslandFlags_None = 0;
+static const uint GpuSleepIslandFlags_Valid = 1 << 0;
+static const uint GpuSleepIslandFlags_Sleeping = 1 << 1;
+static const uint GpuSleepIslandFlags_Disturbed = 1 << 2;
+static const uint GpuSleepIslandFlags_HitThisFrame = 1 << 3;
+
+// Sleep island stats flags:
+static const uint GpuSleepIslandStatsFlags_Valid = 1 << 0;
+static const uint GpuSleepIslandStatsFlags_AllLow = 1 << 1;
+static const uint GpuSleepIslandStatsFlags_AllReady = 1 << 2;
+static const uint GpuSleepIslandStatsFlags_Wake = 1 << 3;
+
+// ---- GPU data structures ----
+struct GpuSleepData
+{
+	float timer_s;
+	int island_id;
+	uint generation;
+	uint flags;
+};
 struct GpuRigidBody
 {
 	// Object-to-world transform. Each HLSL row = one C++ column vector.
@@ -97,12 +122,26 @@ struct GpuRigidBody
 	// Written by CSComputeCollisionTimes, read by CSAssignColours.
 	uint colour_used;
 
-	// The number of valid points in the contact simplex.
-	int contact_simplex_count;
+	// Explicit padding keeps the structured-buffer stride a 16-byte multiple to match C++ alignment.
+	uint pad0;
 
-	// Contact support simplex (world space, relative to body origin).
-	// Up to 4 recent contact points. Only contacts with normals that oppose gravity are recorded.
-	float4 contact_simplex[4];
+	// Sleeping state for this body.
+	GpuSleepData sleep;
+};
+struct GpuSleepIsland
+{
+	BBox bbox_ws;
+	uint flags;
+	uint body_count;
+	uint generation;
+	uint pad0;
+};
+struct GpuSleepIslandStats
+{
+	uint flags;
+	uint body_count;
+	uint pad0;
+	uint pad1;
 };
 struct GpuShape
 {
@@ -111,7 +150,31 @@ struct GpuShape
 	int vert_offset;
 	int vert_count;
 	int material_id;
+	int face_offset;
+	int face_count;
+	int edge_offset;
+	int edge_count;
 	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,radius)
+};
+struct GpuPolytopeFace
+{
+	float4 plane; // xyz = local outward unit normal, w matches Plane3 convention
+	uint index0;
+	uint index1;
+	uint index2;
+	uint flags;
+};
+struct GpuPolytopeEdge
+{
+	float4 direction; // local-space, normalised
+	uint v0;
+	uint v1;
+	uint face0;
+	uint face1;
+	uint flags;
+	uint pad0;
+	uint pad1;
+	uint pad2;
 };
 struct GpuCollisionPair
 {
@@ -163,7 +226,9 @@ struct GpuMaterial
 	float pad1;
 	float pad2;
 };
-struct DispatchArguments // D3D12_DISPATCH_ARGUMENTS
+
+// D3D12_DISPATCH_ARGUMENTS
+struct DispatchArguments
 {
 	uint ThreadGroupCountX;
 	uint ThreadGroupCountY;

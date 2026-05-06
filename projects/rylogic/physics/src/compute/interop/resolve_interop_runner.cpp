@@ -31,17 +31,21 @@ namespace pr::physics
 				.body_count = body_count,
 				.colour = colour,
 				.dt = dt,
-				.sleep_velocity_threshold_lin = config.sleep_velocity_threshold_lin,
-				.sleep_velocity_threshold_ang = config.sleep_velocity_threshold_ang,
+				.pad1 = 0,
+				.pad2 = 0,
+				.pad3 = 0,
 				.penetration_slop = config.penetration_slop,
 				.velocity_baumgarte = config.velocity_baumgarte,
 				.deep_penetration_threshold = config.deep_penetration_threshold,
 				.deep_penetration_range = config.deep_penetration_range,
 				.deep_penetration_baumgarte_min = config.deep_penetration_baumgarte_min,
 				.deep_penetration_baumgarte_max = config.deep_penetration_baumgarte_max,
+				.pad4 = 0,
+				.pad5 = 0,
 				.position_slop = config.position_slop,
 				.position_baumgarte = config.position_baumgarte,
 				.position_correction_scale = PositionCorrectionScale(config),
+				.pad6 = 0,
 			};
 		}
 	}
