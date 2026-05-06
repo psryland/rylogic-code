@@ -15,7 +15,7 @@ namespace pr::physics
 		// angular velocity below 'sleep_velocity_threshold_ang' for some time, it can be put to sleep.
 		// These thresholds are in world units (e.g., m/s for linear, rad/s for angular).
 		bool sleeping_enabled = true;
-		float sleep_velocity_threshold_lin = 0.20f;
+		float sleep_velocity_threshold_lin = 0.25f;
 		float sleep_velocity_threshold_ang = 1.50f;
 		float sleep_delay_s = 1.0f;
 

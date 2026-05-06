@@ -572,7 +572,7 @@ namespace pr::rdr12::ldraw
 		// Walk the parents of 'obj' combining the group colours of each parent.
 		Colour32 CalculateInstanceColour(LdrObject const* obj, Colour32 col)
 		{
-			for (auto p = obj->m_parent; p != nullptr; p = p->m_parent)
+			for (auto p = obj; p != nullptr; p = p->m_parent)
 				col = Clamp(col, Colour32Zero, p->m_group_tint);
 			return col;
 		}
@@ -613,6 +613,10 @@ namespace pr::rdr12::ldraw
 		Apply([=](LdrObject* o)
 		{
 			o->m_group_tint = colour;
+			
+			// Setting the group tint of a LdrGroup is the same as setting its base colour
+			if (o->m_type == ELdrObject::Group)
+				o->m_group_tint = colour;
 
 			// If group colour is being applied recursively, then we don't need to recurse here
 			// Just assign the colour, the outer Apply will visit all children
