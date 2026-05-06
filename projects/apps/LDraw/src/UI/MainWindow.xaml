@@ -68,6 +68,7 @@
 					<gui:RecentFilesMenuItem
 						Header= "_Recent Files"
 						Name="m_recent_files"
+						MaxCount="20"
 						/>
 					<Separator/>
 					<MenuItem
