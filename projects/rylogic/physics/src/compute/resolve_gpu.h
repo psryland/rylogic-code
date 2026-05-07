@@ -15,6 +15,7 @@ namespace pr::physics
 		BoundsSorter m_contact_sorter;            // Radix sort: key=collision_time (float), payload=contact_index (uint32)
 		ComputeStep m_cs_compute_times;           // Parallel: compute collision times per contact
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
+		ComputeStep m_cs_temporal_drift;          // Parallel: drift body transforms for TGS mini-steps
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig; // Command signature for indirect dispatch
@@ -32,6 +33,9 @@ namespace pr::physics
 
 		// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies. Calls job.Run() internally.
 		void Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials);
+
+		// CPU-side testing: run the GPU sort-key shader and radix sort, then read back contact order. Calls job.Run() internally.
+		void SortContacts(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<uint32_t> out_order, std::span<float> out_times);
 
 		// Readback bodies after GPU resolve (for CPU-side testing).
 		void Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_bodies, std::span<GpuRigidBody> out_bodies);

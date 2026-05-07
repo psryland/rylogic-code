@@ -437,6 +437,48 @@ namespace physics_sandbox::scene_loader
 				desc.friction = jfriction->to<float>();
 		}
 
+		// Physics settings
+		if (auto* jphysics = jscene.find("physics"))
+		{
+			auto const& jphysics_obj = jphysics->to_object();
+			if (auto* jsubsteps = jphysics_obj.find("substeps"))
+			{
+				desc.physics_substeps = jsubsteps->to<int>();
+				if (desc.physics_substeps < 1)
+					throw std::runtime_error("Scene physics.substeps must be at least 1");
+			}
+			if (auto* jtgs_steps = jphysics_obj.find("tgs_steps"))
+			{
+				desc.physics_tgs_steps = jtgs_steps->to<int>();
+				if (desc.physics_tgs_steps < 1)
+					throw std::runtime_error("Scene physics.tgs_steps must be at least 1");
+			}
+			if (auto* jsolver_iterations = jphysics_obj.find("solver_iterations"))
+			{
+				desc.physics_solver_iterations = jsolver_iterations->to<int>();
+				if (desc.physics_solver_iterations < 0)
+					throw std::runtime_error("Scene physics.solver_iterations must be non-negative");
+			}
+			if (auto* jposition_iterations = jphysics_obj.find("position_iterations"))
+			{
+				desc.physics_position_iterations = jposition_iterations->to<int>();
+				if (desc.physics_position_iterations < 0)
+					throw std::runtime_error("Scene physics.position_iterations must be non-negative");
+			}
+			if (auto* jtgs_velocity_bias_max = jphysics_obj.find("tgs_velocity_bias_max"))
+			{
+				desc.physics_tgs_velocity_bias_max = jtgs_velocity_bias_max->to<float>();
+				if (desc.physics_tgs_velocity_bias_max < 0.0f)
+					throw std::runtime_error("Scene physics.tgs_velocity_bias_max must be non-negative");
+			}
+			if (auto* jmax_collision_pairs = jphysics_obj.find("max_collision_pairs"))
+			{
+				desc.physics_max_collision_pairs = jmax_collision_pairs->to<int>();
+				if (desc.physics_max_collision_pairs < 1)
+					throw std::runtime_error("Scene physics.max_collision_pairs must be at least 1");
+			}
+		}
+
 		// Ground plane
 		if (auto* jground = jscene.find("ground_plane"))
 			desc.ground = ReadGroundPlane(*jground);

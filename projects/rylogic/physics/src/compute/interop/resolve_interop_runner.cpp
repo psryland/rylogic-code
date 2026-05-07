@@ -30,8 +30,9 @@ namespace pr::physics
 				.max_contacts = max_contacts,
 				.body_count = body_count,
 				.colour = colour,
+				.tgs_steps = std::max(1, config.tgs_steps),
 				.dt = dt,
-				.pad1 = 0,
+				.tgs_velocity_bias_max = config.tgs_velocity_bias_max,
 				.pad2 = 0,
 				.pad3 = 0,
 				.penetration_slop = config.penetration_slop,
@@ -74,17 +75,30 @@ namespace pr::physics
 		AssignColours();
 
 		auto const position_iterations = std::max(0, m_config.position_iterations);
-		for (int iter = 0; iter != position_iterations; ++iter)
-		{
-			for (int colour = 0; colour != MaxColours; ++colour)
-				PositionSolve(colour);
-		}
-
 		auto const solver_iterations = std::max(0, m_config.solver_iterations);
-		for (int iter = 0; iter != solver_iterations; ++iter)
+		auto const tgs_steps = std::max(1, m_config.tgs_steps);
+		auto const tgs_dt = m_dt / static_cast<float>(tgs_steps);
+		auto const position_iterations_per_tgs = position_iterations != 0 ? std::max(1, (position_iterations + tgs_steps - 1) / tgs_steps) : 0;
+		auto const solver_iterations_per_tgs = solver_iterations != 0 ? std::max(1, (solver_iterations + tgs_steps - 1) / tgs_steps) : 0;
+		if (tgs_steps != 1)
+			TemporalDrift(-m_dt);
+
+		for (int tgs_step = 0; tgs_step != tgs_steps; ++tgs_step)
 		{
-			for (int colour = 0; colour != MaxColours; ++colour)
-				ResolveVelocity(colour);
+			if (tgs_steps != 1)
+				TemporalDrift(tgs_dt);
+
+			for (int iter = 0; iter != position_iterations_per_tgs; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+					PositionSolve(tgs_dt, colour);
+			}
+
+			for (int iter = 0; iter != solver_iterations_per_tgs; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+					ResolveVelocity(tgs_dt, colour);
+			}
 		}
 
 		Store(buffers);
@@ -96,6 +110,8 @@ namespace pr::physics
 			throw std::invalid_argument("ResolveInteropRunner requires non-negative position_iterations");
 		if (m_config.solver_iterations < 0)
 			throw std::invalid_argument("ResolveInteropRunner requires non-negative solver_iterations");
+		if (m_config.tgs_steps < 1)
+			throw std::invalid_argument("ResolveInteropRunner requires positive tgs_steps");
 		if (buffers.m_contacts.size() != 0 && buffers.m_bodies.size() == 0)
 			throw std::invalid_argument("ResolveInteropRunner requires bodies when contacts are supplied");
 		if (buffers.m_contacts.size() != 0 && buffers.m_materials.size() == 0)
@@ -171,9 +187,20 @@ namespace pr::physics
 		m_colours.assign(g_colours.begin(), g_colours.end());
 	}
 
-	void ResolveInteropRunner::PositionSolve(int colour)
+	void ResolveInteropRunner::TemporalDrift(float dt)
 	{
-		g = MakeConstants(m_config, m_dt, m_body_count, m_max_contacts, colour);
+		g = MakeConstants(m_config, dt, m_body_count, m_max_contacts);
+		g_bodies.assign(SpanOf(m_bodies));
+
+		hlsl::GpuEmulator emu(CSTemporalDrift, CSTemporalDrift_NumThreads);
+		emu.Dispatch({ThreadGroupCount(m_body_count, ResolveThreadCount), 1, 1});
+
+		m_bodies.assign(g_bodies.begin(), g_bodies.end());
+	}
+
+	void ResolveInteropRunner::PositionSolve(float dt, int colour)
+	{
+		g = MakeConstants(m_config, dt, m_body_count, m_max_contacts, colour);
 		g_counters.assign(SpanOf(m_counters));
 		g_bodies.assign(SpanOf(m_bodies));
 		g_colours.assign(SpanOf(m_colours));
@@ -186,9 +213,9 @@ namespace pr::physics
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
 	}
 
-	void ResolveInteropRunner::ResolveVelocity(int colour)
+	void ResolveInteropRunner::ResolveVelocity(float dt, int colour)
 	{
-		g = MakeConstants(m_config, m_dt, m_body_count, m_max_contacts, colour);
+		g = MakeConstants(m_config, dt, m_body_count, m_max_contacts, colour);
 		g_counters.assign(SpanOf(m_counters));
 		g_materials.assign(SpanOf(m_materials));
 		g_bodies.assign(SpanOf(m_bodies));

@@ -23,6 +23,27 @@ using namespace physics_sandbox;
 
 namespace physics_sandbox
 {
+	// Route CRT assertions to places that automation can see rather than to modal dialogs.
+	void ConfigureAssertReporting(bool console_output)
+	{
+		#if defined(_DEBUG)
+		_set_error_mode(_OUT_TO_STDERR);
+
+		auto mode = _CRTDBG_MODE_DEBUG;
+		if (console_output)
+			mode |= _CRTDBG_MODE_FILE;
+
+		for (auto report_type : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT})
+		{
+			_CrtSetReportMode(report_type, mode);
+			if (console_output)
+				_CrtSetReportFile(report_type, _CRTDBG_FILE_STDERR);
+		}
+		#else
+		(void)console_output;
+		#endif
+	}
+
 	// Attach stdout/stderr to the parent console, or allocate one when launched from Explorer.
 	void OpenConsoleOutput()
 	{
@@ -32,6 +53,7 @@ namespace physics_sandbox
 		FILE* fp = nullptr;
 		freopen_s(&fp, "CONOUT$", "w", stdout);
 		freopen_s(&fp, "CONOUT$", "w", stderr);
+		ConfigureAssertReporting(true);
 	}
 
 	// Run embedded unit tests to a console window and exit.
@@ -159,10 +181,9 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	// and send them to stderr instead so the process terminates cleanly with diagnostics.
 	auto autoplay = cmd.count("autoplay") > 0;
 	if (autoplay)
-	{
-		_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
-		_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-	}
+		OpenConsoleOutput();
+	else
+		ConfigureAssertReporting(false);
 
 	try
 	{

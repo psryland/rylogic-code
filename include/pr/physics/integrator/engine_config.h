@@ -25,9 +25,14 @@ namespace pr::physics
 		// Number of coloured split-position solver iterations.
 		int position_iterations = 4;
 
+		// Number of Temporal Gauss-Seidel resolver substeps. A value of 1 gives the classic
+		// single-timestep PGS-style solve; larger values advance and solve contacts in smaller temporal slices.
+		int tgs_steps = 1;
+
 		// Velocity-level Baumgarte bias for shallow penetrations.
 		float penetration_slop = 0.005f;
 		float velocity_baumgarte = 0.2f;
+		float tgs_velocity_bias_max = 2.0f;
 
 		// Position-level split correction. This moves bodies only; momenta are unchanged.
 		float position_slop = 0.005f;
