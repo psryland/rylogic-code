@@ -189,6 +189,9 @@ namespace physics_sandbox
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
 
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
+
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
 
@@ -284,6 +287,9 @@ namespace physics_sandbox
 	// forces so that collisions can be validated against analytic predictions.
 	void Scene::SetupScenario(EScenario scenario)
 	{
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
+
 		m_body.resize(0);
 		m_body.push_back(Body(m_rdr));
 		m_body.push_back(Body(m_rdr));
@@ -405,6 +411,9 @@ namespace physics_sandbox
 		m_clock = 0;
 		m_step_count = 0;
 		m_diag.Reset();
+
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
@@ -943,3 +952,89 @@ namespace physics_sandbox
 		return bbox;
 	}
 }
+
+#if PR_UNITTESTS
+namespace physics_sandbox::tests
+{
+	namespace
+	{
+		struct ReloadBodyState
+		{
+			v4 m_pos;
+			v8motion m_vel;
+		};
+
+		scene_loader::SceneDesc BoxScene(v4 const& dimensions, float z)
+		{
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.description = "Scene reload cache test";
+			scene_desc.gravity = v4::Zero();
+			scene_desc.ground = scene_loader::GroundPlaneDesc{
+				.size = v2{ 10.0f, 10.0f },
+				.height = 0.0f,
+			};
+			scene_desc.bodies.push_back(scene_loader::BodyDesc{
+				.name = "box",
+				.shape_type = scene_loader::BodyDesc::EShape::Box,
+				.box_dimensions = dimensions,
+				.mass = 1.0f,
+				.position = v4{ 0.0f, 0.0f, z, 1.0f },
+			});
+			return scene_desc;
+		}
+
+		std::vector<ReloadBodyState> RunScene(Scene& scene, scene_loader::SceneDesc scene_desc, int step_count)
+		{
+			scene.LoadScene(std::move(scene_desc));
+
+			auto const dt = 1.0 / 60.0;
+			for (int step = 0; step != step_count; ++step)
+				scene.Step(dt);
+
+			auto state = std::vector<ReloadBodyState>();
+			state.reserve(s_cast<size_t>(std::ssize(scene.m_body)));
+			for (auto const& body : scene.m_body)
+			{
+				state.push_back(ReloadBodyState{
+					.m_pos = body.O2W().pos,
+					.m_vel = body.VelocityWS(),
+				});
+			}
+
+			return state;
+		}
+		void ExpectSameState(char const* label, std::vector<ReloadBodyState> const& baseline, std::vector<ReloadBodyState> const& actual)
+		{
+			PR_EXPECT(baseline.size() == actual.size());
+			for (int i = 0; i != std::ssize(baseline) && i != std::ssize(actual); ++i)
+			{
+				auto const pos_delta = Length(baseline[i].m_pos - actual[i].m_pos);
+				auto const lin_vel_delta = Length(baseline[i].m_vel.lin - actual[i].m_vel.lin);
+				auto const ang_vel_delta = Length(baseline[i].m_vel.ang - actual[i].m_vel.ang);
+				if (pos_delta >= 0.001f || lin_vel_delta >= 0.001f || ang_vel_delta >= 0.001f)
+				{
+					DbgLog("Scene reload mismatch %s body %d: pos_delta=%g lin_vel_delta=%g ang_vel_delta=%g\n", label, i, pos_delta, lin_vel_delta, ang_vel_delta);
+					PR_EXPECT(false);
+				}
+			}
+		}
+	}
+
+	PRUnitTestClass(SceneReloadTests)
+	{
+		PRUnitTestMethod(LoadSceneClearsEngineCachedShapeState)
+		{
+			auto scene = Scene(nullptr);
+			auto short_box = BoxScene(v4{ 1.0f, 1.0f, 1.0f, 0.0f }, 0.6f);
+			auto tall_box = BoxScene(v4{ 1.0f, 1.0f, 4.0f, 0.0f }, 2.0f);
+
+			auto const baseline = RunScene(scene, short_box, 1);
+			scene.m_physics.ResetCaches();
+			(void)RunScene(scene, tall_box, 1);
+			auto const reloaded = RunScene(scene, short_box, 1);
+
+			ExpectSameState("short_box_after_tall_box", baseline, reloaded);
+		}
+	};
+}
+#endif
