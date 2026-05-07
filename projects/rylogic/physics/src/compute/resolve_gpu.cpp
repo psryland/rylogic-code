@@ -19,9 +19,9 @@ namespace pr::physics
 		int g_sort_capacity;
 
 		float g_dt;         // timestep in seconds
-		float pad1;
-		float pad2;
-		float pad3;
+		float g_support_only;
+		float g_support_alignment;
+		float g_restitution_scale;
 
 		float g_penetration_slop;
 		float g_velocity_baumgarte;
@@ -31,7 +31,7 @@ namespace pr::physics
 		float g_deep_penetration_baumgarte_min;
 		float g_deep_penetration_baumgarte_max;
 		float g_bias_scale;
-		float pad5;
+		float g_propagation_key_scale;
 
 		float g_position_slop;
 		float g_position_baumgarte;
@@ -181,7 +181,7 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int position_iterations_)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int position_iterations_, float restitution_scale, bool support_only)
 	{
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
@@ -197,9 +197,9 @@ namespace pr::physics
 			.g_colour = 0,
 			.g_sort_capacity = m_max_contacts,
 			.g_dt = dt,
-			.pad1 = 0,
-			.pad2 = 0,
-			.pad3 = 0,
+			.g_support_only = support_only ? 1.0f : 0.0f,
+			.g_support_alignment = m_config.selective_refresh_support_alignment,
+			.g_restitution_scale = restitution_scale,
 			.g_penetration_slop = m_config.penetration_slop,
 			.g_velocity_baumgarte = m_config.velocity_baumgarte,
 			.g_deep_penetration_threshold = m_config.deep_penetration_threshold,
@@ -207,7 +207,7 @@ namespace pr::physics
 			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
 			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
 			.g_bias_scale = bias_scale,
-			.pad5 = 0,
+			.g_propagation_key_scale = m_config.contact_sort_propagation_scale,
 			.g_position_slop = m_config.position_slop,
 			.g_position_baumgarte = m_config.position_baumgarte,
 			.g_position_correction_scale = position_correction_scale,

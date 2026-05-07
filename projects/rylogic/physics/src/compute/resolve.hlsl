@@ -54,9 +54,9 @@ struct cbResolve
 	int sort_capacity;
 
 	float dt;         // timestep in seconds
-	float pad1;
-	float pad2;
-	float pad3;
+	float support_only;
+	float support_alignment;
+	float restitution_scale;
 
 	float penetration_slop;
 	float velocity_baumgarte;
@@ -66,7 +66,7 @@ struct cbResolve
 	float deep_penetration_baumgarte_min;
 	float deep_penetration_baumgarte_max;
 	float bias_scale;
-	float pad5;
+	float propagation_key_scale;
 
 	float position_slop;
 	float position_baumgarte;
@@ -319,6 +319,43 @@ float EstimateCollisionTime(GpuResolveContact c)
 	return sub_step * g.dt;
 }
 
+bool SupportContact(GpuResolveContact c, GpuRigidBody bodyA)
+{
+	float3 gravity = NormaliseOrZero(bodyA.ws_gravity.xyz);
+	if (dot(gravity, gravity) == 0.0f)
+		return false;
+
+	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
+	return abs(dot(axis_ws, gravity)) >= g.support_alignment;
+}
+
+bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
+{
+	return g.support_only == 0.0f || SupportContact(c, bodyA);
+}
+
+float PropagationSortKey(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB)
+{
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3 ws_point = bodyA.o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
+	float3 gravity = NormaliseOrZero(bodyA.ws_gravity.xyz);
+	float support_height = dot(gravity, gravity) != 0.0f ? -dot(ws_point, gravity) : 0.0f;
+
+	float3x3 os_iinv_a = OsInverseInertia(bodyA);
+	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	float3x3 b2a_rot = (float3x3)c.b2a;
+	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
+	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
+	float3 v_a = BodyVelocityAtPoint(bodyA, os_iinv_a, c.contact_point.xyz, com_a_in_a, rot_a);
+	float3 v_b = BodyVelocityAtPoint(bodyB, os_iinv_b, c.contact_point.xyz, com_b_in_a, rot_a);
+	float3 v_rel = v_b - v_a;
+	float3 axis_ws = mul(c.axis.xyz, rot_a);
+	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
+	float source_momentum = max(abs(dot(bodyA.momentum_lin.xyz, axis_ws)), abs(dot(bodyB.momentum_lin.xyz, axis_ws)));
+
+	return support_height - source_momentum - 0.05f * closing_speed - 0.50f * c.depth;
+}
+
 float PositionCorrectionDistance(float depth)
 {
 	float position_pen = max(depth - g.position_slop, 0.0f);
@@ -369,24 +406,15 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 	{
 		// Calculate the estimated collision time for this contact
 		GpuResolveContact c = g_contacts[idx];
+		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 		float collision_time = EstimateCollisionTime(c);
 		g_contacts[idx].collision_time = collision_time;
 
-		// Transform the contact point to world space to compute its height along gravity for tie-breaking in sorting.
-		float3x3 rot_a = (float3x3)g_bodies[c.body_idx_a].o2w;
-		float3 ws_point = g_bodies[c.body_idx_a].o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
-
-		// Get the direction of gravity for this contact so we can determine "down" for height sorting.
-		// Use body A, if the objects are in contact then gravity should be similar for both bodies.
-		float3 gravity = NormaliseOrZero(g_bodies[c.body_idx_a].ws_gravity).xyz;
-		float height = dot(ws_point, gravity);
-		
-		// Compute a composite sort key: collision_time primary, contact height secondary.
-		// For contacts with similar collision times (e.g., a stacked column landing),
-		// lower contacts (closer to the support surface) sort first so the impulse propagates upward through the stack.
-		// Height is measured along the gravity direction — contacts further along -gravity sort earlier.
-		float height_bias = height * 1e-6f; // contacts lower along gravity sort first (more negative = earlier)
-		g_contact_times[idx] = collision_time + height_bias;
+		// Collision time remains primary. The propagation key is deliberately tiny and only reorders near-simultaneous
+		// contacts so support reactions and high-residual impact contacts get an earlier colour in the sequential solve.
+		float propagation_key = ContactEnabled(c, bodyA) ? PropagationSortKey(c, bodyA, bodyB) : 1e30f;
+		g_contact_times[idx] = collision_time + g.propagation_key_scale * propagation_key;
 		g_contact_order[idx] = idx;
 
 		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
@@ -422,8 +450,15 @@ void CSAssignColours(int3 DTID(dtid))
 	for (int i = 0; i != contact_count; ++i)
 	{
 		int idx = g_contact_order[i]; // get contact index from sorted order
-		int a = g_contacts[idx].body_idx_a;
-		int b = g_contacts[idx].body_idx_b;
+		GpuResolveContact c = g_contacts[idx];
+		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
+		{
+			g_colours[idx] = MaxColours;
+			continue;
+		}
+
+		int a = c.body_idx_a;
+		int b = c.body_idx_b;
 
 		// Only consider colour conflicts for dynamic bodies (inv_mass > 0).
 		// Static bodies (inv_mass == 0) never have their momentum changed,
@@ -566,7 +601,7 @@ void CSResolve(int3 DTID(dtid))
 
 			// Reduce elasticity for resting contacts so they don't bounce on micro-impacts.
 			float rest_factor = saturate(abs(closing_speed) * 10.0f);
-			float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+			float elasticity = g.restitution_scale * rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
 
 			float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
 			ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,

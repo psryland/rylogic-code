@@ -342,6 +342,9 @@
     <None Include="scenes\brick_pyramid.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\newtons_craddle.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">

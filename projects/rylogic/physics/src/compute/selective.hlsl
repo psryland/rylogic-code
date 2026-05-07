@@ -22,7 +22,7 @@ struct cbSelectiveRefresh
 	int body_count;
 	int sleeping_enabled;
 	int full_max_pairs;
-	int pad_i0;
+	int support_only;
 	int pad_i1;
 	int pad_i2;
 
@@ -147,6 +147,9 @@ void CSScoreSelectiveContacts(int3 DTID(dtid))
 	float4x4 b2a = mul(body_b.o2w, InvertOrthonormal(body_a.o2w));
 	float closing_speed = ClosingSpeed(contact, body_a, body_b, b2a);
 	bool support_contact = SupportContact(contact, body_a);
+	if (g.support_only != 0 && !support_contact)
+		return;
+
 	float depth_slop = support_contact ? g.support_depth_slop : g.depth_slop;
 	bool select =
 		contact.depth > depth_slop ||

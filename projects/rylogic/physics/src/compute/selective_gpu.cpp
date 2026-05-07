@@ -17,7 +17,7 @@ namespace pr::physics
 		int g_body_count;
 		int g_sleeping_enabled;
 		int g_full_max_pairs;
-		int pad_i0;
+		int g_support_only;
 		int pad_i1;
 		int pad_i2;
 
@@ -217,7 +217,7 @@ namespace pr::physics
 			.g_body_count = body_count,
 			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
 			.g_full_max_pairs = full_max_pairs,
-			.pad_i0 = 0,
+			.g_support_only = m_config.selective_refresh_support_only ? 1 : 0,
 			.pad_i1 = 0,
 			.pad_i2 = 0,
 			.g_depth_slop = m_config.selective_refresh_depth_slop,

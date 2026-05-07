@@ -495,6 +495,20 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_selective_refresh_bias_scale < 0.0f)
 					throw std::runtime_error("Scene physics.selective_refresh_bias_scale must be non-negative");
 			}
+			if (auto* jselective_refresh_restitution_scale = jphysics_obj.find("selective_refresh_restitution_scale"))
+			{
+				desc.physics_selective_refresh_restitution_scale = jselective_refresh_restitution_scale->to<float>();
+				if (desc.physics_selective_refresh_restitution_scale < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_restitution_scale must be non-negative");
+			}
+			if (auto* jselective_refresh_support_only = jphysics_obj.find("selective_refresh_support_only"))
+			{
+				desc.physics_selective_refresh_support_only = jselective_refresh_support_only->to<bool>();
+			}
+			if (auto* jselective_refresh_resolve_support_only = jphysics_obj.find("selective_refresh_resolve_support_only"))
+			{
+				desc.physics_selective_refresh_resolve_support_only = jselective_refresh_resolve_support_only->to<bool>();
+			}
 			if (auto* jselective_refresh_depth_slop = jphysics_obj.find("selective_refresh_depth_slop"))
 			{
 				desc.physics_selective_refresh_depth_slop = jselective_refresh_depth_slop->to<float>();

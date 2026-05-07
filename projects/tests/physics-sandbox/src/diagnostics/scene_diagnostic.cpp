@@ -705,6 +705,24 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -selective_refresh_bias_scale must be non-negative");
 			scene_desc.physics_selective_refresh_bias_scale = *options.m_physics_selective_refresh_bias_scale;
 		}
+		if (options.m_physics_selective_refresh_restitution_scale)
+		{
+			if (*options.m_physics_selective_refresh_restitution_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_restitution_scale must be non-negative");
+			scene_desc.physics_selective_refresh_restitution_scale = *options.m_physics_selective_refresh_restitution_scale;
+		}
+		if (options.m_physics_selective_refresh_support_only)
+		{
+			if (*options.m_physics_selective_refresh_support_only != 0 && *options.m_physics_selective_refresh_support_only != 1)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_support_only must be 0 or 1");
+			scene_desc.physics_selective_refresh_support_only = *options.m_physics_selective_refresh_support_only != 0;
+		}
+		if (options.m_physics_selective_refresh_resolve_support_only)
+		{
+			if (*options.m_physics_selective_refresh_resolve_support_only != 0 && *options.m_physics_selective_refresh_resolve_support_only != 1)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_resolve_support_only must be 0 or 1");
+			scene_desc.physics_selective_refresh_resolve_support_only = *options.m_physics_selective_refresh_resolve_support_only != 0;
+		}
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};

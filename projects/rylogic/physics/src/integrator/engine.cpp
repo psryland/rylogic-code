@@ -450,7 +450,9 @@ namespace pr::physics
 				m_materials->span(),
 				m_config.selective_refresh_bias_scale,
 				m_config.selective_refresh_solver_iterations,
-				m_config.selective_refresh_position_iterations);
+				m_config.selective_refresh_position_iterations,
+				m_config.selective_refresh_restitution_scale,
+				m_config.selective_refresh_resolve_support_only);
 
 			source_counters = work_set.m_counters;
 			source_contacts = work_set.m_contacts;

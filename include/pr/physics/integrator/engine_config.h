@@ -25,6 +25,10 @@ namespace pr::physics
 		// Number of coloured split-position solver iterations.
 		int position_iterations = 4;
 
+		// Bias contact ordering within near-equal collision-time buckets so impulses propagate
+		// through support chains before higher/free contacts are solved.
+		float contact_sort_propagation_scale = 1e-6f;
+
 		// Velocity-level Baumgarte bias for shallow penetrations.
 		float penetration_slop = 0.005f;
 		float velocity_baumgarte = 0.2f;
@@ -47,6 +51,12 @@ namespace pr::physics
 		int selective_refresh_solver_iterations = 12;
 		int selective_refresh_position_iterations = 1;
 		float selective_refresh_bias_scale = 1.0f;
+		float selective_refresh_restitution_scale = 0.0f;
+
+		// Seed selective refresh from support contacts by default, but resolve the refreshed local
+		// contact neighbourhood so lateral/friction constraints can still converge with the stack.
+		bool selective_refresh_support_only = true;
+		bool selective_refresh_resolve_support_only = false;
 		float selective_refresh_depth_slop = 0.015f;
 		float selective_refresh_support_depth_slop = 0.002f;
 		float selective_refresh_closing_speed_slop = 0.02f;

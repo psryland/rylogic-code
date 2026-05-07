@@ -125,6 +125,9 @@ namespace physics_sandbox::scene_loader
 		int physics_selective_refresh_solver_iterations = physics::EngineConfig{}.selective_refresh_solver_iterations;
 		int physics_selective_refresh_position_iterations = physics::EngineConfig{}.selective_refresh_position_iterations;
 		float physics_selective_refresh_bias_scale = physics::EngineConfig{}.selective_refresh_bias_scale;
+		float physics_selective_refresh_restitution_scale = physics::EngineConfig{}.selective_refresh_restitution_scale;
+		bool physics_selective_refresh_support_only = physics::EngineConfig{}.selective_refresh_support_only;
+		bool physics_selective_refresh_resolve_support_only = physics::EngineConfig{}.selective_refresh_resolve_support_only;
 		float physics_selective_refresh_depth_slop = physics::EngineConfig{}.selective_refresh_depth_slop;
 		float physics_selective_refresh_support_depth_slop = physics::EngineConfig{}.selective_refresh_support_depth_slop;
 		float physics_selective_refresh_closing_speed_slop = physics::EngineConfig{}.selective_refresh_closing_speed_slop;
