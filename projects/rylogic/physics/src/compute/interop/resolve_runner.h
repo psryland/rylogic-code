@@ -38,7 +38,9 @@ namespace pr::physics
 		void AssignColours();
 		void TemporalDrift(float dt);
 		void PositionSolve(float dt, int colour);
+		void SerialPositionSolve(float dt);
 		void ResolveVelocity(float dt, int colour);
+		void SerialResolveVelocity(float dt);
 
 		std::span<uint32_t const> Colours() const;
 		std::span<uint32_t const> ContactOrder() const;

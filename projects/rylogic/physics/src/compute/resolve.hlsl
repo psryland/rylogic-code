@@ -339,7 +339,7 @@ void ApplyImpulseWithEnergyGuard(
 	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
-	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)  // @Copilot, turning the energy guard off isn't desireable... we need to revisit this
+	float inv_mass_a, float inv_mass_b, float max_ke_gain)
 {
 	// Convert point impulse to spatial wrenches at each body's CoM
 	float3 forceA_in_a = -impulse;
@@ -369,17 +369,28 @@ void ApplyImpulseWithEnergyGuard(
 	bodyB.momentum_ang.xyz += torqueB_ws;
 	bodyB.momentum_lin.xyz += forceB_ws;
 
-	// Energy conservation guard: if KE increased, scale the impulse down
+	// Energy guard: if KE increased beyond the allowed budget, scale the impulse down
 	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
-	if (enable_energy_guard && delta > 0 && A > 1e-12f)
+	max_ke_gain = max(max_ke_gain, 0.0f);
+	if (delta > max_ke_gain && A > 1e-12f)
 	{
-		float correction = 1.0f - clamp((A - delta) / A, 0.0f, 1.0f);
+		float B = delta - A;
+		float scale = clamp((-B + sqrt(max(B * B + 4.0f * A * max_ke_gain, 0.0f))) / (2.0f * A), 0.0f, 1.0f);
+		float correction = 1.0f - scale;
 		bodyA.momentum_ang.xyz -= correction * torqueA_ws;
 		bodyA.momentum_lin.xyz -= correction * forceA_ws;
 		bodyB.momentum_ang.xyz -= correction * torqueB_ws;
 		bodyB.momentum_lin.xyz -= correction * forceB_ws;
 	}
+}
+float BiasEnergyGainLimit(float bias, float vn_now, float k_n)
+{
+	if (k_n <= 1e-12f)
+		return 0.0f;
+
+	// The Baumgarte pseudo-impulse is allowed to add only the kinetic energy implied by changing the normal relative velocity to 'bias'.
+	return max(0.0f, 0.5f * (bias * bias - vn_now * vn_now) / k_n);
 }
 
 // Estimate the sub-step collision time for a contact.
@@ -569,6 +580,20 @@ void CSPositionSolve(int3 DTID(dtid))
 	ApplyPositionCorrection(g_contacts[idx]);
 }
 
+// ----- CSSerialPositionSolve -----
+// Single-threaded sorted position correction. Used by TGS experiments where support propagation through tall stacks
+// matters more than within-colour parallelism.
+numthreads(CSSerialPositionSolve, 1, 1, 1)
+void CSSerialPositionSolve(int3 DTID(dtid))
+{
+	if (dtid.x != 0)
+		return;
+
+	int contact_count = ContactCount();
+	for (int i = 0; i != contact_count; ++i)
+		ApplyPositionCorrection(g_contacts[g_contact_order[i]]);
+}
+
 // ----- CSResolve -----
 // Dispatched once per colour from the CPU loop. Each thread processes one contact.
 // Only contacts matching the current colour are processed — all others return immediately.
@@ -580,23 +605,13 @@ void CSPositionSolve(int3 DTID(dtid))
 //   (elastic bounces, head-on impacts) and matches the analytic 1D elastic solution for
 //   symmetric pair-wise contacts (preserving the conservation tests).
 //
-//   Phase 2 (per manifold point, only when penetrating): For each manifold point apply a
-//   scalar Baumgarte bias impulse (NOT energy-guarded — bias is positional correction, not
-//   real KE) plus a friction impulse limited by that point's bias impulse magnitude. This
-//   distributes the contact normal force across the manifold for stable stacking (a 4-point
-//   face contact can resist torque, a single centroid contact cannot).
-numthreads(CSResolve, ResolveThreadCount, 1, 1)
-void CSResolve(int3 DTID(dtid))
+//   Phase 2 (per manifold point, only when penetrating): Apply a centroid Baumgarte bias
+//   impulse with a bounded KE budget, plus per-point friction limited by that point's share
+//   of the bias impulse magnitude. This distributes the contact normal force across the
+//   manifold for stable stacking (a 4-point face contact can resist torque, a single centroid
+//   contact cannot).
+void ResolveContact(uint idx)
 {
-	if (dtid.x >= ContactCount())
-		return;
-
-	uint idx = g_contact_order[dtid.x];
-
-	// Only process contacts assigned to the current colour batch
-	if (g_colours[idx] != (uint)g.colour)
-		return;
-
 	// Load the contact and both bodies
 	GpuResolveContact c = g_contacts[idx];
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -681,12 +696,13 @@ void CSResolve(int3 DTID(dtid))
 
 			// Reduce elasticity for resting contacts so they don't bounce on micro-impacts.
 			float rest_factor = saturate(abs(closing_speed) * 10.0f);
-			float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+			bool impact_contact = g.tgs_steps == 1 || c.collision_time < -1e-6f;
+			float elasticity = impact_contact ? rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f : 0.0f;
 
 			float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
 			ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
 				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-				inv_mass_a, inv_mass_b, true);
+				inv_mass_a, inv_mass_b, 0.0f);
 			any_impulse = true;
 		}
 	}
@@ -719,17 +735,18 @@ void CSResolve(int3 DTID(dtid))
 
 		float vn_now = dot(V_rel_c, axis);
 		float Jn_bias_centroid = (k_n_c > 1e-12f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
+		float bias_ke_limit = BiasEnergyGainLimit(bias, vn_now, k_n_c);
 
 		PR_HLSL_BRANCH
 		if (Jn_bias_centroid > 0.0f)
 		{
-			// ----- Centroid bias impulse (NOT energy-guarded) -----
-			// Pseudo-impulse that drives penetration to zero. Applied at the centroid so
-			// no torque is generated (no lever arm from the impulse to the CoM offset can
-			// drive angular runaway between manifold points).
+			// ----- Centroid bias impulse -----
+			// Pseudo-impulse that drives penetration to zero. It uses a finite KE budget
+			// based on the requested separation speed, and is applied at the centroid so no
+			// torque is generated between manifold points.
 			ApplyImpulseWithEnergyGuard(bodyA, bodyB, Jn_bias_centroid * axis, pt_c,
 				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-				inv_mass_a, inv_mass_b, false);
+				inv_mass_a, inv_mass_b, bias_ke_limit);
 			any_impulse = true;
 
 			// Per-point friction cone limit: split the centroid Jn equally so the
@@ -763,7 +780,7 @@ void CSResolve(int3 DTID(dtid))
 				{
 					ApplyImpulseWithEnergyGuard(bodyA, bodyB, friction_impulse, pt,
 						com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-						inv_mass_a, inv_mass_b, true);
+						inv_mass_a, inv_mass_b, 0.0f);
 				}
 
 			}
@@ -780,6 +797,35 @@ void CSResolve(int3 DTID(dtid))
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
+}
+
+numthreads(CSResolve, ResolveThreadCount, 1, 1)
+void CSResolve(int3 DTID(dtid))
+{
+	if (dtid.x >= ContactCount())
+		return;
+
+	uint idx = g_contact_order[dtid.x];
+
+	// Only process contacts assigned to the current colour batch
+	if (g_colours[idx] != (uint)g.colour)
+		return;
+
+	ResolveContact(idx);
+}
+
+// ----- CSSerialResolve -----
+// Single-threaded sorted velocity solve. This preserves the contact sort order exactly, so a support impulse can
+// propagate through a stack in one sweep rather than one graph-colour layer per iteration.
+numthreads(CSSerialResolve, 1, 1, 1)
+void CSSerialResolve(int3 DTID(dtid))
+{
+	if (dtid.x != 0)
+		return;
+
+	int contact_count = ContactCount();
+	for (int i = 0; i != contact_count; ++i)
+		ResolveContact(g_contact_order[i]);
 }
 
 #ifdef __cplusplus

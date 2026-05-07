@@ -59,6 +59,22 @@ namespace physics_sandbox::diag
 			float m_max_lin_speed = 0.0f;
 			float m_max_ang_speed = 0.0f;
 		};
+		struct ColumnMetricState
+		{
+			int m_top_body = -1;
+			int m_body_count = 0;
+			float m_ground_height = 0.0f;
+			float m_ideal_top_height = 0.0f;
+			float m_initial_top_height = 0.0f;
+			float m_min_top_height = std::numeric_limits<float>::max();
+			double m_physics_ms = 0.0;
+			int m_sample_count = 0;
+
+			bool Enabled() const
+			{
+				return m_top_body != -1;
+			}
+		};
 
 		struct EngineProfileAccumulator
 		{
@@ -128,6 +144,64 @@ namespace physics_sandbox::diag
 			}
 
 			return sample;
+		}
+		float BoxHeight(scene_loader::BodyDesc const& body)
+		{
+			return body.box_dimensions.z;
+		}
+		bool SameColumnXY(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
+		{
+			auto const dx = lhs.position.x - rhs.position.x;
+			auto const dy = lhs.position.y - rhs.position.y;
+			auto const xy_tolerance = 0.01f;
+			return dx * dx + dy * dy < xy_tolerance * xy_tolerance;
+		}
+		ColumnMetricState CreateColumnMetric(scene_loader::SceneDesc const& scene_desc)
+		{
+			auto metric = ColumnMetricState{};
+			metric.m_ground_height = scene_desc.ground ? scene_desc.ground->height : 0.0f;
+
+			auto top_body = -1;
+			auto top_height = -std::numeric_limits<float>::max();
+			for (int i = 0; i != std::ssize(scene_desc.bodies); ++i)
+			{
+				auto const& body = scene_desc.bodies[i];
+				if (body.mass <= 0.0f || body.shape_type != scene_loader::BodyDesc::EShape::Box)
+					continue;
+
+				if (body.position.z > top_height)
+				{
+					top_height = body.position.z;
+					top_body = i;
+				}
+			}
+			if (top_body == -1)
+				throw std::runtime_error("Column metric requires at least one dynamic box body");
+
+			auto const& top = scene_desc.bodies[top_body];
+			auto supporting_height = 0.0f;
+			auto body_count = 0;
+			for (int i = 0; i != std::ssize(scene_desc.bodies); ++i)
+			{
+				auto const& body = scene_desc.bodies[i];
+				if (body.mass <= 0.0f || body.shape_type != scene_loader::BodyDesc::EShape::Box)
+					continue;
+				if (!SameColumnXY(body, top))
+					continue;
+				if (body.position.z > top.position.z + 0.01f)
+					continue;
+
+				++body_count;
+				if (i != top_body)
+					supporting_height += BoxHeight(body);
+			}
+
+			metric.m_top_body = top_body;
+			metric.m_body_count = body_count;
+			metric.m_initial_top_height = top.position.z;
+			metric.m_ideal_top_height = metric.m_ground_height + supporting_height + 0.5f * BoxHeight(top);
+			metric.m_min_top_height = top.position.z;
+			return metric;
 		}
 
 		void Emit(std::ofstream& log, std::string_view text)
@@ -309,6 +383,37 @@ namespace physics_sandbox::diag
 				sample.m_max_ang_speed,
 				config.sleep_velocity_threshold_ang));
 		}
+		void PrintColumnMetric(std::ofstream& log, int step, double time_s, Scene const& scene, ColumnMetricState& metric)
+		{
+			auto const& top_body = scene.m_body[metric.m_top_body];
+			auto const height = top_body.O2W().pos.z;
+			auto const vel = top_body.VelocityWS();
+			metric.m_min_top_height = std::min(metric.m_min_top_height, height);
+
+			auto const sample_count = std::max(metric.m_sample_count, 1);
+			auto const avg_physics_ms = metric.m_physics_ms / sample_count;
+			auto const engine_fps = avg_physics_ms > 0.0 ? 1000.0 / avg_physics_ms : 0.0;
+			auto const collision_stats = scene.m_physics.LastCollisionStats();
+			Emit(log, std::format(
+				"column step={:5d} t={:8.4f} top={} count={} z={:9.5f} min_z={:9.5f} ideal_z={:9.5f} err={:9.5f} min_err={:9.5f} vel=({:8.4f},{:8.4f},{:8.4f}) pairs={} contacts={} physics_ms={:8.3f} fps={:8.2f}\n",
+				step,
+				time_s,
+				metric.m_top_body,
+				metric.m_body_count,
+				height,
+				metric.m_min_top_height,
+				metric.m_ideal_top_height,
+				height - metric.m_ideal_top_height,
+				metric.m_min_top_height - metric.m_ideal_top_height,
+				vel.lin.x, vel.lin.y, vel.lin.z,
+				collision_stats.m_pair_count,
+				collision_stats.LastContactCount(),
+				avg_physics_ms,
+				engine_fps));
+
+			metric.m_physics_ms = 0.0;
+			metric.m_sample_count = 0;
+		}
 
 		void PrintBodyTrace(
 			std::ofstream& log,
@@ -419,6 +524,8 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
 			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
+		else if (options.m_column_metric)
+			Emit(log, "column_metric=true\n");
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
@@ -430,9 +537,52 @@ namespace physics_sandbox::diag
 			throw std::runtime_error(std::format("Scene file not found: {}", options.m_scene_filepath.string()));
 
 		auto scene_desc = scene_loader::LoadFromFile(options.m_scene_filepath);
+		if (options.m_physics_substeps)
+		{
+			if (*options.m_physics_substeps < 1)
+				throw std::runtime_error("Scene diagnostic -substeps must be at least 1");
+			scene_desc.physics_substeps = *options.m_physics_substeps;
+		}
+		if (options.m_physics_tgs_steps)
+		{
+			if (*options.m_physics_tgs_steps < 1)
+				throw std::runtime_error("Scene diagnostic -tgs_steps must be at least 1");
+			scene_desc.physics_tgs_steps = *options.m_physics_tgs_steps;
+		}
+		if (options.m_physics_solver_iterations)
+		{
+			if (*options.m_physics_solver_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -solver_iterations must be non-negative");
+			scene_desc.physics_solver_iterations = *options.m_physics_solver_iterations;
+		}
+		if (options.m_physics_position_iterations)
+		{
+			if (*options.m_physics_position_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -position_iterations must be non-negative");
+			scene_desc.physics_position_iterations = *options.m_physics_position_iterations;
+		}
+		if (options.m_physics_tgs_velocity_bias_max)
+		{
+			if (*options.m_physics_tgs_velocity_bias_max < 0.0f)
+				throw std::runtime_error("Scene diagnostic -tgs_velocity_bias_max must be non-negative");
+			scene_desc.physics_tgs_velocity_bias_max = *options.m_physics_tgs_velocity_bias_max;
+		}
+
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
+		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
+		if (column_metric.Enabled())
+		{
+			Emit(log, std::format(
+				"column setup top={} count={} initial_z={:.5f} ideal_z={:.5f} drop={:.5f} ground={:.5f}\n",
+				column_metric.m_top_body,
+				column_metric.m_body_count,
+				column_metric.m_initial_top_height,
+				column_metric.m_ideal_top_height,
+				column_metric.m_initial_top_height - column_metric.m_ideal_top_height,
+				column_metric.m_ground_height));
+		}
 
 		auto trace_contacts = std::vector<BodyTraceContact>{};
 		if (options.m_trace_body != -1 || options.m_scan_bodies)
@@ -484,6 +634,11 @@ namespace physics_sandbox::diag
 				trace_contacts.resize(0);
 
 			scene.Step(options.m_dt);
+			if (column_metric.Enabled())
+			{
+				column_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
+				++column_metric.m_sample_count;
+			}
 
 			if (options.m_engine_profile)
 			{
@@ -494,6 +649,15 @@ namespace physics_sandbox::diag
 					PrintEngineProfile(log, step + 1, scene.m_clock, profile);
 					profile.Reset();
 				}
+
+				continue;
+			}
+
+			if (options.m_column_metric)
+			{
+				auto report_interval = std::max(options.m_report_interval, 1);
+				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+					PrintColumnMetric(log, step + 1, scene.m_clock, scene, column_metric);
 
 				continue;
 			}

@@ -90,14 +90,24 @@ namespace pr::physics
 
 			for (int iter = 0; iter != position_iterations_per_tgs; ++iter)
 			{
-				for (int colour = 0; colour != MaxColours; ++colour)
-					PositionSolve(tgs_dt, colour);
+				if (tgs_steps != 1)
+					SerialPositionSolve(tgs_dt);
+				else
+				{
+					for (int colour = 0; colour != MaxColours; ++colour)
+						PositionSolve(tgs_dt, colour);
+				}
 			}
 
 			for (int iter = 0; iter != solver_iterations_per_tgs; ++iter)
 			{
-				for (int colour = 0; colour != MaxColours; ++colour)
-					ResolveVelocity(tgs_dt, colour);
+				if (tgs_steps != 1)
+					SerialResolveVelocity(tgs_dt);
+				else
+				{
+					for (int colour = 0; colour != MaxColours; ++colour)
+						ResolveVelocity(tgs_dt, colour);
+				}
 			}
 		}
 
@@ -225,6 +235,37 @@ namespace pr::physics
 
 		hlsl::GpuEmulator emu(CSResolve, CSResolve_NumThreads);
 		emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+
+		m_bodies.assign(g_bodies.begin(), g_bodies.end());
+	}
+
+	void ResolveInteropRunner::SerialPositionSolve(float dt)
+	{
+		g = MakeConstants(m_config, dt, m_body_count, m_max_contacts);
+		g_counters.assign(SpanOf(m_counters));
+		g_bodies.assign(SpanOf(m_bodies));
+		g_colours.assign(SpanOf(m_colours));
+		g_contacts.assign(SpanOf(m_contacts));
+		g_contact_order.assign(SpanOf(m_contact_order));
+
+		hlsl::GpuEmulator emu(CSSerialPositionSolve, CSSerialPositionSolve_NumThreads);
+		emu.Dispatch({1, 1, 1});
+
+		m_bodies.assign(g_bodies.begin(), g_bodies.end());
+	}
+
+	void ResolveInteropRunner::SerialResolveVelocity(float dt)
+	{
+		g = MakeConstants(m_config, dt, m_body_count, m_max_contacts);
+		g_counters.assign(SpanOf(m_counters));
+		g_materials.assign(SpanOf(m_materials));
+		g_bodies.assign(SpanOf(m_bodies));
+		g_colours.assign(SpanOf(m_colours));
+		g_contacts.assign(SpanOf(m_contacts));
+		g_contact_order.assign(SpanOf(m_contact_order));
+
+		hlsl::GpuEmulator emu(CSSerialResolve, CSSerialResolve_NumThreads);
+		emu.Dispatch({1, 1, 1});
 
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
 	}
