@@ -82,7 +82,8 @@ namespace pr::physics
 		ReadbackAlloc rb_bodies;
 		ReadbackAlloc rb_counters;
 		ReadbackAlloc rb_contacts;
-		bool read_contacts;
+		bool emit_collisions = true;
+		bool read_contacts = false;
 	};
 
 	Engine::Engine(EngineConfig const& config, ID3D12Device4* existing_device)
@@ -187,7 +188,7 @@ namespace pr::physics
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
-			BroadPhase();
+			BroadPhase(m_config.sleeping_enabled);
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
@@ -208,19 +209,72 @@ namespace pr::physics
 			SleepUpdate(dt);
 		}
 
-		// Read buffers back to CPU memory
+		// ReadBody -> read back body dynamics and contact data
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
 			Readback(buffers);
 		}
-		
-		// Run the GPU queue and wait for completion before using the results.
+
+		// Run the GPU jobs for all stages up to this point
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
 			m_gpu->m_job.Run();
 		}
 
-		// Readback dynamics from GPU and unpack into bodies
+		// Unpack the results back into the caller-owned bodies
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
+			Unpack(buffers, rigid_bodies);
+		}
+	}
+
+	// Explicitly initialise missing sleep islands for newly-created sleeping bodies.
+	void Engine::UpdateSleepIslands(std::span<RigidBody*> rigid_bodies)
+	{
+		if (rigid_bodies.empty())
+			return;
+
+		m_last_step_profile = {};
+		m_last_collision_stats = {};
+
+		GpuBuffers buffers;
+		buffers.emit_collisions = false;
+
+		{
+			// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
+			// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+			Pack(rigid_bodies);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+			Upload();
+		}
+		{
+			// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+			Integrate(0.0f);
+		}
+		{
+			// Run the same broadphase, narrowphase, and sleep-update graph as a normal frame, but with
+			// sleeping-pair filtering disabled so sleeping/sleeping contacts are visible while the initial islands are being built.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+			BroadPhase(false);
+			Collide();
+			SleepUpdate(0.0f);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+			Readback(buffers);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
+			m_gpu->m_job.Run();
+		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
 			Unpack(buffers, rigid_bodies);
@@ -275,7 +329,7 @@ namespace pr::physics
 	}
 
 	// Broadphase collision detection to generate potential collision pairs.
-	void Engine::BroadPhase()
+	void Engine::BroadPhase(bool sleeping_enabled)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 
@@ -287,7 +341,7 @@ namespace pr::physics
 		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
 		auto sleep_island_count = m_cache->SleepIslandCount();
 		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands, sleeping_enabled);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -345,7 +399,7 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		buffers.read_contacts = static_cast<bool>(Collisions);
+		buffers.read_contacts = buffers.emit_collisions && static_cast<bool>(Collisions);
 
 		{
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -386,7 +440,6 @@ namespace pr::physics
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_cache->MaxContactsCount();
 
-		// Read the results back to the CPU
 		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
 		m_last_collision_stats = Engine::CollisionStats{
 			.m_pair_count = counts.pair_count,
@@ -435,13 +488,15 @@ namespace pr::physics
 	}
 
 	// Narrow phase collision detection.
-	// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
-	// All collision data (point, axis, depth) is computed in objA's object space to
-	// minimise floating-point error. Returns true if the objects are in contact and
-	// the contact is approaching (not separating).
 	bool Engine::NarrowPhaseCollision(float dt, RbContact& c)
 	{
-		// This is the CPU reference implementation. Keep.
+		// Notes:
+		//  - This is the CPU reference implementation. Keep.
+		//  - Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
+		//    All collision data (point, axis, depth) is computed in objA's object space to
+		//    minimise floating-point error. Returns true if the objects are in contact and
+		//    the contact is approaching (not separating).
+
 		auto& objA = *c.m_objA;
 		auto& objB = *c.m_objB;
 
@@ -477,16 +532,18 @@ namespace pr::physics
 	}
 
 	// Calculate and apply the restitution impulse to resolve a collision.
-	// The impulse is computed in objA's space (where all contact data lives),
-	// then transformed to each body's own object space before being applied.
-	//
-	// Important: When multiple collisions are resolved in a single time step,
-	// earlier resolutions change body momenta. We must recompute the relative
-	// velocity using CURRENT momenta before computing each impulse, otherwise
-	// stale velocity data causes catastrophic energy injection.
 	void Engine::ResolveCollision(RbContact& c)
 	{
-		// This is the CPU reference implementation. Keep.
+		// Notes:
+		//  - This is the CPU reference implementation. Keep.
+		//  - The impulse is computed in objA's space (where all contact data lives),
+		//    then transformed to each body's own object space before being applied.
+		//
+		//  Important: When multiple collisions are resolved in a single time step,
+		//  earlier resolutions change body momenta. We must recompute the relative
+		//  velocity using CURRENT momenta before computing each impulse, otherwise
+		//  stale velocity data causes catastrophic energy injection.
+
 		auto& objA = const_cast<RigidBody&>(*c.m_objA);
 		auto& objB = const_cast<RigidBody&>(*c.m_objB);
 

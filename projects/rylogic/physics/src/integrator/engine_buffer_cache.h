@@ -171,13 +171,9 @@ namespace pr::physics
 				return;
 
 			if (body.m_sleep.m_island_id < 0)
-			{
-				body.m_sleep.m_island_id = m_next_sleep_island_id++;
-			}
-			else
-			{
-				m_next_sleep_island_id = std::max(m_next_sleep_island_id, body.m_sleep.m_island_id + 1);
-			}
+				return;
+
+			m_next_sleep_island_id = std::max(m_next_sleep_island_id, body.m_sleep.m_island_id + 1);
 
 			auto const cpu_id = body.m_sleep.m_island_id;
 			auto const [iter, inserted] = m_sleep_cpu_to_gpu_island_id.try_emplace(cpu_id, static_cast<int>(m_sleep_islands.size()));
