@@ -15,6 +15,12 @@ namespace physics_sandbox::scene_loader
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
 	//         },
+		//         "physics": {                      // Optional physics settings
+		//             "substeps": 4,                // Run this many physics steps per scene step
+		//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
+		//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
+		//             "max_collision_pairs": 131072 // Override EngineConfig collision pair/contact capacity
+		//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
@@ -107,6 +113,12 @@ namespace physics_sandbox::scene_loader
 
 		// Seed for generated scene content
 		unsigned int seed = 0x5C3E2026u;
+
+		// Physics settings
+		int physics_substeps = 1;
+		int physics_solver_iterations = physics::EngineConfig{}.solver_iterations;
+		int physics_position_iterations = physics::EngineConfig{}.position_iterations;
+		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 
 		// Camera settings
 		std::optional<CameraDesc> camera;

@@ -12,6 +12,21 @@ namespace physics_sandbox
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+		void AddProfile(physics::Engine::StepProfile& lhs, physics::Engine::StepProfile const& rhs)
+		{
+			lhs.m_new_frame_ms += rhs.m_new_frame_ms;
+			lhs.m_pack_ms += rhs.m_pack_ms;
+			lhs.m_upload_ms += rhs.m_upload_ms;
+			lhs.m_integrate_ms += rhs.m_integrate_ms;
+			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
+			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
+			lhs.m_collide_ms += rhs.m_collide_ms;
+			lhs.m_resolve_ms += rhs.m_resolve_ms;
+			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
+			lhs.m_readback_ms += rhs.m_readback_ms;
+			lhs.m_gpu_run_ms += rhs.m_gpu_run_ms;
+			lhs.m_unpack_ms += rhs.m_unpack_ms;
+		}
 		bool SameVec(v4 const& lhs, v4 const& rhs)
 		{
 			return std::memcmp(&lhs, &rhs, sizeof(v4)) == 0;
@@ -140,6 +155,7 @@ namespace physics_sandbox
 		, m_shape_buffer()
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
+		, m_physics_substeps(1)
 		, m_ground_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
@@ -188,6 +204,8 @@ namespace physics_sandbox
 		m_diag.Reset();
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
+		m_physics_substeps = 1;
+		m_physics.Config(DefaultEngineConfig());
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -214,31 +232,40 @@ namespace physics_sandbox
 	{
 		auto const step_beg = Clock::now();
 		m_clock += elapsed_seconds;
-		auto dt = float(elapsed_seconds);
+		auto const substeps = std::max(m_physics_substeps, 1);
+		auto dt = static_cast<float>(elapsed_seconds / substeps);
 
 		// Reset per-step collision flag
 		m_diag.occurred = false;
+		auto engine_profile = physics::Engine::StepProfile{};
+		auto gravity_ms = 0.0;
+		auto physics_ms = 0.0;
 
-		// Apply gravity as an external force: F = m * g.
-		// Static bodies (infinite mass) are skipped — they should not accelerate.
-		// Forces are cleared by Evolve() at the end of each step, so we re-apply each frame.
-		auto const gravity_beg = Clock::now();
-		if (LengthSq(m_gravity) != 0)
+		for (int substep = 0; substep != substeps; ++substep)
 		{
-			for (auto& body : m_body)
-				body.GravityWS(m_gravity);
+			// Apply gravity as an external force: F = m * g.
+			// Static bodies (infinite mass) are skipped — they should not accelerate.
+			// Forces are cleared by Evolve() at the end of each step, so we re-apply each substep.
+			auto const gravity_beg = Clock::now();
+			if (LengthSq(m_gravity) != 0)
+			{
+				for (auto& body : m_body)
+					body.GravityWS(m_gravity);
+			}
+			auto const gravity_end = Clock::now();
+			gravity_ms += ElapsedMs(gravity_beg, gravity_end);
+
+			// Step physics (Evolve -> Broad Phase -> Narrow Phase -> PostCollisionDetection -> Resolve).
+			auto const physics_beg = Clock::now();
+			m_physics.Step(dt, std::span{ m_body });
+			auto const physics_end = Clock::now();
+			physics_ms += ElapsedMs(physics_beg, physics_end);
+			AddProfile(engine_profile, m_physics.LastStepProfile());
+			if (m_physics.LastCollisionStats().LastContactCount() != 0)
+				m_diag.occurred = true;
 		}
-		auto const gravity_end = Clock::now();
-
-		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
-		auto const physics_beg = Clock::now();
-		m_physics.Step(dt, std::span{ m_body });
-		auto const physics_end = Clock::now();
-		if (m_physics.LastCollisionStats().LastContactCount() != 0)
-		{
-			m_diag.occurred = true;
+		if (m_diag.occurred)
 			++m_diag.count;
-		}
 
 		++m_step_count;
 
@@ -275,10 +302,10 @@ namespace physics_sandbox
 		auto const kill_end = Clock::now();
 
 		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
-		m_last_step_profile.m_gravity_ms = ElapsedMs(gravity_beg, gravity_end);
-		m_last_step_profile.m_physics_ms = ElapsedMs(physics_beg, physics_end);
+		m_last_step_profile.m_gravity_ms = gravity_ms;
+		m_last_step_profile.m_physics_ms = physics_ms;
 		m_last_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
-		m_last_step_profile.m_engine = m_physics.LastStepProfile();
+		m_last_step_profile.m_engine = engine_profile;
 
 		return m_diag.occurred;
 	}
@@ -424,6 +451,12 @@ namespace physics_sandbox
 
 		// Apply gravity from the scene file
 		m_gravity = scene_desc.gravity;
+		m_physics_substeps = scene_desc.physics_substeps;
+		auto engine_config = DefaultEngineConfig();
+		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
+		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
+		engine_config.position_iterations = scene_desc.physics_position_iterations;
+		m_physics.Config(engine_config);
 
 		// Set the kill zone well below the ground plane. Bodies that fall below
 		// this height are frozen to prevent them from corrupting the simulation.

@@ -13,8 +13,13 @@ namespace physics_sandbox::diag
 		int m_trace_start = 0;
 		int m_trace_end = 0x7fffffff;
 		float m_trace_ke_jump = 1000.0f;
+		std::optional<int> m_physics_substeps = {};
+		std::optional<int> m_physics_solver_iterations = {};
+		std::optional<int> m_physics_position_iterations = {};
 		bool m_scan_bodies = false;
 		bool m_scan_non_spheres = false;
+		bool m_column_metric = false;
+		bool m_pyramid_metric = false;
 		bool m_engine_profile = false;
 	};
 

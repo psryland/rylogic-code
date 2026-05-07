@@ -161,6 +161,7 @@
   <ItemGroup>
     <None Include="scenes\all_shapes_drop.json" />
     <None Include="scenes\box_vs_sphere.json" />
+    <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />
     <None Include="scenes\brick_wall_2000.json" />
     <None Include="scenes\drop_test.json" />

@@ -61,6 +61,9 @@ namespace physics_sandbox
 		// and accumulating extreme float values that corrupt the simulation.
 		float m_kill_zone_height;
 
+		// Number of physics updates to run for each scene update.
+		int m_physics_substeps;
+
 		// Ground plane visual. This is an LDraw object rendered as a large textured
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
 		rdr12::ldraw::LdrObjectPtr m_ground_gfx;

@@ -1,0 +1,78 @@
+{
+  "scene": {
+    "description": "Stability benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
+    "gravity": [0, 0, -9.81],
+    "material": {
+      "friction": 0.7,
+      "elasticity": 0.0
+    },
+    "physics": {
+        "max_collision_pairs": 4096
+    },
+    "camera": {
+      "position": [8, -18, 7],
+      "lookat": [0, 0, 3.5]
+    },
+    "ground_plane": {
+      "height": 0.0
+    },
+    "body_generators": [
+      {
+        "name": "brick_row0_#",
+        "selector": "linear",
+        "instance_count": 7,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-6.0, 0.0, 0.5], [6.0, 0.0, 0.5]]
+      },
+      {
+        "name": "brick_row1_#",
+        "selector": "linear",
+        "instance_count": 6,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-5.0, 0.0, 1.5], [5.0, 0.0, 1.5]]
+      },
+      {
+        "name": "brick_row2_#",
+        "selector": "linear",
+        "instance_count": 5,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-4.0, 0.0, 2.5], [4.0, 0.0, 2.5]]
+      },
+      {
+        "name": "brick_row3_#",
+        "selector": "linear",
+        "instance_count": 4,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-3.0, 0.0, 3.5], [3.0, 0.0, 3.5]]
+      },
+      {
+        "name": "brick_row4_#",
+        "selector": "linear",
+        "instance_count": 3,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-2.0, 0.0, 4.5], [2.0, 0.0, 4.5]]
+      },
+      {
+        "name": "brick_row5_#",
+        "selector": "linear",
+        "instance_count": 2,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 5.0,
+        "position": [[-1.0, 0.0, 5.5], [1.0, 0.0, 5.5]]
+      },
+      {
+        "name": "brick_row6_#",
+        "selector": "linear",
+        "instance_count": 1,
+        "shape": { "type": "box", "dimensions": [2.0, 1.0, 1.0] },
+        "mass": 50.0,
+        "position": [0.0, 0.0, 6.5]
+      }
+    ]
+  }
+}
