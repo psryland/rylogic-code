@@ -29,6 +29,7 @@ namespace pr::physics
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_resolve_ms = 0;
+			double m_selective_ms = 0;
 			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
@@ -86,6 +87,12 @@ namespace pr::physics
 
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
+
+		// GPU resolver for compact selective-refresh work sets
+		GpuResolverPtr m_gpu_selective_resolver;
+
+		// GPU selective contact refresher
+		GpuSelectiveRefresherPtr m_gpu_selective_refresher;
 
 		// Material map for looking up combined material properties during collision resolution.
 		MaterialMapPtr m_materials;
@@ -184,6 +191,9 @@ namespace pr::physics
 
 		// Apply impulses to resolve collisions and update body dynamics.
 		void Resolve(float dt);
+
+		// Extra narrowphase/resolve passes over problematic contacts.
+		void SelectiveRefresh(float dt);
 
 		// Persist wake-ups and update sleep state after collision resolution.
 		void SleepUpdate(float dt);

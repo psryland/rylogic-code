@@ -16,6 +16,11 @@ namespace physics_sandbox::diag
 		std::optional<int> m_physics_substeps = {};
 		std::optional<int> m_physics_solver_iterations = {};
 		std::optional<int> m_physics_position_iterations = {};
+		std::optional<int> m_physics_selective_refresh_passes = {};
+		std::optional<int> m_physics_selective_refresh_max_pairs = {};
+		std::optional<int> m_physics_selective_refresh_solver_iterations = {};
+		std::optional<int> m_physics_selective_refresh_position_iterations = {};
+		std::optional<float> m_physics_selective_refresh_bias_scale = {};
 		bool m_scan_bodies = false;
 		bool m_scan_non_spheres = false;
 		bool m_column_metric = false;

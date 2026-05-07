@@ -19,7 +19,8 @@ namespace physics_sandbox::scene_loader
 		//             "substeps": 4,                // Run this many physics steps per scene step
 		//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
 		//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
-		//             "max_collision_pairs": 131072 // Override EngineConfig collision pair/contact capacity
+		//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
+		//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
 		//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
@@ -119,6 +120,16 @@ namespace physics_sandbox::scene_loader
 		int physics_solver_iterations = physics::EngineConfig{}.solver_iterations;
 		int physics_position_iterations = physics::EngineConfig{}.position_iterations;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
+		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
+		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;
+		int physics_selective_refresh_solver_iterations = physics::EngineConfig{}.selective_refresh_solver_iterations;
+		int physics_selective_refresh_position_iterations = physics::EngineConfig{}.selective_refresh_position_iterations;
+		float physics_selective_refresh_bias_scale = physics::EngineConfig{}.selective_refresh_bias_scale;
+		float physics_selective_refresh_depth_slop = physics::EngineConfig{}.selective_refresh_depth_slop;
+		float physics_selective_refresh_support_depth_slop = physics::EngineConfig{}.selective_refresh_support_depth_slop;
+		float physics_selective_refresh_closing_speed_slop = physics::EngineConfig{}.selective_refresh_closing_speed_slop;
+		float physics_selective_refresh_support_alignment = physics::EngineConfig{}.selective_refresh_support_alignment;
+		float physics_selective_refresh_aabb_margin = physics::EngineConfig{}.selective_refresh_aabb_margin;
 
 		// Camera settings
 		std::optional<CameraDesc> camera;

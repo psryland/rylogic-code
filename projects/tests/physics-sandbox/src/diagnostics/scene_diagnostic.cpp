@@ -118,6 +118,7 @@ namespace physics_sandbox::diag
 				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
 				m_engine.m_collide_ms += profile.m_engine.m_collide_ms;
 				m_engine.m_resolve_ms += profile.m_engine.m_resolve_ms;
+				m_engine.m_selective_ms += profile.m_engine.m_selective_ms;
 				m_engine.m_sleepupdate_ms += profile.m_engine.m_sleepupdate_ms;
 				m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
 				m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
@@ -386,7 +387,7 @@ namespace physics_sandbox::diag
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
 				step,
 				time_s,
 				profile.m_sample_count,
@@ -401,6 +402,7 @@ namespace physics_sandbox::diag
 				profile.m_engine.m_broadphase_ms / count,
 				profile.m_engine.m_collide_ms / count,
 				profile.m_engine.m_resolve_ms / count,
+				profile.m_engine.m_selective_ms / count,
 				profile.m_engine.m_sleepupdate_ms / count,
 				profile.m_engine.m_readback_ms / count,
 				profile.m_engine.m_gpu_run_ms / count,
@@ -639,7 +641,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -672,6 +674,36 @@ namespace physics_sandbox::diag
 			if (*options.m_physics_position_iterations < 0)
 				throw std::runtime_error("Scene diagnostic -position_iterations must be non-negative");
 			scene_desc.physics_position_iterations = *options.m_physics_position_iterations;
+		}
+		if (options.m_physics_selective_refresh_passes)
+		{
+			if (*options.m_physics_selective_refresh_passes < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_passes must be non-negative");
+			scene_desc.physics_selective_refresh_passes = *options.m_physics_selective_refresh_passes;
+		}
+		if (options.m_physics_selective_refresh_max_pairs)
+		{
+			if (*options.m_physics_selective_refresh_max_pairs < 1)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_max_pairs must be at least 1");
+			scene_desc.physics_selective_refresh_max_pairs = *options.m_physics_selective_refresh_max_pairs;
+		}
+		if (options.m_physics_selective_refresh_solver_iterations)
+		{
+			if (*options.m_physics_selective_refresh_solver_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_solver_iterations must be non-negative");
+			scene_desc.physics_selective_refresh_solver_iterations = *options.m_physics_selective_refresh_solver_iterations;
+		}
+		if (options.m_physics_selective_refresh_position_iterations)
+		{
+			if (*options.m_physics_selective_refresh_position_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_position_iterations must be non-negative");
+			scene_desc.physics_selective_refresh_position_iterations = *options.m_physics_selective_refresh_position_iterations;
+		}
+		if (options.m_physics_selective_refresh_bias_scale)
+		{
+			if (*options.m_physics_selective_refresh_bias_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_bias_scale must be non-negative");
+			scene_desc.physics_selective_refresh_bias_scale = *options.m_physics_selective_refresh_bias_scale;
 		}
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};

@@ -42,7 +42,7 @@ namespace physics_sandbox
 		if (m_log)
 		{
 			m_log << "load_profile,file,total_ms,wait_gpu_ms,json_ms,scene_load_ms,prepare_ms,bbox_ms,shapes_ms,bodies_ms,ldraw_build_ms,ldraw_serialise_ms,ldraw_parse_ms,ldraw_assign_ms,logging_ms,camera_ms,bodies,shapes,ldraw_objects,ldraw_bytes,has_renderer\n";
-			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
+			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
 			m_log.flush();
 		}
 	}
@@ -80,6 +80,7 @@ namespace physics_sandbox
 		m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
 		m_engine.m_collide_ms += profile.m_engine.m_collide_ms;
 		m_engine.m_resolve_ms += profile.m_engine.m_resolve_ms;
+		m_engine.m_selective_ms += profile.m_engine.m_selective_ms;
 		m_engine.m_sleepupdate_ms += profile.m_engine.m_sleepupdate_ms;
 		m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
 		m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
@@ -161,7 +162,7 @@ namespace physics_sandbox
 
 		if (m_log)
 		{
-			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
+			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
 				scene.m_clock,
 				body_count,
 				m_steps,
@@ -179,6 +180,7 @@ namespace physics_sandbox
 				Avg(m_engine.m_broadphase_ms, m_steps),
 				Avg(m_engine.m_collide_ms, m_steps),
 				Avg(m_engine.m_resolve_ms, m_steps),
+				Avg(m_engine.m_selective_ms, m_steps),
 				Avg(m_engine.m_sleepupdate_ms, m_steps),
 				Avg(m_engine.m_readback_ms, m_steps),
 				Avg(m_engine.m_gpu_run_ms, m_steps),

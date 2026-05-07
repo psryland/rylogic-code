@@ -465,6 +465,66 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_max_collision_pairs < 1)
 					throw std::runtime_error("Scene physics.max_collision_pairs must be at least 1");
 			}
+			if (auto* jselective_refresh_passes = jphysics_obj.find("selective_refresh_passes"))
+			{
+				desc.physics_selective_refresh_passes = jselective_refresh_passes->to<int>();
+				if (desc.physics_selective_refresh_passes < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_passes must be non-negative");
+			}
+			if (auto* jselective_refresh_max_pairs = jphysics_obj.find("selective_refresh_max_pairs"))
+			{
+				desc.physics_selective_refresh_max_pairs = jselective_refresh_max_pairs->to<int>();
+				if (desc.physics_selective_refresh_max_pairs < 1)
+					throw std::runtime_error("Scene physics.selective_refresh_max_pairs must be at least 1");
+			}
+			if (auto* jselective_refresh_solver_iterations = jphysics_obj.find("selective_refresh_solver_iterations"))
+			{
+				desc.physics_selective_refresh_solver_iterations = jselective_refresh_solver_iterations->to<int>();
+				if (desc.physics_selective_refresh_solver_iterations < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_solver_iterations must be non-negative");
+			}
+			if (auto* jselective_refresh_position_iterations = jphysics_obj.find("selective_refresh_position_iterations"))
+			{
+				desc.physics_selective_refresh_position_iterations = jselective_refresh_position_iterations->to<int>();
+				if (desc.physics_selective_refresh_position_iterations < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_position_iterations must be non-negative");
+			}
+			if (auto* jselective_refresh_bias_scale = jphysics_obj.find("selective_refresh_bias_scale"))
+			{
+				desc.physics_selective_refresh_bias_scale = jselective_refresh_bias_scale->to<float>();
+				if (desc.physics_selective_refresh_bias_scale < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_bias_scale must be non-negative");
+			}
+			if (auto* jselective_refresh_depth_slop = jphysics_obj.find("selective_refresh_depth_slop"))
+			{
+				desc.physics_selective_refresh_depth_slop = jselective_refresh_depth_slop->to<float>();
+				if (desc.physics_selective_refresh_depth_slop < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_depth_slop must be non-negative");
+			}
+			if (auto* jselective_refresh_support_depth_slop = jphysics_obj.find("selective_refresh_support_depth_slop"))
+			{
+				desc.physics_selective_refresh_support_depth_slop = jselective_refresh_support_depth_slop->to<float>();
+				if (desc.physics_selective_refresh_support_depth_slop < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_support_depth_slop must be non-negative");
+			}
+			if (auto* jselective_refresh_closing_speed_slop = jphysics_obj.find("selective_refresh_closing_speed_slop"))
+			{
+				desc.physics_selective_refresh_closing_speed_slop = jselective_refresh_closing_speed_slop->to<float>();
+				if (desc.physics_selective_refresh_closing_speed_slop < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_closing_speed_slop must be non-negative");
+			}
+			if (auto* jselective_refresh_support_alignment = jphysics_obj.find("selective_refresh_support_alignment"))
+			{
+				desc.physics_selective_refresh_support_alignment = jselective_refresh_support_alignment->to<float>();
+				if (desc.physics_selective_refresh_support_alignment < 0.0f || desc.physics_selective_refresh_support_alignment > 1.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_support_alignment must be in [0,1]");
+			}
+			if (auto* jselective_refresh_aabb_margin = jphysics_obj.find("selective_refresh_aabb_margin"))
+			{
+				desc.physics_selective_refresh_aabb_margin = jselective_refresh_aabb_margin->to<float>();
+				if (desc.physics_selective_refresh_aabb_margin < 0.0f)
+					throw std::runtime_error("Scene physics.selective_refresh_aabb_margin must be non-negative");
+			}
 		}
 
 		// Ground plane

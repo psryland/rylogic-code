@@ -15,6 +15,7 @@
 #include "src/compute/sweep_gpu.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/selective_gpu.h"
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
@@ -94,6 +95,8 @@ namespace pr::physics
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config))
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config))
+		, m_gpu_selective_resolver(new GpuResolver(*m_gpu, m_config))
+		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
 		, m_body_ptrs()
@@ -201,6 +204,12 @@ namespace pr::physics
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
 			Resolve(dt);
+		}
+
+		// SelectiveRefresh -> retries only problematic contacts with refreshed manifolds
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
+			SelectiveRefresh(dt);
 		}
 
 		// SleepUpdate -> persists wake-ups caused by resolver impulses
@@ -377,6 +386,76 @@ namespace pr::physics
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
 			//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+		}
+	}
+
+	// Extra narrowphase/resolve passes over problematic contacts.
+	void Engine::SelectiveRefresh(float dt)
+	{
+		auto const pass_count = std::max(0, m_config.selective_refresh_passes);
+		if (pass_count == 0)
+			return;
+
+		auto const body_count = m_cache->RigidBodyCount();
+		auto const full_max_pairs = m_config.max_collision_pairs;
+		auto const max_pairs = Clamp(m_config.selective_refresh_max_pairs, 1, full_max_pairs);
+		auto const max_contacts = max_pairs;
+		auto full_counters = m_gpu_integrator->Counters();
+		auto full_pairs = m_gpu_sort_and_sweep->CollisionPairs();
+		auto bodies = m_gpu_integrator->Bodies();
+		auto source_counters = full_counters;
+		auto source_contacts = m_gpu_collision_detector->Contacts();
+		auto source_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		auto source_max_contacts = full_max_pairs;
+
+		for (int pass = 0; pass != pass_count; ++pass)
+		{
+			// Each pass scores the contacts produced by the previous resolve, then refreshes
+			// narrowphase only for nearby pairs that share those problem bodies.
+			auto& work_set = m_gpu_selective_refresher->BuildWorkSet(
+				m_gpu->m_job,
+				pass,
+				body_count,
+				max_pairs,
+				max_contacts,
+				source_max_contacts,
+				full_max_pairs,
+				source_counters,
+				source_contacts,
+				source_dispatch,
+				full_counters,
+				full_pairs,
+				bodies);
+
+			m_gpu_collision_detector->DetectCollisions(
+				m_gpu->m_job,
+				work_set.m_max_contacts,
+				work_set.m_max_pairs,
+				work_set.m_cd_dispatch,
+				work_set.m_pairs,
+				work_set.m_counters,
+				work_set.m_contacts,
+				work_set.m_resolve_dispatch,
+				m_cache->m_shape_cache);
+
+			m_gpu_selective_resolver->Resolve(
+				m_gpu->m_job,
+				dt,
+				body_count,
+				work_set.m_max_contacts,
+				work_set.m_resolve_dispatch,
+				work_set.m_counters,
+				work_set.m_contacts,
+				bodies,
+				m_materials->span(),
+				m_config.selective_refresh_bias_scale,
+				m_config.selective_refresh_solver_iterations,
+				m_config.selective_refresh_position_iterations);
+
+			source_counters = work_set.m_counters;
+			source_contacts = work_set.m_contacts;
+			source_dispatch = work_set.m_resolve_dispatch;
+			source_max_contacts = work_set.m_max_contacts;
 		}
 	}
 

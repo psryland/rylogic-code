@@ -456,6 +456,16 @@ namespace physics_sandbox
 		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
 		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
 		engine_config.position_iterations = scene_desc.physics_position_iterations;
+		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
+		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
+		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;
+		engine_config.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations;
+		engine_config.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale;
+		engine_config.selective_refresh_depth_slop = scene_desc.physics_selective_refresh_depth_slop;
+		engine_config.selective_refresh_support_depth_slop = scene_desc.physics_selective_refresh_support_depth_slop;
+		engine_config.selective_refresh_closing_speed_slop = scene_desc.physics_selective_refresh_closing_speed_slop;
+		engine_config.selective_refresh_support_alignment = scene_desc.physics_selective_refresh_support_alignment;
+		engine_config.selective_refresh_aabb_margin = scene_desc.physics_selective_refresh_aabb_margin;
 		m_physics.Config(engine_config);
 
 		// Set the kill zone well below the ground plane. Bodies that fall below

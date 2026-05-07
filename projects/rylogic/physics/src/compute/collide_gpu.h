@@ -44,6 +44,7 @@ namespace pr::physics
 
 		// Run collision detection on the GPU. Outputs GpuResolveContact directly.
 		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache);
+		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache const& shape_cache);
 
 		// CPU-side testing: upload pairs, shapes, materials and read back contacts
 		std::span<GpuResolveContact> DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuResolveContact> out_contacts);

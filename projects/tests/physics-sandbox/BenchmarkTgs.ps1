@@ -4,10 +4,15 @@ param(
 	[int]$Steps = 600,
 	[int]$Report = 120,
 	[string[]]$Substeps = @("1", "2", "4"),
+	[string[]]$SelectiveRefreshPasses = @("0"),
+	[string[]]$SelectiveRefreshBiasScales = @("1.0"),
+	[int]$SelectiveRefreshMaxPairs = -1,
+	[int]$SelectiveRefreshSolverIterations = -1,
+	[int]$SelectiveRefreshPositionIterations = -1,
 	[int]$SolverIterations = -1,
 	[int]$PositionIterations = -1,
 	[double]$MinActivePhysicsMs = 1.0,
-	[string]$OutputCsv = "projects\tests\physics-sandbox\dump\pyramid_substep_benchmark.csv"
+	[string]$OutputCsv = "projects\tests\physics-sandbox\dump\pyramid_stability_benchmark.csv"
 )
 
 Set-StrictMode -Version Latest
@@ -47,14 +52,31 @@ function Convert-ToIntList
 	}
 	return $list
 }
+function Convert-ToDoubleList
+{
+	param([string[]]$Values)
+
+	$list = @()
+	foreach ($value in $Values)
+	{
+		foreach ($part in $value.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries))
+		{
+			$list += [double]::Parse($part.Trim(), [Globalization.CultureInfo]::InvariantCulture)
+		}
+	}
+	return $list
+}
 
 function Invoke-PyramidMetricRun
 {
-	param([int]$SubstepCount)
+	param(
+		[int]$SubstepCount,
+		[int]$SelectivePassCount,
+		[double]$SelectiveBiasScale)
 
 	$log = Join-Path $env:APPDATA "RylogicPhysicsSandbox\scene_diagnostic.log"
-	$out = Join-Path $env:TEMP "rylogic_pyramid_${SubstepCount}_$([guid]::NewGuid()).out"
-	$err = Join-Path $env:TEMP "rylogic_pyramid_${SubstepCount}_$([guid]::NewGuid()).err"
+	$out = Join-Path $env:TEMP "rylogic_pyramid_${SubstepCount}_${SelectivePassCount}_$([guid]::NewGuid()).out"
+	$err = Join-Path $env:TEMP "rylogic_pyramid_${SubstepCount}_${SelectivePassCount}_$([guid]::NewGuid()).err"
 	Remove-Item $log,$out,$err -ErrorAction SilentlyContinue
 
 	# Use the scene diagnostic pyramid metric so stability is measured as whole-structure lattice preservation.
@@ -64,8 +86,25 @@ function Invoke-PyramidMetricRun
 		"-steps", "$Steps",
 		"-report", "$Report",
 		"-pyramid_metric",
-		"-substeps", "$SubstepCount"
+		"-substeps", "$SubstepCount",
+		"-selective_refresh_passes", "$SelectivePassCount"
 	)
+	if ($SelectivePassCount -gt 0)
+	{
+		$args += @("-selective_refresh_bias_scale", "$SelectiveBiasScale")
+		if ($SelectiveRefreshMaxPairs -ge 0)
+		{
+			$args += @("-selective_refresh_max_pairs", "$SelectiveRefreshMaxPairs")
+		}
+		if ($SelectiveRefreshSolverIterations -ge 0)
+		{
+			$args += @("-selective_refresh_solver_iterations", "$SelectiveRefreshSolverIterations")
+		}
+		if ($SelectiveRefreshPositionIterations -ge 0)
+		{
+			$args += @("-selective_refresh_position_iterations", "$SelectiveRefreshPositionIterations")
+		}
+	}
 	if ($SolverIterations -ge 0)
 	{
 		$args += @("-solver_iterations", "$SolverIterations")
@@ -84,7 +123,7 @@ function Invoke-PyramidMetricRun
 	if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0)
 	{
 		$stderr = if (Test-Path $err) { Get-Content $err -Raw } else { "" }
-		throw "Pyramid benchmark run failed for substeps=$SubstepCount exit=$($process.ExitCode)`n$stderr"
+		throw "Pyramid benchmark run failed for substeps=$SubstepCount selective_passes=$SelectivePassCount exit=$($process.ExitCode)`n$stderr"
 	}
 
 	# The sandbox is a Windows-subsystem executable, so its diagnostic console output is not reliably captured by Start-Process redirection.
@@ -92,7 +131,7 @@ function Invoke-PyramidMetricRun
 	if (!(Test-Path $log))
 	{
 		$stderr = if (Test-Path $err) { Get-Content $err -Raw } else { "" }
-		throw "Scene diagnostic log was not created for substeps=$SubstepCount`n$stderr"
+		throw "Scene diagnostic log was not created for substeps=$SubstepCount selective_passes=$SelectivePassCount`n$stderr"
 	}
 
 	# The final pyramid row is the settled stability sample. Cost is taken from the last non-trivial interval, because once the
@@ -101,7 +140,7 @@ function Invoke-PyramidMetricRun
 	$pyramid_lines = @($lines | Where-Object { $_ -like "pyramid step=*" })
 	if ($pyramid_lines.Count -eq 0)
 	{
-		throw "No pyramid metric rows found for substeps=$SubstepCount"
+		throw "No pyramid metric rows found for substeps=$SubstepCount selective_passes=$SelectivePassCount"
 	}
 
 	$pattern = "^pyramid step=\s*(?<step>\d+)\s+t=\s*(?<time>[-+0-9.]+)\s+count=(?<count>\d+)\s+rms=\s*(?<rms>[-+0-9.]+)\s+rms_xy=\s*(?<rms_xy>[-+0-9.]+)\s+max_xy=\s*(?<max_xy>[-+0-9.]+)\s+max_drop=\s*(?<max_drop>[-+0-9.]+)\s+top_z=\s*(?<top_z>[-+0-9.]+)\s+top_err=\s*(?<top_err>[-+0-9.]+)\s+fallen=(?<fallen>\d+)\s+sleeping=(?<sleeping>\d+)\s+ke=\s*(?<ke>[-+0-9.]+)\s+pairs=(?<pairs>\d+)\s+contacts=(?<contacts>\d+)\s+physics_ms=\s*(?<physics_ms>[-+0-9.]+)\s+fps=\s*(?<fps>[-+0-9.]+)"
@@ -111,7 +150,7 @@ function Invoke-PyramidMetricRun
 		$match = [regex]::Match($line, $pattern)
 		if (!$match.Success)
 		{
-			throw "Could not parse pyramid metric row for substeps=$SubstepCount`n$line"
+			throw "Could not parse pyramid metric row for substeps=$SubstepCount selective_passes=$SelectivePassCount`n$line"
 		}
 
 		$rows += [pscustomobject]@{
@@ -141,6 +180,8 @@ function Invoke-PyramidMetricRun
 
 	return [pscustomobject]@{
 		Substeps = $SubstepCount
+		SelectivePasses = $SelectivePassCount
+		SelectiveBiasScale = $SelectiveBiasScale
 		Step = $final_row.Step
 		TimeS = $final_row.TimeS
 		BodyCount = $final_row.BodyCount
@@ -168,16 +209,24 @@ function Invoke-PyramidMetricRun
 }
 
 $substep_counts = Convert-ToIntList $Substeps
+$selective_pass_counts = Convert-ToIntList $SelectiveRefreshPasses
+$selective_bias_scales = Convert-ToDoubleList $SelectiveRefreshBiasScales
 $results = @()
 foreach ($substep_count in $substep_counts)
 {
-	$results += Invoke-PyramidMetricRun $substep_count
+	foreach ($selective_pass_count in $selective_pass_counts)
+	{
+		foreach ($selective_bias_scale in $selective_bias_scales)
+		{
+			$results += Invoke-PyramidMetricRun $substep_count $selective_pass_count $selective_bias_scale
+		}
+	}
 }
 
-$baseline = $results | Where-Object { $_.Substeps -eq 1 } | Select-Object -First 1
+$baseline = $results | Where-Object { $_.Substeps -eq 1 -and $_.SelectivePasses -eq 0 } | Select-Object -First 1
 if ($null -eq $baseline)
 {
-	throw "Substeps must include 1 so the benchmark has a baseline"
+	throw "Substeps and SelectiveRefreshPasses must include 1 and 0 respectively so the benchmark has a baseline"
 }
 
 $summary = foreach ($result in $results)
@@ -187,6 +236,8 @@ $summary = foreach ($result in $results)
 	$cost_ratio = if ($baseline.CostPhysicsMs -ne 0.0) { $result.CostPhysicsMs / $baseline.CostPhysicsMs } else { [double]::NaN }
 	[pscustomobject]@{
 		Substeps = $result.Substeps
+		SelectivePasses = $result.SelectivePasses
+		SelectiveBiasScale = $result.SelectiveBiasScale
 		FinalStep = $result.Step
 		CostStep = $result.CostStep
 		RmsPose = $result.RmsPose
@@ -213,6 +264,6 @@ if ($output_dir)
 }
 
 $summary | Export-Csv -Path $OutputCsv -NoTypeInformation
-$summary | Format-Table -Property Substeps,FinalStep,CostStep,RmsPose,StabilityGainPct,MaxXY,Fallen,Sleeping,PhysicsMs,Fps,CostRatio -AutoSize
+$summary | Format-Table -Property Substeps,SelectivePasses,SelectiveBiasScale,FinalStep,CostStep,RmsPose,StabilityGainPct,MaxXY,Fallen,Sleeping,PhysicsMs,Fps,CostRatio -AutoSize
 Write-Host ""
 Write-Host "Pyramid benchmark CSV: $([System.IO.Path]::GetFullPath($OutputCsv))"

@@ -30,7 +30,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 0.125 ], [ 9.898, 0, 0.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row01_#",
@@ -42,7 +42,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 0.375 ], [ 10.100, 0, 0.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row02_#",
@@ -54,7 +54,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 0.625 ], [ 9.898, 0, 0.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row03_#",
@@ -66,7 +66,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 0.875 ], [ 10.100, 0, 0.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row04_#",
@@ -78,7 +78,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 1.125 ], [ 9.898, 0, 1.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row05_#",
@@ -90,7 +90,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 1.375 ], [ 10.100, 0, 1.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row06_#",
@@ -102,7 +102,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 1.625 ], [ 9.898, 0, 1.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row07_#",
@@ -114,7 +114,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 1.875 ], [ 10.100, 0, 1.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row08_#",
@@ -126,7 +126,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 2.125 ], [ 9.898, 0, 2.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row09_#",
@@ -138,7 +138,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 2.375 ], [ 10.100, 0, 2.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row10_#",
@@ -150,7 +150,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 2.625 ], [ 9.898, 0, 2.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row11_#",
@@ -162,7 +162,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 2.875 ], [ 10.100, 0, 2.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row12_#",
@@ -174,7 +174,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 3.125 ], [ 9.898, 0, 3.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row13_#",
@@ -186,7 +186,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 3.375 ], [ 10.100, 0, 3.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row14_#",
@@ -198,7 +198,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 3.625 ], [ 9.898, 0, 3.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row15_#",
@@ -210,7 +210,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 3.875 ], [ 10.100, 0, 3.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row16_#",
@@ -222,7 +222,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 4.125 ], [ 9.898, 0, 4.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row17_#",
@@ -234,7 +234,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 4.375 ], [ 10.100, 0, 4.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row18_#",
@@ -246,7 +246,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 4.625 ], [ 9.898, 0, 4.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row19_#",
@@ -258,7 +258,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 4.875 ], [ 10.100, 0, 4.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row20_#",
@@ -270,7 +270,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 5.125 ], [ 9.898, 0, 5.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row21_#",
@@ -282,7 +282,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 5.375 ], [ 10.100, 0, 5.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row22_#",
@@ -294,7 +294,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 5.625 ], [ 9.898, 0, 5.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row23_#",
@@ -306,7 +306,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 5.875 ], [ 10.100, 0, 5.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row24_#",
@@ -318,7 +318,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 6.125 ], [ 9.898, 0, 6.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row25_#",
@@ -330,7 +330,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 6.375 ], [ 10.100, 0, 6.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row26_#",
@@ -342,7 +342,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 6.625 ], [ 9.898, 0, 6.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row27_#",
@@ -354,7 +354,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 6.875 ], [ 10.100, 0, 6.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row28_#",
@@ -366,7 +366,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 7.125 ], [ 9.898, 0, 7.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row29_#",
@@ -378,7 +378,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 7.375 ], [ 10.100, 0, 7.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row30_#",
@@ -390,7 +390,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 7.625 ], [ 9.898, 0, 7.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row31_#",
@@ -402,7 +402,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 7.875 ], [ 10.100, 0, 7.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row32_#",
@@ -414,7 +414,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 8.125 ], [ 9.898, 0, 8.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row33_#",
@@ -426,7 +426,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 8.375 ], [ 10.100, 0, 8.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row34_#",
@@ -438,7 +438,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 8.625 ], [ 9.898, 0, 8.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row35_#",
@@ -450,7 +450,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 8.875 ], [ 10.100, 0, 8.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row36_#",
@@ -462,7 +462,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 9.125 ], [ 9.898, 0, 9.125 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row37_#",
@@ -474,7 +474,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 9.375 ], [ 10.100, 0, 9.375 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row38_#",
@@ -486,7 +486,7 @@
         "mass": 0.0625,
         "position": [[ -9.898, 0, 9.625 ], [ 9.898, 0, 9.625 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       },
       {
         "name": "brick_row39_#",
@@ -498,7 +498,7 @@
         "mass": 0.0625,
         "position": [[ -9.696, 0, 9.875 ], [ 10.100, 0, 9.875 ]],
         "velocity": [ 0, 0, 0 ],
-        "sleeping": true
+        "sleeping": false
       }
     ],
     "bodies": [
@@ -509,7 +509,7 @@
           "radius": 2.0
         },
         "position": [ 0, 30, 5 ],
-        "velocity": [ 0, -20, 0 ],
+        "velocity": [ 0, 0, 0 ],
         "mass": 50.0
       }
     ]

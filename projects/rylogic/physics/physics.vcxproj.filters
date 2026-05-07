@@ -66,6 +66,9 @@
     <ClCompile Include="src\compute\resolve_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\selective_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\sleep_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -182,6 +185,9 @@
     <ClInclude Include="src\compute\resolve_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\selective_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
     <ClInclude Include="src\compute\sleep_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
@@ -244,6 +250,9 @@
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="src\compute\resolve.hlsl">
+      <Filter>src\compute</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\selective.hlsl">
       <Filter>src\compute</Filter>
     </FxCompile>
     <FxCompile Include="src\compute\sleep.hlsl">

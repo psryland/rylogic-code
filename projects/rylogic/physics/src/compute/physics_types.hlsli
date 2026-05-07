@@ -16,6 +16,7 @@ static const int SleepThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
+static const int SelectiveRefreshThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 
@@ -214,6 +215,13 @@ struct GpuCollisionCounters
 	int contact_count; // The number of contact points found
 	int pad0;
 	int pad1;
+};
+struct GpuSelectiveRefreshMetrics
+{
+	uint scored_contact_count;
+	uint selected_contact_count;
+	uint selected_pair_count;
+	uint pad0;
 };
 struct GpuMaterial
 {

@@ -27,6 +27,7 @@ namespace pr::physics
 	static_assert((sizeof(GpuContact) & 0xf) == 0);
 	static_assert((sizeof(GpuResolveContact) & 0xf) == 0);
 	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
+	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
 
 	// Convert CPU collision shapes into the flat GPU format.

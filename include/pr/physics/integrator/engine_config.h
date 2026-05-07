@@ -38,5 +38,19 @@ namespace pr::physics
 		float deep_penetration_range = 0.4f;
 		float deep_penetration_baumgarte_min = 0.2f;
 		float deep_penetration_baumgarte_max = 0.8f;
+
+		// Selective contact refresh runs extra narrowphase/resolve passes over a compacted
+		// subset of problematic pairs. It is disabled by default so existing scenes keep
+		// their current behaviour unless they explicitly opt in.
+		int selective_refresh_passes = 0;
+		int selective_refresh_max_pairs = 512;
+		int selective_refresh_solver_iterations = 12;
+		int selective_refresh_position_iterations = 1;
+		float selective_refresh_bias_scale = 1.0f;
+		float selective_refresh_depth_slop = 0.015f;
+		float selective_refresh_support_depth_slop = 0.002f;
+		float selective_refresh_closing_speed_slop = 0.02f;
+		float selective_refresh_support_alignment = 0.65f;
+		float selective_refresh_aabb_margin = 0.03f;
 	};
 }

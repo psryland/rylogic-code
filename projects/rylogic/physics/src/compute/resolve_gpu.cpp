@@ -16,7 +16,7 @@ namespace pr::physics
 		int g_max_contacts; // The max capacity of the contacts buffer
 		int g_body_count;   // The number of bodies in the scene
 		int g_colour;       // Current colour batch being processed (for CSResolve)
-		int pad0;
+		int g_sort_capacity;
 
 		float g_dt;         // timestep in seconds
 		float pad1;
@@ -30,7 +30,7 @@ namespace pr::physics
 
 		float g_deep_penetration_baumgarte_min;
 		float g_deep_penetration_baumgarte_max;
-		float pad4;
+		float g_bias_scale;
 		float pad5;
 
 		float g_position_slop;
@@ -181,22 +181,21 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int position_iterations_)
 	{
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
 		ResizeBuffers(job.m_cmd_list, max_contacts, material_count);
 
-		assert(m_config.position_iterations >= 0);
-		auto const position_iterations = std::max(0, m_config.position_iterations);
+		auto const position_iterations = std::max(0, position_iterations_ >= 0 ? position_iterations_ : m_config.position_iterations);
 		auto const position_correction_scale = position_iterations != 0 ? 1.0f / position_iterations : 0.0f;
 
 		cbResolve cb_resolve = {
 			.g_max_contacts = max_contacts,
 			.g_body_count = body_count,
 			.g_colour = 0,
-			.pad0 = 0,
+			.g_sort_capacity = m_max_contacts,
 			.g_dt = dt,
 			.pad1 = 0,
 			.pad2 = 0,
@@ -207,7 +206,7 @@ namespace pr::physics
 			.g_deep_penetration_range = m_config.deep_penetration_range,
 			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
 			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
-			.pad4 = 0,
+			.g_bias_scale = bias_scale,
 			.pad5 = 0,
 			.g_position_slop = m_config.position_slop,
 			.g_position_baumgarte = m_config.position_baumgarte,
@@ -266,7 +265,7 @@ namespace pr::physics
 
 		// Create the sorted contact order based on contact time
 		{
-			m_contact_sorter.Bind(job.m_cmd_list, max_contacts, m_r_contact_times, m_r_contact_order);
+			m_contact_sorter.Bind(job.m_cmd_list, m_max_contacts, m_r_contact_times, m_r_contact_order);
 			m_contact_sorter.Sort(job.m_cmd_list);
 
 			job.m_barriers.UAV(m_r_contact_times.get());
@@ -324,8 +323,7 @@ namespace pr::physics
 		// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
 		// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
 		// The energy guard in CSResolve prevents energy injection across iterations.
-		assert(m_config.solver_iterations >= 0);
-		auto const solver_iterations = std::max(0, m_config.solver_iterations);
+		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
 		{
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());

@@ -51,7 +51,7 @@ struct cbResolve
 	int max_contacts; // The max capacity of the contacts buffer
 	int body_count;   // The number of bodies in the scene
 	int colour;       // Current colour batch being processed (for CSResolve)
-	int pad0;
+	int sort_capacity;
 
 	float dt;         // timestep in seconds
 	float pad1;
@@ -65,7 +65,7 @@ struct cbResolve
 
 	float deep_penetration_baumgarte_min;
 	float deep_penetration_baumgarte_max;
-	float pad4;
+	float bias_scale;
 	float pad5;
 
 	float position_slop;
@@ -329,7 +329,7 @@ float PositionCorrectionDistance(float depth)
 	float deep_baumgarte = lerp(g.deep_penetration_baumgarte_min, g.deep_penetration_baumgarte_max, saturate(deep_pen / deep_range));
 	float deep_correction = deep_baumgarte * deep_pen;
 
-	return g.position_correction_scale * max(position_correction, deep_correction);
+	return g.bias_scale * g.position_correction_scale * max(position_correction, deep_correction);
 }
 
 void ApplyPositionCorrection(GpuResolveContact c)
@@ -401,8 +401,10 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 		for (i = 0; i != g.body_count; ++i)
 			g_bodies[i].colour_used = 0;
 		
-		// Set the out of bounds contact times to a large positive value so they sort to the end
-		for (i = contact_count; i != g.max_contacts; ++i)
+		// Set the out-of-bounds contact times to a large positive value so they sort to the end.
+		// The resolver's sort scratch can be larger than a compact selective contact buffer, so initialise
+		// every key that the radix sorter will read, not just every contact slot in the current pass.
+		for (i = contact_count; i != g.sort_capacity; ++i)
 			g_contact_times[i] = 1e30f;
 	}
 }
@@ -523,7 +525,7 @@ void CSResolve(int3 DTID(dtid))
 	// Baumgarte velocity bias: the per-frame separation velocity we'd like to inject
 	// to drive penetration to zero. The same depth value is used for every manifold
 	// point because the contact carries a single penetration depth covering the manifold.
-	float bias = (g.velocity_baumgarte / g.dt) * max(c.depth - g.penetration_slop, 0.0f);
+	float bias = g.bias_scale * (g.velocity_baumgarte / g.dt) * max(c.depth - g.penetration_slop, 0.0f);
 
 	// Number of manifold points to process (1 = no manifold, fall back to centroid).
 	// Clamped to GpuContactMaxPoints to keep the [unroll] bounds well-defined.
