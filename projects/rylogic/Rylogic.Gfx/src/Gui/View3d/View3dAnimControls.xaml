@@ -119,7 +119,15 @@
 				ToolTip="Animation clock value."
 				HorizontalContentAlignment="Center"
 				MinWidth="60"
-				/>
+				>
+				<TextBox.InputBindings>
+					<KeyBinding
+						Key="Return"
+						Command="{x:Static Member=gui:TextBox_.UpdateSource}"
+						CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type TextBox}}}"
+						/>
+				</TextBox.InputBindings>
+			</TextBox>
 		</StackPanel>
 	
 		<!-- Step Size -->
@@ -141,7 +149,15 @@
 					HorizontalContentAlignment="Center"
 					VerticalAlignment="Center"
 					MinWidth="60"
-				/>
+					>
+					<TextBox.InputBindings>
+						<KeyBinding
+							Key="Return"
+							Command="{x:Static Member=gui:TextBox_.UpdateSource}"
+							CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type TextBox}}}"
+							/>
+					</TextBox.InputBindings>
+				</TextBox>
 				<gui:SliderFunction
 					Minimum="0"
 					Maximum="1.0"
@@ -175,7 +191,15 @@
 					Text="{Binding Frame, StringFormat={}{0:N2}}"
 					MinWidth="60"
 					Margin="0,2,2,2"
-				/>
+					>
+					<TextBox.InputBindings>
+						<KeyBinding
+							Key="Return"
+							Command="{x:Static Member=gui:TextBox_.UpdateSource}"
+							CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type TextBox}}}"
+							/>
+					</TextBox.InputBindings>
+				</TextBox>
 
 				<!-- Frame Rate -->
 				<ComboBox
@@ -187,7 +211,14 @@
 					BorderBrush="#DDD"
 					Margin="1,1,20,1"
 					MinWidth="60"
-				>
+					>
+					<ComboBox.InputBindings>
+						<KeyBinding
+							Key="Return"
+							Command="{x:Static Member=gui:ComboBox_.UpdateSource}"
+							CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+							/>
+					</ComboBox.InputBindings>
 					<ComboBoxItem Content="24.0"/>
 					<ComboBoxItem Content="30.0"/>
 				</ComboBox>
@@ -217,7 +248,15 @@
 			VerticalAlignment="Center"
 			MinWidth="40"
 			Margin="3"
-		/>
+			>
+			<TextBox.InputBindings>
+				<KeyBinding
+					Key="Return"
+					Command="{x:Static Member=gui:TextBox_.UpdateSource}"
+					CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type TextBox}}}"
+					/>
+			</TextBox.InputBindings>
+		</TextBox>
 
 		<!-- Frame -->
 		<Slider
@@ -242,6 +281,14 @@
 			VerticalAlignment="Center"
 			MinWidth="40"
 			Margin="3"
-		/>
+			>
+			<TextBox.InputBindings>
+				<KeyBinding
+					Key="Return"
+					Command="{x:Static Member=gui:TextBox_.UpdateSource}"
+					CommandParameter="{Binding RelativeSource={RelativeSource AncestorType={x:Type TextBox}}}"
+					/>
+			</TextBox.InputBindings>
+		</TextBox>
 	</Grid>
 </Grid>
