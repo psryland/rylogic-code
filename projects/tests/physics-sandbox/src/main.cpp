@@ -119,6 +119,8 @@ namespace physics_sandbox
 		}
 		if (cmd.count("column_metric"))
 			options.m_column_metric = true;
+		if (cmd.count("pyramid_metric"))
+			options.m_pyramid_metric = true;
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 

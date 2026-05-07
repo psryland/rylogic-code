@@ -21,6 +21,7 @@ namespace physics_sandbox::diag
 		bool m_scan_bodies = false;
 		bool m_scan_non_spheres = false;
 		bool m_column_metric = false;
+		bool m_pyramid_metric = false;
 		bool m_engine_profile = false;
 	};
 

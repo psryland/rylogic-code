@@ -75,6 +75,26 @@ namespace physics_sandbox::diag
 				return m_top_body != -1;
 			}
 		};
+		struct PyramidMetricBody
+		{
+			int m_body = -1;
+			v4 m_initial_pos = {};
+			float m_height = 0.0f;
+			float m_fallen_radius = 0.0f;
+		};
+		struct PyramidMetricState
+		{
+			std::vector<PyramidMetricBody> m_bodies = {};
+			float m_initial_top_height = 0.0f;
+			float m_initial_spread = 0.0f;
+			double m_physics_ms = 0.0;
+			int m_sample_count = 0;
+
+			bool Enabled() const
+			{
+				return !m_bodies.empty();
+			}
+		};
 
 		struct EngineProfileAccumulator
 		{
@@ -201,6 +221,39 @@ namespace physics_sandbox::diag
 			metric.m_initial_top_height = top.position.z;
 			metric.m_ideal_top_height = metric.m_ground_height + supporting_height + 0.5f * BoxHeight(top);
 			metric.m_min_top_height = top.position.z;
+			return metric;
+		}
+		float BoxMaxDimension(scene_loader::BodyDesc const& body)
+		{
+			return std::max(body.box_dimensions.x, std::max(body.box_dimensions.y, body.box_dimensions.z));
+		}
+		PyramidMetricState CreatePyramidMetric(scene_loader::SceneDesc const& scene_desc)
+		{
+			auto metric = PyramidMetricState{};
+			metric.m_initial_top_height = -std::numeric_limits<float>::max();
+
+			for (int i = 0; i != std::ssize(scene_desc.bodies); ++i)
+			{
+				auto const& body = scene_desc.bodies[i];
+				if (body.mass <= 0.0f || body.shape_type != scene_loader::BodyDesc::EShape::Box)
+					continue;
+
+				// The pyramid metric treats the initial dynamic-box layout as the intended lattice. Persistent drift, sag, or lateral
+				// spread then becomes a whole-structure stability signal instead of a single transient top-body sample.
+				auto const xy_radius_sq = body.position.x * body.position.x + body.position.y * body.position.y;
+				metric.m_initial_spread = std::max(metric.m_initial_spread, std::sqrt(xy_radius_sq));
+				metric.m_initial_top_height = std::max(metric.m_initial_top_height, body.position.z);
+				metric.m_bodies.push_back(PyramidMetricBody{
+					.m_body = i,
+					.m_initial_pos = body.position,
+					.m_height = body.box_dimensions.z,
+					.m_fallen_radius = std::max(0.5f, 0.75f * BoxMaxDimension(body)),
+				});
+			}
+
+			if (!metric.Enabled())
+				throw std::runtime_error("Pyramid metric requires at least one dynamic box body");
+
 			return metric;
 		}
 
@@ -414,6 +467,66 @@ namespace physics_sandbox::diag
 			metric.m_physics_ms = 0.0;
 			metric.m_sample_count = 0;
 		}
+		void PrintPyramidMetric(std::ofstream& log, int step, double time_s, Scene const& scene, PyramidMetricState& metric)
+		{
+			auto pos_error_sq = 0.0;
+			auto xy_error_sq = 0.0;
+			auto kinetic_energy = 0.0;
+			auto max_xy = 0.0f;
+			auto max_drop = 0.0f;
+			auto top_height = -std::numeric_limits<float>::max();
+			auto fallen_count = 0;
+			auto sleeping_count = 0;
+
+			for (auto const& target : metric.m_bodies)
+			{
+				auto const& body = scene.m_body[target.m_body];
+				auto const pos = body.O2W().pos;
+				auto const dx = pos.x - target.m_initial_pos.x;
+				auto const dy = pos.y - target.m_initial_pos.y;
+				auto const dz = pos.z - target.m_initial_pos.z;
+				auto const xy_error = std::sqrt(dx * dx + dy * dy);
+				auto const z_drop = target.m_initial_pos.z - pos.z;
+
+				pos_error_sq += dx * dx + dy * dy + dz * dz;
+				xy_error_sq += xy_error * xy_error;
+				kinetic_energy += body.KineticEnergy();
+				max_xy = std::max(max_xy, xy_error);
+				max_drop = std::max(max_drop, z_drop);
+				top_height = std::max(top_height, pos.z);
+				sleeping_count += body.Sleeping() ? 1 : 0;
+				fallen_count += xy_error > target.m_fallen_radius || z_drop > 0.5f * target.m_height ? 1 : 0;
+			}
+
+			auto const body_count = static_cast<double>(metric.m_bodies.size());
+			auto const rms_error = std::sqrt(pos_error_sq / body_count);
+			auto const rms_xy_error = std::sqrt(xy_error_sq / body_count);
+			auto const sample_count = std::max(metric.m_sample_count, 1);
+			auto const avg_physics_ms = metric.m_physics_ms / sample_count;
+			auto const engine_fps = avg_physics_ms > 0.0 ? 1000.0 / avg_physics_ms : 0.0;
+			auto const collision_stats = scene.m_physics.LastCollisionStats();
+			Emit(log, std::format(
+				"pyramid step={:5d} t={:8.4f} count={} rms={:9.5f} rms_xy={:9.5f} max_xy={:9.5f} max_drop={:9.5f} top_z={:9.5f} top_err={:9.5f} fallen={} sleeping={} ke={:12.6f} pairs={} contacts={} physics_ms={:8.3f} fps={:8.2f}\n",
+				step,
+				time_s,
+				metric.m_bodies.size(),
+				rms_error,
+				rms_xy_error,
+				max_xy,
+				max_drop,
+				top_height,
+				top_height - metric.m_initial_top_height,
+				fallen_count,
+				sleeping_count,
+				kinetic_energy,
+				collision_stats.m_pair_count,
+				collision_stats.LastContactCount(),
+				avg_physics_ms,
+				engine_fps));
+
+			metric.m_physics_ms = 0.0;
+			metric.m_sample_count = 0;
+		}
 
 		void PrintBodyTrace(
 			std::ofstream& log,
@@ -519,6 +632,9 @@ namespace physics_sandbox::diag
 		auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc);
 		auto result = SceneDiagnosticResult{};
 
+		if (options.m_column_metric && options.m_pyramid_metric)
+			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use either -column_metric or -pyramid_metric");
+
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
@@ -526,6 +642,8 @@ namespace physics_sandbox::diag
 			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
+		else if (options.m_pyramid_metric)
+			Emit(log, "pyramid_metric=true\n");
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
@@ -570,6 +688,7 @@ namespace physics_sandbox::diag
 
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
+		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
 		if (column_metric.Enabled())
@@ -582,6 +701,14 @@ namespace physics_sandbox::diag
 				column_metric.m_ideal_top_height,
 				column_metric.m_initial_top_height - column_metric.m_ideal_top_height,
 				column_metric.m_ground_height));
+		}
+		if (pyramid_metric.Enabled())
+		{
+			Emit(log, std::format(
+				"pyramid setup count={} initial_top={:.5f} initial_spread={:.5f}\n",
+				pyramid_metric.m_bodies.size(),
+				pyramid_metric.m_initial_top_height,
+				pyramid_metric.m_initial_spread));
 		}
 
 		auto trace_contacts = std::vector<BodyTraceContact>{};
@@ -639,6 +766,11 @@ namespace physics_sandbox::diag
 				column_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
 				++column_metric.m_sample_count;
 			}
+			if (pyramid_metric.Enabled())
+			{
+				pyramid_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
+				++pyramid_metric.m_sample_count;
+			}
 
 			if (options.m_engine_profile)
 			{
@@ -658,6 +790,14 @@ namespace physics_sandbox::diag
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 					PrintColumnMetric(log, step + 1, scene.m_clock, scene, column_metric);
+
+				continue;
+			}
+			if (options.m_pyramid_metric)
+			{
+				auto report_interval = std::max(options.m_report_interval, 1);
+				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+					PrintPyramidMetric(log, step + 1, scene.m_clock, scene, pyramid_metric);
 
 				continue;
 			}
