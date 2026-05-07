@@ -302,6 +302,41 @@ namespace pr::physics::tests
 				PR_EXPECT(!bodies[1].Sleeping());
 			}
 		}
+
+		PRUnitTestMethod(CreatedSleepingChainWakesAsOneIsland)
+		{
+			auto box = MakeBox();
+			auto const dt = 1.0f / 60.0f;
+			auto& engine = SharedEngine();
+
+			RigidBody bodies[4];
+			for (int i = 0; i != 3; ++i)
+			{
+				bodies[i].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[i].O2W(m4x4::Translation(0.5f * static_cast<float>(i), 0, 0));
+				bodies[i].Sleep();
+			}
+
+			bodies[3].Shape(collision::shape_cast(&box), 1.0f);
+			bodies[3].O2W(m4x4::Translation(-0.45f, 0, 0));
+			bodies[3].VelocityWS(v4::Zero(), v4{1.0f, 0, 0, 0});
+
+			ResetEngineForNextTest(engine);
+			auto init_collision_count = 0;
+			engine.Collisions += [&](auto&, auto)
+			{
+				++init_collision_count;
+			};
+
+			engine.UpdateSleepIslands(bodies);
+			PR_EXPECT(init_collision_count == 0);
+
+			engine.Step(dt, bodies);
+
+			PR_EXPECT(!bodies[0].Sleeping());
+			PR_EXPECT(!bodies[1].Sleeping());
+			PR_EXPECT(!bodies[2].Sleeping());
+		}
 	};
 
 	// ===== Drop-onto-ground tests for every shape type =====

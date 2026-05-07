@@ -26,6 +26,9 @@ namespace pr::physics
 		// Upload staged body dynamics and reset collision counters.
 		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies);
 
+		// Reset the collision counters without changing the body buffer.
+		void ResetCounters(GpuJob& job);
+
 		// Integrate bodies on GPU and write AABBs (but keep bodies GPU-resident for later readback).
 		void Integrate(GpuJob& job, int body_count, float dt);
 

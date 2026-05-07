@@ -570,6 +570,10 @@ namespace physics_sandbox
 				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
 			}
+
+			// Scene files can instantiate objects directly asleep. Build those initial islands explicitly during load so Engine::Step() can
+			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
+			m_physics.UpdateSleepIslands(m_body);
 		}
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);

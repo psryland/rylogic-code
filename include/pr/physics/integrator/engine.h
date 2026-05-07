@@ -10,6 +10,15 @@ namespace pr::physics
 {
 	struct Engine
 	{
+		// Notes:
+		//  - The engine does not own the bodies. The caller is responsible for managing their
+		//    lifetime and ensuring they remain valid while being used by the engine.
+		//  - The engine does not have a universal gravity setting, Gravity should be applied
+		//    as a force to bodies each frame before calling Step().
+		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
+		//    even if it is a zero vector.
+		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
+
 		struct StepProfile
 		{
 			double m_new_frame_ms = 0;
@@ -54,15 +63,6 @@ namespace pr::physics
 				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
 			}
 		};
-
-		// Notes:
-		//  - The engine does not own the bodies. The caller is responsible for managing their
-		//    lifetime and ensuring they remain valid while being used by the engine.
-		//  - The engine does not have a universal gravity setting, Gravity should be applied
-		//    as a force to bodies each frame before calling Step().
-		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
-		//    even if it is a zero vector.
-		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
 
 	private:
 
@@ -121,6 +121,18 @@ namespace pr::physics
 			Step(dt, m_body_ptrs);
 		}
 
+		// Build missing sleep-island ids for bodies created directly in the sleeping state.
+		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
+		void UpdateSleepIslands(std::span<RigidBody*> bodies);
+		void UpdateSleepIslands(RigidBodyRange auto&& bodies)
+		{
+			m_body_ptrs.resize(0);
+			for (auto& body : bodies)
+				m_body_ptrs.push_back(&body);
+
+			UpdateSleepIslands(m_body_ptrs);
+		}
+
 		// Raised at the end of step, just before object dynamics are updated
 		EventHandler<Engine&, std::span<RbContact const>> Collisions;
 
@@ -165,7 +177,7 @@ namespace pr::physics
 		void SleepWake();
 
 		// Broadphase collision detection to generate potential collision pairs.
-		void BroadPhase();
+		void BroadPhase(bool sleeping_enabled);
 
 		// Narrow phase collision detection to generate contact points.
 		void Collide();

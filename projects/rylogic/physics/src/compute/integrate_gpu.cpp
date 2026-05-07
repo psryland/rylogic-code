@@ -99,19 +99,12 @@ namespace pr::physics
 		}
 	}
 
-	// Upload staged body dynamics and reset collision counters.
-	void GpuIntegrator::Upload(GpuJob& job, std::span<GpuRigidBody> bodies)
+	// Reset the collision counters without changing the body buffer.
+	void GpuIntegrator::ResetCounters(GpuJob& job)
 	{
-		auto body_count = static_cast<int>(bodies.size());
-		if (body_count == 0)
+		if (m_r_counters == nullptr)
 			return;
 
-		pix::BeginEvent(job.m_cmd_list.get(), 0xFF9a6ce7, "Physics::Upload");
-
-		// Ensure the buffers are large enough to hold the body count.
-		ResizeBuffers(job.m_cmd_list, body_count);
-
-		// Initialise and upload the counters
 		{
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
@@ -126,6 +119,21 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
+	}
+
+	// Upload staged body dynamics and reset collision counters.
+	void GpuIntegrator::Upload(GpuJob& job, std::span<GpuRigidBody> bodies)
+	{
+		auto body_count = static_cast<int>(bodies.size());
+		if (body_count == 0)
+			return;
+
+		pix::BeginEvent(job.m_cmd_list.get(), 0xFF9a6ce7, "Physics::Upload");
+
+		// Ensure the buffers are large enough to hold the body count.
+		ResizeBuffers(job.m_cmd_list, body_count);
+
+		ResetCounters(job);
 
 		// Upload bodies to the GPU
 		{

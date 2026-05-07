@@ -13,10 +13,10 @@ namespace pr::physics
 	// Integrate constants
 	struct alignas(16) cbSweep
 	{
-		int g_max_pair_count; // The maximum length of the g_collision_pairs buffer
-		int g_body_count;
-		int g_sleeping_enabled;
-		int g_sleep_island_count;
+		int max_pair_count; // The maximum length of the g_collision_pairs buffer
+		int body_count;
+		int sleeping_enabled;
+		int sleep_island_count;
 	};
 	static_assert(sizeof(cbSweep) == 16);
 
@@ -111,17 +111,17 @@ namespace pr::physics
 	}
 
 	// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
-	void GpuSortAndSweep::Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies, int sleep_island_count, D3DPtr<ID3D12Resource> sleep_islands)
+	void GpuSortAndSweep::Sweep(GpuJob& job, int body_count, int max_col_pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> aabb_idx, D3DPtr<ID3D12Resource> bodies, int sleep_island_count, D3DPtr<ID3D12Resource> sleep_islands, bool sleeping_enabled)
 	{
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF45bcf2, "Physics::Sweep");
 
 		ResizeBuffers(job.m_cmd_list, max_col_pairs);
 
 		cbSweep cb_sweep = {
-			.g_max_pair_count = max_col_pairs,
-			.g_body_count = body_count,
-			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
-			.g_sleep_island_count = sleep_island_count,
+			.max_pair_count = max_col_pairs,
+			.body_count = body_count,
+			.sleeping_enabled = sleeping_enabled ? 1 : 0,
+			.sleep_island_count = sleep_island_count,
 		};
 
 		// Switch states for resources
@@ -288,7 +288,7 @@ namespace pr::physics
 		Sort(job, body_count, r_aabb, r_aabb_idx);
 
 		// Run the sweep step (skip sort for CPU-side testing)
-		Sweep(job, body_count, pair_count, r_counters, r_aabb_idx, r_bodies, 0, r_sleep_islands);
+		Sweep(job, body_count, pair_count, r_counters, r_aabb_idx, r_bodies, 0, r_sleep_islands, m_config.sleeping_enabled);
 
 		// Read back data from the GPU
 		return Readback(job, r_counters, out_pairs);

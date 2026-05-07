@@ -9,14 +9,14 @@
     },
     "physics": {
       "substeps": 1,
-      "max_collision_pairs": 8192
+      "max_collision_pairs": 65536
     },
     "ground_plane": {
       "height": 0.0,
       "size": [ 80.0, 80.0 ]
     },
     "camera": {
-      "position": [ 0, -30, 6 ],
+      "position": [ -30, -30, 16 ],
       "lookat": [ 0, 0, 5 ]
     },
     "body_generators": [

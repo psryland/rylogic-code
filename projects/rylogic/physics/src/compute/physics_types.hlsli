@@ -140,7 +140,7 @@ struct GpuSleepIslandStats
 {
 	uint flags;
 	uint body_count;
-	uint pad0;
+	int island_id;
 	uint pad1;
 };
 struct GpuShape

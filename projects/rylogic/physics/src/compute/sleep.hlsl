@@ -200,6 +200,7 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 		{
 			stats.flags = GpuSleepIslandStatsFlags_Valid | GpuSleepIslandStatsFlags_AllLow | GpuSleepIslandStatsFlags_AllReady;
 			stats.body_count = 0;
+			stats.island_id = -1;
 		}
 
 		bool sleeping = AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping);
@@ -216,6 +217,9 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 			stats.flags = SetFlag(stats.flags, GpuSleepIslandStatsFlags_Wake, true);
 
 		int island_id = body.sleep.island_id;
+		if (sleeping && island_id >= 0)
+			stats.island_id = stats.island_id < 0 ? island_id : min(stats.island_id, island_id);
+
 		if (sleeping &&
 			island_id >= 0 &&
 			island_id < g.island_count &&
@@ -254,23 +258,31 @@ void CSUpdateSleepState(int3 dtid : SV_DispatchThreadID)
 		}
 		else if (sleeping)
 		{
-			// A still-sleeping body stays inert and keeps its existing island id; the CPU already has the stable island identity for it.
+			// A still-sleeping body stays inert. If it was created asleep, use the contact component to create its first island id.
 			body.momentum_ang = float4(0, 0, 0, 0);
 			body.momentum_lin = float4(0, 0, 0, 0);
 			body.force_ang = float4(0, 0, 0, 0);
 			body.force_lin = float4(0, 0, 0, 0);
 			body.sleep.timer_s = 0.0f;
+
+			int island_id = stats.island_id >= 0 ? stats.island_id : g.island_count + root;
+			if (body.sleep.island_id != island_id)
+			{
+				body.sleep.island_id = island_id;
+				body.sleep.generation++;
+			}
 		}
 		else if (sleep)
 		{
 			// New sleeping islands use ids above the uploaded island range. The CPU remaps these frame-local GPU ids to stable ids after readback.
+			int island_id = stats.island_id >= 0 ? stats.island_id : g.island_count + root;
 			body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, true);
 			body.momentum_ang = float4(0, 0, 0, 0);
 			body.momentum_lin = float4(0, 0, 0, 0);
 			body.force_ang = float4(0, 0, 0, 0);
 			body.force_lin = float4(0, 0, 0, 0);
 			body.sleep.timer_s = 0.0f;
-			body.sleep.island_id = g.island_count + root;
+			body.sleep.island_id = island_id;
 			body.sleep.generation++;
 			body.sleep.flags = 0;
 		}
