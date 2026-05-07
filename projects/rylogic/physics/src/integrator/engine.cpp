@@ -468,23 +468,8 @@ namespace pr::physics
 		// Unpack the GPU results into the RigidBody objects
 		for (auto [body, i] : with_index(rigid_bodies))
 		{
-			auto& dyn = m_cache->m_rb_dynamics[i];
-			if (!IsOrthonormal(dyn.o2w))
-			{
-				auto const& m = dyn.o2w;
-				throw std::runtime_error(std::format(
-					"GPU returned a non-orthonormal body transform for body {}: "
-					"x=({:.9g},{:.9g},{:.9g},{:.9g}) y=({:.9g},{:.9g},{:.9g},{:.9g}) "
-					"z=({:.9g},{:.9g},{:.9g},{:.9g}) w=({:.9g},{:.9g},{:.9g},{:.9g})",
-					i,
-					m.x.x, m.x.y, m.x.z, m.x.w,
-					m.y.x, m.y.y, m.y.z, m.y.w,
-					m.z.x, m.z.y, m.z.z, m.z.w,
-					m.w.x, m.w.y, m.w.z, m.w.w));
-			}
-
-			m_cache->UnpackSleepIsland(dyn);
-			UnpackDynamics(dyn, *body);
+			m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
+			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)

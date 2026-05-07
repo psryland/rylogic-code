@@ -36,11 +36,8 @@ namespace pr::physics
 		void ComputeCollisionTimes();
 		void SortContacts();
 		void AssignColours();
-		void TemporalDrift(float dt);
-		void PositionSolve(float dt, int colour);
-		void SerialPositionSolve(float dt);
-		void ResolveVelocity(float dt, int colour);
-		void SerialResolveVelocity(float dt);
+		void PositionSolve(int colour);
+		void ResolveVelocity(int colour);
 
 		std::span<uint32_t const> Colours() const;
 		std::span<uint32_t const> ContactOrder() const;

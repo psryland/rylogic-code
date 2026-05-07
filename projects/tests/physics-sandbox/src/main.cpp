@@ -102,14 +102,10 @@ namespace physics_sandbox
 			options.m_trace_ke_jump = cmd("ke_jump").as<float>();
 		if (cmd.count("substeps"))
 			options.m_physics_substeps = cmd("substeps").as<int>();
-		if (cmd.count("tgs_steps"))
-			options.m_physics_tgs_steps = cmd("tgs_steps").as<int>();
 		if (cmd.count("solver_iterations"))
 			options.m_physics_solver_iterations = cmd("solver_iterations").as<int>();
 		if (cmd.count("position_iterations"))
 			options.m_physics_position_iterations = cmd("position_iterations").as<int>();
-		if (cmd.count("tgs_velocity_bias_max"))
-			options.m_physics_tgs_velocity_bias_max = cmd("tgs_velocity_bias_max").as<float>();
 		if (cmd.count("scan"))
 			options.m_scan_bodies = true;
 		if (cmd.count("scan_non_spheres"))

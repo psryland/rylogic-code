@@ -55,7 +55,6 @@ RWStructuredBuffer<int> resource(g_aabb_idx, u5);
 
 static const int AngularDriftSubstepMax = 32;
 static const float AngularDriftMaxRadians = 0.25f;
-static const float BroadphaseAabbPadding = 1e-4f;
 
 // Compute the world-space AABB for a body and write it to the output buffers.
 odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
@@ -68,7 +67,6 @@ odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
 		abs(rot[0].x) * os_radius.x + abs(rot[1].x) * os_radius.y + abs(rot[2].x) * os_radius.z,
 		abs(rot[0].y) * os_radius.x + abs(rot[1].y) * os_radius.y + abs(rot[2].y) * os_radius.z,
 		abs(rot[0].z) * os_radius.x + abs(rot[1].z) * os_radius.y + abs(rot[2].z) * os_radius.z);
-	ws_radius += BroadphaseAabbPadding;
 
 	// Write the aabb min/max values
 	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;

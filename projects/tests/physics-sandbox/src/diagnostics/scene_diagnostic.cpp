@@ -661,12 +661,6 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -substeps must be at least 1");
 			scene_desc.physics_substeps = *options.m_physics_substeps;
 		}
-		if (options.m_physics_tgs_steps)
-		{
-			if (*options.m_physics_tgs_steps < 1)
-				throw std::runtime_error("Scene diagnostic -tgs_steps must be at least 1");
-			scene_desc.physics_tgs_steps = *options.m_physics_tgs_steps;
-		}
 		if (options.m_physics_solver_iterations)
 		{
 			if (*options.m_physics_solver_iterations < 0)
@@ -679,13 +673,6 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -position_iterations must be non-negative");
 			scene_desc.physics_position_iterations = *options.m_physics_position_iterations;
 		}
-		if (options.m_physics_tgs_velocity_bias_max)
-		{
-			if (*options.m_physics_tgs_velocity_bias_max < 0.0f)
-				throw std::runtime_error("Scene diagnostic -tgs_velocity_bias_max must be non-negative");
-			scene_desc.physics_tgs_velocity_bias_max = *options.m_physics_tgs_velocity_bias_max;
-		}
-
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};

@@ -456,8 +456,6 @@ namespace physics_sandbox
 		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
 		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
 		engine_config.position_iterations = scene_desc.physics_position_iterations;
-		engine_config.tgs_steps = scene_desc.physics_tgs_steps;
-		engine_config.tgs_velocity_bias_max = scene_desc.physics_tgs_velocity_bias_max;
 		m_physics.Config(engine_config);
 
 		// Set the kill zone well below the ground plane. Bodies that fall below

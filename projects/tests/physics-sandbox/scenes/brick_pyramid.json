@@ -1,13 +1,12 @@
 {
   "scene": {
-    "description": "TGS benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
+    "description": "Stability benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
     "gravity": [0, 0, -9.81],
     "material": {
       "friction": 0.7,
       "elasticity": 0.0
     },
     "physics": {
-        "tgs_steps": 1,
         "max_collision_pairs": 4096
     },
     "camera": {

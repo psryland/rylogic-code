@@ -16,10 +16,10 @@ namespace pr::physics
 		int g_max_contacts; // The max capacity of the contacts buffer
 		int g_body_count;   // The number of bodies in the scene
 		int g_colour;       // Current colour batch being processed (for CSResolve)
-		int g_tgs_steps;    // Number of Temporal Gauss-Seidel substeps
+		int pad0;
 
 		float g_dt;         // timestep in seconds
-		float g_tgs_velocity_bias_max;
+		float pad1;
 		float pad2;
 		float pad3;
 
@@ -59,11 +59,8 @@ namespace pr::physics
 		, m_contact_sorter(gpu.m_gpu)
 		, m_cs_compute_times()
 		, m_cs_assign_colours()
-		, m_cs_temporal_drift()
 		, m_cs_position_solve()
-		, m_cs_serial_position_solve()
 		, m_cs_resolve()
-		, m_cs_serial_resolve()
 		, m_cmd_sig()
 		, m_r_materials()
 		, m_r_colours()
@@ -128,18 +125,6 @@ namespace pr::physics
 			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), bytecode).Create(m_gpu, "Physics:AssignColoursPSO");
 		}
 
-		// m_cs_temporal_drift
-		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
-				.UAV(EReg::Bodies);
-
-			auto bytecode = compiler.EntryPoint(L"CSTemporalDrift").Compile();
-
-			m_cs_temporal_drift.m_sig = sig.Create(m_gpu, "Physics:TemporalDriftSig");
-			m_cs_temporal_drift.m_pso = ComputePSO(m_cs_temporal_drift.m_sig.get(), bytecode).Create(m_gpu, "Physics:TemporalDriftPSO");
-		}
-
 		// m_cs_position_solve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -154,22 +139,6 @@ namespace pr::physics
 
 			m_cs_position_solve.m_sig = sig.Create(m_gpu, "Physics:PositionSolveSig");
 			m_cs_position_solve.m_pso = ComputePSO(m_cs_position_solve.m_sig.get(), bytecode).Create(m_gpu, "Physics:PositionSolvePSO");
-		}
-
-		// m_cs_serial_position_solve
-		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
-				.SRV(EReg::Counters)
-				.UAV(EReg::Bodies)
-				.UAV(EReg::Colours)
-				.UAV(EReg::Contacts)
-				.UAV(EReg::ContactOrder);
-
-			auto bytecode = compiler.EntryPoint(L"CSSerialPositionSolve").Compile();
-
-			m_cs_serial_position_solve.m_sig = sig.Create(m_gpu, "Physics:SerialPositionSolveSig");
-			m_cs_serial_position_solve.m_pso = ComputePSO(m_cs_serial_position_solve.m_sig.get(), bytecode).Create(m_gpu, "Physics:SerialPositionSolvePSO");
 		}
 
 		// m_cs_resolve
@@ -187,23 +156,6 @@ namespace pr::physics
 
 			m_cs_resolve.m_sig = sig.Create(m_gpu, "Physics:ResolveSig");
 			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
-		}
-
-		// m_cs_serial_resolve
-		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbResolve>(EReg::Params)
-				.SRV(EReg::Counters)
-				.SRV(EReg::Materials)
-				.UAV(EReg::Bodies)
-				.UAV(EReg::Colours)
-				.UAV(EReg::Contacts)
-				.UAV(EReg::ContactOrder);
-
-			auto bytecode = compiler.EntryPoint(L"CSSerialResolve").Compile();
-
-			m_cs_serial_resolve.m_sig = sig.Create(m_gpu, "Physics:SerialResolveSig");
-			m_cs_serial_resolve.m_pso = ComputePSO(m_cs_serial_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:SerialResolvePSO");
 		}
 
 	}
@@ -237,18 +189,16 @@ namespace pr::physics
 		ResizeBuffers(job.m_cmd_list, max_contacts, material_count);
 
 		assert(m_config.position_iterations >= 0);
-		assert(m_config.tgs_steps >= 1);
 		auto const position_iterations = std::max(0, m_config.position_iterations);
-		auto const tgs_steps = std::max(1, m_config.tgs_steps);
 		auto const position_correction_scale = position_iterations != 0 ? 1.0f / position_iterations : 0.0f;
 
 		cbResolve cb_resolve = {
 			.g_max_contacts = max_contacts,
 			.g_body_count = body_count,
 			.g_colour = 0,
-			.g_tgs_steps = tgs_steps,
+			.pad0 = 0,
 			.g_dt = dt,
-			.g_tgs_velocity_bias_max = m_config.tgs_velocity_bias_max,
+			.pad1 = 0,
 			.pad2 = 0,
 			.pad3 = 0,
 			.g_penetration_slop = m_config.penetration_slop,
@@ -342,283 +292,67 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		assert(m_config.solver_iterations >= 0);
-		auto const solver_iterations = std::max(0, m_config.solver_iterations);
-		auto const body_dispatch_count = static_cast<UINT>(std::max(1, (body_count + ResolveThreadCount - 1) / ResolveThreadCount));
-		auto const tgs_dt = dt / static_cast<float>(tgs_steps);
-		auto const position_iterations_per_tgs = position_iterations != 0 ? std::max(1, (position_iterations + tgs_steps - 1) / tgs_steps) : 0;
-		auto const solver_iterations_per_tgs = solver_iterations != 0 ? std::max(1, (solver_iterations + tgs_steps - 1) / tgs_steps) : 0;
-
-		// Temporal Gauss-Seidel starts from an approximate pre-integrated pose, then advances and solves in smaller
-		// temporal slices while reusing the contact anchors from the collision pass.
-		if (tgs_steps != 1)
+		// Split position correction in colour batches. The contact depths are from the collision pass, so the correction is split across
+		// iterations rather than re-applying the full depth each sweep.
+		if (position_iterations != 0)
 		{
-			cb_resolve.g_dt = -dt;
-			job.m_cmd_list.SetPipelineState(m_cs_temporal_drift.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_temporal_drift.m_sig.get());
+			job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
-			job.m_barriers.UAV(bodies.get());
-			job.m_barriers.Commit();
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+
+			for (int iter = 0; iter != position_iterations; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+				{
+					cb_resolve.g_colour = colour;
+					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+
+					job.m_barriers.UAV(bodies.get());
+					job.m_barriers.Commit();
+				}
+			}
+			cb_resolve.g_colour = 0;
 		}
 
-		for (int tgs_step = 0; tgs_step != tgs_steps; ++tgs_step)
+		// Velocity resolve each colour batch.
+		// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
+		// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
+		// The energy guard in CSResolve prevents energy injection across iterations.
+		assert(m_config.solver_iterations >= 0);
+		auto const solver_iterations = std::max(0, m_config.solver_iterations);
 		{
-			if (tgs_steps != 1)
-			{
-				cb_resolve.g_dt = tgs_dt;
-				job.m_cmd_list.SetPipelineState(m_cs_temporal_drift.m_pso.get());
-				job.m_cmd_list.SetComputeRootSignature(m_cs_temporal_drift.m_sig.get());
-				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-				job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
-				job.m_barriers.UAV(bodies.get());
-				job.m_barriers.Commit();
-			}
+			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
 
-			cb_resolve.g_dt = tgs_dt;
+			for (int iter = 0; iter != solver_iterations; ++iter)
+			{
+				for (int colour = 0; colour != MaxColours; ++colour)
+				{
+					cb_resolve.g_colour = colour;
+					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+
+					job.m_barriers.UAV(bodies.get());
+					job.m_barriers.Commit();
+				}
+			}
 			cb_resolve.g_colour = 0;
-
-			// Split position correction in colour batches. TGS refreshes each contact's effective depth from current transforms, so the
-			// correction is split across position iterations for this temporal slice rather than amortised across all TGS steps.
-			if (position_iterations_per_tgs != 0)
-			{
-				if (tgs_steps != 1)
-				{
-					job.m_cmd_list.SetPipelineState(m_cs_serial_position_solve.m_pso.get());
-					job.m_cmd_list.SetComputeRootSignature(m_cs_serial_position_solve.m_sig.get());
-					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-					for (int iter = 0; iter != position_iterations_per_tgs; ++iter)
-					{
-						job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-						job.m_cmd_list.Dispatch(1, 1, 1);
-
-						job.m_barriers.UAV(bodies.get());
-						job.m_barriers.Commit();
-					}
-				}
-				else
-				{
-					job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
-					job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
-					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-					for (int iter = 0; iter != position_iterations_per_tgs; ++iter)
-					{
-						for (int colour = 0; colour != MaxColours; ++colour)
-						{
-							cb_resolve.g_colour = colour;
-							job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-							job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-							job.m_barriers.UAV(bodies.get());
-							job.m_barriers.Commit();
-						}
-					}
-				}
-				cb_resolve.g_colour = 0;
-			}
-
-			// Velocity resolve each colour batch.
-			// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
-			// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
-			// The energy guard in CSResolve prevents energy injection across iterations.
-			{
-				if (tgs_steps != 1)
-				{
-					job.m_cmd_list.SetPipelineState(m_cs_serial_resolve.m_pso.get());
-					job.m_cmd_list.SetComputeRootSignature(m_cs_serial_resolve.m_sig.get());
-					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-					for (int iter = 0; iter != solver_iterations_per_tgs; ++iter)
-					{
-						job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-						job.m_cmd_list.Dispatch(1, 1, 1);
-
-						job.m_barriers.UAV(bodies.get());
-						job.m_barriers.Commit();
-					}
-				}
-				else
-				{
-					job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
-					job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-					for (int iter = 0; iter != solver_iterations_per_tgs; ++iter)
-					{
-						for (int colour = 0; colour != MaxColours; ++colour)
-						{
-							cb_resolve.g_colour = colour;
-							job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-							job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-							job.m_barriers.UAV(bodies.get());
-							job.m_barriers.Commit();
-						}
-					}
-				}
-				cb_resolve.g_colour = 0;
-			}
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());
-	}
-
-	// CPU-side testing: run the GPU contact-time shader and radix sorter, then read back the sorted contact order.
-	void GpuResolver::SortContacts(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<uint32_t> out_order, std::span<float> out_times)
-	{
-		auto contact_count = static_cast<int>(contacts.size());
-		auto body_count = static_cast<int>(bodies.size());
-		if (contact_count == 0 || body_count == 0)
-			return;
-		if (std::ssize(out_order) < contact_count || std::ssize(out_times) < contact_count)
-			throw std::invalid_argument("SortContacts output buffers are too small");
-
-		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:SortTestCounters");
-		auto sort_count = 16;
-		while (sort_count < contact_count)
-			sort_count *= 2;
-
-		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:SortTestContacts");
-		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:SortTestBodies");
-		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:SortTestDispatch");
-
-		{
-			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(r_contacts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(r_dispatch.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-
-			auto counters_upload = job.m_upload.Alloc<GpuCollisionCounters>(1);
-			*counters_upload.ptr<GpuCollisionCounters>() = GpuCollisionCounters{
-				.pair_count = 0,
-				.contact_count = contact_count,
-			};
-			job.m_cmd_list.CopyBufferRegion(r_counters.get(), 0, counters_upload);
-
-			auto contacts_upload = job.m_upload.Alloc<GpuResolveContact>(contact_count);
-			memcpy(contacts_upload.ptr<GpuResolveContact>(), contacts.data(), contact_count * sizeof(GpuResolveContact));
-			job.m_cmd_list.CopyBufferRegion(r_contacts.get(), 0, contacts_upload);
-
-			auto bodies_upload = job.m_upload.Alloc<GpuRigidBody>(body_count);
-			memcpy(bodies_upload.ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
-			job.m_cmd_list.CopyBufferRegion(r_bodies.get(), 0, bodies_upload);
-
-			auto dispatch_upload = job.m_upload.Alloc<D3D12_DISPATCH_ARGUMENTS>(1);
-			auto* args = dispatch_upload.ptr<D3D12_DISPATCH_ARGUMENTS>();
-			args->ThreadGroupCountX = static_cast<UINT>((contact_count + ResolveThreadCount - 1) / ResolveThreadCount);
-			args->ThreadGroupCountY = 1;
-			args->ThreadGroupCountZ = 1;
-			job.m_cmd_list.CopyBufferRegion(r_dispatch.get(), 0, dispatch_upload);
-		}
-
-		ResizeBuffers(job.m_cmd_list, sort_count, 1);
-
-		auto cb_resolve = cbResolve{
-			.g_max_contacts = sort_count,
-			.g_body_count = body_count,
-			.g_colour = 0,
-			.g_tgs_steps = std::max(1, m_config.tgs_steps),
-			.g_dt = dt,
-			.g_tgs_velocity_bias_max = m_config.tgs_velocity_bias_max,
-			.pad2 = 0,
-			.pad3 = 0,
-			.g_penetration_slop = m_config.penetration_slop,
-			.g_velocity_baumgarte = m_config.velocity_baumgarte,
-			.g_deep_penetration_threshold = m_config.deep_penetration_threshold,
-			.g_deep_penetration_range = m_config.deep_penetration_range,
-			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
-			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
-			.pad4 = 0,
-			.pad5 = 0,
-			.g_position_slop = m_config.position_slop,
-			.g_position_baumgarte = m_config.position_baumgarte,
-			.g_position_correction_scale = 1.0f,
-			.pad6 = 0,
-		};
-
-		{
-			job.m_barriers.Transition(r_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-			job.m_barriers.Transition(r_counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_times.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Commit();
-		}
-		{
-			job.m_cmd_list.SetPipelineState(m_cs_compute_times.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_compute_times.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(r_counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(r_bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(r_contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, r_dispatch.get());
-
-			job.m_barriers.UAV(r_bodies.get());
-			job.m_barriers.UAV(r_contacts.get());
-			job.m_barriers.UAV(m_r_contact_times.get());
-			job.m_barriers.UAV(m_r_contact_order.get());
-			job.m_barriers.Commit();
-		}
-		{
-			m_contact_sorter.Bind(job.m_cmd_list, sort_count, m_r_contact_times, m_r_contact_order);
-			m_contact_sorter.Sort(job.m_cmd_list);
-
-			job.m_barriers.UAV(m_r_contact_times.get());
-			job.m_barriers.UAV(m_r_contact_order.get());
-			job.m_barriers.Commit();
-		}
-
-		auto readback_times = ReadbackAlloc{};
-		auto readback_order = ReadbackAlloc{};
-		{
-			job.m_barriers.Transition(m_r_contact_times.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_r_contact_order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Commit();
-
-			readback_times = job.m_readback.Alloc<float>(contact_count);
-			readback_order = job.m_readback.Alloc<uint32_t>(contact_count);
-			job.m_cmd_list.CopyBufferRegion(readback_times, m_r_contact_times.get(), 0);
-			job.m_cmd_list.CopyBufferRegion(readback_order, m_r_contact_order.get(), 0);
-
-			job.m_barriers.Transition(m_r_contact_times.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Commit();
-		}
-
-		job.Run();
-
-		memcpy(out_times.data(), readback_times.ptr<float>(), contact_count * sizeof(float));
-		memcpy(out_order.data(), readback_order.ptr<uint32_t>(), contact_count * sizeof(uint32_t));
 	}
 
 	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
@@ -633,7 +367,7 @@ namespace pr::physics
 
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");
-		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempContacts");
+		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}), job.m_cmd_list, "Physics:TempContacts");
 		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempBodies");
 		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatch");
 

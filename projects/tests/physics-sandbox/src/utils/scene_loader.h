@@ -15,12 +15,10 @@ namespace physics_sandbox::scene_loader
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
 	//         },
-		//         "physics": {                     // Optional physics settings
-		//             "substeps": 4,               // Run this many physics steps per scene step
-		//             "tgs_steps": 4,              // Run this many resolver-internal Temporal Gauss-Seidel substeps
-		//             "solver_iterations": 8,      // Override EngineConfig contact solver iterations
-		//             "position_iterations": 4,    // Override EngineConfig split-position solver iterations
-		//             "tgs_velocity_bias_max": 2.0, // Cap TGS Baumgarte velocity bias in world units per second
+		//         "physics": {                      // Optional physics settings
+		//             "substeps": 4,                // Run this many physics steps per scene step
+		//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
+		//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
 		//             "max_collision_pairs": 131072 // Override EngineConfig collision pair/contact capacity
 		//         },
 	//         "ground_plane": {               // Optional ground plane
@@ -118,10 +116,8 @@ namespace physics_sandbox::scene_loader
 
 		// Physics settings
 		int physics_substeps = 1;
-		int physics_tgs_steps = 1;
 		int physics_solver_iterations = physics::EngineConfig{}.solver_iterations;
 		int physics_position_iterations = physics::EngineConfig{}.position_iterations;
-		float physics_tgs_velocity_bias_max = physics::EngineConfig{}.tgs_velocity_bias_max;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 
 		// Camera settings
