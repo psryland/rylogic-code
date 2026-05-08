@@ -37,7 +37,7 @@ struct cbIntegrate
 	float dt;
 	int body_count;
 	int sleeping_enabled;
-	float pad0;
+	float broadphase_aabb_margin;
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
 	float pad1;
@@ -67,6 +67,7 @@ odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
 		abs(rot[0].x) * os_radius.x + abs(rot[1].x) * os_radius.y + abs(rot[2].x) * os_radius.z,
 		abs(rot[0].y) * os_radius.x + abs(rot[1].y) * os_radius.y + abs(rot[2].y) * os_radius.z,
 		abs(rot[0].z) * os_radius.x + abs(rot[1].z) * os_radius.y + abs(rot[2].z) * os_radius.z);
+	ws_radius += max(g.broadphase_aabb_margin, 0.0f);
 
 	// Write the aabb min/max values
 	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;

@@ -17,6 +17,238 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(ResolveInteropRunnerTests)
 	{
+		PRUnitTestMethod(ContactPriorityScoresNewtonCradleOrder)
+		{
+			auto settings = ContactPrioritySettings{};
+			settings.m_depth_bias = 0.0f;
+
+			auto bodies = std::vector<ContactPriorityBody>(11);
+			for (int body_idx = 0; body_idx != isize(bodies); ++body_idx)
+			{
+				bodies[body_idx].m_position_ws = v4{static_cast<float>(body_idx), 0, 0, 1};
+				bodies[body_idx].m_inv_mass = 1.0f;
+			}
+			bodies[0].m_velocity_ws = v4{10, 0, 0, 0};
+
+			auto contacts = std::vector<ContactPriorityContact>{};
+			for (int contact_idx = 0; contact_idx != 10; ++contact_idx)
+			{
+				contacts.push_back(ContactPriorityContact{
+					.m_body_idx_a = contact_idx,
+					.m_body_idx_b = contact_idx + 1,
+					.m_axis_ws = v4{1, 0, 0, 0},
+					.m_point_ws = v4{static_cast<float>(contact_idx) + 0.5f, 0, 0, 1},
+				});
+			}
+
+			auto ideal_order = std::vector<int>(contacts.size());
+			std::iota(ideal_order.begin(), ideal_order.end(), 0);
+			auto reversed_order = ideal_order;
+			std::reverse(reversed_order.begin(), reversed_order.end());
+
+			auto const ideal = EvaluateContactPriority(settings, bodies, contacts, ideal_order);
+			auto const reversed = EvaluateContactPriority(settings, bodies, contacts, reversed_order);
+			auto const priority_order = ContactPriorityOrder(settings, bodies, contacts);
+
+			PR_EXPECT(ideal.m_total_help_weight > 0.0f);
+			PR_EXPECT(ideal.m_score > 0.99f);
+			PR_EXPECT(reversed.m_score < 0.01f);
+			PR_EXPECT(priority_order == ideal_order);
+		}
+
+		PRUnitTestMethod(ContactPriorityScoresSupportLoadOrder)
+		{
+			auto settings = ContactPrioritySettings{};
+			settings.m_depth_bias = 0.0f;
+
+			auto bodies = std::vector<ContactPriorityBody>(3);
+			bodies[0].m_position_ws = v4{0, 0, -1, 1};
+			bodies[1].m_position_ws = v4{0, 0, 0, 1};
+			bodies[2].m_position_ws = v4{0, 0, 1, 1};
+			bodies[0].m_inv_mass = 0.0f;
+			bodies[1].m_inv_mass = 1.0f;
+			bodies[2].m_inv_mass = 1.0f;
+			bodies[2].m_velocity_ws = v4{0, 0, -10, 0};
+
+			auto contacts = std::vector<ContactPriorityContact>{
+				ContactPriorityContact{
+					.m_body_idx_a = 1,
+					.m_body_idx_b = 0,
+					.m_axis_ws = v4{0, 0, -1, 0},
+					.m_point_ws = v4{0, 0, -0.5f, 1},
+				},
+				ContactPriorityContact{
+					.m_body_idx_a = 1,
+					.m_body_idx_b = 2,
+					.m_axis_ws = v4{0, 0, +1, 0},
+					.m_point_ws = v4{0, 0, +0.5f, 1},
+				},
+			};
+
+			auto load_first_order = std::vector<int>{1, 0};
+			auto ground_first_order = std::vector<int>{0, 1};
+
+			auto const load_first = EvaluateContactPriority(settings, bodies, contacts, load_first_order);
+			auto const ground_first = EvaluateContactPriority(settings, bodies, contacts, ground_first_order);
+			auto const priority_order = ContactPriorityOrder(settings, bodies, contacts);
+
+			PR_EXPECT(load_first.m_total_help_weight > 0.0f);
+			PR_EXPECT(load_first.m_score > 0.99f);
+			PR_EXPECT(ground_first.m_score < 0.01f);
+			PR_EXPECT(priority_order == load_first_order);
+		}
+
+		PRUnitTestMethod(ContactPrioritySortsInteropCradleContacts)
+		{
+			auto config = EngineConfig{};
+			config.position_iterations = 0;
+			config.solver_iterations = 0;
+			config.contact_sort_shock_iterations = 16;
+
+			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
+			auto rbodies = std::vector<RigidBody>{};
+			for (int body_idx = 0; body_idx != 11; ++body_idx)
+			{
+				rbodies.push_back(RigidBody{&box, m4x4::Translation(static_cast<float>(body_idx), 0, 0), Inertia::Box(box.m_radius, 1.0f)});
+				rbodies.back().VelocityWS(v4::Zero(), body_idx == 0 ? v4{10, 0, 0, 0} : v4::Zero());
+			}
+
+			auto bodies = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != isize(rbodies); ++body_idx)
+				bodies.push_back(PackDynamics(rbodies[body_idx], 0));
+
+			auto contacts = std::vector<GpuResolveContact>{};
+			for (int contact_idx = 0; contact_idx != 10; ++contact_idx)
+			{
+				auto const& body_a = rbodies[contact_idx];
+				auto const& body_b = rbodies[contact_idx + 1];
+				auto const contact_point = v4{0.5f, 0, 0, 1};
+				contacts.push_back(GpuResolveContact{
+					.axis = v4{1, 0, 0, 0},
+					.contact_point = contact_point,
+					.manifold = {contact_point},
+					.b2a = InvertOrthonormal(body_a.O2W()) * body_b.O2W(),
+					.body_idx_a = contact_idx,
+					.body_idx_b = contact_idx + 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.depth = 0.0f,
+					.feature = 1,
+				});
+			}
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 0.0f,
+				},
+			};
+
+			auto runner = ResolveInteropRunner{config};
+			auto buffers = ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			};
+			runner.Load(buffers);
+			runner.ComputeCollisionTimes();
+			runner.ComputeShockRanks();
+			runner.SortContacts();
+
+			for (int contact_idx = 0; contact_idx != isize(contacts); ++contact_idx)
+				PR_EXPECT(runner.ContactOrder()[contact_idx] == static_cast<uint32_t>(contact_idx));
+
+			auto const priority = runner.ContactPriority();
+			PR_EXPECT(priority.m_score > 0.99f);
+		}
+
+		PRUnitTestMethod(ContactPrioritySortsInteropSupportContactsBottomToTop)
+		{
+			auto config = EngineConfig{};
+			config.position_iterations = 0;
+			config.solver_iterations = 0;
+			config.contact_sort_shock_iterations = 16;
+
+			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
+			auto ground = collision::ShapeBox{v4{5.0f, 5.0f, 0.5f, 0}};
+			auto rbodies = std::vector<RigidBody>{};
+			rbodies.push_back(RigidBody{&ground, m4x4::Translation(0, 0, -0.5f), Inertia::Infinite()});
+			for (int body_idx = 0; body_idx != 4; ++body_idx)
+			{
+				rbodies.push_back(RigidBody{&box, m4x4::Translation(0, 0, 0.5f + static_cast<float>(body_idx)), Inertia::Box(box.m_radius, 1.0f)});
+				rbodies.back().GravityWS(v4{0, 0, -9.81f, 0});
+			}
+
+			auto bodies = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != isize(rbodies); ++body_idx)
+				bodies.push_back(PackDynamics(rbodies[body_idx], 0));
+
+			auto contacts = std::vector<GpuResolveContact>{
+				GpuResolveContact{
+					.axis = v4{0, 0, +1, 0},
+					.contact_point = v4{0, 0, +0.5f, 1},
+					.b2a = InvertOrthonormal(rbodies[3].O2W()) * rbodies[4].O2W(),
+					.body_idx_a = 3,
+					.body_idx_b = 4,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.feature = 1,
+				},
+				GpuResolveContact{
+					.axis = v4{0, 0, +1, 0},
+					.contact_point = v4{0, 0, +0.5f, 1},
+					.b2a = InvertOrthonormal(rbodies[2].O2W()) * rbodies[3].O2W(),
+					.body_idx_a = 2,
+					.body_idx_b = 3,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.feature = 1,
+				},
+				GpuResolveContact{
+					.axis = v4{0, 0, +1, 0},
+					.contact_point = v4{0, 0, +0.5f, 1},
+					.b2a = InvertOrthonormal(rbodies[1].O2W()) * rbodies[2].O2W(),
+					.body_idx_a = 1,
+					.body_idx_b = 2,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.feature = 1,
+				},
+				GpuResolveContact{
+					.axis = v4{0, 0, -1, 0},
+					.contact_point = v4{0, 0, -0.5f, 1},
+					.b2a = InvertOrthonormal(rbodies[1].O2W()) * rbodies[0].O2W(),
+					.body_idx_a = 1,
+					.body_idx_b = 0,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.feature = 1,
+				},
+			};
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 0.0f,
+				},
+			};
+
+			auto runner = ResolveInteropRunner{config};
+			auto buffers = ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			};
+			runner.Load(buffers);
+			runner.ComputeCollisionTimes();
+			runner.ComputeShockRanks();
+			runner.SortContacts();
+
+			auto const expected_order = std::array<uint32_t, 4>{3, 2, 1, 0};
+			for (int order_idx = 0; order_idx != isize(expected_order); ++order_idx)
+				PR_EXPECT(runner.ContactOrder()[order_idx] == expected_order[order_idx]);
+		}
+
 		PRUnitTestMethod(SplitPositionSolveSeparatesBodies)
 		{
 			auto config = EngineConfig{};

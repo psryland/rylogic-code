@@ -94,6 +94,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\jacobian.h" />
@@ -168,7 +169,7 @@
     <None Include="scenes\generated_stress.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />
-    <None Include="scenes\newtons_craddle.json" />
+    <None Include="scenes\newtons_cradle.json" />
     <None Include="scenes\oblique_spheres.json" />
     <None Include="scenes\polytope_drop.json" />
     <None Include="scenes\simultaneous_impact_1000.json" />

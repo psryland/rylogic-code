@@ -459,6 +459,24 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_position_iterations < 0)
 					throw std::runtime_error("Scene physics.position_iterations must be non-negative");
 			}
+			if (auto* jcontact_sort_propagation_scale = jphysics_obj.find("contact_sort_propagation_scale"))
+			{
+				desc.physics_contact_sort_propagation_scale = jcontact_sort_propagation_scale->to<float>();
+				if (desc.physics_contact_sort_propagation_scale < 0.0f)
+					throw std::runtime_error("Scene physics.contact_sort_propagation_scale must be non-negative");
+			}
+			if (auto* jbroadphase_aabb_margin = jphysics_obj.find("broadphase_aabb_margin"))
+			{
+				desc.physics_broadphase_aabb_margin = jbroadphase_aabb_margin->to<float>();
+				if (desc.physics_broadphase_aabb_margin < 0.0f)
+					throw std::runtime_error("Scene physics.broadphase_aabb_margin must be non-negative");
+			}
+			if (auto* jcontact_sort_shock_iterations = jphysics_obj.find("contact_sort_shock_iterations"))
+			{
+				desc.physics_contact_sort_shock_iterations = jcontact_sort_shock_iterations->to<int>();
+				if (desc.physics_contact_sort_shock_iterations < 0)
+					throw std::runtime_error("Scene physics.contact_sort_shock_iterations must be non-negative");
+			}
 			if (auto* jmax_collision_pairs = jphysics_obj.find("max_collision_pairs"))
 			{
 				desc.physics_max_collision_pairs = jmax_collision_pairs->to<int>();

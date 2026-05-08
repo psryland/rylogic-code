@@ -16,7 +16,7 @@ namespace pr::physics
 		float g_dt;
 		int g_body_count;
 		int g_sleeping_enabled;
-		float pad0;
+		float g_broadphase_aabb_margin;
 		float g_sleep_velocity_threshold_lin;
 		float g_sleep_velocity_threshold_ang;
 		float pad1;
@@ -166,7 +166,7 @@ namespace pr::physics
 			.g_dt = dt,
 			.g_body_count = body_count,
 			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
-			.pad0 = 0,
+			.g_broadphase_aabb_margin = m_config.broadphase_aabb_margin,
 			.g_sleep_velocity_threshold_lin = m_config.sleep_velocity_threshold_lin,
 			.g_sleep_velocity_threshold_ang = m_config.sleep_velocity_threshold_ang,
 			.pad1 = 0,

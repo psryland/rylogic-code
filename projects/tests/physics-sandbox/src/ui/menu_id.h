@@ -8,6 +8,8 @@ namespace physics_sandbox
 	{
 		static constexpr int OpenFile = 1001;
 		static constexpr int RecentFileBase = 2000; // 2000..2000+MaxRecentFiles-1
+		static constexpr int VisualModeNormal = 3001;
+		static constexpr int VisualModeContactPriority = 3002;
 	}
 	namespace MenuItemIndex
 	{

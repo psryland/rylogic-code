@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/integrator/engine_config.h"
+#include "pr/physics/integrator/contact_priority.h"
 #include "src/compute/physics_types.h"
 
 namespace pr::physics
@@ -34,6 +35,7 @@ namespace pr::physics
 		void Store(ResolveRunnerBuffers buffers) const;
 
 		void ComputeCollisionTimes();
+		void ComputeShockRanks();
 		void SortContacts();
 		void AssignColours();
 		void PositionSolve(int colour);
@@ -42,6 +44,7 @@ namespace pr::physics
 		std::span<uint32_t const> Colours() const;
 		std::span<uint32_t const> ContactOrder() const;
 		std::span<float const> ContactTimes() const;
+		ContactPriorityResult ContactPriority(ContactPrioritySettings const& settings = {}) const;
 
 	private:
 
@@ -56,5 +59,7 @@ namespace pr::physics
 		std::vector<uint32_t> m_colours;
 		std::vector<uint32_t> m_contact_order;
 		std::vector<float> m_contact_times;
+		std::vector<uint32_t> m_body_shock_rank;
+		std::vector<v4> m_body_shock_state;
 	};
 }

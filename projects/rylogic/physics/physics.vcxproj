@@ -150,6 +150,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />

@@ -12,6 +12,7 @@ namespace physics_sandbox
 		Button m_btn_pause;
 		Button m_btn_step;
 		Button m_btn_reset;
+		Button m_chk_allow_sleeping;
 		Label  m_lbl_speed;  // Shows current time scale, e.g. "Speed: 1.00x"
 		HWND   m_slider;     // Win32 trackbar for time scale (no wingui wrapper exists)
 
@@ -26,6 +27,7 @@ namespace physics_sandbox
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnPause;
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnStep;
 		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnReset;
+		pr::EventHandler<MediaPanel&, pr::gui::EmptyArgs const&> OnAllowSleepingChanged;
 
 		MediaPanel(Panel::Params<> p = Panel::Params<>());
 		~MediaPanel();
@@ -34,6 +36,10 @@ namespace physics_sandbox
 		// Range [0.01, 2.0], where 1.0 = real-time.
 		float TimeScale() const;
 		void TimeScale(float scale);
+
+		// Get/set whether the engine is allowed to put bodies to sleep.
+		bool AllowSleeping() const;
+		void AllowSleeping(bool allow_sleeping);
 
 		// Update the speed label to reflect the current slider position.
 		void UpdateSpeedLabel();

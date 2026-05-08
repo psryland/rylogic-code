@@ -26,8 +26,14 @@ namespace pr::physics
 		int position_iterations = 4;
 
 		// Bias contact ordering within near-equal collision-time buckets so impulses propagate
-		// through support chains before higher/free contacts are solved.
-		float contact_sort_propagation_scale = 1e-6f;
+		// through contact dependency chains before downstream/free contacts are solved.
+		float broadphase_aabb_margin = 0.0001f;
+		float contact_sort_propagation_scale = 1e-3f;
+		int contact_sort_shock_iterations = 16;
+		int contact_sort_shock_max_rank = 24;
+		float contact_sort_shock_alignment = 1e-5f;
+		float contact_sort_shock_min_strength = 1e-5f;
+		float contact_sort_shock_decay = 0.98f;
 
 		// Velocity-level Baumgarte bias for shallow penetrations.
 		float penetration_slop = 0.005f;
@@ -44,9 +50,8 @@ namespace pr::physics
 		float deep_penetration_baumgarte_max = 0.8f;
 
 		// Selective contact refresh runs extra narrowphase/resolve passes over a compacted
-		// subset of problematic pairs. It is disabled by default so existing scenes keep
-		// their current behaviour unless they explicitly opt in.
-		int selective_refresh_passes = 0;
+		// subset of problematic pairs after the full contact graph has been resolved.
+		int selective_refresh_passes = 1;
 		int selective_refresh_max_pairs = 512;
 		int selective_refresh_solver_iterations = 12;
 		int selective_refresh_position_iterations = 1;

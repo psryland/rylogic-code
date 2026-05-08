@@ -31,6 +31,10 @@ namespace pr::physics
 				.body_count = body_count,
 				.colour = colour,
 				.sort_capacity = max_contacts,
+				.shock_iterations = config.contact_sort_shock_iterations,
+				.shock_max_rank = config.contact_sort_shock_max_rank,
+				.shock_alignment = config.contact_sort_shock_alignment,
+				.shock_min_strength = config.contact_sort_shock_min_strength,
 				.dt = dt,
 				.support_only = 0.0f,
 				.support_alignment = config.selective_refresh_support_alignment,
@@ -46,7 +50,7 @@ namespace pr::physics
 				.position_slop = config.position_slop,
 				.position_baumgarte = config.position_baumgarte,
 				.position_correction_scale = PositionCorrectionScale(config),
-				.pad6 = 0,
+				.shock_decay = config.contact_sort_shock_decay,
 			};
 		}
 	}
@@ -63,6 +67,8 @@ namespace pr::physics
 		, m_colours()
 		, m_contact_order()
 		, m_contact_times()
+		, m_body_shock_rank()
+		, m_body_shock_state()
 	{
 	}
 
@@ -71,6 +77,7 @@ namespace pr::physics
 		Load(buffers);
 
 		ComputeCollisionTimes();
+		ComputeShockRanks();
 		SortContacts();
 		AssignColours();
 
@@ -116,6 +123,8 @@ namespace pr::physics
 		m_colours.assign(m_max_contacts, 0);
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
+		m_body_shock_rank.assign(std::max(1, m_body_count), 0);
+		m_body_shock_state.assign(std::max(1, m_body_count), v4::Zero());
 		std::iota(m_contact_order.begin(), m_contact_order.end(), 0u);
 	}
 
@@ -146,6 +155,26 @@ namespace pr::physics
 		m_contacts.assign(g_contacts.begin(), g_contacts.end());
 		m_contact_times.assign(g_contact_times.begin(), g_contact_times.end());
 		m_contact_order.assign(g_contact_order.begin(), g_contact_order.end());
+	}
+
+	void ResolveInteropRunner::ComputeShockRanks()
+	{
+		g = MakeConstants(m_config, m_dt, m_body_count, m_max_contacts);
+		g_counters.assign(SpanOf(m_counters));
+		g_bodies.assign(SpanOf(m_bodies));
+		g_colours.assign(SpanOf(m_colours));
+		g_contacts.assign(SpanOf(m_contacts));
+		g_contact_times.assign(SpanOf(m_contact_times));
+		g_body_shock_rank.assign(SpanOf(m_body_shock_rank));
+		g_body_shock_state.assign(SpanOf(m_body_shock_state));
+
+		hlsl::GpuEmulator emu(CSComputeShockRanks, CSComputeShockRanks_NumThreads);
+		emu.Dispatch({1, 1, 1});
+
+		m_colours.assign(g_colours.begin(), g_colours.end());
+		m_contact_times.assign(g_contact_times.begin(), g_contact_times.end());
+		m_body_shock_rank.assign(g_body_shock_rank.begin(), g_body_shock_rank.end());
+		m_body_shock_state.assign(g_body_shock_state.begin(), g_body_shock_state.end());
 	}
 
 	void ResolveInteropRunner::SortContacts()
@@ -216,5 +245,41 @@ namespace pr::physics
 	std::span<float const> ResolveInteropRunner::ContactTimes() const
 	{
 		return m_contact_times;
+	}
+
+	ContactPriorityResult ResolveInteropRunner::ContactPriority(ContactPrioritySettings const& settings) const
+	{
+		auto bodies = std::vector<ContactPriorityBody>{};
+		bodies.reserve(m_bodies.size());
+		for (auto const& body : m_bodies)
+		{
+			bodies.push_back(ContactPriorityBody{
+				.m_position_ws = body.o2w.pos,
+				.m_velocity_ws = body.os_com_and_invmass.w * body.momentum_lin,
+				.m_inv_mass = body.os_com_and_invmass.w,
+			});
+		}
+
+		auto contacts = std::vector<ContactPriorityContact>{};
+		contacts.reserve(m_contacts.size());
+		for (auto const& contact : m_contacts)
+		{
+			auto const& body_a = m_bodies[contact.body_idx_a];
+			contacts.push_back(ContactPriorityContact{
+				.m_body_idx_a = contact.body_idx_a,
+				.m_body_idx_b = contact.body_idx_b,
+				.m_axis_ws = (body_a.o2w.rot * contact.axis).w0(),
+				.m_point_ws = body_a.o2w * contact.contact_point,
+				.m_depth = contact.depth,
+				.m_collision_time = contact.collision_time,
+			});
+		}
+
+		auto contact_order = std::vector<int>{};
+		contact_order.reserve(m_contacts.size());
+		for (int order_idx = 0; order_idx != isize(m_contacts); ++order_idx)
+			contact_order.push_back(static_cast<int>(m_contact_order[order_idx]));
+
+		return EvaluateContactPriority(settings, bodies, contacts, contact_order);
 	}
 }

@@ -18,6 +18,11 @@ namespace pr::physics
 		int g_colour;       // Current colour batch being processed (for CSResolve)
 		int g_sort_capacity;
 
+		int g_shock_iterations;
+		int g_shock_max_rank;
+		float g_shock_alignment;
+		float g_shock_min_strength;
+
 		float g_dt;         // timestep in seconds
 		float g_support_only;
 		float g_support_alignment;
@@ -36,7 +41,7 @@ namespace pr::physics
 		float g_position_slop;
 		float g_position_baumgarte;
 		float g_position_correction_scale;
-		float pad6;
+		float g_shock_decay;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -51,6 +56,8 @@ namespace pr::physics
 		inline static constexpr auto Contacts       = EUAVReg::u2;
 		inline static constexpr auto ContactTimes   = EUAVReg::u3;
 		inline static constexpr auto ContactOrder   = EUAVReg::u4;
+		inline static constexpr auto BodyShockRank  = EUAVReg::u5;
+		inline static constexpr auto BodyShockState = EUAVReg::u6;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config)
@@ -58,6 +65,7 @@ namespace pr::physics
 		, m_config(config)
 		, m_contact_sorter(gpu.m_gpu)
 		, m_cs_compute_times()
+		, m_cs_compute_shock_ranks()
 		, m_cs_assign_colours()
 		, m_cs_position_solve()
 		, m_cs_resolve()
@@ -66,8 +74,11 @@ namespace pr::physics
 		, m_r_colours()
 		, m_r_contact_times()
 		, m_r_contact_order()
+		, m_r_body_shock_rank()
+		, m_r_body_shock_state()
 		, m_max_materials()
 		, m_max_contacts()
+		, m_body_capacity()
 	{
 		CompileShaders();
 
@@ -107,6 +118,25 @@ namespace pr::physics
 
 			m_cs_compute_times.m_sig = sig.Create(m_gpu, "Physics:ComputeTimesSig");
 			m_cs_compute_times.m_pso = ComputePSO(m_cs_compute_times.m_sig.get(), bytecode).Create(m_gpu, "Physics:ComputeTimesPSO");
+		}
+
+		// m_cs_compute_shock_ranks: serial flood-fill over the current contact graph.
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbResolve>(EReg::Params)
+				.SRV(EReg::Counters)
+				.UAV(EReg::Bodies)
+				.UAV(EReg::Colours)
+				.UAV(EReg::Contacts)
+				.UAV(EReg::ContactTimes)
+				.UAV(EReg::BodyShockRank)
+				.UAV(EReg::BodyShockState)
+				;
+
+			auto bytecode = compiler.EntryPoint(L"CSComputeShockRanks").Compile();
+
+			m_cs_compute_shock_ranks.m_sig = sig.Create(m_gpu, "Physics:ComputeShockRanksSig");
+			m_cs_compute_shock_ranks.m_pso = ComputePSO(m_cs_compute_shock_ranks.m_sig.get(), bytecode).Create(m_gpu, "Physics:ComputeShockRanksPSO");
 		}
 
 		// m_cs_assign_colours: serial, walks sorted contacts + assigns colours
@@ -161,8 +191,9 @@ namespace pr::physics
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
-	void GpuResolver::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_materials)
+	void GpuResolver::ResizeBuffers(CmdList& cmd_list, int body_count, int max_contacts, int max_materials)
 	{
+		body_count = std::max(1, body_count);
 		max_contacts = std::max(1, max_contacts);
 		max_materials = std::max(1, max_materials);
 
@@ -178,6 +209,12 @@ namespace pr::physics
 			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactOrder");
 			m_max_contacts = max_contacts;
 		}
+		if (m_r_body_shock_rank == nullptr || m_body_capacity < body_count)
+		{
+			m_r_body_shock_rank = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyShockRank");
+			m_r_body_shock_state = m_gpu.CreateResource(ResDesc::Buf<v4>(body_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyShockState");
+			m_body_capacity = body_count;
+		}
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
@@ -186,7 +223,7 @@ namespace pr::physics
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
-		ResizeBuffers(job.m_cmd_list, max_contacts, material_count);
+		ResizeBuffers(job.m_cmd_list, body_count, max_contacts, material_count);
 
 		auto const position_iterations = std::max(0, position_iterations_ >= 0 ? position_iterations_ : m_config.position_iterations);
 		auto const position_correction_scale = position_iterations != 0 ? 1.0f / position_iterations : 0.0f;
@@ -196,6 +233,10 @@ namespace pr::physics
 			.g_body_count = body_count,
 			.g_colour = 0,
 			.g_sort_capacity = m_max_contacts,
+			.g_shock_iterations = m_config.contact_sort_shock_iterations,
+			.g_shock_max_rank = m_config.contact_sort_shock_max_rank,
+			.g_shock_alignment = m_config.contact_sort_shock_alignment,
+			.g_shock_min_strength = m_config.contact_sort_shock_min_strength,
 			.g_dt = dt,
 			.g_support_only = support_only ? 1.0f : 0.0f,
 			.g_support_alignment = m_config.selective_refresh_support_alignment,
@@ -211,7 +252,7 @@ namespace pr::physics
 			.g_position_slop = m_config.position_slop,
 			.g_position_baumgarte = m_config.position_baumgarte,
 			.g_position_correction_scale = position_correction_scale,
-			.pad6 = 0,
+			.g_shock_decay = m_config.contact_sort_shock_decay,
 		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
@@ -237,6 +278,8 @@ namespace pr::physics
 			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_contact_times.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_contact_order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_body_shock_rank.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_body_shock_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
 
@@ -260,6 +303,34 @@ namespace pr::physics
 			job.m_barriers.UAV(contacts.get());
 			job.m_barriers.UAV(m_r_contact_times.get());
 			job.m_barriers.UAV(m_r_contact_order.get());
+			job.m_barriers.Commit();
+		}
+
+		// Propagate contact priority through the contact graph and fold it into the sort key.
+		// This is currently serial because the priority metric is being tuned before committing
+		// to a parallel GPU implementation.
+		auto const priority_sort_enabled =
+			cb_resolve.g_propagation_key_scale > 0.0f &&
+			cb_resolve.g_shock_iterations > 0 &&
+			cb_resolve.g_shock_max_rank > 0;
+		if (priority_sort_enabled)
+		{
+			job.m_cmd_list.SetPipelineState(m_cs_compute_shock_ranks.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_compute_shock_ranks.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_body_shock_rank->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_body_shock_state->GetGPUVirtualAddress());
+			job.m_cmd_list.Dispatch(1, 1, 1);
+
+			job.m_barriers.UAV(m_r_colours.get());
+			job.m_barriers.UAV(m_r_contact_times.get());
+			job.m_barriers.UAV(m_r_body_shock_rank.get());
+			job.m_barriers.UAV(m_r_body_shock_state.get());
 			job.m_barriers.Commit();
 		}
 
@@ -445,6 +516,11 @@ namespace pr::physics
 		job.Run();
 
 		memcpy(bodies.data(), readback_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+	}
+
+	ID3D12Resource* GpuResolver::ContactOrder()
+	{
+		return m_r_contact_order.get();
 	}
 
 	// Readback bodies after GPU resolve (for CPU-side testing).

@@ -106,6 +106,12 @@ namespace physics_sandbox
 			options.m_physics_solver_iterations = cmd("solver_iterations").as<int>();
 		if (cmd.count("position_iterations"))
 			options.m_physics_position_iterations = cmd("position_iterations").as<int>();
+		if (cmd.count("broadphase_aabb_margin"))
+			options.m_physics_broadphase_aabb_margin = cmd("broadphase_aabb_margin").as<float>();
+		if (cmd.count("contact_sort_propagation_scale"))
+			options.m_physics_contact_sort_propagation_scale = cmd("contact_sort_propagation_scale").as<float>();
+		if (cmd.count("contact_sort_shock_iterations"))
+			options.m_physics_contact_sort_shock_iterations = cmd("contact_sort_shock_iterations").as<int>();
 		if (cmd.count("selective_refresh_passes"))
 			options.m_physics_selective_refresh_passes = cmd("selective_refresh_passes").as<int>();
 		if (cmd.count("selective_refresh_max_pairs"))
@@ -133,6 +139,8 @@ namespace physics_sandbox
 			options.m_column_metric = true;
 		if (cmd.count("pyramid_metric"))
 			options.m_pyramid_metric = true;
+		if (cmd.count("cradle_metric"))
+			options.m_cradle_metric = true;
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 

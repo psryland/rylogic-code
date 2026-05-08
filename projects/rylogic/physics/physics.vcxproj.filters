@@ -215,6 +215,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h">
       <Filter>src\integrator</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\materials\material.h">
       <Filter>src\materials</Filter>
     </ClInclude>

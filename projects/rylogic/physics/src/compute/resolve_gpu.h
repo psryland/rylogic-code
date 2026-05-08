@@ -14,6 +14,7 @@ namespace pr::physics
 		EngineConfig const& m_config;             // Engine configuration parameters
 		BoundsSorter m_contact_sorter;            // Radix sort: key=collision_time (float), payload=contact_index (uint32)
 		ComputeStep m_cs_compute_times;           // Parallel: compute collision times per contact
+		ComputeStep m_cs_compute_shock_ranks;     // Serial: flood-fill shock ranks and finalise sort keys
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
@@ -22,8 +23,11 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_colours;       // GPU buffer: RWStructuredBuffer<uint> per-contact colour assignment
 		D3DPtr<ID3D12Resource> m_r_contact_times; // GPU buffer: float keys (collision_time) for radix sort
 		D3DPtr<ID3D12Resource> m_r_contact_order; // GPU buffer: uint32 payloads (contact indices) for radix sort
+		D3DPtr<ID3D12Resource> m_r_body_shock_rank;
+		D3DPtr<ID3D12Resource> m_r_body_shock_state;
 		int m_max_materials;
 		int m_max_contacts;
+		int m_body_capacity;
 
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config);
 
@@ -36,12 +40,15 @@ namespace pr::physics
 		// Readback bodies after GPU resolve (for CPU-side testing).
 		void Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_bodies, std::span<GpuRigidBody> out_bodies);
 
+		// Sorted contact index order from the most recent resolve.
+		ID3D12Resource* ContactOrder();
+
 	private:
 
 		// Compile the compute shaders
 		void CompileShaders();
 
 		// Resize the GPU buffers to support ???
-		void ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_materials);
+		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_contacts, int max_materials);
 	};
 }

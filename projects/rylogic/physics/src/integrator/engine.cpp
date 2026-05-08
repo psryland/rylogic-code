@@ -83,6 +83,7 @@ namespace pr::physics
 		ReadbackAlloc rb_bodies;
 		ReadbackAlloc rb_counters;
 		ReadbackAlloc rb_contacts;
+		ReadbackAlloc rb_contact_order;
 		bool emit_collisions = true;
 		bool read_contacts = false;
 	};
@@ -480,6 +481,7 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
+		auto contact_order = m_gpu_resolver->ContactOrder();
 		buffers.read_contacts = buffers.emit_collisions && static_cast<bool>(Collisions);
 
 		{
@@ -488,6 +490,7 @@ namespace pr::physics
 			if (buffers.read_contacts)
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_COPY_SOURCE);
 			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
@@ -502,6 +505,9 @@ namespace pr::physics
 			{
 				buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
 				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
+
+				buffers.rb_contact_order = m_gpu->m_job.m_readback.template Alloc<uint32_t>(contacts_count);
+				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contact_order, contact_order, 0);
 			}
 		}
 		{
@@ -510,6 +516,7 @@ namespace pr::physics
 			if (buffers.read_contacts)
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
@@ -540,8 +547,16 @@ namespace pr::physics
 		{
 			m_cache->m_contacts_cpu.resize(0);
 			m_cache->m_contacts_cpu.reserve(contact_count);
-			for (auto const& c : std::span{ m_cache->m_contacts }.subspan(0, contact_count))
+			auto const contact_order = std::span{ buffers.rb_contact_order.ptr<uint32_t>(), static_cast<size_t>(contact_count) };
+			for (int order_idx = 0; order_idx != contact_count; ++order_idx)
+			{
+				auto const contact_idx = static_cast<int>(contact_order[order_idx]);
+				if (contact_idx < 0 || contact_idx >= contact_count)
+					throw std::runtime_error("GPU resolver returned an invalid contact order index");
+
+				auto const& c = m_cache->m_contacts[contact_idx];
 				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
+			}
 
 			Collisions(*this, m_cache->m_contacts_cpu);
 		}

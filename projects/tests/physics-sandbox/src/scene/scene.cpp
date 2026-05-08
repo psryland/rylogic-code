@@ -6,6 +6,8 @@ namespace physics_sandbox
 {
 	namespace
 	{
+		constexpr auto ContactPriorityFallbackColour = Colour32(0xFFFF8000U);
+
 		using Clock = std::chrono::steady_clock;
 
 		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
@@ -30,6 +32,11 @@ namespace physics_sandbox
 		bool SameVec(v4 const& lhs, v4 const& rhs)
 		{
 			return std::memcmp(&lhs, &rhs, sizeof(v4)) == 0;
+		}
+		Colour32 ContactPriorityColour(int order_idx, int order_count)
+		{
+			auto const t = order_count > 1 ? static_cast<float>(order_idx) / static_cast<float>(order_count - 1) : 0.0f;
+			return Colour32(0, static_cast<int>(128.0f + 127.0f * std::clamp(t, 0.0f, 1.0f)), 255, 255);
 		}
 		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
 		{
@@ -156,34 +163,19 @@ namespace physics_sandbox
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
 		, m_physics_substeps(1)
+		, m_allow_sleeping(true)
 		, m_ground_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
+		, m_visual_mode(EVisualMode::Normal)
+		, m_collision_sub()
 		, m_show_contacts(true)
 		, m_clock()
 		, m_current_scenario()
 		, m_diag()
 		, m_step_count()
 	{
-		// Hook collision detection for detailed diagnostics only. The normal UI path uses the GPU contact counter
-		// after Step(), avoiding a full contact-buffer readback when contact details are not needed.
-		#ifdef PR_PHYSICS_DIAGNOSTICS
-		m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
-		{
-			UpdateCollisionGfx(contacts);
-
-			if (std::ssize(m_body) == 2 && !contacts.empty())
-			{
-				m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
-				m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
-
-				auto const& c = contacts.front();
-				m_diag.contact_point_ws = c.m_objA->O2W() * c.m_point_at_t;
-				m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
-				m_diag.depth = c.m_depth;
-			}
-		};
-		#endif
+		UpdateCollisionReadback();
 
 		// Create a coordinate frame at the origin for visual reference
 		if (m_rdr)
@@ -205,7 +197,9 @@ namespace physics_sandbox
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
 		m_physics_substeps = 1;
-		m_physics.Config(DefaultEngineConfig());
+		auto engine_config = DefaultEngineConfig();
+		engine_config.sleeping_enabled = m_allow_sleeping;
+		m_physics.Config(engine_config);
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -237,6 +231,22 @@ namespace physics_sandbox
 
 		// Reset per-step collision flag
 		m_diag.occurred = false;
+		switch (m_visual_mode)
+		{
+			case EVisualMode::Normal:
+			{
+				break;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				SetContactPriorityFallbackGfx();
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
 		auto engine_profile = physics::Engine::StepProfile{};
 		auto gravity_ms = 0.0;
 		auto physics_ms = 0.0;
@@ -453,9 +463,13 @@ namespace physics_sandbox
 		m_gravity = scene_desc.gravity;
 		m_physics_substeps = scene_desc.physics_substeps;
 		auto engine_config = DefaultEngineConfig();
+		engine_config.sleeping_enabled = m_allow_sleeping;
 		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
 		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
 		engine_config.position_iterations = scene_desc.physics_position_iterations;
+		engine_config.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin;
+		engine_config.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale;
+		engine_config.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations;
 		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
 		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
 		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;
@@ -973,6 +987,179 @@ namespace physics_sandbox
 		// Contact graphics are currently disabled. Keep this path opt-in because reading detailed
 		// contacts back from the GPU has a measurable cost in large scenes.
 		(void)contacts;
+	}
+
+	EVisualMode Scene::VisualMode() const
+	{
+		return m_visual_mode;
+	}
+
+	void Scene::VisualMode(EVisualMode mode)
+	{
+		auto const changed = m_visual_mode != mode;
+		if (!changed)
+			return;
+
+		m_visual_mode = mode;
+		switch (m_visual_mode)
+		{
+			case EVisualMode::Normal:
+			{
+				ClearContactPriorityGfx();
+				break;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				SetContactPriorityFallbackGfx();
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
+		UpdateCollisionReadback();
+	}
+
+	bool Scene::AllowSleeping() const
+	{
+		return m_allow_sleeping;
+	}
+
+	void Scene::AllowSleeping(bool allow_sleeping)
+	{
+		m_allow_sleeping = allow_sleeping;
+
+		auto engine_config = m_physics.Config();
+		engine_config.sleeping_enabled = m_allow_sleeping;
+		m_physics.Config(engine_config);
+	}
+
+	void Scene::UpdateContactPriorityGfx(std::span<physics::RbContact const> contacts)
+	{
+		if (contacts.empty())
+			return;
+
+		auto body_lookup = std::unordered_map<physics::RigidBody const*, int>{};
+		body_lookup.reserve(m_body.size());
+		for (int body_idx = 0; body_idx != isize(m_body); ++body_idx)
+		{
+			auto const& body = m_body[body_idx];
+			body_lookup.emplace(static_cast<physics::RigidBody const*>(&body), body_idx);
+		}
+
+		auto first_contact_order = std::vector<int>(m_body.size(), -1);
+		auto non_static_contact_count = 0;
+		for (int contact_order = 0; contact_order != isize(contacts); ++contact_order)
+		{
+			auto const& contact = contacts[contact_order];
+			auto const iter_a = body_lookup.find(contact.m_objA);
+			auto const iter_b = body_lookup.find(contact.m_objB);
+			if (iter_a == body_lookup.end() || iter_b == body_lookup.end())
+				throw std::runtime_error("Contact priority visualisation received a contact for an unknown body");
+
+			auto const body_idx_a = iter_a->second;
+			auto const body_idx_b = iter_b->second;
+			if (AllSet(m_body[body_idx_a].StateFlags(), physics::ERigidBodyStateFlags::Static) ||
+				AllSet(m_body[body_idx_b].StateFlags(), physics::ERigidBodyStateFlags::Static))
+				continue;
+
+			if (first_contact_order[body_idx_a] == -1)
+				first_contact_order[body_idx_a] = non_static_contact_count;
+			if (first_contact_order[body_idx_b] == -1)
+				first_contact_order[body_idx_b] = non_static_contact_count;
+
+			++non_static_contact_count;
+		}
+
+		for (int body_idx = 0; body_idx != isize(m_body); ++body_idx)
+		{
+			if (first_contact_order[body_idx] == -1)
+				continue;
+
+			m_body[body_idx].PriorityColour(ContactPriorityColour(first_contact_order[body_idx], non_static_contact_count), true);
+		}
+	}
+
+	void Scene::ClearContactPriorityGfx()
+	{
+		for (auto& body : m_body)
+			body.PriorityColour(Colour32White, false);
+	}
+
+	void Scene::SetContactPriorityFallbackGfx()
+	{
+		for (auto& body : m_body)
+			body.PriorityColour(ContactPriorityFallbackColour, true);
+	}
+
+	bool Scene::NeedsCollisionReadback() const
+	{
+		#if PR_PHYSICS_DIAGNOSTICS
+		return true;
+		#else
+		switch (m_visual_mode)
+		{
+			case EVisualMode::Normal:
+			{
+				return false;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				return true;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
+		#endif
+	}
+
+	void Scene::UpdateCollisionReadback()
+	{
+		auto const needs_readback = NeedsCollisionReadback();
+		if (needs_readback && !m_collision_sub)
+		{
+			m_collision_sub = m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
+			{
+				UpdateCollisionGfx(contacts);
+
+				switch (m_visual_mode)
+				{
+					case EVisualMode::Normal:
+					{
+						break;
+					}
+					case EVisualMode::ContactPriority:
+					{
+						UpdateContactPriorityGfx(contacts);
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown visual mode");
+					}
+				}
+
+				#if PR_PHYSICS_DIAGNOSTICS
+				if (std::ssize(m_body) == 2 && !contacts.empty())
+				{
+					m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
+					m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
+
+					auto const& c = contacts.front();
+					m_diag.contact_point_ws = c.m_objA->O2W() * c.m_point_at_t;
+					m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
+					m_diag.depth = c.m_depth;
+				}
+				#endif
+			};
+		}
+		else if (!needs_readback && m_collision_sub)
+		{
+			m_physics.Collisions -= m_collision_sub;
+		}
 	}
 
 	// Calculate the bounding box for the scene (excluding terrain)

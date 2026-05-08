@@ -1,6 +1,7 @@
 {
   "scene": {
     "description": "Stability benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
+    "seed": 8,
     "gravity": [0, 0, -9.81],
     "material": {
       "friction": 0.7,

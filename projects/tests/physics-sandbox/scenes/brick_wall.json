@@ -1,6 +1,7 @@
 {
   "scene": {
     "description": "Pathological: 10x10 brick wall (running bond pattern) resting on ground",
+    "seed": 6,
     "gravity": [
       0,
       0,

@@ -16,6 +16,9 @@ namespace physics_sandbox::diag
 		std::optional<int> m_physics_substeps = {};
 		std::optional<int> m_physics_solver_iterations = {};
 		std::optional<int> m_physics_position_iterations = {};
+		std::optional<float> m_physics_broadphase_aabb_margin = {};
+		std::optional<float> m_physics_contact_sort_propagation_scale = {};
+		std::optional<int> m_physics_contact_sort_shock_iterations = {};
 		std::optional<int> m_physics_selective_refresh_passes = {};
 		std::optional<int> m_physics_selective_refresh_max_pairs = {};
 		std::optional<int> m_physics_selective_refresh_solver_iterations = {};
@@ -28,6 +31,7 @@ namespace physics_sandbox::diag
 		bool m_scan_non_spheres = false;
 		bool m_column_metric = false;
 		bool m_pyramid_metric = false;
+		bool m_cradle_metric = false;
 		bool m_engine_profile = false;
 	};
 

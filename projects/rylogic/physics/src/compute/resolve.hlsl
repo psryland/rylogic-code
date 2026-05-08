@@ -53,6 +53,11 @@ struct cbResolve
 	int colour;       // Current colour batch being processed (for CSResolve)
 	int sort_capacity;
 
+	int shock_iterations;
+	int shock_max_rank;
+	float shock_alignment;
+	float shock_min_strength;
+
 	float dt;         // timestep in seconds
 	float support_only;
 	float support_alignment;
@@ -71,7 +76,7 @@ struct cbResolve
 	float position_slop;
 	float position_baumgarte;
 	float position_correction_scale;
-	float pad6;
+	float shock_decay;
 };
 
 // Shader resources
@@ -83,6 +88,8 @@ RWStructuredBuffer<uint> resource(g_colours, u1);
 RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u2);
 RWStructuredBuffer<float> resource(g_contact_times, u3); // scratch: collision_time keys for radix sort
 RWStructuredBuffer<uint> resource(g_contact_order, u4);   // scratch: contact indices for radix sort
+RWStructuredBuffer<uint> resource(g_body_shock_rank, u5);  // scratch: per-body shock wavefront rank
+RWStructuredBuffer<float4> resource(g_body_shock_state, u6); // scratch: xyz = propagation direction, w = strength
 
 // ----- Helper functions -----
 int ContactCount()
@@ -251,7 +258,7 @@ void ApplyImpulseWithEnergyGuard(
 	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
-	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)  // @Copilot, turning the energy guard off isn't desireable... we need to revisit this
+	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)
 {
 	// Convert point impulse to spatial wrenches at each body's CoM
 	float3 forceA_in_a = -impulse;
@@ -319,14 +326,19 @@ float EstimateCollisionTime(GpuResolveContact c)
 	return sub_step * g.dt;
 }
 
-bool SupportContact(GpuResolveContact c, GpuRigidBody bodyA)
+float ContactSupportAlignment(GpuResolveContact c, GpuRigidBody bodyA)
 {
 	float3 gravity = NormaliseOrZero(bodyA.ws_gravity.xyz);
 	if (dot(gravity, gravity) == 0.0f)
-		return false;
+		return 0.0f;
 
 	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
-	return abs(dot(axis_ws, gravity)) >= g.support_alignment;
+	return abs(dot(axis_ws, gravity));
+}
+
+bool SupportContact(GpuResolveContact c, GpuRigidBody bodyA)
+{
+	return ContactSupportAlignment(c, bodyA) >= g.support_alignment;
 }
 
 bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
@@ -354,6 +366,60 @@ float PropagationSortKey(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody b
 	float source_momentum = max(abs(dot(bodyA.momentum_lin.xyz, axis_ws)), abs(dot(bodyB.momentum_lin.xyz, axis_ws)));
 
 	return support_height - source_momentum - 0.05f * closing_speed - 0.50f * c.depth;
+}
+
+float ContactNormalDemand(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB)
+{
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3x3 os_iinv_a = OsInverseInertia(bodyA);
+	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	float3x3 b2a_rot = (float3x3)c.b2a;
+	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
+	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
+	float3 v_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
+	float bias_speed = (g.velocity_baumgarte / max(g.dt, 1e-6f)) * max(c.depth - g.penetration_slop, 0.0f);
+	return closing_speed + bias_speed;
+}
+
+int SharedDynamicBody(GpuResolveContact lhs, GpuResolveContact rhs)
+{
+	if (lhs.body_idx_a == rhs.body_idx_a && g_bodies[lhs.body_idx_a].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_a;
+	if (lhs.body_idx_a == rhs.body_idx_b && g_bodies[lhs.body_idx_a].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_a;
+	if (lhs.body_idx_b == rhs.body_idx_a && g_bodies[lhs.body_idx_b].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_b;
+	if (lhs.body_idx_b == rhs.body_idx_b && g_bodies[lhs.body_idx_b].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_b;
+	return -1;
+}
+
+float3 ContactUnitImpulseDeltaVelocityWS(GpuResolveContact c, int body_idx)
+{
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody body = g_bodies[body_idx];
+	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
+	if (body_idx == c.body_idx_a)
+		return -body.os_com_and_invmass.w * axis_ws;
+	if (body_idx == c.body_idx_b)
+		return +body.os_com_and_invmass.w * axis_ws;
+	return float3(0, 0, 0);
+}
+
+float ContactPriorityInfluence(GpuResolveContact src, GpuResolveContact dst, int shared_body_idx)
+{
+	GpuRigidBody bodyA = g_bodies[dst.body_idx_a];
+	float3 axis_ws = mul(dst.axis.xyz, (float3x3)bodyA.o2w);
+	float3 delta_velocity = ContactUnitImpulseDeltaVelocityWS(src, shared_body_idx);
+	float3 delta_relative_velocity = float3(0, 0, 0);
+	if (shared_body_idx == dst.body_idx_a)
+		delta_relative_velocity = -delta_velocity;
+	else if (shared_body_idx == dst.body_idx_b)
+		delta_relative_velocity = +delta_velocity;
+
+	// Positive influence means the upstream contact impulse makes the downstream contact more closing/active.
+	return max(0.0f, -dot(delta_relative_velocity, axis_ws));
 }
 
 float PositionCorrectionDistance(float depth)
@@ -437,6 +503,96 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 	}
 }
 
+// ----- CSComputeShockRanks -----
+// Serial: propagate contact priority through the current contact graph, then fold the
+// resulting wavefront priority into the sort key. A directed edge exists when a unit
+// impulse at one contact would make a neighbouring contact more closing/active through a
+// shared dynamic body. This predicts the Newton-cradle ordering without integrating bodies
+// between priority passes.
+numthreads(CSComputeShockRanks, 1, 1, 1)
+void CSComputeShockRanks(int3 DTID(dtid))
+{
+	if (dtid.x != 0)
+		return;
+
+	int contact_count = ContactCount();
+	bool priority_enabled =
+		g.propagation_key_scale > 0.0f &&
+		g.shock_iterations > 0 &&
+		g.shock_max_rank > 0;
+
+	for (int contact_idx = 0; contact_idx != contact_count; ++contact_idx)
+	{
+		GpuResolveContact c = g_contacts[contact_idx];
+		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+		float priority = ContactEnabled(c, bodyA) ? ContactNormalDemand(c, bodyA, bodyB) : 0.0f;
+		g_contact_times[contact_idx] = priority;
+		g_colours[contact_idx] = 0;
+	}
+
+	if (priority_enabled)
+	{
+		// Gauss-Seidel max propagation is deliberate here. It lets a single serial pass
+		// flood priority through a chain while the decay term prevents feedback cycles from
+		// amplifying the source contact.
+		for (int iter = 0; iter != g.shock_iterations; ++iter)
+		{
+			bool changed = false;
+			for (int src_idx = 0; src_idx != contact_count; ++src_idx)
+			{
+				float src_priority = g_contact_times[src_idx];
+				if (src_priority < g.shock_min_strength)
+					continue;
+
+				GpuResolveContact src = g_contacts[src_idx];
+				for (int dst_idx = 0; dst_idx != contact_count; ++dst_idx)
+				{
+					if (dst_idx == src_idx)
+						continue;
+
+					GpuResolveContact dst = g_contacts[dst_idx];
+					int shared_body_idx = SharedDynamicBody(src, dst);
+					if (shared_body_idx < 0)
+						continue;
+
+					float influence = min(ContactPriorityInfluence(src, dst, shared_body_idx), 1.0f);
+					if (influence <= g.shock_alignment)
+						continue;
+
+					float propagated = g.shock_decay * influence * src_priority;
+					if (propagated > g_contact_times[dst_idx] + g.shock_min_strength)
+					{
+						g_contact_times[dst_idx] = propagated;
+						changed = true;
+					}
+				}
+			}
+
+			if (!changed)
+				break;
+		}
+	}
+
+	for (int contact_idx = 0; contact_idx != contact_count; ++contact_idx)
+	{
+		GpuResolveContact c = g_contacts[contact_idx];
+		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+		float propagation_key = 1e30f;
+		if (ContactEnabled(c, bodyA))
+		{
+			float local_key = PropagationSortKey(c, bodyA, bodyB);
+			propagation_key = priority_enabled
+				? -g_contact_times[contact_idx] + 0.25f * local_key
+				: local_key;
+		}
+
+		g_contact_times[contact_idx] = c.collision_time + g.propagation_key_scale * propagation_key;
+		g_colours[contact_idx] = 0;
+	}
+}
+
 // ----- CSAssignColours -----
 // Serial: single thread. Walks contacts in order sorted by collision time.
 // Uses per-body colour bitmasks stored in g_bodies[].colour_used.
@@ -451,6 +607,7 @@ void CSAssignColours(int3 DTID(dtid))
 	{
 		int idx = g_contact_order[i]; // get contact index from sorted order
 		GpuResolveContact c = g_contacts[idx];
+		uint shock_rank = (g.propagation_key_scale > 0.0f && g.shock_iterations > 0 && g.shock_max_rank > 0) ? g_colours[idx] : 0u;
 		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
 		{
 			g_colours[idx] = MaxColours;
@@ -468,8 +625,10 @@ void CSAssignColours(int3 DTID(dtid))
 		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
 		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
 
-		uint used = used_a | used_b;
-		uint colour = min(firstbitlow(~used), (uint)MaxColours);
+		uint min_colour = g.propagation_key_scale > 0.0f ? min(shock_rank, (uint)(MaxColours - 1)) : 0u;
+		uint lower_colours = min_colour == 0 ? 0u : ((1u << min_colour) - 1u);
+		uint used = used_a | used_b | lower_colours;
+		uint colour = min(firstbitlow(~used), (uint)(MaxColours - 1));
 
 		g_colours[idx] = colour;
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);

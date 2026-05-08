@@ -95,6 +95,25 @@ namespace physics_sandbox::diag
 				return !m_bodies.empty();
 			}
 		};
+		struct CradleMetricState
+		{
+			std::vector<int> m_chain_bodies = {};
+			int m_impactor_body = -1;
+			int m_left_body = -1;
+			int m_right_body = -1;
+			int m_first_impact_step = -1;
+			int m_right_move_step = -1;
+			float m_velocity_threshold = 0.01f;
+			float m_peak_right_vx = 0.0f;
+			float m_peak_intermediate_vx = 0.0f;
+			double m_physics_ms = 0.0;
+			int m_sample_count = 0;
+
+			bool Enabled() const
+			{
+				return m_impactor_body != -1 && m_chain_bodies.size() >= 2;
+			}
+		};
 
 		struct EngineProfileAccumulator
 		{
@@ -255,6 +274,54 @@ namespace physics_sandbox::diag
 			if (!metric.Enabled())
 				throw std::runtime_error("Pyramid metric requires at least one dynamic box body");
 
+			return metric;
+		}
+		CradleMetricState CreateCradleMetric(scene_loader::SceneDesc const& scene_desc)
+		{
+			struct Candidate
+			{
+				int m_body = -1;
+				float m_x = 0.0f;
+				float m_vx = 0.0f;
+			};
+
+			auto candidates = std::vector<Candidate>{};
+			for (int i = 0; i != std::ssize(scene_desc.bodies); ++i)
+			{
+				auto const& body = scene_desc.bodies[i];
+				if (body.mass <= 0.0f || body.shape_type != scene_loader::BodyDesc::EShape::Box)
+					continue;
+
+				candidates.push_back(Candidate{
+					.m_body = i,
+					.m_x = body.position.x,
+					.m_vx = body.velocity.x,
+				});
+			}
+
+			auto metric = CradleMetricState{};
+			if (candidates.size() < 3)
+				throw std::runtime_error("Cradle metric requires an impactor and at least two dynamic box bodies");
+
+			auto impactor = std::ranges::max_element(candidates, {}, &Candidate::m_vx);
+			if (impactor == std::end(candidates) || impactor->m_vx <= metric.m_velocity_threshold)
+				throw std::runtime_error("Cradle metric requires a dynamic box impactor with positive X velocity");
+
+			metric.m_impactor_body = impactor->m_body;
+			for (auto const& candidate : candidates)
+			{
+				if (candidate.m_body == metric.m_impactor_body)
+					continue;
+
+				metric.m_chain_bodies.push_back(candidate.m_body);
+			}
+			std::ranges::sort(metric.m_chain_bodies, [&](int lhs, int rhs)
+			{
+				return scene_desc.bodies[lhs].position.x < scene_desc.bodies[rhs].position.x;
+			});
+
+			metric.m_left_body = metric.m_chain_bodies.front();
+			metric.m_right_body = metric.m_chain_bodies.back();
 			return metric;
 		}
 
@@ -529,6 +596,63 @@ namespace physics_sandbox::diag
 			metric.m_physics_ms = 0.0;
 			metric.m_sample_count = 0;
 		}
+		void PrintCradleMetric(std::ofstream& log, int step, double time_s, Scene const& scene, CradleMetricState& metric)
+		{
+			auto const impactor_vx = scene.m_body[metric.m_impactor_body].VelocityWS().lin.x;
+			auto const left_vx = scene.m_body[metric.m_left_body].VelocityWS().lin.x;
+			auto const right_vx = scene.m_body[metric.m_right_body].VelocityWS().lin.x;
+			auto max_intermediate_vx = 0.0f;
+			auto sum_intermediate_vx = 0.0f;
+			auto total_kinetic_energy = 0.0f;
+
+			for (auto const& body : scene.m_body)
+				total_kinetic_energy += body.KineticEnergy();
+
+			for (int i = 1; i + 1 < std::ssize(metric.m_chain_bodies); ++i)
+			{
+				auto const vx = std::abs(scene.m_body[metric.m_chain_bodies[i]].VelocityWS().lin.x);
+				max_intermediate_vx = std::max(max_intermediate_vx, vx);
+				sum_intermediate_vx += vx;
+			}
+
+			if (metric.m_first_impact_step == -1 && std::abs(left_vx) > metric.m_velocity_threshold)
+				metric.m_first_impact_step = step;
+			if (metric.m_right_move_step == -1 && std::abs(right_vx) > metric.m_velocity_threshold)
+				metric.m_right_move_step = step;
+
+			metric.m_peak_right_vx = std::max(metric.m_peak_right_vx, std::abs(right_vx));
+			metric.m_peak_intermediate_vx = std::max(metric.m_peak_intermediate_vx, max_intermediate_vx);
+
+			auto const delay = metric.m_first_impact_step != -1 && metric.m_right_move_step != -1
+				? metric.m_right_move_step - metric.m_first_impact_step
+				: -1;
+			auto const sample_count = std::max(metric.m_sample_count, 1);
+			auto const avg_physics_ms = metric.m_physics_ms / sample_count;
+			auto const engine_fps = avg_physics_ms > 0.0 ? 1000.0 / avg_physics_ms : 0.0;
+			auto const collision_stats = scene.m_physics.LastCollisionStats();
+			Emit(log, std::format(
+				"cradle step={:5d} t={:8.4f} impact_step={} right_step={} delay={} impactor_vx={:9.4f} left_vx={:9.4f} right_vx={:9.4f} max_mid_vx={:9.4f} sum_mid_vx={:9.4f} peak_right_vx={:9.4f} peak_mid_vx={:9.4f} ke={:12.6f} pairs={} contacts={} physics_ms={:8.3f} fps={:8.2f}\n",
+				step,
+				time_s,
+				metric.m_first_impact_step,
+				metric.m_right_move_step,
+				delay,
+				impactor_vx,
+				left_vx,
+				right_vx,
+				max_intermediate_vx,
+				sum_intermediate_vx,
+				metric.m_peak_right_vx,
+				metric.m_peak_intermediate_vx,
+				total_kinetic_energy,
+				collision_stats.m_pair_count,
+				collision_stats.LastContactCount(),
+				avg_physics_ms,
+				engine_fps));
+
+			metric.m_physics_ms = 0.0;
+			metric.m_sample_count = 0;
+		}
 
 		void PrintBodyTrace(
 			std::ofstream& log,
@@ -634,8 +758,12 @@ namespace physics_sandbox::diag
 		auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc);
 		auto result = SceneDiagnosticResult{};
 
-		if (options.m_column_metric && options.m_pyramid_metric)
-			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use either -column_metric or -pyramid_metric");
+		auto metric_count = 0;
+		metric_count += options.m_column_metric ? 1 : 0;
+		metric_count += options.m_pyramid_metric ? 1 : 0;
+		metric_count += options.m_cradle_metric ? 1 : 0;
+		if (metric_count > 1)
+			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, or -cradle_metric");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
@@ -646,6 +774,8 @@ namespace physics_sandbox::diag
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
 			Emit(log, "pyramid_metric=true\n");
+		else if (options.m_cradle_metric)
+			Emit(log, "cradle_metric=true\n");
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
@@ -674,6 +804,24 @@ namespace physics_sandbox::diag
 			if (*options.m_physics_position_iterations < 0)
 				throw std::runtime_error("Scene diagnostic -position_iterations must be non-negative");
 			scene_desc.physics_position_iterations = *options.m_physics_position_iterations;
+		}
+		if (options.m_physics_broadphase_aabb_margin)
+		{
+			if (*options.m_physics_broadphase_aabb_margin < 0.0f)
+				throw std::runtime_error("Scene diagnostic -broadphase_aabb_margin must be non-negative");
+			scene_desc.physics_broadphase_aabb_margin = *options.m_physics_broadphase_aabb_margin;
+		}
+		if (options.m_physics_contact_sort_propagation_scale)
+		{
+			if (*options.m_physics_contact_sort_propagation_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -contact_sort_propagation_scale must be non-negative");
+			scene_desc.physics_contact_sort_propagation_scale = *options.m_physics_contact_sort_propagation_scale;
+		}
+		if (options.m_physics_contact_sort_shock_iterations)
+		{
+			if (*options.m_physics_contact_sort_shock_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -contact_sort_shock_iterations must be non-negative");
+			scene_desc.physics_contact_sort_shock_iterations = *options.m_physics_contact_sort_shock_iterations;
 		}
 		if (options.m_physics_selective_refresh_passes)
 		{
@@ -726,6 +874,7 @@ namespace physics_sandbox::diag
 		auto const ground_body_index = scene_desc.ground ? static_cast<int>(scene_desc.bodies.size()) : -1;
 		auto column_metric = options.m_column_metric ? CreateColumnMetric(scene_desc) : ColumnMetricState{};
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};
+		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
 		if (column_metric.Enabled())
@@ -746,6 +895,16 @@ namespace physics_sandbox::diag
 				pyramid_metric.m_bodies.size(),
 				pyramid_metric.m_initial_top_height,
 				pyramid_metric.m_initial_spread));
+		}
+		if (cradle_metric.Enabled())
+		{
+			Emit(log, std::format(
+				"cradle setup impactor={} left={} right={} chain_count={} velocity_threshold={:.5f}\n",
+				cradle_metric.m_impactor_body,
+				cradle_metric.m_left_body,
+				cradle_metric.m_right_body,
+				cradle_metric.m_chain_bodies.size(),
+				cradle_metric.m_velocity_threshold));
 		}
 
 		auto trace_contacts = std::vector<BodyTraceContact>{};
@@ -808,6 +967,11 @@ namespace physics_sandbox::diag
 				pyramid_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
 				++pyramid_metric.m_sample_count;
 			}
+			if (cradle_metric.Enabled())
+			{
+				cradle_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
+				++cradle_metric.m_sample_count;
+			}
 
 			if (options.m_engine_profile)
 			{
@@ -835,6 +999,14 @@ namespace physics_sandbox::diag
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 					PrintPyramidMetric(log, step + 1, scene.m_clock, scene, pyramid_metric);
+
+				continue;
+			}
+			if (options.m_cradle_metric)
+			{
+				auto report_interval = std::max(options.m_report_interval, 1);
+				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+					PrintCradleMetric(log, step + 1, scene.m_clock, scene, cradle_metric);
 
 				continue;
 			}
@@ -936,7 +1108,7 @@ namespace physics_sandbox::diag
 			}
 		}
 
-		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies)
+		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies && !options.m_cradle_metric)
 		{
 			Emit(log, std::format("worst: step={} max_depth={:.6f} pair=({},{})\n",
 				result.m_max_depth_step,
