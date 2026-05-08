@@ -104,6 +104,7 @@ namespace pr::physics::tests
 			config.position_iterations = 0;
 			config.solver_iterations = 0;
 			config.contact_sort_shock_iterations = 16;
+			config.contact_sort_shock_max_contacts = 0;
 
 			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
 			auto rbodies = std::vector<RigidBody>{};
@@ -160,6 +161,75 @@ namespace pr::physics::tests
 
 			auto const priority = runner.ContactPriority();
 			PR_EXPECT(priority.m_score > 0.99f);
+		}
+
+		PRUnitTestMethod(ContactPriorityGuardKeepsLocalSortKey)
+		{
+			auto config = EngineConfig{};
+			config.position_iterations = 0;
+			config.solver_iterations = 0;
+			config.contact_sort_shock_iterations = 16;
+			config.contact_sort_shock_max_contacts = 0;
+
+			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
+			auto rbodies = std::vector<RigidBody>{};
+			for (int body_idx = 0; body_idx != 4; ++body_idx)
+			{
+				rbodies.push_back(RigidBody{&box, m4x4::Translation(static_cast<float>(body_idx), 0, 0), Inertia::Box(box.m_radius, 1.0f)});
+				rbodies.back().VelocityWS(v4::Zero(), body_idx == 0 ? v4{10, 0, 0, 0} : v4::Zero());
+			}
+
+			auto bodies = std::vector<GpuRigidBody>{};
+			for (int body_idx = 0; body_idx != isize(rbodies); ++body_idx)
+				bodies.push_back(PackDynamics(rbodies[body_idx], 0));
+
+			auto contacts = std::vector<GpuResolveContact>{};
+			for (int contact_idx = 0; contact_idx != 3; ++contact_idx)
+			{
+				auto const& body_a = rbodies[contact_idx];
+				auto const& body_b = rbodies[contact_idx + 1];
+				auto const contact_point = v4{0.5f, 0, 0, 1};
+				contacts.push_back(GpuResolveContact{
+					.axis = v4{1, 0, 0, 0},
+					.contact_point = contact_point,
+					.manifold = {contact_point},
+					.b2a = InvertOrthonormal(body_a.O2W()) * body_b.O2W(),
+					.body_idx_a = contact_idx,
+					.body_idx_b = contact_idx + 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.depth = 0.0f,
+					.feature = 1,
+				});
+			}
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 0.0f,
+				},
+			};
+			auto buffers = ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			};
+
+			auto unguarded = ResolveInteropRunner{config};
+			unguarded.Load(buffers);
+			unguarded.ComputeCollisionTimes();
+			unguarded.ComputeShockRanks();
+
+			config.contact_sort_shock_max_contacts = isize(contacts) - 1;
+			auto guarded = ResolveInteropRunner{config};
+			guarded.Load(buffers);
+			guarded.ComputeCollisionTimes();
+			guarded.ComputeShockRanks();
+
+			PR_EXPECT(unguarded.ContactTimes()[1] < -1e-4f);
+			PR_EXPECT(unguarded.ContactTimes()[2] < -1e-4f);
+			PR_EXPECT(FEqlAbsolute(guarded.ContactTimes()[1], 0.0f, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(guarded.ContactTimes()[2], 0.0f, 1e-6f));
 		}
 
 		PRUnitTestMethod(ContactPrioritySortsInteropSupportContactsBottomToTop)

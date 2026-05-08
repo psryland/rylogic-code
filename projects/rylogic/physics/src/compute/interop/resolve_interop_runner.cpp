@@ -33,6 +33,7 @@ namespace pr::physics
 				.sort_capacity = max_contacts,
 				.shock_iterations = config.contact_sort_shock_iterations,
 				.shock_max_rank = config.contact_sort_shock_max_rank,
+				.shock_max_contacts = config.contact_sort_shock_max_contacts,
 				.shock_alignment = config.contact_sort_shock_alignment,
 				.shock_min_strength = config.contact_sort_shock_min_strength,
 				.dt = dt,

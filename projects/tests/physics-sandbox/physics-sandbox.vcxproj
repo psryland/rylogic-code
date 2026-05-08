@@ -173,6 +173,7 @@
     <None Include="scenes\oblique_spheres.json" />
     <None Include="scenes\polytope_drop.json" />
     <None Include="scenes\simultaneous_impact_1000.json" />
+    <None Include="scenes\spinning_tops.json" />
     <None Include="scenes\stacked_column.json" />
     <None Include="scenes\stress_test_1000.json" />
     <None Include="scenes\three_body_chain.json" />

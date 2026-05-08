@@ -22,8 +22,9 @@ namespace pr::physics
 		// Number of coloured Gauss-Seidel contact solver iterations.
 		int solver_iterations = 8;
 
-		// Number of coloured split-position solver iterations.
-		int position_iterations = 4;
+		// Number of iterations that push-out is distributed over. Each coloured group pushes
+		// apart a small amount each iteration so that push out is spread out more evenly.
+		int push_out_iterations = 4;
 
 		// Bias contact ordering within near-equal collision-time buckets so impulses propagate
 		// through contact dependency chains before downstream/free contacts are solved.
@@ -31,6 +32,11 @@ namespace pr::physics
 		float contact_sort_propagation_scale = 1e-3f;
 		int contact_sort_shock_iterations = 16;
 		int contact_sort_shock_max_rank = 24;
+
+		// The current shock-priority propagation pass is serial. Above this contact count
+		// the resolver keeps the local support/depth sort key and skips the graph flood-fill.
+		// Set <= 0 to disable the guard while profiling or validating the priority metric.
+		int contact_sort_shock_max_contacts = 1024;
 		float contact_sort_shock_alignment = 1e-5f;
 		float contact_sort_shock_min_strength = 1e-5f;
 		float contact_sort_shock_decay = 0.98f;

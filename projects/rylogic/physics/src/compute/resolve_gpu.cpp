@@ -13,35 +13,40 @@ namespace pr::physics
 	// Constant buffer layout matching the HLSL cbResolve declaration.
 	struct alignas(16) cbResolve
 	{
-		int g_max_contacts; // The max capacity of the contacts buffer
-		int g_body_count;   // The number of bodies in the scene
-		int g_colour;       // Current colour batch being processed (for CSResolve)
-		int g_sort_capacity;
+		int max_contacts; // The max capacity of the contacts buffer
+		int body_count;   // The number of bodies in the scene
+		int colour;       // Current colour batch being processed (for CSResolve)
+		int sort_capacity;
 
-		int g_shock_iterations;
-		int g_shock_max_rank;
-		float g_shock_alignment;
-		float g_shock_min_strength;
+		int shock_iterations;
+		int shock_max_rank;
+		int shock_max_contacts;
+		float shock_alignment;
 
-		float g_dt;         // timestep in seconds
-		float g_support_only;
-		float g_support_alignment;
-		float g_restitution_scale;
+		float shock_min_strength;
+		float dt;         // timestep in seconds
+		float support_only;
+		float support_alignment;
 
-		float g_penetration_slop;
-		float g_velocity_baumgarte;
-		float g_deep_penetration_threshold;
-		float g_deep_penetration_range;
+		float restitution_scale;
+		float penetration_slop;
+		float velocity_baumgarte;
+		float deep_penetration_threshold;
 
-		float g_deep_penetration_baumgarte_min;
-		float g_deep_penetration_baumgarte_max;
-		float g_bias_scale;
-		float g_propagation_key_scale;
+		float deep_penetration_range;
+		float deep_penetration_baumgarte_min;
+		float deep_penetration_baumgarte_max;
+		float bias_scale;
 
-		float g_position_slop;
-		float g_position_baumgarte;
-		float g_position_correction_scale;
-		float g_shock_decay;
+		float propagation_key_scale;
+		float position_slop;
+		float position_baumgarte;
+		float position_correction_scale;
+
+		float shock_decay;
+		float padding0;
+		float padding1;
+		float padding2;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -218,41 +223,47 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int position_iterations_, float restitution_scale, bool support_only)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only)
 	{
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
 		ResizeBuffers(job.m_cmd_list, body_count, max_contacts, material_count);
 
-		auto const position_iterations = std::max(0, position_iterations_ >= 0 ? position_iterations_ : m_config.position_iterations);
-		auto const position_correction_scale = position_iterations != 0 ? 1.0f / position_iterations : 0.0f;
+		auto const push_out_steps = std::max(0, push_out_iterations >= 0 ? push_out_iterations : m_config.push_out_iterations);
+		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
+		auto const position_correction_scale = push_out_steps != 0 ? 1.0f / push_out_steps : 0.0f;
+		auto const priority_sort_enabled =
+			m_config.contact_sort_propagation_scale > 0.0f &&
+			m_config.contact_sort_shock_iterations > 0 &&
+			m_config.contact_sort_shock_max_rank > 0;
 
 		cbResolve cb_resolve = {
-			.g_max_contacts = max_contacts,
-			.g_body_count = body_count,
-			.g_colour = 0,
-			.g_sort_capacity = m_max_contacts,
-			.g_shock_iterations = m_config.contact_sort_shock_iterations,
-			.g_shock_max_rank = m_config.contact_sort_shock_max_rank,
-			.g_shock_alignment = m_config.contact_sort_shock_alignment,
-			.g_shock_min_strength = m_config.contact_sort_shock_min_strength,
-			.g_dt = dt,
-			.g_support_only = support_only ? 1.0f : 0.0f,
-			.g_support_alignment = m_config.selective_refresh_support_alignment,
-			.g_restitution_scale = restitution_scale,
-			.g_penetration_slop = m_config.penetration_slop,
-			.g_velocity_baumgarte = m_config.velocity_baumgarte,
-			.g_deep_penetration_threshold = m_config.deep_penetration_threshold,
-			.g_deep_penetration_range = m_config.deep_penetration_range,
-			.g_deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
-			.g_deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
-			.g_bias_scale = bias_scale,
-			.g_propagation_key_scale = m_config.contact_sort_propagation_scale,
-			.g_position_slop = m_config.position_slop,
-			.g_position_baumgarte = m_config.position_baumgarte,
-			.g_position_correction_scale = position_correction_scale,
-			.g_shock_decay = m_config.contact_sort_shock_decay,
+			.max_contacts = max_contacts,
+			.body_count = body_count,
+			.colour = 0,
+			.sort_capacity = m_max_contacts,
+			.shock_iterations = m_config.contact_sort_shock_iterations,
+			.shock_max_rank = m_config.contact_sort_shock_max_rank,
+			.shock_max_contacts = m_config.contact_sort_shock_max_contacts,
+			.shock_alignment = m_config.contact_sort_shock_alignment,
+			.shock_min_strength = m_config.contact_sort_shock_min_strength,
+			.dt = dt,
+			.support_only = support_only ? 1.0f : 0.0f,
+			.support_alignment = m_config.selective_refresh_support_alignment,
+			.restitution_scale = restitution_scale,
+			.penetration_slop = m_config.penetration_slop,
+			.velocity_baumgarte = m_config.velocity_baumgarte,
+			.deep_penetration_threshold = m_config.deep_penetration_threshold,
+			.deep_penetration_range = m_config.deep_penetration_range,
+			.deep_penetration_baumgarte_min = m_config.deep_penetration_baumgarte_min,
+			.deep_penetration_baumgarte_max = m_config.deep_penetration_baumgarte_max,
+			.bias_scale = bias_scale,
+			.propagation_key_scale = m_config.contact_sort_propagation_scale,
+			.position_slop = m_config.position_slop,
+			.position_baumgarte = m_config.position_baumgarte,
+			.position_correction_scale = position_correction_scale,
+			.shock_decay = m_config.contact_sort_shock_decay,
 		};
 
 		// Upload materials (small buffer, upload every frame for simplicity)
@@ -294,9 +305,8 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
 
-			// The collide shader's 'CSCalcResolveDispatch' function ensures that there will always be at least
-			// one thread group dispatched, even if contact_count is 0. This ensures the 'colour_used' and
-			// contact times are always initialised.
+			// The collide shader's 'CSCalcResolveDispatch' function ensures that there will always be at least one thread
+			// group dispatched, even if contact_count is 0. This ensures the 'colour_used' and contact times are always initialised.
 			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 			job.m_barriers.UAV(bodies.get());
@@ -307,14 +317,10 @@ namespace pr::physics
 		}
 
 		// Propagate contact priority through the contact graph and fold it into the sort key.
-		// This is currently serial because the priority metric is being tuned before committing
-		// to a parallel GPU implementation.
-		auto const priority_sort_enabled =
-			cb_resolve.g_propagation_key_scale > 0.0f &&
-			cb_resolve.g_shock_iterations > 0 &&
-			cb_resolve.g_shock_max_rank > 0;
 		if (priority_sort_enabled)
 		{
+			// The shader skips the serial flood-fill above the configured contact-count guard and
+			// leaves the already-computed local support/depth key in place for oversized graphs.
 			job.m_cmd_list.SetPipelineState(m_cs_compute_shock_ranks.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_compute_shock_ranks.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
@@ -362,10 +368,11 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Split position correction in colour batches. The contact depths are from the collision pass, so the correction is split across
-		// iterations rather than re-applying the full depth each sweep.
-		if (position_iterations != 0)
+		// Split position correction in colour batches.
+		if (push_out_steps != 0)
 		{
+			// The contact depths are from the collision pass, so the correction is split
+			// across iterations rather than re-applying the full depth each sweep.
 			job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
@@ -375,11 +382,11 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
 
-			for (int iter = 0; iter != position_iterations; ++iter)
+			for (int iter = 0; iter != push_out_steps; ++iter)
 			{
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
-					cb_resolve.g_colour = colour;
+					cb_resolve.colour = colour;
 					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
 					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
@@ -387,15 +394,14 @@ namespace pr::physics
 					job.m_barriers.Commit();
 				}
 			}
-			cb_resolve.g_colour = 0;
+			cb_resolve.colour = 0;
 		}
 
 		// Velocity resolve each colour batch.
-		// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
-		// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
-		// The energy guard in CSResolve prevents energy injection across iterations.
-		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
 		{
+			// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
+			// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
+			// The energy guard in CSResolve prevents energy injection across iterations.
 			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
@@ -410,7 +416,7 @@ namespace pr::physics
 			{
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
-					cb_resolve.g_colour = colour;
+					cb_resolve.colour = colour;
 					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
 					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
@@ -418,7 +424,7 @@ namespace pr::physics
 					job.m_barriers.Commit();
 				}
 			}
-			cb_resolve.g_colour = 0;
+			cb_resolve.colour = 0;
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());
@@ -556,89 +562,3 @@ namespace pr::physics
 		delete p;
 	}
 }
-
-
-
-
-
-
-
-
-
-
-#if 0
-
-	// Greedy graph colouring: assign colours so no two contacts sharing a body have the same colour.
-	// Uses per-body colour tracking to avoid the O(n²) scan of all earlier contacts.
-	// Complexity: O(n × k) where k is the max colour count (typically small, ~4-8).
-	std::pair<std::vector<int>, int> GraphColourContacts(std::span<GpuResolveContact const> contacts)
-	{
-		auto n = static_cast<int>(contacts.size());
-		std::vector<int> colours(n, -1);
-		int max_colour = 0;
-
-		// Map from body_index → bitset of colours already used by that body's contacts.
-		// This lets us find conflicting colours in O(k) instead of scanning all earlier contacts.
-		std::unordered_map<int, std::vector<bool>> body_used;
-
-		for (int i = 0; i != n; ++i)
-		{
-			auto a = contacts[i].body_idx_a;
-			auto b = contacts[i].body_idx_b;
-
-			auto& ua = body_used[a];
-			auto& ub = body_used[b];
-
-			// Find the lowest colour not used by either body
-			auto limit = static_cast<int>(std::max(ua.size(), ub.size()));
-			int c = 0;
-			for (; c < limit; ++c)
-			{
-				auto used_a = c < static_cast<int>(ua.size()) && ua[c];
-				auto used_b = c < static_cast<int>(ub.size()) && ub[c];
-				if (!used_a && !used_b)
-					break;
-			}
-
-			colours[i] = c;
-			max_colour = std::max(max_colour, c + 1);
-
-			// Mark this colour as used for both bodies
-			if (c >= static_cast<int>(ua.size())) ua.resize(c + 1, false);
-			if (c >= static_cast<int>(ub.size())) ub.resize(c + 1, false);
-			ua[c] = true;
-			ub[c] = true;
-		}
-
-		return {colours, max_colour};
-	}
-
-
-		// Upload contacts
-		{
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-
-			auto upload = job.m_upload.Alloc<GpuResolveContact>(contact_count);
-			memcpy(upload.ptr<GpuResolveContact>(), contacts.data(), contact_count * sizeof(GpuResolveContact));
-			job.m_cmd_list.CopyBufferRegion(m_r_contacts.get(), 0, upload);
-
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-		}
-
-		// Upload colours (convert int→uint32_t for GPU)
-		{
-			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-
-			auto upload = job.m_upload.Alloc<uint32_t>(contact_count);
-			auto* dst = upload.ptr<uint32_t>();
-			for (int i = 0; i != contact_count; ++i)
-				dst[i] = static_cast<uint32_t>(colours[i]);
-			job.m_cmd_list.CopyBufferRegion(m_r_colours.get(), 0, upload);
-
-			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-		}
-#endif

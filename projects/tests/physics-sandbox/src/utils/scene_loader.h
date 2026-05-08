@@ -15,21 +15,26 @@ namespace physics_sandbox::scene_loader
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
 	//         },
-		//         "physics": {                      // Optional physics settings
-		//             "substeps": 4,                // Run this many physics steps per scene step
-		//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
-		//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
-		//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
-		//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
-		//         },
+	//         "physics": {                      // Optional physics settings
+	//             "substeps": 4,                // Run this many physics steps per scene step
+	//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
+	//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
+	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
+	//             "contact_sort_shock_max_contacts": 1024, // Max contacts for serial priority propagation; <=0 disables the guard
+	//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
 	//         },
+	//         "shapes": {
+	//             "shape0": { "name": "unit-box", "type": "box", "dimensions": [1, 1, 1] },
+	//             "shape1": { "name": "ball", "type": "sphere", "radius": 1.0 }
+	//         },
 	//         "bodies": [
 	//             {
 	//                 "name": "box1",
-	//                 "shape": { "type": "box", "dimensions": [2, 2, 2] },
+	//                 "shape": "unit-box",                 // Shape name or inline shape object
 	//                 "mass": 10.0, "position": [x, y, z],
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
 	//                 "velocity": [vx, vy, vz],             // Optional
@@ -48,7 +53,7 @@ namespace physics_sandbox::scene_loader
 	//                 "instance_count": 20,                  // Optional, defaults to 1
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
-	//                 "shape": { "type": "box", "dimensions": [[1,1,1], [8,8,8]] },
+	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
 	//                 "mass": [1.0, 10.0],
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
 	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
@@ -122,6 +127,7 @@ namespace physics_sandbox::scene_loader
 		float physics_broadphase_aabb_margin = physics::EngineConfig{}.broadphase_aabb_margin;
 		float physics_contact_sort_propagation_scale = physics::EngineConfig{}.contact_sort_propagation_scale;
 		int physics_contact_sort_shock_iterations = physics::EngineConfig{}.contact_sort_shock_iterations;
+		int physics_contact_sort_shock_max_contacts = physics::EngineConfig{}.contact_sort_shock_max_contacts;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;

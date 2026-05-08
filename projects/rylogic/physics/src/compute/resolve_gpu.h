@@ -12,7 +12,7 @@ namespace pr::physics
 	{
 		Gpu& m_gpu;                               // Lightweight D3D12 wrapper (device + command queue)
 		EngineConfig const& m_config;             // Engine configuration parameters
-		BoundsSorter m_contact_sorter;            // Radix sort: key=collision_time (float), payload=contact_index (uint32)
+		ContactSorter m_contact_sorter;           // Radix sort: key=collision_time (float), payload=contact_index (uint32)
 		ComputeStep m_cs_compute_times;           // Parallel: compute collision times per contact
 		ComputeStep m_cs_compute_shock_ranks;     // Serial: flood-fill shock ranks and finalise sort keys
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts

@@ -19,6 +19,7 @@ namespace physics_sandbox::diag
 		std::optional<float> m_physics_broadphase_aabb_margin = {};
 		std::optional<float> m_physics_contact_sort_propagation_scale = {};
 		std::optional<int> m_physics_contact_sort_shock_iterations = {};
+		std::optional<int> m_physics_contact_sort_shock_max_contacts = {};
 		std::optional<int> m_physics_selective_refresh_passes = {};
 		std::optional<int> m_physics_selective_refresh_max_pairs = {};
 		std::optional<int> m_physics_selective_refresh_solver_iterations = {};

@@ -112,6 +112,8 @@ namespace physics_sandbox
 			options.m_physics_contact_sort_propagation_scale = cmd("contact_sort_propagation_scale").as<float>();
 		if (cmd.count("contact_sort_shock_iterations"))
 			options.m_physics_contact_sort_shock_iterations = cmd("contact_sort_shock_iterations").as<int>();
+		if (cmd.count("contact_sort_shock_max_contacts"))
+			options.m_physics_contact_sort_shock_max_contacts = cmd("contact_sort_shock_max_contacts").as<int>();
 		if (cmd.count("selective_refresh_passes"))
 			options.m_physics_selective_refresh_passes = cmd("selective_refresh_passes").as<int>();
 		if (cmd.count("selective_refresh_max_pairs"))

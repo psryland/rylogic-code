@@ -10,6 +10,7 @@ namespace physics_sandbox::scene_loader
 			Random,
 			Linear,
 		};
+		using NamedShapeMap = std::vector<std::pair<std::string, pr::json::Value const*>>;
 
 		bool IsNumber(pr::json::Value const& jv)
 		{
@@ -171,7 +172,17 @@ namespace physics_sandbox::scene_loader
 				}
 			}
 		}
-		BodyDesc ReadGeneratorShape(pr::json::Value const& jshape, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		pr::json::Value const& ResolveShape(NamedShapeMap const& shapes, std::string_view shape_name)
+		{
+			for (auto const& [name, shape] : shapes)
+			{
+				if (name == shape_name)
+					return *shape;
+			}
+
+			throw std::runtime_error(pr::FmtS("Scene references unknown shape '%.*s'", static_cast<int>(shape_name.size()), shape_name.data()));
+		}
+		BodyDesc ReadShape(pr::json::Value const& jshape)
 		{
 			BodyDesc desc;
 			auto const& jshape_obj = jshape.to_object();
@@ -179,28 +190,133 @@ namespace physics_sandbox::scene_loader
 			if (shape_type == "box")
 			{
 				desc.shape_type = BodyDesc::EShape::Box;
-				desc.box_dimensions = ReadVec3Range(jshape_obj["dimensions"], 0.0f, selector, index, count, rng);
+				desc.box_dimensions = ReadVec3(jshape_obj["dimensions"], 0.0f);
 			}
 			else if (shape_type == "sphere")
 			{
 				desc.shape_type = BodyDesc::EShape::Sphere;
-				desc.sphere_radius = ReadFloatRange(jshape_obj["radius"], selector, index, count, rng);
+				desc.sphere_radius = jshape_obj["radius"].to<float>();
 			}
 			else if (shape_type == "line")
 			{
 				desc.shape_type = BodyDesc::EShape::Line;
-				desc.line_length = ReadFloatRange(jshape_obj["length"], selector, index, count, rng);
-				if (auto const* thickness = jshape_obj.find("thickness"))
-					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
+				desc.line_length = jshape_obj["length"].to<float>();
+
+				if (auto* thickness = jshape_obj.find("thickness"))
+					desc.line_thickness = thickness->to<float>();
+			}
+			else if (shape_type == "triangle")
+			{
+				desc.shape_type = BodyDesc::EShape::Triangle;
+
+				auto const& verts = jshape_obj["vertices"].to_array();
+				if (verts.size() < 3)
+					throw std::runtime_error("Triangle shape requires 3 vertices");
+
+				desc.tri_verts[0] = ReadVec3(verts[0], 1.0f);
+				desc.tri_verts[1] = ReadVec3(verts[1], 1.0f);
+				desc.tri_verts[2] = ReadVec3(verts[2], 1.0f);
+			}
+			else if (shape_type == "polytope")
+			{
+				desc.shape_type = BodyDesc::EShape::Polytope;
+
+				auto const& verts = jshape_obj["vertices"].to_array();
+				if (verts.size() < 4)
+					throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
+
+				for (auto const& v : verts)
+					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
 			}
 			else
 			{
-				throw std::runtime_error(pr::FmtS("Generated bodies currently support box, sphere, and line shapes, not '%s'", shape_type.c_str()));
+				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
 			}
 
 			return desc;
 		}
-		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, std::default_random_engine& rng)
+		BodyDesc ReadShapeRef(pr::json::Value const& jshape, NamedShapeMap const& shapes)
+		{
+			if (auto const* shape_name = jshape.as<std::string>())
+				return ReadShape(ResolveShape(shapes, *shape_name));
+
+			return ReadShape(jshape);
+		}
+		void AssignShape(BodyDesc& body, BodyDesc shape)
+		{
+			body.shape_type = shape.shape_type;
+			body.box_dimensions = shape.box_dimensions;
+			body.sphere_radius = shape.sphere_radius;
+			body.line_length = shape.line_length;
+			body.line_thickness = shape.line_thickness;
+			body.tri_verts[0] = shape.tri_verts[0];
+			body.tri_verts[1] = shape.tri_verts[1];
+			body.tri_verts[2] = shape.tri_verts[2];
+			body.polytope_verts = std::move(shape.polytope_verts);
+		}
+		BodyDesc ReadGeneratorShape(pr::json::Value const& jshape, NamedShapeMap const& shapes, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			auto const* shape_name = jshape.as<std::string>();
+			auto const& shape = shape_name != nullptr
+				? ResolveShape(shapes, *shape_name)
+				: jshape;
+
+			auto const& jshape_obj = shape.to_object();
+			auto shape_type = jshape_obj["type"].to<std::string>();
+			if (shape_type == "box")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Box;
+				desc.box_dimensions = ReadVec3Range(jshape_obj["dimensions"], 0.0f, selector, index, count, rng);
+				return desc;
+			}
+			if (shape_type == "sphere")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Sphere;
+				desc.sphere_radius = ReadFloatRange(jshape_obj["radius"], selector, index, count, rng);
+				return desc;
+			}
+			if (shape_type == "line")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Line;
+				desc.line_length = ReadFloatRange(jshape_obj["length"], selector, index, count, rng);
+				if (auto const* thickness = jshape_obj.find("thickness"))
+					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
+				return desc;
+			}
+
+			return ReadShape(shape);
+		}
+		NamedShapeMap ReadNamedShapes(pr::json::Object const& jscene)
+		{
+			auto shapes = NamedShapeMap{};
+			if (auto const* jshapes = jscene.find("shapes"))
+			{
+				for (auto const& shape : jshapes->to_object())
+				{
+					auto const& shape_obj = shape.val.to_object();
+					auto const* jname = shape_obj.find("name");
+					if (jname == nullptr)
+						throw std::runtime_error(pr::FmtS("Scene shape declaration '%s' requires a 'name' field", shape.key.c_str()));
+
+					auto shape_name = jname->to<std::string>();
+					if (shape_name.empty())
+						throw std::runtime_error(pr::FmtS("Scene shape declaration '%s' has an empty name", shape.key.c_str()));
+
+					for (auto const& existing_shape : shapes)
+					{
+						if (existing_shape.first == shape_name)
+							throw std::runtime_error(pr::FmtS("Scene shape name '%s' is declared more than once", shape_name.c_str()));
+					}
+
+					shapes.push_back({std::move(shape_name), &shape.val});
+				}
+			}
+			return shapes;
+		}
+		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, NamedShapeMap const& shapes, std::default_random_engine& rng)
 		{
 			auto const& jgen = jv_generator.to_object();
 			auto selector = ReadGeneratorSelector(jgen);
@@ -212,7 +328,7 @@ namespace physics_sandbox::scene_loader
 
 			auto const* jshape = jgen.find("shape");
 			if (jshape == nullptr)
-				throw std::runtime_error("Body generator requires a 'shape' object");
+				throw std::runtime_error("Body generator requires a 'shape' field");
 
 			auto shape_palette_count = std::min(instance_count, 16);
 			if (auto const* jpalette_count = jgen.find("shape_palette_count"))
@@ -225,7 +341,7 @@ namespace physics_sandbox::scene_loader
 			auto shape_palette = std::vector<BodyDesc>{};
 			shape_palette.reserve(shape_palette_count);
 			for (auto shape_index = 0; shape_index != shape_palette_count; ++shape_index)
-				shape_palette.push_back(ReadGeneratorShape(*jshape, selector, shape_index, shape_palette_count, rng));
+				shape_palette.push_back(ReadGeneratorShape(*jshape, shapes, selector, shape_index, shape_palette_count, rng));
 
 			auto name = std::string{};
 			if (auto const* jname = jgen.find("name"))
@@ -286,58 +402,6 @@ namespace physics_sandbox::scene_loader
 		if (auto* jcolour = jbody.find("colour"))
 			desc.colour = ReadColour(*jcolour);
 
-		// Shape
-		if (auto* jshape = jbody.find("shape"))
-		{
-			auto const& jshape_obj = jshape->to_object();
-			auto shape_type = jshape_obj["type"].to<std::string>();
-			if (shape_type == "box")
-			{
-				desc.shape_type = BodyDesc::EShape::Box;
-				desc.box_dimensions = ReadVec3(jshape_obj["dimensions"], 0);
-			}
-			else if (shape_type == "sphere")
-			{
-				desc.shape_type = BodyDesc::EShape::Sphere;
-				desc.sphere_radius = jshape_obj["radius"].to<float>();
-			}
-			else if (shape_type == "line")
-			{
-				desc.shape_type = BodyDesc::EShape::Line;
-				desc.line_length = jshape_obj["length"].to<float>();
-
-				if (auto* t = jshape_obj.find("thickness"))
-					desc.line_thickness = t->to<float>();
-			}
-			else if (shape_type == "triangle")
-			{
-				desc.shape_type = BodyDesc::EShape::Triangle;
-
-				auto const& verts = jshape_obj["vertices"].to_array();
-				if (verts.size() < 3)
-					throw std::runtime_error("Triangle shape requires 3 vertices");
-
-				desc.tri_verts[0] = ReadVec3(verts[0], 1);
-				desc.tri_verts[1] = ReadVec3(verts[1], 1);
-				desc.tri_verts[2] = ReadVec3(verts[2], 1);
-			}
-			else if (shape_type == "polytope")
-			{
-				desc.shape_type = BodyDesc::EShape::Polytope;
-
-				auto const& verts = jshape_obj["vertices"].to_array();
-				if (verts.size() < 4)
-					throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
-
-				for (auto const& v : verts)
-					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
-			}
-			else
-			{
-				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
-			}
-		}
-
 		// Mass
 		if (auto* jmass = jbody.find("mass"))
 			desc.mass = jmass->to<float>();
@@ -361,6 +425,20 @@ namespace physics_sandbox::scene_loader
 		// Initial sleep state
 		if (auto* jsleeping = jbody.find("sleeping"))
 			desc.sleeping = jsleeping->to<bool>();
+
+		if (auto* jshape = jbody.find("shape"); jshape != nullptr && jshape->as<std::string>() == nullptr)
+			AssignShape(desc, ReadShape(*jshape));
+
+		return desc;
+	}
+	BodyDesc ReadBody(pr::json::Value const& jv_body, NamedShapeMap const& shapes)
+	{
+		auto desc = ReadBody(jv_body);
+		auto const& jbody = jv_body.to_object();
+		if (auto* jshape = jbody.find("shape"))
+			AssignShape(desc, ReadShapeRef(*jshape, shapes));
+		else
+			throw std::runtime_error(pr::FmtS("Body '%s' requires a 'shape' field", desc.name.c_str()));
 
 		return desc;
 	}
@@ -426,6 +504,7 @@ namespace physics_sandbox::scene_loader
 			desc.seed = static_cast<unsigned int>(jseed->to<int>());
 
 		auto scene_rng = std::default_random_engine(desc.seed);
+		auto shapes = ReadNamedShapes(jscene);
 
 		// Material properties
 		if (auto* jmat = jscene.find("material"))
@@ -476,6 +555,10 @@ namespace physics_sandbox::scene_loader
 				desc.physics_contact_sort_shock_iterations = jcontact_sort_shock_iterations->to<int>();
 				if (desc.physics_contact_sort_shock_iterations < 0)
 					throw std::runtime_error("Scene physics.contact_sort_shock_iterations must be non-negative");
+			}
+			if (auto* jcontact_sort_shock_max_contacts = jphysics_obj.find("contact_sort_shock_max_contacts"))
+			{
+				desc.physics_contact_sort_shock_max_contacts = jcontact_sort_shock_max_contacts->to<int>();
 			}
 			if (auto* jmax_collision_pairs = jphysics_obj.find("max_collision_pairs"))
 			{
@@ -567,14 +650,14 @@ namespace physics_sandbox::scene_loader
 		if (auto* jbodies = jscene.find("bodies"))
 		{
 			for (auto const& jbody : jbodies->to_array())
-				desc.bodies.push_back(ReadBody(jbody));
+				desc.bodies.push_back(ReadBody(jbody, shapes));
 		}
 
 		// Generated bodies
 		if (auto* jgenerators = jscene.find("body_generators"))
 		{
 			for (auto const& jgenerator : jgenerators->to_array())
-				AppendGeneratedBodies(desc, jgenerator, scene_rng);
+				AppendGeneratedBodies(desc, jgenerator, shapes, scene_rng);
 		}
 
 		// Camera

@@ -823,6 +823,10 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -contact_sort_shock_iterations must be non-negative");
 			scene_desc.physics_contact_sort_shock_iterations = *options.m_physics_contact_sort_shock_iterations;
 		}
+		if (options.m_physics_contact_sort_shock_max_contacts)
+		{
+			scene_desc.physics_contact_sort_shock_max_contacts = *options.m_physics_contact_sort_shock_max_contacts;
+		}
 		if (options.m_physics_selective_refresh_passes)
 		{
 			if (*options.m_physics_selective_refresh_passes < 0)
