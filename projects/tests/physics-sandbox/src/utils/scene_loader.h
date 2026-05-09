@@ -19,6 +19,8 @@ namespace physics_sandbox::scene_loader
 	//             "substeps": 4,                // Run this many physics steps per scene step
 	//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
 	//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
+	//             "contact_slop_scale": 0.01,   // Slop fraction of minimum body thickness, capped by EngineConfig slop
+	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
 	//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
 	//         },
@@ -126,6 +128,8 @@ namespace physics_sandbox::scene_loader
 		float physics_broadphase_aabb_margin = physics::EngineConfig{}.broadphase_aabb_margin;
 		float physics_contact_sort_propagation_scale = physics::EngineConfig{}.contact_sort_propagation_scale;
 		int physics_contact_sort_shock_iterations = physics::EngineConfig{}.contact_sort_shock_iterations;
+		float physics_contact_slop_scale = physics::EngineConfig{}.contact_slop_scale;
+		float physics_warm_start_scale = physics::EngineConfig{}.warm_start_scale;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;

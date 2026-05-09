@@ -20,6 +20,9 @@ namespace pr::physics
 		ComputeStep m_cs_commit_shock_priority;   // Parallel: commit propagated priority for the next pass
 		ComputeStep m_cs_finalize_shock_priority; // Parallel: finalise shock-biased sort keys
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
+		ComputeStep m_cs_warm_start_clear;        // Parallel: clear current-frame warm-start cache
+		ComputeStep m_cs_apply_warm_start;        // Parallel by colour: apply cached physical impulses
+		ComputeStep m_cs_store_warm_start;        // Parallel: store final physical impulses for next frame
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig; // Command signature for indirect dispatch
@@ -30,9 +33,13 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_body_contact_head;
 		D3DPtr<ID3D12Resource> m_r_contact_next_a;
 		D3DPtr<ID3D12Resource> m_r_contact_next_b;
+		D3DPtr<ID3D12Resource> m_r_warm_start_prev;
+		D3DPtr<ID3D12Resource> m_r_warm_start_curr;
 		int m_max_materials;
 		int m_max_contacts;
 		int m_body_capacity;
+		int m_warm_start_capacity;
+		bool m_reset_warm_start_cache;
 
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config);
 

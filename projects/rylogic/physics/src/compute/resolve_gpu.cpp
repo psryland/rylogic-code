@@ -44,9 +44,9 @@ namespace pr::physics
 		float position_correction_scale;
 
 		float shock_decay;
-		float padding0;
-		float padding1;
-		float padding2;
+		float contact_slop_scale;
+		float warm_start_scale;
+		int warm_start_capacity;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -64,6 +64,8 @@ namespace pr::physics
 		inline static constexpr auto BodyContactHead = EUAVReg::u5;
 		inline static constexpr auto ContactNextA   = EUAVReg::u6;
 		inline static constexpr auto ContactNextB   = EUAVReg::u7;
+		inline static constexpr auto WarmStartPrev  = EUAVReg::u8;
+		inline static constexpr auto WarmStartCurr  = EUAVReg::u9;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config)
@@ -77,6 +79,9 @@ namespace pr::physics
 		, m_cs_commit_shock_priority()
 		, m_cs_finalize_shock_priority()
 		, m_cs_assign_colours()
+		, m_cs_warm_start_clear()
+		, m_cs_apply_warm_start()
+		, m_cs_store_warm_start()
 		, m_cs_position_solve()
 		, m_cs_resolve()
 		, m_cmd_sig()
@@ -87,9 +92,13 @@ namespace pr::physics
 		, m_r_body_contact_head()
 		, m_r_contact_next_a()
 		, m_r_contact_next_b()
+		, m_r_warm_start_prev()
+		, m_r_warm_start_curr()
 		, m_max_materials()
 		, m_max_contacts()
 		, m_body_capacity()
+		, m_warm_start_capacity()
+		, m_reset_warm_start_cache(true)
 	{
 		CompileShaders();
 
@@ -176,6 +185,31 @@ namespace pr::physics
 			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), bytecode).Create(m_gpu, "Physics:AssignColoursPSO");
 		}
 
+		// Warm-start passes: clear cache, apply previous-frame impulses, then store this frame's final impulses.
+		{
+			auto compile_step = [&](ComputeStep& step, wchar_t const* entry_point, char const* name)
+			{
+				auto bytecode = compiler.EntryPoint(entry_point).Compile();
+				std::string sig_name = FmtS("Physics:%sSig", name);
+				std::string pso_name = FmtS("Physics:%sPSO", name);
+				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+					.U32<cbResolve>(EReg::Params)
+					.SRV(EReg::Counters)
+					.UAV(EReg::Bodies)
+					.UAV(EReg::Colours)
+					.UAV(EReg::Contacts)
+					.UAV(EReg::ContactOrder)
+					.UAV(EReg::WarmStartPrev)
+					.UAV(EReg::WarmStartCurr)
+					.Create(m_gpu, sig_name.c_str());
+				step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name.c_str());
+			};
+
+			compile_step(m_cs_warm_start_clear, L"CSWarmStartClear", "WarmStartClear");
+			compile_step(m_cs_apply_warm_start, L"CSApplyWarmStart", "ApplyWarmStart");
+			compile_step(m_cs_store_warm_start, L"CSStoreWarmStart", "StoreWarmStart");
+		}
+
 		// m_cs_position_solve
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -217,6 +251,9 @@ namespace pr::physics
 		body_count = std::max(1, body_count);
 		max_contacts = std::max(1, max_contacts);
 		max_materials = std::max(1, max_materials);
+		auto warm_start_capacity = 1;
+		while (warm_start_capacity < max_contacts * 2)
+			warm_start_capacity <<= 1;
 
 		if (m_r_materials == nullptr || max_materials > m_max_materials)
 		{
@@ -236,6 +273,13 @@ namespace pr::physics
 		{
 			m_r_body_contact_head = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyContactHead");
 			m_body_capacity = body_count;
+		}
+		if (m_r_warm_start_prev == nullptr || m_warm_start_capacity < warm_start_capacity)
+		{
+			m_r_warm_start_prev = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:WarmStartPrev");
+			m_r_warm_start_curr = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:WarmStartCurr");
+			m_warm_start_capacity = warm_start_capacity;
+			m_reset_warm_start_cache = true;
 		}
 	}
 
@@ -280,7 +324,12 @@ namespace pr::physics
 			.position_baumgarte = m_config.position_baumgarte,
 			.position_correction_scale = position_correction_scale,
 			.shock_decay = m_config.contact_sort_shock_decay,
+			.contact_slop_scale = m_config.contact_slop_scale,
+			.warm_start_scale = m_config.warm_start_scale,
+			.warm_start_capacity = m_warm_start_capacity,
 		};
+		if (m_config.warm_start_scale <= 0.0f)
+			m_reset_warm_start_cache = true;
 
 		// Upload materials (small buffer, upload every frame for simplicity)
 		{
@@ -308,7 +357,47 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_body_contact_head.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_contact_next_a.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_contact_next_b.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_warm_start_curr.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
+		}
+
+		auto bind_warm_start_step = [&](ComputeStep& step, ID3D12Resource* warm_start_curr)
+		{
+			job.m_cmd_list.SetPipelineState(step.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_warm_start_prev->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(warm_start_curr->GetGPUVirtualAddress());
+		};
+		auto commit_warm_start_barriers = [&]
+		{
+			job.m_barriers.UAV(bodies.get());
+			job.m_barriers.UAV(contacts.get());
+			job.m_barriers.UAV(m_r_warm_start_prev.get());
+			job.m_barriers.UAV(m_r_warm_start_curr.get());
+			job.m_barriers.Commit();
+		};
+
+		// Clear the current cache every frame. Newly allocated previous caches are cleared once so the first lookup is deterministic.
+		{
+			auto const warm_start_group_count = static_cast<UINT>(std::max(1, (m_warm_start_capacity + ResolveThreadCount - 1) / ResolveThreadCount));
+			if (m_reset_warm_start_cache)
+			{
+				bind_warm_start_step(m_cs_warm_start_clear, m_r_warm_start_prev.get());
+				job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
+				commit_warm_start_barriers();
+				m_reset_warm_start_cache = false;
+			}
+
+			bind_warm_start_step(m_cs_warm_start_clear, m_r_warm_start_curr.get());
+			job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
+			commit_warm_start_barriers();
 		}
 
 		// Calculate the contact times (biased by gravity) and zero the body colour_used bitmasks.
@@ -418,6 +507,20 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
+		// Apply cached physical impulses before the iterative solves so resting stacks start close to last frame's support solution.
+		if (m_config.warm_start_scale > 0.0f)
+		{
+			for (int colour = 0; colour != MaxColours; ++colour)
+			{
+				cb_resolve.colour = colour;
+				bind_warm_start_step(m_cs_apply_warm_start, m_r_warm_start_curr.get());
+				job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+				commit_warm_start_barriers();
+			}
+			cb_resolve.colour = 0;
+		}
+
 		// Split position correction in colour batches.
 		if (push_out_steps != 0)
 		{
@@ -475,6 +578,15 @@ namespace pr::physics
 				}
 			}
 			cb_resolve.colour = 0;
+		}
+
+		// Persist accumulated physical impulses for the next frame and then swap the cache roles.
+		if (m_config.warm_start_scale > 0.0f)
+		{
+			bind_warm_start_step(m_cs_store_warm_start, m_r_warm_start_curr.get());
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+			commit_warm_start_barriers();
+			std::swap(m_r_warm_start_prev, m_r_warm_start_curr);
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());

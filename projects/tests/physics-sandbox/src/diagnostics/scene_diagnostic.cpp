@@ -828,6 +828,18 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -contact_sort_shock_iterations must be non-negative");
 			scene_desc.physics_contact_sort_shock_iterations = *options.m_physics_contact_sort_shock_iterations;
 		}
+		if (options.m_physics_contact_slop_scale)
+		{
+			if (*options.m_physics_contact_slop_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -contact_slop_scale must be non-negative");
+			scene_desc.physics_contact_slop_scale = *options.m_physics_contact_slop_scale;
+		}
+		if (options.m_physics_warm_start_scale)
+		{
+			if (*options.m_physics_warm_start_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -warm_start_scale must be non-negative");
+			scene_desc.physics_warm_start_scale = *options.m_physics_warm_start_scale;
+		}
 		if (options.m_physics_selective_refresh_passes)
 		{
 			if (*options.m_physics_selective_refresh_passes < 0)

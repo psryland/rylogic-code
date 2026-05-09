@@ -112,6 +112,10 @@ namespace physics_sandbox
 			options.m_physics_contact_sort_propagation_scale = cmd("contact_sort_propagation_scale").as<float>();
 		if (cmd.count("contact_sort_shock_iterations"))
 			options.m_physics_contact_sort_shock_iterations = cmd("contact_sort_shock_iterations").as<int>();
+		if (cmd.count("contact_slop_scale"))
+			options.m_physics_contact_slop_scale = cmd("contact_slop_scale").as<float>();
+		if (cmd.count("warm_start_scale"))
+			options.m_physics_warm_start_scale = cmd("warm_start_scale").as<float>();
 		if (cmd.count("selective_refresh_passes"))
 			options.m_physics_selective_refresh_passes = cmd("selective_refresh_passes").as<int>();
 		if (cmd.count("selective_refresh_max_pairs"))

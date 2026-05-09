@@ -208,6 +208,15 @@ struct GpuResolveContact
 	float collision_time;   // Estimated sub-step collision time. Written by CSComputeCollisionTimes.
 	int feature;            // FEATURE_*; also the number of valid manifold points
 	int pad1;
+	float4 warmstart_impulse; // Accumulated physical impulse from the velocity solver, in body A space.
+};
+struct GpuWarmStartEntry
+{
+	uint key;
+	int body_idx_a;
+	int body_idx_b;
+	uint pad0;
+	float4 impulse; // Cached physical impulse in body A space.
 };
 struct GpuCollisionCounters
 {

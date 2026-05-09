@@ -42,6 +42,8 @@ namespace pr::physics
 		// Position-level split correction. This moves bodies only; momenta are unchanged.
 		float position_slop = 0.005f;
 		float position_baumgarte = 0.2f;
+		float contact_slop_scale = 0.01f;
+		float warm_start_scale = 0.90f;
 
 		// Existing deep-penetration positional correction parameters.
 		float deep_penetration_threshold = 0.3f;
