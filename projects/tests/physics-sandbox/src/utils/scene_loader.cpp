@@ -556,10 +556,6 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_contact_sort_shock_iterations < 0)
 					throw std::runtime_error("Scene physics.contact_sort_shock_iterations must be non-negative");
 			}
-			if (auto* jcontact_sort_shock_max_contacts = jphysics_obj.find("contact_sort_shock_max_contacts"))
-			{
-				desc.physics_contact_sort_shock_max_contacts = jcontact_sort_shock_max_contacts->to<int>();
-			}
 			if (auto* jmax_collision_pairs = jphysics_obj.find("max_collision_pairs"))
 			{
 				desc.physics_max_collision_pairs = jmax_collision_pairs->to<int>();

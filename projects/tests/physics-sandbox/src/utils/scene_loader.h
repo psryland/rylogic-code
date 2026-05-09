@@ -20,7 +20,6 @@ namespace physics_sandbox::scene_loader
 	//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
 	//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
-	//             "contact_sort_shock_max_contacts": 1024, // Max contacts for serial priority propagation; <=0 disables the guard
 	//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
 	//         },
 	//         "ground_plane": {               // Optional ground plane
@@ -123,11 +122,10 @@ namespace physics_sandbox::scene_loader
 		// Physics settings
 		int physics_substeps = 1;
 		int physics_solver_iterations = physics::EngineConfig{}.solver_iterations;
-		int physics_position_iterations = physics::EngineConfig{}.position_iterations;
+		int physics_position_iterations = physics::EngineConfig{}.push_out_iterations;
 		float physics_broadphase_aabb_margin = physics::EngineConfig{}.broadphase_aabb_margin;
 		float physics_contact_sort_propagation_scale = physics::EngineConfig{}.contact_sort_propagation_scale;
 		int physics_contact_sort_shock_iterations = physics::EngineConfig{}.contact_sort_shock_iterations;
-		int physics_contact_sort_shock_max_contacts = physics::EngineConfig{}.contact_sort_shock_max_contacts;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;

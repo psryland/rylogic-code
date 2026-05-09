@@ -466,11 +466,10 @@ namespace physics_sandbox
 		engine_config.sleeping_enabled = m_allow_sleeping;
 		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
 		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
-		engine_config.position_iterations = scene_desc.physics_position_iterations;
+		engine_config.push_out_iterations = scene_desc.physics_position_iterations;
 		engine_config.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin;
 		engine_config.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale;
 		engine_config.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations;
-		engine_config.contact_sort_shock_max_contacts = scene_desc.physics_contact_sort_shock_max_contacts;
 		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
 		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
 		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;

@@ -59,7 +59,8 @@ namespace pr::physics
 		std::vector<uint32_t> m_colours;
 		std::vector<uint32_t> m_contact_order;
 		std::vector<float> m_contact_times;
-		std::vector<uint32_t> m_body_shock_rank;
-		std::vector<v4> m_body_shock_state;
+		std::vector<uint32_t> m_body_contact_head;
+		std::vector<uint32_t> m_contact_next_a;
+		std::vector<uint32_t> m_contact_next_b;
 	};
 }

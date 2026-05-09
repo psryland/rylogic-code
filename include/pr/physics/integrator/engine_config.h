@@ -31,12 +31,6 @@ namespace pr::physics
 		float broadphase_aabb_margin = 0.0001f;
 		float contact_sort_propagation_scale = 1e-3f;
 		int contact_sort_shock_iterations = 16;
-		int contact_sort_shock_max_rank = 24;
-
-		// The current shock-priority propagation pass is serial. Above this contact count
-		// the resolver keeps the local support/depth sort key and skips the graph flood-fill.
-		// Set <= 0 to disable the guard while profiling or validating the priority metric.
-		int contact_sort_shock_max_contacts = 1024;
 		float contact_sort_shock_alignment = 1e-5f;
 		float contact_sort_shock_min_strength = 1e-5f;
 		float contact_sort_shock_decay = 0.98f;

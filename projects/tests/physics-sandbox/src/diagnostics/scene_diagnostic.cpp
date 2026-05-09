@@ -104,6 +104,7 @@ namespace physics_sandbox::diag
 			int m_first_impact_step = -1;
 			int m_right_move_step = -1;
 			float m_velocity_threshold = 0.01f;
+			float m_direction = 1.0f;
 			float m_peak_right_vx = 0.0f;
 			float m_peak_intermediate_vx = 0.0f;
 			double m_physics_ms = 0.0;
@@ -303,11 +304,15 @@ namespace physics_sandbox::diag
 			if (candidates.size() < 3)
 				throw std::runtime_error("Cradle metric requires an impactor and at least two dynamic box bodies");
 
-			auto impactor = std::ranges::max_element(candidates, {}, &Candidate::m_vx);
-			if (impactor == std::end(candidates) || impactor->m_vx <= metric.m_velocity_threshold)
-				throw std::runtime_error("Cradle metric requires a dynamic box impactor with positive X velocity");
+			auto impactor = std::ranges::max_element(candidates, [](Candidate const& lhs, Candidate const& rhs)
+			{
+				return std::abs(lhs.m_vx) < std::abs(rhs.m_vx);
+			});
+			if (impactor == std::end(candidates) || std::abs(impactor->m_vx) <= metric.m_velocity_threshold)
+				throw std::runtime_error("Cradle metric requires a dynamic box impactor with non-zero X velocity");
 
 			metric.m_impactor_body = impactor->m_body;
+			metric.m_direction = impactor->m_vx < 0.0f ? -1.0f : 1.0f;
 			for (auto const& candidate : candidates)
 			{
 				if (candidate.m_body == metric.m_impactor_body)
@@ -317,7 +322,7 @@ namespace physics_sandbox::diag
 			}
 			std::ranges::sort(metric.m_chain_bodies, [&](int lhs, int rhs)
 			{
-				return scene_desc.bodies[lhs].position.x < scene_desc.bodies[rhs].position.x;
+				return metric.m_direction * scene_desc.bodies[lhs].position.x < metric.m_direction * scene_desc.bodies[rhs].position.x;
 			});
 
 			metric.m_left_body = metric.m_chain_bodies.front();
@@ -823,10 +828,6 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -contact_sort_shock_iterations must be non-negative");
 			scene_desc.physics_contact_sort_shock_iterations = *options.m_physics_contact_sort_shock_iterations;
 		}
-		if (options.m_physics_contact_sort_shock_max_contacts)
-		{
-			scene_desc.physics_contact_sort_shock_max_contacts = *options.m_physics_contact_sort_shock_max_contacts;
-		}
 		if (options.m_physics_selective_refresh_passes)
 		{
 			if (*options.m_physics_selective_refresh_passes < 0)
@@ -903,11 +904,12 @@ namespace physics_sandbox::diag
 		if (cradle_metric.Enabled())
 		{
 			Emit(log, std::format(
-				"cradle setup impactor={} left={} right={} chain_count={} velocity_threshold={:.5f}\n",
+				"cradle setup impactor={} source={} target={} chain_count={} direction={:.0f} velocity_threshold={:.5f}\n",
 				cradle_metric.m_impactor_body,
 				cradle_metric.m_left_body,
 				cradle_metric.m_right_body,
 				cradle_metric.m_chain_bodies.size(),
+				cradle_metric.m_direction,
 				cradle_metric.m_velocity_threshold));
 		}
 

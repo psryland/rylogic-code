@@ -14,7 +14,11 @@ namespace pr::physics
 		EngineConfig const& m_config;             // Engine configuration parameters
 		ContactSorter m_contact_sorter;           // Radix sort: key=collision_time (float), payload=contact_index (uint32)
 		ComputeStep m_cs_compute_times;           // Parallel: compute collision times per contact
-		ComputeStep m_cs_compute_shock_ranks;     // Serial: flood-fill shock ranks and finalise sort keys
+		ComputeStep m_cs_clear_shock_lists;       // Parallel: clear body->contact adjacency heads
+		ComputeStep m_cs_seed_shock_priority;     // Parallel: seed contact priority and build adjacency
+		ComputeStep m_cs_propagate_shock_priority;// Parallel: propagate shock priority over adjacency
+		ComputeStep m_cs_commit_shock_priority;   // Parallel: commit propagated priority for the next pass
+		ComputeStep m_cs_finalize_shock_priority; // Parallel: finalise shock-biased sort keys
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
 		ComputeStep m_cs_resolve;                 // Parallel: resolve contacts in colour batches
@@ -23,8 +27,9 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_colours;       // GPU buffer: RWStructuredBuffer<uint> per-contact colour assignment
 		D3DPtr<ID3D12Resource> m_r_contact_times; // GPU buffer: float keys (collision_time) for radix sort
 		D3DPtr<ID3D12Resource> m_r_contact_order; // GPU buffer: uint32 payloads (contact indices) for radix sort
-		D3DPtr<ID3D12Resource> m_r_body_shock_rank;
-		D3DPtr<ID3D12Resource> m_r_body_shock_state;
+		D3DPtr<ID3D12Resource> m_r_body_contact_head;
+		D3DPtr<ID3D12Resource> m_r_contact_next_a;
+		D3DPtr<ID3D12Resource> m_r_contact_next_b;
 		int m_max_materials;
 		int m_max_contacts;
 		int m_body_capacity;

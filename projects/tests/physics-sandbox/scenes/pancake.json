@@ -1,0 +1,39 @@
+{
+	"scene": {
+		"description": "Column stacking with large numbers of objects",
+		"seed": 2,
+		"camera": {
+			"lookat": [ 0, 0, 5 ],
+			"position": [ 5, -15, 8 ]
+		},
+		"gravity": [ 0, 0, -9.81 ],
+		"material": {
+			"friction": 0.5,
+			"elasticity": 0.3
+		},
+		"ground_plane": {
+			"height": 0.0
+		},
+		"shapes": {
+			"box": {
+				"name": "layer",
+				"dimensions": [ 1.0, 1.0, 0.1 ],
+				"type": "box"
+			}
+		},
+		"body_generators": [
+			{
+				"name": "box_#",
+				"selector": "linear",
+				"instance_count": 100,
+				"shape": "layer",
+				"mass": 10.0,
+				"position": [
+					[ 0, 0, 1.0 ],
+					[ 0, 0, 9.9 ]
+				],
+				"velocity": [ 0, 0, 0 ]
+			}
+		]
+	}
+}

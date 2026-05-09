@@ -21,7 +21,7 @@ namespace pr::physics
 
 		float PositionCorrectionScale(EngineConfig const& config)
 		{
-			return config.position_iterations != 0 ? 1.0f / std::max(1, config.position_iterations) : 0.0f;
+			return config.push_out_iterations != 0 ? 1.0f / std::max(1, config.push_out_iterations) : 0.0f;
 		}
 
 		cbResolve MakeConstants(EngineConfig const& config, float dt, int body_count, int max_contacts, int colour = 0)
@@ -32,8 +32,8 @@ namespace pr::physics
 				.colour = colour,
 				.sort_capacity = max_contacts,
 				.shock_iterations = config.contact_sort_shock_iterations,
-				.shock_max_rank = config.contact_sort_shock_max_rank,
-				.shock_max_contacts = config.contact_sort_shock_max_contacts,
+				.shock_padding0 = 0,
+				.shock_padding1 = 0,
 				.shock_alignment = config.contact_sort_shock_alignment,
 				.shock_min_strength = config.contact_sort_shock_min_strength,
 				.dt = dt,
@@ -68,8 +68,9 @@ namespace pr::physics
 		, m_colours()
 		, m_contact_order()
 		, m_contact_times()
-		, m_body_shock_rank()
-		, m_body_shock_state()
+		, m_body_contact_head()
+		, m_contact_next_a()
+		, m_contact_next_b()
 	{
 	}
 
@@ -82,7 +83,7 @@ namespace pr::physics
 		SortContacts();
 		AssignColours();
 
-		auto const position_iterations = std::max(0, m_config.position_iterations);
+		auto const position_iterations = std::max(0, m_config.push_out_iterations);
 		for (int iter = 0; iter != position_iterations; ++iter)
 		{
 			for (int colour = 0; colour != MaxColours; ++colour)
@@ -101,8 +102,8 @@ namespace pr::physics
 
 	void ResolveInteropRunner::Load(ResolveRunnerBuffers buffers)
 	{
-		if (m_config.position_iterations < 0)
-			throw std::invalid_argument("ResolveInteropRunner requires non-negative position_iterations");
+		if (m_config.push_out_iterations < 0)
+			throw std::invalid_argument("ResolveInteropRunner requires non-negative push_out_iterations");
 		if (m_config.solver_iterations < 0)
 			throw std::invalid_argument("ResolveInteropRunner requires non-negative solver_iterations");
 		if (buffers.m_contacts.size() != 0 && buffers.m_bodies.size() == 0)
@@ -124,8 +125,9 @@ namespace pr::physics
 		m_colours.assign(m_max_contacts, 0);
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
-		m_body_shock_rank.assign(std::max(1, m_body_count), 0);
-		m_body_shock_state.assign(std::max(1, m_body_count), v4::Zero());
+		m_body_contact_head.assign(std::max(1, m_body_count), 0);
+		m_contact_next_a.assign(m_max_contacts, 0);
+		m_contact_next_b.assign(m_max_contacts, 0);
 		std::iota(m_contact_order.begin(), m_contact_order.end(), 0u);
 	}
 
@@ -166,16 +168,41 @@ namespace pr::physics
 		g_colours.assign(SpanOf(m_colours));
 		g_contacts.assign(SpanOf(m_contacts));
 		g_contact_times.assign(SpanOf(m_contact_times));
-		g_body_shock_rank.assign(SpanOf(m_body_shock_rank));
-		g_body_shock_state.assign(SpanOf(m_body_shock_state));
+		g_contact_order.assign(SpanOf(m_contact_order));
+		g_body_contact_head.assign(SpanOf(m_body_contact_head));
+		g_contact_next_a.assign(SpanOf(m_contact_next_a));
+		g_contact_next_b.assign(SpanOf(m_contact_next_b));
 
-		hlsl::GpuEmulator emu(CSComputeShockRanks, CSComputeShockRanks_NumThreads);
-		emu.Dispatch({1, 1, 1});
+		if (g.propagation_key_scale > 0.0f && g.shock_iterations > 0)
+		{
+			{
+				hlsl::GpuEmulator emu(CSClearShockLists, CSClearShockLists_NumThreads);
+				emu.Dispatch({ThreadGroupCount(m_body_count, ResolveThreadCount), 1, 1});
+			}
+			{
+				hlsl::GpuEmulator emu(CSSeedShockPriority, CSSeedShockPriority_NumThreads);
+				emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+			}
+			for (int iter = 0; iter != g.shock_iterations; ++iter)
+			{
+				hlsl::GpuEmulator emu_propagate(CSPropagateShockPriority, CSPropagateShockPriority_NumThreads);
+				emu_propagate.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+
+				hlsl::GpuEmulator emu_commit(CSCommitShockPriority, CSCommitShockPriority_NumThreads);
+				emu_commit.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+			}
+			{
+				hlsl::GpuEmulator emu(CSFinalizeShockPriority, CSFinalizeShockPriority_NumThreads);
+				emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+			}
+		}
 
 		m_colours.assign(g_colours.begin(), g_colours.end());
 		m_contact_times.assign(g_contact_times.begin(), g_contact_times.end());
-		m_body_shock_rank.assign(g_body_shock_rank.begin(), g_body_shock_rank.end());
-		m_body_shock_state.assign(g_body_shock_state.begin(), g_body_shock_state.end());
+		m_contact_order.assign(g_contact_order.begin(), g_contact_order.end());
+		m_body_contact_head.assign(g_body_contact_head.begin(), g_body_contact_head.end());
+		m_contact_next_a.assign(g_contact_next_a.begin(), g_contact_next_a.end());
+		m_contact_next_b.assign(g_contact_next_b.begin(), g_contact_next_b.end());
 	}
 
 	void ResolveInteropRunner::SortContacts()

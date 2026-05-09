@@ -6,7 +6,7 @@
 //
 // Pipeline:
 //   1. CSComputeCollisionTimes - estimates time-of-impact and writes the first sort key.
-//   2. CSComputeShockRanks     - optionally propagates contact priority through the contact graph and rewrites the sort key.
+//   2. Shock-priority passes   - optionally propagate contact priority through body/contact adjacency and rewrite the sort key.
 //   3. RadixSort               - sorts g_contact_order by g_contact_times. This pass is driven from C++ using RadixSort, not an entry point here.
 //   4. CSAssignColours         - greedily graph-colours the sorted contacts so independent contacts can be solved together.
 //   5. CSPositionSolve         - split position correction, dispatched once per colour.
@@ -16,10 +16,9 @@
 // in multiple contacts in one colour because they are never written by the solver.
 //
 // Scratch ownership:
-//   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during CSComputeShockRanks, then the final sort-key buffer again.
+//   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during shock propagation, then the final sort-key buffer again.
 //   - g_contact_order starts as [0..contact_count) and is permuted by the external radix sort.
-//   - g_colours is a final per-contact colour assignment. Some older "shock rank" plumbing remains in the constants, but contact priority currently affects
-//     ordering through g_contact_times rather than by assigning colour offsets.
+//   - g_colours is used as uint/asfloat scratch for Jacobi shock-priority propagation, then reset and reused as the final per-contact colour assignment.
 //
 // Resource layout:
 //   b0: cbResolve                               - per-dispatch constants
@@ -30,8 +29,9 @@
 //   u2: RWStructuredBuffer<GpuResolveContact>   - prepared contacts (output of the contact preparation pass)
 //   u3: RWStructuredBuffer<float>               - sort keys / propagated priority scratch
 //   u4: RWStructuredBuffer<uint>                - sorted contact indices
-//   u5: RWStructuredBuffer<uint>                - reserved shock-priority scratch
-//   u6: RWStructuredBuffer<float4>              - reserved shock-priority scratch
+//   u5: RWStructuredBuffer<uint>                - per-body linked-list head for contacts touching that dynamic body
+//   u6: RWStructuredBuffer<uint>                - per-contact linked-list next pointer for body A
+//   u7: RWStructuredBuffer<uint>                - per-contact linked-list next pointer for body B
 //
 // Matrix convention: same as integrate.hlsl (row-vector / DirectX-style).
 //   HLSL 'row_major float4x4' rows = C++ columns = basis vectors.
@@ -64,8 +64,8 @@ struct cbResolve
 	int sort_capacity; // The number of sort keys the radix sorter will read, which can be larger than this pass's contact count
 
 	int shock_iterations;  // Number of contact-priority propagation sweeps
-	int shock_max_rank;    // Legacy colour-rank limit; currently acts as a priority-sort enable flag
-	int shock_max_contacts;// Skip the serial shock propagation above this contact count; <=0 means always run it
+	int shock_padding0;
+	int shock_padding1;
 	float shock_alignment; // Minimum directed impulse influence needed to create a propagation edge
 
 	float shock_min_strength; // Minimum priority delta worth propagating/storing
@@ -100,8 +100,9 @@ RWStructuredBuffer<uint> resource(g_colours, u1);
 RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u2);
 RWStructuredBuffer<float> resource(g_contact_times, u3); // scratch: collision_time keys for radix sort
 RWStructuredBuffer<uint> resource(g_contact_order, u4);   // scratch: contact indices for radix sort
-RWStructuredBuffer<uint> resource(g_body_shock_rank, u5);  // scratch: per-body shock wavefront rank
-RWStructuredBuffer<float4> resource(g_body_shock_state, u6); // scratch: xyz = propagation direction, w = strength
+RWStructuredBuffer<uint> resource(g_body_contact_head, u5); // scratch: body -> first contact+1 for priority adjacency, 0 means empty
+RWStructuredBuffer<uint> resource(g_contact_next_a, u6);    // scratch: next contact+1 in body A's adjacency list
+RWStructuredBuffer<uint> resource(g_contact_next_b, u7);    // scratch: next contact+1 in body B's adjacency list
 
 // ----- Helper functions -----
 int ContactCount()
@@ -524,6 +525,45 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	g_bodies[c.body_idx_b] = bodyB;
 }
 
+// Adds a contact to one dynamic body's intrusive adjacency list used by shock-priority propagation.
+void LinkContactToBody(int contact_idx, int body_idx, bool body_a_slot)
+{
+	if (g_bodies[body_idx].os_com_and_invmass.w <= 0.0f)
+		return;
+
+	uint old_head = 0;
+	InterlockedExchange(g_body_contact_head[body_idx], (uint)(contact_idx + 1), old_head);
+	if (body_a_slot)
+		g_contact_next_a[contact_idx] = old_head;
+	else
+		g_contact_next_b[contact_idx] = old_head;
+}
+
+// Propagates one source contact's shock priority to neighbouring contacts that share the given dynamic body.
+void PropagateShockThroughBody(int src_idx, GpuResolveContact src, int body_idx, float src_priority)
+{
+	if (g_bodies[body_idx].os_com_and_invmass.w <= 0.0f)
+		return;
+
+	uint node = g_body_contact_head[body_idx];
+	for (int guard = 0; node != 0 && guard != g.max_contacts; ++guard)
+	{
+		int dst_idx = (int)node - 1;
+		GpuResolveContact dst = g_contacts[dst_idx];
+		node = body_idx == dst.body_idx_a ? g_contact_next_a[dst_idx] : g_contact_next_b[dst_idx];
+		if (dst_idx == src_idx)
+			continue;
+
+		float influence = min(ContactPriorityInfluence(src, dst, body_idx), 1.0f);
+		if (influence <= g.shock_alignment)
+			continue;
+
+		float propagated = g.shock_decay * influence * src_priority;
+		if (propagated > g.shock_min_strength)
+			InterlockedMax(g_colours[dst_idx], asuint(propagated));
+	}
+}
+
 // ----- CSComputeCollisionTimes -----
 // Parallel: one thread per contact. Computes the primary time-of-impact sort key and initialises the order buffer for the external radix sort.
 numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
@@ -568,106 +608,91 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 	}
 }
 
-// ----- CSComputeShockRanks -----
-// Serial: propagate contact priority through the current contact graph, then fold the
-// resulting wavefront priority into the sort key. A directed edge exists when a unit
-// impulse at one contact would make a neighbouring contact more closing/active through a
-// shared dynamic body. This predicts the Newton-cradle ordering without integrating bodies
-// between priority passes.
-numthreads(CSComputeShockRanks, 1, 1, 1)
-void CSComputeShockRanks(int3 DTID(dtid))
+// ----- Shock-priority propagation -----
+// These passes implement a parallel Jacobi max-propagation over contact adjacency. Contacts are linked into per-body lists, so propagation only visits
+// contacts that share a dynamic body instead of testing every contact pair. g_contact_times holds the current priority as float; g_colours holds the next
+// priority as uint/asfloat so InterlockedMax can merge parallel candidates.
+numthreads(CSClearShockLists, ResolveThreadCount, 1, 1)
+void CSClearShockLists(int3 DTID(dtid))
 {
-	if (dtid.x != 0)
+	if (dtid.x < g.body_count)
+		g_body_contact_head[dtid.x] = 0;
+}
+
+// Seed each contact's priority from local normal demand and build the dynamic body -> contacts adjacency lists.
+// The next-priority buffer is initialised to the same value so each Jacobi pass starts from "keep current priority unless a stronger path arrives".
+numthreads(CSSeedShockPriority, ResolveThreadCount, 1, 1)
+void CSSeedShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
 		return;
 
-	int contact_count = ContactCount();
-	bool priority_enabled =
-		g.propagation_key_scale > 0.0f &&
-		g.shock_iterations > 0 &&
-		g.shock_max_rank > 0 &&
-		(g.shock_max_contacts <= 0 || contact_count <= g.shock_max_contacts);
+	GpuResolveContact c = g_contacts[contact_idx];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+	float priority = ContactEnabled(c, bodyA) ? ContactNormalDemand(c, bodyA, bodyB) : 0.0f;
+	g_contact_times[contact_idx] = priority;
+	g_colours[contact_idx] = asuint(priority);
+	g_contact_next_a[contact_idx] = 0;
+	g_contact_next_b[contact_idx] = 0;
 
-	// Stage 1: seed each contact's temporary priority from its own local demand.
-	// 'g_contact_times' is reused as priority scratch here; after propagation it is overwritten again with final sort keys.
-	for (int contact_idx = 0; contact_idx != contact_count; ++contact_idx)
+	LinkContactToBody(contact_idx, c.body_idx_a, true);
+	LinkContactToBody(contact_idx, c.body_idx_b, false);
+}
+
+// Propagate one Jacobi step from every source contact to neighbouring contacts that share a dynamic body.
+// This is parallel over source contacts; atomics merge multiple incoming paths into each destination's next priority.
+numthreads(CSPropagateShockPriority, ResolveThreadCount, 1, 1)
+void CSPropagateShockPriority(int3 DTID(dtid))
+{
+	int src_idx = dtid.x;
+	if (src_idx >= ContactCount())
+		return;
+
+	float src_priority = g_contact_times[src_idx];
+	if (src_priority < g.shock_min_strength)
+		return;
+
+	GpuResolveContact src = g_contacts[src_idx];
+	PropagateShockThroughBody(src_idx, src, src.body_idx_a, src_priority);
+	PropagateShockThroughBody(src_idx, src, src.body_idx_b, src_priority);
+}
+
+// Commit the max-reduced next priority to the current priority buffer for the next Jacobi step.
+// g_colours intentionally remains equal to g_contact_times so the following propagation step starts with each contact's current priority already present.
+numthreads(CSCommitShockPriority, ResolveThreadCount, 1, 1)
+void CSCommitShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
+		return;
+
+	g_contact_times[contact_idx] = asfloat(g_colours[contact_idx]);
+}
+
+// Convert final propagated priority back into radix-sort keys and reset colour scratch ready for graph colouring.
+// Larger propagated priority sorts earlier via the negative sign; the local key remains a bottom-up/support/depth tie-breaker.
+numthreads(CSFinalizeShockPriority, ResolveThreadCount, 1, 1)
+void CSFinalizeShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
+		return;
+
+	GpuResolveContact c = g_contacts[contact_idx];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+	float propagation_key = 1e30f;
+	if (ContactEnabled(c, bodyA))
 	{
-		GpuResolveContact c = g_contacts[contact_idx];
-		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
-		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
-		float priority = ContactEnabled(c, bodyA) ? ContactNormalDemand(c, bodyA, bodyB) : 0.0f;
-		g_contact_times[contact_idx] = priority;
-		g_colours[contact_idx] = 0;
+		float local_key = PropagationSortKey(c, bodyA, bodyB);
+		propagation_key = -g_contact_times[contact_idx] + 0.25f * local_key;
 	}
 
-	if (priority_enabled)
-	{
-		// Gauss-Seidel max propagation is deliberate here. It lets a single serial pass flood priority through
-		// a chain while the decay term prevents feedback cycles from amplifying the source contact.
-		for (int iter = 0; iter != g.shock_iterations; ++iter)
-		{
-			bool changed = false;
-			for (int src_idx = 0; src_idx != contact_count; ++src_idx)
-			{
-				// Contacts below the strength threshold are not useful wavefront sources.
-				// Skipping them keeps weak bias noise from creating long, low-value propagation chains.
-				float src_priority = g_contact_times[src_idx];
-				if (src_priority < g.shock_min_strength)
-					continue;
-
-				GpuResolveContact src = g_contacts[src_idx];
-				for (int dst_idx = 0; dst_idx != contact_count; ++dst_idx)
-				{
-					if (dst_idx == src_idx)
-						continue;
-
-					// The current implementation searches every pair and rejects non-neighbours here.
-					// This is the expensive O(contact_count^2) part that makes the pass serial/guarded for large graphs.
-					GpuResolveContact dst = g_contacts[dst_idx];
-					int shared_body_idx = SharedDynamicBody(src, dst);
-					if (shared_body_idx < 0)
-						continue;
-
-					// Influence is directed. src can help dst even if dst would not help src, because the
-					// sign depends on how the shared body's velocity change projects onto the destination contact normal.
-					float influence = min(ContactPriorityInfluence(src, dst, shared_body_idx), 1.0f);
-					if (influence <= g.shock_alignment)
-						continue;
-
-					// Max-propagation keeps the strongest path discovered so far. Because this is in-place, a newly strengthened dst can immediately become a
-					// stronger src later in the same sweep, which is the Gauss-Seidel dependency that prevents simple parallelisation.
-					float propagated = g.shock_decay * influence * src_priority;
-					if (propagated > g_contact_times[dst_idx] + g.shock_min_strength)
-					{
-						g_contact_times[dst_idx] = propagated;
-						changed = true;
-					}
-				}
-			}
-
-			if (!changed)
-				break;
-		}
-	}
-
-	// Stage 2: convert the final priority back into a radix-sort key. The negative sign means larger propagated priority sorts earlier. The local key remains
-	// as a tie-breaker so bottom-up support/depth ordering is still visible even when shock priority is enabled or skipped by the guard.
-	for (int contact_idx = 0; contact_idx != contact_count; ++contact_idx)
-	{
-		GpuResolveContact c = g_contacts[contact_idx];
-		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
-		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
-		float propagation_key = 1e30f;
-		if (ContactEnabled(c, bodyA))
-		{
-			float local_key = PropagationSortKey(c, bodyA, bodyB);
-			propagation_key = priority_enabled
-				? -g_contact_times[contact_idx] + 0.25f * local_key
-				: local_key;
-		}
-
-		g_contact_times[contact_idx] = c.collision_time + g.propagation_key_scale * propagation_key;
-		g_colours[contact_idx] = 0;
-	}
+	g_contact_times[contact_idx] = c.collision_time + g.propagation_key_scale * propagation_key;
+	g_contact_order[contact_idx] = (uint)contact_idx;
+	g_colours[contact_idx] = 0;
 }
 
 // ----- CSAssignColours -----
@@ -689,9 +714,6 @@ void CSAssignColours(int3 DTID(dtid))
 		int idx = g_contact_order[i]; // get contact index from sorted order
 		GpuResolveContact c = g_contacts[idx];
 
-		// Priority currently affects the ordering before this pass. The old rank-to-min-colour path is still wired as an enable check, but g_colours is reset
-		// to zero by CSComputeShockRanks before colouring.
-		uint shock_rank = (g.propagation_key_scale > 0.0f && g.shock_iterations > 0 && g.shock_max_rank > 0) ? g_colours[idx] : 0u;
 		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
 		{
 			g_colours[idx] = MaxColours;
@@ -709,11 +731,8 @@ void CSAssignColours(int3 DTID(dtid))
 		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
 		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
 
-		// Pick the first colour that neither dynamic body has used. lower_colours is normally zero, but the expression is retained for the dormant shock-rank
-		// path where a contact could be forced to start at a later colour.
-		uint min_colour = g.propagation_key_scale > 0.0f ? min(shock_rank, (uint)(MaxColours - 1)) : 0u;
-		uint lower_colours = min_colour == 0 ? 0u : ((1u << min_colour) - 1u);
-		uint used = used_a | used_b | lower_colours;
+		// Pick the first colour that neither dynamic body has used.
+		uint used = used_a | used_b;
 		uint colour = min(firstbitlow(~used), (uint)(MaxColours - 1));
 
 		g_colours[idx] = colour;
@@ -735,7 +754,7 @@ void CSPositionSolve(int3 DTID(dtid))
 	if (g_colours[idx] != (uint)g.colour)
 		return;
 
-	// This pass uses the contact depth captured by collision detection. The C++ caller scales correction by 1 / position_iterations so repeated sweeps do
+	// This pass uses the contact depth captured by collision detection. The C++ caller scales correction by 1 / push-out iterations so repeated sweeps do
 	// not apply the full stale penetration depth each time.
 	ApplyPositionCorrection(g_contacts[idx]);
 }

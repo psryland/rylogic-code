@@ -101,10 +101,9 @@ namespace pr::physics::tests
 		PRUnitTestMethod(ContactPrioritySortsInteropCradleContacts)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;
+			config.push_out_iterations = 0;
 			config.solver_iterations = 0;
 			config.contact_sort_shock_iterations = 16;
-			config.contact_sort_shock_max_contacts = 0;
 
 			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
 			auto rbodies = std::vector<RigidBody>{};
@@ -163,13 +162,12 @@ namespace pr::physics::tests
 			PR_EXPECT(priority.m_score > 0.99f);
 		}
 
-		PRUnitTestMethod(ContactPriorityGuardKeepsLocalSortKey)
+		PRUnitTestMethod(ContactPriorityParallelPropagatesAlongChain)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;
+			config.push_out_iterations = 0;
 			config.solver_iterations = 0;
 			config.contact_sort_shock_iterations = 16;
-			config.contact_sort_shock_max_contacts = 0;
 
 			auto box = collision::ShapeBox{v4{0.5f, 0.5f, 0.5f, 0}};
 			auto rbodies = std::vector<RigidBody>{};
@@ -215,27 +213,19 @@ namespace pr::physics::tests
 				.m_materials = materials,
 			};
 
-			auto unguarded = ResolveInteropRunner{config};
-			unguarded.Load(buffers);
-			unguarded.ComputeCollisionTimes();
-			unguarded.ComputeShockRanks();
+			auto runner = ResolveInteropRunner{config};
+			runner.Load(buffers);
+			runner.ComputeCollisionTimes();
+			runner.ComputeShockRanks();
 
-			config.contact_sort_shock_max_contacts = isize(contacts) - 1;
-			auto guarded = ResolveInteropRunner{config};
-			guarded.Load(buffers);
-			guarded.ComputeCollisionTimes();
-			guarded.ComputeShockRanks();
-
-			PR_EXPECT(unguarded.ContactTimes()[1] < -1e-4f);
-			PR_EXPECT(unguarded.ContactTimes()[2] < -1e-4f);
-			PR_EXPECT(FEqlAbsolute(guarded.ContactTimes()[1], 0.0f, 1e-6f));
-			PR_EXPECT(FEqlAbsolute(guarded.ContactTimes()[2], 0.0f, 1e-6f));
+			PR_EXPECT(runner.ContactTimes()[1] < -1e-4f);
+			PR_EXPECT(runner.ContactTimes()[2] < -1e-4f);
 		}
 
 		PRUnitTestMethod(ContactPrioritySortsInteropSupportContactsBottomToTop)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;
+			config.push_out_iterations = 0;
 			config.solver_iterations = 0;
 			config.contact_sort_shock_iterations = 16;
 
@@ -370,7 +360,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(RotatedBodyVelocityResolveUsesContactSpace)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;
+			config.push_out_iterations = 0;
 			config.solver_iterations = 8;
 			config.velocity_baumgarte = 0.0f;
 
@@ -427,7 +417,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(VelocityBiasSurvivesEnergyGuard)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;
+			config.push_out_iterations = 0;
 			config.solver_iterations = 1;
 			config.velocity_baumgarte = 0.2f;
 
@@ -484,7 +474,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(BoxDropFailingFrameDiagnostic)
 		{
 			auto config = EngineConfig{};
-			config.position_iterations = 0;     // isolate velocity solver
+			config.push_out_iterations = 0;     // isolate velocity solver
 			config.solver_iterations = 1;       // ONE pass to see what happens
 			config.velocity_baumgarte = 0.2f;
 			config.penetration_slop = 0.005f;

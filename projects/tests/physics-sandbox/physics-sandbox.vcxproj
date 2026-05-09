@@ -171,6 +171,7 @@
     <None Include="scenes\gravity_playground.json" />
     <None Include="scenes\newtons_cradle.json" />
     <None Include="scenes\oblique_spheres.json" />
+    <None Include="scenes\pancake.json" />
     <None Include="scenes\polytope_drop.json" />
     <None Include="scenes\simultaneous_impact_1000.json" />
     <None Include="scenes\spinning_tops.json" />
