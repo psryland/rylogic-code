@@ -155,6 +155,8 @@ namespace physics_sandbox
 			options.m_pyramid_metric = true;
 		if (cmd.count("cradle_metric"))
 			options.m_cradle_metric = true;
+		if (cmd.count("dzhanibekov_metric"))
+			options.m_dzhanibekov_metric = true;
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 
@@ -171,7 +173,7 @@ namespace physics_sandbox
 		}
 		catch (std::exception const& ex)
 		{
-			if (auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc))
+			if (auto log = std::ofstream(log_path, std::ios::out | std::ios::app))
 				log << "EXCEPTION: " << ex.what() << "\n";
 
 			fprintf(stderr, "EXCEPTION: %s\n", ex.what());

@@ -39,6 +39,7 @@ namespace physics_sandbox::diag
 		bool m_column_metric = false;
 		bool m_pyramid_metric = false;
 		bool m_cradle_metric = false;
+		bool m_dzhanibekov_metric = false;
 		bool m_engine_profile = false;
 	};
 

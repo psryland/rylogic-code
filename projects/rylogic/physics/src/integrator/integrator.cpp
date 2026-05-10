@@ -14,6 +14,7 @@ namespace pr::physics
 	{
 		constexpr int AngularDriftSubstepMax = 32;
 		constexpr float AngularDriftMaxRadians = 0.25f;
+		constexpr int AngularDriftIterationCount = 8;
 
 		m3x3 RotateInertiaInvUnit(m3x3 const& os_iinv_unit, m3x3 const& rot)
 		{
@@ -39,6 +40,61 @@ namespace pr::physics
 			auto ws_iinv = ScaleInertiaInv(ws_iinv_unit, inv_mass);
 			return ws_iinv * momentum_ang;
 		}
+
+		// Return the component of 'vec' selected by a principal-axis index.
+		float Component(v4 const& vec, int axis)
+		{
+			switch (axis)
+			{
+			case 0: return vec.x;
+			case 1: return vec.y;
+			case 2: return vec.z;
+				default: throw std::runtime_error("Invalid angular drift axis");
+			}
+		}
+
+		// Build an axis-angle vector for a principal-axis rotation.
+		v4 AxisAngle(int axis, float angle)
+		{
+			switch (axis)
+			{
+			case 0: return v4{angle, 0, 0, 0};
+			case 1: return v4{0, angle, 0, 0};
+			case 2: return v4{0, 0, angle, 0};
+				default: throw std::runtime_error("Invalid angular drift axis");
+			}
+		}
+
+		// Apply the exact flow for one diagonal inertia principal-axis Hamiltonian term.
+		void SymplecticAxisDrift(m3x3& rot, v4& momentum_os, v4 const& inertia_inv_diagonal, float inv_mass, int axis, float elapsed_seconds)
+		{
+			auto omega = inv_mass * Component(inertia_inv_diagonal, axis) * Component(momentum_os, axis);
+			auto axis_angle = AxisAngle(axis, omega * elapsed_seconds);
+			auto axis_rot = m3x3::Rotation(axis_angle.xyz);
+			rot = rot * axis_rot;
+			momentum_os = InvertOrthonormal(axis_rot) * momentum_os;
+		}
+
+		// Integrate a torque-free diagonal-inertia angular drift using symmetric principal-axis splitting.
+		void SymplecticAngularDrift(m3x3& rot, v4 const& momentum_ang, v4 const& inertia_inv_diagonal, float inv_mass, float elapsed_seconds, int angular_steps)
+		{
+			auto momentum_os = InvertOrthonormal(rot) * momentum_ang;
+			auto angular_dt = elapsed_seconds / static_cast<float>(angular_steps);
+			for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
+			{
+				// Strang-split the free-rigid-body Hamiltonian into exact principal-axis flows. Each axis flow rotates the orientation in the body frame
+				// and counter-rotates body-space angular momentum, preserving the fixed world angular momentum without solving an implicit midpoint.
+				SymplecticAxisDrift(rot, momentum_os, inertia_inv_diagonal, inv_mass, 0, angular_dt * 0.5f);
+				SymplecticAxisDrift(rot, momentum_os, inertia_inv_diagonal, inv_mass, 1, angular_dt * 0.5f);
+				SymplecticAxisDrift(rot, momentum_os, inertia_inv_diagonal, inv_mass, 2, angular_dt);
+				SymplecticAxisDrift(rot, momentum_os, inertia_inv_diagonal, inv_mass, 1, angular_dt * 0.5f);
+				SymplecticAxisDrift(rot, momentum_os, inertia_inv_diagonal, inv_mass, 0, angular_dt * 0.5f);
+
+				rot = Orthonorm(rot);
+				if (angular_step + 1 != angular_steps)
+					momentum_os = InvertOrthonormal(rot) * momentum_ang;
+			}
+		}
 	}
 
 	// Performs Störmer-Verlet kick-drift-kick on a GpuRigidBody.
@@ -61,6 +117,10 @@ namespace pr::physics
 			dyn.inertia_inv_products.z == 0.0f &&
 			dyn.inertia_inv_diagonal.x == dyn.inertia_inv_diagonal.y &&
 			dyn.inertia_inv_diagonal.x == dyn.inertia_inv_diagonal.z;
+		auto const diagonal_inertia =
+			dyn.inertia_inv_products.x == 0.0f &&
+			dyn.inertia_inv_products.y == 0.0f &&
+			dyn.inertia_inv_products.z == 0.0f;
 
 		// Build the object-space unit inverse inertia 3x3 from compact storage.
 		auto const& dia = dyn.inertia_inv_diagonal;
@@ -103,27 +163,32 @@ namespace pr::physics
 				auto dR = m3x3::Rotation(vel_ang.xyz * elapsed_seconds);
 				new_rot = Orthonorm(dR * new_rot);
 			}
+			else if (diagonal_inertia)
+			{
+				auto angular_steps = std::clamp(static_cast<int>(std::ceil(angular_speed * elapsed_seconds / AngularDriftMaxRadians)), 1, AngularDriftSubstepMax);
+				SymplecticAngularDrift(new_rot, dyn.momentum_ang, dyn.inertia_inv_diagonal, inv_mass, elapsed_seconds, angular_steps);
+			}
 			else
 			{
-				// Midpoint predictor for the rotation step:
-				// For anisotropic bodies, angular velocity changes during the drift step because the world-space inertia tensor changes with orientation. Large
-				// angular displacements amplify this approximation error, so split the drift into small rotation increments while keeping the same angular momentum.
+				// Solve the midpoint orientation implicitly rather than using a one-shot predictor. The drift is torque-free, so world angular momentum
+				// remains fixed while the orientation-dependent inertia determines the midpoint angular velocity.
 				auto angular_steps = std::clamp(static_cast<int>(std::ceil(angular_speed * elapsed_seconds / AngularDriftMaxRadians)), 1, AngularDriftSubstepMax);
 				auto angular_dt = elapsed_seconds / static_cast<float>(angular_steps);
 				auto step_vel_ang = vel_ang.xyz;
 				for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
 				{
-					auto half_dR = m3x3::Rotation(step_vel_ang * (angular_dt * 0.5f));
-					auto mid_rot = half_dR * new_rot;
-					auto mid_vel_ang = AngularVelocityWS(os_iinv_unit, mid_rot, inv_mass, dyn.momentum_ang).xyz;
+					auto mid_vel_ang = step_vel_ang;
+					auto mid_rot = m3x3::Rotation(mid_vel_ang * (angular_dt * 0.5f)) * new_rot;
+					for (int iteration = 0; iteration != AngularDriftIterationCount; ++iteration)
+					{
+						mid_vel_ang = AngularVelocityWS(os_iinv_unit, mid_rot, inv_mass, dyn.momentum_ang).xyz;
+						mid_rot = m3x3::Rotation(mid_vel_ang * (angular_dt * 0.5f)) * new_rot;
+					}
 
 					auto dR = m3x3::Rotation(mid_vel_ang * angular_dt);
 					new_rot = dR * new_rot;
-
 					if (angular_step + 1 != angular_steps)
-					{
 						step_vel_ang = AngularVelocityWS(os_iinv_unit, new_rot, inv_mass, dyn.momentum_ang).xyz;
-					}
 				}
 				new_rot = Orthonorm(new_rot);
 			}

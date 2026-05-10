@@ -115,6 +115,28 @@ namespace physics_sandbox::diag
 				return m_impactor_body != -1 && m_chain_bodies.size() >= 2;
 			}
 		};
+		struct DzhanibekovMetricState
+		{
+			int m_body = -1;
+			int m_axis = -1;
+			int m_required_periods = 10;
+			float m_max_period_spread = 0.05f;
+			double m_prev_time_s = 0.0;
+			float m_prev_axis_omega = 0.0f;
+			double m_last_flip_time_s = -1.0;
+			std::vector<double> m_flip_times_s = {};
+			std::vector<double> m_periods_s = {};
+			float m_initial_kinetic_energy = 0.0f;
+			float m_min_kinetic_energy = std::numeric_limits<float>::max();
+			float m_max_kinetic_energy = 0.0f;
+			double m_physics_ms = 0.0;
+			int m_sample_count = 0;
+
+			bool Enabled() const
+			{
+				return m_body != -1;
+			}
+		};
 
 		struct EngineProfileAccumulator
 		{
@@ -207,6 +229,54 @@ namespace physics_sandbox::diag
 			auto const dy = lhs.position.y - rhs.position.y;
 			auto const xy_tolerance = 0.01f;
 			return dx * dx + dy * dy < xy_tolerance * xy_tolerance;
+		}
+
+		// Return the component of 'vec' selected by a Dzhanibekov metric axis index.
+		float AxisComponent(v4 const& vec, int axis)
+		{
+			switch (axis)
+			{
+			case 0:
+			{
+				return vec.x;
+			}
+			case 1:
+			{
+				return vec.y;
+			}
+			case 2:
+			{
+				return vec.z;
+			}
+			default:
+			{
+				throw std::runtime_error(std::format("Invalid Dzhanibekov axis {}", axis));
+			}
+			}
+		}
+
+		// Return a compact axis name for Dzhanibekov metric logging.
+		char AxisName(int axis)
+		{
+			switch (axis)
+			{
+			case 0:
+			{
+				return 'x';
+			}
+			case 1:
+			{
+				return 'y';
+			}
+			case 2:
+			{
+				return 'z';
+			}
+			default:
+			{
+				throw std::runtime_error(std::format("Invalid Dzhanibekov axis {}", axis));
+			}
+			}
 		}
 		ColumnMetricState CreateColumnMetric(scene_loader::SceneDesc const& scene_desc)
 		{
@@ -338,6 +408,41 @@ namespace physics_sandbox::diag
 
 			metric.m_left_body = metric.m_chain_bodies.front();
 			metric.m_right_body = metric.m_chain_bodies.back();
+			return metric;
+		}
+
+		// Create the Dzhanibekov metric state by selecting the fastest spinning body and its dominant body-space axis.
+		DzhanibekovMetricState CreateDzhanibekovMetric(Scene const& scene)
+		{
+			auto metric = DzhanibekovMetricState{};
+			auto best_speed_sq = 0.0f;
+			auto best_velocity = v4{};
+			for (int i = 0; i != std::ssize(scene.m_body); ++i)
+			{
+				auto const velocity = scene.m_body[i].VelocityOS().ang;
+				auto const speed_sq = LengthSq(velocity);
+				if (speed_sq <= best_speed_sq)
+					continue;
+
+				best_speed_sq = speed_sq;
+				best_velocity = velocity;
+				metric.m_body = i;
+			}
+			if (metric.m_body == -1 || best_speed_sq < 1e-10f)
+				throw std::runtime_error("Dzhanibekov metric requires at least one spinning dynamic body");
+
+			metric.m_axis = 0;
+			if (std::abs(best_velocity.y) > std::abs(AxisComponent(best_velocity, metric.m_axis)))
+				metric.m_axis = 1;
+			if (std::abs(best_velocity.z) > std::abs(AxisComponent(best_velocity, metric.m_axis)))
+				metric.m_axis = 2;
+
+			auto const& body = scene.m_body[metric.m_body];
+			metric.m_prev_time_s = scene.m_clock;
+			metric.m_prev_axis_omega = AxisComponent(best_velocity, metric.m_axis);
+			metric.m_initial_kinetic_energy = body.KineticEnergy();
+			metric.m_min_kinetic_energy = metric.m_initial_kinetic_energy;
+			metric.m_max_kinetic_energy = metric.m_initial_kinetic_energy;
 			return metric;
 		}
 
@@ -681,6 +786,114 @@ namespace physics_sandbox::diag
 			metric.m_sample_count = 0;
 		}
 
+		// Update flip timing and energy bounds for the Dzhanibekov metric.
+		void UpdateDzhanibekovMetric(Scene const& scene, double time_s, DzhanibekovMetricState& metric)
+		{
+			auto const& body = scene.m_body[metric.m_body];
+			auto const axis_omega = AxisComponent(body.VelocityOS().ang, metric.m_axis);
+			auto const kinetic_energy = body.KineticEnergy();
+			metric.m_min_kinetic_energy = std::min(metric.m_min_kinetic_energy, kinetic_energy);
+			metric.m_max_kinetic_energy = std::max(metric.m_max_kinetic_energy, kinetic_energy);
+
+			if (metric.m_prev_axis_omega * axis_omega < 0.0f)
+			{
+				auto const denom = std::abs(metric.m_prev_axis_omega) + std::abs(axis_omega);
+				auto const alpha = denom > 0.0f ? std::abs(metric.m_prev_axis_omega) / denom : 0.0f;
+				auto const flip_time = metric.m_prev_time_s + alpha * (time_s - metric.m_prev_time_s);
+				if (metric.m_last_flip_time_s >= 0.0)
+					metric.m_periods_s.push_back(flip_time - metric.m_last_flip_time_s);
+
+				metric.m_flip_times_s.push_back(flip_time);
+				metric.m_last_flip_time_s = flip_time;
+			}
+
+			metric.m_prev_axis_omega = axis_omega;
+			metric.m_prev_time_s = time_s;
+		}
+
+		// Calculate period statistics from the collected Dzhanibekov flip intervals.
+		void DzhanibekovPeriodStats(DzhanibekovMetricState const& metric, double& mean_period, double& min_period, double& max_period, double& period_spread)
+		{
+			mean_period = 0.0;
+			min_period = std::numeric_limits<double>::max();
+			max_period = 0.0;
+			period_spread = 0.0;
+			if (metric.m_periods_s.empty())
+				return;
+
+			for (auto period : metric.m_periods_s)
+			{
+				mean_period += period;
+				min_period = std::min(min_period, period);
+				max_period = std::max(max_period, period);
+			}
+			mean_period /= static_cast<double>(metric.m_periods_s.size());
+			period_spread = mean_period > 0.0 ? (max_period - min_period) / mean_period : 0.0;
+		}
+
+		// Print the current Dzhanibekov period-stability metric.
+		void PrintDzhanibekovMetric(std::ofstream& log, int step, double time_s, Scene const& scene, DzhanibekovMetricState& metric)
+		{
+			auto const& body = scene.m_body[metric.m_body];
+			auto const velocity_os = body.VelocityOS().ang;
+			auto mean_period = 0.0;
+			auto min_period = 0.0;
+			auto max_period = 0.0;
+			auto period_spread = 0.0;
+			DzhanibekovPeriodStats(metric, mean_period, min_period, max_period, period_spread);
+
+			auto const sample_count = std::max(metric.m_sample_count, 1);
+			auto const avg_physics_ms = metric.m_physics_ms / sample_count;
+			auto const engine_fps = avg_physics_ms > 0.0 ? 1000.0 / avg_physics_ms : 0.0;
+			auto const kinetic_energy = body.KineticEnergy();
+			auto const energy_drift = metric.m_initial_kinetic_energy != 0.0f
+				? (kinetic_energy - metric.m_initial_kinetic_energy) / metric.m_initial_kinetic_energy
+				: 0.0f;
+			Emit(log, std::format(
+				"dzhanibekov step={:5d} t={:8.4f} body={} axis={} flips={} periods={} mean_period={:9.5f} min_period={:9.5f} max_period={:9.5f} period_spread={:8.5f} omega_os=({:9.4f},{:9.4f},{:9.4f}) ke={:12.6f} ke_drift={:9.5f} physics_ms={:8.3f} fps={:8.2f}\n",
+				step,
+				time_s,
+				metric.m_body,
+				AxisName(metric.m_axis),
+				metric.m_flip_times_s.size(),
+				metric.m_periods_s.size(),
+				mean_period,
+				min_period,
+				max_period,
+				period_spread,
+				velocity_os.x, velocity_os.y, velocity_os.z,
+				kinetic_energy,
+				energy_drift,
+				avg_physics_ms,
+				engine_fps));
+
+			metric.m_physics_ms = 0.0;
+			metric.m_sample_count = 0;
+		}
+
+		// Fail the scene diagnostic if the Dzhanibekov flip period drifts beyond the regression threshold.
+		void ValidateDzhanibekovMetric(DzhanibekovMetricState const& metric)
+		{
+			if (std::ssize(metric.m_periods_s) < metric.m_required_periods)
+				throw std::runtime_error(std::format("Dzhanibekov metric failed: expected at least {} periods, measured {}", metric.m_required_periods, metric.m_periods_s.size()));
+
+			auto mean_period = 0.0;
+			auto min_period = 0.0;
+			auto max_period = 0.0;
+			auto period_spread = 0.0;
+			DzhanibekovPeriodStats(metric, mean_period, min_period, max_period, period_spread);
+			if (period_spread > metric.m_max_period_spread)
+			{
+				throw std::runtime_error(std::format(
+					"Dzhanibekov metric failed: period spread {:.5f} exceeded {:.5f} (mean={:.5f}, min={:.5f}, max={:.5f})",
+					period_spread,
+					metric.m_max_period_spread,
+					mean_period,
+					min_period,
+					max_period));
+			}
+		}
+
 		void PrintBodyTrace(
 			std::ofstream& log,
 			int step,
@@ -789,8 +1002,9 @@ namespace physics_sandbox::diag
 		metric_count += options.m_column_metric ? 1 : 0;
 		metric_count += options.m_pyramid_metric ? 1 : 0;
 		metric_count += options.m_cradle_metric ? 1 : 0;
+		metric_count += options.m_dzhanibekov_metric ? 1 : 0;
 		if (metric_count > 1)
-			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, or -cradle_metric");
+			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, or -dzhanibekov_metric");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
@@ -803,6 +1017,8 @@ namespace physics_sandbox::diag
 			Emit(log, "pyramid_metric=true\n");
 		else if (options.m_cradle_metric)
 			Emit(log, "cradle_metric=true\n");
+		else if (options.m_dzhanibekov_metric)
+			Emit(log, "dzhanibekov_metric=true\n");
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
@@ -946,6 +1162,7 @@ namespace physics_sandbox::diag
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
+		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
 		if (column_metric.Enabled())
 		{
 			Emit(log, std::format(
@@ -975,6 +1192,16 @@ namespace physics_sandbox::diag
 				cradle_metric.m_chain_bodies.size(),
 				cradle_metric.m_direction,
 				cradle_metric.m_velocity_threshold));
+		}
+		if (dzhanibekov_metric.Enabled())
+		{
+			Emit(log, std::format(
+				"dzhanibekov setup body={} axis={} required_periods={} max_period_spread={:.5f} initial_ke={:.6f}\n",
+				dzhanibekov_metric.m_body,
+				AxisName(dzhanibekov_metric.m_axis),
+				dzhanibekov_metric.m_required_periods,
+				dzhanibekov_metric.m_max_period_spread,
+				dzhanibekov_metric.m_initial_kinetic_energy));
 		}
 
 		auto trace_contacts = std::vector<BodyTraceContact>{};
@@ -1042,6 +1269,12 @@ namespace physics_sandbox::diag
 				cradle_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
 				++cradle_metric.m_sample_count;
 			}
+			if (dzhanibekov_metric.Enabled())
+			{
+				dzhanibekov_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;
+				++dzhanibekov_metric.m_sample_count;
+				UpdateDzhanibekovMetric(scene, scene.m_clock, dzhanibekov_metric);
+			}
 
 			if (options.m_engine_profile)
 			{
@@ -1077,6 +1310,14 @@ namespace physics_sandbox::diag
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 					PrintCradleMetric(log, step + 1, scene.m_clock, scene, cradle_metric);
+
+				continue;
+			}
+			if (options.m_dzhanibekov_metric)
+			{
+				auto report_interval = std::max(options.m_report_interval, 1);
+				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+					PrintDzhanibekovMetric(log, step + 1, scene.m_clock, scene, dzhanibekov_metric);
 
 				continue;
 			}
@@ -1178,7 +1419,10 @@ namespace physics_sandbox::diag
 			}
 		}
 
-		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies && !options.m_cradle_metric)
+		if (dzhanibekov_metric.Enabled())
+			ValidateDzhanibekovMetric(dzhanibekov_metric);
+
+		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies && !options.m_cradle_metric && !options.m_dzhanibekov_metric)
 		{
 			Emit(log, std::format("worst: step={} max_depth={:.6f} pair=({},{})\n",
 				result.m_max_depth_step,

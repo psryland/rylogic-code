@@ -1,6 +1,6 @@
 {
 	"scene": {
-		"description": "Zero-gravity high-angular-velocity anisotropic bodies for exercising orientation integration near and above the angular drift substep limit.",
+		"description": "Zero-gravity intermediate-axis body for exercising torque-free Dzhanibekov flip period stability.",
 		"seed": 202,
 		"gravity": [ 0.0, 0.0, 0.0 ],
 		"material": {
@@ -29,7 +29,7 @@
 				"position": [ 0, 0, 0 ],
 				"rotation": [ 0, 0.00001, 0 ],
 				"velocity": [ 0, 0, 0 ],
-				"angular_velocity": [ 10.0, 0.0, 0.0 ],
+				"angular_velocity": [ 10.0, 0.0, 0.1 ],
 				"name": "monolith",
 				"shape": "monolith",
 				"mass": 5.0
