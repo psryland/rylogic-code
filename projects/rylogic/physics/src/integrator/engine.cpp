@@ -130,6 +130,8 @@ namespace pr::physics
 	void Engine::Material(physics::Material mat)
 	{
 		(*m_materials).Set(mat);
+		m_gpu_resolver->MaterialsDirty();
+		m_gpu_selective_resolver->MaterialsDirty();
 	}
 
 	// Update runtime-tunable engine configuration.

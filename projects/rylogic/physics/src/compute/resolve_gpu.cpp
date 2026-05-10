@@ -104,6 +104,7 @@ namespace pr::physics
 		, m_body_capacity()
 		, m_warm_start_capacity()
 		, m_reset_warm_start_cache(true)
+		, m_materials_dirty(true)
 	{
 		CompileShaders();
 
@@ -264,6 +265,7 @@ namespace pr::physics
 		{
 			m_r_materials = m_gpu.CreateResource(ResDesc::Buf<GpuMaterial>(max_materials, {}), cmd_list, "Physics:Materials");
 			m_max_materials = max_materials;
+			m_materials_dirty = true;
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
@@ -340,7 +342,9 @@ namespace pr::physics
 		if (m_config.warm_start_scale <= 0.0f)
 			m_reset_warm_start_cache = true;
 
-		// Upload materials (small buffer, upload every frame for simplicity)
+		// Upload materials only when the CPU material map changes or the GPU buffer grows.
+		// Main and selective resolvers have separate GPU buffers, so each tracks this independently.
+		if (m_materials_dirty)
 		{
 			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
@@ -351,6 +355,7 @@ namespace pr::physics
 
 			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
+			m_materials_dirty = false;
 		}
 
 		// Switch states for resources
@@ -601,6 +606,12 @@ namespace pr::physics
 		pix::EndEvent(job.m_cmd_list.get());
 	}
 
+	// Mark the material buffer dirty so it is re-uploaded on the next resolve.
+	void GpuResolver::MaterialsDirty()
+	{
+		m_materials_dirty = true;
+	}
+
 	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
 	void GpuResolver::Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials)
 	{
@@ -676,6 +687,7 @@ namespace pr::physics
 		}
 
 		// Run the GPU resolve pipeline
+		MaterialsDirty();
 		Resolve(job, dt, body_count, contact_count, r_dispatch, r_counters, r_contacts, r_bodies, materials);
 
 		// Readback bodies

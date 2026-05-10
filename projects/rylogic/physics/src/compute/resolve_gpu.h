@@ -40,11 +40,15 @@ namespace pr::physics
 		int m_body_capacity;
 		int m_warm_start_capacity;
 		bool m_reset_warm_start_cache;
+		bool m_materials_dirty;
 
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config);
 
 		// Resolve collisions on the GPU using graph-coloured batches.
 		void Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false);
+
+		// Mark the material buffer dirty so it is re-uploaded on the next resolve.
+		void MaterialsDirty();
 
 		// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies. Calls job.Run() internally.
 		void Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials);
