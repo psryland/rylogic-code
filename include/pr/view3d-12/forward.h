@@ -283,6 +283,8 @@ namespace pr::rdr12
 
 	// Ray tracing
 	struct RayTracingSupport;
+	struct RayTracingModel;
+	struct RayTracingGeometryStats;
 
 	// Utility
 	struct Lock;

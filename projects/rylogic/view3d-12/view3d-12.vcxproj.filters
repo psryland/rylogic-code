@@ -372,6 +372,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\openxr\openxr.h">
       <Filter>src\openxr</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_model.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_support.h">
       <Filter>src\ray_tracing</Filter>
     </ClInclude>
@@ -647,6 +650,9 @@
     </ClInclude>
     <ClCompile Include="src\openxr\openxr.cpp">
       <Filter>src\openxr</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_model.cpp">
+      <Filter>src\ray_tracing</Filter>
     </ClCompile>
     <ClCompile Include="src\ray_tracing\ray_tracing_support.cpp">
       <Filter>src\ray_tracing</Filter>

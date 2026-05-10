@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/model/skin.h"
 #include "pr/view3d-12/model/pose.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/utility/update_resource.h"
 
 namespace pr::rdr12
@@ -41,6 +42,7 @@ namespace pr::rdr12
 		int64_t                  m_icount;    // The count of elements in the I-buffer
 		m4x4                     m_m2root;    // Model to root transform. Use for multi-part models, like skinned characters
 		Skin                     m_skin;      // Skinning data for this model.
+		RayTracingModel          m_ray_tracing; // Ray tracing data for this model.
 		BBox                     m_bbox;      // A bounding box for the model. Set by the client
 		string32                 m_name;      // A human readable name for the model
 		SizeAndAlign16           m_vstride;   // The size and alignment (in bytes) of a single V-element
