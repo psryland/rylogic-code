@@ -204,6 +204,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> source_counters,
 		D3DPtr<ID3D12Resource> source_contacts,
 		D3DPtr<ID3D12Resource> source_contact_dispatch,
+		D3DPtr<ID3D12Resource> full_pair_dispatch,
 		D3DPtr<ID3D12Resource> full_counters,
 		D3DPtr<ID3D12Resource> full_pairs,
 		D3DPtr<ID3D12Resource> bodies)
@@ -283,6 +284,10 @@ namespace pr::physics
 		}
 
 		{
+			// Compact only the pair groups emitted by broadphase. Dispatching over the
+			// whole pair capacity makes global defaults scale with buffer size rather
+			// than with scene complexity.
+			job.m_barriers.Transition(full_pair_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
 			job.m_barriers.Transition(full_counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(full_pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
@@ -298,8 +303,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(full_counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(full_pairs->GetGPUVirtualAddress());
 
-			auto dispatch_count = (full_max_pairs + SelectiveRefreshThreadCount - 1) / SelectiveRefreshThreadCount;
-			job.m_cmd_list.Dispatch(dispatch_count, 1, 1);
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, full_pair_dispatch.get());
 
 			job.m_barriers.UAV(work_set.m_counters.get());
 			job.m_barriers.UAV(work_set.m_pairs.get());

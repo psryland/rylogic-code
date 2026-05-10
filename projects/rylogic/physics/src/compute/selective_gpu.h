@@ -49,6 +49,7 @@ namespace pr::physics
 			D3DPtr<ID3D12Resource> source_counters,
 			D3DPtr<ID3D12Resource> source_contacts,
 			D3DPtr<ID3D12Resource> source_contact_dispatch,
+			D3DPtr<ID3D12Resource> full_pair_dispatch,
 			D3DPtr<ID3D12Resource> full_counters,
 			D3DPtr<ID3D12Resource> full_pairs,
 			D3DPtr<ID3D12Resource> bodies);

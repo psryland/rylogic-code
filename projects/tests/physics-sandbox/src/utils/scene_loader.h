@@ -22,7 +22,8 @@ namespace physics_sandbox::scene_loader
 	//             "contact_slop_scale": 0.01,   // Slop fraction of minimum body thickness, capped by EngineConfig slop
 	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
-	//             "selective_refresh_passes": 1 // Extra narrowphase/resolve passes over problematic contacts
+	//             "selective_refresh_passes": 1, // Extra narrowphase/resolve passes over problematic contacts
+	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
 	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
@@ -137,6 +138,8 @@ namespace physics_sandbox::scene_loader
 		int physics_selective_refresh_position_iterations = physics::EngineConfig{}.selective_refresh_position_iterations;
 		float physics_selective_refresh_bias_scale = physics::EngineConfig{}.selective_refresh_bias_scale;
 		float physics_selective_refresh_restitution_scale = physics::EngineConfig{}.selective_refresh_restitution_scale;
+		int physics_selective_refresh_adaptive_body_limit = physics::EngineConfig{}.selective_refresh_adaptive_body_limit;
+		int physics_selective_refresh_adaptive_solver_iterations = physics::EngineConfig{}.selective_refresh_adaptive_solver_iterations;
 		bool physics_selective_refresh_support_only = physics::EngineConfig{}.selective_refresh_support_only;
 		bool physics_selective_refresh_resolve_support_only = physics::EngineConfig{}.selective_refresh_resolve_support_only;
 		float physics_selective_refresh_depth_slop = physics::EngineConfig{}.selective_refresh_depth_slop;

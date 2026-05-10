@@ -876,6 +876,18 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -selective_refresh_restitution_scale must be non-negative");
 			scene_desc.physics_selective_refresh_restitution_scale = *options.m_physics_selective_refresh_restitution_scale;
 		}
+		if (options.m_physics_selective_refresh_adaptive_body_limit)
+		{
+			if (*options.m_physics_selective_refresh_adaptive_body_limit < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_adaptive_body_limit must be non-negative");
+			scene_desc.physics_selective_refresh_adaptive_body_limit = *options.m_physics_selective_refresh_adaptive_body_limit;
+		}
+		if (options.m_physics_selective_refresh_adaptive_solver_iterations)
+		{
+			if (*options.m_physics_selective_refresh_adaptive_solver_iterations < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_adaptive_solver_iterations must be non-negative");
+			scene_desc.physics_selective_refresh_adaptive_solver_iterations = *options.m_physics_selective_refresh_adaptive_solver_iterations;
+		}
 		if (options.m_physics_selective_refresh_support_only)
 		{
 			if (*options.m_physics_selective_refresh_support_only != 0 && *options.m_physics_selective_refresh_support_only != 1)

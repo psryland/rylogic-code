@@ -478,6 +478,8 @@ namespace physics_sandbox
 		engine_config.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations;
 		engine_config.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale;
 		engine_config.selective_refresh_restitution_scale = scene_desc.physics_selective_refresh_restitution_scale;
+		engine_config.selective_refresh_adaptive_body_limit = scene_desc.physics_selective_refresh_adaptive_body_limit;
+		engine_config.selective_refresh_adaptive_solver_iterations = scene_desc.physics_selective_refresh_adaptive_solver_iterations;
 		engine_config.selective_refresh_support_only = scene_desc.physics_selective_refresh_support_only;
 		engine_config.selective_refresh_resolve_support_only = scene_desc.physics_selective_refresh_resolve_support_only;
 		engine_config.selective_refresh_depth_slop = scene_desc.physics_selective_refresh_depth_slop;

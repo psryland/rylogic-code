@@ -403,11 +403,15 @@ namespace pr::physics
 		auto const max_contacts = max_pairs;
 		auto full_counters = m_gpu_integrator->Counters();
 		auto full_pairs = m_gpu_sort_and_sweep->CollisionPairs();
+		auto full_pair_dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 		auto bodies = m_gpu_integrator->Bodies();
 		auto source_counters = full_counters;
 		auto source_contacts = m_gpu_collision_detector->Contacts();
 		auto source_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 		auto source_max_contacts = full_max_pairs;
+		auto solver_iterations = m_config.selective_refresh_solver_iterations;
+		if (m_config.selective_refresh_adaptive_body_limit > 0 && body_count <= m_config.selective_refresh_adaptive_body_limit)
+			solver_iterations = std::max(solver_iterations, m_config.selective_refresh_adaptive_solver_iterations);
 
 		for (int pass = 0; pass != pass_count; ++pass)
 		{
@@ -424,6 +428,7 @@ namespace pr::physics
 				source_counters,
 				source_contacts,
 				source_dispatch,
+				full_pair_dispatch,
 				full_counters,
 				full_pairs,
 				bodies);
@@ -450,7 +455,7 @@ namespace pr::physics
 				bodies,
 				m_materials->span(),
 				m_config.selective_refresh_bias_scale,
-				m_config.selective_refresh_solver_iterations,
+				solver_iterations,
 				m_config.selective_refresh_position_iterations,
 				m_config.selective_refresh_restitution_scale,
 				m_config.selective_refresh_resolve_support_only);

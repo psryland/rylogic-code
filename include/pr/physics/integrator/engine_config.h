@@ -60,6 +60,11 @@ namespace pr::physics
 		float selective_refresh_bias_scale = 1.0f;
 		float selective_refresh_restitution_scale = 0.0f;
 
+		// Small/medium scenes can afford a stiffer residual solve without making large stress
+		// scenes pay the same cost for every selected support contact.
+		int selective_refresh_adaptive_body_limit = 256;
+		int selective_refresh_adaptive_solver_iterations = 48;
+
 		// Seed selective refresh from support contacts by default, but resolve the refreshed local
 		// contact neighbourhood so lateral/friction constraints can still converge with the stack.
 		bool selective_refresh_support_only = true;

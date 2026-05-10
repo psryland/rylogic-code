@@ -610,6 +610,18 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_selective_refresh_restitution_scale < 0.0f)
 					throw std::runtime_error("Scene physics.selective_refresh_restitution_scale must be non-negative");
 			}
+			if (auto* jselective_refresh_adaptive_body_limit = jphysics_obj.find("selective_refresh_adaptive_body_limit"))
+			{
+				desc.physics_selective_refresh_adaptive_body_limit = jselective_refresh_adaptive_body_limit->to<int>();
+				if (desc.physics_selective_refresh_adaptive_body_limit < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_adaptive_body_limit must be non-negative");
+			}
+			if (auto* jselective_refresh_adaptive_solver_iterations = jphysics_obj.find("selective_refresh_adaptive_solver_iterations"))
+			{
+				desc.physics_selective_refresh_adaptive_solver_iterations = jselective_refresh_adaptive_solver_iterations->to<int>();
+				if (desc.physics_selective_refresh_adaptive_solver_iterations < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_adaptive_solver_iterations must be non-negative");
+			}
 			if (auto* jselective_refresh_support_only = jphysics_obj.find("selective_refresh_support_only"))
 			{
 				desc.physics_selective_refresh_support_only = jselective_refresh_support_only->to<bool>();

@@ -128,6 +128,10 @@ namespace physics_sandbox
 			options.m_physics_selective_refresh_bias_scale = cmd("selective_refresh_bias_scale").as<float>();
 		if (cmd.count("selective_refresh_restitution_scale"))
 			options.m_physics_selective_refresh_restitution_scale = cmd("selective_refresh_restitution_scale").as<float>();
+		if (cmd.count("selective_refresh_adaptive_body_limit"))
+			options.m_physics_selective_refresh_adaptive_body_limit = cmd("selective_refresh_adaptive_body_limit").as<int>();
+		if (cmd.count("selective_refresh_adaptive_solver_iterations"))
+			options.m_physics_selective_refresh_adaptive_solver_iterations = cmd("selective_refresh_adaptive_solver_iterations").as<int>();
 		if (cmd.count("selective_refresh_support_only"))
 			options.m_physics_selective_refresh_support_only = cmd("selective_refresh_support_only").as<int>();
 		if (cmd.count("selective_refresh_resolve_support_only"))
