@@ -143,49 +143,76 @@ void CSIntegrate(int3 DTID(dtid))
 	}
 
 	// ---- Step 2: Drift — update position and orientation ----
-	// Build the object-space unit inverse inertia (not mass-scaled)
+	float3 inertia_diag = body.inertia_inv_diagonal.xyz;
+	float3 inertia_prod = body.inertia_inv_products.xyz;
+	bool isotropic_inertia =
+		inertia_prod.x == 0.0f &&
+		inertia_prod.y == 0.0f &&
+		inertia_prod.z == 0.0f &&
+		inertia_diag.x == inertia_diag.y &&
+		inertia_diag.x == inertia_diag.z;
+
+	// Build the object-space unit inverse inertia (not mass-scaled).
 	float3x3 os_iinv_unit = build_symmetric_3x3(
-		body.inertia_inv_diagonal.xyz,
-		body.inertia_inv_products.xyz);
+		inertia_diag,
+		inertia_prod);
 
 	// Extract the 3x3 rotation from the transform (rows = basis vectors in row-vector convention)
 	float3x3 rot = (float3x3)body.o2w;
 
-	// Rotate the inverse inertia from object space to world space:
-	//   I⁻¹_ws = R * I⁻¹_os * Rᵀ
-	float3x3 ws_iinv_unit = rotate_inertia_inv(os_iinv_unit, rot);
-
-	// Mass-scaled world-space inverse inertia
-	float3x3 ws_iinv = inv_mass * ws_iinv_unit;
-
 	// Compute velocity from momentum (block-diagonal — no coupling terms).
 	// omega = Ic_inv * h_ang, v_com = h_lin / m.
-	float3 vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
+	float3 vel_ang;
+	if (isotropic_inertia)
+	{
+		vel_ang = (inv_mass * inertia_diag.x) * body.momentum_ang.xyz;
+	}
+	else
+	{
+		float3x3 ws_iinv_unit = rotate_inertia_inv(os_iinv_unit, rot);
+		float3x3 ws_iinv = inv_mass * ws_iinv_unit;
+		vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
+	}
 	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
 
-	// Midpoint predictor for the rotation step:
-	// For anisotropic bodies, angular velocity changes during the drift step because the world-space inertia tensor changes with orientation. Large
-	// angular displacements amplify this approximation error, so split the drift into small rotation increments while keeping the same angular momentum.
-	int angular_steps = clamp((int)ceil(length(vel_ang) * g.dt / AngularDriftMaxRadians), 1, AngularDriftSubstepMax);
-	float angular_dt = g.dt / (float)angular_steps;
 	float3x3 new_rot = rot;
-	for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
+	float angular_speed_sq = dot(vel_ang, vel_ang);
+	if (angular_speed_sq != 0.0f)
 	{
-		float3x3 step_iinv_unit = rotate_inertia_inv(os_iinv_unit, new_rot);
-		float3x3 step_iinv = inv_mass * step_iinv_unit;
-		float3 step_vel_ang = mul(step_iinv, body.momentum_ang.xyz);
+		if (isotropic_inertia)
+		{
+			float3x3 dR = rodrigues_rotation(vel_ang * g.dt);
+			new_rot = mul(new_rot, dR);
+			new_rot = orthonorm3x3(new_rot);
+		}
+		else
+		{
+			// Midpoint predictor for the rotation step:
+			// For anisotropic bodies, angular velocity changes during the drift step because the world-space inertia tensor changes with orientation. Large
+			// angular displacements amplify this approximation error, so split the drift into small rotation increments while keeping the same angular momentum.
+			int angular_steps = clamp((int)ceil(sqrt(angular_speed_sq) * g.dt / AngularDriftMaxRadians), 1, AngularDriftSubstepMax);
+			float angular_dt = g.dt / (float)angular_steps;
+			float3 step_vel_ang = vel_ang;
+			for (int angular_step = 0; angular_step != angular_steps; ++angular_step)
+			{
+				float3x3 half_dR = rodrigues_rotation(step_vel_ang * (angular_dt * 0.5f));
+				float3x3 mid_rot = mul(new_rot, half_dR);
+				float3x3 mid_iinv_unit = rotate_inertia_inv(os_iinv_unit, mid_rot);
+				float3x3 mid_iinv = inv_mass * mid_iinv_unit;
+				float3 mid_vel_ang = mul(mid_iinv, body.momentum_ang.xyz);
 
-		float3x3 half_dR = rodrigues_rotation(step_vel_ang * (angular_dt * 0.5f));
-		float3x3 mid_rot = mul(new_rot, half_dR);
-		mid_rot = orthonorm3x3(mid_rot);
+				float3x3 dR = rodrigues_rotation(mid_vel_ang * angular_dt);
+				new_rot = mul(new_rot, dR);
 
-		float3x3 mid_iinv_unit = rotate_inertia_inv(os_iinv_unit, mid_rot);
-		float3x3 mid_iinv = inv_mass * mid_iinv_unit;
-		float3 mid_vel_ang = mul(mid_iinv, body.momentum_ang.xyz);
-
-		float3x3 dR = rodrigues_rotation(mid_vel_ang * angular_dt);
-		new_rot = mul(new_rot, dR);
-		new_rot = orthonorm3x3(new_rot);
+				if (angular_step + 1 != angular_steps)
+				{
+					float3x3 step_iinv_unit = rotate_inertia_inv(os_iinv_unit, new_rot);
+					float3x3 step_iinv = inv_mass * step_iinv_unit;
+					step_vel_ang = mul(step_iinv, body.momentum_ang.xyz);
+				}
+			}
+			new_rot = orthonorm3x3(new_rot);
+		}
 	}
 
 	// CoM-based position update: translate CoM, derive model origin from new rotation.
