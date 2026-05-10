@@ -61,6 +61,13 @@ namespace pr::rdr12
 			return *this;
 		}
 
+		// Request DirectX Raytracing support.
+		RdrSettings& RayTracingSupport(bool enable = true)
+		{
+			m_options = SetBits(m_options, ERdrOptions::RayTracingSupport, enable);
+			return *this;
+		}
+
 		// Select the default adaptor (Call after setting the debug layer)
 		RdrSettings& DefaultAdapter()
 		{

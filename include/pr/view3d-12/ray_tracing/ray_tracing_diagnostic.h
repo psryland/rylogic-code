@@ -1,0 +1,45 @@
+//*********************************************
+// View 3d
+//  Copyright (c) Rylogic Ltd 2022
+//*********************************************
+#pragma once
+#include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/utility/cmd_list.h"
+
+namespace pr::rdr12
+{
+	// Owns the minimal DXR diagnostic pipeline used to visualise TLAS/BLAS coverage.
+	struct RayTracingDiagnostic
+	{
+		struct Data;
+
+	private:
+
+		std::unique_ptr<Data> m_data;
+
+	public:
+
+		// Create empty diagnostic ray tracing state.
+		RayTracingDiagnostic();
+
+		// Move diagnostic ray tracing state without copying GPU resource ownership.
+		RayTracingDiagnostic(RayTracingDiagnostic&& rhs) noexcept;
+		RayTracingDiagnostic(RayTracingDiagnostic const&) = delete;
+
+		// Move diagnostic ray tracing state without copying GPU resource ownership.
+		RayTracingDiagnostic& operator =(RayTracingDiagnostic&& rhs) noexcept;
+		RayTracingDiagnostic& operator =(RayTracingDiagnostic const&) = delete;
+
+		// Destroy the diagnostic ray tracing state.
+		~RayTracingDiagnostic();
+
+		// Release GPU resources after deferring GPU lifetime management through the renderer.
+		void DeferRelease(Renderer& rdr);
+
+		// Create or resize GPU resources needed for the diagnostic pass.
+		bool Prepare(ResourceFactory& factory, iv2 output_size, DXGI_FORMAT present_format);
+
+		// Record the diagnostic ray dispatch and presentation commands.
+		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, bool restore_present_state);
+	};
+}

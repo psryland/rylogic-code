@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_diagnostic.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_scene.h"
 
 namespace pr::rdr12
@@ -15,10 +16,12 @@ namespace pr::rdr12
 	private:
 
 		RayTracingScene m_ray_tracing;
+		RayTracingDiagnostic m_diagnostic;
 
 	public:
 
 		explicit RenderRayTracing(Scene& scene);
+		~RenderRayTracing() override;
 
 		// Compile-time derived type
 		inline static constexpr ERenderStep Id = ERenderStep::RayTracing;

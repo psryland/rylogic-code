@@ -4,7 +4,7 @@
 //  dotnet-script.exe BuildShader.csx $(Fullpath) $(PlatformTarget) $(Configuration) [obj] [dbg] [trace] [pp]
 //
 // Expected input is an hlsl file.
-// The file is scanned for: PR_RDR_SHADER_VS, PR_RDR_SHADER_PS, etc
+// The file is scanned for: PR_RDR_VSHADER_*, PR_RDR_PSHADER_*, PR_RDR_GSHADER_*, PR_RDR_CSHADER_*, PR_RDR_LSHADER_*, etc
 // For each symbol found a compiled shader as header data is generated
 // in the output directory.
 //
@@ -38,6 +38,7 @@ public class ShaderBuilder
 		public string FullPath = string.Empty;
 		public string Profile = string.Empty;
 		public string ShaderCode = string.Empty;
+		public string Define = string.Empty;
 	}
 
 	private string m_compiler;
@@ -98,6 +99,7 @@ public class ShaderBuilder
 			new ShaderType{ShaderCode = "ps", Profile = "/Tps_6_6", Patn = new Regex("^#ifdef PR_RDR_PSHADER_(?<name>.*)$")},
 			new ShaderType{ShaderCode = "gs", Profile = "/Tgs_6_6", Patn = new Regex("^#ifdef PR_RDR_GSHADER_(?<name>.*)$")},
 			new ShaderType{ShaderCode = "cs", Profile = "/Tcs_6_6", Patn = new Regex("^#ifdef PR_RDR_CSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "lib", Profile = "/Tlib_6_6", Patn = new Regex("^#ifdef PR_RDR_LSHADER_(?<name>.*)$")},
 		];
 
 		// Scan the file looking for instances of each shader type (there can be more than one)
@@ -118,6 +120,7 @@ public class ShaderBuilder
 					FullPath = fullpath,
 					Profile = shader_type.Profile,
 					ShaderCode = shader_type.ShaderCode,
+					Define = $"PR_RDR_{shader_type.ShaderCode[0..1].ToUpper()}SHADER_{match.Groups["name"].Value}",
 				};
 				BuildShader(shdr, outdir, platform, config);
 
@@ -169,8 +172,7 @@ public class ShaderBuilder
 		args.AddRange(includes);
 
 		// Set defines
-		var selected = $"PR_RDR_{shdr.ShaderCode[0..1].ToUpper()}SHADER_{shdr.Name[..^3]}";
-		args.AddRange(["/DSHADER_BUILD", $"/D{selected}"]);
+		args.AddRange(["/DSHADER_BUILD", $"/D{shdr.Define}"]);
 
 		// Set other command line options
 		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc"]);

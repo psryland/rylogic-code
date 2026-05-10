@@ -279,6 +279,17 @@ namespace pr::rdr12
 		ByteCode const ray_cast_edge_gs(compiled::ray_cast_edge_gs);
 		ByteCode const ray_cast_face_gs(compiled::ray_cast_face_gs);
 
+		// Ray tracing
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_lib.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_present_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_present_ps.h)
+		}
+		ByteCode const ray_trace_lib(compiled::ray_trace_lib);
+		ByteCode const ray_trace_present_vs(compiled::ray_trace_present_vs);
+		ByteCode const ray_trace_present_ps(compiled::ray_trace_present_ps);
+
 		// MipMap generation
 		namespace compiled
 		{

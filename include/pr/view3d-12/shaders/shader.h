@@ -143,6 +143,11 @@ namespace pr::rdr12
 		extern ByteCode const ray_cast_edge_gs;
 		extern ByteCode const ray_cast_face_gs;
 
+		// Ray tracing
+		extern ByteCode const ray_trace_lib;
+		extern ByteCode const ray_trace_present_vs;
+		extern ByteCode const ray_trace_present_ps;
+
 		// MipMap generation
 		extern ByteCode const mipmap_generator_cs;
 	}

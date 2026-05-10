@@ -21,8 +21,32 @@
 
 namespace pr::rdr12
 {
+	namespace
+	{
+		// Return true when the internal DXR diagnostic toggle is enabled for development testing.
+		bool RayTracingDiagnosticRequested()
+		{
+			auto value = std::array<wchar_t, 16>{};
+			auto len = GetEnvironmentVariableW(L"RYLOGIC_VIEW3D_RAY_TRACING", value.data(), s_cast<DWORD>(value.size()));
+			return len != 0 && value[0] != L'0';
+		}
+
+		// Create renderer settings with the optional internal ray tracing diagnostic request applied.
+		RdrSettings MakeRdrSettings(HINSTANCE instance)
+		{
+			auto settings = RdrSettings(instance)
+				.DebugLayer(PR_DBG_RDR)
+				.DefaultAdapter();
+
+			if (RayTracingDiagnosticRequested())
+				settings.RayTracingSupport();
+
+			return settings;
+		}
+	}
+
 	Context::Context(HINSTANCE instance, view3d::ReportErrorCB global_error_cb)
-		: m_rdr(RdrSettings(instance).DebugLayer(PR_DBG_RDR).DefaultAdapter())
+		: m_rdr(MakeRdrSettings(instance))
 		, m_windows()
 		, m_sources(m_rdr, *this)
 		, m_inits()

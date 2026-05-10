@@ -82,6 +82,12 @@ namespace pr::rdr12
 			if (LengthSq(rt_area) != 0)
 				m_scene.m_cam.Aspect(rt_area.x / float(rt_area.y));
 
+			if (AllSet(m_rdr->Settings().m_options, ERdrOptions::RayTracingSupport))
+			{
+				auto rsteps = std::array{ ERenderStep::RenderForward, ERenderStep::RayTracing };
+				m_scene.SetRenderSteps(rsteps);
+			}
+
 			// The light for the scene
 			m_scene.m_global_light.m_type = ELight::Directional;
 			m_scene.m_global_light.m_ambient = Colour32(0xFF404040U);
