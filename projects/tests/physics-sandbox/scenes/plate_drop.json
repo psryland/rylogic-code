@@ -1,0 +1,44 @@
+{
+	"scene": {
+		"description": "Stability benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
+		"seed": 3,
+		"gravity": [ 0, 0, -9.81 ],
+		"material": {
+			"friction": 0.4,
+			"elasticity": 0.3
+		},
+		"physics": {
+			"max_collision_pairs": 4096
+		},
+		"camera": {
+			"position": [ 8, -18, 7 ],
+			"lookat": [ 0, 0, 3.5 ]
+		},
+		"ground_plane": {
+			"height": 0.0
+		},
+		"shapes": {
+			"box": {
+				"name": "plate",
+				"type": "box",
+				"dimensions": [
+					[ 1.0, 1.0, 0.2 ],
+					[ 5.0, 5.0, 0.2 ]
+				]
+			}
+		},
+		"body_generators": [
+			{
+				"name": "plate_#",
+				"selector": "random",
+				"instance_count": 20,
+				"shape": "plate",
+				"mass": 5.0,
+				"position": [
+					[ -5.0, -5.0, 5.0 ],
+					[ 5.0, 5.0, 15.0 ]
+				]
+			}
+		]
+	}
+}

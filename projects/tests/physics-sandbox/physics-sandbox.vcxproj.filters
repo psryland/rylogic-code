@@ -360,6 +360,9 @@
     <None Include="scenes\dzhanibekov_effect.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\plate_drop.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">
