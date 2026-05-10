@@ -323,8 +323,10 @@ namespace pr::physics
 			auto dyn = PackDynamics(*body, shape_id);
 			m_cache->CountAwakeDynamic(*body);
 			m_cache->PackSleepIsland(*body, dyn);
+			m_cache->AddBroadphaseSortSample(dyn);
 			m_cache->m_rb_dynamics.push_back(dyn);
 		}
+		m_cache->FinaliseBroadphaseSortAxis();
 	}
 
 	// Upload staged body data into GPU buffers for the current frame.
@@ -338,7 +340,7 @@ namespace pr::physics
 	void Engine::Integrate(float dt)
 	{
 		auto body_count = m_cache->RigidBodyCount();
-		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt);
+		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt, m_cache->BroadphaseSortAxis());
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -362,13 +364,14 @@ namespace pr::physics
 
 		// GPU broadphase is only useful when GPU detect will consume the pairs
 		auto counters = m_gpu_integrator->Counters();
-		auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
+		auto aabb_sort = m_gpu_integrator->AABBSortAxis();
 		auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
+		auto aabb_box = m_gpu_integrator->AABBBoxes();
 		auto bodies = m_gpu_integrator->Bodies();
 		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
 		auto sleep_island_count = m_cache->SleepIslandCount();
-		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands, sleeping_enabled);
+		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, sleep_island_count, sleep_islands, sleeping_enabled);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{

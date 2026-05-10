@@ -29,6 +29,7 @@ namespace pr::physics
 		// Bias contact ordering within near-equal collision-time buckets so impulses propagate
 		// through contact dependency chains before downstream/free contacts are solved.
 		float broadphase_aabb_margin = 0.0001f;
+
 		float contact_sort_propagation_scale = 1e-3f;
 		int contact_sort_shock_iterations = 4;
 		float contact_sort_shock_alignment = 1e-5f;

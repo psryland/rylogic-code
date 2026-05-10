@@ -73,6 +73,10 @@ namespace pr::physics
 		std::unordered_map<int, int> m_sleep_cpu_to_gpu_island_id;
 		int m_next_sleep_island_id;
 		int m_awake_dynamic_count;
+		double m_broadphase_axis_sum[3] = {};
+		double m_broadphase_axis_sum_sq[3] = {};
+		int m_broadphase_axis_sample_count;
+		int m_broadphase_sort_axis;
 
 		// Diagnostics
 		BodyHistoryT m_history;
@@ -88,6 +92,8 @@ namespace pr::physics
 			, m_sleep_cpu_to_gpu_island_id()
 			, m_next_sleep_island_id()
 			, m_awake_dynamic_count()
+			, m_broadphase_axis_sample_count()
+			, m_broadphase_sort_axis()
 			, m_history()
 			, m_log()
 		{
@@ -102,6 +108,14 @@ namespace pr::physics
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
 			m_awake_dynamic_count = 0;
+			m_broadphase_axis_sum[0] = 0.0;
+			m_broadphase_axis_sum[1] = 0.0;
+			m_broadphase_axis_sum[2] = 0.0;
+			m_broadphase_axis_sum_sq[0] = 0.0;
+			m_broadphase_axis_sum_sq[1] = 0.0;
+			m_broadphase_axis_sum_sq[2] = 0.0;
+			m_broadphase_axis_sample_count = 0;
+			m_broadphase_sort_axis = 0;
 
 			// Reset the GPU staging buffer for contacts.
 			if (std::ssize(m_contacts) < max_contacts)
@@ -128,6 +142,14 @@ namespace pr::physics
 			m_sleep_cpu_to_gpu_island_id.clear();
 			m_next_sleep_island_id = 0;
 			m_awake_dynamic_count = 0;
+			m_broadphase_axis_sum[0] = 0.0;
+			m_broadphase_axis_sum[1] = 0.0;
+			m_broadphase_axis_sum[2] = 0.0;
+			m_broadphase_axis_sum_sq[0] = 0.0;
+			m_broadphase_axis_sum_sq[1] = 0.0;
+			m_broadphase_axis_sum_sq[2] = 0.0;
+			m_broadphase_axis_sample_count = 0;
+			m_broadphase_sort_axis = 0;
 			m_history.Reset();
 			m_log.Close();
 		}
@@ -154,6 +176,49 @@ namespace pr::physics
 		int AwakeDynamicCount() const
 		{
 			return m_awake_dynamic_count;
+		}
+
+		// Accumulate AABB-centre variance so broadphase can sort along the longest spread.
+		void AddBroadphaseSortSample(GpuRigidBody const& dyn)
+		{
+			auto const centre = dyn.o2w * dyn.os_bbox.m_centre;
+			m_broadphase_axis_sum[0] += centre.x;
+			m_broadphase_axis_sum[1] += centre.y;
+			m_broadphase_axis_sum[2] += centre.z;
+			m_broadphase_axis_sum_sq[0] += centre.x * centre.x;
+			m_broadphase_axis_sum_sq[1] += centre.y * centre.y;
+			m_broadphase_axis_sum_sq[2] += centre.z * centre.z;
+			++m_broadphase_axis_sample_count;
+		}
+
+		void FinaliseBroadphaseSortAxis()
+		{
+			if (m_broadphase_axis_sample_count < 2)
+			{
+				m_broadphase_sort_axis = 0;
+				return;
+			}
+
+			auto const inv_count = 1.0 / m_broadphase_axis_sample_count;
+			auto best_axis = 0;
+			auto best_variance = -1.0;
+			for (int axis = 0; axis != 3; ++axis)
+			{
+				auto const mean = m_broadphase_axis_sum[axis] * inv_count;
+				auto const variance = m_broadphase_axis_sum_sq[axis] * inv_count - mean * mean;
+				if (variance > best_variance)
+				{
+					best_variance = variance;
+					best_axis = axis;
+				}
+			}
+
+			m_broadphase_sort_axis = best_axis;
+		}
+
+		int BroadphaseSortAxis() const
+		{
+			return m_broadphase_sort_axis;
 		}
 
 		// Track whether the body requires GPU work this frame.

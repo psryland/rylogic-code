@@ -9,10 +9,9 @@
 // Buffer layout:
 //   u0: RWStructuredBuffer<GpuCollisionCounters> - shared step counters
 //   u1: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
-//   u2: RWStructuredBuffer<float>             — per-body world-space AABB X value (write)
-//   u3: RWStructuredBuffer<float>             — per-body world-space AABB Y value (write)
-//   u4: RWStructuredBuffer<float>             — per-body world-space AABB Z value (write)
-//   u5: RWStructuredBuffer<int>               — per-body encoded BodyIndex (write)
+//   u2: RWStructuredBuffer<int>               — per-body encoded BodyIndex (write)
+//   u3: RWStructuredBuffer<float>             — expanded sort-axis AABB value (write)
+//   u4: RWStructuredBuffer<BBox>              — per-body exact world-space bounding box (write)
 //   b0: cbuffer with time step and body count
 //
 // Matrix convention (row-vector / DirectX-style):
@@ -25,6 +24,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
+#include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
 #ifdef __cplusplus
@@ -40,7 +40,7 @@ struct cbIntegrate
 	float broadphase_aabb_margin;
 	float sleep_velocity_threshold_lin;
 	float sleep_velocity_threshold_ang;
-	float pad1;
+	int broadphase_sort_axis;
 	float pad2;
 };
 
@@ -48,10 +48,9 @@ struct cbIntegrate
 ConstantBuffer<cbIntegrate> resource(g, b0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u1);
-RWStructuredBuffer<float> resource(g_aabb_x, u2);
-RWStructuredBuffer<float> resource(g_aabb_y, u3);
-RWStructuredBuffer<float> resource(g_aabb_z, u4);
-RWStructuredBuffer<int> resource(g_aabb_idx, u5);
+RWStructuredBuffer<int> resource(g_aabb_idx, u2);
+RWStructuredBuffer<float> resource(g_aabb_sort, u3);
+RWStructuredBuffer<BBox> resource(g_aabb_box, u4);
 
 static const int AngularDriftSubstepMax = 32;
 static const float AngularDriftMaxRadians = 0.25f;
@@ -59,23 +58,37 @@ static const float AngularDriftMaxRadians = 0.25f;
 // Compute the world-space AABB for a body and write it to the output buffers.
 odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
 {
-	float3x3 rot = (float3x3)body.o2w;
-	float3 os_centre = body.os_bbox.centre.xyz;
-	float3 os_radius = body.os_bbox.radius.xyz;
-	float3 ws_centre = mul(float4(os_centre, 1), body.o2w).xyz;
-	float3 ws_radius = float3(
-		abs(rot[0].x) * os_radius.x + abs(rot[1].x) * os_radius.y + abs(rot[2].x) * os_radius.z,
-		abs(rot[0].y) * os_radius.x + abs(rot[1].y) * os_radius.y + abs(rot[2].y) * os_radius.z,
-		abs(rot[0].z) * os_radius.x + abs(rot[1].z) * os_radius.y + abs(rot[2].z) * os_radius.z);
-	ws_radius += max(g.broadphase_aabb_margin, 0.0f);
+	BBox ws_bbox = BBox_Transform(body.os_bbox, body.o2w);
+	float3 ws_centre = ws_bbox.centre.xyz;
+	float3 ws_radius = ws_bbox.radius.xyz;
+	float margin = max(g.broadphase_aabb_margin, 0.0f);
+	float sort_centre = ws_centre.x;
+	float sort_radius = ws_radius.x;
+	switch (g.broadphase_sort_axis)
+	{
+	case 1:
+	{
+		sort_centre = ws_centre.y;
+		sort_radius = ws_radius.y;
+		break;
+	}
+	case 2:
+	{
+		sort_centre = ws_centre.z;
+		sort_radius = ws_radius.z;
+		break;
+	}
+	default:
+	{
+		break;
+	}
+	}
 
-	// Write the aabb min/max values
-	g_aabb_x[2 * idx + 0] = ws_centre.x - ws_radius.x;
-	g_aabb_x[2 * idx + 1] = ws_centre.x + ws_radius.x;
-	g_aabb_y[2 * idx + 0] = ws_centre.y - ws_radius.y;
-	g_aabb_y[2 * idx + 1] = ws_centre.y + ws_radius.y;
-	g_aabb_z[2 * idx + 0] = ws_centre.z - ws_radius.z;
-	g_aabb_z[2 * idx + 1] = ws_centre.z + ws_radius.z;
+	// Write exact bounds for final broadphase filtering and readback, plus a conservative
+	// expanded sort-axis interval so just-touching chains are considered candidates.
+	g_aabb_box[idx] = ws_bbox;
+	g_aabb_sort[2 * idx + 0] = sort_centre - sort_radius - margin;
+	g_aabb_sort[2 * idx + 1] = sort_centre + sort_radius + margin;
 	g_aabb_idx[2 * idx + 0] = (idx << 1) | 0;
 	g_aabb_idx[2 * idx + 1] = (idx << 1) | 1;
 }
