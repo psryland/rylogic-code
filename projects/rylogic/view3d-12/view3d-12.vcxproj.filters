@@ -375,7 +375,16 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_model.h">
       <Filter>src\ray_tracing</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_resource.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_scene.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_support.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\render_ray_tracing.h">
       <Filter>src\ray_tracing</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\back_buffer.h">
@@ -654,7 +663,16 @@
     <ClCompile Include="src\ray_tracing\ray_tracing_model.cpp">
       <Filter>src\ray_tracing</Filter>
     </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_resource.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_scene.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
     <ClCompile Include="src\ray_tracing\ray_tracing_support.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\render_ray_tracing.cpp">
       <Filter>src\ray_tracing</Filter>
     </ClCompile>
     <ClCompile Include="src\render\back_buffer.cpp">

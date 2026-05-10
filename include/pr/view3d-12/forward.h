@@ -197,6 +197,7 @@ namespace pr::rdr12
 	struct RenderForward;
 	struct RenderSmap;
 	struct RenderRayCast;
+	struct RenderRayTracing;
 	struct DrawListElement;
 	struct BackBuffer;
 	struct PipeState;
@@ -285,6 +286,8 @@ namespace pr::rdr12
 	struct RayTracingSupport;
 	struct RayTracingModel;
 	struct RayTracingGeometryStats;
+	struct RayTracingScene;
+	struct RayTracingSceneStats;
 
 	// Utility
 	struct Lock;
@@ -345,7 +348,8 @@ namespace pr::rdr12
 		x(GBuffer        ,)\
 		x(DSLighting     ,)\
 		x(ShadowMap      ,)\
-		x(RayCast        ,)
+		x(RayCast        ,)\
+		x(RayTracing     ,)
 		PR_ENUM_MEMBERS2(PR_ENUM)
 	};
 	PR_ENUM_REFLECTION2(ERenderStep, PR_ENUM);

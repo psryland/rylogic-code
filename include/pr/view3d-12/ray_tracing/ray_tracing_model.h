@@ -35,6 +35,7 @@ namespace pr::rdr12
 	private:
 
 		std::unique_ptr<Data> m_data;
+		uint64_t m_revision;
 
 	public:
 
@@ -54,6 +55,12 @@ namespace pr::rdr12
 
 		// Return true if this model currently owns a built BLAS.
 		bool Built() const;
+
+		// Return the BLAS GPU virtual address, or zero if no BLAS is built.
+		D3D12_GPU_VIRTUAL_ADDRESS AccelerationStructureAddress() const;
+
+		// Return a value that changes whenever the model's BLAS lifetime changes.
+		uint64_t Revision() const;
 
 		// Release BLAS resources after deferring GPU lifetime management through the renderer.
 		void DeferRelease(Renderer& rdr);

@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/eventargs.h"
 #include "view3d-12/src/render/render_forward.h"
@@ -129,6 +130,7 @@ namespace pr::rdr12
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
 				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
 				case ERenderStep::RayCast:       m_render_steps.emplace_back(new RenderRayCast(*this, std::bind(&Scene::HitTestAsyncResults, this, _1))); break;
+				case ERenderStep::RayTracing:    m_render_steps.emplace_back(new RenderRayTracing(*this)); break;
 				default: throw std::runtime_error("Unknown render step");
 			}
 		}

@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
@@ -19,29 +20,6 @@ namespace pr::rdr12
 			RayTracingGeometryStats m_stats;
 			vector<D3D12_RAYTRACING_GEOMETRY_DESC, 8> m_geometry;
 		};
-
-		// Create an acceleration-structure resource in its required lifetime state.
-		D3DPtr<ID3D12Resource> CreateAccelerationStructure(ResourceFactory& factory, uint64_t size_in_bytes, std::string_view name)
-		{
-			D3DPtr<ID3D12Resource> res;
-			auto desc = ResDesc::Buf(s_cast<int64_t>(size_in_bytes), 1, {}, 1)
-				.usage(EUsage::UnorderedAccess)
-				.misc_flags(ResDesc::EMiscFlags::RayTracingStruct)
-				.def_state(D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
-
-			Check(factory.rdr().D3DDevice()->CreateCommittedResource(
-				&desc.HeapProps,
-				desc.HeapFlags,
-				&desc,
-				desc.DefaultState,
-				nullptr,
-				__uuidof(ID3D12Resource),
-				(void**)res.address_of()));
-
-			DefaultResState(res.get(), desc.DefaultState);
-			DebugName(res, name);
-			return res;
-		}
 
 		// Return the RT geometry flag to use for a render nugget.
 		D3D12_RAYTRACING_GEOMETRY_FLAGS GeometryFlags(Nugget const& nugget)
@@ -158,11 +136,13 @@ namespace pr::rdr12
 	// Create empty per-model ray tracing state.
 	RayTracingModel::RayTracingModel()
 		: m_data()
+		, m_revision()
 	{}
 
 	// Move per-model ray tracing state without copying GPU resource ownership.
 	RayTracingModel::RayTracingModel(RayTracingModel&& rhs) noexcept
 		: m_data(std::move(rhs.m_data))
+		, m_revision(rhs.m_revision)
 	{}
 
 	// Move per-model ray tracing state without copying GPU resource ownership.
@@ -172,6 +152,7 @@ namespace pr::rdr12
 			return *this;
 
 		m_data = std::move(rhs.m_data);
+		m_revision = rhs.m_revision;
 		return *this;
 	}
 
@@ -184,6 +165,20 @@ namespace pr::rdr12
 		return m_data != nullptr && m_data->m_blas != nullptr;
 	}
 
+	// Return the BLAS GPU virtual address, or zero if no BLAS is built.
+	D3D12_GPU_VIRTUAL_ADDRESS RayTracingModel::AccelerationStructureAddress() const
+	{
+		return Built()
+			? m_data->m_blas->GetGPUVirtualAddress()
+			: D3D12_GPU_VIRTUAL_ADDRESS{};
+	}
+
+	// Return a value that changes whenever the model's BLAS lifetime changes.
+	uint64_t RayTracingModel::Revision() const
+	{
+		return m_revision;
+	}
+
 	// Release BLAS resources after deferring GPU lifetime management through the renderer.
 	void RayTracingModel::DeferRelease(Renderer& rdr)
 	{
@@ -193,6 +188,7 @@ namespace pr::rdr12
 		rdr.DeferRelease(m_data->m_blas);
 		rdr.DeferRelease(m_data->m_scratch);
 		m_data.reset();
+		++m_revision;
 	}
 
 	// Mark the model's BLAS as invalid because the model geometry or nugget layout changed.
@@ -243,8 +239,9 @@ namespace pr::rdr12
 		auto scratch_desc = ResDesc::Buf(s_cast<int64_t>(prebuild_info.ScratchDataSizeInBytes), 1, std::span<std::byte const>{}, 1)
 			.usage(EUsage::UnorderedAccess)
 			.def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		m_data->m_blas = CreateAccelerationStructure(factory, prebuild_info.ResultDataMaxSizeInBytes, std::format("{}:BLAS", model.m_name));
+		m_data->m_blas = CreateRayTracingAccelerationStructure(factory, prebuild_info.ResultDataMaxSizeInBytes, std::format("{}:BLAS", model.m_name));
 		m_data->m_scratch = factory.CreateResource(scratch_desc, std::format("{}:BLAS scratch", model.m_name));
+		++m_revision;
 
 		auto& cmd_list = factory.CmdList();
 		BarrierBatch barriers(cmd_list);
