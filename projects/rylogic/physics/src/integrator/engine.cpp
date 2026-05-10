@@ -491,7 +491,8 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, bodies);
+		auto contact_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, contact_dispatch, bodies);
 	}
 
 	// Read buffers back to CPU memory
