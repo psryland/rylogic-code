@@ -10,6 +10,7 @@
 
 static const int RayTracingMode_Diagnostic = 0;
 static const int RayTracingMode_HardShadows = 1;
+static const int RayTracingMode_Reflections = 2;
 
 // Constants per ray tracing dispatch.
 struct CBufFrame// :reg(b0)
@@ -31,6 +32,9 @@ struct CBufFrame// :reg(b0)
 
 	// x = shadow strength, y = minimum shadow-ray bias
 	float4 shadow;
+
+	// x = reflection strength, y = minimum reflection-ray bias
+	float4 reflection;
 
 	// x = RayTracingMode_*
 	int4 options;

@@ -6548,7 +6548,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::LookAt:
 				{
 					auto point = Vector3f().w1();
-					p2w = m4x4::LookAt(o2w.pos, point, o2w.y) * p2w;
+					p2w = m4x4::LookAt(p2w.pos, point, p2w.y) * p2w;
 					break;
 				}
 				case EKeyword::Quat:

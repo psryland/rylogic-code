@@ -14,6 +14,7 @@
 #include "pr/view3d-12/model/skin.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/texture/texture_base.h"
@@ -71,6 +72,13 @@ namespace pr::rdr12
 			},
 			.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
 		};
+
+		// Duplicate the PSO for the opaque pass variant that also writes RT reflection attributes.
+		auto reflection_psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
+		reflection_psdesc.PS = shader_code::forward_reflection_attrs_ps;
+		reflection_psdesc.NumRenderTargets = 2U;
+		reflection_psdesc.RTVFormats[1] = RayTracingReflectionAttributeFormat;
+		m_reflection_pipe_state = reflection_psdesc;
 
 		// Duplicate the PSO for the alpha pass with some modifications
 		auto psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
@@ -172,18 +180,40 @@ namespace pr::rdr12
 		m_alp_list.RSSetScissorRects(vp.m_clip);
 
 		auto& kbuf = wnd().m_alpha_kbuffer;
+		auto* reflection_attrs = [&]() -> RayTracingReflectionBuffer*
+		{
+			auto* ray_tracing = scn().FindRStep<RenderRayTracing>();
+			return ray_tracing != nullptr
+				? ray_tracing->PrepareReflectionAttributes(frame)
+				: nullptr;
+		}();
 
 		// Render the opaque nuggets first
 		{
 			BindFrameResources(m_cmd_list);
 
 			// Get the back buffer view handle and set the back buffer as the render target.
-			m_cmd_list.OMSetRenderTargets({ &frame.bb_main().m_rtv, 1 }, FALSE, &frame.bb_main().m_dsv);
+			auto const& pipe_state = reflection_attrs != nullptr ? m_reflection_pipe_state : m_default_pipe_state;
+			if (reflection_attrs != nullptr)
+			{
+				BarrierBatch bb(m_cmd_list);
+				bb.Transition(reflection_attrs->Attributes(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb.Commit();
+
+				reflection_attrs->Clear(m_cmd_list);
+
+				D3D12_CPU_DESCRIPTOR_HANDLE rtvs[] = { frame.bb_main().m_rtv, reflection_attrs->RTV() };
+				m_cmd_list.OMSetRenderTargets({ rtvs, _countof(rtvs) }, FALSE, &frame.bb_main().m_dsv);
+			}
+			else
+			{
+				m_cmd_list.OMSetRenderTargets({ &frame.bb_main().m_rtv, 1 }, FALSE, &frame.bb_main().m_dsv);
+			}
 
 			// Draw the opaques
 			auto drawlist = m_drawlist.lock();
 			auto opaque_end = kbuf ? boundaries[ESortGroup::AlphaBack] : s_cast<int>(drawlist->size());
-			DrawNuggets(m_cmd_list, m_default_pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)));
+			DrawNuggets(m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)));
 		}
 
 		// Render the alpha nuggets

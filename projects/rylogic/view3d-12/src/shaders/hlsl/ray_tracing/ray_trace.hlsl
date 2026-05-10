@@ -10,11 +10,13 @@ ConstantBuffer<CBufFrame> g_frame : register(b0);
 RaytracingAccelerationStructure g_scene : register(t0);
 Texture2D<float4> g_input : register(t1);
 Texture2DMS<float> g_depth : register(t2);
+Texture2DMS<float4> g_reflection_attrs : register(t3);
 RWTexture2D<float4> g_output : register(u0);
 
 static const uint RayPayloadMode_Diagnostic = 0;
 static const uint RayPayloadMode_Primary = 1;
 static const uint RayPayloadMode_Shadow = 2;
+static const uint RayPayloadMode_Reflection = 3;
 
 struct RayPayload
 {
@@ -23,6 +25,11 @@ struct RayPayload
 	uint mode;
 	uint hit;
 	uint occluded;
+};
+struct RasterDepth
+{
+	float depth;
+	uint sample;
 };
 
 // Return a stable pseudo-random colour for diagnostic object/primitive ids.
@@ -70,17 +77,32 @@ RayDesc MakeCameraRay(uint2 pixel, uint2 dim)
 	return ray;
 }
 
-// Return the closest raster depth sample for a pixel.
-float LoadDepth(uint2 pixel)
+// Return the closest raster depth sample for a pixel, plus the sample index that produced it.
+RasterDepth LoadRasterDepth(uint2 pixel)
 {
 	uint width, height, sample_count;
 	g_depth.GetDimensions(width, height, sample_count);
 
-	float depth = 1.0f;
+	RasterDepth raster = (RasterDepth)0;
+	raster.depth = 1.0f;
+	raster.sample = 0;
 	for (uint sample = 0; sample != sample_count; ++sample)
-		depth = min(depth, g_depth.Load(pixel, sample));
+	{
+		float depth = g_depth.Load(pixel, sample);
+		if (depth < raster.depth)
+		{
+			raster.depth = depth;
+			raster.sample = sample;
+		}
+	}
 
-	return depth;
+	return raster;
+}
+
+// Return the closest raster depth value for a pixel.
+float LoadDepth(uint2 pixel)
+{
+	return LoadRasterDepth(pixel).depth;
 }
 
 // Reconstruct the visible raster position in world space.
@@ -92,6 +114,13 @@ float3 WorldPosition(uint2 pixel, uint2 dim, float depth)
 
 	float4 ws_pos = mul(float4(nss, depth, 1.0f), g_frame.s2w);
 	return ws_pos.xyz / ws_pos.w;
+}
+
+// Return a simple sky fallback for reflection rays that miss the TLAS.
+float3 ReflectionMissColour(float3 ws_direction)
+{
+	float t = saturate(0.5f + 0.5f * ws_direction.y);
+	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
 }
 
 [shader("raygeneration")]
@@ -116,6 +145,50 @@ void RayGen()
 	}
 
 	float4 colour = g_input.Load(int3(pixel, 0));
+	if (g_frame.options.x == RayTracingMode_Reflections)
+	{
+		RasterDepth raster = LoadRasterDepth(pixel);
+		if (raster.depth < 0.999999f)
+		{
+			float4 reflection_attrs = g_reflection_attrs.Load(pixel, raster.sample);
+			float reflectivity = saturate(reflection_attrs.a * g_frame.reflection.x);
+			if (reflectivity > 0.0f)
+			{
+				RayDesc camera_ray = MakeCameraRay(pixel, dim);
+				float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
+				float3 normal = normalize(2.0f * reflection_attrs.xyz - 1.0f);
+				if (dot(normal, -camera_ray.Direction) < 0.0f)
+					normal = -normal;
+
+				float3 reflection_dir = normalize(reflect(camera_ray.Direction, normal));
+				float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
+
+				RayPayload reflection_payload;
+				reflection_payload.colour = 0.0f;
+				reflection_payload.hit_t = 0.0f;
+				reflection_payload.mode = RayPayloadMode_Reflection;
+				reflection_payload.hit = 0;
+				reflection_payload.occluded = 0;
+
+				RayDesc reflection_ray = (RayDesc)0;
+				reflection_ray.Origin = hit_pos + normal * reflection_bias;
+				reflection_ray.Direction = reflection_dir;
+				reflection_ray.TMin = 0.0f;
+				reflection_ray.TMax = g_frame.clip.y;
+
+				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 1, 0, reflection_ray, reflection_payload);
+
+				float3 reflection_colour = reflection_payload.hit != 0
+					? reflection_payload.colour.rgb
+					: ReflectionMissColour(reflection_dir);
+				colour.rgb = lerp(colour.rgb, reflection_colour, reflectivity);
+			}
+		}
+
+		g_output[pixel] = colour;
+		return;
+	}
+
 	if (!DirectionalLight(g_frame.global_light))
 	{
 		g_output[pixel] = colour;
@@ -159,6 +232,11 @@ void Miss(inout RayPayload payload)
 		payload.occluded = 0;
 		return;
 	}
+	if (payload.mode == RayPayloadMode_Reflection)
+	{
+		payload.hit = 0;
+		return;
+	}
 
 	payload.hit = 0;
 	payload.colour = float4(0.02f, 0.03f, 0.05f, 1.0f);
@@ -167,6 +245,14 @@ void Miss(inout RayPayload payload)
 [shader("closesthit")]
 void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attrib)
 {
+	if (payload.mode == RayPayloadMode_Reflection)
+	{
+		uint seed = InstanceID() ^ (PrimitiveIndex() * 747796405u);
+		payload.hit = 1;
+		payload.hit_t = RayTCurrent();
+		payload.colour = float4(DiagnosticColour(seed), 1.0f);
+		return;
+	}
 	if (payload.mode != RayPayloadMode_Diagnostic)
 	{
 		payload.hit = 1;

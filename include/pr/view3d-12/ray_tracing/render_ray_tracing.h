@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/render_step.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_diagnostic.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_reflections.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_scene.h"
 
 namespace pr::rdr12
@@ -17,6 +18,7 @@ namespace pr::rdr12
 
 		RayTracingScene m_ray_tracing;
 		RayTracingDiagnostic m_diagnostic;
+		RayTracingReflectionBuffer m_reflections;
 
 	public:
 
@@ -28,6 +30,12 @@ namespace pr::rdr12
 
 		// Return the latest TLAS build diagnostics.
 		RayTracingSceneStats const& Stats() const;
+
+		// Return the selected RT screen-space pass for this frame.
+		ERayTracingScreenPass ScreenPass() const;
+
+		// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
+		RayTracingReflectionBuffer* PrepareReflectionAttributes(Frame& frame);
 
 	private:
 

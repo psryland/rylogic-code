@@ -6,11 +6,14 @@
 #include "pr/view3d-12/main/frame.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_reflections.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_scene.h"
+#include "pr/view3d-12/render/alpha_kbuffer.h"
 #include "pr/view3d-12/resource/gpu_descriptor_heap.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/shaders/shader.h"
+#include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "view3d-12/src/shaders/common.h"
@@ -31,6 +34,7 @@ namespace pr::rdr12
 			Scene,
 			InputColour,
 			Depth,
+			ReflectionAttrs,
 			Output,
 		};
 		enum class EPresentRootParam
@@ -133,6 +137,7 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t0)
 			.SRV(hlsl::ESRVReg::t1, 1)
 			.SRV(hlsl::ESRVReg::t2, 1)
+			.SRV(hlsl::ESRVReg::t3, 1)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
@@ -297,7 +302,7 @@ namespace pr::rdr12
 	}
 
 	// Record the ray dispatch and presentation commands for the selected screen-space pass.
-	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, bool restore_present_state)
+	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections, bool restore_present_state)
 	{
 		if (m_data == nullptr || m_data->m_output == nullptr || !ray_tracing_scene.Built())
 			return;
@@ -308,10 +313,23 @@ namespace pr::rdr12
 
 		auto const output_size = data.m_output_size;
 		auto const output = data.m_output.get();
-		auto const input = const_cast<ID3D12Resource*>(frame.bb_post().m_render_target.get());
+		auto& kbuffer = scene.wnd().m_alpha_kbuffer;
+		auto const use_reflections = pass == ERayTracingScreenPass::Reflections;
+		auto const input = use_reflections
+			? (kbuffer.m_opaque_colour_1x != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_opaque_colour_1x->m_res.get()) : nullptr)
+			: const_cast<ID3D12Resource*>(frame.bb_post().m_render_target.get());
+		auto const target = input;
+		auto const target_rtv = use_reflections
+			? (kbuffer.m_opaque_colour_1x != nullptr ? kbuffer.m_opaque_colour_1x->m_rtv.m_cpu : D3D12_CPU_DESCRIPTOR_HANDLE{})
+			: frame.bb_post().m_rtv;
 		auto const depth = const_cast<ID3D12Resource*>(frame.bb_main().m_depth_stencil.get());
+		auto const reflection_attrs = reflections != nullptr ? reflections->Attributes() : nullptr;
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
+		if (input == nullptr || target == nullptr)
+			return;
 		if (pass == ERayTracingScreenPass::HardShadows && depth == nullptr)
+			return;
+		if (pass == ERayTracingScreenPass::Reflections && (depth == nullptr || reflections == nullptr || !*reflections))
 			return;
 
 		// Dispatch rays into an intermediate UAV. The fullscreen present pass that follows keeps the UAV format independent of the swap-chain format.
@@ -320,6 +338,8 @@ namespace pr::rdr12
 			barriers.Transition(input, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (depth != nullptr)
 				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (reflection_attrs != nullptr)
+				barriers.Transition(reflection_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
@@ -335,11 +355,18 @@ namespace pr::rdr12
 					.ResourceMinLODClamp = 0.0f,
 				},
 			};
-			auto input_srv = frame.bb_post().wnd().m_heap_view.Add(input, input_srv_desc);
+			auto input_srv = scene.wnd().m_heap_view.Add(input, input_srv_desc);
 			auto depth_srv = frame.bb_main().m_depth_srv
-				? frame.bb_post().wnd().m_heap_view.Add(frame.bb_main().m_depth_srv)
-				: frame.bb_post().wnd().m_heap_view.Add(nullptr, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				? scene.wnd().m_heap_view.Add(frame.bb_main().m_depth_srv)
+				: scene.wnd().m_heap_view.Add(nullptr, D3D12_SHADER_RESOURCE_VIEW_DESC{
 					.Format = DXGI_FORMAT_R32_FLOAT,
+					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				});
+			auto reflection_attrs_srv = reflections != nullptr && *reflections
+				? scene.wnd().m_heap_view.Add(reflections->SRV())
+				: scene.wnd().m_heap_view.Add(nullptr, D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = RayTracingReflectionAttributeFormat,
 					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
 					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				});
@@ -352,7 +379,7 @@ namespace pr::rdr12
 					.PlaneSlice = 0U,
 				},
 			};
-			auto output_uav = frame.bb_post().wnd().m_heap_view.Add(output, uav_desc);
+			auto output_uav = scene.wnd().m_heap_view.Add(output, uav_desc);
 
 			auto cb = shaders::rt::CBufFrame{};
 			SetViewConstants(cb.cam, scene.m_cam);
@@ -369,9 +396,11 @@ namespace pr::rdr12
 				0.0f,
 				0.0f);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
+			cb.reflection = v4(1.0f, 0.01f, 0.0f, 0.0f);
 			cb.options = iv4(
 				pass == ERayTracingScreenPass::Diagnostic ? shaders::rt::RayTracingMode_Diagnostic :
 				pass == ERayTracingScreenPass::HardShadows ? shaders::rt::RayTracingMode_HardShadows :
+				pass == ERayTracingScreenPass::Reflections ? shaders::rt::RayTracingMode_Reflections :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
 				0, 0, 0);
 
@@ -380,6 +409,7 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootShaderResourceView(ETraceRootParam::Scene, tlas_address);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::InputColour, input_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Depth, depth_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ReflectionAttrs, reflection_attrs_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 
@@ -390,12 +420,12 @@ namespace pr::rdr12
 			dxr_cmd_list->DispatchRays(&dispatch_desc);
 		}
 
-		// Present the diagnostic texture over the post-resolve back buffer so the path works with MSAA and BGRA swap-chain formats.
+		// Composite the ray traced result into the selected resolved target using a fullscreen draw.
 		{
 			BarrierBatch barriers(cmd_list);
 			barriers.UAV(output);
 			barriers.Transition(output, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-			barriers.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			barriers.Transition(target, D3D12_RESOURCE_STATE_RENDER_TARGET);
 			if (depth != nullptr)
 				barriers.Transition(depth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
 			barriers.Commit();
@@ -411,7 +441,7 @@ namespace pr::rdr12
 					.ResourceMinLODClamp = 0.0f,
 				},
 			};
-			auto output_srv = frame.bb_post().wnd().m_heap_view.Add(output, srv_desc);
+			auto output_srv = scene.wnd().m_heap_view.Add(output, srv_desc);
 			auto viewport = Viewport(output_size);
 
 			cmd_list.SetGraphicsRootSignature(data.m_present_signature.get());
@@ -419,11 +449,17 @@ namespace pr::rdr12
 			cmd_list.SetPipelineState(data.m_present_pso.get());
 			cmd_list.RSSetViewports({ &viewport, 1 });
 			cmd_list.RSSetScissorRects(viewport.m_clip);
-			cmd_list.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, false, nullptr);
+			cmd_list.OMSetRenderTargets({ &target_rtv, 1 }, false, nullptr);
 			cmd_list.IASetPrimitiveTopology(ETopo::TriList);
 			cmd_list.DrawInstanced(3, 1, 0, 0);
 
-			if (restore_present_state)
+			if (use_reflections)
+			{
+				BarrierBatch bb(cmd_list);
+				bb.Transition(target, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+				bb.Commit();
+			}
+			else if (restore_present_state)
 			{
 				BarrierBatch bb(cmd_list);
 				bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);

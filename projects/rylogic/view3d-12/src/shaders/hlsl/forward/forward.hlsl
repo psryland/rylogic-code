@@ -50,6 +50,40 @@ struct PSOut
 {
 	float4 diff :SV_TARGET;
 };
+struct PSReflectionOut
+{
+	float4 diff :SV_TARGET0;
+	float4 reflection_attrs :SV_TARGET1;
+};
+
+// Return the world-space surface normal used by the forward material path.
+float4 ResolveWorldNormal(PSIn In)
+{
+	if (!HasNormals(g_nugget.flags))
+		return float4(0, 0, 0, 0);
+
+	return
+		dot(In.ws_norm, In.ws_norm) != 0 ? normalize(In.ws_norm) :
+		DirectionalLight(g_frame.global_light) ? -g_frame.global_light.ws_direction :
+		PointLight(g_frame.global_light)       ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
+		SpotLight(g_frame.global_light)        ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
+		float4(0, 0, 0, 0);
+}
+
+// Return the RT reflection side-buffer payload for the visible opaque surface.
+float4 ReflectionAttributes(PSIn In, float4 diff)
+{
+	float reflectivity = saturate(g_nugget.env_reflectivity);
+	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
+		return float4(0, 0, 0, 0);
+
+	float3 normal = ResolveWorldNormal(In).xyz;
+	if (dot(normal, normal) == 0.0f)
+		return float4(0, 0, 0, 0);
+
+	normal = normalize(normal);
+	return float4(0.5f * normal + 0.5f, reflectivity);
+}
 
 // Default VS
 PSIn VSDefault(VSIn In)
@@ -102,12 +136,7 @@ PSOut PSDefault(PSIn In)
 	if (HasNormals(g_nugget.flags))
 	{
 		// If the normal is (0,0,0), use a vector to the light source
-		In.ws_norm =
-			dot(In.ws_norm, In.ws_norm) != 0 ? normalize(In.ws_norm) :
-			DirectionalLight(g_frame.global_light) ? -g_frame.global_light.ws_direction :
-			PointLight(g_frame.global_light)       ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
-			SpotLight(g_frame.global_light)        ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
-			float4(0,0,0,0);
+		In.ws_norm = ResolveWorldNormal(In);
 	}
 
 	// Texture2D (with transform)
@@ -200,6 +229,16 @@ PSIn main(VSIn In)
 PSOut main(PSIn In)
 {
 	return PSDefault(In);
+}
+#endif
+
+#ifdef PR_RDR_PSHADER_forward_reflection_attrs
+PSReflectionOut main(PSIn In)
+{
+	PSReflectionOut Out = (PSReflectionOut)0;
+	Out.diff = PSDefault(In).diff;
+	Out.reflection_attrs = ReflectionAttributes(In, Out.diff);
+	return Out;
 }
 #endif
 
