@@ -127,6 +127,9 @@
     <Filter Include="src\openxr">
       <UniqueIdentifier>{2b8da540-474d-4518-954d-73baf3b0c608}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\ray_tracing">
+      <UniqueIdentifier>{67d74551-19e8-4cf6-aa46-2e6b2fb0d872}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\imgui">
       <UniqueIdentifier>{fbcc4191-917c-43ee-a6b6-71c70a44bf81}</UniqueIdentifier>
     </Filter>
@@ -368,6 +371,9 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\openxr\openxr.h">
       <Filter>src\openxr</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_support.h">
+      <Filter>src\ray_tracing</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\back_buffer.h">
       <Filter>src\render</Filter>
@@ -641,6 +647,9 @@
     </ClInclude>
     <ClCompile Include="src\openxr\openxr.cpp">
       <Filter>src\openxr</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_support.cpp">
+      <Filter>src\ray_tracing</Filter>
     </ClCompile>
     <ClCompile Include="src\render\back_buffer.cpp">
       <Filter>src\render</Filter>

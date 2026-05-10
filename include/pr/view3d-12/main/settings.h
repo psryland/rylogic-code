@@ -12,12 +12,13 @@ namespace pr::rdr12
 	/// <summary>Options</summary>
 	enum class ERdrOptions
 	{
-		None           = 0,
-		DeviceDebug    = 1 << 0,
-		DeviceGPUDebug = 1 << 1 | DeviceDebug,
-		BreakOnErrors  = 1 << 2 | DeviceDebug,
-		BGRASupport    = 1 << 3,
-		D2D1_DebugInfo = 1 << 4,
+		None              = 0,
+		DeviceDebug       = 1 << 0,
+		DeviceGPUDebug    = 1 << 1 | DeviceDebug,
+		BreakOnErrors     = 1 << 2 | DeviceDebug,
+		BGRASupport       = 1 << 3,
+		D2D1_DebugInfo    = 1 << 4,
+		RayTracingSupport = 1 << 5,
 
 		_flags_enum = 0,
 	};

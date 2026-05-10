@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/main/settings.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_support.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
 #include "pr/view3d-12/utility/eventargs.h"
@@ -53,6 +54,7 @@ namespace pr::rdr12
 			// This is needed so that the Dx12 device is created before the managers are constructed.
 			RdrSettings                 m_settings;
 			FeatureSupport              m_features;
+			RayTracingSupport           m_ray_tracing;
 			D3DPtr<ID3D12Device4>       m_d3d_device;
 			D3DPtr<ID3D12CommandQueue>  m_gfx_queue;
 			D3DPtr<ID3D12CommandQueue>  m_com_queue;
@@ -197,6 +199,9 @@ namespace pr::rdr12
 
 		// Device supported features
 		FeatureSupport const& Features() const;
+
+		// Device ray tracing support requested for this renderer.
+		RayTracingSupport const& RayTracing() const;
 
 		// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.
 		HWND DummyHwnd() const;

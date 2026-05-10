@@ -281,6 +281,9 @@ namespace pr::rdr12
 	struct HitTestRay;
 	struct HitTestResult;
 
+	// Ray tracing
+	struct RayTracingSupport;
+
 	// Utility
 	struct Lock;
 	struct MLock;

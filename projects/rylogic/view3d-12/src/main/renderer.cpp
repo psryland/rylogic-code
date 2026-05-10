@@ -58,6 +58,7 @@ namespace pr::rdr12
 	Renderer::RdrState::RdrState(RdrSettings const& settings)
 		:m_settings(settings)
 		,m_features()
+		,m_ray_tracing()
 		,m_d3d_device()
 		,m_gfx_queue()
 		,m_com_queue()
@@ -171,6 +172,11 @@ namespace pr::rdr12
 
 			// Read the supported features
 			m_features.Read(m_d3d_device.get());
+			m_ray_tracing = RayTracingSupport(m_settings.m_options, m_features);
+			PR_INFO_IF(PR_DBG_RDR, m_ray_tracing.Requested(), std::format(
+				"RayTracingSupport requested. Device tier: {}. Available: {}\n",
+				m_ray_tracing.TierName(),
+				m_ray_tracing.Available() ? "true" : "false"));
 
 			// Create the command queues
 			D3D12_COMMAND_QUEUE_DESC queue_desc = {
@@ -194,8 +200,6 @@ namespace pr::rdr12
 			// Check feature support
 			if (m_features.ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
 				throw std::runtime_error("DirectX device does not support Compute Shaders 4x");
-			if (m_features.Options5.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
-				PR_ASSERT(PR_DBG_RDR, true, "Sweet!");
 
 			// Create the D3D11-on-12 device so that D2D can draw on Dx12 resources
 			D3DPtr<ID3D11Device> dx11_device;
@@ -366,6 +370,12 @@ namespace pr::rdr12
 	FeatureSupport const& Renderer::Features() const
 	{
 		return m_state.m_features;
+	}
+
+	// Device ray tracing support requested for this renderer.
+	RayTracingSupport const& Renderer::RayTracing() const
+	{
+		return m_state.m_ray_tracing;
 	}
 
 	// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.
