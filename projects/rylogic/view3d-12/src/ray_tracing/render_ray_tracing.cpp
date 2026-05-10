@@ -12,6 +12,17 @@
 
 namespace pr::rdr12
 {
+	namespace
+	{
+		// Return true when the internal DXR diagnostic visualisation is requested instead of the current lighting feature.
+		bool RayTracingDiagnosticModeRequested()
+		{
+			auto value = std::array<wchar_t, 16>{};
+			auto len = GetEnvironmentVariableW(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC", value.data(), s_cast<DWORD>(value.size()));
+			return len != 0 && value[0] != L'0';
+		}
+	}
+
 	// Create the stub ray tracing render step.
 	RenderRayTracing::RenderRayTracing(Scene& scene)
 		: RenderStep(Id, scene)
@@ -51,10 +62,13 @@ namespace pr::rdr12
 		if (!prepared)
 			return;
 
-		// Present-list commands execute after View3D's alpha resolve, so the diagnostic overlay is not overwritten by the normal forward-composite path.
+		// Present-list commands execute after View3D's alpha resolve, so the RT screen pass is not overwritten by the normal forward-composite path.
 		auto heaps = { wnd().m_heap_view.get() };
 		frame.m_present.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-		m_diagnostic.Record(frame.m_present, frame, scn(), m_ray_tracing, true);
+		auto pass = RayTracingDiagnosticModeRequested()
+			? ERayTracingScreenPass::Diagnostic
+			: ERayTracingScreenPass::HardShadows;
+		m_diagnostic.Record(frame.m_present, frame, scn(), m_ray_tracing, pass, true);
 	}
 
 	// Add model nuggets to the draw list for this render step.

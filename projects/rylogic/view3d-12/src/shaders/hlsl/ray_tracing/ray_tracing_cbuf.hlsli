@@ -8,17 +8,32 @@
 #define PR_VIEW3D_SHADER_RAY_TRACING_CBUF_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
-// Constants per ray tracing diagnostic dispatch.
+static const int RayTracingMode_Diagnostic = 0;
+static const int RayTracingMode_HardShadows = 1;
+
+// Constants per ray tracing dispatch.
 struct CBufFrame// :reg(b0)
 {
 	// Camera transform
 	Camera cam;
+
+	// Screen to world projection
+	row_major float4x4 s2w;
+
+	// Global lighting
+	Light global_light;
 
 	// x = aspect, y = vertical FOV, z = focus distance, w = orthographic flag
 	float4 camera;
 
 	// x = near clip, y = far clip
 	float4 clip;
+
+	// x = shadow strength, y = minimum shadow-ray bias
+	float4 shadow;
+
+	// x = RayTracingMode_*
+	int4 options;
 };
 
 #endif

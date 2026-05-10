@@ -8,7 +8,13 @@
 
 namespace pr::rdr12
 {
-	// Owns the minimal DXR diagnostic pipeline used to visualise TLAS/BLAS coverage.
+	enum class ERayTracingScreenPass
+	{
+		Diagnostic,
+		HardShadows,
+	};
+
+	// Owns the minimal DXR screen-space pipeline used to visualise TLAS/BLAS coverage and prototype RT lighting features.
 	struct RayTracingDiagnostic
 	{
 		struct Data;
@@ -39,7 +45,7 @@ namespace pr::rdr12
 		// Create or resize GPU resources needed for the diagnostic pass.
 		bool Prepare(ResourceFactory& factory, iv2 output_size, DXGI_FORMAT present_format);
 
-		// Record the diagnostic ray dispatch and presentation commands.
-		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, bool restore_present_state);
+		// Record the ray dispatch and presentation commands for the selected screen-space pass.
+		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, bool restore_present_state);
 	};
 }
