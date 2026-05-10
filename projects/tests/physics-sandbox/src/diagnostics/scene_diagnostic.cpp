@@ -142,7 +142,18 @@ namespace physics_sandbox::diag
 				m_engine.m_sleepupdate_ms += profile.m_engine.m_sleepupdate_ms;
 				m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
 				m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
+				m_engine.m_gpu_prepare_ms += profile.m_engine.m_gpu_prepare_ms;
+				m_engine.m_gpu_execute_ms += profile.m_engine.m_gpu_execute_ms;
+				m_engine.m_gpu_wait_ms += profile.m_engine.m_gpu_wait_ms;
+				m_engine.m_gpu_reset_ms += profile.m_engine.m_gpu_reset_ms;
 				m_engine.m_unpack_ms += profile.m_engine.m_unpack_ms;
+				m_engine.m_readback_access_ms += profile.m_engine.m_readback_access_ms;
+				m_engine.m_body_readback_copy_ms += profile.m_engine.m_body_readback_copy_ms;
+				m_engine.m_contact_readback_copy_ms += profile.m_engine.m_contact_readback_copy_ms;
+				m_engine.m_collision_events_ms += profile.m_engine.m_collision_events_ms;
+				m_engine.m_sleep_island_unpack_ms += profile.m_engine.m_sleep_island_unpack_ms;
+				m_engine.m_body_unpack_ms += profile.m_engine.m_body_unpack_ms;
+				m_engine.m_unpack_diagnostics_ms += profile.m_engine.m_unpack_diagnostics_ms;
 			}
 
 			void Reset()
@@ -459,7 +470,7 @@ namespace physics_sandbox::diag
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
 				step,
 				time_s,
 				profile.m_sample_count,
@@ -478,7 +489,18 @@ namespace physics_sandbox::diag
 				profile.m_engine.m_sleepupdate_ms / count,
 				profile.m_engine.m_readback_ms / count,
 				profile.m_engine.m_gpu_run_ms / count,
-				profile.m_engine.m_unpack_ms / count));
+				profile.m_engine.m_unpack_ms / count,
+				profile.m_engine.m_gpu_prepare_ms / count,
+				profile.m_engine.m_gpu_execute_ms / count,
+				profile.m_engine.m_gpu_wait_ms / count,
+				profile.m_engine.m_gpu_reset_ms / count,
+				profile.m_engine.m_readback_access_ms / count,
+				profile.m_engine.m_body_readback_copy_ms / count,
+				profile.m_engine.m_contact_readback_copy_ms / count,
+				profile.m_engine.m_collision_events_ms / count,
+				profile.m_engine.m_sleep_island_unpack_ms / count,
+				profile.m_engine.m_body_unpack_ms / count,
+				profile.m_engine.m_unpack_diagnostics_ms / count));
 		}
 		void PrintSleepScan(std::ofstream& log, int step, double time_s, Scene const& scene, bool non_spheres_only)
 		{
@@ -774,7 +796,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)

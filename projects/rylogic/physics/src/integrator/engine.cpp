@@ -59,6 +59,22 @@ namespace pr::physics
 		{
 			return StepProfileScope<PR_PHYSICS_PROFILE != 0, Field>(profile);
 		}
+		void RunGpuJob(GpuJob& job, Engine::StepProfile& profile)
+		{
+			if constexpr (PR_PHYSICS_PROFILE != 0)
+			{
+				auto run_profile = GpuJob::RunProfile{};
+				job.Run(&run_profile);
+				profile.m_gpu_prepare_ms = run_profile.m_prepare_ms;
+				profile.m_gpu_execute_ms = run_profile.m_execute_ms;
+				profile.m_gpu_wait_ms = run_profile.m_wait_ms;
+				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
+			}
+			else
+			{
+				job.Run();
+			}
+		}
 		void CheckCollisionCapacity(Engine::CollisionStats const& stats)
 		{
 			if (stats.PairLimitReached())
@@ -228,7 +244,7 @@ namespace pr::physics
 		// Run the GPU jobs for all stages up to this point
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
-			m_gpu->m_job.Run();
+			RunGpuJob(m_gpu->m_job, m_last_step_profile);
 		}
 
 		// Unpack the results back into the caller-owned bodies
@@ -283,7 +299,7 @@ namespace pr::physics
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
-			m_gpu->m_job.Run();
+			RunGpuJob(m_gpu->m_job, m_last_step_profile);
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
@@ -533,23 +549,34 @@ namespace pr::physics
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_cache->MaxContactsCount();
 
-		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
-		m_last_collision_stats = Engine::CollisionStats{
-			.m_pair_count = counts.pair_count,
-			.m_contact_count = counts.contact_count,
-			.m_max_pairs = m_config.max_collision_pairs,
-			.m_max_contacts = max_contacts,
-		};
-		CheckCollisionCapacity(m_last_collision_stats);
+		auto counts = GpuCollisionCounters{};
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);
+			counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
+			m_last_collision_stats = Engine::CollisionStats{
+				.m_pair_count = counts.pair_count,
+				.m_contact_count = counts.contact_count,
+				.m_max_pairs = m_config.max_collision_pairs,
+				.m_max_contacts = max_contacts,
+			};
+			CheckCollisionCapacity(m_last_collision_stats);
+		}
 
 		auto contact_count = std::min(counts.contact_count, max_contacts);
-		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_readback_copy_ms>(m_last_step_profile);
+			std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+		}
 		if (buffers.read_contacts)
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_contact_readback_copy_ms>(m_last_step_profile);
 			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
+		}
 
 		// Before updating the bodies with new dynamics, raise the collision events
 		if (contact_count != 0 && buffers.read_contacts)
 		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collision_events_ms>(m_last_step_profile);
 			m_cache->m_contacts_cpu.resize(0);
 			m_cache->m_contacts_cpu.reserve(contact_count);
 			auto const contact_order = std::span{ buffers.rb_contact_order.ptr<uint32_t>(), static_cast<size_t>(contact_count) };
@@ -567,14 +594,21 @@ namespace pr::physics
 		}
 
 		// Unpack the GPU results into the RigidBody objects
-		for (auto [body, i] : with_index(rigid_bodies))
 		{
-			m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
-			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleep_island_unpack_ms>(m_last_step_profile);
+			for (int i = 0; i != body_count; ++i)
+				m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_unpack_ms>(m_last_step_profile);
+			for (auto [body, i] : with_index(rigid_bodies))
+				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_diagnostics_ms>(m_last_step_profile);
+
 			// Look for anomolies in the dynamics and log them.
 			m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
 			{

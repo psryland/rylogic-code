@@ -24,10 +24,22 @@ namespace physics_sandbox
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
 			lhs.m_collide_ms += rhs.m_collide_ms;
 			lhs.m_resolve_ms += rhs.m_resolve_ms;
+			lhs.m_selective_ms += rhs.m_selective_ms;
 			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
 			lhs.m_readback_ms += rhs.m_readback_ms;
 			lhs.m_gpu_run_ms += rhs.m_gpu_run_ms;
+			lhs.m_gpu_prepare_ms += rhs.m_gpu_prepare_ms;
+			lhs.m_gpu_execute_ms += rhs.m_gpu_execute_ms;
+			lhs.m_gpu_wait_ms += rhs.m_gpu_wait_ms;
+			lhs.m_gpu_reset_ms += rhs.m_gpu_reset_ms;
 			lhs.m_unpack_ms += rhs.m_unpack_ms;
+			lhs.m_readback_access_ms += rhs.m_readback_access_ms;
+			lhs.m_body_readback_copy_ms += rhs.m_body_readback_copy_ms;
+			lhs.m_contact_readback_copy_ms += rhs.m_contact_readback_copy_ms;
+			lhs.m_collision_events_ms += rhs.m_collision_events_ms;
+			lhs.m_sleep_island_unpack_ms += rhs.m_sleep_island_unpack_ms;
+			lhs.m_body_unpack_ms += rhs.m_body_unpack_ms;
+			lhs.m_unpack_diagnostics_ms += rhs.m_unpack_diagnostics_ms;
 		}
 		bool SameVec(v4 const& lhs, v4 const& rhs)
 		{

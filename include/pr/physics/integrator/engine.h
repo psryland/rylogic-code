@@ -33,7 +33,18 @@ namespace pr::physics
 			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
+			double m_gpu_prepare_ms = 0;
+			double m_gpu_execute_ms = 0;
+			double m_gpu_wait_ms = 0;
+			double m_gpu_reset_ms = 0;
 			double m_unpack_ms = 0;
+			double m_readback_access_ms = 0;
+			double m_body_readback_copy_ms = 0;
+			double m_contact_readback_copy_ms = 0;
+			double m_collision_events_ms = 0;
+			double m_sleep_island_unpack_ms = 0;
+			double m_body_unpack_ms = 0;
+			double m_unpack_diagnostics_ms = 0;
 		};
 		struct CollisionStats
 		{

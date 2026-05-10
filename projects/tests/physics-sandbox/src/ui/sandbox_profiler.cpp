@@ -42,7 +42,7 @@ namespace physics_sandbox
 		if (m_log)
 		{
 			m_log << "load_profile,file,total_ms,wait_gpu_ms,json_ms,scene_load_ms,prepare_ms,bbox_ms,shapes_ms,bodies_ms,ldraw_build_ms,ldraw_serialise_ms,ldraw_parse_ms,ldraw_assign_ms,logging_ms,camera_ms,bodies,shapes,ldraw_objects,ldraw_bytes,has_renderer\n";
-			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
+			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,eng_gpu_prepare_ms,eng_gpu_execute_ms,eng_gpu_wait_ms,eng_gpu_reset_ms,eng_readback_access_ms,eng_body_readback_copy_ms,eng_contact_readback_copy_ms,eng_collision_events_ms,eng_sleep_island_unpack_ms,eng_body_unpack_ms,eng_unpack_diagnostics_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
 			m_log.flush();
 		}
 	}
@@ -84,7 +84,18 @@ namespace physics_sandbox
 		m_engine.m_sleepupdate_ms += profile.m_engine.m_sleepupdate_ms;
 		m_engine.m_readback_ms += profile.m_engine.m_readback_ms;
 		m_engine.m_gpu_run_ms += profile.m_engine.m_gpu_run_ms;
+		m_engine.m_gpu_prepare_ms += profile.m_engine.m_gpu_prepare_ms;
+		m_engine.m_gpu_execute_ms += profile.m_engine.m_gpu_execute_ms;
+		m_engine.m_gpu_wait_ms += profile.m_engine.m_gpu_wait_ms;
+		m_engine.m_gpu_reset_ms += profile.m_engine.m_gpu_reset_ms;
 		m_engine.m_unpack_ms += profile.m_engine.m_unpack_ms;
+		m_engine.m_readback_access_ms += profile.m_engine.m_readback_access_ms;
+		m_engine.m_body_readback_copy_ms += profile.m_engine.m_body_readback_copy_ms;
+		m_engine.m_contact_readback_copy_ms += profile.m_engine.m_contact_readback_copy_ms;
+		m_engine.m_collision_events_ms += profile.m_engine.m_collision_events_ms;
+		m_engine.m_sleep_island_unpack_ms += profile.m_engine.m_sleep_island_unpack_ms;
+		m_engine.m_body_unpack_ms += profile.m_engine.m_body_unpack_ms;
+		m_engine.m_unpack_diagnostics_ms += profile.m_engine.m_unpack_diagnostics_ms;
 	}
 
 	void SandboxProfiler::RecordAddScene(double elapsed_ms)
@@ -162,7 +173,7 @@ namespace physics_sandbox
 
 		if (m_log)
 		{
-			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
+			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
 				scene.m_clock,
 				body_count,
 				m_steps,
@@ -185,6 +196,17 @@ namespace physics_sandbox
 				Avg(m_engine.m_readback_ms, m_steps),
 				Avg(m_engine.m_gpu_run_ms, m_steps),
 				Avg(m_engine.m_unpack_ms, m_steps),
+				Avg(m_engine.m_gpu_prepare_ms, m_steps),
+				Avg(m_engine.m_gpu_execute_ms, m_steps),
+				Avg(m_engine.m_gpu_wait_ms, m_steps),
+				Avg(m_engine.m_gpu_reset_ms, m_steps),
+				Avg(m_engine.m_readback_access_ms, m_steps),
+				Avg(m_engine.m_body_readback_copy_ms, m_steps),
+				Avg(m_engine.m_contact_readback_copy_ms, m_steps),
+				Avg(m_engine.m_collision_events_ms, m_steps),
+				Avg(m_engine.m_sleep_island_unpack_ms, m_steps),
+				Avg(m_engine.m_body_unpack_ms, m_steps),
+				Avg(m_engine.m_unpack_diagnostics_ms, m_steps),
 				Avg(m_render.m_render_ms, m_renders),
 				Avg(m_render.m_sync_gfx_ms, m_renders),
 				Avg(m_add_scene_ms, m_renders),
