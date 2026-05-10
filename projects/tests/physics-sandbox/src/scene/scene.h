@@ -86,7 +86,7 @@ namespace physics_sandbox
 		// Active per-body visualisation mode.
 		EVisualMode m_visual_mode;
 
-		// Collision-readback subscription used by diagnostics and contact-priority visualisation.
+		// Collision-readback subscription used by contact-priority visualisation and two-body diagnostics.
 		pr::multicast::Sub m_collision_sub;
 
 		// Whether to display contact points and collision normals

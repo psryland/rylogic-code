@@ -222,6 +222,7 @@ namespace physics_sandbox
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
 		m_shape_buffer.resize(0);
+		UpdateCollisionReadback();
 
 		// Set up perfectly elastic, frictionless material for clean collision tests
 		m_physics.Material(physics::Material{
@@ -444,6 +445,7 @@ namespace physics_sandbox
 		DbgLog("  Total KE: %.6f\n", m_body[0].KineticEnergy() + m_body[1].KineticEnergy());
 
 		m_current_scenario = scenario;
+		UpdateCollisionReadback();
 	}
 
 	// Load a scene from a JSON file.
@@ -617,6 +619,7 @@ namespace physics_sandbox
 			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
 			m_physics.UpdateSleepIslands(m_body);
 		}
+		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);
 		mark = bodies_end;
@@ -1112,14 +1115,17 @@ namespace physics_sandbox
 
 	bool Scene::NeedsCollisionReadback() const
 	{
-		#if PR_PHYSICS_DIAGNOSTICS
-		return true;
-		#else
 		switch (m_visual_mode)
 		{
 			case EVisualMode::Normal:
 			{
+				#if PR_PHYSICS_DIAGNOSTICS
+				// Two-body scenarios use detailed contact callbacks to populate the analytic collision log. Larger file-loaded diagnostics
+				// normally only need collision counters, so avoid reading and constructing every contact unless another subscriber asks for it.
+				return std::ssize(m_body) == 2;
+				#else
 				return false;
+				#endif
 			}
 			case EVisualMode::ContactPriority:
 			{
@@ -1130,7 +1136,6 @@ namespace physics_sandbox
 				throw std::runtime_error("Unknown visual mode");
 			}
 		}
-		#endif
 	}
 
 	void Scene::UpdateCollisionReadback()
