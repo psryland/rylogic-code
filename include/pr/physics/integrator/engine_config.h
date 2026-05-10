@@ -43,6 +43,10 @@ namespace pr::physics
 		float position_slop = 0.005f;
 		float position_baumgarte = 0.2f;
 		float contact_slop_scale = 0.01f;
+
+		// Support contacts use a lower proportional slop so thin stacks do not accumulate
+		// visible compression, while non-support impacts keep the more forgiving default.
+		float support_contact_slop_scale = 0.005f;
 		float warm_start_scale = 0.90f;
 
 		// Existing deep-penetration positional correction parameters.

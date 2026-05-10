@@ -834,6 +834,12 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -contact_slop_scale must be non-negative");
 			scene_desc.physics_contact_slop_scale = *options.m_physics_contact_slop_scale;
 		}
+		if (options.m_physics_support_contact_slop_scale)
+		{
+			if (*options.m_physics_support_contact_slop_scale < 0.0f)
+				throw std::runtime_error("Scene diagnostic -support_contact_slop_scale must be non-negative");
+			scene_desc.physics_support_contact_slop_scale = *options.m_physics_support_contact_slop_scale;
+		}
 		if (options.m_physics_warm_start_scale)
 		{
 			if (*options.m_physics_warm_start_scale < 0.0f)

@@ -45,8 +45,13 @@ namespace pr::physics
 
 		float shock_decay;
 		float contact_slop_scale;
+		float support_contact_slop_scale;
 		float warm_start_scale;
+
 		int warm_start_capacity;
+		int pad_i0;
+		int pad_i1;
+		int pad_i2;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -325,8 +330,12 @@ namespace pr::physics
 			.position_correction_scale = position_correction_scale,
 			.shock_decay = m_config.contact_sort_shock_decay,
 			.contact_slop_scale = m_config.contact_slop_scale,
+			.support_contact_slop_scale = m_config.support_contact_slop_scale,
 			.warm_start_scale = m_config.warm_start_scale,
 			.warm_start_capacity = m_warm_start_capacity,
+			.pad_i0 = 0,
+			.pad_i1 = 0,
+			.pad_i2 = 0,
 		};
 		if (m_config.warm_start_scale <= 0.0f)
 			m_reset_warm_start_cache = true;

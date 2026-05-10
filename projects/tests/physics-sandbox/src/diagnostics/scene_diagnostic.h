@@ -20,6 +20,7 @@ namespace physics_sandbox::diag
 		std::optional<float> m_physics_contact_sort_propagation_scale = {};
 		std::optional<int> m_physics_contact_sort_shock_iterations = {};
 		std::optional<float> m_physics_contact_slop_scale = {};
+		std::optional<float> m_physics_support_contact_slop_scale = {};
 		std::optional<float> m_physics_warm_start_scale = {};
 		std::optional<int> m_physics_selective_refresh_passes = {};
 		std::optional<int> m_physics_selective_refresh_max_pairs = {};

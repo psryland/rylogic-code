@@ -90,10 +90,15 @@ struct cbResolve
 	float position_baumgarte;         // Position correction fraction
 	float position_correction_scale;  // 1 / position iteration count, so the same stale depth is not applied in full each iteration
 
-	float shock_decay;        // Priority attenuation per propagated edge
-	float contact_slop_scale; // Fraction of minimum contact-body thickness used to cap penetration/position slop
-	float warm_start_scale;   // Scale applied to cached physical impulses before they are applied this frame
+	float shock_decay;                // Priority attenuation per propagated edge
+	float contact_slop_scale;         // Fraction of minimum contact-body thickness used to cap penetration/position slop
+	float support_contact_slop_scale; // Fraction used for load-bearing support contacts
+	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
+
 	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
+	int pad_i0;
+	int pad_i1;
+	int pad_i2;
 };
 
 // Shader resources
@@ -156,13 +161,14 @@ float BodyMinThickness(GpuRigidBody body)
 }
 
 // Scales a configured slop by the thinnest contact body while keeping the configured value as an upper bound.
-float ContactSlop(float configured_slop, GpuRigidBody bodyA, GpuRigidBody bodyB)
+float ContactSlop(float configured_slop, GpuRigidBody bodyA, GpuRigidBody bodyB, bool support_contact)
 {
-	if (g.contact_slop_scale <= 0.0f)
+	float slop_scale = support_contact ? g.support_contact_slop_scale : g.contact_slop_scale;
+	if (slop_scale <= 0.0f)
 		return configured_slop;
 
 	float min_thickness = min(BodyMinThickness(bodyA), BodyMinThickness(bodyB));
-	float scaled_slop = g.contact_slop_scale * min_thickness;
+	float scaled_slop = slop_scale * min_thickness;
 	return min(configured_slop, max(scaled_slop, 0.0f));
 }
 
@@ -550,7 +556,9 @@ float ContactNormalDemand(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody 
 	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
 	float3 v_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
 	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
-	float bias_speed = (g.velocity_baumgarte / max(g.dt, 1e-6f)) * max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB), 0.0f);
+	bool support_contact = SupportContact(c, bodyA);
+	float bias_speed = (g.velocity_baumgarte / max(g.dt, 1e-6f)) *
+		max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB, support_contact), 0.0f);
 	return closing_speed + bias_speed;
 }
 
@@ -627,7 +635,8 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;
 	float total_inv = inv_mass_a + inv_mass_b;
-	float correction = PositionCorrectionDistance(c.depth, ContactSlop(g.position_slop, bodyA, bodyB));
+	bool support_contact = SupportContact(c, bodyA);
+	float correction = PositionCorrectionDistance(c.depth, ContactSlop(g.position_slop, bodyA, bodyB, support_contact));
 	if (correction <= 0.0f || total_inv <= 0.0f)
 		return;
 
@@ -1021,7 +1030,9 @@ void CSResolve(int3 DTID(dtid))
 	// Baumgarte velocity bias: the per-frame separation velocity we'd like to inject
 	// to drive penetration to zero. The same depth value is used for every manifold
 	// point because the contact carries a single penetration depth covering the manifold.
-	float bias = g.bias_scale * (g.velocity_baumgarte / g.dt) * max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB), 0.0f);
+	bool support_contact = SupportContact(c, bodyA);
+	float bias = g.bias_scale * (g.velocity_baumgarte / g.dt) *
+		max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB, support_contact), 0.0f);
 
 	// Number of manifold points to process (1 = no manifold, fall back to centroid).
 	// Clamped to GpuContactMaxPoints to keep the [unroll] bounds well-defined.

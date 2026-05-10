@@ -471,6 +471,7 @@ namespace physics_sandbox
 		engine_config.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale;
 		engine_config.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations;
 		engine_config.contact_slop_scale = scene_desc.physics_contact_slop_scale;
+		engine_config.support_contact_slop_scale = scene_desc.physics_support_contact_slop_scale;
 		engine_config.warm_start_scale = scene_desc.physics_warm_start_scale;
 		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
 		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;

@@ -562,6 +562,12 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_contact_slop_scale < 0.0f)
 					throw std::runtime_error("Scene physics.contact_slop_scale must be non-negative");
 			}
+			if (auto* jsupport_contact_slop_scale = jphysics_obj.find("support_contact_slop_scale"))
+			{
+				desc.physics_support_contact_slop_scale = jsupport_contact_slop_scale->to<float>();
+				if (desc.physics_support_contact_slop_scale < 0.0f)
+					throw std::runtime_error("Scene physics.support_contact_slop_scale must be non-negative");
+			}
 			if (auto* jwarm_start_scale = jphysics_obj.find("warm_start_scale"))
 			{
 				desc.physics_warm_start_scale = jwarm_start_scale->to<float>();

@@ -53,8 +53,12 @@ namespace pr::physics
 				.position_correction_scale = PositionCorrectionScale(config),
 				.shock_decay = config.contact_sort_shock_decay,
 				.contact_slop_scale = config.contact_slop_scale,
+				.support_contact_slop_scale = config.support_contact_slop_scale,
 				.warm_start_scale = config.warm_start_scale,
 				.warm_start_capacity = 0,
+				.pad_i0 = 0,
+				.pad_i1 = 0,
+				.pad_i2 = 0,
 			};
 		}
 	}
