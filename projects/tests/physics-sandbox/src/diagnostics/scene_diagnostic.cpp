@@ -880,6 +880,18 @@ namespace physics_sandbox::diag
 				throw std::runtime_error("Scene diagnostic -selective_refresh_max_pairs must be at least 1");
 			scene_desc.physics_selective_refresh_max_pairs = *options.m_physics_selective_refresh_max_pairs;
 		}
+		if (options.m_physics_selective_refresh_body_limit)
+		{
+			if (*options.m_physics_selective_refresh_body_limit < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_body_limit must be non-negative");
+			scene_desc.physics_selective_refresh_body_limit = *options.m_physics_selective_refresh_body_limit;
+		}
+		if (options.m_physics_selective_refresh_contact_limit)
+		{
+			if (*options.m_physics_selective_refresh_contact_limit < 0)
+				throw std::runtime_error("Scene diagnostic -selective_refresh_contact_limit must be non-negative");
+			scene_desc.physics_selective_refresh_contact_limit = *options.m_physics_selective_refresh_contact_limit;
+		}
 		if (options.m_physics_selective_refresh_solver_iterations)
 		{
 			if (*options.m_physics_selective_refresh_solver_iterations < 0)

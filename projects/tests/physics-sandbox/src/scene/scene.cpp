@@ -489,6 +489,8 @@ namespace physics_sandbox
 		engine_config.warm_start_scale = scene_desc.physics_warm_start_scale;
 		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
 		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
+		engine_config.selective_refresh_body_limit = scene_desc.physics_selective_refresh_body_limit;
+		engine_config.selective_refresh_contact_limit = scene_desc.physics_selective_refresh_contact_limit;
 		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;
 		engine_config.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations;
 		engine_config.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale;

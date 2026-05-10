@@ -122,6 +122,10 @@ namespace physics_sandbox
 			options.m_physics_selective_refresh_passes = cmd("selective_refresh_passes").as<int>();
 		if (cmd.count("selective_refresh_max_pairs"))
 			options.m_physics_selective_refresh_max_pairs = cmd("selective_refresh_max_pairs").as<int>();
+		if (cmd.count("selective_refresh_body_limit"))
+			options.m_physics_selective_refresh_body_limit = cmd("selective_refresh_body_limit").as<int>();
+		if (cmd.count("selective_refresh_contact_limit"))
+			options.m_physics_selective_refresh_contact_limit = cmd("selective_refresh_contact_limit").as<int>();
 		if (cmd.count("selective_refresh_solver_iterations"))
 			options.m_physics_selective_refresh_solver_iterations = cmd("selective_refresh_solver_iterations").as<int>();
 		if (cmd.count("selective_refresh_position_iterations"))

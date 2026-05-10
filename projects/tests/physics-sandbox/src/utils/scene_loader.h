@@ -24,6 +24,8 @@ namespace physics_sandbox::scene_loader
 	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
 	//             "selective_refresh_passes": 1, // Extra narrowphase/resolve passes over problematic contacts
+	//             "selective_refresh_body_limit": 256, // Disable selective refresh above this body count; 0 = unlimited
+	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
 	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
 	//         },
 	//         "ground_plane": {               // Optional ground plane
@@ -136,6 +138,8 @@ namespace physics_sandbox::scene_loader
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;
+		int physics_selective_refresh_body_limit = physics::EngineConfig{}.selective_refresh_body_limit;
+		int physics_selective_refresh_contact_limit = physics::EngineConfig{}.selective_refresh_contact_limit;
 		int physics_selective_refresh_solver_iterations = physics::EngineConfig{}.selective_refresh_solver_iterations;
 		int physics_selective_refresh_position_iterations = physics::EngineConfig{}.selective_refresh_position_iterations;
 		float physics_selective_refresh_bias_scale = physics::EngineConfig{}.selective_refresh_bias_scale;

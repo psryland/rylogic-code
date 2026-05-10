@@ -592,6 +592,18 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_selective_refresh_max_pairs < 1)
 					throw std::runtime_error("Scene physics.selective_refresh_max_pairs must be at least 1");
 			}
+			if (auto* jselective_refresh_body_limit = jphysics_obj.find("selective_refresh_body_limit"))
+			{
+				desc.physics_selective_refresh_body_limit = jselective_refresh_body_limit->to<int>();
+				if (desc.physics_selective_refresh_body_limit < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_body_limit must be non-negative");
+			}
+			if (auto* jselective_refresh_contact_limit = jphysics_obj.find("selective_refresh_contact_limit"))
+			{
+				desc.physics_selective_refresh_contact_limit = jselective_refresh_contact_limit->to<int>();
+				if (desc.physics_selective_refresh_contact_limit < 0)
+					throw std::runtime_error("Scene physics.selective_refresh_contact_limit must be non-negative");
+			}
 			if (auto* jselective_refresh_solver_iterations = jphysics_obj.find("selective_refresh_solver_iterations"))
 			{
 				desc.physics_selective_refresh_solver_iterations = jselective_refresh_solver_iterations->to<int>();

@@ -146,6 +146,7 @@ namespace pr::physics
 	void Engine::ResetCaches()
 	{
 		m_cache->Reset();
+		m_last_collision_stats = {};
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
@@ -414,6 +415,15 @@ namespace pr::physics
 			return;
 
 		auto const body_count = m_cache->RigidBodyCount();
+
+		// The selective pass is intended for local residual stack cleanup. Large body counts or dense contact graphs usually mean the compact
+		// set is broad enough that a full substep is the right tool, so avoid paying the extra GPU passes by default. Contact stats are from
+		// the previous frame because the current counters stay GPU-resident until readback.
+		if (m_config.selective_refresh_body_limit > 0 && body_count > m_config.selective_refresh_body_limit)
+			return;
+		if (m_config.selective_refresh_contact_limit > 0 && m_last_collision_stats.m_contact_count > m_config.selective_refresh_contact_limit)
+			return;
+
 		auto const full_max_pairs = m_config.max_collision_pairs;
 		auto const max_pairs = Clamp(m_config.selective_refresh_max_pairs, 1, full_max_pairs);
 		auto const max_contacts = max_pairs;

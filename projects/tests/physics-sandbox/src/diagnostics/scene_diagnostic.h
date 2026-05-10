@@ -24,6 +24,8 @@ namespace physics_sandbox::diag
 		std::optional<float> m_physics_warm_start_scale = {};
 		std::optional<int> m_physics_selective_refresh_passes = {};
 		std::optional<int> m_physics_selective_refresh_max_pairs = {};
+		std::optional<int> m_physics_selective_refresh_body_limit = {};
+		std::optional<int> m_physics_selective_refresh_contact_limit = {};
 		std::optional<int> m_physics_selective_refresh_solver_iterations = {};
 		std::optional<int> m_physics_selective_refresh_position_iterations = {};
 		std::optional<float> m_physics_selective_refresh_bias_scale = {};

@@ -59,6 +59,8 @@ namespace pr::physics
 		// subset of problematic pairs after the full contact graph has been resolved.
 		int selective_refresh_passes = 1;
 		int selective_refresh_max_pairs = 512;
+		int selective_refresh_body_limit = 256;
+		int selective_refresh_contact_limit = 512;
 		int selective_refresh_solver_iterations = 12;
 		int selective_refresh_position_iterations = 1;
 		float selective_refresh_bias_scale = 1.0f;
