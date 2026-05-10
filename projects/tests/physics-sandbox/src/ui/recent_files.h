@@ -4,7 +4,7 @@
 namespace physics_sandbox
 {
 	// Maximum number of entries in the Recent Files submenu
-	static constexpr int MaxRecentFiles = 10;
+	static constexpr int MaxRecentFiles = 20;
 
 	// Persistent recent-files list stored in %APPDATA%.
 	// Keeps an MRU (most-recently-used) list of scene file paths,
