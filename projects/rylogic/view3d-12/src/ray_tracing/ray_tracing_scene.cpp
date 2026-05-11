@@ -11,6 +11,7 @@
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
+#include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "view3d-12/src/shaders/common.h"
 
@@ -22,6 +23,10 @@ namespace pr::rdr12
 		constexpr UINT RayTracingInstanceMask_Default = 0x01;
 		constexpr UINT RayTracingInstanceMask_Caustic = 0x02;
 		constexpr UINT RayTracingMaterialIndexLimit = 0x01000000;
+		constexpr UINT RayTracingGeometryFlag_HasGeometry = 0x01;
+		constexpr UINT RayTracingGeometryFlag_HasNormals = 0x02;
+		constexpr UINT RayTracingGeometryFlag_Index16 = 0x04;
+		constexpr UINT RayTracingGeometryFlag_Index32 = 0x08;
 
 		struct SkinnedBlasKey
 		{
@@ -109,10 +114,20 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_scratch;
 		D3DPtr<ID3D12Resource> m_instances;
 		D3DPtr<ID3D12Resource> m_materials;
+		D3DPtr<ID3D12Resource> m_shading_vertices;
+		D3DPtr<ID3D12Resource> m_shading_indices16;
+		D3DPtr<ID3D12Resource> m_shading_indices32;
+		D3DPtr<ID3D12Resource> m_shading_geometry;
 		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO m_prebuild_info;
 		std::unordered_map<SkinnedBlasKey, SkinnedBlas, SkinnedBlasKeyHash> m_skinned_blas;
 		uint64_t m_material_signature;
+		uint64_t m_shading_geometry_signature;
 		int m_material_count;
+		int m_shading_vertex_count;
+		int m_shading_index16_count;
+		int m_shading_index32_count;
+		int m_shading_geometry_count;
+		int m_shading_geometry_fallback_count;
 
 		// Create an empty heavy-weight TLAS data object.
 		Data()
@@ -120,10 +135,20 @@ namespace pr::rdr12
 			, m_scratch()
 			, m_instances()
 			, m_materials()
+			, m_shading_vertices()
+			, m_shading_indices16()
+			, m_shading_indices32()
+			, m_shading_geometry()
 			, m_prebuild_info()
 			, m_skinned_blas()
 			, m_material_signature(hash::FNV_offset_basis64)
+			, m_shading_geometry_signature(hash::FNV_offset_basis64)
 			, m_material_count()
+			, m_shading_vertex_count()
+			, m_shading_index16_count()
+			, m_shading_index32_count()
+			, m_shading_geometry_count()
+			, m_shading_geometry_fallback_count()
 		{}
 	};
 
@@ -133,8 +158,17 @@ namespace pr::rdr12
 		{
 			RayTracingGeometryStats m_stats;
 			D3D12_GPU_VIRTUAL_ADDRESS m_address;
+			ID3D12Resource* m_vertex_buffer;
 			uint64_t m_pose_revision;
 			bool m_cache_hit;
+		};
+
+		struct BufferCopy
+		{
+			ID3D12Resource* m_src;
+			uint64_t m_src_offset;
+			uint64_t m_dst_offset;
+			uint64_t m_size;
 		};
 
 		struct InstanceBuildInput
@@ -143,8 +177,17 @@ namespace pr::rdr12
 			vector<D3D12_RAYTRACING_INSTANCE_DESC, 1024> m_instances;
 			vector<SkinnedBlasKey, 32> m_used_skinned_blas;
 			vector<shaders::rt::RayTracingMaterial, 1024> m_materials;
+			vector<shaders::rt::RayTracingGeometry, 1024> m_shading_geometry;
+			vector<BufferCopy, 1024> m_vertex_copies;
+			vector<BufferCopy, 1024> m_index16_copies;
+			vector<BufferCopy, 1024> m_index32_copies;
 			uint64_t m_signature;
 			uint64_t m_material_signature;
+			uint64_t m_shading_geometry_signature;
+			int m_shading_vertex_count;
+			int m_shading_index16_count;
+			int m_shading_index32_count;
+			int m_shading_geometry_fallback_count;
 
 			// Create empty TLAS build input.
 			InstanceBuildInput()
@@ -152,8 +195,17 @@ namespace pr::rdr12
 				, m_instances()
 				, m_used_skinned_blas()
 				, m_materials()
+				, m_shading_geometry()
+				, m_vertex_copies()
+				, m_index16_copies()
+				, m_index32_copies()
 				, m_signature(hash::FNV_offset_basis64)
 				, m_material_signature(hash::FNV_offset_basis64)
+				, m_shading_geometry_signature(hash::FNV_offset_basis64)
+				, m_shading_vertex_count()
+				, m_shading_index16_count()
+				, m_shading_index32_count()
+				, m_shading_geometry_fallback_count()
 			{}
 		};
 
@@ -171,6 +223,21 @@ namespace pr::rdr12
 			rdr.DeferRelease(data.m_materials);
 			data.m_material_count = 0;
 			data.m_material_signature = hash::FNV_offset_basis64;
+		}
+
+		// Release the packed geometry buffers that closest-hit shaders use to reconstruct triangle attributes.
+		void ReleaseShadingGeometryBuffers(Renderer& rdr, RayTracingScene::Data& data)
+		{
+			rdr.DeferRelease(data.m_shading_vertices);
+			rdr.DeferRelease(data.m_shading_indices16);
+			rdr.DeferRelease(data.m_shading_indices32);
+			rdr.DeferRelease(data.m_shading_geometry);
+			data.m_shading_vertex_count = 0;
+			data.m_shading_index16_count = 0;
+			data.m_shading_index32_count = 0;
+			data.m_shading_geometry_count = 0;
+			data.m_shading_geometry_fallback_count = 0;
+			data.m_shading_geometry_signature = hash::FNV_offset_basis64;
 		}
 
 		// Release the dynamic BLAS resources owned by 'entry'.
@@ -233,6 +300,98 @@ namespace pr::rdr12
 			return s_cast<UINT>(material_base);
 		}
 
+		// Return the transform used to bring model-space normals into world space for closest-hit shading.
+		m4x4 NormalToWorld(BaseInstance const& inst, Model const& model)
+		{
+			auto n2w = GetO2W(inst);
+			n2w.x = Normalise(n2w.x, v4::Zero());
+			n2w.y = Normalise(Cross(n2w.z, n2w.x), v4::Zero());
+			n2w.z = Cross(n2w.x, n2w.y);
+			return model.m_m2root * n2w;
+		}
+
+		// Append RT hit-shading metadata in the same order as material records and BLAS geometry descriptors.
+		UINT AppendShadingGeometry(InstanceBuildInput& result, BaseInstance const& inst, Model const& model, RayTracingGeometryBuildInput const& geometry, ID3D12Resource* vertex_buffer, uint64_t source_revision)
+		{
+			if (geometry.m_nuggets.size() != geometry.m_geometry.size())
+				throw std::runtime_error("Ray tracing shading geometry and BLAS geometry counts do not match");
+
+			auto const geometry_base = result.m_shading_geometry.size();
+			if (geometry_base + geometry.m_nuggets.size() > RayTracingMaterialIndexLimit)
+				throw std::runtime_error("Ray tracing geometry table exceeds the DXR InstanceID range");
+
+			auto const normal_to_world = NormalToWorld(inst, model);
+			auto const supported_vertex_layout = model.m_vstride.size() == sizeof(Vert);
+			auto const index16 = model.m_ib_view.Format == DXGI_FORMAT_R16_UINT;
+			auto const index32 = model.m_ib_view.Format == DXGI_FORMAT_R32_UINT;
+			for (auto const* nugget : geometry.m_nuggets)
+			{
+				auto record = shaders::rt::RayTracingGeometry{};
+				if (supported_vertex_layout && vertex_buffer != nullptr && (index16 || index32))
+				{
+					auto const vertex_offset = result.m_shading_vertex_count;
+					auto const index_offset = index16 ? result.m_shading_index16_count : result.m_shading_index32_count;
+					auto const vertex_count = s_cast<int>(nugget->m_vrange.size());
+					auto const index_count = s_cast<int>(nugget->m_irange.size());
+
+					record.ranges = pr::hlsl::uint4{
+						s_cast<uint32_t>(vertex_offset),
+						s_cast<uint32_t>(nugget->m_vrange.m_beg),
+						s_cast<uint32_t>(index_offset),
+						s_cast<uint32_t>(index_count),
+					};
+					record.flags = pr::hlsl::uint4{
+						RayTracingGeometryFlag_HasGeometry |
+						(AllSet(nugget->m_geom, EGeom::Norm) ? RayTracingGeometryFlag_HasNormals : 0U) |
+						(index16 ? RayTracingGeometryFlag_Index16 : RayTracingGeometryFlag_Index32),
+						s_cast<uint32_t>(vertex_count),
+						0,
+						0,
+					};
+					record.normal_to_world = normal_to_world;
+
+					result.m_vertex_copies.push_back(BufferCopy{
+						.m_src = vertex_buffer,
+						.m_src_offset = s_cast<uint64_t>(nugget->m_vrange.m_beg) * sizeof(Vert),
+						.m_dst_offset = s_cast<uint64_t>(vertex_offset) * sizeof(shaders::rt::RayTracingVertex),
+						.m_size = s_cast<uint64_t>(vertex_count) * sizeof(Vert),
+					});
+
+					auto& index_copies = index16 ? result.m_index16_copies : result.m_index32_copies;
+					auto const index_stride = s_cast<uint64_t>(model.m_istride.size());
+					index_copies.push_back(BufferCopy{
+						.m_src = const_cast<ID3D12Resource*>(model.m_ib.get()),
+						.m_src_offset = s_cast<uint64_t>(nugget->m_irange.m_beg) * index_stride,
+						.m_dst_offset = s_cast<uint64_t>(index_offset) * index_stride,
+						.m_size = s_cast<uint64_t>(index_count) * index_stride,
+					});
+
+					result.m_shading_vertex_count += vertex_count;
+					if (index16)
+						result.m_shading_index16_count += index_count;
+					else
+						result.m_shading_index32_count += index_count;
+				}
+				else
+				{
+					// Keep a one-for-one geometry table entry so the shader can fall back to the material table instead of changing InstanceID semantics.
+					++result.m_shading_geometry_fallback_count;
+				}
+
+				AddSignature(result.m_shading_geometry_signature, record);
+				AddSignature(result.m_shading_geometry_signature, source_revision);
+				AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(vertex_buffer));
+				AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(model.m_ib.get()));
+				result.m_shading_geometry.push_back(record);
+			}
+
+			AddSignature(result.m_shading_geometry_signature, result.m_shading_geometry.size());
+			AddSignature(result.m_shading_geometry_signature, result.m_shading_vertex_count);
+			AddSignature(result.m_shading_geometry_signature, result.m_shading_index16_count);
+			AddSignature(result.m_shading_geometry_signature, result.m_shading_index32_count);
+			return s_cast<UINT>(geometry_base);
+		}
+
 		// Create or refresh the material buffer consumed by reflection closest-hit shaders.
 		void EnsureMaterialBuffer(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, std::span<shaders::rt::RayTracingMaterial const> materials, uint64_t material_signature)
 		{
@@ -248,6 +407,96 @@ namespace pr::rdr12
 			data.m_materials = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:materials");
 			data.m_material_count = isize(materials);
 			data.m_material_signature = material_signature;
+		}
+
+		// Copy the packed hit-shading source buffers and upload the geometry metadata table.
+		void EnsureShadingGeometryBuffers(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, InstanceBuildInput const& input)
+		{
+			auto const buffers_current =
+				data.m_shading_geometry != nullptr &&
+				data.m_shading_geometry_signature == input.m_shading_geometry_signature &&
+				data.m_shading_vertex_count == input.m_shading_vertex_count &&
+				data.m_shading_index16_count == input.m_shading_index16_count &&
+				data.m_shading_index32_count == input.m_shading_index32_count &&
+				data.m_shading_geometry_count == isize(input.m_shading_geometry);
+			if (buffers_current)
+				return;
+
+			ReleaseShadingGeometryBuffers(rdr, data);
+			if (input.m_shading_geometry.empty())
+				return;
+
+			auto metadata_desc = ResDesc::Buf<shaders::rt::RayTracingGeometry>(
+				isize(input.m_shading_geometry),
+				std::span<shaders::rt::RayTracingGeometry const>(input.m_shading_geometry.data(), input.m_shading_geometry.size()))
+				.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			data.m_shading_geometry = CreateRayTracingResource(rdr, cmd_list, upload, metadata_desc, "RayTracing:shading geometry");
+
+			if (input.m_shading_vertex_count != 0)
+			{
+				auto desc = ResDesc::Buf<shaders::rt::RayTracingVertex>(input.m_shading_vertex_count, {})
+					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				data.m_shading_vertices = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:shading vertices");
+			}
+			if (input.m_shading_index16_count != 0)
+			{
+				auto desc = ResDesc::Buf<uint16_t>(input.m_shading_index16_count, {})
+					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				data.m_shading_indices16 = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:shading indices16");
+			}
+			if (input.m_shading_index32_count != 0)
+			{
+				auto desc = ResDesc::Buf<uint32_t>(input.m_shading_index32_count, {})
+					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				data.m_shading_indices32 = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:shading indices32");
+			}
+
+			BarrierBatch before_copy(cmd_list);
+			for (auto const& copy : input.m_vertex_copies)
+			{
+				before_copy.Transition(copy.m_src, D3D12_RESOURCE_STATE_COPY_SOURCE);
+				before_copy.Transition(data.m_shading_vertices.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			}
+			for (auto const& copy : input.m_index16_copies)
+			{
+				before_copy.Transition(copy.m_src, D3D12_RESOURCE_STATE_COPY_SOURCE);
+				before_copy.Transition(data.m_shading_indices16.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			}
+			for (auto const& copy : input.m_index32_copies)
+			{
+				before_copy.Transition(copy.m_src, D3D12_RESOURCE_STATE_COPY_SOURCE);
+				before_copy.Transition(data.m_shading_indices32.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			}
+			before_copy.Commit();
+
+			for (auto const& copy : input.m_vertex_copies)
+				cmd_list.CopyBufferRegion(data.m_shading_vertices.get(), copy.m_dst_offset, copy.m_src, copy.m_src_offset, copy.m_size);
+			for (auto const& copy : input.m_index16_copies)
+				cmd_list.CopyBufferRegion(data.m_shading_indices16.get(), copy.m_dst_offset, copy.m_src, copy.m_src_offset, copy.m_size);
+			for (auto const& copy : input.m_index32_copies)
+				cmd_list.CopyBufferRegion(data.m_shading_indices32.get(), copy.m_dst_offset, copy.m_src, copy.m_src_offset, copy.m_size);
+
+			BarrierBatch after_copy(cmd_list);
+			if (data.m_shading_vertices != nullptr)
+				after_copy.Transition(data.m_shading_vertices.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (data.m_shading_indices16 != nullptr)
+				after_copy.Transition(data.m_shading_indices16.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (data.m_shading_indices32 != nullptr)
+				after_copy.Transition(data.m_shading_indices32.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			for (auto const& copy : input.m_vertex_copies)
+				after_copy.Transition(copy.m_src, DefaultResState(copy.m_src));
+			for (auto const& copy : input.m_index16_copies)
+				after_copy.Transition(copy.m_src, DefaultResState(copy.m_src));
+			for (auto const& copy : input.m_index32_copies)
+				after_copy.Transition(copy.m_src, DefaultResState(copy.m_src));
+			after_copy.Commit();
+
+			data.m_shading_vertex_count = input.m_shading_vertex_count;
+			data.m_shading_index16_count = input.m_shading_index16_count;
+			data.m_shading_index32_count = input.m_shading_index32_count;
+			data.m_shading_geometry_count = isize(input.m_shading_geometry);
+			data.m_shading_geometry_fallback_count = input.m_shading_geometry_fallback_count;
+			data.m_shading_geometry_signature = input.m_shading_geometry_signature;
 		}
 
 		// Build or update a BLAS for the current pose of a skinned model.
@@ -272,6 +521,7 @@ namespace pr::rdr12
 				return SkinnedBlasBuildResult{
 					.m_stats = input.m_stats,
 					.m_address = 0,
+					.m_vertex_buffer = vbuf.m_resource,
 					.m_pose_revision = vbuf.m_pose_revision,
 					.m_cache_hit = false,
 				};
@@ -291,6 +541,7 @@ namespace pr::rdr12
 				return SkinnedBlasBuildResult{
 					.m_stats = entry.m_stats,
 					.m_address = entry.m_blas->GetGPUVirtualAddress(),
+					.m_vertex_buffer = vbuf.m_resource,
 					.m_pose_revision = entry.m_pose_revision,
 					.m_cache_hit = true,
 				};
@@ -371,6 +622,7 @@ namespace pr::rdr12
 			return SkinnedBlasBuildResult{
 				.m_stats = entry.m_stats,
 				.m_address = blas_address,
+				.m_vertex_buffer = vbuf.m_resource,
 				.m_pose_revision = entry.m_pose_revision,
 				.m_cache_hit = false,
 			};
@@ -427,6 +679,8 @@ namespace pr::rdr12
 
 				auto cache_hit = false;
 				auto pose_revision = uint64_t{};
+				auto source_revision = uint64_t{};
+				auto* shading_vertex_buffer = static_cast<ID3D12Resource*>(nullptr);
 				auto geometry = RayTracingGeometryBuildInput{};
 				if (model.m_skin)
 				{
@@ -452,6 +706,8 @@ namespace pr::rdr12
 					desc.AccelerationStructure = skinned_blas.m_address;
 					cache_hit = skinned_blas.m_cache_hit;
 					pose_revision = skinned_blas.m_pose_revision;
+					source_revision = skinned_blas.m_pose_revision;
+					shading_vertex_buffer = skinned_blas.m_vertex_buffer;
 					geometry = RayTracingBuildGeometryInput(model, 0, true, true);
 
 					AddSignature(result.m_signature, key.m_model);
@@ -472,6 +728,8 @@ namespace pr::rdr12
 
 					desc.AccelerationStructure = model.m_ray_tracing.AccelerationStructureAddress();
 					cache_hit = was_built;
+					source_revision = model.m_ray_tracing.Revision();
+					shading_vertex_buffer = model.m_vb.get();
 					geometry = RayTracingBuildGeometryInput(model, 0, true, false);
 
 					AddSignature(result.m_signature, model.m_ray_tracing.Revision());
@@ -483,8 +741,12 @@ namespace pr::rdr12
 					continue;
 				}
 
-				// Once the instance has a valid BLAS address, append the final descriptor and track whether the BLAS came from cache or was rebuilt this frame.
+				// Once the instance has a valid BLAS address, append the final descriptor and keep all per-geometry side tables aligned with the DXR ids.
 				desc.InstanceID = AppendMaterials(result, *inst, geometry);
+				auto const geometry_id = AppendShadingGeometry(result, *inst, model, geometry, shading_vertex_buffer, source_revision);
+				if (geometry_id != desc.InstanceID)
+					throw std::runtime_error("Ray tracing material and shading geometry tables are out of sync");
+
 				AddSignature(result.m_signature, desc);
 				result.m_instances.push_back(desc);
 				++result.m_stats.m_tlas_instance_count;
@@ -580,6 +842,78 @@ namespace pr::rdr12
 			: 0;
 	}
 
+	// Return the packed vertex buffer used by RT closest-hit shading.
+	ID3D12Resource* RayTracingScene::ShadingVertexBuffer() const
+	{
+		return m_data != nullptr
+			? const_cast<ID3D12Resource*>(m_data->m_shading_vertices.get())
+			: nullptr;
+	}
+
+	// Return the number of packed RT shading vertices.
+	int RayTracingScene::ShadingVertexCount() const
+	{
+		return m_data != nullptr
+			? m_data->m_shading_vertex_count
+			: 0;
+	}
+
+	// Return the packed 16-bit index buffer used by RT closest-hit shading.
+	ID3D12Resource* RayTracingScene::ShadingIndex16Buffer() const
+	{
+		return m_data != nullptr
+			? const_cast<ID3D12Resource*>(m_data->m_shading_indices16.get())
+			: nullptr;
+	}
+
+	// Return the number of 16-bit indices in the packed RT shading index buffer.
+	int RayTracingScene::ShadingIndex16Count() const
+	{
+		return m_data != nullptr
+			? m_data->m_shading_index16_count
+			: 0;
+	}
+
+	// Return the packed 32-bit index buffer used by RT closest-hit shading.
+	ID3D12Resource* RayTracingScene::ShadingIndex32Buffer() const
+	{
+		return m_data != nullptr
+			? const_cast<ID3D12Resource*>(m_data->m_shading_indices32.get())
+			: nullptr;
+	}
+
+	// Return the number of 32-bit indices in the packed RT shading index buffer.
+	int RayTracingScene::ShadingIndex32Count() const
+	{
+		return m_data != nullptr
+			? m_data->m_shading_index32_count
+			: 0;
+	}
+
+	// Return the geometry metadata buffer used by RT closest-hit shading.
+	ID3D12Resource* RayTracingScene::ShadingGeometryBuffer() const
+	{
+		return m_data != nullptr
+			? const_cast<ID3D12Resource*>(m_data->m_shading_geometry.get())
+			: nullptr;
+	}
+
+	// Return the number of geometry records in the RT closest-hit shading buffer.
+	int RayTracingScene::ShadingGeometryCount() const
+	{
+		return m_data != nullptr
+			? m_data->m_shading_geometry_count
+			: 0;
+	}
+
+	// Return the number of geometry records that must fall back to material-only shading.
+	int RayTracingScene::ShadingGeometryFallbackCount() const
+	{
+		return m_data != nullptr
+			? m_data->m_shading_geometry_fallback_count
+			: 0;
+	}
+
 	// Release TLAS and dynamic BLAS resources after deferring GPU lifetime management through the renderer.
 	void RayTracingScene::DeferRelease(Renderer& rdr)
 	{
@@ -588,6 +922,7 @@ namespace pr::rdr12
 
 		ReleaseTlas(rdr, *m_data);
 		ReleaseMaterialBuffer(rdr, *m_data);
+		ReleaseShadingGeometryBuffers(rdr, *m_data);
 		for (auto& [key, entry] : m_data->m_skinned_blas)
 			ReleaseSkinnedBlas(rdr, entry);
 
@@ -623,6 +958,7 @@ namespace pr::rdr12
 			// An empty ray-traceable scene has no TLAS. Skinned BLAS cache entries are also pruned because there are no instances referencing them.
 			ReleaseTlas(rdr, *m_data);
 			ReleaseMaterialBuffer(rdr, *m_data);
+			ReleaseShadingGeometryBuffers(rdr, *m_data);
 			PruneSkinnedBlas(rdr, *m_data, std::span<SkinnedBlasKey const>{});
 			m_signature = input.m_signature;
 			return m_stats;
@@ -637,6 +973,7 @@ namespace pr::rdr12
 			*m_data,
 			std::span<shaders::rt::RayTracingMaterial const>(input.m_materials.data(), input.m_materials.size()),
 			input.m_material_signature);
+		EnsureShadingGeometryBuffers(rdr, cmd_list, upload, *m_data, input);
 
 		if (Built() && m_signature == input.m_signature)
 		{
@@ -702,11 +1039,6 @@ namespace pr::rdr12
 		BarrierBatch build_barriers(cmd_list);
 		build_barriers.UAV(m_data->m_tlas.get());
 		build_barriers.Commit();
-
-		PR_INFO(PR_DBG_RDR, std::format(
-			"Built TLAS: {} instances, {} bytes\n",
-			m_stats.m_tlas_instance_count,
-			m_stats.m_tlas_size));
 
 		return m_stats;
 	}

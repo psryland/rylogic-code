@@ -71,6 +71,33 @@ namespace pr::rdr12
 		// Return the number of material records in the material buffer.
 		int MaterialCount() const;
 
+		// Return the packed vertex buffer used by RT closest-hit shading.
+		ID3D12Resource* ShadingVertexBuffer() const;
+
+		// Return the number of packed RT shading vertices.
+		int ShadingVertexCount() const;
+
+		// Return the packed 16-bit index buffer used by RT closest-hit shading.
+		ID3D12Resource* ShadingIndex16Buffer() const;
+
+		// Return the number of 16-bit indices in the packed RT shading index buffer.
+		int ShadingIndex16Count() const;
+
+		// Return the packed 32-bit index buffer used by RT closest-hit shading.
+		ID3D12Resource* ShadingIndex32Buffer() const;
+
+		// Return the number of 32-bit indices in the packed RT shading index buffer.
+		int ShadingIndex32Count() const;
+
+		// Return the geometry metadata buffer used by RT closest-hit shading.
+		ID3D12Resource* ShadingGeometryBuffer() const;
+
+		// Return the number of geometry records in the RT closest-hit shading buffer.
+		int ShadingGeometryCount() const;
+
+		// Return the number of geometry records that must fall back to material-only shading.
+		int ShadingGeometryFallbackCount() const;
+
 		// Release TLAS and dynamic BLAS resources after deferring GPU lifetime management through the renderer.
 		void DeferRelease(Renderer& rdr);
 

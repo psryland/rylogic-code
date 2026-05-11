@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 
 #ifdef PR_RDR_LSHADER_ray_trace
 
@@ -13,6 +14,10 @@ Texture2DMS<float> g_depth : register(t2);
 Texture2DMS<float4> g_reflection_attrs : register(t3);
 Texture2D<uint4> g_alpha_rt_attrs : register(t4);
 StructuredBuffer<RayTracingMaterial> g_materials : register(t5);
+StructuredBuffer<RayTracingVertex> g_vertices : register(t6);
+Buffer<uint> g_indices16 : register(t7);
+Buffer<uint> g_indices32 : register(t8);
+StructuredBuffer<RayTracingGeometry> g_geometry : register(t9);
 RWTexture2D<float4> g_output : register(u0);
 
 static const uint RayPayloadMode_Diagnostic = 0;
@@ -183,21 +188,90 @@ float3 ReflectionMissColour(float3 ws_direction)
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
 }
 
+// Return the material table index for the current closest hit.
+uint HitMaterialIndex()
+{
+	return InstanceID() + GeometryIndex();
+}
+
 // Return the diffuse material colour for the hit instance geometry.
-float4 ReflectionHitMaterial()
+float4 HitMaterial()
 {
 	uint material_count = uint(g_frame.options.y);
-	if (material_count == 0)
-		return float4(0.75f, 0.75f, 0.75f, 1.0f);
-
-	uint material_index = InstanceID() + GeometryIndex();
+	uint material_index = HitMaterialIndex();
 	if (material_index < material_count)
 		return g_materials[material_index].diffuse;
 
 	uint instance_index = InstanceIndex();
-	return instance_index < material_count
-		? g_materials[instance_index].diffuse
-		: float4(0.75f, 0.75f, 0.75f, 1.0f);
+	if (instance_index < material_count)
+		return g_materials[instance_index].diffuse;
+
+	return float4(0.75f, 0.75f, 0.75f, 1.0f);
+}
+
+// Return true if the current hit has enough sidecar metadata for triangle reconstruction.
+bool HasHitGeometry(uint geometry_index)
+{
+	uint geometry_count = uint(g_frame.options.z);
+	return geometry_index < geometry_count && (g_geometry[geometry_index].flags.x & RayTracingGeometryFlag_HasGeometry) != 0;
+}
+
+// Return one triangle index from the packed RT index buffers.
+uint HitTriangleIndex(RayTracingGeometry geometry, uint corner)
+{
+	uint index = geometry.ranges.z + PrimitiveIndex() * 3u + corner;
+	if ((geometry.flags.x & RayTracingGeometryFlag_Index16) != 0)
+		return g_indices16[index];
+
+	return g_indices32[index];
+}
+
+// Shade the closest-hit surface by interpolating packed geometry attributes.
+float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
+{
+	uint geometry_index = HitMaterialIndex();
+	float4 material = HitMaterial();
+	if (!HasHitGeometry(geometry_index))
+		return material;
+
+	RayTracingGeometry geometry = g_geometry[geometry_index];
+	uint first_index = PrimitiveIndex() * 3u;
+	if (first_index + 2u >= geometry.ranges.w)
+		return material;
+
+	uint i0 = HitTriangleIndex(geometry, 0) - geometry.ranges.y;
+	uint i1 = HitTriangleIndex(geometry, 1) - geometry.ranges.y;
+	uint i2 = HitTriangleIndex(geometry, 2) - geometry.ranges.y;
+	if (i0 >= geometry.flags.y || i1 >= geometry.flags.y || i2 >= geometry.flags.y)
+		return material;
+
+	float3 bary = float3(1.0f - attrib.barycentrics.x - attrib.barycentrics.y, attrib.barycentrics.x, attrib.barycentrics.y);
+
+	RayTracingVertex v0 = g_vertices[geometry.ranges.x + i0];
+	RayTracingVertex v1 = g_vertices[geometry.ranges.x + i1];
+	RayTracingVertex v2 = g_vertices[geometry.ranges.x + i2];
+	float4 colour = (bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour) * material;
+	if ((geometry.flags.x & RayTracingGeometryFlag_HasNormals) == 0)
+		return colour;
+
+	float4 normal = bary.x * v0.normal + bary.y * v1.normal + bary.z * v2.normal;
+	normal.w = 0.0f;
+	float normal_len_sq = dot(normal.xyz, normal.xyz);
+	if (normal_len_sq < 1e-10f)
+		return colour;
+
+	float4 ws_normal = mul(normal * rsqrt(normal_len_sq), geometry.normal_to_world);
+	ws_normal.w = 0.0f;
+	float ws_normal_len_sq = dot(ws_normal.xyz, ws_normal.xyz);
+	if (ws_normal_len_sq < 1e-10f)
+		return colour;
+
+	ws_normal *= rsqrt(ws_normal_len_sq);
+	if (dot(ws_normal.xyz, -WorldRayDirection()) < 0.0f)
+		ws_normal = -ws_normal;
+
+	float4 ws_pos = float4(WorldRayOrigin() + RayTCurrent() * WorldRayDirection(), 1.0f);
+	return Illuminate(g_frame.global_light, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour);
 }
 
 // Return a stable pseudo-random value for a projected caustic cell.
@@ -522,7 +596,7 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	{
 		payload.hit = 1;
 		payload.hit_t = RayTCurrent();
-		payload.colour = ReflectionHitMaterial();
+		payload.colour = ShadeRayHit(attrib);
 		return;
 	}
 	if (payload.mode != RayPayloadMode_Diagnostic)

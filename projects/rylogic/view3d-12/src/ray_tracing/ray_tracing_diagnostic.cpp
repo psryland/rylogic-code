@@ -37,6 +37,10 @@ namespace pr::rdr12
 			ReflectionAttrs,
 			AlphaRtAttrs,
 			Materials,
+			ShadingVertices,
+			ShadingIndices16,
+			ShadingIndices32,
+			ShadingGeometry,
 			Output,
 		};
 		enum class EPresentRootParam
@@ -145,6 +149,10 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t3, 1)
 			.SRV(hlsl::ESRVReg::t4, 1)
 			.SRV(hlsl::ESRVReg::t5, 1)
+			.SRV(hlsl::ESRVReg::t6, 1)
+			.SRV(hlsl::ESRVReg::t7, 1)
+			.SRV(hlsl::ESRVReg::t8, 1)
+			.SRV(hlsl::ESRVReg::t9, 1)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
@@ -337,6 +345,10 @@ namespace pr::rdr12
 		auto const reflection_attrs = reflections != nullptr ? reflections->Attributes() : nullptr;
 		auto const alpha_rt_attrs = kbuffer.m_alpha_rt_attrs != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_rt_attrs->m_res.get()) : nullptr;
 		auto const materials = ray_tracing_scene.MaterialBuffer();
+		auto const shading_vertices = ray_tracing_scene.ShadingVertexBuffer();
+		auto const shading_indices16 = ray_tracing_scene.ShadingIndex16Buffer();
+		auto const shading_indices32 = ray_tracing_scene.ShadingIndex32Buffer();
+		auto const shading_geometry = ray_tracing_scene.ShadingGeometryBuffer();
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
 		if (input == nullptr || target == nullptr)
 			return;
@@ -357,6 +369,14 @@ namespace pr::rdr12
 				barriers.Transition(alpha_rt_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (materials != nullptr)
 				barriers.Transition(materials, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (shading_vertices != nullptr)
+				barriers.Transition(shading_vertices, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (shading_indices16 != nullptr)
+				barriers.Transition(shading_indices16, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (shading_indices32 != nullptr)
+				barriers.Transition(shading_indices32, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (shading_geometry != nullptr)
+				barriers.Transition(shading_geometry, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
@@ -411,6 +431,50 @@ namespace pr::rdr12
 					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
 				},
 			});
+			auto shading_vertices_srv = scene.wnd().m_heap_view.Add(shading_vertices, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = {
+					.FirstElement = 0,
+					.NumElements = s_cast<UINT>(std::max(ray_tracing_scene.ShadingVertexCount(), 1)),
+					.StructureByteStride = sizeof(shaders::rt::RayTracingVertex),
+					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+				},
+			});
+			auto shading_indices16_srv = scene.wnd().m_heap_view.Add(shading_indices16, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_R16_UINT,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = {
+					.FirstElement = 0,
+					.NumElements = s_cast<UINT>(std::max(ray_tracing_scene.ShadingIndex16Count(), 1)),
+					.StructureByteStride = 0,
+					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+				},
+			});
+			auto shading_indices32_srv = scene.wnd().m_heap_view.Add(shading_indices32, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_R32_UINT,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = {
+					.FirstElement = 0,
+					.NumElements = s_cast<UINT>(std::max(ray_tracing_scene.ShadingIndex32Count(), 1)),
+					.StructureByteStride = 0,
+					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+				},
+			});
+			auto shading_geometry_srv = scene.wnd().m_heap_view.Add(shading_geometry, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = {
+					.FirstElement = 0,
+					.NumElements = s_cast<UINT>(std::max(ray_tracing_scene.ShadingGeometryCount(), 1)),
+					.StructureByteStride = sizeof(shaders::rt::RayTracingGeometry),
+					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+				},
+			});
 
 			auto uav_desc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
 				.Format = OutputFormat,
@@ -446,7 +510,7 @@ namespace pr::rdr12
 				pass == ERayTracingScreenPass::Caustics ? shaders::rt::RayTracingMode_Caustics :
 				pass == ERayTracingScreenPass::ReflectionsAndCaustics ? shaders::rt::RayTracingMode_ReflectionsAndCaustics :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
-				ray_tracing_scene.MaterialCount(), 0, 0);
+				ray_tracing_scene.MaterialCount(), ray_tracing_scene.ShadingGeometryCount(), ray_tracing_scene.ShadingGeometryFallbackCount());
 
 			cmd_list.SetComputeRootSignature(data.m_trace_signature.get());
 			cmd_list.SetComputeRootConstantBufferView(ETraceRootParam::CBufFrame, frame.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false));
@@ -456,6 +520,10 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ReflectionAttrs, reflection_attrs_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaRtAttrs, alpha_rt_attrs_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Materials, materials_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingVertices, shading_vertices_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingIndices16, shading_indices16_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingIndices32, shading_indices32_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingGeometry, shading_geometry_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 

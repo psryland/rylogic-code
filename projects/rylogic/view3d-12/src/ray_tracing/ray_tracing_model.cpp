@@ -257,12 +257,6 @@ namespace pr::rdr12
 		build_barriers.UAV(m_data->m_blas.get());
 		build_barriers.Commit();
 
-		PR_INFO(PR_DBG_RDR, std::format(
-			"Built BLAS for model '{}': {} geometries, {} bytes\n",
-			model.m_name,
-			m_data->m_stats.m_geometry_count,
-			m_data->m_stats.m_blas_size));
-
 		return m_data->m_stats;
 	}
 }

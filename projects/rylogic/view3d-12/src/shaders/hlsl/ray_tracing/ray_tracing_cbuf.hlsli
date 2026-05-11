@@ -18,10 +18,38 @@ static const int RayTracingInstanceMask_Default = 0x01;
 static const int RayTracingInstanceMask_Caustic = 0x02;
 static const int RayTracingInstanceMask_All = 0xFF;
 
+static const int RayTracingGeometryFlag_HasGeometry = 0x01;
+static const int RayTracingGeometryFlag_HasNormals = 0x02;
+static const int RayTracingGeometryFlag_Index16 = 0x04;
+static const int RayTracingGeometryFlag_Index32 = 0x08;
+
 // Material data for one TLAS instance geometry.
 struct RayTracingMaterial
 {
 	float4 diffuse;
+};
+
+// Vertex data copied into a packed RT shading buffer.
+struct RayTracingVertex
+{
+	float4 position;
+	float4 colour;
+	float4 normal;
+	float2 tex0;
+	int2 idx0;
+};
+
+// Geometry metadata for one TLAS instance geometry, indexed using InstanceID() + GeometryIndex().
+struct RayTracingGeometry
+{
+	// x = vertex offset, y = vertex base, z = index offset, w = index count
+	uint4 ranges;
+
+	// x = RayTracingGeometryFlag_*, y = vertex count, zw = reserved
+	uint4 flags;
+
+	// Transform interpolated model-space normals into world space.
+	row_major float4x4 normal_to_world;
 };
 
 // Constants per ray tracing dispatch.
@@ -51,7 +79,7 @@ struct CBufFrame// :reg(b0)
 	// x = caustic strength, y = minimum caustic-ray bias, z = projected caustic pattern scale, w = glass thickness approximation
 	float4 caustic;
 
-	// x = RayTracingMode_*, y = material count
+	// x = RayTracingMode_*, y = material count, z = geometry count, w = geometry fallback count
 	int4 options;
 };
 
