@@ -68,7 +68,6 @@ static const uint GpuSleepIslandFlags_None = 0;
 static const uint GpuSleepIslandFlags_Valid = 1 << 0;
 static const uint GpuSleepIslandFlags_Sleeping = 1 << 1;
 static const uint GpuSleepIslandFlags_Disturbed = 1 << 2;
-static const uint GpuSleepIslandFlags_HitThisFrame = 1 << 3;
 
 // Sleep island stats flags:
 static const uint GpuSleepIslandStatsFlags_Valid = 1 << 0;

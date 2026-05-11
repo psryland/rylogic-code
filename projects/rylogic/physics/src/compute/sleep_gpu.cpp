@@ -42,7 +42,6 @@ namespace pr::physics
 		, m_cs_init_sleep_state()
 		, m_cs_union_sleep_contacts()
 		, m_cs_canonicalise_roots()
-		, m_cs_mark_hit_islands()
 		, m_cs_reduce_sleep_stats()
 		, m_cs_apply_sleep_state()
 		, m_cmd_sig()
@@ -110,7 +109,6 @@ namespace pr::physics
 		compile_update(m_cs_init_sleep_state, L"CSInitSleepState", "Physics:InitSleepStateSig", "Physics:InitSleepStatePSO");
 		compile_update(m_cs_union_sleep_contacts, L"CSUnionSleepContacts", "Physics:UnionSleepContactsSig", "Physics:UnionSleepContactsPSO");
 		compile_update(m_cs_canonicalise_roots, L"CSCanonicaliseSleepRoots", "Physics:CanonicaliseSleepRootsSig", "Physics:CanonicaliseSleepRootsPSO");
-		compile_update(m_cs_mark_hit_islands, L"CSMarkHitSleepingIslands", "Physics:MarkHitSleepingIslandsSig", "Physics:MarkHitSleepingIslandsPSO");
 		compile_update(m_cs_reduce_sleep_stats, L"CSReduceSleepStats", "Physics:ReduceSleepStatsSig", "Physics:ReduceSleepStatsPSO");
 		compile_update(m_cs_apply_sleep_state, L"CSApplySleepState", "Physics:ApplySleepStateSig", "Physics:ApplySleepStatePSO");
 	}
@@ -275,13 +273,6 @@ namespace pr::physics
 			job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
 
 			job.m_barriers.UAV(m_r_sleep_parents.get());
-			job.m_barriers.Commit();
-		}
-		{
-			bind_update(m_cs_mark_hit_islands);
-			job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
-
-			job.m_barriers.UAV(m_r_sleep_islands.get());
 			job.m_barriers.Commit();
 		}
 		{

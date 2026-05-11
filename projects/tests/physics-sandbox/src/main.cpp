@@ -157,6 +157,10 @@ namespace physics_sandbox
 			options.m_cradle_metric = true;
 		if (cmd.count("dzhanibekov_metric"))
 			options.m_dzhanibekov_metric = true;
+		if (cmd.count("sleep_metric"))
+			options.m_sleep_metric = true;
+		if (cmd.count("sleep_metric_non_spheres"))
+			options.m_sleep_metric_non_spheres = true;
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 

@@ -1,6 +1,6 @@
 {
 	"scene": {
-		"description": "Stability benchmark: 7-row brick pyramid preserving its initial lattice under gravity",
+		"description": "Regression scene: random thin plates should settle and sleep by t=20s",
 		"seed": 3,
 		"gravity": [ 0, 0, -9.81 ],
 		"material": {

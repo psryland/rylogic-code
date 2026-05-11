@@ -637,6 +637,21 @@ namespace physics_sandbox::diag
 				sample.m_max_ang_speed,
 				config.sleep_velocity_threshold_ang));
 		}
+		// Print the sleep regression metric for the selected dynamic-body sample.
+		void PrintSleepMetric(std::ofstream& log, int step, double time_s, Scene const& scene, bool non_spheres_only)
+		{
+			auto sample = MeasureSleep(scene, non_spheres_only);
+			auto asleep = sample.m_dynamic_count != 0 && sample.m_sleeping_count == sample.m_dynamic_count;
+			Emit(log, std::format(
+				"sleep_metric step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} asleep={}\n",
+				step,
+				time_s,
+				non_spheres_only ? "non-spheres" : "all",
+				sample.m_dynamic_count,
+				sample.m_sleeping_count,
+				sample.m_low_velocity_count,
+				asleep ? "true" : "false"));
+		}
 		void PrintColumnMetric(std::ofstream& log, int step, double time_s, Scene const& scene, ColumnMetricState& metric)
 		{
 			auto const& top_body = scene.m_body[metric.m_top_body];
@@ -1003,8 +1018,9 @@ namespace physics_sandbox::diag
 		metric_count += options.m_pyramid_metric ? 1 : 0;
 		metric_count += options.m_cradle_metric ? 1 : 0;
 		metric_count += options.m_dzhanibekov_metric ? 1 : 0;
+		metric_count += options.m_sleep_metric ? 1 : 0;
 		if (metric_count > 1)
-			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, or -dzhanibekov_metric");
+			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, -dzhanibekov_metric, or -sleep_metric");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
@@ -1019,6 +1035,8 @@ namespace physics_sandbox::diag
 			Emit(log, "cradle_metric=true\n");
 		else if (options.m_dzhanibekov_metric)
 			Emit(log, "dzhanibekov_metric=true\n");
+		else if (options.m_sleep_metric)
+			Emit(log, std::format("sleep_metric=true sleep_metric_non_spheres={}\n", options.m_sleep_metric_non_spheres));
 		else if (options.m_scan_bodies)
 			Emit(log, std::format("scan_bodies=true scan_non_spheres={} ke_jump={:.3f}\n", options.m_scan_non_spheres, options.m_trace_ke_jump));
 		else if (options.m_trace_body == -1)
@@ -1318,6 +1336,28 @@ namespace physics_sandbox::diag
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 					PrintDzhanibekovMetric(log, step + 1, scene.m_clock, scene, dzhanibekov_metric);
+
+				continue;
+			}
+			if (options.m_sleep_metric)
+			{
+				auto report_interval = std::max(options.m_report_interval, 1);
+				auto report_frame = (step + 1) % report_interval == 0 || step + 1 == options.m_steps;
+				if (report_frame)
+					PrintSleepMetric(log, step + 1, scene.m_clock, scene, options.m_sleep_metric_non_spheres);
+
+				if (step + 1 == options.m_steps)
+				{
+					auto sample = MeasureSleep(scene, options.m_sleep_metric_non_spheres);
+					if (sample.m_dynamic_count == 0 || sample.m_sleeping_count != sample.m_dynamic_count)
+					{
+						throw std::runtime_error(std::format(
+							"Sleep metric failed: sleeping {} of {} dynamic bodies at t={:.4f}",
+							sample.m_sleeping_count,
+							sample.m_dynamic_count,
+							scene.m_clock));
+					}
+				}
 
 				continue;
 			}

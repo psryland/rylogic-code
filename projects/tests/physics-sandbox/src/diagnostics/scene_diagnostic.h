@@ -40,6 +40,8 @@ namespace physics_sandbox::diag
 		bool m_pyramid_metric = false;
 		bool m_cradle_metric = false;
 		bool m_dzhanibekov_metric = false;
+		bool m_sleep_metric = false;
+		bool m_sleep_metric_non_spheres = false;
 		bool m_engine_profile = false;
 	};
 

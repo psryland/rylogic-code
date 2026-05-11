@@ -16,7 +16,6 @@ namespace pr::physics
 		ComputeStep m_cs_init_sleep_state;       // Root signature + PSO for initialising body-parent and per-root stats scratch buffers
 		ComputeStep m_cs_union_sleep_contacts;   // Root signature + PSO for unioning contacted dynamic bodies into components
 		ComputeStep m_cs_canonicalise_roots;     // Root signature + PSO for compressing component parent links
-		ComputeStep m_cs_mark_hit_islands;       // Root signature + PSO for marking persisted sleeping islands hit this frame
 		ComputeStep m_cs_reduce_sleep_stats;     // Root signature + PSO for reducing per-body sleep state into component stats
 		ComputeStep m_cs_apply_sleep_state;      // Root signature + PSO for applying component sleep/wake decisions to bodies
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;// Command signature for indirect contact-count dispatches

@@ -395,6 +395,15 @@ float3 ApplyImpulseWithEnergyGuard(
 	return impulse;
 }
 
+// Apply a non-physical Baumgarte bias impulse to linear momentum only, so positional error correction does not inject spin through an unstable contact point.
+float3 ApplyLinearBiasImpulse(inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB, float3 impulse, float3x3 rot_a)
+{
+	float3 impulse_ws = mul(impulse, rot_a);
+	bodyA.momentum_lin.xyz -= impulse_ws;
+	bodyB.momentum_lin.xyz += impulse_ws;
+	return impulse;
+}
+
 // Extracts the positive normal part of a cached impulse in the current contact frame.
 float3 WarmStartNormalImpulse(GpuResolveContact c, float3 impulse)
 {
@@ -969,11 +978,10 @@ void CSPositionSolve(int3 DTID(dtid))
 //   (elastic bounces, head-on impacts) and matches the analytic 1D elastic solution for
 //   symmetric pair-wise contacts (preserving the conservation tests).
 //
-//   Phase 2 (per manifold point, only when penetrating): For each manifold point apply a
-//   scalar Baumgarte bias impulse (NOT energy-guarded — bias is positional correction, not
-//   real KE) plus a friction impulse limited by that point's bias impulse magnitude. This
-//   distributes the contact normal force across the manifold for stable stacking (a 4-point
-//   face contact can resist torque, a single centroid contact cannot).
+//   Phase 2 (linear bias, per-manifold-point friction, only when penetrating): Apply a
+//   scalar Baumgarte bias impulse to linear momentum only, then distribute friction across
+//   manifold points using each point's share of the normal impulse. Broad face contacts
+//   can resist sliding and torsion without bias-driven angular runaway.
 numthreads(CSResolve, ResolveThreadCount, 1, 1)
 void CSResolve(int3 DTID(dtid))
 {
@@ -1084,13 +1092,10 @@ void CSResolve(int3 DTID(dtid))
 		}
 	}
 
-	// ===== Phase 2: Centroid Baumgarte bias + per-manifold-point friction =====
-	// Applying the bias at the centroid (rather than at every manifold point) is essential.
-	// A per-point bias creates an angular feedback runaway on asymmetric/tilted contacts:
-	// the bias impulse at one corner of the manifold rotates the body, which changes vn at
-	// the other corners, allowing fresh bias applications, and so on. The result is
-	// unbounded angular and linear momentum injection — the box "explodes" off the ground.
-	// A single centroid bias produces no torque, so the depenetration push is purely linear.
+	// ===== Phase 2: Linear Baumgarte bias + per-manifold-point friction =====
+	// Baumgarte bias is a pseudo-impulse that clears position error. Applying it through the current contact point makes broad resting contacts sensitive to
+	// transient manifold reduction: a one-point contact patch can inject spin before the next frame restores the wider manifold. Use the centre-of-mass
+	// relative normal speed and change only linear momentum, leaving physical contact-point torque to the restitution/friction phases.
 	//
 	// Friction is still applied per manifold point. Distributing friction across the contact
 	// face is what lets a stack of boxes resist sliding/torsion at every contact point. The
@@ -1099,31 +1104,22 @@ void CSResolve(int3 DTID(dtid))
 	PR_HLSL_BRANCH
 	if (bias > 0.0f)
 	{
-		float3 pt_c = c.contact_point.xyz;
-		float3 V_rel_c = RelativeVelocityAtPoint(bodyA, bodyB, pt_c,
-			os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
-
-		float3x3 col_I_c = CollisionMassMatrix(
-			pt_c - com_a_in_a, pt_c - com_b_in_a,
-			inv_mass_a, inv_mass_b,
-			os_iinv_a, b2a_iinv_b);
-		float3x3 col_I_inv_c = Invert(col_I_c);
-		float k_n_c = dot(axis, mul(col_I_inv_c, axis));
-
-		float vn_now = dot(V_rel_c, axis);
+		float k_n_c = inv_mass_a + inv_mass_b;
+		float3 v_com_a = mul(rot_a, inv_mass_a * bodyA.momentum_lin.xyz);
+		float3 v_com_b = mul(rot_a, inv_mass_b * bodyB.momentum_lin.xyz);
+		float vn_now = dot(v_com_b - v_com_a, axis);
 		float Jn_bias_centroid = (k_n_c > 1e-12f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
 
 		PR_HLSL_BRANCH
 		if (Jn_bias_centroid > 0.0f)
 		{
-			// ----- Centroid bias impulse (NOT energy-guarded) -----
-			// Pseudo-impulse that drives penetration to zero. Applied at the centroid so
-			// no torque is generated (no lever arm from the impulse to the CoM offset can
-			// drive angular runaway between manifold points).
-			float3 applied_bias_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, Jn_bias_centroid * axis, pt_c,
-				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-				inv_mass_a, inv_mass_b, false);
-			c.warmstart_impulse.xyz += applied_bias_impulse;
+			// ----- Linear Baumgarte bias impulse (NOT energy-guarded) -----
+			// This is a pseudo-impulse for clearing positional error, not a physical contact force. Restricting it to linear momentum avoids injecting angular
+			// jostle when a resting broad contact temporarily reduces to a single manifold point.
+			float3 applied_bias_impulse = ApplyLinearBiasImpulse(bodyA, bodyB, Jn_bias_centroid * axis, rot_a);
+
+			// Baumgarte bias is a one-frame positional correction, not a reusable support impulse. Persisting it into the warm-start cache replays stale
+			// push-out on the next frame and can keep resting contact networks subtly energised.
 			any_impulse = any_impulse || any(applied_bias_impulse != float3(0, 0, 0));
 
 			// Per-point friction cone limit: split the centroid Jn equally so the

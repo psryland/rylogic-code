@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
+#include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
@@ -54,9 +55,14 @@ odr bool ActuallyAwake(in_(GpuRigidBody) body)
 odr bool LowVelocity(in_(GpuRigidBody) body)
 {
 	float inv_mass = body.os_com_and_invmass.w;
+	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
+	float3 vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
+
 	return inv_mass > 0.0f &&
-		dot(body.momentum_lin.xyz, body.momentum_lin.xyz) < sqr(g.sleep_velocity_threshold_lin) / (sqr(inv_mass) + 1e-30f) &&
-		dot(body.momentum_ang.xyz, body.momentum_ang.xyz) < sqr(g.sleep_velocity_threshold_ang) / (sqr(inv_mass) + 1e-30f);
+		dot(vel_lin, vel_lin) < sqr(g.sleep_velocity_threshold_lin) &&
+		dot(vel_ang, vel_ang) < sqr(g.sleep_velocity_threshold_ang);
 }
 
 // Find the representative body for a dynamic connected component. Static bodies are stored as parent -1 and are never part of a sleep island.
@@ -212,29 +218,6 @@ void CSCanonicaliseSleepRoots(int3 dtid : SV_DispatchThreadID)
 		g_sleep_parents[body_idx] = FindSleepRoot(body_idx);
 }
 
-numthreads(CSMarkHitSleepingIslands, SleepThreadCount, 1, 1)
-void CSMarkHitSleepingIslands(int3 dtid : SV_DispatchThreadID)
-{
-	if (g.sleeping_enabled == 0)
-		return;
-
-	int body_idx = dtid.x;
-	if (body_idx >= g.body_count)
-		return;
-
-	// Existing sleeping islands can be hit by broadphase/narrowphase because CSDisturbIslands marked them. A resolver contact turns that conservative
-	// disturbance into a real same-frame wake for the whole persisted island.
-	GpuRigidBody body = g_rw_bodies[body_idx];
-	int island_id = body.sleep.island_id;
-	if (AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) &&
-		AllSet(body.state_flags, ERigidBodyStateFlags_Collided) &&
-		island_id >= 0 &&
-		island_id < g.island_count)
-	{
-		InterlockedOr(g_sleep_islands[island_id].flags, GpuSleepIslandFlags_HitThisFrame);
-	}
-}
-
 numthreads(CSReduceSleepStats, SleepThreadCount, 1, 1)
 void CSReduceSleepStats(int3 dtid : SV_DispatchThreadID)
 {
@@ -269,14 +252,6 @@ void CSReduceSleepStats(int3 dtid : SV_DispatchThreadID)
 	int island_id = body.sleep.island_id;
 	if (sleeping && island_id >= 0)
 		InterlockedMin(g_sleep_stats[root].island_id, island_id);
-
-	if (sleeping &&
-		island_id >= 0 &&
-		island_id < g.island_count &&
-		AnySet(g_sleep_islands[island_id].flags, GpuSleepIslandFlags_HitThisFrame))
-	{
-		InterlockedOr(g_sleep_stats[root].flags, GpuSleepIslandStatsFlags_Wake);
-	}
 }
 
 numthreads(CSApplySleepState, SleepThreadCount, 1, 1)
@@ -303,12 +278,13 @@ void CSApplySleepState(int3 dtid : SV_DispatchThreadID)
 
 	if (wake)
 	{
-		// Waking invalidates any persisted sleep island membership. The generation bump lets CPU-side staging notice the membership change.
+		// Waking invalidates persisted sleep-island membership, but low awake bodies in the same contact component should keep accumulating sleep time. A
+		// single moving neighbour should not erase the settled history for every other body in the island candidate.
 		if (sleeping || body.sleep.island_id >= 0)
 			body.sleep.generation++;
 
 		body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
-		body.sleep.timer_s = 0.0f;
+		body.sleep.timer_s = (!sleeping && low_velocity) ? body.sleep.timer_s + g.dt : 0.0f;
 		body.sleep.island_id = -1;
 		body.sleep.flags = 0;
 	}
