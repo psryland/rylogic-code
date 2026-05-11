@@ -315,6 +315,9 @@ namespace pr::rdr12
 		auto const output = data.m_output.get();
 		auto& kbuffer = scene.wnd().m_alpha_kbuffer;
 		auto const use_reflections = pass == ERayTracingScreenPass::Reflections;
+
+		// Reflection mode reads and writes the resolved K-buffer opaque base. The caller must schedule this in the
+		// post-resolve/pre-alpha stage so the normal K-buffer alpha resolve still owns final transparent compositing.
 		auto const input = use_reflections
 			? (kbuffer.m_opaque_colour_1x != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_opaque_colour_1x->m_res.get()) : nullptr)
 			: const_cast<ID3D12Resource*>(frame.bb_post().m_render_target.get());

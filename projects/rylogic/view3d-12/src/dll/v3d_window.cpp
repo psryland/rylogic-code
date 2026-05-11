@@ -209,17 +209,9 @@ namespace pr::rdr12
 		if (enable && !rdr().RayTracing().Available())
 			throw std::runtime_error(std::format("Ray tracing is not available on this renderer. Device tier: {}", rdr().RayTracing().TierName()));
 
-		// Rebuild the render-step list so the expensive RT owner object only exists while RT is enabled. The shadow step is kept when
-		// shadows are currently enabled; the normal render path will still refresh it before the next frame.
-		auto rsteps = std::array<ERenderStep, 3>{};
-		auto count = 0;
-		if (m_scene.m_global_light.m_cast_shadow)
-			rsteps[count++] = ERenderStep::ShadowMap;
-		rsteps[count++] = ERenderStep::RenderForward;
-		if (enable)
-			rsteps[count++] = ERenderStep::RayTracing;
-
-		m_scene.SetRenderSteps(std::span{ rsteps.data(), s_cast<std::size_t>(count) });
+		// Keep the existing raster steps alive when toggling RT. Rebuilding the list here destroys command-list owners
+		// during settings application and also drops any per-step draw-list state that the raster path already owns.
+		m_scene.RayTracing(enable);
 		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
 		Invalidate();
 	}

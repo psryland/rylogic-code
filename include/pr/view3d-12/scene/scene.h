@@ -105,6 +105,9 @@ namespace pr::rdr12
 		// Enable/Disable shadow casting
 		void ShadowCasting(bool enable, int shadow_map_size);
 
+		// Enable/disable ray tracing for this scene.
+		void RayTracing(bool enable);
+
 		// Get/Set the scene-wide fill mode default.
 		EFillMode FillMode() const;
 		void FillMode(EFillMode fill_mode);

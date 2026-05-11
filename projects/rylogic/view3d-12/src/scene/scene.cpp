@@ -149,6 +149,19 @@ namespace pr::rdr12
 		}
 	}
 
+	// Enable/disable ray tracing without rebuilding the existing raster render steps.
+	void Scene::RayTracing(bool enable)
+	{
+		if (enable && FindRStep<RenderRayTracing>() == nullptr)
+		{
+			m_render_steps.emplace_back(new RenderRayTracing(*this));
+		}
+		if (!enable && FindRStep<RenderRayTracing>() != nullptr)
+		{
+			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::RayTracing; });
+		}
+	}
+
 	// Get/Set the scene-wide fill mode default.
 	EFillMode Scene::FillMode() const
 	{

@@ -29,6 +29,7 @@ namespace pr::rdr12
 		, m_ray_tracing()
 		, m_diagnostic()
 		, m_reflections()
+		, m_cmd_list(scene.d3d(), nullptr, "RenderRayTracing", EColours::BlueViolet)
 	{}
 
 	// Release ray tracing resources through the renderer's deferred-release queue.
@@ -91,15 +92,19 @@ namespace pr::rdr12
 		if (!prepared)
 			return;
 
-		// Reflections update the K-buffer's opaque base before the already-recorded alpha resolve composites sorted alpha layers over it.
+		// Reflections update the K-buffer's opaque base in the post-resolve stage. This keeps the RT feature between
+		// AlphaKBuffer::CopyOpaqueBuffer and AlphaKBuffer::ResolveAlpha, so existing sorted alpha layers still composite over it.
 		auto heaps = { wnd().m_heap_view.get() };
 		if (pass == ERayTracingScreenPass::Reflections)
 		{
 			if (!m_reflections)
 				return;
 
-			frame.m_resolve.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-			m_diagnostic.Record(frame.m_resolve, frame, scn(), m_ray_tracing, pass, &m_reflections, false);
+			m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
+			frame.m_post.push_back(m_cmd_list);
+			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+			m_diagnostic.Record(m_cmd_list, frame, scn(), m_ray_tracing, pass, &m_reflections, false);
+			m_cmd_list.Close();
 			return;
 		}
 

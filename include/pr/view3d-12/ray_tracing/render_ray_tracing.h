@@ -19,6 +19,7 @@ namespace pr::rdr12
 		RayTracingScene m_ray_tracing;
 		RayTracingDiagnostic m_diagnostic;
 		RayTracingReflectionBuffer m_reflections;
+		GfxCmdList m_cmd_list;
 
 	public:
 

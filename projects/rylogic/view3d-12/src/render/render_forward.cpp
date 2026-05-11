@@ -180,6 +180,9 @@ namespace pr::rdr12
 		m_alp_list.RSSetScissorRects(vp.m_clip);
 
 		auto& kbuf = wnd().m_alpha_kbuffer;
+
+		// The RT reflection sidecar describes the opaque raster-visible surface only. Alpha continues through the K-buffer unchanged;
+		// future alpha-aware RT passes should add matching sidecar payloads beside the alpha layer buffers rather than bypassing them.
 		auto* reflection_attrs = [&]() -> RayTracingReflectionBuffer*
 		{
 			auto* ray_tracing = scn().FindRStep<RenderRayTracing>();
