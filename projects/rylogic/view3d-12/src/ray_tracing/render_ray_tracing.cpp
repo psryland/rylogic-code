@@ -52,13 +52,14 @@ namespace pr::rdr12
 		return RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC") ? ERayTracingScreenPass::Diagnostic :
 			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_HARD_SHADOWS") ? ERayTracingScreenPass::HardShadows :
 			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_CAUSTICS") ? ERayTracingScreenPass::Caustics :
-			ERayTracingScreenPass::Reflections;
+			ERayTracingScreenPass::ReflectionsAndCaustics;
 	}
 
 	// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
 	RayTracingReflectionBuffer* RenderRayTracing::PrepareReflectionAttributes(Frame& frame)
 	{
-		if (!rdr().RayTracing().Available() || ScreenPass() != ERayTracingScreenPass::Reflections)
+		auto const pass = ScreenPass();
+		if (!rdr().RayTracing().Available() || (pass != ERayTracingScreenPass::Reflections && pass != ERayTracingScreenPass::ReflectionsAndCaustics))
 			return nullptr;
 
 		auto const size = frame.bb_main().rt_size();
@@ -96,9 +97,9 @@ namespace pr::rdr12
 		// Reflections and caustics update the K-buffer's opaque base in the post-resolve stage. This keeps RT lighting between
 		// AlphaKBuffer::CopyOpaqueBuffer and AlphaKBuffer::ResolveAlpha, so existing sorted alpha layers still composite over it.
 		auto heaps = { wnd().m_heap_view.get() };
-		if (pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics)
+		if (pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics || pass == ERayTracingScreenPass::ReflectionsAndCaustics)
 		{
-			auto const use_reflections = pass == ERayTracingScreenPass::Reflections;
+			auto const use_reflections = pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::ReflectionsAndCaustics;
 			if (use_reflections && !m_reflections)
 				return;
 

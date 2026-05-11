@@ -31,6 +31,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
+		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
 	};
 	struct ESamp
 	{
@@ -72,6 +73,7 @@ namespace pr::rdr12::shaders
 			.Samp(ESamp::ProjTex)
 			.UAV(EReg::AlphaColour, 1)
 			.UAV(EReg::AlphaDepth, 1)
+			.UAV(EReg::AlphaRtAttrs, 1)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 

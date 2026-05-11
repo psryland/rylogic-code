@@ -11,6 +11,7 @@ RaytracingAccelerationStructure g_scene : register(t0);
 Texture2D<float4> g_input : register(t1);
 Texture2DMS<float> g_depth : register(t2);
 Texture2DMS<float4> g_reflection_attrs : register(t3);
+Texture2D<uint4> g_alpha_rt_attrs : register(t4);
 RWTexture2D<float4> g_output : register(u0);
 
 static const uint RayPayloadMode_Diagnostic = 0;
@@ -18,6 +19,9 @@ static const uint RayPayloadMode_Primary = 1;
 static const uint RayPayloadMode_Shadow = 2;
 static const uint RayPayloadMode_Reflection = 3;
 static const uint RayPayloadMode_Caustic = 4;
+
+static const float GlassIOR = 1.5f;
+static const float DefaultGlassTransmission = 0.85f;
 
 struct RayPayload
 {
@@ -31,6 +35,11 @@ struct RasterDepth
 {
 	float depth;
 	uint sample;
+};
+struct GlassLayer
+{
+	float3 normal;
+	float transmission;
 };
 
 // Return a stable pseudo-random colour for diagnostic object/primitive ids.
@@ -187,6 +196,75 @@ float CausticPattern(float3 ws_pos, float3 surface_to_light)
 	return saturate(0.35f * filaments + 0.65f * cells);
 }
 
+// Unpack an RGBA8 value produced by the alpha RT sidecar.
+float4 UnpackRtRGBA8(uint colour)
+{
+	uint4 c = uint4(colour, colour >> 8, colour >> 16, colour >> 24) & 0xFFu;
+	return float4(c) / 255.0f;
+}
+
+// Fold one packed alpha sidecar layer into the strongest glass layer candidate for this pixel.
+void ConsiderGlassLayer(inout GlassLayer best, uint packed_attrs, float3 incident)
+{
+	float4 attrs = UnpackRtRGBA8(packed_attrs);
+	if (attrs.a <= best.transmission)
+		return;
+
+	float3 normal = 2.0f * attrs.rgb - 1.0f;
+	float len_sq = dot(normal, normal);
+	if (len_sq < 1e-6f)
+		return;
+
+	normal *= rsqrt(len_sq);
+	if (dot(normal, incident) > 0.0f)
+		normal = -normal;
+
+	best.normal = normal;
+	best.transmission = attrs.a;
+}
+
+// Return the strongest camera-visible transparent layer for this pixel, treating it as default glass.
+GlassLayer StrongestGlassLayer(uint2 pixel, float3 fallback_normal, float3 incident)
+{
+	uint4 attrs = g_alpha_rt_attrs.Load(int3(pixel, 0));
+	GlassLayer glass;
+	glass.normal = fallback_normal;
+	glass.transmission = 0.0f;
+
+	ConsiderGlassLayer(glass, attrs.x, incident);
+	ConsiderGlassLayer(glass, attrs.y, incident);
+	ConsiderGlassLayer(glass, attrs.z, incident);
+	ConsiderGlassLayer(glass, attrs.w, incident);
+	return glass;
+}
+
+// Estimate a receiver-to-light ray through a temporary glass material model.
+float3 GlassRayDirection(float3 incident, GlassLayer glass)
+{
+	if (glass.transmission <= 0.0f)
+		return incident;
+
+	float3 refracted = refract(incident, glass.normal, 1.0f / GlassIOR);
+	float refracted_len_sq = dot(refracted, refracted);
+	if (refracted_len_sq < 1e-6f)
+		return incident;
+
+	refracted *= rsqrt(refracted_len_sq);
+	return normalize(lerp(incident, refracted, glass.transmission));
+}
+
+// Approximate how much of the caustic-producing light survives a temporary glass material.
+float GlassTransmission(float3 incident, GlassLayer glass, bool hit_glass)
+{
+	if (!hit_glass)
+		return 0.0f;
+
+	float transmission = glass.transmission > 0.0f ? glass.transmission : DefaultGlassTransmission;
+	float facing = glass.transmission > 0.0f ? abs(dot(incident, glass.normal)) : 1.0f;
+	float fresnel_reflectance = 0.04f + 0.96f * pow(1.0f - saturate(facing), 5.0f);
+	return transmission * (1.0f - fresnel_reflectance);
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -209,7 +287,7 @@ void RayGen()
 	}
 
 	float4 colour = g_input.Load(int3(pixel, 0));
-	if (g_frame.options.x == RayTracingMode_Reflections)
+	if (g_frame.options.x == RayTracingMode_Reflections || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
 		if (raster.depth < 0.999999f)
@@ -249,11 +327,14 @@ void RayGen()
 			}
 		}
 
-		g_output[pixel] = colour;
-		return;
+		if (g_frame.options.x == RayTracingMode_Reflections)
+		{
+			g_output[pixel] = colour;
+			return;
+		}
 	}
 
-	if (g_frame.options.x == RayTracingMode_Caustics)
+	if (g_frame.options.x == RayTracingMode_Caustics || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
 		if (DirectionalLight(g_frame.global_light) && raster.depth < 0.999999f)
@@ -267,6 +348,9 @@ void RayGen()
 
 			if (receiver_facing > 0.0f)
 			{
+				GlassLayer glass = StrongestGlassLayer(pixel, normal, surface_to_light);
+				float3 caustic_dir = GlassRayDirection(surface_to_light, glass);
+
 				RayPayload caustic_payload;
 				caustic_payload.colour = 0.0f;
 				caustic_payload.hit_t = 0.0f;
@@ -277,15 +361,28 @@ void RayGen()
 				float caustic_bias = max(g_frame.caustic.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
 				RayDesc caustic_ray = (RayDesc)0;
 				caustic_ray.Origin = hit_pos + surface_to_light * caustic_bias;
-				caustic_ray.Direction = surface_to_light;
+				caustic_ray.Direction = caustic_dir;
 				caustic_ray.TMin = 0.0f;
 				caustic_ray.TMax = g_frame.clip.y;
 
 				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+				if (caustic_payload.occluded == 0 && glass.transmission > 0.0f)
+				{
+					caustic_payload.occluded = 1;
+					caustic_ray.Direction = surface_to_light;
+					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+				}
 				if (caustic_payload.occluded != 0)
 				{
-					float pattern = CausticPattern(hit_pos, surface_to_light);
-					float strength = g_frame.caustic.x * receiver_facing * lerp(0.35f, 1.0f, pattern);
+					float3 pattern_pos = hit_pos + caustic_dir * max(g_frame.caustic.w, 0.0f);
+					float pattern = CausticPattern(pattern_pos, caustic_dir);
+					float glass_transmission = GlassTransmission(surface_to_light, glass, true);
+					float focus = 1.0f + saturate(length(caustic_dir - surface_to_light) * max(g_frame.caustic.w, 0.0f));
+					float strength = g_frame.caustic.x *
+						receiver_facing *
+						lerp(0.35f, 1.0f, pattern) *
+						glass_transmission *
+						focus;
 					colour.rgb += g_frame.global_light.colour.rgb * strength;
 				}
 			}

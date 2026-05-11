@@ -230,14 +230,17 @@ namespace pr::rdr12
 			bb.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 			bb.Transition(kbuf.m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Transition(kbuf.m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Transition(kbuf.m_alpha_rt_attrs->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			bb.Commit();
 
 			auto alpha_colour = wnd().m_heap_view.Add(kbuf.m_alpha_colour->m_uav);
 			auto alpha_depth = wnd().m_heap_view.Add(kbuf.m_alpha_depth->m_uav);
+			auto alpha_rt_attrs = wnd().m_heap_view.Add(kbuf.m_alpha_rt_attrs->m_uav);
 			auto opaque_depth = wnd().m_heap_view.Add(frame.bb_main().m_depth_srv);
 			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::OpaqueDepth, opaque_depth);
 			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaColour, alpha_colour);
 			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaDepth, alpha_depth);
+			m_alp_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaRtAttrs, alpha_rt_attrs);
 
 			// Draw the alphas
 			auto drawlist = m_drawlist.lock();

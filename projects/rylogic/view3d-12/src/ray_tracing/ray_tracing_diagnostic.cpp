@@ -35,6 +35,7 @@ namespace pr::rdr12
 			InputColour,
 			Depth,
 			ReflectionAttrs,
+			AlphaRtAttrs,
 			Output,
 		};
 		enum class EPresentRootParam
@@ -138,6 +139,7 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t1, 1)
 			.SRV(hlsl::ESRVReg::t2, 1)
 			.SRV(hlsl::ESRVReg::t3, 1)
+			.SRV(hlsl::ESRVReg::t4, 1)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
@@ -314,7 +316,8 @@ namespace pr::rdr12
 		auto const output_size = data.m_output_size;
 		auto const output = data.m_output.get();
 		auto& kbuffer = scene.wnd().m_alpha_kbuffer;
-		auto const use_kbuffer_base = pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics;
+		auto const use_reflections = pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::ReflectionsAndCaustics;
+		auto const use_kbuffer_base = pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics || pass == ERayTracingScreenPass::ReflectionsAndCaustics;
 
 		// K-buffer-integrated RT modes read and write the resolved opaque base. The caller must schedule these in the
 		// post-resolve/pre-alpha stage so the normal K-buffer alpha resolve still owns final transparent compositing.
@@ -327,12 +330,13 @@ namespace pr::rdr12
 			: frame.bb_post().m_rtv;
 		auto const depth = const_cast<ID3D12Resource*>(frame.bb_main().m_depth_stencil.get());
 		auto const reflection_attrs = reflections != nullptr ? reflections->Attributes() : nullptr;
+		auto const alpha_rt_attrs = kbuffer.m_alpha_rt_attrs != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_rt_attrs->m_res.get()) : nullptr;
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
 		if (input == nullptr || target == nullptr)
 			return;
 		if ((pass == ERayTracingScreenPass::HardShadows || pass == ERayTracingScreenPass::Caustics) && depth == nullptr)
 			return;
-		if (pass == ERayTracingScreenPass::Reflections && (depth == nullptr || reflections == nullptr || !*reflections))
+		if (use_reflections && (depth == nullptr || reflections == nullptr || !*reflections))
 			return;
 
 		// Dispatch rays into an intermediate UAV. The fullscreen present pass that follows keeps the UAV format independent of the swap-chain format.
@@ -343,6 +347,8 @@ namespace pr::rdr12
 				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (reflection_attrs != nullptr)
 				barriers.Transition(reflection_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (alpha_rt_attrs != nullptr)
+				barriers.Transition(alpha_rt_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
@@ -373,6 +379,19 @@ namespace pr::rdr12
 					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS,
 					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				});
+			auto alpha_rt_attrs_srv = kbuffer.m_alpha_rt_attrs != nullptr
+				? scene.wnd().m_heap_view.Add(kbuffer.m_alpha_rt_attrs->m_srv)
+				: scene.wnd().m_heap_view.Add(nullptr, D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = DXGI_FORMAT_R32G32B32A32_UINT,
+					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.Texture2D = {
+						.MostDetailedMip = 0U,
+						.MipLevels = 1U,
+						.PlaneSlice = 0U,
+						.ResourceMinLODClamp = 0.0f,
+					},
+				});
 
 			auto uav_desc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
 				.Format = OutputFormat,
@@ -400,12 +419,13 @@ namespace pr::rdr12
 				0.0f);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
 			cb.reflection = v4(1.0f, 0.01f, 0.0f, 0.0f);
-			cb.caustic = v4(0.75f, 0.01f, 3.5f, 0.0f);
+			cb.caustic = v4(0.75f, 0.01f, 3.5f, 0.35f);
 			cb.options = iv4(
 				pass == ERayTracingScreenPass::Diagnostic ? shaders::rt::RayTracingMode_Diagnostic :
 				pass == ERayTracingScreenPass::HardShadows ? shaders::rt::RayTracingMode_HardShadows :
 				pass == ERayTracingScreenPass::Reflections ? shaders::rt::RayTracingMode_Reflections :
 				pass == ERayTracingScreenPass::Caustics ? shaders::rt::RayTracingMode_Caustics :
+				pass == ERayTracingScreenPass::ReflectionsAndCaustics ? shaders::rt::RayTracingMode_ReflectionsAndCaustics :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
 				0, 0, 0);
 
@@ -415,6 +435,7 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::InputColour, input_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Depth, depth_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ReflectionAttrs, reflection_attrs_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaRtAttrs, alpha_rt_attrs_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 

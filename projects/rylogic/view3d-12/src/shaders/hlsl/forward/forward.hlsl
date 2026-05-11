@@ -37,6 +37,7 @@ Texture2DMS<float> g_opaque_depth : register(t6);
 // Alpha sorting
 RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
 RasterizerOrderedTexture2D<uint4> g_alpha_depth  :register(u1);
+RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
@@ -83,6 +84,21 @@ float4 ReflectionAttributes(PSIn In, float4 diff)
 
 	normal = normalize(normal);
 	return float4(0.5f * normal + 0.5f, reflectivity);
+}
+
+// Return the RT alpha sidecar payload for a transparent surface layer.
+uint AlphaRtAttributes(PSIn In, float4 diff)
+{
+	if (!HasNormals(g_nugget.flags))
+		return 0;
+
+	float3 normal = ResolveWorldNormal(In).xyz;
+	if (dot(normal, normal) == 0.0f)
+		return 0;
+
+	normal = normalize(normal);
+	float transmission = saturate(1.0f - diff.a);
+	return PackRGBA8(float4(0.5f * normal + 0.5f, transmission));
 }
 
 // Default VS
@@ -210,12 +226,15 @@ void PSAlphaCollect(PSIn In)
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
 	uint colour = PackRGBA8(diff);
+	uint rt_attrs = AlphaRtAttributes(In, diff);
 
 	uint4 alpha_colour = g_alpha_colour[pix];
 	uint4 alpha_depth = g_alpha_depth[pix];
-	InsertKBufferLayer(alpha_colour, alpha_depth, colour, depth);
+	uint4 alpha_rt_attrs = g_alpha_rt_attrs[pix];
+	InsertKBufferLayer(alpha_colour, alpha_depth, alpha_rt_attrs, colour, depth, rt_attrs);
 	g_alpha_colour[pix] = alpha_colour;
 	g_alpha_depth[pix] = alpha_depth;
+	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
 }
 
 #ifdef PR_RDR_VSHADER_forward

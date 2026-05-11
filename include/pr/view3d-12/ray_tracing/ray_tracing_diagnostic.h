@@ -16,6 +16,7 @@ namespace pr::rdr12
 		HardShadows,
 		Reflections,
 		Caustics,
+		ReflectionsAndCaustics,
 	};
 
 	// Owns the minimal DXR screen-space pipeline used to visualise TLAS/BLAS coverage and prototype RT lighting features.

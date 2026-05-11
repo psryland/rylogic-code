@@ -28,6 +28,7 @@ namespace pr::rdr12::shaders
 			DiffTextureSampler,
 			AlphaColour,
 			AlphaDepth,
+			AlphaRtAttrs,
 		};
 
 		enum class ESampParam

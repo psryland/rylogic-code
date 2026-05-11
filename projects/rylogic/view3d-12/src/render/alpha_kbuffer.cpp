@@ -33,6 +33,7 @@ namespace pr::rdr12
 		: m_opaque_colour_1x()
 		, m_alpha_colour()
 		, m_alpha_depth()
+		, m_alpha_rt_attrs()
 		, m_signature_alpha_resolve()
 		, m_pso_alpha_resolve()
 	{}
@@ -43,6 +44,7 @@ namespace pr::rdr12
 		m_opaque_colour_1x = nullptr;
 		m_alpha_colour = nullptr;
 		m_alpha_depth = nullptr;
+		m_alpha_rt_attrs = nullptr;
 		m_signature_alpha_resolve = nullptr;
 		m_pso_alpha_resolve = nullptr;
 	}
@@ -66,6 +68,7 @@ namespace pr::rdr12
 		m_opaque_colour_1x = factory.CreateTexture2D(TextureDesc(AutoId, colour_desc).name("KBuffer-OpaqueColour1x"));
 		m_alpha_colour = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaColour"));
 		m_alpha_depth = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaDepth"));
+		m_alpha_rt_attrs = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaRtAttrs"));
 
 		// Create the root signature for the alpha resolve pass
 		m_signature_alpha_resolve = RootSig(ERootSigFlags::GraphicsOnly)
@@ -105,20 +108,23 @@ namespace pr::rdr12
 	// Create the buffers for the next frame
 	void AlphaKBuffer::Clear(GfxCmdList& cmd_list, GpuViewHeap& heap_view)
 	{
-		if (m_alpha_colour == nullptr || m_alpha_depth == nullptr)
+		if (m_alpha_colour == nullptr || m_alpha_depth == nullptr || m_alpha_rt_attrs == nullptr)
 			return;
 
 		BarrierBatch bb(cmd_list);
 		bb.Transition(m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Transition(m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		bb.Transition(m_alpha_rt_attrs->m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		bb.Commit();
 
 		auto alpha_colour_uav = heap_view.Add(m_alpha_colour->m_uav);
 		auto alpha_depth_uav = heap_view.Add(m_alpha_depth->m_uav);
+		auto alpha_rt_attrs_uav = heap_view.Add(m_alpha_rt_attrs->m_uav);
 		UINT const clear_colour[4] = {};
 		UINT const clear_depth[4] = {0x00FFFFFFu, 0x00FFFFFFu, 0x00FFFFFFu, 0x00FFFFFFu};
 		cmd_list.ClearUnorderedAccessViewUint(alpha_colour_uav, m_alpha_colour->m_uav.m_cpu, m_alpha_colour->m_res.get(), clear_colour);
 		cmd_list.ClearUnorderedAccessViewUint(alpha_depth_uav, m_alpha_depth->m_uav.m_cpu, m_alpha_depth->m_res.get(), clear_depth);
+		cmd_list.ClearUnorderedAccessViewUint(alpha_rt_attrs_uav, m_alpha_rt_attrs->m_uav.m_cpu, m_alpha_rt_attrs->m_res.get(), clear_colour);
 	}
 
 	// Copy the opaque buffer 'source' into the 1x resolved buffer using resolve or direct copy
@@ -143,7 +149,7 @@ namespace pr::rdr12
 	// Composite the collected alpha buffer over the resolved opaque colour
 	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor)
 	{
-		if (m_opaque_colour_1x == nullptr || m_alpha_colour == nullptr || m_alpha_depth == nullptr || bb_post.m_render_target == nullptr)
+		if (m_opaque_colour_1x == nullptr || m_alpha_colour == nullptr || m_alpha_depth == nullptr || m_alpha_rt_attrs == nullptr || bb_post.m_render_target == nullptr)
 			return;
 
 		BarrierBatch bb(cmd_list);
@@ -151,6 +157,7 @@ namespace pr::rdr12
 		bb.Transition(m_opaque_colour_1x->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Transition(m_alpha_colour->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Transition(m_alpha_depth->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		bb.Transition(m_alpha_rt_attrs->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		bb.Commit();
 
 		Descriptor descriptors[] = { m_opaque_colour_1x->m_srv, m_alpha_colour->m_srv, m_alpha_depth->m_srv };
@@ -170,7 +177,7 @@ namespace pr::rdr12
 	AlphaKBuffer::operator bool() const
 	{
 		// It should be all non-null or all null
-		return m_alpha_colour != nullptr && m_alpha_depth != nullptr;
+		return m_alpha_colour != nullptr && m_alpha_depth != nullptr && m_alpha_rt_attrs != nullptr;
 	}
 }
 
