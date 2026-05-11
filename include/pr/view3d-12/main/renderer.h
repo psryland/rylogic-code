@@ -241,17 +241,35 @@ namespace pr::rdr12
 			ComQueue()->ExecuteCommandLists(cmd_lists.count(), cmd_lists.data());
 		}
 
-		// Defer release of a D3D12 resource until the GPU has finished using it.
-		// Call this before destroying a C++ wrapper that owns a GPU resource.
+		// Defer release of a D3D12 object until the GPU has finished using it.
+		// Call this before destroying a C++ wrapper that owns GPU state or resources.
 		void DeferRelease(D3DPtr<ID3D12Resource> const& res)
 		{
-			if (!res) return;
+			if (!res)
+				return;
+
 			m_keep_alive.Add(D3DPtr<ID3D12Resource>(res));
 		}
 		void DeferRelease(D3DPtr<ID3D12RootSignature> const& res)
 		{
-			if (!res) return;
+			if (!res)
+				return;
+
 			m_keep_alive.Add(D3DPtr<ID3D12RootSignature>(res));
+		}
+		void DeferRelease(D3DPtr<ID3D12PipelineState> const& res)
+		{
+			if (!res)
+				return;
+
+			m_keep_alive.Add(D3DPtr<ID3D12PipelineState>(res));
+		}
+		void DeferRelease(D3DPtr<ID3D12StateObject> const& res)
+		{
+			if (!res)
+				return;
+
+			m_keep_alive.Add(D3DPtr<ID3D12StateObject>(res));
 		}
 
 		// Signal the deferred-deletion fence on the gfx queue.

@@ -121,6 +121,9 @@ namespace pr::rdr12
 		if (m_data == nullptr)
 			return;
 
+		m_data->m_trace_props = nullptr;
+		rdr.DeferRelease(m_data->m_trace_state);
+		rdr.DeferRelease(m_data->m_present_pso);
 		rdr.DeferRelease(m_data->m_output);
 		rdr.DeferRelease(m_data->m_shader_table);
 		rdr.DeferRelease(m_data->m_trace_signature);

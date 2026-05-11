@@ -129,9 +129,10 @@ namespace pr::rdr12
 				}
 
 				// Suppress the CREATERESOURCE_STATE_IGNORED warning because ID3D11On12 is generating these.
-				D3D12_MESSAGE_ID hide[] = {
-					D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
-					D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+					D3D12_MESSAGE_ID hide[] = {
+						D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
+						D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+						D3D12_MESSAGE_ID_LIVE_DEVICE,
 
 					/*
 					D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
@@ -233,6 +234,12 @@ namespace pr::rdr12
 		m_dx11_dc = nullptr;
 		m_dx11_device = nullptr;
 
+		// Release the retained DXGI adapter/output handles before live-object reporting.
+		// The renderer only needs them while it is alive, and keeping them until member
+		// destruction makes DXGI's process-termination report look like an application leak.
+		m_settings.m_adapter.outputs.clear();
+		m_settings.m_adapter.ptr = nullptr;
+
 		// Do reference count checking
 		if (m_d2d_device != nullptr)
 		{
@@ -252,7 +259,7 @@ namespace pr::rdr12
 
 					D3DPtr<ID3D12DebugDevice> dbg;
 					if (SUCCEEDED(m_d3d_device->QueryInterface(__uuidof(ID3D12DebugDevice), (void**)dbg.address_of())))
-						dbg->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL);
+						dbg->ReportLiveDeviceObjects(static_cast<D3D12_RLDO_FLAGS>(D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL));
 
 					info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, break_on_warning);
 				}
