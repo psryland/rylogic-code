@@ -151,5 +151,8 @@ namespace pr::rdr12
 
 		// MipMap generation
 		extern ByteCode const mipmap_generator_cs;
+
+		// Skinning
+		extern ByteCode const skinning_cs;
 	}
 }

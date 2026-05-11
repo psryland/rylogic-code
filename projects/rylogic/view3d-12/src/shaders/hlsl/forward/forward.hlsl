@@ -27,10 +27,6 @@ SamplerComparisonState g_smap_sampler           :register(s2);
 Texture2D<float4> g_proj_texture[MaxProjectedTextures] :register(t3);
 SamplerState      g_proj_sampler[MaxProjectedTextures] :register(s3);
 
-// Skinned Meshes
-StructuredBuffer<Mat4x4> g_pose : register(t4);
-StructuredBuffer<Skinfluence> g_skin : register(t5);
-
 // Opaque depth
 Texture2DMS<float> g_opaque_depth : register(t6);
 
@@ -41,7 +37,6 @@ RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
-#include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "pr/hlsl/camera.hlsli"
@@ -110,12 +105,6 @@ PSIn VSDefault(VSIn In)
 	float4 os_vert = mul(In.vert, g_nugget.m2o);
 	float4 os_norm = mul(In.norm, g_nugget.m2o);
 	
-	if (IsSkinned(g_nugget.flags))
-	{
-		os_vert = SkinVertex(g_pose, g_skin[In.idx0.x], os_vert);
-		os_norm = SkinNormal(g_pose, g_skin[In.idx0.x], os_norm);
-	}
-
 	Out.ws_vert = mul(os_vert, g_nugget.o2w);
 	Out.ws_norm = mul(os_norm, g_nugget.n2w);
 	Out.ss_vert = mul(os_vert, g_nugget.o2s);

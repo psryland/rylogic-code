@@ -237,6 +237,7 @@ namespace pr::rdr12
 	struct Nugget;
 	struct NuggetDesc;
 	struct MeshCreationData;
+	struct SkinnedGeometryCache;
 	using ModelPtr = RefPtr<Model>;
 	using NuggetPtr = RefPtr<Nugget>;
 

@@ -22,8 +22,6 @@ namespace pr::rdr12::shaders
 			EnvMap,
 			SMap,
 			ProjTex,
-			Pose,
-			Skin,
 			OpaqueDepth,
 			DiffTextureSampler,
 			AlphaColour,

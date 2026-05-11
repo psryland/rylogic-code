@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/main/settings.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_support.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
@@ -85,6 +86,7 @@ namespace pr::rdr12
 
 		// Storage of resources
 		ResourceStore m_res_store;
+		SkinnedGeometryCache m_skinned_geometry;
 
 	public:
 
@@ -202,6 +204,9 @@ namespace pr::rdr12
 
 		// Device ray tracing support requested for this renderer.
 		RayTracingSupport const& RayTracing() const;
+
+		// Access the shared compute-skinned geometry cache.
+		SkinnedGeometryCache& SkinnedGeometry();
 
 		// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.
 		HWND DummyHwnd() const;

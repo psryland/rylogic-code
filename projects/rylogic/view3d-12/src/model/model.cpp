@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/resource_store.h"
@@ -72,6 +73,7 @@ namespace pr::rdr12
 	GfxUpdateSubresourceScope Model::UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange)
 	{
 		m_ray_tracing.Invalidate(rdr());
+		rdr().SkinnedGeometry().Invalidate(*this);
 
 		if (vrange == Range::Reset())
 			vrange = Range(0, m_vcount);

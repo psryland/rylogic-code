@@ -32,12 +32,6 @@
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 ConstantBuffer<CBufNugget> g_nugget : register(b1);
 
-// Skinned Meshes
-StructuredBuffer<Mat4x4> g_pose : register(t4);
-StructuredBuffer<Skinfluence> g_skin : register(t5);
-
-#include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
-
 // Geometry shader input format
 struct GSIn_RayCast
 {
@@ -72,13 +66,6 @@ GSIn_RayCast VSDefault(VSIn In)
 
 	// Transform
 	float4 os_vert = mul(In.vert, g_nugget.m2o);
-	float4 os_norm = mul(In.norm, g_nugget.m2o);
-	
-	if (IsSkinned(g_nugget.flags))
-	{
-		os_vert = SkinVertex(g_pose, g_skin[In.idx0.x], os_vert);
-		os_norm = SkinNormal(g_pose, g_skin[In.idx0.x], os_norm);
-	}
 
 	Out.ws_vert = mul(os_vert, g_nugget.o2w);
 

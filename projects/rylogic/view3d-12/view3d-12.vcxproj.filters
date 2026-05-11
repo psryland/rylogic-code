@@ -366,6 +366,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skeleton.h">
       <Filter>src\model</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skinned_geometry.h">
+      <Filter>src\model</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skin.h">
       <Filter>src\model</Filter>
     </ClInclude>
@@ -657,6 +660,9 @@
     <ClCompile Include="src\model\skeleton.cpp">
       <Filter>src\model</Filter>
     </ClCompile>
+    <ClCompile Include="src\model\skinned_geometry.cpp">
+      <Filter>src\model</Filter>
+    </ClCompile>
     <ClCompile Include="src\model\skin.cpp">
       <Filter>src\model</Filter>
     </ClCompile>
@@ -877,6 +883,9 @@
     </View3dShaderBuild>
     <View3dShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl">
       <Filter>src\shaders\hlsl\ray_tracing</Filter>
+    </View3dShaderBuild>
+    <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
+      <Filter>src\shaders\hlsl\skinned</Filter>
     </View3dShaderBuild>
   </ItemGroup>
   <ItemGroup>

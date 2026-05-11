@@ -284,6 +284,7 @@ namespace pr::rdr12
 		,m_gsync(d3d())
 		,m_keep_alive(m_gsync)
 		,m_res_store(rdr())
+		,m_skinned_geometry(rdr())
 	{
 		try
 		{
@@ -376,6 +377,12 @@ namespace pr::rdr12
 	RayTracingSupport const& Renderer::RayTracing() const
 	{
 		return m_state.m_ray_tracing;
+	}
+	
+	// Access the shared compute-skinned geometry cache.
+	SkinnedGeometryCache& Renderer::SkinnedGeometry()
+	{
+		return m_skinned_geometry;
 	}
 
 	// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.

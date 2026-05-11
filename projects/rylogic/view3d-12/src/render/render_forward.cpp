@@ -11,6 +11,7 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/skin.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/vertex_layout.h"
@@ -307,11 +308,21 @@ namespace pr::rdr12
 			auto const& nugget = *dle.m_nugget;
 			auto const& instance = *dle.m_instance;
 			auto desc = default_pipe_state;
+			
+			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+			auto const* vb_view = &nugget.m_model->m_vb_view;
+			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+			{
+				vb_view = &rdr().SkinnedGeometry().VBufView(cmd_list, m_upload_buffer, *nugget.m_model, pose);
+
+				// Compute skinning can bind a compute PSO while updating the vertex buffer. The cached graphics PSO state is no longer reliable.
+				pipe_state_bound = false;
+			}
 
 			// Set pipeline state
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
 			cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-			cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+			cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Bind textures to the pipeline
@@ -341,16 +352,6 @@ namespace pr::rdr12
 					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTextureSampler, sam_descriptor);
 					last_sam = sam_descriptor;
 				}
-			}
-
-			// Add skinning data for skinned meshes
-			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
-			{
-				pose->Update(cmd_list, m_upload_buffer);
-				auto srv_pose = wnd().m_heap_view.Add(pose->m_srv);
-				auto srv_skin = wnd().m_heap_view.Add(nugget.m_model->m_skin.m_srv);
-				cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Pose, srv_pose);
-				cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::Skin, srv_skin);
 			}
 
 			// Set shader constants for the nugget

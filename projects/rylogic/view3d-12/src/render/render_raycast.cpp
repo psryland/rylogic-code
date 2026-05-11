@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
@@ -267,16 +268,6 @@ namespace pr::rdr12
 			auto const& instance = *dle.m_instance;
 			auto desc = m_default_pipe_state;
 
-			// Add skinning data for skinned meshes
-			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
-			{
-				pose->Update(m_cmd_list, m_upload_buffer);
-				auto srv_pose = wnd().m_heap_view.Add(pose->m_srv);
-				auto srv_skin = wnd().m_heap_view.Add(nugget.m_model->m_skin.m_srv);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::ray_cast::ERootParam::Pose, srv_pose);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::ray_cast::ERootParam::Skin, srv_skin);
-			}
-
 			// Select the appropriate geometry shader based on topology
 			switch (nugget.m_topo)
 			{
@@ -308,10 +299,15 @@ namespace pr::rdr12
 				}
 			}
 
+			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+			auto const* vb_view = &nugget.m_model->m_vb_view;
+			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+				vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
+
 			// Set pipeline state
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
 			m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-			m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+			m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Configure the shader for this element

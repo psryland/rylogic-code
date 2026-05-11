@@ -134,6 +134,7 @@
     <ClCompile Include="src\model\nugget.cpp" />
     <ClCompile Include="src\model\pose.cpp" />
     <ClCompile Include="src\model\skeleton.cpp" />
+    <ClCompile Include="src\model\skinned_geometry.cpp" />
     <ClCompile Include="src\model\skin.cpp" />
     <ClCompile Include="src\openxr\openxr.cpp" />
     <ClCompile Include="src\ray_tracing\ray_tracing_diagnostic.cpp" />
@@ -256,6 +257,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\model_tree.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\nugget.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skeleton.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skinned_geometry.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skin.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\pose.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\vertex_layout.h" />
@@ -365,6 +367,7 @@
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_map_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\skinned\skinned.hlsli" />
+    <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" />
     <None Include="src\shaders\hlsl\utility\env_map.hlsli" />
     <None Include="src\shaders\hlsl\utility\tri_table.hlsli" />
     <View3dShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl" />

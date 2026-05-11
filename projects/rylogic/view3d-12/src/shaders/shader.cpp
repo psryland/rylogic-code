@@ -296,7 +296,9 @@ namespace pr::rdr12
 		namespace compiled
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(mipmap_generator_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(skinning_cs.h)
 		}
 		ByteCode const mipmap_generator_cs(compiled::mipmap_generator_cs);
+		ByteCode const skinning_cs(compiled::skinning_cs);
 	}
 }

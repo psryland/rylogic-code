@@ -15,8 +15,6 @@ namespace pr::rdr12::shaders
 		{
 			CBufFrame = 0,
 			CBufNugget,
-			Pose,
-			Skin,
 		};
 
 		enum class ESampParam
