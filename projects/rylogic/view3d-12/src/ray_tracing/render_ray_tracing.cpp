@@ -51,6 +51,7 @@ namespace pr::rdr12
 	{
 		return RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC") ? ERayTracingScreenPass::Diagnostic :
 			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_HARD_SHADOWS") ? ERayTracingScreenPass::HardShadows :
+			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_CAUSTICS") ? ERayTracingScreenPass::Caustics :
 			ERayTracingScreenPass::Reflections;
 	}
 
@@ -92,18 +93,19 @@ namespace pr::rdr12
 		if (!prepared)
 			return;
 
-		// Reflections update the K-buffer's opaque base in the post-resolve stage. This keeps the RT feature between
+		// Reflections and caustics update the K-buffer's opaque base in the post-resolve stage. This keeps RT lighting between
 		// AlphaKBuffer::CopyOpaqueBuffer and AlphaKBuffer::ResolveAlpha, so existing sorted alpha layers still composite over it.
 		auto heaps = { wnd().m_heap_view.get() };
-		if (pass == ERayTracingScreenPass::Reflections)
+		if (pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics)
 		{
-			if (!m_reflections)
+			auto const use_reflections = pass == ERayTracingScreenPass::Reflections;
+			if (use_reflections && !m_reflections)
 				return;
 
 			m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
 			frame.m_post.push_back(m_cmd_list);
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-			m_diagnostic.Record(m_cmd_list, frame, scn(), m_ray_tracing, pass, &m_reflections, false);
+			m_diagnostic.Record(m_cmd_list, frame, scn(), m_ray_tracing, pass, use_reflections ? &m_reflections : nullptr, false);
 			m_cmd_list.Close();
 			return;
 		}

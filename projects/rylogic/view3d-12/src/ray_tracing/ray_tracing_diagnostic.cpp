@@ -314,15 +314,15 @@ namespace pr::rdr12
 		auto const output_size = data.m_output_size;
 		auto const output = data.m_output.get();
 		auto& kbuffer = scene.wnd().m_alpha_kbuffer;
-		auto const use_reflections = pass == ERayTracingScreenPass::Reflections;
+		auto const use_kbuffer_base = pass == ERayTracingScreenPass::Reflections || pass == ERayTracingScreenPass::Caustics;
 
-		// Reflection mode reads and writes the resolved K-buffer opaque base. The caller must schedule this in the
+		// K-buffer-integrated RT modes read and write the resolved opaque base. The caller must schedule these in the
 		// post-resolve/pre-alpha stage so the normal K-buffer alpha resolve still owns final transparent compositing.
-		auto const input = use_reflections
+		auto const input = use_kbuffer_base
 			? (kbuffer.m_opaque_colour_1x != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_opaque_colour_1x->m_res.get()) : nullptr)
 			: const_cast<ID3D12Resource*>(frame.bb_post().m_render_target.get());
 		auto const target = input;
-		auto const target_rtv = use_reflections
+		auto const target_rtv = use_kbuffer_base
 			? (kbuffer.m_opaque_colour_1x != nullptr ? kbuffer.m_opaque_colour_1x->m_rtv.m_cpu : D3D12_CPU_DESCRIPTOR_HANDLE{})
 			: frame.bb_post().m_rtv;
 		auto const depth = const_cast<ID3D12Resource*>(frame.bb_main().m_depth_stencil.get());
@@ -330,7 +330,7 @@ namespace pr::rdr12
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
 		if (input == nullptr || target == nullptr)
 			return;
-		if (pass == ERayTracingScreenPass::HardShadows && depth == nullptr)
+		if ((pass == ERayTracingScreenPass::HardShadows || pass == ERayTracingScreenPass::Caustics) && depth == nullptr)
 			return;
 		if (pass == ERayTracingScreenPass::Reflections && (depth == nullptr || reflections == nullptr || !*reflections))
 			return;
@@ -400,10 +400,12 @@ namespace pr::rdr12
 				0.0f);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
 			cb.reflection = v4(1.0f, 0.01f, 0.0f, 0.0f);
+			cb.caustic = v4(0.75f, 0.01f, 3.5f, 0.0f);
 			cb.options = iv4(
 				pass == ERayTracingScreenPass::Diagnostic ? shaders::rt::RayTracingMode_Diagnostic :
 				pass == ERayTracingScreenPass::HardShadows ? shaders::rt::RayTracingMode_HardShadows :
 				pass == ERayTracingScreenPass::Reflections ? shaders::rt::RayTracingMode_Reflections :
+				pass == ERayTracingScreenPass::Caustics ? shaders::rt::RayTracingMode_Caustics :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
 				0, 0, 0);
 
@@ -456,7 +458,7 @@ namespace pr::rdr12
 			cmd_list.IASetPrimitiveTopology(ETopo::TriList);
 			cmd_list.DrawInstanced(3, 1, 0, 0);
 
-			if (use_reflections)
+			if (use_kbuffer_base)
 			{
 				BarrierBatch bb(cmd_list);
 				bb.Transition(target, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);

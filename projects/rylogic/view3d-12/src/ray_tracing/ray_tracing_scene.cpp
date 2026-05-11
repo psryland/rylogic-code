@@ -8,6 +8,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 
@@ -15,6 +16,10 @@ namespace pr::rdr12
 {
 	namespace
 	{
+		// Sync with ray_tracing_cbuf.hlsli.
+		constexpr UINT RayTracingInstanceMask_Default = 0x01;
+		constexpr UINT RayTracingInstanceMask_Caustic = 0x02;
+
 		struct InstanceBuildInput
 		{
 			RayTracingSceneStats m_stats;
@@ -47,6 +52,23 @@ namespace pr::rdr12
 		void AddSignature(uint64_t& signature, T const& value)
 		{
 			signature = s_cast<uint64_t>(hash::HashBytes64(&value, &value + 1, signature));
+		}
+
+		// Return true if the first caustic proof pass should treat 'inst' as a transparent/refractive light contributor.
+		bool IsCausticContributor(BaseInstance const& inst, Model const& model)
+		{
+			if (HasAlpha(inst))
+				return true;
+
+			for (auto const* nugget = model.m_nuggets.get(); nugget != nullptr; nugget = nugget->m_next.get())
+			{
+				if (AllSet(nugget->m_nflags, ENuggetFlag::Hidden))
+					continue;
+				if (nugget->RequiresAlpha())
+					return true;
+			}
+
+			return false;
 		}
 
 		// Build the static instance descriptors used to create a top-level acceleration structure for 'instances'.
@@ -102,10 +124,11 @@ namespace pr::rdr12
 
 				// Store enough identity in the signature to catch transform, instance-id, and BLAS lifetime changes without embedding RT state in instances.
 				auto const unique_id = UniqueId(*inst);
+				auto const instance_mask = RayTracingInstanceMask_Default | (IsCausticContributor(*inst, model) ? RayTracingInstanceMask_Caustic : 0U);
 				auto desc = D3D12_RAYTRACING_INSTANCE_DESC{};
 				CopyTransform(o2w, desc.Transform);
 				desc.InstanceID = s_cast<UINT>(unique_id != 0 ? unique_id : instance_index) & 0x00FFFFFF;
-				desc.InstanceMask = 0xFF;
+				desc.InstanceMask = instance_mask;
 				desc.InstanceContributionToHitGroupIndex = 0;
 				desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
 				desc.AccelerationStructure = model.m_ray_tracing.AccelerationStructureAddress();

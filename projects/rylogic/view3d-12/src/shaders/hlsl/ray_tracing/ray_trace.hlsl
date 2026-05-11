@@ -17,6 +17,7 @@ static const uint RayPayloadMode_Diagnostic = 0;
 static const uint RayPayloadMode_Primary = 1;
 static const uint RayPayloadMode_Shadow = 2;
 static const uint RayPayloadMode_Reflection = 3;
+static const uint RayPayloadMode_Caustic = 4;
 
 struct RayPayload
 {
@@ -116,11 +117,74 @@ float3 WorldPosition(uint2 pixel, uint2 dim, float depth)
 	return ws_pos.xyz / ws_pos.w;
 }
 
+// Reconstruct an approximate receiver normal from neighbouring depth samples.
+float3 ReceiverNormal(uint2 pixel, uint2 dim, float depth, RayDesc camera_ray)
+{
+	float3 pos = WorldPosition(pixel, dim, depth);
+	uint2 pixel_x = pixel;
+	uint2 pixel_y = pixel;
+	float x_sign = 1.0f;
+	float y_sign = 1.0f;
+
+	if (pixel.x + 1u < dim.x)
+		pixel_x.x = pixel.x + 1u;
+	else if (pixel.x > 0u)
+	{
+		pixel_x.x = pixel.x - 1u;
+		x_sign = -1.0f;
+	}
+
+	if (pixel.y + 1u < dim.y)
+		pixel_y.y = pixel.y + 1u;
+	else if (pixel.y > 0u)
+	{
+		pixel_y.y = pixel.y - 1u;
+		y_sign = -1.0f;
+	}
+
+	if (all(pixel_x == pixel) || all(pixel_y == pixel))
+		return normalize(-camera_ray.Direction);
+
+	float depth_x = LoadDepth(pixel_x);
+	float depth_y = LoadDepth(pixel_y);
+	if (depth_x >= 0.999999f)
+		depth_x = depth;
+	if (depth_y >= 0.999999f)
+		depth_y = depth;
+
+	float3 dx = (WorldPosition(pixel_x, dim, depth_x) - pos) * x_sign;
+	float3 dy = (WorldPosition(pixel_y, dim, depth_y) - pos) * y_sign;
+	float3 normal = cross(dx, dy);
+	float len_sq = dot(normal, normal);
+	if (len_sq < 1e-10f)
+		return normalize(-camera_ray.Direction);
+
+	normal *= rsqrt(len_sq);
+	if (dot(normal, -camera_ray.Direction) < 0.0f)
+		normal = -normal;
+
+	return normal;
+}
+
 // Return a simple sky fallback for reflection rays that miss the TLAS.
 float3 ReflectionMissColour(float3 ws_direction)
 {
 	float t = saturate(0.5f + 0.5f * ws_direction.y);
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
+}
+
+// Return a visible caustic proof pattern in the receiver plane projected along the light direction.
+float CausticPattern(float3 ws_pos, float3 surface_to_light)
+{
+	float3 up = abs(surface_to_light.z) < 0.9f ? float3(0.0f, 0.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
+	float3 axis_x = normalize(cross(up, surface_to_light));
+	float3 axis_y = cross(surface_to_light, axis_x);
+	float2 p = float2(dot(ws_pos, axis_x), dot(ws_pos, axis_y)) * max(g_frame.caustic.z, 0.001f);
+
+	float wave = sin(p.x * 7.3f + sin(p.y * 1.9f)) + sin(p.y * 8.1f + sin(p.x * 2.1f));
+	float filaments = 1.0f - smoothstep(0.15f, 0.55f, abs(wave));
+	float cells = 1.0f - smoothstep(0.03f, 0.18f, abs(sin(p.x * 2.4f) * sin(p.y * 2.9f)));
+	return saturate(0.35f * filaments + 0.65f * cells);
 }
 
 [shader("raygeneration")]
@@ -139,7 +203,7 @@ void RayGen()
 	if (g_frame.options.x == RayTracingMode_Diagnostic)
 	{
 		RayDesc ray = MakeCameraRay(pixel, dim);
-		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 1, 0, ray, payload);
+		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, ray, payload);
 		g_output[pixel] = payload.colour;
 		return;
 	}
@@ -176,12 +240,54 @@ void RayGen()
 				reflection_ray.TMin = 0.0f;
 				reflection_ray.TMax = g_frame.clip.y;
 
-				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 1, 0, reflection_ray, reflection_payload);
+				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
 
 				float3 reflection_colour = reflection_payload.hit != 0
 					? reflection_payload.colour.rgb
 					: ReflectionMissColour(reflection_dir);
 				colour.rgb = lerp(colour.rgb, reflection_colour, reflectivity);
+			}
+		}
+
+		g_output[pixel] = colour;
+		return;
+	}
+
+	if (g_frame.options.x == RayTracingMode_Caustics)
+	{
+		RasterDepth raster = LoadRasterDepth(pixel);
+		if (DirectionalLight(g_frame.global_light) && raster.depth < 0.999999f)
+		{
+			RayDesc camera_ray = MakeCameraRay(pixel, dim);
+			float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
+			float3 normal = ReceiverNormal(pixel, dim, raster.depth, camera_ray);
+			float3 light_to_surface = normalize(g_frame.global_light.ws_direction.xyz);
+			float3 surface_to_light = -light_to_surface;
+			float receiver_facing = saturate(dot(normal, surface_to_light));
+
+			if (receiver_facing > 0.0f)
+			{
+				RayPayload caustic_payload;
+				caustic_payload.colour = 0.0f;
+				caustic_payload.hit_t = 0.0f;
+				caustic_payload.mode = RayPayloadMode_Caustic;
+				caustic_payload.hit = 0;
+				caustic_payload.occluded = 1;
+
+				float caustic_bias = max(g_frame.caustic.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
+				RayDesc caustic_ray = (RayDesc)0;
+				caustic_ray.Origin = hit_pos + surface_to_light * caustic_bias;
+				caustic_ray.Direction = surface_to_light;
+				caustic_ray.TMin = 0.0f;
+				caustic_ray.TMax = g_frame.clip.y;
+
+				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+				if (caustic_payload.occluded != 0)
+				{
+					float pattern = CausticPattern(hit_pos, surface_to_light);
+					float strength = g_frame.caustic.x * receiver_facing * lerp(0.35f, 1.0f, pattern);
+					colour.rgb += g_frame.global_light.colour.rgb * strength;
+				}
 			}
 		}
 
@@ -216,7 +322,7 @@ void RayGen()
 		shadow_ray.TMin = 0.0f;
 		shadow_ray.TMax = g_frame.clip.y;
 
-		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, shadow_ray, shadow_payload);
+		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_All, 0, 1, 0, shadow_ray, shadow_payload);
 		if (shadow_payload.occluded != 0)
 			colour.rgb *= saturate(1.0f - g_frame.shadow.x);
 	}
@@ -227,7 +333,7 @@ void RayGen()
 [shader("miss")]
 void Miss(inout RayPayload payload)
 {
-	if (payload.mode == RayPayloadMode_Shadow)
+	if (payload.mode == RayPayloadMode_Shadow || payload.mode == RayPayloadMode_Caustic)
 	{
 		payload.occluded = 0;
 		return;
