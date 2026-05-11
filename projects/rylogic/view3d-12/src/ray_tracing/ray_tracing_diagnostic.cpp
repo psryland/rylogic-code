@@ -186,7 +186,7 @@ namespace pr::rdr12
 			.IntersectionShaderImport = nullptr,
 		};
 		auto shader_config = D3D12_RAYTRACING_SHADER_CONFIG{
-			.MaxPayloadSizeInBytes = sizeof(v4) + sizeof(float) + 3 * sizeof(uint32_t),
+			.MaxPayloadSizeInBytes = 3 * sizeof(float) + 3 * sizeof(uint32_t),
 			.MaxAttributeSizeInBytes = 2 * sizeof(float),
 		};
 		auto global_signature = D3D12_GLOBAL_ROOT_SIGNATURE{

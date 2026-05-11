@@ -31,8 +31,7 @@ static const float DefaultGlassTransmission = 0.85f;
 
 struct RayPayload
 {
-	float4 colour;
-	float hit_t;
+	float3 colour;
 	uint mode;
 	uint hit;
 	uint occluded;
@@ -226,6 +225,15 @@ uint HitTriangleIndex(RayTracingGeometry geometry, uint corner)
 	return g_indices32[index];
 }
 
+// Shade a reflected hit with the cheap first-pass lighting model used by RT reflections.
+float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
+{
+	float intensity = LightDirectional(g_frame.global_light.ws_direction, ws_normal, colour.a);
+	float3 lit = g_frame.global_light.ambient.rgb + intensity * g_frame.global_light.colour.rgb;
+	float3 diffuse = 2.0f * (lit - 0.5f) * colour.rgb;
+	return saturate(float4(diffuse, 0.0f) + colour);
+}
+
 // Shade the closest-hit surface by interpolating packed geometry attributes.
 float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
 {
@@ -269,6 +277,9 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
 	ws_normal *= rsqrt(ws_normal_len_sq);
 	if (dot(ws_normal.xyz, -WorldRayDirection()) < 0.0f)
 		ws_normal = -ws_normal;
+
+	if (DirectionalLight(g_frame.global_light))
+		return ShadeDirectionalHit(ws_normal, colour);
 
 	float4 ws_pos = float4(WorldRayOrigin() + RayTCurrent() * WorldRayDirection(), 1.0f);
 	return Illuminate(g_frame.global_light, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour);
@@ -416,8 +427,7 @@ void RayGen()
 	uint2 dim = DispatchRaysDimensions().xy;
 
 	RayPayload payload;
-	payload.colour = float4(0.02f, 0.03f, 0.05f, 1.0f);
-	payload.hit_t = 0.0f;
+	payload.colour = float3(0.02f, 0.03f, 0.05f);
 	payload.mode = RayPayloadMode_Diagnostic;
 	payload.hit = 0;
 	payload.occluded = 0;
@@ -426,7 +436,7 @@ void RayGen()
 	{
 		RayDesc ray = MakeCameraRay(pixel, dim);
 		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, ray, payload);
-		g_output[pixel] = payload.colour;
+		g_output[pixel] = float4(payload.colour, 1.0f);
 		return;
 	}
 
@@ -451,7 +461,6 @@ void RayGen()
 
 				RayPayload reflection_payload;
 				reflection_payload.colour = 0.0f;
-				reflection_payload.hit_t = 0.0f;
 				reflection_payload.mode = RayPayloadMode_Reflection;
 				reflection_payload.hit = 0;
 				reflection_payload.occluded = 0;
@@ -465,7 +474,7 @@ void RayGen()
 				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
 
 				float3 reflection_colour = reflection_payload.hit != 0
-					? reflection_payload.colour.rgb
+					? reflection_payload.colour
 					: ReflectionMissColour(reflection_dir);
 				colour.rgb = lerp(colour.rgb, reflection_colour, reflectivity);
 			}
@@ -497,7 +506,6 @@ void RayGen()
 
 				RayPayload caustic_payload;
 				caustic_payload.colour = 0.0f;
-				caustic_payload.hit_t = 0.0f;
 				caustic_payload.mode = RayPayloadMode_Caustic;
 				caustic_payload.hit = 0;
 				caustic_payload.occluded = 1;
@@ -552,7 +560,6 @@ void RayGen()
 
 		RayPayload shadow_payload;
 		shadow_payload.colour = 0.0f;
-		shadow_payload.hit_t = 0.0f;
 		shadow_payload.mode = RayPayloadMode_Shadow;
 		shadow_payload.hit = 0;
 		shadow_payload.occluded = 1;
@@ -586,7 +593,7 @@ void Miss(inout RayPayload payload)
 	}
 
 	payload.hit = 0;
-	payload.colour = float4(0.02f, 0.03f, 0.05f, 1.0f);
+	payload.colour = float3(0.02f, 0.03f, 0.05f);
 }
 
 [shader("closesthit")]
@@ -595,21 +602,19 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	if (payload.mode == RayPayloadMode_Reflection)
 	{
 		payload.hit = 1;
-		payload.hit_t = RayTCurrent();
-		payload.colour = ShadeRayHit(attrib);
+		payload.colour = ShadeRayHit(attrib).rgb;
 		return;
 	}
 	if (payload.mode != RayPayloadMode_Diagnostic)
 	{
 		payload.hit = 1;
-		payload.hit_t = RayTCurrent();
 		return;
 	}
 
 	uint seed = InstanceIndex() ^ (PrimitiveIndex() * 747796405u);
 	float edge = min(attrib.barycentrics.x, min(attrib.barycentrics.y, 1.0f - attrib.barycentrics.x - attrib.barycentrics.y));
 	float wire = smoothstep(0.0f, 0.02f, edge);
-	payload.colour = float4(lerp(float3(0.02f, 0.02f, 0.02f), DiagnosticColour(seed), wire), 1.0f);
+	payload.colour = lerp(float3(0.02f, 0.02f, 0.02f), DiagnosticColour(seed), wire);
 }
 
 #endif

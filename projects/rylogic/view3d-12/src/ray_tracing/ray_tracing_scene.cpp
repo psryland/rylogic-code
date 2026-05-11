@@ -320,14 +320,16 @@ namespace pr::rdr12
 			if (geometry_base + geometry.m_nuggets.size() > RayTracingMaterialIndexLimit)
 				throw std::runtime_error("Ray tracing geometry table exceeds the DXR InstanceID range");
 
-			auto const normal_to_world = NormalToWorld(inst, model);
 			auto const supported_vertex_layout = model.m_vstride.size() == sizeof(Vert);
+			auto const supports_shading_sidecar = !model.m_skin && supported_vertex_layout && vertex_buffer != nullptr;
 			auto const index16 = model.m_ib_view.Format == DXGI_FORMAT_R16_UINT;
 			auto const index32 = model.m_ib_view.Format == DXGI_FORMAT_R32_UINT;
+			auto const has_shading_sidecar = supports_shading_sidecar && (index16 || index32);
+			auto const normal_to_world = has_shading_sidecar ? NormalToWorld(inst, model) : m4x4::Identity();
 			for (auto const* nugget : geometry.m_nuggets)
 			{
 				auto record = shaders::rt::RayTracingGeometry{};
-				if (supported_vertex_layout && vertex_buffer != nullptr && (index16 || index32))
+				if (has_shading_sidecar)
 				{
 					auto const vertex_offset = result.m_shading_vertex_count;
 					auto const index_offset = index16 ? result.m_shading_index16_count : result.m_shading_index32_count;
@@ -379,9 +381,12 @@ namespace pr::rdr12
 				}
 
 				AddSignature(result.m_shading_geometry_signature, record);
-				AddSignature(result.m_shading_geometry_signature, source_revision);
-				AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(vertex_buffer));
-				AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(model.m_ib.get()));
+				if ((record.flags.x & RayTracingGeometryFlag_HasGeometry) != 0)
+				{
+					AddSignature(result.m_shading_geometry_signature, source_revision);
+					AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(vertex_buffer));
+					AddSignature(result.m_shading_geometry_signature, reinterpret_cast<uintptr_t>(model.m_ib.get()));
+				}
 				result.m_shading_geometry.push_back(record);
 			}
 
