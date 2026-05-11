@@ -1,97 +1,174 @@
 {
 	"scene": {
 		"description": "Objects falling under gravity onto a ground plane. Boxes, spheres, thick lines, triangles, and polytopes at various heights. Demonstrates gravity, ground contact, and inter-body collisions across all shape types.",
-
 		"gravity": [0, 0, -9.81],
-
 		"material": {
 			"elasticity": 1.0,
 			"friction": 0.3
 		},
-
 		"ground_plane": {
 			"height": 0.0,
 			"texture": "#checker3"
 		},
-
+		"shapes": {
+			"box": {
+				"name": "box-large-shape",
+				"type": "box",
+				"dimensions": [2.0, 2.0, 2.0]
+			},
+			"box_2": {
+				"name": "box-medium-shape",
+				"type": "box",
+				"dimensions": [1.5, 1.5, 1.5]
+			},
+			"box_3": {
+				"name": "box-small-shape",
+				"type": "box",
+				"dimensions": [1.0, 1.0, 1.0]
+			},
+			"box_4": {
+				"name": "box-tilted-shape",
+				"type": "box",
+				"dimensions": [1.2, 1.2, 1.2]
+			},
+			"sphere": {
+				"name": "sphere-heavy-shape",
+				"type": "sphere",
+				"radius": 1.0
+			},
+			"sphere_2": {
+				"name": "sphere-medium-shape",
+				"type": "sphere",
+				"radius": 0.8
+			},
+			"sphere_3": {
+				"name": "sphere-light-shape",
+				"type": "sphere",
+				"radius": 0.5
+			},
+			"line": {
+				"name": "line-thick-a-shape",
+				"type": "line",
+				"length": 3.0,
+				"thickness": 0.2
+			},
+			"line_2": {
+				"name": "line-thick-b-shape",
+				"type": "line",
+				"length": 2.0,
+				"thickness": 0.3
+			},
+			"line_3": {
+				"name": "line-thin-shape",
+				"type": "line",
+				"length": 4.0,
+				"thickness": 0.05
+			},
+			"triangle": {
+				"name": "triangle-large-shape",
+				"type": "triangle",
+				"vertices": [
+					[-1.0, -0.8, 0.0],
+					[1.0, -0.8, 0.0],
+					[0.0, 1.0, 0.0]
+				]
+			},
+			"triangle_2": {
+				"name": "triangle-small-shape",
+				"type": "triangle",
+				"vertices": [
+					[-0.5, -0.4, 0.0],
+					[0.5, -0.4, 0.0],
+					[0.0, 0.6, 0.0]
+				]
+			},
+			"polytope": {
+				"name": "polytope-tetra-shape",
+				"type": "polytope",
+				"vertices": [
+					[-0.8, -0.8, -0.5],
+					[0.8, -0.8, -0.5],
+					[0.0, 0.8, -0.5],
+					[0.0, 0.0, 0.8]
+				]
+			},
+			"polytope_2": {
+				"name": "polytope-wedge-shape",
+				"type": "polytope",
+				"vertices": [
+					[-1.5, -0.4, -0.3],
+					[1.5, -0.4, -0.3],
+					[-1.5, 0.4, -0.3],
+					[1.5, 0.4, -0.3],
+					[0.0, 0.0, 0.6]
+				]
+			},
+			"polytope_3": {
+				"name": "polytope-gem-shape",
+				"type": "polytope",
+				"vertices": [
+					[0.0, 0.0, -0.8],
+					[1.0, 0.0, 0.0],
+					[-1.0, 0.0, 0.0],
+					[0.0, 1.0, 0.0],
+					[0.0, -1.0, 0.0],
+					[0.0, 0.0, 0.8]
+				]
+			}
+		},
 		"bodies": [
 			{
 				"name": "box_large",
-				"shape": {
-					"type": "box",
-					"dimensions": [2.0, 2.0, 2.0]
-				},
+				"shape": "box-large-shape",
 				"mass": 20.0,
 				"position": [-3.0, 0.0, 8.0],
 				"velocity": [0.0, 0.0, 0.0]
 			},
 			{
 				"name": "box_medium",
-				"shape": {
-					"type": "box",
-					"dimensions": [1.5, 1.5, 1.5]
-				},
+				"shape": "box-medium-shape",
 				"mass": 10.0,
 				"position": [2.0, -1.0, 12.0],
 				"velocity": [0.0, 0.0, 0.0]
 			},
 			{
 				"name": "box_small",
-				"shape": {
-					"type": "box",
-					"dimensions": [1.0, 1.0, 1.0]
-				},
+				"shape": "box-small-shape",
 				"mass": 5.0,
 				"position": [0.0, 2.0, 16.0],
 				"velocity": [0.5, 0.0, 0.0]
 			},
 			{
 				"name": "box_tilted",
-				"shape": {
-					"type": "box",
-					"dimensions": [1.2, 1.2, 1.2]
-				},
+				"shape": "box-tilted-shape",
 				"mass": 8.0,
 				"position": [-1.0, -2.0, 20.0],
 				"velocity": [0.3, -0.2, 0.0]
 			},
 			{
 				"name": "sphere_heavy",
-				"shape": {
-					"type": "sphere",
-					"radius": 1.0
-				},
+				"shape": "sphere-heavy-shape",
 				"mass": 15.0,
 				"position": [3.0, 1.0, 6.0],
 				"velocity": [-0.5, 0.0, 0.0]
 			},
 			{
 				"name": "sphere_medium",
-				"shape": {
-					"type": "sphere",
-					"radius": 0.8
-				},
+				"shape": "sphere-medium-shape",
 				"mass": 8.0,
 				"position": [-2.0, 1.5, 14.0],
 				"velocity": [0.0, 0.0, 0.0]
 			},
 			{
 				"name": "sphere_light",
-				"shape": {
-					"type": "sphere",
-					"radius": 0.5
-				},
+				"shape": "sphere-light-shape",
 				"mass": 2.0,
 				"position": [1.0, -0.5, 10.0],
 				"velocity": [0.0, 0.3, 0.0]
 			},
 			{
 				"name": "line_thick_a",
-				"shape": {
-					"type": "line",
-					"length": 3.0,
-					"thickness": 0.2
-				},
+				"shape": "line-thick-a-shape",
 				"mass": 4.0,
 				"position": [4.0, 0.0, 18.0],
 				"velocity": [-0.3, 0.0, 0.0],
@@ -99,22 +176,14 @@
 			},
 			{
 				"name": "line_thick_b",
-				"shape": {
-					"type": "line",
-					"length": 2.0,
-					"thickness": 0.3
-				},
+				"shape": "line-thick-b-shape",
 				"mass": 6.0,
 				"position": [-4.0, -1.0, 10.0],
 				"velocity": [0.2, 0.0, 0.0]
 			},
 			{
 				"name": "line_thin",
-				"shape": {
-					"type": "line",
-					"length": 4.0,
-					"thickness": 0.05
-				},
+				"shape": "line-thin-shape",
 				"mass": 1.0,
 				"position": [0.0, -3.0, 22.0],
 				"velocity": [0.0, 0.5, 0.0],
@@ -122,20 +191,14 @@
 			},
 			{
 				"name": "triangle_large",
-				"shape": {
-					"type": "triangle",
-					"vertices": [[-1.0, -0.8, 0.0], [1.0, -0.8, 0.0], [0.0, 1.0, 0.0]]
-				},
+				"shape": "triangle-large-shape",
 				"mass": 3.0,
 				"position": [1.0, 3.0, 15.0],
 				"velocity": [0.0, -0.3, 0.0]
 			},
 			{
 				"name": "triangle_small",
-				"shape": {
-					"type": "triangle",
-					"vertices": [[-0.5, -0.4, 0.0], [0.5, -0.4, 0.0], [0.0, 0.6, 0.0]]
-				},
+				"shape": "triangle-small-shape",
 				"mass": 1.5,
 				"position": [-3.0, 2.0, 24.0],
 				"velocity": [0.4, 0.0, 0.0],
@@ -143,15 +206,7 @@
 			},
 			{
 				"name": "polytope_tetra",
-				"shape": {
-					"type": "polytope",
-					"vertices": [
-						[-0.8, -0.8, -0.5],
-						[ 0.8, -0.8, -0.5],
-						[ 0.0,  0.8, -0.5],
-						[ 0.0,  0.0,  0.8]
-					]
-				},
+				"shape": "polytope-tetra-shape",
 				"mass": 7.0,
 				"position": [5.0, 0.0, 11.0],
 				"velocity": [-0.4, 0.0, 0.0],
@@ -159,33 +214,14 @@
 			},
 			{
 				"name": "polytope_wedge",
-				"shape": {
-					"type": "polytope",
-					"vertices": [
-						[-1.5, -0.4, -0.3],
-						[ 1.5, -0.4, -0.3],
-						[-1.5,  0.4, -0.3],
-						[ 1.5,  0.4, -0.3],
-						[ 0.0,  0.0,  0.6]
-					]
-				},
+				"shape": "polytope-wedge-shape",
 				"mass": 5.0,
 				"position": [-5.0, 1.0, 17.0],
 				"velocity": [0.3, -0.2, 0.0]
 			},
 			{
 				"name": "polytope_gem",
-				"shape": {
-					"type": "polytope",
-					"vertices": [
-						[ 0.0,  0.0, -0.8],
-						[ 1.0,  0.0,  0.0],
-						[-1.0,  0.0,  0.0],
-						[ 0.0,  1.0,  0.0],
-						[ 0.0, -1.0,  0.0],
-						[ 0.0,  0.0,  0.8]
-					]
-				},
+				"shape": "polytope-gem-shape",
 				"mass": 9.0,
 				"position": [0.0, -4.0, 13.0],
 				"velocity": [0.0, 0.5, 0.0],

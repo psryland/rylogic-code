@@ -32,7 +32,18 @@ namespace pr::physics
 			, m_bodies()
 			, m_tracked()
 			, m_frame()
-		{}
+		{
+		}
+
+		void Reset()
+		{
+			if (m_file.is_open())
+				m_file.close();
+
+			m_bodies.clear();
+			m_tracked.clear();
+			m_frame = 0;
+		}
 
 		// Snapshot the state of each body at the start of the frame.
 		void BeginFrame(std::span<RigidBody* const> bodies)

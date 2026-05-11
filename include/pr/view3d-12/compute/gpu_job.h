@@ -98,6 +98,14 @@ namespace pr::rdr12
 		GpuUploadBuffer            m_upload;     // Upload buffer for the compute shader
 		GpuReadbackBuffer          m_readback;   // Read back buffer for the compute shader
 
+		struct RunProfile
+		{
+			double m_prepare_ms = 0;
+			double m_execute_ms = 0;
+			double m_wait_ms = 0;
+			double m_reset_ms = 0;
+		};
+
 		// Note: can be constructed with a 'Gpu' instance or 'Renderer::D3DDevice()'
 		GpuJob(ID3D12Device4* device, ID3D12CommandQueue* queue, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
 			: m_device(device, true)
@@ -122,11 +130,19 @@ namespace pr::rdr12
 		{}
 
 		// Run the job and block till complete
-		void Run()
+		void Run(RunProfile* profile = nullptr)
 		{
+			auto const timestamp = [profile]
+			{
+				return profile != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+			};
+			auto const prepare_beg = timestamp();
+
 			// Job complete
 			m_barriers.Commit();
 			m_cmd_list.Close();
+
+			auto const execute_beg = timestamp();
 
 			// Run the sort job
 			CmdListCollection cmd_lists = { m_cmd_list.get() };
@@ -136,8 +152,12 @@ namespace pr::rdr12
 			auto sync_point = m_gsync.AddSyncPoint(m_queue.get());
 			m_cmd_list.SyncPoint(sync_point);
 
+			auto const wait_beg = timestamp();
+
 			// Wait for the GPU to finish
 			m_gsync.Wait();
+
+			auto const reset_beg = timestamp();
 
 			// Notify that sync points have been reached (recycles command allocators,
 			// sweeps KeepAlive references, etc). Without this, resources accumulate
@@ -150,6 +170,19 @@ namespace pr::rdr12
 			// Rebind the view heap after reset
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+
+			if (profile != nullptr)
+			{
+				auto const reset_end = timestamp();
+				auto elapsed_ms = [](auto beg, auto end)
+				{
+					return std::chrono::duration<double, std::milli>(end - beg).count();
+				};
+				profile->m_prepare_ms = elapsed_ms(prepare_beg, execute_beg);
+				profile->m_execute_ms = elapsed_ms(execute_beg, wait_beg);
+				profile->m_wait_ms = elapsed_ms(wait_beg, reset_beg);
+				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
+			}
 		}
 
 		// Get a pointer to the queue

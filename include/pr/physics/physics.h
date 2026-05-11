@@ -16,4 +16,5 @@
 #include "pr/physics/integrator/engine.h"
 #include "pr/physics/integrator/engine_config.h"
 #include "pr/physics/integrator/impulse.h"
+#include "pr/physics/integrator/contact_priority.h"
 #include "pr/physics/utility/ldraw.h"

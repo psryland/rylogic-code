@@ -5,23 +5,35 @@
 // Graph-coloured batch collision resolution running on the GPU.
 //
 // Pipeline:
-//   1. CSComputeCollisionTimes — estimates contact time and prepares sorting keys
-//   2. CSAssignColours         — assigns graph colours to sorted contacts
-//   3. CSPositionSolve         — split position correction, dispatched per colour
-//   4. CSResolve               — velocity impulse solve, dispatched per colour
+//   1. CSComputeCollisionTimes - estimates time-of-impact and writes the first sort key.
+//   2. Shock-priority passes   - optionally propagate contact priority through body/contact adjacency and rewrite the sort key.
+//   3. RadixSort               - sorts g_contact_order by g_contact_times. This pass is driven from C++ using RadixSort, not an entry point here.
+//   4. CSAssignColours         - greedily graph-colours the sorted contacts so independent contacts can be solved together.
+//   5. CSPositionSolve         - split position correction, dispatched once per colour.
+//   6. CSResolve               - velocity impulse solve, dispatched once per colour.
 //
-// Within a colour batch, no two contacts share a body, so writes to body
-// momenta are data-race free.
+// Within a colour batch, no two contacts share a dynamic body, so writes to body transforms/momenta are data-race free. Static bodies are allowed to appear
+// in multiple contacts in one colour because they are never written by the solver.
 //
-// Buffer layout:
-//   b0: cbuffer with colour index or max contacts
-//   u0: RWStructuredBuffer<GpuRigidBody>        — per-body dynamic state (read/write)
-//   u1: RWStructuredBuffer<uint>                — per-contact colour assignment
-//   u2: RWStructuredBuffer<GpuResolveContact>   — prepared contacts (output of CSPrepareContacts)
-//   t0: StructuredBuffer<GpuCollisionCounters>  — counters (body_count, pair_count, contact_count)
-//   t1: StructuredBuffer<GpuContact>            — raw contacts from collision detection
-//   t2: StructuredBuffer<GpuCollisionPair>      — collision pairs (for body index lookup)
-//   t3: StructuredBuffer<GpuMaterial>           — material properties
+// Scratch ownership:
+//   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during shock propagation, then the final sort-key buffer again.
+//   - g_contact_order starts as [0..contact_count) and is permuted by the external radix sort.
+//   - g_colours is used as uint/asfloat scratch for Jacobi shock-priority propagation, then reset and reused as the final per-contact colour assignment.
+//
+// Resource layout:
+//   b0: cbResolve                               - per-dispatch constants
+//   t0: StructuredBuffer<GpuCollisionCounters>  - counters (body_count, pair_count, contact_count)
+//   t1: StructuredBuffer<GpuMaterial>           - material properties
+//   u0: RWStructuredBuffer<GpuRigidBody>        - per-body dynamic state (read/write)
+//   u1: RWStructuredBuffer<uint>                - per-contact colour assignment
+//   u2: RWStructuredBuffer<GpuResolveContact>   - prepared contacts (output of the contact preparation pass)
+//   u3: RWStructuredBuffer<float>               - sort keys / propagated priority scratch
+//   u4: RWStructuredBuffer<uint>                - sorted contact indices
+//   u5: RWStructuredBuffer<uint>                - per-body linked-list head for contacts touching that dynamic body
+//   u6: RWStructuredBuffer<uint>                - per-contact linked-list next pointer for body A
+//   u7: RWStructuredBuffer<uint>                - per-contact linked-list next pointer for body B
+//   u8: RWStructuredBuffer<GpuWarmStartEntry>   - previous-frame warm-start cache
+//   u9: RWStructuredBuffer<GpuWarmStartEntry>   - current-frame warm-start cache
 //
 // Matrix convention: same as integrate.hlsl (row-vector / DirectX-style).
 //   HLSL 'row_major float4x4' rows = C++ columns = basis vectors.
@@ -30,7 +42,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
-#include "src/compute/physics_types.hlsli"
+#include "physics/src/compute/physics_types.hlsli"
 
 // HLSL flow control hints; expand to nothing in C++ replay builds.
 #ifdef __cplusplus
@@ -45,33 +57,48 @@
 namespace pr::physics {
 #endif
 
-// Per-dispatch constants
+// Per-dispatch constants. Keep this layout mirrored with the C++ cbResolve structure in resolve_gpu.cpp and the interop runner.
 struct cbResolve
 {
 	int max_contacts; // The max capacity of the contacts buffer
 	int body_count;   // The number of bodies in the scene
 	int colour;       // Current colour batch being processed (for CSResolve)
-	int pad0;
+	int sort_capacity; // The number of sort keys the radix sorter will read, which can be larger than this pass's contact count
 
-	float dt;         // timestep in seconds
-	float pad1;
-	float pad2;
-	float pad3;
+	int shock_iterations;  // Number of contact-priority propagation sweeps
+	int shock_padding0;
+	int shock_padding1;
+	float shock_alignment; // Minimum directed impulse influence needed to create a propagation edge
 
-	float penetration_slop;
-	float velocity_baumgarte;
+	float shock_min_strength; // Minimum priority delta worth propagating/storing
+	float dt;                 // Timestep in seconds
+	float support_only;       // Non-zero means only support-aligned contacts are solved
+	float support_alignment;  // Minimum abs(dot(contact_axis, gravity_dir)) for support-only contacts
+
+	float restitution_scale; // Scene/pass scale for elastic response
+	float penetration_slop;  // Depth tolerance before velocity-level bias starts
+	float velocity_baumgarte;// Velocity bias fraction used to clear penetration
 	float deep_penetration_threshold;
-	float deep_penetration_range;
 
+	float deep_penetration_range;
 	float deep_penetration_baumgarte_min;
 	float deep_penetration_baumgarte_max;
-	float pad4;
-	float pad5;
+	float bias_scale; // Per-pass scale used by selective refresh and normal resolve paths
 
-	float position_slop;
-	float position_baumgarte;
-	float position_correction_scale;
-	float pad6;
+	float propagation_key_scale;      // Tiny scale that folds local/shock priority into the collision-time sort key
+	float position_slop;              // Depth tolerance before split-position correction starts
+	float position_baumgarte;         // Position correction fraction
+	float position_correction_scale;  // 1 / position iteration count, so the same stale depth is not applied in full each iteration
+
+	float shock_decay;                // Priority attenuation per propagated edge
+	float contact_slop_scale;         // Fraction of minimum contact-body thickness used to cap penetration/position slop
+	float support_contact_slop_scale; // Fraction used for load-bearing support contacts
+	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
+
+	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
+	int pad_i0;
+	int pad_i1;
+	int pad_i2;
 };
 
 // Shader resources
@@ -83,11 +110,66 @@ RWStructuredBuffer<uint> resource(g_colours, u1);
 RWStructuredBuffer<GpuResolveContact> resource(g_contacts, u2);
 RWStructuredBuffer<float> resource(g_contact_times, u3); // scratch: collision_time keys for radix sort
 RWStructuredBuffer<uint> resource(g_contact_order, u4);   // scratch: contact indices for radix sort
+RWStructuredBuffer<uint> resource(g_body_contact_head, u5); // scratch: body -> first contact+1 for priority adjacency, 0 means empty
+RWStructuredBuffer<uint> resource(g_contact_next_a, u6);    // scratch: next contact+1 in body A's adjacency list
+RWStructuredBuffer<uint> resource(g_contact_next_b, u7);    // scratch: next contact+1 in body B's adjacency list
+RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_prev, u8); // previous-frame physical impulse cache
+RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_curr, u9); // current-frame physical impulse cache
 
 // ----- Helper functions -----
 int ContactCount()
 {
 	return min(g_counters[0].contact_count, g.max_contacts);
+}
+
+// Returns a stable non-zero cache key for a canonical body pair and quantised local contact point.
+uint WarmStartKey(GpuResolveContact c)
+{
+	int3 q = int3(
+		(int)floor(c.contact_point.x * 64.0f + 0.5f),
+		(int)floor(c.contact_point.y * 64.0f + 0.5f),
+		(int)floor(c.contact_point.z * 64.0f + 0.5f));
+	uint key =
+		(uint)c.body_idx_a * 73856093u ^
+		(uint)c.body_idx_b * 19349663u ^
+		(uint)q.x * 83492791u ^
+		(uint)q.y * 2654435761u ^
+		(uint)q.z * 1597334677u ^
+		0x9E3779B9u;
+	return key != 0 ? key : 1u;
+}
+
+// Returns the half-extents stored in a bounding box in both HLSL and C++ interop builds.
+float3 BBoxRadius(BBox bbox)
+{
+#ifdef __cplusplus
+	return bbox.m_radius.xyz;
+#else
+	return bbox.radius.xyz;
+#endif
+}
+
+// Returns the minimum positive object-space thickness represented by a body's bounding box.
+float BodyMinThickness(GpuRigidBody body)
+{
+	float3 size = 2.0f * max(BBoxRadius(body.os_bbox), float3(0, 0, 0));
+	float min_size = 1e30f;
+	if (size.x > 1e-5f) min_size = min(min_size, size.x);
+	if (size.y > 1e-5f) min_size = min(min_size, size.y);
+	if (size.z > 1e-5f) min_size = min(min_size, size.z);
+	return min_size < 1e29f ? min_size : max(max(size.x, size.y), size.z);
+}
+
+// Scales a configured slop by the thinnest contact body while keeping the configured value as an upper bound.
+float ContactSlop(float configured_slop, GpuRigidBody bodyA, GpuRigidBody bodyB, bool support_contact)
+{
+	float slop_scale = support_contact ? g.support_contact_slop_scale : g.contact_slop_scale;
+	if (slop_scale <= 0.0f)
+		return configured_slop;
+
+	float min_thickness = min(BodyMinThickness(bodyA), BodyMinThickness(bodyB));
+	float scaled_slop = slop_scale * min_thickness;
+	return min(configured_slop, max(scaled_slop, 0.0f));
 }
 
 // Compute kinetic energy from momentum and inverse inertia (world space).
@@ -99,6 +181,8 @@ float KineticEnergy(GpuRigidBody body)
 	float3x3 rot = (float3x3)body.o2w;
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, rot);
 
+	// KE is evaluated from momentum rather than velocity because momenta are the state this solver mutates. This keeps the energy guard independent of how
+	// velocity is represented elsewhere and matches the spatial-algebra identity: KE = 0.5 * h^T * I^-1 * h.
 	float3 vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
 	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
 	return 0.5f * spatial_dot(vel_ang, vel_lin, body.momentum_ang.xyz, body.momentum_lin.xyz);
@@ -107,6 +191,8 @@ float KineticEnergy(GpuRigidBody body)
 // Compute a body's object-space inverse inertia matrix (scaled by inv_mass).
 float3x3 OsInverseInertia(GpuRigidBody body)
 {
+	// The stored inertia tensor is normalised by mass. Scaling by inverse mass gives the actual inverse inertia used by this frame's body state. Static bodies
+	// have inv_mass == 0, which naturally turns both linear and angular response into zero.
 	float inv_mass = body.os_com_and_invmass.w;
 	return inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
 }
@@ -122,13 +208,14 @@ float4x4 ExtrapolateO2W(GpuRigidBody body, float dt)
 	float3x3 rot = (float3x3)body.o2w;
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, rot);
 
-	// Spatial displacement: dx = 0.5 * dt * I^(2*h + f*dt)
+	// Spatial displacement: dx = 0.5 * dt * I^(2*h + f*dt). This is only used over a small sub-step rewind/advance, so the linearised rotation below is
+	// preferable to a heavier quaternion/exponential-map update here.
 	float3 h_ang = 2.0f * body.momentum_ang.xyz + dt * body.force_ang.xyz;
 	float3 h_lin = 2.0f * body.momentum_lin.xyz + dt * body.force_lin.xyz;
 	float3 dx_ang = 0.5f * dt * mul(ws_iinv, h_ang);
 	float3 dx_lin = 0.5f * dt * inv_mass * h_lin;
 
-	// CoM-based position update
+	// Update the CoM and then reconstruct the object origin from the new CoM and new rotation. This matters for shapes whose object origin is not their CoM.
 	float3 com_ws = body.o2w[3].xyz + mul(os_com, rot);
 
 	// Small-angle rotation: R_new ≈ (I + [dx_ang×]) * R_old
@@ -158,6 +245,9 @@ float3 BodyVelocityAtPoint(GpuRigidBody body, float3x3 os_iinv, float3 pt_in_a, 
 	// which yields wrong body-frame velocities for any non-axis-aligned rotation.
 	float3 omega_in_a = mul(rot_a, mul(ws_iinv, body.momentum_ang.xyz));
 	float3 v_com_in_a = mul(rot_a, inv_mass * body.momentum_lin.xyz);
+
+	// Velocity is returned in body A space because contacts store their centroid/normal in A space. Keeping all contact math in one frame avoids repeated
+	// world<->object conversions and keeps the normal impulse direction consistent with c.axis.
 	return v_com_in_a + cross(omega_in_a, pt_in_a - com_in_a);
 }
 
@@ -179,6 +269,8 @@ float3 RelativeVelocityAtContact(GpuResolveContact c, GpuRigidBody bodyA, GpuRig
 // Returns the inverse of the collision mass matrix (used to compute impulse from velocity).
 float3x3 CollisionMassMatrix(float3 rA, float3 rB, float inv_mass_a, float inv_mass_b, float3x3 Ia_inv, float3x3 Ib_inv)
 {
+	// The contact-space effective mass tells us how much relative velocity changes for a point impulse. Linear response contributes inv_mass * I; angular
+	// response contributes the lever-arm terms. The result is inverted because impulse solve uses J = -M_eff * V_rel.
 	float3x3 cpm_rA = CrossProductMatrix(rA);
 	float3x3 cpm_rB = CrossProductMatrix(rB);
 
@@ -195,7 +287,8 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 {
 	float3x3 col_I_inv = Invert(col_I);
 
-	// Decompose into normal and tangential components
+	// Start with the impulse that would cancel the full relative velocity, then split it into normal and tangential components. The normal part gets
+	// restitution, while the tangential part is clamped by the Coulomb cone below.
 	float3 impulse0 = -mul(col_I, V_rel);
 	float denom = dot(axis, mul(col_I_inv, axis));
 	float3 impulseN = (float3)0;
@@ -205,7 +298,8 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 	float3 impulseT = impulse0 - impulseN;
 	float3 impulse = (1.0f + elasticity) * impulseN + impulseT;
 
-	// Coulomb friction cone clamping
+	// Coulomb friction cone clamping. The scene material stores a friction ratio in [0,1), converted here to the slope of the cone so values near 1 can
+	// approach very high static friction without dividing by zero.
 	float clamped_friction = min(friction, 0.9999f);
 	float static_friction = clamped_friction / (1.000001f - clamped_friction);
 	float Jn = dot(impulse, axis);
@@ -229,6 +323,8 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 // velocity *after* the normal impulse has been applied at this point.
 float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, float friction, float Jn)
 {
+	// This function assumes the normal impulse budget is already known. It solves only the tangent direction that opposes current tangential slip, then caps
+	// that impulse to mu * Jn so friction cannot exceed the normal force that generated it.
 	float3 V_tan = V_rel - dot(V_rel, axis) * axis;
 	float v_tan_sq = dot(V_tan, V_tan);
 	if (v_tan_sq < 1e-12f)
@@ -245,27 +341,28 @@ float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, flo
 	return -Jt * tangent;                   // opposes tangential motion
 }
 
-// Convert a point impulse at 'pt' (in A's space) into world-space momentum changes,
-// apply to both bodies, and clamp using an energy conservation guard.
-void ApplyImpulseWithEnergyGuard(
+// Convert a point impulse at 'pt' (in A's space), apply it to both bodies, and return the impulse that survived the energy guard.
+float3 ApplyImpulseWithEnergyGuard(
 	inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB,
 	float3 impulse, float3 pt, float3 com_a_in_a, float3 com_b_in_a,
 	float3x3 rot_a, float3x3 ws_iinv_a, float3x3 ws_iinv_b,
-	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)  // @Copilot, turning the energy guard off isn't desireable... we need to revisit this
+	float inv_mass_a, float inv_mass_b, bool enable_energy_guard)
 {
-	// Convert point impulse to spatial wrenches at each body's CoM
+	// Convert a point impulse into spatial wrenches at each body's CoM. The contact normal points from A to B in A space, so A receives -impulse and B
+	// receives +impulse.
 	float3 forceA_in_a = -impulse;
 	float3 torqueA_in_a = -cross(impulse, com_a_in_a - pt);
 	float3 forceB_in_a = impulse;
 	float3 torqueB_in_a = cross(impulse, com_b_in_a - pt);
 
-	// Transform wrenches to world space
+	// Transform wrenches to world space before updating momenta because rigid body state stores world-space linear/angular momentum.
 	float3 torqueA_ws = mul(torqueA_in_a, rot_a);
 	float3 forceA_ws = mul(forceA_in_a, rot_a);
 	float3 torqueB_ws = mul(torqueB_in_a, rot_a);
 	float3 forceB_ws = mul(forceB_in_a, rot_a);
 
-	// Pre-compute impulse KE coefficient for energy guard
+	// Pre-compute the quadratic KE coefficient for this impulse direction. If the trial impulse increases KE, this gives a cheap scalar way to back out the
+	// energy-injecting fraction without recomputing the full impulse solve.
 	float3 va_j_ang = mul(ws_iinv_a, torqueA_ws);
 	float3 va_j_lin = inv_mass_a * forceA_ws;
 	float3 vb_j_ang = mul(ws_iinv_b, torqueB_ws);
@@ -281,7 +378,8 @@ void ApplyImpulseWithEnergyGuard(
 	bodyB.momentum_ang.xyz += torqueB_ws;
 	bodyB.momentum_lin.xyz += forceB_ws;
 
-	// Energy conservation guard: if KE increased, scale the impulse down
+	// Energy conservation guard: if KE increased, scale the impulse down. Bias impulses disable this because they are pseudo-impulses whose purpose is to
+	// remove positional error, not conserve physical kinetic energy.
 	float ke_after = KineticEnergy(bodyA) + KineticEnergy(bodyB);
 	float delta = ke_after - ke_before;
 	if (enable_energy_guard && delta > 0 && A > 1e-12f)
@@ -291,6 +389,80 @@ void ApplyImpulseWithEnergyGuard(
 		bodyA.momentum_lin.xyz -= correction * forceA_ws;
 		bodyB.momentum_ang.xyz -= correction * torqueB_ws;
 		bodyB.momentum_lin.xyz -= correction * forceB_ws;
+		return (1.0f - correction) * impulse;
+	}
+
+	return impulse;
+}
+
+// Apply a non-physical Baumgarte bias impulse to linear momentum only, so positional error correction does not inject spin through an unstable contact point.
+float3 ApplyLinearBiasImpulse(inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) bodyB, float3 impulse, float3x3 rot_a)
+{
+	float3 impulse_ws = mul(impulse, rot_a);
+	bodyA.momentum_lin.xyz -= impulse_ws;
+	bodyB.momentum_lin.xyz += impulse_ws;
+	return impulse;
+}
+
+// Extracts the positive normal part of a cached impulse in the current contact frame.
+float3 WarmStartNormalImpulse(GpuResolveContact c, float3 impulse)
+{
+	// Warm starting is deliberately conservative here: the cache key does not identify a stable manifold feature/tangent basis, so replaying old tangential
+	// components can inject sideways or angular energy when the contact patch shifts. Keep only the part that still pushes along the current contact normal.
+	float normal_impulse = dot(impulse, c.axis.xyz);
+	return normal_impulse > 1e-6f ? normal_impulse * c.axis.xyz : float3(0, 0, 0);
+}
+
+// Looks up the previous-frame normal impulse for this canonical body pair and projects it onto the current contact normal.
+bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
+{
+	impulse = float3(0, 0, 0);
+	if (g.warm_start_capacity <= 0 || g.warm_start_scale <= 0.0f)
+		return false;
+
+	uint key = WarmStartKey(c);
+	uint start = key % (uint)g.warm_start_capacity;
+	for (int probe = 0; probe != 32; ++probe)
+	{
+		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
+		GpuWarmStartEntry entry = g_warm_start_prev[slot];
+		if (entry.key == 0)
+			return false;
+		if (entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b)
+		{
+			impulse = WarmStartNormalImpulse(c, g.warm_start_scale * entry.impulse.xyz);
+			return any(impulse != float3(0, 0, 0));
+		}
+	}
+
+	return false;
+}
+
+// Inserts this frame's accumulated normal contact impulse into the current warm-start cache.
+void StoreWarmStartImpulse(GpuResolveContact c)
+{
+	if (g.warm_start_capacity <= 0 || g.warm_start_scale <= 0.0f)
+		return;
+
+	float3 impulse = WarmStartNormalImpulse(c, c.warmstart_impulse.xyz);
+	if (!any(impulse != float3(0, 0, 0)))
+		return;
+
+	uint key = WarmStartKey(c);
+	uint start = key % (uint)g.warm_start_capacity;
+	for (int probe = 0; probe != 32; ++probe)
+	{
+		uint slot = (start + (uint)probe) % (uint)g.warm_start_capacity;
+		uint old_key = 0;
+		InterlockedCompareExchange(g_warm_start_curr[slot].key, 0u, key, old_key);
+		if (old_key == 0 || old_key == key)
+		{
+			g_warm_start_curr[slot].body_idx_a = c.body_idx_a;
+			g_warm_start_curr[slot].body_idx_b = c.body_idx_b;
+			g_warm_start_curr[slot].pad0 = 0;
+			g_warm_start_curr[slot].impulse = float4(impulse, 0);
+			return;
+		}
 	}
 }
 
@@ -302,6 +474,8 @@ float EstimateCollisionTime(GpuResolveContact c)
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
 	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 
+	// Most resolver calculations use body A space. Body B's CoM is transformed into A space using the current b2a transform so relative velocity can be
+	// evaluated at the stored contact centroid without changing coordinate frames.
 	float3 os_com_a = bodyA.os_com_and_invmass.xyz;
 	float3 os_com_b = bodyB.os_com_and_invmass.xyz;
 	float3x3 rot_a = (float3x3)bodyA.o2w;
@@ -312,16 +486,144 @@ float EstimateCollisionTime(GpuResolveContact c)
 		OsInverseInertia(bodyA), OsInverseInertia(bodyB),
 		rot_a, os_com_a, com_b_in_a);
 
-	// Project backward to estimate collision time
+	// Project backward along relative motion and ask what fraction of the current normal displacement corresponds to the penetration depth. The value is
+	// negative because it is a rewind within the current step, and more negative values sort before later impacts.
 	float3 point_at_t0 = c.contact_point.xyz - g.dt * rel_vel;
 	float distance = abs(dot(c.contact_point.xyz - point_at_t0, c.axis.xyz));
 	float sub_step = distance > c.depth ? -c.depth / distance : 0.0f;
 	return sub_step * g.dt;
 }
 
-float PositionCorrectionDistance(float depth)
+// Measure how closely a contact normal aligns with gravity for support-contact filtering.
+// Returns 0 when gravity is unavailable, otherwise abs(dot(axis_ws, gravity_dir)) in [0,1].
+float ContactSupportAlignment(GpuResolveContact c, GpuRigidBody bodyA)
 {
-	float position_pen = max(depth - g.position_slop, 0.0f);
+	// Support-only passes should only touch contacts whose normal is gravity-aligned.
+	// This avoids wasting selective refresh work on side contacts when the pass is
+	// intended to re-stabilise load-bearing support contacts.
+	float3 gravity = NormaliseOrZero(bodyA.ws_gravity.xyz);
+	if (dot(gravity, gravity) == 0.0f)
+		return 0.0f;
+
+	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
+	return abs(dot(axis_ws, gravity));
+}
+
+// Classify a contact as load-bearing support for support-only resolve passes.
+// A contact is support if its normal is sufficiently parallel to gravity, regardless of sign.
+bool SupportContact(GpuResolveContact c, GpuRigidBody bodyA)
+{
+	return ContactSupportAlignment(c, bodyA) >= g.support_alignment;
+}
+
+// Apply the current resolve-pass contact filter.
+// Normal resolve accepts every contact; selective support-only refresh accepts only support contacts.
+bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
+{
+	return g.support_only == 0.0f || SupportContact(c, bodyA);
+}
+
+// Compute the local contact-priority tie-breaker that is folded into the collision-time radix key.
+// Lower values sort earlier. The key favours low support contacts, high momentum, closing velocity, and deeper penetration.
+float PropagationSortKey(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB)
+{
+	// This is the local part of contact priority. It intentionally remains small compared with collision time and
+	// is multiplied by propagation_key_scale before sorting, so it only reorders contacts with nearly equal time-of-impact.
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3 ws_point = bodyA.o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
+	float3 gravity = NormaliseOrZero(bodyA.ws_gravity.xyz);
+	float support_height = dot(gravity, gravity) != 0.0f ? -dot(ws_point, gravity) : 0.0f;
+
+	// Lower support_height means "lower in the gravity stack", so bottom contacts sort earlier.
+	// Source momentum and closing/depth terms pull high-demand contacts earlier within that height ordering.
+	float3x3 os_iinv_a = OsInverseInertia(bodyA);
+	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	float3x3 b2a_rot = (float3x3)c.b2a;
+	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
+	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
+	float3 v_a = BodyVelocityAtPoint(bodyA, os_iinv_a, c.contact_point.xyz, com_a_in_a, rot_a);
+	float3 v_b = BodyVelocityAtPoint(bodyB, os_iinv_b, c.contact_point.xyz, com_b_in_a, rot_a);
+	float3 v_rel = v_b - v_a;
+	float3 axis_ws = mul(c.axis.xyz, rot_a);
+	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
+	float source_momentum = max(abs(dot(bodyA.momentum_lin.xyz, axis_ws)), abs(dot(bodyB.momentum_lin.xyz, axis_ws)));
+
+	return support_height - source_momentum - 0.05f * closing_speed - 0.50f * c.depth;
+}
+
+// Estimate how urgently this contact needs a normal impulse before considering graph propagation.
+// This seed priority combines normal closing speed with Baumgarte bias demand from penetration depth.
+float ContactNormalDemand(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB)
+{
+	// This is the seed strength for shock-priority propagation. Closing contacts and deeply penetrating contacts are the places where an early impulse is
+	// most likely to help neighbouring contacts in a dependency chain.
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3x3 os_iinv_a = OsInverseInertia(bodyA);
+	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	float3x3 b2a_rot = (float3x3)c.b2a;
+	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
+	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
+	float3 v_rel = RelativeVelocityAtContact(c, bodyA, bodyB, os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+	float closing_speed = max(0.0f, -dot(v_rel, c.axis.xyz));
+	bool support_contact = SupportContact(c, bodyA);
+	float bias_speed = (g.velocity_baumgarte / max(g.dt, 1e-6f)) *
+		max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB, support_contact), 0.0f);
+	return closing_speed + bias_speed;
+}
+
+// Find the dynamic body shared by two contacts, if any.
+// Returns the shared body index, or -1 when the contacts are disjoint or only share a static body.
+int SharedDynamicBody(GpuResolveContact lhs, GpuResolveContact rhs)
+{
+	// Priority only propagates through a body whose velocity can actually change. Static shared bodies (inv_mass == 0) are ignored because an impulse at one
+	// static contact cannot transmit momentum to another contact through the static body.
+	if (lhs.body_idx_a == rhs.body_idx_a && g_bodies[lhs.body_idx_a].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_a;
+	if (lhs.body_idx_a == rhs.body_idx_b && g_bodies[lhs.body_idx_a].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_a;
+	if (lhs.body_idx_b == rhs.body_idx_a && g_bodies[lhs.body_idx_b].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_b;
+	if (lhs.body_idx_b == rhs.body_idx_b && g_bodies[lhs.body_idx_b].os_com_and_invmass.w > 0.0f)
+		return lhs.body_idx_b;
+	return -1;
+}
+
+// Approximate the world-space linear velocity change that a unit normal impulse at this contact would apply to body_idx.
+// The priority metric uses this as a cheap directional influence test and deliberately ignores angular velocity changes.
+float3 ContactUnitImpulseDeltaVelocityWS(GpuResolveContact c, int body_idx)
+{
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody body = g_bodies[body_idx];
+	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
+	if (body_idx == c.body_idx_a)
+		return -body.os_com_and_invmass.w * axis_ws;
+	if (body_idx == c.body_idx_b)
+		return +body.os_com_and_invmass.w * axis_ws;
+	return float3(0, 0, 0);
+}
+
+// Score a directed priority edge from src to dst through their shared dynamic body.
+// Positive values mean a normal impulse at src would make dst more closing/active, so src should be resolved before dst.
+float ContactPriorityInfluence(GpuResolveContact src, GpuResolveContact dst, int shared_body_idx)
+{
+	GpuRigidBody bodyA = g_bodies[dst.body_idx_a];
+	float3 axis_ws = mul(dst.axis.xyz, (float3x3)bodyA.o2w);
+	float3 delta_velocity = ContactUnitImpulseDeltaVelocityWS(src, shared_body_idx);
+	float3 delta_relative_velocity = float3(0, 0, 0);
+	if (shared_body_idx == dst.body_idx_a)
+		delta_relative_velocity = -delta_velocity;
+	else if (shared_body_idx == dst.body_idx_b)
+		delta_relative_velocity = +delta_velocity;
+
+	// Positive influence means the upstream contact impulse makes the downstream contact more closing/active.
+	return max(0.0f, -dot(delta_relative_velocity, axis_ws));
+}
+
+// Convert penetration depth into the split-position correction distance for one position-solve iteration.
+// Uses a gentle shallow correction and a stronger deep-penetration ramp, then applies the current pass scale.
+float PositionCorrectionDistance(float depth, float position_slop)
+{
+	float position_pen = max(depth - position_slop, 0.0f);
 	float position_correction = g.position_baumgarte * position_pen;
 
 	float deep_pen = max(depth - g.deep_penetration_threshold, 0.0f);
@@ -329,9 +631,11 @@ float PositionCorrectionDistance(float depth)
 	float deep_baumgarte = lerp(g.deep_penetration_baumgarte_min, g.deep_penetration_baumgarte_max, saturate(deep_pen / deep_range));
 	float deep_correction = deep_baumgarte * deep_pen;
 
-	return g.position_correction_scale * max(position_correction, deep_correction);
+	return g.bias_scale * g.position_correction_scale * max(position_correction, deep_correction);
 }
 
+// Apply split positional correction for one contact without changing momenta.
+// Dynamic bodies are moved along the contact normal in inverse-mass proportion; static bodies remain fixed.
 void ApplyPositionCorrection(GpuResolveContact c)
 {
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -340,7 +644,8 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;
 	float total_inv = inv_mass_a + inv_mass_b;
-	float correction = PositionCorrectionDistance(c.depth);
+	bool support_contact = SupportContact(c, bodyA);
+	float correction = PositionCorrectionDistance(c.depth, ContactSlop(g.position_slop, bodyA, bodyB, support_contact));
 	if (correction <= 0.0f || total_inv <= 0.0f)
 		return;
 
@@ -358,8 +663,47 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	g_bodies[c.body_idx_b] = bodyB;
 }
 
+// Adds a contact to one dynamic body's intrusive adjacency list used by shock-priority propagation.
+void LinkContactToBody(int contact_idx, int body_idx, bool body_a_slot)
+{
+	if (g_bodies[body_idx].os_com_and_invmass.w <= 0.0f)
+		return;
+
+	uint old_head = 0;
+	InterlockedExchange(g_body_contact_head[body_idx], (uint)(contact_idx + 1), old_head);
+	if (body_a_slot)
+		g_contact_next_a[contact_idx] = old_head;
+	else
+		g_contact_next_b[contact_idx] = old_head;
+}
+
+// Propagates one source contact's shock priority to neighbouring contacts that share the given dynamic body.
+void PropagateShockThroughBody(int src_idx, GpuResolveContact src, int body_idx, float src_priority)
+{
+	if (g_bodies[body_idx].os_com_and_invmass.w <= 0.0f)
+		return;
+
+	uint node = g_body_contact_head[body_idx];
+	for (int guard = 0; node != 0 && guard != g.max_contacts; ++guard)
+	{
+		int dst_idx = (int)node - 1;
+		GpuResolveContact dst = g_contacts[dst_idx];
+		node = body_idx == dst.body_idx_a ? g_contact_next_a[dst_idx] : g_contact_next_b[dst_idx];
+		if (dst_idx == src_idx)
+			continue;
+
+		float influence = min(ContactPriorityInfluence(src, dst, body_idx), 1.0f);
+		if (influence <= g.shock_alignment)
+			continue;
+
+		float propagated = g.shock_decay * influence * src_priority;
+		if (propagated > g.shock_min_strength)
+			InterlockedMax(g_colours[dst_idx], asuint(propagated));
+	}
+}
+
 // ----- CSComputeCollisionTimes -----
-// Parallel: one thread per contact. Computes collision time
+// Parallel: one thread per contact. Computes the primary time-of-impact sort key and initialises the order buffer for the external radix sort.
 numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
 void CSComputeCollisionTimes(int3 DTID(dtid))
 {
@@ -367,49 +711,134 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 	int contact_count = ContactCount();
 	if (idx < contact_count)
 	{
-		// Calculate the estimated collision time for this contact
+		// The contact buffer has already been prepared by the narrowphase/interop path. This pass does not
+		// change contact geometry; it only records the estimated collision time and a sortable index.
 		GpuResolveContact c = g_contacts[idx];
+		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 		float collision_time = EstimateCollisionTime(c);
 		g_contacts[idx].collision_time = collision_time;
 
-		// Transform the contact point to world space to compute its height along gravity for tie-breaking in sorting.
-		float3x3 rot_a = (float3x3)g_bodies[c.body_idx_a].o2w;
-		float3 ws_point = g_bodies[c.body_idx_a].o2w[3].xyz + mul(c.contact_point.xyz, rot_a);
-
-		// Get the direction of gravity for this contact so we can determine "down" for height sorting.
-		// Use body A, if the objects are in contact then gravity should be similar for both bodies.
-		float3 gravity = NormaliseOrZero(g_bodies[c.body_idx_a].ws_gravity).xyz;
-		float height = dot(ws_point, gravity);
-		
-		// Compute a composite sort key: collision_time primary, contact height secondary.
-		// For contacts with similar collision times (e.g., a stacked column landing),
-		// lower contacts (closer to the support surface) sort first so the impulse propagates upward through the stack.
-		// Height is measured along the gravity direction — contacts further along -gravity sort earlier.
-		float height_bias = height * 1e-6f; // contacts lower along gravity sort first (more negative = earlier)
-		g_contact_times[idx] = collision_time + height_bias;
+		// Collision time remains primary. The propagation key is deliberately tiny and only reorders near-simultaneous
+		// contacts so support reactions and high-residual impact contacts get an earlier colour in the sequential solve.
+		float propagation_key = ContactEnabled(c, bodyA) ? PropagationSortKey(c, bodyA, bodyB) : 1e30f;
+		g_contact_times[idx] = collision_time + g.propagation_key_scale * propagation_key;
 		g_contact_order[idx] = idx;
 
 		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
 	}
 
-	// Get thread 0 to do serial operations
+	// Thread 0 also initialises per-dispatch scratch that is not naturally covered by one-thread-per-contact work. These writes do not depend on the other
+	// threads in this dispatch; the UAV barrier after the dispatch provides synchronisation before the next pass.
 	if (idx == 0)
 	{
 		int i;
 	
-		// Zero the body colour_used bitmask (one thread per body, reusing the same dispatch)
+		// Reset the graph-colouring bitmask on every body. CSAssignColours will OR colour bits into dynamic bodies as it walks the sorted contacts.
 		for (i = 0; i != g.body_count; ++i)
 			g_bodies[i].colour_used = 0;
 		
-		// Set the out of bounds contact times to a large positive value so they sort to the end
-		for (i = contact_count; i != g.max_contacts; ++i)
+		// Set the out-of-bounds contact times to a large positive value so they sort to the end.
+		// The resolver's sort scratch can be larger than a compact selective contact buffer, so initialise
+		// every key that the radix sorter will read, not just every contact slot in the current pass.
+		for (i = contact_count; i != g.sort_capacity; ++i)
 			g_contact_times[i] = 1e30f;
 	}
+}
+
+// ----- Shock-priority propagation -----
+// These passes implement a parallel Jacobi max-propagation over contact adjacency. Contacts are linked into per-body lists, so propagation only visits
+// contacts that share a dynamic body instead of testing every contact pair. g_contact_times holds the current priority as float; g_colours holds the next
+// priority as uint/asfloat so InterlockedMax can merge parallel candidates.
+numthreads(CSClearShockLists, ResolveThreadCount, 1, 1)
+void CSClearShockLists(int3 DTID(dtid))
+{
+	if (dtid.x < g.body_count)
+		g_body_contact_head[dtid.x] = 0;
+}
+
+// Seed each contact's priority from local normal demand and build the dynamic body -> contacts adjacency lists.
+// The next-priority buffer is initialised to the same value so each Jacobi pass starts from "keep current priority unless a stronger path arrives".
+numthreads(CSSeedShockPriority, ResolveThreadCount, 1, 1)
+void CSSeedShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
+		return;
+
+	GpuResolveContact c = g_contacts[contact_idx];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+	float priority = ContactEnabled(c, bodyA) ? ContactNormalDemand(c, bodyA, bodyB) : 0.0f;
+	g_contact_times[contact_idx] = priority;
+	g_colours[contact_idx] = asuint(priority);
+	g_contact_next_a[contact_idx] = 0;
+	g_contact_next_b[contact_idx] = 0;
+
+	LinkContactToBody(contact_idx, c.body_idx_a, true);
+	LinkContactToBody(contact_idx, c.body_idx_b, false);
+}
+
+// Propagate one Jacobi step from every source contact to neighbouring contacts that share a dynamic body.
+// This is parallel over source contacts; atomics merge multiple incoming paths into each destination's next priority.
+numthreads(CSPropagateShockPriority, ResolveThreadCount, 1, 1)
+void CSPropagateShockPriority(int3 DTID(dtid))
+{
+	int src_idx = dtid.x;
+	if (src_idx >= ContactCount())
+		return;
+
+	float src_priority = g_contact_times[src_idx];
+	if (src_priority < g.shock_min_strength)
+		return;
+
+	GpuResolveContact src = g_contacts[src_idx];
+	PropagateShockThroughBody(src_idx, src, src.body_idx_a, src_priority);
+	PropagateShockThroughBody(src_idx, src, src.body_idx_b, src_priority);
+}
+
+// Commit the max-reduced next priority to the current priority buffer for the next Jacobi step.
+// g_colours intentionally remains equal to g_contact_times so the following propagation step starts with each contact's current priority already present.
+numthreads(CSCommitShockPriority, ResolveThreadCount, 1, 1)
+void CSCommitShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
+		return;
+
+	g_contact_times[contact_idx] = asfloat(g_colours[contact_idx]);
+}
+
+// Convert final propagated priority back into radix-sort keys and reset colour scratch ready for graph colouring.
+// Larger propagated priority sorts earlier via the negative sign; the local key remains a bottom-up/support/depth tie-breaker.
+numthreads(CSFinalizeShockPriority, ResolveThreadCount, 1, 1)
+void CSFinalizeShockPriority(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (contact_idx >= ContactCount())
+		return;
+
+	GpuResolveContact c = g_contacts[contact_idx];
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+	float propagation_key = 1e30f;
+	if (ContactEnabled(c, bodyA))
+	{
+		float local_key = PropagationSortKey(c, bodyA, bodyB);
+		propagation_key = -g_contact_times[contact_idx] + 0.25f * local_key;
+	}
+
+	g_contact_times[contact_idx] = c.collision_time + g.propagation_key_scale * propagation_key;
+	g_contact_order[contact_idx] = (uint)contact_idx;
+	g_colours[contact_idx] = 0;
 }
 
 // ----- CSAssignColours -----
 // Serial: single thread. Walks contacts in order sorted by collision time.
 // Uses per-body colour bitmasks stored in g_bodies[].colour_used.
+//
+// The greedy colour assignment is serial because each contact's colour depends on the colours already reserved by earlier contacts. Earlier contacts in
+// g_contact_order get lower colours and therefore get solved earlier in each solver iteration.
 numthreads(CSAssignColours, 1, 1, 1)
 void CSAssignColours(int3 DTID(dtid))
 {
@@ -419,9 +848,18 @@ void CSAssignColours(int3 DTID(dtid))
 	int contact_count = ContactCount();
 	for (int i = 0; i != contact_count; ++i)
 	{
+		// g_contact_order is the radix-sorted permutation. Colouring in this order is what turns the contact-priority sort into actual solve order.
 		int idx = g_contact_order[i]; // get contact index from sorted order
-		int a = g_contacts[idx].body_idx_a;
-		int b = g_contacts[idx].body_idx_b;
+		GpuResolveContact c = g_contacts[idx];
+
+		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
+		{
+			g_colours[idx] = MaxColours;
+			continue;
+		}
+
+		int a = c.body_idx_a;
+		int b = c.body_idx_b;
 
 		// Only consider colour conflicts for dynamic bodies (inv_mass > 0).
 		// Static bodies (inv_mass == 0) never have their momentum changed,
@@ -431,8 +869,9 @@ void CSAssignColours(int3 DTID(dtid))
 		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
 		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
 
+		// Pick the first colour that neither dynamic body has used.
 		uint used = used_a | used_b;
-		uint colour = min(firstbitlow(~used), (uint)MaxColours);
+		uint colour = min(firstbitlow(~used), (uint)(MaxColours - 1));
 
 		g_colours[idx] = colour;
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
@@ -440,8 +879,79 @@ void CSAssignColours(int3 DTID(dtid))
 	}
 }
 
+// ----- CSWarmStartClear -----
+// Clears the open-addressed current-frame warm-start cache before contacts insert their final accumulated impulses.
+numthreads(CSWarmStartClear, ResolveThreadCount, 1, 1)
+void CSWarmStartClear(int3 DTID(dtid))
+{
+	if (dtid.x >= g.warm_start_capacity)
+		return;
+
+	g_warm_start_curr[dtid.x].key = 0;
+	g_warm_start_curr[dtid.x].body_idx_a = -1;
+	g_warm_start_curr[dtid.x].body_idx_b = -1;
+	g_warm_start_curr[dtid.x].pad0 = 0;
+	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
+}
+
+// ----- CSApplyWarmStart -----
+// Applies previous-frame physical impulses to current contacts in graph-colour batches so body momentum writes remain conflict-free.
+numthreads(CSApplyWarmStart, ResolveThreadCount, 1, 1)
+void CSApplyWarmStart(int3 DTID(dtid))
+{
+	if (dtid.x >= ContactCount())
+		return;
+
+	uint idx = g_contact_order[dtid.x];
+	if (g_colours[idx] != (uint)g.colour)
+		return;
+
+	GpuResolveContact c = g_contacts[idx];
+	float3 impulse = float3(0, 0, 0);
+	if (!LoadWarmStartImpulse(c, impulse))
+		return;
+
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
+	float3x3 rot_a = (float3x3)bodyA.o2w;
+	float3x3 os_iinv_a = OsInverseInertia(bodyA);
+	float3x3 os_iinv_b = OsInverseInertia(bodyB);
+	float3x3 ws_iinv_a = rotate_inertia_inv(os_iinv_a, rot_a);
+	float3x3 ws_iinv_b = rotate_inertia_inv(os_iinv_b, (float3x3)bodyB.o2w);
+	float3x3 b2a_rot = (float3x3)c.b2a;
+	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
+	float3 com_b_in_a = c.b2a[3].xyz + mul(bodyB.os_com_and_invmass.xyz, b2a_rot);
+	float inv_mass_a = bodyA.os_com_and_invmass.w;
+	float inv_mass_b = bodyB.os_com_and_invmass.w;
+
+	float3 applied_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, c.contact_point.xyz,
+		com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
+		inv_mass_a, inv_mass_b, true);
+	if (!any(applied_impulse != float3(0, 0, 0)))
+		return;
+
+	c.warmstart_impulse = float4(applied_impulse, 0);
+	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
+	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
+	g_contacts[idx] = c;
+	g_bodies[c.body_idx_a] = bodyA;
+	g_bodies[c.body_idx_b] = bodyB;
+}
+
+// ----- CSStoreWarmStart -----
+// Stores each contact's accumulated physical impulse for use as next frame's warm-start seed.
+numthreads(CSStoreWarmStart, ResolveThreadCount, 1, 1)
+void CSStoreWarmStart(int3 DTID(dtid))
+{
+	if (dtid.x >= ContactCount())
+		return;
+
+	StoreWarmStartImpulse(g_contacts[dtid.x]);
+}
+
 // ----- CSPositionSolve -----
 // Dispatched once per colour from the CPU loop. Each thread processes one contact and only moves body transforms.
+// Contacts in other colours return immediately; the CPU changes g.colour and dispatches this entry point repeatedly.
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
 void CSPositionSolve(int3 DTID(dtid))
 {
@@ -452,6 +962,8 @@ void CSPositionSolve(int3 DTID(dtid))
 	if (g_colours[idx] != (uint)g.colour)
 		return;
 
+	// This pass uses the contact depth captured by collision detection. The C++ caller scales correction by 1 / push-out iterations so repeated sweeps do
+	// not apply the full stale penetration depth each time.
 	ApplyPositionCorrection(g_contacts[idx]);
 }
 
@@ -466,11 +978,10 @@ void CSPositionSolve(int3 DTID(dtid))
 //   (elastic bounces, head-on impacts) and matches the analytic 1D elastic solution for
 //   symmetric pair-wise contacts (preserving the conservation tests).
 //
-//   Phase 2 (per manifold point, only when penetrating): For each manifold point apply a
-//   scalar Baumgarte bias impulse (NOT energy-guarded — bias is positional correction, not
-//   real KE) plus a friction impulse limited by that point's bias impulse magnitude. This
-//   distributes the contact normal force across the manifold for stable stacking (a 4-point
-//   face contact can resist torque, a single centroid contact cannot).
+//   Phase 2 (linear bias, per-manifold-point friction, only when penetrating): Apply a
+//   scalar Baumgarte bias impulse to linear momentum only, then distribute friction across
+//   manifold points using each point's share of the normal impulse. Broad face contacts
+//   can resist sliding and torsion without bias-driven angular runaway.
 numthreads(CSResolve, ResolveThreadCount, 1, 1)
 void CSResolve(int3 DTID(dtid))
 {
@@ -483,7 +994,7 @@ void CSResolve(int3 DTID(dtid))
 	if (g_colours[idx] != (uint)g.colour)
 		return;
 
-	// Load the contact and both bodies
+	// Load the contact and both bodies. Updates are written back only if an impulse is applied, which avoids unnecessary UAV traffic for separating contacts.
 	GpuResolveContact c = g_contacts[idx];
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
 	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
@@ -500,6 +1011,9 @@ void CSResolve(int3 DTID(dtid))
 	}
 
 	float3 axis = c.axis.xyz;
+
+	// From this point down, contact-space quantities are expressed in body A space unless explicitly suffixed with _ws. Body B's CoM and inverse inertia are
+	// transformed into A space so the impulse equations can use one coordinate frame.
 	float inv_mass_a = bodyA.os_com_and_invmass.w;
 	float inv_mass_b = bodyB.os_com_and_invmass.w;
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
@@ -508,7 +1022,8 @@ void CSResolve(int3 DTID(dtid))
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
 
-	// Compute inverse inertia tensors
+	// Compute inverse inertia tensors in the frames needed by later phases. os_iinv_* are for helper calls in object/A space; ws_iinv_* are for the energy
+	// guard after impulses have been transformed into world-space momenta.
 	float3x3 os_iinv_a = OsInverseInertia(bodyA);
 	float3x3 os_iinv_b = OsInverseInertia(bodyB);
 	float3x3 ws_iinv_a = rotate_inertia_inv(os_iinv_a, rot_a);
@@ -523,7 +1038,9 @@ void CSResolve(int3 DTID(dtid))
 	// Baumgarte velocity bias: the per-frame separation velocity we'd like to inject
 	// to drive penetration to zero. The same depth value is used for every manifold
 	// point because the contact carries a single penetration depth covering the manifold.
-	float bias = (g.velocity_baumgarte / g.dt) * max(c.depth - g.penetration_slop, 0.0f);
+	bool support_contact = SupportContact(c, bodyA);
+	float bias = g.bias_scale * (g.velocity_baumgarte / g.dt) *
+		max(c.depth - ContactSlop(g.penetration_slop, bodyA, bodyB, support_contact), 0.0f);
 
 	// Number of manifold points to process (1 = no manifold, fall back to centroid).
 	// Clamped to GpuContactMaxPoints to keep the [unroll] bounds well-defined.
@@ -564,23 +1081,21 @@ void CSResolve(int3 DTID(dtid))
 
 			// Reduce elasticity for resting contacts so they don't bounce on micro-impacts.
 			float rest_factor = saturate(abs(closing_speed) * 10.0f);
-			float elasticity = rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+			float elasticity = g.restitution_scale * rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
 
 			float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
-			ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
+			float3 applied_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
 				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 				inv_mass_a, inv_mass_b, true);
-			any_impulse = true;
+			c.warmstart_impulse.xyz += applied_impulse;
+			any_impulse = any(applied_impulse != float3(0, 0, 0));
 		}
 	}
 
-	// ===== Phase 2: Centroid Baumgarte bias + per-manifold-point friction =====
-	// Applying the bias at the centroid (rather than at every manifold point) is essential.
-	// A per-point bias creates an angular feedback runaway on asymmetric/tilted contacts:
-	// the bias impulse at one corner of the manifold rotates the body, which changes vn at
-	// the other corners, allowing fresh bias applications, and so on. The result is
-	// unbounded angular and linear momentum injection — the box "explodes" off the ground.
-	// A single centroid bias produces no torque, so the depenetration push is purely linear.
+	// ===== Phase 2: Linear Baumgarte bias + per-manifold-point friction =====
+	// Baumgarte bias is a pseudo-impulse that clears position error. Applying it through the current contact point makes broad resting contacts sensitive to
+	// transient manifold reduction: a one-point contact patch can inject spin before the next frame restores the wider manifold. Use the centre-of-mass
+	// relative normal speed and change only linear momentum, leaving physical contact-point torque to the restitution/friction phases.
 	//
 	// Friction is still applied per manifold point. Distributing friction across the contact
 	// face is what lets a stack of boxes resist sliding/torsion at every contact point. The
@@ -589,31 +1104,23 @@ void CSResolve(int3 DTID(dtid))
 	PR_HLSL_BRANCH
 	if (bias > 0.0f)
 	{
-		float3 pt_c = c.contact_point.xyz;
-		float3 V_rel_c = RelativeVelocityAtPoint(bodyA, bodyB, pt_c,
-			os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
-
-		float3x3 col_I_c = CollisionMassMatrix(
-			pt_c - com_a_in_a, pt_c - com_b_in_a,
-			inv_mass_a, inv_mass_b,
-			os_iinv_a, b2a_iinv_b);
-		float3x3 col_I_inv_c = Invert(col_I_c);
-		float k_n_c = dot(axis, mul(col_I_inv_c, axis));
-
-		float vn_now = dot(V_rel_c, axis);
+		float k_n_c = inv_mass_a + inv_mass_b;
+		float3 v_com_a = mul(rot_a, inv_mass_a * bodyA.momentum_lin.xyz);
+		float3 v_com_b = mul(rot_a, inv_mass_b * bodyB.momentum_lin.xyz);
+		float vn_now = dot(v_com_b - v_com_a, axis);
 		float Jn_bias_centroid = (k_n_c > 1e-12f) ? max(0.0f, (bias - vn_now) / k_n_c) : 0.0f;
 
 		PR_HLSL_BRANCH
 		if (Jn_bias_centroid > 0.0f)
 		{
-			// ----- Centroid bias impulse (NOT energy-guarded) -----
-			// Pseudo-impulse that drives penetration to zero. Applied at the centroid so
-			// no torque is generated (no lever arm from the impulse to the CoM offset can
-			// drive angular runaway between manifold points).
-			ApplyImpulseWithEnergyGuard(bodyA, bodyB, Jn_bias_centroid * axis, pt_c,
-				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-				inv_mass_a, inv_mass_b, false);
-			any_impulse = true;
+			// ----- Linear Baumgarte bias impulse (NOT energy-guarded) -----
+			// This is a pseudo-impulse for clearing positional error, not a physical contact force. Restricting it to linear momentum avoids injecting angular
+			// jostle when a resting broad contact temporarily reduces to a single manifold point.
+			float3 applied_bias_impulse = ApplyLinearBiasImpulse(bodyA, bodyB, Jn_bias_centroid * axis, rot_a);
+
+			// Baumgarte bias is a one-frame positional correction, not a reusable support impulse. Persisting it into the warm-start cache replays stale
+			// push-out on the next frame and can keep resting contact networks subtly energised.
+			any_impulse = any_impulse || any(applied_bias_impulse != float3(0, 0, 0));
 
 			// Per-point friction cone limit: split the centroid Jn equally so the
 			// summed friction across the manifold respects the Coulomb limit.
@@ -644,9 +1151,10 @@ void CSResolve(int3 DTID(dtid))
 				float3 friction_impulse = ComputeFrictionImpulse(col_I_inv_pt, V_rel, axis, friction, Jn_per_point);
 				if (any(friction_impulse != float3(0, 0, 0)))
 				{
-					ApplyImpulseWithEnergyGuard(bodyA, bodyB, friction_impulse, pt,
+					float3 applied_friction_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, friction_impulse, pt,
 						com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 						inv_mass_a, inv_mass_b, true);
+					c.warmstart_impulse.xyz += applied_friction_impulse;
 				}
 
 			}
@@ -661,6 +1169,7 @@ void CSResolve(int3 DTID(dtid))
 	// Mark both bodies as having taken part in a collision this frame.
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
+	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
 }

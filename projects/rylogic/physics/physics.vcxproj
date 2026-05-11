@@ -20,6 +20,10 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="$(PropsPath)view3d_shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
+  <PropertyGroup>
+    <PhysicsProfile Condition="'$(PhysicsProfile)'==''">Default</PhysicsProfile>
+    <PhysicsDiagnostics Condition="'$(PhysicsDiagnostics)'==''">Default</PhysicsDiagnostics>
+  </PropertyGroup>
   <!--
   Build options
   -->
@@ -34,6 +38,38 @@
         ;$(RylogicRoot)projects\rylogic
         ;%(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsProfile)'=='true' Or '$(PhysicsProfile)'=='1'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_PROFILE=1
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsProfile)'=='false' Or '$(PhysicsProfile)'=='0'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_PROFILE=0
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsDiagnostics)'=='true' Or '$(PhysicsDiagnostics)'=='1'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_DIAGNOSTICS=1
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(PhysicsDiagnostics)'=='false' Or '$(PhysicsDiagnostics)'=='0'">
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_PHYSICS_DIAGNOSTICS=0
+      </PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -88,6 +124,7 @@
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
+    <ClCompile Include="src\compute\selective_gpu.cpp" />
     <ClCompile Include="src\compute\sleep_gpu.cpp" />
     <ClCompile Include="src\compute\sweep_gpu.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
@@ -113,6 +150,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />
@@ -135,6 +173,7 @@
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
+    <ClInclude Include="src\compute\selective_gpu.h" />
     <ClInclude Include="src\compute\sleep_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
     <ClInclude Include="src\diagnostics\dbg_physics.h" />
@@ -159,6 +198,7 @@
     <FxCompile Include="src\compute\sweep.hlsl" EntryPointName="CSSweep" />
     <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSBinCollisionPairs" />
     <FxCompile Include="src\compute\resolve.hlsl" EntryPointName="CSResolve" />
+    <FxCompile Include="src\compute\selective.hlsl" EntryPointName="CSScoreSelectiveContacts" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />

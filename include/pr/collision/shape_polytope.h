@@ -31,18 +31,18 @@ namespace pr::collision
 		struct Face
 		{
 			Plane m_plane;
-			uint32_t m_index[3];
+			int m_index[3];
 			EFaceFlags m_flags;
 		};
 		struct Edge
 		{
 			v4 m_direction;
-			uint32_t m_v0;
-			uint32_t m_v1;
-			uint32_t m_face0;
-			uint32_t m_face1;
+			int m_v0;
+			int m_v1;
+			int m_face0;
+			int m_face1;
 			EEdgeFlags m_flags;
-			uint32_t m_pad[3];
+			int m_pad[3];
 		};
 
 		Shape m_base;
@@ -137,6 +137,7 @@ namespace pr::collision
 	using PolyIdx       = ShapePolytope::Idx;
 	using ShapePolyFace = ShapePolytope::Face;
 	using ShapePolyEdge = ShapePolytope::Edge;
+	using ShapePolyVert = v4;
 
 	inline bool IgnoreFaceAxis(ShapePolyFace const& face)
 	{
@@ -228,7 +229,7 @@ namespace pr::collision
 	inline void GetAxis(ShapePolytope const& shape, v4& direction, int hint_vert_id, int& vert_id0, int& vert_id1, bool major)
 	{
 		assert("Invalid polytope" && shape.m_vert_count >= 2);
-		assert(hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count);
+		assert(hint_vert_id >= 0 && hint_vert_id < shape.m_vert_count); (void)hint_vert_id;
 
 		vert_id0 = 0;
 		vert_id1 = 1;
@@ -305,9 +306,9 @@ namespace pr::collision
 
 		for (auto const& face : shape.faces())
 		{
-			if (face.m_index[0] >= s_cast<uint32_t>(shape.m_vert_count) ||
-				face.m_index[1] >= s_cast<uint32_t>(shape.m_vert_count) ||
-				face.m_index[2] >= s_cast<uint32_t>(shape.m_vert_count))
+			if (face.m_index[0] >= shape.m_vert_count ||
+				face.m_index[1] >= shape.m_vert_count ||
+				face.m_index[2] >= shape.m_vert_count)
 			{
 				if (err_msg) *err_msg = "Face vertex index is out of range";
 				return false;
@@ -352,12 +353,12 @@ namespace pr::collision
 
 		for (auto const& edge : shape.edges())
 		{
-			if (edge.m_v0 >= s_cast<uint32_t>(shape.m_vert_count) || edge.m_v1 >= s_cast<uint32_t>(shape.m_vert_count))
+			if (edge.m_v0 >= shape.m_vert_count || edge.m_v1 >= shape.m_vert_count)
 			{
 				if (err_msg) *err_msg = "Edge vertex index is out of range";
 				return false;
 			}
-			if (edge.m_face0 >= s_cast<uint32_t>(shape.m_face_count) || edge.m_face1 >= s_cast<uint32_t>(shape.m_face_count))
+			if (edge.m_face0 >= shape.m_face_count || edge.m_face1 >= shape.m_face_count)
 			{
 				if (err_msg) *err_msg = "Edge face index is out of range";
 				return false;
@@ -386,8 +387,8 @@ namespace pr::collision
 				if (has_v0 && has_v1)
 				{
 					++occurrence_count;
-					face0_found |= static_cast<uint32_t>(face_index) == edge.m_face0;
-					face1_found |= static_cast<uint32_t>(face_index) == edge.m_face1;
+					face0_found |= face_index == edge.m_face0;
+					face1_found |= face_index == edge.m_face1;
 				}
 			}
 			if (occurrence_count != 2 || !face0_found || !face1_found)

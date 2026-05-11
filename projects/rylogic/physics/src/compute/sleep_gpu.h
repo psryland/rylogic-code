@@ -13,7 +13,12 @@ namespace pr::physics
 		Gpu& m_gpu;                              // Lightweight D3D12 wrapper (device + command queue)
 		EngineConfig const& m_config;            // Engine configuration parameters
 		ComputeStep m_cs_disturb_islands;        // Root signature + PSO for awake-body vs sleeping-island disturbance
-		ComputeStep m_cs_update_sleep_state;     // Root signature + PSO for contact island building and sleep-state updates
+		ComputeStep m_cs_init_sleep_state;       // Root signature + PSO for initialising body-parent and per-root stats scratch buffers
+		ComputeStep m_cs_union_sleep_contacts;   // Root signature + PSO for unioning contacted dynamic bodies into components
+		ComputeStep m_cs_canonicalise_roots;     // Root signature + PSO for compressing component parent links
+		ComputeStep m_cs_reduce_sleep_stats;     // Root signature + PSO for reducing per-body sleep state into component stats
+		ComputeStep m_cs_apply_sleep_state;      // Root signature + PSO for applying component sleep/wake decisions to bodies
+		D3DPtr<ID3D12CommandSignature> m_cmd_sig;// Command signature for indirect contact-count dispatches
 		D3DPtr<ID3D12Resource> m_r_sleep_islands;// GPU buffer: RWStructuredBuffer<GpuSleepIsland>
 		D3DPtr<ID3D12Resource> m_r_sleep_parents;// GPU buffer: RWStructuredBuffer<int> for union-find parent links
 		D3DPtr<ID3D12Resource> m_r_sleep_stats;  // GPU buffer: RWStructuredBuffer<GpuSleepIslandStats>
@@ -29,7 +34,7 @@ namespace pr::physics
 		void SleepWake(GpuJob& job, int body_count, int island_count, D3DPtr<ID3D12Resource> bodies);
 
 		// Persist wake-ups and update automatic sleeping from the resolved contact graph.
-		void SleepUpdate(GpuJob& job, float dt, int body_count, int island_count, int max_contacts, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies);
+		void SleepUpdate(GpuJob& job, float dt, int body_count, int island_count, int max_contacts, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> contact_dispatch, D3DPtr<ID3D12Resource> bodies);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> SleepIslands() { return m_r_sleep_islands; }

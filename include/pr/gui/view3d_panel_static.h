@@ -193,7 +193,7 @@ namespace pr::gui
 		void OnWindowPosChange(WindowPosEventArgs const& args) override
 		{
 			Control::OnWindowPosChange(args);
-			if (!args.m_before && args.IsResize() && !args.Iconic())
+			if (!args.m_before && args.IsResize() && !args.Iconic() && args.m_wp->Size() != Size{})
 			{
 				auto size = iv2{ args.m_wp->cx, args.m_wp->cy };
 				m_wnd.BackBufferSize(size, false);

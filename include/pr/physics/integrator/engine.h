@@ -10,6 +10,15 @@ namespace pr::physics
 {
 	struct Engine
 	{
+		// Notes:
+		//  - The engine does not own the bodies. The caller is responsible for managing their
+		//    lifetime and ensuring they remain valid while being used by the engine.
+		//  - The engine does not have a universal gravity setting, Gravity should be applied
+		//    as a force to bodies each frame before calling Step().
+		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
+		//    even if it is a zero vector.
+		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
+
 		struct StepProfile
 		{
 			double m_new_frame_ms = 0;
@@ -20,10 +29,22 @@ namespace pr::physics
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_resolve_ms = 0;
+			double m_selective_ms = 0;
 			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
+			double m_gpu_prepare_ms = 0;
+			double m_gpu_execute_ms = 0;
+			double m_gpu_wait_ms = 0;
+			double m_gpu_reset_ms = 0;
 			double m_unpack_ms = 0;
+			double m_readback_access_ms = 0;
+			double m_body_readback_copy_ms = 0;
+			double m_contact_readback_copy_ms = 0;
+			double m_collision_events_ms = 0;
+			double m_sleep_island_unpack_ms = 0;
+			double m_body_unpack_ms = 0;
+			double m_unpack_diagnostics_ms = 0;
 		};
 		struct CollisionStats
 		{
@@ -55,19 +76,10 @@ namespace pr::physics
 			}
 		};
 
-		// Notes:
-		//  - The engine does not own the bodies. The caller is responsible for managing their
-		//    lifetime and ensuring they remain valid while being used by the engine.
-		//  - The engine does not have a universal gravity setting, Gravity should be applied
-		//    as a force to bodies each frame before calling Step().
-		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
-		//    even if it is a zero vector.
-		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
-
 	private:
 
 		// Engine configuration parameters.
-		EngineConfig const m_config;
+		EngineConfig m_config;
 
 		// GPU device and command queue wrapper, shared by the integrator and collision detector.
 		GpuPtr m_gpu;
@@ -86,6 +98,12 @@ namespace pr::physics
 
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
+
+		// GPU resolver for compact selective-refresh work sets
+		GpuResolverPtr m_gpu_selective_resolver;
+
+		// GPU selective contact refresher
+		GpuSelectiveRefresherPtr m_gpu_selective_refresher;
 
 		// Material map for looking up combined material properties during collision resolution.
 		MaterialMapPtr m_materials;
@@ -107,10 +125,8 @@ namespace pr::physics
 		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
 
 		// Engine configuration in use by this instance.
-		EngineConfig const& Config() const
-		{
-			return m_config;
-		}
+		EngineConfig const& Config() const;
+		void Config(EngineConfig const& config);
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies);
@@ -121,6 +137,18 @@ namespace pr::physics
 				m_body_ptrs.push_back(&body);
 
 			Step(dt, m_body_ptrs);
+		}
+
+		// Build missing sleep-island ids for bodies created directly in the sleeping state.
+		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
+		void UpdateSleepIslands(std::span<RigidBody*> bodies);
+		void UpdateSleepIslands(RigidBodyRange auto&& bodies)
+		{
+			m_body_ptrs.resize(0);
+			for (auto& body : bodies)
+				m_body_ptrs.push_back(&body);
+
+			UpdateSleepIslands(m_body_ptrs);
 		}
 
 		// Raised at the end of step, just before object dynamics are updated
@@ -167,13 +195,16 @@ namespace pr::physics
 		void SleepWake();
 
 		// Broadphase collision detection to generate potential collision pairs.
-		void BroadPhase();
+		void BroadPhase(bool sleeping_enabled);
 
 		// Narrow phase collision detection to generate contact points.
 		void Collide();
 
 		// Apply impulses to resolve collisions and update body dynamics.
 		void Resolve(float dt);
+
+		// Extra narrowphase/resolve passes over problematic contacts.
+		void SelectiveRefresh(float dt);
 
 		// Persist wake-ups and update sleep state after collision resolution.
 		void SleepUpdate(float dt);

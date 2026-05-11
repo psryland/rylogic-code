@@ -142,6 +142,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h">
+      <Filter>pr\physics\integrator</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine.h">
       <Filter>pr\physics\integrator</Filter>
     </ClInclude>
@@ -331,6 +334,33 @@
       <Filter>scenes</Filter>
     </None>
     <None Include="scenes\stacked_column.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\brick_wall_2000.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\generated_stress.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\brick_pyramid.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\newtons_cradle.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\spinning_tops.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\pancake.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\angular_integration_stress.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\dzhanibekov_effect.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\plate_drop.json">
       <Filter>scenes</Filter>
     </None>
   </ItemGroup>

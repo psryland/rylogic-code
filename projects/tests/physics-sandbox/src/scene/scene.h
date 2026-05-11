@@ -7,6 +7,12 @@
 
 namespace physics_sandbox
 {
+	enum class EVisualMode
+	{
+		Normal,
+		ContactPriority,
+	};
+
 	// The physics simulation scene. Owns the rigid bodies, physics engine, and all
 	// simulation state. Deliberately UI-independent so it can be reused by both
 	// the interactive sandbox and the headless unit test mode.
@@ -61,6 +67,12 @@ namespace physics_sandbox
 		// and accumulating extreme float values that corrupt the simulation.
 		float m_kill_zone_height;
 
+		// Number of physics updates to run for each scene update.
+		int m_physics_substeps;
+
+		// Whether the engine is allowed to put low-energy bodies to sleep.
+		bool m_allow_sleeping;
+
 		// Ground plane visual. This is an LDraw object rendered as a large textured
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
 		rdr12::ldraw::LdrObjectPtr m_ground_gfx;
@@ -70,6 +82,12 @@ namespace physics_sandbox
 
 		// Contact point and normal visualization overlay
 		rdr12::ldraw::LdrObjectPtr m_contacts_gfx;
+
+		// Active per-body visualisation mode.
+		EVisualMode m_visual_mode;
+
+		// Collision-readback subscription used by contact-priority visualisation and two-body diagnostics.
+		pr::multicast::Sub m_collision_sub;
 
 		// Whether to display contact points and collision normals
 		bool m_show_contacts;
@@ -116,6 +134,21 @@ namespace physics_sandbox
 
 		// Create/update the graphics objects for
 		void UpdateCollisionGfx(std::span<physics::RbContact const> contacts);
+
+		// Get/set the active visualisation mode.
+		EVisualMode VisualMode() const;
+		void VisualMode(EVisualMode mode);
+
+		// Get/set whether automatic sleeping is enabled in the engine.
+		bool AllowSleeping() const;
+		void AllowSleeping(bool allow_sleeping);
+
+		// Create/update the contact-priority visualisation.
+		void UpdateContactPriorityGfx(std::span<physics::RbContact const> contacts);
+		void SetContactPriorityFallbackGfx();
+		void ClearContactPriorityGfx();
+		void UpdateCollisionReadback();
+		bool NeedsCollisionReadback() const;
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;

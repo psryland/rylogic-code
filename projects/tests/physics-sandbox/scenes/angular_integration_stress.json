@@ -1,0 +1,92 @@
+{
+	"scene": {
+		"description": "Zero-gravity high-angular-velocity anisotropic bodies for exercising orientation integration near and above the angular drift substep limit.",
+		"seed": 20260511,
+		"gravity": [0.0, 0.0, 0.0],
+		"material": {
+			"friction": 0.0,
+			"elasticity": 0.0
+		},
+		"physics": {
+			"solver_iterations": 0,
+			"position_iterations": 0,
+			"selective_refresh_passes": 0,
+			"max_collision_pairs": 16384
+		},
+		"camera": {
+			"position": [0.0, -420.0, 210.0],
+			"lookat": [0.0, 0.0, 55.0]
+		},
+		"shapes": {
+			"long-rod": {
+				"name": "long-rod",
+				"type": "box",
+				"dimensions": [[0.6, 0.9, 3.0], [0.9, 1.3, 5.0]]
+			},
+			"flat-plate": {
+				"name": "flat-plate",
+				"type": "box",
+				"dimensions": [[3.0, 0.6, 0.8], [5.0, 1.0, 1.2]]
+			},
+			"tri-axial-slab": {
+				"name": "tri-axial-slab",
+				"type": "box",
+				"dimensions": [[2.5, 1.2, 0.6], [4.0, 2.2, 1.0]]
+			}
+		},
+		"body_generators": [
+			{
+				"name": "rod_pos_#",
+				"selector": "random",
+				"instance_count": 320,
+				"shape_palette_count": 32,
+				"colour": ["0xFFFF6030", "0xFFFFD060"],
+				"shape": "long-rod",
+				"mass": [1.5, 3.0],
+				"position": [[-900.0, -900.0, 25.0], [-150.0, -150.0, 225.0]],
+				"rotation": [[0.0, 0.0, 0.0], [180.0, 270.0, 360.0]],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [[300.0, 120.0, 180.0], [520.0, 260.0, 420.0]]
+			},
+			{
+				"name": "rod_neg_#",
+				"selector": "random",
+				"instance_count": 320,
+				"shape_palette_count": 32,
+				"colour": ["0xFF40A0FF", "0xFFC060FF"],
+				"shape": "long-rod",
+				"mass": [1.5, 3.0],
+				"position": [[150.0, -900.0, 25.0], [900.0, -150.0, 225.0]],
+				"rotation": [[35.0, 85.0, 10.0], [215.0, 355.0, 370.0]],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [[-300.0, -140.0, 200.0], [-520.0, -280.0, 440.0]]
+			},
+			{
+				"name": "plate_pos_#",
+				"selector": "random",
+				"instance_count": 192,
+				"shape_palette_count": 24,
+				"colour": ["0xFF60FF70", "0xFFFFFF60"],
+				"shape": "flat-plate",
+				"mass": [2.0, 5.0],
+				"position": [[-900.0, 150.0, 25.0], [-150.0, 900.0, 225.0]],
+				"rotation": [[20.0, 45.0, 90.0], [200.0, 315.0, 450.0]],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [[260.0, 360.0, 140.0], [480.0, 620.0, 320.0]]
+			},
+			{
+				"name": "slab_mixed_#",
+				"selector": "random",
+				"instance_count": 192,
+				"shape_palette_count": 24,
+				"colour": ["0xFFFF70D0", "0xFF70FFFF"],
+				"shape": "tri-axial-slab",
+				"mass": [2.0, 6.0],
+				"position": [[150.0, 150.0, 25.0], [900.0, 900.0, 225.0]],
+				"rotation": [[75.0, 15.0, 30.0], [255.0, 285.0, 390.0]],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [[-260.0, 380.0, -180.0], [-480.0, 640.0, -360.0]]
+			}
+		]
+	}
+}

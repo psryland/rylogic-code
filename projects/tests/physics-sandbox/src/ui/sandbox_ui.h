@@ -25,6 +25,7 @@ namespace physics_sandbox
 		Scene m_scene;
 		int m_steps_remaining; // 0 = paused, -1 = running, N = step N times
 		bool m_pause_on_collision;
+		double m_physics_accumulator;
 
 		// The scenario to load on reset.
 		EScenario m_scenario;
@@ -69,6 +70,9 @@ namespace physics_sandbox
 
 		// Rebuild the Recent Files submenu from the current m_recent list
 		void RebuildRecentFilesMenu();
+
+		// Update visualisation mode menu check marks.
+		void UpdateVisualModeMenu();
 
 		// Load a scene from a JSON file path (by value to avoid dangling references)
 		void LoadSceneFile(std::filesystem::path filepath);

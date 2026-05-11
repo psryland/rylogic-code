@@ -32,7 +32,8 @@ RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
 StructuredBuffer<GpuRigidBody> resource(g_bodies, t0);
 StructuredBuffer<int> resource(g_aabb_idx, t1);
-StructuredBuffer<GpuSleepIsland> resource(g_sleep_islands, t2);
+StructuredBuffer<BBox> resource(g_aabb_box, t2);
+StructuredBuffer<GpuSleepIsland> resource(g_sleep_islands, t3);
 
 odr bool DynamicBody(in_(GpuRigidBody) body)
 {
@@ -51,6 +52,36 @@ odr bool EffectiveAwake(in_(GpuRigidBody) body)
 	int island_id = body.sleep.island_id;
 	return island_id >= 0 && island_id < g.sleep_island_count &&
 		AnySet(g_sleep_islands[island_id].flags, GpuSleepIslandFlags_Disturbed);
+}
+
+odr bool CachedBoundsOverlap(int body_a, int body_b)
+{
+	return BBox_IsIntersection(g_aabb_box[body_a], g_aabb_box[body_b]);
+}
+
+odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb)
+{
+	if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb))
+		return true;
+
+	int idxA = min(rbA_idx, rbB_idx);
+	int idxB = max(rbA_idx, rbB_idx);
+			
+	// Allocate a slot in the collision pairs buffer atomically.
+	uint slot;
+	InterlockedAdd(g_counters[0].pair_count, 1, slot);
+	if (slot >= g.max_pair_count)
+		return false;
+
+	// Write the contact.
+	GpuCollisionPair pair;
+	pair.body_idx_a = idxA;
+	pair.body_idx_b = idxB;
+	pair.shape_idx_a = g_bodies[idxA].shape_id;
+	pair.shape_idx_b = g_bodies[idxB].shape_id;
+	pair.b2a = mul(g_bodies[idxB].o2w, InvertOrthonormal(g_bodies[idxA].o2w));
+	g_collision_pairs[slot] = pair;
+	return true;
 }
 
 numthreads(CSSweep, SweepThreadCount, 1, 1)
@@ -84,9 +115,6 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 	// Get the index value that ends our search
 	int end_idx = g_aabb_idx[idx] | 1;
 
-	// The world-space bbox of the object we're testing
-	BBox ws_bbox = BBox_Transform(rb.os_bbox, rb.o2w);
-	
 	// Search for overlaps on this axis.
 	// Walk forward from this body's start bound until our end bound is reached.
 	// Check all encountered start bounds for 3D AABB overlap.
@@ -99,32 +127,13 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 		int rbB_idx = payload >> 1;
 		
 		GpuRigidBody other_rb = g_bodies[rbB_idx];
-		BBox other_ws_bbox = BBox_Transform(other_rb.os_bbox, other_rb.o2w);
 		
 		// If intersection on all three axes, add a pair to the output buffer.
 		// Canonicalise pair so lower body index is always 'a'.
-		if (BBox_IsIntersection(ws_bbox, other_ws_bbox))
+		if (CachedBoundsOverlap(rbA_idx, rbB_idx))
 		{
-			if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb))
-				continue;
-
-			int idxA = min(rbA_idx, rbB_idx);
-			int idxB = max(rbA_idx, rbB_idx);
-			
-			// Allocate a slot in the collision pairs buffer atomically
-			uint slot;
-			InterlockedAdd(g_counters[0].pair_count, 1, slot);
-			if (slot >= g.max_pair_count)
+			if (!StorePair(rbA_idx, rbB_idx, rb, other_rb))
 				return;
-
-			// Write the contact
-			GpuCollisionPair pair;
-			pair.body_idx_a = idxA;
-			pair.body_idx_b = idxB;
-			pair.shape_idx_a = g_bodies[idxA].shape_id;
-			pair.shape_idx_b = g_bodies[idxB].shape_id;
-			pair.b2a = mul(g_bodies[idxB].o2w, InvertOrthonormal(g_bodies[idxA].o2w));
-			g_collision_pairs[slot] = pair;
 		}
 	}
 }

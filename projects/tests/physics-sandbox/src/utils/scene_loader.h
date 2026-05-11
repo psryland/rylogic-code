@@ -15,14 +15,31 @@ namespace physics_sandbox::scene_loader
 	//             "elasticity": 1.0,           // Normal restitution coefficient [0,1]
 	//             "friction": 0.0              // Static friction coefficient
 	//         },
+	//         "physics": {                      // Optional physics settings
+	//             "substeps": 4,                // Run this many physics steps per scene step
+	//             "solver_iterations": 8,       // Override EngineConfig contact solver iterations
+	//             "position_iterations": 4,     // Override EngineConfig split-position solver iterations
+	//             "contact_slop_scale": 0.01,   // Slop fraction of minimum body thickness, capped by EngineConfig slop
+	//             "support_contact_slop_scale": 0.005, // Slop fraction for load-bearing support contacts
+	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
+	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
+	//             "selective_refresh_passes": 1, // Extra narrowphase/resolve passes over problematic contacts
+	//             "selective_refresh_body_limit": 256, // Disable selective refresh above this body count; 0 = unlimited
+	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
+	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
 	//         },
+	//         "shapes": {
+	//             "shape0": { "name": "unit-box", "type": "box", "dimensions": [1, 1, 1] },
+	//             "shape1": { "name": "ball", "type": "sphere", "radius": 1.0 }
+	//         },
 	//         "bodies": [
 	//             {
 	//                 "name": "box1",
-	//                 "shape": { "type": "box", "dimensions": [2, 2, 2] },
+	//                 "shape": "unit-box",                 // Shape name or inline shape object
 	//                 "mass": 10.0, "position": [x, y, z],
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
 	//                 "velocity": [vx, vy, vz],             // Optional
@@ -33,6 +50,19 @@ namespace physics_sandbox::scene_loader
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
 	//             { "name": "t1", "shape": { "type": "triangle", "vertices": [[0,0,0],[1,0,0],[0,1,0]] }, ... },
 	//             { "name": "p1", "shape": { "type": "polytope", "vertices": [[x,y,z], ...] }, ... }
+	//         ],
+	//         "body_generators": [
+	//             {
+	//                 "name": "heavy_box_#",                 // '#' is replaced by the generated body index
+	//                 "selector": "random",                  // Optional: "random" or "linear", defaults to "random"
+	//                 "instance_count": 20,                  // Optional, defaults to 1
+	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
+	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
+	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
+	//                 "mass": [1.0, 10.0],
+	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
+	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
+	//             }
 	//         ]
 	//     }
 	// }
@@ -94,6 +124,35 @@ namespace physics_sandbox::scene_loader
 
 		// Seed for generated scene content
 		unsigned int seed = 0x5C3E2026u;
+
+		// Physics settings
+		int physics_substeps = 1;
+		int physics_solver_iterations = physics::EngineConfig{}.solver_iterations;
+		int physics_position_iterations = physics::EngineConfig{}.push_out_iterations;
+		float physics_broadphase_aabb_margin = physics::EngineConfig{}.broadphase_aabb_margin;
+		float physics_contact_sort_propagation_scale = physics::EngineConfig{}.contact_sort_propagation_scale;
+		int physics_contact_sort_shock_iterations = physics::EngineConfig{}.contact_sort_shock_iterations;
+		float physics_contact_slop_scale = physics::EngineConfig{}.contact_slop_scale;
+		float physics_support_contact_slop_scale = physics::EngineConfig{}.support_contact_slop_scale;
+		float physics_warm_start_scale = physics::EngineConfig{}.warm_start_scale;
+		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
+		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
+		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;
+		int physics_selective_refresh_body_limit = physics::EngineConfig{}.selective_refresh_body_limit;
+		int physics_selective_refresh_contact_limit = physics::EngineConfig{}.selective_refresh_contact_limit;
+		int physics_selective_refresh_solver_iterations = physics::EngineConfig{}.selective_refresh_solver_iterations;
+		int physics_selective_refresh_position_iterations = physics::EngineConfig{}.selective_refresh_position_iterations;
+		float physics_selective_refresh_bias_scale = physics::EngineConfig{}.selective_refresh_bias_scale;
+		float physics_selective_refresh_restitution_scale = physics::EngineConfig{}.selective_refresh_restitution_scale;
+		int physics_selective_refresh_adaptive_body_limit = physics::EngineConfig{}.selective_refresh_adaptive_body_limit;
+		int physics_selective_refresh_adaptive_solver_iterations = physics::EngineConfig{}.selective_refresh_adaptive_solver_iterations;
+		bool physics_selective_refresh_support_only = physics::EngineConfig{}.selective_refresh_support_only;
+		bool physics_selective_refresh_resolve_support_only = physics::EngineConfig{}.selective_refresh_resolve_support_only;
+		float physics_selective_refresh_depth_slop = physics::EngineConfig{}.selective_refresh_depth_slop;
+		float physics_selective_refresh_support_depth_slop = physics::EngineConfig{}.selective_refresh_support_depth_slop;
+		float physics_selective_refresh_closing_speed_slop = physics::EngineConfig{}.selective_refresh_closing_speed_slop;
+		float physics_selective_refresh_support_alignment = physics::EngineConfig{}.selective_refresh_support_alignment;
+		float physics_selective_refresh_aabb_margin = physics::EngineConfig{}.selective_refresh_aabb_margin;
 
 		// Camera settings
 		std::optional<CameraDesc> camera;

@@ -1,0 +1,39 @@
+{
+	"scene": {
+		"description": "Zero-gravity intermediate-axis body for exercising torque-free Dzhanibekov flip period stability.",
+		"seed": 202,
+		"gravity": [ 0.0, 0.0, 0.0 ],
+		"material": {
+			"friction": 0.0,
+			"elasticity": 0.0
+		},
+		"physics": {
+			"solver_iterations": 0,
+			"position_iterations": 0,
+			"selective_refresh_passes": 0,
+			"max_collision_pairs": 16384
+		},
+		"camera": {
+			"position": [ 0.0, -20.0, 0.0 ],
+			"lookat": [ 0.0, 0.0, 0.0 ]
+		},
+		"shapes": {
+			"long-rod": {
+				"name": "monolith",
+				"type": "box",
+				"dimensions": [ 3.0, 0.8, 9.0 ]
+			}
+		},
+		"bodies": [
+			{
+				"position": [ 0, 0, 0 ],
+				"rotation": [ 0, 0.00001, 0 ],
+				"velocity": [ 0, 0, 0 ],
+				"angular_velocity": [ 10.0, 0.0, 0.1 ],
+				"name": "monolith",
+				"shape": "monolith",
+				"mass": 5.0
+			}
+		]
+	}
+}

@@ -28,6 +28,10 @@ namespace physics_sandbox
 				MenuItem(L"Recent Files", ::CreatePopupMenu()),
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"E&xit", IDCLOSE),
+			})},
+			{L"&View", Menu(Menu::EKind::Popup, {
+				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
+				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
 			})} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
@@ -41,6 +45,7 @@ namespace physics_sandbox
 		, m_scene(&m_view3d.m_rdr)
 		, m_steps_remaining(0)
 		, m_pause_on_collision(false)
+		, m_physics_accumulator(0)
 		, m_scenario(EScenario::Sandbox)
 		, m_scene_filepath()
 		, m_recent()
@@ -59,23 +64,31 @@ namespace physics_sandbox
 		// Load the recent files list from disk and populate the submenu
 		m_recent.Load();
 		RebuildRecentFilesMenu();
+		UpdateVisualModeMenu();
 
 		// Wire media panel events to simulation control
 		m_media.OnPlay += [&](auto&, auto&)
 		{
+			m_physics_accumulator = 0;
 			m_steps_remaining = -1; // Run continuously
 		};
 		m_media.OnPause += [&](auto&, auto&)
 		{
+			m_physics_accumulator = 0;
 			m_steps_remaining = 0; // Pause
 		};
 		m_media.OnStep += [&](auto&, auto&)
 		{
+			m_physics_accumulator = 0;
 			m_steps_remaining = 1; // Single step
 		};
 		m_media.OnReset += [&](auto&, auto&)
 		{
 			ResetScene();
+		};
+		m_media.OnAllowSleepingChanged += [&](auto&, auto&)
+		{
+			m_scene.AllowSleeping(m_media.AllowSleeping());
 		};
 
 		// Keyboard shortcuts for power-user control
@@ -178,6 +191,19 @@ namespace physics_sandbox
 				return true;
 			}
 
+			if (id == MenuID::VisualModeNormal || id == MenuID::VisualModeContactPriority)
+			{
+				auto mode = EVisualMode::Normal;
+				if (id == MenuID::VisualModeContactPriority)
+					mode = EVisualMode::ContactPriority;
+
+				m_scene.VisualMode(mode);
+				UpdateVisualModeMenu();
+				Render(0);
+				result = 0;
+				return true;
+			}
+
 			// Recent Files submenu items (IDs in range RecentFileBase..RecentFileBase+MaxRecentFiles-1)
 			if (id >= MenuID::RecentFileBase && id < MenuID::RecentFileBase + MaxRecentFiles)
 			{
@@ -199,6 +225,7 @@ namespace physics_sandbox
 	{
 		// Pause the simulation
 		m_steps_remaining = 0;
+		m_physics_accumulator = 0;
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
@@ -279,6 +306,39 @@ namespace physics_sandbox
 		::DrawMenuBar(m_hwnd);
 	}
 
+	void SandboxUI::UpdateVisualModeMenu()
+	{
+		auto menu_bar = ::GetMenu(m_hwnd);
+		if (!menu_bar)
+			return;
+
+		auto view_menu = ::GetSubMenu(menu_bar, 1);
+		if (!view_menu)
+			return;
+
+		auto checked_id = MenuID::VisualModeNormal;
+		switch (m_scene.VisualMode())
+		{
+			case EVisualMode::Normal:
+			{
+				checked_id = MenuID::VisualModeNormal;
+				break;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				checked_id = MenuID::VisualModeContactPriority;
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
+
+		::CheckMenuRadioItem(view_menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, checked_id, MF_BYCOMMAND);
+		::DrawMenuBar(m_hwnd);
+	}
+
 	// Load a scene from a JSON file path.
 	// Takes filepath by value to avoid dangling references when m_recent.Add()
 	// reorders the MRU list (the caller may pass m_recent.m_paths[i]).
@@ -348,6 +408,9 @@ namespace physics_sandbox
 	// Advance the simulation by one timestep
 	void SandboxUI::Step(double elapsed_seconds)
 	{
+		static constexpr double PhysicsStepSeconds = 1.0 / 60.0;
+		static constexpr double MaxFrameSeconds = 0.25;
+		static constexpr int MaxStepsPerTick = 4;
 		auto const step_beg = Clock::now();
 
 		// Don't step after close begins
@@ -357,22 +420,48 @@ namespace physics_sandbox
 		// Check if we should be stepping
 		if (m_steps_remaining == 0)
 			return;
+
+		// The resolver tuning assumes a fixed physics step. Convert wall-clock time into a bounded
+		// number of fixed ticks rather than making the simulation unstable when rendering is slow.
+		auto step_count = 0;
+		auto collision = false;
 		if (m_steps_remaining > 0)
+		{
 			--m_steps_remaining;
+			collision = m_scene.Step(PhysicsStepSeconds);
+			++step_count;
+		}
+		else
+		{
+			m_physics_accumulator += std::min(elapsed_seconds, MaxFrameSeconds) * std::max(0.0, static_cast<double>(m_media.TimeScale()));
+			while (m_physics_accumulator >= PhysicsStepSeconds && step_count != MaxStepsPerTick)
+			{
+				auto const step_collision = m_scene.Step(PhysicsStepSeconds);
+				collision = step_collision || collision;
+				m_physics_accumulator -= PhysicsStepSeconds;
+				++step_count;
 
-		// Apply the time scale from the slow-mo slider.
-		// This scales the physics dt so that 0.5x = half speed, 2.0x = double speed, etc.
-		// Wall-clock elapsed_seconds drives the render loop; sim_dt drives the physics.
-		auto sim_dt = elapsed_seconds * m_media.TimeScale();
+				if (step_collision && m_pause_on_collision && m_scene.m_diag.count == 1)
+				{
+					m_steps_remaining = 0;
+					m_physics_accumulator = 0;
+					break;
+				}
+			}
 
-		// Step the physics scene with the scaled timestep
-		auto collision = m_scene.Step(sim_dt);
-		if (m_profile.Enabled())
+			if (step_count == MaxStepsPerTick && m_physics_accumulator >= PhysicsStepSeconds)
+				m_physics_accumulator = 0;
+		}
+
+		if (step_count != 0 && m_profile.Enabled())
 			m_profile.RecordStep(m_scene.m_last_step_profile, ElapsedMs(step_beg, Clock::now()));
 
 		// Pause on first collision if requested
 		if (collision && m_pause_on_collision && m_scene.m_diag.count == 1)
+		{
 			m_steps_remaining = 0;
+			m_physics_accumulator = 0;
+		}
 	}
 
 	// Render a frame: sync graphics, rebuild overlays, update details panel.
