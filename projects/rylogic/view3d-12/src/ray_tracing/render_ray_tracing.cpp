@@ -12,17 +12,6 @@
 
 namespace pr::rdr12
 {
-	namespace
-	{
-		// Return true when an internal ray tracing feature toggle is enabled.
-		bool RayTracingFeatureRequested(wchar_t const* name)
-		{
-			auto value = std::array<wchar_t, 16>{};
-			auto len = GetEnvironmentVariableW(name, value.data(), s_cast<DWORD>(value.size()));
-			return len != 0 && value[0] != L'0';
-		}
-	}
-
 	// Create the stub ray tracing render step.
 	RenderRayTracing::RenderRayTracing(Scene& scene)
 		: RenderStep(Id, scene)
@@ -49,13 +38,6 @@ namespace pr::rdr12
 	// Return the selected RT screen-space pass for this frame.
 	ERayTracingScreenPass RenderRayTracing::ScreenPass() const
 	{
-		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC"))
-			return ERayTracingScreenPass::Diagnostic;
-		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_HARD_SHADOWS"))
-			return ERayTracingScreenPass::HardShadows;
-		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_CAUSTICS"))
-			return ERayTracingScreenPass::Caustics;
-
 		switch (scn().RayTracingFeatures())
 		{
 			case ERayTracingFeature::None:
