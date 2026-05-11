@@ -18,6 +18,12 @@ static const int RayTracingInstanceMask_Default = 0x01;
 static const int RayTracingInstanceMask_Caustic = 0x02;
 static const int RayTracingInstanceMask_All = 0xFF;
 
+// Material data for one TLAS instance geometry.
+struct RayTracingMaterial
+{
+	float4 diffuse;
+};
+
 // Constants per ray tracing dispatch.
 struct CBufFrame// :reg(b0)
 {
@@ -45,7 +51,7 @@ struct CBufFrame// :reg(b0)
 	// x = caustic strength, y = minimum caustic-ray bias, z = projected caustic pattern scale, w = glass thickness approximation
 	float4 caustic;
 
-	// x = RayTracingMode_*
+	// x = RayTracingMode_*, y = material count
 	int4 options;
 };
 

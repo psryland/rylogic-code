@@ -65,6 +65,12 @@ namespace pr::rdr12
 		// Return the TLAS GPU virtual address, or zero if no TLAS is built.
 		D3D12_GPU_VIRTUAL_ADDRESS AccelerationStructureAddress() const;
 
+		// Return the material buffer used by reflection closest-hit shaders.
+		ID3D12Resource* MaterialBuffer() const;
+
+		// Return the number of material records in the material buffer.
+		int MaterialCount() const;
+
 		// Release TLAS and dynamic BLAS resources after deferring GPU lifetime management through the renderer.
 		void DeferRelease(Renderer& rdr);
 

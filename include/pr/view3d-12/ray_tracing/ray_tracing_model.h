@@ -34,6 +34,7 @@ namespace pr::rdr12
 	{
 		RayTracingGeometryStats m_stats;
 		vector<D3D12_RAYTRACING_GEOMETRY_DESC, 8> m_geometry;
+		vector<Nugget const*, 8> m_nuggets;
 	};
 
 	// Build the triangle descriptors used to create a bottom-level acceleration structure for 'model'.

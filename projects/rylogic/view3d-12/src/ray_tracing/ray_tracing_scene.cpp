@@ -12,6 +12,7 @@
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
+#include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
@@ -20,6 +21,7 @@ namespace pr::rdr12
 		// Sync with ray_tracing_cbuf.hlsli.
 		constexpr UINT RayTracingInstanceMask_Default = 0x01;
 		constexpr UINT RayTracingInstanceMask_Caustic = 0x02;
+		constexpr UINT RayTracingMaterialIndexLimit = 0x01000000;
 
 		struct SkinnedBlasKey
 		{
@@ -106,16 +108,22 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_tlas;
 		D3DPtr<ID3D12Resource> m_scratch;
 		D3DPtr<ID3D12Resource> m_instances;
+		D3DPtr<ID3D12Resource> m_materials;
 		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO m_prebuild_info;
 		std::unordered_map<SkinnedBlasKey, SkinnedBlas, SkinnedBlasKeyHash> m_skinned_blas;
+		uint64_t m_material_signature;
+		int m_material_count;
 
 		// Create an empty heavy-weight TLAS data object.
 		Data()
 			: m_tlas()
 			, m_scratch()
 			, m_instances()
+			, m_materials()
 			, m_prebuild_info()
 			, m_skinned_blas()
+			, m_material_signature(hash::FNV_offset_basis64)
+			, m_material_count()
 		{}
 	};
 
@@ -134,14 +142,18 @@ namespace pr::rdr12
 			RayTracingSceneStats m_stats;
 			vector<D3D12_RAYTRACING_INSTANCE_DESC, 1024> m_instances;
 			vector<SkinnedBlasKey, 32> m_used_skinned_blas;
+			vector<shaders::rt::RayTracingMaterial, 1024> m_materials;
 			uint64_t m_signature;
+			uint64_t m_material_signature;
 
 			// Create empty TLAS build input.
 			InstanceBuildInput()
 				: m_stats()
 				, m_instances()
 				, m_used_skinned_blas()
+				, m_materials()
 				, m_signature(hash::FNV_offset_basis64)
+				, m_material_signature(hash::FNV_offset_basis64)
 			{}
 		};
 
@@ -151,6 +163,14 @@ namespace pr::rdr12
 			rdr.DeferRelease(data.m_tlas);
 			rdr.DeferRelease(data.m_scratch);
 			rdr.DeferRelease(data.m_instances);
+		}
+
+		// Release the material buffer that closest-hit shaders use to shade reflected instances.
+		void ReleaseMaterialBuffer(Renderer& rdr, RayTracingScene::Data& data)
+		{
+			rdr.DeferRelease(data.m_materials);
+			data.m_material_count = 0;
+			data.m_material_signature = hash::FNV_offset_basis64;
 		}
 
 		// Release the dynamic BLAS resources owned by 'entry'.
@@ -180,6 +200,54 @@ namespace pr::rdr12
 				ReleaseSkinnedBlas(rdr, iter->second);
 				iter = data.m_skinned_blas.erase(iter);
 			}
+		}
+
+		// Return the fixed-function material approximation used by the current reflection hit shader.
+		shaders::rt::RayTracingMaterial MakeMaterial(BaseInstance const& inst, Nugget const& nugget)
+		{
+			auto const* inst_tint = inst.find<Colour32>(EInstComp::TintColour32);
+			auto const tint = Colour((inst_tint != nullptr ? *inst_tint : Colour32White) * nugget.m_tint);
+
+			shaders::rt::RayTracingMaterial material = {};
+			material.diffuse = tint.rgba;
+			return material;
+		}
+
+		// Append materials in the same order as the BLAS geometry descriptors and return the TLAS InstanceID material base.
+		UINT AppendMaterials(InstanceBuildInput& result, BaseInstance const& inst, RayTracingGeometryBuildInput const& geometry)
+		{
+			if (geometry.m_nuggets.size() != geometry.m_geometry.size())
+				throw std::runtime_error("Ray tracing material and geometry counts do not match");
+
+			auto const material_base = result.m_materials.size();
+			if (material_base + geometry.m_nuggets.size() > RayTracingMaterialIndexLimit)
+				throw std::runtime_error("Ray tracing material table exceeds the DXR InstanceID range");
+
+			for (auto const* nugget : geometry.m_nuggets)
+			{
+				auto material = MakeMaterial(inst, *nugget);
+				AddSignature(result.m_material_signature, material);
+				result.m_materials.push_back(material);
+			}
+			AddSignature(result.m_material_signature, result.m_materials.size());
+			return s_cast<UINT>(material_base);
+		}
+
+		// Create or refresh the material buffer consumed by reflection closest-hit shaders.
+		void EnsureMaterialBuffer(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, std::span<shaders::rt::RayTracingMaterial const> materials, uint64_t material_signature)
+		{
+			if (data.m_materials != nullptr && data.m_material_count == isize(materials) && data.m_material_signature == material_signature)
+				return;
+
+			ReleaseMaterialBuffer(rdr, data);
+			if (materials.empty())
+				return;
+
+			auto desc = ResDesc::Buf<shaders::rt::RayTracingMaterial>(isize(materials), materials)
+				.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			data.m_materials = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:materials");
+			data.m_material_count = isize(materials);
+			data.m_material_signature = material_signature;
 		}
 
 		// Build or update a BLAS for the current pose of a skinned model.
@@ -350,17 +418,16 @@ namespace pr::rdr12
 
 				auto model_ref = *model_ptr;
 				auto& model = *model_ref.get();
-				auto const unique_id = UniqueId(*inst);
 				auto const instance_mask = RayTracingInstanceMask_Default | (IsCausticContributor(*inst, model) ? RayTracingInstanceMask_Caustic : 0U);
 				auto desc = D3D12_RAYTRACING_INSTANCE_DESC{};
 				CopyTransform(o2w, desc.Transform);
-				desc.InstanceID = s_cast<UINT>(unique_id != 0 ? unique_id : instance_index) & 0x00FFFFFF;
 				desc.InstanceMask = instance_mask;
 				desc.InstanceContributionToHitGroupIndex = 0;
 				desc.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
 
 				auto cache_hit = false;
 				auto pose_revision = uint64_t{};
+				auto geometry = RayTracingGeometryBuildInput{};
 				if (model.m_skin)
 				{
 					// Skinned models require a live pose because tracing bind-pose geometry would disagree with raster. Missing poses are excluded until the caller
@@ -385,6 +452,7 @@ namespace pr::rdr12
 					desc.AccelerationStructure = skinned_blas.m_address;
 					cache_hit = skinned_blas.m_cache_hit;
 					pose_revision = skinned_blas.m_pose_revision;
+					geometry = RayTracingBuildGeometryInput(model, 0, true, true);
 
 					AddSignature(result.m_signature, key.m_model);
 					AddSignature(result.m_signature, key.m_pose);
@@ -404,12 +472,19 @@ namespace pr::rdr12
 
 					desc.AccelerationStructure = model.m_ray_tracing.AccelerationStructureAddress();
 					cache_hit = was_built;
+					geometry = RayTracingBuildGeometryInput(model, 0, true, false);
 
 					AddSignature(result.m_signature, model.m_ray_tracing.Revision());
 					AddSignature(result.m_signature, geom_stats.m_geometry_count);
 				}
+				if (geometry.m_nuggets.empty())
+				{
+					++result.m_stats.m_excluded_unsupported_count;
+					continue;
+				}
 
 				// Once the instance has a valid BLAS address, append the final descriptor and track whether the BLAS came from cache or was rebuilt this frame.
+				desc.InstanceID = AppendMaterials(result, *inst, geometry);
 				AddSignature(result.m_signature, desc);
 				result.m_instances.push_back(desc);
 				++result.m_stats.m_tlas_instance_count;
@@ -489,6 +564,22 @@ namespace pr::rdr12
 			: D3D12_GPU_VIRTUAL_ADDRESS{};
 	}
 
+	// Return the material buffer used by reflection closest-hit shaders.
+	ID3D12Resource* RayTracingScene::MaterialBuffer() const
+	{
+		return m_data != nullptr
+			? const_cast<ID3D12Resource*>(m_data->m_materials.get())
+			: nullptr;
+	}
+
+	// Return the number of material records in the material buffer.
+	int RayTracingScene::MaterialCount() const
+	{
+		return m_data != nullptr
+			? m_data->m_material_count
+			: 0;
+	}
+
 	// Release TLAS and dynamic BLAS resources after deferring GPU lifetime management through the renderer.
 	void RayTracingScene::DeferRelease(Renderer& rdr)
 	{
@@ -496,6 +587,7 @@ namespace pr::rdr12
 			return;
 
 		ReleaseTlas(rdr, *m_data);
+		ReleaseMaterialBuffer(rdr, *m_data);
 		for (auto& [key, entry] : m_data->m_skinned_blas)
 			ReleaseSkinnedBlas(rdr, entry);
 
@@ -530,6 +622,7 @@ namespace pr::rdr12
 		{
 			// An empty ray-traceable scene has no TLAS. Skinned BLAS cache entries are also pruned because there are no instances referencing them.
 			ReleaseTlas(rdr, *m_data);
+			ReleaseMaterialBuffer(rdr, *m_data);
 			PruneSkinnedBlas(rdr, *m_data, std::span<SkinnedBlasKey const>{});
 			m_signature = input.m_signature;
 			return m_stats;
@@ -537,6 +630,13 @@ namespace pr::rdr12
 
 		// Keep only dynamic skinned BLASes that were referenced by the descriptors collected for this frame.
 		PruneSkinnedBlas(rdr, *m_data, std::span<SkinnedBlasKey const>(input.m_used_skinned_blas.data(), input.m_used_skinned_blas.size()));
+		EnsureMaterialBuffer(
+			rdr,
+			cmd_list,
+			upload,
+			*m_data,
+			std::span<shaders::rt::RayTracingMaterial const>(input.m_materials.data(), input.m_materials.size()),
+			input.m_material_signature);
 
 		if (Built() && m_signature == input.m_signature)
 		{

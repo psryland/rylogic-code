@@ -122,6 +122,18 @@ namespace pr::rdr12
 				}
 			}
 		}
+
+		// Return the imported material tint, or neutral white when the caller requested geometry without materials.
+		template <typename Material>
+		static Colour32 MaterialTint(std::span<Material const> materials, uint32_t mat_id, geometry::ESceneParts parts)
+		{
+			// LDraw's *NoMaterials path still needs the mesh material ids for nugget ranges, but those ids must not introduce importer material colours into
+			// the raster or ray-traced result. White preserves the existing vertex colour and instance tint path.
+			if (!AllSet(parts, geometry::ESceneParts::Materials) || mat_id >= materials.size())
+				return Colour32White;
+
+			return Colour32(materials[mat_id].m_diffuse);
+		}
 	};
 
 	// Create a model from 'cache'
@@ -1353,8 +1365,12 @@ namespace pr::rdr12
 				auto nptr = m_cache.m_ncont.data();
 				for (auto const& n : mesh.m_nbuf)
 				{
-					auto const& mat = materials[n.m_mat_id];
-					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }.vrange(n.m_vrange).irange(n.m_irange).tint(mat.m_diffuse).flags(ENuggetFlag::RangesCanOverlap);
+					auto tint = model_generator::MaterialTint(materials, n.m_mat_id, m_out.Parts());
+					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
+						.vrange(n.m_vrange)
+						.irange(n.m_irange)
+						.tint(tint)
+						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
 				// Emit the model.
@@ -1558,8 +1574,12 @@ namespace pr::rdr12
 				auto nptr = m_cache.m_ncont.data();
 				for (auto const& n : mesh.m_nbuf)
 				{
-					auto const& mat = materials[n.m_mat_id];
-					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }.vrange(n.m_vrange).irange(n.m_irange).tint(mat.m_diffuse).flags(ENuggetFlag::RangesCanOverlap);
+					auto tint = model_generator::MaterialTint(materials, n.m_mat_id, m_out.Parts());
+					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
+						.vrange(n.m_vrange)
+						.irange(n.m_irange)
+						.tint(tint)
+						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
 				// Emit the model

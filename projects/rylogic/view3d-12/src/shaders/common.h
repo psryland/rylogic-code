@@ -89,6 +89,7 @@ namespace pr::rdr12
 		{
 			#include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
 			static_assert((sizeof(CBufFrame) % 16) == 0);
+			static_assert((sizeof(RayTracingMaterial) % 16) == 0);
 		}
 	}
 	

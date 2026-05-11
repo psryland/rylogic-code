@@ -12,6 +12,7 @@ Texture2D<float4> g_input : register(t1);
 Texture2DMS<float> g_depth : register(t2);
 Texture2DMS<float4> g_reflection_attrs : register(t3);
 Texture2D<uint4> g_alpha_rt_attrs : register(t4);
+StructuredBuffer<RayTracingMaterial> g_materials : register(t5);
 RWTexture2D<float4> g_output : register(u0);
 
 static const uint RayPayloadMode_Diagnostic = 0;
@@ -180,6 +181,23 @@ float3 ReflectionMissColour(float3 ws_direction)
 {
 	float t = saturate(0.5f + 0.5f * ws_direction.y);
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
+}
+
+// Return the diffuse material colour for the hit instance geometry.
+float4 ReflectionHitMaterial()
+{
+	uint material_count = uint(g_frame.options.y);
+	if (material_count == 0)
+		return float4(0.75f, 0.75f, 0.75f, 1.0f);
+
+	uint material_index = InstanceID() + GeometryIndex();
+	if (material_index < material_count)
+		return g_materials[material_index].diffuse;
+
+	uint instance_index = InstanceIndex();
+	return instance_index < material_count
+		? g_materials[instance_index].diffuse
+		: float4(0.75f, 0.75f, 0.75f, 1.0f);
 }
 
 // Return a stable pseudo-random value for a projected caustic cell.
@@ -502,10 +520,9 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 {
 	if (payload.mode == RayPayloadMode_Reflection)
 	{
-		uint seed = InstanceID() ^ (PrimitiveIndex() * 747796405u);
 		payload.hit = 1;
 		payload.hit_t = RayTCurrent();
-		payload.colour = float4(DiagnosticColour(seed), 1.0f);
+		payload.colour = ReflectionHitMaterial();
 		return;
 	}
 	if (payload.mode != RayPayloadMode_Diagnostic)
@@ -515,7 +532,7 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 		return;
 	}
 
-	uint seed = InstanceID() ^ (PrimitiveIndex() * 747796405u);
+	uint seed = InstanceIndex() ^ (PrimitiveIndex() * 747796405u);
 	float edge = min(attrib.barycentrics.x, min(attrib.barycentrics.y, 1.0f - attrib.barycentrics.x - attrib.barycentrics.y));
 	float wire = smoothstep(0.0f, 0.02f, edge);
 	payload.colour = float4(lerp(float3(0.02f, 0.02f, 0.02f), DiagnosticColour(seed), wire), 1.0f);

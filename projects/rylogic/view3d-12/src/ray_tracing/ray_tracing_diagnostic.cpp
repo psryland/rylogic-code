@@ -36,6 +36,7 @@ namespace pr::rdr12
 			Depth,
 			ReflectionAttrs,
 			AlphaRtAttrs,
+			Materials,
 			Output,
 		};
 		enum class EPresentRootParam
@@ -140,6 +141,7 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t2, 1)
 			.SRV(hlsl::ESRVReg::t3, 1)
 			.SRV(hlsl::ESRVReg::t4, 1)
+			.SRV(hlsl::ESRVReg::t5, 1)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
@@ -331,6 +333,7 @@ namespace pr::rdr12
 		auto const depth = const_cast<ID3D12Resource*>(frame.bb_main().m_depth_stencil.get());
 		auto const reflection_attrs = reflections != nullptr ? reflections->Attributes() : nullptr;
 		auto const alpha_rt_attrs = kbuffer.m_alpha_rt_attrs != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_rt_attrs->m_res.get()) : nullptr;
+		auto const materials = ray_tracing_scene.MaterialBuffer();
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
 		if (input == nullptr || target == nullptr)
 			return;
@@ -349,6 +352,8 @@ namespace pr::rdr12
 				barriers.Transition(reflection_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (alpha_rt_attrs != nullptr)
 				barriers.Transition(alpha_rt_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (materials != nullptr)
+				barriers.Transition(materials, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
@@ -392,6 +397,17 @@ namespace pr::rdr12
 						.ResourceMinLODClamp = 0.0f,
 					},
 				});
+			auto materials_srv = scene.wnd().m_heap_view.Add(materials, D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = {
+					.FirstElement = 0,
+					.NumElements = s_cast<UINT>(std::max(ray_tracing_scene.MaterialCount(), 1)),
+					.StructureByteStride = sizeof(shaders::rt::RayTracingMaterial),
+					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+				},
+			});
 
 			auto uav_desc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
 				.Format = OutputFormat,
@@ -427,7 +443,7 @@ namespace pr::rdr12
 				pass == ERayTracingScreenPass::Caustics ? shaders::rt::RayTracingMode_Caustics :
 				pass == ERayTracingScreenPass::ReflectionsAndCaustics ? shaders::rt::RayTracingMode_ReflectionsAndCaustics :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
-				0, 0, 0);
+				ray_tracing_scene.MaterialCount(), 0, 0);
 
 			cmd_list.SetComputeRootSignature(data.m_trace_signature.get());
 			cmd_list.SetComputeRootConstantBufferView(ETraceRootParam::CBufFrame, frame.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false));
@@ -436,6 +452,7 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Depth, depth_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ReflectionAttrs, reflection_attrs_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaRtAttrs, alpha_rt_attrs_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Materials, materials_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 

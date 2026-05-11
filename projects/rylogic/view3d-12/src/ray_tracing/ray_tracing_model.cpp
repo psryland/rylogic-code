@@ -73,6 +73,7 @@ namespace pr::rdr12
 			}
 
 			// Nugget indices are model-relative, so expose the whole vertex buffer to DXR and select nugget geometry with the index range.
+			result.m_nuggets.push_back(nugget);
 			result.m_geometry.push_back(D3D12_RAYTRACING_GEOMETRY_DESC{
 				.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES,
 				.Flags = GeometryFlags(*nugget),
