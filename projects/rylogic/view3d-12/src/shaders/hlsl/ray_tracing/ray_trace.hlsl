@@ -182,6 +182,51 @@ float3 ReflectionMissColour(float3 ws_direction)
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
 }
 
+// Return a stable pseudo-random value for a projected caustic cell.
+float2 Hash22(float2 value)
+{
+	float2 h = float2(
+		dot(value, float2(127.1f, 311.7f)),
+		dot(value, float2(269.5f, 183.3f)));
+	return frac(sin(h) * 43758.5453f);
+}
+
+// Return a jittered cellular filament mask for a caustic pattern layer.
+float CausticCells(float2 p)
+{
+	float2 cell = floor(p);
+	float2 cell_uv = frac(p);
+	float nearest = 16.0f;
+	float second_nearest = 16.0f;
+
+	// Measure the two closest jittered feature points. Brightness comes from the boundary between nearby cells, which avoids the old axis-product grid.
+	[unroll]
+	for (int y = -1; y != 2; ++y)
+	{
+		[unroll]
+		for (int x = -1; x != 2; ++x)
+		{
+			float2 neighbour = float2(x, y);
+			float2 jitter = Hash22(cell + neighbour) - 0.5f;
+			float2 feature = neighbour + 0.5f + 0.85f * jitter;
+			float dist_sq = dot(feature - cell_uv, feature - cell_uv);
+
+			if (dist_sq < nearest)
+			{
+				second_nearest = nearest;
+				nearest = dist_sq;
+			}
+			else if (dist_sq < second_nearest)
+			{
+				second_nearest = dist_sq;
+			}
+		}
+	}
+
+	float edge = sqrt(second_nearest) - sqrt(nearest);
+	return 1.0f - smoothstep(0.025f, 0.18f, edge);
+}
+
 // Return a visible caustic proof pattern in the receiver plane projected along the light direction.
 float CausticPattern(float3 ws_pos, float3 surface_to_light)
 {
@@ -190,10 +235,17 @@ float CausticPattern(float3 ws_pos, float3 surface_to_light)
 	float3 axis_y = cross(surface_to_light, axis_x);
 	float2 p = float2(dot(ws_pos, axis_x), dot(ws_pos, axis_y)) * max(g_frame.caustic.z, 0.001f);
 
-	float wave = sin(p.x * 7.3f + sin(p.y * 1.9f)) + sin(p.y * 8.1f + sin(p.x * 2.1f));
-	float filaments = 1.0f - smoothstep(0.15f, 0.55f, abs(wave));
-	float cells = 1.0f - smoothstep(0.03f, 0.18f, abs(sin(p.x * 2.4f) * sin(p.y * 2.9f)));
-	return saturate(0.35f * filaments + 0.65f * cells);
+	float2 p0 = float2(
+		dot(p, float2(0.8660254f, -0.5f)),
+		dot(p, float2(0.5f, 0.8660254f)));
+	float2 p1 = float2(
+		dot(p, float2(0.4226183f, -0.9063078f)),
+		dot(p, float2(0.9063078f, 0.4226183f))) * 1.73f + 19.37f;
+
+	float cells = CausticCells(p0);
+	float fine_cells = CausticCells(p1);
+	float shimmer = 0.5f + 0.5f * sin(dot(p, float2(6.7f, -4.9f)) + 1.7f * fine_cells);
+	return saturate(0.65f * cells + 0.25f * fine_cells + 0.10f * shimmer);
 }
 
 // Unpack an RGBA8 value produced by the alpha RT sidecar.
