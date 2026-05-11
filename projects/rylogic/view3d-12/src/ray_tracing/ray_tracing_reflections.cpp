@@ -4,8 +4,8 @@
 //*********************************************
 #include "pr/view3d-12/ray_tracing/ray_tracing_reflections.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
 #include "pr/view3d-12/resource/descriptor_store.h"
-#include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/resource_store.h"
 
 namespace pr::rdr12
@@ -42,14 +42,14 @@ namespace pr::rdr12
 	}
 
 	// Create or resize the reflection attribute buffer for the current render target.
-	bool RayTracingReflectionBuffer::Prepare(ResourceFactory& factory, iv2 size, MultiSamp multisamp)
+	bool RayTracingReflectionBuffer::Prepare(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, iv2 size, MultiSamp multisamp)
 	{
 		if (size.x <= 0 || size.y <= 0)
 			return false;
 		if (Matches(size, multisamp))
 			return true;
 
-		DeferRelease(factory.rdr());
+		DeferRelease(rdr);
 
 		auto clear = ClearValue(RayTracingReflectionAttributeFormat, Colour(0.0f, 0.0f, 0.0f, 0.0f));
 		auto desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, RayTracingReflectionAttributeFormat }, 1U, EUsage::RenderTarget)
@@ -57,7 +57,7 @@ namespace pr::rdr12
 			.clear(clear)
 			.def_state(D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-		m_attributes = factory.CreateResource(desc, "RT-ReflectionAttributes");
+		m_attributes = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RT-ReflectionAttributes");
 		m_size = size;
 		m_multisamp = multisamp;
 
@@ -71,7 +71,7 @@ namespace pr::rdr12
 			.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS,
 		};
 
-		ResourceStore::Access store(factory.rdr());
+		ResourceStore::Access store(rdr);
 		m_srv = store.Descriptors().Create(m_attributes.get(), srv_desc);
 		m_rtv = store.Descriptors().Create(m_attributes.get(), rtv_desc);
 		return true;

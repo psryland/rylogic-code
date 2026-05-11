@@ -9,8 +9,8 @@
 #include "pr/view3d-12/ray_tracing/ray_tracing_reflections.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_scene.h"
 #include "pr/view3d-12/render/alpha_kbuffer.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
 #include "pr/view3d-12/resource/gpu_descriptor_heap.h"
-#include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/texture/texture_2d.h"
@@ -237,7 +237,7 @@ namespace pr::rdr12
 	}
 
 	// Create the shader table for the diagnostic state object.
-	static void EnsureShaderTable(ResourceFactory& factory, RayTracingDiagnostic::Data& data)
+	static void EnsureShaderTable(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingDiagnostic::Data& data)
 	{
 		if (data.m_shader_table != nullptr)
 			return;
@@ -251,7 +251,7 @@ namespace pr::rdr12
 
 		auto desc = ResDesc::Buf<uint8_t>(isize(records), std::span<uint8_t const>{ records.data(), records.size() })
 			.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		data.m_shader_table = factory.CreateResource(desc, "RT-DiagnosticShaderTable");
+		data.m_shader_table = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RT-DiagnosticShaderTable");
 
 		auto base_address = data.m_shader_table->GetGPUVirtualAddress();
 		data.m_dispatch_desc.RayGenerationShaderRecord = {
@@ -271,21 +271,21 @@ namespace pr::rdr12
 	}
 
 	// Create or resize the intermediate UAV output texture.
-	static void EnsureOutput(ResourceFactory& factory, RayTracingDiagnostic::Data& data, iv2 output_size)
+	static void EnsureOutput(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingDiagnostic::Data& data, iv2 output_size)
 	{
 		if (data.m_output != nullptr && All(data.m_output_size == output_size))
 			return;
 
-		factory.rdr().DeferRelease(data.m_output);
+		rdr.DeferRelease(data.m_output);
 		data.m_output_size = output_size;
 
 		auto desc = ResDesc::Tex2D(Image{ output_size.x, output_size.y, nullptr, OutputFormat }, 1U, EUsage::UnorderedAccess)
 			.def_state(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		data.m_output = factory.CreateResource(desc, "RT-DiagnosticOutput");
+		data.m_output = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RT-DiagnosticOutput");
 	}
 
 	// Create or resize GPU resources needed for the diagnostic pass.
-	bool RayTracingDiagnostic::Prepare(ResourceFactory& factory, iv2 output_size, DXGI_FORMAT present_format)
+	bool RayTracingDiagnostic::Prepare(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, iv2 output_size, DXGI_FORMAT present_format)
 	{
 		if (output_size.x <= 0 || output_size.y <= 0 || present_format == DXGI_FORMAT_UNKNOWN)
 			return false;
@@ -294,12 +294,12 @@ namespace pr::rdr12
 			m_data = std::make_unique<Data>();
 
 		auto& data = *m_data;
-		EnsureTraceSignature(factory.rdr(), data);
-		EnsurePresentSignature(factory.rdr(), data);
-		EnsureTraceState(factory.rdr(), data);
-		EnsurePresentPso(factory.rdr(), data, present_format);
-		EnsureShaderTable(factory, data);
-		EnsureOutput(factory, data, output_size);
+		EnsureTraceSignature(rdr, data);
+		EnsurePresentSignature(rdr, data);
+		EnsureTraceState(rdr, data);
+		EnsurePresentPso(rdr, data, present_format);
+		EnsureShaderTable(rdr, cmd_list, upload, data);
+		EnsureOutput(rdr, cmd_list, upload, data, output_size);
 		return true;
 	}
 

@@ -4,6 +4,8 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
+#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
@@ -63,13 +65,13 @@ namespace pr::rdr12
 		// Return the TLAS GPU virtual address, or zero if no TLAS is built.
 		D3D12_GPU_VIRTUAL_ADDRESS AccelerationStructureAddress() const;
 
-		// Release TLAS resources after deferring GPU lifetime management through the renderer.
+		// Release TLAS and dynamic BLAS resources after deferring GPU lifetime management through the renderer.
 		void DeferRelease(Renderer& rdr);
 
 		// Mark the scene's TLAS as invalid because the scene content changed.
 		void Invalidate(Renderer& rdr);
 
 		// Build or reuse the scene TLAS for the provided instances.
-		RayTracingSceneStats Build(ResourceFactory& factory, std::span<BaseInstance const* const> instances);
+		RayTracingSceneStats Build(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, std::span<BaseInstance const* const> instances);
 	};
 }

@@ -8,7 +8,6 @@
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/model/nugget.h"
-#include "pr/view3d-12/resource/resource_factory.h"
 
 namespace pr::rdr12
 {
@@ -19,6 +18,7 @@ namespace pr::rdr12
 		, m_diagnostic()
 		, m_reflections()
 		, m_cmd_list(scene.d3d(), nullptr, "RenderRayTracing", EColours::BlueViolet)
+		, m_prepared_frame(-1)
 	{}
 
 	// Release ray tracing resources through the renderer's deferred-release queue.
@@ -63,6 +63,25 @@ namespace pr::rdr12
 		}
 	}
 
+	// Prepare RT resources that must be available before raster render steps execute.
+	void RenderRayTracing::Prepare(Frame& frame)
+	{
+		auto pass = ScreenPass();
+		if (!rdr().RayTracing().Available() || pass == ERayTracingScreenPass::None)
+			return;
+
+		auto const frame_number = wnd().FrameNumber();
+		if (m_prepared_frame != frame_number)
+		{
+			// AS builds are recorded into the frame's prepare command list so same-queue ordering makes them visible before later RT dispatches without a CPU fence.
+			m_ray_tracing.Build(rdr(), frame.m_prepare, frame.m_upload, std::span<BaseInstance const* const>(scn().m_instances.data(), scn().m_instances.size()));
+			m_prepared_frame = frame_number;
+		}
+
+		PrepareReflectionAttributes(frame);
+		m_diagnostic.Prepare(rdr(), frame.m_prepare, frame.m_upload, frame.bb_post().rt_size(), wnd().m_rt_props.Format);
+	}
+
 	// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
 	RayTracingReflectionBuffer* RenderRayTracing::PrepareReflectionAttributes(Frame& frame)
 	{
@@ -73,11 +92,7 @@ namespace pr::rdr12
 		auto const size = frame.bb_main().rt_size();
 		auto const multisamp = frame.bb_main().m_multisamp;
 		if (!m_reflections.Matches(size, multisamp))
-		{
-			ResourceFactory factory(rdr());
-			m_reflections.Prepare(factory, size, multisamp);
-			factory.FlushToGpu(EGpuFlush::Block);
-		}
+			m_reflections.Prepare(rdr(), frame.m_prepare, frame.m_upload, size, multisamp);
 
 		return m_reflections ? &m_reflections : nullptr;
 	}
@@ -89,17 +104,8 @@ namespace pr::rdr12
 		if (!rdr().RayTracing().Available() || pass == ERayTracingScreenPass::None)
 			return;
 
-		ResourceFactory factory(rdr());
-		m_ray_tracing.Build(factory, std::span<BaseInstance const* const>(scn().m_instances.data(), scn().m_instances.size()));
+		// Scene::Render calls Prepare on every render step before Execute, so this pass only consumes the scene AS prepared for the current frame.
 		if (!m_ray_tracing.Built())
-		{
-			factory.FlushToGpu(EGpuFlush::Block);
-			return;
-		}
-
-		auto prepared = m_diagnostic.Prepare(factory, frame.bb_post().rt_size(), wnd().m_rt_props.Format);
-		factory.FlushToGpu(EGpuFlush::Block);
-		if (!prepared)
 			return;
 
 		// Reflections and caustics update the K-buffer's opaque base in the post-resolve stage. This keeps RT lighting between

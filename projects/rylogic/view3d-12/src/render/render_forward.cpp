@@ -187,9 +187,10 @@ namespace pr::rdr12
 		auto* reflection_attrs = [&]() -> RayTracingReflectionBuffer*
 		{
 			auto* ray_tracing = scn().FindRStep<RenderRayTracing>();
-			return ray_tracing != nullptr
-				? ray_tracing->PrepareReflectionAttributes(frame)
-				: nullptr;
+			if (ray_tracing == nullptr)
+				return nullptr;
+
+			return ray_tracing->PrepareReflectionAttributes(frame);
 		}();
 
 		// Render the opaque nuggets first

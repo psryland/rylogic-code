@@ -59,12 +59,18 @@ namespace pr::rdr12
 		m_cache.clear();
 	}
 
-	// Return the effective vertex buffer for raster, ray-cast, and later ray-tracing consumers.
-	D3D12_VERTEX_BUFFER_VIEW const& SkinnedGeometryCache::VBufView(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose)
+	// Return the skinned vertex buffer resource and view for 'model' at 'pose'.
+	SkinnedGeometryCache::VBuffer SkinnedGeometryCache::VBuf(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose)
 	{
 		// Not a skinned model, use the regular vertex buffer.
 		if (!model.m_skin || pose == nullptr)
-			return model.m_vb_view;
+		{
+			return VBuffer{
+				.m_resource = model.m_vb.get(),
+				.m_view = &model.m_vb_view,
+				.m_pose_revision = 0,
+			};
+		}
 
 		if (model.m_vstride.size() != sizeof(Vert))
 			throw std::runtime_error("Skinned geometry compute path requires the standard View3D vertex layout");
@@ -126,7 +132,17 @@ namespace pr::rdr12
 			barriers.Commit();
 		}
 
-		return entry.m_vb_view;
+		return VBuffer{
+			.m_resource = entry.m_vb.get(),
+			.m_view = &entry.m_vb_view,
+			.m_pose_revision = entry.m_pose_revision,
+		};
+	}
+
+	// Return the effective vertex buffer for raster, ray-cast, and later ray-tracing consumers.
+	D3D12_VERTEX_BUFFER_VIEW const& SkinnedGeometryCache::VBufView(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose)
+	{
+		return *VBuf(cmd_list, upload_buffer, model, pose).m_view;
 	}
 
 	// Remove cached geometry for 'model'.

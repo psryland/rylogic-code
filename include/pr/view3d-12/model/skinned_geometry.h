@@ -62,12 +62,22 @@ namespace pr::rdr12
 
 	public:
 
+		struct VBuffer
+		{
+			ID3D12Resource* m_resource;
+			D3D12_VERTEX_BUFFER_VIEW const* m_view;
+			uint64_t m_pose_revision;
+		};
+
 		SkinnedGeometryCache(Renderer& rdr);
 		SkinnedGeometryCache(SkinnedGeometryCache&&) = delete;
 		SkinnedGeometryCache(SkinnedGeometryCache const&) = delete;
 		SkinnedGeometryCache& operator = (SkinnedGeometryCache&&) = delete;
 		SkinnedGeometryCache& operator = (SkinnedGeometryCache const&) = delete;
 		~SkinnedGeometryCache();
+
+		// Return the skinned vertex buffer resource and view for 'model' at 'pose'.
+		VBuffer VBuf(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose);
 
 		// Return the vertex buffer that represents 'model' at 'pose', dispatching compute work only when the cached pose is stale.
 		D3D12_VERTEX_BUFFER_VIEW const& VBufView(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose);

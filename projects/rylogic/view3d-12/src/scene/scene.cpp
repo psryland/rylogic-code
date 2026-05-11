@@ -317,6 +317,10 @@ namespace pr::rdr12
 		// Make sure the scene is up to date
 		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
 
+		// Allow render steps to do frame setup before any step starts recording its render commands.
+		for (auto& rs : m_render_steps)
+			rs->Prepare(frame);
+
 		// Invoke each render step in order
 		for (auto& rs : m_render_steps)
 			rs->Execute(frame);

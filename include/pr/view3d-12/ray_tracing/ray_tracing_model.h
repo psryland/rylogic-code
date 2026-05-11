@@ -4,6 +4,8 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
+#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
@@ -26,6 +28,16 @@ namespace pr::rdr12
 		// Create empty ray tracing geometry diagnostics.
 		RayTracingGeometryStats();
 	};
+
+	// Geometry descriptors and diagnostics used to build a bottom-level acceleration structure.
+	struct RayTracingGeometryBuildInput
+	{
+		RayTracingGeometryStats m_stats;
+		vector<D3D12_RAYTRACING_GEOMETRY_DESC, 8> m_geometry;
+	};
+
+	// Build the triangle descriptors used to create a bottom-level acceleration structure for 'model'.
+	RayTracingGeometryBuildInput RayTracingBuildGeometryInput(Model const& model, D3D12_GPU_VIRTUAL_ADDRESS vertex_buffer_address, bool rt_available, bool include_skinned);
 
 	// Per-model ray tracing state. Heavy BLAS data is allocated lazily only when ray tracing is used.
 	struct RayTracingModel
@@ -72,6 +84,6 @@ namespace pr::rdr12
 		RayTracingGeometryStats Analyse(Model const& model) const;
 
 		// Build the model's static BLAS if ray tracing is available and the model has eligible geometry.
-		RayTracingGeometryStats Build(ResourceFactory& factory, Model const& model);
+		RayTracingGeometryStats Build(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, Model const& model);
 	};
 }

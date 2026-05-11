@@ -20,6 +20,7 @@ namespace pr::rdr12
 		RayTracingDiagnostic m_diagnostic;
 		RayTracingReflectionBuffer m_reflections;
 		GfxCmdList m_cmd_list;
+		int64_t m_prepared_frame;
 
 	public:
 
@@ -39,6 +40,9 @@ namespace pr::rdr12
 		RayTracingReflectionBuffer* PrepareReflectionAttributes(Frame& frame);
 
 	private:
+
+		// Prepare RT resources that must be available before raster render steps execute.
+		void Prepare(Frame& frame) override;
 
 		// Perform the render step.
 		void Execute(Frame& frame) override;

@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/descriptor.h"
+#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/utility/cmd_list.h"
 #include "pr/view3d-12/utility/wrappers.h"
 
@@ -36,7 +37,7 @@ namespace pr::rdr12
 		void DeferRelease(Renderer& rdr);
 
 		// Create or resize the reflection attribute buffer for the current render target.
-		bool Prepare(ResourceFactory& factory, iv2 size, MultiSamp multisamp);
+		bool Prepare(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, iv2 size, MultiSamp multisamp);
 
 		// Clear the reflection attributes ready for the next opaque pass.
 		void Clear(GfxCmdList& cmd_list) const;

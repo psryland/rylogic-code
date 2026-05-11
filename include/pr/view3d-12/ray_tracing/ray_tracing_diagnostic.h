@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
@@ -49,7 +50,7 @@ namespace pr::rdr12
 		void DeferRelease(Renderer& rdr);
 
 		// Create or resize GPU resources needed for the diagnostic pass.
-		bool Prepare(ResourceFactory& factory, iv2 output_size, DXGI_FORMAT present_format);
+		bool Prepare(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, iv2 output_size, DXGI_FORMAT present_format);
 
 		// Record the ray dispatch and presentation commands for the selected screen-space pass.
 		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections, bool restore_present_state);
