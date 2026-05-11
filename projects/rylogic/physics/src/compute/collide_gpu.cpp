@@ -245,6 +245,10 @@ namespace pr::physics
 	// Run collision detection on the GPU.
 	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache)
 	{
+		DetectCollisions(job, max_contacts, max_pairs, dispatch, pairs, counters, nullptr, nullptr, shape_cache);
+	}
+	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache const& shape_cache)
+	{
 		// Notes:
 		//  - Assumes that the counters.contact_count has been zeroed already by the broad phase shader.
 		auto shape_count = static_cast<int>(shape_cache.m_shapes.size());
@@ -258,6 +262,11 @@ namespace pr::physics
 		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
 		// regardless of the caller's dirty flag (the new buffers contain garbage).
 		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
+		if (contacts == nullptr)
+			contacts = m_r_contacts;
+		if (resolve_dispatch == nullptr)
+			resolve_dispatch = m_r_resolve_dispatch;
+
 		if (shapes_upload_needed)
 		{
 			// Upload shapes and vertex buffers
@@ -295,13 +304,13 @@ namespace pr::physics
 		{
 			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
 			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(pairs.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(m_r_resolve_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(resolve_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bin_counts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bin_pair_indices.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_bin_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -318,8 +327,8 @@ namespace pr::physics
 			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_resolve_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(resolve_dispatch->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_counts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_pair_indices->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_dispatch->GetGPUVirtualAddress());
@@ -335,7 +344,7 @@ namespace pr::physics
 			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contacts->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_counts->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bin_pair_indices->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(pairs->GetGPUVirtualAddress());
@@ -382,7 +391,7 @@ namespace pr::physics
 			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, m_r_bin_dispatch.get(), static_cast<UINT64>(bin) * sizeof(D3D12_DISPATCH_ARGUMENTS));
 
 			job.m_barriers.UAV(counters.get());
-			job.m_barriers.UAV(m_r_contacts.get());
+			job.m_barriers.UAV(contacts.get());
 			job.m_barriers.Commit();
 		}
 
@@ -392,11 +401,11 @@ namespace pr::physics
 			job.m_cmd_list.SetComputeRootSignature(m_cs_calc_dispatch.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_collision);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_resolve_dispatch->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(resolve_dispatch->GetGPUVirtualAddress());
 
 			job.m_cmd_list.Dispatch(1, 1, 1);
 
-			job.m_barriers.UAV(m_r_resolve_dispatch.get());
+			job.m_barriers.UAV(resolve_dispatch.get());
 			job.m_barriers.Commit();
 		}
 

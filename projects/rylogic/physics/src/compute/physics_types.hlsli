@@ -16,6 +16,7 @@ static const int SleepThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
+static const int SelectiveRefreshThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 
@@ -67,7 +68,6 @@ static const uint GpuSleepIslandFlags_None = 0;
 static const uint GpuSleepIslandFlags_Valid = 1 << 0;
 static const uint GpuSleepIslandFlags_Sleeping = 1 << 1;
 static const uint GpuSleepIslandFlags_Disturbed = 1 << 2;
-static const uint GpuSleepIslandFlags_HitThisFrame = 1 << 3;
 
 // Sleep island stats flags:
 static const uint GpuSleepIslandStatsFlags_Valid = 1 << 0;
@@ -140,7 +140,7 @@ struct GpuSleepIslandStats
 {
 	uint flags;
 	uint body_count;
-	uint pad0;
+	int island_id;
 	uint pad1;
 };
 struct GpuShape
@@ -159,22 +159,22 @@ struct GpuShape
 struct GpuPolytopeFace
 {
 	float4 plane; // xyz = local outward unit normal, w matches Plane3 convention
-	uint index0;
-	uint index1;
-	uint index2;
+	int index0;
+	int index1;
+	int index2;
 	uint flags;
 };
 struct GpuPolytopeEdge
 {
 	float4 direction; // local-space, normalised
-	uint v0;
-	uint v1;
-	uint face0;
-	uint face1;
+	int v0;
+	int v1;
+	int face0;
+	int face1;
 	uint flags;
-	uint pad0;
-	uint pad1;
-	uint pad2;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 struct GpuCollisionPair
 {
@@ -207,6 +207,15 @@ struct GpuResolveContact
 	float collision_time;   // Estimated sub-step collision time. Written by CSComputeCollisionTimes.
 	int feature;            // FEATURE_*; also the number of valid manifold points
 	int pad1;
+	float4 warmstart_impulse; // Accumulated physical impulse from the velocity solver, in body A space.
+};
+struct GpuWarmStartEntry
+{
+	uint key;
+	int body_idx_a;
+	int body_idx_b;
+	uint pad0;
+	float4 impulse; // Cached physical impulse in body A space.
 };
 struct GpuCollisionCounters
 {
@@ -214,6 +223,13 @@ struct GpuCollisionCounters
 	int contact_count; // The number of contact points found
 	int pad0;
 	int pad1;
+};
+struct GpuSelectiveRefreshMetrics
+{
+	uint scored_contact_count;
+	uint selected_contact_count;
+	uint selected_pair_count;
+	uint pad0;
 };
 struct GpuMaterial
 {

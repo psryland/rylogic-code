@@ -11,6 +11,48 @@
 
 namespace pr::physics
 {
+	struct NullBodyHistory
+	{
+		template <typename... Args> void BeginFrame(Args&&...)
+		{
+		}
+		template <typename... Args> void EndFrame(Args&&...)
+		{
+		}
+		void Reset()
+		{
+		}
+	};
+	struct NullPhysicsLog
+	{
+		int m_frame = 0;
+
+		template <typename... Args> void Open(Args&&...)
+		{
+		}
+		void Close()
+		{
+		}
+		bool IsActive() const
+		{
+			return false;
+		}
+		template <typename... Args> void LogIntegrate(Args&&...)
+		{
+		}
+		template <typename... Args> void LogBroadphase(Args&&...)
+		{
+		}
+		template <typename... Args> void LogNarrowPhase(Args&&...)
+		{
+		}
+		void EndFrame()
+		{
+		}
+	};
+	using BodyHistoryT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, BodyHistory, NullBodyHistory>;
+	using PhysicsLogT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, PhysicsLog, NullPhysicsLog>;
+
 	struct EngineBufferCache
 	{
 		// Persists across frames
@@ -31,12 +73,14 @@ namespace pr::physics
 		std::unordered_map<int, int> m_sleep_cpu_to_gpu_island_id;
 		int m_next_sleep_island_id;
 		int m_awake_dynamic_count;
+		double m_broadphase_axis_sum[3] = {};
+		double m_broadphase_axis_sum_sq[3] = {};
+		int m_broadphase_axis_sample_count;
+		int m_broadphase_sort_axis;
 
 		// Diagnostics
-		#if PR_DBG_PHYSICS
-		BodyHistory m_history;
-		PhysicsLog m_log;
-		#endif
+		BodyHistoryT m_history;
+		PhysicsLogT m_log;
 
 		EngineBufferCache()
 			: m_shape_cache()
@@ -48,11 +92,12 @@ namespace pr::physics
 			, m_sleep_cpu_to_gpu_island_id()
 			, m_next_sleep_island_id()
 			, m_awake_dynamic_count()
-			#if PR_DBG_PHYSICS
+			, m_broadphase_axis_sample_count()
+			, m_broadphase_sort_axis()
 			, m_history()
 			, m_log()
-			#endif
-		{}
+		{
+		}
 
 		// Prepare for a new Engine::Step()
 		void NewFrame(std::span<RigidBody*> rigid_bodies, int max_contacts)
@@ -63,6 +108,14 @@ namespace pr::physics
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
 			m_awake_dynamic_count = 0;
+			m_broadphase_axis_sum[0] = 0.0;
+			m_broadphase_axis_sum[1] = 0.0;
+			m_broadphase_axis_sum[2] = 0.0;
+			m_broadphase_axis_sum_sq[0] = 0.0;
+			m_broadphase_axis_sum_sq[1] = 0.0;
+			m_broadphase_axis_sum_sq[2] = 0.0;
+			m_broadphase_axis_sample_count = 0;
+			m_broadphase_sort_axis = 0;
 
 			// Reset the GPU staging buffer for contacts.
 			if (std::ssize(m_contacts) < max_contacts)
@@ -73,11 +126,7 @@ namespace pr::physics
 			m_sleep_gpu_to_cpu_island_id.resize(0);
 			m_sleep_cpu_to_gpu_island_id.clear();
 
-			#if PR_DBG_PHYSICS
 			m_history.BeginFrame(rigid_bodies);
-			#else
-			(void)rigid_bodies;
-			#endif
 		}
 
 		// Drop all cached state.
@@ -93,10 +142,16 @@ namespace pr::physics
 			m_sleep_cpu_to_gpu_island_id.clear();
 			m_next_sleep_island_id = 0;
 			m_awake_dynamic_count = 0;
-
-			#if PR_DBG_PHYSICS
-			m_history = BodyHistory{};
-			#endif
+			m_broadphase_axis_sum[0] = 0.0;
+			m_broadphase_axis_sum[1] = 0.0;
+			m_broadphase_axis_sum[2] = 0.0;
+			m_broadphase_axis_sum_sq[0] = 0.0;
+			m_broadphase_axis_sum_sq[1] = 0.0;
+			m_broadphase_axis_sum_sq[2] = 0.0;
+			m_broadphase_axis_sample_count = 0;
+			m_broadphase_sort_axis = 0;
+			m_history.Reset();
+			m_log.Close();
 		}
 
 		// Number of cached rigid bodies staged for GPU upload this frame.
@@ -123,6 +178,49 @@ namespace pr::physics
 			return m_awake_dynamic_count;
 		}
 
+		// Accumulate AABB-centre variance so broadphase can sort along the longest spread.
+		void AddBroadphaseSortSample(GpuRigidBody const& dyn)
+		{
+			auto const centre = dyn.o2w * dyn.os_bbox.m_centre;
+			m_broadphase_axis_sum[0] += centre.x;
+			m_broadphase_axis_sum[1] += centre.y;
+			m_broadphase_axis_sum[2] += centre.z;
+			m_broadphase_axis_sum_sq[0] += centre.x * centre.x;
+			m_broadphase_axis_sum_sq[1] += centre.y * centre.y;
+			m_broadphase_axis_sum_sq[2] += centre.z * centre.z;
+			++m_broadphase_axis_sample_count;
+		}
+
+		void FinaliseBroadphaseSortAxis()
+		{
+			if (m_broadphase_axis_sample_count < 2)
+			{
+				m_broadphase_sort_axis = 0;
+				return;
+			}
+
+			auto const inv_count = 1.0 / m_broadphase_axis_sample_count;
+			auto best_axis = 0;
+			auto best_variance = -1.0;
+			for (int axis = 0; axis != 3; ++axis)
+			{
+				auto const mean = m_broadphase_axis_sum[axis] * inv_count;
+				auto const variance = m_broadphase_axis_sum_sq[axis] * inv_count - mean * mean;
+				if (variance > best_variance)
+				{
+					best_variance = variance;
+					best_axis = axis;
+				}
+			}
+
+			m_broadphase_sort_axis = best_axis;
+		}
+
+		int BroadphaseSortAxis() const
+		{
+			return m_broadphase_sort_axis;
+		}
+
 		// Track whether the body requires GPU work this frame.
 		void CountAwakeDynamic(RigidBody const& body)
 		{
@@ -138,13 +236,9 @@ namespace pr::physics
 				return;
 
 			if (body.m_sleep.m_island_id < 0)
-			{
-				body.m_sleep.m_island_id = m_next_sleep_island_id++;
-			}
-			else
-			{
-				m_next_sleep_island_id = std::max(m_next_sleep_island_id, body.m_sleep.m_island_id + 1);
-			}
+				return;
+
+			m_next_sleep_island_id = std::max(m_next_sleep_island_id, body.m_sleep.m_island_id + 1);
 
 			auto const cpu_id = body.m_sleep.m_island_id;
 			auto const [iter, inserted] = m_sleep_cpu_to_gpu_island_id.try_emplace(cpu_id, static_cast<int>(m_sleep_islands.size()));

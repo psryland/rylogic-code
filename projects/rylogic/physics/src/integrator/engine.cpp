@@ -15,6 +15,7 @@
 #include "src/compute/sweep_gpu.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/selective_gpu.h"
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 #include "src/materials/material_map.h"
@@ -31,6 +32,48 @@ namespace pr::physics
 		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
+		}
+		template <bool Enabled, auto Field> struct StepProfileScope;
+		template <auto Field> struct StepProfileScope<true, Field>
+		{
+			Engine::StepProfile& m_profile;
+			Clock::time_point m_beg;
+
+			explicit StepProfileScope(Engine::StepProfile& profile)
+				: m_profile(profile)
+				, m_beg(Clock::now())
+			{
+			}
+			~StepProfileScope()
+			{
+				m_profile.*Field = ElapsedMs(m_beg, Clock::now());
+			}
+		};
+		template <auto Field> struct StepProfileScope<false, Field>
+		{
+			explicit StepProfileScope(Engine::StepProfile&)
+			{
+			}
+		};
+		template <auto Field> auto ProfileScope(Engine::StepProfile& profile)
+		{
+			return StepProfileScope<PR_PHYSICS_PROFILE != 0, Field>(profile);
+		}
+		void RunGpuJob(GpuJob& job, Engine::StepProfile& profile)
+		{
+			if constexpr (PR_PHYSICS_PROFILE != 0)
+			{
+				auto run_profile = GpuJob::RunProfile{};
+				job.Run(&run_profile);
+				profile.m_gpu_prepare_ms = run_profile.m_prepare_ms;
+				profile.m_gpu_execute_ms = run_profile.m_execute_ms;
+				profile.m_gpu_wait_ms = run_profile.m_wait_ms;
+				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
+			}
+			else
+			{
+				job.Run();
+			}
 		}
 		void CheckCollisionCapacity(Engine::CollisionStats const& stats)
 		{
@@ -56,7 +99,9 @@ namespace pr::physics
 		ReadbackAlloc rb_bodies;
 		ReadbackAlloc rb_counters;
 		ReadbackAlloc rb_contacts;
-		bool read_contacts;
+		ReadbackAlloc rb_contact_order;
+		bool emit_collisions = true;
+		bool read_contacts = false;
 	};
 
 	Engine::Engine(EngineConfig const& config, ID3D12Device4* existing_device)
@@ -67,6 +112,8 @@ namespace pr::physics
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config))
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config))
+		, m_gpu_selective_resolver(new GpuResolver(*m_gpu, m_config))
+		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
 		, m_body_ptrs()
@@ -83,12 +130,25 @@ namespace pr::physics
 	void Engine::Material(physics::Material mat)
 	{
 		(*m_materials).Set(mat);
+		m_gpu_resolver->MaterialsDirty();
+		m_gpu_selective_resolver->MaterialsDirty();
+	}
+
+	// Update runtime-tunable engine configuration.
+	EngineConfig const& Engine::Config() const
+	{
+		return m_config;
+	}
+	void Engine::Config(EngineConfig const& config)
+	{
+		m_config = config;
 	}
 
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()
 	{
 		m_cache->Reset();
+		m_last_collision_stats = {};
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
@@ -115,68 +175,139 @@ namespace pr::physics
 		m_last_collision_stats = {};
 
 		GpuBuffers buffers;
-		auto beg = Clock::now();
-		m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
-		m_last_step_profile.m_new_frame_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+		}
 
 		// Pack all bodies into a GPU-friendly format
-		beg = Clock::now();
-		Pack(rigid_bodies);
-		m_last_step_profile.m_pack_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+			Pack(rigid_bodies);
+		}
 
 		// If nothing dynamic is awake then no GPU stage can change the world state.
 		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0)
 			return;
 
 		// Upload -> transfers staged body dynamics and resets GPU counters
-		beg = Clock::now();
-		Upload();
-		m_last_step_profile.m_upload_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+			Upload();
+		}
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
-		beg = Clock::now();
-		Integrate(dt);
-		m_last_step_profile.m_integrate_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+			Integrate(dt);
+		}
 
 		// SleepWake -> marks sleeping islands disturbed by awake body AABBs
-		beg = Clock::now();
-		SleepWake();
-		m_last_step_profile.m_sleepwake_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
+			SleepWake();
+		}
 
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
-		beg = Clock::now();
-		BroadPhase();
-		m_last_step_profile.m_broadphase_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
+			BroadPhase(m_config.sleeping_enabled);
+		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
-		beg = Clock::now();
-		Collide();
-		m_last_step_profile.m_collide_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
+			Collide();
+		}
 
 		// Resolve -> uses contacts -> applies impulses to bodies
-		beg = Clock::now();
-		Resolve(dt);
-		m_last_step_profile.m_resolve_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
+			Resolve(dt);
+		}
+
+		// SelectiveRefresh -> retries only problematic contacts with refreshed manifolds
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
+			SelectiveRefresh(dt);
+		}
 
 		// SleepUpdate -> persists wake-ups caused by resolver impulses
-		beg = Clock::now();
-		SleepUpdate(dt);
-		m_last_step_profile.m_sleepupdate_ms = ElapsedMs(beg, Clock::now());
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+			SleepUpdate(dt);
+		}
 
-		// Read buffers back to CPU memory
-		beg = Clock::now();
-		Readback(buffers);
-		m_last_step_profile.m_readback_ms = ElapsedMs(beg, Clock::now());
-		
-		// Run the GPU queue and wait for completion before using the results.
-		beg = Clock::now();
-		m_gpu->m_job.Run();
-		m_last_step_profile.m_gpu_run_ms = ElapsedMs(beg, Clock::now());
+		// ReadBody -> read back body dynamics and contact data
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+			Readback(buffers);
+		}
 
-		// Readback dynamics from GPU and unpack into bodies
-		beg = Clock::now();
-		Unpack(buffers, rigid_bodies);
-		m_last_step_profile.m_unpack_ms = ElapsedMs(beg, Clock::now());
+		// Run the GPU jobs for all stages up to this point
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
+			RunGpuJob(m_gpu->m_job, m_last_step_profile);
+		}
+
+		// Unpack the results back into the caller-owned bodies
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
+			Unpack(buffers, rigid_bodies);
+		}
+	}
+
+	// Explicitly initialise missing sleep islands for newly-created sleeping bodies.
+	void Engine::UpdateSleepIslands(std::span<RigidBody*> rigid_bodies)
+	{
+		if (rigid_bodies.empty())
+			return;
+
+		m_last_step_profile = {};
+		m_last_collision_stats = {};
+
+		GpuBuffers buffers;
+		buffers.emit_collisions = false;
+
+		{
+			// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
+			// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+			Pack(rigid_bodies);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+			Upload();
+		}
+		{
+			// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+			Integrate(0.0f);
+		}
+		{
+			// Run the same broadphase, narrowphase, and sleep-update graph as a normal frame, but with
+			// sleeping-pair filtering disabled so sleeping/sleeping contacts are visible while the initial islands are being built.
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+			BroadPhase(false);
+			Collide();
+			SleepUpdate(0.0f);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+			Readback(buffers);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
+			RunGpuJob(m_gpu->m_job, m_last_step_profile);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
+			Unpack(buffers, rigid_bodies);
+		}
 	}
 
 	// Pack the body data into GPU buffers for the current frame.
@@ -194,8 +325,10 @@ namespace pr::physics
 			auto dyn = PackDynamics(*body, shape_id);
 			m_cache->CountAwakeDynamic(*body);
 			m_cache->PackSleepIsland(*body, dyn);
+			m_cache->AddBroadphaseSortSample(dyn);
 			m_cache->m_rb_dynamics.push_back(dyn);
 		}
+		m_cache->FinaliseBroadphaseSortAxis();
 	}
 
 	// Upload staged body data into GPU buffers for the current frame.
@@ -209,11 +342,12 @@ namespace pr::physics
 	void Engine::Integrate(float dt)
 	{
 		auto body_count = m_cache->RigidBodyCount();
-		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt);
+		m_gpu_integrator->Integrate(m_gpu->m_job, body_count, dt, m_cache->BroadphaseSortAxis());
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackIntegrate(body_count);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackIntegrate(body_count);
+		}
 	}
 
 	// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
@@ -226,23 +360,25 @@ namespace pr::physics
 	}
 
 	// Broadphase collision detection to generate potential collision pairs.
-	void Engine::BroadPhase()
+	void Engine::BroadPhase(bool sleeping_enabled)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 
 		// GPU broadphase is only useful when GPU detect will consume the pairs
 		auto counters = m_gpu_integrator->Counters();
-		auto aabb = m_gpu_integrator->AABBAxisX(); // Todo: Should be choosing based on largest axis variance
+		auto aabb_sort = m_gpu_integrator->AABBSortAxis();
 		auto aabb_idx = m_gpu_integrator->AABBBodyIndices();
+		auto aabb_box = m_gpu_integrator->AABBBoxes();
 		auto bodies = m_gpu_integrator->Bodies();
 		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
 		auto sleep_island_count = m_cache->SleepIslandCount();
-		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, bodies, sleep_island_count, sleep_islands);
+		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, sleep_island_count, sleep_islands, sleeping_enabled);
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackSweep(counters);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackSweep(counters);
+		}
 	}
 
 	// Narrow phase collision detection to generate contact points.
@@ -253,9 +389,10 @@ namespace pr::physics
 		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackCollide(counters);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackCollide(counters);
+		}
 	}
 
 	// Apply impulses to resolve collisions and update body dynamics.
@@ -269,9 +406,96 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
 
-		#if PR_DBG_PHYSICS
-		//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
-		#endif
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
+		{
+			//DbgPhysics(*this).ReadbackResolve(body_count, bodies);
+		}
+	}
+
+	// Extra narrowphase/resolve passes over problematic contacts.
+	void Engine::SelectiveRefresh(float dt)
+	{
+		auto const pass_count = std::max(0, m_config.selective_refresh_passes);
+		if (pass_count == 0)
+			return;
+
+		auto const body_count = m_cache->RigidBodyCount();
+
+		// The selective pass is intended for local residual stack cleanup. Large body counts or dense contact graphs usually mean the compact
+		// set is broad enough that a full substep is the right tool, so avoid paying the extra GPU passes by default. Contact stats are from
+		// the previous frame because the current counters stay GPU-resident until readback.
+		if (m_config.selective_refresh_body_limit > 0 && body_count > m_config.selective_refresh_body_limit)
+			return;
+		if (m_config.selective_refresh_contact_limit > 0 && m_last_collision_stats.m_contact_count > m_config.selective_refresh_contact_limit)
+			return;
+
+		auto const full_max_pairs = m_config.max_collision_pairs;
+		auto const max_pairs = Clamp(m_config.selective_refresh_max_pairs, 1, full_max_pairs);
+		auto const max_contacts = max_pairs;
+		auto full_counters = m_gpu_integrator->Counters();
+		auto full_pairs = m_gpu_sort_and_sweep->CollisionPairs();
+		auto full_pair_dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
+		auto bodies = m_gpu_integrator->Bodies();
+		auto source_counters = full_counters;
+		auto source_contacts = m_gpu_collision_detector->Contacts();
+		auto source_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		auto source_max_contacts = full_max_pairs;
+		auto solver_iterations = m_config.selective_refresh_solver_iterations;
+		if (m_config.selective_refresh_adaptive_body_limit > 0 && body_count <= m_config.selective_refresh_adaptive_body_limit)
+			solver_iterations = std::max(solver_iterations, m_config.selective_refresh_adaptive_solver_iterations);
+
+		for (int pass = 0; pass != pass_count; ++pass)
+		{
+			// Each pass scores the contacts produced by the previous resolve, then refreshes
+			// narrowphase only for nearby pairs that share those problem bodies.
+			auto& work_set = m_gpu_selective_refresher->BuildWorkSet(
+				m_gpu->m_job,
+				pass,
+				body_count,
+				max_pairs,
+				max_contacts,
+				source_max_contacts,
+				full_max_pairs,
+				source_counters,
+				source_contacts,
+				source_dispatch,
+				full_pair_dispatch,
+				full_counters,
+				full_pairs,
+				bodies);
+
+			m_gpu_collision_detector->DetectCollisions(
+				m_gpu->m_job,
+				work_set.m_max_contacts,
+				work_set.m_max_pairs,
+				work_set.m_cd_dispatch,
+				work_set.m_pairs,
+				work_set.m_counters,
+				work_set.m_contacts,
+				work_set.m_resolve_dispatch,
+				m_cache->m_shape_cache);
+
+			m_gpu_selective_resolver->Resolve(
+				m_gpu->m_job,
+				dt,
+				body_count,
+				work_set.m_max_contacts,
+				work_set.m_resolve_dispatch,
+				work_set.m_counters,
+				work_set.m_contacts,
+				bodies,
+				m_materials->span(),
+				m_config.selective_refresh_bias_scale,
+				solver_iterations,
+				m_config.selective_refresh_position_iterations,
+				m_config.selective_refresh_restitution_scale,
+				m_config.selective_refresh_resolve_support_only);
+
+			source_counters = work_set.m_counters;
+			source_contacts = work_set.m_contacts;
+			source_dispatch = work_set.m_resolve_dispatch;
+			source_max_contacts = work_set.m_max_contacts;
+		}
 	}
 
 	// Persist wake-ups and update sleep state after collision resolution.
@@ -282,7 +506,8 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, bodies);
+		auto contact_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, contact_dispatch, bodies);
 	}
 
 	// Read buffers back to CPU memory
@@ -293,7 +518,8 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
-		buffers.read_contacts = static_cast<bool>(Collisions);
+		auto contact_order = m_gpu_resolver->ContactOrder();
+		buffers.read_contacts = buffers.emit_collisions && static_cast<bool>(Collisions);
 
 		{
 			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -301,6 +527,7 @@ namespace pr::physics
 			if (buffers.read_contacts)
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_COPY_SOURCE);
 			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
@@ -315,6 +542,9 @@ namespace pr::physics
 			{
 				buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
 				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
+
+				buffers.rb_contact_order = m_gpu->m_job.m_readback.template Alloc<uint32_t>(contacts_count);
+				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contact_order, contact_order, 0);
 			}
 		}
 		{
@@ -323,6 +553,7 @@ namespace pr::physics
 			if (buffers.read_contacts)
 			{
 				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			}
 			m_gpu->m_job.m_barriers.Commit();
 		}
@@ -334,41 +565,66 @@ namespace pr::physics
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_cache->MaxContactsCount();
 
-		// Read the results back to the CPU
-		auto const& counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
-		m_last_collision_stats = Engine::CollisionStats{
-			.m_pair_count = counts.pair_count,
-			.m_contact_count = counts.contact_count,
-			.m_max_pairs = m_config.max_collision_pairs,
-			.m_max_contacts = max_contacts,
-		};
-		CheckCollisionCapacity(m_last_collision_stats);
+		auto counts = GpuCollisionCounters{};
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);
+			counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
+			m_last_collision_stats = Engine::CollisionStats{
+				.m_pair_count = counts.pair_count,
+				.m_contact_count = counts.contact_count,
+				.m_max_pairs = m_config.max_collision_pairs,
+				.m_max_contacts = max_contacts,
+			};
+			CheckCollisionCapacity(m_last_collision_stats);
+		}
 
 		auto contact_count = std::min(counts.contact_count, max_contacts);
-		std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_readback_copy_ms>(m_last_step_profile);
+			std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
+		}
 		if (buffers.read_contacts)
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_contact_readback_copy_ms>(m_last_step_profile);
 			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
+		}
 
 		// Before updating the bodies with new dynamics, raise the collision events
 		if (contact_count != 0 && buffers.read_contacts)
 		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collision_events_ms>(m_last_step_profile);
 			m_cache->m_contacts_cpu.resize(0);
 			m_cache->m_contacts_cpu.reserve(contact_count);
-			for (auto const& c : std::span{ m_cache->m_contacts }.subspan(0, contact_count))
+			auto const contact_order = std::span{ buffers.rb_contact_order.ptr<uint32_t>(), static_cast<size_t>(contact_count) };
+			for (int order_idx = 0; order_idx != contact_count; ++order_idx)
+			{
+				auto const contact_idx = static_cast<int>(contact_order[order_idx]);
+				if (contact_idx < 0 || contact_idx >= contact_count)
+					throw std::runtime_error("GPU resolver returned an invalid contact order index");
+
+				auto const& c = m_cache->m_contacts[contact_idx];
 				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
+			}
 
 			Collisions(*this, m_cache->m_contacts_cpu);
 		}
 
 		// Unpack the GPU results into the RigidBody objects
-		for (auto [body, i] : with_index(rigid_bodies))
 		{
-			m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
-			UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleep_island_unpack_ms>(m_last_step_profile);
+			for (int i = 0; i != body_count; ++i)
+				m_cache->UnpackSleepIsland(m_cache->m_rb_dynamics[i]);
+		}
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_unpack_ms>(m_last_step_profile);
+			for (auto [body, i] : with_index(rigid_bodies))
+				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
 		}
 
-		#if PR_DBG_PHYSICS
+		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_diagnostics_ms>(m_last_step_profile);
+
 			// Look for anomolies in the dynamics and log them.
 			m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
 			{
@@ -380,17 +636,18 @@ namespace pr::physics
 				return false;
 			});
 		}
-		#endif
 	}
 
 	// Narrow phase collision detection.
-	// Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
-	// All collision data (point, axis, depth) is computed in objA's object space to
-	// minimise floating-point error. Returns true if the objects are in contact and
-	// the contact is approaching (not separating).
 	bool Engine::NarrowPhaseCollision(float dt, RbContact& c)
 	{
-		// This is the CPU reference implementation. Keep.
+		// Notes:
+		//  - This is the CPU reference implementation. Keep.
+		//  - Tests whether 'objA' and 'objB' are geometrically in contact using GJK/SAT.
+		//    All collision data (point, axis, depth) is computed in objA's object space to
+		//    minimise floating-point error. Returns true if the objects are in contact and
+		//    the contact is approaching (not separating).
+
 		auto& objA = *c.m_objA;
 		auto& objB = *c.m_objB;
 
@@ -426,16 +683,18 @@ namespace pr::physics
 	}
 
 	// Calculate and apply the restitution impulse to resolve a collision.
-	// The impulse is computed in objA's space (where all contact data lives),
-	// then transformed to each body's own object space before being applied.
-	//
-	// Important: When multiple collisions are resolved in a single time step,
-	// earlier resolutions change body momenta. We must recompute the relative
-	// velocity using CURRENT momenta before computing each impulse, otherwise
-	// stale velocity data causes catastrophic energy injection.
 	void Engine::ResolveCollision(RbContact& c)
 	{
-		// This is the CPU reference implementation. Keep.
+		// Notes:
+		//  - This is the CPU reference implementation. Keep.
+		//  - The impulse is computed in objA's space (where all contact data lives),
+		//    then transformed to each body's own object space before being applied.
+		//
+		//  Important: When multiple collisions are resolved in a single time step,
+		//  earlier resolutions change body momenta. We must recompute the relative
+		//  velocity using CURRENT momenta before computing each impulse, otherwise
+		//  stale velocity data causes catastrophic energy injection.
+
 		auto& objA = const_cast<RigidBody&>(*c.m_objA);
 		auto& objB = const_cast<RigidBody&>(*c.m_objB);
 

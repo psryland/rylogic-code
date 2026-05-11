@@ -1242,6 +1242,38 @@ namespace pr::hlsl
 		auto atomic = std::atomic_ref(dest);
 		original_value = atomic.fetch_add(value);
 	}
+	inline void InterlockedExchange(uint32_t& dest, uint32_t value, uint32_t& original_value)
+	{
+		auto atomic = std::atomic_ref(dest);
+		original_value = atomic.exchange(value);
+	}
+	// C++ equivalent of HLSL InterlockedCompareExchange. Thread-safe using std::atomic_ref.
+	inline void InterlockedCompareExchange(uint32_t& dest, uint32_t compare_value, uint32_t value, uint32_t& original_value)
+	{
+		auto atomic = std::atomic_ref(dest);
+		original_value = compare_value;
+		atomic.compare_exchange_strong(original_value, value);
+	}
+	inline void InterlockedMax(uint32_t& dest, uint32_t value)
+	{
+		auto atomic = std::atomic_ref(dest);
+		auto current = atomic.load();
+		while (current < value && !atomic.compare_exchange_weak(current, value))
+		{
+		}
+	}
+	inline void InterlockedMax(uint32_t& dest, uint32_t value, uint32_t& original_value)
+	{
+		auto atomic = std::atomic_ref(dest);
+		auto current = atomic.load();
+		do
+		{
+			original_value = current;
+			if (current >= value)
+				return;
+		}
+		while (!atomic.compare_exchange_weak(current, value));
+	}
 
 	#pragma endregion
 

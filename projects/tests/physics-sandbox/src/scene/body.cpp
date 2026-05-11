@@ -12,6 +12,13 @@ namespace physics_sandbox
 			static std::default_random_engine rng;
 			return RandomRGB(rng, 0.7f, 1.0f);
 		}
+		Colour32 DisplayColour(Colour32 colour, bool sleeping)
+		{
+			if (sleeping && colour.a > 0x30)
+				colour.a = 0x30;
+
+			return colour;
+		}
 	}
 
 	Body::Body(rdr12::Renderer* rdr, collision::Shape const* shape, m4x4 const& o2w, physics::Inertia const& inertia)
@@ -19,6 +26,9 @@ namespace physics_sandbox
 		, m_gfx()
 		, m_gfx_o2b(m4x4::Identity())
 		, m_colour(NextBodyColour())
+		, m_priority_colour(Colour32White)
+		, m_applied_colour(Colour32Black)
+		, m_priority_colour_enabled(false)
 	{
 		// Rebuild graphics whenever the collision shape changes.
 		ShapeChange += [rdr](RigidBody& sender, auto args)
@@ -53,14 +63,25 @@ namespace physics_sandbox
 		{
 			m_gfx->O2W(m_o2w * m_gfx_o2b);
 
-			// Make sleeping bodies semi-transparent for debugging
-			bool sleeping = Sleeping();
-			if (sleeping != m_was_sleeping)
+			auto const colour = DisplayColour(m_priority_colour_enabled ? m_priority_colour : m_colour, Sleeping());
+			if (colour != m_applied_colour)
 			{
-				m_was_sleeping = sleeping;
-				m_gfx->GroupTint(sleeping ? 0x30FFFFFF : 0xFFFFFFFF);
+				m_applied_colour = colour;
+				m_gfx->GroupTint(Colour32White, "");
+				m_gfx->Colour(false, colour, "");
 			}
 		}
+	}
+
+	// Set/clear the contact-priority visual override colour.
+	void Body::PriorityColour(Colour32 colour, bool enabled)
+	{
+		if (m_priority_colour == colour && m_priority_colour_enabled == enabled)
+			return;
+
+		m_priority_colour = colour;
+		m_priority_colour_enabled = enabled;
+		UpdateGfx();
 	}
 
 	// Add the body's graphics to a scene for rendering this frame

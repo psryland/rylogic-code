@@ -2,30 +2,34 @@
 	"scene": {
 		"description": "Single box drop test: one box falling onto a ground plane. For debugging ground collisions.",
 		"camera": {
-			"position": [ 0.0, -20.0, 0.0 ],
-			"lookat": [ 0.0, 0.0, 0.0 ]
+			"position": [0.0, -20.0, 0.0],
+			"lookat": [0.0, 0.0, 0.0]
 		},
-		"gravity": [ 0, 0, -9.81 ],
+		"gravity": [0, 0, -9.81],
 		"material": {
 			"elasticity": 0.3,
 			"friction": 0.0
 		},
 		"ground_plane": {
-			"size": [ 200.0, 200.0 ],
+			"size": [200.0, 200.0],
 			"height": 0.0,
 			"texture": "#checker"
+		},
+		"shapes": {
+			"box": {
+				"name": "drop-box",
+				"type": "box",
+				"dimensions": [1.0, 1.3, 1.8]
+			}
 		},
 		"bodies": [
 			{
 				"name": "test_box",
-				"shape": {
-					"type": "box",
-					"dimensions": [ 1.0, 1.3, 1.8 ]
-				},
+				"shape": "drop-box",
 				"mass": 10.0,
-				"position": [ -5.0, 0.0, 3.0 ],
-				"rotation": [ 45.0, 0.0, 0.0 ],
-				"velocity": [ 0.8, 0.0, 0.0 ]
+				"position": [-5.0, 0.0, 3.0],
+				"rotation": [45.0, 0.0, 0.0],
+				"velocity": [0.8, 0.0, 0.0]
 			}
 		]
 	}

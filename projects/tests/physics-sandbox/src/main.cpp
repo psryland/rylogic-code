@@ -23,6 +23,27 @@ using namespace physics_sandbox;
 
 namespace physics_sandbox
 {
+	// Route CRT assertions to places that automation can see rather than to modal dialogs.
+	void ConfigureAssertReporting(bool console_output)
+	{
+		#if defined(_DEBUG)
+		_set_error_mode(_OUT_TO_STDERR);
+
+		auto mode = _CRTDBG_MODE_DEBUG;
+		if (console_output)
+			mode |= _CRTDBG_MODE_FILE;
+
+		for (auto report_type : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT})
+		{
+			_CrtSetReportMode(report_type, mode);
+			if (console_output)
+				_CrtSetReportFile(report_type, _CRTDBG_FILE_STDERR);
+		}
+		#else
+		(void)console_output;
+		#endif
+	}
+
 	// Attach stdout/stderr to the parent console, or allocate one when launched from Explorer.
 	void OpenConsoleOutput()
 	{
@@ -32,6 +53,7 @@ namespace physics_sandbox
 		FILE* fp = nullptr;
 		freopen_s(&fp, "CONOUT$", "w", stdout);
 		freopen_s(&fp, "CONOUT$", "w", stderr);
+		ConfigureAssertReporting(true);
 	}
 
 	// Run embedded unit tests to a console window and exit.
@@ -78,6 +100,48 @@ namespace physics_sandbox
 			options.m_trace_end = cmd("trace_end").as<int>();
 		if (cmd.count("ke_jump"))
 			options.m_trace_ke_jump = cmd("ke_jump").as<float>();
+		if (cmd.count("substeps"))
+			options.m_physics_substeps = cmd("substeps").as<int>();
+		if (cmd.count("solver_iterations"))
+			options.m_physics_solver_iterations = cmd("solver_iterations").as<int>();
+		if (cmd.count("position_iterations"))
+			options.m_physics_position_iterations = cmd("position_iterations").as<int>();
+		if (cmd.count("broadphase_aabb_margin"))
+			options.m_physics_broadphase_aabb_margin = cmd("broadphase_aabb_margin").as<float>();
+		if (cmd.count("contact_sort_propagation_scale"))
+			options.m_physics_contact_sort_propagation_scale = cmd("contact_sort_propagation_scale").as<float>();
+		if (cmd.count("contact_sort_shock_iterations"))
+			options.m_physics_contact_sort_shock_iterations = cmd("contact_sort_shock_iterations").as<int>();
+		if (cmd.count("contact_slop_scale"))
+			options.m_physics_contact_slop_scale = cmd("contact_slop_scale").as<float>();
+		if (cmd.count("support_contact_slop_scale"))
+			options.m_physics_support_contact_slop_scale = cmd("support_contact_slop_scale").as<float>();
+		if (cmd.count("warm_start_scale"))
+			options.m_physics_warm_start_scale = cmd("warm_start_scale").as<float>();
+		if (cmd.count("selective_refresh_passes"))
+			options.m_physics_selective_refresh_passes = cmd("selective_refresh_passes").as<int>();
+		if (cmd.count("selective_refresh_max_pairs"))
+			options.m_physics_selective_refresh_max_pairs = cmd("selective_refresh_max_pairs").as<int>();
+		if (cmd.count("selective_refresh_body_limit"))
+			options.m_physics_selective_refresh_body_limit = cmd("selective_refresh_body_limit").as<int>();
+		if (cmd.count("selective_refresh_contact_limit"))
+			options.m_physics_selective_refresh_contact_limit = cmd("selective_refresh_contact_limit").as<int>();
+		if (cmd.count("selective_refresh_solver_iterations"))
+			options.m_physics_selective_refresh_solver_iterations = cmd("selective_refresh_solver_iterations").as<int>();
+		if (cmd.count("selective_refresh_position_iterations"))
+			options.m_physics_selective_refresh_position_iterations = cmd("selective_refresh_position_iterations").as<int>();
+		if (cmd.count("selective_refresh_bias_scale"))
+			options.m_physics_selective_refresh_bias_scale = cmd("selective_refresh_bias_scale").as<float>();
+		if (cmd.count("selective_refresh_restitution_scale"))
+			options.m_physics_selective_refresh_restitution_scale = cmd("selective_refresh_restitution_scale").as<float>();
+		if (cmd.count("selective_refresh_adaptive_body_limit"))
+			options.m_physics_selective_refresh_adaptive_body_limit = cmd("selective_refresh_adaptive_body_limit").as<int>();
+		if (cmd.count("selective_refresh_adaptive_solver_iterations"))
+			options.m_physics_selective_refresh_adaptive_solver_iterations = cmd("selective_refresh_adaptive_solver_iterations").as<int>();
+		if (cmd.count("selective_refresh_support_only"))
+			options.m_physics_selective_refresh_support_only = cmd("selective_refresh_support_only").as<int>();
+		if (cmd.count("selective_refresh_resolve_support_only"))
+			options.m_physics_selective_refresh_resolve_support_only = cmd("selective_refresh_resolve_support_only").as<int>();
 		if (cmd.count("scan"))
 			options.m_scan_bodies = true;
 		if (cmd.count("scan_non_spheres"))
@@ -85,6 +149,18 @@ namespace physics_sandbox
 			options.m_scan_bodies = true;
 			options.m_scan_non_spheres = true;
 		}
+		if (cmd.count("column_metric"))
+			options.m_column_metric = true;
+		if (cmd.count("pyramid_metric"))
+			options.m_pyramid_metric = true;
+		if (cmd.count("cradle_metric"))
+			options.m_cradle_metric = true;
+		if (cmd.count("dzhanibekov_metric"))
+			options.m_dzhanibekov_metric = true;
+		if (cmd.count("sleep_metric"))
+			options.m_sleep_metric = true;
+		if (cmd.count("sleep_metric_non_spheres"))
+			options.m_sleep_metric_non_spheres = true;
 		if (cmd.count("engine_profile"))
 			options.m_engine_profile = true;
 
@@ -101,7 +177,7 @@ namespace physics_sandbox
 		}
 		catch (std::exception const& ex)
 		{
-			if (auto log = std::ofstream(log_path, std::ios::out | std::ios::trunc))
+			if (auto log = std::ofstream(log_path, std::ios::out | std::ios::app))
 				log << "EXCEPTION: " << ex.what() << "\n";
 
 			fprintf(stderr, "EXCEPTION: %s\n", ex.what());
@@ -159,10 +235,9 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	// and send them to stderr instead so the process terminates cleanly with diagnostics.
 	auto autoplay = cmd.count("autoplay") > 0;
 	if (autoplay)
-	{
-		_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
-		_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-	}
+		OpenConsoleOutput();
+	else
+		ConfigureAssertReporting(false);
 
 	try
 	{

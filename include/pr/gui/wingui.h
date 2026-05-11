@@ -1001,6 +1001,10 @@ namespace pr
 			{
 				return Rect(x, y, x + cx, y + cy);
 			}
+			Size Size() const
+			{
+				return gui::Size(cx, cy);
+			}
 		};
 
 		// Monitor info

@@ -94,6 +94,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\integrator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\jacobian.h" />
@@ -160,14 +161,23 @@
   -->
   <ItemGroup>
     <None Include="scenes\all_shapes_drop.json" />
+    <None Include="scenes\angular_integration_stress.json" />
     <None Include="scenes\box_vs_sphere.json" />
+    <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />
+    <None Include="scenes\brick_wall_2000.json" />
     <None Include="scenes\drop_test.json" />
+    <None Include="scenes\dzhanibekov_effect.json" />
+    <None Include="scenes\generated_stress.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />
+    <None Include="scenes\newtons_cradle.json" />
     <None Include="scenes\oblique_spheres.json" />
+    <None Include="scenes\pancake.json" />
+    <None Include="scenes\plate_drop.json" />
     <None Include="scenes\polytope_drop.json" />
     <None Include="scenes\simultaneous_impact_1000.json" />
+    <None Include="scenes\spinning_tops.json" />
     <None Include="scenes\stacked_column.json" />
     <None Include="scenes\stress_test_1000.json" />
     <None Include="scenes\three_body_chain.json" />

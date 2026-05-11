@@ -6,15 +6,49 @@ namespace physics_sandbox
 {
 	namespace
 	{
+		constexpr auto ContactPriorityFallbackColour = Colour32(0xFFFF8000U);
+
 		using Clock = std::chrono::steady_clock;
 
 		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+		void AddProfile(physics::Engine::StepProfile& lhs, physics::Engine::StepProfile const& rhs)
+		{
+			lhs.m_new_frame_ms += rhs.m_new_frame_ms;
+			lhs.m_pack_ms += rhs.m_pack_ms;
+			lhs.m_upload_ms += rhs.m_upload_ms;
+			lhs.m_integrate_ms += rhs.m_integrate_ms;
+			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
+			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
+			lhs.m_collide_ms += rhs.m_collide_ms;
+			lhs.m_resolve_ms += rhs.m_resolve_ms;
+			lhs.m_selective_ms += rhs.m_selective_ms;
+			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
+			lhs.m_readback_ms += rhs.m_readback_ms;
+			lhs.m_gpu_run_ms += rhs.m_gpu_run_ms;
+			lhs.m_gpu_prepare_ms += rhs.m_gpu_prepare_ms;
+			lhs.m_gpu_execute_ms += rhs.m_gpu_execute_ms;
+			lhs.m_gpu_wait_ms += rhs.m_gpu_wait_ms;
+			lhs.m_gpu_reset_ms += rhs.m_gpu_reset_ms;
+			lhs.m_unpack_ms += rhs.m_unpack_ms;
+			lhs.m_readback_access_ms += rhs.m_readback_access_ms;
+			lhs.m_body_readback_copy_ms += rhs.m_body_readback_copy_ms;
+			lhs.m_contact_readback_copy_ms += rhs.m_contact_readback_copy_ms;
+			lhs.m_collision_events_ms += rhs.m_collision_events_ms;
+			lhs.m_sleep_island_unpack_ms += rhs.m_sleep_island_unpack_ms;
+			lhs.m_body_unpack_ms += rhs.m_body_unpack_ms;
+			lhs.m_unpack_diagnostics_ms += rhs.m_unpack_diagnostics_ms;
+		}
 		bool SameVec(v4 const& lhs, v4 const& rhs)
 		{
 			return std::memcmp(&lhs, &rhs, sizeof(v4)) == 0;
+		}
+		Colour32 ContactPriorityColour(int order_idx, int order_count)
+		{
+			auto const t = order_count > 1 ? static_cast<float>(order_idx) / static_cast<float>(order_count - 1) : 0.0f;
+			return Colour32(0, static_cast<int>(128.0f + 127.0f * std::clamp(t, 0.0f, 1.0f)), 255, 255);
 		}
 		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
 		{
@@ -51,6 +85,48 @@ namespace physics_sandbox
 					throw std::runtime_error("Unknown shape type in scene description");
 				}
 			}
+		}
+		void AppendShape(byte_data<16>& shape_buffer, scene_loader::BodyDesc const& bd)
+		{
+			auto ofs = shape_buffer.size();
+			switch (bd.shape_type)
+			{
+				case scene_loader::BodyDesc::EShape::Box:
+				{
+					shape_buffer.push_back(collision::ShapeBox(bd.box_dimensions));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Sphere:
+				{
+					shape_buffer.push_back(collision::ShapeSphere(bd.sphere_radius));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Line:
+				{
+					shape_buffer.push_back(collision::ShapeLine(bd.line_length, bd.line_thickness));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Triangle:
+				{
+					shape_buffer.push_back(collision::ShapeTriangle(bd.tri_verts[0], bd.tri_verts[1], bd.tri_verts[2]));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Polytope:
+				{
+					shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown shape type in scene description");
+				}
+			}
+
+			// Pad to 16-byte alignment and update the shape's m_size to include the padding.
+			// collision::next() uses m_size to advance the shape pointer, so it must account
+			// for any alignment padding between shapes.
+			shape_buffer.pad_to(16);
+			shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = s_cast<int>(shape_buffer.size() - ofs);
 		}
 		m4x4 PrimitiveShapeToBody(Body const& body)
 		{
@@ -98,34 +174,20 @@ namespace physics_sandbox
 		, m_shape_buffer()
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
+		, m_physics_substeps(1)
+		, m_allow_sleeping(true)
 		, m_ground_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
+		, m_visual_mode(EVisualMode::Normal)
+		, m_collision_sub()
 		, m_show_contacts(true)
 		, m_clock()
 		, m_current_scenario()
 		, m_diag()
 		, m_step_count()
 	{
-		// Hook collision detection for detailed diagnostics only. The normal UI path uses the GPU contact counter
-		// after Step(), avoiding a full contact-buffer readback when contact details are not needed.
-		#ifdef PR_PHYSICS_DIAGNOSTICS
-		m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
-		{
-			UpdateCollisionGfx(contacts);
-
-			if (std::ssize(m_body) == 2 && !contacts.empty())
-			{
-				m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
-				m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
-
-				auto const& c = contacts.front();
-				m_diag.contact_point_ws = c.m_objA->O2W() * c.m_point_at_t;
-				m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
-				m_diag.depth = c.m_depth;
-			}
-		};
-		#endif
+		UpdateCollisionReadback();
 
 		// Create a coordinate frame at the origin for visual reference
 		if (m_rdr)
@@ -146,6 +208,13 @@ namespace physics_sandbox
 		m_diag.Reset();
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
+		m_physics_substeps = 1;
+		auto engine_config = DefaultEngineConfig();
+		engine_config.sleeping_enabled = m_allow_sleeping;
+		m_physics.Config(engine_config);
+
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
 
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
@@ -153,6 +222,7 @@ namespace physics_sandbox
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
 		m_shape_buffer.resize(0);
+		UpdateCollisionReadback();
 
 		// Set up perfectly elastic, frictionless material for clean collision tests
 		m_physics.Material(physics::Material{
@@ -169,31 +239,56 @@ namespace physics_sandbox
 	{
 		auto const step_beg = Clock::now();
 		m_clock += elapsed_seconds;
-		auto dt = float(elapsed_seconds);
+		auto const substeps = std::max(m_physics_substeps, 1);
+		auto dt = static_cast<float>(elapsed_seconds / substeps);
 
 		// Reset per-step collision flag
 		m_diag.occurred = false;
-
-		// Apply gravity as an external force: F = m * g.
-		// Static bodies (infinite mass) are skipped — they should not accelerate.
-		// Forces are cleared by Evolve() at the end of each step, so we re-apply each frame.
-		auto const gravity_beg = Clock::now();
-		if (LengthSq(m_gravity) != 0)
+		switch (m_visual_mode)
 		{
-			for (auto& body : m_body)
-				body.GravityWS(m_gravity);
+			case EVisualMode::Normal:
+			{
+				break;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				SetContactPriorityFallbackGfx();
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
 		}
-		auto const gravity_end = Clock::now();
+		auto engine_profile = physics::Engine::StepProfile{};
+		auto gravity_ms = 0.0;
+		auto physics_ms = 0.0;
 
-		// Step physics (Evolve → Broad Phase → Narrow Phase → PostCollisionDetection → Resolve)
-		auto const physics_beg = Clock::now();
-		m_physics.Step(dt, std::span{ m_body });
-		auto const physics_end = Clock::now();
-		if (m_physics.LastCollisionStats().LastContactCount() != 0)
+		for (int substep = 0; substep != substeps; ++substep)
 		{
-			m_diag.occurred = true;
+			// Apply gravity as an external force: F = m * g.
+			// Static bodies (infinite mass) are skipped — they should not accelerate.
+			// Forces are cleared by Evolve() at the end of each step, so we re-apply each substep.
+			auto const gravity_beg = Clock::now();
+			if (LengthSq(m_gravity) != 0)
+			{
+				for (auto& body : m_body)
+					body.GravityWS(m_gravity);
+			}
+			auto const gravity_end = Clock::now();
+			gravity_ms += ElapsedMs(gravity_beg, gravity_end);
+
+			// Step physics (Evolve -> Broad Phase -> Narrow Phase -> PostCollisionDetection -> Resolve).
+			auto const physics_beg = Clock::now();
+			m_physics.Step(dt, std::span{ m_body });
+			auto const physics_end = Clock::now();
+			physics_ms += ElapsedMs(physics_beg, physics_end);
+			AddProfile(engine_profile, m_physics.LastStepProfile());
+			if (m_physics.LastCollisionStats().LastContactCount() != 0)
+				m_diag.occurred = true;
+		}
+		if (m_diag.occurred)
 			++m_diag.count;
-		}
 
 		++m_step_count;
 
@@ -230,10 +325,10 @@ namespace physics_sandbox
 		auto const kill_end = Clock::now();
 
 		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
-		m_last_step_profile.m_gravity_ms = ElapsedMs(gravity_beg, gravity_end);
-		m_last_step_profile.m_physics_ms = ElapsedMs(physics_beg, physics_end);
+		m_last_step_profile.m_gravity_ms = gravity_ms;
+		m_last_step_profile.m_physics_ms = physics_ms;
 		m_last_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
-		m_last_step_profile.m_engine = m_physics.LastStepProfile();
+		m_last_step_profile.m_engine = engine_profile;
 
 		return m_diag.occurred;
 	}
@@ -242,6 +337,9 @@ namespace physics_sandbox
 	// forces so that collisions can be validated against analytic predictions.
 	void Scene::SetupScenario(EScenario scenario)
 	{
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
+
 		m_body.resize(0);
 		m_body.push_back(Body(m_rdr));
 		m_body.push_back(Body(m_rdr));
@@ -347,6 +445,7 @@ namespace physics_sandbox
 		DbgLog("  Total KE: %.6f\n", m_body[0].KineticEnergy() + m_body[1].KineticEnergy());
 
 		m_current_scenario = scenario;
+		UpdateCollisionReadback();
 	}
 
 	// Load a scene from a JSON file.
@@ -364,6 +463,9 @@ namespace physics_sandbox
 		m_step_count = 0;
 		m_diag.Reset();
 
+		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		m_physics.ResetCaches();
+
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
 
@@ -373,6 +475,36 @@ namespace physics_sandbox
 
 		// Apply gravity from the scene file
 		m_gravity = scene_desc.gravity;
+		m_physics_substeps = scene_desc.physics_substeps;
+		auto engine_config = DefaultEngineConfig();
+		engine_config.sleeping_enabled = m_allow_sleeping;
+		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
+		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
+		engine_config.push_out_iterations = scene_desc.physics_position_iterations;
+		engine_config.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin;
+		engine_config.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale;
+		engine_config.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations;
+		engine_config.contact_slop_scale = scene_desc.physics_contact_slop_scale;
+		engine_config.support_contact_slop_scale = scene_desc.physics_support_contact_slop_scale;
+		engine_config.warm_start_scale = scene_desc.physics_warm_start_scale;
+		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
+		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
+		engine_config.selective_refresh_body_limit = scene_desc.physics_selective_refresh_body_limit;
+		engine_config.selective_refresh_contact_limit = scene_desc.physics_selective_refresh_contact_limit;
+		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;
+		engine_config.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations;
+		engine_config.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale;
+		engine_config.selective_refresh_restitution_scale = scene_desc.physics_selective_refresh_restitution_scale;
+		engine_config.selective_refresh_adaptive_body_limit = scene_desc.physics_selective_refresh_adaptive_body_limit;
+		engine_config.selective_refresh_adaptive_solver_iterations = scene_desc.physics_selective_refresh_adaptive_solver_iterations;
+		engine_config.selective_refresh_support_only = scene_desc.physics_selective_refresh_support_only;
+		engine_config.selective_refresh_resolve_support_only = scene_desc.physics_selective_refresh_resolve_support_only;
+		engine_config.selective_refresh_depth_slop = scene_desc.physics_selective_refresh_depth_slop;
+		engine_config.selective_refresh_support_depth_slop = scene_desc.physics_selective_refresh_support_depth_slop;
+		engine_config.selective_refresh_closing_speed_slop = scene_desc.physics_selective_refresh_closing_speed_slop;
+		engine_config.selective_refresh_support_alignment = scene_desc.physics_selective_refresh_support_alignment;
+		engine_config.selective_refresh_aabb_margin = scene_desc.physics_selective_refresh_aabb_margin;
+		m_physics.Config(engine_config);
 
 		// Set the kill zone well below the ground plane. Bodies that fall below
 		// this height are frozen to prevent them from corrupting the simulation.
@@ -394,7 +526,6 @@ namespace physics_sandbox
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
 		m_last_load_profile.m_body_count = total_bodies;
-		m_last_load_profile.m_shape_count = total_bodies;
 		auto scene_bbox = CalculateSceneBBox(scene_desc);
 		const auto ground_thickness = 10.0f;
 		auto scene_rng = std::default_random_engine(scene_desc.seed);
@@ -402,51 +533,35 @@ namespace physics_sandbox
 		m_last_load_profile.m_bbox_ms = ElapsedMs(mark, bbox_end);
 		mark = bbox_end;
 
-		// Shapes for the bodies in the scene.
+		// Shapes for the bodies in the scene. Generated bodies deliberately reuse a small shape palette, and this de-duplicates identical
+		// descriptors across the whole scene so collision shapes are shared instead of rebuilt per body.
+		auto shape_lookup = std::vector<int>(num_scene_bodies, -1);
+		auto unique_shape_body_index = std::vector<int>{};
+		unique_shape_body_index.reserve(num_scene_bodies);
+		for (auto i = 0; i != num_scene_bodies; ++i)
 		{
-			m_shape_buffer.reserve(total_bodies * 512);
-			for (auto const& bd : scene_desc.bodies)
+			auto const& bd = scene_desc.bodies[i];
+			for (auto j = 0; j != isize(unique_shape_body_index); ++j)
 			{
-				auto ofs = m_shape_buffer.size();
-				switch (bd.shape_type)
+				if (SameShapeDesc(bd, scene_desc.bodies[unique_shape_body_index[j]]))
 				{
-					case scene_loader::BodyDesc::EShape::Box:
-					{
-						m_shape_buffer.push_back(collision::ShapeBox(bd.box_dimensions));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Sphere:
-					{
-						m_shape_buffer.push_back(collision::ShapeSphere(bd.sphere_radius));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Line:
-					{
-						m_shape_buffer.push_back(collision::ShapeLine(bd.line_length, bd.line_thickness));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Triangle:
-					{
-						m_shape_buffer.push_back(collision::ShapeTriangle(bd.tri_verts[0], bd.tri_verts[1], bd.tri_verts[2]));
-						break;
-					}
-					case scene_loader::BodyDesc::EShape::Polytope:
-					{
-						m_shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
-						break;
-					}
-					default:
-					{
-						throw std::runtime_error("Unknown shape type in scene description");
-					}
+					shape_lookup[i] = j;
+					break;
 				}
-
-				// Pad to 16-byte alignment and update the shape's m_size to include the padding.
-				// collision::next() uses m_size to advance the shape pointer, so it must account
-				// for any alignment padding between shapes.
-				m_shape_buffer.pad_to(16);
-				m_shape_buffer.at_byte_ofs<collision::Shape>(ofs).m_size = s_cast<int>(m_shape_buffer.size() - ofs);
 			}
+
+			if (shape_lookup[i] == -1)
+			{
+				shape_lookup[i] = isize(unique_shape_body_index);
+				unique_shape_body_index.push_back(i);
+			}
+		}
+
+		m_last_load_profile.m_shape_count = isize(unique_shape_body_index) + (scene_desc.ground ? 1 : 0);
+		{
+			m_shape_buffer.reserve(m_last_load_profile.m_shape_count * 512);
+			for (auto body_index : unique_shape_body_index)
+				AppendShape(m_shape_buffer, scene_desc.bodies[body_index]);
 
 			// Create a collision shape for the ground plane
 			if (scene_desc.ground)
@@ -454,7 +569,10 @@ namespace physics_sandbox
 				// Create the ground plane body as a large thin box with infinite mass.
 				v2 extent = scene_desc.ground->size;
 				if (LengthSq(extent) == 0) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
-				m_shape_buffer.push_back(collision::ShapeBox(v4{ extent.x, extent.y, ground_thickness, 0 }));
+				auto bd = scene_loader::BodyDesc{};
+				bd.shape_type = scene_loader::BodyDesc::EShape::Box;
+				bd.box_dimensions = v4{ extent.x, extent.y, ground_thickness, 0 };
+				AppendShape(m_shape_buffer, bd);
 			}
 		}
 		auto const shapes_end = Clock::now();
@@ -463,25 +581,29 @@ namespace physics_sandbox
 
 		// Bodies from the scene description.
 		{
-			auto shape_ptr = m_shape_buffer.data<collision::Shape>();
+			auto shape_ptrs = std::vector<collision::Shape const*>{};
+			shape_ptrs.reserve(m_last_load_profile.m_shape_count);
+			for (auto shape_ptr = m_shape_buffer.data<collision::Shape>(); shape_ptr != nullptr && isize(shape_ptrs) != m_last_load_profile.m_shape_count; shape_ptr = collision::next(shape_ptr))
+				shape_ptrs.push_back(shape_ptr);
+			if (isize(shape_ptrs) != m_last_load_profile.m_shape_count)
+				throw std::runtime_error("Scene shape buffer ended before all shapes were read");
 
 			// Phase 1: Create bodies WITHOUT the renderer so the ShapeChange handler doesn't
 			// try to create graphics yet. This avoids dangling pointer issues during the
 			// construction loop (graphics creation calls AddShape which reads the shape data).
 			m_body.reserve(total_bodies);
-			for (auto const& bd : scene_desc.bodies)
+			for (auto body_index = 0; body_index != num_scene_bodies; ++body_index)
 			{
+				auto const& bd = scene_desc.bodies[body_index];
 				Body body(nullptr);
 				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
 				body.O2W(o2w);
-				body.Shape(shape_ptr, bd.mass);
+				body.Shape(shape_ptrs[shape_lookup[body_index]], bd.mass);
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				if (bd.sleeping)
 					body.Sleep();
 				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
-
-				shape_ptr = collision::next(shape_ptr);
 			}
 
 			// Create the ground plane body as a large thin box with infinite mass.
@@ -490,13 +612,16 @@ namespace physics_sandbox
 			{
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
-				ground.Shape(shape_ptr, -1.0f);
+				ground.Shape(shape_ptrs.back(), -1.0f);
 				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
-
-				shape_ptr = collision::next(shape_ptr);
 			}
+
+			// Scene files can instantiate objects directly asleep. Build those initial islands explicitly during load so Engine::Step() can
+			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
+			m_physics.UpdateSleepIslands(m_body);
 		}
+		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);
 		mark = bodies_end;
@@ -886,6 +1011,181 @@ namespace physics_sandbox
 		(void)contacts;
 	}
 
+	EVisualMode Scene::VisualMode() const
+	{
+		return m_visual_mode;
+	}
+
+	void Scene::VisualMode(EVisualMode mode)
+	{
+		auto const changed = m_visual_mode != mode;
+		if (!changed)
+			return;
+
+		m_visual_mode = mode;
+		switch (m_visual_mode)
+		{
+			case EVisualMode::Normal:
+			{
+				ClearContactPriorityGfx();
+				break;
+			}
+			case EVisualMode::ContactPriority:
+			{
+				SetContactPriorityFallbackGfx();
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
+		UpdateCollisionReadback();
+	}
+
+	bool Scene::AllowSleeping() const
+	{
+		return m_allow_sleeping;
+	}
+
+	void Scene::AllowSleeping(bool allow_sleeping)
+	{
+		m_allow_sleeping = allow_sleeping;
+
+		auto engine_config = m_physics.Config();
+		engine_config.sleeping_enabled = m_allow_sleeping;
+		m_physics.Config(engine_config);
+	}
+
+	void Scene::UpdateContactPriorityGfx(std::span<physics::RbContact const> contacts)
+	{
+		if (contacts.empty())
+			return;
+
+		auto body_lookup = std::unordered_map<physics::RigidBody const*, int>{};
+		body_lookup.reserve(m_body.size());
+		for (int body_idx = 0; body_idx != isize(m_body); ++body_idx)
+		{
+			auto const& body = m_body[body_idx];
+			body_lookup.emplace(static_cast<physics::RigidBody const*>(&body), body_idx);
+		}
+
+		auto first_contact_order = std::vector<int>(m_body.size(), -1);
+		auto non_static_contact_count = 0;
+		for (int contact_order = 0; contact_order != isize(contacts); ++contact_order)
+		{
+			auto const& contact = contacts[contact_order];
+			auto const iter_a = body_lookup.find(contact.m_objA);
+			auto const iter_b = body_lookup.find(contact.m_objB);
+			if (iter_a == body_lookup.end() || iter_b == body_lookup.end())
+				throw std::runtime_error("Contact priority visualisation received a contact for an unknown body");
+
+			auto const body_idx_a = iter_a->second;
+			auto const body_idx_b = iter_b->second;
+			if (AllSet(m_body[body_idx_a].StateFlags(), physics::ERigidBodyStateFlags::Static) ||
+				AllSet(m_body[body_idx_b].StateFlags(), physics::ERigidBodyStateFlags::Static))
+				continue;
+
+			if (first_contact_order[body_idx_a] == -1)
+				first_contact_order[body_idx_a] = non_static_contact_count;
+			if (first_contact_order[body_idx_b] == -1)
+				first_contact_order[body_idx_b] = non_static_contact_count;
+
+			++non_static_contact_count;
+		}
+
+		for (int body_idx = 0; body_idx != isize(m_body); ++body_idx)
+		{
+			if (first_contact_order[body_idx] == -1)
+				continue;
+
+			m_body[body_idx].PriorityColour(ContactPriorityColour(first_contact_order[body_idx], non_static_contact_count), true);
+		}
+	}
+
+	void Scene::ClearContactPriorityGfx()
+	{
+		for (auto& body : m_body)
+			body.PriorityColour(Colour32White, false);
+	}
+
+	void Scene::SetContactPriorityFallbackGfx()
+	{
+		for (auto& body : m_body)
+			body.PriorityColour(ContactPriorityFallbackColour, true);
+	}
+
+	bool Scene::NeedsCollisionReadback() const
+	{
+		switch (m_visual_mode)
+		{
+			case EVisualMode::Normal:
+			{
+				#if PR_PHYSICS_DIAGNOSTICS
+				// Two-body scenarios use detailed contact callbacks to populate the analytic collision log. Larger file-loaded diagnostics
+				// normally only need collision counters, so avoid reading and constructing every contact unless another subscriber asks for it.
+				return std::ssize(m_body) == 2;
+				#else
+				return false;
+				#endif
+			}
+			case EVisualMode::ContactPriority:
+			{
+				return true;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown visual mode");
+			}
+		}
+	}
+
+	void Scene::UpdateCollisionReadback()
+	{
+		auto const needs_readback = NeedsCollisionReadback();
+		if (needs_readback && !m_collision_sub)
+		{
+			m_collision_sub = m_physics.Collisions += [&](auto&, std::span<physics::RbContact const> contacts)
+			{
+				UpdateCollisionGfx(contacts);
+
+				switch (m_visual_mode)
+				{
+					case EVisualMode::Normal:
+					{
+						break;
+					}
+					case EVisualMode::ContactPriority:
+					{
+						UpdateContactPriorityGfx(contacts);
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown visual mode");
+					}
+				}
+
+				#if PR_PHYSICS_DIAGNOSTICS
+				if (std::ssize(m_body) == 2 && !contacts.empty())
+				{
+					m_diag.before[0] = BodySnapshot::Capture(m_body[0]);
+					m_diag.before[1] = BodySnapshot::Capture(m_body[1]);
+
+					auto const& c = contacts.front();
+					m_diag.contact_point_ws = c.m_objA->O2W() * c.m_point_at_t;
+					m_diag.contact_normal_ws = (c.m_objA->O2W().rot * c.m_axis).w0();
+					m_diag.depth = c.m_depth;
+				}
+				#endif
+			};
+		}
+		else if (!needs_readback && m_collision_sub)
+		{
+			m_physics.Collisions -= m_collision_sub;
+		}
+	}
+
 	// Calculate the bounding box for the scene (excluding terrain)
 	BBox Scene::CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const
 	{
@@ -913,3 +1213,89 @@ namespace physics_sandbox
 		return bbox;
 	}
 }
+
+#if PR_UNITTESTS
+namespace physics_sandbox::tests
+{
+	namespace
+	{
+		struct ReloadBodyState
+		{
+			v4 m_pos;
+			v8motion m_vel;
+		};
+
+		scene_loader::SceneDesc BoxScene(v4 const& dimensions, float z)
+		{
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.description = "Scene reload cache test";
+			scene_desc.gravity = v4::Zero();
+			scene_desc.ground = scene_loader::GroundPlaneDesc{
+				.size = v2{ 10.0f, 10.0f },
+				.height = 0.0f,
+			};
+			scene_desc.bodies.push_back(scene_loader::BodyDesc{
+				.name = "box",
+				.shape_type = scene_loader::BodyDesc::EShape::Box,
+				.box_dimensions = dimensions,
+				.mass = 1.0f,
+				.position = v4{ 0.0f, 0.0f, z, 1.0f },
+			});
+			return scene_desc;
+		}
+
+		std::vector<ReloadBodyState> RunScene(Scene& scene, scene_loader::SceneDesc scene_desc, int step_count)
+		{
+			scene.LoadScene(std::move(scene_desc));
+
+			auto const dt = 1.0 / 60.0;
+			for (int step = 0; step != step_count; ++step)
+				scene.Step(dt);
+
+			auto state = std::vector<ReloadBodyState>();
+			state.reserve(s_cast<size_t>(std::ssize(scene.m_body)));
+			for (auto const& body : scene.m_body)
+			{
+				state.push_back(ReloadBodyState{
+					.m_pos = body.O2W().pos,
+					.m_vel = body.VelocityWS(),
+				});
+			}
+
+			return state;
+		}
+		void ExpectSameState(char const* label, std::vector<ReloadBodyState> const& baseline, std::vector<ReloadBodyState> const& actual)
+		{
+			PR_EXPECT(baseline.size() == actual.size());
+			for (int i = 0; i != std::ssize(baseline) && i != std::ssize(actual); ++i)
+			{
+				auto const pos_delta = Length(baseline[i].m_pos - actual[i].m_pos);
+				auto const lin_vel_delta = Length(baseline[i].m_vel.lin - actual[i].m_vel.lin);
+				auto const ang_vel_delta = Length(baseline[i].m_vel.ang - actual[i].m_vel.ang);
+				if (pos_delta >= 0.001f || lin_vel_delta >= 0.001f || ang_vel_delta >= 0.001f)
+				{
+					DbgLog("Scene reload mismatch %s body %d: pos_delta=%g lin_vel_delta=%g ang_vel_delta=%g\n", label, i, pos_delta, lin_vel_delta, ang_vel_delta);
+					PR_EXPECT(false);
+				}
+			}
+		}
+	}
+
+	PRUnitTestClass(SceneReloadTests)
+	{
+		PRUnitTestMethod(LoadSceneClearsEngineCachedShapeState)
+		{
+			auto scene = Scene(nullptr);
+			auto short_box = BoxScene(v4{ 1.0f, 1.0f, 1.0f, 0.0f }, 0.6f);
+			auto tall_box = BoxScene(v4{ 1.0f, 1.0f, 4.0f, 0.0f }, 2.0f);
+
+			auto const baseline = RunScene(scene, short_box, 1);
+			scene.m_physics.ResetCaches();
+			(void)RunScene(scene, tall_box, 1);
+			auto const reloaded = RunScene(scene, short_box, 1);
+
+			ExpectSameState("short_box_after_tall_box", baseline, reloaded);
+		}
+	};
+}
+#endif

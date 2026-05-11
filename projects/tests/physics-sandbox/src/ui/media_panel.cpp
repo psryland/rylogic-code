@@ -9,9 +9,12 @@ namespace physics_sandbox
 		, m_btn_pause(Button::Params<>().parent(this_).text(L"\u23F8 Pause").xy(84, 4).wh(80, 26))
 		, m_btn_step(Button::Params<>().parent(this_).text(L"\u23ED Step").xy(168, 4).wh(80, 26))
 		, m_btn_reset(Button::Params<>().parent(this_).text(L"\u23EE Reset").xy(252, 4).wh(80, 26))
+		, m_chk_allow_sleeping(Button::Params<>().parent(this_).text(L"Allow Sleeping").xy(560, 4).wh(130, 26).chk_box())
 		, m_lbl_speed(Label::Params<>().parent(this_).text(L"Speed: 1.00x").xy(280, 4).wh(100, 26).style('+', SS_CENTERIMAGE))
 		, m_slider(nullptr)
 	{
+		m_chk_allow_sleeping.Checked(true);
+
 		// Ensure the trackbar common control class is registered.
 		// The default InitCtrls() only loads ICC_STANDARD_CLASSES which doesn't
 		// include the trackbar. ICC_BAR_CLASSES covers toolbar, statusbar, trackbar.
@@ -19,7 +22,7 @@ namespace physics_sandbox
 		::InitCommonControlsEx(&icc);
 
 		// Centre the button group and slider group when the panel is resized.
-		// Layout: [Play][Pause][Reset] --- gap --- [Speed: 1.00x][====slider====]
+		// Layout: [Play][Pause][Step][Reset] --- gap --- [Speed: 1.00x][====slider====] --- gap --- [Allow Sleeping]
 		// All controls share the same vertical centre (y=4, h=26 → midpoint at 17px).
 		// The trackbar is created lazily here because wingui defers HWND creation —
 		// m_hwnd is null during the constructor body, so CreateWindowEx would fail.
@@ -45,8 +48,10 @@ namespace physics_sandbox
 			auto btn_group_w = 80 + 4 + 80 + 4 + 80 + 4 + 80; // = 332
 			// Slider group: speed label (100px) + gap (8px) + slider (150px)
 			auto slider_group_w = 100 + 8 + 150; // = 258
-			// Total width with 24px gap between groups
-			auto total_w = btn_group_w + 24 + slider_group_w;
+			// Sleep group: checkbox label and box.
+			auto sleep_group_w = 130;
+			// Total width with gaps between groups
+			auto total_w = btn_group_w + 24 + slider_group_w + 16 + sleep_group_w;
 			auto left = (cx - total_w) / 2;
 
 			// All controls vertically centred at y=4, h=26
@@ -60,6 +65,8 @@ namespace physics_sandbox
 			::SetWindowPos(m_lbl_speed, nullptr, slider_left, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 			if (m_slider)
 				::SetWindowPos(m_slider, nullptr, slider_left + 108, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+
+			::SetWindowPos(m_chk_allow_sleeping, nullptr, slider_left + slider_group_w + 16, 4, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 		};
 
 		// Wire button clicks to events
@@ -78,6 +85,10 @@ namespace physics_sandbox
 		m_btn_reset.Click += [&](Button&, pr::gui::EmptyArgs const&)
 		{
 			OnReset(*this, pr::gui::EmptyArgs{});
+		};
+		m_chk_allow_sleeping.CheckedChanged += [&](Button&, pr::gui::EmptyArgs const&)
+		{
+			OnAllowSleepingChanged(*this, pr::gui::EmptyArgs{});
 		};
 	}
 
@@ -106,6 +117,16 @@ namespace physics_sandbox
 
 		auto pos = Clamp(static_cast<int>(scale * 100.0f), SliderMin, SliderMax);
 		::SendMessage(m_slider, TBM_SETPOS, TRUE, pos);
+	}
+
+	bool MediaPanel::AllowSleeping() const
+	{
+		return m_chk_allow_sleeping.Checked();
+	}
+
+	void MediaPanel::AllowSleeping(bool allow_sleeping)
+	{
+		m_chk_allow_sleeping.Checked(allow_sleeping);
 	}
 
 	// Update the speed label to reflect the current slider position.
