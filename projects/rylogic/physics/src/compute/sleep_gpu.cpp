@@ -262,18 +262,26 @@ namespace pr::physics
 			commit_scratch_barriers();
 		}
 		{
-			bind_update(m_cs_union_sleep_contacts);
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch.get());
+			// Parallel union can miss a transitive edge if two contacts relink a shared endpoint in the same dispatch. Repeating hook/compress sweeps makes
+			// the connected components converge without serialising contact processing.
+			auto union_iteration_count = 1;
+			for (auto span = body_count; span > 2 && union_iteration_count != 8; span = (span + 1) / 2)
+				++union_iteration_count;
 
-			job.m_barriers.UAV(m_r_sleep_parents.get());
-			job.m_barriers.Commit();
-		}
-		{
-			bind_update(m_cs_canonicalise_roots);
-			job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
+			for (int iteration = 0; iteration != union_iteration_count; ++iteration)
+			{
+				bind_update(m_cs_union_sleep_contacts);
+				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch.get());
 
-			job.m_barriers.UAV(m_r_sleep_parents.get());
-			job.m_barriers.Commit();
+				job.m_barriers.UAV(m_r_sleep_parents.get());
+				job.m_barriers.Commit();
+
+				bind_update(m_cs_canonicalise_roots);
+				job.m_cmd_list.Dispatch(body_dispatch_count, 1, 1);
+
+				job.m_barriers.UAV(m_r_sleep_parents.get());
+				job.m_barriers.Commit();
+			}
 		}
 		{
 			bind_update(m_cs_reduce_sleep_stats);
