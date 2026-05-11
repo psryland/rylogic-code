@@ -469,6 +469,30 @@ VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(view3d::Window windo
 	CatchAndReport(View3D_WindowRayTracingEnabledSet, window,);
 }
 
+// Get the selected per-window ray tracing feature flags.
+VIEW3D_API view3d::ERayTracingFeature __stdcall View3D_WindowRayTracingFeaturesGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		return window->RayTracingFeatures();
+	}
+	CatchAndReport(View3D_WindowRayTracingFeaturesGet, window, view3d::ERayTracingFeature::None);
+}
+
+// Set the selected per-window ray tracing feature flags.
+VIEW3D_API void __stdcall View3D_WindowRayTracingFeaturesSet(view3d::Window window, view3d::ERayTracingFeature features)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->RayTracingFeatures(features);
+	}
+	CatchAndReport(View3D_WindowRayTracingFeaturesSet, window,);
+}
+
 // Get/Set the dimensions of the render target
 // In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
 VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(view3d::Window window)

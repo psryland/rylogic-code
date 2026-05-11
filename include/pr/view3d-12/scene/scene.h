@@ -50,6 +50,7 @@ namespace pr::rdr12
 		TextureCubePtr   m_global_envmap;    // A global environment map
 		EFillMode        m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
+		ERayTracingFeature m_ray_tracing_features; // Ray tracing features selected for this scene.
 		AutoSub          m_eh_resize;        // RT resize event handler subscription
 
 		Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps = {ERenderStep::RenderForward}, SceneCamera const& cam = SceneCamera{});
@@ -107,6 +108,10 @@ namespace pr::rdr12
 
 		// Enable/disable ray tracing for this scene.
 		void RayTracing(bool enable);
+
+		// Get/Set the selected ray tracing features for this scene.
+		ERayTracingFeature RayTracingFeatures() const;
+		void RayTracingFeatures(ERayTracingFeature features);
 
 		// Get/Set the scene-wide fill mode default.
 		EFillMode FillMode() const;

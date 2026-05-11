@@ -27,6 +27,8 @@ namespace pr::rdr12
 		, m_global_light()
 		, m_global_envmap()
 		, m_global_fill_mode(EFillMode::Default)
+		, m_pso()
+		, m_ray_tracing_features(ERayTracingFeature::All)
 		, m_eh_resize()
 	{
 		// Initialise the scene camera to match the full window
@@ -159,6 +161,30 @@ namespace pr::rdr12
 		if (!enable && FindRStep<RenderRayTracing>() != nullptr)
 		{
 			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::RayTracing; });
+		}
+	}
+
+	// Get the selected ray tracing features for this scene.
+	ERayTracingFeature Scene::RayTracingFeatures() const
+	{
+		return m_ray_tracing_features;
+	}
+	void Scene::RayTracingFeatures(ERayTracingFeature features)
+	{
+		switch (features)
+		{
+			case ERayTracingFeature::None:
+			case ERayTracingFeature::Reflections:
+			case ERayTracingFeature::Caustics:
+			case ERayTracingFeature::All:
+			{
+				m_ray_tracing_features = features;
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown ray tracing feature flags");
+			}
 		}
 	}
 

@@ -12,6 +12,7 @@ namespace pr::rdr12
 
 	enum class ERayTracingScreenPass
 	{
+		None,
 		Diagnostic,
 		HardShadows,
 		Reflections,

@@ -473,6 +473,13 @@ namespace Rylogic.Gfx
 			Tier1_1,
 			Unknown,
 		}
+		[Flags] public enum ERayTracingFeature : int
+		{
+			None        = 0,
+			Reflections = 1 << 0,
+			Caustics    = 1 << 1,
+			All         = Reflections | Caustics,
+		}
 		#endregion
 		#region D3D Enumerations
 		public enum EFormat : uint
@@ -1755,6 +1762,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern RayTracingInfo View3D_WindowRayTracingInfoGet(HWindow window);
 		[DllImport(Dll)] private static extern bool View3D_WindowRayTracingEnabledGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowRayTracingEnabledSet(HWindow window, bool enable);
+		[DllImport(Dll)] private static extern ERayTracingFeature View3D_WindowRayTracingFeaturesGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowRayTracingFeaturesSet(HWindow window, ERayTracingFeature features);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 		// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

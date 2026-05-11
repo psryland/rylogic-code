@@ -60,6 +60,32 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
+		/// <summary>Enable/disable ray traced reflections for this window</summary>
+		public bool ReflectionsEnabled
+		{
+			get
+			{
+				return m_window.RayTracingFeatures.HasFlag(View3d.ERayTracingFeature.Reflections);
+			}
+			set
+			{
+				SetFeature(View3d.ERayTracingFeature.Reflections, value);
+			}
+		}
+
+		/// <summary>Enable/disable ray traced caustics for this window</summary>
+		public bool CausticsEnabled
+		{
+			get
+			{
+				return m_window.RayTracingFeatures.HasFlag(View3d.ERayTracingFeature.Caustics);
+			}
+			set
+			{
+				SetFeature(View3d.ERayTracingFeature.Caustics, value);
+			}
+		}
+
 		/// <summary>Status text describing whether ray tracing can be enabled</summary>
 		public string StatusText
 		{
@@ -68,7 +94,7 @@ namespace Rylogic.Gui.WPF
 				var info = m_window.RayTracingInfo;
 				if (info.Available)
 					return info.Enabled
-						? "Ray tracing is enabled. The current implementation renders diagnostic-coloured reflections for opaque static geometry."
+						? $"Ray tracing is enabled. Active features: {FeatureNames(m_window.RayTracingFeatures)}."
 						: "Ray tracing is available but disabled. Enable it to add the ray tracing render step to this view.";
 
 				if (!info.Requested)
@@ -79,6 +105,18 @@ namespace Rylogic.Gui.WPF
 
 				return $"Ray tracing is unavailable ({TierName(info.Tier)}).";
 			}
+		}
+
+		/// <summary>Set or clear one ray tracing feature flag</summary>
+		private void SetFeature(View3d.ERayTracingFeature feature, bool enable)
+		{
+			var features = m_window.RayTracingFeatures;
+			var next = enable ? features | feature : features & ~feature;
+			if (features == next)
+				return;
+
+			m_window.RayTracingFeatures = next;
+			NotifyRayTracingChanged();
 		}
 
 		/// <summary>Close the ray tracing configuration dialog</summary>
@@ -105,7 +143,37 @@ namespace Rylogic.Gui.WPF
 		{
 			NotifyPropertyChanged(nameof(RayTracingAvailable));
 			NotifyPropertyChanged(nameof(RayTracingEnabled));
+			NotifyPropertyChanged(nameof(ReflectionsEnabled));
+			NotifyPropertyChanged(nameof(CausticsEnabled));
 			NotifyPropertyChanged(nameof(StatusText));
+		}
+
+		/// <summary>Convert selected ray tracing feature flags to display text</summary>
+		private static string FeatureNames(View3d.ERayTracingFeature features)
+		{
+			switch (features)
+			{
+			case View3d.ERayTracingFeature.None:
+				{
+					return "none";
+				}
+			case View3d.ERayTracingFeature.Reflections:
+				{
+					return "reflections";
+				}
+			case View3d.ERayTracingFeature.Caustics:
+				{
+					return "caustics";
+				}
+			case View3d.ERayTracingFeature.All:
+				{
+					return "reflections and caustics";
+				}
+			default:
+				{
+					throw new ArgumentOutOfRangeException(nameof(features), features, "Unknown ray tracing feature flags");
+				}
+			}
 		}
 
 		/// <summary>Convert the public ray tracing tier enum to display text</summary>

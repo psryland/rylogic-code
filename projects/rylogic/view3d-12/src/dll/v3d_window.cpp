@@ -216,6 +216,21 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get the selected ray tracing feature flags for this window.
+	view3d::ERayTracingFeature V3dWindow::RayTracingFeatures() const
+	{
+		return static_cast<view3d::ERayTracingFeature>(m_scene.RayTracingFeatures());
+	}
+	void V3dWindow::RayTracingFeatures(view3d::ERayTracingFeature features)
+	{
+		if (RayTracingFeatures() == features)
+			return;
+
+		m_scene.RayTracingFeatures(static_cast<ERayTracingFeature>(features));
+		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
+		Invalidate();
+	}
+
 	// The DPI of the monitor that this window is displayed on
 	v2 V3dWindow::Dpi() const
 	{

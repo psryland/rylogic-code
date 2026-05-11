@@ -49,10 +49,36 @@ namespace pr::rdr12
 	// Return the selected RT screen-space pass for this frame.
 	ERayTracingScreenPass RenderRayTracing::ScreenPass() const
 	{
-		return RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC") ? ERayTracingScreenPass::Diagnostic :
-			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_HARD_SHADOWS") ? ERayTracingScreenPass::HardShadows :
-			RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_CAUSTICS") ? ERayTracingScreenPass::Caustics :
-			ERayTracingScreenPass::ReflectionsAndCaustics;
+		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_DIAGNOSTIC"))
+			return ERayTracingScreenPass::Diagnostic;
+		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_HARD_SHADOWS"))
+			return ERayTracingScreenPass::HardShadows;
+		if (RayTracingFeatureRequested(L"RYLOGIC_VIEW3D_RAY_TRACING_CAUSTICS"))
+			return ERayTracingScreenPass::Caustics;
+
+		switch (scn().RayTracingFeatures())
+		{
+			case ERayTracingFeature::None:
+			{
+				return ERayTracingScreenPass::None;
+			}
+			case ERayTracingFeature::Reflections:
+			{
+				return ERayTracingScreenPass::Reflections;
+			}
+			case ERayTracingFeature::Caustics:
+			{
+				return ERayTracingScreenPass::Caustics;
+			}
+			case ERayTracingFeature::All:
+			{
+				return ERayTracingScreenPass::ReflectionsAndCaustics;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown ray tracing feature flags");
+			}
+		}
 	}
 
 	// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
@@ -77,7 +103,8 @@ namespace pr::rdr12
 	// Perform the render step.
 	void RenderRayTracing::Execute(Frame& frame)
 	{
-		if (!rdr().RayTracing().Available())
+		auto pass = ScreenPass();
+		if (!rdr().RayTracing().Available() || pass == ERayTracingScreenPass::None)
 			return;
 
 		ResourceFactory factory(rdr());
@@ -88,7 +115,6 @@ namespace pr::rdr12
 			return;
 		}
 
-		auto pass = ScreenPass();
 		auto prepared = m_diagnostic.Prepare(factory, frame.bb_post().rt_size(), wnd().m_rt_props.Format);
 		factory.FlushToGpu(EGpuFlush::Block);
 		if (!prepared)

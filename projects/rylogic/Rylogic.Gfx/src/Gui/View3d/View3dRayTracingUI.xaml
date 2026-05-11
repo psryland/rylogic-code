@@ -29,6 +29,23 @@
 				Margin="0,0,0,8"
 				/>
 			<TextBlock
+				Text="Features"
+				FontWeight="SemiBold"
+				Margin="0,4,0,4"
+				/>
+			<CheckBox
+				Content="Reflections"
+				IsEnabled="{Binding RayTracingAvailable}"
+				IsChecked="{Binding ReflectionsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="16,0,0,4"
+				/>
+			<CheckBox
+				Content="Caustics"
+				IsEnabled="{Binding RayTracingAvailable}"
+				IsChecked="{Binding CausticsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="16,0,0,8"
+				/>
+			<TextBlock
 				Text="{Binding StatusText}"
 				TextWrapping="Wrap"
 				/>

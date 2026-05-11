@@ -241,6 +241,8 @@ namespace LDraw
 		public RayTracingData()
 		{
 			Enabled = false;
+			ReflectionsEnabled = true;
+			CausticsEnabled = true;
 		}
 
 		/// <summary>True if ray tracing is enabled for this scene</summary>
@@ -248,6 +250,53 @@ namespace LDraw
 		{
 			get => get<bool>(nameof(Enabled));
 			set => set(nameof(Enabled), value);
+		}
+
+		/// <summary>True if ray traced reflections are enabled for this scene</summary>
+		public bool ReflectionsEnabled
+		{
+			get => get<bool>(nameof(ReflectionsEnabled));
+			set => set(nameof(ReflectionsEnabled), value);
+		}
+
+		/// <summary>True if ray traced caustics are enabled for this scene</summary>
+		public bool CausticsEnabled
+		{
+			get => get<bool>(nameof(CausticsEnabled));
+			set => set(nameof(CausticsEnabled), value);
+		}
+
+		/// <summary>Convert the persisted feature settings to View3D feature flags</summary>
+		public View3d.ERayTracingFeature ToView3dFeatures()
+		{
+			var features = View3d.ERayTracingFeature.None;
+			if (ReflectionsEnabled)
+				features |= View3d.ERayTracingFeature.Reflections;
+			if (CausticsEnabled)
+				features |= View3d.ERayTracingFeature.Caustics;
+
+			return features;
+		}
+
+		/// <summary>Copy View3D feature flags into the persisted feature settings</summary>
+		public void FromView3dFeatures(View3d.ERayTracingFeature features)
+		{
+			switch (features)
+			{
+			case View3d.ERayTracingFeature.None:
+			case View3d.ERayTracingFeature.Reflections:
+			case View3d.ERayTracingFeature.Caustics:
+			case View3d.ERayTracingFeature.All:
+				{
+					ReflectionsEnabled = features.HasFlag(View3d.ERayTracingFeature.Reflections);
+					CausticsEnabled = features.HasFlag(View3d.ERayTracingFeature.Caustics);
+					break;
+				}
+			default:
+				{
+					throw new ArgumentOutOfRangeException(nameof(features), features, "Unknown ray tracing feature flags");
+				}
+			}
 		}
 	}
 

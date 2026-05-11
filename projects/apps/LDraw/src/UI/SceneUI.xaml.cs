@@ -220,6 +220,7 @@ namespace LDraw.UI
 						if (!m_syncing_ray_tracing)
 						{
 							using var sync = Scope.Create(() => m_syncing_ray_tracing = true, () => m_syncing_ray_tracing = false);
+							SceneView.Scene.Window.RayTracingFeatures = SceneState.RayTracing.ToView3dFeatures();
 							if (!SceneState.RayTracing.Enabled || SceneView.Scene.Window.RayTracingAvailable)
 								SceneView.Scene.Window.RayTracingEnabled = SceneState.RayTracing.Enabled;
 						}
@@ -277,6 +278,7 @@ namespace LDraw.UI
 						if (!m_syncing_ray_tracing)
 						{
 							using var sync = Scope.Create(() => m_syncing_ray_tracing = true, () => m_syncing_ray_tracing = false);
+							SceneState.RayTracing.FromView3dFeatures(SceneView.Scene.Window.RayTracingFeatures);
 							SceneState.RayTracing.Enabled = SceneView.Scene.Window.RayTracingEnabled;
 						}
 					}

@@ -384,6 +384,13 @@ namespace Rylogic.Gfx
 				set => View3D_WindowRayTracingEnabledSet(Handle, value);
 			}
 
+			/// <summary>Ray tracing features selected for this window</summary>
+			public ERayTracingFeature RayTracingFeatures
+			{
+				get => View3D_WindowRayTracingFeaturesGet(Handle);
+				set => View3D_WindowRayTracingFeaturesSet(Handle, value);
+			}
+
 			/// <summary>Enumerate the GUIDs associated with this window</summary>
 			public void EnumGuids(Action<Guid> cb)
 			{

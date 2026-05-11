@@ -445,6 +445,19 @@ namespace pr::rdr12
 	PR_ENUM_REFLECTION1(ELight, PR_ENUM);
 	#undef PR_ENUM
 
+	// ERayTracingFeature
+	enum class ERayTracingFeature :int
+	{
+		#define PR_ENUM(x)\
+		x(None        , = 0)\
+		x(Reflections , = 1 << 0)\
+		x(Caustics    , = 1 << 1)\
+		x(All         , = Reflections | Caustics)
+		PR_ENUM_MEMBERS2(PR_ENUM)
+	};
+	PR_ENUM_REFLECTION2(ERayTracingFeature, PR_ENUM);
+	#undef PR_ENUM
+
 	// EEye
 	enum class EEye
 	{
@@ -498,3 +511,4 @@ namespace pr::rdr12
 
 // Enum flags
 template <> struct is_flags_enum<DXGI_SWAP_CHAIN_FLAG> :std::true_type {};
+template <> struct is_flags_enum<pr::rdr12::ERayTracingFeature> :std::true_type {};
