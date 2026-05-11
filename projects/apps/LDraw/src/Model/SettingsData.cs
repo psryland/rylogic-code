@@ -189,6 +189,7 @@ namespace LDraw
 				LockAspect = 1.0,
 			};
 			Lighting = new LightData();
+			RayTracing = new RayTracingData();
 		}
 
 		/// <summary>The name of the scene that this state data belongs to</summary>
@@ -224,6 +225,29 @@ namespace LDraw
 		{
 			get => get<LightData>(nameof(Lighting));
 			set => set(nameof(Lighting), value);
+		}
+
+		/// <summary>Ray tracing settings for this scene</summary>
+		public RayTracingData RayTracing
+		{
+			get => get<RayTracingData>(nameof(RayTracing));
+			set => set(nameof(RayTracing), value);
+		}
+	}
+
+	/// <summary>Per-scene ray tracing settings</summary>
+	public class RayTracingData :SettingsSet<RayTracingData>
+	{
+		public RayTracingData()
+		{
+			Enabled = false;
+		}
+
+		/// <summary>True if ray tracing is enabled for this scene</summary>
+		public bool Enabled
+		{
+			get => get<bool>(nameof(Enabled));
+			set => set(nameof(Enabled), value);
 		}
 	}
 

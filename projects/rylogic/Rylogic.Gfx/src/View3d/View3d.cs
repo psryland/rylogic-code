@@ -459,9 +459,19 @@ namespace Rylogic.Gfx
 			Diagnostics_NormalsColour      = Diagnostics | 1 << 2,
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
 
+			Rendering            = 1 << 21,
+			Rendering_RayTracing = Rendering | 1 << 0,
+
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END()
+		}
+		public enum ERayTracingTier : int
+		{
+			NotSupported,
+			Tier1_0,
+			Tier1_1,
+			Unknown,
 		}
 		#endregion
 		#region D3D Enumerations
@@ -1080,6 +1090,17 @@ namespace Rylogic.Gfx
 		public struct ShaderOptions
 		{
 			// todo
+		}
+
+		/// <summary>Ray tracing capability and per-window enabled state</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RayTracingInfo
+		{
+			public bool Requested;
+			public bool HardwareSupported;
+			public bool Available;
+			public bool Enabled;
+			public ERayTracingTier Tier;
 		}
 
 		/// <summary></summary>
@@ -1729,6 +1750,11 @@ namespace Rylogic.Gfx
 		// Get/Set the window settings (as ldr script string)
 		[DllImport(Dll)] private static extern StrView View3D_WindowSettingsGet(HWindow window);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_WindowSettingsSet(HWindow window, [MarshalAs(UnmanagedType.LPStr)] string settings);
+
+		// Query and enable/disable the per-window ray tracing render step.
+		[DllImport(Dll)] private static extern RayTracingInfo View3D_WindowRayTracingInfoGet(HWindow window);
+		[DllImport(Dll)] private static extern bool View3D_WindowRayTracingEnabledGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowRayTracingEnabledSet(HWindow window, bool enable);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 		// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

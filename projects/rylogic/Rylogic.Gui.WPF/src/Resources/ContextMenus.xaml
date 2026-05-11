@@ -349,9 +349,16 @@
 				Source="{StaticResource light_bulb}"
 				RenderOptions.BitmapScalingMode="Fant"
 				MaxHeight="22"
-				/>
+			/>
 		</MenuItem.Icon>
 	</MenuItem>
+	<MenuItem x:Key="View3dMenuItem_RayTracing" x:Shared="False"
+		Header="Ray Tracing..."
+		StaysOpenOnClick="False"
+		Command="{Binding ShowRayTracingUI}"
+		DataContext="{Binding View3dCMenuContext}"
+		Name="View3dMenuItem_RayTracing"
+		/>
 	<MenuItem x:Key="View3dMenuItem_Animation" x:Shared="False"
 		Header="Animation..."
 		StaysOpenOnClick="False"
@@ -531,6 +538,7 @@
 			<StaticResource ResourceKey="View3dMenuItem_FillMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>
+			<StaticResource ResourceKey="View3dMenuItem_RayTracing"/>
 		</MenuItem>
 		<MenuItem Header="Diagnostics">
 			<StaticResource	ResourceKey="View3dMenuItem_ShowNormals"/>
@@ -701,6 +709,7 @@
 			<StaticResource ResourceKey="View3dMenuItem_FillMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>
+			<StaticResource ResourceKey="View3dMenuItem_RayTracing"/>
 		</MenuItem>
 		<MenuItem Header="Diagnostics">
 			<StaticResource	ResourceKey="View3dMenuItem_ShowNormals"/>

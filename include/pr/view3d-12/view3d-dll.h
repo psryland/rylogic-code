@@ -501,6 +501,9 @@ namespace pr
 			Diagnostics_NormalsColour      = Diagnostics | 1 << 2,
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
 
+			Rendering            = 1 << 21,
+			Rendering_RayTracing = Rendering | 1 << 0,
+
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END()
@@ -508,6 +511,21 @@ namespace pr
 		#pragma endregion
 
 		#pragma region API Compatibility
+		enum class ERayTracingTier :int
+		{
+			NotSupported,
+			Tier1_0,
+			Tier1_1,
+			Unknown,
+		};
+		struct RayTracingInfo
+		{
+			BOOL m_requested;
+			BOOL m_hardware_supported;
+			BOOL m_available;
+			BOOL m_enabled;
+			ERayTracingTier m_tier;
+		};
 		struct StrView
 		{
 			char const* ptr = nullptr;
@@ -943,6 +961,11 @@ extern "C"
 	// Get/Set the window settings (as ldr script string)
 	VIEW3D_API pr::view3d::StrView __stdcall View3D_WindowSettingsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowSettingsSet(pr::view3d::Window window, char const* settings);
+
+	// Query and enable/disable the per-window ray tracing render step.
+	VIEW3D_API pr::view3d::RayTracingInfo __stdcall View3D_WindowRayTracingInfoGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_WindowRayTracingEnabledGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(pr::view3d::Window window, BOOL enable);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

@@ -214,6 +214,18 @@ namespace LDraw.UI
 						return;
 					}
 
+					// Ray tracing changes (either replacement of the RayTracingData object, or any inner field change that bubbles up)
+					if (e.Key == nameof(SceneStateData.RayTracing) || ReferenceEquals(e.SettingSet, SceneState.RayTracing))
+					{
+						if (!m_syncing_ray_tracing)
+						{
+							using var sync = Scope.Create(() => m_syncing_ray_tracing = true, () => m_syncing_ray_tracing = false);
+							if (!SceneState.RayTracing.Enabled || SceneView.Scene.Window.RayTracingAvailable)
+								SceneView.Scene.Window.RayTracingEnabled = SceneState.RayTracing.Enabled;
+						}
+						return;
+					}
+
 					switch (e.Key)
 					{
 						case nameof(SceneStateData.Chart):
@@ -260,10 +272,19 @@ namespace LDraw.UI
 							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.LightProperties);
 						}
 					}
+					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_RayTracing))
+					{
+						if (!m_syncing_ray_tracing)
+						{
+							using var sync = Scope.Create(() => m_syncing_ray_tracing = true, () => m_syncing_ray_tracing = false);
+							SceneState.RayTracing.Enabled = SceneView.Scene.Window.RayTracingEnabled;
+						}
+					}
 				}
 			}
 		} = null!;
 		private bool m_syncing_lighting;
+		private bool m_syncing_ray_tracing;
 
 		/// <summary>The 3d part of the scene (i.e. the chart control)</summary>
 		public ChartControl SceneView

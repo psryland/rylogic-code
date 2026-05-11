@@ -13,6 +13,7 @@
 #include "pr/view3d-12/ldraw/ldraw_ui_angle_tool.h"
 #include "pr/view3d-12/ldraw/ldraw.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
+#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/conversion.h"
 
@@ -81,12 +82,6 @@ namespace pr::rdr12
 			auto rt_area = m_wnd.BackBufferSize();
 			if (LengthSq(rt_area) != 0)
 				m_scene.m_cam.Aspect(rt_area.x / float(rt_area.y));
-
-			if (AllSet(m_rdr->Settings().m_options, ERdrOptions::RayTracingSupport))
-			{
-				auto rsteps = std::array{ ERenderStep::RenderForward, ERenderStep::RayTracing };
-				m_scene.SetRenderSteps(rsteps);
-			}
 
 			// The light for the scene
 			m_scene.m_global_light.m_type = ELight::Directional;
@@ -180,6 +175,53 @@ namespace pr::rdr12
 				break;
 			}
 		}
+	}
+
+	// Get the current ray tracing capability and per-window enable state.
+	view3d::RayTracingInfo V3dWindow::RayTracingInfo() const
+	{
+		auto const& support = rdr().RayTracing();
+		return {
+			.m_requested = support.Requested(),
+			.m_hardware_supported = support.HardwareSupported(),
+			.m_available = support.Available(),
+			.m_enabled = RayTracingEnabled(),
+			.m_tier = 
+				support.m_tier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED ? view3d::ERayTracingTier::NotSupported :
+				support.m_tier == D3D12_RAYTRACING_TIER_1_0 ? view3d::ERayTracingTier::Tier1_0 :
+				support.m_tier == D3D12_RAYTRACING_TIER_1_1 ? view3d::ERayTracingTier::Tier1_1 :
+				view3d::ERayTracingTier::Unknown,
+		};
+	}
+
+	// Return true when this window currently has the ray tracing render step.
+	bool V3dWindow::RayTracingEnabled() const
+	{
+		return m_scene.FindRStep<RenderRayTracing>() != nullptr;
+	}
+
+	// Enable or disable the ray tracing render step for this window.
+	void V3dWindow::RayTracingEnabled(bool enable)
+	{
+		if (RayTracingEnabled() == enable)
+			return;
+
+		if (enable && !rdr().RayTracing().Available())
+			throw std::runtime_error(std::format("Ray tracing is not available on this renderer. Device tier: {}", rdr().RayTracing().TierName()));
+
+		// Rebuild the render-step list so the expensive RT owner object only exists while RT is enabled. The shadow step is kept when
+		// shadows are currently enabled; the normal render path will still refresh it before the next frame.
+		auto rsteps = std::array<ERenderStep, 3>{};
+		auto count = 0;
+		if (m_scene.m_global_light.m_cast_shadow)
+			rsteps[count++] = ERenderStep::ShadowMap;
+		rsteps[count++] = ERenderStep::RenderForward;
+		if (enable)
+			rsteps[count++] = ERenderStep::RayTracing;
+
+		m_scene.SetRenderSteps(std::span{ rsteps.data(), s_cast<std::size_t>(count) });
+		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
+		Invalidate();
 	}
 
 	// The DPI of the monitor that this window is displayed on
