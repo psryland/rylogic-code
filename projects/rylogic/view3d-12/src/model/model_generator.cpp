@@ -1118,7 +1118,6 @@ namespace pr::rdr12
 					for (auto& mat : m_mats)
 					{
 						if (nug.m_mat != mat.m_id) continue;
-						nugget.alpha_tint(mat.Tint().a != 0xff);
 						nugget.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse()).tint(mat.Tint()); });
 						break;
 					}
@@ -1225,7 +1224,6 @@ namespace pr::rdr12
 				cache.m_ncont.push_back(NuggetDesc(topo, geom)
 					.vrange(vrange)
 					.irange(irange)
-					.alpha_tint(mat.Tint().a != 0xff)
 					.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse(factory)).tint(mat.Tint()); })
 				);
 			};

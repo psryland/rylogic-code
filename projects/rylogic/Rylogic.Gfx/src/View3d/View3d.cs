@@ -85,11 +85,8 @@ namespace Rylogic.Gfx
 			// Set if the geometry data for the nugget contains alpha colours
 			GeometryHasAlpha = 1 << 1,
 
-			// Set if the tint colour contains alpha
-			TintHasAlpha = 1 << 2,
-
-			// Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)
-			TexDiffuseHasAlpha = 1 << 3,
+			// Force alpha blending for this nugget. Use this when alpha can be supplied by runtime state outside the material.
+			AlphaBlend = 1 << 2,
 
 			// Excluded from shadow map render steps
 			ShadowCastExclude = 1 << 4,

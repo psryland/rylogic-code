@@ -179,9 +179,8 @@ namespace pr::rdr12
 			NuggetDesc nug = NuggetDesc(static_cast<ETopo>(nugget.m_topo), static_cast<EGeom>(nugget.m_geom))
 				.vrange(nugget.m_v0 != nugget.m_v1 ? Range(nugget.m_v0, nugget.m_v1) : Range(0, verts.size()))
 				.irange(nugget.m_i0 != nugget.m_i1 ? Range(nugget.m_i0, nugget.m_i1) : Range(0, indices.size()))
-				.mat(material)
 				.flags(static_cast<ENuggetFlag>(nugget.m_nflags))
-				.alpha_tint(HasAlpha(material->tint()));
+				.mat(material);
 
 			if (nugget.m_cull_mode != view3d::ECullMode::Default)
 				nug.pso<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nugget.m_cull_mode));
@@ -443,7 +442,6 @@ namespace pr::rdr12
 			if (nug.m_fill_mode != view3d::EFillMode::Default)
 				n.m_pso.Set<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nug.m_fill_mode));
 
-			n.alpha_tint(HasAlpha(tint));
 			n.m_vrange = nug.m_v0 < nug.m_v1 ? Range{ nug.m_v0, nug.m_v1 } : Range{ 0, new_vcount };
 			n.m_irange = nug.m_i0 < nug.m_i1 ? Range{ nug.m_i0, nug.m_i1 } : Range{ 0, new_icount };
 			model->CreateNugget(factory, n);

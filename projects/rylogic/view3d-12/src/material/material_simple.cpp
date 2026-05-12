@@ -156,14 +156,7 @@ namespace pr::rdr12
 			// Return true if this simple material needs alpha rendering.
 			bool RequiresAlpha(BaseInstance const&, Material const& material, Nugget const& nugget) const override
 			{
-				auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
-				auto material_has_alpha =
-					HasAlpha(base_colour.m_tint) ||
-					AllSet(base_colour.m_tex_diffuse ? base_colour.m_tex_diffuse->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
-
-				return
-					AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::TintHasAlpha | ENuggetFlag::TexDiffuseHasAlpha) ||
-					material_has_alpha;
+				return material.RequiresAlpha() || nugget.RequiresAlpha();
 			}
 
 			// Contribute texture and shader-overlay state to the sort key.

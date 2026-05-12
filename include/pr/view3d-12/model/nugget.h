@@ -84,11 +84,8 @@ namespace pr::rdr12
 		// Set if the geometry data for the nugget contains alpha colours
 		GeometryHasAlpha = 1 << 1,
 
-		// Set if the tint colour contains alpha
-		TintHasAlpha = 1 << 2,
-
-		// Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)
-		TexDiffuseHasAlpha = 1 << 3,
+		// Force alpha blending for this nugget. Use this when alpha can be supplied by runtime state outside the material.
+		AlphaBlend = 1 << 2,
 
 		// Excluded from shadow map render steps
 		ShadowCastExclude = 1 << 4,
@@ -195,26 +192,20 @@ namespace pr::rdr12
 		}
 
 		// Set the flags
-		NuggetDesc& flags(ENuggetFlag flags, bool state = true)
+		virtual NuggetDesc& flags(ENuggetFlag flags, bool state = true)
 		{
 			m_nflags = SetBits(m_nflags, flags, state);
 			return *this;
 		}
-		
-		// @Copilot, alpha should be a property of the material, not a nugget flag, although the nugget will need to create the alpha variant if alpha is required
 		NuggetDesc& alpha_geom(bool has = true)
 		{
 			m_nflags = SetBits(m_nflags, ENuggetFlag::GeometryHasAlpha, has);
 			return *this;
 		}
-		NuggetDesc& alpha_tint(bool has = true)
+		NuggetDesc& alpha_blend(bool has = true)
 		{
-			m_nflags = SetBits(m_nflags, ENuggetFlag::TintHasAlpha, has);
-			return *this;
-		}
-		NuggetDesc& alpha_tex(bool has = true)
-		{
-			m_nflags = SetBits(m_nflags, ENuggetFlag::TexDiffuseHasAlpha, has);
+			// Request alpha-blended variants for this nugget even if its current material is opaque.
+			m_nflags = SetBits(m_nflags, ENuggetFlag::AlphaBlend, has);
 			return *this;
 		}
 
@@ -241,7 +232,7 @@ namespace pr::rdr12
 		bool RequiresAlpha() const
 		{
 			return
-				AnySet(m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::TintHasAlpha | ENuggetFlag::TexDiffuseHasAlpha) ||
+				AnySet(m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend) ||
 				mat().RequiresAlpha();
 		}
 	};
@@ -272,6 +263,9 @@ namespace pr::rdr12
 		using NuggetDesc::mat;
 		Nugget& mat(MaterialPtr material) override;
 
+		// Set nugget flags
+		Nugget& flags(ENuggetFlag flags, bool state = true) override;
+		
 		// The number of primitives in this nugget
 		int64_t PrimCount() const;
 

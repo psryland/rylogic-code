@@ -426,7 +426,7 @@ namespace CoinFlip.UI.Indicators
 						SAR.Style == EPointStyle.Triangle ? View3d.Texture.FromStock(View3d.EStockTexture.WhiteTriangle).Handle :
 						throw new Exception($"Unknown point style: {SAR.Style}");
 					mat.Use(View3d.ERenderStep.ForwardRender, View3d.EShaderGS.PointSpritesGS, $"*PointSize {{{SAR.Size} {SAR.Size}}} *Depth {{{false}}}");
-					var flags = SAR.Colour.HasAlpha ? View3d.ENuggetFlag.TintHasAlpha : View3d.ENuggetFlag.None;
+					var flags = SAR.Colour.HasAlpha ? View3d.ENuggetFlag.AlphaBlend : View3d.ENuggetFlag.None;
 					m_nbuf[0] = new View3d.Nugget(View3d.ETopo.PointList, View3d.EGeom.Vert | View3d.EGeom.Tex0, flags: flags, mat: mat);
 				}
 
@@ -435,7 +435,7 @@ namespace CoinFlip.UI.Indicators
 					var mat = View3d.Material.New();
 					mat.m_diff_tex = View3d.Texture.FromStock(View3d.EStockTexture.WhiteSpot).Handle;
 					mat.Use(View3d.ERenderStep.ForwardRender, View3d.EShaderGS.PointSpritesGS, $"*PointSize {{{SAR.Size + 2 * GlowRadius} {SAR.Size + 2*GlowRadius}}} *Depth {{{false}}}");
-					var flags = View3d.ENuggetFlag.TintHasAlpha | View3d.ENuggetFlag.Hidden;
+					var flags = View3d.ENuggetFlag.AlphaBlend | View3d.ENuggetFlag.Hidden;
 					m_nbuf[1] = new View3d.Nugget(View3d.ETopo.PointList, View3d.EGeom.Vert | View3d.EGeom.Tex0, range_overlaps: true, flags: flags, mat: mat);
 				}
 

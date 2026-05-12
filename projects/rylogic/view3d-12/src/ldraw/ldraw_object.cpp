@@ -532,8 +532,10 @@ namespace pr::rdr12::ldraw
 			{
 				auto nug = obj->m_model->m_nuggets;
 				for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
-				if (nug == nullptr) throw std::runtime_error("nugget index out of range");
-				nug->m_nflags = SetBits(nug->m_nflags, flags, state);
+				if (nug == nullptr)
+					throw std::runtime_error("nugget index out of range");
+
+				nug->flags(flags, state);
 			}
 			return true;
 		}, name);

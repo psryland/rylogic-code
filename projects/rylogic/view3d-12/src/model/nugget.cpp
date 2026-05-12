@@ -54,6 +54,25 @@ namespace pr::rdr12
 		return *this;
 	}
 
+	// Set nugget flags
+	Nugget& Nugget::flags(ENuggetFlag flags, bool state)
+	{
+		auto old_flags = m_nflags;
+		NuggetDesc::flags(flags, state);
+		if (m_nflags == old_flags)
+			return *this;
+
+		// On flags changed, see if an AlphaVariant is needed
+		if (!HasAlphaVariant() && RequiresAlpha())
+		{
+			ResourceFactory factory(m_model->rdr());
+			AlphaVariant(factory, true);
+		}
+
+		m_model->m_ray_tracing.Invalidate(m_model->rdr());
+		return *this;
+	}
+
 	// The number of primitives in this nugget
 	int64_t Nugget::PrimCount() const
 	{
