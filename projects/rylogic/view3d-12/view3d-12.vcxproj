@@ -128,6 +128,8 @@
     <ClCompile Include="src\main\renderer.cpp" />
     <ClCompile Include="src\main\window.cpp" />
     <ClCompile Include="src\material\material.cpp" />
+    <ClCompile Include="src\material\material_pass.cpp" />
+    <ClCompile Include="src\material\material_simple.cpp" />
     <ClCompile Include="src\model\animation.cpp" />
     <ClCompile Include="src\model\animator.cpp" />
     <ClCompile Include="src\model\model.cpp" />
@@ -250,7 +252,13 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\renderer.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\settings.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\window.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pass.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_simple.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\animator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\animation.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\model.h" />

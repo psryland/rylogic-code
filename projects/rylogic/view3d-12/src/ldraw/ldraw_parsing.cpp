@@ -18,6 +18,8 @@
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/material/material_simple.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/shaders/shader_arrow_head.h"
@@ -1124,7 +1126,13 @@ namespace pr::rdr12::ldraw
 				for (auto& nug : Enumerate(obj->m_model->m_nuggets))
 				{
 					nug.m_topo = topo;
-					nug.m_shdr_overlays.push_back({ shdr, ERenderStep::RenderForward });
+
+					RefPtr<Material> mat = nug.mat().Clone();
+					if (materials::ShaderOverlays* so = mat->Component<materials::ShaderOverlays>())
+					{
+						so->add(ERenderStep::RenderForward, shdr);
+					}
+					nug.mat(mat);
 				}
 			}
 			explicit operator bool() const
@@ -1145,10 +1153,12 @@ namespace pr::rdr12::ldraw
 				// Remember to 'obj->m_model->DeleteNuggets()' first if you need too
 				auto shdr = Shader::Create<shaders::PointSpriteGS>(pp.m_rdr, m_size, m_depth);
 				obj->m_model->CreateNugget(pp.m_factory, NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
-					.use_shader_overlay(ERenderStep::RenderForward, shdr)
-					.tex_diffuse(PointStyleTexture(m_style, pp))
-					.flags(ENuggetFlag::RangesCanOverlap)
 					.vrange(vrange)
+					.flags(ENuggetFlag::RangesCanOverlap)
+					.mat([&](MaterialSimple& m) { m
+						.use_shader_overlay(ERenderStep::RenderForward, shdr)
+						.tex_diffuse(PointStyleTexture(m_style, pp));
+					})
 				);
 			}
 			explicit operator bool() const
@@ -2316,7 +2326,7 @@ namespace pr::rdr12::ldraw
 				if (segment.m_thick)
 				{
 					auto shdr = segment.m_thick.CreateShader(m_pp.m_rdr, topo);
-					nugget.use_shader_overlay(ERenderStep::RenderForward, shdr);
+					nugget.mat([&](MaterialSimple& m) { m.use_shader_overlay(ERenderStep::RenderForward, shdr); });
 					if (topo == ETopo::LineStrip)
 						nugget.topo(ETopo::LineStripAdj);
 				}
@@ -2344,9 +2354,9 @@ namespace pr::rdr12::ldraw
 					// Add a nugget for this style
 					auto arw_shdr = Shader::Create<shaders::ArrowHeadGS>(m_pp.m_rdr, size, depth);
 					cache.m_ncont.push_back(NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr)
-						.use_shader_overlay(ERenderStep::RenderForward, arw_shdr)
 						.vrange(vcount + beg, vcount + end)
 						.flags(ENuggetFlag::GeometryHasAlpha, has_alpha)
+						.mat([&](MaterialSimple& m) { m.use_shader_overlay(ERenderStep::RenderForward, arw_shdr); })
 					);
 				}
 
@@ -2372,10 +2382,12 @@ namespace pr::rdr12::ldraw
 					// Add a nugget for this style
 					auto pt_shdr = Shader::Create<shaders::PointSpriteGS>(m_pp.m_rdr, size, depth);
 					cache.m_ncont.push_back(NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
-						.use_shader_overlay(ERenderStep::RenderForward, pt_shdr)
-						.tex_diffuse(creation::PointStyleTexture(style, m_pp))
 						.vrange(vcount + beg, vcount + end)
 						.flags(ENuggetFlag::GeometryHasAlpha, has_alpha)
+						.mat([&](MaterialSimple& m) { m
+							.use_shader_overlay(ERenderStep::RenderForward, pt_shdr)
+							.tex_diffuse(creation::PointStyleTexture(style, m_pp));
+						})
 					);
 				}
 
@@ -3002,10 +3014,12 @@ namespace pr::rdr12::ldraw
 				// Add a nugget for the data points
 				auto shdr = Shader::Create<shaders::PointSpriteGS>(m_pp.m_rdr, m_data_points.m_size, m_data_points.m_depth);
 				data_points->m_model->CreateNugget(pp.m_factory, NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
-					.use_shader_overlay(ERenderStep::RenderForward, shdr)
-					.tex_diffuse(creation::PointStyleTexture(m_data_points.m_style, pp))
 					.flags(ENuggetFlag::RangesCanOverlap)
-					.tint(m_data_points.m_colour)
+					.mat([&](MaterialSimple& m) { m
+						.use_shader_overlay(ERenderStep::RenderForward, shdr)
+						.tex_diffuse(creation::PointStyleTexture(m_data_points.m_style, pp))
+						.tint(m_data_points.m_colour);
+					})
 				);
 
 				// Add the object to the parent
@@ -4355,8 +4369,10 @@ namespace pr::rdr12::ldraw
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.tex_diffuse(m_tex.m_texture)
-						.sam_diffuse(m_tex.m_sampler);
+						.mat([&](MaterialSimple& m) { m
+							.tex_diffuse(m_tex.m_texture)
+							.sam_diffuse(m_tex.m_sampler);
+					});
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4381,8 +4397,10 @@ namespace pr::rdr12::ldraw
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.tex_diffuse(m_tex.m_texture)
-						.sam_diffuse(m_tex.m_sampler);
+						.mat([&](MaterialSimple& m) { m
+							.tex_diffuse(m_tex.m_texture)
+							.sam_diffuse(m_tex.m_sampler);
+					});
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4404,8 +4422,10 @@ namespace pr::rdr12::ldraw
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.tex_diffuse(m_tex.m_texture)
-						.sam_diffuse(m_tex.m_sampler);
+						.mat([&](MaterialSimple& m) { m
+							.tex_diffuse(m_tex.m_texture)
+							.sam_diffuse(m_tex.m_sampler);
+					});
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4569,7 +4589,12 @@ namespace pr::rdr12::ldraw
 			m_indices.resize(3 * num_faces, idx_stride);
 
 			// Create a nugget for the hull
-			m_nuggets.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert).tex_diffuse(m_tex.m_texture).sam_diffuse(m_tex.m_sampler));
+			m_nuggets.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert)
+				.mat([&](MaterialSimple& m) { m
+					.tex_diffuse(m_tex.m_texture)
+					.sam_diffuse(m_tex.m_sampler);
+				})
+			);			
 
 			// Generate normals if needed
 			m_gen_norms.Generate(m_pp);

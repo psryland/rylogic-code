@@ -13,6 +13,9 @@
     <Filter Include="src\material">
       <UniqueIdentifier>{99147576-9a68-4a27-b89d-f4f4430cf189}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\material\components">
+      <UniqueIdentifier>{ca281391-b960-43f9-8d78-b3919d0da313}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\utility">
       <UniqueIdentifier>{797d7894-b0d2-4f27-a30c-0c6f78c44c6c}</UniqueIdentifier>
     </Filter>
@@ -342,7 +345,25 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\window.h">
       <Filter>src\main</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pass.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_simple.h">
       <Filter>src\material</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\animation.h">
@@ -646,6 +667,12 @@
       <Filter>src\main</Filter>
     </ClCompile>
     <ClCompile Include="src\material\material.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
+    <ClCompile Include="src\material\material_pass.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
+    <ClCompile Include="src\material\material_simple.cpp">
       <Filter>src\material</Filter>
     </ClCompile>
     <ClCompile Include="src\model\animation.cpp">

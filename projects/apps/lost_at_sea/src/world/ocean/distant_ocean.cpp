@@ -63,8 +63,11 @@ namespace las
 		auto shdr = Shader::Create<DistantOceanShader>(rdr);
 		m_shader = shdr.get();
 
-		buf.m_ncont.push_back(NuggetDesc{ ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm }
-			.use_shader_overlay(ERenderStep::RenderForward, shdr));
+		buf.m_ncont.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm)
+			.mat([&](MaterialSimple& m) {
+				m.use_shader_overlay(ERenderStep::RenderForward, shdr);
+			})
+		);
 
 		auto colour = Colour32(0xFF401005);
 		auto opts = ModelGenerator::CreateOptions().colours({ &colour, 1 });

@@ -42,8 +42,11 @@ namespace pr::rdr12
 		// Set up shader resources that are common to all nuggets in this render step.
 		void BindFrameResources(GfxCmdList& cmd_list);
 
+		// Set up shader resources used by the alpha collection pass.
+		void BindAlphaResources(Frame& frame, GfxCmdList& cmd_list);
+
 		// Add the nuggets in the draw list to 'cmd_list' for rendering.
-		void DrawNuggets(GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist);
+		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, bool alpha_pass);
 
 		// Draw a single nugget
 		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);

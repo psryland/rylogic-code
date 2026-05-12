@@ -17,7 +17,7 @@ namespace pr::rdr12
 		// Return the RT geometry flag to use for a render nugget.
 		D3D12_RAYTRACING_GEOMETRY_FLAGS GeometryFlags(Nugget const& nugget)
 		{
-			return AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::TintHasAlpha | ENuggetFlag::TexDiffuseHasAlpha)
+			return nugget.RequiresAlpha()
 				? D3D12_RAYTRACING_GEOMETRY_FLAG_NONE
 				: D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
 		}

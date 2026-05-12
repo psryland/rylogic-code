@@ -4,75 +4,67 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/render/sortkey.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/pipe_state.h"
+#include "pr/view3d-12/material/components/material_component.h"
+#include "pr/view3d-12/material/material_pass.h"
 
 namespace pr::rdr12
 {
-	// Per-draw context passed to material passes by render steps.
-	struct MaterialPassContext
-	{
-		ERenderStep m_step_id;                         // The render step requesting material setup.
-		Window& m_wnd;                                 // The window that owns descriptor heaps and frame resources.
-		Scene const& m_scene;                          // The scene being rendered.
-		DrawListElement const& m_dle;                  // The draw-list element being rendered.
-		GfxCmdList& m_cmd_list;                        // The command list to bind resources to.
-		GpuUploadBuffer& m_upload;                     // Upload buffer for per-material constants.
-		PipeStateDesc& m_pipe_state;                   // Mutable pipeline state description for this draw.
-		Shader* m_shader;                              // The render step's default shader, if the material wants to use it.
-		Texture2D* m_default_tex;                      // Fallback diffuse texture for fixed-function style passes.
-		Sampler* m_default_sam;                        // Fallback sampler for fixed-function style passes.
-		D3D12_GPU_DESCRIPTOR_HANDLE* m_last_tex;       // Optional cache of the last diffuse texture descriptor bound.
-		D3D12_GPU_DESCRIPTOR_HANDLE* m_last_sam;       // Optional cache of the last diffuse sampler descriptor bound.
-	};
-
-	// A render-step specific material implementation.
-	struct MaterialPass
-	{
-		virtual ~MaterialPass() = default;
-
-		// Return true if this material pass needs alpha rendering for 'nugget'.
-		virtual bool RequiresAlpha(BaseInstance const& inst, Nugget const& nugget) const;
-
-		// Contribute material state to the draw sort key.
-		virtual SortKey AddSortKey(ERenderStep step, BaseInstance const& inst, Nugget const& nugget, SortKey key) const;
-
-		// Bind resources and constants needed before the draw call.
-		virtual void Bind(MaterialPassContext& ctx) const;
-
-		// Apply material pipeline state once caller-owned PSO overrides have been applied.
-		virtual void ApplyPipeline(MaterialPassContext& ctx) const;
-	};
-
 	// Base type for C++ client-defined materials.
 	struct Material : RefCounted<Material>
 	{
 		virtual ~Material() = default;
 
+		// Return the extensible type id for this material.
+		virtual RdrId TypeId() const = 0;
+
 		// Return the material pass to use for 'step', or null if this material is not drawn by that step.
 		virtual MaterialPass const* Pass(ERenderStep step) const = 0;
+
+		// Create a mutable copy of this material instance.
+		virtual RefPtr<Material> Clone() const = 0;
+
+		// Return true if this material requires alpha rendering
+		virtual bool RequiresAlpha() const = 0;
+
+		// Return a material component block by component type.
+		template <materials::ComponentType T> T const* Component() const
+		{
+			return static_cast<T const*>(Component(T::Id));
+		}
+		template <materials::ComponentType T> T* Component()
+		{
+			return const_call(Component<T>());
+		}
+
+		// Return a material component block by component type.
+		template <materials::ComponentType T> T const& ComponentOrDefault() const
+		{
+			if (auto const* c = static_cast<T const*>(Component(T::Id)))
+				return *c;
+			if (auto const* c = static_cast<T const*>(Default().Component(T::Id)))
+				return *c;
+			throw std::runtime_error("Default material does not provide the requested component");
+		}
 
 		// Ref-count clean up function.
 		static void RefCountZero(RefCounted<Material>* doomed);
 
+		// Return the shared default material used by nuggets with no explicit material.
+		static Material const& Default();
+
 	protected:
+
+		// Return a component block for 'component_id', or null if this material does not provide that block.
+		virtual void const* Component(RdrId component_id) const;
 
 		// Delete this material instance.
 		virtual void Delete();
 	};
 
-	// Built-in material that preserves the legacy inline NuggetDesc material behaviour.
-	struct SimpleMaterial : Material
+	// Concept for concrete material types addressable through material_cast().
+	template <typename T>
+	concept MaterialType = std::is_base_of_v<Material, T> && requires
 	{
-		// Return the shared default material used when a nugget does not specify a custom material.
-		static Material const& Default();
-
-		// Return the simple material pass for supported render steps.
-		MaterialPass const* Pass(ERenderStep step) const override;
+		T::MaterialTypeId;
 	};
-
-	// Return the shared default material used by nuggets with no explicit material.
-	Material const& DefaultMaterial();
 }

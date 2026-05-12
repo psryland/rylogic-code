@@ -548,7 +548,9 @@ namespace pr::rdr12::ldraw
 
 		auto nug = obj->m_model->m_nuggets;
 		for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
-		return nug ? nug->m_tint : throw std::runtime_error("nugget index out of range");
+		return nug
+			? nug->mat().ComponentOrDefault<materials::BaseColour>().m_tint
+			: throw std::runtime_error("nugget index out of range");
 	}
 	void LdrObject::NuggetTint(Colour32 tint, char const* name, int index)
 	{
@@ -559,8 +561,23 @@ namespace pr::rdr12::ldraw
 			{
 				auto nug = obj->m_model->m_nuggets;
 				for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
-				if (nug == nullptr) throw std::runtime_error("nugget index out of range");
-				nug->m_tint = tint;
+				if (nug == nullptr)
+					throw std::runtime_error("nugget index out of range");
+
+				// Update the material
+				auto mat = nug->mat().Clone();
+				if (auto* bc = mat->Component<materials::BaseColour>())
+				{
+					bc->m_tint = tint;
+					nug->mat(mat);
+				}
+
+				// Update the alpha variant nugget
+				if (nug->RequiresAlpha())
+				{
+					ResourceFactory factory(obj->m_model->rdr());
+					nug->AlphaVariant(factory, true);
+				}
 			}
 			return true;
 		}, name);
@@ -730,7 +747,13 @@ namespace pr::rdr12::ldraw
 			ResourceFactory factory(o->m_model->rdr());
 			for (auto& nug : Enumerate(o->m_model->m_nuggets))
 			{
-				nug.m_tex_diffuse = ptex;
+				// Update the material
+				auto mat = nug.mat().Clone();
+				if (auto* bc = mat->Component<materials::BaseColour>())
+				{
+					bc->m_tex_diffuse = ptex;
+					nug.mat(mat);
+				}
 
 				// Recreate the alpha variant of the nugget
 				if (nug.RequiresAlpha())
@@ -751,7 +774,13 @@ namespace pr::rdr12::ldraw
 			if (o->m_model == nullptr) return true;
 			for (auto& nug : Enumerate(o->m_model->m_nuggets))
 			{
-				nug.m_sam_diffuse = SamplerPtr(sam, true);
+				// Update the material
+				auto mat = nug.mat().Clone();
+				if (auto* bc = mat->Component<materials::BaseColour>())
+				{
+					bc->m_sam_diffuse = SamplerPtr(sam, true);
+					nug.mat(mat);
+				}
 			}
 
 			return true;

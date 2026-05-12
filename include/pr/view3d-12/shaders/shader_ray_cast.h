@@ -27,5 +27,6 @@ namespace pr::rdr12::shaders
 		explicit RayCast(Renderer& rdr);
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, std::span<HitTestRay const> rays);
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle);
+		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, Material const& material);
 	};
 }

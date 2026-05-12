@@ -4,7 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/material/material.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/render/sortkey.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/texture/texture_2d.h"
@@ -105,32 +105,13 @@ namespace pr::rdr12
 	// Nugget initialisation data
 	struct NuggetDesc
 	{
-		// Each overlay can replace stages in the full shader. So, order is important.
-		// If multiple overlays replace the same stage, the last one wins.
-		struct ShdrOverlay
-		{
-			// Notes:
-			//  - Normally overlays just replace one stage in the base shader, but it is possible for an overlay to have
-			//    a full signature and replace all stages. As the overlays are on the nugget, however, both the 'SetupFrame'
-			//    and 'SetupElement' method will be called for each nugget.
-			mutable ShaderPtr m_overlay = {};  // Individual stages that replace stages in the full shader
-			ERenderStep m_rdr_step = ERenderStep::Invalid; // The render step that the shader applies to.
-			int pad = {};
-		};
-		using ShdrOverlays = vector<ShdrOverlay, 4, false>;
-
 		ETopo          m_topo;          // The primitive topology for this nugget
 		EGeom          m_geom;          // The valid geometry components within this range
-		MaterialPtr    m_material;      // Material that controls render-step specific setup for this nugget
-		Texture2DPtr   m_tex_diffuse;   // Diffuse texture
-		SamplerPtr     m_sam_diffuse;   // The sampler to use with the diffuse texture
-		ShdrOverlays   m_shdr_overlays; // Shader overlays, applied in order to overlay the base shader
+		MaterialPtr    m_material;      // Immutable material that controls render-step specific setup for this nugget
 		PipeStates     m_pso;           // A collection of modifications to the pipeline state object description
 		ENuggetVariant m_variant;       // An id to allow identification of procedurally added nugget variants
 		ENuggetFlag    m_nflags;        // Flags for boolean properties of the nugget
-		Colour32       m_tint;          // Per-nugget tint
 		SortKey        m_sort_key;      // A base sort key for this nugget
-		float          m_rel_reflec;    // How reflective this nugget is, relative to the instance. Note: 1.0 means the same as the instance (which might be 0)
 
 		// When passed in to Model->CreateNugget(), these ranges should be relative to the model.
 		// If the ranges are invalid, they are assumed to mean the entire model.
@@ -141,15 +122,10 @@ namespace pr::rdr12
 			: m_topo(topo)
 			, m_geom(geom)
 			, m_material()
-			, m_tex_diffuse()
-			, m_sam_diffuse()
-			, m_shdr_overlays()
 			, m_pso()
 			, m_variant(DefaultNugget)
 			, m_nflags(ENuggetFlag::None)
-			, m_tint(Colour32White)
 			, m_sort_key(ESortGroup::Default)
-			, m_rel_reflec(1)
 			, m_vrange(Range::Reset())
 			, m_irange(Range::Reset())
 		{}
@@ -190,18 +166,24 @@ namespace pr::rdr12
 			return irange(Range(beg, end));
 		}
 
-		// Add/overide a shader for this nugget
-		NuggetDesc& use_shader_overlay(ERenderStep step, ShaderPtr overlay)
+		// Get/Set the material for this nugget
+		Material const& mat() const
 		{
-			m_shdr_overlays.push_back({overlay, step});
-			return *this;
+			return m_material != nullptr ? *m_material.get() : rdr12::Material::Default();
 		}
-
-		// Set the material for this nugget
-		NuggetDesc& material(MaterialPtr material)
+		virtual NuggetDesc& mat(MaterialPtr material)
 		{
 			m_material = material;
 			return *this;
+		}
+		
+		// Set the material for the nugget
+		template <MaterialType M = MaterialSimple>
+		NuggetDesc& mat(std::invocable<M&> auto&& cb)
+		{
+			RefPtr<M> material(rdr12::New<M>(), true);
+			cb(*material.get());
+			return mat(static_cast<MaterialPtr>(material));
 		}
 
 		// Override the pipeline state object for this nugget
@@ -212,34 +194,14 @@ namespace pr::rdr12
 			return *this;
 		}
 
-		// Set the diffuse texture for the nugget
-		NuggetDesc& tex_diffuse(Texture2DPtr tex)
-		{
-			m_tex_diffuse = tex;
-			return flags(ENuggetFlag::TexDiffuseHasAlpha, AllSet(tex ? tex->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha));
-		}
-
-		// Set the sampler for the diffuse texture
-		NuggetDesc& sam_diffuse(SamplerPtr sam)
-		{
-			m_sam_diffuse = sam;
-			return *this;
-		}
-
-		// Set the tint colour
-		NuggetDesc& tint(Colour32 tint)
-		{
-			m_tint = tint;
-			alpha_tint(HasAlpha(tint));
-			return *this;
-		}
-
 		// Set the flags
 		NuggetDesc& flags(ENuggetFlag flags, bool state = true)
 		{
 			m_nflags = SetBits(m_nflags, flags, state);
 			return *this;
 		}
+		
+		// @Copilot, alpha should be a property of the material, not a nugget flag, although the nugget will need to create the alpha variant if alpha is required
 		NuggetDesc& alpha_geom(bool has = true)
 		{
 			m_nflags = SetBits(m_nflags, ENuggetFlag::GeometryHasAlpha, has);
@@ -275,11 +237,12 @@ namespace pr::rdr12
 			return *this;
 		}
 
-		// Set the relative reflectivity for this nugget
-		NuggetDesc& rel_reflec(float reflectivity)
+		// True if this nugget requires alpha blending
+		bool RequiresAlpha() const
 		{
-			m_rel_reflec = reflectivity;
-			return *this;
+			return
+				AnySet(m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::TintHasAlpha | ENuggetFlag::TexDiffuseHasAlpha) ||
+				mat().RequiresAlpha();
 		}
 	};
 
@@ -305,17 +268,12 @@ namespace pr::rdr12
 		// Renderer access
 		Renderer& rdr() const;
 
-		// Return the material used to render this nugget.
-		Material const& GetMaterial() const;
-
-		// Replace the material used to render this nugget.
-		void SetMaterial(MaterialPtr material);
+		// Set the material used to render this nugget.
+		using NuggetDesc::mat;
+		Nugget& mat(MaterialPtr material) override;
 
 		// The number of primitives in this nugget
 		int64_t PrimCount() const;
-
-		// True if this nugget requires alpha blending
-		bool RequiresAlpha() const;
 
 		// Get/Set the fill mode for this nugget
 		EFillMode FillMode() const;

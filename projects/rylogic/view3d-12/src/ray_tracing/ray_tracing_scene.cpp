@@ -273,7 +273,8 @@ namespace pr::rdr12
 		shaders::rt::RayTracingMaterial MakeMaterial(BaseInstance const& inst, Nugget const& nugget)
 		{
 			auto const* inst_tint = inst.find<Colour32>(EInstComp::TintColour32);
-			auto const tint = Colour((inst_tint != nullptr ? *inst_tint : Colour32White) * nugget.m_tint);
+			auto& base_colour = nugget.mat().ComponentOrDefault<materials::BaseColour>();
+			auto const tint = Colour((inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_tint);
 
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;

@@ -51,11 +51,15 @@ namespace pr::rdr12::shaders
 	}
 	void RayCast::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle)
 	{
+		SetupElement(cmd_list, upload, dle, dle->m_nugget->mat());
+	}
+	void RayCast::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, Material const& material)
+	{
 		auto& inst = *dle->m_instance;
 		auto& nug = *dle->m_nugget;
 
 		CBufNugget cb1 = {};
-		SetFlags(cb1, inst, nug, false);
+		SetFlags(cb1, inst, material, nug, false);
 		SetTxfm(cb1, inst, nug.m_model);
 
 		cb1.inst_ptr = &inst;

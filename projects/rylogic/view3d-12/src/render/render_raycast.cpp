@@ -142,8 +142,8 @@ namespace pr::rdr12
 		// For ray casting, we only need the default nuggets (currently)
 		for (auto& nug : Enumerate(nuggets))
 		{
-			auto const* material = nug.GetMaterial().Pass(m_step_id);
-			if (material == nullptr)
+			auto const* pass = nug.mat().Pass(m_step_id);
+			if (pass == nullptr)
 				continue;
 
 			// Ignore if flagged as not visible
@@ -151,7 +151,7 @@ namespace pr::rdr12
 				continue;
 
 			// Add an element to the draw list
-			auto sk = material->AddSortKey(m_step_id, inst, nug, nug.m_sort_key);
+			auto sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, nug.m_sort_key);
 			drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
 			m_sort_needed = true;
 		}
@@ -316,8 +316,8 @@ namespace pr::rdr12
 			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Let the material configure this element for ray casting.
-			auto const* material = nugget.GetMaterial().Pass(m_step_id);
-			if (material == nullptr)
+			auto const* pass = nugget.mat().Pass(m_step_id);
+			if (pass == nullptr)
 				continue;
 
 			auto ctx = MaterialPassContext{
@@ -325,6 +325,7 @@ namespace pr::rdr12
 				.m_wnd = wnd(),
 				.m_scene = scn(),
 				.m_dle = dle,
+				.m_material = nugget.mat(),
 				.m_cmd_list = m_cmd_list,
 				.m_upload = m_upload_buffer,
 				.m_pipe_state = desc,
@@ -334,7 +335,7 @@ namespace pr::rdr12
 				.m_last_tex = nullptr,
 				.m_last_sam = nullptr,
 			};
-			material->Bind(ctx);
+			pass->Bind(ctx);
 
 			// Apply scene pipe state overrides
 			{
@@ -345,7 +346,7 @@ namespace pr::rdr12
 				for (auto& ps : GetPipeStates(instance))
 					desc.Apply(ps);
 			}
-			material->ApplyPipeline(ctx);
+			pass->ApplyPipeline(ctx);
 
 			// Draw the nugget **** 
 			DrawNugget(nugget, desc);

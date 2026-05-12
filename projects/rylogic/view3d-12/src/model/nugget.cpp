@@ -33,22 +33,25 @@ namespace pr::rdr12
 		return m_model->rdr();
 	}
 
-	// Return the material used to render this nugget.
-	Material const& Nugget::GetMaterial() const
-	{
-		return m_material != nullptr
-			? *m_material.get()
-			: DefaultMaterial();
-	}
-
-	// Replace the material used to render this nugget.
-	void Nugget::SetMaterial(MaterialPtr material)
+	// Set the material used to render this nugget.
+	Nugget& Nugget::mat(MaterialPtr material)
 	{
 		if (m_material == material)
-			return;
+			return *this;
 
-		m_material = material;
+		auto had_alpha_variant = m_variant == DefaultNugget && HasAlphaVariant();
+
+		NuggetDesc::mat(material);
+
+		// Recreate alpha variants so they inherit the new material. Existing alpha variants are preserved because instance-level alpha can still select them.
+		if (m_variant == DefaultNugget && (had_alpha_variant || RequiresAlpha()))
+		{
+			ResourceFactory factory(rdr());
+			AlphaVariant(factory, true);
+		}
+
 		m_model->m_ray_tracing.Invalidate(rdr());
+		return *this;
 	}
 
 	// The number of primitives in this nugget
@@ -57,12 +60,6 @@ namespace pr::rdr12
 		return m_irange.empty()
 			? rdr12::PrimCount(m_vrange.size(), m_topo)
 			: rdr12::PrimCount(m_irange.size(), m_topo);
-	}
-
-	// True if this nugget requires alpha blending
-	bool Nugget::RequiresAlpha() const
-	{
-		return AnySet(m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::TintHasAlpha | ENuggetFlag::TexDiffuseHasAlpha);
 	}
 
 	// Get/Set the fill mode for this nugget

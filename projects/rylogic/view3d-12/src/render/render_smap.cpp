@@ -179,11 +179,11 @@ namespace pr::rdr12
 
 			// Set the texture id part of the key if not set already
 			// Only really need the texture if it contains alpha pixels...
-			auto const* material = nug.GetMaterial().Pass(m_step_id);
-			if (material == nullptr)
+			auto const* pass = nug.mat().Pass(m_step_id);
+			if (pass == nullptr)
 				continue;
 
-			sk = material->AddSortKey(m_step_id, inst, nug, sk);
+			sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, sk);
 
 			// Grow the scene bounds by the model bbox if nuggets were added
 			for (;grow_bounds;)
@@ -285,8 +285,8 @@ namespace pr::rdr12
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 				// Let the material bind per-draw resources and constants.
-				auto const* material = nugget.GetMaterial().Pass(m_step_id);
-				if (material == nullptr)
+				auto const* pass = nugget.mat().Pass(m_step_id);
+				if (pass == nullptr)
 					continue;
 
 				auto ctx = MaterialPassContext{
@@ -294,6 +294,7 @@ namespace pr::rdr12
 					.m_wnd = wnd(),
 					.m_scene = scn(),
 					.m_dle = dle,
+					.m_material = nugget.mat(),
 					.m_cmd_list = m_cmd_list,
 					.m_upload = m_upload_buffer,
 					.m_pipe_state = desc,
@@ -303,10 +304,10 @@ namespace pr::rdr12
 					.m_last_tex = nullptr,
 					.m_last_sam = nullptr,
 				};
-				material->Bind(ctx);
+				pass->Bind(ctx);
 
 				// Apply PSO overrides?
-				material->ApplyPipeline(ctx);
+				pass->ApplyPipeline(ctx);
 
 				// Draw the nugget
 				DrawNugget(nugget, desc);

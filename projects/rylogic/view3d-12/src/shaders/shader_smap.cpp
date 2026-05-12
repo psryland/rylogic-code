@@ -55,15 +55,19 @@ namespace pr::rdr12::shaders
 	}
 	void ShadowMap::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, SceneCamera const& cam)
 	{
+		SetupElement(cmd_list, upload, dle, cam, dle->m_nugget->mat());
+	}
+	void ShadowMap::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, SceneCamera const& cam, Material const& material)
+	{
 		// Set the per-element constants
 		auto& inst = *dle->m_instance;
 		auto& nug = *dle->m_nugget;
 
 		CBufNugget cb1 = {};
-		SetFlags(cb1, inst, nug, false);
+		SetFlags(cb1, inst, material, nug, false);
 		SetTxfm(cb1, inst, nug.m_model, cam); // todo frame constant?
-		SetTint(cb1, inst, nug);
-		SetTex2Surf(cb1, inst, nug);
+		SetTint(cb1, inst, material);
+		SetTex2Surf(cb1, inst, material);
 		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
 	}
