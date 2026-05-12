@@ -90,8 +90,8 @@ namespace LDraw
 						Dictionary<Guid, Source> nue = [];
 						field.EnumSources(src =>
 						{
-							// Ignore special objects used by the ChartControl
-							if (src.ContextId == ChartControl.CtxId)
+							// Ignore tool-owned contexts that should not appear as user sources.
+							if (View3d.ObjectManager.ExcludeCtxIds.Contains(src.ContextId))
 								return;
 
 							// Remove 'src.ContextId' from the old list if it's still in use
@@ -141,6 +141,14 @@ namespace LDraw
 						ParsingProgress = m_progress_map.Count > 0
 							? m_progress_map.Values.MinBy(p => p.Percentage)
 							: null;
+					}
+
+					// Reloads update objects already present in scenes. Reset the view here, where the store-change initiator says this was a reload,
+					// rather than in AddObjects where callers may only be changing scene membership.
+					if (e.After && Profile.ResetOnLoad && e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ObjectsAdded))
+					{
+						if (e.Initiator == View3d.EStoreChangeInitiator.Reload)
+							AutoRangeScenesContaining(e.ContextIds);
 					}
 
 					// Just prior to reloading sources
@@ -354,7 +362,7 @@ namespace LDraw
 			NotifyFileOpening(filepath);
 			var ctx_id = View3d.LoadScriptFromFile(filepath).ContextId;
 			var src = Sources.First(x => x.ContextId == ctx_id);
-			src.ShowInScenes(scenes, true);
+			src.ShowInScenes(scenes, true, reset_view: true);
 			return src;
 		}
 
@@ -380,7 +388,7 @@ namespace LDraw
 					// 'add_completed' fires on the main thread after SourceNotifyHandler has
 					// merged results, so 'Sources' should now contain the new source.
 					var src = Sources.FirstOrDefault(x => x.ContextId == id);
-					src?.ShowInScenes(target_scenes, true);
+					src?.ShowInScenes(target_scenes, true, reset_view: true);
 				});
 			});
 		}
@@ -398,7 +406,7 @@ namespace LDraw
 		{
 			var ctx_id = View3d.LoadScriptFromString(text).ContextId;
 			var src = Sources.First(x => x.ContextId == ctx_id);
-			src.ShowInScenes(scenes, true);
+			src.ShowInScenes(scenes, true, reset_view: true);
 			return src;
 		}
 
@@ -484,22 +492,49 @@ namespace LDraw
 			}
 		}
 
-		// Add objects associated with 'id' to the scenes
-		public void AddObjects(SceneUI scene, Guid context_id) => AddObjects(new[] { scene }, context_id);
-		public void AddObjects(IEnumerable<SceneUI> scenes, Guid context_id) => AddObjects(scenes, x => x == context_id);
-		public void AddObjects(IEnumerable<SceneUI> scenes, Func<Guid, bool> context_pred)
+		/// <summary>Add objects associated with 'context_id' to 'scene'.</summary>
+		public void AddObjects(SceneUI scene, Guid context_id, bool reset_view = false)
 		{
-			// Add the objects from 'id' this scene.
+			AddObjects(new[] { scene }, context_id, reset_view);
+		}
+
+		/// <summary>Add objects associated with 'context_id' to 'scenes'.</summary>
+		public void AddObjects(IEnumerable<SceneUI> scenes, Guid context_id, bool reset_view = false)
+		{
+			AddObjects(scenes, x => x == context_id, reset_view);
+		}
+
+		/// <summary>Add objects matching 'context_pred' to 'scenes'.</summary>
+		public void AddObjects(IEnumerable<SceneUI> scenes, Func<Guid, bool> context_pred, bool reset_view = false)
+		{
+			// Add the matching source objects to each scene. Auto-range is reserved for real load/reload operations, not ordinary scene membership changes.
 			foreach (var scene in scenes)
 			{
 				var view = scene.SceneView;
 				view.Scene.AddObjects(context_pred);
 
 				// Auto range the view
-				if (Profile.ResetOnLoad)
+				if (reset_view && Profile.ResetOnLoad)
 					view.AutoRange();
 				else
 					view.Invalidate();
+			}
+		}
+
+		/// <summary>Auto-range scenes that contain any of the reloaded source contexts.</summary>
+		private void AutoRangeScenesContaining(Guid[] context_ids)
+		{
+			var context_set = new HashSet<Guid>(context_ids);
+			foreach (var scene in Scenes)
+			{
+				var contains_context = false;
+				scene.SceneView.Scene.Window.EnumGuids(context_id =>
+				{
+					contains_context = context_set.Contains(context_id);
+					return !contains_context;
+				});
+				if (contains_context)
+					scene.SceneView.AutoRange();
 			}
 		}
 

@@ -30,6 +30,7 @@ namespace Rylogic.Gfx
 			ReferenceFrame = EReferenceFrame.WorldSpace;
 			SnapMode = View3d.ESnapMode.Verts | View3d.ESnapMode.Edges | View3d.ESnapMode.Faces;
 			CtxId = Guid.NewGuid();
+			View3d.ObjectManager.ExcludeCtxIds.Add(CtxId);
 			SnapDistance = 5f; // pixels
 			BegSpotColour = Colour32.Aqua;
 			EndSpotColour = Colour32.Salmon;
@@ -42,6 +43,7 @@ namespace Rylogic.Gfx
 			GfxHotSpot0 = null;
 			GfxHotSpot1 = null;
 			GfxMeasure = null;
+			View3d.ObjectManager.ExcludeCtxIds.Remove(CtxId);
 			Window = null!;
 		}
 
