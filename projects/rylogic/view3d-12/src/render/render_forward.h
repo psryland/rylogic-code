@@ -19,6 +19,7 @@ namespace pr::rdr12
 		GfxCmdList m_alp_list;
 		PipeStateDesc m_reflection_pipe_state;
 		PipeStateDesc m_alpha_pipe_state;
+		PipeStateDesc m_post_alpha_pipe_state;
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;
 	

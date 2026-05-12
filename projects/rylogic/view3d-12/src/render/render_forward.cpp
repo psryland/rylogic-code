@@ -75,14 +75,14 @@ namespace pr::rdr12
 		};
 
 		// Duplicate the PSO for the opaque pass variant that also writes RT reflection attributes.
-		auto reflection_psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
-		reflection_psdesc.PS = shader_code::forward_reflection_attrs_ps;
-		reflection_psdesc.NumRenderTargets = 2U;
-		reflection_psdesc.RTVFormats[1] = RayTracingReflectionAttributeFormat;
-		m_reflection_pipe_state = reflection_psdesc;
+		auto psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
+		psdesc.PS = shader_code::forward_reflection_attrs_ps;
+		psdesc.NumRenderTargets = 2U;
+		psdesc.RTVFormats[1] = RayTracingReflectionAttributeFormat;
+		m_reflection_pipe_state = psdesc;
 
 		// Duplicate the PSO for the alpha pass with some modifications
-		auto psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
+		psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
 		psdesc.PS = shader_code::forward_alpha_collect_ps;
 		psdesc.DepthStencilState = DepthStateDesc{}.Enabled(false);
 		psdesc.NumRenderTargets = 0U;
@@ -90,6 +90,13 @@ namespace pr::rdr12
 		psdesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 		psdesc.SampleDesc = MultiSamp(1, 0);
 		m_alpha_pipe_state = psdesc;
+
+		// Post-alpha overlays render to the resolved target after alpha resolve, so they use a 1x no-depth forward PSO.
+		psdesc = *static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(m_default_pipe_state);
+		psdesc.DepthStencilState = DepthStateDesc{}.Enabled(false);
+		psdesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+		psdesc.SampleDesc = MultiSamp(1, 0);
+		m_post_alpha_pipe_state = psdesc;
 	}
 	RenderForward::~RenderForward()
 	{
@@ -105,9 +112,17 @@ namespace pr::rdr12
 		// Add a draw list element for each nugget in the instance's model
 		for (auto& nugget : Enumerate(nuggets))
 		{
-			auto has_alpha = inst_has_alpha || nugget.RequiresAlpha();
+			auto const* root_material = nugget.GetMaterial().Pass(m_step_id);
+			if (root_material == nullptr)
+				continue;
+
+			auto has_alpha = inst_has_alpha || root_material->RequiresAlpha(inst, nugget);
 			for (auto& nug : nugget.Dependents())
 			{
+				auto const* material = nug.GetMaterial().Pass(m_step_id);
+				if (material == nullptr)
+					continue;
+
 				// Skip the default (opaque) nugget when the instance requires alpha, and skip alpha
 				// variants when it doesn't. Other variants (e.g. ShowNormalsNugget) always render.
 				if (has_alpha && nug.m_variant == DefaultNugget) continue;
@@ -126,25 +141,8 @@ namespace pr::rdr12
 				if (nug.FillMode() == EFillMode::Points && sk.Group() == ESortGroup::AlphaBack)
 					break;
 
-				// Set the texture id part of the key if not set already
-				if (!AnySet(sk, SortKey::TextureIdMask) && nug.m_tex_diffuse != nullptr)
-					sk = SetBits(sk, SortKey::TextureIdMask, nug.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
-
-				// Set the shader id part of the key if not set already
-				if (!AnySet(sk, SortKey::ShaderIdMask))
-				{
-					auto shdr_id = 0;
-					for (auto& overlay : nug.m_shdr_overlays)
-					{
-						// Ignore shader overlays for other render steps
-						if (overlay.m_rdr_step != m_step_id)
-							continue;
-
-						// hash the sort ids together
-						shdr_id = shdr_id * 13 ^ overlay.m_overlay->SortId();
-					}
-					sk = SetBits(sk, SortKey::ShaderIdMask, shdr_id << SortKey::ShaderIdOfs);
-				}
+				// Let the material add pass-specific sort key information.
+				sk = material->AddSortKey(m_step_id, inst, nug, sk);
 
 				// Add an element to the draw list
 				drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
@@ -182,23 +180,17 @@ namespace pr::rdr12
 
 		auto& kbuf = wnd().m_alpha_kbuffer;
 
-		// The RT reflection sidecar describes the opaque raster-visible surface only. Alpha continues through the K-buffer unchanged;
-		// future alpha-aware RT passes should add matching sidecar payloads beside the alpha layer buffers rather than bypassing them.
-		auto* reflection_attrs = [&]() -> RayTracingReflectionBuffer*
-		{
-			auto* ray_tracing = scn().FindRStep<RenderRayTracing>();
-			if (ray_tracing == nullptr)
-				return nullptr;
-
-			return ray_tracing->PrepareReflectionAttributes(frame);
-		}();
-
 		// Render the opaque nuggets first
 		{
 			BindFrameResources(m_cmd_list);
 
-			// Get the back buffer view handle and set the back buffer as the render target.
+			// The RT reflection sidecar describes the opaque raster-visible surface only. Alpha continues through the K-buffer unchanged;
+			// future alpha-aware RT passes should add matching sidecar payloads beside the alpha layer buffers rather than bypassing them.
+			auto* ray_tracing = scn().FindRStep<RenderRayTracing>();
+			auto* reflection_attrs = ray_tracing != nullptr ? ray_tracing->PrepareReflectionAttributes(frame) : nullptr;
 			auto const& pipe_state = reflection_attrs != nullptr ? m_reflection_pipe_state : m_default_pipe_state;
+
+			// Get the back buffer view handle and set the back buffer as the render target.
 			if (reflection_attrs != nullptr)
 			{
 				BarrierBatch bb(m_cmd_list);
@@ -255,6 +247,33 @@ namespace pr::rdr12
 			BarrierBatch bb_end(m_alp_list);
 			bb_end.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 			bb_end.Commit();
+		}
+
+		// Render post-alpha overlays after the K-buffer resolve. These are typically NoZTest labels/HUD-style
+		// objects, so they must not be included in the alpha collection pass or they disappear behind the resolve.
+		if (kbuf)
+		{
+			auto drawlist = m_drawlist.lock();
+			auto post_alpha_start = boundaries[ESortGroup::PostAlpha];
+			if (post_alpha_start != s_cast<int>(drawlist->size()) && frame.bb_post().m_render_target != nullptr)
+			{
+				auto post_alpha_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
+				frame.m_present.SetDescriptorHeaps({ post_alpha_heaps.begin(), post_alpha_heaps.size() });
+
+				BarrierBatch bb(frame.m_present);
+				bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				bb.Commit();
+
+				BindFrameResources(frame.m_present);
+				frame.m_present.RSSetViewports({ &vp, 1 });
+				frame.m_present.RSSetScissorRects(vp.m_clip);
+				frame.m_present.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
+				DrawNuggets(frame.m_present, m_post_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(post_alpha_start)));
+
+				BarrierBatch bb_end(frame.m_present);
+				bb_end.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+				bb_end.Commit();
+			}
 		}
 
 		// Close the command list now that we've finished rendering this scene
@@ -326,37 +345,26 @@ namespace pr::rdr12
 			cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-			// Bind textures to the pipeline
-			if (Texture2DPtr tex = coalesce(FindDiffTexture(instance), nugget.m_tex_diffuse, m_default_tex))
-			{
-				auto srv_descriptor = wnd().m_heap_view.Add(tex->m_srv);
-				if (srv_descriptor.ptr != last_tex.ptr)
-				{
-					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTexture, srv_descriptor);
-					last_tex = srv_descriptor;
+			// Let the material bind per-draw resources and constants.
+			auto const* material = nugget.GetMaterial().Pass(m_step_id);
+			if (material == nullptr)
+				continue;
 
-					if constexpr (PR_DBG_RDR)
-					{
-						// Ensure the diffuse texture is in the correct state
-						auto state = cmd_list.ResState(tex->m_res.get()).Mip0State();
-						assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
-					}
-				}
-			}
-
-			// Bind samplers to the pipeline
-			if (SamplerPtr sam = coalesce(FindDiffTextureSampler(instance), nugget.m_sam_diffuse, m_default_sam))
-			{
-				auto sam_descriptor = wnd().m_heap_samp.Add(sam->m_samp);
-				if (sam_descriptor.ptr != last_sam.ptr)
-				{
-					cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::DiffTextureSampler, sam_descriptor);
-					last_sam = sam_descriptor;
-				}
-			}
-
-			// Set shader constants for the nugget
-			m_shader.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
+			auto ctx = MaterialPassContext{
+				.m_step_id = m_step_id,
+				.m_wnd = wnd(),
+				.m_scene = scn(),
+				.m_dle = dle,
+				.m_cmd_list = cmd_list,
+				.m_upload = m_upload_buffer,
+				.m_pipe_state = desc,
+				.m_shader = &m_shader,
+				.m_default_tex = m_default_tex.get(),
+				.m_default_sam = m_default_sam.get(),
+				.m_last_tex = &last_tex,
+				.m_last_sam = &last_sam,
+			};
+			material->Bind(ctx);
 
 			// Apply scene pipe state overrides
 			{
@@ -368,27 +376,8 @@ namespace pr::rdr12
 					desc.Apply(ps);
 			}
 
-			// Apply nugget shader overrides
-			for (auto& shdr_overlay : nugget.m_shdr_overlays)
-			{
-				// Ignore shader overlays for other render steps
-				if (shdr_overlay.m_rdr_step != m_step_id)
-					continue;
-
-				auto& overlay = *shdr_overlay.m_overlay.get();
-
-				// Update the pipe state with the non-null stage's byte code
-				if (overlay.m_signature) desc.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
-				if (overlay.m_code.VS) desc.Apply(PSO<EPipeState::VS>(overlay.m_code.VS));
-				if (overlay.m_code.PS) desc.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
-				if (overlay.m_code.DS) desc.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
-				if (overlay.m_code.HS) desc.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
-				if (overlay.m_code.GS) desc.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
-
-				// Set constants for the shader
-				overlay.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
-				overlay.SetupElement(cmd_list.get(), m_upload_buffer, scn(), &dle);
-			}
+			// Let the material apply shader or PSO changes after caller-owned overrides.
+			material->ApplyPipeline(ctx);
 
 			// Draw the nugget
 			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash);

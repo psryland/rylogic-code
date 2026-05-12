@@ -33,6 +33,24 @@ namespace pr::rdr12
 		return m_model->rdr();
 	}
 
+	// Return the material used to render this nugget.
+	Material const& Nugget::GetMaterial() const
+	{
+		return m_material != nullptr
+			? *m_material.get()
+			: DefaultMaterial();
+	}
+
+	// Replace the material used to render this nugget.
+	void Nugget::SetMaterial(MaterialPtr material)
+	{
+		if (m_material == material)
+			return;
+
+		m_material = material;
+		m_model->m_ray_tracing.Invalidate(rdr());
+	}
+
 	// The number of primitives in this nugget
 	int64_t Nugget::PrimCount() const
 	{

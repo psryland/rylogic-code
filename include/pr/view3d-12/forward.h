@@ -203,6 +203,13 @@ namespace pr::rdr12
 	struct PipeState;
 	struct SortKey;
 
+	// Materials
+	struct Material;
+	struct MaterialPass;
+	struct MaterialPassContext;
+	struct SimpleMaterial;
+	using MaterialPtr = RefPtr<Material>;
+
 	// Resources
 	struct ResourceFactory;
 	struct ResourceStore;

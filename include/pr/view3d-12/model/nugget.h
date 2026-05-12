@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/material/material.h"
 #include "pr/view3d-12/render/sortkey.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/texture/texture_2d.h"
@@ -120,6 +121,7 @@ namespace pr::rdr12
 
 		ETopo          m_topo;          // The primitive topology for this nugget
 		EGeom          m_geom;          // The valid geometry components within this range
+		MaterialPtr    m_material;      // Material that controls render-step specific setup for this nugget
 		Texture2DPtr   m_tex_diffuse;   // Diffuse texture
 		SamplerPtr     m_sam_diffuse;   // The sampler to use with the diffuse texture
 		ShdrOverlays   m_shdr_overlays; // Shader overlays, applied in order to overlay the base shader
@@ -138,6 +140,7 @@ namespace pr::rdr12
 		NuggetDesc(ETopo topo = ETopo::Undefined, EGeom geom = EGeom::Invalid)
 			: m_topo(topo)
 			, m_geom(geom)
+			, m_material()
 			, m_tex_diffuse()
 			, m_sam_diffuse()
 			, m_shdr_overlays()
@@ -191,6 +194,13 @@ namespace pr::rdr12
 		NuggetDesc& use_shader_overlay(ERenderStep step, ShaderPtr overlay)
 		{
 			m_shdr_overlays.push_back({overlay, step});
+			return *this;
+		}
+
+		// Set the material for this nugget
+		NuggetDesc& material(MaterialPtr material)
+		{
+			m_material = material;
 			return *this;
 		}
 
@@ -294,6 +304,12 @@ namespace pr::rdr12
 
 		// Renderer access
 		Renderer& rdr() const;
+
+		// Return the material used to render this nugget.
+		Material const& GetMaterial() const;
+
+		// Replace the material used to render this nugget.
+		void SetMaterial(MaterialPtr material);
 
 		// The number of primitives in this nugget
 		int64_t PrimCount() const;
