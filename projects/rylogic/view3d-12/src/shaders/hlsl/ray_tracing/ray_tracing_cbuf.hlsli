@@ -14,6 +14,8 @@ static const int RayTracingMode_Reflections = 2;
 static const int RayTracingMode_Caustics = 3;
 static const int RayTracingMode_ReflectionsAndCaustics = 4;
 
+static const int RayTracingOption_AlphaReflections = 0x01;
+
 static const int RayTracingInstanceMask_Default = 0x01;
 static const int RayTracingInstanceMask_Caustic = 0x02;
 static const int RayTracingInstanceMask_All = 0xFF;
@@ -88,7 +90,7 @@ struct CBufFrame// :reg(b0)
 	// x = caustic strength, y = minimum caustic-ray bias, z = projected caustic pattern scale, w = glass thickness approximation
 	float4 caustic;
 
-	// x = RayTracingMode_*, y = material count, z = geometry count, w = geometry fallback count
+	// x = RayTracingMode_*, y = material count, z = geometry count, w = RayTracingOption_*
 	int4 options;
 };
 

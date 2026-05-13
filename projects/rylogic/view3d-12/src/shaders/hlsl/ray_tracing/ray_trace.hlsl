@@ -4,6 +4,7 @@
 //*********************************************
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 
 #ifdef PR_RDR_LSHADER_ray_trace
 
@@ -19,6 +20,8 @@ Buffer<uint> g_indices16 : register(t7);
 Buffer<uint> g_indices32 : register(t8);
 StructuredBuffer<RayTracingGeometry> g_geometry : register(t9);
 RWTexture2D<float4> g_output : register(u0);
+RWTexture2D<uint4> g_alpha_colour : register(u1);
+RWTexture2D<uint4> g_alpha_depth : register(u2);
 
 static const uint RayPayloadMode_Diagnostic = 0;
 static const uint RayPayloadMode_Primary = 1;
@@ -48,12 +51,6 @@ struct RasterDepth
 	float depth;
 	uint sample;
 };
-struct GlassLayer
-{
-	float3 normal;
-	float transmission;
-};
-
 // Create a fully-initialised payload for a ray tracing query.
 RayPayload InitRayPayload(uint mode, float3 colour)
 {
@@ -205,6 +202,129 @@ float3 ReflectionMissColour(float3 ws_direction)
 {
 	float t = saturate(0.5f + 0.5f * ws_direction.y);
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
+}
+
+// Trace a bounded iterative reflection path and return the reflected colour seen along 'reflection_ray'.
+float3 TraceReflectionPath(RayDesc reflection_ray)
+{
+	uint max_bounces = max(1u, uint(g_frame.reflection.z + 0.5f));
+	float min_throughput = max(g_frame.reflection.w, 0.0f);
+	float3 reflection_colour = 0.0f;
+	float throughput = 1.0f;
+
+	// Iterate in raygen rather than using recursive DXR so the bounce count and payload size remain predictable.
+	[loop]
+	for (uint bounce = 0; bounce != max_bounces; ++bounce)
+	{
+		RayPayload reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
+		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
+
+		if (reflection_payload.hit == 0)
+		{
+			// A miss terminates the path with a cheap sky colour so mirror-only scenes still have something to reflect.
+			reflection_colour += throughput * ReflectionMissColour(reflection_ray.Direction);
+			break;
+		}
+
+		float hit_reflectivity = saturate(reflection_payload.reflectivity);
+
+		// Only reserve energy for the next bounce if it will actually be traced; otherwise fold all remaining energy into the local hit colour.
+		bool can_continue =
+			bounce + 1u < max_bounces &&
+			throughput * hit_reflectivity > min_throughput &&
+			(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
+
+		reflection_colour += throughput * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour;
+		if (!can_continue)
+			break;
+
+		throughput *= hit_reflectivity;
+		if (throughput <= min_throughput)
+			break;
+
+		// Spawn the next ray from the closest-hit payload. The bias scales with hit distance to reduce self-intersection across scene scales.
+		float3 bounce_normal = normalize(reflection_payload.normal);
+		if (dot(bounce_normal, -reflection_ray.Direction) < 0.0f)
+			bounce_normal = -bounce_normal;
+
+		float3 bounce_pos = reflection_ray.Origin + reflection_ray.Direction * reflection_payload.hit_t;
+		float bounce_bias = max(g_frame.reflection.y, reflection_payload.hit_t * 0.0001f);
+		reflection_ray.Origin = bounce_pos + bounce_normal * bounce_bias;
+		reflection_ray.Direction = normalize(reflect(reflection_ray.Direction, bounce_normal));
+	}
+
+	return reflection_colour;
+}
+
+// Convert a packed K-buffer depth slot into the linear camera-view Z used when alpha layers were collected.
+float AlphaLayerViewZ(uint packed_depth)
+{
+	uint depth = DepthOf(packed_depth) & ~KBufferTieMask;
+	float t = float(depth) / float(KBufferDepthFar);
+	return lerp(g_frame.clip.x, g_frame.clip.y, t);
+}
+
+// Reconstruct the world position for an alpha K-buffer layer using the packed layer depth and the dispatch pixel.
+float3 AlphaLayerWorldPosition(uint2 pixel, uint2 dim, RayDesc camera_ray, uint packed_depth)
+{
+	float view_z = AlphaLayerViewZ(packed_depth);
+	float3 camera_forward = -g_frame.cam.c2w[2].xyz;
+	float ray_forward = max(dot(camera_ray.Direction, camera_forward), 1e-6f);
+	return camera_ray.Origin + camera_ray.Direction * (view_z / ray_forward);
+}
+
+// Fold RT reflection colour into one sorted alpha K-buffer layer while preserving the layer alpha used by the final resolve.
+void ApplyAlphaReflectionLayer(inout uint packed_colour, uint packed_depth, uint packed_attrs, uint2 pixel, uint2 dim, RayDesc camera_ray)
+{
+	if (DepthOf(packed_depth) == KBufferDepthFar)
+		return;
+
+	float4 layer_colour = UnpackRGBA8(packed_colour);
+	float4 layer_attrs = UnpackRGBA8(packed_attrs);
+	float reflectivity = saturate(layer_attrs.a * g_frame.reflection.x);
+	if (reflectivity <= 0.0f || layer_colour.a <= 0.0f)
+		return;
+
+	float3 normal = 2.0f * layer_attrs.rgb - 1.0f;
+	float normal_len_sq = dot(normal, normal);
+	if (normal_len_sq < 1e-6f)
+		return;
+
+	normal *= rsqrt(normal_len_sq);
+	if (dot(normal, -camera_ray.Direction) < 0.0f)
+		normal = -normal;
+
+	float3 hit_pos = AlphaLayerWorldPosition(pixel, dim, camera_ray, packed_depth);
+	float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
+
+	RayDesc reflection_ray = (RayDesc)0;
+	reflection_ray.Origin = hit_pos + normal * reflection_bias;
+	reflection_ray.Direction = normalize(reflect(camera_ray.Direction, normal));
+	reflection_ray.TMin = 0.0f;
+	reflection_ray.TMax = g_frame.clip.y;
+
+	float3 reflection_colour = TraceReflectionPath(reflection_ray);
+	layer_colour.rgb = lerp(layer_colour.rgb, reflection_colour, reflectivity);
+	packed_colour = PackRGBA8(layer_colour);
+}
+
+// Update all retained alpha K-buffer layers for this pixel with first-pass baked RT reflections.
+void ApplyAlphaReflections(uint2 pixel, uint2 dim)
+{
+	if ((g_frame.options.w & RayTracingOption_AlphaReflections) == 0)
+		return;
+
+	RayDesc camera_ray = MakeCameraRay(pixel, dim);
+	uint4 alpha_colour = g_alpha_colour[pixel];
+	uint4 alpha_depth = g_alpha_depth[pixel];
+	uint4 alpha_rt_attrs = g_alpha_rt_attrs.Load(int3(pixel, 0));
+
+	ApplyAlphaReflectionLayer(alpha_colour.x, alpha_depth.x, alpha_rt_attrs.x, pixel, dim, camera_ray);
+	ApplyAlphaReflectionLayer(alpha_colour.y, alpha_depth.y, alpha_rt_attrs.y, pixel, dim, camera_ray);
+	ApplyAlphaReflectionLayer(alpha_colour.z, alpha_depth.z, alpha_rt_attrs.z, pixel, dim, camera_ray);
+	ApplyAlphaReflectionLayer(alpha_colour.w, alpha_depth.w, alpha_rt_attrs.w, pixel, dim, camera_ray);
+
+	g_alpha_colour[pixel] = alpha_colour;
 }
 
 // Return the material table index for the current closest hit.
@@ -418,50 +538,6 @@ float CausticPattern(float3 ws_pos, float3 surface_to_light)
 	return saturate(0.65f * cells + 0.25f * fine_cells + 0.10f * shimmer);
 }
 
-// Unpack an RGBA8 value produced by the alpha RT sidecar.
-float4 UnpackRtRGBA8(uint colour)
-{
-	uint4 c = uint4(colour, colour >> 8, colour >> 16, colour >> 24) & 0xFFu;
-	return float4(c) / 255.0f;
-}
-
-// Fold one packed alpha sidecar layer into the strongest glass layer candidate for this pixel.
-void ConsiderGlassLayer(inout GlassLayer best, uint packed_attrs, float3 incident)
-{
-	float4 attrs = UnpackRtRGBA8(packed_attrs);
-
-	// The alpha sidecar stores transmission in alpha. Keep the strongest layer as the single cheap approximation for caustic bending.
-	if (attrs.a <= best.transmission)
-		return;
-
-	float3 normal = 2.0f * attrs.rgb - 1.0f;
-	float len_sq = dot(normal, normal);
-	if (len_sq < 1e-6f)
-		return;
-
-	normal *= rsqrt(len_sq);
-	if (dot(normal, incident) > 0.0f)
-		normal = -normal;
-
-	best.normal = normal;
-	best.transmission = attrs.a;
-}
-
-// Return the strongest camera-visible transparent layer for this pixel, treating it as default glass.
-GlassLayer StrongestGlassLayer(uint2 pixel, float3 fallback_normal, float3 incident)
-{
-	uint4 attrs = g_alpha_rt_attrs.Load(int3(pixel, 0));
-	GlassLayer glass;
-	glass.normal = fallback_normal;
-	glass.transmission = 0.0f;
-
-	ConsiderGlassLayer(glass, attrs.x, incident);
-	ConsiderGlassLayer(glass, attrs.y, incident);
-	ConsiderGlassLayer(glass, attrs.z, incident);
-	ConsiderGlassLayer(glass, attrs.w, incident);
-	return glass;
-}
-
 // Return a refracted direction for the receiver-pull caustic path, or the incident direction if the approximation cannot refract safely.
 float3 CausticRefractedDirection(float3 incident, float3 material_normal, float eta)
 {
@@ -536,8 +612,6 @@ void RayGen()
 
 				float3 reflection_dir = normalize(reflect(camera_ray.Direction, normal));
 				float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
-				uint max_bounces = max(1u, uint(g_frame.reflection.z + 0.5f));
-				float min_throughput = max(g_frame.reflection.w, 0.0f);
 
 				RayDesc reflection_ray = (RayDesc)0;
 				reflection_ray.Origin = hit_pos + normal * reflection_bias;
@@ -545,52 +619,11 @@ void RayGen()
 				reflection_ray.TMin = 0.0f;
 				reflection_ray.TMax = g_frame.clip.y;
 
-				float3 reflection_colour = 0.0f;
-				float throughput = 1.0f;
-
-				// Iterate in raygen rather than using recursive DXR so the bounce count and payload size remain predictable.
-				[loop]
-				for (uint bounce = 0; bounce != max_bounces; ++bounce)
-				{
-					RayPayload reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
-					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
-
-					if (reflection_payload.hit == 0)
-					{
-						// A miss terminates the path with a cheap sky colour so mirror-only scenes still have something to reflect.
-						reflection_colour += throughput * ReflectionMissColour(reflection_ray.Direction);
-						break;
-					}
-
-					float hit_reflectivity = saturate(reflection_payload.reflectivity);
-
-					// Only reserve energy for the next bounce if it will actually be traced; otherwise fold all remaining energy into the local hit colour.
-					bool can_continue =
-						bounce + 1u < max_bounces &&
-						throughput * hit_reflectivity > min_throughput &&
-						(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
-
-					reflection_colour += throughput * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour;
-					if (!can_continue)
-						break;
-
-					throughput *= hit_reflectivity;
-					if (throughput <= min_throughput)
-						break;
-
-					// Spawn the next ray from the closest-hit payload. The bias scales with hit distance to reduce self-intersection across scene scales.
-					float3 bounce_normal = normalize(reflection_payload.normal);
-					if (dot(bounce_normal, -reflection_ray.Direction) < 0.0f)
-						bounce_normal = -bounce_normal;
-
-					float3 bounce_pos = reflection_ray.Origin + reflection_ray.Direction * reflection_payload.hit_t;
-					float bounce_bias = max(g_frame.reflection.y, reflection_payload.hit_t * 0.0001f);
-					reflection_ray.Origin = bounce_pos + bounce_normal * bounce_bias;
-					reflection_ray.Direction = normalize(reflect(reflection_ray.Direction, bounce_normal));
-				}
-				colour.rgb = lerp(colour.rgb, reflection_colour, reflectivity);
+				colour.rgb = lerp(colour.rgb, TraceReflectionPath(reflection_ray), reflectivity);
 			}
 		}
+
+		ApplyAlphaReflections(pixel, dim);
 
 		// Reflection-only dispatches are complete here. Combined mode deliberately falls through so caustics add to the reflected raster result.
 		if (g_frame.options.x == RayTracingMode_Reflections)

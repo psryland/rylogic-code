@@ -92,8 +92,8 @@ uint AlphaRtAttributes(PSIn In, float4 diff)
 		return 0;
 
 	normal = normalize(normal);
-	float transmission = saturate(1.0f - diff.a);
-	return PackRGBA8(float4(0.5f * normal + 0.5f, transmission));
+	float reflectivity = saturate(g_nugget.env_reflectivity);
+	return PackRGBA8(float4(0.5f * normal + 0.5f, reflectivity));
 }
 
 // Default VS

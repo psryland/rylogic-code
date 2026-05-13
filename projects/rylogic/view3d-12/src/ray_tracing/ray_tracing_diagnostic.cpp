@@ -43,6 +43,8 @@ namespace pr::rdr12
 			ShadingIndices32,
 			ShadingGeometry,
 			Output,
+			AlphaColour,
+			AlphaDepth,
 		};
 		enum class EPresentRootParam
 		{
@@ -155,6 +157,8 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t8, 1)
 			.SRV(hlsl::ESRVReg::t9, 1)
 			.UAV(hlsl::EUAVReg::u0, 1)
+			.UAV(hlsl::EUAVReg::u1, 1)
+			.UAV(hlsl::EUAVReg::u2, 1)
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
 
@@ -344,6 +348,8 @@ namespace pr::rdr12
 			: frame.bb_post().m_rtv;
 		auto const depth = const_cast<ID3D12Resource*>(frame.bb_main().m_depth_stencil.get());
 		auto const reflection_attrs = reflections != nullptr ? reflections->Attributes() : nullptr;
+		auto const alpha_colour = kbuffer.m_alpha_colour != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_colour->m_res.get()) : nullptr;
+		auto const alpha_depth = kbuffer.m_alpha_depth != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_depth->m_res.get()) : nullptr;
 		auto const alpha_rt_attrs = kbuffer.m_alpha_rt_attrs != nullptr ? const_cast<ID3D12Resource*>(kbuffer.m_alpha_rt_attrs->m_res.get()) : nullptr;
 		auto const materials = ray_tracing_scene.MaterialBuffer();
 		auto const shading_vertices = ray_tracing_scene.ShadingVertexBuffer();
@@ -358,6 +364,8 @@ namespace pr::rdr12
 		if (use_reflections && (depth == nullptr || reflections == nullptr || !*reflections))
 			return;
 
+		auto const use_alpha_reflections = use_reflections && alpha_colour != nullptr && alpha_depth != nullptr && alpha_rt_attrs != nullptr;
+
 		// Dispatch rays into an intermediate UAV. The fullscreen present pass that follows keeps the UAV format independent of the swap-chain format.
 		{
 			BarrierBatch barriers(cmd_list);
@@ -368,6 +376,11 @@ namespace pr::rdr12
 				barriers.Transition(reflection_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (alpha_rt_attrs != nullptr)
 				barriers.Transition(alpha_rt_attrs, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (use_alpha_reflections)
+			{
+				barriers.Transition(alpha_colour, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				barriers.Transition(alpha_depth, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			}
 			if (materials != nullptr)
 				barriers.Transition(materials, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (shading_vertices != nullptr)
@@ -476,7 +489,6 @@ namespace pr::rdr12
 					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
 				},
 			});
-
 			auto uav_desc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
 				.Format = OutputFormat,
 				.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
@@ -486,6 +498,26 @@ namespace pr::rdr12
 				},
 			};
 			auto output_uav = scene.wnd().m_heap_view.Add(output, uav_desc);
+			auto alpha_colour_uav = kbuffer.m_alpha_colour != nullptr
+				? scene.wnd().m_heap_view.Add(kbuffer.m_alpha_colour->m_uav)
+				: scene.wnd().m_heap_view.Add(nullptr, D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = DXGI_FORMAT_R32G32B32A32_UINT,
+					.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+					.Texture2D = {
+						.MipSlice = 0U,
+						.PlaneSlice = 0U,
+					},
+				});
+			auto alpha_depth_uav = kbuffer.m_alpha_depth != nullptr
+				? scene.wnd().m_heap_view.Add(kbuffer.m_alpha_depth->m_uav)
+				: scene.wnd().m_heap_view.Add(nullptr, D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = DXGI_FORMAT_R32G32B32A32_UINT,
+					.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+					.Texture2D = {
+						.MipSlice = 0U,
+						.PlaneSlice = 0U,
+					},
+				});
 
 			auto cb = shaders::rt::CBufFrame{};
 			SetViewConstants(cb.cam, scene.m_cam);
@@ -511,7 +543,9 @@ namespace pr::rdr12
 				pass == ERayTracingScreenPass::Caustics ? shaders::rt::RayTracingMode_Caustics :
 				pass == ERayTracingScreenPass::ReflectionsAndCaustics ? shaders::rt::RayTracingMode_ReflectionsAndCaustics :
 				throw std::runtime_error("Unknown ray tracing screen pass"),
-				ray_tracing_scene.MaterialCount(), ray_tracing_scene.ShadingGeometryCount(), ray_tracing_scene.ShadingGeometryFallbackCount());
+				ray_tracing_scene.MaterialCount(),
+				ray_tracing_scene.ShadingGeometryCount(),
+				use_alpha_reflections ? shaders::rt::RayTracingOption_AlphaReflections : 0);
 
 			cmd_list.SetComputeRootSignature(data.m_trace_signature.get());
 			cmd_list.SetComputeRootConstantBufferView(ETraceRootParam::CBufFrame, frame.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false));
@@ -526,6 +560,8 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingIndices32, shading_indices32_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingGeometry, shading_geometry_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaColour, alpha_colour_uav);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaDepth, alpha_depth_uav);
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 
 			auto dispatch_desc = data.m_dispatch_desc;
@@ -539,6 +575,12 @@ namespace pr::rdr12
 		{
 			BarrierBatch barriers(cmd_list);
 			barriers.UAV(output);
+			if (use_alpha_reflections)
+			{
+				barriers.UAV(alpha_colour);
+				barriers.Transition(alpha_colour, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+				barriers.Transition(alpha_depth, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			}
 			barriers.Transition(output, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(target, D3D12_RESOURCE_STATE_RENDER_TARGET);
 			if (depth != nullptr)
