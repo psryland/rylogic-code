@@ -216,17 +216,19 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
-	// Get the selected ray tracing feature flags for this window.
-	view3d::ERayTracingFeature V3dWindow::RayTracingFeatures() const
+	// Get/Set the ray tracing render settings for this window.
+	RayTracingProps V3dWindow::RayTracingProperties() const
 	{
-		return static_cast<view3d::ERayTracingFeature>(m_scene.RayTracingFeatures());
+		return m_scene.RayTracingProperties();
 	}
-	void V3dWindow::RayTracingFeatures(view3d::ERayTracingFeature features)
+	void V3dWindow::RayTracingProperties(RayTracingProps props)
 	{
-		if (RayTracingFeatures() == features)
+		auto const before = RayTracingProperties();
+		props.Clamp();
+		if (props == before)
 			return;
 
-		m_scene.RayTracingFeatures(static_cast<ERayTracingFeature>(features));
+		m_scene.RayTracingProperties(props);
 		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
 		Invalidate();
 	}

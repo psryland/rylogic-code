@@ -523,6 +523,11 @@ namespace pr
 			All         = (1 << 0) | (1 << 1),
 			_flags_enum = 0,
 		};
+		struct RayTracingProps
+		{
+			ERayTracingFeature m_features;
+			int m_max_reflection_bounces;
+		};
 		struct RayTracingInfo
 		{
 			BOOL m_requested;
@@ -971,8 +976,8 @@ extern "C"
 	VIEW3D_API pr::view3d::RayTracingInfo __stdcall View3D_WindowRayTracingInfoGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_WindowRayTracingEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(pr::view3d::Window window, BOOL enable);
-	VIEW3D_API pr::view3d::ERayTracingFeature __stdcall View3D_WindowRayTracingFeaturesGet(pr::view3d::Window window);
-	VIEW3D_API void __stdcall View3D_WindowRayTracingFeaturesSet(pr::view3d::Window window, pr::view3d::ERayTracingFeature features);
+	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

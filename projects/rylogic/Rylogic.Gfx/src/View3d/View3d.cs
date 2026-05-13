@@ -1107,6 +1107,24 @@ namespace Rylogic.Gfx
 			public ERayTracingTier Tier;
 		}
 
+		/// <summary>Ray tracing render settings</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RayTracingProps
+		{
+			public ERayTracingFeature Features;
+			public int MaxReflectionBounces;
+
+			/// <summary>Default ray tracing render settings</summary>
+			public static RayTracingProps Default()
+			{
+				return new RayTracingProps
+				{
+					Features = ERayTracingFeature.All,
+					MaxReflectionBounces = 1,
+				};
+			}
+		}
+
 		/// <summary></summary>
 		[StructLayout(LayoutKind.Sequential)]
 		public struct WindowOptions
@@ -1759,8 +1777,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern RayTracingInfo View3D_WindowRayTracingInfoGet(HWindow window);
 		[DllImport(Dll)] private static extern bool View3D_WindowRayTracingEnabledGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowRayTracingEnabledSet(HWindow window, bool enable);
-		[DllImport(Dll)] private static extern ERayTracingFeature View3D_WindowRayTracingFeaturesGet(HWindow window);
-		[DllImport(Dll)] private static extern void View3D_WindowRayTracingFeaturesSet(HWindow window, ERayTracingFeature features);
+		[DllImport(Dll)] private static extern RayTracingProps View3D_RayTracingPropertiesGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_RayTracingPropertiesSet(HWindow window, ref RayTracingProps props);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 		// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

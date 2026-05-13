@@ -39,6 +39,22 @@
 				IsChecked="{Binding ReflectionsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
 				Margin="16,0,0,4"
 				/>
+			<StackPanel
+				Orientation="Horizontal"
+				IsEnabled="{Binding RayTracingAvailable}"
+				Margin="32,0,0,4"
+				>
+				<TextBlock
+					Text="Max reflection bounces:"
+					VerticalAlignment="Center"
+					Margin="0,0,8,0"
+					/>
+				<ComboBox
+					ItemsSource="{Binding MaxReflectionBounceChoices}"
+					SelectedItem="{Binding MaxReflectionBounces, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+					Width="60"
+					/>
+			</StackPanel>
 			<CheckBox
 				Content="Caustics"
 				IsEnabled="{Binding RayTracingAvailable}"

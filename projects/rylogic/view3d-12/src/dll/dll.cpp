@@ -469,28 +469,37 @@ VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(view3d::Window windo
 	CatchAndReport(View3D_WindowRayTracingEnabledSet, window,);
 }
 
-// Get the selected per-window ray tracing feature flags.
-VIEW3D_API view3d::ERayTracingFeature __stdcall View3D_WindowRayTracingFeaturesGet(view3d::Window window)
-{
-	try
-	{
-		Validate(window);
-		return window->RayTracingFeatures();
-	}
-	CatchAndReport(View3D_WindowRayTracingFeaturesGet, window, view3d::ERayTracingFeature::None);
-}
-
-// Set the selected per-window ray tracing feature flags.
-VIEW3D_API void __stdcall View3D_WindowRayTracingFeaturesSet(view3d::Window window, view3d::ERayTracingFeature features)
+// Get the ray tracing render settings for this window.
+VIEW3D_API view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(view3d::Window window)
 {
 	try
 	{
 		Validate(window);
 
 		DllLockGuard;
-		window->RayTracingFeatures(features);
+		auto props = window->RayTracingProperties();
+		return view3d::RayTracingProps{
+			.m_features = static_cast<view3d::ERayTracingFeature>(props.m_features),
+			.m_max_reflection_bounces = props.m_max_reflection_bounces,
+		};
 	}
-	CatchAndReport(View3D_WindowRayTracingFeaturesSet, window,);
+	CatchAndReport(View3D_RayTracingPropertiesGet, window, {});
+}
+
+// Set the ray tracing render settings for this window.
+VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(view3d::Window window, view3d::RayTracingProps const& props)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto ray_tracing_props = rdr12::RayTracingProps{};
+		ray_tracing_props.m_features = static_cast<rdr12::ERayTracingFeature>(props.m_features);
+		ray_tracing_props.m_max_reflection_bounces = props.m_max_reflection_bounces;
+		window->RayTracingProperties(ray_tracing_props);
+	}
+	CatchAndReport(View3D_RayTracingPropertiesSet, window,);
 }
 
 // Get/Set the dimensions of the render target

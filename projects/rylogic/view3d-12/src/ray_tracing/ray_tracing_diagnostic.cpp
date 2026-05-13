@@ -27,6 +27,7 @@ namespace pr::rdr12
 		constexpr wchar_t MissShader[] = L"Miss";
 		constexpr wchar_t ClosestHitShader[] = L"ClosestHit";
 		constexpr wchar_t HitGroup[] = L"HitGroup";
+		constexpr auto MaxRayPayloadSizeInBytes = 12 * sizeof(uint32_t);
 
 		enum class ETraceRootParam
 		{
@@ -186,7 +187,7 @@ namespace pr::rdr12
 			.IntersectionShaderImport = nullptr,
 		};
 		auto shader_config = D3D12_RAYTRACING_SHADER_CONFIG{
-			.MaxPayloadSizeInBytes = 3 * sizeof(float) + 3 * sizeof(uint32_t),
+			.MaxPayloadSizeInBytes = MaxRayPayloadSizeInBytes,
 			.MaxAttributeSizeInBytes = 2 * sizeof(float),
 		};
 		auto global_signature = D3D12_GLOBAL_ROOT_SIGNATURE{
@@ -501,7 +502,7 @@ namespace pr::rdr12
 				0.0f,
 				0.0f);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
-			cb.reflection = v4(1.0f, 0.01f, 0.0f, 0.0f);
+			cb.reflection = v4(1.0f, 0.01f, s_cast<float>(scene.RayTracingProperties().m_max_reflection_bounces), 0.01f);
 			cb.caustic = v4(0.75f, 0.01f, 3.5f, 0.35f);
 			cb.options = iv4(
 				pass == ERayTracingScreenPass::Diagnostic ? shaders::rt::RayTracingMode_Diagnostic :

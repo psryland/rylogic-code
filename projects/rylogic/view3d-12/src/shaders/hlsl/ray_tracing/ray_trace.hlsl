@@ -26,6 +26,8 @@ static const uint RayPayloadMode_Shadow = 2;
 static const uint RayPayloadMode_Reflection = 3;
 static const uint RayPayloadMode_Caustic = 4;
 
+static const uint RayPayloadFlag_ReflectionValid = 0x01;
+
 static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
 
@@ -33,6 +35,10 @@ struct RayPayload
 {
 	float3 colour;
 	uint mode;
+	float3 normal;
+	uint flags;
+	float hit_t;
+	float reflectivity;
 	uint hit;
 	uint occluded;
 };
@@ -46,6 +52,15 @@ struct GlassLayer
 	float3 normal;
 	float transmission;
 };
+
+// Create a fully-initialised payload for a ray tracing query.
+RayPayload InitRayPayload(uint mode, float3 colour)
+{
+	RayPayload payload = (RayPayload)0;
+	payload.colour = colour;
+	payload.mode = mode;
+	return payload;
+}
 
 // Return a stable pseudo-random colour for diagnostic object/primitive ids.
 float3 DiagnosticColour(uint seed)
@@ -77,6 +92,7 @@ RayDesc MakeCameraRay(uint2 pixel, uint2 dim)
 	ray.TMin = max(g_frame.clip.x, 0.001f);
 	ray.TMax = g_frame.clip.y;
 
+	// Orthographic rays start on the camera plane and share the camera forward direction.
 	if (g_frame.camera.w != 0.0f)
 	{
 		ray.Origin = g_frame.cam.c2w[3].xyz + nss.x * half_width * g_frame.cam.c2w[0].xyz + nss.y * half_height * g_frame.cam.c2w[1].xyz;
@@ -84,6 +100,7 @@ RayDesc MakeCameraRay(uint2 pixel, uint2 dim)
 	}
 	else
 	{
+		// Perspective rays all start at the camera origin and pass through the corresponding point on the focus plane.
 		float3 cs_point = float3(nss.x * half_width, nss.y * half_height, -g_frame.camera.z);
 		ray.Origin = g_frame.cam.c2w[3].xyz;
 		ray.Direction = normalize(cs_point.x * g_frame.cam.c2w[0].xyz + cs_point.y * g_frame.cam.c2w[1].xyz + cs_point.z * g_frame.cam.c2w[2].xyz);
@@ -140,6 +157,7 @@ float3 ReceiverNormal(uint2 pixel, uint2 dim, float depth, RayDesc camera_ray)
 	float x_sign = 1.0f;
 	float y_sign = 1.0f;
 
+	// Choose one horizontal and one vertical neighbour. At image borders, sample inward and flip the derivative direction to keep the winding consistent.
 	if (pixel.x + 1u < dim.x)
 		pixel_x.x = pixel.x + 1u;
 	else if (pixel.x > 0u)
@@ -159,6 +177,7 @@ float3 ReceiverNormal(uint2 pixel, uint2 dim, float depth, RayDesc camera_ray)
 	if (all(pixel_x == pixel) || all(pixel_y == pixel))
 		return normalize(-camera_ray.Direction);
 
+	// Missing neighbour depth means the neighbour is background. Reuse the centre depth so silhouettes don't generate enormous derivatives.
 	float depth_x = LoadDepth(pixel_x);
 	float depth_y = LoadDepth(pixel_y);
 	if (depth_x >= 0.999999f)
@@ -219,6 +238,12 @@ bool MaterialIsTransmissive(RayTracingMaterial material)
 	return (material.flags.x & RayTracingMaterialFlag_Transmissive) != 0;
 }
 
+// Return the clamped material reflectivity used for reflection bounces.
+float MaterialReflectivity(RayTracingMaterial material)
+{
+	return saturate(material.optics.x);
+}
+
 // Return the clamped material transmission used for caustic energy.
 float MaterialTransmission(RayTracingMaterial material)
 {
@@ -264,13 +289,17 @@ float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
 }
 
 // Shade the closest-hit surface by interpolating packed geometry attributes.
-float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
+float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, out float3 ws_normal_out, out float reflectivity)
 {
+	ws_normal_out = 0.0f;
+
 	uint geometry_index = HitMaterialIndex();
 	RayTracingMaterial material = HitMaterial();
+	reflectivity = MaterialReflectivity(material);
 	if (!HasHitGeometry(geometry_index))
 		return material.diffuse;
 
+	// Geometry sidecar data is optional because fallback BLAS geometry can still be ray-hit even if it cannot be shaded from original vertices.
 	RayTracingGeometry geometry = g_geometry[geometry_index];
 	uint first_index = PrimitiveIndex() * 3u;
 	if (first_index + 2u >= geometry.ranges.w)
@@ -288,6 +317,8 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
 	RayTracingVertex v1 = g_vertices[geometry.ranges.x + i1];
 	RayTracingVertex v2 = g_vertices[geometry.ranges.x + i2];
 	float4 colour = (bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour) * material.diffuse;
+
+	// Without packed normals the hit can still contribute diffuse colour, but it cannot spawn another reflection bounce safely.
 	if ((geometry.flags.x & RayTracingGeometryFlag_HasNormals) == 0)
 		return colour;
 
@@ -300,12 +331,16 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
 	float4 ws_normal = mul(normal * rsqrt(normal_len_sq), geometry.normal_to_world);
 	ws_normal.w = 0.0f;
 	float ws_normal_len_sq = dot(ws_normal.xyz, ws_normal.xyz);
+
+	// Degenerate normals fall back to a terminal hit colour rather than risking NaNs in later reflection rays.
 	if (ws_normal_len_sq < 1e-10f)
 		return colour;
 
 	ws_normal *= rsqrt(ws_normal_len_sq);
 	if (dot(ws_normal.xyz, -WorldRayDirection()) < 0.0f)
 		ws_normal = -ws_normal;
+
+	ws_normal_out = ws_normal.xyz;
 
 	if (DirectionalLight(g_frame.global_light))
 		return ShadeDirectionalHit(ws_normal, colour);
@@ -362,11 +397,13 @@ float CausticCells(float2 p)
 // Return a visible caustic proof pattern in the receiver plane projected along the light direction.
 float CausticPattern(float3 ws_pos, float3 surface_to_light)
 {
+	// Build a stable 2D basis in the receiver plane so the procedural caustic pattern follows the light direction rather than screen space.
 	float3 up = abs(surface_to_light.z) < 0.9f ? float3(0.0f, 0.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
 	float3 axis_x = normalize(cross(up, surface_to_light));
 	float3 axis_y = cross(surface_to_light, axis_x);
 	float2 p = float2(dot(ws_pos, axis_x), dot(ws_pos, axis_y)) * max(g_frame.caustic.z, 0.001f);
 
+	// Combine two rotated cell layers to avoid an obvious grid pattern while keeping the shader cheap enough for the current prototype.
 	float2 p0 = float2(
 		dot(p, float2(0.8660254f, -0.5f)),
 		dot(p, float2(0.5f, 0.8660254f)));
@@ -391,6 +428,8 @@ float4 UnpackRtRGBA8(uint colour)
 void ConsiderGlassLayer(inout GlassLayer best, uint packed_attrs, float3 incident)
 {
 	float4 attrs = UnpackRtRGBA8(packed_attrs);
+
+	// The alpha sidecar stores transmission in alpha. Keep the strongest layer as the single cheap approximation for caustic bending.
 	if (attrs.a <= best.transmission)
 		return;
 
@@ -447,18 +486,16 @@ float GlassTransmission(float3 incident, GlassLayer glass, float material_transm
 	return transmission * (1.0f - fresnel_reflectance);
 }
 
+// Dispatch one screen-space RT query per output pixel and composite the selected RT feature over the raster colour.
 [shader("raygeneration")]
 void RayGen()
 {
 	uint2 pixel = DispatchRaysIndex().xy;
 	uint2 dim = DispatchRaysDimensions().xy;
 
-	RayPayload payload;
-	payload.colour = float3(0.02f, 0.03f, 0.05f);
-	payload.mode = RayPayloadMode_Diagnostic;
-	payload.hit = 0;
-	payload.occluded = 0;
+	RayPayload payload = InitRayPayload(RayPayloadMode_Diagnostic, float3(0.02f, 0.03f, 0.05f));
 
+	// Diagnostic mode ignores the raster image and traces a camera ray directly into the TLAS to visualise ray tracing coverage.
 	if (g_frame.options.x == RayTracingMode_Diagnostic)
 	{
 		RayDesc ray = MakeCameraRay(pixel, dim);
@@ -468,6 +505,8 @@ void RayGen()
 	}
 
 	float4 colour = g_input.Load(int3(pixel, 0));
+
+	// Reflection mode starts from the resolved raster colour and only traces pixels whose raster material exported reflection attributes.
 	if (g_frame.options.x == RayTracingMode_Reflections || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
@@ -477,6 +516,7 @@ void RayGen()
 			float reflectivity = saturate(reflection_attrs.a * g_frame.reflection.x);
 			if (reflectivity > 0.0f)
 			{
+				// The first reflection ray is seeded from raster data so opaque raster shading remains the primary camera-visible path.
 				RayDesc camera_ray = MakeCameraRay(pixel, dim);
 				float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
 				float3 normal = normalize(2.0f * reflection_attrs.xyz - 1.0f);
@@ -485,12 +525,8 @@ void RayGen()
 
 				float3 reflection_dir = normalize(reflect(camera_ray.Direction, normal));
 				float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
-
-				RayPayload reflection_payload;
-				reflection_payload.colour = 0.0f;
-				reflection_payload.mode = RayPayloadMode_Reflection;
-				reflection_payload.hit = 0;
-				reflection_payload.occluded = 0;
+				uint max_bounces = max(1u, uint(g_frame.reflection.z + 0.5f));
+				float min_throughput = max(g_frame.reflection.w, 0.0f);
 
 				RayDesc reflection_ray = (RayDesc)0;
 				reflection_ray.Origin = hit_pos + normal * reflection_bias;
@@ -498,15 +534,54 @@ void RayGen()
 				reflection_ray.TMin = 0.0f;
 				reflection_ray.TMax = g_frame.clip.y;
 
-				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
+				float3 reflection_colour = 0.0f;
+				float throughput = 1.0f;
 
-				float3 reflection_colour = reflection_payload.hit != 0
-					? reflection_payload.colour
-					: ReflectionMissColour(reflection_dir);
+				// Iterate in raygen rather than using recursive DXR so the bounce count and payload size remain predictable.
+				[loop]
+				for (uint bounce = 0; bounce != max_bounces; ++bounce)
+				{
+					RayPayload reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
+					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
+
+					if (reflection_payload.hit == 0)
+					{
+						// A miss terminates the path with a cheap sky colour so mirror-only scenes still have something to reflect.
+						reflection_colour += throughput * ReflectionMissColour(reflection_ray.Direction);
+						break;
+					}
+
+					float hit_reflectivity = saturate(reflection_payload.reflectivity);
+
+					// Only reserve energy for the next bounce if it will actually be traced; otherwise fold all remaining energy into the local hit colour.
+					bool can_continue =
+						bounce + 1u < max_bounces &&
+						throughput * hit_reflectivity > min_throughput &&
+						(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
+
+					reflection_colour += throughput * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour;
+					if (!can_continue)
+						break;
+
+					throughput *= hit_reflectivity;
+					if (throughput <= min_throughput)
+						break;
+
+					// Spawn the next ray from the closest-hit payload. The bias scales with hit distance to reduce self-intersection across scene scales.
+					float3 bounce_normal = normalize(reflection_payload.normal);
+					if (dot(bounce_normal, -reflection_ray.Direction) < 0.0f)
+						bounce_normal = -bounce_normal;
+
+					float3 bounce_pos = reflection_ray.Origin + reflection_ray.Direction * reflection_payload.hit_t;
+					float bounce_bias = max(g_frame.reflection.y, reflection_payload.hit_t * 0.0001f);
+					reflection_ray.Origin = bounce_pos + bounce_normal * bounce_bias;
+					reflection_ray.Direction = normalize(reflect(reflection_ray.Direction, bounce_normal));
+				}
 				colour.rgb = lerp(colour.rgb, reflection_colour, reflectivity);
 			}
 		}
 
+		// Reflection-only dispatches are complete here. Combined mode deliberately falls through so caustics add to the reflected raster result.
 		if (g_frame.options.x == RayTracingMode_Reflections)
 		{
 			g_output[pixel] = colour;
@@ -514,6 +589,7 @@ void RayGen()
 		}
 	}
 
+	// Caustics mode adds light to the raster colour. It uses raster depth as the receiver and RT only to find transmissive blockers along the light path.
 	if (g_frame.options.x == RayTracingMode_Caustics || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
@@ -531,10 +607,8 @@ void RayGen()
 				GlassLayer glass = StrongestGlassLayer(pixel, normal, surface_to_light);
 				float3 caustic_dir = GlassRayDirection(surface_to_light, glass, DefaultGlassIOR);
 
-				RayPayload caustic_payload;
-				caustic_payload.colour = 0.0f;
-				caustic_payload.mode = RayPayloadMode_Caustic;
-				caustic_payload.hit = 0;
+				// Probe in the bent direction first. If no transmissive material is found but raster alpha suggests glass, fall back to the straight light path.
+				RayPayload caustic_payload = InitRayPayload(RayPayloadMode_Caustic, 0.0f);
 				caustic_payload.occluded = 1;
 
 				float caustic_bias = max(g_frame.caustic.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
@@ -553,6 +627,7 @@ void RayGen()
 				}
 				if (caustic_payload.occluded != 0)
 				{
+					// Treat the hit material as a thin refractive layer and modulate a projected proof pattern by Fresnel/transmission terms.
 					float material_transmission = saturate(caustic_payload.colour.x);
 					float material_ior = max(caustic_payload.colour.y, 1.0f);
 					float material_thickness = max(caustic_payload.colour.z, 0.0f);
@@ -580,6 +655,7 @@ void RayGen()
 		return;
 	}
 
+	// Hard-shadow mode is the fallback RT path. It traces a visibility ray from the raster receiver toward the directional light.
 	float depth = LoadDepth(pixel);
 	if (depth < 0.999999f)
 	{
@@ -588,10 +664,7 @@ void RayGen()
 		float shadow_bias = max(g_frame.shadow.y, length(WorldPosition(pixel, dim, depth) - g_frame.cam.c2w[3].xyz) * 0.0001f);
 		float3 hit_pos = WorldPosition(pixel, dim, depth);
 
-		RayPayload shadow_payload;
-		shadow_payload.colour = 0.0f;
-		shadow_payload.mode = RayPayloadMode_Shadow;
-		shadow_payload.hit = 0;
+		RayPayload shadow_payload = InitRayPayload(RayPayloadMode_Shadow, 0.0f);
 		shadow_payload.occluded = 1;
 
 		RayDesc shadow_ray = (RayDesc)0;
@@ -608,9 +681,11 @@ void RayGen()
 	g_output[pixel] = colour;
 }
 
+// Handle ray misses for each payload mode.
 [shader("miss")]
 void Miss(inout RayPayload payload)
 {
+	// Visibility-style rays treat a miss as unoccluded; colour-style rays either use their caller's miss colour or the diagnostic fallback.
 	if (payload.mode == RayPayloadMode_Shadow || payload.mode == RayPayloadMode_Caustic)
 	{
 		payload.occluded = 0;
@@ -626,17 +701,30 @@ void Miss(inout RayPayload payload)
 	payload.colour = float3(0.02f, 0.03f, 0.05f);
 }
 
+// Handle closest hits for reflection shading, caustic material queries, visibility queries, and diagnostics.
 [shader("closesthit")]
 void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attrib)
 {
 	if (payload.mode == RayPayloadMode_Reflection)
 	{
+		// Reflection rays need enough payload to either shade a terminal hit or seed the next bounce.
+		float3 ws_normal;
+		float reflectivity;
+		float4 colour = ShadeRayHit(attrib, ws_normal, reflectivity);
+
 		payload.hit = 1;
-		payload.colour = ShadeRayHit(attrib).rgb;
+		payload.hit_t = RayTCurrent();
+		payload.colour = colour.rgb;
+		payload.normal = ws_normal;
+		payload.reflectivity = reflectivity;
+		payload.flags = dot(ws_normal, ws_normal) > 0.0f && reflectivity > 0.0f
+			? RayPayloadFlag_ReflectionValid
+			: 0;
 		return;
 	}
 	if (payload.mode == RayPayloadMode_Caustic)
 	{
+		// Caustic rays only care about transmissive materials; opaque hits are treated as blockers that cannot contribute caustic energy.
 		RayTracingMaterial material = HitMaterial();
 		if (!MaterialIsTransmissive(material))
 		{
@@ -652,10 +740,12 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	}
 	if (payload.mode != RayPayloadMode_Diagnostic)
 	{
+		// Shadow rays skip closest-hit today, but keep non-diagnostic hits conservative if another visibility mode reaches this shader.
 		payload.hit = 1;
 		return;
 	}
 
+	// Diagnostic mode shades each hit with a stable object/primitive colour and a small wire overlay to show triangle coverage.
 	uint seed = InstanceIndex() ^ (PrimitiveIndex() * 747796405u);
 	float edge = min(attrib.barycentrics.x, min(attrib.barycentrics.y, 1.0f - attrib.barycentrics.x - attrib.barycentrics.y));
 	float wire = smoothstep(0.0f, 0.02f, edge);
@@ -673,6 +763,7 @@ struct RTPresentIn
 };
 
 #ifdef PR_RDR_VSHADER_ray_trace_present
+// Generate a fullscreen triangle for presenting the ray tracing output texture.
 RTPresentIn main(uint vid :SV_VertexID)
 {
 	RTPresentIn Out = (RTPresentIn)0;
@@ -685,6 +776,7 @@ RTPresentIn main(uint vid :SV_VertexID)
 #ifdef PR_RDR_PSHADER_ray_trace_present
 Texture2D<float4> g_rt_output : register(t0);
 
+// Copy the ray tracing output texture to the current render target.
 float4 main(RTPresentIn In) :SV_Target
 {
 	return g_rt_output.Load(int3(In.ss_vert.xy, 0));

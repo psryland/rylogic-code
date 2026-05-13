@@ -82,7 +82,7 @@ struct CBufFrame// :reg(b0)
 	// x = shadow strength, y = minimum shadow-ray bias
 	float4 shadow;
 
-	// x = reflection strength, y = minimum reflection-ray bias
+	// x = reflection strength, y = minimum reflection-ray bias, z = maximum reflection bounces, w = minimum reflection throughput
 	float4 reflection;
 
 	// x = caustic strength, y = minimum caustic-ray bias, z = projected caustic pattern scale, w = glass thickness approximation

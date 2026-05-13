@@ -65,7 +65,7 @@ namespace Rylogic.Gui.WPF
 		{
 			get
 			{
-				return m_window.RayTracingFeatures.HasFlag(View3d.ERayTracingFeature.Reflections);
+				return m_window.RayTracingProperties.Features.HasFlag(View3d.ERayTracingFeature.Reflections);
 			}
 			set
 			{
@@ -78,11 +78,36 @@ namespace Rylogic.Gui.WPF
 		{
 			get
 			{
-				return m_window.RayTracingFeatures.HasFlag(View3d.ERayTracingFeature.Caustics);
+				return m_window.RayTracingProperties.Features.HasFlag(View3d.ERayTracingFeature.Caustics);
 			}
 			set
 			{
 				SetFeature(View3d.ERayTracingFeature.Caustics, value);
+			}
+		}
+
+		/// <summary>Available maximum reflection bounce count choices</summary>
+		public int[] MaxReflectionBounceChoices
+		{
+			get;
+		} = new[] { 1, 2, 3, 4 };
+
+		/// <summary>Maximum number of ray traced reflection bounces</summary>
+		public int MaxReflectionBounces
+		{
+			get
+			{
+				return m_window.RayTracingProperties.MaxReflectionBounces;
+			}
+			set
+			{
+				if (MaxReflectionBounces == value)
+					return;
+
+				var props = m_window.RayTracingProperties;
+				props.MaxReflectionBounces = value;
+				m_window.RayTracingProperties = props;
+				NotifyRayTracingChanged();
 			}
 		}
 
@@ -94,7 +119,7 @@ namespace Rylogic.Gui.WPF
 				var info = m_window.RayTracingInfo;
 				if (info.Available)
 					return info.Enabled
-						? $"Ray tracing is enabled. Active features: {FeatureNames(m_window.RayTracingFeatures)}."
+						? $"Ray tracing is enabled. Active features: {FeatureNames(m_window.RayTracingProperties.Features)}."
 						: "Ray tracing is available but disabled. Enable it to add the ray tracing render step to this view.";
 
 				if (!info.Requested)
@@ -110,12 +135,14 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Set or clear one ray tracing feature flag</summary>
 		private void SetFeature(View3d.ERayTracingFeature feature, bool enable)
 		{
-			var features = m_window.RayTracingFeatures;
+			var props = m_window.RayTracingProperties;
+			var features = props.Features;
 			var next = enable ? features | feature : features & ~feature;
 			if (features == next)
 				return;
 
-			m_window.RayTracingFeatures = next;
+			props.Features = next;
+			m_window.RayTracingProperties = props;
 			NotifyRayTracingChanged();
 		}
 
@@ -145,6 +172,7 @@ namespace Rylogic.Gui.WPF
 			NotifyPropertyChanged(nameof(RayTracingEnabled));
 			NotifyPropertyChanged(nameof(ReflectionsEnabled));
 			NotifyPropertyChanged(nameof(CausticsEnabled));
+			NotifyPropertyChanged(nameof(MaxReflectionBounces));
 			NotifyPropertyChanged(nameof(StatusText));
 		}
 

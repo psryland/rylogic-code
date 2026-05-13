@@ -28,7 +28,7 @@ namespace pr::rdr12
 		, m_global_envmap()
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
-		, m_ray_tracing_features(ERayTracingFeature::All)
+		, m_ray_tracing_props()
 		, m_eh_resize()
 	{
 		// Initialise the scene camera to match the full window
@@ -164,21 +164,22 @@ namespace pr::rdr12
 		}
 	}
 
-	// Get the selected ray tracing features for this scene.
-	ERayTracingFeature Scene::RayTracingFeatures() const
+	// Get/Set the ray tracing render settings for this scene.
+	RayTracingProps Scene::RayTracingProperties() const
 	{
-		return m_ray_tracing_features;
+		return m_ray_tracing_props;
 	}
-	void Scene::RayTracingFeatures(ERayTracingFeature features)
+	void Scene::RayTracingProperties(RayTracingProps props)
 	{
-		switch (features)
+		switch (props.m_features)
 		{
 			case ERayTracingFeature::None:
 			case ERayTracingFeature::Reflections:
 			case ERayTracingFeature::Caustics:
 			case ERayTracingFeature::All:
 			{
-				m_ray_tracing_features = features;
+				props.Clamp();
+				m_ray_tracing_props = props;
 				break;
 			}
 			default:

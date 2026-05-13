@@ -7,6 +7,7 @@
 #include "pr/view3d-12/scene/scene_camera.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_props.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/cmd_list.h"
@@ -50,7 +51,7 @@ namespace pr::rdr12
 		TextureCubePtr   m_global_envmap;    // A global environment map
 		EFillMode        m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
-		ERayTracingFeature m_ray_tracing_features; // Ray tracing features selected for this scene.
+		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.
 		AutoSub          m_eh_resize;        // RT resize event handler subscription
 
 		Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps = {ERenderStep::RenderForward}, SceneCamera const& cam = SceneCamera{});
@@ -109,9 +110,9 @@ namespace pr::rdr12
 		// Enable/disable ray tracing for this scene.
 		void RayTracing(bool enable);
 
-		// Get/Set the selected ray tracing features for this scene.
-		ERayTracingFeature RayTracingFeatures() const;
-		void RayTracingFeatures(ERayTracingFeature features);
+		// Get/Set the ray tracing render settings for this scene.
+		RayTracingProps RayTracingProperties() const;
+		void RayTracingProperties(RayTracingProps props);
 
 		// Get/Set the scene-wide fill mode default.
 		EFillMode FillMode() const;

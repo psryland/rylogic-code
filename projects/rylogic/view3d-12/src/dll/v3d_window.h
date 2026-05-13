@@ -143,8 +143,8 @@ namespace pr::rdr12
 		view3d::RayTracingInfo RayTracingInfo() const;
 		bool RayTracingEnabled() const;
 		void RayTracingEnabled(bool enable);
-		view3d::ERayTracingFeature RayTracingFeatures() const;
-		void RayTracingFeatures(view3d::ERayTracingFeature features);
+		RayTracingProps RayTracingProperties() const;
+		void RayTracingProperties(RayTracingProps props);
 
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;

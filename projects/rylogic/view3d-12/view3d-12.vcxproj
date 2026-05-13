@@ -274,6 +274,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\openxr\openxr.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_diagnostic.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_model.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_props.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_reflections.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_resource.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_scene.h" />

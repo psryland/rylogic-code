@@ -38,7 +38,7 @@ namespace pr::rdr12
 	// Return the selected RT screen-space pass for this frame.
 	ERayTracingScreenPass RenderRayTracing::ScreenPass() const
 	{
-		switch (scn().RayTracingFeatures())
+		switch (scn().RayTracingProperties().m_features)
 		{
 			case ERayTracingFeature::None:
 			{

@@ -352,7 +352,7 @@ namespace pr::rdr12
 				throw std::runtime_error("Ray tracing geometry table exceeds the DXR InstanceID range");
 
 			auto const supported_vertex_layout = model.m_vstride.size() == sizeof(Vert);
-			auto const supports_shading_sidecar = !model.m_skin && supported_vertex_layout && vertex_buffer != nullptr;
+			auto const supports_shading_sidecar = supported_vertex_layout && vertex_buffer != nullptr;
 			auto const index16 = model.m_ib_view.Format == DXGI_FORMAT_R16_UINT;
 			auto const index32 = model.m_ib_view.Format == DXGI_FORMAT_R32_UINT;
 			auto const has_shading_sidecar = supports_shading_sidecar && (index16 || index32);
