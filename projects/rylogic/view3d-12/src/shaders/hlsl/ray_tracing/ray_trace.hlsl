@@ -26,7 +26,8 @@ static const uint RayPayloadMode_Shadow = 2;
 static const uint RayPayloadMode_Reflection = 3;
 static const uint RayPayloadMode_Caustic = 4;
 
-static const uint RayPayloadFlag_ReflectionValid = 0x01;
+static const uint RayPayloadFlag_HasSurfaceNormal = 0x01;
+static const uint RayPayloadFlag_ReflectionValid = 0x02;
 
 static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
@@ -461,29 +462,39 @@ GlassLayer StrongestGlassLayer(uint2 pixel, float3 fallback_normal, float3 incid
 	return glass;
 }
 
-// Estimate a receiver-to-light ray through a temporary glass material model.
-float3 GlassRayDirection(float3 incident, GlassLayer glass, float ior)
+// Return a refracted direction for the receiver-pull caustic path, or the incident direction if the approximation cannot refract safely.
+float3 CausticRefractedDirection(float3 incident, float3 material_normal, float eta)
 {
-	if (glass.transmission <= 0.0f)
+	float normal_len_sq = dot(material_normal, material_normal);
+	if (normal_len_sq < 1e-6f)
 		return incident;
 
-	float3 refracted = refract(incident, glass.normal, 1.0f / max(ior, 1.0f));
+	material_normal *= rsqrt(normal_len_sq);
+	if (dot(material_normal, incident) > 0.0f)
+		material_normal = -material_normal;
+
+	float3 refracted = refract(incident, material_normal, eta);
 	float refracted_len_sq = dot(refracted, refracted);
 	if (refracted_len_sq < 1e-6f)
 		return incident;
 
-	refracted *= rsqrt(refracted_len_sq);
-	return normalize(lerp(incident, refracted, glass.transmission));
+	return refracted * rsqrt(refracted_len_sq);
 }
 
-// Approximate how much of the caustic-producing light survives a material-driven glass hit.
-float GlassTransmission(float3 incident, GlassLayer glass, float material_transmission, float material_ior)
+// Approximate how much light survives the transmissive material hit found by the caustic ray.
+float CausticTransmission(float3 receiver_to_light, float3 material_normal, float material_transmission, float material_ior)
 {
-	float transmission = max(material_transmission, glass.transmission);
-	float facing = glass.transmission > 0.0f ? abs(dot(incident, glass.normal)) : 1.0f;
+	float normal_len_sq = dot(material_normal, material_normal);
+	float facing = 1.0f;
+	if (normal_len_sq >= 1e-6f)
+	{
+		material_normal *= rsqrt(normal_len_sq);
+		facing = abs(dot(receiver_to_light, material_normal));
+	}
+
 	float f0 = pow((material_ior - 1.0f) / max(material_ior + 1.0f, 1.0f), 2.0f);
 	float fresnel_reflectance = f0 + (1.0f - f0) * pow(1.0f - saturate(facing), 5.0f);
-	return transmission * (1.0f - fresnel_reflectance);
+	return saturate(material_transmission) * (1.0f - fresnel_reflectance);
 }
 
 // Dispatch one screen-space RT query per output pixel and composite the selected RT feature over the raster colour.
@@ -604,42 +615,78 @@ void RayGen()
 
 			if (receiver_facing > 0.0f)
 			{
-				GlassLayer glass = StrongestGlassLayer(pixel, normal, surface_to_light);
-				float3 caustic_dir = GlassRayDirection(surface_to_light, glass, DefaultGlassIOR);
-
-				// Probe in the bent direction first. If no transmissive material is found but raster alpha suggests glass, fall back to the straight light path.
+				// Receiver-pull caustics trace from the opaque receiver toward the light. Any transmissive RT hit on that segment supplies the material
+				// properties used to estimate how light bends and focuses before reaching this receiver.
 				RayPayload caustic_payload = InitRayPayload(RayPayloadMode_Caustic, 0.0f);
 				caustic_payload.occluded = 1;
 
 				float caustic_bias = max(g_frame.caustic.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
 				RayDesc caustic_ray = (RayDesc)0;
 				caustic_ray.Origin = hit_pos + surface_to_light * caustic_bias;
-				caustic_ray.Direction = caustic_dir;
+				caustic_ray.Direction = surface_to_light;
 				caustic_ray.TMin = 0.0f;
 				caustic_ray.TMax = g_frame.clip.y;
 
 				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
-				if (caustic_payload.occluded == 0 && glass.transmission > 0.0f)
-				{
-					caustic_payload.occluded = 1;
-					caustic_ray.Direction = surface_to_light;
-					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
-				}
 				if (caustic_payload.occluded != 0)
 				{
 					// Treat the hit material as a thin refractive layer and modulate a projected proof pattern by Fresnel/transmission terms.
 					float material_transmission = saturate(caustic_payload.colour.x);
 					float material_ior = max(caustic_payload.colour.y, 1.0f);
 					float material_thickness = max(caustic_payload.colour.z, 0.0f);
-					float3 pattern_pos = hit_pos + caustic_dir * material_thickness;
+					float3 material_normal = (caustic_payload.flags & RayPayloadFlag_HasSurfaceNormal) != 0
+						? caustic_payload.normal
+						: normal;
+					float material_distance = max(caustic_payload.hit_t, 0.0f);
+					float3 material_pos = caustic_ray.Origin + caustic_ray.Direction * material_distance;
+					float3 entry_dir = CausticRefractedDirection(surface_to_light, material_normal, 1.0f / material_ior);
+					float entry_bend = saturate(length(entry_dir - surface_to_light));
+					float3 caustic_dir = entry_dir;
+					float3 pattern_pos = material_pos + caustic_dir * material_thickness;
+					float optical_thickness = material_thickness;
+					float path_alignment = 0.65f + 0.35f * pow(saturate(dot(caustic_dir, surface_to_light)), 2.0f);
+
+					// A second caustic probe gives closed transparent shapes, such as spheres, a cheap entry/exit refraction approximation instead of a flat
+					// one-surface projection.
+					if (entry_bend > 1e-4f)
+					{
+						RayPayload exit_payload = InitRayPayload(RayPayloadMode_Caustic, 0.0f);
+						exit_payload.occluded = 1;
+
+						RayDesc exit_ray = (RayDesc)0;
+						exit_ray.Origin = material_pos + entry_dir * caustic_bias;
+						exit_ray.Direction = entry_dir;
+						exit_ray.TMin = 0.0f;
+						exit_ray.TMax = g_frame.clip.y;
+
+						TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, exit_ray, exit_payload);
+						if (exit_payload.occluded != 0)
+						{
+							float3 exit_normal = (exit_payload.flags & RayPayloadFlag_HasSurfaceNormal) != 0
+								? exit_payload.normal
+								: -material_normal;
+							float exit_distance = max(exit_payload.hit_t, 0.0f);
+							float3 exit_pos = exit_ray.Origin + exit_ray.Direction * exit_distance;
+							caustic_dir = CausticRefractedDirection(entry_dir, exit_normal, material_ior);
+							optical_thickness = max(material_thickness, exit_distance);
+							pattern_pos = exit_pos + caustic_dir * material_thickness;
+							path_alignment = 0.25f + 0.75f * pow(saturate(dot(caustic_dir, surface_to_light)), 4.0f);
+
+							// View3D alpha is a through-object visibility hint rather than a physical per-surface absorption coefficient. Do not square it for
+							// the paired entry/exit hit, otherwise normal semi-transparent objects contribute almost no caustic energy.
+							material_transmission = max(material_transmission, saturate(exit_payload.colour.x));
+						}
+					}
+
 					float pattern = CausticPattern(pattern_pos, caustic_dir);
-					float glass_transmission = GlassTransmission(surface_to_light, glass, material_transmission, material_ior);
-					float focus = 1.0f + saturate(length(caustic_dir - surface_to_light) * material_thickness);
+					float caustic_transmission = CausticTransmission(surface_to_light, material_normal, material_transmission, material_ior);
+					float focus = 1.0f + 4.0f * saturate(entry_bend * max(optical_thickness, material_thickness) * 3.0f);
 					float strength = g_frame.caustic.x *
 						receiver_facing *
 						lerp(0.35f, 1.0f, pattern) *
-						glass_transmission *
-						focus;
+						caustic_transmission *
+						focus *
+						path_alignment;
 					colour.rgb += g_frame.global_light.colour.rgb * strength;
 				}
 			}
@@ -717,8 +764,8 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 		payload.colour = colour.rgb;
 		payload.normal = ws_normal;
 		payload.reflectivity = reflectivity;
-		payload.flags = dot(ws_normal, ws_normal) > 0.0f && reflectivity > 0.0f
-			? RayPayloadFlag_ReflectionValid
+		payload.flags = dot(ws_normal, ws_normal) > 0.0f
+			? RayPayloadFlag_HasSurfaceNormal | (reflectivity > 0.0f ? RayPayloadFlag_ReflectionValid : 0)
 			: 0;
 		return;
 	}
@@ -733,8 +780,17 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 			return;
 		}
 
+		float3 ws_normal;
+		float reflectivity;
+		ShadeRayHit(attrib, ws_normal, reflectivity);
+
 		payload.hit = 1;
+		payload.hit_t = RayTCurrent();
 		payload.occluded = 1;
+		payload.normal = ws_normal;
+		payload.flags = dot(ws_normal, ws_normal) > 0.0f
+			? RayPayloadFlag_HasSurfaceNormal
+			: 0;
 		payload.colour = float3(MaterialTransmission(material), MaterialIOR(material), MaterialThickness(material));
 		return;
 	}

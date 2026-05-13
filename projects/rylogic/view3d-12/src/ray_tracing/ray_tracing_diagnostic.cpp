@@ -503,7 +503,7 @@ namespace pr::rdr12
 				0.0f);
 			cb.shadow = v4(0.55f, 0.01f, 0.0f, 0.0f);
 			cb.reflection = v4(1.0f, 0.01f, s_cast<float>(scene.RayTracingProperties().m_max_reflection_bounces), 0.01f);
-			cb.caustic = v4(0.75f, 0.01f, 3.5f, 0.35f);
+			cb.caustic = v4(2.0f, 0.01f, 3.5f, 0.35f);
 			cb.options = iv4(
 				pass == ERayTracingScreenPass::Diagnostic ? shaders::rt::RayTracingMode_Diagnostic :
 				pass == ERayTracingScreenPass::HardShadows ? shaders::rt::RayTracingMode_HardShadows :
