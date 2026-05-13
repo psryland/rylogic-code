@@ -29,7 +29,7 @@ namespace las
 
 		// Compile the shader
 		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"OCEAN_HLSL", L"TEXT"))
+			.Source(resource::Read<char>(L"src/world/ocean/shaders/ocean.hlsl", L"TEXT"))
 			.Includes({ new rdr12::ResourceIncludeHandler, true })
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);

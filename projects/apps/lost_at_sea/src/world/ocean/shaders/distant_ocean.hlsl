@@ -4,27 +4,34 @@
 //************************************
 // Distant ocean shader.
 // Simple flat z=0 ocean patches beyond the near Gerstner ocean.
-// VS: grid → world at sea level via m_o2w. PS: Fresnel + distance fog.
+// VS: grid -> world at sea level via g_nugget.o2w. PS: Fresnel + distance fog.
+#include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
 
 #ifdef __cplusplus
-namespace las {
+namespace las
+{
+	using namespace pr::hlsl;
 #endif
 
+ConstantBuffer<CBufFrame> resource(g_frame, b0);
+ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufDistantOcean> resource(g_distant_ocean, b3);
+
 // Environment map cubemap (bound by forward render step when scene env map is set)
-TextureCube<float4> m_envmap_texture :reg(t1);
-SamplerState        m_envmap_sampler :reg(s1);
+TextureCube<float4> resource(m_envmap_texture, t1);
+SamplerState resource(m_envmap_sampler, s1);
 
 struct PSOut
 {
-	float4 diff :SV_TARGET;
+	float4 diff semantic(SV_TARGET);
 };
 
 // Sample reflection from env map cubemap or fall back to procedural sky
 float3 SampleReflectionDistant(float3 dir, float3 sun_dir, float3 sun_col)
 {
-	if (m_has_env_map)
+	if (g_distant_ocean.has_env_map)
 		return m_envmap_texture.Sample(m_envmap_sampler, dir).rgb;
 
 	// Fallback procedural sky
@@ -42,13 +49,13 @@ PSIn VSDistantOcean(VSIn In)
 {
 	PSIn Out = (PSIn)0;
 
-	// Transform grid vertex [0,1] to world space via m_o2w
-	float4 world_pos = mul(float4(In.vert.xy, 0, 1), m_o2w);
+	// Transform grid vertex [0,1] to world space via g_nugget.o2w
+	float4 world_pos = mul(float4(In.vert.xy, 0, 1), g_nugget.o2w);
 	world_pos.z = 0.0; // Flat ocean at sea level
 
 	Out.ws_vert = world_pos;
 	Out.ws_norm = float4(0, 0, 1, 0);
-	Out.ss_vert = mul(world_pos, m_cam.m_w2s);
+	Out.ss_vert = mul(world_pos, g_frame.cam.w2s);
 	Out.diff = float4(0, 0, 0, 1);
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;
@@ -62,8 +69,8 @@ PSOut PSDistantOcean(PSIn In)
 	PSOut Out = (PSOut) 0;
 
 	float3 N = float3(0, 0, 1);
-	float3 V = normalize(m_cam.m_c2w[3].xyz - In.ws_vert.xyz);
-	float3 L = m_sun_direction.xyz;
+	float3 V = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
+	float3 L = g_distant_ocean.sun_direction.xyz;
 
 	float NdotV = saturate(dot(N, V));
 	float NdotL = saturate(dot(N, L));
@@ -73,11 +80,11 @@ PSOut PSDistantOcean(PSIn In)
 
 	// Reflection
 	float3 R = reflect(-V, N);
-	float3 reflection = SampleReflectionDistant(R, L, m_sun_colour.rgb);
+	float3 reflection = SampleReflectionDistant(R, L, g_distant_ocean.sun_colour.rgb);
 
 	// Water body colour (depth approximation from view angle)
 	float depth_factor = saturate(1.0 - NdotV);
-	float3 water = lerp(m_colour_shallow.rgb, m_colour_deep.rgb, depth_factor);
+	float3 water = lerp(g_distant_ocean.colour_shallow.rgb, g_distant_ocean.colour_deep.rgb, depth_factor);
 
 	// Combine reflection and water
 	float3 colour = lerp(water, reflection, fresnel);
@@ -88,12 +95,12 @@ PSOut PSDistantOcean(PSIn In)
 	// Sun specular glint
 	float3 H = normalize(L + V);
 	float spec = pow(saturate(dot(N, H)), 256.0) * fresnel;
-	colour += m_sun_colour.rgb * spec;
+	colour += g_distant_ocean.sun_colour.rgb * spec;
 
 	// Distance fog toward horizon colour
-	float dist = length(In.ws_vert.xy - m_camera_pos.xy);
-	float fog = saturate((dist - m_fog_params.x) / max(m_fog_params.y - m_fog_params.x, 1.0));
-	colour = lerp(colour, m_fog_colour.rgb, fog * fog);
+	float dist = length(In.ws_vert.xy - g_distant_ocean.camera_pos.xy);
+	float fog = saturate((dist - g_distant_ocean.fog_params.x) / max(g_distant_ocean.fog_params.y - g_distant_ocean.fog_params.x, 1.0));
+	colour = lerp(colour, g_distant_ocean.fog_colour.rgb, fog * fog);
 
 	Out.diff = float4(colour, 1.0);
 	return Out;

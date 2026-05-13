@@ -26,7 +26,7 @@ namespace las
 		static_assert(sizeof(CBufProceduralSky) == sizeof(m_cbuf), "CBufProceduralSky exceeds m_cbuf storage");
 
 		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"PROCEDURAL_SKY_HLSL", L"TEXT"))
+			.Source(resource::Read<char>(L"src/world/sky/shaders/procedural_sky.hlsl", L"TEXT"))
 			.Includes({ new rdr12::ResourceIncludeHandler, true })
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);

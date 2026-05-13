@@ -9,7 +9,9 @@
 #include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
-namespace las {
+namespace las
+{
+	using namespace pr::hlsl;
 #endif
 
 // Terrain constant buffer. Bound to b3 (reusing the CBufScreenSpace slot since

@@ -18,6 +18,7 @@
 #include <format>
 #include <span>
 #include <iterator>
+#include <cmath>
 
 // Example use:
 #if 0
@@ -68,6 +69,8 @@ namespace pr::json
 	using keys_t = std::vector<key_t>;
 	using vals_t = std::vector<Value>;
 	static constexpr int GrowRate = 100;
+
+	template <typename T> concept enum_type = std::is_enum_v<std::decay_t<T>>;
 
 	Value const& NullValue();
 	std::string EscapeString(std::string_view str);
@@ -308,6 +311,9 @@ namespace pr::json
 		Value(int64_t value_)
 			: Value(static_cast<double>(value_))
 		{}
+		Value(enum_type auto value_)
+			: Value(static_cast<int64_t>(value_))
+		{}
 		Value(Array&& value_)
 			: value(std::move(value_))
 		{}
@@ -322,10 +328,11 @@ namespace pr::json
 		}
 
 		// Value accessors - only const because setting non-variant types is not supported
-		template <typename T> T to() const
-		{
-			return std::get<std::decay_t<T>>(value);
-		}
+		// Primary template is intentionally undefined; callers can add explicit specializations for custom conversions.
+		template <typename T> T to() const;
+		template <enum_type T> T to() const;
+		
+		// Convert to json object/array types.
 		Array const& to_array() const
 		{
 			return std::get<Array>(value);
@@ -376,9 +383,9 @@ namespace pr::json
 			switch (value.index())
 			{
 				case TypeIndex::Null: return "";
-				case TypeIndex::Bool: return to<bool>() ? "1" : "0";
-				case TypeIndex::String: return to<std::string>();
-				case TypeIndex::Number: return std::format("{}", to<double>());
+				case TypeIndex::Bool: return std::get<bool>(value) ? "1" : "0";
+				case TypeIndex::String: return std::get<std::string>(value);
+				case TypeIndex::Number: return std::format("{}", std::get<double>(value));
 				case TypeIndex::ChildArray: return "JsonArray";
 				case TypeIndex::ChildObject: return "JsonObject";
 				default: throw std::runtime_error("Unknown value type");
@@ -395,6 +402,14 @@ namespace pr::json
 			return !(lhs == nullptr);
 		}
 	};
+	template <> inline std::string const& Value::to<std::string const&>() const
+	{
+		return std::get<std::string>(value);
+	}
+	template <> inline std::string Value::to<std::string>() const
+	{
+		return std::get<std::string>(value);
+	}
 	template <> inline std::string_view Value::to<std::string_view>() const
 	{
 		return std::string_view{ to<std::string const&>() };
@@ -402,6 +417,10 @@ namespace pr::json
 	template <> inline std::filesystem::path Value::to<std::filesystem::path>() const
 	{
 		return std::filesystem::path{ to<std::string const&>() };
+	}
+	template <> inline double Value::to<double>() const
+	{
+		return std::get<double>(value);
 	}
 	template <> inline int64_t Value::to<int64_t>() const
 	{
@@ -414,6 +433,17 @@ namespace pr::json
 	template <> inline int Value::to<int>() const
 	{
 		return static_cast<int>(to<int64_t>());
+	}
+	template <> inline bool Value::to<bool>() const
+	{
+		if (auto b = std::get_if<bool>(&value); b != nullptr)
+			return *b;
+
+		return to<int64_t>() != 0;
+	}
+	template <enum_type T> inline T Value::to() const
+	{
+		return static_cast<std::decay_t<T>>(to<int64_t>());
 	}
 
 	// JSON DOM

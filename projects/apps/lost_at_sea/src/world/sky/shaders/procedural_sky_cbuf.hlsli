@@ -9,7 +9,9 @@
 #include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
-namespace las {
+namespace las
+{
+	using namespace pr::hlsl;
 #endif
 
 // Procedural sky constant buffer. Bound to b3.

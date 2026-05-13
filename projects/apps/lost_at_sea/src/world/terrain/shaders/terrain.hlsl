@@ -3,9 +3,9 @@
 //  Copyright (c) Rylogic Ltd 2024
 //************************************
 // CDLOD terrain vertex shader.
-// Transforms unit-grid patch vertices to world space using the instance i2w (m_o2w),
+// Transforms unit-grid patch vertices to world space using the instance i2w (g_nugget.o2w),
 // samples Perlin noise height, applies geomorphing for seamless LOD transitions,
-// and projects to screen via m_cam.m_w2s.
+// and projects to screen via g_frame.cam.w2s.
 //
 // Vertex layout:
 //   m_vert.xy = normalised grid position (i/GridN, j/GridN) ∈ [0, 1]
@@ -13,15 +13,26 @@
 //   m_vert.w  = 1
 //
 // Instance i2w encoding:
-//   m_o2w[0].x = patch_size (world units)
-//   m_o2w[1].y = patch_size
-//   m_o2w[3].xy = patch world origin
+//   g_nugget.o2w[0].x = patch_size (world units)
+//   g_nugget.o2w[1].y = patch_size
+//   g_nugget.o2w[3].xy = patch world origin
+#include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/terrain/shaders/terrain_cbuf.hlsli"
 
+#ifdef __cplusplus
+namespace las
+{
+	using namespace pr::hlsl;
+#endif
+
+ConstantBuffer<CBufFrame> resource(g_frame, b0);
+ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufTerrain> resource(g_terrain, b3);
+
 struct PSOut
 {
-	float4 diff :SV_TARGET;
+	float4 diff semantic(SV_TARGET);
 };
 
 // ---- GPU Perlin noise ----
@@ -81,16 +92,16 @@ float noise2d(float x, float y)
 // Beach flattening creates gentle sandy shores near the waterline.
 float terrain_height(float world_x, float world_y)
 {
-	int octaves           = (int)m_noise_params.x;
-	float base_frequency  = m_noise_params.y;
-	float persistence     = m_noise_params.z;
-	float amplitude       = m_noise_params.w;
-	float sea_level_bias  = m_noise_bias.x;
+	int octaves           = (int)g_terrain.noise_params.x;
+	float base_frequency  = g_terrain.noise_params.y;
+	float persistence     = g_terrain.noise_params.z;
+	float amplitude       = g_terrain.noise_params.w;
+	float sea_level_bias  = g_terrain.noise_bias.x;
 
 	// Domain warping: warp input coords through low-frequency noise.
 	// This bends features into curving valleys and meandering ridges.
-	float warp_freq = m_weather_params.x;
-	float warp_strength = m_weather_params.y;
+	float warp_freq = g_terrain.weather_params.x;
+	float warp_strength = g_terrain.weather_params.y;
 	float warp_x = noise2d(world_x * warp_freq + 5.2, world_y * warp_freq + 1.3) * warp_strength;
 	float warp_y = noise2d(world_x * warp_freq + 8.7, world_y * warp_freq + 2.8) * warp_strength;
 	float wx = world_x + warp_x;
@@ -112,10 +123,10 @@ float terrain_height(float world_x, float world_y)
 		if (i == 4)
 		{
 			float base_h = (value / max_amp + sea_level_bias) * amplitude;
-			ridge_blend = saturate(base_h / m_weather_params.z);
+			ridge_blend = saturate(base_h / g_terrain.weather_params.z);
 
 			// Underwater: smoothly attenuate fine-detail octaves for a smoother sea floor
-			float smooth_depth = m_beach_params.w;
+			float smooth_depth = g_terrain.beach_params.w;
 			detail_atten = saturate(base_h / max(smooth_depth, 1.0) + 1.0);
 		}
 
@@ -138,9 +149,9 @@ float terrain_height(float world_x, float world_y)
 
 	// Macro height variation: a very low-frequency noise field modulates above-water
 	// terrain height across the world. Creates a varied archipelago.
-	float macro_freq = m_weather_params.w;
+	float macro_freq = g_terrain.weather_params.w;
 	float macro = noise2d(world_x * macro_freq + 100.3, world_y * macro_freq + 200.7);
-	float height_scale = lerp(m_beach_params.y, m_beach_params.z, saturate(macro * 0.5 + 0.5));
+	float height_scale = lerp(g_terrain.beach_params.y, g_terrain.beach_params.z, saturate(macro * 0.5 + 0.5));
 	if (raw_h > 0.0)
 		raw_h *= height_scale;
 
@@ -148,7 +159,7 @@ float terrain_height(float world_x, float world_y)
 	// Uses cubic f(t) = -t³ + 2t² which has:
 	//   f(0)=0, f'(0)=0  → perfectly flat at waterline
 	//   f(1)=1, f'(1)=1  → smooth join to natural terrain slope
-	float beach_height = m_beach_params.x;
+	float beach_height = g_terrain.beach_params.x;
 	if (raw_h > 0.0 && raw_h < beach_height)
 	{
 		float t = raw_h / beach_height;
@@ -216,19 +227,19 @@ PSIn VSTerrain(VSIn In)
 {
 	PSIn Out = (PSIn)0;
 
-	float grid_n = m_patch_config.z;
-	float morph_start = m_patch_config.x;
-	float morph_end = m_patch_config.y;
+	float grid_n = g_terrain.patch_config.z;
+	float morph_start = g_terrain.patch_config.x;
+	float morph_end = g_terrain.patch_config.y;
 
 	// Skirt flag: z=1 means this vertex should drop below the surface to hide LOD cracks
 	float is_skirt = In.vert.z;
 
-	// Transform grid vertex [0,1] to world space via m_o2w (encodes patch origin + scale)
-	float4 world_pos = mul(float4(In.vert.xy, 0, 1), m_o2w);
+	// Transform grid vertex [0,1] to world space via g_nugget.o2w (encodes patch origin + scale)
+	float4 world_pos = mul(float4(In.vert.xy, 0, 1), g_nugget.o2w);
 	float2 world_xy = world_pos.xy;
 
 	// Extract cell size from the instance transform
-	float patch_size = m_o2w[0][0];
+	float patch_size = g_nugget.o2w[0][0];
 	float cell_size = patch_size / grid_n;
 
 	// Sample terrain height at this world position
@@ -243,7 +254,7 @@ PSIn VSTerrain(VSIn In)
 
 	if (odd_x || odd_y)
 	{
-		float dist = length(world_xy - m_camera_pos.xy);
+		float dist = length(world_xy - g_terrain.camera_pos.xy);
 		float morph = saturate((dist - morph_start) / max(morph_end - morph_start, 0.001));
 
 		float morph_h = h;
@@ -288,7 +299,7 @@ PSIn VSTerrain(VSIn In)
 	// Output
 	Out.ws_vert = world_pos;
 	Out.ws_norm = float4(n, 0);
-	Out.ss_vert = mul(world_pos, m_cam.m_w2s);
+	Out.ss_vert = mul(world_pos, g_frame.cam.w2s);
 	Out.diff = float4(0, 0, 0, 1);
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;
@@ -302,8 +313,8 @@ PSOut PSTerrain(PSIn In)
 	PSOut Out = (PSOut)0;
 
 	float3 N = normalize(In.ws_norm.xyz);
-	float3 V = normalize(m_cam.m_c2w[3].xyz - In.ws_vert.xyz);
-	float3 L = m_sun_direction.xyz;
+	float3 V = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
+	float3 L = g_terrain.sun_direction.xyz;
 
 	// ws_vert.z is world height
 	float world_z = In.ws_vert.z;
@@ -319,8 +330,12 @@ PSOut PSTerrain(PSIn In)
 	// Soft sky light from above
 	float sky_light = saturate(N.z * 0.5 + 0.5) * 0.15;
 
-	float3 colour = base_colour.rgb * (ambient + diffuse + sky_light) * m_sun_colour.rgb;
+	float3 colour = base_colour.rgb * (ambient + diffuse + sky_light) * g_terrain.sun_colour.rgb;
 
 	Out.diff = float4(colour, 1.0);
 	return Out;
 }
+
+#ifdef __cplusplus
+}
+#endif

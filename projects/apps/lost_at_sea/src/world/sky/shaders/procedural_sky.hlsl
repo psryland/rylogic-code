@@ -5,16 +5,22 @@
 // Procedural sky dome shader.
 // VS: Passes vertex position as view direction.
 // PS: Computes atmospheric sky colour from sun position.
+#include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
 
 #ifdef __cplusplus
-namespace las {
+namespace las
+{
+	using namespace pr::hlsl;
 #endif
+
+ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufProceduralSky> resource(g_sky, b3);
 
 struct PSOut
 {
-	float4 diff :SV_TARGET;
+	float4 diff semantic(SV_TARGET);
 };
 
 // Compute sky colour from a view direction and sun parameters
@@ -84,8 +90,8 @@ PSIn VSProceduralSky(VSIn In)
 	Out.ws_norm = float4(normalize(In.vert.xyz), 0);
 
 	// Standard transform for rasterisation
-	Out.ws_vert = mul(float4(In.vert.xyz, 1), m_o2w);
-	Out.ss_vert = mul(float4(In.vert.xyz, 1), m_o2s);
+	Out.ws_vert = mul(float4(In.vert.xyz, 1), g_nugget.o2w);
+	Out.ss_vert = mul(float4(In.vert.xyz, 1), g_nugget.o2s);
 	Out.diff = float4(0, 0, 0, 1);
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;
@@ -99,7 +105,7 @@ PSOut PSProceduralSky(PSIn In)
 	PSOut Out = (PSOut) 0;
 
 	float3 view_dir = normalize(In.ws_norm.xyz);
-	float3 sky = AtmosphericSky(view_dir, m_sun_direction.xyz, m_sun_intensity);
+	float3 sky = AtmosphericSky(view_dir, g_sky.sun_direction.xyz, g_sky.sun_intensity);
 
 	Out.diff = float4(sky, 1.0);
 	return Out;

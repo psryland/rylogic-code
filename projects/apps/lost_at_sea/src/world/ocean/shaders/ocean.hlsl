@@ -11,28 +11,40 @@
 //   m_vert.z  = normalised ring index t ∈ [0, 1]
 //   m_vert.w  = 1
 //   Centre vertex: xy = (0, 0), z = -1 (sentinel)
+#include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
+#include "pr/hlsl/camera.hlsli"
 
 #ifdef __cplusplus
-namespace las {
+namespace las
+{
+	using namespace pr::hlsl;
 #endif
 
+ConstantBuffer<CBufFrame> resource(g_frame, b0);
+ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufOcean> resource(g_ocean, b3);
+
 // Environment map cubemap (bound by forward render step when scene env map is set)
-TextureCube<float4> m_envmap_texture :reg(t1);
-SamplerState        m_envmap_sampler :reg(s1);
+TextureCube<float4> resource(m_envmap_texture, t1);
+SamplerState resource(m_envmap_sampler, s1);
+Texture2DMS<float> resource(g_opaque_depth, t6);
+RasterizerOrderedTexture2D<uint4> resource(g_alpha_colour, u0);
+RasterizerOrderedTexture2D<uint4> resource(g_alpha_depth, u1);
 
 struct PSOut
 {
-	float4 diff :SV_TARGET;
+	float4 diff semantic(SV_TARGET);
 };
 
 // Compute ring radius with log-to-linear blend based on camera height.
 // Clamps to enforce minimum ring spacing, capping point density near the camera.
 float RingRadius(float t, float camera_height, float inner, float outer)
 {
-	float num_rings = m_mesh_config.z;
-	float min_spacing = m_mesh_config.w;
+	float num_rings = g_ocean.mesh_config.z;
+	float min_spacing = g_ocean.mesh_config.w;
 
 	// Logarithmic: r = inner * exp(log(outer/inner) * t)
 	float log_ratio = log(outer / inner);
@@ -60,13 +72,13 @@ float4 GerstnerDisplace(float2 world_xy, float time)
 	float dx = 0, dy = 0, dz = 0;
 	float jacobian = 1.0;
 
-	for (int i = 0; i < m_wave_count; ++i)
+	for (int i = 0; i < g_ocean.wave_count; ++i)
 	{
-		float2 dir = m_wave_dirs[i].xy;
-		float amplitude  = m_wave_params[i].x;
-		float wavelength = m_wave_params[i].y;
-		float speed      = m_wave_params[i].z;
-		float steepness  = m_wave_params[i].w;
+		float2 dir = g_ocean.wave_dirs[i].xy;
+		float amplitude  = g_ocean.wave_params[i].x;
+		float wavelength = g_ocean.wave_params[i].y;
+		float speed      = g_ocean.wave_params[i].z;
+		float steepness  = g_ocean.wave_params[i].w;
 
 		float k = 6.283185307 / wavelength; // tau / wavelength
 		float freq = k * speed;
@@ -90,13 +102,13 @@ float3 GerstnerNormal(float2 world_xy, float time)
 {
 	float nx = 0, ny = 0, nz = 1;
 
-	for (int i = 0; i < m_wave_count; ++i)
+	for (int i = 0; i < g_ocean.wave_count; ++i)
 	{
-		float2 dir = m_wave_dirs[i].xy;
-		float amplitude  = m_wave_params[i].x;
-		float wavelength = m_wave_params[i].y;
-		float speed      = m_wave_params[i].z;
-		float steepness  = m_wave_params[i].w;
+		float2 dir = g_ocean.wave_dirs[i].xy;
+		float amplitude  = g_ocean.wave_params[i].x;
+		float wavelength = g_ocean.wave_params[i].y;
+		float speed      = g_ocean.wave_params[i].z;
+		float steepness  = g_ocean.wave_params[i].w;
 
 		float k = 6.283185307 / wavelength;
 		float freq = k * speed;
@@ -120,10 +132,10 @@ float3 ProceduralSky(float3 dir)
 	float t = saturate(dir.z);
 	float3 sky = lerp(horizon, zenith, t * t);
 
-	float sun_dot = saturate(dot(dir, m_sun_direction.xyz));
+	float sun_dot = saturate(dot(dir, g_ocean.sun_direction.xyz));
 	float sun_disc = pow(sun_dot, 512.0);
 	float sun_glow = pow(sun_dot, 8.0) * 0.3;
-	sky += m_sun_colour.rgb * (sun_disc + sun_glow);
+	sky += g_ocean.sun_colour.rgb * (sun_disc + sun_glow);
 
 	return sky;
 }
@@ -131,7 +143,7 @@ float3 ProceduralSky(float3 dir)
 // Sample reflection from env map cubemap or fall back to procedural sky
 float3 SampleReflection(float3 dir)
 {
-	if (m_has_env_map)
+	if (g_ocean.has_env_map)
 		return m_envmap_texture.Sample(m_envmap_sampler, dir).rgb;
 	return ProceduralSky(dir);
 }
@@ -147,11 +159,11 @@ PSIn VSOcean(VSIn In)
 {
 	PSIn Out = (PSIn)0;
 
-	float inner = m_mesh_config.x;
-	float outer = m_mesh_config.y;
-	float cam_height = m_camera_pos_time.z;
-	float time = m_camera_pos_time.w;
-	float2 cam_xy = m_camera_pos_time.xy;
+	float inner = g_ocean.mesh_config.x;
+	float outer = g_ocean.mesh_config.y;
+	float cam_height = g_ocean.camera_pos_time.z;
+	float time = g_ocean.camera_pos_time.w;
+	float2 cam_xy = g_ocean.camera_pos_time.xy;
 
 	float3 ws_pos;
 
@@ -203,8 +215,8 @@ PSIn VSOcean(VSIn In)
 	float4 os_vert = float4(cam_rel, 1);
 
 	// Transform using standard forward matrices
-	Out.ws_vert = mul(os_vert, m_o2w);
-	Out.ss_vert = mul(os_vert, m_o2s);
+	Out.ws_vert = mul(os_vert, g_nugget.o2w);
+	Out.ss_vert = mul(os_vert, g_nugget.o2s);
 
 	// Pass through texture coordinates (unused for now, but available for detail maps)
 	Out.tex0 = In.tex0;
@@ -214,19 +226,17 @@ PSIn VSOcean(VSIn In)
 
 }
 
-// Pixel shader
-PSOut PSOcean(PSIn In)
+// Calculate the near-ocean colour for the alpha collect pass.
+float4 OceanColour(PSIn In)
 {
-	PSOut Out = (PSOut) 0;
-
 	// Surface normal and view direction
 	float3 N = normalize(In.ws_norm.xyz);
-	float3 V = normalize(m_cam.m_c2w[3].xyz - In.ws_vert.xyz);
+	float3 V = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
 	float NdotV = saturate(dot(N, V));
 	float foam_factor = In.diff.a;
 
 	// --- Fresnel reflectance ---
-	float fresnel = FresnelSchlick(NdotV, m_fresnel_f0);
+	float fresnel = FresnelSchlick(NdotV, g_ocean.fresnel_f0);
 
 	// --- Reflection ---
 	float3 R = reflect(-V, N);
@@ -235,21 +245,21 @@ PSOut PSOcean(PSIn In)
 	// --- Refraction / water body colour ---
 	// Approximate depth: steeper viewing angles see deeper water
 	float depth_factor = saturate(1.0 - NdotV);
-	float3 refraction = lerp(m_colour_shallow.rgb, m_colour_deep.rgb, depth_factor);
+	float3 refraction = lerp(g_ocean.colour_shallow.rgb, g_ocean.colour_deep.rgb, depth_factor);
 
 	// --- Subsurface scattering ---
 	// Light passing through thin wave crests when backlit by the sun
-	float3 L = m_sun_direction.xyz;
+	float3 L = g_ocean.sun_direction.xyz;
 	float sss_dot = saturate(dot(V, -L));
 	float wave_height = saturate(In.ws_vert.z * 0.5 + 0.5); // Normalise wave height around 0
-	float sss = pow(sss_dot, 4.0) * wave_height * m_sss_strength;
-	float3 sss_colour = m_colour_shallow.rgb * 1.5; // Brighter turquoise for SSS
+	float sss = pow(sss_dot, 4.0) * wave_height * g_ocean.sss_strength;
+	float3 sss_colour = g_ocean.colour_shallow.rgb * 1.5; // Brighter turquoise for SSS
 
 	// --- Specular (sun glint) ---
 	float3 H = normalize(L + V);
 	float NdotH = saturate(dot(N, H));
-	float specular = pow(NdotH, m_specular_power) * fresnel;
-	float3 spec_colour = m_sun_colour.rgb * specular;
+	float specular = pow(NdotH, g_ocean.specular_power) * fresnel;
+	float3 spec_colour = g_ocean.sun_colour.rgb * specular;
 
 	// --- Combine ---
 	float3 colour = lerp(refraction, reflection, fresnel);
@@ -258,7 +268,7 @@ PSOut PSOcean(PSIn In)
 
 	// --- Foam ---
 	// Foam appears at wave crests where the Gerstner Jacobian drops below 1
-	colour = lerp(colour, m_colour_foam.rgb, foam_factor * 0.8);
+	colour = lerp(colour, g_ocean.colour_foam.rgb, foam_factor * 0.8);
 
 	// --- Basic ambient from scene lighting ---
 	float ambient = 0.15;
@@ -268,10 +278,36 @@ PSOut PSOcean(PSIn In)
 	// --- Transparency ---
 	// Fresnel reflection is always visible; water absorption increases with viewing angle.
 	// Looking down: mostly transparent (see terrain below). At horizon: opaque/reflective.
-	float alpha = fresnel + (1.0 - fresnel) * (1.0 - m_water_transparency * NdotV);
+	float alpha = fresnel + (1.0 - fresnel) * (1.0 - g_ocean.water_transparency * NdotV);
 
-	Out.diff = float4(colour, alpha);
-	return Out;
+	return float4(colour, alpha);
+}
+
+// Pixel shader for K-buffer alpha collection.
+void PSOcean(PSIn In)
+{
+	float4 diff = OceanColour(In);
+	clip(diff.a - (1.0f / 255.0f));
+
+	uint2 pix = uint2(In.ss_vert.xy);
+	uint width, height, sample_count;
+	g_opaque_depth.GetDimensions(width, height, sample_count);
+
+	float opaque_depth = 1.0f;
+	for (uint sample = 0; sample != sample_count; ++sample)
+		opaque_depth = min(opaque_depth, g_opaque_depth.Load(pix, sample));
+	if (In.ss_vert.z >= opaque_depth)
+		discard;
+
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
+	uint colour = PackRGBA8(diff);
+
+	uint4 alpha_colour = g_alpha_colour[pix];
+	uint4 alpha_depth = g_alpha_depth[pix];
+	InsertKBufferLayer(alpha_colour, alpha_depth, colour, depth);
+	g_alpha_colour[pix] = alpha_colour;
+	g_alpha_depth[pix] = alpha_depth;
 }
 
 #ifdef __cplusplus

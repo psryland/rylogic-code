@@ -26,7 +26,7 @@ namespace las
 		static_assert(sizeof(CBufDistantOcean) == sizeof(m_cbuf), "CBufDistantOcean exceeds m_cbuf storage");
 
 		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"DISTANT_OCEAN_HLSL", L"TEXT"))
+			.Source(resource::Read<char>(L"src/world/ocean/shaders/distant_ocean.hlsl", L"TEXT"))
 			.Includes({ new rdr12::ResourceIncludeHandler, true })
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);

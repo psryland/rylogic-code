@@ -1,3 +1,3 @@
 // Shader source files for runtime compilation
-DISTANT_OCEAN_CBUF_HLSLI TEXT    DISCARDABLE     "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
-DISTANT_OCEAN_HLSL       TEXT    DISCARDABLE     "src/world/ocean/shaders/distant_ocean.hlsl"
+src/world/ocean/shaders/distant_ocean_cbuf.hlsli TEXT DISCARDABLE "src/world/ocean/shaders/distant_ocean_cbuf.hlsli"
+src/world/ocean/shaders/distant_ocean.hlsl       TEXT DISCARDABLE "src/world/ocean/shaders/distant_ocean.hlsl"
