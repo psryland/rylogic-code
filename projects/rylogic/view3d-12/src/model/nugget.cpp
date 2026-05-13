@@ -62,8 +62,15 @@ namespace pr::rdr12
 		if (m_nflags == old_flags)
 			return *this;
 
+		if (m_variant == DefaultNugget)
+		{
+			// Dependent variants inherit root nugget visibility/filter state. AlphaBlend is only a root selection hint, so clearing it does not remove existing alpha variants.
+			for (auto* dep = m_dependent.get(); dep != nullptr; dep = dep->m_dependent.get())
+				dep->NuggetDesc::flags(flags, state);
+		}
+
 		// On flags changed, see if an AlphaVariant is needed
-		if (!HasAlphaVariant() && RequiresAlpha())
+		if (m_variant == DefaultNugget && !HasAlphaVariant() && RequiresAlpha())
 		{
 			ResourceFactory factory(m_model->rdr());
 			AlphaVariant(factory, true);

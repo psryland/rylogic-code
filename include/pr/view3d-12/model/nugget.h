@@ -265,7 +265,7 @@ namespace pr::rdr12
 
 		// Set nugget flags
 		Nugget& flags(ENuggetFlag flags, bool state = true) override;
-		
+
 		// The number of primitives in this nugget
 		int64_t PrimCount() const;
 
