@@ -275,6 +275,7 @@ namespace pr::rdr12
 	// Construct a simple material from default material properties.
 	MaterialSimple::MaterialSimple(Texture2DPtr tex_diffuse, SamplerPtr sam_diffuse, Colour32 tint, float rel_reflec)
 		: m_base_colour({tex_diffuse, sam_diffuse, tint})
+		, m_optics()
 		, m_reflectivity({rel_reflec})
 		, m_shaders()
 	{}
@@ -282,6 +283,7 @@ namespace pr::rdr12
 	// Copy simple material properties into a new ref-counted material instance.
 	MaterialSimple::MaterialSimple(MaterialSimple const& rhs)
 		: m_base_colour(rhs.m_base_colour)
+		, m_optics(rhs.m_optics)
 		, m_reflectivity(rhs.m_reflectivity)
 		, m_shaders(rhs.m_shaders)
 	{}
@@ -385,6 +387,9 @@ namespace pr::rdr12
 	{
 		if (component_id == materials::BaseColour::Id)
 			return &m_base_colour;
+
+		if (component_id == materials::Optics::Id)
+			return &m_optics;
 
 		if (component_id == materials::Reflectivity::Id)
 			return &m_reflectivity;

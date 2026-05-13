@@ -212,6 +212,7 @@ namespace pr::rdr12
 	namespace materials
 	{
 		struct BaseColour;
+		struct Optics;
 		struct Reflectivity;
 		struct ShaderOverlays;
 	}

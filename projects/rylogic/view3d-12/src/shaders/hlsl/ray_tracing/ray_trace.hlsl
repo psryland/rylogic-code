@@ -26,7 +26,7 @@ static const uint RayPayloadMode_Shadow = 2;
 static const uint RayPayloadMode_Reflection = 3;
 static const uint RayPayloadMode_Caustic = 4;
 
-static const float GlassIOR = 1.5f;
+static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
 
 struct RayPayload
@@ -193,19 +193,48 @@ uint HitMaterialIndex()
 	return InstanceID() + GeometryIndex();
 }
 
-// Return the diffuse material colour for the hit instance geometry.
-float4 HitMaterial()
+// Return a conservative fallback material for invalid hit-material indices.
+RayTracingMaterial DefaultRayTracingMaterial()
+{
+	RayTracingMaterial material = (RayTracingMaterial)0;
+	material.diffuse = float4(0.75f, 0.75f, 0.75f, 1.0f);
+	material.optics = float4(0.0f, DefaultGlassTransmission, DefaultGlassIOR, max(g_frame.caustic.w, 0.0f));
+	return material;
+}
+
+// Return the RT material payload for the hit instance geometry.
+RayTracingMaterial HitMaterial()
 {
 	uint material_count = uint(g_frame.options.y);
 	uint material_index = HitMaterialIndex();
 	if (material_index < material_count)
-		return g_materials[material_index].diffuse;
+		return g_materials[material_index];
 
-	uint instance_index = InstanceIndex();
-	if (instance_index < material_count)
-		return g_materials[instance_index].diffuse;
+	return DefaultRayTracingMaterial();
+}
 
-	return float4(0.75f, 0.75f, 0.75f, 1.0f);
+// Return true if 'material' should participate in RT caustic transmission.
+bool MaterialIsTransmissive(RayTracingMaterial material)
+{
+	return (material.flags.x & RayTracingMaterialFlag_Transmissive) != 0;
+}
+
+// Return the clamped material transmission used for caustic energy.
+float MaterialTransmission(RayTracingMaterial material)
+{
+	return saturate(material.optics.y);
+}
+
+// Return a safe material index of refraction.
+float MaterialIOR(RayTracingMaterial material)
+{
+	return max(material.optics.z, 1.0f);
+}
+
+// Return a safe material thickness approximation.
+float MaterialThickness(RayTracingMaterial material)
+{
+	return max(material.optics.w, 0.0f);
 }
 
 // Return true if the current hit has enough sidecar metadata for triangle reconstruction.
@@ -238,27 +267,27 @@ float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
 float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib)
 {
 	uint geometry_index = HitMaterialIndex();
-	float4 material = HitMaterial();
+	RayTracingMaterial material = HitMaterial();
 	if (!HasHitGeometry(geometry_index))
-		return material;
+		return material.diffuse;
 
 	RayTracingGeometry geometry = g_geometry[geometry_index];
 	uint first_index = PrimitiveIndex() * 3u;
 	if (first_index + 2u >= geometry.ranges.w)
-		return material;
+		return material.diffuse;
 
 	uint i0 = HitTriangleIndex(geometry, 0) - geometry.ranges.y;
 	uint i1 = HitTriangleIndex(geometry, 1) - geometry.ranges.y;
 	uint i2 = HitTriangleIndex(geometry, 2) - geometry.ranges.y;
 	if (i0 >= geometry.flags.y || i1 >= geometry.flags.y || i2 >= geometry.flags.y)
-		return material;
+		return material.diffuse;
 
 	float3 bary = float3(1.0f - attrib.barycentrics.x - attrib.barycentrics.y, attrib.barycentrics.x, attrib.barycentrics.y);
 
 	RayTracingVertex v0 = g_vertices[geometry.ranges.x + i0];
 	RayTracingVertex v1 = g_vertices[geometry.ranges.x + i1];
 	RayTracingVertex v2 = g_vertices[geometry.ranges.x + i2];
-	float4 colour = (bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour) * material;
+	float4 colour = (bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour) * material.diffuse;
 	if ((geometry.flags.x & RayTracingGeometryFlag_HasNormals) == 0)
 		return colour;
 
@@ -394,12 +423,12 @@ GlassLayer StrongestGlassLayer(uint2 pixel, float3 fallback_normal, float3 incid
 }
 
 // Estimate a receiver-to-light ray through a temporary glass material model.
-float3 GlassRayDirection(float3 incident, GlassLayer glass)
+float3 GlassRayDirection(float3 incident, GlassLayer glass, float ior)
 {
 	if (glass.transmission <= 0.0f)
 		return incident;
 
-	float3 refracted = refract(incident, glass.normal, 1.0f / GlassIOR);
+	float3 refracted = refract(incident, glass.normal, 1.0f / max(ior, 1.0f));
 	float refracted_len_sq = dot(refracted, refracted);
 	if (refracted_len_sq < 1e-6f)
 		return incident;
@@ -408,15 +437,13 @@ float3 GlassRayDirection(float3 incident, GlassLayer glass)
 	return normalize(lerp(incident, refracted, glass.transmission));
 }
 
-// Approximate how much of the caustic-producing light survives a temporary glass material.
-float GlassTransmission(float3 incident, GlassLayer glass, bool hit_glass)
+// Approximate how much of the caustic-producing light survives a material-driven glass hit.
+float GlassTransmission(float3 incident, GlassLayer glass, float material_transmission, float material_ior)
 {
-	if (!hit_glass)
-		return 0.0f;
-
-	float transmission = glass.transmission > 0.0f ? glass.transmission : DefaultGlassTransmission;
+	float transmission = max(material_transmission, glass.transmission);
 	float facing = glass.transmission > 0.0f ? abs(dot(incident, glass.normal)) : 1.0f;
-	float fresnel_reflectance = 0.04f + 0.96f * pow(1.0f - saturate(facing), 5.0f);
+	float f0 = pow((material_ior - 1.0f) / max(material_ior + 1.0f, 1.0f), 2.0f);
+	float fresnel_reflectance = f0 + (1.0f - f0) * pow(1.0f - saturate(facing), 5.0f);
 	return transmission * (1.0f - fresnel_reflectance);
 }
 
@@ -502,7 +529,7 @@ void RayGen()
 			if (receiver_facing > 0.0f)
 			{
 				GlassLayer glass = StrongestGlassLayer(pixel, normal, surface_to_light);
-				float3 caustic_dir = GlassRayDirection(surface_to_light, glass);
+				float3 caustic_dir = GlassRayDirection(surface_to_light, glass, DefaultGlassIOR);
 
 				RayPayload caustic_payload;
 				caustic_payload.colour = 0.0f;
@@ -517,19 +544,22 @@ void RayGen()
 				caustic_ray.TMin = 0.0f;
 				caustic_ray.TMax = g_frame.clip.y;
 
-				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
 				if (caustic_payload.occluded == 0 && glass.transmission > 0.0f)
 				{
 					caustic_payload.occluded = 1;
 					caustic_ray.Direction = surface_to_light;
-					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+					TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
 				}
 				if (caustic_payload.occluded != 0)
 				{
-					float3 pattern_pos = hit_pos + caustic_dir * max(g_frame.caustic.w, 0.0f);
+					float material_transmission = saturate(caustic_payload.colour.x);
+					float material_ior = max(caustic_payload.colour.y, 1.0f);
+					float material_thickness = max(caustic_payload.colour.z, 0.0f);
+					float3 pattern_pos = hit_pos + caustic_dir * material_thickness;
 					float pattern = CausticPattern(pattern_pos, caustic_dir);
-					float glass_transmission = GlassTransmission(surface_to_light, glass, true);
-					float focus = 1.0f + saturate(length(caustic_dir - surface_to_light) * max(g_frame.caustic.w, 0.0f));
+					float glass_transmission = GlassTransmission(surface_to_light, glass, material_transmission, material_ior);
+					float focus = 1.0f + saturate(length(caustic_dir - surface_to_light) * material_thickness);
 					float strength = g_frame.caustic.x *
 						receiver_facing *
 						lerp(0.35f, 1.0f, pattern) *
@@ -603,6 +633,21 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	{
 		payload.hit = 1;
 		payload.colour = ShadeRayHit(attrib).rgb;
+		return;
+	}
+	if (payload.mode == RayPayloadMode_Caustic)
+	{
+		RayTracingMaterial material = HitMaterial();
+		if (!MaterialIsTransmissive(material))
+		{
+			payload.hit = 0;
+			payload.occluded = 0;
+			return;
+		}
+
+		payload.hit = 1;
+		payload.occluded = 1;
+		payload.colour = float3(MaterialTransmission(material), MaterialIOR(material), MaterialThickness(material));
 		return;
 	}
 	if (payload.mode != RayPayloadMode_Diagnostic)

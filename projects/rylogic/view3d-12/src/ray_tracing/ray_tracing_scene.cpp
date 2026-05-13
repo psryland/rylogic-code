@@ -12,6 +12,9 @@
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/optics.h"
+#include "pr/view3d-12/material/components/reflectivity.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "view3d-12/src/shaders/common.h"
 
@@ -27,6 +30,8 @@ namespace pr::rdr12
 		constexpr UINT RayTracingGeometryFlag_HasNormals = 0x02;
 		constexpr UINT RayTracingGeometryFlag_Index16 = 0x04;
 		constexpr UINT RayTracingGeometryFlag_Index32 = 0x08;
+		constexpr UINT RayTracingMaterialFlag_Reflective = 0x01;
+		constexpr UINT RayTracingMaterialFlag_Transmissive = 0x02;
 
 		struct SkinnedBlasKey
 		{
@@ -269,15 +274,40 @@ namespace pr::rdr12
 			}
 		}
 
-		// Return the fixed-function material approximation used by the current reflection hit shader.
+		// Return the material payload used by ray-tracing shaders for one instance geometry.
 		shaders::rt::RayTracingMaterial MakeMaterial(BaseInstance const& inst, Nugget const& nugget)
 		{
 			auto const* inst_tint = inst.find<Colour32>(EInstComp::TintColour32);
+			auto const* inst_reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
 			auto& base_colour = nugget.mat().ComponentOrDefault<materials::BaseColour>();
-			auto const tint = Colour((inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_tint);
+			auto& optics = nugget.mat().ComponentOrDefault<materials::Optics>();
+			auto& reflectivity = nugget.mat().ComponentOrDefault<materials::Reflectivity>();
+			auto const tint32 = (inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_tint;
+			auto const tint = Colour(tint32);
+			auto const texture_has_alpha = AllSet(base_colour.m_tex_diffuse ? base_colour.m_tex_diffuse->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
+			auto const alpha_hint = AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
+			auto const tint_transmission = HasAlpha(tint32) ? 1.0f - tint.a : 0.0f;
+			auto const texture_transmission = texture_has_alpha ? optics.m_transmission : 0.0f;
+			auto const hint_transmission = alpha_hint ? optics.m_transmission : 0.0f;
+			auto const transmission = Clamp(std::max(std::max(tint_transmission, texture_transmission), hint_transmission), 0.0f, 1.0f);
+			auto const rt_reflectivity = inst_reflectivity != nullptr
+				? Clamp(*inst_reflectivity * reflectivity.m_rel_reflec, 0.0f, 1.0f)
+				: 0.0f;
 
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;
+			material.optics = v4(
+				rt_reflectivity,
+				transmission,
+				std::max(optics.m_ior, 1.0f),
+				std::max(optics.m_thickness, 0.0f));
+			material.flags = pr::hlsl::uint4{
+				(rt_reflectivity != 0.0f ? RayTracingMaterialFlag_Reflective : 0U) |
+				(transmission != 0.0f ? RayTracingMaterialFlag_Transmissive : 0U),
+				0,
+				0,
+				0,
+			};
 			return material;
 		}
 

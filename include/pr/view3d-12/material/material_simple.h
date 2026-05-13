@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/material/material.h"
@@ -16,6 +17,7 @@ namespace pr::rdr12
 		static constexpr RdrId MaterialTypeId = hash::HashCT("MaterialSimple");
 
 		materials::BaseColour m_base_colour;     // Diffuse/base-colour properties.
+		materials::Optics m_optics;              // Optical properties used by RT paths.
 		materials::Reflectivity m_reflectivity;  // Reflection properties.
 		materials::ShaderOverlays m_shaders;     // Shader overlays used by this material.
 
