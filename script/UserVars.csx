@@ -255,7 +255,9 @@ public class UserVars
 			var latest = Directory.GetDirectories(msvc_dir)
 				.Select(System.IO.Path.GetFileName)
 				.Where(n => !string.IsNullOrEmpty(n))
-				.OrderByDescending(n => n)
+				.Select(n => (Name: n!, Version: System.Version.TryParse(n, out var version) ? version : new System.Version()))
+				.OrderByDescending(x => x.Version)
+				.Select(x => x.Name)
 				.FirstOrDefault();
 			if (latest != null)
 				return latest;

@@ -189,11 +189,25 @@ public class Tools
 		// Check for newer versions
 		{
 			var msvc_version = Path([UserVars.VSDir, $"VC\\Tools\\MSVC"]);
-			var available_versions = Directory.GetDirectories(msvc_version).Select(IOPath.GetFileName).OrderByDescending(x => x).ToList();
-			if (available_versions.Count == 0 || !available_versions.Contains(UserVars.VCVersion))
-				throw new Exception($"\n *** VC Version not Found : Latest = {available_versions[0]} *** \n");
-			if (UserVars.VCVersion.CompareTo(available_versions[0]) < 0)
-				Console.WriteLine($"\n *** Newer VC Version Available : Latest = {available_versions[0]} *** \n");
+			var available_versions = Directory.GetDirectories(msvc_version)
+				.Select(IOPath.GetFileName)
+				.Where(x => !string.IsNullOrEmpty(x))
+				.Select(x => (Name: x!, Version: System.Version.TryParse(x, out var version) ? version : new System.Version()))
+				.OrderByDescending(x => x.Version)
+				.Select(x => x.Name)
+				.ToList();
+
+			if (available_versions.Count == 0)
+				throw new Exception("\n *** No VC Versions Found *** \n");
+
+			var latest = available_versions[0];
+			if (!available_versions.Contains(UserVars.VCVersion))
+				throw new Exception($"\n *** VC Version not Found : Latest = {latest} *** \n");
+
+			var user_version = System.Version.TryParse(UserVars.VCVersion, out var parsed_user_version) ? parsed_user_version : new System.Version();
+			var latest_version = System.Version.TryParse(latest, out var parsed_latest_version) ? parsed_latest_version : new System.Version();
+			if (user_version.CompareTo(latest_version) < 0)
+				Console.WriteLine($"\n *** Newer VC Version Available : Latest = {latest} *** \n");
 		}
 
 		///* Just need this?
