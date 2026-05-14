@@ -4,6 +4,7 @@
 //************************************
 #include "src/forward.h"
 #include "src/world/sky/shaders/procedural_sky_shader.h"
+#include "pr/view3d-12/shaders/shader_compiler.h"
 #include "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
 
 namespace las
@@ -25,9 +26,10 @@ namespace las
 		static_assert((sizeof(CBufProceduralSky) % 16) == 0);
 		static_assert(sizeof(CBufProceduralSky) == sizeof(m_cbuf), "CBufProceduralSky exceeds m_cbuf storage");
 
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"PROCEDURAL_SKY_HLSL", L"TEXT"))
-			.Includes({ new rdr12::ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{};
+		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
+		compiler.Source("PROCEDURAL_SKY_HLSL", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 

@@ -9,6 +9,7 @@
 #include "pr/view3d-12/compute/compute_step.h"
 #include "pr/view3d-12/compute/spatial_partition/spatial_partition.h"
 #include "pr/view3d-12/compute/particle_collision/particle_collision.h"
+#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/utility/pix.h"
@@ -610,9 +611,10 @@ namespace pr::rdr12::compute::fluid
 		// Compile the compute shaders
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
-			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"src/compute/fluid_simulation/fluid_simulation.hlsl", L"TEXT"))
-				.Includes({ new ResourceIncludeHandler, true })
+			ShaderCompiler compiler{};
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			compiler.Source("src/compute/fluid_simulation/fluid_simulation.hlsl", resolver)
+				.HlslVersion(EHlslVersion::DxcDefault)
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)
 				.Define(L"THREAD_GROUP_SIZE", std::to_wstring(ThreadGroupSize))

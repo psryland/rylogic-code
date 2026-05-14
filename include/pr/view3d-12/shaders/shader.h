@@ -66,46 +66,6 @@ namespace pr::rdr12
 		protected: virtual void Delete();
 	};
 
-	// Compiler options helper
-	struct ShaderCompiler
-	{
-		// Notes:
-		//  - If you need pdb's for PIX debugging, use options like this:
-		//    compiler.DebugInfo().Optimise(false).PDBOutput(L"E:\\dump\\Symbols");
-		//    This will create a pdb in the specified directory. Point the PDB Search Path
-		//    in PIX to this directory and you should be able to debug the shader.
-		using Defines = std::unordered_map<std::wstring, std::wstring>;
-		using StrList = std::vector<std::wstring>;
-		using Args = std::vector<wchar_t const*>;
-
-		D3DPtr<IDxcResult> m_result;
-		D3DPtr<IDxcCompiler3> m_compiler;
-		D3DPtr<IDxcBlobEncoding> m_source_blob;
-		D3DPtr<IDxcIncludeHandler> m_includes;
-		std::filesystem::path m_pdb_path;
-		DxcBuffer m_source;
-		Defines m_defines;
-		std::wstring m_ep;
-		std::wstring m_sm;
-		bool m_optimise;
-		bool m_debug_info;
-		StrList m_extras;
-		Args m_args;
-
-		ShaderCompiler();
-		ShaderCompiler& File(std::filesystem::path file);
-		ShaderCompiler& Source(std::string_view code);
-		ShaderCompiler& Includes(D3DPtr<IDxcIncludeHandler> handler);
-		ShaderCompiler& EntryPoint(std::wstring_view ep);
-		ShaderCompiler& ShaderModel(std::wstring_view sm);
-		ShaderCompiler& Optimise(bool opt = true);
-		ShaderCompiler& DebugInfo(bool dbg = true);
-		ShaderCompiler& Define(std::wstring_view sym, std::wstring_view value = {});
-		ShaderCompiler& PDBOutput(std::filesystem::path dir, std::string_view filename = {});
-		ShaderCompiler& Arg(std::wstring_view arg);
-		std::vector<uint8_t> Compile();
-	};
-
 	// Statically declared shader byte code
 	namespace shader_code
 	{

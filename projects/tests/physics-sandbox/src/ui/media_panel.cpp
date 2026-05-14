@@ -12,9 +12,8 @@ namespace physics_sandbox
 		, m_chk_allow_sleeping(Button::Params<>().parent(this_).text(L"Allow Sleeping").xy(560, 4).wh(130, 26).chk_box())
 		, m_lbl_speed(Label::Params<>().parent(this_).text(L"Speed: 1.00x").xy(280, 4).wh(100, 26).style('+', SS_CENTERIMAGE))
 		, m_slider(nullptr)
+		, m_allow_sleeping(true)
 	{
-		m_chk_allow_sleeping.Checked(true);
-
 		// Ensure the trackbar common control class is registered.
 		// The default InitCtrls() only loads ICC_STANDARD_CLASSES which doesn't
 		// include the trackbar. ICC_BAR_CLASSES covers toolbar, statusbar, trackbar.
@@ -41,6 +40,8 @@ namespace physics_sandbox
 				::SendMessage(m_slider, TBM_SETRANGE, TRUE, MAKELPARAM(SliderMin, SliderMax));
 				::SendMessage(m_slider, TBM_SETPOS, TRUE, SliderDefault);
 			}
+			if (m_chk_allow_sleeping != nullptr && m_chk_allow_sleeping.Checked() != m_allow_sleeping)
+				m_chk_allow_sleeping.Checked(m_allow_sleeping);
 
 			auto cx = args.m_wp->cx;
 
@@ -88,6 +89,7 @@ namespace physics_sandbox
 		};
 		m_chk_allow_sleeping.CheckedChanged += [&](Button&, pr::gui::EmptyArgs const&)
 		{
+			m_allow_sleeping = m_chk_allow_sleeping.Checked();
 			OnAllowSleepingChanged(*this, pr::gui::EmptyArgs{});
 		};
 	}
@@ -121,12 +123,14 @@ namespace physics_sandbox
 
 	bool MediaPanel::AllowSleeping() const
 	{
-		return m_chk_allow_sleeping.Checked();
+		return m_chk_allow_sleeping != nullptr ? m_chk_allow_sleeping.Checked() : m_allow_sleeping;
 	}
 
 	void MediaPanel::AllowSleeping(bool allow_sleeping)
 	{
-		m_chk_allow_sleeping.Checked(allow_sleeping);
+		m_allow_sleeping = allow_sleeping;
+		if (m_chk_allow_sleeping != nullptr)
+			m_chk_allow_sleeping.Checked(allow_sleeping);
 	}
 
 	// Update the speed label to reflect the current slider position.
