@@ -52,9 +52,10 @@ namespace pr::physics
 	// Compile the integration compute shader
 	void GpuIntegrator::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/integrate.hlsl", L"TEXT"))
-			.Includes({ new ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/integrate.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 

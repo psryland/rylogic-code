@@ -78,9 +78,10 @@ namespace pr::physics
 
 	void GpuSelectiveRefresher::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/selective.hlsl", L"TEXT"))
-			.Includes({ new ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/selective.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 

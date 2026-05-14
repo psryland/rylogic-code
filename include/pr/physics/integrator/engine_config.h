@@ -4,10 +4,18 @@
 //*********************************************
 #pragma once
 
+namespace pr::rdr12::shader_cache
+{
+	struct IShaderCache;
+}
+
 namespace pr::physics
 {
 	struct EngineConfig
 	{
+		// Optional runtime shader cache used by GPU compute shader compilation.
+		rdr12::shader_cache::IShaderCache* shader_cache = nullptr;
+
 		// Maximum number of collision pairs that the engine can handle per frame.
 		int max_collision_pairs = 65536;
 		

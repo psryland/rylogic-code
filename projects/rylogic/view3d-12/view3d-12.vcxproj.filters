@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="pr">
@@ -141,6 +141,9 @@
     </Filter>
     <Filter Include="src\imgui">
       <UniqueIdentifier>{fbcc4191-917c-43ee-a6b6-71c70a44bf81}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders\compiler">
+      <UniqueIdentifier>{06f65614-4061-4193-9d20-bccf1062ca47}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -846,23 +849,28 @@
     <ClCompile Include="src\utility\utility.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
-    <ClInclude Include="..\..\..\include\pr\view3d-12\imgui\imgui.h">
-      <Filter>src\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\view3d-12\compute\gpu.h">
-      <Filter>src\compute</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\hlsl\interop.h">
-      <Filter>pr\hlsl</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\interop.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\shader_registers.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\gpu.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\imgui\imgui.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\alpha_kbuffer.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_compiler.h">
+      <Filter>src\shaders\compiler</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\hlsl\shader_registers.h">
-      <Filter>pr\hlsl</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache_fs.h">
+      <Filter>src\shaders\compiler</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\view3d-12\render\alpha_kbuffer.h">
-      <Filter>src\render</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache.h">
+      <Filter>src\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\shaders\compiler\dependency.h">
+      <Filter>src\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\shaders\compiler\source_resolver.h">
+      <Filter>src\shaders\compiler</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -928,6 +936,9 @@
     </View3dShaderBuild>
     <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
       <Filter>src\shaders\hlsl\skinned</Filter>
+    </View3dShaderBuild>
+    <View3dShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
     </View3dShaderBuild>
   </ItemGroup>
   <ItemGroup>
@@ -997,9 +1008,6 @@
     <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl">
       <Filter>src\compute\spatial_partition</Filter>
     </FxCompile>
-    <FxCompile Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
-      <Filter>src\shaders\hlsl\forward</Filter>
-    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <CSharpScript Include="auto_gen.csx" />
@@ -1013,6 +1021,15 @@
     </ClCompile>
     <ClCompile Include="src\render\alpha_kbuffer.cpp">
       <Filter>src\render</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\shader_compiler.cpp">
+      <Filter>src\shaders\compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\shader_cache_fs.cpp">
+      <Filter>src\shaders\compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\source_resolver.cpp">
+      <Filter>src\shaders\compiler</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
