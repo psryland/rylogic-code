@@ -58,6 +58,7 @@ namespace pr::rdr12
 	Renderer::RdrState::RdrState(RdrSettings const& settings)
 		:m_settings(settings)
 		,m_features()
+		,m_ray_tracing()
 		,m_d3d_device()
 		,m_gfx_queue()
 		,m_com_queue()
@@ -128,9 +129,10 @@ namespace pr::rdr12
 				}
 
 				// Suppress the CREATERESOURCE_STATE_IGNORED warning because ID3D11On12 is generating these.
-				D3D12_MESSAGE_ID hide[] = {
-					D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
-					D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+					D3D12_MESSAGE_ID hide[] = {
+						D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
+						D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+						D3D12_MESSAGE_ID_LIVE_DEVICE,
 
 					/*
 					D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
@@ -171,6 +173,11 @@ namespace pr::rdr12
 
 			// Read the supported features
 			m_features.Read(m_d3d_device.get());
+			m_ray_tracing = RayTracingSupport(m_settings.m_options, m_features);
+			PR_INFO_IF(PR_DBG_RDR, m_ray_tracing.Requested(), std::format(
+				"RayTracingSupport requested. Device tier: {}. Available: {}\n",
+				m_ray_tracing.TierName(),
+				m_ray_tracing.Available() ? "true" : "false"));
 
 			// Create the command queues
 			D3D12_COMMAND_QUEUE_DESC queue_desc = {
@@ -194,8 +201,6 @@ namespace pr::rdr12
 			// Check feature support
 			if (m_features.ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
 				throw std::runtime_error("DirectX device does not support Compute Shaders 4x");
-			if (m_features.Options5.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
-				PR_ASSERT(PR_DBG_RDR, true, "Sweet!");
 
 			// Create the D3D11-on-12 device so that D2D can draw on Dx12 resources
 			D3DPtr<ID3D11Device> dx11_device;
@@ -229,6 +234,12 @@ namespace pr::rdr12
 		m_dx11_dc = nullptr;
 		m_dx11_device = nullptr;
 
+		// Release the retained DXGI adapter/output handles before live-object reporting.
+		// The renderer only needs them while it is alive, and keeping them until member
+		// destruction makes DXGI's process-termination report look like an application leak.
+		m_settings.m_adapter.outputs.clear();
+		m_settings.m_adapter.ptr = nullptr;
+
 		// Do reference count checking
 		if (m_d2d_device != nullptr)
 		{
@@ -248,7 +259,7 @@ namespace pr::rdr12
 
 					D3DPtr<ID3D12DebugDevice> dbg;
 					if (SUCCEEDED(m_d3d_device->QueryInterface(__uuidof(ID3D12DebugDevice), (void**)dbg.address_of())))
-						dbg->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL);
+						dbg->ReportLiveDeviceObjects(static_cast<D3D12_RLDO_FLAGS>(D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL));
 
 					info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, break_on_warning);
 				}
@@ -280,6 +291,7 @@ namespace pr::rdr12
 		,m_gsync(d3d())
 		,m_keep_alive(m_gsync)
 		,m_res_store(rdr())
+		,m_skinned_geometry(rdr())
 	{
 		try
 		{
@@ -366,6 +378,18 @@ namespace pr::rdr12
 	FeatureSupport const& Renderer::Features() const
 	{
 		return m_state.m_features;
+	}
+
+	// Device ray tracing support requested for this renderer.
+	RayTracingSupport const& Renderer::RayTracing() const
+	{
+		return m_state.m_ray_tracing;
+	}
+	
+	// Access the shared compute-skinned geometry cache.
+	SkinnedGeometryCache& Renderer::SkinnedGeometry()
+	{
+		return m_skinned_geometry;
 	}
 
 	// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.

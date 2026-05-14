@@ -18,6 +18,7 @@ namespace pr::rdr12
 		Texture2DPtr m_opaque_colour_1x; // 1x resolved opaque colour used as the base for alpha resolve
 		Texture2DPtr m_alpha_colour;     // Per-pixel nearest four alpha colours, RGBA8 packed in uint lanes
 		Texture2DPtr m_alpha_depth;      // Per-pixel nearest four D24 depths, with packed OIA bytes in high bits
+		Texture2DPtr m_alpha_rt_attrs;   // Per-pixel nearest four RT alpha attributes, matching m_alpha_colour/depth layer order
 		D3DPtr<ID3D12RootSignature> m_signature_alpha_resolve;
 		D3DPtr<ID3D12PipelineState> m_pso_alpha_resolve;
 

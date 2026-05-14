@@ -23,11 +23,11 @@ namespace pr::rdr12
 		GfxCmdAllocPool& m_cmd_alloc_pool; // The command allocator pool to create allocators from
 
 		GfxCmdList m_prepare; // Commands before the first scene is rendered
-		GfxCmdList m_resolve; // Commands used to resolve the MSAA buffer into the swap chain buffer
-		GfxCmdList m_present; // Commands after the last scene is rendered
+		GfxCmdList m_resolve; // Commands that resolve/copy the MSAA buffer and seed the K-buffer opaque colour
+		GfxCmdList m_present; // Commands after post-resolve work, including alpha resolve and final present-state transitions
 
 		GfxCmdLists m_main; // Command lists to execute before the MSAA buffer is resolved
-		GfxCmdLists m_post; // Command lists to execute after the MSAA buffer is resolved
+		GfxCmdLists m_post; // Command lists to execute after MSAA resolve and before alpha resolve/final present
 
 		BackBuffer const* m_bb_main; // The back buffer to render the scene to that will be anti-aliased.
 		BackBuffer const* m_bb_post; // The back buffer for post-processing effects (assume main has been rendered into post).

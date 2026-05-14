@@ -139,4 +139,62 @@ void InsertKBufferLayer(inout uint4 alpha_colour, inout uint4 alpha_depth, uint 
 	alpha_depth.w = WithDepth(alpha_depth.w, depth);
 }
 
+// Insert a sorted K-buffer colour/depth layer and keep a parallel RT payload in the same layer slot.
+void InsertKBufferLayer(inout uint4 alpha_colour, inout uint4 alpha_depth, inout uint4 alpha_rt_attrs, uint colour, uint depth, uint rt_attrs)
+{
+	uint4 d = uint4(DepthOf(alpha_depth.x), DepthOf(alpha_depth.y), DepthOf(alpha_depth.z), DepthOf(alpha_depth.w));
+	if (depth >= d.w)
+	{
+		AddOverflow(alpha_depth, colour);
+		return;
+	}
+
+	if (d.w != KBufferDepthFar)
+		AddOverflow(alpha_depth, alpha_colour.w);
+
+	if (depth < d.x)
+	{
+		alpha_colour.w = alpha_colour.z;
+		alpha_colour.z = alpha_colour.y;
+		alpha_colour.y = alpha_colour.x;
+		alpha_colour.x = colour;
+		alpha_rt_attrs.w = alpha_rt_attrs.z;
+		alpha_rt_attrs.z = alpha_rt_attrs.y;
+		alpha_rt_attrs.y = alpha_rt_attrs.x;
+		alpha_rt_attrs.x = rt_attrs;
+		alpha_depth.w = WithDepth(alpha_depth.w, d.z);
+		alpha_depth.z = WithDepth(alpha_depth.z, d.y);
+		alpha_depth.y = WithDepth(alpha_depth.y, d.x);
+		alpha_depth.x = WithDepth(alpha_depth.x, depth);
+		return;
+	}
+	if (depth < d.y)
+	{
+		alpha_colour.w = alpha_colour.z;
+		alpha_colour.z = alpha_colour.y;
+		alpha_colour.y = colour;
+		alpha_rt_attrs.w = alpha_rt_attrs.z;
+		alpha_rt_attrs.z = alpha_rt_attrs.y;
+		alpha_rt_attrs.y = rt_attrs;
+		alpha_depth.w = WithDepth(alpha_depth.w, d.z);
+		alpha_depth.z = WithDepth(alpha_depth.z, d.y);
+		alpha_depth.y = WithDepth(alpha_depth.y, depth);
+		return;
+	}
+	if (depth < d.z)
+	{
+		alpha_colour.w = alpha_colour.z;
+		alpha_colour.z = colour;
+		alpha_rt_attrs.w = alpha_rt_attrs.z;
+		alpha_rt_attrs.z = rt_attrs;
+		alpha_depth.w = WithDepth(alpha_depth.w, d.z);
+		alpha_depth.z = WithDepth(alpha_depth.z, depth);
+		return;
+	}
+
+	alpha_colour.w = colour;
+	alpha_rt_attrs.w = rt_attrs;
+	alpha_depth.w = WithDepth(alpha_depth.w, depth);
+}
+
 #endif

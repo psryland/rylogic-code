@@ -8,6 +8,7 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
@@ -178,8 +179,11 @@ namespace pr::rdr12
 
 			// Set the texture id part of the key if not set already
 			// Only really need the texture if it contains alpha pixels...
-			if (!AnySet(sk, SortKey::TextureIdMask) && nug.m_tex_diffuse != nullptr)
-				sk = SetBits(sk, SortKey::TextureIdMask, nug.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
+			auto const* pass = nug.mat().Pass(m_step_id);
+			if (pass == nullptr)
+				continue;
+
+			sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, sk);
 
 			// Grow the scene bounds by the model bbox if nuggets were added
 			for (;grow_bounds;)
@@ -269,40 +273,41 @@ namespace pr::rdr12
 				auto const& instance = *dle.m_instance;
 				auto desc = m_default_pipe_state;
 
+				// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+				auto const* vb_view = &nugget.m_model->m_vb_view;
+				if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+					vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
+
 				// Set pipeline state
 				desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
 				m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-				m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+				m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-				// Bind textures to the pipeline
-				if (Texture2DPtr tex = coalesce(FindDiffTexture(*dle.m_instance), nugget.m_tex_diffuse, m_default_tex))
-				{
-					auto srv_descriptor = wnd().m_heap_view.Add(tex->m_srv);
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::smap::ERootParam::DiffTexture, srv_descriptor);
-				}
+				// Let the material bind per-draw resources and constants.
+				auto const* pass = nugget.mat().Pass(m_step_id);
+				if (pass == nullptr)
+					continue;
 
-				// Bind samplers to the pipeline (can't use static samplers because each mode may use different address modes)
-				if (SamplerPtr sam = coalesce(FindDiffTextureSampler(*dle.m_instance), nugget.m_sam_diffuse, m_default_sam))
-				{
-					auto sam_descriptor = wnd().m_heap_samp.Add(sam->m_samp);
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::smap::ERootParam::DiffTextureSampler, sam_descriptor);
-				}
-
-				// Add skinning data for skinned meshes
-				if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
-				{
-					pose->Update(m_cmd_list, m_upload_buffer);
-					auto srv_pose = wnd().m_heap_view.Add(pose->m_srv);
-					auto srv_skin = wnd().m_heap_view.Add(nugget.m_model->m_skin.m_srv);
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::smap::ERootParam::Pose, srv_pose);
-					m_cmd_list.SetGraphicsRootDescriptorTable(shaders::smap::ERootParam::Skin, srv_skin);
-				}
-
-				// Set shader constants for the nugget
-				m_shader.SetupElement(m_cmd_list.get(), m_upload_buffer, &dle, scn().m_cam);
+				auto ctx = MaterialPassContext{
+					.m_step_id = m_step_id,
+					.m_wnd = wnd(),
+					.m_scene = scn(),
+					.m_dle = dle,
+					.m_material = nugget.mat(),
+					.m_cmd_list = m_cmd_list,
+					.m_upload = m_upload_buffer,
+					.m_pipe_state = desc,
+					.m_shader = &m_shader,
+					.m_default_tex = m_default_tex.get(),
+					.m_default_sam = m_default_sam.get(),
+					.m_last_tex = nullptr,
+					.m_last_sam = nullptr,
+				};
+				pass->Bind(ctx);
 
 				// Apply PSO overrides?
+				pass->ApplyPipeline(ctx);
 
 				// Draw the nugget
 				DrawNugget(nugget, desc);

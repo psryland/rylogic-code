@@ -53,6 +53,7 @@ namespace Rylogic.Gui.WPF
 			SetBackgroundColour = Command.Create(this, SetBackgroundColourInternal);
 			ToggleAntialiasing = Command.Create(this, ToggleAntialiasingInternal);
 			ShowLightingUI = Command.Create(this, ShowLightingUIInternal);
+			ShowRayTracingUI = Command.Create(this, ShowRayTracingUIInternal);
 
 			// Diagnostics
 			ToggleShowNormals = Command.Create(this, ToggleShowNormalsInternal);
@@ -561,6 +562,20 @@ namespace Rylogic.Gui.WPF
 			LightingUI.Focus();
 		}
 		public View3dLightingUI? LightingUI { get; private set; }
+
+		/// <inheritdoc/>
+		public ICommand ShowRayTracingUI { get; private set; } = null!;
+		private void ShowRayTracingUIInternal()
+		{
+			if (RayTracingUI == null)
+			{
+				RayTracingUI = new View3dRayTracingUI(System.Windows.Window.GetWindow(this), Window);
+				RayTracingUI.Closed += delegate { RayTracingUI = null; };
+				RayTracingUI.Show();
+			}
+			RayTracingUI.Focus();
+		}
+		public View3dRayTracingUI? RayTracingUI { get; private set; }
 
 		/// <inheritdoc/>
 		public ICommand ShowMeasureToolUI { get; private set; } = null!;

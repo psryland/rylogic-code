@@ -7,6 +7,7 @@
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
 #include "pr/view3d-12/shaders/shader_show_normals.h"
 #include "pr/view3d-12/model/model.h"
@@ -57,7 +58,7 @@ namespace pr::rdr12
 					.vrange(nug.m_vrange)
 					.irange(RangeZero)
 					.variant(ShowNormalsNugget)
-					.use_shader_overlay(ERenderStep::RenderForward, shdr));
+					.mat([&](MaterialSimple& m) { m.use_shader_overlay(ERenderStep::RenderForward, shdr); }));
 			}
 		}
 

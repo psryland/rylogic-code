@@ -434,6 +434,74 @@ VIEW3D_API void __stdcall View3D_WindowSettingsSet(view3d::Window window, char c
 	CatchAndReport(View3D_WindowSettingsSet, window,);
 }
 
+// Query ray tracing capability and the current per-window enable state.
+VIEW3D_API view3d::RayTracingInfo __stdcall View3D_WindowRayTracingInfoGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		return window->RayTracingInfo();
+	}
+	CatchAndReport(View3D_WindowRayTracingInfoGet, window, {});
+}
+
+// Get the current per-window ray tracing enabled state.
+VIEW3D_API BOOL __stdcall View3D_WindowRayTracingEnabledGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		return window->RayTracingEnabled();
+	}
+	CatchAndReport(View3D_WindowRayTracingEnabledGet, window, FALSE);
+}
+
+// Set the current per-window ray tracing enabled state.
+VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(view3d::Window window, BOOL enable)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->RayTracingEnabled(enable != 0);
+	}
+	CatchAndReport(View3D_WindowRayTracingEnabledSet, window,);
+}
+
+// Get the ray tracing render settings for this window.
+VIEW3D_API view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto props = window->RayTracingProperties();
+		return view3d::RayTracingProps{
+			.m_features = static_cast<view3d::ERayTracingFeature>(props.m_features),
+			.m_max_reflection_bounces = props.m_max_reflection_bounces,
+		};
+	}
+	CatchAndReport(View3D_RayTracingPropertiesGet, window, {});
+}
+
+// Set the ray tracing render settings for this window.
+VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(view3d::Window window, view3d::RayTracingProps const& props)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto ray_tracing_props = rdr12::RayTracingProps{};
+		ray_tracing_props.m_features = static_cast<rdr12::ERayTracingFeature>(props.m_features);
+		ray_tracing_props.m_max_reflection_bounces = props.m_max_reflection_bounces;
+		window->RayTracingProperties(ray_tracing_props);
+	}
+	CatchAndReport(View3D_RayTracingPropertiesSet, window,);
+}
+
 // Get/Set the dimensions of the render target
 // In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
 VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(view3d::Window window)

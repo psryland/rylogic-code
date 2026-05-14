@@ -115,11 +115,8 @@ namespace pr
 			// Set if the geometry data for the nugget contains alpha colours
 			GeometryHasAlpha = 1 << 1,
 
-			// Set if the tint colour contains alpha
-			TintHasAlpha = 1 << 2,
-
-			// Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)
-			TexDiffuseHasAlpha = 1 << 3,
+			// Force alpha blending for this nugget. Use this when alpha can be supplied by runtime state outside the material.
+			AlphaBlend = 1 << 2,
 
 			// Excluded from shadow map render steps
 			ShadowCastExclude = 1 << 4,
@@ -501,6 +498,9 @@ namespace pr
 			Diagnostics_NormalsColour      = Diagnostics | 1 << 2,
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
 
+			Rendering            = 1 << 21,
+			Rendering_RayTracing = Rendering | 1 << 0,
+
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END()
@@ -508,6 +508,34 @@ namespace pr
 		#pragma endregion
 
 		#pragma region API Compatibility
+		enum class ERayTracingTier :int
+		{
+			NotSupported,
+			Tier1_0,
+			Tier1_1,
+			Unknown,
+		};
+		enum class ERayTracingFeature :int
+		{
+			None        = 0,
+			Reflections = 1 << 0,
+			Caustics    = 1 << 1,
+			All         = (1 << 0) | (1 << 1),
+			_flags_enum = 0,
+		};
+		struct RayTracingProps
+		{
+			ERayTracingFeature m_features;
+			int m_max_reflection_bounces;
+		};
+		struct RayTracingInfo
+		{
+			BOOL m_requested;
+			BOOL m_hardware_supported;
+			BOOL m_available;
+			BOOL m_enabled;
+			ERayTracingTier m_tier;
+		};
 		struct StrView
 		{
 			char const* ptr = nullptr;
@@ -943,6 +971,13 @@ extern "C"
 	// Get/Set the window settings (as ldr script string)
 	VIEW3D_API pr::view3d::StrView __stdcall View3D_WindowSettingsGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowSettingsSet(pr::view3d::Window window, char const* settings);
+
+	// Query and enable/disable the per-window ray tracing render step.
+	VIEW3D_API pr::view3d::RayTracingInfo __stdcall View3D_WindowRayTracingInfoGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_WindowRayTracingEnabledGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(pr::view3d::Window window, BOOL enable);
+	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

@@ -15,9 +15,6 @@ namespace pr::rdr12::shaders
 	{
 		inline static constexpr auto CBufFrame = ECBufReg::b0;
 		inline static constexpr auto CBufNugget = ECBufReg::b1;
-
-		inline static constexpr auto Pose = ESRVReg::t4;
-		inline static constexpr auto Skin = ESRVReg::t5;
 	};
 	
 	RayCast::RayCast(Renderer& rdr)
@@ -27,8 +24,6 @@ namespace pr::rdr12::shaders
 		m_signature = RootSig(ERootSigFlags::VertGeomPixelOnly)
 			.CBuf(EReg::CBufFrame)
 			.CBuf(EReg::CBufNugget)
-			.SRV(EReg::Pose, 1)
-			.SRV(EReg::Skin, 1)
 			.Create(rdr.d3d(), "RayCastVertSig");
 	}
 
@@ -56,11 +51,15 @@ namespace pr::rdr12::shaders
 	}
 	void RayCast::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle)
 	{
+		SetupElement(cmd_list, upload, dle, dle->m_nugget->mat());
+	}
+	void RayCast::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, Material const& material)
+	{
 		auto& inst = *dle->m_instance;
 		auto& nug = *dle->m_nugget;
 
 		CBufNugget cb1 = {};
-		SetFlags(cb1, inst, nug, false);
+		SetFlags(cb1, inst, material, nug, false);
 		SetTxfm(cb1, inst, nug.m_model);
 
 		cb1.inst_ptr = &inst;

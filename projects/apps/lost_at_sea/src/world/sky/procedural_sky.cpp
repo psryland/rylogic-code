@@ -55,9 +55,13 @@ namespace las
 		auto shdr = Shader::Create<ProceduralSkyShader>(rdr);
 		m_shader = shdr.get();
 
-		buf.m_ncont.push_back(NuggetDesc{ ETopo::TriList, EGeom::Vert | EGeom::Colr }
-			.use_shader_overlay(ERenderStep::RenderForward, shdr)
-			.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT));
+		buf.m_ncont.push_back(
+			NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr)
+				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
+				.mat([&](MaterialSimple& m) {
+					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
+				})
+			);
 
 		auto colour = Colour32White;
 		auto opts = ModelGenerator::CreateOptions().colours({ &colour, 1 });

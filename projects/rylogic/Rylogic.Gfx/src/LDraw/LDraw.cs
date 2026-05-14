@@ -169,6 +169,7 @@ namespace Rylogic.LDraw
 		TriList = unchecked((int)3668920810),
 		TriStrip = unchecked((int)1312470952),
 		Tube = unchecked((int)1747223167),
+		TwoSided = unchecked((int)3612706098),
 		Txfm = unchecked((int)2438414104),
 		Underline = unchecked((int)3850515583),
 		Unknown = unchecked((int)2608177081),

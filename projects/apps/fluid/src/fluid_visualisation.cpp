@@ -30,8 +30,10 @@ namespace pr::fluid
 			m_gfx_map.m_i2w = m4x4::Identity();
 			
 			auto& nug = *m_gfx_map.m_model->m_nuggets.get();
-			nug.m_tex_diffuse = m_tex_map;
-			nug.m_sam_diffuse = rdr.store().StockSampler(EStockSampler::PointClamp);
+			nug.mat([&](MaterialSimple& m) {
+				m.tex_diffuse(m_tex_map);
+				m.sam_diffuse(rdr.store().StockSampler(EStockSampler::PointClamp));
+			});
 		}
 	}
 	FluidVisualisation::~FluidVisualisation()
@@ -55,9 +57,13 @@ namespace pr::fluid
 			auto mdesc = ModelDesc().vbuf(vb).ibuf(ib).name("Fluid:Particles");
 			m_gfx_fluid.m_model = factory.CreateModel(mdesc, particle_buffer, nullptr);
 			m_gfx_fluid.m_model->CreateNugget(factory, NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
-				.use_shader_overlay(ERenderStep::RenderForward, m_gs_points)
-				.tex_diffuse(m_rdr->store().StockTexture(EStockTexture::WhiteDot))//WhiteSphere))
-				.irange(0, 0));
+				.irange(0, 0)
+				.mat([&](MaterialSimple& m) {
+					m.tex_diffuse(m_rdr->store().StockTexture(EStockTexture::WhiteDot)); //WhiteSphere));
+					m.sam_diffuse(m_rdr->store().StockSampler(EStockSampler::PointClamp));
+					m.use_shader_overlay(ERenderStep::RenderForward, m_gs_points);
+				})
+			);
 			m_gfx_fluid.m_i2w = m4x4::Identity();
 		}
 
@@ -164,10 +170,13 @@ namespace pr::fluid
 				}
 				m_gfx_vector_field.m_model->CreateNugget(factory,
 					NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
-					.use_shader_overlay(ERenderStep::RenderForward, m_gs_points)
-					.tex_diffuse(m_rdr->store().StockTexture(EStockTexture::WhiteDot))//WhiteSphere))
 					.vrange(0, ptr0 - beg)
-					.irange(0, 0));
+					.irange(0, 0)
+					.mat([&](MaterialSimple& m) {
+						m.use_shader_overlay(ERenderStep::RenderForward, m_gs_points);
+						m.tex_diffuse(m_rdr->store().StockTexture(EStockTexture::WhiteDot)); //WhiteSphere
+					})
+				);
 				m_gfx_vector_field.m_model->CreateNugget(factory,
 					NuggetDesc(ETopo::LineList, EGeom::Vert | EGeom::Colr)
 					.vrange(ptr0 - beg, ptr1 - beg)

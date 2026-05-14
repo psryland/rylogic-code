@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/eventargs.h"
 #include "view3d-12/src/render/render_forward.h"
@@ -26,6 +27,8 @@ namespace pr::rdr12
 		, m_global_light()
 		, m_global_envmap()
 		, m_global_fill_mode(EFillMode::Default)
+		, m_pso()
+		, m_ray_tracing_props()
 		, m_eh_resize()
 	{
 		// Initialise the scene camera to match the full window
@@ -129,6 +132,7 @@ namespace pr::rdr12
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
 				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
 				case ERenderStep::RayCast:       m_render_steps.emplace_back(new RenderRayCast(*this, std::bind(&Scene::HitTestAsyncResults, this, _1))); break;
+				case ERenderStep::RayTracing:    m_render_steps.emplace_back(new RenderRayTracing(*this)); break;
 				default: throw std::runtime_error("Unknown render step");
 			}
 		}
@@ -144,6 +148,44 @@ namespace pr::rdr12
 		if (!enable && FindRStep<RenderSmap>() != nullptr)
 		{
 			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
+		}
+	}
+
+	// Enable/disable ray tracing without rebuilding the existing raster render steps.
+	void Scene::RayTracing(bool enable)
+	{
+		if (enable && FindRStep<RenderRayTracing>() == nullptr)
+		{
+			m_render_steps.emplace_back(new RenderRayTracing(*this));
+		}
+		if (!enable && FindRStep<RenderRayTracing>() != nullptr)
+		{
+			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::RayTracing; });
+		}
+	}
+
+	// Get/Set the ray tracing render settings for this scene.
+	RayTracingProps Scene::RayTracingProperties() const
+	{
+		return m_ray_tracing_props;
+	}
+	void Scene::RayTracingProperties(RayTracingProps props)
+	{
+		switch (props.m_features)
+		{
+			case ERayTracingFeature::None:
+			case ERayTracingFeature::Reflections:
+			case ERayTracingFeature::Caustics:
+			case ERayTracingFeature::All:
+			{
+				props.Clamp();
+				m_ray_tracing_props = props;
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown ray tracing feature flags");
+			}
 		}
 	}
 
@@ -275,6 +317,10 @@ namespace pr::rdr12
 
 		// Make sure the scene is up to date
 		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
+
+		// Allow render steps to do frame setup before any step starts recording its render commands.
+		for (auto& rs : m_render_steps)
+			rs->Prepare(frame);
 
 		// Invoke each render step in order
 		for (auto& rs : m_render_steps)

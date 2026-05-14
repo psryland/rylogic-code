@@ -26,11 +26,10 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto EnvMap = ESRVReg::t1;
 		inline static constexpr auto SMap = ESRVReg::t2;
 		inline static constexpr auto ProjTex = ESRVReg::t3;
-		inline static constexpr auto Pose = ESRVReg::t4;
-		inline static constexpr auto Skin = ESRVReg::t5;
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
+		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
 	};
 	struct ESamp
 	{
@@ -63,8 +62,6 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::EnvMap, 1)
 			.SRV(EReg::SMap, shaders::MaxShadowMaps)
 			.SRV(EReg::ProjTex, shaders::MaxProjectedTextures)
-			.SRV(EReg::Pose, 1)
-			.SRV(EReg::Skin, 1)
 			.SRV(EReg::OpaqueDepth, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Samp(ESamp::Diff, shaders::MaxSamplers)
 			.Samp(ESamp::EnvMap)
@@ -72,6 +69,7 @@ namespace pr::rdr12::shaders
 			.Samp(ESamp::ProjTex)
 			.UAV(EReg::AlphaColour, 1)
 			.UAV(EReg::AlphaDepth, 1)
+			.UAV(EReg::AlphaRtAttrs, 1)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -89,16 +87,20 @@ namespace pr::rdr12::shaders
 	}
 	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle)
 	{
+		SetupElement(cmd_list, upload, scene, dle, dle->m_nugget->mat());
+	}
+	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle, Material const& material)
+	{
 		// Set the per-element constants
 		auto& inst = *dle->m_instance;
 		auto& nug = *dle->m_nugget;
 
 		CBufNugget cb1 = {};
-		SetFlags(cb1, inst, nug, scene.m_global_envmap != nullptr);
+		SetFlags(cb1, inst, material, nug, scene.m_global_envmap != nullptr);
 		SetTxfm(cb1, inst, nug.m_model, scene.m_cam);
-		SetTint(cb1, inst, nug);
-		SetTex2Surf(cb1, inst, nug);
-		SetReflectivity(cb1, inst, nug);
+		SetTint(cb1, inst, material);
+		SetTex2Surf(cb1, inst, material);
+		SetReflectivity(cb1, inst, material);
 		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
 	}

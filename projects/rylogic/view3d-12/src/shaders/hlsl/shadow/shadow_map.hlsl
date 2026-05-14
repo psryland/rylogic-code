@@ -16,12 +16,6 @@ ConstantBuffer<CBufNugget> resource(g_nugget, b1);
 Texture2D<float4> resource(m_texture0, t0);
 SamplerState      resource(m_sampler0, s0);
 
-// Skinned Meshes
-StructuredBuffer<Mat4x4> resource(m_pose, t4);
-StructuredBuffer<Skinfluence> resource(m_skin, t5);
-
-#include "view3d-12/src/shaders/hlsl/skinned/skinned.hlsli"
-
 struct PSIn_ShadowMap
 {
 	float4 ss_vert :SV_POSITION;
@@ -42,11 +36,6 @@ PSIn_ShadowMap VSDefault(VSIn In)
 	// Transform
 	float4 os_vert = mul(In.vert, g_nugget.m2o);
 	
-	if (IsSkinned(g_nugget.flags))
-	{
-		os_vert = SkinVertex(m_pose, m_skin[In.idx0.x], os_vert);
-	}
-
 	float4 ws_vert = mul(os_vert, g_nugget.o2w);
 	float4 ls_vert = mul(ws_vert, g_frame.w2l);
 	float2 nf = ClipPlanes(g_frame.l2s);

@@ -1,0 +1,77 @@
+//*********************************************
+// View 3d
+//  Copyright (c) Rylogic Ltd 2026
+//*********************************************
+#pragma once
+#include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/optics.h"
+#include "pr/view3d-12/material/components/reflectivity.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
+#include "pr/view3d-12/material/components/surface.h"
+#include "pr/view3d-12/material/material.h"
+
+namespace pr::rdr12
+{
+	// Built-in material that preserves the default NuggetDesc material behaviour.
+	struct MaterialSimple : Material
+	{
+		static constexpr RdrId MaterialTypeId = hash::HashCT("MaterialSimple");
+
+		materials::BaseColour m_base_colour;     // Diffuse/base-colour properties.
+		materials::Optics m_optics;              // Optical properties used by RT paths.
+		materials::Reflectivity m_reflectivity;  // Reflection properties.
+		materials::ShaderOverlays m_shaders;     // Shader overlays used by this material.
+		materials::Surface m_surface;            // Surface shading options.
+
+		MaterialSimple(Texture2DPtr tex_diffuse = {}, SamplerPtr sam_diffuse = {}, Colour32 tint = Colour32White, float rel_reflec = 1.0f);
+		MaterialSimple(MaterialSimple const& rhs);
+		MaterialSimple(MaterialSimple&&) = delete;
+		MaterialSimple& operator =(MaterialSimple const&) = delete;
+		MaterialSimple& operator =(MaterialSimple&&) = delete;
+		using Material::Component;
+
+		// Return the extensible type id for this material.
+		RdrId TypeId() const override;
+
+		// Return the simple material pass for supported render steps.
+		MaterialPass const* Pass(ERenderStep step) const override;
+
+		// Create a mutable copy of this material instance.
+		virtual RefPtr<Material> Clone() const override;
+
+		// Return true if this material requires alpha rendering
+		virtual bool RequiresAlpha() const override;
+
+		// Get/Set the diffuse texture.
+		Texture2DPtr const& tex_diffuse() const;
+		MaterialSimple& tex_diffuse(Texture2DPtr tex);
+
+		// Get/Set the diffuse texture sampler.
+		SamplerPtr const& sam_diffuse() const;
+		MaterialSimple& sam_diffuse(SamplerPtr sam);
+
+		// Get/Set the tint colour.
+		Colour32 tint() const;
+		MaterialSimple& tint(Colour32 tint);
+
+		// Get/Set the relative reflectivity.
+		float rel_reflec() const;
+		MaterialSimple& rel_reflec(float reflectivity);
+
+		// Get/Set whether back-facing pixels should flip their lit surface normal.
+		bool two_sided() const;
+		MaterialSimple& two_sided(bool enabled = true);
+
+		// Add a shader overlay to this material.
+		MaterialSimple& use_shader_overlay(ERenderStep step, ShaderPtr overlay);
+
+	protected:
+
+		// Return a component block for 'component_id', or null if this material does not provide that block.
+		void const* Component(RdrId component_id) const override;
+
+		// Delete this simple material instance.
+		void Delete() override;
+	};
+	static_assert(MaterialType<MaterialSimple>);
+}

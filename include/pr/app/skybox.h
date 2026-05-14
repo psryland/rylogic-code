@@ -133,7 +133,11 @@ namespace pr::app
 			// Create a model nugget for the sky box
 			ResDesc rdesc = ResDesc::Tex2D({});
 			TextureDesc tdesc = TextureDesc(AutoId, rdesc);
-			NuggetDesc ndesc = NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Tex0).tex_diffuse(factory.CreateTexture2D(texpath, tdesc)).sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+			NuggetDesc ndesc = NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Tex0)
+				.mat([&](MaterialSimple& m) {
+					m.tex_diffuse(factory.CreateTexture2D(texpath, tdesc));
+					m.sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+				});
 			m_inst.m_model->CreateNugget(factory, ndesc);
 		}
 
@@ -188,7 +192,6 @@ namespace pr::app
 			m_inst.m_model = factory.CreateModel(mdesc);
 
 			// Create the model nuggets for the sky box
-			NuggetDesc ndesc = NuggetDesc(ETopo::TriList, EGeom::Vert|EGeom::Tex0);
 
 			// One texture per nugget
 			auto tpath = texpath.wstring();
@@ -204,11 +207,16 @@ namespace pr::app
 				tpath[ofs+1] = axes[i][1];
 				auto rdesc = ResDesc::Tex2D({});
 				auto tdesc = TextureDesc(AutoId, rdesc).name("sky box");
-				ndesc.tex_diffuse(factory.CreateTexture2D(tpath, tdesc)).sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+
+				NuggetDesc ndesc = NuggetDesc(ETopo::TriList, EGeom::Vert|EGeom::Tex0)
+					.vrange(rdr12::Range(i * 4, (i + 1) * 4))
+					.irange(rdr12::Range(i * 6, (i + 1) * 6))
+					.mat([&](MaterialSimple& m) {
+						m.tex_diffuse(factory.CreateTexture2D(tpath, tdesc));
+						m.sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+					});
 
 				// Create the render nugget for this face of the sky box
-				ndesc.m_vrange = rdr12::Range(i*4, (i+1)*4);
-				ndesc.m_irange = rdr12::Range(i*6, (i+1)*6);
 				m_inst.m_model->CreateNugget(factory, ndesc);
 			}
 		}

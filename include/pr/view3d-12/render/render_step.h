@@ -71,6 +71,9 @@ namespace pr::rdr12
 		// Remove a batch of instances. Optimised by a single past through the draw list
 		void RemoveInstances(BaseInstance const** inst, std::size_t count);
 
+		// Prepare resources or command work that must happen before any render step executes.
+		virtual void Prepare(Frame& frame);
+
 		// Perform the render step
 		virtual void Execute(Frame& frame) = 0;
 
