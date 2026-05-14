@@ -152,6 +152,9 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Show lighting properties</summary>
 		ICommand ShowLightingUI { get; }
 
+		/// <summary>Show ray tracing properties</summary>
+		ICommand ShowRayTracingUI { get; }
+
 		/// <summary>Show the measurement tool</summary>
 		ICommand ShowMeasureToolUI { get; }
 

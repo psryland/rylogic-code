@@ -24,6 +24,7 @@ namespace pr::rdr12
 		, m_bias(bias)
 		, m_style(style)
 		, m_flags(flags)
+		, m_revision()
 	{
 		ResourceStore::Access store(factory.rdr());
 
@@ -110,6 +111,12 @@ namespace pr::rdr12
 		return AdjTime((time - m_bias) * m_stretch + m_time_range.begin(), m_time_range, m_style);
 	}
 
+	// Return a value that changes whenever the GPU pose buffer changes.
+	uint64_t Pose::Revision() const
+	{
+		return m_revision;
+	}
+
 	// Reset to the rest pose
 	void Pose::ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
 	{
@@ -119,6 +126,8 @@ namespace pr::rdr12
 			ptr[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
 
 		update.Commit();
+		m_time0 = m_time1;
+		++m_revision;
 	}
 
 	// Update the bone transforms
@@ -164,6 +173,7 @@ namespace pr::rdr12
 			});
 		}
 		update.Commit();
+		++m_revision;
 	}
 
 	// Ref-counting clean up function

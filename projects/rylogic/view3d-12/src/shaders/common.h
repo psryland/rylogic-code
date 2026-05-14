@@ -85,6 +85,14 @@ namespace pr::rdr12
 			static_assert((sizeof(CBufFrame) % 16) == 0);
 			static_assert((sizeof(CBufNugget) % 16) == 0);
 		}
+		namespace rt
+		{
+			#include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
+			static_assert((sizeof(CBufFrame) % 16) == 0);
+			static_assert((sizeof(RayTracingMaterial) % 16) == 0);
+			static_assert(sizeof(RayTracingVertex) == sizeof(Vert));
+			static_assert((sizeof(RayTracingGeometry) % 16) == 0);
+		}
 	}
 	
 	// Return the padded size of a constants buffer of type 'T'
@@ -92,13 +100,17 @@ namespace pr::rdr12
 
 	// Set the CBuffer model constants flags
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.flags; })
-	void SetFlags(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug, bool env_mapped)
+	void SetFlags(TCBuf& cb, BaseInstance const& inst, Material const& material, NuggetDesc const& nug, bool env_mapped)
 	{
 		auto model_flags = 0;
 		{
 			// Has normals
 			if (AllSet(nug.m_geom, EGeom::Norm))
 				model_flags |= shaders::ModelFlags_HasNormals;
+
+			// Treat the surface as two-sided for lit normal orientation.
+			if (material.ComponentOrDefault<materials::Surface>().m_two_sided)
+				model_flags |= shaders::ModelFlags_TwoSided;
 
 			// Is Skinned
 			if (ModelPtr const* model = inst.find<ModelPtr>(EInstComp::ModelPtr); model && (*model)->m_skin)
@@ -108,8 +120,10 @@ namespace pr::rdr12
 
 		auto texture_flags = 0;
 		{
+			auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
+
 			// Has diffuse texture
-			if (Texture2DPtr tex; AllSet(nug.m_geom, EGeom::Tex0) && (tex = coalesce(FindDiffTexture(inst), nug.m_tex_diffuse)) != nullptr)
+			if (Texture2DPtr tex; AllSet(nug.m_geom, EGeom::Tex0) && (tex = coalesce(FindDiffTexture(inst), base_colour.m_tex_diffuse)) != nullptr)
 			{
 				texture_flags |= shaders::TextureFlags_HasDiffuse;
 
@@ -119,11 +133,12 @@ namespace pr::rdr12
 			}
 
 			// Is reflective
+			auto rel_reflec = material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec;
 			if (float const* reflec;
 				env_mapped &&                                                            // There is an env map
 				AllSet(nug.m_geom, EGeom::Norm) &&                                       // The model contains normals
 				(reflec = inst.find<float>(EInstComp::EnvMapReflectivity)) != nullptr && // The instance has a reflectivity value
-				*reflec * nug.m_rel_reflec != 0)                                         // and the reflectivity isn't zero
+				*reflec * rel_reflec != 0)                                               // and the reflectivity isn't zero
 				texture_flags |= shaders::TextureFlags_IsReflective;
 		}
 
@@ -174,18 +189,19 @@ namespace pr::rdr12
 
 	// Set the tint properties of a constants buffer
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; })
-	void SetTint(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
+	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto col = inst.find<Colour32>(EInstComp::TintColour32);
-		auto c = Colour((col ? *col : Colour32White) * nug.m_tint);
+		auto c = Colour((col ? *col : Colour32White) * material.ComponentOrDefault<materials::BaseColour>().m_tint);
 		cb.tint = c.rgba;
 	}
 
 	// Set the texture properties of a constants buffer
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.tex2surf0; })
-	void SetTex2Surf(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
+	void SetTex2Surf(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
-		auto tex = coalesce(FindDiffTexture(inst), nug.m_tex_diffuse);
+		auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
+		auto tex = coalesce(FindDiffTexture(inst), base_colour.m_tex_diffuse);
 		cb.tex2surf0 = tex != nullptr
 			? tex->m_t2s
 			: m4x4::Identity();
@@ -193,11 +209,11 @@ namespace pr::rdr12
 
 	// Set the environment map properties of a constants buffer
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.env_reflectivity; })
-	void SetReflectivity(TCBuf& cb, BaseInstance const& inst, NuggetDesc const& nug)
+	void SetReflectivity(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
 		cb.env_reflectivity = reflectivity != nullptr
-			? *reflectivity * nug.m_rel_reflec
+			? *reflectivity * material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec
 			: 0.0f;
 	}
 

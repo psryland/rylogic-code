@@ -110,9 +110,13 @@ namespace las
 		m_shader = shdr.get();
 
 		// Configure the nugget with the custom ocean shader and alpha transparency
-		buf.m_ncont.push_back(NuggetDesc{ ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm }
-			.use_shader_overlay(ERenderStep::RenderForward, shdr)
-			.alpha_geom());
+		buf.m_ncont.push_back(
+			NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm)
+				.alpha_geom()
+				.mat([&](MaterialSimple& m) {
+					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
+				})
+			);
 
 		auto ocean_colour = Colour32(0xFF804010);
 		auto opts = ModelGenerator::CreateOptions().colours({ &ocean_colour, 1 });

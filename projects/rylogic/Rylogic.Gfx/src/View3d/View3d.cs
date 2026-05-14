@@ -85,11 +85,8 @@ namespace Rylogic.Gfx
 			// Set if the geometry data for the nugget contains alpha colours
 			GeometryHasAlpha = 1 << 1,
 
-			// Set if the tint colour contains alpha
-			TintHasAlpha = 1 << 2,
-
-			// Set if the diffuse texture contains alpha (and we want alpha blending, not just thresholding)
-			TexDiffuseHasAlpha = 1 << 3,
+			// Force alpha blending for this nugget. Use this when alpha can be supplied by runtime state outside the material.
+			AlphaBlend = 1 << 2,
 
 			// Excluded from shadow map render steps
 			ShadowCastExclude = 1 << 4,
@@ -459,9 +456,26 @@ namespace Rylogic.Gfx
 			Diagnostics_NormalsColour      = Diagnostics | 1 << 2,
 			Diagnostics_FillModePointsSize = Diagnostics | 1 << 3,
 
+			Rendering            = 1 << 21,
+			Rendering_RayTracing = Rendering | 1 << 0,
+
 			_flags_enum = 0,
 
 			// PR_CODE_SYNC_END()
+		}
+		public enum ERayTracingTier : int
+		{
+			NotSupported,
+			Tier1_0,
+			Tier1_1,
+			Unknown,
+		}
+		[Flags] public enum ERayTracingFeature : int
+		{
+			None        = 0,
+			Reflections = 1 << 0,
+			Caustics    = 1 << 1,
+			All         = Reflections | Caustics,
 		}
 		#endregion
 		#region D3D Enumerations
@@ -1080,6 +1094,35 @@ namespace Rylogic.Gfx
 		public struct ShaderOptions
 		{
 			// todo
+		}
+
+		/// <summary>Ray tracing capability and per-window enabled state</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RayTracingInfo
+		{
+			public bool Requested;
+			public bool HardwareSupported;
+			public bool Available;
+			public bool Enabled;
+			public ERayTracingTier Tier;
+		}
+
+		/// <summary>Ray tracing render settings</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RayTracingProps
+		{
+			public ERayTracingFeature Features;
+			public int MaxReflectionBounces;
+
+			/// <summary>Default ray tracing render settings</summary>
+			public static RayTracingProps Default()
+			{
+				return new RayTracingProps
+				{
+					Features = ERayTracingFeature.All,
+					MaxReflectionBounces = 1,
+				};
+			}
 		}
 
 		/// <summary></summary>
@@ -1729,6 +1772,13 @@ namespace Rylogic.Gfx
 		// Get/Set the window settings (as ldr script string)
 		[DllImport(Dll)] private static extern StrView View3D_WindowSettingsGet(HWindow window);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_WindowSettingsSet(HWindow window, [MarshalAs(UnmanagedType.LPStr)] string settings);
+
+		// Query and enable/disable the per-window ray tracing render step.
+		[DllImport(Dll)] private static extern RayTracingInfo View3D_WindowRayTracingInfoGet(HWindow window);
+		[DllImport(Dll)] private static extern bool View3D_WindowRayTracingEnabledGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowRayTracingEnabledSet(HWindow window, bool enable);
+		[DllImport(Dll)] private static extern RayTracingProps View3D_RayTracingPropertiesGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_RayTracingPropertiesSet(HWindow window, ref RayTracingProps props);
 
 		// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 		// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

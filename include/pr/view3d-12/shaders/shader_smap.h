@@ -15,8 +15,6 @@ namespace pr::rdr12::shaders
 			CBufFrame = 0,
 			CBufNugget,
 			DiffTexture,
-			Pose,
-			Skin,
 			DiffTextureSampler,
 		};
 
@@ -32,5 +30,6 @@ namespace pr::rdr12::shaders
 		// Config the shader.
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, ShadowCaster const& caster);
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, SceneCamera const& cam);
+		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, SceneCamera const& cam, Material const& material);
 	};
 }

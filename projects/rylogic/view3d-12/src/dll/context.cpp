@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -21,8 +21,20 @@
 
 namespace pr::rdr12
 {
+	namespace
+	{
+		// Create renderer settings with ray tracing capability available to per-window settings.
+		RdrSettings MakeRdrSettings(HINSTANCE instance)
+		{
+			return RdrSettings(instance)
+				.DebugLayer(PR_DBG_RDR)
+				.DefaultAdapter()
+				.RayTracingSupport();
+		}
+	}
+
 	Context::Context(HINSTANCE instance, view3d::ReportErrorCB global_error_cb)
-		: m_rdr(RdrSettings(instance).DebugLayer(PR_DBG_RDR).DefaultAdapter())
+		: m_rdr(MakeRdrSettings(instance))
 		, m_windows()
 		, m_sources(m_rdr, *this)
 		, m_inits()
@@ -155,20 +167,25 @@ namespace pr::rdr12
 		// Generate the nuggets first so we can tell what geometry data is needed
 		for (auto const& nugget : nuggets)
 		{
+			RefPtr<MaterialSimple> material(rdr12::New<MaterialSimple>(), true);
+			material->tex_diffuse(Texture2DPtr(nugget.m_tex_diffuse, true));
+			material->sam_diffuse(SamplerPtr(nugget.m_sam_diffuse, true));
+			material->tint(To<Colour>(nugget.m_tint));
+			material->rel_reflec(nugget.m_rel_reflec);
+			for (auto const& shdr : nugget.shader_span())
+				material->use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
+
 			// Create the renderer nugget
 			NuggetDesc nug = NuggetDesc(static_cast<ETopo>(nugget.m_topo), static_cast<EGeom>(nugget.m_geom))
 				.vrange(nugget.m_v0 != nugget.m_v1 ? Range(nugget.m_v0, nugget.m_v1) : Range(0, verts.size()))
 				.irange(nugget.m_i0 != nugget.m_i1 ? Range(nugget.m_i0, nugget.m_i1) : Range(0, indices.size()))
-				.tex_diffuse(Texture2DPtr(nugget.m_tex_diffuse, true))
-				.sam_diffuse(SamplerPtr(nugget.m_sam_diffuse, true))
 				.flags(static_cast<ENuggetFlag>(nugget.m_nflags))
-				.rel_reflec(nugget.m_rel_reflec)
-				.tint(nugget.m_tint);
+				.mat(material);
 
-			if (nugget.m_cull_mode != view3d::ECullMode::Default) nug.pso<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nugget.m_cull_mode));
-			if (nugget.m_fill_mode != view3d::EFillMode::Default) nug.pso<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nugget.m_fill_mode));
-			for (auto const& shdr : nugget.shader_span())
-				nug.use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
+			if (nugget.m_cull_mode != view3d::ECullMode::Default)
+				nug.pso<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nugget.m_cull_mode));
+			if (nugget.m_fill_mode != view3d::EFillMode::Default)
+				nug.pso<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nugget.m_fill_mode));
 
 			ngt.push_back(nug);
 
@@ -342,12 +359,14 @@ namespace pr::rdr12
 
 			for (auto& nug : model->m_nuggets)
 			{
+				auto& base_colour = material_component_or_default<materials::BaseColour>(nug.Material());
+				auto& reflectivity = material_component_or_default<materials::Reflectivity>(nug.Material());
 				nbuf.push_back(view3d::Nugget{
 					.m_topo = static_cast<view3d::ETopo>(nug.m_topo),
 					.m_geom = static_cast<view3d::EGeom>(nug.m_geom),
-					.m_tex_diffuse = nug.m_tex_diffuse.get(),
-					.m_sam_diffuse = nug.m_sam_diffuse.get(),
-					.m_shaders = {.m_shaders = nug.m_shaders.data(), .m_count = isize(nug.m_shaders) },
+					.m_tex_diffuse = base_colour.m_tex_diffuse.get(),
+					.m_sam_diffuse = base_colour.m_sam_diffuse.get(),
+					.m_shaders = {},
 					.m_v0 = s_cast<int>(nug.m_vrange.begin()),
 					.m_v1 = s_cast<int>(nug.m_vrange.end()),
 					.m_i0 = s_cast<int>(nug.m_irange.begin()),
@@ -355,8 +374,8 @@ namespace pr::rdr12
 					.m_nflags = static_cast<view3d::ENuggetFlag>(nug.m_nflags),
 					.m_cull_mode = static_cast<view3d::ECullMode>(ValueOrDefault(nug.m_pso.Find<EPipeState::CullMode>(), D3D12_CULL_MODE(0))),
 					.m_fill_mode = static_cast<view3d::EFillMode>(ValueOrDefault(nug.m_pso.Find<EPipeState::FillMode>(), D3D12_FILL_MODE(0))),
-					.m_tint = To<view3d::Colour>(nug.m_tint),
-					.m_rel_reflec = nug.m_rel_reflec,
+					.m_tint = To<view3d::Colour>(base_colour.m_tint),
+					.m_rel_reflec = reflectivity.m_rel_reflec,
 
 				});
 			}
@@ -403,23 +422,26 @@ namespace pr::rdr12
 		model->DeleteNuggets();
 		for (auto& nug : nbuf)
 		{
+			auto tint = nug.m_tint != 0 ? To<Colour>(nug.m_tint) : Colour32White;
+
 			auto n = NuggetDesc{};
 			n.m_topo = static_cast<ETopo>(nug.m_topo);
 			n.m_geom = static_cast<EGeom>(nug.m_geom);
-			n.m_tex_diffuse = Texture2DPtr(nug.m_tex_diffuse, true);
-			n.m_sam_diffuse = SamplerPtr(nug.m_sam_diffuse, true);
-
-			for (auto& shdr : nug.shader_span())
-				n.m_shdr_overlays.push_back({ ShaderPtr(shdr.m_shader, true), static_cast<ERenderStep>(shdr.m_rdr_step) });
+			n.m_nflags = static_cast<ENuggetFlag>(nug.m_nflags);
+			n.mat([&](MaterialSimple& m) { m
+				.tex_diffuse(Texture2DPtr(nug.m_tex_diffuse, true))
+				.sam_diffuse(SamplerPtr(nug.m_sam_diffuse, true))
+				.tint(tint)
+				.rel_reflec(nug.m_rel_reflec);
+				for (auto& shdr : nug.shader_span())
+					m.use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
+			});
 
 			if (nug.m_cull_mode != view3d::ECullMode::Default)
 				n.m_pso.Set<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nug.m_cull_mode));
 			if (nug.m_fill_mode != view3d::EFillMode::Default)
 				n.m_pso.Set<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nug.m_fill_mode));
 
-			n.m_nflags = static_cast<ENuggetFlag>(nug.m_nflags);
-			n.m_tint = nug.m_tint != 0 ? To<Colour>(nug.m_tint) : Colour32White;
-			n.m_rel_reflec = nug.m_rel_reflec;
 			n.m_vrange = nug.m_v0 < nug.m_v1 ? Range{ nug.m_v0, nug.m_v1 } : Range{ 0, new_vcount };
 			n.m_irange = nug.m_i0 < nug.m_i1 ? Range{ nug.m_i0, nug.m_i1 } : Range{ 0, new_icount };
 			model->CreateNugget(factory, n);

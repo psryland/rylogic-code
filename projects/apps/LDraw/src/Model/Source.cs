@@ -153,7 +153,7 @@ namespace LDraw
 		}
 
 		/// <summary>The names of the scenes to add this source to</summary>
-		public void ShowInScenes(IEnumerable<SceneUI> scenes, bool show)
+		public void ShowInScenes(IEnumerable<SceneUI> scenes, bool show, bool reset_view = false)
 		{
 			// Notes:
 			//  - The selected scene names may contain names for scenes that don't exist if the profile has changed.
@@ -166,18 +166,18 @@ namespace LDraw
 					m_selected_scene_names.Remove(scene.SceneName);
 			}
 
-			PopulateScenes();
+			PopulateScenes(show && reset_view);
 			NotifyPropertyChanged(nameof(SelectedScenes));
 		}
 		private HashSet<string> m_selected_scene_names = [];
 
 		/// <summary>Add objects from this source to all selected scenes</summary>
-		private void PopulateScenes()
+		private void PopulateScenes(bool reset_view = false)
 		{
 			foreach (var scene in AvailableScenes)
 			{
 				if (m_selected_scene_names.Contains(scene.SceneName))
-					Model.AddObjects(scene, ContextId);
+					Model.AddObjects(scene, ContextId, reset_view);
 				else
 					Model.Clear(scene, ContextId);
 			}

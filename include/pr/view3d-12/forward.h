@@ -197,10 +197,26 @@ namespace pr::rdr12
 	struct RenderForward;
 	struct RenderSmap;
 	struct RenderRayCast;
+	struct RenderRayTracing;
 	struct DrawListElement;
 	struct BackBuffer;
 	struct PipeState;
 	struct SortKey;
+
+	// Materials
+	struct Material;
+	struct MaterialPass;
+	struct MaterialPassContext;
+	struct MaterialSimple;
+	using MaterialPtr = RefPtr<Material const>;
+	namespace materials
+	{
+		struct BaseColour;
+		struct Optics;
+		struct Reflectivity;
+		struct ShaderOverlays;
+		struct Surface;
+	}
 
 	// Resources
 	struct ResourceFactory;
@@ -236,6 +252,7 @@ namespace pr::rdr12
 	struct Nugget;
 	struct NuggetDesc;
 	struct MeshCreationData;
+	struct SkinnedGeometryCache;
 	using ModelPtr = RefPtr<Model>;
 	using NuggetPtr = RefPtr<Nugget>;
 
@@ -280,6 +297,13 @@ namespace pr::rdr12
 	// Ray cast
 	struct HitTestRay;
 	struct HitTestResult;
+
+	// Ray tracing
+	struct RayTracingSupport;
+	struct RayTracingModel;
+	struct RayTracingGeometryStats;
+	struct RayTracingScene;
+	struct RayTracingSceneStats;
 
 	// Utility
 	struct Lock;
@@ -340,7 +364,8 @@ namespace pr::rdr12
 		x(GBuffer        ,)\
 		x(DSLighting     ,)\
 		x(ShadowMap      ,)\
-		x(RayCast        ,)
+		x(RayCast        ,)\
+		x(RayTracing     ,)
 		PR_ENUM_MEMBERS2(PR_ENUM)
 	};
 	PR_ENUM_REFLECTION2(ERenderStep, PR_ENUM);
@@ -436,6 +461,19 @@ namespace pr::rdr12
 	PR_ENUM_REFLECTION1(ELight, PR_ENUM);
 	#undef PR_ENUM
 
+	// ERayTracingFeature
+	enum class ERayTracingFeature :int
+	{
+		#define PR_ENUM(x)\
+		x(None        , = 0)\
+		x(Reflections , = 1 << 0)\
+		x(Caustics    , = 1 << 1)\
+		x(All         , = Reflections | Caustics)
+		PR_ENUM_MEMBERS2(PR_ENUM)
+	};
+	PR_ENUM_REFLECTION2(ERayTracingFeature, PR_ENUM);
+	#undef PR_ENUM
+
 	// EEye
 	enum class EEye
 	{
@@ -489,3 +527,4 @@ namespace pr::rdr12
 
 // Enum flags
 template <> struct is_flags_enum<DXGI_SWAP_CHAIN_FLAG> :std::true_type {};
+template <> struct is_flags_enum<pr::rdr12::ERayTracingFeature> :std::true_type {};

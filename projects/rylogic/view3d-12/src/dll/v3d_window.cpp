@@ -13,6 +13,7 @@
 #include "pr/view3d-12/ldraw/ldraw_ui_angle_tool.h"
 #include "pr/view3d-12/ldraw/ldraw.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
+#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/conversion.h"
 
@@ -174,6 +175,62 @@ namespace pr::rdr12
 				break;
 			}
 		}
+	}
+
+	// Get the current ray tracing capability and per-window enable state.
+	view3d::RayTracingInfo V3dWindow::RayTracingInfo() const
+	{
+		auto const& support = rdr().RayTracing();
+		return {
+			.m_requested = support.Requested(),
+			.m_hardware_supported = support.HardwareSupported(),
+			.m_available = support.Available(),
+			.m_enabled = RayTracingEnabled(),
+			.m_tier = 
+				support.m_tier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED ? view3d::ERayTracingTier::NotSupported :
+				support.m_tier == D3D12_RAYTRACING_TIER_1_0 ? view3d::ERayTracingTier::Tier1_0 :
+				support.m_tier == D3D12_RAYTRACING_TIER_1_1 ? view3d::ERayTracingTier::Tier1_1 :
+				view3d::ERayTracingTier::Unknown,
+		};
+	}
+
+	// Return true when this window currently has the ray tracing render step.
+	bool V3dWindow::RayTracingEnabled() const
+	{
+		return m_scene.FindRStep<RenderRayTracing>() != nullptr;
+	}
+
+	// Enable or disable the ray tracing render step for this window.
+	void V3dWindow::RayTracingEnabled(bool enable)
+	{
+		if (RayTracingEnabled() == enable)
+			return;
+
+		if (enable && !rdr().RayTracing().Available())
+			throw std::runtime_error(std::format("Ray tracing is not available on this renderer. Device tier: {}", rdr().RayTracing().TierName()));
+
+		// Keep the existing raster steps alive when toggling RT. Rebuilding the list here destroys command-list owners
+		// during settings application and also drops any per-step draw-list state that the raster path already owns.
+		m_scene.RayTracing(enable);
+		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
+		Invalidate();
+	}
+
+	// Get/Set the ray tracing render settings for this window.
+	RayTracingProps V3dWindow::RayTracingProperties() const
+	{
+		return m_scene.RayTracingProperties();
+	}
+	void V3dWindow::RayTracingProperties(RayTracingProps props)
+	{
+		auto const before = RayTracingProperties();
+		props.Clamp();
+		if (props == before)
+			return;
+
+		m_scene.RayTracingProperties(props);
+		OnSettingsChanged(this, view3d::ESettings::Rendering_RayTracing);
+		Invalidate();
 	}
 
 	// The DPI of the monitor that this window is displayed on

@@ -217,6 +217,7 @@ namespace pr::rdr12
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_radial_fade_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_resolve_vs.h)
@@ -224,6 +225,7 @@ namespace pr::rdr12
 		}
 		ByteCode const forward_vs(compiled::forward_vs);
 		ByteCode const forward_ps(compiled::forward_ps);
+		ByteCode const forward_reflection_attrs_ps(compiled::forward_reflection_attrs_ps);
 		ByteCode const forward_radial_fade_ps(compiled::forward_radial_fade_ps);
 		ByteCode const forward_alpha_collect_ps(compiled::forward_alpha_collect_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
@@ -279,11 +281,24 @@ namespace pr::rdr12
 		ByteCode const ray_cast_edge_gs(compiled::ray_cast_edge_gs);
 		ByteCode const ray_cast_face_gs(compiled::ray_cast_face_gs);
 
+		// Ray tracing
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_lib.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_present_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(ray_trace_present_ps.h)
+		}
+		ByteCode const ray_trace_lib(compiled::ray_trace_lib);
+		ByteCode const ray_trace_present_vs(compiled::ray_trace_present_vs);
+		ByteCode const ray_trace_present_ps(compiled::ray_trace_present_ps);
+
 		// MipMap generation
 		namespace compiled
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(mipmap_generator_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(skinning_cs.h)
 		}
 		ByteCode const mipmap_generator_cs(compiled::mipmap_generator_cs);
+		ByteCode const skinning_cs(compiled::skinning_cs);
 	}
 }

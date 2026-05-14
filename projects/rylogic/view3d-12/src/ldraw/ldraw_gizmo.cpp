@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/model/model_desc.h"
 #include "pr/view3d-12/model/nugget.h"
@@ -736,7 +737,8 @@ namespace pr::rdr12::ldraw
 				.sort_key(ESortGroup::PostOpaques)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_BACK)
 				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER)
-				.tex_diffuse(rdr().store().StockTexture(EStockTexture::Gray)));
+				.mat([&](MaterialSimple& m) { m.tex_diffuse(rdr().store().StockTexture(EStockTexture::Gray)); })
+			);
 		}
 		{
 			// On the second pass, draw the gizmo normally

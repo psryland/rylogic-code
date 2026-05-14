@@ -93,6 +93,10 @@ namespace pr::rdr12
 			*alpha_start = m_boundaries;
 	}
 
+	// Prepare resources or command work that must happen before any render step executes.
+	void RenderStep::Prepare(Frame&)
+	{}
+
 	// Add an instance. The instance, model, and nuggets must be resident for the entire time
 	// that the instance is in the draw list, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 	void RenderStep::AddInstance(BaseInstance const& inst)

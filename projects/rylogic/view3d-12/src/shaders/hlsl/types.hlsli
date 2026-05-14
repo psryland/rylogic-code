@@ -15,6 +15,7 @@ static const int MaxSamplers = 1;
 // Model flags
 static const int ModelFlags_HasNormals          = (1 << 0);
 static const int ModelFlags_IsSkinned           = (1 << 1);
+static const int ModelFlags_TwoSided            = (1 << 2);
 static const int TextureFlags_HasDiffuse        = (1 << 0);
 static const int TextureFlags_IsReflective      = (1 << 1);
 static const int TextureFlags_ProjectFromEnvMap = (1 << 2);
@@ -79,6 +80,7 @@ struct Skinfluence
 // Models
 inline bool HasNormals (int4 flags) { return AnySet(flags.x, ModelFlags_HasNormals); }
 inline bool IsSkinned  (int4 flags) { return AnySet(flags.x, ModelFlags_IsSkinned); }
+inline bool TwoSided   (int4 flags) { return AnySet(flags.x, ModelFlags_TwoSided); }
 inline bool HasTex0    (int4 flags) { return AnySet(flags.y, TextureFlags_HasDiffuse); }
 inline bool HasEnvMap  (int4 flags) { return AnySet(flags.y, TextureFlags_IsReflective); }
 inline bool EnvMapProj (int4 flags) { return AnySet(flags.y, TextureFlags_ProjectFromEnvMap); }

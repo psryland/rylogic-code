@@ -25,6 +25,7 @@ namespace pr::rdr12
 		double m_bias;                // Time offset bias
 		EAnimStyle m_style;           // The style of animation
 		EAnimFlags m_flags;           // Behaviour flags
+		uint64_t m_revision;          // Incremented whenever the GPU pose buffer is rewritten
 
 		Pose(ResourceFactory& factory, SkeletonPtr skeleton, AnimatorPtr animator, EAnimStyle style, EAnimFlags flags, TimeRange time_range, double stretch, double bias);
 
@@ -43,6 +44,9 @@ namespace pr::rdr12
 
 		// Return the time value relative to 'm_time_range' from the source animatino
 		double SrcAnimTime(double time) const;
+
+		// Return a value that changes whenever the GPU pose buffer changes.
+		uint64_t Revision() const;
 
 		// Reset to the rest pose
 		void ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer);
