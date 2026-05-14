@@ -4,7 +4,7 @@
 //************************************
 #include "src/forward.h"
 #include "src/world/sky/shaders/procedural_sky_shader.h"
-#include "pr/view3d-12/shaders/shader_compiler.h"
+#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
 
 namespace las

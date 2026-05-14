@@ -17,6 +17,7 @@
 		<IncludeOutputInVSIX>true</IncludeOutputInVSIX>
 		<IncludeDebugSymbolsInVSIXContainer Condition="'$(Configuration)' == 'Debug'">true</IncludeDebugSymbolsInVSIXContainer>
 		<IncludeDebugSymbolsInLocalVSIXDeployment Condition="'$(Configuration)' == 'Debug'">true</IncludeDebugSymbolsInLocalVSIXDeployment>
+		<DeployExtension Condition="'$(DeployExtension)' == ''">false</DeployExtension>
 		<IsPackaging>false</IsPackaging>
 		<IsPackable>false</IsPackable>
 		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
