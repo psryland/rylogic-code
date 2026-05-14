@@ -27,7 +27,7 @@ namespace pr::rdr12
 		constexpr wchar_t MissShader[] = L"Miss";
 		constexpr wchar_t ClosestHitShader[] = L"ClosestHit";
 		constexpr wchar_t HitGroup[] = L"HitGroup";
-		constexpr auto MaxRayPayloadSizeInBytes = 12 * sizeof(uint32_t);
+		constexpr auto MaxRayPayloadSizeInBytes = 13 * sizeof(uint32_t);
 
 		enum class ETraceRootParam
 		{

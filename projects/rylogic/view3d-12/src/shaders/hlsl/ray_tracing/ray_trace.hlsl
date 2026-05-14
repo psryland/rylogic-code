@@ -32,6 +32,8 @@ static const uint RayPayloadMode_Caustic = 4;
 static const uint RayPayloadFlag_HasSurfaceNormal = 0x01;
 static const uint RayPayloadFlag_ReflectionValid = 0x02;
 
+static const uint MaxReflectionTransparentHits = 4;
+static const float ReflectionOpaqueAlpha = 0.995f;
 static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
 
@@ -43,6 +45,7 @@ struct RayPayload
 	uint flags;
 	float hit_t;
 	float reflectivity;
+	float opacity;
 	uint hit;
 	uint occluded;
 };
@@ -204,6 +207,15 @@ float3 ReflectionMissColour(float3 ws_direction)
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
 }
 
+// Advance a ray through a transparent closest hit so the next query can see layers behind it.
+void AdvanceRayThroughTransparentHit(inout RayDesc ray, RayPayload payload)
+{
+	float3 hit_pos = ray.Origin + ray.Direction * payload.hit_t;
+	float through_bias = max(g_frame.reflection.y * 0.1f, payload.hit_t * 0.0001f);
+	ray.Origin = hit_pos + ray.Direction * through_bias;
+	ray.TMin = 0.0f;
+}
+
 // Trace a bounded iterative reflection path and return the reflected colour seen along 'reflection_ray'.
 float3 TraceReflectionPath(RayDesc reflection_ray)
 {
@@ -216,14 +228,43 @@ float3 TraceReflectionPath(RayDesc reflection_ray)
 	[loop]
 	for (uint bounce = 0; bounce != max_bounces; ++bounce)
 	{
+		RayDesc layer_ray = reflection_ray;
 		RayPayload reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
-		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, reflection_ray, reflection_payload);
+		float3 transparent_colour = 0.0f;
+		float transparent_visibility = 1.0f;
 
-		if (reflection_payload.hit == 0)
+		// Composite a small number of transparent intersections along the same ray before treating the next surface as the bounce candidate.
+		[loop]
+		for (uint transparent_hit = 0; transparent_hit != MaxReflectionTransparentHits; ++transparent_hit)
 		{
-			// A miss terminates the path with a cheap sky colour so mirror-only scenes still have something to reflect.
-			reflection_colour += throughput * ReflectionMissColour(reflection_ray.Direction);
-			break;
+			reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
+			TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, layer_ray, reflection_payload);
+
+			if (reflection_payload.hit == 0)
+			{
+				// A miss terminates the path with a cheap sky colour so mirror-only scenes still have something to reflect.
+				reflection_colour += throughput * (transparent_colour + transparent_visibility * ReflectionMissColour(layer_ray.Direction));
+				return reflection_colour;
+			}
+
+			float hit_opacity = saturate(reflection_payload.opacity);
+			if (hit_opacity >= ReflectionOpaqueAlpha)
+				break;
+
+			transparent_colour += transparent_visibility * hit_opacity * reflection_payload.colour;
+			transparent_visibility *= 1.0f - hit_opacity;
+			if (throughput * transparent_visibility <= min_throughput)
+			{
+				reflection_colour += throughput * transparent_colour;
+				return reflection_colour;
+			}
+			if (transparent_hit + 1u == MaxReflectionTransparentHits)
+			{
+				reflection_colour += throughput * (transparent_colour + transparent_visibility * ReflectionMissColour(layer_ray.Direction));
+				return reflection_colour;
+			}
+
+			AdvanceRayThroughTransparentHit(layer_ray, reflection_payload);
 		}
 
 		float hit_reflectivity = saturate(reflection_payload.reflectivity);
@@ -231,26 +272,26 @@ float3 TraceReflectionPath(RayDesc reflection_ray)
 		// Only reserve energy for the next bounce if it will actually be traced; otherwise fold all remaining energy into the local hit colour.
 		bool can_continue =
 			bounce + 1u < max_bounces &&
-			throughput * hit_reflectivity > min_throughput &&
+			throughput * transparent_visibility * hit_reflectivity > min_throughput &&
 			(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
 
-		reflection_colour += throughput * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour;
+		reflection_colour += throughput * (transparent_colour + transparent_visibility * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour);
 		if (!can_continue)
 			break;
 
-		throughput *= hit_reflectivity;
+		throughput *= transparent_visibility * hit_reflectivity;
 		if (throughput <= min_throughput)
 			break;
 
 		// Spawn the next ray from the closest-hit payload. The bias scales with hit distance to reduce self-intersection across scene scales.
 		float3 bounce_normal = normalize(reflection_payload.normal);
-		if (dot(bounce_normal, -reflection_ray.Direction) < 0.0f)
+		if (dot(bounce_normal, -layer_ray.Direction) < 0.0f)
 			bounce_normal = -bounce_normal;
 
-		float3 bounce_pos = reflection_ray.Origin + reflection_ray.Direction * reflection_payload.hit_t;
+		float3 bounce_pos = layer_ray.Origin + layer_ray.Direction * reflection_payload.hit_t;
 		float bounce_bias = max(g_frame.reflection.y, reflection_payload.hit_t * 0.0001f);
 		reflection_ray.Origin = bounce_pos + bounce_normal * bounce_bias;
-		reflection_ray.Direction = normalize(reflect(reflection_ray.Direction, bounce_normal));
+		reflection_ray.Direction = normalize(reflect(layer_ray.Direction, bounce_normal));
 	}
 
 	return reflection_colour;
@@ -371,6 +412,18 @@ float MaterialTransmission(RayTracingMaterial material)
 	return saturate(material.optics.y);
 }
 
+// Return the opacity used when reflection rays composite through transparent RT hits.
+float MaterialOpacity(RayTracingMaterial material, float shaded_alpha)
+{
+	float alpha_opacity = saturate(shaded_alpha);
+	if (alpha_opacity < ReflectionOpaqueAlpha)
+		return alpha_opacity;
+	if (MaterialIsTransmissive(material))
+		return saturate(1.0f - MaterialTransmission(material));
+
+	return 1.0f;
+}
+
 // Return a safe material index of refraction.
 float MaterialIOR(RayTracingMaterial material)
 {
@@ -410,12 +463,11 @@ float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
 }
 
 // Shade the closest-hit surface by interpolating packed geometry attributes.
-float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, out float3 ws_normal_out, out float reflectivity)
+float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMaterial material, out float3 ws_normal_out, out float reflectivity)
 {
 	ws_normal_out = 0.0f;
 
 	uint geometry_index = HitMaterialIndex();
-	RayTracingMaterial material = HitMaterial();
 	reflectivity = MaterialReflectivity(material);
 	if (!HasHitGeometry(geometry_index))
 		return material.diffuse;
@@ -788,15 +840,17 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	if (payload.mode == RayPayloadMode_Reflection)
 	{
 		// Reflection rays need enough payload to either shade a terminal hit or seed the next bounce.
+		RayTracingMaterial material = HitMaterial();
 		float3 ws_normal;
 		float reflectivity;
-		float4 colour = ShadeRayHit(attrib, ws_normal, reflectivity);
+		float4 colour = ShadeRayHit(attrib, material, ws_normal, reflectivity);
 
 		payload.hit = 1;
 		payload.hit_t = RayTCurrent();
 		payload.colour = colour.rgb;
 		payload.normal = ws_normal;
 		payload.reflectivity = reflectivity;
+		payload.opacity = MaterialOpacity(material, colour.a);
 		payload.flags = dot(ws_normal, ws_normal) > 0.0f
 			? RayPayloadFlag_HasSurfaceNormal | (reflectivity > 0.0f ? RayPayloadFlag_ReflectionValid : 0)
 			: 0;
@@ -815,7 +869,7 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 
 		float3 ws_normal;
 		float reflectivity;
-		ShadeRayHit(attrib, ws_normal, reflectivity);
+		ShadeRayHit(attrib, material, ws_normal, reflectivity);
 
 		payload.hit = 1;
 		payload.hit_t = RayTCurrent();
