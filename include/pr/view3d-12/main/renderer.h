@@ -5,6 +5,8 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/main/settings.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_support.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
 #include "pr/view3d-12/utility/eventargs.h"
@@ -53,6 +55,7 @@ namespace pr::rdr12
 			// This is needed so that the Dx12 device is created before the managers are constructed.
 			RdrSettings                 m_settings;
 			FeatureSupport              m_features;
+			RayTracingSupport           m_ray_tracing;
 			D3DPtr<ID3D12Device4>       m_d3d_device;
 			D3DPtr<ID3D12CommandQueue>  m_gfx_queue;
 			D3DPtr<ID3D12CommandQueue>  m_com_queue;
@@ -83,6 +86,7 @@ namespace pr::rdr12
 
 		// Storage of resources
 		ResourceStore m_res_store;
+		SkinnedGeometryCache m_skinned_geometry;
 
 	public:
 
@@ -198,6 +202,12 @@ namespace pr::rdr12
 		// Device supported features
 		FeatureSupport const& Features() const;
 
+		// Device ray tracing support requested for this renderer.
+		RayTracingSupport const& RayTracing() const;
+
+		// Access the shared compute-skinned geometry cache.
+		SkinnedGeometryCache& SkinnedGeometry();
+
 		// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.
 		HWND DummyHwnd() const;
 
@@ -231,17 +241,35 @@ namespace pr::rdr12
 			ComQueue()->ExecuteCommandLists(cmd_lists.count(), cmd_lists.data());
 		}
 
-		// Defer release of a D3D12 resource until the GPU has finished using it.
-		// Call this before destroying a C++ wrapper that owns a GPU resource.
+		// Defer release of a D3D12 object until the GPU has finished using it.
+		// Call this before destroying a C++ wrapper that owns GPU state or resources.
 		void DeferRelease(D3DPtr<ID3D12Resource> const& res)
 		{
-			if (!res) return;
+			if (!res)
+				return;
+
 			m_keep_alive.Add(D3DPtr<ID3D12Resource>(res));
 		}
 		void DeferRelease(D3DPtr<ID3D12RootSignature> const& res)
 		{
-			if (!res) return;
+			if (!res)
+				return;
+
 			m_keep_alive.Add(D3DPtr<ID3D12RootSignature>(res));
+		}
+		void DeferRelease(D3DPtr<ID3D12PipelineState> const& res)
+		{
+			if (!res)
+				return;
+
+			m_keep_alive.Add(D3DPtr<ID3D12PipelineState>(res));
+		}
+		void DeferRelease(D3DPtr<ID3D12StateObject> const& res)
+		{
+			if (!res)
+				return;
+
+			m_keep_alive.Add(D3DPtr<ID3D12StateObject>(res));
 		}
 
 		// Signal the deferred-deletion fence on the gfx queue.

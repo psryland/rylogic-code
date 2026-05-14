@@ -286,6 +286,7 @@ class EKeyword(Enum):
 	TriList = 3668920810
 	TriStrip = 1312470952
 	Tube = 1747223167
+	TwoSided = 3612706098
 	Txfm = 2438414104
 	Underline = 3850515583
 	Unknown = 2608177081

@@ -75,6 +75,7 @@ namespace pr::rdr12
 		// Forward rendering shaders
 		extern ByteCode const forward_vs;
 		extern ByteCode const forward_ps;
+		extern ByteCode const forward_reflection_attrs_ps;
 		extern ByteCode const forward_radial_fade_ps;
 		extern ByteCode const forward_alpha_collect_ps;
 
@@ -103,7 +104,15 @@ namespace pr::rdr12
 		extern ByteCode const ray_cast_edge_gs;
 		extern ByteCode const ray_cast_face_gs;
 
+		// Ray tracing
+		extern ByteCode const ray_trace_lib;
+		extern ByteCode const ray_trace_present_vs;
+		extern ByteCode const ray_trace_present_ps;
+
 		// MipMap generation
 		extern ByteCode const mipmap_generator_cs;
+
+		// Skinning
+		extern ByteCode const skinning_cs;
 	}
 }

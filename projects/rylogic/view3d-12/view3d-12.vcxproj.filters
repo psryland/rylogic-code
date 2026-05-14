@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="pr">
@@ -9,6 +9,12 @@
     </Filter>
     <Filter Include="src\main">
       <UniqueIdentifier>{46f549b6-8240-46ba-8c5a-0ade85d4b145}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\material">
+      <UniqueIdentifier>{99147576-9a68-4a27-b89d-f4f4430cf189}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\material\components">
+      <UniqueIdentifier>{ca281391-b960-43f9-8d78-b3919d0da313}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\utility">
       <UniqueIdentifier>{797d7894-b0d2-4f27-a30c-0c6f78c44c6c}</UniqueIdentifier>
@@ -121,11 +127,17 @@
     <Filter Include="src\shaders\hlsl\ray_cast">
       <UniqueIdentifier>{a7708a09-abc9-45ea-806a-7a8c50b47eed}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\shaders\hlsl\ray_tracing">
+      <UniqueIdentifier>{37725a3d-c0ca-498f-bd71-6b0f152d6566}</UniqueIdentifier>
+    </Filter>
     <Filter Include="pr\hlsl">
       <UniqueIdentifier>{fada8f19-6cf4-4ca8-ab30-064bd7ddc4f6}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\openxr">
       <UniqueIdentifier>{2b8da540-474d-4518-954d-73baf3b0c608}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\ray_tracing">
+      <UniqueIdentifier>{67d74551-19e8-4cf6-aa46-2e6b2fb0d872}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\imgui">
       <UniqueIdentifier>{fbcc4191-917c-43ee-a6b6-71c70a44bf81}</UniqueIdentifier>
@@ -336,6 +348,30 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\window.h">
       <Filter>src\main</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\surface.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pass.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_simple.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\animation.h">
       <Filter>src\model</Filter>
     </ClInclude>
@@ -363,6 +399,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skeleton.h">
       <Filter>src\model</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skinned_geometry.h">
+      <Filter>src\model</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skin.h">
       <Filter>src\model</Filter>
     </ClInclude>
@@ -371,6 +410,27 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\openxr\openxr.h">
       <Filter>src\openxr</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_diagnostic.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_model.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_props.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_resource.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_scene.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_support.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\render_ray_tracing.h">
+      <Filter>src\ray_tracing</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\back_buffer.h">
       <Filter>src\render</Filter>
@@ -615,6 +675,15 @@
     <ClCompile Include="src\main\window.cpp">
       <Filter>src\main</Filter>
     </ClCompile>
+    <ClCompile Include="src\material\material.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
+    <ClCompile Include="src\material\material_pass.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
+    <ClCompile Include="src\material\material_simple.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
     <ClCompile Include="src\model\animation.cpp">
       <Filter>src\model</Filter>
     </ClCompile>
@@ -636,6 +705,9 @@
     <ClCompile Include="src\model\skeleton.cpp">
       <Filter>src\model</Filter>
     </ClCompile>
+    <ClCompile Include="src\model\skinned_geometry.cpp">
+      <Filter>src\model</Filter>
+    </ClCompile>
     <ClCompile Include="src\model\skin.cpp">
       <Filter>src\model</Filter>
     </ClCompile>
@@ -644,6 +716,24 @@
     </ClInclude>
     <ClCompile Include="src\openxr\openxr.cpp">
       <Filter>src\openxr</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_diagnostic.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_model.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_resource.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_scene.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_support.cpp">
+      <Filter>src\ray_tracing</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\render_ray_tracing.cpp">
+      <Filter>src\ray_tracing</Filter>
     </ClCompile>
     <ClCompile Include="src\render\back_buffer.cpp">
       <Filter>src\render</Filter>
@@ -841,6 +931,12 @@
     <View3dShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl">
       <Filter>src\shaders\hlsl\ray_cast</Filter>
     </View3dShaderBuild>
+    <View3dShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl">
+      <Filter>src\shaders\hlsl\ray_tracing</Filter>
+    </View3dShaderBuild>
+    <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
+      <Filter>src\shaders\hlsl\skinned</Filter>
+    </View3dShaderBuild>
     <View3dShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </View3dShaderBuild>
@@ -870,6 +966,9 @@
     </None>
     <None Include="src\shaders\hlsl\ray_cast\ray_cast_cbuf.hlsli">
       <Filter>src\shaders\hlsl\ray_cast</Filter>
+    </None>
+    <None Include="src\shaders\hlsl\ray_tracing\ray_tracing_cbuf.hlsli">
+      <Filter>src\shaders\hlsl\ray_tracing</Filter>
     </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli">
       <Filter>pr\hlsl</Filter>

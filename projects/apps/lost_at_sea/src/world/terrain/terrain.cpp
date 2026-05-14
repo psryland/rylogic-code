@@ -148,8 +148,12 @@ namespace las
 		m_shader = shdr.get();
 
 		// Configure the nugget with the custom terrain shader
-		buf.m_ncont.push_back(NuggetDesc{ ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm }
-			.use_shader_overlay(ERenderStep::RenderForward, shdr));
+		buf.m_ncont.push_back(
+			NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm)
+				.mat([&](MaterialSimple& m) {
+					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
+				})
+			);
 
 		auto terrain_colour = Colour32Green;
 		auto opts = ModelGenerator::CreateOptions().colours({ &terrain_colour, 1 });

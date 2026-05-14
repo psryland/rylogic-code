@@ -189,6 +189,7 @@ namespace LDraw
 				LockAspect = 1.0,
 			};
 			Lighting = new LightData();
+			RayTracing = new RayTracingData();
 		}
 
 		/// <summary>The name of the scene that this state data belongs to</summary>
@@ -224,6 +225,103 @@ namespace LDraw
 		{
 			get => get<LightData>(nameof(Lighting));
 			set => set(nameof(Lighting), value);
+		}
+
+		/// <summary>Ray tracing settings for this scene</summary>
+		public RayTracingData RayTracing
+		{
+			get => get<RayTracingData>(nameof(RayTracing));
+			set => set(nameof(RayTracing), value);
+		}
+	}
+
+	/// <summary>Per-scene ray tracing settings</summary>
+	public class RayTracingData :SettingsSet<RayTracingData>
+	{
+		public RayTracingData()
+		{
+			Enabled = false;
+			ReflectionsEnabled = true;
+			CausticsEnabled = true;
+			MaxReflectionBounces = 1;
+		}
+
+		/// <summary>True if ray tracing is enabled for this scene</summary>
+		public bool Enabled
+		{
+			get => get<bool>(nameof(Enabled));
+			set => set(nameof(Enabled), value);
+		}
+
+		/// <summary>True if ray traced reflections are enabled for this scene</summary>
+		public bool ReflectionsEnabled
+		{
+			get => get<bool>(nameof(ReflectionsEnabled));
+			set => set(nameof(ReflectionsEnabled), value);
+		}
+
+		/// <summary>True if ray traced caustics are enabled for this scene</summary>
+		public bool CausticsEnabled
+		{
+			get => get<bool>(nameof(CausticsEnabled));
+			set => set(nameof(CausticsEnabled), value);
+		}
+
+		/// <summary>Maximum number of ray traced reflection bounces</summary>
+		public int MaxReflectionBounces
+		{
+			get => get<int>(nameof(MaxReflectionBounces));
+			set => set(nameof(MaxReflectionBounces), Math.Clamp(value, 1, 4));
+		}
+
+		/// <summary>Convert the persisted feature settings to View3D feature flags</summary>
+		public View3d.ERayTracingFeature ToView3dFeatures()
+		{
+			var features = View3d.ERayTracingFeature.None;
+			if (ReflectionsEnabled)
+				features |= View3d.ERayTracingFeature.Reflections;
+			if (CausticsEnabled)
+				features |= View3d.ERayTracingFeature.Caustics;
+
+			return features;
+		}
+
+		/// <summary>Convert the persisted ray tracing settings to View3D ray tracing properties</summary>
+		public View3d.RayTracingProps ToRayTracingProps()
+		{
+			return new View3d.RayTracingProps
+			{
+				Features = ToView3dFeatures(),
+				MaxReflectionBounces = MaxReflectionBounces,
+			};
+		}
+
+		/// <summary>Copy View3D feature flags into the persisted feature settings</summary>
+		public void FromView3dFeatures(View3d.ERayTracingFeature features)
+		{
+			switch (features)
+			{
+			case View3d.ERayTracingFeature.None:
+			case View3d.ERayTracingFeature.Reflections:
+			case View3d.ERayTracingFeature.Caustics:
+			case View3d.ERayTracingFeature.All:
+				{
+					ReflectionsEnabled = features.HasFlag(View3d.ERayTracingFeature.Reflections);
+					CausticsEnabled = features.HasFlag(View3d.ERayTracingFeature.Caustics);
+					break;
+				}
+			default:
+				{
+					throw new ArgumentOutOfRangeException(nameof(features), features, "Unknown ray tracing feature flags");
+				}
+			}
+		}
+
+		/// <summary>Copy View3D ray tracing properties into the persisted ray tracing settings</summary>
+		public void FromRayTracingProps(View3d.RayTracingProps props)
+		{
+			FromView3dFeatures(props.Features);
+			MaxReflectionBounces = props.MaxReflectionBounces;
 		}
 	}
 

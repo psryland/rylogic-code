@@ -23,8 +23,8 @@ namespace pr::rdr12
 				:ptr()
 				,desc()
 			{}
-			Output(D3DPtr<IDXGIOutput> output)
-				:ptr(output)
+			Output(D3DPtr<IDXGIOutput>& output)
+				:ptr(std::move(output))
 				,desc()
 			{
 				Check(ptr->GetDesc(&desc));

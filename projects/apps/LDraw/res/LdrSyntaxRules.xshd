@@ -221,6 +221,7 @@
 			<Word>*TriList</Word>
 			<Word>*TriStrip</Word>
 			<Word>*Tube</Word>
+			<Word>*TwoSided</Word>
 			<Word>*Txfm</Word>
 			<Word>*Underline</Word>
 			<Word>*Unknown</Word>

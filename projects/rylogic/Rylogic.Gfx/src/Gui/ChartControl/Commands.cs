@@ -779,6 +779,9 @@ namespace Rylogic.Gui.WPF
 		public ICommand ShowLightingUI => Scene.ShowLightingUI;
 
 		/// <inheritdoc/>
+		public ICommand ShowRayTracingUI => Scene.ShowRayTracingUI;
+
+		/// <inheritdoc/>
 		public ICommand ShowMeasureToolUI => Scene.ShowMeasureToolUI;
 
 		/// <inheritdoc/>

@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
@@ -141,12 +142,17 @@ namespace pr::rdr12
 		// For ray casting, we only need the default nuggets (currently)
 		for (auto& nug : Enumerate(nuggets))
 		{
+			auto const* pass = nug.mat().Pass(m_step_id);
+			if (pass == nullptr)
+				continue;
+
 			// Ignore if flagged as not visible
 			if (AllSet(nug.m_nflags, ENuggetFlag::Hidden))
 				continue;
 
 			// Add an element to the draw list
-			drawlist.push_back(DrawListElement{ .m_sort_key = nug.m_sort_key, .m_nugget = &nug, .m_instance = &inst });
+			auto sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, nug.m_sort_key);
+			drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
 			m_sort_needed = true;
 		}
 	}
@@ -267,16 +273,6 @@ namespace pr::rdr12
 			auto const& instance = *dle.m_instance;
 			auto desc = m_default_pipe_state;
 
-			// Add skinning data for skinned meshes
-			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
-			{
-				pose->Update(m_cmd_list, m_upload_buffer);
-				auto srv_pose = wnd().m_heap_view.Add(pose->m_srv);
-				auto srv_skin = wnd().m_heap_view.Add(nugget.m_model->m_skin.m_srv);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::ray_cast::ERootParam::Pose, srv_pose);
-				m_cmd_list.SetGraphicsRootDescriptorTable(shaders::ray_cast::ERootParam::Skin, srv_skin);
-			}
-
 			// Select the appropriate geometry shader based on topology
 			switch (nugget.m_topo)
 			{
@@ -308,14 +304,38 @@ namespace pr::rdr12
 				}
 			}
 
+			// If the instance is skinned, get the post-skinned vertex buffer for this instance's pose
+			auto const* vb_view = &nugget.m_model->m_vb_view;
+			if (PosePtr pose = FindPose(instance); pose && nugget.m_model->m_skin)
+				vb_view = &rdr().SkinnedGeometry().VBufView(m_cmd_list, m_upload_buffer, *nugget.m_model, pose);
+
 			// Set pipeline state
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
 			m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
-			m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+			m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-			// Configure the shader for this element
-			m_shader.SetupElement(m_cmd_list.get(), m_upload_buffer, &dle);
+			// Let the material configure this element for ray casting.
+			auto const* pass = nugget.mat().Pass(m_step_id);
+			if (pass == nullptr)
+				continue;
+
+			auto ctx = MaterialPassContext{
+				.m_step_id = m_step_id,
+				.m_wnd = wnd(),
+				.m_scene = scn(),
+				.m_dle = dle,
+				.m_material = nugget.mat(),
+				.m_cmd_list = m_cmd_list,
+				.m_upload = m_upload_buffer,
+				.m_pipe_state = desc,
+				.m_shader = &m_shader,
+				.m_default_tex = nullptr,
+				.m_default_sam = nullptr,
+				.m_last_tex = nullptr,
+				.m_last_sam = nullptr,
+			};
+			pass->Bind(ctx);
 
 			// Apply scene pipe state overrides
 			{
@@ -326,6 +346,7 @@ namespace pr::rdr12
 				for (auto& ps : GetPipeStates(instance))
 					desc.Apply(ps);
 			}
+			pass->ApplyPipeline(ctx);
 
 			// Draw the nugget **** 
 			DrawNugget(nugget, desc);

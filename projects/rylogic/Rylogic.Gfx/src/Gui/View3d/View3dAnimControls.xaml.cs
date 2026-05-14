@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Rylogic.Gfx;
 using Rylogic.Utility;
 
@@ -50,13 +51,20 @@ namespace Rylogic.Gui.WPF
 		public static readonly DependencyProperty ViewWindowProperty = Gui_.DPRegister<View3dAnimControls>(nameof(ViewWindow), null, Gui_.EDPFlags.None);
 
 		/// <summary>Mouse wheel causes the slider to move</summary>
-		private void Slider_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+		private void Slider_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
 		{
 			if (ViewWindow == null)
 				return;
 
-			// Step by one frame
-			var step = StepSize != 0 ? StepSize : (1 / FrameRate);
+			var modifiers = Keyboard.Modifiers;
+			var shift_down = modifiers.HasFlag(ModifierKeys.Shift);
+			var control_down = modifiers.HasFlag(ModifierKeys.Control);
+			var frame_delta =
+				shift_down && control_down ? 0.01 :
+				shift_down ? 0.1 :
+				1.0;
+
+			var step = frame_delta / FrameRate;
 			AnimClock += e.Delta > 0 ? +step : -step;
 			
 			// Mark as handled to prevent bubbling

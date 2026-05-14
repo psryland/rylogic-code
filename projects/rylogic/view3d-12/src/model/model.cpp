@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
+#include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/resource_store.h"
@@ -43,6 +44,7 @@ namespace pr::rdr12
 		, m_icount(icount)
 		, m_m2root(m2root)
 		, m_skin()
+		, m_ray_tracing()
 		, m_bbox(bbox)
 		, m_name(name)
 		, m_vstride(vstride)
@@ -70,6 +72,9 @@ namespace pr::rdr12
 	// Allow update of the vertex/index buffers
 	GfxUpdateSubresourceScope Model::UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange)
 	{
+		m_ray_tracing.Invalidate(rdr());
+		rdr().SkinnedGeometry().Invalidate(*this);
+
 		if (vrange == Range::Reset())
 			vrange = Range(0, m_vcount);
 
@@ -80,6 +85,8 @@ namespace pr::rdr12
 	}
 	GfxUpdateSubresourceScope Model::UpdateIndices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range irange)
 	{
+		m_ray_tracing.Invalidate(rdr());
+
 		if (irange == Range::Reset())
 			irange = Range(0, m_icount);
 
@@ -119,18 +126,21 @@ namespace pr::rdr12
 		auto nug = factory.CreateNugget(ndata, this);
 		nug->m_next = std::move(m_nuggets);
 		m_nuggets = std::move(nug);
+		m_ray_tracing.Invalidate(rdr());
 	}
 
 	// Clear the render nuggets for this model.
 	void Model::DeleteNuggets()
 	{
 		m_nuggets = nullptr;
+		m_ray_tracing.Invalidate(rdr());
 	}
 
 	// Ref-counting clean up function
 	void Model::RefCountZero(RefCounted<Model>* doomed)
 	{
 		auto mdl = static_cast<Model*>(doomed);
+		mdl->m_ray_tracing.DeferRelease(mdl->rdr());
 		mdl->rdr().DeferRelease(mdl->m_vb);
 		mdl->rdr().DeferRelease(mdl->m_ib);
 		ResourceStore::Access store(mdl->rdr());

@@ -8,12 +8,16 @@
 #include <string_view>
 #include <variant>
 #include <algorithm>
+#include <charconv>
+#include <utility>
 #include <ostream>
 #include <fstream>
 #include <execution>
 #include <filesystem>
 #include <type_traits>
 #include <format>
+#include <span>
+#include <iterator>
 
 // Example use:
 #if 0
@@ -614,12 +618,17 @@ namespace pr::json
 		{
 			EToken token;
 			std::string_view data;
+			double number = {};
 		};
 		template <typename T> requires (std::is_enum_v<T>)
 		inline bool HasFlag(T bits, T flag)
 		{
 			using UT = std::underlying_type_t<T>;
 			return (static_cast<UT>(bits) & static_cast<UT>(flag)) != 0;
+		}
+		constexpr bool IsSpace(char ch)
+		{
+			return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v';
 		}
 
 		// Remove whitespace characters (or comments) from the start of 'src'
@@ -635,9 +644,9 @@ namespace pr::json
 			for (; !src.empty(); )
 			{
 				// Eat whitespace
-				if (std::isspace(static_cast<unsigned char>(src[0])))
+				if (IsSpace(src[0]))
 				{
-					Eat(src, 1, 0, [](auto& sv) { return std::isspace(static_cast<unsigned char>(sv[0])); });
+					Eat(src, 1, 0, [](auto& sv) { return IsSpace(sv[0]); });
 					continue;
 				}
 
@@ -751,36 +760,23 @@ namespace pr::json
 				}
 				case '-':
 				case '+':
-				{
-					if (src.size() < 2 || !std::isdigit(src[1]))
-						throw std::runtime_error("Unknown token");
-
-					[[fallthrough]];
-				}
 				case '0': case '1': case '2': case '3': case '4':
 				case '5': case '6': case '7': case '8': case '9':
 				{
-					auto ptr = src.data();
+					auto beg = src.data();
 					auto end = src.data() + src.size();
+					auto ptr = beg;
+					if (*ptr == '+')
+						++ptr;
 
-					// Find the end of the number
-					auto allow_sign = true;
-					auto allow_decimal_point = true;
-					auto allow_exponent = true;
-					for (; ptr != end; ++ptr)
-					{
-						if (std::isdigit(*ptr)) continue;
-						if (allow_sign && (*ptr == '-' || *ptr == '+')) { allow_sign = false; continue; }
-						if (allow_decimal_point && *ptr == '.') { allow_decimal_point = false; continue; }
-						if (allow_exponent && (*ptr == 'e' || *ptr == 'E')) { allow_sign = true; allow_decimal_point = false; allow_exponent = false; continue; }
-						break;
-					}
-					if (ptr == end)
-						throw std::runtime_error("Incomplete number");
+					double number = {};
+					auto [num_end, ec] = std::from_chars(ptr, end, number);
+					if (ec != std::errc{} || num_end == ptr)
+						throw std::runtime_error("Invalid number");
 
-					auto str = src.substr(0, ptr - src.data());
-					src.remove_prefix(ptr - src.data());
-					return { EToken::Number, str };
+					auto str = src.substr(0, num_end - beg);
+					src.remove_prefix(num_end - beg);
+					return { EToken::Number, str, number };
 				}
 				case '/':
 				{
@@ -848,16 +844,12 @@ namespace pr::json
 				}
 				case EToken::Number:
 				{
-					size_t end = 0;
-					auto d = std::stod(std::string{ tok.data }, &end);
-					if (end == tok.data.size())
-						return d;
-
-					throw std::runtime_error("Invalid number");
+					return tok.number;
 				}
 				case EToken::OpenBracket:
 				{
 					auto list = Array{};
+					list.values.reserve(4);
 					auto require_comma = false;
 					for (;;)
 					{
@@ -885,6 +877,8 @@ namespace pr::json
 				case EToken::OpenBrace:
 				{
 					auto obj = Object{};
+					obj.keys.reserve(8);
+					obj.values.reserve(8);
 					auto require_comma = false;
 					for (;;)
 					{
@@ -913,7 +907,7 @@ namespace pr::json
 
 						// Add the item
 						obj.keys.push_back(std::string{ key });
-						obj.values.push_back(val);
+						obj.values.push_back(std::move(val));
 						require_comma = true;
 					}
 					return obj;
@@ -923,6 +917,57 @@ namespace pr::json
 					throw std::runtime_error("Unknown token");
 				}
 			}
+		}
+
+		// Try to get the remaining byte count without changing the stream position.
+		inline size_t StreamSizeRemaining(std::istream& in)
+		{
+			auto const pos = in.tellg();
+			if (pos == std::streampos{ -1 })
+			{
+				in.clear();
+				return std::dynamic_extent;
+			}
+
+			in.seekg(0, std::ios::end);
+			auto const end = in.tellg();
+			in.seekg(pos);
+			if (!in.good())
+				in.clear();
+
+			return end != std::streampos{ -1 } && end >= pos
+				? static_cast<size_t>(end - pos)
+				: std::dynamic_extent;
+		}
+
+		// Read 'size_estimate' bytes from the stream, or until the end of the stream if 'size_estimate' is std::dynamic_extent
+		inline std::string ReadStreamData(std::istream& in, size_t size_estimate)
+		{
+			auto exact_size = false;
+			auto size = size_estimate;
+			if (size == std::dynamic_extent)
+			{
+				size = StreamSizeRemaining(in);
+				exact_size = size != std::dynamic_extent;
+			}
+
+			if (exact_size)
+			{
+				if (size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max()))
+					throw std::runtime_error("JSON stream is too large");
+
+				std::string data(size, '\0');
+				in.read(data.data(), static_cast<std::streamsize>(data.size()));
+				data.resize(static_cast<size_t>(in.gcount()));
+				return data;
+			}
+
+			std::string data;
+			if (size != std::dynamic_extent)
+				data.reserve(size);
+
+			data.assign(std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{});
+			return data;
 		}
 	}
 
@@ -974,6 +1019,9 @@ namespace pr::json
 	// Convert an escaped string to a normal string
 	inline std::string UnescapeString(std::string_view str)
 	{
+		if (str.find('\\') == std::string_view::npos)
+			return std::string{ str };
+
 		auto ptr = str.data();
 		auto end = str.data() + str.size();
 
@@ -1321,28 +1369,20 @@ namespace pr::json
 	// Read JSON data from a stream into a DOM tree.
 	inline Value Read(std::istream& in, Options const& opts = {}, size_t size_estimate = std::dynamic_extent)
 	{
-		size_estimate = size_estimate != std::dynamic_extent ? size_estimate : 1ULL * 1024 * 1024;
-		
-		std::string data(size_estimate, '\0');
-		for (size_t i = 0; in.good(); )
-		{
-			auto read = in.read(data.data() + i, data.size() - i).gcount();
-			if (i + read != data.size())
-			{
-				data.resize(i + read);
-				break;
-			}
+		using namespace impl;
 
-			data.resize(data.size() * 2);
-			i += read;
-		}
-		return Read(std::string_view{ data }, opts);
+		auto data = ReadStreamData(in, size_estimate);
+		auto src = std::string_view{ data };
+		if (utf8::IsBOM(src))
+			src.remove_prefix(3);
+
+		return Read(src, opts);
 	}
 
 	// Read a JSON file into a DOM tree.
 	inline Value Read(std::filesystem::path const& path, Options const& opts = {})
 	{
-		std::ifstream file(path);
+		std::ifstream file(path, std::ios::binary);
 		if (!file.is_open())
 			throw std::runtime_error(std::format("Failed to open file '{}'", path.string()));
 
@@ -1432,6 +1472,20 @@ namespace pr::storage
 			auto root = json::Read(std::string_view{ test_data }, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
 			PR_EXPECT(root["SearchPaths"][0].to<std::string>() == "C:\\Work\\Path");
 			PR_EXPECT(root["EscapedString"].to<std::string>() == "This is a string with a \"quote\" in it");
+		}
+		PRUnitTestMethod(ReadingStream)
+		{
+			char const test_data[] =
+				"\xEF\xBB\xBF"
+				"{\"key\":123}";
+
+			std::istringstream stream(test_data);
+			auto root = json::Read(stream);
+			PR_EXPECT(root["key"].to<int>() == 123);
+
+			std::istringstream stream_with_estimate("{\"key\":456}");
+			root = json::Read(stream_with_estimate, {}, 4);
+			PR_EXPECT(root["key"].to<int>() == 456);
 		}
 		PRUnitTestMethod(Writing)
 		{

@@ -28,7 +28,7 @@ namespace Rylogic.Gfx
 				Window = null!;
 			}
 
-			/// <summary>Context IDs of objects to always exclude</summary>
+			/// <summary>Context IDs of objects to always exclude from user-facing management</summary>
 			public static HashSet<Guid> ExcludeCtxIds { get; } = [];
 
 			/// <summary>The scene that this manager is associated with</summary>

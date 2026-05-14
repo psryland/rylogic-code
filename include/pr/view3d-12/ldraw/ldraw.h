@@ -198,6 +198,7 @@ namespace pr::rdr12::ldraw
 		x(TriList                  )\
 		x(TriStrip                 )\
 		x(Tube                     )\
+		x(TwoSided                 )\
 		x(Txfm                     )\
 		x(Underline                )\
 		x(Unknown                  )\
@@ -409,6 +410,9 @@ namespace pr::rdr12::ldraw
 
 		// Hide animated models when the time is outside their animation time range
 		HideWhenNotAnimating = 1 << 14,
+
+		// Treat faces of this object as having normals that flip on back-facing pixels.
+		TwoSided = 1 << 15,
 
 		// Indicates invalidated flags that need to be refreshed
 		Invalidated = 1 << 31,

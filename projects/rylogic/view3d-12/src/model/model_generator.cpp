@@ -8,6 +8,7 @@
 #include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/model/model_tree.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/texture/texture_desc.h"
@@ -122,6 +123,18 @@ namespace pr::rdr12
 				}
 			}
 		}
+
+		// Return the imported material tint, or neutral white when the caller requested geometry without materials.
+		template <typename Material>
+		static Colour32 MaterialTint(std::span<Material const> materials, uint32_t mat_id, geometry::ESceneParts parts)
+		{
+			// LDraw's *NoMaterials path still needs the mesh material ids for nugget ranges, but those ids must not introduce importer material colours into
+			// the raster or ray-traced result. White preserves the existing vertex colour and instance tint path.
+			if (!AllSet(parts, geometry::ESceneParts::Materials) || mat_id >= materials.size())
+				return Colour32White;
+
+			return Colour32(materials[mat_id].m_diffuse);
+		}
 	};
 
 	// Create a model from 'cache'
@@ -165,16 +178,19 @@ namespace pr::rdr12
 			// If the model geom has valid texture data but no texture..
 			if (AllSet(nug.m_geom, EGeom::Tex0))
 			{
-				// Use the texture from the options
-				if (nug.m_tex_diffuse == nullptr)
-					nug.m_tex_diffuse = opts && opts->m_tex_diffuse != nullptr
-						? opts->m_tex_diffuse
-						: factory.rdr().store().StockTexture(EStockTexture::White);
-
-				if (nug.m_sam_diffuse == nullptr)
-					nug.m_sam_diffuse = opts && opts->m_sam_diffuse != nullptr
-						? opts->m_sam_diffuse
-						: factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap);
+				// See if the current material has a diffuse texture and sampler
+				auto const* bc = nug.mat().Component<materials::BaseColour>();
+				if (bc == nullptr || bc->m_tex_diffuse == nullptr || bc->m_sam_diffuse == nullptr)
+				{
+					// Clone the material and set the texture/sampler
+					RefPtr<Material> new_mat = (bc ? nug.mat() : Material::Default()).Clone();
+					auto& new_bc = *new_mat->Component<materials::BaseColour>();
+					if (new_bc.m_tex_diffuse == nullptr)
+						new_bc.m_tex_diffuse = opts && opts->m_tex_diffuse != nullptr ? opts->m_tex_diffuse : factory.rdr().store().StockTexture(EStockTexture::White);
+					if (new_bc.m_sam_diffuse == nullptr)
+						new_bc.m_sam_diffuse = opts && opts->m_sam_diffuse != nullptr ? opts->m_sam_diffuse : factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap);
+					nug.mat(std::move(new_mat));
+				}
 			}
 
 			// Create the nugget
@@ -870,7 +886,13 @@ namespace pr::rdr12
 		);
 
 		// Model nugget properties for the sky box
-		cache.m_ncont.push_back(NuggetDesc(ETopo::TriList, props.m_geom).alpha_geom(props.m_has_alpha).tex_diffuse(sky_texture).pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT));
+		cache.m_ncont.push_back(
+			NuggetDesc(ETopo::TriList, props.m_geom)
+				.alpha_geom(props.m_has_alpha)
+				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
+				.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture); })
+			);
+		
 		cache.m_bbox = props.m_bbox;
 
 		// Create the model
@@ -898,7 +920,12 @@ namespace pr::rdr12
 			[&](size_t idx) { *iptr++ = s_cast<uint16_t>(idx); });
 
 		// Model nugget properties for the sky box
-		cache.m_ncont.push_back(NuggetDesc(ETopo::TriList, props.m_geom).alpha_geom(props.m_has_alpha).tex_diffuse(sky_texture).pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT));
+		cache.m_ncont.push_back(
+			NuggetDesc(ETopo::TriList, props.m_geom)
+			.alpha_geom(props.m_has_alpha)
+			.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
+			.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture); })
+		);
 		cache.m_bbox = props.m_bbox;
 
 		// Create the model
@@ -933,8 +960,9 @@ namespace pr::rdr12
 				.vrange(Range(i * 4, (i + 1) * 4))
 				.irange(Range(i * 6, (i + 1) * 6))
 				.alpha_geom(props.m_has_alpha)
-				.tex_diffuse(sky_texture[i])
-				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT));
+				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
+				.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture[i]); })
+			);
 		}
 		cache.m_bbox = props.m_bbox;
 
@@ -1087,12 +1115,10 @@ namespace pr::rdr12
 					NuggetDesc nugget = NuggetDesc(nug.m_topo, nug.m_geom).vrange(vrange).irange(irange);
 
 					// Resolve the material
-					for (auto& m : m_mats)
+					for (auto& mat : m_mats)
 					{
-						if (nug.m_mat != m.m_id) continue;
-						nugget.tex_diffuse(m.TexDiffuse());
-						nugget.tint(m.Tint());
-						nugget.alpha_tint(nugget.m_tint.a != 0xff);
+						if (nug.m_mat != mat.m_id) continue;
+						nugget.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse()).tint(mat.Tint()); });
 						break;
 					}
 
@@ -1198,9 +1224,8 @@ namespace pr::rdr12
 				cache.m_ncont.push_back(NuggetDesc(topo, geom)
 					.vrange(vrange)
 					.irange(irange)
-					.tex_diffuse(mat.TexDiffuse(factory))
-					.tint(mat.Tint())
-					.alpha_tint(mat.Tint().a != 0xff));
+					.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse(factory)).tint(mat.Tint()); })
+				);
 			};
 			auto matlookup = [&](std::string const& name)
 			{
@@ -1353,8 +1378,12 @@ namespace pr::rdr12
 				auto nptr = m_cache.m_ncont.data();
 				for (auto const& n : mesh.m_nbuf)
 				{
-					auto const& mat = materials[n.m_mat_id];
-					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }.vrange(n.m_vrange).irange(n.m_irange).tint(mat.m_diffuse).flags(ENuggetFlag::RangesCanOverlap);
+					auto tint = model_generator::MaterialTint(materials, n.m_mat_id, m_out.Parts());
+					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
+						.vrange(n.m_vrange)
+						.irange(n.m_irange)
+						.mat([&](MaterialSimple& m) { m.tint(tint); })
+						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
 				// Emit the model.
@@ -1558,8 +1587,12 @@ namespace pr::rdr12
 				auto nptr = m_cache.m_ncont.data();
 				for (auto const& n : mesh.m_nbuf)
 				{
-					auto const& mat = materials[n.m_mat_id];
-					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }.vrange(n.m_vrange).irange(n.m_irange).tint(mat.m_diffuse).flags(ENuggetFlag::RangesCanOverlap);
+					auto tint = model_generator::MaterialTint(materials, n.m_mat_id, m_out.Parts());
+					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
+						.vrange(n.m_vrange)
+						.irange(n.m_irange)
+						.mat([&](MaterialSimple& m) { m.tint(tint); })
+						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
 				// Emit the model
@@ -1822,9 +1855,9 @@ namespace pr::rdr12
 		// Create a nugget
 		cache.m_ncont.push_back(
 			NuggetDesc(ETopo::TriList, props.m_geom & ~EGeom::Norm)
-			.tex_diffuse(tex)
-			.sam_diffuse(factory.CreateSampler(EStockSampler::AnisotropicClamp))
-			.alpha_geom(has_alpha));
+				.mat([&](MaterialSimple& m) { m.tex_diffuse(tex).sam_diffuse(factory.CreateSampler(EStockSampler::AnisotropicClamp)); })
+				.alpha_geom(has_alpha)
+			);
 
 		cache.m_bbox = props.m_bbox;
 

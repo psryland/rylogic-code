@@ -139,6 +139,13 @@ namespace pr::rdr12
 		std::string_view Settings() const;
 		void Settings(std::string_view settings);
 
+		// Get/Set the per-window ray tracing state
+		view3d::RayTracingInfo RayTracingInfo() const;
+		bool RayTracingEnabled() const;
+		void RayTracingEnabled(bool enable);
+		RayTracingProps RayTracingProperties() const;
+		void RayTracingProperties(RayTracingProps props);
+
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;
 

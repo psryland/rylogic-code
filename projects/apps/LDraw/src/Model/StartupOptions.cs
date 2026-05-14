@@ -23,20 +23,26 @@ namespace LDraw
 			// Check the command line options
 			for (int i = 0, iend = args.Length; i != iend; ++i)
 			{
-				var arg = args[i].ToLowerInvariant();
+				var arg = args[i];
+				var opt = arg.ToLowerInvariant();
 
 				// No option character implies the file to load
-				if (arg[0] != '-' && arg[0] != '/')
+				if (opt[0] != '-' && opt[0] != '/')
 				{
 					FilesToLoad.Add(arg);
 					continue;
 				}
 
 				// Helper for comparing option strings
-				bool IsOption(string opt) => string.CompareOrdinal(arg, 0, opt, 0, opt.Length) == 0;
+				bool IsOption(string option) => string.CompareOrdinal(opt, 0, option, 0, option.Length) == 0;
 
 				// (order these by longest option first)
-				if      (IsOption(CmdLine.SettingsPath )) { SettingsPath = arg.Substring(CmdLine.SettingsPath.Length); }
+				if      (IsOption(CmdLine.SettingsPath ))
+				{
+					SettingsPath = arg.Length != CmdLine.SettingsPath.Length
+						? arg.Substring(CmdLine.SettingsPath.Length)
+						: i + 1 != iend ? args[++i] : throw new ArgumentException("Missing settings filepath for '-s'.");
+				}
 				else if (IsOption(CmdLine.Portable     )) { PortableMode = true; }
 				else if (IsOption(CmdLine.ShowHelp     )) { ShowHelp = true; }
 				else if (IsOption(CmdLine.ShowHelp2    )) { ShowHelp = true; }

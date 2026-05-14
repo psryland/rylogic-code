@@ -1,0 +1,84 @@
+﻿<Window
+	x:Class="Rylogic.Gui.WPF.View3dRayTracingUI"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	mc:Ignorable="d"
+	Title="Ray Tracing"
+	WindowStartupLocation="CenterOwner"
+	SizeToContent="WidthAndHeight"
+	ResizeMode="CanResizeWithGrip"
+	MinWidth="420"
+	MinHeight="180"
+	>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+
+		<StackPanel
+			Grid.Row="0"
+			Margin="12"
+			>
+			<CheckBox
+				Content="Enable ray tracing for this view"
+				IsEnabled="{Binding RayTracingAvailable}"
+				IsChecked="{Binding RayTracingEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="0,0,0,8"
+				/>
+			<TextBlock
+				Text="Features"
+				FontWeight="SemiBold"
+				Margin="0,4,0,4"
+				/>
+			<CheckBox
+				Content="Reflections"
+				IsEnabled="{Binding RayTracingAvailable}"
+				IsChecked="{Binding ReflectionsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="16,0,0,4"
+				/>
+			<StackPanel
+				Orientation="Horizontal"
+				IsEnabled="{Binding RayTracingAvailable}"
+				Margin="32,0,0,4"
+				>
+				<TextBlock
+					Text="Max reflection bounces:"
+					VerticalAlignment="Center"
+					Margin="0,0,8,0"
+					/>
+				<ComboBox
+					ItemsSource="{Binding MaxReflectionBounceChoices}"
+					SelectedItem="{Binding MaxReflectionBounces, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+					Width="60"
+					/>
+			</StackPanel>
+			<CheckBox
+				Content="Caustics"
+				IsEnabled="{Binding RayTracingAvailable}"
+				IsChecked="{Binding CausticsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+				Margin="16,0,0,8"
+				/>
+			<TextBlock
+				Text="{Binding StatusText}"
+				TextWrapping="Wrap"
+				/>
+		</StackPanel>
+
+		<StackPanel
+			Grid.Row="1"
+			Orientation="Horizontal"
+			HorizontalAlignment="Right"
+			Margin="8"
+			>
+			<Button
+				Content="Close"
+				IsDefault="True"
+				MinWidth="80"
+				Command="{Binding Accept}"
+				/>
+		</StackPanel>
+	</Grid>
+</Window>

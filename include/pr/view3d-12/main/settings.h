@@ -12,12 +12,13 @@ namespace pr::rdr12
 	/// <summary>Options</summary>
 	enum class ERdrOptions
 	{
-		None           = 0,
-		DeviceDebug    = 1 << 0,
-		DeviceGPUDebug = 1 << 1 | DeviceDebug,
-		BreakOnErrors  = 1 << 2 | DeviceDebug,
-		BGRASupport    = 1 << 3,
-		D2D1_DebugInfo = 1 << 4,
+		None              = 0,
+		DeviceDebug       = 1 << 0,
+		DeviceGPUDebug    = 1 << 1 | DeviceDebug,
+		BreakOnErrors     = 1 << 2 | DeviceDebug,
+		BGRASupport       = 1 << 3,
+		D2D1_DebugInfo    = 1 << 4,
+		RayTracingSupport = 1 << 5,
 
 		_flags_enum = 0,
 	};
@@ -57,6 +58,13 @@ namespace pr::rdr12
 			m_options = SetBits(m_options, ERdrOptions::DeviceDebug, enable);
 			m_options = SetBits(m_options, ERdrOptions::DeviceGPUDebug, enable && gpu_debug);
 			m_options = SetBits(m_options, ERdrOptions::BreakOnErrors, enable && break_on_errors);
+			return *this;
+		}
+
+		// Request DirectX Raytracing support.
+		RdrSettings& RayTracingSupport(bool enable = true)
+		{
+			m_options = SetBits(m_options, ERdrOptions::RayTracingSupport, enable);
 			return *this;
 		}
 
