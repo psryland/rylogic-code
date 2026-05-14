@@ -36,7 +36,7 @@ namespace pr::physics
 	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_sorter(gpu.m_gpu)
+		, m_sorter(gpu.m_gpu, BoundsSorter::TuningParams{.shader_cache = config.shader_cache})
 		, m_cs_sweep()
 		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
@@ -49,9 +49,10 @@ namespace pr::physics
 	// Compile the compute shaders
 	void GpuSortAndSweep::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/sweep.hlsl", L"TEXT"))
-			.Includes({ new ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/sweep.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 

@@ -9,8 +9,7 @@
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
 #include "pr/view3d-12/compute/radix_sort/radix_sort.h"
-#include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/shaders/shader_include_handler.h"
+#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/pix.h"
@@ -182,9 +181,10 @@ namespace pr::rdr12::compute::spatial_partition
 		// Compute the compute shaders
 		void CreateComputeSteps(std::wstring_view position_layout)
 		{
-			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"src/compute/spatial_partition/spatial_partition.hlsl", L"TEXT"))
-				.Includes({ new ResourceIncludeHandler, true })
+			ShaderCompiler compiler{};
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			compiler.Source("src/compute/spatial_partition/spatial_partition.hlsl", resolver)
+				.HlslVersion(EHlslVersion::DxcDefault)
 				.Define(L"POSITION_TYPE", position_layout)
 				.ShaderModel(L"cs_6_6")
 				.Optimise();

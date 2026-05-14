@@ -219,7 +219,7 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
 		return physics_sandbox::RunUnitTests(filter);
 	}
-	if (cmd.count("stackdiag") || cmd.count("scenediag"))
+	if (cmd.count("scenediag"))
 	{
 		return physics_sandbox::RunSceneDiagnostic(cmd);
 	}

@@ -15,6 +15,7 @@ namespace physics_sandbox
 		Button m_chk_allow_sleeping;
 		Label  m_lbl_speed;  // Shows current time scale, e.g. "Speed: 1.00x"
 		HWND   m_slider;     // Win32 trackbar for time scale (no wingui wrapper exists)
+		bool   m_allow_sleeping;
 
 		// Slider range: 1..200, mapping to 0.01x..2.00x (position / 100).
 		// Default position 100 = real-time (1.00x).

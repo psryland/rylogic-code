@@ -2,6 +2,7 @@
 // Physics Engine
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
+#include "pr/physics/integrator/engine_config.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/collision/shape_cache.h"
@@ -79,9 +80,10 @@ namespace pr::physics
 	// Compile the collision compute shader from embedded resources.
 	void GpuCollisionDetector::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/collide.hlsl", L"TEXT"))
-			.Includes({ new ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/collide.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 

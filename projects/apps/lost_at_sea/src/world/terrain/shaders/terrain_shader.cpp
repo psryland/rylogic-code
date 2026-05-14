@@ -6,8 +6,6 @@
 #include "src/world/terrain/terrain.h"
 #include "src/world/terrain/cdlod.h"
 #include "src/world/terrain/shaders/terrain_shader.h"
-#include "pr/view3d-12/render/drawlist_element.h"
-#include "pr/view3d-12/instance/instance.h"
 #include "src/world/terrain/shaders/terrain_cbuf.hlsli"
 
 namespace las
@@ -31,9 +29,10 @@ namespace las
 		static_assert(sizeof(CBufTerrain) == sizeof(m_cbuf), "CBufTerrain exceeds m_cbuf storage");
 
 		// Compile the shader
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"TERRAIN_HLSL", L"TEXT"))
-			.Includes({ new rdr12::ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{};
+		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
+		compiler.Source("TERRAIN_HLSL", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 

@@ -9,8 +9,7 @@
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
 #include "pr/view3d-12/compute/particle_collision/collision_builder.h"
-#include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/shaders/shader_include_handler.h"
+#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/pix.h"
@@ -213,9 +212,10 @@ namespace pr::rdr12::compute::particle_collision
 		// Create the compute steps
 		void CreateComputeSteps(std::wstring_view position_layout, std::wstring_view dynamics_layout)
 		{
-			ShaderCompiler compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"src/compute/particle_collision/particle_collision.hlsl", L"TEXT"))
-				.Includes({ new ResourceIncludeHandler, true })
+			ShaderCompiler compiler{};
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			compiler.Source("src/compute/particle_collision/particle_collision.hlsl", resolver)
+				.HlslVersion(EHlslVersion::DxcDefault)
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)
 				.ShaderModel(L"cs_6_6")

@@ -67,9 +67,10 @@ namespace pr::physics
 	// Compile the sleep/wake compute shaders.
 	void GpuSleepManager::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/sleep.hlsl", L"TEXT"))
-			.Includes({ new ResourceIncludeHandler, true })
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/sleep.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
