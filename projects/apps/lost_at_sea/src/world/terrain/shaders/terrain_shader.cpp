@@ -29,11 +29,12 @@ namespace las
 	{
 		static_assert((sizeof(CBufTerrain) % 16) == 0);
 		static_assert(sizeof(CBufTerrain) == sizeof(m_cbuf), "CBufTerrain exceeds m_cbuf storage");
+		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
 
 		// Compile the shader
 		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/world/terrain/shaders/terrain.hlsl", L"TEXT"))
-			.Includes({ new rdr12::ResourceIncludeHandler, true })
+			.Source("src/world/terrain/shaders/terrain.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 

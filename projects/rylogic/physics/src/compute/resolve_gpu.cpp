@@ -76,7 +76,7 @@ namespace pr::physics
 	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_contact_sorter(gpu.m_gpu)
+		, m_contact_sorter(gpu.m_gpu, ContactSorter::TuningParams{.shader_cache = config.shader_cache})
 		, m_cs_compute_times()
 		, m_cs_clear_shock_lists()
 		, m_cs_seed_shock_priority()
@@ -123,9 +123,10 @@ namespace pr::physics
 	// Compile the resolve compute shader from embedded resources.
 	void GpuResolver::CompileShaders()
 	{
-		auto compiler = ShaderCompiler{}
-			.Source(resource::Read<char>(L"src/compute/resolve.hlsl", L"TEXT"))
-			.Includes({new ResourceIncludeHandler, true})
+		auto compiler = ShaderCompiler{m_config.shader_cache};
+		auto resolver = shader_cache::ResourceSourceResolver{};
+		compiler.Source("src/compute/resolve.hlsl", resolver)
+			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 

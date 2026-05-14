@@ -8,11 +8,11 @@
 //  Call the overload of Sort that suits your needs.
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/compute/compute_pso.h"
 #include "pr/view3d-12/compute/compute_step.h"
+#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "pr/view3d-12/utility/root_signature.h"
 #include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/pix.h"
@@ -41,6 +41,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 
 		using Gpu = Gpu<QueueType>;
 		using CmdList = CmdList<QueueType>;
+		using IShaderCache = shader_cache::IShaderCache;
 
 		static constexpr int KeyBits = sizeof(Key) * 8; // 32-bit keys atm
 		static constexpr int RadixBits = 8;
@@ -69,6 +70,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			int keys_per_thread = 15;
 			int part_size = 7680;
 			bool use_16bit = true;
+			IShaderCache* shader_cache = nullptr;
 		};
 
 		Gpu* m_gpu;
@@ -111,8 +113,10 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			, m_size()
 			, m_bound_to_external()
 		{
-			auto compiler = ShaderCompiler{}
-				.Source(resource::Read<char>(L"src/compute/radix_sort/radix_sort.hlsl", L"TEXT"))
+			auto compiler = ShaderCompiler{m_tuning.shader_cache};
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			compiler.Source("src/compute/radix_sort/radix_sort.hlsl", resolver)
+				.HlslVersion(EHlslVersion::DxcDefault)
 				.ShaderModel(m_tuning.shader_model)
 				.Optimise()
 				.Define(L"KEYS_PER_THREAD", std::to_wstring(m_tuning.keys_per_thread))

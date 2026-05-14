@@ -161,14 +161,10 @@ namespace physics_sandbox
 		}
 	}
 
-	physics::EngineConfig DefaultEngineConfig()
-	{
-		return physics::EngineConfig{};
-	}
-
 	Scene::Scene(rdr12::Renderer* rdr)
 		: m_rdr(rdr)
-		, m_physics(DefaultEngineConfig(), rdr ? rdr->d3d() : nullptr)
+		, m_shader_cache(AppDataPath() / "shader_cache", "physics-sandbox")
+		, m_physics(physics::EngineConfig{.shader_cache = &m_shader_cache}, rdr ? rdr->d3d() : nullptr)
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
@@ -209,9 +205,10 @@ namespace physics_sandbox
 		m_gravity = v4::Zero();
 		m_kill_zone_height = -100.0f;
 		m_physics_substeps = 1;
-		auto engine_config = DefaultEngineConfig();
-		engine_config.sleeping_enabled = m_allow_sleeping;
-		m_physics.Config(engine_config);
+		m_physics.Config(physics::EngineConfig{
+			.shader_cache = &m_shader_cache,
+			.sleeping_enabled = m_allow_sleeping,
+		});
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -476,35 +473,36 @@ namespace physics_sandbox
 		// Apply gravity from the scene file
 		m_gravity = scene_desc.gravity;
 		m_physics_substeps = scene_desc.physics_substeps;
-		auto engine_config = DefaultEngineConfig();
-		engine_config.sleeping_enabled = m_allow_sleeping;
-		engine_config.max_collision_pairs = scene_desc.physics_max_collision_pairs;
-		engine_config.solver_iterations = scene_desc.physics_solver_iterations;
-		engine_config.push_out_iterations = scene_desc.physics_position_iterations;
-		engine_config.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin;
-		engine_config.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale;
-		engine_config.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations;
-		engine_config.contact_slop_scale = scene_desc.physics_contact_slop_scale;
-		engine_config.support_contact_slop_scale = scene_desc.physics_support_contact_slop_scale;
-		engine_config.warm_start_scale = scene_desc.physics_warm_start_scale;
-		engine_config.selective_refresh_passes = scene_desc.physics_selective_refresh_passes;
-		engine_config.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs;
-		engine_config.selective_refresh_body_limit = scene_desc.physics_selective_refresh_body_limit;
-		engine_config.selective_refresh_contact_limit = scene_desc.physics_selective_refresh_contact_limit;
-		engine_config.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations;
-		engine_config.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations;
-		engine_config.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale;
-		engine_config.selective_refresh_restitution_scale = scene_desc.physics_selective_refresh_restitution_scale;
-		engine_config.selective_refresh_adaptive_body_limit = scene_desc.physics_selective_refresh_adaptive_body_limit;
-		engine_config.selective_refresh_adaptive_solver_iterations = scene_desc.physics_selective_refresh_adaptive_solver_iterations;
-		engine_config.selective_refresh_support_only = scene_desc.physics_selective_refresh_support_only;
-		engine_config.selective_refresh_resolve_support_only = scene_desc.physics_selective_refresh_resolve_support_only;
-		engine_config.selective_refresh_depth_slop = scene_desc.physics_selective_refresh_depth_slop;
-		engine_config.selective_refresh_support_depth_slop = scene_desc.physics_selective_refresh_support_depth_slop;
-		engine_config.selective_refresh_closing_speed_slop = scene_desc.physics_selective_refresh_closing_speed_slop;
-		engine_config.selective_refresh_support_alignment = scene_desc.physics_selective_refresh_support_alignment;
-		engine_config.selective_refresh_aabb_margin = scene_desc.physics_selective_refresh_aabb_margin;
-		m_physics.Config(engine_config);
+		m_physics.Config(physics::EngineConfig{
+			.shader_cache = &m_shader_cache,
+			.max_collision_pairs = scene_desc.physics_max_collision_pairs,
+			.sleeping_enabled = m_allow_sleeping,
+			.solver_iterations = scene_desc.physics_solver_iterations,
+			.push_out_iterations = scene_desc.physics_position_iterations,
+			.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin,
+			.contact_sort_propagation_scale = scene_desc.physics_contact_sort_propagation_scale,
+			.contact_sort_shock_iterations = scene_desc.physics_contact_sort_shock_iterations,
+			.contact_slop_scale = scene_desc.physics_contact_slop_scale,
+			.support_contact_slop_scale = scene_desc.physics_support_contact_slop_scale,
+			.warm_start_scale = scene_desc.physics_warm_start_scale,
+			.selective_refresh_passes = scene_desc.physics_selective_refresh_passes,
+			.selective_refresh_max_pairs = scene_desc.physics_selective_refresh_max_pairs,
+			.selective_refresh_body_limit = scene_desc.physics_selective_refresh_body_limit,
+			.selective_refresh_contact_limit = scene_desc.physics_selective_refresh_contact_limit,
+			.selective_refresh_solver_iterations = scene_desc.physics_selective_refresh_solver_iterations,
+			.selective_refresh_position_iterations = scene_desc.physics_selective_refresh_position_iterations,
+			.selective_refresh_bias_scale = scene_desc.physics_selective_refresh_bias_scale,
+			.selective_refresh_restitution_scale = scene_desc.physics_selective_refresh_restitution_scale,
+			.selective_refresh_adaptive_body_limit = scene_desc.physics_selective_refresh_adaptive_body_limit,
+			.selective_refresh_adaptive_solver_iterations = scene_desc.physics_selective_refresh_adaptive_solver_iterations,
+			.selective_refresh_support_only = scene_desc.physics_selective_refresh_support_only,
+			.selective_refresh_resolve_support_only = scene_desc.physics_selective_refresh_resolve_support_only,
+			.selective_refresh_depth_slop = scene_desc.physics_selective_refresh_depth_slop,
+			.selective_refresh_support_depth_slop = scene_desc.physics_selective_refresh_support_depth_slop,
+			.selective_refresh_closing_speed_slop = scene_desc.physics_selective_refresh_closing_speed_slop,
+			.selective_refresh_support_alignment = scene_desc.physics_selective_refresh_support_alignment,
+			.selective_refresh_aabb_margin = scene_desc.physics_selective_refresh_aabb_margin,
+		});
 
 		// Set the kill zone well below the ground plane. Bodies that fall below
 		// this height are frozen to prevent them from corrupting the simulation.

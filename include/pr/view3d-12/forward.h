@@ -28,6 +28,10 @@
 #include <functional>
 #include <execution>
 #include <filesystem>
+#include <chrono>
+#include <limits>
+#include <span>
+#include <tuple>
 #include <source_location>
 #include <type_traits>
 #include <variant>
