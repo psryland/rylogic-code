@@ -215,6 +215,7 @@ namespace pr::rdr12
 		struct Optics;
 		struct Reflectivity;
 		struct ShaderOverlays;
+		struct Surface;
 	}
 
 	// Resources

@@ -256,6 +256,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\surface.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pass.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_simple.h" />

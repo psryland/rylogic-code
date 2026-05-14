@@ -553,6 +553,12 @@ namespace pr::rdr12::ldraw
 				obj->m_env = reader.Real<float>();
 				return true;
 			};
+			case EKeyword::TwoSided:
+			{
+				auto two_sided = reader.IsSectionEnd() ? true : reader.Bool();
+				obj->Flags(ELdrFlags::TwoSided, two_sided);
+				return true;
+			}
 			case EKeyword::RandColour:
 			{
 				obj->m_base_colour = RandomRGB(g_rng(), 0.5f, 1.0f);
@@ -612,6 +618,34 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
+	// Apply two-sided material state to every nugget owned by 'obj'.
+	void ApplyTwoSided(LdrObject* obj, bool enabled)
+	{
+		if (obj->m_model == nullptr)
+			return;
+
+		// For each nugget, update the surface component in the material
+		for (auto nug = obj->m_model->m_nuggets; nug != nullptr; nug = nug->m_next)
+		{
+			auto const* current_surface = nug->mat().Component<materials::Surface>();
+			if (current_surface == nullptr)
+				throw std::runtime_error("*TwoSided requires a material with a materials::Surface component");
+
+			if (current_surface->m_two_sided == enabled)
+				continue;
+
+			auto mat = nug->mat().Clone();
+			if (auto* surface = mat->Component<materials::Surface>(); surface != nullptr)
+			{
+				surface->m_two_sided = enabled;
+				nug->mat(mat);
+				continue;
+			}
+
+			throw std::runtime_error("*TwoSided requires a cloneable material with a materials::Surface component");
+		}
+	}
+
 	// Apply the states such as colour,wireframe,etc to the objects renderer model
 	void ApplyObjectState(LdrObject* obj)
 	{
@@ -626,6 +660,10 @@ namespace pr::rdr12::ldraw
 		// Recalculate colours after setting 'm_group_tint'.
 		if (obj->m_group_tint != Colour32White)
 			obj->ResetColour("");
+
+		// If flagged as two-sided, update the model materials.
+		if (AllSet(obj->Flags(), ELdrFlags::TwoSided))
+			ApplyTwoSided(obj, true);
 
 		// If flagged as hidden, hide
 		if (AllSet(obj->Flags(), ELdrFlags::Hidden))

@@ -296,6 +296,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue TriList = {"*TriList", 3668920810};
 		inline static constexpr NameValue TriStrip = {"*TriStrip", 1312470952};
 		inline static constexpr NameValue Tube = {"*Tube", 1747223167};
+		inline static constexpr NameValue TwoSided = {"*TwoSided", 3612706098};
 		inline static constexpr NameValue Txfm = {"*Txfm", 2438414104};
 		inline static constexpr NameValue Underline = {"*Underline", 3850515583};
 		inline static constexpr NameValue Unknown = {"*Unknown", 2608177081};

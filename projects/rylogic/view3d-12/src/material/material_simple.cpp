@@ -150,6 +150,20 @@ namespace pr::rdr12
 			}
 		}
 
+		// Force two-sided rasterisation for materials that need normal flipping on back faces.
+		void ApplyTwoSidedPipeline(MaterialPassContext& ctx)
+		{
+			auto const* surface = ctx.m_material.Component<materials::Surface>();
+			if (surface == nullptr || !surface->m_two_sided)
+				return;
+
+			// Alpha variants already render front/back faces separately for sorting, so overriding their cull mode would double-submit both sides.
+			if (ctx.m_dle.m_nugget->m_variant == AlphaNugget)
+				return;
+
+			ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
+		}
+
 		// The material pass that reproduces default NuggetDesc material handling.
 		struct MaterialSimplePass : MaterialPass
 		{
@@ -252,10 +266,15 @@ namespace pr::rdr12
 					case ERenderStep::RenderForward:
 					{
 						ApplyForwardPipeline(ctx);
+						ApplyTwoSidedPipeline(ctx);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					case ERenderStep::RayCast:
+					{
+						ApplyTwoSidedPipeline(ctx);
+						return;
+					}
 					case ERenderStep::RayTracing:
 					case ERenderStep::GBuffer:
 					case ERenderStep::DSLighting:
@@ -278,6 +297,7 @@ namespace pr::rdr12
 		, m_optics()
 		, m_reflectivity({rel_reflec})
 		, m_shaders()
+		, m_surface()
 	{}
 
 	// Copy simple material properties into a new ref-counted material instance.
@@ -286,6 +306,7 @@ namespace pr::rdr12
 		, m_optics(rhs.m_optics)
 		, m_reflectivity(rhs.m_reflectivity)
 		, m_shaders(rhs.m_shaders)
+		, m_surface(rhs.m_surface)
 	{}
 
 	// Return the extensible type id for this material.
@@ -375,6 +396,17 @@ namespace pr::rdr12
 		return *this;
 	}
 
+	// Get/Set whether back-facing pixels should flip their lit surface normal.
+	bool MaterialSimple::two_sided() const
+	{
+		return m_surface.m_two_sided;
+	}
+	MaterialSimple& MaterialSimple::two_sided(bool enabled)
+	{
+		m_surface.m_two_sided = enabled;
+		return *this;
+	}
+
 	// Add a shader overlay to this material.
 	MaterialSimple& MaterialSimple::use_shader_overlay(ERenderStep step, ShaderPtr overlay)
 	{
@@ -396,6 +428,9 @@ namespace pr::rdr12
 
 		if (component_id == materials::ShaderOverlays::Id)
 			return &m_shaders;
+
+		if (component_id == materials::Surface::Id)
+			return &m_surface;
 
 		return nullptr;
 	}

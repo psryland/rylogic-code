@@ -357,6 +357,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\surface.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h">
       <Filter>src\material</Filter>
     </ClInclude>

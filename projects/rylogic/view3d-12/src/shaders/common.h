@@ -108,6 +108,10 @@ namespace pr::rdr12
 			if (AllSet(nug.m_geom, EGeom::Norm))
 				model_flags |= shaders::ModelFlags_HasNormals;
 
+			// Treat the surface as two-sided for lit normal orientation.
+			if (material.ComponentOrDefault<materials::Surface>().m_two_sided)
+				model_flags |= shaders::ModelFlags_TwoSided;
+
 			// Is Skinned
 			if (ModelPtr const* model = inst.find<ModelPtr>(EInstComp::ModelPtr); model && (*model)->m_skin)
 				if (PosePtr const* pose = inst.find<PosePtr>(EInstComp::PosePtr); pose && *pose)

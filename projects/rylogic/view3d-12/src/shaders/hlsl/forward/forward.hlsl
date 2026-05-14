@@ -53,27 +53,32 @@ struct PSReflectionOut
 };
 
 // Return the world-space surface normal used by the forward material path.
-float4 ResolveWorldNormal(PSIn In)
+float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 {
 	if (!HasNormals(g_nugget.flags))
 		return float4(0, 0, 0, 0);
 
-	return
+	float4 norm =
 		dot(In.ws_norm, In.ws_norm) != 0 ? normalize(In.ws_norm) :
 		DirectionalLight(g_frame.global_light) ? -g_frame.global_light.ws_direction :
 		PointLight(g_frame.global_light)       ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
 		SpotLight(g_frame.global_light)        ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
 		float4(0, 0, 0, 0);
+
+	if (TwoSided(g_nugget.flags) && !is_front_face)
+		norm = -norm;
+
+	return norm;
 }
 
 // Return the RT reflection side-buffer payload for the visible opaque surface.
-float4 ReflectionAttributes(PSIn In, float4 diff)
+float4 ReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 {
 	float reflectivity = saturate(g_nugget.env_reflectivity);
 	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
 		return float4(0, 0, 0, 0);
 
-	float3 normal = ResolveWorldNormal(In).xyz;
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return float4(0, 0, 0, 0);
 
@@ -82,12 +87,12 @@ float4 ReflectionAttributes(PSIn In, float4 diff)
 }
 
 // Return the RT alpha sidecar payload for a transparent surface layer.
-uint AlphaRtAttributes(PSIn In, float4 diff)
+uint AlphaRtAttributes(PSIn In, float4 diff, bool is_front_face)
 {
 	if (!HasNormals(g_nugget.flags))
 		return 0;
 
-	float3 normal = ResolveWorldNormal(In).xyz;
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return 0;
 
@@ -125,7 +130,7 @@ PSIn VSDefault(VSIn In)
 }
 
 // Default PS
-PSOut PSDefault(PSIn In)
+PSOut PSDefault(PSIn In, bool is_front_face)
 {
 	// Notes:
 	//  - 'ss_vert:SV_Position' in the pixel shader already has x,y,z divided by w (w unchanged)
@@ -141,7 +146,7 @@ PSOut PSDefault(PSIn In)
 	if (HasNormals(g_nugget.flags))
 	{
 		// If the normal is (0,0,0), use a vector to the light source
-		In.ws_norm = ResolveWorldNormal(In);
+		In.ws_norm = ResolveWorldNormal(In, is_front_face);
 	}
 
 	// Texture2D (with transform)
@@ -179,9 +184,9 @@ PSOut PSDefault(PSIn In)
 	return Out;
 }
 
-PSOut PSRadialFade(PSIn In)
+PSOut PSRadialFade(PSIn In, bool is_front_face)
 {
-	PSOut Out = PSDefault(In);
+	PSOut Out = PSDefault(In, is_front_face);
 
 	// Fade pixels radially from 'centre'
 	float4 centre = any(g_fade.fade_centre) ? g_fade.fade_centre : g_frame.cam.c2w[3];
@@ -197,9 +202,9 @@ PSOut PSRadialFade(PSIn In)
 	return Out;
 }
 
-void PSAlphaCollect(PSIn In)
+void PSAlphaCollect(PSIn In, bool is_front_face)
 {
-	float4 diff = PSDefault(In).diff;
+	float4 diff = PSDefault(In, is_front_face).diff;
 	clip(diff.a - (1.0f / 255.0f));
 
 	uint2 pix = uint2(In.ss_vert.xy);
@@ -215,7 +220,7 @@ void PSAlphaCollect(PSIn In)
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
 	uint colour = PackRGBA8(diff);
-	uint rt_attrs = AlphaRtAttributes(In, diff);
+	uint rt_attrs = AlphaRtAttributes(In, diff, is_front_face);
 
 	uint4 alpha_colour = g_alpha_colour[pix];
 	uint4 alpha_depth = g_alpha_depth[pix];
@@ -234,32 +239,32 @@ PSIn main(VSIn In)
 #endif
 
 #ifdef PR_RDR_PSHADER_forward
-PSOut main(PSIn In)
+PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	return PSDefault(In);
+	return PSDefault(In, is_front_face);
 }
 #endif
 
 #ifdef PR_RDR_PSHADER_forward_reflection_attrs
-PSReflectionOut main(PSIn In)
+PSReflectionOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
-	Out.diff = PSDefault(In).diff;
-	Out.reflection_attrs = ReflectionAttributes(In, Out.diff);
+	Out.diff = PSDefault(In, is_front_face).diff;
+	Out.reflection_attrs = ReflectionAttributes(In, Out.diff, is_front_face);
 	return Out;
 }
 #endif
 
 #ifdef PR_RDR_PSHADER_forward_radial_fade
-PSOut main(PSIn In)
+PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	return PSRadialFade(In);
+	return PSRadialFade(In, is_front_face);
 }
 #endif
 
 #ifdef PR_RDR_PSHADER_forward_alpha_collect
-void main(PSIn In)
+void main(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	PSAlphaCollect(In);
+	PSAlphaCollect(In, is_front_face);
 }
 #endif

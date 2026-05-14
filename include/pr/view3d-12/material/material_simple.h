@@ -7,6 +7,7 @@
 #include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
+#include "pr/view3d-12/material/components/surface.h"
 #include "pr/view3d-12/material/material.h"
 
 namespace pr::rdr12
@@ -20,6 +21,7 @@ namespace pr::rdr12
 		materials::Optics m_optics;              // Optical properties used by RT paths.
 		materials::Reflectivity m_reflectivity;  // Reflection properties.
 		materials::ShaderOverlays m_shaders;     // Shader overlays used by this material.
+		materials::Surface m_surface;            // Surface shading options.
 
 		MaterialSimple(Texture2DPtr tex_diffuse = {}, SamplerPtr sam_diffuse = {}, Colour32 tint = Colour32White, float rel_reflec = 1.0f);
 		MaterialSimple(MaterialSimple const& rhs);
@@ -55,6 +57,10 @@ namespace pr::rdr12
 		// Get/Set the relative reflectivity.
 		float rel_reflec() const;
 		MaterialSimple& rel_reflec(float reflectivity);
+
+		// Get/Set whether back-facing pixels should flip their lit surface normal.
+		bool two_sided() const;
+		MaterialSimple& two_sided(bool enabled = true);
 
 		// Add a shader overlay to this material.
 		MaterialSimple& use_shader_overlay(ERenderStep step, ShaderPtr overlay);
