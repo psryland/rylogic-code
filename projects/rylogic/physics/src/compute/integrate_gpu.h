@@ -20,7 +20,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_box; // GPU buffer: RWStructuredBuffer<BBox> exact world-space bounding boxes
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 
-		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
+		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Upload staged body dynamics and reset collision counters.
 		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies);

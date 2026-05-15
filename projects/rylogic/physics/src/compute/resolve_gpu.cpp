@@ -73,10 +73,10 @@ namespace pr::physics
 		inline static constexpr auto WarmStartCurr  = EUAVReg::u9;
 	};
 
-	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config)
+	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_contact_sorter(gpu.m_gpu, ContactSorter::TuningParams{.shader_cache = config.shader_cache})
+		, m_contact_sorter(gpu.m_gpu, ContactSorter::TuningParams{}, shader_cache)
 		, m_cs_compute_times()
 		, m_cs_clear_shock_lists()
 		, m_cs_seed_shock_priority()
@@ -106,26 +106,11 @@ namespace pr::physics
 		, m_reset_warm_start_cache(true)
 		, m_materials_dirty(true)
 	{
-		CompileShaders();
-
-		// Create a command signature for indirect dispatch
-		D3D12_INDIRECT_ARGUMENT_DESC arg = {
-			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
-		};
-		D3D12_COMMAND_SIGNATURE_DESC desc = {
-			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
-			.NumArgumentDescs = 1,
-			.pArgumentDescs = &arg,
-		};
-		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
-	}
-
-	// Compile the resolve compute shader from embedded resources.
-	void GpuResolver::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the resolve compute shader from embedded resources.
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/resolve.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/resolve.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
@@ -250,6 +235,16 @@ namespace pr::physics
 			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
 		}
 
+		// Create a command signature for indirect dispatch
+		D3D12_INDIRECT_ARGUMENT_DESC arg = {
+			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
+		};
+		D3D12_COMMAND_SIGNATURE_DESC desc = {
+			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+		};
+		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.

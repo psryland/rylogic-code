@@ -164,7 +164,7 @@ namespace physics_sandbox
 	Scene::Scene(rdr12::Renderer* rdr)
 		: m_rdr(rdr)
 		, m_shader_cache(AppDataPath() / "shader_cache", "physics-sandbox")
-		, m_physics(physics::EngineConfig{.shader_cache = &m_shader_cache}, rdr ? rdr->d3d() : nullptr)
+		, m_physics(physics::EngineConfig{}, &m_shader_cache, rdr ? rdr->d3d() : nullptr)
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
@@ -206,7 +206,6 @@ namespace physics_sandbox
 		m_kill_zone_height = -100.0f;
 		m_physics_substeps = 1;
 		m_physics.Config(physics::EngineConfig{
-			.shader_cache = &m_shader_cache,
 			.sleeping_enabled = m_allow_sleeping,
 		});
 
@@ -474,7 +473,6 @@ namespace physics_sandbox
 		m_gravity = scene_desc.gravity;
 		m_physics_substeps = scene_desc.physics_substeps;
 		m_physics.Config(physics::EngineConfig{
-			.shader_cache = &m_shader_cache,
 			.max_collision_pairs = scene_desc.physics_max_collision_pairs,
 			.sleeping_enabled = m_allow_sleeping,
 			.solver_iterations = scene_desc.physics_solver_iterations,

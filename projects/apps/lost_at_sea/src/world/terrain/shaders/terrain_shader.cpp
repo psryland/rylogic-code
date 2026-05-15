@@ -6,8 +6,6 @@
 #include "src/world/terrain/terrain.h"
 #include "src/world/terrain/cdlod.h"
 #include "src/world/terrain/shaders/terrain_shader.h"
-#include "pr/view3d-12/render/drawlist_element.h"
-#include "pr/view3d-12/instance/instance.h"
 #include "src/world/terrain/shaders/terrain_cbuf.hlsli"
 
 namespace las

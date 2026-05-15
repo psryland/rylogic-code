@@ -103,13 +103,13 @@ namespace pr::rdr12
 		}
 	}
 
-	// Create a DXC compiler wrapper and the default include handler used when no cache-aware resolver is supplied.
-	ShaderCompiler::ShaderCompiler(IShaderCache* cache)
+	// Create a DXC compiler wrapper
+	ShaderCompiler::ShaderCompiler()
 		: m_result()
 		, m_compiler()
 		, m_source_blob()
 		, m_includes()
-		, m_cache(cache)
+		, m_cache()
 		, m_include_resolver()
 		, m_owned_resolver()
 		, m_pdb_dir()
@@ -137,137 +137,73 @@ namespace pr::rdr12
 		Check(utils->CreateDefaultIncludeHandler(m_includes.address_of()));
 	}
 
-	// Set the shader cache that should be consulted by Compile().
-	ShaderCompiler& ShaderCompiler::Cache(IShaderCache* cache)
+	// Move a compiler and repair internal views that point into owned storage.
+	ShaderCompiler::ShaderCompiler(ShaderCompiler&& rhs)
+		: m_result(std::move(rhs.m_result))
+		, m_compiler(std::move(rhs.m_compiler))
+		, m_source_blob(std::move(rhs.m_source_blob))
+		, m_includes(std::move(rhs.m_includes))
+		, m_cache(rhs.m_cache)
+		, m_include_resolver(rhs.m_include_resolver)
+		, m_owned_resolver(std::move(rhs.m_owned_resolver))
+		, m_pdb_dir(std::move(rhs.m_pdb_dir))
+		, m_pdb_name_hint(std::move(rhs.m_pdb_name_hint))
+		, m_pdb_arg(std::move(rhs.m_pdb_arg))
+		, m_source_code(std::move(rhs.m_source_code))
+		, m_source()
+		, m_source_dependency(std::move(rhs.m_source_dependency))
+		, m_source_identity(std::move(rhs.m_source_identity))
+		, m_defines(std::move(rhs.m_defines))
+		, m_ep(std::move(rhs.m_ep))
+		, m_sm(std::move(rhs.m_sm))
+		, m_hlsl_version(rhs.m_hlsl_version)
+		, m_optimise(rhs.m_optimise)
+		, m_debug_info(rhs.m_debug_info)
+		, m_extras(std::move(rhs.m_extras))
+		, m_args()
+		, m_canonical_args(std::move(rhs.m_canonical_args))
 	{
-		m_cache = cache;
-		return *this;
+		RebindSource();
+		rhs.m_cache = nullptr;
+		rhs.m_include_resolver = nullptr;
+		rhs.m_args.clear();
+		rhs.RebindSource();
 	}
 
-	// Use a file as the root source and resolve relative includes from the file's directory.
-	ShaderCompiler& ShaderCompiler::File(std::filesystem::path file)
+	// Move assign a compiler and repair internal views that point into owned storage.
+	ShaderCompiler& ShaderCompiler::operator = (ShaderCompiler&& rhs)
 	{
-		auto path = CanonicalPath(std::move(file));
-		m_owned_resolver = std::make_unique<FileSourceResolver>(path.parent_path());
+		if (this == &rhs)
+			return *this;
 
-		// FileSourceResolver returns both the source text and the file metadata needed to validate cached output later.
-		SetSource(m_owned_resolver->Resolve(Narrow(path.wstring())));
-		m_include_resolver = m_owned_resolver.get();
-		m_includes = nullptr;
-		return *this;
-	}
+		m_result = std::move(rhs.m_result);
+		m_compiler = std::move(rhs.m_compiler);
+		m_source_blob = std::move(rhs.m_source_blob);
+		m_includes = std::move(rhs.m_includes);
+		m_cache = rhs.m_cache;
+		m_include_resolver = rhs.m_include_resolver;
+		m_owned_resolver = std::move(rhs.m_owned_resolver);
+		m_pdb_dir = std::move(rhs.m_pdb_dir);
+		m_pdb_name_hint = std::move(rhs.m_pdb_name_hint);
+		m_pdb_arg = std::move(rhs.m_pdb_arg);
+		m_source_code = std::move(rhs.m_source_code);
+		m_source_dependency = std::move(rhs.m_source_dependency);
+		m_source_identity = std::move(rhs.m_source_identity);
+		m_defines = std::move(rhs.m_defines);
+		m_ep = std::move(rhs.m_ep);
+		m_sm = std::move(rhs.m_sm);
+		m_hlsl_version = rhs.m_hlsl_version;
+		m_optimise = rhs.m_optimise;
+		m_debug_info = rhs.m_debug_info;
+		m_extras = std::move(rhs.m_extras);
+		m_args.clear();
+		m_canonical_args = std::move(rhs.m_canonical_args);
 
-	// Use anonymous UTF-8 source text. Anonymous source is compilable but not cacheable because it has no stable identity.
-	ShaderCompiler& ShaderCompiler::Source(std::string_view code)
-	{
-		m_source_blob = nullptr;
-		m_source_code.assign(code);
-		m_source_identity.clear();
-		m_source_dependency = {};
-		m_source = DxcBuffer {
-			.Ptr = m_source_code.data(),
-			.Size = m_source_code.size(),
-			.Encoding = DXC_CP_UTF8,
-		};
-		return *this;
-	}
-
-	// Use UTF-8 source text with a stable cache identity.
-	ShaderCompiler& ShaderCompiler::Source(std::string_view code, std::string_view identity)
-	{
-		Source(code);
-		if (!identity.empty())
-		{
-			// Hash the current source text so cache entries are invalidated when the caller supplies changed text under the same identity.
-			m_source_identity = identity;
-			m_source_dependency = SourceTextDependency(m_source_identity, m_source_code);
-		}
-		return *this;
-	}
-
-	// Use a caller-provided resolver for the root source and all includes.
-	ShaderCompiler& ShaderCompiler::Source(std::string_view source_name, ISourceResolver const& resolver)
-	{
-		SetSource(resolver.Resolve(source_name));
-		m_include_resolver = &resolver;
-		m_includes = nullptr;
-		return *this;
-	}
-
-	// Use a raw DXC include handler. This disables include dependency tracking because the handler has no cache-key contract.
-	ShaderCompiler& ShaderCompiler::Includes(D3DPtr<IDxcIncludeHandler> handler)
-	{
-		m_includes = handler;
-		m_include_resolver = nullptr;
-		return *this;
-	}
-
-	// Use a cache-aware include resolver for include lookup.
-	ShaderCompiler& ShaderCompiler::Includes(ISourceResolver const& resolver)
-	{
-		m_include_resolver = &resolver;
-		m_includes = nullptr;
-		return *this;
-	}
-
-	// Set the HLSL entry point passed to DXC.
-	ShaderCompiler& ShaderCompiler::EntryPoint(std::wstring_view ep)
-	{
-		m_ep.clear();
-		m_ep.append(L"-E").append(ep);
-		return *this;
-	}
-
-	// Set the shader model target passed to DXC.
-	ShaderCompiler& ShaderCompiler::ShaderModel(std::wstring_view sm)
-	{
-		m_sm.clear();
-		m_sm.append(L"-T").append(sm);
-		return *this;
-	}
-
-	// Select the HLSL language version requested from DXC.
-	ShaderCompiler& ShaderCompiler::HlslVersion(EHlslVersion version)
-	{
-		m_hlsl_version = version;
-		return *this;
-	}
-
-	// Enable or disable DXC optimisation.
-	ShaderCompiler& ShaderCompiler::Optimise(bool opt)
-	{
-		m_optimise = opt;
-		return *this;
-	}
-
-	// Enable or disable PDB/debug-info emission in the compiled shader.
-	ShaderCompiler& ShaderCompiler::DebugInfo(bool dbg)
-	{
-		m_debug_info = dbg;
-		return *this;
-	}
-
-	// Add or replace a preprocessor definition passed to DXC.
-	ShaderCompiler& ShaderCompiler::Define(std::wstring_view sym, std::wstring_view value)
-	{
-		m_defines[std::wstring(sym)] = !value.empty()
-			? std::format(L"-D{}={}", sym, value)
-			: std::format(L"-D{}", sym);
-		return *this;
-	}
-
-	// Request PDB output in 'dir', optionally using 'filename' as the cache-stable name hint.
-	ShaderCompiler& ShaderCompiler::PDBOutput(std::filesystem::path dir, std::string_view filename)
-	{
-		m_pdb_dir = std::move(dir);
-		m_pdb_name_hint = Widen(filename);
-		return *this;
-	}
-
-	// Append a raw DXC argument after the generated arguments.
-	ShaderCompiler& ShaderCompiler::Arg(std::wstring_view arg)
-	{
-		m_extras.push_back(std::wstring(arg));
+		RebindSource();
+		rhs.m_cache = nullptr;
+		rhs.m_include_resolver = nullptr;
+		rhs.m_args.clear();
+		rhs.RebindSource();
 		return *this;
 	}
 
@@ -278,6 +214,12 @@ namespace pr::rdr12
 		m_source_code = std::move(source.m_code);
 		m_source_identity = std::move(source.m_identity);
 		m_source_dependency = std::move(source.m_dependency);
+		RebindSource();
+	}
+
+	// Point the DXC source buffer at the current owned UTF-8 source text.
+	void ShaderCompiler::RebindSource()
+	{
 		m_source = DxcBuffer{
 			.Ptr = m_source_code.data(),
 			.Size = m_source_code.size(),

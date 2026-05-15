@@ -35,7 +35,7 @@ namespace pr::physics
 		inline static constexpr auto Contacts = ESRVReg::t2;
 	};
 
-	GpuSleepManager::GpuSleepManager(Gpu& gpu, EngineConfig const& config)
+	GpuSleepManager::GpuSleepManager(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_disturb_islands()
@@ -51,29 +51,14 @@ namespace pr::physics
 		, m_island_capacity()
 		, m_body_capacity()
 	{
-		CompileShaders();
-
-		D3D12_INDIRECT_ARGUMENT_DESC arg = {
-			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
-		};
-		D3D12_COMMAND_SIGNATURE_DESC desc = {
-			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
-			.NumArgumentDescs = 1,
-			.pArgumentDescs = &arg,
-		};
-		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
-	}
-
-	// Compile the sleep/wake compute shaders.
-	void GpuSleepManager::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the sleep/wake compute shaders.
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/sleep.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/sleep.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
-
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbSleep>(EReg::Params)
@@ -112,6 +97,16 @@ namespace pr::physics
 		compile_update(m_cs_canonicalise_roots, L"CSCanonicaliseSleepRoots", "Physics:CanonicaliseSleepRootsSig", "Physics:CanonicaliseSleepRootsPSO");
 		compile_update(m_cs_reduce_sleep_stats, L"CSReduceSleepStats", "Physics:ReduceSleepStatsSig", "Physics:ReduceSleepStatsPSO");
 		compile_update(m_cs_apply_sleep_state, L"CSApplySleepState", "Physics:ApplySleepStateSig", "Physics:ApplySleepStatePSO");
+
+		D3D12_INDIRECT_ARGUMENT_DESC arg = {
+			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
+		};
+		D3D12_COMMAND_SIGNATURE_DESC desc = {
+			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+		};
+		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
 	// Resize the buffers to support 'capacity' sleep islands.

@@ -38,6 +38,7 @@
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
+#include "pr/view3d-12/shaders/compiler/shader_cache.h"
 
 // Physics diagnostics/profile code defaults to debug-only. Define these explicitly to opt in/out per build.
 #ifndef PR_DBG_PHYSICS
@@ -63,6 +64,7 @@ namespace pr::physics
 	using namespace hlsl;
 
 	using BBox = math::BoundingBox<float>;
+	using IShaderCache = rdr12::shader_cache::IShaderCache;
 
 	// Custom deleter for smart pointers
 	template <typename T> struct Deleter {

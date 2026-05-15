@@ -33,25 +33,21 @@ namespace pr::physics
 		inline static constexpr auto SleepIslands = ESRVReg::t3;
 	};
 
-	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config)
+	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
-		, m_sorter(gpu.m_gpu, BoundsSorter::TuningParams{.shader_cache = config.shader_cache})
+		, m_sorter(gpu.m_gpu, BoundsSorter::TuningParams{}, shader_cache)
 		, m_cs_sweep()
 		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
 		, m_r_cd_dispatch()
 		, m_max_col_pairs()
 	{
-		CompileShaders();
-	}
-
-	// Compile the compute shaders
-	void GpuSortAndSweep::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the compute shaders
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/sweep.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/sweep.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();

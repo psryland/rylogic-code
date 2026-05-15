@@ -29,9 +29,9 @@ namespace blitzsearch
 			// Load the settings
 			auto settings_data = pr::json::Read(settings_path, { .AllowComments = true, .AllowTrailingCommas = true });
 
-			for (auto x : settings_data["SearchPaths"].to<pr::json::Array>())
+			for (auto x : settings_data["SearchPaths"].to_array())
 				SearchPaths.push_back(x.to<std::filesystem::path>());
-			for (auto x : settings_data["FileExtensions"].to<pr::json::Array>())
+			for (auto x : settings_data["FileExtensions"].to_array())
 				FileExtensions.push_back(x.to<std::string>());
 			MaxFileSize = settings_data["MaxFileSize"].to<int64_t>();
 		}

@@ -25,7 +25,7 @@ namespace pr::physics
 		int m_island_capacity;                   // Maximum number of islands the island buffer can hold
 		int m_body_capacity;                     // Maximum number of bodies the scratch buffers can hold
 
-		explicit GpuSleepManager(Gpu& gpu, EngineConfig const& config);
+		explicit GpuSleepManager(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Upload staged sleep islands to the GPU.
 		void Upload(GpuJob& job, std::span<GpuSleepIsland const> islands);

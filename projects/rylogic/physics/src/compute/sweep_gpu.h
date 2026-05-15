@@ -37,7 +37,7 @@ namespace pr::physics
 
 	public:
 
-		explicit GpuSortAndSweep(Gpu& gpu, EngineConfig const& config);
+		explicit GpuSortAndSweep(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Sort the body index list based on the bounding box bounds
 		void Sort(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> aabb, D3DPtr<ID3D12Resource> aabb_idx);

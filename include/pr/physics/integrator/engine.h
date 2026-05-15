@@ -122,7 +122,7 @@ namespace pr::physics
 
 	public:
 
-		explicit Engine(EngineConfig const& config = {}, ID3D12Device4* existing_device = nullptr);
+		explicit Engine(EngineConfig const& config = {}, IShaderCache* shader_cache = nullptr, ID3D12Device4* existing_device = nullptr);
 
 		// Engine configuration in use by this instance.
 		EngineConfig const& Config() const;

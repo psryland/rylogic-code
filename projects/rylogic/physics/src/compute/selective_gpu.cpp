@@ -48,7 +48,7 @@ namespace pr::physics
 		inline static constexpr auto FullPairs = ESRVReg::t3;
 	};
 
-	GpuSelectiveRefresher::GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config)
+	GpuSelectiveRefresher::GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_prepare()
@@ -63,24 +63,11 @@ namespace pr::physics
 		, m_max_pairs()
 		, m_max_contacts()
 	{
-		CompileShaders();
-
-		D3D12_INDIRECT_ARGUMENT_DESC arg = {
-			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
-		};
-		D3D12_COMMAND_SIGNATURE_DESC desc = {
-			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
-			.NumArgumentDescs = 1,
-			.pArgumentDescs = &arg,
-		};
-		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
-	}
-
-	void GpuSelectiveRefresher::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the compute shaders.
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/selective.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/selective.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
@@ -154,6 +141,16 @@ namespace pr::physics
 				"Physics:SelectiveBuildDispatchPSO",
 				sig);
 		}
+
+		D3D12_INDIRECT_ARGUMENT_DESC arg = {
+			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
+		};
+		D3D12_COMMAND_SIGNATURE_DESC desc = {
+			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+		};
+		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
 	void GpuSelectiveRefresher::ResizeBuffers(CmdList& cmd_list, int body_count, int max_pairs, int max_contacts)

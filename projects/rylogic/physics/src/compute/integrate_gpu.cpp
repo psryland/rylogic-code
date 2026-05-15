@@ -35,7 +35,7 @@ namespace pr::physics
 		inline static constexpr auto AABB_Box = EUAVReg::u4;
 	};
 
-	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config)
+	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_integrate()
@@ -46,15 +46,11 @@ namespace pr::physics
 		, m_r_aabb_box()
 		, m_capacity()
 	{
-		CompileShaders();
-	}
-
-	// Compile the integration compute shader
-	void GpuIntegrator::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the integration compute shader
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/integrate.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/integrate.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();

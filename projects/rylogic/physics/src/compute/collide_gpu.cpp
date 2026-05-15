@@ -38,7 +38,7 @@ namespace pr::physics
 		inline static constexpr auto Edges = ESRVReg::t4;
 	};
 
-	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
+	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_clear_bins()
@@ -63,26 +63,11 @@ namespace pr::physics
 		, m_max_faces()
 		, m_max_edges()
 	{
-		CompileShaders();
-
-		// Create a command signature for indirect dispatch
-		D3D12_INDIRECT_ARGUMENT_DESC arg = {
-			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
-		};
-		D3D12_COMMAND_SIGNATURE_DESC desc = {
-			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
-			.NumArgumentDescs = 1,
-			.pArgumentDescs = &arg,
-		};
-		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
-	}
-
-	// Compile the collision compute shader from embedded resources.
-	void GpuCollisionDetector::CompileShaders()
-	{
-		auto compiler = ShaderCompiler{m_config.shader_cache};
+		// Compile the collision compute shader from embedded resources.
 		auto resolver = shader_cache::ResourceSourceResolver{};
-		compiler.Source("src/compute/collide.hlsl", resolver)
+		auto compiler = ShaderCompiler{}
+			.Cache(shader_cache)
+			.Source("src/compute/collide.hlsl", resolver)
 			.HlslVersion(EHlslVersion::DxcDefault)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
@@ -180,6 +165,17 @@ namespace pr::physics
 			m_cs_calc_dispatch.m_sig = sig.Create(m_gpu, "Physics:CalcResolveDispatchSig");
 			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), bytecode).Create(m_gpu, "Physics:CalcResolveDispatchPSO");
 		}
+
+		// Create a command signature for indirect dispatch
+		D3D12_INDIRECT_ARGUMENT_DESC arg = {
+			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH
+		};
+		D3D12_COMMAND_SIGNATURE_DESC desc = {
+			.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+			.NumArgumentDescs = 1,
+			.pArgumentDescs = &arg,
+		};
+		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
 	// Create GPU buffers for collision pipeline.

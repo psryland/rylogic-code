@@ -35,7 +35,7 @@ namespace pr::physics
 		int m_max_pairs;
 		int m_max_contacts;
 
-		explicit GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config);
+		explicit GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Build the compact pair work set for one selective refresh pass.
 		GpuSelectiveWorkSet& BuildWorkSet(

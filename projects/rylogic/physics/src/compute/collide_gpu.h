@@ -40,7 +40,7 @@ namespace pr::physics
 		int m_max_faces;
 		int m_max_edges;
 
-		explicit GpuCollisionDetector(Gpu& gpu, EngineConfig const& config);
+		explicit GpuCollisionDetector(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Run collision detection on the GPU. Outputs GpuResolveContact directly.
 		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache);

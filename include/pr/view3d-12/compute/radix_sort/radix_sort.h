@@ -70,7 +70,6 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			int keys_per_thread = 15;
 			int part_size = 7680;
 			bool use_16bit = true;
-			IShaderCache* shader_cache = nullptr;
 		};
 
 		Gpu* m_gpu;
@@ -97,7 +96,7 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			GpuReadbackBuffer::Allocation values;
 		};
 
-		explicit GpuRadixSort(Gpu& gpu, TuningParams const& tuning = {})
+		explicit GpuRadixSort(Gpu& gpu, TuningParams const& tuning = {}, IShaderCache* shader_cache = nullptr)
 			: m_gpu(&gpu)
 			, m_init()
 			, m_init_payload()
@@ -113,9 +112,10 @@ namespace pr::rdr12::compute::gpu_radix_sort
 			, m_size()
 			, m_bound_to_external()
 		{
-			auto compiler = ShaderCompiler{m_tuning.shader_cache};
-			auto resolver = shader_cache::ResourceSourceResolver{};
-			compiler.Source("src/compute/radix_sort/radix_sort.hlsl", resolver)
+			shader_cache::ResourceSourceResolver resolver;
+			auto compiler = ShaderCompiler{}
+				.Cache(shader_cache)
+				.Source("src/compute/radix_sort/radix_sort.hlsl", resolver)
 				.HlslVersion(EHlslVersion::DxcDefault)
 				.ShaderModel(m_tuning.shader_model)
 				.Optimise()
