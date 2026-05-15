@@ -753,10 +753,21 @@
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\interop.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\shader_registers.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\imgui\imgui.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\alpha_kbuffer.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\imgui\imgui.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ray_tracing\ray_tracing_reflections.h">
+      <Filter>src\ray_tracing</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\interop.h">
+      <Filter>pr\hlsl</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\alpha_kbuffer.h">
+      <Filter>src\render</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\hlsl\shader_registers.h">
+      <Filter>pr\hlsl</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -903,6 +914,9 @@
     </ClCompile>
     <ClCompile Include="src\render\alpha_kbuffer.cpp">
       <Filter>src\render</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ray_tracing\ray_tracing_reflections.cpp">
+      <Filter>src\ray_tracing</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
