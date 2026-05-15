@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -14,8 +14,6 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/sampler/sampler.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "pr/view3d-12/utility/shadow_caster.h"
 #include "pr/view3d-12/utility/diagnostics.h"
@@ -27,6 +25,8 @@
 #include "view3d-12/src/render/render_forward.h"
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// An instance for a quad that displays a texture for debugging it's content
 	struct DebugQuadInstance
 	{
@@ -82,6 +82,8 @@ namespace pr::rdr12
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	RenderSmap::RenderSmap(Scene& scene, Light const& light, int size, DXGI_FORMAT format)
 		: RenderStep(Id, scene)
 		, m_shader(scene.rdr())

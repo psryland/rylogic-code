@@ -2,10 +2,10 @@
 // Compute
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
+#include "pr/compute/utility/cmd_list.h"
+#include "pr/compute/utility/barrier_batch.h"
 
-namespace pr::rdr12
+namespace pr::compute
 {
 	void RestoreResourceStateDefaults(CmdList<D3D12_COMMAND_LIST_TYPE_DIRECT>& cmd_list)
 	{

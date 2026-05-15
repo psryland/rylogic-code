@@ -19,10 +19,11 @@
 #include "pr/view3d-12/shaders/shader_thick_line.h"
 #include "pr/view3d-12/shaders/shader_arrow_head.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
-#include "pr/view3d-12/utility/update_resource.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	ResourceFactory::ResourceFactory(Renderer& rdr)
 		: m_rdr(rdr)
 		, m_gsync(rdr.D3DDevice())
@@ -191,7 +192,7 @@ namespace pr::rdr12
 		SizeAndAlign16 istride(mdesc.m_ib.ElemStride, mdesc.m_ib.DataAlignment);
 
 		// Create the model
-		ModelPtr ptr(rdr12::New<Model>(rdr(),
+		ModelPtr ptr(::pr::compute::New<Model>(rdr(),
 			s_cast<int64_t>(mdesc.m_vb.Width),
 			s_cast<int64_t>(mdesc.m_ib.Width),
 			vstride,
@@ -378,7 +379,7 @@ namespace pr::rdr12
 	// Create a new nugget
 	NuggetPtr ResourceFactory::CreateNugget(NuggetDesc const& ndata, Model* model)
 	{
-		NuggetPtr ptr(rdr12::New<Nugget>(ndata, model), true);
+		NuggetPtr ptr(::pr::compute::New<Nugget>(ndata, model), true);
 		assert(rdr().mem_tracker().add(ptr.get()));
 		return ptr;
 	}
@@ -413,7 +414,7 @@ namespace pr::rdr12
 		}
 
 		// Allocate a new texture instance
-		Texture2DPtr inst(rdr12::New<Texture2D>(rdr(), res.get(), desc), true);
+		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add the texture instance pointer (not ref counted) to the store.
@@ -532,9 +533,9 @@ namespace pr::rdr12
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
-	
+
 		// Allocate a new texture instance
-		Texture2DPtr inst(rdr12::New<Texture2D>(rdr(), res.get(), desc), true);
+		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add a pointer (not ref counted) to the texture instance to the lookup table.
@@ -555,7 +556,7 @@ namespace pr::rdr12
 
 		if (resource_path.empty())
 			throw std::runtime_error("Resource path must be given");
-		
+
 		// Create the texture resource
 		D3DPtr<ID3D12Resource> res;
 		TextureDesc desc = desc_;
@@ -676,7 +677,7 @@ namespace pr::rdr12
 		}
 
 		// Allocate a new texture instance
-		TextureCubePtr inst(rdr12::New<TextureCube>(rdr(), res.get(), desc), true);
+		TextureCubePtr inst(::pr::compute::New<TextureCube>(rdr(), res.get(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add a pointer (not ref counted) to the texture instance to the lookup table.
@@ -893,7 +894,7 @@ namespace pr::rdr12
 				// (-sqrt(3)/2,0.75)------(sqrt(3)/2,0.75)
 				//               \         /
 				//                \       /
-				//                 \     / 
+				//                 \     /
 				//                   0,0
 				std::vector<uint32_t> data(sz * sz);
 				for (int j = 0; j * 4 <= sz * 3; ++j)
@@ -937,7 +938,7 @@ namespace pr::rdr12
 			}
 		}
 	}
-	
+
 	// Create (or Get) a new sampler instance.
 	SamplerPtr ResourceFactory::CreateSampler(SamplerDesc const& desc)
 	{
@@ -953,7 +954,7 @@ namespace pr::rdr12
 		}
 
 		// Allocate a new sampler instance
-		SamplerPtr inst(rdr12::New<Sampler>(rdr(), desc), true);
+		SamplerPtr inst(::pr::compute::New<Sampler>(rdr(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 		m_keep_alive.Add(inst);
 
@@ -1006,7 +1007,7 @@ namespace pr::rdr12
 			}
 		}
 	}
-	
+
 	// Create a texture that references a shared resource
 	Texture2DPtr ResourceFactory::OpenSharedTexture2D(HANDLE shared_handle, TextureDesc const& desc)
 	{
@@ -1014,7 +1015,7 @@ namespace pr::rdr12
 		if (desc.m_rdesc.DepthOrArraySize != 1)
 			throw std::runtime_error("Expected a 2D texture");
 
-		Texture2DPtr inst(rdr12::New<Texture2D>(rdr(), shared_handle, desc), true);
+		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), shared_handle, desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add the texture instance to the lookup table
@@ -1025,7 +1026,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	
+
 	// Create a shader
 	ShaderPtr ResourceFactory::CreateShader(EStockShader id, char const* config)
 	{

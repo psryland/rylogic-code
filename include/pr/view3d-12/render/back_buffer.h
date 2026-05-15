@@ -1,17 +1,18 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
 	// Data associated with a back buffer
 	struct BackBuffer
 	{
+		using Descriptor = ::pr::compute::Descriptor;
+		using MultiSamp = ::pr::compute::MultiSamp;
+
 		// Notes:
 		//  - The swap chain can contain multiple back buffers. There will be one of these per swap chain back buffer.
 		//  - When rendering to an off-screen target, create one of these to represent the render target.

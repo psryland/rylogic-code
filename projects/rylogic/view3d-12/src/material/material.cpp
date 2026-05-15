@@ -4,7 +4,6 @@
 //*********************************************
 #include "pr/view3d-12/material/material.h"
 #include "pr/view3d-12/material/material_simple.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -24,7 +23,7 @@ namespace pr::rdr12
 	// Delete this material instance.
 	void Material::Delete()
 	{
-		rdr12::Delete<Material>(this);
+		::pr::compute::Delete<Material>(this);
 	}
 
 	// Return the shared default material used by nuggets with no explicit material.

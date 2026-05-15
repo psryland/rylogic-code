@@ -7,6 +7,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// RAII Scope for a wrapped Dx12 resource
 	D2D1Context::D2D1Context(Renderer& rdr, ID3D12Resource* res)
 		:m_dc()

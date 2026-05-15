@@ -11,6 +11,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	Model::Model(
 		Renderer& rdr,
 		int64_t vcount,

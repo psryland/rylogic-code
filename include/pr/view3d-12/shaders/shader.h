@@ -1,17 +1,17 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
 	// The compiled byte code for the shader stages
 	struct ShaderCode
 	{
+		using ByteCode = ::pr::compute::ByteCode;
+
 		// This is the order they appear in the pipeline state description
 		ByteCode VS;
 		ByteCode PS;
@@ -24,6 +24,8 @@ namespace pr::rdr12
 	// A shader base class
 	struct Shader :RefCounted<Shader>
 	{
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+
 		// Notes:
 		//  - A "shader" means the full set of VS,PS,GS,DS,HS,etc because constant buffers etc apply to all stages now.
 		//  - A shader without a Signature is an 'overlay' shader, intended to replace parts of a full shader. Overlay shaders
@@ -53,7 +55,7 @@ namespace pr::rdr12
 		template <typename TShader, typename... Args> requires (std::is_base_of_v<Shader, TShader> && std::constructible_from<TShader, Args...>)
 		static RefPtr<TShader> Create(Args&&... args)
 		{
-			RefPtr<TShader> shdr(rdr12::New<TShader>(std::forward<Args>(args)...), true);
+			RefPtr<TShader> shdr(::pr::compute::New<TShader>(std::forward<Args>(args)...), true);
 			return shdr;
 		}
 
@@ -69,6 +71,8 @@ namespace pr::rdr12
 	// Statically declared shader byte code
 	namespace shader_code
 	{
+		using ByteCode = ::pr::compute::ByteCode;
+
 		// Not a shader
 		extern ByteCode const none;
 

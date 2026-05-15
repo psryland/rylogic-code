@@ -16,6 +16,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Implementation functions
 	namespace model_generator
 	{
@@ -268,7 +270,7 @@ namespace pr::rdr12
 			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
 			[&](int idx) { *iptr++ = idx; }
 		);
-		
+
 		// Create a nugget
 		cache.m_ncont.push_back(NuggetDesc(ETopo::LineList, props.m_geom).alpha_geom(props.m_has_alpha));
 		cache.m_bbox = props.m_bbox;
@@ -569,7 +571,7 @@ namespace pr::rdr12
 
 		// Create the model
 		return Create(factory, cache, opts);
-	}	
+	}
 	ModelPtr ModelGenerator::BoxList(ResourceFactory& factory, int num_boxes, std::span<v4 const> positions, v4 rad, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
@@ -892,7 +894,7 @@ namespace pr::rdr12
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
 				.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture); })
 			);
-		
+
 		cache.m_bbox = props.m_bbox;
 
 		// Create the model
@@ -1023,7 +1025,7 @@ namespace pr::rdr12
 					{
 						if (tex.m_type != p3d::Texture::EType::Diffuse)
 							continue;
-						
+
 						TextureDesc desc = TextureDesc(AutoId, ResDesc()).has_alpha(AllSet(tex.m_flags, p3d::Texture::EFlags::Alpha)).name(tex.m_filepath.c_str());
 						m_tex_diffuse = m_factory.CreateTexture2D(tex.m_filepath.c_str(), desc);
 						break;
@@ -1324,7 +1326,7 @@ namespace pr::rdr12
 			Cache<> m_cache;
 			std::unordered_map<uint32_t, ModelPtr> m_models;
 			std::unordered_map<uint32_t, SkeletonPtr> m_skels;
-			
+
 			ReadOutput(ResourceFactory& factory, IModelOut& out, CreateOptions const* opts)
 				: m_factory(factory)
 				, m_opts(opts)
@@ -1458,9 +1460,9 @@ namespace pr::rdr12
 				auto bone_names = transform<Skeleton::Names>(fbxskel.m_bone_names, ToString32);
 				auto hierarchy = transform<Skeleton::Hierarchy>(fbxskel.m_hierarchy, ToU8);
 
-				SkeletonPtr skel(rdr12::New<Skeleton>(fbxskel.m_skel_id, fbxskel.m_bone_ids, bone_names, fbxskel.m_o2bp, hierarchy), true);
+				SkeletonPtr skel(::pr::compute::New<Skeleton>(fbxskel.m_skel_id, fbxskel.m_bone_ids, bone_names, fbxskel.m_o2bp, hierarchy), true);
 				m_skels[fbxskel.m_skel_id] = skel;
-				
+
 				/*{
 					std::ofstream ofile("E:\\Dump\\LDraw\\PendulumAnimDump2.txt");
 					ofile << "Skel: " << skel->m_id << "\n";
@@ -1473,11 +1475,11 @@ namespace pr::rdr12
 				m_out.Skeleton(std::move(skel));
 			}
 
-			// Create an animation from 
+			// Create an animation from
 			virtual bool CreateAnimation(fbx::Animation const& fbxanim)
 			{
 				// Create an animation for 'fbxanim'
-				KeyFrameAnimationPtr anim(rdr12::New<KeyFrameAnimation>(fbxanim.m_skel_id, fbxanim.m_duration, fbxanim.m_frame_rate), true);
+				KeyFrameAnimationPtr anim(::pr::compute::New<KeyFrameAnimation>(fbxanim.m_skel_id, fbxanim.m_duration, fbxanim.m_frame_rate), true);
 
 				// Read the key frame data
 				anim->m_bone_map = fbxanim.m_bone_map;
@@ -1535,7 +1537,7 @@ namespace pr::rdr12
 			Cache<> m_cache;
 			std::unordered_map<uint32_t, ModelPtr> m_models;
 			std::unordered_map<uint32_t, SkeletonPtr> m_skels;
-			
+
 			ReadOutput(ResourceFactory& factory, IModelOut& out, CreateOptions const* opts)
 				: m_factory(factory)
 				, m_opts(opts)
@@ -1665,7 +1667,7 @@ namespace pr::rdr12
 				auto bone_names = transform<Skeleton::Names>(gltfskel.m_bone_names, ToString32);
 				auto hierarchy = transform<Skeleton::Hierarchy>(gltfskel.m_hierarchy, ToU8);
 
-				SkeletonPtr skel(rdr12::New<Skeleton>(gltfskel.m_skel_id, gltfskel.m_bone_ids, bone_names, gltfskel.m_o2bp, hierarchy), true);
+				SkeletonPtr skel(::pr::compute::New<Skeleton>(gltfskel.m_skel_id, gltfskel.m_bone_ids, bone_names, gltfskel.m_o2bp, hierarchy), true);
 				m_skels[gltfskel.m_skel_id] = skel;
 				m_out.Skeleton(std::move(skel));
 			}
@@ -1673,7 +1675,7 @@ namespace pr::rdr12
 			// Create an animation
 			virtual bool CreateAnimation(gltf::Animation const& gltfanim)
 			{
-				KeyFrameAnimationPtr anim(rdr12::New<KeyFrameAnimation>(gltfanim.m_skel_id, gltfanim.m_duration, gltfanim.m_frame_rate), true);
+				KeyFrameAnimationPtr anim(::pr::compute::New<KeyFrameAnimation>(gltfanim.m_skel_id, gltfanim.m_duration, gltfanim.m_frame_rate), true);
 
 				anim->m_bone_map = gltfanim.m_bone_map;
 				anim->m_rotation = gltfanim.m_rotation;

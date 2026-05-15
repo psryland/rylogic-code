@@ -95,7 +95,7 @@
 #include "pr/str/to_string.h"
 #include "pr/win32/win32.h"
 
-namespace pr::rdr12
+namespace pr::compute
 {
 	// Types
 	using byte = unsigned char;

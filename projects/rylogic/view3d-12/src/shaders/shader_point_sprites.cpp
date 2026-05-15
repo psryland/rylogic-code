@@ -10,6 +10,8 @@
 
 namespace pr::rdr12::shaders
 {
+	using namespace ::pr::compute;
+
 	PointSpriteGS::PointSpriteGS(Renderer& rdr, v2 size, bool depth)
 		: Shader(rdr)
 		, m_size(size)

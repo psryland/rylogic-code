@@ -1,16 +1,16 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_desc.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/render/sortkey.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Validate a texture pointer
 	void Validate(TextureBase const* texture)
 	{

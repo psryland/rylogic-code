@@ -21,6 +21,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Default window construction settings
 	WndSettings ToWndSettings(HWND hwnd, RdrSettings const& rsettings, view3d::WindowOptions const& opts)
 	{

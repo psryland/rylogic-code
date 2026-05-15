@@ -8,10 +8,11 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/vertex_layout.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	namespace
 	{
 		// Return the RT geometry flag to use for a render nugget.

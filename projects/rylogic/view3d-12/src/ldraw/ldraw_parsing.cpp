@@ -7,7 +7,6 @@
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
 #include "pr/view3d-12/ldraw/ldraw_commands.h"
-#include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/model_desc.h"
@@ -38,6 +37,8 @@
 
 namespace pr::rdr12::ldraw
 {
+	using namespace ::pr::compute;
+
 	// Notes:
 	//  - Error Handling:
 	//    Don't assume the report error callback will throw, try to continue or fail gracefully.
@@ -84,7 +85,7 @@ namespace pr::rdr12::ldraw
 		CCont m_color;
 		TCont m_texts;
 		GCont m_nugts;
-		
+
 		// Resize all buffers to zero
 		void Reset()
 		{
@@ -574,7 +575,7 @@ namespace pr::rdr12::ldraw
 			{
 				RootAnimInfo anim_info = {};
 				ParseRootAnimation(reader, pp, anim_info);
-				obj->m_root_anim.m_simple = { rdr12::New<rdr12::RootAnimation>(), true };
+				obj->m_root_anim.m_simple = { ::pr::compute::New<rdr12::RootAnimation>(), true };
 				obj->m_root_anim.m_simple->m_style = anim_info.m_style;
 				obj->m_root_anim.m_simple->m_period = anim_info.m_period;
 				obj->m_root_anim.m_simple->m_vel = anim_info.m_vel;
@@ -698,7 +699,7 @@ namespace pr::rdr12::ldraw
 	#pragma endregion
 
 	#pragma region Creation helpers
-	
+
 	namespace creation
 	{
 		// Direction:
@@ -2450,7 +2451,7 @@ namespace pr::rdr12::ldraw
 			, m_dashed()
 			, m_thick()
 		{}
-		bool ParseKeyword(IReader& reader, EKeyword kw) override 
+		bool ParseKeyword(IReader& reader, EKeyword kw) override
 		{
 			switch (kw)
 			{
@@ -2639,7 +2640,7 @@ namespace pr::rdr12::ldraw
 		{
 			if (m_basis.empty())
 				m_basis.push_back(m4x4::Identity());
-			
+
 			for (auto const& o2w : m_basis)
 			{
 				// Scale doesn't use the *o2w scale because that is recursive
@@ -2712,7 +2713,7 @@ namespace pr::rdr12::ldraw
 						auto value = reader.Real<double>();
 						m_data.push_back(value);
 					}
-					
+
 					// Infer the data dimensions if not given
 					if (m_dim.x == 0) m_dim.x = 1;
 					if (m_dim.y == 0) m_dim.y = (isize(m_data) + m_dim.x - 1) / m_dim.x;
@@ -2802,7 +2803,7 @@ namespace pr::rdr12::ldraw
 					m_dim.y++;
 				}
 			}
-			
+
 			// If this is jagged data, then 'm_index' should have 'm_dim.y + 1' items
 			// with the last value == to the number of elements in the data table.
 			assert(m_index.empty() || (int)m_index.size() == m_dim.y + 1);
@@ -2894,7 +2895,7 @@ namespace pr::rdr12::ldraw
 		creation::DashedLines m_dashed;
 		creation::SmoothLine m_smooth;
 		creation::DataPoints m_data_points;
-		
+
 		ObjectCreator(ParseParams& pp)
 			: IObjectCreator(pp)
 			, m_chart()
@@ -2932,7 +2933,7 @@ namespace pr::rdr12::ldraw
 					m_xaxis = eval::Compile(reader.String<string32>());
 					for (auto& name : m_xaxis.m_arg_names)
 						m_xiter.push_back(DataIter{name, m_chart->m_dim});
-					
+
 					return true;
 				}
 				case EKeyword::YAxis:
@@ -2998,7 +2999,7 @@ namespace pr::rdr12::ldraw
 				auto y = m_yaxis(args);
 				verts.push_back(v4{static_cast<float>(x.db()), static_cast<float>(y.db()), 0, 1});
 			}
-				
+
 			// Create a plot from the points
 			if (verts.empty())
 				return;
@@ -3041,7 +3042,7 @@ namespace pr::rdr12::ldraw
 			if (m_data_points)
 			{
 				ParseParams pp(m_pp, obj->m_child, obj, this);
-				
+
 				LdrObjectPtr data_points(new LdrObject(ELdrObject::Point, obj, obj->m_context_id), true);
 				data_points->m_name = "DataPoints";
 
@@ -3871,7 +3872,7 @@ namespace pr::rdr12::ldraw
 			float h = Tan(DegreesToRadians(m_fovY * 0.5f));
 			float w = m_aspect * h;
 			float n = m_near, f = m_far;
-			
+
 			m_pt[0] = v4(-f*w, -f*h, -f, 1.0f);
 			m_pt[1] = v4(+f*w, -f*h, -f, 1.0f);
 			m_pt[2] = v4(-f*w, +f*h, -f, 1.0f);
@@ -4633,7 +4634,7 @@ namespace pr::rdr12::ldraw
 					.tex_diffuse(m_tex.m_texture)
 					.sam_diffuse(m_tex.m_sampler);
 				})
-			);			
+			);
 
 			// Generate normals if needed
 			m_gen_norms.Generate(m_pp);
@@ -4879,13 +4880,13 @@ namespace pr::rdr12::ldraw
 			}
 
 			// The animator to run the animation
-			auto animator = AnimatorPtr{ rdr12::New<Animator_KeyFrameAnimation>(m_model_anim), true };
+			auto animator = AnimatorPtr{ ::pr::compute::New<Animator_KeyFrameAnimation>(m_model_anim), true };
 
 			// The time/frame range in the anim info is the portion of the animation to use during playback
 			auto time_range = TimeRange{ 0, animator->Duration() };
 
 			// Create an animator that uses the animation and a pose for it to animate
-			PosePtr pose{ rdr12::New<Pose>(m_pp.m_factory, skeleton, animator, m_anim_info.m_mods.m_style, m_anim_info.m_mods.m_flags, time_range, m_anim_info.m_mods.m_stretch, m_anim_info.m_mods.m_bias), true };
+			PosePtr pose{ ::pr::compute::New<Pose>(m_pp.m_factory, skeleton, animator, m_anim_info.m_mods.m_style, m_anim_info.m_mods.m_flags, time_range, m_anim_info.m_mods.m_stretch, m_anim_info.m_mods.m_bias), true };
 
 			// Set the pose for each model in the hierarchy.
 			obj->Apply([&](LdrObject* ob)
@@ -4971,7 +4972,7 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Create kinematic key frame animation from the multi-source frames
-			auto kkfa = KinematicKeyFrameAnimationPtr{ rdr12::New<KinematicKeyFrameAnimation>(skeleton->Id()), true };
+			auto kkfa = KinematicKeyFrameAnimationPtr{ ::pr::compute::New<KinematicKeyFrameAnimation>(skeleton->Id()), true };
 			kkfa->Populate(
 				source_anims,
 				m_montage.m_key_refs,
@@ -4980,10 +4981,10 @@ namespace pr::rdr12::ldraw
 			);
 
 			// Create animator and pose
-			AnimatorPtr animator = AnimatorPtr{ rdr12::New<Animator_InterpolatedAnimation>(kkfa), true };
+			AnimatorPtr animator = AnimatorPtr{ ::pr::compute::New<Animator_InterpolatedAnimation>(kkfa), true };
 			auto time_range = TimeRange{ 0, animator->Duration() };
 
-			PosePtr pose{ rdr12::New<Pose>(m_pp.m_factory, skeleton, animator, m_montage.m_mods.m_style, m_montage.m_mods.m_flags, time_range, m_montage.m_mods.m_stretch, m_montage.m_mods.m_bias), true };
+			PosePtr pose{ ::pr::compute::New<Pose>(m_pp.m_factory, skeleton, animator, m_montage.m_mods.m_style, m_montage.m_mods.m_flags, time_range, m_montage.m_mods.m_stretch, m_montage.m_mods.m_bias), true };
 
 			// Set the pose for each model in the hierarchy
 			obj->Apply([&](LdrObject* o)
@@ -5324,7 +5325,7 @@ namespace pr::rdr12::ldraw
 			auto vcount = s_cast<int>(model.m_vcount);
 			auto icount = s_cast<int>(model.m_icount);
 			auto count = std::min(vcount, icount);
-			
+
 			(void)equation, extras, range;
 			#if 0 //todo
 			// Populate verts
@@ -5415,7 +5416,7 @@ namespace pr::rdr12::ldraw
 					auto len_sq = LengthSq(dir);
 					auto weight = Lerp(extras.m_weight, 1.0f, len_sq);
 					auto pt = range.Centre() + dir * range.Radius() * weight;
-					
+
 					// Evaluate the equation at 'pt' to get z = f(x,y) and the colour.
 					auto [z,col] = extras.m_axis[2].clamp(static_cast<float>(equation(pt.x, pt.y).db()));
 
@@ -5495,7 +5496,7 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Ambient:
 				{
 					m_light.m_ambient = reader.Int<uint32_t>(16);
-					return true;				
+					return true;
 				}
 				case EKeyword::Diffuse:
 				{
@@ -5991,7 +5992,7 @@ namespace pr::rdr12::ldraw
 			AnimatorPtr animator = source->m_pose->m_animator->Clone();
 
 			// Create a new pose for the instance using the source pose's skeleton and the cloned animator
-			PosePtr pose{ rdr12::New<Pose>(m_pp.m_factory, source->m_pose->m_skeleton, animator, m_anim_info.m_mods.m_style, m_anim_info.m_mods.m_flags, time_range, m_anim_info.m_mods.m_stretch, m_anim_info.m_mods.m_bias), true };
+			PosePtr pose{ ::pr::compute::New<Pose>(m_pp.m_factory, source->m_pose->m_skeleton, animator, m_anim_info.m_mods.m_style, m_anim_info.m_mods.m_flags, time_range, m_anim_info.m_mods.m_stretch, m_anim_info.m_mods.m_bias), true };
 
 			// Set the pose for each model in the hierarchy.
 			obj->Apply([&](LdrObject* obj)
@@ -6095,7 +6096,7 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Create kinematic key frame animation from the multi-source frames
-			auto kkfa = KinematicKeyFrameAnimationPtr{ rdr12::New<KinematicKeyFrameAnimation>(skeleton->Id()), true };
+			auto kkfa = KinematicKeyFrameAnimationPtr{ ::pr::compute::New<KinematicKeyFrameAnimation>(skeleton->Id()), true };
 			kkfa->Populate(
 				source_anims,
 				m_montage.m_key_refs,
@@ -6105,10 +6106,10 @@ namespace pr::rdr12::ldraw
 			auto time_range = TimeRange{ 0, kkfa->duration() };
 
 			// Create animator and pose
-			AnimatorPtr animator = AnimatorPtr{ rdr12::New<Animator_InterpolatedAnimation>(kkfa), true };
+			AnimatorPtr animator = AnimatorPtr{ ::pr::compute::New<Animator_InterpolatedAnimation>(kkfa), true };
 
 			// Create a new pose for the instance using the source pose's skeleton and the montage animator
-			PosePtr pose{ rdr12::New<Pose>(m_pp.m_factory, skeleton, animator, m_montage.m_mods.m_style, m_montage.m_mods.m_flags, time_range, m_montage.m_mods.m_stretch, m_montage.m_mods.m_bias), true };
+			PosePtr pose{ ::pr::compute::New<Pose>(m_pp.m_factory, skeleton, animator, m_montage.m_mods.m_style, m_montage.m_mods.m_flags, time_range, m_montage.m_mods.m_stretch, m_montage.m_mods.m_bias), true };
 
 			// Set the pose for each model in the hierarchy
 			obj->Apply([&](LdrObject* o)
@@ -6398,7 +6399,7 @@ namespace pr::rdr12::ldraw
 		// Parsing parameters
 		ParseResult result;
 		ParseParams pp(rdr, result, object->m_context_id, reader.ReportError, reader.Progress, cancel);
-	
+
 		// Parse 'reader' for the new model
 		ParseLdrObjects(reader, pp, [&](int object_index)
 		{
@@ -6699,7 +6700,7 @@ namespace pr::rdr12::ldraw
 				}
 			}
 		}
-		
+
 		if (affine && !IsAffine(p2w))
 		{
 			ReportError(EParseError::UnexpectedToken, Loc(), "Transform is not affine. If non-affine is intended, use *NonAffine {}");

@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -17,7 +17,6 @@
 // http://go.microsoft.com/fwlink/?LinkId=248926
 // http://go.microsoft.com/fwlink/?LinkId=248929
 #include "pr/view3d-12/texture/texture_loader.h"
-#include "pr/view3d-12/utility/utility.h"
 #include <d3d9types.h>
 //#include <memory>
 //#include <filesystem>
@@ -28,6 +27,9 @@
 
 namespace pr::rdr12
 {
+	using ImageWithData = LoadedImageResult::ImageWithData;
+	using ::pr::compute::BitsPerPixel;
+
 	// DDS file structure definitions. See DDS.h in the 'Texconv' sample and the 'DirectXTex' library
 	namespace dds
 	{
@@ -36,12 +38,12 @@ namespace pr::rdr12
 
 		enum class EHeaderFlags : uint32_t
 		{
-			PIXELFORMAT = 0x00000001, // DDSD_PIXELFORMAT 
+			PIXELFORMAT = 0x00000001, // DDSD_PIXELFORMAT
 			HEIGHT      = 0x00000002, // DDSD_HEIGHT
 			WIDTH       = 0x00000004, // DDSD_WIDTH
 			PITCH       = 0x00000008, // DDSD_PITCH
-			CAPS        = 0x00001000, // DDSD_CAPS 
-			TEXTURE     = 0x00001007, // DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT 
+			CAPS        = 0x00001000, // DDSD_CAPS
+			TEXTURE     = 0x00001007, // DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT
 			MIPMAP      = 0x00020000, // DDSD_MIPMAPCOUNT
 			LINEARSIZE  = 0x00080000, // DDSD_LINEARSIZE
 			VOLUME      = 0x00800000, // DDSD_DEPTH
@@ -240,36 +242,36 @@ namespace pr::rdr12
 		{
 			switch (ddpf.fourCC)
 			{
-				case MakeFourCC('D', 'X', 'T', '1'):
+				case ::pr::compute::MakeFourCC('D', 'X', 'T', '1'):
 					return DXGI_FORMAT_BC1_UNORM;
-				case MakeFourCC('D', 'X', 'T', '3'):
+				case ::pr::compute::MakeFourCC('D', 'X', 'T', '3'):
 					return DXGI_FORMAT_BC2_UNORM;
-				case MakeFourCC('D', 'X', 'T', '5'):
+				case ::pr::compute::MakeFourCC('D', 'X', 'T', '5'):
 					return DXGI_FORMAT_BC3_UNORM;
 
 					// While pre-mulitplied alpha isn't directly supported by the DXGI formats,
 					// they are basically the same as these BC formats so they can be mapped
-				case MakeFourCC('D', 'X', 'T', '2'):
+				case ::pr::compute::MakeFourCC('D', 'X', 'T', '2'):
 					return DXGI_FORMAT_BC2_UNORM;
-				case MakeFourCC('D', 'X', 'T', '4'):
+				case ::pr::compute::MakeFourCC('D', 'X', 'T', '4'):
 					return DXGI_FORMAT_BC3_UNORM;
-				case MakeFourCC('A', 'T', 'I', '1'):
+				case ::pr::compute::MakeFourCC('A', 'T', 'I', '1'):
 					return DXGI_FORMAT_BC4_UNORM;
-				case MakeFourCC('B', 'C', '4', 'U'):
+				case ::pr::compute::MakeFourCC('B', 'C', '4', 'U'):
 					return DXGI_FORMAT_BC4_UNORM;
-				case MakeFourCC('B', 'C', '4', 'S'):
+				case ::pr::compute::MakeFourCC('B', 'C', '4', 'S'):
 					return DXGI_FORMAT_BC4_SNORM;
-				case MakeFourCC('A', 'T', 'I', '2'):
+				case ::pr::compute::MakeFourCC('A', 'T', 'I', '2'):
 					return DXGI_FORMAT_BC5_UNORM;
-				case MakeFourCC('B', 'C', '5', 'U'):
+				case ::pr::compute::MakeFourCC('B', 'C', '5', 'U'):
 					return DXGI_FORMAT_BC5_UNORM;
-				case MakeFourCC('B', 'C', '5', 'S'):
+				case ::pr::compute::MakeFourCC('B', 'C', '5', 'S'):
 					return DXGI_FORMAT_BC5_SNORM;
 
 					// BC6H and BC7 are written using the "DX10" extended header
-				case MakeFourCC('R', 'G', 'B', 'G'):
+				case ::pr::compute::MakeFourCC('R', 'G', 'B', 'G'):
 					return DXGI_FORMAT_R8G8_B8G8_UNORM;
-				case MakeFourCC('G', 'R', 'G', 'B'):
+				case ::pr::compute::MakeFourCC('G', 'R', 'G', 'B'):
 					return DXGI_FORMAT_G8R8_G8B8_UNORM;
 
 				case D3DFMT_A16B16G16R16:
@@ -335,7 +337,7 @@ namespace pr::rdr12
 
 		// Check for DX10 extension
 		auto is_DXT10 = false;
-		if (AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC)
+		if (AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && ::pr::compute::MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC)
 		{
 			// Must be long enough for both headers and magic value
 			if (size < sizeof(dds::Header) + sizeof(uint32_t) + sizeof(dds::HeaderDXT10) )
@@ -360,7 +362,7 @@ namespace pr::rdr12
 		auto array_size = 1;
 
 		// Sanity check DDS data and determine image dimension and array size
-		if (AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC)
+		if (AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && ::pr::compute::MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC)
 		{
 			// DX10 header
 			auto& d3d10ext = *reinterpret_cast<dds::HeaderDXT10 const *>(img.header + 1);
@@ -448,7 +450,7 @@ namespace pr::rdr12
 		auto mip_count = std::max(std::min(mips, s_cast<int>(img.header->mipMapCount)), 1);
 		if (mip_count > D3D12_REQ_MIP_LEVELS)
 			throw std::runtime_error(FmtS("Unsupported DDS format. Texture contains (%d) mip levels which exceeds the DX11 limit (%d).", mip_count, D3D12_REQ_MIP_LEVELS));
-		
+
 		// More sanity checks
 		switch (resource_dimension)
 		{
@@ -579,7 +581,7 @@ namespace pr::rdr12
 			throw std::runtime_error("DDS data is corrupt. Header size is invalid");
 
 		// Check for DX10 extension
-		auto is_DXT10 = AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC;
+		auto is_DXT10 = AllSet(img.header->ddspf.flags, dds::EPixelFormatFlags::FOURCC) && ::pr::compute::MakeFourCC('D', 'X', '1', '0') == img.header->ddspf.fourCC;
 		if (is_DXT10 && mem.size() < sizeof(dds::Header) + sizeof(uint32_t) + sizeof(dds::HeaderDXT10))
 			throw std::runtime_error("DDS data is corrupt. Header indicates DX10 but the data size is too small");
 

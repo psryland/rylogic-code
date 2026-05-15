@@ -4,11 +4,16 @@
 //*********************************************
 #include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
 #include "pr/view3d-12/main/renderer.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/update_resource.h"
 
 namespace pr::rdr12
 {
+	using EFinalState = ::pr::compute::EFinalState;
+	using EUsage = ::pr::compute::EUsage;
+	using GfxUpdateSubresourceScope = ::pr::compute::GfxUpdateSubresourceScope;
+	using BarrierBatch = ::pr::compute::BarrierBatch<D3D12_COMMAND_LIST_TYPE_DIRECT>;
+	using ::pr::compute::DebugName;
+	using ::pr::compute::DefaultResState;
+
 	// Create a BLAS/TLAS result buffer in the only state that acceleration-structure resources can occupy.
 	D3DPtr<ID3D12Resource> CreateRayTracingAccelerationStructure(Renderer& rdr, uint64_t size_in_bytes, std::string_view name)
 	{

@@ -27,7 +27,7 @@ namespace las
 	{
 		static_assert((sizeof(CBufTerrain) % 16) == 0);
 		static_assert(sizeof(CBufTerrain) == sizeof(m_cbuf), "CBufTerrain exceeds m_cbuf storage");
-		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
+		auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
 
 		// Compile the shader
 		auto compiler = ShaderCompiler{}
@@ -57,7 +57,7 @@ namespace las
 
 	// Called per-nugget during forward rendering. Copies the shared cbuf,
 	// overrides per-patch morph data from the instance's i2w, then binds.
-	void TerrainShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, rdr12::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
+	void TerrainShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
 	{
 		if (dle == nullptr)
 			return;

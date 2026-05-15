@@ -1,14 +1,12 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
-#include "pr/compute/utility/conversion.h"
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/utility/ray_cast.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr
 {
@@ -122,17 +120,17 @@ namespace pr
 		}
 	};
 
-	// rdr12::MultiSamp / view3d::MultiSamp
-	template <> struct Convert<rdr12::MultiSamp, view3d::MultiSamp>
+	// compute::MultiSamp / view3d::MultiSamp
+	template <> struct Convert<compute::MultiSamp, view3d::MultiSamp>
 	{
-		constexpr static rdr12::MultiSamp Func(view3d::MultiSamp ms)
+		constexpr static compute::MultiSamp Func(view3d::MultiSamp ms)
 		{
 			return { s_cast<uint32_t>(ms.m_count), s_cast<uint32_t>(ms.m_quality) };
 		}
 	};
-	template <> struct Convert<view3d::MultiSamp, rdr12::MultiSamp>
+	template <> struct Convert<view3d::MultiSamp, compute::MultiSamp>
 	{
-		constexpr static view3d::MultiSamp Func(rdr12::MultiSamp ms)
+		constexpr static view3d::MultiSamp Func(compute::MultiSamp ms)
 		{
 			return { s_cast<int>(ms.Count), s_cast<int>(ms.Quality) };
 		}

@@ -40,53 +40,54 @@
   Source files
   -->
   <ItemGroup>
-    <ClCompile Include="src\compute\gpu.cpp" />
+    <ClCompile Include="src\gpu.cpp" />
     <ClCompile Include="src\resource\descriptor_store.cpp" />
-    <ClCompile Include="src\shaders\compiler\shader_cache_fs.cpp" />
-    <ClCompile Include="src\shaders\compiler\shader_compiler.cpp" />
-    <ClCompile Include="src\shaders\compiler\source_resolver.cpp" />
+    <ClCompile Include="src\shaders\shader_cache_fs.cpp" />
+    <ClCompile Include="src\shaders\shader_compiler.cpp" />
+    <ClCompile Include="src\shaders\source_resolver.cpp" />
     <ClCompile Include="src\utility\cmd_list.cpp" />
     <ClCompile Include="src\utility\pix.cpp" />
     <ClCompile Include="src\utility\utility.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\conversion.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_pso.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_step.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\gpu_job.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\gpu.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\collision_builder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle_collision.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\radix_sort\radix_sort.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\descriptor_store.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\descriptor.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_descriptor_heap.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_allocation.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_buffer_page.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_buffer.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\image.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\resource_state_store.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\resource_state.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\dependency.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache_fs.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_compiler.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\source_resolver.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\barrier_batch.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_alloc.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_list_collection.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_list.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\gpu_sync.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\keep_alive.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\lookup.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\map_resource.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\pix.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\root_signature.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\update_resource.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\utility.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\wrappers.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute_pso.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute_step.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\gpu_job.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\gpu.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\particle_collision\collision_builder.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\particle_collision\particle_collision.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\radix_sort\radix_sort.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\spatial_partition\spatial_partition.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\descriptor_store.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\descriptor.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_descriptor_heap.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_allocation.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_buffer_page.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_buffer.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\image.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state_store.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\dependency.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache_fs.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_compiler.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\source_resolver.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\barrier_batch.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_alloc.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list_collection.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\gpu_sync.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\keep_alive.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\lookup.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\map_resource.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\pix.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\root_signature.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\update_resource.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\utility.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\wrappers.h" />
   </ItemGroup>
   <!--
   Targets

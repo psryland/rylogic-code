@@ -1,18 +1,20 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/model/animation.h"
-#include "pr/view3d-12/resource/descriptor.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
 	// A runtime version of a skeleton
 	struct Pose : RefCounted<Pose>
 	{
+		using Descriptor = ::pr::compute::Descriptor;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+
 		// See description in "animation.h"
 		AnimatorPtr m_animator;       // The driver of the animation
 		SkeletonPtr m_skeleton;       // The skeleton (in rest-pose)

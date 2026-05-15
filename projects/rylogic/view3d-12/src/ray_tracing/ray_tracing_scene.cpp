@@ -15,11 +15,12 @@
 #include "pr/view3d-12/material/components/base_colour.h"
 #include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	namespace
 	{
 		// Sync with ray_tracing_cbuf.hlsli.

@@ -9,6 +9,8 @@
 
 namespace pr::rdr12::shaders
 {
+	using namespace ::pr::compute;
+
 	ThickLineStripGS::ThickLineStripGS(Renderer& rdr, float width)
 		:Shader(rdr)
 		,m_width(width)

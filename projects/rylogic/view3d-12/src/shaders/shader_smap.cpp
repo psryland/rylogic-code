@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -6,11 +6,11 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/utility/shadow_caster.h"
-#include "pr/view3d-12/utility/root_signature.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12::shaders
 {
+	using namespace ::pr::compute;
 	using namespace smap;
 
 	struct EReg

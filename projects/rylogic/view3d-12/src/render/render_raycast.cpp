@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // Renderer
 //  Copyright (c) Rylogic Ltd 2012
 //*********************************************
@@ -10,12 +10,8 @@
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
-#include "pr/view3d-12/resource/gpu_transfer_allocation.h"
 #include "pr/view3d-12/resource/resource_factory.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
 #include "pr/view3d-12/utility/pipe_state.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/pix.h"
 #include "view3d-12/src/shaders/common.h"
 
 #define PR_RDR12_DEBUG_RAYCAST 0
@@ -27,6 +23,8 @@ using namespace pr::geometry;
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	namespace shaders
 	{
 		#include "view3d-12/src/shaders/hlsl/types.hlsli"

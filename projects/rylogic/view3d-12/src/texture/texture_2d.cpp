@@ -6,7 +6,6 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {

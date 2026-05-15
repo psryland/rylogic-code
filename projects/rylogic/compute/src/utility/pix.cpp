@@ -6,14 +6,14 @@
 // This is so that if PIX is enabled, but the WinPixEventRuntime.dll is missing, the application will still run
 
 #include "pr/compute/forward.h"
-#include "pr/view3d-12/utility/pix.h"
+#include "pr/compute/utility/pix.h"
 
 #if PR_PIX_ENABLED
 #pragma message (PR_LINK "warning : ************************************************* PIX Enabled")
 
-using namespace pr::rdr12::pix;
+using namespace pr::compute::pix;
 
-namespace pr::rdr12::pix
+namespace pr::compute::pix
 {
 	// Return the PIX dll module handle if it can be loaded
 	inline HMODULE Dll()

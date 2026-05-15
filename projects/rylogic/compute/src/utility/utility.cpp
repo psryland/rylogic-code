@@ -2,12 +2,12 @@
 // Compute
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
-#include "pr/view3d-12/utility/utility.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/map_resource.h"
-#include "pr/view3d-12/utility/cmd_list.h"
+#include "pr/compute/utility/utility.h"
+#include "pr/compute/utility/wrappers.h"
+#include "pr/compute/utility/map_resource.h"
+#include "pr/compute/utility/cmd_list.h"
 
-namespace pr::rdr12
+namespace pr::compute
 {
 	// Helper for getting the ref count of a COM pointer.
 	ULONG RefCount(IUnknown* ptr)
@@ -559,7 +559,7 @@ namespace pr::rdr12
 		if (div2 == std::string::npos)
 			throw std::runtime_error(std::format("Embedded resource URI {}) invalid. Expected format \"@<hmodule|module_name>:<res_type>:<res_name>\"", uri_.string()));
 
-		// Read the HMODULE handle from a string name or 
+		// Read the HMODULE handle from a string name or
 		auto HModule = [=](std::wstring_view module_name)
 		{
 			if (module_name.empty())
@@ -576,7 +576,7 @@ namespace pr::rdr12
 			auto address = std::wcstoll(name.data(), &end, 16);
 			if (end - name.data() == ssize(name) - 1)
 				return reinterpret_cast<HMODULE>(address);
-			
+
 			throw std::runtime_error(std::format("Embedded resource URI ({}) not found. HMODULE could not be determined", Narrow(uri)));
 		};
 

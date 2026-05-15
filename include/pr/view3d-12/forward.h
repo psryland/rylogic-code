@@ -3,7 +3,6 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
-#include "pr/compute/forward.h"
 
 #ifndef PR_DBG_RDR
 #define PR_DBG_RDR PR_DBG
@@ -123,6 +122,7 @@
 #include "pr/gui/gdiplus.h"
 #include "pr/hlsl/interop.h"
 #include "pr/hlsl/shader_registers.h"
+#include "pr/compute/compute.h"
 #include "pr/macros/enum.h"
 #include "pr/math/math.h"
 #include "pr/math/conversion.h"
@@ -143,6 +143,30 @@
 
 namespace pr::rdr12
 {
+	// Types
+	using byte = unsigned char;
+	using float4_t = float[4];
+	using RdrId = std::uintptr_t;
+	using Range = pr::Range<int64_t>;
+	using Handle = win32::Handle;
+	template <typename T> using Scope = pr::Scope<T>;
+	template <typename T> using Allocator = pr::aligned_alloc<T>;
+	template <typename T> using alloc_traits = std::allocator_traits<Allocator<T>>;
+	template <typename T> using RefCounted = pr::RefCount<T>;
+	template <typename T> using RefPtr = pr::RefPtr<T>;
+
+	// Use the shader register types from pr::hlsl
+	using hlsl::ECBufReg;
+	using hlsl::ESRVReg;
+	using hlsl::EUAVReg;
+	using hlsl::ESamReg;
+	using hlsl::ShaderReg;
+
+	// Enumerations
+	using EGeom = geometry::EGeom;
+	using ETopo = geometry::ETopo;
+	using ETopoGroup = geometry::ETopoGroup;
+
 	// View3D types
 	using SortKeyId = uint16_t;
 	using TimeRange = pr::Range<double>;
@@ -203,8 +227,6 @@ namespace pr::rdr12
 	// Resources
 	struct ResourceFactory;
 	struct ResourceStore;
-	struct ResDesc;
-	struct SamDesc;
 	
 	// Samplers
 	struct SamplerDesc;
@@ -290,11 +312,8 @@ namespace pr::rdr12
 	// Utility
 	struct Lock;
 	struct MLock;
-	struct Image;
-	struct ImageWithData;
 	struct FeatureSupport;
 	struct PipeStates;
-	struct GpuSync;
 	
 	// LDraw
 	namespace ldraw

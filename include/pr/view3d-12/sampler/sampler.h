@@ -4,12 +4,13 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
 
 namespace pr::rdr12
 {
 	struct Sampler :RefCounted<Sampler>
 	{
+		using Descriptor = ::pr::compute::Descriptor;
+
 		// Notes:
 		//  - Sampler follows the same pattern as TextureBase, see texture_base.h for more info.
 

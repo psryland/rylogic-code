@@ -48,7 +48,7 @@ namespace physics_sandbox
 		rdr12::Renderer* m_rdr;
 
 		// Runtime shader cache shared by the physics engine's GPU compute shaders.
-		rdr12::shader_cache::ShaderCacheFS m_shader_cache;
+		::pr::compute::shader_cache::ShaderCacheFS m_shader_cache;
 
 		// Broadphase — either brute-force (CPU) or GPU sort-and-sweep.
 		// Owned via unique_ptr to allow runtime selection based on GPU availability.

@@ -5,8 +5,6 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/sortkey.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 
 namespace pr::rdr12
@@ -14,6 +12,9 @@ namespace pr::rdr12
 	// Per-draw context passed to material passes by render steps.
 	struct MaterialPassContext
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+
 		ERenderStep m_step_id;                         // The render step requesting material setup.
 		Window& m_wnd;                                 // The window that owns descriptor heaps and frame resources.
 		Scene const& m_scene;                          // The scene being rendered.

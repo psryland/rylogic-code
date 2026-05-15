@@ -9,8 +9,6 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/diagnostics.h"
 #include "pr/view3d-12/utility/pipe_state.h"
-#include "pr/view3d-12/utility/update_resource.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12::ldraw
 {

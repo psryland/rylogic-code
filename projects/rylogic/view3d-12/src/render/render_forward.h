@@ -12,6 +12,8 @@ namespace pr::rdr12
 {
 	struct RenderForward :RenderStep
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+
 	private:
 
 		shaders::Forward m_shader;

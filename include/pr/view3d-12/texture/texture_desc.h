@@ -5,12 +5,13 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/stock_resources.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
 	struct TextureDesc
 	{
+		using ResDesc = ::pr::compute::ResDesc;
+
 		RdrId    m_id;          // The id to assign to the created texture instance. Use 'AutoId' to auto generate an id.
 		ResDesc  m_rdesc;       // A description of the resource to be created.
 		RdrId    m_uri;         // An id for the source of this texture. Replaced by a hash of the resource path name for loaded textures

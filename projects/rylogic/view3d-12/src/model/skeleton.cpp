@@ -1,9 +1,8 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/model/skeleton.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -46,6 +45,6 @@ namespace pr::rdr12
 	void Skeleton::RefCountZero(RefCounted<Skeleton>* doomed)
 	{
 		auto skel = static_cast<Skeleton*>(doomed);
-		rdr12::Delete(skel);
+		::pr::compute::Delete(skel);
 	}
 }

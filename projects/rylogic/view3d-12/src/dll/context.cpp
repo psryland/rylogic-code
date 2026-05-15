@@ -167,7 +167,7 @@ namespace pr::rdr12
 		// Generate the nuggets first so we can tell what geometry data is needed
 		for (auto const& nugget : nuggets)
 		{
-			RefPtr<MaterialSimple> material(rdr12::New<MaterialSimple>(), true);
+			RefPtr<MaterialSimple> material(::pr::compute::New<MaterialSimple>(), true);
 			material->tex_diffuse(Texture2DPtr(nugget.m_tex_diffuse, true));
 			material->sam_diffuse(SamplerPtr(nugget.m_sam_diffuse, true));
 			material->tint(To<Colour>(nugget.m_tint));
@@ -552,7 +552,7 @@ namespace pr::rdr12
 				return;
 		}
 	}
-	
+
 	// Return details about a source
 	view3d::SourceInfo Context::SourceInfo(Guid const& context_id)
 	{

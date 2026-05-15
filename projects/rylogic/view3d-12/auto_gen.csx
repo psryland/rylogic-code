@@ -264,10 +264,23 @@ void ReplaceSection(string src_file, string dst_file, string? src_tag_begin, str
 		}
 	}
 
-	// Update the dst file
-	using var file = File.CreateText(dst_file);
-	foreach (var line in lines)
-		file.WriteLine(line);
+	// Update the dst file only if the generated content has changed. This script can run from multiple projects during a parallel solution build.
+	var text = string.Join(Environment.NewLine, lines) + Environment.NewLine;
+	if (File.ReadAllText(dst_file, Encoding.UTF8) == text)
+		return;
+
+	for (int attempt = 0; ; ++attempt)
+	{
+		try
+		{
+			File.WriteAllText(dst_file, text, Encoding.UTF8);
+			break;
+		}
+		catch (IOException) when (attempt != 40)
+		{
+			System.Threading.Thread.Sleep(250);
+		}
+	}
 }
 
 // Hash a string to a constant value

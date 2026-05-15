@@ -167,7 +167,7 @@ namespace pr::physics
 
 		#if PR_PIX_ENABLED
 		static bool capture = false;
-		rdr12::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
+		::pr::compute::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/Physics.wpix", capture);
 		capture = false;
 		#endif
 

@@ -2,9 +2,9 @@
 // Compute
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
-#include "pr/view3d-12/resource/descriptor_store.h"
+#include "pr/compute/resource/descriptor_store.h"
 
-namespace pr::rdr12
+namespace pr::compute
 {
 	DescriptorStore::DescriptorStore(ID3D12Device* device)
 		: m_device(device)
@@ -148,7 +148,7 @@ namespace pr::rdr12
 	DescriptorStore::Block& DescriptorStore::GetBlock(D3D12_DESCRIPTOR_HEAP_TYPE type)
 	{
 		auto& store = m_store_cpu[type];
-		
+
 		// Find a block with a free slot.
 		int i = 0, iend = s_cast<int>(store.size());
 		if (m_hint_free[type] != iend && store[m_hint_free[type]].free != 0)

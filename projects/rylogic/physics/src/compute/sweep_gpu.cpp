@@ -8,7 +8,7 @@
 
 namespace pr::physics
 {
-	using namespace pr::rdr12;
+	using namespace ::pr::compute;
 
 	// Integrate constants
 	struct alignas(16) cbSweep

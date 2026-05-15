@@ -6,7 +6,6 @@
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/resource_store.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -84,8 +83,8 @@ namespace pr::rdr12
 	int64_t Nugget::PrimCount() const
 	{
 		return m_irange.empty()
-			? rdr12::PrimCount(m_vrange.size(), m_topo)
-			: rdr12::PrimCount(m_irange.size(), m_topo);
+			? ::pr::compute::PrimCount(m_vrange.size(), m_topo)
+			: ::pr::compute::PrimCount(m_irange.size(), m_topo);
 	}
 
 	// Get/Set the fill mode for this nugget

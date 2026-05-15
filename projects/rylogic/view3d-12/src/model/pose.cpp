@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -7,11 +7,11 @@
 #include "pr/view3d-12/model/animator.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/resource_store.h"
-#include "pr/view3d-12/utility/update_resource.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	Pose::Pose(ResourceFactory& factory, SkeletonPtr skeleton, AnimatorPtr animator, EAnimStyle style, EAnimFlags flags, TimeRange time_range, double stretch, double bias)
 		: m_animator(animator)
 		, m_skeleton(skeleton)
@@ -46,7 +46,7 @@ namespace pr::rdr12
 		};
 		m_srv = store.Descriptors().Create(m_res.get(), srv_desc);
 	}
-	
+
 	// The root bone transform in animation space at 'time'
 	m4x4 Pose::RootToAnim(double time, EAnimFlags flags) const
 	{
@@ -104,7 +104,7 @@ namespace pr::rdr12
 			}
 		}
 	}
-	
+
 	// Return the time value relative to 'm_time_range' from the source animatino
 	double Pose::SrcAnimTime(double time) const
 	{
@@ -180,6 +180,6 @@ namespace pr::rdr12
 	void Pose::RefCountZero(RefCounted<Pose>* doomed)
 	{
 		auto pose = static_cast<Pose*>(doomed);
-		rdr12::Delete<Pose>(pose);
+		::pr::compute::Delete<Pose>(pose);
 	}
 }

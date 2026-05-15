@@ -4,9 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/keep_alive.h"
 
 namespace pr::rdr12
 {
@@ -16,7 +13,10 @@ namespace pr::rdr12
 
 		using SignaturePtr = D3DPtr<ID3D12RootSignature>;
 		using PipelineStatePtr = D3DPtr<ID3D12PipelineState>;
-		using GpuViewHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
+		using GpuViewHeap = ::pr::compute::GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
+		using GpuSync = ::pr::compute::GpuSync;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using KeepAlive = ::pr::compute::KeepAlive;
 
 		Renderer&        m_rdr;            // The owning renderer instance
 		GpuSync&         m_gsync;          // The GPU fence

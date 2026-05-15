@@ -9,11 +9,11 @@
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/openxr/openxr.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	constexpr int HeapCapacityView = 65536;
 	constexpr int HeapCapacitySamp = 16;
 	constexpr int HeapIdxMsaaRtv = 0;
@@ -239,7 +239,7 @@ namespace pr::rdr12
 		// Support old windows by dynamically looking for the new DPI functions
 		// and falling back to the GDI functions if not available.
 		auto user32 = CreateStateScope(
-			[=] { return ::LoadLibraryW(L"user32.dll"); }, 
+			[=] { return ::LoadLibraryW(L"user32.dll"); },
 			[=](HMODULE m) {::FreeLibrary(m); });
 
 		// Look for the new windows functions for DPI
@@ -265,14 +265,14 @@ namespace pr::rdr12
 		//	[&](HDC dc) { g.ReleaseHDC(dc); });
 		//
 		//auto logical_screen_height  = GetDeviceCaps(desktop_dc.m_state, VERTRES);
-		//auto physical_screen_height = GetDeviceCaps(desktop_dc.m_state, DESKTOPVERTRES); 
+		//auto physical_screen_height = GetDeviceCaps(desktop_dc.m_state, DESKTOPVERTRES);
 		//if (logical_screen_height  != 0 && physical_screen_height != 0)
 		//	dpi = physical_screen_height * 96.0f / logical_screen_height;
 		//else
 		//	dpi = 96.0f;
 		#endif
 	}
-	
+
 	// The current swap chain back buffer index
 	int Window::BBIndex() const
 	{
@@ -409,7 +409,7 @@ namespace pr::rdr12
 			bb = CreateRenderTarget(size, ms, m_rt_props, m_ds_props);
 		}
 	}
-	
+
 	// Replace the swap chain buffers with new ones
 	void Window::CustomSwapChain(std::span<BackBuffer> back_buffers)
 	{
@@ -483,7 +483,7 @@ namespace pr::rdr12
 		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE))
 			m_d2d_dc->SetTarget(bb_post.m_d2d_target.get());
 
-		// Create the frame object to be passed to the scenes 
+		// Create the frame object to be passed to the scenes
 		m_frame.Reset(bb_main, bb_post);
 		auto vp = Viewport(bb_main.rt_size());
 		auto scissor = vp.m_clip[0];
@@ -566,7 +566,7 @@ namespace pr::rdr12
 		// Return the frame object
 		return m_frame;
 	}
-	
+
 	// Present the frame to the display
 	void Window::Present(Frame& frame, EGpuFlush flush)
 	{
@@ -586,7 +586,7 @@ namespace pr::rdr12
 
 		#if PR_PIX_ENABLED
 		static bool capture = false;
-		pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/View3d.wpix", capture);
+		::pr::compute::pix::CaptureScope pix_capture("E:/Dump/PIXCaptures/View3d.wpix", capture);
 		capture = false;
 		#endif
 
@@ -660,7 +660,7 @@ namespace pr::rdr12
 		if (flush == EGpuFlush::Block)
 			m_gsync.Wait();
 	}
-	
+
 	// Wait for the GPU to finish rendering the current frame. Use before shutdown
 	void Window::WaitForGpu()
 	{
@@ -819,7 +819,7 @@ namespace pr::rdr12
 			// Flip n-buffered items
 			m_main_rt.flip();
 			m_cmd_alloc.flip();
-				
+
 			// Reset (re-use) the memory associated with the next available command allocator.
 			Check(m_cmd_alloc[0]->Reset());
 		});
@@ -916,7 +916,7 @@ namespace pr::rdr12
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 		m_cmd_list->ResourceBarrier(1, &barrier);
-	
+
 		// The third step is to get the back buffer view handle and then set the back buffer as the render target.
 
 		// Get the render target view handle for the current back buffer.
@@ -925,20 +925,20 @@ namespace pr::rdr12
 
 		// Set the back buffer as the render target.
 		m_cmd_list->OMSetRenderTargets(1, &rtv_handle, false, nullptr);
-	
+
 		// In the fourth step we set the clear color and clear the render target using that color and submit that to the command list.
 
 		// Then set the color to clear the window to.
 		float rgba[4] = {1.0f, 1.0f, 0.0f, 1.0f};
 		m_cmd_list->ClearRenderTargetView(rtv_handle, rgba, 0, nullptr);
-	
+
 		// And finally we then set the state of the back buffer to transition into a presenting state and store that in the command list.
 
 		// Indicate that the back buffer will now be used to present.
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 		m_cmd_list->ResourceBarrier(1, &barrier);
-	
+
 		// Once we are done our rendering list we close the command list and then submit it to the command queue to execute that list for us.
 		Check(m_cmd_list->Close());
 

@@ -1,11 +1,10 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/main/config.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
@@ -82,6 +81,9 @@ namespace pr::rdr12
 	/// <summary>Settings for a window</summary>
 	struct WndSettings
 	{
+		using DisplayMode = ::pr::compute::DisplayMode;
+		using MultiSamp = ::pr::compute::MultiSamp;
+
 		// Credit: https://www.rastertek.com/dx12tut03.html
 		// Before we can initialize the swap chain we have to get the refresh rate from the video card/monitor.
 		// Each computer may be slightly different so we will need to query for that information. We query for

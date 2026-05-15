@@ -1,4 +1,4 @@
-//*****************************************************************************************
+﻿//*****************************************************************************************
 // Application Framework
 //  Copyright (c) Rylogic Ltd 2012
 //*****************************************************************************************
@@ -74,6 +74,8 @@ namespace pr::app
 		}
 
 	private:
+
+		using ResDesc = ::pr::compute::ResDesc;
 
 		// Create a model for a geosphere sky box
 		void InitGeosphere(rdr12::Renderer& rdr, std::filesystem::path const& texpath)

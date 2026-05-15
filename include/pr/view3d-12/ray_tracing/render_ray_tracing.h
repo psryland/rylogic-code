@@ -16,6 +16,8 @@ namespace pr::rdr12
 	{
 	private:
 
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+
 		RayTracingScene m_ray_tracing;
 		RayTracingDiagnostic m_diagnostic;
 		RayTracingReflectionBuffer m_reflections;

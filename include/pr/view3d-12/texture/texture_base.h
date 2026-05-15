@@ -1,10 +1,9 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
 
 namespace pr::rdr12
 {
@@ -47,6 +46,9 @@ namespace pr::rdr12
 	// Texture base class
 	struct TextureBase :RefCounted<TextureBase>
 	{
+		using Descriptor = ::pr::compute::Descriptor;
+		using ResDesc = ::pr::compute::ResDesc;
+
 		Renderer*              m_rdr;    // The renderer that owns this texture
 		D3DPtr<ID3D12Resource> m_res;    // The texture resource (possibly shared with other Texture instances)
 		Descriptor             m_srv;    // Shader resource view (if available)

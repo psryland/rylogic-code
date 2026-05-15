@@ -494,9 +494,9 @@ namespace pr::rdr12
 				auto stride = m_icont.stride();
 				switch (stride)
 				{
-				case 4: return dx_format_v<uint32_t>.format;
-				case 2: return dx_format_v<uint16_t>.format;
-				case 1: return dx_format_v<uint8_t>.format;
+				case 4: return ::pr::compute::dx_format_v<uint32_t>.format;
+				case 2: return ::pr::compute::dx_format_v<uint16_t>.format;
+				case 1: return ::pr::compute::dx_format_v<uint8_t>.format;
 				default: throw std::runtime_error(std::format("Unsupported index stride: {}", stride));
 				}
 			}

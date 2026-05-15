@@ -7,43 +7,43 @@
 
 namespace pr
 {
-	// D3D12_PRIMITIVE_TOPOLOGY / rdr12::ETopo
-	template <> struct Convert<D3D12_PRIMITIVE_TOPOLOGY, rdr12::ETopo>
+	// D3D12_PRIMITIVE_TOPOLOGY / pr::compute::ETopo
+	template <> struct Convert<D3D12_PRIMITIVE_TOPOLOGY, pr::compute::ETopo>
 	{
-		constexpr static D3D12_PRIMITIVE_TOPOLOGY Func(rdr12::ETopo v)
+		constexpr static D3D12_PRIMITIVE_TOPOLOGY Func(pr::compute::ETopo v)
 		{
 			switch (v)
 			{
-				case rdr12::ETopo::Undefined    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
-				case rdr12::ETopo::PointList    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-				case rdr12::ETopo::LineList     : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-				case rdr12::ETopo::LineStrip    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
-				case rdr12::ETopo::TriList      : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-				case rdr12::ETopo::TriStrip     : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
-				case rdr12::ETopo::LineListAdj  : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINELIST_ADJ;
-				case rdr12::ETopo::LineStripAdj : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINESTRIP_ADJ;
-				case rdr12::ETopo::TriListAdj   : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ;
-				case rdr12::ETopo::TriStripAdj  : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ;
+				case pr::compute::ETopo::Undefined    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+				case pr::compute::ETopo::PointList    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+				case pr::compute::ETopo::LineList     : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+				case pr::compute::ETopo::LineStrip    : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
+				case pr::compute::ETopo::TriList      : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+				case pr::compute::ETopo::TriStrip     : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+				case pr::compute::ETopo::LineListAdj  : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINELIST_ADJ;
+				case pr::compute::ETopo::LineStripAdj : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_LINESTRIP_ADJ;
+				case pr::compute::ETopo::TriListAdj   : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ;
+				case pr::compute::ETopo::TriStripAdj  : return D3D12_PRIMITIVE_TOPOLOGY::D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ;
 				default: throw std::runtime_error("Topology type not supported");
 			}
 		}
 	};
-	template <> struct Convert<D3D12_PRIMITIVE_TOPOLOGY_TYPE, rdr12::ETopo>
+	template <> struct Convert<D3D12_PRIMITIVE_TOPOLOGY_TYPE, pr::compute::ETopo>
 	{
-		constexpr static D3D12_PRIMITIVE_TOPOLOGY_TYPE Func(rdr12::ETopo v)
+		constexpr static D3D12_PRIMITIVE_TOPOLOGY_TYPE Func(pr::compute::ETopo v)
 		{
 			switch (v)
 			{
-				case rdr12::ETopo::Undefined    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
-				case rdr12::ETopo::PointList    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-				case rdr12::ETopo::LineList     : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-				case rdr12::ETopo::LineStrip    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-				case rdr12::ETopo::TriList      : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-				case rdr12::ETopo::TriStrip     : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-				case rdr12::ETopo::LineListAdj  : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-				case rdr12::ETopo::LineStripAdj : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-				case rdr12::ETopo::TriListAdj   : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-				case rdr12::ETopo::TriStripAdj  : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+				case pr::compute::ETopo::Undefined    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+				case pr::compute::ETopo::PointList    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+				case pr::compute::ETopo::LineList     : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+				case pr::compute::ETopo::LineStrip    : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+				case pr::compute::ETopo::TriList      : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+				case pr::compute::ETopo::TriStrip     : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+				case pr::compute::ETopo::LineListAdj  : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+				case pr::compute::ETopo::LineStripAdj : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+				case pr::compute::ETopo::TriListAdj   : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+				case pr::compute::ETopo::TriStripAdj  : return D3D12_PRIMITIVE_TOPOLOGY_TYPE::D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 				default: throw std::runtime_error("Topology type not supported");
 			}
 		}
@@ -85,10 +85,10 @@ namespace pr
 		}
 	};
 
-	// D3D12_RANGE / rdr12::Range
-	template <> struct Convert<D3D12_RANGE, rdr12::Range>
+	// D3D12_RANGE / pr::compute::Range
+	template <> struct Convert<D3D12_RANGE, pr::compute::Range>
 	{
-		constexpr static D3D12_RANGE Func(rdr12::Range const& r)
+		constexpr static D3D12_RANGE Func(pr::compute::Range const& r)
 		{
 			return D3D12_RANGE{
 				.Begin = static_cast<SIZE_T>(r.m_beg),
@@ -96,11 +96,11 @@ namespace pr
 			};
 		}
 	};
-	template <> struct Convert<rdr12::Range, D3D12_RANGE>
+	template <> struct Convert<pr::compute::Range, D3D12_RANGE>
 	{
-		constexpr static rdr12::Range Func(D3D12_RANGE const& r)
+		constexpr static pr::compute::Range Func(D3D12_RANGE const& r)
 		{
-			return rdr12::Range(
+			return pr::compute::Range(
 				static_cast<int64_t>(r.Begin),
 				static_cast<int64_t>(r.End));
 		}
