@@ -34,6 +34,7 @@
         ;%(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
       <AdditionalDependencies>
+        ;compute-static.lib
         ;view3d-12-static.lib
         ;physics-static.lib
         ;%(AdditionalDependencies)
@@ -143,6 +144,9 @@
     <ResourceCompile Include="src\world\ocean\shaders\distant_ocean.rc" />
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc" />
     <ResourceCompile Include="src\world\sky\shaders\procedural_sky.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
   <Target Name="CopyDataDirectory" AfterTargets="Link">
     <Copy SourceFiles="@(DataFiles)" DestinationFiles="@(DataFiles -> '$(OutDir)data\%(RecursiveDir)%(Filename)%(Extension)')" ContinueOnError="ErrorAndContinue" SkipUnchangedFiles="true" />

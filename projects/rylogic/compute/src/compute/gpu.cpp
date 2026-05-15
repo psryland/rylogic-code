@@ -1,5 +1,5 @@
 ﻿//**********************************
-// View3D
+// Compute
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 #include "pr/view3d-12/compute/gpu.h"

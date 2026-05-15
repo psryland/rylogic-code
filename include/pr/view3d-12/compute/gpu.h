@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 #pragma once
-#include "pr/view3d-12/forward.h"
+#include "pr/compute/forward.h"
 #include "pr/view3d-12/utility/gpu_sync.h"
 #include "pr/view3d-12/utility/cmd_alloc.h"
 #include "pr/view3d-12/utility/cmd_list.h"

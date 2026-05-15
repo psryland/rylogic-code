@@ -18,6 +18,7 @@
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/utility/conversion.h"
 #include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"

@@ -1,5 +1,5 @@
 //*********************************************
-// View 3d
+// Compute
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/utility/cmd_list.h"

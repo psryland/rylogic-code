@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{25d2ea13-e52b-4d64-b0c7-5567724a9b7f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\compute">
+      <UniqueIdentifier>{08c4ed80-ed4b-4422-bf17-84043fb1895e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\resource">
+      <UniqueIdentifier>{7b07cc77-705e-4303-a92f-13f266514afe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders">
+      <UniqueIdentifier>{51356b9b-c021-49f7-950a-1df45b8aa0fc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders\compiler">
+      <UniqueIdentifier>{95cb4b85-39fd-471c-ba3c-c344931b1047}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\utility">
+      <UniqueIdentifier>{e7771e17-d2c4-4300-a319-59735308ee1c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr">
+      <UniqueIdentifier>{952e56ce-c850-45b7-ab09-14a846327e37}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute">
+      <UniqueIdentifier>{2d8bd230-e2bc-49bf-a039-fe05df1000c8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\utility">
+      <UniqueIdentifier>{222fe57d-cfb1-4695-bca8-275c4bda042b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12">
+      <UniqueIdentifier>{be93c8cb-af08-4920-9586-c387c0f1eff4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\compute">
+      <UniqueIdentifier>{c6dd1cd8-526d-4764-af41-bb0d5a05dafb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\compute\particle_collision">
+      <UniqueIdentifier>{d97c919e-84d7-4775-85bb-8593e1ed91b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\compute\radix_sort">
+      <UniqueIdentifier>{79727046-7f04-4c4e-866e-3e74c4a72e50}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\compute\spatial_partition">
+      <UniqueIdentifier>{b23d8666-c332-4f42-9e1c-34df995100e0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\resource">
+      <UniqueIdentifier>{f922e663-0450-4337-a2cf-3ac1c8059593}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\shaders">
+      <UniqueIdentifier>{af2c7502-34c8-4178-b5f7-bdbd43817e18}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\shaders\compiler">
+      <UniqueIdentifier>{0b5ed27c-bbc9-49e1-9a92-0861b5beca9f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\view3d-12\utility">
+      <UniqueIdentifier>{350fa654-acd3-4cf3-b14c-712a8b288413}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\compute\gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\resource\descriptor_store.cpp">
+      <Filter>src\resource</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\shader_cache_fs.cpp">
+      <Filter>src\shaders\compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\shader_compiler.cpp">
+      <Filter>src\shaders\compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\shaders\compiler\source_resolver.cpp">
+      <Filter>src\shaders\compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\cmd_list.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\pix.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\utility.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\forward.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\conversion.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_pso.h">
+      <Filter>pr\view3d-12\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\compute_step.h">
+      <Filter>pr\view3d-12\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\gpu_job.h">
+      <Filter>pr\view3d-12\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\gpu.h">
+      <Filter>pr\view3d-12\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\collision_builder.h">
+      <Filter>pr\view3d-12\compute\particle_collision</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\particle_collision\particle_collision.h">
+      <Filter>pr\view3d-12\compute\particle_collision</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\radix_sort\radix_sort.h">
+      <Filter>pr\view3d-12\compute\radix_sort</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\compute\spatial_partition\spatial_partition.h">
+      <Filter>pr\view3d-12\compute\spatial_partition</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\descriptor_store.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\descriptor.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_descriptor_heap.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_allocation.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_buffer_page.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\gpu_transfer_buffer.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\image.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\resource_state_store.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\resource\resource_state.h">
+      <Filter>pr\view3d-12\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\dependency.h">
+      <Filter>pr\view3d-12\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache_fs.h">
+      <Filter>pr\view3d-12\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_cache.h">
+      <Filter>pr\view3d-12\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\shader_compiler.h">
+      <Filter>pr\view3d-12\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\compiler\source_resolver.h">
+      <Filter>pr\view3d-12\shaders\compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\barrier_batch.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_alloc.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_list_collection.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\cmd_list.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\gpu_sync.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\keep_alive.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\lookup.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\map_resource.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\pix.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\root_signature.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\update_resource.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\utility.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\wrappers.h">
+      <Filter>pr\view3d-12\utility</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

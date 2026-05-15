@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #pragma once
-#include "pr/view3d-12/forward.h"
+#include "pr/compute/forward.h"
 #include "pr/view3d-12/shaders/compiler/shader_cache.h"
 
 namespace pr::rdr12

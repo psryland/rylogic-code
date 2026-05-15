@@ -759,9 +759,6 @@
     <ClCompile Include="src\render\render_step.cpp">
       <Filter>src\render</Filter>
     </ClCompile>
-    <ClCompile Include="src\resource\descriptor_store.cpp">
-      <Filter>src\resource</Filter>
-    </ClCompile>
     <ClCompile Include="src\resource\mipmap_generator.cpp">
       <Filter>src\resource</Filter>
     </ClCompile>
@@ -825,9 +822,6 @@
     <ClCompile Include="src\texture\texture_loader_wic.cpp">
       <Filter>src\texture</Filter>
     </ClCompile>
-    <ClCompile Include="src\utility\cmd_list.cpp">
-      <Filter>src\utility</Filter>
-    </ClCompile>
     <ClCompile Include="src\utility\conversion.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
@@ -840,13 +834,7 @@
     <ClCompile Include="src\utility\pipe_state.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
-    <ClCompile Include="src\utility\pix.cpp">
-      <Filter>src\utility</Filter>
-    </ClCompile>
     <ClCompile Include="src\utility\shadow_caster.cpp">
-      <Filter>src\utility</Filter>
-    </ClCompile>
-    <ClCompile Include="src\utility\utility.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
@@ -1013,23 +1001,11 @@
     <CSharpScript Include="auto_gen.csx" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\compute\gpu.cpp">
-      <Filter>src\compute</Filter>
-    </ClCompile>
     <ClCompile Include="src\instance\instance.cpp">
       <Filter>src\instance</Filter>
     </ClCompile>
     <ClCompile Include="src\render\alpha_kbuffer.cpp">
       <Filter>src\render</Filter>
-    </ClCompile>
-    <ClCompile Include="src\shaders\compiler\shader_compiler.cpp">
-      <Filter>src\shaders\compiler</Filter>
-    </ClCompile>
-    <ClCompile Include="src\shaders\compiler\shader_cache_fs.cpp">
-      <Filter>src\shaders\compiler</Filter>
-    </ClCompile>
-    <ClCompile Include="src\shaders\compiler\source_resolver.cpp">
-      <Filter>src\shaders\compiler</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

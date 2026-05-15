@@ -1,11 +1,11 @@
 //*********************************************
-// View 3d
+// Compute
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 // Dynamically load the WinPixEventRuntime.dll and call its functions
 // This is so that if PIX is enabled, but the WinPixEventRuntime.dll is missing, the application will still run
 
-#include "pr/view3d-12/forward.h"
+#include "pr/compute/forward.h"
 #include "pr/view3d-12/utility/pix.h"
 
 #if PR_PIX_ENABLED

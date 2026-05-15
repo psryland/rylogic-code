@@ -1,5 +1,5 @@
 //*********************************************
-// View 3d
+// Compute
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #include "pr/view3d-12/shaders/compiler/shader_compiler.h"

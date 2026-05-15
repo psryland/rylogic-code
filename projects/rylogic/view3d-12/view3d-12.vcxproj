@@ -110,7 +110,6 @@
   Files
   -->
   <ItemGroup>
-    <ClCompile Include="src\compute\gpu.cpp" />
     <ClCompile Include="src\instance\instance.cpp" />
     <ClCompile Include="src\ldraw\ldraw_demo_scene.cpp" />
     <ClCompile Include="src\ldraw\ldraw_gizmo.cpp" />
@@ -153,16 +152,12 @@
     <ClCompile Include="src\render\render_raycast.cpp" />
     <ClCompile Include="src\render\render_smap.cpp" />
     <ClCompile Include="src\render\render_step.cpp" />
-    <ClCompile Include="src\resource\descriptor_store.cpp" />
     <ClCompile Include="src\resource\mipmap_generator.cpp" />
     <ClCompile Include="src\resource\resource_factory.cpp" />
     <ClCompile Include="src\resource\resource_store.cpp" />
     <ClCompile Include="src\sampler\sampler.cpp" />
     <ClCompile Include="src\scene\scene_camera.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
-    <ClCompile Include="src\shaders\compiler\shader_cache_fs.cpp" />
-    <ClCompile Include="src\shaders\compiler\shader_compiler.cpp" />
-    <ClCompile Include="src\shaders\compiler\source_resolver.cpp" />
     <ClCompile Include="src\shaders\shader_arrow_head.cpp" />
     <ClCompile Include="src\shaders\shader_forward.cpp" />
     <ClCompile Include="src\shaders\shader_point_sprites.cpp" />
@@ -177,14 +172,11 @@
     <ClCompile Include="src\texture\texture_cube.cpp" />
     <ClCompile Include="src\texture\texture_loader_dds.cpp" />
     <ClCompile Include="src\texture\texture_loader_wic.cpp" />
-    <ClCompile Include="src\utility\cmd_list.cpp" />
     <ClCompile Include="src\utility\conversion.cpp" />
     <ClCompile Include="src\utility\diagnostics.cpp" />
     <ClCompile Include="src\utility\features.cpp" />
     <ClCompile Include="src\utility\pipe_state.cpp" />
-    <ClCompile Include="src\utility\pix.cpp" />
     <ClCompile Include="src\utility\shadow_caster.cpp" />
-    <ClCompile Include="src\utility\utility.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\camera\camera.h" />
@@ -443,6 +435,12 @@
   -->
   <ItemGroup>
     <BuildArtifacts Include="$(OutDir)view3d_compute_shaders.res" />
+  </ItemGroup>
+  <!--
+  Dependencies
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
   <!--
   Targets

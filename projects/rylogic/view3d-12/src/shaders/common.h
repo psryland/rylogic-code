@@ -4,7 +4,9 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
+#include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/scene/scene_camera.h"
 #include "pr/view3d-12/model/nugget.h"

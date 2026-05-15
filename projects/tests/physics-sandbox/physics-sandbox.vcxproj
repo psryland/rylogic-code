@@ -40,6 +40,7 @@
       <SubSystem>Windows</SubSystem>
       <AdditionalDependencies>
         ;view3d-12-static.lib
+        ;compute-static.lib
         ;view3d_compute_shaders.res
         ;physics-static.lib
         ;physics_compute_shaders.res
@@ -153,6 +154,7 @@
   Dependencies
   -->
   <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.vcxproj" />
   </ItemGroup>

@@ -42,6 +42,7 @@
       <AdditionalDependencies>
 				;lua-static.lib
 				;physics-static.lib
+				;compute-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
@@ -469,6 +470,9 @@
   <Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(RunUnitTests)' != 'false'">
     <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
   </Target>
+  <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
+  </ItemGroup>
   <!-- Targets -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

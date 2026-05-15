@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
+#include "pr/compute/forward.h"
 
 #ifndef PR_DBG_RDR
 #define PR_DBG_RDR PR_DBG
@@ -142,15 +143,10 @@
 
 namespace pr::rdr12
 {
-	// Types
-	using byte = unsigned char;
-	using float4_t = float[4];
-	using RdrId = std::uintptr_t;
+	// View3D types
 	using SortKeyId = uint16_t;
-	using Range = pr::Range<int64_t>;
 	using TimeRange = pr::Range<double>;
 	using FrameRange = pr::Range<int>;
-	using Handle = win32::Handle;
 	using Winsock = network::Winsock;
 	using HashValue32 = hash::HashValue32;
 	using seconds_t = std::chrono::duration<double, std::ratio<1, 1>>;
@@ -158,18 +154,6 @@ namespace pr::rdr12
 	using IPathResolver = filesys::IPathResolver;
 	using PathResolver = filesys::PathResolver;
 	using NoIncludes = filesys::NoIncludes;
-	template <typename T> using Scope = pr::Scope<T>;
-	template <typename T> using Allocator = pr::aligned_alloc<T>;
-	template <typename T> using alloc_traits = std::allocator_traits<Allocator<T>>;
-	template <typename T> using RefCounted = pr::RefCount<T>;
-	template <typename T> using RefPtr = pr::RefPtr<T>;
-
-	// Use the shader register types from pr::hlsl
-	using hlsl::ECBufReg;
-	using hlsl::ESRVReg;
-	using hlsl::EUAVReg;
-	using hlsl::ESamReg;
-	using hlsl::ShaderReg;
 
 	// Fixed size strings
 	using string32 = string<char, 32>;
@@ -178,14 +162,8 @@ namespace pr::rdr12
 	using wstring256 = string<wchar_t, 256>;
 
 	// Constants
-	static constexpr Range RangeZero = Range::Zero();
 	static constexpr RdrId AutoId = ~RdrId(); // A special value for automatically generating an Id
 	static constexpr RdrId InvalidId = RdrId();
-
-	// Enumerations
-	using EGeom = geometry::EGeom;
-	using ETopo = geometry::ETopo;
-	using ETopoGroup = geometry::ETopoGroup;
 
 	// Renderer
 	struct Renderer;

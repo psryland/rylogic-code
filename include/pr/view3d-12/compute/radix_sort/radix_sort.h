@@ -7,7 +7,7 @@
 //  Resize it to the size of the data to be sorted.
 //  Call the overload of Sort that suits your needs.
 #pragma once
-#include "pr/view3d-12/forward.h"
+#include "pr/compute/forward.h"
 #include "pr/view3d-12/compute/gpu.h"
 #include "pr/view3d-12/compute/gpu_job.h"
 #include "pr/view3d-12/compute/compute_pso.h"
