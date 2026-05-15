@@ -2,7 +2,7 @@
 // Compute
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
-#include "pr/compute/shaders/compiler/shader_compiler.h"
+#include "pr/compute/shaders/shader_compiler.h"
 #pragma comment(lib, "dxcompiler.lib")
 
 namespace pr::compute

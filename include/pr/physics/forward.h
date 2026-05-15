@@ -38,7 +38,7 @@
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
-#include "pr/compute/shaders/compiler/shader_cache.h"
+#include "pr/compute/shaders/shader_cache.h"
 
 // Physics diagnostics/profile code defaults to debug-only. Define these explicitly to opt in/out per build.
 #ifndef PR_DBG_PHYSICS

@@ -4,7 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/compute/forward.h"
-#include "pr/compute/shaders/compiler/shader_cache.h"
+#include "pr/compute/shaders/shader_cache.h"
 
 namespace pr::compute
 {

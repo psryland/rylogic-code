@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #pragma once
-#include "pr/compute/shaders/compiler/shader_cache.h"
+#include "pr/compute/shaders/shader_cache.h"
 
 namespace pr::compute::shader_cache
 {

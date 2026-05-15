@@ -37,9 +37,6 @@
     <Filter Include="pr\compute\shaders">
       <UniqueIdentifier>{af2c7502-34c8-4178-b5f7-bdbd43817e18}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\compute\shaders\compiler">
-      <UniqueIdentifier>{0b5ed27c-bbc9-49e1-9a92-0861b5beca9f}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\gpu.cpp">
@@ -128,20 +125,20 @@
     <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state.h">
       <Filter>pr\compute\resource</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\dependency.h">
-      <Filter>pr\compute\shaders\compiler</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\dependency.h">
+      <Filter>pr\compute\shaders</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache_fs.h">
-      <Filter>pr\compute\shaders\compiler</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache_fs.h">
+      <Filter>pr\compute\shaders</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache.h">
-      <Filter>pr\compute\shaders\compiler</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache.h">
+      <Filter>pr\compute\shaders</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_compiler.h">
-      <Filter>pr\compute\shaders\compiler</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_compiler.h">
+      <Filter>pr\compute\shaders</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\source_resolver.h">
-      <Filter>pr\compute\shaders\compiler</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\source_resolver.h">
+      <Filter>pr\compute\shaders</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\barrier_batch.h">
       <Filter>pr\compute\utility</Filter>

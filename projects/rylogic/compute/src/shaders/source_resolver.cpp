@@ -2,7 +2,7 @@
 // Compute
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
-#include "pr/compute/shaders/compiler/source_resolver.h"
+#include "pr/compute/shaders/source_resolver.h"
 
 namespace pr::compute::shader_cache
 {

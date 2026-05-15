@@ -9,7 +9,7 @@
 #include "pr/compute/compute_pso.h"
 #include "pr/compute/compute_step.h"
 #include "pr/compute/particle_collision/collision_builder.h"
-#include "pr/compute/shaders/compiler/shader_compiler.h"
+#include "pr/compute/shaders/shader_compiler.h"
 #include "pr/compute/utility/root_signature.h"
 #include "pr/compute/utility/barrier_batch.h"
 #include "pr/compute/utility/pix.h"

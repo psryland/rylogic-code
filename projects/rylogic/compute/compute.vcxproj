@@ -70,11 +70,11 @@
     <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\image.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state_store.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\dependency.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache_fs.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_cache.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\shader_compiler.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\compiler\source_resolver.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\dependency.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache_fs.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_compiler.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\source_resolver.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\barrier_batch.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_alloc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list_collection.h" />
