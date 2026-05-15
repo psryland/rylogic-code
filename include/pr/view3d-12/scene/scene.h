@@ -9,8 +9,6 @@
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_props.h"
 #include "pr/view3d-12/texture/texture_cube.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 #include "pr/view3d-12/utility/ray_cast.h"
 #include "pr/view3d-12/utility/eventargs.h"
 
@@ -39,6 +37,7 @@ namespace pr::rdr12
 		using RenderStepCont = pr::vector<std::unique_ptr<RenderStep>, 16, true>;
 		using InstCont = pr::vector<BaseInstance const*, 1024, false>;
 		using RenderRayCastPtr = std::unique_ptr<RenderRayCast>;
+		using Viewport = ::pr::compute::Viewport;
 		
 		Window*          m_wnd;              // The controlling window
 		SceneCamera      m_cam;              // Represents the camera properties used to project onto the screen

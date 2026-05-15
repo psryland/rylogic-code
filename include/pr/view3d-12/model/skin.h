@@ -1,10 +1,9 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
 
 namespace pr::rdr12
 {
@@ -18,6 +17,8 @@ namespace pr::rdr12
 	// Data required to skin a mesh
 	struct Skin
 	{
+		using Descriptor = ::pr::compute::Descriptor;
+
 		// See description in "animation.h"
 		D3DPtr<ID3D12Resource> m_res; // Buffer of 'Skinfluence[]'
 		Descriptor m_srv;             // SRV of the skin influence buffer

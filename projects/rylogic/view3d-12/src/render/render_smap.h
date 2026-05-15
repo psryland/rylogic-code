@@ -6,14 +6,14 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/render_step.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
-#include "pr/view3d-12/resource/descriptor.h"
 #include "pr/view3d-12/utility/shadow_caster.h"
 
 namespace pr::rdr12
 {
 	struct RenderSmap :RenderStep
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+
 		// Algorithm:
 		//  - Create a 2D colour texture. R=depth,G=colour?
 		//  - Directional:

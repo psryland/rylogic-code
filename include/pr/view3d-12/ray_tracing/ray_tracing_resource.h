@@ -4,11 +4,13 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
+	using GfxCmdList = ::pr::compute::GfxCmdList;
+	using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+	using ResDesc = ::pr::compute::ResDesc;
+
 	// Create a BLAS/TLAS result buffer in the only state that acceleration-structure resources can occupy.
 	D3DPtr<ID3D12Resource> CreateRayTracingAccelerationStructure(Renderer& rdr, uint64_t size_in_bytes, std::string_view name);
 

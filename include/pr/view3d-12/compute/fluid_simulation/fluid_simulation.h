@@ -1,21 +1,18 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/compute/gpu_job.h"
-#include "pr/view3d-12/compute/compute_pso.h"
-#include "pr/view3d-12/compute/compute_step.h"
-#include "pr/view3d-12/compute/spatial_partition/spatial_partition.h"
-#include "pr/view3d-12/compute/particle_collision/particle_collision.h"
-#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/utility/pix.h"
 
 namespace pr::rdr12::compute::fluid
 {
+	namespace shader_cache = ::pr::compute::shader_cache;
+	namespace pix = ::pr::compute::pix;
+	using ::pr::compute::DispatchCount;
+
 	// Particle is designed to be compatible with Vert so that the
 	// same buffer can be used for both particle and vertex data.
 	struct Particle
@@ -64,11 +61,20 @@ namespace pr::rdr12::compute::fluid
 	{
 		// Notes:
 		//  Hydrostatic pressure is: P = density * gravity * depth
-		using Gpu = Gpu<QueueType>;
-		using GpuJob = GpuJob<QueueType>;
-		using SpatialPartition = compute::spatial_partition::SpatialPartition<QueueType>;
-		using ParticleCollision = compute::particle_collision::ParticleCollision<QueueType>;
-		using CollisionPrim = compute::particle_collision::Prim;
+		using Gpu = ::pr::compute::Gpu<QueueType>;
+		using GpuJob = ::pr::compute::GpuJob<QueueType>;
+		using ComputeStep = ::pr::compute::ComputeStep;
+		using ComputePSO = ::pr::compute::ComputePSO;
+		using EHlslVersion = ::pr::compute::EHlslVersion;
+		using ERootSigFlags = ::pr::compute::ERootSigFlags;
+		using EUsage = ::pr::compute::EUsage;
+		using GpuReadbackBuffer = ::pr::compute::GpuReadbackBuffer;
+		using ResDesc = ::pr::compute::ResDesc;
+		using RootSig = ::pr::compute::RootSig;
+		using ShaderCompiler = ::pr::compute::ShaderCompiler;
+		using SpatialPartition = ::pr::compute::spatial_partition::SpatialPartition<QueueType>;
+		using ParticleCollision = ::pr::compute::particle_collision::ParticleCollision<QueueType>;
+		using CollisionPrim = ::pr::compute::particle_collision::Prim;
 
 		// Runtime data
 		struct ColourData

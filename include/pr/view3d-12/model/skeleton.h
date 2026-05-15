@@ -1,11 +1,9 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -38,7 +36,7 @@ namespace pr::rdr12
 		requires (std::same_as<std::invoke_result_t<Func, int, Ret const*>, Ret>)
 		void WalkHierarchy(Func func) const
 		{
-			rdr12::WalkHierarchy<Ret, std::span<uint8_t const>, Func>(m_hierarchy, func);
+			::pr::compute::WalkHierarchy<Ret, std::span<uint8_t const>, Func>(m_hierarchy, func);
 		}
 
 		// Check if this skeleton is structurally compatible with another (same bone count and names)

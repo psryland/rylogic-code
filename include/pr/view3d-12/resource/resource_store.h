@@ -1,13 +1,10 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/stock_resources.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
-#include "pr/view3d-12/utility/lookup.h"
 
 namespace pr::rdr12
 {
@@ -26,9 +23,10 @@ namespace pr::rdr12
 		using ModelCont      = vector<ModelPtr>;
 		using TextureCont    = vector<Texture2DPtr>;
 		using SamplerCont    = vector<SamplerPtr>;
-		using TextureLookup  = Lookup<RdrId, TextureBase*>;
-		using SamplerLookup  = Lookup<RdrId, Sampler*>;
-		using DxResLookup    = Lookup<RdrId, ID3D12Resource*>;
+		using TextureLookup  = ::pr::compute::Lookup<RdrId, TextureBase*>;
+		using SamplerLookup  = ::pr::compute::Lookup<RdrId, Sampler*>;
+		using DxResLookup    = ::pr::compute::Lookup<RdrId, ID3D12Resource*>;
+		using DescriptorStore = ::pr::compute::DescriptorStore;
 
 		Renderer&       m_rdr;              // The owning renderer instance
 		Mutex           m_mutex;            // Main mutex for store access

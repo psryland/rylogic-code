@@ -1,11 +1,10 @@
-﻿//*********************************************
+//*********************************************
 // Renderer
 //  Copyright (c) Rylogic Ltd 2012
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/render_step.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/utility/ray_cast.h"
 
@@ -14,6 +13,11 @@ namespace pr::rdr12
 	// Render step for performing ray casts
 	struct RenderRayCast :RenderStep
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuSync = ::pr::compute::GpuSync;
+		using GpuTransferAllocation = ::pr::compute::GpuTransferAllocation;
+		using GpuReadbackBuffer = ::pr::compute::GpuReadbackBuffer;
+
 		// Notes:
 		//  - This render step can be used in three main ways:
 		//    1. Immediate ray casts: Call 'SetRays' followed by 'ExecuteImmediate' to perform a ray cast and read

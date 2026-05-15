@@ -5,12 +5,13 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/stock_resources.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
 	struct SamplerDesc
 	{
+		using SamDesc = ::pr::compute::SamDesc;
+
 		// Notes:
 		//  Use 'AutoId' to auto generate a unique id.
 		//  Use SamDesc.Id() to generate an id that will match duplicate samplers.

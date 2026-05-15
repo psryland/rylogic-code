@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -52,9 +52,6 @@
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_loader.h"
 #include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
-#include "pr/view3d-12/shaders/compiler/shader_cache.h"
-#include "pr/view3d-12/shaders/compiler/shader_cache_fs.h"
 #include "pr/view3d-12/shaders/shader_include_handler.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
 #include "pr/view3d-12/shaders/shader_show_normals.h"
@@ -63,15 +60,6 @@
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_gizmo.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/cmd_alloc.h"
-#include "pr/view3d-12/utility/gpu_sync.h"
-#include "pr/view3d-12/utility/keep_alive.h"
-#include "pr/view3d-12/utility/utility.h"
-#include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/features.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/root_signature.h"
-#include "pr/view3d-12/utility/update_resource.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "pr/view3d-12/utility/conversion.h"

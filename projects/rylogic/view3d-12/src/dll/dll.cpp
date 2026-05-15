@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -24,7 +24,6 @@
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/utility/dx9_context.h"
 #include "pr/view3d-12/utility/conversion.h"
-#include "pr/view3d-12/utility/utility.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_gizmo.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
@@ -39,6 +38,11 @@
 using namespace pr;
 using namespace pr::rdr12;
 using namespace pr::view3d;
+using pr::compute::EUsage;
+using pr::compute::Image;
+using pr::compute::ResDesc;
+using pr::compute::DIPtoPhysical;
+using pr::compute::SamDesc;
 
 // DLL entry point
 HINSTANCE g_hInstance;
@@ -2436,7 +2440,7 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetTintSet(view3d::Object object, view
 // Create a texture from data in memory.
 // Set 'data' to 0 to leave the texture uninitialised, if not 0 then data must point to width x height pixel data
 // of the size appropriate for the given format. 'e.g. uint32_t px_data[width * height] for D3DFMT_A8R8G8B8'
-// Note: careful with stride, 'data' is expected to have the appropriate stride for rdr12::BytesPerPixel(format) * width
+// Note: careful with stride, 'data' is expected to have the appropriate stride for compute::BytesPerPixel(format) * width
 VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height, void const* data, size_t data_size, view3d::TextureOptions const& options)
 {
 	try
@@ -2446,7 +2450,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height,
 			throw std::runtime_error("Incorrect data size provided");
 
 		ResDesc rdesc = ResDesc::Tex2D(src, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
-			.multisamp(To<rdr12::MultiSamp>(options.m_multisamp))
+			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.def_state(options.m_resource_state)
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
@@ -2487,7 +2491,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreateFromUri(char const* res
 	try
 	{
 		ResDesc rdesc = ResDesc::Tex2D(Image{width, height, nullptr, options.m_format})
-			.multisamp(To<rdr12::MultiSamp>(options.m_multisamp))
+			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.def_state(options.m_resource_state)
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(AutoId, rdesc)
@@ -3065,7 +3069,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateDx9RenderTarget(HWND hwnd, UIN
 
 		// Create a texture description
 		ResDesc rdesc = ResDesc::Tex2D(Image{int(width), int(height)}, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
-			.multisamp(To<rdr12::MultiSamp>(options.m_multisamp))
+			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
@@ -3103,7 +3107,7 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateTextureFromSharedResource(IUnk
 
 		// Create a texture description
 		ResDesc rdesc = ResDesc::Tex2D({}, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
-			.multisamp(To<rdr12::MultiSamp>(options.m_multisamp))
+			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.clear(options.m_clear_value);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
@@ -3123,7 +3127,7 @@ VIEW3D_API int __stdcall View3D_MSAAQuality(int count, DXGI_FORMAT format)
 {
 	try
 	{
-		rdr12::MultiSamp ms(count);
+		pr::compute::MultiSamp ms(count);
 		ms.ScaleQualityLevel(Dll().m_rdr.d3d(), format);
 		return ms.Quality;
 	}
@@ -3433,7 +3437,7 @@ VIEW3D_API ULONG __stdcall View3D_RefCount(IUnknown* pointer)
 	try
 	{
 		if (pointer == nullptr) throw std::runtime_error("pointer is null");
-		return rdr12::RefCount(pointer);
+		return pr::compute::RefCount(pointer);
 	}
 	CatchAndReport(View3D_RefCount, , 0);
 }

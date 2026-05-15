@@ -29,6 +29,7 @@
 		</ClCompile>
 		<Link>
 			<AdditionalDependencies>
+				;compute-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
@@ -52,6 +53,9 @@
 		<ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
 		<ClInclude Include="src\space_invaders.h" />
 		<ClInclude Include="src\ace_inspaders.h" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
 	</ItemGroup>
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

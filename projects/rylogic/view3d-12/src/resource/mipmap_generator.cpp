@@ -5,14 +5,11 @@
 #include "pr/view3d-12/resource/mipmap_generator.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/gpu_sync.h"
-#include "pr/view3d-12/utility/utility.h"
-#include "pr/view3d-12/utility/root_signature.h"
-#include "pr/view3d-12/compute/compute_pso.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	constexpr int HeapCapacityView = 256;
 	struct EReg
 	{
@@ -68,7 +65,7 @@ namespace pr::rdr12
 		// Get the description of the texture
 		auto desc = texture->GetDesc();
 		auto dim = iv2(s_cast<int>(desc.Width), s_cast<int>(desc.Height));
-		mip_count = std::min(MipCount(dim) - mip_first, mip_count);
+		mip_count = std::min(::pr::compute::MipCount(dim) - mip_first, mip_count);
 
 		// Mip 0 is the texture itself, we're not generating that
 		if (mip_first <= 0)
@@ -253,7 +250,7 @@ namespace pr::rdr12
 
 
 
-// Generating mip maps... 
+// Generating mip maps...
 #if 0
 //MipMapTextures is an array containing texture objects that need mip-maps to be generated. It needs a texture resource with mip-maps in D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE state.
 //Textures are expected to be POT and in a format supporting unordered access, as well as the D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS set during creation.

@@ -8,6 +8,8 @@
 
 namespace pr::rdr12
 {
+	using ResDesc = ::pr::compute::ResDesc;
+
 	Skin::Skin()
 		: m_res()
 		, m_srv()

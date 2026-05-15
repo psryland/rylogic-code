@@ -122,6 +122,7 @@
 #include "pr/gui/gdiplus.h"
 #include "pr/hlsl/interop.h"
 #include "pr/hlsl/shader_registers.h"
+#include "pr/compute/compute.h"
 #include "pr/macros/enum.h"
 #include "pr/math/math.h"
 #include "pr/math/conversion.h"
@@ -146,18 +147,8 @@ namespace pr::rdr12
 	using byte = unsigned char;
 	using float4_t = float[4];
 	using RdrId = std::uintptr_t;
-	using SortKeyId = uint16_t;
 	using Range = pr::Range<int64_t>;
-	using TimeRange = pr::Range<double>;
-	using FrameRange = pr::Range<int>;
 	using Handle = win32::Handle;
-	using Winsock = network::Winsock;
-	using HashValue32 = hash::HashValue32;
-	using seconds_t = std::chrono::duration<double, std::ratio<1, 1>>;
-	using time_point_t = std::chrono::system_clock::time_point;
-	using IPathResolver = filesys::IPathResolver;
-	using PathResolver = filesys::PathResolver;
-	using NoIncludes = filesys::NoIncludes;
 	template <typename T> using Scope = pr::Scope<T>;
 	template <typename T> using Allocator = pr::aligned_alloc<T>;
 	template <typename T> using alloc_traits = std::allocator_traits<Allocator<T>>;
@@ -171,6 +162,23 @@ namespace pr::rdr12
 	using hlsl::ESamReg;
 	using hlsl::ShaderReg;
 
+	// Enumerations
+	using EGeom = geometry::EGeom;
+	using ETopo = geometry::ETopo;
+	using ETopoGroup = geometry::ETopoGroup;
+
+	// View3D types
+	using SortKeyId = uint16_t;
+	using TimeRange = pr::Range<double>;
+	using FrameRange = pr::Range<int>;
+	using Winsock = network::Winsock;
+	using HashValue32 = hash::HashValue32;
+	using seconds_t = std::chrono::duration<double, std::ratio<1, 1>>;
+	using time_point_t = std::chrono::system_clock::time_point;
+	using IPathResolver = filesys::IPathResolver;
+	using PathResolver = filesys::PathResolver;
+	using NoIncludes = filesys::NoIncludes;
+
 	// Fixed size strings
 	using string32 = string<char, 32>;
 	using string512 = string<char, 512>;
@@ -178,14 +186,8 @@ namespace pr::rdr12
 	using wstring256 = string<wchar_t, 256>;
 
 	// Constants
-	static constexpr Range RangeZero = Range::Zero();
 	static constexpr RdrId AutoId = ~RdrId(); // A special value for automatically generating an Id
 	static constexpr RdrId InvalidId = RdrId();
-
-	// Enumerations
-	using EGeom = geometry::EGeom;
-	using ETopo = geometry::ETopo;
-	using ETopoGroup = geometry::ETopoGroup;
 
 	// Renderer
 	struct Renderer;
@@ -225,8 +227,6 @@ namespace pr::rdr12
 	// Resources
 	struct ResourceFactory;
 	struct ResourceStore;
-	struct ResDesc;
-	struct SamDesc;
 	
 	// Samplers
 	struct SamplerDesc;
@@ -312,11 +312,8 @@ namespace pr::rdr12
 	// Utility
 	struct Lock;
 	struct MLock;
-	struct Image;
-	struct ImageWithData;
 	struct FeatureSupport;
 	struct PipeStates;
-	struct GpuSync;
 	
 	// LDraw
 	namespace ldraw

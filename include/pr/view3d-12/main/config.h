@@ -4,7 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
@@ -13,6 +12,8 @@ namespace pr::rdr12
 	// then call 'GetDisplayModes' for the format needed.
 	struct SystemConfig
 	{
+		using DisplayMode = ::pr::compute::DisplayMode;
+
 		// An output of a graphics adapter (i.e. a monitor)
 		struct Output
 		{

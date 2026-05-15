@@ -7,7 +7,6 @@
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/utility/pipe_state.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
@@ -22,6 +21,7 @@ namespace pr::rdr12
 		using drawlist_async_t = AsyncWrap<drawlist_t>;
 		using dl_mutex_t       = std::recursive_mutex;
 		using dl_boundaries    = vector_map<ESortGroup, int, vector<std::pair<ESortGroup, int>, 4, true>>;
+		using GpuUploadBuffer  = ::pr::compute::GpuUploadBuffer;
 
 		ERenderStep const m_step_id;            // Derived type Id
 		Scene*            m_scene;              // The scene this render step is owned by

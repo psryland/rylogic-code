@@ -17,6 +17,8 @@ using namespace pr::geometry;
 
 namespace pr::rdr12::ldraw
 {
+	using namespace ::pr::compute;
+
 	#pragma region Gizmo Model Data
 	struct GizmoData
 	{

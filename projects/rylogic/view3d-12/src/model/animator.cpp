@@ -4,7 +4,6 @@
 //*********************************************
 #include "pr/view3d-12/model/animator.h"
 #include "pr/view3d-12/model/animation.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -16,7 +15,7 @@ namespace pr::rdr12
 	void Animator::RefCountZero(RefCounted<Animator>* doomed)
 	{
 		auto animator = static_cast<Animator*>(doomed);
-		rdr12::Delete<Animator>(animator);
+		::pr::compute::Delete<Animator>(animator);
 	}
 
 	// -----------------------------------------------------------------------------------------------
@@ -87,7 +86,7 @@ namespace pr::rdr12
 	// Clone this animator
 	AnimatorPtr Animator_KeyFrameAnimation::Clone() const
 	{
-		return AnimatorPtr{ rdr12::New<Animator_KeyFrameAnimation>(m_anim), true };
+		return AnimatorPtr{ ::pr::compute::New<Animator_KeyFrameAnimation>(m_anim), true };
 	}
 
 	// -----------------------------------------------------------------------------------------------
@@ -185,7 +184,6 @@ namespace pr::rdr12
 	// Clone this animator
 	AnimatorPtr Animator_InterpolatedAnimation::Clone() const
 	{
-		return AnimatorPtr{ rdr12::New<Animator_InterpolatedAnimation>(m_anim), true };
+		return AnimatorPtr{ ::pr::compute::New<Animator_InterpolatedAnimation>(m_anim), true };
 	}
 }
-

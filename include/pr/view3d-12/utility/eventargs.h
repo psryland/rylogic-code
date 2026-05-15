@@ -4,8 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 
 namespace pr::rdr12
 {
@@ -31,6 +29,9 @@ namespace pr::rdr12
 	// Event args for the Scene.OnUpdateScene event
 	struct UpdateSceneArgs
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+
 		// The command list to use for perparing the scene for rendering.
 		// This is only valid during the event callback.
 		GfxCmdList& m_cmd_list;

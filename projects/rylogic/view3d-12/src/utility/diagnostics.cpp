@@ -15,6 +15,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	constexpr ENuggetVariant ShowNormalsNugget = hash::HashCT("ShowNormalsNugget");
 
 	DiagState::DiagState(Window& wnd)

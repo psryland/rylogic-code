@@ -10,16 +10,15 @@
 #include "pr/view3d-12/ray_tracing/ray_tracing_scene.h"
 #include "pr/view3d-12/render/alpha_kbuffer.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/root_signature.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	namespace
 	{
 		constexpr auto OutputFormat = DXGI_FORMAT_R8G8B8A8_UNORM;

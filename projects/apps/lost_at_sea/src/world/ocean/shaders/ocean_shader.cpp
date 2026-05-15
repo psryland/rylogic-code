@@ -26,7 +26,7 @@ namespace las
 	{
 		static_assert((sizeof(CBufOcean) % 16) == 0);
 		static_assert(sizeof(CBufOcean) == sizeof(m_cbuf), "CBufOcean exceeds m_cbuf storage");
-		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
+		auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
 
 		// Compile the shader
 		auto compiler = ShaderCompiler{}
@@ -57,7 +57,7 @@ namespace las
 	}
 
 	// Called per-nugget during forward rendering to bind the ocean constant buffer
-	void OceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, rdr12::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
+	void OceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
 	{
 		if (dle == nullptr)
 			return;
@@ -73,7 +73,7 @@ namespace las
 	void OceanShader::SetupFrame(std::span<GerstnerWave const> waves, v4 camera_world_pos, float time, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
 		auto& cbuf = storage_cast<CBufOcean>(m_cbuf);
-		
+
 		cbuf.wave_count = std::min(static_cast<int>(waves.size()), MaxOceanWaves);
 		for (int i = 0; i != cbuf.wave_count; ++i)
 		{

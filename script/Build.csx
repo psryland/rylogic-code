@@ -23,6 +23,7 @@ public enum EProjects
 	Scintilla,          // = "Scintilla";
 	Audio,              // = "Audio";
 	Fbx,                // = "Fbx";
+	Compute,            // = "Compute";
 	View3d,             // = "View3d";
 	P3d,                // = "P3d";
 	RylogicCore,        // = "Rylogic.Core";
@@ -198,6 +199,33 @@ public class Audio : Native
 			{
 				Tools.DeployLib(Tools.Path([ObjDir, "audio", p, c, "audio.lib"]));
 				Tools.DeployLib(Tools.Path([ObjDir, "audio.dll", p, c, "audio.dll"]));
+			}
+		}
+	}
+}
+
+// Compute
+public class Compute : Native
+{
+	public Compute(string workspace, List<string>? platforms, List<string>? configs)
+		: base("compute", Tools.Path([workspace, $"projects\\rylogic\\compute"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "compute"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Rylogic\compute"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+			{
+				Tools.DeployLib(Tools.Path([ObjDir, "compute", p, c, "compute-static.lib"]));
 			}
 		}
 	}

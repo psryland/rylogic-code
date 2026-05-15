@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -14,6 +14,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	constexpr int HeapCapacityView = 12;
 
 	ResourceStore::ResourceStore(Renderer& rdr)
@@ -49,7 +51,7 @@ namespace pr::rdr12
 		m_stock_samplers.clear();
 		m_stock_textures.clear();
 	}
-	
+
 	// Stock resources
 	Texture2DPtr ResourceStore::StockTexture(EStockTexture id) const
 	{
@@ -166,16 +168,16 @@ namespace pr::rdr12
 		m_store.ModelDeleted(*model);
 
 		assert(m_store.m_rdr.mem_tracker().remove(model));
-		rdr12::Delete<Model>(model);
+		::pr::compute::Delete<Model>(model);
 	}
-	
+
 	// Return a render nugget to the allocator
 	void ResourceStore::Access::Delete(Nugget* nugget)
 	{
 		assert(nugget != nullptr);
 
 		assert(m_store.m_rdr.mem_tracker().remove(nugget));
-		rdr12::Delete<Nugget>(nugget);
+		::pr::compute::Delete<Nugget>(nugget);
 	}
 
 	// Return a texture to the allocator.
@@ -186,7 +188,7 @@ namespace pr::rdr12
 		// Find 'tex' in the map of RdrIds to texture instances
 		auto iter = m_store.m_lookup_tex.find(tex->m_id);
 		assert("Texture not found" && iter != end(m_store.m_lookup_tex));
-		
+
 		// The texture contains a reference to a shared Dx resource. When the last texture referencing that resource is deleted,
 		// the resource should be removed from the lookup. This is done here rather than in the TextureBase destructor
 		// because the ref count needs to be changed within a store access scope to prevent race conditions.
@@ -201,7 +203,7 @@ namespace pr::rdr12
 
 		// Delete the texture and remove the entry from the RdrId lookup map
 		assert(m_store.m_rdr.mem_tracker().remove(iter->second));
-		rdr12::Delete<TextureBase>(iter->second);
+		::pr::compute::Delete<TextureBase>(iter->second);
 		m_store.m_lookup_tex.erase(iter);
 	}
 
@@ -217,7 +219,7 @@ namespace pr::rdr12
 
 		// Delete the texture and remove the entry from the RdrId lookup map
 		assert(m_store.m_rdr.mem_tracker().remove(iter->second));
-		rdr12::Delete<Sampler>(iter->second);
+		::pr::compute::Delete<Sampler>(iter->second);
 		m_store.m_lookup_sam.erase(iter);
 	}
 }

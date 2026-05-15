@@ -8,7 +8,7 @@
 
 namespace pr::physics
 {
-	using namespace rdr12;
+	using namespace ::pr::compute;
 
 	// Integrate constants
 	struct alignas(16) cbIntegrate

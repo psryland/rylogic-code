@@ -4,27 +4,27 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
-#include "pr/view3d-12/compute/gpu.h"
-#include "pr/view3d-12/compute/gpu_job.h"
-#include "pr/view3d-12/compute/compute_pso.h"
-#include "pr/view3d-12/compute/compute_step.h"
-#include "pr/view3d-12/compute/radix_sort/radix_sort.h"
-#include "pr/view3d-12/shaders/compiler/shader_compiler.h"
-#include "pr/view3d-12/utility/root_signature.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/pix.h"
+#include "pr/compute/gpu.h"
+#include "pr/compute/gpu_job.h"
+#include "pr/compute/compute_pso.h"
+#include "pr/compute/compute_step.h"
+#include "pr/compute/radix_sort/radix_sort.h"
+#include "pr/compute/shaders/shader_compiler.h"
+#include "pr/compute/utility/root_signature.h"
+#include "pr/compute/utility/wrappers.h"
+#include "pr/compute/utility/pix.h"
 #include "pr/common/resource.h"
 
 namespace pr::physics
 {
-	using ComGpu = rdr12::Gpu<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using GpuJob = rdr12::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using CmdList = rdr12::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using ComputeStep = rdr12::ComputeStep;
-	using GpuUploadBuffer = rdr12::GpuUploadBuffer;
-	using ReadbackAlloc = rdr12::GpuReadbackBuffer::Allocation;
-	using BoundsSorter = rdr12::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using ContactSorter = rdr12::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using ComGpu = ::pr::compute::Gpu<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using GpuJob = ::pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using CmdList = ::pr::compute::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using ComputeStep = ::pr::compute::ComputeStep;
+	using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+	using ReadbackAlloc = ::pr::compute::GpuReadbackBuffer::Allocation;
+	using BoundsSorter = ::pr::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using ContactSorter = ::pr::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 
 	struct Gpu
 	{
@@ -61,7 +61,7 @@ namespace pr::physics
 		}
 
 		// Allocate a DX resource
-		D3DPtr<ID3D12Resource> CreateResource(rdr12::ResDesc const& desc, rdr12::ComCmdList& cmd_list, std::string_view name)
+		D3DPtr<ID3D12Resource> CreateResource(::pr::compute::ResDesc const& desc, ::pr::compute::ComCmdList& cmd_list, std::string_view name)
 		{
 			return m_gpu.CreateResource(desc, cmd_list, name);
 		}

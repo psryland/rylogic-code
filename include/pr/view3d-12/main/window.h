@@ -8,10 +8,6 @@
 #include "pr/view3d-12/openxr/openxr.h"
 #include "pr/view3d-12/render/back_buffer.h"
 #include "pr/view3d-12/render/alpha_kbuffer.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/cmd_alloc.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "pr/view3d-12/utility/diagnostics.h"
 
@@ -46,12 +42,18 @@ namespace pr::rdr12
 		//  - Command allocators can only be reset when they are not used by the GPU any more.
 		//  - The swap chain does not have a depth stencil resource, it's managed by the window.
 
+		using ClearValue = ::pr::compute::ClearValue;
+		using MultiSamp = ::pr::compute::MultiSamp;
 		using RTProps = ClearValue;
 		using DSProps = ClearValue;
 		using BackBuffers = pr::vector<BackBuffer, 4, false>;
 		using CmdLists = pr::vector<ID3D12CommandList*, 4, false>;
-		using GpuViewHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
-		using GpuSampHeap = GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER>;
+		using GpuViewHeap = ::pr::compute::GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
+		using GpuSampHeap = ::pr::compute::GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER>;
+		using GpuSync = ::pr::compute::GpuSync;
+		using GfxCmdAllocPool = ::pr::compute::GfxCmdAllocPool;
+		using GfxCmdListPool = ::pr::compute::GfxCmdListPool;
+		using ResStateStore = ::pr::compute::ResStateStore;
 		using OpenXRPtr = std::unique_ptr<openxr::OpenXR>;
 
 		GpuSync                      m_gsync;            // GPU fence for frames

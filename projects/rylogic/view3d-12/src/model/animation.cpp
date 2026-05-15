@@ -3,7 +3,6 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/model/animation.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -86,7 +85,7 @@ namespace pr::rdr12
 	void RootAnimation::RefCountZero(RefCounted<RootAnimation>* doomed)
 	{
 		auto anim = static_cast<RootAnimation*>(doomed);
-		rdr12::Delete(anim);
+		::pr::compute::Delete(anim);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -253,7 +252,7 @@ namespace pr::rdr12
 	void KeyFrameAnimation::RefCountZero(RefCounted<KeyFrameAnimation>* doomed)
 	{
 		auto anim = static_cast<KeyFrameAnimation*>(doomed);
-		rdr12::Delete(anim);
+		::pr::compute::Delete(anim);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -412,7 +411,7 @@ namespace pr::rdr12
 
 	// Read keys starting at 'frame' for all tracks. 'out' should be a multiple of the track count
 	template <typename Key> requires (std::is_assignable_v<Key, KinematicKey>)
-	static void ReadKeysImpl(KinematicKeyFrameAnimation const& kkfa, int key_idx, std::span<Key> out) 
+	static void ReadKeysImpl(KinematicKeyFrameAnimation const& kkfa, int key_idx, std::span<Key> out)
 	{
 		auto tcount = kkfa.track_count();
 		auto kcount = kkfa.key_count();
@@ -453,7 +452,7 @@ namespace pr::rdr12
 
 	// Read keys starting at 'frame' for all tracks. 'out' should be a multiple of the track count
 	template <typename Key> requires (std::is_assignable_v<Key, KinematicKey>)
-	static void ReadKeysImpl(KinematicKeyFrameAnimation const& kkfa, int key_idx, int track_index, std::span<Key> out) 
+	static void ReadKeysImpl(KinematicKeyFrameAnimation const& kkfa, int key_idx, int track_index, std::span<Key> out)
 	{
 		auto tcount = kkfa.track_count();
 		auto kcount = kkfa.key_count();
@@ -995,7 +994,7 @@ namespace pr::rdr12
 	void KinematicKeyFrameAnimation::RefCountZero(RefCounted<KinematicKeyFrameAnimation>* doomed)
 	{
 		auto anim = static_cast<KinematicKeyFrameAnimation*>(doomed);
-		rdr12::Delete(anim);
+		::pr::compute::Delete(anim);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -1040,7 +1039,7 @@ namespace pr::rdr12
 				throw std::runtime_error("Unknown animation style");
 			}
 		}
-		
+
 		// Convert the wrapped time back to absolute time
 		return rtime_s + time_range.begin();
 	}

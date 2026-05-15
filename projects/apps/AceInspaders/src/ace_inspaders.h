@@ -33,6 +33,9 @@ namespace ace
 		using base = pr::app::Main<Main, MainUI, UserSettings>;
 		using ResourceFactory = pr::rdr12::ResourceFactory;
 		using Texture2DPtr = pr::rdr12::Texture2DPtr;
+		using ResDesc = pr::compute::ResDesc;
+		using Image = pr::compute::Image;
+		using UpdateSubresourceScope = pr::compute::GfxUpdateSubresourceScope;
 		using SpaceInvaders = pr::SpaceInvaders;
 		using Screen = pr::SpaceInvaders::Screen;
 		using SoundBank = std::vector<pr::ByteData<4>>;

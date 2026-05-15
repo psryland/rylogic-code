@@ -24,7 +24,7 @@ namespace las
 	{
 		static_assert((sizeof(CBufDistantOcean) % 16) == 0);
 		static_assert(sizeof(CBufDistantOcean) == sizeof(m_cbuf), "CBufDistantOcean exceeds m_cbuf storage");
-		auto resolver = rdr12::shader_cache::ResourceSourceResolver{};
+		auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
 
 		auto compiler = ShaderCompiler{}
 			.Source("src/world/ocean/shaders/distant_ocean.hlsl", resolver)
@@ -50,7 +50,7 @@ namespace las
 		};
 	}
 
-	void DistantOceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, rdr12::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
+	void DistantOceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
 	{
 		if (dle == nullptr)
 			return;

@@ -1,4 +1,4 @@
-﻿// Fluid
+// Fluid
 #pragma once
 
 #include <cstdint>
@@ -24,15 +24,9 @@
 #include "pr/hlsl/interop.h"
 #include "pr/win32/windows_com.h"
 
+#include "pr/compute/compute.h"
 #include "pr/view3d-12/view3d.h"
-#include "pr/view3d-12/ldraw/ldraw_object.h"
-#include "pr/view3d-12/ldraw/ldraw_parsing.h"
-#include "pr/view3d-12/compute/gpu_job.h"
-#include "pr/view3d-12/compute/radix_sort/radix_sort.h"
-#include "pr/view3d-12/compute/spatial_partition/spatial_partition.h"
-#include "pr/view3d-12/compute/particle_collision/particle_collision.h"
 #include "pr/view3d-12/compute/fluid_simulation/fluid_simulation.h"
-#include "pr/view3d-12/utility/pix.h"
 
 namespace pr::fluid
 {
@@ -50,12 +44,16 @@ namespace pr::fluid
 	using particles_t = std::vector<particle_t>;
 	using IndexSet = std::unordered_set<int64_t>;
 
-	using ComputeStep = rdr12::ComputeStep;
+	using ComputeStep = ::pr::compute::ComputeStep;
+	using EUsage = ::pr::compute::EUsage;
+	using Image = ::pr::compute::Image;
+	using ResDesc = ::pr::compute::ResDesc;
+	using UpdateSubresourceScope = ::pr::compute::GfxUpdateSubresourceScope;
 	using FluidSimulation = rdr12::compute::fluid::FluidSimulation<>;
-	using SpatialPartition = rdr12::compute::spatial_partition::SpatialPartition<>;
-	using ParticleCollision = rdr12::compute::particle_collision::ParticleCollision<>;
-	using CollisionBuilder = rdr12::compute::particle_collision::CollisionBuilder;
-	using CollisionPrim = rdr12::compute::particle_collision::Prim;
+	using SpatialPartition = ::pr::compute::spatial_partition::SpatialPartition<>;
+	using ParticleCollision = ::pr::compute::particle_collision::ParticleCollision<>;
+	using CollisionBuilder = ::pr::compute::particle_collision::CollisionBuilder;
+	using CollisionPrim = ::pr::compute::particle_collision::Prim;
 	using Particle = rdr12::compute::fluid::Particle;
 	using Dynamics = rdr12::compute::fluid::Dynamics;
 	using Gpu = FluidSimulation::Gpu;

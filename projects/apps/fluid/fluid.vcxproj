@@ -25,6 +25,7 @@
 		</ClCompile>
 		<Link>
 			<AdditionalDependencies>
+				;compute-static.lib
 				;view3d-12-static.lib
 				;view3d_compute_shaders.res
 				;%(AdditionalDependencies)
@@ -71,6 +72,9 @@
 	<!-- Dependencies -->
 	<ItemGroup>
 		<UpToDateCheckInput Include="$(RylogicRoot)lib\$(PlatformTarget)\$(ConfigurationName)\view3d-12.dll" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />

@@ -4,10 +4,6 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/resource/descriptor.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
@@ -17,6 +13,11 @@ namespace pr::rdr12
 	struct RayTracingReflectionBuffer
 	{
 	private:
+
+		using Descriptor = ::pr::compute::Descriptor;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using MultiSamp = ::pr::compute::MultiSamp;
 
 		D3DPtr<ID3D12Resource> m_attributes;
 		Descriptor m_srv;

@@ -12,6 +12,8 @@
 #include "pr/view3d-12/ldraw/ldraw_ui_measure_tool.h"
 #include "pr/view3d-12/ldraw/ldraw_ui_angle_tool.h"
 #include "pr/view3d-12/ldraw/ldraw.h"
+#include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/main/settings.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -19,6 +21,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Default window construction settings
 	WndSettings ToWndSettings(HWND hwnd, RdrSettings const& rsettings, view3d::WindowOptions const& opts)
 	{

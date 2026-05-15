@@ -1,17 +1,12 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/resource/stock_resources.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/resource/mipmap_generator.h"
 #include "pr/view3d-12/shaders/stock_shaders.h"
-#include "pr/view3d-12/utility/gpu_sync.h"
-#include "pr/view3d-12/utility/cmd_alloc.h"
-#include "pr/view3d-12/utility/cmd_list.h"
-#include "pr/view3d-12/utility/keep_alive.h"
 
 namespace pr::rdr12
 {
@@ -23,6 +18,13 @@ namespace pr::rdr12
 		// - The resource factory is expected to be used on one thread only.
 
 	private:
+
+		using GpuSync = ::pr::compute::GpuSync;
+		using KeepAlive = ::pr::compute::KeepAlive;
+		using GfxCmdAllocPool = ::pr::compute::GfxCmdAllocPool;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using ResDesc = ::pr::compute::ResDesc;
 
 		Renderer&       m_rdr;                // The owning renderer instance
 		GpuSync         m_gsync;              // Sync with GPU

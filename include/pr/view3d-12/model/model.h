@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -7,12 +7,16 @@
 #include "pr/view3d-12/model/skin.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
-#include "pr/view3d-12/utility/update_resource.h"
 
 namespace pr::rdr12
 {
 	struct Model :RefCounted<Model>
 	{
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using GfxUpdateSubresourceScope = ::pr::compute::GfxUpdateSubresourceScope;
+		using SizeAndAlign16 = ::pr::compute::SizeAndAlign16;
+
 		// Notes:
 		//  - Models without index buffers are not supported because they are a rare case and
 		//    they would add loads of if statements. Just create a dummy index buffer, and create

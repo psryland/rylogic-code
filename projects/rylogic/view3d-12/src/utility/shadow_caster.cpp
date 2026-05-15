@@ -6,7 +6,6 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/scene/scene.h"
-#include "pr/view3d-12/utility/wrappers.h"
 #include "view3d-12/src/render/render_smap.h"
 
 namespace pr::rdr12

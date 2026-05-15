@@ -7,18 +7,13 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skin.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/root_signature.h"
-#include "pr/view3d-12/utility/utility.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/compute/compute_pso.h"
-#include "pr/view3d-12/compute/gpu_job.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Hash a model/pose cache key.
 	size_t SkinnedGeometryCache::KeyHash::operator () (Key const& key) const
 	{

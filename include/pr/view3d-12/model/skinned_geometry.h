@@ -5,8 +5,6 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/model/vertex_layout.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 
 namespace pr::rdr12
 {
@@ -14,6 +12,9 @@ namespace pr::rdr12
 	struct SkinnedGeometryCache
 	{
 	private:
+
+		using GfxCmdList = ::pr::compute::GfxCmdList;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
 
 		struct Key
 		{

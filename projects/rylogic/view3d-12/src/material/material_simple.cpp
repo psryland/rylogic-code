@@ -13,7 +13,6 @@
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/utility/utility.h"
 
 namespace pr::rdr12
 {
@@ -337,11 +336,11 @@ namespace pr::rdr12
 			}
 		}
 	}
-	
+
 	// Create a mutable copy of this material instance.
 	RefPtr<Material> MaterialSimple::Clone() const
 	{
-		return RefPtr<MaterialSimple>(rdr12::New<MaterialSimple>(*this), true);
+		return RefPtr<MaterialSimple>(::pr::compute::New<MaterialSimple>(*this), true);
 	}
 
 	// Return true if this material requires alpha rendering
@@ -438,6 +437,6 @@ namespace pr::rdr12
 	// Delete this simple material instance.
 	void MaterialSimple::Delete()
 	{
-		rdr12::Delete<MaterialSimple>(this);
+		::pr::compute::Delete<MaterialSimple>(this);
 	}
 }

@@ -5,11 +5,12 @@
 #include "pr/view3d-12/ray_tracing/ray_tracing_reflections.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_resource.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
 #include "pr/view3d-12/resource/resource_store.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Create an empty reflection attribute buffer.
 	RayTracingReflectionBuffer::RayTracingReflectionBuffer()
 		: m_attributes()

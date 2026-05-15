@@ -1,15 +1,16 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
-#include "pr/view3d-12/utility/wrappers.h"
 
 namespace pr::rdr12
 {
 	struct ModelDesc
 	{
+		using ResDesc = ::pr::compute::ResDesc;
+
 		ResDesc  m_vb;      // The vertex buffer description and initialisation data
 		ResDesc  m_ib;      // The index buffer description and initialisation data
 		BBox     m_bbox;    // Model space bounding box

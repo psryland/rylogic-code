@@ -1,14 +1,10 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/back_buffer.h"
-#include "pr/view3d-12/resource/gpu_descriptor_heap.h"
-#include "pr/view3d-12/utility/wrappers.h"
-#include "pr/view3d-12/utility/cmd_alloc.h"
-#include "pr/view3d-12/utility/cmd_list.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "pr/view3d-12/utility/diagnostics.h"
 
@@ -17,6 +13,10 @@ namespace pr::rdr12
 	struct Frame
 	{
 		using GfxCmdLists = pr::vector<ID3D12GraphicsCommandList*, 4, false>;
+		using GpuSync = ::pr::compute::GpuSync;
+		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using GfxCmdAllocPool = ::pr::compute::GfxCmdAllocPool;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
 
 		GpuSync& m_gsync;         // The GPU sync object used to track GPU progress and manage resources
 		GpuUploadBuffer m_upload; // A GPU buffer for the global light data

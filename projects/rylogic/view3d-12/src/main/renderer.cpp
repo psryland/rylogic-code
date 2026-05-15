@@ -4,8 +4,6 @@
 //*********************************************
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/config.h"
-#include "pr/view3d-12/resource/resource_state_store.h"
-#include "pr/view3d-12/resource/resource_state.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -20,6 +18,8 @@
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	// Useful reading: http://msdn.microsoft.com/en-us/library/windows/desktop/bb205075(v=vs.85).aspx
 
 	// Registered windows message for BeginInvoke

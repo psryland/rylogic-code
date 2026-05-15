@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+  Globals
+  -->
+  <PropertyGroup Label="Globals">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ProjectGuid>{4D855C74-4E03-4E87-A9AF-8C0FD5C6525A}</ProjectGuid>
+    <RootNamespace>Compute</RootNamespace>
+    <ProjectName>compute</ProjectName>
+    <TargetName>compute-static</TargetName>
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
+  <!--
+  Property Sheets
+  -->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(PropsPath)build_configurations.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(PropsPath)lib.props" />
+  <!--
+  Build options
+  -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_LOGGING=1
+        ;PR_RDR_RUNTIME_SHADERS=0
+      </PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>
+        ;$(RylogicRoot)projects\rylogic
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <!--
+  Source files
+  -->
+  <ItemGroup>
+    <ClCompile Include="src\gpu.cpp" />
+    <ClCompile Include="src\resource\descriptor_store.cpp" />
+    <ClCompile Include="src\shaders\shader_cache_fs.cpp" />
+    <ClCompile Include="src\shaders\shader_compiler.cpp" />
+    <ClCompile Include="src\shaders\source_resolver.cpp" />
+    <ClCompile Include="src\utility\cmd_list.cpp" />
+    <ClCompile Include="src\utility\pix.cpp" />
+    <ClCompile Include="src\utility\utility.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\forward.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\conversion.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute_pso.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\compute_step.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\gpu_job.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\gpu.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\particle_collision\collision_builder.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\particle_collision\particle_collision.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\radix_sort\radix_sort.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\spatial_partition\spatial_partition.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\descriptor_store.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\descriptor.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_descriptor_heap.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_allocation.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_buffer_page.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\gpu_transfer_buffer.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\image.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state_store.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\resource\resource_state.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\dependency.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache_fs.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_cache.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\shader_compiler.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\shaders\source_resolver.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\barrier_batch.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_alloc.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list_collection.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\cmd_list.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\gpu_sync.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\keep_alive.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\lookup.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\map_resource.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\pix.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\root_signature.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\update_resource.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\utility.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\wrappers.h" />
+  </ItemGroup>
+  <!--
+  Targets
+  -->
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
+  <Import Project="$(TargetsPath)dxc.targets" />
+</Project>

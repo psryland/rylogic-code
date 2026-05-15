@@ -17,7 +17,7 @@ namespace pr::rdr12
 	//  - Structure:
 	//    Models contain a pointer to the head of a singly linked list of nuggets. Each nugget points to the next in the list.
 	//    Each nugget can also contain a 'variant' which is a secondary list of nuggets derived from that nugget, e.g.,
-	//    
+	//
 	//        Model -> Nugget -> Nugget -> Nugget -> ...   (horizontal -> are 'm_next' pointers)
 	//                   |         |         |             (vertical | are 'm_dependent' pointers)
 	//                 Nugget    Nugget    Nugget          ('m_next' pointers of dependent nuggets point to the same next nugget as the root)
@@ -54,7 +54,7 @@ namespace pr::rdr12
 	//    variable only used in one shader from one render step? This wouldn't scale as more shaders/render steps are added)
 	//    Shader derived objects are light weight instances of DX shaders. These shader instances contain per-nugget data
 	//    (such as line width, projection texture, etc). They can be duplicated as needed.
-	//    
+	//
 	//  - Draw list Sorting and sort keys:
 	//    Since there is a draw list per render step, each nugget needs a sort key per draw list. These are composed on demand
 	//    when the nuggets are added to the render steps:
@@ -62,7 +62,7 @@ namespace pr::rdr12
 	//     - per render step (i.e. per draw list)
 	//       - hash the sort ids of all shaders together into a shader id and set that in the sort key
 	//       - apply sort key overrides from the owning instance (these are needed because the instance might tint with alpha)
-	// 
+	//
 	//  - ShaderMap:
 	//    A nugget contains a collection of ShaderPtrs as well as model specific data. The shader map contains the pointers
 	//    to the shaders to be used by each render step. Users can set these pointers as needed for specific functionally or
@@ -173,12 +173,12 @@ namespace pr::rdr12
 			m_material = material;
 			return *this;
 		}
-		
+
 		// Set the material for the nugget
 		template <MaterialType M = MaterialSimple>
 		NuggetDesc& mat(std::invocable<M&> auto&& cb)
 		{
-			RefPtr<M> material(rdr12::New<M>(), true);
+			RefPtr<M> material(::pr::compute::New<M>(), true);
 			cb(*material.get());
 			return mat(static_cast<MaterialPtr>(material));
 		}

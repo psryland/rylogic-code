@@ -5,10 +5,11 @@
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/main/renderer.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
 
 namespace pr::rdr12
 {
+	using ::pr::compute::MakeId;
+
 	Sampler::Sampler(Renderer& rdr, SamplerDesc const& desc)
 		:RefCounted<Sampler>()
 		,m_rdr(&rdr)

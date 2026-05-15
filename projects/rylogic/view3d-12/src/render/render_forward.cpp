@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -22,13 +22,13 @@
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/wrappers.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	RenderForward::RenderForward(Scene& scene)
 		: RenderStep(Id, scene)
 		, m_shader(scene.rdr())

@@ -4,7 +4,7 @@
 //*********************************************
 #pragma once
 
-namespace pr::rdr12::shader_cache
+namespace pr::compute::shader_cache
 {
 	struct IShaderCache;
 }

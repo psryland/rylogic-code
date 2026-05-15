@@ -114,7 +114,7 @@ struct Main :Form, IProbeActions
 		, m_fps()
 		, m_run_mode(ERunMode::Paused)
 		, m_scene_index(-1)
-		, m_frame_lock(rdr12::pix::IsAttachedForGpuCapture())
+		, m_frame_lock(::pr::compute::pix::IsAttachedForGpuCapture())
 		, m_last_frame(-1)
 		, m_time()
 	{

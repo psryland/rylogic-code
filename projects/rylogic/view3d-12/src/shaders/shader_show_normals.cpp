@@ -9,6 +9,8 @@
 
 namespace pr::rdr12::shaders
 {
+	using namespace ::pr::compute;
+
 	ShowNormalsGS::ShowNormalsGS(Renderer& rdr)
 		:Shader(rdr)
 	{

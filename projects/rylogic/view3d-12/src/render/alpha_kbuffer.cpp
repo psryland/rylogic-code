@@ -5,19 +5,16 @@
 #include "pr/view3d-12/render/alpha_kbuffer.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/render/back_buffer.h"
-#include "pr/view3d-12/resource/descriptor.h"
-#include "pr/view3d-12/resource/descriptor_store.h"
 #include "pr/view3d-12/resource/resource_factory.h"
-#include "pr/view3d-12/resource/gpu_transfer_buffer.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/texture/texture_desc.h"
-#include "pr/view3d-12/utility/barrier_batch.h"
-#include "pr/view3d-12/utility/root_signature.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
+	using namespace ::pr::compute;
+
 	struct EReg
 	{
 		inline static constexpr auto OpaqueColour = ESRVReg::t0;

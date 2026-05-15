@@ -47,6 +47,9 @@ namespace las
 	using namespace pr::gui;
 	using namespace pr::app;
 
+	using ShaderCompiler = pr::compute::ShaderCompiler;
+	using EHlslVersion = pr::compute::EHlslVersion;
+
 	struct Main;
 	struct MainUI;
 	struct Settings;

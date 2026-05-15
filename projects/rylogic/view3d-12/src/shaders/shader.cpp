@@ -1,9 +1,8 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/shaders/shader.h"
-#include "pr/view3d-12/utility/wrappers.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
@@ -25,7 +24,7 @@ namespace pr::rdr12
 	{
 		return *m_rdr;
 	}
-		
+
 	// Sort id for the shader
 	SortKeyId Shader::SortId() const
 	{
@@ -42,7 +41,7 @@ namespace pr::rdr12
 	}
 	void Shader::Delete()
 	{
-		rdr12::Delete<Shader>(this);
+		::pr::compute::Delete<Shader>(this);
 	}
 
 	// Compiled shader byte code

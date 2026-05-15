@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -10,9 +10,6 @@
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
 #include "pr/view3d-12/utility/eventargs.h"
-#include "pr/view3d-12/utility/cmd_list_collection.h"
-#include "pr/view3d-12/utility/gpu_sync.h"
-#include "pr/view3d-12/utility/keep_alive.h"
 
 namespace pr::rdr12
 {
@@ -48,6 +45,10 @@ namespace pr::rdr12
 		using PollCBList = std::vector<PollCallback>;
 		using AllocationsTracker = AllocationsTracker<void>;
 		using TimerHandle = std::shared_ptr<void>;
+		using GpuSync = ::pr::compute::GpuSync;
+		using KeepAlive = ::pr::compute::KeepAlive;
+		using GfxCmdListCollection = ::pr::compute::GfxCmdListCollection;
+		using ComCmdListCollection = ::pr::compute::ComCmdListCollection;
 
 		// Renderer state
 		struct RdrState

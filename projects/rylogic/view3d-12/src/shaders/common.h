@@ -1,10 +1,12 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #pragma once
 #include "pr/view3d-12/forward.h"
+#include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/window.h"
+#include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/scene/scene_camera.h"
 #include "pr/view3d-12/model/nugget.h"
@@ -15,8 +17,6 @@
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
-#include "pr/view3d-12/utility/map_resource.h"
-#include "pr/view3d-12/utility/utility.h"
 #include "view3d-12/src/render/render_smap.h"
 
 #ifdef NDEBUG

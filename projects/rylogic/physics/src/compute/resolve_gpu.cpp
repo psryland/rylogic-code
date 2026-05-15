@@ -8,7 +8,7 @@
 
 namespace pr::physics
 {
-	using namespace pr::rdr12;
+	using namespace ::pr::compute;
 
 	// Constant buffer layout matching the HLSL cbResolve declaration.
 	struct alignas(16) cbResolve
