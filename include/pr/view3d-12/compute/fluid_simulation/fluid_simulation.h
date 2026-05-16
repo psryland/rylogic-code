@@ -620,7 +620,7 @@ namespace pr::rdr12::compute::fluid
 			ShaderCompiler compiler{};
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			compiler.Source("src/compute/fluid_simulation/fluid_simulation.hlsl", resolver)
-				.HlslVersion(EHlslVersion::DxcDefault)
+				.HlslVersion(EHlslVersion::Hlsl2021)
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)
 				.Define(L"THREAD_GROUP_SIZE", std::to_wstring(ThreadGroupSize))

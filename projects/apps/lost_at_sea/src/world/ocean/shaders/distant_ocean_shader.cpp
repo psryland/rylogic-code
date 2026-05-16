@@ -28,7 +28,7 @@ namespace las
 
 		auto compiler = ShaderCompiler{}
 			.Source("src/world/ocean/shaders/distant_ocean.hlsl", resolver)
-			.HlslVersion(EHlslVersion::DxcDefault)
+			.HlslVersion(EHlslVersion::Hlsl2021)
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 

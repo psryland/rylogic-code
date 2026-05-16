@@ -111,7 +111,7 @@ namespace pr::physics
 		auto compiler = ShaderCompiler{}
 			.Cache(shader_cache)
 			.Source("src/compute/resolve.hlsl", resolver)
-			.HlslVersion(EHlslVersion::DxcDefault)
+			.HlslVersion(EHlslVersion::Hlsl2021)
 			.ShaderModel(L"cs_6_0")
 			.Optimise();
 
