@@ -184,7 +184,7 @@ namespace pr::compute::spatial_partition
 			ShaderCompiler compiler{};
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			compiler.Source("src/compute/spatial_partition/spatial_partition.hlsl", resolver)
-				.HlslVersion(EHlslVersion::DxcDefault)
+				.HlslVersion(EHlslVersion::Hlsl2021)
 				.Define(L"POSITION_TYPE", position_layout)
 				.ShaderModel(L"cs_6_6")
 				.Optimise();

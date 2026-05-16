@@ -116,7 +116,7 @@ namespace pr::compute::gpu_radix_sort
 			auto compiler = ShaderCompiler{}
 				.Cache(shader_cache)
 				.Source("src/compute/radix_sort/radix_sort.hlsl", resolver)
-				.HlslVersion(EHlslVersion::DxcDefault)
+				.HlslVersion(EHlslVersion::Hlsl2021)
 				.ShaderModel(m_tuning.shader_model)
 				.Optimise()
 				.Define(L"KEYS_PER_THREAD", std::to_wstring(m_tuning.keys_per_thread))

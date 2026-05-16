@@ -56,7 +56,7 @@ odr bool EffectiveAwake(in_(GpuRigidBody) body)
 
 odr bool CachedBoundsOverlap(int body_a, int body_b)
 {
-	return BBox_IsIntersection(g_aabb_box[body_a], g_aabb_box[body_b]);
+	return g_aabb_box[body_a].IsIntersection(g_aabb_box[body_b]);
 }
 
 odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb)

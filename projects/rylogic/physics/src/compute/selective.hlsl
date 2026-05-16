@@ -100,7 +100,7 @@ bool SupportContact(in_(GpuResolveContact) contact, in_(GpuRigidBody) body_a)
 
 BBox InflatedWorldBBox(in_(GpuRigidBody) body)
 {
-	BBox bbox = BBox_Transform(body.os_bbox, body.o2w);
+	BBox bbox = body.os_bbox.Transform(body.o2w);
 	bbox.radius.xyz += g.aabb_margin;
 	return bbox;
 }
@@ -181,7 +181,7 @@ void CSCompactSelectivePairs(int3 DTID(dtid))
 		return;
 	if (SleepingBody(body_a) && SleepingBody(body_b))
 		return;
-	if (!BBox_IsIntersection(InflatedWorldBBox(body_a), InflatedWorldBBox(body_b)))
+	if (!InflatedWorldBBox(body_a).IsIntersection(InflatedWorldBBox(body_b)))
 		return;
 
 	uint slot;
