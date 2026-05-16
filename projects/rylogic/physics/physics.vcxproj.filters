@@ -69,6 +69,9 @@
     <ClCompile Include="src\compute\selective_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\shader_code.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\sleep_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -188,6 +191,9 @@
     <ClInclude Include="src\compute\selective_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\shader_code.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
     <ClInclude Include="src\compute\sleep_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
@@ -246,24 +252,24 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\compute\collide.hlsl">
+    <ShaderBuild Include="src\compute\collide.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\integrate.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\integrate.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\resolve.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\resolve.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\selective.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\selective.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\sleep.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\sleep.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\sweep.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
-    </FxCompile>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc">

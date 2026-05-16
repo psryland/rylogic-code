@@ -35,7 +35,7 @@ namespace pr::physics
 		int m_max_pairs;
 		int m_max_contacts;
 
-		explicit GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
+		explicit GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config);
 
 		// Build the compact pair work set for one selective refresh pass.
 		GpuSelectiveWorkSet& BuildWorkSet(
@@ -55,9 +55,6 @@ namespace pr::physics
 			D3DPtr<ID3D12Resource> bodies);
 
 	private:
-
-		// Compile the compute shaders.
-		void CompileShaders();
 
 		// Resize scratch buffers.
 		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_pairs, int max_contacts);

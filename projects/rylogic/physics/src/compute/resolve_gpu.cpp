@@ -5,6 +5,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 
 namespace pr::physics
 {
@@ -106,15 +107,6 @@ namespace pr::physics
 		, m_reset_warm_start_cache(true)
 		, m_materials_dirty(true)
 	{
-		// Compile the resolve compute shader from embedded resources.
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/resolve.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
-
 		// m_cs_compute_times: parallel, one thread per contact — writes collision_time + zeroes body colour_used
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -126,17 +118,14 @@ namespace pr::physics
 				.UAV(EReg::ContactOrder)
 				;
 
-			auto bytecode = compiler.EntryPoint(L"CSComputeCollisionTimes").Compile();
-
 			m_cs_compute_times.m_sig = sig.Create(m_gpu, "Physics:ComputeTimesSig");
-			m_cs_compute_times.m_pso = ComputePSO(m_cs_compute_times.m_sig.get(), bytecode).Create(m_gpu, "Physics:ComputeTimesPSO");
+			m_cs_compute_times.m_pso = ComputePSO(m_cs_compute_times.m_sig.get(), shader_code::compute_collision_times).Create(m_gpu, "Physics:ComputeTimesPSO");
 		}
 
 		// Shock-priority passes: build dynamic body adjacency, propagate priority in parallel, and finalise sort keys.
 		{
-			auto compile_step = [&](ComputeStep& step, wchar_t const* entry_point, char const* name)
+			auto compile_step = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
 			{
-				auto bytecode = compiler.EntryPoint(entry_point).Compile();
 				std::string sig_name = FmtS("Physics:%sSig", name);
 				std::string pso_name = FmtS("Physics:%sPSO", name);
 				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -154,11 +143,11 @@ namespace pr::physics
 				step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name.c_str());
 			};
 
-			compile_step(m_cs_clear_shock_lists, L"CSClearShockLists", "ClearShockLists");
-			compile_step(m_cs_seed_shock_priority, L"CSSeedShockPriority", "SeedShockPriority");
-			compile_step(m_cs_propagate_shock_priority, L"CSPropagateShockPriority", "PropagateShockPriority");
-			compile_step(m_cs_commit_shock_priority, L"CSCommitShockPriority", "CommitShockPriority");
-			compile_step(m_cs_finalize_shock_priority, L"CSFinalizeShockPriority", "FinalizeShockPriority");
+			compile_step(m_cs_clear_shock_lists, shader_code::clear_shock_lists, "ClearShockLists");
+			compile_step(m_cs_seed_shock_priority, shader_code::seed_shock_priority, "SeedShockPriority");
+			compile_step(m_cs_propagate_shock_priority, shader_code::propagate_shock_priority, "PropagateShockPriority");
+			compile_step(m_cs_commit_shock_priority, shader_code::commit_shock_priority, "CommitShockPriority");
+			compile_step(m_cs_finalize_shock_priority, shader_code::finalize_shock_priority, "FinalizeShockPriority");
 		}
 
 		// m_cs_assign_colours: serial, walks sorted contacts + assigns colours
@@ -171,17 +160,14 @@ namespace pr::physics
 				.UAV(EReg::Contacts)
 				.UAV(EReg::ContactOrder);
 
-			auto bytecode = compiler.EntryPoint(L"CSAssignColours").Compile();
-
 			m_cs_assign_colours.m_sig = sig.Create(m_gpu, "Physics:AssignColoursSig");
-			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), bytecode).Create(m_gpu, "Physics:AssignColoursPSO");
+			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), shader_code::assign_colours).Create(m_gpu, "Physics:AssignColoursPSO");
 		}
 
 		// Warm-start passes: clear cache, apply previous-frame impulses, then store this frame's final impulses.
 		{
-			auto compile_step = [&](ComputeStep& step, wchar_t const* entry_point, char const* name)
+			auto compile_step = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
 			{
-				auto bytecode = compiler.EntryPoint(entry_point).Compile();
 				std::string sig_name = FmtS("Physics:%sSig", name);
 				std::string pso_name = FmtS("Physics:%sPSO", name);
 				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -197,9 +183,9 @@ namespace pr::physics
 				step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name.c_str());
 			};
 
-			compile_step(m_cs_warm_start_clear, L"CSWarmStartClear", "WarmStartClear");
-			compile_step(m_cs_apply_warm_start, L"CSApplyWarmStart", "ApplyWarmStart");
-			compile_step(m_cs_store_warm_start, L"CSStoreWarmStart", "StoreWarmStart");
+			compile_step(m_cs_warm_start_clear, shader_code::warm_start_clear, "WarmStartClear");
+			compile_step(m_cs_apply_warm_start, shader_code::apply_warm_start, "ApplyWarmStart");
+			compile_step(m_cs_store_warm_start, shader_code::store_warm_start, "StoreWarmStart");
 		}
 
 		// m_cs_position_solve
@@ -212,10 +198,8 @@ namespace pr::physics
 				.UAV(EReg::Contacts)
 				.UAV(EReg::ContactOrder);
 
-			auto bytecode = compiler.EntryPoint(L"CSPositionSolve").Compile();
-
 			m_cs_position_solve.m_sig = sig.Create(m_gpu, "Physics:PositionSolveSig");
-			m_cs_position_solve.m_pso = ComputePSO(m_cs_position_solve.m_sig.get(), bytecode).Create(m_gpu, "Physics:PositionSolvePSO");
+			m_cs_position_solve.m_pso = ComputePSO(m_cs_position_solve.m_sig.get(), shader_code::position_solve).Create(m_gpu, "Physics:PositionSolvePSO");
 		}
 
 		// m_cs_resolve
@@ -229,10 +213,8 @@ namespace pr::physics
 				.UAV(EReg::Contacts)
 				.UAV(EReg::ContactOrder);
 
-			auto bytecode = compiler.EntryPoint(L"CSResolve").Compile();
-
 			m_cs_resolve.m_sig = sig.Create(m_gpu, "Physics:ResolveSig");
-			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), bytecode).Create(m_gpu, "Physics:ResolvePSO");
+			m_cs_resolve.m_pso = ComputePSO(m_cs_resolve.m_sig.get(), shader_code::resolve).Create(m_gpu, "Physics:ResolvePSO");
 		}
 
 		// Create a command signature for indirect dispatch

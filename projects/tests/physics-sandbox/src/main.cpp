@@ -4,7 +4,7 @@
 //************************************
 // Entry point for the physics sandbox application.
 // Two modes:
-//   -unittests [Class1 Class2 ...] : Allocate a console, run unit tests, and exit.
+//   -unittests [Class1 Class2 ...] or -unittests=Class1 : Allocate a console, run unit tests, and exit.
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
@@ -73,6 +73,36 @@ namespace physics_sandbox
 		// RunAllTests() executes them and prints results.
 		auto failed = pr::unittests::RunAllTests(true, filter);
 		return failed > 0 ? 1 : 0;
+	}
+
+	// Return true if unit test mode is requested and collect any optional test class filters.
+	bool TryGetUnitTestFilter(pr::CmdLine const& cmd, std::vector<std::string_view>& filter)
+	{
+		auto found = false;
+		for (auto const& arg : cmd.args)
+		{
+			auto key = std::string_view(arg.key);
+			if (key == "unittests")
+			{
+				found = true;
+			}
+			else if (key.starts_with("unittests="))
+			{
+				found = true;
+
+				auto value = key.substr(strlen("unittests="));
+				if (!value.empty())
+					filter.push_back(value);
+			}
+			else
+			{
+				continue;
+			}
+
+			for (auto const& value : arg.values)
+				filter.push_back(value);
+		}
+		return found;
 	}
 
 	// Run a headless scene diagnostic and print post-step penetration metrics.
@@ -212,11 +242,11 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	auto cmd = pr::CmdLine("app " + std::string(lpCmdLine ? lpCmdLine : ""));
 
 	// Check for -unittests mode before initialising any GUI resources.
-	// Usage: -unittests [ClassName1 ClassName2 ...] — runs only matching test classes (substring match).
-	if (cmd.count("unittests"))
+	// Usage: -unittests [ClassName1 ClassName2 ...], or -unittests=ClassName.
+	// Runs only matching test classes (substring match).
+	auto filter = std::vector<std::string_view>{};
+	if (physics_sandbox::TryGetUnitTestFilter(cmd, filter))
 	{
-		auto const& arg = cmd("unittests");
-		auto filter = std::vector<std::string_view>(arg.values.begin(), arg.values.end());
 		return physics_sandbox::RunUnitTests(filter);
 	}
 	if (cmd.count("scenediag"))

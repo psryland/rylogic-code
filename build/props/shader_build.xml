@@ -2,9 +2,9 @@
 <!--Copyright, Microsoft Corporation, All rights reserved.-->
 <ProjectSchemaDefinitions xmlns="http://schemas.microsoft.com/build/2009/properties" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=mscorlib">
 	<Rule
-		Name="View3dShaderBuild"
+		Name="ShaderBuild"
 		PageTemplate="tool"
-		DisplayName="View3d Shaders"
+		DisplayName="Shaders"
 		SwitchPrefix=""
 		Order="300"
 	>
@@ -13,7 +13,7 @@
 		</Rule.Categories>
 
 		<Rule.DataSource>
-			<DataSource Persistence="ProjectFile" ItemType="View3dShaderBuild" Label="" HasConfigurationCondition="true" />
+			<DataSource Persistence="ProjectFile" ItemType="ShaderBuild" Label="" HasConfigurationCondition="true" />
 		</Rule.DataSource>
 
 		<!-- Include Directory Properties -->
@@ -50,17 +50,17 @@
 	</Rule>
 
 	<ItemType
-		Name="View3dShaderBuild"
-		DisplayName="View3d Shader Build"
+		Name="ShaderBuild"
+		DisplayName="Shader Build"
 	/>
 	<FileExtension
 		Name="*.hlsl"
-		ContentType="View3dShaderBuild"
+		ContentType="ShaderBuild"
 	/>
 	<ContentType
-		Name="View3dShaderBuild"
-		DisplayName="View3d Shader"
-		ItemType="View3dShaderBuild"
+		Name="ShaderBuild"
+		DisplayName="Shader"
+		ItemType="ShaderBuild"
 	/>
 
 </ProjectSchemaDefinitions>

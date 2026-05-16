@@ -5,6 +5,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 #include "src/collision/shape_cache.h"
 
 namespace pr::physics
@@ -38,7 +39,7 @@ namespace pr::physics
 		inline static constexpr auto Edges = ESRVReg::t4;
 	};
 
-	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
+	GpuCollisionDetector::GpuCollisionDetector(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_clear_bins()
@@ -63,18 +64,15 @@ namespace pr::physics
 		, m_max_faces()
 		, m_max_edges()
 	{
-		// Compile the collision compute shader from embedded resources.
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/collide.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
-
-		auto make_setup_sig = [&]()
+		auto create_step = [&](ComputeStep& step, RootSig& sig, shader_code::ByteCode const& bytecode, char const* sig_name, char const* pso_name)
 		{
-			return RootSig(ERootSigFlags::ComputeOnly)
+			step.m_sig = sig.Create(m_gpu, sig_name);
+			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
+		};
+
+		// Setup steps
+		{
+			auto setup_sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::Contacts)
@@ -86,12 +84,42 @@ namespace pr::physics
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
 				.SRV(EReg::Faces)
-				.SRV(EReg::Edges)
-				;
-		};
-		auto make_collide_sig = [&]()
+				.SRV(EReg::Edges);
+
+			create_step(m_cs_clear_bins, setup_sig, shader_code::clear_collision_bins, "Physics:ClearCollisionBinsSig", "Physics:ClearCollisionBinsPSO");
+			create_step(m_cs_bin_pairs, setup_sig, shader_code::bin_collision_pairs, "Physics:BinCollisionPairsSig", "Physics:BinCollisionPairsPSO");
+			create_step(m_cs_build_bin_dispatch, setup_sig, shader_code::build_collision_bin_dispatch, "Physics:BuildCollisionBinDispatchSig", "Physics:BuildCollisionBinDispatchPSO");
+		}
+
+		// Collision detection steps
 		{
-			return RootSig(ERootSigFlags::ComputeOnly)
+			struct CollideStepDesc
+			{
+				ComputeStep* step;
+				shader_code::ByteCode const* bytecode;
+				char const* sig_name;
+				char const* pso_name;
+			};
+			std::array<CollideStepDesc, COLLISION_BIN_COUNT> collide_steps = {
+				{
+					{&m_cs_collide_bins[COLLISION_BIN_SPHERE_VS_SPHERE],     &shader_code::collide_sphere_vs_sphere,     "Physics:CollideSphereVsSphereSig",     "Physics:CollideSphereVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_SPHERE],        &shader_code::collide_box_vs_sphere,        "Physics:CollideBoxVsSphereSig",        "Physics:CollideBoxVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_BOX],           &shader_code::collide_box_vs_box,           "Physics:CollideBoxVsBoxSig",           "Physics:CollideBoxVsBoxPSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_SPHERE],       &shader_code::collide_line_vs_sphere,       "Physics:CollideLineVsSphereSig",       "Physics:CollideLineVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_BOX],          &shader_code::collide_line_vs_box,          "Physics:CollideLineVsBoxSig",          "Physics:CollideLineVsBoxPSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_LINE],         &shader_code::collide_line_vs_line,         "Physics:CollideLineVsLineSig",         "Physics:CollideLineVsLinePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_SPHERE],   &shader_code::collide_triangle_vs_sphere,   "Physics:CollideTriangleVsSphereSig",   "Physics:CollideTriangleVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_BOX],      &shader_code::collide_triangle_vs_box,      "Physics:CollideTriangleVsBoxSig",      "Physics:CollideTriangleVsBoxPSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_LINE],     &shader_code::collide_triangle_vs_line,     "Physics:CollideTriangleVsLineSig",     "Physics:CollideTriangleVsLinePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_TRIANGLE], &shader_code::collide_triangle_vs_triangle, "Physics:CollideTriangleVsTriangleSig", "Physics:CollideTriangleVsTrianglePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_SPHERE],   &shader_code::collide_polytope_vs_sphere,   "Physics:CollidePolytopeVsSphereSig",   "Physics:CollidePolytopeVsSpherePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_BOX],      &shader_code::collide_polytope_vs_box,      "Physics:CollidePolytopeVsBoxSig",      "Physics:CollidePolytopeVsBoxPSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_LINE],     &shader_code::collide_polytope_vs_line,     "Physics:CollidePolytopeVsLineSig",     "Physics:CollidePolytopeVsLinePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_TRIANGLE], &shader_code::collide_polytope_vs_triangle, "Physics:CollidePolytopeVsTriangleSig", "Physics:CollidePolytopeVsTrianglePSO"},
+					{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_POLYTOPE], &shader_code::collide_polytope_vs_polytope, "Physics:CollidePolytopeVsPolytopeSig", "Physics:CollidePolytopeVsPolytopePSO"},
+				}
+			};
+			auto collide_sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::Contacts)
@@ -101,69 +129,21 @@ namespace pr::physics
 				.SRV(EReg::Shapes)
 				.SRV(EReg::Verts)
 				.SRV(EReg::Faces)
-				.SRV(EReg::Edges)
-				;
-		};
+				.SRV(EReg::Edges);
 
-		auto compile_setup = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
-		{
-			auto sig = make_setup_sig();
-			auto bytecode = compiler.Optimise().EntryPoint(entry_point).Compile();
-
-			step.m_sig = sig.Create(m_gpu, sig_name);
-			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
-		};
-		auto compile_collide = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
-		{
-			auto sig = make_collide_sig();
-			auto bytecode = compiler.Optimise().EntryPoint(entry_point).Compile();
-
-			step.m_sig = sig.Create(m_gpu, sig_name);
-			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
-		};
-
-		compile_setup(m_cs_clear_bins, L"CSClearCollisionBins", "Physics:ClearCollisionBinsSig", "Physics:ClearCollisionBinsPSO");
-		compile_setup(m_cs_bin_pairs, L"CSBinCollisionPairs", "Physics:BinCollisionPairsSig", "Physics:BinCollisionPairsPSO");
-		compile_setup(m_cs_build_bin_dispatch, L"CSBuildCollisionBinDispatch", "Physics:BuildCollisionBinDispatchSig", "Physics:BuildCollisionBinDispatchPSO");
-
-		struct BinShader
-		{
-			ComputeStep* step;
-			wchar_t const* entry_point;
-			char const* sig_name;
-			char const* pso_name;
-		};
-		std::array<BinShader, COLLISION_BIN_COUNT> bin_shaders = {{
-			{&m_cs_collide_bins[COLLISION_BIN_SPHERE_VS_SPHERE],     L"CSCollideSphereVsSphere",     "Physics:CollideSphereVsSphereSig",     "Physics:CollideSphereVsSpherePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_SPHERE],        L"CSCollideBoxVsSphere",        "Physics:CollideBoxVsSphereSig",        "Physics:CollideBoxVsSpherePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_BOX_VS_BOX],           L"CSCollideBoxVsBox",           "Physics:CollideBoxVsBoxSig",           "Physics:CollideBoxVsBoxPSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_SPHERE],       L"CSCollideLineVsSphere",       "Physics:CollideLineVsSphereSig",       "Physics:CollideLineVsSpherePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_BOX],          L"CSCollideLineVsBox",          "Physics:CollideLineVsBoxSig",          "Physics:CollideLineVsBoxPSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_LINE_VS_LINE],         L"CSCollideLineVsLine",         "Physics:CollideLineVsLineSig",         "Physics:CollideLineVsLinePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_SPHERE],   L"CSCollideTriangleVsSphere",   "Physics:CollideTriangleVsSphereSig",   "Physics:CollideTriangleVsSpherePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_BOX],      L"CSCollideTriangleVsBox",      "Physics:CollideTriangleVsBoxSig",      "Physics:CollideTriangleVsBoxPSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_LINE],     L"CSCollideTriangleVsLine",     "Physics:CollideTriangleVsLineSig",     "Physics:CollideTriangleVsLinePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_TRIANGLE_VS_TRIANGLE], L"CSCollideTriangleVsTriangle", "Physics:CollideTriangleVsTriangleSig", "Physics:CollideTriangleVsTrianglePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_SPHERE],   L"CSCollidePolytopeVsSphere",   "Physics:CollidePolytopeVsSphereSig",   "Physics:CollidePolytopeVsSpherePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_BOX],      L"CSCollidePolytopeVsBox",      "Physics:CollidePolytopeVsBoxSig",      "Physics:CollidePolytopeVsBoxPSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_LINE],     L"CSCollidePolytopeVsLine",     "Physics:CollidePolytopeVsLineSig",     "Physics:CollidePolytopeVsLinePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_TRIANGLE], L"CSCollidePolytopeVsTriangle", "Physics:CollidePolytopeVsTriangleSig", "Physics:CollidePolytopeVsTrianglePSO"},
-			{&m_cs_collide_bins[COLLISION_BIN_POLYTOPE_VS_POLYTOPE], L"CSCollidePolytopeVsPolytope", "Physics:CollidePolytopeVsPolytopeSig", "Physics:CollidePolytopeVsPolytopePSO"},
-		}};
-		for (auto const& bin_shader : bin_shaders)
-			compile_collide(*bin_shader.step, bin_shader.entry_point, bin_shader.sig_name, bin_shader.pso_name);
+			for (auto const& step_desc : collide_steps)
+				create_step(*step_desc.step, collide_sig, *step_desc.bytecode, step_desc.sig_name, step_desc.pso_name);
+		}
 
 		// m_cs_calc_dispatch
 		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+			auto dispatch_sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbCollision>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::DispatchArgs);
 
-			auto bytecode = compiler.Optimise().EntryPoint(L"CSCalcResolveDispatch").Compile();
-
-			m_cs_calc_dispatch.m_sig = sig.Create(m_gpu, "Physics:CalcResolveDispatchSig");
-			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), bytecode).Create(m_gpu, "Physics:CalcResolveDispatchPSO");
+			m_cs_calc_dispatch.m_sig = dispatch_sig.Create(m_gpu, "Physics:CalcResolveDispatchSig");
+			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), shader_code::calc_resolve_dispatch).Create(m_gpu, "Physics:CalcResolveDispatchPSO");
 		}
 
 		// Create a command signature for indirect dispatch

@@ -19,7 +19,7 @@
   <Import Project="$(PropsPath)build_configurations.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="$(PropsPath)fxc_build_rule.props" />
-  <Import Project="$(PropsPath)view3d_shader_build.props" />
+  <Import Project="$(PropsPath)shader_build.props" />
   <Import Project="$(PropsPath)csharp_script.props" />
   <Import Project="$(PropsPath)lib.props" />
   <Import Project="$(SDKPath)openxr/openxr.props" />
@@ -61,7 +61,7 @@
   Shaders
   -->
   <ItemDefinitionGroup>
-    <View3dShaderBuild>
+    <ShaderBuild>
       <ShaderType>Effect</ShaderType>
       <ShaderModel>6.6</ShaderModel>
       <AdditionalIncludeDirectories>
@@ -74,7 +74,7 @@
         ;%(PreprocessorDefinitions)
         ;SHADER_BUILD
       </PreprocessorDefinitions>
-    </View3dShaderBuild>
+    </ShaderBuild>
     <FxCompile>
       <ShaderType>Compute</ShaderType>
       <ShaderModel>6.6</ShaderModel>
@@ -345,22 +345,22 @@
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_map_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\skinned\skinned.hlsli" />
-    <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" />
     <None Include="src\shaders\hlsl\utility\env_map.hlsli" />
     <None Include="src\shaders\hlsl\utility\tri_table.hlsli" />
-    <View3dShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl" />
-    <View3dShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\particle_collision\collision.hlsli" />

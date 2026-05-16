@@ -770,36 +770,36 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl">
       <Filter>src\shaders\hlsl\deferred</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl">
       <Filter>src\shaders\hlsl\deferred</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl">
       <Filter>src\shaders\hlsl\shadow</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl">
       <Filter>src\shaders\hlsl\utility</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl">
       <Filter>src\shaders\hlsl\utility</Filter>
-    </View3dShaderBuild>
+    </ShaderBuild>
     <None Include="src\shaders\hlsl\utility\env_map.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
@@ -824,18 +824,18 @@
     <None Include="src\shaders\hlsl\types.hlsli">
       <Filter>src\shaders\hlsl</Filter>
     </None>
-    <View3dShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl">
+    <ShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl">
       <Filter>src\shaders\hlsl\ray_cast</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl">
       <Filter>src\shaders\hlsl\ray_tracing</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
       <Filter>src\shaders\hlsl\skinned</Filter>
-    </View3dShaderBuild>
-    <View3dShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
-    </View3dShaderBuild>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />

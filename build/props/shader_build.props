@@ -1,0 +1,57 @@
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<ItemGroup>
+		<PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(MSBuildThisFileName).xml"/>
+		<AvailableItemName Include="ShaderBuild">
+			<Targets>ShaderBuildTarget</Targets>
+		</AvailableItemName>
+	</ItemGroup>
+
+	<PropertyGroup>
+		<ShaderBuildStampDir Condition="'$(ShaderBuildStampDir)'==''">$(ProjectDir)src\shaders\hlsl\compiled\$(Configuration)\</ShaderBuildStampDir>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ShaderBuildDependency Include="$(ProjectDir)src\**\*.hlsli" />
+		<ShaderBuildDependency Include="$(RylogicRoot)include\pr\hlsl\*.hlsli" />
+	</ItemGroup>
+
+	<!-- Custom Target for Building Shaders -->
+	<Target
+		Name="ShaderBuildTarget"
+		BeforeTargets="CLCompile"
+		Inputs="@(ShaderBuild);@(ShaderBuildDependency);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)"
+		Outputs="@(ShaderBuild->'$(ShaderBuildStampDir)%(Filename).built')"
+	>
+		<!-- 
+		<Message Importance="high" Text="%(ShaderBuild.Filename)%(ShaderBuild.Extension)" />
+		<Message Importance="high" Text="INPUTS: @(ShaderBuild);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)" />
+		-->
+
+		<Exec Condition="$(Configuration) == 'Debug'"
+			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) entries=%(ShaderBuild.EntryPoints) dbg"
+			ContinueOnError="ErrorAndContinue"
+		/>
+		<Exec Condition="$(Configuration) != 'Debug'"
+			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) entries=%(ShaderBuild.EntryPoints)"
+			ContinueOnError="ErrorAndContinue"
+		/>
+	</Target>
+
+	<!-- Delete the stamp files during Clean so Rebuild recompiles the generated shader headers. -->
+	<Target
+		Name="ShaderBuildClean"
+		BeforeTargets="Clean"
+	>
+		<ItemGroup>
+			<ShaderBuildStamps Include="$(ShaderBuildStampDir)*.built" />
+		</ItemGroup>
+		<Delete Files="@(ShaderBuildStamps)" />
+	</Target>
+
+	<!-- Hook the custom target into the build pipeline -->  
+	<PropertyGroup>
+		<BuildDependsOn>ShaderBuildTarget;$(BuildDependsOn)</BuildDependsOn>
+	</PropertyGroup>
+
+</Project>

@@ -45,7 +45,7 @@
   Shaders
   -->
   <ItemDefinitionGroup>
-    <View3dShaderBuild>
+    <ShaderBuild>
       <ShaderType>Effect</ShaderType>
       <ShaderModel>6.6</ShaderModel>
       <AdditionalIncludeDirectories>
@@ -58,7 +58,7 @@
         ;%(PreprocessorDefinitions)
         ;SHADER_BUILD
       </PreprocessorDefinitions>
-    </View3dShaderBuild>
+    </ShaderBuild>
     <FxCompile>
       <ShaderType>Compute</ShaderType>
       <ShaderModel>6.6</ShaderModel>
@@ -121,16 +121,16 @@
   <ItemGroup>
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli" />
     <None Include="src\world\ocean\shaders\ocean.hlsl" />
-    <View3dShaderBuild Include="src\world\ocean\shaders\ocean.hlsl" />
+    <ShaderBuild Include="src\world\ocean\shaders\ocean.hlsl" />
     <None Include="src\world\ocean\shaders\distant_ocean_cbuf.hlsli" />
     <None Include="src\world\ocean\shaders\distant_ocean.hlsl" />
-    <View3dShaderBuild Include="src\world\ocean\shaders\distant_ocean.hlsl" />
+    <ShaderBuild Include="src\world\ocean\shaders\distant_ocean.hlsl" />
     <None Include="src\world\terrain\shaders\terrain_cbuf.hlsli" />
     <None Include="src\world\terrain\shaders\terrain.hlsl" />
-    <View3dShaderBuild Include="src\world\terrain\shaders\terrain.hlsl" />
+    <ShaderBuild Include="src\world\terrain\shaders\terrain.hlsl" />
     <None Include="src\world\sky\shaders\procedural_sky_cbuf.hlsli" />
     <None Include="src\world\sky\shaders\procedural_sky.hlsl" />
-    <View3dShaderBuild Include="src\world\sky\shaders\procedural_sky.hlsl" />
+    <ShaderBuild Include="src\world\sky\shaders\procedural_sky.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <DataFiles Include="$(ProjectDir)data\**\*.*" />

@@ -20,7 +20,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_box; // GPU buffer: RWStructuredBuffer<BBox> exact world-space bounding boxes
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
 
-		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
+		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
 
 		// Upload staged body dynamics and reset collision counters.
 		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies);
@@ -45,10 +45,6 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> AABBBoxes() { return m_r_aabb_box; }
 
 	private:
-
-		// Compile the integration compute shader from embedded resources and create the
-		// root signature and pipeline state object.
-		void CompileShaders();
 
 		// Resize the buffers to hold 'capacity' bodies.
 		void ResizeBuffers(CmdList& cmd_list, int capacity);

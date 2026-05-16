@@ -5,6 +5,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/integrate_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 
 namespace pr::physics
 {
@@ -35,7 +36,7 @@ namespace pr::physics
 		inline static constexpr auto AABB_Box = EUAVReg::u4;
 	};
 
-	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
+	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_integrate()
@@ -46,15 +47,6 @@ namespace pr::physics
 		, m_r_aabb_box()
 		, m_capacity()
 	{
-		// Compile the integration compute shader
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/integrate.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
-
 		// m_cs_integrate
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -66,10 +58,8 @@ namespace pr::physics
 				.UAV(EReg::AABB_Box)
 				;
 
-			auto bytecode = compiler.EntryPoint(L"CSIntegrate").Compile();
-
 			m_cs_integrate.m_sig = sig.Create(m_gpu, "Physics:IntegrateSig");
-			m_cs_integrate.m_pso = ComputePSO(m_cs_integrate.m_sig.get(), bytecode).Create(m_gpu, "Physics:IntegratePSO");
+			m_cs_integrate.m_pso = ComputePSO(m_cs_integrate.m_sig.get(), shader_code::integrate).Create(m_gpu, "Physics:IntegratePSO");
 		}
 	}
 

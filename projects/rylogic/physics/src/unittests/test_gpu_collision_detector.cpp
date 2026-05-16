@@ -31,11 +31,11 @@ namespace pr::physics::tests
 		Gpu m_gpu;
 		EngineConfig m_config;
 		GpuCollisionDetector m_detector;
-		TestClass_GpuCollisionDetectorTests()
-			: m_gpu()
-			, m_config()
-			, m_detector(m_gpu, m_config, nullptr)
-		{}
+			TestClass_GpuCollisionDetectorTests()
+				: m_gpu()
+				, m_config()
+				, m_detector(m_gpu, m_config)
+			{}
 
 		static bool PointInManifold(collision::Contact const& manifold_contact, v4 point, float tol)
 		{

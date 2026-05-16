@@ -5,6 +5,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/selective_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 
 namespace pr::physics
 {
@@ -48,7 +49,7 @@ namespace pr::physics
 		inline static constexpr auto FullPairs = ESRVReg::t3;
 	};
 
-	GpuSelectiveRefresher::GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
+	GpuSelectiveRefresher::GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_prepare()
@@ -63,19 +64,8 @@ namespace pr::physics
 		, m_max_pairs()
 		, m_max_contacts()
 	{
-		// Compile the compute shaders.
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/selective.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
-
-		auto compile = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name, RootSig& root_sig)
+		auto compile = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* sig_name, char const* pso_name, RootSig& root_sig)
 		{
-			auto bytecode = compiler.EntryPoint(entry_point).Compile();
-
 			step.m_sig = root_sig.Create(m_gpu, sig_name);
 			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
 		};
@@ -89,7 +79,7 @@ namespace pr::physics
 				.UAV(EReg::Metrics);
 			compile(
 				m_cs_prepare,
-				L"CSPrepareSelectiveRefresh",
+				shader_code::prepare_selective_refresh,
 				"Physics:SelectivePrepareSig",
 				"Physics:SelectivePreparePSO",
 				sig);
@@ -105,7 +95,7 @@ namespace pr::physics
 				.SRV(EReg::SourceContacts);
 			compile(
 				m_cs_score_contacts,
-				L"CSScoreSelectiveContacts",
+				shader_code::score_selective_contacts,
 				"Physics:SelectiveScoreSig",
 				"Physics:SelectiveScorePSO",
 				sig);
@@ -123,7 +113,7 @@ namespace pr::physics
 				.SRV(EReg::FullPairs);
 			compile(
 				m_cs_compact_pairs,
-				L"CSCompactSelectivePairs",
+				shader_code::compact_selective_pairs,
 				"Physics:SelectiveCompactSig",
 				"Physics:SelectiveCompactPSO",
 				sig);
@@ -136,7 +126,7 @@ namespace pr::physics
 				.UAV(EReg::DstDispatchArgs);
 			compile(
 				m_cs_build_dispatch,
-				L"CSBuildSelectiveDispatch",
+				shader_code::build_selective_dispatch,
 				"Physics:SelectiveBuildDispatchSig",
 				"Physics:SelectiveBuildDispatchPSO",
 				sig);

@@ -8,6 +8,7 @@
 // For each symbol found a compiled shader as header data is generated
 // in the output directory.
 //
+// Add 'entries=<entry-points>' to build named compute shader entry points.
 // Add 'pp' to the command line for preprocessed output
 // Add 'obj' to the command line for a 'compiled shader object' file
 //  that can be used with the runtime shader support in the renderer.
@@ -39,6 +40,7 @@ public class ShaderBuilder
 		public string Profile = string.Empty;
 		public string ShaderCode = string.Empty;
 		public string Define = string.Empty;
+		public string EntryPoint = string.Empty;
 	}
 
 	private string m_compiler;
@@ -72,7 +74,7 @@ public class ShaderBuilder
 	//  obj - produce compiled shader object files (automatically enabled in debug)
 	//  trace - print debugging messages
 	//  dbg - debugging
-	public void Compile(string fullpath, string platform, string config)
+	public void Compile(string fullpath, string platform, string config, string shader_model, string entry_points)
 	{
 		// Find the source and output directories
 		fullpath = UserVars.Path([fullpath]);
@@ -83,23 +85,22 @@ public class ShaderBuilder
 		Trace($"File: {fdir}/{ftitle}{extn}");
 
 		// Determine the output directory
-		var outdir = fdir;
-		for (; !outdir.EndsWith("hlsl"); )
-		{
-			outdir = Path.GetDirectoryName(outdir) ?? throw new InvalidOperationException("Failed to get directory name");
-			if (outdir == string.Empty) throw new Exception($"Shader file {fullpath} is not within an 'hlsl' directory");
-		}
+		var outdir = OutputRoot(fdir);
 		outdir = UserVars.Path([outdir, "compiled", config], check_exists: false);
 		Trace($"Output directory: {outdir}");
 		Directory.CreateDirectory(outdir);
 
+		var stamp = UserVars.Path([outdir, $"{ftitle}.built"], check_exists: false);
+		var built = false;
+		var profile_model = shader_model.Replace(".", "_");
+
 		// Careful with shader versions, if you bump up from 4_0 you'll need to change the minimum feature level in view3d.
 		var shader_types = (List<ShaderType>)[
-			new ShaderType{ShaderCode = "vs", Profile = "/Tvs_6_6", Patn = new Regex("^#ifdef PR_RDR_VSHADER_(?<name>.*)$")},
-			new ShaderType{ShaderCode = "ps", Profile = "/Tps_6_6", Patn = new Regex("^#ifdef PR_RDR_PSHADER_(?<name>.*)$")},
-			new ShaderType{ShaderCode = "gs", Profile = "/Tgs_6_6", Patn = new Regex("^#ifdef PR_RDR_GSHADER_(?<name>.*)$")},
-			new ShaderType{ShaderCode = "cs", Profile = "/Tcs_6_6", Patn = new Regex("^#ifdef PR_RDR_CSHADER_(?<name>.*)$")},
-			new ShaderType{ShaderCode = "lib", Profile = "/Tlib_6_6", Patn = new Regex("^#ifdef PR_RDR_LSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "vs", Profile = $"/Tvs_{profile_model}", Patn = new Regex("^#ifdef PR_RDR_VSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "ps", Profile = $"/Tps_{profile_model}", Patn = new Regex("^#ifdef PR_RDR_PSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "gs", Profile = $"/Tgs_{profile_model}", Patn = new Regex("^#ifdef PR_RDR_GSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "cs", Profile = $"/Tcs_{profile_model}", Patn = new Regex("^#ifdef PR_RDR_CSHADER_(?<name>.*)$")},
+			new ShaderType{ShaderCode = "lib", Profile = $"/Tlib_{profile_model}", Patn = new Regex("^#ifdef PR_RDR_LSHADER_(?<name>.*)$")},
 		];
 
 		// Scan the file looking for instances of each shader type (there can be more than one)
@@ -111,9 +112,6 @@ public class ShaderBuilder
 			// For each matching instance, build the shader
 			foreach (var match in shaders)
 			{
-				// Create the .built file, so that VS's custom build tool can check for it's existence to determine when a build is needed
-				File.Delete(UserVars.Path([outdir, $"{ftitle}.built"], check_exists: false));
-
 				var shdr = new ShaderDesc
 				{
 					Name = $"{match.Groups["name"].Value}_{shader_type.ShaderCode}",
@@ -122,12 +120,105 @@ public class ShaderBuilder
 					ShaderCode = shader_type.ShaderCode,
 					Define = $"PR_RDR_{shader_type.ShaderCode[0..1].ToUpper()}SHADER_{match.Groups["name"].Value}",
 				};
-				BuildShader(shdr, outdir, platform, config);
+				if (!built)
+					File.Delete(stamp);
 
-				// Create the .built file, so that VS's custom build tool can check for it's existence to determine when a build is needed
-				File.Create(UserVars.Path([outdir, $"{ftitle}.built"], check_exists: false)).Dispose();
+				BuildShader(shdr, outdir, platform, config);
+				built = true;
 			}
 		}
+
+		// Explicit entry point mode. Used by compute shaders that expose real named entry points instead of View3D's PR_RDR_* wrapper pattern.
+		foreach (var entry_point in EntryPoints(entry_points))
+		{
+			var shdr = new ShaderDesc
+			{
+				Name = $"{ShaderName(entry_point, "cs")}_cs",
+				FullPath = fullpath,
+				Profile = $"/Tcs_{profile_model}",
+				ShaderCode = "cs",
+				EntryPoint = entry_point,
+			};
+			if (!built)
+				File.Delete(stamp);
+
+			BuildShader(shdr, outdir, platform, config);
+			built = true;
+		}
+
+		// Create the .built file, so that VS's custom build tool can check for it's existence to determine when a build is needed.
+		if (built)
+			File.Create(stamp).Dispose();
+	}
+
+	// Return the root directory that owns generated shader outputs.
+	private string OutputRoot(string fdir)
+	{
+		var hlsl_dir = FindAncestor(fdir, "hlsl");
+		if (hlsl_dir != null)
+			return hlsl_dir;
+
+		var compute_dir = FindAncestor(fdir, "compute");
+		if (compute_dir != null)
+			return compute_dir;
+
+		throw new Exception($"Shader file {fdir} is not within an 'hlsl' or 'compute' directory");
+	}
+
+	// Return the nearest ancestor directory with the given directory name.
+	private string? FindAncestor(string dir, string name)
+	{
+		for (var path = dir; path != string.Empty; )
+		{
+			var dname = Path.GetFileName(path);
+			if (string.Equals(dname, name, StringComparison.OrdinalIgnoreCase))
+				return path;
+
+			path = Path.GetDirectoryName(path) ?? string.Empty;
+		}
+		return null;
+	}
+
+	// Split the semicolon separated list of explicit entry points.
+	private IEnumerable<string> EntryPoints(string entry_points)
+	{
+		return entry_points
+			.Split([';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Distinct();
+	}
+
+	// Convert an HLSL entry point name into the generated shader symbol base name.
+	private string ShaderName(string entry_point, string shader_code)
+	{
+		var name = entry_point;
+		if (shader_code == "cs" && name.StartsWith("CS") && name.Length > 2 && char.IsUpper(name[2]))
+			name = name[2..];
+
+		var outp = new StringBuilder();
+		for (int i = 0; i != name.Length; ++i)
+		{
+			var ch = name[i];
+			if (char.IsUpper(ch))
+			{
+				if (i != 0)
+				{
+					var prev = name[i - 1];
+					var next = i + 1 != name.Length ? name[i + 1] : '\0';
+					if (char.IsLower(prev) || char.IsDigit(prev) || (char.IsUpper(prev) && char.IsLower(next)))
+						outp.Append('_');
+				}
+				outp.Append(char.ToLowerInvariant(ch));
+			}
+			else if (ch == '-' || ch == ' ')
+			{
+				outp.Append('_');
+			}
+			else
+			{
+				outp.Append(ch);
+			}
+		}
+		return outp.ToString();
 	}
 
 	// Compile the file as 'shader_type.Shader'
@@ -159,6 +250,10 @@ public class ShaderBuilder
 		args.Add($"/Vn{shdr.Name}");
 		Trace($"Variable Name: {args.Last()}");
 
+		// Set the entry point when building named-entry compute shaders.
+		if (shdr.EntryPoint.Length != 0)
+			args.Add($"/E{shdr.EntryPoint}");
+
 		// Choose the output files to generate
 		args.Add($"/Fh{filepath_h}");
 		Trace($"Output: {args.Last()}");
@@ -172,7 +267,9 @@ public class ShaderBuilder
 		args.AddRange(includes);
 
 		// Set defines
-		args.AddRange(["/DSHADER_BUILD", $"/D{shdr.Define}"]);
+		args.Add("/DSHADER_BUILD");
+		if (shdr.Define.Length != 0)
+			args.Add($"/D{shdr.Define}");
 
 		// Set other command line options
 		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc", "/HV", "2021"]);
@@ -244,7 +341,8 @@ public class ShaderBuilder
 		}
 		if (!File.Exists(dst))
 		{
-			File.Create(dst).Dispose();
+			File.Move(src, dst);
+			return;
 		}
 		else
 		{
@@ -255,12 +353,12 @@ public class ShaderBuilder
 		}
 		try
 		{
-			// Note: File.Replace requires the files to be on the same volume
-			File.Replace(src, dst, null, true);
+			File.Copy(src, dst, true);
+			File.Delete(src);
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine($"Failed to replace {dst} with {src}: {ex.Message}");
+			throw new IOException($"Failed to replace {dst} with {src}: {ex.Message}", ex);
 		}
 	}
 
@@ -306,12 +404,15 @@ public class ShaderBuilder
 var args =
 	Args.ToArray();
 	//(string[])[@"E:\Rylogic\Code\projects\rylogic\view3d-12\src\shaders\hlsl\forward\forward.hlsl", "x64", "debug", "obj", "dbg", "trace"];
+
 if (args.Length < 3)
 {
-	Console.WriteLine("Usage: BuildShader <fullpath> <platform> <config> [pp] [obj] [dbg] [trace]");
+	Console.WriteLine("Usage: BuildShader <fullpath> <platform> <config> [model=<shader-model>] [entries=<entry-points>] [pp] [obj] [dbg] [trace]");
 	Console.WriteLine("  fullpath   - Full path to the HLSL file");
 	Console.WriteLine("  platform   - Target platform (x86 or x64)");
 	Console.WriteLine("  config     - Build configuration (debug or release)");
+	Console.WriteLine("  model      - Shader model version, e.g. 6.6");
+	Console.WriteLine("  entries    - Semicolon-separated explicit compute shader entry points");
 	Console.WriteLine("  obj        - Produce compiled shader object files");
 	Console.WriteLine("  dbg        - Debugging options enabled");
 	Console.WriteLine("  trace      - Trace output enabled");
@@ -321,10 +422,13 @@ if (args.Length < 3)
 var fullpath = args[0];
 var platform = args[1];
 var config = args[2];
+var shader_model = args[3..].FirstOrDefault(x => x.StartsWith("model=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1];
+shader_model = string.IsNullOrWhiteSpace(shader_model) ? "6.6" : shader_model;
+var entry_points = args[3..].FirstOrDefault(x => x.StartsWith("entries=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1] ?? string.Empty;
 var pp    = args[3..].Contains("pp");
 var obj   = args[3..].Contains("obj");
 var trace = args[3..].Contains("trace");
 var dbg   = args[3..].Contains("dbg");
 
 var builder = new ShaderBuilder(pp, obj, trace, dbg);
-builder.Compile(fullpath, platform, config);
+builder.Compile(fullpath, platform, config, shader_model, entry_points);

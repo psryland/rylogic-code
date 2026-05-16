@@ -61,9 +61,6 @@ namespace pr::physics
 
 	private:
 
-		// Compile the compute shaders
-		void CompileShaders();
-
 		// Resize the GPU buffers to support ???
 		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_contacts, int max_materials);
 	};

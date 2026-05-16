@@ -5,6 +5,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/sleep_gpu.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 
 namespace pr::physics
 {
@@ -35,7 +36,7 @@ namespace pr::physics
 		inline static constexpr auto Contacts = ESRVReg::t2;
 	};
 
-	GpuSleepManager::GpuSleepManager(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
+	GpuSleepManager::GpuSleepManager(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
 		, m_cs_disturb_islands()
@@ -51,14 +52,6 @@ namespace pr::physics
 		, m_island_capacity()
 		, m_body_capacity()
 	{
-		// Compile the sleep/wake compute shaders.
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/sleep.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbSleep>(EReg::Params)
@@ -66,10 +59,8 @@ namespace pr::physics
 				.SRV(EReg::Bodies)
 				;
 
-			auto bytecode = compiler.EntryPoint(L"CSDisturbIslands").Compile();
-
 			m_cs_disturb_islands.m_sig = sig.Create(m_gpu, "Physics:SleepWakeSig");
-			m_cs_disturb_islands.m_pso = ComputePSO(m_cs_disturb_islands.m_sig.get(), bytecode).Create(m_gpu, "Physics:SleepWakePSO");
+			m_cs_disturb_islands.m_pso = ComputePSO(m_cs_disturb_islands.m_sig.get(), shader_code::disturb_islands).Create(m_gpu, "Physics:SleepWakePSO");
 		}
 		auto make_update_sig = [&]()
 		{
@@ -83,20 +74,19 @@ namespace pr::physics
 				.SRV(EReg::Contacts)
 				;
 		};
-		auto compile_update = [&](ComputeStep& step, wchar_t const* entry_point, char const* sig_name, char const* pso_name)
+		auto compile_update = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* sig_name, char const* pso_name)
 		{
 			auto sig = make_update_sig();
-			auto bytecode = compiler.EntryPoint(entry_point).Compile();
 
 			step.m_sig = sig.Create(m_gpu, sig_name);
 			step.m_pso = ComputePSO(step.m_sig.get(), bytecode).Create(m_gpu, pso_name);
 		};
 
-		compile_update(m_cs_init_sleep_state, L"CSInitSleepState", "Physics:InitSleepStateSig", "Physics:InitSleepStatePSO");
-		compile_update(m_cs_union_sleep_contacts, L"CSUnionSleepContacts", "Physics:UnionSleepContactsSig", "Physics:UnionSleepContactsPSO");
-		compile_update(m_cs_canonicalise_roots, L"CSCanonicaliseSleepRoots", "Physics:CanonicaliseSleepRootsSig", "Physics:CanonicaliseSleepRootsPSO");
-		compile_update(m_cs_reduce_sleep_stats, L"CSReduceSleepStats", "Physics:ReduceSleepStatsSig", "Physics:ReduceSleepStatsPSO");
-		compile_update(m_cs_apply_sleep_state, L"CSApplySleepState", "Physics:ApplySleepStateSig", "Physics:ApplySleepStatePSO");
+		compile_update(m_cs_init_sleep_state, shader_code::init_sleep_state, "Physics:InitSleepStateSig", "Physics:InitSleepStatePSO");
+		compile_update(m_cs_union_sleep_contacts, shader_code::union_sleep_contacts, "Physics:UnionSleepContactsSig", "Physics:UnionSleepContactsPSO");
+		compile_update(m_cs_canonicalise_roots, shader_code::canonicalise_sleep_roots, "Physics:CanonicaliseSleepRootsSig", "Physics:CanonicaliseSleepRootsPSO");
+		compile_update(m_cs_reduce_sleep_stats, shader_code::reduce_sleep_stats, "Physics:ReduceSleepStatsSig", "Physics:ReduceSleepStatsPSO");
+		compile_update(m_cs_apply_sleep_state, shader_code::apply_sleep_state, "Physics:ApplySleepStateSig", "Physics:ApplySleepStatePSO");
 
 		D3D12_INDIRECT_ARGUMENT_DESC arg = {
 			.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH

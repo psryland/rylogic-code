@@ -18,9 +18,10 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="$(PropsPath)build_configurations.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="$(PropsPath)view3d_shader_build.props" />
+  <Import Project="$(PropsPath)shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
   <PropertyGroup>
+    <ShaderBuildStampDir>$(ProjectDir)src\compute\compiled\$(Configuration)\</ShaderBuildStampDir>
     <PhysicsProfile Condition="'$(PhysicsProfile)'==''">Default</PhysicsProfile>
     <PhysicsDiagnostics Condition="'$(PhysicsDiagnostics)'==''">Default</PhysicsDiagnostics>
   </PropertyGroup>
@@ -85,9 +86,9 @@
   Shaders
   -->
   <ItemDefinitionGroup>
-    <View3dShaderBuild>
+    <ShaderBuild>
       <ShaderType>Effect</ShaderType>
-      <ShaderModel>6.6</ShaderModel>
+      <ShaderModel>6.0</ShaderModel>
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
         ;$(RylogicRoot)include\
@@ -98,7 +99,7 @@
         ;%(PreprocessorDefinitions)
         ;SHADER_BUILD
       </PreprocessorDefinitions>
-    </View3dShaderBuild>
+    </ShaderBuild>
     <FxCompile>
       <ShaderType>Compute</ShaderType>
       <ShaderModel>6.6</ShaderModel>
@@ -126,6 +127,7 @@
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
     <ClCompile Include="src\compute\selective_gpu.cpp" />
+    <ClCompile Include="src\compute\shader_code.cpp" />
     <ClCompile Include="src\compute\sleep_gpu.cpp" />
     <ClCompile Include="src\compute\sweep_gpu.cpp" />
     <ClCompile Include="src\integrator\engine.cpp" />
@@ -175,6 +177,7 @@
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
     <ClInclude Include="src\compute\selective_gpu.h" />
+    <ClInclude Include="src\compute\shader_code.h" />
     <ClInclude Include="src\compute\sleep_gpu.h" />
     <ClInclude Include="src\compute\sweep_gpu.h" />
     <ClInclude Include="src\diagnostics\dbg_physics.h" />
@@ -194,12 +197,12 @@
     <None Include="src\compute\gjk.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\compute\integrate.hlsl" EntryPointName="CSIntegrate" />
-    <FxCompile Include="src\compute\sleep.hlsl" EntryPointName="CSDisturbIslands" />
-    <FxCompile Include="src\compute\sweep.hlsl" EntryPointName="CSSweep" />
-    <FxCompile Include="src\compute\collide.hlsl" EntryPointName="CSBinCollisionPairs" />
-    <FxCompile Include="src\compute\resolve.hlsl" EntryPointName="CSResolve" />
-    <FxCompile Include="src\compute\selective.hlsl" EntryPointName="CSScoreSelectiveContacts" />
+    <ShaderBuild Include="src\compute\integrate.hlsl" EntryPoints="CSIntegrate" />
+    <ShaderBuild Include="src\compute\sleep.hlsl" EntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
+    <ShaderBuild Include="src\compute\sweep.hlsl" EntryPoints="CSSweep;CSCalcCDDispatch" />
+    <ShaderBuild Include="src\compute\collide.hlsl" EntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
+    <ShaderBuild Include="src\compute\resolve.hlsl" EntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
+    <ShaderBuild Include="src\compute\selective.hlsl" EntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />

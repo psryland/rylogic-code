@@ -67,9 +67,6 @@ namespace pr::physics
 
 	private:
 
-		// Compile the compute shaders
-		void CompileShaders();
-
 		// Resize the buffers to support 'max_col_pairs' collision pairs.
 		void ResizeBuffers(CmdList& cmd_list, int max_col_pairs);
 	};

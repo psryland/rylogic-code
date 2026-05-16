@@ -5,6 +5,7 @@
 #include "src/compute/sweep_gpu.h"
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/shader_code.h"
 
 namespace pr::physics
 {
@@ -43,15 +44,6 @@ namespace pr::physics
 		, m_r_cd_dispatch()
 		, m_max_col_pairs()
 	{
-		// Compile the compute shaders
-		auto resolver = shader_cache::ResourceSourceResolver{};
-		auto compiler = ShaderCompiler{}
-			.Cache(shader_cache)
-			.Source("src/compute/sweep.hlsl", resolver)
-			.HlslVersion(EHlslVersion::Hlsl2021)
-			.ShaderModel(L"cs_6_0")
-			.Optimise();
-
 		auto make_sweep_sig = [&]()
 		{
 			return RootSig(ERootSigFlags::ComputeOnly)
@@ -69,23 +61,20 @@ namespace pr::physics
 		// m_cs_sweep
 		{
 			auto sig = make_sweep_sig();
-			auto bytecode = compiler.EntryPoint(L"CSSweep").Compile();
 
 			m_cs_sweep.m_sig = sig.Create(m_gpu, "Physics:SweepSig");
-			m_cs_sweep.m_pso = ComputePSO(m_cs_sweep.m_sig.get(), bytecode).Create(m_gpu, "Physics:SweepPSO");
+			m_cs_sweep.m_pso = ComputePSO(m_cs_sweep.m_sig.get(), shader_code::sweep).Create(m_gpu, "Physics:SweepPSO");
 		}
 
 		// m_cs_calc_dispatch: Root signature: constants + 1 SRV (Counters) + 1 UAV (DispatchArgs)
 		{
-			auto sig= RootSig(ERootSigFlags::ComputeOnly)
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbSweep>(EReg::Params)
 				.UAV(EReg::Counters)
 				.UAV(EReg::DispatchArgs);
 
-			auto bytecode = compiler.EntryPoint(L"CSCalcCDDispatch").Compile();
-
 			m_cs_calc_dispatch.m_sig = sig.Create(m_gpu, "Physics:CalcCDDispatchSig");
-			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), bytecode).Create(m_gpu, "Physics:CalcCDDispatchPSO");
+			m_cs_calc_dispatch.m_pso = ComputePSO(m_cs_calc_dispatch.m_sig.get(), shader_code::calc_cd_dispatch).Create(m_gpu, "Physics:CalcCDDispatchPSO");
 		}
 	}
 
