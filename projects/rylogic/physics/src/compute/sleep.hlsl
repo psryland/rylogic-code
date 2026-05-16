@@ -158,8 +158,8 @@ void CSDisturbIslands(int3 dtid : SV_DispatchThreadID)
 	if (!AllSet(island.flags, GpuSleepIslandFlags_Valid | GpuSleepIslandFlags_Sleeping))
 		return;
 
-	BBox body_bbox_ws = BBox_Transform(body.os_bbox, body.o2w);
-	if (!BBox_IsIntersection(body_bbox_ws, island.bbox_ws))
+	BBox body_bbox_ws = body.os_bbox.Transform(body.o2w);
+	if (!body_bbox_ws.IsIntersection(island.bbox_ws))
 		return;
 
 	InterlockedOr(g_sleep_islands[island_idx].flags, GpuSleepIslandFlags_Disturbed);

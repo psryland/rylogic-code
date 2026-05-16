@@ -1,5 +1,5 @@
 #! "net10.0"
-// Build shaders using fxc.exe
+// Build shaders using dxc.exe
 // Use:
 //  dotnet-script.exe BuildShader.csx $(Fullpath) $(PlatformTarget) $(Configuration) [obj] [dbg] [trace] [pp]
 //
@@ -152,7 +152,7 @@ public class ShaderBuilder
 		if (File.Exists(filepath_h))   File.Delete(filepath_h);
 		if (File.Exists(filepath_cso)) File.Delete(filepath_cso);
 
-		// Set up the command line for FXC
+		// Set up the command line for DXC
 		var args = (List<string>)[m_compiler, shdr.FullPath, shdr.Profile];
 
 		// Set the variable name to the name of the shader
@@ -175,7 +175,7 @@ public class ShaderBuilder
 		args.AddRange(["/DSHADER_BUILD", $"/D{shdr.Define}"]);
 
 		// Set other command line options
-		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc"]);
+		args.AddRange(["/nologo", "/Gis", "/Ges", "/WX", "/Zpc", "/HV", "2021"]);
 
 		// Debug build options
 		// For some reason, the /Zi option causes the output to be different each time it's built using fxc
@@ -184,7 +184,7 @@ public class ShaderBuilder
 
 		if (!m_pp)
 		{
-			// Build the shader using fxc
+			// Build the shader using DXC
 			Trace($"Running {Path.GetFileName(m_compiler)}...");
 			var output = Run(args);
 			Trace(output);

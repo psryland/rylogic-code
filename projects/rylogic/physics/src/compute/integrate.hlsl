@@ -151,7 +151,7 @@ bool LowVelocity(GpuRigidBody body, float inv_mass)
 // Compute the world-space AABB for a body and write it to the output buffers.
 odr void UpdateAABB(in_(GpuRigidBody) body, int idx)
 {
-	BBox ws_bbox = BBox_Transform(body.os_bbox, body.o2w);
+	BBox ws_bbox = body.os_bbox.Transform(body.o2w);
 	float3 ws_centre = ws_bbox.centre.xyz;
 	float3 ws_radius = ws_bbox.radius.xyz;
 	float margin = max(g.broadphase_aabb_margin, 0.0f);

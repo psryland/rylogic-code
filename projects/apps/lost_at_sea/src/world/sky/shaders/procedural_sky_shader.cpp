@@ -28,7 +28,7 @@ namespace las
 
 		auto compiler = ShaderCompiler{}
 			.Source("src/world/sky/shaders/procedural_sky.hlsl", resolver)
-			.HlslVersion(EHlslVersion::DxcDefault)
+			.HlslVersion(EHlslVersion::Hlsl2021)
 			.Define(L"SHADER_BUILD")
 			.Optimise(true);
 

@@ -215,7 +215,7 @@ namespace pr::compute::particle_collision
 			ShaderCompiler compiler{};
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			compiler.Source("src/compute/particle_collision/particle_collision.hlsl", resolver)
-				.HlslVersion(EHlslVersion::DxcDefault)
+				.HlslVersion(EHlslVersion::Hlsl2021)
 				.Define(L"POSITION_TYPE", position_layout)
 				.Define(L"DYNAMICS_TYPE", dynamics_layout)
 				.ShaderModel(L"cs_6_6")

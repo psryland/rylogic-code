@@ -112,6 +112,7 @@
         ;%(PreprocessorDefinitions)
         ;SHADER_BUILD
       </PreprocessorDefinitions>
+      <AdditionalOptions>/HV 2021 %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
   <!--
