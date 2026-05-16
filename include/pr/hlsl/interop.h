@@ -177,6 +177,40 @@ namespace pr::hlsl
 		return std::bit_cast<int32_t>(x);
 	}
 
+	// --- f32tof16 / f16tof32 ---
+	inline uint f32tof16(float value)
+	{
+		return static_cast<uint>(F32toF16(value));
+	}
+	inline uint2 f32tof16(float2 value)
+	{
+		return uint2(f32tof16(value.x), f32tof16(value.y));
+	}
+	inline uint3 f32tof16(float3 value)
+	{
+		return uint3(f32tof16(value.x), f32tof16(value.y), f32tof16(value.z));
+	}
+	inline uint4 f32tof16(float4 value)
+	{
+		return uint4(f32tof16(value.x), f32tof16(value.y), f32tof16(value.z), f32tof16(value.w));
+	}
+	inline float f16tof32(uint value)
+	{
+		return F16toF32(static_cast<uint16_t>(value & 0xffffu));
+	}
+	inline float2 f16tof32(uint2 value)
+	{
+		return float2(f16tof32(value.x), f16tof32(value.y));
+	}
+	inline float3 f16tof32(uint3 value)
+	{
+		return float3(f16tof32(value.x), f16tof32(value.y), f16tof32(value.z));
+	}
+	inline float4 f16tof32(uint4 value)
+	{
+		return float4(f16tof32(value.x), f16tof32(value.y), f16tof32(value.z), f16tof32(value.w));
+	}
+
 	// --- clip ---
 	constexpr bool clip(float x)
 	{
@@ -1342,15 +1376,23 @@ namespace pr::hlsl
 					gtid.y * m_num_threads.x +
 					gtid.x;
 
-				// Call the kernel with as many parameters as it accepts
-				if constexpr (std::is_invocable_v<Kernel, int3, int3, int3, int>)
-					m_kernel(dtid, gid, gtid, gi);
-				else if constexpr (std::is_invocable_v<Kernel, int3, int3, int3>)
-					m_kernel(dtid, gid, gtid);
-				else if constexpr (std::is_invocable_v<Kernel, int3, int3>)
-					m_kernel(dtid, gid);
-				else if constexpr (std::is_invocable_v<Kernel, int3>)
-					m_kernel(dtid);
+				try
+				{
+					// Call the kernel with as many parameters as it accepts
+					if constexpr (std::is_invocable_v<Kernel, int3, int3, int3, int>)
+						m_kernel(dtid, gid, gtid, gi);
+					else if constexpr (std::is_invocable_v<Kernel, int3, int3, int3>)
+						m_kernel(dtid, gid, gtid);
+					else if constexpr (std::is_invocable_v<Kernel, int3, int3>)
+						m_kernel(dtid, gid);
+					else if constexpr (std::is_invocable_v<Kernel, int3>)
+						m_kernel(dtid);
+				}
+				catch (...)
+				{
+					// Crash in kernel.
+					_CrtDbgBreak();
+				}
 			});
 		}
 	};
