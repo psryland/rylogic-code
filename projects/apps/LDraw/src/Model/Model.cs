@@ -590,11 +590,13 @@ namespace LDraw
 
 		/// <summary></summary>
 		public static readonly string SupportedFilesFilter = Util.FileDialogFilter(
-			"Supported Files", "*.ldr", "*.bdr", "*.p3d", "*.3ds", "*.stl", "*.csv",
+			"Supported Files", "*.ldr", "*.bdr", "*.p3d", "*.3ds", "*.stl", "*.fbx", "*.gltf", "*.glb", "*.csv",
 			"Ldr Script", "*.ldr", "*.bdr",
 			"Binary Model File", "*.p3d",
 			"3D Studio Max Model File", "*.3ds",
 			"STL CAD Model File", "*.stl",
+			"Filmbox Model File", "*.fbx",
+			"glTF Model File", "*.gltf", "*.glb",
 			"Comma Separated Values", "*.csv",
 			"All Files", "*.*");
 
@@ -610,6 +612,8 @@ namespace LDraw
 			"Binary Model File", "*.p3d",
 			"3D Studio Max Model File", "*.3ds",
 			"STL CAD Model File", "*.stl",
+			"Filmbox Model File", "*.fbx",
+			"glTF Model File", "*.gltf", "*.glb",
 			"Comma Separated Values", "*.csv",
 			"All Files", "*.*");
 

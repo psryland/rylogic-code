@@ -37,6 +37,9 @@ static const float ReflectionOpaqueAlpha = 0.995f;
 static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
 
+// This shader is a hybrid post-raster pass. The raster pipeline remains authoritative for camera-visible colour and depth; DXR adds optional overlays:
+// diagnostics trace the TLAS directly, reflections start from raster or alpha-layer hits, caustics pull transmissive information from the light path,
+// and shadow mode casts a visibility ray from the raster receiver.
 struct RayPayload
 {
 	float3 colour;
@@ -54,6 +57,19 @@ struct RasterDepth
 	float depth;
 	uint sample;
 };
+
+// Return true if 'mode' enables raster-seeded reflection tracing.
+bool RayTracingModeIncludesReflections(uint mode)
+{
+	return mode == RayTracingMode_Reflections || mode == RayTracingMode_ReflectionsAndCaustics;
+}
+
+// Return true if 'mode' enables receiver-pull caustic tracing.
+bool RayTracingModeIncludesCaustics(uint mode)
+{
+	return mode == RayTracingMode_Caustics || mode == RayTracingMode_ReflectionsAndCaustics;
+}
+
 // Create a fully-initialised payload for a ray tracing query.
 RayPayload InitRayPayload(uint mode, float3 colour)
 {
@@ -61,6 +77,47 @@ RayPayload InitRayPayload(uint mode, float3 colour)
 	payload.colour = colour;
 	payload.mode = mode;
 	return payload;
+}
+
+// Create a visibility-style payload where the miss shader clears occlusion.
+RayPayload InitOcclusionPayload(uint mode)
+{
+	RayPayload payload = InitRayPayload(mode, 0.0f);
+	payload.occluded = 1;
+	return payload;
+}
+
+// Return true if 'mode' treats a miss as "not occluded" rather than as a colour sample.
+bool PayloadModeIsVisibilityQuery(uint mode)
+{
+	return mode == RayPayloadMode_Shadow || mode == RayPayloadMode_Caustic;
+}
+
+// Return true if 'payload' includes a usable world-space surface normal.
+bool PayloadHasSurfaceNormal(RayPayload payload)
+{
+	return (payload.flags & RayPayloadFlag_HasSurfaceNormal) != 0;
+}
+
+// Return true if a reflection payload is allowed to seed another bounce.
+bool PayloadCanSpawnReflection(RayPayload payload)
+{
+	return (payload.flags & RayPayloadFlag_ReflectionValid) != 0;
+}
+
+// Return true if the reflection path should reserve reflected energy and continue to the next bounce.
+bool ReflectionCanContinue(
+	uint bounce,
+	uint max_bounces,
+	float throughput,
+	float transparent_visibility,
+	float hit_reflectivity,
+	float min_throughput,
+	RayPayload payload)
+{
+	return bounce + 1u < max_bounces &&
+		throughput * transparent_visibility * hit_reflectivity > min_throughput &&
+		PayloadCanSpawnReflection(payload);
 }
 
 // Return a stable pseudo-random colour for diagnostic object/primitive ids.
@@ -207,11 +264,46 @@ float3 ReflectionMissColour(float3 ws_direction)
 	return lerp(float3(0.04f, 0.045f, 0.055f), float3(0.28f, 0.34f, 0.45f), t);
 }
 
+// Return the small world-space offset used to restart rays without self-intersecting the current surface.
+float RayBias(float base_bias, float distance)
+{
+	return max(base_bias, distance * 0.0001f);
+}
+
+// Return 'normal' flipped toward the incoming ray direction.
+float3 FaceNormalToRay(float3 normal, float3 ray_direction)
+{
+	if (dot(normal, -ray_direction) < 0.0f)
+		normal = -normal;
+
+	return normal;
+}
+
+// Return a world-space ray with a zero near plane, used for secondary RT probes launched from known surface points.
+RayDesc MakeSecondaryRay(float3 origin, float3 direction, float t_max)
+{
+	RayDesc ray = (RayDesc)0;
+	ray.Origin = origin;
+	ray.Direction = direction;
+	ray.TMin = 0.0f;
+	ray.TMax = t_max;
+	return ray;
+}
+
+// Return a reflection ray seeded from a raster or alpha-layer surface.
+RayDesc MakeSurfaceReflectionRay(RayDesc camera_ray, float3 hit_pos, float3 normal, float t_max)
+{
+	normal = FaceNormalToRay(normal, camera_ray.Direction);
+	float reflection_bias = RayBias(g_frame.reflection.y, length(hit_pos - camera_ray.Origin));
+	float3 reflection_dir = normalize(reflect(camera_ray.Direction, normal));
+	return MakeSecondaryRay(hit_pos + normal * reflection_bias, reflection_dir, t_max);
+}
+
 // Advance a ray through a transparent closest hit so the next query can see layers behind it.
 void AdvanceRayThroughTransparentHit(inout RayDesc ray, RayPayload payload)
 {
 	float3 hit_pos = ray.Origin + ray.Direction * payload.hit_t;
-	float through_bias = max(g_frame.reflection.y * 0.1f, payload.hit_t * 0.0001f);
+	float through_bias = RayBias(g_frame.reflection.y * 0.1f, payload.hit_t);
 	ray.Origin = hit_pos + ray.Direction * through_bias;
 	ray.TMin = 0.0f;
 }
@@ -219,19 +311,11 @@ void AdvanceRayThroughTransparentHit(inout RayDesc ray, RayPayload payload)
 // Return a ray reflected from a closest-hit payload.
 RayDesc ReflectionRayFromHit(RayDesc incident_ray, RayPayload payload)
 {
-	float3 normal = normalize(payload.normal);
-	if (dot(normal, -incident_ray.Direction) < 0.0f)
-		normal = -normal;
-
+	float3 normal = FaceNormalToRay(normalize(payload.normal), incident_ray.Direction);
 	float3 hit_pos = incident_ray.Origin + incident_ray.Direction * payload.hit_t;
-	float reflection_bias = max(g_frame.reflection.y, payload.hit_t * 0.0001f);
-
-	RayDesc reflection_ray = (RayDesc)0;
-	reflection_ray.Origin = hit_pos + normal * reflection_bias;
-	reflection_ray.Direction = normalize(reflect(incident_ray.Direction, normal));
-	reflection_ray.TMin = 0.0f;
-	reflection_ray.TMax = incident_ray.TMax;
-	return reflection_ray;
+	float reflection_bias = RayBias(g_frame.reflection.y, payload.hit_t);
+	float3 reflection_dir = normalize(reflect(incident_ray.Direction, normal));
+	return MakeSecondaryRay(hit_pos + normal * reflection_bias, reflection_dir, incident_ray.TMax);
 }
 
 // Trace a bounded reflection path without spawning reflected branches from transparent hits.
@@ -241,6 +325,8 @@ float3 TraceReflectionPathThroughAlpha(RayDesc reflection_ray, uint max_bounces)
 	float3 reflection_colour = 0.0f;
 	float throughput = 1.0f;
 
+	// This specialised traversal is called from the main reflection path for a transparent hit's reflected layer. It deliberately does not launch further
+	// reflected branches from transparent hits, which keeps the call graph non-recursive while still allowing opaque bounce candidates.
 	[loop]
 	for (uint bounce = 0; bounce != max_bounces; ++bounce)
 	{
@@ -281,11 +367,9 @@ float3 TraceReflectionPathThroughAlpha(RayDesc reflection_ray, uint max_bounces)
 			AdvanceRayThroughTransparentHit(layer_ray, reflection_payload);
 		}
 
+		// If the terminal surface can bounce, keep only the non-reflected part locally and carry the reflected energy into the next iteration.
 		float hit_reflectivity = saturate(reflection_payload.reflectivity);
-		bool can_continue =
-			bounce + 1u < max_bounces &&
-			throughput * transparent_visibility * hit_reflectivity > min_throughput &&
-			(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
+		bool can_continue = ReflectionCanContinue(bounce, max_bounces, throughput, transparent_visibility, hit_reflectivity, min_throughput, reflection_payload);
 
 		reflection_colour += throughput * (transparent_colour + transparent_visibility * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour);
 		if (!can_continue)
@@ -336,11 +420,10 @@ float3 TraceReflectionPath(RayDesc reflection_ray)
 			if (hit_opacity >= ReflectionOpaqueAlpha)
 				break;
 
+			// Transparent layers are visible through their opacity, but their own reflectivity can still contribute a bounded one-off reflected sample.
 			float hit_reflectivity = saturate(reflection_payload.reflectivity);
 			float3 layer_colour = reflection_payload.colour;
-			if (bounce + 1u < max_bounces &&
-				throughput * transparent_visibility * hit_reflectivity > min_throughput &&
-				(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0)
+			if (ReflectionCanContinue(bounce, max_bounces, throughput, transparent_visibility, hit_reflectivity, min_throughput, reflection_payload))
 			{
 				RayDesc surface_reflection_ray = ReflectionRayFromHit(layer_ray, reflection_payload);
 				uint remaining_bounces = max_bounces - bounce - 1u;
@@ -366,10 +449,7 @@ float3 TraceReflectionPath(RayDesc reflection_ray)
 		float hit_reflectivity = saturate(reflection_payload.reflectivity);
 
 		// Only reserve energy for the next bounce if it will actually be traced; otherwise fold all remaining energy into the local hit colour.
-		bool can_continue =
-			bounce + 1u < max_bounces &&
-			throughput * transparent_visibility * hit_reflectivity > min_throughput &&
-			(reflection_payload.flags & RayPayloadFlag_ReflectionValid) != 0;
+		bool can_continue = ReflectionCanContinue(bounce, max_bounces, throughput, transparent_visibility, hit_reflectivity, min_throughput, reflection_payload);
 
 		reflection_colour += throughput * (transparent_colour + transparent_visibility * (can_continue ? 1.0f - hit_reflectivity : 1.0f) * reflection_payload.colour);
 		if (!can_continue)
@@ -420,18 +500,8 @@ void ApplyAlphaReflectionLayer(inout uint packed_colour, uint packed_depth, uint
 		return;
 
 	normal *= rsqrt(normal_len_sq);
-	if (dot(normal, -camera_ray.Direction) < 0.0f)
-		normal = -normal;
-
 	float3 hit_pos = AlphaLayerWorldPosition(pixel, dim, camera_ray, packed_depth);
-	float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
-
-	RayDesc reflection_ray = (RayDesc)0;
-	reflection_ray.Origin = hit_pos + normal * reflection_bias;
-	reflection_ray.Direction = normalize(reflect(camera_ray.Direction, normal));
-	reflection_ray.TMin = 0.0f;
-	reflection_ray.TMax = g_frame.clip.y;
-
+	RayDesc reflection_ray = MakeSurfaceReflectionRay(camera_ray, hit_pos, normal, g_frame.clip.y);
 	float3 reflection_colour = TraceReflectionPath(reflection_ray);
 	layer_colour.rgb = lerp(layer_colour.rgb, reflection_colour, reflectivity);
 	packed_colour = PackRGBA8(layer_colour);
@@ -719,11 +789,12 @@ void RayGen()
 {
 	uint2 pixel = DispatchRaysIndex().xy;
 	uint2 dim = DispatchRaysDimensions().xy;
+	uint mode = g_frame.options.x;
 
 	RayPayload payload = InitRayPayload(RayPayloadMode_Diagnostic, float3(0.02f, 0.03f, 0.05f));
 
 	// Diagnostic mode ignores the raster image and traces a camera ray directly into the TLAS to visualise ray tracing coverage.
-	if (g_frame.options.x == RayTracingMode_Diagnostic)
+	if (mode == RayTracingMode_Diagnostic)
 	{
 		RayDesc ray = MakeCameraRay(pixel, dim);
 		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, ray, payload);
@@ -734,7 +805,7 @@ void RayGen()
 	float4 colour = g_input.Load(int3(pixel, 0));
 
 	// Reflection mode starts from the resolved raster colour and only traces pixels whose raster material exported reflection attributes.
-	if (g_frame.options.x == RayTracingMode_Reflections || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
+	if (RayTracingModeIncludesReflections(mode))
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
 		if (raster.depth < 0.999999f)
@@ -747,18 +818,7 @@ void RayGen()
 				RayDesc camera_ray = MakeCameraRay(pixel, dim);
 				float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
 				float3 normal = normalize(2.0f * reflection_attrs.xyz - 1.0f);
-				if (dot(normal, -camera_ray.Direction) < 0.0f)
-					normal = -normal;
-
-				float3 reflection_dir = normalize(reflect(camera_ray.Direction, normal));
-				float reflection_bias = max(g_frame.reflection.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
-
-				RayDesc reflection_ray = (RayDesc)0;
-				reflection_ray.Origin = hit_pos + normal * reflection_bias;
-				reflection_ray.Direction = reflection_dir;
-				reflection_ray.TMin = 0.0f;
-				reflection_ray.TMax = g_frame.clip.y;
-
+				RayDesc reflection_ray = MakeSurfaceReflectionRay(camera_ray, hit_pos, normal, g_frame.clip.y);
 				colour.rgb = lerp(colour.rgb, TraceReflectionPath(reflection_ray), reflectivity);
 			}
 		}
@@ -766,7 +826,7 @@ void RayGen()
 		ApplyAlphaReflections(pixel, dim);
 
 		// Reflection-only dispatches are complete here. Combined mode deliberately falls through so caustics add to the reflected raster result.
-		if (g_frame.options.x == RayTracingMode_Reflections)
+		if (mode == RayTracingMode_Reflections)
 		{
 			g_output[pixel] = colour;
 			return;
@@ -774,7 +834,7 @@ void RayGen()
 	}
 
 	// Caustics mode adds light to the raster colour. It uses raster depth as the receiver and RT only to find transmissive blockers along the light path.
-	if (g_frame.options.x == RayTracingMode_Caustics || g_frame.options.x == RayTracingMode_ReflectionsAndCaustics)
+	if (RayTracingModeIncludesCaustics(mode))
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
 		if (DirectionalLight(g_frame.global_light) && raster.depth < 0.999999f)
@@ -790,15 +850,9 @@ void RayGen()
 			{
 				// Receiver-pull caustics trace from the opaque receiver toward the light. Any transmissive RT hit on that segment supplies the material
 				// properties used to estimate how light bends and focuses before reaching this receiver.
-				RayPayload caustic_payload = InitRayPayload(RayPayloadMode_Caustic, 0.0f);
-				caustic_payload.occluded = 1;
-
-				float caustic_bias = max(g_frame.caustic.y, length(hit_pos - camera_ray.Origin) * 0.0001f);
-				RayDesc caustic_ray = (RayDesc)0;
-				caustic_ray.Origin = hit_pos + surface_to_light * caustic_bias;
-				caustic_ray.Direction = surface_to_light;
-				caustic_ray.TMin = 0.0f;
-				caustic_ray.TMax = g_frame.clip.y;
+				RayPayload caustic_payload = InitOcclusionPayload(RayPayloadMode_Caustic);
+				float caustic_bias = RayBias(g_frame.caustic.y, length(hit_pos - camera_ray.Origin));
+				RayDesc caustic_ray = MakeSecondaryRay(hit_pos + surface_to_light * caustic_bias, surface_to_light, g_frame.clip.y);
 
 				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
 				if (caustic_payload.occluded != 0)
@@ -807,9 +861,7 @@ void RayGen()
 					float material_transmission = saturate(caustic_payload.colour.x);
 					float material_ior = max(caustic_payload.colour.y, 1.0f);
 					float material_thickness = max(caustic_payload.colour.z, 0.0f);
-					float3 material_normal = (caustic_payload.flags & RayPayloadFlag_HasSurfaceNormal) != 0
-						? caustic_payload.normal
-						: normal;
+					float3 material_normal = PayloadHasSurfaceNormal(caustic_payload) ? caustic_payload.normal : normal;
 					float material_distance = max(caustic_payload.hit_t, 0.0f);
 					float3 material_pos = caustic_ray.Origin + caustic_ray.Direction * material_distance;
 					float3 entry_dir = CausticRefractedDirection(surface_to_light, material_normal, 1.0f / material_ior);
@@ -823,19 +875,13 @@ void RayGen()
 					// one-surface projection.
 					if (entry_bend > 1e-4f)
 					{
-						RayPayload exit_payload = InitRayPayload(RayPayloadMode_Caustic, 0.0f);
-						exit_payload.occluded = 1;
-
-						RayDesc exit_ray = (RayDesc)0;
-						exit_ray.Origin = material_pos + entry_dir * caustic_bias;
-						exit_ray.Direction = entry_dir;
-						exit_ray.TMin = 0.0f;
-						exit_ray.TMax = g_frame.clip.y;
+						RayPayload exit_payload = InitOcclusionPayload(RayPayloadMode_Caustic);
+						RayDesc exit_ray = MakeSecondaryRay(material_pos + entry_dir * caustic_bias, entry_dir, g_frame.clip.y);
 
 						TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, exit_ray, exit_payload);
 						if (exit_payload.occluded != 0)
 						{
-							float3 exit_normal = (exit_payload.flags & RayPayloadFlag_HasSurfaceNormal) != 0
+							float3 exit_normal = PayloadHasSurfaceNormal(exit_payload)
 								? exit_payload.normal
 								: -material_normal;
 							float exit_distance = max(exit_payload.hit_t, 0.0f);
@@ -853,7 +899,7 @@ void RayGen()
 
 					float pattern = CausticPattern(pattern_pos, caustic_dir);
 					float caustic_transmission = CausticTransmission(surface_to_light, material_normal, material_transmission, material_ior);
-					float focus = 1.0f + 4.0f * saturate(entry_bend * max(optical_thickness, material_thickness) * 3.0f);
+					float focus = 1.0f + 4.0f * saturate(entry_bend * optical_thickness * 3.0f);
 					float strength = g_frame.caustic.x *
 						receiver_facing *
 						lerp(0.35f, 1.0f, pattern) *
@@ -881,19 +927,19 @@ void RayGen()
 	{
 		float3 light_to_surface = normalize(g_frame.global_light.ws_direction.xyz);
 		float3 surface_to_light = -light_to_surface;
-		float shadow_bias = max(g_frame.shadow.y, length(WorldPosition(pixel, dim, depth) - g_frame.cam.c2w[3].xyz) * 0.0001f);
 		float3 hit_pos = WorldPosition(pixel, dim, depth);
+		float shadow_bias = RayBias(g_frame.shadow.y, length(hit_pos - g_frame.cam.c2w[3].xyz));
 
-		RayPayload shadow_payload = InitRayPayload(RayPayloadMode_Shadow, 0.0f);
-		shadow_payload.occluded = 1;
+		RayPayload shadow_payload = InitOcclusionPayload(RayPayloadMode_Shadow);
+		RayDesc shadow_ray = MakeSecondaryRay(hit_pos + surface_to_light * shadow_bias, surface_to_light, g_frame.clip.y);
 
-		RayDesc shadow_ray = (RayDesc)0;
-		shadow_ray.Origin = hit_pos + surface_to_light * shadow_bias;
-		shadow_ray.Direction = surface_to_light;
-		shadow_ray.TMin = 0.0f;
-		shadow_ray.TMax = g_frame.clip.y;
-
-		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, RayTracingInstanceMask_All, 0, 1, 0, shadow_ray, shadow_payload);
+		TraceRay(
+			g_scene,
+			RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+			RayTracingInstanceMask_All,
+			0, 1, 0,
+			shadow_ray,
+			shadow_payload);
 		if (shadow_payload.occluded != 0)
 			colour.rgb *= saturate(1.0f - g_frame.shadow.x);
 	}
@@ -906,7 +952,7 @@ void RayGen()
 void Miss(inout RayPayload payload)
 {
 	// Visibility-style rays treat a miss as unoccluded; colour-style rays either use their caller's miss colour or the diagnostic fallback.
-	if (payload.mode == RayPayloadMode_Shadow || payload.mode == RayPayloadMode_Caustic)
+	if (PayloadModeIsVisibilityQuery(payload.mode))
 	{
 		payload.occluded = 0;
 		return;
@@ -927,7 +973,8 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 {
 	if (payload.mode == RayPayloadMode_Reflection)
 	{
-		// Reflection rays need enough payload to either shade a terminal hit or seed the next bounce.
+		// Reflection rays need enough payload to either shade a terminal hit or seed the next bounce. Opacity is carried separately from colour so the
+		// raygen traversal can composite transparent hits before deciding whether an opaque bounce candidate remains.
 		RayTracingMaterial material = HitMaterial();
 		float3 ws_normal;
 		float reflectivity;
@@ -946,7 +993,8 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	}
 	if (payload.mode == RayPayloadMode_Caustic)
 	{
-		// Caustic rays only care about transmissive materials; opaque hits are treated as blockers that cannot contribute caustic energy.
+		// Caustic rays only care about transmissive materials. Opaque hits clear the occlusion flag so raygen knows not to add caustic energy at this
+		// receiver, while transmissive hits encode transmission/IOR/thickness into the colour payload.
 		RayTracingMaterial material = HitMaterial();
 		if (!MaterialIsTransmissive(material))
 		{

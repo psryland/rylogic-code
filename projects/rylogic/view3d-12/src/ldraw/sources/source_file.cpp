@@ -105,12 +105,15 @@ namespace pr::rdr12::ldraw
 			// P3D = My custom binary model file format
 			// STL = "StereoLithography" model files (binary and text)
 			// 3DS = 3D Studio Max model files (binary and text)
+			// FBX/GLTF/GLB = Model file formats loaded via optional hot-loaded dlls
 			case HashI(".p3d"):
 			case HashI(".stl"):
 			case HashI(".3ds"):
 			case HashI(".fbx"):
+			case HashI(".gltf"):
+			case HashI(".glb"):
 			{
-				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} *Animation{{}} }}", m_filepath.string());
+				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} }}", m_filepath.string());
 				m_text_format = false;
 
 				mem_istream<char> src{ ldr_script, 0 };

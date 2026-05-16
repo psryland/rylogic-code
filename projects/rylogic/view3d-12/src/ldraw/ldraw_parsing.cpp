@@ -4864,8 +4864,16 @@ namespace pr::rdr12::ldraw
 		// Create an animation for the model using the loaded animation sources and the animation info
 		void CreateAnimation(LdrObject* obj, Location const& loc)
 		{
+			// Validate that the model file provided animation data.
+			if (!m_model_anim)
+			{
+				m_pp.ReportError(EParseError::InvalidValue, loc, "No animation found in the model file");
+				return;
+			}
+
 			// Find the associated skeleton
-			auto const& skeleton = get_if(m_skels, [&](SkeletonPtr skel) { return skel->Id() == m_model_anim->m_skel_id; });
+			auto iter = std::ranges::find_if(m_skels, [&](SkeletonPtr skel) { return skel->Id() == m_model_anim->m_skel_id; });
+			auto skeleton = iter != std::end(m_skels) ? *iter : SkeletonPtr{};
 			if (!skeleton)
 			{
 				m_pp.ReportError(EParseError::InvalidValue, loc, "The skeleton required by the animation is not found");
@@ -4916,7 +4924,8 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Find the associated skeleton
-			auto const& skeleton = get_if(m_skels, [&](SkeletonPtr skel) { return skel->Id() == m_model_anim->m_skel_id; });
+			auto iter = std::ranges::find_if(m_skels, [&](SkeletonPtr skel) { return skel->Id() == m_model_anim->m_skel_id; });
+			auto skeleton = iter != std::end(m_skels) ? *iter : SkeletonPtr{};
 			if (!skeleton)
 			{
 				m_pp.ReportError(EParseError::InvalidValue, loc, "The skeleton required by the model's animation (source index 0) is not found");
