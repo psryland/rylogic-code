@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*- 
 import struct
 from ..gfx.colour import Colour32
@@ -149,6 +149,7 @@ class EKeyword(Enum):
 	BinaryStream = 1110191492
 	Box = 1892056626
 	BoxList = 282663022
+	BaseColour = 2533849228
 	CastShadow = 3890809582
 	Chart = 1487494731
 	Circle = 673280137
@@ -172,6 +173,7 @@ class EKeyword(Enum):
 	Dim = 3496118841
 	Direction = 3748513642
 	Divisions = 555458703
+	Emissive = 2172449998
 	EndCaps = 2864440763
 	Equation = 2486886355
 	Euler = 1180123250
@@ -210,7 +212,9 @@ class EKeyword(Enum):
 	LookAt = 3951693683
 	M3x3 = 1709156072
 	M4x4 = 3279345952
+	Material = 3538210912
 	Mesh = 2701180604
+	Metallic = 2024658632
 	Model = 2961925722
 	Montage = 2939791094
 	Name = 2369371622
@@ -258,6 +262,7 @@ class EKeyword(Enum):
 	Ribbon = 1119144745
 	RootAnimation = 464566237
 	Round = 1326178875
+	Roughness = 3139841781
 	Scale = 2190941297
 	ScreenSpace = 3267318065
 	Series = 3703783856

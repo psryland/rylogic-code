@@ -1,4 +1,4 @@
-//************************************
+﻿//************************************
 // LDraw 
 //  Copyright (c) Rylogic Ltd 2006
 //************************************
@@ -159,6 +159,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue BinaryStream = {"*BinaryStream", 1110191492};
 		inline static constexpr NameValue Box = {"*Box", 1892056626};
 		inline static constexpr NameValue BoxList = {"*BoxList", 282663022};
+		inline static constexpr NameValue BaseColour = {"*BaseColour", 2533849228};
 		inline static constexpr NameValue CastShadow = {"*CastShadow", 3890809582};
 		inline static constexpr NameValue Chart = {"*Chart", 1487494731};
 		inline static constexpr NameValue Circle = {"*Circle", 673280137};
@@ -182,6 +183,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Dim = {"*Dim", 3496118841};
 		inline static constexpr NameValue Direction = {"*Direction", 3748513642};
 		inline static constexpr NameValue Divisions = {"*Divisions", 555458703};
+		inline static constexpr NameValue Emissive = {"*Emissive", 2172449998};
 		inline static constexpr NameValue EndCaps = {"*EndCaps", 2864440763};
 		inline static constexpr NameValue Equation = {"*Equation", 2486886355};
 		inline static constexpr NameValue Euler = {"*Euler", 1180123250};
@@ -220,7 +222,9 @@ namespace pr::ldraw
 		inline static constexpr NameValue LookAt = {"*LookAt", 3951693683};
 		inline static constexpr NameValue M3x3 = {"*M3x3", 1709156072};
 		inline static constexpr NameValue M4x4 = {"*M4x4", 3279345952};
+		inline static constexpr NameValue Material = {"*Material", 3538210912};
 		inline static constexpr NameValue Mesh = {"*Mesh", 2701180604};
+		inline static constexpr NameValue Metallic = {"*Metallic", 2024658632};
 		inline static constexpr NameValue Model = {"*Model", 2961925722};
 		inline static constexpr NameValue Montage = {"*Montage", 2939791094};
 		inline static constexpr NameValue Name = {"*Name", 2369371622};
@@ -268,6 +272,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Ribbon = {"*Ribbon", 1119144745};
 		inline static constexpr NameValue RootAnimation = {"*RootAnimation", 464566237};
 		inline static constexpr NameValue Round = {"*Round", 1326178875};
+		inline static constexpr NameValue Roughness = {"*Roughness", 3139841781};
 		inline static constexpr NameValue Scale = {"*Scale", 2190941297};
 		inline static constexpr NameValue ScreenSpace = {"*ScreenSpace", 3267318065};
 		inline static constexpr NameValue Series = {"*Series", 3703783856};

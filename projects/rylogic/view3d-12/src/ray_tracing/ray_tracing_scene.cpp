@@ -283,9 +283,9 @@ namespace pr::rdr12
 			auto& base_colour = nugget.mat().ComponentOrDefault<materials::BaseColour>();
 			auto& optics = nugget.mat().ComponentOrDefault<materials::Optics>();
 			auto& reflectivity = nugget.mat().ComponentOrDefault<materials::Reflectivity>();
-			auto const tint32 = (inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_tint;
+			auto const tint32 = (inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_colour;
 			auto const tint = Colour(tint32);
-			auto const texture_has_alpha = AllSet(base_colour.m_tex_diffuse ? base_colour.m_tex_diffuse->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
+			auto const texture_has_alpha = AllSet(base_colour.m_tex.m_texture ? base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
 			auto const alpha_hint = AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
 			auto const tint_transmission = HasAlpha(tint32) ? 1.0f - tint.a : 0.0f;
 			auto const texture_transmission = texture_has_alpha ? optics.m_transmission : 0.0f;

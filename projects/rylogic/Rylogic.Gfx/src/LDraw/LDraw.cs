@@ -1,4 +1,4 @@
-//***********************************************
+﻿//***********************************************
 // LDraw
 //  Copyright (c) Rylogic Ltd 2008
 //***********************************************
@@ -32,6 +32,7 @@ namespace Rylogic.LDraw
 		BinaryStream = unchecked((int)1110191492),
 		Box = unchecked((int)1892056626),
 		BoxList = unchecked((int)282663022),
+		BaseColour = unchecked((int)2533849228),
 		CastShadow = unchecked((int)3890809582),
 		Chart = unchecked((int)1487494731),
 		Circle = unchecked((int)673280137),
@@ -55,6 +56,7 @@ namespace Rylogic.LDraw
 		Dim = unchecked((int)3496118841),
 		Direction = unchecked((int)3748513642),
 		Divisions = unchecked((int)555458703),
+		Emissive = unchecked((int)2172449998),
 		EndCaps = unchecked((int)2864440763),
 		Equation = unchecked((int)2486886355),
 		Euler = unchecked((int)1180123250),
@@ -93,7 +95,9 @@ namespace Rylogic.LDraw
 		LookAt = unchecked((int)3951693683),
 		M3x3 = unchecked((int)1709156072),
 		M4x4 = unchecked((int)3279345952),
+		Material = unchecked((int)3538210912),
 		Mesh = unchecked((int)2701180604),
+		Metallic = unchecked((int)2024658632),
 		Model = unchecked((int)2961925722),
 		Montage = unchecked((int)2939791094),
 		Name = unchecked((int)2369371622),
@@ -141,6 +145,7 @@ namespace Rylogic.LDraw
 		Ribbon = unchecked((int)1119144745),
 		RootAnimation = unchecked((int)464566237),
 		Round = unchecked((int)1326178875),
+		Roughness = unchecked((int)3139841781),
 		Scale = unchecked((int)2190941297),
 		ScreenSpace = unchecked((int)3267318065),
 		Series = unchecked((int)3703783856),

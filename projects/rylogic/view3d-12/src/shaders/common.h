@@ -13,6 +13,8 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
+#include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/two_sided.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
@@ -62,6 +64,7 @@ namespace pr::rdr12
 			#include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 			static_assert((sizeof(CBufFrame) % 16) == 0);
 			static_assert((sizeof(CBufNugget) % 16) == 0);
+			static_assert((sizeof(CBufPbrSurface) % 16) == 0);
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
 			static_assert((sizeof(CBufDiag) % 16) == 0);
@@ -109,7 +112,8 @@ namespace pr::rdr12
 				model_flags |= shaders::ModelFlags_HasNormals;
 
 			// Treat the surface as two-sided for lit normal orientation.
-			if (material.ComponentOrDefault<materials::Surface>().m_two_sided)
+			auto const* two_sided = material.Component<materials::TwoSided>();
+			if (two_sided != nullptr && two_sided->m_enabled)
 				model_flags |= shaders::ModelFlags_TwoSided;
 
 			// Is Skinned
@@ -120,10 +124,14 @@ namespace pr::rdr12
 
 		auto texture_flags = 0;
 		{
-			auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
+			auto const* base_colour = material.Component<materials::BaseColour>();
 
 			// Has diffuse texture
-			if (Texture2DPtr tex; AllSet(nug.m_geom, EGeom::Tex0) && (tex = coalesce(FindDiffTexture(inst), base_colour.m_tex_diffuse)) != nullptr)
+			Texture2DPtr tex = {};
+			if (base_colour != nullptr)
+				tex = coalesce(FindDiffTexture(inst), base_colour->m_tex.m_texture);
+
+			if (AllSet(nug.m_geom, EGeom::Tex0) && tex != nullptr)
 			{
 				texture_flags |= shaders::TextureFlags_HasDiffuse;
 
@@ -133,7 +141,8 @@ namespace pr::rdr12
 			}
 
 			// Is reflective
-			auto rel_reflec = material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec;
+			auto const* reflectivity = material.Component<materials::Reflectivity>();
+			auto rel_reflec = reflectivity != nullptr ? reflectivity->m_rel_reflec : 0.0f;
 			if (float const* reflec;
 				env_mapped &&                                                            // There is an env map
 				AllSet(nug.m_geom, EGeom::Norm) &&                                       // The model contains normals
@@ -192,7 +201,9 @@ namespace pr::rdr12
 	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto col = inst.find<Colour32>(EInstComp::TintColour32);
-		auto c = Colour((col ? *col : Colour32White) * material.ComponentOrDefault<materials::BaseColour>().m_tint);
+		auto const* base_colour = material.Component<materials::BaseColour>();
+		auto tint = base_colour != nullptr ? base_colour->m_colour : ColourWhite;
+		auto c = Colour((col ? *col : Colour32White) * tint);
 		cb.tint = c.rgba;
 	}
 
@@ -200,8 +211,10 @@ namespace pr::rdr12
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.tex2surf0; })
 	void SetTex2Surf(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
-		auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
-		auto tex = coalesce(FindDiffTexture(inst), base_colour.m_tex_diffuse);
+		Texture2DPtr tex = {};
+		if (auto const* base_colour = material.Component<materials::BaseColour>())
+			tex = coalesce(FindDiffTexture(inst), base_colour->m_tex.m_texture);
+
 		cb.tex2surf0 = tex != nullptr
 			? tex->m_t2s
 			: m4x4::Identity();
@@ -212,8 +225,9 @@ namespace pr::rdr12
 	void SetReflectivity(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
-		cb.env_reflectivity = reflectivity != nullptr
-			? *reflectivity * material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec
+		auto const* material_reflectivity = material.Component<materials::Reflectivity>();
+		cb.env_reflectivity = reflectivity != nullptr && material_reflectivity != nullptr
+			? *reflectivity * material_reflectivity->m_rel_reflec
 			: 0.0f;
 	}
 

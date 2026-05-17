@@ -18,6 +18,7 @@
 #include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/conversion.h"
+#include "pr/view3d-12/material/material_pbr.h"
 #include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
@@ -520,6 +521,52 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
+	// Parse a PBR material declaration and return a material instance for the object.
+	MaterialPtr ParseMaterial(IReader& reader, ParseParams& pp)
+	{
+		RefPtr<MaterialPBR> material(::pr::compute::New<MaterialPBR>(), true);
+
+		auto section = reader.SectionScope();
+		for (EKeyword kw; reader.NextKeyword(kw);)
+		{
+			switch (kw)
+			{
+				case EKeyword::BaseColour:
+				{
+					material->base_colour(pr::Colour(reader.Int<uint32_t>(16)));
+					break;
+				}
+				case EKeyword::Metallic:
+				{
+					material->metallic(reader.IsSectionEnd() ? 1.0f : reader.Real<float>());
+					break;
+				}
+				case EKeyword::Roughness:
+				{
+					material->roughness(reader.IsSectionEnd() ? 1.0f : reader.Real<float>());
+					break;
+				}
+				case EKeyword::Emissive:
+				{
+					material->emissive(pr::Colour(reader.Int<uint32_t>(16)));
+					break;
+				}
+				case EKeyword::TwoSided:
+				{
+					material->two_sided(reader.IsSectionEnd() ? true : reader.Bool());
+					break;
+				}
+				default:
+				{
+					pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Material", EKeyword_::ToStringA(kw)));
+					break;
+				}
+			}
+		}
+
+		return static_cast<MaterialPtr>(material);
+	}
+
 	// Parse keywords that can appear in any section. Returns true if the keyword was recognised.
 	bool ParseProperties(IReader& reader, ParseParams& pp, EKeyword kw, LdrObject* obj)
 	{
@@ -555,6 +602,11 @@ namespace pr::rdr12::ldraw
 				obj->m_env = reader.Real<float>();
 				return true;
 			};
+			case EKeyword::Material:
+			{
+				obj->m_material = ParseMaterial(reader, pp);
+				return true;
+			}
 			case EKeyword::TwoSided:
 			{
 				auto two_sided = reader.IsSectionEnd() ? true : reader.Bool();
@@ -620,31 +672,40 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
+	// Replace every default nugget material in 'obj' with the object-level material override.
+	void ApplyMaterial(LdrObject* obj)
+	{
+		if (obj->m_model == nullptr || obj->m_material == nullptr)
+			return;
+
+		for (auto nug = obj->m_model->m_nuggets; nug != nullptr; nug = nug->m_next)
+		{
+			if (nug->m_variant != DefaultNugget)
+				continue;
+
+			nug->mat(obj->m_material);
+		}
+	}
+
 	// Apply two-sided material state to every nugget owned by 'obj'.
 	void ApplyTwoSided(LdrObject* obj, bool enabled)
 	{
 		if (obj->m_model == nullptr)
 			return;
 
-		// For each nugget, update the surface component in the material
+		// For each nugget, update the two-sided component in the material.
 		for (auto nug = obj->m_model->m_nuggets; nug != nullptr; nug = nug->m_next)
 		{
-			auto const* current_surface = nug->mat().Component<materials::Surface>();
-			if (current_surface == nullptr)
-				throw std::runtime_error("*TwoSided requires a material with a materials::Surface component");
+			auto const* two_sided = nug->mat().Component<materials::TwoSided>();
+			if (two_sided == nullptr)
+				throw std::runtime_error("*TwoSided requires a material with two-sided state");
 
-			if (current_surface->m_two_sided == enabled)
+			if (two_sided->m_enabled == enabled)
 				continue;
 
 			auto mat = nug->mat().Clone();
-			if (auto* surface = mat->Component<materials::Surface>(); surface != nullptr)
-			{
-				surface->m_two_sided = enabled;
-				nug->mat(mat);
-				continue;
-			}
-
-			throw std::runtime_error("*TwoSided requires a cloneable material with a materials::Surface component");
+			mat->Component<materials::TwoSided>()->m_enabled = enabled;
+			nug->mat(mat);
 		}
 	}
 
@@ -662,6 +723,10 @@ namespace pr::rdr12::ldraw
 		// Recalculate colours after setting 'm_group_tint'.
 		if (obj->m_group_tint != Colour32White)
 			obj->ResetColour("");
+
+		// If a material override was provided, replace the generated nugget materials.
+		if (obj->m_material != nullptr)
+			ApplyMaterial(obj);
 
 		// If flagged as two-sided, update the model materials.
 		if (AllSet(obj->Flags(), ELdrFlags::TwoSided))

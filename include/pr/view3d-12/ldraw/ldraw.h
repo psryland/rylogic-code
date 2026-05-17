@@ -61,6 +61,7 @@ namespace pr::rdr12::ldraw
 		x(BinaryStream             )\
 		x(Box                      )\
 		x(BoxList                  )\
+		x(BaseColour               )\
 		x(CastShadow               )\
 		x(Chart                    )\
 		x(Circle                   )\
@@ -84,6 +85,7 @@ namespace pr::rdr12::ldraw
 		x(Dim                      )\
 		x(Direction                )\
 		x(Divisions                )\
+		x(Emissive                 )\
 		x(EndCaps                  )\
 		x(Equation                 )\
 		x(Euler                    )\
@@ -122,7 +124,9 @@ namespace pr::rdr12::ldraw
 		x(LookAt                   )\
 		x(M3x3                     )\
 		x(M4x4                     )\
+		x(Material                 )\
 		x(Mesh                     )\
+		x(Metallic                 )\
 		x(Model                    )\
 		x(Montage                  )\
 		x(Name                     )\
@@ -170,6 +174,7 @@ namespace pr::rdr12::ldraw
 		x(Ribbon                   )\
 		x(RootAnimation            )\
 		x(Round                    )\
+		x(Roughness                )\
 		x(Scale                    )\
 		x(ScreenSpace              )\
 		x(Series                   )\

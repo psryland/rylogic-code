@@ -327,10 +327,28 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\main\window.h">
       <Filter>src\main</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\alpha.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\emissive.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\metallic.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\normal_map.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\roughness.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\texture_slot.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h">
@@ -339,13 +357,16 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\shader_overlays.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\surface.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\two_sided.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material.h">
       <Filter>src\material</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pass.h">
+      <Filter>src\material</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_pbr.h">
       <Filter>src\material</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\material_simple.h">
@@ -592,6 +613,9 @@
       <Filter>src\material</Filter>
     </ClCompile>
     <ClCompile Include="src\material\material_pass.cpp">
+      <Filter>src\material</Filter>
+    </ClCompile>
+    <ClCompile Include="src\material\material_pbr.cpp">
       <Filter>src\material</Filter>
     </ClCompile>
     <ClCompile Include="src\material\material_simple.cpp">
@@ -881,7 +905,7 @@
     <None Include="src\compute\particle_collision\collision.hlsli">
       <Filter>src\compute\particle_collision</Filter>
     </None>
-    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
+    <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli">

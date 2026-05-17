@@ -96,6 +96,7 @@ namespace pr::rdr12::ldraw
 		, m_context_id(context_id)
 		, m_base_colour(Colour32White)
 		, m_group_tint(Colour32White)
+		, m_material()
 		, m_root_anim()
 		, m_bbox_instance()
 		, m_screen_space()
@@ -549,7 +550,7 @@ namespace pr::rdr12::ldraw
 		auto nug = obj->m_model->m_nuggets;
 		for (int i = 0; i != index && nug; ++i, nug = nug->m_next) {}
 		return nug
-			? nug->mat().ComponentOrDefault<materials::BaseColour>().m_tint
+			? nug->mat().ComponentOrDefault<materials::BaseColour>().m_colour
 			: throw std::runtime_error("nugget index out of range");
 	}
 	void LdrObject::NuggetTint(Colour32 tint, char const* name, int index)
@@ -568,7 +569,7 @@ namespace pr::rdr12::ldraw
 				auto mat = nug->mat().Clone();
 				if (auto* bc = mat->Component<materials::BaseColour>())
 				{
-					bc->m_tint = tint;
+					bc->m_colour = tint;
 					nug->mat(mat);
 				}
 
@@ -751,7 +752,7 @@ namespace pr::rdr12::ldraw
 				auto mat = nug.mat().Clone();
 				if (auto* bc = mat->Component<materials::BaseColour>())
 				{
-					bc->m_tex_diffuse = ptex;
+					bc->m_tex.m_texture = ptex;
 					nug.mat(mat);
 				}
 
@@ -778,7 +779,7 @@ namespace pr::rdr12::ldraw
 				auto mat = nug.mat().Clone();
 				if (auto* bc = mat->Component<materials::BaseColour>())
 				{
-					bc->m_sam_diffuse = SamplerPtr(sam, true);
+					bc->m_tex.m_sampler = SamplerPtr(sam, true);
 					nug.mat(mat);
 				}
 			}

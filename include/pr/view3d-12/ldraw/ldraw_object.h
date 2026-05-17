@@ -102,6 +102,7 @@ namespace pr::rdr12::ldraw
 		GUID              m_context_id;      // The id of the context this instance was created in
 		Colour32          m_base_colour;     // The original colour of this object
 		Colour32          m_group_tint;      // A colour channel max applied recursively to all child objects
+		MaterialPtr       m_material;        // Material override assigned by the script, or null for the generated/default material.
 		RootAnimation     m_root_anim;       // Animation of the model root position
 		BBoxInstance      m_bbox_instance;   // Used for rendering the bounding box for this instance
 		Sub               m_screen_space;    // True if this object should be rendered in screen space

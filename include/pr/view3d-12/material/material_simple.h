@@ -7,7 +7,7 @@
 #include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
-#include "pr/view3d-12/material/components/surface.h"
+#include "pr/view3d-12/material/components/two_sided.h"
 #include "pr/view3d-12/material/material.h"
 
 namespace pr::rdr12
@@ -18,12 +18,12 @@ namespace pr::rdr12
 		static constexpr RdrId MaterialTypeId = hash::HashCT("MaterialSimple");
 
 		materials::BaseColour m_base_colour;     // Diffuse/base-colour properties.
-		materials::Optics m_optics;              // Optical properties used by RT paths.
 		materials::Reflectivity m_reflectivity;  // Reflection properties.
 		materials::ShaderOverlays m_shaders;     // Shader overlays used by this material.
-		materials::Surface m_surface;            // Surface shading options.
+		materials::TwoSided m_two_sided;         // Two-sided lighting state.
+		materials::Optics m_optics;              // Optical properties used by RT paths.
 
-		MaterialSimple(Texture2DPtr tex_diffuse = {}, SamplerPtr sam_diffuse = {}, Colour32 tint = Colour32White, float rel_reflec = 1.0f);
+		MaterialSimple(Colour32 tint = Colour32White, Texture2DPtr tex_diffuse = {}, SamplerPtr sam_diffuse = {}, float rel_reflec = 1.0f);
 		MaterialSimple(MaterialSimple const& rhs);
 		MaterialSimple(MaterialSimple&&) = delete;
 		MaterialSimple& operator =(MaterialSimple const&) = delete;

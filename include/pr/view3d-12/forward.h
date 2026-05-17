@@ -213,15 +213,22 @@ namespace pr::rdr12
 	struct Material;
 	struct MaterialPass;
 	struct MaterialPassContext;
+	struct MaterialPBR;
 	struct MaterialSimple;
 	using MaterialPtr = RefPtr<Material const>;
 	namespace materials
 	{
 		struct BaseColour;
 		struct Optics;
+		struct PbrAlpha;
+		struct PbrBaseColour;
+		struct PbrEmissive;
+		struct PbrMetallic;
+		struct PbrNormalMap;
+		struct PbrRoughness;
 		struct Reflectivity;
 		struct ShaderOverlays;
-		struct Surface;
+		struct TwoSided;
 	}
 
 	// Resources

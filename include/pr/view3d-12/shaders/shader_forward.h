@@ -18,6 +18,7 @@ namespace pr::rdr12::shaders
 			CBufFade,
 			CBufScreenSpace,
 			CBufDiag = CBufScreenSpace,
+			CBufPbrSurface,
 			DiffTexture,
 			EnvMap,
 			SMap,

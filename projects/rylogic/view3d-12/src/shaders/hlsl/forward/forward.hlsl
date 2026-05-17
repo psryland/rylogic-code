@@ -6,10 +6,15 @@
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 
+static const int AlphaModeOpaque = 0;
+static const int AlphaModeMask = 1;
+static const int AlphaModeBlend = 2;
+
 // Constant buffers
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 ConstantBuffer<CBufNugget> g_nugget : register(b1);
 ConstantBuffer<CBufFade> g_fade: register(b2);
+ConstantBuffer<CBufPbrSurface> g_pbr : register(b4);
 
 // Texture2D /w sampler
 Texture2D<float4> g_texture0 :register(t0);
@@ -184,6 +189,170 @@ PSOut PSDefault(PSIn In, bool is_front_face)
 	return Out;
 }
 
+// GGX/Trowbridge-Reitz normal distribution term.
+float PbrDistributionGGX(float3 normal, float3 half_vector, float roughness)
+{
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float n_dot_h = saturate(dot(normal, half_vector));
+	float n_dot_h2 = n_dot_h * n_dot_h;
+	float denom = n_dot_h2 * (a2 - 1.0f) + 1.0f;
+	return a2 / max(0.5f * tau * denom * denom, TINY);
+}
+
+// Schlick-GGX masking term for one light/view direction.
+float PbrGeometrySchlickGGX(float n_dot_v, float roughness)
+{
+	float r = roughness + 1.0f;
+	float k = (r * r) / 8.0f;
+	return n_dot_v / max(n_dot_v * (1.0f - k) + k, TINY);
+}
+
+// Smith geometry term using Schlick-GGX for both view and light directions.
+float PbrGeometrySmith(float3 normal, float3 view, float3 light, float roughness)
+{
+	float n_dot_v = saturate(dot(normal, view));
+	float n_dot_l = saturate(dot(normal, light));
+	return PbrGeometrySchlickGGX(n_dot_v, roughness) * PbrGeometrySchlickGGX(n_dot_l, roughness);
+}
+
+// Schlick Fresnel approximation.
+float3 PbrFresnelSchlick(float cos_theta, float3 f0)
+{
+	return f0 + (1.0f - f0) * pow(saturate(1.0f - cos_theta), 5.0f);
+}
+
+// Return a surface-to-light vector for the active light type.
+float3 PbrLightDirection(Light light, float3 ws_pos)
+{
+	return
+		DirectionalLight(light) ? normalize(-light.ws_direction.xyz) :
+		PointLight(light)       ? normalize(light.ws_position.xyz - ws_pos) :
+		SpotLight(light)        ? normalize(light.ws_position.xyz - ws_pos) :
+		float3(0, 0, 0);
+}
+
+// Return a direct-light attenuation multiplier for the active light type.
+float PbrLightAttenuation(Light light, float3 ws_pos)
+{
+	if (SpotLight(light))
+	{
+		float3 light_to_pos = ws_pos - light.ws_position.xyz;
+		float dist = length(light_to_pos);
+		float angle = 2.0f * acos(saturate(dot(light_to_pos, light.ws_direction.xyz) / max(dist, TINY)));
+		float cone = saturate((light.spot.y - angle) / max(light.spot.y - light.spot.x, TINY));
+		float range = saturate((light.spot.z - dist) * 9.0f / max(light.spot.z, TINY));
+		float falloff = saturate(1.0f / (1.0f + light.spot.w * dist));
+		return cone * range * falloff;
+	}
+
+	return 1.0f;
+}
+
+// Direct-lighting PBR pixel shader path.
+PSOut PSPbr(PSIn In, bool is_front_face)
+{
+	PSOut Out = (PSOut)0;
+
+	float4 base_colour = g_pbr.base_colour * In.diff;
+	if (HasTex0(g_nugget.flags))
+		base_colour *= g_texture0.Sample(g_sampler0, In.tex0);
+
+	float alpha = base_colour.a;
+	if (g_pbr.alpha_mode == AlphaModeMask)
+		clip(alpha - g_pbr.alpha_cutoff);
+	else if (g_pbr.alpha_mode == AlphaModeOpaque)
+		alpha = 1.0f;
+
+	float3 albedo = saturate(base_colour.rgb);
+	float3 emissive = g_pbr.emissive.rgb;
+	float metallic = saturate(g_pbr.metallic);
+	float roughness = clamp(g_pbr.roughness, 0.04f, 1.0f);
+
+	if (!HasNormals(g_nugget.flags))
+	{
+		Out.diff = float4(saturate(albedo + emissive), alpha);
+		return Out;
+	}
+
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
+	if (dot(normal, normal) == 0.0f)
+	{
+		Out.diff = float4(saturate(albedo + emissive), alpha);
+		return Out;
+	}
+
+	normal = normalize(normal);
+	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
+	float3 light = PbrLightDirection(g_frame.global_light, In.ws_vert.xyz);
+	float3 half_vector = normalize(view + light);
+	float n_dot_l = saturate(dot(normal, light));
+	float n_dot_v = saturate(dot(normal, view));
+
+	float light_visible = ShadowMapCount(g_frame.shadow) != 0
+		? LightVisibility(g_frame.shadow, In.ws_vert)
+		: 1.0f;
+
+	float3 f0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+	float3 fresnel = PbrFresnelSchlick(saturate(dot(half_vector, view)), f0);
+	float distribution = PbrDistributionGGX(normal, half_vector, roughness);
+	float geometry = PbrGeometrySmith(normal, view, light, roughness);
+	float3 specular = distribution * geometry * fresnel / max(4.0f * n_dot_v * n_dot_l, TINY);
+	float3 diffuse = (1.0f - fresnel) * (1.0f - metallic) * albedo / (0.5f * tau);
+	float attenuation = PbrLightAttenuation(g_frame.global_light, In.ws_vert.xyz);
+	float3 radiance = g_frame.global_light.colour.rgb * light_visible * attenuation;
+	float3 ambient = g_frame.global_light.ambient.rgb * albedo;
+	float3 colour = ambient + (diffuse + specular) * radiance * n_dot_l + emissive;
+
+	Out.diff = float4(saturate(colour), alpha);
+	return Out;
+}
+
+// Return the RT reflection side-buffer payload for the visible opaque PBR surface.
+float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
+{
+	float reflectivity = saturate(g_pbr.metallic);
+	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
+		return float4(0, 0, 0, 0);
+
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
+	if (dot(normal, normal) == 0.0f)
+		return float4(0, 0, 0, 0);
+
+	normal = normalize(normal);
+	return float4(0.5f * normal + 0.5f, reflectivity);
+}
+
+// Collect transparent PBR fragments into the alpha K-buffer.
+void PSPbrAlphaCollect(PSIn In, bool is_front_face)
+{
+	float4 diff = PSPbr(In, is_front_face).diff;
+	clip(diff.a - (1.0f / 255.0f));
+
+	uint2 pix = uint2(In.ss_vert.xy);
+	uint width, height, sample_count;
+	g_opaque_depth.GetDimensions(width, height, sample_count);
+
+	float opaque_depth = 1.0f;
+	for (uint sample = 0; sample != sample_count; ++sample)
+		opaque_depth = min(opaque_depth, g_opaque_depth.Load(pix, sample));
+	if (In.ss_vert.z >= opaque_depth)
+		discard;
+
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
+	uint colour = PackRGBA8(diff);
+	uint rt_attrs = AlphaRtAttributes(In, diff, is_front_face);
+
+	uint4 alpha_colour = g_alpha_colour[pix];
+	uint4 alpha_depth = g_alpha_depth[pix];
+	uint4 alpha_rt_attrs = g_alpha_rt_attrs[pix];
+	InsertKBufferLayer(alpha_colour, alpha_depth, alpha_rt_attrs, colour, depth, rt_attrs);
+	g_alpha_colour[pix] = alpha_colour;
+	g_alpha_depth[pix] = alpha_depth;
+	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
+}
+
 PSOut PSRadialFade(PSIn In, bool is_front_face)
 {
 	PSOut Out = PSDefault(In, is_front_face);
@@ -252,6 +421,30 @@ PSReflectionOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
 	Out.diff = PSDefault(In, is_front_face).diff;
 	Out.reflection_attrs = ReflectionAttributes(In, Out.diff, is_front_face);
 	return Out;
+}
+#endif
+
+#ifdef PR_RDR_PSHADER_forward_pbr
+PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
+{
+	return PSPbr(In, is_front_face);
+}
+#endif
+
+#ifdef PR_RDR_PSHADER_forward_pbr_reflection_attrs
+PSReflectionOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
+{
+	PSReflectionOut Out = (PSReflectionOut)0;
+	Out.diff = PSPbr(In, is_front_face).diff;
+	Out.reflection_attrs = PbrReflectionAttributes(In, Out.diff, is_front_face);
+	return Out;
+}
+#endif
+
+#ifdef PR_RDR_PSHADER_forward_pbr_alpha_collect
+void main(PSIn In, bool is_front_face : SV_IsFrontFace)
+{
+	PSPbrAlphaCollect(In, is_front_face);
 }
 #endif
 

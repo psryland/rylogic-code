@@ -182,15 +182,15 @@ namespace pr::rdr12
 			{
 				// See if the current material has a diffuse texture and sampler
 				auto const* bc = nug.mat().Component<materials::BaseColour>();
-				if (bc == nullptr || bc->m_tex_diffuse == nullptr || bc->m_sam_diffuse == nullptr)
+				if (bc == nullptr || !bc->m_tex)
 				{
 					// Clone the material and set the texture/sampler
 					RefPtr<Material> new_mat = (bc ? nug.mat() : Material::Default()).Clone();
 					auto& new_bc = *new_mat->Component<materials::BaseColour>();
-					if (new_bc.m_tex_diffuse == nullptr)
-						new_bc.m_tex_diffuse = opts && opts->m_tex_diffuse != nullptr ? opts->m_tex_diffuse : factory.rdr().store().StockTexture(EStockTexture::White);
-					if (new_bc.m_sam_diffuse == nullptr)
-						new_bc.m_sam_diffuse = opts && opts->m_sam_diffuse != nullptr ? opts->m_sam_diffuse : factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap);
+					new_bc.m_tex = materials::TextureSlot {
+						opts && opts->m_tex_diffuse != nullptr ? opts->m_tex_diffuse : factory.rdr().store().StockTexture(EStockTexture::White),
+						opts && opts->m_sam_diffuse != nullptr ? opts->m_sam_diffuse : factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap),
+					};
 					nug.mat(std::move(new_mat));
 				}
 			}

@@ -1,4 +1,4 @@
-<?xml version="1.0"?>
+﻿<?xml version="1.0"?>
 <SyntaxDefinition
 	name="Ldr"
 	extensions=".ldr"
@@ -84,6 +84,7 @@
 			<Word>*BinaryStream</Word>
 			<Word>*Box</Word>
 			<Word>*BoxList</Word>
+			<Word>*BaseColour</Word>
 			<Word>*CastShadow</Word>
 			<Word>*Chart</Word>
 			<Word>*Circle</Word>
@@ -107,6 +108,7 @@
 			<Word>*Dim</Word>
 			<Word>*Direction</Word>
 			<Word>*Divisions</Word>
+			<Word>*Emissive</Word>
 			<Word>*EndCaps</Word>
 			<Word>*Equation</Word>
 			<Word>*Euler</Word>
@@ -145,7 +147,9 @@
 			<Word>*LookAt</Word>
 			<Word>*M3x3</Word>
 			<Word>*M4x4</Word>
+			<Word>*Material</Word>
 			<Word>*Mesh</Word>
+			<Word>*Metallic</Word>
 			<Word>*Model</Word>
 			<Word>*Montage</Word>
 			<Word>*Name</Word>
@@ -193,6 +197,7 @@
 			<Word>*Ribbon</Word>
 			<Word>*RootAnimation</Word>
 			<Word>*Round</Word>
+			<Word>*Roughness</Word>
 			<Word>*Scale</Word>
 			<Word>*ScreenSpace</Word>
 			<Word>*Series</Word>

@@ -23,7 +23,7 @@ namespace pr::rdr12
 		{
 			auto& inst = *ctx.m_dle.m_instance;
 			auto& base_colour = ctx.m_material.ComponentOrDefault<materials::BaseColour>();
-			auto tex = coalesce(FindDiffTexture(inst), base_colour.m_tex_diffuse);
+			auto tex = coalesce(FindDiffTexture(inst), base_colour.m_tex.m_texture);
 			return tex != nullptr
 				? tex.get()
 				: ctx.m_default_tex;
@@ -34,7 +34,7 @@ namespace pr::rdr12
 		{
 			auto& inst = *ctx.m_dle.m_instance;
 			auto& base_colour = ctx.m_material.ComponentOrDefault<materials::BaseColour>();
-			auto sam = coalesce(FindDiffTextureSampler(inst), base_colour.m_sam_diffuse);
+			auto sam = coalesce(FindDiffTextureSampler(inst), base_colour.m_tex.m_sampler);
 			return sam != nullptr
 				? sam.get()
 				: ctx.m_default_sam;
@@ -152,8 +152,8 @@ namespace pr::rdr12
 		// Force two-sided rasterisation for materials that need normal flipping on back faces.
 		void ApplyTwoSidedPipeline(MaterialPassContext& ctx)
 		{
-			auto const* surface = ctx.m_material.Component<materials::Surface>();
-			if (surface == nullptr || !surface->m_two_sided)
+			auto const* two_sided = ctx.m_material.Component<materials::TwoSided>();
+			if (two_sided == nullptr || !two_sided->m_enabled)
 				return;
 
 			// Alpha variants already render front/back faces separately for sorting, so overriding their cull mode would double-submit both sides.
@@ -180,8 +180,8 @@ namespace pr::rdr12
 					case ERenderStep::RenderForward:
 					{
 						auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
-						if (!AnySet(key, SortKey::TextureIdMask) && base_colour.m_tex_diffuse != nullptr)
-							key = SetBits(key, SortKey::TextureIdMask, base_colour.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
+						if (!AnySet(key, SortKey::TextureIdMask) && base_colour.m_tex.m_texture != nullptr)
+							key = SetBits(key, SortKey::TextureIdMask, base_colour.m_tex.m_texture->SortId() << SortKey::TextureIdOfs);
 
 						if (!AnySet(key, SortKey::ShaderIdMask))
 						{
@@ -203,8 +203,8 @@ namespace pr::rdr12
 					case ERenderStep::ShadowMap:
 					{
 						auto& base_colour = material.ComponentOrDefault<materials::BaseColour>();
-						if (!AnySet(key, SortKey::TextureIdMask) && base_colour.m_tex_diffuse != nullptr)
-							key = SetBits(key, SortKey::TextureIdMask, base_colour.m_tex_diffuse->SortId() << SortKey::TextureIdOfs);
+						if (!AnySet(key, SortKey::TextureIdMask) && base_colour.m_tex.m_texture != nullptr)
+							key = SetBits(key, SortKey::TextureIdMask, base_colour.m_tex.m_texture->SortId() << SortKey::TextureIdOfs);
 
 						return key;
 					}
@@ -291,21 +291,21 @@ namespace pr::rdr12
 	}
 
 	// Construct a simple material from default material properties.
-	MaterialSimple::MaterialSimple(Texture2DPtr tex_diffuse, SamplerPtr sam_diffuse, Colour32 tint, float rel_reflec)
-		: m_base_colour({tex_diffuse, sam_diffuse, tint})
-		, m_optics()
+	MaterialSimple::MaterialSimple(Colour32 tint, Texture2DPtr tex_diffuse, SamplerPtr sam_diffuse, float rel_reflec)
+		: m_base_colour(materials::BaseColour{ Colour(tint), {tex_diffuse, sam_diffuse} })
 		, m_reflectivity({rel_reflec})
 		, m_shaders()
-		, m_surface()
+		, m_two_sided()
+		, m_optics()
 	{}
 
 	// Copy simple material properties into a new ref-counted material instance.
 	MaterialSimple::MaterialSimple(MaterialSimple const& rhs)
 		: m_base_colour(rhs.m_base_colour)
-		, m_optics(rhs.m_optics)
 		, m_reflectivity(rhs.m_reflectivity)
 		, m_shaders(rhs.m_shaders)
-		, m_surface(rhs.m_surface)
+		, m_two_sided(rhs.m_two_sided)
+		, m_optics(rhs.m_optics)
 	{}
 
 	// Return the extensible type id for this material.
@@ -347,40 +347,40 @@ namespace pr::rdr12
 	bool MaterialSimple::RequiresAlpha() const
 	{
 		return
-			HasAlpha(m_base_colour.m_tint) ||
-			AllSet(m_base_colour.m_tex_diffuse ? m_base_colour.m_tex_diffuse->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
+			HasAlpha(m_base_colour.m_colour) ||
+			AllSet(m_base_colour.m_tex.m_texture ? m_base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
 	}
 
 	// Get/Set the diffuse texture.
 	Texture2DPtr const& MaterialSimple::tex_diffuse() const
 	{
-		return m_base_colour.m_tex_diffuse;
+		return m_base_colour.m_tex.m_texture;
 	}
 	MaterialSimple& MaterialSimple::tex_diffuse(Texture2DPtr tex)
 	{
-		m_base_colour.m_tex_diffuse = tex;
+		m_base_colour.m_tex.m_texture = tex;
 		return *this;
 	}
 
 	// Get/Set the diffuse texture sampler.
 	SamplerPtr const& MaterialSimple::sam_diffuse() const
 	{
-		return m_base_colour.m_sam_diffuse;
+		return m_base_colour.m_tex.m_sampler;
 	}
 	MaterialSimple& MaterialSimple::sam_diffuse(SamplerPtr sam)
 	{
-		m_base_colour.m_sam_diffuse = sam;
+		m_base_colour.m_tex.m_sampler = sam;
 		return *this;
 	}
 
 	// Get/Set the tint colour.
 	Colour32 MaterialSimple::tint() const
 	{
-		return m_base_colour.m_tint;
+		return m_base_colour.m_colour;
 	}
 	MaterialSimple& MaterialSimple::tint(Colour32 tint)
 	{
-		m_base_colour.m_tint = tint;
+		m_base_colour.m_colour = tint;
 		return *this;
 	}
 
@@ -398,11 +398,11 @@ namespace pr::rdr12
 	// Get/Set whether back-facing pixels should flip their lit surface normal.
 	bool MaterialSimple::two_sided() const
 	{
-		return m_surface.m_two_sided;
+		return m_two_sided.m_enabled;
 	}
 	MaterialSimple& MaterialSimple::two_sided(bool enabled)
 	{
-		m_surface.m_two_sided = enabled;
+		m_two_sided.m_enabled = enabled;
 		return *this;
 	}
 
@@ -428,8 +428,8 @@ namespace pr::rdr12
 		if (component_id == materials::ShaderOverlays::Id)
 			return &m_shaders;
 
-		if (component_id == materials::Surface::Id)
-			return &m_surface;
+		if (component_id == materials::TwoSided::Id)
+			return &m_two_sided;
 
 		return nullptr;
 	}

@@ -79,9 +79,12 @@ namespace pr::rdr12
 		// Forward rendering shaders
 		extern ByteCode const forward_vs;
 		extern ByteCode const forward_ps;
+		extern ByteCode const forward_pbr_ps;
 		extern ByteCode const forward_reflection_attrs_ps;
-		extern ByteCode const forward_radial_fade_ps;
+		extern ByteCode const forward_pbr_reflection_attrs_ps;
 		extern ByteCode const forward_alpha_collect_ps;
+		extern ByteCode const forward_pbr_alpha_collect_ps;
+		extern ByteCode const forward_radial_fade_ps;
 
 		// Deferred rendering
 		extern ByteCode const gbuffer_vs;

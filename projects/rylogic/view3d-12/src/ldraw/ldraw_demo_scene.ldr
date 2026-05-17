@@ -146,6 +146,52 @@
 	//    (+1,+1,-1) = top, right, far plane
 }
 
+// PBR materials.
+// *Material replaces the generated material for an object with a metallic-roughness PBR material.
+*Group pbr_materials
+{
+	*Sphere pbr_dielectric
+	{
+		*Data {1}
+		*Material
+		{
+			*BaseColour {FFAA5522}
+			*Metallic {0}
+			*Roughness {0.8}
+		}
+		*o2w {*pos{-3 0 0}}
+	}
+	*Sphere pbr_metallic
+	{
+		*Data {1}
+		*Material
+		{
+			*BaseColour {FFAA5522}
+			*Metallic {}
+			*Roughness {0.3}
+		}
+		*o2w {*pos{0 0 0}}
+	}
+	*Sphere pbr_emissive
+	{
+		*Data {1}
+		*Material
+		{
+			*BaseColour {FF101010}
+			*Metallic {0}
+			*Roughness {1}
+			*Emissive {FF00FF00}
+		}
+		*o2w {*pos{3 0 0}}
+	}
+	*Sphere simple_reference FFAA5522
+	{
+		*Data {1}
+		*o2w {*pos{6 0 0}}
+	}
+	*o2w {*pos{6 8 -7}}
+}
+
 // Object Nesting.
 // Nested objects are in the space of their parent so a parent transform is applied to all children.
 *Sphere nesting0 A0FFFF00
