@@ -7,7 +7,7 @@
 
 // Constant buffers
 ConstantBuffer<CBufFrame> g_frame : register(b0);
-ConstantBuffer<CBufDiag> g_diag : register(b3);
+ConstantBuffer<CBufDiag> g_diag : register(b5);
 
 // Converts point geometry into normal vectors
 [maxvertexcount(2)]

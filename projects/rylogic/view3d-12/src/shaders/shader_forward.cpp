@@ -20,8 +20,8 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto CBufNugget = ECBufReg::b1;
 		inline static constexpr auto CBufFade = ECBufReg::b2;
 		inline static constexpr auto CBufScreenSpace = ECBufReg::b3;
-		inline static constexpr auto CBufDiag = ECBufReg::b3; // Uses the same reg as ScreenSpace
 		inline static constexpr auto CBufPbrSurface = ECBufReg::b4;
+		inline static constexpr auto CBufDiag = ECBufReg::b5;
 
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto EnvMap = ESRVReg::t1;
@@ -58,8 +58,9 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufFrame)
 			.CBuf(EReg::CBufNugget)
 			.CBuf(EReg::CBufFade)
-			.CBuf(EReg::CBufScreenSpace) // Shared to CBufDiag
+			.CBuf(EReg::CBufScreenSpace)
 			.CBuf(EReg::CBufPbrSurface)
+			.CBuf(EReg::CBufDiag)
 			.SRV(EReg::DiffTexture, 1)
 			.SRV(EReg::EnvMap, 1)
 			.SRV(EReg::SMap, shaders::MaxShadowMaps)

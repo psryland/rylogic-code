@@ -59,17 +59,6 @@ struct CBufNugget// :reg(b1)
 	float3 pad0;
 };
 
-// Constants for physically based materials.
-struct CBufPbrSurface// :reg(b4)
-{
-	float4 base_colour; // Linear base-colour factor
-	float4 emissive;    // Linear emissive factor
-	float metallic;
-	float roughness;
-	float alpha_cutoff;
-	int alpha_mode;     // 0 = opaque, 1 = mask, 2 = blend
-};
-
 // Constants used for radial fading.
 struct CBufFade// :reg(b2)
 {
@@ -97,8 +86,19 @@ struct CBufScreenSpace// :reg(b3)
 	int pad2;
 };
 
-// Constants used for diagnostic shaders
-struct CBufDiag //:reg(b3) //can b3 be reused?
+// Constants for physically based materials.
+struct CBufPbrSurface// :reg(b4)
+{
+	float4 base_colour; // Linear base-colour factor
+	float4 emissive;    // Linear emissive factor
+	float metallic;
+	float roughness;
+	float alpha_cutoff;
+	int alpha_mode;     // 0 = opaque, 1 = mask, 2 = blend
+};
+
+// Constants used for diagnostic shaders.
+struct CBufDiag// :reg(b5)
 {
 	float4 colour;
 	float length;

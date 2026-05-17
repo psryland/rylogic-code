@@ -35,7 +35,7 @@ namespace pr::rdr12::shaders
 				.length = diag.m_normal_lengths,
 			};
 			auto gpu_address = upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
-			cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufScreenSpace, gpu_address);
+			cmd_list->SetGraphicsRootConstantBufferView((UINT)fwd::ERootParam::CBufDiag, gpu_address);
 		}
 	}
 }
