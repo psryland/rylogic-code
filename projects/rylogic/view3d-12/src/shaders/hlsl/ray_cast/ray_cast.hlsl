@@ -60,7 +60,7 @@ struct SnapEdge
 };
 
 // Default VS
-GSIn_RayCast VSDefault(VSIn In)
+GSIn_RayCast VSRayCast(VSIn In)
 {
 	GSIn_RayCast Out = (GSIn_RayCast) 0;
 
@@ -80,6 +80,7 @@ bool DoesSnap(float4 pt_ws, float depth, float4 target_ws, int snap_mode, float 
 	return length(sep) < distance;
 }
 
+[maxvertexcount(MaxRays)]
 void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> OutStream)
 {
 	// Triangle verts
@@ -180,6 +181,7 @@ void RayCastFace(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> O
 		}
 	}
 }
+[maxvertexcount(MaxRays)]
 void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutStream)
 {
 	float4 v0 = In[0].ws_vert;
@@ -257,6 +259,7 @@ void RayCastEdge(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutSt
 		}
 	}
 }
+[maxvertexcount(MaxRays)]
 void RayCastVert(point GSIn_RayCast In[1], inout PointStream<GSOut_RayCast> OutStream)
 {
 	float4 v0 = In[0].ws_vert;
@@ -297,34 +300,3 @@ void RayCastVert(point GSIn_RayCast In[1], inout PointStream<GSOut_RayCast> OutS
 	}
 }
 
-// Vertex shader
-#ifdef PR_RDR_VSHADER_ray_cast
-GSIn_RayCast main(VSIn In)
-{
-	GSIn_RayCast Out = VSDefault(In);
-	return Out;
-}
-#endif
-
-// Geometry shaders
-#ifdef PR_RDR_GSHADER_ray_cast_face
-[maxvertexcount(MaxRays)]
-void main(triangle GSIn_RayCast In[3], inout PointStream<GSOut_RayCast> OutStream)
-{
-	RayCastFace(In, OutStream);
-}
-#endif
-#ifdef PR_RDR_GSHADER_ray_cast_edge
-[maxvertexcount(MaxRays)]
-void main(line GSIn_RayCast In[2], inout PointStream<GSOut_RayCast> OutStream)
-{
-	RayCastEdge(In, OutStream);
-}
-#endif
-#ifdef PR_RDR_GSHADER_ray_cast_vert
-[maxvertexcount(MaxRays)]
-void main(point GSIn_RayCast In[1], inout PointStream<GSOut_RayCast> OutStream)
-{
-	RayCastVert(In, OutStream);
-}
-#endif

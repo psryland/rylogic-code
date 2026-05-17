@@ -197,12 +197,12 @@
     <None Include="src\compute\gjk.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ShaderBuild Include="src\compute\integrate.hlsl" EntryPoints="CSIntegrate" />
-    <ShaderBuild Include="src\compute\sleep.hlsl" EntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
-    <ShaderBuild Include="src\compute\sweep.hlsl" EntryPoints="CSSweep;CSCalcCDDispatch" />
-    <ShaderBuild Include="src\compute\collide.hlsl" EntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
-    <ShaderBuild Include="src\compute\resolve.hlsl" EntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
-    <ShaderBuild Include="src\compute\selective.hlsl" EntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
+    <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSIntegrate" />
+    <ShaderBuild Include="src\compute\sleep.hlsl" ComputeEntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
+    <ShaderBuild Include="src\compute\sweep.hlsl" ComputeEntryPoints="CSSweep;CSCalcCDDispatch" />
+    <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
+    <ShaderBuild Include="src\compute\resolve.hlsl" ComputeEntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
+    <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />

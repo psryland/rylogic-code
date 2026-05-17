@@ -11,8 +11,7 @@ Texture2D<float4> g_texture0 :register(t0);
 SamplerState g_sampler0 :register(s0);
 
 // Vertex shader
-#ifdef PR_RDR_VSHADER_gbuffer
-PSIn main(VSIn In)
+PSIn VSGBuffer(VSIn In)
 {
 	PSIn Out;
 
@@ -32,11 +31,9 @@ PSIn main(VSIn In)
 
 	return Out;
 }
-#endif
 
 // Pixel shader
-#ifdef PR_RDR_PSHADER_gbuffer
-PSOut_GBuffer main(PSIn In)
+PSOut_GBuffer PSGBuffer(PSIn In)
 {
 	// Transform
 	float4 ws_vert = In.ws_vert;
@@ -53,4 +50,3 @@ PSOut_GBuffer main(PSIn In)
 	PSOut_GBuffer Out = WriteGBuffer(diff, ws_vert, ws_norm);
 	return Out;
 }
-#endif

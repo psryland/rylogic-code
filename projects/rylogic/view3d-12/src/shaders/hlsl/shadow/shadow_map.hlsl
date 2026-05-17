@@ -29,7 +29,7 @@ struct PSOut
 };
 
 // Default SMAP VS
-PSIn_ShadowMap VSDefault(VSIn In)
+PSIn_ShadowMap VSShadowMap(VSIn In)
 {
 	PSIn_ShadowMap Out = (PSIn_ShadowMap)0;
 	
@@ -58,7 +58,7 @@ PSIn_ShadowMap VSDefault(VSIn In)
 }
 
 // Default SMAP PS
-PSOut PSDefault(PSIn_ShadowMap In)
+PSOut PSShadowMap(PSIn_ShadowMap In)
 {
 	PSOut Out = (PSOut)0;
 	
@@ -76,20 +76,3 @@ PSOut PSDefault(PSIn_ShadowMap In)
 	return Out;
 }
 
-// Vertex shader
-#ifdef PR_RDR_VSHADER_shadow_map
-PSIn_ShadowMap main(VSIn In)
-{
-	PSIn_ShadowMap Out = VSDefault(In);
-	return Out;
-}
-#endif
-
-// Pixel shader
-#ifdef PR_RDR_PSHADER_shadow_map
-PSOut main(PSIn_ShadowMap In)
-{
-	PSOut Out = PSDefault(In);
-	return Out;
-}
-#endif

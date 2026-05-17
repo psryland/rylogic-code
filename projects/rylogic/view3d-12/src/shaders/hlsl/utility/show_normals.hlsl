@@ -9,6 +9,8 @@
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 ConstantBuffer<CBufDiag> g_diag : register(b3);
 
+// Converts point geometry into normal vectors
+[maxvertexcount(2)]
 void GSShowNormals(point PSIn In[1], inout LineStream<PSIn> OutStream)
 {
 	PSIn Out = In[0];
@@ -25,12 +27,3 @@ void GSShowNormals(point PSIn In[1], inout LineStream<PSIn> OutStream)
 
 	OutStream.RestartStrip();
 }
-
-// Converts point geometry into normal vectors
-#ifdef PR_RDR_GSHADER_show_normals
-[maxvertexcount(2)]
-void main(point PSIn In[1], inout LineStream<PSIn> OutStream)
-{
-	GSShowNormals(In, OutStream);
-}
-#endif

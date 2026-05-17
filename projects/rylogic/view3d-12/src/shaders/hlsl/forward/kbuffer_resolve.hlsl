@@ -58,16 +58,3 @@ float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 	return base;
 }
 
-#ifdef PR_RDR_VSHADER_kbuffer_resolve
-PSIn_KBufferResolve main(uint vid :SV_VertexID)
-{
-	return VSFullScreenTriangle(vid);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_kbuffer_alpha_resolve
-float4 main(PSIn_KBufferResolve In) :SV_Target
-{
-	return PSAlphaResolve(In);
-}
-#endif

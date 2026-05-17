@@ -11,6 +11,7 @@ ConstantBuffer<CBufScreenSpace> g_ss : register(b2);
 
 // Converts point geometry into arrow heads
 // Uses ss_vert for centre position, and ws_norm as the arrow forward direction
+[maxvertexcount(3)]
 void GSArrowHead(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 {
 	PSIn Out;
@@ -79,11 +80,3 @@ void GSArrowHead(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 	}
 	OutStream.RestartStrip();
 }
-
-#ifdef PR_RDR_GSHADER_arrow_head
-[maxvertexcount(3)]
-void main(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
-{
-	GSArrowHead(In, OutStream);
-}
-#endif

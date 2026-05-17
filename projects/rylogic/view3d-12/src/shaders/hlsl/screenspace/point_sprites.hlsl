@@ -11,6 +11,7 @@ ConstantBuffer<CBufFrame> g_frame : register(b0);
 ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 
 // Converts point geometry into billboard quads
+[maxvertexcount(4)]
 void GSPointSprites(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 {
 	PSIn Out;
@@ -88,11 +89,3 @@ void GSPointSprites(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 	}
 	OutStream.RestartStrip();
 }
-
-#ifdef PR_RDR_GSHADER_point_sprites
-[maxvertexcount(4)]
-void main(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
-{
-	GSPointSprites(In, OutStream);
-}
-#endif

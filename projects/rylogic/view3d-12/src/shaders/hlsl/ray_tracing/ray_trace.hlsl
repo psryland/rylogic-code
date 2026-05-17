@@ -6,8 +6,6 @@
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 
-#ifdef PR_RDR_LSHADER_ray_trace
-
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 RaytracingAccelerationStructure g_scene : register(t0);
 Texture2D<float4> g_input : register(t1);
@@ -1031,35 +1029,3 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	payload.colour = lerp(float3(0.02f, 0.02f, 0.02f), DiagnosticColour(seed), wire);
 }
 
-#endif
-
-#if defined(PR_RDR_VSHADER_ray_trace_present) || defined(PR_RDR_PSHADER_ray_trace_present)
-
-struct RTPresentIn
-{
-	float4 ss_vert :SV_Position;
-	float2 tex0 :TEXCOORD0;
-};
-
-#ifdef PR_RDR_VSHADER_ray_trace_present
-// Generate a fullscreen triangle for presenting the ray tracing output texture.
-RTPresentIn main(uint vid :SV_VertexID)
-{
-	RTPresentIn Out = (RTPresentIn)0;
-	Out.tex0 = float2((vid << 1) & 2, vid & 2);
-	Out.ss_vert = float4(Out.tex0 * float2(2, -2) + float2(-1, 1), 0, 1);
-	return Out;
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_ray_trace_present
-Texture2D<float4> g_rt_output : register(t0);
-
-// Copy the ray tracing output texture to the current render target.
-float4 main(RTPresentIn In) :SV_Target
-{
-	return g_rt_output.Load(int3(In.ss_vert.xy, 0));
-}
-#endif
-
-#endif

@@ -354,22 +354,23 @@
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_map_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\skinned\skinned.hlsli" />
-    <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" />
     <None Include="src\shaders\hlsl\utility\env_map.hlsli" />
     <None Include="src\shaders\hlsl\utility\tri_table.hlsli" />
-    <ShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl" />
-    <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" />
+    <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" ComputeEntryPoints="skinning_cs=CSSkinning" />
+    <ShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl" VertexEntryPoints="dslighting_vs=VSDSLighting" PixelEntryPoints="dslighting_ps=PSDSLighting" />
+    <ShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl" VertexEntryPoints="gbuffer_vs=VSGBuffer" PixelEntryPoints="gbuffer_ps=PSGBuffer" />
+    <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" VertexEntryPoints="shadow_map_vs=VSShadowMap" PixelEntryPoints="shadow_map_ps=PSShadowMap" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" VertexEntryPoints="forward_vs=VSForward" PixelEntryPoints="forward_ps=PSForward;forward_reflection_attrs_ps=PSForwardReflectionAttrs;forward_pbr_ps=PSForwardPbr;forward_pbr_reflection_attrs_ps=PSForwardPbrReflectionAttrs;forward_pbr_alpha_collect_ps=PSForwardPbrAlphaCollect;forward_radial_fade_ps=PSForwardRadialFade;forward_alpha_collect_ps=PSForwardAlphaCollect" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl" GeometryEntryPoints="arrow_head_gs=GSArrowHead" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl" VertexEntryPoints="kbuffer_resolve_vs=VSFullScreenTriangle" PixelEntryPoints="kbuffer_alpha_resolve_ps=PSAlphaResolve" />
+    <ShaderBuild Include="src\shaders\hlsl\ray_cast\ray_cast.hlsl" VertexEntryPoints="ray_cast_vs=VSRayCast" GeometryEntryPoints="ray_cast_face_gs=RayCastFace;ray_cast_edge_gs=RayCastEdge;ray_cast_vert_gs=RayCastVert" />
+    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl" LibraryTargets="ray_trace_lib" />
+    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace_present.hlsl" VertexEntryPoints="ray_trace_present_vs=VSRayTracePresent" PixelEntryPoints="ray_trace_present_ps=PSRayTracePresent" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl" GeometryEntryPoints="point_sprites_gs=GSPointSprites" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_list.hlsl" GeometryEntryPoints="thick_line_list_gs=GSThickLineList" />
+    <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl" GeometryEntryPoints="thick_line_strip_gs=GSThickLineStrip" />
+    <ShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl" GeometryEntryPoints="show_normals_gs=GSShowNormals" />
+    <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" ComputeEntryPoints="mipmap_generator_cs=CSMipMapGenerator" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\particle_collision\collision.hlsli" />

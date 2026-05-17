@@ -20,7 +20,7 @@ struct PSOut
 	float4 diff :SV_Target0;
 };
 
-PSIn_DSLighting VSDefault(VSIn In)
+PSIn_DSLighting VSDSLighting(VSIn In)
 {
 	PSIn_DSLighting Out;
 	Out.cs_vdir = g_cam.frustum[(int) In.vert.x];
@@ -29,7 +29,7 @@ PSIn_DSLighting VSDefault(VSIn In)
 	return Out;
 }
 
-PSOut PSDefault(PSIn_DSLighting In)
+PSOut PSDSLighting(PSIn_DSLighting In)
 {
 	PSOut Out;
 
@@ -58,18 +58,3 @@ PSOut PSDefault(PSIn_DSLighting In)
 	return Out;
 }
 
-// Vertex shader
-#ifdef PR_RDR_VSHADER_dslighting
-PSIn_DSLighting main(VSIn In)
-{
-	return VSDefault(In);
-}
-#endif
-
-// Pixel shader
-#ifdef PR_RDR_PSHADER_dslighting
-PSOut main(PSIn_DSLighting In)
-{
-	return PSDefault(In);
-}
-#endif

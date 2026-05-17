@@ -29,11 +29,11 @@
 		-->
 
 		<Exec Condition="$(Configuration) == 'Debug'"
-			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) entries=%(ShaderBuild.EntryPoints) dbg"
+			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets) dbg"
 			ContinueOnError="ErrorAndContinue"
 		/>
 		<Exec Condition="$(Configuration) != 'Debug'"
-			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) entries=%(ShaderBuild.EntryPoints)"
+			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets)"
 			ContinueOnError="ErrorAndContinue"
 		/>
 	</Target>

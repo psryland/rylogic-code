@@ -24,14 +24,43 @@
 			Category="General"
 			Separator=";"
 			Switch="I" />
-		<!--
 		<StringProperty 
 			Name="ShaderModel" 
 			DisplayName="Shader Model" 
-			Description="Specifies the shader model version (e.g., 6.6)"
+			Description="Specifies the shader model version, e.g. 6.6"
 			Category="General"
 			Default="6.6" />
-
+		<StringListProperty 
+			Name="VertexEntryPoints" 
+			DisplayName="Vertex Entry Points" 
+			Description="Semicolon-separated vertex shader entries. Use EntryPoint or output_symbol=EntryPoint."
+			Category="General"
+			Separator=";" />
+		<StringListProperty 
+			Name="PixelEntryPoints" 
+			DisplayName="Pixel Entry Points" 
+			Description="Semicolon-separated pixel shader entries. Use EntryPoint or output_symbol=EntryPoint."
+			Category="General"
+			Separator=";" />
+		<StringListProperty 
+			Name="GeometryEntryPoints" 
+			DisplayName="Geometry Entry Points" 
+			Description="Semicolon-separated geometry shader entries. Use EntryPoint or output_symbol=EntryPoint."
+			Category="General"
+			Separator=";" />
+		<StringListProperty 
+			Name="ComputeEntryPoints" 
+			DisplayName="Compute Entry Points" 
+			Description="Semicolon-separated compute shader entries. Use EntryPoint or output_symbol=EntryPoint."
+			Category="General"
+			Separator=";" />
+		<StringListProperty 
+			Name="LibraryTargets" 
+			DisplayName="Library Targets" 
+			Description="Semicolon-separated library targets. Use output_symbol or output_symbol=lib_6_6."
+			Category="General"
+			Separator=";" />
+		<!--
 		<EnumProperty 
 			Name="ShaderType" 
 			DisplayName="Shader Type" 

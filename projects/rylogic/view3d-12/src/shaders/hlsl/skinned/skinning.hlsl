@@ -29,7 +29,8 @@ StructuredBuffer<Mat4x4> g_pose : register(t2);
 RWStructuredBuffer<Vert> g_output_vertices : register(u0);
 
 // Write one current-pose vertex, keeping the output in model-space so the existing render transforms still apply.
-void CSSkinVertices(uint3 DTid : SV_DispatchThreadID)
+numthreads(CSSkinning, 128, 1, 1)
+void CSSkinning(uint3 DTid : SV_DispatchThreadID)
 {
 	uint vertex_index = DTid.x;
 	if (vertex_index >= g_skinning.vertex_count)
@@ -47,14 +48,3 @@ void CSSkinVertices(uint3 DTid : SV_DispatchThreadID)
 	vert.norm = mul(os_norm, g_skinning.object_to_model);
 	g_output_vertices[vertex_index] = vert;
 }
-
-// Compute shader
-#ifdef PR_RDR_CSHADER_skinning
-numthreads(main, 128, 1, 1)
-
-// Compute-skinned vertex buffer entry point.
-void main(uint3 DTid : SV_DispatchThreadID)
-{
-	CSSkinVertices(DTid);
-}
-#endif

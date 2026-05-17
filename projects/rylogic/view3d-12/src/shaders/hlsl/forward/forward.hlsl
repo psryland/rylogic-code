@@ -107,8 +107,8 @@ uint AlphaRtAttributes(PSIn In, float4 diff, bool is_front_face)
 	return PackRGBA8(float4(0.5f * normal + 0.5f, reflectivity));
 }
 
-// Default VS
-PSIn VSDefault(VSIn In)
+// Forward VS
+PSIn VSForward(VSIn In)
 {
 	PSIn Out = (PSIn)0;
 
@@ -135,8 +135,8 @@ PSIn VSDefault(VSIn In)
 	return Out;
 }
 
-// Default PS
-PSOut PSDefault(PSIn In, bool is_front_face)
+// Forward PS
+PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	// Notes:
 	//  - 'ss_vert:SV_Position' in the pixel shader already has x,y,z divided by w (w unchanged)
@@ -191,7 +191,7 @@ PSOut PSDefault(PSIn In, bool is_front_face)
 }
 
 // Direct-lighting PBR pixel shader path.
-PSOut PSPbr(PSIn In, bool is_front_face)
+PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSOut Out = (PSOut)0;
 
@@ -265,9 +265,9 @@ float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 }
 
 // Collect transparent PBR fragments into the alpha K-buffer.
-void PSPbrAlphaCollect(PSIn In, bool is_front_face)
+void PSForwardPbrAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	float4 diff = PSPbr(In, is_front_face).diff;
+	float4 diff = PSForwardPbr(In, is_front_face).diff;
 	clip(diff.a - (1.0f / 255.0f));
 
 	uint2 pix = uint2(In.ss_vert.xy);
@@ -294,9 +294,9 @@ void PSPbrAlphaCollect(PSIn In, bool is_front_face)
 	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
 }
 
-PSOut PSRadialFade(PSIn In, bool is_front_face)
+PSOut PSForwardRadialFade(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	PSOut Out = PSDefault(In, is_front_face);
+	PSOut Out = PSForward(In, is_front_face);
 
 	// Fade pixels radially from 'centre'
 	float4 centre = any(g_fade.fade_centre) ? g_fade.fade_centre : g_frame.cam.c2w[3];
@@ -312,9 +312,9 @@ PSOut PSRadialFade(PSIn In, bool is_front_face)
 	return Out;
 }
 
-void PSAlphaCollect(PSIn In, bool is_front_face)
+void PSForwardAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	float4 diff = PSDefault(In, is_front_face).diff;
+	float4 diff = PSForward(In, is_front_face).diff;
 	clip(diff.a - (1.0f / 255.0f));
 
 	uint2 pix = uint2(In.ss_vert.xy);
@@ -341,64 +341,18 @@ void PSAlphaCollect(PSIn In, bool is_front_face)
 	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
 }
 
-#ifdef PR_RDR_VSHADER_forward
-PSIn main(VSIn In)
-{
-	return VSDefault(In);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_forward
-PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSDefault(In, is_front_face);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_forward_reflection_attrs
-PSReflectionOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
+PSReflectionOut PSForwardReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
-	Out.diff = PSDefault(In, is_front_face).diff;
+	Out.diff = PSForward(In, is_front_face).diff;
 	Out.reflection_attrs = ReflectionAttributes(In, Out.diff, is_front_face);
 	return Out;
 }
-#endif
 
-#ifdef PR_RDR_PSHADER_forward_pbr
-PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSPbr(In, is_front_face);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_forward_pbr_reflection_attrs
-PSReflectionOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
+PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
-	Out.diff = PSPbr(In, is_front_face).diff;
+	Out.diff = PSForwardPbr(In, is_front_face).diff;
 	Out.reflection_attrs = PbrReflectionAttributes(In, Out.diff, is_front_face);
 	return Out;
 }
-#endif
-
-#ifdef PR_RDR_PSHADER_forward_pbr_alpha_collect
-void main(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	PSPbrAlphaCollect(In, is_front_face);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_forward_radial_fade
-PSOut main(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSRadialFade(In, is_front_face);
-}
-#endif
-
-#ifdef PR_RDR_PSHADER_forward_alpha_collect
-void main(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	PSAlphaCollect(In, is_front_face);
-}
-#endif

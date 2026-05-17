@@ -10,6 +10,7 @@
 ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 
 // Converts line geometry into tristrip
+[maxvertexcount(16)]
 void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 {
 	// Notes:
@@ -189,11 +190,3 @@ void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 
 	OutStream.RestartStrip();
 }
-
-#ifdef PR_RDR_GSHADER_thick_line_strip
-[maxvertexcount(16)]
-void main(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
-{
-	GSThickLineStrip(In, OutStream);
-}
-#endif

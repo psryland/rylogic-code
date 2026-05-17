@@ -15,7 +15,8 @@ Texture2D<float4> g_src_texture : register(t0); // Texture to compute mips for
 RWTexture2D<float4> g_dst_texture : register(u0); // Output texture containing mips
 SamplerState g_src_sampler : register(s0);
 
-
+// Compute shader entry point.
+numthreads(CSMipMapGenerator, 8, 8, 1)
 void CSMipMapGenerator(uint3 DTid : SV_DispatchThreadID)
 {
 	// DTid is the thread ID * the values from numthreads above and in this case correspond to the pixels location in number of pixels.
@@ -28,12 +29,3 @@ void CSMipMapGenerator(uint3 DTid : SV_DispatchThreadID)
 	//Write the final color into the destination texture.
 	g_dst_texture[DTid.xy] = col;
 }
-
-// Computer shader
-#ifdef PR_RDR_CSHADER_mipmap_generator
-numthreads(main, 8, 8, 1)
-void main(uint3 DTid : SV_DispatchThreadID)
-{
-	CSMipMapGenerator(DTid);
-}
-#endif

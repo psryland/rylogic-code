@@ -857,6 +857,9 @@
     <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace.hlsl">
       <Filter>src\shaders\hlsl\ray_tracing</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\ray_tracing\ray_trace_present.hlsl">
+      <Filter>src\shaders\hlsl\ray_tracing</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl">
       <Filter>src\shaders\hlsl\skinned</Filter>
     </ShaderBuild>

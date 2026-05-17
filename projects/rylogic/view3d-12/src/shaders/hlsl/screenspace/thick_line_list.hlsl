@@ -11,6 +11,7 @@
 ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 
 // Converts line segments into tristrip
+[maxvertexcount(18)]
 void GSThickLineList(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
 {
 	PSIn Out;
@@ -69,11 +70,3 @@ void GSThickLineList(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
 	OutStream.Append(Out);
 	OutStream.RestartStrip();
 }
-
-#ifdef PR_RDR_GSHADER_thick_line_list
-[maxvertexcount(18)]
-void main(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
-{
-	GSThickLineList(In, OutStream);
-}
-#endif
