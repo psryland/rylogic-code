@@ -739,7 +739,7 @@ namespace pr::rdr12::ldraw
 				.sort_key(ESortGroup::PostOpaques)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_BACK)
 				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER)
-				.mat([&](MaterialSimple& m) { m.tex_diffuse(rdr().store().StockTexture(EStockTexture::Gray)); })
+				.mat([&](MaterialSimple& m) { m.base_texture(rdr().store().StockTexture(EStockTexture::Gray), {}); })
 			);
 		}
 		{

@@ -42,24 +42,15 @@ namespace pr::rdr12
 		// Return true if this material requires alpha rendering
 		virtual bool RequiresAlpha() const override;
 
-		// Get/Set the diffuse texture.
-		Texture2DPtr const& tex_diffuse() const;
-		MaterialSimple& tex_diffuse(Texture2DPtr tex);
+		// Set the base colour.
+		MaterialSimple& base_colour(Colour colour);
+		MaterialSimple& base_colour(Colour32 colour);
+		MaterialSimple& base_texture(Texture2DPtr tex, SamplerPtr sam);
 
-		// Get/Set the diffuse texture sampler.
-		SamplerPtr const& sam_diffuse() const;
-		MaterialSimple& sam_diffuse(SamplerPtr sam);
-
-		// Get/Set the tint colour.
-		Colour32 tint() const;
-		MaterialSimple& tint(Colour32 tint);
-
-		// Get/Set the relative reflectivity.
-		float rel_reflec() const;
+		// Set the relative reflectivity.
 		MaterialSimple& rel_reflec(float reflectivity);
 
-		// Get/Set whether back-facing pixels should flip their lit surface normal.
-		bool two_sided() const;
+		// Set whether back-facing pixels should flip their lit surface normal.
 		MaterialSimple& two_sided(bool enabled = true);
 
 		// Add a shader overlay to this material.

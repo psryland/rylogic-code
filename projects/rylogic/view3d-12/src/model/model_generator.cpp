@@ -892,7 +892,7 @@ namespace pr::rdr12
 			NuggetDesc(ETopo::TriList, props.m_geom)
 				.alpha_geom(props.m_has_alpha)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
-				.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture); })
+				.mat([&](MaterialSimple& m) { m.base_texture(sky_texture, {}); })
 			);
 
 		cache.m_bbox = props.m_bbox;
@@ -926,7 +926,7 @@ namespace pr::rdr12
 			NuggetDesc(ETopo::TriList, props.m_geom)
 			.alpha_geom(props.m_has_alpha)
 			.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
-			.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture); })
+			.mat([&](MaterialSimple& m) { m.base_texture(sky_texture, {}); })
 		);
 		cache.m_bbox = props.m_bbox;
 
@@ -963,7 +963,7 @@ namespace pr::rdr12
 				.irange(Range(i * 6, (i + 1) * 6))
 				.alpha_geom(props.m_has_alpha)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_FRONT)
-				.mat([&](MaterialSimple& m) { m.tex_diffuse(sky_texture[i]); })
+				.mat([&](MaterialSimple& m) { m.base_texture(sky_texture[i], {}); })
 			);
 		}
 		cache.m_bbox = props.m_bbox;
@@ -1120,7 +1120,7 @@ namespace pr::rdr12
 					for (auto& mat : m_mats)
 					{
 						if (nug.m_mat != mat.m_id) continue;
-						nugget.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse()).tint(mat.Tint()); });
+						nugget.mat([&](MaterialSimple& m) { m.base_texture(mat.TexDiffuse(), {}).base_colour(mat.Tint()); });
 						break;
 					}
 
@@ -1226,7 +1226,7 @@ namespace pr::rdr12
 				cache.m_ncont.push_back(NuggetDesc(topo, geom)
 					.vrange(vrange)
 					.irange(irange)
-					.mat([&](MaterialSimple& m) { m.tex_diffuse(mat.TexDiffuse(factory)).tint(mat.Tint()); })
+					.mat([&](MaterialSimple& m) { m.base_texture(mat.TexDiffuse(factory), {}).base_colour(mat.Tint()); })
 				);
 			};
 			auto matlookup = [&](std::string const& name)
@@ -1384,7 +1384,7 @@ namespace pr::rdr12
 					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
 						.vrange(n.m_vrange)
 						.irange(n.m_irange)
-						.mat([&](MaterialSimple& m) { m.tint(tint); })
+						.mat([&](MaterialSimple& m) { m.base_colour(tint); })
 						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
@@ -1593,7 +1593,7 @@ namespace pr::rdr12
 					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
 						.vrange(n.m_vrange)
 						.irange(n.m_irange)
-						.mat([&](MaterialSimple& m) { m.tint(tint); })
+						.mat([&](MaterialSimple& m) { m.base_colour(tint); })
 						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
@@ -1857,7 +1857,7 @@ namespace pr::rdr12
 		// Create a nugget
 		cache.m_ncont.push_back(
 			NuggetDesc(ETopo::TriList, props.m_geom & ~EGeom::Norm)
-				.mat([&](MaterialSimple& m) { m.tex_diffuse(tex).sam_diffuse(factory.CreateSampler(EStockSampler::AnisotropicClamp)); })
+				.mat([&](MaterialSimple& m) { m.base_texture(tex, factory.CreateSampler(EStockSampler::AnisotropicClamp)); })
 				.alpha_geom(has_alpha)
 			);
 

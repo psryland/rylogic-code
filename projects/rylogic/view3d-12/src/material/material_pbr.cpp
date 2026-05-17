@@ -20,148 +20,6 @@ namespace pr::rdr12
 {
 	namespace
 	{
-		// Return the base-colour texture for the PBR material.
-		Texture2D* BaseColourTexture(MaterialPassContext const& ctx)
-		{
-			auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-			auto texture = base_colour.m_tex.m_texture;
-			return texture != nullptr ? texture.get() : ctx.m_default_tex;
-		}
-
-		// Return the base-colour sampler for the PBR material.
-		Sampler* BaseColourSampler(MaterialPassContext const& ctx)
-		{
-			auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-			auto sampler = base_colour.m_tex.m_sampler;
-			return sampler != nullptr ? sampler.get() : ctx.m_default_sam;
-		}
-
-		// Bind a PBR base-colour texture descriptor if one is available.
-		template <typename RootParam>
-		void BindBaseColourTexture(MaterialPassContext& ctx, RootParam root_param)
-		{
-			auto* tex = BaseColourTexture(ctx);
-			if (tex == nullptr)
-				return;
-
-			auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(tex->m_srv);
-			if (ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
-			{
-				ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
-				if (ctx.m_last_tex != nullptr)
-					*ctx.m_last_tex = srv_descriptor;
-
-				#if PR_DBG_RDR
-				auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
-				assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
-				#endif
-			}
-		}
-
-		// Bind a PBR base-colour sampler descriptor if one is available.
-		template <typename RootParam>
-		void BindBaseColourSampler(MaterialPassContext& ctx, RootParam root_param)
-		{
-			auto* sam = BaseColourSampler(ctx);
-			if (sam == nullptr)
-				return;
-
-			auto sam_descriptor = ctx.m_wnd.m_heap_samp.Add(sam->m_samp);
-			if (ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
-			{
-				ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, sam_descriptor);
-				if (ctx.m_last_sam != nullptr)
-					*ctx.m_last_sam = sam_descriptor;
-			}
-		}
-
-		// Bind scalar PBR material constants.
-		void BindPbrConstants(MaterialPassContext& ctx)
-		{
-			auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-			auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
-			auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
-			auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
-			auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
-			auto cb = shaders::fwd::CBufPbrSurface{
-				.base_colour = base_colour.m_colour.rgba,
-				.emissive = emissive.m_colour.rgba,
-				.metallic = metallic.m_factor,
-				.roughness = roughness.m_factor,
-				.alpha_cutoff = alpha.m_cutoff,
-				.alpha_mode = static_cast<int>(alpha.m_mode),
-			};
-			auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
-			ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
-		}
-
-		// Bind resources and constants for the PBR forward pass.
-		void BindForward(MaterialPassContext& ctx)
-		{
-			BindBaseColourTexture(ctx, shaders::fwd::ERootParam::DiffTexture);
-			BindBaseColourSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler);
-			if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
-			{
-				shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle, ctx.m_material);
-				BindPbrConstants(ctx);
-				return;
-			}
-
-			throw std::runtime_error("PBR forward material pass requires a forward shader");
-		}
-
-		// Bind resources and constants for the PBR shadow-map pass.
-		void BindShadowMap(MaterialPassContext& ctx)
-		{
-			BindBaseColourTexture(ctx, shaders::smap::ERootParam::DiffTexture);
-			BindBaseColourSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler);
-			if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
-			{
-				shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_scene.m_cam, ctx.m_material);
-				return;
-			}
-
-			throw std::runtime_error("PBR shadow-map material pass requires a shadow-map shader");
-		}
-
-		// Bind resources and constants for the PBR ray-cast pass.
-		void BindRayCast(MaterialPassContext& ctx)
-		{
-			if (auto* shader = dynamic_cast<shaders::RayCast*>(ctx.m_shader); shader != nullptr)
-			{
-				shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_material);
-				return;
-			}
-
-			throw std::runtime_error("PBR ray-cast material pass requires a ray-cast shader");
-		}
-
-		// Force two-sided rasterisation for PBR surfaces that need normal flipping on back faces.
-		void ApplyTwoSidedPipeline(MaterialPassContext& ctx)
-		{
-			auto const* two_sided = ctx.m_material.Component<materials::TwoSided>();
-			if (two_sided == nullptr || !two_sided->m_enabled)
-				return;
-
-			if (ctx.m_dle.m_nugget->m_variant == AlphaNugget)
-				return;
-
-			ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
-		}
-
-		// Apply the PBR forward shader variant for the active forward sub-pass.
-		void ApplyForwardPipeline(MaterialPassContext& ctx)
-		{
-			auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(ctx.m_pipe_state);
-			auto const& ps =
-				desc->NumRenderTargets == 0U ? shader_code::forward_pbr_alpha_collect_ps :
-				desc->NumRenderTargets > 1U  ? shader_code::forward_pbr_reflection_attrs_ps :
-				shader_code::forward_pbr_ps;
-
-			ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(ps));
-			ApplyTwoSidedPipeline(ctx);
-		}
-
 		// The material pass used by physically-based materials.
 		struct MaterialPBRPass : MaterialPass
 		{
@@ -278,6 +136,148 @@ namespace pr::rdr12
 					}
 				}
 			}
+
+			// Return the base-colour texture for the PBR material.
+			static Texture2D* BaseColourTexture(MaterialPassContext const& ctx)
+			{
+				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
+				auto texture = base_colour.m_tex.m_texture;
+				return texture != nullptr ? texture.get() : ctx.m_default_tex;
+			}
+
+			// Return the base-colour sampler for the PBR material.
+			static Sampler* BaseColourSampler(MaterialPassContext const& ctx)
+			{
+				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
+				auto sampler = base_colour.m_tex.m_sampler;
+				return sampler != nullptr ? sampler.get() : ctx.m_default_sam;
+			}
+
+			// Bind a PBR base-colour texture descriptor if one is available.
+			template <typename RootParam>
+			static void BindBaseColourTexture(MaterialPassContext& ctx, RootParam root_param)
+			{
+				auto* tex = BaseColourTexture(ctx);
+				if (tex == nullptr)
+					return;
+
+				auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(tex->m_srv);
+				if (ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
+				{
+					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
+					if (ctx.m_last_tex != nullptr)
+						*ctx.m_last_tex = srv_descriptor;
+
+					#if PR_DBG_RDR
+					auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
+					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
+					#endif
+				}
+			}
+
+			// Bind a PBR base-colour sampler descriptor if one is available.
+			template <typename RootParam>
+			static void BindBaseColourSampler(MaterialPassContext& ctx, RootParam root_param)
+			{
+				auto* sam = BaseColourSampler(ctx);
+				if (sam == nullptr)
+					return;
+
+				auto sam_descriptor = ctx.m_wnd.m_heap_samp.Add(sam->m_samp);
+				if (ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
+				{
+					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, sam_descriptor);
+					if (ctx.m_last_sam != nullptr)
+						*ctx.m_last_sam = sam_descriptor;
+				}
+			}
+
+			// Bind scalar PBR material constants.
+			static void BindPbrConstants(MaterialPassContext& ctx)
+			{
+				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
+				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
+				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
+				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
+				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
+				auto cb = shaders::fwd::CBufPbrSurface{
+					.base_colour = base_colour.m_colour.rgba,
+					.emissive = emissive.m_colour.rgba,
+					.metallic = metallic.m_factor,
+					.roughness = roughness.m_factor,
+					.alpha_cutoff = alpha.m_cutoff,
+					.alpha_mode = static_cast<int>(alpha.m_mode),
+				};
+				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
+				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
+			}
+
+			// Bind resources and constants for the PBR forward pass.
+			static void BindForward(MaterialPassContext& ctx)
+			{
+				BindBaseColourTexture(ctx, shaders::fwd::ERootParam::DiffTexture);
+				BindBaseColourSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler);
+				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
+				{
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle, ctx.m_material);
+					BindPbrConstants(ctx);
+					return;
+				}
+
+				throw std::runtime_error("PBR forward material pass requires a forward shader");
+			}
+
+			// Bind resources and constants for the PBR shadow-map pass.
+			static void BindShadowMap(MaterialPassContext& ctx)
+			{
+				BindBaseColourTexture(ctx, shaders::smap::ERootParam::DiffTexture);
+				BindBaseColourSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler);
+				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
+				{
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_scene.m_cam, ctx.m_material);
+					return;
+				}
+
+				throw std::runtime_error("PBR shadow-map material pass requires a shadow-map shader");
+			}
+
+			// Bind resources and constants for the PBR ray-cast pass.
+			static void BindRayCast(MaterialPassContext& ctx)
+			{
+				if (auto* shader = dynamic_cast<shaders::RayCast*>(ctx.m_shader); shader != nullptr)
+				{
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_material);
+					return;
+				}
+
+				throw std::runtime_error("PBR ray-cast material pass requires a ray-cast shader");
+			}
+
+			// Force two-sided rasterisation for PBR surfaces that need normal flipping on back faces.
+			static void ApplyTwoSidedPipeline(MaterialPassContext& ctx)
+			{
+				auto const* two_sided = ctx.m_material.Component<materials::TwoSided>();
+				if (two_sided == nullptr || !two_sided->m_enabled)
+					return;
+
+				if (ctx.m_dle.m_nugget->m_variant == AlphaNugget)
+					return;
+
+				ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
+			}
+
+			// Apply the PBR forward shader variant for the active forward sub-pass.
+			static void ApplyForwardPipeline(MaterialPassContext& ctx)
+			{
+				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(ctx.m_pipe_state);
+				auto const& ps =
+					desc->NumRenderTargets == 0U ? shader_code::forward_pbr_alpha_collect_ps :
+					desc->NumRenderTargets > 1U ? shader_code::forward_pbr_reflection_attrs_ps :
+					shader_code::forward_pbr_ps;
+
+				ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(ps));
+				ApplyTwoSidedPipeline(ctx);
+			}
 		};
 	}
 
@@ -348,6 +348,18 @@ namespace pr::rdr12
 	MaterialPBR& MaterialPBR::base_colour(Colour colour)
 	{
 		m_base_colour.m_colour = colour;
+		return *this;
+	}
+	MaterialPBR& MaterialPBR::base_colour(Colour32 colour)
+	{
+		return base_colour(Colour(colour));
+	}
+	MaterialPBR& MaterialPBR::base_texture(Texture2DPtr tex, SamplerPtr sam)
+	{
+		m_base_colour.m_tex = materials::TextureSlot{
+			.m_texture = tex,
+			.m_sampler = sam,
+		};
 		return *this;
 	}
 

@@ -1229,8 +1229,8 @@ namespace pr::rdr12::ldraw
 					.vrange(vrange)
 					.flags(ENuggetFlag::RangesCanOverlap)
 					.mat([&](MaterialSimple& m) { m
-						.use_shader_overlay(ERenderStep::RenderForward, shdr)
-						.tex_diffuse(PointStyleTexture(m_style, pp));
+						.base_texture(PointStyleTexture(m_style, pp), {})
+						.use_shader_overlay(ERenderStep::RenderForward, shdr);
 					})
 				);
 			}
@@ -2458,8 +2458,8 @@ namespace pr::rdr12::ldraw
 						.vrange(vcount + beg, vcount + end)
 						.flags(ENuggetFlag::GeometryHasAlpha, has_alpha)
 						.mat([&](MaterialSimple& m) { m
-							.use_shader_overlay(ERenderStep::RenderForward, pt_shdr)
-							.tex_diffuse(creation::PointStyleTexture(style, m_pp));
+							.base_texture(creation::PointStyleTexture(style, m_pp), {})
+							.use_shader_overlay(ERenderStep::RenderForward, pt_shdr);
 						})
 					);
 				}
@@ -3089,9 +3089,9 @@ namespace pr::rdr12::ldraw
 				data_points->m_model->CreateNugget(pp.m_factory, NuggetDesc(ETopo::PointList, EGeom::Vert | EGeom::Colr | EGeom::Tex0)
 					.flags(ENuggetFlag::RangesCanOverlap)
 					.mat([&](MaterialSimple& m) { m
-						.use_shader_overlay(ERenderStep::RenderForward, shdr)
-						.tex_diffuse(creation::PointStyleTexture(m_data_points.m_style, pp))
-						.tint(m_data_points.m_colour);
+						.base_texture(creation::PointStyleTexture(m_data_points.m_style, pp), {})
+						.base_colour(m_data_points.m_colour)
+						.use_shader_overlay(ERenderStep::RenderForward, shdr);
 					})
 				);
 
@@ -4442,10 +4442,7 @@ namespace pr::rdr12::ldraw
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m
-							.tex_diffuse(m_tex.m_texture)
-							.sam_diffuse(m_tex.m_sampler);
-					});
+						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4470,10 +4467,7 @@ namespace pr::rdr12::ldraw
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m
-							.tex_diffuse(m_tex.m_texture)
-							.sam_diffuse(m_tex.m_sampler);
-					});
+						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4495,10 +4489,7 @@ namespace pr::rdr12::ldraw
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m
-							.tex_diffuse(m_tex.m_texture)
-							.sam_diffuse(m_tex.m_sampler);
-					});
+						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4663,10 +4654,7 @@ namespace pr::rdr12::ldraw
 
 			// Create a nugget for the hull
 			m_nuggets.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert)
-				.mat([&](MaterialSimple& m) { m
-					.tex_diffuse(m_tex.m_texture)
-					.sam_diffuse(m_tex.m_sampler);
-				})
+				.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); })
 			);
 
 			// Generate normals if needed
