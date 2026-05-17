@@ -108,7 +108,7 @@ namespace pr::rdr12::ldraw
 			"	[*Metallic {<amount>}]\n"
 			"	[*Roughness {<amount>}]\n"
 			"	[*Emissive {<aarrggbb>}]\n"
-			"	[*TwoSided {[<true|false|1|0>]}]\n"
+			"	[*TwoSided {[true|false]}]\n"
 			"}\n"
 			"**Texture\n"
 			"{\n"

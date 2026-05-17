@@ -426,6 +426,7 @@
 		Wrap      // Text wrapping. One of: NoWrap, Wrap, WholeWord, Character, EmergencyBreak
 	}
 	*BackColour {FFA0E0E0}
+	*Reflectivity {0.5}
 	*o2w {*scale{8} *pos{0 7 -20} }
 }
 
@@ -594,6 +595,7 @@
 		*Addr {Wrap Wrap}
 		*o2w {*Scale{10 10 1}}
 	}
+	*Reflectivity {0.8} // Optional. Makes the plane reflective (used with environment mapping and ray tracing)
 }
 
 // A circle or ellipse

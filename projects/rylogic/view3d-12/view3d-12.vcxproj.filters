@@ -839,6 +839,9 @@
     <None Include="src\shaders\hlsl\lighting\phong_lighting.hlsli">
       <Filter>src\shaders\hlsl\lighting</Filter>
     </None>
+    <None Include="src\shaders\hlsl\lighting\pbr.hlsli">
+      <Filter>src\shaders\hlsl\lighting</Filter>
+    </None>
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli">
       <Filter>src\shaders\hlsl\shadow</Filter>
     </None>
@@ -905,14 +908,14 @@
     <None Include="src\compute\particle_collision\collision.hlsli">
       <Filter>src\compute\particle_collision</Filter>
     </None>
-    <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli">
-      <Filter>pr\hlsl</Filter>
-    </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
     <None Include="src\shaders\hlsl\forward\kbuffer.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
+    </None>
+    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
+      <Filter>pr\hlsl</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

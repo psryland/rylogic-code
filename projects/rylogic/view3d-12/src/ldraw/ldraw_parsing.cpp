@@ -607,12 +607,6 @@ namespace pr::rdr12::ldraw
 				obj->m_material = ParseMaterial(reader, pp);
 				return true;
 			}
-			case EKeyword::TwoSided:
-			{
-				auto two_sided = reader.IsSectionEnd() ? true : reader.Bool();
-				obj->Flags(ELdrFlags::TwoSided, two_sided);
-				return true;
-			}
 			case EKeyword::RandColour:
 			{
 				obj->m_base_colour = RandomRGB(g_rng(), 0.5f, 1.0f);
@@ -687,28 +681,6 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
-	// Apply two-sided material state to every nugget owned by 'obj'.
-	void ApplyTwoSided(LdrObject* obj, bool enabled)
-	{
-		if (obj->m_model == nullptr)
-			return;
-
-		// For each nugget, update the two-sided component in the material.
-		for (auto nug = obj->m_model->m_nuggets; nug != nullptr; nug = nug->m_next)
-		{
-			auto const* two_sided = nug->mat().Component<materials::TwoSided>();
-			if (two_sided == nullptr)
-				throw std::runtime_error("*TwoSided requires a material with two-sided state");
-
-			if (two_sided->m_enabled == enabled)
-				continue;
-
-			auto mat = nug->mat().Clone();
-			mat->Component<materials::TwoSided>()->m_enabled = enabled;
-			nug->mat(mat);
-		}
-	}
-
 	// Apply the states such as colour,wireframe,etc to the objects renderer model
 	void ApplyObjectState(LdrObject* obj)
 	{
@@ -727,10 +699,6 @@ namespace pr::rdr12::ldraw
 		// If a material override was provided, replace the generated nugget materials.
 		if (obj->m_material != nullptr)
 			ApplyMaterial(obj);
-
-		// If flagged as two-sided, update the model materials.
-		if (AllSet(obj->Flags(), ELdrFlags::TwoSided))
-			ApplyTwoSided(obj, true);
 
 		// If flagged as hidden, hide
 		if (AllSet(obj->Flags(), ELdrFlags::Hidden))
