@@ -48,6 +48,8 @@ namespace pr::rdr12
 
 		// Set the linear base-colour factor.
 		MaterialPBR& base_colour(Colour colour);
+		MaterialPBR& base_colour(Colour32 colour);
+		MaterialPBR& base_texture(Texture2DPtr tex, SamplerPtr sam);
 
 		// Set the metallic factor.
 		MaterialPBR& metallic(float value);

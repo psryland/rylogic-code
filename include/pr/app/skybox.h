@@ -137,8 +137,9 @@ namespace pr::app
 			TextureDesc tdesc = TextureDesc(AutoId, rdesc);
 			NuggetDesc ndesc = NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Tex0)
 				.mat([&](MaterialSimple& m) {
-					m.tex_diffuse(factory.CreateTexture2D(texpath, tdesc));
-					m.sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+					m.base_texture(
+						factory.CreateTexture2D(texpath, tdesc),
+						factory.CreateSampler(EStockSampler::LinearClamp));
 				});
 			m_inst.m_model->CreateNugget(factory, ndesc);
 		}
@@ -214,8 +215,9 @@ namespace pr::app
 					.vrange(rdr12::Range(i * 4, (i + 1) * 4))
 					.irange(rdr12::Range(i * 6, (i + 1) * 6))
 					.mat([&](MaterialSimple& m) {
-						m.tex_diffuse(factory.CreateTexture2D(tpath, tdesc));
-						m.sam_diffuse(factory.CreateSampler(EStockSampler::LinearClamp));
+						m.base_texture(
+							factory.CreateTexture2D(tpath, tdesc),
+							factory.CreateSampler(EStockSampler::LinearClamp));
 					});
 
 				// Create the render nugget for this face of the sky box

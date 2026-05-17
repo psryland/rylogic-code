@@ -168,9 +168,8 @@ namespace pr::rdr12
 		for (auto const& nugget : nuggets)
 		{
 			RefPtr<MaterialSimple> material(::pr::compute::New<MaterialSimple>(), true);
-			material->tex_diffuse(Texture2DPtr(nugget.m_tex_diffuse, true));
-			material->sam_diffuse(SamplerPtr(nugget.m_sam_diffuse, true));
-			material->tint(To<Colour>(nugget.m_tint));
+			material->base_texture(Texture2DPtr(nugget.m_tex_diffuse, true), SamplerPtr(nugget.m_sam_diffuse, true));
+			material->base_colour(To<Colour>(nugget.m_tint));
 			material->rel_reflec(nugget.m_rel_reflec);
 			for (auto const& shdr : nugget.shader_span())
 				material->use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
@@ -429,9 +428,8 @@ namespace pr::rdr12
 			n.m_geom = static_cast<EGeom>(nug.m_geom);
 			n.m_nflags = static_cast<ENuggetFlag>(nug.m_nflags);
 			n.mat([&](MaterialSimple& m) { m
-				.tex_diffuse(Texture2DPtr(nug.m_tex_diffuse, true))
-				.sam_diffuse(SamplerPtr(nug.m_sam_diffuse, true))
-				.tint(tint)
+				.base_texture(Texture2DPtr(nug.m_tex_diffuse, true), SamplerPtr(nug.m_sam_diffuse, true))
+				.base_colour(tint)
 				.rel_reflec(nug.m_rel_reflec);
 				for (auto& shdr : nug.shader_span())
 					m.use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));

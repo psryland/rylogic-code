@@ -18,7 +18,6 @@ namespace pr
 	struct Colour;
 
 	// Colour type traits
-	#pragma region Traits
 	template <typename T> struct is_colour :std::false_type
 	{
 		using elem_type = void;
@@ -31,14 +30,10 @@ namespace pr
 	{
 		using elem_type = float;
 	};
+	template <typename T> constexpr bool is_colour_v = is_colour<T>::value;
+	template <typename T> concept ColourType = is_colour_v<T>;
 
-	template <typename T>
-	constexpr bool is_colour_v = is_colour<T>::value;
-
-	template <typename T>
-	concept ColourType = is_colour_v<T>;
-	#pragma endregion
-
+	// EColours enum
 	enum class EColours : uint32_t
 	{
 		#define PR_ENUM(x)\
@@ -187,14 +182,8 @@ namespace pr
 
 	#pragma region Colour32
 
-	inline uint8_t Saturate8(std::integral auto x, int mn = 0, int mx = 255)
-	{
-		return Clamp<uint8_t>(static_cast<uint8_t>(x), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
-	}
-	inline uint8_t Saturate8(std::floating_point auto x, int mn = 0, int mx = 255)
-	{
-		return Clamp<uint8_t>(static_cast<uint8_t>(std::round(x)), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
-	}
+	uint8_t Saturate8(std::integral auto x, int mn = 0, int mx = 255);
+	uint8_t Saturate8(std::floating_point auto x, int mn = 0, int mx = 255);
 
 	// Equivalent to D3DCOLOR
 	struct Colour32
@@ -408,7 +397,7 @@ namespace pr
 	constexpr float z_cp(Colour32 v) { return b_cp(v); }
 	constexpr float w_cp(Colour32 v) { return a_cp(v); }
 
-	#pragma region Constants
+	// Constants
 	constexpr Colour32 Colour32Zero   = { 0x00000000 };
 	constexpr Colour32 Colour32One    = { 0xFFFFFFFF };
 	constexpr Colour32 Colour32White  = { 0xFFFFFFFF };
@@ -419,9 +408,16 @@ namespace pr
 	constexpr Colour32 Colour32Yellow = { 0xFFFFFF00 };
 	constexpr Colour32 Colour32Purple = { 0xFFFF00FF };
 	constexpr Colour32 Colour32Gray   = { 0xFF808080 };
-	#pragma endregion
 
-	#pragma region Functions
+	// Functions
+	inline uint8_t Saturate8(std::integral auto x, int mn, int mx)
+	{
+		return Clamp<uint8_t>(static_cast<uint8_t>(x), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
+	}
+	inline uint8_t Saturate8(std::floating_point auto x, int mn, int mx)
+	{
+		return Clamp<uint8_t>(static_cast<uint8_t>(std::round(x)), static_cast<uint8_t>(mn), static_cast<uint8_t>(mx));
+	}
 
 	// True if 'col' requires alpha blending
 	inline bool HasAlpha(Colour32 col)
@@ -488,6 +484,7 @@ namespace pr
 			Saturate8(col.b, mn.b, mx.b),
 			Saturate8(col.a, mn.a, mx.a));
 	}
+
 	// Convert this colour to it's associated gray-scale value
 	inline Colour32 ToGrayScale(Colour32 col)
 	{
@@ -516,8 +513,6 @@ namespace pr
 		Rng rng(seed);
 		return RandomRGB(rng, min_brightness, a);
 	}
-
-	#pragma endregion
 
 	#pragma endregion
 
@@ -730,7 +725,7 @@ namespace pr
 	constexpr float pr_vectorcall z_cp(Colour v) { return b_cp(v); }
 	constexpr float pr_vectorcall w_cp(Colour v) { return a_cp(v); }
 
-	#pragma region Constants
+	// Constants
 	constexpr Colour ColourZero   = {0.0f, 0.0f, 0.0f, 0.0f};
 	constexpr Colour ColourOne    = {1.0f, 1.0f, 1.0f, 1.0f};
 	constexpr Colour ColourWhite  = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -738,9 +733,8 @@ namespace pr
 	constexpr Colour ColourRed    = {1.0f, 0.0f, 0.0f, 1.0f};
 	constexpr Colour ColourGreen  = {0.0f, 1.0f, 0.0f, 1.0f};
 	constexpr Colour ColourBlue   = {0.0f, 0.0f, 1.0f, 1.0f};
-	#pragma endregion
 
-	#pragma region Functions
+	// Functions
 
 	// Colour FEql
 	inline bool pr_vectorcall FEqlRelative(Colour lhs, Colour rhs, float tol)
@@ -815,22 +809,14 @@ namespace pr
 
 	#pragma endregion
 
-	#pragma endregion
-
-	#pragma region COLORREF
+	// COLORREF
 	#if defined(_WINGDI_) && !defined(NOGDI)
 	constexpr float r_cp(COLORREF v) { return GetRValue(v) / 255.0f; }
 	constexpr float g_cp(COLORREF v) { return GetGValue(v) / 255.0f; }
 	constexpr float b_cp(COLORREF v) { return GetBValue(v) / 255.0f; }
 	constexpr float a_cp(COLORREF)   { return 1.0f; }
-
-	// Treat COLORREF as a colour type
-	template <> struct is_colour<COLORREF> :std::true_type
-	{
-		using elem_type = uint8_t;
-	};
+	template <> struct is_colour<COLORREF> :std::true_type { using elem_type = uint8_t; }; // Treat COLORREF as a colour type
 	#endif
-	#pragma endregion
 
 	#pragma region Conversion
 
