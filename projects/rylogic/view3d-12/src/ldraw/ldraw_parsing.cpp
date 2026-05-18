@@ -521,6 +521,39 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
+	// Parse and create a material texture slot, reporting creation failures while preserving scalar material fallbacks.
+	materials::TextureSlot ParseTextureSlot(IReader& reader, ParseParams& pp, materials::ETextureColourSpace colour_space, SamDesc def_sdesc)
+	{
+		TextureInfo tex_info;
+		tex_info.m_sdesc = def_sdesc;
+		ParseTexture(reader, pp, tex_info);
+
+		auto slot = materials::TextureSlot{};
+		slot.m_colour_space = colour_space;
+
+		try
+		{
+			slot.m_texture = pp.m_factory.CreateTexture2D(tex_info.m_filepath, tex_info.m_tdesc, true);
+			slot.m_texture->m_t2s = tex_info.m_t2s;
+		}
+		catch (std::exception const& e)
+		{
+			pp.ReportError(EParseError::NotFound, reader.Loc(), std::format("Failed to create texture {}\n{}", tex_info.m_filepath.string(), e.what()));
+		}
+
+		try
+		{
+			auto desc = SamplerDesc(tex_info.m_sdesc.Id(), tex_info.m_sdesc);
+			slot.m_sampler = pp.m_factory.CreateSampler(desc);
+		}
+		catch (std::exception const& e)
+		{
+			pp.ReportError(EParseError::NotFound, reader.Loc(), std::format("Failed to create sampler for texture {}\n{}", tex_info.m_filepath.string(), e.what()));
+		}
+
+		return slot;
+	}
+
 	// Parse a PBR material declaration and return a material instance for the object.
 	MaterialPtr ParseMaterial(IReader& reader, ParseParams& pp)
 	{
@@ -549,6 +582,37 @@ namespace pr::rdr12::ldraw
 				case EKeyword::Emissive:
 				{
 					material->emissive(pr::Colour(reader.Int<uint32_t>(16)));
+					break;
+				}
+				case EKeyword::BaseColourTexture:
+				{
+					material->base_texture(ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Srgb, SamDesc::AnisotropicWrap()));
+					break;
+				}
+				case EKeyword::MetallicTexture:
+				{
+					material->metallic_texture(materials::ScalarTextureSlot{
+						.m_slot = ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Linear, SamDesc::AnisotropicWrap()),
+						.m_channel = materials::ETextureChannel::Blue,
+					});
+					break;
+				}
+				case EKeyword::RoughnessTexture:
+				{
+					material->roughness_texture(materials::ScalarTextureSlot{
+						.m_slot = ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Linear, SamDesc::AnisotropicWrap()),
+						.m_channel = materials::ETextureChannel::Green,
+					});
+					break;
+				}
+				case EKeyword::EmissiveTexture:
+				{
+					material->emissive_texture(ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Srgb, SamDesc::AnisotropicWrap()));
+					break;
+				}
+				case EKeyword::NormalTexture:
+				{
+					material->normal_texture(ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Linear, SamDesc::AnisotropicWrap()));
 					break;
 				}
 				case EKeyword::TwoSided:
@@ -881,30 +945,9 @@ namespace pr::rdr12::ldraw
 				{
 					case EKeyword::Texture:
 					{
-						TextureInfo tex_info;
-						ParseTexture(reader, pp, tex_info);
-
-						// Create the texture
-						try
-						{
-							m_texture = pp.m_factory.CreateTexture2D(tex_info.m_filepath, tex_info.m_tdesc, true);
-							m_texture->m_t2s = tex_info.m_t2s;
-						}
-						catch (std::exception const& e)
-						{
-							pp.ReportError(EParseError::NotFound, reader.Loc(), std::format("Failed to create texture {}\n{}", tex_info.m_filepath.string(), e.what()));
-						}
-
-						// Create the sampler
-						try
-						{
-							auto desc = SamplerDesc(tex_info.m_sdesc.Id(), tex_info.m_sdesc);
-							m_sampler = pp.m_factory.CreateSampler(desc);
-						}
-						catch(std::exception const& e)
-						{
-							pp.ReportError(EParseError::NotFound, reader.Loc(), std::format("Failed to create sampler for texture {}\n{}", tex_info.m_filepath.string(), e.what()));
-						}
+						auto slot = ParseTextureSlot(reader, pp, materials::ETextureColourSpace::Srgb, m_def_sdesc);
+						m_texture = slot.m_texture;
+						m_sampler = slot.m_sampler;
 						return true;
 					}
 					case EKeyword::Video:

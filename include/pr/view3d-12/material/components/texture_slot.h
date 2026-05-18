@@ -18,10 +18,10 @@ namespace pr::rdr12::materials
 	// Texture channels used when scalar PBR values are packed into shared textures.
 	enum class ETextureChannel
 	{
-		Red,
-		Green,
-		Blue,
-		Alpha,
+		Red = 0,
+		Green = 1,
+		Blue = 2,
+		Alpha = 3,
 	};
 
 	// A texture and sampler together with the material slot's colour-space contract.

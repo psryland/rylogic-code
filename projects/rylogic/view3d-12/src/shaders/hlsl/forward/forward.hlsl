@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -16,9 +16,17 @@ ConstantBuffer<CBufNugget> g_nugget : register(b1);
 ConstantBuffer<CBufFade> g_fade: register(b2);
 ConstantBuffer<CBufPbrSurface> g_pbr : register(b4);
 
-// Texture2D /w sampler
-Texture2D<float4> g_texture0 :register(t0);
-SamplerState      g_sampler0 :register(s0);
+// Textures /w samplers
+Texture2D<float4> g_base_texture :register(t0);
+SamplerState      g_base_sampler :register(s0);
+
+// PBR material texture slots.
+Texture2D<float4> g_metallic_texture  :register(t4);
+Texture2D<float4> g_roughness_texture :register(t5);
+Texture2D<float4> g_emissive_texture  :register(t7);
+SamplerState      g_metallic_sampler  :register(s4);
+SamplerState      g_roughness_sampler :register(s5);
+SamplerState      g_emissive_sampler  :register(s6);
 
 // Environment map
 TextureCube<float4> g_envmap_texture :register(t1);
@@ -59,6 +67,17 @@ struct PSReflectionOut
 	float4 diff :SV_TARGET0;
 	float4 reflection_attrs :SV_TARGET1;
 };
+
+// Return one channel from a texture sample using the channel index stored in the material constants.
+float SelectTextureChannel(float4 sample, int channel)
+{
+	return
+		channel == 0 ? sample.r :
+		channel == 1 ? sample.g :
+		channel == 2 ? sample.b :
+		channel == 3 ? sample.a :
+		sample.r;
+}
 
 // Return the world-space surface normal used by the forward material path.
 float4 ResolveWorldNormal(PSIn In, bool is_front_face)
@@ -137,7 +156,7 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 		}
 		else
 		{
-			float4 texel = g_texture0.Sample(g_sampler0, In.tex0);
+			float4 texel = g_base_texture.Sample(g_base_sampler, In.tex0);
 			Out.diff = texel * Out.diff;
 		}
 	}
@@ -171,7 +190,7 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 	float4 base_colour = g_pbr.base_colour * In.diff;
 	if (HasTex0(g_nugget.flags))
 	{
-		float4 tex_colour = g_texture0.Sample(g_sampler0, In.tex0);
+		float4 tex_colour = g_base_texture.Sample(g_base_sampler, In.tex0);
 		if (AnySet(g_pbr.texture_flags, PbrTextureFlag_BaseColourSrgb))
 			tex_colour = SrgbToLinear(tex_colour);
 
@@ -187,9 +206,24 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 
 	// Convert material parameters to the ranges expected by the PBR lighting equations.
 	float3 albedo = saturate(base_colour.rgb);
-	float3 emissive = g_pbr.emissive.rgb;
 	float metallic = saturate(g_pbr.metallic);
 	float roughness = clamp(g_pbr.roughness, 0.04f, 1.0f);
+	float3 emissive = g_pbr.emissive.rgb;
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasMetallicMap))
+		metallic *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, In.tex0), g_pbr.metallic_channel);
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasRoughnessMap))
+		roughness *= SelectTextureChannel(g_roughness_texture.Sample(g_roughness_sampler, In.tex0), g_pbr.roughness_channel);
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasEmissiveMap))
+	{
+		float4 emissive_tex = g_emissive_texture.Sample(g_emissive_sampler, In.tex0);
+		if (AnySet(g_pbr.texture_flags, PbrTextureFlag_EmissiveSrgb))
+			emissive_tex = SrgbToLinear(emissive_tex);
+
+		emissive *= emissive_tex.rgb;
+	}
+
+	metallic = saturate(metallic);
+	roughness = clamp(roughness, 0.04f, 1.0f);
 
 	// Without a usable normal there is no surface orientation, so leave the material effectively unlit.
 	if (!HasNormals(g_nugget.flags))

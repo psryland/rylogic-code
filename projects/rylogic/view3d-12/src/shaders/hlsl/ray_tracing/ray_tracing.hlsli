@@ -7,6 +7,7 @@
 
 // Helpers for forward passes that write the ray-tracing reflection and alpha side-buffer attributes.
 // Requires the forward shader globals and ResolveWorldNormal() to be available at the include site.
+float SelectTextureChannel(float4 sample, int channel);
 float4 ResolveWorldNormal(PSIn In, bool is_front_face);
 
 // Return the RT reflection side-buffer payload for the visible opaque simple-material surface.
@@ -28,6 +29,9 @@ float4 ReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 {
 	float reflectivity = saturate(g_pbr.metallic);
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasMetallicMap))
+		reflectivity *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, In.tex0), g_pbr.metallic_channel);
+
 	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
 		return float4(0, 0, 0, 0);
 

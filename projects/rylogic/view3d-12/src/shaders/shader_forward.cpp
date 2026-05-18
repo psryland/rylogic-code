@@ -27,7 +27,10 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto EnvMap = ESRVReg::t1;
 		inline static constexpr auto SMap = ESRVReg::t2;
 		inline static constexpr auto ProjTex = ESRVReg::t3;
+		inline static constexpr auto PbrMetallicTexture = ESRVReg::t4;
+		inline static constexpr auto PbrRoughnessTexture = ESRVReg::t5;
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
+		inline static constexpr auto PbrEmissiveTexture = ESRVReg::t7;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -38,6 +41,9 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto EnvMap = SamDescStatic(ESamReg::s1);
 		inline static constexpr auto SMap = SamDescStatic(ESamReg::s2).addr(D3D12_TEXTURE_ADDRESS_MODE_CLAMP).filter(D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT).compare(D3D12_COMPARISON_FUNC_GREATER_EQUAL);
 		inline static constexpr auto ProjTex = SamDescStatic(ESamReg::s3);
+		inline static constexpr auto PbrMetallic = ESamReg::s4;
+		inline static constexpr auto PbrRoughness = ESamReg::s5;
+		inline static constexpr auto PbrEmissive = ESamReg::s6;
 	};
 
 	Forward::Forward(Renderer& rdr)
@@ -62,11 +68,17 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufPbrSurface)
 			.CBuf(EReg::CBufDiag)
 			.SRV(EReg::DiffTexture, 1)
+			.SRV(EReg::PbrMetallicTexture, 1)
+			.SRV(EReg::PbrRoughnessTexture, 1)
+			.SRV(EReg::PbrEmissiveTexture, 1)
 			.SRV(EReg::EnvMap, 1)
 			.SRV(EReg::SMap, shaders::MaxShadowMaps)
 			.SRV(EReg::ProjTex, shaders::MaxProjectedTextures)
 			.SRV(EReg::OpaqueDepth, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Samp(ESamp::Diff, shaders::MaxSamplers)
+			.Samp(ESamp::PbrMetallic, 1)
+			.Samp(ESamp::PbrRoughness, 1)
+			.Samp(ESamp::PbrEmissive, 1)
 			.Samp(ESamp::EnvMap)
 			.Samp(ESamp::SMap)
 			.Samp(ESamp::ProjTex)

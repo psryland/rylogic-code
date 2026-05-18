@@ -14,6 +14,10 @@
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/emissive.h"
+#include "pr/view3d-12/material/components/metallic.h"
+#include "pr/view3d-12/material/components/normal_map.h"
+#include "pr/view3d-12/material/components/roughness.h"
 #include "pr/view3d-12/material/components/two_sided.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/texture/texture_base.h"
@@ -213,6 +217,8 @@ namespace pr::rdr12
 		if (auto const* base_colour = material.Component<materials::BaseColour>())
 			tex = coalesce(FindDiffTexture(inst), base_colour->m_tex.m_texture);
 
+		// The base texture defines the texture to surface transform. Other maps should
+		// use the same transform for correct texture coordinate mapping.
 		cb.tex2surf0 = tex != nullptr
 			? tex->m_t2s
 			: m4x4::Identity();

@@ -213,7 +213,56 @@
 		}
 		*o2w {*pos{1.5 -3 0}}
 	}
-	*o2w {*pos{-10 5 -9}}
+	*Box pbr_base_colour_texture
+	{
+		*Data {2 2 0.2}
+		*Material
+		{
+			*BaseColour {FFFFFFFF}
+			*Metallic {0}
+			*Roughness {0.7}
+			*BaseColourTexture
+			{
+				*FilePath {"#checker"}
+				*Filter {Linear}
+				*o2w {*Scale {4 4 1}}
+			}
+		}
+		*o2w {*pos{-3 -6 0}}
+	}
+	*Sphere pbr_metallic_roughness_textures
+	{
+		*Data {1}
+		*Material
+		{
+			// These textures exercise the scalar-map fallback path without a base-colour texture.
+			*BaseColour {FFAA5522}
+			*Metallic {1}
+			*Roughness {1}
+			*MetallicTexture {*FilePath {"#checker2"}}
+			*RoughnessTexture {*FilePath {"#checker3"}}
+		}
+		*o2w {*pos{0 -6 0}}
+	}
+	*Box pbr_emissive_texture
+	{
+		*Data {2 2 0.2}
+		*Material
+		{
+			*BaseColour {FF101010}
+			*Metallic {0}
+			*Roughness {1}
+			*Emissive {FFFFFFFF}
+			*EmissiveTexture
+			{
+				*FilePath {"#checker"}
+				*Filter {Linear}
+				*o2w {*Scale {4 4 1}}
+			}
+		}
+		*o2w {*pos{3 -6 0}}
+	}
+	*o2w {*pos{-10 15 -9}}
 }
 
 // Object Nesting.

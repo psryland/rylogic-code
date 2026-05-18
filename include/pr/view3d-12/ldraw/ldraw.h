@@ -48,20 +48,21 @@ namespace pr::rdr12::ldraw
 		x(Anchor                   )\
 		x(AngAccel                 )\
 		x(AngVelocity              )\
-		x(AnimSource               )\
 		x(Animation                )\
+		x(AnimSource               )\
 		x(Arrow                    )\
 		x(Aspect                   )\
 		x(Axis                     )\
 		x(AxisId                   )\
 		x(BackColour               )\
 		x(BakeTransform            )\
+		x(BaseColour               )\
+		x(BaseColourTexture        )\
 		x(Billboard                )\
 		x(Billboard3D              )\
 		x(BinaryStream             )\
 		x(Box                      )\
 		x(BoxList                  )\
-		x(BaseColour               )\
 		x(CastShadow               )\
 		x(Chart                    )\
 		x(Circle                   )\
@@ -86,6 +87,7 @@ namespace pr::rdr12::ldraw
 		x(Direction                )\
 		x(Divisions                )\
 		x(Emissive                 )\
+		x(EmissiveTexture          )\
 		x(EndCaps                  )\
 		x(Equation                 )\
 		x(Euler                    )\
@@ -128,17 +130,19 @@ namespace pr::rdr12::ldraw
 		x(Material                 )\
 		x(Mesh                     )\
 		x(Metallic                 )\
+		x(MetallicTexture          )\
 		x(Model                    )\
 		x(Montage                  )\
 		x(Name                     )\
 		x(Near                     )\
 		x(NewLine                  )\
-		x(NonAffine                )\
 		x(NoMaterials              )\
+		x(NonAffine                )\
 		x(Normalise                )\
 		x(Normals                  )\
-		x(NoTranslation            )\
+		x(NormalTexture            )\
 		x(NoRotation               )\
+		x(NoTranslation            )\
 		x(NoZTest                  )\
 		x(NoZWrite                 )\
 		x(O2W                      )\
@@ -174,8 +178,9 @@ namespace pr::rdr12::ldraw
 		x(Resolution               )\
 		x(Ribbon                   )\
 		x(RootAnimation            )\
-		x(Round                    )\
 		x(Roughness                )\
+		x(RoughnessTexture         )\
+		x(Round                    )\
 		x(Scale                    )\
 		x(ScreenSpace              )\
 		x(Series                   )\
@@ -220,7 +225,7 @@ namespace pr::rdr12::ldraw
 		x(XAxis                    )\
 		x(XColumn                  )\
 		x(YAxis                    )\
-		x(ZAxis             )
+		x(ZAxis                    )
 		// PR_LDRAW_KEYWORDS_END
 
 		#define PR_LDRAW_ENUM_MEMBERS(name) name = HashI(#name),

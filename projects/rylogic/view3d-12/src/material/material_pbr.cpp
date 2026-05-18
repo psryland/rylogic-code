@@ -137,19 +137,26 @@ namespace pr::rdr12
 				}
 			}
 
-			// Return the base-colour texture for the PBR material.
-			static Texture2D* BaseColourTexture(MaterialPassContext const& ctx)
+			// Return true if a texture slot can be sampled by this draw.
+			static bool HasUsableTexture(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
 			{
-				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-				auto texture = base_colour.m_tex.m_texture;
+				return
+					ctx.m_dle.m_nugget != nullptr &&
+					AllSet(ctx.m_dle.m_nugget->m_geom, EGeom::Tex0) &&
+					slot.m_texture != nullptr;
+			}
+
+			// Return the texture for a PBR slot, or the forward pass fallback texture.
+			static Texture2D* TextureOrDefault(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
+			{
+				auto texture = slot.m_texture;
 				return texture != nullptr ? texture.get() : ctx.m_default_tex;
 			}
 
-			// Return the base-colour sampler for the PBR material.
-			static Sampler* BaseColourSampler(MaterialPassContext const& ctx)
+			// Return the sampler for a PBR slot, or the forward pass fallback sampler.
+			static Sampler* SamplerOrDefault(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
 			{
-				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
-				auto sampler = base_colour.m_tex.m_sampler;
+				auto sampler = slot.m_sampler;
 				return sampler != nullptr ? sampler.get() : ctx.m_default_sam;
 			}
 
@@ -173,19 +180,25 @@ namespace pr::rdr12
 				}
 			}
 
-			// Bind a PBR base-colour texture descriptor if one is available.
-			template <typename RootParam>
-			static void BindBaseColourTexture(MaterialPassContext& ctx, RootParam root_param)
+			// Convert a scalar texture channel into the shader channel index.
+			static int ShaderChannel(materials::ETextureChannel channel)
 			{
-				auto* tex = BaseColourTexture(ctx);
+				return static_cast<int>(channel);
+			}
+
+			// Bind a PBR texture descriptor.
+			template <typename RootParam>
+			static void BindTexture(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot, bool cache_diffuse_slot)
+			{
+				auto* tex = TextureOrDefault(ctx, slot);
 				if (tex == nullptr)
 					return;
 
 				auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(tex->m_srv);
-				if (ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
+				if (!cache_diffuse_slot || ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
 				{
 					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
-					if (ctx.m_last_tex != nullptr)
+					if (cache_diffuse_slot && ctx.m_last_tex != nullptr)
 						*ctx.m_last_tex = srv_descriptor;
 
 					#if PR_DBG_RDR
@@ -195,19 +208,19 @@ namespace pr::rdr12
 				}
 			}
 
-			// Bind a PBR base-colour sampler descriptor if one is available.
+			// Bind a PBR sampler descriptor.
 			template <typename RootParam>
-			static void BindBaseColourSampler(MaterialPassContext& ctx, RootParam root_param)
+			static void BindSampler(MaterialPassContext& ctx, RootParam root_param, materials::TextureSlot const& slot, bool cache_diffuse_slot)
 			{
-				auto* sam = BaseColourSampler(ctx);
+				auto* sam = SamplerOrDefault(ctx, slot);
 				if (sam == nullptr)
 					return;
 
 				auto sam_descriptor = ctx.m_wnd.m_heap_samp.Add(sam->m_samp);
-				if (ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
+				if (!cache_diffuse_slot || ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
 				{
 					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, sam_descriptor);
-					if (ctx.m_last_sam != nullptr)
+					if (cache_diffuse_slot && ctx.m_last_sam != nullptr)
 						*ctx.m_last_sam = sam_descriptor;
 				}
 			}
@@ -220,6 +233,20 @@ namespace pr::rdr12
 				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
+				auto texture_flags = 0;
+				if (HasUsableTexture(ctx, base_colour.m_tex) && NeedsShaderSrgbDecode(base_colour.m_tex))
+					texture_flags |= shaders::PbrTextureFlag_BaseColourSrgb;
+				if (HasUsableTexture(ctx, metallic.m_tex.m_slot))
+					texture_flags |= shaders::PbrTextureFlag_HasMetallicMap;
+				if (HasUsableTexture(ctx, roughness.m_tex.m_slot))
+					texture_flags |= shaders::PbrTextureFlag_HasRoughnessMap;
+				if (HasUsableTexture(ctx, emissive.m_tex))
+				{
+					texture_flags |= shaders::PbrTextureFlag_HasEmissiveMap;
+					if (NeedsShaderSrgbDecode(emissive.m_tex))
+						texture_flags |= shaders::PbrTextureFlag_EmissiveSrgb;
+				}
+
 				auto cb = shaders::fwd::CBufPbrSurface{
 					.base_colour = base_colour.m_colour.rgba,
 					.emissive = emissive.m_colour.rgba,
@@ -227,7 +254,9 @@ namespace pr::rdr12
 					.roughness = roughness.m_factor,
 					.alpha_cutoff = alpha.m_cutoff,
 					.alpha_mode = static_cast<int>(alpha.m_mode),
-					.texture_flags = NeedsShaderSrgbDecode(base_colour.m_tex) ? shaders::PbrTextureFlag_BaseColourSrgb : 0,
+					.texture_flags = texture_flags,
+					.metallic_channel = ShaderChannel(metallic.m_tex.m_channel),
+					.roughness_channel = ShaderChannel(roughness.m_tex.m_channel),
 				};
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
@@ -236,8 +265,20 @@ namespace pr::rdr12
 			// Bind resources and constants for the PBR forward pass.
 			static void BindForward(MaterialPassContext& ctx)
 			{
-				BindBaseColourTexture(ctx, shaders::fwd::ERootParam::DiffTexture);
-				BindBaseColourSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler);
+				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
+				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
+				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
+				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
+
+				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex, true);
+				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrMetallicTexture, metallic.m_tex.m_slot, false);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrMetallicSampler, metallic.m_tex.m_slot, false);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrRoughnessTexture, roughness.m_tex.m_slot, false);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrRoughnessSampler, roughness.m_tex.m_slot, false);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrEmissiveTexture, emissive.m_tex, false);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex, false);
+
 				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
 				{
 					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle, ctx.m_material);
@@ -251,8 +292,9 @@ namespace pr::rdr12
 			// Bind resources and constants for the PBR shadow-map pass.
 			static void BindShadowMap(MaterialPassContext& ctx)
 			{
-				BindBaseColourTexture(ctx, shaders::smap::ERootParam::DiffTexture);
-				BindBaseColourSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler);
+				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
+				BindTexture(ctx, shaders::smap::ERootParam::DiffTexture, base_colour.m_tex, true);
+				BindSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
 				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
 				{
 					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_scene.m_cam, ctx.m_material);
@@ -383,11 +425,15 @@ namespace pr::rdr12
 	}
 	MaterialPBR& MaterialPBR::base_texture(Texture2DPtr tex, SamplerPtr sam)
 	{
-		m_base_colour.m_tex = materials::TextureSlot{
+		return base_texture(materials::TextureSlot{
 			.m_texture = tex,
 			.m_sampler = sam,
 			.m_colour_space = materials::ETextureColourSpace::Srgb,
-		};
+		});
+	}
+	MaterialPBR& MaterialPBR::base_texture(materials::TextureSlot slot)
+	{
+		m_base_colour.m_tex = slot;
 		return *this;
 	}
 
@@ -397,11 +443,21 @@ namespace pr::rdr12
 		m_metallic.m_factor = value;
 		return *this;
 	}
+	MaterialPBR& MaterialPBR::metallic_texture(materials::ScalarTextureSlot slot)
+	{
+		m_metallic.m_tex = slot;
+		return *this;
+	}
 
 	// Set the roughness factor.
 	MaterialPBR& MaterialPBR::roughness(float value)
 	{
 		m_roughness.m_factor = value;
+		return *this;
+	}
+	MaterialPBR& MaterialPBR::roughness_texture(materials::ScalarTextureSlot slot)
+	{
+		m_roughness.m_tex = slot;
 		return *this;
 	}
 
@@ -411,29 +467,6 @@ namespace pr::rdr12
 		m_emissive.m_colour = colour;
 		return *this;
 	}
-
-	// Set the texture slot used for base colour.
-	MaterialPBR& MaterialPBR::base_colour_texture(materials::TextureSlot slot)
-	{
-		m_base_colour.m_tex = slot;
-		return *this;
-	}
-
-	// Set the texture slot used for metallic.
-	MaterialPBR& MaterialPBR::metallic_texture(materials::ScalarTextureSlot slot)
-	{
-		m_metallic.m_tex = slot;
-		return *this;
-	}
-
-	// Set the texture slot used for roughness.
-	MaterialPBR& MaterialPBR::roughness_texture(materials::ScalarTextureSlot slot)
-	{
-		m_roughness.m_tex = slot;
-		return *this;
-	}
-
-	// Set the texture slot used for emissive.
 	MaterialPBR& MaterialPBR::emissive_texture(materials::TextureSlot slot)
 	{
 		m_emissive.m_tex = slot;

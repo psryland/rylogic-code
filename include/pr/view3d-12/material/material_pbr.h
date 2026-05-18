@@ -53,26 +53,18 @@ namespace pr::rdr12
 		MaterialPBR& base_colour(Colour colour);
 		MaterialPBR& base_colour(Colour32 colour);
 		MaterialPBR& base_texture(Texture2DPtr tex, SamplerPtr sam);
+		MaterialPBR& base_texture(materials::TextureSlot slot);
 
 		// Set the metallic factor.
 		MaterialPBR& metallic(float value);
+		MaterialPBR& metallic_texture(materials::ScalarTextureSlot slot);
 
 		// Set the roughness factor.
 		MaterialPBR& roughness(float value);
+		MaterialPBR& roughness_texture(materials::ScalarTextureSlot slot);
 
 		// Set the linear emissive factor.
 		MaterialPBR& emissive(Colour colour);
-
-		// Set the texture slot used for base colour.
-		MaterialPBR& base_colour_texture(materials::TextureSlot slot);
-
-		// Set the texture slot used for metallic.
-		MaterialPBR& metallic_texture(materials::ScalarTextureSlot slot);
-
-		// Set the texture slot used for roughness.
-		MaterialPBR& roughness_texture(materials::ScalarTextureSlot slot);
-
-		// Set the texture slot used for emissive.
 		MaterialPBR& emissive_texture(materials::TextureSlot slot);
 
 		// Set the texture slot reserved for tangent-space normals.

@@ -96,8 +96,8 @@ struct CBufPbrSurface// :reg(b4)
 	float alpha_cutoff;
 	int alpha_mode;      // 0 = opaque, 1 = mask, 2 = blend
 	int texture_flags;   // Bit flags describing per-slot texture interpretation
-	int pad0;
-	int pad1;
+	int metallic_channel; // Channel index used by the metallic scalar texture
+	int roughness_channel; // Channel index used by the roughness scalar texture
 	int pad2;
 };
 

@@ -22,7 +22,11 @@ static const int TextureFlags_ProjectFromEnvMap = (1 << 2);
 static const int AlphaFlags_HasAlpha            = (1 << 0);
 
 // Texture interpretation flags for physically based materials.
-static const int PbrTextureFlag_BaseColourSrgb = (1 << 0);
+static const int PbrTextureFlag_BaseColourSrgb    = (1 << 0);
+static const int PbrTextureFlag_EmissiveSrgb      = (1 << 1);
+static const int PbrTextureFlag_HasMetallicMap    = (1 << 2);
+static const int PbrTextureFlag_HasRoughnessMap   = (1 << 3);
+static const int PbrTextureFlag_HasEmissiveMap    = (1 << 4);
 
 // Row major matrix for use in structured buffers
 struct Mat4x4
