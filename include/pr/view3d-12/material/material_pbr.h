@@ -46,6 +46,9 @@ namespace pr::rdr12
 		// Return true if this material requires alpha rendering.
 		virtual bool RequiresAlpha() const override;
 
+		// Return the material colour that should be folded into the shared nugget tint constant.
+		Colour TintColour() const override;
+
 		// Set the linear base-colour factor.
 		MaterialPBR& base_colour(Colour colour);
 		MaterialPBR& base_colour(Colour32 colour);

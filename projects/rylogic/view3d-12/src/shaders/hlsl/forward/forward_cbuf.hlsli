@@ -89,12 +89,16 @@ struct CBufScreenSpace// :reg(b3)
 // Constants for physically based materials.
 struct CBufPbrSurface// :reg(b4)
 {
-	float4 base_colour; // Linear base-colour factor
-	float4 emissive;    // Linear emissive factor
+	float4 base_colour;  // Linear base-colour factor
+	float4 emissive;     // Linear emissive factor
 	float metallic;
 	float roughness;
 	float alpha_cutoff;
-	int alpha_mode;     // 0 = opaque, 1 = mask, 2 = blend
+	int alpha_mode;      // 0 = opaque, 1 = mask, 2 = blend
+	int texture_flags;   // Bit flags describing per-slot texture interpretation
+	int pad0;
+	int pad1;
+	int pad2;
 };
 
 // Constants used for diagnostic shaders.

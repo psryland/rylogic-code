@@ -26,6 +26,9 @@ namespace pr::rdr12
 		// Return true if this material requires alpha rendering
 		virtual bool RequiresAlpha() const = 0;
 
+		// Return the material colour that should be folded into the shared nugget tint constant.
+		virtual Colour TintColour() const;
+
 		// Return a material component block by component type.
 		template <materials::ComponentType T> T const* Component() const
 		{

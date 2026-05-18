@@ -354,6 +354,7 @@
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_map_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\skinned\skinned.hlsli" />
+    <None Include="src\shaders\hlsl\utility\colour_space.hlsli" />
     <None Include="src\shaders\hlsl\utility\env_map.hlsli" />
     <None Include="src\shaders\hlsl\utility\tri_table.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" ComputeEntryPoints="skinning_cs=CSSkinning" />

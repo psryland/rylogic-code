@@ -189,7 +189,31 @@
 		*Data {1}
 		*o2w {*pos{6 0 0}}
 	}
-	*o2w {*pos{6 8 -7}}
+	*Sphere pbr_linear_mid_grey
+	{
+		*Data {1}
+		*Material
+		{
+			// 0x80 is interpreted directly as a linear factor, so this is 50% light energy.
+			*BaseColour {FF808080}
+			*Metallic {0}
+			*Roughness {0.8}
+		}
+		*o2w {*pos{-1.5 -3 0}}
+	}
+	*Sphere pbr_srgb_mid_grey_decoded
+	{
+		*Data {1}
+		*Material
+		{
+			// sRGB 0x80 decodes to about 0.216 linear, nearest 8-bit value 0x37.
+			*BaseColour {FF373737}
+			*Metallic {0}
+			*Roughness {0.8}
+		}
+		*o2w {*pos{1.5 -3 0}}
+	}
+	*o2w {*pos{-10 5 -9}}
 }
 
 // Object Nesting.

@@ -201,9 +201,7 @@ namespace pr::rdr12
 	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto col = inst.find<Colour32>(EInstComp::TintColour32);
-		auto const* base_colour = material.Component<materials::BaseColour>();
-		auto tint = base_colour != nullptr ? base_colour->m_colour : ColourWhite;
-		auto c = Colour((col ? *col : Colour32White) * tint);
+		auto c = Colour((col ? *col : Colour32White) * material.TintColour());
 		cb.tint = c.rgba;
 	}
 

@@ -43,6 +43,7 @@ RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/pbr.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "pr/hlsl/camera.hlsli"
@@ -197,7 +198,13 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 
 	float4 base_colour = g_pbr.base_colour * In.diff;
 	if (HasTex0(g_nugget.flags))
-		base_colour *= g_texture0.Sample(g_sampler0, In.tex0);
+	{
+		float4 tex_colour = g_texture0.Sample(g_sampler0, In.tex0);
+		if (AnySet(g_pbr.texture_flags, PbrTextureFlag_BaseColourSrgb))
+			tex_colour = SrgbToLinear(tex_colour);
+
+		base_colour *= tex_colour;
+	}
 
 	float alpha = base_colour.a;
 	if (g_pbr.alpha_mode == AlphaModeMask)

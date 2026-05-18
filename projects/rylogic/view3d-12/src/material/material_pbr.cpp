@@ -153,6 +153,26 @@ namespace pr::rdr12
 				return sampler != nullptr ? sampler.get() : ctx.m_default_sam;
 			}
 
+			// Return true when a colour texture needs shader-side sRGB decoding.
+			static bool NeedsShaderSrgbDecode(materials::TextureSlot const& slot)
+			{
+				switch (slot.m_colour_space)
+				{
+					case materials::ETextureColourSpace::Linear:
+					{
+						return false;
+					}
+					case materials::ETextureColourSpace::Srgb:
+					{
+						return slot.m_texture != nullptr && !::pr::compute::IsSRGB(slot.m_texture->TexDesc().Format);
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown texture colour-space");
+					}
+				}
+			}
+
 			// Bind a PBR base-colour texture descriptor if one is available.
 			template <typename RootParam>
 			static void BindBaseColourTexture(MaterialPassContext& ctx, RootParam root_param)
@@ -207,6 +227,7 @@ namespace pr::rdr12
 					.roughness = roughness.m_factor,
 					.alpha_cutoff = alpha.m_cutoff,
 					.alpha_mode = static_cast<int>(alpha.m_mode),
+					.texture_flags = NeedsShaderSrgbDecode(base_colour.m_tex) ? shaders::PbrTextureFlag_BaseColourSrgb : 0,
 				};
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
@@ -344,6 +365,12 @@ namespace pr::rdr12
 		return m_alpha.RequiresAlpha();
 	}
 
+	// Return the material colour that should be folded into the shared nugget tint constant.
+	Colour MaterialPBR::TintColour() const
+	{
+		return ColourWhite;
+	}
+
 	// Set the linear base-colour factor.
 	MaterialPBR& MaterialPBR::base_colour(Colour colour)
 	{
@@ -359,6 +386,7 @@ namespace pr::rdr12
 		m_base_colour.m_tex = materials::TextureSlot{
 			.m_texture = tex,
 			.m_sampler = sam,
+			.m_colour_space = materials::ETextureColourSpace::Srgb,
 		};
 		return *this;
 	}
