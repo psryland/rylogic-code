@@ -1,0 +1,20 @@
+<Project>
+	<!--
+	Copy this file to Directory.Build.user.props for local Visual Studio/MSBuild build preferences.
+	Directory.Build.user.props is intentionally git-ignored so these settings stay local.
+	-->
+
+	<PropertyGroup>
+		<!-- Skip post-build unit-test runners during normal edit/build loops. -->
+		<RunUnitTests>false</RunUnitTests>
+
+		<!-- Skip NuGet package creation/cache refresh for packable libraries during normal local builds. -->
+		<RylogicGeneratePackageOnBuild>false</RylogicGeneratePackageOnBuild>
+
+		<!-- Optional: skip CodeSync for the fastest local builds. Re-enable before committing generated-code changes. -->
+		<!-- <RunCodeSync>false</RunCodeSync> -->
+
+		<!-- Optional: reduce Visual Studio live-analysis work while editing. -->
+		<!-- <RunAnalyzersDuringLiveAnalysis>false</RunAnalyzersDuringLiveAnalysis> -->
+	</PropertyGroup>
+</Project>

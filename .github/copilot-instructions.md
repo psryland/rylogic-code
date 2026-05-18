@@ -15,6 +15,12 @@ dotnet-script ./script/Build.csx
 # Build specific project(s) via the build script
 dotnet-script ./script/Build.csx -project <ProjectName> -build
 
+# Fast local build: skip restore, post-build unit tests, and package creation
+dotnet-script ./script/Build.csx -project LDraw -platform x64 -config Debug -build -norestore -notests -nopack
+
+# Profile MSBuild target timings and write binlogs to obj/build-profile/
+dotnet-script ./script/Build.csx -project LDraw -platform x64 -config Debug -build -profile
+
 # Available projects: Sqlite3, Scintilla, Audio, Fbx, View3d, P3d, RylogicCore, RylogicDB,
 #   RylogicDirectShow, RylogicGfx, RylogicGuiWPF, RylogicNet, RylogicScintilla, RylogicWindows,
 #   Csex, LDraw, RyLogViewer, RylogicTextAligner, AllNative, AllManaged, AllRylogic, All
@@ -28,6 +34,9 @@ dotnet-script ./script/Build.csx -project RylogicCore -rebuild
 # Build a single C# project directly with dotnet CLI
 dotnet build projects/rylogic/Rylogic.Core/Rylogic.Core.csproj
 ```
+
+For faster local Visual Studio builds, copy `Directory.Build.user.props.template` to
+`Directory.Build.user.props` and opt into skipping post-build unit tests/package generation there.
 
 ### Deploy and Publish
 ```powershell

@@ -16,7 +16,7 @@
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<CodeSyncHookTarget>BeforeBuild</CodeSyncHookTarget>
 	</PropertyGroup>
-	<Target Name="CodeSyncTarget" BeforeTargets="$(CodeSyncHookTarget)" Condition="'$(CodeSyncHookTarget)' != ''">
+	<Target Name="CodeSyncTarget" BeforeTargets="$(CodeSyncHookTarget)" Condition="'$(CodeSyncHookTarget)' != '' AND '$(RunCodeSync)' != 'false'">
 		<!-- Run CodeSync. The tool handles serialisation and stamp checking internally. -->
 		<Exec
 			Command="$(CodeSyncTool) &quot;$(RylogicRoot)projects&quot; &quot;$(RylogicRoot)include&quot; --tab-size $(CodeSyncTabSize) --stamp &quot;$(CodeSyncStamp)&quot;"
@@ -29,7 +29,7 @@
 	Auto-pack library assemblies to lib/packages and purge the global cache.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
 	Skipped in CI where packaging is not needed and cache-purge scripts may not be available. -->
-	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true'">
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
 		<_RylogicNuGetPackage>true</_RylogicNuGetPackage>
