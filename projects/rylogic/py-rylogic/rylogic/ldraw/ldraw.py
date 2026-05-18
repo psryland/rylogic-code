@@ -200,6 +200,7 @@ class EKeyword(Enum):
 	Hidden = 4128829753
 	HideWhenNotAnimating = 2975106646
 	Instance = 193386898
+	Intensity = 2237916426
 	Inverse = 2986472067
 	Layers = 2411172191
 	LeftHanded = 1992685208

@@ -12,10 +12,11 @@ namespace pr::rdr12
 		:m_position(v4::Origin())
 		,m_direction(0, 0, -1, 0)
 		,m_type(ELight::Directional)
-		,m_ambient(0.25f, 0.25f, 0.25f, 0.0f)
-		,m_diffuse(0.25f, 0.25f, 0.25f, 1.0f)
-		,m_specular(0.1f, 0.1f, 0.1f, 0.0f)
-		,m_specular_power(1000.0f)
+		,m_ambient(0.5f, 0.5f, 0.5f, 0.0f)
+		,m_diffuse(1.0f, 1.0f, 1.0f, 1.0f)
+		,m_specular(0.0625f, 0.0625f, 0.0625f, 0.0f)
+		,m_specular_power(64.0f)
+		,m_intensity(1.0f)
 		,m_range(100.0f)
 		,m_falloff(0.0f)
 		,m_inner_angle(constants<float>::tau_by_4)
@@ -88,6 +89,7 @@ namespace pr::rdr12
 		x(Diff ,= rdr12::ldraw::HashI("Diff"))\
 		x(Spec ,= rdr12::ldraw::HashI("Spec"))\
 		x(SPwr ,= rdr12::ldraw::HashI("SPwr"))\
+		x(Intensity ,= rdr12::ldraw::HashI("Intensity"))\
 		x(Ang0 ,= rdr12::ldraw::HashI("Ang0"))\
 		x(Ang1 ,= rdr12::ldraw::HashI("Ang1"))\
 		x(Rng  ,= rdr12::ldraw::HashI("Rng" ))\
@@ -113,6 +115,7 @@ namespace pr::rdr12
 			<< "  *" << ELightKW::Spec << "{" << m_specular.argb << "}\n"
 			<< std::dec
 			<< "  *" << ELightKW::SPwr << "{" << m_specular_power << "}\n"
+			<< "  *" << ELightKW::Intensity << "{" << m_intensity << "}\n"
 			<< "  *" << ELightKW::Ang0 << "{" << m_inner_angle << "}\n"
 			<< "  *" << ELightKW::Ang1 << "{" << m_outer_angle << "}\n"
 			<< "  *" << ELightKW::Rng  << "{" << m_range << "}\n"
@@ -142,6 +145,7 @@ namespace pr::rdr12
 				case ELightKW::Diff: light.m_diffuse = reader.Int<uint32_t>(16); break;
 				case ELightKW::Spec: light.m_specular = reader.Int<uint32_t>(16); break;
 				case ELightKW::SPwr: light.m_specular_power = reader.Real<float>(); break;
+				case ELightKW::Intensity: light.m_intensity = reader.Real<float>(); break;
 				case ELightKW::Ang0: light.m_inner_angle = reader.Real<float>(); break;
 				case ELightKW::Ang1: light.m_outer_angle = reader.Real<float>(); break;
 				case ELightKW::Rng:  light.m_range = reader.Real<float>(); break;

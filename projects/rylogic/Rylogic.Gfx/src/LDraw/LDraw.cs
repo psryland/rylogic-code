@@ -83,6 +83,7 @@ namespace Rylogic.LDraw
 		Hidden = unchecked((int)4128829753),
 		HideWhenNotAnimating = unchecked((int)2975106646),
 		Instance = unchecked((int)193386898),
+		Intensity = unchecked((int)2237916426),
 		Inverse = unchecked((int)2986472067),
 		Layers = unchecked((int)2411172191),
 		LeftHanded = unchecked((int)1992685208),

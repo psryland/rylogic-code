@@ -1274,9 +1274,10 @@
 *LightSource sun FFFFFF00     // Colour attribute is the colour of the light source
 {
 	*Style {Directional}      // One of: Directional, Point, Spot
-	*Ambient {FF101010}       // Optional. Ambient colour
-	*Diffuse {FF404040}       // Optional. Diffuse colour
-	*Specular {FFFFFFFF 1000} // Optional. Specular colour and power
+	*Ambient {FF808080}       // Optional. Ambient colour
+	*Diffuse {FFFFFFFF}       // Optional. Diffuse colour
+	*Specular {FF101010 64}   // Optional. Specular colour and power
+	*Intensity {1}            // Optional. Intensity scale
 	*Range {100 0}            // Optional. range, falloff. Default is infinite.
 	*Cone {30 60}             // Optional. Inner angle (deg), Outer angle (deg). Only for spot lights
 	*CastShadow {10}          // Optional. range. Shadows are cast from this light source out to this range

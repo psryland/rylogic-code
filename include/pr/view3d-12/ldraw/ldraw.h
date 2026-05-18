@@ -112,6 +112,7 @@ namespace pr::rdr12::ldraw
 		x(Hidden                   )\
 		x(HideWhenNotAnimating     )\
 		x(Instance                 )\
+		x(Intensity                )\
 		x(Inverse                  )\
 		x(Layers                   )\
 		x(LeftHanded               )\

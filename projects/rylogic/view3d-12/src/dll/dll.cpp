@@ -1739,6 +1739,7 @@ VIEW3D_API view3d::Light __stdcall View3D_LightPropertiesGet(view3d::Window wind
 			.m_diffuse        = global_light.m_diffuse.argb,
 			.m_specular       = global_light.m_specular.argb,
 			.m_specular_power = global_light.m_specular_power,
+			.m_intensity      = global_light.m_intensity,
 			.m_range          = global_light.m_range,
 			.m_falloff        = global_light.m_falloff,
 			.m_inner_angle    = global_light.m_inner_angle,
@@ -1766,6 +1767,7 @@ VIEW3D_API void __stdcall View3D_LightPropertiesSet(view3d::Window window, view3
 		global_light.m_diffuse        = light.m_diffuse;
 		global_light.m_specular       = light.m_specular;
 		global_light.m_specular_power = light.m_specular_power;
+		global_light.m_intensity      = light.m_intensity;
 		global_light.m_range          = light.m_range;
 		global_light.m_falloff        = light.m_falloff;
 		global_light.m_inner_angle    = light.m_inner_angle;

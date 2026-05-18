@@ -14,17 +14,17 @@ namespace Rylogic.Gfx
 		{
 			public Light()
 			{
-				m_info = LightInfo.Ambient(0xFFFFFFFF);
+				m_info = LightInfo.Ambient();
 			}
 			public Light(LightInfo light)
 			{
 				m_info = light;
 			}
-			public Light(Colour32 ambient, Colour32 diffuse, Colour32 specular, double spec_power = 1000.0, v4? direction = null, v4? position = null)
+			public Light(Colour32 ambient, Colour32 diffuse, Colour32 specular, double spec_power = 1000.0, v4? direction = null, v4? position = null, double intensity = 1.0)
 				:this(
-					direction != null ? LightInfo.Directional(direction.Value, ambient, diffuse, specular, (float)spec_power, 0) :
-					position  != null ? LightInfo.Point(position.Value, ambient, diffuse, specular, (float)spec_power, 0) :
-					LightInfo.Ambient(ambient))
+					direction != null ? LightInfo.Directional(direction.Value, ambient, diffuse, specular, (float)spec_power, 0, intensity: (float)intensity) :
+					position  != null ? LightInfo.Point(position.Value, ambient, diffuse, specular, (float)spec_power, 0, intensity: (float)intensity) :
+					LightInfo.Ambient(ambient, (float)intensity))
 			{}
 			public Light(XElement node)
 				:this()
@@ -37,6 +37,7 @@ namespace Rylogic.Gfx
 				Diffuse        = node.Element(nameof(Diffuse)       ).As<Colour32>(Diffuse);
 				Specular       = node.Element(nameof(Specular)      ).As<Colour32>(Specular);
 				SpecularPower  = node.Element(nameof(SpecularPower) ).As<double>(SpecularPower);
+				Intensity      = node.Element(nameof(Intensity)     ).As<double>(Intensity);
 				InnerAngle     = node.Element(nameof(InnerAngle)    ).As<double>(InnerAngle);
 				OuterAngle     = node.Element(nameof(OuterAngle)    ).As<double>(OuterAngle);
 				Range          = node.Element(nameof(Range)         ).As<double>(Range);
@@ -53,6 +54,7 @@ namespace Rylogic.Gfx
 				node.Add2(nameof(Diffuse       ), Diffuse       , false);
 				node.Add2(nameof(Specular      ), Specular      , false);
 				node.Add2(nameof(SpecularPower ), SpecularPower , false);
+				node.Add2(nameof(Intensity     ), Intensity     , false);
 				node.Add2(nameof(InnerAngle    ), InnerAngle    , false);
 				node.Add2(nameof(OuterAngle    ), OuterAngle    , false);
 				node.Add2(nameof(Range         ), Range         , false);
@@ -125,6 +127,13 @@ namespace Rylogic.Gfx
 			{
 				get => m_info.SpecularPower;
 				set => SetProp(ref m_info.SpecularPower, (float)value, nameof(SpecularPower));
+			}
+
+			/// <summary>The light intensity scale</summary>
+			public double Intensity
+			{
+				get => m_info.Intensity;
+				set => SetProp(ref m_info.Intensity, (float)Math.Max(0.0, value), nameof(Intensity));
 			}
 
 			/// <summary>The inner spot light cone angle (in degrees)</summary>

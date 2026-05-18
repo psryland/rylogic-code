@@ -165,6 +165,7 @@
 							Height="80"
 							/>
 					</StackPanel>
+
 				</Grid>
 			</GroupBox>
 			
@@ -303,6 +304,30 @@
 								FunctionExpr="pow(10, x)"
 								InverseExpr="log10(x)"
 								ValueFn="{Binding Light.SpecularPower}"
+								Margin="20,0,0,0"
+								/>
+						</DockPanel>
+					</StackPanel>
+
+					<!-- Intensity -->
+					<StackPanel
+						Grid.Row="4"
+						>
+						<TextBlock
+							Text="Intensity: "
+							/>
+						<DockPanel>
+							<TextBox
+								DockPanel.Dock="Right"
+								Text="{Binding Light.Intensity, StringFormat={}{0:N2}}"
+								HorizontalAlignment="Left"
+								HorizontalContentAlignment="Right"
+								Width="60"
+								/>
+							<Slider
+								Minimum="0"
+								Maximum="4"
+								Value="{Binding Light.Intensity}"
 								Margin="20,0,0,0"
 								/>
 						</DockPanel>

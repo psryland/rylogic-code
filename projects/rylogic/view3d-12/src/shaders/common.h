@@ -259,7 +259,7 @@ namespace pr::rdr12
 		cb.info         = iv4(int(light.m_type),0,0,0);
 		cb.ws_direction = dir;
 		cb.ws_position  = pos;
-		cb.ambient      = Colour(light.m_ambient).rgba;
+		cb.ambient      = Colour(light.m_ambient, light.m_intensity).rgba;
 		cb.colour       = Colour(light.m_diffuse).rgba;
 		cb.specular     = Colour(light.m_specular, light.m_specular_power).rgba;
 		cb.spot         = v4(light.m_inner_angle, light.m_outer_angle, light.m_range, light.m_falloff);

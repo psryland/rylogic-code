@@ -210,6 +210,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Hidden = {"*Hidden", 4128829753};
 		inline static constexpr NameValue HideWhenNotAnimating = {"*HideWhenNotAnimating", 2975106646};
 		inline static constexpr NameValue Instance = {"*Instance", 193386898};
+		inline static constexpr NameValue Intensity = {"*Intensity", 2237916426};
 		inline static constexpr NameValue Inverse = {"*Inverse", 2986472067};
 		inline static constexpr NameValue Layers = {"*Layers", 2411172191};
 		inline static constexpr NameValue LeftHanded = {"*LeftHanded", 1992685208};
@@ -3235,6 +3236,7 @@ namespace pr::ldraw
 		std::optional<uint32_t> m_ambient;
 		std::optional<uint32_t> m_diffuse;
 		std::optional<uint32_t> m_specular;
+		std::optional<float> m_intensity;
 		std::optional<float> m_range;
 		std::optional<float> m_cone_angle;
 		std::optional<bool> m_cast_shadow;
@@ -3262,6 +3264,11 @@ namespace pr::ldraw
 		LdrLightSource& specular(uint32_t c)
 		{
 			m_specular = c;
+			return *this;
+		}
+		LdrLightSource& intensity(float i)
+		{
+			m_intensity = i;
 			return *this;
 		}
 		LdrLightSource& range(float r)
@@ -3293,6 +3300,8 @@ namespace pr::ldraw
 					Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
 				if (m_specular)
 					Append(out, EKeywords::Specular, "{", *m_specular, "}");
+				if (m_intensity)
+					Append(out, EKeywords::Intensity, "{", *m_intensity, "}");
 				if (m_range)
 					Append(out, EKeywords::Range, "{", *m_range, "}");
 				if (m_cone_angle)
@@ -3316,6 +3325,8 @@ namespace pr::ldraw
 					Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
 				if (m_specular)
 					Append(out, seri::Header{ EKeywords::Specular }, *m_specular);
+				if (m_intensity)
+					Append(out, seri::Header{ EKeywords::Intensity }, *m_intensity);
 				if (m_range)
 					Append(out, seri::Header{ EKeywords::Range }, *m_range);
 				if (m_cone_angle)

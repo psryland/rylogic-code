@@ -46,7 +46,7 @@ struct Light
 	int4   info;         // Encoded info for global lighting
 	float4 ws_direction; // The direction of the global light source
 	float4 ws_position;  // The position of the global light source
-	float4 ambient;      // The colour of the ambient light
+	float4 ambient;      // .rgb = ambient light colour, .a = light intensity scale
 	float4 colour;       // The colour of the directional light
 	float4 specular;     // The colour of the specular light. alpha channel is specular power
 	float4 spot;         // x = inner angle, y = outer angle, z = range, w = falloff

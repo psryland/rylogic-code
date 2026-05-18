@@ -135,6 +135,7 @@
 			<Word>*Hidden</Word>
 			<Word>*HideWhenNotAnimating</Word>
 			<Word>*Instance</Word>
+			<Word>*Intensity</Word>
 			<Word>*Inverse</Word>
 			<Word>*Layers</Word>
 			<Word>*LeftHanded</Word>

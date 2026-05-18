@@ -341,6 +341,7 @@ namespace LDraw
 			DiffuseColour = info.DiffuseColour;
 			SpecularColour = info.SpecularColour;
 			SpecularPower = info.SpecularPower;
+			Intensity = info.Intensity;
 			Range = info.Range;
 			Falloff = info.Falloff;
 			InnerAngle = info.InnerAngle;
@@ -384,6 +385,11 @@ namespace LDraw
 		{
 			get => get<float>(nameof(SpecularPower));
 			set => set(nameof(SpecularPower), value);
+		}
+		public float Intensity
+		{
+			get => get<float>(nameof(Intensity));
+			set => set(nameof(Intensity), value);
 		}
 		public float Range
 		{
@@ -433,6 +439,7 @@ namespace LDraw
 				DiffuseColour = DiffuseColour,
 				SpecularColour = SpecularColour,
 				SpecularPower = SpecularPower,
+				Intensity = Intensity,
 				Range = Range,
 				Falloff = Falloff,
 				InnerAngle = InnerAngle,
@@ -453,6 +460,7 @@ namespace LDraw
 			DiffuseColour = info.DiffuseColour;
 			SpecularColour = info.SpecularColour;
 			SpecularPower = info.SpecularPower;
+			Intensity = info.Intensity;
 			Range = info.Range;
 			Falloff = info.Falloff;
 			InnerAngle = info.InnerAngle;

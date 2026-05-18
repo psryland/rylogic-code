@@ -613,9 +613,8 @@ uint HitTriangleIndex(RayTracingGeometry geometry, uint corner)
 float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
 {
 	float intensity = LightDirectional(g_frame.global_light.ws_direction, ws_normal, colour.a);
-	float3 lit = g_frame.global_light.ambient.rgb + intensity * g_frame.global_light.colour.rgb;
-	float3 diffuse = 2.0f * (lit - 0.5f) * colour.rgb;
-	return saturate(float4(diffuse, 0.0f) + colour);
+	float3 lit = LambertLighting(g_frame.global_light, intensity, 1.0f, colour.rgb);
+	return float4(saturate(lit), colour.a);
 }
 
 // Shade the closest-hit surface by interpolating packed geometry attributes.

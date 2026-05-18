@@ -16,7 +16,7 @@ namespace pr::rdr12
 			ID_RADIO_AMBIENT = 100, ID_RADIO_DIRECTIONAL, ID_RADIO_POINT, ID_RADIO_SPOT,
 			ID_EDIT_POSITION, ID_EDIT_DIRECTION, ID_CHECK_CAMERA_RELATIVE,
 			ID_EDIT_RANGE, ID_EDIT_FALLOFF, ID_EDIT_SHADOW_RANGE,
-			ID_EDIT_AMBIENT, ID_EDIT_DIFFUSE, ID_EDIT_SPECULAR, ID_EDIT_SPECULAR_POWER,
+			ID_EDIT_AMBIENT, ID_EDIT_DIFFUSE, ID_EDIT_SPECULAR, ID_EDIT_SPECULAR_POWER, ID_EDIT_INTENSITY,
 			ID_EDIT_INNER_ANGLE, ID_EDIT_OUTER_ANGLE,
 		};
 
@@ -41,6 +41,7 @@ namespace pr::rdr12
 		gui::TextBox     m_tb_diffuse;
 		gui::TextBox     m_tb_specular;
 		gui::TextBox     m_tb_spec_power;
+		gui::TextBox     m_tb_intensity;
 		gui::TextBox     m_tb_spot_inner;
 		gui::TextBox     m_tb_spot_outer;
 
@@ -53,6 +54,7 @@ namespace pr::rdr12
 		gui::Label       m_lbl_diffuse;
 		gui::Label       m_lbl_specular;
 		gui::Label       m_lbl_spec_power;
+		gui::Label       m_lbl_intensity;
 		gui::Label       m_lbl_inner;
 		gui::Label       m_lbl_outer;
 
@@ -69,7 +71,7 @@ namespace pr::rdr12
 				.parent(parent)
 				.name("rdr-lighting-ui")
 				.title(L"Lighting Options")
-				.wh(300,420)
+				.wh(300,440)
 				.resizeable(false)
 				.style_ex('+',WS_EX_TOOLWINDOW)
 				.start_pos(EStartPosition::CentreParent)
@@ -96,7 +98,8 @@ namespace pr::rdr12
 			,m_tb_diffuse        (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_DIFFUSE         ).w(119 ).xy(-1, Top|BottomOf|ID_EDIT_AMBIENT         ).anchor(EAnchor::TopRight))
 			,m_tb_specular       (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_SPECULAR        ).w(119 ).xy(-1, Top|BottomOf|ID_EDIT_DIFFUSE         ).anchor(EAnchor::TopRight))
 			,m_tb_spec_power     (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_SPECULAR_POWER  ).w(75  ).xy(-1, Top|BottomOf|ID_EDIT_SPECULAR        ).anchor(EAnchor::TopRight))
-			,m_tb_spot_inner     (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_INNER_ANGLE     ).w(39  ).xy(-1, Top|BottomOf|ID_EDIT_SPECULAR_POWER  ).anchor(EAnchor::TopRight))
+			,m_tb_intensity      (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_INTENSITY       ).w(75  ).xy(-1, Top|BottomOf|ID_EDIT_SPECULAR_POWER  ).anchor(EAnchor::TopRight))
+			,m_tb_spot_inner     (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_INNER_ANGLE     ).w(39  ).xy(-1, Top|BottomOf|ID_EDIT_INTENSITY       ).anchor(EAnchor::TopRight))
 			,m_tb_spot_outer     (gui::TextBox::Params<>().parent(this_).id(ID_EDIT_OUTER_ANGLE     ).w(39  ).xy(-1, Top|BottomOf|ID_EDIT_INNER_ANGLE     ).anchor(EAnchor::TopRight))
 
 			,m_lbl_position      (gui::Label::Params<>().parent(this_).text(L"Position:"          ).xy(Right|LeftOf|ID_EDIT_POSITION      , Centre|CentreOf|ID_EDIT_POSITION      ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
@@ -108,6 +111,7 @@ namespace pr::rdr12
 			,m_lbl_diffuse       (gui::Label::Params<>().parent(this_).text(L"Diffuse (RRGGBB):"  ).xy(Right|LeftOf|ID_EDIT_DIFFUSE       , Centre|CentreOf|ID_EDIT_DIFFUSE       ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_specular      (gui::Label::Params<>().parent(this_).text(L"Specular (RRGGBB):" ).xy(Right|LeftOf|ID_EDIT_SPECULAR      , Centre|CentreOf|ID_EDIT_SPECULAR      ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_spec_power    (gui::Label::Params<>().parent(this_).text(L"Specular Power:"    ).xy(Right|LeftOf|ID_EDIT_SPECULAR_POWER, Centre|CentreOf|ID_EDIT_SPECULAR_POWER).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
+			,m_lbl_intensity     (gui::Label::Params<>().parent(this_).text(L"Intensity:"         ).xy(Right|LeftOf|ID_EDIT_INTENSITY     , Centre|CentreOf|ID_EDIT_INTENSITY     ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_inner         (gui::Label::Params<>().parent(this_).text(L"Spot Angles: Inner:").xy(Right|LeftOf|ID_EDIT_INNER_ANGLE   , Centre|CentreOf|ID_EDIT_INNER_ANGLE   ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_outer         (gui::Label::Params<>().parent(this_).text(L"Outer:"             ).xy(Right|LeftOf|ID_EDIT_OUTER_ANGLE   , Centre|CentreOf|ID_EDIT_OUTER_ANGLE   ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 
@@ -204,6 +208,7 @@ namespace pr::rdr12
 			m_tb_diffuse       .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_light.m_diffuse.argb ));
 			m_tb_specular      .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_light.m_specular.argb));
 			m_tb_spec_power    .Text(FmtS(L"%d" ,(int)(0.5f + m_light.m_specular_power)));
+			m_tb_intensity     .Text(FmtS(L"%3.3f" ,m_light.m_intensity));
 			m_tb_spot_inner    .Text(FmtS(L"%d" ,(int)(0.5f + RadiansToDegrees(m_light.m_inner_angle))));
 			m_tb_spot_outer    .Text(FmtS(L"%d" ,(int)(0.5f + RadiansToDegrees(m_light.m_outer_angle))));
 
@@ -230,6 +235,7 @@ namespace pr::rdr12
 			m_light.m_diffuse        = To<Colour32>(m_tb_diffuse.Text()).a1();
 			m_light.m_specular       = To<Colour32>(m_tb_specular.Text()).a0();
 			m_light.m_specular_power = To<float>(m_tb_spec_power.Text());
+			m_light.m_intensity      = std::max(0.0f, To<float>(m_tb_intensity.Text()));
 			m_light.m_inner_angle    = DegreesToRadians(To<float>(m_tb_spot_inner.Text()));
 			m_light.m_outer_angle    = DegreesToRadians(To<float>(m_tb_spot_outer.Text()));
 		}
@@ -252,6 +258,7 @@ namespace pr::rdr12
 			m_tb_diffuse     .Enabled(m_light.m_type != ELight::Ambient);
 			m_tb_specular    .Enabled(m_light.m_type != ELight::Ambient);
 			m_tb_spec_power  .Enabled(m_light.m_type != ELight::Ambient);
+			m_tb_intensity   .Enabled(true);
 			m_tb_spot_inner  .Enabled(m_light.m_type == ELight::Spot);
 			m_tb_spot_outer  .Enabled(m_light.m_type == ELight::Spot);
 

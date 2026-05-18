@@ -5539,6 +5539,11 @@ namespace pr::rdr12::ldraw
 					m_light.m_specular_power = reader.Real<float>();
 					return true;
 				}
+				case EKeyword::Intensity:
+				{
+					m_light.m_intensity = reader.Real<float>();
+					return true;
+				}
 				case EKeyword::Range:
 				{
 					m_light.m_range = reader.Real<float>();

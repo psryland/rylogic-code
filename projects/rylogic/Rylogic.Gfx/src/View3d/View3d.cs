@@ -948,6 +948,9 @@ namespace Rylogic.Gfx
 			/// <summary>Specular power (controls specular spot size)</summary>
 			public float SpecularPower;
 
+			/// <summary>Light intensity scale</summary>
+			public float Intensity;
+
 			/// <summary>Light range</summary>
 			public float Range;
 
@@ -978,10 +981,11 @@ namespace Rylogic.Gfx
 					Type = ELight.Ambient,
 					Position = v4.Origin,
 					Direction = -v4.ZAxis,
-					AmbientColour = 0xFF404040,
-					DiffuseColour = 0xFF404040,
-					SpecularColour = 0xFF808080,
-					SpecularPower = 1000f,
+					AmbientColour = 0xFF808080,
+					DiffuseColour = 0xFFFFFFFF,
+					SpecularColour = 0xFF101010,
+					SpecularPower = 64f,
+					Intensity = 1f,
 					InnerAngle = Math_.TauBy4F,
 					OuterAngle = Math_.TauBy4F,
 					Range = 1000f,
@@ -992,16 +996,17 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>Return properties for an ambient light source</summary>
-			public static LightInfo Ambient(Colour32? ambient = null)
+			public static LightInfo Ambient(Colour32? ambient = null, float? intensity = null)
 			{
 				var light = Default();
 				light.Type = ELight.Ambient;
 				light.AmbientColour = ambient ?? light.AmbientColour;
+				light.Intensity = intensity ?? light.Intensity;
 				return light;
 			}
 
 			/// <summary>Return properties for a directional light source</summary>
-			public static LightInfo Directional(v4 direction, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false)
+			public static LightInfo Directional(v4 direction, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
 			{
 				var light = Default();
 				light.Type = ELight.Directional;
@@ -1010,13 +1015,14 @@ namespace Rylogic.Gfx
 				light.DiffuseColour = diffuse ?? light.DiffuseColour;
 				light.SpecularColour = specular ?? light.SpecularColour;
 				light.SpecularPower = spec_power ?? light.SpecularPower;
+				light.Intensity = intensity ?? light.Intensity;
 				light.CastShadow = cast_shadow ?? light.CastShadow;
 				light.CameraRelative = camera_relative;
 				return light;
 			}
 
 			/// <summary>Return properties for a point light source</summary>
-			public static LightInfo Point(v4 position, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false)
+			public static LightInfo Point(v4 position, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
 			{
 				var light = Default();
 				light.Type = ELight.Point;
@@ -1025,6 +1031,7 @@ namespace Rylogic.Gfx
 				light.DiffuseColour = diffuse ?? light.DiffuseColour;
 				light.SpecularColour = specular ?? light.SpecularColour;
 				light.SpecularPower = spec_power ?? light.SpecularPower;
+				light.Intensity = intensity ?? light.Intensity;
 				light.CastShadow = cast_shadow ?? light.CastShadow;
 				light.CameraRelative = camera_relative;
 				return light;

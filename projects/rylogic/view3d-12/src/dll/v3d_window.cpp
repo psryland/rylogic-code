@@ -89,10 +89,11 @@ namespace pr::rdr12
 
 			// The light for the scene
 			m_scene.m_global_light.m_type = ELight::Directional;
-			m_scene.m_global_light.m_ambient = Colour32(0xFF404040U);
-			m_scene.m_global_light.m_diffuse = Colour32(0xFF404040U);
-			m_scene.m_global_light.m_specular = Colour32(0xFF808080U);
-			m_scene.m_global_light.m_specular_power = 1000.0f;
+			m_scene.m_global_light.m_ambient = Colour32(0xFF808080U);
+			m_scene.m_global_light.m_diffuse = Colour32(0xFFFFFFFFU);
+			m_scene.m_global_light.m_specular = Colour32(0xFF101010U);
+			m_scene.m_global_light.m_specular_power = 64.0f;
+			m_scene.m_global_light.m_intensity = 1.0f;
 			m_scene.m_global_light.m_direction = -v4::ZAxis();
 			m_scene.m_global_light.m_on = true;
 			m_scene.m_global_light.m_cam_relative = true;
@@ -1133,6 +1134,7 @@ namespace pr::rdr12
 		if (m_scene.m_global_light.m_ambient != light.m_ambient) settings |= view3d::ESettings::Lighting_Colour;
 		if (m_scene.m_global_light.m_diffuse != light.m_diffuse) settings |= view3d::ESettings::Lighting_Colour;
 		if (m_scene.m_global_light.m_specular != light.m_specular) settings |= view3d::ESettings::Lighting_Colour;
+		if (m_scene.m_global_light.m_intensity != light.m_intensity) settings |= view3d::ESettings::Lighting_Colour;
 		if (m_scene.m_global_light.m_specular_power != light.m_specular_power) settings |= view3d::ESettings::Lighting_Range;
 		if (m_scene.m_global_light.m_range != light.m_range) settings |= view3d::ESettings::Lighting_Range;
 		if (m_scene.m_global_light.m_falloff != light.m_falloff) settings |= view3d::ESettings::Lighting_Range;

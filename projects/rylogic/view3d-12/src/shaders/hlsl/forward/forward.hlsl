@@ -250,7 +250,8 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 	float attenuation = PbrLightAttenuation(g_frame.global_light, In.ws_vert.xyz);
 	float3 radiance = g_frame.global_light.colour.rgb * light_visible * attenuation;
 	float3 ambient = g_frame.global_light.ambient.rgb * albedo;
-	float3 colour = ambient + (diffuse + specular) * radiance * n_dot_l + emissive;
+	float light_intensity = g_frame.global_light.ambient.a;
+	float3 colour = light_intensity * (ambient + (diffuse + specular) * radiance * n_dot_l) + emissive;
 
 	Out.diff = float4(saturate(colour), alpha);
 	return Out;

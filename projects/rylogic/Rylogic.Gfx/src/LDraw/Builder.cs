@@ -1726,6 +1726,7 @@ namespace Rylogic.LDraw
 		private Colour32? m_diffuse = null;
 		private Colour32? m_specular = null;
 		private float? m_specular_power = null;
+		private float? m_intensity = null;
 		private v2? m_range = null;
 		private v2? m_cone = null;
 		private float? m_cast_shadow = null;
@@ -1749,6 +1750,11 @@ namespace Rylogic.LDraw
 		{
 			m_specular = col;
 			m_specular_power = power;
+			return this;
+		}
+		public LdrLightSource intensity(float intensity)
+		{
+			m_intensity = intensity;
 			return this;
 		}
 		public LdrLightSource range(float range, float falloff)
@@ -1775,6 +1781,7 @@ namespace Rylogic.LDraw
 				if (m_ambient is Colour32 a) res.Write(EKeyword.Ambient, a);
 				if (m_diffuse is Colour32 d) res.Write(EKeyword.Diffuse, d);
 				if (m_specular is Colour32 s && m_specular_power is float p) res.Write(EKeyword.Specular, s, p);
+				if (m_intensity is float i) res.Write(EKeyword.Intensity, i);
 				if (m_range is v2 r) res.Write(EKeyword.Range, r);
 				if (m_cone is v2 c) res.Write(EKeyword.Cone, c);
 				if (m_cast_shadow is float cs) res.Write(EKeyword.CastShadow, cs);

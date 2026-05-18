@@ -657,6 +657,7 @@ namespace pr
 			Colour m_diffuse;
 			Colour m_specular;
 			float m_specular_power;
+			float m_intensity;
 			float m_range;
 			float m_falloff;
 			float m_inner_angle;
