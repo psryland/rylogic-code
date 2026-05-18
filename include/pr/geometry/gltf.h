@@ -11,7 +11,9 @@
 //  - glTF supports both .gltf (JSON) and .glb (binary) file formats.
 
 #pragma once
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include "pr/common/range.h"
@@ -40,6 +42,23 @@ namespace pr::geometry::gltf
 		Step = 0,
 		Linear = 1,
 		CubicSpline = 2,
+	};
+	enum class ETextureWrap
+	{
+		Repeat,
+		ClampToEdge,
+		MirroredRepeat,
+	};
+	enum class ETextureFilter
+	{
+		Linear,
+		Nearest,
+	};
+	enum class EAlphaMode
+	{
+		Opaque,
+		Mask,
+		Blend,
 	};
 
 	// Error handling
@@ -137,12 +156,40 @@ namespace pr::geometry::gltf
 	};
 	struct Material
 	{
+		struct Texture
+		{
+			std::string_view m_uri = {};
+			std::string_view m_name = {};
+			std::string_view m_mime_type = {};
+			std::span<uint8_t const> m_data = {};
+			int m_texcoord = 0;
+			ETextureWrap m_wrap_s = ETextureWrap::Repeat;
+			ETextureWrap m_wrap_t = ETextureWrap::Repeat;
+			ETextureFilter m_min_filter = ETextureFilter::Linear;
+			ETextureFilter m_mag_filter = ETextureFilter::Linear;
+
+			// Return true when this texture view names an external image or provides embedded image bytes.
+			explicit operator bool() const
+			{
+				return !m_uri.empty() || !m_data.empty();
+			}
+		};
+
 		uint32_t m_mat_id = NoId;
 		std::string_view m_name = {};
-		Colour m_ambient = ColourBlack;
-		Colour m_diffuse = ColourWhite;
-		Colour m_specular = ColourZero;
-		std::string_view m_tex_diff = {};
+
+		// Views and embedded-data spans are valid only during the Read callback that supplies this material.
+		Colour m_base_colour = ColourWhite;
+		Texture m_base_colour_texture = {};
+		float m_metallic = 1.0f;
+		float m_roughness = 1.0f;
+		Texture m_metallic_roughness_texture = {};
+		Colour m_emissive = ColourBlack;
+		Texture m_emissive_texture = {};
+		Texture m_normal_texture = {};
+		EAlphaMode m_alpha_mode = EAlphaMode::Opaque;
+		float m_alpha_cutoff = 0.5f;
+		bool m_double_sided = false;
 	};
 	struct Skin
 	{

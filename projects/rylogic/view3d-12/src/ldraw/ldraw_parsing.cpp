@@ -4913,7 +4913,7 @@ namespace pr::rdr12::ldraw
 
 			// Create the models
 			ModelOut out(*this, parts, obj);
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_bake.O2WPtr());
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_bake.O2WPtr()).source_path(m_filepath);
 			ModelGenerator::LoadModel(format, m_pp.m_factory, *m_file_stream, out, &opts);
 
 			// If animation data is specified, load the model's animation sources and build the animation

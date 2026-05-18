@@ -101,6 +101,9 @@ namespace pr::rdr12
 			// Texture to surface transform
 			m4x4 m_t2s = {};
 
+			// Original model file path, used by stream-based importers to resolve relative sidecar files.
+			std::filesystem::path m_source_path = {};
+
 			// Algorithmically generate surface normals. Value is the smoothing angle.
 			float m_gen_normals = {};
 
@@ -145,6 +148,11 @@ namespace pr::rdr12
 			CreateOptions& tex2surf(m4x4 const* t2s)
 			{
 				if (t2s) tex2surf(*t2s);
+				return *this;
+			}
+			CreateOptions& source_path(std::filesystem::path path)
+			{
+				m_source_path = std::move(path);
 				return *this;
 			}
 			CreateOptions& gen_normals(float angle)

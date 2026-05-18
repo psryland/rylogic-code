@@ -8,11 +8,14 @@
 #include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/model/model_tree.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/material/material_pbr.h"
 #include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/resource/stock_resources.h"
+#include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
+#include "pr/view3d-12/texture/texture_loader.h"
 
 namespace pr::rdr12
 {
@@ -136,6 +139,223 @@ namespace pr::rdr12
 				return Colour32White;
 
 			return Colour32(materials[mat_id].m_diffuse);
+		}
+
+		// Return a useful name for diagnostics and resource debugging from a glTF texture reference.
+		static std::string TextureName(geometry::gltf::Material::Texture const& texture)
+		{
+			if (!texture.m_name.empty())
+				return std::string(texture.m_name);
+
+			if (texture.m_uri.starts_with("data:"))
+				return "data URI image";
+
+			if (!texture.m_uri.empty())
+				return std::string(texture.m_uri);
+
+			return "embedded glTF image";
+		}
+
+		// Create a sampler matching the glTF texture's sampler state.
+		static SamplerPtr CreateSampler(ResourceFactory& factory, geometry::gltf::Material::Texture const& texture)
+		{
+			// Return true when a glTF texture filter requests nearest-neighbour sampling.
+			static auto IsNearest = [](geometry::gltf::ETextureFilter filter)
+			{
+				switch (filter)
+				{
+					case geometry::gltf::ETextureFilter::Linear: return false;
+					case geometry::gltf::ETextureFilter::Nearest: return true;
+					default: throw std::runtime_error("Unknown glTF texture filter");
+				}
+			};
+
+			// Convert glTF texture wrapping to a D3D sampler address mode.
+			static auto AddressMode = [](geometry::gltf::ETextureWrap wrap) -> D3D12_TEXTURE_ADDRESS_MODE
+			{
+				switch (wrap)
+				{
+					case geometry::gltf::ETextureWrap::Repeat: return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+					case geometry::gltf::ETextureWrap::ClampToEdge: return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+					case geometry::gltf::ETextureWrap::MirroredRepeat: return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+					default: throw std::runtime_error("Unknown glTF texture wrap mode");
+				}
+			};
+
+			// Convert glTF texture filtering to a D3D sampler filter.
+			static auto TextureFilter = [](geometry::gltf::Material::Texture const& texture) -> D3D12_FILTER
+			{
+				return IsNearest(texture.m_min_filter) && IsNearest(texture.m_mag_filter)
+					? D3D12_FILTER_MIN_MAG_MIP_POINT
+					: D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+			};
+
+			auto sdesc = SamDesc(
+				AddressMode(texture.m_wrap_s),
+				AddressMode(texture.m_wrap_t),
+				D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+				TextureFilter(texture));
+
+			auto name = std::format("glTF sampler {}", TextureName(texture));
+			return factory.CreateSampler(SamplerDesc(sdesc.Id(), sdesc).name(name));
+		}
+
+		// Create a material texture slot from a glTF texture view, returning an empty slot when the texture cannot be used.
+		static materials::TextureSlot CreateTextureSlot(ResourceFactory& factory, geometry::gltf::Material const& material, std::string_view slot_name, geometry::gltf::Material::Texture const& texture, materials::ETextureColourSpace colour_space, bool has_alpha = false)
+		{
+			materials::TextureSlot slot = {};
+			slot.m_colour_space = colour_space;
+			if (!texture)
+				return slot;
+
+			// Report a non-fatal glTF texture import issue.
+			static auto ReportGltfTextureIssue = [](std::string_view material_name, std::string_view slot_name, std::string_view texture_name, std::string_view reason)
+			{
+				auto msg = std::format("{}glTF material '{}' {} texture '{}': {}\n", PR_LINK, material_name, slot_name, texture_name, reason);
+				OutputDebugStringA(msg.c_str());
+			};
+
+			auto const texture_name = TextureName(texture);
+			if (texture.m_texcoord != 0)
+			{
+				ReportGltfTextureIssue(material.m_name, slot_name, texture_name, "only TEXCOORD_0 is currently supported");
+				return {};
+			}
+
+			if (texture.m_uri.starts_with("data:"))
+			{
+				ReportGltfTextureIssue(material.m_name, slot_name, texture_name, "data URI images are not currently supported");
+				return {};
+			}
+
+			// Create a renderer texture from embedded glTF image bytes.
+			static auto CreateEmbeddedTexture = [](ResourceFactory & factory, geometry::gltf::Material::Texture const& texture, bool has_alpha) -> Texture2DPtr 
+			{
+				auto [images, rdesc] = LoadImageData(texture.m_data, 1, false, 0, &factory.rdr().Features());
+				rdesc.Data = images;
+				rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+
+				auto uri = s_cast<RdrId>(hash::HashBytes64(texture.m_data.data(), texture.m_data.data() + texture.m_data.size()));
+				auto name = TextureName(texture);
+				auto desc = TextureDesc(AutoId, rdesc)
+					.uri(uri)
+					.has_alpha(has_alpha)
+					.name(name);
+
+				return factory.CreateTexture2D(desc);
+			};
+
+			// Create a renderer texture from a glTF image URI.
+			static auto CreateUriTexture = [](ResourceFactory& factory, geometry::gltf::Material::Texture const& texture, bool has_alpha) -> Texture2DPtr
+			{
+				auto name = TextureName(texture);
+				auto desc = TextureDesc(AutoId, ResDesc())
+					.has_alpha(has_alpha)
+					.name(name);
+
+				return factory.CreateTexture2D(std::filesystem::path(std::string(texture.m_uri)), desc);
+			};
+
+			try
+			{
+				slot.m_texture =
+					!texture.m_data.empty() ? CreateEmbeddedTexture(factory, texture, has_alpha) :
+					!texture.m_uri.empty() ? CreateUriTexture(factory, texture, has_alpha) :
+					nullptr;
+
+				if (slot.m_texture == nullptr)
+					return {};
+
+				slot.m_sampler = CreateSampler(factory, texture);
+				return slot.m_sampler != nullptr ? slot : materials::TextureSlot{};
+			}
+			catch (std::exception const& e)
+			{
+				ReportGltfTextureIssue(material.m_name, slot_name, texture_name, e.what());
+				return {};
+			}
+		}
+
+		// Return true when the glTF alpha mode needs alpha from the base-colour texture.
+		static bool UsesBaseTextureAlpha(geometry::gltf::EAlphaMode mode)
+		{
+			switch (mode)
+			{
+				case geometry::gltf::EAlphaMode::Opaque:
+				{
+					return false;
+				}
+				case geometry::gltf::EAlphaMode::Mask:
+				case geometry::gltf::EAlphaMode::Blend:
+				{
+					return true;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown glTF alpha mode");
+				}
+			}
+		}
+
+		// Convert glTF alpha mode to the PBR material alpha mode.
+		static materials::EAlphaMode AlphaMode(geometry::gltf::EAlphaMode mode)
+		{
+			switch (mode)
+			{
+				case geometry::gltf::EAlphaMode::Opaque:
+				{
+					return materials::EAlphaMode::Opaque;
+				}
+				case geometry::gltf::EAlphaMode::Mask:
+				{
+					return materials::EAlphaMode::Mask;
+				}
+				case geometry::gltf::EAlphaMode::Blend:
+				{
+					return materials::EAlphaMode::Blend;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown glTF alpha mode");
+				}
+			}
+		}
+
+		// Copy glTF metallic-roughness material properties into a renderer PBR material.
+		static void ConfigurePbrMaterial(ResourceFactory& factory, MaterialPBR& material, geometry::gltf::Material const& src)
+		{
+			material
+				.base_colour(src.m_base_colour)
+				.metallic(src.m_metallic)
+				.roughness(src.m_roughness)
+				.emissive(src.m_emissive)
+				.alpha_mode(AlphaMode(src.m_alpha_mode), src.m_alpha_cutoff)
+				.two_sided(src.m_double_sided);
+
+			auto base_texture = CreateTextureSlot(factory, src, "base-colour", src.m_base_colour_texture, materials::ETextureColourSpace::Srgb, UsesBaseTextureAlpha(src.m_alpha_mode));
+			if (base_texture)
+				material.base_texture(base_texture);
+
+			auto metallic_roughness_texture = CreateTextureSlot(factory, src, "metallic-roughness", src.m_metallic_roughness_texture, materials::ETextureColourSpace::Linear);
+			if (metallic_roughness_texture)
+			{
+				material.metallic_texture(materials::ScalarTextureSlot{
+					.m_slot = metallic_roughness_texture,
+					.m_channel = materials::ETextureChannel::Blue,
+				});
+				material.roughness_texture(materials::ScalarTextureSlot{
+					.m_slot = metallic_roughness_texture,
+					.m_channel = materials::ETextureChannel::Green,
+				});
+			}
+
+			auto emissive_texture = CreateTextureSlot(factory, src, "emissive", src.m_emissive_texture, materials::ETextureColourSpace::Srgb);
+			if (emissive_texture)
+				material.emissive_texture(emissive_texture);
+
+			auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear);
+			if (normal_texture)
+				material.normal_texture(normal_texture);
 		}
 	};
 
@@ -1384,7 +1604,10 @@ namespace pr::rdr12
 					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
 						.vrange(n.m_vrange)
 						.irange(n.m_irange)
-						.mat([&](MaterialSimple& m) { m.base_colour(tint); })
+						.mat([&](MaterialSimple& m)
+						{
+							m.base_colour(tint);
+						})
 						.flags(ENuggetFlag::RangesCanOverlap);
 				}
 
@@ -1589,12 +1812,28 @@ namespace pr::rdr12
 				auto nptr = m_cache.m_ncont.data();
 				for (auto const& n : mesh.m_nbuf)
 				{
-					auto tint = model_generator::MaterialTint(materials, n.m_mat_id, m_out.Parts());
-					*nptr++ = NuggetDesc{ n.m_topo, n.m_geom }
+					auto nugget = NuggetDesc{ n.m_topo, n.m_geom }
 						.vrange(n.m_vrange)
 						.irange(n.m_irange)
-						.mat([&](MaterialSimple& m) { m.base_colour(tint); })
 						.flags(ENuggetFlag::RangesCanOverlap);
+
+					if (AllSet(m_out.Parts(), ESceneParts::Materials) && n.m_mat_id < materials.size())
+					{
+						auto const& mat = materials[n.m_mat_id];
+						nugget.mat<MaterialPBR>([&](MaterialPBR& m)
+						{
+							model_generator::ConfigurePbrMaterial(m_factory, m, mat);
+						});
+					}
+					else
+					{
+						nugget.mat([&](MaterialSimple& m)
+						{
+							m.base_colour(Colour32White);
+						});
+					}
+
+					*nptr++ = std::move(nugget);
 				}
 
 				// Emit the model
@@ -1687,7 +1926,10 @@ namespace pr::rdr12
 		} read_out{ factory, out, opts };
 
 		// Load the glTF scene from stream
-		gltf::Scene scene(src, gltf::LoadOptions{});
+		auto source_path = opts != nullptr ? opts->m_source_path.string() : std::string{};
+		gltf::Scene scene(src, gltf::LoadOptions{
+			.filename = source_path,
+		});
 		scene.Read(read_out, gltf::ReadOptions{
 			.m_parts = out.Parts(),
 			.m_mesh_filter = std::bind(&IModelOut::ModelFilter, &out, _1),

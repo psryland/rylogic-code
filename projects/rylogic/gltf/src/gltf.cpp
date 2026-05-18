@@ -2,6 +2,7 @@
 // glTF Model loader
 //  Copyright (c) Rylogic Ltd 2025
 //********************************
+#include <algorithm>
 #include <concepts>
 #include <memory>
 #include <string>
@@ -120,6 +121,116 @@ namespace pr
 			default: return ETopo::TriList;
 		}
 	}
+
+	// Convert glTF sampler wrap modes to the format-neutral material texture representation.
+	inline ETextureWrap ToTextureWrap(cgltf_wrap_mode mode)
+	{
+		switch (static_cast<int>(mode))
+		{
+			case 0:
+			case cgltf_wrap_mode_repeat:
+			{
+				return ETextureWrap::Repeat;
+			}
+			case cgltf_wrap_mode_clamp_to_edge:
+			{
+				return ETextureWrap::ClampToEdge;
+			}
+			case cgltf_wrap_mode_mirrored_repeat:
+			{
+				return ETextureWrap::MirroredRepeat;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown glTF texture wrap mode");
+			}
+		}
+	}
+
+	// Convert glTF sampler filters to the nearest View3D importer-level filter intent.
+	inline ETextureFilter ToTextureFilter(cgltf_filter_type filter)
+	{
+		switch (filter)
+		{
+			case cgltf_filter_type_undefined:
+			case cgltf_filter_type_linear:
+			case cgltf_filter_type_linear_mipmap_nearest:
+			case cgltf_filter_type_nearest_mipmap_linear:
+			case cgltf_filter_type_linear_mipmap_linear:
+			{
+				return ETextureFilter::Linear;
+			}
+			case cgltf_filter_type_nearest:
+			case cgltf_filter_type_nearest_mipmap_nearest:
+			{
+				return ETextureFilter::Nearest;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown glTF texture filter");
+			}
+		}
+	}
+
+	// Convert glTF alpha mode to the importer material representation.
+	inline EAlphaMode ToAlphaMode(cgltf_alpha_mode mode)
+	{
+		switch (mode)
+		{
+			case cgltf_alpha_mode_opaque:
+			{
+				return EAlphaMode::Opaque;
+			}
+			case cgltf_alpha_mode_mask:
+			{
+				return EAlphaMode::Mask;
+			}
+			case cgltf_alpha_mode_blend:
+			{
+				return EAlphaMode::Blend;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown glTF alpha mode");
+			}
+		}
+	}
+
+	// Convert a cgltf texture view to a transient material texture description.
+	inline Material::Texture ToTexture(cgltf_texture_view const& view)
+	{
+		Material::Texture tex = {};
+		tex.m_texcoord = static_cast<int>(view.texcoord);
+
+		auto const* texture = view.texture;
+		if (texture == nullptr)
+			return tex;
+
+		if (auto const* sampler = texture->sampler; sampler != nullptr)
+		{
+			tex.m_wrap_s = ToTextureWrap(sampler->wrap_s);
+			tex.m_wrap_t = ToTextureWrap(sampler->wrap_t);
+			tex.m_min_filter = ToTextureFilter(sampler->min_filter);
+			tex.m_mag_filter = ToTextureFilter(sampler->mag_filter);
+		}
+
+		auto const* image = texture->image;
+		if (image == nullptr)
+			return tex;
+
+		tex.m_name = image->name ? image->name : (texture->name ? texture->name : "");
+		tex.m_uri = image->uri ? image->uri : "";
+		tex.m_mime_type = image->mime_type ? image->mime_type : "";
+
+		if (image->buffer_view != nullptr)
+		{
+			auto const* data = cgltf_buffer_view_data(image->buffer_view);
+			if (data != nullptr)
+				tex.m_data = std::span<uint8_t const>{ data, image->buffer_view->size };
+		}
+
+		return tex;
+	}
 }
 namespace pr::geometry::gltf
 {
@@ -130,28 +241,6 @@ namespace pr::geometry::gltf
 		.m_tex0 = Zero<v2>(),
 		.m_idx0 = {NoIndex, 0} };
 
-	// Model data types (owning versions of the public span-based types)
-	struct MaterialData
-	{
-		uint32_t m_mat_id = NoId;
-		std::string m_name = "default";
-		Colour m_ambient = ColourBlack;
-		Colour m_diffuse = ColourWhite;
-		Colour m_specular = ColourZero;
-		std::string m_tex_diff;
-
-		operator Material() const
-		{
-			return Material{
-				.m_mat_id = m_mat_id,
-				.m_name = m_name,
-				.m_ambient = m_ambient,
-				.m_diffuse = m_diffuse,
-				.m_specular = m_specular,
-				.m_tex_diff = m_tex_diff,
-			};
-		}
-	};
 	struct SkinData
 	{
 		uint32_t m_skel_id = NoId;
@@ -374,28 +463,33 @@ namespace pr::geometry::gltf
 				mat.m_mat_id = s_cast<uint32_t>(i);
 				mat.m_name = cgmat.name ? cgmat.name : "";
 
-				// Map PBR base color to diffuse
 				if (cgmat.has_pbr_metallic_roughness)
 				{
 					auto const& pbr = cgmat.pbr_metallic_roughness;
-					mat.m_diffuse = ToColour(pbr.base_color_factor, 4);
-
-					// Base color texture URI
-					if (pbr.base_color_texture.texture && pbr.base_color_texture.texture->image)
-					{
-						auto* img = pbr.base_color_texture.texture->image;
-						if (img->uri)
-							mat.m_tex_diff = img->uri;
-					}
+					mat.m_base_colour = ToColour(pbr.base_color_factor, 4);
+					mat.m_metallic = pbr.metallic_factor;
+					mat.m_roughness = pbr.roughness_factor;
+					mat.m_base_colour_texture = ToTexture(pbr.base_color_texture);
+					mat.m_metallic_roughness_texture = ToTexture(pbr.metallic_roughness_texture);
 				}
 				else if (cgmat.has_pbr_specular_glossiness)
 				{
 					auto const& pbr = cgmat.pbr_specular_glossiness;
-					mat.m_diffuse = ToColour(pbr.diffuse_factor, 4);
+					mat.m_base_colour = ToColour(pbr.diffuse_factor, 4);
+					mat.m_base_colour_texture = ToTexture(pbr.diffuse_texture);
+					mat.m_metallic = 0.0f;
+					mat.m_roughness = std::clamp(1.0f - pbr.glossiness_factor, 0.0f, 1.0f);
 				}
 
-				// Map emissive to ambient
-				mat.m_ambient = ToColour(cgmat.emissive_factor, 3);
+				mat.m_emissive = ToColour(cgmat.emissive_factor, 3);
+				if (cgmat.has_emissive_strength)
+					mat.m_emissive *= cgmat.emissive_strength.emissive_strength;
+
+				mat.m_emissive_texture = ToTexture(cgmat.emissive_texture);
+				mat.m_normal_texture = ToTexture(cgmat.normal_texture);
+				mat.m_alpha_mode = ToAlphaMode(cgmat.alpha_mode);
+				mat.m_alpha_cutoff = cgmat.alpha_cutoff;
+				mat.m_double_sided = cgmat.double_sided != 0;
 
 				m_materials.push_back(mat);
 			}
