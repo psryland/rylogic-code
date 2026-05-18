@@ -65,13 +65,7 @@ Tests are **embedded inline in source files** (not in separate test files), guar
 ```
 Run tests via:
 ```powershell
-# Run all tests in a compiled assembly
-dotnet-script ./script/RunUnitTests.csx <TargetPath> <is_managed> [dependencies...]
-
-# Example:
-dotnet-script ./script/RunUnitTests.csx "projects/rylogic/Rylogic.Core/bin/Debug/net9.0-windows/Rylogic.Core.dll" true
-
-# Build + run tests in one step (tests auto-run on Debug build)
+# Build + run tests in one step (tests auto-run on Debug build via the RunRylogicUnitTests MSBuild task)
 dotnet build projects/rylogic/Rylogic.Core/Rylogic.Core.csproj -c Debug
 ```
 Individual test filtering is not supported — tests run as a batch per assembly.
