@@ -6,12 +6,11 @@
 
   Example usage:
   <None Include="src\ldraw\ldraw_demo_scene.ldr" /> This is needed because I can't get it to work from in here
-  <CSharpScript Include="src\ldraw\ldraw_demo_scene.ldr">
-    <Generator>$(ScriptPath)EmbedFile.csx</Generator>
-    <Args>DEMO_SCENE $(ProjectDir)src\ldraw\ldraw_demo_scene.ldr $(ProjectDir)src\ldraw\ldraw_demo_scene.cpp</Args>
-    <Outputs>$(OutDir)ldraw_demo_scene.cpp.embedded</Outputs>
-    <Message>Embedding ldraw_demo_scene.ldr</Message>
-  </CSharpScript>
+    <CSharpScript Include="src\ldraw\ldraw_demo_scene.ldr">
+      <Generator>$(ScriptPath)EmbedFile.csx</Generator>
+      <Args>DEMO_SCENE $(ProjectDir)src\ldraw\ldraw_demo_scene.ldr $(ProjectDir)src\ldraw\ldraw_demo_scene.cpp</Args>
+      <Message>Embedding ldraw_demo_scene.ldr</Message>
+    </CSharpScript>
 -->
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
@@ -28,12 +27,8 @@
 		Name="CSharpScriptTarget"
 		BeforeTargets="ClCompile"
 		Inputs="@(CSharpScript);%(CSharpScript.Generator);%(CSharpScript.Fullpath);%(CSharpScript.AdditionalInputs)"
-		Outputs="%(CSharpScript.MarkerOutputFile);%(CSharpScript.Outputs)"
+		Outputs="$(OutDir)%(CSharpScript.Filename)%(CSharpScript.Extension).csharpscript_target"
 	>
-		<!-- Disable delta building for this target by moving Inputs and Outputs into here
-			Outputs="@(CSharpScript->'$(OutDir)%(Filename)%(Extension).csharpscript_target');%(CSharpScript.AdditionalOutputs)"
-		-->
-
 		<!-- Testing
 		<Message Importance="high" Text="CSharpScript Items: @(CSharpScript)" />
 		<Exec Command="echo %(CSharpScript.Identity)" />
@@ -53,10 +48,10 @@
 		<!-- 
 		-->
 
-		<!-- Create the dummy output file to prevent always building -->
-		<Exec
-			Command="echo. > %(CSharpScript.MarkerOutputFile)"
-			Condition="'%(CSharpScript.MarkerOutputFile)' != ''"
+		<!-- Stamp successful runs; generated files may not be rewritten when their content is unchanged. -->
+		<Touch
+			Files="$(OutDir)%(CSharpScript.Filename)%(CSharpScript.Extension).csharpscript_target"
+			AlwaysCreate="true"
 		/>
 	</Target>
 
