@@ -182,8 +182,8 @@ namespace pr::rdr12::ldraw
 		// Set the instance to world for this object
 		auto i2w = p2w * m_o2p;
 		if (m_root_anim) i2w *= m_root_anim.RootToAnim();
-		if (m_pose) i2w *= m_pose->RootToAnim(); // Apply the animation's root offset to the bounding box
-		if (m_model) i2w *= m_model->m_m2root;
+		if (m_model)
+			i2w *= m_model->m_m2root;
 
 		// Combine recursive flags
 		auto flags = Flags() | (parent_flags & (ELdrFlags::Hidden | ELdrFlags::Wireframe | ELdrFlags::NonAffine));
@@ -796,8 +796,8 @@ namespace pr::rdr12::ldraw
 
 		auto i2w = p2w;
 		if (m_root_anim) i2w *= m_root_anim.RootToAnim();
-		if (m_pose) i2w *= m_pose->RootToAnim();
-		if (m_model) i2w = i2w * m_model->m_m2root;
+		if (m_model)
+			i2w *= m_model->m_m2root;
 
 		// Combine recursive flags
 		auto ldr_flags = Flags() | (parent_flags & (ELdrFlags::BBoxExclude | ELdrFlags::NonAffine));
@@ -842,7 +842,7 @@ namespace pr::rdr12::ldraw
 		{
 			auto o2p = parent->m_o2p;
 			if (parent->m_root_anim) o2p *= parent->m_root_anim.RootToAnim();
-			if (parent->m_pose) o2p *= parent->m_pose->RootToAnim();
+			if (parent->m_model) o2p *= parent->m_model->m_m2root;
 			o2w = o2p * o2w; //??
 		}
 

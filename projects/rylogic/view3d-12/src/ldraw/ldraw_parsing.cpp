@@ -6596,6 +6596,7 @@ namespace pr::rdr12::ldraw
 		if (num_roots == 1)
 		{
 			root->m_model = tree[0].m_model;
+			root->m_o2p *= tree[0].m_o2p;
 			ancestors.push_back({ root, 0 });
 			tree = tree.subspan<1>();
 		}

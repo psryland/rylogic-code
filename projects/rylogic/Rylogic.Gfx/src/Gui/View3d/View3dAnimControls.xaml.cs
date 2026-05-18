@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,6 +10,11 @@ namespace Rylogic.Gui.WPF
 {
 	public partial class View3dAnimControls :Grid, INotifyPropertyChanged
 	{
+		// Notes:
+		//  - There is conflicting control of the main slider thumb position. While an animation is playing
+		//    we want the thumb to represent the current animation clock. While not playing, the thumb becomes
+		//    authoritive, setting the animation clock when moved.
+
 		public View3dAnimControls()
 		{
 			InitializeComponent();
