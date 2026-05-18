@@ -66,4 +66,27 @@ float PbrLightAttenuation(Light light, float3 ws_pos)
 	return 1.0f;
 }
 
+// Evaluate the direct-lighting PBR model for one global light.
+float3 PbrIlluminate(Light light_info, float3 ws_pos, float3 normal, float3 view, float light_visible, float3 albedo, float metallic, float roughness, float3 emissive)
+{
+	float3 light = PbrLightDirection(light_info, ws_pos);
+	float3 half_vector = normalize(view + light);
+	float n_dot_l = saturate(dot(normal, light));
+	float n_dot_v = saturate(dot(normal, view));
+
+	float3 f0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+	float3 fresnel = PbrFresnelSchlick(saturate(dot(half_vector, view)), f0);
+	float distribution = PbrDistributionGGX(normal, half_vector, roughness);
+	float geometry = PbrGeometrySmith(normal, view, light, roughness);
+	float3 specular = distribution * geometry * fresnel / max(4.0f * n_dot_v * n_dot_l, TINY);
+	float3 diffuse = (1.0f - fresnel) * (1.0f - metallic) * albedo / (0.5f * tau);
+
+	float attenuation = PbrLightAttenuation(light_info, ws_pos);
+	float3 radiance = light_info.colour.rgb * light_visible * attenuation;
+	float3 ambient = light_info.ambient.rgb * albedo;
+	float light_intensity = light_info.ambient.a;
+
+	return light_intensity * (ambient + (diffuse + specular) * radiance * n_dot_l) + emissive;
+}
+
 #endif

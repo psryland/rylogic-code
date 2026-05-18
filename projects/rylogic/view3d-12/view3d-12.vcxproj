@@ -351,6 +351,7 @@
     <None Include="src\shaders\hlsl\lighting\phong_lighting.hlsli" />
     <None Include="src\shaders\hlsl\ray_cast\ray_cast_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\ray_tracing\ray_tracing_cbuf.hlsli" />
+    <None Include="src\shaders\hlsl\ray_tracing\ray_tracing.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli" />
     <None Include="src\shaders\hlsl\shadow\shadow_map_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\skinned\skinned.hlsli" />

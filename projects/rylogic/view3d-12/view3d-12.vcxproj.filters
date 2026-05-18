@@ -845,6 +845,9 @@
     <None Include="src\shaders\hlsl\lighting\pbr.hlsli">
       <Filter>src\shaders\hlsl\lighting</Filter>
     </None>
+    <None Include="src\shaders\hlsl\ray_tracing\ray_tracing.hlsli">
+      <Filter>src\shaders\hlsl\ray_tracing</Filter>
+    </None>
     <None Include="src\shaders\hlsl\shadow\shadow_cast.hlsli">
       <Filter>src\shaders\hlsl\shadow</Filter>
     </None>
