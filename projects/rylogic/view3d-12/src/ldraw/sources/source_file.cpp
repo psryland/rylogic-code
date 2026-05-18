@@ -109,11 +109,21 @@ namespace pr::rdr12::ldraw
 			case HashI(".p3d"):
 			case HashI(".stl"):
 			case HashI(".3ds"):
+			{
+				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} }}", m_filepath.string());
+				m_text_format = false;
+
+				mem_istream<char> src{ ldr_script, 0 };
+				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
+				return Parse(rdr, reader, m_context_id, stop_token);
+			}
+
+			// FBX/GLTF/GLB can contain animation data. Direct file opening should expose it when present without treating static models as errors.
 			case HashI(".fbx"):
 			case HashI(".gltf"):
 			case HashI(".glb"):
 			{
-				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} }}", m_filepath.string());
+				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} *Animation {{}} }}", m_filepath.string());
 				m_text_format = false;
 
 				mem_istream<char> src{ ldr_script, 0 };

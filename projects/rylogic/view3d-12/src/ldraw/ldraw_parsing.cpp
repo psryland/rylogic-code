@@ -4928,12 +4928,9 @@ namespace pr::rdr12::ldraw
 		// Create an animation for the model using the loaded animation sources and the animation info
 		void CreateAnimation(LdrObject* obj, Location const& loc)
 		{
-			// Validate that the model file provided animation data.
+			// Ignore missing animation data. This allows *Animation to mean "use it if present" for formats that may or may not contain animation.
 			if (!m_model_anim)
-			{
-				m_pp.ReportError(EParseError::InvalidValue, loc, "No animation found in the model file");
 				return;
-			}
 
 			// Find the associated skeleton
 			auto iter = std::ranges::find_if(m_skels, [&](SkeletonPtr skel) { return skel->Id() == m_model_anim->m_skel_id; });
