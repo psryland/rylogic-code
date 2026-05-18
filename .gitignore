@@ -43,6 +43,7 @@ thirdparty/
 symbol_cache/
 script/UserVars.py
 script/UserVars.json
+Directory.Build.user.props
 build/certs/
 
 # Keep lib/ structure for NuGet local package sources (must come after Debug/Release rules)

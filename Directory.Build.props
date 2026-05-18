@@ -15,6 +15,12 @@
 		<SDKPath>$(MSBuildThisFileDirectory)sdk\</SDKPath>
 	</PropertyGroup>
 
+	<Import Project="$(MSBuildThisFileDirectory)Directory.Build.user.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user.props')" />
+
+	<PropertyGroup>
+		<RylogicGeneratePackageOnBuild Condition="'$(RylogicGeneratePackageOnBuild)' == ''">true</RylogicGeneratePackageOnBuild>
+	</PropertyGroup>
+
 	<!-- C# -->
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<PrimaryTarget>net10.0-windows</PrimaryTarget>

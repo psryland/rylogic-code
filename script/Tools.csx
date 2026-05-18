@@ -22,6 +22,11 @@ using IOPath = System.IO.Path;
 
 public class Tools
 {
+	public static List<string> DefaultMSBuildArgs { get; } = [];
+	public static bool MSBuildProfiling { get; set; } = false;
+	public static string MSBuildProfileDir { get; set; } = string.Empty;
+	private static int m_msbuild_profile_index = 0;
+
 	/// <summary>Path helper</summary>
 	public static string Path(IEnumerable<string> path_parts, bool check_exists = true, bool normalise = true)
 	{
@@ -279,7 +284,12 @@ public class Tools
 		additional_args ??= [];
 
 		// Build the arguments list
-		List<string> args = [UserVars.MSBuild, sln_or_proj_file, "/m", "/verbosity:minimal", "/nologo", ..additional_args];
+		List<string> args = [UserVars.MSBuild, sln_or_proj_file, "/m", "/verbosity:minimal", "/nologo", ..DefaultMSBuildArgs, ..additional_args];
+		if (MSBuildProfiling)
+		{
+			args.Add("/clp:PerformanceSummary;Summary");
+			args.Add("/detailedsummary");
+		}
 
 		// Set the targets to build
 		// Targets should be the names as shown in the solution explorer (i.e. Folder\Project.Name)
@@ -297,6 +307,7 @@ public class Tools
 		{
 			if (platforms.Count == 0 && configs.Count == 0)
 			{
+				AddMSBuildBinLog(args, sln_or_proj_file, projects, null, null);
 				Run(args);
 			}
 			else
@@ -310,6 +321,7 @@ public class Tools
 					foreach (var config in configs)
 					{
 						List<string> args_ = [..args, $"/p:Configuration={config};Platform={platform}"];
+						AddMSBuildBinLog(args_, sln_or_proj_file, projects, platform, config);
 						if (parallel && !first)
 						{
 							var instance_id = ++i;
@@ -342,6 +354,39 @@ public class Tools
 		}
 
 		return !errors;
+	}
+
+	// Add a unique binary log path when MSBuild profiling is enabled.
+	private static void AddMSBuildBinLog(List<string> args, string sln_or_proj_file, IList<string> projects, string? platform, string? config)
+	{
+		if (!MSBuildProfiling)
+			return;
+
+		var profile_dir = string.IsNullOrEmpty(MSBuildProfileDir)
+			? Path([UserVars.Root, "obj", "build-profile"], check_exists: false)
+			: MSBuildProfileDir;
+		Directory.CreateDirectory(profile_dir);
+
+		var label = projects.Count != 0
+			? string.Join("_", projects)
+			: IOPath.GetFileNameWithoutExtension(sln_or_proj_file);
+		if (!string.IsNullOrEmpty(platform))
+			label += $"_{platform}";
+		if (!string.IsNullOrEmpty(config))
+			label += $"_{config}";
+
+		var index = System.Threading.Interlocked.Increment(ref m_msbuild_profile_index);
+		var binlog = IOPath.Combine(profile_dir, $"{index:00}-{SafeFilename(label)}.binlog");
+		args.Add($"/bl:{binlog}");
+	}
+
+	// Replace characters that are invalid in filenames.
+	private static string SafeFilename(string value)
+	{
+		var invalid = IOPath.GetInvalidFileNameChars();
+		foreach (var ch in invalid)
+			value = value.Replace(ch, '_');
+		return value;
 	}
 
 	// True if code signing is configured (PFX certificate available and not expired)

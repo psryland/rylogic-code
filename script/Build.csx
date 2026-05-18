@@ -67,6 +67,16 @@ public abstract class Common
 	public virtual void Publish() { }
 }
 
+// Options parsed from the Build.csx command line.
+public static class BuildOptions
+{
+	public static bool Restore { get; set; } = true;
+	public static bool RunUnitTests { get; set; } = true;
+	public static bool GeneratePackageOnBuild { get; set; } = true;
+	public static bool Profile { get; set; } = false;
+	public static string ProfileDir { get; set; } = string.Empty;
+}
+
 // Groups of projects
 public abstract class Group : Common
 {
@@ -159,6 +169,12 @@ public abstract class Managed : Common
 	// Restore nuget packages
 	public static void DotNetRestore(string sln_or_proj)
 	{
+		if (!BuildOptions.Restore)
+		{
+			Console.WriteLine($"Nuget restore skipped: {sln_or_proj}");
+			return;
+		}
+
 		if (m_restored.Contains(sln_or_proj))
 			return;
 
@@ -614,6 +630,12 @@ void SetupWorkspace(string workspace)
 
 	// Restore NuGet packages for C++ projects (packages.config style).
 	// This must happen before building because MSBuild /t:restore only handles PackageReference.
+	if (!BuildOptions.Restore)
+	{
+		Console.WriteLine("Restoring NuGet packages skipped (-norestore).\n");
+		return;
+	}
+
 	var nuget_exe = IOPath.Combine(workspace, "tools", "nuget", "nuget.exe");
 	if (!File.Exists(nuget_exe))
 	{
@@ -628,6 +650,21 @@ void SetupWorkspace(string workspace)
 		Tools.Run([nuget_exe, "restore", sln, "-Verbosity", "quiet", "-NonInteractive"], return_output: false);
 		Console.WriteLine("");
 	}
+}
+
+// Configure shared MSBuild arguments from the parsed command line.
+void ConfigureMSBuildOptions(string workspace)
+{
+	Tools.DefaultMSBuildArgs.Clear();
+	if (!BuildOptions.RunUnitTests)
+		Tools.DefaultMSBuildArgs.Add("/p:RunUnitTests=false");
+	if (!BuildOptions.GeneratePackageOnBuild)
+		Tools.DefaultMSBuildArgs.Add("/p:RylogicGeneratePackageOnBuild=false");
+
+	Tools.MSBuildProfiling = BuildOptions.Profile;
+	Tools.MSBuildProfileDir = !string.IsNullOrEmpty(BuildOptions.ProfileDir)
+		? BuildOptions.ProfileDir
+		: Tools.Path([workspace, "obj", "build-profile"], check_exists: false);
 }
 
 // Build script main function
@@ -680,6 +717,36 @@ void Main(IList<string> args)
 			case "-publish":
 				{
 					publish = true;
+					break;
+				}
+			case "-norestore":
+				{
+					BuildOptions.Restore = false;
+					break;
+				}
+			case "-notests":
+			case "-nounittests":
+				{
+					BuildOptions.RunUnitTests = false;
+					break;
+				}
+			case "-nopack":
+			case "-nopackage":
+			case "-nopackages":
+				{
+					BuildOptions.GeneratePackageOnBuild = false;
+					break;
+				}
+			case "-profile":
+				{
+					BuildOptions.Profile = true;
+					break;
+				}
+			case "-profiledir":
+				{
+					if (!IsDataArg(i)) throw new Exception("Profile output directory expected");
+					BuildOptions.Profile = true;
+					BuildOptions.ProfileDir = args[i++];
 					break;
 				}
 			case "-cert_pfx":
@@ -757,6 +824,9 @@ void Main(IList<string> args)
 	if (projects.Count == 0) projects.Add(EProjects.All);
 	build |= !clean && !build && !deploy && !publish;
 	deploy |= publish;
+
+	// Configure shared MSBuild options before any restore or build invocations.
+	ConfigureMSBuildOptions(workspace);
 
 	// Ensure workspace is ready (directories, SDK dependencies)
 	SetupWorkspace(workspace);

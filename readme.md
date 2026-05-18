@@ -65,6 +65,8 @@ Follow these steps to build:
 - Customise _/script/UserVars.csx_ or _/script/UserVars.json_ as needed,
 - Run `dotnet-script ./script/Build.csx` to build projects from the command line, or, open _Rylogic.sln_ in Visual Studio.
 
+For faster local Visual Studio builds, copy `Directory.Build.user.props.template` to `Directory.Build.user.props` and enable the opt-in settings there.
+
 This repo is actively developed, often refactored, and frequently broken. It is public so that the source for my released projects is publicly available.
 
 ## License
