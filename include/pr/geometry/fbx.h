@@ -38,7 +38,9 @@
 //        Add Leaf Bones: No
 
 #pragma once
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include "pr/common/range.h"
@@ -68,6 +70,8 @@ namespace pr::geometry::fbx
 		Binary,
 		Ascii,
 	};
+	using ETextureWrap = ::pr::geometry::ETextureWrap;
+	using ETextureFilter = ::pr::geometry::ETextureFilter;
 
 	// Axis systems the scene can be converted to
 	enum class ECoordAxis
@@ -557,12 +561,22 @@ namespace pr::geometry::fbx
 	};
 	struct Material
 	{
+		using Texture = ::pr::geometry::TextureRef;
+
 		uint32_t m_mat_id = NoId;
-		std::string_view m_name = {};
-		Colour m_ambient = ColourBlack;
-		Colour m_diffuse = ColourWhite;
-		Colour m_specular = ColourZero;
-		std::string_view m_tex_diff = {};
+		std::string m_name = {};
+
+		// Embedded-data spans are valid only during the Read callback that supplies this material.
+		Colour m_base_colour = ColourWhite;
+		Texture m_base_colour_texture = {};
+		float m_metallic = 0.0f;
+		Texture m_metallic_texture = {};
+		float m_roughness = 1.0f;
+		Texture m_roughness_texture = {};
+		Colour m_emissive = ColourBlack;
+		Texture m_emissive_texture = {};
+		Texture m_normal_texture = {};
+		bool m_double_sided = false;
 	};
 	struct Skin
 	{

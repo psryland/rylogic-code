@@ -2,7 +2,11 @@
 // FBX Model loader
 //  Copyright (c) Rylogic Ltd 2014
 //********************************
+#include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,6 +16,7 @@
 #include <execution>
 #include <atomic>
 #include <mutex>
+#include <utility>
 
 #include <Windows.h>
 
@@ -547,6 +552,161 @@ namespace pr::geometry::fbx
 		return node->bone != nullptr && (node->parent == nullptr || node->parent->bone == nullptr);
 	}
 
+	// Convert an FBX SDK string into an owned string.
+	inline std::string String(ufbx_string const& str)
+	{
+		return std::string(To<std::string_view>(str));
+	}
+
+	// Return true if 'text' contains 'find' using ASCII case-insensitive matching.
+	inline bool ContainsNoCase(std::string_view text, std::string_view find)
+	{
+		if (find.empty() || find.size() > text.size())
+			return false;
+
+		auto lower = [](char ch)
+		{
+			return static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+		};
+
+		for (size_t i = 0, iend = text.size() - find.size() + 1; i != iend; ++i)
+		{
+			size_t j = 0;
+			for (; j != find.size(); ++j)
+			{
+				if (lower(text[i + j]) != lower(find[j]))
+					break;
+			}
+			if (j == find.size())
+				return true;
+		}
+
+		return false;
+	}
+
+	// Return true if the scene was exported by Unreal's FBX exporter.
+	inline bool IsUnrealExport(ufbx_scene const& scene)
+	{
+		auto const& metadata = scene.metadata;
+		return
+			ContainsNoCase(To<std::string_view>(metadata.creator), "unreal") ||
+			ContainsNoCase(To<std::string_view>(metadata.original_application.vendor), "unreal") ||
+			ContainsNoCase(To<std::string_view>(metadata.original_application.name), "unreal") ||
+			ContainsNoCase(To<std::string_view>(metadata.latest_application.vendor), "unreal") ||
+			ContainsNoCase(To<std::string_view>(metadata.latest_application.name), "unreal");
+	}
+
+	// Return a byte span over an embedded ufbx blob.
+	inline std::span<uint8_t const> BlobData(ufbx_blob const& blob)
+	{
+		if (blob.data == nullptr || blob.size == 0)
+			return {};
+
+		return { static_cast<uint8_t const*>(blob.data), blob.size };
+	}
+
+	// Convert ufbx texture wrapping to the reader material representation.
+	inline ETextureWrap TextureWrap(ufbx_wrap_mode mode)
+	{
+		switch (mode)
+		{
+			case UFBX_WRAP_REPEAT:
+			{
+				return ETextureWrap::Repeat;
+			}
+			case UFBX_WRAP_CLAMP:
+			{
+				return ETextureWrap::ClampToEdge;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown FBX texture wrap mode");
+			}
+		}
+	}
+
+	// Return the file texture that can be loaded for 'texture'.
+	inline ufbx_texture const* FileTexture(ufbx_texture const* texture)
+	{
+		if (texture == nullptr)
+			return nullptr;
+
+		if (texture->type == UFBX_TEXTURE_FILE)
+			return texture;
+
+		return texture->file_textures.count != 0 ? texture->file_textures[0] : nullptr;
+	}
+
+	// Return true when a material map has an enabled texture connection.
+	inline bool HasTexture(ufbx_material_map const& map)
+	{
+		return map.texture != nullptr && map.texture_enabled;
+	}
+
+	// Return a texture reference from a ufbx material map.
+	inline Material::Texture Texture(ufbx_material_map const& map)
+	{
+		if (!HasTexture(map))
+			return {};
+
+		auto const* texture = FileTexture(map.texture);
+		if (texture == nullptr)
+			return {};
+
+		auto filepath = texture->filename.length != 0 ? String(texture->filename) :
+			texture->relative_filename.length != 0 ? String(texture->relative_filename) :
+			texture->absolute_filename.length != 0 ? String(texture->absolute_filename) :
+			std::string{};
+
+		return Material::Texture{
+			.m_name = String(texture->name.length != 0 ? texture->name : map.texture->name),
+			.m_uri = std::move(filepath),
+			.m_data = BlobData(texture->content),
+			.m_wrap_s = TextureWrap(texture->wrap_u),
+			.m_wrap_t = TextureWrap(texture->wrap_v),
+		};
+	}
+
+	// Return true when a material map contains a scalar or colour value.
+	inline bool HasValue(ufbx_material_map const& map)
+	{
+		return map.has_value;
+	}
+
+	// Select a preferred material map, falling back if it carries neither value nor texture data.
+	inline ufbx_material_map const& SelectMap(ufbx_material_map const& preferred, ufbx_material_map const& fallback)
+	{
+		return HasValue(preferred) || HasTexture(preferred) ? preferred : fallback;
+	}
+
+	// Return a colour value from a material map, or 'fallback' if the map has none.
+	inline Colour ColourValue(ufbx_material_map const& map, Colour fallback)
+	{
+		return HasValue(map) ? To<Colour>(map.value_vec4) : fallback;
+	}
+
+	// Return a scalar value from a material map, or 'fallback' if the map has none.
+	inline float ScalarValue(ufbx_material_map const& map, float fallback)
+	{
+		return HasValue(map) ? s_cast<float>(map.value_real) : fallback;
+	}
+
+	// Scale the RGB channels of 'colour' without changing alpha.
+	inline Colour ScaleRgb(Colour colour, float scale)
+	{
+		colour.r *= scale;
+		colour.g *= scale;
+		colour.b *= scale;
+		return colour;
+	}
+
+	// Return true when the colour has no visible RGB contribution.
+	inline bool IsBlackRgb(Colour colour)
+	{
+		constexpr float epsilon = 1.0e-5f;
+		return std::abs(colour.r) < epsilon && std::abs(colour.g) < epsilon && std::abs(colour.b) < epsilon;
+	}
+
 	// Return the ancestor of 'node' that is not a mesh node
 	inline ufbx_node const* MeshRoot(ufbx_node const* node)
 	{
@@ -614,27 +774,6 @@ namespace pr::geometry::fbx
 	};
 
 	// Model data types
-	struct MaterialData
-	{
-		uint32_t m_mat_id = NoId;
-		std::string m_name = "default";
-		Colour m_ambient = ColourBlack;
-		Colour m_diffuse = ColourWhite;
-		Colour m_specular = ColourZero;
-		std::string m_tex_diff;
-
-		operator Material() const
-		{
-			return Material{
-				.m_mat_id = m_mat_id,
-				.m_name = m_name,
-				.m_ambient = m_ambient,
-				.m_diffuse = m_diffuse,
-				.m_specular = m_specular,
-				.m_tex_diff = m_tex_diff,
-			};
-		}
-	};
 	struct SkinData
 	{
 		uint32_t m_skel_id = NoId;
@@ -832,25 +971,48 @@ namespace pr::geometry::fbx
 				return;
 			}
 
-			// Materials require a lot more work. For now, just use diffuse colour.
-			// Textures have wrapping modes and transforms etc...
-
 			// Parse the scene materials
-			m_materials.resize(0);
-			m_materials.reserve(m_fbxscene.materials.count);
-			for (auto const& m : m_fbxscene.materials)
+			auto const unreal_export = IsUnrealExport(m_fbxscene);
+			m_materials.resize(m_fbxscene.materials.count);
+			for (size_t i = 0; i != m_fbxscene.materials.count; ++i)
 			{
-				Progress(1LL + (&m - m_fbxscene.materials.begin()), m_fbxscene.materials.count, "Reading materials...");
+				auto const* m = m_fbxscene.materials[i];
+				Progress(1LL + s_cast<int64_t>(i), m_fbxscene.materials.count, "Reading materials...");
+
+				auto const& base_map = SelectMap(m->pbr.base_color, m->fbx.diffuse_color);
+				auto const& base_factor_map = &base_map == &m->pbr.base_color ? m->pbr.base_factor : m->fbx.diffuse_factor;
+				auto const& base_texture_map = HasTexture(m->pbr.base_color) ? m->pbr.base_color : m->fbx.diffuse_color;
+
+				auto const& roughness_map = m->pbr.roughness;
+				auto const& metalness_map = m->pbr.metalness;
+				auto const& emissive_map = SelectMap(m->pbr.emission_color, m->fbx.emission_color);
+				auto const& emissive_factor_map = &emissive_map == &m->pbr.emission_color ? m->pbr.emission_factor : m->fbx.emission_factor;
+				auto const& emissive_texture_map = HasTexture(m->pbr.emission_color) ? m->pbr.emission_color : m->fbx.emission_color;
+				auto const& normal_map = HasTexture(m->pbr.normal_map) ? m->pbr.normal_map : m->fbx.normal_map;
 
 				Material mat = {};
-				if (m->fbx.ambient_color.has_value)
-					mat.m_ambient = To<Colour>(m->fbx.ambient_color.value_vec4);
-				if (m->fbx.diffuse_color.has_value)
-					mat.m_diffuse = To<Colour>(m->fbx.diffuse_color.value_vec4);
-				if (m->fbx.specular_color.has_value)
-					mat.m_specular = To<Colour>(m->fbx.specular_color.value_vec4);
+				mat.m_mat_id = m->typed_id;
+				mat.m_name = String(m->name);
+				mat.m_base_colour = ScaleRgb(ColourValue(base_map, ColourWhite), ScalarValue(base_factor_map, 1.0f));
+				mat.m_base_colour_texture = Texture(base_texture_map);
+				mat.m_metallic = std::clamp(ScalarValue(metalness_map, 0.0f), 0.0f, 1.0f);
+				mat.m_metallic_texture = Texture(metalness_map);
+				mat.m_roughness = std::clamp(ScalarValue(roughness_map, 1.0f), 0.0f, 1.0f);
+				mat.m_roughness_texture = Texture(roughness_map);
+				mat.m_emissive = ScaleRgb(ColourValue(emissive_map, ColourBlack), ScalarValue(emissive_factor_map, 1.0f));
+				mat.m_emissive_texture = Texture(emissive_texture_map);
+				mat.m_normal_texture = Texture(normal_map);
+				mat.m_double_sided = m->features.double_sided.enabled;
 
-				m_materials.push_back(mat);
+				if (unreal_export && !mat.m_base_colour_texture && IsBlackRgb(mat.m_base_colour) && (!IsBlackRgb(mat.m_emissive) || mat.m_emissive_texture))
+				{
+					mat.m_base_colour = mat.m_emissive;
+					mat.m_base_colour_texture = std::move(mat.m_emissive_texture);
+					mat.m_emissive = ColourBlack;
+				}
+
+				assert(m->typed_id < m_materials.size());
+				m_materials[m->typed_id] = std::move(mat);
 			}
 		}
 

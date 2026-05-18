@@ -5,6 +5,9 @@
 #pragma once
 #include <cassert>
 #include <concepts>
+#include <cstdint>
+#include <span>
+#include <string>
 #include <type_traits>
 #include "pr/common/to.h"
 #include "pr/common/flags_enum.h"
@@ -58,6 +61,56 @@ namespace pr::geometry
 		Points,
 		Lines,
 		Triangles,
+	};
+
+	// Texture wrapping mode for imported material texture references.
+	enum class ETextureWrap
+	{
+		Repeat,
+		ClampToEdge,
+		MirroredRepeat,
+	};
+
+	// Texture filtering mode for imported material texture references.
+	enum class ETextureFilter
+	{
+		Linear,
+		Nearest,
+	};
+
+	// A transient material texture reference returned by model importers.
+	struct TextureRef
+	{
+		std::string m_name = {};
+		std::string m_uri = {};
+		std::string m_mime_type = {};
+		std::span<uint8_t const> m_data = {};
+		int m_texcoord = 0;
+		ETextureWrap m_wrap_s = ETextureWrap::Repeat;
+		ETextureWrap m_wrap_t = ETextureWrap::Repeat;
+		ETextureFilter m_min_filter = ETextureFilter::Linear;
+		ETextureFilter m_mag_filter = ETextureFilter::Linear;
+
+		// Return a useful name for diagnostics and resource debugging from this texture reference.
+		std::string name() const
+		{
+			if (!m_name.empty())
+				return m_name;
+
+			if (m_uri.starts_with("data:"))
+				return "data URI image";
+
+			if (!m_uri.empty())
+				return m_uri;
+
+			return std::string("Embedded texture");
+		}
+
+		// Return true when this texture names an external image or provides embedded image bytes.
+		explicit operator bool() const
+		{
+			return !m_uri.empty() || !m_data.empty();
+		}
 	};
 
 	// Parts of an model file scene
