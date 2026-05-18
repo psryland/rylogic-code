@@ -1255,7 +1255,8 @@ namespace pr::rdr12
 				AnimControl(view3d::EAnimCommand::Stop);
 				auto rate = time.count();
 				auto issue = m_anim_data.m_issue.load();
-				m_anim_data.m_thread = std::jthread([this, issue, rate]
+				auto clock0 = m_anim_data.m_clock.load();
+				m_anim_data.m_thread = std::jthread([this, issue, rate, clock0]
 				{
 					// 'rate' is the seconds/second step rate
 					auto time0 = system_clock::now();
@@ -1269,7 +1270,7 @@ namespace pr::rdr12
 						// Every loop is a tick, and the step size is 'time'. 
 						// If 'time' is zero, then stepping is real-time and the step size is 'elapsed'
 						if (rate == 0.0)
-							m_anim_data.m_clock.store(system_clock::now() - time0);
+							m_anim_data.m_clock.store(clock0 + (system_clock::now() - time0));
 						else
 							m_anim_data.m_clock.store(m_anim_data.m_clock.load() + increment);
 					}
