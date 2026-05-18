@@ -47,7 +47,7 @@
 
 		<!-- Execute the script on the file -->
 		<Exec
-			Command="dotnet-script.exe &quot;%(CSharpScript.Generator)&quot; %(CSharpScript.Args) --no-cache"
+			Command="dotnet-script.exe &quot;%(CSharpScript.Generator)&quot; %(CSharpScript.Args)"
 			ContinueOnError="ErrorAndContinue"
 		/>
 		<!-- 

@@ -35,11 +35,6 @@
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
 	</ItemGroup>
 
-	<!-- Pre Build -->
-	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(RylogicRoot)projects\rylogic\view3d-12\auto_gen.csx $(RylogicRoot)" />
-	</Target>
-
 	<!-- Targets  -->
 	<Import Project="$(TargetsPath)view3d-12.targets" />
 	<Import Project="$(TargetsPath)dxc.targets" />
