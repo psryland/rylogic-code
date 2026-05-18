@@ -54,7 +54,7 @@
 	  </None>
 	</ItemGroup>
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(RunUnitTests)' != 'false'">
-		<Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) true Rylogic.Core Rylogic.Windows" />
+		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="true" ProjectRoot="$(RylogicRoot)" />
 	</Target>
 
 </Project>

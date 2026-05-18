@@ -26,6 +26,21 @@
 	</Target>
 
 	<!--
+	Run unit-test entry points from MSBuild without dotnet-script. Managed assemblies are still hosted out-of-process because
+	Visual Studio's MSBuild process cannot safely load modern .NET/WPF target-framework assemblies in-process. -->
+	<UsingTask TaskName="RunRylogicUnitTests" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<Task>
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
+			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\RunRylogicUnitTests.cs" />
+		</Task>
+	</UsingTask>
+
+	<Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(MSBuildProjectName)' == 'unittests' AND '$(RunUnitTests)' != 'false'">
+		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="false" ProjectRoot="$(RylogicRoot)" />
+	</Target>
+
+	<!--
 	Auto-pack library assemblies to lib/packages and purge the global cache.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
 	Skipped in CI where packaging is not needed and cache-purge scripts may not be available. -->
@@ -42,25 +57,10 @@
 	Write the NuGet global-cache hash and metadata files in-process. This avoids paying the startup/cache cost of dotnet-script
 	for a tiny deterministic post-pack helper during Visual Studio builds. -->
 	<UsingTask TaskName="WriteNuGetCacheMetadata" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-		<ParameterGroup>
-			<NuPkgPath ParameterType="System.String" Required="true" />
-			<CacheDir ParameterType="System.String" Required="true" />
-			<NuPkgName ParameterType="System.String" Required="true" />
-		</ParameterGroup>
 		<Task>
-			<Using Namespace="System" />
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Security.Cryptography" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-using (var sha = SHA512.Create())
-{
-	var hash = Convert.ToBase64String(sha.ComputeHash(File.ReadAllBytes(NuPkgPath)));
-	File.WriteAllText(Path.Combine(CacheDir, $"{NuPkgName}.sha512"), hash);
-	File.WriteAllText(Path.Combine(CacheDir, ".nupkg.metadata"), $@"{{""version"":2,""contentHash"":""{hash}"",""source"":null}}");
-}
-				]]>
-			</Code>
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
+			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\WriteNuGetCacheMetadata.cs" />
 		</Task>
 	</UsingTask>
 
@@ -79,14 +79,14 @@ using (var sha = SHA512.Create())
 			<_NeedsPurge Condition="!Exists('$(_PurgeStamp)')">true</_NeedsPurge>
 			<_NeedsPurge Condition="'$(_NeedsPurge)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_PurgeStamp)').Ticks)">true</_NeedsPurge>
 
-			<!-- Suppress MSB3936 ("failed to unzip") as a warning. This is expected when dotnet-script
+			<!-- Suppress MSB3936 ("failed to unzip") as a warning. This is expected when a concurrent script or test host
 			     holds a lock on cached DLLs. The cache already has a valid version in this case. -->
 			<MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3936</MSBuildWarningsAsMessages>
 		</PropertyGroup>
 
 		<!--
 		Overwrite cache in-place to avoid a window where the directory is absent (parallel-build safety).
-		ContinueOnError tolerates locked DLLs held by concurrent dotnet-script processes. -->
+		ContinueOnError tolerates locked DLLs held by concurrent processes. -->
 		<MakeDir Condition="'$(_NeedsPurge)' == 'true'" Directories="$(_NuGetCacheDir)" />
 		<Unzip Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFolder="$(_NuGetCacheDir)" OverwriteReadOnlyFiles="true" ContinueOnError="WarnAndContinue" />
 		<Copy Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFiles="$(_NuGetCacheDir)\$(_NuPkgCacheName)" ContinueOnError="WarnAndContinue" />

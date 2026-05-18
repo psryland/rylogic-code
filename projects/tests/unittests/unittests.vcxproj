@@ -467,9 +467,6 @@
   <ItemGroup>
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
-  <Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(RunUnitTests)' != 'false'">
-    <Exec Command="dotnet-script --cache-path %TEMP%\$(SubDir) $(ScriptPath)RunUnitTests.csx -- $(TargetPath) false" />
-  </Target>
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
