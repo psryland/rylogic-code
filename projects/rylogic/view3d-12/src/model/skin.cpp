@@ -14,13 +14,27 @@ namespace pr::rdr12
 		: m_res()
 		, m_srv()
 		, m_skel_id()
+		, m_influence_count()
+		, m_max_bone_index()
+		, m_min_skin_index()
+		, m_max_skin_index(-1)
 	{
 	}
-	Skin::Skin(ResourceFactory& factory, std::span<Skinfluence const> verts, uint32_t skel_id)
+	Skin::Skin(ResourceFactory& factory, std::span<Skinfluence const> verts, uint32_t skel_id, int min_skin_index, int max_skin_index)
 		: m_res()
 		, m_srv()
 		, m_skel_id(skel_id)
+		, m_influence_count(isize(verts))
+		, m_max_bone_index()
+		, m_min_skin_index(min_skin_index)
+		, m_max_skin_index(max_skin_index)
 	{
+		for (auto const& influence : verts)
+		{
+			for (auto bone_index : influence.m_bones)
+				m_max_bone_index = std::max(m_max_bone_index, static_cast<int>(static_cast<uint16_t>(bone_index)));
+		}
+
 		ResourceStore::Access store(factory.rdr());
 
 		// Create the buffer for the vertex bone weights

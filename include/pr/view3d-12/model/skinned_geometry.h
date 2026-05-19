@@ -38,7 +38,8 @@ namespace pr::rdr12
 		struct CBufSkinning
 		{
 			uint32_t m_vertex_count;
-			uint32_t m_pad[3];
+			uint32_t m_skin_count;
+			uint32_t m_pad[2];
 			m4x4 m_model_to_object;
 			m4x4 m_object_to_model;
 		};

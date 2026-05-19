@@ -52,6 +52,8 @@ namespace pr::rdr12
 		}
 	};
 	static_assert(std::is_trivially_copyable_v<Vert> && std::is_trivially_default_constructible_v<Vert>);
+	static_assert(sizeof(Vert) == 64);
+	static_assert(offsetof(Vert, m_idx0) == 56);
 
 	constexpr v4 GetP(Vert const& vert)
 	{

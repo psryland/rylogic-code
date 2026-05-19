@@ -7,6 +7,7 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skin.h"
+#include "pr/view3d-12/model/skeleton.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/shaders/shader.h"
 
@@ -67,8 +68,14 @@ namespace pr::rdr12
 			};
 		}
 
-		if (model.m_vstride.size() != sizeof(Vert))
-			throw std::runtime_error("Skinned geometry compute path requires the standard View3D vertex layout");
+		// Sanity checks
+		{
+			assert(model.m_vstride.size() == sizeof(Vert) && "Skinned geometry compute path requires the standard View3D vertex layout");
+			assert(model.m_skin.m_min_skin_index >= -1 && "Skinned geometry skin index is below the dead-vertex sentinel");
+			assert(model.m_skin.m_max_skin_index < model.m_skin.m_influence_count && "Skinned geometry skin index exceeds the skin influence buffer");
+			assert(model.m_skin.m_skel_id == pose->m_skeleton->Id() && "Skinned geometry pose skeleton mismatch");
+			assert(model.m_skin.m_max_bone_index < pose->BoneCount() && "Skinned geometry pose bone index mismatch");
+		}
 
 		std::lock_guard lock(m_mutex);
 
@@ -98,12 +105,17 @@ namespace pr::rdr12
 		{
 			auto cb = CBufSkinning{
 				.m_vertex_count = s_cast<uint32_t>(model.m_vcount),
+				.m_skin_count = s_cast<uint32_t>(model.m_skin.m_influence_count),
 				.m_pad = {},
 				.m_model_to_object = model.m_m2root,
 				.m_object_to_model = Invert(model.m_m2root),
 			};
 
+			// The source buffers are normally used outside compute, but this pass reads them as SRVs.
 			barriers.Transition(entry.m_vb.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			barriers.Transition(model.m_vb.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			barriers.Transition(model.m_skin.m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			barriers.Transition(pose->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			barriers.Commit();
 
 			cmd_list.SetPipelineState(m_pso.get());

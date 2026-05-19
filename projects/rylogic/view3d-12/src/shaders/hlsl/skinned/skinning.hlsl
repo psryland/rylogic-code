@@ -17,27 +17,37 @@ struct Vert
 struct CBufSkinning
 {
 	uint vertex_count;
-	uint3 pad;
+	uint skin_count;
+	uint2 pad;
 	row_major float4x4 model_to_object;
 	row_major float4x4 object_to_model;
 };
 
-ConstantBuffer<CBufSkinning> g_skinning : register(b0);
-StructuredBuffer<Vert> g_rest_vertices : register(t0);
-StructuredBuffer<Skinfluence> g_skin : register(t1);
-StructuredBuffer<Mat4x4> g_pose : register(t2);
-RWStructuredBuffer<Vert> g_output_vertices : register(u0);
+ConstantBuffer<CBufSkinning> resource(g_skinning, b0);
+StructuredBuffer<Vert> resource(g_rest_vertices, t0);
+StructuredBuffer<Skinfluence> resource(g_skin, t1);
+StructuredBuffer<Mat4x4> resource(g_pose, t2);
+RWStructuredBuffer<Vert> resource(g_output_vertices, u0);
 
 // Write one current-pose vertex, keeping the output in model-space so the existing render transforms still apply.
 numthreads(CSSkinning, 128, 1, 1)
-void CSSkinning(uint3 DTid : SV_DispatchThreadID)
+void CSSkinning(uint3 DTID(DTid))
 {
 	uint vertex_index = DTid.x;
 	if (vertex_index >= g_skinning.vertex_count)
 		return;
 
 	Vert vert = g_rest_vertices[vertex_index];
-	Skinfluence influence = g_skin[vert.idx0.x];
+
+	// Dead/unreferenced vertex slots can contain NoIndex (-1). Raster skips them, but compute visits every vertex.
+	if (vert.idx0.x < 0 || (uint)vert.idx0.x >= g_skinning.skin_count)
+	{
+		g_output_vertices[vertex_index] = vert;
+		return;
+	}
+
+	uint skin_index = (uint)vert.idx0.x;
+	Skinfluence influence = g_skin[skin_index];
 
 	float4 os_vert = mul(vert.vert, g_skinning.model_to_object);
 	float4 os_norm = mul(vert.norm, g_skinning.model_to_object);

@@ -80,7 +80,7 @@ struct ProjTexture
 // Skinned Meshes
 struct Skinfluence
 {
-	int4 bones;    // 8 16-bit bone indices
+	uint4 bones;   // 8 16-bit bone indices
 	uint4 weights; // 8 16-bit bone weights
 };
 

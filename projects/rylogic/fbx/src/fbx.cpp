@@ -918,6 +918,9 @@ namespace pr::geometry::fbx
 			vector<uint32_t, 8> m_bones; // Ids
 			vector<float, 8> m_weights;
 		};
+		using BoneBindPoses = std::unordered_map<uint32_t, m4x4>;
+		using SkeletonBindPoses = std::unordered_map<uint32_t, BoneBindPoses>;
+		using SkeletonMeshNodes = std::unordered_map<uint32_t, ufbx_node const*>;
 		using Materials = vector<Material, 2>;
 		using Skeletons = vector<SkeletonData, 1>;
 

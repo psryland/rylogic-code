@@ -107,6 +107,24 @@ namespace pr::rdr12
 			});
 		}
 
+		struct SkinIndexRangeResult
+		{
+			int m_min;
+			int m_max;
+		};
+
+		// Return the range of skin influence indices referenced by the model vertices.
+		template <typename TVert> static SkinIndexRangeResult SkinIndexRange(std::span<TVert const> verts)
+		{
+			auto skin_index_range = SkinIndexRangeResult{ limits<int>::max(), limits<int>::min() };
+			for (auto const& vert : verts)
+			{
+				skin_index_range.m_min = std::min(skin_index_range.m_min, vert.m_idx0.x);
+				skin_index_range.m_max = std::max(skin_index_range.m_max, vert.m_idx0.x);
+			}
+			return skin_index_range.m_min <= skin_index_range.m_max ? skin_index_range : SkinIndexRangeResult{ 0, -1 };
+		}
+
 		// Generate normals for the triangle list nuggets in 'cache'
 		template <typename VType>
 		static void GenerateNormals(ModelGenerator::Cache<VType>& cache, float gen_normals)
@@ -1729,7 +1747,8 @@ namespace pr::rdr12
 						}
 					}
 
-					model->m_skin = Skin(m_factory, influences, skin.m_skel_id);
+					auto skin_index_range = model_generator::SkinIndexRange(std::span<Vert const>(m_cache.m_vcont));
+					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max);
 				}
 
 				// Store the created mesh
@@ -1956,7 +1975,8 @@ namespace pr::rdr12
 						}
 					}
 
-					model->m_skin = Skin(m_factory, influences, skin.m_skel_id);
+					auto skin_index_range = model_generator::SkinIndexRange(std::span<Vert const>(m_cache.m_vcont));
+					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max);
 				}
 
 				// Store the created mesh
