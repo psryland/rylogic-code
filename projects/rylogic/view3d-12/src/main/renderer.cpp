@@ -392,6 +392,12 @@ namespace pr::rdr12
 		return m_skinned_geometry;
 	}
 
+	// Return the latest cached current-pose bounding box for a skinned model/pose pair.
+	std::optional<BBox> Renderer::SkinnedModelBBox(Model const& model, Pose const& pose) const
+	{
+		return m_skinned_geometry.SkinnedModelBBox(model, pose);
+	}
+
 	// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.
 	HWND Renderer::DummyHwnd() const
 	{

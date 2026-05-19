@@ -117,6 +117,41 @@ namespace pr::rdr12
 		return m_revision;
 	}
 
+	// Calculate object-space skinning matrices for the current animation time without updating GPU resources.
+	void Pose::EvaluatePose(std::span<m4x4> pose) const
+	{
+		assert(isize(pose) == BoneCount() && "Pose output buffer should have one matrix per bone");
+
+		// No animator, return to the rest pose
+		if (m_animator == nullptr)
+		{
+			for (int i = 0, iend = BoneCount(); i != iend; ++i)
+				pose[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
+
+			return;
+		}
+
+		assert(m_animator->SkelId() == m_skeleton->Id() && "Skeleton mismatch");
+
+		// Read the deformed bone transforms into the buffer to start with.
+		// These are bone-to-parent transforms for each bone.
+		m_animator->Animate(pose, static_cast<float>(SrcAnimTime(m_time1)), m_flags);
+
+		// Convert the pose into object space transforms
+		m_skeleton->WalkHierarchy<m4x4>([ptr = pose.data(), &o2bp = m_skeleton->m_o2bp](int idx, m4x4 const* p2o) -> m4x4
+		{
+			// Find the deformed bone-to-object space transform
+			auto b2o = p2o ? *p2o * ptr[idx] : ptr[idx];
+
+			// Update the pose buffer with the transform that takes object space verts, transforms them to
+			// bind pose bone-relative, then from deformed bone space back to object space.
+			ptr[idx] = b2o * o2bp[idx];
+
+			// Return 'b2o' as the parent of any child bones
+			return b2o;
+		});
+	}
+
 	// Reset to the rest pose
 	void Pose::ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
 	{
@@ -125,9 +160,12 @@ namespace pr::rdr12
 		for (int i = 0, iend = BoneCount(); i != iend; ++i)
 			ptr[i] = InvertOrthonormal(m_skeleton->m_o2bp[i]);
 
-		update.Commit();
 		m_time0 = m_time1;
 		++m_revision;
+		if (PoseUpdated)
+			PoseUpdated(*this, PoseUpdatedArgs{ std::span<m4x4 const>{ptr, s_cast<size_t>(BoneCount())}, m_revision });
+
+		update.Commit();
 	}
 
 	// Update the bone transforms
@@ -151,29 +189,17 @@ namespace pr::rdr12
 		//    `os_vert = cp2o * bp2cp * o2bp * os_vert`, where cp = current-pose, and bp = bind-pose.
 		//               [ animation ] [skel]  [model]
 		auto update = UpdateSubresourceScope(cmd_list, upload_buffer, m_res.get(), alignof(m4x4), 0, BoneCount() * sizeof(m4x4));
-		auto ptr = update.ptr<m4x4>();
-		{
-			// Read the deformed bone transforms into the buffer to start with.
-			// These are bone-to-parent transforms for each bone.
-			m_animator->Animate({ ptr, s_cast<size_t>(BoneCount()) }, static_cast<float>(SrcAnimTime(m_time1)), m_flags);
-			m_time0 = m_time1;
+		auto span = std::span{update.ptr<m4x4>(), s_cast<size_t>(BoneCount()) };
 
-			// Convert the pose into object space transforms
-			m_skeleton->WalkHierarchy<m4x4>([ptr, &o2bp = m_skeleton->m_o2bp](int idx, m4x4 const* p2o) -> m4x4
-			{
-				// Find the deformed bone-to-object space transform
-				auto b2o = p2o ? *p2o * ptr[idx] : ptr[idx];
-
-				// Update the pose buffer with the transform that takes object space verts, transforms them to
-				// bind pose bone-relative, then from deformed bone space back to object space.
-				ptr[idx] = b2o * o2bp[idx];
-
-				// Return 'b2o' as the parent of any child bones
-				return b2o;
-			});
-		}
-		update.Commit();
+		EvaluatePose(span);
+		m_time0 = m_time1;
 		++m_revision;
+
+		// Notify observers that the pose has been updated. This is a synchronous call, so the pose data is valid during the call, but not after.
+		if (PoseUpdated)
+			PoseUpdated(*this, PoseUpdatedArgs{ span, m_revision });
+
+		update.Commit();
 	}
 
 	// Ref-counting clean up function

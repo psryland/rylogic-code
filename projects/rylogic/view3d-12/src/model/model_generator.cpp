@@ -125,6 +125,73 @@ namespace pr::rdr12
 			return skin_index_range.m_min <= skin_index_range.m_max ? skin_index_range : SkinIndexRangeResult{ 0, -1 };
 		}
 
+		struct SkinBoneBoundsResult
+		{
+			vector<int> m_bone_indices;
+			vector<v4> m_spheres;
+		};
+
+		// Return conservative rest-object-space bounding spheres for the bones that influence 'verts'.
+		static SkinBoneBoundsResult SkinBoneBounds(std::span<Vert const> verts, std::span<Skinfluence const> influences, m4x4 const& m2root)
+		{
+			auto max_bone_index = -1;
+			for (auto const& influence : influences)
+			{
+				for (int i = 0; i != _countof(Skinfluence::m_bones); ++i)
+				{
+					if (influence.m_weights[i] == 0)
+						continue;
+
+					max_bone_index = std::max(max_bone_index, static_cast<int>(static_cast<uint16_t>(influence.m_bones[i])));
+				}
+			}
+
+			vector<BBox> bone_bounds(max_bone_index + 1, BBox::Reset());
+			for (auto const& vert : verts)
+			{
+				auto skin_index = vert.m_idx0.x;
+				if (skin_index < 0)
+					continue;
+
+				if (skin_index >= isize(influences))
+				{
+					assert(false && "Vertex skin index exceeds the skin influence buffer");
+					continue;
+				}
+
+				auto const& influence = influences[skin_index];
+				auto pos = m2root * vert.m_vert;
+				for (int i = 0; i != _countof(Skinfluence::m_bones); ++i)
+				{
+					if (influence.m_weights[i] == 0)
+						continue;
+
+					auto bone_index = static_cast<int>(static_cast<uint16_t>(influence.m_bones[i]));
+					if (bone_index >= isize(bone_bounds))
+					{
+						assert(false && "Bone index exceeds the skin bone-bound buffer");
+						continue;
+					}
+
+					bone_bounds[bone_index].Grow(pos);
+				}
+			}
+
+			SkinBoneBoundsResult result;
+			for (int bone_index = 0, bone_index_end = isize(bone_bounds); bone_index != bone_index_end; ++bone_index)
+			{
+				auto const& bbox = bone_bounds[bone_index];
+				if (!bbox.valid())
+					continue;
+
+				auto sphere = bbox.m_centre;
+				sphere.w = Length(bbox.m_radius);
+				result.m_bone_indices.push_back(bone_index);
+				result.m_spheres.push_back(sphere);
+			}
+			return result;
+		}
+
 		// Generate normals for the triangle list nuggets in 'cache'
 		template <typename VType>
 		static void GenerateNormals(ModelGenerator::Cache<VType>& cache, float gen_normals)
@@ -1748,7 +1815,8 @@ namespace pr::rdr12
 					}
 
 					auto skin_index_range = model_generator::SkinIndexRange(std::span<Vert const>(m_cache.m_vcont));
-					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max);
+					auto skin_bone_bounds = model_generator::SkinBoneBounds(std::span<Vert const>(m_cache.m_vcont), influences, m_cache.m_m2root);
+					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max, skin_bone_bounds.m_bone_indices, skin_bone_bounds.m_spheres);
 				}
 
 				// Store the created mesh
@@ -1976,7 +2044,8 @@ namespace pr::rdr12
 					}
 
 					auto skin_index_range = model_generator::SkinIndexRange(std::span<Vert const>(m_cache.m_vcont));
-					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max);
+					auto skin_bone_bounds = model_generator::SkinBoneBounds(std::span<Vert const>(m_cache.m_vcont), influences, m_cache.m_m2root);
+					model->m_skin = Skin(m_factory, influences, skin.m_skel_id, skin_index_range.m_min, skin_index_range.m_max, skin_bone_bounds.m_bone_indices, skin_bone_bounds.m_spheres);
 				}
 
 				// Store the created mesh

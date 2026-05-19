@@ -8,6 +8,13 @@
 
 namespace pr::rdr12
 {
+	// Arguments for the PoseUpdated event.
+	struct PoseUpdatedArgs
+	{
+		std::span<m4x4 const> m_pose; // Object-space skinning matrices. Valid only during the synchronous event call.
+		uint64_t m_revision;          // The pose revision represented by 'm_pose'
+	};
+
 	// A runtime version of a skeleton
 	struct Pose : RefCounted<Pose>
 	{
@@ -50,11 +57,17 @@ namespace pr::rdr12
 		// Return a value that changes whenever the GPU pose buffer changes.
 		uint64_t Revision() const;
 
+		// Calculate object-space skinning matrices for the current animation time without updating GPU resources.
+		void EvaluatePose(std::span<m4x4> pose) const;
+
 		// Reset to the rest pose
 		void ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer);
 
 		// Update the bone transforms
 		void Update(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer);
+    
+		// Raised after CPU pose matrices are calculated.
+		EventHandler<Pose&, PoseUpdatedArgs const&, true> PoseUpdated;
 
 		// Ref-counting clean up function
 		static void RefCountZero(RefCounted<Pose>* doomed);

@@ -529,7 +529,10 @@ namespace Rylogic.Gui.WPF
 		public event EventHandler<ReportErrorEventArgs>? ReportError;
 		protected virtual void OnReportError(ReportErrorEventArgs e)
 		{
-			ReportError?.Invoke(this, e);
+			if (ReportError != null)
+				ReportError?.Invoke(this, e);
+			else
+				throw new Exception(e.Message);
 		}
 
 		/// <summary>Default handling of render target changes. Set the viewport and camera aspect</summary>

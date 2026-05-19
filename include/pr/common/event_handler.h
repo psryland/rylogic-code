@@ -91,13 +91,22 @@ namespace pr
 			AutoSub(AutoSub const& rhs) = delete;
 			AutoSub& operator =(AutoSub&& rhs) noexcept
 			{
-				if (this == &rhs) return *this;
+				if (this == &rhs)
+					return *this;
+
+				reset();
 				m_sub = rhs.m_sub;
 				rhs.m_sub = Sub();
 				return *this;
 			}
 			AutoSub& operator = (AutoSub const& rhs) = delete;
 			~AutoSub()
+			{
+				reset();
+			}
+
+			// Unsubscribe the current subscription, if any.
+			void reset()
 			{
 				if (m_sub.m_mc != nullptr)
 					m_sub.m_mc->unsubscribe(m_sub);

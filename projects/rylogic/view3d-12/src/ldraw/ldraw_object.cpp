@@ -200,8 +200,15 @@ namespace pr::rdr12::ldraw
 		// Add the bbox instance to the scene draw list
 		if (m_model && !is_hidden)
 		{
+			// If the model is skinned, then we need to get the skinned bbox, which is in the pose of the current animation time.
+			auto skinned_bbox = m_pose && m_model->m_skin
+				? m_model->rdr().SkinnedModelBBox(*m_model.get(), *m_pose.get())
+				: std::optional<BBox>{};
+
+			auto bbox = skinned_bbox ? *skinned_bbox : m_model->m_bbox;
+
 			// Get the 'bbox to world' transform
-			auto bbox2w = BBoxTransform(m_model->m_bbox);       // Transform points in a unit cube into "model verts" space
+			auto bbox2w = BBoxTransform(bbox);       // Transform points in a unit cube into "model verts" space
 			bbox2w = m_model->m_m2root * bbox2w;                // Transform points in "model_verts" space to model_origin space
 			if (m_pose) bbox2w = m_pose->RootToAnim() * bbox2w; // Transform points in "model_origin" space to the animated position of the model origin
 			bbox2w = i2w * bbox2w;                              // Transform points in the animated position of the model origin to world space
@@ -813,14 +820,31 @@ namespace pr::rdr12::ldraw
 
 		// Start with the bbox for this object
 		auto obj_bbox = BBox::Reset();
-		if (m_model != nullptr && m_model->m_bbox.valid() && !AnySet(ldr_flags, ELdrFlags::BBoxExclude) && pred(*this)) // Get the bbox from the graphics model
+		if (m_model != nullptr && !AnySet(ldr_flags, ELdrFlags::BBoxExclude) && pred(*this)) // Get the bbox from the graphics model
 		{
-			// Transform the bbox into LdrObject-local space
-			auto m2base = o2base;
-			if (m_pose) m2base *= m_pose->RootToAnim();
-			m2base *= m_model->m_m2root;
+			auto bbox = BBox::Reset();
 
-			auto bbox = IsAffine(m2base) ? (m2base * m_model->m_bbox) : MulNonAffine(m2base, m_model->m_bbox);
+			// If the model is skinned, then we need to get the skinned bbox, which is in the pose of the current animation time.
+			auto skinned_bbox = m_pose && m_model->m_skin
+				? m_model->rdr().SkinnedModelBBox(*m_model.get(), *m_pose.get())
+				: std::optional<BBox>{};
+
+			// Transform the bbox into LdrObject-local space.
+			if (skinned_bbox)
+			{
+				bbox = IsAffine(o2base) ? (o2base * *skinned_bbox) : MulNonAffine(o2base, *skinned_bbox);
+			}
+
+			// Fallback to the static bbox if the model
+			else if (m_model->m_bbox.valid())
+			{
+				auto m2base = o2base;
+				if (m_pose) m2base *= m_pose->RootToAnim();
+				m2base *= m_model->m_m2root;
+
+				bbox = IsAffine(m2base) ? (m2base * m_model->m_bbox) : MulNonAffine(m2base, m_model->m_bbox);
+			}
+
 			Grow(obj_bbox, bbox);
 		}
 

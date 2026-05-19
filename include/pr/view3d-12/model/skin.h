@@ -20,16 +20,18 @@ namespace pr::rdr12
 		using Descriptor = ::pr::compute::Descriptor;
 
 		// See description in "animation.h"
-		D3DPtr<ID3D12Resource> m_res; // Buffer of 'Skinfluence[]'
-		Descriptor m_srv;             // SRV of the skin influence buffer
-		uint32_t m_skel_id;           // The skeleton that this skin is matched with.
-		int m_influence_count;        // The number of influence records in 'm_res'
-		int m_max_bone_index;         // The maximum bone index referenced by the packed influence data
-		int m_min_skin_index;         // The minimum influence index referenced by the model vertices. Can be -1 for dead vertices.
-		int m_max_skin_index;         // The maximum influence index referenced by the model vertices
+		D3DPtr<ID3D12Resource> m_res;     // Buffer of 'Skinfluence[]'
+		Descriptor m_srv;                 // SRV of the skin influence buffer
+		uint32_t m_skel_id;               // The skeleton that this skin is matched with.
+		int m_influence_count;            // The number of influence records in 'm_res'
+		int m_max_bone_index;             // The maximum bone index referenced by the packed influence data
+		int m_min_skin_index;             // The minimum influence index referenced by the model vertices. Can be -1 for dead vertices.
+		int m_max_skin_index;             // The maximum influence index referenced by the model vertices
+		vector<int> m_bound_bone_indices; // The active bones with skinned-bound spheres
+		vector<v4> m_bound_spheres;       // Bone-bound spheres in rest object space. xyz = centre, w = radius
 
 		Skin();
-		Skin(ResourceFactory& factory, std::span<Skinfluence const> verts, uint32_t skel_id, int min_skin_index, int max_skin_index);
+		Skin(ResourceFactory& factory, std::span<Skinfluence const> verts, uint32_t skel_id, int min_skin_index, int max_skin_index, std::span<int const> bound_bone_indices = {}, std::span<v4 const> bound_spheres = {});
 
 		// True if 'has skin'
 		explicit operator bool() const

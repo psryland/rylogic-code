@@ -109,10 +109,11 @@ namespace LDraw
 						Sources.RemoveAll(x => old.ContainsKey(x.ContextId));
 
 						// Automatically add new sources to the first scene
+						var reset_view = Profile.ResetOnLoad && e.ChangeFlags.HasFlag(View3d.EStoreChangeFlags.ObjectsAdded);
 						foreach (var s in nue.Values)
 						{
 							if (!s.SelectedScenes.Any())
-								s.ShowInScenes(s.AvailableScenes.Take(1), true);
+								s.ShowInScenes(s.AvailableScenes.Take(1), true, reset_view);
 						}
 
 						// Add the new scene to the sources list
@@ -383,12 +384,15 @@ namespace LDraw
 				// Progress events are fired from this thread and marshaled to the UI thread.
 				View3d.LoadScriptFromFile(filepath, context_id: ctx_id, add_completed: (id, before) =>
 				{
-					if (before) return;
+					if (before)
+						return;
 
-					// 'add_completed' fires on the main thread after SourceNotifyHandler has
-					// merged results, so 'Sources' should now contain the new source.
-					var src = Sources.FirstOrDefault(x => x.ContextId == id);
-					src?.ShowInScenes(target_scenes, true, reset_view: true);
+					// Queue behind the store-change event that updates 'Sources'.
+					Sync.Post(_ =>
+					{
+						var src = Sources.FirstOrDefault(x => x.ContextId == id);
+						src?.ShowInScenes(target_scenes, true, reset_view: true);
+					}, null);
 				});
 			});
 		}

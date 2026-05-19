@@ -26,11 +26,11 @@ namespace pr::rdr12
 	// Create the shared skinned-geometry compute cache.
 	SkinnedGeometryCache::SkinnedGeometryCache(Renderer& rdr)
 		: m_rdr(rdr)
-		, m_mutex()
 		, m_model_deleted(rdr.store().ModelDeleted += std::bind(&SkinnedGeometryCache::OnModelDeleted, this, _1, _2))
 		, m_cache()
 		, m_signature()
 		, m_pso()
+		, m_mutex()
 	{
 		auto device = rdr.d3d();
 
@@ -79,9 +79,6 @@ namespace pr::rdr12
 
 		std::lock_guard lock(m_mutex);
 
-		// Update the pose transforms
-		pose->Update(cmd_list, upload_buffer);
-
 		// Get/Create a cache entry for this model/pose pair.
 		auto key = Key{ &model, pose.get() };
 		auto [iter, added] = m_cache.try_emplace(key);
@@ -95,8 +92,11 @@ namespace pr::rdr12
 				ReleaseEntry(entry);
 
 			// Create a new entry for this model/pose pair.
-			entry = CreateEntry(model, pose);
+			InitialiseEntry(entry, model, pose);
 		}
+
+		// Update the pose transforms. This also updates cached skinned bboxes via the synchronous PoseUpdated event.
+		pose->Update(cmd_list, upload_buffer);
 
 		BarrierBatch barriers(cmd_list);
 
@@ -152,6 +152,17 @@ namespace pr::rdr12
 		return *VBuf(cmd_list, upload_buffer, model, pose).m_view;
 	}
 
+	// Return the latest cached current-pose bounding box for 'model' at 'pose'.
+	std::optional<BBox> SkinnedGeometryCache::SkinnedModelBBox(Model const& model, Pose const& pose) const
+	{
+		std::lock_guard lock(m_mutex);
+
+		auto iter = m_cache.find(Key{ &model, &pose });
+		return iter != end(m_cache)
+			? iter->second.m_bbox
+			: std::nullopt;
+	}
+
 	// Remove cached geometry for 'model'.
 	void SkinnedGeometryCache::Invalidate(Model const& model)
 	{
@@ -169,8 +180,8 @@ namespace pr::rdr12
 		}
 	}
 
-	// Create the compute output buffer for a skinned model/pose pair.
-	SkinnedGeometryCache::Entry SkinnedGeometryCache::CreateEntry(Model& model, PosePtr const& pose)
+	// Initialise the compute output buffer and bbox subscription for a skinned model/pose pair.
+	void SkinnedGeometryCache::InitialiseEntry(Entry& entry, Model& model, PosePtr const& pose)
 	{
 		auto desc = ResDesc::VBuf<Vert>(model.m_vcount, {}).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_COMMON);
 		
@@ -191,23 +202,74 @@ namespace pr::rdr12
 			.StrideInBytes = sizeof(Vert),
 		};
 
-		// Return the cache entry
-		return Entry{
-			.m_vb = std::move(vb),
-			.m_vb_view = vb_view,
-			.m_pose = pose,
-			.m_pose_revision = ~0ULL,
-			.m_vcount = model.m_vcount,
-		};
+		entry.m_vb = std::move(vb);
+		entry.m_vb_view = vb_view;
+		entry.m_pose = pose;
+		entry.m_pose_revision = ~0ULL;
+		entry.m_bbox.reset();
+		entry.m_bbox_revision = ~0ULL;
+		entry.m_vcount = model.m_vcount;
+
+		auto* entry_ptr = &entry;
+		auto* model_ptr = &model;
+		entry.m_pose_updated = AutoSub(pose->PoseUpdated += [this, entry_ptr, model_ptr](Pose&, PoseUpdatedArgs const& args)
+		{
+			UpdateBBox(*entry_ptr, *model_ptr, args);
+		});
+
+		vector<m4x4> pose_matrices(pose->BoneCount());
+		pose->EvaluatePose(pose_matrices);
+		UpdateBBox(entry, model, PoseUpdatedArgs{ pose_matrices, pose->Revision() });
+	}
+
+	// Update the cached current-pose bounding box for a skinned model/pose pair.
+	void SkinnedGeometryCache::UpdateBBox(Entry& entry, Model const& model, PoseUpdatedArgs const& args)
+	{
+		auto const& bone_indices = model.m_skin.m_bound_bone_indices;
+		auto const& bone_spheres = model.m_skin.m_bound_spheres;
+		assert(bone_indices.size() == bone_spheres.size() && "Skinned bbox bone index/sphere arrays should be parallel");
+
+		auto bbox = BBox::Reset();
+		for (int i = 0, iend = isize(bone_spheres); i != iend; ++i)
+		{
+			auto bone_index = bone_indices[i];
+			if (bone_index < 0 || bone_index >= isize(args.m_pose))
+			{
+				assert(false && "Skinned bbox bone index exceeds the pose buffer");
+				continue;
+			}
+
+			auto const& pose = args.m_pose[bone_index];
+			auto sphere = bone_spheres[i];
+			auto centre = sphere.w1();
+			centre = pose * centre;
+
+			auto scale_x = Length(pose.x.xyz);
+			auto scale_y = Length(pose.y.xyz);
+			auto scale_z = Length(pose.z.xyz);
+			auto radius = sphere.w * std::max(scale_x, std::max(scale_y, scale_z)) * 1.05f;
+			auto radius3 = v4{ radius, radius, radius, 0 };
+
+			bbox.Grow(centre + radius3);
+			bbox.Grow(centre - radius3);
+		}
+
+		entry.m_bbox = bbox.valid()
+			? std::optional<BBox>{ bbox }
+			: std::nullopt;
+		entry.m_bbox_revision = args.m_revision;
 	}
 
 	// Defer-release resources owned by a cache entry.
 	void SkinnedGeometryCache::ReleaseEntry(Entry& entry)
 	{
+		entry.m_pose_updated.reset();
 		m_rdr.DeferRelease(entry.m_vb);
 		entry.m_vb = nullptr;
 		entry.m_pose = nullptr;
 		entry.m_pose_revision = ~0ULL;
+		entry.m_bbox.reset();
+		entry.m_bbox_revision = ~0ULL;
 		entry.m_vcount = 0;
 	}
 

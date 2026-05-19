@@ -8,6 +8,8 @@
 
 namespace pr::rdr12
 {
+	struct PoseUpdatedArgs;
+
 	// Shared GPU-computed current-pose vertex buffers for skinned models.
 	struct SkinnedGeometryCache
 	{
@@ -32,7 +34,10 @@ namespace pr::rdr12
 			D3DPtr<ID3D12Resource> m_vb;
 			D3D12_VERTEX_BUFFER_VIEW m_vb_view;
 			PosePtr m_pose;
+			AutoSub m_pose_updated;
+			std::optional<BBox> m_bbox;
 			uint64_t m_pose_revision;
+			uint64_t m_bbox_revision;
 			int64_t m_vcount;
 		};
 		struct CBufSkinning
@@ -56,11 +61,11 @@ namespace pr::rdr12
 		};
 
 		Renderer& m_rdr;
-		std::mutex m_mutex;
 		AutoSub m_model_deleted;
 		std::unordered_map<Key, Entry, KeyHash> m_cache;
 		D3DPtr<ID3D12RootSignature> m_signature;
 		D3DPtr<ID3D12PipelineState> m_pso;
+		mutable std::mutex m_mutex;
 
 	public:
 
@@ -84,13 +89,19 @@ namespace pr::rdr12
 		// Return the vertex buffer that represents 'model' at 'pose', dispatching compute work only when the cached pose is stale.
 		D3D12_VERTEX_BUFFER_VIEW const& VBufView(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose);
 
+		// Return the latest cached current-pose bounding box for 'model' at 'pose'.
+		std::optional<BBox> SkinnedModelBBox(Model const& model, Pose const& pose) const;
+
 		// Remove cached geometry for 'model' because its rest-pose geometry or skinning data has changed.
 		void Invalidate(Model const& model);
 
 	private:
 
-		// Create the compute output buffer for a cache entry.
-		Entry CreateEntry(Model& model, PosePtr const& pose);
+		// Initialise a compute output buffer and bbox subscription for a cache entry.
+		void InitialiseEntry(Entry& entry, Model& model, PosePtr const& pose);
+
+		// Update the cached current-pose bounding box for 'entry'.
+		void UpdateBBox(Entry& entry, Model const& model, PoseUpdatedArgs const& args);
 
 		// Release the GPU resources owned by 'entry' after the renderer has finished using them.
 		void ReleaseEntry(Entry& entry);
