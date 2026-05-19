@@ -1272,24 +1272,61 @@ namespace pr::geometry::fbx
 			ufbx_node const* root = nullptr;
 			influences.resize(fbxmesh.num_vertices);
 
-			// Get the skinning data for this mesh
-			for (size_t  d = 0; d != fbxmesh.skin_deformers.count; ++d)
+			// Get the skinning data for this mesh. Use the ufbx per-vertex table because it is safe for the mesh and sorted by weight.
+			for (size_t d = 0; d != fbxmesh.skin_deformers.count; ++d)
 			{
 				auto const& fbxskin = *fbxmesh.skin_deformers[d];
-				for (size_t c = 0; c != fbxskin.clusters.count; ++c)
+				for (auto const& cluster_ptr : fbxskin.clusters)
 				{
-					auto const& cluster = *fbxskin.clusters[c];
-					if (cluster.num_weights == 0)
+					if (cluster_ptr->bone_node == nullptr || cluster_ptr->bone_node->bone == nullptr)
 						continue;
 
-					// Get the bone that influences this cluster
-					auto const* fbxbone = cluster.bone_node;
-					root = root ? root : BoneRoot(fbxbone);
+					root = root ? root : BoneRoot(cluster_ptr->bone_node);
+				}
+				if (fbxskin.vertices.count == fbxmesh.num_vertices)
+				{
+					for (size_t vidx = 0; vidx != fbxskin.vertices.count; ++vidx)
+					{
+						auto const& fbxvert = fbxskin.vertices[vidx];
+						for (uint32_t w = 0; w != fbxvert.num_weights; ++w)
+						{
+							auto weight_idx = fbxvert.weight_begin + w;
+							if (weight_idx >= fbxskin.weights.count)
+								throw std::runtime_error("Invalid FBX skin weight index");
 
-					// Get the span of vert indices and weights
+							auto const& fbxweight = fbxskin.weights[weight_idx];
+							if (fbxweight.cluster_index >= fbxskin.clusters.count)
+								throw std::runtime_error("Invalid FBX skin cluster index");
+
+							auto const& cluster = *fbxskin.clusters[fbxweight.cluster_index];
+							auto const* fbxbone = cluster.bone_node;
+							if (fbxbone == nullptr || fbxbone->bone == nullptr)
+								continue;
+
+							auto weight = s_cast<float>(fbxweight.weight);
+							auto bone_id = fbxbone->bone->typed_id;
+
+							influences[vidx].m_bones.push_back(bone_id);
+							influences[vidx].m_weights.push_back(weight);
+						}
+					}
+					continue;
+				}
+
+				// Fall back to raw cluster weights if the per-vertex skin table was not generated.
+				for (auto const& cluster_ptr : fbxskin.clusters)
+				{
+					auto const& cluster = *cluster_ptr;
+					auto const* fbxbone = cluster.bone_node;
+					if (fbxbone == nullptr || fbxbone->bone == nullptr || cluster.num_weights == 0)
+						continue;
+
 					for (int w = 0; w != cluster.num_weights; ++w)
 					{
 						auto vidx = cluster.vertices[w];
+						if (vidx >= influences.size())
+							throw std::runtime_error("Invalid FBX skin vertex index");
+
 						auto weight = s_cast<float>(cluster.weights[w]);
 						auto bone_id = fbxbone->bone->typed_id;
 
@@ -1322,6 +1359,228 @@ namespace pr::geometry::fbx
 			skin.m_offsets.push_back(count);
 		}
 
+		// Return the inverse bind-pose matrices stored on skin clusters, grouped by skeleton root then bone id.
+		SkeletonBindPoses ReadClusterBindPoses() const
+		{
+			SkeletonBindPoses bind_poses;
+			for (auto const* fbxmesh : m_fbxscene.meshes)
+			{
+				for (auto const* fbxskin : fbxmesh->skin_deformers)
+				{
+					for (auto const* cluster : fbxskin->clusters)
+					{
+						auto const* node = cluster->bone_node;
+						if (node == nullptr || node->bone == nullptr)
+							continue;
+
+						auto const* root = BoneRoot(node);
+						auto root_id = root->typed_id;
+						auto bone_id = node->bone->typed_id;
+						auto o2bp = To<m4x4>(cluster->geometry_to_bone);
+
+						auto& bone_bind_poses = bind_poses[root_id];
+						auto [iter, inserted] = bone_bind_poses.try_emplace(bone_id, o2bp);
+						if (!inserted && !FEqlAbsolute(iter->second, o2bp, 1.0e-4f))
+							throw std::runtime_error("Inconsistent FBX skin cluster bind poses");
+					}
+				}
+			}
+			return bind_poses;
+		}
+
+		// Return the mesh node that defines the object space for each skinned skeleton.
+		SkeletonMeshNodes ReadSkeletonMeshNodes() const
+		{
+			SkeletonMeshNodes mesh_nodes;
+			for (auto const* fbxmesh : m_fbxscene.meshes)
+			{
+				if (fbxmesh->instances.count == 0)
+					continue;
+
+				for (auto const* fbxskin : fbxmesh->skin_deformers)
+				{
+					for (auto const* cluster : fbxskin->clusters)
+					{
+						auto const* node = cluster->bone_node;
+						if (node == nullptr || node->bone == nullptr)
+							continue;
+
+						auto const* root = BoneRoot(node);
+						auto root_id = root->typed_id;
+						for (auto const* mesh_node : fbxmesh->instances)
+						{
+							auto [iter, inserted] = mesh_nodes.try_emplace(root_id, mesh_node);
+							if (!inserted && !FEqlAbsolute(To<m4x4>(iter->second->node_to_world), To<m4x4>(mesh_node->node_to_world), 1.0e-4f))
+								throw std::runtime_error("FBX skeleton is shared by meshes in different object spaces");
+						}
+					}
+				}
+			}
+			return mesh_nodes;
+		}
+
+		// Return true if the animation/property lookup found a value.
+		static bool PropFound(ufbx_prop const& prop)
+		{
+			return (prop.flags & UFBX_PROP_FLAG_NOT_FOUND) == 0;
+		}
+
+		// Return 'prop.value_vec3' unless the animation/property lookup failed, then use 'fallback'.
+		static ufbx_vec3 PropVec3(ufbx_prop const& prop, ufbx_vec3 fallback)
+		{
+			return PropFound(prop) ? prop.value_vec3 : fallback;
+		}
+
+		// True if 'node' is within the skeleton subtree rooted at 'root'.
+		static bool IsBoneDescendantOf(ufbx_node const* node, ufbx_node const* root)
+		{
+			for (auto const* bone = node; bone != nullptr && bone->bone != nullptr; bone = bone->parent)
+			{
+				if (bone == root)
+					return true;
+			}
+			return false;
+		}
+
+		// Evaluate the raw FBX local TRS properties for a bone without ufbx's pre/post rotation folding.
+		ufbx_transform EvaluateRawBoneLocalTransform(ufbx_anim const& fbxanim, ufbx_node const* node, double time) const
+		{
+			auto translation = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Translation, time);
+			auto rotation = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Rotation, time);
+			auto scaling = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Scaling, time);
+
+			if (!PropFound(translation) && !PropFound(rotation) && !PropFound(scaling))
+				return node->local_transform;
+
+			ufbx_transform transform = {};
+			transform.translation = PropVec3(translation, ufbx_find_vec3(&node->props, UFBX_Lcl_Translation, { 0.0, 0.0, 0.0 }));
+			transform.rotation = ufbx_euler_to_quat(PropVec3(rotation, ufbx_find_vec3(&node->props, UFBX_Lcl_Rotation, { 0.0, 0.0, 0.0 })), node->rotation_order);
+			transform.scale = PropVec3(scaling, ufbx_find_vec3(&node->props, UFBX_Lcl_Scaling, { 1.0, 1.0, 1.0 }));
+			return transform;
+		}
+
+		// Evaluate the node local transform, using SDK-style raw TRS only for the animated bone subtree.
+		ufbx_transform EvaluateNodeLocalTransform(ufbx_anim const& fbxanim, ufbx_node const* node, ufbx_node const* raw_bone_root, double time) const
+		{
+			if (raw_bone_root != nullptr && IsBoneDescendantOf(node, raw_bone_root))
+				return EvaluateRawBoneLocalTransform(fbxanim, node, time);
+
+			return ufbx_evaluate_transform(&fbxanim, node, time);
+		}
+
+		// Return a translation matrix for 'translation'.
+		static ufbx_matrix Translation(ufbx_vec3 translation)
+		{
+			ufbx_transform transform = {};
+			transform.translation = translation;
+			transform.rotation = { 0.0, 0.0, 0.0, 1.0 };
+			transform.scale = { 1.0, 1.0, 1.0 };
+			return ufbx_transform_to_matrix(&transform);
+		}
+
+		// Return a rotation matrix for 'rotation'.
+		static ufbx_matrix Rotation(ufbx_quat rotation)
+		{
+			ufbx_transform transform = {};
+			transform.translation = { 0.0, 0.0, 0.0 };
+			transform.rotation = rotation;
+			transform.scale = { 1.0, 1.0, 1.0 };
+			return ufbx_transform_to_matrix(&transform);
+		}
+
+		// Return a scale matrix for 'scale'.
+		static ufbx_matrix Scaling(ufbx_vec3 scale)
+		{
+			ufbx_transform transform = {};
+			transform.translation = { 0.0, 0.0, 0.0 };
+			transform.rotation = { 0.0, 0.0, 0.0, 1.0 };
+			transform.scale = scale;
+			return ufbx_transform_to_matrix(&transform);
+		}
+
+		// Evaluate a node-to-world transform at animation time using FBX SDK-style inheritance.
+		ufbx_matrix EvaluateNodeToWorld(ufbx_anim const& fbxanim, ufbx_node const* node, ufbx_node const* raw_bone_root, double time) const
+		{
+			auto local = EvaluateNodeLocalTransform(fbxanim, node, raw_bone_root, time);
+			auto local_translation = Translation(local.translation);
+			auto local_rotation = Rotation(local.rotation);
+			auto local_scaling = Scaling(local.scale);
+			if (node->parent == nullptr)
+			{
+				auto n2w = ufbx_matrix_mul(&local_translation, &local_rotation);
+				return ufbx_matrix_mul(&n2w, &local_scaling);
+			}
+
+			auto p2w = EvaluateNodeToWorld(fbxanim, node->parent, raw_bone_root, time);
+			auto parent_transform = ufbx_matrix_to_transform(&p2w);
+			auto parent_translation = Translation(parent_transform.translation);
+			auto parent_rotation = Rotation(parent_transform.rotation);
+			auto parent_translation_inv = ufbx_matrix_invert(&parent_translation);
+			auto parent_rotation_inv = ufbx_matrix_invert(&parent_rotation);
+			auto parent_grsm = ufbx_matrix_mul(&parent_translation_inv, &p2w);
+			auto parent_gsm = ufbx_matrix_mul(&parent_rotation_inv, &parent_grsm);
+
+			ufbx_matrix global_rs = {};
+			switch (node->original_inherit_mode)
+			{
+				case UFBX_INHERIT_MODE_NORMAL:
+				{
+					global_rs = ufbx_matrix_mul(&parent_rotation, &parent_gsm);
+					global_rs = ufbx_matrix_mul(&global_rs, &local_rotation);
+					global_rs = ufbx_matrix_mul(&global_rs, &local_scaling);
+					break;
+				}
+				case UFBX_INHERIT_MODE_IGNORE_PARENT_SCALE:
+				{
+					auto parent_local = EvaluateNodeLocalTransform(fbxanim, node->parent, raw_bone_root, time);
+					auto parent_local_scale = Scaling(parent_local.scale);
+					auto parent_local_scale_inv = ufbx_matrix_invert(&parent_local_scale);
+					auto parent_gsm_no_local = ufbx_matrix_mul(&parent_gsm, &parent_local_scale_inv);
+					global_rs = ufbx_matrix_mul(&parent_rotation, &local_rotation);
+					global_rs = ufbx_matrix_mul(&global_rs, &parent_gsm_no_local);
+					global_rs = ufbx_matrix_mul(&global_rs, &local_scaling);
+					break;
+				}
+				case UFBX_INHERIT_MODE_COMPONENTWISE_SCALE:
+				{
+					global_rs = ufbx_matrix_mul(&parent_rotation, &local_rotation);
+					global_rs = ufbx_matrix_mul(&global_rs, &parent_gsm);
+					global_rs = ufbx_matrix_mul(&global_rs, &local_scaling);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown FBX node inheritance mode");
+				}
+			}
+
+			auto global_translation = ufbx_transform_position(&p2w, local.translation);
+			auto global_translation_matrix = Translation(global_translation);
+			return ufbx_matrix_mul(&global_translation_matrix, &global_rs);
+		}
+
+		// Evaluate a bone transform in the mesh-local space used by skin cluster bind matrices.
+		ufbx_matrix EvaluateBoneToMesh(ufbx_anim const& fbxanim, ufbx_node const* root, ufbx_node const* bone_node, ufbx_node const* mesh_node, double time) const
+		{
+			auto b2w = EvaluateNodeToWorld(fbxanim, bone_node, root, time);
+			auto m2w = EvaluateNodeToWorld(fbxanim, mesh_node, nullptr, time);
+			auto w2m = ufbx_matrix_invert(&m2w);
+			return ufbx_matrix_mul(&w2m, &b2w);
+		}
+
+		// Evaluate a bone track transform in the hierarchy space expected by the runtime pose system.
+		ufbx_transform EvaluateBoneTrackTransform(ufbx_anim const& fbxanim, ufbx_node const* root, ufbx_node const* node, ufbx_node const* mesh_node, double time) const
+		{
+			auto b2m = EvaluateBoneToMesh(fbxanim, root, node, mesh_node, time);
+			if (node == root || node->parent == nullptr || node->parent->bone == nullptr)
+				return ufbx_matrix_to_transform(&b2m);
+
+			auto p2m = EvaluateBoneToMesh(fbxanim, root, node->parent, mesh_node, time);
+			auto m2p = ufbx_matrix_invert(&p2m);
+			auto b2p = ufbx_matrix_mul(&m2p, &b2m);
+			return ufbx_matrix_to_transform(&b2p);
+		}
+
 		// Read skeletons from the FBX scene
 		void ReadSkeletons()
 		{
@@ -1348,6 +1607,8 @@ namespace pr::geometry::fbx
 			std::unordered_map<ufbx_node const*, ufbx_bone_pose const*> bind_pose;
 			bind_pose.reserve(m_fbxscene.bones.count);
 
+			auto const cluster_bind_poses = ReadClusterBindPoses();
+
 			// Build a skeleton from each root bone
 			auto roots = FindRoots(m_fbxscene.bones, IsBoneRoot);
 			for (auto const*& root : roots)
@@ -1373,13 +1634,18 @@ namespace pr::geometry::fbx
 						bind_pose[pose.bone_node] = &pose;
 				}
 
-				// ???
+				// Bind poses are given in scene-world space. Convert them into the object space that contains the skeleton root.
 				auto coord_bake = m4x4::Identity();
 				if (root->parent != nullptr)
 					coord_bake = Invert(To<m4x4>(root->parent->node_to_world));
 
+				auto const cluster_bind_pose =
+					cluster_bind_poses.contains(root->typed_id) ?
+					&cluster_bind_poses.at(root->typed_id) :
+					nullptr;
+
 				// Walk the bone hierarchy creating the skeleton
-				WalkHierarchy(root, [&skel, root, &bind_pose, &coord_bake](ufbx_node const* node)
+				WalkHierarchy(root, [&skel, root, &bind_pose, &coord_bake, cluster_bind_pose](ufbx_node const* node)
 				{
 					if (node->bone == nullptr)
 						return false;
@@ -1388,34 +1654,32 @@ namespace pr::geometry::fbx
 					auto name = To<std::string_view>(node->name);
 					auto level = s_cast<int>(node->node_depth - root->node_depth);
 
-					// Notes:
-					//  - World space == object space for this description.
-					//  - Geometry and bones are built independently of each other. Then, clusters are used
-					//    to define which verts are influenced by which bones.
-					//  - A skeleton just records the bone-to-world transforms for each bone (as world-to-bone actually).
-					//  - A bind pose just allows the skeleton to be built in a different position, then moved
-					//    to match the geometry.
-					//  - At rendering time, and animation sets the transforms for each bone (parent relative).
-					//    We need to apply the change in bone positions to the verts that are influenced by each bone.
-					//  - 'cluster.geometry_to_bone' == 'Invert(bind_pose.bone_to_parent)'
-					m4x4 bp2o;
-					if (auto iter = bind_pose.find(node); iter != bind_pose.end())
+					m4x4 o2bp;
+					if (cluster_bind_pose != nullptr && cluster_bind_pose->contains(bone_id))
 					{
-						bp2o = To<m4x4>(iter->second->bone_to_world);
+						// The cluster bind matrix is the authoritative transform from mesh/object-space vertices to bind-pose bone space.
+						// It is already in the same space as the mesh vertices read above, so do not apply the scene-world coord bake here.
+						// Some files have skeleton bind poses that do not match the skin clusters.
+						o2bp = cluster_bind_pose->at(bone_id);
 					}
 					else
 					{
-						bp2o = To<m4x4>(node->node_to_world);
+						// Fall back to the skeleton/node bind transform for bones that don't directly influence any vertices.
+						m4x4 bp2o;
+						if (auto iter = bind_pose.find(node); iter != bind_pose.end())
+						{
+							bp2o = To<m4x4>(iter->second->bone_to_world);
+						}
+						else
+						{
+							bp2o = To<m4x4>(node->node_to_world);
+						}
+
+						bp2o = coord_bake * bp2o;
+						o2bp = IsOrthonormal(bp2o)
+							? InvertOrthonormal(bp2o)
+							: Invert(bp2o);
 					}
-
-					bp2o = coord_bake * bp2o;
-
-					// Object space to bind pose. Bind pose just means the rest shape of the skeleton (aka T pose)
-					// The o2bp transforms are used to take verts in object space and make them bone relative.
-					// At runtime, a pose contains transforms: currentpose-to-world * bindpose-to-currentpose
-					auto o2bp = IsOrthonormal(bp2o)
-						? InvertOrthonormal(bp2o)
-						: Invert(bp2o);
 					
 					skel.m_bone_ids.push_back(bone_id);
 					skel.m_bone_names.push_back(std::string(name));
@@ -1471,6 +1735,7 @@ namespace pr::geometry::fbx
 				assert(anim.m_duration == 0 || FEql((num_keys - 1) / anim.m_duration, anim.m_frame_rate));
 
 				// Evaluate the animation for each skeleton
+				auto skeleton_mesh_nodes = ReadSkeletonMeshNodes();
 				auto roots = FindRoots(m_fbxscene.bones, IsBoneRoot);
 				for (auto const*& skel : roots)
 				{
@@ -1496,12 +1761,18 @@ namespace pr::geometry::fbx
 					anim.m_position.resize(num);
 					anim.m_scale.resize(num);
 
+					auto mesh_node_iter = skeleton_mesh_nodes.find(skel->typed_id);
+					auto const* mesh_node =
+						mesh_node_iter != skeleton_mesh_nodes.end() ?
+						mesh_node_iter->second :
+						nullptr;
+
 					// Watch for inactive channels
 					std::atomic_bool active[3] = { false, false, false };
 
 					// For each bone in the skeleton, sample the transforms
 					auto idx = std::views::iota(0, isize(anim.m_bone_map));
-					std::for_each(std::execution::par, idx.begin(), idx.end(), [this, &fbxanim, &anim, num_keys, time_offset, &active](int bone_idx)
+					std::for_each(std::execution::par, idx.begin(), idx.end(), [this, skel, mesh_node, &fbxanim, &anim, num_keys, time_offset, &active](int bone_idx)
 					{
 						// Note, the bone map contains node ids initially.
 						auto node_id = anim.m_bone_map[bone_idx];
@@ -1519,7 +1790,12 @@ namespace pr::geometry::fbx
 						{
 							auto time = time_offset + k / anim.m_frame_rate;
 
-							ufbx_transform transform = ufbx_evaluate_transform(&fbxanim, node, time);
+							// Skin cluster bind matrices are mesh-local, so evaluate animated bones in mesh space, then derive the
+							// bone-to-parent tracks expected by the runtime from those absolute transforms.
+							ufbx_transform transform =
+								mesh_node != nullptr ?
+								EvaluateBoneTrackTransform(fbxanim, skel, node, mesh_node, time) :
+								EvaluateNodeLocalTransform(fbxanim, node, skel, time);
 							auto rot = To<quat>(transform.rotation);
 							auto pos = To<v3>(transform.translation);
 							auto scl = To<v3>(transform.scale);
