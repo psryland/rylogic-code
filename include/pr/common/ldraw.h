@@ -1992,30 +1992,30 @@ namespace pr::ldraw
 					Append(out, EKeywords::Stretch, "{", v.speed_multiplier, "}");
 				}
 			};
-			struct NoRootTranslation_
+			struct NoTranslation_
 			{
-				friend void Append(bytebuf& out, NoRootTranslation_ const&)
+				friend void Append(bytebuf& out, NoTranslation_ const&)
 				{
 					auto s = Append(out, Header{ EKeywords::NoTranslation });
 				}
-				friend void Append(textbuf& out, NoRootTranslation_ const&)
+				friend void Append(textbuf& out, NoTranslation_ const&)
 				{
 					Append(out, EKeywords::NoTranslation, "{}");
 				}
 			};
-			struct NoRootRotation_
+			struct NoRotation_
 			{
-				friend void Append(bytebuf& out, NoRootRotation_ const&)
+				friend void Append(bytebuf& out, NoRotation_ const&)
 				{
 					auto s = Append(out, Header{ EKeywords::NoRotation });
 				}
-				friend void Append(textbuf& out, NoRootRotation_ const&)
+				friend void Append(textbuf& out, NoRotation_ const&)
 				{
 					Append(out, EKeywords::NoRotation, "{}");
 				}
 			};
 
-			using parts_t = std::variant<Style_, Frame_, FrameRange_, TimeRange_, Stretch_, NoRootTranslation_, NoRootRotation_>;
+			using parts_t = std::variant<Style_, Frame_, FrameRange_, TimeRange_, Stretch_, NoTranslation_, NoRotation_>;
 			std::vector<parts_t> m_parts;
 
 			Animation& style(std::string_view style)
@@ -2045,12 +2045,12 @@ namespace pr::ldraw
 			}
 			Animation& no_translation()
 			{
-				m_parts.push_back(NoRootTranslation_{});
+				m_parts.push_back(NoTranslation_{});
 				return *this;
 			}
 			Animation& no_rotation()
 			{
-				m_parts.push_back(NoRootRotation_{});
+				m_parts.push_back(NoRotation_{});
 				return *this;
 			}
 

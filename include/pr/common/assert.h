@@ -24,6 +24,7 @@
 //
 //"pr/common/assert.h" should be included prior to this for pr asserts
 #pragma once
+#include <cstdio>
 #include <string>
 
 // Assert enabler for common headers
@@ -69,16 +70,27 @@
 		// This is an actual function so that a breakpoint can be put in here
 		inline void AssertionFailed(char const* expr, char const* str, char const* file, int line) noexcept
 		{
+			std::fprintf(stderr,
+				"*** ASSERTION FAILURE ***\n"
+				"Expression: %s\n"
+				"Comment: %s\n"
+				"%s(%d)\n"
+				, expr
+				, str
+				, file
+				, line);
+			std::fflush(stderr);
+
 			(_CrtDbgReport(_CRT_WARN, file, line, nullptr,
 				"*** ASSERTION FAILURE ***\n"
 				"Expression: %s\n"
 				"Comment: %s\n"
-				"%f(%d)\n"
+				"%s(%d)\n"
 				,expr ,str ,file ,line) != 0) ||
 			(_CrtDbgReport(_CRT_ASSERT, file, line, nullptr,
 				"Expression: %s\n"
 				"Comment: %s\n"
-				"%f(%d)\n"
+				"%s(%d)\n"
 				,expr ,str ,file ,line) != 1) ||
 			(_CrtDbgBreak(), 0);
 		}
