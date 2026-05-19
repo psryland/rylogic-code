@@ -44,7 +44,7 @@ namespace pr::rdr12
 		NuggetPtr                m_nuggets;   // The chain of nuggets for this model
 		int64_t                  m_vcount;    // The count of elements in the V-buffer
 		int64_t                  m_icount;    // The count of elements in the I-buffer
-		m4x4                     m_m2root;    // Model to root transform. Use for multi-part models, like skinned characters
+		m4x4                     m_m2root;    // "Mesh" to Model Buffer space. Use for multi-part models, like skinned characters
 		Skin                     m_skin;      // Skinning data for this model.
 		mutable RayTracingModel  m_ray_tracing; // Ray tracing data for this model.
 		BBox                     m_bbox;      // A bounding box for the model. Set by the client

@@ -265,7 +265,7 @@ namespace pr::rdr12::ldraw
 		// Return the bounding box for this object in model space
 		// To convert this to parent space multiply by 'm_o2p'
 		// e.g. BBoxMS() for "*Box { 1 2 3 *o2w{*rand} }" will return bb.m_centre = origin, bb.m_radius = (1,2,3)
-		BBox BBoxMS(EBBoxFlags bbox_flags, std::function<bool(LdrObject const&)> pred, m4x4 const* p2w = nullptr, ELdrFlags parent_flags = ELdrFlags::None) const;
+		BBox BBoxMS(EBBoxFlags bbox_flags, std::function<bool(LdrObject const&)> pred, m4x4 const* o2base_ = nullptr, ELdrFlags parent_flags = ELdrFlags::None) const;
 		BBox BBoxMS(EBBoxFlags bbox_flags) const;
 
 		// Return the bounding box for this object in world space.

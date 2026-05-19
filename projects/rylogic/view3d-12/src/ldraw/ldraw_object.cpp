@@ -138,10 +138,9 @@ namespace pr::rdr12::ldraw
 		//  - A model can have a 'm_m2root' transform that locates the model in root space. This is mainly for multi-part models.
 
 		// Set the instance to world.
-		auto i2w = p2w * m_o2p;
-		if (m_root_anim) i2w *= m_root_anim.RootToAnim();
-		if (m_model) i2w *= m_model->m_m2root;
-		m_i2w = i2w;
+		auto i2w = p2w * m_o2p; // = this LdrObject's position in world space
+		if (m_root_anim) i2w *= m_root_anim.RootToAnim(); // = this LdrObject's position in world space, adjusted by the simple root animation
+		m_i2w = i2w; // Set the i2w for rendering
 
 		// Combine recursive flags
 		auto flags = Flags() | (parent_flags & (ELdrFlags::Hidden | ELdrFlags::Wireframe | ELdrFlags::NonAffine | ELdrFlags::HideWhenNotAnimating));
@@ -179,16 +178,21 @@ namespace pr::rdr12::ldraw
 	// actual model, located and scaled to the transform and bbox of this object
 	void LdrObject::AddBBoxToScene(Scene& scene, m4x4 const& p2w, ELdrFlags parent_flags)
 	{
-		// Set the instance to world for this object
-		auto i2w = p2w * m_o2p;
-		if (m_root_anim) i2w *= m_root_anim.RootToAnim();
-		if (m_model)
-			i2w *= m_model->m_m2root;
+		// 'i2w' is the transform inherited by children.
+		// 'bbox2w' is the transform for the bbox:
+		//   - 'BBoxTransform(bbox)' is in model space (i.e. the same space at the verts)
+		//   - 'm2root' transforms model space to model_origin_space (this is usually identity)
+		//   - 'o2p' transforms model_origin_space to model_parent_space
+		//   - 'pose->RootToAnim()' transforms root_model to animated position
+		//   - 'm_root_anim.RootToAnim()' adds an animated offset to the animated position
+		//   - 'i2w' transforms the model instance to world-space
+
+		// Get the 'instance to world' transform
+		auto i2w = p2w * m_o2p; // = this LdrObject's position in world space
+		if (m_root_anim) i2w *= m_root_anim.RootToAnim(); // = this LdrObject's position in world space, adjusted by the simple root animation
 
 		// Combine recursive flags
 		auto flags = Flags() | (parent_flags & (ELdrFlags::Hidden | ELdrFlags::Wireframe | ELdrFlags::NonAffine));
-		PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(i2w), "Invalid instance transform");
-
 		auto is_hidden =
 			AnySet(flags, ELdrFlags::Hidden | ELdrFlags::SceneBoundsExclude) ||
 			(AllSet(flags, ELdrFlags::Animated | ELdrFlags::HideWhenNotAnimating) && !IsAnimating());
@@ -196,14 +200,22 @@ namespace pr::rdr12::ldraw
 		// Add the bbox instance to the scene draw list
 		if (m_model && !is_hidden)
 		{
-			// Find the object to world for the bbox
+			// Get the 'bbox to world' transform
+			auto bbox2w = BBoxTransform(m_model->m_bbox);       // Transform points in a unit cube into "model verts" space
+			bbox2w = m_model->m_m2root * bbox2w;                // Transform points in "model_verts" space to model_origin space
+			if (m_pose) bbox2w = m_pose->RootToAnim() * bbox2w; // Transform points in "model_origin" space to the animated position of the model origin
+			bbox2w = i2w * bbox2w;                              // Transform points in the animated position of the model origin to world space
+
+			PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(bbox2w), "Invalid instance transform");
+
+			// 'BBoxModel' is a unit cube. 'BBoxTransform' maps it into this model's local bbox, then 'bbox2w' maps that box into world space.
 			ResourceFactory factory(scene.rdr());
 			m_bbox_instance.m_model = factory.CreateModel(EStockModel::BBoxModel);
-			m_bbox_instance.m_i2w = i2w * BBoxTransform(m_model->m_bbox);
+			m_bbox_instance.m_i2w = bbox2w;
 			scene.AddInstance(m_bbox_instance);
 		}
 
-		// Rinse and repeat for all children
+		// Repeat for all children
 		for (auto& child : m_child)
 			child->AddBBoxToScene(scene, i2w, flags);
 	}
@@ -787,44 +799,48 @@ namespace pr::rdr12::ldraw
 			return true;
 		}, name);
 	}
+
 	// Return the bounding box for this object in model space
 	// To convert this to parent space multiply by 'm_o2p'
 	// e.g. BBoxMS() for "*Box { 1 2 3 *o2w{*rand} }" will return bb.m_centre = origin, bb.m_radius = (1,2,3)
-	BBox LdrObject::BBoxMS(EBBoxFlags bbox_flags, std::function<bool(LdrObject const&)> pred, m4x4 const* p2w_, ELdrFlags parent_flags) const
+	BBox LdrObject::BBoxMS(EBBoxFlags bbox_flags, std::function<bool(LdrObject const&)> pred, m4x4 const* o2base_, ELdrFlags parent_flags) const
 	{
-		auto& p2w = p2w_ ? *p2w_ : m4x4::Identity();
-
-		auto i2w = p2w;
-		if (m_root_anim) i2w *= m_root_anim.RootToAnim();
-		if (m_model)
-			i2w *= m_model->m_m2root;
+		// 'm_root_anim' is an instance-space offset, so doesn't apply to the model-space bbox
+		auto o2base = o2base_ ? *o2base_ : m4x4::Identity();
 
 		// Combine recursive flags
 		auto ldr_flags = Flags() | (parent_flags & (ELdrFlags::BBoxExclude | ELdrFlags::NonAffine));
 
 		// Start with the bbox for this object
-		auto bbox = BBox::Reset();
-		if (m_model != nullptr && !AnySet(ldr_flags, ELdrFlags::BBoxExclude) && pred(*this)) // Get the bbox from the graphics model
+		auto obj_bbox = BBox::Reset();
+		if (m_model != nullptr && m_model->m_bbox.valid() && !AnySet(ldr_flags, ELdrFlags::BBoxExclude) && pred(*this)) // Get the bbox from the graphics model
 		{
-			if (m_model->m_bbox.valid())
-			{
-				if (IsAffine(i2w))
-					Grow(bbox, i2w * m_model->m_bbox);
-				else
-					Grow(bbox, MulNonAffine(i2w, m_model->m_bbox));
-			}
+			// Transform the bbox into LdrObject-local space
+			auto m2base = o2base;
+			if (m_pose) m2base *= m_pose->RootToAnim();
+			m2base *= m_model->m_m2root;
+
+			auto bbox = IsAffine(m2base) ? (m2base * m_model->m_bbox) : MulNonAffine(m2base, m_model->m_bbox);
+			Grow(obj_bbox, bbox);
 		}
-		if (AllSet(bbox_flags, EBBoxFlags::IncludeChildren)) // Add the bounding boxes of the children
+
+		// Add the bounding boxes of the children
+		if (AllSet(bbox_flags, EBBoxFlags::IncludeChildren))
 		{
 			for (auto& child : m_child)
 			{
-				auto c2w = i2w * child->m_o2p;
-				auto cbbox = child->BBoxMS(bbox_flags, pred, &c2w, ldr_flags);
+				// 'base' is the LdrObject within the hierarchy that the bbox is being calculated relative to.
+				auto c2base = o2base * child->m_o2p;
+				if (child->m_root_anim)
+					c2base *= child->m_root_anim.RootToAnim();
+
+				// Calculate the child bbox in 'base' model space
+				auto cbbox = child->BBoxMS(bbox_flags, pred, &c2base, ldr_flags);
 				if (cbbox.valid())
-					Grow(bbox, cbbox);
+					Grow(obj_bbox, cbbox);
 			}
 		}
-		return bbox;
+		return obj_bbox;
 	}
 	BBox LdrObject::BBoxMS(EBBoxFlags flags) const
 	{
@@ -836,17 +852,19 @@ namespace pr::rdr12::ldraw
 	// If not then, then the returned bbox will be transformed to the top level object space
 	BBox LdrObject::BBoxWS(EBBoxFlags flags, std::function<bool(LdrObject const&)> pred) const
 	{
-		// Get the o2w for this object
-		m4x4 o2w = m_o2p;
-		for (LdrObject* parent = m_parent; parent; parent = parent->m_parent)
+		// Get the model-space bbox
+		auto bbox = BBoxMS(flags, pred);
+		if (bbox.valid())
 		{
-			auto o2p = parent->m_o2p;
-			if (parent->m_root_anim) o2p *= parent->m_root_anim.RootToAnim();
-			if (parent->m_model) o2p *= parent->m_model->m_m2root;
-			o2w = o2p * o2w; //??
+			// Transform it into world space
+			for (LdrObject const* p = this; p; p = p->m_parent)
+			{
+				auto o2p = p->m_o2p;
+				if (p->m_root_anim) o2p *= p->m_root_anim.RootToAnim();
+				bbox = IsAffine(o2p) ? (o2p * bbox) : MulNonAffine(o2p, bbox);
+			}
 		}
-
-		return BBoxMS(flags, pred, &o2w);
+		return bbox;
 	}
 	BBox LdrObject::BBoxWS(EBBoxFlags flags) const
 	{
