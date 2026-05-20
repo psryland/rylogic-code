@@ -153,8 +153,7 @@ namespace pr::rdr12::ldraw
 		return *pp == 0;
 	}
 
-	// Get the next keyword within the current section.
-	// Returns false if at the end of the section
+	// Get the next keyword within the current section. Returns false if at the end of the section
 	bool TextReader::NextKeywordImpl(int& kw)
 	{
 		auto& pp = as<script::Preprocessor>(m_pp);

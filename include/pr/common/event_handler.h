@@ -10,6 +10,11 @@
 #include <algorithm>
 #include <type_traits>
 #include <functional>
+#include <memory>
+#include <stdexcept>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace pr
 {
@@ -129,6 +134,209 @@ namespace pr
 				throw std::runtime_error("Cross-thread access to non-threadsafe function");
 			}
 		};
+
+		// Handler storage using reusable published snapshots.
+		template <typename Handler, bool ThreadSafe>
+		struct Handlers
+		{
+			// This type prevents the need to lock a mutex for each event invocation.
+			using HandlerCont = std::vector<Handler>;
+			using LockGuard = std::conditional_t<ThreadSafe, std::lock_guard<std::mutex>, NoLockGuard>;
+			using CS = std::conditional_t<ThreadSafe, std::mutex, NoCS>;
+
+			// A published snapshot of the handler list.
+			struct Buffer
+			{
+				HandlerCont m_handlers;
+				mutable std::atomic_uint m_readers;
+
+				Buffer()
+					:m_handlers()
+					,m_readers()
+				{}
+				Buffer(Buffer const&) = delete;
+				Buffer& operator =(Buffer const&) = delete;
+			};
+
+			// Pins the active snapshot while it is being read.
+			struct Pin
+			{
+				Buffer* m_buffer;
+
+				Pin(Handlers const& owner)
+					:m_buffer()
+				{
+					for (;;)
+					{
+						auto* buffer = owner.m_active.load(std::memory_order_acquire);
+						buffer->m_readers.fetch_add(1, std::memory_order_acq_rel);
+						if (buffer == owner.m_active.load(std::memory_order_acquire))
+						{
+							m_buffer = buffer;
+							break;
+						}
+						buffer->m_readers.fetch_sub(1, std::memory_order_release);
+					}
+				}
+				Pin(Pin const&) = delete;
+				Pin& operator =(Pin const&) = delete;
+				~Pin()
+				{
+					if (m_buffer != nullptr)
+						m_buffer->m_readers.fetch_sub(1, std::memory_order_release);
+				}
+
+				// Return the pinned handler snapshot.
+				HandlerCont const& handlers() const
+				{
+					return m_buffer->m_handlers;
+				}
+			};
+
+			HandlerCont m_master;
+			std::vector<std::unique_ptr<Buffer>> m_buffer;
+			std::atomic<Buffer*> m_active;
+			mutable CS m_cs;
+
+			Handlers()
+				:m_master()
+				,m_buffer()
+				,m_active()
+				,m_cs()
+			{
+				m_buffer.reserve(2);
+				m_buffer.push_back(std::make_unique<Buffer>());
+				m_buffer.push_back(std::make_unique<Buffer>());
+				m_active.store(m_buffer[0].get(), std::memory_order_relaxed);
+			}
+			Handlers(Handlers&& rhs)
+				:Handlers()
+			{
+				initialise(take(rhs));
+			}
+			Handlers(Handlers const& rhs)
+				:Handlers()
+			{
+				initialise(copy(rhs));
+			}
+			Handlers& operator =(Handlers&& rhs)
+			{
+				if (this == &rhs) return *this;
+				assign(take(rhs));
+				return *this;
+			}
+			Handlers& operator =(Handlers const& rhs)
+			{
+				if (this == &rhs) return *this;
+				assign(copy(rhs));
+				return *this;
+			}
+
+			// Invoke 'func' for the current published snapshot without copying the handler list.
+			template <typename Func> void for_each(Func func) const
+			{
+				Pin pin(*this);
+				for (auto const& h : pin.handlers())
+					func(h);
+			}
+
+			// True if there are no subscribed handlers.
+			bool empty() const
+			{
+				Pin pin(*this);
+				return pin.handlers().empty();
+			}
+
+			// Return the number of subscribed handlers.
+			size_t size() const
+			{
+				Pin pin(*this);
+				return pin.handlers().size();
+			}
+
+			// Remove all subscribed handlers.
+			void clear()
+			{
+				LockGuard lock(m_cs);
+				m_master.clear();
+				publish_locked();
+			}
+
+			// Append a new subscribed handler.
+			void push_back(Handler handler)
+			{
+				LockGuard lock(m_cs);
+				m_master.push_back(std::move(handler));
+				publish_locked();
+			}
+
+			// Remove handlers that match 'pred'.
+			template <typename Pred> void remove_if(Pred pred)
+			{
+				LockGuard lock(m_cs);
+				auto const size = m_master.size();
+				m_master.erase(std::remove_if(std::begin(m_master), std::end(m_master), pred), std::end(m_master));
+				if (m_master.size() != size)
+					publish_locked();
+			}
+
+		private:
+
+			// Copy the authoritative handler list from 'rhs'.
+			static HandlerCont copy(Handlers const& rhs)
+			{
+				LockGuard lock(rhs.m_cs);
+				return rhs.m_master;
+			}
+
+			// Move the authoritative handler list from 'rhs' and publish an empty list there.
+			static HandlerCont take(Handlers& rhs)
+			{
+				LockGuard lock(rhs.m_cs);
+				auto handlers = std::move(rhs.m_master);
+				rhs.m_master.clear();
+				rhs.publish_locked();
+				return handlers;
+			}
+
+			// Initialise this handler list without taking the thread guard.
+			void initialise(HandlerCont handlers)
+			{
+				m_master = std::move(handlers);
+				m_buffer[0]->m_handlers = m_master;
+				m_active.store(m_buffer[0].get(), std::memory_order_release);
+			}
+
+			// Replace this handler list and publish the new snapshot.
+			void assign(HandlerCont handlers)
+			{
+				LockGuard lock(m_cs);
+				m_master = std::move(handlers);
+				publish_locked();
+			}
+
+			// Publish the authoritative handler list to an inactive reusable buffer.
+			void publish_locked()
+			{
+				auto* active = m_active.load(std::memory_order_acquire);
+				auto* buffer = next_buffer_locked(active);
+				buffer->m_handlers = m_master;
+				m_active.store(buffer, std::memory_order_release);
+			}
+
+			// Return an inactive buffer that is not being read, growing the reusable pool only if needed.
+			Buffer* next_buffer_locked(Buffer* active)
+			{
+				for (auto& buffer : m_buffer)
+				{
+					if (buffer.get() != active && buffer->m_readers.load(std::memory_order_acquire) == 0)
+						return buffer.get();
+				}
+
+				m_buffer.push_back(std::make_unique<Buffer>());
+				return m_buffer.back().get();
+			}
+		};
 	}
 
 	// EventHandler<Sender, Args>
@@ -141,8 +349,6 @@ namespace pr
 	{
 		// The signature of the event handling function
 		using Delegate = std::function<void(Sender, Args)>;
-		using LockGuard = std::conditional_t<ThreadSafe, std::lock_guard<std::mutex>, multicast::NoLockGuard>;
-		using CS = std::conditional_t<ThreadSafe, std::mutex, multicast::NoCS>;
 		using AutoSub = multicast::AutoSub;
 		using Sub = multicast::Sub;
 		using Id = multicast::Id;
@@ -168,64 +374,35 @@ namespace pr
 			}
 		};
 		using HandlerCont = std::vector<Handler>;
+		using HandlerList = multicast::Handlers<Handler, ThreadSafe>;
 
 		// Subscribed handlers
-		HandlerCont m_handlers;
-		mutable CS m_cs;
+		HandlerList m_handlers;
 
 		// Construct
 		EventHandler()
 			:m_handlers()
-			,m_cs()
 		{}
-		EventHandler(EventHandler&& rhs) noexcept
+		EventHandler(EventHandler&& rhs)
 			:m_handlers()
-			,m_cs()
 		{
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				std::swap(handlers, rhs.m_handlers);
-			}
-			m_handlers = std::move(handlers);
+			m_handlers = std::move(rhs.m_handlers);
 		}
 		EventHandler(EventHandler const& rhs)
 			:m_handlers()
-			,m_cs()
 		{
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				handlers = rhs.m_handlers;
-			}
-			m_handlers = std::move(handlers);
+			m_handlers = rhs.m_handlers;
 		}
-		EventHandler& operator=(EventHandler&& rhs) noexcept
+		EventHandler& operator=(EventHandler&& rhs)
 		{
 			if (this == &rhs) return *this;
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				std::swap(handlers, rhs.m_handlers);
-			}
-			{
-				LockGuard lock(m_cs);
-				m_handlers = std::move(handlers);
-			}
+			m_handlers = std::move(rhs.m_handlers);
 			return *this;
 		}
 		EventHandler& operator=(EventHandler const& rhs)
 		{
 			if (this == &rhs) return *this;
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				handlers = rhs.m_handlers;
-			}
-			{
-				LockGuard lock(m_cs);
-				m_handlers = std::move(handlers);
-			}
+			m_handlers = rhs.m_handlers;
 			return *this;
 		}
 
@@ -236,14 +413,10 @@ namespace pr
 			//  - 's' is not 'Sender&' here because it can be a smart pointer or something else.
 			//  - Callers should declare the template as EventHandler<MyType&, EmptyArgs const&> if references are wanted
 
-			// Take a copy in case handlers are changed by handlers
-			HandlerCont handlers;
+			m_handlers.for_each([&](auto const& h)
 			{
-				LockGuard lock(m_cs);
-				handlers = m_handlers;
-			}
-			for (auto& h : handlers)
 				h.m_delegate(s, a); // Can't std::forward rvalues in a loop.
+			});
 		}
 		void operator()(Sender s) const
 		{
@@ -253,21 +426,18 @@ namespace pr
 		// Boolean test for no assigned handlers
 		explicit operator bool() const
 		{
-			LockGuard lock(m_cs);
 			return !m_handlers.empty();
 		}
 
 		// Detach all handlers. NOTE: this invalidates all associated Handler's
 		void reset()
 		{
-			LockGuard lock(m_cs);
 			m_handlers.clear();
 		}
 
 		// Number of attached handlers
 		size_t count() const
 		{
-			LockGuard lock(m_cs);
 			return m_handlers.size();
 		}
 
@@ -281,10 +451,7 @@ namespace pr
 		{
 			if (!func) throw std::runtime_error("Handle cannot be null");
 			auto sub = Sub::Make(this);
-			{
-				LockGuard lock(m_cs);
-				m_handlers.push_back(Handler(func, sub.m_id));
-			}
+			m_handlers.push_back(Handler(func, sub.m_id));
 			return sub;
 		}
 		void operator -= (Sub& sub)
@@ -308,8 +475,7 @@ namespace pr
 		}
 		template <typename Pred> void remove_handlers(Pred pred)
 		{
-			LockGuard lock(m_cs);
-			m_handlers.erase(std::remove_if(std::begin(m_handlers), std::end(m_handlers), pred), std::end(m_handlers));
+			m_handlers.remove_if(pred);
 		}
 
 		// IMultiCast interface
@@ -327,8 +493,6 @@ namespace pr
 	struct MultiCast :multicast::IMultiCast
 	{
 		// The signature of the event handling function
-		using LockGuard = std::conditional_t<ThreadSafe, std::lock_guard<std::mutex>, multicast::NoLockGuard>;
-		using CS = std::conditional_t<ThreadSafe, std::mutex, multicast::NoCS>;
 		using AutoSub = multicast::AutoSub;
 		using Sub = multicast::Sub;
 		using Id = multicast::Id;
@@ -363,98 +527,62 @@ namespace pr
 			//}
 		};
 		using HandlerCont = std::vector<Handler>;
+		using HandlerList = multicast::Handlers<Handler, ThreadSafe>;
 
 		// Subscribed handlers
-		HandlerCont m_handlers;
-		mutable CS m_cs;
+		HandlerList m_handlers;
 
 		// Construct
 		MultiCast()
 			:m_handlers()
-			, m_cs()
 		{}
 		MultiCast(MultiCast&& rhs)
 			:m_handlers()
-			,m_cs()
 		{
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				std::swap(handlers, rhs.m_handlers);
-			}
-			m_handlers = std::move(handlers);
+			m_handlers = std::move(rhs.m_handlers);
 		}
 		MultiCast(MultiCast const& rhs)
 			:m_handlers()
-			,m_cs()
 		{
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				handlers = rhs.m_handlers;
-			}
-			m_handlers = std::move(handlers);
+			m_handlers = rhs.m_handlers;
 		}
 		MultiCast& operator=(MultiCast&& rhs)
 		{
 			if (this == &rhs) return *this;
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				std::swap(handlers, rhs.m_handlers);
-			}
-			{
-				LockGuard lock(m_cs);
-				m_handlers = std::move(handlers);
-			}
+			m_handlers = std::move(rhs.m_handlers);
 			return *this;
 		}
 		MultiCast& operator=(MultiCast const& rhs)
 		{
 			if (this == &rhs) return *this;
-			HandlerCont handlers;
-			{
-				LockGuard lock(rhs.m_cs);
-				handlers = rhs.m_handlers;
-			}
-			{
-				LockGuard lock(m_cs);
-				m_handlers = std::move(handlers);
-			}
+			m_handlers = rhs.m_handlers;
 			return *this;
 		}
 
 		// Raise the event notifying subscribed observers
 		template <typename... Args> void operator()(Args&&... args)
 		{
-			// Take a copy in case handlers are changed by handlers
-			HandlerCont handlers;
+			m_handlers.for_each([&](auto const& h)
 			{
-				LockGuard lock(m_cs);
-				handlers = m_handlers;
-			}
-			for (auto& h : handlers)
 				h.m_delegate(args...); // Can't std::forward rvalues in a loop.
+			});
 		}
 
 		// Boolean test for no assigned handlers
 		explicit operator bool() const
 		{
-			LockGuard lock(m_cs);
 			return !m_handlers.empty();
 		}
 
 		// Detach all handlers. NOTE: this invalidates all associated Handler's
 		void reset()
 		{
-			LockGuard lock(m_cs);
 			m_handlers.clear();
 		}
 
 		// Number of attached handlers
 		size_t count() const
 		{
-			LockGuard lock(m_cs);
 			return m_handlers.size();
 		}
 
@@ -467,10 +595,7 @@ namespace pr
 		Sub operator += (FuncType func)
 		{
 			auto sub = Sub::Make(this);
-			{
-				LockGuard lock(m_cs);
-				m_handlers.push_back(Handler(func, sub.m_id));
-			}
+			m_handlers.push_back(Handler(func, sub.m_id));
 			return sub;
 		}
 		void operator -= (Sub& sub)
@@ -493,8 +618,7 @@ namespace pr
 		}
 		template <typename Pred> void remove_handlers(Pred pred)
 		{
-			LockGuard lock(m_cs);
-			m_handlers.erase(std::remove_if(std::begin(m_handlers), std::end(m_handlers), pred), std::end(m_handlers));
+			m_handlers.remove_if(pred);
 		}
 
 		// IMultiCast interface
@@ -752,6 +876,28 @@ namespace pr::common
 				PR_EXPECT(thg.m_count == c2);
 				PR_EXPECT(c0 > 0 && c0 <= thg.m_count);
 				PR_EXPECT(c1 > 0 && c1 <= thg.m_count);
+			}
+			{ // Reentrant handler changes on the thread-safe path
+				Thing thg;
+				int c0 = 0, c1 = 0;
+				Sub sub1;
+				auto sub0 = thg.Event2 += [&](Thing&, EmptyArgs const&)
+				{
+					++c0;
+					if (!sub1)
+						sub1 = thg.Event2 += [&](Thing&, EmptyArgs const&) { ++c1; };
+				};
+
+				thg.Call2();
+				PR_EXPECT(c0 == 1);
+				PR_EXPECT(c1 == 0);
+
+				thg.Call2();
+				PR_EXPECT(c0 == 2);
+				PR_EXPECT(c1 == 1);
+
+				thg.Event2 -= sub0;
+				thg.Event2 -= sub1;
 			}
 		}
 		PRUnitTestMethod(MultiCast)
