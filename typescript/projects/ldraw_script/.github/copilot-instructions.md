@@ -42,7 +42,8 @@ The completion data is generated from:
 ../../../projects/rylogic/view3d-12/src/ldraw/ldraw_templates.cpp
 ```
 
-Run `npm run parse-templates` to regenerate `src/templates.json` after modifying the source.
+`src/templates.json` is generated automatically before `npm run compile`, `npm run watch`, and VSIX packaging.
+Run `npm run parse-templates` only when you need to refresh it without compiling.
 
 ## LDraw Script Syntax
 
@@ -57,4 +58,4 @@ The grammar highlights:
 
 - Use TextMate scope naming conventions (e.g., `keyword.control`, `comment.line`, `string.quoted.double`)
 - Test grammar changes in the Extension Development Host before packaging
-- After modifying `ldraw_templates.cpp`, run `npm run build` to update completions
+- After modifying `ldraw_templates.cpp`, use the normal extension build/package commands; they regenerate completions automatically

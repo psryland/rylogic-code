@@ -4,6 +4,7 @@
   "description": "Language support for LDraw Script with IntelliSense auto-completion",
   "version": "1.1.0",
   "publisher": "Rylogic",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.97.0"
   },
@@ -42,10 +43,13 @@
   },
   "scripts": {
     "parse-templates": "npx ts-node scripts/parse-templates.ts",
+    "precompile": "npm run parse-templates",
     "compile": "tsc -p ./",
-    "build": "npm run parse-templates && npm run compile",
+    "build": "npm run compile",
+    "prewatch": "npm run parse-templates",
     "watch": "tsc -watch -p ./",
-    "package": "npm run build && npx vsce package --out publish/ldraw-script.vsix"
+    "vscode:prepublish": "npm run compile",
+    "package": "npx vsce package --out publish/ldraw-script.vsix"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

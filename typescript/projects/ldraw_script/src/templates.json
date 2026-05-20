@@ -1,37 +1,5 @@
 {
   "templates": {
-    "Wireframe": {
-      "keyword": "Wireframe",
-      "display": "*Wireframe{[true|false]}\n*!Wireframe {[true|false]}",
-      "rootOnly": true,
-      "hidden": false,
-      "recursive": false,
-      "children": [],
-      "references": [],
-      "childReferences": []
-    },
-    "Camera": {
-      "keyword": "Camera",
-      "display": "*Camera\n{\n\t[@o2w]\n\t[*LookAt {<x> <y> <z>}]\n\t[*Align {<x> <y> <z>}]\n\t[*Aspect {<aspect>}]\n\t[*FovX {<fovx>}]\n\t[*FovY {<fovy>}]\n\t[*Fov {<fovx> <fovy>}]\n\t[*Near {<near>}]\n\t[*Far {<far>}]\n\t[*Orthographic]\n}",
-      "rootOnly": true,
-      "hidden": false,
-      "recursive": false,
-      "children": [
-        "LookAt",
-        "Align",
-        "Aspect",
-        "FovX",
-        "FovY",
-        "Fov",
-        "Near",
-        "Far",
-        "Orthographic"
-      ],
-      "references": [
-        "o2w"
-      ],
-      "childReferences": []
-    },
     "Font": {
       "keyword": "Font",
       "display": "*Font\n{\n\t[*Name {<family_name>}]\n\t[*Size {<points>}]\n\t[*Colour {<aarrggbb>}]\n\t[*Weight {<weight_100_to_900>}]\n\t[*Style {Normal|Italic|Oblique}]\n\t[*Stretch {<stretch_1_to_9>}]\n\t[*Underline {[true|false]}]\n\t[*Strikeout {[true|false]}]\n}",
@@ -96,17 +64,34 @@
       ],
       "childReferences": []
     },
-    "Video": {
-      "keyword": "Video",
-      "display": "*Video\n{\n\t*FilePath {<video_filepath>}\n}",
+    "Material": {
+      "keyword": "Material",
+      "display": "*Material\n{\n\t[*BaseColour {<aarrggbb>}]\n\t[*BaseColourTexture { $Texture }]\n\t[*Metallic {<amount>}]\n\t[*MetallicTexture { $Texture }]\n\t[*Roughness {<amount>}]\n\t[*RoughnessTexture { $Texture }]\n\t[*Emissive {<aarrggbb>}]\n\t[*EmissiveTexture { $Texture }]\n\t[*NormalTexture { $Texture }]\n\t[*TwoSided {[true|false]}]\n}",
       "rootOnly": false,
       "hidden": true,
       "recursive": false,
       "children": [
-        "FilePath"
+        "BaseColour",
+        "BaseColourTexture",
+        "Metallic",
+        "MetallicTexture",
+        "Roughness",
+        "RoughnessTexture",
+        "Emissive",
+        "EmissiveTexture",
+        "NormalTexture",
+        "TwoSided",
+        "FilePath",
+        "Addr",
+        "Filter",
+        "Alpha"
       ],
-      "references": [],
-      "childReferences": []
+      "references": [
+        "o2w"
+      ],
+      "childReferences": [
+        "Texture"
+      ]
     },
     "RootAnimation": {
       "keyword": "RootAnimation",
@@ -127,7 +112,7 @@
     },
     "Animation": {
       "keyword": "Animation",
-      "display": "*Animation\n{\n\t[*Style {NoAnimation|Once|Repeat|Continuous|PingPong}]\n\t[*Frame {<frame>}]\n\t[*FrameRange {<start> <end>}]\n\t[*TimeRange {<start> <end>}]\n\t[*Stretch {<speed_multiplier>}]\n\t[*NoRootTranslation {}]\n\t[*NoRootRotation {}]\n}",
+      "display": "*Animation\n{\n\t[*Style {NoAnimation|Once|Repeat|Continuous|PingPong}]\n\t[*Frame {<frame>}]\n\t[*FrameRange {<start> <end>}]\n\t[*TimeRange {<start> <end>}]\n\t[*FrameRate {<fps>}]\n\t[*Stretch {<speed_multiplier>}]\n\t[*TimeBias {<bias>}]\n\t[*HideWhenNotAnimating {}]\n\t[*NoTranslation {}]\n\t[*NoRotation {}]\n}",
       "rootOnly": false,
       "hidden": true,
       "recursive": false,
@@ -136,40 +121,47 @@
         "Frame",
         "FrameRange",
         "TimeRange",
+        "FrameRate",
         "Stretch",
-        "NoRootTranslation",
-        "NoRootRotation"
+        "TimeBias",
+        "HideWhenNotAnimating",
+        "NoTranslation",
+        "NoRotation"
       ],
       "references": [],
       "childReferences": []
     },
     "Montage": {
       "keyword": "Montage",
-      "display": "*Montage\n{\n\t[*AnimSource {<animation_filepath>}] // index 1, 2, ... (model's own anim is index 0)\n\t*Frame {<source_index> <frame_number> [<duration>] [*O2W {...}]}\n\t[*Style {NoAnimation|Once|Repeat|Continuous|PingPong}]\n\t[*Stretch {<speed_multiplier>}]\n\t[*NoRootTranslation {}]\n\t[*NoRootRotation {}]\n\t[*HideWhenNotAnimating {}]\n}",
+      "display": "*Montage\n{\n\t[(*AnimSource {<animation_filepath>})]\n\t(*Frame {<source_index> <frame_number> [*Period {<duration>}] [@o2w]})\n\t[*Style {NoAnimation|Once|Repeat|Continuous|PingPong}]\n\t[*Stretch {<speed_multiplier>}]\n\t[*TimeBias {<bias>}]\n\t[*HideWhenNotAnimating {}]\n\t[*NoTranslation {}]\n\t[*NoRotation {}]\n}",
       "rootOnly": false,
       "hidden": true,
       "recursive": false,
       "children": [
         "AnimSource",
         "Frame",
+        "Period",
         "Style",
         "Stretch",
-        "NoRootTranslation",
-        "NoRootRotation",
-        "HideWhenNotAnimating"
+        "TimeBias",
+        "HideWhenNotAnimating",
+        "NoTranslation",
+        "NoRotation"
       ],
-      "references": [],
+      "references": [
+        "o2w"
+      ],
       "childReferences": []
     },
     "ObjectModifiers": {
       "keyword": "ObjectModifiers",
-      "display": "*ObjectModifiers\n{\n\t[@o2w]\n\t[*Colour {<colour>}]\n\t[*GroupColour {<colour>}]\n\t[*Reflectivity {<amount>}]\n\t[*RandColour {}]\n\t[*Hidden {[true|false]}]\n\t[*Wireframe {[true|false]}]\n\t[*ScreenSpace {}]\n\t[*NoZTest {}]\n\t[*NoZWrite {}]\n\t[@RootAnimation]\n\t[@Font]\n}",
+      "display": "*ObjectModifiers\n{\n\t[@o2w]\n\t[*Colour {<colour>}]\n\t[*GroupTint {<colour>}]\n\t[*Reflectivity {<amount>}]\n\t[*RandColour {}]\n\t[*Hidden {[true|false]}]\n\t[*Wireframe {[true|false]}]\n\t[*ScreenSpace {}]\n\t[*NoZTest {}]\n\t[*NoZWrite {}]\n\t[@Material]\n\t[@RootAnimation]\n\t[@Font]\n}",
       "rootOnly": false,
       "hidden": true,
       "recursive": false,
       "children": [
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -180,21 +172,9 @@
       ],
       "references": [
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
-      ],
-      "childReferences": []
-    },
-    "Textured": {
-      "keyword": "Textured",
-      "display": "*Textured\n{\n\t[@Texture]\n\t[@Video]\n}",
-      "rootOnly": false,
-      "hidden": true,
-      "recursive": false,
-      "children": [],
-      "references": [
-        "Texture",
-        "Video"
       ],
       "childReferences": []
     },
@@ -356,7 +336,7 @@
       "recursive": true,
       "children": [
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -367,6 +347,7 @@
       ],
       "references": [
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -376,14 +357,14 @@
     },
     "Instance": {
       "keyword": "Instance",
-      "display": "*Instance[<name>] [<colour>]\n{\n\t*Data {<object_to_instance>}\n\t[@Animation]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Instance[<name>] [<colour>]\n{\n\t*Data {<object_to_instance>}\n\t[@Animation]\n\t[@Montage]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -394,7 +375,9 @@
       ],
       "references": [
         "Animation",
+        "Montage",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -420,7 +403,7 @@
         "Padding",
         "Format",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -432,6 +415,7 @@
         "Font",
         "AxisId",
         "o2w",
+        "Material",
         "RootAnimation"
       ],
       "childReferences": [
@@ -460,7 +444,7 @@
     },
     "Point": {
       "keyword": "Point",
-      "display": "*Point[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[*Style {Square|Circle|Triangle|Star|Annulus}]\n\t*Data {(<x> <y> <z> [<colour>])}\n\t[*Size {<width> [<height>]}]\n\t[*Depth {[true|false]}]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Point[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[*Style {Square|Circle|Triangle|Star|Annulus}]\n\t*Data {(<x> <y> <z> [<colour>])}\n\t[*Size {<width> [<height>]}]\n\t[*Depth {[true|false]}]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -470,7 +454,7 @@
         "Size",
         "Depth",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -482,28 +466,26 @@
       "references": [
         "PerItemColour",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Line": {
       "keyword": "Line",
-      "display": "*Line[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[@PerItemParametrics]\n\t[*Style {LineSegments|LineStrip|Direction|Bezier|Hermite|BSpline|CatmullRom}]\n\t[*Arrow {Line|Fwd|Back|FwdBack [<size> [<length>]]}]\n\t[@Width]\n\t[@Smooth]\n\t[@Dashed]\n\t[@DataPoints]\n\t(*Data {(<x0> <y0> <z0>  <x1> <y1> <z1> [<line_colour>] [<t0> <t1>])})\n\t[@Parametrics]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Line[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t[@PerItemParametrics]\n\t[*Style {LineSegments|LineStrip|Direction|Bezier|Hermite|BSpline|CatmullRom}]\n\t[@Arrow]\n\t[@Width]\n\t[@Smooth]\n\t[@Dashed]\n\t[@DataPoints]\n\t(*Data {(<x0> <y0> <z0>  <x1> <y1> <z1> [<line_colour>] [<t0> <t1>])})\n\t[@Parametrics]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Style",
-        "Arrow",
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -515,12 +497,14 @@
       "references": [
         "PerItemColour",
         "PerItemParametrics",
+        "Arrow",
         "Width",
         "Smooth",
         "Dashed",
         "DataPoints",
         "Parametrics",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -537,7 +521,7 @@
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -550,6 +534,7 @@
         "Width",
         "Dashed",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -566,7 +551,7 @@
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -580,6 +565,7 @@
         "Dashed",
         "AxisId",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -614,7 +600,7 @@
         "Inverse",
         "NonAffine",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -626,6 +612,7 @@
       "references": [
         "Width",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -636,7 +623,7 @@
     },
     "Circle": {
       "keyword": "Circle",
-      "display": "*Circle[<name>] [<colour>]\n{\n\t*Data {<radius0> [<radius1>]}\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Circle[<name>] [<colour>]\n{\n\t*Data {<radius0> [<radius1>]}\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -644,7 +631,7 @@
         "Data",
         "Facets",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -657,19 +644,18 @@
         "AxisId",
         "Solid",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Pie": {
       "keyword": "Pie",
-      "display": "*Pie[<name>] [<colour>]\n{\n\t*Data {<angle0> <angle1> <inner_radius> <outer_radius>}\n\t[*Facets {<facet_count>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t[@Solid]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Pie[<name>] [<colour>]\n{\n\t*Data {<angle0> <angle1> <inner_radius> <outer_radius>}\n\t[*Facets {<facet_count>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -678,7 +664,7 @@
         "Facets",
         "Scale",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -691,19 +677,18 @@
         "AxisId",
         "Solid",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Rect": {
       "keyword": "Rect",
-      "display": "*Rect[<name>] [<colour>]\n{\n\t*Data {<width> [<height>]}\n\t[*CornerRadius {<radius>}]\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Rect[<name>] [<colour>]\n{\n\t*Data {<width> [<height>]}\n\t[*CornerRadius {<radius>}]\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -712,7 +697,7 @@
         "CornerRadius",
         "Facets",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -725,26 +710,25 @@
         "AxisId",
         "Solid",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Polygon": {
       "keyword": "Polygon",
-      "display": "*Polygon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<x> <y> [<colour>])}\n\t[@AxisId]\n\t[@Solid]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Polygon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<x> <y> [<colour>])}\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -758,26 +742,25 @@
         "AxisId",
         "Solid",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Triangle": {
       "keyword": "Triangle",
-      "display": "*Triangle[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<pt0_x> <pt0_y> <pt0_z> [<colour>]; <pt1_x> <pt1_y> <pt1_z> [<colour>]; <pt2_x> <pt2_y> <pt2_z> [<colour>];)}\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Triangle[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<pt0_x> <pt0_y> <pt0_z> [<colour>]; <pt1_x> <pt1_y> <pt1_z> [<colour>]; <pt2_x> <pt2_y> <pt2_z> [<colour>];)}\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -790,26 +773,25 @@
         "PerItemColour",
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Quad": {
       "keyword": "Quad",
-      "display": "*Quad[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<pt0_x> <pt0_y> <pt0_z> [<colour>]; <pt1_x> <pt1_y> <pt1_z> [<colour>]; <pt2_x> <pt2_y> <pt2_z> [<colour>]; <pt3_x> <pt3_y> <pt3_z> [<colour>];)}\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Quad[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<pt0_x> <pt0_y> <pt0_z> [<colour>]; <pt1_x> <pt1_y> <pt1_z> [<colour>]; <pt2_x> <pt2_y> <pt2_z> [<colour>]; <pt3_x> <pt3_y> <pt3_z> [<colour>];)}\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -822,26 +804,25 @@
         "PerItemColour",
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Plane": {
       "keyword": "Plane",
-      "display": "*Plane[<name>] [<colour>]\n{\n\t*Data {<width> <height>}\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Plane[<name>] [<colour>]\n{\n\t*Data {<width> <height>}\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -853,26 +834,25 @@
       "references": [
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Ribbon": {
       "keyword": "Ribbon",
-      "display": "*Ribbon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<x> <y> <z> [<colour>])}\n\t[@AxisId]\n\t[@Width]\n\t[@Smooth]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Ribbon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<x> <y> <z> [<colour>])}\n\t[@AxisId]\n\t[@Width]\n\t[@Smooth]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -887,26 +867,25 @@
         "Width",
         "Smooth",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Box": {
       "keyword": "Box",
-      "display": "*Box[<name>] [<colour>]\n{\n\t*Data {[<width> [<height> [<depth>]]]}\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Box[<name>] [<colour>]\n{\n\t*Data {[<width> [<height> [<depth>]]]}\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -917,26 +896,25 @@
       ],
       "references": [
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "BoxList": {
       "keyword": "BoxList",
-      "display": "*BoxList[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<width> <height> <depth> <x> <y> <z> [<colour>])}\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*BoxList[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<width> <height> <depth> <x> <y> <z> [<colour>])}\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -948,19 +926,18 @@
       "references": [
         "PerItemColour",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "FrustumWH": {
       "keyword": "FrustumWH",
-      "display": "*FrustumWH[<name>] [<colour>]\n{\n\t*Data {<width> <height> <near> <far>}\n\t[*ViewPlaneZ {<distance_of_width_height>}]\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*FrustumWH[<name>] [<colour>]\n{\n\t*Data {<width> <height> <near> <far>}\n\t[*ViewPlaneZ {<distance_of_width_height>}]\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -968,7 +945,7 @@
         "Data",
         "ViewPlaneZ",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -980,26 +957,25 @@
       "references": [
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "FrustumFA": {
       "keyword": "FrustumFA",
-      "display": "*FrustumFA[<name>] [<colour>]\n{\n\t*Data {<fovY> <aspect> <near> <far>}\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*FrustumFA[<name>] [<colour>]\n{\n\t*Data {<fovY> <aspect> <near> <far>}\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1011,19 +987,18 @@
       "references": [
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Sphere": {
       "keyword": "Sphere",
-      "display": "*Sphere[<name>] [<colour>]\n{\n\t*Data {<radius0> [<radius1> [<radius2>]]}\n\t[*Facets {<facet_count>}]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Sphere[<name>] [<colour>]\n{\n\t*Data {<radius0> [<radius1> [<radius2>]]}\n\t[*Facets {<divisions>}]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -1031,7 +1006,7 @@
         "Data",
         "Facets",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1042,19 +1017,49 @@
       ],
       "references": [
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
+        "ObjectModifiers"
+      ]
+    },
+    "SphereList": {
+      "keyword": "SphereList",
+      "display": "*SphereList[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<rx> <ry> <rz> <x> <y> <z> [<colour>])}\n\t[*Facets {<divisions>}]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "rootOnly": false,
+      "hidden": false,
+      "recursive": true,
+      "children": [
+        "Data",
+        "Facets",
+        "Colour",
+        "GroupTint",
+        "Reflectivity",
+        "RandColour",
+        "Hidden",
+        "Wireframe",
+        "ScreenSpace",
+        "NoZTest",
+        "NoZWrite"
+      ],
+      "references": [
+        "PerItemColour",
+        "Texture",
+        "o2w",
+        "Material",
+        "RootAnimation",
+        "Font"
+      ],
+      "childReferences": [
         "ObjectModifiers"
       ]
     },
     "Cylinder": {
       "keyword": "Cylinder",
-      "display": "*Cylinder[<name>] [<colour>]\n{\n\t*Data {<height> <radius> [<radius_tip>]}\n\t[*Facets {<layers>, <wedges>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Cylinder[<name>] [<colour>]\n{\n\t*Data {<height> <radius> [<radius_tip>]}\n\t[*Facets {<layers> <wedges>}]\n\t[*Scale {<sx> <sy>}]\n\t[*EndCaps {[<layers>]}]\n\t[@AxisId]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -1062,8 +1067,9 @@
         "Data",
         "Facets",
         "Scale",
+        "EndCaps",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1075,19 +1081,18 @@
       "references": [
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "Cone": {
       "keyword": "Cone",
-      "display": "*Cone[<name>] [<colour>]\n{\n\t*Data {<solid_angle> <tip_to_top> <tip_to_base>}\n\t[*Facets {<layers>, <wedges>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Cone[<name>] [<colour>]\n{\n\t*Data {<solid_angle> <tip_to_top> <tip_to_base>}\n\t[*Facets {<layers> <wedges>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t[*EndCaps {[<layers>]}]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -1095,8 +1100,9 @@
         "Data",
         "Facets",
         "Scale",
+        "EndCaps",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1108,13 +1114,12 @@
       "references": [
         "AxisId",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
@@ -1133,7 +1138,7 @@
         "Data",
         "Closed",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1146,6 +1151,7 @@
         "Smooth",
         "PerItemColour",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -1155,7 +1161,7 @@
     },
     "Mesh": {
       "keyword": "Mesh",
-      "display": "*Mesh[<name>] [<colour>]\n{\n\t*Verts {(<x> <y> <z>)}\n\t[*Normals {(<nx> <ny> <nz>)}]\n\t[*Colours {(<colour>)}]\n\t[*TexCoords {(<tx> <ty>)}]\n\t[*Lines {(<i0> <i1>)}]\n\t[*LineList {(<i0> <i1>)}]\n\t[*LineStrip {<i0> (<i1>)}]\n\t[*Faces {(<i0> <i1> <i2>)}]\n\t[*TriList {(<i0> <i1> <i2>)}]\n\t[*TriStrip {<i0> <i1> (<i2>)}]\n\t[*Tetra {(<i0> <i1> <i2> <i3>)}]\n\t[@GenerateNormals]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Mesh[<name>] [<colour>]\n{\n\t*Verts {(<x> <y> <z>)}\n\t[*Normals {(<nx> <ny> <nz>)}]\n\t[*Colours {(<colour>)}]\n\t[*TexCoords {(<tx> <ty>)}]\n\t[*Lines {(<i0> <i1>)}]\n\t[*LineList {(<i0> <i1>)}]\n\t[*LineStrip {<i0> (<i1>)}]\n\t[*Faces {(<i0> <i1> <i2>)}]\n\t[*TriList {(<i0> <i1> <i2>)}]\n\t[*TriStrip {<i0> <i1> (<i2>)}]\n\t[*Tetra {(<i0> <i1> <i2> <i3>)}]\n\t[@GenerateNormals]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -1172,7 +1178,7 @@
         "TriStrip",
         "Tetra",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1184,26 +1190,25 @@
       "references": [
         "GenerateNormals",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
     "ConvexHull": {
       "keyword": "ConvexHull",
-      "display": "*ConvexHull[<name>] [<colour>]\n{\n\t*Verts {(<x> <y> <z>)}\n\t[@GenerateNormals]\n\t$Textured\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*ConvexHull[<name>] [<colour>]\n{\n\t*Data {(<x> <y> <z>)}\n\t[@GenerateNormals]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
-        "Verts",
+        "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1215,13 +1220,12 @@
       "references": [
         "GenerateNormals",
         "Texture",
-        "Video",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
       "childReferences": [
-        "Textured",
         "ObjectModifiers"
       ]
     },
@@ -1254,7 +1258,7 @@
         "Dim",
         "Data",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1266,6 +1270,7 @@
       "references": [
         "Series",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -1284,7 +1289,7 @@
         "Parts",
         "NoMaterials",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1299,6 +1304,7 @@
         "GenerateNormals",
         "BakeTransform",
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -1336,7 +1342,7 @@
         "Range",
         "Colours",
         "Colour",
-        "GroupColour",
+        "GroupTint",
         "Reflectivity",
         "RandColour",
         "Hidden",
@@ -1347,6 +1353,7 @@
       ],
       "references": [
         "o2w",
+        "Material",
         "RootAnimation",
         "Font"
       ],
@@ -1354,11 +1361,21 @@
         "EquationAxis",
         "ObjectModifiers"
       ]
+    },
+    "Commands": {
+      "keyword": "Commands",
+      "display": "*Commands\n{\n\t(*Data {<command_id> [(<arg>)]})\n}",
+      "rootOnly": true,
+      "hidden": false,
+      "recursive": false,
+      "children": [
+        "Data"
+      ],
+      "references": [],
+      "childReferences": []
     }
   },
   "rootKeywords": [
-    "Wireframe",
-    "Camera",
     "Font",
     "Group",
     "Instance",
@@ -1382,6 +1399,7 @@
     "FrustumWH",
     "FrustumFA",
     "Sphere",
+    "SphereList",
     "Cylinder",
     "Cone",
     "Tube",
@@ -1389,7 +1407,8 @@
     "ConvexHull",
     "Chart",
     "Model",
-    "Equation"
+    "Equation",
+    "Commands"
   ],
   "objectTemplates": [
     "Group",
@@ -1414,6 +1433,7 @@
     "FrustumWH",
     "FrustumFA",
     "Sphere",
+    "SphereList",
     "Cylinder",
     "Cone",
     "Tube",

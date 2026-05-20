@@ -36,6 +36,8 @@ This will:
 1. Parse `ldraw_templates.cpp` to generate completion data
 2. Compile TypeScript to JavaScript
 
+The completion data is generated automatically before `compile`, `watch`, and VSIX packaging.
+
 ### Test
 
 Press **F5** in VS Code to launch the Extension Development Host with the extension loaded.
