@@ -548,19 +548,23 @@ namespace pr::rdr12
 		// Create the render nuggets
 		for (auto& nug : cache.m_ncont)
 		{
+			// Use the create-option material as the generated-model default without replacing explicit nugget materials.
+			if (opts != nullptr && opts->has(ModelGenerator::CreateOptions::EOptions::Material) && nug.m_material == nullptr)
+				nug.mat(opts->m_material);
+
 			// If the model geom has valid texture data but no texture..
 			if (AllSet(nug.m_geom, EGeom::Tex0))
 			{
-				// See if the current material has a diffuse texture and sampler
+				// See if the current material has a diffuse texture.
 				auto const* bc = nug.mat().Component<materials::BaseColour>();
-				if (bc == nullptr || !bc->m_tex)
+				if (bc == nullptr || bc->m_tex.m_texture == nullptr)
 				{
-					// Clone the material and set the texture/sampler
+					// Clone the material and set the fallback texture/sampler.
 					RefPtr<Material> new_mat = (bc ? nug.mat() : Material::Default()).Clone();
 					auto& new_bc = *new_mat->Component<materials::BaseColour>();
 					new_bc.m_tex = materials::TextureSlot {
-						opts && opts->m_tex_diffuse != nullptr ? opts->m_tex_diffuse : factory.rdr().store().StockTexture(EStockTexture::White),
-						opts && opts->m_sam_diffuse != nullptr ? opts->m_sam_diffuse : factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap),
+						factory.rdr().store().StockTexture(EStockTexture::White),
+						factory.rdr().store().StockSampler(EStockSampler::AnisotropicWrap),
 					};
 					nug.mat(std::move(new_mat));
 				}

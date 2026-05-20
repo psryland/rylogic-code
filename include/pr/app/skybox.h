@@ -4,6 +4,7 @@
 //*****************************************************************************************
 #pragma once
 #include "pr/app/forward.h"
+#include "pr/view3d-12/material/material_simple.h"
 
 namespace pr::app
 {
@@ -91,7 +92,8 @@ namespace pr::app
 			//ddata.m_rsb = RSBlock::SolidCullFront();
 
 			// Create the sky box model
-			ModelGenerator::CreateOptions opts = ModelGenerator::CreateOptions().tex_diffuse(skytex, factory.CreateSampler(EStockSampler::LinearWrap));
+			auto material = MaterialPtr(::pr::compute::New<MaterialSimple>(Colour32White, skytex, factory.CreateSampler(EStockSampler::LinearWrap)), true);
+			ModelGenerator::CreateOptions opts = ModelGenerator::CreateOptions().material(material);
 			m_inst.m_model = ModelGenerator::Geosphere(factory, 1.0f, 3, &opts);
 		}
 

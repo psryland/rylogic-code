@@ -371,6 +371,10 @@ old:
 						<Item Name="{*cpt_ptr}">*(pr::rdr12::ModelPtr*)data_ptr</Item>
 						<Exec>data_ptr += sizeof(pr::rdr12::ModelPtr)</Exec>
 					</If>
+					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::MaterialPtr">
+						<Item Name="{*cpt_ptr}">*(pr::rdr12::MaterialPtr*)data_ptr</Item>
+						<Exec>data_ptr += sizeof(pr::rdr12::MaterialPtr)</Exec>
+					</If>
 					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::I2WTransform">
 						<Item Name="{*cpt_ptr}">*(pr::m4x4*)data_ptr</Item>
 						<Exec>data_ptr += sizeof(pr::m4x4)</Exec>
@@ -414,18 +418,6 @@ old:
 					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::TintColour32">
 						<Item Name="{*cpt_ptr}">*(pr::Colour32*)data_ptr</Item>
 						<Exec>data_ptr += sizeof(pr::Colour32)</Exec>
-					</If>
-					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::DiffTexture">
-						<Item Name="{*cpt_ptr}">*(pr::rdr12::Texture2DPtr*)data_ptr</Item>
-						<Exec>data_ptr += sizeof(pr::rdr12::Texture2DPtr)</Exec>
-					</If>
-					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::DiffTextureSampler">
-						<Item Name="{*cpt_ptr}">*(pr::rdr12::SamplerPtr*)data_ptr</Item>
-						<Exec>data_ptr += sizeof(pr::rdr12::SamplerPtr)</Exec>
-					</If>
-					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::EnvMapReflectivity">
-						<Item Name="{*cpt_ptr}">*(float*)data_ptr</Item>
-						<Exec>data_ptr += sizeof(float)</Exec>
 					</If>
 					<If Condition="*cpt_ptr == pr::rdr12::EInstComp::PosePtr">
 						<Item Name="{*cpt_ptr}">*(pr::rdr12::PosePtr*)data_ptr</Item>

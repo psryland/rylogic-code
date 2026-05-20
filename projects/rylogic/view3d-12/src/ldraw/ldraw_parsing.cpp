@@ -955,6 +955,14 @@ namespace pr::rdr12::ldraw
 					}
 				}
 			}
+			// Return the parsed texture as a simple generated-model material.
+			MaterialPtr Material() const
+			{
+				if (m_texture == nullptr)
+					return nullptr;
+
+				return MaterialPtr(::pr::compute::New<MaterialSimple>(Colour32White, m_texture, m_sampler), true);
+			}
 		};
 
 		// Support for objects with a main axis
@@ -3224,7 +3232,7 @@ namespace pr::rdr12::ldraw
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Ellipse(m_pp.m_factory, m_dim.x, m_dim.y, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3290,7 +3298,7 @@ namespace pr::rdr12::ldraw
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Pie(m_pp.m_factory, m_scale.x, m_scale.y, m_ang.x, m_ang.y, m_rad.x, m_rad.y, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3360,7 +3368,7 @@ namespace pr::rdr12::ldraw
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::RoundedRectangle(m_pp.m_factory, m_dim.x, m_dim.y, m_corner_radius, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3426,7 +3434,7 @@ namespace pr::rdr12::ldraw
 			}
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Polygon(m_pp.m_factory, m_poly, m_solid, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3507,7 +3515,7 @@ namespace pr::rdr12::ldraw
 				m_axis.BakeTransform(m_verts);
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Quad(m_pp.m_factory, isize(m_verts) / 4, m_verts, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3580,7 +3588,7 @@ namespace pr::rdr12::ldraw
 				return;
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Quad(m_pp.m_factory, isize(m_verts) / 4, m_verts, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3631,7 +3639,7 @@ namespace pr::rdr12::ldraw
 			};
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().bake(m_axis_id.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().bake(m_axis_id.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Quad(m_pp.m_factory, 1, verts, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3704,7 +3712,7 @@ namespace pr::rdr12::ldraw
 				m_smooth.InterpolateVerts(m_verts);
 
 			v4 normal = m_axis.m_align.m_axis;
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::QuadStrip(m_pp.m_factory, isize(m_verts) - 1, m_verts, m_width, { &normal, 1 }, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3748,7 +3756,7 @@ namespace pr::rdr12::ldraw
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Box(m_pp.m_factory, m_dim, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3804,7 +3812,7 @@ namespace pr::rdr12::ldraw
 				return;
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).material(m_tex.Material());
 			obj->m_model = ModelGenerator::BoxList(m_pp.m_factory, m_boxes, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3876,7 +3884,7 @@ namespace pr::rdr12::ldraw
 			m_pt[6] = v4(-n*w, +n*h, -n, 1.0f);
 			m_pt[7] = v4(+n*w, +n*h, -n, 1.0f);
 
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Boxes(m_pp.m_factory, 1, m_pt, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3939,7 +3947,7 @@ namespace pr::rdr12::ldraw
 			m_pt[6] = v4(-n*w, +n*h, -n, 1.0f);
 			m_pt[7] = v4(+n*w, +n*h, -n, 1.0f);
 
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Boxes(m_pp.m_factory, 1, m_pt, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -3984,7 +3992,7 @@ namespace pr::rdr12::ldraw
 		}
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Geosphere(m_pp.m_factory, m_dim, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -4058,7 +4066,7 @@ namespace pr::rdr12::ldraw
 				return;
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).material(m_tex.Material());
 			obj->m_model = ModelGenerator::SphereList(m_pp.m_factory, m_radii, m_positions, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -4133,7 +4141,7 @@ namespace pr::rdr12::ldraw
 			auto ec_radius1 = m_endcaps ? m_dim.y : 0.0f;
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, ec_radius0, ec_radius1, ec_layers, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -4214,7 +4222,7 @@ namespace pr::rdr12::ldraw
 			auto ec_radius1 = m_endcaps ? m_dim.y : 0.0f;
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).tex_diffuse(m_tex.m_texture, m_tex.m_sampler);
+			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
 			obj->m_model = ModelGenerator::Cylinder(m_pp.m_factory, m_dim.x, m_dim.y, m_dim.z, m_scale.x, m_scale.y, m_wedges, m_layers, ec_radius0, ec_radius1, ec_layers, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
@@ -4465,8 +4473,7 @@ namespace pr::rdr12::ldraw
 					auto nug = NuggetDesc(is_strip ? ETopo::LineStrip : ETopo::LineList, EGeom::Vert |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None))
 						.vrange(Range::Reset())
-						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
+						.irange(Range(m_indices.size(), m_indices.size()));
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4490,8 +4497,7 @@ namespace pr::rdr12::ldraw
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
-						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
+						.irange(Range(m_indices.size(), m_indices.size()));
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4512,8 +4518,7 @@ namespace pr::rdr12::ldraw
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
 						(!m_texs.empty() ? EGeom::Tex0 : EGeom::None))
 						.vrange(Range::Reset())
-						.irange(Range(m_indices.size(), m_indices.size()))
-						.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); });
+						.irange(Range(m_indices.size(), m_indices.size()));
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
@@ -4615,7 +4620,8 @@ namespace pr::rdr12::ldraw
 				.colours(m_colours)
 				.normals(m_normals)
 				.tex(m_texs);
-			obj->m_model = ModelGenerator::Mesh(m_pp.m_factory, cdata);
+			auto opts = ModelGenerator::CreateOptions().material(m_tex.Material());
+			obj->m_model = ModelGenerator::Mesh(m_pp.m_factory, cdata, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -4677,9 +4683,7 @@ namespace pr::rdr12::ldraw
 			m_indices.resize(3 * num_faces, idx_stride);
 
 			// Create a nugget for the hull
-			m_nuggets.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert)
-				.mat([&](MaterialSimple& m) { m.base_texture(m_tex.m_texture, m_tex.m_sampler); })
-			);
+			m_nuggets.push_back(NuggetDesc(ETopo::TriList, EGeom::Vert));
 
 			// Generate normals if needed
 			m_gen_norms.Generate(m_pp);
@@ -4692,7 +4696,8 @@ namespace pr::rdr12::ldraw
 				.colours(m_colours)
 				.normals(m_normals)
 				.tex(m_texs);
-			obj->m_model = ModelGenerator::Mesh(m_pp.m_factory, cdata);
+			auto opts = ModelGenerator::CreateOptions().material(m_tex.Material());
+			obj->m_model = ModelGenerator::Mesh(m_pp.m_factory, cdata, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -6015,6 +6020,9 @@ namespace pr::rdr12::ldraw
 		void RecursiveCreate(LdrObject* obj, LdrObject const* source, bool copy_props)
 		{
 			obj->m_model = source->m_model;
+			if (obj->m_material == nullptr)
+				obj->m_material = source->m_material;
+
 			if (copy_props)
 			{
 				obj->m_o2p = source->m_o2p;
@@ -6403,6 +6411,7 @@ namespace pr::rdr12::ldraw
 
 		// Use the same model
 		obj->m_model = existing->m_model;
+		obj->m_material = existing->m_material;
 		obj->m_name = existing->m_name;
 		obj->m_base_colour = existing->m_base_colour;
 

@@ -80,7 +80,7 @@ namespace pr::rdr12
 				None = 0,
 				BakeTransform = 1 << 0, // Bake the model transform into the vertices
 				Colours = 1 << 1,
-				DiffuseTexture = 1 << 2,
+				Material = 1 << 2,
 				NormalGeneration = 1 << 3,
 				TextureToSurface = 1 << 4,
 				_flags_enum = 0,
@@ -92,11 +92,8 @@ namespace pr::rdr12
 			// Per-vertex or per-object colour
 			std::span<Colour32 const> m_colours = {};
 
-			// Diffuse texture
-			Texture2DPtr m_tex_diffuse = {};
-
-			// Diffuse texture sampler
-			SamplerPtr m_sam_diffuse = {};
+			// Default material to assign to generated nuggets that don't supply their own.
+			MaterialPtr m_material = {};
 
 			// Texture to surface transform
 			m4x4 m_t2s = {};
@@ -132,11 +129,10 @@ namespace pr::rdr12
 				if (m) bake(*m);
 				return *this;
 			}
-			CreateOptions& tex_diffuse(Texture2DPtr tex, SamplerPtr sam)
+			CreateOptions& material(MaterialPtr mat)
 			{
-				m_tex_diffuse = tex;
-				m_sam_diffuse = sam;
-				m_options |= EOptions::DiffuseTexture;
+				m_material = mat;
+				m_options = SetBits(m_options, EOptions::Material, mat != nullptr);
 				return *this;
 			}
 			CreateOptions& tex2surf(m4x4 const& t2s)

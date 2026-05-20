@@ -5,6 +5,7 @@
 #include "pr/app/main_ui.h"
 #include "pr/app/default_setup.h"
 #include "pr/container/byte_data.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/audio/audio.h"
 #include "pr/audio/synth/note.h"
 #include "pr/audio/synth/synth.h"
@@ -86,7 +87,8 @@ namespace ace
 			m_scene.m_global_light.m_ambient = 0xFF808080;
 
 			// Set up the renderer to render a quad containing a texture
-			ModelGenerator::CreateOptions opts = ModelGenerator::CreateOptions().tex_diffuse(m_screen_tex, m_factory.CreateSampler(EStockSampler::PointClamp));
+			auto material = MaterialPtr(::pr::compute::New<MaterialSimple>(Colour32White, m_screen_tex, m_factory.CreateSampler(EStockSampler::PointClamp)), true);
+			ModelGenerator::CreateOptions opts = ModelGenerator::CreateOptions().material(material);
 			m_screen_quad.m_model = ModelGenerator::Quad(m_factory, &opts);
 			m_screen_quad.m_i2w = m4x4::Scale((float)SpaceInvaders::ScreenDimX / SpaceInvaders::ScreenDimY, 1.0f, 1.0f, v4::Origin());
 
