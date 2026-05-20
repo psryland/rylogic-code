@@ -146,6 +146,9 @@ public sealed class LDrawSceneInfo
 
 	/// <summary>The camera used by this scene</summary>
 	public LDrawCameraInfo? Camera { get; set; }
+
+	/// <summary>True if MCP can safely close this scene</summary>
+	public bool CanCloseByMcp { get; set; }
 }
 
 /// <summary>Read-only list of scene views hosted by an LDraw instance</summary>
@@ -159,6 +162,25 @@ public sealed class LDrawSceneList
 	{
 		get { return Scenes.Count; }
 	}
+}
+
+/// <summary>Result from a scene lifecycle or source-membership command</summary>
+public sealed class LDrawSceneMutationResult
+{
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The primary scene affected by the operation</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The affected scene after the operation, or the pre-close scene for close operations</summary>
+	public LDrawSceneInfo? Scene { get; set; }
+
+	/// <summary>The scenes after the operation</summary>
+	public List<LDrawSceneInfo> Scenes { get; set; } = [];
+
+	/// <summary>The MCP overlays whose scene membership changed</summary>
+	public List<LDrawOverlayInfo> Overlays { get; set; } = [];
 }
 
 /// <summary>Three-component vector used by MCP payloads</summary>
@@ -517,6 +539,51 @@ internal sealed class LDrawViewSettingsParams
 	public string? SceneName { get; set; }
 }
 
+/// <summary>Parameters for scene creation requests</summary>
+internal sealed class LDrawCreateSceneParams
+{
+	/// <summary>The requested scene name, or a generated name when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>True to make the created scene active</summary>
+	public bool Activate { get; set; } = true;
+
+	/// <summary>MCP overlay ids to show in the new scene</summary>
+	public List<string> OverlayIds { get; set; } = [];
+
+	/// <summary>True to show all current MCP overlays in the new scene</summary>
+	public bool AllOverlays { get; set; }
+
+	/// <summary>True to frame the scene after adding overlay sources</summary>
+	public bool ResetView { get; set; }
+}
+
+/// <summary>Parameters for scene-only mutation requests</summary>
+internal sealed class LDrawSceneParams
+{
+	/// <summary>The scene to mutate</summary>
+	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for MCP overlay source membership requests</summary>
+internal sealed class LDrawSetSceneSourcesParams
+{
+	/// <summary>The scene whose MCP overlay membership is modified</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Membership operation: replace, add, remove, or clear</summary>
+	public string Mode { get; set; } = "replace";
+
+	/// <summary>MCP overlay ids to use for replace/add/remove operations</summary>
+	public List<string> OverlayIds { get; set; } = [];
+
+	/// <summary>True to target all current MCP overlays</summary>
+	public bool AllOverlays { get; set; }
+
+	/// <summary>True to frame the scene after adding overlay sources</summary>
+	public bool ResetView { get; set; }
+}
+
 /// <summary>Parameters for object-list requests</summary>
 internal sealed class LDrawListObjectsParams
 {
@@ -767,6 +834,10 @@ internal static class InstancePipeCommands
 {
 	public const string GetSceneSummary = "get_scene_summary";
 	public const string ListScenes = "list_scenes";
+	public const string CreateScene = "create_scene";
+	public const string CloseScene = "close_scene";
+	public const string SwitchScene = "switch_scene";
+	public const string SetSceneSources = "set_scene_sources";
 	public const string GetViewSettings = "get_view_settings";
 	public const string ListObjects = "list_objects";
 	public const string GetCamera = "get_camera";

@@ -174,6 +174,30 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(ListScenesAsync(Parameters<LDrawListScenesParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.CreateScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(CreateSceneAsync(Parameters<LDrawCreateSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.CloseScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(CloseSceneAsync(Parameters<LDrawSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SwitchScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SwitchSceneAsync(Parameters<LDrawSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetSceneSources:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetSceneSourcesAsync(Parameters<LDrawSetSceneSourcesParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.GetViewSettings:
 				{
 					response.Success = true;
@@ -355,19 +379,21 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	private LDrawSceneInfo CreateSceneInfo(SceneUI scene)
 	{
 		// The scene stores context ids in the native View3D window, not in the WPF SceneUI wrapper.
-		var context_ids = new List<string>();
+		var context_ids = SceneContextIds(scene);
+		var context_id_set = context_ids.ToHashSet();
 		var window = scene.SceneView.Scene.Window;
-		window.EnumGuids(context_id => context_ids.Add(context_id.ToString("D")));
+		var sources = m_model.Sources.Where(source => context_id_set.Contains(source.ContextId)).ToArray();
 		return new LDrawSceneInfo
 		{
 			Name = scene.SceneName,
 			IsActive = scene.DockControl.IsActiveContent,
 			IsVisible = scene.DockControl.IsVisible,
 			ObjectCount = window.ObjectCount,
-			ContextIds = context_ids,
-			Sources = [..m_model.Sources.Where(source => source.SelectedScenes.Contains(scene)).Select(CreateSourceSummary)],
+			ContextIds = [..context_ids.Select(context_id => context_id.ToString("D"))],
+			Sources = [..sources.Select(CreateSourceSummary)],
 			Bounds = LDrawBoundsInfo.From(window.SceneBounds(View3d.ESceneBounds.Visible)),
 			Camera = CreateCameraInfo(scene),
+			CanCloseByMcp = m_model.Scenes.Count > 1 && sources.Length == 0,
 		};
 	}
 

@@ -44,6 +44,7 @@ namespace LDraw
 			m_recent_files.RecentFileSelected = fp => AddFileSourceAsync(fp);
 
 			InitDockContainer();
+			Model.SceneHost = this;
 			LoadProfile();
 
 			DataContext = this;
@@ -72,6 +73,7 @@ namespace LDraw
 		{
 			Util.DisposeRange(m_dc.AllContent.OfType<IDisposable>());
 			m_dc.Dispose();
+			Model.SceneHost = null;
 			Model = null!;
 			base.OnClosed(e);
 		}

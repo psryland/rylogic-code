@@ -87,6 +87,31 @@ namespace LDraw
 		}
 		private McpService m_mcp = null!;
 
+		/// <summary>UI-owned scene lifecycle API</summary>
+		internal ISceneHost? SceneHost
+		{
+			get;
+			set;
+		}
+
+		/// <summary>Create a scene through the UI host</summary>
+		internal SceneUI CreateScene(string? name, bool activate)
+		{
+			return SceneHost?.CreateScene(name, activate) ?? throw new InvalidOperationException("No LDraw scene host is available.");
+		}
+
+		/// <summary>Make 'scene' active through the UI host</summary>
+		internal void ActivateScene(SceneUI scene)
+		{
+			(SceneHost ?? throw new InvalidOperationException("No LDraw scene host is available.")).ActivateScene(scene);
+		}
+
+		/// <summary>Close 'scene' through the UI host</summary>
+		internal void CloseScene(SceneUI scene)
+		{
+			(SceneHost ?? throw new InvalidOperationException("No LDraw scene host is available.")).CloseScene(scene);
+		}
+
 		/// <summary>The view3d DLL context </summary>
 		public View3d View3d
 		{
