@@ -13,4 +13,11 @@ internal static class McpJson
 		PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
 		WriteIndented = true,
 	};
+
+	/// <summary>The serializer options used for one-line local IPC messages</summary>
+	public static JsonSerializerOptions LineOptions { get; } = new(Options)
+	{
+		// The instance pipe protocol uses ReadLine/WriteLine, so payloads must not contain embedded newlines.
+		WriteIndented = false,
+	};
 }

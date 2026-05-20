@@ -23,10 +23,10 @@ internal sealed class InstancePipeClient
 
 		// Keep the local IPC protocol deliberately simple: one request line, one response line.
 		var request = new InstancePipeRequest { Command = InstancePipeCommands.GetSceneSummary };
-		await writer.WriteLineAsync(JsonSerializer.Serialize(request, McpJson.Options)).ConfigureAwait(false);
+		await writer.WriteLineAsync(JsonSerializer.Serialize(request, McpJson.LineOptions)).ConfigureAwait(false);
 
 		var line = await reader.ReadLineAsync(cts.Token).ConfigureAwait(false) ?? throw new IOException("No response from LDraw MCP instance pipe.");
-		var response = JsonSerializer.Deserialize<InstancePipeResponse>(line, McpJson.Options) ?? throw new IOException("Invalid response from LDraw MCP instance pipe.");
+		var response = JsonSerializer.Deserialize<InstancePipeResponse>(line, McpJson.LineOptions) ?? throw new IOException("Invalid response from LDraw MCP instance pipe.");
 		if (!response.Success)
 			throw new IOException(response.Error.Length != 0 ? response.Error : "LDraw MCP instance pipe request failed.");
 		if (response.SceneSummary == null)

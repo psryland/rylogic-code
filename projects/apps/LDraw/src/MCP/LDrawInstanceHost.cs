@@ -149,7 +149,7 @@ internal sealed class LDrawInstanceHost :IDisposable
 		{
 			// The pipe protocol is a single JSON request line followed by a single JSON response line.
 			var line = await reader.ReadLineAsync(cancellation_token).ConfigureAwait(false) ?? throw new IOException("Empty LDraw MCP instance pipe request.");
-			var request = JsonSerializer.Deserialize<InstancePipeRequest>(line, McpJson.Options) ?? throw new IOException("Invalid LDraw MCP instance pipe request.");
+			var request = JsonSerializer.Deserialize<InstancePipeRequest>(line, McpJson.LineOptions) ?? throw new IOException("Invalid LDraw MCP instance pipe request.");
 			switch (request.Command)
 			{
 				case InstancePipeCommands.GetSceneSummary:
@@ -173,7 +173,7 @@ internal sealed class LDrawInstanceHost :IDisposable
 			Log.Write(ELogLevel.Warn, ex, "LDraw MCP instance pipe request failed.");
 		}
 
-		await writer.WriteLineAsync(JsonSerializer.Serialize(response, McpJson.Options)).ConfigureAwait(false);
+		await writer.WriteLineAsync(JsonSerializer.Serialize(response, McpJson.LineOptions)).ConfigureAwait(false);
 	}
 
 	/// <summary>Create a read-only summary of this LDraw instance</summary>
