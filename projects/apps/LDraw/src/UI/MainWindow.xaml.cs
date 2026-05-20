@@ -53,6 +53,8 @@ namespace LDraw
 			void PostLoad(object? sender, RoutedEventArgs e)
 			{ 
 				Loaded -= PostLoad;
+				_ = Model.Mcp.StartAsync();
+
 				foreach (var filepath in Model.StartupOptions.FilesToLoad)
 					AddFileSourceAsync(filepath);
 			}

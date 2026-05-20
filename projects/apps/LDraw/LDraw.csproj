@@ -30,6 +30,7 @@
 	<!-- References -->
 	<ItemGroup>
 		<PackageReference Include="AvalonEdit" />
+		<PackageReference Include="ModelContextProtocol.AspNetCore" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />

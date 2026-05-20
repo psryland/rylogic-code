@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using LDraw.MCP;
 using Rylogic.Common;
 using Rylogic.Gui.WPF;
 using Rylogic.Utility;
@@ -33,6 +34,8 @@ namespace LDraw.Dialogs
 			MoveIncludePathDown = Command.Create(this, MoveIncludePathDownInternal, MoveIncludePathDownAvailable);
 			ResetToDefaults = Command.Create(this, ResetToDefaultsInternal, ResetToDefaultsAvailable);
 			BrowseTextEditor = Command.Create(this, BrowseTextEditorInternal);
+			CopyMcpConfiguration = Command.Create(this, CopyMcpConfigurationInternal);
+			RegenerateMcpToken = Command.Create(this, RegenerateMcpTokenInternal);
 
 			DataContext = this;
 		}
@@ -46,12 +49,14 @@ namespace LDraw.Dialogs
 				if (Model == value) return;
 				if (field != null)
 				{
+					field.Mcp.PropertyChanged -= HandleMcpPropertyChanged;
 					field.PropertyChanged -= HandlePropertyChanged;
 				}
 				field = value;
 				if (field != null)
 				{
 					field.PropertyChanged += HandlePropertyChanged;
+					field.Mcp.PropertyChanged += HandleMcpPropertyChanged;
 				}
 
 				// Handlers
@@ -75,11 +80,27 @@ namespace LDraw.Dialogs
 			}
 		} = null!;
 
+		/// <summary>Notify when MCP service properties change</summary>
+		private void HandleMcpPropertyChanged(object? sender, PropertyChangedEventArgs e)
+		{
+			switch (e.PropertyName)
+			{
+				case nameof(McpService.StatusMessage):
+				{
+					NotifyPropertyChanged(nameof(McpStatus));
+					break;
+				}
+			}
+		}
+
 		/// <summary>The settings data</summary>
 		public SettingsData Settings => Model.Settings;
 
 		/// <summary>The currently selected profile</summary>
 		public SettingsProfile Profile => Model.Profile;
+
+		/// <summary>The current MCP service status</summary>
+		public string McpStatus => Model.Mcp.StatusMessage;
 
 		/// <summary>Available fonts</summary>
 		public ICollectionView AvailableFonts { get; }
@@ -259,6 +280,36 @@ namespace LDraw.Dialogs
 
 			if (dlg.ShowDialog(this) == true)
 				Profile.TextEditorPath = dlg.FileName;
+		}
+
+		/// <summary>Copy the VS Code MCP configuration to the clipboard</summary>
+		public Command CopyMcpConfiguration { get; }
+		private void CopyMcpConfigurationInternal()
+		{
+			Settings.MCP.EnsureAccessToken();
+			Settings.Save();
+
+			var msg =
+				"The MCP configuration includes the local bearer token used to access this LDraw instance.\n\n" +
+				"Only paste it into a trusted MCP client configuration.";
+			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
+				return;
+
+			Clipboard.SetText(Settings.MCP.VSCodeConfiguration());
+		}
+
+		/// <summary>Generate a new bearer token for MCP clients</summary>
+		public Command RegenerateMcpToken { get; }
+		private void RegenerateMcpTokenInternal()
+		{
+			var msg =
+				"Regenerating the MCP bearer token will break existing MCP client configurations until they are updated.\n\n" +
+				"Continue?";
+			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
+				return;
+
+			Settings.MCP.AccessToken = McpSettingsData.GenerateAccessToken();
+			Settings.Save();
 		}
 
 		/// <summary>Reset the settings to defaults</summary>

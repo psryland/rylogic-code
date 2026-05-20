@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Xml.Linq;
+using LDraw.MCP;
 using Rylogic.Common;
 using Rylogic.Extn;
 using Rylogic.Gfx;
@@ -17,11 +18,15 @@ namespace LDraw
 		{
 			RecentFiles = string.Empty;
 			Profiles = [new SettingsProfile { Name = SettingsProfile.DefaultProfileName }];
+			MCP = new McpSettingsData();
 			AutoSaveOnChanges = true;
 		}
 		public SettingsData(string filepath)
 			: base(filepath, ESettingsLoadFlags.ThrowOnError)
 		{
+			if (!has(nameof(MCP)))
+				MCP = new McpSettingsData();
+
 			AutoSaveOnChanges = true;
 		}
 
@@ -40,6 +45,13 @@ namespace LDraw
 		{
 			get => get<List<SettingsProfile>>(nameof(Profiles));
 			private set => set(nameof(Profiles), value);
+		}
+
+		/// <summary>Model Context Protocol server settings</summary>
+		public McpSettingsData MCP
+		{
+			get => get<McpSettingsData>(nameof(MCP));
+			private set => set(nameof(MCP), value);
 		}
 	}
 
