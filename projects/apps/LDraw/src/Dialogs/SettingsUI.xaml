@@ -11,7 +11,7 @@
 	ShowInTaskbar="True"
 	ResizeMode="CanResizeWithGrip"
 	Height="450"
-	Width="500"
+	Width="580"
 	>
 	<Grid
 		Margin="8,0,8,8"
@@ -249,6 +249,7 @@
 								/>
 						</StackPanel>
 					</GroupBox>
+
 				</Grid>
 			</TabItem>
 
@@ -258,6 +259,7 @@
 				>
 				<Grid>
 					<Grid.RowDefinitions>
+						<RowDefinition Height="Auto"/>
 						<RowDefinition Height="Auto"/>
 					</Grid.RowDefinitions>
 					
@@ -295,6 +297,57 @@
 									Text="{Binding Profile.CheckForChangesPollPeriodS, StringFormat={}{0:N2}}"
 									VerticalAlignment="Center"
 									MinWidth="50"
+									/>
+							</StackPanel>
+						</StackPanel>
+					</GroupBox>
+
+					<GroupBox
+						Grid.Row="1"
+						Header="MCP Server"
+						Padding="3"
+						Margin="0,8,0,0"
+					>
+						<StackPanel>
+							<CheckBox
+								Content="Enable MCP server"
+								IsChecked="{Binding Settings.MCP.Enabled, UpdateSourceTrigger=PropertyChanged}"
+								Margin="3"
+								/>
+							<StackPanel
+								Orientation="Horizontal"
+								Margin="30,3,3,3"
+								>
+								<TextBlock
+									Text="Port: "
+									VerticalAlignment="Center"
+									/>
+								<TextBox
+									Text="{Binding Settings.MCP.Port, UpdateSourceTrigger=LostFocus}"
+									VerticalAlignment="Center"
+									MinWidth="70"
+									/>
+							</StackPanel>
+							<TextBlock
+								Text="{Binding McpStatus}"
+								TextWrapping="Wrap"
+								Foreground="Gray"
+								Margin="30,3,3,3"
+								/>
+							<StackPanel
+								Orientation="Horizontal"
+								Margin="30,3,3,3"
+								>
+								<Button
+									Command="{Binding CopyMcpConfiguration}"
+									Content="Copy VS Code mcp.json"
+									MinWidth="150"
+									Margin="0,0,6,0"
+									/>
+								<Button
+									Command="{Binding RegenerateMcpToken}"
+									Content="Regenerate Token"
+									MinWidth="130"
 									/>
 							</StackPanel>
 						</StackPanel>

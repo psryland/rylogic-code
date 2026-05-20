@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using LDraw.MCP;
 using LDraw.UI;
 using Rylogic.Common;
 using Rylogic.Extn;
@@ -30,12 +31,14 @@ namespace LDraw
 			Scenes = [];
 			Scripts = [];
 			Settings = settings;
+			Mcp = new McpService(this);
 
 			// Ensure the temporary script directory exists
 			Path_.CreateDirs(TempScriptDirectory);
 		}
 		public void Dispose()
 		{
+			Util.Dispose(ref m_mcp!);
 			FileWatchTimer = null!;
 			View3d = null!;
 			GC.SuppressFinalize(this);
@@ -46,6 +49,68 @@ namespace LDraw
 
 		/// <summary>The main thread synchronisation context</summary>
 		private SynchronizationContext Sync { get; }
+
+		/// <summary>Run 'action' on the main thread and return the result</summary>
+		public async Task<T> InvokeAsync<T>(Func<T> action, TimeSpan? timeout = null)
+		{
+			if (SynchronizationContext.Current == Sync)
+				return action();
+
+			var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+			using var cts = timeout.HasValue ? new CancellationTokenSource(timeout.Value) : null;
+			var token = cts?.Token ?? CancellationToken.None;
+			using var reg = token.Register(() => tcs.TrySetException(new TimeoutException("Timed out waiting for the LDraw UI thread.")));
+
+			Sync.Post(_ =>
+			{
+				if (token.IsCancellationRequested)
+					return;
+
+				try
+				{
+					tcs.TrySetResult(action());
+				}
+				catch (Exception ex)
+				{
+					tcs.TrySetException(ex);
+				}
+			}, null);
+
+			return await tcs.Task.ConfigureAwait(false);
+		}
+
+		/// <summary>The embedded MCP service for exposing LDraw to AI clients</summary>
+		public McpService Mcp
+		{
+			get => m_mcp;
+			private set => m_mcp = value;
+		}
+		private McpService m_mcp = null!;
+
+		/// <summary>UI-owned scene lifecycle API</summary>
+		internal ISceneHost? SceneHost
+		{
+			get;
+			set;
+		}
+
+		/// <summary>Create a scene through the UI host</summary>
+		internal SceneUI CreateScene(string? name, bool activate)
+		{
+			return SceneHost?.CreateScene(name, activate) ?? throw new InvalidOperationException("No LDraw scene host is available.");
+		}
+
+		/// <summary>Make 'scene' active through the UI host</summary>
+		internal void ActivateScene(SceneUI scene)
+		{
+			(SceneHost ?? throw new InvalidOperationException("No LDraw scene host is available.")).ActivateScene(scene);
+		}
+
+		/// <summary>Close 'scene' through the UI host</summary>
+		internal void CloseScene(SceneUI scene)
+		{
+			(SceneHost ?? throw new InvalidOperationException("No LDraw scene host is available.")).CloseScene(scene);
+		}
 
 		/// <summary>The view3d DLL context </summary>
 		public View3d View3d
