@@ -506,6 +506,19 @@ public sealed class LDrawViewSettingsInfo
 	public bool RayTracingEnabled { get; set; }
 }
 
+/// <summary>Result from a view-setting mutation command</summary>
+public sealed class LDrawViewMutationResult
+{
+	/// <summary>The scene whose view settings changed</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The resulting view settings</summary>
+	public LDrawViewSettingsInfo ViewSettings { get; set; } = new();
+}
+
 /// <summary>Result from an object state mutation command</summary>
 public sealed class LDrawObjectMutationResult
 {
@@ -537,6 +550,36 @@ internal sealed class LDrawViewSettingsParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for projection mutation requests</summary>
+internal sealed class LDrawSetProjectionParams
+{
+	/// <summary>The scene to modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>True for orthographic projection; false for perspective</summary>
+	public bool Orthographic { get; set; }
+}
+
+/// <summary>Parameters for background-colour mutation requests</summary>
+internal sealed class LDrawSetBackgroundColourParams
+{
+	/// <summary>The scene to modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Colour to apply, using any Colour32 parseable format</summary>
+	public string? Colour { get; set; }
+}
+
+/// <summary>Parameters for camera align-axis mutation requests</summary>
+internal sealed class LDrawSetCameraAlignAxisParams
+{
+	/// <summary>The scene to modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Named align direction: None, PosX, NegX, PosY, NegY, PosZ, or NegZ</summary>
+	public string? AlignDirection { get; set; }
 }
 
 /// <summary>Parameters for scene creation requests</summary>
@@ -839,6 +882,9 @@ internal static class InstancePipeCommands
 	public const string SwitchScene = "switch_scene";
 	public const string SetSceneSources = "set_scene_sources";
 	public const string GetViewSettings = "get_view_settings";
+	public const string SetProjection = "set_projection";
+	public const string SetBackgroundColour = "set_background_colour";
+	public const string SetCameraAlignAxis = "set_camera_align_axis";
 	public const string ListObjects = "list_objects";
 	public const string GetCamera = "get_camera";
 	public const string SetCamera = "set_camera";

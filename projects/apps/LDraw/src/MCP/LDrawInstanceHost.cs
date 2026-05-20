@@ -204,6 +204,24 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(GetViewSettingsAsync(Parameters<LDrawViewSettingsParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.SetProjection:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetProjectionAsync(Parameters<LDrawSetProjectionParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetBackgroundColour:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetBackgroundColourAsync(Parameters<LDrawSetBackgroundColourParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetCameraAlignAxis:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetCameraAlignAxisAsync(Parameters<LDrawSetCameraAlignAxisParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.ListObjects:
 				{
 					response.Success = true;
