@@ -5,6 +5,7 @@
   <ItemGroup Label="General Packages">
     <PackageVersion Include="AvalonEdit" Version="6.3.0.90" />
     <PackageVersion Include="MessagePack" Version="2.5.192" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.3.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.11.0" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />

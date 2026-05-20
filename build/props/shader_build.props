@@ -29,11 +29,11 @@
 		-->
 
 		<Exec Condition="$(Configuration) == 'Debug'"
-			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets) dbg"
+			Command="dotnet-script.exe --cache-path &quot;$(TEMP)\rylogic-dotnet-script\$(SubDir)\BuildShader&quot; $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets) dbg"
 			ContinueOnError="ErrorAndContinue"
 		/>
 		<Exec Condition="$(Configuration) != 'Debug'"
-			Command="dotnet-script.exe $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets)"
+			Command="dotnet-script.exe --cache-path &quot;$(TEMP)\rylogic-dotnet-script\$(SubDir)\BuildShader&quot; $(ScriptPath)BuildShader.csx %(ShaderBuild.FullPath) $(PlatformTarget) $(Configuration) model=%(ShaderBuild.ShaderModel) vs=%(ShaderBuild.VertexEntryPoints) ps=%(ShaderBuild.PixelEntryPoints) gs=%(ShaderBuild.GeometryEntryPoints) cs=%(ShaderBuild.ComputeEntryPoints) lib=%(ShaderBuild.LibraryTargets)"
 			ContinueOnError="ErrorAndContinue"
 		/>
 	</Target>
