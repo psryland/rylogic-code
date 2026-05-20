@@ -392,7 +392,7 @@ namespace pr::rdr12
 		return m_skinned_geometry;
 	}
 
-	// Return the latest cached current-pose bounding box for a skinned model/pose pair.
+	// Return the current-pose object/root-space bounding box for a skinned model/pose pair.
 	std::optional<BBox> Renderer::SkinnedModelBBox(Model const& model, Pose const& pose) const
 	{
 		return m_skinned_geometry.SkinnedModelBBox(model, pose);

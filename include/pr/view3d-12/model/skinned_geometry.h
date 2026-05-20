@@ -89,7 +89,7 @@ namespace pr::rdr12
 		// Return the vertex buffer that represents 'model' at 'pose', dispatching compute work only when the cached pose is stale.
 		D3D12_VERTEX_BUFFER_VIEW const& VBufView(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer, Model& model, PosePtr const& pose);
 
-		// Return the latest cached current-pose bounding box for 'model' at 'pose'.
+		// Return the current-pose object/root-space bounding box for 'model' at 'pose'.
 		std::optional<BBox> SkinnedModelBBox(Model const& model, Pose const& pose) const;
 
 		// Remove cached geometry for 'model' because its rest-pose geometry or skinning data has changed.
@@ -100,7 +100,7 @@ namespace pr::rdr12
 		// Initialise a compute output buffer and bbox subscription for a cache entry.
 		void InitialiseEntry(Entry& entry, Model& model, PosePtr const& pose);
 
-		// Update the cached current-pose bounding box for 'entry'.
+		// Update the cached current-pose object/root-space bounding box for 'entry'.
 		void UpdateBBox(Entry& entry, Model const& model, PoseUpdatedArgs const& args);
 
 		// Release the GPU resources owned by 'entry' after the renderer has finished using them.

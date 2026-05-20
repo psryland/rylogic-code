@@ -209,7 +209,7 @@ namespace pr::rdr12
 		// Access the shared compute-skinned geometry cache.
 		SkinnedGeometryCache& SkinnedGeometry();
 
-		// Return the latest cached current-pose bounding box for a skinned model/pose pair.
+		// Return the current-pose object/root-space bounding box for a skinned model/pose pair.
 		std::optional<BBox> SkinnedModelBBox(Model const& model, Pose const& pose) const;
 
 		// Return the associated HWND. Note: this is not associated with any particular window. 'Window' objects have an hwnd.

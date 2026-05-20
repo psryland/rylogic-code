@@ -180,12 +180,9 @@ namespace pr::rdr12::ldraw
 	{
 		// 'i2w' is the transform inherited by children.
 		// 'bbox2w' is the transform for the bbox:
-		//   - 'BBoxTransform(bbox)' is in model space (i.e. the same space at the verts)
-		//   - 'm2root' transforms model space to model_origin_space (this is usually identity)
-		//   - 'o2p' transforms model_origin_space to model_parent_space
-		//   - 'pose->RootToAnim()' transforms root_model to animated position
-		//   - 'm_root_anim.RootToAnim()' adds an animated offset to the animated position
-		//   - 'i2w' transforms the model instance to world-space
+		//   - Static bboxes start in model-buffer space, so they pass through m_m2root, optional pose root motion, and i2w.
+		//   - Skinned bboxes are already current-pose object/root-space bounds, so they only pass through i2w.
+		//   - 'm_root_anim.RootToAnim()' is already included in i2w because it is an instance-space offset.
 
 		// Get the 'instance to world' transform
 		auto i2w = p2w * m_o2p; // = this LdrObject's position in world space
@@ -200,22 +197,28 @@ namespace pr::rdr12::ldraw
 		// Add the bbox instance to the scene draw list
 		if (m_model && !is_hidden)
 		{
-			// If the model is skinned, then we need to get the skinned bbox, which is in the pose of the current animation time.
+			// If the model is skinned, then we need the cached current-pose object/root-space bbox.
 			auto skinned_bbox = m_pose && m_model->m_skin
 				? m_model->rdr().SkinnedModelBBox(*m_model.get(), *m_pose.get())
 				: std::optional<BBox>{};
 
-			auto bbox = skinned_bbox ? *skinned_bbox : m_model->m_bbox;
-
 			// Get the 'bbox to world' transform
-			auto bbox2w = BBoxTransform(bbox);       // Transform points in a unit cube into "model verts" space
-			bbox2w = m_model->m_m2root * bbox2w;                // Transform points in "model_verts" space to model_origin space
-			if (m_pose) bbox2w = m_pose->RootToAnim() * bbox2w; // Transform points in "model_origin" space to the animated position of the model origin
-			bbox2w = i2w * bbox2w;                              // Transform points in the animated position of the model origin to world space
+			auto bbox2w = m4x4::Identity();
+			if (skinned_bbox)
+			{
+				bbox2w = i2w * BBoxTransform(*skinned_bbox); // Skinned bbox is already in current-pose object/root space.
+			}
+			else
+			{
+				auto bbox2o = BBoxTransform(m_model->m_bbox);       // Transform points in a unit cube into "model verts" space
+				bbox2o = m_model->m_m2root * bbox2o;                // Transform points in "model_verts" space to model_origin space
+				if (m_pose) bbox2o = m_pose->RootToAnim() * bbox2o; // Transform points in "model_origin" space to the animated position of the model origin
+				bbox2w = i2w * bbox2o;                              // Transform points in the animated position of the model origin to world space
+			}
 
 			PR_ASSERT(PR_DBG, AllSet(flags, ELdrFlags::NonAffine) || IsAffine(bbox2w), "Invalid instance transform");
 
-			// 'BBoxModel' is a unit cube. 'BBoxTransform' maps it into this model's local bbox, then 'bbox2w' maps that box into world space.
+			// 'BBoxModel' is a unit cube. 'bbox2w' maps that cube to this object's world-space bbox.
 			ResourceFactory factory(scene.rdr());
 			m_bbox_instance.m_model = factory.CreateModel(EStockModel::BBoxModel);
 			m_bbox_instance.m_i2w = bbox2w;
@@ -824,7 +827,7 @@ namespace pr::rdr12::ldraw
 		{
 			auto bbox = BBox::Reset();
 
-			// If the model is skinned, then we need to get the skinned bbox, which is in the pose of the current animation time.
+			// If the model is skinned, then we need the cached current-pose object/root-space bbox.
 			auto skinned_bbox = m_pose && m_model->m_skin
 				? m_model->rdr().SkinnedModelBBox(*m_model.get(), *m_pose.get())
 				: std::optional<BBox>{};

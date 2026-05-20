@@ -15,6 +15,46 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
+	namespace
+	{
+		// Calculate the current-pose object/root-space bbox from the skin's bone-bound spheres and object-space pose matrices.
+		std::optional<BBox> CalcSkinnedModelBBox(Model const& model, std::span<m4x4 const> pose_matrices)
+		{
+			auto const& bone_indices = model.m_skin.m_bound_bone_indices;
+			auto const& bone_spheres = model.m_skin.m_bound_spheres;
+			assert(bone_indices.size() == bone_spheres.size() && "Skinned bbox bone index/sphere arrays should be parallel");
+
+			auto bbox = BBox::Reset();
+			for (int i = 0, iend = isize(bone_spheres); i != iend; ++i)
+			{
+				auto bone_index = bone_indices[i];
+				if (bone_index < 0 || bone_index >= isize(pose_matrices))
+				{
+					assert(false && "Skinned bbox bone index exceeds the pose buffer");
+					continue;
+				}
+
+				auto const& pose = pose_matrices[bone_index];
+				auto sphere = bone_spheres[i];
+				auto centre = sphere.w1();
+				centre = pose * centre;
+
+				auto scale_x = Length(pose.x.xyz);
+				auto scale_y = Length(pose.y.xyz);
+				auto scale_z = Length(pose.z.xyz);
+				auto radius = sphere.w * std::max(scale_x, std::max(scale_y, scale_z)) * 1.05f;
+				auto radius3 = v4{ radius, radius, radius, 0 };
+
+				bbox.Grow(centre + radius3);
+				bbox.Grow(centre - radius3);
+			}
+
+			return bbox.valid()
+				? std::optional<BBox>{ bbox }
+				: std::nullopt;
+		}
+	}
+
 	// Hash a model/pose cache key.
 	size_t SkinnedGeometryCache::KeyHash::operator () (Key const& key) const
 	{
@@ -152,15 +192,21 @@ namespace pr::rdr12
 		return *VBuf(cmd_list, upload_buffer, model, pose).m_view;
 	}
 
-	// Return the latest cached current-pose bounding box for 'model' at 'pose'.
+	// Return the current-pose object/root-space bounding box for 'model' at 'pose'.
 	std::optional<BBox> SkinnedGeometryCache::SkinnedModelBBox(Model const& model, Pose const& pose) const
 	{
-		std::lock_guard lock(m_mutex);
+		{
+			std::lock_guard lock(m_mutex);
 
-		auto iter = m_cache.find(Key{ &model, &pose });
-		return iter != end(m_cache)
-			? iter->second.m_bbox
-			: std::nullopt;
+			auto iter = m_cache.find(Key{ &model, &pose });
+			if (iter != end(m_cache) && iter->second.m_bbox_revision == pose.Revision() && pose.m_time0 == pose.m_time1)
+				return iter->second.m_bbox;
+		}
+
+		// BBox drawing happens before rendering updates the skinned-geometry cache, so evaluate stale poses synchronously.
+		vector<m4x4> pose_matrices(pose.BoneCount());
+		pose.EvaluatePose(pose_matrices);
+		return CalcSkinnedModelBBox(model, pose_matrices);
 	}
 
 	// Remove cached geometry for 'model'.
@@ -222,41 +268,10 @@ namespace pr::rdr12
 		UpdateBBox(entry, model, PoseUpdatedArgs{ pose_matrices, pose->Revision() });
 	}
 
-	// Update the cached current-pose bounding box for a skinned model/pose pair.
+	// Update the cached current-pose object/root-space bounding box for a skinned model/pose pair.
 	void SkinnedGeometryCache::UpdateBBox(Entry& entry, Model const& model, PoseUpdatedArgs const& args)
 	{
-		auto const& bone_indices = model.m_skin.m_bound_bone_indices;
-		auto const& bone_spheres = model.m_skin.m_bound_spheres;
-		assert(bone_indices.size() == bone_spheres.size() && "Skinned bbox bone index/sphere arrays should be parallel");
-
-		auto bbox = BBox::Reset();
-		for (int i = 0, iend = isize(bone_spheres); i != iend; ++i)
-		{
-			auto bone_index = bone_indices[i];
-			if (bone_index < 0 || bone_index >= isize(args.m_pose))
-			{
-				assert(false && "Skinned bbox bone index exceeds the pose buffer");
-				continue;
-			}
-
-			auto const& pose = args.m_pose[bone_index];
-			auto sphere = bone_spheres[i];
-			auto centre = sphere.w1();
-			centre = pose * centre;
-
-			auto scale_x = Length(pose.x.xyz);
-			auto scale_y = Length(pose.y.xyz);
-			auto scale_z = Length(pose.z.xyz);
-			auto radius = sphere.w * std::max(scale_x, std::max(scale_y, scale_z)) * 1.05f;
-			auto radius3 = v4{ radius, radius, radius, 0 };
-
-			bbox.Grow(centre + radius3);
-			bbox.Grow(centre - radius3);
-		}
-
-		entry.m_bbox = bbox.valid()
-			? std::optional<BBox>{ bbox }
-			: std::nullopt;
+		entry.m_bbox = CalcSkinnedModelBBox(model, args.m_pose);
 		entry.m_bbox_revision = args.m_revision;
 	}
 
