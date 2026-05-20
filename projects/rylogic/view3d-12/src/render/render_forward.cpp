@@ -108,18 +108,21 @@ namespace pr::rdr12
 	void RenderForward::AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist)
 	{
 		auto inst_has_alpha = HasAlpha(inst);
+		auto material_override = FindMaterial(inst);
 
 		// Add a draw list element for each nugget in the instance's model
 		for (auto& nugget : Enumerate(nuggets))
 		{
-			auto const* root_pass = nugget.mat().Pass(m_step_id);
+			auto const& root_material = material_override != nullptr ? *material_override.get() : nugget.mat();
+			auto const* root_pass = root_material.Pass(m_step_id);
 			if (root_pass == nullptr)
 				continue;
 
-			auto has_alpha = inst_has_alpha || root_pass->RequiresAlpha(inst, nugget.mat(), nugget);
+			auto has_alpha = inst_has_alpha || root_pass->RequiresAlpha(inst, root_material, nugget);
 			for (auto& nug : nugget.Dependents())
 			{
-				auto const* pass = nug.mat().Pass(m_step_id);
+				auto const& material = material_override != nullptr ? *material_override.get() : nug.mat();
+				auto const* pass = material.Pass(m_step_id);
 				if (pass == nullptr)
 					continue;
 
@@ -142,7 +145,7 @@ namespace pr::rdr12
 					break;
 
 				// Let the material add pass-specific sort key information.
-				sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, sk);
+				sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
 
 				// Add an element to the draw list
 				drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
@@ -369,7 +372,9 @@ namespace pr::rdr12
 			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Let the material bind per-draw resources and constants.
-			auto const* pass = nugget.mat().Pass(m_step_id);
+			auto material_override = FindMaterial(instance);
+			auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
+			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
 
@@ -381,7 +386,7 @@ namespace pr::rdr12
 				.m_wnd = wnd(),
 				.m_scene = scn(),
 				.m_dle = dle,
-				.m_material = nugget.mat(),
+				.m_material = material,
 				.m_cmd_list = cmd_list,
 				.m_upload = m_upload_buffer,
 				.m_pipe_state = desc,

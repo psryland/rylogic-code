@@ -38,15 +38,16 @@ namespace pr::rdr12::ldraw
 	{
 		// Note: don't use 'm_i2w' to control the object transform, use m_o2p in the LdrObject instead
 		#define PR_RDR_INST(x) \
-		x(m4x4       ,m_i2w    ,EInstComp::I2WTransform       )/*     16 bytes, align 16 */\
-		x(m4x4       ,m_c2s    ,EInstComp::C2SOptional        )/*     16 bytes, align 16 */\
-		x(ModelPtr   ,m_model  ,EInstComp::ModelPtr           )/* 4 or 8 bytes, align 8 */\
-		x(PosePtr    ,m_pose   ,EInstComp::PosePtr            )/* 4 or 8 bytes, align 8 */\
-	 	x(PipeStates ,m_pso    ,EInstComp::PipeStates         )/*    104 bytes, align 8 */\
-		x(Colour32   ,m_colour ,EInstComp::TintColour32       )/*      4 bytes, align 4 */\
-		x(float      ,m_env    ,EInstComp::EnvMapReflectivity )/*      4 bytes, align 4 */\
-		x(EInstFlag  ,m_iflags ,EInstComp::Flags              )/*      4 bytes, align 4 */\
-		x(SKOverride ,m_sko    ,EInstComp::SortkeyOverride    )/*      8 bytes, align 4 */
+		x(m4x4        ,m_i2w      ,EInstComp::I2WTransform       )/*     16 bytes, align 16 */\
+		x(m4x4        ,m_c2s      ,EInstComp::C2SOptional        )/*     16 bytes, align 16 */\
+		x(ModelPtr    ,m_model    ,EInstComp::ModelPtr           )/* 4 or 8 bytes, align 8 */\
+		x(MaterialPtr ,m_material ,EInstComp::MaterialPtr        )/* 4 or 8 bytes, align 8 */\
+		x(PosePtr     ,m_pose     ,EInstComp::PosePtr            )/* 4 or 8 bytes, align 8 */\
+	 	x(PipeStates  ,m_pso      ,EInstComp::PipeStates         )/*    104 bytes, align 8 */\
+		x(Colour32    ,m_colour   ,EInstComp::TintColour32       )/*      4 bytes, align 4 */\
+		x(float       ,m_env      ,EInstComp::EnvMapReflectivity )/*      4 bytes, align 4 */\
+		x(EInstFlag   ,m_iflags   ,EInstComp::Flags              )/*      4 bytes, align 4 */\
+		x(SKOverride  ,m_sko      ,EInstComp::SortkeyOverride    )/*      8 bytes, align 4 */
 		PR_RDR12_INSTANCE_MEMBERS(RdrInstance , PR_RDR_INST);
 		#undef PR_RDR_INST
 	};
@@ -102,7 +103,6 @@ namespace pr::rdr12::ldraw
 		GUID              m_context_id;      // The id of the context this instance was created in
 		Colour32          m_base_colour;     // The original colour of this object
 		Colour32          m_group_tint;      // A colour channel max applied recursively to all child objects
-		MaterialPtr       m_material;        // Material override assigned by the script, or null for the generated/default material.
 		RootAnimation     m_root_anim;       // Animation of the model root position
 		BBoxInstance      m_bbox_instance;   // Used for rendering the bounding box for this instance
 		Sub               m_screen_space;    // True if this object should be rendered in screen space

@@ -26,6 +26,7 @@ namespace pr::rdr12
 	{
 		None,                // invalid entry (used for padding)
 		ModelPtr,            // rdr::ModelPtr
+		MaterialPtr,         // rdr::MaterialPtr
 		I2WTransform,        // pr::m4x4
 		I2WTransformPtr,     // pr::m4x4*
 		I2WTransformFuncPtr, // pr::m4x4 const& (*func)(void* context);
@@ -71,6 +72,7 @@ namespace pr::rdr12
 		{
 			case EInstComp::None:                return 0;
 			case EInstComp::ModelPtr:            return sizeof(ModelPtr);
+			case EInstComp::MaterialPtr:         return sizeof(MaterialPtr);
 			case EInstComp::PosePtr:             return sizeof(PosePtr);
 			case EInstComp::I2WTransform:        return sizeof(m4x4);
 			case EInstComp::I2WTransformPtr:     return sizeof(m4x4*);
@@ -210,6 +212,9 @@ namespace pr::rdr12
 
 	// Return any pipe state overrides in the instance
 	PipeStates const& GetPipeStates(BaseInstance const& inst);
+
+	// Return the material to render this instance with.
+	MaterialPtr FindMaterial(BaseInstance const& inst);
 
 	// Return the texture override in this instance (if exists)
 	Texture2DPtr FindDiffTexture(BaseInstance const& inst);

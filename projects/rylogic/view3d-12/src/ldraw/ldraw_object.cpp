@@ -96,7 +96,6 @@ namespace pr::rdr12::ldraw
 		, m_context_id(context_id)
 		, m_base_colour(Colour32White)
 		, m_group_tint(Colour32White)
-		, m_material()
 		, m_root_anim()
 		, m_bbox_instance()
 		, m_screen_space()

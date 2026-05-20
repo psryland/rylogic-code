@@ -137,10 +137,13 @@ namespace pr::rdr12
 		if (!m_include(&inst))
 			return;
 
+		auto material_override = FindMaterial(inst);
+
 		// For ray casting, we only need the default nuggets (currently)
 		for (auto& nug : Enumerate(nuggets))
 		{
-			auto const* pass = nug.mat().Pass(m_step_id);
+			auto const& material = material_override != nullptr ? *material_override.get() : nug.mat();
+			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
 
@@ -149,7 +152,7 @@ namespace pr::rdr12
 				continue;
 
 			// Add an element to the draw list
-			auto sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, nug.m_sort_key);
+			auto sk = pass->AddSortKey(m_step_id, inst, material, nug, nug.m_sort_key);
 			drawlist.push_back(DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst });
 			m_sort_needed = true;
 		}
@@ -314,7 +317,9 @@ namespace pr::rdr12
 			m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 			// Let the material configure this element for ray casting.
-			auto const* pass = nugget.mat().Pass(m_step_id);
+			auto material_override = FindMaterial(instance);
+			auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
+			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
 
@@ -323,7 +328,7 @@ namespace pr::rdr12
 				.m_wnd = wnd(),
 				.m_scene = scn(),
 				.m_dle = dle,
-				.m_material = nugget.mat(),
+				.m_material = material,
 				.m_cmd_list = m_cmd_list,
 				.m_upload = m_upload_buffer,
 				.m_pipe_state = desc,

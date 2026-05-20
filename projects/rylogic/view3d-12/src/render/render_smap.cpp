@@ -161,6 +161,7 @@ namespace pr::rdr12
 			return;
 
 		bool grow_bounds = true;
+		auto material_override = FindMaterial(inst);
 
 		// Use the default nuggets. This means alpha objects will cast shadows as if they were opaque
 		for (auto& nug : Enumerate(nuggets))
@@ -181,11 +182,12 @@ namespace pr::rdr12
 
 			// Set the texture id part of the key if not set already
 			// Only really need the texture if it contains alpha pixels...
-			auto const* pass = nug.mat().Pass(m_step_id);
+			auto const& material = material_override != nullptr ? *material_override.get() : nug.mat();
+			auto const* pass = material.Pass(m_step_id);
 			if (pass == nullptr)
 				continue;
 
-			sk = pass->AddSortKey(m_step_id, inst, nug.mat(), nug, sk);
+			sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
 
 			// Grow the scene bounds by the model bbox if nuggets were added
 			for (;grow_bounds;)
@@ -287,7 +289,9 @@ namespace pr::rdr12
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
 				// Let the material bind per-draw resources and constants.
-				auto const* pass = nugget.mat().Pass(m_step_id);
+				auto material_override = FindMaterial(instance);
+				auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
+				auto const* pass = material.Pass(m_step_id);
 				if (pass == nullptr)
 					continue;
 
@@ -296,7 +300,7 @@ namespace pr::rdr12
 					.m_wnd = wnd(),
 					.m_scene = scn(),
 					.m_dle = dle,
-					.m_material = nugget.mat(),
+					.m_material = material,
 					.m_cmd_list = m_cmd_list,
 					.m_upload = m_upload_buffer,
 					.m_pipe_state = desc,

@@ -6,6 +6,7 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/pose.h"
+#include "pr/view3d-12/material/components/base_colour.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/sampler/sampler.h"
 
@@ -21,11 +22,10 @@ namespace pr::rdr12
 	NuggetPtr GetNuggets(BaseInstance const& inst)
 	{
 		// Todo: Instances could have their own root nugget pointer component
-		auto mdl = GetModel(inst);
-		if (mdl == nullptr)
-			throw std::runtime_error("Null model pointer");
+		if (auto mdl = GetModel(inst); mdl != nullptr)
+			return mdl->m_nuggets;
 
-		return mdl->m_nuggets;
+		throw std::runtime_error("Null model pointer");
 	}
 
 	// Return true if this instance requires alpha blending.
@@ -122,18 +122,41 @@ namespace pr::rdr12
 		return pps ? *pps : NoPipeStates;
 	}
 
+	// Return the material to render this instance with.
+	MaterialPtr FindMaterial(BaseInstance const& inst)
+	{
+		auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr);
+		return pmat ? *pmat : nullptr;
+	}
+
 	// Return the texture override in this instance (if exists)
 	Texture2DPtr FindDiffTexture(BaseInstance const& inst)
 	{
-		auto const* ptex = inst.find<Texture2DPtr>(EInstComp::DiffTexture);
-		return ptex ? *ptex : nullptr;
+		// Explicit texture override takes precedence over material texture
+		if (auto const* ptex = inst.find<Texture2DPtr>(EInstComp::DiffTexture); ptex && *ptex)
+			return *ptex;
+
+		// Material texture next
+		if (auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr); pmat && *pmat)
+			if (auto const* bc = (*pmat)->Component<materials::BaseColour>(); bc && bc->m_tex.m_texture)
+				return bc->m_tex.m_texture;
+
+		return nullptr;
 	}
 
 	// Return the sampler override in this instance (if exists)
 	SamplerPtr FindDiffTextureSampler(BaseInstance const& inst)
 	{
-		auto const* psamp = inst.find<SamplerPtr>(EInstComp::DiffTextureSampler);
-		return psamp ? *psamp : nullptr;
+		// Explicit sampler override takes precedence over material sampler
+		if (auto const* psamp = inst.find<SamplerPtr>(EInstComp::DiffTextureSampler); psamp && *psamp)
+			return *psamp;
+
+		// Material sampler next
+		if (auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr); pmat && *pmat)
+			if (auto const* bc = (*pmat)->Component<materials::BaseColour>(); bc && bc->m_tex.m_sampler)
+				return bc->m_tex.m_sampler;
+
+		return nullptr;
 	}
 
 	// Return the skin override in this instance (if exists)

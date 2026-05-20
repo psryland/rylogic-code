@@ -26,7 +26,9 @@ namespace pr::rdr12
 			// Return true if this PBR material needs alpha rendering.
 			bool RequiresAlpha(BaseInstance const&, Material const& material, Nugget const& nugget) const override
 			{
-				return material.RequiresAlpha() || nugget.RequiresAlpha();
+				return
+					material.RequiresAlpha() ||
+					AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
 			}
 
 			// Contribute PBR texture and shader state to the sort key.

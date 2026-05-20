@@ -730,21 +730,6 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
-	// Replace every default nugget material in 'obj' with the object-level material override.
-	void ApplyMaterial(LdrObject* obj)
-	{
-		if (obj->m_model == nullptr || obj->m_material == nullptr)
-			return;
-
-		for (auto nug = obj->m_model->m_nuggets; nug != nullptr; nug = nug->m_next)
-		{
-			if (nug->m_variant != DefaultNugget)
-				continue;
-
-			nug->mat(obj->m_material);
-		}
-	}
-
 	// Apply the states such as colour,wireframe,etc to the objects renderer model
 	void ApplyObjectState(LdrObject* obj)
 	{
@@ -759,10 +744,6 @@ namespace pr::rdr12::ldraw
 		// Recalculate colours after setting 'm_group_tint'.
 		if (obj->m_group_tint != Colour32White)
 			obj->ResetColour("");
-
-		// If a material override was provided, replace the generated nugget materials.
-		if (obj->m_material != nullptr)
-			ApplyMaterial(obj);
 
 		// If flagged as hidden, hide
 		if (AllSet(obj->Flags(), ELdrFlags::Hidden))
@@ -6492,6 +6473,7 @@ namespace pr::rdr12::ldraw
 			if (AllSet(flags, EUpdateObject::Model))
 			{
 				std::swap(object->m_model, rhs->m_model);
+				std::swap(object->m_material, rhs->m_material);
 				std::swap(object->m_sko, rhs->m_sko);
 				std::swap(object->m_pso, rhs->m_pso);
 				std::swap(object->m_iflags, rhs->m_iflags);

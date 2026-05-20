@@ -77,17 +77,25 @@ namespace pr::rdr12
 			if (HasAlpha(inst))
 				return true;
 
+			// A material override on the instance takes precedence over the nugget materials, so check that first.
+			if (auto material_override = FindMaterial(inst); material_override != nullptr)
+			{
+				if (material_override->RequiresAlpha())
+					return true;
+			}
+
+			// Check if the model has any nuggets with alpha geometry or materials that require alpha.
 			for (auto const* nugget = model.m_nuggets.get(); nugget != nullptr; nugget = nugget->m_next.get())
 			{
 				if (AllSet(nugget->m_nflags, ENuggetFlag::Hidden))
 					continue;
+
 				if (nugget->RequiresAlpha())
 					return true;
 			}
 
 			return false;
 		}
-
 	}
 
 	struct RayTracingScene::Data
@@ -278,23 +286,37 @@ namespace pr::rdr12
 		// Return the material payload used by ray-tracing shaders for one instance geometry.
 		shaders::rt::RayTracingMaterial MakeMaterial(BaseInstance const& inst, Nugget const& nugget)
 		{
+			// Look for instance components
 			auto const* inst_tint = inst.find<Colour32>(EInstComp::TintColour32);
 			auto const* inst_reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
-			auto& base_colour = nugget.mat().ComponentOrDefault<materials::BaseColour>();
-			auto& optics = nugget.mat().ComponentOrDefault<materials::Optics>();
-			auto& reflectivity = nugget.mat().ComponentOrDefault<materials::Reflectivity>();
+			auto const* material_override = inst.find<MaterialPtr>(EInstComp::MaterialPtr);
+
+			// An instance-level material override takes precedence over the nugget material.
+			auto const& rdr_material = material_override != nullptr && material_override->get() != nullptr ? *material_override->get() : nugget.mat();
+
+			// Read the material properties
+			auto& base_colour = rdr_material.ComponentOrDefault<materials::BaseColour>();
+			auto& reflectivity = rdr_material.ComponentOrDefault<materials::Reflectivity>();
+			auto& optics = rdr_material.ComponentOrDefault<materials::Optics>();
+
+			//  Base colour
 			auto const tint32 = (inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_colour;
 			auto const tint = Colour(tint32);
-			auto const texture_has_alpha = AllSet(base_colour.m_tex.m_texture ? base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
+
+			// Alpha, transmission, and reflectivity
 			auto const alpha_hint = AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
+			auto const texture_has_alpha = AllSet(base_colour.m_tex.m_texture ? base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
 			auto const tint_transmission = HasAlpha(tint32) ? 1.0f - tint.a : 0.0f;
 			auto const texture_transmission = texture_has_alpha ? optics.m_transmission : 0.0f;
 			auto const hint_transmission = alpha_hint ? optics.m_transmission : 0.0f;
 			auto const transmission = Clamp(std::max(std::max(tint_transmission, texture_transmission), hint_transmission), 0.0f, 1.0f);
+			
+			// Relative reflectivity means relative to the instance reflectivity
 			auto const rt_reflectivity = inst_reflectivity != nullptr
 				? Clamp(*inst_reflectivity * reflectivity.m_rel_reflec, 0.0f, 1.0f)
 				: 0.0f;
 
+			// Create the material payload.
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;
 			material.optics = v4(
