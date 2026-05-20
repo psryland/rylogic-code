@@ -222,6 +222,18 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(SetCameraAlignAxisAsync(Parameters<LDrawSetCameraAlignAxisParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.GetDiagnosticModes:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetDiagnosticModesAsync(Parameters<LDrawDiagnosticModesParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetDiagnosticModes:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetDiagnosticModesAsync(Parameters<LDrawSetDiagnosticModesParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.ListObjects:
 				{
 					response.Success = true;
@@ -268,6 +280,18 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 				{
 					response.Success = true;
 					response.Payload = await PayloadAsync(SetObjectColourAsync(Parameters<LDrawSetObjectColourParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ShowNormals:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ShowNormalsAsync(Parameters<LDrawShowNormalsParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ShowObjectBounds:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ShowObjectBoundsAsync(Parameters<LDrawShowObjectBoundsParams>(request))).ConfigureAwait(false);
 					break;
 				}
 				case InstancePipeCommands.GetSelection:

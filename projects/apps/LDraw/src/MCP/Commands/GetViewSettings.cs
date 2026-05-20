@@ -57,6 +57,7 @@ internal sealed partial class LDrawInstanceHost
 			ShowNormals = scene_view.ShowNormals,
 			NormalsLength = window.Diag.NormalsLength,
 			NormalsColour = window.Diag.NormalsColour.ToString(),
+			FillModePointsSize = window.Diag.FillModePointsSize.x,
 			RayTracingAvailable = window.RayTracingAvailable,
 			RayTracingEnabled = window.RayTracingEnabled,
 		};

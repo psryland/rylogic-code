@@ -499,11 +499,33 @@ public sealed class LDrawViewSettingsInfo
 	/// <summary>Diagnostic normal colour as AARRGGBB hex</summary>
 	public string NormalsColour { get; set; } = string.Empty;
 
+	/// <summary>Uniform point size used when the fill mode is Points</summary>
+	public double FillModePointsSize { get; set; }
+
 	/// <summary>True if ray tracing can be enabled for this scene</summary>
 	public bool RayTracingAvailable { get; set; }
 
 	/// <summary>True if ray tracing is enabled for this scene</summary>
 	public bool RayTracingEnabled { get; set; }
+}
+
+/// <summary>Diagnostic and rendering modes for a scene</summary>
+public sealed class LDrawDiagnosticModesInfo
+{
+	/// <summary>The scene whose diagnostic modes were queried</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The current view settings containing the active diagnostic values</summary>
+	public LDrawViewSettingsInfo ViewSettings { get; set; } = new();
+
+	/// <summary>Fill mode names accepted by ldraw_set_diagnostic_modes</summary>
+	public List<string> AvailableFillModes { get; set; } = [];
+
+	/// <summary>Cull mode names accepted by ldraw_set_diagnostic_modes</summary>
+	public List<string> AvailableCullModes { get; set; } = [];
+
+	/// <summary>Modes that are existing runtime diagnostics rather than persisted scene profile values</summary>
+	public List<string> SessionLocalModes { get; set; } = [];
 }
 
 /// <summary>Result from a view-setting mutation command</summary>
@@ -535,6 +557,31 @@ public sealed class LDrawObjectMutationResult
 	public int Count
 	{
 		get { return Objects.Count; }
+	}
+}
+
+/// <summary>Result from drawing object bounds through an MCP overlay</summary>
+public sealed class LDrawBoundsOverlayResult
+{
+	/// <summary>The scene that received the bounds overlay</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The overlay source that contains the generated bounds</summary>
+	public LDrawOverlayInfo Overlay { get; set; } = new();
+
+	/// <summary>The objects whose bounds were drawn</summary>
+	public List<LDrawObjectInfo> Objects { get; set; } = [];
+
+	/// <summary>The world-space AABBs drawn by the overlay</summary>
+	public List<LDrawBoundsInfo> Bounds { get; set; } = [];
+
+	/// <summary>The number of bounds boxes drawn</summary>
+	public int Count
+	{
+		get { return Bounds.Count; }
 	}
 }
 
@@ -580,6 +627,50 @@ internal sealed class LDrawSetCameraAlignAxisParams
 
 	/// <summary>Named align direction: None, PosX, NegX, PosY, NegY, PosZ, or NegZ</summary>
 	public string? AlignDirection { get; set; }
+}
+
+/// <summary>Parameters for diagnostic mode requests</summary>
+internal class LDrawDiagnosticModesParams
+{
+	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for diagnostic mode mutation requests</summary>
+internal sealed class LDrawSetDiagnosticModesParams : LDrawDiagnosticModesParams
+{
+	/// <summary>Show native diagnostic bounding boxes for all objects</summary>
+	public bool? BBoxesVisible { get; set; }
+
+	/// <summary>Show normals for all objects in the scene</summary>
+	public bool? ShowNormals { get; set; }
+
+	/// <summary>Diagnostic normal vector length</summary>
+	public double? NormalsLength { get; set; }
+
+	/// <summary>Diagnostic normal colour as AARRGGBB hex or a Colour32 parseable value</summary>
+	public string? NormalsColour { get; set; }
+
+	/// <summary>Scene fill mode name</summary>
+	public string? FillMode { get; set; }
+
+	/// <summary>Scene cull mode name</summary>
+	public string? CullMode { get; set; }
+
+	/// <summary>Uniform point size used when FillMode is Points</summary>
+	public double? FillModePointsSize { get; set; }
+
+	/// <summary>Show the camera focus point marker</summary>
+	public bool? FocusPointVisible { get; set; }
+
+	/// <summary>Show the origin marker</summary>
+	public bool? OriginPointVisible { get; set; }
+
+	/// <summary>Show the selection bounding box</summary>
+	public bool? SelectionBoxVisible { get; set; }
+
+	/// <summary>Enable hover object information</summary>
+	public bool? ObjectInfoEnabled { get; set; }
 }
 
 /// <summary>Parameters for scene creation requests</summary>
@@ -713,6 +804,32 @@ internal sealed class LDrawSetObjectColourParams : LDrawObjectQueryParams
 
 	/// <summary>True to apply the colour operation recursively to children of each matched object</summary>
 	public bool Recursive { get; set; } = true;
+}
+
+/// <summary>Parameters for object normal display commands</summary>
+internal sealed class LDrawShowNormalsParams : LDrawObjectQueryParams
+{
+	/// <summary>The normal visibility state to assign to matching objects</summary>
+	public bool SetShowNormals { get; set; } = true;
+
+	/// <summary>True to apply the state recursively to matched object children</summary>
+	public bool Recursive { get; set; } = true;
+}
+
+/// <summary>Parameters for object bounds overlay commands</summary>
+internal sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
+{
+	/// <summary>Overlay id to replace with the generated bounds</summary>
+	public string? OverlayId { get; set; }
+
+	/// <summary>Display name for the generated overlay source</summary>
+	public string? Name { get; set; }
+
+	/// <summary>Bounds colour, using any Colour32 parseable format</summary>
+	public string? Colour { get; set; }
+
+	/// <summary>Line width in pixels</summary>
+	public double LineWidth { get; set; } = 2.0;
 }
 
 /// <summary>Parameters for selection read commands</summary>
@@ -885,6 +1002,8 @@ internal static class InstancePipeCommands
 	public const string SetProjection = "set_projection";
 	public const string SetBackgroundColour = "set_background_colour";
 	public const string SetCameraAlignAxis = "set_camera_align_axis";
+	public const string GetDiagnosticModes = "get_diagnostic_modes";
+	public const string SetDiagnosticModes = "set_diagnostic_modes";
 	public const string ListObjects = "list_objects";
 	public const string GetCamera = "get_camera";
 	public const string SetCamera = "set_camera";
@@ -893,6 +1012,8 @@ internal static class InstancePipeCommands
 	public const string SelectObjects = "select_objects";
 	public const string SetObjectVisibility = "set_object_visibility";
 	public const string SetObjectColour = "set_object_colour";
+	public const string ShowNormals = "show_normals";
+	public const string ShowObjectBounds = "show_object_bounds";
 	public const string GetSelection = "get_selection";
 	public const string FrameObject = "frame_object";
 	public const string FrameSelection = "frame_selection";
