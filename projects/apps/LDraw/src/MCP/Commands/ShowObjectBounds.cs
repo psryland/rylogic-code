@@ -67,7 +67,7 @@ internal sealed partial class LDrawInstanceHost
 		}, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
 
 		var overlay_id = string.IsNullOrWhiteSpace(parameters.OverlayId) ? "diagnostic_bounds" : parameters.OverlayId;
-		var overlay_name = string.IsNullOrWhiteSpace(parameters.Name) ? "MCP Diagnostic Bounds" : parameters.Name;
+		var overlay_name = string.IsNullOrWhiteSpace(parameters.OverlayName) ? "MCP Diagnostic Bounds" : parameters.OverlayName;
 		var overlay = await SetOverlayScriptAsync(new LDrawOverlayScriptParams
 		{
 			OverlayId = overlay_id,
@@ -137,7 +137,7 @@ internal sealed partial class LDrawTools
 	{
 		var parameters = ObjectQueryParameters<LDrawShowObjectBoundsParams>(scene_name, object_id, name, type, context_id, selected, visible, include_children, match_mode, case_sensitive, max_count);
 		parameters.OverlayId = overlay_id;
-		parameters.Name = overlay_name;
+		parameters.OverlayName = overlay_name;
 		parameters.Colour = colour;
 		parameters.LineWidth = line_width;
 		return m_broker.ShowObjectBoundsAsync(instance_id, parameters);

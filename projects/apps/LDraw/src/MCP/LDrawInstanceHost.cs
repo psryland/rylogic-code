@@ -23,7 +23,9 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	private readonly InstanceRegistration m_registration;
 	private readonly SemaphoreSlim m_overlay_gate;
 	private readonly object m_overlay_lock = new();
+	private readonly object m_chart_lock = new();
 	private readonly Dictionary<string, OverlayState> m_overlays;
+	private readonly Dictionary<string, ChartState> m_charts;
 	private CancellationTokenSource? m_shutdown;
 	private Task? m_server_task;
 	private Timer? m_heartbeat;
@@ -35,6 +37,7 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 		m_registry = registry;
 		m_overlay_gate = new SemaphoreSlim(1, 1);
 		m_overlays = new Dictionary<string, OverlayState>(StringComparer.OrdinalIgnoreCase);
+		m_charts = new Dictionary<string, ChartState>(StringComparer.OrdinalIgnoreCase);
 
 		// Use a fresh id for each process lifetime so stale registry files cannot alias a restarted process.
 		using var process = Process.GetCurrentProcess();
@@ -222,6 +225,12 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(SetCameraAlignAxisAsync(Parameters<LDrawSetCameraAlignAxisParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.SetAxisRanges:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetAxisRangesAsync(Parameters<LDrawSetAxisRangesParams>(request), "set_axis_ranges")).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.GetDiagnosticModes:
 				{
 					response.Success = true;
@@ -316,6 +325,36 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 				{
 					response.Success = true;
 					response.Payload = await PayloadAsync(FrameBoundsAsync(Parameters<LDrawFrameBoundsParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ChartCreate:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ChartCreateAsync(Parameters<LDrawChartCreateParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ChartUpdateData:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ChartUpdateDataAsync(Parameters<LDrawChartUpdateDataParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ChartAddSeries:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ChartAddSeriesAsync(Parameters<LDrawChartAddSeriesParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ChartSetAxisRanges:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ChartSetAxisRangesAsync(Parameters<LDrawChartSetAxisRangesParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ChartClear:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ChartClearAsync(Parameters<LDrawChartClearParams>(request))).ConfigureAwait(false);
 					break;
 				}
 				case InstancePipeCommands.OverlaySetScript:
@@ -574,6 +613,7 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					foreach (var state in states)
 						m_overlays.Remove(state.OverlayId);
 				}
+				RemoveChartStatesForOverlayIds(states.Select(state => state.OverlayId));
 				return results.ToArray();
 			}, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
 		}

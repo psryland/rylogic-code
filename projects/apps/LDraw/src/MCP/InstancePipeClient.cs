@@ -49,6 +49,12 @@ internal sealed partial class InstancePipeClient
 		return await SendAsync<LDrawCameraSetResult>(registration, InstancePipeCommands.SetCamera, parameters, WriteTimeout).ConfigureAwait(false);
 	}
 
+	/// <summary>Set chart axis ranges for 'registration'</summary>
+	public async Task<LDrawAxisRangeResult> SetAxisRangesAsync(InstanceRegistration registration, LDrawSetAxisRangesParams parameters)
+	{
+		return await SendAsync<LDrawAxisRangeResult>(registration, InstancePipeCommands.SetAxisRanges, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
 	/// <summary>Replace a named overlay script in 'registration'</summary>
 	public async Task<LDrawOverlayResult> OverlaySetScriptAsync(InstanceRegistration registration, LDrawOverlayScriptParams parameters)
 	{
@@ -65,6 +71,36 @@ internal sealed partial class InstancePipeClient
 	public async Task<LDrawOverlayResult[]> OverlayClearAsync(InstanceRegistration registration, LDrawOverlayClearParams parameters)
 	{
 		return await SendAsync<LDrawOverlayResult[]>(registration, InstancePipeCommands.OverlayClear, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
+	/// <summary>Create or replace a generated chart in 'registration'</summary>
+	public async Task<LDrawChartResult> ChartCreateAsync(InstanceRegistration registration, LDrawChartCreateParams parameters)
+	{
+		return await SendAsync<LDrawChartResult>(registration, InstancePipeCommands.ChartCreate, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
+	/// <summary>Replace generated chart data in 'registration'</summary>
+	public async Task<LDrawChartResult> ChartUpdateDataAsync(InstanceRegistration registration, LDrawChartUpdateDataParams parameters)
+	{
+		return await SendAsync<LDrawChartResult>(registration, InstancePipeCommands.ChartUpdateData, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
+	/// <summary>Add a series to a generated chart in 'registration'</summary>
+	public async Task<LDrawChartResult> ChartAddSeriesAsync(InstanceRegistration registration, LDrawChartAddSeriesParams parameters)
+	{
+		return await SendAsync<LDrawChartResult>(registration, InstancePipeCommands.ChartAddSeries, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
+	/// <summary>Set generated chart axis ranges in 'registration'</summary>
+	public async Task<LDrawAxisRangeResult> ChartSetAxisRangesAsync(InstanceRegistration registration, LDrawChartSetAxisRangesParams parameters)
+	{
+		return await SendAsync<LDrawAxisRangeResult>(registration, InstancePipeCommands.ChartSetAxisRanges, parameters, WriteTimeout).ConfigureAwait(false);
+	}
+
+	/// <summary>Clear one or all generated charts from 'registration'</summary>
+	public async Task<LDrawChartResult> ChartClearAsync(InstanceRegistration registration, LDrawChartClearParams parameters)
+	{
+		return await SendAsync<LDrawChartResult>(registration, InstancePipeCommands.ChartClear, parameters, WriteTimeout).ConfigureAwait(false);
 	}
 
 	/// <summary>Send a typed command to an instance pipe and return the typed response payload</summary>

@@ -254,6 +254,30 @@ public sealed class LDrawBoundsInfo
 	}
 }
 
+/// <summary>Chart axis range data returned through MCP</summary>
+public sealed class LDrawAxisRangeInfo
+{
+	/// <summary>Minimum axis value</summary>
+	public double Min { get; set; }
+
+	/// <summary>Maximum axis value</summary>
+	public double Max { get; set; }
+
+	/// <summary>Axis span</summary>
+	public double Span { get; set; }
+
+	/// <summary>Create MCP axis range data from a ChartControl axis</summary>
+	internal static LDrawAxisRangeInfo From(Rylogic.Gui.WPF.ChartControl.RangeData.Axis axis)
+	{
+		return new LDrawAxisRangeInfo
+		{
+			Min = axis.Min,
+			Max = axis.Max,
+			Span = axis.Span,
+		};
+	}
+}
+
 /// <summary>Camera data returned through MCP</summary>
 public sealed class LDrawCameraInfo
 {
@@ -466,6 +490,12 @@ public sealed class LDrawViewSettingsInfo
 	/// <summary>Navigation mode name</summary>
 	public string NavigationMode { get; set; } = string.Empty;
 
+	/// <summary>The current chart X axis range</summary>
+	public LDrawAxisRangeInfo XAxisRange { get; set; } = new();
+
+	/// <summary>The current chart Y axis range</summary>
+	public LDrawAxisRangeInfo YAxisRange { get; set; } = new();
+
 	/// <summary>Fill mode name</summary>
 	public string FillMode { get; set; } = string.Empty;
 
@@ -585,6 +615,116 @@ public sealed class LDrawBoundsOverlayResult
 	}
 }
 
+/// <summary>Result from changing chart axis ranges</summary>
+public sealed class LDrawAxisRangeResult
+{
+	/// <summary>The scene whose chart axes changed</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The resulting X axis range</summary>
+	public LDrawAxisRangeInfo XAxisRange { get; set; } = new();
+
+	/// <summary>The resulting Y axis range</summary>
+	public LDrawAxisRangeInfo YAxisRange { get; set; } = new();
+
+	/// <summary>The resulting camera state after applying the axis range</summary>
+	public LDrawCameraInfo Camera { get; set; } = new();
+}
+
+/// <summary>Series definition accepted by chart commands</summary>
+public sealed class LDrawChartSeriesInput
+{
+	/// <summary>Series display name</summary>
+	public string? Name { get; set; }
+
+	/// <summary>Series colour, using any Colour32 parseable format</summary>
+	public string? Colour { get; set; }
+
+	/// <summary>X-axis expression, for example C0 or CI</summary>
+	public string? XAxis { get; set; }
+
+	/// <summary>Y-axis expression, for example C1 or abs(C2 - C1)</summary>
+	public string? YAxis { get; set; }
+
+	/// <summary>Optional line width</summary>
+	public double? Width { get; set; }
+
+	/// <summary>True to smooth the line</summary>
+	public bool Smooth { get; set; }
+}
+
+/// <summary>Chart series data returned through MCP</summary>
+public sealed class LDrawChartSeriesInfo
+{
+	/// <summary>Series display name</summary>
+	public string Name { get; set; } = string.Empty;
+
+	/// <summary>Series colour as AARRGGBB hex</summary>
+	public string Colour { get; set; } = string.Empty;
+
+	/// <summary>X-axis expression</summary>
+	public string XAxis { get; set; } = string.Empty;
+
+	/// <summary>Y-axis expression</summary>
+	public string YAxis { get; set; } = string.Empty;
+
+	/// <summary>Line width, when explicitly set</summary>
+	public double? Width { get; set; }
+
+	/// <summary>True if line smoothing is enabled</summary>
+	public bool Smooth { get; set; }
+}
+
+/// <summary>Chart data owned by the MCP module</summary>
+public sealed class LDrawChartInfo
+{
+	/// <summary>Caller-visible chart id</summary>
+	public string ChartId { get; set; } = string.Empty;
+
+	/// <summary>Chart display name</summary>
+	public string Name { get; set; } = string.Empty;
+
+	/// <summary>Chart colour as AARRGGBB hex</summary>
+	public string Colour { get; set; } = string.Empty;
+
+	/// <summary>Number of data columns</summary>
+	public int Columns { get; set; }
+
+	/// <summary>Number of data rows</summary>
+	public int Rows { get; set; }
+
+	/// <summary>Series displayed by the chart</summary>
+	public List<LDrawChartSeriesInfo> Series { get; set; } = [];
+
+	/// <summary>The scenes that currently show this chart overlay</summary>
+	public List<string> SceneNames { get; set; } = [];
+
+	/// <summary>The MCP overlay that contains the raw chart script</summary>
+	public LDrawOverlayInfo Overlay { get; set; } = new();
+}
+
+/// <summary>Result from chart commands</summary>
+public sealed class LDrawChartResult
+{
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The chart affected by the operation</summary>
+	public LDrawChartInfo? Chart { get; set; }
+
+	/// <summary>The charts affected by the operation</summary>
+	public List<LDrawChartInfo> Charts { get; set; } = [];
+
+	/// <summary>The overlay affected by the operation, if any</summary>
+	public LDrawOverlayInfo? Overlay { get; set; }
+
+	/// <summary>The overlays affected by the operation</summary>
+	public List<LDrawOverlayInfo> Overlays { get; set; } = [];
+}
+
 /// <summary>Parameters for scene-list requests</summary>
 internal sealed class LDrawListScenesParams
 {
@@ -627,6 +767,25 @@ internal sealed class LDrawSetCameraAlignAxisParams
 
 	/// <summary>Named align direction: None, PosX, NegX, PosY, NegY, PosZ, or NegZ</summary>
 	public string? AlignDirection { get; set; }
+}
+
+/// <summary>Parameters for chart-axis range mutation requests</summary>
+internal class LDrawSetAxisRangesParams
+{
+	/// <summary>The scene to modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Minimum X axis value</summary>
+	public double? XMin { get; set; }
+
+	/// <summary>Maximum X axis value</summary>
+	public double? XMax { get; set; }
+
+	/// <summary>Minimum Y axis value</summary>
+	public double? YMin { get; set; }
+
+	/// <summary>Maximum Y axis value</summary>
+	public double? YMax { get; set; }
 }
 
 /// <summary>Parameters for diagnostic mode requests</summary>
@@ -823,13 +982,78 @@ internal sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
 	public string? OverlayId { get; set; }
 
 	/// <summary>Display name for the generated overlay source</summary>
-	public string? Name { get; set; }
+	public string? OverlayName { get; set; }
 
 	/// <summary>Bounds colour, using any Colour32 parseable format</summary>
 	public string? Colour { get; set; }
 
 	/// <summary>Line width in pixels</summary>
 	public double LineWidth { get; set; } = 2.0;
+}
+
+/// <summary>Parameters for chart creation requests</summary>
+internal sealed class LDrawChartCreateParams
+{
+	/// <summary>Caller-visible chart id, or null to use 'default'</summary>
+	public string? ChartId { get; set; }
+
+	/// <summary>Display name for the chart and generated overlay source</summary>
+	public string? Name { get; set; }
+
+	/// <summary>Chart colour, using any Colour32 parseable format</summary>
+	public string? Colour { get; set; }
+
+	/// <summary>Inline chart data rows</summary>
+	public List<List<double>> DataRows { get; set; } = [];
+
+	/// <summary>Series definitions</summary>
+	public List<LDrawChartSeriesInput> Series { get; set; } = [];
+
+	/// <summary>Scene names to show the chart in</summary>
+	public List<string> SceneNames { get; set; } = [];
+
+	/// <summary>True to frame the target scene after loading the chart overlay</summary>
+	public bool ResetView { get; set; }
+}
+
+/// <summary>Parameters for chart data replacement requests</summary>
+internal sealed class LDrawChartUpdateDataParams
+{
+	/// <summary>The chart id returned by ldraw_chart_create</summary>
+	public string? ChartId { get; set; }
+
+	/// <summary>Replacement inline chart data rows</summary>
+	public List<List<double>> DataRows { get; set; } = [];
+
+	/// <summary>True to frame the target scene after reloading the chart overlay</summary>
+	public bool ResetView { get; set; }
+}
+
+/// <summary>Parameters for chart add-series requests</summary>
+internal sealed class LDrawChartAddSeriesParams
+{
+	/// <summary>The chart id returned by ldraw_chart_create</summary>
+	public string? ChartId { get; set; }
+
+	/// <summary>The series to append</summary>
+	public LDrawChartSeriesInput Series { get; set; } = new();
+
+	/// <summary>True to frame the target scene after reloading the chart overlay</summary>
+	public bool ResetView { get; set; }
+}
+
+/// <summary>Parameters for chart axis range requests</summary>
+internal sealed class LDrawChartSetAxisRangesParams : LDrawSetAxisRangesParams
+{
+	/// <summary>The chart id returned by ldraw_chart_create</summary>
+	public string? ChartId { get; set; }
+}
+
+/// <summary>Parameters for chart clear requests</summary>
+internal sealed class LDrawChartClearParams
+{
+	/// <summary>The chart id to clear, or null to clear all MCP charts</summary>
+	public string? ChartId { get; set; }
 }
 
 /// <summary>Parameters for selection read commands</summary>
@@ -1002,6 +1226,7 @@ internal static class InstancePipeCommands
 	public const string SetProjection = "set_projection";
 	public const string SetBackgroundColour = "set_background_colour";
 	public const string SetCameraAlignAxis = "set_camera_align_axis";
+	public const string SetAxisRanges = "set_axis_ranges";
 	public const string GetDiagnosticModes = "get_diagnostic_modes";
 	public const string SetDiagnosticModes = "set_diagnostic_modes";
 	public const string ListObjects = "list_objects";
@@ -1018,6 +1243,11 @@ internal static class InstancePipeCommands
 	public const string FrameObject = "frame_object";
 	public const string FrameSelection = "frame_selection";
 	public const string FrameBounds = "frame_bounds";
+	public const string ChartCreate = "chart_create";
+	public const string ChartUpdateData = "chart_update_data";
+	public const string ChartAddSeries = "chart_add_series";
+	public const string ChartSetAxisRanges = "chart_set_axis_ranges";
+	public const string ChartClear = "chart_clear";
 	public const string OverlaySetScript = "overlay_set_script";
 	public const string OverlayAppendScript = "overlay_append_script";
 	public const string OverlayClear = "overlay_clear";
