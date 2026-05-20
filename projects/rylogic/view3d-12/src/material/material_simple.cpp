@@ -271,9 +271,8 @@ namespace pr::rdr12
 			// Return the effective diffuse texture for the simple material.
 			static Texture2D* DiffuseTexture(MaterialPassContext const& ctx)
 			{
-				auto& inst = *ctx.m_dle.m_instance;
 				auto& base_colour = ctx.m_material.ComponentOrDefault<materials::BaseColour>();
-				auto tex = coalesce(FindDiffTexture(inst), base_colour.m_tex.m_texture);
+				auto tex = base_colour.m_tex.m_texture;
 				return tex != nullptr
 					? tex.get()
 					: ctx.m_default_tex;
@@ -282,9 +281,8 @@ namespace pr::rdr12
 			// Return the effective diffuse sampler for the simple material.
 			static Sampler* DiffuseSampler(MaterialPassContext const& ctx)
 			{
-				auto& inst = *ctx.m_dle.m_instance;
 				auto& base_colour = ctx.m_material.ComponentOrDefault<materials::BaseColour>();
-				auto sam = coalesce(FindDiffTextureSampler(inst), base_colour.m_tex.m_sampler);
+				auto sam = base_colour.m_tex.m_sampler;
 				return sam != nullptr
 					? sam.get()
 					: ctx.m_default_sam;

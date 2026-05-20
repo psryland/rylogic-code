@@ -38,8 +38,6 @@ namespace pr::rdr12
 		PipeStates,          // rdr::PipeStates
 		Flags,               // EInstFlag
 		TintColour32,        // pr::Colour32
-		DiffTexture,         // Texture2DPtr. An override of the main diffuse texture
-		DiffTextureSampler,  // SamplerPtr. An override of the main diffuse texture sampler
 		PosePtr,             // A skeleton pose to skin to
 		EnvMapReflectivity,  // float
 		UniqueId,            // int32
@@ -85,8 +83,6 @@ namespace pr::rdr12
 			case EInstComp::PipeStates:          return sizeof(PipeStates);
 			case EInstComp::Flags:               return sizeof(EInstFlag);
 			case EInstComp::TintColour32:        return sizeof(Colour32);
-			case EInstComp::DiffTexture:         return sizeof(Texture2DPtr);
-			case EInstComp::DiffTextureSampler:  return sizeof(SamplerPtr);
 			case EInstComp::EnvMapReflectivity:  return sizeof(float);
 			case EInstComp::UniqueId:            return sizeof(int32_t);
 			case EInstComp::SSSize:              return sizeof(v2);
@@ -215,12 +211,6 @@ namespace pr::rdr12
 
 	// Return the material to render this instance with.
 	MaterialPtr FindMaterial(BaseInstance const& inst);
-
-	// Return the texture override in this instance (if exists)
-	Texture2DPtr FindDiffTexture(BaseInstance const& inst);
-
-	// Return the sampler override in this instance (if exists)
-	SamplerPtr FindDiffTextureSampler(BaseInstance const& inst);
 
 	// Return the skin override in this instance (if exists)
 	PosePtr FindPose(BaseInstance const& inst);

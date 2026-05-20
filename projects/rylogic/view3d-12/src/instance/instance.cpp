@@ -6,9 +6,6 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/model/pose.h"
-#include "pr/view3d-12/material/components/base_colour.h"
-#include "pr/view3d-12/texture/texture_2d.h"
-#include "pr/view3d-12/sampler/sampler.h"
 
 namespace pr::rdr12
 {
@@ -37,10 +34,6 @@ namespace pr::rdr12
 
 		// If the instance has a sortkey override that contains alpha, use the alpha nuggets if they exist.
 		if (auto* sko = inst.find<SKOverride>(EInstComp::SortkeyOverride); sko && sko->Alpha())
-			return true;
-
-		// If the instance has a diffuse texture override that contains alpha, use the alpha nuggets if they exist.
-		if (auto* tex = inst.find<Texture2DPtr>(EInstComp::DiffTexture); tex && *tex && (*tex)->Alpha())
 			return true;
 
 		return false;
@@ -127,36 +120,6 @@ namespace pr::rdr12
 	{
 		auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr);
 		return pmat ? *pmat : nullptr;
-	}
-
-	// Return the texture override in this instance (if exists)
-	Texture2DPtr FindDiffTexture(BaseInstance const& inst)
-	{
-		// Explicit texture override takes precedence over material texture
-		if (auto const* ptex = inst.find<Texture2DPtr>(EInstComp::DiffTexture); ptex && *ptex)
-			return *ptex;
-
-		// Material texture next
-		if (auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr); pmat && *pmat)
-			if (auto const* bc = (*pmat)->Component<materials::BaseColour>(); bc && bc->m_tex.m_texture)
-				return bc->m_tex.m_texture;
-
-		return nullptr;
-	}
-
-	// Return the sampler override in this instance (if exists)
-	SamplerPtr FindDiffTextureSampler(BaseInstance const& inst)
-	{
-		// Explicit sampler override takes precedence over material sampler
-		if (auto const* psamp = inst.find<SamplerPtr>(EInstComp::DiffTextureSampler); psamp && *psamp)
-			return *psamp;
-
-		// Material sampler next
-		if (auto const* pmat = inst.find<MaterialPtr>(EInstComp::MaterialPtr); pmat && *pmat)
-			if (auto const* bc = (*pmat)->Component<materials::BaseColour>(); bc && bc->m_tex.m_sampler)
-				return bc->m_tex.m_sampler;
-
-		return nullptr;
 	}
 
 	// Return the skin override in this instance (if exists)

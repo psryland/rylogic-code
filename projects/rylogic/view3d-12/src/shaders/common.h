@@ -133,7 +133,7 @@ namespace pr::rdr12
 			// Has diffuse texture
 			Texture2DPtr tex = {};
 			if (base_colour != nullptr)
-				tex = coalesce(FindDiffTexture(inst), base_colour->m_tex.m_texture);
+				tex = base_colour->m_tex.m_texture;
 
 			if (AllSet(nug.m_geom, EGeom::Tex0) && tex != nullptr)
 			{
@@ -211,11 +211,11 @@ namespace pr::rdr12
 
 	// Set the texture properties of a constants buffer
 	template <typename TCBuf> requires (requires(TCBuf cb) { cb.tex2surf0; })
-	void SetTex2Surf(TCBuf& cb, BaseInstance const& inst, Material const& material)
+	void SetTex2Surf(TCBuf& cb, BaseInstance const&, Material const& material)
 	{
 		Texture2DPtr tex = {};
 		if (auto const* base_colour = material.Component<materials::BaseColour>())
-			tex = coalesce(FindDiffTexture(inst), base_colour->m_tex.m_texture);
+			tex = base_colour->m_tex.m_texture;
 
 		// The base texture defines the texture to surface transform. Other maps should
 		// use the same transform for correct texture coordinate mapping.

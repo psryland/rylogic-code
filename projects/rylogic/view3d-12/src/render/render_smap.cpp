@@ -10,6 +10,7 @@
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_base.h"
@@ -34,8 +35,7 @@ namespace pr::rdr12
 		x(m4x4, m_i2w, EInstComp::I2WTransform)\
 		x(m4x4, m_c2s, EInstComp::C2STransform)\
 		x(ModelPtr, m_model, EInstComp::ModelPtr)\
-		x(Texture2DPtr, m_tex_diffuse, EInstComp::DiffTexture)\
-		x(SamplerPtr, m_sam_diffuse, EInstComp::DiffTextureSampler)\
+		x(MaterialPtr, m_material, EInstComp::MaterialPtr)\
 		x(EInstFlag, m_flags, EInstComp::Flags)
 		PR_RDR12_INSTANCE_MEMBERS(DebugQuadInstance, PR_RDR_INST);
 		#undef PR_RDR_INST
@@ -54,8 +54,9 @@ namespace pr::rdr12
 			m_i2w = m4x4::Identity();
 			m_c2s = m4x4::ProjectionOrthographic(1.0f, 1.0f, -0.01f, 1000.0f, true);
 			m_model = factory.CreateModel(EStockModel::UnitQuad);
-			m_tex_diffuse = caster.m_smap;
-			m_sam_diffuse = factory.CreateSampler(EStockSampler::PointClamp);
+			m_material = MaterialPtr(
+				::pr::compute::New<MaterialSimple>(Colour32White, caster.m_smap, factory.CreateSampler(EStockSampler::PointClamp)),
+				true);
 			m_flags = SetBits(m_flags, EInstFlag::ShadowCastExclude, true);
 		}
 
@@ -64,8 +65,7 @@ namespace pr::rdr12
 		{
 			m_scene->FindRStep<RenderForward>()->RemoveInstance(*this);
 			m_model = nullptr;
-			m_tex_diffuse = nullptr;
-			m_sam_diffuse = nullptr;
+			m_material = nullptr;
 		}
 
 		// Add the debug quad to the render forward step (only)
