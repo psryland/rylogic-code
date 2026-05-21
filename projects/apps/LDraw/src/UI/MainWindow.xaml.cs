@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
@@ -62,6 +63,17 @@ namespace LDraw
 		}
 		protected override void OnClosing(CancelEventArgs e)
 		{
+			if (!m_shutdown_prepared)
+			{
+				e.Cancel = true;
+				if (!m_shutdown_started)
+				{
+					m_shutdown_started = true;
+					_ = PrepareShutdownAsync();
+				}
+				return;
+			}
+
 			// Disable streaming before shutdown so that connections are cleanly closed
 			if (StreamingState != View3d.EStreamingState.Disconnected)
 				Model.View3d.Streaming(false, Model.Profile.StreamingPort);
@@ -150,10 +162,6 @@ namespace LDraw
 				}
 			}
 			base.OnPreviewDrop(e);
-		}
-		private void PreviewMouseDoubleClick_ShowObjectInfo(object sender, MouseButtonEventArgs e)
-		{
-			// Todo: Show a UI containing information about the object under the mouse pointer
 		}
 
 		/// <summary>App logic</summary>
@@ -603,5 +611,32 @@ namespace LDraw
 		/// <inheritdoc/>
 		public event PropertyChangedEventHandler? PropertyChanged;
 		private void NotifyPropertyChanged(string prop_name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop_name));
+
+		/// <summary></summary>
+		private void PreviewMouseDoubleClick_ShowObjectInfo(object sender, MouseButtonEventArgs e)
+		{
+			// Todo: Show a UI containing information about the object under the mouse pointer
+		}
+
+		/// <summary>Stop async services before allowing the synchronous WPF close path to dispose the model</summary>
+		private async Task PrepareShutdownAsync()
+		{
+			try
+			{
+				await Model.Mcp.StopAsync();
+			}
+			catch (Exception ex)
+			{
+				Log.Write(ELogLevel.Warn, ex, "Stopping the MCP service during LDraw shutdown failed.");
+			}
+			finally
+			{
+				m_shutdown_prepared = true;
+				if (!Dispatcher.HasShutdownStarted)
+					Dispatcher.Invoke(Close);
+			}
+		}
+		private bool m_shutdown_started;
+		private bool m_shutdown_prepared;
 	}
 }

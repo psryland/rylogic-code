@@ -289,12 +289,39 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 			// Keep shutdown bounded because this can run during application close.
 			using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
 			await app.StopAsync(cts.Token).ConfigureAwait(false);
-			await app.DisposeAsync().ConfigureAwait(false);
 			Log.Write(ELogLevel.Info, "LDraw MCP broker stopped.");
 		}
 		catch (Exception ex)
 		{
 			Log.Write(ELogLevel.Warn, ex, "Stopping the LDraw MCP broker failed.");
+		}
+		finally
+		{
+			await DisposeBrokerAsync(app).ConfigureAwait(false);
+		}
+	}
+
+	/// <summary>Dispose the broker host even when graceful stop times out</summary>
+	private static async Task DisposeBrokerAsync(WebApplication app)
+	{
+		var dispose_task = app.DisposeAsync().AsTask();
+		try
+		{
+			await dispose_task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+		}
+		catch (TimeoutException ex)
+		{
+			_ = dispose_task.ContinueWith(task =>
+			{
+				if (task.Exception != null)
+					Log.Write(ELogLevel.Warn, task.Exception, "Disposing the LDraw MCP broker failed after shutdown continued.");
+			}, TaskContinuationOptions.OnlyOnFaulted);
+
+			Log.Write(ELogLevel.Warn, ex, "Disposing the LDraw MCP broker timed out.");
+		}
+		catch (Exception ex)
+		{
+			Log.Write(ELogLevel.Warn, ex, "Disposing the LDraw MCP broker failed.");
 		}
 	}
 

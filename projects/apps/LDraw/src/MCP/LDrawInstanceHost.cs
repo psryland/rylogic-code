@@ -24,8 +24,10 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	private readonly SemaphoreSlim m_overlay_gate;
 	private readonly object m_overlay_lock = new();
 	private readonly object m_chart_lock = new();
+	private readonly object m_listen_pipe_lock = new();
 	private readonly Dictionary<string, OverlayState> m_overlays;
 	private readonly Dictionary<string, ChartState> m_charts;
+	private NamedPipeServerStream? m_listen_pipe;
 	private CancellationTokenSource? m_shutdown;
 	private Task? m_server_task;
 	private Timer? m_heartbeat;
@@ -80,6 +82,7 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 		m_heartbeat = null;
 
 		m_shutdown.Cancel();
+		DisposeListenPipe();
 		try
 		{
 			// Wait for the accept loop to unwind so the registry file is removed after the pipe stops accepting clients.
@@ -101,6 +104,38 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	{
 		StopAsync().GetAwaiter().GetResult();
 		m_overlay_gate.Dispose();
+	}
+
+	/// <summary>Track the named pipe currently waiting for a client connection</summary>
+	private void SetListenPipe(NamedPipeServerStream pipe)
+	{
+		lock (m_listen_pipe_lock)
+		{
+			m_listen_pipe = pipe;
+		}
+	}
+
+	/// <summary>Stop tracking 'pipe' if it is still the current listener</summary>
+	private void ClearListenPipe(NamedPipeServerStream pipe)
+	{
+		lock (m_listen_pipe_lock)
+		{
+			if (ReferenceEquals(m_listen_pipe, pipe))
+				m_listen_pipe = null;
+		}
+	}
+
+	/// <summary>Dispose the listening pipe to unblock a pending WaitForConnectionAsync during shutdown</summary>
+	private void DisposeListenPipe()
+	{
+		NamedPipeServerStream? pipe;
+		lock (m_listen_pipe_lock)
+		{
+			pipe = m_listen_pipe;
+			m_listen_pipe = null;
+		}
+
+		pipe?.Dispose();
 	}
 
 	/// <summary>Refresh this instance's registry file</summary>
@@ -131,18 +166,28 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 
 			try
 			{
+				SetListenPipe(pipe);
 				await pipe.WaitForConnectionAsync(cancellation_token).ConfigureAwait(false);
+				ClearListenPipe(pipe);
 
 				// Hand the connected pipe to a worker and immediately listen for the next broker request.
-				_ = Task.Run(() => HandleConnectionAsync(pipe, cancellation_token), cancellation_token);
+				_ = Task.Run(() => HandleConnectionAsync(pipe, cancellation_token));
 			}
 			catch (OperationCanceledException)
 			{
+				ClearListenPipe(pipe);
+				pipe.Dispose();
+				break;
+			}
+			catch (Exception) when (cancellation_token.IsCancellationRequested)
+			{
+				ClearListenPipe(pipe);
 				pipe.Dispose();
 				break;
 			}
 			catch (Exception ex)
 			{
+				ClearListenPipe(pipe);
 				pipe.Dispose();
 				Log.Write(ELogLevel.Warn, ex, "LDraw MCP instance pipe accept failed.");
 				await Task.Delay(TimeSpan.FromSeconds(1), cancellation_token).ConfigureAwait(false);
