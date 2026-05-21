@@ -17,6 +17,9 @@ public sealed class McpSettingsData :SettingsSet<McpSettingsData>
 	/// <summary>The default localhost port for the LDraw MCP broker</summary>
 	public const int DefaultPort = 38987;
 
+	/// <summary>The preferred HTTP header for local LDraw MCP access tokens</summary>
+	public const string AccessTokenHeaderName = "X-LDraw-MCP-Token";
+
 	/// <summary>True if the embedded MCP service should be active</summary>
 	public bool Enabled
 	{
@@ -31,7 +34,7 @@ public sealed class McpSettingsData :SettingsSet<McpSettingsData>
 		set => set(nameof(Port), value);
 	}
 
-	/// <summary>The bearer token required by MCP clients</summary>
+	/// <summary>The access token required by MCP clients</summary>
 	public string AccessToken
 	{
 		get => get<string>(nameof(AccessToken));
@@ -75,7 +78,7 @@ public sealed class McpSettingsData :SettingsSet<McpSettingsData>
       "type": "http",
       "url": "{{Endpoint}}",
       "headers": {
-        "Authorization": "Bearer {{token}}"
+        "{{AccessTokenHeaderName}}": "{{token}}"
       }
     }
   }

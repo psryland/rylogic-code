@@ -328,6 +328,56 @@
 									MinWidth="70"
 									/>
 							</StackPanel>
+							<StackPanel
+								Orientation="Horizontal"
+								Margin="30,3,3,3"
+								>
+								<TextBlock
+									Text="Access Token: "
+									VerticalAlignment="Center"
+									/>
+								<TextBox
+									x:Name="m_tb_mcp_access_token"
+									Text="{Binding Settings.MCP.AccessToken, Mode=OneWay}"
+									VerticalAlignment="Center"
+									MinWidth="360"
+									IsReadOnly="True"
+									/>
+								<Button
+									Command="{Binding CopyMcpAccessToken}"
+									ToolTip="Copy access token"
+									Background="Transparent"
+									BorderThickness="0"
+									Width="18"
+									Height="18"
+									Margin="3,0,0,0"
+									Padding="0"
+									VerticalAlignment="Center"
+									>
+									<Viewbox
+										Width="13"
+										Height="13"
+										>
+										<Canvas
+											Width="16"
+											Height="16"
+											>
+											<Path
+												Data="M5.5,4.5 L12.5,4.5 L12.5,13.5 L5.5,13.5 Z"
+												Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
+												StrokeThickness="1.4"
+												Fill="Transparent"
+												/>
+											<Path
+												Data="M3.5,11.5 L3.5,2.5 L10.5,2.5"
+												Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
+												StrokeThickness="1.4"
+												Fill="Transparent"
+												/>
+										</Canvas>
+									</Viewbox>
+								</Button>
+							</StackPanel>
 							<TextBlock
 								Text="{Binding McpStatus}"
 								TextWrapping="Wrap"

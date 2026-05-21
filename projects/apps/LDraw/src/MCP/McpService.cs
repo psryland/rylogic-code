@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -438,14 +439,76 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 		}
 
 		// The token is copied into the user's MCP client configuration and is required even for localhost requests.
-		if (!IsAuthorised(context.Request.Headers.Authorization.FirstOrDefault()))
+		if (!IsAuthorised(context))
 		{
-			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-			context.Response.Headers.WWWAuthenticate = "Bearer";
+			if (await IsUnauthorisedDiscoveryRequestAsync(context).ConfigureAwait(false))
+			{
+				await next().ConfigureAwait(false);
+				return;
+			}
+
+			await WriteAccessDeniedAsync(context).ConfigureAwait(false);
 			return;
 		}
 
 		await next().ConfigureAwait(false);
+	}
+
+	/// <summary>Return true if an unauthorised MCP request is safe discovery-only traffic</summary>
+	private static async Task<bool> IsUnauthorisedDiscoveryRequestAsync(HttpContext context)
+	{
+		if (!HttpMethods.IsPost(context.Request.Method) || context.Request.ContentLength == 0)
+			return false;
+
+		context.Request.EnableBuffering();
+		using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+		var content = await reader.ReadToEndAsync().ConfigureAwait(false);
+		context.Request.Body.Position = 0;
+
+		try
+		{
+			using var json = JsonDocument.Parse(content);
+			return json.RootElement.ValueKind switch
+			{
+				JsonValueKind.Object => IsUnauthorisedDiscoveryRequest(json.RootElement),
+				JsonValueKind.Array => json.RootElement.EnumerateArray().All(IsUnauthorisedDiscoveryRequest),
+				_ => false,
+			};
+		}
+		catch (JsonException)
+		{
+			return false;
+		}
+	}
+
+	/// <summary>Return true if a JSON-RPC request element is allowed before the access token is configured in the client</summary>
+	private static bool IsUnauthorisedDiscoveryRequest(JsonElement request)
+	{
+		if (!request.TryGetProperty("method", out var method_element) || method_element.ValueKind != JsonValueKind.String)
+			return false;
+
+		var method = method_element.GetString();
+		return method switch
+		{
+			"initialize" => true,
+			"notifications/initialized" => true,
+			"ping" => true,
+			"tools/list" => true,
+			"resources/list" => true,
+			"resources/templates/list" => true,
+			"prompts/list" => true,
+			_ => false,
+		};
+	}
+
+	/// <summary>Reject MCP access without triggering OAuth client flows in MCP clients</summary>
+	private static async Task WriteAccessDeniedAsync(HttpContext context)
+	{
+		// LDraw uses a local pre-shared token, not OAuth. Some MCP clients treat HTTP 401 as an OAuth challenge even without WWW-Authenticate,
+		// so use 403 with an explicit diagnostic message when the local token is missing or invalid.
+		context.Response.StatusCode = StatusCodes.Status403Forbidden;
+		context.Response.ContentType = "text/plain; charset=utf-8";
+		await context.Response.WriteAsync($"Missing or invalid {McpSettingsData.AccessTokenHeaderName} header. Copy the MCP configuration from LDraw preferences.").ConfigureAwait(false);
 	}
 
 	/// <summary>Return true if the HTTP Origin header is allowed</summary>
@@ -470,14 +533,20 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 			string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase);
 	}
 
-	/// <summary>Return true if 'authorization' contains the current bearer token</summary>
-	private bool IsAuthorised(string? authorization)
+	/// <summary>Return true if 'context' contains the current local MCP access token</summary>
+	private bool IsAuthorised(HttpContext context)
 	{
-		const string prefix = "Bearer ";
-		if (authorization == null || !authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-			return false;
+		var provided = context.Request.Headers[McpSettingsData.AccessTokenHeaderName].FirstOrDefault()?.Trim();
+		if (string.IsNullOrWhiteSpace(provided))
+		{
+			const string prefix = "Bearer ";
+			var authorization = context.Request.Headers.Authorization.FirstOrDefault();
+			if (authorization == null || !authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+				return false;
 
-		var provided = authorization.Substring(prefix.Length).Trim();
+			provided = authorization.Substring(prefix.Length).Trim();
+		}
+
 		var expected = m_configuration.AccessToken;
 		if (provided.Length == 0 || expected.Length == 0)
 			return false;

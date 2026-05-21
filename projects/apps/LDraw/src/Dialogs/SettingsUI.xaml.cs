@@ -34,6 +34,7 @@ namespace LDraw.Dialogs
 			MoveIncludePathDown = Command.Create(this, MoveIncludePathDownInternal, MoveIncludePathDownAvailable);
 			ResetToDefaults = Command.Create(this, ResetToDefaultsInternal, ResetToDefaultsAvailable);
 			BrowseTextEditor = Command.Create(this, BrowseTextEditorInternal);
+			CopyMcpAccessToken = Command.Create(this, CopyMcpAccessTokenInternal);
 			CopyMcpConfiguration = Command.Create(this, CopyMcpConfigurationInternal);
 			RegenerateMcpToken = Command.Create(this, RegenerateMcpTokenInternal);
 
@@ -290,7 +291,7 @@ namespace LDraw.Dialogs
 			Settings.Save();
 
 			var msg =
-				"The MCP configuration includes the local bearer token used to access this LDraw instance.\n\n" +
+				"The MCP configuration includes the local access token used to access this LDraw instance.\n\n" +
 				"Only paste it into a trusted MCP client configuration.";
 			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
 				return;
@@ -298,12 +299,21 @@ namespace LDraw.Dialogs
 			Clipboard.SetText(Settings.MCP.VSCodeConfiguration());
 		}
 
-		/// <summary>Generate a new bearer token for MCP clients</summary>
+		/// <summary>Copy the local MCP access token to the clipboard</summary>
+		public Command CopyMcpAccessToken { get; }
+		private void CopyMcpAccessTokenInternal()
+		{
+			Settings.MCP.EnsureAccessToken();
+			Settings.Save();
+			Clipboard.SetText(Settings.MCP.AccessToken);
+		}
+
+		/// <summary>Generate a new access token for MCP clients</summary>
 		public Command RegenerateMcpToken { get; }
 		private void RegenerateMcpTokenInternal()
 		{
 			var msg =
-				"Regenerating the MCP bearer token will break existing MCP client configurations until they are updated.\n\n" +
+				"Regenerating the MCP access token will break existing MCP client configurations until they are updated.\n\n" +
 				"Continue?";
 			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
 				return;
