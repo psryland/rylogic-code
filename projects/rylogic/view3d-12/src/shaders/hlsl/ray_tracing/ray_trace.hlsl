@@ -5,6 +5,7 @@
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 RaytracingAccelerationStructure g_scene : register(t0);
@@ -17,9 +18,11 @@ StructuredBuffer<RayTracingVertex> g_vertices : register(t6);
 Buffer<uint> g_indices16 : register(t7);
 Buffer<uint> g_indices32 : register(t8);
 StructuredBuffer<RayTracingGeometry> g_geometry : register(t9);
+Texture2D<float4> g_material_textures[RayTracingMaterialTextureLimit] : register(t10);
 RWTexture2D<float4> g_output : register(u0);
 RWTexture2D<uint4> g_alpha_colour : register(u1);
 RWTexture2D<uint4> g_alpha_depth : register(u2);
+SamplerState g_material_sampler : register(s0);
 
 static const uint RayPayloadMode_Diagnostic = 0;
 static const uint RayPayloadMode_Primary = 1;
@@ -34,6 +37,11 @@ static const uint MaxReflectionTransparentHits = 4;
 static const float ReflectionOpaqueAlpha = 0.995f;
 static const float DefaultGlassIOR = 1.5f;
 static const float DefaultGlassTransmission = 0.85f;
+
+// The shader table has one shared hit-group record, so geometry ids must not contribute to the hit-group offset.
+static const uint SharedHitGroupIndex = 0;
+static const uint SharedHitGroupGeometryStride = 0;
+static const uint DefaultMissShaderIndex = 0;
 
 // This shader is a hybrid post-raster pass. The raster pipeline remains authoritative for camera-visible colour and depth; DXR adds optional overlays:
 // diagnostics trace the TLAS directly, reflections start from raster or alpha-layer hits, caustics pull transmissive information from the light path,
@@ -337,7 +345,7 @@ float3 TraceReflectionPathThroughAlpha(RayDesc reflection_ray, uint max_bounces)
 		for (uint transparent_hit = 0; transparent_hit != MaxReflectionTransparentHits; ++transparent_hit)
 		{
 			reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
-			TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, layer_ray, reflection_payload);
+			TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex, layer_ray, reflection_payload);
 
 			if (reflection_payload.hit == 0)
 			{
@@ -405,7 +413,7 @@ float3 TraceReflectionPath(RayDesc reflection_ray)
 		for (uint transparent_hit = 0; transparent_hit != MaxReflectionTransparentHits; ++transparent_hit)
 		{
 			reflection_payload = InitRayPayload(RayPayloadMode_Reflection, 0.0f);
-			TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, layer_ray, reflection_payload);
+			TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex, layer_ray, reflection_payload);
 
 			if (reflection_payload.hit == 0)
 			{
@@ -556,6 +564,64 @@ bool MaterialIsTransmissive(RayTracingMaterial material)
 	return (material.flags.x & RayTracingMaterialFlag_Transmissive) != 0;
 }
 
+// Return true if 'material' should use shaded alpha as surface coverage in RT reflections.
+bool MaterialIsAlphaBlended(RayTracingMaterial material)
+{
+	return (material.flags.x & RayTracingMaterialFlag_AlphaBlend) != 0;
+}
+
+// Return true if 'texture_index' names a descriptor in the RT material texture table.
+bool MaterialTextureIndexValid(int texture_index)
+{
+	return texture_index >= 0 && texture_index < RayTracingMaterialTextureLimit;
+}
+
+// Sample one material texture using explicit LOD because RT closest-hit shaders have no screen-space derivatives.
+float4 MaterialTexture(int texture_index, bool srgb, float2 tex0, float4 fallback)
+{
+	if (!MaterialTextureIndexValid(texture_index))
+		return fallback;
+
+	float4 tex_colour = g_material_textures[NonUniformResourceIndex(uint(texture_index))].SampleLevel(g_material_sampler, tex0, 0.0f);
+	if (srgb)
+		tex_colour = SrgbToLinear(tex_colour);
+
+	return tex_colour;
+}
+
+// Sample the material base-colour texture, or return neutral white when no texture is bound.
+float4 MaterialBaseTexture(RayTracingMaterial material, float2 tex0)
+{
+	return MaterialTexture(
+		(material.flags.x & RayTracingMaterialFlag_BaseTexture) != 0 ? material.textures.x : -1,
+		(material.flags.x & RayTracingMaterialFlag_BaseTextureSrgb) != 0,
+		tex0,
+		1.0f);
+}
+
+// Sample the material emissive texture, or return neutral white when no texture is bound.
+float4 MaterialEmissiveTexture(RayTracingMaterial material, float2 tex0)
+{
+	return MaterialTexture(
+		(material.flags.x & RayTracingMaterialFlag_EmissiveTexture) != 0 ? material.textures.y : -1,
+		(material.flags.x & RayTracingMaterialFlag_EmissiveTextureSrgb) != 0,
+		tex0,
+		1.0f);
+}
+
+// Add the material's unlit emissive contribution to a shaded RT hit while preserving the opacity channel.
+float4 AddMaterialEmissive(RayTracingMaterial material, float4 colour, float2 tex0)
+{
+	float3 emissive = material.emissive.rgb * MaterialEmissiveTexture(material, tex0).rgb;
+	return float4(saturate(colour.rgb + emissive), colour.a);
+}
+
+// Add scalar emissive only when fallback shading has no reliable texture coordinates.
+float4 AddMaterialEmissive(RayTracingMaterial material, float4 colour)
+{
+	return float4(saturate(colour.rgb + material.emissive.rgb), colour.a);
+}
+
 // Return the clamped material reflectivity used for reflection bounces.
 float MaterialReflectivity(RayTracingMaterial material)
 {
@@ -571,9 +637,9 @@ float MaterialTransmission(RayTracingMaterial material)
 // Return the opacity used when reflection rays composite through transparent RT hits.
 float MaterialOpacity(RayTracingMaterial material, float shaded_alpha)
 {
-	float alpha_opacity = saturate(shaded_alpha);
-	if (alpha_opacity < ReflectionOpaqueAlpha)
-		return alpha_opacity;
+	if (MaterialIsAlphaBlended(material))
+		return saturate(shaded_alpha);
+
 	if (MaterialIsTransmissive(material))
 		return saturate(1.0f - MaterialTransmission(material));
 
@@ -625,36 +691,42 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 	uint geometry_index = HitMaterialIndex();
 	reflectivity = MaterialReflectivity(material);
 	if (!HasHitGeometry(geometry_index))
-		return material.diffuse;
+		return AddMaterialEmissive(material, material.diffuse);
 
 	// Geometry sidecar data is optional because fallback BLAS geometry can still be ray-hit even if it cannot be shaded from original vertices.
 	RayTracingGeometry geometry = g_geometry[geometry_index];
 	uint first_index = PrimitiveIndex() * 3u;
 	if (first_index + 2u >= geometry.ranges.w)
-		return material.diffuse;
+		return AddMaterialEmissive(material, material.diffuse);
 
 	uint i0 = HitTriangleIndex(geometry, 0) - geometry.ranges.y;
 	uint i1 = HitTriangleIndex(geometry, 1) - geometry.ranges.y;
 	uint i2 = HitTriangleIndex(geometry, 2) - geometry.ranges.y;
 	if (i0 >= geometry.flags.y || i1 >= geometry.flags.y || i2 >= geometry.flags.y)
-		return material.diffuse;
+		return AddMaterialEmissive(material, material.diffuse);
 
 	float3 bary = float3(1.0f - attrib.barycentrics.x - attrib.barycentrics.y, attrib.barycentrics.x, attrib.barycentrics.y);
 
 	RayTracingVertex v0 = g_vertices[geometry.ranges.x + i0];
 	RayTracingVertex v1 = g_vertices[geometry.ranges.x + i1];
 	RayTracingVertex v2 = g_vertices[geometry.ranges.x + i2];
-	float4 colour = (bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour) * material.diffuse;
+
+	// Missing vertex colours mean "use the material colour", not "multiply by whatever padding was copied from the full vertex buffer".
+	float4 vertex_colour = (geometry.flags.x & RayTracingGeometryFlag_HasColours) != 0
+		? bary.x * v0.colour + bary.y * v1.colour + bary.z * v2.colour
+		: 1.0f;
+	float2 tex0 = bary.x * v0.tex0 + bary.y * v1.tex0 + bary.z * v2.tex0;
+	float4 colour = vertex_colour * material.diffuse * MaterialBaseTexture(material, tex0);
 
 	// Without packed normals the hit can still contribute diffuse colour, but it cannot spawn another reflection bounce safely.
 	if ((geometry.flags.x & RayTracingGeometryFlag_HasNormals) == 0)
-		return colour;
+		return AddMaterialEmissive(material, colour, tex0);
 
 	float4 normal = bary.x * v0.normal + bary.y * v1.normal + bary.z * v2.normal;
 	normal.w = 0.0f;
 	float normal_len_sq = dot(normal.xyz, normal.xyz);
 	if (normal_len_sq < 1e-10f)
-		return colour;
+		return AddMaterialEmissive(material, colour, tex0);
 
 	float4 ws_normal = mul(normal * rsqrt(normal_len_sq), geometry.normal_to_world);
 	ws_normal.w = 0.0f;
@@ -662,7 +734,7 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 
 	// Degenerate normals fall back to a terminal hit colour rather than risking NaNs in later reflection rays.
 	if (ws_normal_len_sq < 1e-10f)
-		return colour;
+		return AddMaterialEmissive(material, colour, tex0);
 
 	ws_normal *= rsqrt(ws_normal_len_sq);
 	if (dot(ws_normal.xyz, -WorldRayDirection()) < 0.0f)
@@ -671,10 +743,10 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 	ws_normal_out = ws_normal.xyz;
 
 	if (DirectionalLight(g_frame.global_light))
-		return ShadeDirectionalHit(ws_normal, colour);
+		return AddMaterialEmissive(material, ShadeDirectionalHit(ws_normal, colour), tex0);
 
 	float4 ws_pos = float4(WorldRayOrigin() + RayTCurrent() * WorldRayDirection(), 1.0f);
-	return Illuminate(g_frame.global_light, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour);
+	return AddMaterialEmissive(material, Illuminate(g_frame.global_light, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour), tex0);
 }
 
 // Return a stable pseudo-random value for a projected caustic cell.
@@ -794,7 +866,7 @@ void RayGen()
 	if (mode == RayTracingMode_Diagnostic)
 	{
 		RayDesc ray = MakeCameraRay(pixel, dim);
-		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, 0, 1, 0, ray, payload);
+		TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE, RayTracingInstanceMask_All, SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex, ray, payload);
 		g_output[pixel] = float4(payload.colour, 1.0f);
 		return;
 	}
@@ -851,7 +923,7 @@ void RayGen()
 				float caustic_bias = RayBias(g_frame.caustic.y, length(hit_pos - camera_ray.Origin));
 				RayDesc caustic_ray = MakeSecondaryRay(hit_pos + surface_to_light * caustic_bias, surface_to_light, g_frame.clip.y);
 
-				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, caustic_ray, caustic_payload);
+				TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex, caustic_ray, caustic_payload);
 				if (caustic_payload.occluded != 0)
 				{
 					// Treat the hit material as a thin refractive layer and modulate a projected proof pattern by Fresnel/transmission terms.
@@ -875,7 +947,7 @@ void RayGen()
 						RayPayload exit_payload = InitOcclusionPayload(RayPayloadMode_Caustic);
 						RayDesc exit_ray = MakeSecondaryRay(material_pos + entry_dir * caustic_bias, entry_dir, g_frame.clip.y);
 
-						TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, 0, 1, 0, exit_ray, exit_payload);
+						TraceRay(g_scene, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RayTracingInstanceMask_Caustic, SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex, exit_ray, exit_payload);
 						if (exit_payload.occluded != 0)
 						{
 							float3 exit_normal = PayloadHasSurfaceNormal(exit_payload)
@@ -934,7 +1006,7 @@ void RayGen()
 			g_scene,
 			RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
 			RayTracingInstanceMask_All,
-			0, 1, 0,
+			SharedHitGroupIndex, SharedHitGroupGeometryStride, DefaultMissShaderIndex,
 			shadow_ray,
 			shadow_payload);
 		if (shadow_payload.occluded != 0)
@@ -1027,4 +1099,3 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
 	float wire = smoothstep(0.0f, 0.02f, edge);
 	payload.colour = lerp(float3(0.02f, 0.02f, 0.02f), DiagnosticColour(seed), wire);
 }
-

@@ -41,6 +41,7 @@ namespace pr::rdr12
 			ShadingIndices16,
 			ShadingIndices32,
 			ShadingGeometry,
+			MaterialTextures,
 			Output,
 			AlphaColour,
 			AlphaDepth,
@@ -155,9 +156,25 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t7, 1)
 			.SRV(hlsl::ESRVReg::t8, 1)
 			.SRV(hlsl::ESRVReg::t9, 1)
+			.SRV(static_cast<hlsl::ESRVReg>(10), shaders::rt::RayTracingMaterialTextureLimit, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.UAV(hlsl::EUAVReg::u1, 1)
 			.UAV(hlsl::EUAVReg::u2, 1)
+			.Samp(D3D12_STATIC_SAMPLER_DESC{
+				.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+				.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+				.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+				.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+				.MipLODBias = 0.0f,
+				.MaxAnisotropy = 0,
+				.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER,
+				.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+				.MinLOD = 0.0f,
+				.MaxLOD = D3D12_FLOAT32_MAX,
+				.ShaderRegister = 0,
+				.RegisterSpace = 0,
+				.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL,
+				})
 			.Create(rdr.D3DDevice(), "RT-DiagnosticTraceSig");
 	}
 
@@ -355,6 +372,7 @@ namespace pr::rdr12
 		auto const shading_indices16 = ray_tracing_scene.ShadingIndex16Buffer();
 		auto const shading_indices32 = ray_tracing_scene.ShadingIndex32Buffer();
 		auto const shading_geometry = ray_tracing_scene.ShadingGeometryBuffer();
+		auto const material_textures = ray_tracing_scene.MaterialTextures();
 		auto const tlas_address = ray_tracing_scene.AccelerationStructureAddress();
 		if (input == nullptr || target == nullptr)
 			return;
@@ -390,6 +408,11 @@ namespace pr::rdr12
 				barriers.Transition(shading_indices32, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			if (shading_geometry != nullptr)
 				barriers.Transition(shading_geometry, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			for (auto const& texture : material_textures)
+			{
+				if (texture != nullptr)
+					barriers.Transition(texture->m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			}
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
@@ -488,6 +511,16 @@ namespace pr::rdr12
 					.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
 				},
 			});
+			vector<Descriptor, 16> material_texture_descriptors;
+			for (auto const& texture : material_textures)
+			{
+				if (texture != nullptr)
+					material_texture_descriptors.push_back(texture->m_srv);
+			}
+			if (material_texture_descriptors.empty())
+				material_texture_descriptors.push_back(scene.wnd().rdr().store().StockTexture(EStockTexture::White)->m_srv);
+
+			auto material_textures_srv = scene.wnd().m_heap_view.Add(material_texture_descriptors);
 			auto uav_desc = D3D12_UNORDERED_ACCESS_VIEW_DESC{
 				.Format = OutputFormat,
 				.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
@@ -558,6 +591,7 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingIndices16, shading_indices16_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingIndices32, shading_indices32_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::ShadingGeometry, shading_geometry_srv);
+			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::MaterialTextures, material_textures_srv);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaColour, alpha_colour_uav);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaDepth, alpha_depth_uav);
@@ -579,6 +613,11 @@ namespace pr::rdr12
 				barriers.UAV(alpha_colour);
 				barriers.Transition(alpha_colour, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 				barriers.Transition(alpha_depth, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			}
+			for (auto const& texture : material_textures)
+			{
+				if (texture != nullptr)
+					barriers.Transition(texture->m_res.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 			barriers.Transition(output, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 			barriers.Transition(target, D3D12_RESOURCE_STATE_RENDER_TARGET);

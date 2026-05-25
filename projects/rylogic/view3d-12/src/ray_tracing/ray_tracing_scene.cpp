@@ -12,7 +12,9 @@
 #include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
 #include "pr/view3d-12/model/vertex_layout.h"
+#include "pr/view3d-12/material/components/alpha.h"
 #include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/emissive.h"
 #include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "view3d-12/src/shaders/common.h"
@@ -27,12 +29,19 @@ namespace pr::rdr12
 		constexpr UINT RayTracingInstanceMask_Default = 0x01;
 		constexpr UINT RayTracingInstanceMask_Caustic = 0x02;
 		constexpr UINT RayTracingMaterialIndexLimit = 0x01000000;
+		constexpr int RayTracingMaterialTextureLimit = 4096;
 		constexpr UINT RayTracingGeometryFlag_HasGeometry = 0x01;
 		constexpr UINT RayTracingGeometryFlag_HasNormals = 0x02;
 		constexpr UINT RayTracingGeometryFlag_Index16 = 0x04;
 		constexpr UINT RayTracingGeometryFlag_Index32 = 0x08;
+		constexpr UINT RayTracingGeometryFlag_HasColours = 0x10;
 		constexpr UINT RayTracingMaterialFlag_Reflective = 0x01;
 		constexpr UINT RayTracingMaterialFlag_Transmissive = 0x02;
+		constexpr UINT RayTracingMaterialFlag_AlphaBlend = 0x04;
+		constexpr UINT RayTracingMaterialFlag_BaseTexture = 0x08;
+		constexpr UINT RayTracingMaterialFlag_BaseTextureSrgb = 0x10;
+		constexpr UINT RayTracingMaterialFlag_EmissiveTexture = 0x20;
+		constexpr UINT RayTracingMaterialFlag_EmissiveTextureSrgb = 0x40;
 
 		struct SkinnedBlasKey
 		{
@@ -128,6 +137,7 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_scratch;
 		D3DPtr<ID3D12Resource> m_instances;
 		D3DPtr<ID3D12Resource> m_materials;
+		vector<Texture2DPtr, 1024> m_material_textures;
 		D3DPtr<ID3D12Resource> m_shading_vertices;
 		D3DPtr<ID3D12Resource> m_shading_indices16;
 		D3DPtr<ID3D12Resource> m_shading_indices32;
@@ -149,6 +159,7 @@ namespace pr::rdr12
 			, m_scratch()
 			, m_instances()
 			, m_materials()
+			, m_material_textures()
 			, m_shading_vertices()
 			, m_shading_indices16()
 			, m_shading_indices32()
@@ -191,6 +202,7 @@ namespace pr::rdr12
 			vector<D3D12_RAYTRACING_INSTANCE_DESC, 1024> m_instances;
 			vector<SkinnedBlasKey, 32> m_used_skinned_blas;
 			vector<shaders::rt::RayTracingMaterial, 1024> m_materials;
+			vector<Texture2DPtr, 1024> m_material_textures;
 			vector<shaders::rt::RayTracingGeometry, 1024> m_shading_geometry;
 			vector<BufferCopy, 1024> m_vertex_copies;
 			vector<BufferCopy, 1024> m_index16_copies;
@@ -209,6 +221,7 @@ namespace pr::rdr12
 				, m_instances()
 				, m_used_skinned_blas()
 				, m_materials()
+				, m_material_textures()
 				, m_shading_geometry()
 				, m_vertex_copies()
 				, m_index16_copies()
@@ -235,6 +248,7 @@ namespace pr::rdr12
 		void ReleaseMaterialBuffer(Renderer& rdr, RayTracingScene::Data& data)
 		{
 			rdr.DeferRelease(data.m_materials);
+			data.m_material_textures.clear();
 			data.m_material_count = 0;
 			data.m_material_signature = hash::FNV_offset_basis64;
 		}
@@ -283,8 +297,47 @@ namespace pr::rdr12
 			}
 		}
 
+		// Return true when a colour texture needs shader-side sRGB decoding.
+		bool NeedsShaderSrgbDecode(materials::TextureSlot const& slot)
+		{
+			switch (slot.m_colour_space)
+			{
+				case materials::ETextureColourSpace::Linear:
+				{
+					return false;
+				}
+				case materials::ETextureColourSpace::Srgb:
+				{
+					return slot.m_texture != nullptr && !::pr::compute::IsSRGB(slot.m_texture->TexDesc().Format);
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown texture colour-space");
+				}
+			}
+		}
+
+		// Append a material texture and return its RT texture-table index.
+		int AppendMaterialTexture(InstanceBuildInput& result, materials::TextureSlot const& slot)
+		{
+			if (slot.m_texture == nullptr)
+				return -1;
+
+			auto const existing = std::find(begin(result.m_material_textures), end(result.m_material_textures), slot.m_texture);
+			if (existing != end(result.m_material_textures))
+				return s_cast<int>(std::distance(begin(result.m_material_textures), existing));
+
+			if (result.m_material_textures.size() >= RayTracingMaterialTextureLimit)
+				throw std::runtime_error("Ray tracing material texture table exceeds the shader limit");
+
+			auto const texture_index = isize(result.m_material_textures);
+			result.m_material_textures.push_back(slot.m_texture);
+			AddSignature(result.m_material_signature, reinterpret_cast<uintptr_t>(slot.m_texture.get()));
+			return texture_index;
+		}
+
 		// Return the material payload used by ray-tracing shaders for one instance geometry.
-		shaders::rt::RayTracingMaterial MakeMaterial(BaseInstance const& inst, Nugget const& nugget)
+		shaders::rt::RayTracingMaterial MakeMaterial(InstanceBuildInput& result, BaseInstance const& inst, Nugget const& nugget)
 		{
 			// Look for instance components
 			auto const* inst_tint = inst.find<Colour32>(EInstComp::TintColour32);
@@ -298,27 +351,69 @@ namespace pr::rdr12
 			auto& base_colour = rdr_material.ComponentOrDefault<materials::BaseColour>();
 			auto& reflectivity = rdr_material.ComponentOrDefault<materials::Reflectivity>();
 			auto& optics = rdr_material.ComponentOrDefault<materials::Optics>();
+			auto const* emissive = rdr_material.Component<materials::Emissive>();
 
 			//  Base colour
 			auto const tint32 = (inst_tint != nullptr ? *inst_tint : Colour32White) * base_colour.m_colour;
-			auto const tint = Colour(tint32);
+			auto tint = Colour(tint32);
 
-			// Alpha, transmission, and reflectivity
-			auto const alpha_hint = AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
-			auto const texture_has_alpha = AllSet(base_colour.m_tex.m_texture ? base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
-			auto const tint_transmission = HasAlpha(tint32) ? 1.0f - tint.a : 0.0f;
-			auto const texture_transmission = texture_has_alpha ? optics.m_transmission : 0.0f;
-			auto const hint_transmission = alpha_hint ? optics.m_transmission : 0.0f;
-			auto const transmission = Clamp(std::max(std::max(tint_transmission, texture_transmission), hint_transmission), 0.0f, 1.0f);
+			// Alpha and transmission. PBR alpha modes are surface-coverage rules, so an opaque/masked RGBA texture must not be interpreted as glass.
+			auto transmission = 0.0f;
+			auto alpha_blend = false;
+			if (auto const* alpha = rdr_material.Component<materials::Alpha>())
+			{
+				switch (alpha->m_mode)
+				{
+					case materials::EAlphaMode::Opaque:
+					{
+						tint.a = 1.0f;
+						break;
+					}
+					case materials::EAlphaMode::Mask:
+					{
+						tint.a = tint.a < alpha->m_cutoff ? 0.0f : 1.0f;
+						break;
+					}
+					case materials::EAlphaMode::Blend:
+					{
+						alpha_blend = true;
+						transmission = Clamp(1.0f - tint.a, 0.0f, 1.0f);
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown PBR alpha mode");
+					}
+				}
+			}
+			else
+			{
+				auto const alpha_hint = AnySet(nugget.m_nflags, ENuggetFlag::GeometryHasAlpha | ENuggetFlag::AlphaBlend);
+				auto const texture_has_alpha = AllSet(base_colour.m_tex.m_texture ? base_colour.m_tex.m_texture->m_tflags : ETextureFlag::None, ETextureFlag::HasAlpha);
+
+				alpha_blend = alpha_hint || HasAlpha(tint32) || texture_has_alpha;
+				auto const tint_transmission = HasAlpha(tint32) ? 1.0f - tint.a : 0.0f;
+				auto const texture_transmission = texture_has_alpha ? optics.m_transmission : 0.0f;
+				auto const hint_transmission = alpha_hint ? optics.m_transmission : 0.0f;
+				transmission = Clamp(std::max(std::max(tint_transmission, texture_transmission), hint_transmission), 0.0f, 1.0f);
+			}
 			
 			// Relative reflectivity means relative to the instance reflectivity
 			auto const rt_reflectivity = inst_reflectivity != nullptr
 				? Clamp(*inst_reflectivity * reflectivity.m_rel_reflec, 0.0f, 1.0f)
 				: 0.0f;
 
+			auto const has_base_texture = AllSet(nugget.m_geom, EGeom::Tex0) && base_colour.m_tex.m_texture != nullptr;
+			auto const base_texture_index = has_base_texture ? AppendMaterialTexture(result, base_colour.m_tex) : -1;
+			auto const base_texture_srgb = has_base_texture && NeedsShaderSrgbDecode(base_colour.m_tex);
+			auto const has_emissive_texture = AllSet(nugget.m_geom, EGeom::Tex0) && emissive != nullptr && emissive->m_tex.m_texture != nullptr;
+			auto const emissive_texture_index = has_emissive_texture ? AppendMaterialTexture(result, emissive->m_tex) : -1;
+			auto const emissive_texture_srgb = has_emissive_texture && NeedsShaderSrgbDecode(emissive->m_tex);
+
 			// Create the material payload.
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;
+			material.emissive = emissive != nullptr ? emissive->m_colour.rgba : ColourZero.rgba;
 			material.optics = v4(
 				rt_reflectivity,
 				transmission,
@@ -326,11 +421,17 @@ namespace pr::rdr12
 				std::max(optics.m_thickness, 0.0f));
 			material.flags = pr::hlsl::uint4{
 				(rt_reflectivity != 0.0f ? RayTracingMaterialFlag_Reflective : 0U) |
-				(transmission != 0.0f ? RayTracingMaterialFlag_Transmissive : 0U),
+				(transmission != 0.0f ? RayTracingMaterialFlag_Transmissive : 0U) |
+				(alpha_blend ? RayTracingMaterialFlag_AlphaBlend : 0U) |
+				(has_base_texture ? RayTracingMaterialFlag_BaseTexture : 0U) |
+				(base_texture_srgb ? RayTracingMaterialFlag_BaseTextureSrgb : 0U) |
+				(has_emissive_texture ? RayTracingMaterialFlag_EmissiveTexture : 0U) |
+				(emissive_texture_srgb ? RayTracingMaterialFlag_EmissiveTextureSrgb : 0U),
 				0,
 				0,
 				0,
 			};
+			material.textures = pr::hlsl::int4{ base_texture_index, emissive_texture_index, 0, 0 };
 			return material;
 		}
 
@@ -346,11 +447,12 @@ namespace pr::rdr12
 
 			for (auto const* nugget : geometry.m_nuggets)
 			{
-				auto material = MakeMaterial(inst, *nugget);
+				auto material = MakeMaterial(result, inst, *nugget);
 				AddSignature(result.m_material_signature, material);
 				result.m_materials.push_back(material);
 			}
 			AddSignature(result.m_material_signature, result.m_materials.size());
+			AddSignature(result.m_material_signature, result.m_material_textures.size());
 			return s_cast<UINT>(material_base);
 		}
 
@@ -399,6 +501,7 @@ namespace pr::rdr12
 					record.flags = pr::hlsl::uint4{
 						RayTracingGeometryFlag_HasGeometry |
 						(AllSet(nugget->m_geom, EGeom::Norm) ? RayTracingGeometryFlag_HasNormals : 0U) |
+						(AllSet(nugget->m_geom, EGeom::Colr) ? RayTracingGeometryFlag_HasColours : 0U) |
 						(index16 ? RayTracingGeometryFlag_Index16 : RayTracingGeometryFlag_Index32),
 						s_cast<uint32_t>(vertex_count),
 						0,
@@ -452,7 +555,7 @@ namespace pr::rdr12
 		}
 
 		// Create or refresh the material buffer consumed by reflection closest-hit shaders.
-		void EnsureMaterialBuffer(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, std::span<shaders::rt::RayTracingMaterial const> materials, uint64_t material_signature)
+		void EnsureMaterialBuffer(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, std::span<shaders::rt::RayTracingMaterial const> materials, std::span<Texture2DPtr const> material_textures, uint64_t material_signature)
 		{
 			if (data.m_materials != nullptr && data.m_material_count == isize(materials) && data.m_material_signature == material_signature)
 				return;
@@ -464,6 +567,7 @@ namespace pr::rdr12
 			auto desc = ResDesc::Buf<shaders::rt::RayTracingMaterial>(isize(materials), materials)
 				.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			data.m_materials = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:materials");
+			data.m_material_textures.assign(begin(material_textures), end(material_textures));
 			data.m_material_count = isize(materials);
 			data.m_material_signature = material_signature;
 		}
@@ -901,6 +1005,14 @@ namespace pr::rdr12
 			: 0;
 	}
 
+	// Return the textures referenced by material records.
+	std::span<Texture2DPtr const> RayTracingScene::MaterialTextures() const
+	{
+		return m_data != nullptr
+			? std::span<Texture2DPtr const>(m_data->m_material_textures.data(), m_data->m_material_textures.size())
+			: std::span<Texture2DPtr const>{};
+	}
+
 	// Return the packed vertex buffer used by RT closest-hit shading.
 	ID3D12Resource* RayTracingScene::ShadingVertexBuffer() const
 	{
@@ -1031,6 +1143,7 @@ namespace pr::rdr12
 			upload,
 			*m_data,
 			std::span<shaders::rt::RayTracingMaterial const>(input.m_materials.data(), input.m_materials.size()),
+			std::span<Texture2DPtr const>(input.m_material_textures.data(), input.m_material_textures.size()),
 			input.m_material_signature);
 		EnsureShadingGeometryBuffers(rdr, cmd_list, upload, *m_data, input);
 

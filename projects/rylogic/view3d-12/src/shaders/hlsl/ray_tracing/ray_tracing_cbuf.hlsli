@@ -24,20 +24,32 @@ static const int RayTracingGeometryFlag_HasGeometry = 0x01;
 static const int RayTracingGeometryFlag_HasNormals = 0x02;
 static const int RayTracingGeometryFlag_Index16 = 0x04;
 static const int RayTracingGeometryFlag_Index32 = 0x08;
+static const int RayTracingGeometryFlag_HasColours = 0x10;
 
 static const int RayTracingMaterialFlag_Reflective = 0x01;
 static const int RayTracingMaterialFlag_Transmissive = 0x02;
+static const int RayTracingMaterialFlag_AlphaBlend = 0x04;
+static const int RayTracingMaterialFlag_BaseTexture = 0x08;
+static const int RayTracingMaterialFlag_BaseTextureSrgb = 0x10;
+static const int RayTracingMaterialFlag_EmissiveTexture = 0x20;
+static const int RayTracingMaterialFlag_EmissiveTextureSrgb = 0x40;
+
+static const int RayTracingMaterialTextureLimit = 4096;
 
 // Material data for one TLAS instance geometry.
 struct RayTracingMaterial
 {
 	float4 diffuse;
+	float4 emissive;
 
 	// x = reflectivity, y = transmission, z = index of refraction, w = approximate thickness
 	float4 optics;
 
 	// x = RayTracingMaterialFlag_*, yzw = reserved
 	uint4 flags;
+
+	// x = base-colour texture index, y = emissive texture index, zw = reserved
+	int4 textures;
 };
 
 // Vertex data copied into a packed RT shading buffer.

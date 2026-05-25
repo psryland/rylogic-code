@@ -72,6 +72,9 @@ namespace pr::rdr12
 		// Return the number of material records in the material buffer.
 		int MaterialCount() const;
 
+		// Return the textures referenced by material records.
+		std::span<Texture2DPtr const> MaterialTextures() const;
+
 		// Return the packed vertex buffer used by RT closest-hit shading.
 		ID3D12Resource* ShadingVertexBuffer() const;
 

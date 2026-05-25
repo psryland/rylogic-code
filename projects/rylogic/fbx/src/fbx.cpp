@@ -1009,7 +1009,10 @@ namespace pr::geometry::fbx
 
 				if (unreal_export && !mat.m_base_colour_texture && IsBlackRgb(mat.m_base_colour) && (!IsBlackRgb(mat.m_emissive) || mat.m_emissive_texture))
 				{
-					mat.m_base_colour = mat.m_emissive;
+					// Some Unreal FBX exports have no diffuse texture and put the only visible colour in the emissive slot. Treat that as base colour so
+					// the imported material remains visible in normal lit rendering, even when the emissive factor is black but an emissive texture exists.
+					mat.m_base_colour = !IsBlackRgb(mat.m_emissive) ? mat.m_emissive : ColourWhite;
+					mat.m_base_colour.a = 1.0f;
 					mat.m_base_colour_texture = std::move(mat.m_emissive_texture);
 					mat.m_emissive = ColourBlack;
 				}
