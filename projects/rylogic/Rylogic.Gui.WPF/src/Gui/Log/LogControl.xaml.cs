@@ -117,14 +117,40 @@ namespace Rylogic.Gui.WPF
 		}
 		protected virtual void Dispose(bool _)
 		{
+			if (IsDisposed) return;
+			IsDisposed = true;
+
+			LogFilepath = null;
 			m_view.ContextMenuOpening -= HandleContextMenuOpening;
 			m_view.SelectionChanged -= HandleSelectionChanged;
 			m_view.MouseRightButtonUp -= DataGrid_.ColumnVisibility;
 			BindingOperations.ClearAllBindings(this);
 			LogEntries = null!;
-			LogFilepath = null;
 			Highlighting = null!;
 			DockControl = null!;
+		}
+
+		/// <summary>True once the control has started releasing resources</summary>
+		public bool IsDisposed
+		{
+			get => m_disposed;
+			private set => m_disposed = value;
+		}
+		private volatile bool m_disposed;
+
+		/// <summary>Queue 'action' on the UI dispatcher unless shutdown/disposal has already made the control invalid</summary>
+		private void PostToDispatcher(Action action)
+		{
+			if (IsDisposed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+				return;
+
+			Dispatcher.BeginInvoke(new Action(() =>
+			{
+				if (IsDisposed)
+					return;
+
+				action();
+			}));
 		}
 		protected override void OnPreviewKeyDown(KeyEventArgs e)
 		{
@@ -213,6 +239,9 @@ namespace Rylogic.Gui.WPF
 			// Handlers
 			bool HandleFileChanged(string filepath, object? ctx)
 			{
+				if (IsDisposed || LogEntries == null)
+					return false;
+
 				try
 				{
 					// Open the file
@@ -465,13 +494,16 @@ namespace Rylogic.Gui.WPF
 				// Handlers
 				void HandleLogEntriesChanged(object? sender, NotifyCollectionChangedEventArgs e)
 				{
+					if (IsDisposed || LogEntries == null)
+						return;
+
 					if (e.Action != NotifyCollectionChangedAction.Add)
 						return;
 
 					// Handle the entries collection being changed from a different thread
 					if (Thread.CurrentThread.ManagedThreadId != Dispatcher.Thread.ManagedThreadId)
 					{
-						Dispatcher.BeginInvoke(new Action(() => HandleLogEntriesChanged(sender, e)));
+						PostToDispatcher(() => HandleLogEntriesChanged(sender, e));
 						return;
 					}
 
@@ -487,17 +519,17 @@ namespace Rylogic.Gui.WPF
 					// Prevent the LogEntries collection getting too big.
 					// Defer because we can't edit the collection in this handler.
 					if (LogEntries.Count > MaxLines)
-						Dispatcher.BeginInvoke(new Action(() =>
+						PostToDispatcher(() =>
 						{
 							if (LogEntries == null) return;
 							LogEntries.RemoveRange(0, LogEntries.Count - MaxLines);
-						}));
+						});
 
 					// Auto scroll to the last row
 					// Have to do this outside of the event handler or we get an exception
 					// about the "ItemsSource being inconsistent with the ItemsControl"
 					if (TailScroll)
-						Dispatcher.BeginInvoke(new Action(ScrollToEnd));
+						PostToDispatcher(ScrollToEnd);
 				}
 			}
 		} = null!;
@@ -532,11 +564,11 @@ namespace Rylogic.Gui.WPF
 		{
 			if (m_log_entry_view_refresh_pending) return;
 			m_log_entry_view_refresh_pending = true;
-			Dispatcher.BeginInvoke(new Action(() =>
+			PostToDispatcher(() =>
 			{
 				LogEntriesView?.Refresh();
 				m_log_entry_view_refresh_pending = false;
-			}));
+			});
 		}
 		private bool m_log_entry_view_refresh_pending;
 
@@ -560,6 +592,9 @@ namespace Rylogic.Gui.WPF
 				// Handler
 				void HandleCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
 				{
+					if (IsDisposed || LogEntries == null)
+						return;
+
 					// Invalidate all the highlighting patterns
 					foreach (var le in LogEntries)
 						le.Highlight = null;
@@ -654,9 +689,12 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Add text to the log. Can be called from any thread</summary>
 		public void AddMessage(string text)
 		{
+			if (IsDisposed || LogEntries == null)
+				return;
+
 			if (Thread.CurrentThread.ManagedThreadId != Dispatcher.Thread.ManagedThreadId)
 			{
-				Dispatcher.BeginInvoke(new Action(() => AddMessage(text)));
+				PostToDispatcher(() => AddMessage(text));
 				return;
 			}
 
@@ -783,6 +821,9 @@ namespace Rylogic.Gui.WPF
 		/// <summary>Switch out of tail scroll mode when a row other than the last is selected</summary>
 		private void HandleMouseDown(object sender, MouseButtonEventArgs e)
 		{
+			if (IsDisposed)
+				return;
+
 			if (e.ChangedButton == MouseButton.Right &&
 				e.OriginalSource is DependencyObject hit &&
 				Gui_.FindVisualParent<DataGridRow>(hit, root: m_view) is DataGridRow row)
@@ -796,13 +837,13 @@ namespace Rylogic.Gui.WPF
 				LogEntriesView.MoveCurrentTo(row.Item);
 			}
 
-			Dispatcher.BeginInvoke(new Action(() =>
+			PostToDispatcher(() =>
 			{
 				// Have to dispatcher this because the current position isn't updated until
 				// after the preview mouse down event.
 				if (TailScroll && LogEntriesView.CurrentPosition != LogEntriesView.Count() - 1)
 					TailScroll = false;
-			}));
+			});
 		}
 
 		/// <summary>Update context menu command availability before the menu is shown</summary>
