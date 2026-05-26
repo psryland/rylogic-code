@@ -1,4 +1,6 @@
 // HLSL source for runtime compilation
+#ifndef PR_HLSL_RC
+#define PR_HLSL_RC
 
 // Notes:
 //  - This file is intended to be included in a project's '.rc' file. Think of it as a header library.
@@ -20,3 +22,5 @@ pr/hlsl/hermite_spline.hlsli  TEXT DISCARDABLE "pr/hlsl/hermite_spline.hlsli"
 pr/hlsl/interpolate.hlsli     TEXT DISCARDABLE "pr/hlsl/interpolate.hlsli"
 pr/hlsl/spatial_algebra.hlsli TEXT DISCARDABLE "pr/hlsl/spatial_algebra.hlsli"
 pr/hlsl/bounding_box.hlsli    TEXT DISCARDABLE "pr/hlsl/bounding_box.hlsli"
+
+#endif
