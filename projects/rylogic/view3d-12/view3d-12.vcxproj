@@ -333,14 +333,14 @@
     <ClInclude Include="src\shaders\common.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli" />
     <None Include="cpp.hint" />
-    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\closest_point.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\core.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\geometry.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli" />
     <None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli" />
     <None Include="src\shaders\hlsl\types.hlsli" />
     <None Include="src\shaders\hlsl\deferred\gbuffer.hlsli" />

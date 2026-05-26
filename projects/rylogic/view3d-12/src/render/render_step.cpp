@@ -49,6 +49,9 @@ namespace pr::rdr12
 	{
 		if (auto drawlist = m_drawlist.lock())
 			drawlist->resize(0);
+
+		// The alpha-group boundaries describe indexes within the draw list, so any mutation invalidates them.
+		m_sort_needed = true;
 	}
 
 	// Sort the draw list based on sort key
@@ -147,7 +150,10 @@ namespace pr::rdr12
 	void RenderStep::RemoveInstance(BaseInstance const& inst)
 	{
 		if (auto drawlist = m_drawlist.lock())
-			erase_if(*drawlist, [&](DrawListElement const& dle){ return dle.m_instance == &inst; });
+		{
+			if (erase_if(*drawlist, [&](DrawListElement const& dle){ return dle.m_instance == &inst; }) != 0)
+				m_sort_needed = true;
+		}
 	}
 
 	// Remove a batch of instances. Optimised by a single past through the draw list
@@ -162,11 +168,13 @@ namespace pr::rdr12
 		// Remove instances
 		if (auto drawlist = m_drawlist.lock())
 		{
-			erase_if(*drawlist, [&](DrawListElement const& dle)
+			auto const removed = erase_if(*drawlist, [&](DrawListElement const& dle)
 			{
 				auto iter = std::lower_bound(doomed, doomed_end, dle.m_instance);
 				return iter != doomed_end && *iter == dle.m_instance;
 			});
+			if (removed != 0)
+				m_sort_needed = true;
 		}
 	}
 
