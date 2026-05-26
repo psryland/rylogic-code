@@ -81,7 +81,7 @@ namespace pr::physics
 		explicit RigidBody(collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {});
 
 		// Raised after the collision shape changes.
-		EventHandler<RigidBody&, ChangeEventArgs<collision::Shape const*>> ShapeChange;
+		EventHandler<RigidBody&, ChangeEventArgs<collision::Shape const*>, true> ShapeChange;
 
 		// Get/Set the collision shape for the rigid body
 		template <ShapeType TShape> TShape const& Shape() const;

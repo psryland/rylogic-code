@@ -59,21 +59,44 @@ namespace pr::physics
 		{
 			return StepProfileScope<PR_PHYSICS_PROFILE != 0, Field>(profile);
 		}
-		void RunGpuJob(GpuJob& job, Engine::StepProfile& profile)
+		GpuJob::RunHandle SubmitGpuJob(GpuJob& job, Engine::StepProfile& profile)
 		{
 			if constexpr (PR_PHYSICS_PROFILE != 0)
 			{
 				auto run_profile = GpuJob::RunProfile{};
-				job.Run(&run_profile);
+				auto run = job.Submit(&run_profile);
 				profile.m_gpu_prepare_ms = run_profile.m_prepare_ms;
 				profile.m_gpu_execute_ms = run_profile.m_execute_ms;
-				profile.m_gpu_wait_ms = run_profile.m_wait_ms;
-				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
+				return run;
 			}
 			else
 			{
-				job.Run();
+				return job.Submit();
 			}
+		}
+		void CompleteGpuJob(GpuJob& job, GpuJob::RunHandle& run, Engine::StepProfile& profile)
+		{
+			if constexpr (PR_PHYSICS_PROFILE != 0)
+			{
+				auto run_profile = GpuJob::RunProfile{};
+				job.Complete(run, &run_profile);
+				profile.m_gpu_wait_ms = run_profile.m_wait_ms;
+				profile.m_gpu_reset_ms = run_profile.m_reset_ms;
+				profile.m_gpu_run_ms =
+					profile.m_gpu_prepare_ms +
+					profile.m_gpu_execute_ms +
+					profile.m_gpu_wait_ms +
+					profile.m_gpu_reset_ms;
+			}
+			else
+			{
+				job.Complete(run);
+			}
+		}
+		void RunGpuJob(GpuJob& job, Engine::StepProfile& profile)
+		{
+			auto run = SubmitGpuJob(job, profile);
+			CompleteGpuJob(job, run, profile);
 		}
 		void CheckCollisionCapacity(Engine::CollisionStats const& stats)
 		{
@@ -94,15 +117,48 @@ namespace pr::physics
 		}
 	}
 
+	// Readback resources and flags that must survive between GPU submission and CPU unpack.
 	struct GpuBuffers
 	{
-		ReadbackAlloc rb_bodies;
-		ReadbackAlloc rb_counters;
-		ReadbackAlloc rb_contacts;
-		ReadbackAlloc rb_contact_order;
+		::pr::compute::GpuReadbackBuffer::Allocation rb_bodies;
+		::pr::compute::GpuReadbackBuffer::Allocation rb_counters;
+		::pr::compute::GpuReadbackBuffer::Allocation rb_contacts;
+		::pr::compute::GpuReadbackBuffer::Allocation rb_contact_order;
 		bool emit_collisions = true;
 		bool read_contacts = false;
 	};
+
+	// Keep the opaque GPU readback state allocated once with the pending-step state.
+	Engine::PendingStep::PendingStep()
+		: m_bodies()
+		, m_buffers(new GpuBuffers())
+		, m_run()
+		, m_active()
+		, m_submitted()
+	{
+	}
+
+	// Start tracking a begin/complete step pair using a stable copy of the caller's body list.
+	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies)
+	{
+		if (bodies.data() != m_bodies.data() || bodies.size() != m_bodies.size())
+			m_bodies.assign(bodies.begin(), bodies.end());
+
+		*m_buffers = {};
+		m_run = {};
+		m_active = true;
+		m_submitted = false;
+	}
+
+	// Clear all per-step state once the GPU result has been consumed.
+	void Engine::PendingStep::Clear()
+	{
+		m_bodies.clear();
+		*m_buffers = {};
+		m_run = {};
+		m_active = false;
+		m_submitted = false;
+	}
 
 	Engine::Engine(EngineConfig const& config, IShaderCache* shader_cache, ID3D12Device4* existing_device)
 		: m_config(config)
@@ -116,7 +172,7 @@ namespace pr::physics
 		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
-		, m_body_ptrs()
+		, m_pending_step()
 		, m_last_step_profile()
 		, m_last_collision_stats()
 	{
@@ -129,6 +185,9 @@ namespace pr::physics
 	}
 	void Engine::Material(physics::Material mat)
 	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::Material cannot be modified while a step is pending");
+
 		(*m_materials).Set(mat);
 		m_gpu_resolver->MaterialsDirty();
 		m_gpu_selective_resolver->MaterialsDirty();
@@ -141,12 +200,18 @@ namespace pr::physics
 	}
 	void Engine::Config(EngineConfig const& config)
 	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::Config cannot be modified while a step is pending");
+
 		m_config = config;
 	}
 
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()
 	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending");
+
 		m_cache->Reset();
 		m_last_collision_stats = {};
 	}
@@ -154,11 +219,24 @@ namespace pr::physics
 	// Evolve the physics objects forward in time and resolve any collisions.
 	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
 	{
+		BeginStep(dt, rigid_bodies, time_s);
+		CompleteStep();
+	}
+
+	// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
+	void Engine::BeginStep(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
+	{
 		// Notes:
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
 		//    If this limit becomes a problem, the options are increase the max number of collision pairs
 		//    or run Engine::Step() multiple times on "islands" of physics objects
-		if (rigid_bodies.empty())
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+
+		m_pending_step.Begin(rigid_bodies);
+		auto bodies = std::span{ m_pending_step.m_bodies };
+
+		if (bodies.empty())
 		{
 			m_last_step_profile = {};
 			m_last_collision_stats = {};
@@ -174,16 +252,15 @@ namespace pr::physics
 		m_last_step_profile = {};
 		m_last_collision_stats = {};
 
-		GpuBuffers buffers;
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+			m_cache->NewFrame(bodies, m_config.max_collision_pairs);
 		}
 
 		// Pack all bodies into a GPU-friendly format
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
-			Pack(rigid_bodies);
+			Pack(bodies);
 		}
 
 		// If nothing dynamic is awake then no GPU stage can change the world state.
@@ -247,25 +324,49 @@ namespace pr::physics
 		// ReadBody -> read back body dynamics and contact data
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(buffers);
+			Readback(*m_pending_step.m_buffers);
 		}
 
-		// Run the GPU jobs for all stages up to this point
+		// Submit all GPU work for this step without waiting so callers can overlap other CPU work.
+		m_pending_step.m_run = SubmitGpuJob(m_gpu->m_job, m_last_step_profile);
+		m_pending_step.m_submitted = true;
+	}
+
+	// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
+	void Engine::CompleteStep()
+	{
+		if (!m_pending_step.m_active)
+			throw std::runtime_error("Engine::CompleteStep called without a pending step");
+
+		if (!m_pending_step.m_submitted)
 		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
-			RunGpuJob(m_gpu->m_job, m_last_step_profile);
+			m_pending_step.Clear();
+			return;
 		}
+
+		CompleteGpuJob(m_gpu->m_job, m_pending_step.m_run, m_last_step_profile);
 
 		// Unpack the results back into the caller-owned bodies
+		try
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
-			Unpack(buffers, rigid_bodies);
+			Unpack(*m_pending_step.m_buffers, m_pending_step.m_bodies);
 		}
+		catch (...)
+		{
+			m_pending_step.Clear();
+			throw;
+		}
+
+		m_pending_step.Clear();
 	}
 
 	// Explicitly initialise missing sleep islands for newly-created sleeping bodies.
 	void Engine::UpdateSleepIslands(std::span<RigidBody*> rigid_bodies)
 	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Engine::UpdateSleepIslands cannot run while a step is pending");
+
 		if (rigid_bodies.empty())
 			return;
 
@@ -307,7 +408,6 @@ namespace pr::physics
 			Readback(buffers);
 		}
 		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_gpu_run_ms>(m_last_step_profile);
 			RunGpuJob(m_gpu->m_job, m_last_step_profile);
 		}
 		{
@@ -780,6 +880,10 @@ namespace pr::physics
 	}
 
 	// Deleter implementations
+	void Deleter<GpuBuffers>::operator()(GpuBuffers* buffers) const
+	{
+		delete buffers;
+	}
 	void Deleter<EngineBufferCache>::operator()(EngineBufferCache* cache) const
 	{
 		delete cache;

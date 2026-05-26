@@ -173,6 +173,29 @@ namespace pr::physics::tests
 		return result;
 	}
 
+	// Check two bodies have matching externally visible state after stepping through different engine entry points.
+	void ExpectSameRigidBodyState(RigidBody const& lhs, RigidBody const& rhs)
+	{
+		auto const lhs_o2w = lhs.O2W();
+		auto const rhs_o2w = rhs.O2W();
+		auto const pos_delta = Length(lhs_o2w.pos - rhs_o2w.pos);
+		auto const x_delta = Length(lhs_o2w.x - rhs_o2w.x);
+		auto const y_delta = Length(lhs_o2w.y - rhs_o2w.y);
+		auto const z_delta = Length(lhs_o2w.z - rhs_o2w.z);
+
+		auto const lhs_vel = lhs.VelocityWS();
+		auto const rhs_vel = rhs.VelocityWS();
+		auto const lin_delta = Length(lhs_vel.lin - rhs_vel.lin);
+		auto const ang_delta = Length(lhs_vel.ang - rhs_vel.ang);
+
+		PR_EXPECT(pos_delta < 1e-5f);
+		PR_EXPECT(x_delta < 1e-5f);
+		PR_EXPECT(y_delta < 1e-5f);
+		PR_EXPECT(z_delta < 1e-5f);
+		PR_EXPECT(lin_delta < 1e-5f);
+		PR_EXPECT(ang_delta < 1e-5f);
+	}
+
 	PRUnitTestClass(SleepingBroadphaseTests)
 	{
 		PRUnitTestMethod(ExternalForceEventRunsBeforeIntegrate)
@@ -205,6 +228,66 @@ namespace pr::physics::tests
 			engine.Step(dt, std::span{ &body, 1 }, time_s);
 
 			PR_EXPECT(event_count == 1);
+		}
+
+		PRUnitTestMethod(SplitStepMatchesStepWrapper)
+		{
+			auto box = MakeBox();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+			auto const time_s = 12.5;
+
+			auto step_body = RigidBody{};
+			step_body.Shape(collision::shape_cast(&box), 1.0f);
+			step_body.O2W(m4x4::Translation(0, 0, 5));
+			step_body.VelocityWS(v4{0.2f, -0.1f, 0.05f, 0}, v4{1.0f, 0.5f, -0.25f, 0});
+
+			auto split_body = step_body;
+
+			ResetEngineForNextTest(engine);
+			engine.Step(dt, std::span{ &step_body, 1 }, time_s);
+
+			ResetEngineForNextTest(engine);
+			engine.BeginStep(dt, std::span{ &split_body, 1 }, time_s);
+			engine.CompleteStep();
+
+			ExpectSameRigidBodyState(step_body, split_body);
+		}
+
+		PRUnitTestMethod(SplitStepGuardsPendingState)
+		{
+			auto box = MakeBox();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+
+			auto body = RigidBody{};
+			body.Shape(collision::shape_cast(&box), 1.0f);
+			body.O2W(m4x4::Translation(0, 0, 5));
+			body.VelocityWS(v4::Zero(), v4{1.0f, 0, 0, 0});
+
+			ResetEngineForNextTest(engine);
+			engine.BeginStep(dt, std::span{ &body, 1 });
+
+			PR_THROWS(engine.BeginStep(dt, std::span{ &body, 1 }), std::exception);
+			PR_THROWS(engine.Material(physics::Material{ .m_id = physics::Material::DefaultID }), std::exception);
+			PR_THROWS(engine.ResetCaches(), std::exception);
+
+			engine.CompleteStep();
+			PR_THROWS(engine.CompleteStep(), std::exception);
+		}
+
+		PRUnitTestMethod(EmptySplitStepStillRequiresComplete)
+		{
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+
+			ResetEngineForNextTest(engine);
+			engine.BeginStep(dt, std::span<RigidBody>{});
+
+			PR_THROWS(engine.BeginStep(dt, std::span<RigidBody>{}), std::exception);
+
+			engine.CompleteStep();
+			PR_EXPECT(engine.LastStepProfile().m_gpu_run_ms == 0.0);
 		}
 
 		PRUnitTestMethod(LowVelocityBodySleepsAfterDelay)
@@ -241,6 +324,40 @@ namespace pr::physics::tests
 			ResetEngineForNextTest(engine);
 			for (int step = 0; step != 61; ++step)
 				engine.Step(dt, bodies);
+
+			PR_EXPECT(bodies[0].Sleeping());
+		}
+
+		// Check that steady support impulses do not keep resetting the sleep timer for an already-awake body.
+		PRUnitTestMethod(RestSupportImpulsesDoNotPreventSleep)
+		{
+			auto box = MakeBox();
+			auto ground_shape = MakeGround();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+			auto const gravity = v4{ 0, 0, -9.81f, 0 };
+
+			RigidBody bodies[2];
+			bodies[0].Shape(collision::shape_cast(&box), 1.0f);
+			bodies[0].O2W(m4x4::Translation(0, 0, 0.5f));
+			bodies[1].Shape(collision::shape_cast(&ground_shape), physics::Inertia::Infinite());
+			bodies[1].O2W(m4x4::Translation(0, 0, -0.5f));
+
+			ResetEngineForNextTest(engine);
+			engine.Material(physics::Material{
+				.m_id = physics::Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			// Keep gravity applied through the dedicated gravity path so the ground contact must generate support impulses while the body settles into sleep.
+			for (int step = 0; step != 180; ++step)
+			{
+				bodies[0].ZeroForces();
+				bodies[1].ZeroForces();
+				bodies[0].GravityWS(gravity);
+				engine.Step(dt, bodies);
+			}
 
 			PR_EXPECT(bodies[0].Sleeping());
 		}

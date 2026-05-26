@@ -1,4 +1,5 @@
 // HLSL source for runtime compilation
+// Note: Don't include this rc file, add 'view3d_compute_shaders.res' as a link dependency
 src/compute/fluid_simulation/fluid_simulation.hlsl     TEXT DISCARDABLE "src/compute/fluid_simulation/fluid_simulation.hlsl"
 src/compute/particle_collision/collision.hlsli         TEXT DISCARDABLE "src/compute/particle_collision/collision.hlsli"
 src/compute/particle_collision/particle.hlsli          TEXT DISCARDABLE "src/compute/particle_collision/particle.hlsli"

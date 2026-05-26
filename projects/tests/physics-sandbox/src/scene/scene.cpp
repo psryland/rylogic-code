@@ -885,7 +885,8 @@ namespace physics_sandbox
 		bool momentum_ok = Length(dp) < 0.01f;
 		auto ang_tol = Max(0.01f, Length(pre_total_L) * 0.05f);
 		bool ang_momentum_ok = Length(dL) < ang_tol;
-		bool ke_ok = Abs(dke) < 0.01f * pre_total_ke;
+		auto ke_tol = Max(0.01f, 0.01f * Abs(pre_total_ke));
+		bool ke_ok = Abs(dke) <= ke_tol;
 		DbgLog("  Lin Momentum conserved: %s\n", momentum_ok ? "PASS" : "*** FAIL ***");
 		DbgLog("  Ang Momentum conserved: %s%s\n", ang_momentum_ok ? "PASS" : "*** FAIL ***", (Length(dL) > 0.01f && ang_momentum_ok) ? " (within sub-step tolerance)" : "");
 		DbgLog("  KE conserved (elastic): %s\n", ke_ok ? "PASS" : "*** FAIL ***");

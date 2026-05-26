@@ -90,6 +90,32 @@ namespace pr::physics
 
 	private:
 
+		struct PendingStep
+		{
+			std::vector<RigidBody*> m_bodies;
+			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
+			GpuJob::RunHandle m_run;
+			bool m_active = false;
+			bool m_submitted = false;
+
+			PendingStep();
+
+			// Replace the staged body list with pointers to a range of caller-owned rigid bodies.
+			void AssignBodies(RigidBodyRange auto&& bodies)
+			{
+				m_bodies.clear();
+				m_bodies.reserve(static_cast<std::size_t>(std::ranges::distance(bodies)));
+				for (auto& body : bodies)
+					m_bodies.push_back(&body);
+			}
+
+			// Start tracking a begin/complete step pair using a stable copy of the caller's body list.
+			void Begin(std::span<RigidBody*> bodies);
+
+			// Clear all per-step state once the GPU result has been consumed.
+			void Clear();
+		};
+
 		// Engine configuration parameters.
 		EngineConfig m_config;
 
@@ -123,8 +149,8 @@ namespace pr::physics
 		// Buffers for preparing GPU data
 		CachePtr m_cache;
 
-		// Storage for body pointers
-		std::vector<RigidBody*> m_body_ptrs;
+		// State for a BeginStep/CompleteStep pair.
+		PendingStep m_pending_step;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;
@@ -144,23 +170,35 @@ namespace pr::physics
 		void Step(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
 		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
-			m_body_ptrs.resize(0);
-			for (auto& body : bodies)
-				m_body_ptrs.push_back(&body);
-
-			Step(dt, m_body_ptrs, time_s);
+			BeginStep(dt, bodies, time_s);
+			CompleteStep();
 		}
+
+		// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
+		void BeginStep(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+		void BeginStep(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
+		{
+			if (m_pending_step.m_active)
+				throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+
+			m_pending_step.AssignBodies(bodies);
+			BeginStep(dt, std::span{ m_pending_step.m_bodies }, time_s);
+		}
+
+		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
+		void CompleteStep();
 
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
 		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
 		void UpdateSleepIslands(std::span<RigidBody*> bodies);
 		void UpdateSleepIslands(RigidBodyRange auto&& bodies)
 		{
-			m_body_ptrs.resize(0);
+			auto body_ptrs = std::vector<RigidBody*>{};
+			body_ptrs.reserve(static_cast<std::size_t>(std::ranges::distance(bodies)));
 			for (auto& body : bodies)
-				m_body_ptrs.push_back(&body);
+				body_ptrs.push_back(&body);
 
-			UpdateSleepIslands(m_body_ptrs);
+			UpdateSleepIslands(body_ptrs);
 		}
 
 		// Raised at the end of step, just before object dynamics are updated
