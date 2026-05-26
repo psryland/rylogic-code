@@ -11,13 +11,13 @@ namespace las
 {
 	// Step phase task graph.
 	// Dependency DAG:
-	//   Physics → Finalise
+	//   Finalise
 	//
 	// Input is processed in the render loop so the camera works even when sim is paused.
-	// Physics steps the ship (and future rigid bodies).
+	// PhysicsSystem submits GPU physics work on the simulation owner thread before this graph runs, then completes it after this graph so CPU work
+	// can overlap the GPU step.
 	enum class StepTaskId : int
 	{
-		Physics,     // Step rigid bodies and ocean-surface constraints
 		Finalise,    // Barrier: commit all state snapshots
 		Count,
 	};

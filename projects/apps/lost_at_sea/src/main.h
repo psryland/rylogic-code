@@ -8,6 +8,7 @@
 #include "src/core/frame_tasks.h"
 #include "src/core/state_snapshot.h"
 #include "src/core/sim_state.h"
+#include "src/core/physics/physics_system.h"
 #include "src/core/cameras/icamera.h"
 #include "src/core/input/input_handler.h"
 #include "src/world/ocean/ocean.h"
@@ -31,7 +32,7 @@ namespace las
 
 		InputHandler m_input;
 		CameraPtr m_camera;
-		int m_camera_mode;  // 0 = Ship, 1 = Free
+		PhysicsSystem m_physics;
 		ProceduralSky m_sky;
 		DayNightCycle m_day_cycle;
 		Ocean m_ocean;
@@ -45,6 +46,7 @@ namespace las
 
 		double m_sim_time;
 		int64_t m_render_frame;
+		int m_camera_mode;  // 0 = Ship, 1 = Free
 
 		// Task graphs for parallel execution
 		pr::task_graph::Graph<StepTaskId> m_step_graph;

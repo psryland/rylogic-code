@@ -9,6 +9,14 @@
 #include <concepts>
 #include <string_view>
 #include <string>
+#include <span>
+#include <vector>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <functional>
+#include <stdexcept>
+#include <utility>
 #include <filesystem>
 #include <variant>
 
@@ -27,12 +35,16 @@
 #include "pr/common/event_handler.h"
 #include "pr/common/resource.h"
 #include "pr/common/task_graph.h"
+#include "pr/compute/compute.h"
 #include "pr/geometry/p3d.h"
 #include "pr/hlsl/interop.h"
 #include "pr/storage/json.h"
 #include "pr/algorithm/perlin_noise.h"
 #include "pr/view3d-12/view3d.h"
 #include "pr/physics/physics.h"
+#include "pr/physics/rigid_body/rigid_body.h"
+#include "pr/physics/shape/inertia.h"
+#include "pr/collision/shape_box.h"
 #include "pr/win32/win32.h"
 #include "pr/view3d-12/imgui/imgui.h"
 
