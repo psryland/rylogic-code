@@ -52,14 +52,15 @@ A sailing game set in a procedurally generated archipelago. The core game loop i
 - CPU mirrors the same wave math for physics queries (`OceanHeightAt`)
 
 ### Physics
-- Built on `include/pr/physics2` (header-only, spatial algebra based)
-- Buoyancy as a new forces module within physics2
-- Uses existing collision shapes for hull geometry
+- Use the compute physics engine for the active ship rigid body.
+- Buoyancy prototype is a no-readback GPU external-force pass, recorded after body upload and before integration.
+- LAS owns the first buoyancy geometry and ocean data; the physics engine should stay LAS-agnostic.
+- Use a simple watertight low-poly buoyancy mesh as the water-displacement proxy, separate from collision shapes.
 
 ### Technologies
 - **Renderer**: `view3d-12` static lib (`projects/rylogic/view3d-12/`)
 - **Collision**: `include/pr/collision/` - shapes, GJK, raycasting
-- **Physics**: `include/pr/physics2/` - rigid body, integrator, engine (spatial algebra)
+- **Physics**: `include/pr/physics/` and `projects/rylogic/physics/` - GPU rigid body integrator and compute pipeline
 - **Audio**: `projects/rylogic/audio/` - DirectSound, WAV, OGG streaming
 - **Asset loading**: `include/pr/geometry/gltf.h`, `include/pr/geometry/fbx.h`
 
@@ -112,11 +113,16 @@ Render a basic world the player can look at.
 ### Phase 2: Ocean Physics (Buoyancy)
 The core technical challenge - make things float realistically.
 
-- **2.1 Wave height query**: `float OceanHeightAt(float x, float y, float time)` - CPU-side function matching GPU Gerstner displacement exactly.
-- **2.2 Buoyancy force**: For a convex shape partially submerged, calculate submerged volume and centre of buoyancy. Force = rho_water x g x V_submerged, applied at centroid. Start with plane approximation (sample ocean height at hull centre, clip hull against that plane).
-- **2.3 Physics2 integration**: New header `include/pr/physics2/forces/buoyancy.h` with `Ocean` struct and `BuoyancyForce()` function using spatial algebra types (`v8force`).
-- **2.4 Water drag**: Linear + quadratic drag opposing motion through water. Separate drag for submerged vs above-water portions.
-- **2.5 Test with primitives**: Drop box/sphere into ocean. Verify correct waterline, rocking on waves, settling to equilibrium, capsizing.
+Current design direction: prototype GPU buoyancy in LAS first, then move only the clean general pieces into the physics engine once the API shape is proven.
+
+- **2.1 Wave consistency**: Align CPU and HLSL Gerstner phase conventions before trusting physics validation.
+- **2.2 External force seam**: Add a pre-integrate `EventHandler` hook to the compute physics engine. The hook runs after body upload and before integration, receives `dt` plus absolute simulation time, and lets subscribers add to GPU body force/torque accumulators without readback.
+- **2.3 LAS `GpuBuoyancy` module**: Own wave constants, body-to-buoyancy records, and a low-poly watertight buoyancy mesh. Start with a generated box mesh and a 128x128 integration grid.
+- **2.4 Static buoyancy validation**: In flat water, compare GPU diagnostics for volume, force, centre of buoyancy, and torque against analytic box cases before applying damping.
+- **2.5 No-readback force application**: Use a deterministic two-pass reduction so the final force and torque are written directly to `GpuRigidBody.force_*` before integration.
+- **2.6 Gerstner water input**: Evaluate the same Gerstner waves in the buoyancy compute shader using the shared wave parameter layout.
+- **2.7 Water damping**: Add heave/angular damping and later drag/slamming only after the static buoyancy force is trusted.
+- **2.8 Test with primitives and proxy hulls**: Verify waterline, restoring torque, rocking on waves, settling to equilibrium, and capsizing.
 
 ### Phase 3: Sailing Model
 Make a pre-built ship respond to wind.
@@ -158,12 +164,14 @@ Environmental variety and challenge.
 
 ## Technical Notes
 
-### Buoyancy Algorithm (Phase 2 Detail)
-Computing submerged volume of a convex hull against a non-planar surface (waves). Approaches in order of complexity:
+### GPU Buoyancy Algorithm (Phase 2 Detail)
+Compute submerged volume with gravity-aligned columns over a LAS-owned buoyancy mesh.
 
-1. **Plane approximation** *(start here)*: Sample ocean height at hull centre, treat water surface as a plane, clip hull, compute volume/centroid. Fast, good enough for prototyping.
-2. **Multi-sample**: Sample ocean at several points under hull, piecewise planar water surface. Better for large ships on short-wavelength waves.
-3. **Slice method**: Slice hull into horizontal layers, compute submerged fraction per slice. Expensive but very accurate.
+1. Build a plane perpendicular to gravity over the projected buoyancy mesh bounds.
+2. For each grid cell, cast a column ray through a closed low-poly triangle proxy mesh and sort the surface intersections into solid intervals.
+3. Clamp each solid interval to the portion below the Gerstner water height at the column centre.
+4. Accumulate displaced volume and per-column force along `-gravity`; sum torque from each column centroid relative to the body's centre of mass.
+5. Reduce threadgroup partials into the GPU rigid-body force and torque accumulators before the normal physics integration pass.
 
 ### Ocean Mesh Strategy
 - Grid mesh centred on camera, e.g. 256x256 verts covering ~500m x 500m

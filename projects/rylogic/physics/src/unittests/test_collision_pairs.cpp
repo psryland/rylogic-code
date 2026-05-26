@@ -175,6 +175,38 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(SleepingBroadphaseTests)
 	{
+		PRUnitTestMethod(ExternalForceEventRunsBeforeIntegrate)
+		{
+			auto box = MakeBox();
+			auto& engine = SharedEngine();
+			auto const dt = 1.0f / 60.0f;
+			auto const time_s = 123.25;
+
+			RigidBody body;
+			body.Shape(collision::shape_cast(&box), 1.0f);
+			body.O2W(m4x4::Translation(0, 0, 5));
+
+			ResetEngineForNextTest(engine);
+			auto event_count = 0;
+			engine.ExternalForces += [&](Engine&, Engine::ExternalForceArgs const& args)
+			{
+				++event_count;
+				PR_EXPECT(args.m_bodies != nullptr);
+				PR_EXPECT(args.m_body_count == 1);
+				PR_EXPECT(args.m_dt == dt);
+				PR_EXPECT(args.m_time_s == time_s);
+				PR_EXPECT(args.m_substep_index == 0);
+				PR_EXPECT(args.m_substep_count == 1);
+
+				args.m_job.m_barriers.UAV(args.m_bodies);
+				args.m_job.m_barriers.Commit();
+			};
+
+			engine.Step(dt, std::span{ &body, 1 }, time_s);
+
+			PR_EXPECT(event_count == 1);
+		}
+
 		PRUnitTestMethod(LowVelocityBodySleepsAfterDelay)
 		{
 			auto box = MakeBox();

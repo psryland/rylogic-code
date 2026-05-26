@@ -155,6 +155,7 @@ namespace physics_sandbox::diag
 				m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
 				m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
 				m_engine.m_upload_ms += profile.m_engine.m_upload_ms;
+				m_engine.m_external_forces_ms += profile.m_engine.m_external_forces_ms;
 				m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
 				m_engine.m_sleepwake_ms += profile.m_engine.m_sleepwake_ms;
 				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
@@ -575,7 +576,7 @@ namespace physics_sandbox::diag
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
 				step,
 				time_s,
 				profile.m_sample_count,
@@ -585,6 +586,7 @@ namespace physics_sandbox::diag
 				profile.m_engine.m_new_frame_ms / count,
 				profile.m_engine.m_pack_ms / count,
 				profile.m_engine.m_upload_ms / count,
+				profile.m_engine.m_external_forces_ms / count,
 				profile.m_engine.m_integrate_ms / count,
 				profile.m_engine.m_sleepwake_ms / count,
 				profile.m_engine.m_broadphase_ms / count,
@@ -1026,7 +1028,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,external_forces_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)

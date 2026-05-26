@@ -19,6 +19,7 @@ namespace physics_sandbox
 			lhs.m_new_frame_ms += rhs.m_new_frame_ms;
 			lhs.m_pack_ms += rhs.m_pack_ms;
 			lhs.m_upload_ms += rhs.m_upload_ms;
+			lhs.m_external_forces_ms += rhs.m_external_forces_ms;
 			lhs.m_integrate_ms += rhs.m_integrate_ms;
 			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;

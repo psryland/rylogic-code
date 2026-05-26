@@ -24,6 +24,7 @@ namespace pr::physics
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
 			double m_upload_ms = 0;
+			double m_external_forces_ms = 0;
 			double m_integrate_ms = 0;
 			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
@@ -74,6 +75,17 @@ namespace pr::physics
 			{
 				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
 			}
+		};
+		struct ExternalForceArgs
+		{
+			// Context supplied to pre-integrate GPU force callbacks.
+			GpuJob& m_job;
+			ID3D12Resource* m_bodies;
+			int m_body_count;
+			float m_dt;
+			double m_time_s;
+			int m_substep_index;
+			int m_substep_count;
 		};
 
 	private:
@@ -129,14 +141,14 @@ namespace pr::physics
 		void Config(EngineConfig const& config);
 
 		// Evolve the physics objects forward in time and resolve any collisions.
-		void Step(float dt, std::span<RigidBody*> bodies);
-		void Step(float dt, RigidBodyRange auto&& bodies)
+		void Step(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
 			m_body_ptrs.resize(0);
 			for (auto& body : bodies)
 				m_body_ptrs.push_back(&body);
 
-			Step(dt, m_body_ptrs);
+			Step(dt, m_body_ptrs, time_s);
 		}
 
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
@@ -153,6 +165,9 @@ namespace pr::physics
 
 		// Raised at the end of step, just before object dynamics are updated
 		EventHandler<Engine&, std::span<RbContact const>> Collisions;
+		
+		// Raised after body upload and before integration so subscribers can add GPU-resident forces.
+		EventHandler<Engine&, ExternalForceArgs const&> ExternalForces;
 
 		// Get/set the physics material properties for a given material ID.
 		physics::Material Material(int id) const;
@@ -190,6 +205,9 @@ namespace pr::physics
 
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 		void Integrate(float dt);
+		
+		// Apply user-supplied GPU forces before integration.
+		void ApplyExternalForces(float dt, double time_s);
 
 		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
 		void SleepWake();

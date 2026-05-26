@@ -152,7 +152,7 @@ namespace pr::physics
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
-	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies)
+	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
 	{
 		// Notes:
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
@@ -194,6 +194,12 @@ namespace pr::physics
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
 			Upload();
+		}
+
+		// ExternalForces -> allows callers to add custom GPU-resident forces before integration
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
+			ApplyExternalForces(dt, time_s);
 		}
 
 		// Integrate -> Updates dynamics, generates AABBs, debug data
@@ -336,6 +342,25 @@ namespace pr::physics
 	{
 		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics);
 		m_gpu_sleep_manager->Upload(m_gpu->m_job, m_cache->m_sleep_islands);
+	}
+
+	// Apply user-supplied GPU forces before integration.
+	void Engine::ApplyExternalForces(float dt, double time_s)
+	{
+		if (!ExternalForces)
+			return;
+
+		auto bodies = m_gpu_integrator->Bodies();
+		auto args = ExternalForceArgs{
+			.m_job = m_gpu->m_job,
+			.m_bodies = bodies.get(),
+			.m_body_count = m_cache->RigidBodyCount(),
+			.m_dt = dt,
+			.m_time_s = time_s,
+			.m_substep_index = 0,
+			.m_substep_count = 1,
+		};
+		ExternalForces(*this, args);
 	}
 
 	// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
