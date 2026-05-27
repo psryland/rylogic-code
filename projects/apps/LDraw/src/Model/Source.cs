@@ -169,6 +169,18 @@ namespace LDraw
 			PopulateScenes(show && reset_view);
 			NotifyPropertyChanged(nameof(SelectedScenes));
 		}
+
+		/// <summary>Update selected-scene membership after a scene has been renamed</summary>
+		public void RenameSceneMembership(string old_name, string new_name)
+		{
+			var selected_name = m_selected_scene_names.FirstOrDefault(x => string.Equals(x, old_name, StringComparison.OrdinalIgnoreCase));
+			if (selected_name == null)
+				return;
+
+			m_selected_scene_names.Remove(selected_name);
+			m_selected_scene_names.Add(new_name);
+			NotifyPropertyChanged(nameof(SelectedScenes));
+		}
 		private HashSet<string> m_selected_scene_names = [];
 
 		/// <summary>Add objects from this source to all selected scenes</summary>

@@ -120,6 +120,35 @@ public sealed class LDrawSourceSummary
 	public List<string> SelectedScenes { get; set; } = [];
 }
 
+/// <summary>Read-only list of LDraw sources hosted by an instance</summary>
+public sealed class LDrawSourceList
+{
+	/// <summary>The sources returned by the query</summary>
+	public List<LDrawSourceSummary> Sources { get; set; } = [];
+
+	/// <summary>The number of sources returned</summary>
+	public int Count
+	{
+		get { return Sources.Count; }
+	}
+}
+
+/// <summary>Result from a source lifecycle or scene-membership command</summary>
+public sealed class LDrawSourceMutationResult
+{
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The primary source affected by the operation, when there is one</summary>
+	public LDrawSourceSummary? Source { get; set; }
+
+	/// <summary>The affected sources after the operation</summary>
+	public List<LDrawSourceSummary> Sources { get; set; } = [];
+
+	/// <summary>The scenes after the operation</summary>
+	public List<LDrawSceneInfo> Scenes { get; set; } = [];
+}
+
 /// <summary>Read-only summary of an LDraw scene</summary>
 public sealed class LDrawSceneInfo
 {
@@ -356,6 +385,30 @@ public sealed class LDrawObjectInfo
 
 	/// <summary>Object-to-parent transform matrix in column-major order</summary>
 	public double[] ObjectToParent { get; set; } = [];
+
+	/// <summary>Object-to-world transform matrix in column-major order</summary>
+	public double[] ObjectToWorld { get; set; } = [];
+
+	/// <summary>Current object reflectivity</summary>
+	public double Reflectivity { get; set; }
+
+	/// <summary>True if this object renders in wireframe mode</summary>
+	public bool Wireframe { get; set; }
+
+	/// <summary>True if this object renders normal vectors</summary>
+	public bool ShowNormals { get; set; }
+
+	/// <summary>Object render sort group name</summary>
+	public string SortGroup { get; set; } = string.Empty;
+
+	/// <summary>Object LDraw flags</summary>
+	public string Flags { get; set; } = string.Empty;
+
+	/// <summary>First nugget render flags</summary>
+	public string NuggetFlags { get; set; } = string.Empty;
+
+	/// <summary>First nugget tint colour as AARRGGBB hex</summary>
+	public string NuggetTint { get; set; } = string.Empty;
 }
 
 /// <summary>Object-list result returned through MCP</summary>
@@ -375,6 +428,43 @@ public sealed class LDrawObjectList
 	{
 		get { return Objects.Count; }
 	}
+}
+
+/// <summary>Hit-test result returned through MCP</summary>
+public sealed class LDrawHitTestInfo
+{
+	/// <summary>The scene that was hit tested</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>True if the ray hit an object</summary>
+	public bool IsHit { get; set; }
+
+	/// <summary>The cast ray origin in world space</summary>
+	public LDrawVector3 RayOrigin { get; set; } = new();
+
+	/// <summary>The cast ray direction in world space</summary>
+	public LDrawVector3 RayDirection { get; set; } = new();
+
+	/// <summary>The hit point in world space, or zero when no object was hit</summary>
+	public LDrawVector3 Intercept { get; set; } = new();
+
+	/// <summary>The hit normal in world space, or zero when no object was hit</summary>
+	public LDrawVector3 Normal { get; set; } = new();
+
+	/// <summary>Distance from RayOrigin to Intercept</summary>
+	public double Distance { get; set; }
+
+	/// <summary>Snap type applied to the hit point</summary>
+	public string SnapType { get; set; } = string.Empty;
+
+	/// <summary>The native ray index</summary>
+	public int RayIndex { get; set; }
+
+	/// <summary>The native ray id</summary>
+	public int RayId { get; set; }
+
+	/// <summary>The object hit by the ray, when IsHit is true</summary>
+	public LDrawObjectInfo? Object { get; set; }
 }
 
 /// <summary>One transient overlay owned by the MCP module</summary>
@@ -537,6 +627,9 @@ public sealed class LDrawViewSettingsInfo
 
 	/// <summary>True if ray tracing is enabled for this scene</summary>
 	public bool RayTracingEnabled { get; set; }
+
+	/// <summary>World-space range used when casting shadows; zero disables shadow casting</summary>
+	public double ShadowCastRange { get; set; }
 }
 
 /// <summary>Diagnostic and rendering modes for a scene</summary>
@@ -569,6 +662,215 @@ public sealed class LDrawViewMutationResult
 
 	/// <summary>The resulting view settings</summary>
 	public LDrawViewSettingsInfo ViewSettings { get; set; } = new();
+}
+
+/// <summary>Scene capture result returned through MCP</summary>
+public sealed class LDrawSceneCaptureResult
+{
+	/// <summary>The scene that was captured</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The image file written by the command</summary>
+	public string OutputPath { get; set; } = string.Empty;
+
+	/// <summary>The captured image format inferred from the extension</summary>
+	public string Format { get; set; } = string.Empty;
+
+	/// <summary>Captured image width in pixels</summary>
+	public int Width { get; set; }
+
+	/// <summary>Captured image height in pixels</summary>
+	public int Height { get; set; }
+
+	/// <summary>Number of bytes written to OutputPath</summary>
+	public long ByteCount { get; set; }
+}
+
+/// <summary>Chart display options for a scene</summary>
+public sealed class LDrawChartDisplayOptionsInfo
+{
+	/// <summary>The scene whose chart display options were queried</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>True if chart axes are visible</summary>
+	public bool ShowAxes { get; set; }
+
+	/// <summary>True if X or Y grid lines are visible</summary>
+	public bool ShowGridLines { get; set; }
+
+	/// <summary>True if X-axis tick marks are drawn</summary>
+	public bool XDrawTickMarks { get; set; }
+
+	/// <summary>True if Y-axis tick marks are drawn</summary>
+	public bool YDrawTickMarks { get; set; }
+
+	/// <summary>True if X-axis tick labels are drawn</summary>
+	public bool XDrawTickLabels { get; set; }
+
+	/// <summary>True if Y-axis tick labels are drawn</summary>
+	public bool YDrawTickLabels { get; set; }
+
+	/// <summary>X-axis preferred spacing between ticks in pixels</summary>
+	public double XPixelsPerTick { get; set; }
+
+	/// <summary>Y-axis preferred spacing between ticks in pixels</summary>
+	public double YPixelsPerTick { get; set; }
+
+	/// <summary>X-axis line colour as AARRGGBB hex</summary>
+	public string XAxisColour { get; set; } = string.Empty;
+
+	/// <summary>Y-axis line colour as AARRGGBB hex</summary>
+	public string YAxisColour { get; set; } = string.Empty;
+
+	/// <summary>X-axis tick label colour as AARRGGBB hex</summary>
+	public string XTickColour { get; set; } = string.Empty;
+
+	/// <summary>Y-axis tick label colour as AARRGGBB hex</summary>
+	public string YTickColour { get; set; } = string.Empty;
+}
+
+/// <summary>Result from a chart display option mutation command</summary>
+public sealed class LDrawChartDisplayOptionsResult
+{
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The resulting display options</summary>
+	public LDrawChartDisplayOptionsInfo Options { get; set; } = new();
+}
+
+/// <summary>Read-only animation state for a scene</summary>
+public sealed class LDrawAnimationInfo
+{
+	/// <summary>The scene whose animation state was queried</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The current animation clock value in seconds</summary>
+	public double TimeS { get; set; }
+
+	/// <summary>True while the scene animation clock is running</summary>
+	public bool Animating { get; set; }
+
+	/// <summary>Animation commands accepted by ldraw_control_animation</summary>
+	public List<string> AvailableCommands { get; set; } = [];
+}
+
+/// <summary>Result from changing scene animation state</summary>
+public sealed class LDrawAnimationResult
+{
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The resulting animation state</summary>
+	public LDrawAnimationInfo Animation { get; set; } = new();
+}
+
+/// <summary>One named view preset accepted by the view-preset command</summary>
+public sealed class LDrawViewPresetInfo
+{
+	/// <summary>The preset name</summary>
+	public string Name { get; set; } = string.Empty;
+
+	/// <summary>True when this preset is the scene's current named preset</summary>
+	public bool IsCurrent { get; set; }
+}
+
+/// <summary>Read-only list of view presets for a scene</summary>
+public sealed class LDrawViewPresetList
+{
+	/// <summary>The scene whose view presets were queried</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The scene's current named view preset</summary>
+	public string Current { get; set; } = string.Empty;
+
+	/// <summary>The presets accepted by ldraw_set_view_preset</summary>
+	public List<LDrawViewPresetInfo> Presets { get; set; } = [];
+
+	/// <summary>The number of presets returned</summary>
+	public int Count
+	{
+		get { return Presets.Count; }
+	}
+}
+
+/// <summary>One saved camera view for a scene</summary>
+public sealed class LDrawSavedViewInfo
+{
+	/// <summary>The saved view name</summary>
+	public string Name { get; set; } = string.Empty;
+
+	/// <summary>Distance from the camera to the focus point</summary>
+	public double FocusDistance { get; set; }
+
+	/// <summary>The saved camera align axis in world space</summary>
+	public LDrawVector3 AlignAxis { get; set; } = new();
+
+	/// <summary>Horizontal and vertical field-of-view in radians</summary>
+	public LDrawVector3 Fov { get; set; } = new();
+
+	/// <summary>True when the saved view uses orthographic projection</summary>
+	public bool Orthographic { get; set; }
+
+	/// <summary>The saved camera-to-world matrix in column-major order</summary>
+	public double[] CameraToWorld { get; set; } = [];
+}
+
+/// <summary>Read-only saved-view list for a scene</summary>
+public sealed class LDrawSavedViewList
+{
+	/// <summary>The scene whose saved views were queried</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The currently selected saved view name, when one is selected</summary>
+	public string CurrentName { get; set; } = string.Empty;
+
+	/// <summary>The saved views in the scene</summary>
+	public List<LDrawSavedViewInfo> Views { get; set; } = [];
+
+	/// <summary>The number of saved views returned</summary>
+	public int Count
+	{
+		get { return Views.Count; }
+	}
+}
+
+/// <summary>Result from saving, applying, or removing a saved view</summary>
+public sealed class LDrawSavedViewResult
+{
+	/// <summary>The scene whose saved views changed</summary>
+	public string SceneName { get; set; } = string.Empty;
+
+	/// <summary>The operation that was performed</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The affected saved view, when one remains after the operation</summary>
+	public LDrawSavedViewInfo? View { get; set; }
+
+	/// <summary>The saved views after the operation</summary>
+	public List<LDrawSavedViewInfo> Views { get; set; } = [];
+
+	/// <summary>The resulting camera state for the scene</summary>
+	public LDrawCameraInfo Camera { get; set; } = new();
+}
+
+/// <summary>Runtime streaming state for the View3D engine</summary>
+public sealed class LDrawStreamingInfo
+{
+	/// <summary>The operation that produced this state</summary>
+	public string Action { get; set; } = string.Empty;
+
+	/// <summary>The current native streaming state</summary>
+	public string State { get; set; } = string.Empty;
+
+	/// <summary>True when streaming is listening or connected</summary>
+	public bool IsActive { get; set; }
+
+	/// <summary>The port currently requested for streaming while active, when known</summary>
+	public int? Port { get; set; }
+
+	/// <summary>The default port from the current LDraw profile</summary>
+	public int DefaultPort { get; set; }
 }
 
 /// <summary>Result from an object state mutation command</summary>
@@ -732,11 +1034,107 @@ internal sealed class LDrawListScenesParams
 	public string? SceneName { get; set; }
 }
 
+/// <summary>Parameters for source-list requests</summary>
+internal sealed class LDrawListSourcesParams
+{
+	/// <summary>Optional scene filter</summary>
+	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for loading file-backed sources</summary>
+internal sealed class LDrawLoadSourceParams
+{
+	/// <summary>The LDraw script file to load</summary>
+	public string? FilePath { get; set; }
+
+	/// <summary>Scenes to show the source in, or the first scene when empty</summary>
+	public List<string> SceneNames { get; set; } = [];
+
+	/// <summary>True to show the source in every current scene</summary>
+	public bool AllScenes { get; set; }
+}
+
+/// <summary>Parameters for source lifecycle requests</summary>
+internal class LDrawSourceParams
+{
+	/// <summary>Source context ids, display names, or file paths to target</summary>
+	public List<string> SourceIds { get; set; } = [];
+
+	/// <summary>True to target every current user source</summary>
+	public bool AllSources { get; set; }
+}
+
+/// <summary>Parameters for user-source scene membership requests</summary>
+internal sealed class LDrawSetSourceScenesParams : LDrawSourceParams
+{
+	/// <summary>Membership operation: replace, add, remove, or clear</summary>
+	public string Mode { get; set; } = "replace";
+
+	/// <summary>Scenes whose user-source membership is modified, or the first scene when empty</summary>
+	public List<string> SceneNames { get; set; } = [];
+
+	/// <summary>True to target every current scene</summary>
+	public bool AllScenes { get; set; }
+
+	/// <summary>True to frame each scene after adding source objects</summary>
+	public bool ResetView { get; set; }
+}
+
 /// <summary>Parameters for view-settings requests</summary>
 internal sealed class LDrawViewSettingsParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for animation-state requests</summary>
+internal class LDrawAnimationParams
+{
+	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for animation-control requests</summary>
+internal sealed class LDrawAnimationControlParams : LDrawAnimationParams
+{
+	/// <summary>Animation command: reset, play, stop, or step</summary>
+	public string? Command { get; set; }
+
+	/// <summary>Animation command time value in seconds</summary>
+	public double? TimeS { get; set; }
+}
+
+/// <summary>Parameters for view-preset requests</summary>
+internal sealed class LDrawViewPresetParams
+{
+	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Named view preset to apply</summary>
+	public string? ViewPreset { get; set; }
+}
+
+/// <summary>Parameters for saved-view requests</summary>
+internal sealed class LDrawSavedViewParams
+{
+	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Saved view name</summary>
+	public string? Name { get; set; }
+
+	/// <summary>True to replace an existing saved view with the same name</summary>
+	public bool Replace { get; set; }
+}
+
+/// <summary>Parameters for streaming control requests</summary>
+internal sealed class LDrawStreamingControlParams
+{
+	/// <summary>True to enable streaming, false to disable it</summary>
+	public bool Enable { get; set; }
+
+	/// <summary>Optional runtime streaming port. Omit to use the current profile default.</summary>
+	public int? Port { get; set; }
 }
 
 /// <summary>Parameters for projection mutation requests</summary>
@@ -832,6 +1230,22 @@ internal sealed class LDrawSetDiagnosticModesParams : LDrawDiagnosticModesParams
 	public bool? ObjectInfoEnabled { get; set; }
 }
 
+/// <summary>Parameters for render-setting mutation requests</summary>
+internal sealed class LDrawSetRenderSettingsParams
+{
+	/// <summary>The scene to modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>True to enable multi-sample anti-aliasing for the scene view</summary>
+	public bool? Antialiasing { get; set; }
+
+	/// <summary>World-space range used when casting shadows; zero disables shadow casting</summary>
+	public double? ShadowCastRange { get; set; }
+
+	/// <summary>True to enable ray tracing when available</summary>
+	public bool? RayTracingEnabled { get; set; }
+}
+
 /// <summary>Parameters for scene creation requests</summary>
 internal sealed class LDrawCreateSceneParams
 {
@@ -856,6 +1270,16 @@ internal sealed class LDrawSceneParams
 {
 	/// <summary>The scene to mutate</summary>
 	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for scene rename requests</summary>
+internal sealed class LDrawRenameSceneParams
+{
+	/// <summary>The scene to rename</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>The new unique scene name</summary>
+	public string? NewSceneName { get; set; }
 }
 
 /// <summary>Parameters for MCP overlay source membership requests</summary>
@@ -989,6 +1413,151 @@ internal sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
 
 	/// <summary>Line width in pixels</summary>
 	public double LineWidth { get; set; } = 2.0;
+}
+
+/// <summary>Parameters for object transform read commands</summary>
+internal sealed class LDrawGetObjectTransformParams : LDrawObjectQueryParams
+{
+}
+
+/// <summary>Parameters for object transform mutation commands</summary>
+internal sealed class LDrawSetObjectTransformParams : LDrawObjectQueryParams
+{
+	/// <summary>Transform space: parent or world</summary>
+	public string Space { get; set; } = "parent";
+
+	/// <summary>Optional replacement matrix in column-major order</summary>
+	public double[]? Matrix { get; set; }
+
+	/// <summary>Optional replacement X position in the selected transform space</summary>
+	public double? PositionX { get; set; }
+
+	/// <summary>Optional replacement Y position in the selected transform space</summary>
+	public double? PositionY { get; set; }
+
+	/// <summary>Optional replacement Z position in the selected transform space</summary>
+	public double? PositionZ { get; set; }
+
+	/// <summary>Optional X translation delta in the selected transform space</summary>
+	public double? DeltaX { get; set; }
+
+	/// <summary>Optional Y translation delta in the selected transform space</summary>
+	public double? DeltaY { get; set; }
+
+	/// <summary>Optional Z translation delta in the selected transform space</summary>
+	public double? DeltaZ { get; set; }
+}
+
+/// <summary>Parameters for object render-state read commands</summary>
+internal sealed class LDrawGetObjectRenderStateParams : LDrawObjectQueryParams
+{
+}
+
+/// <summary>Parameters for object render-state mutation commands</summary>
+internal sealed class LDrawSetObjectRenderStateParams : LDrawObjectQueryParams
+{
+	/// <summary>Optional visibility state</summary>
+	public bool? VisibleState { get; set; }
+
+	/// <summary>Optional wireframe state</summary>
+	public bool? Wireframe { get; set; }
+
+	/// <summary>Optional per-object normal display state</summary>
+	public bool? ShowNormals { get; set; }
+
+	/// <summary>Optional object reflectivity value</summary>
+	public double? Reflectivity { get; set; }
+
+	/// <summary>Optional View3D sort group name</summary>
+	public string? SortGroup { get; set; }
+
+	/// <summary>Optional first-nugget tint colour</summary>
+	public string? NuggetTint { get; set; }
+
+	/// <summary>Optional object scene-bounds exclusion flag</summary>
+	public bool? SceneBoundsExcluded { get; set; }
+
+	/// <summary>Optional object hit-test exclusion flag</summary>
+	public bool? HitTestExcluded { get; set; }
+
+	/// <summary>Optional object shadow-cast exclusion flag</summary>
+	public bool? ShadowCastExcluded { get; set; }
+
+	/// <summary>Optional object no-depth-test flag</summary>
+	public bool? NoZTest { get; set; }
+
+	/// <summary>Optional object no-depth-write flag</summary>
+	public bool? NoZWrite { get; set; }
+
+	/// <summary>Optional first-nugget hidden flag</summary>
+	public bool? NuggetHidden { get; set; }
+
+	/// <summary>Optional first-nugget alpha-blend flag</summary>
+	public bool? NuggetAlphaBlend { get; set; }
+
+	/// <summary>True to apply recursive state setters to matched object children</summary>
+	public bool Recursive { get; set; } = true;
+}
+
+/// <summary>Parameters for scene hit-test commands</summary>
+internal sealed class LDrawHitTestParams : LDrawObjectQueryParams
+{
+	/// <summary>Screen-space X coordinate relative to the scene viewport</summary>
+	public double? X { get; set; }
+
+	/// <summary>Screen-space Y coordinate relative to the scene viewport</summary>
+	public double? Y { get; set; }
+
+	/// <summary>Snap mode: NoSnap, Verts, Edges, Faces, All, AllPerspective, or a flags combination</summary>
+	public string? SnapMode { get; set; }
+
+	/// <summary>Snap distance in screen-space pixels</summary>
+	public double SnapDistance { get; set; }
+}
+
+/// <summary>Parameters for scene capture commands</summary>
+internal sealed class LDrawCaptureSceneParams
+{
+	/// <summary>The scene to capture, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+
+	/// <summary>Output image file path. The extension selects png, jpg, or bmp.</summary>
+	public string? OutputPath { get; set; }
+
+	/// <summary>True to overwrite an existing output file</summary>
+	public bool Overwrite { get; set; }
+}
+
+/// <summary>Parameters for chart display option requests</summary>
+internal class LDrawChartDisplayOptionsParams
+{
+	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
+	public string? SceneName { get; set; }
+}
+
+/// <summary>Parameters for chart display option mutation requests</summary>
+internal sealed class LDrawSetChartDisplayOptionsParams : LDrawChartDisplayOptionsParams
+{
+	/// <summary>Show or hide chart axes</summary>
+	public bool? ShowAxes { get; set; }
+
+	/// <summary>Show or hide X and Y grid lines</summary>
+	public bool? ShowGridLines { get; set; }
+
+	/// <summary>Show or hide X and Y tick marks</summary>
+	public bool? DrawTickMarks { get; set; }
+
+	/// <summary>Show or hide X and Y tick labels</summary>
+	public bool? DrawTickLabels { get; set; }
+
+	/// <summary>Preferred X and Y tick spacing in pixels</summary>
+	public double? PixelsPerTick { get; set; }
+
+	/// <summary>Axis line colour applied to both axes</summary>
+	public string? AxisColour { get; set; }
+
+	/// <summary>Tick text colour applied to both axes</summary>
+	public string? TickColour { get; set; }
 }
 
 /// <summary>Parameters for chart creation requests</summary>
@@ -1221,14 +1790,32 @@ internal static class InstancePipeCommands
 	public const string CreateScene = "create_scene";
 	public const string CloseScene = "close_scene";
 	public const string SwitchScene = "switch_scene";
+	public const string ClearScene = "clear_scene";
+	public const string RenameScene = "rename_scene";
+	public const string ListSources = "list_sources";
+	public const string LoadSource = "load_source";
+	public const string ReloadSource = "reload_source";
+	public const string RemoveSource = "remove_source";
+	public const string SetSourceScenes = "set_source_scenes";
 	public const string SetSceneSources = "set_scene_sources";
 	public const string GetViewSettings = "get_view_settings";
+	public const string GetAnimation = "get_animation";
+	public const string ControlAnimation = "control_animation";
+	public const string ListViewPresets = "list_view_presets";
+	public const string SetViewPreset = "set_view_preset";
+	public const string ListSavedViews = "list_saved_views";
+	public const string SaveView = "save_view";
+	public const string ApplySavedView = "apply_saved_view";
+	public const string RemoveSavedView = "remove_saved_view";
+	public const string GetStreamingState = "get_streaming_state";
+	public const string SetStreamingState = "set_streaming_state";
 	public const string SetProjection = "set_projection";
 	public const string SetBackgroundColour = "set_background_colour";
 	public const string SetCameraAlignAxis = "set_camera_align_axis";
 	public const string SetAxisRanges = "set_axis_ranges";
 	public const string GetDiagnosticModes = "get_diagnostic_modes";
 	public const string SetDiagnosticModes = "set_diagnostic_modes";
+	public const string SetRenderSettings = "set_render_settings";
 	public const string ListObjects = "list_objects";
 	public const string GetCamera = "get_camera";
 	public const string SetCamera = "set_camera";
@@ -1237,12 +1824,20 @@ internal static class InstancePipeCommands
 	public const string SelectObjects = "select_objects";
 	public const string SetObjectVisibility = "set_object_visibility";
 	public const string SetObjectColour = "set_object_colour";
+	public const string GetObjectTransform = "get_object_transform";
+	public const string SetObjectTransform = "set_object_transform";
+	public const string GetObjectRenderState = "get_object_render_state";
+	public const string SetObjectRenderState = "set_object_render_state";
+	public const string HitTest = "hit_test";
 	public const string ShowNormals = "show_normals";
 	public const string ShowObjectBounds = "show_object_bounds";
 	public const string GetSelection = "get_selection";
 	public const string FrameObject = "frame_object";
 	public const string FrameSelection = "frame_selection";
 	public const string FrameBounds = "frame_bounds";
+	public const string CaptureScene = "capture_scene";
+	public const string GetChartDisplayOptions = "get_chart_display_options";
+	public const string SetChartDisplayOptions = "set_chart_display_options";
 	public const string ChartCreate = "chart_create";
 	public const string ChartUpdateData = "chart_update_data";
 	public const string ChartAddSeries = "chart_add_series";
