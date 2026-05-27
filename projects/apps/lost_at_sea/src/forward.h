@@ -16,6 +16,7 @@
 #include <thread>
 #include <functional>
 #include <stdexcept>
+#include <exception>
 #include <utility>
 #include <filesystem>
 #include <variant>

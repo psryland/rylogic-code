@@ -273,30 +273,41 @@ namespace las
 		}
 	}
 
-	// Wait for pending GPU physics work and publish immutable snapshots.
-	void PhysicsSystem::CompleteStep()
+	// Wait for pending GPU physics work and publish immutable snapshots, returning an exception on failure.
+	[[nodiscard]] std::exception_ptr PhysicsSystem::CompleteStep() noexcept
 	{
-		CheckOwnerThread();
-		if (!m_step_pending)
+		try
 		{
-			throw std::runtime_error("PhysicsSystem::CompleteStep called without a pending step");
-		}
+			CheckOwnerThread();
+			if (!m_step_pending)
+			{
+				throw std::runtime_error("PhysicsSystem::CompleteStep called without a pending step");
+			}
 
-		if (m_engine_step_pending)
+			if (m_engine_step_pending)
+			{
+				m_engine.CompleteStep();
+				m_engine_step_pending = false;
+			}
+
+			PublishSnapshots();
+			m_step_pending = false;
+			return {};
+		}
+		catch (...)
 		{
-			m_engine.CompleteStep();
-			m_engine_step_pending = false;
+			return std::current_exception();
 		}
-
-		PublishSnapshots();
-		m_step_pending = false;
 	}
 
 	// Step all registered rigid bodies synchronously.
 	void PhysicsSystem::Step(float dt, double time_s)
 	{
 		BeginStep(dt, time_s);
-		CompleteStep();
+		if (auto ex = CompleteStep())
+		{
+			std::rethrow_exception(ex);
+		}
 	}
 
 	// Set the world-space gravity applied to registered bodies before each step.

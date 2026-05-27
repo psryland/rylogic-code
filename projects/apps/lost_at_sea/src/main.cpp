@@ -117,7 +117,7 @@ namespace las
 		auto dt = static_cast<float>(elapsed_seconds);
 
 		// BeginStep records and submits the GPU physics work on the simulation owner thread. Generic task-graph work can run while the GPU is
-		// processing, but it must not touch mutable physics bodies until CompleteStep publishes the post-step snapshots.
+		// processing, but tasks that need post-physics snapshots must wait for StepTaskId::Physics.
 		m_physics.BeginStep(dt, m_sim_time);
 
 		// Finalise task: commit state snapshot for the render graph
@@ -134,10 +134,24 @@ namespace las
 			co_return;
 		});
 
-		m_step_graph.Run();
+		// Start the task graph for this step.
+		m_step_graph.Start();
+
+		// CompleteStep mutates the authoritative physics bodies and publishes snapshots, so keep it on the simulation owner thread.
+		// Signal the graph afterwards, even on failure, so any task waiting on physics can drain before the exception leaves this frame.
+		auto physics_error = m_physics.CompleteStep();
+		m_step_graph.Signal(StepTaskId::Physics);
+
+		// Wait for the step graph to complete
+		auto graph_error = m_step_graph.Wait();
 		m_step_graph.Reset();
 
-		m_physics.CompleteStep();
+		// Rethrow any exceptions from physics or the step graph after the graph has completed and signalled
+		if (physics_error)
+			std::rethrow_exception(physics_error);
+		if (graph_error)
+			std::rethrow_exception(graph_error);
+
 		RenderNeeded();
 	}
 

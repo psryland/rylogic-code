@@ -93,8 +93,8 @@ namespace las
 		// Submit GPU physics work for all registered rigid bodies without waiting for completion.
 		void BeginStep(float dt, double time_s);
 
-		// Wait for pending GPU physics work and publish immutable snapshots.
-		void CompleteStep();
+		// Wait for pending GPU physics work and publish immutable snapshots, returning an exception on failure.
+		[[nodiscard]] std::exception_ptr CompleteStep() noexcept;
 
 		// Step all registered rigid bodies synchronously.
 		void Step(float dt, double time_s);

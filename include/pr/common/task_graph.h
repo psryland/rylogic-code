@@ -58,7 +58,9 @@ namespace pr::task_graph
 			: m_queue()
 			, m_mutex()
 			, m_cv_work()
+			, m_cv_idle()
 			, m_threads()
+			, m_active()
 			, m_shutdown(false)
 		{
 			if (thread_count <= 0)
@@ -82,8 +84,15 @@ namespace pr::task_graph
 
 							job = m_queue.front();
 							m_queue.pop_front();
+							++m_active;
 						}
 						job.resume();
+						{
+							auto lock = std::unique_lock(m_mutex);
+							--m_active;
+							if (m_queue.empty() && m_active == 0)
+								m_cv_idle.notify_all();
+						}
 					}
 				});
 			}
@@ -114,6 +123,13 @@ namespace pr::task_graph
 			m_cv_work.notify_one();
 		}
 
+		// Wait until every queued or running coroutine resume has returned to the worker pool.
+		void WaitIdle()
+		{
+			auto lock = std::unique_lock(m_mutex);
+			m_cv_idle.wait(lock, [this] { return m_queue.empty() && m_active == 0; });
+		}
+
 		// Get the number of worker threads
 		int ThreadCount() const
 		{
@@ -125,7 +141,9 @@ namespace pr::task_graph
 		std::deque<std::coroutine_handle<>> m_queue;
 		std::mutex m_mutex;
 		std::condition_variable m_cv_work;
+		std::condition_variable m_cv_idle;
 		std::vector<std::thread> m_threads;
+		int m_active;
 		bool m_shutdown;
 	};
 
@@ -388,6 +406,7 @@ namespace pr::task_graph
 			, m_mutex()
 			, m_cv_done()
 			, m_exceptions()
+			, m_started()
 		{}
 		Graph(Graph const&) = delete;
 		Graph& operator =(Graph const&) = delete;
@@ -396,6 +415,9 @@ namespace pr::task_graph
 		template <typename Fn>
 		void Add(TaskId id, Fn&& fn)
 		{
+			if (m_started)
+				throw std::runtime_error("Graph::Add called after Graph::Start");
+
 			// Pin the callable on the heap so it outlives the coroutine.
 			auto pinned = std::make_shared<std::decay_t<Fn>>(std::forward<Fn>(fn));
 
@@ -420,37 +442,79 @@ namespace pr::task_graph
 			m_tasks.push_back(std::move(task));
 		}
 
+		// Start running all currently-added tasks without waiting for them to complete.
+		void Start()
+		{
+			if (m_started)
+				throw std::runtime_error("Graph::Start called while the graph is already running");
+
+			m_started = true;
+			m_pending.store(static_cast<int>(m_tasks.size()), std::memory_order_release);
+
+			// Schedule all tasks onto the worker pool
+			for (auto& task : m_tasks)
+				m_pool.Enqueue(task.m_handle);
+		}
+
+		// Wait for all started tasks to complete and return the first captured exception, or null on success.
+		[[nodiscard]] std::exception_ptr Wait() noexcept
+		{
+			try
+			{
+				if (!m_started)
+					throw std::runtime_error("Graph::Wait called before Graph::Start");
+
+				// Block until all tasks have completed
+				{
+					auto lock = std::unique_lock(m_mutex);
+					m_cv_done.wait(lock, [this] { return m_pending.load(std::memory_order_acquire) == 0; });
+				}
+
+				// Ensure the worker thread has returned from the final coroutine resume before Reset() can destroy completed coroutine frames.
+				m_pool.WaitIdle();
+
+				// Return the first captured exception after draining the graph so callers can cleanly reset or signal follow-on work before rethrowing.
+				if (!m_exceptions.empty())
+				{
+					auto ex = m_exceptions.front();
+					m_exceptions.clear();
+					return ex;
+				}
+
+				return {};
+			}
+			catch (...)
+			{
+				return std::current_exception();
+			}
+		}
+
 		// Run all tasks to completion. Blocks until done.
 		void Run()
 		{
 			if (m_tasks.empty())
 				return;
 
-			m_pending.store(static_cast<int>(m_tasks.size()), std::memory_order_release);
-
-			// Schedule all tasks onto the worker pool
-			for (auto& task : m_tasks)
-				m_pool.Enqueue(task.m_handle);
-
-			// Block until all tasks have completed
-			{
-				auto lock = std::unique_lock(m_mutex);
-				m_cv_done.wait(lock, [this] { return m_pending.load(std::memory_order_acquire) == 0; });
-			}
-
-			// Propagate the first captured exception
-			if (!m_exceptions.empty())
-			{
-				auto ex = m_exceptions.front();
-				m_exceptions.clear();
+			Start();
+			if (auto ex = Wait())
 				std::rethrow_exception(ex);
-			}
+		}
+
+		// Raise a graph signal from outside a task.
+		void Signal(TaskId id)
+		{
+			GetSignal(id).Raise(m_pool);
 		}
 
 		// Reset the graph for reuse (e.g. next frame).
 		// Clears signal state and removes completed tasks.
 		void Reset()
 		{
+			if (m_started && m_pending.load(std::memory_order_acquire) != 0)
+				throw std::runtime_error("Graph::Reset called while tasks are pending");
+
+			m_pool.WaitIdle();
+
 			// Destroy completed task coroutines
 			m_tasks.clear();
 
@@ -460,6 +524,7 @@ namespace pr::task_graph
 
 			m_pending.store(0, std::memory_order_release);
 			m_exceptions.clear();
+			m_started = false;
 		}
 
 		// Access the signal state for a given ID
@@ -502,6 +567,7 @@ namespace pr::task_graph
 		std::mutex m_mutex;
 		std::condition_variable m_cv_done;
 		std::vector<std::exception_ptr> m_exceptions;
+		bool m_started;
 	};
 }
 
@@ -515,6 +581,7 @@ namespace pr::task_graph::unittests
 	{
 		A, B, C, D, E, F, G, H,
 		PhaseOne, // for mid-task signal test
+		External, // for external signal tests
 		Count,
 	};
 
@@ -632,6 +699,79 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(final_value == 20);
 	}
 
+	PRUnitTest(TaskGraphStartWait)
+	{
+		// Start and Wait allow callers to run owner-thread work while graph tasks are in flight.
+		std::atomic<int> sum = 0;
+
+		Graph<TestId> graph(2);
+		graph.Add(TestId::A, [&](auto&) -> Task
+		{
+			sum += 1;
+			co_return;
+		});
+		graph.Add(TestId::B, [&](auto&) -> Task
+		{
+			sum += 2;
+			co_return;
+		});
+
+		graph.Start();
+		PR_EXPECT(!graph.Wait());
+
+		PR_EXPECT(sum == 3);
+	}
+
+	PRUnitTest(TaskGraphStartWaitNoTasks)
+	{
+		// Empty graph cycles are valid for callers that build task lists conditionally.
+		Graph<TestId> graph(2);
+
+		graph.Start();
+		PR_EXPECT(!graph.Wait());
+		graph.Reset();
+	}
+
+	PRUnitTest(TaskGraphExternalSignalAfterStart)
+	{
+		// External signals release tasks that are waiting for work completed outside the worker pool.
+		std::atomic<int> value = 0;
+
+		Graph<TestId> graph(2);
+		graph.Add(TestId::A, [&](auto ctx) -> Task
+		{
+			co_await ctx.Wait(TestId::External);
+			value.store(1, std::memory_order_release);
+			co_return;
+		});
+
+		graph.Start();
+		graph.Signal(TestId::External);
+		PR_EXPECT(!graph.Wait());
+
+		PR_EXPECT(value.load(std::memory_order_acquire) == 1);
+	}
+
+	PRUnitTest(TaskGraphExternalSignalBeforeStart)
+	{
+		// Signals raised before Start are remembered for tasks that later wait on them in the same graph cycle.
+		std::atomic<int> value = 0;
+
+		Graph<TestId> graph(2);
+		graph.Signal(TestId::External);
+		graph.Add(TestId::A, [&](auto ctx) -> Task
+		{
+			co_await ctx.Wait(TestId::External);
+			value.store(1, std::memory_order_release);
+			co_return;
+		});
+
+		graph.Start();
+		PR_EXPECT(!graph.Wait());
+
+		PR_EXPECT(value.load(std::memory_order_acquire) == 1);
+	}
+
 	PRUnitTest(TaskGraphResetAndRerun)
 	{
 		// Per-frame reuse: run, reset, run again
@@ -669,6 +809,36 @@ namespace pr::task_graph::unittests
 		try
 		{
 			graph.Run();
+		}
+		catch (std::runtime_error const& e)
+		{
+			caught = true;
+			PR_EXPECT(std::string(e.what()) == "task failed");
+		}
+		PR_EXPECT(caught);
+	}
+
+	PRUnitTest(TaskGraphWaitReturnsException)
+	{
+		// Wait() drains the graph and returns task failures so callers can decide when to rethrow.
+		Graph<TestId> graph(2);
+
+		graph.Add(TestId::A, [&](auto&) -> Task {
+			throw std::runtime_error("task failed");
+			co_return;
+		});
+
+		graph.Start();
+		auto ex = graph.Wait();
+
+		bool caught = false;
+		try
+		{
+			PR_EXPECT(ex != nullptr);
+			if (ex)
+			{
+				std::rethrow_exception(ex);
+			}
 		}
 		catch (std::runtime_error const& e)
 		{
