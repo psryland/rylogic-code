@@ -9,6 +9,7 @@ namespace las
 {
 	namespace
 	{
+		static constexpr bool EnableOceanSurfaceForce = false;
 		static constexpr int OceanSurfaceForceThreadCount = 64;
 
 		struct CBufOceanSurfaceForce
@@ -121,11 +122,71 @@ namespace las
 		,m_valid()
 	{}
 
+	// Create an owned buoyancy hull registration.
+	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration(PhysicsSystem& physics, BodyHandle handle)
+		:m_physics(&physics)
+		,m_handle(handle)
+	{
+	}
+
+	// Construct an empty buoyancy hull registration.
+	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration()
+		:m_physics()
+		,m_handle(BodyHandle::Invalid())
+	{
+	}
+
+	// Move a buoyancy hull registration without releasing it.
+	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration(BuoyancyHullRegistration&& rhs) noexcept
+		:m_physics(std::exchange(rhs.m_physics, nullptr))
+		,m_handle(std::exchange(rhs.m_handle, BodyHandle::Invalid()))
+	{
+	}
+
+	// Release the current registration and then take ownership of another one.
+	PhysicsSystem::BuoyancyHullRegistration& PhysicsSystem::BuoyancyHullRegistration::operator=(BuoyancyHullRegistration&& rhs) noexcept
+	{
+		if (this != &rhs)
+		{
+			Reset();
+			m_physics = std::exchange(rhs.m_physics, nullptr);
+			m_handle = std::exchange(rhs.m_handle, BodyHandle::Invalid());
+		}
+		return *this;
+	}
+
+	// Release the buoyancy hull registration when ownership leaves scope.
+	PhysicsSystem::BuoyancyHullRegistration::~BuoyancyHullRegistration()
+	{
+		Reset();
+	}
+
+	// Release the buoyancy hull registration if one is owned.
+	void PhysicsSystem::BuoyancyHullRegistration::Reset() noexcept
+	{
+		auto* physics = std::exchange(m_physics, nullptr);
+		auto handle = std::exchange(m_handle, BodyHandle::Invalid());
+		if (physics != nullptr)
+		{
+			physics->ReleaseBuoyancyHull(handle);
+		}
+	}
+
+	// Return true if this object owns a buoyancy hull registration.
+	bool PhysicsSystem::BuoyancyHullRegistration::IsValid() const
+	{
+		return m_physics != nullptr && m_handle.IsValid();
+	}
+
 	// Construct the LAS physics facade on the simulation owner thread.
 	PhysicsSystem::PhysicsSystem(Renderer& rdr)
 		:m_owner_thread_id(std::this_thread::get_id())
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
-		,m_ocean_surface_force(std::make_unique<OceanSurfaceForce>(rdr.D3DDevice(), m_engine))
+		,m_ocean_surface_force(EnableOceanSurfaceForce ? std::make_unique<OceanSurfaceForce>(rdr.D3DDevice(), m_engine) : nullptr)
+		,m_gpu_buoyancy(std::make_unique<GpuBuoyancy>(rdr.D3DDevice(), m_engine,
+			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
+			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
+		)
 		,m_body_slots()
 		,m_free_slots()
 		,m_step_bodies()
@@ -191,6 +252,7 @@ namespace las
 		}
 
 		auto& slot = Slot(handle);
+		ReleaseBuoyancyHull(handle);
 		slot.m_body.reset();
 		slot.m_shape.reset();
 		slot.m_step_index = -1;
@@ -247,6 +309,50 @@ namespace las
 		return snapshot;
 	}
 
+	// Register a generated box buoyancy hull for a physics body.
+	PhysicsSystem::BuoyancyHullRegistration PhysicsSystem::RegisterBoxBuoyancyHull(BodyHandle handle, v4 size)
+	{
+		CheckOwnerThread();
+		CheckNoStepPending("PhysicsSystem::RegisterBoxBuoyancyHull");
+		Slot(handle);
+
+		m_gpu_buoyancy->RegisterBoxHull(handle.m_index, handle.m_generation, size);
+		return BuoyancyHullRegistration{ *this, handle };
+	}
+
+	// Release a buoyancy hull registration during RAII cleanup.
+	void PhysicsSystem::ReleaseBuoyancyHull(BodyHandle handle) noexcept
+	{
+		if (!handle.IsValid())
+		{
+			return;
+		}
+
+		if (std::this_thread::get_id() != m_owner_thread_id)
+		{
+			PR_ASSERT(PR_DBG, false, "PhysicsSystem buoyancy hull registration released from the wrong thread");
+			std::terminate();
+		}
+		if (m_step_pending)
+		{
+			PR_ASSERT(PR_DBG, false, "PhysicsSystem buoyancy hull registration released while a physics step is pending");
+			std::terminate();
+		}
+
+		m_gpu_buoyancy->UnregisterHull(handle.m_index, handle.m_generation);
+	}
+
+	// Return the latest diagnostic buoyancy result for a physics body.
+	GpuBuoyancy::Diagnostics PhysicsSystem::BuoyancyDiagnostics(BodyHandle handle) const
+	{
+		if (!IsValid(handle))
+		{
+			throw std::runtime_error("Invalid PhysicsSystem body handle");
+		}
+
+		return m_gpu_buoyancy->LatestDiagnostics(handle.m_index, handle.m_generation);
+	}
+
 	// Submit GPU physics work for all registered rigid bodies without waiting for completion.
 	void PhysicsSystem::BeginStep(float dt, double time_s)
 	{
@@ -288,6 +394,7 @@ namespace las
 			{
 				m_engine.CompleteStep();
 				m_engine_step_pending = false;
+				m_gpu_buoyancy->CompleteStep();
 			}
 
 			PublishSnapshots();
@@ -377,6 +484,37 @@ namespace las
 		}
 
 		return m_body_slots[handle.m_index];
+	}
+
+	// Return the compact body index used by the current physics step for a body slot.
+	int PhysicsSystem::BodySlotStepIndex(int body_slot_index) const
+	{
+		CheckOwnerThread();
+		if (body_slot_index < 0 || body_slot_index >= static_cast<int>(m_body_slots.size()))
+		{
+			return -1;
+		}
+
+		auto const& slot = m_body_slots[body_slot_index];
+		return slot.m_body != nullptr ? slot.m_step_index : -1;
+	}
+
+	// Return the live body state used by owner-thread diagnostic systems.
+	GpuBuoyancy::BodyState PhysicsSystem::BodySlotState(int body_slot_index) const
+	{
+		CheckOwnerThread();
+		if (body_slot_index < 0 || body_slot_index >= static_cast<int>(m_body_slots.size()))
+			return GpuBuoyancy::BodyState{};
+
+		auto const& slot = m_body_slots[body_slot_index];
+		if (slot.m_body == nullptr)
+			return GpuBuoyancy::BodyState{};
+
+		auto state = GpuBuoyancy::BodyState{};
+		state.m_o2w = slot.m_body->O2W();
+		state.m_centre_of_mass_os = slot.m_body->CentreOfMassOS();
+		state.m_valid = true;
+		return state;
 	}
 
 	// Rebuild the compact body list submitted to the physics engine.

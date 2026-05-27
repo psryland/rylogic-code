@@ -12,6 +12,8 @@
 #include <span>
 #include <vector>
 #include <memory>
+#include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <thread>
 #include <functional>

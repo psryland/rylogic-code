@@ -8,6 +8,7 @@
 src/shaders/hlsl/types.hlsli                TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/types.hlsli"
 src/shaders/hlsl/forward/forward_cbuf.hlsli TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 src/shaders/hlsl/forward/kbuffer.hlsli      TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
+src/core/physics/gpu_buoyancy.hlsl          TEXT DISCARDABLE "src/core/physics/gpu_buoyancy.hlsl"
 src/core/physics/ocean_surface_force.hlsl   TEXT DISCARDABLE "src/core/physics/ocean_surface_force.hlsl"
 
 #endif

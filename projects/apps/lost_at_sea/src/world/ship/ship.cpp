@@ -11,6 +11,7 @@ namespace las
 	Ship::Ship(Renderer& rdr, PhysicsSystem& physics, v4 location)
 		:m_physics(physics)
 		,m_body_handle(PhysicsSystem::BodyHandle::Invalid())
+		,m_buoyancy_hull()
 		,m_inst()
 	{
 		// Create a simple box model for visualisation
@@ -25,17 +26,31 @@ namespace las
 		m_inst.m_i2w = o2w;
 
 		// The ship is fully registered with the physics system before construction completes.
-		m_body_handle = m_physics.CreateBoxBody(PhysicsSystem::BoxBodyDesc{
-			.m_size = v4{1, 1, 1, 0},
-			.m_o2w = o2w,
-			.m_mass_kg = 100.0f,
-			.m_never_sleep = true,
-		});
+		auto const body_size = v4{1, 1, 1, 0};
+		try
+		{
+			m_body_handle = m_physics.CreateBoxBody(PhysicsSystem::BoxBodyDesc{
+				.m_size = body_size,
+				.m_o2w = o2w,
+				.m_mass_kg = 100.0f,
+				.m_never_sleep = true,
+			});
+			m_buoyancy_hull = m_physics.RegisterBoxBuoyancyHull(m_body_handle, body_size);
+		}
+		catch (...)
+		{
+			if (m_physics.IsValid(m_body_handle))
+			{
+				m_physics.DestroyBody(m_body_handle);
+			}
+			throw;
+		}
 	}
 
 	// Destroy the ship's physics registration while the rigid body is still alive.
 	Ship::~Ship()
 	{
+		m_buoyancy_hull.Reset();
 		if (m_physics.IsValid(m_body_handle))
 		{
 			m_physics.DestroyBody(m_body_handle);

@@ -4,6 +4,7 @@
 //************************************
 #pragma once
 #include "src/forward.h"
+#include "src/core/physics/gpu_buoyancy.h"
 
 namespace las
 {
@@ -38,6 +39,32 @@ namespace las
 			// Construct an invalid body snapshot.
 			BodySnapshot();
 		};
+		struct BuoyancyHullRegistration
+		{
+			friend struct PhysicsSystem;
+
+		private:
+
+			PhysicsSystem* m_physics;
+			BodyHandle m_handle;
+
+			BuoyancyHullRegistration(PhysicsSystem& physics, BodyHandle handle);
+
+		public:
+
+			BuoyancyHullRegistration();
+			BuoyancyHullRegistration(BuoyancyHullRegistration const&) = delete;
+			BuoyancyHullRegistration& operator=(BuoyancyHullRegistration const&) = delete;
+			BuoyancyHullRegistration(BuoyancyHullRegistration&& rhs) noexcept;
+			BuoyancyHullRegistration& operator=(BuoyancyHullRegistration&& rhs) noexcept;
+			~BuoyancyHullRegistration();
+
+			// Release the buoyancy hull registration if one is owned.
+			void Reset() noexcept;
+
+			// Return true if this object owns a buoyancy hull registration.
+			bool IsValid() const;
+		};
 
 	private:
 
@@ -54,6 +81,7 @@ namespace las
 
 		struct OceanSurfaceForce;
 		std::unique_ptr<OceanSurfaceForce> m_ocean_surface_force;
+		std::unique_ptr<GpuBuoyancy> m_gpu_buoyancy;
 
 		std::vector<BodySlot> m_body_slots;
 		std::vector<int> m_free_slots;
@@ -90,6 +118,12 @@ namespace las
 		// Return the latest published snapshot for a physics body.
 		BodySnapshot Snapshot(BodyHandle handle) const;
 
+		// Register a generated box buoyancy hull for a physics body.
+		[[nodiscard]] BuoyancyHullRegistration RegisterBoxBuoyancyHull(BodyHandle handle, v4 size);
+
+		// Return the latest diagnostic buoyancy result for a physics body.
+		GpuBuoyancy::Diagnostics BuoyancyDiagnostics(BodyHandle handle) const;
+
 		// Submit GPU physics work for all registered rigid bodies without waiting for completion.
 		void BeginStep(float dt, double time_s);
 
@@ -119,6 +153,15 @@ namespace las
 		// Return the live body slot for 'handle' on the owner thread.
 		BodySlot& Slot(BodyHandle handle);
 		BodySlot const& Slot(BodyHandle handle) const;
+
+		// Return the compact body index used by the current physics step for a body slot.
+		int BodySlotStepIndex(int body_slot_index) const;
+
+		// Return the live body state used by owner-thread diagnostic systems.
+		GpuBuoyancy::BodyState BodySlotState(int body_slot_index) const;
+
+		// Release a buoyancy hull registration during RAII cleanup.
+		void ReleaseBuoyancyHull(BodyHandle handle) noexcept;
 
 		// Rebuild the compact body list submitted to the physics engine.
 		void BuildStepBodyList();

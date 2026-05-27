@@ -26,6 +26,7 @@ namespace las
 		// Physics registration owned by the ship.
 		PhysicsSystem& m_physics;
 		PhysicsSystem::BodyHandle m_body_handle;
+		PhysicsSystem::BuoyancyHullRegistration m_buoyancy_hull;
 
 		// Graphics
 		Instance m_inst;
