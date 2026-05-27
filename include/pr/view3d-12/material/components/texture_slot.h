@@ -30,6 +30,7 @@ namespace pr::rdr12::materials
 		Texture2DPtr m_texture = {};                                      // Texture used by this slot.
 		SamplerPtr m_sampler = {};                                        // Sampler used by this slot.
 		ETextureColourSpace m_colour_space = ETextureColourSpace::Linear; // How shader sampling should interpret texture values.
+		int m_texcoord = 0;                                               // Texture-coordinate channel used by this slot. 0 means TEXCOORD_0.
 		explicit operator bool() const
 		{
 			return m_texture != nullptr && m_sampler != nullptr;
@@ -43,4 +44,3 @@ namespace pr::rdr12::materials
 		ETextureChannel m_channel = ETextureChannel::Red; // Channel containing the scalar value.
 	};
 }
-

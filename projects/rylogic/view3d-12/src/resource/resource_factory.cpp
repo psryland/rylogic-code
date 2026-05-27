@@ -187,6 +187,52 @@ namespace pr::rdr12
 		vb = vb ? vb : CreateResource(mdesc.m_vb, string32(mdesc.m_name).append("-vbuf"));
 		ib = ib ? ib : CreateResource(mdesc.m_ib, string32(mdesc.m_name).append("-ibuf"));
 
+		// Create any optional vertex streams. They stay parallel to the model vertex buffer but are only bound by shader variants that explicitly opt in.
+		vector<VertexStream> vertex_streams;
+		if (!mdesc.m_vb_streams.empty())
+		{
+			ResourceStore::Access store(rdr());
+			vertex_streams.reserve(mdesc.m_vb_streams.size());
+			for (auto const& stream_desc : mdesc.m_vb_streams)
+			{
+				if (stream_desc.m_semantic == 0)
+					throw std::runtime_error("Model vertex stream has no semantic id");
+				if (stream_desc.m_count != s_cast<int64_t>(mdesc.m_vb.Width))
+					throw std::runtime_error("Model vertex stream count must match the vertex buffer count");
+				if (stream_desc.m_stride <= 0)
+					throw std::runtime_error("Model vertex stream stride must be positive");
+				if (!stream_desc.m_data.empty() && stream_desc.m_data.size() != s_cast<size_t>(stream_desc.m_count * stream_desc.m_stride))
+					throw std::runtime_error("Model vertex stream initialisation data does not match the stream count and stride");
+
+				auto name = stream_desc.m_name.empty()
+					? string32(mdesc.m_name).append("-vstream")
+					: stream_desc.m_name;
+				auto rdesc = ResDesc::Buf(stream_desc.m_count, stream_desc.m_stride, stream_desc.m_data, stream_desc.m_stride)
+					.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+				auto res = CreateResource(rdesc, name);
+				auto srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = DXGI_FORMAT_UNKNOWN,
+					.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.Buffer = {
+						.FirstElement = 0,
+						.NumElements = s_cast<UINT>(stream_desc.m_count),
+						.StructureByteStride = s_cast<UINT>(stream_desc.m_stride),
+						.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+					},
+				};
+
+				vertex_streams.push_back(VertexStream{});
+				auto& stream = vertex_streams.back();
+				stream.m_semantic = stream_desc.m_semantic;
+				stream.m_count = stream_desc.m_count;
+				stream.m_stride = stream_desc.m_stride;
+				stream.m_res = res;
+				stream.m_srv = store.Descriptors().Create(res.get(), srv_desc);
+				stream.m_name = name;
+			}
+		}
+
 		// Set the size and alignment of the vertex/index element types
 		SizeAndAlign16 vstride(mdesc.m_vb.ElemStride, mdesc.m_vb.DataAlignment);
 		SizeAndAlign16 istride(mdesc.m_ib.ElemStride, mdesc.m_ib.DataAlignment);
@@ -201,6 +247,7 @@ namespace pr::rdr12
 			ib.get(),
 			mdesc.m_bbox,
 			mdesc.m_m2root,
+			std::move(vertex_streams),
 			mdesc.m_name
 		), true);
 		assert(m_rdr.mem_tracker().add(ptr.m_ptr));

@@ -162,6 +162,10 @@ namespace pr::rdr12
 	using hlsl::ESamReg;
 	using hlsl::ShaderReg;
 
+	// Compute types
+	using ResDesc = compute::ResDesc;
+	using Descriptor = compute::Descriptor;
+
 	// Enumerations
 	using EGeom = geometry::EGeom;
 	using ETopo = geometry::ETopo;
@@ -264,6 +268,8 @@ namespace pr::rdr12
 	struct NuggetDesc;
 	struct MeshCreationData;
 	struct SkinnedGeometryCache;
+	struct VertexStream;
+	struct VertexStreamDesc;
 	using ModelPtr = RefPtr<Model>;
 	using NuggetPtr = RefPtr<Nugget>;
 

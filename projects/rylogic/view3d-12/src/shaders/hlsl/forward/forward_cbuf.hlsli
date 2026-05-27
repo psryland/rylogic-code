@@ -94,11 +94,15 @@ struct CBufPbrSurface// :reg(b4)
 	float metallic;
 	float roughness;
 	float alpha_cutoff;
-	int alpha_mode;      // 0 = opaque, 1 = mask, 2 = blend
-	int texture_flags;   // Bit flags describing per-slot texture interpretation
-	int metallic_channel; // Channel index used by the metallic scalar texture
-	int roughness_channel; // Channel index used by the roughness scalar texture
-	int pad2;
+	int alpha_mode;           // 0 = opaque, 1 = mask, 2 = blend
+	int texture_flags;        // Bit flags describing per-slot texture interpretation
+	int metallic_channel;     // Channel index used by the metallic scalar texture
+	int roughness_channel;    // Channel index used by the roughness scalar texture
+	int base_colour_texcoord; // Shader texture-coordinate lane used by the base-colour texture
+	int metallic_texcoord;    // Shader texture-coordinate lane used by the metallic texture
+	int roughness_texcoord;   // Shader texture-coordinate lane used by the roughness texture
+	int emissive_texcoord;    // Shader texture-coordinate lane used by the emissive texture
+	int texcoord_count; // Number of optional texture-coordinate lanes bound for this draw
 };
 
 // Constants used for diagnostic shaders.

@@ -11,6 +11,7 @@
 //  - glTF supports both .gltf (JSON) and .glb (binary) file formats.
 
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -187,6 +188,14 @@ namespace pr::geometry::gltf
 			return !m_offsets.empty() && m_offsets.back() != 0;
 		}
 	};
+	struct VertexStream
+	{
+		enum class ESemantic { TexCoord };
+		ESemantic m_semantic = ESemantic::TexCoord; // Logical meaning of the stream.
+		int m_channel = 0;                          // Semantic channel index, e.g. TEXCOORD_n.
+		int m_stride = 0;                           // Size in bytes of one element.
+		std::span<std::byte const> m_data = {};     // Stream data, parallel to the mesh vertex buffer.
+	};
 	struct Skeleton
 	{
 		uint32_t m_skel_id = NoId;                 // Unique skeleton Id
@@ -235,6 +244,7 @@ namespace pr::geometry::gltf
 		std::span<Vert const> m_vbuf;
 		std::span<int const> m_ibuf;
 		std::span<Nugget const> m_nbuf;
+		std::span<VertexStream const> m_vertex_streams;
 		Skin m_skin;
 		BBox m_bbox;
 	};

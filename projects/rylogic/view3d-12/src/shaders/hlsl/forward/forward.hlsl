@@ -24,6 +24,10 @@ SamplerState      g_base_sampler :register(s0);
 Texture2D<float4> g_metallic_texture  :register(t4);
 Texture2D<float4> g_roughness_texture :register(t5);
 Texture2D<float4> g_emissive_texture  :register(t7);
+StructuredBuffer<float2> g_tex1 :register(t8);
+StructuredBuffer<float2> g_tex2 :register(t9);
+StructuredBuffer<float2> g_tex3 :register(t10);
+StructuredBuffer<float2> g_tex4 :register(t11);
 SamplerState      g_metallic_sampler  :register(s4);
 SamplerState      g_roughness_sampler :register(s5);
 SamplerState      g_emissive_sampler  :register(s6);
@@ -67,6 +71,44 @@ struct PSReflectionOut
 	float4 diff :SV_TARGET0;
 	float4 reflection_attrs :SV_TARGET1;
 };
+
+// Return the common pixel-shader input fields from a standard pixel-shader input.
+PSIn ToPSIn(PSIn In)
+{
+	return In;
+}
+
+// Return the common pixel-shader input fields from an optional texture-coordinate input.
+PSIn ToPSIn(PSInTexN In)
+{
+	PSIn Out = (PSIn)0;
+	Out.ss_vert = In.ss_vert;
+	Out.ws_vert = In.ws_vert;
+	Out.ws_norm = In.ws_norm;
+	Out.diff = In.diff;
+	Out.tex0 = In.tex0;
+	Out.idx0 = In.idx0;
+	return Out;
+}
+
+// Return the transformed texture-coordinate value for a shader lane.
+float2 PbrTextureUV(PSIn In, int texcoord)
+{
+	return In.tex0;
+}
+
+// Return the transformed texture-coordinate value for a shader lane.
+float2 PbrTextureUV(PSInTexN In, int texcoord)
+{
+	switch (texcoord)
+	{
+		case 1: return In.tex1;
+		case 2: return In.tex2;
+		case 3: return In.tex3;
+		case 4: return In.tex4;
+		default: return In.tex0;
+	}
+}
 
 // Return one channel from a texture sample using the channel index stored in the material constants.
 float SelectTextureChannel(float4 sample, int channel)
@@ -126,6 +168,40 @@ PSIn VSForward(VSIn In)
 	return Out;
 }
 
+// Return a texture coordinate after applying the nugget texture transform.
+float2 TransformTexCoord(float2 texcoord)
+{
+	return mul(float4(texcoord, 0, 1), g_nugget.tex2surf0).xy;
+}
+
+// Forward VS variant that interpolates optional texture-coordinate lanes for PBR material textures.
+PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
+{
+	PSIn base = VSForward(In);
+
+	PSInTexN Out = (PSInTexN)0;
+	Out.ss_vert = base.ss_vert;
+	Out.ws_vert = base.ws_vert;
+	Out.ws_norm = base.ws_norm;
+	Out.diff = base.diff;
+	Out.tex0 = base.tex0;
+	Out.idx0 = base.idx0;
+
+	if (g_pbr.texcoord_count > 0)
+		Out.tex1 = TransformTexCoord(g_tex1[vertex_id]);
+
+	if (g_pbr.texcoord_count > 1)
+		Out.tex2 = TransformTexCoord(g_tex2[vertex_id]);
+
+	if (g_pbr.texcoord_count > 2)
+		Out.tex3 = TransformTexCoord(g_tex3[vertex_id]);
+
+	if (g_pbr.texcoord_count > 3)
+		Out.tex4 = TransformTexCoord(g_tex4[vertex_id]);
+
+	return Out;
+}
+
 // Forward PS
 PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
@@ -181,16 +257,16 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 	return Out;
 }
 
-// Direct-lighting PBR pixel shader path.
-PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
+// Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
+PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv)
 {
 	PSOut Out = (PSOut)0;
 
 	// Resolve the scalar and texture-backed material inputs into a linear base colour.
 	float4 base_colour = g_pbr.base_colour * In.diff;
-	if (HasTex0(g_nugget.flags))
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasBaseColourMap))
 	{
-		float4 tex_colour = g_base_texture.Sample(g_base_sampler, In.tex0);
+		float4 tex_colour = g_base_texture.Sample(g_base_sampler, base_uv);
 		if (AnySet(g_pbr.texture_flags, PbrTextureFlag_BaseColourSrgb))
 			tex_colour = SrgbToLinear(tex_colour);
 
@@ -210,12 +286,12 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 	float roughness = clamp(g_pbr.roughness, 0.04f, 1.0f);
 	float3 emissive = g_pbr.emissive.rgb;
 	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasMetallicMap))
-		metallic *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, In.tex0), g_pbr.metallic_channel);
+		metallic *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, metallic_uv), g_pbr.metallic_channel);
 	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasRoughnessMap))
-		roughness *= SelectTextureChannel(g_roughness_texture.Sample(g_roughness_sampler, In.tex0), g_pbr.roughness_channel);
+		roughness *= SelectTextureChannel(g_roughness_texture.Sample(g_roughness_sampler, roughness_uv), g_pbr.roughness_channel);
 	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasEmissiveMap))
 	{
-		float4 emissive_tex = g_emissive_texture.Sample(g_emissive_sampler, In.tex0);
+		float4 emissive_tex = g_emissive_texture.Sample(g_emissive_sampler, emissive_uv);
 		if (AnySet(g_pbr.texture_flags, PbrTextureFlag_EmissiveSrgb))
 			emissive_tex = SrgbToLinear(emissive_tex);
 
@@ -251,6 +327,31 @@ PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 	return Out;
 }
 
+// Direct-lighting PBR pixel shader path shared by concrete fast-path and optional texture-coordinate entry points.
+template <typename TIn>
+PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
+{
+	return PSForwardPbrSampledUV(
+		ToPSIn(In),
+		is_front_face,
+		PbrTextureUV(In, g_pbr.base_colour_texcoord),
+		PbrTextureUV(In, g_pbr.metallic_texcoord),
+		PbrTextureUV(In, g_pbr.roughness_texcoord),
+		PbrTextureUV(In, g_pbr.emissive_texcoord));
+}
+
+// Direct-lighting PBR pixel shader path using TEXCOORD_0 for all texture slots.
+PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
+{
+	return PSForwardPbrImpl(In, is_front_face);
+}
+
+// Direct-lighting PBR pixel shader path with optional texture-coordinate lanes.
+PSOut PSForwardPbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
+{
+	return PSForwardPbrImpl(In, is_front_face);
+}
+
 // Collect one transparent fragment into the forward alpha K-buffer.
 void CollectAlphaLayer(PSIn In, float4 diff, bool is_front_face)
 {
@@ -267,7 +368,7 @@ void CollectAlphaLayer(PSIn In, float4 diff, bool is_front_face)
 	if (In.ss_vert.z >= opaque_depth)
 		discard;
 
-	// Pack view-space depth, colour, and optional RT sidecar metadata for later resolve.
+	// Pack view-space depth, colour, and optional RT side-buffer metadata for later resolve.
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
 	uint colour = PackRGBA8(diff);
@@ -292,7 +393,13 @@ void PSForwardAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 // Collect transparent PBR fragments into the alpha K-buffer.
 void PSForwardPbrAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	CollectAlphaLayer(In, PSForwardPbr(In, is_front_face).diff, is_front_face);
+	CollectAlphaLayer(In, PSForwardPbrImpl(In, is_front_face).diff, is_front_face);
+}
+
+// Collect transparent PBR fragments with optional texture-coordinate lanes into the alpha K-buffer.
+void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFace)
+{
+	CollectAlphaLayer(ToPSIn(In), PSForwardPbrImpl(In, is_front_face).diff, is_front_face);
 }
 
 // Forward pass that also writes reflection attributes for RT reflections.
@@ -308,8 +415,18 @@ PSReflectionOut PSForwardReflectionAttrs(PSIn In, bool is_front_face : SV_IsFron
 PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
-	Out.diff = PSForwardPbr(In, is_front_face).diff;
-	Out.reflection_attrs = PbrReflectionAttributes(In, Out.diff, is_front_face);
+	Out.diff = PSForwardPbrImpl(In, is_front_face).diff;
+	Out.reflection_attrs = PbrReflectionAttributes(In, Out.diff, is_front_face, PbrTextureUV(In, g_pbr.metallic_texcoord));
+	return Out;
+}
+
+// PBR forward pass with optional texture-coordinate lanes that also writes reflection attributes for RT reflections.
+PSReflectionOut PSForwardPbrTexNReflectionAttrs(PSInTexN In, bool is_front_face : SV_IsFrontFace)
+{
+	PSIn base = ToPSIn(In);
+	PSReflectionOut Out = (PSReflectionOut)0;
+	Out.diff = PSForwardPbrImpl(In, is_front_face).diff;
+	Out.reflection_attrs = PbrReflectionAttributes(base, Out.diff, is_front_face, PbrTextureUV(In, g_pbr.metallic_texcoord));
 	return Out;
 }
 

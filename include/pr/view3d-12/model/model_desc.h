@@ -9,19 +9,21 @@ namespace pr::rdr12
 {
 	struct ModelDesc
 	{
-		using ResDesc = ::pr::compute::ResDesc;
+		using VBStreams = std::span<VertexStreamDesc const>;
 
-		ResDesc  m_vb;      // The vertex buffer description and initialisation data
-		ResDesc  m_ib;      // The index buffer description and initialisation data
-		BBox     m_bbox;    // Model space bounding box
-		m4x4     m_m2root;  // Model to root transform
-		string32 m_name;    // Debugging name for the model
+		ResDesc   m_vb;         // The vertex buffer description and initialisation data
+		ResDesc   m_ib;         // The index buffer description and initialisation data
+		BBox      m_bbox;       // Model space bounding box
+		m4x4      m_m2root;     // Model to root transform
+		VBStreams m_vb_streams; // Optional model-owned streams parallel to the vertex buffer.
+		string32  m_name;       // Debugging name for the model
 
 		ModelDesc()
 			: m_vb()
 			, m_ib()
 			, m_bbox(BBox::Reset())
 			, m_m2root(m4x4::Identity())
+			, m_vb_streams()
 			, m_name()
 		{}
 
@@ -49,6 +51,11 @@ namespace pr::rdr12
 		ModelDesc& ibuf(ResDesc const& ib)
 		{
 			m_ib = ib;
+			return *this;
+		}
+		ModelDesc& vb_streams(VBStreams vb_streams)
+		{
+			m_vb_streams = vb_streams;
 			return *this;
 		}
 		ModelDesc& vbuf(std::span<Vert const> data = {})

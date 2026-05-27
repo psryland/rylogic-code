@@ -337,11 +337,45 @@ namespace pr::geometry::gltf
 	};
 	struct MeshData
 	{
+		struct VertexStreamData
+		{
+			VertexStream::ESemantic m_semantic = VertexStream::ESemantic::TexCoord;
+			int m_channel = 0;
+			int m_stride = 0;
+			vector<std::byte> m_data;
+
+			// Append one element to this vertex stream.
+			void Append(std::span<std::byte const> data)
+			{
+				assert(isize(data) == m_stride);
+				m_data.insert(m_data.end(), data.begin(), data.end());
+			}
+
+			// Append one zero-initialised element to this vertex stream.
+			void AppendZero()
+			{
+				m_data.resize(m_data.size() + m_stride, std::byte{});
+			}
+
+			// Return a public view over this vertex stream.
+			operator VertexStream() const
+			{
+				return VertexStream{
+					.m_semantic = m_semantic,
+					.m_channel = m_channel,
+					.m_stride = m_stride,
+					.m_data = m_data,
+				};
+			}
+		};
+
 		uint32_t m_mesh_id = NoId;
 		std::string m_name;
 		vector<Vert> m_vbuf;
 		vector<int> m_ibuf;
 		vector<Nugget> m_nbuf;
+		vector<VertexStream> m_vb_streams;
+		vector<VertexStreamData> m_vertex_stream_data;
 		SkinData m_skin = {};
 		BBox m_bbox = {};
 
@@ -352,17 +386,25 @@ namespace pr::geometry::gltf
 			m_vbuf.resize(0);
 			m_ibuf.resize(0);
 			m_nbuf.resize(0);
+			m_vb_streams.resize(0);
+			m_vertex_stream_data.resize(0);
 			m_skin.Reset();
 			m_bbox = BBox::Reset();
 		}
-		operator Mesh() const
+		operator Mesh()
 		{
+			m_vb_streams.resize(0);
+			m_vb_streams.reserve(m_vertex_stream_data.size());
+			for (auto const& stream : m_vertex_stream_data)
+				m_vb_streams.push_back(stream);
+
 			return Mesh{
 				.m_mesh_id = m_mesh_id,
 				.m_name = m_name,
 				.m_vbuf = m_vbuf,
 				.m_ibuf = m_ibuf,
 				.m_nbuf = m_nbuf,
+				.m_vertex_streams = m_vb_streams,
 				.m_skin = Skin{
 					.m_skel_id = m_skin.m_skel_id,
 					.m_offsets = m_skin.m_offsets,
@@ -557,6 +599,100 @@ namespace pr::geometry::gltf
 			m_out.CreateModel(mesh_tree);
 		}
 
+		// Return true if 'accessor' can be stored as a float2 texture-coordinate vertex stream.
+		static bool IsTexCoordStream(cgltf_accessor const* accessor)
+		{
+			return accessor != nullptr && cgltf_num_components(accessor->type) == 2;
+		}
+
+		// Add the texture coordinate channel from 'texture' when it needs optional stream backing.
+		static void AddUsedExtraTexCoordChannel(vector<int>& channels, cgltf_texture_view const& texture)
+		{
+			if (texture.texture == nullptr || texture.texcoord == 0)
+				return;
+
+			auto channel = s_cast<int>(texture.texcoord);
+			if (std::find(channels.begin(), channels.end(), channel) == channels.end())
+				channels.push_back(channel);
+		}
+
+		// Return the non-primary texture coordinate channels referenced by imported material textures.
+		static vector<int> UsedExtraTexCoordChannels(cgltf_material const* material)
+		{
+			vector<int> channels;
+			if (material == nullptr)
+				return channels;
+
+			if (material->has_pbr_metallic_roughness)
+			{
+				auto const& pbr = material->pbr_metallic_roughness;
+				AddUsedExtraTexCoordChannel(channels, pbr.base_color_texture);
+				AddUsedExtraTexCoordChannel(channels, pbr.metallic_roughness_texture);
+			}
+
+			if (material->has_pbr_specular_glossiness)
+			{
+				auto const& pbr = material->pbr_specular_glossiness;
+				AddUsedExtraTexCoordChannel(channels, pbr.diffuse_texture);
+			}
+
+			AddUsedExtraTexCoordChannel(channels, material->emissive_texture);
+			AddUsedExtraTexCoordChannel(channels, material->normal_texture);
+			return channels;
+		}
+
+		// Return the mesh vertex stream for TEXCOORD_'channel', creating and back-filling it if needed.
+		static MeshData::VertexStreamData& EnsureTexCoordStream(MeshData& mesh, int channel)
+		{
+			for (auto& stream : mesh.m_vertex_stream_data)
+			{
+				if (stream.m_semantic == VertexStream::ESemantic::TexCoord && stream.m_channel == channel)
+					return stream;
+			}
+
+			mesh.m_vertex_stream_data.push_back(MeshData::VertexStreamData{});
+			auto& stream = mesh.m_vertex_stream_data.back();
+			stream.m_semantic = VertexStream::ESemantic::TexCoord;
+			stream.m_channel = channel;
+			stream.m_stride = sizeof(v2);
+			stream.m_data.resize(mesh.m_vbuf.size() * stream.m_stride, std::byte{});
+			return stream;
+		}
+
+		// Ensure vertex streams exist for the non-primary texture coordinates used by 'prim'.
+		static void EnsurePrimitiveStreams(MeshData& mesh, cgltf_primitive const& prim, std::span<int const> channels)
+		{
+			for (auto channel : channels)
+			{
+				auto const* accessor = cgltf_find_accessor(&prim, cgltf_attribute_type_texcoord, channel);
+				if (!IsTexCoordStream(accessor))
+					continue;
+
+				EnsureTexCoordStream(mesh, channel);
+			}
+		}
+
+		// Append optional stream values for one primitive vertex, using zero data for streams absent from this primitive.
+		static void AppendVertexStreams(MeshData& mesh, std::span<cgltf_accessor const* const> accessors, cgltf_size vi)
+		{
+			assert(mesh.m_vertex_stream_data.size() == accessors.size());
+			for (int si = 0; si != isize(mesh.m_vertex_stream_data); ++si)
+			{
+				auto& stream = mesh.m_vertex_stream_data[si];
+				auto const* accessor = accessors[si];
+				if (accessor == nullptr)
+				{
+					stream.AppendZero();
+					continue;
+				}
+
+				cgltf_float tex[2] = {};
+				cgltf_accessor_read_float(accessor, vi, tex, 2);
+				auto uv = v2{ tex[0], tex[1] };
+				stream.Append(std::as_bytes(std::span{ &uv, 1 }));
+			}
+		}
+
 		// Read a single cgltf mesh
 		void ReadMesh(cgltf_mesh const& cgmesh, uint32_t mesh_id)
 		{
@@ -576,6 +712,8 @@ namespace pr::geometry::gltf
 				auto const* nrm_acc = cgltf_find_accessor(&prim, cgltf_attribute_type_normal, 0);
 				auto const* tex_acc = cgltf_find_accessor(&prim, cgltf_attribute_type_texcoord, 0);
 				auto const* col_acc = cgltf_find_accessor(&prim, cgltf_attribute_type_color, 0);
+				auto extra_texcoord_channels = UsedExtraTexCoordChannels(prim.material);
+				EnsurePrimitiveStreams(mesh, prim, extra_texcoord_channels);
 
 				auto topo = ToETopo(prim.type);
 				auto mat_id = MaterialIndex(m_data, prim.material);
@@ -589,6 +727,16 @@ namespace pr::geometry::gltf
 
 				auto vbase = isize(mesh.m_vbuf);
 				auto ibase = isize(mesh.m_ibuf);
+				vector<cgltf_accessor const*> stream_accessors;
+				stream_accessors.reserve(mesh.m_vertex_stream_data.size());
+				for (auto const& stream : mesh.m_vertex_stream_data)
+				{
+					auto const* accessor =
+						stream.m_semantic == VertexStream::ESemantic::TexCoord
+						? cgltf_find_accessor(&prim, cgltf_attribute_type_texcoord, stream.m_channel)
+						: nullptr;
+					stream_accessors.push_back(IsTexCoordStream(accessor) ? accessor : nullptr);
+				}
 
 				// Read vertices
 				for (cgltf_size vi = 0; vi != pos_acc->count; ++vi)
@@ -628,6 +776,7 @@ namespace pr::geometry::gltf
 
 					mesh.m_vbuf.push_back(v);
 					mesh.m_bbox.Grow(v.m_vert);
+					AppendVertexStreams(mesh, stream_accessors, vi);
 				}
 
 				// Read indices
@@ -1216,7 +1365,8 @@ namespace pr::geometry::gltf
 
 			// Load buffer data. For GLB files this wires up the embedded binary chunk.
 			// For glTF with external .bin files, this needs a path hint to resolve relative URIs.
-			auto path_hint = opts.filename.empty() ? nullptr : std::string(opts.filename).c_str();
+			auto filepath = std::string(opts.filename);
+			auto path_hint = filepath.empty() ? nullptr : filepath.c_str();
 			result = cgltf_load_buffers(&options, m_gltfdata, path_hint);
 			if (result != cgltf_result_success)
 			{

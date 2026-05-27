@@ -31,6 +31,10 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrRoughnessTexture = ESRVReg::t5;
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
 		inline static constexpr auto PbrEmissiveTexture = ESRVReg::t7;
+		inline static constexpr auto Tex1Stream = ESRVReg::t8;
+		inline static constexpr auto Tex2Stream = ESRVReg::t9;
+		inline static constexpr auto Tex3Stream = ESRVReg:: t10;
+		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -71,6 +75,10 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PbrMetallicTexture, 1)
 			.SRV(EReg::PbrRoughnessTexture, 1)
 			.SRV(EReg::PbrEmissiveTexture, 1)
+			.SRV(EReg::Tex1Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::Tex2Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::Tex3Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::Tex4Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::EnvMap, 1)
 			.SRV(EReg::SMap, shaders::MaxShadowMaps)
 			.SRV(EReg::ProjTex, shaders::MaxProjectedTextures)
@@ -120,4 +128,3 @@ namespace pr::rdr12::shaders
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
 	}
 }
-

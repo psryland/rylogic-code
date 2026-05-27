@@ -318,6 +318,7 @@ namespace pr::rdr12
 				OutputDebugStringA(msg.c_str());
 			};
 
+			// Validate the texture reference before trying to create a renderer texture from it.
 			auto const texture_name = texture.name();
 			if (auto const reason = MaterialTraits<Material>::ValidateTexture(texture); !reason.empty())
 			{
@@ -325,6 +326,7 @@ namespace pr::rdr12
 				return {};
 			}
 
+			// Try to create a renderer texture from the imported texture reference, reporting any exceptions as non-fatal issues.
 			try
 			{
 				slot.m_texture =
@@ -336,6 +338,7 @@ namespace pr::rdr12
 					return {};
 
 				slot.m_sampler = CreateSampler<Material>(factory, texture);
+				slot.m_texcoord = s_cast<int>(texture.m_texcoord);
 				return slot.m_sampler != nullptr ? slot : materials::TextureSlot{};
 			}
 			catch (std::exception const& e)
@@ -368,8 +371,8 @@ namespace pr::rdr12
 			// Return the reason that 'texture' cannot currently be imported, or empty if it can.
 			static std::string_view ValidateTexture(geometry::TextureRef const& texture)
 			{
-				if (texture.m_texcoord != 0)
-					return "only TEXCOORD_0 is currently supported";
+				if (texture.m_texcoord < 0)
+					return "negative texture-coordinate channels are not supported";
 
 				if (texture.m_uri.starts_with("data:"))
 					return "data URI images are not currently supported";
@@ -542,6 +545,7 @@ namespace pr::rdr12
 			.ibuf(ResDesc::IBuf(cache.ICount(), cache.m_icont.stride(), cache.m_icont))
 			.bbox(cache.m_bbox)
 			.m2root(cache.m_m2root)
+			.vb_streams(cache.m_scont)
 			.name(cache.m_name);
 		auto model = factory.CreateModel(mdesc);
 
@@ -1961,6 +1965,39 @@ namespace pr::rdr12
 				{
 					SetPCNTI(*vptr, v.m_vert, v.m_colr, v.m_norm, v.m_tex0, v.m_idx0);
 					++vptr;
+				}
+
+				// Copy optional vertex streams. These streams stay model-owned and are only bound by material/shader paths that ask for them.
+				m_cache.m_scont.reserve(mesh.m_vertex_streams.size());
+				for (auto const& stream : mesh.m_vertex_streams)
+				{
+					switch (stream.m_semantic)
+					{
+						case gltf::VertexStream::ESemantic::TexCoord:
+						{
+							if (stream.m_channel == 0)
+								break;
+							if (stream.m_stride <= 0)
+								throw std::runtime_error("glTF vertex stream stride must be positive");
+							if ((stream.m_data.size() % stream.m_stride) != 0)
+								throw std::runtime_error("glTF vertex stream data size is not a multiple of the stride");
+
+							auto stream_count = s_cast<int64_t>(stream.m_data.size() / stream.m_stride);
+							if (stream_count != vcount)
+								throw std::runtime_error("glTF vertex stream vertex count does not match the mesh vertex count");
+
+							auto name = std::format("{}-TexCoord{}", mesh.m_name, stream.m_channel);
+							m_cache.m_scont.push_back(VertexStreamDesc()
+								.semantic(vertex_stream::TexCoord(stream.m_channel))
+								.data(stream_count, stream.m_stride, stream.m_data)
+								.name(name));
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unsupported glTF vertex stream semantic");
+						}
+					}
 				}
 
 				// Copy indices
