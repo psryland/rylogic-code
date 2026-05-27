@@ -457,6 +457,7 @@ namespace pr::rdr12
 			}
 			else
 			{
+				// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
 				cmd_list.DrawIndexedInstanced(
 					s_cast<size_t>(nugget.m_irange.size()), 1U,
 					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);

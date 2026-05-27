@@ -239,6 +239,25 @@ namespace pr::rdr12
 				return lane != -1 ? lane : 0;
 			}
 
+			// Convert a material texture-coordinate transform into the shader constant layout.
+			static shaders::TexXForm ShaderTexXForm(TexXForm const& transform)
+			{
+				return {
+					.m_x = transform.m_x,
+					.m_y = transform.m_y,
+				};
+			}
+
+			// Return the vertex-buffer offset needed for optional stream lookup.
+			static int TexCoordVertexOffset(MaterialPassContext const& ctx)
+			{
+				auto const* nugget = ctx.m_dle.m_nugget;
+				if (nugget == nullptr || !nugget->m_irange.empty())
+					return 0;
+
+				return s_cast<int>(nugget->m_vrange.m_beg);
+			}
+
 			// Return the texture for a PBR slot, or the forward pass fallback texture.
 			static Texture2D* TextureOrDefault(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
 			{
@@ -352,6 +371,10 @@ namespace pr::rdr12
 				auto cb = shaders::fwd::CBufPbrSurface{
 					.base_colour = base_colour.m_colour.rgba,
 					.emissive = emissive.m_colour.rgba,
+					.base_colour_uv_transform = ShaderTexXForm(base_colour.m_tex.m_uv_transform),
+					.metallic_uv_transform = ShaderTexXForm(metallic.m_tex.m_slot.m_uv_transform),
+					.roughness_uv_transform = ShaderTexXForm(roughness.m_tex.m_slot.m_uv_transform),
+					.emissive_uv_transform = ShaderTexXForm(emissive.m_tex.m_uv_transform),
 					.metallic = metallic.m_factor,
 					.roughness = roughness.m_factor,
 					.alpha_cutoff = alpha.m_cutoff,
@@ -364,6 +387,7 @@ namespace pr::rdr12
 					.roughness_texcoord = ShaderTexCoord(texcoords, roughness.m_tex.m_slot),
 					.emissive_texcoord = ShaderTexCoord(texcoords, emissive.m_tex),
 					.texcoord_count = texcoords.m_count,
+					.texcoord_vertex_ofs = TexCoordVertexOffset(ctx),
 				};
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
@@ -492,6 +516,7 @@ namespace pr::rdr12
 				}
 				else
 				{
+					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_vs));
 					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
 						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_pbr_ps :
 						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_pbr_ps :

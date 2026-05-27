@@ -170,6 +170,7 @@ namespace pr::rdr12
 	using EGeom = geometry::EGeom;
 	using ETopo = geometry::ETopo;
 	using ETopoGroup = geometry::ETopoGroup;
+	using TexXForm = geometry::TexXForm;
 
 	// View3D types
 	using SortKeyId = uint16_t;

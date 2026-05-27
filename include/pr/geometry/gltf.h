@@ -47,6 +47,7 @@ namespace pr::geometry::gltf
 	using ETextureWrap = ::pr::geometry::ETextureWrap;
 	using ETextureFilter = ::pr::geometry::ETextureFilter;
 
+	// Alpha modes for materials
 	enum class EAlphaMode
 	{
 		Opaque,

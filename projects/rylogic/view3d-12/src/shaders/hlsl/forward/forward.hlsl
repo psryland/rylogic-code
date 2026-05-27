@@ -121,6 +121,20 @@ float SelectTextureChannel(float4 sample, int channel)
 		sample.r;
 }
 
+// Apply a material texture-coordinate transform before sampling a texture slot.
+float2 TransformPbrUV(float2 uv, TexXForm transform)
+{
+	float3 uv1 = float3(uv, 1);
+	return float2(dot(uv1, transform.m_x.xyz), dot(uv1, transform.m_y.xyz));
+}
+
+// Return the transformed texture-coordinate value for a material texture slot.
+template <typename TIn>
+float2 PbrSlotUV(TIn In, int texcoord, TexXForm transform)
+{
+	return TransformPbrUV(PbrTextureUV(In, texcoord), transform);
+}
+
 // Return the world-space surface normal used by the forward material path.
 float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 {
@@ -187,17 +201,20 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	Out.tex0 = base.tex0;
 	Out.idx0 = base.idx0;
 
+	// Optional streams follow the primary vertex buffer order. Indexed draws use absolute indices; non-indexed draws add the nugget vertex-range offset.
+	uint vertex_index = vertex_id + (uint)g_pbr.texcoord_vertex_ofs;
+
 	if (g_pbr.texcoord_count > 0)
-		Out.tex1 = TransformTexCoord(g_tex1[vertex_id]);
+		Out.tex1 = TransformTexCoord(g_tex1[vertex_index]);
 
 	if (g_pbr.texcoord_count > 1)
-		Out.tex2 = TransformTexCoord(g_tex2[vertex_id]);
+		Out.tex2 = TransformTexCoord(g_tex2[vertex_index]);
 
 	if (g_pbr.texcoord_count > 2)
-		Out.tex3 = TransformTexCoord(g_tex3[vertex_id]);
+		Out.tex3 = TransformTexCoord(g_tex3[vertex_index]);
 
 	if (g_pbr.texcoord_count > 3)
-		Out.tex4 = TransformTexCoord(g_tex4[vertex_id]);
+		Out.tex4 = TransformTexCoord(g_tex4[vertex_index]);
 
 	return Out;
 }
@@ -334,10 +351,10 @@ PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
 	return PSForwardPbrSampledUV(
 		ToPSIn(In),
 		is_front_face,
-		PbrTextureUV(In, g_pbr.base_colour_texcoord),
-		PbrTextureUV(In, g_pbr.metallic_texcoord),
-		PbrTextureUV(In, g_pbr.roughness_texcoord),
-		PbrTextureUV(In, g_pbr.emissive_texcoord));
+		PbrSlotUV(In, g_pbr.base_colour_texcoord, g_pbr.base_colour_uv_transform),
+		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
+		PbrSlotUV(In, g_pbr.roughness_texcoord, g_pbr.roughness_uv_transform),
+		PbrSlotUV(In, g_pbr.emissive_texcoord, g_pbr.emissive_uv_transform));
 }
 
 // Direct-lighting PBR pixel shader path using TEXCOORD_0 for all texture slots.
@@ -416,7 +433,11 @@ PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsF
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
 	Out.diff = PSForwardPbrImpl(In, is_front_face).diff;
-	Out.reflection_attrs = PbrReflectionAttributes(In, Out.diff, is_front_face, PbrTextureUV(In, g_pbr.metallic_texcoord));
+	Out.reflection_attrs = PbrReflectionAttributes(
+		In,
+		Out.diff,
+		is_front_face,
+		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform));
 	return Out;
 }
 
@@ -426,7 +447,11 @@ PSReflectionOut PSForwardPbrTexNReflectionAttrs(PSInTexN In, bool is_front_face 
 	PSIn base = ToPSIn(In);
 	PSReflectionOut Out = (PSReflectionOut)0;
 	Out.diff = PSForwardPbrImpl(In, is_front_face).diff;
-	Out.reflection_attrs = PbrReflectionAttributes(base, Out.diff, is_front_face, PbrTextureUV(In, g_pbr.metallic_texcoord));
+	Out.reflection_attrs = PbrReflectionAttributes(
+		base,
+		Out.diff,
+		is_front_face,
+		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform));
 	return Out;
 }
 

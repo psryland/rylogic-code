@@ -12,8 +12,7 @@ namespace pr::rdr12::materials
 	struct NormalMap
 	{
 		static constexpr RdrId Id = hash::HashCT("materials::NormalMap");
-
-		TextureSlot m_tex = {{}, {}, ETextureColourSpace::Linear}; // Tangent-space normal map, inactive until tangent support exists.
+		TextureSlot m_tex = { {}, {}, {}, ETextureColourSpace::Linear, {} }; // Tangent-space normal map, inactive until tangent support exists.
 	};
 	static_assert(ComponentType<NormalMap>);
 }

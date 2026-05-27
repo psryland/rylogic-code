@@ -13,8 +13,8 @@ namespace pr::rdr12::materials
 	{
 		static constexpr RdrId Id = hash::HashCT("materials::Emissive");
 
-		Colour m_colour = ColourZero;                                          // Linear emissive factor.
-		TextureSlot m_tex = {{}, {}, ETextureColourSpace::Srgb};        // Emissive texture, sampled as colour data.
+		Colour m_colour = ColourZero;                                     // Linear emissive factor.
+		TextureSlot m_tex = { {}, {}, {}, ETextureColourSpace::Srgb, 0 }; // Emissive texture, sampled as colour data.
 	};
 	static_assert(ComponentType<Emissive>);
 }

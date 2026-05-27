@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #pragma once
+#include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/sampler/sampler.h"
 
@@ -29,6 +30,7 @@ namespace pr::rdr12::materials
 	{
 		Texture2DPtr m_texture = {};                                      // Texture used by this slot.
 		SamplerPtr m_sampler = {};                                        // Sampler used by this slot.
+		TexXForm m_uv_transform = {};                                     // Texture-coordinate transform for this slot.
 		ETextureColourSpace m_colour_space = ETextureColourSpace::Linear; // How shader sampling should interpret texture values.
 		int m_texcoord = 0;                                               // Texture-coordinate channel used by this slot. 0 means TEXCOORD_0.
 		explicit operator bool() const

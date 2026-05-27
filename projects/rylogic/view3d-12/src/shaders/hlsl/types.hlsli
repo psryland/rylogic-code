@@ -85,6 +85,13 @@ struct Skinfluence
 	uint4 weights; // 8 16-bit bone weights
 };
 
+// Texture coordinate transforms
+struct TexXForm
+{
+	float4 m_x; // First output row of the texture-coordinate transform
+	float4 m_y; // Second output row of the texture-coordinate transform
+};
+
 // Models
 inline bool HasNormals (int4 flags) { return AnySet(flags.x, ModelFlags_HasNormals); }
 inline bool IsSkinned  (int4 flags) { return AnySet(flags.x, ModelFlags_IsSkinned); }

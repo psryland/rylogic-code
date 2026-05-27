@@ -11,6 +11,7 @@
 #include <string_view>
 #include <functional>
 #include <atomic>
+#include <cmath>
 #include <mutex>
 #include <sstream>
 
@@ -196,11 +197,40 @@ namespace pr
 		}
 	}
 
+	// Return the texture-coordinate set selected by a texture view after applying supported extension overrides.
+	inline int EffectiveTexCoord(cgltf_texture_view const& view)
+	{
+		if (view.has_transform && view.transform.has_texcoord)
+			return static_cast<int>(view.transform.texcoord);
+
+		return static_cast<int>(view.texcoord);
+	}
+
+	// Add the KHR_texture_transform affine transform to an imported texture reference.
+	inline void ApplyTextureTransform(cgltf_texture_view const& view, Material::Texture& tex)
+	{
+		if (!view.has_transform)
+			return;
+
+		auto const& transform = view.transform;
+		auto const sx = transform.scale[0];
+		auto const sy = transform.scale[1];
+		auto const ox = transform.offset[0];
+		auto const oy = transform.offset[1];
+		auto const c = std::cos(transform.rotation);
+		auto const s = std::sin(transform.rotation);
+
+		// KHR_texture_transform applies translation * rotation * scale to column-vector UVs. Store the output rows so the shader can dot with [u,v,1].
+		tex.m_uv_transform.m_x = v4{ c * sx, -s * sy, ox, 0.0f };
+		tex.m_uv_transform.m_y = v4{ s * sx,  c * sy, oy, 0.0f };
+	}
+
 	// Convert a cgltf texture view to a transient material texture description.
 	inline Material::Texture ToTexture(cgltf_texture_view const& view)
 	{
 		Material::Texture tex = {};
-		tex.m_texcoord = static_cast<int>(view.texcoord);
+		tex.m_texcoord = EffectiveTexCoord(view);
+		ApplyTextureTransform(view, tex);
 
 		auto const* texture = view.texture;
 		if (texture == nullptr)
@@ -608,10 +638,13 @@ namespace pr::geometry::gltf
 		// Add the texture coordinate channel from 'texture' when it needs optional stream backing.
 		static void AddUsedExtraTexCoordChannel(vector<int>& channels, cgltf_texture_view const& texture)
 		{
-			if (texture.texture == nullptr || texture.texcoord == 0)
+			if (texture.texture == nullptr)
 				return;
 
-			auto channel = s_cast<int>(texture.texcoord);
+			auto channel = EffectiveTexCoord(texture);
+			if (channel == 0)
+				return;
+
 			if (std::find(channels.begin(), channels.end(), channel) == channels.end())
 				channels.push_back(channel);
 		}

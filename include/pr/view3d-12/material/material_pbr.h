@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #pragma once
+#include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/material/components/alpha.h"
 #include "pr/view3d-12/material/components/base_colour.h"
 #include "pr/view3d-12/material/components/emissive.h"

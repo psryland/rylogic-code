@@ -339,6 +339,7 @@ namespace pr::rdr12
 
 				slot.m_sampler = CreateSampler<Material>(factory, texture);
 				slot.m_texcoord = s_cast<int>(texture.m_texcoord);
+				slot.m_uv_transform = texture.m_uv_transform;
 				return slot.m_sampler != nullptr ? slot : materials::TextureSlot{};
 			}
 			catch (std::exception const& e)

@@ -62,7 +62,7 @@ namespace pr::rdr12
 		}
 	};
 
-	// A vertex buffer 'side-car' stream for additional data such as texture coordinates, tangents, etc.
+	// A model-owned vertex stream for additional data such as texture coordinates, tangents, etc.
 	struct VertexStream
 	{
 		RdrId m_semantic;             // The logical meaning of the stream.
