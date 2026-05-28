@@ -61,6 +61,12 @@ namespace physics_sandbox
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
 
+		// Optional diagnostic buoyancy module and the RAII hull registrations owned by the loaded scene.
+		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
+		std::vector<physics::GpuBuoyancy::Registration> m_buoyancy_hulls;
+		std::vector<int> m_buoyancy_body_indices;
+		int m_buoyancy_generation;
+
 		// Gravity acceleration vector (direction and magnitude, e.g. [0, -9.81, 0]).
 		// Applied each step to all non-static bodies as F = m * g.
 		v4 m_gravity;
@@ -155,5 +161,14 @@ namespace physics_sandbox
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;
+
+		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
+		void ClearBuoyancy();
+
+		// Create diagnostic buoyancy hulls described by a loaded scene.
+		void ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc);
+
+		// Return the latest diagnostic buoyancy records for scene-registered hulls.
+		std::vector<physics::GpuBuoyancy::Diagnostics> BuoyancyDiagnostics() const;
 	};
 }

@@ -28,6 +28,11 @@ namespace physics_sandbox::scene_loader
 	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
 	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
 	//         },
+	//         "buoyancy": {                    // Optional diagnostic buoyancy settings
+	//             "hulls": [
+	//                 { "body": "box1", "type": "box", "dimensions": [1, 1, 1] }
+	//             ]
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
@@ -109,6 +114,13 @@ namespace physics_sandbox::scene_loader
 		v4 lookat = Origin<v4>();
 	};
 
+	// Parsed description of a generated-box buoyancy hull.
+	struct BuoyancyHullDesc
+	{
+		std::string body_name;
+		v4 dimensions = One<v4>();
+	};
+
 	// Parsed scene description
 	struct SceneDesc
 	{
@@ -162,6 +174,9 @@ namespace physics_sandbox::scene_loader
 
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;
+
+		// Diagnostic generated-box buoyancy hulls.
+		std::vector<BuoyancyHullDesc> buoyancy_hulls;
 	};
 
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).

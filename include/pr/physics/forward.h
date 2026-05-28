@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <span>
 #include <memory>
+#include <functional>
 #include <vector>
 #include <array>
 #include <ranges>
@@ -55,6 +56,7 @@
 #endif
 
 // Forward declare D3D12 device (avoids including d3d12.h)
+struct ID3D12Device;
 struct ID3D12Device4;
 struct ID3D12Resource;
 

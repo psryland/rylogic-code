@@ -183,7 +183,7 @@ namespace las
 		:m_owner_thread_id(std::this_thread::get_id())
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
 		,m_ocean_surface_force(EnableOceanSurfaceForce ? std::make_unique<OceanSurfaceForce>(rdr.D3DDevice(), m_engine) : nullptr)
-		,m_gpu_buoyancy(std::make_unique<GpuBuoyancy>(rdr.D3DDevice(), m_engine,
+		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
 			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
 		)
@@ -226,6 +226,7 @@ namespace las
 			m_free_slots.pop_back();
 
 			auto& slot = m_body_slots[slot_index];
+			slot.m_buoyancy_hull.Reset();
 			slot.m_shape = std::move(shape);
 			slot.m_body = std::move(body);
 			slot.m_step_index = -1;
@@ -235,7 +236,13 @@ namespace las
 		}
 
 		auto const slot_index = static_cast<int>(m_body_slots.size());
-		m_body_slots.push_back(BodySlot{ std::move(shape), std::move(body), 0, -1 });
+		m_body_slots.push_back(BodySlot{
+			.m_shape = std::move(shape),
+			.m_body = std::move(body),
+			.m_generation = 0,
+			.m_step_index = -1,
+			.m_buoyancy_hull = {},
+		});
 		auto handle = BodyHandle{ slot_index, 0 };
 		PublishSnapshots();
 		return handle;
@@ -314,9 +321,14 @@ namespace las
 	{
 		CheckOwnerThread();
 		CheckNoStepPending("PhysicsSystem::RegisterBoxBuoyancyHull");
-		Slot(handle);
 
-		m_gpu_buoyancy->RegisterBoxHull(handle.m_index, handle.m_generation, size);
+		auto& slot = Slot(handle);
+		if (slot.m_buoyancy_hull)
+		{
+			throw std::runtime_error("A buoyancy hull is already registered for this body");
+		}
+
+		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterBoxHull(handle.m_index, handle.m_generation, size);
 		return BuoyancyHullRegistration{ *this, handle };
 	}
 
@@ -339,11 +351,22 @@ namespace las
 			std::terminate();
 		}
 
-		m_gpu_buoyancy->UnregisterHull(handle.m_index, handle.m_generation);
+		if (handle.m_index < 0 || handle.m_index >= static_cast<int>(m_body_slots.size()))
+		{
+			return;
+		}
+
+		auto& slot = m_body_slots[handle.m_index];
+		if (slot.m_generation != handle.m_generation)
+		{
+			return;
+		}
+
+		slot.m_buoyancy_hull.Reset();
 	}
 
 	// Return the latest diagnostic buoyancy result for a physics body.
-	GpuBuoyancy::Diagnostics PhysicsSystem::BuoyancyDiagnostics(BodyHandle handle) const
+	physics::GpuBuoyancy::Diagnostics PhysicsSystem::BuoyancyDiagnostics(BodyHandle handle) const
 	{
 		if (!IsValid(handle))
 		{
@@ -500,17 +523,17 @@ namespace las
 	}
 
 	// Return the live body state used by owner-thread diagnostic systems.
-	GpuBuoyancy::BodyState PhysicsSystem::BodySlotState(int body_slot_index) const
+	physics::GpuBuoyancy::BodyState PhysicsSystem::BodySlotState(int body_slot_index) const
 	{
 		CheckOwnerThread();
 		if (body_slot_index < 0 || body_slot_index >= static_cast<int>(m_body_slots.size()))
-			return GpuBuoyancy::BodyState{};
+			return physics::GpuBuoyancy::BodyState{};
 
 		auto const& slot = m_body_slots[body_slot_index];
 		if (slot.m_body == nullptr)
-			return GpuBuoyancy::BodyState{};
+			return physics::GpuBuoyancy::BodyState{};
 
-		auto state = GpuBuoyancy::BodyState{};
+		auto state = physics::GpuBuoyancy::BodyState{};
 		state.m_o2w = slot.m_body->O2W();
 		state.m_centre_of_mass_os = slot.m_body->CentreOfMassOS();
 		state.m_valid = true;

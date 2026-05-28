@@ -108,9 +108,6 @@
     <ClCompile Include="src\core\physics\physics_system.cpp">
       <Filter>src\core\physics</Filter>
     </ClCompile>
-    <ClCompile Include="src\core\physics\gpu_buoyancy.cpp">
-      <Filter>src\core\physics</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\forward.h">
@@ -182,15 +179,9 @@
     <ClInclude Include="src\core\physics\physics_system.h">
       <Filter>src\core\physics</Filter>
     </ClInclude>
-    <ClInclude Include="src\core\physics\gpu_buoyancy.h">
-      <Filter>src\core\physics</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\core\physics\ocean_surface_force.hlsl">
-      <Filter>src\core\physics</Filter>
-    </None>
-    <None Include="src\core\physics\gpu_buoyancy.hlsl">
       <Filter>src\core\physics</Filter>
     </None>
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli">

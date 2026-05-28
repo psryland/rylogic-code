@@ -9,4 +9,5 @@ src/compute/resolve.hlsl        TEXT DISCARDABLE "src/compute/resolve.hlsl"
 src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"
 src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"
 src/compute/sweep.hlsl          TEXT DISCARDABLE "src/compute/sweep.hlsl"
+src/buoyancy/gpu_buoyancy.hlsl  TEXT DISCARDABLE "src/buoyancy/gpu_buoyancy.hlsl"
  

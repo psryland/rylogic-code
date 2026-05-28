@@ -166,6 +166,9 @@ namespace pr::physics
 		EngineConfig const& Config() const;
 		void Config(EngineConfig const& config);
 
+		// Return the D3D12 device used by the physics compute engine.
+		ID3D12Device4* Device() const;
+
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
 		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)

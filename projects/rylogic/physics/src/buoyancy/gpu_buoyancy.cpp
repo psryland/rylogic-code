@@ -1,0 +1,675 @@
+//************************************
+// Physics Engine
+//  Copyright (c) Rylogic Ltd 2026
+//************************************
+#include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/compute/compute_pso.h"
+#include "pr/compute/compute_step.h"
+#include "pr/compute/shaders/shader_compiler.h"
+#include "pr/compute/utility/root_signature.h"
+#include "src/buoyancy/buoyancy_analytical.h"
+#include "src/utility/gpu.h"
+
+namespace pr::physics
+{
+	namespace
+	{
+		static constexpr int BuoyancyGridDim = 128;
+		static constexpr int BuoyancyColumnCount = BuoyancyGridDim * BuoyancyGridDim;
+		static constexpr int BuoyancyColumnThreadCount = 256;
+		static constexpr int BuoyancyReduceThreadCount = 128;
+		static constexpr int BuoyancyGroupsPerHull = (BuoyancyColumnCount + BuoyancyColumnThreadCount - 1) / BuoyancyColumnThreadCount;
+		static_assert(BuoyancyGroupsPerHull <= BuoyancyReduceThreadCount);
+
+		struct CBufGpuBuoyancy
+		{
+			int m_hull_count;
+			int m_groups_per_hull;
+			int m_total_columns;
+			int m_grid_x;
+			int m_grid_y;
+			float m_water_level;
+			float m_fluid_density;
+			float m_pad0;
+			v4 m_gravity_ws;
+		};
+		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
+
+		struct GpuBuoyancyHull
+		{
+			int m_body_index;
+			float m_half_extents[3];
+		};
+		static_assert(sizeof(GpuBuoyancyHull) == 16);
+
+		struct GpuBuoyancyPartial
+		{
+			v4 m_force_ws;
+			v4 m_torque_ws;
+			v4 m_moment_ws_volume;
+		};
+		static_assert(sizeof(GpuBuoyancyPartial) == 48);
+
+		struct GpuBuoyancyDiagnostic
+		{
+			v4 m_force_ws;
+			v4 m_torque_ws;
+			v4 m_centre_buoyancy_ws;
+			v4 m_moment_ws_volume;
+			int m_body_index;
+			int m_valid;
+			float m_volume_m3;
+			float m_pad0;
+		};
+		static_assert(sizeof(GpuBuoyancyDiagnostic) == 80);
+
+		// Throw if a buoyancy hull size cannot describe a closed generated box.
+		void ValidateBoxHullSize(v4 size)
+		{
+			if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f || size.w != 0.0f)
+			{
+				throw std::runtime_error("Box buoyancy hulls require positive xyz dimensions and w = 0");
+			}
+		}
+
+		// Create a default-heap UAV buffer used by the diagnostic compute passes.
+		template <typename T>
+		D3DPtr<ID3D12Resource> CreateDefaultUavBuffer(ID3D12Device* device, int count, std::string_view name)
+		{
+			if (count <= 0)
+			{
+				throw std::runtime_error("GPU buoyancy buffer capacity must be positive");
+			}
+
+			auto const desc = D3D12_RESOURCE_DESC{
+				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+				.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+				.Width = static_cast<UINT64>(count) * sizeof(T),
+				.Height = 1,
+				.DepthOrArraySize = 1,
+				.MipLevels = 1,
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.SampleDesc = DXGI_SAMPLE_DESC{ .Count = 1, .Quality = 0 },
+				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+				.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+			};
+
+			auto res = D3DPtr<ID3D12Resource>{};
+			auto const& heap_props = ::pr::compute::HeapProps::Default();
+			Check(device->CreateCommittedResource(
+				&heap_props,
+				D3D12_HEAP_FLAG_NONE,
+				&desc,
+				D3D12_RESOURCE_STATE_COMMON,
+				nullptr,
+				__uuidof(ID3D12Resource),
+				reinterpret_cast<void**>(res.address_of())));
+
+			::pr::compute::DefaultResState(res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			::pr::compute::DebugName(res, name);
+			return res;
+		}
+
+		// Compile a runtime compute shader entry point from the physics buoyancy shader source.
+		std::vector<uint8_t> CompileBuoyancyShader(wchar_t const* entry_point)
+		{
+			auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
+			return ::pr::compute::ShaderCompiler{}
+				.Source("src/buoyancy/gpu_buoyancy.hlsl", resolver)
+				.HlslVersion(::pr::compute::EHlslVersion::Hlsl2021)
+				.Define(L"SHADER_BUILD")
+				.Optimise(true)
+				.ShaderModel(L"cs_6_6")
+				.EntryPoint(entry_point)
+				.Compile();
+		}
+
+		// Create the column-evaluation compute step.
+		::pr::compute::ComputeStep CreateColumnStep(ID3D12Device* device)
+		{
+			auto step = ::pr::compute::ComputeStep{};
+			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
+				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0)
+				.SRV(hlsl::ESRVReg::t0)
+				.UAV(hlsl::EUAVReg::u1)
+				.Create(device, "Physics.GpuBuoyancy.Columns.RootSig");
+
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSGpuBuoyancyColumns")).Create(device, "Physics.GpuBuoyancy.Columns.PSO");
+			return step;
+		}
+
+		// Create the per-hull reduction compute step.
+		::pr::compute::ComputeStep CreateReduceStep(ID3D12Device* device)
+		{
+			auto step = ::pr::compute::ComputeStep{};
+			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
+				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
+				.SRV(hlsl::ESRVReg::t0)
+				.UAV(hlsl::EUAVReg::u1)
+				.UAV(hlsl::EUAVReg::u2)
+				.Create(device, "Physics.GpuBuoyancy.Reduce.RootSig");
+
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSGpuBuoyancyReduce")).Create(device, "Physics.GpuBuoyancy.Reduce.PSO");
+			return step;
+		}
+	}
+
+	struct GpuBuoyancy::Impl
+	{
+		struct HullSlot
+		{
+			int m_generation;
+			v4 m_half_extents;
+			bool m_active;
+		};
+		struct DispatchHull
+		{
+			int m_body_index;
+			int m_body_generation;
+			int m_body_step_index;
+			v4 m_half_extents;
+		};
+		struct AnalyticResult
+		{
+			float m_volume_m3;
+			v4 m_force_ws;
+			v4 m_centre_buoyancy_ws;
+			v4 m_torque_ws;
+			bool m_valid;
+
+			// Construct an invalid analytic buoyancy result.
+			AnalyticResult()
+				:m_volume_m3()
+				,m_force_ws(v4::Zero())
+				,m_centre_buoyancy_ws(v4::Zero())
+				,m_torque_ws(v4::Zero())
+				,m_valid()
+			{
+			}
+		};
+
+		ID3D12Device* m_device;
+		StepIndexResolver m_step_index_resolver;
+		BodyStateResolver m_body_state_resolver;
+		::pr::compute::ComputeStep m_column_step;
+		::pr::compute::ComputeStep m_reduce_step;
+		multicast::AutoSub m_external_force_sub;
+
+		std::vector<HullSlot> m_hulls;
+		std::vector<DispatchHull> m_dispatch_hulls;
+		std::vector<int> m_pending_body_indices;
+		std::vector<int> m_pending_body_generations;
+		std::vector<AnalyticResult> m_pending_analytic_results;
+		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
+		int m_pending_diagnostic_count;
+
+		D3DPtr<ID3D12Resource> m_r_partials;
+		D3DPtr<ID3D12Resource> m_r_diagnostics;
+		int m_partial_capacity;
+		int m_diagnostic_capacity;
+
+		mutable std::mutex m_diagnostics_mutex;
+		std::vector<Diagnostics> m_diagnostics;
+
+		// Construct and subscribe the diagnostic-only buoyancy compute pass.
+		Impl(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+			:m_device(device)
+			,m_step_index_resolver(std::move(step_index_resolver))
+			,m_body_state_resolver(std::move(body_state_resolver))
+			,m_column_step(CreateColumnStep(device))
+			,m_reduce_step(CreateReduceStep(device))
+			,m_external_force_sub(engine.ExternalForces += [this](Engine& sender, Engine::ExternalForceArgs const& args)
+			{
+				Apply(sender, args);
+			})
+			,m_hulls()
+			,m_dispatch_hulls()
+			,m_pending_body_indices()
+			,m_pending_body_generations()
+			,m_pending_analytic_results()
+			,m_pending_readback()
+			,m_pending_diagnostic_count()
+			,m_r_partials()
+			,m_r_diagnostics()
+			,m_partial_capacity()
+			,m_diagnostic_capacity()
+			,m_diagnostics_mutex()
+			,m_diagnostics()
+		{
+			if (m_device == nullptr)
+			{
+				throw std::runtime_error("GpuBuoyancy requires a D3D12 device");
+			}
+			if (!m_step_index_resolver)
+			{
+				throw std::runtime_error("GpuBuoyancy requires a body step-index resolver");
+			}
+			if (!m_body_state_resolver)
+			{
+				throw std::runtime_error("GpuBuoyancy requires a body-state resolver");
+			}
+		}
+
+		// Destroy the buoyancy pass after all physics GPU work has completed.
+		~Impl() = default;
+
+		// Register a generated box buoyancy hull against a stable physics body index.
+		void RegisterBoxHull(int body_index, int body_generation, v4 size)
+		{
+			if (body_index < 0 || body_generation < 0)
+			{
+				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
+			}
+			ValidateBoxHullSize(size);
+
+			// Hull slots are indexed by the stable body index so the per-frame callback only needs to resolve the compact engine step index.
+			if (body_index >= static_cast<int>(m_hulls.size()))
+			{
+				m_hulls.resize(static_cast<std::size_t>(body_index + 1), HullSlot{ -1, v4::Zero(), false });
+			}
+
+			auto& hull = m_hulls[body_index];
+			if (hull.m_active)
+			{
+				throw std::runtime_error("A buoyancy hull is already registered for this body");
+			}
+
+			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+			if (body_index >= static_cast<int>(m_diagnostics.size()))
+			{
+				m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
+			}
+
+			auto& diagnostic = m_diagnostics[body_index];
+			diagnostic = Diagnostics{};
+			diagnostic.m_body_index = body_index;
+			diagnostic.m_body_generation = body_generation;
+
+			hull.m_generation = body_generation;
+			hull.m_half_extents = size * 0.5f;
+			hull.m_active = true;
+		}
+
+		// Remove the buoyancy hull for a stable physics body index.
+		void UnregisterHull(int body_index, int body_generation) noexcept
+		{
+			if (body_index < 0 || body_index >= static_cast<int>(m_hulls.size()))
+			{
+				return;
+			}
+
+			auto& hull = m_hulls[body_index];
+			if (!hull.m_active)
+			{
+				return;
+			}
+			if (hull.m_generation != body_generation)
+			{
+				return;
+			}
+
+			hull = HullSlot{ -1, v4::Zero(), false };
+
+			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+			if (body_index < static_cast<int>(m_diagnostics.size()))
+			{
+				m_diagnostics[body_index] = Diagnostics{};
+			}
+		}
+
+		// Return the latest diagnostic record for a registered hull.
+		Diagnostics LatestDiagnostics(int body_index, int body_generation) const
+		{
+			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+			if (body_index < 0 || body_index >= static_cast<int>(m_diagnostics.size()))
+			{
+				return Diagnostics{};
+			}
+
+			auto diagnostic = m_diagnostics[body_index];
+			if (diagnostic.m_body_generation != body_generation)
+			{
+				return Diagnostics{};
+			}
+
+			return diagnostic;
+		}
+
+		// Consume diagnostic readback data after the physics engine has completed its GPU step.
+		void CompleteStep()
+		{
+			if (m_pending_diagnostic_count == 0)
+			{
+				m_pending_body_indices.clear();
+				m_pending_body_generations.clear();
+				m_pending_analytic_results.clear();
+				m_pending_readback = {};
+				return;
+			}
+
+			auto const diagnostics = std::span{ m_pending_readback.ptr<GpuBuoyancyDiagnostic>(), static_cast<std::size_t>(m_pending_diagnostic_count) };
+			{
+				auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+				for (int index = 0; index != m_pending_diagnostic_count; ++index)
+				{
+					auto const body_index = m_pending_body_indices[index];
+					auto const body_generation = m_pending_body_generations[index];
+					auto const& analytic = m_pending_analytic_results[index];
+					if (body_index < 0 || body_index >= static_cast<int>(m_diagnostics.size()))
+					{
+						throw std::runtime_error("GPU buoyancy diagnostic readback referred to an unknown body slot");
+					}
+					if (m_diagnostics[body_index].m_body_generation != body_generation)
+					{
+						throw std::runtime_error("GPU buoyancy diagnostic readback generation mismatch");
+					}
+
+					auto const& gpu_diag = diagnostics[index];
+					auto& diag = m_diagnostics[body_index];
+					diag.m_volume_m3 = gpu_diag.m_volume_m3;
+					diag.m_force_ws = gpu_diag.m_force_ws;
+					diag.m_torque_ws = gpu_diag.m_torque_ws;
+					diag.m_centre_buoyancy_ws = gpu_diag.m_centre_buoyancy_ws;
+					diag.m_valid = gpu_diag.m_valid != 0;
+					diag.m_analytic_volume_m3 = analytic.m_volume_m3;
+					diag.m_analytic_force_ws = analytic.m_force_ws;
+					diag.m_analytic_centre_buoyancy_ws = analytic.m_centre_buoyancy_ws;
+					diag.m_analytic_torque_ws = analytic.m_torque_ws;
+					diag.m_volume_error_m3 = diag.m_volume_m3 - analytic.m_volume_m3;
+					diag.m_force_error_ws = diag.m_force_ws - analytic.m_force_ws;
+					diag.m_centre_buoyancy_error_ws = diag.m_centre_buoyancy_ws - analytic.m_centre_buoyancy_ws;
+					diag.m_torque_error_ws = diag.m_torque_ws - analytic.m_torque_ws;
+					diag.m_analytic_valid = analytic.m_valid;
+				}
+			}
+
+			m_pending_body_indices.clear();
+			m_pending_body_generations.clear();
+			m_pending_analytic_results.clear();
+			m_pending_readback = {};
+			m_pending_diagnostic_count = 0;
+		}
+
+		// Record the diagnostic-only buoyancy compute work into the active physics GPU job.
+		void Apply(Engine&, Engine::ExternalForceArgs const& args)
+		{
+			m_pending_body_indices.clear();
+			m_pending_body_generations.clear();
+			m_pending_analytic_results.clear();
+			m_pending_readback = {};
+			m_pending_diagnostic_count = 0;
+			if (args.m_body_count == 0)
+			{
+				return;
+			}
+
+			// Build the compact dispatch table from active hulls whose bodies are present in this Engine::BeginStep() range.
+			m_dispatch_hulls.clear();
+			for (auto body_index = 0; body_index != static_cast<int>(m_hulls.size()); ++body_index)
+			{
+				auto const& hull = m_hulls[body_index];
+				if (!hull.m_active)
+				{
+					continue;
+				}
+
+				auto const body_step_index = m_step_index_resolver(body_index);
+				if (body_step_index < 0)
+				{
+					continue;
+				}
+				if (body_step_index >= args.m_body_count)
+				{
+					throw std::runtime_error("Buoyancy hull resolved to an invalid physics step body index");
+				}
+
+				m_dispatch_hulls.push_back(DispatchHull{
+					.m_body_index = body_index,
+					.m_body_generation = hull.m_generation,
+					.m_body_step_index = body_step_index,
+					.m_half_extents = hull.m_half_extents,
+				});
+			}
+			if (m_dispatch_hulls.empty())
+			{
+				return;
+			}
+
+			auto const hull_count = static_cast<int>(m_dispatch_hulls.size());
+			EnsureGpuCapacity(args.m_job, hull_count);
+
+			// Upload the body-index/hull table into the physics job upload buffer; the allocation stays alive until the submitted job completes.
+			auto upload = args.m_job.m_upload.template Alloc<GpuBuoyancyHull>(hull_count);
+			auto upload_hulls = upload.ptr<GpuBuoyancyHull>();
+			for (auto index = 0; index != static_cast<int>(m_dispatch_hulls.size()); ++index)
+			{
+				auto const& hull = m_dispatch_hulls[index];
+				upload_hulls[index] = GpuBuoyancyHull{
+					.m_body_index = hull.m_body_step_index,
+					.m_half_extents = { hull.m_half_extents.x, hull.m_half_extents.y, hull.m_half_extents.z },
+				};
+
+				m_pending_body_indices.push_back(hull.m_body_index);
+				m_pending_body_generations.push_back(hull.m_body_generation);
+				m_pending_analytic_results.push_back(CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents));
+			}
+
+			auto const hulls_gpu_va = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
+			auto const cb = CBufGpuBuoyancy{
+				.m_hull_count = hull_count,
+				.m_groups_per_hull = BuoyancyGroupsPerHull,
+				.m_total_columns = BuoyancyColumnCount,
+				.m_grid_x = BuoyancyGridDim,
+				.m_grid_y = BuoyancyGridDim,
+				.m_water_level = AnalyticWaterLevel,
+				.m_fluid_density = AnalyticFluidDensity,
+				.m_pad0 = 0.0f,
+				.m_gravity_ws = AnalyticGravityWS,
+			};
+
+			// Evaluate all column samples into one partial record per hull/threadgroup.
+			args.m_job.m_cmd_list.SetPipelineState(m_column_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_column_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(hull_count * BuoyancyGroupsPerHull, 1, 1);
+			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
+
+			// Reduce per-threadgroup partials to one diagnostic record per hull. This pass does not write body force accumulators yet.
+			args.m_job.m_cmd_list.SetPipelineState(m_reduce_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_reduce_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);
+			args.m_job.m_barriers.UAV(m_r_diagnostics.get()).Commit();
+
+			// Copy diagnostics to a separate readback allocation after the GPU has produced the default-heap UAV result.
+			m_pending_readback = args.m_job.m_readback.template Alloc<GpuBuoyancyDiagnostic>(hull_count);
+			m_pending_diagnostic_count = hull_count;
+			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			args.m_job.m_cmd_list.CopyBufferRegion(m_pending_readback, m_r_diagnostics.get(), 0);
+			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		}
+
+		// Calculate the exact flat-water analytic buoyancy result for a generated box hull.
+		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents)
+		{
+			auto result = AnalyticResult{};
+			if (!body_state.m_valid)
+				return result;
+
+			result.m_valid = true;
+			auto const volume_centroid = SubmergedBoxVolumeCentroid(body_state.m_o2w, half_extents, AnalyticWaterLevel);
+			if (!volume_centroid.m_valid)
+				return result;
+
+			auto const centre_of_mass_ws = body_state.m_o2w * body_state.m_centre_of_mass_os.w1();
+			result.m_volume_m3 = volume_centroid.m_volume_m3;
+			result.m_centre_buoyancy_ws = volume_centroid.m_centroid_ws;
+			result.m_force_ws = -AnalyticGravityWS * (AnalyticFluidDensity * volume_centroid.m_volume_m3);
+			result.m_torque_ws = Cross(volume_centroid.m_centroid_ws - centre_of_mass_ws, result.m_force_ws);
+			return result;
+		}
+
+		// Resize GPU buffers used by the diagnostic dispatches.
+		void EnsureGpuCapacity(GpuJob& job, int hull_count)
+		{
+			auto const partial_capacity = hull_count * BuoyancyGroupsPerHull;
+			if (partial_capacity > m_partial_capacity)
+			{
+				m_r_partials = CreateDefaultUavBuffer<GpuBuoyancyPartial>(m_device, partial_capacity, "Physics.GpuBuoyancy.Partials");
+				m_partial_capacity = partial_capacity;
+			}
+			if (hull_count > m_diagnostic_capacity)
+			{
+				m_r_diagnostics = CreateDefaultUavBuffer<GpuBuoyancyDiagnostic>(m_device, hull_count, "Physics.GpuBuoyancy.Diagnostics");
+				m_diagnostic_capacity = hull_count;
+			}
+
+			// New resources start in COMMON but are tracked with a UAV default state, relying on normal D3D12 buffer promotion for first use.
+			job.m_barriers.Transition(m_r_partials.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+		}
+	};
+
+	// Construct an invalid buoyancy diagnostic record.
+	GpuBuoyancy::Diagnostics::Diagnostics()
+		:m_body_index(-1)
+		,m_body_generation(-1)
+		,m_volume_m3()
+		,m_force_ws(v4::Zero())
+		,m_centre_buoyancy_ws(v4::Zero())
+		,m_torque_ws(v4::Zero())
+		,m_analytic_volume_m3()
+		,m_analytic_force_ws(v4::Zero())
+		,m_analytic_centre_buoyancy_ws(v4::Zero())
+		,m_analytic_torque_ws(v4::Zero())
+		,m_volume_error_m3()
+		,m_force_error_ws(v4::Zero())
+		,m_centre_buoyancy_error_ws(v4::Zero())
+		,m_torque_error_ws(v4::Zero())
+		,m_valid()
+		,m_analytic_valid()
+	{
+	}
+
+	// Construct an empty registration handle.
+	GpuBuoyancy::Registration::Registration()
+		:m_owner()
+		,m_body_index(-1)
+		,m_body_generation(-1)
+	{
+	}
+
+	// Construct a registration handle for an already registered hull.
+	GpuBuoyancy::Registration::Registration(GpuBuoyancy& owner, int body_index, int body_generation)
+		:m_owner(&owner)
+		,m_body_index(body_index)
+		,m_body_generation(body_generation)
+	{
+	}
+
+	// Move ownership of a buoyancy hull registration.
+	GpuBuoyancy::Registration::Registration(Registration&& rhs) noexcept
+		:Registration()
+	{
+		std::swap(m_owner, rhs.m_owner);
+		std::swap(m_body_index, rhs.m_body_index);
+		std::swap(m_body_generation, rhs.m_body_generation);
+	}
+
+	// Replace this handle with another registration, unregistering the current hull first.
+	GpuBuoyancy::Registration& GpuBuoyancy::Registration::operator=(Registration&& rhs) noexcept
+	{
+		if (this == &rhs)
+		{
+			return *this;
+		}
+
+		Reset();
+		std::swap(m_owner, rhs.m_owner);
+		std::swap(m_body_index, rhs.m_body_index);
+		std::swap(m_body_generation, rhs.m_body_generation);
+		return *this;
+	}
+
+	// Unregister the hull owned by this handle.
+	GpuBuoyancy::Registration::~Registration()
+	{
+		Reset();
+	}
+
+	// Release the current hull registration, if any.
+	void GpuBuoyancy::Registration::Reset() noexcept
+	{
+		if (m_owner == nullptr)
+		{
+			return;
+		}
+
+		m_owner->UnregisterHull(m_body_index, m_body_generation);
+		m_owner = nullptr;
+		m_body_index = -1;
+		m_body_generation = -1;
+	}
+
+	// Return true when this handle owns a registered hull.
+	GpuBuoyancy::Registration::operator bool() const
+	{
+		return m_owner != nullptr;
+	}
+
+	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		:m_impl(std::make_unique<Impl>(device, engine, std::move(step_index_resolver), std::move(body_state_resolver)))
+	{
+	}
+
+	// Destroy the buoyancy module after all owned registrations have been released.
+	GpuBuoyancy::~GpuBuoyancy()
+	{
+		#if PR_DBG
+		auto const active_registration = std::ranges::any_of(m_impl->m_hulls, [](Impl::HullSlot const& hull)
+		{
+			return hull.m_active;
+		});
+		PR_ASSERT(PR_DBG, !active_registration, "GpuBuoyancy registrations must be destroyed before the GpuBuoyancy module");
+		#endif
+	}
+
+	// Return the latest diagnostic record for a registered hull.
+	GpuBuoyancy::Diagnostics GpuBuoyancy::LatestDiagnostics(int body_index, int body_generation) const
+	{
+		return m_impl->LatestDiagnostics(body_index, body_generation);
+	}
+
+	// Consume diagnostic readback data after the physics engine has completed its GPU step.
+	void GpuBuoyancy::CompleteStep()
+	{
+		m_impl->CompleteStep();
+	}
+
+	// Register a generated box buoyancy hull against a stable physics body index.
+	GpuBuoyancy::Registration GpuBuoyancy::RegisterBoxHull(int body_index, int body_generation, v4 size)
+	{
+		m_impl->RegisterBoxHull(body_index, body_generation, size);
+		return Registration{*this, body_index, body_generation};
+	}
+
+	// Remove the buoyancy hull for a stable physics body index.
+	void GpuBuoyancy::UnregisterHull(int body_index, int body_generation) noexcept
+	{
+		if (m_impl == nullptr)
+		{
+			return;
+		}
+
+		m_impl->UnregisterHull(body_index, body_generation);
+	}
+}

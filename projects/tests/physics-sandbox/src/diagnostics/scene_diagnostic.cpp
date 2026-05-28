@@ -572,6 +572,31 @@ namespace physics_sandbox::diag
 				sample.m_kinetic_energy));
 		}
 
+		// Log GPU-vs-analytic buoyancy values captured after the physics step.
+		void PrintBuoyancyDiagnostics(std::ofstream& log, int step, double time_s, Scene const& scene)
+		{
+			auto diagnostics = scene.BuoyancyDiagnostics();
+			for (auto const& diag : diagnostics)
+			{
+				Emit(log, std::format(
+					"buoyancy step={:5d} t={:8.4f} body={:4d} valid={} analytic={} volume={:10.6f} analytic_volume={:10.6f} volume_err={:10.6f} force=({:10.3f},{:10.3f},{:10.3f}) force_err=({:10.3f},{:10.3f},{:10.3f}) cob=({:9.4f},{:9.4f},{:9.4f}) cob_err=({:9.4f},{:9.4f},{:9.4f}) torque=({:10.3f},{:10.3f},{:10.3f}) torque_err=({:10.3f},{:10.3f},{:10.3f})\n",
+					step,
+					time_s,
+					diag.m_body_index,
+					diag.m_valid ? "true" : "false",
+					diag.m_analytic_valid ? "true" : "false",
+					diag.m_volume_m3,
+					diag.m_analytic_volume_m3,
+					diag.m_volume_error_m3,
+					diag.m_force_ws.x, diag.m_force_ws.y, diag.m_force_ws.z,
+					diag.m_force_error_ws.x, diag.m_force_error_ws.y, diag.m_force_error_ws.z,
+					diag.m_centre_buoyancy_ws.x, diag.m_centre_buoyancy_ws.y, diag.m_centre_buoyancy_ws.z,
+					diag.m_centre_buoyancy_error_ws.x, diag.m_centre_buoyancy_error_ws.y, diag.m_centre_buoyancy_error_ws.z,
+					diag.m_torque_ws.x, diag.m_torque_ws.y, diag.m_torque_ws.z,
+					diag.m_torque_error_ws.x, diag.m_torque_error_ws.y, diag.m_torque_error_ws.z));
+			}
+		}
+
 		void PrintEngineProfile(std::ofstream& log, int step, double time_s, EngineProfileAccumulator const& profile)
 		{
 			auto count = std::max(profile.m_sample_count, 1);
@@ -1457,7 +1482,10 @@ namespace physics_sandbox::diag
 
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+				{
 					PrintSample(log, step + 1, scene.m_clock, sample);
+					PrintBuoyancyDiagnostics(log, step + 1, scene.m_clock, scene);
+				}
 			}
 		}
 

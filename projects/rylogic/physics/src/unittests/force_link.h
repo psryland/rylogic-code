@@ -14,6 +14,7 @@
 #if PR_UNITTESTS
 namespace pr::physics::tests
 {
+	void ForceLink_Buoyancy();
 	void ForceLink_GpuCollision();
 	void ForceLink_GpuCollisionDetector();
 	void ForceLink_CollisionPairs();
@@ -28,6 +29,7 @@ namespace pr::physics::tests
 
 	inline void ForceLink_PhysicsTests()
 	{
+		ForceLink_Buoyancy();
 		ForceLink_GpuCollision();
 		ForceLink_GpuCollisionDetector();
 		ForceLink_CollisionPairs();

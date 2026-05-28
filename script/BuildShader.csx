@@ -118,7 +118,7 @@ public class ShaderBuilder
 		if (compute_dir != null)
 			return compute_dir;
 
-		throw new Exception($"Shader file {fdir} is not within an 'hlsl' or 'compute' directory");
+		return fdir;
 	}
 
 	// Return the nearest ancestor directory with the given directory name.

@@ -205,6 +205,10 @@ namespace pr::physics
 
 		m_config = config;
 	}
+	ID3D12Device4* Engine::Device() const
+	{
+		return *m_gpu;
+	}
 
 	// Drop all internally-cached references to caller-supplied data.
 	void Engine::ResetCaches()

@@ -169,6 +169,10 @@ namespace physics_sandbox
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
+		, m_gpu_buoyancy()
+		, m_buoyancy_hulls()
+		, m_buoyancy_body_indices()
+		, m_buoyancy_generation()
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
 		, m_physics_substeps(1)
@@ -197,6 +201,85 @@ namespace physics_sandbox
 		}
 	}
 
+	// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
+	void Scene::ClearBuoyancy()
+	{
+		m_buoyancy_hulls.clear();
+		m_buoyancy_body_indices.clear();
+		m_gpu_buoyancy.reset();
+		++m_buoyancy_generation;
+	}
+
+	// Create diagnostic buoyancy hulls described by a loaded scene.
+	void Scene::ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc)
+	{
+		if (scene_desc.buoyancy_hulls.empty())
+			return;
+
+		auto body_lookup = std::unordered_map<std::string, int>{};
+		body_lookup.reserve(scene_desc.bodies.size());
+		for (int body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
+		{
+			auto const& body_name = scene_desc.bodies[body_index].name;
+			if (body_name.empty())
+				throw std::runtime_error("Buoyancy-enabled scenes require named bodies");
+
+			auto const [_, inserted] = body_lookup.emplace(body_name, body_index);
+			if (!inserted)
+				throw std::runtime_error(pr::FmtS("Buoyancy-enabled scene has duplicate body name '%s'", body_name.c_str()));
+		}
+
+		m_gpu_buoyancy = std::make_unique<physics::GpuBuoyancy>(
+			m_physics.Device(),
+			m_physics,
+			[this](int stable_body_index)
+			{
+				return stable_body_index >= 0 && stable_body_index < isize(m_body)
+					? stable_body_index
+					: -1;
+			},
+			[this](int stable_body_index)
+			{
+				auto body_state = physics::GpuBuoyancy::BodyState{};
+				if (stable_body_index < 0 || stable_body_index >= isize(m_body))
+					return body_state;
+
+				auto const& body = m_body[stable_body_index];
+				body_state.m_o2w = body.O2W();
+				body_state.m_centre_of_mass_os = body.CentreOfMassOS();
+				body_state.m_valid = true;
+				return body_state;
+			});
+
+		m_buoyancy_hulls.reserve(scene_desc.buoyancy_hulls.size());
+		m_buoyancy_body_indices.reserve(scene_desc.buoyancy_hulls.size());
+		for (auto const& hull : scene_desc.buoyancy_hulls)
+		{
+			auto const iter = body_lookup.find(hull.body_name);
+			if (iter == body_lookup.end())
+				throw std::runtime_error(pr::FmtS("Buoyancy hull references unknown body '%s'", hull.body_name.c_str()));
+
+			auto registration = m_gpu_buoyancy->RegisterBoxHull(iter->second, m_buoyancy_generation, hull.dimensions);
+			m_buoyancy_hulls.push_back(std::move(registration));
+			m_buoyancy_body_indices.push_back(iter->second);
+			DbgLog("  Buoyancy: body '%s' box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
+		}
+	}
+
+	// Return the latest diagnostic buoyancy records for scene-registered hulls.
+	std::vector<physics::GpuBuoyancy::Diagnostics> Scene::BuoyancyDiagnostics() const
+	{
+		auto diagnostics = std::vector<physics::GpuBuoyancy::Diagnostics>{};
+		if (m_gpu_buoyancy == nullptr)
+			return diagnostics;
+
+		diagnostics.reserve(m_buoyancy_body_indices.size());
+		for (auto body_index : m_buoyancy_body_indices)
+			diagnostics.push_back(m_gpu_buoyancy->LatestDiagnostics(body_index, m_buoyancy_generation));
+
+		return diagnostics;
+	}
+
 	// Reset the simulation to the current scenario's initial conditions
 	void Scene::Reset()
 	{
@@ -209,6 +292,8 @@ namespace physics_sandbox
 		m_physics.Config(physics::EngineConfig{
 			.sleeping_enabled = m_allow_sleeping,
 		});
+
+		ClearBuoyancy();
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -277,7 +362,10 @@ namespace physics_sandbox
 
 			// Step physics (Evolve -> Broad Phase -> Narrow Phase -> PostCollisionDetection -> Resolve).
 			auto const physics_beg = Clock::now();
-			m_physics.Step(dt, std::span{ m_body });
+			auto const substep_time_s = m_clock - elapsed_seconds + elapsed_seconds * static_cast<double>(substep) / static_cast<double>(substeps);
+			m_physics.Step(dt, std::span{ m_body }, substep_time_s);
+			if (m_gpu_buoyancy != nullptr)
+				m_gpu_buoyancy->CompleteStep();
 			auto const physics_end = Clock::now();
 			physics_ms += ElapsedMs(physics_beg, physics_end);
 			AddProfile(engine_profile, m_physics.LastStepProfile());
@@ -334,6 +422,8 @@ namespace physics_sandbox
 	// forces so that collisions can be validated against analytic predictions.
 	void Scene::SetupScenario(EScenario scenario)
 	{
+		ClearBuoyancy();
+
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
 
@@ -461,6 +551,7 @@ namespace physics_sandbox
 		m_diag.Reset();
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		ClearBuoyancy();
 		m_physics.ResetCaches();
 
 		// Clean up ground plane visual from previous scene
@@ -618,6 +709,7 @@ namespace physics_sandbox
 			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
 			m_physics.UpdateSleepIslands(m_body);
 		}
+		ConfigureBuoyancy(scene_desc);
 		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);

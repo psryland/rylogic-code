@@ -1,0 +1,43 @@
+{
+	"scene": {
+		"description": "Diagnostic buoyancy floater: a 2 x 2 x 1 m box centred on flat water at z = 0. The buoyancy pass should report 2 m^3 displaced volume and an upward 19620 N force before force application is enabled.",
+		"camera": {
+			"position": [0.0, -8.0, 3.0],
+			"lookat": [0.0, 0.0, 0.0]
+		},
+		"gravity": [0.0, 0.0, 0.0],
+		"physics": {
+			"substeps": 1
+		},
+		"material": {
+			"elasticity": 0.0,
+			"friction": 0.0
+		},
+		"shapes": {
+			"box": {
+				"name": "floater-box",
+				"type": "box",
+				"dimensions": [2.0, 2.0, 1.0]
+			}
+		},
+		"bodies": [
+			{
+				"name": "floater",
+				"shape": "floater-box",
+				"mass": 2000.0,
+				"position": [0.0, 0.0, 0.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 0.0]
+			}
+		],
+		"buoyancy": {
+			"hulls": [
+				{
+					"body": "floater",
+					"type": "box",
+					"dimensions": [2.0, 2.0, 1.0]
+				}
+			]
+		}
+	}
+}

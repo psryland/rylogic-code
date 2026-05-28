@@ -4,7 +4,7 @@
 //************************************
 #pragma once
 #include "src/forward.h"
-#include "src/core/physics/gpu_buoyancy.h"
+#include "pr/physics/buoyancy/gpu_buoyancy.h"
 
 namespace las
 {
@@ -74,6 +74,7 @@ namespace las
 			std::unique_ptr<RigidBody> m_body;
 			int m_generation;
 			int m_step_index;
+			physics::GpuBuoyancy::Registration m_buoyancy_hull;
 		};
 
 		std::thread::id m_owner_thread_id;
@@ -81,7 +82,7 @@ namespace las
 
 		struct OceanSurfaceForce;
 		std::unique_ptr<OceanSurfaceForce> m_ocean_surface_force;
-		std::unique_ptr<GpuBuoyancy> m_gpu_buoyancy;
+		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
 
 		std::vector<BodySlot> m_body_slots;
 		std::vector<int> m_free_slots;
@@ -122,7 +123,7 @@ namespace las
 		[[nodiscard]] BuoyancyHullRegistration RegisterBoxBuoyancyHull(BodyHandle handle, v4 size);
 
 		// Return the latest diagnostic buoyancy result for a physics body.
-		GpuBuoyancy::Diagnostics BuoyancyDiagnostics(BodyHandle handle) const;
+		physics::GpuBuoyancy::Diagnostics BuoyancyDiagnostics(BodyHandle handle) const;
 
 		// Submit GPU physics work for all registered rigid bodies without waiting for completion.
 		void BeginStep(float dt, double time_s);
@@ -158,7 +159,7 @@ namespace las
 		int BodySlotStepIndex(int body_slot_index) const;
 
 		// Return the live body state used by owner-thread diagnostic systems.
-		GpuBuoyancy::BodyState BodySlotState(int body_slot_index) const;
+		physics::GpuBuoyancy::BodyState BodySlotState(int body_slot_index) const;
 
 		// Release a buoyancy hull registration during RAII cleanup.
 		void ReleaseBuoyancyHull(BodyHandle handle) noexcept;

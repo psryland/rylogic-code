@@ -478,6 +478,43 @@ namespace physics_sandbox::scene_loader
 
 		return camera;
 	}
+	// Parse diagnostic generated-box buoyancy hulls from a scene object.
+	std::vector<BuoyancyHullDesc> ReadBuoyancyHulls(pr::json::Value const& jbuoyancy)
+	{
+		auto hulls = std::vector<BuoyancyHullDesc>{};
+		auto const& jbuoyancy_obj = jbuoyancy.to_object();
+		auto const* jhulls = jbuoyancy_obj.find("hulls");
+		if (jhulls == nullptr)
+			return hulls;
+
+		for (auto const& jhull : jhulls->to_array())
+		{
+			auto const& jhull_obj = jhull.to_object();
+			auto const* jbody = jhull_obj.find("body");
+			if (jbody == nullptr)
+				throw std::runtime_error("Buoyancy hull requires a 'body' field");
+
+			auto hull = BuoyancyHullDesc{};
+			hull.body_name = jbody->to<std::string>();
+			if (hull.body_name.empty())
+				throw std::runtime_error("Buoyancy hull 'body' field cannot be empty");
+
+			auto type = std::string("box");
+			if (auto const* jtype = jhull_obj.find("type"))
+				type = jtype->to<std::string>();
+			if (type != "box")
+				throw std::runtime_error(pr::FmtS("Unsupported buoyancy hull type: '%s'", type.c_str()));
+
+			auto const* jdimensions = jhull_obj.find("dimensions");
+			if (jdimensions == nullptr)
+				throw std::runtime_error("Box buoyancy hull requires a 'dimensions' field");
+
+			hull.dimensions = ReadVec3(*jdimensions, 0.0f);
+			hulls.push_back(std::move(hull));
+		}
+
+		return hulls;
+	}
 
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath)
@@ -697,6 +734,10 @@ namespace physics_sandbox::scene_loader
 			for (auto const& jgenerator : jgenerators->to_array())
 				AppendGeneratedBodies(desc, jgenerator, shapes, scene_rng);
 		}
+
+		// Diagnostic buoyancy hulls.
+		if (auto* jbuoyancy = jscene.find("buoyancy"))
+			desc.buoyancy_hulls = ReadBuoyancyHulls(*jbuoyancy);
 
 		// Camera
 		if (auto* jcamera = jscene.find("camera"))
