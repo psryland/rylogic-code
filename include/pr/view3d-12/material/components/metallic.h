@@ -13,8 +13,11 @@ namespace pr::rdr12::materials
 	{
 		static constexpr RdrId Id = hash::HashCT("materials::Metallic");
 
-		float m_factor = 0.0f; // Metallic factor.
-		ScalarTextureSlot m_tex = {{{}, {}, ETextureColourSpace::Linear}, ETextureChannel::Blue}; // Metallic scalar map.
+		float m_factor = 0.0f;      // Metallic factor.
+		ScalarTextureSlot m_tex = { // Metallic scalar map.
+			{{}, {}, {}, ETextureColourSpace::Linear, 0},
+			ETextureChannel::Blue
+		};
 	};
 	static_assert(ComponentType<Metallic>);
 }

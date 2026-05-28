@@ -71,8 +71,8 @@ namespace pr::rdr12
 
 		// Create a new texture instance.
 		Texture2DPtr CreateTexture2D(TextureDesc const& desc);
-		Texture2DPtr CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false);
-		TextureCubePtr CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false);
+		Texture2DPtr CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false, EColourSpace colour_space = EColourSpace::Srgb);
+		TextureCubePtr CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false, EColourSpace colour_space = EColourSpace::Srgb);
 		Texture2DPtr CreateTexture(EStockTexture id);
 
 		// Create (or Get) a new sampler instance.

@@ -201,7 +201,7 @@ namespace pr::rdr12
 	}
 
 	// Return an array of 'Image's and a resource description from DDS image data.
-	LoadedImageResult LoadWIC(vector<RefPtr<IWICBitmapFrameDecode>> const& frames, int mips, int max_dimension, FeatureSupport const* features)
+	LoadedImageResult LoadWIC(vector<RefPtr<IWICBitmapFrameDecode>> const& frames, int mips, int max_dimension, FeatureSupport const* features, EColourSpace colour_space)
 	{
 		if (frames.empty())
 			throw std::runtime_error("No image frames provided");
@@ -291,6 +291,12 @@ namespace pr::rdr12
 			break;
 		}
 
+		// Promote the picked format to its SRGB sibling when the caller has tagged the texels as sRGB-encoded colour data.
+		// WIC decodes PNG/JPG/etc. to byte values without honouring any embedded colour-space metadata, so we treat the caller's
+		// hint as authoritative. ToSRGB returns 'format' unchanged when no SRGB variant exists (e.g. floating-point HDR formats).
+		if (colour_space == EColourSpace::Srgb)
+			format = ::pr::compute::ToSRGB(format);
+
 		auto pitch = (dim.x * bpp + 7) / 8;
 		auto frame_size = pitch * dim.y;
 		auto conversion_needed = src_format != dst_format;
@@ -355,11 +361,17 @@ namespace pr::rdr12
 			.Flags = D3D12_RESOURCE_FLAG_NONE,
 		};
 
+		// 'D3D12_RESOURCE_DESC' has no notion of staging-buffer alignment, so 'DataAlignment' must be
+		// set explicitly. Required by 'UpdateSubresourceScope' / 'GpuTransferBuffer::Alloc'; if left
+		// at zero the alignment math in 'Pad' silently wraps and successive uploads can be staged at
+		// overlapping offsets, corrupting texture content.
+		result.desc.data_alignment(D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
 		return result;
 	}
 
 	// Load an image from a WIC image, either in memory or on disk.
-	LoadedImageResult LoadWIC(std::span<std::span<uint8_t const>> images, int mips, int max_dimension, FeatureSupport const* features)
+	LoadedImageResult LoadWIC(std::span<std::span<uint8_t const>> images, int mips, int max_dimension, FeatureSupport const* features, EColourSpace colour_space)
 	{
 		if (images.empty())
 			throw std::runtime_error("Texture file data is invalid");
@@ -388,9 +400,9 @@ namespace pr::rdr12
 		}
 
 		// Create the texture
-		return LoadWIC(frames, mips, max_dimension, features);
+		return LoadWIC(frames, mips, max_dimension, features, colour_space);
 	}
-	LoadedImageResult LoadWIC(std::span<std::filesystem::path const> filepaths, int mips, int max_dimension, FeatureSupport const* features)
+	LoadedImageResult LoadWIC(std::span<std::filesystem::path const> filepaths, int mips, int max_dimension, FeatureSupport const* features, EColourSpace colour_space)
 	{
 		auto wic = GetWIC();
 
@@ -411,6 +423,6 @@ namespace pr::rdr12
 		}
 
 		// Create the texture
-		return LoadWIC(frames, mips, max_dimension, features);
+		return LoadWIC(frames, mips, max_dimension, features, colour_space);
 	}
 }

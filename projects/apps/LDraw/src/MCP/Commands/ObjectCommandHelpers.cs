@@ -222,6 +222,7 @@ internal sealed partial class LDrawInstanceHost
 	{
 		var obj = entry.Object;
 		var o2p = obj.O2P;
+		var o2w = obj.O2WGet(null);
 		return new LDrawObjectInfo
 		{
 			ObjectId = ObjectId(obj),
@@ -239,6 +240,14 @@ internal sealed partial class LDrawInstanceHost
 			ChildCount = obj.ChildCount,
 			ModelBounds = LDrawBoundsInfo.From(obj.BBoxMS(View3d.EBBoxFlags.IncludeChildren)),
 			ObjectToParent = [..o2p.ToArray().Select(x => (double)x)],
+			ObjectToWorld = [..o2w.ToArray().Select(x => (double)x)],
+			Reflectivity = obj.Reflectivity,
+			Wireframe = obj.Wireframe,
+			ShowNormals = obj.ShowNormals,
+			SortGroup = obj.SortGroup.ToString(),
+			Flags = obj.Flags.ToString(),
+			NuggetFlags = obj.NuggetFlags.ToString(),
+			NuggetTint = obj.NuggetTint.ToString(),
 		};
 	}
 

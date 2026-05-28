@@ -78,6 +78,13 @@ namespace pr::geometry
 		Nearest,
 	};
 
+	// A texture-coordinate affine transform stored as output rows for dotting with [u,v,1].
+	struct TexXForm
+	{
+		v4 m_x = {1.0f, 0.0f, 0.0f, 0.0f};
+		v4 m_y = {0.0f, 1.0f, 0.0f, 0.0f};
+	};
+
 	// A transient material texture reference returned by model importers.
 	struct TextureRef
 	{
@@ -86,6 +93,8 @@ namespace pr::geometry
 		std::string m_mime_type = {};
 		std::span<uint8_t const> m_data = {};
 		int m_texcoord = 0;
+		TexXForm m_uv_transform = {};
+		float m_scale = 1.0f;
 		ETextureWrap m_wrap_s = ETextureWrap::Repeat;
 		ETextureWrap m_wrap_t = ETextureWrap::Repeat;
 		ETextureFilter m_min_filter = ETextureFilter::Linear;

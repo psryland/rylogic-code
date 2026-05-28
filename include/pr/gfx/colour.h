@@ -14,8 +14,62 @@
 
 namespace pr
 {
+	// =================================================================================================================
+	// Colour space convention
+	// =================================================================================================================
+	//
+	//   Colour32 (4x uint8 ARGB) -> sRGB-encoded   (gamma-encoded, what colour pickers / HTML hex / image files use)
+	//   Colour   (4x float RGBA) -> linear-space   (what shaders compute in, what lights/materials must be in)
+	//
+	// Conversions between the two ALWAYS pass through the sRGB transfer function:
+	//
+	//   Colour(c32)          // decodes sRGB byte -> linear float  (handles uint32_t, EColours, byte-component ctors)
+	//   c.argb()             // encodes linear float -> sRGB byte
+	//   Colour32(c)          // encodes linear float -> sRGB byte  (explicit Colour -> Colour32 ctor)
+	//
+	// Alpha is a linear blending coefficient and is NEVER gamma-converted.
+	//
+	// The 4-float ctor `Colour(r,g,b,a)` does NOT decode -- floats are linear by contract. This matches what shaders
+	// see and what physically-correct lighting expects. If you have an sRGB-normalised float (e.g. byte/255.0), call
+	// SRGBToLinear(f) explicitly before constructing a Colour.
+	//
+	// The 4-float Colour32 ctor `Colour32(r,g,b,a)` likewise does NOT encode -- it expects sRGB-normalised floats and
+	// just packs them as bytes. To go from a linear Colour to Colour32, use the explicit `Colour32(Colour)` ctor (which
+	// applies the sRGB-encode) or call `c.argb()`.
+	//
+	// Saturated primaries (Black, White, Red, Green, Blue, ...) are fixed points of the sRGB curve -- the named
+	// Colour/Colour32 constants therefore round-trip exactly with no value change.
+	//
+	// Math on Colour (linear floats) is physically meaningful: blending, lighting, filtering all behave correctly.
+	// Math on Colour32 (sRGB bytes) is a different story:
+	//
+	//   Lerp/LerpRGB/ToGrayScale/RandomRGB  -> perceptually-correct: decode -> compute in linear -> encode.
+	//   operator + - * / % on Colour32      -> RAW BYTE math, NOT perceptual. Useful for image-byte tweaks (bitwise
+	//                                          masking, palette ops) but not for physically-correct blending. Convert
+	//                                          to Colour first if you want linear arithmetic.
+	//   DistanceSq(Colour32)                -> raw byte-space euclidean distance. Useful for palette nearest-match,
+	//                                          not perceptual distance.
+	//
+	// =================================================================================================================
+
+	// Forward declarations
 	struct Colour32;
 	struct Colour;
+
+	// sRGB <-> linear scalar helpers
+	// Declared up here so the Colour32/Colour ctors can use them inline. Uses the IEC 61966-2-1 piecewise transfer
+	// function so it matches the HLSL SrgbToLinear helper and what D3D12 does when sampling/storing through a
+	// *_UNORM_SRGB view.
+	inline float SRGBToLinear(float srgb)
+	{
+		auto x = Clamp(srgb, 0.0f, 1.0f);
+		return x <= 0.04045f ? x / 12.92f : std::pow((x + 0.055f) / 1.055f, 2.4f);
+	}
+	inline float LinearToSRGB(float linear)
+	{
+		auto x = Clamp(linear, 0.0f, 1.0f);
+		return x <= 0.0031308f ? x * 12.92f : 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
+	}
 
 	// Colour type traits
 	template <typename T> struct is_colour :std::false_type
@@ -231,6 +285,10 @@ namespace pr
 			:Colour32(r_cp(c), g_cp(c), b_cp(c), a_cp(c))
 		{}
 
+		// Encode a linear-space Colour into an sRGB-encoded Colour32. Alpha is passed through unchanged.
+		// Out-of-line below the Colour definition.
+		explicit Colour32(Colour const& linear);
+
 		// Operators
 		constexpr Colour32& operator = (int i)
 		{
@@ -435,30 +493,38 @@ namespace pr
 			Sqr(lhs.a - rhs.a);
 	}
 
-	// Linearly interpolate between colours
+	// Linearly interpolate between colours. Conversion is done in linear-space so the result is the
+	// perceptually-correct midpoint (not the naive byte midpoint). Alpha lerps linearly.
 	inline Colour32 Lerp(Colour32 lhs, Colour32 rhs, double t)
 	{
-		auto t0 = Clamp(1.0 - t, 0.0, 1.0);
-		auto t1 = Clamp(0.0 + t, 0.0, 1.0);
-		return Colour32(
-			int(lhs.r * t0 + rhs.r * t1),
-			int(lhs.g * t0 + rhs.g * t1),
-			int(lhs.b * t0 + rhs.b * t1),
-			int(lhs.a * t0 + rhs.a * t1)
-		);
+		auto tf = static_cast<float>(Clamp(t, 0.0, 1.0));
+		auto lerp = [tf](uint8_t l, uint8_t r)
+		{
+			auto a = SRGBToLinear(l / 255.0f);
+			auto b = SRGBToLinear(r / 255.0f);
+			auto v = a + (b - a) * tf;
+			return uint8_t(Clamp(LinearToSRGB(v) * 255.0f + 0.5f, 0.0f, 255.0f));
+		};
+		auto lerp_alpha = [tf](uint8_t l, uint8_t r)
+		{
+			auto v = (l / 255.0f) + ((r / 255.0f) - (l / 255.0f)) * tf;
+			return uint8_t(Clamp(v * 255.0f + 0.5f, 0.0f, 255.0f));
+		};
+		return Colour32(lerp(lhs.r, rhs.r), lerp(lhs.g, rhs.g), lerp(lhs.b, rhs.b), lerp_alpha(lhs.a, rhs.a));
 	}
 
-	// Linearly interpolate the RGB between colours. (Takes lhs.A for alpha)
+	// Linearly interpolate the RGB between colours in linear-space. (Takes lhs.A for alpha)
 	inline Colour32 LerpRGB(Colour32 lhs, Colour32 rhs, double t)
 	{
-		auto t0 = Clamp(1.0 - t, 0.0, 1.0);
-		auto t1 = Clamp(0.0 + t, 0.0, 1.0);
-		return Colour32(
-			int(lhs.r * t0 + rhs.r * t1),
-			int(lhs.g * t0 + rhs.g * t1),
-			int(lhs.b * t0 + rhs.b * t1),
-			int(lhs.a)
-		);
+		auto tf = static_cast<float>(Clamp(t, 0.0, 1.0));
+		auto lerp = [tf](uint8_t l, uint8_t r)
+		{
+			auto a = SRGBToLinear(l / 255.0f);
+			auto b = SRGBToLinear(r / 255.0f);
+			auto v = a + (b - a) * tf;
+			return uint8_t(Clamp(LinearToSRGB(v) * 255.0f + 0.5f, 0.0f, 255.0f));
+		};
+		return Colour32(lerp(lhs.r, rhs.r), lerp(lhs.g, rhs.g), lerp(lhs.b, rhs.b), lhs.a);
 	}
 
 	// Linearly interpolate between a list of colours on the interval [0, colours.size()]
@@ -485,14 +551,21 @@ namespace pr
 			Saturate8(col.a, mn.a, mx.a));
 	}
 
-	// Convert this colour to it's associated gray-scale value
+	// Convert this colour to it's associated gray-scale value.
+	// The Rec. 601 luma coefficients (0.299, 0.587, 0.114) are designed for linear RGB, so the colour is decoded
+	// to linear, the luma computed, and then re-encoded as sRGB.
 	inline Colour32 ToGrayScale(Colour32 col)
 	{
-		auto gray = static_cast<uint8_t>(0.3f*col.r + 0.59f*col.g + 0.11f*col.b);
-		return Colour32(gray, gray, gray, col.a);
+		auto r = SRGBToLinear(col.r / 255.0f);
+		auto g = SRGBToLinear(col.g / 255.0f);
+		auto b = SRGBToLinear(col.b / 255.0f);
+		auto y = 0.299f * r + 0.587f * g + 0.114f * b;
+		auto y8 = uint8_t(Clamp(LinearToSRGB(y) * 255.0f + 0.5f, 0.0f, 255.0f));
+		return Colour32(y8, y8, y8, col.a);
 	}
 
-	// Create a random colour
+	// Create a random colour. Brightness is interpreted as linear-space (so it controls the actual light energy,
+	// not the gamma-encoded byte magnitude). The result is sRGB-encoded.
 	template <typename Rng = std::default_random_engine> inline Colour32 RandomRGB(Rng& rng, float min_brightness, float a)
 	{
 		std::uniform_real_distribution<float> component_dist(0.0f, 1.0f);
@@ -505,7 +578,8 @@ namespace pr
 			auto len_sq = r * r + g * g + b * b;
 			auto brightness = brightness_dist(rng);
 			auto scale = brightness / sqrt(len_sq);
-			return Colour32(r * scale, g * scale, b * scale, a);
+			auto encode = [](float c) { return uint8_t(Clamp(LinearToSRGB(c) * 255.0f + 0.5f, 0.0f, 255.0f)); };
+			return Colour32(encode(r * scale), encode(g * scale), encode(b * scale), uint8_t(Clamp(a * 255.0f + 0.5f, 0.0f, 255.0f)));
 		}
 	}
 	template <typename Rng = std::default_random_engine> inline Colour32 RandomRGB(int seed, float min_brightness, float a)
@@ -546,16 +620,30 @@ namespace pr
 			, b(b_)
 			, a(a_)
 		{}
-		constexpr Colour(uint8_t r_, uint8_t g_, uint8_t b_, uint8_t a_)
-			:Colour(r_ / 255.0f, g_ / 255.0f, b_ / 255.0f, a_ / 255.0f)
+		// Construct from sRGB-encoded bytes. Decodes RGB through the sRGB transfer function so the resulting
+		// Colour is linear-space. Alpha is treated as a linear coefficient and is passed through unchanged.
+		Colour(uint8_t r_, uint8_t g_, uint8_t b_, uint8_t a_)
+			:Colour(
+			SRGBToLinear(r_ / 255.0f),
+			SRGBToLinear(g_ / 255.0f),
+			SRGBToLinear(b_ / 255.0f),
+			a_ / 255.0f)
 		{}
-		constexpr explicit Colour(Colour32 c32)
-			:Colour(r_cp(c32), g_cp(c32), b_cp(c32), a_cp(c32))
+		explicit Colour(Colour32 c32)
+			:Colour(
+			SRGBToLinear(r_cp(c32)),
+			SRGBToLinear(g_cp(c32)),
+			SRGBToLinear(b_cp(c32)),
+			a_cp(c32))
 		{}
-		constexpr explicit Colour(Colour32 c32, float alpha)
-			:Colour(r_cp(c32), g_cp(c32), b_cp(c32), alpha)
+		explicit Colour(Colour32 c32, float alpha)
+			:Colour(
+			SRGBToLinear(r_cp(c32)),
+			SRGBToLinear(g_cp(c32)),
+			SRGBToLinear(b_cp(c32)),
+			alpha)
 		{}
-		constexpr explicit Colour(uint32_t argb)
+		explicit Colour(uint32_t argb)
 			:Colour(Colour32(argb))
 		{}
 		constexpr explicit Colour(float4_t const& f4)
@@ -601,9 +689,16 @@ namespace pr
 		}
 
 		// Component accessors
+		// Encode this linear-space Colour into an sRGB-encoded Colour32. Alpha is passed through unchanged.
+		// This is the inverse of Colour(Colour32) -- round-trip is exact for fixed points and is bounded by the
+		// 8-bit quantisation error otherwise.
 		Colour32 argb() const
 		{
-			return Colour32(r, g, b, a);
+			return Colour32(
+				uint8_t(Clamp(LinearToSRGB(r) * 255.0f + 0.5f, 0.0f, 255.0f)),
+				uint8_t(Clamp(LinearToSRGB(g) * 255.0f + 0.5f, 0.0f, 255.0f)),
+				uint8_t(Clamp(LinearToSRGB(b) * 255.0f + 0.5f, 0.0f, 255.0f)),
+				uint8_t(Clamp(a            * 255.0f + 0.5f, 0.0f, 255.0f)));
 		}
 
 		// This valid with alpha = 0
@@ -714,6 +809,13 @@ namespace pr
 	static_assert(std::is_trivially_copyable_v<Colour>, "Colour should be a pod type");
 	static_assert(std::alignment_of_v<Colour> == 16, "Colour should have 16 byte alignment");
 
+	// Out-of-line definition of Colour32(Colour const&) -- needs the full Colour type, so defined after Colour ends.
+	// Encodes a linear-space Colour through the sRGB transfer function and packs into ARGB bytes. Alpha is passed
+	// through unchanged.
+	inline Colour32::Colour32(Colour const& linear)
+		:Colour32(linear.argb())
+	{}
+
 	// Define component accessors
 	constexpr float pr_vectorcall r_cp(Colour v) { return v.r; }
 	constexpr float pr_vectorcall g_cp(Colour v) { return v.g; }
@@ -817,6 +919,16 @@ namespace pr
 	constexpr float a_cp(COLORREF)   { return 1.0f; }
 	template <> struct is_colour<COLORREF> :std::true_type { using elem_type = uint8_t; }; // Treat COLORREF as a colour type
 	#endif
+
+	#pragma region sRGB <-> Linear
+
+	// Named aliases for the explicit Colour <-> Colour32 conversions. The ctors `Colour(Colour32)` and
+	// `Colour32(Colour const&)` (and `Colour::argb()`) already apply the sRGB transfer function -- these helpers
+	// just make the gamma conversion intent obvious at boundary sites.
+	inline Colour   SRGBToLinear(Colour32 srgb)         { return Colour(srgb); }
+	inline Colour32 LinearToSRGB(Colour const& linear)  { return Colour32(linear); }
+
+	#pragma endregion
 
 	#pragma region Conversion
 
@@ -971,13 +1083,42 @@ namespace pr::gfx
 			PR_EXPECT(c0.argb == 0xFFFFFFFFU);
 		}
 		{
+			// Colour32 <-> Colour round-trip is exact (decode followed by encode of the same channel value).
 			Colour32 c0(0xAA, 0xBB, 0xCC, 0xDD);
 			Colour c1(c0);
 			Colour32 c2(c1);
 			PR_EXPECT(c2 == c0);
 		}
-
-		
+		{
+			// sRGB-decode/encode round-trip on a scalar channel.
+			for (auto srgb : {0.0f, 0.04f, 0.05f, 0.5f, 0.8f, 1.0f})
+			{
+				auto linear = SRGBToLinear(srgb);
+				auto back = LinearToSRGB(linear);
+				PR_EXPECT(FEqlRelative(back, srgb, 1e-5f));
+			}
+		}
+		{
+			// Saturated primaries are fixed points of the sRGB curve.
+			PR_EXPECT(FEqlRelative(SRGBToLinear(0.0f), 0.0f, 1e-6f));
+			PR_EXPECT(FEqlRelative(SRGBToLinear(1.0f), 1.0f, 1e-6f));
+			PR_EXPECT(Colour32(ColourWhite) == Colour32White);
+			PR_EXPECT(Colour32(ColourBlack) == Colour32Black);
+			PR_EXPECT(Colour32(ColourRed)   == Colour32Red);
+			PR_EXPECT(Colour32(ColourGreen) == Colour32Green);
+			PR_EXPECT(Colour32(ColourBlue)  == Colour32Blue);
+		}
+		{
+			// Mid-grey sRGB byte 0x80 decodes to roughly 0.2159 linear (not 0.5).
+			Colour mid(Colour32(0xFF808080));
+			PR_EXPECT(FEqlRelative(mid.r, 0.21586f, 1e-3f));
+			PR_EXPECT(FEqlRelative(mid.g, 0.21586f, 1e-3f));
+			PR_EXPECT(FEqlRelative(mid.b, 0.21586f, 1e-3f));
+			PR_EXPECT(FEqlRelative(mid.a, 1.0f,      1e-6f));
+			// And linear 0.5 encodes back to roughly byte 0xBC (much brighter than 0x80).
+			auto half = Colour(0.5f, 0.5f, 0.5f, 1.0f).argb();
+			PR_EXPECT(half.r >= 0xBA && half.r <= 0xBE);
+		}
 	}
 }
 #endif

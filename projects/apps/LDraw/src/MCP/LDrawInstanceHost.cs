@@ -240,6 +240,48 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(SwitchSceneAsync(Parameters<LDrawSceneParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.ClearScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ClearSceneAsync(Parameters<LDrawSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.RenameScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(RenameSceneAsync(Parameters<LDrawRenameSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ListSources:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ListSourcesAsync(Parameters<LDrawListSourcesParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.LoadSource:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(LoadSourceAsync(Parameters<LDrawLoadSourceParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ReloadSource:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ReloadSourceAsync(Parameters<LDrawSourceParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.RemoveSource:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(RemoveSourceAsync(Parameters<LDrawSourceParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetSourceScenes:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetSourceScenesAsync(Parameters<LDrawSetSourceScenesParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.SetSceneSources:
 				{
 					response.Success = true;
@@ -250,6 +292,66 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 				{
 					response.Success = true;
 					response.Payload = await PayloadAsync(GetViewSettingsAsync(Parameters<LDrawViewSettingsParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.GetAnimation:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetAnimationAsync(Parameters<LDrawAnimationParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ControlAnimation:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ControlAnimationAsync(Parameters<LDrawAnimationControlParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ListViewPresets:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ListViewPresetsAsync(Parameters<LDrawViewPresetParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetViewPreset:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetViewPresetAsync(Parameters<LDrawViewPresetParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ListSavedViews:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ListSavedViewsAsync(Parameters<LDrawSavedViewParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SaveView:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SaveViewAsync(Parameters<LDrawSavedViewParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.ApplySavedView:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(ApplySavedViewAsync(Parameters<LDrawSavedViewParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.RemoveSavedView:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(RemoveSavedViewAsync(Parameters<LDrawSavedViewParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.GetStreamingState:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetStreamingStateAsync()).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetStreamingState:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetStreamingStateAsync(Parameters<LDrawStreamingControlParams>(request))).ConfigureAwait(false);
 					break;
 				}
 				case InstancePipeCommands.SetProjection:
@@ -286,6 +388,12 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 				{
 					response.Success = true;
 					response.Payload = await PayloadAsync(SetDiagnosticModesAsync(Parameters<LDrawSetDiagnosticModesParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetRenderSettings:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetRenderSettingsAsync(Parameters<LDrawSetRenderSettingsParams>(request))).ConfigureAwait(false);
 					break;
 				}
 				case InstancePipeCommands.ListObjects:
@@ -336,6 +444,36 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(SetObjectColourAsync(Parameters<LDrawSetObjectColourParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.GetObjectTransform:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetObjectTransformAsync(Parameters<LDrawGetObjectTransformParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetObjectTransform:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetObjectTransformAsync(Parameters<LDrawSetObjectTransformParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.GetObjectRenderState:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetObjectRenderStateAsync(Parameters<LDrawGetObjectRenderStateParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetObjectRenderState:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetObjectRenderStateAsync(Parameters<LDrawSetObjectRenderStateParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.HitTest:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(HitTestAsync(Parameters<LDrawHitTestParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.ShowNormals:
 				{
 					response.Success = true;
@@ -370,6 +508,24 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 				{
 					response.Success = true;
 					response.Payload = await PayloadAsync(FrameBoundsAsync(Parameters<LDrawFrameBoundsParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.CaptureScene:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(CaptureSceneAsync(Parameters<LDrawCaptureSceneParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.GetChartDisplayOptions:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetChartDisplayOptionsAsync(Parameters<LDrawChartDisplayOptionsParams>(request))).ConfigureAwait(false);
+					break;
+				}
+				case InstancePipeCommands.SetChartDisplayOptions:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(SetChartDisplayOptionsAsync(Parameters<LDrawSetChartDisplayOptionsParams>(request))).ConfigureAwait(false);
 					break;
 				}
 				case InstancePipeCommands.ChartCreate:

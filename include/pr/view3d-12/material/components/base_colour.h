@@ -13,8 +13,8 @@ namespace pr::rdr12::materials
 	{
 		static constexpr RdrId Id = hash::HashCT("materials::BaseColour");
 
-		Colour m_colour = ColourWhite;                           // Linear base-colour factor.
-		TextureSlot m_tex = {{}, {}, ETextureColourSpace::Srgb}; // Base-colour texture, sampled as colour data.
+		Colour m_colour = ColourWhite;                                     // Linear base-colour factor.
+		TextureSlot m_tex = { {}, {}, {}, ETextureColourSpace::Srgb, {} }; // Base-colour texture, sampled as colour data.
 	};
 	static_assert(ComponentType<BaseColour>);
 }

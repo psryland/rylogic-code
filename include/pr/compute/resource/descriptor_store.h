@@ -42,6 +42,7 @@ namespace pr::compute
 		ID3D12Device* m_device;
 		Store m_store_cpu[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES]; // A store for each descriptor type
 		int m_hint_free[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES]; // Record the index of block last returned that had free slots.
+		uint64_t m_generation; // A monotonic id for distinguishing descriptor-store slot reuse.
 
 		explicit DescriptorStore(ID3D12Device* device);
 
@@ -62,4 +63,3 @@ namespace pr::compute
 		Block& GetBlock(D3D12_DESCRIPTOR_HEAP_TYPE type);
 	};
 }
-

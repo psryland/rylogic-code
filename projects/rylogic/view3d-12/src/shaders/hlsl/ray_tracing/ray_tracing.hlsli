@@ -26,16 +26,15 @@ float4 ReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 }
 
 // Return the RT reflection side-buffer payload for the visible opaque PBR surface.
-float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
+float4 PbrReflectionAttributes(PSIn In, float4 diff, float2 metallic_uv, float3 normal)
 {
 	float reflectivity = saturate(g_pbr.metallic);
 	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasMetallicMap))
-		reflectivity *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, In.tex0), g_pbr.metallic_channel);
+		reflectivity *= SelectTextureChannel(g_metallic_texture.Sample(g_metallic_sampler, metallic_uv), g_pbr.metallic_channel);
 
 	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
 		return float4(0, 0, 0, 0);
 
-	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return float4(0, 0, 0, 0);
 
@@ -43,7 +42,7 @@ float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 	return float4(0.5f * normal + 0.5f, reflectivity);
 }
 
-// Return the RT alpha sidecar payload for a transparent forward surface layer.
+// Return the RT alpha side-buffer payload for a transparent forward surface layer.
 uint AlphaRtAttributes(PSIn In, float4 diff, bool is_front_face)
 {
 	if (!HasNormals(g_nugget.flags))

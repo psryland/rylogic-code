@@ -89,16 +89,29 @@ struct CBufScreenSpace// :reg(b3)
 // Constants for physically based materials.
 struct CBufPbrSurface// :reg(b4)
 {
-	float4 base_colour;  // Linear base-colour factor
-	float4 emissive;     // Linear emissive factor
-	float metallic;
-	float roughness;
-	float alpha_cutoff;
-	int alpha_mode;      // 0 = opaque, 1 = mask, 2 = blend
-	int texture_flags;   // Bit flags describing per-slot texture interpretation
-	int metallic_channel; // Channel index used by the metallic scalar texture
-	int roughness_channel; // Channel index used by the roughness scalar texture
-	int pad2;
+	float4 base_colour;                // Linear base-colour factor
+	float4 emissive;                   // Linear emissive factor
+	TexXForm base_colour_uv_transform; // Transform applied to the base-colour texture coordinates
+	TexXForm metallic_uv_transform;    // Transform applied to the metallic texture coordinates
+	TexXForm roughness_uv_transform;   // Transform applied to the roughness texture coordinates
+	TexXForm emissive_uv_transform;    // Transform applied to the emissive texture coordinates
+	TexXForm normal_uv_transform;      // Transform applied to the normal-map texture coordinates
+	float metallic;                    // Metallic factor
+	float roughness;                   // Roughness factor
+	float normal_scale;                // Normal-map X/Y scale
+	float alpha_cutoff;                // Alpha cutoff threshold used when alpha_mode = 1 (mask)
+	int alpha_mode;                    // 0 = opaque, 1 = mask, 2 = blend
+	int texture_flags;                 // Bit flags describing per-slot texture interpretation
+	int metallic_channel;              // Channel index used by the metallic scalar texture
+	int roughness_channel;             // Channel index used by the roughness scalar texture
+	int base_colour_texcoord;          // Shader texture-coordinate lane used by the base-colour texture
+	int metallic_texcoord;             // Shader texture-coordinate lane used by the metallic texture
+	int roughness_texcoord;            // Shader texture-coordinate lane used by the roughness texture
+	int emissive_texcoord;             // Shader texture-coordinate lane used by the emissive texture
+	int normal_texcoord;               // Shader texture-coordinate lane used by the normal-map texture
+	int texcoord_count;                // Number of optional texture-coordinate lanes bound for this draw
+	int pad0;
+	int pad1;
 };
 
 // Constants used for diagnostic shaders.

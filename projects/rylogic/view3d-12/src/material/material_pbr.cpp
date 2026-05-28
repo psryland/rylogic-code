@@ -5,6 +5,7 @@
 #include "pr/view3d-12/material/material_pbr.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/main/window.h"
+#include "pr/view3d-12/model/vertex_stream.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/sampler/sampler.h"
@@ -23,6 +24,8 @@ namespace pr::rdr12
 		// The material pass used by physically-based materials.
 		struct MaterialPBRPass : MaterialPass
 		{
+			static constexpr int MaxExtraTexCoordStreams = 4;
+
 			// Return true if this PBR material needs alpha rendering.
 			bool RequiresAlpha(BaseInstance const&, Material const& material, Nugget const& nugget) const override
 			{
@@ -139,13 +142,112 @@ namespace pr::rdr12
 				}
 			}
 
-			// Return true if a texture slot can be sampled by this draw.
-			static bool HasUsableTexture(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
+			// Describes the draw-time mapping from material source UV channels to shader texture-coordinate lanes.
+			struct TexCoordBindings
 			{
-				return
-					ctx.m_dle.m_nugget != nullptr &&
-					AllSet(ctx.m_dle.m_nugget->m_geom, EGeom::Tex0) &&
-					slot.m_texture != nullptr;
+				std::array<VertexStream const*, MaxExtraTexCoordStreams> m_streams = {};
+				std::array<int, MaxExtraTexCoordStreams> m_texcoords = {};
+				int m_count = 0;
+
+				// Return the shader lane used by a source UV channel, or -1 if it is not bound.
+				int Lane(int texcoord) const
+				{
+					if (texcoord == 0)
+						return 0;
+
+					for (auto i = 0; i != m_count; ++i)
+					{
+						if (m_texcoords[i] == texcoord)
+							return i + 1;
+					}
+					return -1;
+				}
+
+				// Return the shader lane used by a material texture slot.
+				int Lane(materials::TextureSlot const& slot) const
+				{
+					return Lane(slot.m_texcoord);
+				}
+			};
+
+			// Return the PBR texture slots in the order used when assigning shader UV lanes.
+			static std::array<materials::TextureSlot const*, 5> TextureSlots(MaterialPassContext const& ctx)
+			{
+				auto const* base_colour = ctx.m_material.Component<materials::BaseColour>();
+				auto const* metallic = ctx.m_material.Component<materials::Metallic>();
+				auto const* roughness = ctx.m_material.Component<materials::Roughness>();
+				auto const* emissive = ctx.m_material.Component<materials::Emissive>();
+				auto const* normal_map = ctx.m_material.Component<materials::NormalMap>();
+				return {
+					base_colour != nullptr ? &base_colour->m_tex : nullptr,
+					metallic != nullptr ? &metallic->m_tex.m_slot : nullptr,
+					roughness != nullptr ? &roughness->m_tex.m_slot : nullptr,
+					emissive != nullptr ? &emissive->m_tex : nullptr,
+					normal_map != nullptr ? &normal_map->m_tex : nullptr,
+				};
+			}
+
+			// Return the model vertex stream that contains a source texture-coordinate channel.
+			static VertexStream const* FindTexCoordStream(MaterialPassContext const& ctx, int texcoord)
+			{
+				auto const* nugget = ctx.m_dle.m_nugget;
+				if (nugget == nullptr || nugget->m_model == nullptr)
+					return nullptr;
+
+				return nugget->m_model->FindVertexStream(vertex_stream::TexCoord(texcoord));
+			}
+
+			// Return the model vertex streams that need shader UV lanes for this draw.
+			static TexCoordBindings GatherTexCoordBindings(MaterialPassContext const& ctx)
+			{
+				auto bindings = TexCoordBindings{};
+				for (auto const* slot : TextureSlots(ctx))
+				{
+					if (slot == nullptr || slot->m_texture == nullptr || slot->m_texcoord == 0)
+						continue;
+					if (bindings.Lane(slot->m_texcoord) != -1)
+						continue;
+
+					auto const* stream = FindTexCoordStream(ctx, slot->m_texcoord);
+					if (stream == nullptr)
+						continue;
+
+					if (bindings.m_count == MaxExtraTexCoordStreams)
+						throw std::runtime_error("PBR material uses too many texture coordinate streams");
+
+					bindings.m_texcoords[bindings.m_count] = slot->m_texcoord;
+					bindings.m_streams[bindings.m_count] = stream;
+					++bindings.m_count;
+				}
+				return bindings;
+			}
+
+			// Return true if a texture slot can be sampled by this draw.
+			static bool HasUsableTexture(MaterialPassContext const& ctx, materials::TextureSlot const& slot, TexCoordBindings const& bindings)
+			{
+				if (slot.m_texture == nullptr || ctx.m_dle.m_nugget == nullptr)
+					return false;
+
+				if (slot.m_texcoord == 0)
+					return AllSet(ctx.m_dle.m_nugget->m_geom, EGeom::Tex0);
+
+				return bindings.Lane(slot) != -1;
+			}
+
+			// Return the shader lane for a usable texture slot, falling back to tex0 for inactive slots.
+			static int ShaderTexCoord(TexCoordBindings const& bindings, materials::TextureSlot const& slot)
+			{
+				auto lane = bindings.Lane(slot);
+				return lane != -1 ? lane : 0;
+			}
+
+			// Convert a material texture-coordinate transform into the shader constant layout.
+			static shaders::TexXForm ShaderTexXForm(TexXForm const& transform)
+			{
+				return {
+					.m_x = transform.m_x,
+					.m_y = transform.m_y,
+				};
 			}
 
 			// Return the texture for a PBR slot, or the forward pass fallback texture.
@@ -202,11 +304,6 @@ namespace pr::rdr12
 					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
 					if (cache_diffuse_slot && ctx.m_last_tex != nullptr)
 						*ctx.m_last_tex = srv_descriptor;
-
-					#if PR_DBG_RDR
-					auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
-					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
-					#endif
 				}
 			}
 
@@ -228,40 +325,98 @@ namespace pr::rdr12
 			}
 
 			// Bind scalar PBR material constants.
-			static void BindPbrConstants(MaterialPassContext& ctx)
+			static void BindPbrConstants(MaterialPassContext& ctx, TexCoordBindings const& texcoords)
 			{
 				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
 				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
 				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
+				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
+
 				auto texture_flags = 0;
-				if (HasUsableTexture(ctx, base_colour.m_tex) && NeedsShaderSrgbDecode(base_colour.m_tex))
-					texture_flags |= shaders::PbrTextureFlag_BaseColourSrgb;
-				if (HasUsableTexture(ctx, metallic.m_tex.m_slot))
+				if (HasUsableTexture(ctx, base_colour.m_tex, texcoords))
+				{
+					texture_flags |= shaders::PbrTextureFlag_HasBaseColourMap;
+					if (NeedsShaderSrgbDecode(base_colour.m_tex))
+						texture_flags |= shaders::PbrTextureFlag_BaseColourSrgb;
+				}
+				if (HasUsableTexture(ctx, metallic.m_tex.m_slot, texcoords))
+				{
 					texture_flags |= shaders::PbrTextureFlag_HasMetallicMap;
-				if (HasUsableTexture(ctx, roughness.m_tex.m_slot))
+				}
+				if (HasUsableTexture(ctx, roughness.m_tex.m_slot, texcoords))
+				{
 					texture_flags |= shaders::PbrTextureFlag_HasRoughnessMap;
-				if (HasUsableTexture(ctx, emissive.m_tex))
+				}
+				if (HasUsableTexture(ctx, emissive.m_tex, texcoords))
 				{
 					texture_flags |= shaders::PbrTextureFlag_HasEmissiveMap;
 					if (NeedsShaderSrgbDecode(emissive.m_tex))
 						texture_flags |= shaders::PbrTextureFlag_EmissiveSrgb;
 				}
+				if (HasUsableTexture(ctx, normal_map.m_tex, texcoords))
+				{
+					texture_flags |= shaders::PbrTextureFlag_HasNormalMap;
+				}
 
 				auto cb = shaders::fwd::CBufPbrSurface{
 					.base_colour = base_colour.m_colour.rgba,
 					.emissive = emissive.m_colour.rgba,
+					.base_colour_uv_transform = ShaderTexXForm(base_colour.m_tex.m_uv_transform),
+					.metallic_uv_transform = ShaderTexXForm(metallic.m_tex.m_slot.m_uv_transform),
+					.roughness_uv_transform = ShaderTexXForm(roughness.m_tex.m_slot.m_uv_transform),
+					.emissive_uv_transform = ShaderTexXForm(emissive.m_tex.m_uv_transform),
+					.normal_uv_transform = ShaderTexXForm(normal_map.m_tex.m_uv_transform),
 					.metallic = metallic.m_factor,
 					.roughness = roughness.m_factor,
+					.normal_scale = normal_map.m_scale,
 					.alpha_cutoff = alpha.m_cutoff,
 					.alpha_mode = static_cast<int>(alpha.m_mode),
 					.texture_flags = texture_flags,
 					.metallic_channel = ShaderChannel(metallic.m_tex.m_channel),
 					.roughness_channel = ShaderChannel(roughness.m_tex.m_channel),
+					.base_colour_texcoord = ShaderTexCoord(texcoords, base_colour.m_tex),
+					.metallic_texcoord = ShaderTexCoord(texcoords, metallic.m_tex.m_slot),
+					.roughness_texcoord = ShaderTexCoord(texcoords, roughness.m_tex.m_slot),
+					.emissive_texcoord = ShaderTexCoord(texcoords, emissive.m_tex),
+					.normal_texcoord = ShaderTexCoord(texcoords, normal_map.m_tex),
+					.texcoord_count = texcoords.m_count,
 				};
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
+			}
+
+			// Return the root parameter that binds a shader texture-coordinate lane.
+			static shaders::fwd::ERootParam TexCoordRootParam(int lane)
+			{
+				switch (lane)
+				{
+					case 1: { return shaders::fwd::ERootParam::Tex1Stream; }
+					case 2: { return shaders::fwd::ERootParam::Tex2Stream; }
+					case 3: { return shaders::fwd::ERootParam::Tex3Stream; }
+					case 4: { return shaders::fwd::ERootParam::Tex4Stream; }
+					default:
+					{
+						throw std::runtime_error("Unknown shader texture coordinate lane");
+					}
+				}
+			}
+
+			// Bind the model vertex streams used by PBR texture-coordinate lanes.
+			static void BindTexCoordStreams(MaterialPassContext& ctx, TexCoordBindings const& texcoords)
+			{
+				if (texcoords.m_count == 0)
+					return;
+
+				// The TexN shader statically references every optional lane, so bind a valid SRV for inactive lanes rather than leaving stale
+				// descriptors behind.
+				for (auto index = 0; index != MaxExtraTexCoordStreams; ++index)
+				{
+					auto const* stream = index < texcoords.m_count ? texcoords.m_streams[index] : texcoords.m_streams[0];
+					auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(stream->m_srv);
+					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(TexCoordRootParam(index + 1), srv_descriptor);
+				}
 			}
 
 			// Bind resources and constants for the PBR forward pass.
@@ -271,6 +426,8 @@ namespace pr::rdr12
 				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
+				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
+				auto texcoords = GatherTexCoordBindings(ctx);
 
 				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex, true);
 				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
@@ -280,11 +437,14 @@ namespace pr::rdr12
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrRoughnessSampler, roughness.m_tex.m_slot, false);
 				BindTexture(ctx, shaders::fwd::ERootParam::PbrEmissiveTexture, emissive.m_tex, false);
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex, false);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrNormalTexture, normal_map.m_tex, false);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex, false);
+				BindTexCoordStreams(ctx, texcoords);
 
 				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
 				{
 					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle, ctx.m_material);
-					BindPbrConstants(ctx);
+					BindPbrConstants(ctx, texcoords);
 					return;
 				}
 
@@ -335,12 +495,25 @@ namespace pr::rdr12
 			static void ApplyForwardPipeline(MaterialPassContext& ctx)
 			{
 				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(ctx.m_pipe_state);
-				auto const& ps =
-					desc->NumRenderTargets == 0U ? shader_code::forward_pbr_alpha_collect_ps :
-					desc->NumRenderTargets > 1U ? shader_code::forward_pbr_reflection_attrs_ps :
-					shader_code::forward_pbr_ps;
-
-				ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(ps));
+				
+				// If the pass uses extra texture coordinate streams, select a shader variant that samples them
+				auto texcoords = GatherTexCoordBindings(ctx);
+				if (texcoords.m_count != 0)
+				{
+					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
+					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
+						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_texn_pbr_ps :
+						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_texn_pbr_ps :
+						shader_code::forward_texn_pbr_ps));
+				}
+				else
+				{
+					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_vs));
+					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
+						desc->NumRenderTargets == 0U ? shader_code::forward_alpha_collect_pbr_ps :
+						desc->NumRenderTargets > 1U ? shader_code::forward_reflection_attrs_pbr_ps :
+						shader_code::forward_pbr_ps));
+				}
 				ApplyTwoSidedPipeline(ctx);
 			}
 		};
@@ -475,10 +648,11 @@ namespace pr::rdr12
 		return *this;
 	}
 
-	// Set the texture slot reserved for tangent-space normals.
-	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot)
+	// Set the texture slot used for tangent-space normals.
+	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale)
 	{
 		m_normal_map.m_tex = slot;
+		m_normal_map.m_scale = scale;
 		return *this;
 	}
 
@@ -534,4 +708,3 @@ namespace pr::rdr12
 		::pr::compute::Delete<MaterialPBR>(this);
 	}
 }
-

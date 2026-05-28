@@ -889,6 +889,9 @@ VIEW3D_API unsigned int __stdcall View3D_WindowBackgroundColourGet(view3d::Windo
 		Validate(window);
 
 		DllLockGuard;
+
+		// BackgroundColour() is linear-space (engine convention). Colour::argb() applies the sRGB-encode so the
+		// returned ARGB matches what the caller originally supplied via View3D_WindowBackgroundColourSet.
 		return window->BackgroundColour().argb().argb;
 	}
 	CatchAndReport(View3D_WindowBackgroundColourGet, window, 0U);
@@ -900,6 +903,10 @@ VIEW3D_API void __stdcall View3D_WindowBackgroundColourSet(view3d::Window window
 		Validate(window);
 
 		DllLockGuard;
+
+		// The caller's ARGB is sRGB-encoded (matches colour pickers and HTML/CSS hex codes). pr::Colour(Colour32)
+		// applies the sRGB-decode so the stored value is linear-space (engine convention). The back-buffer RTV is
+		// *_UNORM_SRGB cast so the GPU re-encodes on the clear write, producing the original sRGB byte on screen.
 		window->BackgroundColour(pr::Colour(Colour32(argb)));
 	}
 	CatchAndReport(View3D_WindowBackgroundColourSet, window,);
@@ -3069,13 +3076,19 @@ VIEW3D_API view3d::Texture __stdcall View3D_CreateDx9RenderTarget(HWND hwnd, UIN
 		if (shared_handle != nullptr)
 			*shared_handle = handle;
 
-		// Create a texture description
+		// Create a texture description. The Dx9 render target is intended to back the WPF swap chain, so cast its RTV
+		// (and SRV, if anything ever samples it) to the sRGB sibling of the resource format. This lets the GPU perform
+		// the linear -> sRGB encode on writes while the shared resource stays in the non-SRGB UNORM format that Dx9
+		// and DXGI flip-model swap chains require.
 		ResDesc rdesc = ResDesc::Tex2D(Image{int(width), int(height)}, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
 			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
 			.clear(options.m_clear_value);
+		auto srgb_format = ::pr::compute::ToSRGB(rdesc.Format);
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
-			.name(options.m_dbg_name ? options.m_dbg_name : "");
+			.name(options.m_dbg_name ? options.m_dbg_name : "")
+			.srv_format(srgb_format)
+			.rtv_format(srgb_format);
 
 		DllLockGuard;
 

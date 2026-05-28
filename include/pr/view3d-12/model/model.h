@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/model/skin.h"
 #include "pr/view3d-12/model/pose.h"
+#include "pr/view3d-12/model/vertex_stream.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 
 namespace pr::rdr12
@@ -36,22 +37,23 @@ namespace pr::rdr12
 			_flags_enum            = 0,
 		};
 
-		Renderer*                m_rdr;       // The renderer that owns this model
-		D3DPtr<ID3D12Resource>   m_vb;        // The vertex buffer
-		D3DPtr<ID3D12Resource>   m_ib;        // The index buffer
-		D3D12_VERTEX_BUFFER_VIEW m_vb_view;   // Buffer views for shader binding
-		D3D12_INDEX_BUFFER_VIEW  m_ib_view;   // Buffer views for shader binding
-		NuggetPtr                m_nuggets;   // The chain of nuggets for this model
-		int64_t                  m_vcount;    // The count of elements in the V-buffer
-		int64_t                  m_icount;    // The count of elements in the I-buffer
-		m4x4                     m_m2root;    // Mesh/model-buffer space to model-root/object space. Use for multi-part models, like skinned characters
-		Skin                     m_skin;      // Skinning data for this model.
+		Renderer*                m_rdr;         // The renderer that owns this model
+		D3DPtr<ID3D12Resource>   m_vb;          // The vertex buffer
+		D3DPtr<ID3D12Resource>   m_ib;          // The index buffer
+		D3D12_VERTEX_BUFFER_VIEW m_vb_view;     // Buffer views for shader binding
+		D3D12_INDEX_BUFFER_VIEW  m_ib_view;     // Buffer views for shader binding
+		NuggetPtr                m_nuggets;     // The chain of nuggets for this model
+		int64_t                  m_vcount;      // The count of elements in the V-buffer
+		int64_t                  m_icount;      // The count of elements in the I-buffer
+		m4x4                     m_m2root;      // Mesh/model-buffer space to model-root/object space. Use for multi-part models, like skinned characters
+		Skin                     m_skin;        // Skinning data for this model.
 		mutable RayTracingModel  m_ray_tracing; // Ray tracing data for this model.
-		BBox                     m_bbox;      // A bounding box for the (rest pose) model. Set by the client
-		string32                 m_name;      // A human readable name for the model
-		SizeAndAlign16           m_vstride;   // The size and alignment (in bytes) of a single V-element
-		SizeAndAlign16           m_istride;   // The size and alignment (in bytes) of a single I-element
-		mutable EDbgFlags        m_dbg_flags; // Flags used by PR_DBG_RDR to output info once only
+		vector<VertexStream>     m_vb_streams;  // Optional model-owned streams parallel to the vertex buffer.
+		BBox                     m_bbox;        // A bounding box for the (rest pose) model. Set by the client
+		string32                 m_name;        // A human readable name for the model
+		SizeAndAlign16           m_vstride;     // The size and alignment (in bytes) of a single V-element
+		SizeAndAlign16           m_istride;     // The size and alignment (in bytes) of a single I-element
+		mutable EDbgFlags        m_dbg_flags;   // Flags used by PR_DBG_RDR to output info once only
 
 		Model(Renderer& rdr,
 			int64_t vcount,
@@ -62,6 +64,7 @@ namespace pr::rdr12
 			ID3D12Resource* ib,
 			BBox const& bbox,
 			m4x4 const& m2root,
+			vector<VertexStream>&& vb_streams,
 			std::string_view name
 		);
 		Model(Model&&) = delete;
@@ -77,6 +80,9 @@ namespace pr::rdr12
 		// Allow update of the vertex/index buffers
 		GfxUpdateSubresourceScope UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
 		GfxUpdateSubresourceScope UpdateIndices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange = Range::Reset());
+
+		// Return the vertex stream matching 'semantic', or null if the model has no such stream.
+		VertexStream const* FindVertexStream(RdrId semantic) const;
 
 		// Create a nugget from a range within this model
 		// Ranges are model relative, i.e. the first vert in the model is range [0,1)

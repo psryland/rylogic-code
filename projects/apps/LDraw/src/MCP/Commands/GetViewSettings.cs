@@ -62,6 +62,7 @@ internal sealed partial class LDrawInstanceHost
 			FillModePointsSize = window.Diag.FillModePointsSize.x,
 			RayTracingAvailable = window.RayTracingAvailable,
 			RayTracingEnabled = window.RayTracingEnabled,
+			ShadowCastRange = scene_view.ShadowCastRange,
 		};
 	}
 }

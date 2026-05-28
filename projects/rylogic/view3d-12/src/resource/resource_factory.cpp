@@ -172,6 +172,7 @@ namespace pr::rdr12
 
 		m_keep_alive.Add(res);
 		m_flush_required = true;
+
 		return res;
 	}
 
@@ -187,6 +188,52 @@ namespace pr::rdr12
 		vb = vb ? vb : CreateResource(mdesc.m_vb, string32(mdesc.m_name).append("-vbuf"));
 		ib = ib ? ib : CreateResource(mdesc.m_ib, string32(mdesc.m_name).append("-ibuf"));
 
+		// Create any optional vertex streams. They stay parallel to the model vertex buffer but are only bound by shader variants that explicitly opt in.
+		vector<VertexStream> vertex_streams;
+		if (!mdesc.m_vb_streams.empty())
+		{
+			ResourceStore::Access store(rdr());
+			vertex_streams.reserve(mdesc.m_vb_streams.size());
+			for (auto const& stream_desc : mdesc.m_vb_streams)
+			{
+				if (stream_desc.m_semantic == 0)
+					throw std::runtime_error("Model vertex stream has no semantic id");
+				if (stream_desc.m_count != s_cast<int64_t>(mdesc.m_vb.Width))
+					throw std::runtime_error("Model vertex stream count must match the vertex buffer count");
+				if (stream_desc.m_stride <= 0)
+					throw std::runtime_error("Model vertex stream stride must be positive");
+				if (!stream_desc.m_data.empty() && stream_desc.m_data.size() != s_cast<size_t>(stream_desc.m_count * stream_desc.m_stride))
+					throw std::runtime_error("Model vertex stream initialisation data does not match the stream count and stride");
+
+				auto name = stream_desc.m_name.empty()
+					? string32(mdesc.m_name).append("-vstream")
+					: stream_desc.m_name;
+				auto rdesc = ResDesc::Buf(stream_desc.m_count, stream_desc.m_stride, stream_desc.m_data, stream_desc.m_stride)
+					.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+				auto res = CreateResource(rdesc, name);
+				auto srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = DXGI_FORMAT_UNKNOWN,
+					.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.Buffer = {
+						.FirstElement = 0,
+						.NumElements = s_cast<UINT>(stream_desc.m_count),
+						.StructureByteStride = s_cast<UINT>(stream_desc.m_stride),
+						.Flags = D3D12_BUFFER_SRV_FLAG_NONE,
+					},
+				};
+
+				vertex_streams.push_back(VertexStream{});
+				auto& stream = vertex_streams.back();
+				stream.m_semantic = stream_desc.m_semantic;
+				stream.m_count = stream_desc.m_count;
+				stream.m_stride = stream_desc.m_stride;
+				stream.m_res = res;
+				stream.m_srv = store.Descriptors().Create(res.get(), srv_desc);
+				stream.m_name = name;
+			}
+		}
+
 		// Set the size and alignment of the vertex/index element types
 		SizeAndAlign16 vstride(mdesc.m_vb.ElemStride, mdesc.m_vb.DataAlignment);
 		SizeAndAlign16 istride(mdesc.m_ib.ElemStride, mdesc.m_ib.DataAlignment);
@@ -201,6 +248,7 @@ namespace pr::rdr12
 			ib.get(),
 			mdesc.m_bbox,
 			mdesc.m_m2root,
+			std::move(vertex_streams),
 			mdesc.m_name
 		), true);
 		assert(m_rdr.mem_tracker().add(ptr.m_ptr));
@@ -218,12 +266,12 @@ namespace pr::rdr12
 			{
 				// Basis/focus point model
 				constexpr Vert verts[] = {
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
-					{v4(1.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  1.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  1.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourRed, Zero<v4>(), Zero<v2>()},
+					{v4(1.0f,  0.0f,  0.0f, 1.0f), ColourRed, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourGreen, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  1.0f,  0.0f, 1.0f), ColourGreen, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  1.0f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 3, 4, 5,
@@ -246,10 +294,10 @@ namespace pr::rdr12
 			{
 				// Unit quad in Z = 0 plane
 				constexpr Vert verts[] = {
-					{v4(-0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.9999f)},
-					{v4(+0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.9999f)},
-					{v4(+0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.0000f)},
-					{v4(-0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.0000f)},
+					{v4(-0.5f,-0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.0000f,0.9999f)},
+					{v4(+0.5f,-0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.9999f,0.9999f)},
+					{v4(+0.5f, 0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.9999f,0.0000f)},
+					{v4(-0.5f, 0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.0000f,0.0000f)},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 0, 2, 3
@@ -270,14 +318,14 @@ namespace pr::rdr12
 			{
 				// Bounding box cube
 				constexpr Vert verts[] = {
-					{v4(-0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, -0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, -0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 1, 2, 2, 3, 3, 0,
@@ -305,45 +353,45 @@ namespace pr::rdr12
 				constexpr float sz = 1.0f;
 				constexpr float dd = 0.8f;
 				constexpr Vert verts[] = {
-					{v4(-sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0,  1,  0,  2,  0,  3,
@@ -387,34 +435,48 @@ namespace pr::rdr12
 	// Create a new texture instance.
 	Texture2DPtr ResourceFactory::CreateTexture2D(TextureDesc const& desc)
 	{
-		if (desc.m_rdesc.DepthOrArraySize != 1)
-			throw std::runtime_error("Expected a 2D texture");
-
+		auto tdesc = desc;
 		D3DPtr<ID3D12Resource> res;
 
 		// If a uri is given, see if the DX resource already exists
-		if (desc.m_uri != 0)
+		if (tdesc.m_uri != 0)
 		{
 			ResourceStore::Access store(rdr());
-			res = store.FindRes(desc.m_uri);
+			res = store.FindRes(tdesc.m_uri);
 			if (res == nullptr)
 			{
+				if (tdesc.m_rdesc.DepthOrArraySize != 1)
+					throw std::runtime_error("Expected a 2D texture");
+
 				// If not, create the resource and add it to the lookup
-				res = CreateResource(desc.m_rdesc, desc.m_name);
+				res = CreateResource(tdesc.m_rdesc, tdesc.m_name);
 
 				// Record the uri for reuse
-				store.Add(desc.m_uri, res.get());
+				store.Add(tdesc.m_uri, res.get());
+			}
+			else
+			{
+				// Populate the texture desc from the cached resource so the TextureBase
+				// constructor has the correct format for creating SRV/UAV views.
+				tdesc.m_rdesc = ResDesc(res->GetDesc());
+				tdesc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 
 		// Otherwise, just create the texture
 		else
 		{
-			res = CreateResource(desc.m_rdesc, desc.m_name);
+			if (tdesc.m_rdesc.DepthOrArraySize != 1)
+				throw std::runtime_error("Expected a 2D texture");
+
+			res = CreateResource(tdesc.m_rdesc, tdesc.m_name);
 		}
 
+		if (tdesc.m_rdesc.DepthOrArraySize != 1)
+			throw std::runtime_error("Expected a 2D texture");
+
 		// Allocate a new texture instance
-		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), desc), true);
+		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), tdesc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add the texture instance pointer (not ref counted) to the store.
@@ -426,7 +488,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
+	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload, EColourSpace colour_space)
 	{
 		if (resource_path.empty())
 			throw std::runtime_error("A resource path must be given");
@@ -470,7 +532,7 @@ namespace pr::rdr12
 				auto data = std::span{ emb.m_data, emb.m_len };
 
 				// Create the texture data
-				auto [images, rdesc] = LoadImageData(data, 1, false, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(data, 1, false, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -514,7 +576,7 @@ namespace pr::rdr12
 					return CreateTexture(EStockTexture::Black);
 
 				// Load the texture from disk
-				auto [images, rdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -547,7 +609,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
+	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload, EColourSpace colour_space)
 	{
 		// Notes:
 		//  - A cube map is an array of 6 2D textures.
@@ -599,7 +661,7 @@ namespace pr::rdr12
 				}
 
 				// Create the texture data
-				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -657,7 +719,7 @@ namespace pr::rdr12
 				}
 
 				// Load the texture from disk (supports '??' in the filepath)
-				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.DepthOrArraySize = s_cast<UINT16>(images.ssize());

@@ -13,8 +13,11 @@ namespace pr::rdr12::materials
 	{
 		static constexpr RdrId Id = hash::HashCT("materials::PbrRoughness");
 
-		float m_factor = 1.0f; // Roughness factor.
-		ScalarTextureSlot m_tex = {{{}, {}, ETextureColourSpace::Linear}, ETextureChannel::Green}; // Roughness scalar map.
+		float m_factor = 1.0f;      // Roughness factor.
+		ScalarTextureSlot m_tex = { // Roughness scalar map.
+			{{}, {}, {}, ETextureColourSpace::Linear, 0},
+			ETextureChannel::Green
+		};
 	};
 	static_assert(ComponentType<Roughness>);
 }

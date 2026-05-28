@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
 #pragma once
+#include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/material/components/alpha.h"
 #include "pr/view3d-12/material/components/base_colour.h"
 #include "pr/view3d-12/material/components/emissive.h"
@@ -67,8 +68,8 @@ namespace pr::rdr12
 		MaterialPBR& emissive(Colour colour);
 		MaterialPBR& emissive_texture(materials::TextureSlot slot);
 
-		// Set the texture slot reserved for tangent-space normals.
-		MaterialPBR& normal_texture(materials::TextureSlot slot);
+		// Set the texture slot used for tangent-space normals.
+		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f);
 
 		// Set the alpha interpretation for this material.
 		MaterialPBR& alpha_mode(materials::EAlphaMode mode, float cutoff = 0.5f);
@@ -87,4 +88,3 @@ namespace pr::rdr12
 	};
 	static_assert(MaterialType<MaterialPBR>);
 }
-

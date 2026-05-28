@@ -81,9 +81,13 @@ namespace pr::rdr12
 		extern ByteCode const forward_ps;
 		extern ByteCode const forward_pbr_ps;
 		extern ByteCode const forward_reflection_attrs_ps;
-		extern ByteCode const forward_pbr_reflection_attrs_ps;
+		extern ByteCode const forward_reflection_attrs_pbr_ps;
 		extern ByteCode const forward_alpha_collect_ps;
-		extern ByteCode const forward_pbr_alpha_collect_ps;
+		extern ByteCode const forward_alpha_collect_pbr_ps;
+		extern ByteCode const forward_texn_pbr_vs;
+		extern ByteCode const forward_texn_pbr_ps;
+		extern ByteCode const forward_reflection_attrs_texn_pbr_ps;
+		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
 		extern ByteCode const forward_radial_fade_ps;
 
 		// Deferred rendering

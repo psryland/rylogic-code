@@ -98,7 +98,7 @@ namespace pr::rdr12
 			// Texture to surface transform
 			m4x4 m_t2s = {};
 
-			// Original model file path, used by stream-based importers to resolve relative sidecar files.
+			// Original model file path, used by stream-based importers to resolve relative external files.
 			std::filesystem::path m_source_path = {};
 
 			// Algorithmically generate surface normals. Value is the smoothing angle.
@@ -399,11 +399,13 @@ namespace pr::rdr12
 			using VCont = vector<VType>;
 			using ICont = geometry::IdxBuf;
 			using NCont = vector<NuggetDesc>;
+			using SCont = vector<VertexStreamDesc>;
 
 			string32 m_name = {};                 // Model name
 			VCont    m_vcont = {};                // Model verts
 			ICont    m_icont = {};                // Model faces/lines/points/etc
 			NCont    m_ncont = {};                // Model nuggets
+			SCont    m_scont = {};                // Model vertex streams
 			BBox     m_bbox = BBox::Reset();      // Model bounding box
 			m4x4     m_m2root = m4x4::Identity(); // Model to root transform
 			bool     m_in_use = false;            // True if this buffer is currently in use
@@ -417,6 +419,7 @@ namespace pr::rdr12
 				m_vcont.resize(vcount, {});
 				m_icont.resize(icount, idx_stride);
 				m_ncont.resize(ncount, {});
+				m_scont.resize(0);
 				m_bbox = BBox::Reset();
 				m_m2root = m4x4::Identity();
 			}
@@ -431,6 +434,7 @@ namespace pr::rdr12
 			using VCont = vector<VType>;
 			using ICont = geometry::IdxBuf;
 			using NCont = vector<NuggetDesc>;
+			using SCont = vector<VertexStreamDesc>;
 
 		private:
 
@@ -450,6 +454,7 @@ namespace pr::rdr12
 			VCont& m_vcont;   // Model verts
 			ICont& m_icont;   // Model faces/lines/points/etc
 			NCont& m_ncont;   // Model nuggets
+			SCont& m_scont;   // Model vertex streams
 			BBox& m_bbox;     // Model bounding box
 			m4x4& m_m2root;   // Model to root transform
 
@@ -460,6 +465,7 @@ namespace pr::rdr12
 				, m_vcont(m_buffers.m_vcont)
 				, m_icont(m_buffers.m_icont)
 				, m_ncont(m_buffers.m_ncont)
+				, m_scont(m_buffers.m_scont)
 				, m_bbox(m_buffers.m_bbox)
 				, m_m2root(m_buffers.m_m2root)
 			{
@@ -475,6 +481,7 @@ namespace pr::rdr12
 				// Release resource references (RefPtrs) held by NuggetDescs.
 				// Vertex/index buffers are POD and can stay pooled.
 				m_buffers.m_ncont.clear();
+				m_buffers.m_scont.clear();
 				m_buffers.m_in_use = false;
 			}
 			Cache(Cache&& rhs) = delete;
@@ -491,6 +498,7 @@ namespace pr::rdr12
 			int64_t VCount() const { return isize(m_vcont); }
 			int64_t ICount() const { return isize(m_icont); }
 			int64_t NCount() const { return isize(m_ncont); }
+			int64_t SCount() const { return isize(m_scont); }
 
 			// Return the buffer format associated with the index stride
 			DXGI_FORMAT IdxFormat() const
@@ -498,10 +506,10 @@ namespace pr::rdr12
 				auto stride = m_icont.stride();
 				switch (stride)
 				{
-				case 4: return ::pr::compute::dx_format_v<uint32_t>.format;
-				case 2: return ::pr::compute::dx_format_v<uint16_t>.format;
-				case 1: return ::pr::compute::dx_format_v<uint8_t>.format;
-				default: throw std::runtime_error(std::format("Unsupported index stride: {}", stride));
+					case 4: return ::pr::compute::dx_format_v<uint32_t>.format;
+					case 2: return ::pr::compute::dx_format_v<uint16_t>.format;
+					case 1: return ::pr::compute::dx_format_v<uint8_t>.format;
+					default: throw std::runtime_error(std::format("Unsupported index stride: {}", stride));
 				}
 			}
 		};

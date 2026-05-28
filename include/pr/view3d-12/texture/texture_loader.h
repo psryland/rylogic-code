@@ -30,12 +30,16 @@ namespace pr::rdr12
 	bool IsDDSData(std::span<uint8_t const> img);
 
 	// Load an image from a DDS image, either in memory or on disk.
-	LoadedImageResult LoadDDS(std::span<uint8_t const> mem, int mips = 0, bool is_cube_map = false, int max_dimension = 0);
-	LoadedImageResult LoadDDS(std::filesystem::path const& filepath, int mips = 0, bool is_cube_map = false, int max_dimension = 0);
+	// 'colour_space' hints whether texels should be sampled as sRGB-encoded colour data (default) or linear-space numeric data.
+	// For DDS, an explicit '_SRGB' format in the file header wins; otherwise the hint promotes a matching '_UNORM' to '_UNORM_SRGB' when Srgb.
+	LoadedImageResult LoadDDS(std::span<uint8_t const> mem, int mips = 0, bool is_cube_map = false, int max_dimension = 0, EColourSpace colour_space = EColourSpace::Srgb);
+	LoadedImageResult LoadDDS(std::filesystem::path const& filepath, int mips = 0, bool is_cube_map = false, int max_dimension = 0, EColourSpace colour_space = EColourSpace::Srgb);
 
 	// Load an image from a WIC image, either in memory or on disk.
-	LoadedImageResult LoadWIC(std::span<std::span<uint8_t const>> images, int mips = 0, int max_dimension = 0, FeatureSupport const* features = nullptr);
-	LoadedImageResult LoadWIC(std::span<std::filesystem::path const> filepaths, int mips = 0, int max_dimension = 0, FeatureSupport const* features = nullptr);
+	// 'colour_space' picks between the '_UNORM' (Linear) and '_UNORM_SRGB' (Srgb) DXGI format variant for the decoded pixel format.
+	// PNG/JPG/etc. files carry no reliable colour-space tag we honour, so the caller must say what the texels represent.
+	LoadedImageResult LoadWIC(std::span<std::span<uint8_t const>> images, int mips = 0, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb);
+	LoadedImageResult LoadWIC(std::span<std::filesystem::path const> filepaths, int mips = 0, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb);
 
 	// Load 'DDS, JPG, PNG, TGA, GIF, or BMP' image data, either from memory or disk.
 	// 'data' is an in-memory image file.
@@ -44,7 +48,8 @@ namespace pr::rdr12
 	// 'filepaths' is a sorted list of equal dimension image files that make up the elements in a texture array or cube map.
 	// Cubemap image order is: px, nx, py, ny, pz, nz
 	// DDS images natively support cube maps and array textures so only single DDS images are supported. (See Texassemble.exe for creating DDS textures)
-	inline LoadedImageResult LoadImageData(std::span<std::filesystem::path const> filepaths, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
+	// 'colour_space' is forwarded to the underlying DDS/WIC loader.
+	inline LoadedImageResult LoadImageData(std::span<std::filesystem::path const> filepaths, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb)
 	{
 		if (filepaths.empty())
 			throw std::runtime_error("At least one image is required");
@@ -59,21 +64,21 @@ namespace pr::rdr12
 			if (filepaths.size() != 1)
 				throw std::runtime_error("Only single DDS textures are supported since they natively support texture arrays and cube maps");
 
-			return LoadDDS(filepaths[0], mips, is_cube_map, max_dimension);
+			return LoadDDS(filepaths[0], mips, is_cube_map, max_dimension, colour_space);
 		}
 		else
 		{
 			if (is_cube_map && filepaths.size() != 6)
 				throw std::runtime_error("Expected 6 images for a cube map");
 
-			return LoadWIC(filepaths, mips, max_dimension, features);
+			return LoadWIC(filepaths, mips, max_dimension, features, colour_space);
 		}
 	}
-	inline LoadedImageResult LoadImageData(std::filesystem::path const& filepath, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
+	inline LoadedImageResult LoadImageData(std::filesystem::path const& filepath, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb)
 	{
-		return LoadImageData({ &filepath, 1 }, mips, is_cube_map, max_dimension, features);
+		return LoadImageData({ &filepath, 1 }, mips, is_cube_map, max_dimension, features, colour_space);
 	}
-	inline LoadedImageResult LoadImageData(std::span<std::span<uint8_t const>> const& images, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
+	inline LoadedImageResult LoadImageData(std::span<std::span<uint8_t const>> const& images, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb)
 	{
 		if (images.empty())
 			throw std::runtime_error("At least one image is required");
@@ -85,18 +90,18 @@ namespace pr::rdr12
 			if (images.size() != 1)
 				throw std::runtime_error("Only single DDS textures are supported since they natively support texture arrays and cube maps");
 
-			return LoadDDS(images[0], mips, is_cube_map, max_dimension);
+			return LoadDDS(images[0], mips, is_cube_map, max_dimension, colour_space);
 		}
 		else
 		{
 			if (is_cube_map && images.size() != 6)
 				throw std::runtime_error("Expected 6 images for a cube map");
 
-			return LoadWIC(images, mips, max_dimension, features);
+			return LoadWIC(images, mips, max_dimension, features, colour_space);
 		}
 	}
-	inline LoadedImageResult LoadImageData(std::span<uint8_t const> data, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr)
+	inline LoadedImageResult LoadImageData(std::span<uint8_t const> data, int mips = 0, bool is_cube_map = false, int max_dimension = 0, FeatureSupport const* features = nullptr, EColourSpace colour_space = EColourSpace::Srgb)
 	{
-		return LoadImageData(std::span{ &data, 1 }, mips, is_cube_map, max_dimension, features);
+		return LoadImageData(std::span{ &data, 1 }, mips, is_cube_map, max_dimension, features, colour_space);
 	}
 }

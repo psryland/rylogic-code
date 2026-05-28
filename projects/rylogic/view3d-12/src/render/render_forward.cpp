@@ -55,7 +55,8 @@ namespace pr::rdr12
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 			.NumRenderTargets = 1U,
 			.RTVFormats = {
-				scene.wnd().m_rt_props.Format,
+				// Match the sRGB RTV cast applied in Window::CreateRenderTarget/CreateSwapChain.
+				::pr::compute::ToSRGB(scene.wnd().m_rt_props.Format),
 				DXGI_FORMAT_UNKNOWN,
 				DXGI_FORMAT_UNKNOWN,
 				DXGI_FORMAT_UNKNOWN,
@@ -457,6 +458,7 @@ namespace pr::rdr12
 			}
 			else
 			{
+				// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
 				cmd_list.DrawIndexedInstanced(
 					s_cast<size_t>(nugget.m_irange.size()), 1U,
 					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);

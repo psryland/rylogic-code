@@ -792,6 +792,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\hlsl\shader_registers.h">
       <Filter>pr\hlsl</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\view3d-12\model\vertex_stream.h">
+      <Filter>src\model</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
@@ -923,9 +926,7 @@
     <None Include="src\shaders\hlsl\forward\kbuffer.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>
-    <None Include="..\..\..\include\pr\hlsl\bounding_box.hlsli">
-      <Filter>pr\hlsl</Filter>
-    </None>
+    <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">

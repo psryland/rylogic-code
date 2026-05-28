@@ -24,9 +24,11 @@ static const int AlphaFlags_HasAlpha            = (1 << 0);
 // Texture interpretation flags for physically based materials.
 static const int PbrTextureFlag_BaseColourSrgb    = (1 << 0);
 static const int PbrTextureFlag_EmissiveSrgb      = (1 << 1);
-static const int PbrTextureFlag_HasMetallicMap    = (1 << 2);
-static const int PbrTextureFlag_HasRoughnessMap   = (1 << 3);
-static const int PbrTextureFlag_HasEmissiveMap    = (1 << 4);
+static const int PbrTextureFlag_HasBaseColourMap  = (1 << 2);
+static const int PbrTextureFlag_HasMetallicMap    = (1 << 3);
+static const int PbrTextureFlag_HasRoughnessMap   = (1 << 4);
+static const int PbrTextureFlag_HasEmissiveMap    = (1 << 5);
+static const int PbrTextureFlag_HasNormalMap      = (1 << 6);
 
 // Row major matrix for use in structured buffers
 struct Mat4x4
@@ -84,6 +86,13 @@ struct Skinfluence
 	uint4 weights; // 8 16-bit bone weights
 };
 
+// Texture coordinate transforms
+struct TexXForm
+{
+	float4 m_x; // First output row of the texture-coordinate transform
+	float4 m_y; // Second output row of the texture-coordinate transform
+};
+
 // Models
 inline bool HasNormals (int4 flags) { return AnySet(flags.x, ModelFlags_HasNormals); }
 inline bool IsSkinned  (int4 flags) { return AnySet(flags.x, ModelFlags_IsSkinned); }
@@ -120,6 +129,21 @@ struct PSIn
 	float4 ws_norm semantic(NORMAL0);
 	float4 diff    semantic(COLOR0);
 	float2 tex0    semantic(TEXCOORD0);
+	float2 idx0    semantic(INDICES0);
+};
+
+// Pixel shader input for material variants that interpolate optional texture-coordinate lanes.
+struct PSInTexN
+{
+	float4 ss_vert semantic(SV_POSITION);
+	float4 ws_vert semantic(POSITION1);
+	float4 ws_norm semantic(NORMAL0);
+	float4 diff    semantic(COLOR0);
+	float2 tex0    semantic(TEXCOORD0);
+	float2 tex1    semantic(TEXCOORD1);
+	float2 tex2    semantic(TEXCOORD2);
+	float2 tex3    semantic(TEXCOORD3);
+	float2 tex4    semantic(TEXCOORD4);
 	float2 idx0    semantic(INDICES0);
 };
 

@@ -23,6 +23,7 @@ namespace pr::rdr12
 		ID3D12Resource* ib,
 		BBox const& bbox,
 		m4x4 const& m2root,
+		vector<VertexStream>&& vb_streams,
 		std::string_view name
 	)
 		: m_rdr(&rdr)
@@ -47,6 +48,7 @@ namespace pr::rdr12
 		, m_m2root(m2root)
 		, m_skin()
 		, m_ray_tracing()
+		, m_vb_streams(std::move(vb_streams))
 		, m_bbox(bbox)
 		, m_name(name)
 		, m_vstride(vstride)
@@ -98,6 +100,18 @@ namespace pr::rdr12
 		return GfxUpdateSubresourceScope(cmd_list, upload, m_ib.get(), m_istride.align(), s_cast<int>(irange.m_beg), s_cast<int>(irange.size()));
 	}
 
+	// Return the vertex stream matching 'semantic', or null if the model has no such stream.
+	VertexStream const* Model::FindVertexStream(RdrId semantic) const
+	{
+		for (auto const& stream : m_vb_streams)
+		{
+			if (stream.m_semantic == semantic)
+				return &stream;
+		}
+
+		return nullptr;
+	}
+
 	// Create a nugget from a range within this model
 	// Ranges are model relative, i.e. the first vert in the model is range [0,1)
 	// Remember you might need to delete render nuggets first
@@ -145,6 +159,9 @@ namespace pr::rdr12
 		mdl->m_ray_tracing.DeferRelease(mdl->rdr());
 		mdl->rdr().DeferRelease(mdl->m_vb);
 		mdl->rdr().DeferRelease(mdl->m_ib);
+		for (auto& stream : mdl->m_vb_streams)
+			mdl->rdr().DeferRelease(stream.m_res);
+
 		ResourceStore::Access store(mdl->rdr());
 		store.Delete(mdl);
 	}

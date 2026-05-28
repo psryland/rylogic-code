@@ -224,11 +224,12 @@ namespace pr::rdr12
 		}
 
 		// Create a renderer texture from embedded image bytes.
+		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
 		template <typename Material>
-		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha)
+		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
 		{
 			auto data = texture.m_data;
-			auto [images, rdesc] = LoadImageData(data, 1, false, 0, &factory.rdr().Features());
+			auto [images, rdesc] = LoadImageData(data, 1, false, 0, &factory.rdr().Features(), colour_space);
 			rdesc.Data = images;
 			rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
@@ -243,15 +244,16 @@ namespace pr::rdr12
 		}
 
 		// Create a renderer texture from a file path or URI.
+		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
 		template <typename Material>
-		static Texture2DPtr CreateFileTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha)
+		static Texture2DPtr CreateFileTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
 		{
 			auto name = texture.name();
 			auto desc = TextureDesc(AutoId, ResDesc())
 				.has_alpha(has_alpha)
 				.name(name);
 
-			return factory.CreateTexture2D(std::filesystem::path(texture.m_uri), desc);
+			return factory.CreateTexture2D(std::filesystem::path(texture.m_uri), desc, false, colour_space);
 		}
 
 		// Create a sampler matching the imported texture's sampler state.
@@ -318,6 +320,7 @@ namespace pr::rdr12
 				OutputDebugStringA(msg.c_str());
 			};
 
+			// Validate the texture reference before trying to create a renderer texture from it.
 			auto const texture_name = texture.name();
 			if (auto const reason = MaterialTraits<Material>::ValidateTexture(texture); !reason.empty())
 			{
@@ -325,17 +328,20 @@ namespace pr::rdr12
 				return {};
 			}
 
+			// Try to create a renderer texture from the imported texture reference, reporting any exceptions as non-fatal issues.
 			try
 			{
 				slot.m_texture =
-					!texture.m_data.empty() ? CreateEmbeddedTexture<Material>(factory, texture, has_alpha) :
-					!texture.m_uri.empty() ? CreateFileTexture<Material>(factory, texture, has_alpha) :
+					!texture.m_data.empty() ? CreateEmbeddedTexture<Material>(factory, texture, has_alpha, colour_space) :
+					!texture.m_uri.empty() ? CreateFileTexture<Material>(factory, texture, has_alpha, colour_space) :
 					nullptr;
 
 				if (slot.m_texture == nullptr)
 					return {};
 
 				slot.m_sampler = CreateSampler<Material>(factory, texture);
+				slot.m_texcoord = s_cast<int>(texture.m_texcoord);
+				slot.m_uv_transform = texture.m_uv_transform;
 				return slot.m_sampler != nullptr ? slot : materials::TextureSlot{};
 			}
 			catch (std::exception const& e)
@@ -368,8 +374,8 @@ namespace pr::rdr12
 			// Return the reason that 'texture' cannot currently be imported, or empty if it can.
 			static std::string_view ValidateTexture(geometry::TextureRef const& texture)
 			{
-				if (texture.m_texcoord != 0)
-					return "only TEXCOORD_0 is currently supported";
+				if (texture.m_texcoord < 0)
+					return "negative texture-coordinate channels are not supported";
 
 				if (texture.m_uri.starts_with("data:"))
 					return "data URI images are not currently supported";
@@ -454,7 +460,7 @@ namespace pr::rdr12
 
 				auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear, false);
 				if (normal_texture)
-					material.normal_texture(normal_texture);
+					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
 			}
 		};
 		template <> struct MaterialTraits<geometry::fbx::Material>
@@ -505,7 +511,7 @@ namespace pr::rdr12
 
 				auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear, false);
 				if (normal_texture)
-					material.normal_texture(normal_texture);
+					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
 			}
 		};
 	}
@@ -542,6 +548,7 @@ namespace pr::rdr12
 			.ibuf(ResDesc::IBuf(cache.ICount(), cache.m_icont.stride(), cache.m_icont))
 			.bbox(cache.m_bbox)
 			.m2root(cache.m_m2root)
+			.vb_streams(cache.m_scont)
 			.name(cache.m_name);
 		auto model = factory.CreateModel(mdesc);
 
@@ -1961,6 +1968,39 @@ namespace pr::rdr12
 				{
 					SetPCNTI(*vptr, v.m_vert, v.m_colr, v.m_norm, v.m_tex0, v.m_idx0);
 					++vptr;
+				}
+
+				// Copy optional vertex streams. These streams stay model-owned and are only bound by material/shader paths that ask for them.
+				m_cache.m_scont.reserve(mesh.m_vertex_streams.size());
+				for (auto const& stream : mesh.m_vertex_streams)
+				{
+					switch (stream.m_semantic)
+					{
+						case gltf::VertexStream::ESemantic::TexCoord:
+						{
+							if (stream.m_channel == 0)
+								break;
+							if (stream.m_stride <= 0)
+								throw std::runtime_error("glTF vertex stream stride must be positive");
+							if ((stream.m_data.size() % stream.m_stride) != 0)
+								throw std::runtime_error("glTF vertex stream data size is not a multiple of the stride");
+
+							auto stream_count = s_cast<int64_t>(stream.m_data.size() / stream.m_stride);
+							if (stream_count != vcount)
+								throw std::runtime_error("glTF vertex stream vertex count does not match the mesh vertex count");
+
+							auto name = std::format("{}-TexCoord{}", mesh.m_name, stream.m_channel);
+							m_cache.m_scont.push_back(VertexStreamDesc()
+								.semantic(vertex_stream::TexCoord(stream.m_channel))
+								.data(stream_count, stream.m_stride, stream.m_data)
+								.name(name));
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unsupported glTF vertex stream semantic");
+						}
+					}
 				}
 
 				// Copy indices
