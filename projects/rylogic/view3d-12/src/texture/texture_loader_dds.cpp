@@ -562,6 +562,12 @@ namespace pr::rdr12
 			.Flags = D3D12_RESOURCE_FLAG_NONE,
 		};
 
+		// 'D3D12_RESOURCE_DESC' has no notion of staging-buffer alignment, so 'DataAlignment' must be
+		// set explicitly. Required by 'UpdateSubresourceScope' / 'GpuTransferBuffer::Alloc'; if left
+		// at zero the alignment math in 'Pad' silently wraps and successive uploads can be staged at
+		// overlapping offsets, corrupting texture content.
+		result.desc.data_alignment(D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
 		return result;
 	}
 

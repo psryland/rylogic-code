@@ -101,6 +101,8 @@ namespace pr::compute
 		// Allocate some upload buffer space
 		Allocation Alloc(int64_t size, int alignment)
 		{
+			if (alignment <= 0)
+				throw std::runtime_error("Alloc alignment must be a positive power of two");
 			if (alignment > m_blk_align)
 				throw std::runtime_error("Cannot use alignment larger than the block alignment");
 
@@ -113,6 +115,15 @@ namespace pr::compute
 
 			// Consume from the block
 			block.m_size = PadTo(block.m_size, alignment) + size;
+
+			// Mark the block as in-use until at least the next sync point completes. The commands recorded against this
+			// allocation are queued in a command list that will not execute until the next flush. Without this update, a
+			// block's m_sync_point would only ever be set from its creation time (or from the SyncPointAdded handler for
+			// the back block) which can be a sync point that has already been completed. Once another block is appended,
+			// the front block loses size==1 protection and PurgeCompleted would recycle it, even though its queued
+			// commands have not yet executed. Recycling allows the block memory to be overwritten by subsequent Alloc
+			// callers, which corrupts the source data for the queued copies.
+			block.m_sync_point = m_gsync->NextSyncPoint();
 
 			// Return the allocation
 			return alex;

@@ -110,8 +110,8 @@ struct CBufPbrSurface// :reg(b4)
 	int emissive_texcoord;             // Shader texture-coordinate lane used by the emissive texture
 	int normal_texcoord;               // Shader texture-coordinate lane used by the normal-map texture
 	int texcoord_count;                // Number of optional texture-coordinate lanes bound for this draw
-	int texcoord_vertex_ofs;           // Vertex-buffer offset to add when optional streams are read by non-indexed draws
 	int pad0;
+	int pad1;
 };
 
 // Constants used for diagnostic shaders.

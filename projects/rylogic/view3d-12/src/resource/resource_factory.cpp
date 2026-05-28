@@ -172,6 +172,7 @@ namespace pr::rdr12
 
 		m_keep_alive.Add(res);
 		m_flush_required = true;
+
 		return res;
 	}
 

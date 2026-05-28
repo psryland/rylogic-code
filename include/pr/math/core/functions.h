@@ -2209,7 +2209,10 @@ namespace pr::math
 	// Returns the number to add to pad 'size' up to 'alignment'
 	template <std::integral S> constexpr S Pad(S size, int alignment) noexcept
 	{
-		pr_assert(((alignment - 1) & alignment) == 0 && "alignment should be a power of two");
+		// 'alignment' must be a positive power of two. Note that the power-of-two test ((a-1) & a) == 0
+		// accidentally passes for a == 0 (because (-1) & 0 == 0), so 'alignment > 0' is required separately.
+		// Without this, '(alignment - 1)' becomes ~0 and the mask below silently wraps.
+		pr_assert(alignment > 0 && ((alignment - 1) & alignment) == 0 && "alignment should be a positive power of two");
 		return static_cast<S>(~(size - 1) & (alignment - 1));
 	}
 

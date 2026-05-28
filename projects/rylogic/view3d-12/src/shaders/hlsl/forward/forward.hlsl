@@ -20,20 +20,6 @@ ConstantBuffer<CBufPbrSurface> g_pbr : register(b4);
 Texture2D<float4> g_base_texture :register(t0);
 SamplerState      g_base_sampler :register(s0);
 
-// PBR material texture slots.
-Texture2D<float4> g_metallic_texture  :register(t4);
-Texture2D<float4> g_roughness_texture :register(t5);
-Texture2D<float4> g_emissive_texture  :register(t7);
-Texture2D<float4> g_normal_texture    :register(t12);
-StructuredBuffer<float2> g_tex1 :register(t8);
-StructuredBuffer<float2> g_tex2 :register(t9);
-StructuredBuffer<float2> g_tex3 :register(t10);
-StructuredBuffer<float2> g_tex4 :register(t11);
-SamplerState      g_metallic_sampler  :register(s4);
-SamplerState      g_roughness_sampler :register(s5);
-SamplerState      g_emissive_sampler  :register(s6);
-SamplerState      g_normal_sampler    :register(s7);
-
 // Environment map
 TextureCube<float4> g_envmap_texture :register(t1);
 SamplerState        g_envmap_sampler :register(s1);
@@ -46,8 +32,24 @@ SamplerComparisonState g_smap_sampler           :register(s2);
 Texture2D<float4> g_proj_texture[MaxProjectedTextures] :register(t3);
 SamplerState      g_proj_sampler[MaxProjectedTextures] :register(s3);
 
+// PBR material texture slots.
+Texture2D<float4> g_metallic_texture  :register(t4);
+Texture2D<float4> g_roughness_texture :register(t5);
+
 // Opaque depth
 Texture2DMS<float> g_opaque_depth : register(t6);
+
+// PBR material texture slots continued after the shared forward resources.
+Texture2D<float4> g_emissive_texture  :register(t7);
+StructuredBuffer<float2> g_tex1 :register(t8);
+StructuredBuffer<float2> g_tex2 :register(t9);
+StructuredBuffer<float2> g_tex3 :register(t10);
+StructuredBuffer<float2> g_tex4 :register(t11);
+Texture2D<float4> g_normal_texture    :register(t12);
+SamplerState      g_metallic_sampler  :register(s4);
+SamplerState      g_roughness_sampler :register(s5);
+SamplerState      g_emissive_sampler  :register(s6);
+SamplerState      g_normal_sampler    :register(s7);
 
 // Alpha sorting
 RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
@@ -237,20 +239,18 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	Out.tex0 = base.tex0;
 	Out.idx0 = base.idx0;
 
-	// Optional streams follow the primary vertex buffer order. Indexed draws use absolute indices; non-indexed draws add the nugget vertex-range offset.
-	uint vertex_index = vertex_id + (uint)g_pbr.texcoord_vertex_ofs;
-
+	// Optional streams follow the model vertex-buffer order. SV_VertexID is already the model-buffer index for both indexed and non-indexed draws.
 	if (g_pbr.texcoord_count > 0)
-		Out.tex1 = g_tex1[vertex_index];
+		Out.tex1 = g_tex1[vertex_id];
 
 	if (g_pbr.texcoord_count > 1)
-		Out.tex2 = g_tex2[vertex_index];
+		Out.tex2 = g_tex2[vertex_id];
 
 	if (g_pbr.texcoord_count > 2)
-		Out.tex3 = g_tex3[vertex_index];
+		Out.tex3 = g_tex3[vertex_id];
 
 	if (g_pbr.texcoord_count > 3)
-		Out.tex4 = g_tex4[vertex_index];
+		Out.tex4 = g_tex4[vertex_id];
 
 	return Out;
 }

@@ -250,16 +250,6 @@ namespace pr::rdr12
 				};
 			}
 
-			// Return the vertex-buffer offset needed for optional stream lookup.
-			static int TexCoordVertexOffset(MaterialPassContext const& ctx)
-			{
-				auto const* nugget = ctx.m_dle.m_nugget;
-				if (nugget == nullptr || !nugget->m_irange.empty())
-					return 0;
-
-				return s_cast<int>(nugget->m_vrange.m_beg);
-			}
-
 			// Return the texture for a PBR slot, or the forward pass fallback texture.
 			static Texture2D* TextureOrDefault(MaterialPassContext const& ctx, materials::TextureSlot const& slot)
 			{
@@ -392,7 +382,6 @@ namespace pr::rdr12
 					.emissive_texcoord = ShaderTexCoord(texcoords, emissive.m_tex),
 					.normal_texcoord = ShaderTexCoord(texcoords, normal_map.m_tex),
 					.texcoord_count = texcoords.m_count,
-					.texcoord_vertex_ofs = TexCoordVertexOffset(ctx),
 				};
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
