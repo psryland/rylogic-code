@@ -10,6 +10,7 @@ namespace pr::compute
 		: m_device(device)
 		, m_store_cpu()
 		, m_hint_free()
+		, m_generation()
 	{}
 
 	// Create a CBV descriptor
@@ -25,11 +26,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateConstantBufferView(&desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Create a SRV descriptor
@@ -45,11 +47,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateShaderResourceView(resource, &desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Create a UAV descriptor
@@ -65,11 +68,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateUnorderedAccessView(resource, nullptr, &desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Create a RTV descriptor
@@ -85,11 +89,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateRenderTargetView(resource, &desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Create a DSV descriptor
@@ -105,11 +110,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateDepthStencilView(resource, &desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Create a sampler descriptor
@@ -125,11 +131,12 @@ namespace pr::compute
 		auto handle = block.heap->GetCPUDescriptorHandleForHeapStart();
 		handle.ptr += des_index * m_device->GetDescriptorHandleIncrementSize(type);
 		m_device->CreateSampler(&desc, handle);
-		block.free = SetBits(block.free, 1 << des_index, false);
+		auto generation = ++m_generation;
+		block.free = SetBits(block.free, 1ULL << des_index, false);
 
 		// Add the block index to 'index' and return
 		auto blk_index = s_cast<int>(&block - m_store_cpu[type].data());
-		return Descriptor((blk_index << ShftBlk) | des_index, type, handle);
+		return Descriptor((blk_index << ShftBlk) | des_index, type, handle, generation);
 	}
 
 	// Release a descriptor by index
@@ -141,7 +148,7 @@ namespace pr::compute
 		auto blk_index = descriptor.m_index >> ShftBlk;
 		auto des_index = descriptor.m_index & MaskIdx;
 		auto& block = m_store_cpu[descriptor.m_type][blk_index];
-		block.free = SetBits(block.free, 1 << des_index, true);
+		block.free = SetBits(block.free, 1ULL << des_index, true);
 	}
 
 	// Return a block with a free slot from 'store'

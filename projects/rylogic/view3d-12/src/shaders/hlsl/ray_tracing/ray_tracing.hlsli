@@ -26,7 +26,7 @@ float4 ReflectionAttributes(PSIn In, float4 diff, bool is_front_face)
 }
 
 // Return the RT reflection side-buffer payload for the visible opaque PBR surface.
-float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face, float2 metallic_uv)
+float4 PbrReflectionAttributes(PSIn In, float4 diff, float2 metallic_uv, float3 normal)
 {
 	float reflectivity = saturate(g_pbr.metallic);
 	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasMetallicMap))
@@ -35,7 +35,6 @@ float4 PbrReflectionAttributes(PSIn In, float4 diff, bool is_front_face, float2 
 	if (!HasNormals(g_nugget.flags) || reflectivity == 0.0f || diff.a < 0.5f)
 		return float4(0, 0, 0, 0);
 
-	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return float4(0, 0, 0, 0);
 

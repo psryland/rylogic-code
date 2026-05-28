@@ -458,7 +458,7 @@ namespace pr::rdr12
 
 				auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear, false);
 				if (normal_texture)
-					material.normal_texture(normal_texture);
+					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
 			}
 		};
 		template <> struct MaterialTraits<geometry::fbx::Material>
@@ -509,7 +509,7 @@ namespace pr::rdr12
 
 				auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear, false);
 				if (normal_texture)
-					material.normal_texture(normal_texture);
+					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
 			}
 		};
 	}

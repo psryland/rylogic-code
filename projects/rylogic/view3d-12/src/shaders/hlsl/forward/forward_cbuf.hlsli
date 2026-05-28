@@ -95,8 +95,10 @@ struct CBufPbrSurface// :reg(b4)
 	TexXForm metallic_uv_transform;    // Transform applied to the metallic texture coordinates
 	TexXForm roughness_uv_transform;   // Transform applied to the roughness texture coordinates
 	TexXForm emissive_uv_transform;    // Transform applied to the emissive texture coordinates
+	TexXForm normal_uv_transform;      // Transform applied to the normal-map texture coordinates
 	float metallic;                    // Metallic factor
 	float roughness;                   // Roughness factor
+	float normal_scale;                // Normal-map X/Y scale
 	float alpha_cutoff;                // Alpha cutoff threshold used when alpha_mode = 1 (mask)
 	int alpha_mode;                    // 0 = opaque, 1 = mask, 2 = blend
 	int texture_flags;                 // Bit flags describing per-slot texture interpretation
@@ -106,10 +108,10 @@ struct CBufPbrSurface// :reg(b4)
 	int metallic_texcoord;             // Shader texture-coordinate lane used by the metallic texture
 	int roughness_texcoord;            // Shader texture-coordinate lane used by the roughness texture
 	int emissive_texcoord;             // Shader texture-coordinate lane used by the emissive texture
+	int normal_texcoord;               // Shader texture-coordinate lane used by the normal-map texture
 	int texcoord_count;                // Number of optional texture-coordinate lanes bound for this draw
 	int texcoord_vertex_ofs;           // Vertex-buffer offset to add when optional streams are read by non-indexed draws
-	int pad1;
-	int pad2;
+	int pad0;
 };
 
 // Constants used for diagnostic shaders.

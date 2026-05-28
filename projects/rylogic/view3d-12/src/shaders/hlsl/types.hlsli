@@ -28,6 +28,7 @@ static const int PbrTextureFlag_HasBaseColourMap  = (1 << 2);
 static const int PbrTextureFlag_HasMetallicMap    = (1 << 3);
 static const int PbrTextureFlag_HasRoughnessMap   = (1 << 4);
 static const int PbrTextureFlag_HasEmissiveMap    = (1 << 5);
+static const int PbrTextureFlag_HasNormalMap      = (1 << 6);
 
 // Row major matrix for use in structured buffers
 struct Mat4x4

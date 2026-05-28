@@ -94,6 +94,7 @@ namespace pr::geometry
 		std::span<uint8_t const> m_data = {};
 		int m_texcoord = 0;
 		TexXForm m_uv_transform = {};
+		float m_scale = 1.0f;
 		ETextureWrap m_wrap_s = ETextureWrap::Repeat;
 		ETextureWrap m_wrap_t = ETextureWrap::Repeat;
 		ETextureFilter m_min_filter = ETextureFilter::Linear;

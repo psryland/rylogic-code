@@ -68,8 +68,8 @@ namespace pr::rdr12
 		MaterialPBR& emissive(Colour colour);
 		MaterialPBR& emissive_texture(materials::TextureSlot slot);
 
-		// Set the texture slot reserved for tangent-space normals.
-		MaterialPBR& normal_texture(materials::TextureSlot slot);
+		// Set the texture slot used for tangent-space normals.
+		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f);
 
 		// Set the alpha interpretation for this material.
 		MaterialPBR& alpha_mode(materials::EAlphaMode mode, float cutoff = 0.5f);
@@ -88,4 +88,3 @@ namespace pr::rdr12
 	};
 	static_assert(MaterialType<MaterialPBR>);
 }
-

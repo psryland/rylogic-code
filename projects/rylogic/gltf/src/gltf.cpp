@@ -231,6 +231,7 @@ namespace pr
 		Material::Texture tex = {};
 		tex.m_texcoord = EffectiveTexCoord(view);
 		ApplyTextureTransform(view, tex);
+		tex.m_scale = view.scale;
 
 		auto const* texture = view.texture;
 		if (texture == nullptr)

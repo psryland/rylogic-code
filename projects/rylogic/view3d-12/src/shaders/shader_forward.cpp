@@ -31,6 +31,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrRoughnessTexture = ESRVReg::t5;
 		inline static constexpr auto OpaqueDepth = ESRVReg::t6;
 		inline static constexpr auto PbrEmissiveTexture = ESRVReg::t7;
+		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto Tex1Stream = ESRVReg::t8;
 		inline static constexpr auto Tex2Stream = ESRVReg::t9;
 		inline static constexpr auto Tex3Stream = ESRVReg:: t10;
@@ -48,6 +49,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrMetallic = ESamReg::s4;
 		inline static constexpr auto PbrRoughness = ESamReg::s5;
 		inline static constexpr auto PbrEmissive = ESamReg::s6;
+		inline static constexpr auto PbrNormal = ESamReg::s7;
 	};
 
 	Forward::Forward(Renderer& rdr)
@@ -75,6 +77,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::PbrMetallicTexture, 1)
 			.SRV(EReg::PbrRoughnessTexture, 1)
 			.SRV(EReg::PbrEmissiveTexture, 1)
+			.SRV(EReg::PbrNormalTexture, 1)
 			.SRV(EReg::Tex1Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::Tex2Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::Tex3Stream, 1, D3D12_SHADER_VISIBILITY_VERTEX)
@@ -87,6 +90,7 @@ namespace pr::rdr12::shaders
 			.Samp(ESamp::PbrMetallic, 1)
 			.Samp(ESamp::PbrRoughness, 1)
 			.Samp(ESamp::PbrEmissive, 1)
+			.Samp(ESamp::PbrNormal, 1)
 			.Samp(ESamp::EnvMap)
 			.Samp(ESamp::SMap)
 			.Samp(ESamp::ProjTex)

@@ -64,7 +64,7 @@ namespace pr::compute
 	private:
 
 		using HeapPtr = D3DPtr<ID3D12DescriptorHeap>;
-		using Lookup = Lookup<int, D3D12_GPU_DESCRIPTOR_HANDLE>;
+		using Lookup = Lookup<uint64_t, D3D12_GPU_DESCRIPTOR_HANDLE>;
 		using SyncPoint = struct { uint64_t m_sync_point; int m_index; };
 		using SyncPoints = pr::deque<SyncPoint>;
 
@@ -136,10 +136,19 @@ namespace pr::compute
 			}
 			#endif
 
-			// Hash the CPU descriptor indices to generate a lookup key
-			auto key = hash::FNV_offset_basis32;
+			// Hash the full descriptor-table identity to generate a lookup key. The generation distinguishes a descriptor-store slot that has
+			// been released and re-used before the GPU heap cache is cleared at the next sync point.
+			auto key = hash::FNV_offset_basis64;
+			auto const heap_type = static_cast<uint64_t>(HeapType);
+			auto const count64 = static_cast<uint64_t>(descriptors.size());
+			key = hash::HashBytes64(&heap_type, &heap_type + 1, key);
+			key = hash::HashBytes64(&count64, &count64 + 1, key);
 			for (auto& des : descriptors)
-				key = hash::Hash32CT(des.m_index, key);
+			{
+				auto const index = static_cast<uint64_t>(des.m_index);
+				key = hash::HashBytes64(&index, &index + 1, key);
+				key = hash::HashBytes64(&des.m_generation, &des.m_generation + 1, key);
+			}
 
 			// See if this combination of descriptors has already been added
 			auto iter = m_lookup.find(key);
@@ -289,5 +298,4 @@ namespace pr::compute
 		}
 	};
 }
-
 

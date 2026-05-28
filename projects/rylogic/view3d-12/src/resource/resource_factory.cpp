@@ -434,34 +434,48 @@ namespace pr::rdr12
 	// Create a new texture instance.
 	Texture2DPtr ResourceFactory::CreateTexture2D(TextureDesc const& desc)
 	{
-		if (desc.m_rdesc.DepthOrArraySize != 1)
-			throw std::runtime_error("Expected a 2D texture");
-
+		auto tdesc = desc;
 		D3DPtr<ID3D12Resource> res;
 
 		// If a uri is given, see if the DX resource already exists
-		if (desc.m_uri != 0)
+		if (tdesc.m_uri != 0)
 		{
 			ResourceStore::Access store(rdr());
-			res = store.FindRes(desc.m_uri);
+			res = store.FindRes(tdesc.m_uri);
 			if (res == nullptr)
 			{
+				if (tdesc.m_rdesc.DepthOrArraySize != 1)
+					throw std::runtime_error("Expected a 2D texture");
+
 				// If not, create the resource and add it to the lookup
-				res = CreateResource(desc.m_rdesc, desc.m_name);
+				res = CreateResource(tdesc.m_rdesc, tdesc.m_name);
 
 				// Record the uri for reuse
-				store.Add(desc.m_uri, res.get());
+				store.Add(tdesc.m_uri, res.get());
+			}
+			else
+			{
+				// Populate the texture desc from the cached resource so the TextureBase
+				// constructor has the correct format for creating SRV/UAV views.
+				tdesc.m_rdesc = ResDesc(res->GetDesc());
+				tdesc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			}
 		}
 
 		// Otherwise, just create the texture
 		else
 		{
-			res = CreateResource(desc.m_rdesc, desc.m_name);
+			if (tdesc.m_rdesc.DepthOrArraySize != 1)
+				throw std::runtime_error("Expected a 2D texture");
+
+			res = CreateResource(tdesc.m_rdesc, tdesc.m_name);
 		}
 
+		if (tdesc.m_rdesc.DepthOrArraySize != 1)
+			throw std::runtime_error("Expected a 2D texture");
+
 		// Allocate a new texture instance
-		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), desc), true);
+		Texture2DPtr inst(::pr::compute::New<Texture2D>(rdr(), res.get(), tdesc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
 
 		// Add the texture instance pointer (not ref counted) to the store.

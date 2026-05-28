@@ -24,6 +24,7 @@ SamplerState      g_base_sampler :register(s0);
 Texture2D<float4> g_metallic_texture  :register(t4);
 Texture2D<float4> g_roughness_texture :register(t5);
 Texture2D<float4> g_emissive_texture  :register(t7);
+Texture2D<float4> g_normal_texture    :register(t12);
 StructuredBuffer<float2> g_tex1 :register(t8);
 StructuredBuffer<float2> g_tex2 :register(t9);
 StructuredBuffer<float2> g_tex3 :register(t10);
@@ -31,6 +32,7 @@ StructuredBuffer<float2> g_tex4 :register(t11);
 SamplerState      g_metallic_sampler  :register(s4);
 SamplerState      g_roughness_sampler :register(s5);
 SamplerState      g_emissive_sampler  :register(s6);
+SamplerState      g_normal_sampler    :register(s7);
 
 // Environment map
 TextureCube<float4> g_envmap_texture :register(t1);
@@ -154,6 +156,46 @@ float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 	return norm;
 }
 
+// Apply the material normal-map sample to a world-space geometric normal.
+float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
+{
+	float2 map_xy = g_normal_texture.Sample(g_normal_sampler, normal_uv).xy * 2.0f - 1.0f;
+	map_xy *= g_pbr.normal_scale;
+	float3 map_normal = normalize(float3(map_xy, sqrt(saturate(1.0f - dot(map_xy, map_xy)))));
+
+	float3 dp1 = ddx(In.ws_vert.xyz);
+	float3 dp2 = ddy(In.ws_vert.xyz);
+	float2 duv1 = ddx(normal_uv);
+	float2 duv2 = ddy(normal_uv);
+	float3 dp2_perp = cross(dp2, normal);
+	float3 dp1_perp = cross(normal, dp1);
+	float3 tangent = dp2_perp * duv1.x + dp1_perp * duv2.x;
+	float3 bitangent = dp2_perp * duv1.y + dp1_perp * duv2.y;
+	float frame_len = max(dot(tangent, tangent), dot(bitangent, bitangent));
+	if (frame_len < TINY)
+		return normal;
+
+	float inv_frame_len = rsqrt(frame_len);
+	return normalize(
+		tangent * (map_normal.x * inv_frame_len) +
+		bitangent * (map_normal.y * inv_frame_len) +
+		normal * map_normal.z);
+}
+
+// Return the PBR surface normal after applying any usable normal-map texture.
+float3 ResolvePbrWorldNormal(PSIn In, bool is_front_face, float2 normal_uv)
+{
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
+	if (dot(normal, normal) == 0.0f)
+		return normal;
+
+	normal = normalize(normal);
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasNormalMap))
+		normal = PerturbWorldNormal(In, normal, normal_uv);
+
+	return normal;
+}
+
 // Forward VS
 PSIn VSForward(VSIn In)
 {
@@ -182,12 +224,6 @@ PSIn VSForward(VSIn In)
 	return Out;
 }
 
-// Return a texture coordinate after applying the nugget texture transform.
-float2 TransformTexCoord(float2 texcoord)
-{
-	return mul(float4(texcoord, 0, 1), g_nugget.tex2surf0).xy;
-}
-
 // Forward VS variant that interpolates optional texture-coordinate lanes for PBR material textures.
 PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 {
@@ -205,16 +241,16 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	uint vertex_index = vertex_id + (uint)g_pbr.texcoord_vertex_ofs;
 
 	if (g_pbr.texcoord_count > 0)
-		Out.tex1 = TransformTexCoord(g_tex1[vertex_index]);
+		Out.tex1 = g_tex1[vertex_index];
 
 	if (g_pbr.texcoord_count > 1)
-		Out.tex2 = TransformTexCoord(g_tex2[vertex_index]);
+		Out.tex2 = g_tex2[vertex_index];
 
 	if (g_pbr.texcoord_count > 2)
-		Out.tex3 = TransformTexCoord(g_tex3[vertex_index]);
+		Out.tex3 = g_tex3[vertex_index];
 
 	if (g_pbr.texcoord_count > 3)
-		Out.tex4 = TransformTexCoord(g_tex4[vertex_index]);
+		Out.tex4 = g_tex4[vertex_index];
 
 	return Out;
 }
@@ -275,7 +311,7 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 }
 
 // Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
-PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv)
+PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv)
 {
 	PSOut Out = (PSOut)0;
 
@@ -325,7 +361,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		return Out;
 	}
 
-	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
+	float3 normal = ResolvePbrWorldNormal(In, is_front_face, normal_uv);
 	if (dot(normal, normal) == 0.0f)
 	{
 		Out.diff = float4(saturate(albedo + emissive), alpha);
@@ -333,7 +369,6 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	}
 
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
-	normal = normalize(normal);
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
 	float light_visible = ShadowMapCount(g_frame.shadow) != 0
 		? LightVisibility(g_frame.shadow, In.ws_vert)
@@ -354,7 +389,8 @@ PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
 		PbrSlotUV(In, g_pbr.base_colour_texcoord, g_pbr.base_colour_uv_transform),
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
 		PbrSlotUV(In, g_pbr.roughness_texcoord, g_pbr.roughness_uv_transform),
-		PbrSlotUV(In, g_pbr.emissive_texcoord, g_pbr.emissive_uv_transform));
+		PbrSlotUV(In, g_pbr.emissive_texcoord, g_pbr.emissive_uv_transform),
+		PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
 }
 
 // Direct-lighting PBR pixel shader path using TEXCOORD_0 for all texture slots.
@@ -436,8 +472,8 @@ PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsF
 	Out.reflection_attrs = PbrReflectionAttributes(
 		In,
 		Out.diff,
-		is_front_face,
-		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform));
+		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
+		ResolvePbrWorldNormal(In, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
 	return Out;
 }
 
@@ -450,8 +486,8 @@ PSReflectionOut PSForwardPbrTexNReflectionAttrs(PSInTexN In, bool is_front_face 
 	Out.reflection_attrs = PbrReflectionAttributes(
 		base,
 		Out.diff,
-		is_front_face,
-		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform));
+		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
+		ResolvePbrWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
 	return Out;
 }
 

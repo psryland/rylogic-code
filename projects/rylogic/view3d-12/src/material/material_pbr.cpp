@@ -171,17 +171,19 @@ namespace pr::rdr12
 			};
 
 			// Return the PBR texture slots in the order used when assigning shader UV lanes.
-			static std::array<materials::TextureSlot const*, 4> TextureSlots(MaterialPassContext const& ctx)
+			static std::array<materials::TextureSlot const*, 5> TextureSlots(MaterialPassContext const& ctx)
 			{
 				auto const* base_colour = ctx.m_material.Component<materials::BaseColour>();
 				auto const* metallic = ctx.m_material.Component<materials::Metallic>();
 				auto const* roughness = ctx.m_material.Component<materials::Roughness>();
 				auto const* emissive = ctx.m_material.Component<materials::Emissive>();
+				auto const* normal_map = ctx.m_material.Component<materials::NormalMap>();
 				return {
 					base_colour != nullptr ? &base_colour->m_tex : nullptr,
 					metallic != nullptr ? &metallic->m_tex.m_slot : nullptr,
 					roughness != nullptr ? &roughness->m_tex.m_slot : nullptr,
 					emissive != nullptr ? &emissive->m_tex : nullptr,
+					normal_map != nullptr ? &normal_map->m_tex : nullptr,
 				};
 			}
 
@@ -312,11 +314,6 @@ namespace pr::rdr12
 					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
 					if (cache_diffuse_slot && ctx.m_last_tex != nullptr)
 						*ctx.m_last_tex = srv_descriptor;
-
-					#if PR_DBG_RDR
-					auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
-					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
-					#endif
 				}
 			}
 
@@ -345,6 +342,7 @@ namespace pr::rdr12
 				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
+				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
 
 				auto texture_flags = 0;
 				if (HasUsableTexture(ctx, base_colour.m_tex, texcoords))
@@ -367,6 +365,10 @@ namespace pr::rdr12
 					if (NeedsShaderSrgbDecode(emissive.m_tex))
 						texture_flags |= shaders::PbrTextureFlag_EmissiveSrgb;
 				}
+				if (HasUsableTexture(ctx, normal_map.m_tex, texcoords))
+				{
+					texture_flags |= shaders::PbrTextureFlag_HasNormalMap;
+				}
 
 				auto cb = shaders::fwd::CBufPbrSurface{
 					.base_colour = base_colour.m_colour.rgba,
@@ -375,8 +377,10 @@ namespace pr::rdr12
 					.metallic_uv_transform = ShaderTexXForm(metallic.m_tex.m_slot.m_uv_transform),
 					.roughness_uv_transform = ShaderTexXForm(roughness.m_tex.m_slot.m_uv_transform),
 					.emissive_uv_transform = ShaderTexXForm(emissive.m_tex.m_uv_transform),
+					.normal_uv_transform = ShaderTexXForm(normal_map.m_tex.m_uv_transform),
 					.metallic = metallic.m_factor,
 					.roughness = roughness.m_factor,
+					.normal_scale = normal_map.m_scale,
 					.alpha_cutoff = alpha.m_cutoff,
 					.alpha_mode = static_cast<int>(alpha.m_mode),
 					.texture_flags = texture_flags,
@@ -386,6 +390,7 @@ namespace pr::rdr12
 					.metallic_texcoord = ShaderTexCoord(texcoords, metallic.m_tex.m_slot),
 					.roughness_texcoord = ShaderTexCoord(texcoords, roughness.m_tex.m_slot),
 					.emissive_texcoord = ShaderTexCoord(texcoords, emissive.m_tex),
+					.normal_texcoord = ShaderTexCoord(texcoords, normal_map.m_tex),
 					.texcoord_count = texcoords.m_count,
 					.texcoord_vertex_ofs = TexCoordVertexOffset(ctx),
 				};
@@ -422,11 +427,6 @@ namespace pr::rdr12
 					auto const* stream = index < texcoords.m_count ? texcoords.m_streams[index] : texcoords.m_streams[0];
 					auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(stream->m_srv);
 					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(TexCoordRootParam(index + 1), srv_descriptor);
-
-					#if PR_DBG_RDR
-					auto state = ctx.m_cmd_list.ResState(stream->m_res.get()).Mip0State();
-					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
-					#endif
 				}
 			}
 
@@ -437,6 +437,7 @@ namespace pr::rdr12
 				auto const& metallic = *ctx.m_material.Component<materials::Metallic>();
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
+				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
 				auto texcoords = GatherTexCoordBindings(ctx);
 
 				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex, true);
@@ -447,6 +448,8 @@ namespace pr::rdr12
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrRoughnessSampler, roughness.m_tex.m_slot, false);
 				BindTexture(ctx, shaders::fwd::ERootParam::PbrEmissiveTexture, emissive.m_tex, false);
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrEmissiveSampler, emissive.m_tex, false);
+				BindTexture(ctx, shaders::fwd::ERootParam::PbrNormalTexture, normal_map.m_tex, false);
+				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex, false);
 				BindTexCoordStreams(ctx, texcoords);
 
 				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
@@ -656,10 +659,11 @@ namespace pr::rdr12
 		return *this;
 	}
 
-	// Set the texture slot reserved for tangent-space normals.
-	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot)
+	// Set the texture slot used for tangent-space normals.
+	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale)
 	{
 		m_normal_map.m_tex = slot;
+		m_normal_map.m_scale = scale;
 		return *this;
 	}
 
