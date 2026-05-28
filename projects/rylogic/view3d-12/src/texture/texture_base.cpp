@@ -63,8 +63,11 @@ namespace pr::rdr12
 		// Create views for the texture
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == false)
 		{
+			// Determine the SRV format. Default to the resource format; allow desc to override it (e.g. UNORM_SRGB cast over a UNORM resource).
+			auto srv_format = desc.m_srv_format != DXGI_FORMAT_UNKNOWN ? desc.m_srv_format : rdesc.Format;
+
 			// Check the texture format is supported
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {srv_format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
 				throw std::runtime_error("Texture format is not supported as a shader resource view");
@@ -72,7 +75,7 @@ namespace pr::rdr12
 			// Create the SRV
 			ResourceStore::Access store(rdr);
 			D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
-				.Format = rdesc.Format,
+				.Format = srv_format,
 				.ViewDimension = desc.m_rdesc.SrvDimension(),
 				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				.Texture2D = {
@@ -108,7 +111,10 @@ namespace pr::rdr12
 		}
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
 		{
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
+			// Determine the RTV format. Default to the resource format; allow desc to override it (e.g. UNORM_SRGB cast over a UNORM resource).
+			auto rtv_format = desc.m_rtv_format != DXGI_FORMAT_UNKNOWN ? desc.m_rtv_format : rdesc.Format;
+
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rtv_format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
 				throw std::runtime_error("Texture format is not supported as a render target view");
@@ -116,7 +122,7 @@ namespace pr::rdr12
 			// Create the RTV
 			ResourceStore::Access store(rdr);
 			D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {
-				.Format = rdesc.Format,
+				.Format = rtv_format,
 				.ViewDimension = desc.m_rdesc.RtvDimension(),
 			};
 			m_rtv = store.Descriptors().Create(m_res.get(), rtv_desc);

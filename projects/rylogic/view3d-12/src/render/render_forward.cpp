@@ -55,7 +55,8 @@ namespace pr::rdr12
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 			.NumRenderTargets = 1U,
 			.RTVFormats = {
-				scene.wnd().m_rt_props.Format,
+				// Match the sRGB RTV cast applied in Window::CreateRenderTarget/CreateSwapChain.
+				::pr::compute::ToSRGB(scene.wnd().m_rt_props.Format),
 				DXGI_FORMAT_UNKNOWN,
 				DXGI_FORMAT_UNKNOWN,
 				DXGI_FORMAT_UNKNOWN,

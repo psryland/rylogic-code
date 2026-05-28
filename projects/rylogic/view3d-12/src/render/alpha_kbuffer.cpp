@@ -62,7 +62,7 @@ namespace pr::rdr12
 		auto kbuffer_desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DXGI_FORMAT_R32G32B32A32_UINT }, 1U, EUsage::UnorderedAccess)
 			.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
-		m_opaque_colour_1x = factory.CreateTexture2D(TextureDesc(AutoId, colour_desc).name("KBuffer-OpaqueColour1x"));
+		m_opaque_colour_1x = factory.CreateTexture2D(TextureDesc(AutoId, colour_desc).name("KBuffer-OpaqueColour1x").srv_format(::pr::compute::ToSRGB(rt_clear.Format)));
 		m_alpha_colour = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaColour"));
 		m_alpha_depth = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaDepth"));
 		m_alpha_rt_attrs = factory.CreateTexture2D(TextureDesc(AutoId, kbuffer_desc).name("KBuffer-AlphaRtAttrs"));
@@ -89,7 +89,8 @@ namespace pr::rdr12
 			.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 			.NumRenderTargets = 1U,
-			.RTVFormats = { rt_clear.Format },
+			// Match the sRGB RTV cast applied in Window::CreateSwapChain so the PSO writes through an sRGB RTV.
+			.RTVFormats = { ::pr::compute::ToSRGB(rt_clear.Format) },
 			.DSVFormat = DXGI_FORMAT_UNKNOWN,
 			.SampleDesc = MultiSamp(1, 0),
 			.NodeMask = 0U,

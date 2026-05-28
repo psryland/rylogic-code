@@ -692,9 +692,11 @@ namespace pr::rdr12
 			rtv_handle.ptr += s_cast<size_t>(HeapIdxMsaaRtv * rtv_size);
 			bb.m_rtv = rtv_handle;
 
-			// Create RTV for the MSAA render target
+			// Create RTV for the MSAA render target. Promote to the sRGB sibling (if one exists) so the GPU performs the
+			// linear -> sRGB gamma encode automatically when shaders write to the RTV. The MSAA resource stays UNORM so
+			// it can be resolved into the UNORM swap-chain buffer with a UNORM resolve format.
 			auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{
-				.Format = m_rt_props.Format,
+				.Format = ::pr::compute::ToSRGB(m_rt_props.Format),
 				.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS,
 			};
 			device->CreateRenderTargetView(bb.m_render_target.get(), &rtvdesc, bb.m_rtv);
@@ -768,8 +770,10 @@ namespace pr::rdr12
 			bb.m_rtv = rtv_handle; rtv_handle.ptr += s_cast<size_t>(rtv_size); // one RTV for each back buffer
 			bb.m_dsv = {};
 
-			// Create RTVs for the back buffer resources.
-			auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{ .Format = m_rt_props.Format, .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D };
+			// Create RTVs for the back buffer resources. Promote to the sRGB sibling (if one exists) so the GPU performs
+			// the linear -> sRGB gamma encode automatically when shaders or the post-resolve composite write to the RTV.
+			// The swap-chain resource itself stays in the non-SRGB UNORM format that DXGI flip-model requires.
+			auto rtvdesc = D3D12_RENDER_TARGET_VIEW_DESC{ .Format = ::pr::compute::ToSRGB(m_rt_props.Format), .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D };
 			device->CreateRenderTargetView(bb.m_render_target.get(), &rtvdesc, bb.m_rtv);
 
 			// Re-link the D2D device context to the back buffer

@@ -79,7 +79,7 @@ namespace pr::rdr12
 		}
 
 		PrepareReflectionAttributes(frame);
-		m_diagnostic.Prepare(rdr(), frame.m_prepare, frame.m_upload, frame.bb_post().rt_size(), wnd().m_rt_props.Format);
+		m_diagnostic.Prepare(rdr(), frame.m_prepare, frame.m_upload, frame.bb_post().rt_size(), ::pr::compute::ToSRGB(wnd().m_rt_props.Format));
 	}
 
 	// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
