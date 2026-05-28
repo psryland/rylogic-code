@@ -578,6 +578,21 @@ namespace physics_sandbox::diag
 			auto diagnostics = scene.BuoyancyDiagnostics();
 			for (auto const& diag : diagnostics)
 			{
+				if (!diag.m_analytic_valid)
+				{
+					Emit(log, std::format(
+						"buoyancy step={:5d} t={:8.4f} body={:4d} valid={} analytic=false volume={:10.6f} force=({:10.3f},{:10.3f},{:10.3f}) cob=({:9.4f},{:9.4f},{:9.4f}) torque=({:10.3f},{:10.3f},{:10.3f})\n",
+						step,
+						time_s,
+						diag.m_body_index,
+						diag.m_valid ? "true" : "false",
+						diag.m_volume_m3,
+						diag.m_force_ws.x, diag.m_force_ws.y, diag.m_force_ws.z,
+						diag.m_centre_buoyancy_ws.x, diag.m_centre_buoyancy_ws.y, diag.m_centre_buoyancy_ws.z,
+						diag.m_torque_ws.x, diag.m_torque_ws.y, diag.m_torque_ws.z));
+					continue;
+				}
+
 				Emit(log, std::format(
 					"buoyancy step={:5d} t={:8.4f} body={:4d} valid={} analytic={} volume={:10.6f} analytic_volume={:10.6f} volume_err={:10.6f} force=({:10.3f},{:10.3f},{:10.3f}) force_err=({:10.3f},{:10.3f},{:10.3f}) cob=({:9.4f},{:9.4f},{:9.4f}) cob_err=({:9.4f},{:9.4f},{:9.4f}) torque=({:10.3f},{:10.3f},{:10.3f}) torque_err=({:10.3f},{:10.3f},{:10.3f})\n",
 					step,

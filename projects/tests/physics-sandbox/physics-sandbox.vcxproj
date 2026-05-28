@@ -170,6 +170,7 @@
     <None Include="scenes\brick_wall_2000.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\dzhanibekov_effect.json" />
+    <None Include="scenes\floater.json" />
     <None Include="scenes\generated_stress.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />

@@ -8,9 +8,36 @@
 
 namespace pr::physics
 {
-	// Diagnostic GPU buoyancy module that records flat-water generated-box displacement results through Engine::ExternalForces.
+	// GPU buoyancy module that applies generated-box forces and records diagnostics through Engine::ExternalForces.
 	struct GpuBuoyancy
 	{
+		static constexpr int MaxWaterWaveCount = 64;
+
+		struct SineWave
+		{
+			v2 m_direction = v2::XAxis();
+			float m_wavelength = 1.0f;
+			float m_amplitude = 0.0f;
+			float m_phase_speed = 0.0f;
+
+			// Return a copy with the wave direction normalised.
+			SineWave Normalised() const;
+		};
+		struct WaterSurface
+		{
+			float m_level = 0.0f;
+			std::vector<SineWave> m_waves;
+
+			// Return a copy with validated and normalised waves.
+			WaterSurface Normalised() const;
+
+			// Return true when the water height is spatially constant.
+			bool IsFlat() const;
+
+			// Evaluate the water height above the world-space XY position at a simulation time.
+			float EvaluateHeight(v2 xy_ws, float time_s) const;
+		};
+
 		struct BodyState
 		{
 			m4x4 m_o2w = m4x4::Identity();
@@ -89,7 +116,7 @@ namespace pr::physics
 
 	public:
 
-		// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
+		// Construct and subscribe the buoyancy pass to a physics engine.
 		GpuBuoyancy(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
 		GpuBuoyancy(GpuBuoyancy const&) = delete;
 		GpuBuoyancy& operator=(GpuBuoyancy const&) = delete;
@@ -102,6 +129,12 @@ namespace pr::physics
 
 		// Consume diagnostic readback data after the physics engine has completed its GPU step.
 		void CompleteStep();
+
+		// Set the water surface used by subsequent buoyancy force dispatches.
+		void SetWaterSurface(WaterSurface const& water_surface);
+
+		// Return the current water surface used by buoyancy force dispatches.
+		WaterSurface const& GetWaterSurface() const;
 
 		// Register a generated box buoyancy hull against a stable physics body index.
 		Registration RegisterBoxHull(int body_index, int body_generation, v4 size);

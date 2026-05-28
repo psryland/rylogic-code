@@ -154,6 +154,8 @@ namespace physics_sandbox
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
+			if (m_scene.m_water_gfx)
+				m_scene.m_water_gfx->AddToScene(scene);
 			if (m_scene.m_origin_gfx)
 				m_scene.m_origin_gfx->AddToScene(scene);
 			if (m_scene.m_contacts_gfx)

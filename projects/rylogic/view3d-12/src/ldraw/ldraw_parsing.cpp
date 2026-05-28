@@ -4466,19 +4466,40 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Lines:
+				case EKeyword::Lines32:
 				case EKeyword::LineList:
 				case EKeyword::LineStrip:
 				{
 					auto is_strip = kw == EKeyword::LineStrip;
+					auto wide = kw == EKeyword::Lines32;
+
+					// Upgrade index buffer stride to 32-bit if needed. IdxBuf::resize converts existing
+					// 16-bit data losslessly, so it is safe to upgrade mid-mesh.
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(is_strip ? ETopo::LineStrip : ETopo::LineList, EGeom::Vert |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					auto const max_value = wide
+						? int64_t(std::numeric_limits<uint32_t>::max())
+						: int64_t(std::numeric_limits<uint16_t>::max());
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						auto idx = reader.Int<uint16_t>(10);
+
+						// Read through a wide signed type so both binary (fixed-width) and text (lex-based)
+						// readers can be range-checked uniformly against the keyword's declared width.
+						auto value = reader.Int<int64_t>(10);
+						if (value < 0 || value > max_value)
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
+							value = 0;
+						}
+						auto idx = static_cast<uint32_t>(value);
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4488,10 +4509,16 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Faces:
+				case EKeyword::Faces32:
 				case EKeyword::TriList:
 				case EKeyword::TriStrip:
 				{
 					auto is_strip = kw == EKeyword::TriStrip;
+					auto wide = kw == EKeyword::Faces32;
+
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(is_strip ? ETopo::TriStrip : ETopo::TriList, EGeom::Vert |
 						(!m_normals.empty() ? EGeom::Norm : EGeom::None) |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
@@ -4499,10 +4526,21 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					auto const max_value = wide
+						? int64_t(std::numeric_limits<uint32_t>::max())
+						: int64_t(std::numeric_limits<uint16_t>::max());
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						auto idx = reader.Int<uint16_t>(10);
+
+						auto value = reader.Int<int64_t>(10);
+						if (value < 0 || value > max_value)
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
+							value = 0;
+						}
+						auto idx = static_cast<uint32_t>(value);
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4512,7 +4550,13 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Tetra:
+				case EKeyword::Tetra32:
 				{
+					auto wide = kw == EKeyword::Tetra32;
+
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(ETopo::TriList, EGeom::Vert |
 						(!m_normals.empty() ? EGeom::Norm : EGeom::None) |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
@@ -4520,15 +4564,31 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					auto const max_value = wide
+						? int64_t(std::numeric_limits<uint32_t>::max())
+						: int64_t(std::numeric_limits<uint16_t>::max());
+
+					// Read a single tetrahedron index, range-checked against the keyword width.
+					auto read_idx = [&]() -> uint32_t
+					{
+						auto value = reader.Int<int64_t>(10);
+						if (value < 0 || value > max_value)
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
+							value = 0;
+						}
+						return static_cast<uint32_t>(value);
+					};
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
 
-						uint16_t const idx[] = {
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
+						uint32_t const idx[] = {
+							read_idx(),
+							read_idx(),
+							read_idx(),
+							read_idx(),
 						};
 						m_indices.push_back(idx[0]);
 						m_indices.push_back(idx[1]);

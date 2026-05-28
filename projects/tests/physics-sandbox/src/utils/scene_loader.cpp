@@ -23,6 +23,30 @@ namespace physics_sandbox::scene_loader
 
 			return false;
 		}
+		// Read a two-component float vector from a JSON array.
+		v2 ReadVec2(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 2)
+				throw std::runtime_error("Expected a 2-element array for vector");
+
+			return v2{
+				a[0].to<float>(),
+				a[1].to<float>(),
+			};
+		}
+		// Read a two-component integer vector from a JSON array.
+		iv2 ReadInt2(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 2)
+				throw std::runtime_error("Expected a 2-element array for integer vector");
+
+			return iv2{
+				a[0].to<int>(),
+				a[1].to<int>(),
+			};
+		}
 		float LinearT(int index, int count)
 		{
 			return count <= 1 ? 0.0f : float(index) / float(count - 1);
@@ -516,6 +540,69 @@ namespace physics_sandbox::scene_loader
 		return hulls;
 	}
 
+	// Parse the water surface used by buoyancy and the sandbox visual mesh.
+	WaterDesc ReadWater(pr::json::Value const& jwater)
+	{
+		auto water = WaterDesc{};
+		auto const& jwater_obj = jwater.to_object();
+
+		if (auto const* jlevel = jwater_obj.find("level"))
+			water.surface.m_level = jlevel->to<float>();
+
+		if (auto const* jsize = jwater_obj.find("size"))
+		{
+			water.size = ReadVec2(*jsize);
+			if (water.size.x < 0.0f || water.size.y < 0.0f)
+				throw std::runtime_error("Water size components must be non-negative");
+			if ((water.size.x == 0.0f) != (water.size.y == 0.0f))
+				throw std::runtime_error("Water size components must both be zero or both be positive");
+		}
+
+		if (auto const* jgrid = jwater_obj.find("grid"))
+		{
+			water.grid = ReadInt2(*jgrid);
+			if (water.grid.x < 1 || water.grid.y < 1)
+				throw std::runtime_error("Water grid components must be at least 1");
+		}
+
+		if (auto const* jcolour = jwater_obj.find("colour"))
+			water.colour = ReadColour(*jcolour);
+
+		if (auto const* jwaves = jwater_obj.find("waves"))
+		{
+			for (auto const& jwave : jwaves->to_array())
+			{
+				auto const& jwave_obj = jwave.to_object();
+				auto const* jdirection = jwave_obj.find("direction");
+				if (jdirection == nullptr)
+					throw std::runtime_error("Water wave requires a 'direction' field");
+
+				auto const* jwavelength = jwave_obj.find("wavelength");
+				auto const* jperiod = jwave_obj.find("period");
+				if (jwavelength != nullptr && jperiod != nullptr)
+					throw std::runtime_error("Water wave cannot specify both 'wavelength' and 'period'");
+				if (jwavelength == nullptr && jperiod == nullptr)
+					throw std::runtime_error("Water wave requires a 'wavelength' or 'period' field");
+
+				auto const* jamplitude = jwave_obj.find("amplitude");
+				if (jamplitude == nullptr)
+					throw std::runtime_error("Water wave requires an 'amplitude' field");
+
+				auto wave = physics::GpuBuoyancy::SineWave{};
+				wave.m_direction = ReadVec2(*jdirection);
+				wave.m_wavelength = (jwavelength != nullptr ? jwavelength : jperiod)->to<float>();
+				wave.m_amplitude = jamplitude->to<float>();
+				if (auto const* jphase_speed = jwave_obj.find("phase_speed"))
+					wave.m_phase_speed = jphase_speed->to<float>();
+
+				water.surface.m_waves.push_back(wave);
+			}
+		}
+
+		water.surface = water.surface.Normalised();
+		return water;
+	}
+
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath)
 	{
@@ -720,6 +807,10 @@ namespace physics_sandbox::scene_loader
 		// Ground plane
 		if (auto* jground = jscene.find("ground_plane"))
 			desc.ground = ReadGroundPlane(*jground);
+
+		// Water surface
+		if (auto* jwater = jscene.find("water"))
+			desc.water = ReadWater(*jwater);
 
 		// Bodies
 		if (auto* jbodies = jscene.find("bodies"))

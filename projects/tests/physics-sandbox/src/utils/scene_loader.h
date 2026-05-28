@@ -33,6 +33,15 @@ namespace physics_sandbox::scene_loader
 	//                 { "body": "box1", "type": "box", "dimensions": [1, 1, 1] }
 	//             ]
 	//         },
+	//         "water": {                       // Optional water surface used by buoyancy and the visual mesh
+	//             "level": 0.0,                // Flat-water base height
+	//             "size": [20, 20],            // Optional visual mesh size; omitted/zero means auto-size to scene
+	//             "grid": [32, 32],            // Optional visual mesh cell count
+	//             "colour": "0x602080FF",      // Optional ARGB water mesh colour
+	//             "waves": [
+	//                 { "direction": [1, 0], "wavelength": 8.0, "amplitude": 0.25, "phase_speed": 1.5 } // "period" is accepted as a wavelength alias
+	//             ]
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
@@ -121,6 +130,15 @@ namespace physics_sandbox::scene_loader
 		v4 dimensions = One<v4>();
 	};
 
+	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
+	struct WaterDesc
+	{
+		physics::GpuBuoyancy::WaterSurface surface;
+		v2 size = v2::Zero();
+		iv2 grid = iv2(32, 32);
+		Colour32 colour = Colour32(0x602080FFU);
+	};
+
 	// Parsed scene description
 	struct SceneDesc
 	{
@@ -171,6 +189,9 @@ namespace physics_sandbox::scene_loader
 
 		// Ground plane
 		std::optional<GroundPlaneDesc> ground;
+
+		// Water surface
+		std::optional<WaterDesc> water;
 
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;

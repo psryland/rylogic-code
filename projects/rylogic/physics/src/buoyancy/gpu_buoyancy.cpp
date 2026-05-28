@@ -28,9 +28,11 @@ namespace pr::physics
 			int m_total_columns;
 			int m_grid_x;
 			int m_grid_y;
+			int m_wave_count;
+			float m_time_s;
 			float m_water_level;
 			float m_fluid_density;
-			float m_pad0;
+			float m_pad0[3];
 			v4 m_gravity_ws;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
@@ -41,6 +43,13 @@ namespace pr::physics
 			float m_half_extents[3];
 		};
 		static_assert(sizeof(GpuBuoyancyHull) == 16);
+
+		struct GpuBuoyancyWave
+		{
+			v4 m_direction_wavelength_phase_speed;
+			v4 m_amplitude;
+		};
+		static_assert(sizeof(GpuBuoyancyWave) == 32);
 
 		struct GpuBuoyancyPartial
 		{
@@ -69,6 +78,48 @@ namespace pr::physics
 			if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f || size.w != 0.0f)
 			{
 				throw std::runtime_error("Box buoyancy hulls require positive xyz dimensions and w = 0");
+			}
+		}
+
+		// Throw if a floating-point scene value cannot be safely used by the GPU buoyancy pass.
+		void ValidateFinite(float value, char const* name)
+		{
+			if (!std::isfinite(value))
+			{
+				throw std::runtime_error(pr::FmtS("GPU buoyancy water surface '%s' must be finite", name));
+			}
+		}
+
+		// Throw if a water wave cannot be evaluated deterministically on CPU and GPU.
+		void ValidateSineWave(GpuBuoyancy::SineWave const& wave)
+		{
+			ValidateFinite(wave.m_direction.x, "direction.x");
+			ValidateFinite(wave.m_direction.y, "direction.y");
+			ValidateFinite(wave.m_wavelength, "wavelength");
+			ValidateFinite(wave.m_amplitude, "amplitude");
+			ValidateFinite(wave.m_phase_speed, "phase_speed");
+			if (LengthSq(wave.m_direction) <= tiny<float>)
+			{
+				throw std::runtime_error("GPU buoyancy water wave direction must be non-zero");
+			}
+			if (wave.m_wavelength <= 0.0f)
+			{
+				throw std::runtime_error("GPU buoyancy water wave wavelength must be positive");
+			}
+		}
+
+		// Throw if a water surface exceeds the current GPU dispatch limits or contains invalid wave data.
+		void ValidateWaterSurface(GpuBuoyancy::WaterSurface const& water_surface)
+		{
+			ValidateFinite(water_surface.m_level, "level");
+			if (std::ssize(water_surface.m_waves) > GpuBuoyancy::MaxWaterWaveCount)
+			{
+				throw std::runtime_error(pr::FmtS("GPU buoyancy supports at most %d water waves", GpuBuoyancy::MaxWaterWaveCount));
+			}
+
+			for (auto const& wave : water_surface.m_waves)
+			{
+				ValidateSineWave(wave);
 			}
 		}
 
@@ -132,6 +183,7 @@ namespace pr::physics
 				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
 				.UAV(hlsl::EUAVReg::u0)
 				.SRV(hlsl::ESRVReg::t0)
+				.SRV(hlsl::ESRVReg::t1)
 				.UAV(hlsl::EUAVReg::u1)
 				.Create(device, "Physics.GpuBuoyancy.Columns.RootSig");
 
@@ -145,6 +197,7 @@ namespace pr::physics
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
 				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0)
 				.SRV(hlsl::ESRVReg::t0)
 				.UAV(hlsl::EUAVReg::u1)
 				.UAV(hlsl::EUAVReg::u2)
@@ -196,6 +249,7 @@ namespace pr::physics
 		::pr::compute::ComputeStep m_reduce_step;
 		multicast::AutoSub m_external_force_sub;
 
+		WaterSurface m_water_surface;
 		std::vector<HullSlot> m_hulls;
 		std::vector<DispatchHull> m_dispatch_hulls;
 		std::vector<int> m_pending_body_indices;
@@ -212,7 +266,7 @@ namespace pr::physics
 		mutable std::mutex m_diagnostics_mutex;
 		std::vector<Diagnostics> m_diagnostics;
 
-		// Construct and subscribe the diagnostic-only buoyancy compute pass.
+		// Construct and subscribe the buoyancy compute pass.
 		Impl(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
 			:m_device(device)
 			,m_step_index_resolver(std::move(step_index_resolver))
@@ -223,6 +277,7 @@ namespace pr::physics
 			{
 				Apply(sender, args);
 			})
+			,m_water_surface()
 			,m_hulls()
 			,m_dispatch_hulls()
 			,m_pending_body_indices()
@@ -336,6 +391,18 @@ namespace pr::physics
 			return diagnostic;
 		}
 
+		// Set the water surface used by subsequent buoyancy force dispatches.
+		void SetWaterSurface(WaterSurface const& water_surface)
+		{
+			m_water_surface = water_surface.Normalised();
+		}
+
+		// Return the current water surface used by buoyancy force dispatches.
+		WaterSurface const& GetWaterSurface() const
+		{
+			return m_water_surface;
+		}
+
 		// Consume diagnostic readback data after the physics engine has completed its GPU step.
 		void CompleteStep()
 		{
@@ -372,15 +439,15 @@ namespace pr::physics
 					diag.m_torque_ws = gpu_diag.m_torque_ws;
 					diag.m_centre_buoyancy_ws = gpu_diag.m_centre_buoyancy_ws;
 					diag.m_valid = gpu_diag.m_valid != 0;
+					diag.m_analytic_valid = analytic.m_valid;
 					diag.m_analytic_volume_m3 = analytic.m_volume_m3;
 					diag.m_analytic_force_ws = analytic.m_force_ws;
 					diag.m_analytic_centre_buoyancy_ws = analytic.m_centre_buoyancy_ws;
 					diag.m_analytic_torque_ws = analytic.m_torque_ws;
-					diag.m_volume_error_m3 = diag.m_volume_m3 - analytic.m_volume_m3;
-					diag.m_force_error_ws = diag.m_force_ws - analytic.m_force_ws;
-					diag.m_centre_buoyancy_error_ws = diag.m_centre_buoyancy_ws - analytic.m_centre_buoyancy_ws;
-					diag.m_torque_error_ws = diag.m_torque_ws - analytic.m_torque_ws;
-					diag.m_analytic_valid = analytic.m_valid;
+					diag.m_volume_error_m3 = analytic.m_valid ? diag.m_volume_m3 - analytic.m_volume_m3 : 0.0f;
+					diag.m_force_error_ws = analytic.m_valid ? diag.m_force_ws - analytic.m_force_ws : v4::Zero();
+					diag.m_centre_buoyancy_error_ws = analytic.m_valid ? diag.m_centre_buoyancy_ws - analytic.m_centre_buoyancy_ws : v4::Zero();
+					diag.m_torque_error_ws = analytic.m_valid ? diag.m_torque_ws - analytic.m_torque_ws : v4::Zero();
 				}
 			}
 
@@ -391,7 +458,7 @@ namespace pr::physics
 			m_pending_diagnostic_count = 0;
 		}
 
-		// Record the diagnostic-only buoyancy compute work into the active physics GPU job.
+		// Record the buoyancy force and diagnostic compute work into the active physics GPU job.
 		void Apply(Engine&, Engine::ExternalForceArgs const& args)
 		{
 			m_pending_body_indices.clear();
@@ -442,6 +509,7 @@ namespace pr::physics
 			// Upload the body-index/hull table into the physics job upload buffer; the allocation stays alive until the submitted job completes.
 			auto upload = args.m_job.m_upload.template Alloc<GpuBuoyancyHull>(hull_count);
 			auto upload_hulls = upload.ptr<GpuBuoyancyHull>();
+			auto const flat_water = m_water_surface.IsFlat();
 			for (auto index = 0; index != static_cast<int>(m_dispatch_hulls.size()); ++index)
 			{
 				auto const& hull = m_dispatch_hulls[index];
@@ -452,19 +520,38 @@ namespace pr::physics
 
 				m_pending_body_indices.push_back(hull.m_body_index);
 				m_pending_body_generations.push_back(hull.m_body_generation);
-				m_pending_analytic_results.push_back(CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents));
+				m_pending_analytic_results.push_back(flat_water
+					? CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents, m_water_surface.m_level)
+					: AnalyticResult{});
+			}
+
+			// Upload wave parameters separately from the root constants so the root signature stays small as the scene adds waves.
+			auto const wave_count = static_cast<int>(m_water_surface.m_waves.size());
+			auto upload_waves = args.m_job.m_upload.template Alloc<GpuBuoyancyWave>(std::max(wave_count, 1));
+			auto waves = upload_waves.ptr<GpuBuoyancyWave>();
+			waves[0] = GpuBuoyancyWave{};
+			for (auto index = 0; index != wave_count; ++index)
+			{
+				auto const& wave = m_water_surface.m_waves[index];
+				waves[index] = GpuBuoyancyWave{
+					.m_direction_wavelength_phase_speed = v4(wave.m_direction.x, wave.m_direction.y, wave.m_wavelength, wave.m_phase_speed),
+					.m_amplitude = v4(wave.m_amplitude, 0.0f, 0.0f, 0.0f),
+				};
 			}
 
 			auto const hulls_gpu_va = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
+			auto const waves_gpu_va = upload_waves.m_res->GetGPUVirtualAddress() + upload_waves.m_ofs;
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = BuoyancyGroupsPerHull,
 				.m_total_columns = BuoyancyColumnCount,
 				.m_grid_x = BuoyancyGridDim,
 				.m_grid_y = BuoyancyGridDim,
-				.m_water_level = AnalyticWaterLevel,
+				.m_wave_count = wave_count,
+				.m_time_s = static_cast<float>(args.m_time_s),
+				.m_water_level = m_water_surface.m_level,
 				.m_fluid_density = AnalyticFluidDensity,
-				.m_pad0 = 0.0f,
+				.m_pad0 = {},
 				.m_gravity_ws = AnalyticGravityWS,
 			};
 
@@ -474,19 +561,21 @@ namespace pr::physics
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_gpu_va);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(hull_count * BuoyancyGroupsPerHull, 1, 1);
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
-			// Reduce per-threadgroup partials to one diagnostic record per hull. This pass does not write body force accumulators yet.
+			// Reduce per-threadgroup partials to one body force accumulator contribution and one diagnostic record per hull.
 			args.m_job.m_cmd_list.SetPipelineState(m_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(m_r_diagnostics.get()).Commit();
+			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
 
 			// Copy diagnostics to a separate readback allocation after the GPU has produced the default-heap UAV result.
 			m_pending_readback = args.m_job.m_readback.template Alloc<GpuBuoyancyDiagnostic>(hull_count);
@@ -497,14 +586,14 @@ namespace pr::physics
 		}
 
 		// Calculate the exact flat-water analytic buoyancy result for a generated box hull.
-		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents)
+		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents, float water_level)
 		{
 			auto result = AnalyticResult{};
 			if (!body_state.m_valid)
 				return result;
 
 			result.m_valid = true;
-			auto const volume_centroid = SubmergedBoxVolumeCentroid(body_state.m_o2w, half_extents, AnalyticWaterLevel);
+			auto const volume_centroid = SubmergedBoxVolumeCentroid(body_state.m_o2w, half_extents, water_level);
 			if (!volume_centroid.m_valid)
 				return result;
 
@@ -537,6 +626,50 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 	};
+
+	// Return a copy with the wave direction normalised.
+	GpuBuoyancy::SineWave GpuBuoyancy::SineWave::Normalised() const
+	{
+		ValidateSineWave(*this);
+
+		auto wave = *this;
+		wave.m_direction /= Length(wave.m_direction);
+		return wave;
+	}
+
+	// Return a copy with validated and normalised waves.
+	GpuBuoyancy::WaterSurface GpuBuoyancy::WaterSurface::Normalised() const
+	{
+		ValidateWaterSurface(*this);
+
+		auto water_surface = *this;
+		for (auto& wave : water_surface.m_waves)
+		{
+			wave = wave.Normalised();
+		}
+		return water_surface;
+	}
+
+	// Return true when the water height is spatially constant.
+	bool GpuBuoyancy::WaterSurface::IsFlat() const
+	{
+		return std::ranges::all_of(m_waves, [](SineWave const& wave)
+		{
+			return wave.m_amplitude == 0.0f;
+		});
+	}
+
+	// Evaluate the water height above the world-space XY position at a simulation time.
+	float GpuBuoyancy::WaterSurface::EvaluateHeight(v2 xy_ws, float time_s) const
+	{
+		auto height = m_level;
+		for (auto const& wave : m_waves)
+		{
+			auto const phase = Dot(wave.m_direction, xy_ws) * constants<float>::tau / wave.m_wavelength + wave.m_phase_speed * time_s;
+			height += wave.m_amplitude * std::sin(phase);
+		}
+		return height;
+	}
 
 	// Construct an invalid buoyancy diagnostic record.
 	GpuBuoyancy::Diagnostics::Diagnostics()
@@ -653,6 +786,18 @@ namespace pr::physics
 	void GpuBuoyancy::CompleteStep()
 	{
 		m_impl->CompleteStep();
+	}
+
+	// Set the water surface used by subsequent buoyancy force dispatches.
+	void GpuBuoyancy::SetWaterSurface(WaterSurface const& water_surface)
+	{
+		m_impl->SetWaterSurface(water_surface);
+	}
+
+	// Return the current water surface used by buoyancy force dispatches.
+	GpuBuoyancy::WaterSurface const& GpuBuoyancy::GetWaterSurface() const
+	{
+		return m_impl->GetWaterSurface();
 	}
 
 	// Register a generated box buoyancy hull against a stable physics body index.

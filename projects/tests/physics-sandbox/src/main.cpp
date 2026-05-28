@@ -72,7 +72,7 @@ namespace physics_sandbox
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
 		auto failed = pr::unittests::RunAllTests(true, filter);
-		return failed > 0 ? 1 : 0;
+		return failed != 0 ? 1 : 0;
 	}
 
 	// Return true if unit test mode is requested and collect any optional test class filters.

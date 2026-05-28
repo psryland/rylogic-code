@@ -92,6 +92,7 @@ namespace pr::rdr12::ldraw
 		x(Equation                 )\
 		x(Euler                    )\
 		x(Faces                    )\
+		x(Faces32                  )\
 		x(Facets                   )\
 		x(Far                      )\
 		x(FilePath                 )\
@@ -123,6 +124,7 @@ namespace pr::rdr12::ldraw
 		x(LineBox                  )\
 		x(LineList                 )\
 		x(Lines                    )\
+		x(Lines32                  )\
 		x(LineStrip                )\
 		x(LookAt                   )\
 		x(M3x3                     )\
@@ -197,6 +199,7 @@ namespace pr::rdr12::ldraw
 		x(Strikeout                )\
 		x(Style                    )\
 		x(Tetra                    )\
+		x(Tetra32                  )\
 		x(TexCoords                )\
 		x(Text                     )\
 		x(TextLayout               )\

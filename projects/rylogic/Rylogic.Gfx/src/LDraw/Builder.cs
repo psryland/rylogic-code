@@ -2134,32 +2134,55 @@ namespace Rylogic.LDraw
 				}
 				if (m_faces.Count != 0)
 				{
-					res.Write(EKeyword.Faces, () =>
-					{
-						foreach (var i in m_faces)
-							res.Append(i);
-					});
+					var (kw, wide) = SelectIndexKeyword(m_faces, EKeyword.Faces, EKeyword.Faces32);
+					res.Write(kw, () => AppendIndices(res, m_faces, wide));
 				}
 				if (m_lines.Count != 0)
 				{
-					res.Write(EKeyword.Lines, () =>
-					{
-						foreach (var i in m_lines)
-							res.Append(i);
-					});
+					var (kw, wide) = SelectIndexKeyword(m_lines, EKeyword.Lines, EKeyword.Lines32);
+					res.Write(kw, () => AppendIndices(res, m_lines, wide));
 				}
 				if (m_tetras.Count != 0)
 				{
-					res.Write(EKeyword.Tetra, () =>
-					{
-						foreach (var i in m_tetras)
-							res.Append(i);
-					});
+					var (kw, wide) = SelectIndexKeyword(m_tetras, EKeyword.Tetra, EKeyword.Tetra32);
+					res.Write(kw, () => AppendIndices(res, m_tetras, wide));
 				}
 				res.Append(m_gen_normals);
 				m_tex.WriteTo(res);
 				base.WriteTo(res);
 			});
+		}
+
+		// Validate that all indices are non-negative and pick the narrow (uint16) or wide (uint32)
+		// keyword based on the maximum index value. Throws if any index is negative.
+		private static (EKeyword kw, bool wide) SelectIndexKeyword(List<int> indices, EKeyword narrow_kw, EKeyword wide_kw)
+		{
+			int max_idx = 0;
+			foreach (var i in indices)
+			{
+				if (i < 0)
+					throw new ArgumentException("LdrMesh: negative index values are not supported");
+				if (i > max_idx)
+					max_idx = i;
+			}
+			bool wide = max_idx > ushort.MaxValue;
+			return (wide ? wide_kw : narrow_kw, wide);
+		}
+
+		// Emit a list of mesh indices through the supplied writer. For BinaryWriter, indices are
+		// written as fixed-width 2- or 4-byte unsigned integers matching the keyword's declared
+		// width. For text writers, indices are emitted as decimal integers regardless of width.
+		private static void AppendIndices(IWriter res, List<int> indices, bool wide)
+		{
+			if (res is BinaryWriter)
+			{
+				if (wide) foreach (var i in indices) res.Append((uint)i);
+				else      foreach (var i in indices) res.Append((ushort)i);
+			}
+			else
+			{
+				foreach (var i in indices) res.Append(i);
+			}
 		}
 	}
 	public class LdrModel : LdrBase<LdrModel>

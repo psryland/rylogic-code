@@ -51,6 +51,61 @@ namespace physics_sandbox
 			auto const t = order_count > 1 ? static_cast<float>(order_idx) / static_cast<float>(order_count - 1) : 0.0f;
 			return Colour32(0, static_cast<int>(128.0f + 127.0f * std::clamp(t, 0.0f, 1.0f)), 255, 255);
 		}
+		// Return the water mesh extent, using the scene bounds when the scene leaves the visual size unspecified.
+		v2 WaterExtent(scene_loader::WaterDesc const& water, BBox const& scene_bbox)
+		{
+			if (water.size.x > 0.0f && water.size.y > 0.0f)
+				return water.size;
+
+			if (scene_bbox.valid())
+			{
+				auto extent = 4.0f * Max(scene_bbox.Radius().xy, v2{ 5.0f, 5.0f });
+				if (extent.x > 0.0f && extent.y > 0.0f && IsFinite(extent))
+					return extent;
+			}
+
+			return v2{ 20.0f, 20.0f };
+		}
+		// Return the world-space XY position of a water grid vertex.
+		v2 WaterXY(scene_loader::WaterDesc const& water, v2 const& extent, int ix, int iy)
+		{
+			auto const u = float(ix) / float(water.grid.x);
+			auto const v = float(iy) / float(water.grid.y);
+			return v2{
+				(u - 0.5f) * extent.x,
+				(v - 0.5f) * extent.y,
+			};
+		}
+		// Estimate a vertex normal for the water surface using the same height function as buoyancy.
+		v4 WaterNormal(physics::GpuBuoyancy::WaterSurface const& surface, v2 const& xy_ws, v2 const& cell_size, double time_s)
+		{
+			auto const time = static_cast<float>(time_s);
+			auto const eps_x = std::max(0.01f, 0.5f * cell_size.x);
+			auto const eps_y = std::max(0.01f, 0.5f * cell_size.y);
+			auto const dzdx = (surface.EvaluateHeight(xy_ws + v2{ eps_x, 0.0f }, time) - surface.EvaluateHeight(xy_ws - v2{ eps_x, 0.0f }, time)) / (2.0f * eps_x);
+			auto const dzdy = (surface.EvaluateHeight(xy_ws + v2{ 0.0f, eps_y }, time) - surface.EvaluateHeight(xy_ws - v2{ 0.0f, eps_y }, time)) / (2.0f * eps_y);
+			return Normalise(v4{ -dzdx, -dzdy, 1.0f, 0.0f });
+		}
+		// Fill one renderer vertex for the water visual.
+		void SetWaterVertex(rdr12::Vert& vert, scene_loader::WaterDesc const& water, v2 const& extent, int ix, int iy, double time_s)
+		{
+			auto const time = static_cast<float>(time_s);
+			auto const xy_ws = WaterXY(water, extent, ix, iy);
+			auto const z_ws = water.surface.EvaluateHeight(xy_ws, time);
+			auto const cell_size = v2{
+				extent.x / static_cast<float>(water.grid.x),
+				extent.y / static_cast<float>(water.grid.y),
+			};
+
+			vert.m_vert = v4{ xy_ws.x, xy_ws.y, z_ws, 1.0f };
+			vert.m_diff = water.colour;
+			vert.m_norm = WaterNormal(water.surface, xy_ws, cell_size, time_s);
+			vert.m_tex0 = v2{
+				float(ix) / float(water.grid.x),
+				float(iy) / float(water.grid.y),
+			};
+			vert.m_idx0 = iv2::Zero();
+		}
 		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
 		{
 			if (lhs.shape_type != rhs.shape_type)
@@ -178,6 +233,9 @@ namespace physics_sandbox
 		, m_physics_substeps(1)
 		, m_allow_sleeping(true)
 		, m_ground_gfx()
+		, m_water()
+		, m_water_extent(v2::Zero())
+		, m_water_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
 		, m_visual_mode(EVisualMode::Normal)
@@ -250,6 +308,8 @@ namespace physics_sandbox
 				body_state.m_valid = true;
 				return body_state;
 			});
+		if (scene_desc.water)
+			m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
 
 		m_buoyancy_hulls.reserve(scene_desc.buoyancy_hulls.size());
 		m_buoyancy_body_indices.reserve(scene_desc.buoyancy_hulls.size());
@@ -264,6 +324,84 @@ namespace physics_sandbox
 			m_buoyancy_body_indices.push_back(iter->second);
 			DbgLog("  Buoyancy: body '%s' box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
 		}
+	}
+
+	// Create the scene-owned water mesh visual from the loaded water surface description.
+	void Scene::CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox)
+	{
+		if (m_rdr == nullptr)
+			return;
+
+		auto const extent = WaterExtent(water, scene_bbox);
+		m_water_extent = extent;
+		auto const vertex_count = (water.grid.x + 1) * (water.grid.y + 1);
+		auto const index_of = [&](int ix, int iy)
+		{
+			return ix + iy * (water.grid.x + 1);
+		};
+
+		using namespace pr::ldraw;
+		Builder builder;
+		auto& mesh = builder.Mesh("Water", water.colour.argb);
+		for (int iy = 0; iy != water.grid.y + 1; ++iy)
+		{
+			for (int ix = 0; ix != water.grid.x + 1; ++ix)
+			{
+				auto const xy_ws = WaterXY(water, extent, ix, iy);
+				auto const z_ws = water.surface.EvaluateHeight(xy_ws, 0.0);
+				auto const cell_size = v2{
+					extent.x / static_cast<float>(water.grid.x),
+					extent.y / static_cast<float>(water.grid.y),
+				};
+				auto const normal = WaterNormal(water.surface, xy_ws, cell_size, 0.0);
+				mesh.vert(xy_ws.x, xy_ws.y, z_ws);
+				mesh.normal({ normal.x, normal.y, normal.z });
+			}
+		}
+		for (int iy = 0; iy != water.grid.y; ++iy)
+		{
+			for (int ix = 0; ix != water.grid.x; ++ix)
+			{
+				auto const i0 = index_of(ix + 0, iy + 0);
+				auto const i1 = index_of(ix + 1, iy + 0);
+				auto const i2 = index_of(ix + 0, iy + 1);
+				auto const i3 = index_of(ix + 1, iy + 1);
+				mesh.face(i0, i1, i2);
+				mesh.face(i2, i1, i3);
+			}
+		}
+
+		auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToBinary());
+		if (result.m_objects.empty())
+			throw std::runtime_error("Water mesh parsing did not return an object");
+
+		m_water_gfx = result.m_objects.front();
+		if (m_water_gfx->m_model == nullptr || m_water_gfx->m_model->m_vcount != vertex_count)
+			throw std::runtime_error("Water mesh model has an unexpected vertex count");
+
+		UpdateWaterGfx();
+	}
+
+	// Update the water visual mesh to match the current scene time.
+	void Scene::UpdateWaterGfx()
+	{
+		if (!m_water || m_water_gfx == nullptr || m_water_gfx->m_model == nullptr)
+			return;
+
+		auto const& water = *m_water;
+		auto const extent = m_water_extent;
+		rdr12::ResourceFactory factory(*m_rdr);
+		auto update = m_water_gfx->m_model->UpdateVertices(factory.CmdList(), factory.UploadBuffer());
+		auto* ptr = update.ptr<rdr12::Vert>();
+		for (int iy = 0; iy != water.grid.y + 1; ++iy)
+		{
+			for (int ix = 0; ix != water.grid.x + 1; ++ix)
+			{
+				SetWaterVertex(*ptr, water, extent, ix, iy, m_clock);
+				++ptr;
+			}
+		}
+		update.Commit();
 	}
 
 	// Return the latest diagnostic buoyancy records for scene-registered hulls.
@@ -300,6 +438,9 @@ namespace physics_sandbox
 
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
+		m_water.reset();
+		m_water_extent = v2::Zero();
+		m_water_gfx = nullptr;
 
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
@@ -407,6 +548,7 @@ namespace physics_sandbox
 				m_body[i].ZeroForces();
 			}
 		}
+		UpdateWaterGfx();
 		auto const kill_end = Clock::now();
 
 		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
@@ -423,6 +565,9 @@ namespace physics_sandbox
 	void Scene::SetupScenario(EScenario scenario)
 	{
 		ClearBuoyancy();
+		m_water.reset();
+		m_water_extent = v2::Zero();
+		m_water_gfx = nullptr;
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -556,6 +701,9 @@ namespace physics_sandbox
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
+		m_water = scene_desc.water;
+		m_water_extent = v2::Zero();
+		m_water_gfx = nullptr;
 
 		// Clear existing bodies and owned shapes
 		m_body.resize(0);
@@ -892,6 +1040,8 @@ namespace physics_sandbox
 			m_last_load_profile.m_ldraw_assign_ms = ElapsedMs(mark, ldraw_assign_end);
 			mark = ldraw_assign_end;
 		}
+		if (m_water)
+			CreateWaterGfx(*m_water, scene_bbox);
 		// Logging
 		{
 			auto mat = m_physics.Material(0);
@@ -902,6 +1052,7 @@ namespace physics_sandbox
 			DbgLog("  Bodies: %d\n", static_cast<int>(m_body.size()));
 			DbgLog("  Gravity: (%.2f, %.2f, %.2f)\n", m_gravity.x, m_gravity.y, m_gravity.z);
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
+			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.m_level : 0.0f, scene_desc.water ? isize(scene_desc.water->surface.m_waves) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
 			{

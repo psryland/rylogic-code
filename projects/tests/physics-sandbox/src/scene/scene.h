@@ -86,6 +86,11 @@ namespace physics_sandbox
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
 		rdr12::ldraw::LdrObjectPtr m_ground_gfx;
 
+		// Water surface visual described by the loaded scene.
+		std::optional<scene_loader::WaterDesc> m_water;
+		v2 m_water_extent;
+		rdr12::ldraw::LdrObjectPtr m_water_gfx;
+
 		// Origin coordinate frame visual
 		rdr12::ldraw::LdrObjectPtr m_origin_gfx;
 
@@ -167,6 +172,12 @@ namespace physics_sandbox
 
 		// Create diagnostic buoyancy hulls described by a loaded scene.
 		void ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc);
+
+		// Create the water mesh visual described by a loaded scene.
+		void CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox);
+
+		// Update the water mesh vertices for the current simulation time.
+		void UpdateWaterGfx();
 
 		// Return the latest diagnostic buoyancy records for scene-registered hulls.
 		std::vector<physics::GpuBuoyancy::Diagnostics> BuoyancyDiagnostics() const;

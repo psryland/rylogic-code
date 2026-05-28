@@ -2,7 +2,7 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Diagnostic-only flat-water buoyancy pass for generated box hulls.
+// Sine-wave water buoyancy pass for generated box hulls.
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
@@ -19,9 +19,11 @@ struct CBufGpuBuoyancy
 	int total_columns;
 	int grid_x;
 	int grid_y;
+	int wave_count;
+	float time_s;
 	float water_level;
 	float fluid_density;
-	float pad0;
+	float3 pad0;
 	float4 gravity_ws;
 };
 
@@ -29,6 +31,12 @@ struct GpuBuoyancyHull
 {
 	int body_index;
 	float3 half_extents;
+};
+
+struct GpuBuoyancyWave
+{
+	float4 direction_wavelength_phase_speed;
+	float4 amplitude;
 };
 
 struct GpuBuoyancyPartial
@@ -53,6 +61,7 @@ struct GpuBuoyancyDiagnostic
 ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
 StructuredBuffer<GpuBuoyancyHull> resource(g_hulls, t0);
+StructuredBuffer<GpuBuoyancyWave> resource(g_waves, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
 
@@ -66,6 +75,23 @@ void IncludeBoxCorner(GpuRigidBody body, float3 half_extents, float3 sign, inout
 	float3 corner_ws = mul(float4(half_extents * sign, 1.0f), body.o2w).xyz;
 	min_xy = min(min_xy, corner_ws.xy);
 	max_xy = max(max_xy, corner_ws.xy);
+}
+
+// Evaluate the scene-described water height at a world-space XY position.
+float EvaluateWaterHeight(float2 xy_ws)
+{
+	float height = g.water_level;
+	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	{
+		GpuBuoyancyWave wave = g_waves[wave_index];
+		float2 direction = wave.direction_wavelength_phase_speed.xy;
+		float wavelength = wave.direction_wavelength_phase_speed.z;
+		float phase_speed = wave.direction_wavelength_phase_speed.w;
+		float amplitude = wave.amplitude.x;
+		float phase = dot(direction, xy_ws) * tau / wavelength + phase_speed * g.time_s;
+		height += amplitude * sin(phase);
+	}
+	return height;
 }
 
 // Project the generated box hull onto the horizontal integration plane.
@@ -152,7 +178,7 @@ void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, o
 		return;
 	}
 
-	// The prototype uses a horizontal grid for flat water. Later Gerstner support should replace this with the gravity-aligned/wave-sampled form.
+	// Columns stay vertical for the incremental model; the surface height can vary per XY sample.
 	int cell_x = column_index % g.grid_x;
 	int cell_y = column_index / g.grid_x;
 	float2 cell_size = span_xy / float2(g.grid_x, g.grid_y);
@@ -166,7 +192,7 @@ void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, o
 	}
 
 	float submerged_t_min = t_min;
-	float submerged_t_max = min(t_max, g.water_level);
+	float submerged_t_max = min(t_max, EvaluateWaterHeight(xy_ws));
 	if (submerged_t_max <= submerged_t_min)
 	{
 		return;
@@ -232,7 +258,7 @@ void CSGpuBuoyancyColumns(uint3 DTID(dispatch_thread_id), uint3 GID(group_id), u
 	}
 }
 
-// Reduce all partials for one hull to a diagnostic record.
+// Reduce all partials for one hull, add the force/torque to the body accumulator, and write a diagnostic record.
 numthreads(CSGpuBuoyancyReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
 void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
@@ -263,6 +289,11 @@ void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		float3 centre_buoyancy_ws = has_volume != 0.0f ? s_moment_ws_volume[0].xyz / volume : float3(0.0f, 0.0f, 0.0f);
 
 		GpuBuoyancyHull hull = g_hulls[hull_index];
+		GpuRigidBody body = g_bodies[hull.body_index];
+		body.force_lin += s_force_ws[0];
+		body.force_ang += s_torque_ws[0];
+		g_bodies[hull.body_index] = body;
+
 		g_diagnostics[hull_index].force_ws = s_force_ws[0];
 		g_diagnostics[hull_index].torque_ws = s_torque_ws[0];
 		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
