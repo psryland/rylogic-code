@@ -266,12 +266,12 @@ namespace pr::rdr12
 			{
 				// Basis/focus point model
 				constexpr Vert verts[] = {
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
-					{v4(1.0f,  0.0f,  0.0f, 1.0f), Colour(0xFFFF0000), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  1.0f,  0.0f, 1.0f), Colour(0xFF00FF00), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  0.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(0.0f,  0.0f,  1.0f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourRed, Zero<v4>(), Zero<v2>()},
+					{v4(1.0f,  0.0f,  0.0f, 1.0f), ColourRed, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourGreen, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  1.0f,  0.0f, 1.0f), ColourGreen, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  0.0f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(0.0f,  0.0f,  1.0f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 3, 4, 5,
@@ -294,10 +294,10 @@ namespace pr::rdr12
 			{
 				// Unit quad in Z = 0 plane
 				constexpr Vert verts[] = {
-					{v4(-0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.9999f)},
-					{v4(+0.5f,-0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.9999f)},
-					{v4(+0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.9999f,0.0000f)},
-					{v4(-0.5f, 0.5f, 0, 1), Colour(0xFFFFFFFF), ZAxis<v4>(), v2(0.0000f,0.0000f)},
+					{v4(-0.5f,-0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.0000f,0.9999f)},
+					{v4(+0.5f,-0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.9999f,0.9999f)},
+					{v4(+0.5f, 0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.9999f,0.0000f)},
+					{v4(-0.5f, 0.5f, 0, 1), ColourWhite, ZAxis<v4>(), v2(0.0000f,0.0000f)},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 2, 0, 2, 3
@@ -318,14 +318,14 @@ namespace pr::rdr12
 			{
 				// Bounding box cube
 				constexpr Vert verts[] = {
-					{v4(-0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, -0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, +0.5f, -0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, -0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(+0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
-					{v4(-0.5f, +0.5f, +0.5f, 1.0f), Colour(0xFF0000FF), Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, -0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, -0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, -0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, -0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(+0.5f, +0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
+					{v4(-0.5f, +0.5f, +0.5f, 1.0f), ColourBlue, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0, 1, 1, 2, 2, 3, 3, 0,
@@ -353,45 +353,45 @@ namespace pr::rdr12
 				constexpr float sz = 1.0f;
 				constexpr float dd = 0.8f;
 				constexpr Vert verts[] = {
-					{v4(-sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, -sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, dd, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, sz, -sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, sz, -dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, -sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, -dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, -sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, -sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, -sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, -sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, -sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(dd, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(sz, sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 
-					{v4(-sz, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, dd, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-dd, sz, sz, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
-					{v4(-sz, sz, dd, 1.0f), Colour(0xFFFFFFFF), Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, dd, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-dd, sz, sz, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
+					{v4(-sz, sz, dd, 1.0f), ColourWhite, Zero<v4>(), Zero<v2>()},
 				};
 				constexpr uint16_t idxs[] = {
 					0,  1,  0,  2,  0,  3,

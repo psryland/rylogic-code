@@ -1,0 +1,100 @@
+*Group {
+	#include "klein.ldr"
+	*o2w { *euler{0 0 0} *pos{-1.5 -1 0} *Scale{1.5} }
+}
+
+*Grid floor_grid FF404040
+{
+	*Data {12 8 12 8}
+	*o2w { *pos {0 0 0.01} }
+}
+
+// Opaque reflective surfaces. Keep these non-alpha so the milestone-6 side buffer records them.
+*Plane mirror_floor FF202020
+{
+	*Data {12 8}
+	*AxisId {+3}
+	*Reflectivity {1.0}
+	*o2w { *pos {0 0 0} }
+}
+
+*Plane mirror_wall FF202020
+{
+	*Data {12 4}
+	*AxisId {-2}
+	*Reflectivity {1.0}
+	*o2w { *pos {0 3.5 2.0} }
+}
+
+// Coloured opaque targets for the floor and wall to reflect.
+*Box red_box FFFF2020
+{
+	*Data {1.0 1.0 1.0}
+	*Reflectivity {0.3}
+	*o2w { *pos {-2.4 0.0 0.55} }
+}
+
+*Sphere green_sphere 8020FF40
+{
+	*Data {0.7}
+	*Reflectivity {0.8}
+	*o2w { *pos {0.0 -0.8 0.75} }
+}
+
+*Cylinder blue_cylinder FF4080FF
+{
+	*Data {1.8 0.45}
+	*AxisId {+3}
+	*Reflectivity {0.3}
+	*o2w { *Euler{0 10 0} *pos {2.2 0.4 1.0} }
+}
+
+*Cone yellow_cone FFFFF020
+{
+	*Data {1.7 0.65 0.0}
+	*AxisId {+3}
+	*Reflectivity {0.5}
+	*o2w { *pos {0.8 1.4 0.85} }
+}
+
+// A few matte blocks behind the main objects give the vertical mirror wall more geometry to catch.
+*Box back_left FF20FFFF
+{
+	*Data {0.7 0.7 1.6}
+	*Reflectivity {0.1}
+	*o2w { *pos {-3.5 2.4 0.8} }
+}
+
+*Box back_right FFFF40FF
+{
+	*Data {0.7 0.7 2.2}
+	*Reflectivity {0.2}
+	*o2w { *pos {3.4 2.1 1.1} }
+}
+
+*Line mirror_edges FFFFFFFF
+{
+	*Style {LineSegments}
+	*Width {3}
+	*Data
+	{
+		-6 -4 0.03   6 -4 0.03
+		 6 -4 0.03   6  4 0.03
+		 6  4 0.03  -6  4 0.03
+		-6  4 0.03  -6 -4 0.03
+
+		-6 3.47 0    6 3.47 0
+		 6 3.47 0    6 3.47 4
+		 6 3.47 4   -6 3.47 4
+		-6 3.47 4   -6 3.47 0
+	}
+}
+
+*LightSource sun FFFFFF00
+{
+	*Style {Directional}
+	*Ambient {FF303030}
+	*Diffuse {FF606060}
+	*Specular {FFFFFFFF 500}
+	*o2w { *pos {-3 -4 7} *LookAt {0 0 0} }
+}

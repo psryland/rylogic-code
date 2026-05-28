@@ -889,6 +889,9 @@ VIEW3D_API unsigned int __stdcall View3D_WindowBackgroundColourGet(view3d::Windo
 		Validate(window);
 
 		DllLockGuard;
+
+		// BackgroundColour() is linear-space (engine convention). Colour::argb() applies the sRGB-encode so the
+		// returned ARGB matches what the caller originally supplied via View3D_WindowBackgroundColourSet.
 		return window->BackgroundColour().argb().argb;
 	}
 	CatchAndReport(View3D_WindowBackgroundColourGet, window, 0U);
@@ -900,6 +903,10 @@ VIEW3D_API void __stdcall View3D_WindowBackgroundColourSet(view3d::Window window
 		Validate(window);
 
 		DllLockGuard;
+
+		// The caller's ARGB is sRGB-encoded (matches colour pickers and HTML/CSS hex codes). pr::Colour(Colour32)
+		// applies the sRGB-decode so the stored value is linear-space (engine convention). The back-buffer RTV is
+		// *_UNORM_SRGB cast so the GPU re-encodes on the clear write, producing the original sRGB byte on screen.
 		window->BackgroundColour(pr::Colour(Colour32(argb)));
 	}
 	CatchAndReport(View3D_WindowBackgroundColourSet, window,);

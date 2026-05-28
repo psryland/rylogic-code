@@ -1,0 +1,16 @@
+*Group {
+    *Box b5 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 1.0} } }
+    *Box b2 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 0.4} } }
+    *Box b0 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 0.0} } }
+    *Box b7 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 1.4} } }
+    *Box b8 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 1.6} } }
+    *Box bA 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 2.0} } }
+    *Box b4 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 0.8} } }
+    *Box b9 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 1.8} } }
+    *Box b3 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 0.6} } }
+    *Box b1 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 0.2} } }
+    *Box b6 400000FF { *Data { 1 1 0.1 } *o2w{*pos{0 0 1.2} } }
+}
+
+*Box pole 40FF8000 { *Data {0.1 0.1 2.5} *o2w {*Euler{0 15 0} *pos{0 0 1}} }
+*Box Ref FF0000FF { *Data { 0.1 0.1 0.1 } *o2w{*pos{0 0 2.2} } }
