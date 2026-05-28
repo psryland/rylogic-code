@@ -355,7 +355,7 @@ namespace pr::rdr12
 	}
 
 	// Return an array of 'Image's and a resource description from DDS image data.
-	static LoadedImageResult LoadDDS(dds::Image const& img, int mips, bool is_cube_map, int max_dimension)
+	static LoadedImageResult LoadDDS(dds::Image const& img, int mips, bool is_cube_map, int max_dimension, EColourSpace colour_space)
 	{
 		auto resource_dimension = D3D12_RESOURCE_DIMENSION_UNKNOWN;
 		auto format = DXGI_FORMAT_UNKNOWN;
@@ -445,6 +445,13 @@ namespace pr::rdr12
 					array_size = 6;
 			}
 		}
+
+		// Honour the caller's colour-space hint by promoting the resolved format to its SRGB sibling when Srgb is requested.
+		// DDS files that already specify an explicit '_SRGB' format are left unchanged (ToSRGB is idempotent for those).
+		// Formats with no SRGB variant (e.g. normal maps stored as BC5, or HDR floating-point textures) also pass through untouched.
+		// Linear hint is a no-op here: we trust an explicit '_SRGB' in the DDS header over a (likely default) Linear hint.
+		if (colour_space == EColourSpace::Srgb)
+			format = ::pr::compute::ToSRGB(format);
 
 		// Bound sizes (for security purposes we don't trust DDS file metadata larger than the D3D 11.x hardware requirements)
 		auto mip_count = std::max(std::min(mips, s_cast<int>(img.header->mipMapCount)), 1);
@@ -572,7 +579,7 @@ namespace pr::rdr12
 	}
 
 	// Load an image from a DDS image data, either in memory or on disk.
-	LoadedImageResult LoadDDS(std::span<uint8_t const> mem, int mips, bool is_cube_map, int max_dimension)
+	LoadedImageResult LoadDDS(std::span<uint8_t const> mem, int mips, bool is_cube_map, int max_dimension, EColourSpace colour_space)
 	{
 		if (mem.size() == 0)
 			throw std::runtime_error("Texture data must be provided");
@@ -594,9 +601,9 @@ namespace pr::rdr12
 		auto offset = sizeof(dds::Header) + sizeof(uint32_t) + (is_DXT10 ? sizeof(dds::HeaderDXT10) : 0);
 		img.bits = std::span{ mem.data() + offset, mem.size() - offset };
 
-		return std::move(LoadDDS(img, mips, is_cube_map, max_dimension));
+		return std::move(LoadDDS(img, mips, is_cube_map, max_dimension, colour_space));
 	}
-	LoadedImageResult LoadDDS(std::filesystem::path const& filepath, int mips, bool is_cube_map, int max_dimension)
+	LoadedImageResult LoadDDS(std::filesystem::path const& filepath, int mips, bool is_cube_map, int max_dimension, EColourSpace colour_space)
 	{
 		if (filepath.empty())
 			throw std::runtime_error("Texture filepath must be provided");
@@ -604,6 +611,6 @@ namespace pr::rdr12
 			throw std::runtime_error(FmtS("Texture file '%S' does not exist", filepath.c_str()));
 
 		auto img = LoadTextureDataFromFile(filepath);
-		return std::move(LoadDDS(img, mips, is_cube_map, max_dimension));
+		return std::move(LoadDDS(img, mips, is_cube_map, max_dimension, colour_space));
 	}
 }

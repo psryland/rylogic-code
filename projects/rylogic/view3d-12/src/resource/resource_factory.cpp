@@ -488,7 +488,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
+	Texture2DPtr ResourceFactory::CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload, EColourSpace colour_space)
 	{
 		if (resource_path.empty())
 			throw std::runtime_error("A resource path must be given");
@@ -532,7 +532,7 @@ namespace pr::rdr12
 				auto data = std::span{ emb.m_data, emb.m_len };
 
 				// Create the texture data
-				auto [images, rdesc] = LoadImageData(data, 1, false, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(data, 1, false, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -576,7 +576,7 @@ namespace pr::rdr12
 					return CreateTexture(EStockTexture::Black);
 
 				// Load the texture from disk
-				auto [images, rdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(filepath, 1, false, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -609,7 +609,7 @@ namespace pr::rdr12
 
 		return inst;
 	}
-	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload)
+	TextureCubePtr ResourceFactory::CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc_, bool force_reload, EColourSpace colour_space)
 	{
 		// Notes:
 		//  - A cube map is an array of 6 2D textures.
@@ -661,7 +661,7 @@ namespace pr::rdr12
 				}
 
 				// Create the texture data
-				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
@@ -719,7 +719,7 @@ namespace pr::rdr12
 				}
 
 				// Load the texture from disk (supports '??' in the filepath)
-				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features());
+				auto [images, rdesc] = LoadImageData(source_images, 1, true, 0, &rdr().Features(), colour_space);
 				desc.m_rdesc = rdesc;
 				desc.m_rdesc.Data = images;
 				desc.m_rdesc.DepthOrArraySize = s_cast<UINT16>(images.ssize());

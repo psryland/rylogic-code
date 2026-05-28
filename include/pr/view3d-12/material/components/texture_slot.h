@@ -9,12 +9,9 @@
 
 namespace pr::rdr12::materials
 {
-	// The colour-space interpretation requested by a material texture slot.
-	enum class ETextureColourSpace
-	{
-		Linear,
-		Srgb,
-	};
+	// The colour-space interpretation requested by a material texture slot. Alias of the top-level enum so existing
+	// material code (e.g. base_colour.h, normal_map.h) keeps using materials::ETextureColourSpace::Srgb / Linear.
+	using ETextureColourSpace = ::pr::rdr12::EColourSpace;
 
 	// Texture channels used when scalar PBR values are packed into shared textures.
 	enum class ETextureChannel

@@ -450,6 +450,20 @@ namespace pr::rdr12
 	PR_ENUM_REFLECTION2(EFillMode, PR_ENUM);
 	#undef PR_ENUM
 
+	// EColourSpace - how a texture's stored byte values should be interpreted when sampled by the GPU.
+	// Linear  - texels are linear-space numeric data (normal maps, roughness, metallic, height, masks). No gamma transform on sample.
+	// Srgb    - texels are sRGB-encoded colour data (base colour, emissive, UI textures). The hardware sampler decodes to linear before filtering.
+	// The hint flows from the caller (importer / material slot / LDraw parser) into the texture loader, which picks a *_UNORM or *_UNORM_SRGB DXGI format accordingly.
+	enum class EColourSpace : int
+	{
+		#define PR_ENUM(x)\
+		x(Linear ,= 0)\
+		x(Srgb   ,= 1)
+		PR_ENUM_MEMBERS2(PR_ENUM)
+	};
+	PR_ENUM_REFLECTION2(EColourSpace, PR_ENUM);
+	#undef PR_ENUM
+
 	// ECullMode
 	enum class ECullMode
 	{

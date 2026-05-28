@@ -224,11 +224,12 @@ namespace pr::rdr12
 		}
 
 		// Create a renderer texture from embedded image bytes.
+		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
 		template <typename Material>
-		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha)
+		static Texture2DPtr CreateEmbeddedTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
 		{
 			auto data = texture.m_data;
-			auto [images, rdesc] = LoadImageData(data, 1, false, 0, &factory.rdr().Features());
+			auto [images, rdesc] = LoadImageData(data, 1, false, 0, &factory.rdr().Features(), colour_space);
 			rdesc.Data = images;
 			rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 
@@ -243,15 +244,16 @@ namespace pr::rdr12
 		}
 
 		// Create a renderer texture from a file path or URI.
+		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
 		template <typename Material>
-		static Texture2DPtr CreateFileTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha)
+		static Texture2DPtr CreateFileTexture(ResourceFactory& factory, geometry::TextureRef const& texture, bool has_alpha, EColourSpace colour_space)
 		{
 			auto name = texture.name();
 			auto desc = TextureDesc(AutoId, ResDesc())
 				.has_alpha(has_alpha)
 				.name(name);
 
-			return factory.CreateTexture2D(std::filesystem::path(texture.m_uri), desc);
+			return factory.CreateTexture2D(std::filesystem::path(texture.m_uri), desc, false, colour_space);
 		}
 
 		// Create a sampler matching the imported texture's sampler state.
@@ -330,8 +332,8 @@ namespace pr::rdr12
 			try
 			{
 				slot.m_texture =
-					!texture.m_data.empty() ? CreateEmbeddedTexture<Material>(factory, texture, has_alpha) :
-					!texture.m_uri.empty() ? CreateFileTexture<Material>(factory, texture, has_alpha) :
+					!texture.m_data.empty() ? CreateEmbeddedTexture<Material>(factory, texture, has_alpha, colour_space) :
+					!texture.m_uri.empty() ? CreateFileTexture<Material>(factory, texture, has_alpha, colour_space) :
 					nullptr;
 
 				if (slot.m_texture == nullptr)
