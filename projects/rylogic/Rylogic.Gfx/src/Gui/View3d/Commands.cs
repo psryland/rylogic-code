@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
@@ -270,15 +271,41 @@ namespace Rylogic.Gui.WPF
 		public ICollectionView SavedViews { get; private set; } = new ListCollectionView(new ObservableCollection<SavedView>());
 		private ObservableCollection<SavedView> SavedViewsList => (ObservableCollection<SavedView>)SavedViews.SourceCollection;
 
+		/// <summary>Return a stable snapshot of the saved views collection</summary>
+		public IReadOnlyList<SavedView> SavedViewItems()
+		{
+			return [..SavedViewsList];
+		}
+
+		/// <summary>Apply an existing saved view to the current camera</summary>
+		public void ApplySavedViewItem(SavedView view)
+		{
+			view.Apply(Camera);
+			SavedViews.MoveCurrentTo(view);
+			Invalidate();
+		}
+
+		/// <summary>Save the current camera view with 'name'</summary>
+		public SavedView SaveCurrentViewAs(string name)
+		{
+			var view = new SavedView(name, Camera);
+			SavedViewsList.Add(view);
+			SavedViews.MoveCurrentTo(view);
+			return view;
+		}
+
+		/// <summary>Remove an existing saved view</summary>
+		public void RemoveSavedViewItem(SavedView view)
+		{
+			SavedViewsList.Remove(view);
+		}
+
 		/// <inheritdoc/>
 		public ICommand ApplySavedView { get; private set; } = null!;
 		private void ApplySavedViewInternal()
 		{
 			if (SavedViews.CurrentItem is SavedView view)
-			{
-				view.Apply(Camera);
-				Invalidate();
-			}
+				ApplySavedViewItem(view);
 		}
 
 		/// <inheritdoc/>
@@ -298,9 +325,7 @@ namespace Rylogic.Gui.WPF
 				Value = name,
 			};
 			if (ui.ShowDialog() == true)
-			{
-				SavedViewsList.Add(new SavedView(ui.Value, Camera));
-			}
+				SaveCurrentViewAs(ui.Value);
 		}
 		private int m_saved_view_id;
 
@@ -309,7 +334,7 @@ namespace Rylogic.Gui.WPF
 		private void RemoveSavedViewInternal()
 		{
 			if (SavedViews.CurrentItem is SavedView view)
-				SavedViewsList.Remove(view);
+				RemoveSavedViewItem(view);
 		}
 
 		/// <inheritdoc/>

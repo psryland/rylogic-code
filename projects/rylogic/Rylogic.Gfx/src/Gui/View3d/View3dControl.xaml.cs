@@ -559,6 +559,25 @@ namespace Rylogic.Gui.WPF
 		/// <summary>True if we're waiting to render the next frame</summary>
 		public bool RenderPending { get; private set; }
 
+		/// <summary>Render the current scene synchronously and save the front buffer to an image file</summary>
+		public System.Drawing.Size SaveImage(string filepath)
+		{
+			VerifyAccess();
+
+			// The WPF D3D image can only be copied when it has a live front buffer. Treat these as explicit preconditions so callers can report why capture failed.
+			if (!IsVisible)
+				throw new InvalidOperationException("Cannot capture a View3dControl that is not visible.");
+			if (RenderSize == Size.Empty)
+				throw new InvalidOperationException("Cannot capture a View3dControl before it has a render size.");
+			if (D3DImage.FrontBuffer == null || !D3DImage.IsFrontBufferAvailable)
+				throw new InvalidOperationException("Cannot capture a View3dControl before its front buffer is available.");
+
+			RenderPending = true;
+			Render();
+			D3DImage.Save(filepath);
+			return new System.Drawing.Size(D3DImage.PixelWidth, D3DImage.PixelHeight);
+		}
+
 		/// <summary>Render</summary>
 		private void Render()
 		{
