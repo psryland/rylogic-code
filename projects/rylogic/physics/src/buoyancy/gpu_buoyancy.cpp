@@ -34,7 +34,8 @@ namespace pr::physics
 			float m_water_level;
 			float m_fluid_density;
 			float m_drag_coefficient;
-			float m_pad0[2];
+			float m_quadratic_drag_coefficient;
+			float m_pad0;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -200,6 +201,7 @@ namespace pr::physics
 				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
 				.UAV(hlsl::EUAVReg::u0)
 				.SRV(hlsl::ESRVReg::t0)
+				.SRV(hlsl::ESRVReg::t1)
 				.UAV(hlsl::EUAVReg::u1)
 				.UAV(hlsl::EUAVReg::u2)
 				.Create(device, "Physics.GpuBuoyancy.Reduce.RootSig");
@@ -444,6 +446,10 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy drag time-constant must be finite");
 			}
+			if (!std::isfinite(config.m_quadratic_drag_coefficient) || config.m_quadratic_drag_coefficient < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy quadratic drag coefficient must be a finite, non-negative value");
+			}
 
 			m_config = config;
 		}
@@ -610,7 +616,8 @@ namespace pr::physics
 				.m_water_level = m_water_surface.m_level,
 				.m_fluid_density = m_config.m_fluid_density,
 				.m_drag_coefficient = drag_coefficient,
-				.m_pad0 = {},
+				.m_quadratic_drag_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient),
+				.m_pad0 = 0.0f,
 			};
 
 			// Evaluate all column samples into one partial record per hull/threadgroup.
@@ -625,11 +632,14 @@ namespace pr::physics
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
 			// Reduce per-threadgroup partials to one body force accumulator contribution and one diagnostic record per hull.
+			// The reduce kernel also evaluates per-face quadratic form drag on the host body and needs the wave SRV (t1)
+			// because each face sub-sample queries the water height at its world-space XY to test submergence.
 			args.m_job.m_cmd_list.SetPipelineState(m_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_gpu_va);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);

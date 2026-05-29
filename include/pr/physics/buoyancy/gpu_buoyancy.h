@@ -60,6 +60,16 @@ namespace pr::physics
 			// to wave-driven motion without dominating low-frequency dynamics. Set to <= 0 to
 			// disable drag entirely (useful for purely-conservative validation cases).
 			float m_drag_time_constant_s = 3.0f;
+
+			// Quadratic (form) drag coefficient (dimensionless). Per-face drag is
+			//   F_face = -0.5 * fluid_density * Cd * A_sub * max(0, v_n)^2 * n_ws
+			// summed over a 2x2 sub-sample grid per face, where v_n is the outward-normal
+			// component of the body's velocity at each sub-sample. Linear drag (above) and
+			// quadratic drag operate independently: linear dominates near rest and stabilises
+			// low-frequency motion, quadratic dominates at speed and provides realistic form
+			// drag for translating/tumbling bodies. Typical values: 1.05 for a cube (default),
+			// 0.47 for a sphere, 1.28 for a flat plate. Set to <= 0 to disable form drag.
+			float m_quadratic_drag_coefficient = 1.05f;
 		};
 
 		struct BodyState

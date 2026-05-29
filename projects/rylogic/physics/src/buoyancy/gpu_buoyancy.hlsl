@@ -25,7 +25,8 @@ struct CBufGpuBuoyancy
 	float water_level;
 	float fluid_density;
 	float drag_coefficient;
-	float2 pad0;
+	float quadratic_drag_coefficient;
+	float pad0;
 };
 
 struct GpuBuoyancyHull
@@ -290,6 +291,113 @@ void ReduceShared(uint thread_index, uint thread_count)
 	GroupMemoryBarrierWithGroupSync();
 }
 
+// Per-face quadratic (form) drag for the registered box hull. Writes the total drag force and torque
+// about the body's centre of mass in world space, integrated over a 2x2 sub-sample grid on each face.
+// Sub-sampling (rather than evaluating only at face centroids) is necessary to capture rotational
+// drag: for pure yaw, omega x r is purely tangent to a side face at its centre, so v_n = 0 and the
+// centroid evaluation produces no torque. The 2x2 grid restores rotational damping cheaply (~24
+// samples per body). Quadratic drag complements the per-column linear drag in EvaluateColumn:
+// linear dominates near rest and stabilises low-frequency motion, quadratic dominates at speed and
+// provides realistic form drag for translating/tumbling bodies.
+//
+// The model assumes stationary water (v_fluid = 0). The expression is structured as
+// v_rel = v_point - v_fluid so wave-orbital velocity can be added later without restructuring.
+// Drag only acts on faces whose outward normal has a positive velocity component into the water
+// (the face is moving outward into the fluid); leeward faces contribute nothing. This matches the
+// form-drag model for separated flow at moderate-to-high Reynolds numbers.
+void EvaluatePerFaceQuadraticDrag(GpuBuoyancyHull hull, GpuRigidBody body, out float3 drag_force_ws, out float3 drag_torque_ws)
+{
+	drag_force_ws = float3(0.0f, 0.0f, 0.0f);
+	drag_torque_ws = float3(0.0f, 0.0f, 0.0f);
+	if (g.quadratic_drag_coefficient <= 0.0f)
+	{
+		return;
+	}
+
+	// Body kinematics at this instant. See the note in EvaluateColumn about the storage convention
+	// for inertia_inv_* (mass-removed shape inertia, recombined here via the inv_mass scaling).
+	float inv_mass = body.os_com_and_invmass.w;
+	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+	float3 v_lin = inv_mass * body.momentum_lin.xyz;
+	float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
+	float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+
+	// 0.5 * rho * Cd is the constant prefactor shared by every face sample.
+	float coef = 0.5f * g.fluid_density * g.quadratic_drag_coefficient;
+
+	// Iterate the 6 axis-aligned faces of the generated box hull. For each face the outward normal
+	// is a unit axis (positive then negative along x, y, z), and the two in-face tangent axes are
+	// the other two world axes; the half-widths along those tangents come from the matching
+	// components of hull.half_extents. The hull geometry is centred on the body's model origin
+	// (same assumption as ProjectBoxBoundsXY), so the face centres in object-space are simply
+	// n_os * half_extent_along_normal.
+	for (int f = 0; f != 6; ++f)
+	{
+		int axis = f >> 1;
+		float sign_n = (f & 1) != 0 ? -1.0f : +1.0f;
+
+		float3 n_os = float3(0.0f, 0.0f, 0.0f);
+		float3 tu_os = float3(0.0f, 0.0f, 0.0f);
+		float3 tv_os = float3(0.0f, 0.0f, 0.0f);
+		float h_n = 0.0f;
+		float hu = 0.0f;
+		float hv = 0.0f;
+		if (axis == 0)
+		{
+			n_os.x = sign_n; tu_os.y = 1.0f; tv_os.z = 1.0f;
+			h_n = hull.half_extents.x; hu = hull.half_extents.y; hv = hull.half_extents.z;
+		}
+		else if (axis == 1)
+		{
+			n_os.y = sign_n; tu_os.x = 1.0f; tv_os.z = 1.0f;
+			h_n = hull.half_extents.y; hu = hull.half_extents.x; hv = hull.half_extents.z;
+		}
+		else
+		{
+			n_os.z = sign_n; tu_os.x = 1.0f; tv_os.y = 1.0f;
+			h_n = hull.half_extents.z; hu = hull.half_extents.x; hv = hull.half_extents.y;
+		}
+
+		// Quarter of the face area, shared by all four sub-samples.
+		float sample_area = hu * hv;
+		float3 face_centre_os = n_os * h_n;
+		float3 n_ws = mul(float4(n_os, 0.0f), body.o2w).xyz;
+
+		// 2x2 sub-sample grid: each sample is the centroid of one quadrant of the face,
+		// at offsets +/-hu/2 along tangent u and +/-hv/2 along tangent v.
+		[unroll] for (int si = 0; si != 2; ++si)
+		[unroll] for (int sj = 0; sj != 2; ++sj)
+		{
+			float ofs_u = (si == 0 ? -0.5f : +0.5f) * hu;
+			float ofs_v = (sj == 0 ? -0.5f : +0.5f) * hv;
+			float3 sample_os = face_centre_os + tu_os * ofs_u + tv_os * ofs_v;
+			float3 sample_ws = mul(float4(sample_os, 1.0f), body.o2w).xyz;
+
+			// Submergence test: skip samples above the local water surface.
+			float water_h = EvaluateWaterHeight(sample_ws.xy);
+			if (sample_ws.z >= water_h)
+			{
+				continue;
+			}
+
+			// Form drag opposes the outward motion of the face. v_fluid = 0 for stationary water;
+			// when wave-orbital velocity is added later it will be subtracted from v_at_sample.
+			float3 v_at_sample = v_lin + cross(omega_ws, sample_ws - com_ws);
+			float v_n = dot(v_at_sample, n_ws);
+			if (v_n <= 0.0f)
+			{
+				continue;
+			}
+
+			float3 force = -(coef * sample_area * v_n * v_n) * n_ws;
+			float3 torque = cross(sample_ws - com_ws, force);
+			drag_force_ws += force;
+			drag_torque_ws += torque;
+		}
+	}
+}
+
 // Evaluate a block of buoyancy columns and write one partial record for the reducer.
 numthreads(CSGpuBuoyancyColumns, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
 void CSGpuBuoyancyColumns(uint3 DTID(dispatch_thread_id), uint3 GID(group_id), uint3 GTID(group_thread_id))
@@ -355,12 +463,24 @@ void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 
 		GpuBuoyancyHull hull = g_hulls[hull_index];
 		GpuRigidBody body = g_bodies[hull.body_index];
-		body.force_lin += s_force_ws[0];
-		body.force_ang += s_torque_ws[0];
+
+		// Per-face quadratic (form) drag is added on top of the per-column buoyancy + linear drag
+		// already reduced in s_force_ws[0] / s_torque_ws[0]. Doing the per-face evaluation here in
+		// the reduce kernel (thread 0 only, once per body) keeps it cheap and avoids fan-out into
+		// the columns dispatch where it would be replicated 128 times per body.
+		float3 quadratic_drag_force_ws = float3(0.0f, 0.0f, 0.0f);
+		float3 quadratic_drag_torque_ws = float3(0.0f, 0.0f, 0.0f);
+		EvaluatePerFaceQuadraticDrag(hull, body, quadratic_drag_force_ws, quadratic_drag_torque_ws);
+
+		float4 total_force_ws = s_force_ws[0] + float4(quadratic_drag_force_ws, 0.0f);
+		float4 total_torque_ws = s_torque_ws[0] + float4(quadratic_drag_torque_ws, 0.0f);
+
+		body.force_lin += total_force_ws;
+		body.force_ang += total_torque_ws;
 		g_bodies[hull.body_index] = body;
 
-		g_diagnostics[hull_index].force_ws = s_force_ws[0];
-		g_diagnostics[hull_index].torque_ws = s_torque_ws[0];
+		g_diagnostics[hull_index].force_ws = total_force_ws;
+		g_diagnostics[hull_index].torque_ws = total_torque_ws;
 		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
 		g_diagnostics[hull_index].moment_ws_volume = s_moment_ws_volume[0];
 		g_diagnostics[hull_index].body_index = hull.body_index;

@@ -303,8 +303,7 @@ namespace pr::physics::tests
 		// Setup: a fully-submerged box with zero angular velocity and a known linear velocity.
 		// All columns share the same velocity vector at their centroid, so the total drag
 		// force equals -c_drag*V*v with zero net torque (symmetric submerged geometry).
-		PRUnitTestMethod(GpuLinearDragForce)
-		{
+		PRUnitTestMethod(GpuLinearDragForce)		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			auto bodies = std::vector<RigidBody>{};
 			bodies.emplace_back();
@@ -361,6 +360,155 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 1e-3f));
 			// Symmetric submerged geometry + linear velocity -> zero net torque.
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), std::abs(expected_force_x) * 1e-2f));
+		}
+
+		// Verify per-face quadratic (form) drag along a straight-line translation. A fully-submerged
+		// box moving with v_lin = (1,0,0) only sees outward-normal velocity on its +X face: the
+		// other five faces have v_n <= 0 (leeward) or v_n == 0 (top/bottom). With linear drag
+		// disabled (drag_time_constant_s = 0), the lateral force is purely from the +X face's
+		// 2x2 sub-sample grid, all four of which are fully submerged and share v_n = 1 m/s.
+		// Each sub-sample integrates F = -0.5*rho*Cd*A_sub*v_n^2 * n_ws, summing across the four
+		// sub-tiles to the same closed-form result as a single full-face evaluation. The +X face
+		// area is (2*hy)*(2*hz) = 2*1*2*0.5 = 2 m^2, giving F_x = -0.5*1000*1.05*2*1 = -1050 N.
+		PRUnitTestMethod(GpuQuadraticDragLinearMotion)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto bodies = std::vector<RigidBody>{};
+			bodies.emplace_back();
+			bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			bodies[0].NeverSleep(true);
+			bodies[0].GravityWS(AnalyticGravityWS);
+			bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
+
+			auto engine = Engine{};
+			// Linear drag disabled so the lateral force is purely the new quadratic form drag.
+			auto buoyancy = GpuBuoyancy(
+				engine.Device(),
+				engine,
+				GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f },
+				[](int stable_body_index)
+				{
+					return stable_body_index;
+				},
+				[&bodies](int stable_body_index)
+				{
+					auto body_state = GpuBuoyancy::BodyState{};
+					if (stable_body_index < 0 || stable_body_index >= isize(bodies))
+						return body_state;
+
+					body_state.m_o2w = bodies[stable_body_index].O2W();
+					body_state.m_centre_of_mass_os = bodies[stable_body_index].CentreOfMassOS();
+					body_state.m_ws_gravity = bodies[stable_body_index].GravityWS();
+					body_state.m_valid = true;
+					return body_state;
+				});
+
+			auto registration = buoyancy.RegisterBoxHull(bodies[0], 0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
+
+			engine.Step(1.0f / 60.0f, std::span{bodies});
+			buoyancy.CompleteStep();
+
+			auto const diag = buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(diag.m_analytic_valid);
+
+			auto const config = buoyancy.GetConfig();
+
+			// Half-extents derived from RegisterBoxHull(size) which divides by 2.
+			auto const hy = 1.0f;
+			auto const hz = 0.5f;
+			auto const front_face_area = (2.0f * hy) * (2.0f * hz);
+			auto const v_n = 1.0f;
+			auto const expected_drag_x = -0.5f * config.m_fluid_density * config.m_quadratic_drag_coefficient * front_face_area * v_n * v_n;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_analytic_volume_m3;
+
+			PR_EXPECT(FEqlAbsolute(diag.m_analytic_volume_m3, 4.0f, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_drag_x, std::abs(expected_drag_x) * 1e-3f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, std::abs(expected_drag_x) * 1e-3f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 1e-3f));
+			// Symmetric submerged geometry + linear velocity -> zero net torque.
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), std::abs(expected_drag_x) * 1e-2f));
+		}
+
+		// Verify per-face quadratic drag generates the expected damping torque for pure yaw rotation.
+		// Setup: fully-submerged box with omega = (0,0,1) rad/s about world Z. The 2x2 sub-sample
+		// grid (rather than a single centroid sample per face) is what makes this test meaningful:
+		// for pure yaw, the velocity omega x r at the centre of any side face is purely tangential
+		// to that face, so a centroid-only model would produce zero rotational drag. With sub-samples,
+		// each side face has 2 of 4 sub-samples with v_n > 0 (the two on the "leading" tangent edge),
+		// and each contributes -coef*A_sub*v_n^2 of normal force.
+		//
+		// Per side-face contribution to torque about Z:
+		//   v_n = omega_z * (sample tangent offset) = 1 * 0.5 = 0.5 m/s
+		//   F_sub on +X face at y=-0.5: -coef * A_sub * v_n^2 in +x-direction
+		//   Torque_z = -arm.y * F.x = -(-0.5) * F.x = 0.5 * F.x (negative because F.x < 0)
+		//   Per sample: -0.5 * coef * A_sub * v_n^2
+		//   Summed over 2 contributing samples per face: -coef * A_sub * v_n^2
+		//   Summed over 4 side faces: -4 * coef * A_sub * v_n^2
+		// where A_sub = hy*hz = 0.5 m^2, v_n = 0.5, coef = 0.5*rho*Cd, so:
+		//   expected_torque_z = -4 * 0.5 * 1000 * 1.05 * 0.5 * 0.25 = -262.5 N.m
+		// The X/Y torque components and the linear force cancel by symmetry between opposite faces.
+		PRUnitTestMethod(GpuQuadraticDragYawMotion)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto bodies = std::vector<RigidBody>{};
+			bodies.emplace_back();
+			bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			bodies[0].NeverSleep(true);
+			bodies[0].GravityWS(AnalyticGravityWS);
+			// Pure yaw about world Z, no translation.
+			bodies[0].VelocityWS(v4{0.0f, 0.0f, 1.0f, 0.0f}, v4::Zero());
+
+			auto engine = Engine{};
+			// Linear drag disabled to isolate the per-face quadratic contribution.
+			auto buoyancy = GpuBuoyancy(
+				engine.Device(),
+				engine,
+				GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f },
+				[](int stable_body_index)
+				{
+					return stable_body_index;
+				},
+				[&bodies](int stable_body_index)
+				{
+					auto body_state = GpuBuoyancy::BodyState{};
+					if (stable_body_index < 0 || stable_body_index >= isize(bodies))
+						return body_state;
+
+					body_state.m_o2w = bodies[stable_body_index].O2W();
+					body_state.m_centre_of_mass_os = bodies[stable_body_index].CentreOfMassOS();
+					body_state.m_ws_gravity = bodies[stable_body_index].GravityWS();
+					body_state.m_valid = true;
+					return body_state;
+				});
+
+			auto registration = buoyancy.RegisterBoxHull(bodies[0], 0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
+
+			engine.Step(1.0f / 60.0f, std::span{bodies});
+			buoyancy.CompleteStep();
+
+			auto const diag = buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(diag.m_analytic_valid);
+
+			auto const config = buoyancy.GetConfig();
+			auto const coef = 0.5f * config.m_fluid_density * config.m_quadratic_drag_coefficient;
+			// Side face sub-sample area: hu*hv for the +/-X and +/-Y faces happens to be the same
+			// (hy*hz on +/-X, hx*hz on +/-Y) because hx == hy for this 2x2x1 box.
+			auto const sub_sample_area = 1.0f * 0.5f;
+			auto const v_n = 0.5f;
+			auto const expected_torque_z = -4.0f * coef * sub_sample_area * v_n * v_n;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_analytic_volume_m3;
+
+			PR_EXPECT(FEqlAbsolute(diag.m_analytic_volume_m3, 4.0f, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, 0.0f, std::abs(expected_torque_z) * 1e-2f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, std::abs(expected_torque_z) * 1e-2f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 1e-3f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.x, 0.0f, std::abs(expected_torque_z) * 1e-2f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.y, 0.0f, std::abs(expected_torque_z) * 1e-2f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.z, expected_torque_z, std::abs(expected_torque_z) * 1e-3f));
 		}
 	};
 }
