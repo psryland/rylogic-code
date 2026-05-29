@@ -762,6 +762,41 @@ namespace pr::physics
 		return gradient;
 	}
 
+	// Evaluate the world-space water particle velocity (orbital flow) at a world-space position.
+	v4 GpuBuoyancy::WaterSurface::EvaluateVelocity(v4 pos_ws, float time_s) const
+	{
+		// Deep-water (Airy) linear wave theory. For a single component with surface elevation
+		//   h_i = A * sin(phi),  phi = k*(d . xy) + omega*t,  k = tau/wavelength,  omega = phase_speed,
+		// the irrotational velocity field below the mean surface is
+		//   u_along_d = -A*omega * e^(k*z) * sin(phi)   (horizontal, along the wave direction d)
+		//   w_up      =  A*omega * e^(k*z) * cos(phi)   (vertical)
+		// where z is the signed height relative to the still-water level (z <= 0 in the fluid).
+		// At z = 0 the vertical component reduces to dh/dt (the linear kinematic free-surface
+		// condition), so the field stays consistent with EvaluateHeight. The depth is clamped at
+		// the still-water level so samples at or above the surface use the unattenuated velocity.
+		auto const xy = v2{pos_ws.x, pos_ws.y};
+		auto depth = pos_ws.z - m_level;
+		if (depth > 0.0f)
+			depth = 0.0f;
+
+		auto velocity = v4::Zero();
+		for (auto const& wave : m_waves)
+		{
+			auto const k = constants<float>::tau / wave.m_wavelength;
+			auto const omega = wave.m_phase_speed;
+			auto const phase = Dot(wave.m_direction, xy) * k + omega * time_s;
+			auto const speed = wave.m_amplitude * omega * std::exp(k * depth);
+
+			auto const u_along_d = -speed * std::sin(phase);
+			auto const w_up = speed * std::cos(phase);
+
+			velocity.x += u_along_d * wave.m_direction.x;
+			velocity.y += u_along_d * wave.m_direction.y;
+			velocity.z += w_up;
+		}
+		return velocity;
+	}
+
 	// Construct an invalid buoyancy diagnostic record.
 	GpuBuoyancy::Diagnostics::Diagnostics()
 		:m_body_index(-1)

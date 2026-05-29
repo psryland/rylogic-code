@@ -123,6 +123,34 @@ float3 EvaluateWaterHeightAndGradient(float2 xy_ws)
 	return float3(height, gradient.x, gradient.y);
 }
 
+// Evaluate the scene-described water particle velocity (orbital flow) at a world-space position.
+// Linear deep-water (Airy) theory, consistent with EvaluateWaterHeight:
+//   u_along_d = -A*omega * e^(k*z) * sin(phase)   (horizontal, along the wave direction)
+//   w_up      =  A*omega * e^(k*z) * cos(phase)   (vertical)
+// where z is the signed height relative to the still-water level (clamped <= 0). The drag pass
+// subtracts this from the body velocity to form the relative flow at each wetted surface sample.
+float3 EvaluateWaterVelocity(float3 pos_ws)
+{
+	float depth = min(pos_ws.z - g.water_level, 0.0f);
+	float3 velocity = float3(0.0f, 0.0f, 0.0f);
+	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	{
+		GpuBuoyancyWave wave = g_waves[wave_index];
+		float2 direction = wave.direction_wavelength_phase_speed.xy;
+		float wavelength = wave.direction_wavelength_phase_speed.z;
+		float phase_speed = wave.direction_wavelength_phase_speed.w;
+		float amplitude = wave.amplitude.x;
+		float k = tau / wavelength;
+		float phase = dot(direction, pos_ws.xy) * k + phase_speed * g.time_s;
+		float s, c;
+		sincos(phase, s, c);
+		float speed = amplitude * phase_speed * exp(k * depth);
+		velocity.xy += (-speed * s) * direction;
+		velocity.z += speed * c;
+	}
+	return velocity;
+}
+
 // Project the generated box hull onto the horizontal integration plane.
 void ProjectBoxBoundsXY(GpuRigidBody body, float3 half_extents, out float2 min_xy, out float2 max_xy)
 {

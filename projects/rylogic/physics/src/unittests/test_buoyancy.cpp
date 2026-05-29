@@ -110,6 +110,82 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Verify the orbital water velocity is consistent with the height field: at the still-water
+		// level the vertical component equals dh/dt (the linear kinematic free-surface condition),
+		// the orbital speed decays exponentially with depth, a single wave traces a circular orbit
+		// of radius A*omega, and flat water produces no flow.
+		PRUnitTestMethod(WaterSurfaceVelocity)
+		{
+			// Flat water has no orbital flow anywhere.
+			auto flat = GpuBuoyancy::WaterSurface{};
+			flat.m_level = 1.5f;
+			PR_EXPECT(FEqlAbsolute(flat.EvaluateVelocity(v4{0.5f, -2.0f, 0.25f, 1.0f}, 0.7f), v4::Zero(), 1e-8f));
+
+			auto water = GpuBuoyancy::WaterSurface{};
+			water.m_level = 0.0f;
+			water.m_waves.push_back(GpuBuoyancy::SineWave{
+				.m_direction = v2{1.0f, 0.0f},
+				.m_wavelength = 4.0f,
+				.m_amplitude = 0.2f,
+				.m_phase_speed = 1.5f,
+			});
+			water.m_waves.push_back(GpuBuoyancy::SineWave{
+				.m_direction = v2{0.0f, 1.0f},
+				.m_wavelength = 6.0f,
+				.m_amplitude = 0.1f,
+				.m_phase_speed = -0.75f,
+			});
+			water = water.Normalised();
+
+			// At the still-water level the vertical velocity equals the time derivative of the
+			// height field. Compare the analytic value against a central finite difference.
+			auto const samples = std::array<std::pair<v2, float>, 4>{
+				std::pair{v2{0.0f, 0.0f}, 0.0f},
+				std::pair{v2{0.7f, 0.4f}, 0.3f},
+				std::pair{v2{-1.3f, 2.1f}, 1.2f},
+				std::pair{v2{0.25f, -0.75f}, 3.4f},
+			};
+			auto const dt = 1e-3f;
+			for (auto const& [xy, t] : samples)
+			{
+				auto const vel = water.EvaluateVelocity(v4{xy.x, xy.y, water.m_level, 1.0f}, t);
+				auto const dh_dt = (water.EvaluateHeight(xy, t + dt) - water.EvaluateHeight(xy, t - dt)) / (2.0f * dt);
+				PR_EXPECT(FEqlAbsolute(vel.z, dh_dt, 1e-3f));
+				PR_EXPECT(vel.w == 0.0f);
+			}
+
+			// Use a single-wave surface so the depth attenuation factor e^(k*z) is unambiguous.
+			auto single = GpuBuoyancy::WaterSurface{};
+			single.m_level = 0.0f;
+			single.m_waves.push_back(GpuBuoyancy::SineWave{
+				.m_direction = v2{1.0f, 0.0f},
+				.m_wavelength = 4.0f,
+				.m_amplitude = 0.15f,
+				.m_phase_speed = 2.0f,
+			});
+			single = single.Normalised();
+
+			auto const k = constants<float>::tau / single.m_waves.front().m_wavelength;
+			auto const omega = single.m_waves.front().m_phase_speed;
+			auto const amp = single.m_waves.front().m_amplitude;
+			auto const xy = v2{0.3f, 0.0f};
+			auto const t = 0.4f;
+			auto const surface_vel = single.EvaluateVelocity(v4{xy.x, xy.y, 0.0f, 1.0f}, t);
+
+			// A single deep-water wave traces a circular orbit: horizontal and vertical components
+			// are in quadrature with equal envelope, so the speed is A*omega independent of phase.
+			PR_EXPECT(FEqlAbsolute(Length(surface_vel), amp * omega, 1e-5f));
+
+			// Orbital speed decays exponentially with depth below the still-water level.
+			auto const depth = -0.5f;
+			auto const deep_vel = single.EvaluateVelocity(v4{xy.x, xy.y, depth, 1.0f}, t);
+			PR_EXPECT(FEqlAbsolute(Length(deep_vel), Length(surface_vel) * std::exp(k * depth), 1e-5f));
+
+			// Points above the surface use the unattenuated (z = 0) velocity rather than amplifying.
+			auto const above_vel = single.EvaluateVelocity(v4{xy.x, xy.y, 0.75f, 1.0f}, t);
+			PR_EXPECT(FEqlAbsolute(above_vel, surface_vel, 1e-6f));
+		}
+
 		// Verify the GPU diagnostic readback against the expected half-submerged box result.
 		PRUnitTestMethod(GpuDiagnosticMatchesAnalyticBox)
 		{

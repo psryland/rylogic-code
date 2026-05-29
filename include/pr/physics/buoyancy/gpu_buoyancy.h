@@ -42,6 +42,14 @@ namespace pr::physics
 			// component of the hydrostatic force, so callers (e.g. the sandbox water mesh)
 			// can shade or visualise the surface consistently with the physics integration.
 			v2 EvaluateGradient(v2 xy_ws, float time_s) const;
+
+			// Evaluate the world-space water particle velocity (orbital flow) at a world-space
+			// position and simulation time. Uses the linear deep-water (Airy) orbital-velocity
+			// field consistent with the sine-wave height model: particles move in circular orbits
+			// whose radius decays exponentially with depth below the still-water level. The drag
+			// pass subtracts this from the body velocity to obtain the relative flow at each wetted
+			// surface sample. The returned vector has w = 0.
+			v4 EvaluateVelocity(v4 pos_ws, float time_s) const;
 		};
 
 		// Tunable parameters that govern how the GPU buoyancy pass converts a water surface and
