@@ -179,7 +179,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\closest_point.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\common.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_cylinder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\deformablemesh.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\geometry\_archive\deformablemesh.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\distance.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\models_extrude.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\geometry.h" />

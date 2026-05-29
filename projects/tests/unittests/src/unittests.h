@@ -95,6 +95,7 @@
 #include "pr/geometry/p3d.h"
 #include "pr/geometry/reflect.h"
 #include "pr/geometry/scatter.h"
+#include "pr/geometry/tetramesh.h"
 #include "pr/geometry/triangle.h"
 #include "pr/geometry/unit_tests.h"
 #include "pr/geometry/utility.h"
