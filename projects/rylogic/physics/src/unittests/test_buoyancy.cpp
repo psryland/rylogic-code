@@ -394,7 +394,9 @@ namespace pr::physics::tests
 			auto buoyancy = GpuBuoyancy(
 				engine.Device(),
 				engine,
-				GpuBuoyancy::Config{},
+				// Isolate linear drag: disable quadratic form drag (default Cd is non-zero) so the
+				// horizontal force is purely the per-column linear term this test asserts.
+				GpuBuoyancy::Config{ .m_quadratic_drag_coefficient = 0.0f },
 				[](int stable_body_index)
 				{
 					return stable_body_index;
