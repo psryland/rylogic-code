@@ -137,6 +137,7 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\unittests\test_buoyancy.cpp" />
+    <ClCompile Include="src\unittests\test_buoyancy_sampler.cpp" />
     <ClCompile Include="src\unittests\test_collision_pairs.cpp" />
     <ClCompile Include="src\unittests\test_collision_resolution.cpp" />
     <ClCompile Include="src\unittests\test_gpu_collision.cpp" />

@@ -126,6 +126,9 @@
     <ClCompile Include="src\unittests\test_buoyancy.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
+    <ClCompile Include="src\unittests\test_buoyancy_sampler.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
