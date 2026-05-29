@@ -36,12 +36,41 @@ namespace pr::physics
 
 			// Evaluate the water height above the world-space XY position at a simulation time.
 			float EvaluateHeight(v2 xy_ws, float time_s) const;
+
+			// Evaluate the XY surface gradient (dh/dx, dh/dy) of the water height at a simulation time.
+			// The gradient is the same one the GPU buoyancy pass uses to compute the lateral
+			// component of the hydrostatic force, so callers (e.g. the sandbox water mesh)
+			// can shade or visualise the surface consistently with the physics integration.
+			v2 EvaluateGradient(v2 xy_ws, float time_s) const;
+		};
+
+		// Tunable parameters that govern how the GPU buoyancy pass converts a water surface and
+		// a submerged hull into forces. Defaults match fresh water with mild viscous damping.
+		struct Config
+		{
+			// Fluid density (kg/m^3). The static buoyancy force per unit submerged volume is
+			// |gravity| * density. The default matches the analytic constant used by the
+			// flat-water diagnostic comparison so unconfigured callers get matching values.
+			float m_fluid_density = 1000.0f;
+
+			// Linear viscous drag time-constant (seconds). The drag force per column is
+			// -c_drag * V_submerged_col * v_body(centroid), where c_drag = density / tau_damp.
+			// Tau is the e-folding time for a body whose density matches the fluid; lighter
+			// bodies decay faster, heavier bodies slower. A small positive value adds stability
+			// to wave-driven motion without dominating low-frequency dynamics. Set to <= 0 to
+			// disable drag entirely (useful for purely-conservative validation cases).
+			float m_drag_time_constant_s = 3.0f;
 		};
 
 		struct BodyState
 		{
 			m4x4 m_o2w = m4x4::Identity();
 			v4 m_centre_of_mass_os = v4::Zero();
+			// World-space gravity vector for this body. The buoyancy pass uses the body's own
+			// gravity sample (not a single global value) so each body responds to its local
+			// gravity field. The host-side flat-water analytic comparison uses this same value
+			// so reported errors reflect numerical/quantisation differences, not a gravity mismatch.
+			v4 m_ws_gravity = v4::Zero();
 			bool m_valid = false;
 		};
 
@@ -116,8 +145,10 @@ namespace pr::physics
 
 	public:
 
-		// Construct and subscribe the buoyancy pass to a physics engine.
-		GpuBuoyancy(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
+		// Construct and subscribe the buoyancy pass to a physics engine. 'config' provides the
+		// tunable fluid parameters (density, drag time constant) used for subsequent dispatches.
+		// SetConfig may be called later to update these at runtime.
+		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
 		GpuBuoyancy(GpuBuoyancy const&) = delete;
 		GpuBuoyancy& operator=(GpuBuoyancy const&) = delete;
 
@@ -135,6 +166,13 @@ namespace pr::physics
 
 		// Return the current water surface used by buoyancy force dispatches.
 		WaterSurface const& GetWaterSurface() const;
+
+		// Set the tunable buoyancy parameters used by subsequent dispatches.
+		// The change takes effect on the next call to Engine::ExternalForces.
+		void SetConfig(Config const& config);
+
+		// Return the tunable buoyancy parameters currently in effect.
+		Config const& GetConfig() const;
 
 		// Register a generated box buoyancy hull against a stable physics body index.
 		// While the registration is alive, 'body' is marked NeverSleep so the engine continues

@@ -33,8 +33,8 @@ namespace pr::physics
 			float m_time_s;
 			float m_water_level;
 			float m_fluid_density;
-			float m_pad0[3];
-			v4 m_gravity_ws;
+			float m_drag_coefficient;
+			float m_pad0[2];
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -258,6 +258,7 @@ namespace pr::physics
 		multicast::AutoSub m_external_force_sub;
 
 		WaterSurface m_water_surface;
+		Config m_config;
 		std::vector<HullSlot> m_hulls;
 		std::vector<DispatchHull> m_dispatch_hulls;
 		std::vector<int> m_pending_body_indices;
@@ -275,7 +276,7 @@ namespace pr::physics
 		std::vector<Diagnostics> m_diagnostics;
 
 		// Construct and subscribe the buoyancy compute pass.
-		Impl(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
 			:m_device(device)
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
@@ -286,6 +287,7 @@ namespace pr::physics
 				Apply(sender, args);
 			})
 			,m_water_surface()
+			,m_config()
 			,m_hulls()
 			,m_dispatch_hulls()
 			,m_pending_body_indices()
@@ -312,6 +314,10 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy requires a body-state resolver");
 			}
+
+			// Validate and apply the initial config through the same path used by SetConfig so all
+			// invariants (finite values, non-negative density) are checked once at construction.
+			SetConfig(config);
 		}
 
 		// Destroy the buoyancy pass after all physics GPU work has completed.
@@ -425,6 +431,27 @@ namespace pr::physics
 		WaterSurface const& GetWaterSurface() const
 		{
 			return m_water_surface;
+		}
+
+		// Set the tunable buoyancy parameters used by subsequent dispatches.
+		void SetConfig(Config const& config)
+		{
+			if (!std::isfinite(config.m_fluid_density) || config.m_fluid_density < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy fluid density must be a finite, non-negative value");
+			}
+			if (!std::isfinite(config.m_drag_time_constant_s))
+			{
+				throw std::runtime_error("GpuBuoyancy drag time-constant must be finite");
+			}
+
+			m_config = config;
+		}
+
+		// Return the tunable buoyancy parameters currently in effect.
+		Config const& GetConfig() const
+		{
+			return m_config;
 		}
 
 		// Consume diagnostic readback data after the physics engine has completed its GPU step.
@@ -545,7 +572,7 @@ namespace pr::physics
 				m_pending_body_indices.push_back(hull.m_body_index);
 				m_pending_body_generations.push_back(hull.m_body_generation);
 				m_pending_analytic_results.push_back(flat_water
-					? CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents, m_water_surface.m_level)
+					? CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents, m_water_surface.m_level, m_config.m_fluid_density)
 					: AnalyticResult{});
 			}
 
@@ -565,6 +592,13 @@ namespace pr::physics
 
 			auto const hulls_gpu_va = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
 			auto const waves_gpu_va = upload_waves.m_res->GetGPUVirtualAddress() + upload_waves.m_ofs;
+
+			// c_drag = density / tau_damp gives a per-volume linear damping that decays a body of
+			// the same density as the fluid in 'tau' seconds. A non-positive tau disables drag.
+			auto const drag_coefficient = m_config.m_drag_time_constant_s > 0.0f
+				? m_config.m_fluid_density / m_config.m_drag_time_constant_s
+				: 0.0f;
+
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = BuoyancyGroupsPerHull,
@@ -574,9 +608,9 @@ namespace pr::physics
 				.m_wave_count = wave_count,
 				.m_time_s = static_cast<float>(args.m_time_s),
 				.m_water_level = m_water_surface.m_level,
-				.m_fluid_density = AnalyticFluidDensity,
+				.m_fluid_density = m_config.m_fluid_density,
+				.m_drag_coefficient = drag_coefficient,
 				.m_pad0 = {},
-				.m_gravity_ws = AnalyticGravityWS,
 			};
 
 			// Evaluate all column samples into one partial record per hull/threadgroup.
@@ -610,7 +644,12 @@ namespace pr::physics
 		}
 
 		// Calculate the exact flat-water analytic buoyancy result for a generated box hull.
-		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents, float water_level)
+		// 'fluid_density' must match the density used by the GPU pass so the reported diagnostic
+		// error reflects only numerical/quantisation differences and not a density mismatch.
+		// The body's own world-space gravity vector (carried in 'body_state') drives both the
+		// magnitude and direction of the analytic Archimedes force, mirroring the per-body
+		// gravity sampling the HLSL pass performs.
+		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents, float water_level, float fluid_density)
 		{
 			auto result = AnalyticResult{};
 			if (!body_state.m_valid)
@@ -624,7 +663,7 @@ namespace pr::physics
 			auto const centre_of_mass_ws = body_state.m_o2w * body_state.m_centre_of_mass_os.w1();
 			result.m_volume_m3 = volume_centroid.m_volume_m3;
 			result.m_centre_buoyancy_ws = volume_centroid.m_centroid_ws;
-			result.m_force_ws = -AnalyticGravityWS * (AnalyticFluidDensity * volume_centroid.m_volume_m3);
+			result.m_force_ws = -body_state.m_ws_gravity * (fluid_density * volume_centroid.m_volume_m3);
 			result.m_torque_ws = Cross(volume_centroid.m_centroid_ws - centre_of_mass_ws, result.m_force_ws);
 			return result;
 		}
@@ -693,6 +732,24 @@ namespace pr::physics
 			height += wave.m_amplitude * std::sin(phase);
 		}
 		return height;
+	}
+
+	// Evaluate the XY surface gradient (dh/dx, dh/dy) of the water height at a simulation time.
+	// This is the analytic counterpart to 'EvaluateHeight' and is shared between visualisation
+	// (water mesh shading normals) and the GPU buoyancy pass (lateral hydrostatic force).
+	v2 GpuBuoyancy::WaterSurface::EvaluateGradient(v2 xy_ws, float time_s) const
+	{
+		auto gradient = v2::Zero();
+		for (auto const& wave : m_waves)
+		{
+			// h_i(x,y,t) = A * sin(k * (d . xy) + omega * t), where k = 2*pi/wavelength.
+			// dh_i/dx = A * k * d.x * cos(k * (d . xy) + omega * t); dh_i/dy uses d.y.
+			auto const k = constants<float>::tau / wave.m_wavelength;
+			auto const phase = Dot(wave.m_direction, xy_ws) * k + wave.m_phase_speed * time_s;
+			auto const coeff = wave.m_amplitude * k * std::cos(phase);
+			gradient += wave.m_direction * coeff;
+		}
+		return gradient;
 	}
 
 	// Construct an invalid buoyancy diagnostic record.
@@ -783,8 +840,8 @@ namespace pr::physics
 	}
 
 	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
-	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
-		:m_impl(std::make_unique<Impl>(device, engine, std::move(step_index_resolver), std::move(body_state_resolver)))
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver)))
 	{
 	}
 
@@ -822,6 +879,18 @@ namespace pr::physics
 	GpuBuoyancy::WaterSurface const& GpuBuoyancy::GetWaterSurface() const
 	{
 		return m_impl->GetWaterSurface();
+	}
+
+	// Set the tunable buoyancy parameters used by subsequent dispatches.
+	void GpuBuoyancy::SetConfig(Config const& config)
+	{
+		m_impl->SetConfig(config);
+	}
+
+	// Return the tunable buoyancy parameters currently in effect.
+	GpuBuoyancy::Config const& GpuBuoyancy::GetConfig() const
+	{
+		return m_impl->GetConfig();
 	}
 
 	// Register a generated box buoyancy hull against a stable physics body index.

@@ -184,6 +184,7 @@ namespace las
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
 		,m_ocean_surface_force(EnableOceanSurfaceForce ? std::make_unique<OceanSurfaceForce>(rdr.D3DDevice(), m_engine) : nullptr)
 		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
+			physics::GpuBuoyancy::Config{},
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
 			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
 		)
@@ -536,6 +537,7 @@ namespace las
 		auto state = physics::GpuBuoyancy::BodyState{};
 		state.m_o2w = slot.m_body->O2W();
 		state.m_centre_of_mass_os = slot.m_body->CentreOfMassOS();
+		state.m_ws_gravity = slot.m_body->GravityWS();
 		state.m_valid = true;
 		return state;
 	}

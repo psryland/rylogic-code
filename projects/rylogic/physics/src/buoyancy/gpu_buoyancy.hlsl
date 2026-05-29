@@ -7,6 +7,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
 #define BUOYANCY_COLUMN_THREAD_COUNT 256
@@ -23,8 +24,8 @@ struct CBufGpuBuoyancy
 	float time_s;
 	float water_level;
 	float fluid_density;
-	float3 pad0;
-	float4 gravity_ws;
+	float drag_coefficient;
+	float2 pad0;
 };
 
 struct GpuBuoyancyHull
@@ -94,6 +95,33 @@ float EvaluateWaterHeight(float2 xy_ws)
 	return height;
 }
 
+// Evaluate the scene-described water height and its XY gradient at a world-space XY position.
+// Returns float3(height, dh/dx, dh/dy). Sharing the sin/cos work between the height and gradient
+// keeps the per-column overhead small. The gradient is used by EvaluateColumn to compute the
+// lateral (wave-slope) component of the hydrostatic force via the divergence theorem:
+//   F_buoy = rho * |g| * V_submerged * (-dh/dx, -dh/dy, +1)
+// which reduces to the purely vertical model on flat water.
+float3 EvaluateWaterHeightAndGradient(float2 xy_ws)
+{
+	float height = g.water_level;
+	float2 gradient = float2(0.0f, 0.0f);
+	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	{
+		GpuBuoyancyWave wave = g_waves[wave_index];
+		float2 direction = wave.direction_wavelength_phase_speed.xy;
+		float wavelength = wave.direction_wavelength_phase_speed.z;
+		float phase_speed = wave.direction_wavelength_phase_speed.w;
+		float amplitude = wave.amplitude.x;
+		float k = tau / wavelength;
+		float phase = dot(direction, xy_ws) * k + phase_speed * g.time_s;
+		float s, c;
+		sincos(phase, s, c);
+		height += amplitude * s;
+		gradient += direction * (amplitude * k * c);
+	}
+	return float3(height, gradient.x, gradient.y);
+}
+
 // Project the generated box hull onto the horizontal integration plane.
 void ProjectBoxBoundsXY(GpuRigidBody body, float3 half_extents, out float2 min_xy, out float2 max_xy)
 {
@@ -158,6 +186,12 @@ bool IntersectBoxColumn(GpuRigidBody body, float3 half_extents, float2 xy_ws, ou
 }
 
 // Evaluate one grid column and return its force, torque, and volume-weighted centroid contribution.
+// The hydrostatic force per column uses the divergence theorem applied to the instantaneous water
+// surface h(xy,t): F = rho * |g| * V_col * (-dh/dx, -dh/dy, +1). The vertical component reduces to
+// the standard flat-water buoyancy; the horizontal components carry wave-slope (Froude-Krylov)
+// forces that drive heave, drift and pitching from non-flat surfaces. A small linear viscous drag
+// is added per column (proportional to submerged volume) so wave-driven motion does not resonate
+// unboundedly. Both forces share the same centroid for torque accumulation.
 void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, out float4 force_ws, out float4 torque_ws, out float4 moment_ws_volume)
 {
 	force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -191,8 +225,12 @@ void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, o
 		return;
 	}
 
+	float3 height_and_grad = EvaluateWaterHeightAndGradient(xy_ws);
+	float water_height = height_and_grad.x;
+	float2 surface_grad = height_and_grad.yz;
+
 	float submerged_t_min = t_min;
-	float submerged_t_max = min(t_max, EvaluateWaterHeight(xy_ws));
+	float submerged_t_max = min(t_max, water_height);
 	if (submerged_t_max <= submerged_t_min)
 	{
 		return;
@@ -201,7 +239,34 @@ void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, o
 	float volume = (submerged_t_max - submerged_t_min) * cell_size.x * cell_size.y;
 	float3 centroid_ws = float3(xy_ws, 0.5f * (submerged_t_min + submerged_t_max));
 	float3 centre_of_mass_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-	float3 force = -g.gravity_ws.xyz * g.fluid_density * volume;
+
+	// Hydrostatic force from the body's own local gravity sample (each rigid body carries a
+	// world-space gravity vector that the engine treats as a sample of the local gravity field):
+	//   F_buoy = rho * V * (-g_local) + rho * V * |g_local| * (-dh/dx, -dh/dy, 0)
+	// The first term is Archimedes' principle in vector form (buoyancy directly opposes the
+	// body's gravity); the second term is the wave-slope (Froude-Krylov) correction obtained
+	// from the divergence theorem applied to the instantaneous water surface h(x,y,t). The
+	// surface itself is parameterised in world XY with world Z as "up", so the slope correction
+	// uses the world-frame gradient; the formulation is exact when the local gravity is along
+	// -Z and remains a sensible first-order approximation for mild departures from that axis.
+	// On flat water the slope term vanishes and the expression reduces to F = -rho * V * g_local.
+	float3 gravity_ws = body.ws_gravity.xyz;
+	float gravity_magnitude = length(gravity_ws);
+	float rho_v = g.fluid_density * volume;
+	float3 force_buoyancy = rho_v * (-gravity_ws + gravity_magnitude * float3(-surface_grad.x, -surface_grad.y, 0.0f));
+
+	// Linear viscous drag at the column centroid. Computing the rigid-body velocity at the column
+	// centroid means we damp linear and angular motion in one pass; the cross-product torque
+	// accumulator picks up the angular contribution automatically.
+	float inv_mass = body.os_com_and_invmass.w;
+	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+	float3 v_lin = inv_mass * body.momentum_lin.xyz;
+	float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
+	float3 v_at_centroid = v_lin + cross(omega_ws, centroid_ws - centre_of_mass_ws);
+	float3 force_drag = -(g.drag_coefficient * volume) * v_at_centroid;
+
+	float3 force = force_buoyancy + force_drag;
 	float3 torque = cross(centroid_ws - centre_of_mass_ws, force);
 
 	force_ws = float4(force, 0.0f);

@@ -76,15 +76,17 @@ namespace physics_sandbox
 				(v - 0.5f) * extent.y,
 			};
 		}
-		// Estimate a vertex normal for the water surface using the same height function as buoyancy.
-		v4 WaterNormal(physics::GpuBuoyancy::WaterSurface const& surface, v2 const& xy_ws, v2 const& cell_size, double time_s)
+		// Vertex normal for the water surface, computed analytically from the same gradient
+		// the GPU buoyancy module uses for wave-slope forces. Returns the upward-pointing normal
+		// for the parametric height field z = h(x,y,t): n = normalize(-dh/dx, -dh/dy, 1).
+		// Using the analytic gradient (instead of finite differences) gives an exact normal
+		// at every vertex regardless of grid resolution, eliminates eps tuning, and keeps the
+		// visualisation in lock-step with the force model.
+		v4 WaterNormal(physics::GpuBuoyancy::WaterSurface const& surface, v2 const& xy_ws, double time_s)
 		{
 			auto const time = static_cast<float>(time_s);
-			auto const eps_x = std::max(0.01f, 0.5f * cell_size.x);
-			auto const eps_y = std::max(0.01f, 0.5f * cell_size.y);
-			auto const dzdx = (surface.EvaluateHeight(xy_ws + v2{ eps_x, 0.0f }, time) - surface.EvaluateHeight(xy_ws - v2{ eps_x, 0.0f }, time)) / (2.0f * eps_x);
-			auto const dzdy = (surface.EvaluateHeight(xy_ws + v2{ 0.0f, eps_y }, time) - surface.EvaluateHeight(xy_ws - v2{ 0.0f, eps_y }, time)) / (2.0f * eps_y);
-			return Normalise(v4{ -dzdx, -dzdy, 1.0f, 0.0f });
+			auto const grad = surface.EvaluateGradient(xy_ws, time);
+			return Normalise(v4{ -grad.x, -grad.y, 1.0f, 0.0f });
 		}
 		// Fill one renderer vertex for the water visual.
 		void SetWaterVertex(rdr12::Vert& vert, scene_loader::WaterDesc const& water, v2 const& extent, int ix, int iy, double time_s)
@@ -92,14 +94,10 @@ namespace physics_sandbox
 			auto const time = static_cast<float>(time_s);
 			auto const xy_ws = WaterXY(water, extent, ix, iy);
 			auto const z_ws = water.surface.EvaluateHeight(xy_ws, time);
-			auto const cell_size = v2{
-				extent.x / static_cast<float>(water.grid.x),
-				extent.y / static_cast<float>(water.grid.y),
-			};
 
 			vert.m_vert = v4{ xy_ws.x, xy_ws.y, z_ws, 1.0f };
 			vert.m_diff = water.colour;
-			vert.m_norm = WaterNormal(water.surface, xy_ws, cell_size, time_s);
+			vert.m_norm = WaterNormal(water.surface, xy_ws, time_s);
 			vert.m_tex0 = v2{
 				float(ix) / float(water.grid.x),
 				float(iy) / float(water.grid.y),
@@ -290,6 +288,7 @@ namespace physics_sandbox
 		m_gpu_buoyancy = std::make_unique<physics::GpuBuoyancy>(
 			m_physics.Device(),
 			m_physics,
+			physics::GpuBuoyancy::Config{},
 			[this](int stable_body_index)
 			{
 				return stable_body_index >= 0 && stable_body_index < isize(m_body)
@@ -305,6 +304,7 @@ namespace physics_sandbox
 				auto const& body = m_body[stable_body_index];
 				body_state.m_o2w = body.O2W();
 				body_state.m_centre_of_mass_os = body.CentreOfMassOS();
+				body_state.m_ws_gravity = body.GravityWS();
 				body_state.m_valid = true;
 				return body_state;
 			});
@@ -349,11 +349,7 @@ namespace physics_sandbox
 			{
 				auto const xy_ws = WaterXY(water, extent, ix, iy);
 				auto const z_ws = water.surface.EvaluateHeight(xy_ws, 0.0);
-				auto const cell_size = v2{
-					extent.x / static_cast<float>(water.grid.x),
-					extent.y / static_cast<float>(water.grid.y),
-				};
-				auto const normal = WaterNormal(water.surface, xy_ws, cell_size, 0.0);
+				auto const normal = WaterNormal(water.surface, xy_ws, 0.0);
 				mesh.vert(xy_ws.x, xy_ws.y, z_ws);
 				mesh.normal({ normal.x, normal.y, normal.z });
 			}

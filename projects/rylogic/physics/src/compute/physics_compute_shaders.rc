@@ -1,5 +1,9 @@
 // HLSL compute shader sources for runtime compilation
 // Note: Don't include this rc file, add 'physics_compute_shaders.res' as a link dependency
+//
+// Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
+// invalidates physics_compute_shaders.res — RC dependency tracking does not follow .hlsl edits.
+// Touched: 2026-05-30 (gpu_buoyancy: per-body gravity + Config-in-ctor)
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
