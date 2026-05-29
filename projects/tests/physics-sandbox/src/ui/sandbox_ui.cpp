@@ -161,6 +161,20 @@ namespace physics_sandbox
 			if (m_scene.m_contacts_gfx)
 				m_scene.m_contacts_gfx->AddToScene(scene);
 
+			// Install the procedural sky cube as the scene's global environment map and draw the matching
+			// skybox model centred on the camera so reflective surfaces have something to reflect against
+			// AND so the user sees a consistent sky background. Gated on m_sky_gfx so non-water scenes
+			// keep the existing grey background.
+			if (m_scene.m_sky_gfx)
+			{
+				scene.m_global_envmap = m_scene.m_env_map;
+				m_scene.m_sky_gfx->AddToScene(scene, m4x4::Translation(scene.m_cam.CameraToWorld().pos));
+			}
+			else
+			{
+				scene.m_global_envmap = nullptr;
+			}
+
 			if (m_profile.Enabled())
 				m_profile.RecordAddScene(ElapsedMs(beg, Clock::now()));
 		};

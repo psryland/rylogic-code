@@ -220,6 +220,9 @@
     <ClInclude Include="src\scene\body.h">
       <Filter>src\scene</Filter>
     </ClInclude>
+    <ClInclude Include="src\scene\procedural_sky.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\scene\scene.h">
       <Filter>src\scene</Filter>
     </ClInclude>
@@ -372,6 +375,9 @@
       <Filter>src\utils</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\body.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\procedural_sky.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
     <ClCompile Include="src\ui\details_panel.cpp">

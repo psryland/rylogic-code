@@ -23,13 +23,13 @@
 					"direction": [ 1.0, 0.0, 0.0 ],
 					"wavelength": 4.0,
 					"amplitude": 0.2,
-					"phase_speed": 8.0
+					"phase_speed": 1.0
 				},
 				{
-					"direction": [ 1.0, 1.0, 0.0 ],
+					"direction": [ -1.0, 1.0, 0.0 ],
 					"wavelength": 3.0,
 					"amplitude": 0.1,
-					"phase_speed": 5.0
+					"phase_speed": 1.2
 				}
 			]
 		},

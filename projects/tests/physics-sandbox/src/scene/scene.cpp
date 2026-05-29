@@ -234,6 +234,8 @@ namespace physics_sandbox
 		, m_water()
 		, m_water_extent(v2::Zero())
 		, m_water_gfx()
+		, m_env_map()
+		, m_sky_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
 		, m_visual_mode(EVisualMode::Normal)
@@ -375,6 +377,50 @@ namespace physics_sandbox
 		if (m_water_gfx->m_model == nullptr || m_water_gfx->m_model->m_vcount != vertex_count)
 			throw std::runtime_error("Water mesh model has an unexpected vertex count");
 
+		// Half-strength reflections so the sky tint is obvious but the underlying water colour still reads.
+		// The forward shader multiplies the per-instance value with the material's m_rel_reflec (default 1.0)
+		// so the resulting nugget env-mix factor matches the value we set here.
+		m_water_gfx->Reflectivity(0.5f);
+
+		// Build the procedural environment cube + matching skybox model. The same six face images feed both
+		// the cube map (sampled by reflective surfaces) and the skybox model (rendered as a backdrop centred
+		// on the camera). Faces are stored as sRGB-encoded BGRA8 bytes, with the SRV format cast to *_SRGB
+		// so the GPU decodes back to linear on sample.
+		rdr12::ResourceFactory factory(*m_rdr);
+		procedural_sky::SkyDesc sky_desc{};
+		auto sky_faces = procedural_sky::GenerateSkyFaces(256, sky_desc);
+
+		// Wrap each face as an Image so the resource factory can build a Texture2D / Texture cube.
+		std::array<::pr::compute::Image, 6> face_images = {};
+		for (size_t i = 0; i != face_images.size(); ++i)
+			face_images[i] = sky_faces[i];
+
+		// Cube map: single GPU resource shared as scene.m_global_envmap.
+		auto cube_desc = rdr12::TextureDesc(rdr12::AutoId, ::pr::compute::ResDesc()).name("env_sky").srv_format(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+		m_env_map = factory.CreateTextureCube(std::span<::pr::compute::Image const>(face_images.data(), face_images.size()), cube_desc);
+
+		// Build 6 individual Texture2Ds for the skybox model. The skybox shader path uses a Texture2D per
+		// nugget (one nugget per cube face), so we deliberately create separate textures rather than aliasing
+		// the cube map. This matches how ModelGenerator::SkyboxSixSidedCube expects to be fed.
+		rdr12::Texture2DPtr face_textures[6] = {};
+		for (int i = 0; i != 6; ++i)
+		{
+			auto src = ::pr::compute::Image(face_images[i].m_dim.x, face_images[i].m_dim.y, face_images[i].m_data.vptr, face_images[i].m_format);
+			auto tdesc = rdr12::TextureDesc(rdr12::AutoId, ::pr::compute::ResDesc::Tex2D(src, 1)).name(pr::FmtS("env_sky_face%d", i)).srv_format(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+			face_textures[i] = factory.CreateTexture2D(tdesc);
+		}
+
+		// Build the skybox model. Use a radius comfortably larger than the camera's near plane but small
+		// enough that depth precision is fine — the cube is drawn centred on the camera each frame.
+		auto sky_model = rdr12::ModelGenerator::SkyboxSixSidedCube(factory, face_textures, 100.0f);
+		sky_model->m_name = "sky_box";
+
+		// Wrap the model in an LdrObject so AddToScene + p2w plumbing matches the rest of the scene visuals.
+		auto sky_obj = rdr12::ldraw::LdrObjectPtr(new rdr12::ldraw::LdrObject(rdr12::ldraw::ELdrObject::Custom, nullptr, pr::GenerateGUID()), true);
+		sky_obj->m_model = sky_model;
+		sky_obj->m_name = "sky_box";
+		m_sky_gfx = sky_obj;
+
 		UpdateWaterGfx();
 	}
 
@@ -437,6 +483,8 @@ namespace physics_sandbox
 		m_water.reset();
 		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
 
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
@@ -564,6 +612,8 @@ namespace physics_sandbox
 		m_water.reset();
 		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
@@ -700,6 +750,8 @@ namespace physics_sandbox
 		m_water = scene_desc.water;
 		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
 
 		// Clear existing bodies and owned shapes
 		m_body.resize(0);

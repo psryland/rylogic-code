@@ -64,6 +64,7 @@
     <ClCompile Include="src\diagnostics\diagnostics.cpp" />
     <ClCompile Include="src\diagnostics\scene_diagnostic.cpp" />
     <ClCompile Include="src\scene\body.cpp" />
+    <ClCompile Include="src\scene\procedural_sky.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
     <ClCompile Include="src\utils\scene_loader.cpp" />
     <ClCompile Include="src\ui\details_panel.cpp" />
@@ -125,6 +126,7 @@
     <ClInclude Include="src\diagnostics\diagnostics.h" />
     <ClInclude Include="src\diagnostics\scene_diagnostic.h" />
     <ClInclude Include="src\scene\body.h" />
+    <ClInclude Include="src\scene\procedural_sky.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />
     <ClInclude Include="src\ui\details_panel.h" />

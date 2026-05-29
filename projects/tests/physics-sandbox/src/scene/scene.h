@@ -1,6 +1,7 @@
 #pragma once
 #include "src/forward.h"
 #include "src/scene/body.h"
+#include "src/scene/procedural_sky.h"
 #include "src/diagnostics/diagnostics.h"
 #include "src/utils/scene_loader.h"
 #include "src/scene/scenario.h"
@@ -90,6 +91,11 @@ namespace physics_sandbox
 		std::optional<scene_loader::WaterDesc> m_water;
 		v2 m_water_extent;
 		rdr12::ldraw::LdrObjectPtr m_water_gfx;
+
+		// Procedural environment map cube + sky-dome model. Created alongside the water visual so
+		// reflective surfaces have something to reflect; null when no water is present.
+		rdr12::TextureCubePtr m_env_map;
+		rdr12::ldraw::LdrObjectPtr m_sky_gfx;
 
 		// Origin coordinate frame visual
 		rdr12::ldraw::LdrObjectPtr m_origin_gfx;
