@@ -5,7 +5,7 @@
 			"position": [0.0, -8.0, 3.0],
 			"lookat": [0.0, 0.0, 0.0]
 		},
-		"gravity": [0.0, 0.0, 0.0],
+		"gravity": [0.0, 0.0, -9.8],
 		"physics": {
 			"substeps": 1
 		},
@@ -16,9 +16,16 @@
 		"water": {
 			"level": 0.0,
 			"size": [8.0, 8.0],
-			"grid": [32, 32],
+			"grid": [128, 128],
 			"colour": "0x602080FF",
-			"waves": []
+			"waves": [
+				{
+					"direction": [ 1.0, 0.0, 0.0 ],
+					"wavelength": 4.0,
+					"amplitude": 0.2,
+					"phase_speed": 3.0
+				}
+			]
 		},
 		"shapes": {
 			"box": {

@@ -4483,23 +4483,18 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
-					auto const max_value = wide
-						? int64_t(std::numeric_limits<uint32_t>::max())
-						: int64_t(std::numeric_limits<uint16_t>::max());
+					// Read each index at the keyword's declared width so the binary reader consumes the
+					// correct number of bytes per index. The text reader ignores the byte count and
+					// simply parses the next integer.
+					auto read_index = [&]() -> uint32_t
+					{
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
+					};
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-
-						// Read through a wide signed type so both binary (fixed-width) and text (lex-based)
-						// readers can be range-checked uniformly against the keyword's declared width.
-						auto value = reader.Int<int64_t>(10);
-						if (value < 0 || value > max_value)
-						{
-							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
-							value = 0;
-						}
-						auto idx = static_cast<uint32_t>(value);
+						auto idx = read_index();
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4526,21 +4521,18 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
-					auto const max_value = wide
-						? int64_t(std::numeric_limits<uint32_t>::max())
-						: int64_t(std::numeric_limits<uint16_t>::max());
+					// Read each index at the keyword's declared width (uint16 for *Faces, uint32 for
+					// *Faces32). Using the matching width is essential for the binary reader, which
+					// consumes exactly sizeof(T) bytes per call.
+					auto read_index = [&]() -> uint32_t
+					{
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
+					};
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-
-						auto value = reader.Int<int64_t>(10);
-						if (value < 0 || value > max_value)
-						{
-							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
-							value = 0;
-						}
-						auto idx = static_cast<uint32_t>(value);
+						auto idx = read_index();
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4564,20 +4556,11 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
-					auto const max_value = wide
-						? int64_t(std::numeric_limits<uint32_t>::max())
-						: int64_t(std::numeric_limits<uint16_t>::max());
-
-					// Read a single tetrahedron index, range-checked against the keyword width.
+					// Read one tetrahedron index at the keyword's declared width so the binary reader
+					// advances exactly sizeof(T) bytes per index.
 					auto read_idx = [&]() -> uint32_t
 					{
-						auto value = reader.Int<int64_t>(10);
-						if (value < 0 || value > max_value)
-						{
-							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Mesh index out of range for keyword width");
-							value = 0;
-						}
-						return static_cast<uint32_t>(value);
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
 					};
 
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)

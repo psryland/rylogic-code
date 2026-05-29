@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/compute/compute_pso.h"
 #include "pr/compute/compute_step.h"
 #include "pr/compute/shaders/shader_compiler.h"
@@ -215,6 +216,13 @@ namespace pr::physics
 			int m_generation;
 			v4 m_half_extents;
 			bool m_active;
+
+			// While a hull is registered we mark the owning body NeverSleep so the engine keeps
+			// calling Engine::ExternalForces every step (it skips the entire post-pack pipeline
+			// when no dynamic bodies are awake). We remember the body and the original NeverSleep
+			// flag so unregister can restore the body to its pre-registration sleep behaviour.
+			RigidBody* m_body;
+			bool m_prev_never_sleep;
 		};
 		struct DispatchHull
 		{
@@ -310,7 +318,7 @@ namespace pr::physics
 		~Impl() = default;
 
 		// Register a generated box buoyancy hull against a stable physics body index.
-		void RegisterBoxHull(int body_index, int body_generation, v4 size)
+		void RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
 		{
 			if (body_index < 0 || body_generation < 0)
 			{
@@ -321,7 +329,7 @@ namespace pr::physics
 			// Hull slots are indexed by the stable body index so the per-frame callback only needs to resolve the compact engine step index.
 			if (body_index >= static_cast<int>(m_hulls.size()))
 			{
-				m_hulls.resize(static_cast<std::size_t>(body_index + 1), HullSlot{ -1, v4::Zero(), false });
+				m_hulls.resize(static_cast<std::size_t>(body_index + 1), HullSlot{ -1, v4::Zero(), false, nullptr, false });
 			}
 
 			auto& hull = m_hulls[body_index];
@@ -344,6 +352,15 @@ namespace pr::physics
 			hull.m_generation = body_generation;
 			hull.m_half_extents = size * 0.5f;
 			hull.m_active = true;
+
+			// Remember the body and its prior sleep policy, then force the body to stay awake.
+			// Buoyancy is a continuous environmental force: the engine bails out of the GPU pipeline
+			// (and therefore ExternalForces) when every dynamic body is asleep, which would freeze
+			// a floater in place even as waves pass under it.
+			hull.m_body = &body;
+			hull.m_prev_never_sleep = body.NeverSleep();
+			body.NeverSleep(true);
+			body.Wake();
 		}
 
 		// Remove the buoyancy hull for a stable physics body index.
@@ -364,7 +381,14 @@ namespace pr::physics
 				return;
 			}
 
-			hull = HullSlot{ -1, v4::Zero(), false };
+			// Restore the body's original NeverSleep flag so callers that destroy a buoyancy
+			// registration end up with the body's sleep behaviour matching its pre-registration state.
+			if (hull.m_body != nullptr)
+			{
+				hull.m_body->NeverSleep(hull.m_prev_never_sleep);
+			}
+
+			hull = HullSlot{ -1, v4::Zero(), false, nullptr, false };
 
 			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
 			if (body_index < static_cast<int>(m_diagnostics.size()))
@@ -801,9 +825,9 @@ namespace pr::physics
 	}
 
 	// Register a generated box buoyancy hull against a stable physics body index.
-	GpuBuoyancy::Registration GpuBuoyancy::RegisterBoxHull(int body_index, int body_generation, v4 size)
+	GpuBuoyancy::Registration GpuBuoyancy::RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
 	{
-		m_impl->RegisterBoxHull(body_index, body_generation, size);
+		m_impl->RegisterBoxHull(body, body_index, body_generation, size);
 		return Registration{*this, body_index, body_generation};
 	}
 

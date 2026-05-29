@@ -210,7 +210,13 @@ namespace pr::rdr12::ldraw
 				return StrType(std::begin(s), std::end(s));
 		}
 
-		// Read an integer value
+		// Read an integer value.
+		// IMPORTANT: The template type IntType drives the binary read width: BinaryReader::IntImpl
+		// consumes exactly sizeof(IntType) bytes from the stream. The text reader ignores the byte
+		// count and simply parses the next integer literal. When reading binary payloads that were
+		// written at a specific width (e.g. *Faces uint16_t indices), the IntType MUST match the
+		// payload width — using a wider IntType to "uniformly range-check" the value will silently
+		// misalign the binary stream.
 		template <std::integral IntType> IntType Int(int radix = 10)
 		{
 			return static_cast<IntType>(IntImpl(sizeof(IntType), radix));

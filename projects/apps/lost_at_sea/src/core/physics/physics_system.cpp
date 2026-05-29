@@ -328,7 +328,7 @@ namespace las
 			throw std::runtime_error("A buoyancy hull is already registered for this body");
 		}
 
-		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterBoxHull(handle.m_index, handle.m_generation, size);
+		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterBoxHull(*slot.m_body, handle.m_index, handle.m_generation, size);
 		return BuoyancyHullRegistration{ *this, handle };
 	}
 

@@ -137,6 +137,9 @@ namespace pr::physics
 		WaterSurface const& GetWaterSurface() const;
 
 		// Register a generated box buoyancy hull against a stable physics body index.
-		Registration RegisterBoxHull(int body_index, int body_generation, v4 size);
+		// While the registration is alive, 'body' is marked NeverSleep so the engine continues
+		// to call Engine::ExternalForces (and therefore this buoyancy pass) every step regardless
+		// of the body's kinetic state. The original NeverSleep flag is restored on unregister.
+		Registration RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size);
 	};
 }

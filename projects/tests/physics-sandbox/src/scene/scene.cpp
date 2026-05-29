@@ -319,7 +319,7 @@ namespace physics_sandbox
 			if (iter == body_lookup.end())
 				throw std::runtime_error(pr::FmtS("Buoyancy hull references unknown body '%s'", hull.body_name.c_str()));
 
-			auto registration = m_gpu_buoyancy->RegisterBoxHull(iter->second, m_buoyancy_generation, hull.dimensions);
+			auto registration = m_gpu_buoyancy->RegisterBoxHull(m_body[iter->second], iter->second, m_buoyancy_generation, hull.dimensions);
 			m_buoyancy_hulls.push_back(std::move(registration));
 			m_buoyancy_body_indices.push_back(iter->second);
 			DbgLog("  Buoyancy: body '%s' box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);

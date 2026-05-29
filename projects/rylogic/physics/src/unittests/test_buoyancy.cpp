@@ -95,7 +95,7 @@ namespace pr::physics::tests
 					body_state.m_valid = true;
 					return body_state;
 				});
-			auto registration = buoyancy.RegisterBoxHull(0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto registration = buoyancy.RegisterBoxHull(bodies[0], 0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
 
 			engine.Step(1.0f / 60.0f, std::span{bodies});
 			buoyancy.CompleteStep();
@@ -154,7 +154,7 @@ namespace pr::physics::tests
 				.m_amplitude = 0.1f,
 			});
 			buoyancy.SetWaterSurface(water);
-			auto registration = buoyancy.RegisterBoxHull(0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto registration = buoyancy.RegisterBoxHull(bodies[0], 0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f});
 
 			engine.Step(1.0f / 60.0f, std::span{bodies});
 			buoyancy.CompleteStep();
