@@ -69,6 +69,18 @@ namespace physics_sandbox
 		pr::physics::tests::ForceLink_PhysicsTests();
 		#endif
 
+		// Optionally tee unit-test output to a file for automation capture. This app reopens CONOUT$
+		// in OpenConsoleOutput(), which bypasses any inherited stdout redirection, so a console-less
+		// caller cannot capture results via a pipe. Setting PR_UNITTEST_LOG to a path provides an
+		// explicit file sink for the unit-test framework's output stream.
+		std::ofstream unittest_log;
+		if (auto const* log_path = std::getenv("PR_UNITTEST_LOG"); log_path != nullptr && *log_path != '\0')
+		{
+			unittest_log.open(log_path, std::ios::out | std::ios::trunc);
+			if (unittest_log)
+				pr::unittests::TestFramework::ostream = &unittest_log;
+		}
+
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
 		auto failed = pr::unittests::RunAllTests(true, filter);
