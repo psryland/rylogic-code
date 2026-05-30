@@ -20,6 +20,15 @@
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/vector.hlsli"
+#include "pr/hlsl/interop.hlsli"
+
+// Dual HLSL/C++ compilation. When compiled as C++ (interop.h supplies float4/StructuredBuffer/etc.)
+// the whole module lives in pr::physics so the oracle and parity tests can call it directly; the
+// 'using namespace hlsl' in pr/physics/forward.h makes the hlsl type/intrinsic names visible here,
+// matching the established collision.hlsli pattern.
+#ifdef __cplusplus
+namespace pr::physics {
+#endif
 
 // Primitive type values mirror pr::physics::buoyancy::EPrimitiveType. Fixed so the host can upload
 // them verbatim and this module can switch on them.
@@ -62,7 +71,7 @@ struct BuoyPrimitive
 //
 
 // 32-bit integer hash (Wang/lowbias variant) - identical mixing constants to the oracle's HashU32.
-uint BuoyHashU32(uint x)
+odr uint BuoyHashU32(uint x)
 {
 	x ^= x >> 16;
 	x *= 0x7feb352du;
@@ -73,14 +82,14 @@ uint BuoyHashU32(uint x)
 }
 
 // Combine two 32-bit hashes into one (mirror of HashCombine).
-uint BuoyHashCombine(uint a, uint b)
+odr uint BuoyHashCombine(uint a, uint b)
 {
 	return BuoyHashU32(a ^ (b + 0x9e3779b9u + (a << 6) + (a >> 2)));
 }
 
 // Van der Corput / Halton radical inverse of 'index' in 'base'. Float accumulation order matches the
 // oracle so the two sequences agree bit-for-bit for the small indices used here.
-float BuoyRadicalInverse(uint index, uint base)
+odr float BuoyRadicalInverse(uint index, uint base)
 {
 	float inv_base = 1.0f / (float)base;
 	float f = inv_base;
@@ -93,7 +102,7 @@ float BuoyRadicalInverse(uint index, uint base)
 
 // Per-primitive Halton index for the i'th sample (0-based). The bounded hash offset keeps the index
 // small (good float precision) while decorrelating primitives; +1 skips the 0 endpoint.
-uint BuoySampleIndex(uint hull_id, int primitive_index, int i)
+odr uint BuoySampleIndex(uint hull_id, int primitive_index, int i)
 {
 	uint offset = BuoyHashCombine(hull_id, (uint)primitive_index) % 4096u;
 	return 1u + offset + (uint)i;
@@ -101,7 +110,7 @@ uint BuoySampleIndex(uint hull_id, int primitive_index, int i)
 
 // Normalise a 3-vector, returning zero when its length is at or below BUOY_TINY. Mirrors the
 // oracle's Normalise(v, v4::Zero()) so transformed/face normals degrade identically.
-float3 BuoyNormaliseOrZero(float3 v)
+odr float3 BuoyNormaliseOrZero(float3 v)
 {
 	float len = length(v);
 	return len > BUOY_TINY ? v / len : float3(0, 0, 0);
@@ -112,7 +121,7 @@ float3 BuoyNormaliseOrZero(float3 v)
 //
 
 // Volume of a single convex primitive. Triangles are zero-volume.
-float BuoyPrimitiveVolume(BuoyPrimitive prim, StructuredBuffer<float4> volume_verts, StructuredBuffer<int4> tets)
+odr float BuoyPrimitiveVolume(in_(BuoyPrimitive) prim, in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets)
 {
 	switch (prim.m_type)
 	{
@@ -148,7 +157,7 @@ float BuoyPrimitiveVolume(BuoyPrimitive prim, StructuredBuffer<float4> volume_ve
 }
 
 // Surface area of a single convex primitive. Shape-local.
-float BuoyPrimitiveArea(BuoyPrimitive prim, StructuredBuffer<float4> verts, StructuredBuffer<int4> face_verts)
+odr float BuoyPrimitiveArea(in_(BuoyPrimitive) prim, in_(StructuredBuffer<float4>) verts, in_(StructuredBuffer<int4>) face_verts)
 {
 	switch (prim.m_type)
 	{
@@ -196,7 +205,7 @@ float BuoyPrimitiveArea(BuoyPrimitive prim, StructuredBuffer<float4> verts, Stru
 //
 
 // True if 'p_local' is inside (or within 'eps' of) the convex primitive. Triangles never contain.
-bool BuoyContainsLocal(BuoyPrimitive prim, float3 p_local, float eps, StructuredBuffer<float4> face_planes)
+odr bool BuoyContainsLocal(in_(BuoyPrimitive) prim, float3 p_local, float eps, in_(StructuredBuffer<float4>) face_planes)
 {
 	switch (prim.m_type)
 	{
@@ -247,7 +256,7 @@ bool BuoyContainsLocal(BuoyPrimitive prim, float3 p_local, float eps, Structured
 //
 
 // Transform a COM-root point into a primitive's shape-local space (orthonormal inverse of m_s2r).
-float3 BuoyRootToLocal(BuoyPrimitive prim, float3 p_root)
+odr float3 BuoyRootToLocal(in_(BuoyPrimitive) prim, float3 p_root)
 {
 	float4x4 r2s = InvertOrthonormal(prim.m_s2r);
 	return mul(float4(p_root, 1.0f), r2s).xyz;
@@ -255,7 +264,7 @@ float3 BuoyRootToLocal(BuoyPrimitive prim, float3 p_root)
 
 // Volume cull: true if any lower-index sibling (j < k) contains 'p_root'. Mirrors the SampleHull
 // lowest-index-sibling rule (j != 0..k-1, ContainsLocal(prim_j, r2s_j * p_root, +eps)).
-bool BuoyIsInsideAnyLowerSibling(StructuredBuffer<BuoyPrimitive> prims, int prim_base, int k, float3 p_root, float eps, StructuredBuffer<float4> face_planes)
+odr bool BuoyIsInsideAnyLowerSibling(in_(StructuredBuffer<BuoyPrimitive>) prims, int prim_base, int k, float3 p_root, float eps, in_(StructuredBuffer<float4>) face_planes)
 {
 	for (int j = 0; j != k; ++j)
 	{
@@ -270,7 +279,7 @@ bool BuoyIsInsideAnyLowerSibling(StructuredBuffer<BuoyPrimitive> prims, int prim
 // boundary. Mirrors the SampleHull any-other-sibling rule: cull if a sibling contains the slightly
 // outward probe (p_root + n_root*eps) OR strictly contains the sample itself (-eps). 'n_root' is the
 // outward sample normal in COM-root space.
-bool BuoyIsInsideAnyOtherSibling(StructuredBuffer<BuoyPrimitive> prims, int prim_base, int prim_count, int k, float3 p_root, float3 n_root, float eps, StructuredBuffer<float4> face_planes)
+odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims, int prim_base, int prim_count, int k, float3 p_root, float3 n_root, float eps, in_(StructuredBuffer<float4>) face_planes)
 {
 	float3 probe_root = p_root + n_root * eps;
 	for (int j = 0; j != prim_count; ++j)
@@ -292,9 +301,9 @@ bool BuoyIsInsideAnyOtherSibling(StructuredBuffer<BuoyPrimitive> prims, int prim
 
 // Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
 // 'pos_local' is returned with w=1. Mirrors EmitVolumeSample.
-void BuoyEmitVolumeSample(BuoyPrimitive prim, uint index, float dvol,
-	StructuredBuffer<float4> volume_verts, StructuredBuffer<int4> tets,
-	out float4 pos_local, out float weight)
+odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
+	in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets,
+	out_(float4) pos_local, out_(float) weight)
 {
 	weight = dvol;
 	switch (prim.m_type)
@@ -378,9 +387,9 @@ void BuoyEmitVolumeSample(BuoyPrimitive prim, uint index, float dvol,
 
 // Emit the i'th low-discrepancy surface sample for a primitive, weighted by 'darea' (= area/N).
 // 'pos_local' (w=1) and 'normal_local' (w=0) are shape-local. Mirrors EmitSurfaceSample.
-void BuoyEmitSurfaceSample(BuoyPrimitive prim, uint index, float darea,
-	StructuredBuffer<float4> verts, StructuredBuffer<float4> face_planes, StructuredBuffer<int4> face_verts,
-	out float4 pos_local, out float4 normal_local, out float weight)
+odr void BuoyEmitSurfaceSample(in_(BuoyPrimitive) prim, uint index, float darea,
+	in_(StructuredBuffer<float4>) verts, in_(StructuredBuffer<float4>) face_planes, in_(StructuredBuffer<int4>) face_verts,
+	out_(float4) pos_local, out_(float4) normal_local, out_(float) weight)
 {
 	weight = darea;
 	switch (prim.m_type)
@@ -397,7 +406,7 @@ void BuoyEmitSurfaceSample(BuoyPrimitive prim, uint index, float darea,
 				4.0f * hx * hy, 4.0f * hx * hy, // +Z, -Z
 			};
 			float sum = 0.0f;
-			[unroll] for (int s = 0; s != 6; ++s) sum += face_area[s];
+			for (int s = 0; s != 6; ++s) sum += face_area[s];
 
 			float pick = BuoyRadicalInverse(index, 2) * sum;
 			float ca = BuoyRadicalInverse(index, 3);
@@ -503,5 +512,9 @@ void BuoyEmitSurfaceSample(BuoyPrimitive prim, uint index, float darea,
 		}
 	}
 }
+
+#ifdef __cplusplus
+} // namespace pr::physics
+#endif
 
 #endif // PR_PHYSICS_BUOYANCY_SAMPLER_HLSLI
