@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "pr/physics/integrator/engine.h"
+#include "pr/physics/buoyancy/buoyancy_primitives.h"
 
 namespace pr::physics
 {
@@ -12,6 +13,19 @@ namespace pr::physics
 	struct GpuBuoyancy
 	{
 		static constexpr int MaxWaterWaveCount = 64;
+
+		// Selects the force-evaluation pipeline the module uses. The backend is fixed at construction
+		// because the two paths use incompatible hull representations and registration entry points:
+		//  - LegacyBoxColumns: the original per-column generated-box pipeline (RegisterBoxHull only).
+		//  - SampledComposite: the volumetric/surface sampled pipeline for arbitrary convex composites
+		//    (RegisterCompositeHull only). Force evaluation is implemented in a later phase; until then
+		//    a registered composite hull makes Engine::ExternalForces throw rather than silently
+		//    produce zero force.
+		enum class EBackend
+		{
+			LegacyBoxColumns,
+			SampledComposite,
+		};
 
 		struct SineWave
 		{
@@ -165,8 +179,10 @@ namespace pr::physics
 
 		// Construct and subscribe the buoyancy pass to a physics engine. 'config' provides the
 		// tunable fluid parameters (density, drag time constant) used for subsequent dispatches.
-		// SetConfig may be called later to update these at runtime.
-		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
+		// SetConfig may be called later to update these at runtime. 'backend' selects the
+		// force-evaluation pipeline and the matching hull-registration entry point; it cannot be
+		// changed after construction.
+		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, EBackend backend = EBackend::LegacyBoxColumns);
 		GpuBuoyancy(GpuBuoyancy const&) = delete;
 		GpuBuoyancy& operator=(GpuBuoyancy const&) = delete;
 
@@ -196,6 +212,15 @@ namespace pr::physics
 		// While the registration is alive, 'body' is marked NeverSleep so the engine continues
 		// to call Engine::ExternalForces (and therefore this buoyancy pass) every step regardless
 		// of the body's kinetic state. The original NeverSleep flag is restored on unregister.
+		// Requires the LegacyBoxColumns backend; throws otherwise.
 		Registration RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size);
+
+		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
+		// 'shape' is a collision::Shape that is either a single convex primitive (Box / Sphere /
+		// Triangle / Polytope) or a ShapeArray of such primitives; it is flattened and copied into an
+		// owned immutable descriptor at registration time, so the caller's shape may be modified or
+		// destroyed afterwards. As with RegisterBoxHull, the body is marked NeverSleep for the lifetime
+		// of the registration. Requires the SampledComposite backend; throws otherwise.
+		Registration RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape);
 	};
 }

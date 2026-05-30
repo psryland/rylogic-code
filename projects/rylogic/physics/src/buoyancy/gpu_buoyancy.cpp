@@ -233,6 +233,17 @@ namespace pr::physics
 			int m_body_step_index;
 			v4 m_half_extents;
 		};
+		struct CompositeSlot
+		{
+			// Bookkeeping for a SampledComposite-backend hull. Mirrors HullSlot's NeverSleep
+			// save/restore (a floating body must stay awake so the environmental force keeps being
+			// applied) but owns a flattened, immutable composite descriptor instead of box extents.
+			int m_generation = -1;
+			bool m_active = false;
+			RigidBody* m_body = nullptr;
+			bool m_prev_never_sleep = false;
+			buoyancy::CompositeHull m_hull;
+		};
 		struct AnalyticResult
 		{
 			float m_volume_m3;
@@ -255,6 +266,7 @@ namespace pr::physics
 		ID3D12Device* m_device;
 		StepIndexResolver m_step_index_resolver;
 		BodyStateResolver m_body_state_resolver;
+		EBackend const m_backend;
 		::pr::compute::ComputeStep m_column_step;
 		::pr::compute::ComputeStep m_reduce_step;
 		multicast::AutoSub m_external_force_sub;
@@ -262,6 +274,7 @@ namespace pr::physics
 		WaterSurface m_water_surface;
 		Config m_config;
 		std::vector<HullSlot> m_hulls;
+		std::vector<CompositeSlot> m_composite_hulls;
 		std::vector<DispatchHull> m_dispatch_hulls;
 		std::vector<int> m_pending_body_indices;
 		std::vector<int> m_pending_body_generations;
@@ -278,10 +291,11 @@ namespace pr::physics
 		std::vector<Diagnostics> m_diagnostics;
 
 		// Construct and subscribe the buoyancy compute pass.
-		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, EBackend backend)
 			:m_device(device)
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
+			,m_backend(backend)
 			,m_column_step(CreateColumnStep(device))
 			,m_reduce_step(CreateReduceStep(device))
 			,m_external_force_sub(engine.ExternalForces += [this](Engine& sender, Engine::ExternalForceArgs const& args)
@@ -291,6 +305,7 @@ namespace pr::physics
 			,m_water_surface()
 			,m_config()
 			,m_hulls()
+			,m_composite_hulls()
 			,m_dispatch_hulls()
 			,m_pending_body_indices()
 			,m_pending_body_generations()
@@ -328,6 +343,10 @@ namespace pr::physics
 		// Register a generated box buoyancy hull against a stable physics body index.
 		void RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
 		{
+			if (m_backend != EBackend::LegacyBoxColumns)
+			{
+				throw std::runtime_error("RegisterBoxHull requires the LegacyBoxColumns backend");
+			}
 			if (body_index < 0 || body_generation < 0)
 			{
 				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
@@ -371,37 +390,112 @@ namespace pr::physics
 			body.Wake();
 		}
 
+		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
+		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
+		{
+			if (m_backend != EBackend::SampledComposite)
+			{
+				throw std::runtime_error("RegisterCompositeHull requires the SampledComposite backend");
+			}
+			if (body_index < 0 || body_generation < 0)
+			{
+				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
+			}
+
+			// Flatten/copy the shape up front so the caller's shape may be modified or destroyed after
+			// registration, and so a malformed shape (unsupported primitive / un-tessellated polytope)
+			// fails loudly here rather than during force evaluation. Throws on bad input.
+			auto flattened = buoyancy::FlattenShape(shape);
+			if (flattened.Empty())
+			{
+				throw std::runtime_error("Composite buoyancy hull contains no primitives");
+			}
+
+			// Composite slots are indexed by the stable body index, mirroring the legacy hull slots.
+			if (body_index >= static_cast<int>(m_composite_hulls.size()))
+			{
+				m_composite_hulls.resize(static_cast<std::size_t>(body_index + 1));
+			}
+
+			auto& slot = m_composite_hulls[body_index];
+			if (slot.m_active)
+			{
+				throw std::runtime_error("A buoyancy hull is already registered for this body");
+			}
+
+			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+			if (body_index >= static_cast<int>(m_diagnostics.size()))
+			{
+				m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
+			}
+
+			auto& diagnostic = m_diagnostics[body_index];
+			diagnostic = Diagnostics{};
+			diagnostic.m_body_index = body_index;
+			diagnostic.m_body_generation = body_generation;
+
+			slot.m_generation = body_generation;
+			slot.m_active = true;
+			slot.m_hull = std::move(flattened);
+
+			// Keep the body awake for the lifetime of the registration (see RegisterBoxHull rationale).
+			slot.m_body = &body;
+			slot.m_prev_never_sleep = body.NeverSleep();
+			body.NeverSleep(true);
+			body.Wake();
+		}
+
 		// Remove the buoyancy hull for a stable physics body index.
 		void UnregisterHull(int body_index, int body_generation) noexcept
 		{
-			if (body_index < 0 || body_index >= static_cast<int>(m_hulls.size()))
+			if (body_index < 0)
 			{
 				return;
 			}
 
-			auto& hull = m_hulls[body_index];
-			if (!hull.m_active)
+			// Legacy box-hull slot.
+			if (body_index < static_cast<int>(m_hulls.size()))
 			{
-				return;
-			}
-			if (hull.m_generation != body_generation)
-			{
-				return;
+				auto& hull = m_hulls[body_index];
+				if (hull.m_active && hull.m_generation == body_generation)
+				{
+					// Restore the body's original NeverSleep flag so callers that destroy a buoyancy
+					// registration end up with the body's sleep behaviour matching its pre-registration state.
+					if (hull.m_body != nullptr)
+					{
+						hull.m_body->NeverSleep(hull.m_prev_never_sleep);
+					}
+
+					hull = HullSlot{ -1, v4::Zero(), false, nullptr, false };
+
+					auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+					if (body_index < static_cast<int>(m_diagnostics.size()))
+					{
+						m_diagnostics[body_index] = Diagnostics{};
+					}
+					return;
+				}
 			}
 
-			// Restore the body's original NeverSleep flag so callers that destroy a buoyancy
-			// registration end up with the body's sleep behaviour matching its pre-registration state.
-			if (hull.m_body != nullptr)
+			// Composite hull slot.
+			if (body_index < static_cast<int>(m_composite_hulls.size()))
 			{
-				hull.m_body->NeverSleep(hull.m_prev_never_sleep);
-			}
+				auto& slot = m_composite_hulls[body_index];
+				if (slot.m_active && slot.m_generation == body_generation)
+				{
+					if (slot.m_body != nullptr)
+					{
+						slot.m_body->NeverSleep(slot.m_prev_never_sleep);
+					}
 
-			hull = HullSlot{ -1, v4::Zero(), false, nullptr, false };
+					slot = CompositeSlot{};
 
-			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
-			if (body_index < static_cast<int>(m_diagnostics.size()))
-			{
-				m_diagnostics[body_index] = Diagnostics{};
+					auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+					if (body_index < static_cast<int>(m_diagnostics.size()))
+					{
+						m_diagnostics[body_index] = Diagnostics{};
+					}
+				}
 			}
 		}
 
@@ -523,6 +617,24 @@ namespace pr::physics
 			m_pending_analytic_results.clear();
 			m_pending_readback = {};
 			m_pending_diagnostic_count = 0;
+
+			// The SampledComposite force pipeline is not implemented yet (phases 8-10). Fail fast if any
+			// composite hull is active rather than silently applying zero force, which would look like a
+			// buoyancy bug. The legacy box-columns path below is never reached under this backend because
+			// RegisterBoxHull rejects it, so m_hulls is always empty here.
+			if (m_backend == EBackend::SampledComposite)
+			{
+				auto const any_active = std::ranges::any_of(m_composite_hulls, [](CompositeSlot const& slot)
+				{
+					return slot.m_active;
+				});
+				if (any_active)
+				{
+					throw std::runtime_error("GpuBuoyancy SampledComposite backend force evaluation is not implemented yet");
+				}
+				return;
+			}
+
 			if (args.m_body_count == 0)
 			{
 				return;
@@ -885,8 +997,8 @@ namespace pr::physics
 	}
 
 	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
-	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
-		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver)))
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, EBackend backend)
+		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver), backend))
 	{
 	}
 
@@ -894,11 +1006,15 @@ namespace pr::physics
 	GpuBuoyancy::~GpuBuoyancy()
 	{
 		#if PR_DBG
-		auto const active_registration = std::ranges::any_of(m_impl->m_hulls, [](Impl::HullSlot const& hull)
+		auto const active_box = std::ranges::any_of(m_impl->m_hulls, [](Impl::HullSlot const& hull)
 		{
 			return hull.m_active;
 		});
-		PR_ASSERT(PR_DBG, !active_registration, "GpuBuoyancy registrations must be destroyed before the GpuBuoyancy module");
+		auto const active_composite = std::ranges::any_of(m_impl->m_composite_hulls, [](Impl::CompositeSlot const& slot)
+		{
+			return slot.m_active;
+		});
+		PR_ASSERT(PR_DBG, !active_box && !active_composite, "GpuBuoyancy registrations must be destroyed before the GpuBuoyancy module");
 		#endif
 	}
 
@@ -942,6 +1058,13 @@ namespace pr::physics
 	GpuBuoyancy::Registration GpuBuoyancy::RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
 	{
 		m_impl->RegisterBoxHull(body, body_index, body_generation, size);
+		return Registration{*this, body_index, body_generation};
+	}
+
+	// Register a composite convex-primitive buoyancy hull against a stable physics body index.
+	GpuBuoyancy::Registration GpuBuoyancy::RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
+	{
+		m_impl->RegisterCompositeHull(body, body_index, body_generation, shape);
 		return Registration{*this, body_index, body_generation};
 	}
 

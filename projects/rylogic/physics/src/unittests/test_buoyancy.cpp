@@ -6,6 +6,9 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/shape/shape_builder.h"
+#include "pr/collision/shape_line.h"
+#include "pr/collision/shape_array.h"
 #include "src/buoyancy/buoyancy_analytical.h"
 
 namespace pr::physics::tests
@@ -588,6 +591,280 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.y, 0.0f, std::abs(expected_torque_z) * 1e-2f));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.z, expected_torque_z, std::abs(expected_torque_z) * 1e-3f));
 		}
+	};
+
+	// Host-side coverage for the sampled-composite backend plumbing: collision-shape flattening
+	// (buoyancy::FlattenShape) and the registration guards / backend gating on GpuBuoyancy. These
+	// tests exercise the CPU host path only; the GPU sampling kernels are validated separately.
+	PRUnitTestClass(BuoyancyCompositeHostTests)
+	{
+		// GpuBuoyancy is neither copyable nor movable, so it cannot be returned from a factory. This
+		// stack-resident harness owns the engine, body list, and buoyancy module together, constructing
+		// the module in-place with the resolver pair the existing analytic-box tests use. Bodies are
+		// added by each test after construction; the body-state resolver reads them lazily at call time.
+		struct Harness
+		{
+			std::vector<RigidBody> m_bodies;
+			Engine m_engine;
+			GpuBuoyancy m_buoyancy;
+
+			explicit Harness(GpuBuoyancy::EBackend backend)
+				: m_bodies()
+				, m_engine()
+				, m_buoyancy(
+					m_engine.Device(),
+					m_engine,
+					GpuBuoyancy::Config{},
+					[](int stable_body_index)
+					{
+						return stable_body_index;
+					},
+					[this](int stable_body_index)
+					{
+						auto body_state = GpuBuoyancy::BodyState{};
+						if (stable_body_index < 0 || stable_body_index >= isize(m_bodies))
+							return body_state;
+
+						body_state.m_o2w = m_bodies[stable_body_index].O2W();
+						body_state.m_centre_of_mass_os = m_bodies[stable_body_index].CentreOfMassOS();
+						body_state.m_ws_gravity = m_bodies[stable_body_index].GravityWS();
+						body_state.m_valid = true;
+						return body_state;
+					},
+					backend)
+			{}
+		};
+
+		// A single box flattens to one analytic Box primitive carrying its half-extents and no geometry.
+		PRUnitTestMethod(FlattenBoxSinglePrimitive)
+		{
+			auto const half = v4{1.5f, 0.5f, 0.25f, 0.0f};
+			auto box = collision::ShapeBox(half * 2.0f);
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(box));
+
+			PR_EXPECT(!hull.Empty());
+			PR_EXPECT(hull.m_primitives.size() == 1);
+
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Box));
+			PR_EXPECT(p.m_sibling_index == 0);
+			PR_EXPECT(FEqlAbsolute(p.m_params, v4{half.x, half.y, half.z, 0.0f}, 1e-6f));
+
+			// Boxes are analytic: no concatenated geometry on the hull.
+			PR_EXPECT(p.m_vert_count == 0 && p.m_volume_vert_count == 0 && p.m_tet_count == 0 && p.m_face_count == 0);
+			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty() && hull.m_tets.empty() && hull.m_face_planes.empty());
+		}
+
+		// A ShapeArray of two boxes flattens to two Box primitives in child order with distinct transforms.
+		PRUnitTestMethod(FlattenArrayTwoBoxes)
+		{
+			ShapeBuilder sb;
+			sb.AddShape(collision::ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(+0.5f, 0.0f, 0.0f)));
+			sb.AddShape(collision::ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(-0.5f, 0.0f, 0.0f)));
+
+			byte_data<16> data;
+			MassProperties mp;
+			v4 model_to_com;
+			auto* arr = sb.BuildShape(data, mp, model_to_com);
+			PR_EXPECT(arr != nullptr && arr->m_type == collision::EShape::Array);
+
+			auto const hull = buoyancy::FlattenShape(*arr);
+			PR_EXPECT(hull.m_primitives.size() == 2);
+			PR_EXPECT(hull.m_primitives[0].m_type == static_cast<int>(buoyancy::EPrimitiveType::Box));
+			PR_EXPECT(hull.m_primitives[1].m_type == static_cast<int>(buoyancy::EPrimitiveType::Box));
+			PR_EXPECT(hull.m_primitives[0].m_sibling_index == 0);
+			PR_EXPECT(hull.m_primitives[1].m_sibling_index == 1);
+
+			// Each child keeps its own half-extents (1, 0.5, 0.5)...
+			PR_EXPECT(FEqlAbsolute(hull.m_primitives[0].m_params, v4{1.0f, 0.5f, 0.5f, 0.0f}, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(hull.m_primitives[1].m_params, v4{1.0f, 0.5f, 0.5f, 0.0f}, 1e-6f));
+
+			// ...and the two transforms differ (the boxes sit either side of the shared centre).
+			PR_EXPECT(!FEqlAbsolute(hull.m_primitives[0].m_s2r.pos, hull.m_primitives[1].m_s2r.pos, 1e-4f));
+		}
+
+		// An empty ShapeArray flattens to an empty hull (no primitives). The array is constructed
+		// directly rather than via ShapeBuilder::BuildShape, which asserts that at least one shape
+		// has been added; a zero-child array is a degenerate input FlattenShape must still tolerate.
+		PRUnitTestMethod(FlattenEmptyArray)
+		{
+			auto arr = collision::ShapeArray{};
+			arr.Complete(0);
+			PR_EXPECT(arr.m_base.m_type == collision::EShape::Array);
+
+			auto const hull = buoyancy::FlattenShape(arr);
+			PR_EXPECT(hull.Empty());
+		}
+
+		// A sphere flattens to one Sphere primitive carrying its radius in m_params.x and no geometry.
+		PRUnitTestMethod(FlattenSphere)
+		{
+			auto sphere = collision::ShapeSphere(2.5f);
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(sphere));
+
+			PR_EXPECT(hull.m_primitives.size() == 1);
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Sphere));
+			PR_EXPECT(FEqlAbsolute(p.m_params.x, 2.5f, 1e-6f));
+			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty());
+		}
+
+		// A triangle flattens to one Triangle primitive contributing its three surface corners.
+		PRUnitTestMethod(FlattenTriangle)
+		{
+			auto tri = collision::ShapeTriangle(v4{0.0f, 0.0f, 0.0f, 1.0f}, v4{1.0f, 0.0f, 0.0f, 1.0f}, v4{0.0f, 1.0f, 0.0f, 1.0f});
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(tri));
+
+			PR_EXPECT(hull.m_primitives.size() == 1);
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Triangle));
+			PR_EXPECT(p.m_vert_count == 3);
+			PR_EXPECT(p.m_vert_ofs == 0);
+			PR_EXPECT(hull.m_verts.size() == 3);
+		}
+
+		// A tessellated polytope flattens to one Polytope primitive whose concatenated tet geometry
+		// conserves the polytope's volume.
+		PRUnitTestMethod(FlattenPolytopeTessellated)
+		{
+			v4 pts[] = {
+				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
+				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
+				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
+				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
+			};
+			auto buf = collision::BuildPolytopeFromPoints(pts, m4x4::Identity(), 0, collision::Shape::EFlags::None, 4);
+			auto& poly = buf.as<collision::ShapePolytope>();
+
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly));
+			PR_EXPECT(hull.m_primitives.size() == 1);
+
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Polytope));
+			PR_EXPECT(p.m_vert_count == poly.m_vert_count);
+			PR_EXPECT(p.m_face_count == poly.m_face_count);
+			PR_EXPECT(p.m_tet_count == poly.m_tet_count && p.m_tet_count > 0);
+			PR_EXPECT(p.m_volume_vert_count == poly.m_volume_vert_count && p.m_volume_vert_count > 0);
+
+			// The descriptor counts must match the lengths of the concatenated geometry arrays.
+			PR_EXPECT(isize(hull.m_verts) == p.m_vert_count);
+			PR_EXPECT(isize(hull.m_volume_verts) == p.m_volume_vert_count);
+			PR_EXPECT(isize(hull.m_tets) == p.m_tet_count);
+			PR_EXPECT(isize(hull.m_face_planes) == p.m_face_count);
+
+			// Volume conservation: the cube has volume 8; the summed tet volumes must recover it. Tet
+			// corner indices are relative to this (single) primitive's volume block, i.e. absolute here.
+			auto sum = 0.0f;
+			for (auto const& t : hull.m_tets)
+			{
+				auto a = hull.m_volume_verts[t.x];
+				auto b = hull.m_volume_verts[t.y];
+				auto c = hull.m_volume_verts[t.z];
+				auto d = hull.m_volume_verts[t.w];
+				sum += tetramesh::Volume(a, b, c, d);
+			}
+			PR_EXPECT(FEqlRelative(sum, 8.0f, 1e-4f));
+		}
+
+		// A polytope without an interior tessellation cannot supply volume samples, so flattening throws.
+		PRUnitTestMethod(FlattenPolytopeMissingTetsThrows)
+		{
+			v4 pts[] = {
+				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
+				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
+				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
+				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
+			};
+			auto buf = collision::BuildPolytopeFromPoints(pts); // tess_resolution defaults to 0 => no tets
+			auto& poly = buf.as<collision::ShapePolytope>();
+			PR_EXPECT(poly.m_tet_count == 0);
+
+			auto threw = false;
+			try { (void)buoyancy::FlattenShape(collision::shape_cast(poly)); }
+			catch (std::exception const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+
+		// A collision shape type the composite model does not understand (e.g. a line) is rejected.
+		PRUnitTestMethod(FlattenUnsupportedTypeThrows)
+		{
+			auto line = collision::ShapeLine(2.0f);
+			auto threw = false;
+			try { (void)buoyancy::FlattenShape(collision::shape_cast(line)); }
+			catch (std::exception const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+
+		// RegisterBoxHull is gated to the legacy backend; it must reject the sampled-composite backend.
+		PRUnitTestMethod(RegisterBoxHullRejectsSampledComposite)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+
+			auto threw = false;
+			try { auto reg = h.m_buoyancy.RegisterBoxHull(h.m_bodies[0], 0, 0, v4{2.0f, 2.0f, 1.0f, 0.0f}); }
+			catch (std::exception const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+
+		// RegisterCompositeHull is gated to the sampled-composite backend; it must reject the legacy default.
+		PRUnitTestMethod(RegisterCompositeHullRejectsLegacy)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::LegacyBoxColumns);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+
+			auto threw = false;
+			try { auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box)); }
+			catch (std::exception const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+
+		// Registering a composite hull twice for the same body is an error.
+		PRUnitTestMethod(CompositeDoubleRegisterThrows)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			PR_EXPECT(static_cast<bool>(reg));
+
+			auto threw = false;
+			try { auto reg2 = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box)); }
+			catch (std::exception const&) { threw = true; }
+			PR_EXPECT(threw);
+		}
+
+		// Registration marks the body NeverSleep, and releasing the handle restores the prior flag.
+		PRUnitTestMethod(CompositeUnregisterRestoresNeverSleep)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+			h.m_bodies[0].NeverSleep(false);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			PR_EXPECT(h.m_bodies[0].NeverSleep() == true);
+
+			reg.Reset();
+			PR_EXPECT(h.m_bodies[0].NeverSleep() == false);
+		}
+
+		// Note: the Apply() fail-fast for the not-yet-implemented sampled-composite force pipeline
+		// (phases 8-10) is deliberately NOT unit-tested by driving a full Engine::Step. The throw
+		// unwinds out of Step mid-GPU-command-recording, leaving the Engine's fence unsignaled, so the
+		// Engine destructor then deadlocks waiting on GPU idle. The guard itself is exercised end-to-end
+		// once the real force kernels land and Apply no longer throws.
 	};
 }
 #endif

@@ -134,6 +134,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h">
+      <Filter>src\buoyancy</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h">
       <Filter>src\buoyancy</Filter>
     </ClInclude>
