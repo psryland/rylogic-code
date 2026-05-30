@@ -19,6 +19,7 @@
 #define PR_PHYSICS_BUOYANCY_SAMPLER_HLSLI
 
 #include "pr/hlsl/core.hlsli"
+#include "pr/hlsl/vector.hlsli"
 
 // Primitive type values mirror pr::physics::buoyancy::EPrimitiveType. Fixed so the host can upload
 // them verbatim and this module can switch on them.
@@ -232,7 +233,60 @@ bool BuoyContainsLocal(BuoyPrimitive prim, float3 p_local, float eps, Structured
 }
 
 //
-// Per-primitive sample emission. Outputs are shape-local; 'weight' carries dV (volume) or dA
+// Sibling-cull helpers (phase 9). The volume and surface passes deduplicate overlapping primitives
+// with DIFFERENT rules, mirroring SampleHull in buoyancy_sampler.h:
+//  * Volume  -> lowest-index-sibling owns the overlap: cull if ANY lower-index sibling (j < k)
+//               contains the sample. Gives an unbiased union volume.
+//  * Surface -> a sample is on the union boundary iff its slightly-outward probe is outside EVERY
+//               other sibling (j != k): cull if any other sibling contains the +eps probe OR
+//               strictly (-eps) contains the sample itself.
+// 'prim_base' is the absolute start of the hull's primitive block in the shared primitive buffer,
+// 'prim_count' the number of siblings, and 'k' the local sibling index (0..prim_count-1). Points are
+// in COM-root space; each sibling's r2s = InvertOrthonormal(m_s2r) maps the root point into that
+// sibling's shape-local space for the contains test.
+//
+
+// Transform a COM-root point into a primitive's shape-local space (orthonormal inverse of m_s2r).
+float3 BuoyRootToLocal(BuoyPrimitive prim, float3 p_root)
+{
+	float4x4 r2s = InvertOrthonormal(prim.m_s2r);
+	return mul(float4(p_root, 1.0f), r2s).xyz;
+}
+
+// Volume cull: true if any lower-index sibling (j < k) contains 'p_root'. Mirrors the SampleHull
+// lowest-index-sibling rule (j != 0..k-1, ContainsLocal(prim_j, r2s_j * p_root, +eps)).
+bool BuoyIsInsideAnyLowerSibling(StructuredBuffer<BuoyPrimitive> prims, int prim_base, int k, float3 p_root, float eps, StructuredBuffer<float4> face_planes)
+{
+	for (int j = 0; j != k; ++j)
+	{
+		BuoyPrimitive sib = prims[prim_base + j];
+		if (BuoyContainsLocal(sib, BuoyRootToLocal(sib, p_root), eps, face_planes))
+			return true;
+	}
+	return false;
+}
+
+// Surface cull: true if any other sibling (j != k) hides this surface sample from the union
+// boundary. Mirrors the SampleHull any-other-sibling rule: cull if a sibling contains the slightly
+// outward probe (p_root + n_root*eps) OR strictly contains the sample itself (-eps). 'n_root' is the
+// outward sample normal in COM-root space.
+bool BuoyIsInsideAnyOtherSibling(StructuredBuffer<BuoyPrimitive> prims, int prim_base, int prim_count, int k, float3 p_root, float3 n_root, float eps, StructuredBuffer<float4> face_planes)
+{
+	float3 probe_root = p_root + n_root * eps;
+	for (int j = 0; j != prim_count; ++j)
+	{
+		if (j == k)
+			continue;
+
+		BuoyPrimitive sib = prims[prim_base + j];
+		if (BuoyContainsLocal(sib, BuoyRootToLocal(sib, probe_root), eps, face_planes) ||
+			BuoyContainsLocal(sib, BuoyRootToLocal(sib, p_root), -eps, face_planes))
+			return true;
+	}
+	return false;
+}
+
+//
 // (surface) so reductions accumulate weighted sums (different primitives have different densities).
 //
 
