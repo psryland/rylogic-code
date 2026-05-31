@@ -16,13 +16,6 @@ namespace pr::physics
 {
 	namespace
 	{
-		static constexpr int BuoyancyGridDim = 128;
-		static constexpr int BuoyancyColumnCount = BuoyancyGridDim * BuoyancyGridDim;
-		static constexpr int BuoyancyColumnThreadCount = 256;
-		static constexpr int BuoyancyReduceThreadCount = 128;
-		static constexpr int BuoyancyGroupsPerHull = (BuoyancyColumnCount + BuoyancyColumnThreadCount - 1) / BuoyancyColumnThreadCount;
-		static_assert(BuoyancyGroupsPerHull <= BuoyancyReduceThreadCount);
-
 		// Sampled-composite (phase 10) volume-pass tunables. The total number of volume samples per
 		// hull is split across the hull's primitives proportional to their volume; positions are
 		// hash-derived per frame, but counts are fixed at registration. The per-hull group count is
@@ -40,9 +33,6 @@ namespace pr::physics
 		{
 			int m_hull_count;
 			int m_groups_per_hull;
-			int m_total_columns;
-			int m_grid_x;
-			int m_grid_y;
 			int m_wave_count;
 			float m_time_s;
 			float m_water_level;
@@ -52,13 +42,6 @@ namespace pr::physics
 			float m_pad0;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
-
-		struct GpuBuoyancyHull
-		{
-			int m_body_index;
-			float m_half_extents[3];
-		};
-		static_assert(sizeof(GpuBuoyancyHull) == 16);
 
 		struct GpuBuoyancyWave
 		{
@@ -142,15 +125,6 @@ namespace pr::physics
 		};
 		static_assert(sizeof(GpuBuoySurfPrimRecord) == 8);
 
-
-		// Throw if a buoyancy hull size cannot describe a closed generated box.
-		void ValidateBoxHullSize(v4 size)
-		{
-			if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f || size.w != 0.0f)
-			{
-				throw std::runtime_error("Box buoyancy hulls require positive xyz dimensions and w = 0");
-			}
-		}
 
 		// Throw if a floating-point scene value cannot be safely used by the GPU buoyancy pass.
 		void ValidateFinite(float value, char const* name)
@@ -246,39 +220,6 @@ namespace pr::physics
 				.Compile();
 		}
 
-		// Create the column-evaluation compute step.
-		::pr::compute::ComputeStep CreateColumnStep(ID3D12Device* device)
-		{
-			auto step = ::pr::compute::ComputeStep{};
-			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.SRV(hlsl::ESRVReg::t0)
-				.SRV(hlsl::ESRVReg::t1)
-				.UAV(hlsl::EUAVReg::u1)
-				.Create(device, "Physics.GpuBuoyancy.Columns.RootSig");
-
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSGpuBuoyancyColumns")).Create(device, "Physics.GpuBuoyancy.Columns.PSO");
-			return step;
-		}
-
-		// Create the per-hull reduction compute step.
-		::pr::compute::ComputeStep CreateReduceStep(ID3D12Device* device)
-		{
-			auto step = ::pr::compute::ComputeStep{};
-			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.SRV(hlsl::ESRVReg::t0)
-				.SRV(hlsl::ESRVReg::t1)
-				.UAV(hlsl::EUAVReg::u1)
-				.UAV(hlsl::EUAVReg::u2)
-				.Create(device, "Physics.GpuBuoyancy.Reduce.RootSig");
-
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSGpuBuoyancyReduce")).Create(device, "Physics.GpuBuoyancy.Reduce.PSO");
-			return step;
-		}
-
 		// Create the sampled-composite volume-sample compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyVolumeSamples: constants (b0), the body accumulator (u0),
 		// the wave SRV (t1, for the water height/gradient), the six volume-pass SRVs (t2..t7), then the
@@ -369,31 +310,11 @@ namespace pr::physics
 
 	struct GpuBuoyancy::Impl
 	{
-		struct HullSlot
-		{
-			int m_generation;
-			v4 m_half_extents;
-			bool m_active;
-
-			// While a hull is registered we mark the owning body NeverSleep so the engine keeps
-			// calling Engine::ExternalForces every step (it skips the entire post-pack pipeline
-			// when no dynamic bodies are awake). We remember the body and the original NeverSleep
-			// flag so unregister can restore the body to its pre-registration sleep behaviour.
-			RigidBody* m_body;
-			bool m_prev_never_sleep;
-		};
-		struct DispatchHull
-		{
-			int m_body_index;
-			int m_body_generation;
-			int m_body_step_index;
-			v4 m_half_extents;
-		};
 		struct CompositeSlot
 		{
-			// Bookkeeping for a SampledComposite-backend hull. Mirrors HullSlot's NeverSleep
-			// save/restore (a floating body must stay awake so the environmental force keeps being
-			// applied) but owns a flattened, immutable composite descriptor instead of box extents.
+			// Bookkeeping for a buoyancy hull. Saves/restores the body's NeverSleep flag (a floating
+			// body must stay awake so the environmental force keeps being applied) and owns a
+			// flattened, immutable composite descriptor of convex primitives.
 			int m_generation = -1;
 			bool m_active = false;
 			RigidBody* m_body = nullptr;
@@ -441,9 +362,6 @@ namespace pr::physics
 		ID3D12Device* m_device;
 		StepIndexResolver m_step_index_resolver;
 		BodyStateResolver m_body_state_resolver;
-		EBackend const m_backend;
-		::pr::compute::ComputeStep m_column_step;
-		::pr::compute::ComputeStep m_reduce_step;
 		::pr::compute::ComputeStep m_volume_step;
 		::pr::compute::ComputeStep m_volume_reduce_step;
 		::pr::compute::ComputeStep m_surface_step;
@@ -452,9 +370,7 @@ namespace pr::physics
 
 		WaterSurface m_water_surface;
 		Config m_config;
-		std::vector<HullSlot> m_hulls;
 		std::vector<CompositeSlot> m_composite_hulls;
-		std::vector<DispatchHull> m_dispatch_hulls;
 		std::vector<int> m_pending_body_indices;
 		std::vector<int> m_pending_body_generations;
 		std::vector<AnalyticResult> m_pending_analytic_results;
@@ -470,13 +386,10 @@ namespace pr::physics
 		std::vector<Diagnostics> m_diagnostics;
 
 		// Construct and subscribe the buoyancy compute pass.
-		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, EBackend backend)
+		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
 			:m_device(device)
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
-			,m_backend(backend)
-			,m_column_step(CreateColumnStep(device))
-			,m_reduce_step(CreateReduceStep(device))
 			,m_volume_step(CreateVolumeStep(device))
 			,m_volume_reduce_step(CreateVolumeReduceStep(device))
 			,m_surface_step(CreateSurfaceStep(device))
@@ -487,9 +400,7 @@ namespace pr::physics
 			})
 			,m_water_surface()
 			,m_config()
-			,m_hulls()
 			,m_composite_hulls()
-			,m_dispatch_hulls()
 			,m_pending_body_indices()
 			,m_pending_body_generations()
 			,m_pending_analytic_results()
@@ -523,63 +434,9 @@ namespace pr::physics
 		// Destroy the buoyancy pass after all physics GPU work has completed.
 		~Impl() = default;
 
-		// Register a generated box buoyancy hull against a stable physics body index.
-		void RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
-		{
-			if (m_backend != EBackend::LegacyBoxColumns)
-			{
-				throw std::runtime_error("RegisterBoxHull requires the LegacyBoxColumns backend");
-			}
-			if (body_index < 0 || body_generation < 0)
-			{
-				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
-			}
-			ValidateBoxHullSize(size);
-
-			// Hull slots are indexed by the stable body index so the per-frame callback only needs to resolve the compact engine step index.
-			if (body_index >= static_cast<int>(m_hulls.size()))
-			{
-				m_hulls.resize(static_cast<std::size_t>(body_index + 1), HullSlot{ -1, v4::Zero(), false, nullptr, false });
-			}
-
-			auto& hull = m_hulls[body_index];
-			if (hull.m_active)
-			{
-				throw std::runtime_error("A buoyancy hull is already registered for this body");
-			}
-
-			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
-			if (body_index >= static_cast<int>(m_diagnostics.size()))
-			{
-				m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
-			}
-
-			auto& diagnostic = m_diagnostics[body_index];
-			diagnostic = Diagnostics{};
-			diagnostic.m_body_index = body_index;
-			diagnostic.m_body_generation = body_generation;
-
-			hull.m_generation = body_generation;
-			hull.m_half_extents = size * 0.5f;
-			hull.m_active = true;
-
-			// Remember the body and its prior sleep policy, then force the body to stay awake.
-			// Buoyancy is a continuous environmental force: the engine bails out of the GPU pipeline
-			// (and therefore ExternalForces) when every dynamic body is asleep, which would freeze
-			// a floater in place even as waves pass under it.
-			hull.m_body = &body;
-			hull.m_prev_never_sleep = body.NeverSleep();
-			body.NeverSleep(true);
-			body.Wake();
-		}
-
 		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
 		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
 		{
-			if (m_backend != EBackend::SampledComposite)
-			{
-				throw std::runtime_error("RegisterCompositeHull requires the SampledComposite backend");
-			}
 			if (body_index < 0 || body_generation < 0)
 			{
 				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
@@ -671,7 +528,10 @@ namespace pr::physics
 				}
 			}
 
-			// Keep the body awake for the lifetime of the registration (see RegisterBoxHull rationale).
+			// Keep the body awake for the lifetime of the registration. Buoyancy is a continuous
+			// environmental force: the engine bails out of the GPU pipeline (and therefore
+			// ExternalForces) when every dynamic body is asleep, which would freeze a floater in
+			// place even as waves pass under it. Remember the prior flag so unregister can restore it.
 			slot.m_body = &body;
 			slot.m_prev_never_sleep = body.NeverSleep();
 			body.NeverSleep(true);
@@ -684,30 +544,6 @@ namespace pr::physics
 			if (body_index < 0)
 			{
 				return;
-			}
-
-			// Legacy box-hull slot.
-			if (body_index < static_cast<int>(m_hulls.size()))
-			{
-				auto& hull = m_hulls[body_index];
-				if (hull.m_active && hull.m_generation == body_generation)
-				{
-					// Restore the body's original NeverSleep flag so callers that destroy a buoyancy
-					// registration end up with the body's sleep behaviour matching its pre-registration state.
-					if (hull.m_body != nullptr)
-					{
-						hull.m_body->NeverSleep(hull.m_prev_never_sleep);
-					}
-
-					hull = HullSlot{ -1, v4::Zero(), false, nullptr, false };
-
-					auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
-					if (body_index < static_cast<int>(m_diagnostics.size()))
-					{
-						m_diagnostics[body_index] = Diagnostics{};
-					}
-					return;
-				}
 			}
 
 			// Composite hull slot.
@@ -851,152 +687,16 @@ namespace pr::physics
 			m_pending_readback = {};
 			m_pending_diagnostic_count = 0;
 
-			// Route the SampledComposite backend to its dedicated volume-pass dispatch. The legacy
-			// box-columns path below is never reached under this backend because RegisterBoxHull rejects
-			// it (m_hulls is always empty here).
-			if (m_backend == EBackend::SampledComposite)
-			{
-				DispatchComposite(args);
-				return;
-			}
-
-			if (args.m_body_count == 0)
-			{
-				return;
-			}
-
-			// Build the compact dispatch table from active hulls whose bodies are present in this Engine::BeginStep() range.
-			m_dispatch_hulls.clear();
-			for (auto body_index = 0; body_index != static_cast<int>(m_hulls.size()); ++body_index)
-			{
-				auto const& hull = m_hulls[body_index];
-				if (!hull.m_active)
-				{
-					continue;
-				}
-
-				auto const body_step_index = m_step_index_resolver(body_index);
-				if (body_step_index < 0)
-				{
-					continue;
-				}
-				if (body_step_index >= args.m_body_count)
-				{
-					throw std::runtime_error("Buoyancy hull resolved to an invalid physics step body index");
-				}
-
-				m_dispatch_hulls.push_back(DispatchHull{
-					.m_body_index = body_index,
-					.m_body_generation = hull.m_generation,
-					.m_body_step_index = body_step_index,
-					.m_half_extents = hull.m_half_extents,
-				});
-			}
-			if (m_dispatch_hulls.empty())
-			{
-				return;
-			}
-
-			auto const hull_count = static_cast<int>(m_dispatch_hulls.size());
-			EnsureGpuCapacity(args.m_job, hull_count * BuoyancyGroupsPerHull, hull_count);
-
-			// Upload the body-index/hull table into the physics job upload buffer; the allocation stays alive until the submitted job completes.
-			auto upload = args.m_job.m_upload.template Alloc<GpuBuoyancyHull>(hull_count);
-			auto upload_hulls = upload.ptr<GpuBuoyancyHull>();
-			auto const flat_water = m_water_surface.IsFlat();
-			for (auto index = 0; index != static_cast<int>(m_dispatch_hulls.size()); ++index)
-			{
-				auto const& hull = m_dispatch_hulls[index];
-				upload_hulls[index] = GpuBuoyancyHull{
-					.m_body_index = hull.m_body_step_index,
-					.m_half_extents = { hull.m_half_extents.x, hull.m_half_extents.y, hull.m_half_extents.z },
-				};
-
-				m_pending_body_indices.push_back(hull.m_body_index);
-				m_pending_body_generations.push_back(hull.m_body_generation);
-				m_pending_analytic_results.push_back(flat_water
-					? CalculateAnalyticBoxBuoyancy(m_body_state_resolver(hull.m_body_index), hull.m_half_extents, m_water_surface.m_level, m_config.m_fluid_density)
-					: AnalyticResult{});
-			}
-
-			// Upload wave parameters separately from the root constants so the root signature stays small as the scene adds waves.
-			auto const wave_count = static_cast<int>(m_water_surface.m_waves.size());
-			auto upload_waves = args.m_job.m_upload.template Alloc<GpuBuoyancyWave>(std::max(wave_count, 1));
-			auto waves = upload_waves.ptr<GpuBuoyancyWave>();
-			waves[0] = GpuBuoyancyWave{};
-			for (auto index = 0; index != wave_count; ++index)
-			{
-				auto const& wave = m_water_surface.m_waves[index];
-				waves[index] = GpuBuoyancyWave{
-					.m_direction_wavelength_phase_speed = v4(wave.m_direction.x, wave.m_direction.y, wave.m_wavelength, wave.m_phase_speed),
-					.m_amplitude = v4(wave.m_amplitude, 0.0f, 0.0f, 0.0f),
-				};
-			}
-
-			auto const hulls_gpu_va = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
-			auto const waves_gpu_va = upload_waves.m_res->GetGPUVirtualAddress() + upload_waves.m_ofs;
-
-			// c_drag = density / tau_damp gives a per-volume linear damping that decays a body of
-			// the same density as the fluid in 'tau' seconds. A non-positive tau disables drag.
-			auto const drag_coefficient = m_config.m_drag_time_constant_s > 0.0f
-				? m_config.m_fluid_density / m_config.m_drag_time_constant_s
-				: 0.0f;
-
-			auto const cb = CBufGpuBuoyancy{
-				.m_hull_count = hull_count,
-				.m_groups_per_hull = BuoyancyGroupsPerHull,
-				.m_total_columns = BuoyancyColumnCount,
-				.m_grid_x = BuoyancyGridDim,
-				.m_grid_y = BuoyancyGridDim,
-				.m_wave_count = wave_count,
-				.m_time_s = static_cast<float>(args.m_time_s),
-				.m_water_level = m_water_surface.m_level,
-				.m_fluid_density = m_config.m_fluid_density,
-				.m_drag_coefficient = drag_coefficient,
-				.m_quadratic_drag_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient),
-				.m_pad0 = 0.0f,
-			};
-
-			// Evaluate all column samples into one partial record per hull/threadgroup.
-			args.m_job.m_cmd_list.SetPipelineState(m_column_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_column_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_gpu_va);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.Dispatch(hull_count * BuoyancyGroupsPerHull, 1, 1);
-			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
-
-			// Reduce per-threadgroup partials to one body force accumulator contribution and one diagnostic record per hull.
-			// The reduce kernel also evaluates per-face quadratic form drag on the host body and needs the wave SRV (t1)
-			// because each face sub-sample queries the water height at its world-space XY to test submergence.
-			args.m_job.m_cmd_list.SetPipelineState(m_reduce_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_reduce_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(hulls_gpu_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_gpu_va);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
-
-			// Copy diagnostics to a separate readback allocation after the GPU has produced the default-heap UAV result.
-			m_pending_readback = args.m_job.m_readback.template Alloc<GpuBuoyancyDiagnostic>(hull_count);
-			m_pending_diagnostic_count = hull_count;
-			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
-			args.m_job.m_cmd_list.CopyBufferRegion(m_pending_readback, m_r_diagnostics.get(), 0);
-			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			// All buoyancy now flows through the sampled-composite volume/surface dispatch.
+			DispatchComposite(args);
 		}
 
-		// Record the sampled-composite buoyancy volume pass into the active physics GPU job. This is the
-		// SampledComposite-backend twin of the legacy box-columns dispatch in Apply(): it uploads the
-		// flattened composite primitives + interior tet/face geometry for every active hull, runs the
+		// Record the sampled-composite buoyancy volume pass into the active physics GPU job. It uploads
+		// the flattened composite primitives + interior tet/face geometry for every active hull, runs the
 		// per-sample Froude-Krylov volume kernel into per-threadgroup partials, then reduces them to a
-		// per-body force/torque accumulation plus one diagnostic record per hull. Drag is a later phase,
-		// so this is buoyancy (volume) only; the diagnostic analytic comparison is left invalid because
-		// there is no closed-form composite-union result in v1 (CompleteStep tolerates m_valid == false).
+		// per-body force/torque accumulation plus one diagnostic record per hull. The diagnostic analytic
+		// comparison is left invalid because there is no closed-form composite-union result in v1
+		// (CompleteStep tolerates m_valid == false).
 		void DispatchComposite(Engine::ExternalForceArgs const& args)
 		{
 			if (args.m_body_count == 0)
@@ -1254,13 +954,10 @@ namespace pr::physics
 			auto const face_verts_va = gpu_va(upload_face_verts);
 
 			// Volume pass uses only hull_count, groups_per_hull, wave_count, time_s, water_level and
-			// fluid_density; the column-grid / drag fields are left zero.
+			// fluid_density; the drag fields are left zero.
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = groups_per_hull,
-				.m_total_columns = 0,
-				.m_grid_x = 0,
-				.m_grid_y = 0,
 				.m_wave_count = wave_count,
 				.m_time_s = static_cast<float>(args.m_time_s),
 				.m_water_level = m_water_surface.m_level,
@@ -1316,9 +1013,6 @@ namespace pr::physics
 				auto const cb_surf = CBufGpuBuoyancy{
 					.m_hull_count = hull_count,
 					.m_groups_per_hull = surf_groups_per_hull,
-					.m_total_columns = 0,
-					.m_grid_x = 0,
-					.m_grid_y = 0,
 					.m_wave_count = wave_count,
 					.m_time_s = static_cast<float>(args.m_time_s),
 					.m_water_level = m_water_surface.m_level,
@@ -1370,34 +1064,10 @@ namespace pr::physics
 			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 		}
 
-		// 'fluid_density' must match the density used by the GPU pass so the reported diagnostic
-		// error reflects only numerical/quantisation differences and not a density mismatch.
-		// The body's own world-space gravity vector (carried in 'body_state') drives both the
-		// magnitude and direction of the analytic Archimedes force, mirroring the per-body
-		// gravity sampling the HLSL pass performs.
-		static AnalyticResult CalculateAnalyticBoxBuoyancy(BodyState const& body_state, v4 half_extents, float water_level, float fluid_density)
-		{
-			auto result = AnalyticResult{};
-			if (!body_state.m_valid)
-				return result;
-
-			result.m_valid = true;
-			auto const volume_centroid = SubmergedBoxVolumeCentroid(body_state.m_o2w, half_extents, water_level);
-			if (!volume_centroid.m_valid)
-				return result;
-
-			auto const centre_of_mass_ws = body_state.m_o2w * body_state.m_centre_of_mass_os.w1();
-			result.m_volume_m3 = volume_centroid.m_volume_m3;
-			result.m_centre_buoyancy_ws = volume_centroid.m_centroid_ws;
-			result.m_force_ws = -body_state.m_ws_gravity * (fluid_density * volume_centroid.m_volume_m3);
-			result.m_torque_ws = Cross(volume_centroid.m_centroid_ws - centre_of_mass_ws, result.m_force_ws);
-			return result;
-		}
-
 		// Resize GPU buffers used by the diagnostic dispatches. 'partial_capacity' is the number of
-		// per-threadgroup partial records the volume/column pass will write and 'diagnostic_capacity'
-		// is the number of per-hull diagnostic records the reduce pass will write. Both backends route
-		// through here so the buffers grow to the larger of the two demands across a session.
+		// per-threadgroup partial records the volume pass will write and 'diagnostic_capacity'
+		// is the number of per-hull diagnostic records the reduce pass will write. The volume and
+		// surface dispatches both route through here so the buffers grow to the larger demand.
 		void EnsureGpuCapacity(GpuJob& job, int partial_capacity, int diagnostic_capacity)
 		{
 			if (partial_capacity > m_partial_capacity)
@@ -1603,8 +1273,8 @@ namespace pr::physics
 	}
 
 	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
-	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, EBackend backend)
-		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver), backend))
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver)))
 	{
 	}
 
@@ -1612,15 +1282,11 @@ namespace pr::physics
 	GpuBuoyancy::~GpuBuoyancy()
 	{
 		#if PR_DBG
-		auto const active_box = std::ranges::any_of(m_impl->m_hulls, [](Impl::HullSlot const& hull)
-		{
-			return hull.m_active;
-		});
 		auto const active_composite = std::ranges::any_of(m_impl->m_composite_hulls, [](Impl::CompositeSlot const& slot)
 		{
 			return slot.m_active;
 		});
-		PR_ASSERT(PR_DBG, !active_box && !active_composite, "GpuBuoyancy registrations must be destroyed before the GpuBuoyancy module");
+		PR_ASSERT(PR_DBG, !active_composite, "GpuBuoyancy registrations must be destroyed before the GpuBuoyancy module");
 		#endif
 	}
 
@@ -1658,13 +1324,6 @@ namespace pr::physics
 	GpuBuoyancy::Config const& GpuBuoyancy::GetConfig() const
 	{
 		return m_impl->GetConfig();
-	}
-
-	// Register a generated box buoyancy hull against a stable physics body index.
-	GpuBuoyancy::Registration GpuBuoyancy::RegisterBoxHull(RigidBody& body, int body_index, int body_generation, v4 size)
-	{
-		m_impl->RegisterBoxHull(body, body_index, body_generation, size);
-		return Registration{*this, body_index, body_generation};
 	}
 
 	// Register a composite convex-primitive buoyancy hull against a stable physics body index.

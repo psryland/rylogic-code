@@ -2,7 +2,7 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Sine-wave water buoyancy pass for generated box hulls.
+// Sine-wave water buoyancy pass for composite collision-shape hulls.
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
@@ -11,16 +11,13 @@
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/buoyancy/buoyancy_sampler.hlsli"
 
-#define BUOYANCY_COLUMN_THREAD_COUNT 256
+#define BUOYANCY_SAMPLE_THREAD_COUNT 256
 #define BUOYANCY_REDUCE_THREAD_COUNT 128
 
 struct CBufGpuBuoyancy
 {
 	int hull_count;
 	int groups_per_hull;
-	int total_columns;
-	int grid_x;
-	int grid_y;
 	int wave_count;
 	float time_s;
 	float water_level;
@@ -28,12 +25,6 @@ struct CBufGpuBuoyancy
 	float drag_coefficient;
 	float quadratic_drag_coefficient;
 	float pad0;
-};
-
-struct GpuBuoyancyHull
-{
-	int body_index;
-	float3 half_extents;
 };
 
 struct GpuBuoyancyWave
@@ -63,7 +54,6 @@ struct GpuBuoyancyDiagnostic
 
 ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
-StructuredBuffer<GpuBuoyancyHull> resource(g_hulls, t0);
 StructuredBuffer<GpuBuoyancyWave> resource(g_waves, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
@@ -129,17 +119,9 @@ StructuredBuffer<float4> resource(g_verts, t9);
 StructuredBuffer<int4> resource(g_face_verts, t10);
 StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
 
-groupshared float4 s_force_ws[BUOYANCY_COLUMN_THREAD_COUNT];
-groupshared float4 s_torque_ws[BUOYANCY_COLUMN_THREAD_COUNT];
-groupshared float4 s_moment_ws_volume[BUOYANCY_COLUMN_THREAD_COUNT];
-
-// Expand the world XY bounds for the projected generated box hull.
-void IncludeBoxCorner(GpuRigidBody body, float3 half_extents, float3 sign, inout float2 min_xy, inout float2 max_xy)
-{
-	float3 corner_ws = mul(float4(half_extents * sign, 1.0f), body.o2w).xyz;
-	min_xy = min(min_xy, corner_ws.xy);
-	max_xy = max(max_xy, corner_ws.xy);
-}
+groupshared float4 s_force_ws[BUOYANCY_SAMPLE_THREAD_COUNT];
+groupshared float4 s_torque_ws[BUOYANCY_SAMPLE_THREAD_COUNT];
+groupshared float4 s_moment_ws_volume[BUOYANCY_SAMPLE_THREAD_COUNT];
 
 // Evaluate the scene-described water height at a world-space XY position.
 float EvaluateWaterHeight(float2 xy_ws)
@@ -160,7 +142,7 @@ float EvaluateWaterHeight(float2 xy_ws)
 
 // Evaluate the scene-described water height and its XY gradient at a world-space XY position.
 // Returns float3(height, dh/dx, dh/dy). Sharing the sin/cos work between the height and gradient
-// keeps the per-column overhead small. The gradient is used by EvaluateColumn to compute the
+// keeps the per-sample overhead small. The gradient is used by the volume-sample pass to compute the
 // lateral (wave-slope) component of the hydrostatic force via the divergence theorem:
 //   F_buoy = rho * |g| * V_submerged * (-dh/dx, -dh/dy, +1)
 // which reduces to the purely vertical model on flat water.
@@ -213,158 +195,6 @@ float3 EvaluateWaterVelocity(float3 pos_ws)
 	return velocity;
 }
 
-// Project the generated box hull onto the horizontal integration plane.
-void ProjectBoxBoundsXY(GpuRigidBody body, float3 half_extents, out float2 min_xy, out float2 max_xy)
-{
-	min_xy = float2(1.0e20f, 1.0e20f);
-	max_xy = float2(-1.0e20f, -1.0e20f);
-
-	IncludeBoxCorner(body, half_extents, float3(-1.0f, -1.0f, -1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(+1.0f, -1.0f, -1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(-1.0f, +1.0f, -1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(+1.0f, +1.0f, -1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(-1.0f, -1.0f, +1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(+1.0f, -1.0f, +1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(-1.0f, +1.0f, +1.0f), min_xy, max_xy);
-	IncludeBoxCorner(body, half_extents, float3(+1.0f, +1.0f, +1.0f), min_xy, max_xy);
-}
-
-// Clip a column ray against one object-space box slab.
-bool IntersectBoxAxis(float origin_os, float direction_os, float half_extent, inout float t_min, inout float t_max)
-{
-	if (abs(direction_os) < 1.0e-6f)
-	{
-		return origin_os >= -half_extent && origin_os <= half_extent;
-	}
-
-	float t0 = (-half_extent - origin_os) / direction_os;
-	float t1 = (+half_extent - origin_os) / direction_os;
-	if (t0 > t1)
-	{
-		float tmp = t0;
-		t0 = t1;
-		t1 = tmp;
-	}
-
-	t_min = max(t_min, t0);
-	t_max = min(t_max, t1);
-	return t_min <= t_max;
-}
-
-// Intersect a vertical world-space integration column with the generated box hull.
-bool IntersectBoxColumn(GpuRigidBody body, float3 half_extents, float2 xy_ws, out float t_min, out float t_max)
-{
-	float4x4 w2o = InvertOrthonormal(body.o2w);
-	float3 origin_os = mul(float4(xy_ws, 0.0f, 1.0f), w2o).xyz;
-	float3 direction_os = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), w2o).xyz;
-
-	t_min = -1.0e20f;
-	t_max = +1.0e20f;
-	if (!IntersectBoxAxis(origin_os.x, direction_os.x, half_extents.x, t_min, t_max))
-	{
-		return false;
-	}
-	if (!IntersectBoxAxis(origin_os.y, direction_os.y, half_extents.y, t_min, t_max))
-	{
-		return false;
-	}
-	if (!IntersectBoxAxis(origin_os.z, direction_os.z, half_extents.z, t_min, t_max))
-	{
-		return false;
-	}
-
-	return t_max > t_min;
-}
-
-// Evaluate one grid column and return its force, torque, and volume-weighted centroid contribution.
-// The hydrostatic force per column uses the divergence theorem applied to the instantaneous water
-// surface h(xy,t): F = rho * |g| * V_col * (-dh/dx, -dh/dy, +1). The vertical component reduces to
-// the standard flat-water buoyancy; the horizontal components carry wave-slope (Froude-Krylov)
-// forces that drive heave, drift and pitching from non-flat surfaces. A small linear viscous drag
-// is added per column (proportional to submerged volume) so wave-driven motion does not resonate
-// unboundedly. Both forces share the same centroid for torque accumulation.
-void EvaluateColumn(GpuRigidBody body, GpuBuoyancyHull hull, int column_index, out float4 force_ws, out float4 torque_ws, out float4 moment_ws_volume)
-{
-	force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	if ((body.state_flags & ERigidBodyStateFlags_Static) != 0 || body.os_com_and_invmass.w <= 0.0f)
-	{
-		return;
-	}
-
-	float2 min_xy;
-	float2 max_xy;
-	ProjectBoxBoundsXY(body, hull.half_extents, min_xy, max_xy);
-
-	float2 span_xy = max_xy - min_xy;
-	if (span_xy.x <= 1.0e-6f || span_xy.y <= 1.0e-6f)
-	{
-		return;
-	}
-
-	// Columns stay vertical for the incremental model; the surface height can vary per XY sample.
-	int cell_x = column_index % g.grid_x;
-	int cell_y = column_index / g.grid_x;
-	float2 cell_size = span_xy / float2(g.grid_x, g.grid_y);
-	float2 xy_ws = min_xy + (float2(cell_x, cell_y) + 0.5f) * cell_size;
-
-	float t_min;
-	float t_max;
-	if (!IntersectBoxColumn(body, hull.half_extents, xy_ws, t_min, t_max))
-	{
-		return;
-	}
-
-	float3 height_and_grad = EvaluateWaterHeightAndGradient(xy_ws);
-	float water_height = height_and_grad.x;
-	float2 surface_grad = height_and_grad.yz;
-
-	float submerged_t_min = t_min;
-	float submerged_t_max = min(t_max, water_height);
-	if (submerged_t_max <= submerged_t_min)
-	{
-		return;
-	}
-
-	float volume = (submerged_t_max - submerged_t_min) * cell_size.x * cell_size.y;
-	float3 centroid_ws = float3(xy_ws, 0.5f * (submerged_t_min + submerged_t_max));
-	float3 centre_of_mass_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-
-	// Hydrostatic force from the body's own local gravity sample (each rigid body carries a
-	// world-space gravity vector that the engine treats as a sample of the local gravity field):
-	//   F_buoy = rho * V * (-g_local) + rho * V * |g_local| * (-dh/dx, -dh/dy, 0)
-	// The first term is Archimedes' principle in vector form (buoyancy directly opposes the
-	// body's gravity); the second term is the wave-slope (Froude-Krylov) correction obtained
-	// from the divergence theorem applied to the instantaneous water surface h(x,y,t). The
-	// surface itself is parameterised in world XY with world Z as "up", so the slope correction
-	// uses the world-frame gradient; the formulation is exact when the local gravity is along
-	// -Z and remains a sensible first-order approximation for mild departures from that axis.
-	// On flat water the slope term vanishes and the expression reduces to F = -rho * V * g_local.
-	float3 gravity_ws = body.ws_gravity.xyz;
-	float gravity_magnitude = length(gravity_ws);
-	float rho_v = g.fluid_density * volume;
-	float3 force_buoyancy = rho_v * (-gravity_ws + gravity_magnitude * float3(-surface_grad.x, -surface_grad.y, 0.0f));
-
-	// Linear viscous drag at the column centroid. Computing the rigid-body velocity at the column
-	// centroid means we damp linear and angular motion in one pass; the cross-product torque
-	// accumulator picks up the angular contribution automatically.
-	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	float3 v_lin = inv_mass * body.momentum_lin.xyz;
-	float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
-	float3 v_at_centroid = v_lin + cross(omega_ws, centroid_ws - centre_of_mass_ws);
-	float3 force_drag = -(g.drag_coefficient * volume) * v_at_centroid;
-
-	float3 force = force_buoyancy + force_drag;
-	float3 torque = cross(centroid_ws - centre_of_mass_ws, force);
-
-	force_ws = float4(force, 0.0f);
-	torque_ws = float4(torque, 0.0f);
-	moment_ws_volume = float4(centroid_ws * volume, volume);
-}
-
 // Sum all entries in the shared reduction arrays.
 void ReduceShared(uint thread_index, uint thread_count)
 {
@@ -381,205 +211,6 @@ void ReduceShared(uint thread_index, uint thread_count)
 	GroupMemoryBarrierWithGroupSync();
 }
 
-// Per-face quadratic (form) drag for the registered box hull. Writes the total drag force and torque
-// about the body's centre of mass in world space, integrated over a 2x2 sub-sample grid on each face.
-// Sub-sampling (rather than evaluating only at face centroids) is necessary to capture rotational
-// drag: for pure yaw, omega x r is purely tangent to a side face at its centre, so v_n = 0 and the
-// centroid evaluation produces no torque. The 2x2 grid restores rotational damping cheaply (~24
-// samples per body). Quadratic drag complements the per-column linear drag in EvaluateColumn:
-// linear dominates near rest and stabilises low-frequency motion, quadratic dominates at speed and
-// provides realistic form drag for translating/tumbling bodies.
-//
-// The model assumes stationary water (v_fluid = 0). The expression is structured as
-// v_rel = v_point - v_fluid so wave-orbital velocity can be added later without restructuring.
-// Drag only acts on faces whose outward normal has a positive velocity component into the water
-// (the face is moving outward into the fluid); leeward faces contribute nothing. This matches the
-// form-drag model for separated flow at moderate-to-high Reynolds numbers.
-void EvaluatePerFaceQuadraticDrag(GpuBuoyancyHull hull, GpuRigidBody body, out float3 drag_force_ws, out float3 drag_torque_ws)
-{
-	drag_force_ws = float3(0.0f, 0.0f, 0.0f);
-	drag_torque_ws = float3(0.0f, 0.0f, 0.0f);
-	if (g.quadratic_drag_coefficient <= 0.0f)
-	{
-		return;
-	}
-
-	// Body kinematics at this instant. See the note in EvaluateColumn about the storage convention
-	// for inertia_inv_* (mass-removed shape inertia, recombined here via the inv_mass scaling).
-	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	float3 v_lin = inv_mass * body.momentum_lin.xyz;
-	float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
-	float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-
-	// 0.5 * rho * Cd is the constant prefactor shared by every face sample.
-	float coef = 0.5f * g.fluid_density * g.quadratic_drag_coefficient;
-
-	// Iterate the 6 axis-aligned faces of the generated box hull. For each face the outward normal
-	// is a unit axis (positive then negative along x, y, z), and the two in-face tangent axes are
-	// the other two world axes; the half-widths along those tangents come from the matching
-	// components of hull.half_extents. The hull geometry is centred on the body's model origin
-	// (same assumption as ProjectBoxBoundsXY), so the face centres in object-space are simply
-	// n_os * half_extent_along_normal.
-	for (int f = 0; f != 6; ++f)
-	{
-		int axis = f >> 1;
-		float sign_n = (f & 1) != 0 ? -1.0f : +1.0f;
-
-		float3 n_os = float3(0.0f, 0.0f, 0.0f);
-		float3 tu_os = float3(0.0f, 0.0f, 0.0f);
-		float3 tv_os = float3(0.0f, 0.0f, 0.0f);
-		float h_n = 0.0f;
-		float hu = 0.0f;
-		float hv = 0.0f;
-		if (axis == 0)
-		{
-			n_os.x = sign_n; tu_os.y = 1.0f; tv_os.z = 1.0f;
-			h_n = hull.half_extents.x; hu = hull.half_extents.y; hv = hull.half_extents.z;
-		}
-		else if (axis == 1)
-		{
-			n_os.y = sign_n; tu_os.x = 1.0f; tv_os.z = 1.0f;
-			h_n = hull.half_extents.y; hu = hull.half_extents.x; hv = hull.half_extents.z;
-		}
-		else
-		{
-			n_os.z = sign_n; tu_os.x = 1.0f; tv_os.y = 1.0f;
-			h_n = hull.half_extents.z; hu = hull.half_extents.x; hv = hull.half_extents.y;
-		}
-
-		// Quarter of the face area, shared by all four sub-samples.
-		float sample_area = hu * hv;
-		float3 face_centre_os = n_os * h_n;
-		float3 n_ws = mul(float4(n_os, 0.0f), body.o2w).xyz;
-
-		// 2x2 sub-sample grid: each sample is the centroid of one quadrant of the face,
-		// at offsets +/-hu/2 along tangent u and +/-hv/2 along tangent v.
-		[unroll] for (int si = 0; si != 2; ++si)
-		[unroll] for (int sj = 0; sj != 2; ++sj)
-		{
-			float ofs_u = (si == 0 ? -0.5f : +0.5f) * hu;
-			float ofs_v = (sj == 0 ? -0.5f : +0.5f) * hv;
-			float3 sample_os = face_centre_os + tu_os * ofs_u + tv_os * ofs_v;
-			float3 sample_ws = mul(float4(sample_os, 1.0f), body.o2w).xyz;
-
-			// Submergence test: skip samples above the local water surface.
-			float water_h = EvaluateWaterHeight(sample_ws.xy);
-			if (sample_ws.z >= water_h)
-			{
-				continue;
-			}
-
-			// Form drag opposes the outward motion of the face. v_fluid = 0 for stationary water;
-			// when wave-orbital velocity is added later it will be subtracted from v_at_sample.
-			float3 v_at_sample = v_lin + cross(omega_ws, sample_ws - com_ws);
-			float v_n = dot(v_at_sample, n_ws);
-			if (v_n <= 0.0f)
-			{
-				continue;
-			}
-
-			float3 force = -(coef * sample_area * v_n * v_n) * n_ws;
-			float3 torque = cross(sample_ws - com_ws, force);
-			drag_force_ws += force;
-			drag_torque_ws += torque;
-		}
-	}
-}
-
-// Evaluate a block of buoyancy columns and write one partial record for the reducer.
-numthreads(CSGpuBuoyancyColumns, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
-void CSGpuBuoyancyColumns(uint3 DTID(dispatch_thread_id), uint3 GID(group_id), uint3 GTID(group_thread_id))
-{
-	int global_group_index = int(group_id.x);
-	int hull_index = global_group_index / g.groups_per_hull;
-	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
-	int thread_index = int(group_thread_id.x);
-	int column_index = hull_group_index * BUOYANCY_COLUMN_THREAD_COUNT + thread_index;
-
-	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	if (hull_index < g.hull_count && column_index < g.total_columns)
-	{
-		GpuBuoyancyHull hull = g_hulls[hull_index];
-		GpuRigidBody body = g_bodies[hull.body_index];
-		EvaluateColumn(body, hull, column_index, force_ws, torque_ws, moment_ws_volume);
-	}
-
-	s_force_ws[thread_index] = force_ws;
-	s_torque_ws[thread_index] = torque_ws;
-	s_moment_ws_volume[thread_index] = moment_ws_volume;
-	ReduceShared(uint(thread_index), BUOYANCY_COLUMN_THREAD_COUNT);
-
-	if (thread_index == 0)
-	{
-		g_partials[global_group_index].force_ws = s_force_ws[0];
-		g_partials[global_group_index].torque_ws = s_torque_ws[0];
-		g_partials[global_group_index].moment_ws_volume = s_moment_ws_volume[0];
-	}
-}
-
-// Reduce all partials for one hull, add the force/torque to the body accumulator, and write a diagnostic record.
-numthreads(CSGpuBuoyancyReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
-void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
-{
-	int hull_index = int(group_id.x);
-	int thread_index = int(group_thread_id.x);
-	int partial_index = hull_index * g.groups_per_hull + thread_index;
-
-	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	if (hull_index < g.hull_count && thread_index < g.groups_per_hull)
-	{
-		GpuBuoyancyPartial partial = g_partials[partial_index];
-		force_ws = partial.force_ws;
-		torque_ws = partial.torque_ws;
-		moment_ws_volume = partial.moment_ws_volume;
-	}
-
-	s_force_ws[thread_index] = force_ws;
-	s_torque_ws[thread_index] = torque_ws;
-	s_moment_ws_volume[thread_index] = moment_ws_volume;
-	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
-
-	if (thread_index == 0 && hull_index < g.hull_count)
-	{
-		float volume = s_moment_ws_volume[0].w;
-		float has_volume = volume > 1.0e-6f ? 1.0f : 0.0f;
-		float3 centre_buoyancy_ws = has_volume != 0.0f ? s_moment_ws_volume[0].xyz / volume : float3(0.0f, 0.0f, 0.0f);
-
-		GpuBuoyancyHull hull = g_hulls[hull_index];
-		GpuRigidBody body = g_bodies[hull.body_index];
-
-		// Per-face quadratic (form) drag is added on top of the per-column buoyancy + linear drag
-		// already reduced in s_force_ws[0] / s_torque_ws[0]. Doing the per-face evaluation here in
-		// the reduce kernel (thread 0 only, once per body) keeps it cheap and avoids fan-out into
-		// the columns dispatch where it would be replicated 128 times per body.
-		float3 quadratic_drag_force_ws = float3(0.0f, 0.0f, 0.0f);
-		float3 quadratic_drag_torque_ws = float3(0.0f, 0.0f, 0.0f);
-		EvaluatePerFaceQuadraticDrag(hull, body, quadratic_drag_force_ws, quadratic_drag_torque_ws);
-
-		float4 total_force_ws = s_force_ws[0] + float4(quadratic_drag_force_ws, 0.0f);
-		float4 total_torque_ws = s_torque_ws[0] + float4(quadratic_drag_torque_ws, 0.0f);
-
-		body.force_lin += total_force_ws;
-		body.force_ang += total_torque_ws;
-		g_bodies[hull.body_index] = body;
-
-		g_diagnostics[hull_index].force_ws = total_force_ws;
-		g_diagnostics[hull_index].torque_ws = total_torque_ws;
-		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
-		g_diagnostics[hull_index].moment_ws_volume = s_moment_ws_volume[0];
-		g_diagnostics[hull_index].body_index = hull.body_index;
-		g_diagnostics[hull_index].valid = 1;
-		g_diagnostics[hull_index].volume_m3 = volume;
-		g_diagnostics[hull_index].pad0 = 0.0f;
-	}
-}
-
 // Evaluate a block of composite-hull volume samples (sampled-composite backend) and write one
 // partial record for the reducer. Each in-fluid sample contributes a Froude-Krylov pressure-gradient
 // force dF = rho*|g|*dV*(up - grad_ws) plus a per-sample torque about the body's centre of mass, and
@@ -593,14 +224,14 @@ void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 // cumulative counts (g_vol_prim_records, parallel to g_prims); the residual is the primitive-local
 // sample ordinal fed to the deterministic hash. Threads beyond a hull's emitted sample count, and
 // samples on static / zero-mass bodies or under (near-)zero gravity, contribute zero.
-numthreads(CSBuoyancyVolumeSamples, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
+numthreads(CSBuoyancyVolumeSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
 void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
 	int global_group_index = int(group_id.x);
 	int hull_index = global_group_index / g.groups_per_hull;
 	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
 	int thread_index = int(group_thread_id.x);
-	int sample_index = hull_group_index * BUOYANCY_COLUMN_THREAD_COUNT + thread_index;
+	int sample_index = hull_group_index * BUOYANCY_SAMPLE_THREAD_COUNT + thread_index;
 
 	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -613,7 +244,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		{
 			GpuRigidBody body = g_bodies[header.body_index];
 
-			// Static / zero-mass bodies have no buoyant response (mirrors EvaluateColumn's guard).
+			// Static / zero-mass bodies have no buoyant response.
 			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
 
 			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
@@ -704,7 +335,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = moment_ws_volume;
-	ReduceShared(uint(thread_index), BUOYANCY_COLUMN_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT);
 
 	if (thread_index == 0)
 	{
@@ -715,9 +346,9 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 }
 
 // Reduce all volume partials for one composite hull, add the buoyancy force/torque to the body
-// accumulator, and write a diagnostic record. This mirrors CSGpuBuoyancyReduce but without the
-// per-face quadratic-drag block (drag is a later phase) and reads the hull's body via the volume
-// header rather than the legacy box-hull record.
+// accumulator, and write a diagnostic record. The drag contribution is computed by the separate
+// surface-sample pass (a later phase); this pass handles buoyancy + wave-slope only. The hull's
+// body is read via the volume header.
 numthreads(CSBuoyancyVolumeReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
 void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
@@ -779,14 +410,14 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 // where v_rel = v_point - v_water and v_n = dot(v_rel, n). Both terms are summed (the weight is the
 // per-sample area dA). The moment-sum slot is written zero so it does not corrupt the volume pass's
 // diagnostic COB when ReduceShared sums all three shared arrays.
-numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
+numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
 void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
 	int global_group_index = int(group_id.x);
 	int hull_index = global_group_index / g.groups_per_hull;
 	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
 	int thread_index = int(group_thread_id.x);
-	int sample_index = hull_group_index * BUOYANCY_COLUMN_THREAD_COUNT + thread_index;
+	int sample_index = hull_group_index * BUOYANCY_SAMPLE_THREAD_COUNT + thread_index;
 
 	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -872,8 +503,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 						float signed_height = dot(sample_ws, up);
 						if (signed_height < EvaluateWaterHeight(sample_ws.xy))
 						{
-							// Body kinematics at this instant (same storage convention as
-							// EvaluatePerFaceQuadraticDrag: inertia_inv_* is mass-removed shape inertia).
+							// Body kinematics at this instant (inertia_inv_* is mass-removed shape inertia).
 							float inv_mass = body.os_com_and_invmass.w;
 							float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
 							float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
@@ -909,7 +539,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	ReduceShared(uint(thread_index), BUOYANCY_COLUMN_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT);
 
 	if (thread_index == 0)
 	{

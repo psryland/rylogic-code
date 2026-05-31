@@ -210,7 +210,7 @@
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
     <ShaderBuild Include="src\compute\resolve.hlsl" ComputeEntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
-    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSGpuBuoyancyColumns;CSGpuBuoyancyReduce;CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce" />
+    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />

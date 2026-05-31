@@ -329,7 +329,12 @@ namespace las
 			throw std::runtime_error("A buoyancy hull is already registered for this body");
 		}
 
-		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterBoxHull(*slot.m_body, handle.m_index, handle.m_generation, size);
+		// Buoyancy now uses the sampled-composite path exclusively. Wrap the requested box dimensions in a
+		// transient collision ShapeBox and register it as a single-primitive composite hull. ShapeBox(size)
+		// sets m_radius = size*0.5, matching the half-extents the legacy box-columns path derived from size,
+		// so the registered geometry is identical.
+		auto hull_shape = ShapeBox(size);
+		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterCompositeHull(*slot.m_body, handle.m_index, handle.m_generation, collision::shape_cast(hull_shape));
 		return BuoyancyHullRegistration{ *this, handle };
 	}
 

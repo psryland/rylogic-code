@@ -315,8 +315,7 @@ namespace physics_sandbox
 				body_state.m_ws_gravity = body.GravityWS();
 				body_state.m_valid = true;
 				return body_state;
-			},
-			physics::GpuBuoyancy::EBackend::SampledComposite);
+			});
 		if (scene_desc.water)
 			m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
 
