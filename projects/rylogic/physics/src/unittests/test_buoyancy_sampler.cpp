@@ -248,6 +248,116 @@ namespace pr::physics::tests
 			PR_EXPECT(std::abs(r.m_drag_force_ws.y) < 0.05f * std::abs(expected_fx));
 			PR_EXPECT(std::abs(r.m_drag_force_ws.z) < 0.05f * std::abs(expected_fx));
 		}
+
+		// The optional debug collector records every sample classification and the per-primitive
+		// accepted buoyancy partials, without changing the physical result. It also forces the surface
+		// pass to run with drag disabled so surface classifications are still captured.
+		PRUnitTestMethod(DebugCollector)
+		{
+			// Single fully-submerged box: every volume sample is wet and owned by primitive 0; the
+			// summed per-primitive partials reconstruct the total buoyancy force exactly.
+			{
+				auto box = ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+				auto body = BodyState{};
+				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
+				auto const water = TestField{.m_level = 10.0f};
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f}; // drag off
+
+				auto dbg = SampleDebug{};
+				auto const r = SampleHull(box.m_base, 11, body, WaterFrame{}, water, cfg, 8000, 8000, &dbg);
+
+				// Per-primitive accumulators sized to the single primitive.
+				PR_EXPECT(dbg.m_prim_buoy_force_ws.size() == 1u);
+
+				// Count classifications.
+				auto vol_wet = 0, vol_dry = 0, vol_culled = 0, surf_active = 0, surf_dry = 0;
+				for (auto const& s : dbg.m_samples)
+				{
+					switch (s.m_kind)
+					{
+						case ESampleKind::VolumeWet: ++vol_wet; break;
+						case ESampleKind::VolumeDry: ++vol_dry; break;
+						case ESampleKind::VolumeCulled: ++vol_culled; break;
+						case ESampleKind::SurfaceActive: ++surf_active; break;
+						case ESampleKind::SurfaceDry: ++surf_dry; break;
+						case ESampleKind::SurfaceCulled: break;
+					}
+				}
+
+				// Fully submerged single box: all volume samples wet, none dry/culled.
+				PR_EXPECT(vol_wet == 8000);
+				PR_EXPECT(vol_dry == 0);
+				PR_EXPECT(vol_culled == 0);
+
+				// Surface pass ran despite drag being off (debug gate); all surface samples are wet+active.
+				PR_EXPECT(surf_active == 8000);
+				PR_EXPECT(surf_dry == 0);
+
+				// Summed per-primitive partials reconstruct the total buoyancy force.
+				PR_EXPECT(FEqlRelative(dbg.m_prim_buoy_force_ws[0], r.m_buoyancy_force_ws, 1e-4f));
+
+				// Per-primitive wet centre matches the diagnostic centre of buoyancy.
+				PR_EXPECT(FEqlAbsolute(dbg.PrimWetCentre(0).w0(), r.m_centre_buoyancy_ws.w0(), 1e-3f));
+			}
+
+			// Overlapping boxes: the lowest-index-sibling cull produces VolumeCulled records, and the
+			// surviving union force still equals the aggregate result.
+			{
+				ShapeBuilder sb;
+				sb.AddShape(ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(+0.5f, 0.0f, 0.0f)));
+				sb.AddShape(ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(-0.5f, 0.0f, 0.0f)));
+
+				byte_data<16> data;
+				MassProperties mp;
+				v4 model_to_com;
+				auto* hull = sb.BuildShape(data, mp, model_to_com);
+
+				auto body = BodyState{};
+				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
+				auto const water = TestField{.m_level = 10.0f};
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+
+				auto dbg = SampleDebug{};
+				auto const r = SampleHull(*hull, 12, body, WaterFrame{}, water, cfg, 20000, 0, &dbg);
+
+				PR_EXPECT(dbg.m_prim_buoy_force_ws.size() == 2u);
+
+				auto vol_culled = 0;
+				for (auto const& s : dbg.m_samples)
+					if (s.m_kind == ESampleKind::VolumeCulled)
+						++vol_culled;
+
+				// The boxes overlap, so the cull must reject some second-primitive samples.
+				PR_EXPECT(vol_culled > 0);
+
+				// Summed per-primitive partials reconstruct the total union buoyancy force. The aggregate
+				// is one running sum while the partials are summed per-primitive, so the float addition
+				// order differs - allow float-summation noise over the ~20k samples.
+				auto const sum = dbg.m_prim_buoy_force_ws[0] + dbg.m_prim_buoy_force_ws[1];
+				PR_EXPECT(FEqlRelative(sum, r.m_buoyancy_force_ws, 1e-3f));
+			}
+
+			// Half-submerged box: both wet and dry volume samples are recorded.
+			{
+				auto box = ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
+				auto body = BodyState{};
+				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f}; // box centred on z=0 water plane
+				auto const water = TestField{};
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+
+				auto dbg = SampleDebug{};
+				SampleHull(box.m_base, 13, body, WaterFrame{}, water, cfg, 8000, 0, &dbg);
+
+				auto vol_wet = 0, vol_dry = 0;
+				for (auto const& s : dbg.m_samples)
+				{
+					if (s.m_kind == ESampleKind::VolumeWet) ++vol_wet;
+					if (s.m_kind == ESampleKind::VolumeDry) ++vol_dry;
+				}
+				PR_EXPECT(vol_wet > 0);
+				PR_EXPECT(vol_dry > 0);
+			}
+		}
 	};
 }
 #endif

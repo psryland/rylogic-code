@@ -120,6 +120,57 @@ namespace pr::physics::buoyancy
 		float m_darea = 0.0f;
 	};
 
+	// Classification of a single sample emitted during SampleHull, recorded only when a debug
+	// collector is supplied. Mirrors the exact cull/wet branches so a visualiser can render the
+	// real sampler decisions rather than an independent re-derivation.
+	enum class ESampleKind
+	{
+		VolumeWet,       // volume sample inside the wetted union, contributes buoyancy
+		VolumeDry,       // volume sample above the water surface
+		VolumeCulled,    // volume sample owned by a lower-index sibling primitive
+		SurfaceActive,   // surface sample on the wetted union boundary, contributes drag
+		SurfaceDry,      // surface sample above the water surface
+		SurfaceCulled,   // surface sample interior to another primitive (not on the union boundary)
+	};
+
+	// One recorded sample for debug visualisation: world-space position, world-space outward
+	// normal (zero for volume samples), owning primitive index and classification.
+	struct SampleDebugRecord
+	{
+		v4 m_pos_ws = v4::Origin();
+		v4 m_normal_ws = v4::Zero();
+		int m_prim_index = 0;
+		ESampleKind m_kind = ESampleKind::VolumeDry;
+	};
+
+	// Optional out-parameter collector for SampleHull. When passed, every sample's classification is
+	// recorded and per-primitive accepted buoyancy partials are accumulated, so a visualiser can draw
+	// the sample cloud and per-primitive force arrows. Data-only: no render/LDraw dependencies here.
+	struct SampleDebug
+	{
+		std::vector<SampleDebugRecord> m_samples;   // every classified sample (volume + surface)
+		std::vector<v4> m_prim_buoy_force_ws;       // per-primitive accepted buoyancy force
+		std::vector<v4> m_prim_wet_moment_ws;       // per-primitive sum(sample_ws * dV) over wet samples
+		std::vector<float> m_prim_wet_volume;       // per-primitive accepted wet volume
+
+		// Clear the sample list and (re)size the per-primitive accumulators for a fresh hull pass.
+		void Reset(size_t prim_count)
+		{
+			m_samples.clear();
+			m_prim_buoy_force_ws.assign(prim_count, v4::Zero());
+			m_prim_wet_moment_ws.assign(prim_count, v4::Zero());
+			m_prim_wet_volume.assign(prim_count, 0.0f);
+		}
+
+		// World-space wet centroid of a primitive (moment / volume), or the origin when fully dry.
+		v4 PrimWetCentre(size_t k) const
+		{
+			return (k < m_prim_wet_volume.size() && m_prim_wet_volume[k] > 0.0f)
+				? (m_prim_wet_moment_ws[k] / m_prim_wet_volume[k]).w1()
+				: v4::Origin();
+		}
+	};
+
 	//
 	// Deterministic low-discrepancy sample generation (mirrorable in HLSL)
 	//
@@ -543,6 +594,10 @@ namespace pr::physics::buoyancy
 
 	// Sample buoyancy + drag for a hull. 'water' is any type satisfying the water-field concept
 	// documented at the top of this file. Returns aggregated world-space force/torque + diagnostics.
+	// When 'debug' is non-null, every sample's classification and the per-primitive accepted buoyancy
+	// partials are recorded for visualisation; the physical result is unchanged whether debug is set or
+	// not. Note that when debug is non-null the surface pass runs even with drag disabled (so surface
+	// classifications are still recorded), but it contributes zero drag because the coefficients are zero.
 	template <typename TWater>
 	inline HullResult SampleHull(
 		collision::Shape const& hull,
@@ -552,7 +607,8 @@ namespace pr::physics::buoyancy
 		TWater const& water,
 		SamplerConfig const& cfg,
 		int volume_samples_total,
-		int surface_samples_total)
+		int surface_samples_total,
+		SampleDebug* debug = nullptr)
 	{
 		using namespace collision;
 
@@ -560,7 +616,14 @@ namespace pr::physics::buoyancy
 
 		auto const prims = CollectPrimitives(hull);
 		if (prims.empty())
+		{
+			if (debug)
+				debug->Reset(0);
 			return result;
+		}
+
+		if (debug)
+			debug->Reset(prims.size());
 
 		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and measures.
 		auto s2r = std::vector<m4x4>(prims.size());
@@ -617,7 +680,11 @@ namespace pr::physics::buoyancy
 					for (size_t j = 0; j != k && !culled; ++j)
 						culled = ContainsLocal(*prims[j], r2s[j] * p_root, eps);
 					if (culled)
+					{
+						if (debug)
+							debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeCulled });
 						continue;
+					}
 
 					auto const sample_ws = body.m_o2w * p_root;
 					auto const signed_height = Dot3(sample_ws - ref, up);
@@ -625,7 +692,11 @@ namespace pr::physics::buoyancy
 					auto const v = Dot3(sample_ws - ref, t1);
 					auto const h = water.Height(v2{u, v});
 					if (signed_height >= h)
+					{
+						if (debug)
+							debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeDry });
 						continue; // dry
+					}
 
 					auto const grad = water.Gradient(v2{u, v});
 					auto const grad_ws = grad.x * t0 + grad.y * t1;
@@ -635,6 +706,14 @@ namespace pr::physics::buoyancy
 					buoy_torque += Cross(sample_ws - com_ws, dF);
 					wet_volume += sample.m_dvol;
 					wet_moment += sample_ws * sample.m_dvol;
+
+					if (debug)
+					{
+						debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeWet });
+						debug->m_prim_buoy_force_ws[k] += dF;
+						debug->m_prim_wet_moment_ws[k] += sample_ws * sample.m_dvol;
+						debug->m_prim_wet_volume[k] += sample.m_dvol;
+					}
 				}
 			}
 		}
@@ -643,7 +722,7 @@ namespace pr::physics::buoyancy
 		// any-other-sibling exterior-side rule.
 		auto const c_lin = cfg.m_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_drag_time_constant_s : 0.0f;
 		auto const have_drag = c_lin > 0.0f || cfg.m_quadratic_drag_coefficient > 0.0f;
-		if (have_drag)
+		if (have_drag || debug != nullptr)
 		{
 			for (size_t k = 0; k != prims.size(); ++k)
 			{
@@ -671,7 +750,11 @@ namespace pr::physics::buoyancy
 							ContainsLocal(*prims[j], r2s[j] * p_root, -eps);
 					}
 					if (culled)
+					{
+						if (debug)
+							debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
 						continue;
+					}
 
 					auto const sample_ws = body.m_o2w * p_root;
 					auto const normal_ws = Normalise((body.m_o2w * n_root).w0(), v4::Zero());
@@ -679,7 +762,11 @@ namespace pr::physics::buoyancy
 					auto const u = Dot3(sample_ws - ref, t0);
 					auto const v = Dot3(sample_ws - ref, t1);
 					if (Dot3(sample_ws - ref, up) >= water.Height(v2{u, v}))
+					{
+						if (debug)
+							debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceDry });
 						continue; // dry
+					}
 
 					auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, sample_ws - com_ws);
 					auto const v_rel = v_point - water.Velocity(sample_ws);
@@ -693,6 +780,9 @@ namespace pr::physics::buoyancy
 
 					drag_force += dF;
 					drag_torque += Cross(sample_ws - com_ws, dF);
+
+					if (debug)
+						debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceActive });
 				}
 			}
 		}
