@@ -332,6 +332,11 @@ namespace pr::physics
 			uint32_t m_hull_id = 0;
 			float m_eps = 0.0f;
 
+			// Registration-time body-space AABB enclosing every primitive in the hull. Used by the
+			// host-side flat-water dry broadphase cull to conservatively test whether the whole body
+			// is above the water line along its local up (-gravity) axis.
+			BBox m_obb_os = BBox::Reset();
+
 			// Surface-pass sample plan, computed once at registration. m_surf_counts[k] is the number
 			// of surface samples assigned to primitive k (proportional to its surface area) and
 			// m_surf_darea[k] is the matching per-sample area weight (primitive area / count).
@@ -506,6 +511,7 @@ namespace pr::physics
 				auto const bbox = collision::CalcBBox(shape);
 				auto const extent = MaxElement(bbox.m_radius.w0());
 				slot.m_eps = std::max(1e-6f, extent * 1e-5f);
+				slot.m_obb_os = bbox;
 			}
 
 			// Compute the surface-pass (drag) sample plan once at registration, parallel to the volume
@@ -697,6 +703,49 @@ namespace pr::physics
 		// per-body force/torque accumulation plus one diagnostic record per hull. The diagnostic analytic
 		// comparison is left invalid because there is no closed-form composite-union result in v1
 		// (CompleteStep tolerates m_valid == false).
+		// Host-side flat-water dry broadphase cull. Returns true when, with no waves, the body's
+		// registration-time AABB lies entirely above the water surface measured along the body's local
+		// up (-gravity) axis. The AABB encloses every primitive, so every volume and surface sample is
+		// guaranteed dry and the body contributes exactly zero buoyancy and drag - bit-identical to the
+		// GPU readback (which fast-paths dry boxes/spheres and produces all-dry samples for polytopes
+		// and triangles). Only valid for flat water: under waves the surface height varies across the
+		// footprint, so a single conservative support point is unsafe.
+		bool IsFlatWaterFullyDry(CompositeSlot const& slot, BodyState const& bs) const
+		{
+			// Only safe for flat water; a wavy surface can rise above a conservative support point.
+			if (!m_water_surface.m_waves.empty())
+				return false;
+
+			// Need a valid body pose and a usable gravity direction to define "up".
+			if (!bs.m_valid)
+				return false;
+
+			auto const g = bs.m_ws_gravity.w0();
+			if (!IsFinite(g) || LengthSq(g) < 1e-12f)
+				return false;
+
+			auto const up = -Normalise(g);
+
+			// Lowest extent of the world-space AABB along up: project the centre, then subtract the
+			// support distance contributed by each rotated body axis scaled by its half-extent.
+			auto const centre_ws = bs.m_o2w * slot.m_obb_os.m_centre;
+			auto const r = slot.m_obb_os.m_radius;
+			auto const extent_up =
+				Abs(Dot3(bs.m_o2w.x, up)) * r.x +
+				Abs(Dot3(bs.m_o2w.y, up)) * r.y +
+				Abs(Dot3(bs.m_o2w.z, up)) * r.z;
+			auto const lowest = Dot3(centre_ws, up) - extent_up;
+
+			if (!IsFinite(lowest) || !IsFinite(m_water_surface.m_level))
+				return false;
+
+			// Strict margin: the band [level, level+margin] still produces zero on the GPU (its
+			// per-primitive dry fast-path / all-dry samples), so a positive margin is always safe and
+			// avoids host/GPU float divergence right at the waterline.
+			auto const margin = std::max(slot.m_eps, 1e-4f);
+			return lowest > m_water_surface.m_level + margin;
+		}
+
 		void DispatchComposite(Engine::ExternalForceArgs const& args)
 		{
 			if (args.m_body_count == 0)
@@ -733,6 +782,28 @@ namespace pr::physics
 				if (body_step_index >= args.m_body_count)
 				{
 					throw std::runtime_error("Buoyancy composite hull resolved to an invalid physics step body index");
+				}
+
+				// Flat-water dry broadphase cull: if the whole body sits above the water line, skip the
+				// GPU dispatch entirely and publish a zero diagnostic directly. This is result-preserving
+				// (see IsFlatWaterFullyDry) so the readback is identical to dispatching the body. Skipped
+				// when waves are present (the resolver call is then pure overhead).
+				if (m_water_surface.m_waves.empty())
+				{
+					auto const bs = m_body_state_resolver(body_index);
+					if (IsFlatWaterFullyDry(slot, bs))
+					{
+						auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+						if (body_index < static_cast<int>(m_diagnostics.size()))
+						{
+							auto diag = Diagnostics{};
+							diag.m_body_index = body_index;
+							diag.m_body_generation = slot.m_generation;
+							diag.m_valid = true;
+							m_diagnostics[body_index] = diag;
+						}
+						continue;
+					}
 				}
 
 				active.push_back(ActiveHull{

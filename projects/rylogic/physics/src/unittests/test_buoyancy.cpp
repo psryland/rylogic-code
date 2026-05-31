@@ -516,6 +516,35 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 1e-3f));
 		}
 
+		// Host-side dry broadphase cull must NOT cull a body that straddles the water line. A box
+		// centred at z=0 (half-height 0.5, so it spans z=[-0.5,+0.5]) is half submerged in flat water,
+		// so its registration-time AABB dips below the surface and the cull is rejected. The body must
+		// be dispatched and report the normal half-submerged buoyancy (V=1 m^3, force=ρgV up), proving
+		// the cull's conservative lowest-extent test does not over-aggressively drop wetted bodies.
+		PRUnitTestMethod(GpuCompositeBoxStraddlingNotCulled)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// Not culled: the lower half (z=[-0.5,0]) is submerged, displacing 2*2*0.5 = 2 m^3.
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.005f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 25.0f));
+		}
+
 		// A flat gravity-frame water field for feeding the CPU oracle in GPU-vs-oracle parity tests:
 		// height is zero everywhere along 'up', no slope, no fluid velocity. Combined with the default
 		// WaterFrame (up=+Z, ref=origin) this exactly mirrors the GPU's flat z=0 water surface.
