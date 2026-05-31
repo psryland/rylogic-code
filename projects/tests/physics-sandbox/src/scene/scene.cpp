@@ -309,7 +309,8 @@ namespace physics_sandbox
 				body_state.m_ws_gravity = body.GravityWS();
 				body_state.m_valid = true;
 				return body_state;
-			});
+			},
+			physics::GpuBuoyancy::EBackend::SampledComposite);
 		if (scene_desc.water)
 			m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
 
@@ -321,10 +322,44 @@ namespace physics_sandbox
 			if (iter == body_lookup.end())
 				throw std::runtime_error(pr::FmtS("Buoyancy hull references unknown body '%s'", hull.body_name.c_str()));
 
-			auto registration = m_gpu_buoyancy->RegisterBoxHull(m_body[iter->second], iter->second, m_buoyancy_generation, hull.dimensions);
+			// Build a transient collision shape from the hull description and register it on the
+			// sampled-composite backend, which flattens it into the volume-sample primitive set.
+			// The shape is only read during registration, so the locals below only need to stay
+			// alive across the RegisterCompositeHull call. Polytope hulls are tessellated so the
+			// volume sampler has interior tets to integrate over (untessellated polytopes throw).
+			auto& body = m_body[iter->second];
+			physics::GpuBuoyancy::Registration registration;
+			switch (hull.shape_type)
+			{
+				case scene_loader::BuoyancyHullDesc::EShape::Box:
+				{
+					auto hull_shape = collision::ShapeBox(hull.dimensions);
+					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
+					DbgLog("  Buoyancy: body '%s' composite box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
+					break;
+				}
+				case scene_loader::BuoyancyHullDesc::EShape::Sphere:
+				{
+					auto hull_shape = collision::ShapeSphere(hull.radius);
+					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
+					DbgLog("  Buoyancy: body '%s' composite sphere hull radius=%.3f\n", hull.body_name.c_str(), hull.radius);
+					break;
+				}
+				case scene_loader::BuoyancyHullDesc::EShape::Polytope:
+				{
+					auto hull_buffer = collision::BuildPolytopeFromPoints(hull.polytope_verts, m4x4::Identity(), 0, collision::Shape::EFlags::None, hull.tessellation);
+					auto const& hull_shape = hull_buffer.as<collision::ShapePolytope>();
+					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
+					DbgLog("  Buoyancy: body '%s' composite polytope hull verts=%d tets=%d\n", hull.body_name.c_str(), s_cast<int>(hull.polytope_verts.size()), hull_shape.m_tet_count);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown buoyancy hull shape type in scene description");
+				}
+			}
 			m_buoyancy_hulls.push_back(std::move(registration));
 			m_buoyancy_body_indices.push_back(iter->second);
-			DbgLog("  Buoyancy: body '%s' box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
 		}
 	}
 

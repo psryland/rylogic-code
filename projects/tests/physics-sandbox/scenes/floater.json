@@ -1,6 +1,6 @@
 {
 	"scene": {
-		"description": "Buoyancy floater: a 2 x 2 x 1 m box centred on flat water at z = 0. The pass should report 2 m^3 displaced volume, apply an upward 19620 N force, and move upward when gravity is disabled.",
+		"description": "Buoyancy floaters on wavy water at z = 0: a 2 x 2 x 1 m box at the origin (~2 m^3 displaced, ~19620 N upward) and an octahedral polytope body at x = 4 exercising the SampledComposite polytope path. Both are registered through the volume-sample backend (analytic=false).",
 		"camera": {
 			"position": [0.0, -8.0, 3.0],
 			"lookat": [0.0, 0.0, 0.0]
@@ -38,6 +38,18 @@
 				"name": "floater-box",
 				"type": "box",
 				"dimensions": [2.0, 2.0, 1.0]
+			},
+			"octahedron": {
+				"name": "floater-octahedron",
+				"type": "polytope",
+				"vertices": [
+					[ 1.0,  0.0,  0.0],
+					[-1.0,  0.0,  0.0],
+					[ 0.0,  1.0,  0.0],
+					[ 0.0, -1.0,  0.0],
+					[ 0.0,  0.0,  0.8],
+					[ 0.0,  0.0, -0.8]
+				]
 			}
 		},
 		"bodies": [
@@ -48,6 +60,14 @@
 				"position": [0.0, 0.0, 0.0],
 				"velocity": [0.0, 0.0, 0.0],
 				"angular_velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "floater-poly",
+				"shape": "floater-octahedron",
+				"mass": 400.0,
+				"position": [4.0, 0.0, 0.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 0.0]
 			}
 		],
 		"buoyancy": {
@@ -56,6 +76,19 @@
 					"body": "floater",
 					"type": "box",
 					"dimensions": [2.0, 2.0, 1.0]
+				},
+				{
+					"body": "floater-poly",
+					"type": "polytope",
+					"tessellation": 5,
+					"vertices": [
+						[ 1.0,  0.0,  0.0],
+						[-1.0,  0.0,  0.0],
+						[ 0.0,  1.0,  0.0],
+						[ 0.0, -1.0,  0.0],
+						[ 0.0,  0.0,  0.8],
+						[ 0.0,  0.0, -0.8]
+					]
 				}
 			]
 		}

@@ -502,7 +502,7 @@ namespace physics_sandbox::scene_loader
 
 		return camera;
 	}
-	// Parse diagnostic generated-box buoyancy hulls from a scene object.
+	// Parse diagnostic buoyancy hulls from a scene object.
 	std::vector<BuoyancyHullDesc> ReadBuoyancyHulls(pr::json::Value const& jbuoyancy)
 	{
 		auto hulls = std::vector<BuoyancyHullDesc>{};
@@ -526,14 +526,51 @@ namespace physics_sandbox::scene_loader
 			auto type = std::string("box");
 			if (auto const* jtype = jhull_obj.find("type"))
 				type = jtype->to<std::string>();
-			if (type != "box")
+
+			if (type == "box")
+			{
+				hull.shape_type = BuoyancyHullDesc::EShape::Box;
+
+				auto const* jdimensions = jhull_obj.find("dimensions");
+				if (jdimensions == nullptr)
+					throw std::runtime_error("Box buoyancy hull requires a 'dimensions' field");
+
+				hull.dimensions = ReadVec3(*jdimensions, 0.0f);
+			}
+			else if (type == "sphere")
+			{
+				hull.shape_type = BuoyancyHullDesc::EShape::Sphere;
+
+				auto const* jradius = jhull_obj.find("radius");
+				if (jradius == nullptr)
+					throw std::runtime_error("Sphere buoyancy hull requires a 'radius' field");
+
+				hull.radius = jradius->to<float>();
+			}
+			else if (type == "polytope")
+			{
+				hull.shape_type = BuoyancyHullDesc::EShape::Polytope;
+
+				auto const& verts = jhull_obj["vertices"].to_array();
+				if (verts.size() < 4)
+					throw std::runtime_error("Polytope buoyancy hull requires at least 4 non-coplanar vertices");
+
+				for (auto const& v : verts)
+					hull.polytope_verts.push_back(ReadVec3(v, 1.0f));
+
+				// Interior tessellation produces the tets the volume sampler integrates over; a
+				// positive resolution is mandatory for polytope hulls (untessellated polytopes throw
+				// during FlattenShape). Default to a resolution known to give well-formed tets.
+				if (auto const* jtess = jhull_obj.find("tessellation"))
+					hull.tessellation = jtess->to<int>();
+				if (hull.tessellation <= 0)
+					throw std::runtime_error("Polytope buoyancy hull 'tessellation' must be > 0");
+			}
+			else
+			{
 				throw std::runtime_error(pr::FmtS("Unsupported buoyancy hull type: '%s'", type.c_str()));
+			}
 
-			auto const* jdimensions = jhull_obj.find("dimensions");
-			if (jdimensions == nullptr)
-				throw std::runtime_error("Box buoyancy hull requires a 'dimensions' field");
-
-			hull.dimensions = ReadVec3(*jdimensions, 0.0f);
 			hulls.push_back(std::move(hull));
 		}
 

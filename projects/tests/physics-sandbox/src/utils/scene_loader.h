@@ -123,11 +123,21 @@ namespace physics_sandbox::scene_loader
 		v4 lookat = Origin<v4>();
 	};
 
-	// Parsed description of a generated-box buoyancy hull.
+	// Parsed description of a buoyancy hull. The hull geometry is specified independently of the
+	// body's collision shape (mirroring the original box-only design), so the buoyancy mesh can be
+	// a simplified, watertight, tessellated approximation of the visual/collision body.
 	struct BuoyancyHullDesc
 	{
+		// Hull primitive type. The sampled-composite backend supports box, sphere, and polytope.
+		enum class EShape { Box, Sphere, Polytope };
+
 		std::string body_name;
-		v4 dimensions = One<v4>();
+		EShape shape_type = EShape::Box;
+
+		v4 dimensions = One<v4>();          // Full dimensions (only valid when shape_type == Box)
+		float radius = 1.0f;                // Radius (only valid when shape_type == Sphere)
+		std::vector<v4> polytope_verts = {};// Convex hull vertices (only valid when shape_type == Polytope)
+		int tessellation = 5;               // Interior tessellation resolution for polytope buoyancy tets (only valid when shape_type == Polytope)
 	};
 
 	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
