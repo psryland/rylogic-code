@@ -915,6 +915,40 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 1e-2f));
 		}
 
+		// Flat-water fully-dry fast path. A box positioned entirely above the z=0 water surface must
+		// contribute zero buoyancy. With flat water (wave_count==0) the GPU per-sample fully-dry
+		// early-out (BuoySupportAlongUp + lo >= water_level) suppresses all samples for the primitive.
+		// The result is identical to the per-sample wet test (every sample is dry anyway), so this test
+		// is a regression guard for the support-interval math driving the fast path, not a behaviour
+		// change. The body still receives m*g, so only buoyancy must be zero, verified via the
+		// diagnostic record.
+		PRUnitTestMethod(GpuCompositeBoxFullyDryContributesZero)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+
+			// Lift the box well clear of the water: half-height 0.5, so the lowest point sits at z=4.5.
+			h.m_bodies[0].O2W(m4x4::Translation(v4{0.0f, 0.0f, 5.0f, 1.0f}));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// A fully-dry primitive displaces no fluid: zero volume, force, COB-moment, and torque.
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.0f, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4::Zero(), 1e-3f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 1e-3f));
+		}
+
 		// A flat gravity-frame water field for feeding the CPU oracle in GPU-vs-oracle parity tests:
 		// height is zero everywhere along 'up', no slope, no fluid velocity. Combined with the default
 		// WaterFrame (up=+Z, ref=origin) this exactly mirrors the GPU's flat z=0 water surface.

@@ -116,6 +116,48 @@ odr float3 BuoyNormaliseOrZero(float3 v)
 	return len > BUOY_TINY ? v / len : float3(0, 0, 0);
 }
 
+// Conservative support interval of a primitive along the world-space 'up' axis, expressed as the
+// min/max of dot(point, up) over the primitive in world space. Only box and sphere have a cheap
+// closed-form support; polytope/triangle return false so callers fall back to per-sample sampling.
+// 's2w' is the shape-local -> world transform and is assumed rigid (rotation + translation, no
+// scale), matching the rest of this module's InvertOrthonormal usage. Used by the flat-water
+// fully-dry fast path to skip primitives that lie entirely above the water surface.
+odr bool BuoySupportAlongUp(in_(BuoyPrimitive) prim, float4x4 s2w, float3 up, out float lo, out float hi)
+{
+	// World position of the shape origin (box/sphere centre); project onto 'up'.
+	float3 centre_ws = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), s2w).xyz;
+	float c = dot(centre_ws, up);
+	switch (prim.m_type)
+	{
+		case BUOY_PRIM_BOX:
+		{
+			// Half-extents along each shape axis; the support radius along 'up' is the sum of each
+			// world axis projected onto 'up' scaled by its half-extent.
+			float3 ax = mul(float4(1.0f, 0.0f, 0.0f, 0.0f), s2w).xyz;
+			float3 ay = mul(float4(0.0f, 1.0f, 0.0f, 0.0f), s2w).xyz;
+			float3 az = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), s2w).xyz;
+			float r = abs(dot(ax, up)) * prim.m_params.x + abs(dot(ay, up)) * prim.m_params.y + abs(dot(az, up)) * prim.m_params.z;
+			lo = c - r;
+			hi = c + r;
+			return true;
+		}
+		case BUOY_PRIM_SPHERE:
+		{
+			// A rigid transform preserves the radius, so the support is centre +/- R along any axis.
+			float radius = prim.m_params.x;
+			lo = c - radius;
+			hi = c + radius;
+			return true;
+		}
+		default:
+		{
+			lo = 0.0f;
+			hi = 0.0f;
+			return false;
+		}
+	}
+}
+
 //
 // Per-primitive measures (allocate samples + weight each sample). Shape-local space.
 //

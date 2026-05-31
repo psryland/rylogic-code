@@ -645,6 +645,25 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 				{
 					BuoyPrimitive prim = g_prims[header.prim_base + k];
 
+					// Flat-water fully-dry early-out. This is a per-sample skip, NOT an early return:
+					// the group-wide ReduceShared below must be reached by every thread, so we only
+					// suppress the per-sample work and leave force/torque/moment at zero. When
+					// wave_count==0 the surface is a constant level along 'up', so a box/sphere whose
+					// lowest support point is at or above water_level has every sample dry (the wet
+					// test uses signed_height < water_level). Skipping it avoids the emit + sibling
+					// cull + water eval and contributes exactly zero, so results are unchanged. Only
+					// box/sphere have a cheap support test; other primitives fall through to sampling.
+					bool fully_dry = false;
+					if (g.wave_count == 0)
+					{
+						float3 up_dry = -gravity_ws / g_mag;
+						float4x4 s2w = mul(prim.m_s2r, body.o2w);
+						float lo, hi;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_level;
+					}
+
+					if (!fully_dry)
+					{
 					// Emit a volume sample in shape-local space, then lift to COM-root and world.
 					float4 pos_local;
 					float weight;
@@ -675,6 +694,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
 							moment_ws_volume = float4(sample_ws * weight, weight);
 						}
+					}
 					}
 				}
 			}
@@ -816,6 +836,21 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 				{
 					BuoyPrimitive prim = g_prims[header.prim_base + k];
 
+					// Flat-water fully-dry early-out (mirror of the volume kernel). A per-sample skip,
+					// not an early return, so every thread still reaches ReduceShared below. When
+					// wave_count==0 a box/sphere whose lowest support point is at or above water_level
+					// is entirely dry, so it generates no drag samples; skipping it is result-preserving.
+					bool fully_dry = false;
+					if (g.wave_count == 0)
+					{
+						float3 up_dry = -gravity_ws / g_mag;
+						float4x4 s2w = mul(prim.m_s2r, body.o2w);
+						float lo, hi;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_level;
+					}
+
+					if (!fully_dry)
+					{
 					// Emit a surface sample (point + outward normal) in shape-local space, then lift to
 					// COM-root and world. The normal is rotated by m_s2r (w=0) and renormalised.
 					float4 pos_local;
@@ -864,6 +899,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 							force_ws = float4(dF, 0.0f);
 							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
 						}
+					}
 					}
 				}
 			}
