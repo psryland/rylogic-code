@@ -271,7 +271,9 @@
     <None Include="src\compute\physics_types.hlsli">
       <Filter>src\compute</Filter>
     </None>
-    <None Include="src\buoyancy\buoyancy_sampler.hlsli" />
+    <None Include="src\buoyancy\buoyancy_sampler.hlsli">
+      <Filter>src\buoyancy</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ShaderBuild Include="src\compute\collide.hlsl">
@@ -292,7 +294,9 @@
     <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
     </ShaderBuild>
-    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" />
+    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl">
+      <Filter>src\buoyancy</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\physics_compute_shaders.rc">

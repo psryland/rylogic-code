@@ -9,6 +9,7 @@
 #include "pr/hlsl/vector.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/buoyancy/buoyancy_sampler.hlsli"
 
 #define BUOYANCY_COLUMN_THREAD_COUNT 256
 #define BUOYANCY_REDUCE_THREAD_COUNT 128
@@ -66,6 +67,37 @@ StructuredBuffer<GpuBuoyancyHull> resource(g_hulls, t0);
 StructuredBuffer<GpuBuoyancyWave> resource(g_waves, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
+
+// --- Sampled-composite backend (phase 10) volume-pass bindings ---
+// Per-hull header for the composite volume pass: one record per registered composite hull. The
+// header locates the hull's primitive block in g_prims / g_vol_prim_records and carries the stable
+// per-hull sample seed and inside-test epsilon computed once at registration.
+struct BuoyVolHeader
+{
+	int body_index;            // index into g_bodies
+	int prim_base;             // start of this hull's primitives in g_prims / g_vol_prim_records
+	int prim_count;            // number of convex primitives in this hull
+	int total_volume_samples;  // actual emitted volume sample count (sum of per-primitive counts)
+	uint hull_id;              // stable per-hull seed for the deterministic sample hash
+	float eps;                 // scale-relative inside-test slack (sibling cull)
+	int pad0;
+	int pad1;
+};
+
+// Per-primitive volume-sample record, parallel to g_prims. Maps a flat sample index to its owning
+// primitive (via the cumulative counts) and supplies that primitive's per-sample volume weight.
+struct BuoyVolPrimRecord
+{
+	int count;    // volume samples allocated to this primitive
+	float dvol;   // per-sample volume weight (= primitive_volume / count)
+};
+
+StructuredBuffer<BuoyVolHeader> resource(g_vol_headers, t2);
+StructuredBuffer<BuoyPrimitive> resource(g_prims, t3);
+StructuredBuffer<float4> resource(g_volume_verts, t4);
+StructuredBuffer<int4> resource(g_tets, t5);
+StructuredBuffer<float4> resource(g_face_planes, t6);
+StructuredBuffer<BuoyVolPrimRecord> resource(g_vol_prim_records, t7);
 
 groupshared float4 s_force_ws[BUOYANCY_COLUMN_THREAD_COUNT];
 groupshared float4 s_torque_ws[BUOYANCY_COLUMN_THREAD_COUNT];
@@ -512,6 +544,176 @@ void CSGpuBuoyancyReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
 		g_diagnostics[hull_index].moment_ws_volume = s_moment_ws_volume[0];
 		g_diagnostics[hull_index].body_index = hull.body_index;
+		g_diagnostics[hull_index].valid = 1;
+		g_diagnostics[hull_index].volume_m3 = volume;
+		g_diagnostics[hull_index].pad0 = 0.0f;
+	}
+}
+
+// Evaluate a block of composite-hull volume samples (sampled-composite backend) and write one
+// partial record for the reducer. Each in-fluid sample contributes a Froude-Krylov pressure-gradient
+// force dF = rho*|g|*dV*(up - grad_ws) plus a per-sample torque about the body's centre of mass, and
+// a weighted moment (sample_ws*dV, dV) used to recover wet volume + centre of buoyancy. Overlap
+// regions are counted once via the lowest-index-sibling cull, so the union volume of arbitrary
+// overlapping convex primitives is unbiased. This mirrors the volume pass of the CPU oracle
+// SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
+//
+// Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups
+// per hull. The flat sample index within a hull selects a primitive by walking the per-primitive
+// cumulative counts (g_vol_prim_records, parallel to g_prims); the residual is the primitive-local
+// sample ordinal fed to the deterministic hash. Threads beyond a hull's emitted sample count, and
+// samples on static / zero-mass bodies or under (near-)zero gravity, contribute zero.
+numthreads(CSBuoyancyVolumeSamples, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
+void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
+{
+	int global_group_index = int(group_id.x);
+	int hull_index = global_group_index / g.groups_per_hull;
+	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
+	int thread_index = int(group_thread_id.x);
+	int sample_index = hull_group_index * BUOYANCY_COLUMN_THREAD_COUNT + thread_index;
+
+	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+	if (hull_index < g.hull_count)
+	{
+		BuoyVolHeader header = g_vol_headers[hull_index];
+		if (sample_index < header.total_volume_samples)
+		{
+			GpuRigidBody body = g_bodies[header.body_index];
+
+			// Static / zero-mass bodies have no buoyant response (mirrors EvaluateColumn's guard).
+			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
+
+			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
+			float3 gravity_ws = body.ws_gravity.xyz;
+			float g_mag = length(gravity_ws);
+
+			if (dynamic && g_mag > BUOY_TINY)
+			{
+				// Map the flat sample index to its owning primitive k and primitive-local ordinal by
+				// walking the per-primitive cumulative counts (parallel to g_prims).
+				int k = 0;
+				int local_i = sample_index;
+				float dvol = 0.0f;
+				bool found = false;
+				for (int pp = 0; pp != header.prim_count; ++pp)
+				{
+					BuoyVolPrimRecord rec = g_vol_prim_records[header.prim_base + pp];
+					if (local_i < rec.count)
+					{
+						k = pp;
+						dvol = rec.dvol;
+						found = true;
+						break;
+					}
+					local_i -= rec.count;
+				}
+
+				if (found)
+				{
+					BuoyPrimitive prim = g_prims[header.prim_base + k];
+
+					// Emit a volume sample in shape-local space, then lift to COM-root and world.
+					float4 pos_local;
+					float weight;
+					BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, pos_local, weight);
+					float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
+
+					// Lowest-index-sibling cull: a lower-index primitive owns any shared volume, so the
+					// union volume is counted exactly once without bias.
+					if (!BuoyIsInsideAnyLowerSibling(g_prims, header.prim_base, k, p_root, header.eps, g_face_planes))
+					{
+						float3 up = -gravity_ws / g_mag;
+						float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
+
+						// Wet test along -gravity. The flat-ocean water field is parameterised in world
+						// XY with height measured along world Z; for gravity along -Z (the phase-11 box
+						// parity gate) this matches signed-height-along-up exactly.
+						float signed_height = dot(sample_ws, up);
+						float3 hg = EvaluateWaterHeightAndGradient(sample_ws.xy);
+						if (signed_height < hg.x)
+						{
+							// Froude-Krylov pressure-gradient force per unit volume: up minus the
+							// lifted water-surface slope. Reduces to rho*|g|*dV*(0,0,1) for flat water.
+							float3 grad_ws = hg.y * float3(1.0f, 0.0f, 0.0f) + hg.z * float3(0.0f, 1.0f, 0.0f);
+							float3 dF = (g.fluid_density * g_mag * weight) * (up - grad_ws);
+							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+
+							force_ws = float4(dF, 0.0f);
+							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
+							moment_ws_volume = float4(sample_ws * weight, weight);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	s_force_ws[thread_index] = force_ws;
+	s_torque_ws[thread_index] = torque_ws;
+	s_moment_ws_volume[thread_index] = moment_ws_volume;
+	ReduceShared(uint(thread_index), BUOYANCY_COLUMN_THREAD_COUNT);
+
+	if (thread_index == 0)
+	{
+		g_partials[global_group_index].force_ws = s_force_ws[0];
+		g_partials[global_group_index].torque_ws = s_torque_ws[0];
+		g_partials[global_group_index].moment_ws_volume = s_moment_ws_volume[0];
+	}
+}
+
+// Reduce all volume partials for one composite hull, add the buoyancy force/torque to the body
+// accumulator, and write a diagnostic record. This mirrors CSGpuBuoyancyReduce but without the
+// per-face quadratic-drag block (drag is a later phase) and reads the hull's body via the volume
+// header rather than the legacy box-hull record.
+numthreads(CSBuoyancyVolumeReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
+void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
+{
+	int hull_index = int(group_id.x);
+	int thread_index = int(group_thread_id.x);
+	int partial_index = hull_index * g.groups_per_hull + thread_index;
+
+	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	if (hull_index < g.hull_count && thread_index < g.groups_per_hull)
+	{
+		GpuBuoyancyPartial partial = g_partials[partial_index];
+		force_ws = partial.force_ws;
+		torque_ws = partial.torque_ws;
+		moment_ws_volume = partial.moment_ws_volume;
+	}
+
+	s_force_ws[thread_index] = force_ws;
+	s_torque_ws[thread_index] = torque_ws;
+	s_moment_ws_volume[thread_index] = moment_ws_volume;
+	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
+
+	if (thread_index == 0 && hull_index < g.hull_count)
+	{
+		BuoyVolHeader header = g_vol_headers[hull_index];
+
+		// Wet volume + centre of buoyancy recovered from the weighted moment sum.
+		float volume = s_moment_ws_volume[0].w;
+		float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
+		float3 centre_buoyancy_ws = has_volume != 0.0f ? s_moment_ws_volume[0].xyz / volume : float3(0.0f, 0.0f, 0.0f);
+
+		GpuRigidBody body = g_bodies[header.body_index];
+		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
+		if (dynamic)
+		{
+			body.force_lin += s_force_ws[0];
+			body.force_ang += s_torque_ws[0];
+			g_bodies[header.body_index] = body;
+		}
+
+		g_diagnostics[hull_index].force_ws = s_force_ws[0];
+		g_diagnostics[hull_index].torque_ws = s_torque_ws[0];
+		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
+		g_diagnostics[hull_index].moment_ws_volume = s_moment_ws_volume[0];
+		g_diagnostics[hull_index].body_index = header.body_index;
 		g_diagnostics[hull_index].valid = 1;
 		g_diagnostics[hull_index].volume_m3 = volume;
 		g_diagnostics[hull_index].pad0 = 0.0f;
