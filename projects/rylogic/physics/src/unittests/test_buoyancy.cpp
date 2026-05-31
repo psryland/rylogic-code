@@ -9,8 +9,11 @@
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "pr/physics/shape/shape_builder.h"
 #include "pr/collision/shape_line.h"
+#include "pr/collision/shape_sphere.h"
 #include "pr/collision/shape_array.h"
 #include "src/buoyancy/buoyancy_analytical.h"
+#include <chrono>
+#include <algorithm>
 
 namespace pr::physics::tests
 {
@@ -850,6 +853,116 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			// Symmetric submerged geometry + uniform translation -> zero net torque.
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
+
+		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical
+		// submerged boxes plus one heterogeneous (box + sphere) scene through a full Engine::Step +
+		// CompleteStep loop and logs the median per-step wall-clock cost to the unit-test output stream.
+		// There are NO hard timing assertions: GPU throughput is machine dependent, so the numbers are
+		// captured purely for manual perf tracking across changes. The single PR_EXPECT only guards that
+		// the dispatch actually ran (a valid diagnostic came back), so the benchmark still fails loudly if
+		// the composite path regresses to producing nothing.
+		PRUnitTestMethod(GpuCompositeDispatchBenchmark)
+		{
+			using clock = std::chrono::steady_clock;
+			auto& out = pr::unittests::TestFramework::out();
+
+			// Steps the harness 'warmup' frames (to prime GPU resources / driver state), then times
+			// 'measure' frames of Step + CompleteStep individually and returns the median frame time in
+			// milliseconds. CompleteStep blocks on the GPU readback fence, so each timed interval includes
+			// the full GPU dispatch, not just the CPU-side enqueue.
+			auto time_steps = [](Harness& h, int warmup, int measure) -> double
+			{
+				for (auto i = 0; i != warmup; ++i)
+				{
+					h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+					h.m_buoyancy.CompleteStep();
+				}
+
+				std::vector<double> samples;
+				samples.reserve(measure);
+				for (auto i = 0; i != measure; ++i)
+				{
+					auto const t0 = clock::now();
+					h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+					h.m_buoyancy.CompleteStep();
+					auto const t1 = clock::now();
+					samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+				}
+
+				std::sort(samples.begin(), samples.end());
+				return samples.empty() ? 0.0 : samples[samples.size() / 2];
+			};
+
+			// Builds a harness of 'count' identical submerged boxes spread along X (so each one straddles the
+			// flat water plane and is not removed by the dry broadphase cull), registers them all through the
+			// composite backend, benchmarks the dispatch, and asserts the last body produced a diagnostic.
+			auto bench_boxes = [&](int count, int warmup, int measure)
+			{
+				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+				Harness h;
+				std::vector<GpuBuoyancy::Registration> regs;
+				regs.reserve(count);
+
+				for (auto i = 0; i != count; ++i)
+				{
+					h.m_bodies.emplace_back();
+					h.m_bodies[i].Shape(collision::shape_cast(&box), 500.0f);
+					h.m_bodies[i].O2W(m4x4::Translation(4.0f * i, 0.0f, 0.0f));
+					h.m_bodies[i].NeverSleep(true);
+					h.m_bodies[i].GravityWS(AnalyticGravityWS);
+				}
+				for (auto i = 0; i != count; ++i)
+					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0, collision::shape_cast(box)));
+
+				auto const median_ms = time_steps(h, warmup, measure);
+				out << "  [benchmark] " << count << " identical box bodies: median step " << median_ms << " ms\n";
+
+				auto const diag = h.m_buoyancy.LatestDiagnostics(count - 1, 0);
+				PR_EXPECT(diag.m_valid);
+			};
+
+			// Benchmarks a mixed scene of alternating box and sphere bodies to exercise both primitive
+			// samplers in the same dispatch. Boxes and spheres carry different per-primitive sample counts,
+			// so the heterogeneous case checks the dispatch handles varied sample densities together.
+			auto bench_heterogeneous = [&](int count, int warmup, int measure)
+			{
+				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+				auto sphere = collision::ShapeSphere(1.0f);
+				Harness h;
+				std::vector<GpuBuoyancy::Registration> regs;
+				regs.reserve(count);
+
+				for (auto i = 0; i != count; ++i)
+				{
+					h.m_bodies.emplace_back();
+					if ((i & 1) == 0)
+						h.m_bodies[i].Shape(collision::shape_cast(&box), 500.0f);
+					else
+						h.m_bodies[i].Shape(collision::shape_cast(&sphere), 400.0f);
+					h.m_bodies[i].O2W(m4x4::Translation(4.0f * i, 0.0f, 0.0f));
+					h.m_bodies[i].NeverSleep(true);
+					h.m_bodies[i].GravityWS(AnalyticGravityWS);
+				}
+				for (auto i = 0; i != count; ++i)
+				{
+					auto const& shape = (i & 1) == 0 ? collision::shape_cast(box) : collision::shape_cast(sphere);
+					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0, shape));
+				}
+
+				auto const median_ms = time_steps(h, warmup, measure);
+				out << "  [benchmark] " << count << " heterogeneous box/sphere bodies: median step " << median_ms << " ms\n";
+
+				auto const diag = h.m_buoyancy.LatestDiagnostics(count - 1, 0);
+				PR_EXPECT(diag.m_valid);
+			};
+
+			// Warmup and measurement counts are kept small so the benchmark stays well under a second even at
+			// 100 bodies; the median over a handful of frames is stable enough for manual tracking.
+			bench_boxes(1, 2, 5);
+			bench_boxes(10, 2, 5);
+			bench_boxes(100, 2, 5);
+			bench_heterogeneous(10, 2, 5);
 		}
 	};
 }
