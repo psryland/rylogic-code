@@ -1,4 +1,5 @@
 #include "pr/physics/utility/ldraw.h"
+#include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "src/scene/scene.h"
 #include "src/utils/scene_loader.h"
 
@@ -226,6 +227,9 @@ namespace physics_sandbox
 		, m_buoyancy_hulls()
 		, m_buoyancy_body_indices()
 		, m_buoyancy_generation()
+		, m_buoyancy_debug_shapes()
+		, m_show_buoyancy_debug(false)
+		, m_buoyancy_debug_gfx()
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
 		, m_physics_substeps(1)
@@ -264,6 +268,8 @@ namespace physics_sandbox
 	{
 		m_buoyancy_hulls.clear();
 		m_buoyancy_body_indices.clear();
+		m_buoyancy_debug_shapes.clear();
+		m_buoyancy_debug_gfx = nullptr;
 		m_gpu_buoyancy.reset();
 		++m_buoyancy_generation;
 	}
@@ -329,12 +335,18 @@ namespace physics_sandbox
 			// volume sampler has interior tets to integrate over (untessellated polytopes throw).
 			auto& body = m_body[iter->second];
 			physics::GpuBuoyancy::Registration registration;
+
+			// Retain a copy of the registered collision shape so BuildBuoyancyDebugGfx() can re-run the
+			// CPU oracle over the same geometry. Filled per shape-type case below and moved into the
+			// parallel m_buoyancy_debug_shapes array after registration.
+			byte_data<16> debug_shape;
 			switch (hull.shape_type)
 			{
 				case scene_loader::BuoyancyHullDesc::EShape::Box:
 				{
 					auto hull_shape = collision::ShapeBox(hull.dimensions);
 					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
+					debug_shape.push_back(hull_shape);
 					DbgLog("  Buoyancy: body '%s' composite box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
 					break;
 				}
@@ -342,6 +354,7 @@ namespace physics_sandbox
 				{
 					auto hull_shape = collision::ShapeSphere(hull.radius);
 					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
+					debug_shape.push_back(hull_shape);
 					DbgLog("  Buoyancy: body '%s' composite sphere hull radius=%.3f\n", hull.body_name.c_str(), hull.radius);
 					break;
 				}
@@ -351,6 +364,7 @@ namespace physics_sandbox
 					auto const& hull_shape = hull_buffer.as<collision::ShapePolytope>();
 					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
 					DbgLog("  Buoyancy: body '%s' composite polytope hull verts=%d tets=%d\n", hull.body_name.c_str(), s_cast<int>(hull.polytope_verts.size()), hull_shape.m_tet_count);
+					debug_shape = std::move(hull_buffer);
 					break;
 				}
 				default:
@@ -360,6 +374,7 @@ namespace physics_sandbox
 			}
 			m_buoyancy_hulls.push_back(std::move(registration));
 			m_buoyancy_body_indices.push_back(iter->second);
+			m_buoyancy_debug_shapes.push_back(std::move(debug_shape));
 		}
 	}
 
@@ -493,6 +508,144 @@ namespace physics_sandbox
 			diagnostics.push_back(m_gpu_buoyancy->LatestDiagnostics(body_index, m_buoyancy_generation));
 
 		return diagnostics;
+	}
+
+	// Rebuild the buoyancy sample-cloud debug overlay (m_buoyancy_debug_gfx) by re-running the
+	// deterministic CPU oracle (SampleHull) over every registered hull and emitting an LDraw object:
+	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
+	// total buoyancy force/torque arrows. This is an approximate debugging aid, not a frame-exact
+	// mirror of the GPU pass: it samples the post-step body transform with the current clock, so it
+	// lags the GPU buoyancy result by roughly one frame. Only valid for the current flat-ocean scene
+	// (gravity ~ -Z); a tilted-gravity scene would need a gravity-derived water frame here.
+	void Scene::BuildBuoyancyDebugGfx()
+	{
+		using namespace pr::physics::buoyancy;
+
+		m_buoyancy_debug_gfx = nullptr;
+		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_shapes.empty())
+			return;
+
+		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
+		// valid for the default flat WaterFrame{} (up=+Z, t0=+X, t1=+Y, ref=origin): the sampler calls
+		// Height/Gradient with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
+		// as the signed height along 'up'. EvaluateHeight returns the absolute world-Z surface height,
+		// which equals the signed height along +Z from the origin only because ref=origin and up=+Z.
+		struct WaterAdapter
+		{
+			physics::GpuBuoyancy::WaterSurface const* m_surface;
+			float m_time;
+			float Height(v2 uv) const { return m_surface->EvaluateHeight(uv, m_time); }
+			v2 Gradient(v2 uv) const { return m_surface->EvaluateGradient(uv, m_time); }
+			v4 Velocity(v4 pos_ws) const { return m_surface->EvaluateVelocity(pos_ws, m_time); }
+		};
+		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
+
+		// Match the buoyancy module's runtime fluid configuration so the visualised forces track the
+		// GPU pass as closely as the one-frame lag allows.
+		auto const cfg = SamplerConfig{ .m_fluid_density = 1000.0f, .m_drag_time_constant_s = 3.0f, .m_quadratic_drag_coefficient = 1.05f };
+
+		// Map a sample classification to a display colour.
+		auto colour_for = [](ESampleKind kind) -> uint32_t
+		{
+			switch (kind)
+			{
+				case ESampleKind::VolumeWet:     return 0xFF3060FFU; // blue: contributes buoyancy
+				case ESampleKind::VolumeDry:     return 0x40808080U; // faint grey: above water
+				case ESampleKind::VolumeCulled:  return 0xFF802020U; // dark red: owned by a lower sibling
+				case ESampleKind::SurfaceActive: return 0xFF30FF30U; // green: contributes drag
+				case ESampleKind::SurfaceDry:    return 0x40404040U; // faint dark: above water
+				case ESampleKind::SurfaceCulled: return 0xFFFF8020U; // orange: interior (non-union) surface
+				default:                         return 0xFFFFFFFFU;
+			}
+		};
+
+		// Sampling + display tuning. The oracle is run at a fixed sample budget; the resulting cloud is
+		// decimated at draw time so dense hulls stay renderable. Forces are large (~2e4 N) so arrows are
+		// scaled down to world units.
+		constexpr int VolumeSamples = 8192;
+		constexpr int SurfaceSamples = 8192;
+		constexpr int MaxDrawSamples = 16384;
+		constexpr float ForceScale = 1.0e-4f;  // N    -> world units
+		constexpr float TorqueScale = 1.0e-4f; // N.m  -> world units
+		constexpr float NormalLen = 0.1f;      // length of surface-normal whiskers
+
+		// The sample cloud lives inside (volume samples) and on the surface of the opaque body meshes, so
+		// without disabling the depth test it would be entirely occluded by the bodies. Render the whole
+		// debug group on top (no z-test) so the wet/dry classification cloud and force arrows are visible
+		// through the geometry. no_ztest on the group is inherited by the child points/lines.
+		ldraw::Builder ldr;
+		auto& grp = ldr.Group("buoyancy_debug");
+		grp.no_ztest();
+		auto& pts = grp.Point("samples", 0xFFFFFFFFU).size(5.0f).style(ldraw::seri::PointStyle{"Square"});
+		auto& normals = grp.Line("normals", 0xFF30FF30U);
+		auto& arrows = grp.Line("forces", 0xFFFFFFFFU).arrow("Fwd").per_item_colour();
+		pts.no_ztest();
+		normals.no_ztest();
+		arrows.no_ztest();
+
+		auto any_geometry = false;
+		for (size_t h = 0; h != m_buoyancy_debug_shapes.size(); ++h)
+		{
+			auto const& shape = m_buoyancy_debug_shapes[h].as<collision::Shape>();
+			auto const& body = m_body[m_buoyancy_body_indices[h]];
+
+			// The floater bodies have their centre of mass at the model origin, so O2W (model->world)
+			// coincides with the sampler's COM-root->world transform and the body's linear velocity is
+			// already the velocity at the centre of mass.
+			auto const vel = body.VelocityWS();
+			auto state = BodyState{};
+			state.m_o2w = body.O2W();
+			state.m_gravity_ws = body.GravityWS();
+			state.m_vel_lin_ws = vel.lin;
+			state.m_omega_ws = vel.ang;
+
+			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
+			// scene fails loudly here instead of silently mis-classifying samples.
+			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
+				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
+
+			auto debug = SampleDebug{};
+			auto const result = SampleHull(shape, static_cast<uint32_t>(h), state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
+
+			// Decimated sample cloud, with green whiskers on active surface samples.
+			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);
+			for (size_t i = 0; i < debug.m_samples.size(); i += stride)
+			{
+				auto const& rec = debug.m_samples[i];
+				pts.pt(rec.m_pos_ws, colour_for(rec.m_kind));
+				if (rec.m_kind == ESampleKind::SurfaceActive)
+					normals.line(rec.m_pos_ws, rec.m_pos_ws + NormalLen * rec.m_normal_ws, 0xFF30FF30U);
+				any_geometry = true;
+			}
+
+			// Per-primitive buoyancy force arrows at each primitive's wet centroid (cyan).
+			for (size_t k = 0; k != debug.m_prim_buoy_force_ws.size(); ++k)
+			{
+				auto const f = debug.m_prim_buoy_force_ws[k];
+				if (LengthSq(f.w0()) <= 0.0f)
+					continue;
+
+				auto const c = debug.PrimWetCentre(k);
+				arrows.line(c, c + ForceScale * f, 0xFF00FFFFU);
+				any_geometry = true;
+			}
+
+			// Total buoyancy force arrow at the centre of buoyancy (yellow) and torque arrow (magenta).
+			if (result.m_valid)
+			{
+				auto const cob = result.m_centre_buoyancy_ws;
+				arrows.line(cob, cob + ForceScale * result.m_buoyancy_force_ws, 0xFFFFFF00U);
+				arrows.line(cob, cob + TorqueScale * result.m_buoyancy_torque_ws, 0xFFFF00FFU);
+				any_geometry = true;
+			}
+		}
+
+		if (!any_geometry)
+			return;
+
+		auto result = rdr12::ldraw::Parse(*m_rdr, ldr.ToBinary());
+		if (!result.m_objects.empty())
+			m_buoyancy_debug_gfx = result.m_objects.front();
 	}
 
 	// Reset the simulation to the current scenario's initial conditions

@@ -68,6 +68,21 @@ namespace physics_sandbox
 		std::vector<int> m_buoyancy_body_indices;
 		int m_buoyancy_generation;
 
+		// Retained copies of the collision shapes registered with the buoyancy module, kept in
+		// parallel with m_buoyancy_body_indices so the sample-cloud debug overlay can re-run the CPU
+		// oracle (SampleHull) against the same geometry the GPU sampler uses. The shapes are otherwise
+		// transient inside ConfigureBuoyancy, so we copy them here when debug visualisation may be needed.
+		std::vector<byte_data<16>> m_buoyancy_debug_shapes;
+
+		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force
+		// overlay is drawn. Toggled by the sandbox UI ('B' key).
+		bool m_show_buoyancy_debug;
+
+		// LDraw overlay produced by BuildBuoyancyDebugGfx() (sample points coloured by classification,
+		// surface normals, and per-primitive/total force + torque arrows). Rebuilt each frame while
+		// m_show_buoyancy_debug is set; null otherwise.
+		rdr12::ldraw::LdrObjectPtr m_buoyancy_debug_gfx;
+
 		// Gravity acceleration vector (direction and magnitude, e.g. [0, -9.81, 0]).
 		// Applied each step to all non-static bodies as F = m * g.
 		v4 m_gravity;
@@ -187,5 +202,11 @@ namespace physics_sandbox
 
 		// Return the latest diagnostic buoyancy records for scene-registered hulls.
 		std::vector<physics::GpuBuoyancy::Diagnostics> BuoyancyDiagnostics() const;
+
+		// Rebuild m_buoyancy_debug_gfx by running the CPU buoyancy oracle (SampleHull) over each
+		// registered hull and emitting an LDraw overlay of the per-sample wet/dry/culled classifications,
+		// surface normals, and per-primitive + total force/torque arrows. A debug aid only; sampled with
+		// the post-step body transform and current clock so it lags the GPU pass by approximately one frame.
+		void BuildBuoyancyDebugGfx();
 	};
 }

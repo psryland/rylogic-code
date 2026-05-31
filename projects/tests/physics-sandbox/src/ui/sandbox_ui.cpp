@@ -139,6 +139,10 @@ namespace physics_sandbox
 			// D=toggle details panel visibility
 			if (args.m_vk_key == 'D')
 				m_details.TogglePin();
+
+			// B=toggle buoyancy sample-cloud debug overlay
+			if (args.m_vk_key == 'B')
+				m_scene.m_show_buoyancy_debug = !m_scene.m_show_buoyancy_debug;
 		};
 
 		// Hook the scene population event — called each frame during DoRender() to add
@@ -160,6 +164,16 @@ namespace physics_sandbox
 				m_scene.m_origin_gfx->AddToScene(scene);
 			if (m_scene.m_contacts_gfx)
 				m_scene.m_contacts_gfx->AddToScene(scene);
+
+			// Rebuild and draw the buoyancy sample-cloud overlay when enabled. Rebuilt each frame because
+			// it samples the bodies' current transforms; cheap relative to the physics step and only active
+			// while the user is debugging buoyancy.
+			if (m_scene.m_show_buoyancy_debug)
+			{
+				m_scene.BuildBuoyancyDebugGfx();
+				if (m_scene.m_buoyancy_debug_gfx)
+					m_scene.m_buoyancy_debug_gfx->AddToScene(scene);
+			}
 
 			// Install the procedural sky cube as the scene's global environment map and draw the matching
 			// skybox model centred on the camera so reflective surfaces have something to reflect against
