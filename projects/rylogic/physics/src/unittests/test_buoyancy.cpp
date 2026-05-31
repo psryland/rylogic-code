@@ -1109,6 +1109,153 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_force, std::max(Length(expected_force) * 0.02f, 5.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, expected_torque, std::max(Length(expected_torque) * 0.05f, 5.0f)));
 		}
+
+		// Composite port of the legacy GpuSlopedSurfaceHorizontalForce check. A fully-submerged box on a
+		// uniformly-sloped water surface must produce a lateral Froude-Krylov force equal to rho*g*V*dh/dx
+		// in the down-slope direction. The composite volume pass accumulates the per-sample pressure-gradient
+		// force dF = rho*|g|*dV*(up - grad_ws); a single long-wavelength wave makes grad_ws effectively
+		// uniform across the body, so the integral collapses to the same closed form as the legacy column
+		// path. Drag is disabled (and the body is at rest) so the only lateral force is the wave slope.
+		PRUnitTestMethod(GpuCompositeSlopedSurfaceHorizontalForce)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			// Sink the body so the entire volume is well below the wavy surface (water_level = 0).
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			// Disable both drag terms so the lateral force is purely from the wave slope.
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f, .m_quadratic_drag_coefficient = 0.0f });
+
+			// Long wavelength (1000 m) means cos(k*x) is essentially 1 across the 2 m box, so the surface
+			// slope is uniform and equal to A*k at the origin. Choose A so the slope works out to 0.1.
+			auto const wavelength = 1000.0f;
+			auto const slope_target = 0.1f;
+			auto const k = constants<float>::tau / wavelength;
+			auto const amplitude = slope_target / k;
+			auto water = GpuBuoyancy::WaterSurface{};
+			water.m_waves.push_back(GpuBuoyancy::SineWave{
+				.m_direction = v2{1.0f, 0.0f},
+				.m_wavelength = wavelength,
+				.m_amplitude = amplitude,
+				.m_phase_speed = 0.0f,
+			});
+			h.m_buoyancy.SetWaterSurface(water);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// The box is fully submerged, so the sampled volume is the full box (4 m^3) up to sampling noise.
+			auto const volume = diag.m_volume_m3;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
+
+			// Expected lateral force: -rho*g*V*dh/dx with dh/dx = slope_target at the body's XY centre. The
+			// uniform-slope term converges tightly; the symmetric-cancellation lateral noise floor matches the
+			// other composite box tests (~25 N).
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, -rho_g_v * slope_target, std::max(std::abs(rho_g_v * slope_target) * 0.02f, 25.0f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
+		}
+
+		// Composite port of the legacy GpuLinearDragForce check, asserting the surface linear-drag closed form.
+		// A fully-submerged box translating at v = (1,0,0) in flat water sees a uniform relative flow at every
+		// wetted surface sample, so the linear drag integral collapses to F = -c_lin * A_total * v, where
+		// c_lin = density / tau and A_total is the full box surface area (sum of every sample's dA). Quadratic
+		// drag is disabled so the horizontal force is purely the linear term. Note this differs from the legacy
+		// per-column volume-based linear drag (-c_drag*V*v): the composite drag is a SURFACE integral, so the
+		// closed form scales with surface area, not volume.
+		PRUnitTestMethod(GpuCompositeLinearDragForce)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			// Uniform translation drives the drag pass; capture before stepping.
+			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
+
+			// Isolate linear drag: disable quadratic form drag (default Cd is non-zero).
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_quadratic_drag_coefficient = 0.0f });
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			auto const config = h.m_buoyancy.GetConfig();
+			auto const c_lin = config.m_fluid_density / config.m_drag_time_constant_s;
+			// 2x2x1 box total surface area = 2*(2*2 + 2*1 + 2*1) = 16 m^2.
+			auto const surface_area = 2.0f * (2.0f * 2.0f + 2.0f * 1.0f + 2.0f * 1.0f);
+			auto const expected_force_x = -c_lin * surface_area * 1.0f;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
+
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 4.0f, 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_force_x, std::max(std::abs(expected_force_x) * 0.02f, 25.0f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
+			// Symmetric submerged geometry + uniform translation -> zero net torque.
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
+
+		// Composite port of the legacy GpuQuadraticDragLinearMotion check. A fully-submerged box moving at
+		// v = (1,0,0) only sees outward-normal flow on its +X face (the -X face is leeward, the +/-Y and +/-Z
+		// faces have v_n = 0). With linear drag disabled, the lateral force is purely the quadratic form drag
+		// integrated over the +X face: F_x = -0.5*rho*Cd*A_front*v_n^2. A_front = (2*hy)*(2*hz) = 2 m^2 and
+		// v_n = 1 m/s, giving F_x = -0.5*1000*1.05*2*1 = -1050 N. This closed form is independent of the
+		// surface sampler's distribution because every +X sample's dA sums exactly to the face area.
+		PRUnitTestMethod(GpuCompositeQuadraticDragLinearMotion)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
+
+			// Linear drag disabled so the lateral force is purely the quadratic form drag.
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f });
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			auto const config = h.m_buoyancy.GetConfig();
+			auto const hy = 1.0f;
+			auto const hz = 0.5f;
+			auto const front_face_area = (2.0f * hy) * (2.0f * hz);
+			auto const v_n = 1.0f;
+			auto const expected_drag_x = -0.5f * config.m_fluid_density * config.m_quadratic_drag_coefficient * front_face_area * v_n * v_n;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
+
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 4.0f, 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_drag_x, std::max(std::abs(expected_drag_x) * 0.02f, 25.0f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
+			// Symmetric submerged geometry + uniform translation -> zero net torque.
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
 	};
 }
 #endif
