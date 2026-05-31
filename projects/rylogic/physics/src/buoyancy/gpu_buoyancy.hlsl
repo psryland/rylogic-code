@@ -99,6 +99,36 @@ StructuredBuffer<int4> resource(g_tets, t5);
 StructuredBuffer<float4> resource(g_face_planes, t6);
 StructuredBuffer<BuoyVolPrimRecord> resource(g_vol_prim_records, t7);
 
+// --- Sampled-composite backend (phase 12) surface-pass bindings ---
+// Per-hull header for the composite surface (drag) pass: one record per registered composite hull.
+// Layout-identical to BuoyVolHeader, but the sample-count field counts surface samples and the
+// primitive block is indexed into g_surf_prim_records (parallel to g_prims) instead of the volume
+// records. The body index, hull seed and inside-test epsilon are the same per-hull values.
+struct BuoySurfHeader
+{
+	int body_index;             // index into g_bodies
+	int prim_base;              // start of this hull's primitives in g_prims / g_surf_prim_records
+	int prim_count;             // number of convex primitives in this hull
+	int total_surface_samples;  // actual emitted surface sample count (sum of per-primitive counts)
+	uint hull_id;               // stable per-hull seed for the deterministic sample hash
+	float eps;                  // scale-relative inside-test slack (sibling cull)
+	int pad0;
+	int pad1;
+};
+
+// Per-primitive surface-sample record, parallel to g_prims. Maps a flat sample index to its owning
+// primitive (via the cumulative counts) and supplies that primitive's per-sample area weight.
+struct BuoySurfPrimRecord
+{
+	int count;    // surface samples allocated to this primitive
+	float darea;  // per-sample area weight (= primitive_area / count)
+};
+
+StructuredBuffer<BuoySurfHeader> resource(g_surf_headers, t8);
+StructuredBuffer<float4> resource(g_verts, t9);
+StructuredBuffer<int4> resource(g_face_verts, t10);
+StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
+
 groupshared float4 s_force_ws[BUOYANCY_COLUMN_THREAD_COUNT];
 groupshared float4 s_torque_ws[BUOYANCY_COLUMN_THREAD_COUNT];
 groupshared float4 s_moment_ws_volume[BUOYANCY_COLUMN_THREAD_COUNT];
@@ -717,5 +747,182 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		g_diagnostics[hull_index].valid = 1;
 		g_diagnostics[hull_index].volume_m3 = volume;
 		g_diagnostics[hull_index].pad0 = 0.0f;
+	}
+}
+
+// Sampled-composite surface (drag) sample pass. Mirrors CSBuoyancyVolumeSamples but emits SURFACE
+// samples (point + outward normal + per-sample area) over the union boundary, deduplicated by the
+// any-other-sibling exterior-side cull, and accumulates linear + quadratic drag instead of the
+// Froude-Krylov pressure-gradient force. The drag math mirrors the CPU oracle's surface pass:
+//   dF = -0.5*rho*Cd*dA*max(0,v_n)^2 * n   (quadratic, windward faces only)
+//      + -c_lin*dA * v_rel                 (linear)
+// where v_rel = v_point - v_water and v_n = dot(v_rel, n). Both terms are summed (the weight is the
+// per-sample area dA). The moment-sum slot is written zero so it does not corrupt the volume pass's
+// diagnostic COB when ReduceShared sums all three shared arrays.
+numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_COLUMN_THREAD_COUNT, 1, 1)
+void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
+{
+	int global_group_index = int(group_id.x);
+	int hull_index = global_group_index / g.groups_per_hull;
+	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
+	int thread_index = int(group_thread_id.x);
+	int sample_index = hull_group_index * BUOYANCY_COLUMN_THREAD_COUNT + thread_index;
+
+	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+	// Drag coefficients: c_lin is rho/tau (packed by the host as g.drag_coefficient) and c_quad is
+	// the form-drag coefficient. Drag is active only if at least one is positive.
+	float c_lin = g.drag_coefficient;
+	float c_quad = g.quadratic_drag_coefficient;
+	bool have_drag = c_lin > 0.0f || c_quad > 0.0f;
+
+	if (have_drag && hull_index < g.hull_count)
+	{
+		BuoySurfHeader header = g_surf_headers[hull_index];
+		if (sample_index < header.total_surface_samples)
+		{
+			GpuRigidBody body = g_bodies[header.body_index];
+
+			// Static / zero-mass bodies have no drag response (mirrors the volume-pass guard).
+			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
+
+			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
+			float3 gravity_ws = body.ws_gravity.xyz;
+			float g_mag = length(gravity_ws);
+
+			if (dynamic && g_mag > BUOY_TINY)
+			{
+				// Map the flat sample index to its owning primitive k and primitive-local ordinal by
+				// walking the per-primitive cumulative counts (parallel to g_prims).
+				int k = 0;
+				int local_i = sample_index;
+				float darea = 0.0f;
+				bool found = false;
+				for (int pp = 0; pp != header.prim_count; ++pp)
+				{
+					BuoySurfPrimRecord rec = g_surf_prim_records[header.prim_base + pp];
+					if (local_i < rec.count)
+					{
+						k = pp;
+						darea = rec.darea;
+						found = true;
+						break;
+					}
+					local_i -= rec.count;
+				}
+
+				if (found)
+				{
+					BuoyPrimitive prim = g_prims[header.prim_base + k];
+
+					// Emit a surface sample (point + outward normal) in shape-local space, then lift to
+					// COM-root and world. The normal is rotated by m_s2r (w=0) and renormalised.
+					float4 pos_local;
+					float4 normal_local;
+					float weight;
+					BuoyEmitSurfaceSample(prim, BuoySampleIndex(header.hull_id, k, local_i), darea, g_verts, g_face_planes, g_face_verts, pos_local, normal_local, weight);
+					float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
+					float3 n_root = BuoyNormaliseOrZero(mul(float4(normal_local.xyz, 0.0f), prim.m_s2r).xyz);
+
+					// A surface sample contributes to the union boundary only if it lies outside every
+					// other sibling primitive (interior embedded surfaces are not wetted).
+					if (!BuoyIsInsideAnyOtherSibling(g_prims, header.prim_base, header.prim_count, k, p_root, n_root, header.eps, g_face_planes))
+					{
+						float3 up = -gravity_ws / g_mag;
+						float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
+						float3 normal_ws = BuoyNormaliseOrZero(mul(float4(n_root, 0.0f), body.o2w).xyz);
+
+						// Wet test along -gravity (same flat-ocean idiom as the volume pass).
+						float signed_height = dot(sample_ws, up);
+						if (signed_height < EvaluateWaterHeight(sample_ws.xy))
+						{
+							// Body kinematics at this instant (same storage convention as
+							// EvaluatePerFaceQuadraticDrag: inertia_inv_* is mass-removed shape inertia).
+							float inv_mass = body.os_com_and_invmass.w;
+							float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+							float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+							float3 v_lin = inv_mass * body.momentum_lin.xyz;
+							float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
+							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+
+							// Relative flow at the sample (body velocity minus wave-orbital water flow).
+							float3 v_point = v_lin + cross(omega_ws, sample_ws - com_ws);
+							float3 v_rel = v_point - EvaluateWaterVelocity(sample_ws);
+							float v_n = dot(v_rel, normal_ws);
+
+							float3 dF = float3(0.0f, 0.0f, 0.0f);
+
+							// Quadratic form drag acts only on faces moving outward into the fluid.
+							if (c_quad > 0.0f && v_n > 0.0f)
+								dF += (-0.5f * g.fluid_density * c_quad * weight * v_n * v_n) * normal_ws;
+
+							// Linear drag acts isotropically against the relative flow.
+							if (c_lin > 0.0f)
+								dF += (-c_lin * weight) * v_rel;
+
+							force_ws = float4(dF, 0.0f);
+							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	s_force_ws[thread_index] = force_ws;
+	s_torque_ws[thread_index] = torque_ws;
+	s_moment_ws_volume[thread_index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	ReduceShared(uint(thread_index), BUOYANCY_COLUMN_THREAD_COUNT);
+
+	if (thread_index == 0)
+	{
+		g_partials[global_group_index].force_ws = s_force_ws[0];
+		g_partials[global_group_index].torque_ws = s_torque_ws[0];
+		g_partials[global_group_index].moment_ws_volume = s_moment_ws_volume[0];
+	}
+}
+
+// Reduce all surface partials for one composite hull and ADD the drag force/torque to the body
+// accumulator and the diagnostic record. The diagnostic already holds the volume pass's buoyancy
+// force/torque (this pass runs after the volume reduce), so the diagnostic force_ws/torque_ws become
+// the combined buoyancy + drag result (matching the legacy convention). Volume, COB and the moment
+// sum are produced by the volume pass and left untouched here.
+numthreads(CSBuoyancyDragSurfaceReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
+void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
+{
+	int hull_index = int(group_id.x);
+	int thread_index = int(group_thread_id.x);
+	int partial_index = hull_index * g.groups_per_hull + thread_index;
+
+	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	if (hull_index < g.hull_count && thread_index < g.groups_per_hull)
+	{
+		GpuBuoyancyPartial partial = g_partials[partial_index];
+		force_ws = partial.force_ws;
+		torque_ws = partial.torque_ws;
+	}
+
+	s_force_ws[thread_index] = force_ws;
+	s_torque_ws[thread_index] = torque_ws;
+	s_moment_ws_volume[thread_index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
+
+	if (thread_index == 0 && hull_index < g.hull_count)
+	{
+		BuoySurfHeader header = g_surf_headers[hull_index];
+
+		GpuRigidBody body = g_bodies[header.body_index];
+		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
+		if (dynamic)
+		{
+			body.force_lin += s_force_ws[0];
+			body.force_ang += s_torque_ws[0];
+			g_bodies[header.body_index] = body;
+		}
+
+		g_diagnostics[hull_index].force_ws += s_force_ws[0];
+		g_diagnostics[hull_index].torque_ws += s_torque_ws[0];
 	}
 }

@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates physics_compute_shaders.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-05-31 (gpu_buoyancy: phase 10 volume kernels + buoyancy_sampler.hlsli include)
+// Touched: 2026-05-31 (gpu_buoyancy: phase 12 surface drag kernels CSBuoyancyDragSurfaceSamples/Reduce)
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"

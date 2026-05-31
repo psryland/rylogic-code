@@ -6,6 +6,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "pr/physics/shape/shape_builder.h"
 #include "pr/collision/shape_line.h"
 #include "pr/collision/shape_array.h"
@@ -912,6 +913,167 @@ namespace pr::physics::tests
 			auto const dt = 1.0f / 60.0f;
 			auto const expected_velocity = (19620.0f / 500.0f + AnalyticGravityWS.z) * dt;
 			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 1e-2f));
+		}
+
+		// A flat gravity-frame water field for feeding the CPU oracle in GPU-vs-oracle parity tests:
+		// height is zero everywhere along 'up', no slope, no fluid velocity. Combined with the default
+		// WaterFrame (up=+Z, ref=origin) this exactly mirrors the GPU's flat z=0 water surface.
+		struct FlatField
+		{
+			float Height(v2) const { return 0.0f; }
+			v2 Gradient(v2) const { return v2::Zero(); }
+			v4 Velocity(v4) const { return v4::Zero(); }
+		};
+
+		// Composite union volume: two concentric boxes (a big 2x2x1 and a small 1x1x0.5 fully inside it)
+		// must report the union volume, NOT the sum. The lower-index volume sibling-cull means every
+		// sample of the inner box lands inside the outer box (a lower-index sibling) and is discarded, so
+		// the submerged union is exactly the outer box's half (2 m^3) rather than 2 + 0.25 = 2.25 m^3.
+		// This is the key composite-dedup test: without the cull the volume (and buoyancy force) would be
+		// inflated by the embedded inner primitive.
+		PRUnitTestMethod(GpuCompositeOverlappingBoxesUnionVolume)
+		{
+			// Outer box is sibling 0, inner box is sibling 1; both concentric at the origin so the inner
+			// box is entirely contained within the outer one.
+			ShapeBuilder sb;
+			sb.AddShape(collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f}));
+			sb.AddShape(collision::ShapeBox(v4{1.0f, 1.0f, 0.5f, 0.0f}));
+
+			byte_data<16> data;
+			MassProperties mp;
+			v4 model_to_com;
+			auto* arr = sb.BuildShape(data, mp, model_to_com);
+			PR_EXPECT(arr != nullptr && arr->m_type == collision::EShape::Array);
+
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(arr, 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, *arr);
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// Union submerged volume is the outer box half (2 m^3), proving the inner box's samples were
+			// deduplicated. The buoyancy force and COB therefore match the single-box half-submerged case.
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 50.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -0.25f, 1.0f}, 0.005f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 15.0f));
+		}
+
+		// A fully-submerged sphere registered through the composite backend must reproduce the closed-form
+		// sphere buoyancy: V = 4/3*pi*R^3, force = (0, 0, rho*|g|*V) straight up, centre of buoyancy at the
+		// sphere centre, zero torque. Tolerances are looser than the box case because the sphere volume
+		// sampler maps a Halton radius through pow(u, 1/3) (the oracle uses std::cbrt) so individual sample
+		// positions differ slightly; with the sphere fully submerged every sample is wet, so the net volume
+		// and vertical force are insensitive to that difference and only the symmetric-cancellation
+		// quantities (lateral force, COB drift, torque) carry the residual noise.
+		PRUnitTestMethod(GpuCompositeSphereMatchesAnalytic)
+		{
+			auto const radius = 1.0f;
+			auto sphere = collision::ShapeSphere(radius);
+
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&sphere), 500.0f);
+			// Submerge the whole sphere well below the flat water surface (z = 0).
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(sphere));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			auto const volume = (4.0f / 3.0f) * (constants<float>::tau / 2.0f) * radius * radius * radius;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
+
+			// Volume and vertical force converge tightly (sums of equal-weight wet samples).
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, volume * 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
+			// Lateral force cancels by symmetry; COB sits at the sphere centre; torque vanishes.
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, 0.0f, std::abs(rho_g_v) * 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, std::abs(rho_g_v) * 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -5.0f, 1.0f}, 0.02f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), std::abs(rho_g_v) * 0.02f));
+		}
+
+		// GPU-vs-oracle parity with drag active. A fully-submerged box translating and yawing exercises
+		// the surface drag pass (linear + quadratic) on top of buoyancy. The CPU sampler (buoyancy_sampler.h)
+		// is the deterministic reference oracle: fed the same stable hull id (0), the same 8192/8192 sample
+		// totals, the same flat water frame and the same body state, it walks the identical hash and cull,
+		// so the GPU combined force/torque must match the oracle's buoyancy+drag sum to within single-precision
+		// sampling noise. This validates the full DispatchComposite + drag-surface kernel transcription, not
+		// just buoyancy. The GPU diagnostic force/torque are the COMBINED buoyancy+drag values (the surface
+		// reduce adds into them), which is what we compare against oracle.buoy + oracle.drag.
+		PRUnitTestMethod(GpuCompositeMatchesOracleWithDrag)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto const o2w = m4x4::Translation(0.0f, 0.0f, -5.0f);
+			auto const vel_lin = v4{1.5f, 0.0f, 0.0f, 0.0f};
+			auto const omega = v4{0.0f, 0.0f, 0.8f, 0.0f};
+
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(o2w);
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			// Start-of-step velocity drives the drag pass; capture it for the oracle before stepping.
+			h.m_bodies[0].VelocityWS(omega, vel_lin);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			// The harness builds GpuBuoyancy with a default Config (linear drag tau = 3 s, quadratic Cd = 1.05).
+			auto const config = h.m_buoyancy.GetConfig();
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// Run the CPU oracle with the SAME hull id (0), sample totals (8192/8192), flat water frame and
+			// body state. SampleHull internally distributes the totals across primitives exactly as the GPU
+			// does (shared DistributeCounts), so per-primitive counts and per-sample hashes coincide.
+			auto oracle_body = buoyancy::BodyState{
+				.m_o2w = o2w,
+				.m_gravity_ws = AnalyticGravityWS,
+				.m_vel_lin_ws = vel_lin,
+				.m_omega_ws = omega,
+			};
+			auto oracle_cfg = buoyancy::SamplerConfig{
+				.m_fluid_density = config.m_fluid_density,
+				.m_drag_time_constant_s = config.m_drag_time_constant_s,
+				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
+			};
+			auto const frame = buoyancy::WaterFrame{};
+			auto const field = FlatField{};
+			auto const oracle = buoyancy::SampleHull(collision::shape_cast(box), 0, oracle_body, frame, field, oracle_cfg, 8192, 8192);
+			PR_EXPECT(oracle.m_valid);
+
+			auto const expected_force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
+			auto const expected_torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
+
+			// Volume matches tightly (fully submerged, equal-weight samples). Force/torque carry sampling
+			// noise from the drag pass, so compare with a small relative tolerance about the oracle magnitude.
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, oracle.m_volume_m3 * 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_force, std::max(Length(expected_force) * 0.02f, 5.0f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, expected_torque, std::max(Length(expected_torque) * 0.05f, 5.0f)));
 		}
 	};
 }

@@ -201,15 +201,27 @@ namespace pr::physics
 			}
 			case EShape::Array:
 			{
-				#if 0
-				auto& array = shape_cast<ShapeArray>(shape);
-
-				for (auto& subshape : array.shapes())
-					PackShape(subshape, vertex_buffer, p2rb);
-
-				return {}; // Array shapes are not directly represented on the GPU; their sub-shapes already carry root-space transforms.
-				#endif
-				throw std::runtime_error("not implemented"); // This needs more thought...
+				// Composite (array-of-convex) bodies have no single-convex GPU representation: the GPU
+				// narrowphase packs exactly one convex GpuShape per body, so a compound shape cannot be
+				// expressed here. True compound GPU collision (a body referencing several convex sub-shapes)
+				// is a separate, larger feature that is not yet implemented. Until then a compound body is
+				// packed as NoShape, meaning it participates in integration and (via its own buoyancy
+				// composite-hull representation) buoyancy, but generates no GPU collision contacts. The
+				// narrowphase bins NoShape into COLLISION_BIN_COUNT and drops any pair touching it, so this
+				// is safe; the only cost is that broadphase may still emit (then discard) pairs for such a
+				// body in dense scenes.
+				return GpuShape {
+					.s2rb = p2rb * shape.m_s2r,
+					.type = static_cast<int>(collision::EShape::NoShape),
+					.vert_offset = 0,
+					.vert_count = 0,
+					.material_id = 0,
+					.face_offset = 0,
+					.face_count = 0,
+					.edge_offset = 0,
+					.edge_count = 0,
+					.data = v4::Zero(),
+				};
 			}
 			default:
 			{
