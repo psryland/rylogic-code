@@ -860,11 +860,59 @@ namespace pr::physics::tests
 			PR_EXPECT(h.m_bodies[0].NeverSleep() == false);
 		}
 
-		// Note: the Apply() fail-fast for the not-yet-implemented sampled-composite force pipeline
-		// (phases 8-10) is deliberately NOT unit-tested by driving a full Engine::Step. The throw
-		// unwinds out of Step mid-GPU-command-recording, leaving the Engine's fence unsignaled, so the
-		// Engine destructor then deadlocks waiting on GPU idle. The guard itself is exercised end-to-end
-		// once the real force kernels land and Apply no longer throws.
+		// Phase-11 GATE: a single box registered through the sampled-composite backend must reproduce
+		// the legacy box-columns result (volume / force / centre-of-buoyancy / torque) to within
+		// Monte-Carlo sampling error. This is the first end-to-end exercise of DispatchComposite plus
+		// both volume kernels; it supersedes the old "Apply() throws" note (the force kernels have
+		// landed, so Apply no longer throws for the composite path and a full Engine::Step is safe).
+		//
+		// Setup mirrors BuoyancyAnalyticTests::GpuDiagnosticMatchesAnalyticBox: a 2x2x1 box of mass
+		// 500 kg at identity, flat water at z = 0, per-body gravity = AnalyticGravityWS. Half the box
+		// (z in [-0.5, 0]) is submerged, so the expected readback is volume 2 m^3, buoyancy force
+		// (0, 0, rho*|g|*V) = (0, 0, 19620) N, COB (0, 0, -0.25), torque ~ 0.
+		//
+		// Unlike the legacy test, the composite path pushes an INVALID analytic record, so we assert
+		// the GPU values directly against the known analytic expectations and do NOT inspect
+		// m_analytic_valid or the *_error_* diagnostic fields.
+		PRUnitTestMethod(GpuCompositeBoxMatchesAnalyticBox)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(GpuBuoyancy::EBackend::SampledComposite);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+
+			// The sampled-composite backend does not compute a closed-form analytic record, so the
+			// analytic diagnostic must be flagged invalid. Asserting this confirms the test is actually
+			// exercising DispatchComposite and not silently falling back to the legacy analytic path.
+			PR_EXPECT(!diag.m_analytic_valid);
+
+			// Low-discrepancy volume sampling of a symmetric half-submerged box leaves a small residual
+			// in the symmetric-cancellation quantities (lateral force, COB x/y, torque). Tolerances are
+			// the measured residual plus margin; the dominant quantities (wet volume, vertical force)
+			// converge tightly because they are sums of equal-weight wet samples.
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.005f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -0.25f, 1.0f}, 0.002f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 10.0f));
+
+			// Prove the buoyancy force is actually applied to the rigid body, not merely reported in the
+			// diagnostic record. The body also receives m*g during integration (it carries its own
+			// gravity vector), so the net Z force is buoyancy + m*g = 19620 + 500*(-9.81) = 14715 N.
+			auto const dt = 1.0f / 60.0f;
+			auto const expected_velocity = (19620.0f / 500.0f + AnalyticGravityWS.z) * dt;
+			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 1e-2f));
+		}
 	};
 }
 #endif
