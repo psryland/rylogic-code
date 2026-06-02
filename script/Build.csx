@@ -460,7 +460,7 @@ public class LDraw : Managed
 	public string? MsiPath = null;
 
 	public LDraw(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
+		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
 	{
 		DeployDir = Tools.Path([UserVars.Root, "bin/LDraw"], check_exists: false);
 	}
@@ -505,9 +505,9 @@ public class LDraw : Managed
 		foreach (var dir in dir_list)
 			Tools.Copy(Tools.Path([target_dir, dir]), Tools.Path([DeployDir, dir], check_exists: false), full_paths: false, indent: "    ");
 
-		// Build the installer
+		// Build the installer (installer.wxs lives at the umbrella folder, one level above ProjDir)
 		Console.WriteLine("Building installer...\n");
-		var installer_wxs = Tools.Path([ProjDir, "installer", "installer.wxs"]);
+		var installer_wxs = Tools.Path([ProjDir, "..", "installer", "installer.wxs"]);
 		MsiPath = BuildInstaller.Build("LDraw", version, installer_wxs, ProjDir, target_dir, Tools.Path([DeployDir, ".."]),
 			[
 				new HarvestPath("binaries", "INSTALLFOLDER", ".", false, [new Regex(@".*\.dll"), new Regex(@"LDraw\.runtimeconfig\.json")]),
