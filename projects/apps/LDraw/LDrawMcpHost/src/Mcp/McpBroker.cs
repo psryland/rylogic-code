@@ -11,16 +11,12 @@ internal sealed partial class McpBroker
 {
 	private readonly InstanceRegistry m_registry;
 	private readonly InstancePipeClient m_client;
-	private readonly string m_local_instance_id;
-	private readonly Func<string> m_endpoint;
 
 	/// <summary>Create a broker for routing MCP requests to registered LDraw instances</summary>
-	public McpBroker(InstanceRegistry registry, InstancePipeClient client, string local_instance_id, Func<string> endpoint)
+	public McpBroker(InstanceRegistry registry, InstancePipeClient client)
 	{
 		m_registry = registry;
 		m_client = client;
-		m_local_instance_id = local_instance_id;
-		m_endpoint = endpoint;
 	}
 
 	/// <summary>Return all live instances registered with the local broker</summary>
@@ -84,22 +80,32 @@ internal sealed partial class McpBroker
 		return await m_client.OverlayClearAsync(registration, parameters).ConfigureAwait(false);
 	}
 
-	/// <summary>Find an instance registration by id</summary>
+	/// <summary>Find an instance registration by id, or pick a default target</summary>
 	private InstanceRegistration ResolveInstance(string? instance_id)
 	{
 		var instances = m_registry.LiveInstances();
 
-		// Most clients only connect to one LDraw process, so omitted instance id targets the process that won broker election.
-		var id = string.IsNullOrWhiteSpace(instance_id) ? m_local_instance_id : instance_id;
-		return instances.FirstOrDefault(x => string.Equals(x.InstanceId, id, StringComparison.OrdinalIgnoreCase))
-			?? throw new InvalidOperationException($"No live LDraw instance with id '{id}' is registered.");
+		// An explicit id always wins; the caller chose a specific LDraw process.
+		if (!string.IsNullOrWhiteSpace(instance_id))
+		{
+			return instances.FirstOrDefault(x => string.Equals(x.InstanceId, instance_id, StringComparison.OrdinalIgnoreCase))
+				?? throw new InvalidOperationException($"No live LDraw instance with id '{instance_id}' is registered.");
+		}
+
+		// With no id, route to the only instance, or the most-recently-seen one when several are running.
+		// NOTE: Phase 3 will track a host-side "last active" instance for stickier routing; for now most-recent is the deterministic default.
+		return instances.Count switch
+		{
+			0 => throw new InvalidOperationException("No live LDraw instance is registered. Start LDraw and try again."),
+			1 => instances[0],
+			_ => instances.OrderByDescending(x => x.LastSeenUtc).ThenByDescending(x => x.StartedUtc).First(),
+		};
 	}
 
 	/// <summary>Convert a registry entry into public MCP output</summary>
-	private McpInstanceInfo ToInfo(InstanceRegistration registration)
+	private static McpInstanceInfo ToInfo(InstanceRegistration registration)
 	{
-		// Only the process that owns the HTTP listener has an MCP endpoint. Other instances are reached through the broker.
-		var is_broker = string.Equals(registration.InstanceId, m_local_instance_id, StringComparison.OrdinalIgnoreCase);
+		// The tray host owns the single HTTP endpoint, so no LDraw instance is itself a broker and none expose an endpoint.
 		return new McpInstanceInfo
 		{
 			InstanceId = registration.InstanceId,
@@ -107,8 +113,8 @@ internal sealed partial class McpBroker
 			ProcessName = registration.ProcessName,
 			StartedUtc = registration.StartedUtc,
 			LastSeenUtc = registration.LastSeenUtc,
-			IsBroker = is_broker,
-			Endpoint = is_broker ? m_endpoint() : string.Empty,
+			IsBroker = false,
+			Endpoint = string.Empty,
 			SettingsPath = registration.SettingsPath,
 		};
 	}

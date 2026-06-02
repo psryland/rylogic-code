@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace LDraw.MCP;
 
@@ -12,6 +13,11 @@ public static class McpJson
 		DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
 		PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
 		WriteIndented = true,
+
+		// The MCP SDK marks these options read-only when building the tool catalogue, which requires an
+		// explicit type info resolver. Use the reflection-based resolver so DTO (de)serialisation works
+		// regardless of whether reflection-based serialisation is enabled by default in the hosting process.
+		TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
 	};
 
 	/// <summary>The serializer options used for one-line local IPC messages</summary>

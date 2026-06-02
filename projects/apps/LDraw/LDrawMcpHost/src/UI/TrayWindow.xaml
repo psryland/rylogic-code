@@ -1,0 +1,30 @@
+﻿<Window
+	x:Class="LDraw.MCP.Host.UI.TrayWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gui.WPF"
+	Title="LDraw MCP Host"
+	Width="0"
+	Height="0"
+	WindowStyle="None"
+	ShowInTaskbar="False"
+	ShowActivated="False"
+	Visibility="Hidden"
+	>
+	<Window.Resources>
+		<ContextMenu x:Key="TrayMenu">
+			<MenuItem x:Name="m_menu_status" Header="MCP host" IsEnabled="False" FontWeight="Bold"/>
+			<Separator/>
+			<MenuItem x:Name="m_menu_copy" Header="Copy MCP config" Click="HandleCopyConfig"/>
+			<MenuItem x:Name="m_menu_folder" Header="Open data folder" Click="HandleOpenFolder"/>
+			<Separator/>
+			<MenuItem x:Name="m_menu_quit" Header="Quit" Click="HandleQuit"/>
+		</ContextMenu>
+	</Window.Resources>
+
+	<gui:NotificationIcon
+		x:Name="m_notify_icon"
+		ContextMenu="{StaticResource TrayMenu}"
+		ToolTipText="LDraw MCP Host"
+		/>
+</Window>

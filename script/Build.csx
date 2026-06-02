@@ -468,7 +468,7 @@ public class LDraw : Managed
 	public override void Build()
 	{
 		DotNetRestore(RylogicSln);
-		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}"], platforms: Platforms, configs: Configs);
+		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}", "Apps\\LDraw\\LDrawMcpHost"], platforms: Platforms, configs: Configs);
 	}
 
 	public override void Deploy()

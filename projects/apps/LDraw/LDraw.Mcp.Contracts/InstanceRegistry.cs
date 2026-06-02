@@ -5,12 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Rylogic.Common;
-using Rylogic.Utility;
 
 namespace LDraw.MCP;
 
 /// <summary>Maintains the per-user registry of running LDraw instances</summary>
-internal sealed class InstanceRegistry
+public sealed class InstanceRegistry
 {
 	public InstanceRegistry(string user_data_dir)
 	{
@@ -86,7 +85,8 @@ internal sealed class InstanceRegistry
 		}
 		catch (Exception ex)
 		{
-			Log.Write(ELogLevel.Warn, ex, "Invalid LDraw MCP instance registration.", filepath, 0, 0);
+			// Discovery is best-effort: a malformed entry is dropped rather than failing the whole listing.
+			Trace.TraceWarning($"Invalid LDraw MCP instance registration '{filepath}': {ex.Message}");
 			return null;
 		}
 	}
@@ -121,7 +121,8 @@ internal sealed class InstanceRegistry
 		}
 		catch (Exception ex)
 		{
-			Log.Write(ELogLevel.Warn, ex, "Failed to delete stale LDraw MCP instance registration.", filepath, 0, 0);
+			// A stale entry that cannot be deleted is harmless; it is re-evaluated on the next listing.
+			Trace.TraceWarning($"Failed to delete stale LDraw MCP instance registration '{filepath}': {ex.Message}");
 		}
 	}
 }
