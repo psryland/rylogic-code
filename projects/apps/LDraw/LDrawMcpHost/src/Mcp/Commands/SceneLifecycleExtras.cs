@@ -13,14 +13,14 @@ internal sealed partial class McpBroker
 	/// <summary>Clear a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> ClearSceneAsync(string? instance_id, LDrawSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ClearSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Rename a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> RenameSceneAsync(string? instance_id, LDrawRenameSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.RenameSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -49,7 +49,7 @@ internal sealed partial class LDrawTools
 	[Description("Removes all currently rendered objects from a scene. Source membership is left unchanged, so later reloads or membership commands can add objects again.")]
 	public Task<LDrawSceneMutationResult> ClearScene(
 		[Description("The scene name to clear. Required.")] string scene_name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSceneParams
 		{
@@ -64,7 +64,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawSceneMutationResult> RenameScene(
 		[Description("The existing scene name. Required.")] string scene_name,
 		[Description("The new unique scene name.")] string new_scene_name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawRenameSceneParams
 		{

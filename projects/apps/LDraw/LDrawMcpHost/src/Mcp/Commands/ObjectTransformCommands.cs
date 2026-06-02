@@ -13,14 +13,14 @@ internal sealed partial class McpBroker
 	/// <summary>Return transform data for an object in 'instance_id'</summary>
 	public async Task<LDrawObjectInfo> GetObjectTransformAsync(string? instance_id, LDrawGetObjectTransformParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetObjectTransformAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Set transform data for objects in 'instance_id'</summary>
 	public async Task<LDrawObjectMutationResult> SetObjectTransformAsync(string? instance_id, LDrawSetObjectTransformParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetObjectTransformAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -48,7 +48,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_object_transform", Title = "Get LDraw object transform", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns object-to-parent and object-to-world matrices for exactly one object matched by query. Matrices are column-major 16-value arrays.")]
 	public Task<LDrawObjectInfo> GetObjectTransform(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,
@@ -77,7 +77,7 @@ internal sealed partial class LDrawTools
 		[Description("Optional X translation delta in the selected space.")] double? delta_x = null,
 		[Description("Optional Y translation delta in the selected space.")] double? delta_y = null,
 		[Description("Optional Z translation delta in the selected space.")] double? delta_z = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,

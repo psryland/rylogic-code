@@ -34,9 +34,7 @@ namespace LDraw.Dialogs
 			MoveIncludePathDown = Command.Create(this, MoveIncludePathDownInternal, MoveIncludePathDownAvailable);
 			ResetToDefaults = Command.Create(this, ResetToDefaultsInternal, ResetToDefaultsAvailable);
 			BrowseTextEditor = Command.Create(this, BrowseTextEditorInternal);
-			CopyMcpAccessToken = Command.Create(this, CopyMcpAccessTokenInternal);
-			CopyMcpConfiguration = Command.Create(this, CopyMcpConfigurationInternal);
-			RegenerateMcpToken = Command.Create(this, RegenerateMcpTokenInternal);
+			OpenMcpHost = Command.Create(this, OpenMcpHostInternal);
 
 			DataContext = this;
 		}
@@ -283,43 +281,32 @@ namespace LDraw.Dialogs
 				Profile.TextEditorPath = dlg.FileName;
 		}
 
-		/// <summary>Copy the VS Code MCP configuration to the clipboard</summary>
-		public Command CopyMcpConfiguration { get; }
-		private void CopyMcpConfigurationInternal()
+		/// <summary>Open the LDraw MCP Host tray app, which owns the MCP port and access token</summary>
+		public Command OpenMcpHost { get; }
+		private void OpenMcpHostInternal()
 		{
-			Settings.MCP.EnsureAccessToken();
-			Settings.Save();
-
-			var msg =
-				"The MCP configuration includes the local access token used to access this LDraw instance.\n\n" +
-				"Only paste it into a trusted MCP client configuration.";
-			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
+			// The host (LDrawMcpHost.exe) owns the loopback port and access token and exposes the "Copy MCP config"
+			// action from its tray icon. It is deployed alongside LDraw.exe, so launch the sibling executable.
+			var exe_dir = System.IO.Path.GetDirectoryName(Environment.ProcessPath) ?? string.Empty;
+			var host_exe = System.IO.Path.Combine(exe_dir, "LDrawMcpHost.exe");
+			if (!System.IO.File.Exists(host_exe))
+			{
+				MsgBox.Show(this,
+					"The LDraw MCP Host application could not be found next to LDraw.\n\n" +
+					"The MCP server and its access token are managed by the LDraw MCP Host tray app. " +
+					"Start it from the Start Menu, then use its tray icon to copy the MCP configuration.",
+					Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
 				return;
+			}
 
-			Clipboard.SetText(Settings.MCP.VSCodeConfiguration());
-		}
-
-		/// <summary>Copy the local MCP access token to the clipboard</summary>
-		public Command CopyMcpAccessToken { get; }
-		private void CopyMcpAccessTokenInternal()
-		{
-			Settings.MCP.EnsureAccessToken();
-			Settings.Save();
-			Clipboard.SetText(Settings.MCP.AccessToken);
-		}
-
-		/// <summary>Generate a new access token for MCP clients</summary>
-		public Command RegenerateMcpToken { get; }
-		private void RegenerateMcpTokenInternal()
-		{
-			var msg =
-				"Regenerating the MCP access token will break existing MCP client configurations until they are updated.\n\n" +
-				"Continue?";
-			if (MsgBox.Show(this, msg, Util.AppProductName, MsgBox.EButtons.OKCancel, MsgBox.EIcon.Exclamation) != true)
-				return;
-
-			Settings.MCP.AccessToken = McpSettingsData.GenerateAccessToken();
-			Settings.Save();
+			try
+			{
+				System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = host_exe, UseShellExecute = true });
+			}
+			catch (Exception ex)
+			{
+				MsgBox.Show(this, $"Could not start the LDraw MCP Host:\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Error);
+			}
 		}
 
 		/// <summary>Reset the settings to defaults</summary>

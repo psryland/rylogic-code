@@ -31,9 +31,10 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	private CancellationTokenSource? m_shutdown;
 	private Task? m_server_task;
 	private Timer? m_heartbeat;
+	private bool m_published;
 
 	/// <summary>Create the per-process host that the broker can query</summary>
-	public LDrawInstanceHost(Model model, InstanceRegistry registry)
+	public LDrawInstanceHost(Model model, InstanceRegistry registry, string launch_nonce)
 	{
 		m_model = model;
 		m_registry = registry;
@@ -52,6 +53,8 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 			StartedUtc = DateTimeOffset.UtcNow,
 			PipeName = $"LDraw.MCP.{InstanceId}",
 			SettingsPath = model.StartupOptions.SettingsPath,
+			LaunchNonce = launch_nonce,
+			ProtocolVersion = McpProtocol.ProtocolVersion,
 		};
 	}
 
@@ -65,9 +68,10 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 			return;
 
 		m_shutdown = new CancellationTokenSource();
-		m_registry.Write(m_registration);
 
 		// The pipe accepts read-only requests from the broker; the heartbeat keeps the registry entry fresh for discovery.
+		// The registry entry is published from inside the server loop once the pipe is actually accepting connections,
+		// so the host never discovers this instance before it can answer (see the registry-before-pipe-ready race).
 		m_server_task = Task.Run(() => RunPipeServerAsync(m_shutdown.Token));
 		m_heartbeat = new Timer(_ => TouchRegistration(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
 	}
@@ -138,9 +142,13 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 		pipe?.Dispose();
 	}
 
-	/// <summary>Refresh this instance's registry file</summary>
+	/// <summary>Refresh this instance's registry file once it has been published</summary>
 	private void TouchRegistration()
 	{
+		// Do not publish from the heartbeat before the pipe is accepting; the server loop owns first publication.
+		if (!m_published)
+			return;
+
 		try
 		{
 			m_registry.Write(m_registration);
@@ -154,43 +162,65 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	/// <summary>Accept named-pipe connections until cancellation</summary>
 	private async Task RunPipeServerAsync(CancellationToken cancellation_token)
 	{
-		for (; !cancellation_token.IsCancellationRequested;)
+		try
 		{
-			// CurrentUserOnly prevents other Windows users on the machine from querying private LDraw scene state through this back channel.
-			var pipe = new NamedPipeServerStream(
-				m_registration.PipeName,
-				PipeDirection.InOut,
-				NamedPipeServerStream.MaxAllowedServerInstances,
-				PipeTransmissionMode.Byte,
-				PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+			for (; !cancellation_token.IsCancellationRequested;)
+			{
+				// CurrentUserOnly prevents other Windows users on the machine from querying private LDraw scene state through this back channel.
+				var pipe = new NamedPipeServerStream(
+					m_registration.PipeName,
+					PipeDirection.InOut,
+					NamedPipeServerStream.MaxAllowedServerInstances,
+					PipeTransmissionMode.Byte,
+					PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
-			try
-			{
-				SetListenPipe(pipe);
-				await pipe.WaitForConnectionAsync(cancellation_token).ConfigureAwait(false);
-				ClearListenPipe(pipe);
+				try
+				{
+					SetListenPipe(pipe);
 
-				// Hand the connected pipe to a worker and immediately listen for the next broker request.
-				_ = Task.Run(() => HandleConnectionAsync(pipe, cancellation_token));
+					// Publish the registry entry only now that a listener exists and is about to accept, so the host
+					// never selects this instance before its pipe can answer. Publication happens exactly once.
+					if (!m_published)
+					{
+						m_registry.Write(m_registration);
+						m_published = true;
+					}
+
+					await pipe.WaitForConnectionAsync(cancellation_token).ConfigureAwait(false);
+					ClearListenPipe(pipe);
+
+					// Hand the connected pipe to a worker and immediately listen for the next broker request.
+					_ = Task.Run(() => HandleConnectionAsync(pipe, cancellation_token));
+				}
+				catch (OperationCanceledException)
+				{
+					ClearListenPipe(pipe);
+					pipe.Dispose();
+					break;
+				}
+				catch (Exception) when (cancellation_token.IsCancellationRequested)
+				{
+					ClearListenPipe(pipe);
+					pipe.Dispose();
+					break;
+				}
+				catch (Exception ex)
+				{
+					ClearListenPipe(pipe);
+					pipe.Dispose();
+					Log.Write(ELogLevel.Warn, ex, "LDraw MCP instance pipe accept failed.");
+					await Task.Delay(TimeSpan.FromSeconds(1), cancellation_token).ConfigureAwait(false);
+				}
 			}
-			catch (OperationCanceledException)
+		}
+		finally
+		{
+			// If the accept loop ever exits while still published (e.g. an unrecoverable fault rather than a
+			// clean shutdown), unpublish so the host stops discovering an instance whose pipe is gone.
+			if (m_published && !cancellation_token.IsCancellationRequested)
 			{
-				ClearListenPipe(pipe);
-				pipe.Dispose();
-				break;
-			}
-			catch (Exception) when (cancellation_token.IsCancellationRequested)
-			{
-				ClearListenPipe(pipe);
-				pipe.Dispose();
-				break;
-			}
-			catch (Exception ex)
-			{
-				ClearListenPipe(pipe);
-				pipe.Dispose();
-				Log.Write(ELogLevel.Warn, ex, "LDraw MCP instance pipe accept failed.");
-				await Task.Delay(TimeSpan.FromSeconds(1), cancellation_token).ConfigureAwait(false);
+				m_published = false;
+				try { m_registry.Delete(InstanceId); } catch { /* best effort */ }
 			}
 		}
 	}
@@ -210,6 +240,12 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 			var request = JsonSerializer.Deserialize<InstancePipeRequest>(line, McpJson.LineOptions) ?? throw new IOException("Invalid LDraw MCP instance pipe request.");
 			switch (request.Command)
 			{
+				case InstancePipeCommands.Ping:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(PingAsync()).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.GetSceneSummary:
 				{
 					response.Success = true;
@@ -609,6 +645,21 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	{
 		var value = await payload.ConfigureAwait(false);
 		return JsonSerializer.SerializeToElement(value, McpJson.LineOptions);
+	}
+
+	/// <summary>Answer a readiness/identity ping from the host</summary>
+	private Task<LDrawPingResult> PingAsync()
+	{
+		// The ping does not touch View3D, so it can answer immediately. The host uses it to confirm the pipe is
+		// live, to match the launch nonce of an instance it auto-launched, and to detect a protocol mismatch.
+		var version = typeof(LDrawInstanceHost).Assembly.GetName().Version?.ToString() ?? string.Empty;
+		return Task.FromResult(new LDrawPingResult
+		{
+			InstanceId = InstanceId,
+			LaunchNonce = m_registration.LaunchNonce,
+			ProtocolVersion = McpProtocol.ProtocolVersion,
+			AppVersion = version,
+		});
 	}
 
 	/// <summary>Create a read-only summary of this LDraw instance</summary>

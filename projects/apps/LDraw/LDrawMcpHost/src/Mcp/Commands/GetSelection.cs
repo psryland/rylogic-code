@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Return selected objects in 'instance_id'</summary>
 	public async Task<LDrawSelectionResult> GetSelectionAsync(string? instance_id, LDrawGetSelectionParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetSelectionAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_selection", Title = "Get LDraw selection", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns selected objects and selected bounds. Omit scene_name to use the first scene.")]
 	public Task<LDrawSelectionResult> GetSelection(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null,
 		[Description("True to recursively include child objects when enumerating selected descendants.")] bool include_children = true,
 		[Description("Maximum number of selected objects to return, clamped to 1..1000.")] int max_count = 200)

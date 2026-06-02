@@ -304,80 +304,22 @@
 
 					<GroupBox
 						Grid.Row="1"
-						Header="MCP Server"
+						Header="MCP Control"
 						Padding="3"
 						Margin="0,8,0,0"
 					>
 						<StackPanel>
 							<CheckBox
-								Content="Enable MCP server"
-								IsChecked="{Binding Settings.MCP.Enabled, UpdateSourceTrigger=PropertyChanged}"
+								Content="Allow MCP control of this instance"
+								IsChecked="{Binding Settings.MCP.AllowControl, UpdateSourceTrigger=PropertyChanged}"
 								Margin="3"
 								/>
-							<StackPanel
-								Orientation="Horizontal"
+							<TextBlock
+								TextWrapping="Wrap"
+								Foreground="Gray"
 								Margin="30,3,3,3"
-								>
-								<TextBlock
-									Text="Port: "
-									VerticalAlignment="Center"
-									/>
-								<TextBox
-									Text="{Binding Settings.MCP.Port, UpdateSourceTrigger=LostFocus}"
-									VerticalAlignment="Center"
-									MinWidth="70"
-									/>
-							</StackPanel>
-							<StackPanel
-								Orientation="Horizontal"
-								Margin="30,3,3,3"
-								>
-								<TextBlock
-									Text="Access Token: "
-									VerticalAlignment="Center"
-									/>
-								<TextBox
-									x:Name="m_tb_mcp_access_token"
-									Text="{Binding Settings.MCP.AccessToken, Mode=OneWay}"
-									VerticalAlignment="Center"
-									MinWidth="360"
-									IsReadOnly="True"
-									/>
-								<Button
-									Command="{Binding CopyMcpAccessToken}"
-									ToolTip="Copy access token"
-									Background="Transparent"
-									BorderThickness="0"
-									Width="18"
-									Height="18"
-									Margin="3,0,0,0"
-									Padding="0"
-									VerticalAlignment="Center"
-									>
-									<Viewbox
-										Width="13"
-										Height="13"
-										>
-										<Canvas
-											Width="16"
-											Height="16"
-											>
-											<Path
-												Data="M5.5,4.5 L12.5,4.5 L12.5,13.5 L5.5,13.5 Z"
-												Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
-												StrokeThickness="1.4"
-												Fill="Transparent"
-												/>
-											<Path
-												Data="M3.5,11.5 L3.5,2.5 L10.5,2.5"
-												Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
-												StrokeThickness="1.4"
-												Fill="Transparent"
-												/>
-										</Canvas>
-									</Viewbox>
-								</Button>
-							</StackPanel>
+								Text="The MCP server endpoint, port, and access token are managed by the LDraw MCP Host tray app. This setting only controls whether this LDraw instance can be driven by the host."
+								/>
 							<TextBlock
 								Text="{Binding McpStatus}"
 								TextWrapping="Wrap"
@@ -389,15 +331,10 @@
 								Margin="30,3,3,3"
 								>
 								<Button
-									Command="{Binding CopyMcpConfiguration}"
-									Content="Copy VS Code mcp.json"
+									Command="{Binding OpenMcpHost}"
+									Content="Open MCP Host"
 									MinWidth="150"
 									Margin="0,0,6,0"
-									/>
-								<Button
-									Command="{Binding RegenerateMcpToken}"
-									Content="Regenerate Token"
-									MinWidth="130"
 									/>
 							</StackPanel>
 						</StackPanel>

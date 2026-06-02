@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Set projection mode for a scene in 'instance_id'</summary>
 	public async Task<LDrawViewMutationResult> SetProjectionAsync(string? instance_id, LDrawSetProjectionParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetProjectionAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -36,7 +36,7 @@ internal sealed partial class LDrawTools
 	[Description("Sets a scene to orthographic or perspective projection and persists the normal scene setting.")]
 	public Task<LDrawViewMutationResult> SetProjection(
 		[Description("True for orthographic projection; false for perspective projection.")] bool orthographic,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSetProjectionParams

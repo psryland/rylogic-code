@@ -113,7 +113,7 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 				if (!m_started)
 					return;
 
-				// 'Enabled' gates whether this LDraw process exposes its control pipe to the MCP host.
+				// AllowControl gates whether this LDraw process exposes its control pipe to the MCP host.
 				if (!allow_control)
 				{
 					await StopInstanceUnlockedAsync().ConfigureAwait(false);
@@ -139,7 +139,11 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 	/// <summary>Read whether this process allows MCP control, on the UI thread</summary>
 	private Task<bool> CaptureAllowControlAsync()
 	{
-		return m_model.InvokeAsync(() => m_model.Settings.MCP.Enabled, TimeSpan.FromSeconds(2));
+		// A launch nonce means the host auto-launched this process specifically to drive it, so control is
+		// forced on even if the persisted setting is off; otherwise honour the user's AllowControl choice.
+		return m_model.InvokeAsync(
+			() => m_model.Settings.MCP.AllowControl || m_model.StartupOptions.McpLaunchNonce.Length != 0,
+			TimeSpan.FromSeconds(2));
 	}
 
 	/// <summary>Start the local instance host if needed</summary>
@@ -148,7 +152,7 @@ public sealed class McpService :IDisposable, INotifyPropertyChanged
 		if (m_instance_host != null)
 			return;
 
-		m_instance_host = new LDrawInstanceHost(m_model, m_registry);
+		m_instance_host = new LDrawInstanceHost(m_model, m_registry, m_model.StartupOptions.McpLaunchNonce);
 		m_instance_host.Start();
 	}
 

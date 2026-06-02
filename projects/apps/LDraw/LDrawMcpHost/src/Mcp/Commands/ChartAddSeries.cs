@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Add a series to a generated chart in 'instance_id'</summary>
 	public async Task<LDrawChartResult> ChartAddSeriesAsync(string? instance_id, LDrawChartAddSeriesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ChartAddSeriesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -26,7 +26,7 @@ internal sealed partial class LDrawTools
 	[Description("Adds a series expression to an existing MCP-owned chart and reloads the same overlay.")]
 	public Task<LDrawChartResult> ChartAddSeries(
 		[Description("Y expression for the new series, e.g. C1 or abs(C2 - C1).")] string y_axis,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("Chart id returned by ldraw_chart_create. Omit to use 'default'.")] string? chart_id = null,
 		[Description("Series display name. Omit for seriesN.")] string? name = null,
 		[Description("Series colour, e.g. FF00A0E0, #00A0E0, or Cyan.")] string? colour = null,

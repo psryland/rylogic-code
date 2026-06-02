@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Close a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> CloseSceneAsync(string? instance_id, LDrawSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.CloseSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -36,7 +36,7 @@ internal sealed partial class LDrawTools
 	[Description("Closes a scene only when it contains no user-loaded sources. The last remaining scene cannot be closed.")]
 	public Task<LDrawSceneMutationResult> CloseScene(
 		[Description("The scene name to close. Required.")] string scene_name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSceneParams
 		{

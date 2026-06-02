@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Set chart axis ranges in 'instance_id'</summary>
 	public async Task<LDrawAxisRangeResult> ChartSetAxisRangesAsync(string? instance_id, LDrawChartSetAxisRangesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ChartSetAxisRangesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -25,7 +25,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_chart_set_axis_ranges", Title = "Set LDraw chart axis ranges", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Sets one or both visible X/Y axis ranges for the scene containing an MCP-owned chart. The raw chart script is unchanged.")]
 	public Task<LDrawAxisRangeResult> ChartSetAxisRanges(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("Chart id returned by ldraw_chart_create. Omit to use 'default'.")] string? chart_id = null,
 		[Description("The scene name to modify. Omit to use the first scene that contains the chart.")] string? scene_name = null,
 		[Description("Minimum X axis value. Supply with x_max.")] double? x_min = null,

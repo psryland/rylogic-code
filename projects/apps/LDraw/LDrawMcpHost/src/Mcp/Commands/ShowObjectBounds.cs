@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Draw bounds for objects matching a query in 'instance_id'</summary>
 	public async Task<LDrawBoundsOverlayResult> ShowObjectBoundsAsync(string? instance_id, LDrawShowObjectBoundsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ShowObjectBoundsAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_show_object_bounds", Title = "Show LDraw object bounds", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Draws world-space AABBs for matching objects using a replaceable MCP overlay. Use ldraw_set_diagnostic_modes bboxes_visible for cheaper all-object native bounding boxes.")]
 	public Task<LDrawBoundsOverlayResult> ShowObjectBounds(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,

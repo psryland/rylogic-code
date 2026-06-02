@@ -26,7 +26,12 @@ public sealed class InstanceRegistry
 		// The registry file is the lightweight discovery mechanism shared by all LDraw processes in this user profile.
 		registration.LastSeenUtc = DateTimeOffset.UtcNow;
 		registration.FilePath = EntryFilePath(registration.InstanceId);
-		File.WriteAllText(registration.FilePath, JsonSerializer.Serialize(registration, McpJson.Options));
+
+		// Write to a temp file then move into place so a reader (the host polling for an auto-launched
+		// instance, or a heartbeat overwrite) can never observe a half-written, parse-failing file.
+		var temp = registration.FilePath + ".tmp";
+		File.WriteAllText(temp, JsonSerializer.Serialize(registration, McpJson.Options));
+		File.Move(temp, registration.FilePath, overwrite: true);
 	}
 
 	/// <summary>Delete a registry entry</summary>
@@ -43,9 +48,13 @@ public sealed class InstanceRegistry
 		var instances = new List<InstanceRegistration>();
 		foreach (var filepath in DirectoryFiles())
 		{
-			// Clean stale or malformed entries opportunistically so discovery stays stable after crashes.
+			// A null result means the file was missing or could not be parsed this pass. That can be a transient
+			// read during an atomic overwrite, so skip it without deleting; a genuinely dead process is removed
+			// only once its entry parses but fails the live-process check below.
 			var registration = Read(filepath);
-			if (registration == null || !IsLive(registration))
+			if (registration == null)
+				continue;
+			if (!IsLive(registration))
 			{
 				DeleteFile(filepath);
 				continue;

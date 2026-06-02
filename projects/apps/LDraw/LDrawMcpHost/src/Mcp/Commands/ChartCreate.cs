@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Create or replace a generated chart in 'instance_id'</summary>
 	public async Task<LDrawChartResult> ChartCreateAsync(string? instance_id, LDrawChartCreateParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ChartCreateAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -26,7 +26,7 @@ internal sealed partial class LDrawTools
 	[Description("Creates or replaces an MCP-owned chart overlay from inline numeric rows. User source documents are not modified. Omit series to plot C0 vs C1, or CI vs C0 for one-column data.")]
 	public Task<LDrawChartResult> ChartCreate(
 		[Description("Inline numeric data rows. Each row must have the same number of finite values.")] double[][] data_rows,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("Chart id to create or replace. Omit to use 'default'. Reusing an id replaces the prior generated chart overlay.")] string? chart_id = null,
 		[Description("Display name for the chart and generated overlay source.")] string? name = null,
 		[Description("Chart colour, e.g. FFFFFFFF, #FFFFFF, or White.")] string? colour = null,

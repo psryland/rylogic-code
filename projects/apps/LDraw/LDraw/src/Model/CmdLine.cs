@@ -3,6 +3,7 @@
 	public static class CmdLine
 	{
 		// Order by longest option first
+		public const string McpLaunchNonce = MCP.McpProtocol.LaunchNonceSwitch;
 		public const string SettingsPath = "-s";
 		public const string Portable     = "-p";
 		public const string ShowHelp     = "-h";

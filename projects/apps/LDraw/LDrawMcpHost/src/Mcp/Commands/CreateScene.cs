@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Create a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> CreateSceneAsync(string? instance_id, LDrawCreateSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.CreateSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_create_scene", Title = "Create LDraw scene", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Creates a new scene view. Optional overlay_ids can show existing MCP overlays in the new scene; user sources are not added automatically.")]
 	public Task<LDrawSceneMutationResult> CreateScene(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("Requested scene name. Omit to generate a unique scene name. Explicit duplicate names fail.")] string? scene_name = null,
 		[Description("True to make the created scene active.")] bool activate = true,
 		[Description("Existing MCP overlay ids to show in the new scene.")] string[]? overlay_ids = null,

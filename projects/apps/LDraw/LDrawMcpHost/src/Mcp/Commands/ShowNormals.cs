@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Set normal visibility for objects matching a query in 'instance_id'</summary>
 	public async Task<LDrawObjectMutationResult> ShowNormalsAsync(string? instance_id, LDrawShowNormalsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ShowNormalsAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -36,7 +36,7 @@ internal sealed partial class LDrawTools
 	[Description("Shows or hides normals for objects matched by query. This changes existing View3D object diagnostic state and does not edit user source files.")]
 	public Task<LDrawObjectMutationResult> ShowNormals(
 		[Description("True to show normals; false to hide normals.")] bool show = true,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,

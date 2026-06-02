@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Set diagnostic modes for a scene in 'instance_id'</summary>
 	public async Task<LDrawViewMutationResult> SetDiagnosticModesAsync(string? instance_id, LDrawSetDiagnosticModesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetDiagnosticModesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_set_diagnostic_modes", Title = "Set LDraw diagnostic modes", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Sets any supplied diagnostic/rendering modes; omitted nullable values are left unchanged. Fill/cull/focus/origin modes persist through normal scene settings, while bboxes/normals/selection box/object info are runtime view diagnostics.")]
 	public Task<LDrawViewMutationResult> SetDiagnosticModes(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Show native diagnostic bounding boxes for all objects. For specific object bounds, use ldraw_show_object_bounds.")] bool? bboxes_visible = null,
 		[Description("Show normals for all objects in the scene. For specific objects, use ldraw_show_normals.")] bool? show_normals = null,

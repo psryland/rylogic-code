@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Activate a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> SwitchSceneAsync(string? instance_id, LDrawSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SwitchSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -36,7 +36,7 @@ internal sealed partial class LDrawTools
 	[Description("Makes a named scene the active visible scene in LDraw.")]
 	public Task<LDrawSceneMutationResult> SwitchScene(
 		[Description("The scene name to activate. Required.")] string scene_name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSceneParams
 		{

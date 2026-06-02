@@ -13,28 +13,28 @@ internal sealed partial class McpBroker
 	/// <summary>Set runtime render settings in 'instance_id'</summary>
 	public async Task<LDrawViewMutationResult> SetRenderSettingsAsync(string? instance_id, LDrawSetRenderSettingsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetRenderSettingsAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Capture a scene image in 'instance_id'</summary>
 	public async Task<LDrawSceneCaptureResult> CaptureSceneAsync(string? instance_id, LDrawCaptureSceneParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.CaptureSceneAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Return chart display options in 'instance_id'</summary>
 	public async Task<LDrawChartDisplayOptionsInfo> GetChartDisplayOptionsAsync(string? instance_id, LDrawChartDisplayOptionsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetChartDisplayOptionsAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Set chart display options in 'instance_id'</summary>
 	public async Task<LDrawChartDisplayOptionsResult> SetChartDisplayOptionsAsync(string? instance_id, LDrawSetChartDisplayOptionsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetChartDisplayOptionsAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -77,7 +77,7 @@ internal sealed partial class LDrawTools
 		[Description("Optional multi-sample anti-aliasing state.")] bool? antialiasing = null,
 		[Description("Optional shadow cast range. Zero disables shadow casting.")] double? shadow_cast_range = null,
 		[Description("Optional ray tracing enabled state. Requires ray tracing support when true.")] bool? ray_tracing_enabled = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSetRenderSettingsParams
@@ -96,7 +96,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawSceneCaptureResult> CaptureScene(
 		[Description("Output image path. The extension must be .png, .jpg, or .bmp. Omit for a temp PNG.")] string? output_path = null,
 		[Description("True to overwrite an existing output file.")] bool overwrite = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to capture. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawCaptureSceneParams
@@ -112,7 +112,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_chart_display_options", Title = "Get LDraw chart display options", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns runtime chart display options for axes, grid lines, tick marks, and tick labels.")]
 	public Task<LDrawChartDisplayOptionsInfo> GetChartDisplayOptions(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawChartDisplayOptionsParams
@@ -133,7 +133,7 @@ internal sealed partial class LDrawTools
 		[Description("Optional preferred tick spacing in pixels, applied to X and Y axes.")] double? pixels_per_tick = null,
 		[Description("Optional axis line colour, applied to X and Y axes.")] string? axis_colour = null,
 		[Description("Optional tick text colour, applied to X and Y axes.")] string? tick_colour = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSetChartDisplayOptionsParams

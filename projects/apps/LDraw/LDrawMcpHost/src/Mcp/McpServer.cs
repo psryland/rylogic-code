@@ -29,6 +29,8 @@ public sealed class McpServer :IDisposable
 	private readonly HostSettings m_settings;
 	private readonly InstanceRegistry m_registry;
 	private readonly InstancePipeClient m_client;
+	private readonly InstanceLauncher m_launcher;
+	private readonly CancellationTokenSource m_lifetime;
 	private readonly SemaphoreSlim m_gate;
 	private WebApplication? m_app;
 
@@ -38,6 +40,8 @@ public sealed class McpServer :IDisposable
 		m_settings = settings;
 		m_registry = new InstanceRegistry(settings.UserDataDir);
 		m_client = new InstancePipeClient();
+		m_launcher = new InstanceLauncher(settings);
+		m_lifetime = new CancellationTokenSource();
 		m_gate = new SemaphoreSlim(1, 1);
 		StatusMessage = "MCP host stopped";
 	}
@@ -94,6 +98,9 @@ public sealed class McpServer :IDisposable
 	/// <summary>Dispose the host endpoint</summary>
 	public void Dispose()
 	{
+		// Cancel the host-lifetime token first so any in-flight auto-launch wait unblocks instead of holding teardown.
+		try { m_lifetime.Cancel(); } catch (ObjectDisposedException) { }
+
 		// Stop/dispose the ASP.NET Core host on a thread-pool thread, never the caller's thread.
 		// Dispose is reached from WPF OnExit on the UI thread; invoking the host's async teardown there
 		// lets an internal continuation capture the Dispatcher SynchronizationContext and post back to the
@@ -117,6 +124,7 @@ public sealed class McpServer :IDisposable
 			System.Diagnostics.Trace.TraceWarning($"LDraw MCP host endpoint teardown failed: {ex.GetBaseException().Message}");
 		}
 		m_gate.Dispose();
+		m_lifetime.Dispose();
 	}
 
 	/// <summary>Build and start the Kestrel MCP endpoint</summary>
@@ -124,7 +132,7 @@ public sealed class McpServer :IDisposable
 	{
 		try
 		{
-			var broker = new McpBroker(m_registry, m_client);
+			var broker = new McpBroker(m_registry, m_client, m_settings, m_launcher, m_lifetime.Token);
 
 			// Build an isolated ASP.NET Core host. Ignore inherited URL configuration and bind only to loopback.
 			var builder = WebApplication.CreateBuilder(new WebApplicationOptions

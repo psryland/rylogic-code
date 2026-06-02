@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Run a scene hit test in 'instance_id'</summary>
 	public async Task<LDrawHitTestInfo> HitTestAsync(string? instance_id, LDrawHitTestParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.HitTestAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -39,7 +39,7 @@ internal sealed partial class LDrawTools
 		[Description("Screen-space Y coordinate relative to the scene viewport. Omit for viewport centre.")] double? y = null,
 		[Description("Snap mode: NoSnap, Verts, Edges, Faces, All, AllPerspective, or a comma/pipe-separated flags expression.")] string? snap_mode = null,
 		[Description("Snap distance in screen-space pixels.")] double snap_distance = 0.0,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to hit test. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Optional object id to restrict hit testing to one object.")] string? object_id = null,
 		[Description("Optional object name filter to restrict hit testing.")] string? name = null,

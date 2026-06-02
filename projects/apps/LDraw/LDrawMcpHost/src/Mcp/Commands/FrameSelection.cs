@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Frame selected objects in 'instance_id'</summary>
 	public async Task<LDrawFrameResult> FrameSelectionAsync(string? instance_id, LDrawFrameSelectionParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.FrameSelectionAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_frame_selection", Title = "Frame LDraw selection", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Frames the current selected objects. Fails if the selection has no valid bounds.")]
 	public Task<LDrawFrameResult> FrameSelection(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Maximum number of selected objects to include in the response, clamped to 1..1000.")] int max_count = 200)
 	{

@@ -19,6 +19,12 @@ internal sealed partial class InstancePipeClient
 		return await SendAsync<LDrawSceneSummary>(registration, InstancePipeCommands.GetSceneSummary, null, ReadTimeout).ConfigureAwait(false);
 	}
 
+	/// <summary>Probe an instance's readiness and identity over its pipe</summary>
+	public async Task<LDrawPingResult> PingAsync(InstanceRegistration registration)
+	{
+		return await SendAsync<LDrawPingResult>(registration, InstancePipeCommands.Ping, null, ReadTimeout).ConfigureAwait(false);
+	}
+
 	/// <summary>Read the scene list from 'registration'</summary>
 	public async Task<LDrawSceneList> ListScenesAsync(InstanceRegistration registration, LDrawListScenesParams parameters)
 	{

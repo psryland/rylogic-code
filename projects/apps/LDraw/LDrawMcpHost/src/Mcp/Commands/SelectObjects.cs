@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Change object selection in 'instance_id'</summary>
 	public async Task<LDrawSelectionResult> SelectObjectsAsync(string? instance_id, LDrawSelectObjectsParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SelectObjectsAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -36,7 +36,7 @@ internal sealed partial class LDrawTools
 	[Description("Selects objects by query. Mode is replace, add, remove, toggle, or clear. Omit scene_name to use the first scene.")]
 	public Task<LDrawSelectionResult> SelectObjects(
 		[Description("Selection operation: replace, add, remove, toggle, or clear.")] string mode = "replace",
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter. Not required when mode is clear.")] string? name = null,

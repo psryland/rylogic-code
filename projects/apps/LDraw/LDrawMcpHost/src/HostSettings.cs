@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Rylogic.Common;
@@ -18,11 +19,24 @@ public sealed class HostSettings
 	/// <summary>The localhost port the MCP endpoint listens on</summary>
 	public int Port { get; set; } = McpProtocol.DefaultPort;
 
-	/// <summary>The bearer token MCP clients must present for 'tools/call'</summary>
-	public string AccessToken { get; set; } = string.Empty;
+	/// <summary>The DPAPI-protected access token as stored on disk (CurrentUser scope, base64)</summary>
+	public string ProtectedAccessToken { get; set; } = string.Empty;
 
 	/// <summary>True if the host accepts MCP connections</summary>
 	public bool Listening { get; set; } = true;
+
+	/// <summary>True if the host may launch LDraw on demand when no instance is running</summary>
+	public bool AutoLaunch { get; set; } = true;
+
+	/// <summary>Optional explicit path to LDraw.exe; empty means probe the host's sibling executable</summary>
+	public string LDrawExePath { get; set; } = string.Empty;
+
+	/// <summary>Seconds to wait for an auto-launched LDraw to register and become ready</summary>
+	public int LaunchTimeoutSeconds { get; set; } = 30;
+
+	/// <summary>The in-memory plaintext access token (never serialised; persisted only via <see cref="ProtectedAccessToken"/>)</summary>
+	[JsonIgnore]
+	public string AccessToken { get; set; } = string.Empty;
 
 	/// <summary>The per-user data directory shared with LDraw (not serialised)</summary>
 	[JsonIgnore]
@@ -57,6 +71,9 @@ public sealed class HostSettings
 		var settings = ReadOrDefault(filepath);
 		settings.UserDataDir = user_data_dir;
 		settings.FilePath = filepath;
+
+		// Decrypt the token from its at-rest DPAPI blob into the in-memory plaintext used by the auth gate.
+		settings.AccessToken = Unprotect(settings.ProtectedAccessToken);
 		settings.EnsureAccessToken();
 		return settings;
 	}
@@ -83,11 +100,52 @@ public sealed class HostSettings
 		if (FilePath.Length == 0)
 			return;
 
+		// Encrypt the plaintext token to its at-rest DPAPI blob just before serialising so plaintext never touches disk.
+		ProtectedAccessToken = Protect(AccessToken);
+
 		// Write to a temp file then move so a crash mid-write cannot leave a truncated settings file.
 		var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 		var temp = FilePath + ".tmp";
 		File.WriteAllText(temp, json);
 		File.Move(temp, FilePath, overwrite: true);
+	}
+
+	/// <summary>DPAPI-encrypt 'plaintext' (CurrentUser scope) to a base64 blob, or empty for empty input</summary>
+	private static string Protect(string plaintext)
+	{
+		if (plaintext.Length == 0)
+			return string.Empty;
+
+		try
+		{
+			var blob = ProtectedData.Protect(Encoding.UTF8.GetBytes(plaintext), null, DataProtectionScope.CurrentUser);
+			return Convert.ToBase64String(blob);
+		}
+		catch (Exception ex)
+		{
+			// Encryption should not fail on a healthy machine; if it does, do not crash the host - just store nothing at rest.
+			System.Diagnostics.Trace.TraceWarning($"Failed to protect LDraw MCP host token: {ex.Message}");
+			return string.Empty;
+		}
+	}
+
+	/// <summary>DPAPI-decrypt a base64 blob produced by <see cref="Protect"/>, or empty when it is missing or unreadable</summary>
+	private static string Unprotect(string protectedBase64)
+	{
+		if (protectedBase64.Length == 0)
+			return string.Empty;
+
+		try
+		{
+			var blob = ProtectedData.Unprotect(Convert.FromBase64String(protectedBase64), null, DataProtectionScope.CurrentUser);
+			return Encoding.UTF8.GetString(blob);
+		}
+		catch (Exception ex)
+		{
+			// A blob written by another user/machine, or a corrupt value, cannot be decrypted; fall back to issuing a fresh token.
+			System.Diagnostics.Trace.TraceWarning($"Failed to unprotect LDraw MCP host token: {ex.Message}");
+			return string.Empty;
+		}
 	}
 
 	/// <summary>Ensure an access token exists and return it</summary>

@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Return diagnostic modes from 'instance_id'</summary>
 	public async Task<LDrawDiagnosticModesInfo> GetDiagnosticModesAsync(string? instance_id, LDrawDiagnosticModesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetDiagnosticModesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_diagnostic_modes", Title = "Get LDraw diagnostic modes", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns diagnostic and rendering modes for a scene, including accepted fill/cull mode names. Omit scene_name to use the first scene.")]
 	public Task<LDrawDiagnosticModesInfo> GetDiagnosticModes(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawDiagnosticModesParams

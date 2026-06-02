@@ -13,14 +13,14 @@ internal sealed partial class McpBroker
 	/// <summary>Return render-state data for an object in 'instance_id'</summary>
 	public async Task<LDrawObjectInfo> GetObjectRenderStateAsync(string? instance_id, LDrawGetObjectRenderStateParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetObjectRenderStateAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Set render-state data for objects in 'instance_id'</summary>
 	public async Task<LDrawObjectMutationResult> SetObjectRenderStateAsync(string? instance_id, LDrawSetObjectRenderStateParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetObjectRenderStateAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -48,7 +48,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_object_render_state", Title = "Get LDraw object render state", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns visibility, colour, wireframe, normals, reflectivity, sort-group, object flags, and first-nugget state for exactly one object matched by query.")]
 	public Task<LDrawObjectInfo> GetObjectRenderState(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,
@@ -83,7 +83,7 @@ internal sealed partial class LDrawTools
 		[Description("Optional first-nugget Hidden flag state.")] bool? nugget_hidden = null,
 		[Description("Optional first-nugget AlphaBlend flag state.")] bool? nugget_alpha_blend = null,
 		[Description("True to apply supported render-state setters recursively to child objects.")] bool recursive = true,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,

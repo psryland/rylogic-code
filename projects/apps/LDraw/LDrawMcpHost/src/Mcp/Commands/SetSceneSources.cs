@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Set MCP overlay membership for a scene in 'instance_id'</summary>
 	public async Task<LDrawSceneMutationResult> SetSceneSourcesAsync(string? instance_id, LDrawSetSceneSourcesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetSceneSourcesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -40,7 +40,7 @@ internal sealed partial class LDrawTools
 		[Description("MCP overlay ids to use for replace/add/remove operations. Required unless all_overlays is true or mode is clear.")] string[]? overlay_ids = null,
 		[Description("True to target all current MCP overlays.")] bool all_overlays = false,
 		[Description("True to frame the scene after adding overlay sources.")] bool reset_view = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSetSceneSourcesParams
 		{

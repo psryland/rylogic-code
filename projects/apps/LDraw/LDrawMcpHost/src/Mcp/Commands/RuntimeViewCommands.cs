@@ -13,70 +13,70 @@ internal sealed partial class McpBroker
 	/// <summary>Return animation state from 'instance_id'</summary>
 	public async Task<LDrawAnimationInfo> GetAnimationAsync(string? instance_id, LDrawAnimationParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetAnimationAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Control animation state in 'instance_id'</summary>
 	public async Task<LDrawAnimationResult> ControlAnimationAsync(string? instance_id, LDrawAnimationControlParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ControlAnimationAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>List view presets accepted by 'instance_id'</summary>
 	public async Task<LDrawViewPresetList> ListViewPresetsAsync(string? instance_id, LDrawViewPresetParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ListViewPresetsAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Set a view preset in 'instance_id'</summary>
 	public async Task<LDrawViewMutationResult> SetViewPresetAsync(string? instance_id, LDrawViewPresetParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetViewPresetAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>List saved views in 'instance_id'</summary>
 	public async Task<LDrawSavedViewList> ListSavedViewsAsync(string? instance_id, LDrawSavedViewParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ListSavedViewsAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Save the current view in 'instance_id'</summary>
 	public async Task<LDrawSavedViewResult> SaveViewAsync(string? instance_id, LDrawSavedViewParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SaveViewAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Apply a saved view in 'instance_id'</summary>
 	public async Task<LDrawSavedViewResult> ApplySavedViewAsync(string? instance_id, LDrawSavedViewParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ApplySavedViewAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Remove a saved view in 'instance_id'</summary>
 	public async Task<LDrawSavedViewResult> RemoveSavedViewAsync(string? instance_id, LDrawSavedViewParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.RemoveSavedViewAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Return streaming state from 'instance_id'</summary>
 	public async Task<LDrawStreamingInfo> GetStreamingStateAsync(string? instance_id)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.GetStreamingStateAsync(registration).ConfigureAwait(false);
 	}
 
 	/// <summary>Enable or disable streaming in 'instance_id'</summary>
 	public async Task<LDrawStreamingInfo> SetStreamingStateAsync(string? instance_id, LDrawStreamingControlParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetStreamingStateAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -152,7 +152,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_animation", Title = "Get LDraw animation state", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns animation time and running state for a scene. Omit scene_name to use the first scene.")]
 	public Task<LDrawAnimationInfo> GetAnimation(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawAnimationParams
@@ -168,7 +168,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawAnimationResult> ControlAnimation(
 		[Description("Animation command: reset, play, stop, or step.")] string command,
 		[Description("Optional animation time value in seconds. For play, 0 or omitted uses real time.")] double? time_s = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawAnimationControlParams
@@ -184,7 +184,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_list_view_presets", Title = "List LDraw view presets", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Lists named view presets accepted by ldraw_set_view_preset for a scene. Omit scene_name to use the first scene.")]
 	public Task<LDrawViewPresetList> ListViewPresets(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawViewPresetParams
@@ -199,7 +199,7 @@ internal sealed partial class LDrawTools
 	[Description("Applies a named view preset to a scene. Valid values: PosX, NegX, PosY, NegY, PosZ, NegZ, PosXYZ, or NegXYZ.")]
 	public Task<LDrawViewMutationResult> SetViewPreset(
 		[Description("Named view preset to apply: PosX, NegX, PosY, NegY, PosZ, NegZ, PosXYZ, or NegXYZ.")] string view_preset,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawViewPresetParams
@@ -214,7 +214,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_list_saved_views", Title = "List LDraw saved views", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Lists saved camera views for a scene. Omit scene_name to use the first scene.")]
 	public Task<LDrawSavedViewList> ListSavedViews(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSavedViewParams
@@ -230,7 +230,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawSavedViewResult> SaveView(
 		[Description("Saved view name.")] string name,
 		[Description("True to replace an existing saved view with the same name.")] bool replace = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSavedViewParams
@@ -247,7 +247,7 @@ internal sealed partial class LDrawTools
 	[Description("Applies a saved camera view by name. Omit scene_name to use the first scene.")]
 	public Task<LDrawSavedViewResult> ApplySavedView(
 		[Description("Saved view name.")] string name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSavedViewParams
@@ -263,7 +263,7 @@ internal sealed partial class LDrawTools
 	[Description("Removes a saved camera view by name. Omit scene_name to use the first scene.")]
 	public Task<LDrawSavedViewResult> RemoveSavedView(
 		[Description("Saved view name.")] string name,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
 	{
 		var parameters = new LDrawSavedViewParams
@@ -278,7 +278,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_get_streaming_state", Title = "Get LDraw streaming state", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Returns the View3D streaming state and the runtime port if streaming is active.")]
 	public Task<LDrawStreamingInfo> GetStreamingState(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		return m_broker.GetStreamingStateAsync(instance_id);
 	}
@@ -289,7 +289,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawStreamingInfo> SetStreamingState(
 		[Description("True to enable streaming, false to disable it.")] bool enable,
 		[Description("Optional streaming port. Omit to use the current profile default.")] int? port = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawStreamingControlParams
 		{

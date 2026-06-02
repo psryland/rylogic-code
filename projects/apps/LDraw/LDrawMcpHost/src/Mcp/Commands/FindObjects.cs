@@ -13,7 +13,7 @@ internal sealed partial class McpBroker
 	/// <summary>Return objects matching a query in 'instance_id'</summary>
 	public async Task<LDrawObjectList> FindObjectsAsync(string? instance_id, LDrawObjectQueryParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.FindObjectsAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -35,7 +35,7 @@ internal sealed partial class LDrawTools
 	[McpServerTool(Name = "ldraw_find_objects", Title = "Find LDraw objects", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
 	[Description("Finds objects by object id, name, type, context id, selected state, or visible state. Omit scene_name to use the first scene.")]
 	public Task<LDrawObjectList> FindObjects(
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null,
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to query. Omit to use the first scene.")] string? scene_name = null,
 		[Description("Opaque object id returned by ldraw_find_objects or ldraw_list_objects.")] string? object_id = null,
 		[Description("Object name filter.")] string? name = null,

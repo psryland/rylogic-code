@@ -34,6 +34,15 @@ public sealed class InstanceRegistration
 	/// <summary>Settings file used by this process</summary>
 	public string SettingsPath { get; set; } = string.Empty;
 
+	/// <summary>
+	/// The launch nonce echoed back when this process was auto-launched by the host.
+	/// Empty for instances the user started manually. The host matches this against the nonce it
+	/// passed on the command line so a concurrent unrelated instance cannot be mistaken for the one it launched.</summary>
+	public string LaunchNonce { get; set; } = string.Empty;
+
+	/// <summary>The control-protocol version this process implements (see McpProtocol.ProtocolVersion)</summary>
+	public int ProtocolVersion { get; set; }
+
 	[JsonIgnore]
 	/// <summary>Path to the registry file that was read or written</summary>
 	public string FilePath { get; set; } = string.Empty;
@@ -1742,6 +1751,22 @@ public sealed class LDrawOverlayClearParams
 	public string? OverlayId { get; set; }
 }
 
+/// <summary>Readiness/identity result returned by the instance pipe Ping command</summary>
+public sealed class LDrawPingResult
+{
+	/// <summary>The instance id of the responding process</summary>
+	public string InstanceId { get; set; } = string.Empty;
+
+	/// <summary>The launch nonce echoed by an auto-launched process, or empty for manual launches</summary>
+	public string LaunchNonce { get; set; } = string.Empty;
+
+	/// <summary>The control-protocol version implemented by the responding process</summary>
+	public int ProtocolVersion { get; set; }
+
+	/// <summary>The LDraw application version string</summary>
+	public string AppVersion { get; set; } = string.Empty;
+}
+
 /// <summary>Local named-pipe request between the broker and an LDraw instance</summary>
 public sealed class InstancePipeRequest
 {
@@ -1774,6 +1799,7 @@ public sealed class InstancePipeResponse
 /// <summary>Command names supported by the local instance pipe</summary>
 public static class InstancePipeCommands
 {
+	public const string Ping = "ping";
 	public const string GetSceneSummary = "get_scene_summary";
 	public const string ListScenes = "list_scenes";
 	public const string CreateScene = "create_scene";

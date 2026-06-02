@@ -13,35 +13,35 @@ internal sealed partial class McpBroker
 	/// <summary>List sources in 'instance_id'</summary>
 	public async Task<LDrawSourceList> ListSourcesAsync(string? instance_id, LDrawListSourcesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ListSourcesAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Load a file source in 'instance_id'</summary>
 	public async Task<LDrawSourceMutationResult> LoadSourceAsync(string? instance_id, LDrawLoadSourceParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.LoadSourceAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Reload sources in 'instance_id'</summary>
 	public async Task<LDrawSourceMutationResult> ReloadSourceAsync(string? instance_id, LDrawSourceParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.ReloadSourceAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Remove sources from 'instance_id'</summary>
 	public async Task<LDrawSourceMutationResult> RemoveSourceAsync(string? instance_id, LDrawSourceParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.RemoveSourceAsync(registration, parameters).ConfigureAwait(false);
 	}
 
 	/// <summary>Set user-source scene membership in 'instance_id'</summary>
 	public async Task<LDrawSourceMutationResult> SetSourceScenesAsync(string? instance_id, LDrawSetSourceScenesParams parameters)
 	{
-		var registration = ResolveInstance(instance_id);
+		var registration = await ResolveInstanceAsync(instance_id).ConfigureAwait(false);
 		return await m_client.SetSourceScenesAsync(registration, parameters).ConfigureAwait(false);
 	}
 }
@@ -88,7 +88,7 @@ internal sealed partial class LDrawTools
 	[Description("Lists user-loaded LDraw sources, optionally filtered to sources selected for one scene.")]
 	public Task<LDrawSourceList> ListSources(
 		[Description("The scene name to filter by. Omit to list all user-loaded sources.")] string? scene_name = null,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawListSourcesParams
 		{
@@ -104,7 +104,7 @@ internal sealed partial class LDrawTools
 		[Description("Path to the .ldr/.bdr source file to load.")] string file_path,
 		[Description("Scene names to show the source in. Omit to use the first scene.")] string[]? scene_names = null,
 		[Description("True to show the source in every current scene.")] bool all_scenes = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawLoadSourceParams
 		{
@@ -121,7 +121,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawSourceMutationResult> ReloadSource(
 		[Description("Source context ids, display names, or file paths to reload. Required unless all_sources is true.")] string[]? source_ids = null,
 		[Description("True to reload every current user-loaded source.")] bool all_sources = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSourceParams
 		{
@@ -137,7 +137,7 @@ internal sealed partial class LDrawTools
 	public Task<LDrawSourceMutationResult> RemoveSource(
 		[Description("Source context ids, display names, or file paths to remove. Required unless all_sources is true.")] string[]? source_ids = null,
 		[Description("True to remove every current user-loaded source.")] bool all_sources = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSourceParams
 		{
@@ -157,7 +157,7 @@ internal sealed partial class LDrawTools
 		[Description("True to target every current user-loaded source.")] bool all_sources = false,
 		[Description("True to target every current scene.")] bool all_scenes = false,
 		[Description("True to frame each scene after adding source objects.")] bool reset_view = false,
-		[Description("The instance id returned by ldraw_list_instances. Omit to target the broker instance.")] string? instance_id = null)
+		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null)
 	{
 		var parameters = new LDrawSetSourceScenesParams
 		{
