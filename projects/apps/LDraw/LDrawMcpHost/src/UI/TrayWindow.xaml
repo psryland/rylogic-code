@@ -16,6 +16,7 @@
 			<MenuItem x:Name="m_menu_status" Header="MCP host" IsEnabled="False" FontWeight="Bold"/>
 			<Separator/>
 			<MenuItem x:Name="m_menu_copy" Header="Copy MCP config" Click="HandleCopyConfig"/>
+			<MenuItem x:Name="m_menu_settings" Header="Settings..." Click="HandleSettings"/>
 			<MenuItem x:Name="m_menu_folder" Header="Open data folder" Click="HandleOpenFolder"/>
 			<Separator/>
 			<MenuItem x:Name="m_menu_quit" Header="Quit" Click="HandleQuit"/>

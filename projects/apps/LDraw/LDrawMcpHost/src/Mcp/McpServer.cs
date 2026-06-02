@@ -95,6 +95,33 @@ public sealed class McpServer :IDisposable
 		}
 	}
 
+	/// <summary>Apply changed settings by restarting the endpoint (e.g. after a port or listening change)</summary>
+	public async Task RestartAsync()
+	{
+		await m_gate.WaitAsync().ConfigureAwait(false);
+		try
+		{
+			await StopUnlockedAsync().ConfigureAwait(false);
+
+			if (!m_settings.Listening)
+			{
+				SetStatus("MCP host disabled");
+				return;
+			}
+			if (!m_settings.ValidPort)
+			{
+				SetStatus($"MCP host error: port {m_settings.Port} is invalid.");
+				return;
+			}
+
+			await StartUnlockedAsync().ConfigureAwait(false);
+		}
+		finally
+		{
+			m_gate.Release();
+		}
+	}
+
 	/// <summary>Dispose the host endpoint</summary>
 	public void Dispose()
 	{

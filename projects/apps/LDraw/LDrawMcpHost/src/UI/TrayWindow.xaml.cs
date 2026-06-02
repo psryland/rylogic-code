@@ -15,6 +15,7 @@ public partial class TrayWindow :Window, IDisposable
 	private readonly HostSettings m_settings;
 	private readonly McpServer m_server;
 	private readonly MenuItem m_status_item;
+	private HostConfigWindow? m_config_window;
 
 	/// <summary>Create the tray window bound to 'settings' and 'server'</summary>
 	public TrayWindow(HostSettings settings, McpServer server)
@@ -85,6 +86,21 @@ public partial class TrayWindow :Window, IDisposable
 	{
 		var folder = Path_.CombinePath(m_settings.UserDataDir, "MCP");
 		Process.Start(new ProcessStartInfo { FileName = folder, UseShellExecute = true });
+	}
+
+	/// <summary>Open the host settings window (modal, single instance)</summary>
+	private void HandleSettings(object sender, RoutedEventArgs e)
+	{
+		// Reuse an already-open settings window rather than stacking several; the tray menu can be clicked repeatedly.
+		if (m_config_window != null)
+		{
+			m_config_window.Activate();
+			return;
+		}
+
+		m_config_window = new HostConfigWindow(m_settings, m_server);
+		m_config_window.Closed += (_, _) => m_config_window = null;
+		m_config_window.Show();
 	}
 
 	/// <summary>Quit the host after confirmation; quitting drops the MCP endpoint</summary>

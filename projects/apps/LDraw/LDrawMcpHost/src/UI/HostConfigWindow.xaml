@@ -1,0 +1,81 @@
+﻿<Window
+	x:Class="LDraw.MCP.Host.UI.HostConfigWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Title="LDraw MCP Host Settings"
+	Width="520"
+	SizeToContent="Height"
+	WindowStartupLocation="CenterScreen"
+	ResizeMode="NoResize"
+	ShowInTaskbar="True"
+	>
+	<StackPanel Margin="12">
+
+		<!-- Endpoint -->
+		<GroupBox Header="Endpoint" Padding="6">
+			<StackPanel>
+				<StackPanel Orientation="Horizontal" Margin="3">
+					<TextBlock Text="Port:" Width="120" VerticalAlignment="Center"/>
+					<TextBox x:Name="m_tb_port" Width="90" VerticalAlignment="Center"/>
+				</StackPanel>
+				<CheckBox x:Name="m_cb_listening" Content="Accept MCP connections" Margin="3"/>
+				<TextBlock
+					TextWrapping="Wrap"
+					Foreground="Gray"
+					Margin="3,3,3,0"
+					Text="Changing the port or this setting restarts the endpoint when you save."
+					/>
+			</StackPanel>
+		</GroupBox>
+
+		<!-- Auto-launch -->
+		<GroupBox Header="Auto-launch" Padding="6" Margin="0,8,0,0">
+			<StackPanel>
+				<CheckBox x:Name="m_cb_autolaunch" Content="Launch LDraw automatically when a tool call needs it" Margin="3"/>
+				<StackPanel Orientation="Horizontal" Margin="3">
+					<TextBlock Text="Launch timeout (s):" Width="120" VerticalAlignment="Center"/>
+					<TextBox x:Name="m_tb_timeout" Width="90" VerticalAlignment="Center"/>
+				</StackPanel>
+				<StackPanel Orientation="Horizontal" Margin="3">
+					<TextBlock Text="LDraw.exe path:" Width="120" VerticalAlignment="Center"/>
+					<TextBox x:Name="m_tb_exepath" Width="240" VerticalAlignment="Center"/>
+					<Button x:Name="m_btn_browse" Content="Browse..." Width="70" Margin="6,0,0,0" Click="HandleBrowse"/>
+				</StackPanel>
+				<TextBlock
+					TextWrapping="Wrap"
+					Foreground="Gray"
+					Margin="3,3,3,0"
+					Text="Leave the path empty to use the LDraw installed alongside this host."
+					/>
+			</StackPanel>
+		</GroupBox>
+
+		<!-- Access token -->
+		<GroupBox Header="Access token" Padding="6" Margin="0,8,0,0">
+			<StackPanel>
+				<StackPanel Orientation="Horizontal" Margin="3">
+					<TextBox x:Name="m_tb_token" Width="320" IsReadOnly="True" VerticalAlignment="Center"/>
+					<Button x:Name="m_btn_copy_token" Content="Copy" Width="60" Margin="6,0,0,0" Click="HandleCopyToken"/>
+					<Button x:Name="m_btn_regen" Content="Regenerate" Width="90" Margin="6,0,0,0" Click="HandleRegenerate"/>
+				</StackPanel>
+				<TextBlock
+					TextWrapping="Wrap"
+					Foreground="Gray"
+					Margin="3,3,3,0"
+					Text="Regenerating the token breaks existing MCP client configurations until they are updated."
+					/>
+			</StackPanel>
+		</GroupBox>
+
+		<!-- Startup -->
+		<GroupBox Header="Startup" Padding="6" Margin="0,8,0,0">
+			<CheckBox x:Name="m_cb_startup" Content="Start the MCP host when I log in" Margin="3"/>
+		</GroupBox>
+
+		<!-- Buttons -->
+		<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+			<Button x:Name="m_btn_save" Content="Save" Width="80" IsDefault="True" Click="HandleSave"/>
+			<Button x:Name="m_btn_cancel" Content="Cancel" Width="80" Margin="8,0,0,0" IsCancel="True"/>
+		</StackPanel>
+	</StackPanel>
+</Window>

@@ -32,6 +32,9 @@ public partial class App :Application
 		m_server = new McpServer(m_settings);
 		m_tray = new TrayWindow(m_settings, m_server);
 
+		// Keep the start-at-logon command pointing at the current exe in case the host was moved or upgraded.
+		StartupRegistration.SyncIfRegistered();
+
 		// Start the endpoint without blocking the UI thread; status surfaces in the tray tooltip/menu.
 		// Run on a thread-pool thread so the ASP.NET Core host is built and started clear of the WPF
 		// Dispatcher context (the deadlock-safe teardown lives in McpServer.Dispose).
