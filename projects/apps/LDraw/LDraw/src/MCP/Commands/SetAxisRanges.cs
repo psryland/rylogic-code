@@ -55,8 +55,8 @@ internal sealed partial class LDrawInstanceHost
 		{
 			Action = action,
 			SceneName = scene.SceneName,
-			XAxisRange = LDrawAxisRangeInfo.From(scene.SceneView.XAxis),
-			YAxisRange = LDrawAxisRangeInfo.From(scene.SceneView.YAxis),
+			XAxisRange = McpDtoConvert.AxisRange(scene.SceneView.XAxis),
+			YAxisRange = McpDtoConvert.AxisRange(scene.SceneView.YAxis),
 			Camera = CreateCameraInfo(scene),
 		};
 	}

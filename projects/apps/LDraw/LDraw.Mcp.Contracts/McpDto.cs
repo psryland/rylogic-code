@@ -8,7 +8,7 @@ using Rylogic.Maths;
 namespace LDraw.MCP;
 
 /// <summary>Persisted registration data for one running LDraw instance</summary>
-internal sealed class InstanceRegistration
+public sealed class InstanceRegistration
 {
 	/// <summary>Version of the registry file schema</summary>
 	public int SchemaVersion { get; set; } = 1;
@@ -294,17 +294,6 @@ public sealed class LDrawAxisRangeInfo
 
 	/// <summary>Axis span</summary>
 	public double Span { get; set; }
-
-	/// <summary>Create MCP axis range data from a ChartControl axis</summary>
-	internal static LDrawAxisRangeInfo From(Rylogic.Gui.WPF.ChartControl.RangeData.Axis axis)
-	{
-		return new LDrawAxisRangeInfo
-		{
-			Min = axis.Min,
-			Max = axis.Max,
-			Span = axis.Span,
-		};
-	}
 }
 
 /// <summary>Camera data returned through MCP</summary>
@@ -1028,21 +1017,21 @@ public sealed class LDrawChartResult
 }
 
 /// <summary>Parameters for scene-list requests</summary>
-internal sealed class LDrawListScenesParams
+public sealed class LDrawListScenesParams
 {
 	/// <summary>The scene to query, or all scenes when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for source-list requests</summary>
-internal sealed class LDrawListSourcesParams
+public sealed class LDrawListSourcesParams
 {
 	/// <summary>Optional scene filter</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for loading file-backed sources</summary>
-internal sealed class LDrawLoadSourceParams
+public sealed class LDrawLoadSourceParams
 {
 	/// <summary>The LDraw script file to load</summary>
 	public string? FilePath { get; set; }
@@ -1055,7 +1044,7 @@ internal sealed class LDrawLoadSourceParams
 }
 
 /// <summary>Parameters for source lifecycle requests</summary>
-internal class LDrawSourceParams
+public class LDrawSourceParams
 {
 	/// <summary>Source context ids, display names, or file paths to target</summary>
 	public List<string> SourceIds { get; set; } = [];
@@ -1065,7 +1054,7 @@ internal class LDrawSourceParams
 }
 
 /// <summary>Parameters for user-source scene membership requests</summary>
-internal sealed class LDrawSetSourceScenesParams : LDrawSourceParams
+public sealed class LDrawSetSourceScenesParams : LDrawSourceParams
 {
 	/// <summary>Membership operation: replace, add, remove, or clear</summary>
 	public string Mode { get; set; } = "replace";
@@ -1081,21 +1070,21 @@ internal sealed class LDrawSetSourceScenesParams : LDrawSourceParams
 }
 
 /// <summary>Parameters for view-settings requests</summary>
-internal sealed class LDrawViewSettingsParams
+public sealed class LDrawViewSettingsParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for animation-state requests</summary>
-internal class LDrawAnimationParams
+public class LDrawAnimationParams
 {
 	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for animation-control requests</summary>
-internal sealed class LDrawAnimationControlParams : LDrawAnimationParams
+public sealed class LDrawAnimationControlParams : LDrawAnimationParams
 {
 	/// <summary>Animation command: reset, play, stop, or step</summary>
 	public string? Command { get; set; }
@@ -1105,7 +1094,7 @@ internal sealed class LDrawAnimationControlParams : LDrawAnimationParams
 }
 
 /// <summary>Parameters for view-preset requests</summary>
-internal sealed class LDrawViewPresetParams
+public sealed class LDrawViewPresetParams
 {
 	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1115,7 +1104,7 @@ internal sealed class LDrawViewPresetParams
 }
 
 /// <summary>Parameters for saved-view requests</summary>
-internal sealed class LDrawSavedViewParams
+public sealed class LDrawSavedViewParams
 {
 	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1128,7 +1117,7 @@ internal sealed class LDrawSavedViewParams
 }
 
 /// <summary>Parameters for streaming control requests</summary>
-internal sealed class LDrawStreamingControlParams
+public sealed class LDrawStreamingControlParams
 {
 	/// <summary>True to enable streaming, false to disable it</summary>
 	public bool Enable { get; set; }
@@ -1138,7 +1127,7 @@ internal sealed class LDrawStreamingControlParams
 }
 
 /// <summary>Parameters for projection mutation requests</summary>
-internal sealed class LDrawSetProjectionParams
+public sealed class LDrawSetProjectionParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1148,7 +1137,7 @@ internal sealed class LDrawSetProjectionParams
 }
 
 /// <summary>Parameters for background-colour mutation requests</summary>
-internal sealed class LDrawSetBackgroundColourParams
+public sealed class LDrawSetBackgroundColourParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1158,7 +1147,7 @@ internal sealed class LDrawSetBackgroundColourParams
 }
 
 /// <summary>Parameters for camera align-axis mutation requests</summary>
-internal sealed class LDrawSetCameraAlignAxisParams
+public sealed class LDrawSetCameraAlignAxisParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1168,7 +1157,7 @@ internal sealed class LDrawSetCameraAlignAxisParams
 }
 
 /// <summary>Parameters for chart-axis range mutation requests</summary>
-internal class LDrawSetAxisRangesParams
+public class LDrawSetAxisRangesParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1187,14 +1176,14 @@ internal class LDrawSetAxisRangesParams
 }
 
 /// <summary>Parameters for diagnostic mode requests</summary>
-internal class LDrawDiagnosticModesParams
+public class LDrawDiagnosticModesParams
 {
 	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for diagnostic mode mutation requests</summary>
-internal sealed class LDrawSetDiagnosticModesParams : LDrawDiagnosticModesParams
+public sealed class LDrawSetDiagnosticModesParams : LDrawDiagnosticModesParams
 {
 	/// <summary>Show native diagnostic bounding boxes for all objects</summary>
 	public bool? BBoxesVisible { get; set; }
@@ -1231,7 +1220,7 @@ internal sealed class LDrawSetDiagnosticModesParams : LDrawDiagnosticModesParams
 }
 
 /// <summary>Parameters for render-setting mutation requests</summary>
-internal sealed class LDrawSetRenderSettingsParams
+public sealed class LDrawSetRenderSettingsParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1247,7 +1236,7 @@ internal sealed class LDrawSetRenderSettingsParams
 }
 
 /// <summary>Parameters for scene creation requests</summary>
-internal sealed class LDrawCreateSceneParams
+public sealed class LDrawCreateSceneParams
 {
 	/// <summary>The requested scene name, or a generated name when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1266,14 +1255,14 @@ internal sealed class LDrawCreateSceneParams
 }
 
 /// <summary>Parameters for scene-only mutation requests</summary>
-internal sealed class LDrawSceneParams
+public sealed class LDrawSceneParams
 {
 	/// <summary>The scene to mutate</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for scene rename requests</summary>
-internal sealed class LDrawRenameSceneParams
+public sealed class LDrawRenameSceneParams
 {
 	/// <summary>The scene to rename</summary>
 	public string? SceneName { get; set; }
@@ -1283,7 +1272,7 @@ internal sealed class LDrawRenameSceneParams
 }
 
 /// <summary>Parameters for MCP overlay source membership requests</summary>
-internal sealed class LDrawSetSceneSourcesParams
+public sealed class LDrawSetSceneSourcesParams
 {
 	/// <summary>The scene whose MCP overlay membership is modified</summary>
 	public string? SceneName { get; set; }
@@ -1302,7 +1291,7 @@ internal sealed class LDrawSetSceneSourcesParams
 }
 
 /// <summary>Parameters for object-list requests</summary>
-internal sealed class LDrawListObjectsParams
+public sealed class LDrawListObjectsParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1318,7 +1307,7 @@ internal sealed class LDrawListObjectsParams
 }
 
 /// <summary>Shared parameters for object query commands</summary>
-internal class LDrawObjectQueryParams
+public class LDrawObjectQueryParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1355,26 +1344,26 @@ internal class LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for single-object query commands</summary>
-internal sealed class LDrawGetObjectParams : LDrawObjectQueryParams
+public sealed class LDrawGetObjectParams : LDrawObjectQueryParams
 {
 }
 
 /// <summary>Parameters for selection mutation commands</summary>
-internal sealed class LDrawSelectObjectsParams : LDrawObjectQueryParams
+public sealed class LDrawSelectObjectsParams : LDrawObjectQueryParams
 {
 	/// <summary>Selection operation: replace, add, remove, toggle, or clear</summary>
 	public string Mode { get; set; } = "replace";
 }
 
 /// <summary>Parameters for object visibility mutation commands</summary>
-internal sealed class LDrawSetObjectVisibilityParams : LDrawObjectQueryParams
+public sealed class LDrawSetObjectVisibilityParams : LDrawObjectQueryParams
 {
 	/// <summary>The visibility state to assign to matching objects</summary>
 	public bool? SetVisible { get; set; }
 }
 
 /// <summary>Parameters for object colour mutation commands</summary>
-internal sealed class LDrawSetObjectColourParams : LDrawObjectQueryParams
+public sealed class LDrawSetObjectColourParams : LDrawObjectQueryParams
 {
 	/// <summary>Colour to apply, using any Colour32 parseable format</summary>
 	public string? Colour { get; set; }
@@ -1390,7 +1379,7 @@ internal sealed class LDrawSetObjectColourParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for object normal display commands</summary>
-internal sealed class LDrawShowNormalsParams : LDrawObjectQueryParams
+public sealed class LDrawShowNormalsParams : LDrawObjectQueryParams
 {
 	/// <summary>The normal visibility state to assign to matching objects</summary>
 	public bool SetShowNormals { get; set; } = true;
@@ -1400,7 +1389,7 @@ internal sealed class LDrawShowNormalsParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for object bounds overlay commands</summary>
-internal sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
+public sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
 {
 	/// <summary>Overlay id to replace with the generated bounds</summary>
 	public string? OverlayId { get; set; }
@@ -1416,12 +1405,12 @@ internal sealed class LDrawShowObjectBoundsParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for object transform read commands</summary>
-internal sealed class LDrawGetObjectTransformParams : LDrawObjectQueryParams
+public sealed class LDrawGetObjectTransformParams : LDrawObjectQueryParams
 {
 }
 
 /// <summary>Parameters for object transform mutation commands</summary>
-internal sealed class LDrawSetObjectTransformParams : LDrawObjectQueryParams
+public sealed class LDrawSetObjectTransformParams : LDrawObjectQueryParams
 {
 	/// <summary>Transform space: parent or world</summary>
 	public string Space { get; set; } = "parent";
@@ -1449,12 +1438,12 @@ internal sealed class LDrawSetObjectTransformParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for object render-state read commands</summary>
-internal sealed class LDrawGetObjectRenderStateParams : LDrawObjectQueryParams
+public sealed class LDrawGetObjectRenderStateParams : LDrawObjectQueryParams
 {
 }
 
 /// <summary>Parameters for object render-state mutation commands</summary>
-internal sealed class LDrawSetObjectRenderStateParams : LDrawObjectQueryParams
+public sealed class LDrawSetObjectRenderStateParams : LDrawObjectQueryParams
 {
 	/// <summary>Optional visibility state</summary>
 	public bool? VisibleState { get; set; }
@@ -1500,7 +1489,7 @@ internal sealed class LDrawSetObjectRenderStateParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for scene hit-test commands</summary>
-internal sealed class LDrawHitTestParams : LDrawObjectQueryParams
+public sealed class LDrawHitTestParams : LDrawObjectQueryParams
 {
 	/// <summary>Screen-space X coordinate relative to the scene viewport</summary>
 	public double? X { get; set; }
@@ -1516,7 +1505,7 @@ internal sealed class LDrawHitTestParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for scene capture commands</summary>
-internal sealed class LDrawCaptureSceneParams
+public sealed class LDrawCaptureSceneParams
 {
 	/// <summary>The scene to capture, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1529,14 +1518,14 @@ internal sealed class LDrawCaptureSceneParams
 }
 
 /// <summary>Parameters for chart display option requests</summary>
-internal class LDrawChartDisplayOptionsParams
+public class LDrawChartDisplayOptionsParams
 {
 	/// <summary>The scene to query or modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for chart display option mutation requests</summary>
-internal sealed class LDrawSetChartDisplayOptionsParams : LDrawChartDisplayOptionsParams
+public sealed class LDrawSetChartDisplayOptionsParams : LDrawChartDisplayOptionsParams
 {
 	/// <summary>Show or hide chart axes</summary>
 	public bool? ShowAxes { get; set; }
@@ -1561,7 +1550,7 @@ internal sealed class LDrawSetChartDisplayOptionsParams : LDrawChartDisplayOptio
 }
 
 /// <summary>Parameters for chart creation requests</summary>
-internal sealed class LDrawChartCreateParams
+public sealed class LDrawChartCreateParams
 {
 	/// <summary>Caller-visible chart id, or null to use 'default'</summary>
 	public string? ChartId { get; set; }
@@ -1586,7 +1575,7 @@ internal sealed class LDrawChartCreateParams
 }
 
 /// <summary>Parameters for chart data replacement requests</summary>
-internal sealed class LDrawChartUpdateDataParams
+public sealed class LDrawChartUpdateDataParams
 {
 	/// <summary>The chart id returned by ldraw_chart_create</summary>
 	public string? ChartId { get; set; }
@@ -1599,7 +1588,7 @@ internal sealed class LDrawChartUpdateDataParams
 }
 
 /// <summary>Parameters for chart add-series requests</summary>
-internal sealed class LDrawChartAddSeriesParams
+public sealed class LDrawChartAddSeriesParams
 {
 	/// <summary>The chart id returned by ldraw_chart_create</summary>
 	public string? ChartId { get; set; }
@@ -1612,21 +1601,21 @@ internal sealed class LDrawChartAddSeriesParams
 }
 
 /// <summary>Parameters for chart axis range requests</summary>
-internal sealed class LDrawChartSetAxisRangesParams : LDrawSetAxisRangesParams
+public sealed class LDrawChartSetAxisRangesParams : LDrawSetAxisRangesParams
 {
 	/// <summary>The chart id returned by ldraw_chart_create</summary>
 	public string? ChartId { get; set; }
 }
 
 /// <summary>Parameters for chart clear requests</summary>
-internal sealed class LDrawChartClearParams
+public sealed class LDrawChartClearParams
 {
 	/// <summary>The chart id to clear, or null to clear all MCP charts</summary>
 	public string? ChartId { get; set; }
 }
 
 /// <summary>Parameters for selection read commands</summary>
-internal sealed class LDrawGetSelectionParams
+public sealed class LDrawGetSelectionParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1639,7 +1628,7 @@ internal sealed class LDrawGetSelectionParams
 }
 
 /// <summary>Parameters for object framing commands</summary>
-internal sealed class LDrawFrameObjectParams : LDrawObjectQueryParams
+public sealed class LDrawFrameObjectParams : LDrawObjectQueryParams
 {
 	/// <summary>True to replace the current selection with the framed objects</summary>
 	public bool Select { get; set; }
@@ -1649,7 +1638,7 @@ internal sealed class LDrawFrameObjectParams : LDrawObjectQueryParams
 }
 
 /// <summary>Parameters for selection framing commands</summary>
-internal sealed class LDrawFrameSelectionParams
+public sealed class LDrawFrameSelectionParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1659,7 +1648,7 @@ internal sealed class LDrawFrameSelectionParams
 }
 
 /// <summary>Parameters for explicit bounds framing commands</summary>
-internal sealed class LDrawFrameBoundsParams
+public sealed class LDrawFrameBoundsParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1702,14 +1691,14 @@ internal sealed class LDrawFrameBoundsParams
 }
 
 /// <summary>Parameters for camera read requests</summary>
-internal sealed class LDrawCameraParams
+public sealed class LDrawCameraParams
 {
 	/// <summary>The scene to query, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
 }
 
 /// <summary>Parameters for camera mutation requests</summary>
-internal sealed class LDrawSetCameraParams
+public sealed class LDrawSetCameraParams
 {
 	/// <summary>The scene to modify, or the first scene when omitted</summary>
 	public string? SceneName { get; set; }
@@ -1728,7 +1717,7 @@ internal sealed class LDrawSetCameraParams
 }
 
 /// <summary>Parameters for overlay script mutation requests</summary>
-internal sealed class LDrawOverlayScriptParams
+public sealed class LDrawOverlayScriptParams
 {
 	/// <summary>Caller-visible overlay id, defaults to "default"</summary>
 	public string? OverlayId { get; set; }
@@ -1747,14 +1736,14 @@ internal sealed class LDrawOverlayScriptParams
 }
 
 /// <summary>Parameters for overlay clear requests</summary>
-internal sealed class LDrawOverlayClearParams
+public sealed class LDrawOverlayClearParams
 {
 	/// <summary>Caller-visible overlay id, or null to clear all overlays</summary>
 	public string? OverlayId { get; set; }
 }
 
 /// <summary>Local named-pipe request between the broker and an LDraw instance</summary>
-internal sealed class InstancePipeRequest
+public sealed class InstancePipeRequest
 {
 	/// <summary>Version of the pipe request schema</summary>
 	public int SchemaVersion { get; set; } = 1;
@@ -1767,7 +1756,7 @@ internal sealed class InstancePipeRequest
 }
 
 /// <summary>Local named-pipe response between the broker and an LDraw instance</summary>
-internal sealed class InstancePipeResponse
+public sealed class InstancePipeResponse
 {
 	/// <summary>Version of the pipe response schema</summary>
 	public int SchemaVersion { get; set; } = 1;
@@ -1783,7 +1772,7 @@ internal sealed class InstancePipeResponse
 }
 
 /// <summary>Command names supported by the local instance pipe</summary>
-internal static class InstancePipeCommands
+public static class InstancePipeCommands
 {
 	public const string GetSceneSummary = "get_scene_summary";
 	public const string ListScenes = "list_scenes";

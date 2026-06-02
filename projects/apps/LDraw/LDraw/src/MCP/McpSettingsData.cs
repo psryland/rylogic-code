@@ -15,10 +15,10 @@ public sealed class McpSettingsData :SettingsSet<McpSettingsData>
 	}
 
 	/// <summary>The default localhost port for the LDraw MCP broker</summary>
-	public const int DefaultPort = 38987;
+	public const int DefaultPort = McpProtocol.DefaultPort;
 
 	/// <summary>The preferred HTTP header for local LDraw MCP access tokens</summary>
-	public const string AccessTokenHeaderName = "X-LDraw-MCP-Token";
+	public const string AccessTokenHeaderName = McpProtocol.AccessTokenHeaderName;
 
 	/// <summary>True if the embedded MCP service should be active</summary>
 	public bool Enabled
