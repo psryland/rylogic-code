@@ -23,7 +23,20 @@ namespace LDraw.MCP.Host;
 /// The host is the sole broker: it serves 'tools/list' from the reflected LDrawTools
 /// catalog without any LDraw running, and forwards 'tools/call' to a target LDraw
 /// process over its named pipe. Unlike the previous in-LDraw service there is no port
-/// election or failover - the host owns the port and a bind clash is a hard error.</summary>
+/// election or failover - the host owns the port and a bind clash is a hard error.
+///
+/// Security/threat model (local developer tool):
+/// - Trust boundary is the Windows user account. The endpoint binds 127.0.0.1 only, and
+///   the named pipes use CurrentUserOnly, so only same-user processes can reach either side.
+///   A same-user process can already drive the user's apps, so this grants no new authority.
+/// - 'tools/call' requires the pre-shared access token (constant-time compared, DPAPI at rest);
+///   discovery (initialize/ping/*list) stays open so clients can enumerate tools before configuring.
+/// - Origin and Host headers are validated to defend a browser-based DNS-rebinding attacker that
+///   tries to reach the loopback endpoint; non-loopback Host or unexpected Origin is rejected.
+/// - Request bodies are size-bounded (Kestrel) and pipe request lines are length-bounded so a
+///   malformed or hostile local client cannot force an unbounded allocation.
+/// - Not defended: another process running as the same user (out of scope by design); network
+///   peers (never bound off loopback).</summary>
 public sealed class McpServer :IDisposable
 {
 	private readonly HostSettings m_settings;
@@ -169,7 +182,14 @@ public sealed class McpServer :IDisposable
 			});
 			builder.Logging.ClearProviders();
 			builder.Configuration["AllowedHosts"] = "localhost;127.0.0.1";
-			builder.WebHost.UseKestrel(options => options.ListenLocalhost(m_settings.Port));
+			builder.WebHost.UseKestrel(options =>
+			{
+				options.ListenLocalhost(m_settings.Port);
+
+				// Bound request bodies on the always-on endpoint so a malformed or hostile local client cannot
+				// stream an unbounded body; the limit comfortably exceeds the largest legitimate tool payload.
+				options.Limits.MaxRequestBodySize = 64L * 1024 * 1024;
+			});
 			builder.WebHost.UseSetting(WebHostDefaults.SuppressStatusMessagesKey, "true");
 
 			// The broker is a singleton because the SDK creates tool instances via dependency injection.

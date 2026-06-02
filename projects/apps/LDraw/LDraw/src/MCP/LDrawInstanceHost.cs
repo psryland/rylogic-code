@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -226,6 +227,38 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 	}
 
 	/// <summary>Handle one named-pipe request</summary>
+	// Cap on a single pipe request so a same-user but buggy or hostile client cannot drive an unbounded
+	// allocation. Sized to comfortably exceed the largest legitimate payload (e.g. multi-thousand-row charts).
+	private const int MaxRequestChars = 64 * 1024 * 1024;
+
+	/// <summary>Read one '\n'-terminated line from 'reader', failing if it exceeds 'max_chars'</summary>
+	private static async Task<string?> ReadBoundedLineAsync(TextReader reader, int max_chars, CancellationToken cancellation_token)
+	{
+		var sb = new StringBuilder();
+		var buffer = new char[4096];
+		var any = false;
+		while (true)
+		{
+			var n = await reader.ReadAsync(buffer.AsMemory(), cancellation_token).ConfigureAwait(false);
+			if (n == 0)
+				return any ? sb.ToString() : null;
+
+			any = true;
+			for (var i = 0; i != n; ++i)
+			{
+				var c = buffer[i];
+				if (c == '\n')
+					return sb.ToString();
+
+				// Tolerate CRLF line endings; only '\n' terminates a request line.
+				if (c != '\r')
+					sb.Append(c);
+				if (sb.Length > max_chars)
+					throw new IOException($"LDraw MCP instance pipe request exceeds the {max_chars:N0} character limit.");
+			}
+		}
+	}
+
 	private async Task HandleConnectionAsync(NamedPipeServerStream pipe, CancellationToken cancellation_token)
 	{
 		await using var _ = pipe.ConfigureAwait(false);
@@ -236,7 +269,9 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 		try
 		{
 			// The pipe protocol is a single JSON request line followed by a single JSON response line.
-			var line = await reader.ReadLineAsync(cancellation_token).ConfigureAwait(false) ?? throw new IOException("Empty LDraw MCP instance pipe request.");
+			// Bound the request so a same-user but buggy or hostile client cannot force an unbounded allocation;
+			// the limit is generous enough for legitimately large payloads (e.g. multi-thousand-row chart data).
+			var line = await ReadBoundedLineAsync(reader, MaxRequestChars, cancellation_token).ConfigureAwait(false) ?? throw new IOException("Empty LDraw MCP instance pipe request.");
 			var request = JsonSerializer.Deserialize<InstancePipeRequest>(line, McpJson.LineOptions) ?? throw new IOException("Invalid LDraw MCP instance pipe request.");
 			switch (request.Command)
 			{
