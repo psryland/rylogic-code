@@ -33,8 +33,10 @@ public partial class App :Application
 		m_tray = new TrayWindow(m_settings, m_server);
 
 		// Start the endpoint without blocking the UI thread; status surfaces in the tray tooltip/menu.
-		// Observe faults so a failed startup is logged rather than silently lost on the fire-and-forget task.
-		m_server.StartAsync().ContinueWith(t =>
+		// Run on a thread-pool thread so the ASP.NET Core host is built and started clear of the WPF
+		// Dispatcher context (the deadlock-safe teardown lives in McpServer.Dispose).
+		// Observe faults so a failed startup is logged rather than silently lost.
+		Task.Run(m_server.StartAsync).ContinueWith(t =>
 		{
 			System.Diagnostics.Trace.TraceError($"LDraw MCP host failed to start: {t.Exception?.GetBaseException()}");
 		}, TaskContinuationOptions.OnlyOnFaulted);

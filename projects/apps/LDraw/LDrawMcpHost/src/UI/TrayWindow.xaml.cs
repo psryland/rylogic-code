@@ -28,7 +28,9 @@ public partial class TrayWindow :Window, IDisposable
 		var menu = (ContextMenu)Resources["TrayMenu"];
 		m_status_item = (MenuItem)menu.Items[0];
 
-		// Use the host executable's icon so the tray entry is identifiable without bundling a separate icon asset.
+		// Use the main LDraw application icon for the tray entry. The icon is embedded in this exe via the
+		// project's ApplicationIcon (set to LDraw's icon.ico), so extracting it from the running exe yields
+		// the same icon as the main LDraw app without bundling a separate icon asset or duplicating the file.
 		try
 		{
 			var exe = Environment.ProcessPath;

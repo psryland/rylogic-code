@@ -94,7 +94,28 @@ public sealed class McpServer :IDisposable
 	/// <summary>Dispose the host endpoint</summary>
 	public void Dispose()
 	{
-		StopAsync().GetAwaiter().GetResult();
+		// Stop/dispose the ASP.NET Core host on a thread-pool thread, never the caller's thread.
+		// Dispose is reached from WPF OnExit on the UI thread; invoking the host's async teardown there
+		// lets an internal continuation capture the Dispatcher SynchronizationContext and post back to the
+		// UI thread, which is blocked waiting here - a deadlock. Running on the pool avoids that context.
+		// Bound the wait so process shutdown can never hang: any remaining host threads are background,
+		// so abandoning a stalled teardown still lets the process exit cleanly.
+		try
+		{
+			var stop = Task.Run(StopAsync);
+			if (!stop.Wait(TimeSpan.FromSeconds(5)))
+			{
+				System.Diagnostics.Trace.TraceWarning("LDraw MCP host endpoint did not stop within 5s; abandoning teardown.");
+
+				// Observe the abandoned task's exception so it is not raised as unobserved on finalization.
+				_ = stop.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+				return;
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Trace.TraceWarning($"LDraw MCP host endpoint teardown failed: {ex.GetBaseException().Message}");
+		}
 		m_gate.Dispose();
 	}
 
@@ -154,12 +175,26 @@ public sealed class McpServer :IDisposable
 		m_app = null;
 		try
 		{
+			// Bound graceful stop; a hung in-flight request must not stall shutdown.
 			using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
 			await app.StopAsync(cts.Token).ConfigureAwait(false);
 		}
+		catch (Exception ex)
+		{
+			// A stop timeout or transient error must not prevent the host from disposing and exiting.
+			System.Diagnostics.Trace.TraceWarning($"Stopping the LDraw MCP host endpoint failed: {ex.Message}");
+		}
 		finally
 		{
-			await app.DisposeAsync().ConfigureAwait(false);
+			// WebApplication.DisposeAsync can stall on a service's async disposal; bound it so teardown completes.
+			var dispose = app.DisposeAsync().AsTask();
+			if (await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false) != dispose)
+			{
+				System.Diagnostics.Trace.TraceWarning("Disposing the LDraw MCP host endpoint timed out; continuing shutdown.");
+
+				// Observe the abandoned dispose task's exception so it is not raised as unobserved.
+				_ = dispose.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+			}
 		}
 	}
 

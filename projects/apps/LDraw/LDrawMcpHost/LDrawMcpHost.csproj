@@ -6,6 +6,8 @@
 		<RootNamespace>LDraw.MCP.Host</RootNamespace>
 		<AssemblyName>LDrawMcpHost</AssemblyName>
 		<UseWPF>true</UseWPF>
+		<!-- Reuse the main LDraw application icon so the host exe, taskbar and tray entry are visually consistent. -->
+		<ApplicationIcon>..\LDraw\icon.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<!-- Assembly properties -->
