@@ -110,6 +110,14 @@
 					<Shortcut Id="Lnk_DesktopProjName" Directory="DesktopFolder" Name="$(var.ProductName)" Description="$(var.ProductDescription)" Icon="icon.ico" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
 				</File>
 			</Component>
+
+			<!-- The MCP tray host. Co-located with LDraw.exe so it can auto-launch its sibling. Start-menu shortcut only
+			     (it is a background tray app); start-at-logon is owned by the host's own per-user setting, not the MSI. -->
+			<Component Id="Cmp_McpHost" Directory="INSTALLFOLDER" Guid="*">
+				<File Id="File_McpHost" Source="$(var.TargetDir)\LDrawMcpHost.exe" Vital="yes" KeyPath="yes">
+					<Shortcut Id="Lnk_StartMenuMcpHost" Directory="ProgramMenuProductFolder" Name="$(var.ProductName) MCP Host" Description="Persistent MCP endpoint host for $(var.ProductName)" Icon="icon.ico" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+				</File>
+			</Component>
 		</ComponentGroup>
 
 		<!-- Properties of the installer dialogs -->
