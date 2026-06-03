@@ -55,8 +55,16 @@
 			<StackPanel>
 				<StackPanel Orientation="Horizontal" Margin="3">
 					<TextBox x:Name="m_tb_token" Width="320" IsReadOnly="True" VerticalAlignment="Center"/>
-					<Button x:Name="m_btn_copy_token" Content="Copy" Width="60" Margin="6,0,0,0" Click="HandleCopyToken"/>
-					<Button x:Name="m_btn_regen" Content="Regenerate" Width="90" Margin="6,0,0,0" Click="HandleRegenerate"/>
+					<Button x:Name="m_btn_copy_token" Width="28" Height="24" Margin="6,0,0,0"
+						Background="Transparent" BorderThickness="0" Click="HandleCopyToken"
+						ToolTip="Copy the access token to the clipboard">
+						<TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Text="&#xE8C8;"/>
+					</Button>
+					<Button x:Name="m_btn_regen" Width="28" Height="24" Margin="2,0,0,0"
+						Background="Transparent" BorderThickness="0" Click="HandleRegenerate"
+						ToolTip="Generate a new access token">
+						<TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Text="&#xE72C;"/>
+					</Button>
 				</StackPanel>
 				<TextBlock
 					TextWrapping="Wrap"
@@ -75,7 +83,7 @@
 		<!-- Buttons -->
 		<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
 			<Button x:Name="m_btn_save" Content="Save" Width="80" IsDefault="True" Click="HandleSave"/>
-			<Button x:Name="m_btn_cancel" Content="Cancel" Width="80" Margin="8,0,0,0" IsCancel="True"/>
+			<Button x:Name="m_btn_cancel" Content="Cancel" Width="80" Margin="8,0,0,0" Click="HandleCancel"/>
 		</StackPanel>
 	</StackPanel>
 </Window>

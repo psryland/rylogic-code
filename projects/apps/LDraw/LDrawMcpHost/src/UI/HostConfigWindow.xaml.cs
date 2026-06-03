@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using Microsoft.Win32;
 
 namespace LDraw.MCP.Host.UI;
@@ -145,7 +146,26 @@ public partial class HostConfigWindow :Window
 			}
 		}
 
-		DialogResult = true;
 		Close();
+	}
+
+	/// <summary>Close the settings window without applying changes</summary>
+	private void HandleCancel(object sender, RoutedEventArgs e)
+	{
+		Close();
+	}
+
+	/// <summary>
+	/// Provide dialog-style "ESC closes the window" behaviour. The window is shown modeless
+	/// (via Show), so a Cancel button with IsCancel="True" cannot be used: WPF would try to set
+	/// DialogResult, which is only valid for windows shown with ShowDialog and throws otherwise.</summary>
+	protected override void OnKeyDown(KeyEventArgs e)
+	{
+		base.OnKeyDown(e);
+		if (!e.Handled && e.Key == Key.Escape)
+		{
+			e.Handled = true;
+			Close();
+		}
 	}
 }
