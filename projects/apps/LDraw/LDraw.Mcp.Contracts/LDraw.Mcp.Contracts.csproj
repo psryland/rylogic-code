@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<RootNamespace>LDraw.MCP</RootNamespace>
+		<AssemblyName>LDraw.Mcp.Contracts</AssemblyName>
+	</PropertyGroup>
+
+	<!-- Assembly properties -->
+	<PropertyGroup>
+		<Description>Shared MCP contracts (DTOs, pipe command names, protocol constants) for the LDraw MCP host and LDraw.exe.</Description>
+	</PropertyGroup>
+
+	<!-- References -->
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+	</ItemGroup>
+
+</Project>

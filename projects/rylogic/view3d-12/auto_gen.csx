@@ -102,7 +102,7 @@ void AutoGen()
 	// Update 'LdrSyntaxRules.xshd' keywords
 	ReplaceSection(
 		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
-		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		Path.Join(Root, "projects/apps/LDraw/LDraw/res/LdrSyntaxRules.xshd"),
 		"#define PR_LDRAW_OBJECTS(x)",
 		"PR_LDRAW_OBJECTS_END",
 		"<!-- ##AUTO-GENERATED## ELdrObject Begin -->",
@@ -110,7 +110,7 @@ void AutoGen()
 		TransformEnumLineToXshdObject);
 	ReplaceSection(
 		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
-		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		Path.Join(Root, "projects/apps/LDraw/LDraw/res/LdrSyntaxRules.xshd"),
 		"#define PR_LDRAW_KEYWORDS(x)",
 		"PR_LDRAW_KEYWORDS_END",
 		"<!-- ##AUTO-GENERATED## EKeyword Begin -->",
@@ -118,7 +118,7 @@ void AutoGen()
 		TransformEnumLineToXshdKeyword);
 	ReplaceSection(
 		Path.Join(Root, "include/pr/view3d-12/ldraw/ldraw.h"),
-		Path.Join(Root, "projects/apps/LDraw/res/LdrSyntaxRules.xshd"),
+		Path.Join(Root, "projects/apps/LDraw/LDraw/res/LdrSyntaxRules.xshd"),
 		"#define PR_LDRAW_COMMANDS(x)",
 		"PR_LDRAW_COMMANDS_END",
 		"<!-- ##AUTO-GENERATED## ECommandId Begin -->",

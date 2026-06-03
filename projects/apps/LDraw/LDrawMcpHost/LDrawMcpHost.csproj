@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<RootNamespace>LDraw.MCP.Host</RootNamespace>
+		<AssemblyName>LDrawMcpHost</AssemblyName>
+		<UseWPF>true</UseWPF>
+		<!-- Reuse the main LDraw application icon so the host exe, taskbar and tray entry are visually consistent. -->
+		<ApplicationIcon>..\LDraw\icon.ico</ApplicationIcon>
+	</PropertyGroup>
+
+	<!-- Assembly properties -->
+	<PropertyGroup>
+		<Description>Persistent per-user system-tray host for the LDraw MCP loopback endpoint.</Description>
+		<Version>1.0.0</Version>
+	</PropertyGroup>
+
+	<!-- Code -->
+	<ItemGroup>
+		<ApplicationDefinition Include="src\App.xaml" />
+	</ItemGroup>
+
+	<!-- References -->
+	<ItemGroup>
+		<PackageReference Include="ModelContextProtocol.AspNetCore" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\apps\LDraw\LDraw.Mcp.Contracts\LDraw.Mcp.Contracts.csproj" />
+	</ItemGroup>
+
+</Project>
