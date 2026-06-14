@@ -313,7 +313,7 @@ namespace pr::rdr12::ldraw
 			"}\n"
 			"*Pie [<name>] [<colour>]\n"
 			"{\n"
-			"	*Data {<angle0> <angle1> <inner_radius> <outer_radius>}\n"
+			"	*Data {(<angle0> <angle1> <inner_radius> <outer_radius>)}\n"
 			"	[*Facets {<facet_count>}]\n"
 			"	[*Scale {<sx> <sy>}]\n"
 			"	[@AxisId]\n"

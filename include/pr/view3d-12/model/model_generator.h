@@ -187,6 +187,7 @@ namespace pr::rdr12
 		// Shape2d ****************************************************************************
 		static ModelPtr Ellipse(ResourceFactory& factory, float dimx, float dimy, bool solid, int facets = 40, CreateOptions const* opts = nullptr);		
 		static ModelPtr Pie(ResourceFactory& factory, geometry::Wedge wedge, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
+		static ModelPtr Pie(ResourceFactory& factory, std::span<geometry::Wedge const> wedges, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
 		static ModelPtr RoundedRectangle(ResourceFactory& factory, float dimx, float dimy, float corner_radius, bool solid, int facets = 10, CreateOptions const* opts = nullptr);
 		static ModelPtr Polygon(ResourceFactory& factory, std::span<v2 const> points, bool solid, CreateOptions const* opts = nullptr);
 

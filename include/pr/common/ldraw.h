@@ -3794,10 +3794,14 @@ namespace pr::ldraw
 	};
 	struct LdrPie : LdrBase
 	{
-		float m_angle0 = {};
-		float m_angle1 = {};
-		float m_inner_radius = {};
-		float m_outer_radius = {};
+		// A single pie/wedge. A pie object can contain several wedges; each is rendered as its own
+		// strip within one model and separated from its neighbours by a strip-cut.
+		struct Wedge
+		{
+			float ang0, ang1;
+			float inner_radius, outer_radius;
+		};
+		std::vector<Wedge> m_wedges;
 		seri::Facets m_facets;
 		seri::Scale2 m_scale;
 
@@ -3805,16 +3809,10 @@ namespace pr::ldraw
 		:LdrBase(name, colour)
 		{}
 
-		LdrPie& angles(float a0, float a1)
+		// Append a complete wedge. Call repeatedly to build a multi-wedge pie.
+		LdrPie& wedge(float ang0, float ang1, float inner, float outer)
 		{
-			m_angle0 = a0;
-			m_angle1 = a1;
-			return *this;
-		}
-		LdrPie& radii(float inner, float outer)
-		{
-			m_inner_radius = inner;
-			m_outer_radius = outer;
+			m_wedges.push_back({ang0, ang1, inner, outer});
 			return *this;
 		}
 		LdrPie& facets(int f)
@@ -3833,7 +3831,10 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Pie, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, "{", m_angle0, m_angle1, m_inner_radius, m_outer_radius, "}");
+				Append(out, EKeywords::Data, "{");
+				for (auto& w : m_wedges)
+					Append(out, w.ang0, w.ang1, w.inner_radius, w.outer_radius);
+				Append(out, "}");
 				Append(out, m_facets);
 				Append(out, m_scale);
 				LdrBase::Write(out);
@@ -3845,7 +3846,11 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Pie, m_name, m_colour });
 			{
-				Append(out, seri::Header{ EKeywords::Data }, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& w : m_wedges)
+						Append(out, w.ang0, w.ang1, w.inner_radius, w.outer_radius);
+				}
 				Append(out, m_facets);
 				Append(out, m_scale);
 				LdrBase::Write(out);
@@ -5134,6 +5139,13 @@ namespace pr::ldraw
 			builder.Pie("p", 0xFF00FF00).angles(0, 90).radii(1, 5).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Facets {16}}");
+		}
+		PRUnitTestMethod(PieMultiWedge)
+		{
+			Builder builder;
+			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).wedge(100, 180, 2, 4).facets(16);
+			auto ldr = builder.ToString(ESaveFlags::Flat);
+			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5 100 180 2 4} *Facets {16}}");
 		}
 		PRUnitTestMethod(Rect)
 		{

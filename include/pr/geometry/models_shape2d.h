@@ -75,17 +75,41 @@ namespace pr::geometry
 		float scalex = 1, scaley = 1;
 	};
 
-	// Returns the number of verts and indices needed to hold geometry for a 'Pie'
+	// Returns the number of facets used for a wedge spanning [ang0,ang1] (radians).
+	// The full-circle facet count is scaled by the fraction of a circle the wedge covers so the facet
+	// density stays consistent regardless of the wedge's angular size, with a minimum of 3. Buffer
+	// sizing and geometry generation both go through this so their facet counts always agree.
+	constexpr int PieFacets(float ang0, float ang1, int facets)
+	{
+		auto scale = Abs(ang1 - ang0) / constants<float>::tau;
+		return std::max(int(scale * facets + 0.5f), 3);
+	}
+
+	// Returns the number of verts and indices needed to hold geometry for a single-wedge 'Pie'
 	constexpr BufSizes PieSize(bool solid, float ang0, float ang1, int facets)
 	{
-		// 'scale' is the fraction of a full circle that the pie covers
-		auto scale = Abs(ang1 - ang0) / constants<float>::tau;
-		facets = std::max(int(scale * facets + 0.5f), 3);
+		facets = PieFacets(ang0, ang1, facets);
 		return
 		{
 			2 * (facets + 1),
 			solid ? 2 * (facets + 1) : 2 * facets + 3,
 		};
+	}
+
+	// Returns the number of verts and indices needed to hold geometry for a multi-wedge 'Pie'.
+	// Consecutive wedges are joined into one model and separated by a single strip-cut (primitive
+	// restart) index, so the total index count includes one extra index per gap between wedges.
+	constexpr BufSizes PieSize(std::span<Wedge const> wedges, bool solid, int facets)
+	{
+		int vcount = 0, icount = 0;
+		for (auto const& w : wedges)
+		{
+			auto sz = PieSize(solid, w.ang0, w.ang1, facets);
+			vcount += sz.vcount;
+			icount += sz.icount;
+		}
+		icount += std::max(0, static_cast<int>(wedges.size()) - 1);
+		return { vcount, icount };
 	}
 
 	// Generate a pie/wedge shape
@@ -95,9 +119,7 @@ namespace pr::geometry
 	template <VertOutputFn VOut, IndexOutputFn IOut>
 	Props Pie(Wedge wedge, bool solid, int facets, Colour32 colour, VOut vout, IOut iout)
 	{
-		// 'scale' is the fraction of a full circle that the pie covers
-		auto scale = abs(wedge.ang1 - wedge.ang0) / constants<double>::tau;
-		facets = std::max(int(scale * facets + 0.5f), 3);
+		facets = PieFacets(wedge.ang0, wedge.ang1, facets);
 		wedge.radius0 = std::max(0.0f, wedge.radius0);
 		wedge.radius1 = std::max(wedge.radius0, wedge.radius1);
 			
@@ -140,7 +162,37 @@ namespace pr::geometry
 		}
 
 		return props;
-	}	
+	}
+
+	// Generate a multi-wedge pie shape as a single model.
+	// Each wedge is emitted as its own strip (tri-strip when 'solid', otherwise line-strip). Consecutive
+	// wedges are separated by a strip-cut so they don't visually connect. The strip-cut is signalled to
+	// 'iout' as the value -1; callers building an index buffer translate it to the index format's
+	// primitive-restart sentinel (e.g. via IdxBuf::set_strip_cut). All wedges share one colour.
+	template <VertOutputFn VOut, IndexOutputFn IOut>
+	Props Pie(std::span<Wedge const> wedges, bool solid, int facets, Colour32 colour, VOut vout, IOut iout)
+	{
+		Props props;
+		props.m_geom = EGeom::Vert | EGeom::Colr | (solid ? EGeom::Norm : EGeom::None) | (solid ? EGeom::Tex0 : EGeom::None);
+
+		// Emit each wedge's strip in turn. Local wedge indices are offset by the running vertex base so
+		// they address this wedge's verts within the combined buffer, and a strip-cut is inserted in the
+		// gaps between wedges.
+		int vbase = 0;
+		for (int w = 0; w != static_cast<int>(wedges.size()); ++w)
+		{
+			if (w != 0)
+				iout(-1);
+
+			auto wprops = Pie(wedges[w], solid, facets, colour, vout, [&](int idx) { iout(vbase + idx); });
+
+			props.m_geom |= wprops.m_geom;
+			Grow(props.m_bbox, wprops.m_bbox);
+			vbase += PieSize(solid, wedges[w].ang0, wedges[w].ang1, facets).vcount;
+		}
+
+		return props;
+	}
 
 	// Rounded Rectangle **********************************************************************
 

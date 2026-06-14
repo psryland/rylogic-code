@@ -3300,19 +3300,24 @@ namespace pr::rdr12::ldraw
 				}
 			}
 		}
-		void CreateModel(LdrObject* obj, Location const&) override
+		void CreateModel(LdrObject* obj, Location const& loc) override
 		{
+			// A pie needs at least one wedge of data to generate a model
+			if (m_wedges.empty())
+			{
+				m_pp.ReportError(EParseError::DataMissing, loc, "*Pie requires at least one wedge in its *Data section");
+				return;
+			}
+
 			for (auto& w : m_wedges)
 			{
 				w.scalex = m_scale.x;
 				w.scaley = m_scale.y;
 			}
 
-			// TODO: support multiple wedges per object
-
-			// Create the model
+			// Create the model.
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
-			obj->m_model = ModelGenerator::Pie(m_pp.m_factory, m_wedges[0], m_solid, m_facets, &opts);
+			obj->m_model = ModelGenerator::Pie(m_pp.m_factory, m_wedges, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};

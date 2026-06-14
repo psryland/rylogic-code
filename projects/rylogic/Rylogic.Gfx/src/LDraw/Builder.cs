@@ -2224,19 +2224,26 @@ namespace Rylogic.LDraw
 	}
 	public class LdrPie : LdrBase<LdrPie>
 	{
-		private float m_angle0 = 0f;
-		private float m_angle1 = 90f;
-		private float m_inner_radius = 0f;
-		private float m_outer_radius = 1f;
+		// A single pie/wedge. A pie object can contain several wedges; each is rendered as its own
+		// strip within one model and separated from its neighbours by a strip-cut.
+		private struct Wedge { public float ang0, ang1, inner_radius, outer_radius; }
+		private readonly List<Wedge> m_wedges = [];
 		private Serialiser.Facets m_facets = new();
 		private Serialiser.Scale2 m_scale = new();
 
+		// Set the first wedge of the pie, creating it if necessary. Convenience for the common
+		// single-wedge case; for multiple wedges use 'wedge'.
 		public LdrPie pie(float angle0, float angle1, float inner_radius, float outer_radius)
 		{
-			m_angle0 = angle0;
-			m_angle1 = angle1;
-			m_inner_radius = inner_radius;
-			m_outer_radius = outer_radius;
+			if (m_wedges.Count == 0) m_wedges.Add(new Wedge());
+			m_wedges[0] = new Wedge { ang0 = angle0, ang1 = angle1, inner_radius = inner_radius, outer_radius = outer_radius };
+			return this;
+		}
+
+		// Append a complete wedge. Call repeatedly to build a multi-wedge pie.
+		public LdrPie wedge(float angle0, float angle1, float inner_radius, float outer_radius)
+		{
+			m_wedges.Add(new Wedge { ang0 = angle0, ang1 = angle1, inner_radius = inner_radius, outer_radius = outer_radius });
 			return this;
 		}
 		public LdrPie facets(int count)
@@ -2254,7 +2261,11 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Pie, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Data, m_angle0, m_angle1, m_inner_radius, m_outer_radius);
+				res.Write(EKeyword.Data, () =>
+				{
+					foreach (var w in m_wedges)
+						res.Append(w.ang0, w.ang1, w.inner_radius, w.outer_radius);
+				});
 				res.Append(m_facets, m_scale);
 				base.WriteTo(res);
 			});
@@ -3143,6 +3154,15 @@ namespace Rylogic.UnitTests
 		}
 
 		[Test]
+		public void TestPieMultiWedge()
+		{
+			var builder = new LDraw.Builder();
+			builder.Pie("pie", 0xFF00FF00u).wedge(0, 90, 0.5f, 1.5f).wedge(100, 180, 1, 2);
+			var str = builder.ToString();
+			Assert.Equal("*Pie pie FF00FF00 {*Data {0 90 0.5 1.5 100 180 1 2}}", str);
+		}
+
+		[Test]
 		public void TestRect()
 		{
 			var builder = new LDraw.Builder();
@@ -3456,6 +3476,16 @@ namespace Rylogic.UnitTests
 		{
 			var builder = new LDraw.Builder();
 			builder.Pie("pie", 0xFF00FF00u).pie(0, 90, 0.5f, 1.5f);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
+		}
+
+		[Test]
+		public void TestBinaryPieMultiWedge()
+		{
+			var builder = new LDraw.Builder();
+			builder.Pie("pie", 0xFF00FF00u).wedge(0, 90, 0.5f, 1.5f).wedge(100, 180, 1, 2).wedge(200, 260, 0.5f, 2.5f);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);

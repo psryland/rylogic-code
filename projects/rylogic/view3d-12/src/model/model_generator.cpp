@@ -836,18 +836,33 @@ namespace pr::rdr12
 	}
 	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, geometry::Wedge wedge, bool solid, int facets, CreateOptions const* opts)
 	{
-		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::PieSize(solid, wedge.ang0, wedge.ang1, facets);
+		// A single wedge is just the degenerate case of the multi-wedge pie
+		return Pie(factory, std::span<geometry::Wedge const>{ &wedge, 1 }, solid, facets, opts);
+	}
+	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, std::span<geometry::Wedge const> wedges, bool solid, int facets, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes. The wedges share a single strip-topology nugget and are
+		// separated by a strip-cut (primitive restart) index, which PieSize accounts for.
+		auto [vcount, icount] = geometry::PieSize(wedges, solid, facets);
 		auto colour = opts && !opts->m_colours.empty() ? opts->m_colours[0] : Colour32White;
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the geometry. The index buffer is pre-sized (including its strip-cut slots) and filled
+		// positionally; the geometry function signals a strip-cut by passing -1 to the index callback.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Pie(wedge, solid, facets, colour,
+		int64_t ipos = 0;
+		auto props = geometry::Pie(wedges, solid, facets, colour,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[&](int idx)
+			{
+				if (idx < 0)
+					cache.m_icont.set_strip_cut(ipos);
+				else
+					cache.m_icont[ipos] = idx;
+
+				++ipos;
+			}
 		);
 
 		// Create a nugget

@@ -452,7 +452,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestPie)
 		{
 			Builder builder;
-			builder.Pie("Pi", 0xFF00FF88).angles(0, 90).radii(0.5f, 1.0f);
+			builder.Pie("Pi", 0xFF00FF88).wedge(0, 90, 0.5f, 1.0f);
 			auto const txt = builder.ToString();
 			Dump(txt);
 
