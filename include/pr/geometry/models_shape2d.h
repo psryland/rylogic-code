@@ -73,6 +73,7 @@ namespace pr::geometry
 		float ang0, ang1;
 		float radius0, radius1;
 		float scalex = 1, scaley = 1;
+		float cx = 0, cy = 0;
 	};
 
 	// Returns the number of facets used for a wedge spanning [ang0,ang1] (radians).
@@ -133,14 +134,15 @@ namespace pr::geometry
 		auto tr0 = FEql(wedge.radius1, 0.f) ? 0.0f : wedge.radius0 / wedge.radius1;
 		auto tr1 = 1.0f;
 
-		// Set Verts
+		// Set Verts. Each wedge vertex is the polar position scaled non-uniformly then translated by the
+		// wedge's centre, so multiple wedges in one model can sit at independent locations.
 		for (int i = 0; i <= facets; ++i)
 		{
 			auto a = Lerp(wedge.ang0, wedge.ang1, float(i) / facets);
 			auto c = std::cos(a);
 			auto s = std::sin(a);
-			vout(bb(v4(wedge.radius0 * wedge.scalex * c, wedge.radius0 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
-			vout(bb(v4(wedge.radius1 * wedge.scalex * c, wedge.radius1 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
+			vout(bb(v4(wedge.cx + wedge.radius0 * wedge.scalex * c, wedge.cy + wedge.radius0 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
+			vout(bb(v4(wedge.cx + wedge.radius1 * wedge.scalex * c, wedge.cy + wedge.radius1 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
 		}
 
 		if (solid)

@@ -3263,15 +3263,21 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					for (; !reader.IsSectionEnd(); )
+					// Each *Data block describes exactly one wedge: 'ang0 ang1 radius0 radius1' with an
+					// optional trailing centre 'cx cy'. Repeated *Data blocks accumulate wedges into one
+					// model. Angles are given in degrees.
+					geometry::Wedge w = {
+						.ang0 = DegreesToRadians(reader.Real<float>()),
+						.ang1 = DegreesToRadians(reader.Real<float>()),
+						.radius0 = reader.Real<float>(),
+						.radius1 = reader.Real<float>(),
+					};
+					if (!reader.IsSectionEnd())
 					{
-						m_wedges.push_back(geometry::Wedge{
-							.ang0 = DegreesToRadians(reader.Real<float>()),
-							.ang1 = DegreesToRadians(reader.Real<float>()),
-							.radius0 = reader.Real<float>(),
-							.radius1 = reader.Real<float>(),
-						});
+						w.cx = reader.Real<float>();
+						w.cy = reader.Real<float>();
 					}
+					m_wedges.push_back(w);
 					return true;
 				}
 				case EKeyword::Solid:

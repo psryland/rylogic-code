@@ -3794,12 +3794,14 @@ namespace pr::ldraw
 	};
 	struct LdrPie : LdrBase
 	{
-		// A single pie/wedge. A pie object can contain several wedges; each is rendered as its own
-		// strip within one model and separated from its neighbours by a strip-cut.
+		// A single pie/wedge. A pie object can contain several wedges; each is written as its own *Data
+		// block and rendered as its own strip within one model, separated from its neighbours by a
+		// strip-cut. 'cx,cy' is an optional centre offset so wedges can sit at independent locations.
 		struct Wedge
 		{
 			float ang0, ang1;
 			float inner_radius, outer_radius;
+			float cx = 0, cy = 0;
 		};
 		std::vector<Wedge> m_wedges;
 		seri::Facets m_facets;
@@ -3813,6 +3815,11 @@ namespace pr::ldraw
 		LdrPie& wedge(float ang0, float ang1, float inner, float outer)
 		{
 			m_wedges.push_back({ang0, ang1, inner, outer});
+			return *this;
+		}
+		LdrPie& wedge(float ang0, float ang1, float inner, float outer, float cx, float cy)
+		{
+			m_wedges.push_back({ang0, ang1, inner, outer, cx, cy});
 			return *this;
 		}
 		LdrPie& facets(int f)
@@ -3831,10 +3838,14 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Pie, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, "{");
 				for (auto& w : m_wedges)
+				{
+					Append(out, EKeywords::Data, "{");
 					Append(out, w.ang0, w.ang1, w.inner_radius, w.outer_radius);
-				Append(out, "}");
+					if (w.cx != 0 || w.cy != 0)
+						Append(out, w.cx, w.cy);
+					Append(out, "}");
+				}
 				Append(out, m_facets);
 				Append(out, m_scale);
 				LdrBase::Write(out);
@@ -3846,10 +3857,12 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Pie, m_name, m_colour });
 			{
+				for (auto& w : m_wedges)
 				{
 					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& w : m_wedges)
-						Append(out, w.ang0, w.ang1, w.inner_radius, w.outer_radius);
+					Append(out, w.ang0, w.ang1, w.inner_radius, w.outer_radius);
+					if (w.cx != 0 || w.cy != 0)
+						Append(out, w.cx, w.cy);
 				}
 				Append(out, m_facets);
 				Append(out, m_scale);
@@ -5136,16 +5149,16 @@ namespace pr::ldraw
 		PRUnitTestMethod(Pie)
 		{
 			Builder builder;
-			builder.Pie("p", 0xFF00FF00).angles(0, 90).radii(1, 5).facets(16);
+			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Facets {16}}");
 		}
 		PRUnitTestMethod(PieMultiWedge)
 		{
 			Builder builder;
-			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).wedge(100, 180, 2, 4).facets(16);
+			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).wedge(100, 180, 2, 4, 3, 3).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
-			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5 100 180 2 4} *Facets {16}}");
+			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Data {100 180 2 4 3 3} *Facets {16}}");
 		}
 		PRUnitTestMethod(Rect)
 		{

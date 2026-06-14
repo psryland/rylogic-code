@@ -2224,9 +2224,10 @@ namespace Rylogic.LDraw
 	}
 	public class LdrPie : LdrBase<LdrPie>
 	{
-		// A single pie/wedge. A pie object can contain several wedges; each is rendered as its own
-		// strip within one model and separated from its neighbours by a strip-cut.
-		private struct Wedge { public float ang0, ang1, inner_radius, outer_radius; }
+		// A single pie/wedge. A pie object can contain several wedges; each is written as its own *Data
+		// block and rendered as its own strip within one model, separated from its neighbours by a
+		// strip-cut. 'cx,cy' is an optional centre offset so wedges can sit at independent locations.
+		private struct Wedge { public float ang0, ang1, inner_radius, outer_radius, cx, cy; }
 		private readonly List<Wedge> m_wedges = [];
 		private Serialiser.Facets m_facets = new();
 		private Serialiser.Scale2 m_scale = new();
@@ -2246,6 +2247,11 @@ namespace Rylogic.LDraw
 			m_wedges.Add(new Wedge { ang0 = angle0, ang1 = angle1, inner_radius = inner_radius, outer_radius = outer_radius });
 			return this;
 		}
+		public LdrPie wedge(float angle0, float angle1, float inner_radius, float outer_radius, float cx, float cy)
+		{
+			m_wedges.Add(new Wedge { ang0 = angle0, ang1 = angle1, inner_radius = inner_radius, outer_radius = outer_radius, cx = cx, cy = cy });
+			return this;
+		}
 		public LdrPie facets(int count)
 		{
 			m_facets = new(count);
@@ -2261,11 +2267,15 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Pie, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Data, () =>
+				foreach (var w in m_wedges)
 				{
-					foreach (var w in m_wedges)
+					res.Write(EKeyword.Data, () =>
+					{
 						res.Append(w.ang0, w.ang1, w.inner_radius, w.outer_radius);
-				});
+						if (w.cx != 0 || w.cy != 0)
+							res.Append(w.cx, w.cy);
+					});
+				}
 				res.Append(m_facets, m_scale);
 				base.WriteTo(res);
 			});
@@ -3159,7 +3169,16 @@ namespace Rylogic.UnitTests
 			var builder = new LDraw.Builder();
 			builder.Pie("pie", 0xFF00FF00u).wedge(0, 90, 0.5f, 1.5f).wedge(100, 180, 1, 2);
 			var str = builder.ToString();
-			Assert.Equal("*Pie pie FF00FF00 {*Data {0 90 0.5 1.5 100 180 1 2}}", str);
+			Assert.Equal("*Pie pie FF00FF00 {*Data {0 90 0.5 1.5} *Data {100 180 1 2}}", str);
+		}
+
+		[Test]
+		public void TestPieMultiWedgeCentre()
+		{
+			var builder = new LDraw.Builder();
+			builder.Pie("pie", 0xFF00FF00u).wedge(0, 90, 0.5f, 1.5f).wedge(100, 180, 1, 2, 3, 3);
+			var str = builder.ToString();
+			Assert.Equal("*Pie pie FF00FF00 {*Data {0 90 0.5 1.5} *Data {100 180 1 2 3 3}}", str);
 		}
 
 		[Test]
