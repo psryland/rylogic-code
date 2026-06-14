@@ -3243,9 +3243,8 @@ namespace pr::rdr12::ldraw
 	{
 		creation::Textured m_tex;
 		creation::MainAxis m_axis;
+		vector<geometry::Wedge> m_wedges;
 		v2 m_scale;
-		v2 m_ang;
-		v2 m_rad;
 		int m_facets;
 		bool m_solid;
 
@@ -3253,9 +3252,8 @@ namespace pr::rdr12::ldraw
 			: IObjectCreator(pp)
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
-			, m_scale(v2::One())
-			, m_ang()
-			, m_rad()
+			, m_wedges()
+			, m_scale(1, 1)
 			, m_facets(40)
 			, m_solid()
 		{}
@@ -3265,10 +3263,15 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					m_ang = reader.Vector2f();
-					m_rad = reader.Vector2f();
-					m_ang.x = DegreesToRadians(m_ang.x);
-					m_ang.y = DegreesToRadians(m_ang.y);
+					for (; !reader.IsSectionEnd(); )
+					{
+						m_wedges.push_back(geometry::Wedge{
+							.ang0 = DegreesToRadians(reader.Real<float>()),
+							.ang1 = DegreesToRadians(reader.Real<float>()),
+							.radius0 = reader.Real<float>(),
+							.radius1 = reader.Real<float>(),
+						});
+					}
 					return true;
 				}
 				case EKeyword::Solid:
@@ -3283,6 +3286,8 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Facets:
 				{
+					// Note: faces is the number of facets a full circle would have. The actual number of facets used is scaled by the angle of the pie.
+					// It's like this so that the faceting looks consistent regardless of the angle of the pie.
 					m_facets = reader.Int<int>(10);
 					return true;
 				}
@@ -3297,9 +3302,17 @@ namespace pr::rdr12::ldraw
 		}
 		void CreateModel(LdrObject* obj, Location const&) override
 		{
+			for (auto& w : m_wedges)
+			{
+				w.scalex = m_scale.x;
+				w.scaley = m_scale.y;
+			}
+
+			// TODO: support multiple wedges per object
+
 			// Create the model
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
-			obj->m_model = ModelGenerator::Pie(m_pp.m_factory, m_scale.x, m_scale.y, m_ang.x, m_ang.y, m_rad.x, m_rad.y, m_solid, m_facets, &opts);
+			obj->m_model = ModelGenerator::Pie(m_pp.m_factory, m_wedges[0], m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};

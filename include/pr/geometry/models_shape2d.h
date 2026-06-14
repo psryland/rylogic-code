@@ -67,9 +67,18 @@ namespace pr::geometry
 
 	// Pie/Wedge ******************************************************************************
 
+	// A description of a pie/wedge shape
+	struct Wedge
+	{
+		float ang0, ang1;
+		float radius0, radius1;
+		float scalex = 1, scaley = 1;
+	};
+
 	// Returns the number of verts and indices needed to hold geometry for a 'Pie'
 	constexpr BufSizes PieSize(bool solid, float ang0, float ang1, int facets)
 	{
+		// 'scale' is the fraction of a full circle that the pie covers
 		auto scale = Abs(ang1 - ang0) / constants<float>::tau;
 		facets = std::max(int(scale * facets + 0.5f), 3);
 		return
@@ -84,12 +93,13 @@ namespace pr::geometry
 	// 'solid' - true = tristrip model, false = linestrip model
 	// 'facets' - the number of facets for a complete ring, scaled to the actual ang0->ang1 range
 	template <VertOutputFn VOut, IndexOutputFn IOut>
-	Props Pie(float dimx, float dimy, float ang0, float ang1, float radius0, float radius1, bool solid, int facets, Colour32 colour, VOut vout, IOut iout)
+	Props Pie(Wedge wedge, bool solid, int facets, Colour32 colour, VOut vout, IOut iout)
 	{
-		auto scale = abs(ang1 - ang0) / constants<double>::tau;
+		// 'scale' is the fraction of a full circle that the pie covers
+		auto scale = abs(wedge.ang1 - wedge.ang0) / constants<double>::tau;
 		facets = std::max(int(scale * facets + 0.5f), 3);
-		radius0 = std::max(0.0f, radius0);
-		radius1 = std::max(radius0, radius1);
+		wedge.radius0 = std::max(0.0f, wedge.radius0);
+		wedge.radius1 = std::max(wedge.radius0, wedge.radius1);
 			
 		Props props;
 		props.m_geom = EGeom::Vert | EGeom::Colr | (solid ? EGeom::Norm : EGeom::None) | (solid ? EGeom::Tex0 : EGeom::None);
@@ -98,17 +108,17 @@ namespace pr::geometry
 		auto bb = [&](v4 v) { Grow(props.m_bbox, v); return v; };
 
 		// Tex coords
-		auto tr0 = FEql(radius1, 0.f) ? 0.0f : radius0 / radius1;
+		auto tr0 = FEql(wedge.radius1, 0.f) ? 0.0f : wedge.radius0 / wedge.radius1;
 		auto tr1 = 1.0f;
 
 		// Set Verts
 		for (int i = 0; i <= facets; ++i)
 		{
-			auto a = Lerp(ang0, ang1, float(i) / facets);
+			auto a = Lerp(wedge.ang0, wedge.ang1, float(i) / facets);
 			auto c = std::cos(a);
 			auto s = std::sin(a);
-			vout(bb(v4(radius0 * dimx * c, radius0 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
-			vout(bb(v4(radius1 * dimx * c, radius1 * dimy * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
+			vout(bb(v4(wedge.radius0 * wedge.scalex * c, wedge.radius0 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr0*c, 0.5f - 0.5f*tr0*s));
+			vout(bb(v4(wedge.radius1 * wedge.scalex * c, wedge.radius1 * wedge.scaley * s, 0, 1)), colour, v4::ZAxis(), v2(0.5f + 0.5f*tr1*c, 0.5f - 0.5f*tr1*s));
 		}
 
 		if (solid)

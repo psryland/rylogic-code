@@ -14,6 +14,7 @@ public partial class TrayWindow :Window, IDisposable
 {
 	private readonly HostSettings m_settings;
 	private readonly McpServer m_server;
+	private readonly InstanceLauncher m_launcher;
 	private readonly MenuItem m_status_item;
 	private HostConfigWindow? m_config_window;
 
@@ -22,6 +23,7 @@ public partial class TrayWindow :Window, IDisposable
 	{
 		m_settings = settings;
 		m_server = server;
+		m_launcher = new InstanceLauncher(settings);
 		InitializeComponent();
 
 		// The status header lives in the context menu held in Window.Resources, which is not part of the named
@@ -66,6 +68,22 @@ public partial class TrayWindow :Window, IDisposable
 	{
 		m_notify_icon.ToolTipText = m_server.StatusMessage;
 		m_status_item.Header = m_server.StatusMessage;
+	}
+
+	/// <summary>Launch a new MCP-enabled LDraw instance that Copilot can control</summary>
+	private void HandleLaunchLDraw(object sender, RoutedEventArgs e)
+	{
+		try
+		{
+			// Launch with the host's MCP launch nonce so the instance enables MCP control and registers itself.
+			// The returned nonce is only needed when the host must match a process it awaits; a tray launch is
+			// fire-and-forget, so any subsequent tools/call simply reuses the now-live instance from the registry.
+			m_launcher.Launch();
+		}
+		catch (Exception ex)
+		{
+			MessageBox.Show($"Could not launch LDraw: {ex.Message}", "LDraw MCP Host", MessageBoxButton.OK, MessageBoxImage.Warning);
+		}
 	}
 
 	/// <summary>Copy the VS Code MCP configuration snippet to the clipboard</summary>

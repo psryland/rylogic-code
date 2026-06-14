@@ -834,10 +834,10 @@ namespace pr::rdr12
 		// Create the model
 		return Create(factory, cache, opts);
 	}
-	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, float dimx, float dimy, float ang0, float ang1, float radius0, float radius1, bool solid, int facets, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, geometry::Wedge wedge, bool solid, int facets, CreateOptions const* opts)
 	{
 		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::PieSize(solid, ang0, ang1, facets);
+		auto [vcount, icount] = geometry::PieSize(solid, wedge.ang0, wedge.ang1, facets);
 		auto colour = opts && !opts->m_colours.empty() ? opts->m_colours[0] : Colour32White;
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
@@ -845,7 +845,7 @@ namespace pr::rdr12
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Pie(dimx, dimy, ang0, ang1, radius0, radius1, solid, facets, colour,
+		auto props = geometry::Pie(wedge, solid, facets, colour,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
