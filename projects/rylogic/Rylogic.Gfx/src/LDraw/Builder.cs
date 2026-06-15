@@ -1203,12 +1203,33 @@ namespace Rylogic.LDraw
 	}
 	public class LdrCircle : LdrBase<LdrCircle>
 	{
-		private float m_radius = 1.0f;
+		// A single ellipse/circle. A circle object can contain several ellipses; each is written as its own
+		// *Data block and rendered as its own strip within one model, separated from its neighbours by a
+		// strip-cut. 'cx,cy' is an optional centre offset so ellipses can sit at independent locations.
+		private struct Ellipse { public float dimx, dimy, cx, cy; }
+		private readonly List<Ellipse> m_ellipses = [];
 		private Serialiser.Facets m_facets = new();
 
-		public LdrCircle radius(float r)
+		// Append a circle. Call repeatedly to build a multi-shape model.
+		public LdrCircle circle(float r)
 		{
-			m_radius = r;
+			m_ellipses.Add(new Ellipse { dimx = r, dimy = r });
+			return this;
+		}
+		public LdrCircle circle(float r, float cx, float cy)
+		{
+			m_ellipses.Add(new Ellipse { dimx = r, dimy = r, cx = cx, cy = cy });
+			return this;
+		}
+		// Append an ellipse (independent x/y radii).
+		public LdrCircle ellipse(float rx, float ry)
+		{
+			m_ellipses.Add(new Ellipse { dimx = rx, dimy = ry });
+			return this;
+		}
+		public LdrCircle ellipse(float rx, float ry, float cx, float cy)
+		{
+			m_ellipses.Add(new Ellipse { dimx = rx, dimy = ry, cx = cx, cy = cy });
 			return this;
 		}
 		public LdrCircle facets(int count)
@@ -1222,7 +1243,20 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Circle, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Data, m_radius);
+				// Each ellipse is one *Data block. The field count selects the form parsed back:
+				// 1 = 'r', 2 = 'rx ry', 3 = 'r cx cy', 4 = 'rx ry cx cy'.
+				foreach (var e in m_ellipses)
+				{
+					res.Write(EKeyword.Data, () =>
+					{
+						if (e.dimx == e.dimy)
+							res.Append(e.dimx);
+						else
+							res.Append(e.dimx, e.dimy);
+						if (e.cx != 0 || e.cy != 0)
+							res.Append(e.cx, e.cy);
+					});
+				}
 				res.Append(m_facets);
 				base.WriteTo(res);
 			});
@@ -2395,12 +2429,24 @@ namespace Rylogic.LDraw
 	public class LdrPolygon : LdrBase<LdrPolygon>
 	{
 		private class Pt { public v2 pt; public Colour32 col; }
-		private readonly List<Pt> m_points = [];
+		// A single polygon, written as its own *Data block. A polygon object can contain several polygons;
+		// each is rendered within one model (concatenated triangle lists when solid, or separate closed
+		// line-strips joined by strip-cuts when wireframe).
+		private class Poly { public List<Pt> m_points = []; }
+		private readonly List<Poly> m_polys = [];
 		private Serialiser.PerItemColour m_per_item_colour = new();
 
+		// Start a new polygon. Subsequent pt() calls add points to this polygon.
+		public LdrPolygon poly()
+		{
+			m_polys.Add(new Poly());
+			return this;
+		}
+		// Add a point to the current polygon, starting one if none exists yet.
 		public LdrPolygon pt(v2 point, Colour32? colour = null)
 		{
-			m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
+			if (m_polys.Count == 0) m_polys.Add(new Poly());
+			m_polys[m_polys.Count - 1].m_points.Add(new Pt { pt = point, col = colour ?? Colour32.White });
 			if (colour != null) m_per_item_colour.m_per_item_colour = true;
 			return this;
 		}
@@ -2414,15 +2460,18 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.Polygon, m_name, m_colour, () =>
 			{
 				res.Append(m_per_item_colour);
-				res.Write(EKeyword.Data, () =>
+				foreach (var poly in m_polys)
 				{
-					foreach (var p in m_points)
+					res.Write(EKeyword.Data, () =>
 					{
-						res.Append(p.pt);
-						if (m_per_item_colour.m_per_item_colour)
-							res.Append(p.col);
-					}
-				});
+						foreach (var p in poly.m_points)
+						{
+							res.Append(p.pt);
+							if (m_per_item_colour.m_per_item_colour)
+								res.Append(p.col);
+						}
+					});
+				}
 				base.WriteTo(res);
 			});
 		}
@@ -2478,19 +2527,31 @@ namespace Rylogic.LDraw
 	}
 	public class LdrRect : LdrBase<LdrRect>
 	{
-		private v2 m_wh = new(1f, 1f);
+		// A single rectangle. A rect object can contain several rectangles; each is written as its own
+		// *Data block and rendered as its own strip within one model, separated from its neighbours by a
+		// strip-cut. 'w,h' are full width/height. 'cx,cy' is an optional centre offset so rectangles can
+		// sit at independent locations. The corner radius is shared by all rectangles.
+		private struct Rectangle { public float w, h, cx, cy; }
+		private readonly List<Rectangle> m_rects = [];
 		private Serialiser.CornerRadius m_corner_radius = new();
 		private Serialiser.Facets m_facets = new();
 		private LdrTexture m_tex = new();
 
-		public LdrRect wh(double w, double h)
+		// Append a rectangle. Call repeatedly to build a multi-shape model.
+		public LdrRect rect(float w)
 		{
-			m_wh = new v2((float)w, (float)h);
+			m_rects.Add(new Rectangle { w = w, h = w });
 			return this;
 		}
-		public LdrRect wh(double s)
+		public LdrRect rect(float w, float h)
 		{
-			return wh(s, s);
+			m_rects.Add(new Rectangle { w = w, h = h });
+			return this;
+		}
+		public LdrRect rect(float w, float h, float cx, float cy)
+		{
+			m_rects.Add(new Rectangle { w = w, h = h, cx = cx, cy = cy });
+			return this;
 		}
 		public LdrRect corner_radius(double r)
 		{
@@ -2516,7 +2577,20 @@ namespace Rylogic.LDraw
 		{
 			res.Write(EKeyword.Rect, m_name, m_colour, () =>
 			{
-				res.Write(EKeyword.Data, m_wh);
+				// Each rectangle is one *Data block. The field count selects the form parsed back:
+				// 1 = 'w', 2 = 'w h', 3 = 'w cx cy', 4 = 'w h cx cy'.
+				foreach (var r in m_rects)
+				{
+					res.Write(EKeyword.Data, () =>
+					{
+						if (r.w == r.h)
+							res.Append(r.w);
+						else
+							res.Append(r.w, r.h);
+						if (r.cx != 0 || r.cy != 0)
+							res.Append(r.cx, r.cy);
+					});
+				}
 				res.Append(m_corner_radius, m_facets);
 				m_tex.WriteTo(res);
 				base.WriteTo(res);
@@ -3149,7 +3223,7 @@ namespace Rylogic.UnitTests
 		public void TestCircle()
 		{
 			var builder = new LDraw.Builder();
-			builder.Circle("c", 0xFF00FF00u).radius(5).solid(true);
+			builder.Circle("c", 0xFF00FF00u).circle(5).solid(true);
 			var str = builder.ToString();
 			Assert.Equal("*Circle c FF00FF00 {*Data {5} *Solid {true}}", str);
 		}
@@ -3185,7 +3259,7 @@ namespace Rylogic.UnitTests
 		public void TestRect()
 		{
 			var builder = new LDraw.Builder();
-			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
+			builder.Rect("r", 0xFF00FF00u).rect(3, 2);
 			var str = builder.ToString();
 			Assert.Equal("*Rect r FF00FF00 {*Data {3 2}}", str);
 		}
@@ -3197,6 +3271,17 @@ namespace Rylogic.UnitTests
 			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
 			var str = builder.ToString();
 			Assert.Equal("*Polygon pg FF00FF00 {*Data {0 0 1 0 0.5 1}}", str);
+		}
+
+		[Test]
+		public void TestPolygonMulti()
+		{
+			var builder = new LDraw.Builder();
+			builder.Polygon("pg", 0xFF00FF00u)
+				.pt(0, 0).pt(1, 0).pt(0.5f, 1)
+				.poly().pt(2, 0).pt(3, 0).pt(3, 1).pt(2, 1);
+			var str = builder.ToString();
+			Assert.Equal("*Polygon pg FF00FF00 {*Data {0 0 1 0 0.5 1} *Data {2 0 3 0 3 1 2 1}}", str);
 		}
 
 		[Test]
@@ -3484,7 +3569,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryCircle()
 		{
 			var builder = new LDraw.Builder();
-			builder.Circle("c", 0xFF00FF00u).radius(5);
+			builder.Circle("c", 0xFF00FF00u).circle(5);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);
@@ -3514,7 +3599,7 @@ namespace Rylogic.UnitTests
 		public void TestBinaryRect()
 		{
 			var builder = new LDraw.Builder();
-			builder.Rect("r", 0xFF00FF00u).wh(3, 2);
+			builder.Rect("r", 0xFF00FF00u).rect(3, 2);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);
@@ -3525,6 +3610,19 @@ namespace Rylogic.UnitTests
 		{
 			var builder = new LDraw.Builder();
 			builder.Polygon("pg", 0xFF00FF00u).pt(0, 0).pt(1, 0).pt(0.5f, 1);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
+		}
+
+		[Test]
+		public void TestBinaryPolygonMulti()
+		{
+			var builder = new LDraw.Builder();
+			builder.Polygon("pg", 0xFF00FF00u)
+				.pt(0, 0).pt(1, 0).pt(0.5f, 1)
+				.poly().pt(2, 0).pt(3, 0).pt(3, 1).pt(2, 1)
+				.solid(true);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);

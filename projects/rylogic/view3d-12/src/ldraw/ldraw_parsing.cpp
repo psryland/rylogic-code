@@ -3182,7 +3182,7 @@ namespace pr::rdr12::ldraw
 	{
 		creation::Textured m_tex;
 		creation::MainAxis m_axis;
-		v2 m_dim;
+		vector<geometry::EllipseShape> m_shapes;
 		int m_facets;
 		bool m_solid;
 
@@ -3190,7 +3190,7 @@ namespace pr::rdr12::ldraw
 			: IObjectCreator(pp)
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
-			, m_dim()
+			, m_shapes()
 			, m_facets(40)
 			, m_solid()
 		{}
@@ -3200,14 +3200,34 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					m_dim.x = reader.Real<float>();
-					m_dim.y = reader.IsSectionEnd() ? m_dim.x : reader.Real<float>();
-					if (Any(Abs(m_dim) != m_dim))
+					// Each *Data block describes exactly one ellipse. The field count selects the form:
+					//  1 = 'r' (circle), 2 = 'rx ry', 3 = 'r cx cy', 4 = 'rx ry cx cy'. Repeated *Data
+					// blocks accumulate ellipses into one model.
+					float v[4]; int n = 0;
+					for (; n != 4 && !reader.IsSectionEnd(); ++n)
+						v[n] = reader.Real<float>();
+
+					geometry::EllipseShape s = {};
+					switch (n)
+					{
+						case 1: { s = { .dimx = v[0], .dimy = v[0] }; break; }
+						case 2: { s = { .dimx = v[0], .dimy = v[1] }; break; }
+						case 3: { s = { .dimx = v[0], .dimy = v[0], .cx = v[1], .cy = v[2] }; break; }
+						case 4: { s = { .dimx = v[0], .dimy = v[1], .cx = v[2], .cy = v[3] }; break; }
+						default:
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Circle *Data expects 1, 2, 3, or 4 values (r | rx ry | r cx cy | rx ry cx cy)");
+							return true;
+						}
+					}
+					if (s.dimx < 0 || s.dimy < 0)
 					{
 						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Circle dimensions contain a negative value");
-						m_dim = Abs(m_dim);
+						s.dimx = Abs(s.dimx);
+						s.dimy = Abs(s.dimy);
 					}
 
+					m_shapes.push_back(s);
 					return true;
 				}
 				case EKeyword::Solid:
@@ -3229,11 +3249,18 @@ namespace pr::rdr12::ldraw
 				}
 			}
 		}
-		void CreateModel(LdrObject* obj, Location const&) override
+		void CreateModel(LdrObject* obj, Location const& loc) override
 		{
+			// A circle needs at least one ellipse of data to generate a model
+			if (m_shapes.empty())
+			{
+				m_pp.ReportError(EParseError::DataMissing, loc, "*Circle requires at least one ellipse in its *Data section");
+				return;
+			}
+
 			// Create the model
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
-			obj->m_model = ModelGenerator::Ellipse(m_pp.m_factory, m_dim.x, m_dim.y, m_solid, m_facets, &opts);
+			obj->m_model = ModelGenerator::Ellipse(m_pp.m_factory, m_shapes, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -3333,7 +3360,7 @@ namespace pr::rdr12::ldraw
 	{
 		creation::Textured m_tex;
 		creation::MainAxis m_axis;
-		v2 m_dim;
+		vector<geometry::RectShape> m_shapes;
 		float m_corner_radius;
 		int m_facets;
 		bool m_solid;
@@ -3342,7 +3369,7 @@ namespace pr::rdr12::ldraw
 			: IObjectCreator(pp)
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
-			, m_dim()
+			, m_shapes()
 			, m_corner_radius()
 			, m_facets(40)
 			, m_solid()
@@ -3353,15 +3380,39 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
-					m_dim.x = reader.Real<float>();
-					m_dim.y = reader.IsSectionEnd() ? m_dim.x : reader.Real<float>();
-					m_dim *= 0.5f;
+					// Each *Data block describes exactly one rectangle. The field count selects the form:
+					//  1 = 'w' (square), 2 = 'w h', 3 = 'w cx cy', 4 = 'w h cx cy'. Width/height are full
+					// extents (halved to half-extents below); the optional centre 'cx cy' is an absolute
+					// position. Repeated *Data blocks accumulate rectangles into one model.
+					float v[4]; int n = 0;
+					for (; n != 4 && !reader.IsSectionEnd(); ++n)
+						v[n] = reader.Real<float>();
 
-					if (Any(Abs(m_dim) != m_dim))
+					geometry::RectShape s = {};
+					switch (n)
+					{
+						case 1: { s = { .dimx = v[0], .dimy = v[0] }; break; }
+						case 2: { s = { .dimx = v[0], .dimy = v[1] }; break; }
+						case 3: { s = { .dimx = v[0], .dimy = v[0], .cx = v[1], .cy = v[2] }; break; }
+						case 4: { s = { .dimx = v[0], .dimy = v[1], .cx = v[2], .cy = v[3] }; break; }
+						default:
+						{
+							m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Rect *Data expects 1, 2, 3, or 4 values (w | w h | w cx cy | w h cx cy)");
+							return true;
+						}
+					}
+
+					// Store half-extents; the centre stays an absolute position.
+					s.dimx *= 0.5f;
+					s.dimy *= 0.5f;
+					if (s.dimx < 0 || s.dimy < 0)
 					{
 						m_pp.ReportError(EParseError::InvalidValue, reader.Loc(), "Rect dimensions contain a negative value");
-						m_dim = Abs(m_dim);
+						s.dimx = Abs(s.dimx);
+						s.dimy = Abs(s.dimy);
 					}
+
+					m_shapes.push_back(s);
 					return true;
 				}
 				case EKeyword::CornerRadius:
@@ -3389,11 +3440,18 @@ namespace pr::rdr12::ldraw
 				}
 			}
 		}
-		void CreateModel(LdrObject* obj, Location const&) override
+		void CreateModel(LdrObject* obj, Location const& loc) override
 		{
+			// A rect needs at least one rectangle of data to generate a model
+			if (m_shapes.empty())
+			{
+				m_pp.ReportError(EParseError::DataMissing, loc, "*Rect requires at least one rectangle in its *Data section");
+				return;
+			}
+
 			// Create the model
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
-			obj->m_model = ModelGenerator::RoundedRectangle(m_pp.m_factory, m_dim.x, m_dim.y, m_corner_radius, m_solid, m_facets, &opts);
+			obj->m_model = ModelGenerator::RoundedRectangle(m_pp.m_factory, m_shapes, m_corner_radius, m_solid, m_facets, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};
@@ -3403,7 +3461,8 @@ namespace pr::rdr12::ldraw
 	{
 		creation::Textured m_tex;
 		creation::MainAxis m_axis;
-		pr::vector<v2> m_poly;
+		pr::vector<pr::vector<v2>> m_polys;
+		pr::vector<pr::vector<Colour32>> m_poly_colours;
 		bool m_per_item_colour;
 		bool m_solid;
 
@@ -3411,7 +3470,8 @@ namespace pr::rdr12::ldraw
 			: IObjectCreator(pp)
 			, m_tex(SamDesc::AnisotropicClamp())
 			, m_axis()
-			, m_poly()
+			, m_polys()
+			, m_poly_colours()
 			, m_per_item_colour()
 			, m_solid()
 		{}
@@ -3421,11 +3481,18 @@ namespace pr::rdr12::ldraw
 			{
 				case EKeyword::Data:
 				{
+					// Each *Data block describes exactly one polygon as a list of 2D points. When per-item
+					// colour is enabled each point is followed by a hex colour. Repeated *Data blocks
+					// accumulate polygons into one model.
+					m_polys.push_back({});
+					m_poly_colours.push_back({});
+					auto& points = m_polys.back();
+					auto& colours = m_poly_colours.back();
 					for (; !reader.IsSectionEnd(); )
 					{
-						m_poly.push_back(reader.Vector2f());
+						points.push_back(reader.Vector2f());
 						if (m_per_item_colour)
-							m_colours.push_back(reader.Int<uint32_t>(16));
+							colours.push_back(reader.Int<uint32_t>(16));
 					}
 					return true;
 				}
@@ -3448,18 +3515,48 @@ namespace pr::rdr12::ldraw
 				}
 			}
 		}
-		void CreateModel(LdrObject* obj, Location const&) override
+		void CreateModel(LdrObject* obj, Location const& loc) override
 		{
-			// Check the polygon winding order
-			if (geometry::PolygonArea(m_poly) < 0)
+			// A polygon model needs at least one polygon of data
+			if (m_polys.empty())
 			{
-				std::ranges::reverse(m_poly);
-				std::ranges::reverse(m_colours);
+				m_pp.ReportError(EParseError::DataMissing, loc, "*Polygon requires at least one polygon in its *Data section");
+				return;
+			}
+
+			// Validate, winding-correct, and build the span-of-spans for the model generator. Winding is
+			// corrected per polygon so each is independently CCW (and its per-item colours follow the
+			// reversal). The geometry layer is left winding-agnostic.
+			pr::vector<std::span<v2 const>> poly_spans;
+			pr::vector<std::span<Colour32 const>> colour_spans;
+			poly_spans.reserve(m_polys.size());
+			colour_spans.reserve(m_polys.size());
+			for (int i = 0; i != isize(m_polys); ++i)
+			{
+				auto& points = m_polys[i];
+				auto& colours = m_poly_colours[i];
+
+				// Each polygon needs at least a triangle's worth of points
+				if (points.size() < 3)
+				{
+					m_pp.ReportError(EParseError::DataMissing, loc, "*Polygon *Data block requires at least 3 points");
+					return;
+				}
+
+				// Correct the winding order so the polygon is CCW
+				if (geometry::PolygonArea(points) < 0)
+				{
+					std::ranges::reverse(points);
+					std::ranges::reverse(colours);
+				}
+
+				poly_spans.push_back(points);
+				colour_spans.push_back(colours);
 			}
 
 			// Create the model
-			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_axis.O2WPtr()).material(m_tex.Material());
-			obj->m_model = ModelGenerator::Polygon(m_pp.m_factory, m_poly, m_solid, &opts);
+			auto opts = ModelGenerator::CreateOptions().bake(m_axis.O2WPtr()).material(m_tex.Material());
+			obj->m_model = ModelGenerator::Polygon(m_pp.m_factory, poly_spans, m_solid, colour_spans, &opts);
 			obj->m_model->m_name = obj->TypeAndName();
 		}
 	};

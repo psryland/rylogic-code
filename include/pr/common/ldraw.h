@@ -2649,16 +2649,41 @@ namespace pr::ldraw
 	};
 	struct LdrCircle : LdrBase
 	{
-		float m_radius = {};
+		// A single ellipse/circle. A circle object can contain several ellipses; each is written as its
+		// own *Data block and rendered as its own strip within one model, separated from its neighbours by
+		// a strip-cut. 'cx,cy' is an optional centre offset so ellipses can sit at independent locations.
+		struct Ellipse
+		{
+			float dimx, dimy;
+			float cx = 0, cy = 0;
+		};
+		std::vector<Ellipse> m_ellipses;
 		seri::Facets m_facets;
 
 		LdrCircle(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
 		{}
 
-		LdrCircle& radius(float r)
+		// Append a circle. Call repeatedly to build a multi-shape model.
+		LdrCircle& circle(float r)
 		{
-			m_radius = r;
+			m_ellipses.push_back({ r, r });
+			return *this;
+		}
+		LdrCircle& circle(float r, float cx, float cy)
+		{
+			m_ellipses.push_back({ r, r, cx, cy });
+			return *this;
+		}
+		// Append an ellipse (independent x/y radii).
+		LdrCircle& ellipse(float rx, float ry)
+		{
+			m_ellipses.push_back({ rx, ry });
+			return *this;
+		}
+		LdrCircle& ellipse(float rx, float ry, float cx, float cy)
+		{
+			m_ellipses.push_back({ rx, ry, cx, cy });
 			return *this;
 		}
 		LdrCircle& facets(int f)
@@ -2672,7 +2697,19 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Circle, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, "{", m_radius, "}");
+				// Each ellipse is one *Data block. The field count selects the form parsed back:
+				// 1 = 'r', 2 = 'rx ry', 3 = 'r cx cy', 4 = 'rx ry cx cy'.
+				for (auto& e : m_ellipses)
+				{
+					Append(out, EKeywords::Data, "{");
+					if (e.dimx == e.dimy)
+						Append(out, e.dimx);
+					else
+						Append(out, e.dimx, e.dimy);
+					if (e.cx != 0 || e.cy != 0)
+						Append(out, e.cx, e.cy);
+					Append(out, "}");
+				}
 				Append(out, m_facets, m_axis_id, m_solid);
 				LdrBase::Write(out);
 			}
@@ -2683,7 +2720,16 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Circle, m_name, m_colour });
 			{
-				Append(out, seri::Header{ EKeywords::Data }, m_radius);
+				for (auto& e : m_ellipses)
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					if (e.dimx == e.dimy)
+						Append(out, e.dimx);
+					else
+						Append(out, e.dimx, e.dimy);
+					if (e.cx != 0 || e.cy != 0)
+						Append(out, e.cx, e.cy);
+				}
 				Append(out, m_facets, m_axis_id, m_solid);
 				LdrBase::Write(out);
 			}
@@ -4056,16 +4102,31 @@ namespace pr::ldraw
 			seri::Vec2 pt;
 			seri::Colour col;
 		};
-		std::vector<Pt> m_points;
+		// A single polygon, written as its own *Data block. A polygon object can contain several polygons;
+		// each is rendered within one model (concatenated triangle lists when solid, or separate closed
+		// line-strips joined by strip-cuts when wireframe).
+		struct Poly
+		{
+			std::vector<Pt> m_points;
+		};
+		std::vector<Poly> m_polys;
 		seri::PerItemColour m_per_item_colour;
 
 		LdrPolygon(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
 		{}
 
+		// Start a new polygon. Subsequent pt() calls add points to this polygon.
+		LdrPolygon& poly()
+		{
+			m_polys.emplace_back();
+			return *this;
+		}
+		// Add a point to the current polygon, starting one if none exists yet.
 		LdrPolygon& pt(seri::Vec2 p, seri::Colour colour = {})
 		{
-			m_points.push_back({p, colour});
+			if (m_polys.empty()) m_polys.emplace_back();
+			m_polys.back().m_points.push_back({p, colour});
 			if (colour) m_per_item_colour = true;
 			return *this;
 		}
@@ -4080,14 +4141,17 @@ namespace pr::ldraw
 			Append(out, EKeywords::Polygon, m_name, m_colour, "{");
 			{
 				Append(out, m_per_item_colour);
-				Append(out, EKeywords::Data, "{");
-				for (auto& p : m_points)
+				for (auto& poly : m_polys)
 				{
-					Append(out, p.pt);
-					if (m_per_item_colour && *m_per_item_colour.m_active)
-					Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+					Append(out, EKeywords::Data, "{");
+					for (auto& p : poly.m_points)
+					{
+						Append(out, p.pt);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+					}
+					Append(out, "}");
 				}
-				Append(out, "}");
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -4098,9 +4162,10 @@ namespace pr::ldraw
 			auto s = Append(out, seri::Header{ EKeywords::Polygon, m_name, m_colour });
 			{
 				Append(out, m_per_item_colour);
+				for (auto& poly : m_polys)
 				{
 					auto sd = Append(out, seri::Header{ EKeywords::Data });
-					for (auto& p : m_points)
+					for (auto& p : poly.m_points)
 					{
 						Append(out, p.pt);
 						if (m_per_item_colour && *m_per_item_colour.m_active)
@@ -4178,7 +4243,16 @@ namespace pr::ldraw
 	};
 	struct LdrRect : LdrBase
 	{
-		seri::Vec2 m_wh = {};
+		// A single rectangle. A rect object can contain several rectangles; each is written as its own
+		// *Data block and rendered as its own strip within one model, separated from its neighbours by a
+		// strip-cut. 'w,h' are full width/height. 'cx,cy' is an optional centre offset so rectangles can
+		// sit at independent locations. The corner radius is shared by all rectangles.
+		struct Rectangle
+		{
+			float w, h;
+			float cx = 0, cy = 0;
+		};
+		std::vector<Rectangle> m_rects;
 		seri::CornerRadius m_corner_radius;
 		seri::Facets m_facets;
 
@@ -4186,14 +4260,20 @@ namespace pr::ldraw
 		:LdrBase(name, colour)
 		{}
 
-		LdrRect& wh(seri::Vec2 wh)
+		// Append a rectangle. Call repeatedly to build a multi-shape model.
+		LdrRect& rect(float w)
 		{
-			m_wh = wh;
+			m_rects.push_back({ w, w });
 			return *this;
 		}
-		LdrRect& wh(float w, float h)
+		LdrRect& rect(float w, float h)
 		{
-			m_wh = {w, h};
+			m_rects.push_back({ w, h });
+			return *this;
+		}
+		LdrRect& rect(float w, float h, float cx, float cy)
+		{
+			m_rects.push_back({ w, h, cx, cy });
 			return *this;
 		}
 		LdrRect& corner_radius(float r)
@@ -4212,7 +4292,19 @@ namespace pr::ldraw
 			using namespace seri;
 			Append(out, EKeywords::Rect, m_name, m_colour, "{");
 			{
-				Append(out, EKeywords::Data, "{", m_wh, "}");
+				// Each rectangle is one *Data block. The field count selects the form parsed back:
+				// 1 = 'w', 2 = 'w h', 3 = 'w cx cy', 4 = 'w h cx cy'.
+				for (auto& r : m_rects)
+				{
+					Append(out, EKeywords::Data, "{");
+					if (r.w == r.h)
+						Append(out, r.w);
+					else
+						Append(out, r.w, r.h);
+					if (r.cx != 0 || r.cy != 0)
+						Append(out, r.cx, r.cy);
+					Append(out, "}");
+				}
 				Append(out, m_corner_radius, m_facets, m_solid);
 				LdrBase::Write(out);
 			}
@@ -4223,7 +4315,16 @@ namespace pr::ldraw
 			using namespace seri;
 			auto s = Append(out, seri::Header{ EKeywords::Rect, m_name, m_colour });
 			{
-				Append(out, seri::Header{ EKeywords::Data }, m_wh);
+				for (auto& r : m_rects)
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					if (r.w == r.h)
+						Append(out, r.w);
+					else
+						Append(out, r.w, r.h);
+					if (r.cx != 0 || r.cy != 0)
+						Append(out, r.cx, r.cy);
+				}
 				Append(out, m_corner_radius, m_facets, m_solid);
 				LdrBase::Write(out);
 			}

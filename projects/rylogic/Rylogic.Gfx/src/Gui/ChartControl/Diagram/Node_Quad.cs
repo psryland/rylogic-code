@@ -23,7 +23,7 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 
 			// Create a quad model
 			var ldr = new Builder();
-			ldr.Rect("node", Colour32.White).wh(Size.x, Size.y).corner_radius(Style.CornerRadius).solid().axis(EAxisId.PosZ);
+			ldr.Rect("node", Colour32.White).rect(Size.x, Size.y).corner_radius(Style.CornerRadius).solid().axis(EAxisId.PosZ);
 			Gfx = new View3d.Object(ldr.ToBinary().GetBuffer(), null);
 			Gfx.SetTexture(Surf.Surf);
 		}
@@ -152,7 +152,7 @@ namespace Rylogic.Gui.WPF.ChartDiagram
 			if (Size.xy != Surf.Size)
 			{
 				var ldr = new Builder();
-				ldr.Rect("node", Colour32.White).wh(Size.x, Size.y).corner_radius(Style.CornerRadius).solid(true).axis(EAxisId.PosZ);
+				ldr.Rect("node", Colour32.White).rect(Size.x, Size.y).corner_radius(Style.CornerRadius).solid(true).axis(EAxisId.PosZ);
 				Gfx.UpdateModel(ldr.ToString(), View3d.EUpdateObject.Model);
 				Gfx.SetTexture(Surf.Surf);
 			}
