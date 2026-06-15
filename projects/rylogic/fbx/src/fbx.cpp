@@ -1422,55 +1422,6 @@ namespace pr::geometry::fbx
 			return mesh_nodes;
 		}
 
-		// Return true if the animation/property lookup found a value.
-		static bool PropFound(ufbx_prop const& prop)
-		{
-			return (prop.flags & UFBX_PROP_FLAG_NOT_FOUND) == 0;
-		}
-
-		// Return 'prop.value_vec3' unless the animation/property lookup failed, then use 'fallback'.
-		static ufbx_vec3 PropVec3(ufbx_prop const& prop, ufbx_vec3 fallback)
-		{
-			return PropFound(prop) ? prop.value_vec3 : fallback;
-		}
-
-		// True if 'node' is within the skeleton subtree rooted at 'root'.
-		static bool IsBoneDescendantOf(ufbx_node const* node, ufbx_node const* root)
-		{
-			for (auto const* bone = node; bone != nullptr && bone->bone != nullptr; bone = bone->parent)
-			{
-				if (bone == root)
-					return true;
-			}
-			return false;
-		}
-
-		// Evaluate the raw FBX local TRS properties for a bone without ufbx's pre/post rotation folding.
-		ufbx_transform EvaluateRawBoneLocalTransform(ufbx_anim const& fbxanim, ufbx_node const* node, double time) const
-		{
-			auto translation = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Translation, time);
-			auto rotation = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Rotation, time);
-			auto scaling = ufbx_evaluate_prop(&fbxanim, &node->element, UFBX_Lcl_Scaling, time);
-
-			if (!PropFound(translation) && !PropFound(rotation) && !PropFound(scaling))
-				return node->local_transform;
-
-			ufbx_transform transform = {};
-			transform.translation = PropVec3(translation, ufbx_find_vec3(&node->props, UFBX_Lcl_Translation, { 0.0, 0.0, 0.0 }));
-			transform.rotation = ufbx_euler_to_quat(PropVec3(rotation, ufbx_find_vec3(&node->props, UFBX_Lcl_Rotation, { 0.0, 0.0, 0.0 })), node->rotation_order);
-			transform.scale = PropVec3(scaling, ufbx_find_vec3(&node->props, UFBX_Lcl_Scaling, { 1.0, 1.0, 1.0 }));
-			return transform;
-		}
-
-		// Evaluate the node local transform, using SDK-style raw TRS only for the animated bone subtree.
-		ufbx_transform EvaluateNodeLocalTransform(ufbx_anim const& fbxanim, ufbx_node const* node, ufbx_node const* raw_bone_root, double time) const
-		{
-			if (raw_bone_root != nullptr && IsBoneDescendantOf(node, raw_bone_root))
-				return EvaluateRawBoneLocalTransform(fbxanim, node, time);
-
-			return ufbx_evaluate_transform(&fbxanim, node, time);
-		}
-
 		// Return a translation matrix for 'translation'.
 		static ufbx_matrix Translation(ufbx_vec3 translation)
 		{
@@ -1502,9 +1453,9 @@ namespace pr::geometry::fbx
 		}
 
 		// Evaluate a node-to-world transform at animation time using FBX SDK-style inheritance.
-		ufbx_matrix EvaluateNodeToWorld(ufbx_anim const& fbxanim, ufbx_node const* node, ufbx_node const* raw_bone_root, double time) const
+		ufbx_matrix EvaluateNodeToWorld(ufbx_anim const& fbxanim, ufbx_node const* node, double time) const
 		{
-			auto local = EvaluateNodeLocalTransform(fbxanim, node, raw_bone_root, time);
+			auto local = ufbx_evaluate_transform(&fbxanim, node, time);
 			auto local_translation = Translation(local.translation);
 			auto local_rotation = Rotation(local.rotation);
 			auto local_scaling = Scaling(local.scale);
@@ -1514,7 +1465,7 @@ namespace pr::geometry::fbx
 				return ufbx_matrix_mul(&n2w, &local_scaling);
 			}
 
-			auto p2w = EvaluateNodeToWorld(fbxanim, node->parent, raw_bone_root, time);
+			auto p2w = EvaluateNodeToWorld(fbxanim, node->parent, time);
 			auto parent_transform = ufbx_matrix_to_transform(&p2w);
 			auto parent_translation = Translation(parent_transform.translation);
 			auto parent_rotation = Rotation(parent_transform.rotation);
@@ -1535,7 +1486,7 @@ namespace pr::geometry::fbx
 				}
 				case UFBX_INHERIT_MODE_IGNORE_PARENT_SCALE:
 				{
-					auto parent_local = EvaluateNodeLocalTransform(fbxanim, node->parent, raw_bone_root, time);
+					auto parent_local = ufbx_evaluate_transform(&fbxanim, node->parent, time);
 					auto parent_local_scale = Scaling(parent_local.scale);
 					auto parent_local_scale_inv = ufbx_matrix_invert(&parent_local_scale);
 					auto parent_gsm_no_local = ufbx_matrix_mul(&parent_gsm, &parent_local_scale_inv);
@@ -1563,10 +1514,10 @@ namespace pr::geometry::fbx
 		}
 
 		// Evaluate a bone transform in the mesh-local space used by skin cluster bind matrices.
-		ufbx_matrix EvaluateBoneToMesh(ufbx_anim const& fbxanim, ufbx_node const* root, ufbx_node const* bone_node, ufbx_node const* mesh_node, double time) const
+		ufbx_matrix EvaluateBoneToMesh(ufbx_anim const& fbxanim, ufbx_node const* bone_node, ufbx_node const* mesh_node, double time) const
 		{
-			auto b2w = EvaluateNodeToWorld(fbxanim, bone_node, root, time);
-			auto m2w = EvaluateNodeToWorld(fbxanim, mesh_node, nullptr, time);
+			auto b2w = EvaluateNodeToWorld(fbxanim, bone_node, time);
+			auto m2w = EvaluateNodeToWorld(fbxanim, mesh_node, time);
 			auto w2m = ufbx_matrix_invert(&m2w);
 			return ufbx_matrix_mul(&w2m, &b2w);
 		}
@@ -1574,11 +1525,11 @@ namespace pr::geometry::fbx
 		// Evaluate a bone track transform in the hierarchy space expected by the runtime pose system.
 		ufbx_transform EvaluateBoneTrackTransform(ufbx_anim const& fbxanim, ufbx_node const* root, ufbx_node const* node, ufbx_node const* mesh_node, double time) const
 		{
-			auto b2m = EvaluateBoneToMesh(fbxanim, root, node, mesh_node, time);
+			auto b2m = EvaluateBoneToMesh(fbxanim, node, mesh_node, time);
 			if (node == root || node->parent == nullptr || node->parent->bone == nullptr)
 				return ufbx_matrix_to_transform(&b2m);
 
-			auto p2m = EvaluateBoneToMesh(fbxanim, root, node->parent, mesh_node, time);
+			auto p2m = EvaluateBoneToMesh(fbxanim, node->parent, mesh_node, time);
 			auto m2p = ufbx_matrix_invert(&p2m);
 			auto b2p = ufbx_matrix_mul(&m2p, &b2m);
 			return ufbx_matrix_to_transform(&b2p);
@@ -1798,7 +1749,7 @@ namespace pr::geometry::fbx
 							ufbx_transform transform =
 								mesh_node != nullptr ?
 								EvaluateBoneTrackTransform(fbxanim, skel, node, mesh_node, time) :
-								EvaluateNodeLocalTransform(fbxanim, node, skel, time);
+								ufbx_evaluate_transform(&fbxanim, node, time);
 							auto rot = To<quat>(transform.rotation);
 							auto pos = To<v3>(transform.translation);
 							auto scl = To<v3>(transform.scale);
