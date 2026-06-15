@@ -428,6 +428,50 @@ public sealed class LDrawObjectList
 	}
 }
 
+/// <summary>A single application-log entry returned through MCP</summary>
+public sealed class LDrawLogEntry
+{
+	/// <summary>Monotonic log index. Pass the result's NextIndex back as since_index to fetch only newer entries.</summary>
+	public long Index { get; set; }
+
+	/// <summary>Severity level name: Debug, Info, Warn, Error, or Fatal</summary>
+	public string Level { get; set; } = string.Empty;
+
+	/// <summary>The log message text</summary>
+	public string Message { get; set; } = string.Empty;
+
+	/// <summary>The source file associated with the entry, or empty when the entry has no source location</summary>
+	public string File { get; set; } = string.Empty;
+
+	/// <summary>1-based line number within File, or 0 when there is no source location</summary>
+	public int Line { get; set; }
+
+	/// <summary>Character offset into the source line, or 0 when there is no source location</summary>
+	public int Offset { get; set; }
+
+	/// <summary>Time since the log started, formatted as [d.]hh:mm:ss.fff</summary>
+	public string Elapsed { get; set; } = string.Empty;
+}
+
+/// <summary>Result from an application-log query</summary>
+public sealed class LDrawLogInfo
+{
+	/// <summary>The matching log entries in chronological order (oldest first)</summary>
+	public List<LDrawLogEntry> Entries { get; set; } = [];
+
+	/// <summary>The number of entries returned</summary>
+	public int Count
+	{
+		get { return Entries.Count; }
+	}
+
+	/// <summary>True when older matching entries were dropped to honour the requested limit (the newest matches are kept)</summary>
+	public bool Truncated { get; set; }
+
+	/// <summary>The highest log index present at query time. Pass this as since_index next call to fetch only newer entries.</summary>
+	public long NextIndex { get; set; }
+}
+
 /// <summary>Hit-test result returned through MCP</summary>
 public sealed class LDrawHitTestInfo
 {
@@ -1315,6 +1359,25 @@ public sealed class LDrawListObjectsParams
 	public int MaxCount { get; set; } = 200;
 }
 
+/// <summary>Parameters for application-log queries</summary>
+public sealed class LDrawGetLogParams
+{
+	/// <summary>Minimum severity name to include: Debug, Info, Warn, Error, or Fatal. Null/empty/unrecognised falls back to Warn.</summary>
+	public string? MinLevel { get; set; }
+
+	/// <summary>Only return entries with an index strictly greater than this. A negative value (the default) returns from the start.</summary>
+	public long SinceIndex { get; set; } = -1;
+
+	/// <summary>Maximum number of entries to return, clamped to 1..1000. The newest matching entries are kept.</summary>
+	public int MaxCount { get; set; } = 200;
+
+	/// <summary>Optional case-insensitive substring filter on the message text</summary>
+	public string? Contains { get; set; }
+
+	/// <summary>Optional case-insensitive substring filter on the entry's source file path</summary>
+	public string? File { get; set; }
+}
+
 /// <summary>Shared parameters for object query commands</summary>
 public class LDrawObjectQueryParams
 {
@@ -1861,4 +1924,5 @@ public static class InstancePipeCommands
 	public const string OverlaySetScript = "overlay_set_script";
 	public const string OverlayAppendScript = "overlay_append_script";
 	public const string OverlayClear = "overlay_clear";
+	public const string GetLog = "get_log";
 }
