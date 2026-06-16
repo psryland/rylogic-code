@@ -7,7 +7,7 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 
 ConstantBuffer<CBufFrame> g_frame : register(b0);
-ConstantBuffer<CBufScreenSpace> g_ss : register(b2);
+ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 
 // Converts point geometry into arrow heads
 // Uses ss_vert for centre position, and ws_norm as the arrow forward direction
