@@ -521,7 +521,7 @@ namespace LDraw
 			// See if there is already a script with this source
 			foreach (var script in Scripts)
 			{
-				if (script.Source.ContextId == src.ContextId)
+				if (script.ContextId == src.ContextId)
 					return script;
 			}
 

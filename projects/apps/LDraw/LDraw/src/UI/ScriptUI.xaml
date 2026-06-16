@@ -99,7 +99,7 @@
 				<Button
 					ToolTip="Display this script in the selected scene. [F5]"
 					Command="{Binding Render}"
-					IsEnabled="{Binding Source.CanRender}"
+					IsEnabled="{Binding CanRender}"
 					>
 					<Image
 						Source="{StaticResource display}"
@@ -111,7 +111,7 @@
 				<Button
 					ToolTip="Remove script objects from the selected scene. [Shift+F5]"
 					Command="{Binding RemoveObjects}"
-					IsEnabled="{Binding Source.CanRender}"
+					IsEnabled="{Binding CanRemove}"
 					>
 					<Image
 						Source="{StaticResource bin}"
