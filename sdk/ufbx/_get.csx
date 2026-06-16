@@ -8,8 +8,9 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 
-// Repo
-static string url = "https://github.com/ufbx/ufbx.git";
+// Repo (Rylogic fork carrying the legacy-FBX < 7000 Pre/PostRotation fix; revert to
+// https://github.com/ufbx/ufbx.git + a release tag once the fix lands upstream)
+static string url = "https://github.com/psryland/ufbx.git";
 
 // Where the SDK should go
 static string ThisDir = Path.GetDirectoryName(ThisFile())!;
@@ -33,9 +34,9 @@ if (!Directory.Exists(SDKDir))
 		Console.WriteLine($"Error: {ex.Message}");
 	}
 
-	// Switch to the 3.4 branch
+	// Switch to the pinned fork branch carrying the legacy-FBX fix
 	proc.StartInfo.FileName = "git.exe";
-	proc.StartInfo.Arguments = $"checkout v0.20.1";
+	proc.StartInfo.Arguments = $"checkout fix/legacy-fbx6-prepost";
 	proc.StartInfo.WorkingDirectory = SDKDir;
 	try
 	{
