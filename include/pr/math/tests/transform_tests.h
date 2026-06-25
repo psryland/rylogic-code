@@ -75,8 +75,9 @@ namespace pr::math::tests
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
+			using v2_t = Vec2<T>;
 
-			auto xf = Random<xform_t>(rng);
+			auto xf = Random<xform_t>(rng, v2_t{ T(2), T(2) });
 			auto m = m4x4_t(xf);
 
 			auto xf_inv = Invert(xf);

@@ -143,6 +143,14 @@ namespace pr::math
 	template <ScalarTypeFP S>
 	inline Xform<S> Invert(Xform<S> const& xform) noexcept
 	{
+#if !defined(NDEBUG)
+		auto uniform_scale =
+			FEql(xform.scl.x, xform.scl.y) &&
+			FEql(xform.scl.x, xform.scl.z);
+		pr_assert(uniform_scale && "Xform inverse requires uniform scale. Use Mat4x4 inversion for non-uniform scale.");
+		pr_assert(xform.scl.x != S(0) && xform.scl.y != S(0) && xform.scl.z != S(0) && xform.scl.w != S(0) && "Xform scale must be non-zero");
+#endif
+
 		auto inv_rot = ~xform.rot;
 		auto inv_scl = S(1) / xform.scl;
 		auto inv_pos = Rotate(inv_rot, inv_scl * -xform.pos.w0()).w1();
