@@ -368,6 +368,8 @@ namespace pr::rdr12
 
 			// Set pipeline state
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
+			if (IsStripTopo(nugget.m_topo))
+				desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
 			cmd_list.IASetPrimitiveTopology(nugget.m_topo);
 			cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 			cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);

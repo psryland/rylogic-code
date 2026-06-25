@@ -32,6 +32,7 @@ namespace pr::rdr12
 			x(RTVFormats            , RTVFormats                            )\
 			x(DSVFormat             , DSVFormat                             )\
 			x(SampleDesc            , SampleDesc                            )\
+			x(IBStripCutValue       , IBStripCutValue                       )\
 			//x(StreamOutput          , StreamOutput                          )\
 			//x(BlendEnable0          , BlendState.RenderTarget[0].BlendEnable)\
 			//x(BlendEnable1          , BlendState.RenderTarget[1].BlendEnable)\
@@ -45,7 +46,6 @@ namespace pr::rdr12
 			//x(RasterizerState       , RasterizerState                       )\
 			//x(DepthStencilState     , DepthStencilState                     )\
 			//x(InputLayout           , InputLayout                           )\
-			//x(IBStripCutValue       , IBStripCutValue                       )\
 			//x(PrimitiveTopologyType , PrimitiveTopologyType                 )\
 			//x(NumRenderTargets      , NumRenderTargets                      )\
 			//x(NodeMask              , NodeMask                              )\
@@ -177,6 +177,43 @@ namespace pr::rdr12
 	template <EPipeState PS> inline PipeState PSO(pipe_state_field_t<PS> const& data)
 	{
 		return PipeState(PS, data);
+	}
+
+	// True for strip primitive topologies. Only strip topologies honour primitive restart (strip-cut),
+	// so callers gate the IBStripCutValue PSO override on this to leave list/point geometry's pipeline
+	// state (and its PSO cache key) unchanged.
+	constexpr bool IsStripTopo(ETopo topo)
+	{
+		switch (topo)
+		{
+			case ETopo::LineStrip:
+			case ETopo::TriStrip:
+			case ETopo::LineStripAdj:
+			case ETopo::TriStripAdj:
+				return true;
+			case ETopo::Undefined:
+			case ETopo::PointList:
+			case ETopo::LineList:
+			case ETopo::TriList:
+			case ETopo::LineListAdj:
+			case ETopo::TriListAdj:
+				return false;
+			default:
+				throw std::runtime_error("Unknown topology");
+		}
+	}
+
+	// The primitive-restart (strip-cut) sentinel that matches an index buffer's element format. The
+	// engine never assigns the sentinel value as a real index (16-bit buffers cap vertex counts below
+	// 0xFFFF, 32-bit below 0xFFFFFFFF), so enabling restart for strips can't corrupt existing geometry.
+	constexpr D3D12_INDEX_BUFFER_STRIP_CUT_VALUE StripCutValue(DXGI_FORMAT index_format)
+	{
+		switch (index_format)
+		{
+			case DXGI_FORMAT_R16_UINT: return D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF;
+			case DXGI_FORMAT_R32_UINT: return D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF;
+			default: return D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+		}
 	}
 
 	// A collection of pipe state changes

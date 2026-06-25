@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.ComponentModel.Design;
 using System.Diagnostics;
@@ -52,8 +53,16 @@ namespace LDraw.UI
 		public ScriptUI(Source source)
 		{
 			InitializeComponent();
-			Source = source;
-			DockControl = new DockControl(this, $"Script-{source.ContextId}")
+
+			// A ScriptUI represents the script *file*, which is longer-lived than any particular
+			// native Source. Capture the document identity up-front so the editor stays valid even
+			// if the Source is later removed from the store. The live Source is resolved dynamically
+			// (see 'Source') and re-created on demand when rendering.
+			Model = source.Model;
+			FilePath = source.FilePath;
+			ContextId = View3d.ContextIdFromFilepath(FilePath);
+
+			DockControl = new DockControl(this, $"Script-{ContextId}")
 			{
 				ShowTitle = false,
 				TabText = ScriptName,
@@ -71,6 +80,14 @@ namespace LDraw.UI
 			IndentSelection = Command.Create(this, IndentSelectionInternal);
 			CommentOutSelection = Command.Create(this, CommentOutSelectionInternal);
 			UncommentSelection = Command.Create(this, UncommentSelectionInternal);
+
+			// Track the live source for this script. It may not currently exist in the store
+			// (e.g. it was removed from the Sources list), in which case 'Source' is null until
+			// the script is rendered again.
+			Model.SourcesChanged += HandleSourcesChanged;
+			Model.Scenes.CollectionChanged += HandleScenesCollectionChanged;
+			Log.EntriesChanged += HandleLogEntriesChanged;
+			RefreshCurrentSource();
 
 			DataContext = this;
 			Loaded += async delegate
@@ -101,12 +118,17 @@ namespace LDraw.UI
 		{
 			m_cancel_load.Cancel();
 
+			// Detach from the model and the live source. The Source is owned by the model,
+			// so we only unsubscribe; we never dispose it here.
+			Model.SourcesChanged -= HandleSourcesChanged;
+			Model.Scenes.CollectionChanged -= HandleScenesCollectionChanged;
+			Log.EntriesChanged -= HandleLogEntriesChanged;
+			Source = null;
+
 			// Remove this script UI from the model
-			if (Model != null)
-				Model.Scripts.Remove(this);
+			Model.Scripts.Remove(this);
 
 			Editor = null!;
-			Source = null!;
 			DockControl = null!;
 			GC.SuppressFinalize(this);
 		}
@@ -149,8 +171,8 @@ namespace LDraw.UI
 			}
 		} = null!;
 
-		/// <summary>The Ldraw source this script represents</summary>
-		public Source Source
+		/// <summary>The live LDraw source for this script, or null if it is not currently in the store</summary>
+		public Source? Source
 		{
 			get;
 			private set
@@ -158,8 +180,7 @@ namespace LDraw.UI
 				if (field == value) return;
 				if (field != null)
 				{
-					Log.EntriesChanged -= HandleLogEntriesChanged;
-					field.PropertyChanged -= HandlePropertyChanged;
+					field.PropertyChanged -= HandleSourcePropertyChanged;
 					field.SourceChanged -= HandleSourceChanged;
 					// Don't dispose Source, we don't own it.
 				}
@@ -167,50 +188,84 @@ namespace LDraw.UI
 				if (field != null)
 				{
 					field.SourceChanged += HandleSourceChanged;
-					field.PropertyChanged += HandlePropertyChanged;
-					Log.EntriesChanged += HandleLogEntriesChanged;
+					field.PropertyChanged += HandleSourcePropertyChanged;
 				}
+
+				// The available source changed, so dependent UI state may have changed too.
+				if (DockControl != null)
+					DockControl.TabText = ScriptName;
+				NotifyPropertyChanged(nameof(Source));
+				NotifyPropertyChanged(nameof(ScriptName));
+				NotifyPropertyChanged(nameof(CanRender));
+				NotifyPropertyChanged(nameof(CanRemove));
 
 				void HandleSourceChanged(object? sender, EventArgs e)
 				{
 					// ?
 				}
-				void HandlePropertyChanged(object? sender, PropertyChangedEventArgs e)
+				void HandleSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
 				{
 					switch (e.PropertyName)
 					{
-						case nameof(Source.Name):
+						case nameof(LDraw.Source.Name):
 						{
 							// Update the tab text
 							if (DockControl != null)
-								DockControl.TabText = ScriptName ?? string.Empty;
+								DockControl.TabText = ScriptName;
 
 							NotifyPropertyChanged(nameof(ScriptName));
 							break;
 						}
+						case nameof(LDraw.Source.SelectedScenes):
+						{
+							// Scene membership affects whether render/remove are meaningful
+							NotifyPropertyChanged(nameof(CanRender));
+							NotifyPropertyChanged(nameof(CanRemove));
+							break;
+						}
 					}
 				}
-				void HandleLogEntriesChanged(object? sender, EventArgs e)
-				{
-					RefreshErrorMarkers();
-				}
 			}
-		} = null!;
+		}
+
+		/// <summary>Resolve the live source for this script's context id (may be null if not loaded)</summary>
+		private void RefreshCurrentSource()
+		{
+			Source = Model.Sources.FirstOrDefault(x => x.ContextId == ContextId);
+		}
+		private void HandleSourcesChanged(object? sender, EventArgs e)
+		{
+			RefreshCurrentSource();
+		}
+		private void HandleScenesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+		{
+			NotifyPropertyChanged(nameof(CanRender));
+		}
+		private void HandleLogEntriesChanged(object? sender, EventArgs e)
+		{
+			RefreshErrorMarkers();
+		}
 
 		/// <summary>Auto complete provider for LDraw script</summary>
 		private View3d.AutoComplete LdrAutoComplete { get; }
 
 		/// <summary>App logic</summary>
-		public Model Model => Source.Model;
+		public Model Model { get; }
 
-		/// <summary>The name assigned to this script UI</summary>
-		public string ScriptName => Source.Name;
+		/// <summary>The filepath of the script this editor represents</summary>
+		public string FilePath { get; }
 
-		/// <summary>The filepath associated with the source</summary>
-		public string FilePath => Source.FilePath;
+		/// <summary>Context id for objects created by this script (stable; derived from the filepath)</summary>
+		public Guid ContextId { get; }
 
-		/// <summary>Context id for objects created by this scene</summary>
-		public Guid ContextId => Source.ContextId;
+		/// <summary>The name displayed for this script UI</summary>
+		public string ScriptName => Source?.Name is string name && name.Length != 0 ? name : System.IO.Path.GetFileNameWithoutExtension(FilePath);
+
+		/// <summary>True if the script can be rendered (it is already shown, or there is a scene to add it to)</summary>
+		public bool CanRender => Source is Source src ? src.CanRender : Model.Scenes.Count != 0;
+
+		/// <summary>True if the script currently has objects in scenes that can be removed</summary>
+		public bool CanRemove => Source?.CanRender ?? false;
 
 		/// <summary>The text editor control</summary>
 		public TextEditor Editor
@@ -768,11 +823,21 @@ namespace LDraw.UI
 			if (SaveNeeded)
 				SaveScriptInternal();
 
-			var scenes = Source.SelectedScenes.ToArray();
-			if (scenes.Length == 0)
+			// If the source isn't currently in the store (e.g. it was removed from the Sources
+			// list), re-add it from the script file. The context id is derived from the filepath,
+			// so re-adding re-establishes the link to this editor. This makes the editor behave
+			// like an external editor on the file: rendering (re)loads it.
+			if (Source is not Source source)
+			{
+				Model.AddFileSource(FilePath, Model.Scenes.Take(1).ToArray());
+				return;
+			}
+
+			// Already in the store; reload to pick up the latest file content
+			if (!source.SelectedScenes.Any())
 				return;
 
-			Source.Reload();
+			source.Reload();
 			//UpdateObjects();
 		}
 
@@ -797,7 +862,10 @@ namespace LDraw.UI
 		public Command RemoveObjects { get; }
 		private void RemoveObjectsInternal()
 		{
-			var scenes = Source.SelectedScenes.ToArray();
+			if (Source is not Source source)
+				return;
+
+			var scenes = source.SelectedScenes.ToArray();
 			if (scenes.Length == 0) return;
 			Model.Clear(scenes, ContextId);
 		}

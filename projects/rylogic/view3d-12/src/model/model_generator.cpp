@@ -813,18 +813,34 @@ namespace pr::rdr12
 	// Shape2d ****************************************************************************
 	ModelPtr ModelGenerator::Ellipse(ResourceFactory& factory, float dimx, float dimy, bool solid, int facets, CreateOptions const* opts)
 	{
-		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::EllipseSize(solid, facets);
+		// A single ellipse is just the degenerate case of the multi-ellipse model
+		geometry::EllipseShape shape = { .dimx = dimx, .dimy = dimy };
+		return Ellipse(factory, std::span<geometry::EllipseShape const>{ &shape, 1 }, solid, facets, opts);
+	}
+	ModelPtr ModelGenerator::Ellipse(ResourceFactory& factory, std::span<geometry::EllipseShape const> shapes, bool solid, int facets, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes. The ellipses share a single strip-topology nugget and are
+		// separated by a strip-cut (primitive restart) index, which EllipseSize accounts for.
+		auto [vcount, icount] = geometry::EllipseSize(shapes, solid, facets);
 		auto colour = opts && !opts->m_colours.empty() ? opts->m_colours[0] : Colour32White;
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the geometry. The index buffer is pre-sized (including its strip-cut slots) and filled
+		// positionally; the geometry function signals a strip-cut by passing -1 to the index callback.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Ellipse(dimx, dimy, solid, facets, colour,
+		int64_t ipos = 0;
+		auto props = geometry::Ellipse(shapes, solid, facets, colour,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[&](int idx)
+			{
+				if (idx < 0)
+					cache.m_icont.set_strip_cut(ipos);
+				else
+					cache.m_icont[ipos] = idx;
+
+				++ipos;
+			}
 		);
 
 		// Create a nugget
@@ -834,20 +850,35 @@ namespace pr::rdr12
 		// Create the model
 		return Create(factory, cache, opts);
 	}
-	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, float dimx, float dimy, float ang0, float ang1, float radius0, float radius1, bool solid, int facets, CreateOptions const* opts)
+	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, geometry::Wedge wedge, bool solid, int facets, CreateOptions const* opts)
 	{
-		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::PieSize(solid, ang0, ang1, facets);
+		// A single wedge is just the degenerate case of the multi-wedge pie
+		return Pie(factory, std::span<geometry::Wedge const>{ &wedge, 1 }, solid, facets, opts);
+	}
+	ModelPtr ModelGenerator::Pie(ResourceFactory& factory, std::span<geometry::Wedge const> wedges, bool solid, int facets, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes. The wedges share a single strip-topology nugget and are
+		// separated by a strip-cut (primitive restart) index, which PieSize accounts for.
+		auto [vcount, icount] = geometry::PieSize(wedges, solid, facets);
 		auto colour = opts && !opts->m_colours.empty() ? opts->m_colours[0] : Colour32White;
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the geometry. The index buffer is pre-sized (including its strip-cut slots) and filled
+		// positionally; the geometry function signals a strip-cut by passing -1 to the index callback.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Pie(dimx, dimy, ang0, ang1, radius0, radius1, solid, facets, colour,
+		int64_t ipos = 0;
+		auto props = geometry::Pie(wedges, solid, facets, colour,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[&](int idx)
+			{
+				if (idx < 0)
+					cache.m_icont.set_strip_cut(ipos);
+				else
+					cache.m_icont[ipos] = idx;
+
+				++ipos;
+			}
 		);
 
 		// Create a nugget
@@ -859,18 +890,34 @@ namespace pr::rdr12
 	}
 	ModelPtr ModelGenerator::RoundedRectangle(ResourceFactory& factory, float dimx, float dimy, float corner_radius, bool solid, int facets, CreateOptions const* opts)
 	{
-		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::RoundedRectangleSize(solid, corner_radius, facets);
+		// A single rectangle is just the degenerate case of the multi-rectangle model
+		geometry::RectShape shape = { .dimx = dimx, .dimy = dimy };
+		return RoundedRectangle(factory, std::span<geometry::RectShape const>{ &shape, 1 }, corner_radius, solid, facets, opts);
+	}
+	ModelPtr ModelGenerator::RoundedRectangle(ResourceFactory& factory, std::span<geometry::RectShape const> shapes, float corner_radius, bool solid, int facets, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes. The rectangles share a single strip-topology nugget and are
+		// separated by a strip-cut (primitive restart) index, which RoundedRectangleSize accounts for.
+		auto [vcount, icount] = geometry::RoundedRectangleSize(shapes, solid, corner_radius, facets);
 		auto colour = opts && !opts->m_colours.empty() ? opts->m_colours[0] : Colour32White;
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the geometry. The index buffer is pre-sized (including its strip-cut slots) and filled
+		// positionally; the geometry function signals a strip-cut by passing -1 to the index callback.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::RoundedRectangle(dimx, dimy, solid, corner_radius, facets, colour,
+		int64_t ipos = 0;
+		auto props = geometry::RoundedRectangle(shapes, solid, corner_radius, facets, colour,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[&](int idx)
+			{
+				if (idx < 0)
+					cache.m_icont.set_strip_cut(ipos);
+				else
+					cache.m_icont[ipos] = idx;
+
+				++ipos;
+			}
 		);
 
 		// Create a nugget
@@ -882,18 +929,37 @@ namespace pr::rdr12
 	}
 	ModelPtr ModelGenerator::Polygon(ResourceFactory& factory, std::span<v2 const> points, bool solid, CreateOptions const* opts)
 	{
-		// Calculate the required buffer sizes
-		auto [vcount, icount] = geometry::PolygonSize(isize(points), solid);
+		// A single polygon is just the degenerate case of the multi-polygon model. The flat colour list in
+		// 'opts' applies to this one polygon.
 		auto colours = opts ? opts->m_colours : std::span<Colour32 const>{};
+		std::span<v2 const> polys[] = { points };
+		std::span<Colour32 const> poly_colours[] = { colours };
+		return Polygon(factory, polys, solid, poly_colours, opts);
+	}
+	ModelPtr ModelGenerator::Polygon(ResourceFactory& factory, std::span<std::span<v2 const> const> polys, bool solid, std::span<std::span<Colour32 const> const> colours, CreateOptions const* opts)
+	{
+		// Calculate the required buffer sizes. Solid polygons are concatenated triangle lists in one nugget.
+		// Wireframe polygons are closed line-strips joined by strip-cut (primitive restart) indices, which
+		// PolygonSize accounts for.
+		auto [vcount, icount] = geometry::PolygonSize(polys, solid);
 		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
-		// Generate the geometry
+		// Generate the geometry. The index buffer is pre-sized (including any strip-cut slots) and filled
+		// positionally; the geometry function signals a strip-cut by passing -1 to the index callback.
 		Cache cache{ vcount, icount, 0, idx_stride };
 		auto vptr = cache.m_vcont.data();
-		auto iptr = cache.m_icont.begin<int>();
-		auto props = geometry::Polygon(points, solid, colours,
+		int64_t ipos = 0;
+		auto props = geometry::Polygon(polys, solid, colours,
 			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
-			[&](int idx) { *iptr++ = idx; }
+			[&](int idx)
+			{
+				if (idx < 0)
+					cache.m_icont.set_strip_cut(ipos);
+				else
+					cache.m_icont[ipos] = idx;
+
+				++ipos;
+			}
 		);
 
 		// Create a nugget

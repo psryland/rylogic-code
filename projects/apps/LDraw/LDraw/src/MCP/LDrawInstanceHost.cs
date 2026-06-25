@@ -455,6 +455,12 @@ internal sealed partial class LDrawInstanceHost :IDisposable
 					response.Payload = await PayloadAsync(GetDiagnosticModesAsync(Parameters<LDrawDiagnosticModesParams>(request))).ConfigureAwait(false);
 					break;
 				}
+				case InstancePipeCommands.GetLog:
+				{
+					response.Success = true;
+					response.Payload = await PayloadAsync(GetLogAsync(Parameters<LDrawGetLogParams>(request))).ConfigureAwait(false);
+					break;
+				}
 				case InstancePipeCommands.SetDiagnosticModes:
 				{
 					response.Success = true;
