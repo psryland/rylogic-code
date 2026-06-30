@@ -13,27 +13,47 @@ namespace HantekScope.Model
 	/// waveform packets at the device's preferred pace and pushes decoded samples
 	/// into a thread-safe pending buffer; the UI drains that buffer on its own
 	/// render timer, so acquisition rate and render frame-rate are decoupled.
+	///
+	/// Vertical (volts/div) and horizontal (timebase) resolution can be changed live:
+	/// the UI requests a desired register index from any thread, and the acquisition
+	/// thread applies the change with a register write before the next read, keeping
+	/// all USB I/O on the one thread.
 	/// </summary>
 	public sealed class ScopeModel :IDisposable
 	{
-		// Acquisition runs with both channels enabled (the init sequence turns CH2
-		// on) and at timebase index 14, which fixes the per-sample time step.
-		private const int TimebaseIndex = 14;
-		private const int VoltsDivIndex = 6;
+		// Default acquisition resolution: timebase index 14 (200us/div) and volts/div
+		// index 6 (1V), matching the init sequence the device is left in.
+		private const int DefaultTimebaseIndex = 14;
+		private const int DefaultVoltsDivIndex = 6;
 		private const bool TwoChannels = true;
 
 		private readonly object m_sync = new();
 		private readonly List<Sample> m_pending = new();
+
+		// Resolution indices. 'desired' is what the UI has asked for (writable from any
+		// thread under 'm_sync'); 'applied' is what the device is currently programmed
+		// to (only the acquisition thread touches it). The loop reconciles the two.
+		private int m_desired_timebase_index = DefaultTimebaseIndex;
+		private int m_desired_volts_div_index = DefaultVoltsDivIndex;
+		private volatile int m_applied_timebase_index = DefaultTimebaseIndex;
+		private volatile int m_applied_volts_div_index = DefaultVoltsDivIndex;
+
 		private HantekDevice? m_device;
 		private Thread? m_thread;
 		private volatile bool m_run;
 		private long m_sample_index;
 
-		/// <summary>Seconds per sample at the configured timebase (dt = timebase / 100).</summary>
-		public double SampleIntervalS => HantekProtocol.TimebaseTable[TimebaseIndex] / 100.0;
+		/// <summary>Seconds per sample at the applied timebase (dt = timebase / 100).</summary>
+		public double SampleIntervalS => HantekProtocol.TimebaseTable[m_applied_timebase_index] / HantekProtocol.SamplesPerDivision;
 
-		/// <summary>Volts-per-division currently configured (for the Y scale).</summary>
-		public double VoltsPerDiv => HantekProtocol.VoltsDivTable[VoltsDivIndex];
+		/// <summary>Volts-per-division currently applied (for the Y scale).</summary>
+		public double VoltsPerDiv => HantekProtocol.VoltsDivTable[m_applied_volts_div_index];
+
+		/// <summary>The applied volts/div register index.</summary>
+		public int VoltsDivIndex => m_applied_volts_div_index;
+
+		/// <summary>The applied timebase register index.</summary>
+		public int TimebaseIndex => m_applied_timebase_index;
 
 		/// <summary>True while the acquisition thread is running.</summary>
 		public bool IsRunning => m_run;
@@ -43,6 +63,33 @@ namespace HantekScope.Model
 
 		/// <summary>Raised (on the acquisition thread) once identity has been read after opening.</summary>
 		public event Action<string, string, string>? IdentityRead;
+
+		/// <summary>Raised (on the acquisition thread) after the applied resolution changes.</summary>
+		public event Action? ConfigChanged;
+
+		/// <summary>
+		/// Request a volts/div register index. Safe to call from any thread; the change
+		/// is applied by the acquisition thread before its next read. Out-of-range
+		/// indices are ignored so the UI can pass a snapped value without re-checking.
+		/// </summary>
+		public void RequestVoltsDivIndex(int index)
+		{
+			if (!HantekProtocol.VoltsDivTable.ContainsKey(index))
+				return;
+
+			lock (m_sync)
+				m_desired_volts_div_index = index;
+		}
+
+		/// <summary>Request a timebase register index. Safe to call from any thread (see RequestVoltsDivIndex).</summary>
+		public void RequestTimebaseIndex(int index)
+		{
+			if (!HantekProtocol.TimebaseTable.ContainsKey(index))
+				return;
+
+			lock (m_sync)
+				m_desired_timebase_index = index;
+		}
 
 		/// <summary>
 		/// Open the device and start acquiring. Opening + the init sequence run on
@@ -94,7 +141,8 @@ namespace HantekScope.Model
 
 		/// <summary>
 		/// Background thread: open, initialise, read identity, then poll waveform
-		/// packets at the device's pace and decode them into pending samples.
+		/// packets at the device's pace, applying any pending resolution change before
+		/// each read and decoding the result into pending samples.
 		/// </summary>
 		private void AcquisitionLoop()
 		{
@@ -106,18 +154,21 @@ namespace HantekScope.Model
 
 				m_device.RunInitSequence();
 
+				// The init sequence leaves the device at the default resolution.
+				m_applied_timebase_index = DefaultTimebaseIndex;
+				m_applied_volts_div_index = DefaultVoltsDivIndex;
+
 				var id = m_device.ReadIdentity();
 				IdentityRead?.Invoke(id.Serial, id.Firmware, id.Version);
 				StatusChanged?.Invoke($"Running — {id.Serial} fw {id.Firmware}");
 
-				var dt_ms = SampleIntervalS * 1000.0;
-				var vdiv = VoltsPerDiv;
-
 				while (m_run)
 				{
+					ApplyPendingConfig();
+
 					var packet = m_device.ReadWaveformPacket();
 					if (packet.Length != 0)
-						DecodePacket(packet, dt_ms, vdiv);
+						DecodePacket(packet);
 
 					Thread.Sleep(HantekProtocol.WaveformPollIntervalMs);
 				}
@@ -134,11 +185,59 @@ namespace HantekScope.Model
 			}
 		}
 
+		/// <summary>
+		/// Reconcile the applied resolution with the latest UI request by writing the
+		/// relevant registers. Runs on the acquisition thread between reads so the
+		/// device is reprogrammed without contending with the UI thread.
+		/// </summary>
+		private void ApplyPendingConfig()
+		{
+			if (m_device == null)
+				return;
+
+			int desired_vdiv, desired_timebase;
+			lock (m_sync)
+			{
+				desired_vdiv = m_desired_volts_div_index;
+				desired_timebase = m_desired_timebase_index;
+			}
+
+			var changed = false;
+
+			// Volts/div is per-channel; program both so the two traces share a scale.
+			if (desired_vdiv != m_applied_volts_div_index)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1VoltsDiv, desired_vdiv);
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2VoltsDiv, desired_vdiv);
+				m_applied_volts_div_index = desired_vdiv;
+				changed = true;
+			}
+
+			if (desired_timebase != m_applied_timebase_index)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Timebase, desired_timebase);
+				m_applied_timebase_index = desired_timebase;
+				changed = true;
+			}
+
+			// A resolution change restarts the time origin so framed displays redraw
+			// from a clean t=0 at the new scale.
+			if (changed)
+			{
+				m_sample_index = 0;
+				ConfigChanged?.Invoke();
+			}
+		}
+
 		/// <summary>Deinterleave a packet, convert codes to volts, and queue the samples.</summary>
-		private void DecodePacket(byte[] packet, double dt_ms, double vdiv)
+		private void DecodePacket(byte[] packet)
 		{
 			var (ch1, ch2) = HantekDevice.Deinterleave(packet, TwoChannels);
 			var count = ch1.Count;
+
+			// Snapshot the applied scale for this packet so all samples decode coherently.
+			var dt_ms = SampleIntervalS * 1000.0;
+			var vdiv = VoltsPerDiv;
 
 			var batch = new List<Sample>(count);
 			for (var i = 0; i != count; ++i)

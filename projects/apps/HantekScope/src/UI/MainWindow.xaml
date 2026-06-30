@@ -8,25 +8,54 @@
 	Width="1000"
 	Background="#0b0f14"
 	>
-	<DockPanel>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto" />
+			<RowDefinition Height="Auto" />
+			<RowDefinition Height="*" />
+			<RowDefinition Height="Auto" />
+		</Grid.RowDefinitions>
 
-		<!-- Toolbar -->
-		<ToolBarTray DockPanel.Dock="Top" Background="#11161d">
+		<!-- Main menu -->
+		<Menu Grid.Row="0" Background="#11161d" Foreground="#cdd9e5">
+			<MenuItem Header="_File" Foreground="#11161d">
+				<MenuItem Header="E_xit" Click="OnExit" />
+			</MenuItem>
+		</Menu>
+
+		<!-- Toolbar: run/stop and live connection status -->
+		<ToolBarTray Grid.Row="1" Background="#11161d">
 			<ToolBar Background="#11161d">
 				<Button x:Name="m_btn_run" Content="Run" MinWidth="60" Click="OnRunStop" />
-				<ToggleButton x:Name="m_btn_follow" Content="Follow" MinWidth="60" IsChecked="True" />
 				<Separator />
-				<TextBlock x:Name="m_status" Foreground="#9fb3c8" VerticalAlignment="Center" Margin="8,0" Text="Disconnected" />
+				<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="4,0" />
+				<TextBlock x:Name="m_conn_status" Foreground="#9fb3c8" VerticalAlignment="Center" Margin="4,0" Text="Disconnected" />
 			</ToolBar>
 		</ToolBarTray>
 
 		<!-- Live trace -->
 		<gui:ChartControl
+			Grid.Row="2"
 			x:Name="m_chart"
 			Title="Hantek 2D42"
 			XLabel="time (ms)"
 			YLabel="volts"
 			/>
 
-	</DockPanel>
+		<!-- Status bar: identity and current acquisition resolution -->
+		<StatusBar Grid.Row="3" Background="#11161d" Foreground="#9fb3c8">
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_identity" Text="—" />
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_config" Text="" />
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_mode" Text="Framed" />
+			</StatusBarItem>
+		</StatusBar>
+
+	</Grid>
 </Window>

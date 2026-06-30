@@ -90,6 +90,22 @@ namespace HantekScope.Device
 		public const double AdcCodesPerDiv = 24.6;
 		public const int ScreenVDiv = 8; // vertical divisions on the display grid
 
+		// Full vertical span the 8-bit ADC can represent, in screen divisions. The
+		// code range is 0..255, so the signed span is 256 codes, which at
+		// 'AdcCodesPerDiv' codes/div is ~10.4 divisions. Choosing volts/div so that
+		// the visible Y span fills this many divisions puts the trace at the finest
+		// resolution the ADC offers for the current zoom level.
+		public const double AdcFullScaleDiv = 256.0 / AdcCodesPerDiv;
+
+		// Horizontal divisions spanned by one full waveform record. The device keeps
+		// a fixed record and the per-sample interval is timebase/100 (i.e. 100 samples
+		// per division), so a 1200-sample record covers 1200/100 = 12 divisions.
+		// Choosing the timebase so the visible time span fills this many divisions
+		// puts the time axis at the finest sample resolution for the current zoom.
+		public const int SamplesPerDivision = 100;
+		public const int WaveformRecordSamples = 1200;
+		public const double RecordDivisions = (double)WaveformRecordSamples / SamplesPerDivision;
+
 		// GET WAVEFORM parameters: (requested points, points, divisions) =
 		// (1200, 1200, 20) little-endian. Constant regardless of timebase — the
 		// device decimates internally and always returns the record in 64-byte slices.
@@ -98,19 +114,29 @@ namespace HantekScope.Device
 		/// <summary>
 		/// Volts-per-division for each volts/div register index (1-2-5 sequence).
 		/// The register carries the index; the value is the selected V/div.
+		/// Indices 2..6 (50mV..1V) are confirmed from captures; the entries marked
+		/// "unconfirmed" extend the 1-2-5 pattern up and down so axis-zoom
+		/// auto-resolution has headroom, and should be verified against a capture.
 		/// </summary>
 		public static readonly IReadOnlyDictionary<int, double> VoltsDivTable = new Dictionary<int, double>
 		{
+			[0] = 0.01,  // unconfirmed (extrapolated 1-2-5)
+			[1] = 0.02,  // unconfirmed (extrapolated 1-2-5)
 			[2] = 0.05,
 			[3] = 0.1,
 			[4] = 0.2,
 			[5] = 0.5,
 			[6] = 1.0,
+			[7] = 2.0,   // unconfirmed (extrapolated 1-2-5)
+			[8] = 5.0,   // unconfirmed (extrapolated 1-2-5)
+			[9] = 10.0,  // unconfirmed (extrapolated 1-2-5)
 		};
 
 		/// <summary>
 		/// Seconds-per-division for each timebase register index (1-2-5 sequence).
-		/// Only the commonly-used entries are listed; the device accepts the full range.
+		/// Indices 7..16 (1µs..1ms) are confirmed; the entries marked "unconfirmed"
+		/// extend the pattern toward slower timebases so zoom-out has headroom, and
+		/// should be verified against a capture.
 		/// </summary>
 		public static readonly IReadOnlyDictionary<int, double> TimebaseTable = new Dictionary<int, double>
 		{
@@ -124,7 +150,60 @@ namespace HantekScope.Device
 			[14] = 200e-6,
 			[15] = 500e-6,
 			[16] = 1e-3,
+			[17] = 2e-3,   // unconfirmed (extrapolated 1-2-5)
+			[18] = 5e-3,   // unconfirmed (extrapolated 1-2-5)
+			[19] = 10e-3,  // unconfirmed (extrapolated 1-2-5)
+			[20] = 20e-3,  // unconfirmed (extrapolated 1-2-5)
+			[21] = 50e-3,  // unconfirmed (extrapolated 1-2-5)
+			[22] = 100e-3, // unconfirmed (extrapolated 1-2-5)
 		};
+
+		/// <summary>
+		/// Pick the volts/div register index whose value is closest (in log space) to
+		/// 'volts'. Log-space distance treats the 1-2-5 steps even-handedly so a target
+		/// midway between two steps snaps to the nearer multiplicative neighbour.
+		/// </summary>
+		public static int NearestVoltsDivIndex(double volts)
+		{
+			return NearestIndex(VoltsDivTable, volts);
+		}
+
+		/// <summary>Pick the timebase register index whose seconds/div is closest (in log space) to 'seconds'.</summary>
+		public static int NearestTimebaseIndex(double seconds)
+		{
+			return NearestIndex(TimebaseTable, seconds);
+		}
+
+		/// <summary>Find the table key whose value is multiplicatively closest to 'target'.</summary>
+		private static int NearestIndex(IReadOnlyDictionary<int, double> table, double target)
+		{
+			// Guard against non-positive targets (a degenerate axis span); fall back to
+			// the smallest step so the caller still gets a valid index.
+			if (!(target > 0.0))
+			{
+				var smallest = int.MaxValue;
+				var smallest_val = double.MaxValue;
+				foreach (var kv in table)
+				{
+					if (kv.Value < smallest_val) { smallest_val = kv.Value; smallest = kv.Key; }
+				}
+				return smallest;
+			}
+
+			var best_index = 0;
+			var best_dist = double.MaxValue;
+			var log_target = Math.Log(target);
+			foreach (var kv in table)
+			{
+				var dist = Math.Abs(Math.Log(kv.Value) - log_target);
+				if (dist < best_dist)
+				{
+					best_dist = dist;
+					best_index = kv.Key;
+				}
+			}
+			return best_index;
+		}
 
 		/// <summary>
 		/// Build a command frame for EP 0x02. Layout:
