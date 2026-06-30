@@ -135,16 +135,27 @@ namespace Rylogic.Gfx
 		}
 		public enum EStockShader : int
 		{
-			// Forward rendering shaders
-			StandardVS = 0,
-			StandardPS = 0,
+			// Must match the native ABI enum in 'view3d-dll.h' (pr::view3d::EStockShader)
+			// exactly — the integer value is passed across the C interface, so the
+			// ordering here is significant, not just the names.
+			Invalid = 0,
+			Forward,
+			FwdShaderVS,
+			FwdShaderPS,
 
 			// Radial fade params:
 			//  *Type {Spherical|Cylindrical}
 			//  *Radius {min,max}
 			//  *Centre {x,y,z} (optional, defaults to camera position)
 			//  *Absolute (optional, default false) - True if 'radius' is absolute, false if 'radius' should be scaled by the focus distance
-			RadialFadePS,
+			FwdRadialFadePS,
+
+			GBufferVS,
+			GBufferPS,
+			DSLightingVS,
+			DSLightingPS,
+			ShadowMapVS,
+			ShadowMapPS,
 
 			// Point sprite params: *PointSize {w,h} *Depth {true|false}
 			PointSpritesGS,
@@ -157,6 +168,8 @@ namespace Rylogic.Gfx
 
 			// Arrow params: *Size {size}
 			ArrowHeadGS,
+
+			ShowNormalsGS,
 		}
 		public enum ELight : int
 		{
@@ -914,7 +927,15 @@ namespace Rylogic.Gfx
 				m_i1 = i1;
 				m_tex_diffuse = tex_diffuse ?? IntPtr.Zero;
 				m_sam_diffuse = sam_diffuse ?? IntPtr.Zero;
-				m_shaders = shaders ?? new Shader[8];
+
+				// 'm_shaders' is marshalled as a fixed-size embedded array (ByValArray,
+				// SizeConst = 8), so the backing array must always be exactly 8 elements
+				// or the interop marshaller throws. Copy any caller-supplied overrides
+				// into a full-length buffer rather than storing the (often shorter) array.
+				m_shaders = new Shader[8];
+				if (shaders != null)
+					Array.Copy(shaders, m_shaders, Math.Min(shaders.Length, m_shaders.Length));
+
 				m_nflags = flags ?? ENuggetFlag.None;
 				m_cull_mode = cull_mode ?? ECullMode.Default;
 				m_fill_mode = fill_mode ?? EFillMode.Default;
