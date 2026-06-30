@@ -3,11 +3,169 @@
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gfx"
+	xmlns:conv="clr-namespace:Rylogic.Gui.WPF.Converters;assembly=Rylogic.Gui.WPF"
 	Title="Hantek 2D42 Scope"
 	Height="600"
 	Width="1000"
 	Background="#0b0f14"
 	>
+	<Window.Resources>
+
+		<!-- Dark chrome palette. Kept as named brushes so the menu/toolbar/status bar share one consistent theme. -->
+		<SolidColorBrush x:Key="ChromeBackground" Color="#1b222b" />
+		<SolidColorBrush x:Key="PopupBackground" Color="#222b35" />
+		<SolidColorBrush x:Key="ChromeText" Color="#e6edf3" />
+		<SolidColorBrush x:Key="ChromeTextDim" Color="#9fb3c8" />
+		<SolidColorBrush x:Key="ChromeHover" Color="#2c3a4a" />
+		<SolidColorBrush x:Key="ChromeHoverBright" Color="#38495c" />
+		<SolidColorBrush x:Key="ChromeBorder" Color="#3a4654" />
+
+		<!-- Top-level menu bar: dark background with light text. -->
+		<Style TargetType="Menu">
+			<Setter Property="Background" Value="{StaticResource ChromeBackground}" />
+			<Setter Property="Foreground" Value="{StaticResource ChromeText}" />
+		</Style>
+
+		<!--
+			Fully retemplated MenuItem so both the menu bar headers and the dropdown/context-menu
+			popups render dark with light text. The default template leaves popups on a white
+			background, which made light text unreadable. This single implicit style also themes the
+			right-click context menus that are built in code-behind, keeping them visually consistent.
+		-->
+		<Style TargetType="MenuItem">
+			<Setter Property="Foreground" Value="{StaticResource ChromeText}" />
+			<Setter Property="Background" Value="Transparent" />
+			<Setter Property="Padding" Value="8,4" />
+			<Setter Property="Template">
+				<Setter.Value>
+					<ControlTemplate TargetType="MenuItem">
+						<Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+							<Grid>
+								<Grid.ColumnDefinitions>
+									<ColumnDefinition Width="Auto" />
+									<ColumnDefinition Width="*" />
+									<ColumnDefinition Width="Auto" />
+								</Grid.ColumnDefinitions>
+
+								<!-- Check glyph for checkable items; collapses to near-zero width when unchecked. -->
+								<TextBlock x:Name="Check"
+									Grid.Column="0"
+									Text="&#x2714;"
+									Margin="0,0,6,0"
+									VerticalAlignment="Center"
+									Foreground="{TemplateBinding Foreground}"
+									Visibility="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Converter={conv:BoolToVisible}}" />
+
+								<!-- Header content; RecognizesAccessKey keeps the underlined mnemonic working. -->
+								<ContentPresenter
+									Grid.Column="1"
+									ContentSource="Header"
+									RecognizesAccessKey="True"
+									VerticalAlignment="Center" />
+
+								<!-- Submenu fly-out arrow; shown only for items that actually have children. -->
+								<TextBlock x:Name="Arrow"
+									Grid.Column="2"
+									Text="&#x25B6;"
+									Margin="12,0,0,0"
+									VerticalAlignment="Center"
+									Foreground="{TemplateBinding Foreground}"
+									Visibility="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}, Converter={conv:BoolToVisible}}" />
+
+								<!-- The dropdown / fly-out popup, given an explicit dark background and border. -->
+								<Popup x:Name="PART_Popup"
+									AllowsTransparency="True"
+									Focusable="False"
+									IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+									Placement="Bottom"
+									PopupAnimation="Fade">
+									<Border Background="{StaticResource PopupBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" Padding="2">
+										<ItemsPresenter />
+									</Border>
+								</Popup>
+							</Grid>
+						</Border>
+						<ControlTemplate.Triggers>
+
+							<!-- A header sitting on the menu bar drops its popup downward and shows no arrow. -->
+							<Trigger Property="Role" Value="TopLevelHeader">
+								<Setter TargetName="Arrow" Property="Visibility" Value="Collapsed" />
+								<Setter TargetName="PART_Popup" Property="Placement" Value="Bottom" />
+							</Trigger>
+
+							<!-- A leaf item on the menu bar (no children) also shows no arrow. -->
+							<Trigger Property="Role" Value="TopLevelItem">
+								<Setter TargetName="Arrow" Property="Visibility" Value="Collapsed" />
+							</Trigger>
+
+							<!-- A submenu header inside a popup flies its child popup out to the right. -->
+							<Trigger Property="Role" Value="SubmenuHeader">
+								<Setter TargetName="PART_Popup" Property="Placement" Value="Right" />
+							</Trigger>
+
+							<!-- Highlight the hovered/selected row. -->
+							<Trigger Property="IsHighlighted" Value="True">
+								<Setter TargetName="Bd" Property="Background" Value="{StaticResource ChromeHover}" />
+							</Trigger>
+
+							<!-- Dim disabled items rather than leaving them at full contrast. -->
+							<Trigger Property="IsEnabled" Value="False">
+								<Setter Property="Foreground" Value="{StaticResource ChromeTextDim}" />
+							</Trigger>
+						</ControlTemplate.Triggers>
+					</ControlTemplate>
+				</Setter.Value>
+			</Setter>
+		</Style>
+
+		<!-- Toolbar host + bar share the dark chrome. -->
+		<Style TargetType="ToolBarTray">
+			<Setter Property="Background" Value="{StaticResource ChromeBackground}" />
+		</Style>
+		<Style TargetType="ToolBar">
+			<Setter Property="Background" Value="{StaticResource ChromeBackground}" />
+			<Setter Property="Foreground" Value="{StaticResource ChromeText}" />
+		</Style>
+
+		<!-- Keyed (not implicit) button style so it cannot leak into the chart's WPF overlay controls. -->
+		<Style x:Key="ChromeButton" TargetType="Button">
+			<Setter Property="Foreground" Value="{StaticResource ChromeText}" />
+			<Setter Property="Background" Value="{StaticResource ChromeHover}" />
+			<Setter Property="BorderBrush" Value="{StaticResource ChromeBorder}" />
+			<Setter Property="BorderThickness" Value="1" />
+			<Setter Property="Padding" Value="12,3" />
+			<Setter Property="Template">
+				<Setter.Value>
+					<ControlTemplate TargetType="Button">
+						<Border x:Name="Bd"
+							Background="{TemplateBinding Background}"
+							BorderBrush="{TemplateBinding BorderBrush}"
+							BorderThickness="{TemplateBinding BorderThickness}"
+							CornerRadius="3"
+							Padding="{TemplateBinding Padding}">
+							<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+						</Border>
+						<ControlTemplate.Triggers>
+							<Trigger Property="IsMouseOver" Value="True">
+								<Setter TargetName="Bd" Property="Background" Value="{StaticResource ChromeHoverBright}" />
+							</Trigger>
+							<Trigger Property="IsPressed" Value="True">
+								<Setter TargetName="Bd" Property="Background" Value="{StaticResource ChromeBorder}" />
+							</Trigger>
+						</ControlTemplate.Triggers>
+					</ControlTemplate>
+				</Setter.Value>
+			</Setter>
+		</Style>
+
+		<!-- Status bar chrome. -->
+		<Style TargetType="StatusBar">
+			<Setter Property="Background" Value="{StaticResource ChromeBackground}" />
+			<Setter Property="Foreground" Value="{StaticResource ChromeTextDim}" />
+		</Style>
+
+	</Window.Resources>
+
 	<Grid>
 		<Grid.RowDefinitions>
 			<RowDefinition Height="Auto" />
@@ -17,43 +175,44 @@
 		</Grid.RowDefinitions>
 
 		<!-- Main menu -->
-		<Menu Grid.Row="0" Background="#11161d" Foreground="#cdd9e5">
-			<MenuItem Header="_File" Foreground="#11161d">
+		<Menu Grid.Row="0">
+			<MenuItem Header="_File">
 				<MenuItem Header="E_xit" Click="OnExit" />
 			</MenuItem>
 		</Menu>
 
 		<!-- Toolbar: run/stop and live connection status -->
-		<ToolBarTray Grid.Row="1" Background="#11161d">
-			<ToolBar Background="#11161d">
-				<Button x:Name="m_btn_run" Content="Run" MinWidth="60" Click="OnRunStop" />
+		<ToolBarTray Grid.Row="1">
+			<ToolBar>
+				<Button x:Name="m_btn_run" Content="Run" MinWidth="60" Click="OnRunStop" Style="{StaticResource ChromeButton}" />
 				<Separator />
 				<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="4,0" />
-				<TextBlock x:Name="m_conn_status" Foreground="#9fb3c8" VerticalAlignment="Center" Margin="4,0" Text="Disconnected" />
+				<TextBlock x:Name="m_conn_status" Foreground="{StaticResource ChromeText}" VerticalAlignment="Center" Margin="4,0" Text="Disconnected" />
 			</ToolBar>
 		</ToolBarTray>
 
-		<!-- Live trace -->
+		<!-- Live trace; small margin so it isn't hard up against the window edges. -->
 		<gui:ChartControl
 			Grid.Row="2"
 			x:Name="m_chart"
+			Margin="8,6"
 			Title="Hantek 2D42"
 			XLabel="time (ms)"
 			YLabel="volts"
 			/>
 
 		<!-- Status bar: identity and current acquisition resolution -->
-		<StatusBar Grid.Row="3" Background="#11161d" Foreground="#9fb3c8">
+		<StatusBar Grid.Row="3">
 			<StatusBarItem>
-				<TextBlock x:Name="m_status_identity" Text="—" />
+				<TextBlock x:Name="m_status_identity" Foreground="{StaticResource ChromeText}" Text="&#x2014;" />
 			</StatusBarItem>
 			<Separator />
 			<StatusBarItem>
-				<TextBlock x:Name="m_status_config" Text="" />
+				<TextBlock x:Name="m_status_config" Foreground="{StaticResource ChromeTextDim}" Text="" />
 			</StatusBarItem>
 			<Separator />
 			<StatusBarItem>
-				<TextBlock x:Name="m_status_mode" Text="Framed" />
+				<TextBlock x:Name="m_status_mode" Foreground="{StaticResource ChromeTextDim}" Text="Framed" />
 			</StatusBarItem>
 		</StatusBar>
 
