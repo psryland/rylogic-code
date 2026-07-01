@@ -130,6 +130,12 @@ namespace HantekScope.Model
 			get { lock (m_sync) return m_desired.TriggerSweep; }
 		}
 
+		/// <summary>Desired trigger level as a chart voltage (for the display's software re-trigger).</summary>
+		public double TriggerLevelVolts
+		{
+			get { lock (m_sync) return m_desired.TriggerLevelVolts; }
+		}
+
 		/// <summary>True while the acquisition thread is running.</summary>
 		public bool IsRunning => m_run;
 
@@ -260,6 +266,10 @@ namespace HantekScope.Model
 				var source = m_desired.TriggerSource;
 				var probe = source == ETriggerSource.Ch2 ? m_desired.Ch2Probe : m_desired.Ch1Probe;
 				m_desired.TriggerLevelCode = HantekProtocol.VoltsToTriggerCode(volts, volts_per_div, probe, source);
+
+				// Remember the requested voltage so the display's software re-trigger
+				// locks onto the same level the user picked.
+				m_desired.TriggerLevelVolts = volts;
 			}
 		}
 
@@ -600,6 +610,11 @@ namespace HantekScope.Model
 			public int TriggerLevelCode;
 			public int TriggerHPosCode;
 
+			// The trigger level as a voltage on the chart. Kept alongside the device
+			// register code so the display's software re-trigger can compare it directly
+			// against decoded sample volts without a lossy code->volts round trip.
+			public double TriggerLevelVolts;
+
 			/// <summary>The configuration the init sequence programs (see HantekDevice.InitFrames).</summary>
 			public static Config Default => new()
 			{
@@ -616,6 +631,7 @@ namespace HantekScope.Model
 				TriggerSweep = ETriggerSweep.Auto,
 				TriggerLevelCode = HantekProtocol.Ch1VPosZeroCode,
 				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
+				TriggerLevelVolts = 0.0,
 			};
 		}
 	}

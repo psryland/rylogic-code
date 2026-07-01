@@ -25,10 +25,12 @@ namespace HantekScope.UI
 
 		// Framed mode shows exactly one waveform record (matching the hardware's
 		// screen): the device's fixed record is HantekProtocol.WaveformRecordSamples
-		// samples per channel, so the frame buffer holds one record's worth and rolls
-		// the oldest samples off as new ones arrive. This keeps the displayed window a
-		// full record wide instead of collapsing onto the first packet.
-		private const int MaxFramePoints = HantekProtocol.WaveformRecordSamples;
+		// samples per channel. The displayed window stays one record wide, centred on
+		// a software trigger crossing at x=0. The frame buffer holds two records so the
+		// re-trigger search has half a record of pre- and post-trigger headroom around
+		// any crossing; older samples roll off as new ones arrive.
+		private const int FrameWindowSamples = HantekProtocol.WaveformRecordSamples;
+		private const int MaxFramePoints = 2 * HantekProtocol.WaveformRecordSamples;
 
 		// How much signal-time (ms) the follow view shows ending at the latest sample
 		// when scrolling, and the default empty-chart X window otherwise.
@@ -42,6 +44,13 @@ namespace HantekScope.UI
 		// Framed-mode rolling buffer of the most recent samples, redrawn from t=0 each
 		// time new data arrives so the trace sits relative to the (software) trigger.
 		private readonly List<Sample> m_frame = new();
+
+		// Absolute time (Sample.XMs) of the last software-trigger crossing shown at x=0.
+		// A given crossing keeps the same XMs across frames as the buffer scrolls, so
+		// tracking it here lets the display lock onto the same edge frame-to-frame for a
+		// steady phase, re-anchoring by one period only when it rolls out of the buffer.
+		// NaN means "no lock yet" (fall back to a centred pick / free-run).
+		private double m_trig_xms = double.NaN;
 
 		// Display colours. Background defaults to a dark gray; channels to the classic
 		// scope yellow / cyan. All are user-editable via the Appearance menu.
@@ -582,62 +591,169 @@ namespace HantekScope.UI
 		}
 
 		/// <summary>
-		/// Framed mode: accumulate the most recent samples and redraw the whole frame
-		/// from t=0 each tick, so the trace is anchored to the (software) trigger origin.
+		/// Framed mode: accumulate the most recent samples and redraw a one-record-wide
+		/// window centred on a software trigger crossing. The hardware triggers
+		/// internally, but stitching its records back into a contiguous stream loses the
+		/// per-record phase, so a free-running trace scrolls. Re-triggering on our own
+		/// stream re-establishes a stable phase: the crossing is pinned to x=0, with half
+		/// a record of pre-trigger to the left and half to the right (matching the
+		/// hardware's centred trigger). If no crossing is found (Auto sweep, or a flat /
+		/// disabled source) the view free-runs on the latest record so it never freezes.
 		/// </summary>
 		private void RenderFramed(List<Sample> samples)
 		{
 			m_frame.AddRange(samples);
 
-			// Trim to the most recent window so the rebuild stays bounded.
+			// Trim to the two-record buffer so the rebuild and search stay bounded.
 			if (m_frame.Count > MaxFramePoints)
 				m_frame.RemoveRange(0, m_frame.Count - MaxFramePoints);
-
-			// Keep fitting the Y axis to the accumulated frame until a full record has
-			// been buffered, then latch it. Fitting only on the first tick would scale to
-			// the first partial packet (~32 samples) and clip the rest of the record's
-			// amplitude; refitting during the fill lets the range grow to the full signal.
-			if (!m_have_yrange)
-			{
-				FitYRange(m_frame);
-				if (m_frame.Count >= MaxFramePoints)
-					m_have_yrange = true;
-			}
 
 			// Per-sample spacing at the currently applied timebase.
 			var dt_ms = m_model.SampleIntervalS * 1000.0;
 			if (dt_ms <= 0)
 				dt_ms = 1.0;
 
+			// The displayed window is one full record; the trigger sits at its centre.
+			var window = FrameWindowSamples;
+			var half = window / 2;
+
+			// Locate the window start within the buffer. Prefer a software trigger
+			// crossing so periodic signals hold a steady phase; otherwise free-run on the
+			// most recent record. While the buffer is still filling its first record,
+			// show what we have from the left so the trace appears promptly.
+			var count = m_frame.Count;
+			var start = 0;
+			if (count >= window)
+			{
+				// Track the same crossing across frames for a steady phase; re-anchor to
+				// the nearest crossing (updating the tracked time) whenever the locked one
+				// has rolled out of the searchable region.
+				var ti = FindTriggerIndex(half, count - half, m_trig_xms);
+				if (ti >= 0)
+				{
+					start = ti - half;
+					m_trig_xms = m_frame[ti].XMs;
+				}
+				else
+				{
+					start = count - window;
+					m_trig_xms = double.NaN;
+				}
+			}
+			var length = Math.Min(window, count);
+
+			// Keep fitting the Y axis to the displayed window until a full record has been
+			// buffered, then latch it. Fitting only on the first tick would scale to the
+			// first partial packet (~32 samples) and clip the rest of the record.
+			if (!m_have_yrange)
+			{
+				FitYRange(m_frame.GetRange(start, length));
+				if (count >= window)
+					m_have_yrange = true;
+			}
+
+			// Map buffer index start+k to a local index k, then to x = (k - half)*dt so
+			// the trigger (k == half) lands at x=0 with pre-trigger to the left.
 			using (var lk = m_ch1.Lock())
 			{
 				lk.Clear();
-				for (var k = 0; k != m_frame.Count; ++k)
+				for (var k = 0; k != length; ++k)
 				{
-					if (!double.IsNaN(m_frame[k].Ch1V))
-						lk.Add(new ChartDataSeries.Pt(k * dt_ms, m_frame[k].Ch1V));
+					var v = m_frame[start + k].Ch1V;
+					if (!double.IsNaN(v))
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
 				}
 			}
 
 			using (var lk = m_ch2.Lock())
 			{
 				lk.Clear();
-				for (var k = 0; k != m_frame.Count; ++k)
+				for (var k = 0; k != length; ++k)
 				{
-					if (!double.IsNaN(m_frame[k].Ch2V))
-						lk.Add(new ChartDataSeries.Pt(k * dt_ms, m_frame[k].Ch2V));
+					var v = m_frame[start + k].Ch2V;
+					if (!double.IsNaN(v))
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
 				}
 			}
 
-			// Fit the X axis once to a full record width, so the window always spans one
-			// complete waveform record (12 divisions) rather than however many samples
-			// have arrived so far. Fitting to the accumulated count would latch the view
-			// onto the first packet (~32 samples) and hide the rest of the record.
+			// Fit the X axis once to a full record width centred on the trigger, so the
+			// window always spans one complete record (12 divisions) with the trigger at
+			// x=0. OnConfigChanged resets m_have_xrange so this recomputes on a timebase
+			// change.
 			if (!m_have_xrange)
 			{
-				SetRange(() => m_chart.Range.XAxis.Set(0, HantekProtocol.WaveformRecordSamples * dt_ms));
+				SetRange(() => m_chart.Range.XAxis.Set(-half * dt_ms, (window - half) * dt_ms));
 				m_have_xrange = true;
 			}
+		}
+
+		/// <summary>
+		/// Find the trigger crossing on the source channel within [lo, hi). A crossing
+		/// needs a valid (non-NaN) sample pair straddling the trigger level with the
+		/// configured slope. Returns the index of the sample at or past the level, or -1
+		/// when no crossing exists (free-run).
+		///
+		/// Selection keeps the displayed phase steady. The frame buffer is a sliding
+		/// window over a continuous stream, so any rule that picks "a crossing" can hop to
+		/// an adjacent one as the window scrolls; a one-period hop is invisible for a truly
+		/// periodic trace, but the record-stitch discontinuity is not periodic, so a hop
+		/// would make it jump across the screen. When a previous crossing time is known
+		/// (target_xms), the crossing with the nearest absolute time is chosen: the same
+		/// physical edge carries the same time every frame, so it stays locked until it
+		/// rolls out of range, then the next edge (one period on) is picked. With no prior
+		/// lock the crossing nearest the centre of the span is used, for maximal headroom.
+		/// </summary>
+		private int FindTriggerIndex(int lo, int hi, double target_xms)
+		{
+			var source = m_model.TriggerSource;
+			var slope = m_model.TriggerSlope;
+			var level = m_model.TriggerLevelVolts;
+
+			// Selection key: distance in absolute time from the tracked crossing, or, with
+			// no lock yet, distance in samples from the centre of the search span.
+			var have_target = !double.IsNaN(target_xms);
+			var centre = (lo + hi) / 2;
+
+			var best = -1;
+			var best_key = double.MaxValue;
+			for (var i = lo; i != hi; ++i)
+			{
+				var prev = SourceVolts(m_frame[i - 1], source);
+				var curr = SourceVolts(m_frame[i], source);
+				if (double.IsNaN(prev) || double.IsNaN(curr))
+					continue;
+
+				var rising = prev < level && curr >= level;
+				var falling = prev > level && curr <= level;
+				var hit = slope switch
+				{
+					ETriggerSlope.Rising => rising,
+					ETriggerSlope.Falling => falling,
+					ETriggerSlope.Both => rising || falling,
+					_ => throw new ArgumentOutOfRangeException(nameof(slope)),
+				};
+				if (!hit)
+					continue;
+
+				var key = have_target ? Math.Abs(m_frame[i].XMs - target_xms) : Math.Abs(i - centre);
+				if (key < best_key)
+				{
+					best_key = key;
+					best = i;
+				}
+			}
+			return best;
+		}
+
+		/// <summary>Select the trigger source channel's voltage from a sample.</summary>
+		private static double SourceVolts(Sample s, ETriggerSource source)
+		{
+			return source switch
+			{
+				ETriggerSource.Ch1 => s.Ch1V,
+				ETriggerSource.Ch2 => s.Ch2V,
+				_ => throw new ArgumentOutOfRangeException(nameof(source)),
+			};
 		}
 
 		/// <summary>Set the Y axis to span both channels of the batch, with headroom.</summary>
@@ -688,6 +804,7 @@ namespace HantekScope.UI
 		private void ResetDisplay()
 		{
 			m_frame.Clear();
+			m_trig_xms = double.NaN;
 			m_latest_x = 0;
 			m_have_xrange = false;
 			m_have_yrange = false;
@@ -733,6 +850,7 @@ namespace HantekScope.UI
 			{
 				// Old and new samples decode at different dt, so don't mix them in a frame.
 				m_frame.Clear();
+				m_trig_xms = double.NaN;
 				m_have_xrange = false;
 				UpdateConfigStatus();
 			});
