@@ -23,10 +23,12 @@ namespace HantekScope.UI
 		private const int MaxPointsPerChannel = 200000;
 		private const int TrimChunk = 50000;
 
-		// Cap on points retained for the framed display. One waveform record is 1200
-		// samples; a few records of headroom keeps a zoomed-out frame populated without
-		// the rebuilt-every-tick cost growing unbounded.
-		private const int MaxFramePoints = 6000;
+		// Framed mode shows exactly one waveform record (matching the hardware's
+		// screen): the device's fixed record is HantekProtocol.WaveformRecordSamples
+		// samples per channel, so the frame buffer holds one record's worth and rolls
+		// the oldest samples off as new ones arrive. This keeps the displayed window a
+		// full record wide instead of collapsing onto the first packet.
+		private const int MaxFramePoints = HantekProtocol.WaveformRecordSamples;
 
 		// How much signal-time (ms) the follow view shows ending at the latest sample
 		// when scrolling, and the default empty-chart X window otherwise.
@@ -591,10 +593,15 @@ namespace HantekScope.UI
 			if (m_frame.Count > MaxFramePoints)
 				m_frame.RemoveRange(0, m_frame.Count - MaxFramePoints);
 
+			// Keep fitting the Y axis to the accumulated frame until a full record has
+			// been buffered, then latch it. Fitting only on the first tick would scale to
+			// the first partial packet (~32 samples) and clip the rest of the record's
+			// amplitude; refitting during the fill lets the range grow to the full signal.
 			if (!m_have_yrange)
 			{
 				FitYRange(m_frame);
-				m_have_yrange = true;
+				if (m_frame.Count >= MaxFramePoints)
+					m_have_yrange = true;
 			}
 
 			// Per-sample spacing at the currently applied timebase.
@@ -622,10 +629,13 @@ namespace HantekScope.UI
 				}
 			}
 
-			// Fit the X axis once to one frame width so the trace fills the view.
+			// Fit the X axis once to a full record width, so the window always spans one
+			// complete waveform record (12 divisions) rather than however many samples
+			// have arrived so far. Fitting to the accumulated count would latch the view
+			// onto the first packet (~32 samples) and hide the rest of the record.
 			if (!m_have_xrange)
 			{
-				SetRange(() => m_chart.Range.XAxis.Set(0, Math.Max(1, m_frame.Count) * dt_ms));
+				SetRange(() => m_chart.Range.XAxis.Set(0, HantekProtocol.WaveformRecordSamples * dt_ms));
 				m_have_xrange = true;
 			}
 		}
