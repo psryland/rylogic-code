@@ -695,19 +695,15 @@ namespace HantekScope.UI
 		{
 			Dispatcher.BeginInvoke(() =>
 			{
-				// Derive a connection state from the message for the status-bar LED.
+				// Derive a connection state from the message for the status-bar LED. The
+				// model recovers from device loss on its own (persistent reconnect), so a
+				// transient failure shows as "Connecting" rather than a terminal error and
+				// acquisition keeps running until the user presses Stop.
 				var state =
 					text.StartsWith("Error", StringComparison.OrdinalIgnoreCase) ? EConn.Error :
 					text.StartsWith("Running", StringComparison.OrdinalIgnoreCase) ? EConn.Running :
 					EConn.Connecting;
 				SetConnection(text, state);
-
-				// An error stops acquisition inside the model; reflect that in the UI.
-				if (!m_model.IsRunning && m_render_timer.IsEnabled)
-				{
-					m_render_timer.Stop();
-					m_btn_run.Content = "Run";
-				}
 			});
 		}
 

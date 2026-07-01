@@ -27,8 +27,18 @@ namespace HantekScope.Model
 		private const int DefaultTimebaseIndex = 14;
 		private const int DefaultVoltsDivIndex = 6;
 
+		// Delay between reconnect attempts while the device is absent or recovering.
+		// Short enough to feel responsive when the device reappears, long enough not to
+		// busy-spin SetupAPI enumeration while it stays unplugged.
+		private const int ReconnectDelayMs = 500;
+
 		private readonly object m_sync = new();
 		private readonly List<Sample> m_pending = new();
+
+		// Signalled by Stop() to bring the acquisition thread down promptly: it both
+		// clears 'm_run' and wakes the thread from any interruptible wait (poll pacing
+		// or reconnect backoff) so shutdown doesn't have to wait out a sleep.
+		private readonly ManualResetEventSlim m_stop = new(false);
 
 		// 'm_desired' is what the UI has asked for (written from any thread under
 		// 'm_sync'); 'm_applied' is what the device is currently programmed to (owned by
@@ -275,6 +285,8 @@ namespace HantekScope.Model
 			if (m_run)
 				return;
 
+			// Clear any stop signal left set by a prior run before arming the thread.
+			m_stop.Reset();
 			m_run = true;
 			m_thread = new Thread(AcquisitionLoop) { IsBackground = true, Name = "HantekAcquisition" };
 			m_thread.Start();
@@ -283,7 +295,10 @@ namespace HantekScope.Model
 		/// <summary>Stop acquiring and close the device.</summary>
 		public void Stop()
 		{
+			// Clear the run flag and wake the thread from any interruptible wait so it
+			// exits promptly instead of waiting out a poll-pacing or reconnect delay.
 			m_run = false;
+			m_stop.Set();
 			m_thread?.Join(2000);
 			m_thread = null;
 
@@ -312,53 +327,102 @@ namespace HantekScope.Model
 		public void Dispose()
 		{
 			Stop();
+			m_stop.Dispose();
 		}
 
 		/// <summary>
-		/// Background thread: open, initialise, read identity, then poll waveform
-		/// packets at the device's pace, applying any pending config change before
-		/// each read and decoding the result into pending samples.
+		/// Background supervisor thread. Repeatedly (re)establishes the connection and
+		/// runs the poll loop, recovering from a missing device or any transfer error by
+		/// tearing down and retrying after a short backoff, until Stop() clears 'm_run'.
+		/// This keeps acquisition resilient to the device being absent at Run time or
+		/// being unplugged and replugged mid-session.
 		/// </summary>
 		private void AcquisitionLoop()
 		{
-			try
+			// Tracks whether a session was ever established, so the status distinguishes
+			// "waiting for a device that isn't there yet" from "recovering a lost one".
+			var was_connected = false;
+
+			while (m_run)
 			{
-				m_device = new HantekDevice();
-				m_device.Open();
-				StatusChanged?.Invoke("Initialising…");
-
-				m_device.RunInitSequence();
-
-				// The init sequence leaves the device in the default configuration.
-				// Reconciliation against 'm_desired' on the first loop re-applies any
-				// settings the user changed in a prior run.
-				lock (m_sync)
-					m_applied = Config.Default;
-
-				var id = m_device.ReadIdentity();
-				IdentityRead?.Invoke(id.Serial, id.Firmware, id.Version);
-				StatusChanged?.Invoke($"Running — {id.Serial} fw {id.Firmware}");
-
-				while (m_run)
+				try
 				{
-					ApplyPendingConfig();
+					StatusChanged?.Invoke(was_connected ? "Reconnecting…" : "Connecting…");
 
-					var packet = m_device.ReadWaveformPacket();
-					if (packet.Length != 0)
-						DecodePacket(packet);
+					OpenAndInitialise();
+					was_connected = true;
 
-					Thread.Sleep(HantekProtocol.WaveformPollIntervalMs);
+					var id = m_device!.ReadIdentity();
+					IdentityRead?.Invoke(id.Serial, id.Firmware, id.Version);
+					StatusChanged?.Invoke($"Running — {id.Serial} fw {id.Firmware}");
+
+					PollLoop();
 				}
+				catch (Exception ex)
+				{
+					// A missing device or a mid-transfer failure lands here. Report it in
+					// terms of whether we're waiting for a first connection or recovering a
+					// dropped one, then fall through to the backoff and retry.
+					StatusChanged?.Invoke(was_connected
+						? $"Reconnecting… ({ex.Message})"
+						: $"Waiting for device… ({ex.Message})");
+				}
+				finally
+				{
+					m_device?.Dispose();
+					m_device = null;
+				}
+
+				// Back off before retrying, but wake immediately if Stop() is signalled so
+				// shutdown never waits out the full delay.
+				if (m_run)
+					m_stop.Wait(ReconnectDelayMs);
 			}
-			catch (Exception ex)
+		}
+
+		/// <summary>
+		/// Open the device, replay the init sequence, and reset the applied config and
+		/// time origin to the post-init defaults. Fires ConfigChanged so the UI discards
+		/// any pre-disconnect frame rather than stitching stale samples onto the new
+		/// stream. Throws if the device is absent or the init exchange fails.
+		/// </summary>
+		private void OpenAndInitialise()
+		{
+			m_device = new HantekDevice();
+			m_device.Open();
+
+			StatusChanged?.Invoke("Initialising…");
+			m_device.RunInitSequence();
+
+			// The init sequence leaves the device in the default configuration.
+			// Reconciliation against 'm_desired' on the first poll re-applies any settings
+			// the user changed before the (re)connect.
+			lock (m_sync)
+				m_applied = Config.Default;
+			m_sample_index = 0;
+
+			// Restart the display's time origin for the fresh stream.
+			ConfigChanged?.Invoke();
+		}
+
+		/// <summary>
+		/// Poll waveform packets at the device's pace until Stop() is signalled, applying
+		/// any pending config change before each read and decoding the result. Any USB
+		/// transfer error propagates to the supervisor loop, which reconnects.
+		/// </summary>
+		private void PollLoop()
+		{
+			while (m_run)
 			{
-				m_run = false;
-				StatusChanged?.Invoke($"Error: {ex.Message}");
-			}
-			finally
-			{
-				m_device?.Dispose();
-				m_device = null;
+				ApplyPendingConfig();
+
+				var packet = m_device!.ReadWaveformPacket();
+				if (packet.Length != 0)
+					DecodePacket(packet);
+
+				// Interruptible pacing wait: returns immediately when Stop() is signalled.
+				if (m_stop.Wait(HantekProtocol.WaveformPollIntervalMs))
+					break;
 			}
 		}
 
