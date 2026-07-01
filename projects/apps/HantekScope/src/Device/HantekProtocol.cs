@@ -126,12 +126,23 @@ namespace HantekScope.Device
 		// contiguous stream.
 		public const int WaveformPollIntervalMs = 50;
 
-		// Sample encoding: EP 0x81 waveform bytes are 8-bit unsigned ADC codes.
-		// Zero volts sits near the middle of the range; the vertical scale is a
+		// Sample encoding: EP 0x81 waveform bytes are 8-bit unsigned ADC codes. The
+		// device digitises the trace after applying each channel's vertical position,
+		// so a channel's 0 V does not sit at a fixed code — it tracks that channel's
+		// vertical-position register (see AdcZeroCodeForVPos). The vertical scale is a
 		// fixed number of codes per screen division.
-		public const double AdcZeroCode = 128.0;
 		public const double AdcCodesPerDiv = 24.6;
 		public const int ScreenVDiv = 8; // vertical divisions on the display grid
+
+		// Per-channel 0 V ADC code as a function of the channel's vertical-position
+		// register. Because the ADC samples the positioned trace, the code that means
+		// 0 V shifts with the vertical position. These constants are a linear fit
+		// through two measured operating points (means over 6000 samples each):
+		//   CH1 vpos 149 -> 0 V code 182,  CH2 vpos 49 -> 0 V code 80.
+		// giving slope ~1.02 code per vpos code and a ~30 code origin. Re-measure and
+		// refit if a vertical-position UI control is added that moves these registers.
+		public const double AdcZeroVPosSlope = 1.02;
+		public const double AdcZeroVPosOffset = 30.0;
 
 		// Full vertical span the 8-bit ADC can represent, in screen divisions. The
 		// code range is 0..255, so the signed span is 256 codes, which at
@@ -327,10 +338,16 @@ namespace HantekScope.Device
 			return best;
 		}
 
-		/// <summary>Convert a raw 8-bit ADC sample to a signed division offset from zero.</summary>
-		public static double CodeToDivisions(byte code)
+		/// <summary>The 0 V ADC code for a channel programmed to the given vertical-position register.</summary>
+		public static double AdcZeroCodeForVPos(int vpos_code)
 		{
-			return (code - AdcZeroCode) / AdcCodesPerDiv;
+			return AdcZeroVPosSlope * vpos_code + AdcZeroVPosOffset;
+		}
+
+		/// <summary>Convert a raw 8-bit ADC sample to a signed division offset from the channel's 0 V code.</summary>
+		public static double CodeToDivisions(byte code, double zero_code)
+		{
+			return (code - zero_code) / AdcCodesPerDiv;
 		}
 
 		/// <summary>The linear attenuation factor for a probe scale exponent (10^exponent).</summary>

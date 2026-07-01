@@ -571,6 +571,11 @@ namespace HantekScope.Model
 			var probe1 = HantekProtocol.ProbeRatio(applied.Ch1Probe);
 			var probe2 = HantekProtocol.ProbeRatio(applied.Ch2Probe);
 
+			// Each channel's 0 V ADC code tracks its vertical-position register, so
+			// decode subtracts the per-channel zero rather than a fixed mid-scale code.
+			var zero1 = HantekProtocol.AdcZeroCodeForVPos(HantekProtocol.Ch1VPosZeroCode);
+			var zero2 = HantekProtocol.AdcZeroCodeForVPos(HantekProtocol.Ch2VPosZeroCode);
+
 			var batch = new List<Sample>(count);
 			for (var i = 0; i != count; ++i)
 			{
@@ -578,8 +583,8 @@ namespace HantekScope.Model
 				// one contiguous stream on the acquisition-time axis. A channel that is
 				// disabled (empty list) yields NaN so the render step skips it.
 				var x_ms = (m_sample_index + i) * dt_ms;
-				var v1 = i < ch1.Count ? HantekProtocol.CodeToDivisions(ch1[i]) * vdiv * probe1 : double.NaN;
-				var v2 = i < ch2.Count ? HantekProtocol.CodeToDivisions(ch2[i]) * vdiv * probe2 : double.NaN;
+				var v1 = i < ch1.Count ? HantekProtocol.CodeToDivisions(ch1[i], zero1) * vdiv * probe1 : double.NaN;
+				var v2 = i < ch2.Count ? HantekProtocol.CodeToDivisions(ch2[i], zero2) * vdiv * probe2 : double.NaN;
 				batch.Add(new Sample(x_ms, v1, v2));
 			}
 			m_sample_index += count;
