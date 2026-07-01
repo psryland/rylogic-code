@@ -39,6 +39,16 @@ namespace HantekScope.UI
 		private readonly ScopeModel m_model = new();
 		private readonly ChartDataSeries m_ch1 = new("CH1", ChartDataSeries.EFormat.XRealYReal);
 		private readonly ChartDataSeries m_ch2 = new("CH2", ChartDataSeries.EFormat.XRealYReal);
+
+		// Framed mode replays a fixed hardware record whose ends do not meet (the record
+		// spans a non-integer number of signal periods), so stitching it into a stream
+		// leaves one large step at the record boundary. Rendering each channel as a
+		// single connected line-strip would draw a spurious near-vertical segment across
+		// that step. Splitting the trace at the boundary into a head and tail series
+		// (both sharing the channel colour) leaves a one-sample gap there instead, so the
+		// seam is not drawn while the trigger-centred framing is otherwise unchanged.
+		private readonly ChartDataSeries m_ch1_tail = new("CH1t", ChartDataSeries.EFormat.XRealYReal);
+		private readonly ChartDataSeries m_ch2_tail = new("CH2t", ChartDataSeries.EFormat.XRealYReal);
 		private readonly DispatcherTimer m_render_timer;
 
 		// Framed-mode rolling buffer of the most recent samples, redrawn from t=0 each
@@ -128,6 +138,8 @@ namespace HantekScope.UI
 			// pure lines (and so the unset PointSprite shader is never referenced).
 			ConfigureSeries(m_ch1, m_ch1_colour);
 			ConfigureSeries(m_ch2, m_ch2_colour);
+			ConfigureSeries(m_ch1_tail, m_ch1_colour);
+			ConfigureSeries(m_ch2_tail, m_ch2_colour);
 
 			// Start with a sensible window so the empty chart isn't degenerate.
 			SetRange(() =>
@@ -460,14 +472,20 @@ namespace HantekScope.UI
 		private void OnPickCh1Colour(object sender, RoutedEventArgs e)
 		{
 			if (PickColour(ref m_ch1_colour))
+			{
 				ApplySeriesColour(m_ch1, m_ch1_colour);
+				ApplySeriesColour(m_ch1_tail, m_ch1_colour);
+			}
 		}
 
 		/// <summary>Pick the CH2 trace colour.</summary>
 		private void OnPickCh2Colour(object sender, RoutedEventArgs e)
 		{
 			if (PickColour(ref m_ch2_colour))
+			{
 				ApplySeriesColour(m_ch2, m_ch2_colour);
+				ApplySeriesColour(m_ch2_tail, m_ch2_colour);
+			}
 		}
 
 		/// <summary>Show the colour picker seeded with the current colour; return true if changed.</summary>
@@ -653,28 +671,13 @@ namespace HantekScope.UI
 			}
 
 			// Map buffer index start+k to a local index k, then to x = (k - half)*dt so
-			// the trigger (k == half) lands at x=0 with pre-trigger to the left.
-			using (var lk = m_ch1.Lock())
-			{
-				lk.Clear();
-				for (var k = 0; k != length; ++k)
-				{
-					var v = m_frame[start + k].Ch1V;
-					if (!double.IsNaN(v))
-						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
-				}
-			}
-
-			using (var lk = m_ch2.Lock())
-			{
-				lk.Clear();
-				for (var k = 0; k != length; ++k)
-				{
-					var v = m_frame[start + k].Ch2V;
-					if (!double.IsNaN(v))
-						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
-				}
-			}
+			// the trigger (k == half) lands at x=0 with pre-trigger to the left. The
+			// record-boundary step (if present in this window) splits each channel into a
+			// head and tail series so the step itself is left as a one-sample gap rather
+			// than drawn as a spurious near-vertical connector.
+			var seam = FindSeamOffset(start, length);
+			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, static s => s.Ch1V);
+			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, static s => s.Ch2V);
 
 			// Fit the X axis once to a full record width centred on the trigger, so the
 			// window always spans one complete record (12 divisions) with the trigger at
@@ -685,6 +688,102 @@ namespace HantekScope.UI
 				SetRange(() => m_chart.Range.XAxis.Set(-half * dt_ms, (window - half) * dt_ms));
 				m_have_xrange = true;
 			}
+		}
+
+		/// <summary>
+		/// Fill a channel's head/tail series pair from the frame window [start, start+length).
+		/// Local index k maps to x = (k - half)*dt_ms. When <paramref name="seam"/> is a valid
+		/// local offset, samples before it go to <paramref name="main"/> and samples from it
+		/// onward go to <paramref name="tail"/>, leaving the record-boundary step as a gap;
+		/// when it is negative the whole window goes to <paramref name="main"/> and the tail is
+		/// cleared. Both series are cleared every call so a seam that comes and goes as the
+		/// window scrolls never leaves a stale head or tail behind.
+		/// </summary>
+		private void FillFramedChannel(ChartDataSeries main, ChartDataSeries tail, int start, int length, int half, double dt_ms, int seam, Func<Sample, double> selector)
+		{
+			var split = seam < 0 ? length : seam;
+
+			using (var lk = main.Lock())
+			{
+				lk.Clear();
+				for (var k = 0; k != split; ++k)
+				{
+					var v = selector(m_frame[start + k]);
+					if (!double.IsNaN(v))
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
+				}
+			}
+
+			using (var lk = tail.Lock())
+			{
+				lk.Clear();
+				for (var k = split; k != length; ++k)
+				{
+					var v = selector(m_frame[start + k]);
+					if (!double.IsNaN(v))
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
+				}
+			}
+		}
+
+		/// <summary>
+		/// Find the record-boundary step within the frame window [start, start+length), or -1
+		/// when none is present. The device replays a fixed-length hardware-triggered record,
+		/// so where the window straddles a boundary the two record ends (captured at different
+		/// signal phases) meet in a single-sample step far larger than the sample-to-sample
+		/// change of the band-limited trace. Both channels share the boundary sample index, so
+		/// whichever channel shows the clearer step defines the split point for both.
+		/// </summary>
+		private int FindSeamOffset(int start, int length)
+		{
+			var ch1 = SeamCandidate(start, length, static s => s.Ch1V);
+			var ch2 = SeamCandidate(start, length, static s => s.Ch2V);
+
+			// Prefer the larger, more confident step; both channels wrap at the same index.
+			if (ch1.Index < 0)
+				return ch2.Index;
+			if (ch2.Index < 0)
+				return ch1.Index;
+			return ch1.Jump >= ch2.Jump ? ch1.Index : ch2.Index;
+		}
+
+		/// <summary>
+		/// Locate the largest single-sample step on one channel within the window and return it
+		/// only when it is an extreme outlier (an order of magnitude above the mean step), which
+		/// isolates the record-boundary discontinuity from ordinary signal slope and noise.
+		/// Returns the local offset of the first sample of the new record and the step size, or
+		/// (-1, 0) when there is no clear boundary (e.g. a flat or absent channel).
+		/// </summary>
+		private (int Index, double Jump) SeamCandidate(int start, int length, Func<Sample, double> selector)
+		{
+			var best = -1;
+			var best_jump = 0.0;
+			var sum = 0.0;
+			var n = 0;
+			for (var k = 1; k != length; ++k)
+			{
+				var prev = selector(m_frame[start + k - 1]);
+				var curr = selector(m_frame[start + k]);
+				if (double.IsNaN(prev) || double.IsNaN(curr))
+					continue;
+
+				var jump = Math.Abs(curr - prev);
+				sum += jump;
+				++n;
+				if (jump > best_jump)
+				{
+					best_jump = jump;
+					best = k;
+				}
+			}
+
+			if (n == 0)
+				return (-1, 0.0);
+
+			// The mean is dominated by the many small steps, so the single boundary step barely
+			// perturbs it; requiring a 10x margin cleanly separates a real seam from noise.
+			var mean = sum / n;
+			return best_jump >= 10.0 * mean && best_jump > 0.0 ? (best, best_jump) : (-1, 0.0);
 		}
 
 		/// <summary>
@@ -813,6 +912,10 @@ namespace HantekScope.UI
 				lk.Clear();
 			using (var lk = m_ch2.Lock())
 				lk.Clear();
+			using (var lk = m_ch1_tail.Lock())
+				lk.Clear();
+			using (var lk = m_ch2_tail.Lock())
+				lk.Clear();
 
 			m_chart.Invalidate();
 		}
@@ -912,6 +1015,8 @@ namespace HantekScope.UI
 			m_model.Dispose();
 			Util.Dispose(m_ch1);
 			Util.Dispose(m_ch2);
+			Util.Dispose(m_ch1_tail);
+			Util.Dispose(m_ch2_tail);
 			Gui_.DisposeChildren(this, EventArgs.Empty);
 			base.OnClosed(e);
 		}
