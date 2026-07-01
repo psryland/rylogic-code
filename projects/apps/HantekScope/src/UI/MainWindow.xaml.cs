@@ -1054,7 +1054,10 @@ namespace HantekScope.UI
 			Dispatcher.BeginInvoke(() =>
 			{
 				// Old and new samples decode at different dt, so don't mix them in a frame.
+				// The measurement buffer is likewise rate- (and scale-) sensitive, so clear
+				// it too rather than average across the resolution change.
 				m_frame.Clear();
+				m_recent.Clear();
 				m_trig_xms = double.NaN;
 				m_have_xrange = false;
 				UpdateConfigStatus();
