@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using HantekScope.Device;
 using HantekScope.Model;
 using Rylogic.Gfx;
 using Rylogic.Gui.WPF;
+using Rylogic.Maths;
 using Rylogic.Utility;
 
 namespace HantekScope.UI
@@ -54,6 +56,18 @@ namespace HantekScope.UI
 		private MenuItem m_mi_scrolling = null!;
 		private MenuItem m_mi_xauto = null!;
 		private MenuItem m_mi_yauto = null!;
+
+		// Callbacks that sync each checkable/radio scope-control menu item to the model's
+		// desired config; all are invoked when the scene context menu opens so the menu
+		// always reflects the live state without one-off wiring per item.
+		private readonly List<Action> m_menu_refreshers = new();
+
+		// The two point-and-click Trigger items, whose headers show the volts/time at the
+		// right-click position, plus the chart coordinates captured when the menu opened.
+		private MenuItem m_mi_trig_level = null!;
+		private MenuItem m_mi_trig_time = null!;
+		private double m_click_volts;
+		private double m_click_seconds;
 
 		private double m_latest_x;
 		private bool m_have_xrange;
@@ -147,8 +161,11 @@ namespace HantekScope.UI
 
 			var scene = new ContextMenu();
 			scene.Items.Add(appearance);
+			scene.Items.Add(BuildChannelsMenu());
+			scene.Items.Add(BuildTriggerMenu());
 			scene.Items.Add(new Separator());
 			scene.Items.Add(m_mi_scrolling);
+			scene.Opened += OnSceneMenuOpened;
 			m_chart.SceneCMenu = scene;
 
 			// X axis menu: auto-resolution toggle + reset zoom.
@@ -178,6 +195,195 @@ namespace HantekScope.UI
 			var item = new MenuItem { Header = header };
 			item.Click += on_click;
 			return item;
+		}
+
+		/// <summary>
+		/// Create a checkable menu item that reports a bool state. The click action runs
+		/// the toggle; a refresher is registered so the checkmark reflects 'get_state'
+		/// whenever the menu reopens (rather than trusting WPF's optimistic auto-toggle).
+		/// </summary>
+		private MenuItem MakeCheck(string header, Func<bool> get_state, Action on_toggle)
+		{
+			var item = new MenuItem { Header = header, IsCheckable = true };
+			item.Click += (s, e) => on_toggle();
+			m_menu_refreshers.Add(() => item.IsChecked = get_state());
+			return item;
+		}
+
+		/// <summary>
+		/// Create one option of a mutually-exclusive radio group. Selecting it applies
+		/// 'value'; a refresher checks it when 'get_current' equals 'value', so exactly
+		/// the active option is ticked each time the menu opens.
+		/// </summary>
+		private MenuItem MakeRadio<T>(string header, T value, Func<T> get_current, Action<T> on_select)
+		{
+			var item = new MenuItem { Header = header, IsCheckable = true };
+			item.Click += (s, e) => on_select(value);
+			m_menu_refreshers.Add(() => item.IsChecked = EqualityComparer<T>.Default.Equals(get_current(), value));
+			return item;
+		}
+
+		/// <summary>Build the Channels submenu: per-channel enable, coupling, and probe controls.</summary>
+		private MenuItem BuildChannelsMenu()
+		{
+			var channels = new MenuItem { Header = "Channels" };
+			channels.Items.Add(BuildChannelMenu(1));
+			channels.Items.Add(BuildChannelMenu(2));
+			return channels;
+		}
+
+		/// <summary>Build one channel's submenu (Enabled toggle + Coupling and Probe radio groups).</summary>
+		private MenuItem BuildChannelMenu(int channel)
+		{
+			var root = new MenuItem { Header = $"CH{channel}" };
+
+			// Enabled toggle. The new state is computed at click time from the model so
+			// the ≥1-enabled rule is enforced by the model, not assumed here.
+			root.Items.Add(MakeCheck("Enabled",
+				() => ChannelEnabled(channel),
+				() => m_model.RequestChannelEnabled(channel, !ChannelEnabled(channel))));
+			root.Items.Add(new Separator());
+
+			var coupling = new MenuItem { Header = "Coupling" };
+			foreach (var c in new[] { ECoupling.AC, ECoupling.DC, ECoupling.GND })
+			{
+				coupling.Items.Add(MakeRadio(c.ToString(), c,
+					() => ChannelCoupling(channel),
+					v => m_model.RequestCoupling(channel, v)));
+			}
+			root.Items.Add(coupling);
+
+			var probe = new MenuItem { Header = "Probe" };
+			foreach (var p in new[] { EProbeScale.X1, EProbeScale.X10, EProbeScale.X100, EProbeScale.X1000 })
+			{
+				probe.Items.Add(MakeRadio(ProbeLabel(p), p,
+					() => ChannelProbe(channel),
+					v => m_model.RequestProbe(channel, v)));
+			}
+			root.Items.Add(probe);
+			return root;
+		}
+
+		/// <summary>Build the Trigger submenu: point-and-click level/time plus source, slope, and sweep.</summary>
+		private MenuItem BuildTriggerMenu()
+		{
+			var trigger = new MenuItem { Header = "Trigger" };
+
+			// The level/time headers are filled in by OnSceneMenuOpened from the click
+			// point; selecting them applies that value to the trigger.
+			m_mi_trig_level = MakeItem("Trigger Level", OnSetTriggerLevel);
+			m_mi_trig_time = MakeItem("Time Offset", OnSetTriggerTime);
+			trigger.Items.Add(m_mi_trig_level);
+			trigger.Items.Add(m_mi_trig_time);
+			trigger.Items.Add(new Separator());
+
+			var source = new MenuItem { Header = "Source" };
+			source.Items.Add(MakeRadio("CH1", ETriggerSource.Ch1, () => m_model.TriggerSource, v => m_model.RequestTriggerSource(v)));
+			source.Items.Add(MakeRadio("CH2", ETriggerSource.Ch2, () => m_model.TriggerSource, v => m_model.RequestTriggerSource(v)));
+			trigger.Items.Add(source);
+
+			var slope = new MenuItem { Header = "Slope" };
+			slope.Items.Add(MakeRadio("Rising", ETriggerSlope.Rising, () => m_model.TriggerSlope, v => m_model.RequestTriggerSlope(v)));
+			slope.Items.Add(MakeRadio("Falling", ETriggerSlope.Falling, () => m_model.TriggerSlope, v => m_model.RequestTriggerSlope(v)));
+			slope.Items.Add(MakeRadio("Both", ETriggerSlope.Both, () => m_model.TriggerSlope, v => m_model.RequestTriggerSlope(v)));
+			trigger.Items.Add(slope);
+
+			var sweep = new MenuItem { Header = "Sweep" };
+			sweep.Items.Add(MakeRadio("Auto", ETriggerSweep.Auto, () => m_model.TriggerSweep, v => m_model.RequestTriggerSweep(v)));
+			sweep.Items.Add(MakeRadio("Normal", ETriggerSweep.Normal, () => m_model.TriggerSweep, v => m_model.RequestTriggerSweep(v)));
+			trigger.Items.Add(sweep);
+
+			return trigger;
+		}
+
+		/// <summary>Desired enabled state for a channel (1 or 2).</summary>
+		private bool ChannelEnabled(int channel)
+		{
+			switch (channel)
+			{
+				case 1: return m_model.Ch1Enabled;
+				case 2: return m_model.Ch2Enabled;
+				default: throw new ArgumentOutOfRangeException(nameof(channel));
+			}
+		}
+
+		/// <summary>Desired coupling for a channel (1 or 2).</summary>
+		private ECoupling ChannelCoupling(int channel)
+		{
+			switch (channel)
+			{
+				case 1: return m_model.Ch1Coupling;
+				case 2: return m_model.Ch2Coupling;
+				default: throw new ArgumentOutOfRangeException(nameof(channel));
+			}
+		}
+
+		/// <summary>Desired probe attenuation for a channel (1 or 2).</summary>
+		private EProbeScale ChannelProbe(int channel)
+		{
+			switch (channel)
+			{
+				case 1: return m_model.Ch1Probe;
+				case 2: return m_model.Ch2Probe;
+				default: throw new ArgumentOutOfRangeException(nameof(channel));
+			}
+		}
+
+		/// <summary>Human-readable label for a probe attenuation.</summary>
+		private static string ProbeLabel(EProbeScale probe)
+		{
+			switch (probe)
+			{
+				case EProbeScale.X1: return "×1";
+				case EProbeScale.X10: return "×10";
+				case EProbeScale.X100: return "×100";
+				case EProbeScale.X1000: return "×1000";
+				default: throw new ArgumentOutOfRangeException(nameof(probe));
+			}
+		}
+
+		/// <summary>
+		/// When the scene menu opens, capture the chart coordinates under the mouse for
+		/// the point-and-click Trigger items and sync every checkable/radio item to the
+		/// model's desired config.
+		/// </summary>
+		private void OnSceneMenuOpened(object sender, RoutedEventArgs e)
+		{
+			// Convert the mouse position (client → scene-panel → chart space) so the
+			// captured point matches the chart's own coordinate system: x in ms, y in volts.
+			var client_pt = Mouse.GetPosition(m_chart);
+			var scene_pt = m_chart.TranslatePoint(client_pt, m_chart.Scene);
+			var chart_pt = m_chart.SceneToChart(new v2((float)scene_pt.X, (float)scene_pt.Y));
+			m_click_volts = chart_pt.y;
+			m_click_seconds = chart_pt.x / 1000.0;
+
+			m_mi_trig_level.Header = $"Trigger Level: {m_click_volts:0.000} V";
+			m_mi_trig_time.Header = $"Time Offset: {FormatSeconds(m_click_seconds)}";
+
+			foreach (var refresh in m_menu_refreshers)
+				refresh();
+		}
+
+		/// <summary>Apply the trigger level at the captured right-click voltage.</summary>
+		private void OnSetTriggerLevel(object sender, RoutedEventArgs e)
+		{
+			m_model.RequestTriggerLevelVolts(m_click_volts);
+		}
+
+		/// <summary>Apply the trigger horizontal position at the captured right-click time offset.</summary>
+		private void OnSetTriggerTime(object sender, RoutedEventArgs e)
+		{
+			m_model.RequestTriggerTimeOffset(m_click_seconds);
+		}
+
+		/// <summary>Format a time offset with an SI-scaled unit (s / ms / µs / ns).</summary>
+		private static string FormatSeconds(double seconds)
+		{
+			var mag = Math.Abs(seconds);
+			if (mag >= 1.0) return $"{seconds:0.000} s";
+			if (mag >= 1e-3) return $"{seconds * 1e3:0.000} ms";
+			if (mag >= 1e-6) return $"{seconds * 1e6:0.000} µs";
+			return $"{seconds * 1e9:0.0} ns";
 		}
 
 		/// <summary>
@@ -350,7 +556,10 @@ namespace HantekScope.UI
 			using (var lk = m_ch1.Lock())
 			{
 				foreach (var s in samples)
-					lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch1V));
+				{
+					if (!double.IsNaN(s.Ch1V))
+						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch1V));
+				}
 				TrimOldest(lk);
 			}
 
@@ -397,7 +606,10 @@ namespace HantekScope.UI
 			{
 				lk.Clear();
 				for (var k = 0; k != m_frame.Count; ++k)
-					lk.Add(new ChartDataSeries.Pt(k * dt_ms, m_frame[k].Ch1V));
+				{
+					if (!double.IsNaN(m_frame[k].Ch1V))
+						lk.Add(new ChartDataSeries.Pt(k * dt_ms, m_frame[k].Ch1V));
+				}
 			}
 
 			using (var lk = m_ch2.Lock())
@@ -425,8 +637,11 @@ namespace HantekScope.UI
 			var hi = double.MinValue;
 			foreach (var s in samples)
 			{
-				lo = Math.Min(lo, s.Ch1V);
-				hi = Math.Max(hi, s.Ch1V);
+				if (!double.IsNaN(s.Ch1V))
+				{
+					lo = Math.Min(lo, s.Ch1V);
+					hi = Math.Max(hi, s.Ch1V);
+				}
 				if (!double.IsNaN(s.Ch2V))
 				{
 					lo = Math.Min(lo, s.Ch2V);

@@ -49,6 +49,49 @@ namespace HantekScope.Device
 		GetWaveform = 0x16,
 	}
 
+	/// <summary>Channel input coupling (per-channel register base + 1). Confirmed by capture 10-ch1-coupling.</summary>
+	public enum ECoupling :byte
+	{
+		AC = 0,
+		DC = 1,
+		GND = 2,
+	}
+
+	/// <summary>
+	/// Probe attenuation as a base-10 exponent (per-channel register base + 2). The
+	/// device stores the exponent; the attenuation factor is 10^exponent. It rescales
+	/// only the displayed volts/div and trigger readout, never the raw ADC codes.
+	/// </summary>
+	public enum EProbeScale :byte
+	{
+		X1 = 0,
+		X10 = 1,
+		X100 = 2,
+		X1000 = 3,
+	}
+
+	/// <summary>Trigger source channel (global register 0x10).</summary>
+	public enum ETriggerSource :byte
+	{
+		Ch1 = 0,
+		Ch2 = 1,
+	}
+
+	/// <summary>Trigger edge slope (global register 0x11).</summary>
+	public enum ETriggerSlope :byte
+	{
+		Rising = 0,
+		Falling = 1,
+		Both = 2,
+	}
+
+	/// <summary>Trigger sweep mode (global register 0x12). This model has no "single" sweep.</summary>
+	public enum ETriggerSweep :byte
+	{
+		Auto = 0,
+		Normal = 1,
+	}
+
 	/// <summary>System / identity registers (category 0x03).</summary>
 	public enum ESystemRegister :byte
 	{
@@ -110,6 +153,23 @@ namespace HantekScope.Device
 		// (1200, 1200, 20) little-endian. Constant regardless of timebase — the
 		// device decimates internally and always returns the record in 64-byte slices.
 		public static readonly byte[] WaveformParams = { 0xB0, 0x04, 0xB0, 0x04, 0x14 };
+
+		// Screen-position coordinate system. The UI position registers (vertical
+		// position, horizontal trigger position, trigger level) are expressed as
+		// screen-position codes at ~25 codes/division — a coordinate system distinct
+		// from the raw ADC sample bytes (see docs/protocol.md §3.6/§3.7). The trigger
+		// level tracks the source channel's vertical-position code as its 0 V origin,
+		// and the horizontal trigger position is centred (0 divisions of delay) at 150.
+		public const double ScreenCodesPerDiv = 25.0;
+		public const int HTriggerCentreCode = 150;
+		public const int HTriggerMaxCode = 300;
+
+		// Per-channel vertical-position codes that the trigger level uses as its 0 V
+		// origin. These match the values the init sequence programs (CH1 vpos 149,
+		// CH2 vpos 49); the init trigger-level write (149) equals the CH1 vpos, so a
+		// trigger at the channel's 0 V is exactly its vpos code.
+		public const int Ch1VPosZeroCode = 149;
+		public const int Ch2VPosZeroCode = 49;
 
 		/// <summary>
 		/// Volts-per-division for each volts/div register index (1-2-5 sequence).
@@ -271,6 +331,53 @@ namespace HantekScope.Device
 		public static double CodeToDivisions(byte code)
 		{
 			return (code - AdcZeroCode) / AdcCodesPerDiv;
+		}
+
+		/// <summary>The linear attenuation factor for a probe scale exponent (10^exponent).</summary>
+		public static double ProbeRatio(EProbeScale probe)
+		{
+			return Math.Pow(10.0, (int)probe);
+		}
+
+		/// <summary>The vertical-position (0 V) screen code the trigger level references for a source channel.</summary>
+		public static int TriggerZeroCode(ETriggerSource source)
+		{
+			switch (source)
+			{
+				case ETriggerSource.Ch1: return Ch1VPosZeroCode;
+				case ETriggerSource.Ch2: return Ch2VPosZeroCode;
+				default: throw new ArgumentOutOfRangeException(nameof(source));
+			}
+		}
+
+		/// <summary>
+		/// Convert a signed voltage (as displayed on the chart, i.e. already probe-scaled)
+		/// to the trigger-level register code for the given source channel. The trigger
+		/// level sits on the screen-position scale (~25 codes/div) with the channel's
+		/// vertical-position code as its 0 V origin; the probe ratio is divided back out
+		/// because it only affects the displayed volts, not the underlying screen scale.
+		/// The result is clamped to the 8-bit register range.
+		/// </summary>
+		public static int VoltsToTriggerCode(double volts, double volts_per_div, EProbeScale probe, ETriggerSource source)
+		{
+			var raw_volts = volts / ProbeRatio(probe);
+			var code = TriggerZeroCode(source) + raw_volts / volts_per_div * ScreenCodesPerDiv;
+			return (int)Math.Round(Math.Clamp(code, 0.0, 255.0));
+		}
+
+		/// <summary>
+		/// Convert a time offset (seconds, relative to the trigger origin) to the
+		/// horizontal trigger-position register code. The position is centred at 150
+		/// (zero delay) on the screen-position scale (~25 codes/div) and clamped to the
+		/// device's 0..300 span.
+		/// </summary>
+		public static int TimeToHTriggerCode(double seconds, double seconds_per_div)
+		{
+			if (!(seconds_per_div > 0.0))
+				return HTriggerCentreCode;
+
+			var code = HTriggerCentreCode + seconds / seconds_per_div * ScreenCodesPerDiv;
+			return (int)Math.Round(Math.Clamp(code, 0.0, HTriggerMaxCode));
 		}
 	}
 }

@@ -165,16 +165,18 @@ namespace HantekScope.Device
 		}
 
 		/// <summary>
-		/// Split a raw waveform packet into per-channel sample lists. With both
-		/// channels active the bytes interleave CH1,CH2,CH1,CH2…; with one channel
-		/// they are contiguous CH1 samples and CH2 is empty.
+		/// Split a raw waveform packet into per-channel sample lists according to which
+		/// channels are enabled. With both channels active the bytes interleave
+		/// CH1,CH2,CH1,CH2…; with a single channel active the whole packet is contiguous
+		/// samples of that one channel (so a CH2-only stream fills the CH2 list, leaving
+		/// CH1 empty). With neither enabled both lists are empty.
 		/// </summary>
-		public static (List<byte> Ch1, List<byte> Ch2) Deinterleave(byte[] packet, bool two_channels = true)
+		public static (List<byte> Ch1, List<byte> Ch2) Deinterleave(byte[] packet, bool ch1_on, bool ch2_on)
 		{
 			var ch1 = new List<byte>();
 			var ch2 = new List<byte>();
 
-			if (two_channels)
+			if (ch1_on && ch2_on)
 			{
 				for (var i = 0; i < packet.Length; ++i)
 				{
@@ -184,9 +186,13 @@ namespace HantekScope.Device
 						ch2.Add(packet[i]);
 				}
 			}
-			else
+			else if (ch1_on)
 			{
 				ch1.AddRange(packet);
+			}
+			else if (ch2_on)
+			{
+				ch2.AddRange(packet);
 			}
 
 			return (ch1, ch2);
