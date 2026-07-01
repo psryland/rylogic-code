@@ -55,6 +55,19 @@ namespace HantekScope.UI
 		// time new data arrives so the trace sits relative to the (software) trigger.
 		private readonly List<Sample> m_frame = new();
 
+		// Rolling buffer of the most recent samples used only for the auto-measurements
+		// panel, independent of the display mode. Spanning several records gives the
+		// frequency estimate enough cycles for a stable reading; the cap bounds the cost
+		// of the periodic measurement pass.
+		private readonly List<Sample> m_recent = new();
+		private const int MeasureSamples = 6000;
+
+		// Down-count of render ticks between measurement updates. The trace renders at
+		// ~60 fps but the measurement panel only needs refreshing a few times a second,
+		// and a slower cadence keeps the numbers readable rather than flickering.
+		private const int MeasureTickInterval = 12;
+		private int m_measure_ticks;
+
 		// Absolute time (Sample.XMs) of the last software-trigger crossing shown at x=0.
 		// A given crossing keeps the same XMs across frames as the buffer scrolls, so
 		// tracking it here lets the display lock onto the same edge frame-to-frame for a
@@ -564,13 +577,97 @@ namespace HantekScope.UI
 			var samples = m_model.DrainPending();
 			if (samples.Count != 0)
 			{
+				// Keep a mode-independent recent buffer for the measurements panel.
+				m_recent.AddRange(samples);
+				if (m_recent.Count > MeasureSamples)
+					m_recent.RemoveRange(0, m_recent.Count - MeasureSamples);
+
 				if (m_scrolling)
 					RenderScrolling(samples);
 				else
 					RenderFramed(samples);
 			}
 
+			// Refresh the measurements a few times a second rather than every frame.
+			if (--m_measure_ticks <= 0)
+			{
+				m_measure_ticks = MeasureTickInterval;
+				UpdateMeasurements();
+			}
+
 			m_chart.Invalidate();
+		}
+
+		/// <summary>Recompute and display the auto-measurements over the recent-sample buffer.</summary>
+		private void UpdateMeasurements()
+		{
+			var dt_s = m_model.SampleIntervalS;
+
+			// Treat a channel with less than half a division of swing as flat, so its
+			// timing reads as blank instead of measuring noise. Both channels share the
+			// volts/div setting, so one threshold serves both.
+			var min_vpp = 0.5 * m_model.VoltsPerDiv;
+
+			var ch1 = Measurements.Compute(m_recent, static s => s.Ch1V, dt_s, min_vpp);
+			var ch2 = Measurements.Compute(m_recent, static s => s.Ch2V, dt_s, min_vpp);
+
+			ShowChannelMeasurements(ch1, m_c1_vpp, m_c1_vmax, m_c1_vmin, m_c1_mean, m_c1_rms, m_c1_freq, m_c1_period);
+			ShowChannelMeasurements(ch2, m_c2_vpp, m_c2_vmax, m_c2_vmin, m_c2_mean, m_c2_rms, m_c2_freq, m_c2_period);
+		}
+
+		/// <summary>Write one channel's measurements into its panel text blocks.</summary>
+		private static void ShowChannelMeasurements(ChannelMeasurements m, TextBlock vpp, TextBlock vmax, TextBlock vmin, TextBlock mean, TextBlock rms, TextBlock freq, TextBlock period)
+		{
+			vpp.Text = FormatVolts(m.Vpp);
+			vmax.Text = FormatVolts(m.Vmax);
+			vmin.Text = FormatVolts(m.Vmin);
+			mean.Text = FormatVolts(m.Vmean);
+			rms.Text = FormatVolts(m.Vrms);
+			freq.Text = FormatFreq(m.FrequencyHz);
+			period.Text = FormatTime(m.PeriodS);
+		}
+
+		/// <summary>Format a voltage with an auto-ranged unit, or an em dash when undefined.</summary>
+		private static string FormatVolts(double v)
+		{
+			if (double.IsNaN(v))
+				return "\u2014";
+
+			var a = Math.Abs(v);
+			if (a >= 1.0)
+				return $"{v:0.###} V";
+			if (a >= 1e-3)
+				return $"{v * 1e3:0.###} mV";
+			return $"{v * 1e6:0.###} \u00b5V";
+		}
+
+		/// <summary>Format a frequency with an auto-ranged unit, or an em dash when undefined.</summary>
+		private static string FormatFreq(double hz)
+		{
+			if (double.IsNaN(hz))
+				return "\u2014";
+
+			if (hz >= 1e6)
+				return $"{hz / 1e6:0.000} MHz";
+			if (hz >= 1e3)
+				return $"{hz / 1e3:0.000} kHz";
+			return $"{hz:0.0} Hz";
+		}
+
+		/// <summary>Format a time with an auto-ranged unit, or an em dash when undefined.</summary>
+		private static string FormatTime(double s)
+		{
+			if (double.IsNaN(s))
+				return "\u2014";
+
+			var a = Math.Abs(s);
+			if (a >= 1.0)
+				return $"{s:0.###} s";
+			if (a >= 1e-3)
+				return $"{s * 1e3:0.###} ms";
+			if (a >= 1e-6)
+				return $"{s * 1e6:0.###} \u00b5s";
+			return $"{s * 1e9:0.###} ns";
 		}
 
 		/// <summary>Scrolling mode: append absolute-time samples and follow the latest at the right edge.</summary>
@@ -903,6 +1000,7 @@ namespace HantekScope.UI
 		private void ResetDisplay()
 		{
 			m_frame.Clear();
+			m_recent.Clear();
 			m_trig_xms = double.NaN;
 			m_latest_x = 0;
 			m_have_xrange = false;
@@ -916,6 +1014,10 @@ namespace HantekScope.UI
 				lk.Clear();
 			using (var lk = m_ch2_tail.Lock())
 				lk.Clear();
+
+			// Blank the measurements until the next batch arrives.
+			ShowChannelMeasurements(ChannelMeasurements.None, m_c1_vpp, m_c1_vmax, m_c1_vmin, m_c1_mean, m_c1_rms, m_c1_freq, m_c1_period);
+			ShowChannelMeasurements(ChannelMeasurements.None, m_c2_vpp, m_c2_vmax, m_c2_vmin, m_c2_mean, m_c2_rms, m_c2_freq, m_c2_period);
 
 			m_chart.Invalidate();
 		}
@@ -989,23 +1091,6 @@ namespace HantekScope.UI
 		private void UpdateModeStatus()
 		{
 			m_status_mode.Text = m_scrolling ? "Scrolling" : "Framed";
-		}
-
-		/// <summary>Format a volts value with a sensible mV/V unit.</summary>
-		private static string FormatVolts(double volts)
-		{
-			return volts < 1.0
-				? $"{volts * 1000.0:0.##} mV"
-				: $"{volts:0.##} V";
-		}
-
-		/// <summary>Format a seconds value with a sensible ns/µs/ms/s unit.</summary>
-		private static string FormatTime(double seconds)
-		{
-			if (seconds < 1e-6) return $"{seconds * 1e9:0.##} ns";
-			if (seconds < 1e-3) return $"{seconds * 1e6:0.##} µs";
-			if (seconds < 1.0) return $"{seconds * 1e3:0.##} ms";
-			return $"{seconds:0.##} s";
 		}
 
 		/// <summary>Tear down acquisition and the chart series on close.</summary>

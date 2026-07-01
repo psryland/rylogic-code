@@ -29,14 +29,85 @@
 			</ToolBar>
 		</ToolBarTray>
 
-		<!-- Live trace; small margin so it isn't hard up against the window edges. -->
-		<gui:ChartControl
-			Grid.Row="2"
-			x:Name="m_chart"
-			Margin="8,6"
-			XLabel="time (ms)"
-			YLabel="volts"
-			/>
+		<!-- Live trace with an automatic-measurements side panel. -->
+		<Grid Grid.Row="2">
+			<Grid.ColumnDefinitions>
+				<ColumnDefinition Width="*" />
+				<ColumnDefinition Width="Auto" />
+			</Grid.ColumnDefinitions>
+
+			<!-- Live trace; small margin so it isn't hard up against the window edges. -->
+			<gui:ChartControl
+				Grid.Column="0"
+				x:Name="m_chart"
+				Margin="8,6"
+				XLabel="time (ms)"
+				YLabel="volts"
+				/>
+
+			<!-- Automatic measurements over the most recent samples, updated a few times a second. -->
+			<Border
+				Grid.Column="1"
+				Width="212"
+				Margin="0,6,8,6"
+				Background="#1E1E1E"
+				BorderBrush="#3F3F3F"
+				BorderThickness="1"
+				>
+				<StackPanel Margin="8" TextElement.Foreground="#DDDDDD">
+					<TextBlock Text="Measurements" FontWeight="Bold" Margin="0,0,0,8" />
+					<Grid TextElement.FontFamily="Consolas" TextElement.FontSize="12">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="Auto" />
+							<ColumnDefinition Width="*" />
+							<ColumnDefinition Width="*" />
+						</Grid.ColumnDefinitions>
+						<Grid.RowDefinitions>
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+						</Grid.RowDefinitions>
+
+						<!-- Channel headers, coloured to match the traces. -->
+						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#F4D03F" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#5DADE2" HorizontalAlignment="Right" Margin="8,0,0,4" />
+
+						<TextBlock Grid.Row="1" Grid.Column="0" Text="Vpp" />
+						<TextBlock Grid.Row="1" Grid.Column="1" x:Name="m_c1_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="1" Grid.Column="2" x:Name="m_c2_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="2" Grid.Column="0" Text="Vmax" />
+						<TextBlock Grid.Row="2" Grid.Column="1" x:Name="m_c1_vmax" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="2" Grid.Column="2" x:Name="m_c2_vmax" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="3" Grid.Column="0" Text="Vmin" />
+						<TextBlock Grid.Row="3" Grid.Column="1" x:Name="m_c1_vmin" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="3" Grid.Column="2" x:Name="m_c2_vmin" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="4" Grid.Column="0" Text="Mean" />
+						<TextBlock Grid.Row="4" Grid.Column="1" x:Name="m_c1_mean" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="4" Grid.Column="2" x:Name="m_c2_mean" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="5" Grid.Column="0" Text="RMS" />
+						<TextBlock Grid.Row="5" Grid.Column="1" x:Name="m_c1_rms" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="5" Grid.Column="2" x:Name="m_c2_rms" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="6" Grid.Column="0" Text="Freq" />
+						<TextBlock Grid.Row="6" Grid.Column="1" x:Name="m_c1_freq" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="6" Grid.Column="2" x:Name="m_c2_freq" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="7" Grid.Column="0" Text="Period" />
+						<TextBlock Grid.Row="7" Grid.Column="1" x:Name="m_c1_period" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="7" Grid.Column="2" x:Name="m_c2_period" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+					</Grid>
+				</StackPanel>
+			</Border>
+		</Grid>
 
 		<!-- Status bar: connection status, identity and current acquisition resolution -->
 		<StatusBar Grid.Row="3">
