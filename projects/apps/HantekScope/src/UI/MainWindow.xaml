@@ -22,13 +22,10 @@
 			</MenuItem>
 		</Menu>
 
-		<!-- Toolbar: run/stop and live connection status -->
+		<!-- Toolbar: run/stop -->
 		<ToolBarTray Grid.Row="1">
 			<ToolBar>
 				<Button x:Name="m_btn_run" Content="Run" MinWidth="60" Click="OnRunStop" />
-				<Separator />
-				<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="4,0" />
-				<TextBlock x:Name="m_conn_status" VerticalAlignment="Center" Margin="4,0" Text="Disconnected" />
 			</ToolBar>
 		</ToolBarTray>
 
@@ -37,13 +34,19 @@
 			Grid.Row="2"
 			x:Name="m_chart"
 			Margin="8,6"
-			Title="Hantek 2D42"
 			XLabel="time (ms)"
 			YLabel="volts"
 			/>
 
-		<!-- Status bar: identity and current acquisition resolution -->
+		<!-- Status bar: connection status, identity and current acquisition resolution -->
 		<StatusBar Grid.Row="3">
+			<StatusBarItem>
+				<StackPanel Orientation="Horizontal">
+					<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="0,0,4,0" />
+					<TextBlock x:Name="m_conn_status" VerticalAlignment="Center" Text="Disconnected" />
+				</StackPanel>
+			</StatusBarItem>
+			<Separator />
 			<StatusBarItem>
 				<TextBlock x:Name="m_status_identity" Text="&#x2014;" />
 			</StatusBarItem>

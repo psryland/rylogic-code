@@ -480,7 +480,7 @@ namespace HantekScope.UI
 		{
 			Dispatcher.BeginInvoke(() =>
 			{
-				// Derive a connection state from the message for the toolbar LED.
+				// Derive a connection state from the message for the status-bar LED.
 				var state =
 					text.StartsWith("Error", StringComparison.OrdinalIgnoreCase) ? EConn.Error :
 					text.StartsWith("Running", StringComparison.OrdinalIgnoreCase) ? EConn.Running :
@@ -517,10 +517,10 @@ namespace HantekScope.UI
 			});
 		}
 
-		/// <summary>Toolbar connection-state colours.</summary>
+		/// <summary>Status-bar connection-state colours.</summary>
 		private enum EConn { Stopped, Connecting, Running, Error }
 
-		/// <summary>Update the toolbar connection text and LED colour.</summary>
+		/// <summary>Update the status-bar connection text and LED colour.</summary>
 		private void SetConnection(string text, EConn state)
 		{
 			m_conn_status.Text = text;

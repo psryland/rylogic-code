@@ -69,6 +69,13 @@ namespace HantekScope.Device
 		{
 			var pipes = new[] { HantekProtocol.EpIn, HantekProtocol.EpOut };
 			m_usb.Open(InterfaceGuid, HantekProtocol.VID, HantekProtocol.PID, pipes, 1000);
+
+			// Prime the IN endpoint before issuing the first command. After an unclean prior
+			// close the firmware can be part-way through an exchange, waiting for the host to
+			// read an IN transaction; until that read is attempted it NAKs every OUT write, so
+			// the first command times out. A single read completes that pending transaction
+			// (and drains any stale response bytes), after which OUT writes are serviced again.
+			m_usb.FlushInput(HantekProtocol.EpIn);
 		}
 
 		/// <summary>Release the device.</summary>

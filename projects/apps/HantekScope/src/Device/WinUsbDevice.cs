@@ -15,6 +15,8 @@ namespace HantekScope.Device
 	{
 		private SafeFileHandle? m_file;
 		private IntPtr m_winusb = IntPtr.Zero;
+		private byte[] m_pipes = Array.Empty<byte>();
+		private uint m_transfer_timeout_ms = 1000;
 
 		/// <summary>True once the device is open and the WinUSB interface is initialised.</summary>
 		public bool IsOpen => m_winusb != IntPtr.Zero;
@@ -47,11 +49,72 @@ namespace HantekScope.Device
 				throw new Win32Exception(err, $"WinUsb_Initialize failed (Win32 error {err})");
 			}
 
-			// Bound every transfer on the named pipes so a stalled device cannot hang the app.
+			// Bound every transfer on the named pipes so a stalled device cannot hang the
+			// app, and let WinUSB automatically clear a halted pipe. Without AUTO_CLEAR_STALL
+			// a single endpoint stall latches: the pipe stays halted and every subsequent
+			// transfer fails until it is reset. Enabling it makes WinUSB issue the
+			// CLEAR_FEATURE(HALT) that the in-box class drivers do for us.
 			foreach (var pipe in pipes)
 			{
-				var value = timeout_ms;
-				WinUsb_SetPipePolicy(m_winusb, pipe, PIPE_TRANSFER_TIMEOUT, sizeof(uint), ref value);
+				var timeout = timeout_ms;
+				WinUsb_SetPipePolicy(m_winusb, pipe, PIPE_TRANSFER_TIMEOUT, sizeof(uint), ref timeout);
+
+				byte enable = 1;
+				WinUsb_SetPipePolicy(m_winusb, pipe, AUTO_CLEAR_STALL, sizeof(byte), ref enable);
+			}
+			m_pipes = pipes;
+			m_transfer_timeout_ms = timeout_ms;
+
+			// Start each session from a clean endpoint state. When a previous session ends
+			// abruptly (e.g. the process is killed mid-transfer during development) the device
+			// can be left with a half-submitted OUT transfer or an undrained IN response still
+			// queued. Aborting cancels any lingering host-side transfers and ResetPipe issues
+			// CLEAR_FEATURE(HALT), which also resets the device-side data toggle so host and
+			// device agree from the first transfer.
+			foreach (var pipe in pipes)
+			{
+				WinUsb_AbortPipe(m_winusb, pipe);
+				WinUsb_ResetPipe(m_winusb, pipe);
+			}
+		}
+
+		/// <summary>
+		/// Prime a bulk IN pipe by reading until it is empty, returning the number of bytes
+		/// drained. After a prior session ends mid-exchange the firmware can be left waiting
+		/// for the host to complete an IN transaction, and until that read is attempted it
+		/// NAKs every OUT write, so the next command times out. Attempting a read completes
+		/// that pending transaction (and drains any stale response bytes, though there are
+		/// often none), after which OUT writes are serviced again. Uses a short per-read
+		/// timeout so an already-empty pipe returns promptly, then restores the caller's
+		/// transfer timeout.
+		/// </summary>
+		public int FlushInput(byte pipe_id, int max_reads = 16)
+		{
+			if (m_winusb == IntPtr.Zero)
+				throw new InvalidOperationException("Device is not open");
+
+			uint short_timeout = 60;
+			WinUsb_SetPipePolicy(m_winusb, pipe_id, PIPE_TRANSFER_TIMEOUT, sizeof(uint), ref short_timeout);
+			try
+			{
+				var buffer = new byte[512];
+				var total = 0;
+				for (var i = 0; i != max_reads; ++i)
+				{
+					// A failed read here is expected once the pipe is empty (the short timeout
+					// expires with nothing to return), so stop rather than treat it as an error.
+					if (!WinUsb_ReadPipe(m_winusb, pipe_id, buffer, (uint)buffer.Length, out var transferred, IntPtr.Zero))
+						break;
+					if (transferred == 0)
+						break;
+					total += (int)transferred;
+				}
+				return total;
+			}
+			finally
+			{
+				var restore = m_transfer_timeout_ms;
+				WinUsb_SetPipePolicy(m_winusb, pipe_id, PIPE_TRANSFER_TIMEOUT, sizeof(uint), ref restore);
 			}
 		}
 
@@ -62,7 +125,15 @@ namespace HantekScope.Device
 				throw new InvalidOperationException("Device is not open");
 
 			if (!WinUsb_WritePipe(m_winusb, pipe_id, data, (uint)data.Length, out var transferred, IntPtr.Zero))
-				throw new Win32Exception(Marshal.GetLastWin32Error(), $"WinUsb_WritePipe(0x{pipe_id:X2}) failed");
+			{
+				var err = Marshal.GetLastWin32Error();
+
+				// Reset the pipe so a stall/toggle mismatch does not persist into the next
+				// transfer, then surface the underlying Win32 code (not just "failed") so the
+				// real cause is visible rather than hidden behind a generic message.
+				WinUsb_ResetPipe(m_winusb, pipe_id);
+				throw new Win32Exception(err, $"WinUsb_WritePipe(0x{pipe_id:X2}) failed: [{err}] {new Win32Exception(err).Message}");
+			}
 
 			return (int)transferred;
 		}
@@ -85,7 +156,10 @@ namespace HantekScope.Device
 				if (err == ERROR_SEM_TIMEOUT || err == ERROR_TIMEOUT)
 					return Array.Empty<byte>();
 
-				throw new Win32Exception(err, $"WinUsb_ReadPipe(0x{pipe_id:X2}) failed");
+				// Any other failure may have halted the pipe; reset it so the stall does not
+				// latch into every following read, and surface the real Win32 code.
+				WinUsb_ResetPipe(m_winusb, pipe_id);
+				throw new Win32Exception(err, $"WinUsb_ReadPipe(0x{pipe_id:X2}) failed: [{err}] {new Win32Exception(err).Message}");
 			}
 
 			if ((int)transferred == length)
@@ -102,6 +176,11 @@ namespace HantekScope.Device
 		{
 			if (m_winusb != IntPtr.Zero)
 			{
+				// Cancel any in-flight transfers before releasing so the device is not left
+				// with a half-completed transfer that would time out the next session's writes.
+				foreach (var pipe in m_pipes)
+					WinUsb_AbortPipe(m_winusb, pipe);
+
 				WinUsb_Free(m_winusb);
 				m_winusb = IntPtr.Zero;
 			}
@@ -185,6 +264,7 @@ namespace HantekScope.Device
 		private const uint FILE_ATTRIBUTE_NORMAL = 0x80;
 		private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
 		private const uint PIPE_TRANSFER_TIMEOUT = 0x03;
+		private const uint AUTO_CLEAR_STALL = 0x02;
 		private const int ERROR_SEM_TIMEOUT = 121;
 		private const int ERROR_TIMEOUT = 1460;
 		private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
@@ -227,6 +307,15 @@ namespace HantekScope.Device
 
 		[DllImport("winusb.dll", SetLastError = true)]
 		private static extern bool WinUsb_SetPipePolicy(IntPtr interface_handle, byte pipe_id, uint policy_type, uint value_length, ref uint value);
+
+		[DllImport("winusb.dll", SetLastError = true, EntryPoint = "WinUsb_SetPipePolicy")]
+		private static extern bool WinUsb_SetPipePolicy(IntPtr interface_handle, byte pipe_id, uint policy_type, uint value_length, ref byte value);
+
+		[DllImport("winusb.dll", SetLastError = true)]
+		private static extern bool WinUsb_ResetPipe(IntPtr interface_handle, byte pipe_id);
+
+		[DllImport("winusb.dll", SetLastError = true)]
+		private static extern bool WinUsb_AbortPipe(IntPtr interface_handle, byte pipe_id);
 
 		#endregion
 	}
