@@ -75,11 +75,16 @@ namespace HantekScope.UI
 		// NaN means "no lock yet" (fall back to a centred pick / free-run).
 		private double m_trig_xms = double.NaN;
 
-		// Display colours. Background defaults to a dark gray; channels to the classic
-		// scope yellow / cyan. All are user-editable via the Appearance menu.
+		// Display colours. Background defaults to a dark gray; channels to a green / blue
+		// pair. The trigger-level indicator for each channel uses a darker shade of the
+		// trace colour so the level line/tag reads as related-to but distinct-from the
+		// trace. The trace colours are user-editable via the Appearance menu; the trigger
+		// shades are fixed companions to the defaults.
 		private Colour32 m_bg_colour = new(0xFF2A2A2Au);
-		private Colour32 m_ch1_colour = Colour32.Yellow;
-		private Colour32 m_ch2_colour = Colour32.Cyan;
+		private Colour32 m_ch1_colour = new(0xFF3ABB0Cu);
+		private Colour32 m_ch2_colour = new(0xFF2AA7F9u);
+		private Colour32 m_ch1_trig_colour = new(0xFF2D910Bu);
+		private Colour32 m_ch2_trig_colour = new(0xFF0099F9u);
 
 		// Display mode and per-axis auto-resolution flags.
 		private bool m_scrolling;
@@ -183,10 +188,10 @@ namespace HantekScope.UI
 			// Draggable trigger/position overlays live on the chart's overlay canvas.
 			// Each drag callback updates the owning state (and the device, for the
 			// trigger) then leaves RepositionOverlays to re-sync the visuals.
-			m_overlays = new ScopeOverlays(m_chart, m_ch1_colour, m_ch2_colour)
+			m_overlays = new ScopeOverlays(m_chart, m_ch1_colour, m_ch2_colour, m_ch1_trig_colour, m_ch2_trig_colour)
 			{
-				Ch1LevelDragged = v => OnDragTriggerLevel(1, v),
-				Ch2LevelDragged = v => OnDragTriggerLevel(2, v),
+				Ch1LevelDragged = v => OnDragTriggerLevel(v),
+				Ch2LevelDragged = v => OnDragTriggerLevel(v),
 				TimeDragged = OnDragTriggerTime,
 				Ch1Dragged = v => OnDragChannelOffset(1, v),
 				Ch2Dragged = v => OnDragChannelOffset(2, v),
@@ -657,10 +662,15 @@ namespace HantekScope.UI
 			m_overlays.Framed = !m_scrolling;
 			m_overlays.ShowTrigger = m_show_trigger;
 			m_overlays.ActiveSourceChannel = m_model.TriggerSource == ETriggerSource.Ch2 ? 2 : 1;
-			m_overlays.Ch1LevelVolts = m_model.ChannelTriggerLevelVolts(1);
-			m_overlays.Ch2LevelVolts = m_model.ChannelTriggerLevelVolts(2);
-			m_overlays.Ch1LevelText = FormatVolts(m_model.ChannelTriggerLevelVolts(1));
-			m_overlays.Ch2LevelText = FormatVolts(m_model.ChannelTriggerLevelVolts(2));
+
+			// One hardware trigger => a single shared level. Feed it to both channel
+			// indicators; each draws it relative to its own baseline (offset) so the two
+			// lines separate vertically only by the channels' vertical-position difference.
+			var trig_volts = m_model.TriggerLevelVolts;
+			m_overlays.Ch1LevelVolts = trig_volts;
+			m_overlays.Ch2LevelVolts = trig_volts;
+			m_overlays.Ch1LevelText = FormatVolts(trig_volts);
+			m_overlays.Ch2LevelText = FormatVolts(trig_volts);
 			m_overlays.TriggerTimeMs = m_trig_offset_ms;
 			m_overlays.TimeText = FormatTime(m_trig_offset_ms / 1000.0);
 
@@ -674,19 +684,16 @@ namespace HantekScope.UI
 		}
 
 		/// <summary>
-		/// Trigger-level tab dragged for a channel: remember that channel's threshold (in
-		/// its true signal volts). Only the active trigger source's level reaches the
-		/// hardware; the model applies the appropriate one on a source switch.
+		/// A trigger-level tab was dragged. There is one shared hardware trigger, so the
+		/// dragged value (already expressed as a threshold in that channel's true signal
+		/// volts) becomes the single trigger level for both channels. Both tags show the
+		/// same absolute voltage; each line then draws relative to its channel's baseline.
 		/// </summary>
-		private void OnDragTriggerLevel(int channel, double volts)
+		private void OnDragTriggerLevel(double volts)
 		{
-			m_model.RequestChannelTriggerVolts(channel, volts);
-			switch (channel)
-			{
-				case 1: m_overlays.Ch1LevelText = FormatVolts(volts); break;
-				case 2: m_overlays.Ch2LevelText = FormatVolts(volts); break;
-				default: throw new ArgumentOutOfRangeException(nameof(channel), channel, "Unknown channel");
-			}
+			m_model.RequestTriggerLevelVolts(volts);
+			m_overlays.Ch1LevelText = FormatVolts(volts);
+			m_overlays.Ch2LevelText = FormatVolts(volts);
 			m_chart.Invalidate();
 		}
 
@@ -906,33 +913,22 @@ namespace HantekScope.UI
 			if (dt_ms <= 0)
 				dt_ms = 1.0;
 
-			// The displayed window is one full record; the trigger sits at its centre.
+			// The displayed window is one full record; the hardware trigger sits at its
+			// centre, matching what the instrument itself shows.
 			var window = FrameWindowSamples;
 			var half = window / 2;
 
-			// Locate the window start within the buffer. Prefer a software trigger
-			// crossing so periodic signals hold a steady phase; otherwise free-run on the
-			// most recent record. While the buffer is still filling its first record,
-			// show what we have from the left so the trace appears promptly.
+			// Align the window to a device record boundary so the display reproduces one
+			// complete hardware-triggered record exactly as the instrument captured it.
+			// The device replays a fixed-length record whose trigger is at its centre, so
+			// aligning start to the record boundary places the trigger at x=0 and — unlike
+			// centring on an arbitrary software-trigger crossing — guarantees the window
+			// never straddles two differently-phased records (which produced the seam). A
+			// still-filling first record shows from the left so the trace appears promptly.
 			var count = m_frame.Count;
 			var start = 0;
 			if (count >= window)
-			{
-				// Track the same crossing across frames for a steady phase; re-anchor to
-				// the nearest crossing (updating the tracked time) whenever the locked one
-				// has rolled out of the searchable region.
-				var ti = FindTriggerIndex(half, count - half, m_trig_xms);
-				if (ti >= 0)
-				{
-					start = ti - half;
-					m_trig_xms = m_frame[ti].XMs;
-				}
-				else
-				{
-					start = count - window;
-					m_trig_xms = double.NaN;
-				}
-			}
+				start = FindRecordStart(count, window);
 			var length = Math.Min(window, count);
 			if (length == 0)
 				return;
@@ -951,9 +947,10 @@ namespace HantekScope.UI
 			// the trigger (k == half) lands at x=0 with pre-trigger to the left. The
 			// per-channel vertical offset and the shared horizontal time offset are baked
 			// into the plotted values so the display can be shifted without touching the
-			// measurement buffer. The record-boundary step (if present in this window)
-			// splits each channel into a head and tail series so the step itself is left
-			// as a one-sample gap rather than drawn as a spurious near-vertical connector.
+			// measurement buffer. Because the window is aligned to a record boundary, the
+			// boundary step sits at the window edge, not inside it, so no internal seam is
+			// normally found; the head/tail split remains as a guard for the rare case a
+			// second boundary falls inside the window (records not exactly window-aligned).
 			var seam = FindSeamOffset(start, length);
 			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch1_offset_v, static s => s.Ch1V);
 			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch2_offset_v, static s => s.Ch2V);
@@ -1003,6 +1000,45 @@ namespace HantekScope.UI
 						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms + x_offset_ms, v + y_offset));
 				}
 			}
+		}
+
+		/// <summary>
+		/// Choose the window start that aligns the display to a device record boundary, so
+		/// the frame reproduces one complete hardware-triggered record. The device replays
+		/// a fixed-length record whose replay wraps at the record boundary, producing a
+		/// single large phase step in the buffered stream. Aligning start to that boundary
+		/// puts the boundary at the window edge (not inside it) and the record's centred
+		/// trigger at x=0. When the record that starts at the boundary has not fully
+		/// arrived yet, fall back to the previous complete record ending at the boundary.
+		///
+		/// When no boundary is detectable — the successive records are effectively in phase
+		/// (so there is no visible seam to avoid) or the signal is not periodic — fall back
+		/// to software-trigger centring, which holds a steady phase without a boundary to
+		/// anchor to.
+		/// </summary>
+		private int FindRecordStart(int count, int window)
+		{
+			var half = window / 2;
+			var boundary = FindSeamOffset(0, count);
+			if (boundary >= 0)
+			{
+				// Boundary-aligned: no software-trigger lock is needed, so clear it.
+				m_trig_xms = double.NaN;
+				var start = count - boundary >= window ? boundary : boundary - window;
+				return Math.Clamp(start, 0, Math.Max(0, count - window));
+			}
+
+			// No boundary: centre a software-trigger crossing, tracking the same crossing
+			// across frames for phase stability. Without a boundary there is no seam that
+			// centring could expose.
+			var ti = FindTriggerIndex(half, count - half, m_trig_xms);
+			if (ti >= 0)
+			{
+				m_trig_xms = m_frame[ti].XMs;
+				return ti - half;
+			}
+			m_trig_xms = double.NaN;
+			return Math.Max(0, count - window);
 		}
 
 		/// <summary>

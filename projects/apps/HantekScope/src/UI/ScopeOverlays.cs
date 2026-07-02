@@ -53,24 +53,26 @@ namespace HantekScope.UI
 
 		private EDrag m_drag;
 
-		public ScopeOverlays(ChartControl chart, Colour32 ch1_colour, Colour32 ch2_colour)
+		public ScopeOverlays(ChartControl chart, Colour32 ch1_colour, Colour32 ch2_colour, Colour32 ch1_trig_colour, Colour32 ch2_trig_colour)
 		{
 			m_chart = chart;
 			m_drag = EDrag.None;
 
-			// Trigger indicators are drawn in each channel's own colour so it is obvious
-			// which trace a level belongs to (a shared trigger-time tag uses a neutral red).
+			// Each channel's trigger-level line/tag is drawn in that channel's dedicated
+			// trigger colour (a darker companion of the trace colour) so a level reads as
+			// related to its trace yet distinct from it; the vpos tab uses the trace colour
+			// itself. A shared trigger-time tag uses a neutral red.
 			var time_colour = new Colour32(0xFFE0403Au);
 
-			m_ch1_level_line = MakeIndicatorLine(ch1_colour);
-			m_ch2_level_line = MakeIndicatorLine(ch2_colour);
+			m_ch1_level_line = MakeIndicatorLine(ch1_trig_colour);
+			m_ch2_level_line = MakeIndicatorLine(ch2_trig_colour);
 			m_time_line = MakeIndicatorLine(time_colour);
 
 			m_ch1_level_text = MakeTagText();
 			m_ch2_level_text = MakeTagText();
 			m_time_text = MakeTagText();
-			m_ch1_level_tag = MakeTag(ch1_colour, m_ch1_level_text);
-			m_ch2_level_tag = MakeTag(ch2_colour, m_ch2_level_text);
+			m_ch1_level_tag = MakeTag(ch1_trig_colour, m_ch1_level_text);
+			m_ch2_level_tag = MakeTag(ch2_trig_colour, m_ch2_level_text);
 			m_time_tag = MakeTag(time_colour, m_time_text);
 
 			m_ch1_tab = MakeChannelTab(ch1_colour);
@@ -124,9 +126,10 @@ namespace HantekScope.UI
 		public bool Ch2TabVisible { get; set; } = true;
 
 		/// <summary>
-		/// Per-channel trigger level as a threshold in the channel's true signal volts.
-		/// The indicator is drawn relative to the channel's baseline (its vertical offset)
-		/// so it follows the trace when the channel is repositioned.
+		/// The trigger level to draw for each channel, as a threshold in true signal volts.
+		/// There is a single shared hardware trigger, so both are normally set to the same
+		/// value; each is drawn relative to its channel's baseline (vertical offset) so the
+		/// line follows the trace when the channel is repositioned.
 		/// </summary>
 		public double Ch1LevelVolts { get; set; }
 		public double Ch2LevelVolts { get; set; }
@@ -157,15 +160,20 @@ namespace HantekScope.UI
 		public Action<double>? Ch1Dragged { get; set; }
 		public Action<double>? Ch2Dragged { get; set; }
 
-		/// <summary>Recolour the channel trace indicators (level line/tag and vpos tab) on a colour change.</summary>
+		/// <summary>Recolour the vpos tabs (which track the trace colour) on a trace colour change.</summary>
 		public void SetChannelColours(Colour32 ch1_colour, Colour32 ch2_colour)
 		{
-			m_ch1_level_line.Stroke = ch1_colour.ToMediaBrush();
-			m_ch2_level_line.Stroke = ch2_colour.ToMediaBrush();
-			m_ch1_level_tag.Background = ch1_colour.ToMediaBrush();
-			m_ch2_level_tag.Background = ch2_colour.ToMediaBrush();
 			m_ch1_tab.Fill = ch1_colour.ToMediaBrush();
 			m_ch2_tab.Fill = ch2_colour.ToMediaBrush();
+		}
+
+		/// <summary>Recolour the per-channel trigger-level line and tag on a trigger colour change.</summary>
+		public void SetTriggerColours(Colour32 ch1_trig_colour, Colour32 ch2_trig_colour)
+		{
+			m_ch1_level_line.Stroke = ch1_trig_colour.ToMediaBrush();
+			m_ch2_level_line.Stroke = ch2_trig_colour.ToMediaBrush();
+			m_ch1_level_tag.Background = ch1_trig_colour.ToMediaBrush();
+			m_ch2_level_tag.Background = ch2_trig_colour.ToMediaBrush();
 		}
 
 		/// <summary>
@@ -342,18 +350,24 @@ namespace HantekScope.UI
 				{
 					case EDrag.Level1:
 					{
-						// Store the threshold relative to the channel baseline so the tag
-						// tracks the pointer while remaining anchored to the trace.
+						// One shared trigger level: derive it relative to CH1's baseline,
+						// then apply it to both channels so both lines move together (each
+						// relative to its own baseline). Report it so the model stores the
+						// single shared value.
 						var v = Math_.Clamp(cp.y, m_chart.YAxis.Min, m_chart.YAxis.Max);
-						Ch1LevelVolts = v - Ch1OffsetVolts;
-						Ch1LevelDragged?.Invoke(Ch1LevelVolts);
+						var level = v - Ch1OffsetVolts;
+						Ch1LevelVolts = level;
+						Ch2LevelVolts = level;
+						Ch1LevelDragged?.Invoke(level);
 						break;
 					}
 					case EDrag.Level2:
 					{
 						var v = Math_.Clamp(cp.y, m_chart.YAxis.Min, m_chart.YAxis.Max);
-						Ch2LevelVolts = v - Ch2OffsetVolts;
-						Ch2LevelDragged?.Invoke(Ch2LevelVolts);
+						var level = v - Ch2OffsetVolts;
+						Ch1LevelVolts = level;
+						Ch2LevelVolts = level;
+						Ch2LevelDragged?.Invoke(level);
 						break;
 					}
 					case EDrag.Time:
