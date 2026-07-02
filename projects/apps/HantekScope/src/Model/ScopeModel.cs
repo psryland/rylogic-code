@@ -130,10 +130,28 @@ namespace HantekScope.Model
 			get { lock (m_sync) return m_desired.TriggerSweep; }
 		}
 
-		/// <summary>Desired trigger level as a chart voltage (for the display's software re-trigger).</summary>
+		/// <summary>
+		/// Desired trigger level of the active source channel, as a threshold in that
+		/// channel's true signal volts (for the display's software re-trigger, which
+		/// compares it against decoded sample volts).
+		/// </summary>
 		public double TriggerLevelVolts
 		{
-			get { lock (m_sync) return m_desired.TriggerLevelVolts; }
+			get { lock (m_sync) return TrigVoltsForSource(m_desired); }
+		}
+
+		/// <summary>The remembered trigger level (true signal volts) for a specific channel.</summary>
+		public double ChannelTriggerLevelVolts(int channel)
+		{
+			lock (m_sync)
+			{
+				switch (channel)
+				{
+					case 1: return m_desired.Ch1TrigVolts;
+					case 2: return m_desired.Ch2TrigVolts;
+					default: throw new ArgumentOutOfRangeException(nameof(channel));
+				}
+			}
 		}
 
 		/// <summary>Desired trigger horizontal position as a time offset in seconds.</summary>
@@ -259,23 +277,72 @@ namespace HantekScope.Model
 		}
 
 		/// <summary>
-		/// Request a trigger level at a given voltage (as shown on the chart). The code
-		/// is computed from the currently applied volts/div, the source channel's probe
-		/// ratio, and the source channel's vertical-position origin, so the level tracks
-		/// the same voltage the user clicked regardless of the current scale.
+		/// Request a trigger level at a given threshold voltage (in true signal volts) for
+		/// the active trigger-source channel. Only the source channel's level is applied to
+		/// the hardware; the value is remembered per channel so switching source re-applies
+		/// the level last set for that channel. The register code is derived in the apply
+		/// loop from the source channel's live vertical position, probe, and volts/div.
 		/// </summary>
 		public void RequestTriggerLevelVolts(double volts)
 		{
 			lock (m_sync)
 			{
-				var volts_per_div = HantekProtocol.VoltsDivTable[m_applied.VoltsDivIndex];
-				var source = m_desired.TriggerSource;
-				var probe = source == ETriggerSource.Ch2 ? m_desired.Ch2Probe : m_desired.Ch1Probe;
-				m_desired.TriggerLevelCode = HantekProtocol.VoltsToTriggerCode(volts, volts_per_div, probe, source);
+				switch (m_desired.TriggerSource)
+				{
+					case ETriggerSource.Ch1: m_desired.Ch1TrigVolts = volts; break;
+					case ETriggerSource.Ch2: m_desired.Ch2TrigVolts = volts; break;
+					default: throw new ArgumentOutOfRangeException(nameof(m_desired.TriggerSource));
+				}
+			}
+		}
 
-				// Remember the requested voltage so the display's software re-trigger
-				// locks onto the same level the user picked.
-				m_desired.TriggerLevelVolts = volts;
+		/// <summary>
+		/// Request a trigger level (true signal volts) for a specific channel, whether or
+		/// not it is the current source. The level is remembered and takes effect on the
+		/// hardware only while that channel is the selected trigger source.
+		/// </summary>
+		public void RequestChannelTriggerVolts(int channel, double volts)
+		{
+			lock (m_sync)
+			{
+				switch (channel)
+				{
+					case 1: m_desired.Ch1TrigVolts = volts; break;
+					case 2: m_desired.Ch2TrigVolts = volts; break;
+					default: throw new ArgumentOutOfRangeException(nameof(channel));
+				}
+			}
+		}
+
+		/// <summary>
+		/// Request a channel's vertical position, expressed as the volts by which its
+		/// baseline is moved up the chart (true signal volts). This drives the hardware
+		/// vertical-position register so the physical scope tracks the on-screen drag;
+		/// decode reads the moved 0 V code back so measured volts stay true. Computed from
+		/// the applied volts/div and the channel's probe so the shift matches the display.
+		/// </summary>
+		public void RequestChannelVPos(int channel, double offset_volts)
+		{
+			lock (m_sync)
+			{
+				var volts_per_div = HantekProtocol.VoltsDivTable[m_applied.VoltsDivIndex];
+				switch (channel)
+				{
+					case 1:
+					{
+						m_desired.Ch1VPosCode = HantekProtocol.VoltsToVPosCode(offset_volts, volts_per_div, m_desired.Ch1Probe, HantekProtocol.VPosHomeCode(1));
+						break;
+					}
+					case 2:
+					{
+						m_desired.Ch2VPosCode = HantekProtocol.VoltsToVPosCode(offset_volts, volts_per_div, m_desired.Ch2Probe, HantekProtocol.VPosHomeCode(2));
+						break;
+					}
+					default:
+					{
+						throw new ArgumentOutOfRangeException(nameof(channel));
+					}
+				}
 			}
 		}
 
@@ -514,6 +581,21 @@ namespace HantekScope.Model
 				geometry_changed = true;
 			}
 
+			// Vertical position: physically shifts the trace in the ADC window so the
+			// device tracks the on-screen drag. Not a geometry change — decode reads the
+			// moved 0 V code back (below), so the signal and its zero shift together and
+			// the sample stream stays continuous with unchanged decoded volts.
+			if (desired.Ch1VPosCode != applied.Ch1VPosCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1VPos, desired.Ch1VPosCode);
+				applied.Ch1VPosCode = desired.Ch1VPosCode;
+			}
+			if (desired.Ch2VPosCode != applied.Ch2VPosCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2VPos, desired.Ch2VPosCode);
+				applied.Ch2VPosCode = desired.Ch2VPosCode;
+			}
+
 			// Coupling and the trigger registers don't affect how samples decode, so
 			// they're written without forcing a display reset.
 			if (desired.Ch1Coupling != applied.Ch1Coupling)
@@ -541,10 +623,20 @@ namespace HantekScope.Model
 				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerSweep, (long)desired.TriggerSweep);
 				applied.TriggerSweep = desired.TriggerSweep;
 			}
-			if (desired.TriggerLevelCode != applied.TriggerLevelCode)
+			// The hardware trigger level tracks the source channel's threshold voltage,
+			// its probe/scale, and its (movable) vertical-position origin. Derive the
+			// register code from those inputs each pass so it stays correct when the
+			// source, that channel's vertical position, or the volts/div changes. Only
+			// the source channel's level reaches the hardware; the other channel's level
+			// is remembered and takes effect when it becomes the source.
+			var trig_zero = desired.TriggerSource == ETriggerSource.Ch2 ? desired.Ch2VPosCode : desired.Ch1VPosCode;
+			var trig_probe = desired.TriggerSource == ETriggerSource.Ch2 ? desired.Ch2Probe : desired.Ch1Probe;
+			var trig_vdiv = HantekProtocol.VoltsDivTable[desired.VoltsDivIndex];
+			var trig_code = HantekProtocol.VoltsToTriggerCode(TrigVoltsForSource(desired), trig_vdiv, trig_probe, trig_zero);
+			if (trig_code != applied.TriggerLevelCode)
 			{
-				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerLevel, desired.TriggerLevelCode);
-				applied.TriggerLevelCode = desired.TriggerLevelCode;
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerLevel, trig_code);
+				applied.TriggerLevelCode = trig_code;
 			}
 			if (desired.TriggerHPosCode != applied.TriggerHPosCode)
 			{
@@ -581,10 +673,12 @@ namespace HantekScope.Model
 			var probe1 = HantekProtocol.ProbeRatio(applied.Ch1Probe);
 			var probe2 = HantekProtocol.ProbeRatio(applied.Ch2Probe);
 
-			// Each channel's 0 V ADC code tracks its vertical-position register, so
-			// decode subtracts the per-channel zero rather than a fixed mid-scale code.
-			var zero1 = HantekProtocol.AdcZeroCodeForVPos(HantekProtocol.Ch1VPosZeroCode);
-			var zero2 = HantekProtocol.AdcZeroCodeForVPos(HantekProtocol.Ch2VPosZeroCode);
+			// Each channel's 0 V ADC code tracks its (movable) vertical-position register,
+			// so decode subtracts the per-channel zero for the applied position rather
+			// than a fixed mid-scale code. Because a vpos move shifts the signal and this
+			// zero together, the decoded volts stay true to the real signal.
+			var zero1 = HantekProtocol.AdcZeroCodeForVPos(applied.Ch1VPosCode);
+			var zero2 = HantekProtocol.AdcZeroCodeForVPos(applied.Ch2VPosCode);
 
 			var batch = new List<Sample>(count);
 			for (var i = 0; i != count; ++i)
@@ -622,13 +716,25 @@ namespace HantekScope.Model
 			public ETriggerSource TriggerSource;
 			public ETriggerSlope TriggerSlope;
 			public ETriggerSweep TriggerSweep;
-			public int TriggerLevelCode;
 			public int TriggerHPosCode;
 
-			// The trigger level as a voltage on the chart. Kept alongside the device
-			// register code so the display's software re-trigger can compare it directly
+			// Per-channel vertical-position register codes. These physically shift each
+			// channel's trace in the ADC window; decode reads the moved 0 V code back so
+			// the shift is invisible to measured volts.
+			public int Ch1VPosCode;
+			public int Ch2VPosCode;
+
+			// Per-channel trigger level, as a threshold in the channel's true signal
+			// volts. Kept per channel so switching source re-applies that channel's level;
+			// the display's software re-trigger compares the active source's value directly
 			// against decoded sample volts without a lossy code->volts round trip.
-			public double TriggerLevelVolts;
+			public double Ch1TrigVolts;
+			public double Ch2TrigVolts;
+
+			// The trigger level register code the apply loop last wrote (applied-state
+			// only). It is derived from the source channel's level, probe, volts/div and
+			// vertical position, so it is not a directly requested field.
+			public int TriggerLevelCode;
 
 			// The requested trigger horizontal position as a time offset in seconds,
 			// kept alongside the device register code so the display can read back the
@@ -649,11 +755,25 @@ namespace HantekScope.Model
 				TriggerSource = ETriggerSource.Ch1,
 				TriggerSlope = ETriggerSlope.Rising,
 				TriggerSweep = ETriggerSweep.Auto,
+				Ch1VPosCode = HantekProtocol.Ch1VPosZeroCode,
+				Ch2VPosCode = HantekProtocol.Ch2VPosZeroCode,
+				Ch1TrigVolts = 0.0,
+				Ch2TrigVolts = 0.0,
 				TriggerLevelCode = HantekProtocol.Ch1VPosZeroCode,
 				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
-				TriggerLevelVolts = 0.0,
 				TriggerTimeOffsetS = 0.0,
 			};
+		}
+
+		/// <summary>The trigger level (true signal volts) of the config's active source channel.</summary>
+		private static double TrigVoltsForSource(Config cfg)
+		{
+			switch (cfg.TriggerSource)
+			{
+				case ETriggerSource.Ch1: return cfg.Ch1TrigVolts;
+				case ETriggerSource.Ch2: return cfg.Ch2TrigVolts;
+				default: throw new ArgumentOutOfRangeException(nameof(cfg.TriggerSource));
+			}
 		}
 	}
 }

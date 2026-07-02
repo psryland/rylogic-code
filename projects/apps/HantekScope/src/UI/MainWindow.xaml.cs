@@ -185,7 +185,8 @@ namespace HantekScope.UI
 			// trigger) then leaves RepositionOverlays to re-sync the visuals.
 			m_overlays = new ScopeOverlays(m_chart, m_ch1_colour, m_ch2_colour)
 			{
-				LevelDragged = OnDragTriggerLevel,
+				Ch1LevelDragged = v => OnDragTriggerLevel(1, v),
+				Ch2LevelDragged = v => OnDragTriggerLevel(2, v),
 				TimeDragged = OnDragTriggerTime,
 				Ch1Dragged = v => OnDragChannelOffset(1, v),
 				Ch2Dragged = v => OnDragChannelOffset(2, v),
@@ -436,7 +437,10 @@ namespace HantekScope.UI
 		/// <summary>Apply the trigger level at the captured right-click voltage.</summary>
 		private void OnSetTriggerLevel(object sender, RoutedEventArgs e)
 		{
-			m_model.RequestTriggerLevelVolts(m_click_volts);
+			// The right-click Y is an absolute chart voltage; convert it to a threshold in
+			// the source channel's true signal volts by removing that channel's display offset.
+			var source_offset = m_model.TriggerSource == ETriggerSource.Ch2 ? m_ch2_offset_v : m_ch1_offset_v;
+			m_model.RequestTriggerLevelVolts(m_click_volts - source_offset);
 		}
 
 		/// <summary>Apply the trigger horizontal position at the captured right-click time offset.</summary>
@@ -652,9 +656,12 @@ namespace HantekScope.UI
 
 			m_overlays.Framed = !m_scrolling;
 			m_overlays.ShowTrigger = m_show_trigger;
-			m_overlays.TriggerLevelVolts = m_model.TriggerLevelVolts;
+			m_overlays.ActiveSourceChannel = m_model.TriggerSource == ETriggerSource.Ch2 ? 2 : 1;
+			m_overlays.Ch1LevelVolts = m_model.ChannelTriggerLevelVolts(1);
+			m_overlays.Ch2LevelVolts = m_model.ChannelTriggerLevelVolts(2);
+			m_overlays.Ch1LevelText = FormatVolts(m_model.ChannelTriggerLevelVolts(1));
+			m_overlays.Ch2LevelText = FormatVolts(m_model.ChannelTriggerLevelVolts(2));
 			m_overlays.TriggerTimeMs = m_trig_offset_ms;
-			m_overlays.LevelText = FormatVolts(m_model.TriggerLevelVolts);
 			m_overlays.TimeText = FormatTime(m_trig_offset_ms / 1000.0);
 
 			// The tab marks each channel's zero reference at its current display offset.
@@ -666,12 +673,20 @@ namespace HantekScope.UI
 			m_overlays.Reposition();
 		}
 
-		/// <summary>Trigger-level tab dragged: apply the new level to the device.</summary>
-		private void OnDragTriggerLevel(double volts)
+		/// <summary>
+		/// Trigger-level tab dragged for a channel: remember that channel's threshold (in
+		/// its true signal volts). Only the active trigger source's level reaches the
+		/// hardware; the model applies the appropriate one on a source switch.
+		/// </summary>
+		private void OnDragTriggerLevel(int channel, double volts)
 		{
-			m_model.RequestTriggerLevelVolts(volts);
-			m_overlays.TriggerLevelVolts = volts;
-			m_overlays.LevelText = FormatVolts(volts);
+			m_model.RequestChannelTriggerVolts(channel, volts);
+			switch (channel)
+			{
+				case 1: m_overlays.Ch1LevelText = FormatVolts(volts); break;
+				case 2: m_overlays.Ch2LevelText = FormatVolts(volts); break;
+				default: throw new ArgumentOutOfRangeException(nameof(channel), channel, "Unknown channel");
+			}
 			m_chart.Invalidate();
 		}
 
@@ -725,6 +740,11 @@ namespace HantekScope.UI
 					throw new ArgumentOutOfRangeException(nameof(channel), channel, "Unknown channel");
 				}
 			}
+
+			// Command the hardware vertical-position register so the physical scope moves
+			// with the display. Decode compensates for the vpos code, so measurements
+			// remain true to the real signal.
+			m_model.RequestChannelVPos(channel, volts);
 
 			if (!m_scrolling)
 				RebuildFrame();

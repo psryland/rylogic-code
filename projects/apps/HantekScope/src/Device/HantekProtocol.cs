@@ -139,8 +139,12 @@ namespace HantekScope.Device
 		// 0 V shifts with the vertical position. These constants are a linear fit
 		// through two measured operating points (means over 6000 samples each):
 		//   CH1 vpos 149 -> 0 V code 182,  CH2 vpos 49 -> 0 V code 80.
-		// giving slope ~1.02 code per vpos code and a ~30 code origin. Re-measure and
-		// refit if a vertical-position UI control is added that moves these registers.
+		// giving slope ~1.02 code per vpos code and a ~30 code origin. Moving a vpos
+		// register shifts the signal codes and this 0 V code together by the same
+		// amount, so decode (which subtracts this 0 V code) keeps returning true volts
+		// regardless of position; the fit only needs to be accurate enough that the
+		// residual (from any non-linearity, worst when extrapolating far from 149/49)
+		// stays small. Re-measure at more vpos points if large drags show visible drift.
 		public const double AdcZeroVPosSlope = 1.02;
 		public const double AdcZeroVPosOffset = 30.0;
 
@@ -356,29 +360,46 @@ namespace HantekScope.Device
 			return Math.Pow(10.0, (int)probe);
 		}
 
-		/// <summary>The vertical-position (0 V) screen code the trigger level references for a source channel.</summary>
-		public static int TriggerZeroCode(ETriggerSource source)
+		/// <summary>The factory (home) vertical-position register code a channel starts at.</summary>
+		public static int VPosHomeCode(int channel)
 		{
-			switch (source)
+			switch (channel)
 			{
-				case ETriggerSource.Ch1: return Ch1VPosZeroCode;
-				case ETriggerSource.Ch2: return Ch2VPosZeroCode;
-				default: throw new ArgumentOutOfRangeException(nameof(source));
+				case 1: return Ch1VPosZeroCode;
+				case 2: return Ch2VPosZeroCode;
+				default: throw new ArgumentOutOfRangeException(nameof(channel));
 			}
 		}
 
 		/// <summary>
-		/// Convert a signed voltage (as displayed on the chart, i.e. already probe-scaled)
-		/// to the trigger-level register code for the given source channel. The trigger
-		/// level sits on the screen-position scale (~25 codes/div) with the channel's
-		/// vertical-position code as its 0 V origin; the probe ratio is divided back out
-		/// because it only affects the displayed volts, not the underlying screen scale.
-		/// The result is clamped to the 8-bit register range.
+		/// Convert a signed threshold voltage (in the channel's true signal volts, i.e.
+		/// already probe-scaled) to the trigger-level register code. The trigger level
+		/// sits on the screen-position scale (~25 codes/div) with the source channel's
+		/// current vertical-position code as its 0 V origin, so the caller passes that
+		/// channel's live vpos code as 'zero_code' (it moves as the channel is repositioned).
+		/// The probe ratio is divided back out because it only affects the displayed volts,
+		/// not the underlying screen scale. The result is clamped to the 8-bit register range.
 		/// </summary>
-		public static int VoltsToTriggerCode(double volts, double volts_per_div, EProbeScale probe, ETriggerSource source)
+		public static int VoltsToTriggerCode(double volts, double volts_per_div, EProbeScale probe, int zero_code)
 		{
 			var raw_volts = volts / ProbeRatio(probe);
-			var code = TriggerZeroCode(source) + raw_volts / volts_per_div * ScreenCodesPerDiv;
+			var code = zero_code + raw_volts / volts_per_div * ScreenCodesPerDiv;
+			return (int)Math.Round(Math.Clamp(code, 0.0, 255.0));
+		}
+
+		/// <summary>
+		/// Convert a channel's vertical-position offset (the volts by which its baseline is
+		/// moved up the chart, in true signal volts) to the vertical-position register code.
+		/// The register is on the screen-position scale (~25 codes/div) with the channel's
+		/// home 0 V code as origin; the probe ratio is divided back out because it only
+		/// affects displayed volts, not the underlying screen scale. Clamped to the 8-bit
+		/// register range. Note decode reads back the moved 0 V code via AdcZeroCodeForVPos,
+		/// so the signal and its zero shift together and the decoded volts stay true.
+		/// </summary>
+		public static int VoltsToVPosCode(double offset_volts, double volts_per_div, EProbeScale probe, int home_code)
+		{
+			var raw_volts = offset_volts / ProbeRatio(probe);
+			var code = home_code + raw_volts / volts_per_div * ScreenCodesPerDiv;
 			return (int)Math.Round(Math.Clamp(code, 0.0, 255.0));
 		}
 

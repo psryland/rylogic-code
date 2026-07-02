@@ -26,16 +26,23 @@ namespace HantekScope.UI
 	{
 		// Which handle is currently being dragged. Mouse capture is taken on the handle
 		// element at drag start, so move/up events arrive here until release.
-		private enum EDrag { None, Level, Time, Ch1, Ch2 }
+		private enum EDrag { None, Level1, Level2, Time, Ch1, Ch2 }
 
 		private readonly ChartControl m_chart;
 
-		// Trigger level: a horizontal line across the scene plus a draggable Y-axis tag.
-		private readonly Line m_level_line;
-		private readonly Border m_level_tag;
-		private readonly TextBlock m_level_text;
+		// Per-channel trigger level: a horizontal line across the scene plus a draggable
+		// Y-axis tag, drawn in the channel's colour. Both are always present; only the
+		// active trigger-source channel's level commands the hardware (the other is a
+		// remembered level shown dimmed).
+		private readonly Line m_ch1_level_line;
+		private readonly Border m_ch1_level_tag;
+		private readonly TextBlock m_ch1_level_text;
+		private readonly Line m_ch2_level_line;
+		private readonly Border m_ch2_level_tag;
+		private readonly TextBlock m_ch2_level_text;
 
-		// Trigger time: a vertical line plus a draggable X-axis tag. Framed mode only.
+		// Trigger time: a single shared vertical line plus a draggable X-axis tag (the
+		// trigger fires at one point in time common to both channels). Framed mode only.
 		private readonly Line m_time_line;
 		private readonly Border m_time_tag;
 		private readonly TextBlock m_time_text;
@@ -51,47 +58,56 @@ namespace HantekScope.UI
 			m_chart = chart;
 			m_drag = EDrag.None;
 
-			// Trigger indicators use a scope-red so they read clearly against either
-			// channel colour and the dark background.
-			var trig_colour = new Colour32(0xFFE0403Au);
+			// Trigger indicators are drawn in each channel's own colour so it is obvious
+			// which trace a level belongs to (a shared trigger-time tag uses a neutral red).
+			var time_colour = new Colour32(0xFFE0403Au);
 
-			m_level_line = MakeIndicatorLine(trig_colour);
-			m_time_line = MakeIndicatorLine(trig_colour);
+			m_ch1_level_line = MakeIndicatorLine(ch1_colour);
+			m_ch2_level_line = MakeIndicatorLine(ch2_colour);
+			m_time_line = MakeIndicatorLine(time_colour);
 
-			m_level_text = MakeTagText();
+			m_ch1_level_text = MakeTagText();
+			m_ch2_level_text = MakeTagText();
 			m_time_text = MakeTagText();
-			m_level_tag = MakeTag(trig_colour, m_level_text);
-			m_time_tag = MakeTag(trig_colour, m_time_text);
+			m_ch1_level_tag = MakeTag(ch1_colour, m_ch1_level_text);
+			m_ch2_level_tag = MakeTag(ch2_colour, m_ch2_level_text);
+			m_time_tag = MakeTag(time_colour, m_time_text);
 
 			m_ch1_tab = MakeChannelTab(ch1_colour);
 			m_ch2_tab = MakeChannelTab(ch2_colour);
 
 			// Match the axis label font so the tags sit consistently with the tick text.
-			m_level_text.Typeface(m_chart.YAxisPanel.Typeface, m_chart.YAxisPanel.FontSize);
+			m_ch1_level_text.Typeface(m_chart.YAxisPanel.Typeface, m_chart.YAxisPanel.FontSize);
+			m_ch2_level_text.Typeface(m_chart.YAxisPanel.Typeface, m_chart.YAxisPanel.FontSize);
 			m_time_text.Typeface(m_chart.XAxisPanel.Typeface, m_chart.XAxisPanel.FontSize);
 
 			// The lines live on the scene overlay (display-only; the overlay canvas is not
 			// hit-test-visible). The draggable handles — the value tags and the channel
 			// tabs — must live on the axis panels, which do receive mouse input, so their
 			// Preview handlers can claim the gesture before the chart's scene navigation.
-			m_chart.Overlay.Adopt(m_level_line);
+			m_chart.Overlay.Adopt(m_ch1_level_line);
+			m_chart.Overlay.Adopt(m_ch2_level_line);
 			m_chart.Overlay.Adopt(m_time_line);
-			m_chart.YAxisPanel.Adopt(m_level_tag);
+			m_chart.YAxisPanel.Adopt(m_ch1_level_tag);
+			m_chart.YAxisPanel.Adopt(m_ch2_level_tag);
 			m_chart.XAxisPanel.Adopt(m_time_tag);
 			m_chart.YAxisPanel.Adopt(m_ch1_tab);
 			m_chart.YAxisPanel.Adopt(m_ch2_tab);
 
 			// Only the tags/tabs are grab handles; the thin lines are non-interactive.
-			MakeDraggable(m_level_tag, EDrag.Level);
+			MakeDraggable(m_ch1_level_tag, EDrag.Level1);
+			MakeDraggable(m_ch2_level_tag, EDrag.Level2);
 			MakeDraggable(m_time_tag, EDrag.Time);
 			MakeDraggable(m_ch1_tab, EDrag.Ch1);
 			MakeDraggable(m_ch2_tab, EDrag.Ch2);
 		}
 		public void Dispose()
 		{
-			m_level_line.Detach();
+			m_ch1_level_line.Detach();
+			m_ch2_level_line.Detach();
 			m_time_line.Detach();
-			m_level_tag.Detach();
+			m_ch1_level_tag.Detach();
+			m_ch2_level_tag.Detach();
 			m_time_tag.Detach();
 			m_ch1_tab.Detach();
 			m_ch2_tab.Detach();
@@ -107,29 +123,47 @@ namespace HantekScope.UI
 		public bool Ch1TabVisible { get; set; } = true;
 		public bool Ch2TabVisible { get; set; } = true;
 
-		/// <summary>Trigger level in volts (Y position of the level line/tag).</summary>
-		public double TriggerLevelVolts { get; set; }
+		/// <summary>
+		/// Per-channel trigger level as a threshold in the channel's true signal volts.
+		/// The indicator is drawn relative to the channel's baseline (its vertical offset)
+		/// so it follows the trace when the channel is repositioned.
+		/// </summary>
+		public double Ch1LevelVolts { get; set; }
+		public double Ch2LevelVolts { get; set; }
 
-		/// <summary>Trigger time offset in milliseconds (X position of the time line/tag).</summary>
+		/// <summary>The active trigger-source channel (1 or 2); its level is drawn solid, the other dimmed.</summary>
+		public int ActiveSourceChannel { get; set; } = 1;
+
+		/// <summary>Trigger time offset in milliseconds (X position of the shared time line/tag).</summary>
 		public double TriggerTimeMs { get; set; }
 
 		/// <summary>Per-channel vertical display offset in volts (Y position of each tab).</summary>
 		public double Ch1OffsetVolts { get; set; }
 		public double Ch2OffsetVolts { get; set; }
 
-		/// <summary>Owner-formatted label text for the level and time tags.</summary>
-		public string LevelText { set { m_level_text.Text = value; } }
+		/// <summary>Owner-formatted label text for the per-channel level and shared time tags.</summary>
+		public string Ch1LevelText { set { m_ch1_level_text.Text = value; } }
+		public string Ch2LevelText { set { m_ch2_level_text.Text = value; } }
 		public string TimeText { set { m_time_text.Text = value; } }
 
-		/// <summary>Callbacks raised while dragging, with the new clamped chart value.</summary>
-		public Action<double>? LevelDragged { get; set; }
+		/// <summary>
+		/// Callbacks raised while dragging. The level callbacks report the new threshold in
+		/// the channel's true signal volts (the dragged chart-Y minus the channel offset);
+		/// the others report the clamped chart value.
+		/// </summary>
+		public Action<double>? Ch1LevelDragged { get; set; }
+		public Action<double>? Ch2LevelDragged { get; set; }
 		public Action<double>? TimeDragged { get; set; }
 		public Action<double>? Ch1Dragged { get; set; }
 		public Action<double>? Ch2Dragged { get; set; }
 
-		/// <summary>Recolour the channel tabs when a channel's display colour changes.</summary>
+		/// <summary>Recolour the channel trace indicators (level line/tag and vpos tab) on a colour change.</summary>
 		public void SetChannelColours(Colour32 ch1_colour, Colour32 ch2_colour)
 		{
+			m_ch1_level_line.Stroke = ch1_colour.ToMediaBrush();
+			m_ch2_level_line.Stroke = ch2_colour.ToMediaBrush();
+			m_ch1_level_tag.Background = ch1_colour.ToMediaBrush();
+			m_ch2_level_tag.Background = ch2_colour.ToMediaBrush();
 			m_ch1_tab.Fill = ch1_colour.ToMediaBrush();
 			m_ch2_tab.Fill = ch2_colour.ToMediaBrush();
 		}
@@ -143,20 +177,13 @@ namespace HantekScope.UI
 			var bounds = m_chart.SceneBounds;
 			var show_time = ShowTrigger && Framed;
 
-			// Trigger level: horizontal line at the level voltage, tag on the Y axis.
-			m_level_line.Visibility = ShowTrigger ? Visibility.Visible : Visibility.Collapsed;
-			m_level_tag.Visibility = ShowTrigger ? Visibility.Visible : Visibility.Collapsed;
-			if (ShowTrigger)
-			{
-				var sy = m_chart.ChartToScene(new v4(0f, (float)TriggerLevelVolts, 0f, 1f)).y;
-				m_level_line.X1 = 0;
-				m_level_line.X2 = bounds.Width;
-				m_level_line.Y1 = sy;
-				m_level_line.Y2 = sy;
-				PositionYAxisTag(m_level_tag, sy);
-			}
+			// Per-channel trigger level: a horizontal line at (channel offset + threshold)
+			// so it sits relative to that channel's displayed trace, with a Y-axis tag.
+			// Only shown while the trigger indicators are enabled and the channel is on.
+			PositionLevel(m_ch1_level_line, m_ch1_level_tag, Ch1OffsetVolts + Ch1LevelVolts, ShowTrigger && Ch1TabVisible, ActiveSourceChannel == 1, bounds);
+			PositionLevel(m_ch2_level_line, m_ch2_level_tag, Ch2OffsetVolts + Ch2LevelVolts, ShowTrigger && Ch2TabVisible, ActiveSourceChannel == 2, bounds);
 
-			// Trigger time: vertical line at the time offset, tag on the X axis.
+			// Trigger time: single shared vertical line at the time offset, tag on the X axis.
 			m_time_line.Visibility = show_time ? Visibility.Visible : Visibility.Collapsed;
 			m_time_tag.Visibility = show_time ? Visibility.Visible : Visibility.Collapsed;
 			if (show_time)
@@ -172,6 +199,30 @@ namespace HantekScope.UI
 			// Channel vertical-position tabs at the left scene edge.
 			PositionChannelTab(m_ch1_tab, Ch1OffsetVolts, Ch1TabVisible);
 			PositionChannelTab(m_ch2_tab, Ch2OffsetVolts, Ch2TabVisible);
+		}
+
+		/// <summary>
+		/// Lay out one channel's trigger-level line and Y-axis tag at chart voltage 'volts'.
+		/// The active trigger source is drawn solid; a remembered (inactive) level is dimmed
+		/// so it is clear which channel's level is actually driving the hardware.
+		/// </summary>
+		private void PositionLevel(Line line, Border tag, double volts, bool visible, bool active, Rect bounds)
+		{
+			line.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+			tag.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+			if (!visible)
+				return;
+
+			var opacity = active ? 1.0 : 0.45;
+			line.Opacity = opacity;
+			tag.Opacity = opacity;
+
+			var sy = m_chart.ChartToScene(new v4(0f, (float)volts, 0f, 1f)).y;
+			line.X1 = 0;
+			line.X2 = bounds.Width;
+			line.Y1 = sy;
+			line.Y2 = sy;
+			PositionYAxisTag(tag, sy);
 		}
 
 		/// <summary>Place a Y-axis value tag at scene-Y 'sy', aligned like the tick labels.</summary>
@@ -289,11 +340,20 @@ namespace HantekScope.UI
 				var cp = m_chart.SceneToChart(new v2((float)sp.X, (float)sp.Y));
 				switch (kind)
 				{
-					case EDrag.Level:
+					case EDrag.Level1:
+					{
+						// Store the threshold relative to the channel baseline so the tag
+						// tracks the pointer while remaining anchored to the trace.
+						var v = Math_.Clamp(cp.y, m_chart.YAxis.Min, m_chart.YAxis.Max);
+						Ch1LevelVolts = v - Ch1OffsetVolts;
+						Ch1LevelDragged?.Invoke(Ch1LevelVolts);
+						break;
+					}
+					case EDrag.Level2:
 					{
 						var v = Math_.Clamp(cp.y, m_chart.YAxis.Min, m_chart.YAxis.Max);
-						TriggerLevelVolts = v;
-						LevelDragged?.Invoke(v);
+						Ch2LevelVolts = v - Ch2OffsetVolts;
+						Ch2LevelDragged?.Invoke(Ch2LevelVolts);
 						break;
 					}
 					case EDrag.Time:
