@@ -22,7 +22,9 @@ namespace HantekScope.Device
 		// capability registers. The leading seq byte is rewritten at send time, and
 		// read frames (access byte == 0x01) have their IN response drained before the
 		// next frame or the bulk endpoints desync. Defaults baked in: both channels
-		// enabled at 1 V/div, CH1 vpos=149, CH2 vpos=49, trigger CH1 rising auto,
+		// enabled at 1 V/div, CH1/CH2 vpos and trigger level at the display-centre
+		// code (see HantekProtocol.VPosCentreCode) so a fresh connect leaves both
+		// traces physically centred and the app's 0 V offset maps to that centre,
 		// timebase index 14 (200 us/div), generator a 1 kHz / 2 Vpp sine.
 		private static readonly string[] InitFrames =
 		{
@@ -32,18 +34,18 @@ namespace HantekScope.Device
 			"000a03010c0000000000", // read cat03 reg0c version
 			"00250301090000000000", // read cat03 reg09 serial (large response buffer)
 			"000a0000000100000000", // CH1 enable = 1
-			"000a0000059500000000", // CH1 vpos = 149
+			"000a0000056400000000", // CH1 vpos = 100 (display centre)
 			"000a0000010000000000", // CH1 coupling = 0 (AC)
 			"000a0000020000000000", // CH1 probe = 0 (x1)
 			"000a0000030000000000", // CH1 reg+3 = 0
 			"000a0000040600000000", // CH1 volts/div = 6 (1 V)
 			"000a0000060100000000", // CH2 enable = 1
-			"000a00000b3100000000", // CH2 vpos = 49
+			"000a00000b6400000000", // CH2 vpos = 100 (display centre)
 			"000a0000070000000000", // CH2 coupling = 0 (AC)
 			"000a0000080000000000", // CH2 probe = 0 (x1)
 			"000a0000090000000000", // CH2 reg+3 = 0
 			"000a00000a0600000000", // CH2 volts/div = 6 (1 V)
-			"000a0000149500000000", // trigger level = 149
+			"000a0000146400000000", // trigger level = 100 (display centre)
 			"000a00000f9600000000", // horizontal trigger position = 150
 			"000a0000100000000000", // trigger source = 0 (CH1)
 			"000a0000120000000000", // trigger sweep = 0 (auto)

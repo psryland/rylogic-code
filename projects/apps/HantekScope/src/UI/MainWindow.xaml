@@ -143,6 +143,10 @@
 			</StatusBarItem>
 			<Separator />
 			<StatusBarItem>
+				<TextBlock x:Name="m_status_vpos" Text="" />
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
 				<TextBlock x:Name="m_status_mode" Text="Framed" />
 			</StatusBarItem>
 		</StatusBar>

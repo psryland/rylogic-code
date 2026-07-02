@@ -208,6 +208,7 @@ namespace HantekScope.UI
 
 			UpdateConfigStatus();
 			UpdateModeStatus();
+			UpdateVPosStatus();
 		}
 
 		/// <summary>Apply the line-plot configuration and colour to a channel series.</summary>
@@ -832,6 +833,7 @@ namespace HantekScope.UI
 			if (!m_scrolling)
 				RebuildFrame();
 			m_chart.Invalidate();
+			UpdateVPosStatus();
 		}
 
 		/// <summary>Shift every plotted point of a scrolling series vertically by a delta (single lock pass).</summary>
@@ -1382,6 +1384,16 @@ namespace HantekScope.UI
 			var volts_div = m_model.VoltsPerDiv;
 			var time_div = m_model.SampleIntervalS * HantekProtocol.SamplesPerDivision;
 			m_status_config.Text = $"{FormatVolts(volts_div)}/div   {FormatTime(time_div)}/div";
+		}
+
+		/// <summary>
+		/// Refresh the status-bar vertical-position readout. Shows each channel's display
+		/// offset in true signal volts, so the trace's zero reference relative to the chart
+		/// centre is visible at a glance (and can be read off when calibrating the vpos home).
+		/// </summary>
+		private void UpdateVPosStatus()
+		{
+			m_status_vpos.Text = $"CH1 VPos {FormatVolts(m_ch1_offset_v)}   CH2 VPos {FormatVolts(m_ch2_offset_v)}";
 		}
 
 		/// <summary>Refresh the status-bar display-mode readout.</summary>

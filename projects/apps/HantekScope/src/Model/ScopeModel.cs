@@ -715,10 +715,10 @@ namespace HantekScope.Model
 				TriggerSource = ETriggerSource.Ch1,
 				TriggerSlope = ETriggerSlope.Rising,
 				TriggerSweep = ETriggerSweep.Auto,
-				Ch1VPosCode = HantekProtocol.Ch1VPosZeroCode,
-				Ch2VPosCode = HantekProtocol.Ch2VPosZeroCode,
+				Ch1VPosCode = HantekProtocol.VPosCentreCode,
+				Ch2VPosCode = HantekProtocol.VPosCentreCode,
 				TrigVolts = 0.0,
-				TriggerLevelCode = HantekProtocol.Ch1VPosZeroCode,
+				TriggerLevelCode = HantekProtocol.VPosCentreCode,
 				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
 				TriggerTimeOffsetS = 0.0,
 			};

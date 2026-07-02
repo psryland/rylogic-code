@@ -179,12 +179,17 @@ namespace HantekScope.Device
 		public const int HTriggerCentreCode = 150;
 		public const int HTriggerMaxCode = 300;
 
-		// Per-channel vertical-position codes that the trigger level uses as its 0 V
-		// origin. These match the values the init sequence programs (CH1 vpos 149,
-		// CH2 vpos 49); the init trigger-level write (149) equals the CH1 vpos, so a
-		// trigger at the channel's 0 V is exactly its vpos code.
-		public const int Ch1VPosZeroCode = 149;
-		public const int Ch2VPosZeroCode = 49;
+		// Centre of the vertical screen-position scale. The vertical-position register is
+		// on the screen-position scale (ScreenCodesPerDiv codes/division) spanning the
+		// ScreenVDiv on-screen divisions, i.e. codes 0..ScreenVDiv*ScreenCodesPerDiv
+		// (0..200), whose centre is 100 — mirroring the horizontal trigger scale's 0..300
+		// centre of 150. A channel positioned at this code sits on the display's centre
+		// line. Verified by centring both channels on the scope: each required vpos code
+		// 100. App vertical offset 0 maps here (VPosHomeCode) so the PC display's 0 V
+		// baseline matches the physically centred trace. The trigger level uses the source
+		// channel's live vpos code as its 0 V origin, so a 0 V trigger sits on that
+		// channel's baseline.
+		public const int VPosCentreCode = 100;
 
 		/// <summary>
 		/// Volts-per-division for each volts/div register index (1-2-5 sequence).
@@ -360,13 +365,17 @@ namespace HantekScope.Device
 			return Math.Pow(10.0, (int)probe);
 		}
 
-		/// <summary>The factory (home) vertical-position register code a channel starts at.</summary>
+		/// <summary>
+		/// The home vertical-position register code a channel rests at when the app's
+		/// vertical offset is zero: the display centre line (see VPosCentreCode). Both
+		/// channels share the same centre; the channel index is validated.
+		/// </summary>
 		public static int VPosHomeCode(int channel)
 		{
 			switch (channel)
 			{
-				case 1: return Ch1VPosZeroCode;
-				case 2: return Ch2VPosZeroCode;
+				case 1:
+				case 2: return VPosCentreCode;
 				default: throw new ArgumentOutOfRangeException(nameof(channel));
 			}
 		}
