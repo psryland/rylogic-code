@@ -135,6 +135,11 @@ namespace HantekScope.UI
 		// Hidden by default so a fresh view is uncluttered; the user opts in per session.
 		private bool m_show_trigger = false;
 
+		// Segoe MDL2 Assets glyphs for the connect/disconnect toolbar button. The button
+		// shows the action it will perform: "Connect" when stopped, "Disconnect" when running.
+		private const string GlyphConnect = "\uE703";
+		private const string GlyphDisconnect = "\uE8CD";
+
 		// Framed-mode horizontal display offset (ms): the software-trigger crossing is
 		// drawn at this x instead of x=0, so dragging the time tag pans the framed trace.
 		private double m_trig_offset_ms;
@@ -221,6 +226,10 @@ namespace HantekScope.UI
 			UpdateConfigStatus();
 			UpdateModeStatus();
 			UpdateVPosStatus();
+
+			// Try to connect to the scope straight away; the model's supervisor loop
+			// handles a missing device gracefully by retrying with backoff.
+			Connect();
 		}
 
 		/// <summary>Apply the line-plot configuration and colour to a channel series.</summary>
@@ -389,7 +398,7 @@ namespace HantekScope.UI
 			trigger.Items.Add(new Separator());
 			trigger.Items.Add(MakeCheck("Show Indicators",
 				() => m_show_trigger,
-				() => { m_show_trigger = !m_show_trigger; m_overlays.ShowTrigger = m_show_trigger; }));
+				() => SetTriggerIndicators(!m_show_trigger)));
 
 			return trigger;
 		}
@@ -600,24 +609,97 @@ namespace HantekScope.UI
 			m_btn_popout.ToolTip = "Pop out the Measurements panel into a floating window";
 		}
 
-		/// <summary>Toggle acquisition on/off.</summary>
-		private void OnRunStop(object sender, RoutedEventArgs e)
+		/// <summary>Toggle the scope connection (acquisition) on or off.</summary>
+		private void OnConnectDisconnect(object sender, RoutedEventArgs e)
 		{
 			if (!m_model.IsRunning)
+				Connect();
+			else
+				Disconnect();
+		}
+
+		/// <summary>
+		/// Begin acquiring from the scope. The model's supervisor loop opens the device and
+		/// retries with backoff, so this is safe to call even when no device is attached yet.
+		/// </summary>
+		private void Connect()
+		{
+			if (m_model.IsRunning)
+				return;
+
+			ResetDisplay();
+			m_model.Start();
+			m_render_timer.Start();
+			m_btn_connect.Content = GlyphDisconnect;
+			SetConnection("Connecting…", EConn.Connecting);
+		}
+
+		/// <summary>Stop acquiring and release the device.</summary>
+		private void Disconnect()
+		{
+			if (!m_model.IsRunning)
+				return;
+
+			m_render_timer.Stop();
+			m_model.Stop();
+			m_btn_connect.Content = GlyphConnect;
+			SetConnection("Stopped", EConn.Stopped);
+		}
+
+		/// <summary>
+		/// Show or hide the Measurements panel from the toolbar. Hiding first re-docks a
+		/// popped-out panel so there is a single "visible?" state regardless of whether the
+		/// panel is currently docked or floating.
+		/// </summary>
+		private void OnToggleMeasurementsPanel(object sender, RoutedEventArgs e)
+		{
+			SetMeasurementsShown(m_btn_measurements.IsChecked == true);
+		}
+
+		/// <summary>Apply the Measurements panel visibility, keeping the toolbar toggle in sync.</summary>
+		private void SetMeasurementsShown(bool show)
+		{
+			if (show)
 			{
-				ResetDisplay();
-				m_model.Start();
-				m_render_timer.Start();
-				m_btn_run.Content = "Stop";
-				SetConnection("Connecting…", EConn.Connecting);
+				// A popped-out panel already counts as shown; only the docked host needs
+				// making visible when the panel isn't currently floating.
+				if (m_measure_window == null)
+					m_measurements_dock.Visibility = Visibility.Visible;
 			}
 			else
 			{
-				m_render_timer.Stop();
-				m_model.Stop();
-				m_btn_run.Content = "Run";
-				SetConnection("Stopped", EConn.Stopped);
+				// Re-dock a floating panel first (its Closed handler restores the docked
+				// host), then collapse that host so the chart reclaims the width.
+				if (m_measure_window != null)
+					m_measure_window.Close();
+
+				m_measurements_dock.Visibility = Visibility.Collapsed;
 			}
+
+			if (m_btn_measurements.IsChecked != show)
+				m_btn_measurements.IsChecked = show;
+		}
+
+		/// <summary>Show or hide the on-chart trigger indicators from the toolbar.</summary>
+		private void OnToggleTriggerIndicators(object sender, RoutedEventArgs e)
+		{
+			SetTriggerIndicators(m_btn_trigger.IsChecked == true);
+		}
+
+		/// <summary>
+		/// Apply the trigger-indicator visibility across the toolbar toggle and the overlay,
+		/// then re-lay the overlay so the change shows immediately even when acquisition (and
+		/// its render tick) is stopped. The context-menu check reads m_show_trigger when it
+		/// opens, so it stays in sync automatically.
+		/// </summary>
+		private void SetTriggerIndicators(bool show)
+		{
+			m_show_trigger = show;
+			if (m_btn_trigger.IsChecked != show)
+				m_btn_trigger.IsChecked = show;
+
+			RepositionOverlays();
+			m_chart.Invalidate();
 		}
 
 		/// <summary>Toggle between framed (trigger-relative) and horizontal-scrolling display.</summary>

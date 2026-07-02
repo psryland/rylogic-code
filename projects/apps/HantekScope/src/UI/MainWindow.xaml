@@ -26,10 +26,41 @@
 			</MenuItem>
 		</Menu>
 
-		<!-- Toolbar: run/stop -->
+		<!-- Toolbar: connection + panel/indicator toggles (Segoe MDL2 glyph icons). -->
 		<ToolBarTray Grid.Row="1">
 			<ToolBar>
-				<Button x:Name="m_btn_run" Content="Run" MinWidth="60" Click="OnRunStop" />
+				<Button
+					x:Name="m_btn_connect"
+					AutomationProperties.Name="Connect/Disconnect"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE703;"
+					ToolTip="Connect/Disconnect from scope"
+					Click="OnConnectDisconnect"
+					/>
+				<Separator />
+				<ToggleButton
+					x:Name="m_btn_measurements"
+					AutomationProperties.Name="Measurements panel"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE90D;"
+					IsChecked="True"
+					ToolTip="Show/Hide the Measurements panel"
+					Click="OnToggleMeasurementsPanel"
+					/>
+				<ToggleButton
+					x:Name="m_btn_trigger"
+					AutomationProperties.Name="Trigger indicators"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE945;"
+					ToolTip="Show/Hide the trigger indicators"
+					Click="OnToggleTriggerIndicators"
+					/>
 			</ToolBar>
 		</ToolBarTray>
 
