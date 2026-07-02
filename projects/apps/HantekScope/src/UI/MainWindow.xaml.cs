@@ -113,6 +113,22 @@ namespace HantekScope.UI
 		// and only run auto-resolution in response to genuine user zooming.
 		private bool m_suppress_auto;
 
+		// Draggable trigger/position indicators drawn on the chart's overlay canvas.
+		private ScopeOverlays m_overlays = null!;
+
+		// Master show/hide for the trigger level/time indicators (context-menu toggle).
+		private bool m_show_trigger = true;
+
+		// Framed-mode horizontal display offset (ms): the software-trigger crossing is
+		// drawn at this x instead of x=0, so dragging the time tag pans the framed trace.
+		private double m_trig_offset_ms;
+
+		// Per-channel vertical display offsets (volts) added to the plotted trace so each
+		// channel's zero reference can be moved independently. Display-only: the recent
+		// buffer that feeds the measurements panel keeps the true, un-offset volts.
+		private double m_ch1_offset_v;
+		private double m_ch2_offset_v;
+
 		public MainWindow()
 		{
 			InitializeComponent();
@@ -163,6 +179,17 @@ namespace HantekScope.UI
 
 			BuildContextMenus();
 			m_chart.ChartMoved += OnChartMoved;
+
+			// Draggable trigger/position overlays live on the chart's overlay canvas.
+			// Each drag callback updates the owning state (and the device, for the
+			// trigger) then leaves RepositionOverlays to re-sync the visuals.
+			m_overlays = new ScopeOverlays(m_chart, m_ch1_colour, m_ch2_colour)
+			{
+				LevelDragged = OnDragTriggerLevel,
+				TimeDragged = OnDragTriggerTime,
+				Ch1Dragged = v => OnDragChannelOffset(1, v),
+				Ch2Dragged = v => OnDragChannelOffset(2, v),
+			};
 
 			UpdateConfigStatus();
 			UpdateModeStatus();
@@ -329,6 +356,12 @@ namespace HantekScope.UI
 			sweep.Items.Add(MakeRadio("Normal", ETriggerSweep.Normal, () => m_model.TriggerSweep, v => m_model.RequestTriggerSweep(v)));
 			trigger.Items.Add(sweep);
 
+			// Master show/hide for the on-chart trigger indicators (level line + time line).
+			trigger.Items.Add(new Separator());
+			trigger.Items.Add(MakeCheck("Show Indicators",
+				() => m_show_trigger,
+				() => { m_show_trigger = !m_show_trigger; m_overlays.ShowTrigger = m_show_trigger; }));
+
 			return trigger;
 		}
 
@@ -488,6 +521,7 @@ namespace HantekScope.UI
 			{
 				ApplySeriesColour(m_ch1, m_ch1_colour);
 				ApplySeriesColour(m_ch1_tail, m_ch1_colour);
+				m_overlays.SetChannelColours(m_ch1_colour, m_ch2_colour);
 			}
 		}
 
@@ -498,6 +532,7 @@ namespace HantekScope.UI
 			{
 				ApplySeriesColour(m_ch2, m_ch2_colour);
 				ApplySeriesColour(m_ch2_tail, m_ch2_colour);
+				m_overlays.SetChannelColours(m_ch1_colour, m_ch2_colour);
 			}
 		}
 
@@ -542,6 +577,11 @@ namespace HantekScope.UI
 		/// </summary>
 		private void OnChartMoved(object? sender, ChartControl.ChartMovedEventArgs e)
 		{
+			// The overlay visuals are positioned in scene space, so they must be re-laid
+			// whenever the camera moves — including self-induced moves that return early
+			// below.
+			m_overlays?.Reposition();
+
 			// Ignore self-induced moves (auto-fit, follow, reset, frame redraw); only
 			// genuine user zooming should change the scope's resolution. The chart
 			// coalesces a programmatic change into a single deferred event, so consume
@@ -595,7 +635,114 @@ namespace HantekScope.UI
 				UpdateMeasurements();
 			}
 
+			RepositionOverlays();
 			m_chart.Invalidate();
+		}
+
+		/// <summary>
+		/// Push the current trigger/offset state into the overlay helper and re-lay its
+		/// visuals. The level line shows in both display modes; the time line only makes
+		/// sense in framed mode (scrolling has no trigger-centred window), and the
+		/// per-channel tabs follow each channel's enabled state.
+		/// </summary>
+		private void RepositionOverlays()
+		{
+			if (m_overlays == null)
+				return;
+
+			m_overlays.Framed = !m_scrolling;
+			m_overlays.ShowTrigger = m_show_trigger;
+			m_overlays.TriggerLevelVolts = m_model.TriggerLevelVolts;
+			m_overlays.TriggerTimeMs = m_trig_offset_ms;
+			m_overlays.LevelText = FormatVolts(m_model.TriggerLevelVolts);
+			m_overlays.TimeText = FormatTime(m_trig_offset_ms / 1000.0);
+
+			// The tab marks each channel's zero reference at its current display offset.
+			m_overlays.Ch1TabVisible = ChannelEnabled(1);
+			m_overlays.Ch2TabVisible = ChannelEnabled(2);
+			m_overlays.Ch1OffsetVolts = m_ch1_offset_v;
+			m_overlays.Ch2OffsetVolts = m_ch2_offset_v;
+
+			m_overlays.Reposition();
+		}
+
+		/// <summary>Trigger-level tab dragged: apply the new level to the device.</summary>
+		private void OnDragTriggerLevel(double volts)
+		{
+			m_model.RequestTriggerLevelVolts(volts);
+			m_overlays.TriggerLevelVolts = volts;
+			m_overlays.LevelText = FormatVolts(volts);
+			m_chart.Invalidate();
+		}
+
+		/// <summary>
+		/// Trigger-time tab dragged (framed mode): store the horizontal display offset,
+		/// write the hardware horizontal-position register, and re-lay the framed trace
+		/// immediately so the shift is visible even between polls.
+		/// </summary>
+		private void OnDragTriggerTime(double offset_ms)
+		{
+			m_trig_offset_ms = offset_ms;
+			m_model.RequestTriggerTimeOffset(offset_ms / 1000.0);
+			m_overlays.TriggerTimeMs = offset_ms;
+			m_overlays.TimeText = FormatTime(offset_ms / 1000.0);
+			if (!m_scrolling)
+				RebuildFrame();
+			m_chart.Invalidate();
+		}
+
+		/// <summary>
+		/// Vertical-position tab dragged: move one channel's trace on the display only.
+		/// In framed mode the trace is rebuilt with the new offset; in scrolling mode the
+		/// already-plotted points are shifted by the delta in-place (that mode keeps no
+		/// per-sample buffer to rebuild from). The measurement buffer is never touched, so
+		/// the reported values stay true to the real signal.
+		/// </summary>
+		private void OnDragChannelOffset(int channel, double volts)
+		{
+			switch (channel)
+			{
+				case 1:
+				{
+					var delta = volts - m_ch1_offset_v;
+					m_ch1_offset_v = volts;
+					m_overlays.Ch1OffsetVolts = volts;
+					if (m_scrolling)
+						ShiftScrollingChannel(m_ch1, delta);
+					break;
+				}
+				case 2:
+				{
+					var delta = volts - m_ch2_offset_v;
+					m_ch2_offset_v = volts;
+					m_overlays.Ch2OffsetVolts = volts;
+					if (m_scrolling)
+						ShiftScrollingChannel(m_ch2, delta);
+					break;
+				}
+				default:
+				{
+					throw new ArgumentOutOfRangeException(nameof(channel), channel, "Unknown channel");
+				}
+			}
+
+			if (!m_scrolling)
+				RebuildFrame();
+			m_chart.Invalidate();
+		}
+
+		/// <summary>Shift every plotted point of a scrolling series vertically by a delta (single lock pass).</summary>
+		private static void ShiftScrollingChannel(ChartDataSeries series, double delta_v)
+		{
+			if (delta_v == 0.0)
+				return;
+
+			using var lk = series.Lock();
+			for (var i = 0; i != lk.Count; ++i)
+			{
+				var p = lk[i];
+				lk[i] = new ChartDataSeries.Pt(p.x, p.y + delta_v);
+			}
 		}
 
 		/// <summary>Recompute and display the auto-measurements over the recent-sample buffer.</summary>
@@ -684,7 +831,7 @@ namespace HantekScope.UI
 				foreach (var s in samples)
 				{
 					if (!double.IsNaN(s.Ch1V))
-						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch1V));
+						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch1V + m_ch1_offset_v));
 				}
 				TrimOldest(lk);
 			}
@@ -694,7 +841,7 @@ namespace HantekScope.UI
 				foreach (var s in samples)
 				{
 					if (!double.IsNaN(s.Ch2V))
-						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch2V));
+						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch2V + m_ch2_offset_v));
 				}
 				TrimOldest(lk);
 			}
@@ -723,6 +870,17 @@ namespace HantekScope.UI
 			if (m_frame.Count > MaxFramePoints)
 				m_frame.RemoveRange(0, m_frame.Count - MaxFramePoints);
 
+			RebuildFrame();
+		}
+
+		/// <summary>
+		/// Rebuild the framed trace from the current frame buffer without ingesting new
+		/// samples. Split out from RenderFramed so a drag of the time / vertical-position
+		/// tags can re-lay the trace immediately (with the new display offsets) even when
+		/// acquisition is paused or between polls.
+		/// </summary>
+		private void RebuildFrame()
+		{
 			// Per-sample spacing at the currently applied timebase.
 			var dt_ms = m_model.SampleIntervalS * 1000.0;
 			if (dt_ms <= 0)
@@ -756,6 +914,8 @@ namespace HantekScope.UI
 				}
 			}
 			var length = Math.Min(window, count);
+			if (length == 0)
+				return;
 
 			// Keep fitting the Y axis to the displayed window until a full record has been
 			// buffered, then latch it. Fitting only on the first tick would scale to the
@@ -769,12 +929,14 @@ namespace HantekScope.UI
 
 			// Map buffer index start+k to a local index k, then to x = (k - half)*dt so
 			// the trigger (k == half) lands at x=0 with pre-trigger to the left. The
-			// record-boundary step (if present in this window) splits each channel into a
-			// head and tail series so the step itself is left as a one-sample gap rather
-			// than drawn as a spurious near-vertical connector.
+			// per-channel vertical offset and the shared horizontal time offset are baked
+			// into the plotted values so the display can be shifted without touching the
+			// measurement buffer. The record-boundary step (if present in this window)
+			// splits each channel into a head and tail series so the step itself is left
+			// as a one-sample gap rather than drawn as a spurious near-vertical connector.
 			var seam = FindSeamOffset(start, length);
-			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, static s => s.Ch1V);
-			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, static s => s.Ch2V);
+			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch1_offset_v, static s => s.Ch1V);
+			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch2_offset_v, static s => s.Ch2V);
 
 			// Fit the X axis once to a full record width centred on the trigger, so the
 			// window always spans one complete record (12 divisions) with the trigger at
@@ -796,7 +958,7 @@ namespace HantekScope.UI
 		/// cleared. Both series are cleared every call so a seam that comes and goes as the
 		/// window scrolls never leaves a stale head or tail behind.
 		/// </summary>
-		private void FillFramedChannel(ChartDataSeries main, ChartDataSeries tail, int start, int length, int half, double dt_ms, int seam, Func<Sample, double> selector)
+		private void FillFramedChannel(ChartDataSeries main, ChartDataSeries tail, int start, int length, int half, double dt_ms, int seam, double x_offset_ms, double y_offset, Func<Sample, double> selector)
 		{
 			var split = seam < 0 ? length : seam;
 
@@ -807,7 +969,7 @@ namespace HantekScope.UI
 				{
 					var v = selector(m_frame[start + k]);
 					if (!double.IsNaN(v))
-						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms + x_offset_ms, v + y_offset));
 				}
 			}
 
@@ -818,7 +980,7 @@ namespace HantekScope.UI
 				{
 					var v = selector(m_frame[start + k]);
 					if (!double.IsNaN(v))
-						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms, v));
+						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms + x_offset_ms, v + y_offset));
 				}
 			}
 		}
@@ -1101,6 +1263,7 @@ namespace HantekScope.UI
 		{
 			m_render_timer.Stop();
 			m_model.Dispose();
+			m_overlays?.Dispose();
 			Util.Dispose(m_ch1);
 			Util.Dispose(m_ch2);
 			Util.Dispose(m_ch1_tail);

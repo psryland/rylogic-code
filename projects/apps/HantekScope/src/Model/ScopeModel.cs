@@ -136,6 +136,12 @@ namespace HantekScope.Model
 			get { lock (m_sync) return m_desired.TriggerLevelVolts; }
 		}
 
+		/// <summary>Desired trigger horizontal position as a time offset in seconds.</summary>
+		public double TriggerTimeOffsetS
+		{
+			get { lock (m_sync) return m_desired.TriggerTimeOffsetS; }
+		}
+
 		/// <summary>True while the acquisition thread is running.</summary>
 		public bool IsRunning => m_run;
 
@@ -283,6 +289,10 @@ namespace HantekScope.Model
 			{
 				var seconds_per_div = HantekProtocol.TimebaseTable[m_applied.TimebaseIndex];
 				m_desired.TriggerHPosCode = HantekProtocol.TimeToHTriggerCode(seconds, seconds_per_div);
+
+				// Remember the requested offset so the display's time indicator can read
+				// back the value it last set (the register code doesn't round-trip cleanly).
+				m_desired.TriggerTimeOffsetS = seconds;
 			}
 		}
 
@@ -620,6 +630,11 @@ namespace HantekScope.Model
 			// against decoded sample volts without a lossy code->volts round trip.
 			public double TriggerLevelVolts;
 
+			// The requested trigger horizontal position as a time offset in seconds,
+			// kept alongside the device register code so the display can read back the
+			// value it last set (the register code alone doesn't round-trip cleanly).
+			public double TriggerTimeOffsetS;
+
 			/// <summary>The configuration the init sequence programs (see HantekDevice.InitFrames).</summary>
 			public static Config Default => new()
 			{
@@ -637,6 +652,7 @@ namespace HantekScope.Model
 				TriggerLevelCode = HantekProtocol.Ch1VPosZeroCode,
 				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
 				TriggerLevelVolts = 0.0,
+				TriggerTimeOffsetS = 0.0,
 			};
 		}
 	}
