@@ -312,7 +312,15 @@ namespace Rylogic.Gui.WPF
 					if (m_in_set != 0) return;
 					using var is_set = Scope.Create(() => ++m_in_set, () => --m_in_set);
 
-					Debug.Assert(min < max, "Range must be positive and non-zero");
+					// This setter is deliberately tolerant of a degenerate or reversed input
+					// range so callers never have to guard against it (e.g. a zero-area
+					// box-select can produce min == max, or a drag from high to low can
+					// produce min > max). Normalise the ordering here; the zero-width case is
+					// expanded to a tiny non-zero span just below. Do not assert on min >= max
+					// — that would FailFast in Debug builds on an otherwise-harmless gesture.
+					if (min > max)
+						(min, max) = (max, min);
+
 					var zoomed = !Math_.FEql(max - min, m_max - m_min);
 					var scroll = !Math_.FEql((max + min) * 0.5, (m_max + m_min) * 0.5);
 
