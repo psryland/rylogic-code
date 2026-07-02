@@ -333,6 +333,65 @@ namespace HantekScope.Model
 		}
 
 		/// <summary>
+		/// Request a DDS generator waveform shape. Safe to call from any thread; the
+		/// change is written by the acquisition thread before its next read.
+		/// </summary>
+		public void RequestDdsWaveform(EDdsWaveform waveform)
+		{
+			lock (m_sync)
+				m_desired.DdsWaveform = waveform;
+		}
+
+		/// <summary>Request a DDS generator frequency in Hz (clamped to the generator's range).</summary>
+		public void RequestDdsFrequency(long hz)
+		{
+			lock (m_sync)
+				m_desired.DdsFrequencyHz = HantekProtocol.ClampDdsFrequency(hz);
+		}
+
+		/// <summary>
+		/// Request a DDS generator amplitude in peak-to-peak volts. The value is stored
+		/// as the register's mVpp code (clamped); a high-impedance load reads about twice
+		/// the labelled Vpp (see HantekProtocol.DdsAmplitudeMaxMilliVpp).
+		/// </summary>
+		public void RequestDdsAmplitudeVpp(double vpp)
+		{
+			lock (m_sync)
+				m_desired.DdsAmplitudeMilliVpp = HantekProtocol.VppToDdsAmplitudeCode(vpp);
+		}
+
+		/// <summary>Request a DDS square-wave duty cycle in percent (clamped to the honoured range).</summary>
+		public void RequestDdsDuty(int percent)
+		{
+			lock (m_sync)
+				m_desired.DdsDutyPercent = HantekProtocol.ClampDdsDuty(percent);
+		}
+
+		/// <summary>The desired DDS waveform shape (reflects the user's selection).</summary>
+		public EDdsWaveform DdsWaveform
+		{
+			get { lock (m_sync) return m_desired.DdsWaveform; }
+		}
+
+		/// <summary>The desired DDS frequency in Hz.</summary>
+		public long DdsFrequencyHz
+		{
+			get { lock (m_sync) return m_desired.DdsFrequencyHz; }
+		}
+
+		/// <summary>The desired DDS amplitude in peak-to-peak volts (the register mVpp value / 1000).</summary>
+		public double DdsAmplitudeVpp
+		{
+			get { lock (m_sync) return m_desired.DdsAmplitudeMilliVpp / 1000.0; }
+		}
+
+		/// <summary>The desired DDS square-wave duty cycle in percent.</summary>
+		public int DdsDutyPercent
+		{
+			get { lock (m_sync) return m_desired.DdsDutyPercent; }
+		}
+
+		/// <summary>
 		/// Open the device and start acquiring. Opening + the init sequence run on
 		/// the background thread because they perform blocking USB I/O.
 		/// </summary>
@@ -473,6 +532,17 @@ namespace HantekScope.Model
 					m_applied.Ch2VPosCode = vpos2;
 					m_desired.Ch2VPosCode = vpos2;
 				}
+
+				// Seed the applied DDS state to sentinels that can't match any valid
+				// desired value, so the first reconcile re-asserts the desired generator
+				// settings (defaults on first connect, or the user's last choices on
+				// reconnect) to the hardware — the init sequence's DDS writes are treated
+				// as unknown rather than trusted.
+				m_applied.DdsWaveform = (EDdsWaveform)0xFF;
+				m_applied.DdsFrequencyHz = -1;
+				m_applied.DdsAmplitudeMilliVpp = -1;
+				m_applied.DdsDutyPercent = -1;
+
 				adopted = m_applied;
 			}
 			m_sample_index = 0;
@@ -640,6 +710,32 @@ namespace HantekScope.Model
 				applied.TriggerHPosCode = desired.TriggerHPosCode;
 			}
 
+			// DDS generator registers. These don't affect DSO decoding, so they're
+			// written without touching the display. Only the four registers that take
+			// effect from DSO streaming mode are driven (see EDdsRegister). On (re)connect
+			// the applied DDS state is seeded to sentinels so all four are re-asserted once,
+			// giving the generator a known state regardless of what the init left.
+			if (desired.DdsWaveform != applied.DdsWaveform)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Waveform, (long)desired.DdsWaveform);
+				applied.DdsWaveform = desired.DdsWaveform;
+			}
+			if (desired.DdsFrequencyHz != applied.DdsFrequencyHz)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Frequency, desired.DdsFrequencyHz);
+				applied.DdsFrequencyHz = desired.DdsFrequencyHz;
+			}
+			if (desired.DdsAmplitudeMilliVpp != applied.DdsAmplitudeMilliVpp)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Amplitude, desired.DdsAmplitudeMilliVpp);
+				applied.DdsAmplitudeMilliVpp = desired.DdsAmplitudeMilliVpp;
+			}
+			if (desired.DdsDutyPercent != applied.DdsDutyPercent)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Duty, desired.DdsDutyPercent);
+				applied.DdsDutyPercent = desired.DdsDutyPercent;
+			}
+
 			// Publish the reconciled applied config back for the UI's read-side props.
 			lock (m_sync)
 				m_applied = applied;
@@ -736,6 +832,15 @@ namespace HantekScope.Model
 			// value it last set (the register code alone doesn't round-trip cleanly).
 			public double TriggerTimeOffsetS;
 
+			// DDS / waveform-generator state. These don't affect how DSO samples decode;
+			// the apply loop just writes the four working generator registers (see
+			// EDdsRegister) when they change. Amplitude is stored as the register's mVpp
+			// value; frequency as a full Hz value; duty as an integer percent.
+			public EDdsWaveform DdsWaveform;
+			public long DdsFrequencyHz;
+			public int DdsAmplitudeMilliVpp;
+			public int DdsDutyPercent;
+
 			/// <summary>The configuration the init sequence programs (see HantekDevice.InitFrames).</summary>
 			public static Config Default => new()
 			{
@@ -756,6 +861,10 @@ namespace HantekScope.Model
 				TriggerLevelCode = HantekProtocol.VPosCentreCode,
 				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
 				TriggerTimeOffsetS = 0.0,
+				DdsWaveform = EDdsWaveform.Sine,
+				DdsFrequencyHz = 1000,
+				DdsAmplitudeMilliVpp = 2000,
+				DdsDutyPercent = 50,
 			};
 		}
 	}

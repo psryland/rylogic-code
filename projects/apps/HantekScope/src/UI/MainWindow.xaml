@@ -51,6 +51,17 @@
 					Click="OnSetScopeRange"
 					/>
 				<Separator />
+				<Button
+					x:Name="m_btn_awg"
+					AutomationProperties.Name="Waveform generator"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xEC4A;"
+					ToolTip="Open the waveform generator controls"
+					Click="OnToggleAwg"
+					/>
+				<Separator />
 				<ToggleButton
 					x:Name="m_btn_measurements"
 					AutomationProperties.Name="Measurements panel"

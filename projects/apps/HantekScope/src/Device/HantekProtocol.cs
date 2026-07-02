@@ -103,6 +103,41 @@ namespace HantekScope.Device
 	}
 
 	/// <summary>
+	/// DDS / arbitrary-waveform-generator registers (category 0x02), mapped from
+	/// captures 22-28 of the official software and confirmed live against the
+	/// generator. Values are little-endian: Frequency is a full 32-bit Hz value,
+	/// Amplitude and Duty are small integers.
+	///
+	/// Only Waveform, Frequency, Amplitude and Duty take effect while the device is
+	/// left in DSO streaming mode (which this app relies on to keep the trace). The
+	/// official software drives Offset and OutputEnable from DDS mode; from DSO mode
+	/// Offset has no effect and an OutputEnable write aliases the shape register and
+	/// corrupts generation, so those two are documented here but not exposed.
+	/// </summary>
+	public enum EDdsRegister :byte
+	{
+		Waveform = 0x00,
+		Frequency = 0x01,
+		Amplitude = 0x02,
+		Offset = 0x03,       // sign-magnitude mV; no effect from DSO mode — do not write
+		Duty = 0x04,         // integer %, square wave only
+		OutputEnable = 0x08, // 1/0; corrupts generation from DSO mode — do not write
+	}
+
+	/// <summary>
+	/// DDS waveform shape (category 0x02 register 0x00). The generator's built-in
+	/// shapes; 'Arbitrary' plays a user-loaded table which this app does not upload.
+	/// </summary>
+	public enum EDdsWaveform :byte
+	{
+		Square = 0,
+		Ramp = 1,
+		Sine = 2,
+		Trapezia = 3,
+		Arbitrary = 4,
+	}
+
+	/// <summary>
 	/// Protocol-level constants and frame helpers for the Hantek 2D42. Pure
 	/// build/parse logic with no I/O; the device class owns the USB transfers.
 	/// See the reverse-engineering notes in the 'hantek' repo (docs/protocol.md).
@@ -190,6 +225,16 @@ namespace HantekScope.Device
 		// channel's live vpos code as its 0 V origin, so a 0 V trigger sits on that
 		// channel's baseline.
 		public const int VPosCentreCode = 100;
+
+		// DDS / arbitrary-waveform-generator limits (see EDdsRegister). The amplitude
+		// register is in mVpp referenced to 50 Ohm; a high-impedance load (e.g. the
+		// scope's ~1 MOhm input) sees roughly twice the labelled Vpp. The generator
+		// tops out at 2500 mVpp (2.5 Vpp / ~5 Vpp into high-Z) and 25 MHz, and the duty
+		// control (square wave only) saturates well before 0/100 %.
+		public const int DdsAmplitudeMaxMilliVpp = 2500;
+		public const long DdsFrequencyMaxHz = 25_000_000;
+		public const int DdsDutyMinPercent = 10;
+		public const int DdsDutyMaxPercent = 89;
 
 		/// <summary>
 		/// Volts-per-division for each volts/div register index (1-2-5 sequence).
@@ -424,6 +469,29 @@ namespace HantekScope.Device
 		{
 			var raw_volts = (vpos_code - home_code) / ScreenCodesPerDiv * volts_per_div;
 			return raw_volts * ProbeRatio(probe);
+		}
+
+		/// <summary>
+		/// Convert a peak-to-peak amplitude in volts to the DDS amplitude register value
+		/// (mVpp referenced to 50 Ohm), clamped to the generator's range. Note a high-Z
+		/// load reads roughly twice this labelled Vpp (see DdsAmplitudeMaxMilliVpp).
+		/// </summary>
+		public static int VppToDdsAmplitudeCode(double vpp)
+		{
+			var millivolts = (int)Math.Round(vpp * 1000.0);
+			return Math.Clamp(millivolts, 0, DdsAmplitudeMaxMilliVpp);
+		}
+
+		/// <summary>Clamp a DDS frequency request to the generator's supported range.</summary>
+		public static long ClampDdsFrequency(long hz)
+		{
+			return Math.Clamp(hz, 0, DdsFrequencyMaxHz);
+		}
+
+		/// <summary>Clamp a DDS duty-cycle percentage to the range the square-wave generator honours.</summary>
+		public static int ClampDdsDuty(int percent)
+		{
+			return Math.Clamp(percent, DdsDutyMinPercent, DdsDutyMaxPercent);
 		}
 
 		/// <summary>

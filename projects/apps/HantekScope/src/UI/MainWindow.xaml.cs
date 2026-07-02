@@ -175,6 +175,10 @@ namespace HantekScope.UI
 		// window, so it is null while docked and holds the detached content while floating.
 		private Window? m_measure_window;
 
+		// The non-modal waveform-generator control panel, created on first use and
+		// re-focused thereafter; null while it has never been opened or after it closes.
+		private AwgWindow? m_awg_window;
+
 		// Set once the main window is closing so the pop-out re-dock logic doesn't try to
 		// re-parent the measurements content into a window that is being torn down.
 		private bool m_closing;
@@ -722,6 +726,34 @@ namespace HantekScope.UI
 
 			RepositionOverlays();
 			m_chart.Invalidate();
+		}
+
+		/// <summary>
+		/// Open the non-modal waveform-generator panel, or re-focus it if it is already
+		/// open. The panel is owned by this window so it stays on top and closes with the
+		/// app; it drives the generator through the model like every other control.
+		/// </summary>
+		private void OnToggleAwg(object sender, RoutedEventArgs e)
+		{
+			if (m_awg_window != null)
+			{
+				m_awg_window.Activate();
+				return;
+			}
+
+			m_awg_window = new AwgWindow(m_model) { Owner = this };
+			m_awg_window.Closed += OnAwgWindowClosed;
+			m_awg_window.Show();
+		}
+
+		/// <summary>Forget the generator window once it closes so the next open makes a fresh one.</summary>
+		private void OnAwgWindowClosed(object? sender, EventArgs e)
+		{
+			if (m_awg_window != null)
+			{
+				m_awg_window.Closed -= OnAwgWindowClosed;
+				m_awg_window = null;
+			}
 		}
 
 		/// <summary>Toggle between framed (trigger-relative) and horizontal-scrolling display.</summary>
@@ -1740,6 +1772,9 @@ namespace HantekScope.UI
 			// Close the popped-out Measurements window (if any) so it doesn't linger; the
 			// m_closing flag stops its Closed handler from re-docking into this dying window.
 			m_measure_window?.Close();
+
+			// Close the generator panel too so it doesn't outlive the main window.
+			m_awg_window?.Close();
 
 			m_render_timer.Stop();
 			m_model.Dispose();
