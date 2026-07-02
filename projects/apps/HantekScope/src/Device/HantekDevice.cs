@@ -22,10 +22,10 @@ namespace HantekScope.Device
 		// capability registers. The leading seq byte is rewritten at send time, and
 		// read frames (access byte == 0x01) have their IN response drained before the
 		// next frame or the bulk endpoints desync. Defaults baked in: both channels
-		// enabled at 1 V/div, CH1/CH2 vpos and trigger level at the display-centre
-		// code (see HantekProtocol.VPosCentreCode) so a fresh connect leaves both
-		// traces physically centred and the app's 0 V offset maps to that centre,
-		// timebase index 14 (200 us/div), generator a 1 kHz / 2 Vpp sine.
+		// enabled at 1 V/div, trigger CH1 rising auto, timebase index 14 (200 us/div),
+		// generator a 1 kHz / 2 Vpp sine. Vertical position is deliberately NOT written:
+		// the app adopts whatever vpos the scope already holds (see ScopeModel), so the
+		// two per-channel vpos frames are omitted from this sequence.
 		private static readonly string[] InitFrames =
 		{
 			"000a0301070000000000", // read cat03 reg07 status
@@ -34,13 +34,11 @@ namespace HantekScope.Device
 			"000a03010c0000000000", // read cat03 reg0c version
 			"00250301090000000000", // read cat03 reg09 serial (large response buffer)
 			"000a0000000100000000", // CH1 enable = 1
-			"000a0000056400000000", // CH1 vpos = 100 (display centre)
 			"000a0000010000000000", // CH1 coupling = 0 (AC)
 			"000a0000020000000000", // CH1 probe = 0 (x1)
 			"000a0000030000000000", // CH1 reg+3 = 0
 			"000a0000040600000000", // CH1 volts/div = 6 (1 V)
 			"000a0000060100000000", // CH2 enable = 1
-			"000a00000b6400000000", // CH2 vpos = 100 (display centre)
 			"000a0000070000000000", // CH2 coupling = 0 (AC)
 			"000a0000080000000000", // CH2 probe = 0 (x1)
 			"000a0000090000000000", // CH2 reg+3 = 0
@@ -120,6 +118,25 @@ namespace HantekScope.Device
 			var frame = HantekProtocol.BuildFrame(0, category, EAccess.Read, register);
 			WriteFrame(frame);
 			return ReadIn(length);
+		}
+
+		/// <summary>
+		/// Read a single DSO register's value byte, returning -1 if a valid response can't
+		/// be obtained. A register-read response is 5 bytes: 0x55, length, category,
+		/// register, value. The device echoes the category and register it is answering, so
+		/// the response is validated against the request; if it doesn't match (e.g. a stale
+		/// response is still queued in the IN pipe after an unclean prior session) the read
+		/// is retried, which drains the stale frame and realigns the request/response pairing.
+		/// </summary>
+		public int ReadDsoRegisterValue(EDsoRegister register, int attempts = 4)
+		{
+			for (var attempt = 0; attempt != attempts; ++attempt)
+			{
+				var resp = ReadRegister(ECategory.Dso, (byte)register, 64);
+				if (resp.Length >= 5 && resp[0] == 0x55 && resp[2] == (byte)ECategory.Dso && resp[3] == (byte)register)
+					return resp[4];
+			}
+			return -1;
 		}
 
 		/// <summary>Read serial / firmware / version identity strings.</summary>

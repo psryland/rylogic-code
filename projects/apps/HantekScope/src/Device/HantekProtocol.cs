@@ -413,6 +413,20 @@ namespace HantekScope.Device
 		}
 
 		/// <summary>
+		/// Inverse of VoltsToVPosCode: convert a channel's vertical-position register code
+		/// back to the offset it represents (the volts its baseline is moved up the chart,
+		/// in true signal volts). Used to adopt the scope's live vertical position on
+		/// connect so the app's display baseline matches the physical trace. The probe
+		/// ratio is multiplied back in because the register itself is on the probe-agnostic
+		/// screen scale while the returned offset is in displayed (probe-scaled) volts.
+		/// </summary>
+		public static double VPosCodeToVolts(int vpos_code, double volts_per_div, EProbeScale probe, int home_code)
+		{
+			var raw_volts = (vpos_code - home_code) / ScreenCodesPerDiv * volts_per_div;
+			return raw_volts * ProbeRatio(probe);
+		}
+
+		/// <summary>
 		/// Convert a time offset (seconds, relative to the trigger origin) to the
 		/// horizontal trigger-position register code. The position is centred at 150
 		/// (zero delay) on the screen-position scale (~25 codes/div) and clamped to the

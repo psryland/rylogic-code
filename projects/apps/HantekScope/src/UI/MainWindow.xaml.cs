@@ -40,6 +40,12 @@ namespace HantekScope.UI
 		private readonly ChartDataSeries m_ch1 = new("CH1", ChartDataSeries.EFormat.XRealYReal);
 		private readonly ChartDataSeries m_ch2 = new("CH2", ChartDataSeries.EFormat.XRealYReal);
 
+		// Latest device identity strings read on connect, cached for the Help > Scope
+		// dialog. Empty until the first successful identity read.
+		private string m_dev_serial = "";
+		private string m_dev_firmware = "";
+		private string m_dev_version = "";
+
 		// Framed mode replays a fixed hardware record whose ends do not meet (the record
 		// spans a non-integer number of signal periods), so stitching it into a stream
 		// leaves one large step at the record boundary. Rendering each channel as a
@@ -75,21 +81,25 @@ namespace HantekScope.UI
 		// NaN means "no lock yet" (fall back to a centred pick / free-run).
 		private double m_trig_xms = double.NaN;
 
-		// Display colours. Background defaults to a dark gray; channels to a green / blue
-		// pair. The trigger-level indicator for each channel uses a darker shade of the
-		// trace colour so the level line/tag reads as related-to but distinct-from the
-		// trace. The trace colours are user-editable via the Appearance menu; the trigger
-		// shades are fixed companions to the defaults.
+		// Display colours. Background defaults to a dark gray; the channel traces default
+		// to the scope's own front-panel colours (CH1 yellow, CH2 green) so the PC display
+		// matches the instrument. The trigger-level indicator for each channel uses a
+		// darker shade of the trace colour so the level line/tag reads as related-to but
+		// distinct-from the trace. The trace colours are user-editable via the Appearance
+		// menu; the trigger shades are fixed companions to the defaults.
 		private Colour32 m_bg_colour = new(0xFF2A2A2Au);
-		private Colour32 m_ch1_colour = new(0xFF3ABB0Cu);
-		private Colour32 m_ch2_colour = new(0xFF2AA7F9u);
-		private Colour32 m_ch1_trig_colour = new(0xFF2D910Bu);
-		private Colour32 m_ch2_trig_colour = new(0xFF0099F9u);
+		private Colour32 m_ch1_colour = new(0xFFE3E100u);
+		private Colour32 m_ch2_colour = new(0xFF00D900u);
+		private Colour32 m_ch1_trig_colour = new(0xFFA9A800u);
+		private Colour32 m_ch2_trig_colour = new(0xFF009100u);
 
-		// Display mode and per-axis auto-resolution flags.
+		// Display mode and per-axis auto-resolution flags. Auto-resolution defaults OFF so
+		// pan/zoom is a pure view operation that never changes the scope's acquisition
+		// settings; the user pushes the current view to the hardware on demand via the
+		// scene menu's 'Set Scope Range', or opts into live coupling per axis.
 		private bool m_scrolling;
-		private bool m_xauto = true;
-		private bool m_yauto = true;
+		private bool m_xauto = false;
+		private bool m_yauto = false;
 
 		// Checkable menu items kept so their IsChecked state mirrors the flags above.
 		private MenuItem m_mi_scrolling = null!;
@@ -122,7 +132,8 @@ namespace HantekScope.UI
 		private ScopeOverlays m_overlays = null!;
 
 		// Master show/hide for the trigger level/time indicators (context-menu toggle).
-		private bool m_show_trigger = true;
+		// Hidden by default so a fresh view is uncluttered; the user opts in per session.
+		private bool m_show_trigger = false;
 
 		// Framed-mode horizontal display offset (ms): the software-trigger crossing is
 		// drawn at this x instead of x=0, so dragging the time tag pans the framed trace.
@@ -157,6 +168,7 @@ namespace HantekScope.UI
 			m_model.StatusChanged += OnStatusChanged;
 			m_model.IdentityRead += OnIdentityRead;
 			m_model.ConfigChanged += OnConfigChanged;
+			m_model.VPosAdopted += OnVPosAdopted;
 
 			// Drive rendering at ~60 fps, independent of the acquisition rate.
 			m_render_timer = new DispatcherTimer(DispatcherPriority.Render)
@@ -243,6 +255,7 @@ namespace HantekScope.UI
 			scene.Items.Add(BuildChannelsMenu());
 			scene.Items.Add(BuildTriggerMenu());
 			scene.Items.Add(new Separator());
+			scene.Items.Add(MakeItem("Set Scope Range", OnSetScopeRange));
 			scene.Items.Add(m_mi_scrolling);
 			scene.Opened += OnSceneMenuOpened;
 			m_chart.SceneCMenu = scene;
@@ -493,6 +506,33 @@ namespace HantekScope.UI
 			Close();
 		}
 
+		/// <summary>Help ▸ Scope: show the connected instrument's model and identity strings.</summary>
+		private void OnHelpScope(object sender, RoutedEventArgs e)
+		{
+			// The identity fields are populated on connect; when disconnected they are
+			// empty, so present a clear placeholder rather than blank lines.
+			var have_id = m_dev_serial.Length != 0 || m_dev_firmware.Length != 0 || m_dev_version.Length != 0;
+			var body = have_id
+				? $"Model:\tHantek 2D42\nSerial:\t{m_dev_serial}\nFirmware:\t{m_dev_firmware}\nVersion:\t{m_dev_version}"
+				: "Model:\tHantek 2D42\n\nNot connected — identity is read when the scope is running.";
+
+			MessageBox.Show(this, body, "Scope", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+
+		/// <summary>Help ▸ About: show the application version and copyright.</summary>
+		private void OnHelpAbout(object sender, RoutedEventArgs e)
+		{
+			// Pull the version and company from the running assembly's metadata (set in the
+			// csproj) so the dialog stays in step with the build without duplicating strings.
+			var asm = System.Reflection.Assembly.GetExecutingAssembly();
+			var name = asm.GetName();
+			var version = name.Version?.ToString() ?? "0.0.0";
+			var year = DateTime.Now.Year;
+
+			var body = $"Hantek 2D42 Scope\nVersion {version}\n\n© {year} Rylogic Ltd\nLive oscilloscope viewer for the Hantek 2D42 over WinUSB.";
+			MessageBox.Show(this, body, "About", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+
 		/// <summary>
 		/// Toggle the Measurements panel between docked and a floating window. The single
 		/// content element is moved rather than duplicated, so the periodic update code that
@@ -653,6 +693,26 @@ namespace HantekScope.UI
 		{
 			SetRange(() => m_chart.Range.YAxis.Set(-5, 5));
 			m_chart.Invalidate();
+		}
+
+		/// <summary>
+		/// Push the current view to the hardware in one shot: pick the scope volts/div and
+		/// time/div whose per-division value best matches the visible axis spans, so the
+		/// acquisition resolution matches what the user has zoomed to. This is the explicit
+		/// counterpart to per-axis auto-resolution — a deliberate one-time sync rather than
+		/// a live coupling, leaving pan/zoom otherwise free of hardware side effects.
+		/// </summary>
+		private void OnSetScopeRange(object sender, RoutedEventArgs e)
+		{
+			// Y: fill the ADC's full-scale division count with the visible volt span.
+			var span_v = m_chart.Range.YAxis.Span;
+			var target_vdiv = span_v / HantekProtocol.AdcFullScaleDiv;
+			m_model.RequestVoltsDivIndex(HantekProtocol.NearestVoltsDivIndex(target_vdiv));
+
+			// X: match the record duration to the visible time span (chart X is in ms).
+			var span_s = m_chart.Range.XAxis.Span / 1000.0;
+			var target_tb = span_s / HantekProtocol.RecordDivisions;
+			m_model.RequestTimebaseIndex(HantekProtocol.NearestTimebaseIndex(target_tb));
 		}
 
 		/// <summary>
@@ -1335,12 +1395,40 @@ namespace HantekScope.UI
 			});
 		}
 
-		/// <summary>Marshal the device identity onto the status bar.</summary>
+		/// <summary>Cache the device identity for the Help > Scope dialog.</summary>
 		private void OnIdentityRead(string serial, string firmware, string version)
 		{
 			Dispatcher.BeginInvoke(() =>
 			{
-				m_status_identity.Text = $"{serial}  fw {firmware}";
+				m_dev_serial = serial;
+				m_dev_firmware = firmware;
+				m_dev_version = version;
+			});
+		}
+
+		/// <summary>
+		/// Adopt the scope's live vertical positions read on connect. The model supplies
+		/// each channel's offset in true signal volts; mirror it into the display offsets,
+		/// overlays and status so the app's baseline sits where the physical trace is
+		/// rather than assuming a centred 0 V. Marshalled to the UI thread as the event
+		/// originates on the acquisition thread.
+		/// </summary>
+		private void OnVPosAdopted(double ch1_offset_v, double ch2_offset_v)
+		{
+			Dispatcher.BeginInvoke(() =>
+			{
+				m_ch1_offset_v = ch1_offset_v;
+				m_ch2_offset_v = ch2_offset_v;
+
+				if (m_overlays is not null)
+				{
+					m_overlays.Ch1OffsetVolts = ch1_offset_v;
+					m_overlays.Ch2OffsetVolts = ch2_offset_v;
+					m_overlays.Reposition();
+				}
+
+				UpdateVPosStatus();
+				m_chart.Invalidate();
 			});
 		}
 

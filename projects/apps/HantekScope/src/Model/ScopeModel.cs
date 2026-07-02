@@ -157,6 +157,13 @@ namespace HantekScope.Model
 		/// <summary>Raised (on the acquisition thread) once identity has been read after opening.</summary>
 		public event Action<string, string, string>? IdentityRead;
 
+		/// <summary>
+		/// Raised (on the acquisition thread) after connect once the scope's live vertical
+		/// positions have been read and adopted, giving each channel's offset in true
+		/// signal volts so the UI can align its display baseline with the physical trace.
+		/// </summary>
+		public event Action<double, double>? VPosAdopted;
+
 		/// <summary>Raised (on the acquisition thread) after the applied resolution changes.</summary>
 		public event Action? ConfigChanged;
 
@@ -403,7 +410,7 @@ namespace HantekScope.Model
 
 					var id = m_device!.ReadIdentity();
 					IdentityRead?.Invoke(id.Serial, id.Firmware, id.Version);
-					StatusChanged?.Invoke($"Running — {id.Serial} fw {id.Firmware}");
+					StatusChanged?.Invoke("Running");
 
 					PollLoop();
 				}
@@ -443,12 +450,40 @@ namespace HantekScope.Model
 			StatusChanged?.Invoke("Initialising…");
 			m_device.RunInitSequence();
 
-			// The init sequence leaves the device in the default configuration.
-			// Reconciliation against 'm_desired' on the first poll re-applies any settings
-			// the user changed before the (re)connect.
+			// The init sequence no longer forces vertical position, so the scope retains
+			// whatever vpos it currently holds. Read the live CH1/CH2 vpos codes back and
+			// adopt them: seed both the applied and desired state from the hardware so the
+			// apply loop has nothing to correct (the traces are not moved) and decode uses
+			// the true 0 V code for the adopted position. A failed read (-1) falls back to
+			// the Config.Default vpos so acquisition still proceeds.
+			var vpos1 = m_device.ReadDsoRegisterValue(EDsoRegister.Ch1VPos);
+			var vpos2 = m_device.ReadDsoRegisterValue(EDsoRegister.Ch2VPos);
+
+			Config adopted;
 			lock (m_sync)
+			{
 				m_applied = Config.Default;
+				if (vpos1 >= 0)
+				{
+					m_applied.Ch1VPosCode = vpos1;
+					m_desired.Ch1VPosCode = vpos1;
+				}
+				if (vpos2 >= 0)
+				{
+					m_applied.Ch2VPosCode = vpos2;
+					m_desired.Ch2VPosCode = vpos2;
+				}
+				adopted = m_applied;
+			}
 			m_sample_index = 0;
+
+			// Report the adopted positions to the UI as vertical offsets in true signal
+			// volts (the inverse of the drag mapping), so its baseline and overlays sit
+			// where the physical trace is rather than assuming a centred 0 V.
+			var vdiv = HantekProtocol.VoltsDivTable[adopted.VoltsDivIndex];
+			var off1 = HantekProtocol.VPosCodeToVolts(adopted.Ch1VPosCode, vdiv, adopted.Ch1Probe, HantekProtocol.VPosHomeCode(1));
+			var off2 = HantekProtocol.VPosCodeToVolts(adopted.Ch2VPosCode, vdiv, adopted.Ch2Probe, HantekProtocol.VPosHomeCode(2));
+			VPosAdopted?.Invoke(off1, off2);
 
 			// Restart the display's time origin for the fresh stream.
 			ConfigChanged?.Invoke();

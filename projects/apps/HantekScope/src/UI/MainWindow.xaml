@@ -20,6 +20,10 @@
 			<MenuItem Header="_File">
 				<MenuItem Header="E_xit" Click="OnExit" />
 			</MenuItem>
+			<MenuItem Header="_Help">
+				<MenuItem Header="_Scope…" Click="OnHelpScope" />
+				<MenuItem Header="_About…" Click="OnHelpAbout" />
+			</MenuItem>
 		</Menu>
 
 		<!-- Toolbar: run/stop -->
@@ -90,8 +94,8 @@
 						</Grid.RowDefinitions>
 
 						<!-- Channel headers, coloured to match the traces. -->
-						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#3ABB0C" HorizontalAlignment="Right" Margin="8,0,0,4" />
-						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#2AA7F9" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#E3E100" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#00D900" HorizontalAlignment="Right" Margin="8,0,0,4" />
 
 						<TextBlock Grid.Row="1" Grid.Column="0" Text="Vpp" />
 						<TextBlock Grid.Row="1" Grid.Column="1" x:Name="m_c1_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
@@ -125,17 +129,13 @@
 			</Border>
 		</Grid>
 
-		<!-- Status bar: connection status, identity and current acquisition resolution -->
+		<!-- Status bar: connection status and current acquisition resolution -->
 		<StatusBar Grid.Row="3">
 			<StatusBarItem>
 				<StackPanel Orientation="Horizontal">
 					<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="0,0,4,0" />
 					<TextBlock x:Name="m_conn_status" VerticalAlignment="Center" Text="Disconnected" />
 				</StackPanel>
-			</StatusBarItem>
-			<Separator />
-			<StatusBarItem>
-				<TextBlock x:Name="m_status_identity" Text="&#x2014;" />
 			</StatusBarItem>
 			<Separator />
 			<StatusBarItem>
