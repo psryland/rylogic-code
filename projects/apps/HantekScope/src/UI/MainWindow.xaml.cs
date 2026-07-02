@@ -135,6 +135,26 @@ namespace HantekScope.UI
 		// Hidden by default so a fresh view is uncluttered; the user opts in per session.
 		private bool m_show_trigger = false;
 
+		// Display-only step-preserving denoise ("Smooth" appearance toggle). A sigma
+		// (bilateral) filter averages only the neighbours within a small value threshold
+		// of each sample, so ±1-LSB dither on flat or slowly-varying trace regions is
+		// smoothed to sub-LSB, while genuine edges (whose far-side neighbours differ by
+		// more than the threshold) are excluded from the average and stay crisp. Off by
+		// default; measurements always read the raw samples so the numbers stay faithful.
+		private bool m_smooth = false;
+		private const int SigmaWindowRadius = 3;
+		private const double SigmaLsbThreshold = 1.5;
+
+		// Latched between requesting a 'Set Scope Range' resolution change and the new
+		// resolution being applied. While set, the render tick keeps the sample buffers
+		// current but holds the on-screen trace, so the display snaps straight to the new
+		// range in a single repaint rather than briefly redrawing the old data at the new
+		// axis. OnConfigChanged (raised when the new geometry is applied) clears the latch;
+		// the tick countdown is a safety release should no config event arrive.
+		private bool m_awaiting_scope_range;
+		private int m_awaiting_scope_range_ticks;
+		private const int AwaitScopeRangeTimeoutTicks = 120;
+
 		// Segoe MDL2 Assets glyphs for the connect/disconnect toolbar button. The button
 		// shows the action it will perform: "Connect" when stopped, "Disconnect" when running.
 		private const string GlyphConnect = "\uE703";
@@ -255,6 +275,8 @@ namespace HantekScope.UI
 			appearance.Items.Add(MakeItem("_Background…", OnPickBackground));
 			appearance.Items.Add(MakeItem("CH_1 Colour…", OnPickCh1Colour));
 			appearance.Items.Add(MakeItem("CH_2 Colour…", OnPickCh2Colour));
+			appearance.Items.Add(new Separator());
+			appearance.Items.Add(MakeCheck("_Smooth", () => m_smooth, OnToggleSmooth));
 
 			m_mi_scrolling = new MenuItem { Header = "Horizontal Scrolling", IsCheckable = true, IsChecked = m_scrolling };
 			m_mi_scrolling.Click += OnToggleScrolling;
@@ -789,12 +811,39 @@ namespace HantekScope.UI
 			// Y: fill the ADC's full-scale division count with the visible volt span.
 			var span_v = m_chart.Range.YAxis.Span;
 			var target_vdiv = span_v / HantekProtocol.AdcFullScaleDiv;
-			m_model.RequestVoltsDivIndex(HantekProtocol.NearestVoltsDivIndex(target_vdiv));
+			var vidx = HantekProtocol.NearestVoltsDivIndex(target_vdiv);
 
 			// X: match the record duration to the visible time span (chart X is in ms).
 			var span_s = m_chart.Range.XAxis.Span / 1000.0;
 			var target_tb = span_s / HantekProtocol.RecordDivisions;
-			m_model.RequestTimebaseIndex(HantekProtocol.NearestTimebaseIndex(target_tb));
+			var tidx = HantekProtocol.NearestTimebaseIndex(target_tb);
+
+			// Freeze the display only when a resolution actually changes: the latch is
+			// released by the ConfigChanged event, which is raised solely when the applied
+			// geometry differs, so latching on a no-op request would hold the trace forever.
+			var changes = vidx != m_model.VoltsDivIndex || tidx != m_model.TimebaseIndex;
+
+			m_model.RequestVoltsDivIndex(vidx);
+			m_model.RequestTimebaseIndex(tidx);
+
+			if (changes)
+			{
+				m_awaiting_scope_range = true;
+				m_awaiting_scope_range_ticks = AwaitScopeRangeTimeoutTicks;
+			}
+		}
+
+		/// <summary>Toggle the display-only step-preserving smoothing filter.</summary>
+		private void OnToggleSmooth()
+		{
+			m_smooth = !m_smooth;
+
+			// Re-lay the framed trace immediately so the change shows without waiting for
+			// new data (also covers the paused/between-polls case). Scrolling mode applies
+			// the filter to samples drawn from here on.
+			if (!m_scrolling)
+				RebuildFrame();
+			m_chart.Invalidate();
 		}
 
 		/// <summary>
@@ -842,6 +891,31 @@ namespace HantekScope.UI
 		/// <summary>Pull pending samples into the chart, branching on the display mode.</summary>
 		private void OnRenderTick(object? sender, EventArgs e)
 		{
+			// While a 'Set Scope Range' change is pending, keep the sample buffers current
+			// (so no device backlog builds up) but hold the trace: the safety countdown
+			// releases the hold if the expected config event never arrives, and
+			// OnConfigChanged clears the buffers and the latch when the new resolution is
+			// applied, so the very next tick repaints straight into the new range.
+			if (m_awaiting_scope_range)
+			{
+				var pending = m_model.DrainPending();
+				if (pending.Count != 0)
+				{
+					m_recent.AddRange(pending);
+					if (m_recent.Count > MeasureSamples)
+						m_recent.RemoveRange(0, m_recent.Count - MeasureSamples);
+
+					m_frame.AddRange(pending);
+					if (m_frame.Count > MaxFramePoints)
+						m_frame.RemoveRange(0, m_frame.Count - MaxFramePoints);
+				}
+
+				if (--m_awaiting_scope_range_ticks <= 0)
+					m_awaiting_scope_range = false;
+
+				return;
+			}
+
 			var samples = m_model.DrainPending();
 			if (samples.Count != 0)
 			{
@@ -1073,30 +1147,38 @@ namespace HantekScope.UI
 				m_have_yrange = true;
 			}
 
-			using (var lk = m_ch1.Lock())
-			{
-				foreach (var s in samples)
-				{
-					if (!double.IsNaN(s.Ch1V))
-						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch1V + m_ch1_offset_v));
-				}
-				TrimOldest(lk);
-			}
-
-			using (var lk = m_ch2.Lock())
-			{
-				foreach (var s in samples)
-				{
-					if (!double.IsNaN(s.Ch2V))
-						lk.Add(new ChartDataSeries.Pt(s.XMs, s.Ch2V + m_ch2_offset_v));
-				}
-				TrimOldest(lk);
-			}
+			AddScrollingChannel(m_ch1, samples, static s => s.Ch1V, m_ch1_offset_v, LsbVolts(1));
+			AddScrollingChannel(m_ch2, samples, static s => s.Ch2V, m_ch2_offset_v, LsbVolts(2));
 
 			// Keep the newest data at the right edge, preserving the user's zoom span.
 			m_latest_x = samples[^1].XMs;
 			var span = m_chart.Range.XAxis.Span;
 			SetRange(() => m_chart.Range.XAxis.Set(m_latest_x - span, m_latest_x));
+		}
+
+		/// <summary>
+		/// Append one channel's samples to its scrolling series, applying the display-only
+		/// smoothing filter to the batch when enabled. NaN samples (disabled channel) are
+		/// skipped. Each batch is filtered in isolation, so the newest few samples near a
+		/// batch seam are smoothed with fewer neighbours until the next batch extends them —
+		/// acceptable because scrolling is the non-default, secondary display mode.
+		/// </summary>
+		private void AddScrollingChannel(ChartDataSeries series, List<Sample> samples, Func<Sample, double> selector, double y_offset, double lsb_volts)
+		{
+			var n = samples.Count;
+			var vals = new double[n];
+			for (var i = 0; i != n; ++i)
+				vals[i] = selector(samples[i]);
+			if (m_smooth)
+				vals = SigmaFilter(vals, SigmaWindowRadius, SigmaLsbThreshold * lsb_volts);
+
+			using var lk = series.Lock();
+			for (var i = 0; i != n; ++i)
+			{
+				if (!double.IsNaN(vals[i]))
+					lk.Add(new ChartDataSeries.Pt(samples[i].XMs, vals[i] + y_offset));
+			}
+			TrimOldest(lk);
 		}
 
 		/// <summary>
@@ -1172,8 +1254,8 @@ namespace HantekScope.UI
 			// normally found; the head/tail split remains as a guard for the rare case a
 			// second boundary falls inside the window (records not exactly window-aligned).
 			var seam = FindSeamOffset(start, length);
-			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch1_offset_v, static s => s.Ch1V);
-			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch2_offset_v, static s => s.Ch2V);
+			FillFramedChannel(m_ch1, m_ch1_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch1_offset_v, static s => s.Ch1V, LsbVolts(1));
+			FillFramedChannel(m_ch2, m_ch2_tail, start, length, half, dt_ms, seam, m_trig_offset_ms, m_ch2_offset_v, static s => s.Ch2V, LsbVolts(2));
 
 			// Fit the X axis once to a full record width centred on the trigger, so the
 			// window always spans one complete record (12 divisions) with the trigger at
@@ -1193,10 +1275,22 @@ namespace HantekScope.UI
 		/// onward go to <paramref name="tail"/>, leaving the record-boundary step as a gap;
 		/// when it is negative the whole window goes to <paramref name="main"/> and the tail is
 		/// cleared. Both series are cleared every call so a seam that comes and goes as the
-		/// window scrolls never leaves a stale head or tail behind.
+		/// window scrolls never leaves a stale head or tail behind. When smoothing is enabled
+		/// the window values are passed through the step-preserving sigma filter (sized by the
+		/// channel's <paramref name="lsb_volts"/>) before plotting; this is display-only and
+		/// does not touch the measurement buffer.
 		/// </summary>
-		private void FillFramedChannel(ChartDataSeries main, ChartDataSeries tail, int start, int length, int half, double dt_ms, int seam, double x_offset_ms, double y_offset, Func<Sample, double> selector)
+		private void FillFramedChannel(ChartDataSeries main, ChartDataSeries tail, int start, int length, int half, double dt_ms, int seam, double x_offset_ms, double y_offset, Func<Sample, double> selector, double lsb_volts)
 		{
+			// Gather the window's channel values (NaN where the channel is disabled), then
+			// optionally denoise before plotting. Filtering the whole window at once (rather
+			// than head and tail separately) lets the filter see across the seam gap.
+			var vals = new double[length];
+			for (var k = 0; k != length; ++k)
+				vals[k] = selector(m_frame[start + k]);
+			if (m_smooth)
+				vals = SigmaFilter(vals, SigmaWindowRadius, SigmaLsbThreshold * lsb_volts);
+
 			var split = seam < 0 ? length : seam;
 
 			using (var lk = main.Lock())
@@ -1204,7 +1298,7 @@ namespace HantekScope.UI
 				lk.Clear();
 				for (var k = 0; k != split; ++k)
 				{
-					var v = selector(m_frame[start + k]);
+					var v = vals[k];
 					if (!double.IsNaN(v))
 						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms + x_offset_ms, v + y_offset));
 				}
@@ -1215,11 +1309,72 @@ namespace HantekScope.UI
 				lk.Clear();
 				for (var k = split; k != length; ++k)
 				{
-					var v = selector(m_frame[start + k]);
+					var v = vals[k];
 					if (!double.IsNaN(v))
 						lk.Add(new ChartDataSeries.Pt((k - half) * dt_ms + x_offset_ms, v + y_offset));
 				}
 			}
+		}
+
+		/// <summary>
+		/// One ADC least-significant bit expressed in signal volts for a channel, from the
+		/// applied volts/div, the channel's probe ratio and the ADC's codes-per-division.
+		/// Used to size the smoothing filter's value threshold so it tracks the current scale.
+		/// </summary>
+		private double LsbVolts(int channel)
+		{
+			EProbeScale probe;
+			switch (channel)
+			{
+				case 1: { probe = m_model.Ch1Probe; break; }
+				case 2: { probe = m_model.Ch2Probe; break; }
+				default: { throw new ArgumentOutOfRangeException(nameof(channel)); }
+			}
+			return m_model.VoltsPerDiv * HantekProtocol.ProbeRatio(probe) / HantekProtocol.AdcCodesPerDiv;
+		}
+
+		/// <summary>
+		/// Step-preserving sigma (bilateral) filter. Each output sample is the mean of the
+		/// samples within <paramref name="radius"/> positions of it whose value is within
+		/// <paramref name="threshold"/> of the centre sample. On flat or slowly-varying runs
+		/// this averages ±1-LSB dither down to sub-LSB smoothness; across a genuine edge the
+		/// samples on the far side differ by more than the threshold and are excluded, so the
+		/// edge is preserved rather than smeared. NaN entries (disabled channel) pass through
+		/// unchanged and are ignored when they fall in another sample's window.
+		/// </summary>
+		private static double[] SigmaFilter(double[] vals, int radius, double threshold)
+		{
+			var n = vals.Length;
+			var outp = new double[n];
+			for (var i = 0; i != n; ++i)
+			{
+				var centre = vals[i];
+				if (double.IsNaN(centre))
+				{
+					outp[i] = centre;
+					continue;
+				}
+
+				// Half-open neighbour window clamped to the array bounds.
+				var lo = Math.Max(0, i - radius);
+				var hi = Math.Min(n, i + radius + 1);
+				var sum = 0.0;
+				var count = 0;
+				for (var j = lo; j != hi; ++j)
+				{
+					var v = vals[j];
+					if (double.IsNaN(v))
+						continue;
+					if (Math.Abs(v - centre) <= threshold)
+					{
+						sum += v;
+						++count;
+					}
+				}
+
+				outp[i] = count != 0 ? sum / count : centre;
+			}
+			return outp;
 		}
 
 		/// <summary>
@@ -1526,6 +1681,11 @@ namespace HantekScope.UI
 				m_recent.Clear();
 				m_trig_xms = double.NaN;
 				m_have_xrange = false;
+
+				// The new resolution is now applied and the stale buffers are gone, so the
+				// display can resume; the next tick renders fresh data at the new range.
+				m_awaiting_scope_range = false;
+
 				UpdateConfigStatus();
 			});
 		}

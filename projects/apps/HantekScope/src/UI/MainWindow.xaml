@@ -40,6 +40,17 @@
 					Click="OnConnectDisconnect"
 					/>
 				<Separator />
+				<Button
+					x:Name="m_btn_set_range"
+					AutomationProperties.Name="Set scope range"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE9A6;"
+					ToolTip="Set the scope's volts/div and time/div from the current zoom"
+					Click="OnSetScopeRange"
+					/>
+				<Separator />
 				<ToggleButton
 					x:Name="m_btn_measurements"
 					AutomationProperties.Name="Measurements panel"
