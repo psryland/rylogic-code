@@ -134,6 +134,15 @@ namespace HantekScope.UI
 		private double m_ch1_offset_v;
 		private double m_ch2_offset_v;
 
+		// Floating host for the Measurements panel when it is popped out. The single
+		// measurements content element is re-parented between the docked Border and this
+		// window, so it is null while docked and holds the detached content while floating.
+		private Window? m_measure_window;
+
+		// Set once the main window is closing so the pop-out re-dock logic doesn't try to
+		// re-parent the measurements content into a window that is being torn down.
+		private bool m_closing;
+
 		public MainWindow()
 		{
 			InitializeComponent();
@@ -481,6 +490,73 @@ namespace HantekScope.UI
 		private void OnExit(object sender, RoutedEventArgs e)
 		{
 			Close();
+		}
+
+		/// <summary>
+		/// Toggle the Measurements panel between docked and a floating window. The single
+		/// content element is moved rather than duplicated, so the periodic update code that
+		/// writes the named value fields keeps working in either host.
+		/// </summary>
+		private void OnTogglePopoutMeasurements(object sender, RoutedEventArgs e)
+		{
+			// Already floating: closing the window re-docks it via the Closed handler.
+			if (m_measure_window != null)
+			{
+				m_measure_window.Close();
+				return;
+			}
+
+			// Detach the content from the docked border and collapse the border so the
+			// chart column reclaims the space.
+			m_measurements_dock.Child = null;
+			m_measurements_dock.Visibility = Visibility.Collapsed;
+
+			// Host the detached content in a small tool window that tracks this one.
+			m_measure_window = new Window
+			{
+				Title = "Measurements",
+				Owner = this,
+				Width = 240,
+				Height = 260,
+				WindowStartupLocation = WindowStartupLocation.CenterOwner,
+				ShowInTaskbar = false,
+				Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E)),
+				Content = m_measurements_content,
+			};
+
+			// Closing the floating window (by its own chrome or the dock button) returns
+			// the content to the docked border.
+			m_measure_window.Closed += OnMeasureWindowClosed;
+			m_measure_window.Show();
+
+			// The button now docks the panel again while it lives in the floating window.
+			m_btn_popout.Content = "\u2199";
+			m_btn_popout.ToolTip = "Dock the Measurements panel back into the main window";
+		}
+
+		/// <summary>Re-dock the Measurements content when its floating window closes.</summary>
+		private void OnMeasureWindowClosed(object? sender, EventArgs e)
+		{
+			if (m_measure_window != null)
+			{
+				m_measure_window.Closed -= OnMeasureWindowClosed;
+
+				// Release the content before re-parenting; a live parent would otherwise
+				// throw when the docked border tries to adopt it.
+				m_measure_window.Content = null;
+				m_measure_window = null;
+			}
+
+			// During main-window shutdown the docked host is being torn down too, so leave
+			// the content where it is rather than re-parenting into a dying visual tree.
+			if (m_closing)
+				return;
+
+			m_measurements_dock.Child = m_measurements_content;
+			m_measurements_dock.Visibility = Visibility.Visible;
+
+			m_btn_popout.Content = "\u2197";
+			m_btn_popout.ToolTip = "Pop out the Measurements panel into a floating window";
 		}
 
 		/// <summary>Toggle acquisition on/off.</summary>
@@ -1317,6 +1393,12 @@ namespace HantekScope.UI
 		/// <summary>Tear down acquisition and the chart series on close.</summary>
 		protected override void OnClosed(EventArgs e)
 		{
+			m_closing = true;
+
+			// Close the popped-out Measurements window (if any) so it doesn't linger; the
+			// m_closing flag stops its Closed handler from re-docking into this dying window.
+			m_measure_window?.Close();
+
 			m_render_timer.Stop();
 			m_model.Dispose();
 			m_overlays?.Dispose();

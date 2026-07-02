@@ -45,8 +45,11 @@
 				YLabel="volts"
 				/>
 
-			<!-- Automatic measurements over the most recent samples, updated a few times a second. -->
+			<!-- Automatic measurements over the most recent samples, updated a few times a second.
+			     The content StackPanel is re-parented into a floating window when popped out, so the
+			     named value fields keep working regardless of where the panel is currently hosted. -->
 			<Border
+				x:Name="m_measurements_dock"
 				Grid.Column="1"
 				Width="212"
 				Margin="0,6,8,6"
@@ -54,8 +57,21 @@
 				BorderBrush="#3F3F3F"
 				BorderThickness="1"
 				>
-				<StackPanel Margin="8" TextElement.Foreground="#DDDDDD">
-					<TextBlock Text="Measurements" FontWeight="Bold" Margin="0,0,0,8" />
+				<StackPanel x:Name="m_measurements_content" Margin="8" TextElement.Foreground="#DDDDDD">
+					<DockPanel Margin="0,0,0,8">
+						<Button
+							x:Name="m_btn_popout"
+							DockPanel.Dock="Right"
+							Content="&#x2197;"
+							Width="20"
+							Height="20"
+							Padding="0"
+							FontSize="12"
+							ToolTip="Pop out the Measurements panel into a floating window"
+							Click="OnTogglePopoutMeasurements"
+							/>
+						<TextBlock Text="Measurements" FontWeight="Bold" VerticalAlignment="Center" />
+					</DockPanel>
 					<Grid TextElement.FontFamily="Consolas" TextElement.FontSize="12">
 						<Grid.ColumnDefinitions>
 							<ColumnDefinition Width="Auto" />
@@ -74,8 +90,8 @@
 						</Grid.RowDefinitions>
 
 						<!-- Channel headers, coloured to match the traces. -->
-						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#F4D03F" HorizontalAlignment="Right" Margin="8,0,0,4" />
-						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#5DADE2" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#3ABB0C" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#2AA7F9" HorizontalAlignment="Right" Margin="8,0,0,4" />
 
 						<TextBlock Grid.Row="1" Grid.Column="0" Text="Vpp" />
 						<TextBlock Grid.Row="1" Grid.Column="1" x:Name="m_c1_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
