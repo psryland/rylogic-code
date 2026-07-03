@@ -24,8 +24,8 @@
   <ItemDefinitionGroup>
     <PreBuildEvent>
       <Command>
-        if not exist "$(RylogicRoot)sdk\vulkan\include" call $(RylogicRoot)sdk\vulkan\_get.csx
-        if not exist "$(RylogicRoot)sdk\llama-cpp\llama.cpp" call $(RylogicRoot)sdk\llama-cpp\_get.csx
+        if not exist "$(RylogicRoot)sdk\vulkan\include" dotnet-script "$(RylogicRoot)sdk\vulkan\_get.csx"
+        if not exist "$(RylogicRoot)sdk\llama-cpp\llama.cpp" dotnet-script "$(RylogicRoot)sdk\llama-cpp\_get.csx"
       </Command>
     </PreBuildEvent>
     <ClCompile>

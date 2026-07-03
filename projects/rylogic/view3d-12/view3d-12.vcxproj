@@ -28,7 +28,7 @@
   -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command Condition="!Exists('$(RylogicRoot)sdk\openxr\openxr')">$(RylogicRoot)sdk\openxr\_get.csx</Command>
+      <Command Condition="!Exists('$(RylogicRoot)sdk\openxr\openxr')">dotnet-script "$(RylogicRoot)sdk\openxr\_get.csx"</Command>
     </PreBuildEvent>
     <ClCompile>
       <PreprocessorDefinitions>
