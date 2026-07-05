@@ -23,7 +23,7 @@
   -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command Condition="!Exists('$(RylogicRoot)sdk\cgltf\cgltf')">$(RylogicRoot)sdk\cgltf\_get.csx</Command>
+      <Command Condition="!Exists('$(RylogicRoot)sdk\cgltf\cgltf')">dotnet-script "$(RylogicRoot)sdk\cgltf\_get.csx"</Command>
     </PreBuildEvent>
     <ClCompile>
       <EnableModules>false</EnableModules>

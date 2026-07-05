@@ -23,7 +23,7 @@
   -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command Condition="!Exists('$(RylogicRoot)sdk\ufbx\ufbx')">$(RylogicRoot)sdk\ufbx\_get.csx</Command>
+      <Command Condition="!Exists('$(RylogicRoot)sdk\ufbx\ufbx')">dotnet-script "$(RylogicRoot)sdk\ufbx\_get.csx"</Command>
     </PreBuildEvent>
     <ClCompile>
       <EnableModules>false</EnableModules>
