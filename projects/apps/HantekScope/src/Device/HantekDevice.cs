@@ -12,10 +12,13 @@ namespace HantekScope.Device
 	/// </summary>
 	public sealed class HantekDevice :IDisposable
 	{
-		// The WinUSB device-interface GUID Zadig assigned to this scope. It is per
-		// install, but enumeration also matches on VID/PID in the device path, so a
-		// different GUID on another machine only needs this constant updated.
-		private static readonly Guid InterfaceGuid = new("1B84A560-99BA-4721-8D04-F1665CE54C3A");
+		// GUID_DEVINTERFACE_USB_DEVICE - the standard USB device interface class that
+		// the USB stack publishes for every device, regardless of function driver. Zadig
+		// also assigns a random per-install WinUSB interface GUID, but that varies from
+		// machine to machine; enumerating on this generic class and matching VID/PID in
+		// the device path (see WinUsbDevice.FindDevicePath) discovers the scope on any PC
+		// without a machine-specific constant to keep in sync.
+		private static readonly Guid InterfaceGuid = new("A5DCBF10-6530-11D2-901F-00C04FB951ED");
 
 		// The official software's startup sequence, captured verbatim. Replaying it
 		// puts the device into a known-good acquisition state and reads the identity /
