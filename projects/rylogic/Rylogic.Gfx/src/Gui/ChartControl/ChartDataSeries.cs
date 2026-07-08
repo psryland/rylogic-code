@@ -83,12 +83,14 @@ namespace Rylogic.Gui.WPF
 					{
 						case nameof(Options.PointSize):
 						{
-							PointSprite = new View3d.Shader(View3d.EStockShader.PointSpritesGS, $"*PointSize {{{Options.PointSize} {Options.PointSize}}} *Depth {{{false}}}");
+							// Invalidate so the shader is recreated on next use with the new size
+							PointSprite = null!;
 							break;
 						}
 						case nameof(Options.LineWidth):
 						{
-							ThickLineList = new View3d.Shader(View3d.EStockShader.ThickLineListGS, $"*LineWidth {{{Options.LineWidth}}}");
+							// Invalidate so the shader is recreated on next use with the new width
+							ThickLineList = null!;
 							break;
 						}
 					}
@@ -519,10 +521,10 @@ namespace Rylogic.Gui.WPF
 			}
 		} = null!;
 
-		/// <summary>Point sprite shader</summary>
+		/// <summary>Point sprite shader (created on demand from the current options)</summary>
 		private View3d.Shader PointSprite
 		{
-			get;
+			get => field ??= new View3d.Shader(View3d.EStockShader.PointSpritesGS, $"*PointSize {{{Options.PointSize} {Options.PointSize}}} *Depth {{{false}}}");
 			set
 			{
 				if (field == value) return;
@@ -531,10 +533,10 @@ namespace Rylogic.Gui.WPF
 			}
 		} = null!;
 
-		/// <summary>Thick Line-List shader</summary>
+		/// <summary>Thick Line-List shader (created on demand from the current options)</summary>
 		private View3d.Shader ThickLineList
 		{
-			get;
+			get => field ??= new View3d.Shader(View3d.EStockShader.ThickLineListGS, $"*LineWidth {{{Options.LineWidth}}}");
 			set
 			{
 				if (field == value) return;

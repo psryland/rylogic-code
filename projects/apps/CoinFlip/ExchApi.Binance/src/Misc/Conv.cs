@@ -82,6 +82,16 @@ namespace Binance.API
 					item = new ServerRulesData.FilterPercentPrice();
 					break;
 				}
+				case EFilterType.PERCENT_PRICE_BY_SIDE:
+				{
+					item = new ServerRulesData.FilterPercentPrice();
+					break;
+				}
+				case EFilterType.NOTIONAL:
+				{
+					item = new ServerRulesData.FilterMinNotional();
+					break;
+				}
 				case EFilterType.LOT_SIZE:
 				{
 					item = new ServerRulesData.FilterLotSize();
@@ -139,7 +149,10 @@ namespace Binance.API
 				}
 				default:
 				{
-					throw new Exception($"Unknown filter type: {filter.FilterType}");
+					// Tolerate filter types this (currently unmaintained) adapter doesn't model yet
+					// (e.g. exchange additions), so market-data initialisation isn't broken by them.
+					item = filter;
+					break;
 				}
 			}
 

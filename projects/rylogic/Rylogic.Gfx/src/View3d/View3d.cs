@@ -1,4 +1,4 @@
-﻿//#define PR_VIEW3D_CREATE_STACKTRACE
+//#define PR_VIEW3D_CREATE_STACKTRACE
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -133,12 +133,14 @@ namespace Rylogic.Gfx
 			AnisotropicClamp,
 			AnisotropicWrap,
 		}
+		// Note: these values must mirror the native 'pr::view3d::EStockShader' enum
+		// in 'include/pr/view3d-12/view3d-dll.h' exactly (they are passed by value across
+		// the DLL boundary to View3D_ShaderCreateStock).
 		public enum EStockShader : int
 		{
-			// Must match the native ABI enum in 'view3d-dll.h' (pr::view3d::EStockShader)
-			// exactly — the integer value is passed across the C interface, so the
-			// ordering here is significant, not just the names.
 			Invalid = 0,
+
+			// Forward rendering shaders
 			Forward,
 			FwdShaderVS,
 			FwdShaderPS,
@@ -150,10 +152,13 @@ namespace Rylogic.Gfx
 			//  *Absolute (optional, default false) - True if 'radius' is absolute, false if 'radius' should be scaled by the focus distance
 			FwdRadialFadePS,
 
+			// Deferred rendering
 			GBufferVS,
 			GBufferPS,
 			DSLightingVS,
 			DSLightingPS,
+
+			// Shadows
 			ShadowMapVS,
 			ShadowMapPS,
 
@@ -169,6 +174,7 @@ namespace Rylogic.Gfx
 			// Arrow params: *Size {size}
 			ArrowHeadGS,
 
+			// Show normals
 			ShowNormalsGS,
 		}
 		public enum ELight : int
@@ -927,15 +933,16 @@ namespace Rylogic.Gfx
 				m_i1 = i1;
 				m_tex_diffuse = tex_diffuse ?? IntPtr.Zero;
 				m_sam_diffuse = sam_diffuse ?? IntPtr.Zero;
-
-				// 'm_shaders' is marshalled as a fixed-size embedded array (ByValArray,
-				// SizeConst = 8), so the backing array must always be exactly 8 elements
-				// or the interop marshaller throws. Copy any caller-supplied overrides
-				// into a full-length buffer rather than storing the (often shorter) array.
+				// 'm_shaders' is marshalled as a fixed-size array (ByValArray, SizeConst = 8) and the native
+				// side finds the used length via the 'm_rdr_step == Invalid' sentinel. Always produce a full
+				// length-8 array with the supplied shaders at the front so shorter arrays marshal correctly.
 				m_shaders = new Shader[8];
 				if (shaders != null)
-					Array.Copy(shaders, m_shaders, Math.Min(shaders.Length, m_shaders.Length));
-
+				{
+					if (shaders.Length > m_shaders.Length)
+						throw new ArgumentException($"A nugget supports at most {m_shaders.Length} shader overrides");
+					Array.Copy(shaders, m_shaders, shaders.Length);
+				}
 				m_nflags = flags ?? ENuggetFlag.None;
 				m_cull_mode = cull_mode ?? ECullMode.Default;
 				m_fill_mode = fill_mode ?? EFillMode.Default;

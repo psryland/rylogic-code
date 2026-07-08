@@ -18,6 +18,7 @@ namespace pr::rdr12
 		BGRASupport       = 1 << 3,
 		D2D1_DebugInfo    = 1 << 4,
 		RayTracingSupport = 1 << 5,
+		AllowSoftwareAdapter = 1 << 6,
 
 		_flags_enum = 0,
 	};
@@ -67,12 +68,35 @@ namespace pr::rdr12
 			return *this;
 		}
 
+		// Allow falling back to the software (WARP) adapter when no suitable hardware adapter is found.
+		// Off by default - apps must explicitly opt in. WARP is slow but supports the required shader
+		// models, which lets view3d render on machines without a hardware DX12 adapter (e.g. inside a VM).
+		// Call before 'DefaultAdapter()'.
+		RdrSettings& AllowSoftwareAdapter(bool enable = true)
+		{
+			m_options = SetBits(m_options, ERdrOptions::AllowSoftwareAdapter, enable);
+			return *this;
+		}
+
 		// Select the default adaptor (Call after setting the debug layer)
 		RdrSettings& DefaultAdapter()
 		{
 			SystemConfig cfg(AllSet(m_options, ERdrOptions::DeviceDebug));
+
+			// Default behaviour: use the first enumerated adapter
 			if (!cfg.adapters.empty())
 				m_adapter = cfg.adapters[0];
+
+			// If software fallback is allowed and the selected adapter can't support the required feature
+			// level and shader model (e.g. the basic display adapter in a VM), fall back to the WARP
+			// software rasterizer, which supports the shader models the stock shaders are compiled to.
+			if (AllSet(m_options, ERdrOptions::AllowSoftwareAdapter) &&
+				!m_adapter.Supports(m_feature_level, D3D_SHADER_MODEL_6_6))
+			{
+				auto warp = cfg.WarpAdapter();
+				if (warp.ptr != nullptr)
+					m_adapter = std::move(warp);
+			}
 
 			return *this;
 		}
