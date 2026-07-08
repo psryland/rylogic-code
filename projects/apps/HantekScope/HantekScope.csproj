@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<RootNamespace>HantekScope</RootNamespace>
+		<AssemblyName>HantekScope</AssemblyName>
+		<UseWPF>true</UseWPF>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<!-- Assembly properties -->
+	<PropertyGroup>
+		<Description>Live oscilloscope viewer for the Hantek 2D42 over WinUSB.</Description>
+		<Company>Rylogic</Company>
+		<Authors>P Ryland</Authors>
+		<Version>0.1.0</Version>
+	</PropertyGroup>
+
+	<!-- Code -->
+	<ItemGroup>
+		<ApplicationDefinition Include="src\App.xaml" />
+	</ItemGroup>
+
+	<!-- References -->
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
+	</ItemGroup>
+
+	<!-- Targets -->
+	<Import Project="$(TargetsPath)view3d-12.targets" />
+
+</Project>

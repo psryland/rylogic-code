@@ -1,0 +1,871 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using HantekScope.Device;
+
+namespace HantekScope.Model
+{
+	/// <summary>One acquired sample column: a time position plus each channel's volts.</summary>
+	public readonly record struct Sample(double XMs, double Ch1V, double Ch2V);
+
+	/// <summary>
+	/// Owns the Hantek device and a background acquisition thread. The thread polls
+	/// waveform packets at the device's preferred pace and pushes decoded samples
+	/// into a thread-safe pending buffer; the UI drains that buffer on its own
+	/// render timer, so acquisition rate and render frame-rate are decoupled.
+	///
+	/// All live-adjustable scope settings (per-channel enable/coupling/probe, shared
+	/// volts-div and timebase, and the trigger) follow a desired/applied pattern: the
+	/// UI mutates the 'desired' config from any thread under a lock, and the
+	/// acquisition thread reconciles it into the 'applied' config with register writes
+	/// before each read, keeping all USB I/O on the one thread.
+	/// </summary>
+	public sealed class ScopeModel :IDisposable
+	{
+		// Default acquisition resolution: timebase index 14 (200us/div) and volts/div
+		// index 6 (1V), matching the init sequence the device is left in.
+		private const int DefaultTimebaseIndex = 14;
+		private const int DefaultVoltsDivIndex = 6;
+
+		// Delay between reconnect attempts while the device is absent or recovering.
+		// Short enough to feel responsive when the device reappears, long enough not to
+		// busy-spin SetupAPI enumeration while it stays unplugged.
+		private const int ReconnectDelayMs = 500;
+
+		private readonly object m_sync = new();
+		private readonly List<Sample> m_pending = new();
+
+		// Signalled by Stop() to bring the acquisition thread down promptly: it both
+		// clears 'm_run' and wakes the thread from any interruptible wait (poll pacing
+		// or reconnect backoff) so shutdown doesn't have to wait out a sleep.
+		private readonly ManualResetEventSlim m_stop = new(false);
+
+		// 'm_desired' is what the UI has asked for (written from any thread under
+		// 'm_sync'); 'm_applied' is what the device is currently programmed to (owned by
+		// the acquisition thread, published back under 'm_sync' for the UI's read-side
+		// props). The loop reconciles the two before each waveform read.
+		private Config m_desired = Config.Default;
+		private Config m_applied = Config.Default;
+
+		private HantekDevice? m_device;
+		private Thread? m_thread;
+		private volatile bool m_run;
+		private long m_sample_index;
+
+		/// <summary>Seconds per sample at the applied timebase (dt = timebase / 100).</summary>
+		public double SampleIntervalS
+		{
+			get { lock (m_sync) return HantekProtocol.TimebaseTable[m_applied.TimebaseIndex] / HantekProtocol.SamplesPerDivision; }
+		}
+
+		/// <summary>Volts-per-division currently applied (for the Y scale).</summary>
+		public double VoltsPerDiv
+		{
+			get { lock (m_sync) return HantekProtocol.VoltsDivTable[m_applied.VoltsDivIndex]; }
+		}
+
+		/// <summary>The applied volts/div register index.</summary>
+		public int VoltsDivIndex
+		{
+			get { lock (m_sync) return m_applied.VoltsDivIndex; }
+		}
+
+		/// <summary>The applied timebase register index.</summary>
+		public int TimebaseIndex
+		{
+			get { lock (m_sync) return m_applied.TimebaseIndex; }
+		}
+
+		/// <summary>Desired CH1 enabled state (reflects the user's selection).</summary>
+		public bool Ch1Enabled
+		{
+			get { lock (m_sync) return m_desired.Ch1Enabled; }
+		}
+
+		/// <summary>Desired CH2 enabled state (reflects the user's selection).</summary>
+		public bool Ch2Enabled
+		{
+			get { lock (m_sync) return m_desired.Ch2Enabled; }
+		}
+
+		/// <summary>Desired CH1 input coupling.</summary>
+		public ECoupling Ch1Coupling
+		{
+			get { lock (m_sync) return m_desired.Ch1Coupling; }
+		}
+
+		/// <summary>Desired CH2 input coupling.</summary>
+		public ECoupling Ch2Coupling
+		{
+			get { lock (m_sync) return m_desired.Ch2Coupling; }
+		}
+
+		/// <summary>Desired CH1 probe attenuation.</summary>
+		public EProbeScale Ch1Probe
+		{
+			get { lock (m_sync) return m_desired.Ch1Probe; }
+		}
+
+		/// <summary>Desired CH2 probe attenuation.</summary>
+		public EProbeScale Ch2Probe
+		{
+			get { lock (m_sync) return m_desired.Ch2Probe; }
+		}
+
+		/// <summary>Desired trigger source channel.</summary>
+		public ETriggerSource TriggerSource
+		{
+			get { lock (m_sync) return m_desired.TriggerSource; }
+		}
+
+		/// <summary>Desired trigger edge slope.</summary>
+		public ETriggerSlope TriggerSlope
+		{
+			get { lock (m_sync) return m_desired.TriggerSlope; }
+		}
+
+		/// <summary>Desired trigger sweep mode.</summary>
+		public ETriggerSweep TriggerSweep
+		{
+			get { lock (m_sync) return m_desired.TriggerSweep; }
+		}
+
+		/// <summary>
+		/// Desired trigger level as a single threshold in true signal volts. There is one
+		/// hardware trigger, so the level is a single value shared by both channels; each
+		/// channel's on-screen indicator draws it relative to that channel's own baseline.
+		/// The display's software re-trigger compares this against the source channel's
+		/// decoded sample volts.
+		/// </summary>
+		public double TriggerLevelVolts
+		{
+			get { lock (m_sync) return m_desired.TrigVolts; }
+		}
+
+		/// <summary>Desired trigger horizontal position as a time offset in seconds.</summary>
+		public double TriggerTimeOffsetS
+		{
+			get { lock (m_sync) return m_desired.TriggerTimeOffsetS; }
+		}
+
+		/// <summary>True while the acquisition thread is running.</summary>
+		public bool IsRunning => m_run;
+
+		/// <summary>Raised (on the acquisition thread) with a human-readable status or error.</summary>
+		public event Action<string>? StatusChanged;
+
+		/// <summary>Raised (on the acquisition thread) once identity has been read after opening.</summary>
+		public event Action<string, string, string>? IdentityRead;
+
+		/// <summary>
+		/// Raised (on the acquisition thread) after connect once the scope's live vertical
+		/// positions have been read and adopted, giving each channel's offset in true
+		/// signal volts so the UI can align its display baseline with the physical trace.
+		/// </summary>
+		public event Action<double, double>? VPosAdopted;
+
+		/// <summary>Raised (on the acquisition thread) after the applied resolution changes.</summary>
+		public event Action? ConfigChanged;
+
+		/// <summary>
+		/// Request a volts/div register index. Safe to call from any thread; the change
+		/// is applied by the acquisition thread before its next read. Out-of-range
+		/// indices are ignored so the UI can pass a snapped value without re-checking.
+		/// </summary>
+		public void RequestVoltsDivIndex(int index)
+		{
+			if (!HantekProtocol.VoltsDivTable.ContainsKey(index))
+				return;
+
+			lock (m_sync)
+				m_desired.VoltsDivIndex = index;
+		}
+
+		/// <summary>Request a timebase register index. Safe to call from any thread (see RequestVoltsDivIndex).</summary>
+		public void RequestTimebaseIndex(int index)
+		{
+			if (!HantekProtocol.TimebaseTable.ContainsKey(index))
+				return;
+
+			lock (m_sync)
+				m_desired.TimebaseIndex = index;
+		}
+
+		/// <summary>
+		/// Request a channel's enabled state. At least one channel must stay enabled
+		/// (the waveform stream needs a source), so a request to disable the last
+		/// enabled channel is ignored.
+		/// </summary>
+		public void RequestChannelEnabled(int channel, bool on)
+		{
+			lock (m_sync)
+			{
+				switch (channel)
+				{
+					case 1:
+					{
+						if (!on && !m_desired.Ch2Enabled)
+							return;
+						m_desired.Ch1Enabled = on;
+						break;
+					}
+					case 2:
+					{
+						if (!on && !m_desired.Ch1Enabled)
+							return;
+						m_desired.Ch2Enabled = on;
+						break;
+					}
+					default:
+						throw new ArgumentOutOfRangeException(nameof(channel));
+				}
+			}
+		}
+
+		/// <summary>Request a channel's input coupling.</summary>
+		public void RequestCoupling(int channel, ECoupling coupling)
+		{
+			lock (m_sync)
+			{
+				switch (channel)
+				{
+					case 1: m_desired.Ch1Coupling = coupling; break;
+					case 2: m_desired.Ch2Coupling = coupling; break;
+					default: throw new ArgumentOutOfRangeException(nameof(channel));
+				}
+			}
+		}
+
+		/// <summary>Request a channel's probe attenuation.</summary>
+		public void RequestProbe(int channel, EProbeScale probe)
+		{
+			lock (m_sync)
+			{
+				switch (channel)
+				{
+					case 1: m_desired.Ch1Probe = probe; break;
+					case 2: m_desired.Ch2Probe = probe; break;
+					default: throw new ArgumentOutOfRangeException(nameof(channel));
+				}
+			}
+		}
+
+		/// <summary>Request the trigger source channel.</summary>
+		public void RequestTriggerSource(ETriggerSource source)
+		{
+			lock (m_sync)
+				m_desired.TriggerSource = source;
+		}
+
+		/// <summary>Request the trigger edge slope.</summary>
+		public void RequestTriggerSlope(ETriggerSlope slope)
+		{
+			lock (m_sync)
+				m_desired.TriggerSlope = slope;
+		}
+
+		/// <summary>Request the trigger sweep mode.</summary>
+		public void RequestTriggerSweep(ETriggerSweep sweep)
+		{
+			lock (m_sync)
+				m_desired.TriggerSweep = sweep;
+		}
+
+		/// <summary>
+		/// Request the trigger level as a single threshold voltage (in true signal volts).
+		/// There is one hardware trigger, so this level is shared by both channels; the
+		/// register code is derived in the apply loop from the source channel's live
+		/// vertical position, probe, and volts/div.
+		/// </summary>
+		public void RequestTriggerLevelVolts(double volts)
+		{
+			lock (m_sync)
+				m_desired.TrigVolts = volts;
+		}
+
+		/// <summary>
+		/// Request a channel's vertical position, expressed as the volts by which its
+		/// baseline is moved up the chart (true signal volts). This drives the hardware
+		/// vertical-position register so the physical scope tracks the on-screen drag;
+		/// decode reads the moved 0 V code back so measured volts stay true. Computed from
+		/// the applied volts/div and the channel's probe so the shift matches the display.
+		/// </summary>
+		public void RequestChannelVPos(int channel, double offset_volts)
+		{
+			lock (m_sync)
+			{
+				var volts_per_div = HantekProtocol.VoltsDivTable[m_applied.VoltsDivIndex];
+				switch (channel)
+				{
+					case 1:
+					{
+						m_desired.Ch1VPosCode = HantekProtocol.VoltsToVPosCode(offset_volts, volts_per_div, m_desired.Ch1Probe, HantekProtocol.VPosHomeCode(1));
+						break;
+					}
+					case 2:
+					{
+						m_desired.Ch2VPosCode = HantekProtocol.VoltsToVPosCode(offset_volts, volts_per_div, m_desired.Ch2Probe, HantekProtocol.VPosHomeCode(2));
+						break;
+					}
+					default:
+					{
+						throw new ArgumentOutOfRangeException(nameof(channel));
+					}
+				}
+			}
+		}
+
+		/// <summary>
+		/// Request the trigger horizontal position at a given time offset (seconds,
+		/// relative to the trigger origin). Computed from the applied timebase.
+		/// </summary>
+		public void RequestTriggerTimeOffset(double seconds)
+		{
+			lock (m_sync)
+			{
+				var seconds_per_div = HantekProtocol.TimebaseTable[m_applied.TimebaseIndex];
+				m_desired.TriggerHPosCode = HantekProtocol.TimeToHTriggerCode(seconds, seconds_per_div);
+
+				// Remember the requested offset so the display's time indicator can read
+				// back the value it last set (the register code doesn't round-trip cleanly).
+				m_desired.TriggerTimeOffsetS = seconds;
+			}
+		}
+
+		/// <summary>
+		/// Request a DDS generator waveform shape. Safe to call from any thread; the
+		/// change is written by the acquisition thread before its next read.
+		/// </summary>
+		public void RequestDdsWaveform(EDdsWaveform waveform)
+		{
+			lock (m_sync)
+				m_desired.DdsWaveform = waveform;
+		}
+
+		/// <summary>Request a DDS generator frequency in Hz (clamped to the generator's range).</summary>
+		public void RequestDdsFrequency(long hz)
+		{
+			lock (m_sync)
+				m_desired.DdsFrequencyHz = HantekProtocol.ClampDdsFrequency(hz);
+		}
+
+		/// <summary>
+		/// Request a DDS generator amplitude in peak-to-peak volts. The value is stored
+		/// as the register's mVpp code (clamped); a high-impedance load reads about twice
+		/// the labelled Vpp (see HantekProtocol.DdsAmplitudeMaxMilliVpp).
+		/// </summary>
+		public void RequestDdsAmplitudeVpp(double vpp)
+		{
+			lock (m_sync)
+				m_desired.DdsAmplitudeMilliVpp = HantekProtocol.VppToDdsAmplitudeCode(vpp);
+		}
+
+		/// <summary>Request a DDS square-wave duty cycle in percent (clamped to the honoured range).</summary>
+		public void RequestDdsDuty(int percent)
+		{
+			lock (m_sync)
+				m_desired.DdsDutyPercent = HantekProtocol.ClampDdsDuty(percent);
+		}
+
+		/// <summary>The desired DDS waveform shape (reflects the user's selection).</summary>
+		public EDdsWaveform DdsWaveform
+		{
+			get { lock (m_sync) return m_desired.DdsWaveform; }
+		}
+
+		/// <summary>The desired DDS frequency in Hz.</summary>
+		public long DdsFrequencyHz
+		{
+			get { lock (m_sync) return m_desired.DdsFrequencyHz; }
+		}
+
+		/// <summary>The desired DDS amplitude in peak-to-peak volts (the register mVpp value / 1000).</summary>
+		public double DdsAmplitudeVpp
+		{
+			get { lock (m_sync) return m_desired.DdsAmplitudeMilliVpp / 1000.0; }
+		}
+
+		/// <summary>The desired DDS square-wave duty cycle in percent.</summary>
+		public int DdsDutyPercent
+		{
+			get { lock (m_sync) return m_desired.DdsDutyPercent; }
+		}
+
+		/// <summary>
+		/// Open the device and start acquiring. Opening + the init sequence run on
+		/// the background thread because they perform blocking USB I/O.
+		/// </summary>
+		public void Start()
+		{
+			if (m_run)
+				return;
+
+			// Clear any stop signal left set by a prior run before arming the thread.
+			m_stop.Reset();
+			m_run = true;
+			m_thread = new Thread(AcquisitionLoop) { IsBackground = true, Name = "HantekAcquisition" };
+			m_thread.Start();
+		}
+
+		/// <summary>Stop acquiring and close the device.</summary>
+		public void Stop()
+		{
+			// Clear the run flag and wake the thread from any interruptible wait so it
+			// exits promptly instead of waiting out a poll-pacing or reconnect delay.
+			m_run = false;
+			m_stop.Set();
+			m_thread?.Join(2000);
+			m_thread = null;
+
+			m_device?.Dispose();
+			m_device = null;
+		}
+
+		/// <summary>
+		/// Move all samples accumulated since the last call out of the pending buffer.
+		/// Called by the UI render timer; returns quickly under a short lock.
+		/// </summary>
+		public List<Sample> DrainPending()
+		{
+			lock (m_sync)
+			{
+				if (m_pending.Count == 0)
+					return new List<Sample>();
+
+				var drained = new List<Sample>(m_pending);
+				m_pending.Clear();
+				return drained;
+			}
+		}
+
+		/// <summary>Release resources.</summary>
+		public void Dispose()
+		{
+			Stop();
+			m_stop.Dispose();
+		}
+
+		/// <summary>
+		/// Background supervisor thread. Repeatedly (re)establishes the connection and
+		/// runs the poll loop, recovering from a missing device or any transfer error by
+		/// tearing down and retrying after a short backoff, until Stop() clears 'm_run'.
+		/// This keeps acquisition resilient to the device being absent at Run time or
+		/// being unplugged and replugged mid-session.
+		/// </summary>
+		private void AcquisitionLoop()
+		{
+			// Tracks whether a session was ever established, so the status distinguishes
+			// "waiting for a device that isn't there yet" from "recovering a lost one".
+			var was_connected = false;
+
+			while (m_run)
+			{
+				try
+				{
+					StatusChanged?.Invoke(was_connected ? "Reconnecting…" : "Connecting…");
+
+					OpenAndInitialise();
+					was_connected = true;
+
+					var id = m_device!.ReadIdentity();
+					IdentityRead?.Invoke(id.Serial, id.Firmware, id.Version);
+					StatusChanged?.Invoke("Running");
+
+					PollLoop();
+				}
+				catch (Exception ex)
+				{
+					// A missing device or a mid-transfer failure lands here. Report it in
+					// terms of whether we're waiting for a first connection or recovering a
+					// dropped one, then fall through to the backoff and retry.
+					StatusChanged?.Invoke(was_connected
+						? $"Reconnecting… ({ex.Message})"
+						: $"Waiting for device… ({ex.Message})");
+				}
+				finally
+				{
+					m_device?.Dispose();
+					m_device = null;
+				}
+
+				// Back off before retrying, but wake immediately if Stop() is signalled so
+				// shutdown never waits out the full delay.
+				if (m_run)
+					m_stop.Wait(ReconnectDelayMs);
+			}
+		}
+
+		/// <summary>
+		/// Open the device, replay the init sequence, and reset the applied config and
+		/// time origin to the post-init defaults. Fires ConfigChanged so the UI discards
+		/// any pre-disconnect frame rather than stitching stale samples onto the new
+		/// stream. Throws if the device is absent or the init exchange fails.
+		/// </summary>
+		private void OpenAndInitialise()
+		{
+			m_device = new HantekDevice();
+			m_device.Open();
+
+			StatusChanged?.Invoke("Initialising…");
+			m_device.RunInitSequence();
+
+			// The init sequence no longer forces vertical position, so the scope retains
+			// whatever vpos it currently holds. Read the live CH1/CH2 vpos codes back and
+			// adopt them: seed both the applied and desired state from the hardware so the
+			// apply loop has nothing to correct (the traces are not moved) and decode uses
+			// the true 0 V code for the adopted position. A failed read (-1) falls back to
+			// the Config.Default vpos so acquisition still proceeds.
+			var vpos1 = m_device.ReadDsoRegisterValue(EDsoRegister.Ch1VPos);
+			var vpos2 = m_device.ReadDsoRegisterValue(EDsoRegister.Ch2VPos);
+
+			Config adopted;
+			lock (m_sync)
+			{
+				m_applied = Config.Default;
+				if (vpos1 >= 0)
+				{
+					m_applied.Ch1VPosCode = vpos1;
+					m_desired.Ch1VPosCode = vpos1;
+				}
+				if (vpos2 >= 0)
+				{
+					m_applied.Ch2VPosCode = vpos2;
+					m_desired.Ch2VPosCode = vpos2;
+				}
+
+				// Seed the applied DDS state to sentinels that can't match any valid
+				// desired value, so the first reconcile re-asserts the desired generator
+				// settings (defaults on first connect, or the user's last choices on
+				// reconnect) to the hardware — the init sequence's DDS writes are treated
+				// as unknown rather than trusted.
+				m_applied.DdsWaveform = (EDdsWaveform)0xFF;
+				m_applied.DdsFrequencyHz = -1;
+				m_applied.DdsAmplitudeMilliVpp = -1;
+				m_applied.DdsDutyPercent = -1;
+
+				adopted = m_applied;
+			}
+			m_sample_index = 0;
+
+			// Report the adopted positions to the UI as vertical offsets in true signal
+			// volts (the inverse of the drag mapping), so its baseline and overlays sit
+			// where the physical trace is rather than assuming a centred 0 V.
+			var vdiv = HantekProtocol.VoltsDivTable[adopted.VoltsDivIndex];
+			var off1 = HantekProtocol.VPosCodeToVolts(adopted.Ch1VPosCode, vdiv, adopted.Ch1Probe, HantekProtocol.VPosHomeCode(1));
+			var off2 = HantekProtocol.VPosCodeToVolts(adopted.Ch2VPosCode, vdiv, adopted.Ch2Probe, HantekProtocol.VPosHomeCode(2));
+			VPosAdopted?.Invoke(off1, off2);
+
+			// Restart the display's time origin for the fresh stream.
+			ConfigChanged?.Invoke();
+		}
+
+		/// <summary>
+		/// Poll waveform packets at the device's pace until Stop() is signalled, applying
+		/// any pending config change before each read and decoding the result. Any USB
+		/// transfer error propagates to the supervisor loop, which reconnects.
+		/// </summary>
+		private void PollLoop()
+		{
+			while (m_run)
+			{
+				ApplyPendingConfig();
+
+				var packet = m_device!.ReadWaveformPacket();
+				if (packet.Length != 0)
+					DecodePacket(packet);
+
+				// Interruptible pacing wait: returns immediately when Stop() is signalled.
+				if (m_stop.Wait(HantekProtocol.WaveformPollIntervalMs))
+					break;
+			}
+		}
+
+		/// <summary>
+		/// Reconcile the applied config with the latest UI request by writing the
+		/// registers whose values differ. Runs on the acquisition thread between reads
+		/// so the device is reprogrammed without contending with the UI thread.
+		/// </summary>
+		private void ApplyPendingConfig()
+		{
+			if (m_device == null)
+				return;
+
+			Config desired, applied;
+			lock (m_sync)
+			{
+				desired = m_desired;
+				applied = m_applied;
+			}
+
+			// 'geometry_changed' covers changes that alter the sample stream's packing
+			// or time/volts mapping, so the framed display must restart from a clean
+			// t=0 at the new scale. Coupling and the trigger don't affect decoding.
+			var geometry_changed = false;
+
+			// Per-channel enable. A change flips the packet packing (interleaved vs
+			// contiguous), so it counts as a geometry change.
+			if (desired.Ch1Enabled != applied.Ch1Enabled)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1Enable, desired.Ch1Enabled ? 1 : 0);
+				applied.Ch1Enabled = desired.Ch1Enabled;
+				geometry_changed = true;
+			}
+			if (desired.Ch2Enabled != applied.Ch2Enabled)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2Enable, desired.Ch2Enabled ? 1 : 0);
+				applied.Ch2Enabled = desired.Ch2Enabled;
+				geometry_changed = true;
+			}
+
+			// Volts/div is shared; program both channels so the two traces share a scale.
+			if (desired.VoltsDivIndex != applied.VoltsDivIndex)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1VoltsDiv, desired.VoltsDivIndex);
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2VoltsDiv, desired.VoltsDivIndex);
+				applied.VoltsDivIndex = desired.VoltsDivIndex;
+				geometry_changed = true;
+			}
+
+			if (desired.TimebaseIndex != applied.TimebaseIndex)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Timebase, desired.TimebaseIndex);
+				applied.TimebaseIndex = desired.TimebaseIndex;
+				geometry_changed = true;
+			}
+
+			// Probe rescales the displayed volts (host-side), so a change rescales the
+			// plotted amplitude; treat it as a geometry change so the Y fit refreshes.
+			if (desired.Ch1Probe != applied.Ch1Probe)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1Probe, (long)desired.Ch1Probe);
+				applied.Ch1Probe = desired.Ch1Probe;
+				geometry_changed = true;
+			}
+			if (desired.Ch2Probe != applied.Ch2Probe)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2Probe, (long)desired.Ch2Probe);
+				applied.Ch2Probe = desired.Ch2Probe;
+				geometry_changed = true;
+			}
+
+			// Vertical position: physically shifts the trace in the ADC window so the
+			// device tracks the on-screen drag. Not a geometry change — decode reads the
+			// moved 0 V code back (below), so the signal and its zero shift together and
+			// the sample stream stays continuous with unchanged decoded volts.
+			if (desired.Ch1VPosCode != applied.Ch1VPosCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1VPos, desired.Ch1VPosCode);
+				applied.Ch1VPosCode = desired.Ch1VPosCode;
+			}
+			if (desired.Ch2VPosCode != applied.Ch2VPosCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2VPos, desired.Ch2VPosCode);
+				applied.Ch2VPosCode = desired.Ch2VPosCode;
+			}
+
+			// Coupling and the trigger registers don't affect how samples decode, so
+			// they're written without forcing a display reset.
+			if (desired.Ch1Coupling != applied.Ch1Coupling)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch1Coupling, (long)desired.Ch1Coupling);
+				applied.Ch1Coupling = desired.Ch1Coupling;
+			}
+			if (desired.Ch2Coupling != applied.Ch2Coupling)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.Ch2Coupling, (long)desired.Ch2Coupling);
+				applied.Ch2Coupling = desired.Ch2Coupling;
+			}
+			if (desired.TriggerSource != applied.TriggerSource)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerSource, (long)desired.TriggerSource);
+				applied.TriggerSource = desired.TriggerSource;
+			}
+			if (desired.TriggerSlope != applied.TriggerSlope)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerSlope, (long)desired.TriggerSlope);
+				applied.TriggerSlope = desired.TriggerSlope;
+			}
+			if (desired.TriggerSweep != applied.TriggerSweep)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerSweep, (long)desired.TriggerSweep);
+				applied.TriggerSweep = desired.TriggerSweep;
+			}
+			// The hardware trigger level is a single shared threshold voltage, mapped to a
+			// register code using the source channel's probe/scale and its (movable)
+			// vertical-position origin. Derive the code from those inputs each pass so it
+			// stays correct when the source, that channel's vertical position, or the
+			// volts/div changes.
+			var trig_zero = desired.TriggerSource == ETriggerSource.Ch2 ? desired.Ch2VPosCode : desired.Ch1VPosCode;
+			var trig_probe = desired.TriggerSource == ETriggerSource.Ch2 ? desired.Ch2Probe : desired.Ch1Probe;
+			var trig_vdiv = HantekProtocol.VoltsDivTable[desired.VoltsDivIndex];
+			var trig_code = HantekProtocol.VoltsToTriggerCode(desired.TrigVolts, trig_vdiv, trig_probe, trig_zero);
+			if (trig_code != applied.TriggerLevelCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerLevel, trig_code);
+				applied.TriggerLevelCode = trig_code;
+			}
+			if (desired.TriggerHPosCode != applied.TriggerHPosCode)
+			{
+				m_device.WriteRegister(ECategory.Dso, (byte)EDsoRegister.TriggerHPos, desired.TriggerHPosCode);
+				applied.TriggerHPosCode = desired.TriggerHPosCode;
+			}
+
+			// DDS generator registers. These don't affect DSO decoding, so they're
+			// written without touching the display. Only the four registers that take
+			// effect from DSO streaming mode are driven (see EDdsRegister). On (re)connect
+			// the applied DDS state is seeded to sentinels so all four are re-asserted once,
+			// giving the generator a known state regardless of what the init left.
+			if (desired.DdsWaveform != applied.DdsWaveform)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Waveform, (long)desired.DdsWaveform);
+				applied.DdsWaveform = desired.DdsWaveform;
+			}
+			if (desired.DdsFrequencyHz != applied.DdsFrequencyHz)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Frequency, desired.DdsFrequencyHz);
+				applied.DdsFrequencyHz = desired.DdsFrequencyHz;
+			}
+			if (desired.DdsAmplitudeMilliVpp != applied.DdsAmplitudeMilliVpp)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Amplitude, desired.DdsAmplitudeMilliVpp);
+				applied.DdsAmplitudeMilliVpp = desired.DdsAmplitudeMilliVpp;
+			}
+			if (desired.DdsDutyPercent != applied.DdsDutyPercent)
+			{
+				m_device.WriteRegister(ECategory.Dds, (byte)EDdsRegister.Duty, desired.DdsDutyPercent);
+				applied.DdsDutyPercent = desired.DdsDutyPercent;
+			}
+
+			// Publish the reconciled applied config back for the UI's read-side props.
+			lock (m_sync)
+				m_applied = applied;
+
+			// A geometry change restarts the time origin so framed displays redraw from
+			// a clean t=0 at the new scale, and refreshes the UI's resolution readout.
+			if (geometry_changed)
+			{
+				m_sample_index = 0;
+				ConfigChanged?.Invoke();
+			}
+		}
+
+		/// <summary>Deinterleave a packet, convert codes to volts, and queue the samples.</summary>
+		private void DecodePacket(byte[] packet)
+		{
+			// Snapshot the applied scale for this packet so all samples decode coherently.
+			Config applied;
+			lock (m_sync)
+				applied = m_applied;
+
+			var (ch1, ch2) = HantekDevice.Deinterleave(packet, applied.Ch1Enabled, applied.Ch2Enabled);
+			var count = Math.Max(ch1.Count, ch2.Count);
+
+			var dt_ms = HantekProtocol.TimebaseTable[applied.TimebaseIndex] / HantekProtocol.SamplesPerDivision * 1000.0;
+			var vdiv = HantekProtocol.VoltsDivTable[applied.VoltsDivIndex];
+			var probe1 = HantekProtocol.ProbeRatio(applied.Ch1Probe);
+			var probe2 = HantekProtocol.ProbeRatio(applied.Ch2Probe);
+
+			// Each channel's 0 V ADC code tracks its (movable) vertical-position register,
+			// so decode subtracts the per-channel zero for the applied position rather
+			// than a fixed mid-scale code. Because a vpos move shifts the signal and this
+			// zero together, the decoded volts stay true to the real signal.
+			var zero1 = HantekProtocol.AdcZeroCodeForVPos(applied.Ch1VPosCode);
+			var zero2 = HantekProtocol.AdcZeroCodeForVPos(applied.Ch2VPosCode);
+
+			var batch = new List<Sample>(count);
+			for (var i = 0; i != count; ++i)
+			{
+				// X advances by the running sample index so consecutive packets form
+				// one contiguous stream on the acquisition-time axis. A channel that is
+				// disabled (empty list) yields NaN so the render step skips it.
+				var x_ms = (m_sample_index + i) * dt_ms;
+				var v1 = i < ch1.Count ? HantekProtocol.CodeToDivisions(ch1[i], zero1) * vdiv * probe1 : double.NaN;
+				var v2 = i < ch2.Count ? HantekProtocol.CodeToDivisions(ch2[i], zero2) * vdiv * probe2 : double.NaN;
+				batch.Add(new Sample(x_ms, v1, v2));
+			}
+			m_sample_index += count;
+
+			lock (m_sync)
+			{
+				m_pending.AddRange(batch);
+			}
+		}
+
+		/// <summary>
+		/// The full set of live-adjustable scope settings. Held as a value type so the
+		/// desired and applied states can be snapshotted and compared field-by-field.
+		/// </summary>
+		private struct Config
+		{
+			public bool Ch1Enabled;
+			public bool Ch2Enabled;
+			public int VoltsDivIndex;
+			public int TimebaseIndex;
+			public ECoupling Ch1Coupling;
+			public ECoupling Ch2Coupling;
+			public EProbeScale Ch1Probe;
+			public EProbeScale Ch2Probe;
+			public ETriggerSource TriggerSource;
+			public ETriggerSlope TriggerSlope;
+			public ETriggerSweep TriggerSweep;
+			public int TriggerHPosCode;
+
+			// Per-channel vertical-position register codes. These physically shift each
+			// channel's trace in the ADC window; decode reads the moved 0 V code back so
+			// the shift is invisible to measured volts.
+			public int Ch1VPosCode;
+			public int Ch2VPosCode;
+
+			// The single shared trigger level, as a threshold in true signal volts. There
+			// is one hardware trigger, so both channels share this value; the display's
+			// software re-trigger compares it directly against the source channel's decoded
+			// sample volts without a lossy code->volts round trip.
+			public double TrigVolts;
+
+			// The trigger level register code the apply loop last wrote (applied-state
+			// only). It is derived from the source channel's level, probe, volts/div and
+			// vertical position, so it is not a directly requested field.
+			public int TriggerLevelCode;
+
+			// The requested trigger horizontal position as a time offset in seconds,
+			// kept alongside the device register code so the display can read back the
+			// value it last set (the register code alone doesn't round-trip cleanly).
+			public double TriggerTimeOffsetS;
+
+			// DDS / waveform-generator state. These don't affect how DSO samples decode;
+			// the apply loop just writes the four working generator registers (see
+			// EDdsRegister) when they change. Amplitude is stored as the register's mVpp
+			// value; frequency as a full Hz value; duty as an integer percent.
+			public EDdsWaveform DdsWaveform;
+			public long DdsFrequencyHz;
+			public int DdsAmplitudeMilliVpp;
+			public int DdsDutyPercent;
+
+			/// <summary>The configuration the init sequence programs (see HantekDevice.InitFrames).</summary>
+			public static Config Default => new()
+			{
+				Ch1Enabled = true,
+				Ch2Enabled = true,
+				VoltsDivIndex = DefaultVoltsDivIndex,
+				TimebaseIndex = DefaultTimebaseIndex,
+				Ch1Coupling = ECoupling.AC,
+				Ch2Coupling = ECoupling.AC,
+				Ch1Probe = EProbeScale.X1,
+				Ch2Probe = EProbeScale.X1,
+				TriggerSource = ETriggerSource.Ch1,
+				TriggerSlope = ETriggerSlope.Rising,
+				TriggerSweep = ETriggerSweep.Auto,
+				Ch1VPosCode = HantekProtocol.VPosCentreCode,
+				Ch2VPosCode = HantekProtocol.VPosCentreCode,
+				TrigVolts = 0.0,
+				TriggerLevelCode = HantekProtocol.VPosCentreCode,
+				TriggerHPosCode = HantekProtocol.HTriggerCentreCode,
+				TriggerTimeOffsetS = 0.0,
+				DdsWaveform = EDdsWaveform.Sine,
+				DdsFrequencyHz = 1000,
+				DdsAmplitudeMilliVpp = 2000,
+				DdsDutyPercent = 50,
+			};
+		}
+	}
+}
