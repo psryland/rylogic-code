@@ -1,0 +1,17 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="../../rylogic/Rylogic.Core/Rylogic.Core.csproj" />
+  <Project Path="../../rylogic/Rylogic.DB/Rylogic.DB.csproj" />
+  <Project Path="../../rylogic/Rylogic.Gfx/Rylogic.Gfx.csproj" />
+  <Project Path="../../rylogic/Rylogic.Gui.WPF/Rylogic.Gui.WPF.csproj" />
+  <Project Path="../../rylogic/Rylogic.Net/Rylogic.Net.csproj" />
+  <Project Path="../../rylogic/Rylogic.Windows/Rylogic.Windows.csproj" />
+  <Project Path="ExchApi.Binance/ExchApi.Binance.csproj" />
+  <Project Path="ExchApi.Common/ExchApi.Common.csproj" />
+  <Project Path="Lab.Model/Lab.Model.csproj" />
+  <Project Path="Lab.UI/Lab.UI.csproj" />
+</Solution>

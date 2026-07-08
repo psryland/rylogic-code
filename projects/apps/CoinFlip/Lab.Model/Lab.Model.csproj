@@ -3,8 +3,8 @@
 	<PropertyGroup>
 		<OutputType>Library</OutputType>
 		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
-		<RootNamespace>ExchApi.Binance</RootNamespace>
-		<AssemblyName>ExchApi.Binance</AssemblyName>
+		<RootNamespace>Lab.Model</RootNamespace>
+		<AssemblyName>Lab.Model</AssemblyName>
 		<LangVersion>latest</LangVersion>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
@@ -13,8 +13,8 @@
 	<PropertyGroup>
 		<Authors>P Ryland</Authors>
 		<Company>Rylogic</Company>
-		<Description>Interface to the Binance Exchange</Description>
-		<Copyright>Copyright (c) Rylogic 2007</Copyright>
+		<Description>Signal analysis laboratory - data and model layer.</Description>
+		<Copyright>Copyright (c) Rylogic 2026</Copyright>
 		<PackageLicenseUrl>https://opensource.org/licenses/MIT</PackageLicenseUrl>
 		<Version>1.0.0</Version>
 		<FileVersion>1.0.0</FileVersion>
@@ -23,9 +23,10 @@
 
 	<!-- References -->
 	<ItemGroup>
-		<PackageReference Include="Newtonsoft.Json" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.DB\Rylogic.DB.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\apps\CoinFlip\ExchApi.Common\ExchApi.Common.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\apps\CoinFlip\ExchApi.Binance\ExchApi.Binance.csproj" />
 	</ItemGroup>
 
 </Project>

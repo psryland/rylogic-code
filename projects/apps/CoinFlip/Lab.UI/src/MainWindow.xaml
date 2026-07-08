@@ -1,0 +1,93 @@
+﻿<Window
+	x:Class="Lab.UI.MainWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:view3d="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gfx"
+	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gui.WPF"
+	xmlns:local="clr-namespace:Lab.UI"
+	mc:Ignorable="d"
+	Title="Signal Analysis Lab"
+	Height="600"
+	Width="1000"
+	WindowStartupLocation="CenterScreen"
+	>
+	<Grid Margin="4">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+
+		<!-- Toolbar -->
+		<StackPanel
+			Grid.Row="0"
+			Orientation="Horizontal"
+			Margin="0,0,0,4"
+			>
+			<TextBlock Text="Symbol:" VerticalAlignment="Center" Margin="2,0"/>
+			<TextBox x:Name="m_tb_symbol" Text="BTCUSDT" Width="90" VerticalAlignment="Center" Margin="2,0"/>
+
+			<TextBlock Text="Timeframe:" VerticalAlignment="Center" Margin="8,0,2,0"/>
+			<ComboBox x:Name="m_cb_timeframe" Width="70" VerticalAlignment="Center" Margin="2,0"/>
+
+			<TextBlock Text="Days:" VerticalAlignment="Center" Margin="8,0,2,0"/>
+			<TextBox x:Name="m_tb_days" Text="365" Width="60" VerticalAlignment="Center" Margin="2,0"/>
+
+			<Button x:Name="m_btn_load" Content="Load" Width="70" VerticalAlignment="Center" Margin="8,0,2,0" Click="OnLoadClick"/>
+
+			<TextBlock x:Name="m_tb_status" Text="Ready" VerticalAlignment="Center" Margin="12,0" Foreground="#555"/>
+		</StackPanel>
+
+		<!-- Chart -->
+		<view3d:ChartControl
+			Grid.Row="1"
+			x:Name="m_chart"
+			Title="{Binding ChartTitle}"
+			XLabel="Time"
+			YLabel="Price"
+			/>
+
+		<!-- Scrub controls -->
+		<Grid Grid.Row="2" Margin="0,4,0,0">
+			<Grid.ColumnDefinitions>
+				<ColumnDefinition Width="Auto"/>
+				<ColumnDefinition Width="*"/>
+				<ColumnDefinition Width="Auto"/>
+				<ColumnDefinition Width="Auto"/>
+				<ColumnDefinition Width="Auto"/>
+			</Grid.ColumnDefinitions>
+
+			<TextBlock Grid.Column="0" Text="Scrub:" VerticalAlignment="Center" Margin="2,0"/>
+			<Slider
+				Grid.Column="1"
+				x:Name="m_slider"
+				Minimum="0"
+				Maximum="1"
+				Value="1"
+				VerticalAlignment="Center"
+				Margin="4,0"
+				IsEnabled="False"
+				ValueChanged="OnScrubChanged"
+				/>
+			<TextBlock Grid.Column="2" Text="Window:" VerticalAlignment="Center" Margin="8,0,2,0"/>
+			<TextBox
+				Grid.Column="3"
+				x:Name="m_tb_window"
+				Text="200"
+				Width="60"
+				VerticalAlignment="Center"
+				Margin="2,0"
+				/>
+			<TextBlock
+				Grid.Column="4"
+				x:Name="m_tb_scrub_date"
+				Text=""
+				VerticalAlignment="Center"
+				Margin="8,0"
+				MinWidth="180"
+				/>
+		</Grid>
+	</Grid>
+</Window>
