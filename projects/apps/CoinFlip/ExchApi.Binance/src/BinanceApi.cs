@@ -444,8 +444,14 @@ namespace Binance.API
 					if (response.Headers.TryGetValues("X-MBX-USED-WEIGHT", out var weights))
 					{
 						RequestThrottle.UsedWeight = long.Parse(weights.First());
-						if (RequestThrottle.UsedWeight > 0.5 * RequestThrottle.WeightLimit)
-							Debug.Assert(false);
+
+						// Warn (don't assert) when approaching the rate limit. Note: 'WeightLimit' is
+						// zero until 'InitAsync' has parsed the exchange rules, so guard against that -
+						// otherwise the very first request trips this on a 0 limit. A failed Debug.Assert
+						// here also hard-crashes the process (FailFast) on modern .NET, which is not what
+						// we want for a soft rate-limit tripwire.
+						if (RequestThrottle.WeightLimit > 0 && RequestThrottle.UsedWeight > 0.5 * RequestThrottle.WeightLimit)
+							Log.Write(ELogLevel.Warn, $"Binance API request weight is high: {RequestThrottle.UsedWeight}/{RequestThrottle.WeightLimit}");
 					}
 
 					// Interpret the reply
