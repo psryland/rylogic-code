@@ -207,6 +207,10 @@ namespace physics_sandbox
 		, m_collision_sub()
 		, m_show_contacts(true)
 		, m_clock()
+		, m_step_pending(false)
+		, m_pending_elapsed_seconds()
+		, m_pending_substeps()
+		, m_pending_step_profile()
 		, m_current_scenario()
 		, m_diag()
 		, m_step_count()
@@ -543,6 +547,9 @@ namespace physics_sandbox
 	// Reset the simulation to the current scenario's initial conditions
 	void Scene::Reset()
 	{
+		if (m_step_pending)
+			throw std::runtime_error("Scene::Reset cannot run while a step is pending");
+
 		m_clock = 0;
 		m_step_count = 0;
 		m_diag.Reset();
@@ -580,16 +587,115 @@ namespace physics_sandbox
 		});
 	}
 
-	// Advance the simulation by one time step. Returns true if a collision occurred during this step.
+	// Advance the simulation synchronously by one time step.
 	bool Scene::Step(double elapsed_seconds)
 	{
-		auto const step_beg = Clock::now();
-		m_clock += elapsed_seconds;
-		auto const substeps = std::max(m_physics_substeps, 1);
-		auto dt = static_cast<float>(elapsed_seconds / substeps);
+		BeginStep(elapsed_seconds);
+		return CompleteStep();
+	}
 
-		// Reset per-step collision flag
+	// Submit the first physics substep without waiting for its GPU results.
+	void Scene::BeginStep(double elapsed_seconds)
+	{
+		if (m_step_pending)
+			throw std::runtime_error("Scene::BeginStep called while a previous step is pending");
+
+		auto const step_beg = Clock::now();
+		m_step_pending = true;
+		m_pending_elapsed_seconds = elapsed_seconds;
+		m_pending_substeps = std::max(m_physics_substeps, 1);
+		m_pending_step_profile = {};
 		m_diag.occurred = false;
+
+		try
+		{
+			auto const dt = static_cast<float>(elapsed_seconds / m_pending_substeps);
+			BeginPhysicsSubstep(dt, m_clock, m_pending_step_profile);
+			m_pending_step_profile.m_total_ms = ElapsedMs(step_beg, Clock::now());
+		}
+		catch (...)
+		{
+			m_step_pending = false;
+			throw;
+		}
+	}
+
+	// Complete a submitted step, including dependent substeps that cannot overlap rendering.
+	bool Scene::CompleteStep()
+	{
+		if (!m_step_pending)
+			throw std::runtime_error("Scene::CompleteStep called without a pending step");
+
+		auto const complete_beg = Clock::now();
+		try
+		{
+			CompletePhysicsSubstep(m_pending_step_profile);
+
+			auto const dt = static_cast<float>(m_pending_elapsed_seconds / m_pending_substeps);
+			for (int substep = 1; substep != m_pending_substeps; ++substep)
+			{
+				auto const time_s = m_clock + m_pending_elapsed_seconds * static_cast<double>(substep) / static_cast<double>(m_pending_substeps);
+				BeginPhysicsSubstep(dt, time_s, m_pending_step_profile);
+				CompletePhysicsSubstep(m_pending_step_profile);
+			}
+			if (m_diag.occurred)
+				++m_diag.count;
+
+			++m_step_count;
+			m_clock += m_pending_elapsed_seconds;
+
+			#ifdef PR_PHYSICS_DIAGNOSTICS
+			{
+				// If a collision occurred this step, capture post-impulse snapshots.
+				// Detailed logging is only done for the two-body test scenarios (not file-loaded scenes).
+				if (m_diag.occurred && std::ssize(m_body) == 2)
+				{
+					m_diag.after[0] = BodySnapshot::Capture(m_body[0]);
+					m_diag.after[1] = BodySnapshot::Capture(m_body[1]);
+					LogCollisionDiagnostics();
+				}
+			}
+			#endif
+
+			// Freeze escaped dynamic bodies before their values grow large enough to lose useful precision.
+			auto const kill_beg = Clock::now();
+			for (int i = 0; i != std::ssize(m_body); ++i)
+			{
+				auto mass = m_body[i].Mass();
+				if (mass >= physics::InfiniteMass * 0.5f)
+					continue;
+
+				auto pos = m_body[i].O2W().pos;
+				if (pos.z < m_kill_zone_height)
+				{
+					m_body[i].ZeroMomentum();
+					m_body[i].ZeroForces();
+				}
+			}
+			auto const kill_end = Clock::now();
+
+			m_pending_step_profile.m_total_ms += ElapsedMs(complete_beg, kill_end);
+			m_pending_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
+			m_last_step_profile = m_pending_step_profile;
+			m_step_pending = false;
+			return m_diag.occurred;
+		}
+		catch (...)
+		{
+			m_step_pending = false;
+			throw;
+		}
+	}
+
+	// Return true while a scene step is waiting for GPU completion.
+	bool Scene::StepPending() const
+	{
+		return m_step_pending;
+	}
+
+	// Prepare fallback colours before collision readback supplies the completed substep's contacts.
+	void Scene::PrepareStepVisuals()
+	{
 		switch (m_visual_mode)
 		{
 			case EVisualMode::Normal:
@@ -606,80 +712,38 @@ namespace physics_sandbox
 				throw std::runtime_error("Unknown visual mode");
 			}
 		}
-		auto engine_profile = physics::Engine::StepProfile{};
-		auto gravity_ms = 0.0;
-		auto physics_ms = 0.0;
+	}
 
-		for (int substep = 0; substep != substeps; ++substep)
+	// Apply gravity and submit one physics substep without waiting for its result.
+	void Scene::BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile)
+	{
+		// Forces are cleared by integration, so gravity must be restored before every substep.
+		auto const gravity_beg = Clock::now();
+		if (LengthSq(m_gravity) != 0)
 		{
-			// Apply gravity as an external force: F = m * g.
-			// Static bodies (infinite mass) are skipped — they should not accelerate.
-			// Forces are cleared by Evolve() at the end of each step, so we re-apply each substep.
-			auto const gravity_beg = Clock::now();
-			if (LengthSq(m_gravity) != 0)
-			{
-				for (auto& body : m_body)
-					body.GravityWS(m_gravity);
-			}
-			auto const gravity_end = Clock::now();
-			gravity_ms += ElapsedMs(gravity_beg, gravity_end);
-
-			// Step physics (Evolve -> Broad Phase -> Narrow Phase -> PostCollisionDetection -> Resolve).
-			auto const physics_beg = Clock::now();
-			auto const substep_time_s = m_clock - elapsed_seconds + elapsed_seconds * static_cast<double>(substep) / static_cast<double>(substeps);
-			m_physics.Step(dt, std::span{ m_body }, substep_time_s);
-			if (m_gpu_buoyancy != nullptr)
-				m_gpu_buoyancy->CompleteStep();
-			auto const physics_end = Clock::now();
-			physics_ms += ElapsedMs(physics_beg, physics_end);
-			AddProfile(engine_profile, m_physics.LastStepProfile());
-			if (m_physics.LastCollisionStats().LastContactCount() != 0)
-				m_diag.occurred = true;
+			for (auto& body : m_body)
+				body.GravityWS(m_gravity);
 		}
-		if (m_diag.occurred)
-			++m_diag.count;
+		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
 
-		++m_step_count;
+		auto const physics_beg = Clock::now();
+		m_physics.BeginStep(dt, std::span{ m_body }, time_s);
+		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
+	}
 
-		#ifdef PR_PHYSICS_DIAGNOSTICS
-		{
-			// If a collision occurred this step, capture post-impulse snapshots.
-			// Detailed logging is only done for the two-body test scenarios (not file-loaded scenes).
-			if (m_diag.occurred && std::ssize(m_body) == 2)
-			{
-				m_diag.after[0] = BodySnapshot::Capture(m_body[0]);
-				m_diag.after[1] = BodySnapshot::Capture(m_body[1]);
-				LogCollisionDiagnostics();
-			}
-		}
-		#endif
+	// Complete one submitted physics substep and accumulate its profiling and collision results.
+	void Scene::CompletePhysicsSubstep(StepProfile& profile)
+	{
+		PrepareStepVisuals();
 
-		// Kill zone: freeze bodies that have fallen below the threshold.
-		// This prevents escaped bodies from accumulating extreme velocities
-		// that corrupt float precision for the entire simulation.
-		auto const kill_beg = Clock::now();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-		{
-			auto mass = m_body[i].Mass();
-			if (mass >= physics::InfiniteMass * 0.5f)
-				continue; // skip static bodies
-
-			auto pos = m_body[i].O2W().pos;
-			if (pos.z < m_kill_zone_height)
-			{
-				m_body[i].ZeroMomentum();
-				m_body[i].ZeroForces();
-			}
-		}
-		auto const kill_end = Clock::now();
-
-		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
-		m_last_step_profile.m_gravity_ms = gravity_ms;
-		m_last_step_profile.m_physics_ms = physics_ms;
-		m_last_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
-		m_last_step_profile.m_engine = engine_profile;
-
-		return m_diag.occurred;
+		auto const physics_beg = Clock::now();
+		m_physics.CompleteStep();
+		if (m_gpu_buoyancy != nullptr)
+			m_gpu_buoyancy->CompleteStep();
+		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
+		AddProfile(profile.m_engine, m_physics.LastStepProfile());
+		if (m_physics.LastCollisionStats().LastContactCount() != 0)
+			m_diag.occurred = true;
 	}
 
 	// Configure bodies for the current scenario. All test scenarios use no external

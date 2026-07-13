@@ -129,6 +129,10 @@ namespace physics_sandbox
 
 		// Simulation state
 		double m_clock;
+		bool m_step_pending;
+		double m_pending_elapsed_seconds;
+		int m_pending_substeps;
+		StepProfile m_pending_step_profile;
 
 		// The currently active scenario.
 		EScenario m_current_scenario;
@@ -147,6 +151,16 @@ namespace physics_sandbox
 		// Advance the simulation by one time step.
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);
+
+		// Submit the first physics substep without waiting for its GPU results.
+		void BeginStep(double elapsed_seconds);
+
+		// Complete a submitted step, including any remaining dependent substeps.
+		// Returns true if a collision occurred during this step.
+		bool CompleteStep();
+
+		// Return true while a step has been submitted but not completed.
+		bool StepPending() const;
 
 		// Configure bodies for the current scenario
 		void SetupScenario(EScenario scenario);
@@ -184,6 +198,15 @@ namespace physics_sandbox
 		void ClearContactPriorityGfx();
 		void UpdateCollisionReadback();
 		bool NeedsCollisionReadback() const;
+
+		// Prepare visual state before collision readback updates it for a completed substep.
+		void PrepareStepVisuals();
+
+		// Apply gravity and submit one physics substep.
+		void BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile);
+
+		// Wait for one submitted physics substep and collect its results.
+		void CompletePhysicsSubstep(StepProfile& profile);
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;
