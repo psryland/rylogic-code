@@ -69,12 +69,6 @@ namespace physics_sandbox
 		std::vector<int> m_buoyancy_body_indices;
 		int m_buoyancy_generation;
 
-		// Retained copies of the collision shapes registered with the buoyancy module, kept in
-		// parallel with m_buoyancy_body_indices so the sample-cloud debug overlay can re-run the CPU
-		// oracle (SampleHull) against the same geometry the GPU sampler uses. The shapes are otherwise
-		// transient inside ConfigureBuoyancy, so we copy them here when debug visualisation may be needed.
-		std::vector<byte_data<16>> m_buoyancy_debug_shapes;
-
 		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force
 		// overlay is drawn. Toggled by the sandbox UI ('B' key).
 		bool m_show_buoyancy_debug;
@@ -214,7 +208,7 @@ namespace physics_sandbox
 		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
 		void ClearBuoyancy();
 
-		// Create diagnostic buoyancy hulls described by a loaded scene.
+		// Register every dynamic scene body for buoyancy when the scene contains water.
 		void ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc);
 
 		// Create the water mesh visual described by a loaded scene.

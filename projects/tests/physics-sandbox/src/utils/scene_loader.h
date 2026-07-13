@@ -28,11 +28,6 @@ namespace physics_sandbox::scene_loader
 	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
 	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
 	//         },
-	//         "buoyancy": {                    // Optional diagnostic buoyancy settings
-	//             "hulls": [
-	//                 { "body": "box1", "type": "box", "dimensions": [1, 1, 1] }
-	//             ]
-	//         },
 	//         "water": {                       // Optional water surface used by buoyancy and the visual mesh
 	//             "level": 0.0,                // Flat-water base height
 	//             "size": [20, 20],            // Optional visual mesh size; omitted/zero means auto-size to scene
@@ -77,8 +72,6 @@ namespace physics_sandbox::scene_loader
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
 	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
-	//                 "buoyancy_hull": {},                  // Optional: derive a matching hull for every generated body
-	//                                                       // ("tessellation" optionally controls polytope interior tets)
 	//                 "mass": [1.0, 10.0],
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
 	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
@@ -127,23 +120,6 @@ namespace physics_sandbox::scene_loader
 	{
 		v4 position = v4(0, 0, 1, 1);
 		v4 lookat = Origin<v4>();
-	};
-
-	// Parsed description of a buoyancy hull. The hull geometry is specified independently of the
-	// body's collision shape (mirroring the original box-only design), so the buoyancy mesh can be
-	// a simplified, watertight, tessellated approximation of the visual/collision body.
-	struct BuoyancyHullDesc
-	{
-		// Hull primitive type. The sampled-composite backend supports box, sphere, and polytope.
-		enum class EShape { Box, Sphere, Polytope };
-
-		std::string body_name;
-		EShape shape_type = EShape::Box;
-
-		v4 dimensions = One<v4>();          // Full dimensions (only valid when shape_type == Box)
-		float radius = 1.0f;                // Radius (only valid when shape_type == Sphere)
-		std::vector<v4> polytope_verts = {};// Convex hull vertices (only valid when shape_type == Polytope)
-		int tessellation = 5;               // Interior tessellation resolution for polytope buoyancy tets (only valid when shape_type == Polytope)
 	};
 
 	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
@@ -212,8 +188,6 @@ namespace physics_sandbox::scene_loader
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;
 
-		// Diagnostic generated-box buoyancy hulls.
-		std::vector<BuoyancyHullDesc> buoyancy_hulls;
 	};
 
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).

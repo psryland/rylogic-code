@@ -238,6 +238,9 @@ namespace pr::physics::buoyancy
 			case EShape::Polytope:
 			{
 				auto const& poly = shape_cast<ShapePolytope>(shape);
+				if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
+					return CalcVolume(poly);
+
 				auto vol = 0.0f;
 				for (int t = 0; t != poly.m_tet_count; ++t)
 				{

@@ -70,28 +70,6 @@
 				"velocity": [0.0, 0.0, 0.0],
 				"angular_velocity": [0.0, 0.0, 0.0]
 			}
-		],
-		"buoyancy": {
-			"hulls": [
-				{
-					"body": "floater",
-					"type": "box",
-					"dimensions": [2.0, 2.0, 1.0]
-				},
-				{
-					"body": "floater-poly",
-					"type": "polytope",
-					"tessellation": 5,
-					"vertices": [
-						[ 1.0,  0.0,  0.0],
-						[-1.0,  0.0,  0.0],
-						[ 0.0,  1.0,  0.0],
-						[ 0.0, -1.0,  0.0],
-						[ 0.0,  0.0,  0.8],
-						[ 0.0,  0.0, -0.8]
-					]
-				}
-			]
-		}
+		]
 	}
 }

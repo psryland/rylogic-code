@@ -60,7 +60,6 @@
 				"instance_count": 500,
 				"shape_palette_count": 1,
 				"shape": "buoyancy-stress-box",
-				"buoyancy_hull": {},
 				"colour": ["0xFF70A8E0", "0xFFB0D8FF"],
 				"mass": 500.0,
 				"position": [[-70.0, -70.0, 6.0], [70.0, 70.0, 18.0]],
@@ -74,9 +73,6 @@
 				"instance_count": 500,
 				"shape_palette_count": 1,
 				"shape": "buoyancy-stress-octahedron",
-				"buoyancy_hull": {
-					"tessellation": 5
-				},
 				"colour": ["0xFFE09050", "0xFFFFD090"],
 				"mass": 170.0,
 				"position": [[-70.0, -70.0, 6.0], [70.0, 70.0, 18.0]],

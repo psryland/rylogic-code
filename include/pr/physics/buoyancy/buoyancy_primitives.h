@@ -121,7 +121,7 @@ namespace pr::physics::buoyancy
 		// Append one convex primitive's geometry to 'out', producing its GpuPrimitive descriptor.
 		// 'shape' must be a single convex primitive (not a ShapeArray). 'sibling_index' is the
 		// primitive's position within the owning composite.
-		inline GpuPrimitive FlattenPrimitive(collision::Shape const& shape, int sibling_index, CompositeHull& out)
+		inline GpuPrimitive FlattenPrimitive(collision::Shape const& shape, int sibling_index, int polytope_tessellation, CompositeHull& out)
 		{
 			using namespace collision;
 
@@ -164,11 +164,20 @@ namespace pr::physics::buoyancy
 				case EShape::Polytope:
 				{
 					// Polytopes carry full topology: surface verts + face planes/triples for surface
-					// sampling, and the interior tetrahedralisation for volume sampling. The shape must
-					// have been tessellated at build time (tet_count > 0) for volume sampling to work.
+					// sampling, and an interior tetrahedralisation for volume sampling. Collision-only
+					// polytopes normally omit the latter, so derive it without modifying the source shape.
 					auto const& poly = shape_cast<ShapePolytope>(shape);
+					auto derived_verts = std::vector<v4>{};
+					auto derived_tets = std::vector<ShapePolytope::Tet>{};
 					if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
-						throw std::runtime_error("Composite hull polytope is missing its interior tetrahedralisation; build it with a tessellation resolution");
+					{
+						if (polytope_tessellation <= 0)
+							throw std::runtime_error("Composite hull polytope is missing its interior tetrahedralisation and no derivation resolution was supplied");
+
+						TessellatePolytope(poly, polytope_tessellation, derived_verts, derived_tets);
+						if (derived_verts.empty() || derived_tets.empty())
+							throw std::runtime_error("Composite hull polytope interior tetrahedralisation failed");
+					}
 
 					prim.m_type = static_cast<int>(EPrimitiveType::Polytope);
 
@@ -190,17 +199,27 @@ namespace pr::physics::buoyancy
 
 					// Interior tetrahedralisation verts.
 					prim.m_volume_vert_ofs = static_cast<int>(out.m_volume_verts.size());
-					prim.m_volume_vert_count = poly.m_volume_vert_count;
-					for (int i = 0; i != poly.m_volume_vert_count; ++i)
-						out.m_volume_verts.push_back(poly.volume_vertex(static_cast<std::size_t>(i)));
-
-					// Tets (corner indices relative to this primitive's volume-vert block).
 					prim.m_tet_ofs = static_cast<int>(out.m_tets.size());
-					prim.m_tet_count = poly.m_tet_count;
-					for (int t = 0; t != poly.m_tet_count; ++t)
+					if (!derived_tets.empty())
 					{
-						auto const& tet = poly.tet(t);
-						out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
+						prim.m_volume_vert_count = static_cast<int>(derived_verts.size());
+						prim.m_tet_count = static_cast<int>(derived_tets.size());
+						out.m_volume_verts.insert(out.m_volume_verts.end(), derived_verts.begin(), derived_verts.end());
+						for (auto const& tet : derived_tets)
+							out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
+					}
+					else
+					{
+						prim.m_volume_vert_count = poly.m_volume_vert_count;
+						prim.m_tet_count = poly.m_tet_count;
+						for (int i = 0; i != poly.m_volume_vert_count; ++i)
+							out.m_volume_verts.push_back(poly.volume_vertex(static_cast<std::size_t>(i)));
+
+						for (int t = 0; t != poly.m_tet_count; ++t)
+						{
+							auto const& tet = poly.tet(t);
+							out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
+						}
 					}
 					return prim;
 				}
@@ -214,8 +233,9 @@ namespace pr::physics::buoyancy
 
 	// Flatten a collision::Shape into an owned CompositeHull. A ShapeArray is decomposed into its
 	// child primitives in child order (the sibling-cull priority); any other shape is treated as a
-	// single primitive. Throws for unsupported primitive types or polytopes lacking tessellation.
-	inline CompositeHull FlattenShape(collision::Shape const& hull)
+	// single primitive. Missing polytope tetrahedra are derived when 'polytope_tessellation' is
+	// positive; otherwise they are rejected.
+	inline CompositeHull FlattenShape(collision::Shape const& hull, int polytope_tessellation = 0)
 	{
 		using namespace collision;
 
@@ -226,11 +246,11 @@ namespace pr::physics::buoyancy
 			auto const& arr = shape_cast<ShapeArray>(hull);
 			auto sibling = 0;
 			for (Shape const* s = arr.begin(), *e = arr.end(); s != e; s = next(s), ++sibling)
-				out.m_primitives.push_back(impl::FlattenPrimitive(*s, sibling, out));
+				out.m_primitives.push_back(impl::FlattenPrimitive(*s, sibling, polytope_tessellation, out));
 		}
 		else
 		{
-			out.m_primitives.push_back(impl::FlattenPrimitive(hull, 0, out));
+			out.m_primitives.push_back(impl::FlattenPrimitive(hull, 0, polytope_tessellation, out));
 		}
 		return out;
 	}

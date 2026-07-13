@@ -341,54 +341,7 @@ namespace physics_sandbox::scene_loader
 			return shapes;
 		}
 
-		// Derive a buoyancy hull from a generated body's collision shape so compact stress scenes do
-		// not need to duplicate every generated body name and its matching hull geometry.
-		BuoyancyHullDesc MakeGeneratedBuoyancyHull(BodyDesc const& body, pr::json::Value const& jv_hull)
-		{
-			auto const& jhull = jv_hull.to_object();
-			auto hull = BuoyancyHullDesc{};
-			hull.body_name = body.name;
-
-			switch (body.shape_type)
-			{
-				case BodyDesc::EShape::Box:
-				{
-					hull.shape_type = BuoyancyHullDesc::EShape::Box;
-					hull.dimensions = body.box_dimensions;
-					break;
-				}
-				case BodyDesc::EShape::Sphere:
-				{
-					hull.shape_type = BuoyancyHullDesc::EShape::Sphere;
-					hull.radius = body.sphere_radius;
-					break;
-				}
-				case BodyDesc::EShape::Polytope:
-				{
-					hull.shape_type = BuoyancyHullDesc::EShape::Polytope;
-					hull.polytope_verts = body.polytope_verts;
-					if (auto const* jtessellation = jhull.find("tessellation"))
-						hull.tessellation = jtessellation->to<int>();
-
-					if (hull.tessellation <= 0)
-						throw std::runtime_error("Generated polytope buoyancy hull 'tessellation' must be greater than zero");
-
-					break;
-				}
-				case BodyDesc::EShape::Line:
-				case BodyDesc::EShape::Triangle:
-				{
-					throw std::runtime_error(pr::FmtS("Generated body '%s' has no supported matching buoyancy hull", body.name.c_str()));
-				}
-				default:
-				{
-					throw std::runtime_error("Unknown generated body shape type");
-				}
-			}
-			return hull;
-		}
-
-		// Append generated rigid bodies and any requested matching buoyancy hull registrations.
+		// Append generated rigid bodies.
 		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, NamedShapeMap const& shapes, std::default_random_engine& rng)
 		{
 			auto const& jgen = jv_generator.to_object();
@@ -440,9 +393,6 @@ namespace physics_sandbox::scene_loader
 					body.angular_velocity = ReadVec3Range(*jangular_velocity, 0.0f, selector, body_index, instance_count, rng);
 				if (auto const* jsleeping = jgen.find("sleeping"))
 					body.sleeping = jsleeping->to<bool>();
-
-				if (auto const* jbuoyancy_hull = jgen.find("buoyancy_hull"))
-					desc.buoyancy_hulls.push_back(MakeGeneratedBuoyancyHull(body, *jbuoyancy_hull));
 
 				desc.bodies.push_back(std::move(body));
 			}
@@ -554,81 +504,6 @@ namespace physics_sandbox::scene_loader
 
 		return camera;
 	}
-	// Parse diagnostic buoyancy hulls from a scene object.
-	std::vector<BuoyancyHullDesc> ReadBuoyancyHulls(pr::json::Value const& jbuoyancy)
-	{
-		auto hulls = std::vector<BuoyancyHullDesc>{};
-		auto const& jbuoyancy_obj = jbuoyancy.to_object();
-		auto const* jhulls = jbuoyancy_obj.find("hulls");
-		if (jhulls == nullptr)
-			return hulls;
-
-		for (auto const& jhull : jhulls->to_array())
-		{
-			auto const& jhull_obj = jhull.to_object();
-			auto const* jbody = jhull_obj.find("body");
-			if (jbody == nullptr)
-				throw std::runtime_error("Buoyancy hull requires a 'body' field");
-
-			auto hull = BuoyancyHullDesc{};
-			hull.body_name = jbody->to<std::string>();
-			if (hull.body_name.empty())
-				throw std::runtime_error("Buoyancy hull 'body' field cannot be empty");
-
-			auto type = std::string("box");
-			if (auto const* jtype = jhull_obj.find("type"))
-				type = jtype->to<std::string>();
-
-			if (type == "box")
-			{
-				hull.shape_type = BuoyancyHullDesc::EShape::Box;
-
-				auto const* jdimensions = jhull_obj.find("dimensions");
-				if (jdimensions == nullptr)
-					throw std::runtime_error("Box buoyancy hull requires a 'dimensions' field");
-
-				hull.dimensions = ReadVec3(*jdimensions, 0.0f);
-			}
-			else if (type == "sphere")
-			{
-				hull.shape_type = BuoyancyHullDesc::EShape::Sphere;
-
-				auto const* jradius = jhull_obj.find("radius");
-				if (jradius == nullptr)
-					throw std::runtime_error("Sphere buoyancy hull requires a 'radius' field");
-
-				hull.radius = jradius->to<float>();
-			}
-			else if (type == "polytope")
-			{
-				hull.shape_type = BuoyancyHullDesc::EShape::Polytope;
-
-				auto const& verts = jhull_obj["vertices"].to_array();
-				if (verts.size() < 4)
-					throw std::runtime_error("Polytope buoyancy hull requires at least 4 non-coplanar vertices");
-
-				for (auto const& v : verts)
-					hull.polytope_verts.push_back(ReadVec3(v, 1.0f));
-
-				// Interior tessellation produces the tets the volume sampler integrates over; a
-				// positive resolution is mandatory for polytope hulls (untessellated polytopes throw
-				// during FlattenShape). Default to a resolution known to give well-formed tets.
-				if (auto const* jtess = jhull_obj.find("tessellation"))
-					hull.tessellation = jtess->to<int>();
-				if (hull.tessellation <= 0)
-					throw std::runtime_error("Polytope buoyancy hull 'tessellation' must be > 0");
-			}
-			else
-			{
-				throw std::runtime_error(pr::FmtS("Unsupported buoyancy hull type: '%s'", type.c_str()));
-			}
-
-			hulls.push_back(std::move(hull));
-		}
-
-		return hulls;
-	}
-
 	// Parse the water surface used by buoyancy and the sandbox visual mesh.
 	WaterDesc ReadWater(pr::json::Value const& jwater)
 	{
@@ -913,14 +788,6 @@ namespace physics_sandbox::scene_loader
 		{
 			for (auto const& jgenerator : jgenerators->to_array())
 				AppendGeneratedBodies(desc, jgenerator, shapes, scene_rng);
-		}
-
-		// Diagnostic buoyancy hulls.
-		if (auto* jbuoyancy = jscene.find("buoyancy"))
-		{
-			auto hulls = ReadBuoyancyHulls(*jbuoyancy);
-			for (auto& hull : hulls)
-				desc.buoyancy_hulls.push_back(std::move(hull));
 		}
 
 		// Camera

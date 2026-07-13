@@ -189,7 +189,6 @@ namespace physics_sandbox
 		, m_buoyancy_hulls()
 		, m_buoyancy_body_indices()
 		, m_buoyancy_generation()
-		, m_buoyancy_debug_shapes()
 		, m_show_buoyancy_debug(false)
 		, m_buoyancy_debug_gfx()
 		, m_gravity(v4::Zero())
@@ -233,30 +232,16 @@ namespace physics_sandbox
 	{
 		m_buoyancy_hulls.clear();
 		m_buoyancy_body_indices.clear();
-		m_buoyancy_debug_shapes.clear();
 		m_buoyancy_debug_gfx = nullptr;
 		m_gpu_buoyancy.reset();
 		++m_buoyancy_generation;
 	}
 
-	// Create diagnostic buoyancy hulls described by a loaded scene.
+	// Register every dynamic scene body for buoyancy when the scene contains water.
 	void Scene::ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc)
 	{
-		if (scene_desc.buoyancy_hulls.empty())
+		if (!scene_desc.water)
 			return;
-
-		auto body_lookup = std::unordered_map<std::string, int>{};
-		body_lookup.reserve(scene_desc.bodies.size());
-		for (int body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
-		{
-			auto const& body_name = scene_desc.bodies[body_index].name;
-			if (body_name.empty())
-				throw std::runtime_error("Buoyancy-enabled scenes require named bodies");
-
-			auto const [_, inserted] = body_lookup.emplace(body_name, body_index);
-			if (!inserted)
-				throw std::runtime_error(pr::FmtS("Buoyancy-enabled scene has duplicate body name '%s'", body_name.c_str()));
-		}
 
 		m_gpu_buoyancy = std::make_unique<physics::GpuBuoyancy>(
 			m_physics.Device(),
@@ -281,64 +266,20 @@ namespace physics_sandbox
 				body_state.m_valid = true;
 				return body_state;
 			});
-		if (scene_desc.water)
-			m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
+		m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
 
-		m_buoyancy_hulls.reserve(scene_desc.buoyancy_hulls.size());
-		m_buoyancy_body_indices.reserve(scene_desc.buoyancy_hulls.size());
-		for (auto const& hull : scene_desc.buoyancy_hulls)
+		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
+		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
+		m_buoyancy_hulls.reserve(scene_desc.bodies.size());
+		m_buoyancy_body_indices.reserve(scene_desc.bodies.size());
+		for (auto body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
 		{
-			auto const iter = body_lookup.find(hull.body_name);
-			if (iter == body_lookup.end())
-				throw std::runtime_error(pr::FmtS("Buoyancy hull references unknown body '%s'", hull.body_name.c_str()));
+			auto& body = m_body[body_index];
+			if (!body.HasShape() || body.Mass() >= physics::InfiniteMass * 0.5f)
+				continue;
 
-			// Build a transient collision shape from the hull description and register it on the
-			// sampled-composite backend, which flattens it into the volume-sample primitive set.
-			// The shape is only read during registration, so the locals below only need to stay
-			// alive across the RegisterCompositeHull call. Polytope hulls are tessellated so the
-			// volume sampler has interior tets to integrate over (untessellated polytopes throw).
-			auto& body = m_body[iter->second];
-			physics::GpuBuoyancy::Registration registration;
-
-			// Retain a copy of the registered collision shape so BuildBuoyancyDebugGfx() can re-run the
-			// CPU oracle over the same geometry. Filled per shape-type case below and moved into the
-			// parallel m_buoyancy_debug_shapes array after registration.
-			byte_data<16> debug_shape;
-			switch (hull.shape_type)
-			{
-				case scene_loader::BuoyancyHullDesc::EShape::Box:
-				{
-					auto hull_shape = collision::ShapeBox(hull.dimensions);
-					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
-					debug_shape.push_back(hull_shape);
-					DbgLog("  Buoyancy: body '%s' composite box hull dimensions=(%.3f, %.3f, %.3f)\n", hull.body_name.c_str(), hull.dimensions.x, hull.dimensions.y, hull.dimensions.z);
-					break;
-				}
-				case scene_loader::BuoyancyHullDesc::EShape::Sphere:
-				{
-					auto hull_shape = collision::ShapeSphere(hull.radius);
-					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
-					debug_shape.push_back(hull_shape);
-					DbgLog("  Buoyancy: body '%s' composite sphere hull radius=%.3f\n", hull.body_name.c_str(), hull.radius);
-					break;
-				}
-				case scene_loader::BuoyancyHullDesc::EShape::Polytope:
-				{
-					auto hull_buffer = collision::BuildPolytopeFromPoints(hull.polytope_verts, m4x4::Identity(), 0, collision::Shape::EFlags::None, hull.tessellation);
-					auto const& hull_shape = hull_buffer.as<collision::ShapePolytope>();
-					registration = m_gpu_buoyancy->RegisterCompositeHull(body, iter->second, m_buoyancy_generation, collision::shape_cast(hull_shape));
-					DbgLog("  Buoyancy: body '%s' composite polytope hull verts=%d tets=%d\n", hull.body_name.c_str(), s_cast<int>(hull.polytope_verts.size()), hull_shape.m_tet_count);
-					debug_shape = std::move(hull_buffer);
-					break;
-				}
-				default:
-				{
-					throw std::runtime_error("Unknown buoyancy hull shape type in scene description");
-				}
-			}
-			m_buoyancy_hulls.push_back(std::move(registration));
-			m_buoyancy_body_indices.push_back(iter->second);
-			m_buoyancy_debug_shapes.push_back(std::move(debug_shape));
+			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
+			m_buoyancy_body_indices.push_back(body_index);
 		}
 	}
 
@@ -422,7 +363,7 @@ namespace physics_sandbox
 		using namespace pr::physics::buoyancy;
 
 		m_buoyancy_debug_gfx = nullptr;
-		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_shapes.empty())
+		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_body_indices.empty())
 			return;
 
 		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
@@ -484,10 +425,24 @@ namespace physics_sandbox
 		//arrows.no_ztest();
 
 		auto any_geometry = false;
-		for (size_t h = 0; h != m_buoyancy_debug_shapes.size(); ++h)
+		for (size_t h = 0; h != m_buoyancy_body_indices.size(); ++h)
 		{
-			auto const& shape = m_buoyancy_debug_shapes[h].as<collision::Shape>();
 			auto const& body = m_body[m_buoyancy_body_indices[h]];
+			auto const* shape = &body.Shape();
+
+			// The collision polytope intentionally omits volume-only tetrahedra. Rebuild them only
+			// while the expensive CPU debug overlay is enabled so ordinary scene loading and stepping
+			// retain the compact collision representation.
+			auto derived_shape = byte_data<16>{};
+			if (shape->m_type == collision::EShape::Polytope)
+			{
+				auto const& poly = collision::shape_cast<collision::ShapePolytope>(*shape);
+				if (poly.m_tet_count == 0)
+				{
+					derived_shape = collision::BuildPolytopeFromPoints(poly.verts(), poly.m_base.m_s2r, poly.m_base.m_material_id, poly.m_base.m_flags, m_gpu_buoyancy->GetConfig().m_polytope_tessellation);
+					shape = &derived_shape.as<collision::Shape>();
+				}
+			}
 
 			// The floater bodies have their centre of mass at the model origin, so O2W (model->world)
 			// coincides with the sampler's COM-root->world transform and the body's linear velocity is
@@ -505,7 +460,7 @@ namespace physics_sandbox
 				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
-			auto const result = SampleHull(shape, static_cast<uint32_t>(h), state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
+			auto const result = SampleHull(*shape, static_cast<uint32_t>(h), state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
 
 			// Decimated sample cloud, with green whiskers on active surface samples.
 			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);

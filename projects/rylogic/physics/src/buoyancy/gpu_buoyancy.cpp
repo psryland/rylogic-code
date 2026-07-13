@@ -310,26 +310,20 @@ namespace pr::physics
 
 	struct GpuBuoyancy::Impl
 	{
-		struct CompositeSlot
+		// Immutable geometry and sample plans shared by every body that references the same collision
+		// shape. Collision shapes are immutable value blobs, so pointer identity is a stable cache key
+		// while at least one body retains the shape.
+		struct CompositeShape
 		{
-			// Bookkeeping for a buoyancy hull. Saves/restores the body's NeverSleep flag (a floating
-			// body must stay awake so the environmental force keeps being applied) and owns a
-			// flattened, immutable composite descriptor of convex primitives.
-			int m_generation = -1;
-			bool m_active = false;
-			RigidBody* m_body = nullptr;
-			bool m_prev_never_sleep = false;
 			buoyancy::CompositeHull m_hull;
 
 			// Volume-pass sample plan, computed once at registration. m_vol_counts[k] is the number of
 			// volume samples assigned to primitive k (proportional to its volume) and m_vol_dvol[k] is
 			// the matching per-sample volume weight (primitive volume / count). m_total_volume_samples
-			// is the sum of m_vol_counts. m_hull_id seeds the deterministic sample hash (stable across
-			// body reorders) and m_eps is the scale-relative inside-test slack for the sibling cull.
+			// is the sum of m_vol_counts. m_eps is the scale-relative inside-test slack for sibling culling.
 			std::vector<int> m_vol_counts;
 			std::vector<float> m_vol_dvol;
 			int m_total_volume_samples = 0;
-			uint32_t m_hull_id = 0;
 			float m_eps = 0.0f;
 
 			// Registration-time body-space AABB enclosing every primitive in the hull. Used by the
@@ -345,6 +339,33 @@ namespace pr::physics
 			std::vector<float> m_surf_darea;
 			int m_total_surface_samples = 0;
 		};
+		struct ShapeCacheKey
+		{
+			collision::Shape const* m_shape;
+			int m_polytope_tessellation;
+
+			friend bool operator ==(ShapeCacheKey const&, ShapeCacheKey const&) = default;
+		};
+		struct ShapeCacheHash
+		{
+			std::size_t operator()(ShapeCacheKey const& key) const noexcept
+			{
+				auto hash = std::hash<collision::Shape const*>{}(key.m_shape);
+				return hash ^ (std::hash<int>{}(key.m_polytope_tessellation) + 0x9e3779b9U + (hash << 6) + (hash >> 2));
+			}
+		};
+		struct CompositeSlot
+		{
+			// Per-body registration state. Expensive shape-derived data is shared; only identity,
+			// lifetime, deterministic sample seeding, and wake-state bookkeeping remain per body.
+			int m_generation = -1;
+			bool m_active = false;
+			RigidBody* m_body = nullptr;
+			bool m_prev_never_sleep = false;
+			uint32_t m_hull_id = 0;
+			multicast::AutoSub m_shape_change_sub;
+			std::shared_ptr<CompositeShape const> m_shape_data;
+		};
 
 		// A compact reference to a registered hull participating in the current dispatch. Instances live in
 		// reusable CPU scratch storage, so collecting active hulls does not allocate once registration is complete.
@@ -353,7 +374,14 @@ namespace pr::physics
 			int m_body_index;
 			int m_body_generation;
 			int m_body_step_index;
-			CompositeSlot const* m_slot;
+			uint32_t m_hull_id;
+			int m_shape_index;
+		};
+		struct ActiveShape
+		{
+			std::shared_ptr<CompositeShape const> m_shape_data;
+			int m_prim_base;
+			int m_prim_count;
 		};
 		struct ActiveHullStats
 		{
@@ -421,11 +449,13 @@ namespace pr::physics
 		// Runtime settings and registration-owned hull data. Hull slots are indexed by stable body index.
 		WaterSurface m_water_surface;
 		Config m_config;
+		std::unordered_map<ShapeCacheKey, std::weak_ptr<CompositeShape const>, ShapeCacheHash> m_shape_cache;
 		std::vector<CompositeSlot> m_composite_hulls;
 
 		// Reusable host-side dispatch state. Capacity tracks m_composite_hulls and is established during
 		// registration so the per-step Apply/DispatchComposite path only clears and repopulates storage.
 		std::vector<ActiveHull> m_active_hulls;
+		std::vector<ActiveShape> m_active_shapes;
 		std::vector<PendingDiagnostic> m_pending_diagnostics;
 		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
 
@@ -456,8 +486,10 @@ namespace pr::physics
 			})
 			,m_water_surface()
 			,m_config()
+			,m_shape_cache()
 			,m_composite_hulls()
 			,m_active_hulls()
+			,m_active_shapes()
 			,m_pending_diagnostics()
 			,m_pending_readback()
 			,m_r_partials()
@@ -500,25 +532,109 @@ namespace pr::physics
 			// slot vector's geometric capacity avoids both per-step allocation and repeated exact-size growth.
 			auto const slot_capacity = m_composite_hulls.capacity();
 			m_active_hulls.reserve(slot_capacity);
+			m_active_shapes.reserve(slot_capacity);
 			m_pending_diagnostics.reserve(slot_capacity);
 		}
 
-		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
-		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
+		// Return shared derived data for a collision shape, creating it once per shape pointer and
+		// tessellation setting. Weak cache entries do not extend the source shape's lifetime.
+		std::shared_ptr<CompositeShape const> GetOrCreateCompositeShape(collision::Shape const& shape)
 		{
-			if (body_index < 0 || body_generation < 0)
+			auto const key = ShapeCacheKey{ &shape, m_config.m_polytope_tessellation };
+			if (auto iter = m_shape_cache.find(key); iter != m_shape_cache.end())
 			{
-				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
+				if (auto existing = iter->second.lock())
+					return existing;
 			}
 
-			// Flatten/copy the shape up front so the caller's shape may be modified or destroyed after
-			// registration, and so a malformed shape (unsupported primitive / un-tessellated polytope)
-			// fails loudly here rather than during force evaluation. Throws on bad input.
-			auto flattened = buoyancy::FlattenShape(shape);
+			auto flattened = buoyancy::FlattenShape(shape, m_config.m_polytope_tessellation);
 			if (flattened.Empty())
-			{
 				throw std::runtime_error("Composite buoyancy hull contains no primitives");
+
+			auto const prims = buoyancy::CollectPrimitives(shape);
+			auto volumes = std::vector<float>(prims.size(), 0.0f);
+			auto areas = std::vector<float>(prims.size(), 0.0f);
+			for (std::size_t k = 0; k != prims.size(); ++k)
+			{
+				volumes[k] = buoyancy::PrimitiveVolume(*prims[k]);
+				areas[k] = buoyancy::PrimitiveArea(*prims[k]);
 			}
+
+			// Build the volume plan in the same primitive order as the flattened GPU descriptors.
+			auto vol_counts = buoyancy::DistributeCounts(volumes, BuoyancyVolumeSampleCount);
+			auto vol_dvol = std::vector<float>(prims.size(), 0.0f);
+			auto total_volume_samples = 0;
+			for (std::size_t k = 0; k != prims.size(); ++k)
+			{
+				auto const count = vol_counts[k];
+				vol_dvol[k] = count > 0 ? volumes[k] / static_cast<float>(count) : 0.0f;
+				total_volume_samples += count;
+			}
+
+			// Build the matching surface plan used by the drag pass.
+			auto surf_counts = buoyancy::DistributeCounts(areas, BuoyancySurfaceSampleCount);
+			auto surf_darea = std::vector<float>(prims.size(), 0.0f);
+			auto total_surface_samples = 0;
+			for (std::size_t k = 0; k != prims.size(); ++k)
+			{
+				auto const count = surf_counts[k];
+				surf_darea[k] = count > 0 ? areas[k] / static_cast<float>(count) : 0.0f;
+				total_surface_samples += count;
+			}
+
+			auto const bbox = collision::CalcBBox(shape);
+			auto const extent = MaxElement(bbox.m_radius.w0());
+
+			auto data = std::make_shared<CompositeShape>();
+			data->m_hull = std::move(flattened);
+			data->m_vol_counts = std::move(vol_counts);
+			data->m_vol_dvol = std::move(vol_dvol);
+			data->m_total_volume_samples = total_volume_samples;
+			data->m_eps = std::max(1e-6f, extent * 1e-5f);
+			data->m_obb_os = bbox;
+			data->m_surf_counts = std::move(surf_counts);
+			data->m_surf_darea = std::move(surf_darea);
+			data->m_total_surface_samples = total_surface_samples;
+			m_shape_cache[key] = data;
+			return data;
+		}
+
+		// Refresh a live registration after its rigid body adopts a new collision shape.
+		void HandleShapeChange(int body_index, int body_generation, ChangeEventArgs<collision::Shape const*> const& args)
+		{
+			if (args.m_before)
+				return;
+
+			auto& slot = m_composite_hulls[body_index];
+			if (!slot.m_active || slot.m_generation != body_generation)
+				return;
+
+			try
+			{
+				if (args.m_value == nullptr)
+					throw std::runtime_error("A buoyancy-registered rigid body must have a collision shape");
+
+				slot.m_shape_data = GetOrCreateCompositeShape(*args.m_value);
+			}
+			catch (...)
+			{
+				slot.m_shape_data.reset();
+				throw;
+			}
+
+			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+			m_diagnostics[body_index] = Diagnostics{};
+			m_diagnostics[body_index].m_body_index = body_index;
+			m_diagnostics[body_index].m_body_generation = body_generation;
+		}
+
+		// Register a rigid body's collision shape as its buoyancy hull.
+		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation)
+		{
+			if (body_index < 0 || body_generation < 0)
+				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
+			if (!body.HasShape())
+				throw std::runtime_error("A buoyancy-registered rigid body must have a collision shape");
 
 			// Composite slots are indexed by stable body index. Establish matching scratch capacity here so
 			// collecting those slots during a physics step cannot grow a vector.
@@ -526,75 +642,30 @@ namespace pr::physics
 
 			auto& slot = m_composite_hulls[body_index];
 			if (slot.m_active)
-			{
 				throw std::runtime_error("A buoyancy hull is already registered for this body");
-			}
 
-			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
-			if (body_index >= static_cast<int>(m_diagnostics.size()))
+			auto shape_data = GetOrCreateCompositeShape(body.Shape());
+			auto shape_change_sub = multicast::AutoSub(body.ShapeChange += [this, body_index, body_generation](RigidBody&, ChangeEventArgs<collision::Shape const*> const& args)
 			{
-				m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
-			}
+				HandleShapeChange(body_index, body_generation, args);
+			});
 
-			auto& diagnostic = m_diagnostics[body_index];
-			diagnostic = Diagnostics{};
-			diagnostic.m_body_index = body_index;
-			diagnostic.m_body_generation = body_generation;
+			{
+				auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+				if (body_index >= static_cast<int>(m_diagnostics.size()))
+					m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
+
+				auto& diagnostic = m_diagnostics[body_index];
+				diagnostic = Diagnostics{};
+				diagnostic.m_body_index = body_index;
+				diagnostic.m_body_generation = body_generation;
+			}
 
 			slot.m_generation = body_generation;
 			slot.m_active = true;
-			slot.m_hull = std::move(flattened);
-
-			// Compute the volume-pass sample plan once at registration. CollectPrimitives returns the
-			// primitives in the same child order as FlattenShape, so m_vol_counts[k] aligns with
-			// slot.m_hull.m_primitives[k]. Counts are distributed proportional to each primitive's
-			// volume (so denser sampling tracks larger volumes) and the matching per-sample weight is
-			// primitive_volume / count. This mirrors the CPU oracle's plan exactly, which the phase-11
-			// parity gate depends on.
-			{
-				auto const prims = buoyancy::CollectPrimitives(shape);
-				auto volumes = std::vector<float>(prims.size(), 0.0f);
-				for (std::size_t k = 0; k != prims.size(); ++k)
-					volumes[k] = buoyancy::PrimitiveVolume(*prims[k]);
-
-				slot.m_vol_counts = buoyancy::DistributeCounts(volumes, BuoyancyVolumeSampleCount);
-				slot.m_vol_dvol.assign(prims.size(), 0.0f);
-				slot.m_total_volume_samples = 0;
-				for (std::size_t k = 0; k != prims.size(); ++k)
-				{
-					auto const count = slot.m_vol_counts[k];
-					slot.m_vol_dvol[k] = count > 0 ? volumes[k] / static_cast<float>(count) : 0.0f;
-					slot.m_total_volume_samples += count;
-				}
-
-				// Stable seed for the deterministic sample hash and a scale-relative inside-test slack,
-				// computed exactly as the CPU oracle does (CalcBBox extent * 1e-5, floored at 1e-6).
-				slot.m_hull_id = static_cast<uint32_t>(body_index);
-				auto const bbox = collision::CalcBBox(shape);
-				auto const extent = MaxElement(bbox.m_radius.w0());
-				slot.m_eps = std::max(1e-6f, extent * 1e-5f);
-				slot.m_obb_os = bbox;
-			}
-
-			// Compute the surface-pass (drag) sample plan once at registration, parallel to the volume
-			// plan above but distributed proportional to each primitive's surface area. m_surf_darea[k]
-			// is the matching per-sample area weight (primitive area / count). Mirrors the CPU oracle.
-			{
-				auto const prims = buoyancy::CollectPrimitives(shape);
-				auto areas = std::vector<float>(prims.size(), 0.0f);
-				for (std::size_t k = 0; k != prims.size(); ++k)
-					areas[k] = buoyancy::PrimitiveArea(*prims[k]);
-
-				slot.m_surf_counts = buoyancy::DistributeCounts(areas, BuoyancySurfaceSampleCount);
-				slot.m_surf_darea.assign(prims.size(), 0.0f);
-				slot.m_total_surface_samples = 0;
-				for (std::size_t k = 0; k != prims.size(); ++k)
-				{
-					auto const count = slot.m_surf_counts[k];
-					slot.m_surf_darea[k] = count > 0 ? areas[k] / static_cast<float>(count) : 0.0f;
-					slot.m_total_surface_samples += count;
-				}
-			}
+			slot.m_hull_id = static_cast<uint32_t>(body_index);
+			slot.m_shape_data = std::move(shape_data);
+			slot.m_shape_change_sub = std::move(shape_change_sub);
 
 			// Keep the body awake for the lifetime of the registration. Buoyancy is a continuous
 			// environmental force: the engine bails out of the GPU pipeline (and therefore
@@ -681,6 +752,10 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy quadratic drag coefficient must be a finite, non-negative value");
 			}
+			if (config.m_polytope_tessellation <= 0)
+			{
+				throw std::runtime_error("GpuBuoyancy polytope tessellation must be greater than zero");
+			}
 
 			m_config = config;
 		}
@@ -759,7 +834,7 @@ namespace pr::physics
 		// GPU readback (which fast-paths dry boxes/spheres and produces all-dry samples for polytopes
 		// and triangles). Only valid for flat water: under waves the surface height varies across the
 		// footprint, so a single conservative support point is unsafe.
-		bool IsFlatWaterFullyDry(CompositeSlot const& slot, BodyState const& bs) const
+		bool IsFlatWaterFullyDry(CompositeShape const& shape_data, BodyState const& bs) const
 		{
 			// Only safe for flat water; a wavy surface can rise above a conservative support point.
 			if (!m_water_surface.m_waves.empty())
@@ -777,8 +852,8 @@ namespace pr::physics
 
 			// Lowest extent of the world-space AABB along up: project the centre, then subtract the
 			// support distance contributed by each rotated body axis scaled by its half-extent.
-			auto const centre_ws = bs.m_o2w * slot.m_obb_os.m_centre;
-			auto const r = slot.m_obb_os.m_radius;
+			auto const centre_ws = bs.m_o2w * shape_data.m_obb_os.m_centre;
+			auto const r = shape_data.m_obb_os.m_radius;
 			auto const extent_up =
 				Abs(Dot3(bs.m_o2w.x, up)) * r.x +
 				Abs(Dot3(bs.m_o2w.y, up)) * r.y +
@@ -791,7 +866,7 @@ namespace pr::physics
 			// Strict margin: the band [level, level+margin] still produces zero on the GPU (its
 			// per-primitive dry fast-path / all-dry samples), so a positive margin is always safe and
 			// avoids host/GPU float divergence right at the waterline.
-			auto const margin = std::max(slot.m_eps, 1e-4f);
+			auto const margin = std::max(shape_data.m_eps, 1e-4f);
 			return lowest > m_water_surface.m_level + margin;
 		}
 
@@ -799,13 +874,15 @@ namespace pr::physics
 		ActiveHullStats CollectActiveHulls(Engine::ExternalForceArgs const& args)
 		{
 			m_active_hulls.clear();
+			m_active_shapes.clear();
 			assert(m_active_hulls.capacity() >= m_composite_hulls.size());
+			assert(m_active_shapes.capacity() >= m_composite_hulls.size());
 
 			auto stats = ActiveHullStats{};
 			for (auto body_index = 0; body_index != static_cast<int>(m_composite_hulls.size()); ++body_index)
 			{
 				auto const& slot = m_composite_hulls[body_index];
-				if (!slot.m_active)
+				if (!slot.m_active || slot.m_shape_data == nullptr)
 				{
 					continue;
 				}
@@ -827,7 +904,7 @@ namespace pr::physics
 				if (m_water_surface.m_waves.empty())
 				{
 					auto const bs = m_body_state_resolver(body_index);
-					if (IsFlatWaterFullyDry(slot, bs))
+					if (IsFlatWaterFullyDry(*slot.m_shape_data, bs))
 					{
 						auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
 						if (body_index < static_cast<int>(m_diagnostics.size()))
@@ -842,14 +919,32 @@ namespace pr::physics
 					}
 				}
 
+				// Multiple bodies commonly share a collision shape. Keep one active shape record so
+				// immutable geometry and sample plans are uploaded once for the whole dispatch.
+				auto shape_index = 0;
+				for (; shape_index != static_cast<int>(m_active_shapes.size()); ++shape_index)
+				{
+					if (m_active_shapes[shape_index].m_shape_data == slot.m_shape_data)
+						break;
+				}
+				if (shape_index == static_cast<int>(m_active_shapes.size()))
+				{
+					m_active_shapes.push_back(ActiveShape{
+						.m_shape_data = slot.m_shape_data,
+						.m_prim_base = 0,
+						.m_prim_count = 0,
+					});
+				}
+
 				m_active_hulls.push_back(ActiveHull{
 					.m_body_index = body_index,
 					.m_body_generation = slot.m_generation,
 					.m_body_step_index = body_step_index,
-					.m_slot = &slot,
+					.m_hull_id = slot.m_hull_id,
+					.m_shape_index = shape_index,
 				});
-				stats.m_max_volume_samples = std::max(stats.m_max_volume_samples, slot.m_total_volume_samples);
-				stats.m_max_surface_samples = std::max(stats.m_max_surface_samples, slot.m_total_surface_samples);
+				stats.m_max_volume_samples = std::max(stats.m_max_volume_samples, slot.m_shape_data->m_total_volume_samples);
+				stats.m_max_surface_samples = std::max(stats.m_max_surface_samples, slot.m_shape_data->m_total_surface_samples);
 			}
 			return stats;
 		}
@@ -974,23 +1069,23 @@ namespace pr::physics
 
 			EnsureGpuCapacity(args.m_job, hull_count * std::max(groups_per_hull, surf_groups_per_hull), hull_count);
 
-			// Phase 2: sum the concatenated geometry sizes across all active hulls so the upload buffers can be
-			// allocated once. Each upload uses at least one element because an empty geometry array still
-			// needs a valid GPU virtual address to bind.
+			// Phase 2: sum geometry sizes across unique active collision shapes. Bodies sharing a shape
+			// point at the same primitive block, so immutable data is uploaded only once per dispatch.
+			// Each upload uses at least one element because empty arrays still need a valid address.
 			auto total_prims = 0;
 			auto total_volume_verts = 0;
 			auto total_tets = 0;
 			auto total_face_planes = 0;
 			auto total_verts = 0;
 			auto total_face_verts = 0;
-			for (auto const& a : m_active_hulls)
+			for (auto const& active_shape : m_active_shapes)
 			{
-				total_prims += static_cast<int>(a.m_slot->m_hull.m_primitives.size());
-				total_volume_verts += static_cast<int>(a.m_slot->m_hull.m_volume_verts.size());
-				total_tets += static_cast<int>(a.m_slot->m_hull.m_tets.size());
-				total_face_planes += static_cast<int>(a.m_slot->m_hull.m_face_planes.size());
-				total_verts += static_cast<int>(a.m_slot->m_hull.m_verts.size());
-				total_face_verts += static_cast<int>(a.m_slot->m_hull.m_face_verts.size());
+				total_prims += static_cast<int>(active_shape.m_shape_data->m_hull.m_primitives.size());
+				total_volume_verts += static_cast<int>(active_shape.m_shape_data->m_hull.m_volume_verts.size());
+				total_tets += static_cast<int>(active_shape.m_shape_data->m_hull.m_tets.size());
+				total_face_planes += static_cast<int>(active_shape.m_shape_data->m_hull.m_face_planes.size());
+				total_verts += static_cast<int>(active_shape.m_shape_data->m_hull.m_verts.size());
+				total_face_verts += static_cast<int>(active_shape.m_shape_data->m_hull.m_face_verts.size());
 			}
 
 			auto upload_headers = args.m_job.m_upload.template Alloc<GpuBuoyVolHeader>(hull_count);
@@ -1022,46 +1117,21 @@ namespace pr::physics
 			auto verts = upload_verts.ptr<v4>();
 			auto face_verts = upload_face_verts.ptr<iv4>();
 
-			// Phase 3: concatenate each active hull's geometry into the shared buffers and
-			// shifting every primitive's array offsets by the running bases. Tet-corner and face-vertex
-			// indices stay RELATIVE to each primitive's own vertex block (the kernel re-adds the offset),
-			// so the geometry blocks are copied verbatim.
+			// Phase 3: concatenate each unique shape's geometry and sample records into shared buffers.
+			// Tet-corner and face-vertex indices remain relative to each primitive's vertex block.
 			auto prim_base = 0;
 			auto vvert_base = 0;
 			auto tet_base = 0;
 			auto face_base = 0;
 			auto svert_base = 0;
 			auto sfvert_base = 0;
-			assert(m_pending_diagnostics.capacity() >= m_composite_hulls.size());
-			for (auto index = 0; index != hull_count; ++index)
+			for (auto& active_shape : m_active_shapes)
 			{
-				auto const& a = m_active_hulls[index];
-				auto const& hull = a.m_slot->m_hull;
+				auto const& shape_data = *active_shape.m_shape_data;
+				auto const& hull = shape_data.m_hull;
 				auto const prim_count = static_cast<int>(hull.m_primitives.size());
-
-				headers[index] = GpuBuoyVolHeader{
-					.m_body_index = a.m_body_step_index,
-					.m_prim_base = prim_base,
-					.m_prim_count = prim_count,
-					.m_total_volume_samples = a.m_slot->m_total_volume_samples,
-					.m_hull_id = a.m_slot->m_hull_id,
-					.m_eps = a.m_slot->m_eps,
-					.m_pad0 = 0,
-					.m_pad1 = 0,
-				};
-
-				// Surface header mirrors the volume header but carries the surface-sample total. It
-				// shares the primitive base (the surf prims buffer is concatenated in the same order).
-				surf_headers[index] = GpuBuoySurfHeader{
-					.m_body_index = a.m_body_step_index,
-					.m_prim_base = prim_base,
-					.m_prim_count = prim_count,
-					.m_total_surface_samples = a.m_slot->m_total_surface_samples,
-					.m_hull_id = a.m_slot->m_hull_id,
-					.m_eps = a.m_slot->m_eps,
-					.m_pad0 = 0,
-					.m_pad1 = 0,
-				};
+				active_shape.m_prim_base = prim_base;
+				active_shape.m_prim_count = prim_count;
 
 				for (auto i = 0; i != static_cast<int>(hull.m_volume_verts.size()); ++i)
 					volume_verts[vvert_base + i] = hull.m_volume_verts[i];
@@ -1090,8 +1160,8 @@ namespace pr::physics
 					prims[prim_base + k] = p;
 
 					records[prim_base + k] = GpuBuoyVolPrimRecord{
-						.m_count = a.m_slot->m_vol_counts[k],
-						.m_dvol = a.m_slot->m_vol_dvol[k],
+						.m_count = shape_data.m_vol_counts[k],
+						.m_dvol = shape_data.m_vol_dvol[k],
 					};
 
 					// Surface prims need the surface-vertex offset and face offset shifted instead. The
@@ -1103,18 +1173,10 @@ namespace pr::physics
 					surf_prims[prim_base + k] = sp;
 
 					surf_records[prim_base + k] = GpuBuoySurfPrimRecord{
-						.m_count = a.m_slot->m_surf_counts[k],
-						.m_darea = a.m_slot->m_surf_darea[k],
+						.m_count = shape_data.m_surf_counts[k],
+						.m_darea = shape_data.m_surf_darea[k],
 					};
 				}
-
-				// Composite hulls have no closed-form union analytic in v1; record an invalid analytic
-				// result so CompleteStep stores the GPU diagnostic without an error comparison.
-				m_pending_diagnostics.push_back(PendingDiagnostic{
-					.m_body_index = a.m_body_index,
-					.m_body_generation = a.m_body_generation,
-					.m_analytic_result = AnalyticResult{},
-				});
 
 				prim_base += prim_count;
 				vvert_base += static_cast<int>(hull.m_volume_verts.size());
@@ -1124,7 +1186,43 @@ namespace pr::physics
 				sfvert_base += static_cast<int>(hull.m_face_verts.size());
 			}
 
-			// Finish the transient inputs with wave parameters. The volume kernel needs the
+			// Phase 4: emit per-body headers that reference the shared shape blocks. Body index,
+			// generation, and deterministic hull seed remain distinct for each registration.
+			assert(m_pending_diagnostics.capacity() >= m_composite_hulls.size());
+			for (auto index = 0; index != hull_count; ++index)
+			{
+				auto const& active_hull = m_active_hulls[index];
+				auto const& active_shape = m_active_shapes[active_hull.m_shape_index];
+				auto const& shape_data = *active_shape.m_shape_data;
+
+				headers[index] = GpuBuoyVolHeader{
+					.m_body_index = active_hull.m_body_step_index,
+					.m_prim_base = active_shape.m_prim_base,
+					.m_prim_count = active_shape.m_prim_count,
+					.m_total_volume_samples = shape_data.m_total_volume_samples,
+					.m_hull_id = active_hull.m_hull_id,
+					.m_eps = shape_data.m_eps,
+					.m_pad0 = 0,
+					.m_pad1 = 0,
+				};
+				surf_headers[index] = GpuBuoySurfHeader{
+					.m_body_index = active_hull.m_body_step_index,
+					.m_prim_base = active_shape.m_prim_base,
+					.m_prim_count = active_shape.m_prim_count,
+					.m_total_surface_samples = shape_data.m_total_surface_samples,
+					.m_hull_id = active_hull.m_hull_id,
+					.m_eps = shape_data.m_eps,
+					.m_pad0 = 0,
+					.m_pad1 = 0,
+				};
+				m_pending_diagnostics.push_back(PendingDiagnostic{
+					.m_body_index = active_hull.m_body_index,
+					.m_body_generation = active_hull.m_body_generation,
+					.m_analytic_result = AnalyticResult{},
+				});
+			}
+
+			// Phase 5: finish the transient inputs with wave parameters. The volume kernel needs the
 			// wave SRV bound even for flat water, so always allocate at least one element.
 			auto const wave_count = static_cast<int>(m_water_surface.m_waves.size());
 			auto upload_waves = args.m_job.m_upload.template Alloc<GpuBuoyancyWave>(std::max(wave_count, 1));
@@ -1468,10 +1566,10 @@ namespace pr::physics
 		return m_impl->GetConfig();
 	}
 
-	// Register a composite convex-primitive buoyancy hull against a stable physics body index.
-	GpuBuoyancy::Registration GpuBuoyancy::RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
+	// Register a rigid body's collision shape as its buoyancy hull.
+	GpuBuoyancy::Registration GpuBuoyancy::RegisterCompositeHull(RigidBody& body, int body_index, int body_generation)
 	{
-		m_impl->RegisterCompositeHull(body, body_index, body_generation, shape);
+		m_impl->RegisterCompositeHull(body, body_index, body_generation);
 		return Registration{*this, body_index, body_generation};
 	}
 

@@ -119,8 +119,8 @@ namespace las
 		// Return the latest published snapshot for a physics body.
 		BodySnapshot Snapshot(BodyHandle handle) const;
 
-		// Register a generated box buoyancy hull for a physics body.
-		[[nodiscard]] BuoyancyHullRegistration RegisterBoxBuoyancyHull(BodyHandle handle, v4 size);
+		// Register a physics body's collision shape for buoyancy.
+		[[nodiscard]] BuoyancyHullRegistration RegisterBuoyancyHull(BodyHandle handle);
 
 		// Return the latest diagnostic buoyancy result for a physics body.
 		physics::GpuBuoyancy::Diagnostics BuoyancyDiagnostics(BodyHandle handle) const;

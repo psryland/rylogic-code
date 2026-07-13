@@ -386,6 +386,27 @@ namespace pr::physics::tests
 			PR_EXPECT(threw);
 		}
 
+		// A collision-only polytope can be converted to buoyancy geometry without changing the source
+		// shape. The configured resolution supplies an exact interior tetrahedralisation on demand.
+		PRUnitTestMethod(FlattenPolytopeDerivesMissingTets)
+		{
+			v4 pts[] = {
+				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
+				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
+				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
+				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
+			};
+			auto buf = collision::BuildPolytopeFromPoints(pts);
+			auto const& poly = buf.as<collision::ShapePolytope>();
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly), 5);
+
+			PR_EXPECT(poly.m_tet_count == 0);
+			PR_EXPECT(hull.m_primitives.size() == 1);
+			PR_EXPECT(hull.m_primitives[0].m_tet_count > 0);
+			PR_EXPECT(hull.m_primitives[0].m_volume_vert_count > 0);
+			PR_EXPECT(FEqlRelative(buoyancy::PrimitiveVolume(collision::shape_cast(poly)), 8.0f, 1e-4f));
+		}
+
 		// A collision shape type the composite model does not understand (e.g. a line) is rejected.
 		PRUnitTestMethod(FlattenUnsupportedTypeThrows)
 		{
@@ -405,13 +426,66 @@ namespace pr::physics::tests
 			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
 			h.m_bodies[0].O2W(m4x4::Identity());
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			PR_EXPECT(static_cast<bool>(reg));
 
 			auto threw = false;
-			try { auto reg2 = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box)); }
+			try { auto reg2 = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0); }
 			catch (std::exception const&) { threw = true; }
 			PR_EXPECT(threw);
+		}
+
+		// Registration derives an untessellated collision polytope directly from the rigid body. A
+		// fully submerged cube reports its exact total volume because every generated sample is wet.
+		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope)
+		{
+			v4 pts[] = {
+				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
+				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
+				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
+				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
+			};
+			auto poly_buffer = collision::BuildPolytopeFromPoints(pts);
+			auto const& poly = poly_buffer.as<collision::ShapePolytope>();
+
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&poly), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(poly.m_tet_count == 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(FEqlRelative(diag.m_volume_m3, 8.0f, 1e-4f));
+		}
+
+		// A live registration follows RigidBody::ShapeChange. Replacing a submerged box with a sphere
+		// updates the cached geometry before the next step rather than applying forces from stale data.
+		PRUnitTestMethod(GpuCompositeRefreshesChangedBodyShape)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
+			auto sphere = collision::ShapeSphere(1.0f);
+
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_bodies[0].Shape(collision::shape_cast(&sphere));
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const expected_volume = (4.0f / 3.0f) * constants<float>::tau_by_2;
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(FEqlRelative(diag.m_volume_m3, expected_volume, 1e-4f));
 		}
 
 		// Registration marks the body NeverSleep, and releasing the handle restores the prior flag.
@@ -424,7 +498,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].O2W(m4x4::Identity());
 			h.m_bodies[0].NeverSleep(false);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			PR_EXPECT(h.m_bodies[0].NeverSleep() == true);
 
 			reg.Reset();
@@ -455,7 +529,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -504,7 +578,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -534,7 +608,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -585,7 +659,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, *arr);
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -622,7 +696,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(sphere));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -668,7 +742,7 @@ namespace pr::physics::tests
 			// Start-of-step velocity drives the drag pass; capture it for the oracle before stepping.
 			h.m_bodies[0].VelocityWS(omega, vel_lin);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			// The harness builds GpuBuoyancy with a default Config (linear drag tau = 3 s, quadratic Cd = 1.05).
 			auto const config = h.m_buoyancy.GetConfig();
@@ -744,7 +818,7 @@ namespace pr::physics::tests
 			});
 			h.m_buoyancy.SetWaterSurface(water);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -786,7 +860,7 @@ namespace pr::physics::tests
 			// Isolate linear drag: disable quadratic form drag (default Cd is non-zero).
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_quadratic_drag_coefficient = 0.0f });
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -830,7 +904,7 @@ namespace pr::physics::tests
 			// Linear drag disabled so the lateral force is purely the quadratic form drag.
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f });
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0, collision::shape_cast(box));
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -913,7 +987,7 @@ namespace pr::physics::tests
 					h.m_bodies[i].GravityWS(AnalyticGravityWS);
 				}
 				for (auto i = 0; i != count; ++i)
-					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0, collision::shape_cast(box)));
+					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0));
 
 				auto const median_ms = time_steps(h, warmup, measure);
 				out << "  [benchmark] " << count << " identical box bodies: median step " << median_ms << " ms\n";
@@ -946,8 +1020,7 @@ namespace pr::physics::tests
 				}
 				for (auto i = 0; i != count; ++i)
 				{
-					auto const& shape = (i & 1) == 0 ? collision::shape_cast(box) : collision::shape_cast(sphere);
-					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0, shape));
+					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0));
 				}
 
 				auto const median_ms = time_steps(h, warmup, measure);

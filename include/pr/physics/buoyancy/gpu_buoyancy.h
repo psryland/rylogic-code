@@ -79,6 +79,11 @@ namespace pr::physics
 			// drag for translating/tumbling bodies. Typical values: 1.05 for a cube (default),
 			// 0.47 for a sphere, 1.28 for a flat plate. Set to <= 0 to disable form drag.
 			float m_quadratic_drag_coefficient = 1.05f;
+
+			// Grid resolution used whenever a registration or shape refresh derives missing interior
+			// tetrahedra. Higher values reduce deterministic sampling variance at the cost of
+			// registration time, storage, and sample-selection work.
+			int m_polytope_tessellation = 5;
 		};
 
 		struct BodyState
@@ -186,21 +191,20 @@ namespace pr::physics
 		// Return the current water surface used by buoyancy force dispatches.
 		WaterSurface const& GetWaterSurface() const;
 
-		// Set the tunable buoyancy parameters used by subsequent dispatches.
-		// The change takes effect on the next call to Engine::ExternalForces.
+		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
+		// Engine::ExternalForces; polytope tessellation applies to later registrations and shape refreshes.
 		void SetConfig(Config const& config);
 
 		// Return the tunable buoyancy parameters currently in effect.
 		Config const& GetConfig() const;
 
-		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
-		// 'shape' is a collision::Shape that is either a single convex primitive (Box / Sphere /
-		// Triangle / Polytope) or a ShapeArray of such primitives; it is flattened and copied into an
-		// owned immutable descriptor at registration time, so the caller's shape may be modified or
-		// destroyed afterwards. While the registration is alive, 'body' is marked NeverSleep so the
-		// engine continues to call Engine::ExternalForces (and therefore this buoyancy pass) every
-		// step regardless of the body's kinetic state. The original NeverSleep flag is restored on
-		// unregister.
-		Registration RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape);
+		// Register a rigid body's collision shape as its buoyancy hull against a stable physics body
+		// index. The shape is flattened and copied into an owned descriptor at registration time;
+		// missing polytope tetrahedra are derived using Config::m_polytope_tessellation. A live
+		// registration refreshes this cached descriptor when RigidBody::ShapeChange reports a new
+		// shape. Bodies that reference the same collision::Shape share the immutable descriptor and
+		// its GPU upload. While registered, the body is marked NeverSleep so environmental forces
+		// continue to run; the original flag is restored on unregister.
+		Registration RegisterCompositeHull(RigidBody& body, int body_index, int body_generation);
 	};
 }

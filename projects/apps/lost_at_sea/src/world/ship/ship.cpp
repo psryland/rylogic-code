@@ -35,7 +35,7 @@ namespace las
 				.m_mass_kg = 100.0f,
 				.m_never_sleep = true,
 			});
-			m_buoyancy_hull = m_physics.RegisterBoxBuoyancyHull(m_body_handle, body_size);
+			m_buoyancy_hull = m_physics.RegisterBuoyancyHull(m_body_handle);
 		}
 		catch (...)
 		{
