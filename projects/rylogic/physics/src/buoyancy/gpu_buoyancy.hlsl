@@ -58,7 +58,7 @@ StructuredBuffer<GpuBuoyancyWave> resource(g_waves, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
 
-// --- Sampled-composite backend (phase 10) volume-pass bindings ---
+// --- Sampled-composite volume-pass bindings ---
 // Per-hull header for the composite volume pass: one record per registered composite hull. The
 // header locates the hull's primitive block in g_prims / g_vol_prim_records and carries the stable
 // per-hull sample seed and inside-test epsilon computed once at registration.
@@ -88,8 +88,9 @@ StructuredBuffer<float4> resource(g_volume_verts, t4);
 StructuredBuffer<int4> resource(g_tets, t5);
 StructuredBuffer<float4> resource(g_face_planes, t6);
 StructuredBuffer<BuoyVolPrimRecord> resource(g_vol_prim_records, t7);
+StructuredBuffer<float> resource(g_tet_cdf, t12);
 
-// --- Sampled-composite backend (phase 12) surface-pass bindings ---
+// --- Sampled-composite surface-pass bindings ---
 // Per-hull header for the composite surface (drag) pass: one record per registered composite hull.
 // Layout-identical to BuoyVolHeader, but the sample-count field counts surface samples and the
 // primitive block is indexed into g_surf_prim_records (parallel to g_prims) instead of the volume
@@ -298,7 +299,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 					// Emit a volume sample in shape-local space, then lift to COM-root and world.
 					float4 pos_local;
 					float weight;
-					BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, pos_local, weight);
+					BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, g_tet_cdf, pos_local, weight);
 					float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
 
 					// Lowest-index-sibling cull: a lower-index primitive owns any shared volume, so the

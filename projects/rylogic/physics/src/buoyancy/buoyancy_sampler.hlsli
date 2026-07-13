@@ -284,7 +284,7 @@ odr bool BuoyContainsLocal(in_(BuoyPrimitive) prim, float3 p_local, float eps, i
 }
 
 //
-// Sibling-cull helpers (phase 9). The volume and surface passes deduplicate overlapping primitives
+// Sibling-cull helpers. The volume and surface passes deduplicate overlapping primitives
 // with DIFFERENT rules, mirroring SampleHull in buoyancy_sampler.h:
 //  * Volume  -> lowest-index-sibling owns the overlap: cull if ANY lower-index sibling (j < k)
 //               contains the sample. Gives an unbiased union volume.
@@ -344,7 +344,7 @@ odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims,
 // Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
 // 'pos_local' is returned with w=1. Mirrors EmitVolumeSample.
 odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
-	in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets,
+	in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets, in_(StructuredBuffer<float>) tet_cdf,
 	out_(float4) pos_local, out_(float) weight)
 {
 	weight = dvol;
@@ -384,23 +384,22 @@ odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
 			float t_in = BuoyRadicalInverse(index, 5);
 			float u_in = BuoyRadicalInverse(index, 7);
 
-			// Pick a tetrahedron with probability proportional to its volume (inline volume-CDF scan).
-			float total = BuoyPrimitiveVolume(prim, volume_verts, tets);
+			// Pick a tetrahedron with probability proportional to its volume. The cumulative table is
+			// built once per shared shape in tet order, so binary search selects the same first running
+			// sum at or above the target without recalculating or linearly scanning tet volumes.
+			float total = tet_cdf[prim.m_tet_ofs + prim.m_tet_count - 1];
 			float target = pick * total;
-			int chosen = 0;
-			float accum = 0.0f;
-			for (int tt = 0; tt != prim.m_tet_count; ++tt)
+			int first = 0;
+			int last = prim.m_tet_count;
+			while (first != last)
 			{
-				int4 tet = tets[prim.m_tet_ofs + tt];
-				float3 a = volume_verts[prim.m_volume_vert_ofs + tet.x].xyz;
-				float3 b = volume_verts[prim.m_volume_vert_ofs + tet.y].xyz;
-				float3 c = volume_verts[prim.m_volume_vert_ofs + tet.z].xyz;
-				float3 d = volume_verts[prim.m_volume_vert_ofs + tet.w].xyz;
-				accum += abs(dot(a - d, cross(b - d, c - d))) / 6.0f;
-				chosen = tt;
-				if (accum >= target)
-					break;
+				int mid = first + (last - first) / 2;
+				if (tet_cdf[prim.m_tet_ofs + mid] >= target)
+					last = mid;
+				else
+					first = mid + 1;
 			}
+			int chosen = min(first, prim.m_tet_count - 1);
 
 			// Uniform barycentric point in the chosen tet (Rocchini & Cignoni fold).
 			float s = s_in, t = t_in, u = u_in;

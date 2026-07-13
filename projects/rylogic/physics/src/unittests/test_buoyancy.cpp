@@ -195,9 +195,8 @@ namespace pr::physics::tests
 
 	};
 
-	// Host-side coverage for the sampled-composite hull plumbing: collision-shape flattening
-	// (buoyancy::FlattenShape) and the registration guards on GpuBuoyancy. These tests exercise
-	// the CPU host path only; the GPU sampling kernels are validated separately.
+	// Coverage for sampled-composite hull flattening, registration lifetime, and GPU integration.
+	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
 		// GpuBuoyancy is neither copyable nor movable, so it cannot be returned from a factory. This
@@ -253,7 +252,7 @@ namespace pr::physics::tests
 
 			// Boxes are analytic: no concatenated geometry on the hull.
 			PR_EXPECT(p.m_vert_count == 0 && p.m_volume_vert_count == 0 && p.m_tet_count == 0 && p.m_face_count == 0);
-			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty() && hull.m_tets.empty() && hull.m_face_planes.empty());
+			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty() && hull.m_tets.empty() && hull.m_tet_cdf.empty() && hull.m_face_planes.empty());
 		}
 
 		// A ShapeArray of two boxes flattens to two Box primitives in child order with distinct transforms.
@@ -351,18 +350,21 @@ namespace pr::physics::tests
 			PR_EXPECT(isize(hull.m_verts) == p.m_vert_count);
 			PR_EXPECT(isize(hull.m_volume_verts) == p.m_volume_vert_count);
 			PR_EXPECT(isize(hull.m_tets) == p.m_tet_count);
+			PR_EXPECT(hull.m_tet_cdf.size() == hull.m_tets.size());
 			PR_EXPECT(isize(hull.m_face_planes) == p.m_face_count);
 
-			// Volume conservation: the cube has volume 8; the summed tet volumes must recover it. Tet
-			// corner indices are relative to this (single) primitive's volume block, i.e. absolute here.
+			// Volume conservation: the cube has volume 8, and each CDF entry must equal the running
+			// volume in tet order. Tet indices are relative to this single primitive and absolute here.
 			auto sum = 0.0f;
-			for (auto const& t : hull.m_tets)
+			for (auto i = 0; i != isize(hull.m_tets); ++i)
 			{
+				auto const& t = hull.m_tets[i];
 				auto a = hull.m_volume_verts[t.x];
 				auto b = hull.m_volume_verts[t.y];
 				auto c = hull.m_volume_verts[t.z];
 				auto d = hull.m_volume_verts[t.w];
 				sum += tetramesh::Volume(a, b, c, d);
+				PR_EXPECT(FEqlRelative(hull.m_tet_cdf[i], sum, 1e-6f));
 			}
 			PR_EXPECT(FEqlRelative(sum, 8.0f, 1e-4f));
 		}
@@ -404,6 +406,7 @@ namespace pr::physics::tests
 			PR_EXPECT(hull.m_primitives.size() == 1);
 			PR_EXPECT(hull.m_primitives[0].m_tet_count > 0);
 			PR_EXPECT(hull.m_primitives[0].m_volume_vert_count > 0);
+			PR_EXPECT(hull.m_tet_cdf.size() == hull.m_tets.size());
 			PR_EXPECT(FEqlRelative(buoyancy::PrimitiveVolume(collision::shape_cast(poly)), 8.0f, 1e-4f));
 		}
 
@@ -631,6 +634,63 @@ namespace pr::physics::tests
 			v2 Gradient(v2) const { return v2::Zero(); }
 			v4 Velocity(v4) const { return v4::Zero(); }
 		};
+
+		// A partially submerged resolution-5 polytope compares the GPU tet-CDF binary search with the
+		// CPU oracle. Partial submersion makes the result depend on the selected tet and sample position,
+		// unlike the fully submerged volume check where every selection contributes the same weight.
+		PRUnitTestMethod(GpuCompositePolytopeCdfMatchesOracle)
+		{
+			v4 pts[] = {
+				v4{+0.7f, 0.0f, 0.0f, 1.0f},
+				v4{-0.7f, 0.0f, 0.0f, 1.0f},
+				v4{0.0f, +0.7f, 0.0f, 1.0f},
+				v4{0.0f, -0.7f, 0.0f, 1.0f},
+				v4{0.0f, 0.0f, +0.6f, 1.0f},
+				v4{0.0f, 0.0f, -0.6f, 1.0f},
+			};
+			auto poly_buffer = collision::BuildPolytopeFromPoints(pts, m4x4::Identity(), 0, collision::Shape::EFlags::None, 5);
+			auto const& poly = poly_buffer.as<collision::ShapePolytope>();
+			auto const o2w = m4x4::Translation(0.0f, 0.0f, 0.1f);
+
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&poly), 500.0f);
+			h.m_bodies[0].O2W(o2w);
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			auto const config = h.m_buoyancy.GetConfig();
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			// Feed the same tessellated shape, transform, stable hull id, and sample budgets to the CPU
+			// oracle so any CDF offset or binary-search boundary error changes the sampled wet volume.
+			auto const oracle_body = buoyancy::BodyState{
+				.m_o2w = o2w,
+				.m_gravity_ws = AnalyticGravityWS,
+			};
+			auto const oracle_cfg = buoyancy::SamplerConfig{
+				.m_fluid_density = config.m_fluid_density,
+				.m_drag_time_constant_s = config.m_drag_time_constant_s,
+				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
+			};
+			auto const oracle = buoyancy::SampleHull(
+				collision::shape_cast(poly),
+				0,
+				oracle_body,
+				buoyancy::WaterFrame{},
+				FlatField{},
+				oracle_cfg,
+				8192,
+				8192);
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+
+			PR_EXPECT(oracle.m_valid && diag.m_valid);
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, std::max(oracle.m_volume_m3 * 0.002f, 1e-4f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, oracle.m_buoyancy_force_ws, std::max(Length(oracle.m_buoyancy_force_ws) * 0.002f, 0.5f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, oracle.m_buoyancy_torque_ws, std::max(Length(oracle.m_buoyancy_torque_ws) * 0.02f, 0.5f)));
+		}
 
 		// Composite union volume: two concentric boxes (a big 2x2x1 and a small 1x1x0.5 fully inside it)
 		// must report the union volume, NOT the sum. The lower-index volume sibling-cull means every

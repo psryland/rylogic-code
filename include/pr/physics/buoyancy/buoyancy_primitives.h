@@ -16,13 +16,12 @@
 //    compacted or relocated, which would dangle a stored pointer or shift the trailing arrays.
 //  - the GPU upload in a later phase needs a contiguous, type-stable descriptor array anyway.
 //
-// Scope (phase 7): capture all geometry the later sampler kernels need without precomputing the
-// per-primitive sampling tables (CDF / alias tables). Box and Sphere are fully parameterised
-// analytically. Triangle stores its three vertices. Polytope stores its surface verts + face
-// topology (planes + vertex triples) and its interior tetrahedralisation (volume verts + tets).
-// The volume-/area-weighted sampling CDFs are intentionally NOT built here; they belong to the
-// emit-kernel phase that defines their exact GPU layout.
+// Capture all immutable geometry and volume-selection data the sampler kernels need. Box and Sphere
+// are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its
+// surface topology, interior tetrahedralisation, and cumulative tet volumes. Surface-area selection
+// remains analytic or scans the comparatively small face list.
 #pragma once
+#include <cmath>
 #include <vector>
 #include <cstdint>
 #include <stdexcept>
@@ -106,6 +105,7 @@ namespace pr::physics::buoyancy
 		std::vector<v4> m_verts;                // surface verts (polytope face verts, triangle corners)
 		std::vector<v4> m_volume_verts;         // interior tetrahedralisation verts (polytopes)
 		std::vector<iv4> m_tets;                // tet corners, relative to each primitive's volume block
+		std::vector<float> m_tet_cdf;            // cumulative tet volumes, parallel to m_tets
 		std::vector<v4> m_face_planes;          // outward face planes (xyz = normal, w = distance)
 		std::vector<iv4> m_face_verts;          // face vertex triples, relative to each primitive's vert block
 
@@ -220,6 +220,20 @@ namespace pr::physics::buoyancy
 							auto const& tet = poly.tet(t);
 							out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
 						}
+					}
+
+					// Accumulate in tet order so each entry is the exact running sum used by the former
+					// shader scan. The CDF stays parallel to m_tets, allowing m_tet_ofs to index both.
+					auto accum = 0.0f;
+					for (auto t = 0; t != prim.m_tet_count; ++t)
+					{
+						auto const& tet = out.m_tets[prim.m_tet_ofs + t];
+						auto const a = out.m_volume_verts[prim.m_volume_vert_ofs + tet.x];
+						auto const b = out.m_volume_verts[prim.m_volume_vert_ofs + tet.y];
+						auto const c = out.m_volume_verts[prim.m_volume_vert_ofs + tet.z];
+						auto const d = out.m_volume_verts[prim.m_volume_vert_ofs + tet.w];
+						accum += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
+						out.m_tet_cdf.push_back(accum);
 					}
 					return prim;
 				}

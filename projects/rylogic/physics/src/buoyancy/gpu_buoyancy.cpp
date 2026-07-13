@@ -16,8 +16,8 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Sampled-composite (phase 10) volume-pass tunables. The total number of volume samples per
-		// hull is split across the hull's primitives proportional to their volume; positions are
+		// Sampled-composite volume-pass tunables. The total number of volume samples per hull is split
+		// across the hull's primitives proportional to their volume; positions are
 		// hash-derived per frame, but counts are fixed at registration. The per-hull group count is
 		// ceil(total/thread_count) and must not exceed the reduce thread count (the reducer sums one
 		// partial per group on a single thread group).
@@ -222,9 +222,8 @@ namespace pr::physics
 
 		// Create the sampled-composite volume-sample compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyVolumeSamples: constants (b0), the body accumulator (u0),
-		// the wave SRV (t1, for the water height/gradient), the six volume-pass SRVs (t2..t7), then the
-		// partials UAV (u1). The legacy box-hull SRV (t0) and the diagnostics UAV (u2) are unused by
-		// this kernel and so are omitted; root descriptors need not be contiguous.
+		// the wave SRV (t1), the volume-pass SRVs (t2..t7), the tet CDF (t12), then the partials UAV
+		// (u1). The legacy box-hull SRV (t0) and diagnostics UAV (u2) are unused by this kernel.
 		::pr::compute::ComputeStep CreateVolumeStep(ID3D12Device* device)
 		{
 			auto step = ::pr::compute::ComputeStep{};
@@ -238,6 +237,7 @@ namespace pr::physics
 				.SRV(hlsl::ESRVReg::t5)
 				.SRV(hlsl::ESRVReg::t6)
 				.SRV(hlsl::ESRVReg::t7)
+				.SRV(hlsl::ESRVReg::t12)
 				.UAV(hlsl::EUAVReg::u1)
 				.Create(device, "Physics.GpuBuoyancy.Volume.RootSig");
 
@@ -426,6 +426,7 @@ namespace pr::physics
 			D3D12_GPU_VIRTUAL_ADDRESS m_volume_records;
 			D3D12_GPU_VIRTUAL_ADDRESS m_volume_verts;
 			D3D12_GPU_VIRTUAL_ADDRESS m_tets;
+			D3D12_GPU_VIRTUAL_ADDRESS m_tet_cdf;
 			D3D12_GPU_VIRTUAL_ADDRESS m_face_planes;
 			D3D12_GPU_VIRTUAL_ADDRESS m_surface_headers;
 			D3D12_GPU_VIRTUAL_ADDRESS m_surface_primitives;
@@ -954,7 +955,7 @@ namespace pr::physics
 		{
 			// Evaluate all volume samples into one partial record per hull/threadgroup. Root parameter
 			// order must match CreateVolumeStep: b0, u0(bodies), t1(waves), t2(headers), t3(prims),
-			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), u1(partials).
+			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), t12(tet_cdf), u1(partials).
 			args.m_job.m_cmd_list.SetPipelineState(m_volume_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
@@ -966,6 +967,7 @@ namespace pr::physics
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_tets);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_face_planes);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_records);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_tet_cdf);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count * cb.m_groups_per_hull, 1, 1);
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
@@ -1093,6 +1095,7 @@ namespace pr::physics
 			auto upload_records = args.m_job.m_upload.template Alloc<GpuBuoyVolPrimRecord>(std::max(total_prims, 1));
 			auto upload_volume_verts = args.m_job.m_upload.template Alloc<v4>(std::max(total_volume_verts, 1));
 			auto upload_tets = args.m_job.m_upload.template Alloc<iv4>(std::max(total_tets, 1));
+			auto upload_tet_cdf = args.m_job.m_upload.template Alloc<float>(std::max(total_tets, 1));
 			auto upload_face_planes = args.m_job.m_upload.template Alloc<v4>(std::max(total_face_planes, 1));
 
 			// Surface-pass upload buffers. The surface pass reads the same primitive descriptors but
@@ -1109,6 +1112,7 @@ namespace pr::physics
 			auto records = upload_records.ptr<GpuBuoyVolPrimRecord>();
 			auto volume_verts = upload_volume_verts.ptr<v4>();
 			auto tets = upload_tets.ptr<iv4>();
+			auto tet_cdf = upload_tet_cdf.ptr<float>();
 			auto face_planes = upload_face_planes.ptr<v4>();
 
 			auto surf_headers = upload_surf_headers.ptr<GpuBuoySurfHeader>();
@@ -1136,7 +1140,10 @@ namespace pr::physics
 				for (auto i = 0; i != static_cast<int>(hull.m_volume_verts.size()); ++i)
 					volume_verts[vvert_base + i] = hull.m_volume_verts[i];
 				for (auto i = 0; i != static_cast<int>(hull.m_tets.size()); ++i)
+				{
 					tets[tet_base + i] = hull.m_tets[i];
+					tet_cdf[tet_base + i] = hull.m_tet_cdf[i];
+				}
 				for (auto i = 0; i != static_cast<int>(hull.m_face_planes.size()); ++i)
 					face_planes[face_base + i] = hull.m_face_planes[i];
 
@@ -1248,6 +1255,7 @@ namespace pr::physics
 				.m_volume_records = gpu_va(upload_records),
 				.m_volume_verts = gpu_va(upload_volume_verts),
 				.m_tets = gpu_va(upload_tets),
+				.m_tet_cdf = gpu_va(upload_tet_cdf),
 				.m_face_planes = gpu_va(upload_face_planes),
 				.m_surface_headers = gpu_va(upload_surf_headers),
 				.m_surface_primitives = gpu_va(upload_surf_prims),
@@ -1270,10 +1278,10 @@ namespace pr::physics
 				.m_pad0 = 0.0f,
 			};
 
-			// Phase 4: sample displaced volume and reduce it directly into each body's force/torque accumulators.
+			// Phase 6: sample displaced volume and reduce it directly into each body's force/torque accumulators.
 			RecordVolumePass(args, cb, addresses);
 
-			// Phase 5: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
+			// Phase 7: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
 			// larger of the volume / surface group counts) and runs AFTER the volume reduce so it can
 			// ADD drag force/torque onto the body accumulator and the existing diagnostic record. The
 			// cbuffer carries the surface group count and the real drag coefficients; the volume pass
@@ -1300,7 +1308,7 @@ namespace pr::physics
 				RecordSurfacePass(args, cb_surf, addresses);
 			}
 
-			// Phase 6: copy the final per-hull diagnostics for CompleteStep.
+			// Phase 8: copy the final per-hull diagnostics for CompleteStep.
 			RecordDiagnosticReadback(args, hull_count);
 		}
 

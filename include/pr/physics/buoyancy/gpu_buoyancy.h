@@ -82,7 +82,7 @@ namespace pr::physics
 
 			// Grid resolution used whenever a registration or shape refresh derives missing interior
 			// tetrahedra. Higher values reduce deterministic sampling variance at the cost of
-			// registration time, storage, and sample-selection work.
+			// registration time, storage, and logarithmically increasing sample-selection work.
 			int m_polytope_tessellation = 5;
 		};
 

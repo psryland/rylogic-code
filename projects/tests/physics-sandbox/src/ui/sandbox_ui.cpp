@@ -483,7 +483,6 @@ namespace physics_sandbox
 				return false;
 			auto const step_collision = CompletePendingStep();
 			collision = step_collision || collision;
-			collision = step_collision || collision;
 			if (step_collision && m_pause_on_collision && m_scene.m_diag.count == 1)
 			{
 				m_steps_remaining = 0;
