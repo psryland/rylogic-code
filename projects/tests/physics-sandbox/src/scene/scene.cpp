@@ -574,13 +574,13 @@ namespace physics_sandbox
 		// through the geometry. no_ztest on the group is inherited by the child points/lines.
 		ldraw::Builder ldr;
 		auto& grp = ldr.Group("buoyancy_debug");
-		grp.no_ztest();
 		auto& pts = grp.Point("samples", 0xFFFFFFFFU).size(5.0f).style(ldraw::seri::PointStyle{"Square"});
 		auto& normals = grp.Line("normals", 0xFF30FF30U);
-		auto& arrows = grp.Line("forces", 0xFFFFFFFFU).arrow("Fwd").per_item_colour();
-		pts.no_ztest();
-		normals.no_ztest();
-		arrows.no_ztest();
+		auto& arrows = grp.Line("forces", 0xFFFFFFFFU)/*.arrow("Fwd")*/.per_item_colour();
+		//grp.no_ztest();
+		//pts.no_ztest();
+		//normals.no_ztest();
+		//arrows.no_ztest();
 
 		auto any_geometry = false;
 		for (size_t h = 0; h != m_buoyancy_debug_shapes.size(); ++h)

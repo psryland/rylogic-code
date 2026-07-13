@@ -261,6 +261,52 @@ namespace pr::physics::buoyancy
 		}
 	}
 
+	// Precomputed volume-sampling acceleration table for one primitive. Built once per primitive per
+	// SampleHull call and reused across that primitive's (potentially thousands of) volume samples,
+	// replacing the previous design that recomputed the total volume and re-scanned the tet list for
+	// every individual sample. For polytopes it holds the cumulative tet-volume CDF (m_tet_cdf[t] =
+	// sum of tet volumes [0..t], so m_tet_cdf.back() == total) which a sample picks from by binary
+	// search. For analytic primitives (box/sphere/triangle) only m_total is meaningful.
+	struct VolumeSampleTable
+	{
+		std::vector<float> m_tet_cdf; // cumulative tet volumes; empty for non-polytopes
+		float m_total = 0.0f;         // total primitive volume (CDF back, or analytic volume)
+	};
+
+	// Build the volume-sampling table for one primitive. For polytopes this walks the tets once,
+	// hoisting the volume-vert / tet base pointers out of the loop so the ShapePolytope blob-offset
+	// chain (vert_beg -> ... -> volume_vert_beg / tet_beg) is resolved a single time rather than on
+	// every vertex fetch. The cumulative sums are accumulated in tet order so m_total is bit-identical
+	// to PrimitiveVolume() and the GPU oracle's per-tet running sum, preserving sample parity.
+	inline VolumeSampleTable BuildVolumeSampleTable(collision::Shape const& shape)
+	{
+		using namespace collision;
+		auto table = VolumeSampleTable{};
+		if (shape.m_type != EShape::Polytope)
+		{
+			table.m_total = PrimitiveVolume(shape);
+			return table;
+		}
+
+		auto const& poly = shape_cast<ShapePolytope>(shape);
+		auto const* vv = poly.volume_vert_beg();
+		auto const* tets = poly.tet_beg();
+		table.m_tet_cdf.resize(static_cast<size_t>(poly.m_tet_count));
+		auto accum = 0.0f;
+		for (int t = 0; t != poly.m_tet_count; ++t)
+		{
+			auto const& tet = tets[t];
+			auto const a = vv[tet.m_corner[0]];
+			auto const b = vv[tet.m_corner[1]];
+			auto const c = vv[tet.m_corner[2]];
+			auto const d = vv[tet.m_corner[3]];
+			accum += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
+			table.m_tet_cdf[static_cast<size_t>(t)] = accum;
+		}
+		table.m_total = accum;
+		return table;
+	}
+
 	// Return the surface area of a single convex primitive (shape-local).
 	inline float PrimitiveArea(collision::Shape const& shape)
 	{
@@ -358,7 +404,10 @@ namespace pr::physics::buoyancy
 	//
 
 	// Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
-	inline VolumeSample EmitVolumeSample(collision::Shape const& shape, uint32_t index, float dvol)
+	// 'vtable' is the primitive's precomputed VolumeSampleTable (built once by the caller); for
+	// polytopes it supplies the total volume and the cumulative tet CDF so this routine does O(log
+	// tets) work per sample instead of the previous O(tets) total-recompute + linear scan.
+	inline VolumeSample EmitVolumeSample(collision::Shape const& shape, uint32_t index, float dvol, VolumeSampleTable const& vtable)
 	{
 		using namespace collision;
 		switch (shape.m_type)
@@ -393,24 +442,20 @@ namespace pr::physics::buoyancy
 				auto const t_in = RadicalInverse(index, 5);
 				auto const u_in = RadicalInverse(index, 7);
 
+				// Hoist the blob-offset base pointers so the ShapePolytope accessor chain is resolved
+				// once for this sample rather than on each of the eight volume_vertex fetches below.
+				auto const* vv = poly.volume_vert_beg();
+				auto const* tets = poly.tet_beg();
+
 				// Pick a tetrahedron with probability proportional to its volume. With p_tet =
 				// V_tet/V_total, a constant per-sample weight dvol = V_total/N is the unbiased estimator.
-				auto total = PrimitiveVolume(shape);
-				auto target = pick * total;
-				auto chosen = 0;
-				auto accum = 0.0f;
-				for (int tt = 0; tt != poly.m_tet_count; ++tt)
-				{
-					auto const& tet = poly.tet(tt);
-					auto const a = poly.volume_vertex(tet.m_corner[0]);
-					auto const b = poly.volume_vertex(tet.m_corner[1]);
-					auto const c = poly.volume_vertex(tet.m_corner[2]);
-					auto const d = poly.volume_vertex(tet.m_corner[3]);
-					accum += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
-					chosen = tt;
-					if (accum >= target)
-						break;
-				}
+				// The cumulative CDF is monotonic, so a binary search finds the first tet whose running
+				// sum reaches the target - identical selection to the old linear scan (the CDF entries
+				// are the same running sums, in the same order) but O(log tets) instead of O(tets).
+				auto const& cdf = vtable.m_tet_cdf;
+				auto const target = pick * vtable.m_total;
+				auto const it = std::lower_bound(cdf.begin(), cdf.end(), target);
+				auto const chosen = it != cdf.end() ? static_cast<int>(it - cdf.begin()) : poly.m_tet_count - 1;
 
 				// Uniform barycentric point in the chosen tet (Rocchini & Cignoni fold).
 				auto s = s_in, t = t_in, u = u_in;
@@ -419,11 +464,11 @@ namespace pr::physics::buoyancy
 				else if (s + t + u > 1.0f) { auto const tmp = u; u = s + t + u - 1.0f; s = 1.0f - t - tmp; }
 				auto const aw = 1.0f - s - t - u;
 
-				auto const& tet = poly.tet(chosen);
-				auto const A = poly.volume_vertex(tet.m_corner[0]);
-				auto const B = poly.volume_vertex(tet.m_corner[1]);
-				auto const C = poly.volume_vertex(tet.m_corner[2]);
-				auto const D = poly.volume_vertex(tet.m_corner[3]);
+				auto const& tet = tets[chosen];
+				auto const A = vv[tet.m_corner[0]];
+				auto const B = vv[tet.m_corner[1]];
+				auto const C = vv[tet.m_corner[2]];
+				auto const D = vv[tet.m_corner[3]];
 				auto const p = (A * aw + B * s + C * t + D * u);
 				return VolumeSample{p.w1(), dvol};
 			}
@@ -630,11 +675,13 @@ namespace pr::physics::buoyancy
 		auto r2s = std::vector<m4x4>(prims.size());
 		auto volume = std::vector<float>(prims.size(), 0.0f);
 		auto area = std::vector<float>(prims.size(), 0.0f);
+		auto vol_tables = std::vector<VolumeSampleTable>(prims.size());
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
 			s2r[k] = prims[k]->m_s2r;
 			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
-			volume[k] = PrimitiveVolume(*prims[k]);
+			vol_tables[k] = BuildVolumeSampleTable(*prims[k]);
+			volume[k] = vol_tables[k].m_total;
 			area[k] = PrimitiveArea(*prims[k]);
 		}
 
@@ -672,7 +719,7 @@ namespace pr::physics::buoyancy
 				auto const dvol = volume[k] / static_cast<float>(vol_counts[k]);
 				for (int i = 0; i != vol_counts[k]; ++i)
 				{
-					auto const sample = EmitVolumeSample(*prims[k], SampleIndex(hull_id, static_cast<int>(k), i), dvol);
+					auto const sample = EmitVolumeSample(*prims[k], SampleIndex(hull_id, static_cast<int>(k), i), dvol, vol_tables[k]);
 					auto const p_root = s2r[k] * sample.m_pos_local;
 
 					// Lowest-index-sibling cull: skip if any lower-index primitive owns this volume.
