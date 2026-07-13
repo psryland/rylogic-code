@@ -22,9 +22,9 @@ struct CBufGpuBuoyancy
 	float time_s;
 	float water_level;
 	float fluid_density;
-	float drag_coefficient;
+	float drag_coefficient; // fluid_density / drag_time_constant, applied per wet dV
 	float quadratic_drag_coefficient;
-	float pad0;
+	float tangential_drag_coefficient;
 };
 
 struct GpuBuoyancyWave
@@ -123,6 +123,8 @@ StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
 groupshared float4 s_force_ws[BUOYANCY_SAMPLE_THREAD_COUNT];
 groupshared float4 s_torque_ws[BUOYANCY_SAMPLE_THREAD_COUNT];
 groupshared float4 s_moment_ws_volume[BUOYANCY_SAMPLE_THREAD_COUNT];
+groupshared float3 s_body_linear_velocity_ws;
+groupshared float3 s_body_angular_velocity_ws;
 
 // Evaluate the scene-described water height at a world-space XY position.
 float EvaluateWaterHeight(float2 xy_ws)
@@ -141,13 +143,11 @@ float EvaluateWaterHeight(float2 xy_ws)
 	return height;
 }
 
-// Evaluate the scene-described water height and its XY gradient at a world-space XY position.
-// Returns float3(height, dh/dx, dh/dy). Sharing the sin/cos work between the height and gradient
-// keeps the per-sample overhead small. The gradient is used by the volume-sample pass to compute the
-// lateral (wave-slope) component of the hydrostatic force via the divergence theorem:
-//   F_buoy = rho * |g| * V_submerged * (-dh/dx, -dh/dy, +1)
-// which reduces to the purely vertical model on flat water.
-float3 EvaluateWaterHeightAndGradient(float2 xy_ws)
+// Evaluate the water height and lateral pressure gradient required by the volume pass. Orbital velocity is evaluated
+// separately only for accepted wet samples, avoiding exponentials for the common fully-dry case.
+// Each wave contributes A*omega^2/g*cos(phase), matching its configured orbital acceleration.
+// For a dispersion-consistent gravity wave (omega^2 = g*k), this equals its geometric slope.
+float3 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 {
 	float height = g.water_level;
 	float2 gradient = float2(0.0f, 0.0f);
@@ -163,7 +163,7 @@ float3 EvaluateWaterHeightAndGradient(float2 xy_ws)
 		float s, c;
 		sincos(phase, s, c);
 		height += amplitude * s;
-		gradient += direction * (amplitude * k * c);
+		gradient += direction * (amplitude * phase_speed * phase_speed * c / gravity);
 	}
 	return float3(height, gradient.x, gradient.y);
 }
@@ -214,8 +214,8 @@ void ReduceShared(uint thread_index, uint thread_count)
 
 // Evaluate a block of composite-hull volume samples (sampled-composite backend) and write one
 // partial record for the reducer. Each in-fluid sample contributes a Froude-Krylov pressure-gradient
-// force dF = rho*|g|*dV*(up - grad_ws) plus a per-sample torque about the body's centre of mass, and
-// a weighted moment (sample_ws*dV, dV) used to recover wet volume + centre of buoyancy. Overlap
+// force dF = rho*|g|*dV*(up - grad_ws), volume-weighted linear damping, and their torque about the
+// body's centre of mass. A weighted moment (sample_ws*dV, dV) recovers wet volume + centre of buoyancy. Overlap
 // regions are counted once via the lowest-index-sibling cull, so the union volume of arbitrary
 // overlapping convex primitives is unbiased. This mirrors the volume pass of the CPU oracle
 // SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
@@ -237,6 +237,28 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float4 moment_ws_volume = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+	// Body velocity is invariant across all samples in a threadgroup. Reconstruct angular velocity
+	// once instead of repeating the inverse-inertia rotation in every sample thread.
+	if (thread_index == 0)
+	{
+		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
+		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
+		if (g.drag_coefficient > 0.0f && hull_index < g.hull_count)
+		{
+			BuoyVolHeader header = g_vol_headers[hull_index];
+			GpuRigidBody body = g_bodies[header.body_index];
+			float inv_mass = body.os_com_and_invmass.w;
+			if ((body.state_flags & ERigidBodyStateFlags_Static) == 0 && inv_mass > 0.0f)
+			{
+				float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+				float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+				s_body_linear_velocity_ws = inv_mass * body.momentum_lin.xyz;
+				s_body_angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
+			}
+		}
+	}
+	GroupMemoryBarrierWithGroupSync();
 
 	if (hull_index < g.hull_count)
 	{
@@ -313,14 +335,22 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 						// XY with height measured along world Z; for gravity along -Z (the phase-11 box
 						// parity gate) this matches signed-height-along-up exactly.
 						float signed_height = dot(sample_ws, up);
-						float3 hg = EvaluateWaterHeightAndGradient(sample_ws.xy);
+						float3 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
 						if (signed_height < hg.x)
 						{
-							// Froude-Krylov pressure-gradient force per unit volume: up minus the
-							// lifted water-surface slope. Reduces to rho*|g|*dV*(0,0,1) for flat water.
+							// Froude-Krylov pressure-gradient force per unit volume. The lateral term
+							// follows the configured wave acceleration; flat water remains purely vertical.
 							float3 grad_ws = hg.y * float3(1.0f, 0.0f, 0.0f) + hg.z * float3(0.0f, 1.0f, 0.0f);
 							float3 dF = (g.fluid_density * g_mag * weight) * (up - grad_ws);
 							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+
+							// Linear damping is integrated over wet volume so equal-density bodies have
+							// the configured time constant independently of scale.
+							if (g.drag_coefficient > 0.0f)
+							{
+								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
+								dF += (-g.drag_coefficient * weight) * (v_point - EvaluateWaterVelocity(sample_ws));
+							}
 
 							force_ws = float4(dF, 0.0f);
 							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
@@ -346,10 +376,9 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	}
 }
 
-// Reduce all volume partials for one composite hull, add the buoyancy force/torque to the body
-// accumulator, and write a diagnostic record. The drag contribution is computed by the separate
-// surface-sample pass (a later phase); this pass handles buoyancy + wave-slope only. The hull's
-// body is read via the volume header.
+// Reduce all volume partials for one composite hull, add the buoyancy and linear-damping force/torque
+// to the body accumulator, and write a diagnostic record. Quadratic drag is added by the later
+// surface-sample pass. The hull's body is read via the volume header.
 numthreads(CSBuoyancyVolumeReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
 void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
@@ -404,13 +433,10 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 
 // Sampled-composite surface (drag) sample pass. Mirrors CSBuoyancyVolumeSamples but emits SURFACE
 // samples (point + outward normal + per-sample area) over the union boundary, deduplicated by the
-// any-other-sibling exterior-side cull, and accumulates linear + quadratic drag instead of the
-// Froude-Krylov pressure-gradient force. The drag math mirrors the CPU oracle's surface pass:
+// any-other-sibling exterior-side cull, and accumulates quadratic drag. The math mirrors the CPU oracle:
 //   dF = -0.5*rho*Cd*dA*max(0,v_n)^2 * n   (quadratic, windward faces only)
-//      + -c_lin*dA * v_rel                 (linear)
-// where v_rel = v_point - v_water and v_n = dot(v_rel, n). Both terms are summed (the weight is the
-// per-sample area dA). The moment-sum slot is written zero so it does not corrupt the volume pass's
-// diagnostic COB when ReduceShared sums all three shared arrays.
+// where v_rel = v_point - v_water and v_n = dot(v_rel, n). The moment-sum slot is written zero so it
+// does not corrupt the volume pass's diagnostic COB when ReduceShared sums all three shared arrays.
 numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
 void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
@@ -423,11 +449,31 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	float4 force_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	float4 torque_ws = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-	// Drag coefficients: c_lin is rho/tau (packed by the host as g.drag_coefficient) and c_quad is
-	// the form-drag coefficient. Drag is active only if at least one is positive.
-	float c_lin = g.drag_coefficient;
+	// The surface pass evaluates independent dimensionless normal and tangential drag coefficients.
 	float c_quad = g.quadratic_drag_coefficient;
-	bool have_drag = c_lin > 0.0f || c_quad > 0.0f;
+	float c_tangent = g.tangential_drag_coefficient;
+	bool have_drag = c_quad > 0.0f || c_tangent > 0.0f;
+
+	// The same body state applies to all samples in this group, so reconstruct its velocities once.
+	if (thread_index == 0)
+	{
+		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
+		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
+		if (have_drag && hull_index < g.hull_count)
+		{
+			BuoySurfHeader header = g_surf_headers[hull_index];
+			GpuRigidBody body = g_bodies[header.body_index];
+			float inv_mass = body.os_com_and_invmass.w;
+			if ((body.state_flags & ERigidBodyStateFlags_Static) == 0 && inv_mass > 0.0f)
+			{
+				float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+				float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+				s_body_linear_velocity_ws = inv_mass * body.momentum_lin.xyz;
+				s_body_angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
+			}
+		}
+	}
+	GroupMemoryBarrierWithGroupSync();
 
 	if (have_drag && hull_index < g.hull_count)
 	{
@@ -504,28 +550,25 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 						float signed_height = dot(sample_ws, up);
 						if (signed_height < EvaluateWaterHeight(sample_ws.xy))
 						{
-							// Body kinematics at this instant (inertia_inv_* is mass-removed shape inertia).
-							float inv_mass = body.os_com_and_invmass.w;
-							float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-							float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-							float3 v_lin = inv_mass * body.momentum_lin.xyz;
-							float3 omega_ws = mul(ws_iinv, body.momentum_ang.xyz);
 							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
 
 							// Relative flow at the sample (body velocity minus wave-orbital water flow).
-							float3 v_point = v_lin + cross(omega_ws, sample_ws - com_ws);
+							float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
 							float3 v_rel = v_point - EvaluateWaterVelocity(sample_ws);
 							float v_n = dot(v_rel, normal_ws);
 
-							float3 dF = float3(0.0f, 0.0f, 0.0f);
-
 							// Quadratic form drag acts only on faces moving outward into the fluid.
+							float3 dF = float3(0.0f, 0.0f, 0.0f);
 							if (c_quad > 0.0f && v_n > 0.0f)
 								dF += (-0.5f * g.fluid_density * c_quad * weight * v_n * v_n) * normal_ws;
 
-							// Linear drag acts isotropically against the relative flow.
-							if (c_lin > 0.0f)
-								dF += (-c_lin * weight) * v_rel;
+							// Tangential drag opposes the complete in-plane relative velocity. The
+							// length(v_t) * v_t form is quadratic in speed and continuous through zero.
+							if (c_tangent > 0.0f)
+							{
+								float3 v_t = v_rel - v_n * normal_ws;
+								dF += (-0.5f * g.fluid_density * c_tangent * weight * length(v_t)) * v_t;
+							}
 
 							force_ws = float4(dF, 0.0f);
 							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);

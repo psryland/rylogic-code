@@ -13,8 +13,10 @@
 //    volumetrically; each accepted sample contributes a Froude-Krylov pressure-gradient force and
 //    a per-sample torque. This needs no surface reconstruction (no CSG / seam / cap clipping) and
 //    handles arbitrary overlapping, possibly non-convex composites.
-//  - Drag is a SURFACE integral. Per-primitive surface samples emit (point, normal, dA) tuples and
-//    contribute linear + quadratic drag.
+//  - Linear damping is a VOLUME integral over accepted wet samples. This gives equal-density bodies
+//    the configured velocity time constant independently of scale.
+//  - Quadratic drag is a SURFACE integral. Per-primitive surface samples emit (point, normal, dA)
+//    tuples and contribute independent windward-normal form drag and tangential surface drag.
 //  - Overlap is deduplicated by sibling-cull, with DIFFERENT rules for the two passes:
 //      Volume : a sample is owned by the LOWEST-index primitive that contains it, so a volume
 //               sample is dropped if any LOWER-index sibling contains it (unbiased union volume).
@@ -33,9 +35,9 @@
 // The water surface is supplied as a template parameter so this header does not depend on the
 // physics engine, and so gravity-frame water fields can be plugged in for tests. A water field
 // type must provide:
-//    float Height  (v2 uv) const;   // signed height along 'up' at planar coords (u,v), relative to 'ref'
-//    v2    Gradient(v2 uv) const;    // d(Height)/du, d(Height)/dv
-//    v4    Velocity(v4 pos_ws) const;// world-space fluid velocity (w = 0)
+//    float Height(v2 uv) const;                         // signed height along 'up' at planar coords (u,v), relative to 'ref'
+//    v2    PressureGradient(v2 uv, float gravity) const;// dimensionless lateral pressure gradient
+//    v4    Velocity(v4 pos_ws) const;                   // world-space fluid velocity (w = 0)
 #pragma once
 #include <vector>
 #include <cstdint>
@@ -57,6 +59,7 @@ namespace pr::physics::buoyancy
 		float m_fluid_density = 1000.0f;            // kg/m^3
 		float m_drag_time_constant_s = 0.0f;        // linear drag e-fold time; <= 0 disables linear drag
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
+		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -709,8 +712,9 @@ namespace pr::physics::buoyancy
 		auto buoy_torque = v4::Zero();
 		auto drag_force = v4::Zero();
 		auto drag_torque = v4::Zero();
+		auto const c_lin = cfg.m_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_drag_time_constant_s : 0.0f;
 
-		// Volume pass: Froude-Krylov pressure-gradient force + per-sample torque over the submerged
+		// Volume pass: Froude-Krylov pressure-gradient force and linear damping over the submerged
 		// union, deduplicated by the lowest-index-sibling rule.
 		if (g_mag > math::constants<float>::tiny)
 		{
@@ -748,7 +752,7 @@ namespace pr::physics::buoyancy
 						continue; // dry
 					}
 
-					auto const grad = water.Gradient(v2{u, v});
+					auto const grad = water.PressureGradient(v2{u, v}, g_mag);
 					auto const grad_ws = grad.x * t0 + grad.y * t1;
 					auto const dF = (cfg.m_fluid_density * g_mag * sample.m_dvol) * (up - grad_ws);
 
@@ -756,6 +760,18 @@ namespace pr::physics::buoyancy
 					buoy_torque += Cross(sample_ws - com_ws, dF);
 					wet_volume += sample.m_dvol;
 					wet_moment += sample_ws * sample.m_dvol;
+
+					// Weighting damping by wet volume gives force units and makes acceleration depend on
+					// body density rather than its linear dimensions.
+					if (c_lin > 0.0f)
+					{
+						auto const r = sample_ws - com_ws;
+						auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, r);
+						auto const v_rel = v_point - water.Velocity(sample_ws);
+						auto const drag_dF = (-c_lin * sample.m_dvol) * v_rel;
+						drag_force += drag_dF;
+						drag_torque += Cross(r, drag_dF);
+					}
 
 					if (debug)
 					{
@@ -768,10 +784,11 @@ namespace pr::physics::buoyancy
 			}
 		}
 
-		// Surface pass: linear + quadratic drag over the wetted union boundary, deduplicated by the
-		// any-other-sibling exterior-side rule.
-		auto const c_lin = cfg.m_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_drag_time_constant_s : 0.0f;
-		auto const have_drag = c_lin > 0.0f || cfg.m_quadratic_drag_coefficient > 0.0f;
+		// Surface pass: normal form drag and tangential surface drag over the wetted union boundary,
+		// deduplicated by the any-other-sibling exterior-side rule.
+		auto const have_drag =
+			cfg.m_quadratic_drag_coefficient > 0.0f ||
+			cfg.m_tangential_drag_coefficient > 0.0f;
 		if (have_drag || debug != nullptr)
 		{
 			for (size_t k = 0; k != prims.size(); ++k)
@@ -825,8 +842,15 @@ namespace pr::physics::buoyancy
 					auto dF = v4::Zero();
 					if (cfg.m_quadratic_drag_coefficient > 0.0f && v_n > 0.0f)
 						dF += (-0.5f * cfg.m_fluid_density * cfg.m_quadratic_drag_coefficient * sample.m_darea * v_n * v_n) * normal_ws;
-					if (c_lin > 0.0f)
-						dF += (-c_lin * sample.m_darea) * v_rel;
+
+					// Tangential drag opposes the complete in-plane relative velocity. The |v_t| * v_t
+					// form is quadratic in speed while remaining continuous through zero.
+					if (cfg.m_tangential_drag_coefficient > 0.0f)
+					{
+						auto const v_t = v_rel - v_n * normal_ws;
+						auto const speed_t = Length(v_t);
+						dF += (-0.5f * cfg.m_fluid_density * cfg.m_tangential_drag_coefficient * sample.m_darea * speed_t) * v_t;
+					}
 
 					drag_force += dF;
 					drag_torque += Cross(sample_ws - com_ws, dF);

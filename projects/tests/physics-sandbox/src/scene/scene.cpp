@@ -376,7 +376,7 @@ namespace physics_sandbox
 			physics::GpuBuoyancy::WaterSurface const* m_surface;
 			float m_time;
 			float Height(v2 uv) const { return m_surface->EvaluateHeight(uv, m_time); }
-			v2 Gradient(v2 uv) const { return m_surface->EvaluateGradient(uv, m_time); }
+			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->EvaluatePressureGradient(uv, m_time, gravity); }
 			v4 Velocity(v4 pos_ws) const { return m_surface->EvaluateVelocity(pos_ws, m_time); }
 		};
 		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
@@ -981,7 +981,15 @@ namespace physics_sandbox
 				Body body(nullptr);
 				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
 				body.O2W(o2w);
-				body.Shape(shape_ptrs[shape_lookup[body_index]], bd.mass);
+				auto const* shape = shape_ptrs[shape_lookup[body_index]];
+
+				// Resolve density after the final collision shape exists so generated scale variants
+				// retain equal density using the rigid body's existing mass-property path.
+				if (bd.density)
+					body.Shape(shape, *bd.density, true);
+				else
+					body.Shape(shape, bd.mass);
+
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				if (bd.sleeping)
 					body.Sleep();

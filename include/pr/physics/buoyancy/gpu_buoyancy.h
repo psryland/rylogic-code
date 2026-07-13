@@ -39,10 +39,12 @@ namespace pr::physics
 			float EvaluateHeight(v2 xy_ws, float time_s) const;
 
 			// Evaluate the XY surface gradient (dh/dx, dh/dy) of the water height at a simulation time.
-			// The gradient is the same one the GPU buoyancy pass uses to compute the lateral
-			// component of the hydrostatic force, so callers (e.g. the sandbox water mesh)
-			// can shade or visualise the surface consistently with the physics integration.
 			v2 EvaluateGradient(v2 xy_ws, float time_s) const;
+
+			// Evaluate the dimensionless lateral pressure gradient used by the buoyancy force.
+			// Each wave contributes A*omega^2/g*cos(phase), matching its configured orbital
+			// acceleration. This equals the geometric slope when omega^2 = g*k.
+			v2 EvaluatePressureGradient(v2 xy_ws, float time_s, float gravity) const;
 
 			// Evaluate the world-space water particle velocity (orbital flow) at a world-space
 			// position and simulation time. Uses the linear deep-water (Airy) orbital-velocity
@@ -62,23 +64,24 @@ namespace pr::physics
 			// flat-water diagnostic comparison so unconfigured callers get matching values.
 			float m_fluid_density = 1000.0f;
 
-			// Linear viscous drag time-constant (seconds). The drag force per column is
-			// -c_drag * V_submerged_col * v_body(centroid), where c_drag = density / tau_damp.
-			// Tau is the e-folding time for a body whose density matches the fluid; lighter
-			// bodies decay faster, heavier bodies slower. A small positive value adds stability
-			// to wave-driven motion without dominating low-frequency dynamics. Set to <= 0 to
-			// disable drag entirely (useful for purely-conservative validation cases).
+			// Linear viscous drag time-constant (seconds). Each wet volume sample contributes
+			//   dF = -(fluid_density / tau) * dV * v_relative
+			// Tau is the e-folding time for a fully submerged body whose density matches the fluid;
+			// lighter bodies decay faster, heavier bodies slower. Set to <= 0 to disable linear drag.
 			float m_drag_time_constant_s = 3.0f;
 
-			// Quadratic (form) drag coefficient (dimensionless). Per-face drag is
-			//   F_face = -0.5 * fluid_density * Cd * A_sub * max(0, v_n)^2 * n_ws
-			// summed over a 2x2 sub-sample grid per face, where v_n is the outward-normal
-			// component of the body's velocity at each sub-sample. Linear drag (above) and
-			// quadratic drag operate independently: linear dominates near rest and stabilises
-			// low-frequency motion, quadratic dominates at speed and provides realistic form
-			// drag for translating/tumbling bodies. Typical values: 1.05 for a cube (default),
-			// 0.47 for a sphere, 1.28 for a flat plate. Set to <= 0 to disable form drag.
+			// Quadratic normal form-drag coefficient (dimensionless). Each wet surface sample contributes
+			//   dF_n = -0.5 * fluid_density * Cd * dA * max(0, v_n)^2 * n_ws
+			// where v_n is the outward-normal relative velocity. Typical values are 1.05 for a cube
+			// (default), 0.47 for a sphere, and 1.28 for a flat plate. Set to zero to disable form drag.
 			float m_quadratic_drag_coefficient = 1.05f;
+
+			// Tangential quadratic drag coefficient (dimensionless). This models unresolved surface
+			// shear independently of normal form drag:
+			//   dF_t = -0.5 * fluid_density * Ct * dA * |v_t| * v_t
+			// A modest value primarily resists fast sliding and tumbling without suppressing slow
+			// hydrostatic motion. Set to zero to disable tangential drag.
+			float m_tangential_drag_coefficient = 0.20f;
 
 			// Grid resolution used whenever a registration or shape refresh derives missing interior
 			// tetrahedra. Higher values reduce deterministic sampling variance at the cost of

@@ -30,7 +30,7 @@ namespace pr::physics::tests
 			v4 m_velocity = v4::Zero();
 
 			float Height(v2 uv) const { return m_level + m_a * uv.x + m_b * uv.y; }
-			v2 Gradient(v2) const { return v2{m_a, m_b}; }
+			v2 PressureGradient(v2, float) const { return v2{m_a, m_b}; }
 			v4 Velocity(v4) const { return m_velocity; }
 		};
 
@@ -247,6 +247,37 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(r.m_drag_force_ws.x, expected_fx, 0.06f));
 			PR_EXPECT(std::abs(r.m_drag_force_ws.y) < 0.05f * std::abs(expected_fx));
 			PR_EXPECT(std::abs(r.m_drag_force_ws.z) < 0.05f * std::abs(expected_fx));
+		}
+
+		// Tangential drag on a translating fully submerged unit box acts on the four faces parallel to
+		// motion. Their combined area is 4 m^2, giving F_x = -0.5*rho*Ct*A_tangent*|v_t|*v_t.
+		PRUnitTestMethod(TangentialDragTranslation)
+		{
+			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
+			auto body = BodyState{};
+			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
+			body.m_vel_lin_ws = v4{1.0f, 0.0f, 0.0f, 0.0f};
+
+			auto const water = TestField{.m_level = 10.0f};
+			auto const cfg = SamplerConfig{
+				.m_fluid_density = 1000.0f,
+				.m_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.1f,
+			};
+
+			auto const r = SampleHull(box.m_base, 10, body, WaterFrame{}, water, cfg, 0, 24000);
+			auto const tangent_area = 4.0f;
+			auto const expected_fx =
+				-0.5f *
+				cfg.m_fluid_density *
+				cfg.m_tangential_drag_coefficient *
+				tangent_area;
+
+			PR_EXPECT(FEqlRelative(r.m_drag_force_ws.x, expected_fx, 0.06f));
+			PR_EXPECT(std::abs(r.m_drag_force_ws.y) < 0.05f * std::abs(expected_fx));
+			PR_EXPECT(std::abs(r.m_drag_force_ws.z) < 0.05f * std::abs(expected_fx));
+			PR_EXPECT(FEqlAbsolute(r.m_drag_torque_ws, v4::Zero(), std::abs(expected_fx) * 0.05f));
 		}
 
 		// The optional debug collector records every sample classification and the per-primitive

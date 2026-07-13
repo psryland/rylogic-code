@@ -74,9 +74,7 @@ namespace pr::physics::tests
 		}
 
 		// Verify the analytic XY gradient agrees with a central finite difference of the
-		// height field. The buoyancy pass uses this gradient to compute wave-slope forces,
-		// so any drift between height and gradient would manifest as a spurious horizontal
-		// force on flat-water-equivalent setups.
+		// height field used by rendering and wet/dry classification.
 		PRUnitTestMethod(WaterSurfaceGradient)
 		{
 			auto water = GpuBuoyancy::WaterSurface{};
@@ -115,6 +113,31 @@ namespace pr::physics::tests
 				auto const dh_dy = (water.EvaluateHeight(xy + v2{0.0f, eps}, t) - water.EvaluateHeight(xy - v2{0.0f, eps}, t)) / (2.0f * eps);
 				PR_EXPECT(FEqlAbsolute(analytic, v2{dh_dx, dh_dy}, 1e-3f));
 			}
+		}
+
+		// The lateral pressure gradient follows configured orbital acceleration. It equals
+		// geometric slope only when the wave obeys deep-water gravity dispersion.
+		PRUnitTestMethod(WaterSurfacePressureGradient)
+		{
+			auto const gravity = 9.8f;
+			auto water = GpuBuoyancy::WaterSurface{};
+			water.m_waves.push_back(GpuBuoyancy::SineWave{
+				.m_direction = v2{1.0f, 0.0f},
+				.m_wavelength = 20.0f,
+				.m_amplitude = 0.6f,
+				.m_phase_speed = 0.5f,
+			});
+
+			auto const expected = v2{0.6f * 0.5f * 0.5f / gravity, 0.0f};
+			PR_EXPECT(FEqlAbsolute(water.EvaluatePressureGradient(v2::Zero(), 0.0f, gravity), expected, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(water.EvaluatePressureGradient(v2::Zero(), 0.0f, 0.0f), v2::Zero(), 1e-8f));
+
+			auto const k = constants<float>::tau / water.m_waves.front().m_wavelength;
+			water.m_waves.front().m_phase_speed = std::sqrt(gravity * k);
+			PR_EXPECT(FEqlAbsolute(
+				water.EvaluatePressureGradient(v2::Zero(), 0.0f, gravity),
+				water.EvaluateGradient(v2::Zero(), 0.0f),
+				1e-6f));
 		}
 
 		// Verify the orbital water velocity is consistent with the height field: at the still-water
@@ -631,7 +654,7 @@ namespace pr::physics::tests
 		struct FlatField
 		{
 			float Height(v2) const { return 0.0f; }
-			v2 Gradient(v2) const { return v2::Zero(); }
+			v2 PressureGradient(v2, float) const { return v2::Zero(); }
 			v4 Velocity(v4) const { return v4::Zero(); }
 		};
 
@@ -674,6 +697,7 @@ namespace pr::physics::tests
 				.m_fluid_density = config.m_fluid_density,
 				.m_drag_time_constant_s = config.m_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
+				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
 			};
 			auto const oracle = buoyancy::SampleHull(
 				collision::shape_cast(poly),
@@ -779,13 +803,12 @@ namespace pr::physics::tests
 		}
 
 		// GPU-vs-oracle parity with drag active. A fully-submerged box translating and yawing exercises
-		// the surface drag pass (linear + quadratic) on top of buoyancy. The CPU sampler (buoyancy_sampler.h)
+		// volume-based linear damping plus normal and tangential quadratic surface drag. The CPU sampler
 		// is the deterministic reference oracle: fed the same stable hull id (0), the same 8192/8192 sample
 		// totals, the same flat water frame and the same body state, it walks the identical hash and cull,
 		// so the GPU combined force/torque must match the oracle's buoyancy+drag sum to within single-precision
-		// sampling noise. This validates the full DispatchComposite + drag-surface kernel transcription, not
-		// just buoyancy. The GPU diagnostic force/torque are the COMBINED buoyancy+drag values (the surface
-		// reduce adds into them), which is what we compare against oracle.buoy + oracle.drag.
+		// sampling noise. This validates both sampled integration passes, not just buoyancy. The GPU diagnostic
+		// force/torque are the combined buoyancy and drag values, which we compare against the oracle sum.
 		PRUnitTestMethod(GpuCompositeMatchesOracleWithDrag)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -804,7 +827,7 @@ namespace pr::physics::tests
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
-			// The harness builds GpuBuoyancy with a default Config (linear drag tau = 3 s, quadratic Cd = 1.05).
+			// The harness uses the default drag configuration: linear tau=3 s, normal Cd=1.05, tangential Ct=0.20.
 			auto const config = h.m_buoyancy.GetConfig();
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
@@ -827,6 +850,7 @@ namespace pr::physics::tests
 				.m_fluid_density = config.m_fluid_density,
 				.m_drag_time_constant_s = config.m_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
+				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
 			};
 			auto const frame = buoyancy::WaterFrame{};
 			auto const field = FlatField{};
@@ -837,19 +861,48 @@ namespace pr::physics::tests
 			auto const expected_torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
 
 			// Volume matches tightly (fully submerged, equal-weight samples). Force/torque carry sampling
-			// noise from the drag pass, so compare with a small relative tolerance about the oracle magnitude.
+			// noise from the sampled drag integrals, so use a small tolerance about the oracle magnitude.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, oracle.m_volume_m3 * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_force, std::max(Length(expected_force) * 0.02f, 5.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, expected_torque, std::max(Length(expected_torque) * 0.05f, 5.0f)));
 		}
 
-		// Composite port of the legacy GpuSlopedSurfaceHorizontalForce check. A fully-submerged box on a
-		// uniformly-sloped water surface must produce a lateral Froude-Krylov force equal to rho*g*V*dh/dx
-		// in the down-slope direction. The composite volume pass accumulates the per-sample pressure-gradient
-		// force dF = rho*|g|*dV*(up - grad_ws); a single long-wavelength wave makes grad_ws effectively
-		// uniform across the body, so the integral collapses to the closed form rho*g*V*dh/dx. Drag is
-		// disabled (and the body is at rest) so the only lateral force is the wave slope.
-		PRUnitTestMethod(GpuCompositeSlopedSurfaceHorizontalForce)
+		// Wet-volume linear damping should produce the same acceleration for equal-density geometrically
+		// similar bodies because their mass and damping force both scale with volume.
+		PRUnitTestMethod(LinearDragTimeConstantIsScaleIndependent)
+		{
+			auto const frame = buoyancy::WaterFrame{};
+			auto const field = FlatField{};
+			auto const body = buoyancy::BodyState{
+				.m_o2w = m4x4::Translation(0.0f, 0.0f, -10.0f),
+				.m_gravity_ws = AnalyticGravityWS,
+				.m_vel_lin_ws = v4{3.0f, -1.0f, 0.5f, 0.0f},
+			};
+			auto const config = buoyancy::SamplerConfig{
+				.m_fluid_density = 1000.0f,
+				.m_drag_time_constant_s = 2.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+			};
+
+			auto const drag_per_volume = [&](float scale)
+			{
+				auto const box = collision::ShapeBox(v4{scale, scale, scale, 0.0f});
+				auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+				return result.m_drag_force_ws / result.m_volume_m3;
+			};
+
+			auto const small_drag = drag_per_volume(0.5f);
+			auto const medium_drag = drag_per_volume(1.0f);
+			auto const large_drag = drag_per_volume(2.0f);
+			auto const expected = v4{-1500.0f, 500.0f, -250.0f, 0.0f};
+			PR_EXPECT(FEqlRelative(small_drag, medium_drag, 1.0e-5f));
+			PR_EXPECT(FEqlRelative(large_drag, medium_drag, 1.0e-5f));
+			PR_EXPECT(FEqlRelative(medium_drag, expected, 1.0e-5f));
+		}
+
+		// A fully-submerged box under a long wave receives the configured orbital acceleration
+		// integrated over displaced volume: F_x = -rho*V*A*omega^2 at phase zero.
+		PRUnitTestMethod(GpuCompositeWavePressureHorizontalForce)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -860,21 +913,23 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			// Disable both drag terms so the lateral force is purely from the wave slope.
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f, .m_quadratic_drag_coefficient = 0.0f });
+			// Disable all drag terms so the lateral force is purely from the wave pressure field.
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+			});
 
-			// Long wavelength (1000 m) means cos(k*x) is essentially 1 across the 2 m box, so the surface
-			// slope is uniform and equal to A*k at the origin. Choose A so the slope works out to 0.1.
+			// A long wavelength keeps cos(k*x) effectively uniform across the two-metre box.
 			auto const wavelength = 1000.0f;
-			auto const slope_target = 0.1f;
-			auto const k = constants<float>::tau / wavelength;
-			auto const amplitude = slope_target / k;
+			auto const amplitude = 0.5f;
+			auto const omega = 0.4f;
 			auto water = GpuBuoyancy::WaterSurface{};
 			water.m_waves.push_back(GpuBuoyancy::SineWave{
 				.m_direction = v2{1.0f, 0.0f},
 				.m_wavelength = wavelength,
 				.m_amplitude = amplitude,
-				.m_phase_speed = 0.0f,
+				.m_phase_speed = omega,
 			});
 			h.m_buoyancy.SetWaterSurface(water);
 
@@ -891,20 +946,16 @@ namespace pr::physics::tests
 			auto const volume = diag.m_volume_m3;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
 
-			// Expected lateral force: -rho*g*V*dh/dx with dh/dx = slope_target at the body's XY centre. The
-			// uniform-slope term converges tightly; the symmetric-cancellation lateral noise floor matches the
-			// other composite box tests (~25 N).
-			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, -rho_g_v * slope_target, std::max(std::abs(rho_g_v * slope_target) * 0.02f, 25.0f)));
+			auto const expected_force_x = -AnalyticFluidDensity * volume * amplitude * omega * omega;
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_force_x, std::max(std::abs(expected_force_x) * 0.02f, 25.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 		}
 
-		// Composite port of the legacy GpuLinearDragForce check, asserting the surface linear-drag closed form.
+		// Composite port of the legacy GpuLinearDragForce check, asserting the wet-volume linear-drag closed form.
 		// A fully-submerged box translating at v = (1,0,0) in flat water sees a uniform relative flow at every
-		// wetted surface sample, so the linear drag integral collapses to F = -c_lin * A_total * v, where
-		// c_lin = density / tau and A_total is the full box surface area (sum of every sample's dA). Quadratic
-		// drag is disabled so the horizontal force is purely the linear term. The composite drag is a SURFACE
-		// integral, so the closed form scales with surface area, not volume.
+		// wet volume sample, so the linear drag integral collapses to F = -c_lin * V * v, where c_lin is
+		// fluid_density / tau. Quadratic drag is disabled so the horizontal force is purely the linear term.
 		PRUnitTestMethod(GpuCompositeLinearDragForce)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -914,11 +965,14 @@ namespace pr::physics::tests
 			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
-			// Uniform translation drives the drag pass; capture before stepping.
+			// Uniform translation drives the damping term; capture before stepping.
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
-			// Isolate linear drag: disable quadratic form drag (default Cd is non-zero).
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_quadratic_drag_coefficient = 0.0f });
+			// Isolate linear drag by disabling both surface-drag terms.
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
@@ -931,9 +985,7 @@ namespace pr::physics::tests
 
 			auto const config = h.m_buoyancy.GetConfig();
 			auto const c_lin = config.m_fluid_density / config.m_drag_time_constant_s;
-			// 2x2x1 box total surface area = 2*(2*2 + 2*1 + 2*1) = 16 m^2.
-			auto const surface_area = 2.0f * (2.0f * 2.0f + 2.0f * 1.0f + 2.0f * 1.0f);
-			auto const expected_force_x = -c_lin * surface_area * 1.0f;
+			auto const expected_force_x = -c_lin * diag.m_volume_m3 * 1.0f;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
 
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 4.0f, 0.01f));
@@ -961,8 +1013,11 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
-			// Linear drag disabled so the lateral force is purely the quadratic form drag.
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{ .m_drag_time_constant_s = 0.0f });
+			// Other drag terms are disabled so the lateral force is purely normal quadratic form drag.
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_drag_time_constant_s = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
@@ -986,6 +1041,47 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			// Symmetric submerged geometry + uniform translation -> zero net torque.
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
+
+		// Tangential surface drag acts on faces parallel to the motion. For this 2x2x1 box moving along
+		// +X, the +/-Y and +/-Z faces have 12 m^2 total area and unit tangential speed. With normal and
+		// linear drag disabled, F_x = -0.5*rho*Ct*A_tangent*|v_t|*v_t = -300 N for Ct=0.05.
+		PRUnitTestMethod(GpuCompositeTangentialDragLinearMotion)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
+
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.05f,
+			});
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const tangent_area = 12.0f;
+			auto const expected_drag_x =
+				-0.5f *
+				h.m_buoyancy.GetConfig().m_fluid_density *
+				h.m_buoyancy.GetConfig().m_tangential_drag_coefficient *
+				tangent_area;
+			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
+
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 4.0f, 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_drag_x, std::max(std::abs(expected_drag_x) * 0.02f, 25.0f)));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
 		}
 

@@ -72,7 +72,8 @@ namespace physics_sandbox::scene_loader
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
 	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
-	//                 "mass": [1.0, 10.0],
+	//                 "scale": [0.5, 2.0],                  // Optional uniform shape scale palette
+	//                 "density": 500.0,                     // Mutually exclusive with mass
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
 	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
 	//             }
@@ -99,6 +100,7 @@ namespace physics_sandbox::scene_loader
 		std::vector<v4> polytope_verts = {};                          // Convex hull vertices (only valid when shape_type == Polytope)
 
 		float mass = 0;          // 0 = static (immovable) body with infinite mass
+		std::optional<float> density = {}; // Derives mass from the final collision shape
 		v4 position = Origin<v4>();
 		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
 		v4 velocity = Zero<v4>();

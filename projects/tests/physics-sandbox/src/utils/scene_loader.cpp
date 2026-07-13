@@ -313,6 +313,23 @@ namespace physics_sandbox::scene_loader
 
 			return ReadShape(shape);
 		}
+
+		// Apply a uniform scale after selecting the base shape so named polytopes and primitive
+		// dimensions use the same finite palette mechanism.
+		void ScaleShape(BodyDesc& shape, float scale)
+		{
+			if (!(scale > 0.0f) || !std::isfinite(scale))
+				throw std::runtime_error("Body generator 'scale' must be finite and positive");
+
+			shape.box_dimensions *= scale;
+			shape.sphere_radius *= scale;
+			shape.line_length *= scale;
+			shape.line_thickness *= scale;
+			for (auto& vertex : shape.tri_verts)
+				vertex = (vertex * scale).w1();
+			for (auto& vertex : shape.polytope_verts)
+				vertex = (vertex * scale).w1();
+		}
 		NamedShapeMap ReadNamedShapes(pr::json::Object const& jscene)
 		{
 			auto shapes = NamedShapeMap{};
@@ -367,7 +384,20 @@ namespace physics_sandbox::scene_loader
 			auto shape_palette = std::vector<BodyDesc>{};
 			shape_palette.reserve(shape_palette_count);
 			for (auto shape_index = 0; shape_index != shape_palette_count; ++shape_index)
-				shape_palette.push_back(ReadGeneratorShape(*jshape, shapes, selector, shape_index, shape_palette_count, rng));
+			{
+				auto shape = ReadGeneratorShape(*jshape, shapes, selector, shape_index, shape_palette_count, rng);
+				if (auto const* jscale = jgen.find("scale"))
+				{
+					auto const scale = ReadFloatRange(*jscale, EGeneratorSelector::Linear, shape_index, shape_palette_count, rng);
+					ScaleShape(shape, scale);
+				}
+				shape_palette.push_back(std::move(shape));
+			}
+
+			auto const* jmass = jgen.find("mass");
+			auto const* jdensity = jgen.find("density");
+			if (jmass != nullptr && jdensity != nullptr)
+				throw std::runtime_error("Body generator 'mass' and 'density' are mutually exclusive");
 
 			auto name = std::string{};
 			if (auto const* jname = jgen.find("name"))
@@ -381,8 +411,16 @@ namespace physics_sandbox::scene_loader
 
 				if (auto const* jcolour = jgen.find("colour"))
 					body.colour = ReadColourRange(*jcolour, selector, body_index, instance_count, rng);
-				if (auto const* jmass = jgen.find("mass"))
+				if (jmass != nullptr)
 					body.mass = ReadFloatRange(*jmass, selector, body_index, instance_count, rng);
+				if (jdensity != nullptr)
+				{
+					auto const density = ReadFloatRange(*jdensity, selector, body_index, instance_count, rng);
+					if (!(density > 0.0f) || !std::isfinite(density))
+						throw std::runtime_error("Body generator 'density' must be finite and positive");
+
+					body.density = density;
+				}
 				if (auto const* jposition = jgen.find("position"))
 					body.position = ReadVec3Range(*jposition, 1.0f, selector, body_index, instance_count, rng);
 				if (auto const* jrotation = jgen.find("rotation"))
@@ -431,6 +469,17 @@ namespace physics_sandbox::scene_loader
 		// Mass
 		if (auto* jmass = jbody.find("mass"))
 			desc.mass = jmass->to<float>();
+		if (auto* jdensity = jbody.find("density"))
+		{
+			if (jbody.find("mass") != nullptr)
+				throw std::runtime_error("Body 'mass' and 'density' are mutually exclusive");
+
+			auto const density = jdensity->to<float>();
+			if (!(density > 0.0f) || !std::isfinite(density))
+				throw std::runtime_error("Body 'density' must be finite and positive");
+
+			desc.density = density;
+		}
 
 		// Position
 		if (auto* jpos = jbody.find("position"))

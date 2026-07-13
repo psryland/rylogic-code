@@ -39,7 +39,7 @@ namespace pr::physics
 			float m_fluid_density;
 			float m_drag_coefficient;
 			float m_quadratic_drag_coefficient;
-			float m_pad0;
+			float m_tangential_drag_coefficient;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -753,6 +753,10 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy quadratic drag coefficient must be a finite, non-negative value");
 			}
+			if (!std::isfinite(config.m_tangential_drag_coefficient) || config.m_tangential_drag_coefficient < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy tangential drag coefficient must be a finite, non-negative value");
+			}
 			if (config.m_polytope_tessellation <= 0)
 			{
 				throw std::runtime_error("GpuBuoyancy polytope tessellation must be greater than zero");
@@ -1264,8 +1268,11 @@ namespace pr::physics
 				.m_surface_face_verts = gpu_va(upload_face_verts),
 			};
 
-			// Volume pass uses only hull_count, groups_per_hull, wave_count, time_s, water_level and
-			// fluid_density; the drag fields are left zero.
+			// Linear damping is part of the wet-volume integral, so its rho/tau coefficient is supplied
+			// to the volume pass. Quadratic drag remains disabled here.
+			auto const volume_drag_coefficient = m_config.m_drag_time_constant_s > 0.0f
+				? m_config.m_fluid_density / m_config.m_drag_time_constant_s
+				: 0.0f;
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = groups_per_hull,
@@ -1273,9 +1280,9 @@ namespace pr::physics
 				.m_time_s = static_cast<float>(args.m_time_s),
 				.m_water_level = m_water_surface.m_level,
 				.m_fluid_density = m_config.m_fluid_density,
-				.m_drag_coefficient = 0.0f,
+				.m_drag_coefficient = volume_drag_coefficient,
 				.m_quadratic_drag_coefficient = 0.0f,
-				.m_pad0 = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
 			};
 
 			// Phase 6: sample displaced volume and reduce it directly into each body's force/torque accumulators.
@@ -1284,13 +1291,11 @@ namespace pr::physics
 			// Phase 7: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
 			// larger of the volume / surface group counts) and runs AFTER the volume reduce so it can
 			// ADD drag force/torque onto the body accumulator and the existing diagnostic record. The
-			// cbuffer carries the surface group count and the real drag coefficients; the volume pass
-			// left these zero. Skip entirely when there is no surface work or drag is disabled.
-			auto const surf_drag_coefficient = m_config.m_drag_time_constant_s > 0.0f
-				? m_config.m_fluid_density / m_config.m_drag_time_constant_s
-				: 0.0f;
+			// cbuffer carries the surface group count and both surface-drag coefficients. Skip the
+			// surface pass when both are disabled, even if linear damping is active.
 			auto const surf_quad_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient);
-			auto const have_drag = surf_drag_coefficient > 0.0f || surf_quad_coefficient > 0.0f;
+			auto const surf_tangent_coefficient = std::max(0.0f, m_config.m_tangential_drag_coefficient);
+			auto const have_drag = surf_quad_coefficient > 0.0f || surf_tangent_coefficient > 0.0f;
 			if (have_drag && active_stats.m_max_surface_samples > 0)
 			{
 				auto const cb_surf = CBufGpuBuoyancy{
@@ -1300,9 +1305,9 @@ namespace pr::physics
 					.m_time_s = static_cast<float>(args.m_time_s),
 					.m_water_level = m_water_surface.m_level,
 					.m_fluid_density = m_config.m_fluid_density,
-					.m_drag_coefficient = surf_drag_coefficient,
+					.m_drag_coefficient = 0.0f,
 					.m_quadratic_drag_coefficient = surf_quad_coefficient,
-					.m_pad0 = 0.0f,
+					.m_tangential_drag_coefficient = surf_tangent_coefficient,
 				};
 
 				RecordSurfacePass(args, cb_surf, addresses);
@@ -1381,8 +1386,6 @@ namespace pr::physics
 	}
 
 	// Evaluate the XY surface gradient (dh/dx, dh/dy) of the water height at a simulation time.
-	// This is the analytic counterpart to 'EvaluateHeight' and is shared between visualisation
-	// (water mesh shading normals) and the GPU buoyancy pass (lateral hydrostatic force).
 	v2 GpuBuoyancy::WaterSurface::EvaluateGradient(v2 xy_ws, float time_s) const
 	{
 		auto gradient = v2::Zero();
@@ -1393,6 +1396,24 @@ namespace pr::physics
 			auto const k = constants<float>::tau / wave.m_wavelength;
 			auto const phase = Dot(wave.m_direction, xy_ws) * k + wave.m_phase_speed * time_s;
 			auto const coeff = wave.m_amplitude * k * std::cos(phase);
+			gradient += wave.m_direction * coeff;
+		}
+		return gradient;
+	}
+
+	// Evaluate the lateral pressure gradient implied by each configured wave's orbital acceleration.
+	v2 GpuBuoyancy::WaterSurface::EvaluatePressureGradient(v2 xy_ws, float time_s, float gravity) const
+	{
+		if (!(gravity > tiny<float>))
+			return v2::Zero();
+
+		auto gradient = v2::Zero();
+		for (auto const& wave : m_waves)
+		{
+			auto const k = constants<float>::tau / wave.m_wavelength;
+			auto const omega = wave.m_phase_speed;
+			auto const phase = Dot(wave.m_direction, xy_ws) * k + omega * time_s;
+			auto const coeff = wave.m_amplitude * omega * omega * std::cos(phase) / gravity;
 			gradient += wave.m_direction * coeff;
 		}
 		return gradient;
