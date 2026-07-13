@@ -67,44 +67,6 @@ namespace physics_sandbox
 
 			return v2{ 20.0f, 20.0f };
 		}
-		// Return the world-space XY position of a water grid vertex.
-		v2 WaterXY(scene_loader::WaterDesc const& water, v2 const& extent, int ix, int iy)
-		{
-			auto const u = float(ix) / float(water.grid.x);
-			auto const v = float(iy) / float(water.grid.y);
-			return v2{
-				(u - 0.5f) * extent.x,
-				(v - 0.5f) * extent.y,
-			};
-		}
-		// Vertex normal for the water surface, computed analytically from the same gradient
-		// the GPU buoyancy module uses for wave-slope forces. Returns the upward-pointing normal
-		// for the parametric height field z = h(x,y,t): n = normalize(-dh/dx, -dh/dy, 1).
-		// Using the analytic gradient (instead of finite differences) gives an exact normal
-		// at every vertex regardless of grid resolution, eliminates eps tuning, and keeps the
-		// visualisation in lock-step with the force model.
-		v4 WaterNormal(physics::GpuBuoyancy::WaterSurface const& surface, v2 const& xy_ws, double time_s)
-		{
-			auto const time = static_cast<float>(time_s);
-			auto const grad = surface.EvaluateGradient(xy_ws, time);
-			return Normalise(v4{ -grad.x, -grad.y, 1.0f, 0.0f });
-		}
-		// Fill one renderer vertex for the water visual.
-		void SetWaterVertex(rdr12::Vert& vert, scene_loader::WaterDesc const& water, v2 const& extent, int ix, int iy, double time_s)
-		{
-			auto const time = static_cast<float>(time_s);
-			auto const xy_ws = WaterXY(water, extent, ix, iy);
-			auto const z_ws = water.surface.EvaluateHeight(xy_ws, time);
-
-			vert.m_vert = v4{ xy_ws.x, xy_ws.y, z_ws, 1.0f };
-			vert.m_diff = water.colour;
-			vert.m_norm = WaterNormal(water.surface, xy_ws, time_s);
-			vert.m_tex0 = v2{
-				float(ix) / float(water.grid.x),
-				float(iy) / float(water.grid.y),
-			};
-			vert.m_idx0 = iv2::Zero();
-		}
 		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
 		{
 			if (lhs.shape_type != rhs.shape_type)
@@ -236,7 +198,6 @@ namespace physics_sandbox
 		, m_allow_sleeping(true)
 		, m_ground_gfx()
 		, m_water()
-		, m_water_extent(v2::Zero())
 		, m_water_gfx()
 		, m_env_map()
 		, m_sky_gfx()
@@ -384,52 +345,7 @@ namespace physics_sandbox
 			return;
 
 		auto const extent = WaterExtent(water, scene_bbox);
-		m_water_extent = extent;
-		auto const vertex_count = (water.grid.x + 1) * (water.grid.y + 1);
-		auto const index_of = [&](int ix, int iy)
-		{
-			return ix + iy * (water.grid.x + 1);
-		};
-
-		using namespace pr::ldraw;
-		Builder builder;
-		auto& mesh = builder.Mesh("Water", water.colour.argb);
-		for (int iy = 0; iy != water.grid.y + 1; ++iy)
-		{
-			for (int ix = 0; ix != water.grid.x + 1; ++ix)
-			{
-				auto const xy_ws = WaterXY(water, extent, ix, iy);
-				auto const z_ws = water.surface.EvaluateHeight(xy_ws, 0.0);
-				auto const normal = WaterNormal(water.surface, xy_ws, 0.0);
-				mesh.vert(xy_ws.x, xy_ws.y, z_ws);
-				mesh.normal({ normal.x, normal.y, normal.z });
-			}
-		}
-		for (int iy = 0; iy != water.grid.y; ++iy)
-		{
-			for (int ix = 0; ix != water.grid.x; ++ix)
-			{
-				auto const i0 = index_of(ix + 0, iy + 0);
-				auto const i1 = index_of(ix + 1, iy + 0);
-				auto const i2 = index_of(ix + 0, iy + 1);
-				auto const i3 = index_of(ix + 1, iy + 1);
-				mesh.face(i0, i1, i2);
-				mesh.face(i2, i1, i3);
-			}
-		}
-
-		auto result = rdr12::ldraw::Parse(*m_rdr, builder.ToBinary());
-		if (result.m_objects.empty())
-			throw std::runtime_error("Water mesh parsing did not return an object");
-
-		m_water_gfx = result.m_objects.front();
-		if (m_water_gfx->m_model == nullptr || m_water_gfx->m_model->m_vcount != vertex_count)
-			throw std::runtime_error("Water mesh model has an unexpected vertex count");
-
-		// Half-strength reflections so the sky tint is obvious but the underlying water colour still reads.
-		// The forward shader multiplies the per-instance value with the material's m_rel_reflec (default 1.0)
-		// so the resulting nugget env-mix factor matches the value we set here.
-		m_water_gfx->Reflectivity(0.5f);
+		m_water_gfx = std::make_unique<WaterVisual>(*m_rdr, water, extent);
 
 		// Build the procedural environment cube + matching skybox model. The same six face images feed both
 		// the cube map (sampled by reflective surfaces) and the skybox model (rendered as a backdrop centred
@@ -470,29 +386,6 @@ namespace physics_sandbox
 		sky_obj->m_name = "sky_box";
 		m_sky_gfx = sky_obj;
 
-		UpdateWaterGfx();
-	}
-
-	// Update the water visual mesh to match the current scene time.
-	void Scene::UpdateWaterGfx()
-	{
-		if (!m_water || m_water_gfx == nullptr || m_water_gfx->m_model == nullptr)
-			return;
-
-		auto const& water = *m_water;
-		auto const extent = m_water_extent;
-		rdr12::ResourceFactory factory(*m_rdr);
-		auto update = m_water_gfx->m_model->UpdateVertices(factory.CmdList(), factory.UploadBuffer());
-		auto* ptr = update.ptr<rdr12::Vert>();
-		for (int iy = 0; iy != water.grid.y + 1; ++iy)
-		{
-			for (int ix = 0; ix != water.grid.x + 1; ++ix)
-			{
-				SetWaterVertex(*ptr, water, extent, ix, iy, m_clock);
-				++ptr;
-			}
-		}
-		update.Commit();
 	}
 
 	// Return the latest diagnostic buoyancy records for scene-registered hulls.
@@ -668,7 +561,6 @@ namespace physics_sandbox
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
 		m_water.reset();
-		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
@@ -779,7 +671,6 @@ namespace physics_sandbox
 				m_body[i].ZeroForces();
 			}
 		}
-		UpdateWaterGfx();
 		auto const kill_end = Clock::now();
 
 		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
@@ -797,7 +688,6 @@ namespace physics_sandbox
 	{
 		ClearBuoyancy();
 		m_water.reset();
-		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
@@ -935,7 +825,6 @@ namespace physics_sandbox
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
 		m_water = scene_desc.water;
-		m_water_extent = v2::Zero();
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;

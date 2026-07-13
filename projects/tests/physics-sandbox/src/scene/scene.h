@@ -4,6 +4,7 @@
 #include "src/scene/procedural_sky.h"
 #include "src/diagnostics/diagnostics.h"
 #include "src/utils/scene_loader.h"
+#include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
 
 namespace physics_sandbox
@@ -104,8 +105,7 @@ namespace physics_sandbox
 
 		// Water surface visual described by the loaded scene.
 		std::optional<scene_loader::WaterDesc> m_water;
-		v2 m_water_extent;
-		rdr12::ldraw::LdrObjectPtr m_water_gfx;
+		std::unique_ptr<WaterVisual> m_water_gfx;
 
 		// Procedural environment map cube + sky-dome model. Created alongside the water visual so
 		// reflective surfaces have something to reflect; null when no water is present.
@@ -196,9 +196,6 @@ namespace physics_sandbox
 
 		// Create the water mesh visual described by a loaded scene.
 		void CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox);
-
-		// Update the water mesh vertices for the current simulation time.
-		void UpdateWaterGfx();
 
 		// Return the latest diagnostic buoyancy records for scene-registered hulls.
 		std::vector<physics::GpuBuoyancy::Diagnostics> BuoyancyDiagnostics() const;

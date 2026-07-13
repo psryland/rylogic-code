@@ -1,0 +1,5 @@
+// Shader source files for runtime compilation.
+src/shaders/hlsl/types.hlsli                TEXT DISCARDABLE "..\\..\\..\\..\\..\\rylogic\\view3d-12\\src\\shaders\\hlsl\\types.hlsli"
+src/shaders/hlsl/forward/forward_cbuf.hlsli TEXT DISCARDABLE "..\\..\\..\\..\\..\\rylogic\\view3d-12\\src\\shaders\\hlsl\\forward\\forward_cbuf.hlsli"
+src/scene/water/water_visual_cbuf.hlsli TEXT DISCARDABLE "src/scene/water/water_visual_cbuf.hlsli"
+src/scene/water/water_visual.hlsl       TEXT DISCARDABLE "src/scene/water/water_visual.hlsl"
