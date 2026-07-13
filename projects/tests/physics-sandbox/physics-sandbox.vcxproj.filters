@@ -375,6 +375,9 @@
     <None Include="scenes\floater.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\buoyancy_stress_1000.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="src\scene\water\water_visual_cbuf.hlsli">
       <Filter>src\scene\water</Filter>
     </None>

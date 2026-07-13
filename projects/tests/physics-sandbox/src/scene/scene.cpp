@@ -379,8 +379,8 @@ namespace physics_sandbox
 			face_textures[i] = factory.CreateTexture2D(tdesc);
 		}
 
-		// Build the skybox model. Use a radius comfortably larger than the camera's near plane but small
-		// enough that depth precision is fine — the cube is drawn centred on the camera each frame.
+		// The cube only needs to remain between the camera's clip planes because it is centred on the camera.
+		// It is rendered as a depth-neutral backdrop below, so its radius does not limit visible scene depth.
 		auto sky_model = rdr12::ModelGenerator::SkyboxSixSidedCube(factory, face_textures, 100.0f);
 		sky_model->m_name = "sky_box";
 
@@ -388,6 +388,10 @@ namespace physics_sandbox
 		auto sky_obj = rdr12::ldraw::LdrObjectPtr(new rdr12::ldraw::LdrObject(rdr12::ldraw::ELdrObject::Custom, nullptr, pr::GenerateGUID()), true);
 		sky_obj->m_model = sky_model;
 		sky_obj->m_name = "sky_box";
+
+		// A skybox is a backdrop rather than a scene boundary. Drawing it before opaque geometry without
+		// writing depth allows objects beyond the cube radius to remain visible instead of being occluded.
+		sky_obj->Flags(rdr12::ldraw::ELdrFlags::NoZWrite, true);
 		m_sky_gfx = sky_obj;
 
 	}

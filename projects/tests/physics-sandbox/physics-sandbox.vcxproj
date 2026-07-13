@@ -192,6 +192,7 @@
     <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />
     <None Include="scenes\brick_wall_2000.json" />
+    <None Include="scenes\buoyancy_stress_1000.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\dzhanibekov_effect.json" />
     <None Include="scenes\floater.json" />

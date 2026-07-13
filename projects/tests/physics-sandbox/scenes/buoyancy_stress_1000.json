@@ -1,0 +1,89 @@
+{
+	"scene": {
+		"description": "Buoyancy scaling benchmark: 500 boxes and 500 tessellated octahedra fall into wavy water and float. The broad deterministic spawn area keeps most trajectories independent while allowing occasional contacts.",
+		"seed": 1547575334,
+		"camera": {
+			"position": [0.0, -150.0, 105.0],
+			"lookat": [0.0, 0.0, 3.0]
+		},
+		"gravity": [0.0, 0.0, -9.8],
+		"physics": {
+			"substeps": 1
+		},
+		"material": {
+			"elasticity": 0.05,
+			"friction": 0.2
+		},
+		"water": {
+			"level": 0.0,
+			"size": [170.0, 170.0],
+			"grid": [128, 128],
+			"colour": "0xA02080FF",
+			"waves": [
+				{
+					"direction": [1.0, 0.0, 0.0],
+					"wavelength": 20.0,
+					"amplitude": 0.6,
+					"phase_speed": 0.5
+				},
+				{
+					"direction": [-1.0, 1.0, 0.0],
+					"wavelength": 3.0,
+					"amplitude": 0.1,
+					"phase_speed": 1.2
+				}
+			]
+		},
+		"shapes": {
+			"box": {
+				"name": "buoyancy-stress-box",
+				"type": "box",
+				"dimensions": [1.2, 1.2, 0.8]
+			},
+			"octahedron": {
+				"name": "buoyancy-stress-octahedron",
+				"type": "polytope",
+				"vertices": [
+					[0.7, 0.0, 0.0],
+					[-0.7, 0.0, 0.0],
+					[0.0, 0.7, 0.0],
+					[0.0, -0.7, 0.0],
+					[0.0, 0.0, 0.6],
+					[0.0, 0.0, -0.6]
+				]
+			}
+		},
+		"body_generators": [
+			{
+				"name": "floater-box-#",
+				"selector": "random",
+				"instance_count": 500,
+				"shape_palette_count": 1,
+				"shape": "buoyancy-stress-box",
+				"buoyancy_hull": {},
+				"colour": ["0xFF70A8E0", "0xFFB0D8FF"],
+				"mass": 500.0,
+				"position": [[-70.0, -70.0, 6.0], [70.0, 70.0, 18.0]],
+				"rotation": [[-10.0, -10.0, -180.0], [10.0, 10.0, 180.0]],
+				"velocity": [[-0.1, -0.1, 0.0], [0.1, 0.1, 0.0]],
+				"angular_velocity": [[-0.1, -0.1, -0.1], [0.1, 0.1, 0.1]]
+			},
+			{
+				"name": "floater-poly-#",
+				"selector": "random",
+				"instance_count": 500,
+				"shape_palette_count": 1,
+				"shape": "buoyancy-stress-octahedron",
+				"buoyancy_hull": {
+					"tessellation": 5
+				},
+				"colour": ["0xFFE09050", "0xFFFFD090"],
+				"mass": 170.0,
+				"position": [[-70.0, -70.0, 6.0], [70.0, 70.0, 18.0]],
+				"rotation": [[-10.0, -10.0, -180.0], [10.0, 10.0, 180.0]],
+				"velocity": [[-0.1, -0.1, 0.0], [0.1, 0.1, 0.0]],
+				"angular_velocity": [[-0.1, -0.1, -0.1], [0.1, 0.1, 0.1]]
+			}
+		]
+	}
+}

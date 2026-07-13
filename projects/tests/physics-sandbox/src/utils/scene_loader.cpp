@@ -340,6 +340,55 @@ namespace physics_sandbox::scene_loader
 			}
 			return shapes;
 		}
+
+		// Derive a buoyancy hull from a generated body's collision shape so compact stress scenes do
+		// not need to duplicate every generated body name and its matching hull geometry.
+		BuoyancyHullDesc MakeGeneratedBuoyancyHull(BodyDesc const& body, pr::json::Value const& jv_hull)
+		{
+			auto const& jhull = jv_hull.to_object();
+			auto hull = BuoyancyHullDesc{};
+			hull.body_name = body.name;
+
+			switch (body.shape_type)
+			{
+				case BodyDesc::EShape::Box:
+				{
+					hull.shape_type = BuoyancyHullDesc::EShape::Box;
+					hull.dimensions = body.box_dimensions;
+					break;
+				}
+				case BodyDesc::EShape::Sphere:
+				{
+					hull.shape_type = BuoyancyHullDesc::EShape::Sphere;
+					hull.radius = body.sphere_radius;
+					break;
+				}
+				case BodyDesc::EShape::Polytope:
+				{
+					hull.shape_type = BuoyancyHullDesc::EShape::Polytope;
+					hull.polytope_verts = body.polytope_verts;
+					if (auto const* jtessellation = jhull.find("tessellation"))
+						hull.tessellation = jtessellation->to<int>();
+
+					if (hull.tessellation <= 0)
+						throw std::runtime_error("Generated polytope buoyancy hull 'tessellation' must be greater than zero");
+
+					break;
+				}
+				case BodyDesc::EShape::Line:
+				case BodyDesc::EShape::Triangle:
+				{
+					throw std::runtime_error(pr::FmtS("Generated body '%s' has no supported matching buoyancy hull", body.name.c_str()));
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown generated body shape type");
+				}
+			}
+			return hull;
+		}
+
+		// Append generated rigid bodies and any requested matching buoyancy hull registrations.
 		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, NamedShapeMap const& shapes, std::default_random_engine& rng)
 		{
 			auto const& jgen = jv_generator.to_object();
@@ -391,6 +440,9 @@ namespace physics_sandbox::scene_loader
 					body.angular_velocity = ReadVec3Range(*jangular_velocity, 0.0f, selector, body_index, instance_count, rng);
 				if (auto const* jsleeping = jgen.find("sleeping"))
 					body.sleeping = jsleeping->to<bool>();
+
+				if (auto const* jbuoyancy_hull = jgen.find("buoyancy_hull"))
+					desc.buoyancy_hulls.push_back(MakeGeneratedBuoyancyHull(body, *jbuoyancy_hull));
 
 				desc.bodies.push_back(std::move(body));
 			}
@@ -488,7 +540,7 @@ namespace physics_sandbox::scene_loader
 		return ground;
 	}
 
-	// Parse a ground plane definition from a JSON object
+	// Parse a camera definition from a JSON object.
 	CameraDesc ReadCamera(pr::json::Value const& jcam)
 	{
 		CameraDesc camera;
@@ -865,7 +917,11 @@ namespace physics_sandbox::scene_loader
 
 		// Diagnostic buoyancy hulls.
 		if (auto* jbuoyancy = jscene.find("buoyancy"))
-			desc.buoyancy_hulls = ReadBuoyancyHulls(*jbuoyancy);
+		{
+			auto hulls = ReadBuoyancyHulls(*jbuoyancy);
+			for (auto& hull : hulls)
+				desc.buoyancy_hulls.push_back(std::move(hull));
+		}
 
 		// Camera
 		if (auto* jcamera = jscene.find("camera"))

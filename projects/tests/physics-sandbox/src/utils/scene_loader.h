@@ -46,6 +46,10 @@ namespace physics_sandbox::scene_loader
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
 	//         },
+	//         "camera": {                     // Optional camera override
+	//             "position": [0, -10, 5],
+	//             "lookat": [0, 0, 0]
+	//         },
 	//         "shapes": {
 	//             "shape0": { "name": "unit-box", "type": "box", "dimensions": [1, 1, 1] },
 	//             "shape1": { "name": "ball", "type": "sphere", "radius": 1.0 }
@@ -73,6 +77,8 @@ namespace physics_sandbox::scene_loader
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
 	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
+	//                 "buoyancy_hull": {},                  // Optional: derive a matching hull for every generated body
+	//                                                       // ("tessellation" optionally controls polytope interior tets)
 	//                 "mass": [1.0, 10.0],
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
 	//                 "velocity": [[0, 0, 0], [3, 3, 3]]

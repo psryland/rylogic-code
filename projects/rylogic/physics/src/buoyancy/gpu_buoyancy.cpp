@@ -4,13 +4,13 @@
 //************************************
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/rigid_body/rigid_body.h"
+#include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "pr/compute/compute_pso.h"
 #include "pr/compute/compute_step.h"
 #include "pr/compute/shaders/shader_compiler.h"
 #include "pr/compute/utility/root_signature.h"
 #include "src/buoyancy/buoyancy_analytical.h"
 #include "src/utility/gpu.h"
-#include "pr/physics/buoyancy/buoyancy_sampler.h"
 
 namespace pr::physics
 {
@@ -345,6 +345,22 @@ namespace pr::physics
 			std::vector<float> m_surf_darea;
 			int m_total_surface_samples = 0;
 		};
+
+		// A compact reference to a registered hull participating in the current dispatch. Instances live in
+		// reusable CPU scratch storage, so collecting active hulls does not allocate once registration is complete.
+		struct ActiveHull
+		{
+			int m_body_index;
+			int m_body_generation;
+			int m_body_step_index;
+			CompositeSlot const* m_slot;
+		};
+		struct ActiveHullStats
+		{
+			int m_max_volume_samples;
+			int m_max_surface_samples;
+		};
+
 		struct AnalyticResult
 		{
 			float m_volume_m3;
@@ -364,29 +380,64 @@ namespace pr::physics
 			}
 		};
 
+		// Metadata retained until the matching diagnostic readback completes. Keeping related values together
+		// prevents the body index, generation, and optional analytic reference from becoming misaligned.
+		struct PendingDiagnostic
+		{
+			int m_body_index;
+			int m_body_generation;
+			AnalyticResult m_analytic_result;
+		};
+
+		// GPU virtual addresses for the transient upload blocks consumed by the sampled-composite passes.
+		struct DispatchAddresses
+		{
+			D3D12_GPU_VIRTUAL_ADDRESS m_waves;
+			D3D12_GPU_VIRTUAL_ADDRESS m_volume_headers;
+			D3D12_GPU_VIRTUAL_ADDRESS m_volume_primitives;
+			D3D12_GPU_VIRTUAL_ADDRESS m_volume_records;
+			D3D12_GPU_VIRTUAL_ADDRESS m_volume_verts;
+			D3D12_GPU_VIRTUAL_ADDRESS m_tets;
+			D3D12_GPU_VIRTUAL_ADDRESS m_face_planes;
+			D3D12_GPU_VIRTUAL_ADDRESS m_surface_headers;
+			D3D12_GPU_VIRTUAL_ADDRESS m_surface_primitives;
+			D3D12_GPU_VIRTUAL_ADDRESS m_surface_records;
+			D3D12_GPU_VIRTUAL_ADDRESS m_surface_verts;
+			D3D12_GPU_VIRTUAL_ADDRESS m_surface_face_verts;
+		};
+
+		// Device services and callbacks remain valid for the lifetime of this implementation.
 		ID3D12Device* m_device;
 		StepIndexResolver m_step_index_resolver;
 		BodyStateResolver m_body_state_resolver;
+
+		// Immutable compute pipelines and the engine subscription used to append buoyancy work to each GPU step.
 		::pr::compute::ComputeStep m_volume_step;
 		::pr::compute::ComputeStep m_volume_reduce_step;
 		::pr::compute::ComputeStep m_surface_step;
 		::pr::compute::ComputeStep m_surface_reduce_step;
 		multicast::AutoSub m_external_force_sub;
 
+		// Runtime settings and registration-owned hull data. Hull slots are indexed by stable body index.
 		WaterSurface m_water_surface;
 		Config m_config;
 		std::vector<CompositeSlot> m_composite_hulls;
-		std::vector<int> m_pending_body_indices;
-		std::vector<int> m_pending_body_generations;
-		std::vector<AnalyticResult> m_pending_analytic_results;
-		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
-		int m_pending_diagnostic_count;
 
+		// Reusable host-side dispatch state. Capacity tracks m_composite_hulls and is established during
+		// registration so the per-step Apply/DispatchComposite path only clears and repopulates storage.
+		std::vector<ActiveHull> m_active_hulls;
+		std::vector<PendingDiagnostic> m_pending_diagnostics;
+		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
+
+		// Grow-only GPU outputs shared by the volume and surface passes. They are recreated only when a
+		// dispatch exceeds the largest hull/group population seen previously.
 		D3DPtr<ID3D12Resource> m_r_partials;
 		D3DPtr<ID3D12Resource> m_r_diagnostics;
 		int m_partial_capacity;
 		int m_diagnostic_capacity;
 
+		// Latest completed diagnostic values published for callers. Readback completion writes under the same
+		// mutex used by LatestDiagnostics because rendering and physics scheduling may run independently.
 		mutable std::mutex m_diagnostics_mutex;
 		std::vector<Diagnostics> m_diagnostics;
 
@@ -406,11 +457,9 @@ namespace pr::physics
 			,m_water_surface()
 			,m_config()
 			,m_composite_hulls()
-			,m_pending_body_indices()
-			,m_pending_body_generations()
-			,m_pending_analytic_results()
+			,m_active_hulls()
+			,m_pending_diagnostics()
 			,m_pending_readback()
-			,m_pending_diagnostic_count()
 			,m_r_partials()
 			,m_r_diagnostics()
 			,m_partial_capacity()
@@ -439,6 +488,21 @@ namespace pr::physics
 		// Destroy the buoyancy pass after all physics GPU work has completed.
 		~Impl() = default;
 
+		// Grow registration storage and its per-step scratch capacity outside the dispatch hot path.
+		void EnsureHostCapacity(int slot_count)
+		{
+			if (slot_count > static_cast<int>(m_composite_hulls.size()))
+			{
+				m_composite_hulls.resize(static_cast<std::size_t>(slot_count));
+			}
+
+			// Active and pending populations cannot exceed the number of registration slots. Reserving to the
+			// slot vector's geometric capacity avoids both per-step allocation and repeated exact-size growth.
+			auto const slot_capacity = m_composite_hulls.capacity();
+			m_active_hulls.reserve(slot_capacity);
+			m_pending_diagnostics.reserve(slot_capacity);
+		}
+
 		// Register a composite convex-primitive buoyancy hull against a stable physics body index.
 		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation, collision::Shape const& shape)
 		{
@@ -456,11 +520,9 @@ namespace pr::physics
 				throw std::runtime_error("Composite buoyancy hull contains no primitives");
 			}
 
-			// Composite slots are indexed by the stable body index, mirroring the legacy hull slots.
-			if (body_index >= static_cast<int>(m_composite_hulls.size()))
-			{
-				m_composite_hulls.resize(static_cast<std::size_t>(body_index + 1));
-			}
+			// Composite slots are indexed by stable body index. Establish matching scratch capacity here so
+			// collecting those slots during a physics step cannot grow a vector.
+			EnsureHostCapacity(body_index + 1);
 
 			auto& slot = m_composite_hulls[body_index];
 			if (slot.m_active)
@@ -632,23 +694,22 @@ namespace pr::physics
 		// Consume diagnostic readback data after the physics engine has completed its GPU step.
 		void CompleteStep()
 		{
-			if (m_pending_diagnostic_count == 0)
+			if (m_pending_diagnostics.empty())
 			{
-				m_pending_body_indices.clear();
-				m_pending_body_generations.clear();
-				m_pending_analytic_results.clear();
 				m_pending_readback = {};
 				return;
 			}
 
-			auto const diagnostics = std::span{ m_pending_readback.ptr<GpuBuoyancyDiagnostic>(), static_cast<std::size_t>(m_pending_diagnostic_count) };
+			auto const diagnostic_count = static_cast<int>(m_pending_diagnostics.size());
+			auto const diagnostics = std::span{ m_pending_readback.ptr<GpuBuoyancyDiagnostic>(), m_pending_diagnostics.size() };
 			{
 				auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
-				for (int index = 0; index != m_pending_diagnostic_count; ++index)
+				for (int index = 0; index != diagnostic_count; ++index)
 				{
-					auto const body_index = m_pending_body_indices[index];
-					auto const body_generation = m_pending_body_generations[index];
-					auto const& analytic = m_pending_analytic_results[index];
+					auto const& pending = m_pending_diagnostics[index];
+					auto const body_index = pending.m_body_index;
+					auto const body_generation = pending.m_body_generation;
+					auto const& analytic = pending.m_analytic_result;
 					if (body_index < 0 || body_index >= static_cast<int>(m_diagnostics.size()))
 					{
 						throw std::runtime_error("GPU buoyancy diagnostic readback referred to an unknown body slot");
@@ -677,32 +738,20 @@ namespace pr::physics
 				}
 			}
 
-			m_pending_body_indices.clear();
-			m_pending_body_generations.clear();
-			m_pending_analytic_results.clear();
+			m_pending_diagnostics.clear();
 			m_pending_readback = {};
-			m_pending_diagnostic_count = 0;
 		}
 
 		// Record the buoyancy force and diagnostic compute work into the active physics GPU job.
 		void Apply(Engine&, Engine::ExternalForceArgs const& args)
 		{
-			m_pending_body_indices.clear();
-			m_pending_body_generations.clear();
-			m_pending_analytic_results.clear();
+			m_pending_diagnostics.clear();
 			m_pending_readback = {};
-			m_pending_diagnostic_count = 0;
 
 			// All buoyancy now flows through the sampled-composite volume/surface dispatch.
 			DispatchComposite(args);
 		}
 
-		// Record the sampled-composite buoyancy volume pass into the active physics GPU job. It uploads
-		// the flattened composite primitives + interior tet/face geometry for every active hull, runs the
-		// per-sample Froude-Krylov volume kernel into per-threadgroup partials, then reduces them to a
-		// per-body force/torque accumulation plus one diagnostic record per hull. The diagnostic analytic
-		// comparison is left invalid because there is no closed-form composite-union result in v1
-		// (CompleteStep tolerates m_valid == false).
 		// Host-side flat-water dry broadphase cull. Returns true when, with no waves, the body's
 		// registration-time AABB lies entirely above the water surface measured along the body's local
 		// up (-gravity) axis. The AABB encloses every primitive, so every volume and surface sample is
@@ -746,26 +795,13 @@ namespace pr::physics
 			return lowest > m_water_surface.m_level + margin;
 		}
 
-		void DispatchComposite(Engine::ExternalForceArgs const& args)
+		// Resolve registered hulls to the current engine body order and collect the compact dispatch population.
+		ActiveHullStats CollectActiveHulls(Engine::ExternalForceArgs const& args)
 		{
-			if (args.m_body_count == 0)
-			{
-				return;
-			}
+			m_active_hulls.clear();
+			assert(m_active_hulls.capacity() >= m_composite_hulls.size());
 
-			// Build the compact active-hull list, resolving each stable registration index to a body
-			// step index in this BeginStep() range. Inactive or out-of-range hulls are skipped.
-			struct ActiveHull
-			{
-				int m_body_index;        // stable registration index (diagnostics + hash seed)
-				int m_body_generation;   // generation for readback validation
-				int m_body_step_index;   // index into the engine body list (g_bodies)
-				CompositeSlot const* m_slot;
-			};
-			auto active = std::vector<ActiveHull>{};
-			active.reserve(m_composite_hulls.size());
-			auto max_total_volume_samples = 0;
-			auto max_total_surface_samples = 0;
+			auto stats = ActiveHullStats{};
 			for (auto body_index = 0; body_index != static_cast<int>(m_composite_hulls.size()); ++body_index)
 			{
 				auto const& slot = m_composite_hulls[body_index];
@@ -806,27 +842,120 @@ namespace pr::physics
 					}
 				}
 
-				active.push_back(ActiveHull{
+				m_active_hulls.push_back(ActiveHull{
 					.m_body_index = body_index,
 					.m_body_generation = slot.m_generation,
 					.m_body_step_index = body_step_index,
 					.m_slot = &slot,
 				});
-				max_total_volume_samples = std::max(max_total_volume_samples, slot.m_total_volume_samples);
-				max_total_surface_samples = std::max(max_total_surface_samples, slot.m_total_surface_samples);
+				stats.m_max_volume_samples = std::max(stats.m_max_volume_samples, slot.m_total_volume_samples);
+				stats.m_max_surface_samples = std::max(stats.m_max_surface_samples, slot.m_total_surface_samples);
 			}
-			if (active.empty())
+			return stats;
+		}
+
+		// Record volume sampling followed by reduction into the ordinary body force accumulators.
+		void RecordVolumePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
+		{
+			// Evaluate all volume samples into one partial record per hull/threadgroup. Root parameter
+			// order must match CreateVolumeStep: b0, u0(bodies), t1(waves), t2(headers), t3(prims),
+			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), u1(partials).
+			args.m_job.m_cmd_list.SetPipelineState(m_volume_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_headers);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_primitives);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_verts);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_tets);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_face_planes);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_records);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count * cb.m_groups_per_hull, 1, 1);
+			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
+
+			// Reduce per-threadgroup partials to one body force/torque accumulation and one diagnostic
+			// record per hull. Root parameter order must match CreateVolumeReduceStep: b0, u0(bodies),
+			// t2(headers), u1(partials), u2(diagnostics).
+			args.m_job.m_cmd_list.SetPipelineState(m_volume_reduce_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_reduce_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_headers);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count, 1, 1);
+			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
+		}
+
+		// Record surface sampling followed by reduction that adds drag to the volume-pass result.
+		void RecordSurfacePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
+		{
+			// Evaluate all surface samples into one partial record per hull/threadgroup. Root parameter
+			// order must match CreateSurfaceStep: b0, u0(bodies), t1(waves), t3(surf_prims),
+			// t6(face_planes), t8(surf_headers), t9(verts), t10(face_verts), t11(surf_records),
+			// u1(partials).
+			args.m_job.m_cmd_list.SetPipelineState(m_surface_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_primitives);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_face_planes);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_verts);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_face_verts);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_records);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count * cb.m_groups_per_hull, 1, 1);
+			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
+
+			// Reduce the surface partials and add drag to the body and existing diagnostic. Root parameter
+			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t8(surf_headers),
+			// u1(partials), u2(diagnostics).
+			args.m_job.m_cmd_list.SetPipelineState(m_surface_reduce_step.m_pso.get());
+			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_reduce_step.m_sig.get());
+			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count, 1, 1);
+			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
+		}
+
+		// Queue the final per-hull diagnostics for consumption after the physics GPU job completes.
+		void RecordDiagnosticReadback(Engine::ExternalForceArgs const& args, int hull_count)
+		{
+			m_pending_readback = args.m_job.m_readback.template Alloc<GpuBuoyancyDiagnostic>(hull_count);
+			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			args.m_job.m_cmd_list.CopyBufferRegion(m_pending_readback, m_r_diagnostics.get(), 0);
+			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		}
+
+		// Prepare transient inputs and record the volume, optional drag, and diagnostic readback phases.
+		void DispatchComposite(Engine::ExternalForceArgs const& args)
+		{
+			if (args.m_body_count == 0)
 			{
 				return;
 			}
 
-			auto const hull_count = static_cast<int>(active.size());
+			// Phase 1: compact registrations into body-step order and establish the dispatch dimensions.
+			auto const active_stats = CollectActiveHulls(args);
+			if (m_active_hulls.empty())
+			{
+				return;
+			}
+
+			auto const hull_count = static_cast<int>(m_active_hulls.size());
 
 			// Groups are laid out [hull0 groups][hull1 groups]..., with a UNIFORM group count per hull
 			// (the kernel derives the hull from global_group_index / groups_per_hull). Size it for the
 			// busiest hull. The reducer sums one partial per group on a single thread group, so the
 			// group count must not exceed the reduce thread count.
-			auto const groups_per_hull = std::max(1, (max_total_volume_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount);
+			auto const groups_per_hull = std::max(1, (active_stats.m_max_volume_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount);
 			if (groups_per_hull > BuoyancyVolumeReduceThreadCount)
 			{
 				throw std::runtime_error("Buoyancy composite hull exceeds the maximum supported volume sample count");
@@ -837,7 +966,7 @@ namespace pr::physics
 			// partial per group on a single thread group, so the group count must not exceed the reduce
 			// thread count. Both passes share the per-threadgroup partials buffer, so it must be sized
 			// for whichever pass needs the most groups.
-			auto const surf_groups_per_hull = std::max(1, (max_total_surface_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount);
+			auto const surf_groups_per_hull = std::max(1, (active_stats.m_max_surface_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount);
 			if (surf_groups_per_hull > BuoyancyVolumeReduceThreadCount)
 			{
 				throw std::runtime_error("Buoyancy composite hull exceeds the maximum supported surface sample count");
@@ -845,7 +974,7 @@ namespace pr::physics
 
 			EnsureGpuCapacity(args.m_job, hull_count * std::max(groups_per_hull, surf_groups_per_hull), hull_count);
 
-			// Sum the concatenated geometry sizes across all active hulls so the upload buffers can be
+			// Phase 2: sum the concatenated geometry sizes across all active hulls so the upload buffers can be
 			// allocated once. Each upload uses at least one element because an empty geometry array still
 			// needs a valid GPU virtual address to bind.
 			auto total_prims = 0;
@@ -854,7 +983,7 @@ namespace pr::physics
 			auto total_face_planes = 0;
 			auto total_verts = 0;
 			auto total_face_verts = 0;
-			for (auto const& a : active)
+			for (auto const& a : m_active_hulls)
 			{
 				total_prims += static_cast<int>(a.m_slot->m_hull.m_primitives.size());
 				total_volume_verts += static_cast<int>(a.m_slot->m_hull.m_volume_verts.size());
@@ -893,7 +1022,7 @@ namespace pr::physics
 			auto verts = upload_verts.ptr<v4>();
 			auto face_verts = upload_face_verts.ptr<iv4>();
 
-			// Walk the active hulls, concatenating each hull's geometry into the shared buffers and
+			// Phase 3: concatenate each active hull's geometry into the shared buffers and
 			// shifting every primitive's array offsets by the running bases. Tet-corner and face-vertex
 			// indices stay RELATIVE to each primitive's own vertex block (the kernel re-adds the offset),
 			// so the geometry blocks are copied verbatim.
@@ -903,9 +1032,10 @@ namespace pr::physics
 			auto face_base = 0;
 			auto svert_base = 0;
 			auto sfvert_base = 0;
+			assert(m_pending_diagnostics.capacity() >= m_composite_hulls.size());
 			for (auto index = 0; index != hull_count; ++index)
 			{
-				auto const& a = active[index];
+				auto const& a = m_active_hulls[index];
 				auto const& hull = a.m_slot->m_hull;
 				auto const prim_count = static_cast<int>(hull.m_primitives.size());
 
@@ -980,9 +1110,11 @@ namespace pr::physics
 
 				// Composite hulls have no closed-form union analytic in v1; record an invalid analytic
 				// result so CompleteStep stores the GPU diagnostic without an error comparison.
-				m_pending_body_indices.push_back(a.m_body_index);
-				m_pending_body_generations.push_back(a.m_body_generation);
-				m_pending_analytic_results.push_back(AnalyticResult{});
+				m_pending_diagnostics.push_back(PendingDiagnostic{
+					.m_body_index = a.m_body_index,
+					.m_body_generation = a.m_body_generation,
+					.m_analytic_result = AnalyticResult{},
+				});
 
 				prim_base += prim_count;
 				vvert_base += static_cast<int>(hull.m_volume_verts.size());
@@ -992,7 +1124,7 @@ namespace pr::physics
 				sfvert_base += static_cast<int>(hull.m_face_verts.size());
 			}
 
-			// Upload wave parameters (same packing as the legacy dispatch). The volume kernel needs the
+			// Finish the transient inputs with wave parameters. The volume kernel needs the
 			// wave SRV bound even for flat water, so always allocate at least one element.
 			auto const wave_count = static_cast<int>(m_water_surface.m_waves.size());
 			auto upload_waves = args.m_job.m_upload.template Alloc<GpuBuoyancyWave>(std::max(wave_count, 1));
@@ -1011,18 +1143,20 @@ namespace pr::physics
 			{
 				return alloc.m_res->GetGPUVirtualAddress() + alloc.m_ofs;
 			};
-			auto const headers_va = gpu_va(upload_headers);
-			auto const prims_va = gpu_va(upload_prims);
-			auto const records_va = gpu_va(upload_records);
-			auto const volume_verts_va = gpu_va(upload_volume_verts);
-			auto const tets_va = gpu_va(upload_tets);
-			auto const face_planes_va = gpu_va(upload_face_planes);
-			auto const waves_va = gpu_va(upload_waves);
-			auto const surf_headers_va = gpu_va(upload_surf_headers);
-			auto const surf_prims_va = gpu_va(upload_surf_prims);
-			auto const surf_records_va = gpu_va(upload_surf_records);
-			auto const verts_va = gpu_va(upload_verts);
-			auto const face_verts_va = gpu_va(upload_face_verts);
+			auto const addresses = DispatchAddresses{
+				.m_waves = gpu_va(upload_waves),
+				.m_volume_headers = gpu_va(upload_headers),
+				.m_volume_primitives = gpu_va(upload_prims),
+				.m_volume_records = gpu_va(upload_records),
+				.m_volume_verts = gpu_va(upload_volume_verts),
+				.m_tets = gpu_va(upload_tets),
+				.m_face_planes = gpu_va(upload_face_planes),
+				.m_surface_headers = gpu_va(upload_surf_headers),
+				.m_surface_primitives = gpu_va(upload_surf_prims),
+				.m_surface_records = gpu_va(upload_surf_records),
+				.m_surface_verts = gpu_va(upload_verts),
+				.m_surface_face_verts = gpu_va(upload_face_verts),
+			};
 
 			// Volume pass uses only hull_count, groups_per_hull, wave_count, time_s, water_level and
 			// fluid_density; the drag fields are left zero.
@@ -1038,38 +1172,10 @@ namespace pr::physics
 				.m_pad0 = 0.0f,
 			};
 
-			// Evaluate all volume samples into one partial record per hull/threadgroup. Root parameter
-			// order must match CreateVolumeStep: b0, u0(bodies), t1(waves), t2(headers), t3(prims),
-			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), u1(partials).
-			args.m_job.m_cmd_list.SetPipelineState(m_volume_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(headers_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(prims_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(volume_verts_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(tets_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(face_planes_va);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(records_va);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.Dispatch(hull_count * groups_per_hull, 1, 1);
-			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
+			// Phase 4: sample displaced volume and reduce it directly into each body's force/torque accumulators.
+			RecordVolumePass(args, cb, addresses);
 
-			// Reduce per-threadgroup partials to one body force/torque accumulation and one diagnostic
-			// record per hull. Root parameter order must match CreateVolumeReduceStep: b0, u0(bodies),
-			// t2(headers), u1(partials), u2(diagnostics).
-			args.m_job.m_cmd_list.SetPipelineState(m_volume_reduce_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_reduce_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(headers_va);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
-
-			// Surface (drag) pass. Reuses the per-threadgroup partials buffer (sized above for the
+			// Phase 5: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
 			// larger of the volume / surface group counts) and runs AFTER the volume reduce so it can
 			// ADD drag force/torque onto the body accumulator and the existing diagnostic record. The
 			// cbuffer carries the surface group count and the real drag coefficients; the volume pass
@@ -1079,7 +1185,7 @@ namespace pr::physics
 				: 0.0f;
 			auto const surf_quad_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient);
 			auto const have_drag = surf_drag_coefficient > 0.0f || surf_quad_coefficient > 0.0f;
-			if (have_drag && max_total_surface_samples > 0)
+			if (have_drag && active_stats.m_max_surface_samples > 0)
 			{
 				auto const cb_surf = CBufGpuBuoyancy{
 					.m_hull_count = hull_count,
@@ -1093,46 +1199,11 @@ namespace pr::physics
 					.m_pad0 = 0.0f,
 				};
 
-				// Evaluate all surface samples into one partial record per hull/threadgroup. Root
-				// parameter order must match CreateSurfaceStep: b0, u0(bodies), t1(waves), t3(surf_prims),
-				// t6(face_planes), t8(surf_headers), t9(verts), t10(face_verts), t11(surf_records),
-				// u1(partials).
-				args.m_job.m_cmd_list.SetPipelineState(m_surface_step.m_pso.get());
-				args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_step.m_sig.get());
-				args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb_surf);
-				args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(waves_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(surf_prims_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(face_planes_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(surf_headers_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(verts_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(face_verts_va);
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(surf_records_va);
-				args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-				args.m_job.m_cmd_list.Dispatch(hull_count * surf_groups_per_hull, 1, 1);
-				args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
-
-				// Reduce the surface partials and ADD drag onto the body + diagnostic. Root parameter
-				// order must match CreateSurfaceReduceStep: b0, u0(bodies), t8(surf_headers),
-				// u1(partials), u2(diagnostics).
-				args.m_job.m_cmd_list.SetPipelineState(m_surface_reduce_step.m_pso.get());
-				args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_reduce_step.m_sig.get());
-				args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb_surf);
-				args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-				args.m_job.m_cmd_list.AddComputeRootShaderResourceView(surf_headers_va);
-				args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
-				args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
-				args.m_job.m_cmd_list.Dispatch(hull_count, 1, 1);
-				args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
+				RecordSurfacePass(args, cb_surf, addresses);
 			}
 
-			// Copy diagnostics to a readback allocation after the GPU has produced the final UAV result
-			// (volume buoyancy plus, when enabled, the surface drag added above).
-			m_pending_readback = args.m_job.m_readback.template Alloc<GpuBuoyancyDiagnostic>(hull_count);
-			m_pending_diagnostic_count = hull_count;
-			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
-			args.m_job.m_cmd_list.CopyBufferRegion(m_pending_readback, m_r_diagnostics.get(), 0);
-			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			// Phase 6: copy the final per-hull diagnostics for CompleteStep.
+			RecordDiagnosticReadback(args, hull_count);
 		}
 
 		// Resize GPU buffers used by the diagnostic dispatches. 'partial_capacity' is the number of
