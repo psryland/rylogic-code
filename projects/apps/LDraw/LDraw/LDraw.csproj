@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<RootNamespace>LDraw</RootNamespace>
+		<AssemblyName>LDraw</AssemblyName>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+
+	<!-- Assembly properties -->
+	<PropertyGroup>
+		<Description>3D Visualization tool created by Rylogic.</Description>
+		<ApplicationIcon>icon.ico</ApplicationIcon>
+		<Version>7.0.1</Version>
+	</PropertyGroup>
+
+	<!-- Code -->
+	<ItemGroup>
+		<ApplicationDefinition Include="src\App.xaml" />
+	</ItemGroup>
+
+	<!-- Resources -->
+	<ItemGroup>
+		<Resource Include="res\*.png" />
+		<EmbeddedResource Include="res\LdrSyntaxRules.xshd" />
+		<Resource Include="res\Licence.rtf" />
+	</ItemGroup>
+	
+	<!-- References -->
+	<ItemGroup>
+		<PackageReference Include="AvalonEdit" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\apps\LDraw\LDraw.Mcp.Contracts\LDraw.Mcp.Contracts.csproj" />
+	</ItemGroup>
+
+	<!-- Targets  -->
+	<Import Project="$(TargetsPath)view3d-12.targets" />
+	<Import Project="$(TargetsPath)dxc.targets" />
+	<Import Project="$(TargetsPath)fbx.targets" />
+	<Import Project="$(TargetsPath)gltf.targets" />
+
+</Project>

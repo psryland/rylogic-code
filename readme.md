@@ -61,9 +61,14 @@ This project is only used on windows. Compiling requires MSBuild, dotnet, dotnet
 Follow these steps to build:
 
 - Pull to a clean directory,
-- Ensure the 'dotnet-script' tool is installed (use `dotnet tool install -g dotnet-script`),
+- Run the first-run bootstrap: `pwsh -File ./script/Setup.ps1`
+  This installs the `dotnet-script` tool (if missing) and ensures it is on PATH.
 - Customise _/script/UserVars.csx_ or _/script/UserVars.json_ as needed,
 - Run `dotnet-script ./script/Build.csx` to build projects from the command line, or, open _Rylogic.sln_ in Visual Studio.
+
+SDK dependencies are fetched automatically: `Build.csx` pre-fetches the core SDKs, and each
+native project's pre-build step runs the relevant `sdk/<name>/_get.csx` via dotnet-script if
+its SDK is missing (the AI stack, Vulkan + llama.cpp, additionally requires CMake on PATH).
 
 For faster local Visual Studio builds, copy `Directory.Build.user.props.template` to `Directory.Build.user.props` and enable the opt-in settings there.
 

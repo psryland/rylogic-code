@@ -277,7 +277,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestCircle)
 		{
 			Builder builder;
-			builder.Circle("C", 0xFF00AAFF).radius(2.0f);
+			builder.Circle("C", 0xFF00AAFF).circle(2.0f);
 			auto const txt = builder.ToString();
 			Dump(txt);
 
@@ -300,7 +300,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestRect)
 		{
 			Builder builder;
-			builder.Rect("R", 0xFFFF00FF).wh(3, 4);
+			builder.Rect("R", 0xFFFF00FF).rect(3, 4);
 			auto const txt = builder.ToString();
 			Dump(txt);
 
@@ -452,7 +452,7 @@ namespace pr::rdr12::ldraw::tests
 		PRUnitTestMethod(TestPie)
 		{
 			Builder builder;
-			builder.Pie("Pi", 0xFF00FF88).angles(0, 90).radii(0.5f, 1.0f);
+			builder.Pie("Pi", 0xFF00FF88).wedge(0, 90, 0.5f, 1.0f);
 			auto const txt = builder.ToString();
 			Dump(txt);
 

@@ -23,7 +23,7 @@
   -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command Condition="!Exists('$(SDKPath)imgui\imgui')">dotnet-script $(SDKPath)imgui\_get.csx</Command>
+      <Command Condition="!Exists('$(SDKPath)imgui\imgui')">dotnet-script "$(SDKPath)imgui\_get.csx"</Command>
     </PreBuildEvent>
     <ClCompile>
       <EnableModules>false</EnableModules>

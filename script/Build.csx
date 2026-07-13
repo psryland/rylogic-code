@@ -460,7 +460,7 @@ public class LDraw : Managed
 	public string? MsiPath = null;
 
 	public LDraw(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
+		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
 	{
 		DeployDir = Tools.Path([UserVars.Root, "bin/LDraw"], check_exists: false);
 	}
@@ -468,7 +468,7 @@ public class LDraw : Managed
 	public override void Build()
 	{
 		DotNetRestore(RylogicSln);
-		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}"], platforms: Platforms, configs: Configs);
+		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}", "Apps\\LDraw\\LDrawMcpHost"], platforms: Platforms, configs: Configs);
 	}
 
 	public override void Deploy()
@@ -505,12 +505,25 @@ public class LDraw : Managed
 		foreach (var dir in dir_list)
 			Tools.Copy(Tools.Path([target_dir, dir]), Tools.Path([DeployDir, dir], check_exists: false), full_paths: false, indent: "    ");
 
-		// Build the installer
+		// Bundle the MCP tray host alongside LDraw so one install folder contains both exes. The host auto-launches its
+		// sibling LDraw.exe, so they must be co-located. Copy the host's top-level build output into the harvest source
+		// (target_dir, scanned by heat for *.dll + the runtimeconfig/deps regexes) and into the plain deploy dir for parity.
+		// Shared assemblies (Rylogic.Core.dll etc.) are byte-identical here because both projects are produced by the
+		// single solution build above, so overwriting LDraw's copies in target_dir is safe.
+		var host_target_dir = Tools.Path([ProjDir, "..", "LDrawMcpHost", "bin/Release", Frameworks[0]]);
+		Console.WriteLine($"Bundling MCP host from '{host_target_dir}\\':\n");
+		foreach (var file in System.IO.Directory.GetFiles(host_target_dir))
+		{
+			Tools.Copy(file, target_dir, full_paths: false, indent: "    ");
+			Tools.Copy(file, DeployDir, full_paths: false, indent: "    ");
+		}
+
+		// Build the installer (installer.wxs lives at the umbrella folder, one level above ProjDir)
 		Console.WriteLine("Building installer...\n");
-		var installer_wxs = Tools.Path([ProjDir, "installer", "installer.wxs"]);
+		var installer_wxs = Tools.Path([ProjDir, "..", "installer", "installer.wxs"]);
 		MsiPath = BuildInstaller.Build("LDraw", version, installer_wxs, ProjDir, target_dir, Tools.Path([DeployDir, ".."]),
 			[
-				new HarvestPath("binaries", "INSTALLFOLDER", ".", false, [new Regex(@".*\.dll"), new Regex(@"LDraw\.runtimeconfig\.json")]),
+				new HarvestPath("binaries", "INSTALLFOLDER", ".", false, [new Regex(@".*\.dll"), new Regex(@"LDraw\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.runtimeconfig\.json"), new Regex(@"LDrawMcpHost\.deps\.json")]),
 				new HarvestPath("lib_files", "lib", "lib", true),
 			]);
 		Console.WriteLine($"{MsiPath} created.\n");

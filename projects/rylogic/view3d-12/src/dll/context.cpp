@@ -26,8 +26,18 @@ namespace pr::rdr12
 		// Create renderer settings with ray tracing capability available to per-window settings.
 		RdrSettings MakeRdrSettings(HINSTANCE instance)
 		{
+			// Allow falling back to the software (WARP) adapter if the app opts in via the
+			// VIEW3D_ALLOW_SOFTWARE_ADAPTER environment variable. This lets view3d render (slowly)
+			// on machines without a hardware DX12 adapter, e.g. inside a VM. Off by default.
+			auto allow_software_adapter = [] {
+				wchar_t buf[8] = {};
+				auto len = GetEnvironmentVariableW(L"VIEW3D_ALLOW_SOFTWARE_ADAPTER", buf, _countof(buf));
+				return len != 0 && buf[0] != L'0';
+			}();
+
 			return RdrSettings(instance)
 				.DebugLayer(PR_DBG_RDR)
+				.AllowSoftwareAdapter(allow_software_adapter)
 				.DefaultAdapter()
 				.RayTracingSupport();
 		}

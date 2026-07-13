@@ -22,7 +22,7 @@ namespace Binance.API.DomainObjects
 		[JsonProperty("rateLimits")]
 		public List<RateLimit> RateLimits
 		{
-			get => m_rate_limits ?? new List<RateLimit>();
+			get => m_rate_limits ??= new List<RateLimit>();
 			private set => m_rate_limits = value;
 		}
 		private List<RateLimit>? m_rate_limits;
@@ -31,7 +31,7 @@ namespace Binance.API.DomainObjects
 		[JsonProperty("exchangeFilters")]
 		public List<ExchangeFilter> ExchangeFilters
 		{
-			get => m_exch_filters ?? new List<ExchangeFilter>();
+			get => m_exch_filters ??= new List<ExchangeFilter>();
 			private set => m_exch_filters = value;
 		}
 		private List<ExchangeFilter>? m_exch_filters;
@@ -40,7 +40,7 @@ namespace Binance.API.DomainObjects
 		[JsonProperty("symbols")]
 		public List<SymbolData> Symbols
 		{
-			get => m_symbols ?? new List<SymbolData>();
+			get => m_symbols ??= new List<SymbolData>();
 			private set => m_symbols = value;
 		}
 		private List<SymbolData>? m_symbols;

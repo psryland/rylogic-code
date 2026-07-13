@@ -120,10 +120,12 @@ namespace pr::compute
 		}
 		GpuJob(ID3D12Device4* device, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
 			: GpuJob(device, nullptr, name, pix_colour, view_heap_capacity)
-		{}
+		{
+		}
 		GpuJob(Gpu& gpu, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
 			: GpuJob(gpu.device(), gpu.queue(), name, pix_colour, view_heap_capacity)
-		{}
+		{
+		}
 
 		uint64_t m_pending_sync_point; // The submitted-but-not-yet-completed sync point.
 
@@ -230,6 +232,36 @@ namespace pr::compute
 			D3DPtr<ID3D12CommandQueue> m_queue;
 			Check(device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_queue.address_of()));
 			return m_queue;
+		}
+
+		// Upload 'data' to 'res'
+		template <typename T> friend void UploadData(GpuJob& job, ID3D12Resource* res, std::span<T const> data)
+		{
+			assert(job.m_cmd_list.ResState(res).Mip0State() == D3D12_RESOURCE_STATE_COPY_DEST && "'res' should be in the COPY_DEST state");
+
+			auto upload_buffer = job.m_upload.Alloc<T>(data.size());
+			memcpy(upload_buffer.ptr<T>(), data.data(), data.size() * sizeof(T));
+			job.m_cmd_list.CopyBufferRegion(res, 0, upload_buffer);
+		}
+
+		// Upload 'data' to 'res' piecemeal
+		template <typename T> friend void UploadData(GpuJob& job, ID3D12Resource* res, size_t count, std::invocable<T*, T*> auto cb)
+		{
+			assert(job.m_cmd_list.ResState(res).Mip0State() == D3D12_RESOURCE_STATE_COPY_DEST && "'res' should be in the COPY_DEST state");
+
+			auto upload_buffer = job.m_upload.Alloc<T>(count);
+			cb(upload_buffer.ptr<T>(), upload_buffer.end<T>());
+			job.m_cmd_list.CopyBufferRegion(res, 0, upload_buffer);
+		}
+
+		// Read back 'count' elements of T from 'res'
+		template <typename T> friend GpuTransferAllocation ReadBack(GpuJob& job, int64_t count, ID3D12Resource* res)
+		{
+			assert(job.m_cmd_list.ResState(res).Mip0State() == D3D12_RESOURCE_STATE_COPY_SOURCE && "'res' should be in the COPY_SOURCE state");
+
+			auto readback_buffer = job.m_readback.Alloc<T>(count);
+			job.m_cmd_list.CopyBufferRegion(readback_buffer, res, 0);
+			return readback_buffer;
 		}
 	};
 

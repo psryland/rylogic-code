@@ -33,9 +33,9 @@ if (!Directory.Exists(SDKDir))
 		Console.WriteLine($"Error: {ex.Message}");
 	}
 
-	// Switch to the 3.4 branch
+	// Switch to the pinned release tag (v0.23.0 contains the legacy-FBX < 7000 Pre/PostRotation fix)
 	proc.StartInfo.FileName = "git.exe";
-	proc.StartInfo.Arguments = $"checkout v0.20.1";
+	proc.StartInfo.Arguments = $"checkout v0.23.0";
 	proc.StartInfo.WorkingDirectory = SDKDir;
 	try
 	{

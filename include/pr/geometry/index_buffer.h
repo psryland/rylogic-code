@@ -579,6 +579,21 @@ namespace pr::geometry
 			}
 		}
 
+		// Write a strip-cut (primitive restart) sentinel into an already-sized buffer at index position 'i'.
+		void set_strip_cut(size_t i)
+		{
+			assert(i < size());
+			auto p = mptr_t{ .p = m_buf.data() + i * stride() };
+			switch (stride())
+			{
+				case 8: *p.u64 = 0xFFFFFFFFFFFFFFFF; break;
+				case 4: *p.u32 = 0xFFFFFFFF; break;
+				case 2: *p.u16 = 0xFFFF; break;
+				case 1: *p.u08 = 0xFF; break;
+				default: throw std::runtime_error("Unsupported index stride");
+			}
+		}
+
 		// Append indices
 		IdxBuf& append(index_cspan rhs)
 		{

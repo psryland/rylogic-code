@@ -186,9 +186,13 @@ namespace pr::rdr12
 
 		// Shape2d ****************************************************************************
 		static ModelPtr Ellipse(ResourceFactory& factory, float dimx, float dimy, bool solid, int facets = 40, CreateOptions const* opts = nullptr);		
-		static ModelPtr Pie(ResourceFactory& factory, float dimx, float dimy, float ang0, float ang1, float radius0, float radius1, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
+		static ModelPtr Ellipse(ResourceFactory& factory, std::span<geometry::EllipseShape const> shapes, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
+		static ModelPtr Pie(ResourceFactory& factory, geometry::Wedge wedge, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
+		static ModelPtr Pie(ResourceFactory& factory, std::span<geometry::Wedge const> wedges, bool solid, int facets = 40, CreateOptions const* opts = nullptr);
 		static ModelPtr RoundedRectangle(ResourceFactory& factory, float dimx, float dimy, float corner_radius, bool solid, int facets = 10, CreateOptions const* opts = nullptr);
+		static ModelPtr RoundedRectangle(ResourceFactory& factory, std::span<geometry::RectShape const> shapes, float corner_radius, bool solid, int facets = 10, CreateOptions const* opts = nullptr);
 		static ModelPtr Polygon(ResourceFactory& factory, std::span<v2 const> points, bool solid, CreateOptions const* opts = nullptr);
+		static ModelPtr Polygon(ResourceFactory& factory, std::span<std::span<v2 const> const> polys, bool solid, std::span<std::span<Colour32 const> const> colours, CreateOptions const* opts = nullptr);
 
 		// Boxes ******************************************************************************
 		static ModelPtr Box(ResourceFactory& factory, float rad, CreateOptions const* opts = nullptr);

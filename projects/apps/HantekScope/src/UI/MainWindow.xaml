@@ -1,0 +1,208 @@
+﻿<Window
+	x:Class="HantekScope.UI.MainWindow"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gfx"
+	Title="Hantek 2D42 Scope"
+	Height="600"
+	Width="1000"
+	>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto" />
+			<RowDefinition Height="Auto" />
+			<RowDefinition Height="*" />
+			<RowDefinition Height="Auto" />
+		</Grid.RowDefinitions>
+
+		<!-- Main menu -->
+		<Menu Grid.Row="0">
+			<MenuItem Header="_File">
+				<MenuItem Header="E_xit" Click="OnExit" />
+			</MenuItem>
+			<MenuItem Header="_Help">
+				<MenuItem Header="_Scope…" Click="OnHelpScope" />
+				<MenuItem Header="_About…" Click="OnHelpAbout" />
+			</MenuItem>
+		</Menu>
+
+		<!-- Toolbar: connection + panel/indicator toggles (Segoe MDL2 glyph icons). -->
+		<ToolBarTray Grid.Row="1">
+			<ToolBar>
+				<Button
+					x:Name="m_btn_connect"
+					AutomationProperties.Name="Connect/Disconnect"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE703;"
+					ToolTip="Connect/Disconnect from scope"
+					Click="OnConnectDisconnect"
+					/>
+				<Separator />
+				<Button
+					x:Name="m_btn_set_range"
+					AutomationProperties.Name="Set scope range"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE9A6;"
+					ToolTip="Set the scope's volts/div and time/div from the current zoom"
+					Click="OnSetScopeRange"
+					/>
+				<Separator />
+				<Button
+					x:Name="m_btn_awg"
+					AutomationProperties.Name="Waveform generator"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xEC4A;"
+					ToolTip="Open the waveform generator controls"
+					Click="OnToggleAwg"
+					/>
+				<Separator />
+				<ToggleButton
+					x:Name="m_btn_measurements"
+					AutomationProperties.Name="Measurements panel"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE90D;"
+					IsChecked="True"
+					ToolTip="Show/Hide the Measurements panel"
+					Click="OnToggleMeasurementsPanel"
+					/>
+				<ToggleButton
+					x:Name="m_btn_trigger"
+					AutomationProperties.Name="Trigger indicators"
+					FontFamily="Segoe MDL2 Assets"
+					FontSize="16"
+					MinWidth="36"
+					Content="&#xE945;"
+					ToolTip="Show/Hide the trigger indicators"
+					Click="OnToggleTriggerIndicators"
+					/>
+			</ToolBar>
+		</ToolBarTray>
+
+		<!-- Live trace with an automatic-measurements side panel. -->
+		<Grid Grid.Row="2">
+			<Grid.ColumnDefinitions>
+				<ColumnDefinition Width="*" />
+				<ColumnDefinition Width="Auto" />
+			</Grid.ColumnDefinitions>
+
+			<!-- Live trace; small margin so it isn't hard up against the window edges. -->
+			<gui:ChartControl
+				Grid.Column="0"
+				x:Name="m_chart"
+				Margin="8,6"
+				XLabel="time (ms)"
+				YLabel="volts"
+				/>
+
+			<!-- Automatic measurements over the most recent samples, updated a few times a second.
+			     The content StackPanel is re-parented into a floating window when popped out, so the
+			     named value fields keep working regardless of where the panel is currently hosted. -->
+			<Border
+				x:Name="m_measurements_dock"
+				Grid.Column="1"
+				Width="212"
+				Margin="0,6,8,6"
+				Background="#1E1E1E"
+				BorderBrush="#3F3F3F"
+				BorderThickness="1"
+				>
+				<StackPanel x:Name="m_measurements_content" Margin="8" TextElement.Foreground="#DDDDDD">
+					<DockPanel Margin="0,0,0,8">
+						<Button
+							x:Name="m_btn_popout"
+							DockPanel.Dock="Right"
+							Content="&#x2197;"
+							Width="20"
+							Height="20"
+							Padding="0"
+							FontSize="12"
+							ToolTip="Pop out the Measurements panel into a floating window"
+							Click="OnTogglePopoutMeasurements"
+							/>
+						<TextBlock Text="Measurements" FontWeight="Bold" VerticalAlignment="Center" />
+					</DockPanel>
+					<Grid TextElement.FontFamily="Consolas" TextElement.FontSize="12">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="Auto" />
+							<ColumnDefinition Width="*" />
+							<ColumnDefinition Width="*" />
+						</Grid.ColumnDefinitions>
+						<Grid.RowDefinitions>
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+							<RowDefinition Height="Auto" />
+						</Grid.RowDefinitions>
+
+						<!-- Channel headers, coloured to match the traces. -->
+						<TextBlock Grid.Row="0" Grid.Column="1" Text="CH1" FontWeight="Bold" Foreground="#E3E100" HorizontalAlignment="Right" Margin="8,0,0,4" />
+						<TextBlock Grid.Row="0" Grid.Column="2" Text="CH2" FontWeight="Bold" Foreground="#00D900" HorizontalAlignment="Right" Margin="8,0,0,4" />
+
+						<TextBlock Grid.Row="1" Grid.Column="0" Text="Vpp" />
+						<TextBlock Grid.Row="1" Grid.Column="1" x:Name="m_c1_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="1" Grid.Column="2" x:Name="m_c2_vpp" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="2" Grid.Column="0" Text="Vmax" />
+						<TextBlock Grid.Row="2" Grid.Column="1" x:Name="m_c1_vmax" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="2" Grid.Column="2" x:Name="m_c2_vmax" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="3" Grid.Column="0" Text="Vmin" />
+						<TextBlock Grid.Row="3" Grid.Column="1" x:Name="m_c1_vmin" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="3" Grid.Column="2" x:Name="m_c2_vmin" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="4" Grid.Column="0" Text="Mean" />
+						<TextBlock Grid.Row="4" Grid.Column="1" x:Name="m_c1_mean" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="4" Grid.Column="2" x:Name="m_c2_mean" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="5" Grid.Column="0" Text="RMS" />
+						<TextBlock Grid.Row="5" Grid.Column="1" x:Name="m_c1_rms" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="5" Grid.Column="2" x:Name="m_c2_rms" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="6" Grid.Column="0" Text="Freq" />
+						<TextBlock Grid.Row="6" Grid.Column="1" x:Name="m_c1_freq" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="6" Grid.Column="2" x:Name="m_c2_freq" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+
+						<TextBlock Grid.Row="7" Grid.Column="0" Text="Period" />
+						<TextBlock Grid.Row="7" Grid.Column="1" x:Name="m_c1_period" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+						<TextBlock Grid.Row="7" Grid.Column="2" x:Name="m_c2_period" Text="&#x2014;" HorizontalAlignment="Right" Margin="8,0,0,0" />
+					</Grid>
+				</StackPanel>
+			</Border>
+		</Grid>
+
+		<!-- Status bar: connection status and current acquisition resolution -->
+		<StatusBar Grid.Row="3">
+			<StatusBarItem>
+				<StackPanel Orientation="Horizontal">
+					<Ellipse x:Name="m_conn_led" Width="10" Height="10" Fill="#7f8c8d" VerticalAlignment="Center" Margin="0,0,4,0" />
+					<TextBlock x:Name="m_conn_status" VerticalAlignment="Center" Text="Disconnected" />
+				</StackPanel>
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_config" Text="" />
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_vpos" Text="" />
+			</StatusBarItem>
+			<Separator />
+			<StatusBarItem>
+				<TextBlock x:Name="m_status_mode" Text="Framed" />
+			</StatusBarItem>
+		</StatusBar>
+
+	</Grid>
+</Window>

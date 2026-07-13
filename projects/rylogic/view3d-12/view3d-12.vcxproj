@@ -28,7 +28,7 @@
   -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command Condition="!Exists('$(RylogicRoot)sdk\openxr\openxr')">$(RylogicRoot)sdk\openxr\_get.csx</Command>
+      <Command Condition="!Exists('$(RylogicRoot)sdk\openxr\openxr')">dotnet-script "$(RylogicRoot)sdk\openxr\_get.csx"</Command>
     </PreBuildEvent>
     <ClCompile>
       <PreprocessorDefinitions>
@@ -405,7 +405,7 @@
         ;$(RylogicRoot)projects\rylogic\py-rylogic\rylogic\ldraw\ldraw.py
         ;$(RylogicRoot)include\pr\common\ldraw.h
         ;$(RylogicRoot)miscellaneous\010 templates\LDRTemplate.bt
-        ;$(RylogicRoot)projects\apps\LDraw\res\LdrSyntaxRules.xshd
+        ;$(RylogicRoot)projects\apps\LDraw\LDraw\res\LdrSyntaxRules.xshd
       </Outputs>
     </CSharpScript>
   </ItemGroup>

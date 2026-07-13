@@ -102,22 +102,70 @@ namespace pr::rdr12
 				for (UINT i = 0; ptr->EnumOutputs(i, output.address_of()) != DXGI_ERROR_NOT_FOUND; ++i)
 					outputs.emplace_back(output);
 			}
+
+			// True if this adapter can create a D3D12 device at 'feature_level' and supports at least 'shader_model'.
+			// Note: the basic display adapter used in some VMs can create a device but does not support the shader
+			// models (SM6+) that the stock shaders are compiled to, so a shader-model check is needed as well.
+			bool Supports(D3D_FEATURE_LEVEL feature_level, D3D_SHADER_MODEL shader_model)
+			{
+				if (ptr == nullptr)
+					return false;
+
+				// The adapter must be able to create a D3D12 device at the required feature level
+				D3DPtr<ID3D12Device> device;
+				if (D3D12CreateDevice(ptr.get(), feature_level, __uuidof(ID3D12Device), (void**)device.address_of()) != S_OK)
+					return false;
+
+				// ...and support at least the required shader model. Query the highest supported model
+				// (descending until the runtime accepts the query, as newer SDK enum values may be unknown to the driver).
+				constexpr D3D_SHADER_MODEL versions[] =
+				{
+					D3D_HIGHEST_SHADER_MODEL,
+					D3D_SHADER_MODEL_6_7, D3D_SHADER_MODEL_6_6, D3D_SHADER_MODEL_6_5, D3D_SHADER_MODEL_6_4,
+					D3D_SHADER_MODEL_6_3, D3D_SHADER_MODEL_6_2, D3D_SHADER_MODEL_6_1, D3D_SHADER_MODEL_6_0,
+					D3D_SHADER_MODEL_5_1,
+				};
+				D3D12_FEATURE_DATA_SHADER_MODEL sm = {};
+				for (auto v : versions)
+				{
+					sm.HighestShaderModel = v;
+					auto hr = device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm));
+					if (hr == E_INVALIDARG) continue;
+					Check(hr);
+					break;
+				}
+				return sm.HighestShaderModel >= shader_model;
+			}
 		};
+
+		// The DXGI factory used to enumerate adapters (kept so the WARP adapter can be created on demand)
+		D3DPtr<IDXGIFactory4> factory;
 
 		// Adapters on the system
 		std::vector<Adapter> adapters;
 
 		explicit SystemConfig(bool with_debug_layer)
-			:adapters()
+			:factory()
+			,adapters()
 		{
 			// Create a DXGIFactory
-			D3DPtr<IDXGIFactory4> factory;
 			pr::Check(CreateDXGIFactory2(with_debug_layer ? DXGI_CREATE_FACTORY_DEBUG : 0, __uuidof(IDXGIFactory4), (void**)factory.address_of()));
 
 			// Enumerate each adapter on the system (this includes the software  warp adapter)
 			D3DPtr<IDXGIAdapter1> adapter;
 			for (UINT i = 0; factory->EnumAdapters1(i, (IDXGIAdapter1**)adapter.address_of()) != DXGI_ERROR_NOT_FOUND; ++i)
 				adapters.emplace_back(adapter);
+		}
+
+		// Return the WARP (software) adapter, or an empty adapter if it is unavailable.
+		// WARP is a software rasterizer that supports modern feature levels and shader models,
+		// useful as a fallback on machines without a hardware DX12 adapter (e.g. inside a VM).
+		Adapter WarpAdapter() const
+		{
+			D3DPtr<IDXGIAdapter1> warp;
+			if (factory == nullptr || factory->EnumWarpAdapter(__uuidof(IDXGIAdapter1), (void**)warp.address_of()) != S_OK)
+				return Adapter();
+			return Adapter(warp);
 		}
 	};
 }
