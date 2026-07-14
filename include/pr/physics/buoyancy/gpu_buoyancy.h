@@ -94,6 +94,10 @@ namespace pr::physics
 			// default negative value selects an exact O(face count) fan from the volume centre. A
 			// positive value retains the slower stratified grid at that longest-axis resolution.
 			int m_polytope_tessellation = -1;
+
+			// Publish per-hull force, torque, volume, and centre-of-buoyancy diagnostics through GPU
+			// readback. Disabled by default so production stepping does not pay for validation data.
+			bool m_enable_diagnostics = false;
 		};
 
 		struct BodyState
@@ -119,16 +123,7 @@ namespace pr::physics
 			v4 m_force_ws;
 			v4 m_centre_buoyancy_ws;
 			v4 m_torque_ws;
-			float m_analytic_volume_m3;
-			v4 m_analytic_force_ws;
-			v4 m_analytic_centre_buoyancy_ws;
-			v4 m_analytic_torque_ws;
-			float m_volume_error_m3;
-			v4 m_force_error_ws;
-			v4 m_centre_buoyancy_error_ws;
-			v4 m_torque_error_ws;
 			bool m_valid;
-			bool m_analytic_valid;
 
 			// Construct an invalid buoyancy diagnostic record.
 			Diagnostics();

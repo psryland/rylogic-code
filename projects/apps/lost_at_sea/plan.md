@@ -54,9 +54,9 @@ A sailing game set in a procedurally generated archipelago. The core game loop i
 ### Physics
 - Use the compute physics engine for the active ship rigid body.
 - LAS owns physics stepping through `PhysicsSystem`, which keeps `physics::Engine` on the simulation owner thread, applies gravity, submits GPU work with `BeginStep()`, and publishes immutable snapshots after `CompleteStep()`. This lets CPU task-graph work overlap the GPU physics step without moving thread-affine command-list resources onto generic worker threads.
-- Buoyancy prototype is a no-readback GPU external-force pass, recorded after body upload and before integration.
-- LAS owns the first buoyancy geometry and ocean data; the physics engine should stay LAS-agnostic.
-- Use a simple watertight low-poly buoyancy mesh as the water-displacement proxy, separate from collision shapes.
+- `physics::GpuBuoyancy` derives immutable sampled-volume and sampled-surface descriptors from registered collision shapes, then writes force and torque directly into the GPU rigid-body accumulators before integration.
+- LAS supplies its ocean waves through the generic water-surface interface. Production stepping performs no diagnostic readback by default.
+- Wet-volume damping has independent linear and angular time constants; normal and tangential quadratic surface drag handle faster relative motion.
 
 ### Technologies
 - **Renderer**: `view3d-12` static lib (`projects/rylogic/view3d-12/`)
@@ -114,18 +114,18 @@ Render a basic world the player can look at.
 ### Phase 2: Ocean Physics (Buoyancy)
 The core technical challenge - make things float realistically.
 
-Current design direction: prototype GPU buoyancy in LAS first, then move only the clean general pieces into the physics engine once the API shape is proven.
+Current implementation: use the generic physics-engine buoyancy module with LAS ocean inputs and collision-shape-derived geometry.
 
-- **2.1 Wave consistency**: Align CPU and HLSL Gerstner phase conventions before trusting physics validation.
+- **2.1 Done - Wave consistency**: CPU and HLSL wave phase conventions use the same water-surface parameters.
 - **2.2 Done - External force seam**: Add a pre-integrate `EventHandler` hook to the compute physics engine. The hook runs after body upload and before integration, receives `dt` plus absolute simulation time, and lets subscribers add to GPU body force/torque accumulators without readback.
 - **2.3 Done - LAS physics integration**: Route the ship through `PhysicsSystem` and the compute physics engine with gravity only. `PhysicsSystem` owns the body and stable handle table, `Ship` owns the handle/render instance, and the old CPU ocean impulses, drag, terrain correction, and `Evolve()` path have been removed.
 - **2.3a Done - Split-step physics**: Split `physics::Engine::Step()` into `BeginStep()`/`CompleteStep()` while preserving `Step()` as the blocking wrapper. LAS submits the GPU physics step before generic step-graph work and completes it before render-visible snapshots are published.
-- **2.4 LAS `GpuBuoyancy` module**: Own wave constants, body-to-buoyancy records, and a low-poly watertight buoyancy mesh. Start with a generated box mesh and a 128x128 integration grid.
-- **2.5 Static buoyancy validation**: In flat water, compare GPU diagnostics for volume, force, centre of buoyancy, and torque against analytic box cases before applying damping.
-- **2.6 No-readback force application**: Use a deterministic two-pass reduction so the final force and torque are written directly to `GpuRigidBody.force_*` before integration.
-- **2.7 Gerstner water input**: Evaluate the same Gerstner waves in the buoyancy compute shader using the shared wave parameter layout.
-- **2.8 Water damping**: Add heave/angular damping and later drag/slamming only after the static buoyancy force is trusted.
-- **2.9 Test with primitives and proxy hulls**: Verify waterline, restoring torque, rocking on waves, settling to equilibrium, and capsizing.
+- **2.4 Done - Generic `GpuBuoyancy` module**: Register rigid bodies and derive immutable volume/surface descriptors from their box, sphere, triangle, polytope, or composite collision shapes.
+- **2.5 Done - Static buoyancy validation**: Focused tests enable diagnostic readback and compare sampled GPU volume, force, centre of buoyancy, and torque against CPU and analytic references.
+- **2.6 Done - No-readback force application**: Deterministic reductions write final force and torque directly to `GpuRigidBody.force_*`; runtime diagnostics are disabled by default.
+- **2.7 Done - Wave input**: Evaluate the configured ocean waves in the buoyancy compute shader using the shared water-surface parameter layout.
+- **2.8 Done - Water damping**: Integrate independent translational and rotational damping over wet volume, plus stable normal and tangential quadratic drag over wet surface.
+- **2.9 Done - Shape coverage**: Validate primitive, polytope, and composite hulls for waterline response, restoring torque, wave motion, and settling.
 
 ### Phase 3: Sailing Model
 Make a pre-built ship respond to wind.
@@ -168,13 +168,13 @@ Environmental variety and challenge.
 ## Technical Notes
 
 ### GPU Buoyancy Algorithm (Phase 2 Detail)
-Compute submerged volume with gravity-aligned columns over a LAS-owned buoyancy mesh.
+Compute buoyancy and drag from deterministic samples of collision-shape-derived volume and surface descriptors.
 
-1. Build a plane perpendicular to gravity over the projected buoyancy mesh bounds.
-2. For each grid cell, cast a column ray through a closed low-poly triangle proxy mesh and sort the surface intersections into solid intervals.
-3. Clamp each solid interval to the portion below the Gerstner water height at the column centre.
-4. Accumulate displaced volume and per-column force along `-gravity`; sum torque from each column centroid relative to the body's centre of mass.
-5. Reduce threadgroup partials into the GPU rigid-body force and torque accumulators before the normal physics integration pass.
+1. Register each rigid body's collision shape and cache its immutable primitive descriptors, tetrahedra, faces, cumulative distributions, and sample allocation.
+2. Transform deterministic volume samples into world space and classify them against the configured water surface.
+3. Integrate hydrostatic pressure, translational damping, and rotational damping over wet volume.
+4. Integrate normal and tangential quadratic drag over wet surface samples, limiting explicit dissipative impulses so they cannot reverse relative motion and inject energy.
+5. Reduce per-threadgroup force and torque directly into the GPU rigid-body accumulators before integration. Focused validation can opt into compact readback; production stepping does not.
 
 ### Ocean Mesh Strategy
 - Grid mesh centred on camera, e.g. 256x256 verts covering ~500m x 500m

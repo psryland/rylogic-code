@@ -181,9 +181,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\core\physics\ocean_surface_force.hlsl">
-      <Filter>src\core\physics</Filter>
-    </None>
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli">
       <Filter>src\world\ocean\shaders</Filter>
     </None>

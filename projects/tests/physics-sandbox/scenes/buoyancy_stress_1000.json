@@ -17,7 +17,7 @@
 		"water": {
 			"level": 0.0,
 			"size": [170.0, 170.0],
-			"grid": [128, 128],
+			"grid": [1024, 1024],
 			"colour": "0xA02080FF",
 			"waves": [
 				{
@@ -29,7 +29,7 @@
 				{
 					"direction": [-1.0, 1.0, 0.0],
 					"wavelength": 3.0,
-					"amplitude": 0.1,
+					"amplitude": 0.001,
 					"phase_speed": 1.2
 				}
 			]

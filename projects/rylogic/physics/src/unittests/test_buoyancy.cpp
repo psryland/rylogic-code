@@ -232,13 +232,15 @@ namespace pr::physics::tests
 			Engine m_engine;
 			GpuBuoyancy m_buoyancy;
 
-			Harness()
+			explicit Harness(bool enable_diagnostics = true)
 				: m_bodies()
 				, m_engine()
 				, m_buoyancy(
 					m_engine.Device(),
 					m_engine,
-					GpuBuoyancy::Config{},
+					GpuBuoyancy::Config{
+						.m_enable_diagnostics = enable_diagnostics,
+					},
 					[](int stable_body_index)
 					{
 						return stable_body_index;
@@ -589,9 +591,7 @@ namespace pr::physics::tests
 		// (z in [-0.5, 0]) is submerged, so the expected readback is volume 2 m^3, buoyancy force
 		// (0, 0, rho*|g|*V) = (0, 0, 19620) N, COB (0, 0, -0.25), torque ~ 0.
 		//
-		// Unlike the legacy test, the composite path pushes an INVALID analytic record, so we assert
-		// the GPU values directly against the known analytic expectations and do NOT inspect
-		// m_analytic_valid or the *_error_* diagnostic fields.
+		// The composite path is checked directly against the known analytic expectations.
 		PRUnitTestMethod(GpuCompositeBoxMatchesAnalyticBox)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -610,11 +610,6 @@ namespace pr::physics::tests
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
 
-			// The sampled-composite backend does not compute a closed-form analytic record, so the
-			// analytic diagnostic must be flagged invalid. Asserting this confirms the test is actually
-			// exercising DispatchComposite and not silently falling back to the legacy analytic path.
-			PR_EXPECT(!diag.m_analytic_valid);
-
 			// Low-discrepancy volume sampling of a symmetric half-submerged box leaves a small residual
 			// in the symmetric-cancellation quantities (lateral force, COB x/y, torque). Tolerances are
 			// the measured residual plus margin; the dominant quantities (wet volume, vertical force)
@@ -623,6 +618,24 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -0.25f, 1.0f}, 0.002f));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 10.0f));
+		}
+
+		// Production stepping applies buoyancy without publishing validation readback.
+		PRUnitTestMethod(DiagnosticsAreOptIn)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h(false);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Identity());
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			PR_EXPECT(!h.m_buoyancy.LatestDiagnostics(0, 0).m_valid);
 
 			// Prove the buoyancy force is actually applied to the rigid body, not merely reported in the
 			// diagnostic record. The body also receives m*g during integration (it carries its own
@@ -658,7 +671,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			// A fully-dry primitive displaces no fluid: zero volume, force, COB-moment, and torque.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.0f, 1e-4f));
@@ -688,7 +700,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			// Not culled: the lower half (z=[-0.5,0]) is submerged, displacing 2*2*0.5 = 2 m^3.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.005f));
@@ -798,7 +809,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			// Union submerged volume is the outer box half (2 m^3), proving the inner box's samples were
 			// deduplicated. The buoyancy force and COB therefore match the single-box half-submerged case.
@@ -835,7 +845,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			auto const volume = (4.0f / 3.0f) * (constants<float>::tau / 2.0f) * radius * radius * radius;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
@@ -883,7 +892,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			// Run the CPU oracle with the SAME hull id (0), sample totals (8192/8192), flat water frame and
 			// body state. SampleHull internally distributes the totals across primitives exactly as the GPU
@@ -1005,6 +1013,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
 			});
 
 			// A long wavelength keeps cos(k*x) effectively uniform across the two-metre box.
@@ -1027,7 +1036,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			// The box is fully submerged, so the sampled volume is the full box (4 m^3) up to sampling noise.
 			auto const volume = diag.m_volume_m3;
@@ -1059,6 +1067,7 @@ namespace pr::physics::tests
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
@@ -1068,7 +1077,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			auto const config = h.m_buoyancy.GetConfig();
 			auto const c_lin = config.m_fluid_density / config.m_linear_drag_time_constant_s;
@@ -1101,6 +1109,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 1.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
@@ -1146,6 +1155,7 @@ namespace pr::physics::tests
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
@@ -1155,7 +1165,6 @@ namespace pr::physics::tests
 
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
-			PR_EXPECT(!diag.m_analytic_valid);
 
 			auto const config = h.m_buoyancy.GetConfig();
 			auto const hy = 1.0f;
@@ -1192,6 +1201,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.05f,
+				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
@@ -1233,6 +1243,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 10.0f,
+				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);

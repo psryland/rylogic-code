@@ -9,20 +9,6 @@ namespace las
 {
 	namespace
 	{
-		static constexpr bool EnableOceanSurfaceForce = false;
-		static constexpr int OceanSurfaceForceThreadCount = 64;
-
-		struct CBufOceanSurfaceForce
-		{
-			float m_water_level;
-			float m_spring_constant;
-			float m_damping_constant;
-			float m_max_force;
-			int m_body_count;
-			float m_pad[3];
-		};
-		static_assert(sizeof(CBufOceanSurfaceForce) % sizeof(uint32_t) == 0);
-
 		// Throw if the box body descriptor would create an unusable physics body.
 		void ValidateBoxBodyDesc(PhysicsSystem::BoxBodyDesc const& desc)
 		{
@@ -35,72 +21,7 @@ namespace las
 				throw std::runtime_error("Box physics bodies require a positive mass");
 			}
 		}
-
-		// Create the compute step that applies the placeholder ocean contact force.
-		::pr::compute::ComputeStep CreateOceanSurfaceForceStep(ID3D12Device* device)
-		{
-			auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
-			auto bytecode = ShaderCompiler{}
-				.Source("src/core/physics/ocean_surface_force.hlsl", resolver)
-				.HlslVersion(EHlslVersion::Hlsl2021)
-				.Define(L"SHADER_BUILD")
-				.Optimise(true)
-				.ShaderModel(L"cs_6_6")
-				.EntryPoint(L"CSOceanSurfaceForce")
-				.Compile();
-
-			auto step = ::pr::compute::ComputeStep{};
-			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32<CBufOceanSurfaceForce>(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.Create(device, "LAS.OceanSurfaceForce.RootSig");
-
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), bytecode).Create(device, "LAS.OceanSurfaceForce.PSO");
-			return step;
-		}
 	}
-
-	struct PhysicsSystem::OceanSurfaceForce
-	{
-		::pr::compute::ComputeStep m_step;
-		multicast::AutoSub m_external_force_sub;
-
-		// Construct and subscribe the placeholder ocean contact force pass.
-		OceanSurfaceForce(ID3D12Device* device, physics::Engine& engine)
-			:m_step(CreateOceanSurfaceForceStep(device))
-			,m_external_force_sub(engine.ExternalForces += [this](physics::Engine& sender, physics::Engine::ExternalForceArgs const& args)
-			{
-				Apply(sender, args);
-			})
-		{
-		}
-
-		// Apply a flat-water spring/damper contact force to bodies that intersect the ocean surface.
-		void Apply(physics::Engine&, physics::Engine::ExternalForceArgs const& args)
-		{
-			if (args.m_body_count == 0)
-			{
-				return;
-			}
-
-			auto cb = CBufOceanSurfaceForce{
-				.m_water_level = 0.0f,
-				.m_spring_constant = 12000.0f,
-				.m_damping_constant = 1800.0f,
-				.m_max_force = 25000.0f,
-				.m_body_count = args.m_body_count,
-				.m_pad = {},
-			};
-
-			// This pass deliberately writes only the force accumulator so the physics engine remains owner of all integration state.
-			args.m_job.m_cmd_list.SetPipelineState(m_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.Dispatch(::pr::compute::DispatchCount({ args.m_body_count, 1, 1 }, { OceanSurfaceForceThreadCount, 1, 1 }));
-			args.m_job.m_barriers.UAV(args.m_bodies).Commit();
-		}
-	};
 
 	// Return an invalid body handle sentinel.
 	PhysicsSystem::BodyHandle PhysicsSystem::BodyHandle::Invalid()
@@ -182,7 +103,6 @@ namespace las
 	PhysicsSystem::PhysicsSystem(Renderer& rdr)
 		:m_owner_thread_id(std::this_thread::get_id())
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
-		,m_ocean_surface_force(EnableOceanSurfaceForce ? std::make_unique<OceanSurfaceForce>(rdr.D3DDevice(), m_engine) : nullptr)
 		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
 			physics::GpuBuoyancy::Config{},
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
@@ -364,17 +284,6 @@ namespace las
 		}
 
 		slot.m_buoyancy_hull.Reset();
-	}
-
-	// Return the latest diagnostic buoyancy result for a physics body.
-	physics::GpuBuoyancy::Diagnostics PhysicsSystem::BuoyancyDiagnostics(BodyHandle handle) const
-	{
-		if (!IsValid(handle))
-		{
-			throw std::runtime_error("Invalid PhysicsSystem body handle");
-		}
-
-		return m_gpu_buoyancy->LatestDiagnostics(handle.m_index, handle.m_generation);
 	}
 
 	// Submit GPU physics work for all registered rigid bodies without waiting for completion.

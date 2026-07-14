@@ -123,7 +123,6 @@
     <ClInclude Include="src\world\sky\shaders\procedural_sky_shader.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\core\physics\ocean_surface_force.hlsl" />
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli" />
     <None Include="src\world\ocean\shaders\ocean.hlsl" />
     <ShaderBuild Include="src\world\ocean\shaders\ocean.hlsl" />

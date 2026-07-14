@@ -27,6 +27,7 @@ struct CBufGpuBuoyancy
 	float quadratic_drag_coefficient;
 	float tangential_drag_coefficient;
 	float time_step_s;
+	int enable_diagnostics;
 };
 
 struct GpuBuoyancyWave
@@ -47,11 +48,10 @@ struct GpuBuoyancyDiagnostic
 	float4 force_ws;
 	float4 torque_ws;
 	float4 centre_buoyancy_ws;
-	float4 moment_ws_volume;
-	int body_index;
-	int valid;
 	float volume_m3;
+	int valid;
 	float pad0;
+	float pad1;
 };
 
 ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
@@ -226,8 +226,8 @@ float SurfaceDragScale(GpuRigidBody body, float3 force_ws, float3 torque_ws)
 		: 1.0f;
 }
 
-// Sum all entries in the shared reduction arrays.
-void ReduceShared(uint thread_index, uint thread_count)
+// Sum force and torque entries, with the diagnostic-only wet-volume moment enabled on demand.
+void ReduceShared(uint thread_index, uint thread_count, bool reduce_moment)
 {
 	for (uint stride = thread_count >> 1; stride != 0; stride >>= 1)
 	{
@@ -236,7 +236,8 @@ void ReduceShared(uint thread_index, uint thread_count)
 		{
 			s_force_ws[thread_index] += s_force_ws[thread_index + stride];
 			s_torque_ws[thread_index] += s_torque_ws[thread_index + stride];
-			s_moment_ws_volume[thread_index] += s_moment_ws_volume[thread_index + stride];
+			if (reduce_moment)
+				s_moment_ws_volume[thread_index] += s_moment_ws_volume[thread_index + stride];
 		}
 	}
 	GroupMemoryBarrierWithGroupSync();
@@ -245,10 +246,10 @@ void ReduceShared(uint thread_index, uint thread_count)
 // Evaluate a block of composite-hull volume samples (sampled-composite backend) and write one
 // partial record for the reducer. Each in-fluid sample contributes a Froude-Krylov pressure-gradient
 // force dF = rho*|g|*dV*(up - grad_ws), volume-weighted linear damping, and their torque about the
-// body's centre of mass. A weighted moment (sample_ws*dV, dV) recovers wet volume + centre of buoyancy. Overlap
-// regions are counted once via the lowest-index-sibling cull, so the union volume of arbitrary
-// overlapping convex primitives is unbiased. This mirrors the volume pass of the CPU oracle
-// SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
+// body's centre of mass. Diagnostic mode also accumulates (sample_ws*dV, dV) to recover wet volume
+// and centre of buoyancy. Overlap regions are counted once via the lowest-index-sibling cull, so the
+// union volume of arbitrary overlapping convex primitives is unbiased. This mirrors the volume pass
+// of the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
 //
 // Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups
 // per hull. The flat sample index within a hull selects a primitive by walking the per-primitive
@@ -387,7 +388,8 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 
 							force_ws = float4(dF, 0.0f);
 							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
-							moment_ws_volume = float4(sample_ws * weight, weight);
+							if (g.enable_diagnostics != 0)
+								moment_ws_volume = float4(sample_ws * weight, weight);
 						}
 					}
 					}
@@ -399,7 +401,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = moment_ws_volume;
-	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT, g.enable_diagnostics != 0);
 
 	if (thread_index == 0)
 	{
@@ -427,22 +429,18 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		GpuBuoyancyPartial partial = g_partials[partial_index];
 		force_ws = partial.force_ws;
 		torque_ws = partial.torque_ws;
-		moment_ws_volume = partial.moment_ws_volume;
+		if (g.enable_diagnostics != 0)
+			moment_ws_volume = partial.moment_ws_volume;
 	}
 
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = moment_ws_volume;
-	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT, g.enable_diagnostics != 0);
 
 	if (thread_index == 0 && hull_index < g.hull_count)
 	{
 		BuoyVolHeader header = g_vol_headers[hull_index];
-
-		// Wet volume + centre of buoyancy recovered from the weighted moment sum.
-		float volume = s_moment_ws_volume[0].w;
-		float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
-		float3 centre_buoyancy_ws = has_volume != 0.0f ? s_moment_ws_volume[0].xyz / volume : float3(0.0f, 0.0f, 0.0f);
 
 		GpuRigidBody body = g_bodies[header.body_index];
 		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
@@ -453,14 +451,20 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 			g_bodies[header.body_index] = body;
 		}
 
-		g_diagnostics[hull_index].force_ws = s_force_ws[0];
-		g_diagnostics[hull_index].torque_ws = s_torque_ws[0];
-		g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
-		g_diagnostics[hull_index].moment_ws_volume = s_moment_ws_volume[0];
-		g_diagnostics[hull_index].body_index = header.body_index;
-		g_diagnostics[hull_index].valid = 1;
-		g_diagnostics[hull_index].volume_m3 = volume;
-		g_diagnostics[hull_index].pad0 = 0.0f;
+		if (g.enable_diagnostics != 0)
+		{
+			// Wet volume + centre of buoyancy are validation outputs and do not participate in force application.
+			float volume = s_moment_ws_volume[0].w;
+			float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
+			float3 centre_buoyancy_ws = has_volume != 0.0f ? s_moment_ws_volume[0].xyz / volume : float3(0.0f, 0.0f, 0.0f);
+			g_diagnostics[hull_index].force_ws = s_force_ws[0];
+			g_diagnostics[hull_index].torque_ws = s_torque_ws[0];
+			g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
+			g_diagnostics[hull_index].volume_m3 = volume;
+			g_diagnostics[hull_index].valid = 1;
+			g_diagnostics[hull_index].pad0 = 0.0f;
+			g_diagnostics[hull_index].pad1 = 0.0f;
+		}
 	}
 }
 
@@ -468,8 +472,7 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 // samples (point + outward normal + per-sample area) over the union boundary, deduplicated by the
 // any-other-sibling exterior-side cull, and accumulates quadratic drag. The math mirrors the CPU oracle:
 //   dF = -0.5*rho*Cd*dA*max(0,v_n)^2 * n   (quadratic, windward faces only)
-// where v_rel = v_point - v_water and v_n = dot(v_rel, n). The moment-sum slot is written zero so it
-// does not corrupt the volume pass's diagnostic COB when ReduceShared sums all three shared arrays.
+// where v_rel = v_point - v_water and v_n = dot(v_rel, n).
 numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
 void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
@@ -616,7 +619,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT, false);
 
 	if (thread_index == 0)
 	{
@@ -650,7 +653,7 @@ void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id
 	s_force_ws[thread_index] = force_ws;
 	s_torque_ws[thread_index] = torque_ws;
 	s_moment_ws_volume[thread_index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
+	ReduceShared(uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT, false);
 
 	if (thread_index == 0 && hull_index < g.hull_count)
 	{
@@ -672,7 +675,10 @@ void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id
 			g_bodies[header.body_index] = body;
 		}
 
-		g_diagnostics[hull_index].force_ws += drag_force_ws;
-		g_diagnostics[hull_index].torque_ws += drag_torque_ws;
+		if (g.enable_diagnostics != 0)
+		{
+			g_diagnostics[hull_index].force_ws += drag_force_ws;
+			g_diagnostics[hull_index].torque_ws += drag_torque_ws;
+		}
 	}
 }

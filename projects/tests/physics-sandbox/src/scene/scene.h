@@ -215,9 +215,6 @@ namespace physics_sandbox
 		// Create the water mesh visual described by a loaded scene.
 		void CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox);
 
-		// Return the latest diagnostic buoyancy records for scene-registered hulls.
-		std::vector<physics::GpuBuoyancy::Diagnostics> BuoyancyDiagnostics() const;
-
 		// Rebuild m_buoyancy_debug_gfx by running the CPU buoyancy oracle (SampleHull) over each
 		// registered hull and emitting an LDraw overlay of the per-sample wet/dry/culled classifications,
 		// surface normals, and per-primitive + total force/torque arrows. A debug aid only; sampled with

@@ -9,7 +9,7 @@
 #include "pr/compute/compute_step.h"
 #include "pr/compute/shaders/shader_compiler.h"
 #include "pr/compute/utility/root_signature.h"
-#include "src/buoyancy/buoyancy_analytical.h"
+
 #include "src/utility/gpu.h"
 
 namespace pr::physics
@@ -42,6 +42,7 @@ namespace pr::physics
 			float m_quadratic_drag_coefficient;
 			float m_tangential_drag_coefficient;
 			float m_time_step_s;
+			int m_enable_diagnostics;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -65,13 +66,12 @@ namespace pr::physics
 			v4 m_force_ws;
 			v4 m_torque_ws;
 			v4 m_centre_buoyancy_ws;
-			v4 m_moment_ws_volume;
-			int m_body_index;
-			int m_valid;
 			float m_volume_m3;
+			int m_valid;
 			float m_pad0;
+			float m_pad1;
 		};
-		static_assert(sizeof(GpuBuoyancyDiagnostic) == 80);
+		static_assert(sizeof(GpuBuoyancyDiagnostic) == 64);
 
 		// Per-hull header for the sampled-composite volume pass. Mirrors HLSL BuoyVolHeader. The body
 		// index is the body's STEP index (into the engine body list) resolved at dispatch time; the
@@ -397,32 +397,11 @@ namespace pr::physics
 			int m_max_surface_samples;
 		};
 
-		struct AnalyticResult
-		{
-			float m_volume_m3;
-			v4 m_force_ws;
-			v4 m_centre_buoyancy_ws;
-			v4 m_torque_ws;
-			bool m_valid;
-
-			// Construct an invalid analytic buoyancy result.
-			AnalyticResult()
-				:m_volume_m3()
-				,m_force_ws(v4::Zero())
-				,m_centre_buoyancy_ws(v4::Zero())
-				,m_torque_ws(v4::Zero())
-				,m_valid()
-			{
-			}
-		};
-
-		// Metadata retained until the matching diagnostic readback completes. Keeping related values together
-		// prevents the body index, generation, and optional analytic reference from becoming misaligned.
+		// Metadata retained until the matching diagnostic readback completes.
 		struct PendingDiagnostic
 		{
 			int m_body_index;
 			int m_body_generation;
-			AnalyticResult m_analytic_result;
 		};
 
 		// GPU virtual addresses for the transient upload blocks consumed by the sampled-composite passes.
@@ -730,6 +709,9 @@ namespace pr::physics
 		// Return the latest diagnostic record for a registered hull.
 		Diagnostics LatestDiagnostics(int body_index, int body_generation) const
 		{
+			if (!m_config.m_enable_diagnostics)
+				return Diagnostics{};
+
 			auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
 			if (body_index < 0 || body_index >= static_cast<int>(m_diagnostics.size()))
 			{
@@ -812,7 +794,6 @@ namespace pr::physics
 					auto const& pending = m_pending_diagnostics[index];
 					auto const body_index = pending.m_body_index;
 					auto const body_generation = pending.m_body_generation;
-					auto const& analytic = pending.m_analytic_result;
 					if (body_index < 0 || body_index >= static_cast<int>(m_diagnostics.size()))
 					{
 						throw std::runtime_error("GPU buoyancy diagnostic readback referred to an unknown body slot");
@@ -829,15 +810,6 @@ namespace pr::physics
 					diag.m_torque_ws = gpu_diag.m_torque_ws;
 					diag.m_centre_buoyancy_ws = gpu_diag.m_centre_buoyancy_ws;
 					diag.m_valid = gpu_diag.m_valid != 0;
-					diag.m_analytic_valid = analytic.m_valid;
-					diag.m_analytic_volume_m3 = analytic.m_volume_m3;
-					diag.m_analytic_force_ws = analytic.m_force_ws;
-					diag.m_analytic_centre_buoyancy_ws = analytic.m_centre_buoyancy_ws;
-					diag.m_analytic_torque_ws = analytic.m_torque_ws;
-					diag.m_volume_error_m3 = analytic.m_valid ? diag.m_volume_m3 - analytic.m_volume_m3 : 0.0f;
-					diag.m_force_error_ws = analytic.m_valid ? diag.m_force_ws - analytic.m_force_ws : v4::Zero();
-					diag.m_centre_buoyancy_error_ws = analytic.m_valid ? diag.m_centre_buoyancy_ws - analytic.m_centre_buoyancy_ws : v4::Zero();
-					diag.m_torque_error_ws = analytic.m_valid ? diag.m_torque_ws - analytic.m_torque_ws : v4::Zero();
 				}
 			}
 
@@ -1010,9 +982,8 @@ namespace pr::physics
 			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count * cb.m_groups_per_hull, 1, 1);
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
-			// Reduce per-threadgroup partials to one body force/torque accumulation and one diagnostic
-			// record per hull. Root parameter order must match CreateVolumeReduceStep: b0, u0(bodies),
-			// t2(headers), u1(partials), u2(diagnostics).
+			// Reduce per-threadgroup partials to one body force/torque accumulation. Diagnostic output
+			// is optional, but its dummy UAV remains bound to keep one root-signature layout.
 			args.m_job.m_cmd_list.SetPipelineState(m_volume_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
@@ -1021,7 +992,11 @@ namespace pr::physics
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
+			args.m_job.m_barriers.UAV(args.m_bodies);
+			if (cb.m_enable_diagnostics != 0)
+				args.m_job.m_barriers.UAV(m_r_diagnostics.get());
+
+			args.m_job.m_barriers.Commit();
 		}
 
 		// Record surface sampling followed by reduction that adds drag to the volume-pass result.
@@ -1058,7 +1033,11 @@ namespace pr::physics
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(args.m_bodies).UAV(m_r_diagnostics.get()).Commit();
+			args.m_job.m_barriers.UAV(args.m_bodies);
+			if (cb.m_enable_diagnostics != 0)
+				args.m_job.m_barriers.UAV(m_r_diagnostics.get());
+
+			args.m_job.m_barriers.Commit();
 		}
 
 		// Queue the final per-hull diagnostics for consumption after the physics GPU job completes.
@@ -1108,7 +1087,10 @@ namespace pr::physics
 				throw std::runtime_error("Buoyancy composite hull exceeds the maximum supported surface sample count");
 			}
 
-			EnsureGpuCapacity(args.m_job, hull_count * std::max(groups_per_hull, surf_groups_per_hull), hull_count);
+			EnsureGpuCapacity(
+				args.m_job,
+				hull_count * std::max(groups_per_hull, surf_groups_per_hull),
+				m_config.m_enable_diagnostics ? hull_count : 1);
 
 			// Phase 2: sum geometry sizes across unique active collision shapes. Bodies sharing a shape
 			// point at the same primitive block, so immutable data is uploaded only once per dispatch.
@@ -1234,7 +1216,7 @@ namespace pr::physics
 
 			// Phase 4: emit per-body headers that reference the shared shape blocks. Body index,
 			// generation, and deterministic hull seed remain distinct for each registration.
-			assert(m_pending_diagnostics.capacity() >= m_composite_hulls.size());
+			assert(!m_config.m_enable_diagnostics || m_pending_diagnostics.capacity() >= m_composite_hulls.size());
 			for (auto index = 0; index != hull_count; ++index)
 			{
 				auto const& active_hull = m_active_hulls[index];
@@ -1261,11 +1243,13 @@ namespace pr::physics
 					.m_pad0 = 0,
 					.m_pad1 = 0,
 				};
-				m_pending_diagnostics.push_back(PendingDiagnostic{
-					.m_body_index = active_hull.m_body_index,
-					.m_body_generation = active_hull.m_body_generation,
-					.m_analytic_result = AnalyticResult{},
-				});
+				if (m_config.m_enable_diagnostics)
+				{
+					m_pending_diagnostics.push_back(PendingDiagnostic{
+						.m_body_index = active_hull.m_body_index,
+						.m_body_generation = active_hull.m_body_generation,
+					});
+				}
 			}
 
 			// Phase 5: finish the transient inputs with wave parameters. The volume kernel needs the
@@ -1323,6 +1307,7 @@ namespace pr::physics
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 				.m_time_step_s = args.m_dt,
+				.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
 			};
 
 			// Phase 6: sample displaced volume and reduce it directly into each body's force/torque accumulators.
@@ -1350,13 +1335,16 @@ namespace pr::physics
 					.m_quadratic_drag_coefficient = surf_quad_coefficient,
 					.m_tangential_drag_coefficient = surf_tangent_coefficient,
 					.m_time_step_s = args.m_dt,
+					.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
 				};
 
 				RecordSurfacePass(args, cb_surf, addresses);
 			}
 
-			// Phase 8: copy the final per-hull diagnostics for CompleteStep.
-			RecordDiagnosticReadback(args, hull_count);
+			// Phase 8: diagnostic publication is opt-in because it adds GPU copy/readback work that
+			// production force application does not require.
+			if (m_config.m_enable_diagnostics)
+				RecordDiagnosticReadback(args, hull_count);
 		}
 
 		// Resize GPU buffers used by the diagnostic dispatches. 'partial_capacity' is the number of
@@ -1376,9 +1364,12 @@ namespace pr::physics
 				m_diagnostic_capacity = diagnostic_capacity;
 			}
 
-			// New resources start in COMMON but are tracked with a UAV default state, relying on normal D3D12 buffer promotion for first use.
+			// New resources start in COMMON but are tracked with a UAV default state, relying on normal
+			// D3D12 buffer promotion for first use. The dummy diagnostic UAV is not accessed in production.
 			job.m_barriers.Transition(m_r_partials.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			if (m_config.m_enable_diagnostics)
+				job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
 			job.m_barriers.Commit();
 		}
 	};
@@ -1504,16 +1495,7 @@ namespace pr::physics
 		,m_force_ws(v4::Zero())
 		,m_centre_buoyancy_ws(v4::Zero())
 		,m_torque_ws(v4::Zero())
-		,m_analytic_volume_m3()
-		,m_analytic_force_ws(v4::Zero())
-		,m_analytic_centre_buoyancy_ws(v4::Zero())
-		,m_analytic_torque_ws(v4::Zero())
-		,m_volume_error_m3()
-		,m_force_error_ws(v4::Zero())
-		,m_centre_buoyancy_error_ws(v4::Zero())
-		,m_torque_error_ws(v4::Zero())
 		,m_valid()
-		,m_analytic_valid()
 	{
 	}
 

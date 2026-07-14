@@ -80,8 +80,6 @@ namespace las
 		std::thread::id m_owner_thread_id;
 		physics::Engine m_engine;
 
-		struct OceanSurfaceForce;
-		std::unique_ptr<OceanSurfaceForce> m_ocean_surface_force;
 		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
 
 		std::vector<BodySlot> m_body_slots;
@@ -121,9 +119,6 @@ namespace las
 
 		// Register a physics body's collision shape for buoyancy.
 		[[nodiscard]] BuoyancyHullRegistration RegisterBuoyancyHull(BodyHandle handle);
-
-		// Return the latest diagnostic buoyancy result for a physics body.
-		physics::GpuBuoyancy::Diagnostics BuoyancyDiagnostics(BodyHandle handle) const;
 
 		// Submit GPU physics work for all registered rigid bodies without waiting for completion.
 		void BeginStep(float dt, double time_s);

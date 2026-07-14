@@ -10,31 +10,6 @@
 
 namespace las
 {
-	namespace
-	{
-		// Return the largest absolute xyz component for compact vector error checks.
-		float MaxAbsXYZ(v4 value)
-		{
-			return std::max(std::max(std::abs(value.x), std::abs(value.y)), std::abs(value.z));
-		}
-
-		// Emit a labelled scalar value into the immediate-mode diagnostic UI.
-		void TextScalar(ImGuiUI& ui, char const* label, float value)
-		{
-			char buf[256];
-			*std::format_to(buf, "{}: {:.6f}", label, value) = 0;
-			ui.Text(buf);
-		}
-
-		// Emit a labelled world-space vector value into the immediate-mode diagnostic UI.
-		void TextVector(ImGuiUI& ui, char const* label, v4 value)
-		{
-			char buf[256];
-			*std::format_to(buf, "{}: ({:.6f}, {:.6f}, {:.6f})", label, value.x, value.y, value.z) = 0;
-			ui.Text(buf);
-		}
-	}
-
 	Main::Main(MainUI& ui)
 		:base(pr::app::DefaultSetup(), ui)
 		, m_input()
@@ -107,47 +82,6 @@ namespace las
 			ui.SliderFloat("Smooth Depth", &tuning.m_underwater_smooth_depth, 10.0f, 200.0f);
 		});
 
-		m_diag.AddPanel("Buoyancy Diagnostics", [this](ImGuiUI& ui)
-		{
-			auto const diag = m_physics.BuoyancyDiagnostics(m_ship.PhysicsHandle());
-			if (!diag.m_analytic_valid)
-			{
-				ui.Text("Waiting for first buoyancy diagnostic.");
-				return;
-			}
-
-			auto const volume_ok = std::abs(diag.m_volume_error_m3) <= 1.0e-4f;
-			auto const force_ok = MaxAbsXYZ(diag.m_force_error_ws) <= 5.0f;
-			auto const centre_ok = diag.m_analytic_volume_m3 <= 1.0e-5f || MaxAbsXYZ(diag.m_centre_buoyancy_error_ws) <= 1.0e-3f;
-			auto const torque_ok = MaxAbsXYZ(diag.m_torque_error_ws) <= 5.0f;
-			auto const pass = volume_ok && force_ok && centre_ok && torque_ok;
-
-			char buf[256];
-			*std::format_to(buf, "Analytic check: {}", pass ? "pass" : "fail") = 0;
-			ui.Text(buf);
-			ui.Text(diag.m_valid ? "GPU state: submerged" : "GPU state: dry/no volume");
-
-			ui.Separator();
-			ui.Text("-- GPU --");
-			TextScalar(ui, "Volume m^3", diag.m_volume_m3);
-			TextVector(ui, "Force WS", diag.m_force_ws);
-			TextVector(ui, "CoB WS", diag.m_centre_buoyancy_ws);
-			TextVector(ui, "Torque WS", diag.m_torque_ws);
-
-			ui.Separator();
-			ui.Text("-- Analytic --");
-			TextScalar(ui, "Volume m^3", diag.m_analytic_volume_m3);
-			TextVector(ui, "Force WS", diag.m_analytic_force_ws);
-			TextVector(ui, "CoB WS", diag.m_analytic_centre_buoyancy_ws);
-			TextVector(ui, "Torque WS", diag.m_analytic_torque_ws);
-
-			ui.Separator();
-			ui.Text("-- Error --");
-			TextScalar(ui, "Volume m^3", diag.m_volume_error_m3);
-			TextVector(ui, "Force WS", diag.m_force_error_ws);
-			TextVector(ui, "CoB WS", diag.m_centre_buoyancy_error_ws);
-			TextVector(ui, "Torque WS", diag.m_torque_error_ws);
-		});
 	}
 	Main::~Main()
 	{

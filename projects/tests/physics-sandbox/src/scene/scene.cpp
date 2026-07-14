@@ -337,20 +337,6 @@ namespace physics_sandbox
 
 	}
 
-	// Return the latest diagnostic buoyancy records for scene-registered hulls.
-	std::vector<physics::GpuBuoyancy::Diagnostics> Scene::BuoyancyDiagnostics() const
-	{
-		auto diagnostics = std::vector<physics::GpuBuoyancy::Diagnostics>{};
-		if (m_gpu_buoyancy == nullptr)
-			return diagnostics;
-
-		diagnostics.reserve(m_buoyancy_body_indices.size());
-		for (auto body_index : m_buoyancy_body_indices)
-			diagnostics.push_back(m_gpu_buoyancy->LatestDiagnostics(body_index, m_buoyancy_generation));
-
-		return diagnostics;
-	}
-
 	// Rebuild the buoyancy sample-cloud debug overlay (m_buoyancy_debug_gfx) by re-running the
 	// deterministic CPU oracle (SampleHull) over every registered hull and emitting an LDraw object:
 	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
