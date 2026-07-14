@@ -14,17 +14,18 @@ namespace las
 		:base(pr::app::DefaultSetup(), ui)
 		, m_input()
 		, m_camera()
-		, m_camera_mode(0)
+		, m_physics(m_rdr)
 		, m_sky(m_rdr)
 		, m_day_cycle()
 		, m_ocean(m_rdr)
 		, m_distant_ocean(m_rdr)
 		, m_terrain(m_rdr)
 		, m_height_field(42)
-		, m_ship(m_rdr, m_height_field, v4::Origin())
+		, m_ship(m_rdr, m_physics, v4::Origin())
 		, m_sim_state()
 		, m_sim_time(0.0)
 		, m_render_frame(0)
+		, m_camera_mode(0)
 		, m_step_graph(2)   // Step graph: small thread pool (input-heavy, will grow with physics/AI)
 		, m_render_graph(4) // Render graph: larger pool for parallel CB prep
 		, m_imgui({
@@ -80,6 +81,7 @@ namespace las
 			ui.Text("-- Underwater --");
 			ui.SliderFloat("Smooth Depth", &tuning.m_underwater_smooth_depth, 10.0f, 200.0f);
 		});
+
 	}
 	Main::~Main()
 	{
@@ -109,22 +111,19 @@ namespace las
 		}
 	}
 
-	// Simulation step — builds and runs the step task graph
+	// Simulation step — submits physics GPU work, overlaps remaining step tasks, then publishes results.
 	void Main::SimStep(double elapsed_seconds)
 	{
 		m_sim_time += elapsed_seconds;
 		auto dt = static_cast<float>(elapsed_seconds);
 
-		// Physics task: step rigid bodies
-		m_step_graph.Add(StepTaskId::Physics, [&, dt](auto&) -> pr::task_graph::Task {
-			m_ship.Step(dt, m_ocean, m_height_field, static_cast<float>(m_sim_time));
-			co_return;
-		});
+		// BeginStep records and submits the GPU physics work on the simulation owner thread. Generic task-graph work can run while the GPU is
+		// processing, but tasks that need post-physics snapshots must wait for StepTaskId::Physics.
+		m_physics.BeginStep(dt, m_sim_time);
 
 		// Finalise task: commit state snapshot for the render graph
-		m_step_graph.Add(StepTaskId::Finalise, [&](auto ctx) -> pr::task_graph::Task {
-			co_await ctx.Wait(StepTaskId::Physics);
-
+		m_step_graph.Add(StepTaskId::Finalise, [&](auto&) -> pr::task_graph::Task
+		{
 			// Update time of day
 			m_day_cycle.Update(dt);
 
@@ -136,8 +135,23 @@ namespace las
 			co_return;
 		});
 
-		m_step_graph.Run();
+		// Start the task graph for this step.
+		m_step_graph.Start();
+
+		// CompleteStep mutates the authoritative physics bodies and publishes snapshots, so keep it on the simulation owner thread.
+		// Signal the graph afterwards, even on failure, so any task waiting on physics can drain before the exception leaves this frame.
+		auto physics_error = m_physics.CompleteStep();
+		m_step_graph.Signal(StepTaskId::Physics);
+
+		// Wait for the step graph to complete
+		auto graph_error = m_step_graph.Wait();
 		m_step_graph.Reset();
+
+		// Rethrow any exceptions from physics or the step graph after the graph has completed and signalled
+		if (physics_error)
+			std::rethrow_exception(physics_error);
+		if (graph_error)
+			std::rethrow_exception(graph_error);
 
 		RenderNeeded();
 	}
@@ -271,7 +285,7 @@ namespace las
 			m_imgui.Separator();
 
 			// Ship position
-			auto ship_pos = m_ship.m_body.O2W().pos;
+			auto ship_pos = m_ship.O2W().pos;
 			*std::format_to(buf, "Ship: ({:.1f}, {:.1f}, {:.1f})", ship_pos.x, ship_pos.y, ship_pos.z) = 0;
 			m_imgui.Text(buf);
 

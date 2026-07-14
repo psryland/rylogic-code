@@ -127,6 +127,10 @@ namespace Rylogic.LDraw
 		{
 			Append(BitConverter.GetBytes(u));
 		}
+		private void Append(ushort u)
+		{
+			Append(BitConverter.GetBytes(u));
+		}
 		private void Append(Colour32 c)
 		{
 			Append(c.ARGB);

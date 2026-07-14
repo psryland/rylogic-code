@@ -28,9 +28,22 @@ namespace physics_sandbox::scene_loader
 	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
 	//             "selective_refresh_adaptive_solver_iterations": 48 // Small-scene residual solve stiffness
 	//         },
+	//         "water": {                       // Optional water surface used by buoyancy and the visual mesh
+	//             "level": 0.0,                // Flat-water base height
+	//             "size": [20, 20],            // Optional visual mesh size; omitted/zero means auto-size to scene
+	//             "grid": [32, 32],            // Optional visual mesh cell count
+	//             "colour": "0x602080FF",      // Optional ARGB water mesh colour
+	//             "waves": [
+	//                 { "direction": [1, 0], "wavelength": 8.0, "amplitude": 0.25, "phase_speed": 1.5 } // "period" is accepted as a wavelength alias
+	//             ]
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
+	//         },
+	//         "camera": {                     // Optional camera override
+	//             "position": [0, -10, 5],
+	//             "lookat": [0, 0, 0]
 	//         },
 	//         "shapes": {
 	//             "shape0": { "name": "unit-box", "type": "box", "dimensions": [1, 1, 1] },
@@ -57,9 +70,12 @@ namespace physics_sandbox::scene_loader
 	//                 "selector": "random",                  // Optional: "random" or "linear", defaults to "random"
 	//                 "instance_count": 20,                  // Optional, defaults to 1
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
+	//                 "unique_shapes": false,                // Optional: generate one distinct shape descriptor per body
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
-	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
-	//                 "mass": [1.0, 10.0],
+	//                 "shape": "unit-box",                  // Shape name or inline generator shape
+	//                 // Random convex shape: {"type":"random_convex","point_count":[12,24],"radius":[0.7,1.0],"aspect":[[0.7,0.7,0.7],[1.3,1.3,1.3]]}
+	//                 "scale": [0.5, 2.0],                  // Optional uniform shape scale palette
+	//                 "density": 500.0,                     // Mutually exclusive with mass
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],
 	//                 "velocity": [[0, 0, 0], [3, 3, 3]]
 	//             }
@@ -86,6 +102,7 @@ namespace physics_sandbox::scene_loader
 		std::vector<v4> polytope_verts = {};                          // Convex hull vertices (only valid when shape_type == Polytope)
 
 		float mass = 0;          // 0 = static (immovable) body with infinite mass
+		std::optional<float> density = {}; // Derives mass from the final collision shape
 		v4 position = Origin<v4>();
 		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
 		v4 velocity = Zero<v4>();
@@ -107,6 +124,15 @@ namespace physics_sandbox::scene_loader
 	{
 		v4 position = v4(0, 0, 1, 1);
 		v4 lookat = Origin<v4>();
+	};
+
+	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
+	struct WaterDesc
+	{
+		physics::GpuBuoyancy::WaterSurface surface;
+		v2 size = v2::Zero();
+		iv2 grid = iv2(32, 32);
+		Colour32 colour = Colour32(0x602080FFU);
 	};
 
 	// Parsed scene description
@@ -160,8 +186,12 @@ namespace physics_sandbox::scene_loader
 		// Ground plane
 		std::optional<GroundPlaneDesc> ground;
 
+		// Water surface
+		std::optional<WaterDesc> water;
+
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;
+
 	};
 
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).

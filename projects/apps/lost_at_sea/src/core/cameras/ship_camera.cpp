@@ -22,7 +22,7 @@ namespace las::camera
 		, m_look_offset_z(1.0f)
 	{
 		// Initialise the camera to the desired position immediately (no spring lag on startup)
-		auto ship_pos = m_ship.m_body.O2W().pos;
+		auto ship_pos = m_ship.O2W().pos;
 		auto cos_p = std::cos(m_pitch);
 		m_current_pos = v4{
 			ship_pos.x + m_arm_length * cos_p * std::cos(m_yaw),
@@ -63,7 +63,7 @@ namespace las::camera
 
 	void ShipCamera::Update(float dt)
 	{
-		auto ship_pos = m_ship.m_body.O2W().pos;
+		auto ship_pos = m_ship.O2W().pos;
 		auto look_target = ship_pos + v4{0, 0, m_look_offset_z, 0};
 
 		// Compute desired camera position from orbit angles and arm length

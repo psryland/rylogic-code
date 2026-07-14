@@ -69,10 +69,22 @@ namespace physics_sandbox
 		pr::physics::tests::ForceLink_PhysicsTests();
 		#endif
 
+		// Optionally tee unit-test output to a file for automation capture. This app reopens CONOUT$
+		// in OpenConsoleOutput(), which bypasses any inherited stdout redirection, so a console-less
+		// caller cannot capture results via a pipe. Setting PR_UNITTEST_LOG to a path provides an
+		// explicit file sink for the unit-test framework's output stream.
+		std::ofstream unittest_log;
+		if (auto const* log_path = std::getenv("PR_UNITTEST_LOG"); log_path != nullptr && *log_path != '\0')
+		{
+			unittest_log.open(log_path, std::ios::out | std::ios::trunc);
+			if (unittest_log)
+				pr::unittests::TestFramework::ostream = &unittest_log;
+		}
+
 		// The PR_UNITTESTS framework collects tests via static initialisation.
 		// RunAllTests() executes them and prints results.
 		auto failed = pr::unittests::RunAllTests(true, filter);
-		return failed > 0 ? 1 : 0;
+		return failed != 0 ? 1 : 0;
 	}
 
 	// Return true if unit test mode is requested and collect any optional test class filters.
@@ -172,6 +184,12 @@ namespace physics_sandbox
 			options.m_physics_selective_refresh_support_only = cmd("selective_refresh_support_only").as<int>();
 		if (cmd.count("selective_refresh_resolve_support_only"))
 			options.m_physics_selective_refresh_resolve_support_only = cmd("selective_refresh_resolve_support_only").as<int>();
+		if (cmd.count("buoyancy_linear_drag_time_constant"))
+			options.m_buoyancy_linear_drag_time_constant_s = cmd("buoyancy_linear_drag_time_constant").as<float>();
+		if (cmd.count("buoyancy_angular_drag_time_constant"))
+			options.m_buoyancy_angular_drag_time_constant_s = cmd("buoyancy_angular_drag_time_constant").as<float>();
+		if (cmd.count("buoyancy_tangential_drag"))
+			options.m_buoyancy_tangential_drag_coefficient = cmd("buoyancy_tangential_drag").as<float>();
 		if (cmd.count("scan"))
 			options.m_scan_bodies = true;
 		if (cmd.count("scan_non_spheres"))

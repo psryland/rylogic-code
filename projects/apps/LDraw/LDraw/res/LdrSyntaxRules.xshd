@@ -115,6 +115,7 @@
 			<Word>*Equation</Word>
 			<Word>*Euler</Word>
 			<Word>*Faces</Word>
+			<Word>*Faces32</Word>
 			<Word>*Facets</Word>
 			<Word>*Far</Word>
 			<Word>*FilePath</Word>
@@ -146,6 +147,7 @@
 			<Word>*LineBox</Word>
 			<Word>*LineList</Word>
 			<Word>*Lines</Word>
+			<Word>*Lines32</Word>
 			<Word>*LineStrip</Word>
 			<Word>*LookAt</Word>
 			<Word>*M3x3</Word>
@@ -220,6 +222,7 @@
 			<Word>*Strikeout</Word>
 			<Word>*Style</Word>
 			<Word>*Tetra</Word>
+			<Word>*Tetra32</Word>
 			<Word>*TexCoords</Word>
 			<Word>*Text</Word>
 			<Word>*TextLayout</Word>

@@ -23,6 +23,30 @@ namespace physics_sandbox::scene_loader
 
 			return false;
 		}
+		// Read a two-component float vector from a JSON array.
+		v2 ReadVec2(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 2)
+				throw std::runtime_error("Expected a 2-element array for vector");
+
+			return v2{
+				a[0].to<float>(),
+				a[1].to<float>(),
+			};
+		}
+		// Read a two-component integer vector from a JSON array.
+		iv2 ReadInt2(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 2)
+				throw std::runtime_error("Expected a 2-element array for integer vector");
+
+			return iv2{
+				a[0].to<int>(),
+				a[1].to<int>(),
+			};
+		}
 		float LinearT(int index, int count)
 		{
 			return count <= 1 ? 0.0f : float(index) / float(count - 1);
@@ -47,6 +71,27 @@ namespace physics_sandbox::scene_loader
 				}
 			}
 		}
+		// Select an integer using the generator's random or linearly distributed policy.
+		int SelectInt(int min_value, int max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			switch (selector)
+			{
+				case EGeneratorSelector::Random:
+				{
+					auto range = std::uniform_int_distribution<int>(std::min(min_value, max_value), std::max(min_value, max_value));
+					return range(rng);
+				}
+				case EGeneratorSelector::Linear:
+				{
+					auto const t = LinearT(index, count);
+					return static_cast<int>(std::lround(Lerp(static_cast<float>(min_value), static_cast<float>(max_value), t)));
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown body generator selector");
+				}
+			}
+		}
 		v4 SelectVec3(v4 const& min_value, v4 const& max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
 			return v4{
@@ -62,6 +107,14 @@ namespace physics_sandbox::scene_loader
 				return SelectFloat((*arr)[0].to<float>(), (*arr)[1].to<float>(), selector, index, count, rng);
 
 			return jv.to<float>();
+		}
+		// Read an integer or select one from a two-value range.
+		int ReadIntRange(pr::json::Value const& jv, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>(); arr != nullptr && arr->size() == 2 && IsNumber((*arr)[0]) && IsNumber((*arr)[1]))
+				return SelectInt((*arr)[0].to<int>(), (*arr)[1].to<int>(), selector, index, count, rng);
+
+			return jv.to<int>();
 		}
 		v4 ReadVec3Range(pr::json::Value const& jv, float w, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
@@ -254,6 +307,83 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
 		}
+
+		// Generate a uniformly distributed direction over the unit sphere.
+		v4 RandomDirection(std::default_random_engine& rng)
+		{
+			auto unit = std::uniform_real_distribution<float>(0.0f, 1.0f);
+			auto const z = 2.0f * unit(rng) - 1.0f;
+			auto const azimuth = constants<float>::tau * unit(rng);
+			auto const radial = std::sqrt(std::max(0.0f, 1.0f - z * z));
+			return v4{radial * std::cos(azimuth), radial * std::sin(azimuth), z, 0.0f};
+		}
+
+		// Generate a non-degenerate radial point cloud whose convex hull forms a varied faceted body.
+		// Axis anchors bound every principal extent while the remaining random directions produce the
+		// irregular facets. Independent positive and negative radii avoid imposing central symmetry.
+		BodyDesc ReadRandomConvexShape(pr::json::Object const& jshape, int index, int count, std::default_random_engine& rng)
+		{
+			auto point_count = 12;
+			if (auto const* jpoint_count = jshape.find("point_count"))
+				point_count = ReadIntRange(*jpoint_count, EGeneratorSelector::Random, index, count, rng);
+			if (point_count < 6)
+				throw std::runtime_error("Random convex shape 'point_count' must be at least 6");
+
+			auto radius_min = 0.7f;
+			auto radius_max = 1.0f;
+			if (auto const* jradius = jshape.find("radius"))
+			{
+				if (auto const* range = jradius->as<pr::json::Array>(); range != nullptr && range->size() == 2 && IsNumber((*range)[0]) && IsNumber((*range)[1]))
+				{
+					radius_min = (*range)[0].to<float>();
+					radius_max = (*range)[1].to<float>();
+				}
+				else
+				{
+					radius_min = radius_max = jradius->to<float>();
+				}
+			}
+			if (!(radius_min > 0.0f) || !(radius_max > 0.0f) || !std::isfinite(radius_min) || !std::isfinite(radius_max))
+				throw std::runtime_error("Random convex shape 'radius' values must be finite and positive");
+
+			auto aspect = v4{1.0f, 1.0f, 1.0f, 0.0f};
+			if (auto const* jaspect = jshape.find("aspect"))
+				aspect = ReadVec3Range(*jaspect, 0.0f, EGeneratorSelector::Random, index, count, rng);
+			if (!(aspect.x > 0.0f) || !(aspect.y > 0.0f) || !(aspect.z > 0.0f) || !IsFinite(aspect))
+				throw std::runtime_error("Random convex shape 'aspect' values must be finite and positive");
+
+			// The six axis anchors guarantee that sparse random samples cannot produce a nearly planar
+			// or needle-like hull with an ill-conditioned inertia tensor.
+			auto desc = BodyDesc{};
+			desc.shape_type = BodyDesc::EShape::Polytope;
+			desc.polytope_verts.reserve(point_count);
+			auto radius = std::uniform_real_distribution<float>(std::min(radius_min, radius_max), std::max(radius_min, radius_max));
+			auto const anchors = std::array{
+				v4::XAxis(),
+				v4::YAxis(),
+				v4::ZAxis(),
+			};
+			for (auto const& direction : anchors)
+			{
+				desc.polytope_verts.push_back((direction * radius(rng) * aspect).w1());
+				desc.polytope_verts.push_back((-direction * radius(rng) * aspect).w1());
+			}
+
+			// Additional antipodal direction pairs retain the guaranteed origin enclosure. An odd
+			// requested count receives one final radial point without changing that invariant.
+			auto const remaining_count = point_count - isize(desc.polytope_verts);
+			for (auto pair_index = 0; pair_index != remaining_count / 2; ++pair_index)
+			{
+				auto const direction = RandomDirection(rng);
+				desc.polytope_verts.push_back((direction * radius(rng) * aspect).w1());
+				desc.polytope_verts.push_back((-direction * radius(rng) * aspect).w1());
+			}
+			if ((remaining_count & 1) != 0)
+				desc.polytope_verts.push_back((RandomDirection(rng) * radius(rng) * aspect).w1());
+
+			return desc;
+		}
+
 		BodyDesc ReadGeneratorShape(pr::json::Value const& jshape, NamedShapeMap const& shapes, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
 			auto const* shape_name = jshape.as<std::string>();
@@ -286,8 +416,42 @@ namespace physics_sandbox::scene_loader
 					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
 				return desc;
 			}
+			if (shape_type == "polytope")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Polytope;
+
+				auto const& vertices = jshape_obj["vertices"].to_array();
+				if (vertices.size() < 4)
+					throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
+
+				desc.polytope_verts.reserve(vertices.size());
+				for (auto const& vertex : vertices)
+					desc.polytope_verts.push_back(ReadVec3Range(vertex, 1.0f, selector, index, count, rng));
+
+				return desc;
+			}
+			if (shape_type == "random_convex")
+				return ReadRandomConvexShape(jshape_obj, index, count, rng);
 
 			return ReadShape(shape);
+		}
+
+		// Apply a uniform scale after selecting the base shape so named polytopes and primitive
+		// dimensions use the same finite palette mechanism.
+		void ScaleShape(BodyDesc& shape, float scale)
+		{
+			if (!(scale > 0.0f) || !std::isfinite(scale))
+				throw std::runtime_error("Body generator 'scale' must be finite and positive");
+
+			shape.box_dimensions *= scale;
+			shape.sphere_radius *= scale;
+			shape.line_length *= scale;
+			shape.line_thickness *= scale;
+			for (auto& vertex : shape.tri_verts)
+				vertex = (vertex * scale).w1();
+			for (auto& vertex : shape.polytope_verts)
+				vertex = (vertex * scale).w1();
 		}
 		NamedShapeMap ReadNamedShapes(pr::json::Object const& jscene)
 		{
@@ -316,6 +480,8 @@ namespace physics_sandbox::scene_loader
 			}
 			return shapes;
 		}
+
+		// Append generated rigid bodies.
 		void AppendGeneratedBodies(SceneDesc& desc, pr::json::Value const& jv_generator, NamedShapeMap const& shapes, std::default_random_engine& rng)
 		{
 			auto const& jgen = jv_generator.to_object();
@@ -325,6 +491,10 @@ namespace physics_sandbox::scene_loader
 				instance_count = jcount->to<int>();
 			if (instance_count <= 0)
 				throw std::runtime_error("Body generator 'instance_count' must be greater than zero");
+
+			auto unique_shapes = false;
+			if (auto const* junique_shapes = jgen.find("unique_shapes"))
+				unique_shapes = junique_shapes->to<bool>();
 
 			auto const* jshape = jgen.find("shape");
 			if (jshape == nullptr)
@@ -336,12 +506,27 @@ namespace physics_sandbox::scene_loader
 			if (shape_palette_count <= 0)
 				throw std::runtime_error("Body generator 'shape_palette_count' must be greater than zero");
 
-			shape_palette_count = std::min(shape_palette_count, instance_count);
+			// Unique mode intentionally builds one descriptor per body so scene loading exercises
+			// collision-shape construction and derived-data caching for non-shared geometry.
+			shape_palette_count = unique_shapes ? instance_count : std::min(shape_palette_count, instance_count);
 
 			auto shape_palette = std::vector<BodyDesc>{};
 			shape_palette.reserve(shape_palette_count);
 			for (auto shape_index = 0; shape_index != shape_palette_count; ++shape_index)
-				shape_palette.push_back(ReadGeneratorShape(*jshape, shapes, selector, shape_index, shape_palette_count, rng));
+			{
+				auto shape = ReadGeneratorShape(*jshape, shapes, selector, shape_index, shape_palette_count, rng);
+				if (auto const* jscale = jgen.find("scale"))
+				{
+					auto const scale = ReadFloatRange(*jscale, EGeneratorSelector::Linear, shape_index, shape_palette_count, rng);
+					ScaleShape(shape, scale);
+				}
+				shape_palette.push_back(std::move(shape));
+			}
+
+			auto const* jmass = jgen.find("mass");
+			auto const* jdensity = jgen.find("density");
+			if (jmass != nullptr && jdensity != nullptr)
+				throw std::runtime_error("Body generator 'mass' and 'density' are mutually exclusive");
 
 			auto name = std::string{};
 			if (auto const* jname = jgen.find("name"))
@@ -349,14 +534,24 @@ namespace physics_sandbox::scene_loader
 
 			for (auto body_index = 0; body_index != instance_count; ++body_index)
 			{
-				auto palette_index = SelectPaletteIndex(selector, body_index, instance_count, shape_palette_count, rng);
+				auto palette_index = unique_shapes
+					? body_index
+					: SelectPaletteIndex(selector, body_index, instance_count, shape_palette_count, rng);
 				auto body = shape_palette[palette_index];
 				body.name = GeneratedName(name, body_index, instance_count);
 
 				if (auto const* jcolour = jgen.find("colour"))
 					body.colour = ReadColourRange(*jcolour, selector, body_index, instance_count, rng);
-				if (auto const* jmass = jgen.find("mass"))
+				if (jmass != nullptr)
 					body.mass = ReadFloatRange(*jmass, selector, body_index, instance_count, rng);
+				if (jdensity != nullptr)
+				{
+					auto const density = ReadFloatRange(*jdensity, selector, body_index, instance_count, rng);
+					if (!(density > 0.0f) || !std::isfinite(density))
+						throw std::runtime_error("Body generator 'density' must be finite and positive");
+
+					body.density = density;
+				}
 				if (auto const* jposition = jgen.find("position"))
 					body.position = ReadVec3Range(*jposition, 1.0f, selector, body_index, instance_count, rng);
 				if (auto const* jrotation = jgen.find("rotation"))
@@ -405,6 +600,17 @@ namespace physics_sandbox::scene_loader
 		// Mass
 		if (auto* jmass = jbody.find("mass"))
 			desc.mass = jmass->to<float>();
+		if (auto* jdensity = jbody.find("density"))
+		{
+			if (jbody.find("mass") != nullptr)
+				throw std::runtime_error("Body 'mass' and 'density' are mutually exclusive");
+
+			auto const density = jdensity->to<float>();
+			if (!(density > 0.0f) || !std::isfinite(density))
+				throw std::runtime_error("Body 'density' must be finite and positive");
+
+			desc.density = density;
+		}
 
 		// Position
 		if (auto* jpos = jbody.find("position"))
@@ -464,7 +670,7 @@ namespace physics_sandbox::scene_loader
 		return ground;
 	}
 
-	// Parse a ground plane definition from a JSON object
+	// Parse a camera definition from a JSON object.
 	CameraDesc ReadCamera(pr::json::Value const& jcam)
 	{
 		CameraDesc camera;
@@ -477,6 +683,68 @@ namespace physics_sandbox::scene_loader
 			camera.lookat = ReadVec3(*jlookat, 1.0f);
 
 		return camera;
+	}
+	// Parse the water surface used by buoyancy and the sandbox visual mesh.
+	WaterDesc ReadWater(pr::json::Value const& jwater)
+	{
+		auto water = WaterDesc{};
+		auto const& jwater_obj = jwater.to_object();
+
+		if (auto const* jlevel = jwater_obj.find("level"))
+			water.surface.m_level = jlevel->to<float>();
+
+		if (auto const* jsize = jwater_obj.find("size"))
+		{
+			water.size = ReadVec2(*jsize);
+			if (water.size.x < 0.0f || water.size.y < 0.0f)
+				throw std::runtime_error("Water size components must be non-negative");
+			if ((water.size.x == 0.0f) != (water.size.y == 0.0f))
+				throw std::runtime_error("Water size components must both be zero or both be positive");
+		}
+
+		if (auto const* jgrid = jwater_obj.find("grid"))
+		{
+			water.grid = ReadInt2(*jgrid);
+			if (water.grid.x < 1 || water.grid.y < 1)
+				throw std::runtime_error("Water grid components must be at least 1");
+		}
+
+		if (auto const* jcolour = jwater_obj.find("colour"))
+			water.colour = ReadColour(*jcolour);
+
+		if (auto const* jwaves = jwater_obj.find("waves"))
+		{
+			for (auto const& jwave : jwaves->to_array())
+			{
+				auto const& jwave_obj = jwave.to_object();
+				auto const* jdirection = jwave_obj.find("direction");
+				if (jdirection == nullptr)
+					throw std::runtime_error("Water wave requires a 'direction' field");
+
+				auto const* jwavelength = jwave_obj.find("wavelength");
+				auto const* jperiod = jwave_obj.find("period");
+				if (jwavelength != nullptr && jperiod != nullptr)
+					throw std::runtime_error("Water wave cannot specify both 'wavelength' and 'period'");
+				if (jwavelength == nullptr && jperiod == nullptr)
+					throw std::runtime_error("Water wave requires a 'wavelength' or 'period' field");
+
+				auto const* jamplitude = jwave_obj.find("amplitude");
+				if (jamplitude == nullptr)
+					throw std::runtime_error("Water wave requires an 'amplitude' field");
+
+				auto wave = physics::GpuBuoyancy::SineWave{};
+				wave.m_direction = ReadVec2(*jdirection);
+				wave.m_wavelength = (jwavelength != nullptr ? jwavelength : jperiod)->to<float>();
+				wave.m_amplitude = jamplitude->to<float>();
+				if (auto const* jphase_speed = jwave_obj.find("phase_speed"))
+					wave.m_phase_speed = jphase_speed->to<float>();
+
+				water.surface.m_waves.push_back(wave);
+			}
+		}
+
+		water.surface = water.surface.Normalised();
+		return water;
 	}
 
 	// Parse a scene description from a JSON file
@@ -683,6 +951,10 @@ namespace physics_sandbox::scene_loader
 		// Ground plane
 		if (auto* jground = jscene.find("ground_plane"))
 			desc.ground = ReadGroundPlane(*jground);
+
+		// Water surface
+		if (auto* jwater = jscene.find("water"))
+			desc.water = ReadWater(*jwater);
 
 		// Bodies
 		if (auto* jbodies = jscene.find("bodies"))

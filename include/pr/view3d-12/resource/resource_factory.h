@@ -71,8 +71,19 @@ namespace pr::rdr12
 
 		// Create a new texture instance.
 		Texture2DPtr CreateTexture2D(TextureDesc const& desc);
+
+		// Create a texture from a file
 		Texture2DPtr CreateTexture2D(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false, EColourSpace colour_space = EColourSpace::Srgb);
+
+		// Create a cube map texture from a file (or files)
 		TextureCubePtr CreateTextureCube(std::filesystem::path const& resource_path, TextureDesc const& desc, bool force_reload = false, EColourSpace colour_space = EColourSpace::Srgb);
+
+		// Create a cube map texture from six in-memory face images supplied in DX cube-map order: +X, -X, +Y, -Y, +Z, -Z.
+		// All faces must be square, have identical dimensions, and share the same pixel format. The TextureDesc may
+		// optionally carry a m_uri / m_name; the m_rdesc field is built internally from the faces.
+		TextureCubePtr CreateTextureCube(std::span<::pr::compute::Image const> faces, TextureDesc const& desc);
+
+		// Create (or get) one of the stock textures
 		Texture2DPtr CreateTexture(EStockTexture id);
 
 		// Create (or Get) a new sampler instance.

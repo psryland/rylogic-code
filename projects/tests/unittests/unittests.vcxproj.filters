@@ -511,7 +511,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\common.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\geometry\deformablemesh.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\geometry\_archive\deformablemesh.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\distance.h">

@@ -18,7 +18,6 @@
 namespace pr::physics
 {
 	using ComGpu = ::pr::compute::Gpu<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
-	using GpuJob = ::pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 	using CmdList = ::pr::compute::CmdList<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 	using ComputeStep = ::pr::compute::ComputeStep;
 	using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;

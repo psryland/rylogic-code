@@ -34,8 +34,14 @@
     <Filter Include="src\diagnostics">
       <UniqueIdentifier>{e01f84db-e905-41c2-8d06-1600f8872c94}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\buoyancy">
+      <UniqueIdentifier>{c76d630e-0e6d-42eb-92b3-cdd6fca41b68}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp">
+      <Filter>src\buoyancy</Filter>
+    </ClCompile>
     <ClCompile Include="src\shape\inertia.cpp">
       <Filter>src\shape</Filter>
     </ClCompile>
@@ -117,10 +123,22 @@
     <ClCompile Include="src\unittests\test_interop_engine.cpp">
       <Filter>src\unittests</Filter>
     </ClCompile>
+    <ClCompile Include="src\unittests\test_buoyancy.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
+    <ClCompile Include="src\unittests\test_buoyancy_sampler.cpp">
+      <Filter>src\unittests</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>src\rigid_body</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h">
+      <Filter>src\buoyancy</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h">
+      <Filter>src\buoyancy</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h">
       <Filter>src\utility</Filter>
@@ -239,6 +257,9 @@
     <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>
+    <ClInclude Include="src\buoyancy\buoyancy_analytical.h">
+      <Filter>src\buoyancy</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\collision.hlsli">
@@ -249,6 +270,9 @@
     </None>
     <None Include="src\compute\physics_types.hlsli">
       <Filter>src\compute</Filter>
+    </None>
+    <None Include="src\buoyancy\buoyancy_sampler.hlsli">
+      <Filter>src\buoyancy</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -269,6 +293,9 @@
     </ShaderBuild>
     <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl">
+      <Filter>src\buoyancy</Filter>
     </ShaderBuild>
   </ItemGroup>
   <ItemGroup>

@@ -74,13 +74,11 @@ namespace physics_sandbox
 		};
 		m_media.OnPause += [&](auto&, auto&)
 		{
-			m_physics_accumulator = 0;
-			m_steps_remaining = 0; // Pause
+			PauseSimulation();
 		};
 		m_media.OnStep += [&](auto&, auto&)
 		{
-			m_physics_accumulator = 0;
-			m_steps_remaining = 1; // Single step
+			SingleStepSimulation();
 		};
 		m_media.OnReset += [&](auto&, auto&)
 		{
@@ -109,11 +107,11 @@ namespace physics_sandbox
 			if (args.m_vk_key == 'R')
 				ResetScene();
 			if (args.m_vk_key == 'S')
-				m_steps_remaining = 1;
+				SingleStepSimulation();
 			if (args.m_vk_key == 'G')
 				m_steps_remaining = -1;
 			if (args.m_vk_key == 'P')
-				m_steps_remaining = 0;
+				PauseSimulation();
 
 			// C=toggle pause-on-collision
 			if (args.m_vk_key == 'C')
@@ -121,7 +119,10 @@ namespace physics_sandbox
 
 			// T=run all test scenarios
 			if (args.m_vk_key == 'T')
+			{
+				PauseSimulation();
 				m_scene.RunAllTests();
+			}
 
 			// Speed control: [=slower, ]=faster, \=reset to 1.0x
 			// Each press adjusts by 0.1x (10 slider ticks)
@@ -139,6 +140,10 @@ namespace physics_sandbox
 			// D=toggle details panel visibility
 			if (args.m_vk_key == 'D')
 				m_details.TogglePin();
+
+			// B=toggle buoyancy sample-cloud debug overlay
+			if (args.m_vk_key == 'B')
+				m_scene.m_show_buoyancy_debug = !m_scene.m_show_buoyancy_debug;
 		};
 
 		// Hook the scene population event — called each frame during DoRender() to add
@@ -154,10 +159,36 @@ namespace physics_sandbox
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
+			if (m_scene.m_water_gfx)
+				m_scene.m_water_gfx->AddToScene(scene, static_cast<float>(m_scene.m_clock));
 			if (m_scene.m_origin_gfx)
 				m_scene.m_origin_gfx->AddToScene(scene);
 			if (m_scene.m_contacts_gfx)
 				m_scene.m_contacts_gfx->AddToScene(scene);
+
+			// Rebuild and draw the buoyancy sample-cloud overlay when enabled. Rebuilt each frame because
+			// it samples the bodies' current transforms; cheap relative to the physics step and only active
+			// while the user is debugging buoyancy.
+			if (m_scene.m_show_buoyancy_debug)
+			{
+				m_scene.BuildBuoyancyDebugGfx();
+				if (m_scene.m_buoyancy_debug_gfx)
+					m_scene.m_buoyancy_debug_gfx->AddToScene(scene);
+			}
+
+			// Install the procedural sky cube as the scene's global environment map and draw the matching
+			// skybox model centred on the camera so reflective surfaces have something to reflect against
+			// AND so the user sees a consistent sky background. Gated on m_sky_gfx so non-water scenes
+			// keep the existing grey background.
+			if (m_scene.m_sky_gfx)
+			{
+				scene.m_global_envmap = m_scene.m_env_map;
+				m_scene.m_sky_gfx->AddToScene(scene, m4x4::Translation(scene.m_cam.CameraToWorld().pos));
+			}
+			else
+			{
+				scene.m_global_envmap = nullptr;
+			}
 
 			if (m_profile.Enabled())
 				m_profile.RecordAddScene(ElapsedMs(beg, Clock::now()));
@@ -176,6 +207,8 @@ namespace physics_sandbox
 	{
 		if (message == WM_CLOSE)
 		{
+			PauseSimulation();
+
 			// Set closing flag so the step/render lambdas stop accessing the renderer
 			m_closing = true;
 		}
@@ -223,9 +256,7 @@ namespace physics_sandbox
 	// If a scene file was loaded, reload it from disk. Otherwise, reset the built-in scenario.
 	void SandboxUI::ResetScene()
 	{
-		// Pause the simulation
-		m_steps_remaining = 0;
-		m_physics_accumulator = 0;
+		PauseSimulation();
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
@@ -350,7 +381,7 @@ namespace physics_sandbox
 			auto mark = load_beg;
 
 			// Pause the simulation
-			m_steps_remaining = 0;
+			PauseSimulation();
 
 			// Remember the filepath so Reset can reload it
 			m_scene_filepath = filepath;
@@ -405,56 +436,99 @@ namespace physics_sandbox
 		}
 	}
 
-	// Advance the simulation by one timestep
+	// Complete submitted physics work before inspecting or replacing scene state.
+	bool SandboxUI::CompletePendingStep()
+	{
+		if (!m_scene.StepPending())
+			return false;
+
+		auto const collision = m_scene.CompleteStep();
+		if (m_profile.Enabled())
+			m_profile.RecordStep(m_scene.m_last_step_profile, m_scene.m_last_step_profile.m_total_ms);
+
+		return collision;
+	}
+
+	// Pause after publishing the most recently submitted physics result.
+	void SandboxUI::PauseSimulation()
+	{
+		CompletePendingStep();
+		m_physics_accumulator = 0;
+		m_steps_remaining = 0;
+	}
+
+	// Queue one fixed step that the scheduler will complete before returning to rendering.
+	void SandboxUI::SingleStepSimulation()
+	{
+		CompletePendingStep();
+		m_physics_accumulator = 0;
+		m_steps_remaining = 1;
+	}
+
+	// Pipeline continuous simulation so rendering overlaps the next submitted physics step.
 	void SandboxUI::Step(double elapsed_seconds)
 	{
 		static constexpr double PhysicsStepSeconds = 1.0 / 60.0;
 		static constexpr double MaxFrameSeconds = 0.25;
 		static constexpr int MaxStepsPerTick = 4;
-		auto const step_beg = Clock::now();
 
 		// Don't step after close begins
 		if (m_closing)
 			return;
 
-		// Check if we should be stepping
+		auto collision = false;
+		auto complete_pending_step = [&]
+		{
+			if (!m_scene.StepPending())
+				return false;
+			auto const step_collision = CompletePendingStep();
+			collision = step_collision || collision;
+			if (step_collision && m_pause_on_collision && m_scene.m_diag.count == 1)
+			{
+				m_steps_remaining = 0;
+				m_physics_accumulator = 0;
+				return true;
+			}
+			return false;
+		};
+
+		// Publish the previous result before deciding whether another step should be submitted.
+		if (complete_pending_step())
+			return;
+
 		if (m_steps_remaining == 0)
 			return;
 
-		// The resolver tuning assumes a fixed physics step. Convert wall-clock time into a bounded
-		// number of fixed ticks rather than making the simulation unstable when rendering is slow.
-		auto step_count = 0;
-		auto collision = false;
+		// A manual step is completed immediately so pausing cannot strand a submitted result.
 		if (m_steps_remaining > 0)
 		{
 			--m_steps_remaining;
-			collision = m_scene.Step(PhysicsStepSeconds);
-			++step_count;
+			m_scene.BeginStep(PhysicsStepSeconds);
+			complete_pending_step();
 		}
 		else
 		{
+			// The resolver tuning assumes a fixed physics step. Convert wall-clock time into a bounded
+			// number of fixed ticks rather than making the simulation unstable when rendering is slow.
 			m_physics_accumulator += std::min(elapsed_seconds, MaxFrameSeconds) * std::max(0.0, static_cast<double>(m_media.TimeScale()));
-			while (m_physics_accumulator >= PhysicsStepSeconds && step_count != MaxStepsPerTick)
+			auto submitted_count = 0;
+			while (m_physics_accumulator >= PhysicsStepSeconds && submitted_count != MaxStepsPerTick)
 			{
-				auto const step_collision = m_scene.Step(PhysicsStepSeconds);
-				collision = step_collision || collision;
+				m_scene.BeginStep(PhysicsStepSeconds);
 				m_physics_accumulator -= PhysicsStepSeconds;
-				++step_count;
+				++submitted_count;
 
-				if (step_collision && m_pause_on_collision && m_scene.m_diag.count == 1)
-				{
-					m_steps_remaining = 0;
-					m_physics_accumulator = 0;
+				// Only the newest step can overlap rendering; dependent catch-up steps remain sequential.
+				if (m_physics_accumulator < PhysicsStepSeconds || submitted_count == MaxStepsPerTick)
 					break;
-				}
+
+				if (complete_pending_step())
+					break;
 			}
 
-			if (step_count == MaxStepsPerTick && m_physics_accumulator >= PhysicsStepSeconds)
+			if (submitted_count == MaxStepsPerTick && m_physics_accumulator >= PhysicsStepSeconds)
 				m_physics_accumulator = 0;
 		}
-
-		if (step_count != 0 && m_profile.Enabled())
-			m_profile.RecordStep(m_scene.m_last_step_profile, ElapsedMs(step_beg, Clock::now()));
 
 		// Pause on first collision if requested
 		if (collision && m_pause_on_collision && m_scene.m_diag.count == 1)

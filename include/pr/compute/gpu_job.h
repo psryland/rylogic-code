@@ -62,16 +62,6 @@ namespace pr::compute
 	//     memory are discarded.
 	//   - All threads within a single group can read from and write to the group shared memory.
 	//     This allows for efficient communication and synchronization among threads within the same group.
-	
-	// Calculate the number of dispatches needed to process 'total' items in groups of 'group_size'
-	inline int DispatchCount(int total, int group_size)
-	{
-		return (total + group_size - int(1)) / group_size;
-	}
-	inline iv3 DispatchCount(iv3 total, iv3 group_size)
-	{
-		return (total + group_size - iv3(1)) / group_size;
-	}
 
 	template <D3D12_COMMAND_LIST_TYPE QueueType>
 	struct GpuJob
@@ -105,6 +95,11 @@ namespace pr::compute
 			double m_wait_ms = 0;
 			double m_reset_ms = 0;
 		};
+		struct RunHandle
+		{
+			uint64_t m_sync_point = 0;
+			explicit operator bool() const { return m_sync_point != 0; } // Return true if this handle represents an in-flight GPU submission.
+		};
 
 		// Note: can be constructed with a 'Gpu' instance or 'Renderer::D3DDevice()'
 		GpuJob(ID3D12Device4* device, ID3D12CommandQueue* queue, char const* name, uint32_t pix_colour, int view_heap_capacity = 1)
@@ -118,6 +113,7 @@ namespace pr::compute
 			, m_keep_alive(m_gsync)
 			, m_upload(m_gsync, 0)
 			, m_readback(m_gsync, 0)
+			, m_pending_sync_point()
 		{
 			auto heaps = { m_view_heap.get() };
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
@@ -131,9 +127,14 @@ namespace pr::compute
 		{
 		}
 
-		// Run the job and block till complete
-		void Run(RunProfile* profile = nullptr)
+		uint64_t m_pending_sync_point; // The submitted-but-not-yet-completed sync point.
+
+		// Submit the recorded commands and return without waiting for completion.
+		RunHandle Submit(RunProfile* profile = nullptr)
 		{
+			if (m_pending_sync_point != 0)
+				throw std::runtime_error("GpuJob::Submit called while a previous submission is still pending");
+
 			auto const timestamp = [profile]
 			{
 				return profile != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -146,18 +147,42 @@ namespace pr::compute
 
 			auto const execute_beg = timestamp();
 
-			// Run the sort job
+			// Run the job.
 			CmdListCollection cmd_lists = { m_cmd_list.get() };
 			m_queue->ExecuteCommandLists(cmd_lists.count(), cmd_lists.data());
 
 			// Record the sync point for when the command will be finished
-			auto sync_point = m_gsync.AddSyncPoint(m_queue.get());
-			m_cmd_list.SyncPoint(sync_point);
+			m_pending_sync_point = m_gsync.AddSyncPoint(m_queue.get());
+			m_cmd_list.SyncPoint(m_pending_sync_point);
 
+			if (profile != nullptr)
+			{
+				auto const submit_end = timestamp();
+				auto elapsed_ms = [](auto beg, auto end)
+				{
+					return std::chrono::duration<double, std::milli>(end - beg).count();
+				};
+				profile->m_prepare_ms = elapsed_ms(prepare_beg, execute_beg);
+				profile->m_execute_ms = elapsed_ms(execute_beg, submit_end);
+			}
+
+			return RunHandle{ m_pending_sync_point };
+		}
+
+		// Wait for a submitted job, then reset command recording for the next submission.
+		void Complete(RunHandle& handle, RunProfile* profile = nullptr)
+		{
+			if (!handle || handle.m_sync_point != m_pending_sync_point)
+				throw std::runtime_error("GpuJob::Complete called with an invalid or non-current run handle");
+
+			auto const timestamp = [profile]
+			{
+				return profile != nullptr ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+			};
 			auto const wait_beg = timestamp();
 
 			// Wait for the GPU to finish
-			m_gsync.Wait();
+			m_gsync.Wait(handle.m_sync_point);
 
 			auto const reset_beg = timestamp();
 
@@ -180,11 +205,19 @@ namespace pr::compute
 				{
 					return std::chrono::duration<double, std::milli>(end - beg).count();
 				};
-				profile->m_prepare_ms = elapsed_ms(prepare_beg, execute_beg);
-				profile->m_execute_ms = elapsed_ms(execute_beg, wait_beg);
 				profile->m_wait_ms = elapsed_ms(wait_beg, reset_beg);
 				profile->m_reset_ms = elapsed_ms(reset_beg, reset_end);
 			}
+
+			m_pending_sync_point = 0;
+			handle = {};
+		}
+
+		// Run the job and block till complete.
+		void Run(RunProfile* profile = nullptr)
+		{
+			auto handle = Submit(profile);
+			Complete(handle, profile);
 		}
 
 		// Get a pointer to the queue
@@ -234,5 +267,14 @@ namespace pr::compute
 
 	using GraphicsJob = GpuJob<D3D12_COMMAND_LIST_TYPE_DIRECT>;
 	using ComputeJob = GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	
+	// Calculate the number of dispatches needed to process 'total' items in groups of 'group_size'
+	inline int DispatchCount(int total, int group_size)
+	{
+		return (total + group_size - int(1)) / group_size;
+	}
+	inline iv3 DispatchCount(iv3 total, iv3 group_size)
+	{
+		return (total + group_size - iv3(1)) / group_size;
+	}
 }
-

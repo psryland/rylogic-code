@@ -11,13 +11,14 @@ namespace las
 {
 	// Step phase task graph.
 	// Dependency DAG:
-	//   Physics → Finalise
+	//   Physics  ─→ tasks that need published post-physics snapshots
+	//   Finalise
 	//
 	// Input is processed in the render loop so the camera works even when sim is paused.
-	// Physics steps the ship (and future rigid bodies).
+	// Physics is a signal-only task id raised by the simulation owner thread after PhysicsSystem::CompleteStep(). Do not add a worker task with this id.
 	enum class StepTaskId : int
 	{
-		Physics,     // Step rigid bodies and ocean-surface constraints
+		Physics,     // External signal: post-step physics snapshots are published
 		Finalise,    // Barrier: commit all state snapshots
 		Count,
 	};

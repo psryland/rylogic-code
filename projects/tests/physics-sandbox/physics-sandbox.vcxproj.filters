@@ -56,6 +56,9 @@
     <Filter Include="src\scene">
       <UniqueIdentifier>{28a8bcdd-bc1b-4028-85d2-e4cd908391d2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\scene\water">
+      <UniqueIdentifier>{5aaef150-ee77-45d9-a307-58f5f4e43340}</UniqueIdentifier>
+    </Filter>
     <Filter Include="pr\physics\compute">
       <UniqueIdentifier>{48da3655-f908-4ac8-ad93-f33464cec890}</UniqueIdentifier>
     </Filter>
@@ -220,8 +223,14 @@
     <ClInclude Include="src\scene\body.h">
       <Filter>src\scene</Filter>
     </ClInclude>
+    <ClInclude Include="src\scene\procedural_sky.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\scene\scene.h">
       <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\water\water_visual.h">
+      <Filter>src\scene\water</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\include\pr\collision\forward.h">
       <Filter>pr\collision</Filter>
@@ -363,12 +372,27 @@
     <None Include="scenes\plate_drop.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\floater.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\buoyancy_stress_1000.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="src\scene\water\water_visual_cbuf.hlsli">
+      <Filter>src\scene\water</Filter>
+    </None>
+    <None Include="src\scene\water\water_visual.hlsl">
+      <Filter>src\scene\water</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\body.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\procedural_sky.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
     <ClCompile Include="src\ui\details_panel.cpp">
@@ -392,6 +416,9 @@
     <ClCompile Include="src\scene\scene.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene\water\water_visual.cpp">
+      <Filter>src\scene\water</Filter>
+    </ClCompile>
     <ClCompile Include="src\utils\scene_loader.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
@@ -402,6 +429,9 @@
   <ItemGroup>
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
       <Filter>res</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="src\scene\water\water_visual.rc">
+      <Filter>src\scene\water</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>

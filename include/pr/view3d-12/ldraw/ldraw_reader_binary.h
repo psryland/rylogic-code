@@ -789,12 +789,54 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(All(reader.Vector3f().w1() == v4(0, 1, 0, 1)));
 
 				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Faces);
-				PR_EXPECT(reader.Int<int>() == 0);
-				PR_EXPECT(reader.Int<int>() == 1);
-				PR_EXPECT(reader.Int<int>() == 2);
+				PR_EXPECT(reader.Int<uint16_t>() == 0);
+				PR_EXPECT(reader.Int<uint16_t>() == 1);
+				PR_EXPECT(reader.Int<uint16_t>() == 2);
 			}
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestMeshWideIndices)
+		{
+			// A mesh with at least one index above uint16_t max should select the *Faces32 keyword
+			// and serialise indices as 4-byte unsigned integers.
+			Builder builder;
+			auto& m = builder.Mesh("M", 0xFFFF0000);
+			m.vert({0,0,0}).vert({1,0,0}).vert({0,1,0});
+			m.face(0, 1, 70000);
+			auto const bin = builder.ToBinary();
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Mesh);
+			{
+				auto scope = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Name);
+				PR_EXPECT(reader.Identifier<string32>() == "M");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Colour);
+				PR_EXPECT(reader.Int<uint32_t>() == 0xFFFF0000);
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Verts);
+				(void)reader.Vector3f();
+				(void)reader.Vector3f();
+				(void)reader.Vector3f();
+
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Faces32);
+				PR_EXPECT(reader.Int<uint32_t>() == 0u);
+				PR_EXPECT(reader.Int<uint32_t>() == 1u);
+				PR_EXPECT(reader.Int<uint32_t>() == 70000u);
+			}
+			PR_EXPECT(!reader.NextKeyword(kw));
+			PR_EXPECT(reader.Loc().m_offset == isize(bin));
+		}
+		PRUnitTestMethod(TestMeshNegativeIndexThrows)
+		{
+			// Negative indices in mesh faces/lines/tetras are invalid; the writer must reject them.
+			Builder builder;
+			builder.Mesh("M", 0xFFFF0000).vert({0,0,0}).vert({1,0,0}).vert({0,1,0}).face(-1, 0, 1);
+			PR_THROWS(builder.ToBinary(), std::exception);
 		}
 		PRUnitTestMethod(TestConvexHull)
 		{

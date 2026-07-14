@@ -41,8 +41,8 @@ namespace physics_sandbox
 		m_log.open(filepath, std::ios::out | std::ios::trunc);
 		if (m_log)
 		{
-			m_log << "load_profile,file,total_ms,wait_gpu_ms,json_ms,scene_load_ms,prepare_ms,bbox_ms,shapes_ms,bodies_ms,ldraw_build_ms,ldraw_serialise_ms,ldraw_parse_ms,ldraw_assign_ms,logging_ms,camera_ms,bodies,shapes,ldraw_objects,ldraw_bytes,has_renderer\n";
-			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,eng_gpu_prepare_ms,eng_gpu_execute_ms,eng_gpu_wait_ms,eng_gpu_reset_ms,eng_readback_access_ms,eng_body_readback_copy_ms,eng_contact_readback_copy_ms,eng_collision_events_ms,eng_sleep_island_unpack_ms,eng_body_unpack_ms,eng_unpack_diagnostics_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
+			m_log << "load_profile,file,total_ms,wait_gpu_ms,json_ms,scene_load_ms,prepare_ms,bbox_ms,shapes_ms,bodies_ms,buoyancy_ms,ldraw_build_ms,ldraw_serialise_ms,ldraw_parse_ms,ldraw_assign_ms,logging_ms,camera_ms,bodies,shapes,ldraw_objects,ldraw_bytes,has_renderer\n";
+			m_log << "time_s,bodies,steps,renders,fps,step_ms,gravity_ms,physics_ms,kill_zone_ms,eng_new_frame_ms,eng_pack_ms,eng_upload_ms,eng_external_forces_ms,eng_integrate_ms,eng_sleepwake_ms,eng_broadphase_ms,eng_collide_ms,eng_resolve_ms,eng_selective_ms,eng_sleepupdate_ms,eng_readback_ms,eng_gpu_run_ms,eng_unpack_ms,eng_gpu_prepare_ms,eng_gpu_execute_ms,eng_gpu_wait_ms,eng_gpu_reset_ms,eng_readback_access_ms,eng_body_readback_copy_ms,eng_contact_readback_copy_ms,eng_collision_events_ms,eng_sleep_island_unpack_ms,eng_body_unpack_ms,eng_unpack_diagnostics_ms,render_ms,sync_gfx_ms,add_scene_ms,do_render_ms,clear_drawlists_ms,new_frame_ms,scene_render_ms,present_ms,details_ms,title_ms,status_ms\n";
 			m_log.flush();
 		}
 	}
@@ -75,6 +75,7 @@ namespace physics_sandbox
 		m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
 		m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
 		m_engine.m_upload_ms += profile.m_engine.m_upload_ms;
+		m_engine.m_external_forces_ms += profile.m_engine.m_external_forces_ms;
 		m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
 		m_engine.m_sleepwake_ms += profile.m_engine.m_sleepwake_ms;
 		m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
@@ -112,7 +113,7 @@ namespace physics_sandbox
 
 		if (m_log)
 		{
-			m_log << std::format("load_profile,{},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{},{},{},{},{}\n",
+			m_log << std::format("load_profile,{},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{},{},{},{},{}\n",
 				filepath.string(),
 				total_ms,
 				wait_gpu_ms,
@@ -122,6 +123,7 @@ namespace physics_sandbox
 				profile.m_bbox_ms,
 				profile.m_shapes_ms,
 				profile.m_bodies_ms,
+				profile.m_buoyancy_ms,
 				profile.m_ldraw_build_ms,
 				profile.m_ldraw_serialise_ms,
 				profile.m_ldraw_parse_ms,
@@ -173,7 +175,7 @@ namespace physics_sandbox
 
 		if (m_log)
 		{
-			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
+			m_log << std::format("{:.3f},{},{},{},{:.1f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}\n",
 				scene.m_clock,
 				body_count,
 				m_steps,
@@ -186,6 +188,7 @@ namespace physics_sandbox
 				Avg(m_engine.m_new_frame_ms, m_steps),
 				Avg(m_engine.m_pack_ms, m_steps),
 				Avg(m_engine.m_upload_ms, m_steps),
+				Avg(m_engine.m_external_forces_ms, m_steps),
 				Avg(m_engine.m_integrate_ms, m_steps),
 				Avg(m_engine.m_sleepwake_ms, m_steps),
 				Avg(m_engine.m_broadphase_ms, m_steps),

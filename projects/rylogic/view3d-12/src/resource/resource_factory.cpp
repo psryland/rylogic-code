@@ -751,6 +751,63 @@ namespace pr::rdr12
 
 		return inst;
 	}
+	TextureCubePtr ResourceFactory::CreateTextureCube(std::span<Image const> faces, TextureDesc const& desc_)
+	{
+		// Build a cube map directly from six in-memory face images.
+		// Used when the caller already has procedurally-generated face data and wants to skip
+		// the file-loader path. Faces are expected in DX cube-map order: +X, -X, +Y, -Y, +Z, -Z.
+
+		if (faces.size() != 6)
+			throw std::runtime_error("CreateTextureCube requires exactly six face images");
+
+		auto const& f0 = faces[0];
+		if (f0.m_dim.x <= 0 || f0.m_dim.y <= 0 || f0.m_dim.x != f0.m_dim.y)
+			throw std::runtime_error("Cube map faces must be square with positive dimensions");
+		for (size_t i = 1; i != faces.size(); ++i)
+		{
+			if (faces[i].m_dim.x != f0.m_dim.x || faces[i].m_dim.y != f0.m_dim.y || faces[i].m_format != f0.m_format)
+				throw std::runtime_error("All cube map faces must share dimensions and format");
+		}
+
+		// Start with the standard cube-map ResDesc (init_data already pushes face 0) and append the remaining five.
+		auto desc = desc_;
+		desc.m_rdesc = ResDesc::TexCube(f0, 1);
+		for (size_t i = 1; i != faces.size(); ++i)
+			desc.m_rdesc.init_data(faces[i]);
+		desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+
+		// If a uri is given, see if the DX resource already exists and reuse it.
+		D3DPtr<ID3D12Resource> res;
+		if (desc.m_uri != 0)
+		{
+			ResourceStore::Access store(rdr());
+			res = store.FindRes(desc.m_uri);
+			if (res == nullptr)
+			{
+				res = CreateResource(desc.m_rdesc, desc.m_name);
+				store.Add(desc.m_uri, res.get());
+			}
+			else
+			{
+				desc.m_rdesc = ResDesc(res->GetDesc());
+				desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			}
+		}
+		else
+		{
+			res = CreateResource(desc.m_rdesc, desc.m_name);
+		}
+
+		// Allocate a new texture instance and register it with the resource store.
+		TextureCubePtr inst(::pr::compute::New<TextureCube>(rdr(), res.get(), desc), true);
+		assert(rdr().mem_tracker().add(inst.get()));
+		{
+			ResourceStore::Access store(rdr());
+			store.Add(inst.get());
+		}
+
+		return inst;
+	}
 	Texture2DPtr ResourceFactory::CreateTexture(EStockTexture id)
 	{
 		// Note:

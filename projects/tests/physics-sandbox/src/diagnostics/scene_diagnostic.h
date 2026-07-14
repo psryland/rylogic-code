@@ -34,6 +34,9 @@ namespace physics_sandbox::diag
 		std::optional<int> m_physics_selective_refresh_adaptive_solver_iterations = {};
 		std::optional<int> m_physics_selective_refresh_support_only = {};
 		std::optional<int> m_physics_selective_refresh_resolve_support_only = {};
+		std::optional<float> m_buoyancy_linear_drag_time_constant_s = {};
+		std::optional<float> m_buoyancy_angular_drag_time_constant_s = {};
+		std::optional<float> m_buoyancy_tangential_drag_coefficient = {};
 		bool m_scan_bodies = false;
 		bool m_scan_non_spheres = false;
 		bool m_column_metric = false;

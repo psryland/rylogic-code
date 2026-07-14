@@ -180,6 +180,7 @@ class EKeyword(Enum):
 	Equation = 2486886355
 	Euler = 1180123250
 	Faces = 455960701
+	Faces32 = 1542536296
 	Facets = 3463018577
 	Far = 3170376174
 	FilePath = 1962937316
@@ -211,6 +212,7 @@ class EKeyword(Enum):
 	LineBox = 3297263992
 	LineList = 419493935
 	Lines = 3789825596
+	Lines32 = 4174700157
 	LineStrip = 4082781759
 	LookAt = 3951693683
 	M3x3 = 1709156072
@@ -285,6 +287,7 @@ class EKeyword(Enum):
 	Strikeout = 3261692833
 	Style = 2888859350
 	Tetra = 1647597299
+	Tetra32 = 2555339638
 	TexCoords = 536531680
 	Text = 3185987134
 	TextLayout = 2881593448

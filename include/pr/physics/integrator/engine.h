@@ -24,6 +24,7 @@ namespace pr::physics
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
 			double m_upload_ms = 0;
+			double m_external_forces_ms = 0;
 			double m_integrate_ms = 0;
 			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
@@ -75,8 +76,45 @@ namespace pr::physics
 				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
 			}
 		};
+		struct ExternalForceArgs
+		{
+			// Context supplied to pre-integrate GPU force callbacks.
+			GpuJob& m_job;
+			ID3D12Resource* m_bodies;
+			int m_body_count;
+			float m_dt;
+			double m_time_s;
+			int m_substep_index;
+			int m_substep_count;
+		};
 
 	private:
+
+		struct PendingStep
+		{
+			std::vector<RigidBody*> m_bodies;
+			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
+			GpuJob::RunHandle m_run;
+			bool m_active = false;
+			bool m_submitted = false;
+
+			PendingStep();
+
+			// Replace the staged body list with pointers to a range of caller-owned rigid bodies.
+			void AssignBodies(RigidBodyRange auto&& bodies)
+			{
+				m_bodies.clear();
+				m_bodies.reserve(static_cast<std::size_t>(std::ranges::distance(bodies)));
+				for (auto& body : bodies)
+					m_bodies.push_back(&body);
+			}
+
+			// Start tracking a begin/complete step pair using a stable copy of the caller's body list.
+			void Begin(std::span<RigidBody*> bodies);
+
+			// Clear all per-step state once the GPU result has been consumed.
+			void Clear();
+		};
 
 		// Engine configuration parameters.
 		EngineConfig m_config;
@@ -111,8 +149,8 @@ namespace pr::physics
 		// Buffers for preparing GPU data
 		CachePtr m_cache;
 
-		// Storage for body pointers
-		std::vector<RigidBody*> m_body_ptrs;
+		// State for a BeginStep/CompleteStep pair.
+		PendingStep m_pending_step;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;
@@ -128,31 +166,49 @@ namespace pr::physics
 		EngineConfig const& Config() const;
 		void Config(EngineConfig const& config);
 
-		// Evolve the physics objects forward in time and resolve any collisions.
-		void Step(float dt, std::span<RigidBody*> bodies);
-		void Step(float dt, RigidBodyRange auto&& bodies)
-		{
-			m_body_ptrs.resize(0);
-			for (auto& body : bodies)
-				m_body_ptrs.push_back(&body);
+		// Return the D3D12 device used by the physics compute engine.
+		ID3D12Device4* Device() const;
 
-			Step(dt, m_body_ptrs);
+		// Evolve the physics objects forward in time and resolve any collisions.
+		void Step(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
+		{
+			BeginStep(dt, bodies, time_s);
+			CompleteStep();
 		}
+
+		// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
+		void BeginStep(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+		void BeginStep(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
+		{
+			if (m_pending_step.m_active)
+				throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+
+			m_pending_step.AssignBodies(bodies);
+			BeginStep(dt, std::span{ m_pending_step.m_bodies }, time_s);
+		}
+
+		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
+		void CompleteStep();
 
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
 		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
 		void UpdateSleepIslands(std::span<RigidBody*> bodies);
 		void UpdateSleepIslands(RigidBodyRange auto&& bodies)
 		{
-			m_body_ptrs.resize(0);
+			auto body_ptrs = std::vector<RigidBody*>{};
+			body_ptrs.reserve(static_cast<std::size_t>(std::ranges::distance(bodies)));
 			for (auto& body : bodies)
-				m_body_ptrs.push_back(&body);
+				body_ptrs.push_back(&body);
 
-			UpdateSleepIslands(m_body_ptrs);
+			UpdateSleepIslands(body_ptrs);
 		}
 
 		// Raised at the end of step, just before object dynamics are updated
 		EventHandler<Engine&, std::span<RbContact const>> Collisions;
+		
+		// Raised after body upload and before integration so subscribers can add GPU-resident forces.
+		EventHandler<Engine&, ExternalForceArgs const&> ExternalForces;
 
 		// Get/set the physics material properties for a given material ID.
 		physics::Material Material(int id) const;
@@ -190,6 +246,9 @@ namespace pr::physics
 
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 		void Integrate(float dt);
+		
+		// Apply user-supplied GPU forces before integration.
+		void ApplyExternalForces(float dt, double time_s);
 
 		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
 		void SleepWake();

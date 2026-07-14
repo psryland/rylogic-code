@@ -227,8 +227,39 @@ namespace pr::physics
 		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
-	// Calculate the mass properties of a shape
+	// Calculate the mass properties of a shape (forward declaration for the array aggregation)
 	template <typename = void>
+	inline MassProperties CalcMassProperties(Shape const& shape, float density);
+
+	// Return mass properties for a composite (array of convex primitives).
+	// Each child's CalcMassProperties returns its centre of mass and unit inertia about the
+	// array-local origin (the standard m_os_unit_inertia convention). Because the child
+	// inertias all reference that one common point, they add directly; masses and first
+	// moments (m*com) also sum. The aggregate is then transformed by the array's own s2r,
+	// matching how every primitive case finishes with TransformMassProperties.
+	inline MassProperties CalcMassProperties(ShapeArray const& shape, float density)
+	{
+		auto total_mass = 0.0f;
+		auto first_moment = v4{}; // Sum of m_i * com_i (about the array-local origin)
+		auto inertia_o = m3x3{};  // Sum of child inertias about the array-local origin
+
+		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
+		{
+			auto cmp = CalcMassProperties(*i, density);
+			total_mass += cmp.m_mass;
+			first_moment += cmp.m_mass * cmp.m_centre_of_mass;
+			inertia_o += Inertia{cmp.m_os_unit_inertia, cmp.m_mass}.To3x3();
+		}
+
+		MassProperties mp;
+		mp.m_mass = total_mass;
+		mp.m_centre_of_mass = total_mass > 0.0f ? (first_moment / total_mass).w0() : v4{};
+		mp.m_os_unit_inertia = total_mass > 0.0f ? (inertia_o / total_mass) : m3x3{};
+		return TransformMassProperties(mp, shape.m_base.m_s2r);
+	}
+
+	// Calculate the mass properties of a shape
+	template <typename>
 	inline MassProperties CalcMassProperties(Shape const& shape, float density)
 	{
 		switch (shape.m_type)
@@ -239,6 +270,7 @@ namespace pr::physics
 		case EShape::Line:     return CalcMassProperties(shape_cast<ShapeLine>(shape), density);
 		case EShape::Triangle: return CalcMassProperties(shape_cast<ShapeTriangle>(shape), density);
 		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density);
+		case EShape::Array:    return CalcMassProperties(shape_cast<ShapeArray>(shape), density);
 		}
 	}
 }

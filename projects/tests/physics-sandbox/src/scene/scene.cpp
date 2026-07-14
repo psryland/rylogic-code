@@ -1,4 +1,5 @@
 #include "pr/physics/utility/ldraw.h"
+#include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "src/scene/scene.h"
 #include "src/utils/scene_loader.h"
 
@@ -19,6 +20,7 @@ namespace physics_sandbox
 			lhs.m_new_frame_ms += rhs.m_new_frame_ms;
 			lhs.m_pack_ms += rhs.m_pack_ms;
 			lhs.m_upload_ms += rhs.m_upload_ms;
+			lhs.m_external_forces_ms += rhs.m_external_forces_ms;
 			lhs.m_integrate_ms += rhs.m_integrate_ms;
 			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
@@ -49,6 +51,21 @@ namespace physics_sandbox
 		{
 			auto const t = order_count > 1 ? static_cast<float>(order_idx) / static_cast<float>(order_count - 1) : 0.0f;
 			return Colour32(0, static_cast<int>(128.0f + 127.0f * std::clamp(t, 0.0f, 1.0f)), 255, 255);
+		}
+		// Return the water mesh extent, using the scene bounds when the scene leaves the visual size unspecified.
+		v2 WaterExtent(scene_loader::WaterDesc const& water, BBox const& scene_bbox)
+		{
+			if (water.size.x > 0.0f && water.size.y > 0.0f)
+				return water.size;
+
+			if (scene_bbox.valid())
+			{
+				auto extent = 4.0f * Max(scene_bbox.Radius().xy, v2{ 5.0f, 5.0f });
+				if (extent.x > 0.0f && extent.y > 0.0f && IsFinite(extent))
+					return extent;
+			}
+
+			return v2{ 20.0f, 20.0f };
 		}
 		bool SameShapeDesc(scene_loader::BodyDesc const& lhs, scene_loader::BodyDesc const& rhs)
 		{
@@ -168,17 +185,31 @@ namespace physics_sandbox
 		, m_box(v4{ 2, 2, 2, 0 })
 		, m_body()
 		, m_shape_buffer()
+		, m_gpu_buoyancy()
+		, m_buoyancy_hulls()
+		, m_buoyancy_body_indices()
+		, m_buoyancy_generation()
+		, m_show_buoyancy_debug(false)
+		, m_buoyancy_debug_gfx()
 		, m_gravity(v4::Zero())
 		, m_kill_zone_height(-100.0f)
 		, m_physics_substeps(1)
 		, m_allow_sleeping(true)
 		, m_ground_gfx()
+		, m_water()
+		, m_water_gfx()
+		, m_env_map()
+		, m_sky_gfx()
 		, m_origin_gfx()
 		, m_contacts_gfx()
 		, m_visual_mode(EVisualMode::Normal)
 		, m_collision_sub()
 		, m_show_contacts(true)
 		, m_clock()
+		, m_step_pending(false)
+		, m_pending_elapsed_seconds()
+		, m_pending_substeps()
+		, m_pending_step_profile()
 		, m_current_scenario()
 		, m_diag()
 		, m_step_count()
@@ -196,9 +227,281 @@ namespace physics_sandbox
 		}
 	}
 
+	// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
+	void Scene::ClearBuoyancy()
+	{
+		m_buoyancy_hulls.clear();
+		m_buoyancy_body_indices.clear();
+		m_buoyancy_debug_gfx = nullptr;
+		m_gpu_buoyancy.reset();
+		++m_buoyancy_generation;
+	}
+
+	// Register every dynamic scene body for buoyancy when the scene contains water.
+	void Scene::ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc)
+	{
+		if (!scene_desc.water)
+			return;
+
+		m_gpu_buoyancy = std::make_unique<physics::GpuBuoyancy>(
+			m_physics.Device(),
+			m_physics,
+			physics::GpuBuoyancy::Config{},
+			[this](int stable_body_index)
+			{
+				return stable_body_index >= 0 && stable_body_index < isize(m_body)
+					? stable_body_index
+					: -1;
+			},
+			[this](int stable_body_index)
+			{
+				auto body_state = physics::GpuBuoyancy::BodyState{};
+				if (stable_body_index < 0 || stable_body_index >= isize(m_body))
+					return body_state;
+
+				auto const& body = m_body[stable_body_index];
+				body_state.m_o2w = body.O2W();
+				body_state.m_centre_of_mass_os = body.CentreOfMassOS();
+				body_state.m_ws_gravity = body.GravityWS();
+				body_state.m_valid = true;
+				return body_state;
+			});
+		m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
+
+		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
+		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
+		m_buoyancy_hulls.reserve(scene_desc.bodies.size());
+		m_buoyancy_body_indices.reserve(scene_desc.bodies.size());
+		for (auto body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
+		{
+			auto& body = m_body[body_index];
+			if (!body.HasShape() || body.Mass() >= physics::InfiniteMass * 0.5f)
+				continue;
+
+			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
+			m_buoyancy_body_indices.push_back(body_index);
+		}
+	}
+
+	// Create the scene-owned water mesh visual from the loaded water surface description.
+	void Scene::CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox)
+	{
+		if (m_rdr == nullptr)
+			return;
+
+		auto const extent = WaterExtent(water, scene_bbox);
+		m_water_gfx = std::make_unique<WaterVisual>(*m_rdr, water, extent);
+
+		// Build the procedural environment cube + matching skybox model. The same six face images feed both
+		// the cube map (sampled by reflective surfaces) and the skybox model (rendered as a backdrop centred
+		// on the camera). Faces are stored as sRGB-encoded BGRA8 bytes, with the SRV format cast to *_SRGB
+		// so the GPU decodes back to linear on sample.
+		rdr12::ResourceFactory factory(*m_rdr);
+		procedural_sky::SkyDesc sky_desc{};
+		auto sky_faces = procedural_sky::GenerateSkyFaces(256, sky_desc);
+
+		// Wrap each face as an Image so the resource factory can build a Texture2D / Texture cube.
+		std::array<::pr::compute::Image, 6> face_images = {};
+		for (size_t i = 0; i != face_images.size(); ++i)
+			face_images[i] = sky_faces[i];
+
+		// Cube map: single GPU resource shared as scene.m_global_envmap.
+		auto cube_desc = rdr12::TextureDesc(rdr12::AutoId, ::pr::compute::ResDesc()).name("env_sky").srv_format(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+		m_env_map = factory.CreateTextureCube(std::span<::pr::compute::Image const>(face_images.data(), face_images.size()), cube_desc);
+
+		// Build 6 individual Texture2Ds for the skybox model. The skybox shader path uses a Texture2D per
+		// nugget (one nugget per cube face), so we deliberately create separate textures rather than aliasing
+		// the cube map. This matches how ModelGenerator::SkyboxSixSidedCube expects to be fed.
+		rdr12::Texture2DPtr face_textures[6] = {};
+		for (int i = 0; i != 6; ++i)
+		{
+			auto src = ::pr::compute::Image(face_images[i].m_dim.x, face_images[i].m_dim.y, face_images[i].m_data.vptr, face_images[i].m_format);
+			auto tdesc = rdr12::TextureDesc(rdr12::AutoId, ::pr::compute::ResDesc::Tex2D(src, 1)).name(pr::FmtS("env_sky_face%d", i)).srv_format(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+			face_textures[i] = factory.CreateTexture2D(tdesc);
+		}
+
+		// The cube only needs to remain between the camera's clip planes because it is centred on the camera.
+		// It is rendered as a depth-neutral backdrop below, so its radius does not limit visible scene depth.
+		auto sky_model = rdr12::ModelGenerator::SkyboxSixSidedCube(factory, face_textures, 100.0f);
+		sky_model->m_name = "sky_box";
+
+		// Wrap the model in an LdrObject so AddToScene + p2w plumbing matches the rest of the scene visuals.
+		auto sky_obj = rdr12::ldraw::LdrObjectPtr(new rdr12::ldraw::LdrObject(rdr12::ldraw::ELdrObject::Custom, nullptr, pr::GenerateGUID()), true);
+		sky_obj->m_model = sky_model;
+		sky_obj->m_name = "sky_box";
+
+		// A skybox is a backdrop rather than a scene boundary. Drawing it before opaque geometry without
+		// writing depth allows objects beyond the cube radius to remain visible instead of being occluded.
+		sky_obj->Flags(rdr12::ldraw::ELdrFlags::NoZWrite, true);
+		m_sky_gfx = sky_obj;
+
+	}
+
+	// Rebuild the buoyancy sample-cloud debug overlay (m_buoyancy_debug_gfx) by re-running the
+	// deterministic CPU oracle (SampleHull) over every registered hull and emitting an LDraw object:
+	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
+	// total buoyancy force/torque arrows. This is an approximate debugging aid, not a frame-exact
+	// mirror of the GPU pass: it samples the post-step body transform with the current clock, so it
+	// lags the GPU buoyancy result by roughly one frame. Only valid for the current flat-ocean scene
+	// (gravity ~ -Z); a tilted-gravity scene would need a gravity-derived water frame here.
+	void Scene::BuildBuoyancyDebugGfx()
+	{
+		using namespace pr::physics::buoyancy;
+
+		m_buoyancy_debug_gfx = nullptr;
+		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_body_indices.empty())
+			return;
+
+		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
+		// valid for the default flat WaterFrame{} (up=+Z, t0=+X, t1=+Y, ref=origin): the sampler calls
+		// Height/Gradient with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
+		// as the signed height along 'up'. EvaluateHeight returns the absolute world-Z surface height,
+		// which equals the signed height along +Z from the origin only because ref=origin and up=+Z.
+		struct WaterAdapter
+		{
+			physics::GpuBuoyancy::WaterSurface const* m_surface;
+			float m_time;
+			float Height(v2 uv) const { return m_surface->EvaluateHeight(uv, m_time); }
+			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->EvaluatePressureGradient(uv, m_time, gravity); }
+			v4 Velocity(v4 pos_ws) const { return m_surface->EvaluateVelocity(pos_ws, m_time); }
+		};
+		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
+
+		// Match the buoyancy module's runtime fluid configuration so the visualised forces track the
+		// GPU pass as closely as the one-frame lag allows.
+		auto const& gpu_cfg = m_gpu_buoyancy->GetConfig();
+		auto const cfg = SamplerConfig{
+			.m_fluid_density = gpu_cfg.m_fluid_density,
+			.m_linear_drag_time_constant_s = gpu_cfg.m_linear_drag_time_constant_s,
+			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
+			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
+			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
+		};
+
+		// Map a sample classification to a display colour.
+		auto colour_for = [](ESampleKind kind) -> uint32_t
+		{
+			switch (kind)
+			{
+				case ESampleKind::VolumeWet:     return 0xFF3060FFU; // blue: contributes buoyancy
+				case ESampleKind::VolumeDry:     return 0x40808080U; // faint grey: above water
+				case ESampleKind::VolumeCulled:  return 0xFF802020U; // dark red: owned by a lower sibling
+				case ESampleKind::SurfaceActive: return 0xFF30FF30U; // green: contributes drag
+				case ESampleKind::SurfaceDry:    return 0x40404040U; // faint dark: above water
+				case ESampleKind::SurfaceCulled: return 0xFFFF8020U; // orange: interior (non-union) surface
+				default:                         return 0xFFFFFFFFU;
+			}
+		};
+
+		// Sampling + display tuning. The oracle is run at a fixed sample budget; the resulting cloud is
+		// decimated at draw time so dense hulls stay renderable. Forces are large (~2e4 N) so arrows are
+		// scaled down to world units.
+		constexpr int VolumeSamples = 8192;
+		constexpr int SurfaceSamples = 8192;
+		constexpr int MaxDrawSamples = 16384;
+		constexpr float ForceScale = 1.0e-4f;  // N    -> world units
+		constexpr float TorqueScale = 1.0e-4f; // N.m  -> world units
+		constexpr float NormalLen = 0.1f;      // length of surface-normal whiskers
+
+		// The sample cloud lives inside (volume samples) and on the surface of the opaque body meshes, so
+		// without disabling the depth test it would be entirely occluded by the bodies. Render the whole
+		// debug group on top (no z-test) so the wet/dry classification cloud and force arrows are visible
+		// through the geometry. no_ztest on the group is inherited by the child points/lines.
+		ldraw::Builder ldr;
+		auto& grp = ldr.Group("buoyancy_debug");
+		auto& pts = grp.Point("samples", 0xFFFFFFFFU).size(5.0f).style(ldraw::seri::PointStyle{"Square"});
+		auto& normals = grp.Line("normals", 0xFF30FF30U);
+		auto& arrows = grp.Line("forces", 0xFFFFFFFFU)/*.arrow("Fwd")*/.per_item_colour();
+		//grp.no_ztest();
+		//pts.no_ztest();
+		//normals.no_ztest();
+		//arrows.no_ztest();
+
+		auto any_geometry = false;
+		for (size_t h = 0; h != m_buoyancy_body_indices.size(); ++h)
+		{
+			auto const& body = m_body[m_buoyancy_body_indices[h]];
+			auto const* shape = &body.Shape();
+
+			// The collision polytope intentionally omits volume-only tetrahedra. Rebuild them only
+			// while the expensive CPU debug overlay is enabled so ordinary scene loading and stepping
+			// retain the compact collision representation.
+			auto derived_shape = byte_data<16>{};
+			if (shape->m_type == collision::EShape::Polytope)
+			{
+				auto const& poly = collision::shape_cast<collision::ShapePolytope>(*shape);
+				if (poly.m_tet_count == 0)
+				{
+					derived_shape = collision::BuildPolytopeFromPoints(poly.verts(), poly.m_base.m_s2r, poly.m_base.m_material_id, poly.m_base.m_flags, m_gpu_buoyancy->GetConfig().m_polytope_tessellation);
+					shape = &derived_shape.as<collision::Shape>();
+				}
+			}
+
+			// The floater bodies have their centre of mass at the model origin, so O2W (model->world)
+			// coincides with the sampler's COM-root->world transform and the body's linear velocity is
+			// already the velocity at the centre of mass.
+			auto const vel = body.VelocityWS();
+			auto state = BodyState{};
+			state.m_o2w = body.O2W();
+			state.m_gravity_ws = body.GravityWS();
+			state.m_vel_lin_ws = vel.lin;
+			state.m_omega_ws = vel.ang;
+
+			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
+			// scene fails loudly here instead of silently mis-classifying samples.
+			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
+				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
+
+			auto debug = SampleDebug{};
+			auto const result = SampleHull(*shape, static_cast<uint32_t>(h), state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
+
+			// Decimated sample cloud, with green whiskers on active surface samples.
+			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);
+			for (size_t i = 0; i < debug.m_samples.size(); i += stride)
+			{
+				auto const& rec = debug.m_samples[i];
+				pts.pt(rec.m_pos_ws, colour_for(rec.m_kind));
+				if (rec.m_kind == ESampleKind::SurfaceActive)
+					normals.line(rec.m_pos_ws, rec.m_pos_ws + NormalLen * rec.m_normal_ws, 0xFF30FF30U);
+				any_geometry = true;
+			}
+
+			// Per-primitive buoyancy force arrows at each primitive's wet centroid (cyan).
+			for (size_t k = 0; k != debug.m_prim_buoy_force_ws.size(); ++k)
+			{
+				auto const f = debug.m_prim_buoy_force_ws[k];
+				if (LengthSq(f.w0()) <= 0.0f)
+					continue;
+
+				auto const c = debug.PrimWetCentre(k);
+				arrows.line(c, c + ForceScale * f, 0xFF00FFFFU);
+				any_geometry = true;
+			}
+
+			// Total buoyancy force arrow at the centre of buoyancy (yellow) and torque arrow (magenta).
+			if (result.m_valid)
+			{
+				auto const cob = result.m_centre_buoyancy_ws;
+				arrows.line(cob, cob + ForceScale * result.m_buoyancy_force_ws, 0xFFFFFF00U);
+				arrows.line(cob, cob + TorqueScale * result.m_buoyancy_torque_ws, 0xFFFF00FFU);
+				any_geometry = true;
+			}
+		}
+
+		if (!any_geometry)
+			return;
+
+		auto result = rdr12::ldraw::Parse(*m_rdr, ldr.ToBinary());
+		if (!result.m_objects.empty())
+			m_buoyancy_debug_gfx = result.m_objects.front();
+	}
+
 	// Reset the simulation to the current scenario's initial conditions
 	void Scene::Reset()
 	{
+		if (m_step_pending)
+			throw std::runtime_error("Scene::Reset cannot run while a step is pending");
+
 		m_clock = 0;
 		m_step_count = 0;
 		m_diag.Reset();
@@ -209,11 +512,17 @@ namespace physics_sandbox
 			.sleeping_enabled = m_allow_sleeping,
 		});
 
+		ClearBuoyancy();
+
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
 
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
+		m_water.reset();
+		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
 
 		// Release any shapes owned by a previously loaded JSON scene.
 		m_body.resize(0);
@@ -230,16 +539,115 @@ namespace physics_sandbox
 		});
 	}
 
-	// Advance the simulation by one time step. Returns true if a collision occurred during this step.
+	// Advance the simulation synchronously by one time step.
 	bool Scene::Step(double elapsed_seconds)
 	{
-		auto const step_beg = Clock::now();
-		m_clock += elapsed_seconds;
-		auto const substeps = std::max(m_physics_substeps, 1);
-		auto dt = static_cast<float>(elapsed_seconds / substeps);
+		BeginStep(elapsed_seconds);
+		return CompleteStep();
+	}
 
-		// Reset per-step collision flag
+	// Submit the first physics substep without waiting for its GPU results.
+	void Scene::BeginStep(double elapsed_seconds)
+	{
+		if (m_step_pending)
+			throw std::runtime_error("Scene::BeginStep called while a previous step is pending");
+
+		auto const step_beg = Clock::now();
+		m_step_pending = true;
+		m_pending_elapsed_seconds = elapsed_seconds;
+		m_pending_substeps = std::max(m_physics_substeps, 1);
+		m_pending_step_profile = {};
 		m_diag.occurred = false;
+
+		try
+		{
+			auto const dt = static_cast<float>(elapsed_seconds / m_pending_substeps);
+			BeginPhysicsSubstep(dt, m_clock, m_pending_step_profile);
+			m_pending_step_profile.m_total_ms = ElapsedMs(step_beg, Clock::now());
+		}
+		catch (...)
+		{
+			m_step_pending = false;
+			throw;
+		}
+	}
+
+	// Complete a submitted step, including dependent substeps that cannot overlap rendering.
+	bool Scene::CompleteStep()
+	{
+		if (!m_step_pending)
+			throw std::runtime_error("Scene::CompleteStep called without a pending step");
+
+		auto const complete_beg = Clock::now();
+		try
+		{
+			CompletePhysicsSubstep(m_pending_step_profile);
+
+			auto const dt = static_cast<float>(m_pending_elapsed_seconds / m_pending_substeps);
+			for (int substep = 1; substep != m_pending_substeps; ++substep)
+			{
+				auto const time_s = m_clock + m_pending_elapsed_seconds * static_cast<double>(substep) / static_cast<double>(m_pending_substeps);
+				BeginPhysicsSubstep(dt, time_s, m_pending_step_profile);
+				CompletePhysicsSubstep(m_pending_step_profile);
+			}
+			if (m_diag.occurred)
+				++m_diag.count;
+
+			++m_step_count;
+			m_clock += m_pending_elapsed_seconds;
+
+			#ifdef PR_PHYSICS_DIAGNOSTICS
+			{
+				// If a collision occurred this step, capture post-impulse snapshots.
+				// Detailed logging is only done for the two-body test scenarios (not file-loaded scenes).
+				if (m_diag.occurred && std::ssize(m_body) == 2)
+				{
+					m_diag.after[0] = BodySnapshot::Capture(m_body[0]);
+					m_diag.after[1] = BodySnapshot::Capture(m_body[1]);
+					LogCollisionDiagnostics();
+				}
+			}
+			#endif
+
+			// Freeze escaped dynamic bodies before their values grow large enough to lose useful precision.
+			auto const kill_beg = Clock::now();
+			for (int i = 0; i != std::ssize(m_body); ++i)
+			{
+				auto mass = m_body[i].Mass();
+				if (mass >= physics::InfiniteMass * 0.5f)
+					continue;
+
+				auto pos = m_body[i].O2W().pos;
+				if (pos.z < m_kill_zone_height)
+				{
+					m_body[i].ZeroMomentum();
+					m_body[i].ZeroForces();
+				}
+			}
+			auto const kill_end = Clock::now();
+
+			m_pending_step_profile.m_total_ms += ElapsedMs(complete_beg, kill_end);
+			m_pending_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
+			m_last_step_profile = m_pending_step_profile;
+			m_step_pending = false;
+			return m_diag.occurred;
+		}
+		catch (...)
+		{
+			m_step_pending = false;
+			throw;
+		}
+	}
+
+	// Return true while a scene step is waiting for GPU completion.
+	bool Scene::StepPending() const
+	{
+		return m_step_pending;
+	}
+
+	// Prepare fallback colours before collision readback supplies the completed substep's contacts.
+	void Scene::PrepareStepVisuals()
+	{
 		switch (m_visual_mode)
 		{
 			case EVisualMode::Normal:
@@ -256,83 +664,50 @@ namespace physics_sandbox
 				throw std::runtime_error("Unknown visual mode");
 			}
 		}
-		auto engine_profile = physics::Engine::StepProfile{};
-		auto gravity_ms = 0.0;
-		auto physics_ms = 0.0;
+	}
 
-		for (int substep = 0; substep != substeps; ++substep)
+	// Apply gravity and submit one physics substep without waiting for its result.
+	void Scene::BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile)
+	{
+		// Forces are cleared by integration, so gravity must be restored before every substep.
+		auto const gravity_beg = Clock::now();
+		if (LengthSq(m_gravity) != 0)
 		{
-			// Apply gravity as an external force: F = m * g.
-			// Static bodies (infinite mass) are skipped — they should not accelerate.
-			// Forces are cleared by Evolve() at the end of each step, so we re-apply each substep.
-			auto const gravity_beg = Clock::now();
-			if (LengthSq(m_gravity) != 0)
-			{
-				for (auto& body : m_body)
-					body.GravityWS(m_gravity);
-			}
-			auto const gravity_end = Clock::now();
-			gravity_ms += ElapsedMs(gravity_beg, gravity_end);
-
-			// Step physics (Evolve -> Broad Phase -> Narrow Phase -> PostCollisionDetection -> Resolve).
-			auto const physics_beg = Clock::now();
-			m_physics.Step(dt, std::span{ m_body });
-			auto const physics_end = Clock::now();
-			physics_ms += ElapsedMs(physics_beg, physics_end);
-			AddProfile(engine_profile, m_physics.LastStepProfile());
-			if (m_physics.LastCollisionStats().LastContactCount() != 0)
-				m_diag.occurred = true;
+			for (auto& body : m_body)
+				body.GravityWS(m_gravity);
 		}
-		if (m_diag.occurred)
-			++m_diag.count;
+		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
 
-		++m_step_count;
+		auto const physics_beg = Clock::now();
+		m_physics.BeginStep(dt, std::span{ m_body }, time_s);
+		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
+	}
 
-		#ifdef PR_PHYSICS_DIAGNOSTICS
-		{
-			// If a collision occurred this step, capture post-impulse snapshots.
-			// Detailed logging is only done for the two-body test scenarios (not file-loaded scenes).
-			if (m_diag.occurred && std::ssize(m_body) == 2)
-			{
-				m_diag.after[0] = BodySnapshot::Capture(m_body[0]);
-				m_diag.after[1] = BodySnapshot::Capture(m_body[1]);
-				LogCollisionDiagnostics();
-			}
-		}
-		#endif
+	// Complete one submitted physics substep and accumulate its profiling and collision results.
+	void Scene::CompletePhysicsSubstep(StepProfile& profile)
+	{
+		PrepareStepVisuals();
 
-		// Kill zone: freeze bodies that have fallen below the threshold.
-		// This prevents escaped bodies from accumulating extreme velocities
-		// that corrupt float precision for the entire simulation.
-		auto const kill_beg = Clock::now();
-		for (int i = 0; i != std::ssize(m_body); ++i)
-		{
-			auto mass = m_body[i].Mass();
-			if (mass >= physics::InfiniteMass * 0.5f)
-				continue; // skip static bodies
-
-			auto pos = m_body[i].O2W().pos;
-			if (pos.z < m_kill_zone_height)
-			{
-				m_body[i].ZeroMomentum();
-				m_body[i].ZeroForces();
-			}
-		}
-		auto const kill_end = Clock::now();
-
-		m_last_step_profile.m_total_ms = ElapsedMs(step_beg, kill_end);
-		m_last_step_profile.m_gravity_ms = gravity_ms;
-		m_last_step_profile.m_physics_ms = physics_ms;
-		m_last_step_profile.m_kill_zone_ms = ElapsedMs(kill_beg, kill_end);
-		m_last_step_profile.m_engine = engine_profile;
-
-		return m_diag.occurred;
+		auto const physics_beg = Clock::now();
+		m_physics.CompleteStep();
+		if (m_gpu_buoyancy != nullptr)
+			m_gpu_buoyancy->CompleteStep();
+		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
+		AddProfile(profile.m_engine, m_physics.LastStepProfile());
+		if (m_physics.LastCollisionStats().LastContactCount() != 0)
+			m_diag.occurred = true;
 	}
 
 	// Configure bodies for the current scenario. All test scenarios use no external
 	// forces so that collisions can be validated against analytic predictions.
 	void Scene::SetupScenario(EScenario scenario)
 	{
+		ClearBuoyancy();
+		m_water.reset();
+		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
+
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
 		m_physics.ResetCaches();
 
@@ -460,10 +835,15 @@ namespace physics_sandbox
 		m_diag.Reset();
 
 		// The engine caches caller-owned shapes/bodies by pointer. Drop those references before reusing scene storage.
+		ClearBuoyancy();
 		m_physics.ResetCaches();
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
+		m_water = scene_desc.water;
+		m_water_gfx = nullptr;
+		m_env_map = nullptr;
+		m_sky_gfx = nullptr;
 
 		// Clear existing bodies and owned shapes
 		m_body.resize(0);
@@ -594,7 +974,15 @@ namespace physics_sandbox
 				Body body(nullptr);
 				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
 				body.O2W(o2w);
-				body.Shape(shape_ptrs[shape_lookup[body_index]], bd.mass);
+				auto const* shape = shape_ptrs[shape_lookup[body_index]];
+
+				// Resolve density after the final collision shape exists so generated scale variants
+				// retain equal density using the rigid body's existing mass-property path.
+				if (bd.density)
+					body.Shape(shape, *bd.density, true);
+				else
+					body.Shape(shape, bd.mass);
+
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				if (bd.sleeping)
 					body.Sleep();
@@ -617,6 +1005,9 @@ namespace physics_sandbox
 			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
 			m_physics.UpdateSleepIslands(m_body);
 		}
+		auto const buoyancy_beg = Clock::now();
+		ConfigureBuoyancy(scene_desc);
+		m_last_load_profile.m_buoyancy_ms = ElapsedMs(buoyancy_beg, Clock::now());
 		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);
@@ -799,6 +1190,8 @@ namespace physics_sandbox
 			m_last_load_profile.m_ldraw_assign_ms = ElapsedMs(mark, ldraw_assign_end);
 			mark = ldraw_assign_end;
 		}
+		if (m_water)
+			CreateWaterGfx(*m_water, scene_bbox);
 		// Logging
 		{
 			auto mat = m_physics.Material(0);
@@ -809,6 +1202,7 @@ namespace physics_sandbox
 			DbgLog("  Bodies: %d\n", static_cast<int>(m_body.size()));
 			DbgLog("  Gravity: (%.2f, %.2f, %.2f)\n", m_gravity.x, m_gravity.y, m_gravity.z);
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
+			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.m_level : 0.0f, scene_desc.water ? isize(scene_desc.water->surface.m_waves) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
 			{
@@ -884,7 +1278,8 @@ namespace physics_sandbox
 		bool momentum_ok = Length(dp) < 0.01f;
 		auto ang_tol = Max(0.01f, Length(pre_total_L) * 0.05f);
 		bool ang_momentum_ok = Length(dL) < ang_tol;
-		bool ke_ok = Abs(dke) < 0.01f * pre_total_ke;
+		auto ke_tol = Max(0.01f, 0.01f * Abs(pre_total_ke));
+		bool ke_ok = Abs(dke) <= ke_tol;
 		DbgLog("  Lin Momentum conserved: %s\n", momentum_ok ? "PASS" : "*** FAIL ***");
 		DbgLog("  Ang Momentum conserved: %s%s\n", ang_momentum_ok ? "PASS" : "*** FAIL ***", (Length(dL) > 0.01f && ang_momentum_ok) ? " (within sub-step tolerance)" : "");
 		DbgLog("  KE conserved (elastic): %s\n", ke_ok ? "PASS" : "*** FAIL ***");

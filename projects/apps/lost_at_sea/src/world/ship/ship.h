@@ -4,22 +4,15 @@
 //************************************
 #pragma once
 #include "src/forward.h"
-#include "pr/physics/rigid_body/rigid_body.h"
-#include "pr/physics/shape/inertia.h"
-#include "pr/collision/shape_box.h"
-#include "pr/container/byte_data.h"
+#include "src/core/physics/physics_system.h"
 
 namespace las
 {
-	struct Ocean;
-	struct HeightField;
-
 	struct Ship
 	{
 		// Notes:
-		//  - A rigid body that floats on the ocean surface.
-		//    The "ship" is a 1x1x1 cube with gravity and buoyancy forces applied.
-		//    Buoyancy is approximated by the submersion depth of the centre of mass.
+		//  - A rigid body representing the first LAS physics object.
+		//    Buoyancy is applied by the physics system's external force passes rather than by Ship.
 
 		struct Instance
 		{
@@ -30,19 +23,24 @@ namespace las
 			#undef PR_RDR_INST
 		};
 
-		// Collision shape storage (value type, no heap allocation)
-		ShapeBox m_col_shape;
-
-		// Physics rigid body
-		RigidBody m_body;
+		// Physics registration owned by the ship.
+		PhysicsSystem& m_physics;
+		PhysicsSystem::BodyHandle m_body_handle;
+		PhysicsSystem::BuoyancyHullRegistration m_buoyancy_hull;
 
 		// Graphics
 		Instance m_inst;
 
-		Ship(Renderer& rdr, HeightField const& height_field, v4 location);
+		Ship(Renderer& rdr, PhysicsSystem& physics, v4 location);
+		Ship(Ship const&) = delete;
+		Ship& operator=(Ship const&) = delete;
+		~Ship();
 
-		// Step the ship's physics: apply gravity, ocean buoyancy, terrain collision.
-		void Step(float dt, Ocean const& ocean, HeightField const& height_field, float sim_time);
+		// Return the latest published ship transform.
+		m4x4 O2W() const;
+
+		// Access the physics registration handle for this ship's body.
+		PhysicsSystem::BodyHandle PhysicsHandle() const;
 
 		// Prepare shader constant buffers for rendering (thread-safe).
 		void PrepareRender(v4 camera_world_pos);

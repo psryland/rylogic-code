@@ -1,8 +1,10 @@
 #pragma once
 #include "src/forward.h"
 #include "src/scene/body.h"
+#include "src/scene/procedural_sky.h"
 #include "src/diagnostics/diagnostics.h"
 #include "src/utils/scene_loader.h"
+#include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
 
 namespace physics_sandbox
@@ -33,6 +35,7 @@ namespace physics_sandbox
 			double m_bbox_ms = 0;
 			double m_shapes_ms = 0;
 			double m_bodies_ms = 0;
+			double m_buoyancy_ms = 0;
 			double m_ldraw_build_ms = 0;
 			double m_ldraw_serialise_ms = 0;
 			double m_ldraw_parse_ms = 0;
@@ -61,6 +64,21 @@ namespace physics_sandbox
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
 
+		// Optional diagnostic buoyancy module and the RAII hull registrations owned by the loaded scene.
+		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
+		std::vector<physics::GpuBuoyancy::Registration> m_buoyancy_hulls;
+		std::vector<int> m_buoyancy_body_indices;
+		int m_buoyancy_generation;
+
+		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force
+		// overlay is drawn. Toggled by the sandbox UI ('B' key).
+		bool m_show_buoyancy_debug;
+
+		// LDraw overlay produced by BuildBuoyancyDebugGfx() (sample points coloured by classification,
+		// surface normals, and per-primitive/total force + torque arrows). Rebuilt each frame while
+		// m_show_buoyancy_debug is set; null otherwise.
+		rdr12::ldraw::LdrObjectPtr m_buoyancy_debug_gfx;
+
 		// Gravity acceleration vector (direction and magnitude, e.g. [0, -9.81, 0]).
 		// Applied each step to all non-static bodies as F = m * g.
 		v4 m_gravity;
@@ -80,6 +98,15 @@ namespace physics_sandbox
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
 		rdr12::ldraw::LdrObjectPtr m_ground_gfx;
 
+		// Water surface visual described by the loaded scene.
+		std::optional<scene_loader::WaterDesc> m_water;
+		std::unique_ptr<WaterVisual> m_water_gfx;
+
+		// Procedural environment map cube + sky-dome model. Created alongside the water visual so
+		// reflective surfaces have something to reflect; null when no water is present.
+		rdr12::TextureCubePtr m_env_map;
+		rdr12::ldraw::LdrObjectPtr m_sky_gfx;
+
 		// Origin coordinate frame visual
 		rdr12::ldraw::LdrObjectPtr m_origin_gfx;
 
@@ -97,6 +124,10 @@ namespace physics_sandbox
 
 		// Simulation state
 		double m_clock;
+		bool m_step_pending;
+		double m_pending_elapsed_seconds;
+		int m_pending_substeps;
+		StepProfile m_pending_step_profile;
 
 		// The currently active scenario.
 		EScenario m_current_scenario;
@@ -115,6 +146,16 @@ namespace physics_sandbox
 		// Advance the simulation by one time step.
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);
+
+		// Submit the first physics substep without waiting for its GPU results.
+		void BeginStep(double elapsed_seconds);
+
+		// Complete a submitted step, including any remaining dependent substeps.
+		// Returns true if a collision occurred during this step.
+		bool CompleteStep();
+
+		// Return true while a step has been submitted but not completed.
+		bool StepPending() const;
 
 		// Configure bodies for the current scenario
 		void SetupScenario(EScenario scenario);
@@ -153,7 +194,31 @@ namespace physics_sandbox
 		void UpdateCollisionReadback();
 		bool NeedsCollisionReadback() const;
 
+		// Prepare visual state before collision readback updates it for a completed substep.
+		void PrepareStepVisuals();
+
+		// Apply gravity and submit one physics substep.
+		void BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile);
+
+		// Wait for one submitted physics substep and collect its results.
+		void CompletePhysicsSubstep(StepProfile& profile);
+
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;
+
+		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
+		void ClearBuoyancy();
+
+		// Register every dynamic scene body for buoyancy when the scene contains water.
+		void ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc);
+
+		// Create the water mesh visual described by a loaded scene.
+		void CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox);
+
+		// Rebuild m_buoyancy_debug_gfx by running the CPU buoyancy oracle (SampleHull) over each
+		// registered hull and emitting an LDraw overlay of the per-sample wet/dry/culled classifications,
+		// surface normals, and per-primitive + total force/torque arrows. A debug aid only; sampled with
+		// the post-step body transform and current clock so it lags the GPU pass by approximately one frame.
+		void BuildBuoyancyDebugGfx();
 	};
 }

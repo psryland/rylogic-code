@@ -71,6 +71,22 @@
 	#define odr
 	#define hlsl_noinline [noinline]
 
+	#define assert(x)
+
+	// Return the number of elements in a StructuredBuffer or RWStructuredBuffer.
+	template <typename T> inline int ssize(in StructuredBuffer<T> buf)
+	{
+		uint count, stride;
+		buf.GetDimensions(count, stride);
+		return (int)count;
+	}
+	template <typename T> inline int ssize(in RWStructuredBuffer<T> buf)
+	{
+		uint count, stride;
+		buf.GetDimensions(count, stride);
+		return (int)count;
+	}
+
 #endif
 
 #endif

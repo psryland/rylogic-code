@@ -48,6 +48,22 @@
       </AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ShaderBuild>
+      <ShaderType>Effect</ShaderType>
+      <ShaderModel>6.6</ShaderModel>
+      <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include\
+        ;$(RylogicRoot)projects\rylogic\
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;SHADER_BUILD
+      </PreprocessorDefinitions>
+    </ShaderBuild>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <PreprocessorDefinitions>
@@ -64,7 +80,9 @@
     <ClCompile Include="src\diagnostics\diagnostics.cpp" />
     <ClCompile Include="src\diagnostics\scene_diagnostic.cpp" />
     <ClCompile Include="src\scene\body.cpp" />
+    <ClCompile Include="src\scene\procedural_sky.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
+    <ClCompile Include="src\scene\water\water_visual.cpp" />
     <ClCompile Include="src\utils\scene_loader.cpp" />
     <ClCompile Include="src\ui\details_panel.cpp" />
     <ClCompile Include="src\ui\media_panel.cpp" />
@@ -125,8 +143,10 @@
     <ClInclude Include="src\diagnostics\diagnostics.h" />
     <ClInclude Include="src\diagnostics\scene_diagnostic.h" />
     <ClInclude Include="src\scene\body.h" />
+    <ClInclude Include="src\scene\procedural_sky.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />
+    <ClInclude Include="src\scene\water\water_visual.h" />
     <ClInclude Include="src\ui\details_panel.h" />
     <ClInclude Include="src\ui\media_panel.h" />
     <ClInclude Include="src\ui\menu_id.h" />
@@ -136,8 +156,12 @@
     <ClInclude Include="src\utils\scene_loader.h" />
     <ClCompile Include="src\main.cpp" />
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
+    <ResourceCompile Include="src\scene\water\water_visual.rc" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="src\scene\water\water_visual_cbuf.hlsli" />
+    <None Include="src\scene\water\water_visual.hlsl" />
+    <ShaderBuild Include="src\scene\water\water_visual.hlsl" />
     <None Include="..\..\..\include\pr\hlsl\camera.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\closest_point.hlsli" />
     <None Include="..\..\..\include\pr\hlsl\core.hlsli" />
@@ -168,8 +192,10 @@
     <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />
     <None Include="scenes\brick_wall_2000.json" />
+    <None Include="scenes\buoyancy_stress_1000.json" />
     <None Include="scenes\drop_test.json" />
     <None Include="scenes\dzhanibekov_effect.json" />
+    <None Include="scenes\floater.json" />
     <None Include="scenes\generated_stress.json" />
     <None Include="scenes\generate_scene.py" />
     <None Include="scenes\gravity_playground.json" />

@@ -58,6 +58,8 @@ namespace physics_sandbox::diag
 			float m_p99_ang_speed = 0.0f;
 			float m_max_lin_speed = 0.0f;
 			float m_max_ang_speed = 0.0f;
+			float m_avg_horizontal_speed = 0.0f;
+			float m_avg_vertical_speed = 0.0f;
 		};
 		struct ColumnMetricState
 		{
@@ -155,6 +157,7 @@ namespace physics_sandbox::diag
 				m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
 				m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
 				m_engine.m_upload_ms += profile.m_engine.m_upload_ms;
+				m_engine.m_external_forces_ms += profile.m_engine.m_external_forces_ms;
 				m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
 				m_engine.m_sleepwake_ms += profile.m_engine.m_sleepwake_ms;
 				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
@@ -453,6 +456,54 @@ namespace physics_sandbox::diag
 				log << text;
 		}
 
+		// Report the actual convex-hull complexity and volume range produced by procedural polytope inputs.
+		void PrintPolytopeProfile(std::ofstream& log, Scene const& scene)
+		{
+			auto count = 0;
+			auto min_vert_count = std::numeric_limits<int>::max();
+			auto max_vert_count = 0;
+			auto min_face_count = std::numeric_limits<int>::max();
+			auto max_face_count = 0;
+			auto min_volume = std::numeric_limits<float>::max();
+			auto max_volume = 0.0f;
+			auto total_vert_count = 0;
+			auto total_face_count = 0;
+			auto total_volume = 0.0;
+			for (auto const& body : scene.m_body)
+			{
+				if (!body.HasShape() || body.Shape().m_type != collision::EShape::Polytope)
+					continue;
+
+				auto const& poly = collision::shape_cast<collision::ShapePolytope>(body.Shape());
+				auto const volume = collision::CalcVolume(poly);
+				++count;
+				min_vert_count = std::min(min_vert_count, poly.m_vert_count);
+				max_vert_count = std::max(max_vert_count, poly.m_vert_count);
+				min_face_count = std::min(min_face_count, poly.m_face_count);
+				max_face_count = std::max(max_face_count, poly.m_face_count);
+				min_volume = std::min(min_volume, volume);
+				max_volume = std::max(max_volume, volume);
+				total_vert_count += poly.m_vert_count;
+				total_face_count += poly.m_face_count;
+				total_volume += volume;
+			}
+			if (count == 0)
+				return;
+
+			Emit(log, std::format(
+				"polytope_profile,count={},verts_min={},verts_avg={:.2f},verts_max={},faces_min={},faces_avg={:.2f},faces_max={},volume_min={:.5f},volume_avg={:.5f},volume_max={:.5f}\n",
+				count,
+				min_vert_count,
+				static_cast<double>(total_vert_count) / count,
+				max_vert_count,
+				min_face_count,
+				static_cast<double>(total_face_count) / count,
+				max_face_count,
+				min_volume,
+				total_volume / count,
+				max_volume));
+		}
+
 		BodyTraceState CaptureBodyState(physics::RigidBody const& body)
 		{
 			auto vel = body.VelocityWS();
@@ -505,6 +556,8 @@ namespace physics_sandbox::diag
 				sample.m_never_sleep_count += body.NeverSleep() ? 1 : 0;
 				sample.m_avg_lin_speed += lin_speed;
 				sample.m_avg_ang_speed += ang_speed;
+				sample.m_avg_horizontal_speed += Length(v2{vel.lin.x, vel.lin.y});
+				sample.m_avg_vertical_speed += std::abs(vel.lin.z);
 				lin_speeds.push_back(lin_speed);
 				ang_speeds.push_back(ang_speed);
 				if (lin_speed > sample.m_max_lin_speed)
@@ -529,6 +582,8 @@ namespace physics_sandbox::diag
 
 				sample.m_avg_lin_speed /= sample.m_dynamic_count;
 				sample.m_avg_ang_speed /= sample.m_dynamic_count;
+				sample.m_avg_horizontal_speed /= sample.m_dynamic_count;
+				sample.m_avg_vertical_speed /= sample.m_dynamic_count;
 				sample.m_p50_lin_speed = percentile(lin_speeds, 0.50f);
 				sample.m_p90_lin_speed = percentile(lin_speeds, 0.90f);
 				sample.m_p95_lin_speed = percentile(lin_speeds, 0.95f);
@@ -575,7 +630,7 @@ namespace physics_sandbox::diag
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
+				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
 				step,
 				time_s,
 				profile.m_sample_count,
@@ -585,6 +640,7 @@ namespace physics_sandbox::diag
 				profile.m_engine.m_new_frame_ms / count,
 				profile.m_engine.m_pack_ms / count,
 				profile.m_engine.m_upload_ms / count,
+				profile.m_engine.m_external_forces_ms / count,
 				profile.m_engine.m_integrate_ms / count,
 				profile.m_engine.m_sleepwake_ms / count,
 				profile.m_engine.m_broadphase_ms / count,
@@ -612,7 +668,7 @@ namespace physics_sandbox::diag
 			auto sample = MeasureSleep(scene, non_spheres_only);
 			auto const& config = scene.m_physics.Config();
 			Emit(log, std::format(
-				"sleep step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} never={} lin(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f}) ang(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f})\n",
+				"sleep step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} never={} lin(avg/horiz/vert/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f}) ang(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f})\n",
 				step,
 				time_s,
 				non_spheres_only ? "non-spheres" : "all",
@@ -621,6 +677,8 @@ namespace physics_sandbox::diag
 				sample.m_low_velocity_count,
 				sample.m_never_sleep_count,
 				sample.m_avg_lin_speed,
+				sample.m_avg_horizontal_speed,
+				sample.m_avg_vertical_speed,
 				sample.m_p50_lin_speed,
 				sample.m_p90_lin_speed,
 				sample.m_p95_lin_speed,
@@ -1026,7 +1084,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,external_forces_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -1180,6 +1238,43 @@ namespace physics_sandbox::diag
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
+		if (
+			options.m_buoyancy_linear_drag_time_constant_s ||
+			options.m_buoyancy_angular_drag_time_constant_s ||
+			options.m_buoyancy_tangential_drag_coefficient)
+		{
+			if (!scene.m_gpu_buoyancy)
+				throw std::runtime_error("Scene diagnostic buoyancy overrides require a water scene");
+
+			auto config = scene.m_gpu_buoyancy->GetConfig();
+			if (options.m_buoyancy_linear_drag_time_constant_s)
+				config.m_linear_drag_time_constant_s = *options.m_buoyancy_linear_drag_time_constant_s;
+			if (options.m_buoyancy_angular_drag_time_constant_s)
+				config.m_angular_drag_time_constant_s = *options.m_buoyancy_angular_drag_time_constant_s;
+			if (options.m_buoyancy_tangential_drag_coefficient)
+				config.m_tangential_drag_coefficient = *options.m_buoyancy_tangential_drag_coefficient;
+			scene.m_gpu_buoyancy->SetConfig(config);
+		}
+		Emit(log, std::format(
+			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},shapes={}\n",
+			scene.m_last_load_profile.m_total_ms,
+			scene.m_last_load_profile.m_prepare_ms,
+			scene.m_last_load_profile.m_bbox_ms,
+			scene.m_last_load_profile.m_shapes_ms,
+			scene.m_last_load_profile.m_bodies_ms,
+			scene.m_last_load_profile.m_buoyancy_ms,
+			scene.m_last_load_profile.m_body_count,
+			scene.m_last_load_profile.m_shape_count));
+		if (scene.m_gpu_buoyancy)
+		{
+			auto const& config = scene.m_gpu_buoyancy->GetConfig();
+			Emit(log, std::format(
+				"buoyancy_config,linear_drag_time_constant_s={:.5f},angular_drag_time_constant_s={:.5f},tangential_drag_coefficient={:.5f}\n",
+				config.m_linear_drag_time_constant_s,
+				config.m_angular_drag_time_constant_s,
+				config.m_tangential_drag_coefficient));
+		}
+		PrintPolytopeProfile(log, scene);
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
 		if (column_metric.Enabled())
 		{
@@ -1455,7 +1550,9 @@ namespace physics_sandbox::diag
 
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
+				{
 					PrintSample(log, step + 1, scene.m_clock, sample);
+				}
 			}
 		}
 

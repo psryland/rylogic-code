@@ -4587,19 +4587,35 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Lines:
+				case EKeyword::Lines32:
 				case EKeyword::LineList:
 				case EKeyword::LineStrip:
 				{
 					auto is_strip = kw == EKeyword::LineStrip;
+					auto wide = kw == EKeyword::Lines32;
+
+					// Upgrade index buffer stride to 32-bit if needed. IdxBuf::resize converts existing
+					// 16-bit data losslessly, so it is safe to upgrade mid-mesh.
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(is_strip ? ETopo::LineStrip : ETopo::LineList, EGeom::Vert |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None))
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					// Read each index at the keyword's declared width so the binary reader consumes the
+					// correct number of bytes per index. The text reader ignores the byte count and
+					// simply parses the next integer.
+					auto read_index = [&]() -> uint32_t
+					{
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
+					};
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						auto idx = reader.Int<uint16_t>(10);
+						auto idx = read_index();
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4609,10 +4625,16 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Faces:
+				case EKeyword::Faces32:
 				case EKeyword::TriList:
 				case EKeyword::TriStrip:
 				{
 					auto is_strip = kw == EKeyword::TriStrip;
+					auto wide = kw == EKeyword::Faces32;
+
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(is_strip ? ETopo::TriStrip : ETopo::TriList, EGeom::Vert |
 						(!m_normals.empty() ? EGeom::Norm : EGeom::None) |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
@@ -4620,10 +4642,18 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					// Read each index at the keyword's declared width (uint16 for *Faces, uint32 for
+					// *Faces32). Using the matching width is essential for the binary reader, which
+					// consumes exactly sizeof(T) bytes per call.
+					auto read_index = [&]() -> uint32_t
+					{
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
+					};
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
-						auto idx = reader.Int<uint16_t>(10);
+						auto idx = read_index();
 						m_indices.push_back(idx);
 						nug.m_vrange.grow(idx);
 						++nug.m_irange.m_end;
@@ -4633,7 +4663,13 @@ namespace pr::rdr12::ldraw
 					return true;
 				}
 				case EKeyword::Tetra:
+				case EKeyword::Tetra32:
 				{
+					auto wide = kw == EKeyword::Tetra32;
+
+					if (wide && m_indices.stride() < int(sizeof(uint32_t)))
+						m_indices.resize(m_indices.size(), sizeof(uint32_t));
+
 					auto nug = NuggetDesc(ETopo::TriList, EGeom::Vert |
 						(!m_normals.empty() ? EGeom::Norm : EGeom::None) |
 						(!m_colours.empty() ? EGeom::Colr : EGeom::None) |
@@ -4641,15 +4677,22 @@ namespace pr::rdr12::ldraw
 						.vrange(Range::Reset())
 						.irange(Range(m_indices.size(), m_indices.size()));
 
+					// Read one tetrahedron index at the keyword's declared width so the binary reader
+					// advances exactly sizeof(T) bytes per index.
+					auto read_idx = [&]() -> uint32_t
+					{
+						return wide ? reader.Int<uint32_t>() : uint32_t(reader.Int<uint16_t>());
+					};
+
 					for (int r = 1; !reader.IsSectionEnd() && !m_pp.m_cancel; ++r)
 					{
 						m_pp.ReportProgress(reader, r);
 
-						uint16_t const idx[] = {
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
-							reader.Int<uint16_t>(10),
+						uint32_t const idx[] = {
+							read_idx(),
+							read_idx(),
+							read_idx(),
+							read_idx(),
 						};
 						m_indices.push_back(idx[0]);
 						m_indices.push_back(idx[1]);

@@ -1,0 +1,75 @@
+{
+	"scene": {
+		"description": "Buoyancy floaters on wavy water at z = 0: a 2 x 2 x 1 m box at the origin (~2 m^3 displaced, ~19620 N upward) and an octahedral polytope body at x = 4 exercising the SampledComposite polytope path. Both are registered through the volume-sample backend (analytic=false).",
+		"camera": {
+			"position": [0.0, -8.0, 3.0],
+			"lookat": [0.0, 0.0, 0.0]
+		},
+		"gravity": [0.0, 0.0, -9.8],
+		"physics": {
+			"substeps": 1
+		},
+		"material": {
+			"elasticity": 0.0,
+			"friction": 0.0
+		},
+		"water": {
+			"level": 0.0,
+			"size": [100.0, 100.0],
+			"grid": [128, 128],
+			"colour": "0xA02080FF",
+			"waves": [
+				{
+					"direction": [ 1.0, 0.0, 0.0 ],
+					"wavelength": 20.0,
+					"amplitude": 0.6,
+					"phase_speed": 0.5
+				},
+				{
+					"direction": [ -1.0, 1.0, 0.0 ],
+					"wavelength": 3.0,
+					"amplitude": 0.1,
+					"phase_speed": 1.2
+				}
+			]
+		},
+		"shapes": {
+			"box": {
+				"name": "floater-box",
+				"type": "box",
+				"dimensions": [2.0, 2.0, 1.0]
+			},
+			"octahedron": {
+				"name": "floater-octahedron",
+				"type": "polytope",
+				"vertices": [
+					[ 1.0,  0.0,  0.0],
+					[-1.0,  0.0,  0.0],
+					[ 0.0,  1.0,  0.0],
+					[ 0.0, -1.0,  0.0],
+					[ 0.0,  0.0,  0.8],
+					[ 0.0,  0.0, -0.8]
+				]
+			}
+		},
+		"bodies": [
+			{
+				"name": "floater",
+				"shape": "floater-box",
+				"colour": "80EEA040",
+				"mass": 2000.0,
+				"position": [0.0, 0.0, 3.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "floater-poly",
+				"shape": "floater-octahedron",
+				"mass": 400.0,
+				"position": [4.0, 0.0, 2.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 0.0]
+			}
+		]
+	}
+}

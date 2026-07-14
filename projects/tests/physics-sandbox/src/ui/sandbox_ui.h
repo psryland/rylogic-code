@@ -77,6 +77,15 @@ namespace physics_sandbox
 		// Load a scene from a JSON file path (by value to avoid dangling references)
 		void LoadSceneFile(std::filesystem::path filepath);
 
+		// Complete submitted physics work before an operation that needs current body state.
+		bool CompletePendingStep();
+
+		// Pause after completing any submitted physics work.
+		void PauseSimulation();
+
+		// Queue one synchronous fixed step from the current completed state.
+		void SingleStepSimulation();
+
 		// Advance the simulation by one timestep
 		void Step(double elapsed_seconds);
 

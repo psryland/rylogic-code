@@ -190,6 +190,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Equation = {"*Equation", 2486886355};
 		inline static constexpr NameValue Euler = {"*Euler", 1180123250};
 		inline static constexpr NameValue Faces = {"*Faces", 455960701};
+		inline static constexpr NameValue Faces32 = {"*Faces32", 1542536296};
 		inline static constexpr NameValue Facets = {"*Facets", 3463018577};
 		inline static constexpr NameValue Far = {"*Far", 3170376174};
 		inline static constexpr NameValue FilePath = {"*FilePath", 1962937316};
@@ -221,6 +222,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue LineBox = {"*LineBox", 3297263992};
 		inline static constexpr NameValue LineList = {"*LineList", 419493935};
 		inline static constexpr NameValue Lines = {"*Lines", 3789825596};
+		inline static constexpr NameValue Lines32 = {"*Lines32", 4174700157};
 		inline static constexpr NameValue LineStrip = {"*LineStrip", 4082781759};
 		inline static constexpr NameValue LookAt = {"*LookAt", 3951693683};
 		inline static constexpr NameValue M3x3 = {"*M3x3", 1709156072};
@@ -295,6 +297,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Strikeout = {"*Strikeout", 3261692833};
 		inline static constexpr NameValue Style = {"*Style", 2888859350};
 		inline static constexpr NameValue Tetra = {"*Tetra", 1647597299};
+		inline static constexpr NameValue Tetra32 = {"*Tetra32", 2555339638};
 		inline static constexpr NameValue TexCoords = {"*TexCoords", 536531680};
 		inline static constexpr NameValue Text = {"*Text", 3185987134};
 		inline static constexpr NameValue TextLayout = {"*TextLayout", 2881593448};
@@ -3722,19 +3725,22 @@ namespace pr::ldraw
 				}
 				if (!m_faces.empty())
 				{
-					Append(out, EKeywords::Faces, "{");
+					auto [kw, _] = SelectIndexKeyword(m_faces, EKeywords::Faces, EKeywords::Faces32);
+					Append(out, kw, "{");
 					for (auto i : m_faces) Append(out, i);
 					Append(out, "}");
 				}
 				if (!m_lines.empty())
 				{
-					Append(out, EKeywords::Lines, "{");
+					auto [kw, _] = SelectIndexKeyword(m_lines, EKeywords::Lines, EKeywords::Lines32);
+					Append(out, kw, "{");
 					for (auto i : m_lines) Append(out, i);
 					Append(out, "}");
 				}
 				if (!m_tetras.empty())
 				{
-					Append(out, EKeywords::Tetra, "{");
+					auto [kw, _] = SelectIndexKeyword(m_tetras, EKeywords::Tetra, EKeywords::Tetra32);
+					Append(out, kw, "{");
 					for (auto i : m_tetras) Append(out, i);
 					Append(out, "}");
 				}
@@ -3770,22 +3776,46 @@ namespace pr::ldraw
 				}
 				if (!m_faces.empty())
 				{
-					auto sf = Append(out, seri::Header{ EKeywords::Faces });
-					for (auto i : m_faces) Append(out, i);
+					auto [kw, wide] = SelectIndexKeyword(m_faces, EKeywords::Faces, EKeywords::Faces32);
+					auto sf = Append(out, seri::Header{ kw });
+					if (wide) for (auto i : m_faces) Append(out, static_cast<uint32_t>(i));
+					else      for (auto i : m_faces) Append(out, static_cast<uint16_t>(i));
 				}
 				if (!m_lines.empty())
 				{
-					auto sl = Append(out, seri::Header{ EKeywords::Lines });
-					for (auto i : m_lines) Append(out, i);
+					auto [kw, wide] = SelectIndexKeyword(m_lines, EKeywords::Lines, EKeywords::Lines32);
+					auto sl = Append(out, seri::Header{ kw });
+					if (wide) for (auto i : m_lines) Append(out, static_cast<uint32_t>(i));
+					else      for (auto i : m_lines) Append(out, static_cast<uint16_t>(i));
 				}
 				if (!m_tetras.empty())
 				{
-					auto ste = Append(out, seri::Header{ EKeywords::Tetra });
-					for (auto i : m_tetras) Append(out, i);
+					auto [kw, wide] = SelectIndexKeyword(m_tetras, EKeywords::Tetra, EKeywords::Tetra32);
+					auto ste = Append(out, seri::Header{ kw });
+					if (wide) for (auto i : m_tetras) Append(out, static_cast<uint32_t>(i));
+					else      for (auto i : m_tetras) Append(out, static_cast<uint16_t>(i));
 				}
 				Append(out, m_gen_normals, m_tex);
 				LdrBase::Write(out);
 			}
+		}
+
+	private:
+
+		// Validate that all indices are non-negative and pick the narrow/wide keyword based on the maximum value.
+		// Returns the chosen keyword and whether wide (uint32) storage is required. Throws if any index is negative.
+		static std::pair<NameValue, bool> SelectIndexKeyword(std::vector<int> const& indices, NameValue narrow_kw, NameValue wide_kw)
+		{
+			int max_idx = 0;
+			for (auto i : indices)
+			{
+				if (i < 0)
+					throw std::runtime_error("LdrMesh: negative index values are not supported");
+				if (i > max_idx)
+					max_idx = i;
+			}
+			bool wide = max_idx > std::numeric_limits<uint16_t>::max();
+			return { wide ? wide_kw : narrow_kw, wide };
 		}
 	};
 	struct LdrModel : LdrBase

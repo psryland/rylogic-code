@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <span>
 #include <memory>
+#include <functional>
 #include <vector>
 #include <array>
 #include <ranges>
@@ -38,6 +39,7 @@
 #include "pr/geometry/closest_point.h"
 #include "pr/geometry/intersect.h"
 #include "pr/hlsl/interop.h"
+#include "pr/compute/gpu_job.h"
 #include "pr/compute/shaders/shader_cache.h"
 
 // Physics diagnostics/profile code defaults to debug-only. Define these explicitly to opt in/out per build.
@@ -54,7 +56,9 @@
 #endif
 
 // Forward declare D3D12 device (avoids including d3d12.h)
+struct ID3D12Device;
 struct ID3D12Device4;
+struct ID3D12Resource;
 
 namespace pr::physics
 {
@@ -65,6 +69,7 @@ namespace pr::physics
 
 	using BBox = math::BoundingBox<float>;
 	using IShaderCache = ::pr::compute::shader_cache::IShaderCache;
+	using GpuJob = ::pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 
 	// Custom deleter for smart pointers
 	template <typename T> struct Deleter {
