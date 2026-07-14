@@ -386,7 +386,8 @@ namespace physics_sandbox
 		auto const& gpu_cfg = m_gpu_buoyancy->GetConfig();
 		auto const cfg = SamplerConfig{
 			.m_fluid_density = gpu_cfg.m_fluid_density,
-			.m_drag_time_constant_s = gpu_cfg.m_drag_time_constant_s,
+			.m_linear_drag_time_constant_s = gpu_cfg.m_linear_drag_time_constant_s,
+			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
 		};

@@ -22,7 +22,8 @@ struct CBufGpuBuoyancy
 	float time_s;
 	float water_level;
 	float fluid_density;
-	float drag_coefficient; // fluid_density / drag_time_constant, applied per wet dV
+	float linear_drag_coefficient;  // fluid_density / linear_drag_time_constant, applied per wet dV
+	float angular_drag_coefficient; // fluid_density / angular_drag_time_constant, applied per wet dV
 	float quadratic_drag_coefficient;
 	float tangential_drag_coefficient;
 	float time_step_s;
@@ -273,7 +274,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	{
 		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
 		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
-		if (g.drag_coefficient > 0.0f && hull_index < g.hull_count)
+		if ((g.linear_drag_coefficient > 0.0f || g.angular_drag_coefficient > 0.0f) && hull_index < g.hull_count)
 		{
 			BuoyVolHeader header = g_vol_headers[hull_index];
 			GpuRigidBody body = g_bodies[header.body_index];
@@ -373,12 +374,15 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							float3 dF = (g.fluid_density * g_mag * weight) * (up - grad_ws);
 							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
 
-							// Linear damping is integrated over wet volume so equal-density bodies have
-							// the configured time constant independently of scale.
-							if (g.drag_coefficient > 0.0f)
+							// Split translational and rotational point velocities so wave following and
+							// roll damping remain independently tunable over the same wet-volume samples.
+							if (g.linear_drag_coefficient > 0.0f || g.angular_drag_coefficient > 0.0f)
 							{
-								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
-								dF += (-g.drag_coefficient * weight) * (v_point - EvaluateWaterVelocity(sample_ws));
+								float3 r = sample_ws - com_ws;
+								if (g.linear_drag_coefficient > 0.0f)
+									dF -= (g.linear_drag_coefficient * weight) * (s_body_linear_velocity_ws - EvaluateWaterVelocity(sample_ws));
+								if (g.angular_drag_coefficient > 0.0f)
+									dF -= (g.angular_drag_coefficient * weight) * cross(s_body_angular_velocity_ws, r);
 							}
 
 							force_ws = float4(dF, 0.0f);
@@ -405,7 +409,7 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	}
 }
 
-// Reduce all volume partials for one composite hull, add the buoyancy and linear-damping force/torque
+// Reduce all volume partials for one composite hull, add the buoyancy and volume-damping force/torque
 // to the body accumulator, and write a diagnostic record. Quadratic drag is added by the later
 // surface-sample pass. The hull's body is read via the volume header.
 numthreads(CSBuoyancyVolumeReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)

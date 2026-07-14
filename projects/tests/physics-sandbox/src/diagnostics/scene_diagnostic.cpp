@@ -58,6 +58,8 @@ namespace physics_sandbox::diag
 			float m_p99_ang_speed = 0.0f;
 			float m_max_lin_speed = 0.0f;
 			float m_max_ang_speed = 0.0f;
+			float m_avg_horizontal_speed = 0.0f;
+			float m_avg_vertical_speed = 0.0f;
 		};
 		struct ColumnMetricState
 		{
@@ -554,6 +556,8 @@ namespace physics_sandbox::diag
 				sample.m_never_sleep_count += body.NeverSleep() ? 1 : 0;
 				sample.m_avg_lin_speed += lin_speed;
 				sample.m_avg_ang_speed += ang_speed;
+				sample.m_avg_horizontal_speed += Length(v2{vel.lin.x, vel.lin.y});
+				sample.m_avg_vertical_speed += std::abs(vel.lin.z);
 				lin_speeds.push_back(lin_speed);
 				ang_speeds.push_back(ang_speed);
 				if (lin_speed > sample.m_max_lin_speed)
@@ -578,6 +582,8 @@ namespace physics_sandbox::diag
 
 				sample.m_avg_lin_speed /= sample.m_dynamic_count;
 				sample.m_avg_ang_speed /= sample.m_dynamic_count;
+				sample.m_avg_horizontal_speed /= sample.m_dynamic_count;
+				sample.m_avg_vertical_speed /= sample.m_dynamic_count;
 				sample.m_p50_lin_speed = percentile(lin_speeds, 0.50f);
 				sample.m_p90_lin_speed = percentile(lin_speeds, 0.90f);
 				sample.m_p95_lin_speed = percentile(lin_speeds, 0.95f);
@@ -702,7 +708,7 @@ namespace physics_sandbox::diag
 			auto sample = MeasureSleep(scene, non_spheres_only);
 			auto const& config = scene.m_physics.Config();
 			Emit(log, std::format(
-				"sleep step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} never={} lin(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f}) ang(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f})\n",
+				"sleep step={:5d} t={:8.4f} sample={} dynamic={} sleeping={} low={} never={} lin(avg/horiz/vert/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f}) ang(avg/p50/p90/p95/p99/max)=({:9.5f},{:9.5f},{:9.5f},{:9.5f},{:9.5f},{:4d}:{:9.5f}/{:.5f})\n",
 				step,
 				time_s,
 				non_spheres_only ? "non-spheres" : "all",
@@ -711,6 +717,8 @@ namespace physics_sandbox::diag
 				sample.m_low_velocity_count,
 				sample.m_never_sleep_count,
 				sample.m_avg_lin_speed,
+				sample.m_avg_horizontal_speed,
+				sample.m_avg_vertical_speed,
 				sample.m_p50_lin_speed,
 				sample.m_p90_lin_speed,
 				sample.m_p95_lin_speed,
@@ -1270,6 +1278,23 @@ namespace physics_sandbox::diag
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
+		if (
+			options.m_buoyancy_linear_drag_time_constant_s ||
+			options.m_buoyancy_angular_drag_time_constant_s ||
+			options.m_buoyancy_tangential_drag_coefficient)
+		{
+			if (!scene.m_gpu_buoyancy)
+				throw std::runtime_error("Scene diagnostic buoyancy overrides require a water scene");
+
+			auto config = scene.m_gpu_buoyancy->GetConfig();
+			if (options.m_buoyancy_linear_drag_time_constant_s)
+				config.m_linear_drag_time_constant_s = *options.m_buoyancy_linear_drag_time_constant_s;
+			if (options.m_buoyancy_angular_drag_time_constant_s)
+				config.m_angular_drag_time_constant_s = *options.m_buoyancy_angular_drag_time_constant_s;
+			if (options.m_buoyancy_tangential_drag_coefficient)
+				config.m_tangential_drag_coefficient = *options.m_buoyancy_tangential_drag_coefficient;
+			scene.m_gpu_buoyancy->SetConfig(config);
+		}
 		Emit(log, std::format(
 			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},shapes={}\n",
 			scene.m_last_load_profile.m_total_ms,
@@ -1280,6 +1305,15 @@ namespace physics_sandbox::diag
 			scene.m_last_load_profile.m_buoyancy_ms,
 			scene.m_last_load_profile.m_body_count,
 			scene.m_last_load_profile.m_shape_count));
+		if (scene.m_gpu_buoyancy)
+		{
+			auto const& config = scene.m_gpu_buoyancy->GetConfig();
+			Emit(log, std::format(
+				"buoyancy_config,linear_drag_time_constant_s={:.5f},angular_drag_time_constant_s={:.5f},tangential_drag_coefficient={:.5f}\n",
+				config.m_linear_drag_time_constant_s,
+				config.m_angular_drag_time_constant_s,
+				config.m_tangential_drag_coefficient));
+		}
 		PrintPolytopeProfile(log, scene);
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
 		if (column_metric.Enabled())

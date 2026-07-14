@@ -237,7 +237,7 @@ namespace pr::physics::tests
 			auto const cfg = SamplerConfig
 			{
 				.m_fluid_density = 1000.0f,
-				.m_drag_time_constant_s = 0.0f,       // linear drag off
+				.m_linear_drag_time_constant_s = 0.0f, // linear drag off
 				.m_quadratic_drag_coefficient = 1.0f, // Cd = 1
 			};
 
@@ -261,7 +261,7 @@ namespace pr::physics::tests
 			auto const water = TestField{.m_level = 10.0f};
 			auto const cfg = SamplerConfig{
 				.m_fluid_density = 1000.0f,
-				.m_drag_time_constant_s = 0.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.1f,
 			};

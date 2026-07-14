@@ -37,7 +37,8 @@ namespace pr::physics
 			float m_time_s;
 			float m_water_level;
 			float m_fluid_density;
-			float m_drag_coefficient;
+			float m_linear_drag_coefficient;
+			float m_angular_drag_coefficient;
 			float m_quadratic_drag_coefficient;
 			float m_tangential_drag_coefficient;
 			float m_time_step_s;
@@ -763,9 +764,13 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy fluid density must be a finite, non-negative value");
 			}
-			if (!std::isfinite(config.m_drag_time_constant_s))
+			if (!std::isfinite(config.m_linear_drag_time_constant_s))
 			{
-				throw std::runtime_error("GpuBuoyancy drag time-constant must be finite");
+				throw std::runtime_error("GpuBuoyancy linear drag time-constant must be finite");
+			}
+			if (!std::isfinite(config.m_angular_drag_time_constant_s))
+			{
+				throw std::runtime_error("GpuBuoyancy angular drag time-constant must be finite");
 			}
 			if (!std::isfinite(config.m_quadratic_drag_coefficient) || config.m_quadratic_drag_coefficient < 0.0f)
 			{
@@ -1298,10 +1303,13 @@ namespace pr::physics
 				.m_surface_face_verts = gpu_va(upload_face_verts),
 			};
 
-			// Linear damping is part of the wet-volume integral, so its rho/tau coefficient is supplied
-			// to the volume pass. Quadratic drag remains disabled here.
-			auto const volume_drag_coefficient = m_config.m_drag_time_constant_s > 0.0f
-				? m_config.m_fluid_density / m_config.m_drag_time_constant_s
+			// Translational and rotational damping share the wet-volume samples but have independent
+			// rho/tau coefficients. Quadratic drag remains disabled in this pass.
+			auto const linear_drag_coefficient = m_config.m_linear_drag_time_constant_s > 0.0f
+				? m_config.m_fluid_density / m_config.m_linear_drag_time_constant_s
+				: 0.0f;
+			auto const angular_drag_coefficient = m_config.m_angular_drag_time_constant_s > 0.0f
+				? m_config.m_fluid_density / m_config.m_angular_drag_time_constant_s
 				: 0.0f;
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
@@ -1310,7 +1318,8 @@ namespace pr::physics
 				.m_time_s = static_cast<float>(args.m_time_s),
 				.m_water_level = m_water_surface.m_level,
 				.m_fluid_density = m_config.m_fluid_density,
-				.m_drag_coefficient = volume_drag_coefficient,
+				.m_linear_drag_coefficient = linear_drag_coefficient,
+				.m_angular_drag_coefficient = angular_drag_coefficient,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 				.m_time_step_s = args.m_dt,
@@ -1336,7 +1345,8 @@ namespace pr::physics
 					.m_time_s = static_cast<float>(args.m_time_s),
 					.m_water_level = m_water_surface.m_level,
 					.m_fluid_density = m_config.m_fluid_density,
-					.m_drag_coefficient = 0.0f,
+					.m_linear_drag_coefficient = 0.0f,
+					.m_angular_drag_coefficient = 0.0f,
 					.m_quadratic_drag_coefficient = surf_quad_coefficient,
 					.m_tangential_drag_coefficient = surf_tangent_coefficient,
 					.m_time_step_s = args.m_dt,

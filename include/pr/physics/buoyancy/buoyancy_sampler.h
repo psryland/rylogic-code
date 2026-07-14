@@ -57,7 +57,8 @@ namespace pr::physics::buoyancy
 	struct SamplerConfig
 	{
 		float m_fluid_density = 1000.0f;            // kg/m^3
-		float m_drag_time_constant_s = 0.0f;        // linear drag e-fold time; <= 0 disables linear drag
+		float m_linear_drag_time_constant_s = 0.0f; // translational volume-drag e-fold time; <= 0 disables it
+		float m_angular_drag_time_constant_s = 0.0f; // rotational volume-drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
 	};
@@ -712,9 +713,10 @@ namespace pr::physics::buoyancy
 		auto buoy_torque = v4::Zero();
 		auto drag_force = v4::Zero();
 		auto drag_torque = v4::Zero();
-		auto const c_lin = cfg.m_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_drag_time_constant_s : 0.0f;
+		auto const c_linear = cfg.m_linear_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_linear_drag_time_constant_s : 0.0f;
+		auto const c_angular = cfg.m_angular_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_angular_drag_time_constant_s : 0.0f;
 
-		// Volume pass: Froude-Krylov pressure-gradient force and linear damping over the submerged
+		// Volume pass: Froude-Krylov pressure-gradient force and linear/angular damping over the submerged
 		// union, deduplicated by the lowest-index-sibling rule.
 		if (g_mag > math::constants<float>::tiny)
 		{
@@ -761,14 +763,17 @@ namespace pr::physics::buoyancy
 					wet_volume += sample.m_dvol;
 					wet_moment += sample_ws * sample.m_dvol;
 
-					// Weighting damping by wet volume gives force units and makes acceleration depend on
-					// body density rather than its linear dimensions.
-					if (c_lin > 0.0f)
+					// Independent translational and rotational point velocities allow linear wave
+					// following and roll damping to be tuned without changing the sampled wet geometry.
+					if (c_linear > 0.0f || c_angular > 0.0f)
 					{
 						auto const r = sample_ws - com_ws;
-						auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, r);
-						auto const v_rel = v_point - water.Velocity(sample_ws);
-						auto const drag_dF = (-c_lin * sample.m_dvol) * v_rel;
+						auto drag_dF = v4::Zero();
+						if (c_linear > 0.0f)
+							drag_dF -= (c_linear * sample.m_dvol) * (body.m_vel_lin_ws - water.Velocity(sample_ws));
+						if (c_angular > 0.0f)
+							drag_dF -= (c_angular * sample.m_dvol) * Cross(body.m_omega_ws, r);
+
 						drag_force += drag_dF;
 						drag_torque += Cross(r, drag_dF);
 					}

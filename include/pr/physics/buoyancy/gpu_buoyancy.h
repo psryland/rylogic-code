@@ -65,10 +65,17 @@ namespace pr::physics
 			float m_fluid_density = 1000.0f;
 
 			// Linear viscous drag time-constant (seconds). Each wet volume sample contributes
-			//   dF = -(fluid_density / tau) * dV * v_relative
+			//   dF = -(fluid_density / tau_linear) * dV * (v_linear - v_water)
 			// Tau is the e-folding time for a fully submerged body whose density matches the fluid;
 			// lighter bodies decay faster, heavier bodies slower. Set to <= 0 to disable linear drag.
-			float m_drag_time_constant_s = 2.5f;
+			float m_linear_drag_time_constant_s = 5.0f;
+
+			// Angular viscous drag time-constant (seconds). Each wet volume sample contributes
+			//   dF = -(fluid_density / tau_angular) * dV * cross(omega, sample - centre_of_mass)
+			// Integrating the resulting torque over the submerged geometry damps rotation according to
+			// its actual wet shape and lever arms without adding an orientation-specific heuristic.
+			// Set to <= 0 to disable angular volume drag.
+			float m_angular_drag_time_constant_s = 0.75f;
 
 			// Quadratic normal form-drag coefficient (dimensionless). Each wet surface sample contributes
 			//   dF_n = -0.5 * fluid_density * Cd * dA * max(0, v_n)^2 * n_ws

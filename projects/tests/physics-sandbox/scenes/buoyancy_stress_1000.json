@@ -24,7 +24,7 @@
 					"direction": [1.0, 0.0, 0.0],
 					"wavelength": 20.0,
 					"amplitude": 0.6,
-					"phase_speed": 0.5
+					"phase_speed": 0.8
 				},
 				{
 					"direction": [-1.0, 1.0, 0.0],

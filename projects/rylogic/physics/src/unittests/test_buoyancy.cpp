@@ -742,7 +742,8 @@ namespace pr::physics::tests
 			};
 			auto const oracle_cfg = buoyancy::SamplerConfig{
 				.m_fluid_density = config.m_fluid_density,
-				.m_drag_time_constant_s = config.m_drag_time_constant_s,
+				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
+				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
 			};
@@ -895,7 +896,8 @@ namespace pr::physics::tests
 			};
 			auto oracle_cfg = buoyancy::SamplerConfig{
 				.m_fluid_density = config.m_fluid_density,
-				.m_drag_time_constant_s = config.m_drag_time_constant_s,
+				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
+				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
 			};
@@ -927,7 +929,7 @@ namespace pr::physics::tests
 			};
 			auto const config = buoyancy::SamplerConfig{
 				.m_fluid_density = 1000.0f,
-				.m_drag_time_constant_s = 2.0f,
+				.m_linear_drag_time_constant_s = 2.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 			};
 
@@ -947,6 +949,43 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(medium_drag, expected, 1.0e-5f));
 		}
 
+		// Rotational volume drag integrates the sampled lever arms independently of translational damping.
+		// A symmetric fully submerged box therefore receives negligible net force and the closed-form
+		// opposing torque -rho/tau * V*(dx^2+dy^2)/12 about its Z axis.
+		PRUnitTestMethod(AngularDragTimeConstantUsesWetGeometry)
+		{
+			auto const dimensions = v4{2.0f, 2.0f, 1.0f, 0.0f};
+			auto const box = collision::ShapeBox(dimensions);
+			auto const body = buoyancy::BodyState{
+				.m_o2w = m4x4::Translation(0.0f, 0.0f, -10.0f),
+				.m_gravity_ws = AnalyticGravityWS,
+				.m_omega_ws = v4{0.0f, 0.0f, 1.0f, 0.0f},
+			};
+			auto const frame = buoyancy::WaterFrame{};
+			auto const field = FlatField{};
+			auto config = buoyancy::SamplerConfig{
+				.m_fluid_density = 1000.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 1.0f,
+			};
+
+			auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+			auto const volume = dimensions.x * dimensions.y * dimensions.z;
+			auto const polar_volume_moment = volume * (dimensions.x * dimensions.x + dimensions.y * dimensions.y) / 12.0f;
+			auto const expected_torque_z = -(config.m_fluid_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
+			PR_EXPECT(FEqlAbsolute(result.m_drag_force_ws, v4::Zero(), 25.0f));
+			PR_EXPECT(FEqlAbsolute(result.m_drag_torque_ws.x, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(result.m_drag_torque_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlRelative(result.m_drag_torque_ws.z, expected_torque_z, 0.01f));
+
+			// With angular damping disabled, pure rotation must not leak into the independent linear term.
+			config.m_linear_drag_time_constant_s = 0.1f;
+			config.m_angular_drag_time_constant_s = 0.0f;
+			auto const linear_only = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_force_ws, v4::Zero(), 1.0e-5f));
+			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_torque_ws, v4::Zero(), 1.0e-5f));
+		}
+
 		// A fully-submerged box under a long wave receives the configured orbital acceleration
 		// integrated over displaced volume: F_x = -rho*V*A*omega^2 at phase zero.
 		PRUnitTestMethod(GpuCompositeWavePressureHorizontalForce)
@@ -962,7 +1001,8 @@ namespace pr::physics::tests
 
 			// Disable all drag terms so the lateral force is purely from the wave pressure field.
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_drag_time_constant_s = 0.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 			});
@@ -1031,7 +1071,7 @@ namespace pr::physics::tests
 			PR_EXPECT(!diag.m_analytic_valid);
 
 			auto const config = h.m_buoyancy.GetConfig();
-			auto const c_lin = config.m_fluid_density / config.m_drag_time_constant_s;
+			auto const c_lin = config.m_fluid_density / config.m_linear_drag_time_constant_s;
 			auto const expected_force_x = -c_lin * diag.m_volume_m3 * 1.0f;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
 
@@ -1041,6 +1081,47 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			// Symmetric submerged geometry + uniform translation -> zero net torque.
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
+
+		// The GPU volume pass must apply the angular coefficient only to rotational point velocity.
+		// Symmetric fully submerged geometry cancels the force while preserving its opposing drag torque.
+		PRUnitTestMethod(GpuCompositeAngularDragTorque)
+		{
+			auto const dimensions = v4{2.0f, 2.0f, 1.0f, 0.0f};
+			auto box = collision::ShapeBox(dimensions);
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			h.m_bodies[0].VelocityWS(v4{0.0f, 0.0f, 1.0f, 0.0f}, v4::Zero());
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 1.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+			});
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const config = h.m_buoyancy.GetConfig();
+			auto const volume = dimensions.x * dimensions.y * dimensions.z;
+			auto const polar_volume_moment = volume * (dimensions.x * dimensions.x + dimensions.y * dimensions.y) / 12.0f;
+			auto const expected_torque_z = -(config.m_fluid_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
+			auto const rho_g_v = config.m_fluid_density * Length(AnalyticGravityWS) * volume;
+
+			PR_EXPECT(diag.m_valid);
+			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, rho_g_v * 0.01f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.x, 0.0f, 25.0f));
+			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws.y, 0.0f, 25.0f));
+			PR_EXPECT(FEqlRelative(diag.m_torque_ws.z, expected_torque_z, 0.02f));
 		}
 
 		// Composite port of the legacy GpuQuadraticDragLinearMotion check. A fully-submerged box moving at
@@ -1062,7 +1143,8 @@ namespace pr::physics::tests
 
 			// Other drag terms are disabled so the lateral force is purely normal quadratic form drag.
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_drag_time_constant_s = 0.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 			});
 
@@ -1106,7 +1188,8 @@ namespace pr::physics::tests
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_drag_time_constant_s = 0.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.05f,
 			});
@@ -1146,7 +1229,8 @@ namespace pr::physics::tests
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_drag_time_constant_s = 0.0f,
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 10.0f,
 			});
