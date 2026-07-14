@@ -171,10 +171,13 @@ namespace pr::physics::buoyancy
 					auto derived_tets = std::vector<ShapePolytope::Tet>{};
 					if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
 					{
-						if (polytope_tessellation <= 0)
-							throw std::runtime_error("Composite hull polytope is missing its interior tetrahedralisation and no derivation resolution was supplied");
+						if (polytope_tessellation == 0)
+							throw std::runtime_error("Composite hull polytope is missing its interior tetrahedralisation and derivation is disabled");
 
-						TessellatePolytope(poly, polytope_tessellation, derived_verts, derived_tets);
+						if (polytope_tessellation < 0)
+							TetrahedralisePolytope(poly, derived_verts, derived_tets);
+						else
+							TessellatePolytope(poly, polytope_tessellation, derived_verts, derived_tets);
 						if (derived_verts.empty() || derived_tets.empty())
 							throw std::runtime_error("Composite hull polytope interior tetrahedralisation failed");
 					}
@@ -247,8 +250,8 @@ namespace pr::physics::buoyancy
 
 	// Flatten a collision::Shape into an owned CompositeHull. A ShapeArray is decomposed into its
 	// child primitives in child order (the sibling-cull priority); any other shape is treated as a
-	// single primitive. Missing polytope tetrahedra are derived when 'polytope_tessellation' is
-	// positive; otherwise they are rejected.
+	// single primitive. For missing polytope tetrahedra, a negative 'polytope_tessellation' selects
+	// the exact face fan, a positive value selects the stratified grid, and zero rejects the shape.
 	inline CompositeHull FlattenShape(collision::Shape const& hull, int polytope_tessellation = 0)
 	{
 		using namespace collision;

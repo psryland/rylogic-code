@@ -40,6 +40,7 @@ namespace pr::physics
 			float m_drag_coefficient;
 			float m_quadratic_drag_coefficient;
 			float m_tangential_drag_coefficient;
+			float m_time_step_s;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -290,14 +291,15 @@ namespace pr::physics
 
 		// Create the sampled-composite surface-reduce compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyDragSurfaceReduce: constants (b0), the body accumulator
-		// (u0), the per-hull surface headers SRV (t8), the partials UAV (u1), then the diagnostics UAV
-		// (u2). The surface reduce ADDS drag force/torque to the body and the existing diagnostic.
+		// (u0), waves (t1), the per-hull surface headers SRV (t8), the partials UAV (u1), then the
+		// diagnostics UAV (u2). The surface reduce ADDS drag force/torque to the body and diagnostic.
 		::pr::compute::ComputeStep CreateSurfaceReduceStep(ID3D12Device* device)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
 				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
 				.UAV(hlsl::EUAVReg::u0)
+				.SRV(hlsl::ESRVReg::t1)
 				.SRV(hlsl::ESRVReg::t8)
 				.UAV(hlsl::EUAVReg::u1)
 				.UAV(hlsl::EUAVReg::u2)
@@ -383,6 +385,11 @@ namespace pr::physics
 			int m_prim_base;
 			int m_prim_count;
 		};
+		struct ActiveShapeBucket
+		{
+			CompositeShape const* m_shape_data;
+			int m_shape_index;
+		};
 		struct ActiveHullStats
 		{
 			int m_max_volume_samples;
@@ -457,6 +464,7 @@ namespace pr::physics
 		// registration so the per-step Apply/DispatchComposite path only clears and repopulates storage.
 		std::vector<ActiveHull> m_active_hulls;
 		std::vector<ActiveShape> m_active_shapes;
+		std::vector<ActiveShapeBucket> m_active_shape_lookup;
 		std::vector<PendingDiagnostic> m_pending_diagnostics;
 		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
 
@@ -491,6 +499,7 @@ namespace pr::physics
 			,m_composite_hulls()
 			,m_active_hulls()
 			,m_active_shapes()
+			,m_active_shape_lookup()
 			,m_pending_diagnostics()
 			,m_pending_readback()
 			,m_r_partials()
@@ -535,6 +544,15 @@ namespace pr::physics
 			m_active_hulls.reserve(slot_capacity);
 			m_active_shapes.reserve(slot_capacity);
 			m_pending_diagnostics.reserve(slot_capacity);
+
+			// Keep the open-addressed table at least half empty so shared-shape lookup remains
+			// effectively constant time without allocating hash-map nodes during each dispatch.
+			auto bucket_count = std::size_t{1};
+			while (bucket_count < 2 * slot_capacity)
+				bucket_count *= 2;
+
+			if (bucket_count > m_active_shape_lookup.size())
+				m_active_shape_lookup.resize(bucket_count);
 		}
 
 		// Return shared derived data for a collision shape, creating it once per shape pointer and
@@ -757,9 +775,9 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy tangential drag coefficient must be a finite, non-negative value");
 			}
-			if (config.m_polytope_tessellation <= 0)
+			if (config.m_polytope_tessellation == 0)
 			{
-				throw std::runtime_error("GpuBuoyancy polytope tessellation must be greater than zero");
+				throw std::runtime_error("GpuBuoyancy polytope tessellation must select the face fan (negative) or a positive grid resolution");
 			}
 
 			m_config = config;
@@ -880,6 +898,9 @@ namespace pr::physics
 		{
 			m_active_hulls.clear();
 			m_active_shapes.clear();
+			for (auto& bucket : m_active_shape_lookup)
+				bucket.m_shape_data = nullptr;
+
 			assert(m_active_hulls.capacity() >= m_composite_hulls.size());
 			assert(m_active_shapes.capacity() >= m_composite_hulls.size());
 
@@ -924,22 +945,30 @@ namespace pr::physics
 					}
 				}
 
-				// Multiple bodies commonly share a collision shape. Keep one active shape record so
-				// immutable geometry and sample plans are uploaded once for the whole dispatch.
-				auto shape_index = 0;
-				for (; shape_index != static_cast<int>(m_active_shapes.size()); ++shape_index)
+				// Multiple bodies can share a collision shape, while representative workloads can also
+				// contain thousands of unique shapes. Use allocation-free open addressing so both cases
+				// resolve in expected constant time instead of scanning all shapes collected so far.
+				auto const* shape_data = slot.m_shape_data.get();
+				auto const bucket_mask = m_active_shape_lookup.size() - 1;
+				auto bucket_index = (reinterpret_cast<std::uintptr_t>(shape_data) >> 4) & bucket_mask;
+				while (m_active_shape_lookup[bucket_index].m_shape_data != nullptr &&
+					m_active_shape_lookup[bucket_index].m_shape_data != shape_data)
 				{
-					if (m_active_shapes[shape_index].m_shape_data == slot.m_shape_data)
-						break;
+					bucket_index = (bucket_index + 1) & bucket_mask;
 				}
-				if (shape_index == static_cast<int>(m_active_shapes.size()))
+
+				auto& bucket = m_active_shape_lookup[bucket_index];
+				if (bucket.m_shape_data == nullptr)
 				{
+					bucket.m_shape_data = shape_data;
+					bucket.m_shape_index = static_cast<int>(m_active_shapes.size());
 					m_active_shapes.push_back(ActiveShape{
 						.m_shape_data = slot.m_shape_data,
 						.m_prim_base = 0,
 						.m_prim_count = 0,
 					});
 				}
+				auto const shape_index = bucket.m_shape_index;
 
 				m_active_hulls.push_back(ActiveHull{
 					.m_body_index = body_index,
@@ -1013,12 +1042,13 @@ namespace pr::physics
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
 			// Reduce the surface partials and add drag to the body and existing diagnostic. Root parameter
-			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t8(surf_headers),
+			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t1(waves), t8(surf_headers),
 			// u1(partials), u2(diagnostics).
 			args.m_job.m_cmd_list.SetPipelineState(m_surface_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
@@ -1283,6 +1313,7 @@ namespace pr::physics
 				.m_drag_coefficient = volume_drag_coefficient,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_time_step_s = args.m_dt,
 			};
 
 			// Phase 6: sample displaced volume and reduce it directly into each body's force/torque accumulators.
@@ -1308,6 +1339,7 @@ namespace pr::physics
 					.m_drag_coefficient = 0.0f,
 					.m_quadratic_drag_coefficient = surf_quad_coefficient,
 					.m_tangential_drag_coefficient = surf_tangent_coefficient,
+					.m_time_step_s = args.m_dt,
 				};
 
 				RecordSurfacePass(args, cb_surf, addresses);

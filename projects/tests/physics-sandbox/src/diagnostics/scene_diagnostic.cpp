@@ -454,6 +454,54 @@ namespace physics_sandbox::diag
 				log << text;
 		}
 
+		// Report the actual convex-hull complexity and volume range produced by procedural polytope inputs.
+		void PrintPolytopeProfile(std::ofstream& log, Scene const& scene)
+		{
+			auto count = 0;
+			auto min_vert_count = std::numeric_limits<int>::max();
+			auto max_vert_count = 0;
+			auto min_face_count = std::numeric_limits<int>::max();
+			auto max_face_count = 0;
+			auto min_volume = std::numeric_limits<float>::max();
+			auto max_volume = 0.0f;
+			auto total_vert_count = 0;
+			auto total_face_count = 0;
+			auto total_volume = 0.0;
+			for (auto const& body : scene.m_body)
+			{
+				if (!body.HasShape() || body.Shape().m_type != collision::EShape::Polytope)
+					continue;
+
+				auto const& poly = collision::shape_cast<collision::ShapePolytope>(body.Shape());
+				auto const volume = collision::CalcVolume(poly);
+				++count;
+				min_vert_count = std::min(min_vert_count, poly.m_vert_count);
+				max_vert_count = std::max(max_vert_count, poly.m_vert_count);
+				min_face_count = std::min(min_face_count, poly.m_face_count);
+				max_face_count = std::max(max_face_count, poly.m_face_count);
+				min_volume = std::min(min_volume, volume);
+				max_volume = std::max(max_volume, volume);
+				total_vert_count += poly.m_vert_count;
+				total_face_count += poly.m_face_count;
+				total_volume += volume;
+			}
+			if (count == 0)
+				return;
+
+			Emit(log, std::format(
+				"polytope_profile,count={},verts_min={},verts_avg={:.2f},verts_max={},faces_min={},faces_avg={:.2f},faces_max={},volume_min={:.5f},volume_avg={:.5f},volume_max={:.5f}\n",
+				count,
+				min_vert_count,
+				static_cast<double>(total_vert_count) / count,
+				max_vert_count,
+				min_face_count,
+				static_cast<double>(total_face_count) / count,
+				max_face_count,
+				min_volume,
+				total_volume / count,
+				max_volume));
+		}
+
 		BodyTraceState CaptureBodyState(physics::RigidBody const& body)
 		{
 			auto vel = body.VelocityWS();
@@ -1222,6 +1270,17 @@ namespace physics_sandbox::diag
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
 		scene.LoadScene(std::move(scene_desc));
+		Emit(log, std::format(
+			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},shapes={}\n",
+			scene.m_last_load_profile.m_total_ms,
+			scene.m_last_load_profile.m_prepare_ms,
+			scene.m_last_load_profile.m_bbox_ms,
+			scene.m_last_load_profile.m_shapes_ms,
+			scene.m_last_load_profile.m_bodies_ms,
+			scene.m_last_load_profile.m_buoyancy_ms,
+			scene.m_last_load_profile.m_body_count,
+			scene.m_last_load_profile.m_shape_count));
+		PrintPolytopeProfile(log, scene);
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
 		if (column_metric.Enabled())
 		{

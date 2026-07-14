@@ -383,7 +383,13 @@ namespace physics_sandbox
 
 		// Match the buoyancy module's runtime fluid configuration so the visualised forces track the
 		// GPU pass as closely as the one-frame lag allows.
-		auto const cfg = SamplerConfig{ .m_fluid_density = 1000.0f, .m_drag_time_constant_s = 3.0f, .m_quadratic_drag_coefficient = 1.05f };
+		auto const& gpu_cfg = m_gpu_buoyancy->GetConfig();
+		auto const cfg = SamplerConfig{
+			.m_fluid_density = gpu_cfg.m_fluid_density,
+			.m_drag_time_constant_s = gpu_cfg.m_drag_time_constant_s,
+			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
+			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
+		};
 
 		// Map a sample classification to a display colour.
 		auto colour_for = [](ESampleKind kind) -> uint32_t
@@ -1012,7 +1018,9 @@ namespace physics_sandbox
 			// assume the sleep/wake state is already coherent and avoid scanning for missing islands every frame.
 			m_physics.UpdateSleepIslands(m_body);
 		}
+		auto const buoyancy_beg = Clock::now();
 		ConfigureBuoyancy(scene_desc);
+		m_last_load_profile.m_buoyancy_ms = ElapsedMs(buoyancy_beg, Clock::now());
 		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);

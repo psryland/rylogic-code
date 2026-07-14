@@ -71,6 +71,27 @@ namespace physics_sandbox::scene_loader
 				}
 			}
 		}
+		// Select an integer using the generator's random or linearly distributed policy.
+		int SelectInt(int min_value, int max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			switch (selector)
+			{
+				case EGeneratorSelector::Random:
+				{
+					auto range = std::uniform_int_distribution<int>(std::min(min_value, max_value), std::max(min_value, max_value));
+					return range(rng);
+				}
+				case EGeneratorSelector::Linear:
+				{
+					auto const t = LinearT(index, count);
+					return static_cast<int>(std::lround(Lerp(static_cast<float>(min_value), static_cast<float>(max_value), t)));
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown body generator selector");
+				}
+			}
+		}
 		v4 SelectVec3(v4 const& min_value, v4 const& max_value, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
 			return v4{
@@ -86,6 +107,14 @@ namespace physics_sandbox::scene_loader
 				return SelectFloat((*arr)[0].to<float>(), (*arr)[1].to<float>(), selector, index, count, rng);
 
 			return jv.to<float>();
+		}
+		// Read an integer or select one from a two-value range.
+		int ReadIntRange(pr::json::Value const& jv, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
+		{
+			if (auto const* arr = jv.as<pr::json::Array>(); arr != nullptr && arr->size() == 2 && IsNumber((*arr)[0]) && IsNumber((*arr)[1]))
+				return SelectInt((*arr)[0].to<int>(), (*arr)[1].to<int>(), selector, index, count, rng);
+
+			return jv.to<int>();
 		}
 		v4 ReadVec3Range(pr::json::Value const& jv, float w, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
@@ -278,6 +307,83 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
 		}
+
+		// Generate a uniformly distributed direction over the unit sphere.
+		v4 RandomDirection(std::default_random_engine& rng)
+		{
+			auto unit = std::uniform_real_distribution<float>(0.0f, 1.0f);
+			auto const z = 2.0f * unit(rng) - 1.0f;
+			auto const azimuth = constants<float>::tau * unit(rng);
+			auto const radial = std::sqrt(std::max(0.0f, 1.0f - z * z));
+			return v4{radial * std::cos(azimuth), radial * std::sin(azimuth), z, 0.0f};
+		}
+
+		// Generate a non-degenerate radial point cloud whose convex hull forms a varied faceted body.
+		// Axis anchors bound every principal extent while the remaining random directions produce the
+		// irregular facets. Independent positive and negative radii avoid imposing central symmetry.
+		BodyDesc ReadRandomConvexShape(pr::json::Object const& jshape, int index, int count, std::default_random_engine& rng)
+		{
+			auto point_count = 12;
+			if (auto const* jpoint_count = jshape.find("point_count"))
+				point_count = ReadIntRange(*jpoint_count, EGeneratorSelector::Random, index, count, rng);
+			if (point_count < 6)
+				throw std::runtime_error("Random convex shape 'point_count' must be at least 6");
+
+			auto radius_min = 0.7f;
+			auto radius_max = 1.0f;
+			if (auto const* jradius = jshape.find("radius"))
+			{
+				if (auto const* range = jradius->as<pr::json::Array>(); range != nullptr && range->size() == 2 && IsNumber((*range)[0]) && IsNumber((*range)[1]))
+				{
+					radius_min = (*range)[0].to<float>();
+					radius_max = (*range)[1].to<float>();
+				}
+				else
+				{
+					radius_min = radius_max = jradius->to<float>();
+				}
+			}
+			if (!(radius_min > 0.0f) || !(radius_max > 0.0f) || !std::isfinite(radius_min) || !std::isfinite(radius_max))
+				throw std::runtime_error("Random convex shape 'radius' values must be finite and positive");
+
+			auto aspect = v4{1.0f, 1.0f, 1.0f, 0.0f};
+			if (auto const* jaspect = jshape.find("aspect"))
+				aspect = ReadVec3Range(*jaspect, 0.0f, EGeneratorSelector::Random, index, count, rng);
+			if (!(aspect.x > 0.0f) || !(aspect.y > 0.0f) || !(aspect.z > 0.0f) || !IsFinite(aspect))
+				throw std::runtime_error("Random convex shape 'aspect' values must be finite and positive");
+
+			// The six axis anchors guarantee that sparse random samples cannot produce a nearly planar
+			// or needle-like hull with an ill-conditioned inertia tensor.
+			auto desc = BodyDesc{};
+			desc.shape_type = BodyDesc::EShape::Polytope;
+			desc.polytope_verts.reserve(point_count);
+			auto radius = std::uniform_real_distribution<float>(std::min(radius_min, radius_max), std::max(radius_min, radius_max));
+			auto const anchors = std::array{
+				v4::XAxis(),
+				v4::YAxis(),
+				v4::ZAxis(),
+			};
+			for (auto const& direction : anchors)
+			{
+				desc.polytope_verts.push_back((direction * radius(rng) * aspect).w1());
+				desc.polytope_verts.push_back((-direction * radius(rng) * aspect).w1());
+			}
+
+			// Additional antipodal direction pairs retain the guaranteed origin enclosure. An odd
+			// requested count receives one final radial point without changing that invariant.
+			auto const remaining_count = point_count - isize(desc.polytope_verts);
+			for (auto pair_index = 0; pair_index != remaining_count / 2; ++pair_index)
+			{
+				auto const direction = RandomDirection(rng);
+				desc.polytope_verts.push_back((direction * radius(rng) * aspect).w1());
+				desc.polytope_verts.push_back((-direction * radius(rng) * aspect).w1());
+			}
+			if ((remaining_count & 1) != 0)
+				desc.polytope_verts.push_back((RandomDirection(rng) * radius(rng) * aspect).w1());
+
+			return desc;
+		}
+
 		BodyDesc ReadGeneratorShape(pr::json::Value const& jshape, NamedShapeMap const& shapes, EGeneratorSelector selector, int index, int count, std::default_random_engine& rng)
 		{
 			auto const* shape_name = jshape.as<std::string>();
@@ -310,6 +416,23 @@ namespace physics_sandbox::scene_loader
 					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
 				return desc;
 			}
+			if (shape_type == "polytope")
+			{
+				auto desc = BodyDesc{};
+				desc.shape_type = BodyDesc::EShape::Polytope;
+
+				auto const& vertices = jshape_obj["vertices"].to_array();
+				if (vertices.size() < 4)
+					throw std::runtime_error("Polytope shape requires at least 4 non-coplanar vertices");
+
+				desc.polytope_verts.reserve(vertices.size());
+				for (auto const& vertex : vertices)
+					desc.polytope_verts.push_back(ReadVec3Range(vertex, 1.0f, selector, index, count, rng));
+
+				return desc;
+			}
+			if (shape_type == "random_convex")
+				return ReadRandomConvexShape(jshape_obj, index, count, rng);
 
 			return ReadShape(shape);
 		}
@@ -369,6 +492,10 @@ namespace physics_sandbox::scene_loader
 			if (instance_count <= 0)
 				throw std::runtime_error("Body generator 'instance_count' must be greater than zero");
 
+			auto unique_shapes = false;
+			if (auto const* junique_shapes = jgen.find("unique_shapes"))
+				unique_shapes = junique_shapes->to<bool>();
+
 			auto const* jshape = jgen.find("shape");
 			if (jshape == nullptr)
 				throw std::runtime_error("Body generator requires a 'shape' field");
@@ -379,7 +506,9 @@ namespace physics_sandbox::scene_loader
 			if (shape_palette_count <= 0)
 				throw std::runtime_error("Body generator 'shape_palette_count' must be greater than zero");
 
-			shape_palette_count = std::min(shape_palette_count, instance_count);
+			// Unique mode intentionally builds one descriptor per body so scene loading exercises
+			// collision-shape construction and derived-data caching for non-shared geometry.
+			shape_palette_count = unique_shapes ? instance_count : std::min(shape_palette_count, instance_count);
 
 			auto shape_palette = std::vector<BodyDesc>{};
 			shape_palette.reserve(shape_palette_count);
@@ -405,7 +534,9 @@ namespace physics_sandbox::scene_loader
 
 			for (auto body_index = 0; body_index != instance_count; ++body_index)
 			{
-				auto palette_index = SelectPaletteIndex(selector, body_index, instance_count, shape_palette_count, rng);
+				auto palette_index = unique_shapes
+					? body_index
+					: SelectPaletteIndex(selector, body_index, instance_count, shape_palette_count, rng);
 				auto body = shape_palette[palette_index];
 				body.name = GeneratedName(name, body_index, instance_count);
 

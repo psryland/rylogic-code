@@ -35,6 +35,7 @@ namespace physics_sandbox
 			double m_bbox_ms = 0;
 			double m_shapes_ms = 0;
 			double m_bodies_ms = 0;
+			double m_buoyancy_ms = 0;
 			double m_ldraw_build_ms = 0;
 			double m_ldraw_serialise_ms = 0;
 			double m_ldraw_parse_ms = 0;

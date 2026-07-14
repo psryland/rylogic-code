@@ -68,7 +68,7 @@ namespace pr::physics
 			//   dF = -(fluid_density / tau) * dV * v_relative
 			// Tau is the e-folding time for a fully submerged body whose density matches the fluid;
 			// lighter bodies decay faster, heavier bodies slower. Set to <= 0 to disable linear drag.
-			float m_drag_time_constant_s = 3.0f;
+			float m_drag_time_constant_s = 2.5f;
 
 			// Quadratic normal form-drag coefficient (dimensionless). Each wet surface sample contributes
 			//   dF_n = -0.5 * fluid_density * Cd * dA * max(0, v_n)^2 * n_ws
@@ -81,12 +81,12 @@ namespace pr::physics
 			//   dF_t = -0.5 * fluid_density * Ct * dA * |v_t| * v_t
 			// A modest value primarily resists fast sliding and tumbling without suppressing slow
 			// hydrostatic motion. Set to zero to disable tangential drag.
-			float m_tangential_drag_coefficient = 0.20f;
+			float m_tangential_drag_coefficient = 0.35f;
 
-			// Grid resolution used whenever a registration or shape refresh derives missing interior
-			// tetrahedra. Higher values reduce deterministic sampling variance at the cost of
-			// registration time, storage, and logarithmically increasing sample-selection work.
-			int m_polytope_tessellation = 5;
+			// Interior representation used when a collision polytope omits volume tetrahedra. The
+			// default negative value selects an exact O(face count) fan from the volume centre. A
+			// positive value retains the slower stratified grid at that longest-axis resolution.
+			int m_polytope_tessellation = -1;
 		};
 
 		struct BodyState
@@ -195,7 +195,7 @@ namespace pr::physics
 		WaterSurface const& GetWaterSurface() const;
 
 		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
-		// Engine::ExternalForces; polytope tessellation applies to later registrations and shape refreshes.
+		// Engine::ExternalForces; polytope derivation applies to later registrations and shape refreshes.
 		void SetConfig(Config const& config);
 
 		// Return the tunable buoyancy parameters currently in effect.

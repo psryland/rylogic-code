@@ -457,6 +457,48 @@ namespace pr::collision
 		return true;
 	}
 
+	// Tetrahedralise a convex polytope by joining one interior vertex to every triangular surface face.
+	// The face triangles already tile the boundary, so the resulting tetrahedra exactly tile the volume
+	// in O(face count) time. Their shape does not affect volume-weighted uniform sampling correctness.
+	inline void TetrahedralisePolytope(ShapePolytope const& poly, std::vector<v4>& out_verts, std::vector<ShapePolytope::Tet>& out_tets)
+	{
+		using Tet = ShapePolytope::Tet;
+
+		out_verts.resize(0);
+		out_tets.resize(0);
+
+		if (poly.m_vert_count == 0 || poly.m_face_count == 0)
+			return;
+
+		// Using the calculated volume centre keeps this helper valid for any convex ShapePolytope,
+		// including manually authored shapes whose local origin is not inside the hull.
+		out_verts.reserve(static_cast<std::size_t>(poly.m_vert_count) + 1);
+		out_verts.push_back(CalcCentreOfMass(poly).w1());
+		out_verts.insert(out_verts.end(), poly.vert_beg(), poly.vert_end());
+
+		// Share the interior vertex and the copied surface vertices between all tetrahedra. Correct
+		// orientation preserves the positive-volume convention expected by the sampling CDF.
+		out_tets.reserve(poly.m_face_count);
+		for (auto const& face : poly.faces())
+		{
+			auto tet = Tet{};
+			tet.m_corner[0] = 0;
+			tet.m_corner[1] = static_cast<int>(face.m_index[0]) + 1;
+			tet.m_corner[2] = static_cast<int>(face.m_index[1]) + 1;
+			tet.m_corner[3] = static_cast<int>(face.m_index[2]) + 1;
+
+			auto const vol6 = tetramesh::Volume6(
+				out_verts[tet.m_corner[0]],
+				out_verts[tet.m_corner[1]],
+				out_verts[tet.m_corner[2]],
+				out_verts[tet.m_corner[3]]);
+			if (vol6 < 0.0f)
+				std::swap(tet.m_corner[2], tet.m_corner[3]);
+
+			out_tets.push_back(tet);
+		}
+	}
+
 	// Tetrahedralise the interior of a convex polytope into well-shaped tetrahedra.
 	// Fills 'out_verts' and 'out_tets' (indices into 'out_verts') with a tetrahedralisation whose
 	// union exactly fills the polytope. This is used for volumetric sampling (e.g. buoyancy).
@@ -690,8 +732,9 @@ namespace pr::collision
 	// Build a ShapePolytope from a set of points using convex hull.
 	// Returns the polytope packed into a byte_data<16> buffer suitable for use as a collision shape.
 	// The caller owns the buffer and can access the shape via: buf.as<ShapePolytope>()
-	// 'tess_resolution' (0 = off) requests an interior tetrahedralisation for volumetric sampling
-	// (e.g. buoyancy); the value is the number of grid cells along the polytope's longest axis.
+	// 'tess_resolution' requests an interior tetrahedralisation for volumetric sampling: zero omits
+	// volume data, a negative value uses the exact O(face count) face fan, and a positive value uses
+	// that many grid cells along the longest axis for stronger spatial sample stratification.
 	inline byte_data<16> BuildPolytopeFromPoints(std::span<v4 const> points, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None, int tess_resolution = 0)
 	{
 		using Face = ShapePolytope::Face;
@@ -905,11 +948,14 @@ namespace pr::collision
 		// in the final centre-of-mass-local frame (verts already shifted, planes already computed),
 		// so the volume tets align with the collision shape. The tet count is not known up front, so
 		// the data is computed into temporaries and then re-packed into a correctly-sized buffer.
-		if (tess_resolution > 0)
+		if (tess_resolution != 0)
 		{
 			std::vector<v4> vol_verts;
 			std::vector<ShapePolytope::Tet> tets;
-			TessellatePolytope(poly, tess_resolution, vol_verts, tets);
+			if (tess_resolution < 0)
+				TetrahedralisePolytope(poly, vol_verts, tets);
+			else
+				TessellatePolytope(poly, tess_resolution, vol_verts, tets);
 
 			auto nvv = static_cast<int>(vol_verts.size());
 			auto nt = static_cast<int>(tets.size());

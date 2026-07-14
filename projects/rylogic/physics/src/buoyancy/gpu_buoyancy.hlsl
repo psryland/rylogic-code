@@ -25,6 +25,7 @@ struct CBufGpuBuoyancy
 	float drag_coefficient; // fluid_density / drag_time_constant, applied per wet dV
 	float quadratic_drag_coefficient;
 	float tangential_drag_coefficient;
+	float time_step_s;
 };
 
 struct GpuBuoyancyWave
@@ -194,6 +195,34 @@ float3 EvaluateWaterVelocity(float3 pos_ws)
 		velocity.z += speed * c;
 	}
 	return velocity;
+}
+
+// Limit a dissipative surface-drag wrench to the impulse that minimises the body's relative kinetic
+// energy during this time step. Explicit integration may otherwise carry a fast or light body past
+// zero relative velocity; quadratic drag then alternates sign and injects energy on later steps.
+float SurfaceDragScale(GpuRigidBody body, float3 force_ws, float3 torque_ws)
+{
+	float inv_mass = body.os_com_and_invmass.w;
+	if (inv_mass <= 0.0f || g.time_step_s <= 0.0f)
+		return 1.0f;
+
+	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+	float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+	float3 linear_velocity_ws = inv_mass * body.momentum_lin.xyz;
+	float3 angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
+	float3 relative_linear_velocity_ws = linear_velocity_ws - EvaluateWaterVelocity(com_ws);
+
+	// A non-negative power means the spatially varying water field is driving the body rather than
+	// damping its current generalized velocity, so that physically useful transfer is left unchanged.
+	float power = dot(force_ws, relative_linear_velocity_ws) + dot(torque_ws, angular_velocity_ws);
+	if (power >= 0.0f)
+		return 1.0f;
+
+	float response = inv_mass * dot(force_ws, force_ws) + dot(torque_ws, mul(ws_iinv, torque_ws));
+	return response > BUOY_TINY
+		? saturate(-power / (g.time_step_s * response))
+		: 1.0f;
 }
 
 // Sum all entries in the shared reduction arrays.
@@ -625,14 +654,21 @@ void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id
 
 		GpuRigidBody body = g_bodies[header.body_index];
 		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
+		float4 drag_force_ws = s_force_ws[0];
+		float4 drag_torque_ws = s_torque_ws[0];
 		if (dynamic)
 		{
-			body.force_lin += s_force_ws[0];
-			body.force_ang += s_torque_ws[0];
+			// Preserve the sampled wrench direction while preventing an explicit drag impulse from
+			// crossing the minimum-relative-energy point during this integration step.
+			float scale = SurfaceDragScale(body, drag_force_ws.xyz, drag_torque_ws.xyz);
+			drag_force_ws *= scale;
+			drag_torque_ws *= scale;
+			body.force_lin += drag_force_ws;
+			body.force_ang += drag_torque_ws;
 			g_bodies[header.body_index] = body;
 		}
 
-		g_diagnostics[hull_index].force_ws += s_force_ws[0];
-		g_diagnostics[hull_index].torque_ws += s_torque_ws[0];
+		g_diagnostics[hull_index].force_ws += drag_force_ws;
+		g_diagnostics[hull_index].torque_ws += drag_torque_ws;
 	}
 }

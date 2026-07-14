@@ -278,6 +278,53 @@ namespace pr::physics::tests
 			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty() && hull.m_tets.empty() && hull.m_tet_cdf.empty() && hull.m_face_planes.empty());
 		}
 
+		// The face fan for the stress-scene octahedron has one shared centre, one copy of each surface
+		// vertex, and one tetrahedron per face while preserving volume and first moment.
+		PRUnitTestMethod(FlattenOctahedronFaceFan)
+		{
+			auto const points = std::array{
+				v4{+0.7f, 0.0f, 0.0f, 1.0f},
+				v4{-0.7f, 0.0f, 0.0f, 1.0f},
+				v4{0.0f, +0.7f, 0.0f, 1.0f},
+				v4{0.0f, -0.7f, 0.0f, 1.0f},
+				v4{0.0f, 0.0f, +0.6f, 1.0f},
+				v4{0.0f, 0.0f, -0.6f, 1.0f},
+			};
+			auto shape = collision::BuildPolytopeFromPoints(points);
+			auto const& poly = shape.as<collision::ShapePolytope>();
+			auto const hull = buoyancy::FlattenShape(poly, -1);
+			auto const logical_bytes =
+				hull.m_primitives.size() * sizeof(hull.m_primitives[0]) +
+				hull.m_verts.size() * sizeof(hull.m_verts[0]) +
+				hull.m_volume_verts.size() * sizeof(hull.m_volume_verts[0]) +
+				hull.m_tets.size() * sizeof(hull.m_tets[0]) +
+				hull.m_tet_cdf.size() * sizeof(hull.m_tet_cdf[0]) +
+				hull.m_face_planes.size() * sizeof(hull.m_face_planes[0]) +
+				hull.m_face_verts.size() * sizeof(hull.m_face_verts[0]);
+			PR_EXPECT(hull.m_primitives.size() == 1);
+			PR_EXPECT(hull.m_verts.size() == 6);
+			PR_EXPECT(hull.m_volume_verts.size() == 7);
+			PR_EXPECT(hull.m_tets.size() == 8);
+			PR_EXPECT(hull.m_tet_cdf.size() == 8);
+			PR_EXPECT(hull.m_face_planes.size() == 8);
+			PR_EXPECT(logical_bytes == 752);
+
+			auto volume = 0.0f;
+			auto first_moment = v4::Zero();
+			for (auto const& tet : hull.m_tets)
+			{
+				auto const a = hull.m_volume_verts[tet.x];
+				auto const b = hull.m_volume_verts[tet.y];
+				auto const c = hull.m_volume_verts[tet.z];
+				auto const d = hull.m_volume_verts[tet.w];
+				auto const tet_volume = tetramesh::Volume(a, b, c, d);
+				volume += tet_volume;
+				first_moment += (tet_volume * (a + b + c + d) / 4.0f).w0();
+			}
+			PR_EXPECT(FEqlRelative(volume, buoyancy::PrimitiveVolume(poly), 1e-5f));
+			PR_EXPECT(FEqlAbsolute(first_moment, v4::Zero(), 1e-6f));
+		}
+
 		// A ShapeArray of two boxes flattens to two Box primitives in child order with distinct transforms.
 		PRUnitTestMethod(FlattenArrayTwoBoxes)
 		{
@@ -411,8 +458,8 @@ namespace pr::physics::tests
 			PR_EXPECT(threw);
 		}
 
-		// A collision-only polytope can be converted to buoyancy geometry without changing the source
-		// shape. The configured resolution supplies an exact interior tetrahedralisation on demand.
+		// A collision-only polytope can be converted to compact buoyancy geometry without changing the
+		// source shape. The face fan contributes one centre vertex and one tetrahedron per surface face.
 		PRUnitTestMethod(FlattenPolytopeDerivesMissingTets)
 		{
 			v4 pts[] = {
@@ -423,12 +470,12 @@ namespace pr::physics::tests
 			};
 			auto buf = collision::BuildPolytopeFromPoints(pts);
 			auto const& poly = buf.as<collision::ShapePolytope>();
-			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly), 5);
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly), -1);
 
 			PR_EXPECT(poly.m_tet_count == 0);
 			PR_EXPECT(hull.m_primitives.size() == 1);
-			PR_EXPECT(hull.m_primitives[0].m_tet_count > 0);
-			PR_EXPECT(hull.m_primitives[0].m_volume_vert_count > 0);
+			PR_EXPECT(hull.m_primitives[0].m_tet_count == poly.m_face_count);
+			PR_EXPECT(hull.m_primitives[0].m_volume_vert_count == poly.m_vert_count + 1);
 			PR_EXPECT(hull.m_tet_cdf.size() == hull.m_tets.size());
 			PR_EXPECT(FEqlRelative(buoyancy::PrimitiveVolume(collision::shape_cast(poly)), 8.0f, 1e-4f));
 		}
@@ -1083,6 +1130,34 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
+		}
+
+		// A quadratic drag impulse is limited at the minimum-relative-energy point so an explicit step
+		// cannot reverse the body's velocity and turn nominal damping into an energy source.
+		PRUnitTestMethod(GpuCompositeTangentialDragDoesNotOvershoot)
+		{
+			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
+			h.m_bodies[0].NeverSleep(true);
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
+
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 10.0f,
+			});
+
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			h.m_buoyancy.CompleteStep();
+
+			auto const velocity = h.m_bodies[0].VelocityWS().lin;
+			PR_EXPECT(velocity.x >= -1e-4f);
+			PR_EXPECT(velocity.x <= 0.05f);
 		}
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical

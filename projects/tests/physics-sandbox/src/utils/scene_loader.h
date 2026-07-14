@@ -70,8 +70,10 @@ namespace physics_sandbox::scene_loader
 	//                 "selector": "random",                  // Optional: "random" or "linear", defaults to "random"
 	//                 "instance_count": 20,                  // Optional, defaults to 1
 	//                 "shape_palette_count": 8,              // Optional, defaults to min(instance_count, 16)
+	//                 "unique_shapes": false,                // Optional: generate one distinct shape descriptor per body
 	//                 "colour": ["0xFF00AA00", "0xFF00FF00"],
-	//                 "shape": "unit-box",                  // Shape name or inline generator shape object
+	//                 "shape": "unit-box",                  // Shape name or inline generator shape
+	//                 // Random convex shape: {"type":"random_convex","point_count":[12,24],"radius":[0.7,1.0],"aspect":[[0.7,0.7,0.7],[1.3,1.3,1.3]]}
 	//                 "scale": [0.5, 2.0],                  // Optional uniform shape scale palette
 	//                 "density": 500.0,                     // Mutually exclusive with mass
 	//                 "position": [[-5, 0, 0], [+5, 0, 0]],

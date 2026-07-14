@@ -1,6 +1,6 @@
 {
 	"scene": {
-		"description": "Buoyancy scaling benchmark: 500 constant-density boxes spanning 0.5x to 2x scale and 500 shared tessellated octahedra fall into wavy water and float. The broad deterministic spawn area keeps most trajectories independent while allowing occasional contacts.",
+		"description": "Buoyancy scaling benchmark: 500 constant-density boxes and 500 unique faceted convex point-cloud hulls with varied topology, dimensions, and asymmetry fall into wavy water and float. The broad deterministic spawn area keeps most trajectories independent while allowing occasional contacts.",
 		"seed": 1547575334,
 		"camera": {
 			"position": [0.0, -150.0, 105.0],
@@ -39,18 +39,6 @@
 				"name": "buoyancy-stress-box",
 				"type": "box",
 				"dimensions": [1.2, 1.2, 0.8]
-			},
-			"octahedron": {
-				"name": "buoyancy-stress-octahedron",
-				"type": "polytope",
-				"vertices": [
-					[0.7, 0.0, 0.0],
-					[-0.7, 0.0, 0.0],
-					[0.0, 0.7, 0.0],
-					[0.0, -0.7, 0.0],
-					[0.0, 0.0, 0.6],
-					[0.0, 0.0, -0.6]
-				]
 			}
 		},
 		"body_generators": [
@@ -72,8 +60,14 @@
 				"name": "floater-poly-#",
 				"selector": "random",
 				"instance_count": 500,
-				"shape_palette_count": 1,
-				"shape": "buoyancy-stress-octahedron",
+				"unique_shapes": true,
+				"shape": {
+					"type": "random_convex",
+					"point_count": [12, 24],
+					"radius": [0.7, 1.0],
+					"aspect": [[0.7, 0.7, 0.7], [1.3, 1.3, 1.3]]
+				},
+				"scale": [0.6, 1.8],
 				"colour": ["0xFFE09050", "0xFFFFD090"],
 				"density": 434.0,
 				"position": [[-70.0, -70.0, 6.0], [70.0, 70.0, 18.0]],
