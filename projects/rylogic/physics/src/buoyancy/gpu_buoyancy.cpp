@@ -33,7 +33,7 @@ namespace pr::physics
 		{
 			int m_hull_count;
 			int m_groups_per_hull;
-			int m_wave_count;
+			int m_water_field_count;
 			float m_time_s;
 			float m_water_level;
 			float m_fluid_density;
@@ -208,25 +208,49 @@ namespace pr::physics
 			return res;
 		}
 
+		// Validate a custom water-field shader contract before it is used to compile any pipelines.
+		GpuBuoyancy::WaterFieldExtension ValidateWaterFieldExtension(GpuBuoyancy::WaterFieldExtension extension)
+		{
+			if (!extension.Enabled())
+			{
+				if (!extension.m_shader_include.empty() || extension.m_element_stride != 0)
+					throw std::runtime_error("GpuBuoyancy water-field extension requires both a shader include and an element stride");
+
+				return extension;
+			}
+			if (extension.m_element_stride <= 0 || extension.m_element_stride % 16 != 0)
+				throw std::runtime_error("GpuBuoyancy water-field element stride must be a positive multiple of 16 bytes");
+
+			return extension;
+		}
+
 		// Compile a runtime compute shader entry point from the physics buoyancy shader source.
-		std::vector<uint8_t> CompileBuoyancyShader(wchar_t const* entry_point)
+		std::vector<uint8_t> CompileBuoyancyShader(wchar_t const* entry_point, GpuBuoyancy::WaterFieldExtension const& water_field_extension)
 		{
 			auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
-			return ::pr::compute::ShaderCompiler{}
+			auto compiler = ::pr::compute::ShaderCompiler{}
 				.Source("src/buoyancy/gpu_buoyancy.hlsl", resolver)
 				.HlslVersion(::pr::compute::EHlslVersion::Hlsl2021)
 				.Define(L"SHADER_BUILD")
 				.Optimise(true)
 				.ShaderModel(L"cs_6_6")
-				.EntryPoint(entry_point)
-				.Compile();
+				.EntryPoint(entry_point);
+
+			// A quoted macro expands directly in '#include GPU_BUOYANCY_WATER_FIELD_INCLUDE', allowing
+			// the existing resource resolver to locate application-owned HLSL without physics knowing its path.
+			if (water_field_extension.Enabled())
+			{
+				auto const include = std::format(L"\"{}\"", Widen(water_field_extension.m_shader_include));
+				compiler.Define(L"GPU_BUOYANCY_WATER_FIELD_INCLUDE", include);
+			}
+			return compiler.Compile();
 		}
 
 		// Create the sampled-composite volume-sample compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyVolumeSamples: constants (b0), the body accumulator (u0),
-		// the wave SRV (t1), the volume-pass SRVs (t2..t7), the tet CDF (t12), then the partials UAV
+		// the water-field SRV (t1), the volume-pass SRVs (t2..t7), the tet CDF (t12), then the partials UAV
 		// (u1). The legacy box-hull SRV (t0) and diagnostics UAV (u2) are unused by this kernel.
-		::pr::compute::ComputeStep CreateVolumeStep(ID3D12Device* device)
+		::pr::compute::ComputeStep CreateVolumeStep(ID3D12Device* device, GpuBuoyancy::WaterFieldExtension const& water_field_extension)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
@@ -243,14 +267,14 @@ namespace pr::physics
 				.UAV(hlsl::EUAVReg::u1)
 				.Create(device, "Physics.GpuBuoyancy.Volume.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeSamples")).Create(device, "Physics.GpuBuoyancy.Volume.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeSamples", water_field_extension)).Create(device, "Physics.GpuBuoyancy.Volume.PSO");
 			return step;
 		}
 
 		// Create the sampled-composite volume-reduce compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyVolumeReduce: constants (b0), the body accumulator (u0),
 		// the per-hull headers SRV (t2), the partials UAV (u1), then the diagnostics UAV (u2).
-		::pr::compute::ComputeStep CreateVolumeReduceStep(ID3D12Device* device)
+		::pr::compute::ComputeStep CreateVolumeReduceStep(ID3D12Device* device, GpuBuoyancy::WaterFieldExtension const& water_field_extension)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
@@ -261,16 +285,16 @@ namespace pr::physics
 				.UAV(hlsl::EUAVReg::u2)
 				.Create(device, "Physics.GpuBuoyancy.VolumeReduce.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeReduce")).Create(device, "Physics.GpuBuoyancy.VolumeReduce.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeReduce", water_field_extension)).Create(device, "Physics.GpuBuoyancy.VolumeReduce.PSO");
 			return step;
 		}
 
 		// Create the sampled-composite surface-sample (drag) compute step. The root signature mirrors
 		// the resource access order of CSBuoyancyDragSurfaceSamples: constants (b0), the body
-		// accumulator (u0), the wave SRV (t1, for water height/velocity), the primitives SRV (t3) and
+		// accumulator (u0), the water-field SRV (t1, for water height/velocity), the primitives SRV (t3) and
 		// face planes SRV (t6, for the sibling cull), the four surface-pass SRVs (t8..t11), then the
 		// partials UAV (u1). Root descriptors need not be contiguous.
-		::pr::compute::ComputeStep CreateSurfaceStep(ID3D12Device* device)
+		::pr::compute::ComputeStep CreateSurfaceStep(ID3D12Device* device, GpuBuoyancy::WaterFieldExtension const& water_field_extension)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
@@ -286,15 +310,15 @@ namespace pr::physics
 				.UAV(hlsl::EUAVReg::u1)
 				.Create(device, "Physics.GpuBuoyancy.Surface.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceSamples")).Create(device, "Physics.GpuBuoyancy.Surface.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceSamples", water_field_extension)).Create(device, "Physics.GpuBuoyancy.Surface.PSO");
 			return step;
 		}
 
 		// Create the sampled-composite surface-reduce compute step. The root signature mirrors the
 		// resource access order of CSBuoyancyDragSurfaceReduce: constants (b0), the body accumulator
-		// (u0), waves (t1), the per-hull surface headers SRV (t8), the partials UAV (u1), then the
+		// (u0), water field (t1), the per-hull surface headers SRV (t8), the partials UAV (u1), then the
 		// diagnostics UAV (u2). The surface reduce ADDS drag force/torque to the body and diagnostic.
-		::pr::compute::ComputeStep CreateSurfaceReduceStep(ID3D12Device* device)
+		::pr::compute::ComputeStep CreateSurfaceReduceStep(ID3D12Device* device, GpuBuoyancy::WaterFieldExtension const& water_field_extension)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
@@ -306,7 +330,7 @@ namespace pr::physics
 				.UAV(hlsl::EUAVReg::u2)
 				.Create(device, "Physics.GpuBuoyancy.SurfaceReduce.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceReduce")).Create(device, "Physics.GpuBuoyancy.SurfaceReduce.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceReduce", water_field_extension)).Create(device, "Physics.GpuBuoyancy.SurfaceReduce.PSO");
 			return step;
 		}
 	}
@@ -407,7 +431,7 @@ namespace pr::physics
 		// GPU virtual addresses for the transient upload blocks consumed by the sampled-composite passes.
 		struct DispatchAddresses
 		{
-			D3D12_GPU_VIRTUAL_ADDRESS m_waves;
+			D3D12_GPU_VIRTUAL_ADDRESS m_water_field;
 			D3D12_GPU_VIRTUAL_ADDRESS m_volume_headers;
 			D3D12_GPU_VIRTUAL_ADDRESS m_volume_primitives;
 			D3D12_GPU_VIRTUAL_ADDRESS m_volume_records;
@@ -426,6 +450,7 @@ namespace pr::physics
 		ID3D12Device* m_device;
 		StepIndexResolver m_step_index_resolver;
 		BodyStateResolver m_body_state_resolver;
+		WaterFieldExtension m_water_field_extension;
 
 		// Immutable compute pipelines and the engine subscription used to append buoyancy work to each GPU step.
 		::pr::compute::ComputeStep m_volume_step;
@@ -436,6 +461,8 @@ namespace pr::physics
 
 		// Runtime settings and registration-owned hull data. Hull slots are indexed by stable body index.
 		WaterSurface m_water_surface;
+		std::vector<std::byte> m_water_field;
+		float m_water_field_level;
 		Config m_config;
 		std::unordered_map<ShapeCacheKey, std::weak_ptr<CompositeShape const>, ShapeCacheHash> m_shape_cache;
 		std::vector<CompositeSlot> m_composite_hulls;
@@ -461,19 +488,22 @@ namespace pr::physics
 		std::vector<Diagnostics> m_diagnostics;
 
 		// Construct and subscribe the buoyancy compute pass.
-		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
+		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension)
 			:m_device(device)
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
-			,m_volume_step(CreateVolumeStep(device))
-			,m_volume_reduce_step(CreateVolumeReduceStep(device))
-			,m_surface_step(CreateSurfaceStep(device))
-			,m_surface_reduce_step(CreateSurfaceReduceStep(device))
+			,m_water_field_extension(ValidateWaterFieldExtension(std::move(water_field_extension)))
+			,m_volume_step(CreateVolumeStep(device, m_water_field_extension))
+			,m_volume_reduce_step(CreateVolumeReduceStep(device, m_water_field_extension))
+			,m_surface_step(CreateSurfaceStep(device, m_water_field_extension))
+			,m_surface_reduce_step(CreateSurfaceReduceStep(device, m_water_field_extension))
 			,m_external_force_sub(engine.ExternalForces += [this](Engine& sender, Engine::ExternalForceArgs const& args)
 			{
 				Apply(sender, args);
 			})
 			,m_water_surface()
+			,m_water_field()
+			,m_water_field_level()
 			,m_config()
 			,m_shape_cache()
 			,m_composite_hulls()
@@ -730,6 +760,9 @@ namespace pr::physics
 		// Set the water surface used by subsequent buoyancy force dispatches.
 		void SetWaterSurface(WaterSurface const& water_surface)
 		{
+			if (m_water_field_extension.Enabled())
+				throw std::runtime_error("GpuBuoyancy custom water-field mode does not accept WaterSurface data");
+
 			m_water_surface = water_surface.Normalised();
 		}
 
@@ -737,6 +770,40 @@ namespace pr::physics
 		WaterSurface const& GetWaterSurface() const
 		{
 			return m_water_surface;
+		}
+
+		// Copy a custom water-field snapshot after validating its configured fixed stride.
+		void SetWaterField(std::span<std::byte const> elements, int element_count, float water_level)
+		{
+			if (!m_water_field_extension.Enabled())
+				throw std::runtime_error("GpuBuoyancy requires a WaterFieldExtension before custom field data can be set");
+			if (element_count < 0)
+				throw std::runtime_error("GpuBuoyancy water-field element count cannot be negative");
+			if (!std::isfinite(water_level))
+				throw std::runtime_error("GpuBuoyancy water level must be finite");
+
+			auto const expected_size = static_cast<std::size_t>(element_count) * static_cast<std::size_t>(m_water_field_extension.m_element_stride);
+			if (elements.size() != expected_size)
+				throw std::runtime_error("GpuBuoyancy water-field byte count does not match its element count and configured stride");
+
+			m_water_field.assign(elements.begin(), elements.end());
+			m_water_field_level = water_level;
+		}
+
+		// Return the active field element count for the selected default or custom evaluator.
+		int WaterFieldCount() const
+		{
+			return m_water_field_extension.Enabled()
+				? static_cast<int>(m_water_field.size() / static_cast<std::size_t>(m_water_field_extension.m_element_stride))
+				: static_cast<int>(m_water_surface.m_waves.size());
+		}
+
+		// Return the still-water level paired with the active field representation.
+		float WaterLevel() const
+		{
+			return m_water_field_extension.Enabled()
+				? m_water_field_level
+				: m_water_surface.m_level;
 		}
 
 		// Set the tunable buoyancy parameters used by subsequent dispatches.
@@ -837,7 +904,7 @@ namespace pr::physics
 		bool IsFlatWaterFullyDry(CompositeShape const& shape_data, BodyState const& bs) const
 		{
 			// Only safe for flat water; a wavy surface can rise above a conservative support point.
-			if (!m_water_surface.m_waves.empty())
+			if (WaterFieldCount() != 0)
 				return false;
 
 			// Need a valid body pose and a usable gravity direction to define "up".
@@ -860,14 +927,14 @@ namespace pr::physics
 				Abs(Dot3(bs.m_o2w.z, up)) * r.z;
 			auto const lowest = Dot3(centre_ws, up) - extent_up;
 
-			if (!IsFinite(lowest) || !IsFinite(m_water_surface.m_level))
+			if (!IsFinite(lowest) || !IsFinite(WaterLevel()))
 				return false;
 
 			// Strict margin: the band [level, level+margin] still produces zero on the GPU (its
 			// per-primitive dry fast-path / all-dry samples), so a positive margin is always safe and
 			// avoids host/GPU float divergence right at the waterline.
 			auto const margin = std::max(shape_data.m_eps, 1e-4f);
-			return lowest > m_water_surface.m_level + margin;
+			return lowest > WaterLevel() + margin;
 		}
 
 		// Resolve registered hulls to the current engine body order and collect the compact dispatch population.
@@ -904,7 +971,7 @@ namespace pr::physics
 				// GPU dispatch entirely and publish a zero diagnostic directly. This is result-preserving
 				// (see IsFlatWaterFullyDry) so the readback is identical to dispatching the body. Skipped
 				// when waves are present (the resolver call is then pure overhead).
-				if (m_water_surface.m_waves.empty())
+				if (WaterFieldCount() == 0)
 				{
 					auto const bs = m_body_state_resolver(body_index);
 					if (IsFlatWaterFullyDry(*slot.m_shape_data, bs))
@@ -964,13 +1031,13 @@ namespace pr::physics
 		void RecordVolumePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
 		{
 			// Evaluate all volume samples into one partial record per hull/threadgroup. Root parameter
-			// order must match CreateVolumeStep: b0, u0(bodies), t1(waves), t2(headers), t3(prims),
+			// order must match CreateVolumeStep: b0, u0(bodies), t1(water field), t2(headers), t3(prims),
 			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), t12(tet_cdf), u1(partials).
 			args.m_job.m_cmd_list.SetPipelineState(m_volume_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_water_field);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_headers);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_primitives);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_verts);
@@ -1003,14 +1070,14 @@ namespace pr::physics
 		void RecordSurfacePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
 		{
 			// Evaluate all surface samples into one partial record per hull/threadgroup. Root parameter
-			// order must match CreateSurfaceStep: b0, u0(bodies), t1(waves), t3(surf_prims),
+			// order must match CreateSurfaceStep: b0, u0(bodies), t1(water field), t3(surf_prims),
 			// t6(face_planes), t8(surf_headers), t9(verts), t10(face_verts), t11(surf_records),
 			// u1(partials).
 			args.m_job.m_cmd_list.SetPipelineState(m_surface_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_water_field);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_primitives);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_face_planes);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
@@ -1022,13 +1089,13 @@ namespace pr::physics
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
 			// Reduce the surface partials and add drag to the body and existing diagnostic. Root parameter
-			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t1(waves), t8(surf_headers),
+			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t1(water field), t8(surf_headers),
 			// u1(partials), u2(diagnostics).
 			args.m_job.m_cmd_list.SetPipelineState(m_surface_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies->GetGPUVirtualAddress());
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_waves);
+			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_water_field);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials->GetGPUVirtualAddress());
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics->GetGPUVirtualAddress());
@@ -1252,19 +1319,29 @@ namespace pr::physics
 				}
 			}
 
-			// Phase 5: finish the transient inputs with wave parameters. The volume kernel needs the
-			// wave SRV bound even for flat water, so always allocate at least one element.
-			auto const wave_count = static_cast<int>(m_water_surface.m_waves.size());
-			auto upload_waves = args.m_job.m_upload.template Alloc<GpuBuoyancyWave>(std::max(wave_count, 1));
-			auto waves = upload_waves.ptr<GpuBuoyancyWave>();
-			waves[0] = GpuBuoyancyWave{};
-			for (auto index = 0; index != wave_count; ++index)
+			// Phase 5: finish the transient inputs with the active water field. The volume kernel needs
+			// t1 bound even for a flat field, so always allocate and zero at least one element.
+			auto const water_field_count = WaterFieldCount();
+			auto const water_field_stride = m_water_field_extension.Enabled()
+				? m_water_field_extension.m_element_stride
+				: static_cast<int>(sizeof(GpuBuoyancyWave));
+			auto upload_water_field = args.m_job.m_upload.Alloc(std::max(water_field_count, 1) * water_field_stride, 16);
+			memset(upload_water_field.ptr<std::byte>(), 0, static_cast<std::size_t>(upload_water_field.m_size));
+			if (m_water_field_extension.Enabled())
 			{
-				auto const& wave = m_water_surface.m_waves[index];
-				waves[index] = GpuBuoyancyWave{
-					.m_direction_wavelength_phase_speed = v4(wave.m_direction.x, wave.m_direction.y, wave.m_wavelength, wave.m_phase_speed),
-					.m_amplitude = v4(wave.m_amplitude, 0.0f, 0.0f, 0.0f),
-				};
+				memcpy(upload_water_field.ptr<std::byte>(), m_water_field.data(), m_water_field.size());
+			}
+			else
+			{
+				auto waves = upload_water_field.ptr<GpuBuoyancyWave>();
+				for (auto index = 0; index != water_field_count; ++index)
+				{
+					auto const& wave = m_water_surface.m_waves[index];
+					waves[index] = GpuBuoyancyWave{
+						.m_direction_wavelength_phase_speed = v4(wave.m_direction.x, wave.m_direction.y, wave.m_wavelength, wave.m_phase_speed),
+						.m_amplitude = v4(wave.m_amplitude, 0.0f, 0.0f, 0.0f),
+					};
+				}
 			}
 
 			auto const gpu_va = [](auto const& alloc)
@@ -1272,7 +1349,7 @@ namespace pr::physics
 				return alloc.m_res->GetGPUVirtualAddress() + alloc.m_ofs;
 			};
 			auto const addresses = DispatchAddresses{
-				.m_waves = gpu_va(upload_waves),
+				.m_water_field = gpu_va(upload_water_field),
 				.m_volume_headers = gpu_va(upload_headers),
 				.m_volume_primitives = gpu_va(upload_prims),
 				.m_volume_records = gpu_va(upload_records),
@@ -1298,9 +1375,9 @@ namespace pr::physics
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = groups_per_hull,
-				.m_wave_count = wave_count,
+				.m_water_field_count = water_field_count,
 				.m_time_s = static_cast<float>(args.m_time_s),
-				.m_water_level = m_water_surface.m_level,
+				.m_water_level = WaterLevel(),
 				.m_fluid_density = m_config.m_fluid_density,
 				.m_linear_drag_coefficient = linear_drag_coefficient,
 				.m_angular_drag_coefficient = angular_drag_coefficient,
@@ -1326,9 +1403,9 @@ namespace pr::physics
 				auto const cb_surf = CBufGpuBuoyancy{
 					.m_hull_count = hull_count,
 					.m_groups_per_hull = surf_groups_per_hull,
-					.m_wave_count = wave_count,
+					.m_water_field_count = water_field_count,
 					.m_time_s = static_cast<float>(args.m_time_s),
-					.m_water_level = m_water_surface.m_level,
+					.m_water_level = WaterLevel(),
 					.m_fluid_density = m_config.m_fluid_density,
 					.m_linear_drag_coefficient = 0.0f,
 					.m_angular_drag_coefficient = 0.0f,
@@ -1395,6 +1472,12 @@ namespace pr::physics
 			wave = wave.Normalised();
 		}
 		return water_surface;
+	}
+
+	// Return true when both parts of the custom shader/data contract are present.
+	bool GpuBuoyancy::WaterFieldExtension::Enabled() const
+	{
+		return !m_shader_include.empty() && m_element_stride != 0;
 	}
 
 	// Return true when the water height is spatially constant.
@@ -1566,8 +1649,8 @@ namespace pr::physics
 	}
 
 	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
-	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver)
-		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver)))
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension)
+		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver), std::move(water_field_extension)))
 	{
 	}
 
@@ -1605,6 +1688,12 @@ namespace pr::physics
 	GpuBuoyancy::WaterSurface const& GpuBuoyancy::GetWaterSurface() const
 	{
 		return m_impl->GetWaterSurface();
+	}
+
+	// Copy a custom water-field snapshot for subsequent buoyancy force dispatches.
+	void GpuBuoyancy::SetWaterField(std::span<std::byte const> elements, int element_count, float water_level)
+	{
+		m_impl->SetWaterField(elements, element_count, water_level);
 	}
 
 	// Set the tunable buoyancy parameters used by subsequent dispatches.

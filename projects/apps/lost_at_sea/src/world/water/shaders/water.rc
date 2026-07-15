@@ -1,3 +1,4 @@
 // Shader source files for runtime compilation
 src/world/water/shaders/water_field_types.hlsli TEXT DISCARDABLE "src/world/water/shaders/water_field_types.hlsli"
 src/world/water/shaders/water_field.hlsli       TEXT DISCARDABLE "src/world/water/shaders/water_field.hlsli"
+src/world/water/shaders/water_field_buoyancy.hlsli TEXT DISCARDABLE "src/world/water/shaders/water_field_buoyancy.hlsli"

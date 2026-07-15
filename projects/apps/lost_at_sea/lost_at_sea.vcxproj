@@ -116,6 +116,8 @@
     <ClInclude Include="src\world\terrain\shaders\terrain_shader.h" />
     <ClCompile Include="src\world\ship\ship.cpp" />
     <ClInclude Include="src\world\ship\ship.h" />
+    <ClCompile Include="src\world\water\water_buoyancy_adapter.cpp" />
+    <ClInclude Include="src\world\water\water_buoyancy_adapter.h" />
     <ClInclude Include="src\diag\diag_ui.h" />
     <ClCompile Include="src\world\sky\procedural_sky.cpp" />
     <ClInclude Include="src\world\sky\procedural_sky.h" />
@@ -137,6 +139,7 @@
     <ShaderBuild Include="src\world\sky\shaders\procedural_sky.hlsl" />
     <None Include="src\world\water\shaders\water_field_types.hlsli" />
     <None Include="src\world\water\shaders\water_field.hlsli" />
+    <None Include="src\world\water\shaders\water_field_buoyancy.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <DataFiles Include="$(ProjectDir)data\**\*.*" />

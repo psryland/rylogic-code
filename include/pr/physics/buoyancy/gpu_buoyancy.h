@@ -55,6 +55,18 @@ namespace pr::physics
 			v4 EvaluateVelocity(v4 pos_ws, float time_s) const;
 		};
 
+		// Optional shader contract for replacing the built-in sine-wave field. The included HLSL must
+		// define GpuBuoyancyWaterFieldElement and the three GpuBuoyancyEvaluateWater* functions used by
+		// the buoyancy shader. Elements are copied as opaque bytes and read through the existing t1 SRV.
+		struct WaterFieldExtension
+		{
+			std::string m_shader_include;
+			int m_element_stride = 0;
+
+			// Return true when a custom water-field shader contract is configured.
+			bool Enabled() const;
+		};
+
 		// Tunable parameters that govern how the GPU buoyancy pass converts a water surface and
 		// a submerged hull into forces. Defaults match fresh water with mild viscous damping.
 		struct Config
@@ -177,7 +189,7 @@ namespace pr::physics
 		// Construct and subscribe the buoyancy pass to a physics engine. 'config' provides the
 		// tunable fluid parameters (density, drag time constant) used for subsequent dispatches.
 		// SetConfig may be called later to update these at runtime.
-		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
+		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension = {});
 		GpuBuoyancy(GpuBuoyancy const&) = delete;
 		GpuBuoyancy& operator=(GpuBuoyancy const&) = delete;
 
@@ -195,6 +207,10 @@ namespace pr::physics
 
 		// Return the current water surface used by buoyancy force dispatches.
 		WaterSurface const& GetWaterSurface() const;
+
+		// Copy a custom water-field snapshot for subsequent buoyancy force dispatches. The byte count
+		// must equal element_count times the stride supplied by the constructor extension.
+		void SetWaterField(std::span<std::byte const> elements, int element_count, float water_level);
 
 		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
 		// Engine::ExternalForces; polytope derivation applies to later registrations and shape refreshes.

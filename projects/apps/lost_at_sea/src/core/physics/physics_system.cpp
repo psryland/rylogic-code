@@ -4,6 +4,7 @@
 //************************************
 #include "src/forward.h"
 #include "src/core/physics/physics_system.h"
+#include "src/world/water/water_buoyancy_adapter.h"
 
 namespace las
 {
@@ -106,7 +107,8 @@ namespace las
 		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
 			physics::GpuBuoyancy::Config{},
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
-			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
+			[this](int body_slot_index) { return BodySlotState(body_slot_index); },
+			water::BuoyancyAdapter::Extension())
 		)
 		,m_body_slots()
 		,m_free_slots()
@@ -120,6 +122,17 @@ namespace las
 	{
 		// Renderer does not expose a shared compute shader cache yet. Passing nullptr keeps the physics engine on its normal uncached compiler
 		// path while still sharing the renderer's D3D device.
+		//
+		// Bind one deterministic field element so the custom shader/data seam is exercised independently
+		// of event management. This matches the rendered ocean's primary swell.
+		auto test_field = water::WaterFieldElement{
+			.info = int4(water::WaterFieldElementTypeGerstnerWave, 0, 0, 0),
+			.position = Normalise(v4(1.0f, 0.3f, 0.0f, 0.0f)),
+			.wave = v4(1.0f, 80.0f, 11.2f, 0.35f),
+			.timing = v4::Zero(),
+		};
+		water::BuoyancyAdapter::SetField(*m_gpu_buoyancy, std::span{&test_field, 1}, 0.0f);
+
 		PublishSnapshots();
 	}
 
