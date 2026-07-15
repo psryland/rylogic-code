@@ -7,33 +7,31 @@
 #ifndef LAS_OCEAN_CBUF_HLSLI
 #define LAS_OCEAN_CBUF_HLSLI
 #include "pr/hlsl/interop.hlsli"
+#include "src/world/water/shaders/water_field_types.hlsli"
 
 #ifdef __cplusplus
 namespace las
 {
 	using namespace pr::hlsl;
+	using water::MaxWaterFieldElementCount;
+	using water::WaterFieldElement;
 #endif
-
-static const int MaxOceanWaves = 4;
 
 // Ocean constant buffer. Bound to b3 (reusing the CBufScreenSpace slot since
 // the ocean shader does not use screen-space geometry).
 struct CBufOcean //:reg(b3)
 {
-	// Wave component directions. xy = normalised direction, zw = unused
-	float4 wave_dirs[MaxOceanWaves];
-
-	// Wave component parameters: x=amplitude, y=wavelength, z=speed, w=steepness
-	float4 wave_params[MaxOceanWaves];
+	// Fixed-capacity field shared with GPU buoyancy. Only water_field_count entries are active.
+	WaterFieldElement water_field[MaxWaterFieldElementCount];
 
 	// Camera world-space position (xyz), w = simulation time
 	float4 camera_pos_time;
 
-	// Mesh radii: x=inner, y=outer, z=num_rings, w=num_segments
+	// Mesh radii: x=inner, y=outer, z=num_rings, w=minimum ring spacing
 	float4 mesh_config;
 
-	// Number of active wave components
-	int wave_count;
+	// Number of active field elements
+	int water_field_count;
 
 	// PBR parameters
 	float fresnel_f0;         // Fresnel reflectance at normal incidence (water ~0.02)

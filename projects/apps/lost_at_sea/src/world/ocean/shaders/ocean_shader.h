@@ -6,6 +6,7 @@
 // PS for PBR water rendering (Fresnel, reflection, refraction, SSS, foam).
 #pragma once
 #include "src/forward.h"
+#include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 
 namespace las
 {
@@ -19,7 +20,7 @@ namespace las
 		std::vector<uint8_t> m_ps_bytecode;
 
 		// Ocean constant buffer data, updated each frame
-		alignas(16) std::byte m_cbuf[272];
+		alignas(16) CBufOcean m_cbuf;
 
 		explicit OceanShader(Renderer& rdr);
 

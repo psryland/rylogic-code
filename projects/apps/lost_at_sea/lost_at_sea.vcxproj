@@ -135,6 +135,8 @@
     <None Include="src\world\sky\shaders\procedural_sky_cbuf.hlsli" />
     <None Include="src\world\sky\shaders\procedural_sky.hlsl" />
     <ShaderBuild Include="src\world\sky\shaders\procedural_sky.hlsl" />
+    <None Include="src\world\water\shaders\water_field_types.hlsli" />
+    <None Include="src\world\water\shaders\water_field.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <DataFiles Include="$(ProjectDir)data\**\*.*" />
@@ -148,6 +150,7 @@
     <ResourceCompile Include="src\world\ocean\shaders\distant_ocean.rc" />
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc" />
     <ResourceCompile Include="src\world\sky\shaders\procedural_sky.rc" />
+    <ResourceCompile Include="src\world\water\shaders\water.rc" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />

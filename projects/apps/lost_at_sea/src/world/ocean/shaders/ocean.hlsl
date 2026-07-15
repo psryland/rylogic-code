@@ -15,6 +15,7 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
+#include "src/world/water/shaders/water_field.hlsli"
 #include "pr/hlsl/camera.hlsli"
 
 #ifdef __cplusplus
@@ -65,63 +66,16 @@ float RingRadius(float t, float camera_height, float inner, float outer)
 	return max(r, r_min);
 }
 
-// Apply Gerstner wave displacement to a world-space position
-// Returns: xyz = displaced position, w = foam factor (Jacobian > 1 indicates foam)
-float4 GerstnerDisplace(float2 world_xy, float time)
+// Evaluate all active elements at a world-space position.
+WaterFieldSample EvaluateWaterField(float2 world_xy, float time)
 {
-	float dx = 0, dy = 0, dz = 0;
-	float jacobian = 1.0;
-
-	for (int i = 0; i < g_ocean.wave_count; ++i)
+	WaterFieldSample sample = WaterFieldSampleZero();
+	for (int i = 0; i != g_ocean.water_field_count; ++i)
 	{
-		float2 dir = g_ocean.wave_dirs[i].xy;
-		float amplitude  = g_ocean.wave_params[i].x;
-		float wavelength = g_ocean.wave_params[i].y;
-		float speed      = g_ocean.wave_params[i].z;
-		float steepness  = g_ocean.wave_params[i].w;
-
-		float k = 6.283185307 / wavelength; // tau / wavelength
-		float freq = k * speed;
-		float phase = k * dot(dir, world_xy) - freq * time;
-		float c = cos(phase);
-		float s = sin(phase);
-
-		dx -= steepness * amplitude * dir.x * c;
-		dy -= steepness * amplitude * dir.y * c;
-		dz += amplitude * s;
-
-		// Jacobian term for foam detection
-		jacobian -= steepness * k * amplitude * s;
+		AccumulateWaterFieldElement(g_ocean.water_field[i], world_xy, time, sample);
 	}
-
-	return float4(dx, dy, dz, saturate(1.0 - jacobian));
-}
-
-// Compute analytical Gerstner wave normal
-float3 GerstnerNormal(float2 world_xy, float time)
-{
-	float nx = 0, ny = 0, nz = 1;
-
-	for (int i = 0; i < g_ocean.wave_count; ++i)
-	{
-		float2 dir = g_ocean.wave_dirs[i].xy;
-		float amplitude  = g_ocean.wave_params[i].x;
-		float wavelength = g_ocean.wave_params[i].y;
-		float speed      = g_ocean.wave_params[i].z;
-		float steepness  = g_ocean.wave_params[i].w;
-
-		float k = 6.283185307 / wavelength;
-		float freq = k * speed;
-		float phase = k * dot(dir, world_xy) - freq * time;
-		float c = cos(phase);
-		float s = sin(phase);
-
-		nx -= dir.x * k * amplitude * c;
-		ny -= dir.y * k * amplitude * c;
-		nz -= steepness * k * amplitude * s;
-	}
-
-	return normalize(float3(nx, ny, nz));
+	sample.displacement_foam.w = saturate(sample.displacement_foam.w);
+	return sample;
 }
 
 // Procedural sky colour (fallback when no cubemap is available)
@@ -171,10 +125,11 @@ PSIn VSOcean(VSIn In)
 	if (In.vert.z < 0)
 	{
 		// Centre vertex is at the camera XY position, displaced by waves
-		float4 disp = GerstnerDisplace(cam_xy, time);
+		WaterFieldSample water = EvaluateWaterField(cam_xy, time);
+		float4 disp = water.displacement_foam;
 		ws_pos = float3(cam_xy.x + disp.x, cam_xy.y + disp.y, disp.z);
 
-		float3 n = GerstnerNormal(cam_xy, time);
+		float3 n = normalize(float3(0, 0, 1) + water.normal_delta.xyz);
 		Out.ws_norm = float4(n, 0);
 		Out.diff = float4(0, 0, 0, disp.w); // foam factor in alpha
 	}
@@ -194,14 +149,15 @@ PSIn VSOcean(VSIn In)
 		float wave_fade = 1.0 - saturate((r - fade_start) / (outer - fade_start));
 
 		// Apply Gerstner displacement, scaled by fade factor
-		float4 disp = GerstnerDisplace(world_xy, time);
+		WaterFieldSample water = EvaluateWaterField(world_xy, time);
+		float4 disp = water.displacement_foam;
 		ws_pos = float3(
 			world_xy.x + disp.x * wave_fade,
 			world_xy.y + disp.y * wave_fade,
 			disp.z * wave_fade
 		);
 
-		float3 n_waves = GerstnerNormal(world_xy, time);
+		float3 n_waves = normalize(float3(0, 0, 1) + water.normal_delta.xyz);
 		float3 n_flat = float3(0, 0, 1);
 		float3 n = normalize(lerp(n_flat, n_waves, wave_fade));
 		Out.ws_norm = float4(n, 0);
