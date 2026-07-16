@@ -11,6 +11,7 @@
 #include "src/core/physics/physics_system.h"
 #include "src/core/cameras/icamera.h"
 #include "src/core/input/input_handler.h"
+#include "src/world/water/water_system.h"
 #include "src/world/ocean/ocean.h"
 #include "src/world/ocean/distant_ocean.h"
 #include "src/world/terrain/height_field.h"
@@ -32,6 +33,7 @@ namespace las
 
 		InputHandler m_input;
 		CameraPtr m_camera;
+		water::System m_water;
 		PhysicsSystem m_physics;
 		ProceduralSky m_sky;
 		DayNightCycle m_day_cycle;
@@ -47,6 +49,8 @@ namespace las
 		double m_sim_time;
 		int64_t m_render_frame;
 		int m_camera_mode;  // 0 = Ship, 1 = Free
+		std::mutex m_water_generator_position_mutex;
+		v2 m_water_generator_position;
 
 		// Task graphs for parallel execution
 		pr::task_graph::Graph<StepTaskId> m_step_graph;

@@ -84,10 +84,13 @@
     <ClInclude Include="src\core\cameras\free_camera.h" />
     <ClInclude Include="src\core\cameras\ship_camera.h" />
     <ClInclude Include="src\core\cameras\icamera.h" />
+    <ClInclude Include="src\core\frame_tasks.h" />
     <ClInclude Include="src\core\input\actions.h" />
     <ClInclude Include="src\core\input\input_handler.h" />
     <ClInclude Include="src\core\input\modes.h" />
     <ClInclude Include="src\core\physics\physics_system.h" />
+    <ClInclude Include="src\core\sim_state.h" />
+    <ClInclude Include="src\core\state_snapshot.h" />
     <ClInclude Include="src\forward.h" />
     <ClCompile Include="src\core\cameras\free_camera.cpp" />
     <ClCompile Include="src\core\cameras\ship_camera.cpp" />
@@ -99,7 +102,6 @@
     <ClInclude Include="src\main.h" />
     <ClInclude Include="src\settings.h" />
     <ClCompile Include="src\world\ocean\ocean.cpp" />
-    <ClInclude Include="src\world\ocean\gerstner_wave.h" />
     <ClInclude Include="src\world\ocean\ocean.h" />
     <ClCompile Include="src\world\ocean\shaders\ocean_shader.cpp" />
     <ClInclude Include="src\world\ocean\shaders\ocean_shader.h" />
@@ -118,6 +120,8 @@
     <ClInclude Include="src\world\ship\ship.h" />
     <ClCompile Include="src\world\water\water_buoyancy_adapter.cpp" />
     <ClInclude Include="src\world\water\water_buoyancy_adapter.h" />
+    <ClCompile Include="src\world\water\water_system.cpp" />
+    <ClInclude Include="src\world\water\water_system.h" />
     <ClInclude Include="src\diag\diag_ui.h" />
     <ClCompile Include="src\world\sky\procedural_sky.cpp" />
     <ClInclude Include="src\world\sky\procedural_sky.h" />

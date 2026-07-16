@@ -19,7 +19,8 @@ static const int WaterFieldElementTypeStoneDrop = 2;
 
 // Fixed-stride water-field input. The interpretation of the payload depends on info.x:
 //   GerstnerWave: position.xy = direction; wave = amplitude, wavelength, speed, steepness.
-//   StoneDrop: reserved for the finite radial-wave implementation.
+//   StoneDrop: position.xy = source; wave = amplitude, wavelength, packet half-width, propagation speed;
+//              timing = materialised age, lifetime, attack time, radial attenuation scale.
 #ifdef __cplusplus
 struct alignas(16) WaterFieldElement
 #else

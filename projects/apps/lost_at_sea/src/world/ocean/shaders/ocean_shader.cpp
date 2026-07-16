@@ -4,7 +4,6 @@
 //************************************
 #include "src/forward.h"
 #include "src/world/ocean/ocean.h"
-#include "src/world/ocean/gerstner_wave.h"
 #include "src/world/ocean/shaders/ocean_shader.h"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 
@@ -73,19 +72,13 @@ namespace las
 		cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(ERootParam::CBufOcean), gpu_address);
 	}
 
-	// Update the constant buffer data for this frame
-	void OceanShader::SetupFrame(std::span<GerstnerWave const> waves, v4 camera_world_pos, float time, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
+	// Copy one immutable water-field snapshot and update render-only frame parameters.
+	void OceanShader::SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
-		m_cbuf.water_field_count = std::min(static_cast<int>(waves.size()), water::MaxWaterFieldElementCount);
+		m_cbuf.water_field_count = std::min(water_snapshot.m_element_count, water::MaxWaterFieldElementCount);
 		for (int i = 0; i != m_cbuf.water_field_count; ++i)
 		{
-			auto const& wave = waves[i];
-			m_cbuf.water_field[i] = water::WaterFieldElement{
-				.info = int4(water::WaterFieldElementTypeGerstnerWave, 0, 0, 0),
-				.position = wave.m_direction,
-				.wave = v4(wave.m_amplitude, wave.m_wavelength, wave.m_speed, wave.m_steepness),
-				.timing = v4::Zero(),
-			};
+			m_cbuf.water_field[i] = water_snapshot.m_elements[i];
 		}
 
 		// Clear inactive entries so the complete snapshot remains deterministic.
@@ -94,7 +87,7 @@ namespace las
 			m_cbuf.water_field[i] = water::WaterFieldElement{};
 		}
 
-		m_cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, time);
+		m_cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, water_snapshot.m_time_s);
 		m_cbuf.mesh_config = v4(inner_radius, outer_radius, static_cast<float>(num_rings), min_ring_spacing);
 		m_cbuf.has_env_map = has_env_map ? 1 : 0;
 		m_cbuf.sun_direction = sun_direction;

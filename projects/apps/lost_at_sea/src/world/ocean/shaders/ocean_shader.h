@@ -6,12 +6,11 @@
 // PS for PBR water rendering (Fresnel, reflection, refraction, SSS, foam).
 #pragma once
 #include "src/forward.h"
+#include "src/world/water/water_system.h"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 
 namespace las
 {
-	struct GerstnerWave;
-
 	struct OceanShader : rdr12::Shader
 	{
 		// Compiled shader bytecodes (populated at construction from runtime compilation).
@@ -27,7 +26,7 @@ namespace las
 		// Called per-nugget during forward rendering to bind the ocean constant buffer
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const& scene, rdr12::DrawListElement const* dle) override;
 
-		// Update the constant buffer data for this frame
-		void SetupFrame(std::span<GerstnerWave const> waves, v4 camera_world_pos, float time, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour);
+		// Copy one immutable water-field snapshot and update render-only frame parameters.
+		void SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour);
 	};
 }

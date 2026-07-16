@@ -14,6 +14,7 @@ namespace las
 		:base(pr::app::DefaultSetup(), ui)
 		, m_input()
 		, m_camera()
+		, m_water()
 		, m_physics(m_rdr)
 		, m_sky(m_rdr)
 		, m_day_cycle()
@@ -26,13 +27,15 @@ namespace las
 		, m_sim_time(0.0)
 		, m_render_frame(0)
 		, m_camera_mode(0)
+		, m_water_generator_position_mutex()
+		, m_water_generator_position(v2::Zero())
 		, m_step_graph(2)   // Step graph: small thread pool (input-heavy, will grow with physics/AI)
 		, m_render_graph(4) // Render graph: larger pool for parallel CB prep
 		, m_imgui({
 			.m_device = m_rdr.D3DDevice(),
 			.m_cmd_queue = m_rdr.GfxQueue(),
 			.m_hwnd = HWND(ui),
-			.m_rtv_format = m_window.m_rt_props.Format,
+			.m_rtv_format = ::pr::compute::ToSRGB(m_window.m_rt_props.Format),
 			.m_num_frames_in_flight = m_window.BBCount(),
 			.m_font_scale = 1.5f,
 		})
@@ -82,6 +85,48 @@ namespace las
 			ui.SliderFloat("Smooth Depth", &tuning.m_underwater_smooth_depth, 10.0f, 200.0f);
 		});
 
+		// Water controls are edited on the render thread and committed through the system's validated, thread-safe value API.
+		m_diag.AddPanel("Water Events", [this](ImGuiUI& ui)
+		{
+			char text[128];
+			*std::format_to(text, "Active events: {} / {}", m_water.ActiveEventCount(), water::System::MaxStoneDropCount) = 0;
+			ui.Text(text);
+
+			auto settings = m_water.GeneratorSettingsSnapshot();
+			auto changed = false;
+			changed |= ui.Checkbox("Generate stone drops", &settings.m_enabled);
+			changed |= ui.SliderFloat("Spawn interval (s)", &settings.m_spawn_interval_s, 0.1f, 5.0f);
+
+			ui.Separator();
+			ui.Text("-- Packet --");
+			changed |= ui.SliderFloat("Amplitude min", &settings.m_amplitude_min, 0.1f, settings.m_amplitude_max);
+			changed |= ui.SliderFloat("Amplitude max", &settings.m_amplitude_max, settings.m_amplitude_min, 4.0f);
+			changed |= ui.SliderFloat("Wavelength min", &settings.m_wavelength_min, 1.0f, settings.m_wavelength_max);
+			changed |= ui.SliderFloat("Wavelength max", &settings.m_wavelength_max, settings.m_wavelength_min, 20.0f);
+			changed |= ui.SliderFloat("Half-width min", &settings.m_packet_half_width_min, 0.5f, settings.m_packet_half_width_max);
+			changed |= ui.SliderFloat("Half-width max", &settings.m_packet_half_width_max, settings.m_packet_half_width_min, 12.0f);
+			changed |= ui.SliderFloat("Speed min", &settings.m_propagation_speed_min, 1.0f, settings.m_propagation_speed_max);
+			changed |= ui.SliderFloat("Speed max", &settings.m_propagation_speed_max, settings.m_propagation_speed_min, 25.0f);
+
+			ui.Separator();
+			ui.Text("-- Lifetime --");
+			changed |= ui.SliderFloat("Lifetime min (s)", &settings.m_lifetime_min_s, 1.0f, settings.m_lifetime_max_s);
+			changed |= ui.SliderFloat("Lifetime max (s)", &settings.m_lifetime_max_s, settings.m_lifetime_min_s, 20.0f);
+			changed |= ui.SliderFloat("Attack (s)", &settings.m_attack_time_s, 0.01f, settings.m_lifetime_min_s - 0.01f);
+			changed |= ui.SliderFloat("Attenuation scale", &settings.m_attenuation_scale, 1.0f, 100.0f);
+
+			ui.Separator();
+			ui.Text("-- Spawn annulus --");
+			changed |= ui.SliderFloat("Radius min", &settings.m_spawn_radius_min, 0.0f, settings.m_spawn_radius_max);
+			changed |= ui.SliderFloat("Radius max", &settings.m_spawn_radius_max, settings.m_spawn_radius_min, 100.0f);
+
+			if (changed)
+				m_water.SetGeneratorSettings(settings);
+		});
+
+		// The initial render snapshot contains the canonical base ocean even before the first simulation step.
+		auto sim = m_sim_state.Lock();
+		sim->m_water = m_water.CurrentSnapshot();
 	}
 	Main::~Main()
 	{
@@ -117,6 +162,14 @@ namespace las
 		m_sim_time += elapsed_seconds;
 		auto dt = static_cast<float>(elapsed_seconds);
 
+		// Water ages and generation are advanced before physics submission. Phase 3 will bind this exact snapshot to GPU buoyancy at the same boundary.
+		auto generator_position = v2::Zero();
+		{
+			auto lock = std::lock_guard{m_water_generator_position_mutex};
+			generator_position = m_water_generator_position;
+		}
+		m_water.Update(m_sim_time, generator_position);
+
 		// BeginStep records and submits the GPU physics work on the simulation owner thread. Generic task-graph work can run while the GPU is
 		// processing, but tasks that need post-physics snapshots must wait for StepTaskId::Physics.
 		m_physics.BeginStep(dt, m_sim_time);
@@ -132,6 +185,7 @@ namespace las
 			lock->m_sun_direction = m_day_cycle.SunDirection();
 			lock->m_sun_colour = m_day_cycle.SunColour();
 			lock->m_sun_intensity = m_day_cycle.SunIntensity();
+			lock->m_water = m_water.CurrentSnapshot();
 			co_return;
 		});
 
@@ -178,11 +232,16 @@ namespace las
 
 		// Read the latest simulation state snapshot
 		auto const& sim = m_sim_state.Read();
-		auto time = static_cast<float>(sim.m_sim_time);
 		auto cam_pos = m_cam.CameraToWorld().pos; // Current camera position (updated by input handler in render loop)
 		auto sun_dir = sim.m_sun_direction;
 		auto sun_col = sim.m_sun_colour;
 		auto sun_int = sim.m_sun_intensity;
+
+		// Publish the plain camera XY input used by the simulation-time event generator without exposing camera ownership to the water system.
+		{
+			auto lock = std::lock_guard{m_water_generator_position_mutex};
+			m_water_generator_position = v2{cam_pos.x, cam_pos.y};
+		}
 
 		// Update the scene's global light to match the day/night cycle
 		m_scene.m_global_light.m_direction = -sun_dir;
@@ -202,9 +261,9 @@ namespace las
 			m_sky.PrepareRender(sun_dir, sun_col, sun_int);
 			co_return;
 		});
-		m_render_graph.Add(RenderTaskId::Ocean, [&, cam_pos, time, sun_dir, sun_col](auto ctx) -> pr::task_graph::Task {
+		m_render_graph.Add(RenderTaskId::Ocean, [&, cam_pos, sun_dir, sun_col](auto ctx) -> pr::task_graph::Task {
 			co_await ctx.Wait(RenderTaskId::PrepareFrame);
-			m_ocean.PrepareRender(cam_pos, time, m_scene.m_global_envmap != nullptr, sun_dir, sun_col);
+			m_ocean.PrepareRender(sim.m_water, cam_pos, m_scene.m_global_envmap != nullptr, sun_dir, sun_col);
 			co_return;
 		});
 		m_render_graph.Add(RenderTaskId::DistantOcean, [&, cam_pos, sun_dir, sun_col](auto ctx) -> pr::task_graph::Task {
@@ -307,15 +366,23 @@ namespace las
 		// Draw diagnostic panels (if visible)
 		m_diag.Draw(m_imgui);
 
-		// Set the swap chain back buffer as the render target
-		frame.m_resolve.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
+		// Draw after View3D's alpha resolve so the scene composite cannot overwrite the UI.
+		pr::compute::BarrierBatch barriers(frame.m_present);
+		barriers.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+		barriers.Commit();
+
+		frame.m_present.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
 
 		// Set viewport and scissor
-		frame.m_resolve.RSSetViewports({ &vp, 1 });
-		frame.m_resolve.RSSetScissorRects(vp.m_clip);
+		frame.m_present.RSSetViewports({ &vp, 1 });
+		frame.m_present.RSSetScissorRects(vp.m_clip);
 
 		// Render imgui draw data
-		m_imgui.Render(frame.m_resolve.get());
+		m_imgui.Render(frame.m_present.get());
+
+		pr::compute::BarrierBatch present_barriers(frame.m_present);
+		present_barriers.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+		present_barriers.Commit();
 	}
 
 	// --------------------------------------------------------------------------------------------

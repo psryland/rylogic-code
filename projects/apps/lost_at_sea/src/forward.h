@@ -10,10 +10,15 @@
 #include <string_view>
 #include <string>
 #include <span>
+#include <array>
 #include <vector>
 #include <memory>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <random>
 #include <mutex>
 #include <thread>
 #include <functional>
@@ -85,5 +90,10 @@ namespace las
 		struct ICamera;
 		struct FreeCamera;
 		struct ShipCamera;
+	}
+	namespace water
+	{
+		struct Snapshot;
+		struct System;
 	}
 }
