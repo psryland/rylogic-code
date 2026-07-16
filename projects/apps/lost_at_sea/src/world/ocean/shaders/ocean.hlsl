@@ -6,9 +6,8 @@
 // Reconstructs world-space vertex positions from the indexed draw's vertex IDs,
 // applies Gerstner wave displacement, and computes analytical normals.
 //
-// Vertex IDs:
-//   0 = centre
-//   1 + ring * segment_count + segment = ring vertex
+// Vertex IDs identify a regular row-major Cartesian lattice. The shader maps the square lattice
+// to a disk before applying distance-dependent spacing, avoiding the polar centre singularity.
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
@@ -38,30 +37,40 @@ struct PSOut
 	float4 diff semantic(SV_TARGET);
 };
 
-// Compute ring radius with log-to-linear blend based on camera height.
-// Clamps to enforce minimum ring spacing, capping point density near the camera.
-float RingRadius(float t, float camera_height, float inner, float outer)
+// Map a square point to a disk while preserving concentric square boundaries. This keeps the regular grid connected and gives the centre vertex bounded valence.
+float2 ConcentricSquareToDisk(float2 square_pos)
 {
-	float num_rings = g_ocean.mesh_config.z;
-	float min_spacing = g_ocean.min_ring_spacing;
+	if (all(abs(square_pos) < 1.0e-6))
+		return float2(0.0, 0.0);
 
-	// Logarithmic: r = inner * exp(log(outer/inner) * t)
-	float log_ratio = log(outer / inner);
-	float r_log = inner * exp(log_ratio * t);
+	float radius;
+	float angle;
+	if (abs(square_pos.x) > abs(square_pos.y))
+	{
+		radius = square_pos.x;
+		angle = 0.7853981633974483 * square_pos.y / square_pos.x;
+	}
+	else
+	{
+		radius = square_pos.y;
+		angle = 1.5707963267948966 - 0.7853981633974483 * square_pos.x / square_pos.y;
+	}
 
-	// Linear: r = inner + (outer - inner) * t
-	float r_lin = inner + (outer - inner) * t;
+	float sine;
+	float cosine;
+	sincos(angle, sine, cosine);
+	return radius * float2(cosine, sine);
+}
 
-	// Blend: 0 = fully logarithmic (near surface), 1 = fully linear (high altitude)
-	float h = abs(camera_height);
-	float blend = saturate(h / outer);
-
-	float r = lerp(r_log, r_lin, blend);
-
-	// Enforce minimum ring spacing to cap point density near camera
-	float ring_idx = t * (num_rings - 1);
-	float r_min = inner + min_spacing * ring_idx;
-	return max(r, r_min);
+// Expand disk radius from the configured minimum central cell size to the outer ocean radius. At altitude the power tends toward one for more uniform screen coverage.
+float WarpedGridRadius(float unit_radius, float camera_height)
+{
+	float outer_radius = g_ocean.mesh_config.x;
+	float half_cell_count = 0.5 * (g_ocean.mesh_config.y - 1.0);
+	float central_extent = min(g_ocean.mesh_config.z * half_cell_count, outer_radius);
+	float altitude_blend = saturate(abs(camera_height) / outer_radius);
+	float warp_power = lerp(g_ocean.mesh_config.w, 1.0, altitude_blend);
+	return central_extent * unit_radius + (outer_radius - central_extent) * pow(unit_radius, warp_power);
 }
 
 // Evaluate all active elements at a world-space position.
@@ -106,69 +115,45 @@ float FresnelSchlick(float cos_theta, float f0)
 	return f0 + (1.0 - f0) * pow(saturate(1.0 - cos_theta), 5.0);
 }
 
-// Generate and displace one indexed radial-mesh vertex.
+// Generate and displace one indexed warped-grid vertex.
 PSIn VSOcean(uint vertex_id semantic(SV_VertexID))
 {
 	PSIn Out = (PSIn)0;
 
-	float inner = g_ocean.mesh_config.x;
-	float outer = g_ocean.mesh_config.y;
+	float outer = g_ocean.mesh_config.x;
 	float cam_height = g_ocean.camera_pos_time.z;
 	float time = g_ocean.camera_pos_time.w;
 	float2 cam_xy = g_ocean.camera_pos_time.xy;
 
-	float3 ws_pos;
-
 	// View3D draws with BaseVertexLocation zero, so an indexed draw reports the model-relative index as SV_VertexID.
-	if (vertex_id == 0)
-	{
-		// Centre vertex is at the camera XY position, displaced by waves
-		WaterFieldSample water = EvaluateWaterField(cam_xy, time);
-		float4 disp = water.displacement_foam;
-		ws_pos = float3(cam_xy.x + disp.x, cam_xy.y + disp.y, disp.z);
+	uint grid_vertex_count = uint(g_ocean.mesh_config.y);
+	uint grid_y = vertex_id / grid_vertex_count;
+	uint grid_x = vertex_id - grid_y * grid_vertex_count;
+	float half_cell_count = 0.5 * float(grid_vertex_count - 1);
+	float2 square_pos = (float2(grid_x, grid_y) - half_cell_count) / half_cell_count;
+	float2 disk_pos = ConcentricSquareToDisk(square_pos);
+	float unit_radius = length(disk_pos);
+	float radius = WarpedGridRadius(unit_radius, cam_height);
+	float2 local_xy = unit_radius > 1.0e-6 ? disk_pos * (radius / unit_radius) : float2(0.0, 0.0);
+	float2 world_xy = cam_xy + local_xy;
 
-		float3 n = normalize(float3(0, 0, 1) + water.normal_delta.xyz);
-		Out.ws_norm = float4(n, 0);
-		Out.diff = float4(0, 0, 0, disp.w); // foam factor in alpha
-	}
-	else
-	{
-		// Decode the unique ring vertex directly from its model-relative index.
-		uint segment_count = uint(g_ocean.mesh_config.w);
-		uint radial_id = vertex_id - 1;
-		uint ring = radial_id / segment_count;
-		uint segment = radial_id - ring * segment_count;
-		float angle = 6.28318530717958647692 * float(segment) / float(segment_count);
-		float sin_angle;
-		float cos_angle;
-		sincos(angle, sin_angle, cos_angle);
-		float2 dir = float2(cos_angle, sin_angle);
-		float t = float(ring) / (g_ocean.mesh_config.z - 1.0);
+	// Fade wave displacement to zero near the outer edge so the near ocean smoothly flattens to z=0, matching the distant ocean patches.
+	float fade_start = outer * 0.7;
+	float wave_fade = 1.0 - saturate((radius - fade_start) / (outer - fade_start));
 
-		float r = RingRadius(t, cam_height, inner, outer);
-		float2 local_xy = r * dir;
-		float2 world_xy = cam_xy + local_xy;
+	// Apply Gerstner displacement and analytical normals, scaled by the shared outer-edge fade.
+	WaterFieldSample water = EvaluateWaterField(world_xy, time);
+	float4 disp = water.displacement_foam;
+	float3 ws_pos = float3(
+		world_xy.x + disp.x * wave_fade,
+		world_xy.y + disp.y * wave_fade,
+		disp.z * wave_fade
+	);
 
-		// Fade wave displacement to zero near the outer edge so the near ocean
-		// smoothly flattens to z=0, matching the distant ocean patches.
-		float fade_start = outer * 0.7; // Begin fading at 70% of outer radius
-		float wave_fade = 1.0 - saturate((r - fade_start) / (outer - fade_start));
-
-		// Apply Gerstner displacement, scaled by fade factor
-		WaterFieldSample water = EvaluateWaterField(world_xy, time);
-		float4 disp = water.displacement_foam;
-		ws_pos = float3(
-			world_xy.x + disp.x * wave_fade,
-			world_xy.y + disp.y * wave_fade,
-			disp.z * wave_fade
-		);
-
-		float3 n_waves = normalize(float3(0, 0, 1) + water.normal_delta.xyz);
-		float3 n_flat = float3(0, 0, 1);
-		float3 n = normalize(lerp(n_flat, n_waves, wave_fade));
-		Out.ws_norm = float4(n, 0);
-		Out.diff = float4(0, 0, 0, disp.w * wave_fade); // foam also fades
-	}
+	float3 n_waves = normalize(float3(0, 0, 1) + water.normal_delta.xyz);
+	float3 n = normalize(lerp(float3(0, 0, 1), n_waves, wave_fade));
+	Out.ws_norm = float4(n, 0);
+	Out.diff = float4(0, 0, 0, disp.w * wave_fade);
 
 	// Camera-relative rendering: subtract camera XY to keep geometry near the origin.
 	// The camera Z offset is handled by the view matrix (w2c) since

@@ -8,51 +8,56 @@
 
 namespace las
 {
-	// Radial mesh parameters. Rings are spaced logarithmically so that triangles appear roughly the same size on screen regardless of distance from camera.
-	static constexpr int NumRings = 640;
-	static constexpr int NumSegments = 640;
-	static constexpr float InnerRadius = 0.25f;
+	// The regular index lattice is mapped to a disk in the vertex shader, then radially warped to retain dense near-camera sampling without a polar singularity.
+	static constexpr int GridVertexCount = 905;
 	static constexpr float OuterRadius = 1000.0f;
-	static constexpr float MinRingSpacing = 0.25f;
+	static constexpr float MinGridSpacing = 0.0675f;
+	static constexpr float SurfaceWarpPower = 3.0f;
 
 	// Ocean
 	Ocean::Ocean(Renderer& rdr)
 		: m_inst()
 		, m_shader()
 	{
-		// The index values identify unique radial-grid vertices. The vertex shader reconstructs all positions from SV_VertexID, while one placeholder vertex preserves View3D's model contract.
-		auto icount = 3 * NumSegments + 6 * (NumRings - 1) * NumSegments;
+		// The index values identify a regular Cartesian lattice. The vertex shader reconstructs and warps positions from SV_VertexID, while one placeholder vertex preserves View3D's model contract.
+		auto const grid_cell_count = GridVertexCount - 1;
+		auto const icount = 6 * grid_cell_count * grid_cell_count;
 		rdr12::ModelGenerator::Buffers<Vert> buf;
 		buf.Reset(1, icount, 0, sizeof(uint32_t));
 		buf.m_vcont[0] = Vert{};
 		auto iptr = buf.m_icont.begin<uint32_t>();
 
-		// Index buffer: triangle fan from centre to first ring
-		for (int seg = 0; seg != NumSegments; ++seg)
+		// A regular grid has bounded vertex valence at the camera; no row or column converges into a centre fan.
+		for (int y = 0; y != grid_cell_count; ++y)
 		{
-			auto s0 = static_cast<uint32_t>(1 + seg);
-			auto s1 = static_cast<uint32_t>(1 + (seg + 1) % NumSegments);
-			*iptr++ = 0;
-			*iptr++ = s0;
-			*iptr++ = s1;
-		}
-
-		// Quad strips between consecutive rings
-		for (int ring = 0; ring != NumRings - 1; ++ring)
-		{
-			for (int seg = 0; seg != NumSegments; ++seg)
+			for (int x = 0; x != grid_cell_count; ++x)
 			{
-				auto next_seg = (seg + 1) % NumSegments;
-				auto i0 = static_cast<uint32_t>(1 + ring * NumSegments + seg);
-				auto i1 = static_cast<uint32_t>(1 + ring * NumSegments + next_seg);
-				auto i2 = static_cast<uint32_t>(1 + (ring + 1) * NumSegments + seg);
-				auto i3 = static_cast<uint32_t>(1 + (ring + 1) * NumSegments + next_seg);
-				*iptr++ = i0;
-				*iptr++ = i2;
-				*iptr++ = i1;
-				*iptr++ = i1;
-				*iptr++ = i2;
-				*iptr++ = i3;
+				auto i0 = static_cast<uint32_t>(y * GridVertexCount + x);
+				auto i1 = i0 + 1;
+				auto i2 = i0 + GridVertexCount;
+				auto i3 = i2 + 1;
+
+				// Follow the square-to-disk sector diagonal so cells crossing a sector boundary do not produce a nearly collinear triangle.
+				auto centred_x = 2 * x + 1 - grid_cell_count;
+				auto centred_y = 2 * y + 1 - grid_cell_count;
+				if (centred_x * centred_y > 0)
+				{
+					*iptr++ = i0;
+					*iptr++ = i1;
+					*iptr++ = i3;
+					*iptr++ = i0;
+					*iptr++ = i3;
+					*iptr++ = i2;
+				}
+				else
+				{
+					*iptr++ = i0;
+					*iptr++ = i1;
+					*iptr++ = i2;
+					*iptr++ = i1;
+					*iptr++ = i3;
+					*iptr++ = i2;
+				}
 			}
 		}
 		assert(iptr == buf.m_icont.end<uint32_t>());
@@ -94,7 +99,7 @@ namespace las
 			return;
 
 		m_inst.m_i2w.pos = v4(camera_world_pos.x, camera_world_pos.y, 0, 1);
-		m_shader->SetupFrame(water_snapshot, camera_world_pos, InnerRadius, OuterRadius, NumRings, NumSegments, MinRingSpacing, has_env_map, sun_direction, sun_colour);
+		m_shader->SetupFrame(water_snapshot, camera_world_pos, OuterRadius, GridVertexCount, MinGridSpacing, SurfaceWarpPower, has_env_map, sun_direction, sun_colour);
 	}
 
 	// Add instance to the scene drawlist (NOT thread-safe, must be called serially).
