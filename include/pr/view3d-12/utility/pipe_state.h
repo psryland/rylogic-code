@@ -33,6 +33,7 @@ namespace pr::rdr12
 			x(DSVFormat             , DSVFormat                             )\
 			x(SampleDesc            , SampleDesc                            )\
 			x(IBStripCutValue       , IBStripCutValue                       )\
+			x(InputLayout           , InputLayout                           )\
 			//x(StreamOutput          , StreamOutput                          )\
 			//x(BlendEnable0          , BlendState.RenderTarget[0].BlendEnable)\
 			//x(BlendEnable1          , BlendState.RenderTarget[1].BlendEnable)\
@@ -45,7 +46,6 @@ namespace pr::rdr12
 			//x(SampleMask            , SampleMask                            )\
 			//x(RasterizerState       , RasterizerState                       )\
 			//x(DepthStencilState     , DepthStencilState                     )\
-			//x(InputLayout           , InputLayout                           )\
 			//x(PrimitiveTopologyType , PrimitiveTopologyType                 )\
 			//x(NumRenderTargets      , NumRenderTargets                      )\
 			//x(NodeMask              , NodeMask                              )\

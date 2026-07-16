@@ -8,31 +8,18 @@
 #include "pr/hlsl/core.hlsli"
 #include "src/world/water/shaders/water_field_types.hlsli"
 
+#ifdef __cplusplus
+namespace pr::hlsl
+{
+	using namespace las::water;
+#endif
+
 // Contributions needed to displace and orient a sampled water surface.
 struct WaterFieldSample
 {
 	float4 displacement_foam;
 	float4 normal_delta;
 };
-
-// Construct an empty field sample before accumulating elements.
-WaterFieldSample WaterFieldSampleZero()
-{
-	WaterFieldSample sample = (WaterFieldSample)0;
-	return sample;
-}
-
-// Return a cubic smooth ramp and its derivative with respect to the input value.
-float2 SmoothRampWithDerivative(float value, float duration)
-{
-	float safe_duration = max(duration, 1.0e-4f);
-	float x = saturate(value / safe_duration);
-	float ramp = x * x * (3.0f - 2.0f * x);
-	float derivative = value > 0.0f && value < safe_duration
-		? 6.0f * x * (1.0f - x) / safe_duration
-		: 0.0f;
-	return float2(ramp, derivative);
-}
 
 // Full differential state of one compact circular packet at a world-space point.
 struct StoneDropSample
@@ -46,10 +33,45 @@ struct StoneDropSample
 	float2 radial_direction;
 };
 
-// Evaluate a finite travelling packet and its analytical radial/time derivatives.
-StoneDropSample EvaluateStoneDrop(WaterFieldElement element, float2 world_xy)
+// Construct an empty field sample before accumulating elements.
+odr WaterFieldSample WaterFieldSampleZero()
 {
+#ifdef __cplusplus
+	WaterFieldSample sample = {};
+#else
+	WaterFieldSample sample = (WaterFieldSample)0;
+#endif
+	return sample;
+}
+
+// Construct an empty stone-drop sample before accumulating elements.
+odr StoneDropSample StoneDropSampleZero()
+{
+#ifdef __cplusplus
+	StoneDropSample sample = {};
+#else
 	StoneDropSample sample = (StoneDropSample)0;
+#endif
+	return sample;
+}
+
+// Return a cubic smooth ramp and its derivative with respect to the input value.
+odr float2 SmoothRampWithDerivative(float value, float duration)
+{
+	float safe_duration = max(duration, 1.0e-4f);
+	float x = saturate(value / safe_duration);
+	float ramp = x * x * (3.0f - 2.0f * x);
+	float derivative = value > 0.0f && value < safe_duration
+		? 6.0f * x * (1.0f - x) / safe_duration
+		: 0.0f;
+
+	return float2(ramp, derivative);
+}
+
+// Evaluate a finite travelling packet and its analytical radial/time derivatives.
+odr StoneDropSample EvaluateStoneDrop(WaterFieldElement element, float2 world_xy)
+{
+	StoneDropSample sample = StoneDropSampleZero();
 
 	float age = element.timing.x;
 	float lifetime = element.timing.y;
@@ -114,21 +136,21 @@ StoneDropSample EvaluateStoneDrop(WaterFieldElement element, float2 world_xy)
 }
 
 // Return the shared Gerstner phase used by every water-field consumer.
-float GerstnerWavePhase(WaterFieldElement element, float2 world_xy, float time)
+odr float GerstnerWavePhase(WaterFieldElement element, float2 world_xy, float time)
 {
 	float k = tau / element.wave.y;
 	return k * dot(element.position.xy, world_xy) - k * element.wave.z * time;
 }
 
 // Add one Gerstner component to a water-field sample.
-void AccumulateGerstnerWave(WaterFieldElement element, float2 world_xy, float time, inout WaterFieldSample sample)
+odr void AccumulateGerstnerWave(WaterFieldElement element, float2 world_xy, float time, inout_(WaterFieldSample) sample)
 {
 	float2 direction = element.position.xy;
 	float amplitude = element.wave.x;
 	float wavelength = element.wave.y;
 	float steepness = element.wave.w;
 
-	float k = 6.283185307 / wavelength;
+	float k = 6.283185307f / wavelength;
 	float phase = GerstnerWavePhase(element, world_xy, time);
 	float s, c;
 	sincos(phase, s, c);
@@ -144,7 +166,7 @@ void AccumulateGerstnerWave(WaterFieldElement element, float2 world_xy, float ti
 }
 
 // Add one typed field element to a water-field sample.
-void AccumulateWaterFieldElement(WaterFieldElement element, float2 world_xy, float time, inout WaterFieldSample sample)
+odr void AccumulateWaterFieldElement(WaterFieldElement element, float2 world_xy, float time, inout_(WaterFieldSample) sample)
 {
 	switch (element.info.x)
 	{
@@ -169,7 +191,7 @@ void AccumulateWaterFieldElement(WaterFieldElement element, float2 world_xy, flo
 }
 
 // Evaluate one typed field element's vertical surface contribution.
-float EvaluateWaterFieldHeightElement(WaterFieldElement element, float2 world_xy, float time)
+odr float EvaluateWaterFieldHeightElement(WaterFieldElement element, float2 world_xy, float time)
 {
 	switch (element.info.x)
 	{
@@ -189,7 +211,7 @@ float EvaluateWaterFieldHeightElement(WaterFieldElement element, float2 world_xy
 }
 
 // Evaluate one typed field element's height and lateral pressure-gradient contribution.
-float3 EvaluateWaterFieldHeightAndPressureGradientElement(WaterFieldElement element, float2 world_xy, float time, float gravity)
+odr float3 EvaluateWaterFieldHeightAndPressureGradientElement(WaterFieldElement element, float2 world_xy, float time, float gravity)
 {
 	switch (element.info.x)
 	{
@@ -220,7 +242,7 @@ float3 EvaluateWaterFieldHeightAndPressureGradientElement(WaterFieldElement elem
 }
 
 // Evaluate one typed field element's water-particle velocity contribution.
-float3 EvaluateWaterFieldVelocityElement(WaterFieldElement element, float3 world_pos, float time, float water_level)
+odr float3 EvaluateWaterFieldVelocityElement(WaterFieldElement element, float3 world_pos, float time, float water_level)
 {
 	switch (element.info.x)
 	{
@@ -246,4 +268,7 @@ float3 EvaluateWaterFieldVelocityElement(WaterFieldElement element, float3 world
 	}
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

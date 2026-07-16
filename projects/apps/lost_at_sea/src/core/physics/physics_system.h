@@ -120,14 +120,14 @@ namespace las
 		// Register a physics body's collision shape for buoyancy.
 		[[nodiscard]] BuoyancyHullRegistration RegisterBuoyancyHull(BodyHandle handle);
 
-		// Submit GPU physics work for all registered rigid bodies without waiting for completion.
-		void BeginStep(float dt, double time_s);
+		// Submit GPU physics work against the matching immutable water snapshot without waiting for completion.
+		void BeginStep(float dt, double time_s, water::Snapshot const& water_snapshot);
 
 		// Wait for pending GPU physics work and publish immutable snapshots, returning an exception on failure.
 		[[nodiscard]] std::exception_ptr CompleteStep() noexcept;
 
-		// Step all registered rigid bodies synchronously.
-		void Step(float dt, double time_s);
+		// Step all registered rigid bodies synchronously against the matching immutable water snapshot.
+		void Step(float dt, double time_s, water::Snapshot const& water_snapshot);
 
 		// Set the world-space gravity applied to registered bodies before each step.
 		void GravityWS(v4 gravity_ws);

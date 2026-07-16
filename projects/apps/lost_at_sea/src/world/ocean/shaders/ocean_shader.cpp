@@ -73,7 +73,7 @@ namespace las
 	}
 
 	// Copy one immutable water-field snapshot and update render-only frame parameters.
-	void OceanShader::SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
+	void OceanShader::SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, int num_segments, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
 		m_cbuf.water_field_count = std::min(water_snapshot.m_element_count, water::MaxWaterFieldElementCount);
 		for (int i = 0; i != m_cbuf.water_field_count; ++i)
@@ -88,7 +88,8 @@ namespace las
 		}
 
 		m_cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, water_snapshot.m_time_s);
-		m_cbuf.mesh_config = v4(inner_radius, outer_radius, static_cast<float>(num_rings), min_ring_spacing);
+		m_cbuf.mesh_config = v4(inner_radius, outer_radius, static_cast<float>(num_rings), static_cast<float>(num_segments));
+		m_cbuf.min_ring_spacing = min_ring_spacing;
 		m_cbuf.has_env_map = has_env_map ? 1 : 0;
 		m_cbuf.sun_direction = sun_direction;
 		m_cbuf.sun_colour = sun_colour;

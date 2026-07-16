@@ -3,14 +3,12 @@
 //  Copyright (c) Rylogic Ltd 2024
 //************************************
 // Ocean vertex shader.
-// Reconstructs world-space vertex positions from encoded ring/segment data,
+// Reconstructs world-space vertex positions from the indexed draw's vertex IDs,
 // applies Gerstner wave displacement, and computes analytical normals.
 //
-// Vertex encoding:
-//   m_vert.xy = unit-circle direction (cos θ, sin θ) for the segment
-//   m_vert.z  = normalised ring index t ∈ [0, 1]
-//   m_vert.w  = 1
-//   Centre vertex: xy = (0, 0), z = -1 (sentinel)
+// Vertex IDs:
+//   0 = centre
+//   1 + ring * segment_count + segment = ring vertex
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
@@ -45,7 +43,7 @@ struct PSOut
 float RingRadius(float t, float camera_height, float inner, float outer)
 {
 	float num_rings = g_ocean.mesh_config.z;
-	float min_spacing = g_ocean.mesh_config.w;
+	float min_spacing = g_ocean.min_ring_spacing;
 
 	// Logarithmic: r = inner * exp(log(outer/inner) * t)
 	float log_ratio = log(outer / inner);
@@ -108,8 +106,8 @@ float FresnelSchlick(float cos_theta, float f0)
 	return f0 + (1.0 - f0) * pow(saturate(1.0 - cos_theta), 5.0);
 }
 
-// Displace verts of the input mesh by the waves
-PSIn VSOcean(VSIn In)
+// Generate and displace one indexed radial-mesh vertex.
+PSIn VSOcean(uint vertex_id semantic(SV_VertexID))
 {
 	PSIn Out = (PSIn)0;
 
@@ -121,8 +119,8 @@ PSIn VSOcean(VSIn In)
 
 	float3 ws_pos;
 
-	// Centre vertex sentinel: z == -1
-	if (In.vert.z < 0)
+	// View3D draws with BaseVertexLocation zero, so an indexed draw reports the model-relative index as SV_VertexID.
+	if (vertex_id == 0)
 	{
 		// Centre vertex is at the camera XY position, displaced by waves
 		WaterFieldSample water = EvaluateWaterField(cam_xy, time);
@@ -135,9 +133,17 @@ PSIn VSOcean(VSIn In)
 	}
 	else
 	{
-		// Ring vertex: decode direction and ring parameter
-		float2 dir = In.vert.xy;    // unit-circle direction
-		float t = In.vert.z;        // normalised ring index [0, 1]
+		// Decode the unique ring vertex directly from its model-relative index.
+		uint segment_count = uint(g_ocean.mesh_config.w);
+		uint radial_id = vertex_id - 1;
+		uint ring = radial_id / segment_count;
+		uint segment = radial_id - ring * segment_count;
+		float angle = 6.28318530717958647692 * float(segment) / float(segment_count);
+		float sin_angle;
+		float cos_angle;
+		sincos(angle, sin_angle, cos_angle);
+		float2 dir = float2(cos_angle, sin_angle);
+		float t = float(ring) / (g_ocean.mesh_config.z - 1.0);
 
 		float r = RingRadius(t, cam_height, inner, outer);
 		float2 local_xy = r * dir;
@@ -173,10 +179,6 @@ PSIn VSOcean(VSIn In)
 	// Transform using standard forward matrices
 	Out.ws_vert = mul(os_vert, g_nugget.o2w);
 	Out.ss_vert = mul(os_vert, g_nugget.o2s);
-
-	// Pass through texture coordinates (unused for now, but available for detail maps)
-	Out.tex0 = In.tex0;
-	Out.idx0 = In.idx0;
 
 	return Out;
 

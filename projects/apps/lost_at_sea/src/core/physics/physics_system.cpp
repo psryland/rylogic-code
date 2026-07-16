@@ -122,17 +122,6 @@ namespace las
 	{
 		// Renderer does not expose a shared compute shader cache yet. Passing nullptr keeps the physics engine on its normal uncached compiler
 		// path while still sharing the renderer's D3D device.
-		//
-		// Bind one deterministic field element so the custom shader/data seam is exercised independently
-		// of event management. This matches the rendered ocean's primary swell.
-		auto test_field = water::WaterFieldElement{
-			.info = int4(water::WaterFieldElementTypeGerstnerWave, 0, 0, 0),
-			.position = Normalise(v4(1.0f, 0.3f, 0.0f, 0.0f)),
-			.wave = v4(1.0f, 80.0f, 11.2f, 0.35f),
-			.timing = v4::Zero(),
-		};
-		water::BuoyancyAdapter::SetField(*m_gpu_buoyancy, std::span{&test_field, 1}, 0.0f);
-
 		PublishSnapshots();
 	}
 
@@ -299,11 +288,14 @@ namespace las
 		slot.m_buoyancy_hull.Reset();
 	}
 
-	// Submit GPU physics work for all registered rigid bodies without waiting for completion.
-	void PhysicsSystem::BeginStep(float dt, double time_s)
+	// Submit GPU physics work against the matching immutable water snapshot without waiting for completion.
+	void PhysicsSystem::BeginStep(float dt, double time_s, water::Snapshot const& water_snapshot)
 	{
 		CheckOwnerThread();
 		CheckNoStepPending("PhysicsSystem::BeginStep");
+
+		// Copy the field before Engine::BeginStep invokes external-force generators, ensuring every buoyancy dispatch in this step sees this exact value snapshot.
+		water::BuoyancyAdapter::SetField(*m_gpu_buoyancy, water_snapshot, time_s);
 
 		m_step_pending = true;
 		m_engine_step_pending = false;
@@ -353,10 +345,10 @@ namespace las
 		}
 	}
 
-	// Step all registered rigid bodies synchronously.
-	void PhysicsSystem::Step(float dt, double time_s)
+	// Step all registered rigid bodies synchronously against the matching immutable water snapshot.
+	void PhysicsSystem::Step(float dt, double time_s, water::Snapshot const& water_snapshot)
 	{
-		BeginStep(dt, time_s);
+		BeginStep(dt, time_s, water_snapshot);
 		if (auto ex = CompleteStep())
 		{
 			std::rethrow_exception(ex);

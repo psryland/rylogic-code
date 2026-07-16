@@ -27,6 +27,6 @@ namespace las
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const& scene, rdr12::DrawListElement const* dle) override;
 
 		// Copy one immutable water-field snapshot and update render-only frame parameters.
-		void SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour);
+		void SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float inner_radius, float outer_radius, int num_rings, int num_segments, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour);
 	};
 }

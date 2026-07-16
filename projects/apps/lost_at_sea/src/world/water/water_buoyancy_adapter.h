@@ -4,7 +4,6 @@
 //************************************
 #pragma once
 #include "src/forward.h"
-#include "src/world/water/shaders/water_field_types.hlsli"
 
 namespace las::water
 {
@@ -14,7 +13,7 @@ namespace las::water
 		// Return the shader and fixed-stride contract used to specialise GPU buoyancy for LaS.
 		static physics::GpuBuoyancy::WaterFieldExtension Extension();
 
-		// Copy one immutable LaS field snapshot into GPU buoyancy.
-		static void SetField(physics::GpuBuoyancy& buoyancy, std::span<WaterFieldElement const> elements, float water_level);
+		// Copy one immutable LaS field snapshot into GPU buoyancy for the matching simulation time.
+		static void SetField(physics::GpuBuoyancy& buoyancy, Snapshot const& snapshot, double simulation_time_s);
 	};
 }

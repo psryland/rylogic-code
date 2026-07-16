@@ -27,7 +27,7 @@ struct CBufOcean //:reg(b3)
 	// Camera world-space position (xyz), w = simulation time
 	float4 camera_pos_time;
 
-	// Mesh radii: x=inner, y=outer, z=num_rings, w=minimum ring spacing
+	// Mesh configuration: x=inner radius, y=outer radius, z=ring count, w=segment count
 	float4 mesh_config;
 
 	// Number of active field elements
@@ -55,7 +55,10 @@ struct CBufOcean //:reg(b3)
 	// Water transparency at normal incidence (0=opaque, 1=fully clear)
 	float water_transparency;
 
-	float2 pad0;
+	// Minimum radial distance between adjacent rings
+	float min_ring_spacing;
+
+	float pad0;
 };
 
 #ifdef __cplusplus

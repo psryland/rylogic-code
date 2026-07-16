@@ -97,6 +97,10 @@ namespace las
 			changed |= ui.Checkbox("Generate stone drops", &settings.m_enabled);
 			changed |= ui.SliderFloat("Spawn interval (s)", &settings.m_spawn_interval_s, 0.1f, 5.0f);
 
+			auto near_mesh_wireframe = m_ocean.Wireframe();
+			if (ui.Checkbox("Near mesh wireframe", &near_mesh_wireframe))
+				m_ocean.Wireframe(near_mesh_wireframe);
+
 			ui.Separator();
 			ui.Text("-- Packet --");
 			changed |= ui.SliderFloat("Amplitude min", &settings.m_amplitude_min, 0.1f, settings.m_amplitude_max);
@@ -162,20 +166,21 @@ namespace las
 		m_sim_time += elapsed_seconds;
 		auto dt = static_cast<float>(elapsed_seconds);
 
-		// Water ages and generation are advanced before physics submission. Phase 3 will bind this exact snapshot to GPU buoyancy at the same boundary.
+		// Water ages and generation are advanced before physics submission so rendering and buoyancy receive the same materialised event ages.
 		auto generator_position = v2::Zero();
 		{
 			auto lock = std::lock_guard{m_water_generator_position_mutex};
 			generator_position = m_water_generator_position;
 		}
 		m_water.Update(m_sim_time, generator_position);
+		auto water_snapshot = m_water.CurrentSnapshot();
 
 		// BeginStep records and submits the GPU physics work on the simulation owner thread. Generic task-graph work can run while the GPU is
 		// processing, but tasks that need post-physics snapshots must wait for StepTaskId::Physics.
-		m_physics.BeginStep(dt, m_sim_time);
+		m_physics.BeginStep(dt, m_sim_time, water_snapshot);
 
 		// Finalise task: commit state snapshot for the render graph
-		m_step_graph.Add(StepTaskId::Finalise, [&](auto&) -> pr::task_graph::Task
+		m_step_graph.Add(StepTaskId::Finalise, [&, water_snapshot](auto&) -> pr::task_graph::Task
 		{
 			// Update time of day
 			m_day_cycle.Update(dt);
@@ -185,7 +190,7 @@ namespace las
 			lock->m_sun_direction = m_day_cycle.SunDirection();
 			lock->m_sun_colour = m_day_cycle.SunColour();
 			lock->m_sun_intensity = m_day_cycle.SunIntensity();
-			lock->m_water = m_water.CurrentSnapshot();
+			lock->m_water = water_snapshot;
 			co_return;
 		});
 

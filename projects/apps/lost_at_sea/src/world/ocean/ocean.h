@@ -33,5 +33,11 @@ namespace las
 
 		// Add instance to the scene drawlist (NOT thread-safe, must be called serially).
 		void AddToScene(Scene& scene);
+
+		// Return whether the near-ocean mesh is rendered as wireframe.
+		bool Wireframe() const;
+
+		// Set the near-ocean mesh fill mode.
+		void Wireframe(bool enabled);
 	};
 }

@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 #include "src/forward.h"
+#include "src/world/water/water_system.h"
 #include "src/world/water/water_buoyancy_adapter.h"
 
 namespace las::water
@@ -18,9 +19,17 @@ namespace las::water
 		};
 	}
 
-	// Copy one immutable LaS field snapshot into GPU buoyancy.
-	void BuoyancyAdapter::SetField(physics::GpuBuoyancy& buoyancy, std::span<WaterFieldElement const> elements, float water_level)
+	// Copy one immutable LaS field snapshot into GPU buoyancy for the matching simulation time.
+	void BuoyancyAdapter::SetField(physics::GpuBuoyancy& buoyancy, Snapshot const& snapshot, double simulation_time_s)
 	{
-		buoyancy.SetWaterField(std::as_bytes(elements), static_cast<int>(elements.size()), water_level);
+		if (!std::isfinite(simulation_time_s) || snapshot.m_time_s != static_cast<float>(simulation_time_s))
+			throw std::invalid_argument("Water snapshot time must match the physics simulation time");
+		if (snapshot.m_element_count < 0 || snapshot.m_element_count > MaxWaterFieldElementCount)
+			throw std::invalid_argument("Water snapshot element count is outside the fixed field capacity");
+		if (!std::isfinite(snapshot.m_water_level))
+			throw std::invalid_argument("Water snapshot level must be finite");
+
+		auto elements = snapshot.Elements();
+		buoyancy.SetWaterField(std::as_bytes(elements), static_cast<int>(elements.size()), snapshot.m_water_level);
 	}
 }
