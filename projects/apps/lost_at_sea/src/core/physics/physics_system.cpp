@@ -10,17 +10,27 @@ namespace las
 {
 	namespace
 	{
-		// Throw if the box body descriptor would create an unusable physics body.
-		void ValidateBoxBodyDesc(PhysicsSystem::BoxBodyDesc const& desc)
+		// Return the physical seawater configuration used by Lost at Sea buoyancy.
+		physics::GpuBuoyancy::Config BuoyancyConfig()
 		{
-			if (desc.m_size.x <= 0.0f || desc.m_size.y <= 0.0f || desc.m_size.z <= 0.0f || desc.m_size.w != 0.0f)
-			{
-				throw std::runtime_error("Box physics bodies require positive xyz dimensions and w = 0");
-			}
-			if (desc.m_mass_kg <= 0.0f)
-			{
-				throw std::runtime_error("Box physics bodies require a positive mass");
-			}
+			auto config = physics::GpuBuoyancy::Config{};
+			config.m_fluid_density = PhysicsSystem::SeawaterDensityKgM3;
+			config.m_enable_diagnostics = true;
+			return config;
+		}
+
+		// Throw if a body descriptor does not contain one complete aligned shape and a physical density.
+		void ValidateBodyDesc(PhysicsSystem::BodyDesc const& desc)
+		{
+			if (desc.m_shape_data.empty())
+				throw std::runtime_error("Physics bodies require collision shape data");
+
+			auto const* shape = desc.m_shape_data.begin<Shape>();
+			if (!is_aligned(shape) || shape->m_size <= 0 || shape->m_size > isize(desc.m_shape_data))
+				throw std::runtime_error("Physics body collision shape data is incomplete or misaligned");
+
+			if (!std::isfinite(desc.m_density_kg_m3) || desc.m_density_kg_m3 <= 0.0f)
+				throw std::runtime_error("Physics bodies require a positive finite average density");
 		}
 	}
 
@@ -105,7 +115,7 @@ namespace las
 		:m_owner_thread_id(std::this_thread::get_id())
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
 		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
-			physics::GpuBuoyancy::Config{},
+			BuoyancyConfig(),
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
 			[this](int body_slot_index) { return BodySlotState(body_slot_index); },
 			water::BuoyancyAdapter::Extension())
@@ -131,16 +141,17 @@ namespace las
 		PR_ASSERT(PR_DBG, !m_step_pending, "PhysicsSystem destroyed with a pending physics step");
 	}
 
-	// Create a physics-owned box body and publish its initial snapshot.
-	PhysicsSystem::BodyHandle PhysicsSystem::CreateBoxBody(BoxBodyDesc const& desc)
+	// Create a physics-owned body and publish its initial snapshot.
+	PhysicsSystem::BodyHandle PhysicsSystem::CreateBody(BodyDesc desc)
 	{
 		CheckOwnerThread();
-		CheckNoStepPending("PhysicsSystem::CreateBoxBody");
-		ValidateBoxBodyDesc(desc);
+		CheckNoStepPending("PhysicsSystem::CreateBody");
+		ValidateBodyDesc(desc);
 
-		auto shape = std::make_unique<ShapeBox>(desc.m_size);
-		auto inertia = Inertia::Box(desc.m_size * 0.5f, desc.m_mass_kg);
-		auto body = std::make_unique<RigidBody>(shape.get(), desc.m_o2w, inertia);
+		auto shape_data = std::move(desc.m_shape_data);
+		auto* shape = shape_data.begin<Shape>();
+		auto body = std::make_unique<RigidBody>(shape, desc.m_o2w);
+		body->Shape(shape, desc.m_density_kg_m3, true);
 		body->NeverSleep(desc.m_never_sleep);
 
 		if (!m_free_slots.empty())
@@ -150,7 +161,7 @@ namespace las
 
 			auto& slot = m_body_slots[slot_index];
 			slot.m_buoyancy_hull.Reset();
-			slot.m_shape = std::move(shape);
+			slot.m_shape_data = std::move(shape_data);
 			slot.m_body = std::move(body);
 			slot.m_step_index = -1;
 			auto handle = BodyHandle{ slot_index, slot.m_generation };
@@ -160,7 +171,7 @@ namespace las
 
 		auto const slot_index = static_cast<int>(m_body_slots.size());
 		m_body_slots.push_back(BodySlot{
-			.m_shape = std::move(shape),
+			.m_shape_data = std::move(shape_data),
 			.m_body = std::move(body),
 			.m_generation = 0,
 			.m_step_index = -1,
@@ -184,7 +195,7 @@ namespace las
 		auto& slot = Slot(handle);
 		ReleaseBuoyancyHull(handle);
 		slot.m_body.reset();
-		slot.m_shape.reset();
+		slot.m_shape_data.clear();
 		slot.m_step_index = -1;
 		++slot.m_generation;
 		m_free_slots.push_back(handle.m_index);
@@ -237,6 +248,38 @@ namespace las
 		}
 
 		return snapshot;
+	}
+
+	// Return a body's collision shape while on the simulation owner thread.
+	Shape const& PhysicsSystem::BodyShape(BodyHandle handle) const
+	{
+		return Slot(handle).m_body->Shape();
+	}
+
+	// Recalculate a body's mass properties from its unchanged shape and a new average density.
+	void PhysicsSystem::SetBodyDensity(BodyHandle handle, float density_kg_m3)
+	{
+		CheckOwnerThread();
+		CheckNoStepPending("PhysicsSystem::SetBodyDensity");
+		if (!std::isfinite(density_kg_m3) || density_kg_m3 <= 0.0f)
+			throw std::runtime_error("Physics body density must be positive and finite");
+
+		auto& body = *Slot(handle).m_body;
+
+		// Preserve motion rather than momentum so a live tuning change does not create an artificial velocity impulse.
+		auto velocity_ws = body.VelocityWS();
+		auto mass_properties = CalcMassProperties(body.Shape(), density_kg_m3);
+		body.SetMassProperties(physics::Inertia{mass_properties}, mass_properties.m_centre_of_mass);
+		body.VelocityWS(velocity_ws);
+	}
+
+	// Return the latest GPU buoyancy diagnostic record for a body.
+	physics::GpuBuoyancy::Diagnostics PhysicsSystem::LatestBuoyancyDiagnostics(BodyHandle handle) const
+	{
+		if (!IsValid(handle))
+			return physics::GpuBuoyancy::Diagnostics{};
+
+		return m_gpu_buoyancy->LatestDiagnostics(handle.m_index, handle.m_generation);
 	}
 
 	// Register a physics body's collision shape for buoyancy.

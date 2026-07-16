@@ -22,11 +22,11 @@ namespace las
 			// Return true if this handle could refer to a registered body.
 			bool IsValid() const;
 		};
-		struct BoxBodyDesc
+		struct BodyDesc
 		{
-			v4 m_size;
+			byte_data<16> m_shape_data;
 			m4x4 m_o2w;
-			float m_mass_kg;
+			float m_density_kg_m3;
 			bool m_never_sleep;
 		};
 		struct BodySnapshot
@@ -70,7 +70,7 @@ namespace las
 
 		struct BodySlot
 		{
-			std::unique_ptr<ShapeBox> m_shape;
+			byte_data<16> m_shape_data;
 			std::unique_ptr<RigidBody> m_body;
 			int m_generation;
 			int m_step_index;
@@ -97,13 +97,15 @@ namespace las
 
 	public:
 
+		static constexpr float SeawaterDensityKgM3 = 1025.0f;
+
 		explicit PhysicsSystem(Renderer& rdr);
 		PhysicsSystem(PhysicsSystem const&) = delete;
 		PhysicsSystem& operator=(PhysicsSystem const&) = delete;
 		~PhysicsSystem();
 
-		// Create a physics-owned box body and return its stable game-level handle.
-		BodyHandle CreateBoxBody(BoxBodyDesc const& desc);
+		// Create a physics-owned body from an aligned collision-shape value and density-derived mass properties.
+		BodyHandle CreateBody(BodyDesc desc);
 
 		// Destroy a physics-owned body.
 		void DestroyBody(BodyHandle handle);
@@ -116,6 +118,15 @@ namespace las
 
 		// Return the latest published snapshot for a physics body.
 		BodySnapshot Snapshot(BodyHandle handle) const;
+
+		// Return a body's collision shape while on the simulation owner thread.
+		Shape const& BodyShape(BodyHandle handle) const;
+
+		// Recalculate a body's mass properties from its unchanged shape and a new average density.
+		void SetBodyDensity(BodyHandle handle, float density_kg_m3);
+
+		// Return the latest GPU buoyancy diagnostic record for a body.
+		physics::GpuBuoyancy::Diagnostics LatestBuoyancyDiagnostics(BodyHandle handle) const;
 
 		// Register a physics body's collision shape for buoyancy.
 		[[nodiscard]] BuoyancyHullRegistration RegisterBuoyancyHull(BodyHandle handle);

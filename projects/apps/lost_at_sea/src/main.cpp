@@ -128,6 +128,40 @@ namespace las
 				m_water.SetGeneratorSettings(settings);
 		});
 
+		// Ship tuning requests cross from the render thread to the simulation owner through atomic values.
+		m_diag.AddPanel("Ship Buoyancy", [this](ImGuiUI& ui)
+		{
+			char text[192];
+			auto density_kg_m3 = m_ship.AverageDensity();
+			if (ui.SliderFloat("Average density (kg/m3)", &density_kg_m3, 100.0f, 1200.0f))
+				m_ship.AverageDensity(density_kg_m3);
+
+			*std::format_to(text, "Hull volume: {:.3f} m3", m_ship.HullVolume()) = 0;
+			ui.Text(text);
+			*std::format_to(text, "Derived mass: {:.1f} kg", m_ship.Mass()) = 0;
+			ui.Text(text);
+			*std::format_to(text, "Fluid density: {:.1f} kg/m3", PhysicsSystem::SeawaterDensityKgM3) = 0;
+			ui.Text(text);
+
+			ui.Separator();
+			auto diagnostics = m_ship.BuoyancyDiagnostics();
+			if (!diagnostics.m_valid)
+			{
+				ui.Text("Buoyancy diagnostics pending");
+				return;
+			}
+
+			auto submerged_percent = 100.0f * diagnostics.m_volume_m3 / m_ship.HullVolume();
+			*std::format_to(text, "Displaced volume: {:.3f} m3 ({:.1f}%)", diagnostics.m_volume_m3, submerged_percent) = 0;
+			ui.Text(text);
+			*std::format_to(text, "Force: ({:.1f}, {:.1f}, {:.1f}) N", diagnostics.m_force_ws.x, diagnostics.m_force_ws.y, diagnostics.m_force_ws.z) = 0;
+			ui.Text(text);
+			*std::format_to(text, "Torque: ({:.1f}, {:.1f}, {:.1f}) Nm", diagnostics.m_torque_ws.x, diagnostics.m_torque_ws.y, diagnostics.m_torque_ws.z) = 0;
+			ui.Text(text);
+			*std::format_to(text, "Centre of buoyancy: ({:.2f}, {:.2f}, {:.2f})", diagnostics.m_centre_buoyancy_ws.x, diagnostics.m_centre_buoyancy_ws.y, diagnostics.m_centre_buoyancy_ws.z) = 0;
+			ui.Text(text);
+		});
+
 		// The initial render snapshot contains the canonical base ocean even before the first simulation step.
 		auto sim = m_sim_state.Lock();
 		sim->m_water = m_water.CurrentSnapshot();
@@ -165,6 +199,9 @@ namespace las
 	{
 		m_sim_time += elapsed_seconds;
 		auto dt = static_cast<float>(elapsed_seconds);
+
+		// Apply render-thread tuning requests before the physics step captures mass properties.
+		m_ship.ApplyTuning();
 
 		// Water ages and generation are advanced before physics submission so rendering and buoyancy receive the same materialised event ages.
 		auto generator_position = v2::Zero();
