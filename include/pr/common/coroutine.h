@@ -771,57 +771,6 @@ namespace pr::coroutine
 				b = next;
 			}
 		}
-
-		Task<> NestedChild(std::shared_ptr<std::atomic_int> stage)
-		{
-			stage->store(2);
-			co_return;
-		}
-
-		Task<> NestedParent(std::shared_ptr<std::atomic_int> stage)
-		{
-			stage->store(1);
-
-			co_await NestedChild(stage);
-
-			stage->store(3);
-			co_return;
-		}
-	}
-
-	// Regression test for the continuation hand-off in final_suspend: the awaited task must resume
-	// the awaiting task exactly once, otherwise nested Tasks can remain suspended forever.
-	PRUnitTest(CoroutineContinuationResumesAwaiter)
-	{
-		using namespace std::chrono_literals;
-
-		auto stage = std::make_shared<std::atomic_int>(0);
-
-		// Keep the nested Task alive on the detached waiter thread so a timeout only leaves that
-		// one thread blocked if the regression is still present.
-		auto task = std::make_shared<Task<>>(NestedParent(stage));
-
-		auto done_mutex = std::make_shared<std::mutex>();
-		auto done_cv = std::make_shared<std::condition_variable>();
-		auto done = std::make_shared<bool>(false);
-
-		std::thread([task, done_mutex, done_cv, done]
-		{
-			task->Wait();
-
-			{
-				std::lock_guard lock(*done_mutex);
-				*done = true;
-			}
-
-			done_cv->notify_one();
-		}).detach();
-
-		// Wait with a timeout so the test reports the regression instead of hanging the suite.
-		std::unique_lock lock(*done_mutex);
-		auto finished = done_cv->wait_for(lock, 5s, [done] { return *done; });
-		PR_EXPECT(finished);
-		PR_EXPECT(stage->load() == 3);
 	}
 
 	PRUnitTest(CoroutineTests)
@@ -878,6 +827,63 @@ namespace pr::coroutine
 			PR_EXPECT(std::this_thread::get_id() == main_thread_id);
 		}
 #endif
+	}
+
+	// Regression test for the continuation hand-off in final_suspend: the awaited task must resume
+	// the awaiting task exactly once, otherwise nested Tasks can remain suspended forever.
+	Task<> NestedChild(std::shared_ptr<std::atomic_int> stage)
+	{
+		co_await SwitchToWorkerThread();
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+		stage->store(2);
+		co_return;
+	}
+
+	Task<> NestedParent(std::shared_ptr<std::atomic_int> stage)
+	{
+		co_await SwitchToWorkerThread();
+
+		stage->store(1);
+
+		co_await NestedChild(stage);
+
+		stage->store(3);
+		co_return;
+	}
+
+	PRUnitTest(CoroutineContinuationResumesAwaiter)
+	{
+		using namespace std::chrono_literals;
+
+		Scheduler scheduler(1);
+		auto stage = std::make_shared<std::atomic_int>(0);
+
+		// Keep the nested Task alive on the detached waiter thread so a timeout only leaves that
+		// one thread blocked if the regression is still present.
+		auto task = std::make_shared<Task<>>(NestedParent(stage));
+
+		auto done_mutex = std::make_shared<std::mutex>();
+		auto done_cv = std::make_shared<std::condition_variable>();
+		auto done = std::make_shared<bool>(false);
+
+		std::thread([task, done_mutex, done_cv, done]
+		{
+			task->Wait();
+
+			{
+				std::lock_guard lock(*done_mutex);
+				*done = true;
+			}
+
+			done_cv->notify_one();
+		}).detach();
+
+		// Wait with a timeout so the test reports the regression instead of hanging the suite.
+		std::unique_lock lock(*done_mutex);
+		auto finished = done_cv->wait_for(lock, 5s, [done] { return *done; });
+		PR_EXPECT(finished);
+		PR_EXPECT(stage->load() == 3);
 	}
 }
 #endif
