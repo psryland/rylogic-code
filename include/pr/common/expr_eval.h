@@ -5,6 +5,7 @@
 #pragma once
 #include <cmath>
 #include <array>
+#include <limits>
 #include <string_view>
 #include <algorithm>
 #include <type_traits>
@@ -395,13 +396,13 @@ namespace pr::eval
 			{
 				case EType::Intg:
 				{
-					if (rhs.ll() == 0) throw std::runtime_error("Divide by zero");
+					validate_integer_division(lhs, rhs);
 					return Val(lhs.ll() / rhs.ll());
 				}
 				case EType::Real: return Val(lhs.db() / rhs.db());
 				case EType::Intg4:
 				{
-					if (Any(rhs.ivec(), [](auto x) { return x == 0; })) throw std::runtime_error("Divide by zero");
+					validate_integer_division(lhs, rhs);
 					return Val(lhs.ivec() / rhs.ivec(), result_dim(lhs, rhs));
 				}
 				case EType::Real4: return Val(lhs.vec() / rhs.vec(), result_dim(lhs, rhs));
@@ -415,13 +416,13 @@ namespace pr::eval
 			{
 				case EType::Intg:
 				{
-					if (rhs.ll() == 0) throw std::runtime_error("Divide by zero");
+					validate_integer_division(lhs, rhs);
 					return Val(lhs.ll() % rhs.ll());
 				}
 				case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
 				case EType::Intg4:
 				{
-					if (Any(rhs.ivec(), [](auto x) { return x == 0; })) throw std::runtime_error("Divide by zero");
+					validate_integer_division(lhs, rhs);
 					return Val(lhs.ivec() % rhs.ivec(), result_dim(lhs, rhs));
 				}
 				case EType::Real4: return Val(lhs.vec() % rhs.vec(), result_dim(lhs, rhs));
@@ -590,6 +591,47 @@ namespace pr::eval
 		static constexpr uint8_t result_dim(Val const& lhs, Val const& rhs)
 		{
 			return lhs.m_dim > rhs.m_dim ? lhs.m_dim : rhs.m_dim;
+		}
+
+		// Guard the signed integer quotient/remainder corner cases before any arithmetic runs.
+		static void validate_integer_division(Val const& lhs, Val const& rhs)
+		{
+			auto const int_min = std::numeric_limits<long long>::lowest();
+
+			switch (common_type(lhs.m_ty, rhs.m_ty))
+			{
+				case EType::Intg:
+				{
+					auto const l = lhs.ll();
+					auto const r = rhs.ll();
+					if (r == 0) throw std::runtime_error("Divide by zero");
+					if (r == -1 && l == int_min) throw std::runtime_error("Integer overflow");
+					break;
+				}
+				case EType::Intg4:
+				{
+					auto const l = lhs.ivec();
+					auto const r = rhs.ivec();
+					if (
+						r.x == 0 || r.y == 0 || r.z == 0 || r.w == 0)
+					{
+						throw std::runtime_error("Divide by zero");
+					}
+					if (
+						(r.x == -1 && l.x == int_min) ||
+						(r.y == -1 && l.y == int_min) ||
+						(r.z == -1 && l.z == int_min) ||
+						(r.w == -1 && l.w == int_min))
+					{
+						throw std::runtime_error("Integer overflow");
+					}
+					break;
+				}
+				default:
+				{
+					break;
+				}
+			}
 		}
 	};
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
@@ -2382,13 +2424,10 @@ namespace pr::common::tests
 				PR_EXPECT(expr(iv4(5), iv4(2)) == Val(iv4(2)));
 				PR_EXPECT(expr(v4(5), v4(2)) == Val(v4(2.5f)));
 				PR_THROWS(expr(5, 0), std::runtime_error);
-				{
-					Val lhs;
-					lhs = 5ull;
-					Val rhs;
-					rhs = 0ull;
-					PR_THROWS(expr(lhs, rhs), std::runtime_error);
-				}
+				PR_EXPECT(expr(std::numeric_limits<int32_t>::lowest(), -1) == Val(2147483648LL));
+				PR_THROWS(expr(std::numeric_limits<int64_t>::lowest(), -1), std::runtime_error);
+				PR_EXPECT(expr(iv4(std::numeric_limits<int32_t>::lowest(), 6, 7, 8), iv4(-1, 1, 1, 1)) == Val(Val::IVec4(2147483648LL, 6, 7, 8), 4));
+				PR_THROWS(expr(Val(Val::IVec4(std::numeric_limits<int64_t>::lowest(), 6, 7, 8)), Val(Val::IVec4(-1, 1, 1, 1))), std::runtime_error);
 				PR_THROWS(expr(iv4(5, 6, 7, 8), iv4(1, 0, 1, 1)), std::runtime_error);
 				PR_EXPECT(std::isinf(expr(5.0, 0.0).db()));
 			}
@@ -2399,13 +2438,10 @@ namespace pr::common::tests
 				PR_EXPECT(expr(iv4(5), iv4(2)) == Val(iv4(1)));
 				PR_EXPECT(expr(v4(5), v4(2)) == Val(v4(1)));
 				PR_THROWS(expr(5, 0), std::runtime_error);
-				{
-					Val lhs;
-					lhs = 5ull;
-					Val rhs;
-					rhs = 0ull;
-					PR_THROWS(expr(lhs, rhs), std::runtime_error);
-				}
+				PR_EXPECT(expr(std::numeric_limits<int32_t>::lowest(), -1) == Val(0LL));
+				PR_THROWS(expr(std::numeric_limits<int64_t>::lowest(), -1), std::runtime_error);
+				PR_EXPECT(expr(iv4(std::numeric_limits<int32_t>::lowest(), 6, 7, 8), iv4(-1, 1, 1, 1)) == Val(Val::IVec4(0LL, 0LL, 0LL, 0LL), 4));
+				PR_THROWS(expr(Val(Val::IVec4(std::numeric_limits<int64_t>::lowest(), 6, 7, 8)), Val(Val::IVec4(-1, 1, 1, 1))), std::runtime_error);
 				PR_THROWS(expr(iv4(5, 6, 7, 8), iv4(1, 0, 1, 1)), std::runtime_error);
 				PR_EXPECT(std::isnan(expr(5.0, 0.0).db()));
 			}
