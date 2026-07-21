@@ -161,21 +161,35 @@ namespace pr
 			template <typename Str, typename = std::enable_if_t<is_string_v<Str>>>
 			static GUID Func(Str const& s)
 			{
-				using Char = typename string_traits<Str>::value_type;
+				using Char = std::remove_const_t<typename string_traits<Str>::value_type>;
+
+				// `UuidFromStringA/W` reads until it finds a terminator, so bounded inputs must be copied
+				// into a temporary buffer before the parser sees them.
+				std::basic_string<Char> terminated;
+				auto const* text = string_traits<Str>::ptr(s);
+				if constexpr (!string_traits<Str>::null_terminated)
+				{
+					terminated.assign(text, text + string_traits<Str>::size(s));
+					text = terminated.c_str();
+				}
 
 				if constexpr (std::is_same_v<Char, char>)
 				{
 					GUID guid;
-					auto r = ::UuidFromStringA(RPC_CSTR(string_traits<Str>::ptr(s)), &guid);
+					auto r = ::UuidFromStringA(RPC_CSTR(text), &guid);
 					if (r != RPC_S_OK) throw std::runtime_error("GUID string is invalid");
 					return guid;
 				}
-				if constexpr (std::is_same_v<Char, wchar_t>)
+				else if constexpr (std::is_same_v<Char, wchar_t>)
 				{
 					GUID guid;
-					auto r = ::UuidFromStringW(RPC_WSTR(string_traits<Str>::ptr(s)), &guid);
+					auto r = ::UuidFromStringW(RPC_WSTR(text), &guid);
 					if (r != RPC_S_OK) throw std::runtime_error("GUID string is invalid");
 					return guid;
+				}
+				else
+				{
+					static_assert(dependent_false<Str>, "GUID conversion only supports char and wchar_t strings");
 				}
 			}
 		};
@@ -253,6 +267,21 @@ namespace pr::common
 		PR_EXPECT(To<std::wstring>(GuidInvalid) == L"00000000-0000-0000-0000-000000000000");
 		PR_EXPECT(To<Guid>("00000000-0000-0000-0000-000000000000") == GuidInvalid);
 		PR_EXPECT(To<Guid>(L"00000000-0000-0000-0000-000000000000") == GuidZero);
+
+		// Keep the normal string path working while proving that bounded views no longer bleed
+		// into the following storage when the parser expects a terminator.
+		auto narrow_text = std::string("00000000-0000-0000-0000-000000000000");
+		auto wide_text = std::wstring(L"00000000-0000-0000-0000-000000000000");
+		PR_EXPECT(To<Guid>(narrow_text) == GuidInvalid);
+		PR_EXPECT(To<Guid>(wide_text) == GuidInvalid);
+
+		auto narrow_slice = std::string_view(narrow_text.data(), narrow_text.size() - 1);
+		auto wide_slice = std::wstring_view(wide_text.data(), wide_text.size() - 1);
+		PR_THROWS(To<Guid>(narrow_slice), std::runtime_error);
+		PR_THROWS(To<Guid>(wide_slice), std::runtime_error);
+
+		PR_THROWS(To<Guid>(std::string_view("not-a-guid")), std::runtime_error);
+		PR_THROWS(To<Guid>(std::wstring_view(L"not-a-guid")), std::runtime_error);
 	}
 }
 #endif
