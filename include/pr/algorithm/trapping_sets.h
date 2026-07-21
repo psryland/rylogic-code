@@ -10,6 +10,7 @@
 #include <queue>
 #include <algorithm>
 #include <numeric>
+#include <iterator>
 #include <functional>
 #include <cassert>
 #include <cstdint>
@@ -33,6 +34,14 @@
 
 namespace pr::trapping_sets
 {
+	// Readability aliases for the recurring "vector of int vectors" shapes, named by what they hold:
+	//   AdjacencyList - per node/super-node: its list of successor ids (a directed-graph edge list)
+	//   NodeChains    - per super-node: the ordered chain of original node ids it contracts
+	//   IdSetList     - a list of id sets: reachable/trapping super-node sets, per-SCC members, containment children
+	using AdjacencyList = std::vector<std::vector<int>>;
+	using NodeChains = std::vector<std::vector<int>>;
+	using IdSetList = std::vector<std::vector<int>>;
+
 	// A single trapping set (subgraph that cannot be exited)
 	struct TrappingSet
 	{
@@ -40,7 +49,7 @@ namespace pr::trapping_sets
 
 		// Chains of original node IDs that are exclusively owned by this trapping set
 		// (i.e. not contained in any child trapping set)
-		std::vector<std::vector<int>> node_chains;
+		NodeChains node_chains;
 
 		// IDs of directly contained child trapping sets
 		std::vector<int> child_sets;
@@ -74,7 +83,7 @@ namespace pr::trapping_sets
 		struct Graph
 		{
 			int node_count = 0;
-			std::vector<std::vector<int>> adj;
+			AdjacencyList adj;
 
 			void Resize(int n)
 			{
@@ -87,9 +96,9 @@ namespace pr::trapping_sets
 				adj[from].push_back(to);
 			}
 
-			std::vector<std::vector<int>> BuildReverseAdj() const
+			AdjacencyList BuildReverseAdj() const
 			{
-				std::vector<std::vector<int>> rev(node_count);
+				AdjacencyList rev(node_count);
 				for (int v = 0; v < node_count; ++v)
 					for (int w : adj[v])
 						rev[w].push_back(v);
@@ -101,7 +110,7 @@ namespace pr::trapping_sets
 		struct ChainContraction
 		{
 			Graph super_graph;
-			std::vector<std::vector<int>> chains;    // per super-node: ordered chain of original node IDs
+			NodeChains chains;    // per super-node: ordered chain of original node IDs
 			std::vector<int> node_to_super;           // original node → super-node ID
 		};
 
@@ -120,7 +129,14 @@ namespace pr::trapping_sets
 				std::vector<int> index(n, -1);
 				std::vector<int> lowlink(n, -1);
 				std::vector<bool> on_stack(n, false);
-				std::stack<int> stk;
+				std::vector<int> stk;
+				stk.reserve(n);
+
+				// Both DFS stacks are bounded by the node count. Reuse their storage across disconnected roots rather
+				// than constructing deque-backed std::stack instances for every root.
+				struct Frame { int node; int neighbor_idx; };
+				std::vector<Frame> call_stack;
+				call_stack.reserve(n);
 				int next_index = 0;
 
 				for (int v = 0; v < n; ++v)
@@ -129,17 +145,16 @@ namespace pr::trapping_sets
 						continue;
 
 					// Iterative strong-connect starting from v
-					struct Frame { int node; int neighbor_idx; };
-					std::stack<Frame> call_stack;
+					call_stack.clear();
 
 					index[v] = lowlink[v] = next_index++;
-					stk.push(v);
+					stk.push_back(v);
 					on_stack[v] = true;
-					call_stack.push({v, 0});
+					call_stack.push_back({v, 0});
 
 					while (!call_stack.empty())
 					{
-						auto& frame = call_stack.top();
+						auto& frame = call_stack.back();
 						int u = frame.node;
 						auto const& neighbors = graph.adj[u];
 
@@ -151,13 +166,15 @@ namespace pr::trapping_sets
 							if (index[w] == -1)
 							{
 								index[w] = lowlink[w] = next_index++;
-								stk.push(w);
+								stk.push_back(w);
 								on_stack[w] = true;
-								call_stack.push({w, 0});
+								call_stack.push_back({w, 0});
 							}
 							else if (on_stack[w])
 							{
-								lowlink[u] = std::min(lowlink[u], lowlink[w]);
+								// Use index[w], not lowlink[w]. In iterative Tarjan, lowlink[w] may not
+								// be finalized yet since we haven't finished backtracking through w's subtree.
+								lowlink[u] = std::min(lowlink[u], index[w]);
 							}
 						}
 						else
@@ -168,20 +185,20 @@ namespace pr::trapping_sets
 								int w;
 								do
 								{
-									w = stk.top();
-									stk.pop();
+									w = stk.back();
+									stk.pop_back();
 									on_stack[w] = false;
 									scc_id[w] = scc_count;
 								} while (w != u);
 								scc_count++;
 							}
 
-							call_stack.pop();
+							call_stack.pop_back();
 
 							// Propagate lowlink to parent
 							if (!call_stack.empty())
 							{
-								int parent = call_stack.top().node;
+								int parent = call_stack.back().node;
 								lowlink[parent] = std::min(lowlink[parent], lowlink[u]);
 							}
 						}
@@ -194,12 +211,12 @@ namespace pr::trapping_sets
 		struct CondensationDAG
 		{
 			int scc_count;
-			std::vector<std::unordered_set<int>> adj_sets;
-			std::vector<std::vector<int>> scc_members; // super-node IDs in each SCC
+			AdjacencyList adj;         // sorted, unique successor SCC ids per SCC (the condensation edges)
+			IdSetList scc_members; // super-node IDs in each SCC
 
 			CondensationDAG(Graph const& super_graph, std::vector<int> const& scc_id, int scc_count)
 				: scc_count(scc_count)
-				, adj_sets(scc_count)
+				, adj(scc_count)
 				, scc_members(scc_count)
 			{
 				for (int v = 0; v < super_graph.node_count; ++v)
@@ -208,40 +225,60 @@ namespace pr::trapping_sets
 				for (int v = 0; v < super_graph.node_count; ++v)
 					for (int w : super_graph.adj[v])
 						if (scc_id[v] != scc_id[w])
-							adj_sets[scc_id[v]].insert(scc_id[w]);
+							adj[scc_id[v]].push_back(scc_id[w]);
+
+				// Deduplicate the condensation edges so each SCC's successor list is a sorted, unique set. A sorted
+				// vector is cheaper to build and scan than a hash set, and the BFS below only needs to iterate it.
+				for (auto& a : adj)
+				{
+					std::sort(a.begin(), a.end());
+					a.erase(std::unique(a.begin(), a.end()), a.end());
+				}
 			}
 
-			// For each SCC, compute all reachable SCCs and collect their super-node IDs
-			std::vector<std::unordered_set<int>> ComputeReachableSuperNodeSets() const
+			// Return SCCs in deterministic topological order. Reverse DFS post-order keeps tree-shaped descendant
+			// regions contiguous, which lets the interval reachability representation stay compact.
+			std::vector<int> TopologicalOrder() const
 			{
-				std::vector<std::unordered_set<int>> reachable(scc_count);
-				for (int c = 0; c < scc_count; ++c)
+				struct Frame
 				{
-					std::queue<int> q;
-					std::vector<bool> visited(scc_count, false);
-					q.push(c);
-					visited[c] = true;
+					int scc;
+					int next_child;
+				};
 
-					while (!q.empty())
+				std::vector<bool> visited(scc_count, false);
+				std::vector<Frame> stack;
+				stack.reserve(scc_count);
+				std::vector<int> order;
+				order.reserve(scc_count);
+				for (int root = 0; root != scc_count; ++root)
+				{
+					if (visited[root])
+						continue;
+
+					visited[root] = true;
+					stack.push_back({ root, 0 });
+					while (!stack.empty())
 					{
-						int cur = q.front();
-						q.pop();
-						for (int neighbor : adj_sets[cur])
+						auto& frame = stack.back();
+						auto const& children = adj[frame.scc];
+						if (frame.next_child != static_cast<int>(children.size()))
 						{
-							if (!visited[neighbor])
+							auto const child = children[frame.next_child++];
+							if (!visited[child])
 							{
-								visited[neighbor] = true;
-								q.push(neighbor);
+								visited[child] = true;
+								stack.push_back({ child, 0 });
 							}
+							continue;
 						}
-					}
 
-					for (int s = 0; s < scc_count; ++s)
-						if (visited[s])
-							for (int sn : scc_members[s])
-								reachable[c].insert(sn);
+						order.push_back(frame.scc);
+						stack.pop_back();
+					}
 				}
-				return reachable;
+				std::reverse(order.begin(), order.end());
+				return order;
 			}
 		};
 
@@ -266,7 +303,7 @@ namespace pr::trapping_sets
 
 			// Build chains starting from non-chainable nodes
 			std::vector<bool> visited(n, false);
-			std::vector<std::vector<int>> chains;
+			NodeChains chains;
 
 			for (int v = 0; v < n; ++v)
 			{
@@ -325,17 +362,26 @@ namespace pr::trapping_sets
 					chain.push_back(child);
 				}
 
-				// Backward extension
-				while (true)
+				// Backward extension - collect then bulk-insert to avoid O(n²) front-insertion
 				{
+					std::vector<int> prefix;
 					int head = chain.front();
-					if (in_deg[head] != 1)
-						break;
-					int parent = reverse_adj[head][0];
-					if (static_cast<int>(original.adj[parent].size()) != 1 || visited[parent])
-						break;
-					visited[parent] = true;
-					chain.insert(chain.begin(), parent);
+					while (true)
+					{
+						if (in_deg[head] != 1)
+							break;
+						int parent = reverse_adj[head][0];
+						if (static_cast<int>(original.adj[parent].size()) != 1 || visited[parent])
+							break;
+						visited[parent] = true;
+						prefix.push_back(parent);
+						head = parent;
+					}
+					if (!prefix.empty())
+					{
+						std::reverse(prefix.begin(), prefix.end());
+						chain.insert(chain.begin(), prefix.begin(), prefix.end());
+					}
 				}
 			}
 
@@ -370,17 +416,26 @@ namespace pr::trapping_sets
 					chain.push_back(next);
 				}
 
-				// Backward
-				while (true)
+				// Backward - collect then bulk-insert to avoid O(n²) front-insertion
 				{
+					std::vector<int> prefix;
 					int head = chain.front();
-					if (in_deg[head] != 1)
-						break;
-					int parent = reverse_adj[head][0];
-					if (static_cast<int>(original.adj[parent].size()) != 1 || visited[parent])
-						break;
-					visited[parent] = true;
-					chain.insert(chain.begin(), parent);
+					while (true)
+					{
+						if (in_deg[head] != 1)
+							break;
+						int parent = reverse_adj[head][0];
+						if (static_cast<int>(original.adj[parent].size()) != 1 || visited[parent])
+							break;
+						visited[parent] = true;
+						prefix.push_back(parent);
+						head = parent;
+					}
+					if (!prefix.empty())
+					{
+						std::reverse(prefix.begin(), prefix.end());
+						chain.insert(chain.begin(), prefix.begin(), prefix.end());
+					}
 				}
 
 				chains.push_back(std::move(chain));
@@ -436,56 +491,10 @@ namespace pr::trapping_sets
 			return result;
 		}
 
-		// Compute trapping-set signatures for each super-node (set of trapping-set indices it belongs to)
-		using SuperNodeSignatures = std::vector<std::unordered_set<int>>;
-
-		inline SuperNodeSignatures ComputeSignatures(Graph const& super_graph, TarjanSCC const& tarjan)
-		{
-			CondensationDAG dag(super_graph, tarjan.scc_id, tarjan.scc_count);
-			auto reachable_sets = dag.ComputeReachableSuperNodeSets();
-
-			// Deduplicate trapping sets.
-			// unique_sets uses std::map<std::set<int>, ...> because it needs ordered
-			// comparison to identify equivalent super-node sets. Converting to unordered_map
-			// would require a custom hash for set contents with no real benefit here — this
-			// runs once and the number of unique sets is typically small.
-			std::map<std::set<int>, int> unique_sets;
-			for (int c = 0; c < tarjan.scc_count; ++c)
-			{
-				std::set<int> ordered(reachable_sets[c].begin(), reachable_sets[c].end());
-				if (!unique_sets.contains(ordered))
-					unique_sets[std::move(ordered)] = c;
-			}
-
-			// Full graph set
-			std::unordered_set<int> full_graph;
-			for (int i = 0; i < super_graph.node_count; ++i)
-				full_graph.insert(i);
-
-			// Collect trapping sets (full graph = index 0)
-			std::vector<std::unordered_set<int>> ts_sets;
-			ts_sets.push_back(full_graph);
-			for (auto& [sn_set, _] : unique_sets)
-			{
-				std::unordered_set<int> unordered(sn_set.begin(), sn_set.end());
-				if (unordered != full_graph)
-					ts_sets.push_back(std::move(unordered));
-			}
-
-			// For each super-node, record which trapping sets contain it
-			SuperNodeSignatures signatures(super_graph.node_count);
-			for (int ts = 0; ts < static_cast<int>(ts_sets.size()); ++ts)
-				for (int sn : ts_sets[ts])
-					signatures[sn].insert(ts);
-
-			return signatures;
-		}
-
-		// Refine chains by merging adjacent super-nodes with matching trapping-set signatures
-		inline ChainContraction RefineChains(
-			Graph const& original,
-			ChainContraction const& initial,
-			SuperNodeSignatures const& signatures)
+		// Refine chains by merging adjacent super-nodes in the same SCC. A super-node's trapping-set membership is
+		// the set of SCCs that can reach it; two distinct SCCs cannot have the same membership because each reaches
+		// itself, so SCC identity is exactly the signature equality needed here.
+		inline ChainContraction RefineChains(Graph const& original, ChainContraction const& initial, std::vector<int> const& scc_ids)
 		{
 			int const n = original.node_count;
 			int const super_count = static_cast<int>(initial.chains.size());
@@ -493,7 +502,7 @@ namespace pr::trapping_sets
 			auto const& sg = initial.super_graph;
 
 			// Build reverse adjacency on super-graph
-			std::vector<std::vector<int>> super_rev_adj(super_count);
+			AdjacencyList super_rev_adj(super_count);
 			for (int sv = 0; sv < super_count; ++sv)
 				for (int sw : sg.adj[sv])
 					super_rev_adj[sw].push_back(sv);
@@ -503,7 +512,7 @@ namespace pr::trapping_sets
 			{
 				int count = 0;
 				for (int w : sg.adj[sn])
-					if (signatures[w] == signatures[sn])
+					if (scc_ids[w] == scc_ids[sn])
 						count++;
 				return count;
 			};
@@ -511,33 +520,34 @@ namespace pr::trapping_sets
 			{
 				int count = 0;
 				for (int w : super_rev_adj[sn])
-					if (signatures[w] == signatures[sn])
+					if (scc_ids[w] == scc_ids[sn])
 						count++;
 				return count;
 			};
 
 			// Build maximal paths through same-signature super-nodes
 			std::vector<bool> visited(super_count, false);
-			std::vector<std::vector<int>> merged_chains;
+			NodeChains merged_chains;
+			merged_chains.reserve(super_count);
 
 			for (int sn = 0; sn < super_count; ++sn)
 			{
 				if (visited[sn] || same_sig_in_deg(sn) == 1)
 					continue;
 
-				std::vector<int> path;
+				std::vector<int> merged;
 				int cur = sn;
 				while (cur >= 0 && !visited[cur])
 				{
 					visited[cur] = true;
-					path.push_back(cur);
+					merged.insert(merged.end(), initial.chains[cur].begin(), initial.chains[cur].end());
 
 					int next = -1;
 					if (same_sig_out_deg(cur) == 1)
 					{
 						for (int w : sg.adj[cur])
 						{
-							if (signatures[w] == signatures[cur])
+							if (scc_ids[w] == scc_ids[cur])
 							{
 								if (same_sig_in_deg(w) == 1)
 									next = w;
@@ -547,12 +557,6 @@ namespace pr::trapping_sets
 					}
 					cur = next;
 				}
-
-				// Flatten: concatenate original node chains
-				std::vector<int> merged;
-				for (int p : path)
-					for (int node : initial.chains[p])
-						merged.push_back(node);
 				merged_chains.push_back(std::move(merged));
 			}
 
@@ -562,19 +566,19 @@ namespace pr::trapping_sets
 				if (visited[sn])
 					continue;
 
-				std::vector<int> path;
+				std::vector<int> merged;
 				int cur = sn;
 				while (!visited[cur])
 				{
 					visited[cur] = true;
-					path.push_back(cur);
+					merged.insert(merged.end(), initial.chains[cur].begin(), initial.chains[cur].end());
 
 					int next = -1;
 					if (same_sig_out_deg(cur) == 1)
 					{
 						for (int w : sg.adj[cur])
 						{
-							if (signatures[w] == signatures[cur] && !visited[w])
+							if (scc_ids[w] == scc_ids[cur] && !visited[w])
 							{
 								if (same_sig_in_deg(w) == 1)
 									next = w;
@@ -585,17 +589,13 @@ namespace pr::trapping_sets
 					if (next < 0) break;
 					cur = next;
 				}
-
-				std::vector<int> merged;
-				for (int p : path)
-					for (int node : initial.chains[p])
-						merged.push_back(node);
 				merged_chains.push_back(std::move(merged));
 			}
 
 			// Build new contraction result
 			ChainContraction result;
 			result.node_to_super.resize(n, -1);
+			result.chains.reserve(merged_chains.size());
 
 			for (int new_sn = 0; new_sn < static_cast<int>(merged_chains.size()); ++new_sn)
 			{
@@ -627,21 +627,88 @@ namespace pr::trapping_sets
 			return result;
 		}
 
-		// Core trapping set detection on a contracted super-graph
-		struct RawTrappingSet
+		// A half-open range of SCC positions in topological order. Reachability sets use sorted, disjoint intervals;
+		// chains and tree-shaped DAG regions therefore need one interval rather than one integer per reachable SCC.
+		struct IndexInterval
 		{
-			std::unordered_set<int> super_nodes;
+			int begin;
+			int end;
 		};
+		using ReachabilityIntervals = std::vector<IndexInterval>;
 
+		// True when a canonical interval set contains one topological position.
+		inline bool Contains(ReachabilityIntervals const& intervals, int position)
+		{
+			auto const it = std::upper_bound(intervals.begin(), intervals.end(), position, [](int value, IndexInterval const& interval)
+			{
+				return value < interval.begin;
+			});
+			return it != intervals.begin() && position < std::prev(it)->end;
+		}
+
+		// Sort and merge overlapping or adjacent intervals in place.
+		inline void Canonicalize(ReachabilityIntervals& intervals)
+		{
+			std::sort(intervals.begin(), intervals.end(), [](IndexInterval const& lhs, IndexInterval const& rhs)
+			{
+				return lhs.begin != rhs.begin ? lhs.begin < rhs.begin : lhs.end < rhs.end;
+			});
+
+			auto output_count = size_t{};
+			for (auto const interval : intervals)
+			{
+				if (output_count == 0 || interval.begin > intervals[output_count - 1].end)
+				{
+					intervals[output_count++] = interval;
+				}
+				else
+				{
+					intervals[output_count - 1].end = std::max(intervals[output_count - 1].end, interval.end);
+				}
+			}
+			intervals.resize(output_count);
+		}
+
+		// Merge one canonical interval set into another. 'scratch' is reused across calls.
+		inline void MergeInto(ReachabilityIntervals& destination, ReachabilityIntervals const& source, ReachabilityIntervals& scratch)
+		{
+			scratch.clear();
+			scratch.reserve(destination.size() + source.size());
+			auto Append = [&](IndexInterval interval)
+			{
+				if (scratch.empty() || interval.begin > scratch.back().end)
+					scratch.push_back(interval);
+				else
+					scratch.back().end = std::max(scratch.back().end, interval.end);
+			};
+
+			auto dst = size_t{};
+			auto src = size_t{};
+			while (dst != destination.size() || src != source.size())
+			{
+				if (src == source.size() || (dst != destination.size() && destination[dst].begin <= source[src].begin))
+					Append(destination[dst++]);
+				else
+					Append(source[src++]);
+			}
+			destination.swap(scratch);
+		}
+
+		// Result of trapping set detection on a contracted super-graph
 		struct DetectionResult
 		{
-			std::vector<RawTrappingSet> raw_sets;         // sorted by size descending, [0] = full graph
-			std::vector<std::vector<int>> children;       // containment hierarchy
-			std::vector<std::unordered_set<int>> exclusive_super;   // per-set: super-nodes not in any child
-			std::vector<int> node_owner;                  // per original-node: owning set index
+			std::vector<int> total_node_counts; // inclusive original-node count per set
+			IdSetList children;                 // direct containment hierarchy
+			IdSetList exclusive_super;          // SCC members owned by each set
+			std::vector<int> node_owner;         // per original-node: owning set index
 		};
 
-		inline DetectionResult DetectOnContraction(Graph const& original, ChainContraction const& contraction)
+		// Detect trapping sets on a contracted super-graph. The result is a containment hierarchy of trapping sets,
+		// one per SCC reachability closure plus a synthetic full-graph root when the condensation DAG has multiple
+		// sources. Compressed intervals preserve exact reachability without materialising every closure member.
+		// 'report_progress' returns false to cancel; 'out_result' is unchanged unless detection completes.
+		template <typename ReportProgress>
+		bool DetectOnContraction(Graph const& original, ChainContraction const& contraction, ReportProgress& report_progress, DetectionResult& out_result)
 		{
 			auto const& sg = contraction.super_graph;
 			auto const& chains = contraction.chains;
@@ -650,175 +717,178 @@ namespace pr::trapping_sets
 			TarjanSCC tarjan;
 			tarjan.Run(sg);
 
-			// Condensation DAG + reachable sets
+			// Build the condensation DAG and give every SCC a stable topological position.
 			CondensationDAG dag(sg, tarjan.scc_id, tarjan.scc_count);
-			auto reachable_sets = dag.ComputeReachableSuperNodeSets();
+			auto const topo_order = dag.TopologicalOrder();
+			std::vector<int> topo_position(tarjan.scc_count, -1);
+			for (int position = 0; position != tarjan.scc_count; ++position)
+				topo_position[topo_order[position]] = position;
 
-			// Deduplicate trapping sets.
-			// unique_sets uses std::map<std::set<int>, ...> because it needs ordered
-			// comparison to identify equivalent super-node sets. Converting to unordered_map
-			// would require a custom hash for set contents with no real benefit here — this
-			// runs once and the number of unique sets is typically small.
-			std::map<std::set<int>, int> unique_sets;
-			for (int c = 0; c < tarjan.scc_count; ++c)
+			auto const total_work = std::max<int64_t>(2LL * tarjan.scc_count, 1);
+			if (!report_progress(0, total_work))
+				return false;
+
+			// Build exact reachability closures in reverse topological order. Each successor closure is already
+			// canonical, so sorting and coalescing produces a compact exact union for this SCC.
+			std::vector<ReachabilityIntervals> reachable(tarjan.scc_count);
+			auto completed_work = int64_t{};
+			for (auto order_index = tarjan.scc_count; order_index-- != 0;)
 			{
-				std::set<int> ordered(reachable_sets[c].begin(), reachable_sets[c].end());
-				if (!unique_sets.contains(ordered))
-					unique_sets[std::move(ordered)] = c;
-			}
+				auto const scc = topo_order[order_index];
+				auto& intervals = reachable[scc];
+				auto required_capacity = size_t{1};
+				for (auto const child : dag.adj[scc])
+					required_capacity += reachable[child].size();
+				intervals.reserve(required_capacity);
+				intervals.push_back({ topo_position[scc], topo_position[scc] + 1 });
+				for (auto const child : dag.adj[scc])
+					intervals.insert(intervals.end(), reachable[child].begin(), reachable[child].end());
+				Canonicalize(intervals);
 
-			// Full graph super-node set
-			std::unordered_set<int> full_graph;
-			for (int i = 0; i < sg.node_count; ++i)
-				full_graph.insert(i);
-
-			// Collect all trapping sets sorted by size descending
-			std::vector<RawTrappingSet> raw_sets;
-			raw_sets.push_back({full_graph});
-
-			std::vector<std::pair<std::set<int>, int>> sorted_sets(unique_sets.begin(), unique_sets.end());
-			std::ranges::sort(sorted_sets, [](auto const& a, auto const& b) { return a.first.size() > b.first.size(); });
-			for (auto const& [sn_set, _] : sorted_sets)
-			{
-				std::unordered_set<int> unordered(sn_set.begin(), sn_set.end());
-				if (unordered != full_graph)
-					raw_sets.push_back({std::move(unordered)});
-			}
-
-			// Build containment hierarchy
-			int num_sets = static_cast<int>(raw_sets.size());
-			std::vector<std::vector<int>> children(num_sets);
-
-			// Subset check for unordered_sets: returns true if 'sub' is a subset of 'super'
-			auto is_subset = [](std::unordered_set<int> const& sub, std::unordered_set<int> const& super) -> bool
-			{
-				if (sub.size() > super.size())
+				if (!report_progress(++completed_work, total_work))
 					return false;
-				for (int v : sub)
-					if (!super.contains(v))
-						return false;
-				return true;
-			};
+			}
 
-			for (int i = 1; i < num_sets; ++i)
+			// Remove transitive condensation edges. If an earlier outgoing neighbor reaches a later one, its closure
+			// already covers that neighbor and the later edge is not a direct containment relation.
+			for (auto& edges : dag.adj)
 			{
-				std::vector<int> direct_parents;
-				for (int j = i - 1; j >= 0; --j)
+				std::sort(edges.begin(), edges.end(), [&](int lhs, int rhs)
 				{
-					if (!is_subset(raw_sets[i].super_nodes, raw_sets[j].super_nodes))
+					return topo_position[lhs] < topo_position[rhs];
+				});
+			}
+
+			IdSetList direct_children(tarjan.scc_count);
+			ReachabilityIntervals covered;
+			ReachabilityIntervals merge_scratch;
+			for (auto const scc : topo_order)
+			{
+				covered.clear();
+				for (auto const child : dag.adj[scc])
+				{
+					if (Contains(covered, topo_position[child]))
 						continue;
 
-					bool is_direct = true;
-					for (int p : direct_parents)
-					{
-						if (is_subset(raw_sets[p].super_nodes, raw_sets[j].super_nodes))
-						{
-							is_direct = false;
-							break;
-						}
-					}
-					if (is_direct)
-					{
-						direct_parents.push_back(j);
-						children[j].push_back(i);
-					}
+					direct_children[scc].push_back(child);
+					MergeInto(covered, reachable[child], merge_scratch);
 				}
+
+				if (!report_progress(++completed_work, total_work))
+					return false;
 			}
 
-			// Compute exclusive super-nodes per set (not in any child)
-			std::vector<std::unordered_set<int>> exclusive_super(num_sets);
-			for (int i = 0; i < num_sets; ++i)
+			// Prefix original-node weights in topological order let each interval report its exact inclusive node count.
+			std::vector<int> topological_node_prefix(static_cast<size_t>(tarjan.scc_count) + 1, 0);
+			for (int position = 0; position != tarjan.scc_count; ++position)
 			{
-				std::unordered_set<int> child_sn;
-				for (int child_id : children[i])
-					child_sn.insert(raw_sets[child_id].super_nodes.begin(), raw_sets[child_id].super_nodes.end());
-
-				for (int sn : raw_sets[i].super_nodes)
-					if (!child_sn.contains(sn))
-						exclusive_super[i].insert(sn);
+				auto node_count = 0;
+				for (auto const super_node : dag.scc_members[topo_order[position]])
+					node_count += static_cast<int>(chains[super_node].size());
+				topological_node_prefix[position + 1] = topological_node_prefix[position] + node_count;
 			}
 
-			// Build node ownership (smallest containing set)
-			std::vector<int> node_owner(original.node_count, 0);
-			for (int i = 0; i < num_sets; ++i)
-				for (int sn : exclusive_super[i])
-					for (int node : chains[sn])
-						node_owner[node] = i;
+			std::vector<int> total_node_counts(tarjan.scc_count, 0);
+			for (int scc = 0; scc != tarjan.scc_count; ++scc)
+				for (auto const interval : reachable[scc])
+					total_node_counts[scc] += topological_node_prefix[interval.end] - topological_node_prefix[interval.begin];
 
-			// Topological sort of trapping sets for stable ordering
-			// Build dependency graph: parent→child
-			std::vector<std::unordered_set<int>> dep_adj(num_sets);
-			for (int i = 0; i < num_sets; ++i)
-				for (int child : children[i])
-					dep_adj[i].insert(child);
+			// A unique source SCC reaches the entire condensation DAG and is the full-graph set. Multiple sources need
+			// one synthetic root whose direct children are exactly those incomparable source closures.
+			std::vector<int> scc_in_degree(tarjan.scc_count, 0);
+			for (int scc = 0; scc != tarjan.scc_count; ++scc)
+				for (auto const child : dag.adj[scc])
+					++scc_in_degree[child];
 
-			// Kahn's topological sort
-			std::vector<int> in_deg(num_sets, 0);
-			for (int i = 0; i < num_sets; ++i)
-				for (int j : dep_adj[i])
-					in_deg[j]++;
+			std::vector<int> source_sccs;
+			for (int scc = 0; scc != tarjan.scc_count; ++scc)
+				if (scc_in_degree[scc] == 0)
+					source_sccs.push_back(scc);
 
-			std::queue<int> ready;
-			for (int i = 0; i < num_sets; ++i)
-				if (in_deg[i] == 0)
-					ready.push(i);
+			auto const synthetic_root = source_sccs.size() != 1;
+			auto const synthetic_root_index = tarjan.scc_count;
+			auto const num_sets = tarjan.scc_count + (synthetic_root ? 1 : 0);
+			IdSetList children(num_sets);
+			IdSetList exclusive_super(num_sets);
+			total_node_counts.resize(num_sets, original.node_count);
+			for (int scc = 0; scc != tarjan.scc_count; ++scc)
+			{
+				children[scc] = std::move(direct_children[scc]);
+				exclusive_super[scc] = std::move(dag.scc_members[scc]);
+			}
+			if (synthetic_root)
+				children[synthetic_root_index] = source_sccs;
 
-			std::vector<int> topo_order;
+			// Build original-node ownership directly from SCC membership.
+			std::vector<int> node_owner(original.node_count, synthetic_root ? synthetic_root_index : source_sccs.front());
+			for (int scc = 0; scc != tarjan.scc_count; ++scc)
+				for (auto const super_node : exclusive_super[scc])
+					for (auto const node : chains[super_node])
+						node_owner[node] = scc;
+
+			// Preserve the public parent-before-child ordering, with larger sets first within each level.
+			std::vector<int> in_degree(num_sets, 0);
+			for (int set_index = 0; set_index != num_sets; ++set_index)
+				for (auto const child : children[set_index])
+					++in_degree[child];
+
+			std::vector<int> ready;
+			std::vector<int> next_ready;
+			std::vector<int> set_order;
+			ready.reserve(num_sets);
+			next_ready.reserve(num_sets);
+			set_order.reserve(num_sets);
+			for (int set_index = 0; set_index != num_sets; ++set_index)
+				if (in_degree[set_index] == 0)
+					ready.push_back(set_index);
+
 			while (!ready.empty())
 			{
-				// Emit the largest sets first within each level
-				std::vector<int> level;
-				while (!ready.empty())
+				std::sort(ready.begin(), ready.end(), [&](int lhs, int rhs)
 				{
-					level.push_back(ready.front());
-					ready.pop();
-				}
-				std::ranges::sort(level, [&](int a, int b) { return raw_sets[a].super_nodes.size() > raw_sets[b].super_nodes.size(); });
-				for (int m : level)
+					return total_node_counts[lhs] != total_node_counts[rhs]
+						? total_node_counts[lhs] > total_node_counts[rhs]
+						: lhs < rhs;
+				});
+				next_ready.clear();
+				for (auto const set_index : ready)
 				{
-					topo_order.push_back(m);
-					for (int next : dep_adj[m])
-						if (--in_deg[next] == 0)
-							ready.push(next);
+					set_order.push_back(set_index);
+					for (auto const child : children[set_index])
+						if (--in_degree[child] == 0)
+							next_ready.push_back(child);
 				}
+				ready.swap(next_ready);
 			}
+			assert(static_cast<int>(set_order.size()) == num_sets);
 
-			// Remap to topological order
 			std::vector<int> new_id(num_sets, -1);
-			for (int new_idx = 0; new_idx < num_sets; ++new_idx)
-				new_id[topo_order[new_idx]] = new_idx;
+			for (int new_index = 0; new_index != num_sets; ++new_index)
+				new_id[set_order[new_index]] = new_index;
 
 			DetectionResult result;
-			result.raw_sets.resize(num_sets);
+			result.total_node_counts.resize(num_sets);
 			result.children.resize(num_sets);
 			result.exclusive_super.resize(num_sets);
 			result.node_owner.resize(original.node_count);
-
-			for (int new_idx = 0; new_idx < num_sets; ++new_idx)
+			for (int new_index = 0; new_index != num_sets; ++new_index)
 			{
-				int old_idx = topo_order[new_idx];
-				result.raw_sets[new_idx] = std::move(raw_sets[old_idx]);
-				result.exclusive_super[new_idx] = std::move(exclusive_super[old_idx]);
-
-				for (int child : children[old_idx])
-					result.children[new_idx].push_back(new_id[child]);
-				std::ranges::sort(result.children[new_idx]);
+				auto const old_index = set_order[new_index];
+				result.total_node_counts[new_index] = total_node_counts[old_index];
+				result.exclusive_super[new_index] = std::move(exclusive_super[old_index]);
+				result.children[new_index].reserve(children[old_index].size());
+				for (auto const child : children[old_index])
+					result.children[new_index].push_back(new_id[child]);
+				std::sort(result.children[new_index].begin(), result.children[new_index].end());
 			}
+			for (int node = 0; node != original.node_count; ++node)
+				result.node_owner[node] = new_id[node_owner[node]];
 
-			for (int v = 0; v < original.node_count; ++v)
-				result.node_owner[v] = new_id[node_owner[v]];
+			if (!report_progress(total_work, total_work))
+				return false;
 
-			return result;
-		}
-
-		// Expand super-nodes to original nodes
-		inline std::unordered_set<int> ExpandToOriginalNodes(std::unordered_set<int> const& super_nodes, std::vector<std::vector<int>> const& chains)
-		{
-			std::unordered_set<int> nodes;
-			for (int sn : super_nodes)
-				for (int n : chains[sn])
-					nodes.insert(n);
-			return nodes;
+			out_result = std::move(result);
+			return true;
 		}
 	}
 
@@ -828,9 +898,9 @@ namespace pr::trapping_sets
 	//   node_count     - Number of nodes in the graph (nodes are indexed 0..node_count-1)
 	//   get_successors - Callable: get_successors(int node) returns a range of successor node indices
 	//
-	// Returns a Result with trapping sets, node ownership, and chain statistics.
-	template <typename GetSuccessors>
-	Result Detect(int node_count, GetSuccessors get_successors)
+	// Returns false when 'report_progress' requests cancellation. 'out_result' is unchanged unless detection completes.
+	template <typename GetSuccessors, typename ReportProgress>
+	bool Detect(int node_count, GetSuccessors get_successors, ReportProgress report_progress, Result& out_result)
 	{
 		// Build internal adjacency list from the caller's graph
 		detail::Graph graph;
@@ -842,20 +912,19 @@ namespace pr::trapping_sets
 		// Pass 1: Chain contraction
 		auto contraction = detail::ContractChains(graph);
 
-		// Compute trapping-set signatures for refinement
+		// Refine only within SCCs; SCC identity is the exact trapping-membership signature.
 		detail::TarjanSCC tarjan;
 		tarjan.Run(contraction.super_graph);
-		auto signatures = detail::ComputeSignatures(contraction.super_graph, tarjan);
-
-		// Pass 2: Refine chains by merging same-signature neighbors
-		contraction = detail::RefineChains(graph, contraction, signatures);
+		contraction = detail::RefineChains(graph, contraction, tarjan.scc_id);
 
 		// Detect trapping sets on the refined contraction
-		auto detection = detail::DetectOnContraction(graph, contraction);
+		detail::DetectionResult detection;
+		if (!detail::DetectOnContraction(graph, contraction, report_progress, detection))
+			return false;
 
 		// Assemble final result
 		Result result;
-		int num_sets = static_cast<int>(detection.raw_sets.size());
+		int num_sets = static_cast<int>(detection.total_node_counts.size());
 		result.sets.resize(num_sets);
 		result.node_owner = std::move(detection.node_owner);
 
@@ -867,8 +936,7 @@ namespace pr::trapping_sets
 			auto& ts = result.sets[i];
 			ts.id = i;
 			ts.child_sets = std::move(detection.children[i]);
-			ts.total_node_count = static_cast<int>(
-				detail::ExpandToOriginalNodes(detection.raw_sets[i].super_nodes, contraction.chains).size());
+			ts.total_node_count = detection.total_node_counts[i];
 
 			// Build node chains from exclusive super-nodes
 			for (int sn : detection.exclusive_super[i])
@@ -882,6 +950,18 @@ namespace pr::trapping_sets
 		result.chain_count = chain_count;
 		result.avg_chain_length = chain_count > 0 ? static_cast<float>(total_chain_nodes) / chain_count : 0.f;
 
+		out_result = std::move(result);
+		return true;
+	}
+
+	// Detect trapping sets without progress reporting or cancellation.
+	template <typename GetSuccessors>
+	Result Detect(int node_count, GetSuccessors get_successors)
+	{
+		Result result;
+		auto report_progress = [](int64_t, int64_t) { return true; };
+		auto const completed = Detect(node_count, std::move(get_successors), report_progress, result);
+		assert(completed); (void)completed;
 		return result;
 	}
 
@@ -904,16 +984,22 @@ namespace pr::trapping_sets
 		if (num_sets <= 1)
 			return input;
 
-		// Build parent map from containment hierarchy
+		// Track whether each set has one unambiguous parent. Multiple-parent containment is a DAG branch and cannot be traversed as part of a linear chain.
 		std::vector<int> parent(num_sets, -1);
+		std::vector<int> parent_count(num_sets, 0);
 		for (int i = 0; i < num_sets; ++i)
+		{
 			for (int child : sets[i].child_sets)
+			{
 				parent[child] = i;
+				++parent_count[child];
+			}
+		}
 
 		// Identify squashable chains.
 		// set_chain_id[s] = index into 'chains' if set s belongs to a chain, else -1.
 		std::vector<int> set_chain_id(num_sets, -1);
-		std::vector<std::vector<int>> chains;
+		NodeChains chains;
 
 		// Start from 1 to exclude the root set
 		for (int s = 1; s < num_sets; ++s)
@@ -925,17 +1011,18 @@ namespace pr::trapping_sets
 
 			// A chain head is a single-child set whose parent is either the root
 			// (set 0), or has multiple children (so this set starts a new chain).
-			int p = parent[s];
+			int const p = parent_count[s] == 1 ? parent[s] : -1;
 			if (p > 0 && sets[p].child_sets.size() == 1)
 				continue; // Not a chain head; parent will start this chain
 
-			// Walk the chain of single-child sets
+			// Walk through single-child links only while the child has no other parent.
 			std::vector<int> chain;
 			int cur = s;
 			while (cur >= 0 && sets[cur].child_sets.size() == 1)
 			{
 				chain.push_back(cur);
-				cur = sets[cur].child_sets[0];
+				auto const child = sets[cur].child_sets[0];
+				cur = parent_count[child] == 1 ? child : -1;
 			}
 
 			// Only squash chains of 2 or more sets
