@@ -1791,6 +1791,17 @@ namespace pr::eval
 			return *pattern == 0;
 		};
 
+		// Same as 'cmp', but for alphabetic keywords (function names and constants such as
+		// "sin" or "pi"). A match only counts if the keyword is not immediately followed by
+		// another identifier character, otherwise a keyword would match the start of a longer
+		// identifier (e.g. "sin" matching "sinx", or "max" matching "max_speed"), splitting a
+		// single variable name into a keyword token plus a leftover identifier.
+		auto kw = [&cmp](char_range<Char> s, char const* pattern)
+		{
+			auto matched = cmp(s, pattern);
+			return matched && !((s += static_cast<int>(std::char_traits<char>::length(pattern))) && (std::isalnum(*s) || *s == '_'));
+		};
+
 		// Inside [...] (and at parenthesis depth 0), whitespace acts as an element
 		// separator. Return a synthetic Comma without consuming the whitespace; the
 		// caller will consume it after handling the separator.
@@ -1915,84 +1926,84 @@ namespace pr::eval
 			}
 			case 'a':
 			{
-				if (cmp(expr, "abs")) { expr += 3; return ETok::Abs; }
-				if (cmp(expr, "asin")) { expr += 4; return ETok::ASin; }
-				if (cmp(expr, "acos")) { expr += 4; return ETok::ACos; }
-				if (cmp(expr, "atan2")) { expr += 5; return ETok::ATan2; }
-				if (cmp(expr, "atan")) { expr += 4; return ETok::ATan; }
+				if (kw(expr, "abs")) { expr += 3; return ETok::Abs; }
+				if (kw(expr, "asin")) { expr += 4; return ETok::ASin; }
+				if (kw(expr, "acos")) { expr += 4; return ETok::ACos; }
+				if (kw(expr, "atan2")) { expr += 5; return ETok::ATan2; }
+				if (kw(expr, "atan")) { expr += 4; return ETok::ATan; }
 				break;
 			}
 			case 'c':
 			{
-				if (cmp(expr, "clamp")) { expr += 5; return ETok::Clamp; }
-				if (cmp(expr, "ceil")) { expr += 4; return ETok::Ceil; }
-				if (cmp(expr, "cosh")) { expr += 4; return ETok::CosH; }
-				if (cmp(expr, "cos")) { expr += 3; return ETok::Cos; }
+				if (kw(expr, "clamp")) { expr += 5; return ETok::Clamp; }
+				if (kw(expr, "ceil")) { expr += 4; return ETok::Ceil; }
+				if (kw(expr, "cosh")) { expr += 4; return ETok::CosH; }
+				if (kw(expr, "cos")) { expr += 3; return ETok::Cos; }
 				break;
 			}
 			case 'd':
 			{
-				if (cmp(expr, "deg")) { expr += 3; return ETok::Deg; }
+				if (kw(expr, "deg")) { expr += 3; return ETok::Deg; }
 				break;
 			}
 			case 'e':
 			{
-				if (cmp(expr, "exp")) { expr += 3; return ETok::Exp; }
+				if (kw(expr, "exp")) { expr += 3; return ETok::Exp; }
 				break;
 			}
 			case 'f':
 			{
-				if (cmp(expr, "floor")) { expr += 5; return ETok::Floor; }
-				if (cmp(expr, "false")) { expr += 5; val = 0LL; return ETok::Value; }
+				if (kw(expr, "floor")) { expr += 5; return ETok::Floor; }
+				if (kw(expr, "false")) { expr += 5; val = 0LL; return ETok::Value; }
 				break;
 			}
 			case 'h':
 			{
-				if (cmp(expr, "hash")) { expr += 4; return ETok::Hash; }
+				if (kw(expr, "hash")) { expr += 4; return ETok::Hash; }
 				break;
 			}
 			case 'l':
 			{
-				if (cmp(expr, "log10")) { expr += 5; return ETok::Log10; }
-				if (cmp(expr, "log")) { expr += 3; return ETok::Log; }
-				if (cmp(expr, "len2")) { expr += 4; return ETok::Len2; }
-				if (cmp(expr, "len3")) { expr += 4; return ETok::Len3; }
-				if (cmp(expr, "len4")) { expr += 4; return ETok::Len4; }
+				if (kw(expr, "log10")) { expr += 5; return ETok::Log10; }
+				if (kw(expr, "log")) { expr += 3; return ETok::Log; }
+				if (kw(expr, "len2")) { expr += 4; return ETok::Len2; }
+				if (kw(expr, "len3")) { expr += 4; return ETok::Len3; }
+				if (kw(expr, "len4")) { expr += 4; return ETok::Len4; }
 				break;
 			}
 			case 'm':
 			{
-				if (cmp(expr, "min")) { expr += 3; return ETok::Min; }
-				if (cmp(expr, "max")) { expr += 3; return ETok::Max; }
+				if (kw(expr, "min")) { expr += 3; return ETok::Min; }
+				if (kw(expr, "max")) { expr += 3; return ETok::Max; }
 				break;
 			}
 			case 'p':
 			{
-				if (cmp(expr, "pow")) { expr += 3; return ETok::Pow; }
-				if (cmp(expr, "phi")) { expr += 3; val = constants<double>::golden_ratio; return ETok::Value; }
-				if (cmp(expr, "pi")) { expr += 2; val = constants<double>::tau_by_2; return ETok::Value; }
+				if (kw(expr, "pow")) { expr += 3; return ETok::Pow; }
+				if (kw(expr, "phi")) { expr += 3; val = constants<double>::golden_ratio; return ETok::Value; }
+				if (kw(expr, "pi")) { expr += 2; val = constants<double>::tau_by_2; return ETok::Value; }
 				break;
 			}
 			case 'r':
 			{
-				if (cmp(expr, "round")) { expr += 5; return ETok::Round; }
-				if (cmp(expr, "rad")) { expr += 3; return ETok::Rad; }
+				if (kw(expr, "round")) { expr += 5; return ETok::Round; }
+				if (kw(expr, "rad")) { expr += 3; return ETok::Rad; }
 				break;
 			}
 			case 's':
 			{
-				if (cmp(expr, "sinh")) { expr += 4; return ETok::SinH; }
-				if (cmp(expr, "sin")) { expr += 3; return ETok::Sin; }
-				if (cmp(expr, "sqrt")) { expr += 4; return ETok::Sqrt; }
-				if (cmp(expr, "sqr")) { expr += 3; return ETok::Sqr; }
+				if (kw(expr, "sinh")) { expr += 4; return ETok::SinH; }
+				if (kw(expr, "sin")) { expr += 3; return ETok::Sin; }
+				if (kw(expr, "sqrt")) { expr += 4; return ETok::Sqrt; }
+				if (kw(expr, "sqr")) { expr += 3; return ETok::Sqr; }
 				break;
 			}
 			case 't':
 			{
-				if (cmp(expr, "tanh")) { expr += 4; return ETok::TanH; }
-				if (cmp(expr, "tan")) { expr += 3; return ETok::Tan; }
-				if (cmp(expr, "tau")) { expr += 3; val = constants<double>::tau; return ETok::Value; }
-				if (cmp(expr, "true")) { expr += 4; val = 1LL; return ETok::Value; }
+				if (kw(expr, "tanh")) { expr += 4; return ETok::TanH; }
+				if (kw(expr, "tan")) { expr += 3; return ETok::Tan; }
+				if (kw(expr, "tau")) { expr += 3; val = constants<double>::tau; return ETok::Value; }
+				if (kw(expr, "true")) { expr += 4; val = 1LL; return ETok::Value; }
 				break;
 			}
 			default:
@@ -2724,6 +2735,34 @@ namespace pr::common::tests
 			{ // vector + scalar functions still parse alongside vector literals
 				PR_EXPECT(Compile("abs([-1 -2 -3 -4])")() == Val(v4(1, 2, 3, 4)));
 				PR_EXPECT(Compile("min([1 2 3 4],[4 3 2 1])")() == Val(v4(1, 2, 2, 1)));
+			}
+			{ // identifiers that start with a keyword read as a single name, not keyword + leftover identifier
+				auto expr0 = Compile("sinx");
+				PR_EXPECT(expr0.m_arg_names.size() == 1 && expr0.m_arg_names[0] == "sinx");
+				PR_EXPECT(expr0(5) == Val(5));
+
+				auto expr1 = Compile("max_speed + min_speed");
+				PR_EXPECT(expr1.m_arg_names.size() == 2 && expr1.m_arg_names[0] == "max_speed" && expr1.m_arg_names[1] == "min_speed");
+				PR_EXPECT(expr1(2, 3) == Val(5));
+
+				// Underscore immediately after the keyword is also an identifier character, not a boundary
+				auto expr2 = Compile("cosh_x");
+				PR_EXPECT(expr2.m_arg_names.size() == 1 && expr2.m_arg_names[0] == "cosh_x");
+				PR_EXPECT(expr2(7) == Val(7));
+
+				// Overlapping keyword prefixes (sin/sinh, atan/atan2) don't cause partial matches either
+				auto expr3 = Compile("sinhx + atan2x");
+				PR_EXPECT(expr3.m_arg_names.size() == 2 && expr3.m_arg_names[0] == "sinhx" && expr3.m_arg_names[1] == "atan2x");
+				PR_EXPECT(expr3(2, 3) == Val(5));
+
+				// Constant keywords (pi, tau, true, false) are subject to the same boundary check
+				auto expr4 = Compile("pie + tau_value");
+				PR_EXPECT(expr4.m_arg_names.size() == 2 && expr4.m_arg_names[0] == "pie" && expr4.m_arg_names[1] == "tau_value");
+				PR_EXPECT(expr4(2, 3) == Val(5));
+
+				// Real function syntax, including with whitespace before '(', still parses as the keyword
+				PR_EXPECT(FEql(Compile("sin(x)")(-0.8).db(), std::sin(-0.8)));
+				PR_EXPECT(FEql(Compile("sin (x)")(-0.8).db(), std::sin(-0.8)));
 			}
 			{ // vector dimension tracking
 				// Literal dim follows the element count
