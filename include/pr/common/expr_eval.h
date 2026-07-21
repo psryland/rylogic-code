@@ -8,9 +8,11 @@
 #include <limits>
 #include <string_view>
 #include <algorithm>
+#include <cstring>
 #include <type_traits>
 #include <initializer_list>
 #include <cassert>
+#include <stdexcept>
 #include "pr/common/fmt.h"
 #include "pr/common/hash.h"
 #include "pr/math/math.h"
@@ -637,6 +639,26 @@ namespace pr::eval
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
 	static_assert(std::alignment_of_v<Val> == 32, "Val should have 32 byte alignment");
 
+	// Expression bytecode stores typed payloads in a byte buffer, so the evaluator copies
+	// values in and out with memcpy instead of forming typed references at arbitrary offsets.
+	template <typename Type> Type ReadValue(byte_data<> const& data, size_t& ofs)
+	{
+		if (ofs + sizeof(Type) > data.size())
+			throw std::out_of_range("read attempt beyond buffer end");
+
+		Type value;
+		std::memcpy(&value, data.data() + ofs, sizeof(Type));
+		ofs += sizeof(Type);
+		return value;
+	}
+	template <typename Type> void WriteValue(byte_data<>& data, size_t ofs, Type const& value)
+	{
+		if (ofs + sizeof(Type) > data.size())
+			throw std::out_of_range("write attempt beyond buffer end");
+
+		std::memcpy(data.data() + ofs, &value, sizeof(Type));
+	}
+
 	// A collection of args with some rules enforced
 	struct ArgSet
 	{
@@ -950,7 +972,7 @@ namespace pr::eval
 			Stack stack;
 			for (size_t i = 0, iend = m_op.size(); i != iend;)
 			{
-				auto tok = m_op.read<ETok>(i);
+				auto tok = ReadValue<ETok>(m_op, i);
 				switch (tok)
 				{
 					case ETok::None:
@@ -959,29 +981,29 @@ namespace pr::eval
 					}
 					case ETok::Identifier:
 					{
-						auto hash = m_op.read<IdentHash>(i);
+						auto hash = ReadValue<IdentHash>(m_op, i);
 						stack.push_back(args(hash));
 						break;
 					}
 					case ETok::Value:
 					{
 						// Deserialise a 'Val' instance
-						auto ty = m_op.read<Val::EType>(i);
+						auto ty = ReadValue<Val::EType>(m_op, i);
 						switch (ty)
 						{
-							case Val::EType::Intg: stack.push_back(m_op.read<long long>(i)); break;
-							case Val::EType::Real: stack.push_back(m_op.read<double>(i)); break;
+							case Val::EType::Intg: stack.push_back(ReadValue<long long>(m_op, i)); break;
+							case Val::EType::Real: stack.push_back(ReadValue<double>(m_op, i)); break;
 							case Val::EType::Intg4:
 							{
-								auto v = m_op.read<Val::IVec4>(i);
-								auto dim = m_op.read<uint8_t>(i);
+								auto v = ReadValue<Val::IVec4>(m_op, i);
+								auto dim = ReadValue<uint8_t>(m_op, i);
 								stack.push_back(Val(v, dim));
 								break;
 							}
 							case Val::EType::Real4:
 							{
-								auto v = m_op.read<Val::Vec4>(i);
-								auto dim = m_op.read<uint8_t>(i);
+								auto v = ReadValue<Val::Vec4>(m_op, i);
+								auto dim = ReadValue<uint8_t>(m_op, i);
 								stack.push_back(Val(v, dim));
 								break;
 							}
@@ -993,7 +1015,7 @@ namespace pr::eval
 					{
 						// Construct a vec4 from N (1..4) scalar values popped from the stack.
 						// Missing components default to 0. Vector-valued elements are not allowed.
-						auto n = m_op.read<uint8_t>(i);
+						auto n = ReadValue<uint8_t>(m_op, i);
 						if (n < 1 || n > 4) throw std::runtime_error("Invalid vector literal element count");
 						if (stack.size() < n) throw std::runtime_error("Insufficient arguments for vector literal");
 
@@ -1588,21 +1610,23 @@ namespace pr::eval
 					{
 						if (stack.size() < 1) throw std::runtime_error("Insufficient arguments for if expression");
 						auto boolean = stack.back(); stack.pop_back();
-						auto jmp = m_op.read<int>(i);
+						auto jmp = ReadValue<int>(m_op, i);
 						if (boolean == Val(0))
 						{
 							i += jmp;
 
 							// If the next instruction is an 'else' statement, skip over it so that the else body
 							// gets executed. Remember If == branch-if-zero, Else == branch-always
-							if (m_op.at_byte_ofs<ETok>(i) == ETok::Else)
+							ETok next_tok;
+							std::memcpy(&next_tok, m_op.data() + i, sizeof(next_tok));
+							if (next_tok == ETok::Else)
 								i += sizeof(ETok) + sizeof(int);
 						}
 						break;
 					}
 					case ETok::Else:
 					{
-						auto jmp = m_op.read<int>(i);
+						auto jmp = ReadValue<int>(m_op, i);
 						i += jmp;
 						break;
 					}
@@ -2321,7 +2345,7 @@ namespace pr::eval
 
 					// Determine the offset to jump over the if body. The jump is from the byte after the jump value.
 					auto jmp = static_cast<int>(compiled.m_op.size() - ofs0 - sizeof(int));
-					compiled.m_op.at_byte_ofs<int>(ofs0) = jmp;
+					WriteValue(compiled.m_op, ofs0, jmp);
 					break;
 				}
 				case ETok::Else:
@@ -2341,7 +2365,7 @@ namespace pr::eval
 
 					// Determine the offset to jump over the else body
 					auto jmp = static_cast<int>(compiled.m_op.size() - ofs0 - sizeof(int));
-					compiled.m_op.at_byte_ofs<int>(ofs0) = jmp;
+					WriteValue(compiled.m_op, ofs0, jmp);
 					return true;
 				}
 				default:
