@@ -4,6 +4,7 @@
 //*************************************
 #pragma once
 #include <cstdint>
+#include <cassert>
 #include "pr/math/math.h"
 
 namespace pr::space_filling
@@ -57,38 +58,77 @@ namespace pr::space_filling
 		return index;
 	}
 
-	// Convert a ]-Order 3D index to a 3D point
-	inline iv4 COrder3D(int64_t index)
+	// The 3D "]"-Order and Z-Order curves below interleave 3 bits per fractal level (one bit from
+	// each of x, y, z) into a single 64-bit index. Only floor(64/3) = 21 fractal levels fit before
+	// a per-level shift would reach or exceed the 64-bit width of the index, so each axis can only
+	// contribute 21 bits to the curve. Each axis is therefore treated as a 21-bit two's-complement
+	// value: encoding masks the axis down to its low C_Bits3D bits (the same bits used by the
+	// existing, unchanged 2's-complement mapping for small magnitudes), and decoding sign-extends
+	// bit (C_Bits3D - 1) back out. This preserves index 0 <-> the origin and every other existing
+	// low-magnitude index <-> point mapping exactly, while adding support for the full 21-bit
+	// range in both directions. All bit manipulation below uses uint64_t so shifts are always
+	// well-defined; the signed int64_t/int32_t API types are only used at the function boundary.
+	inline static constexpr int C_Bits3D = 8 * sizeof(int64_t) / 3; // 21 bits per axis (63 of the 64 index bits used)
+	inline static constexpr int32_t C_Bias3D = int32_t{1} << (C_Bits3D - 1); // 2^20, magnitude of the representable range either side of zero
+	inline static constexpr uint64_t C_Mask3D = (uint64_t{1} << C_Bits3D) - 1; // low C_Bits3D bits
+
+	// Sign-extend the low C_Bits3D bits of 'v' (all other bits must be zero) to a signed 32-bit value.
+	// 'v' is < 2^C_Bits3D, so the uint64_t -> int32_t conversion below always represents an in-range,
+	// non-negative value - it is not a narrowing/wrapping conversion. The subsequent subtraction is
+	// then plain int32_t arithmetic (no unsigned wraparound), keeping every step exactly representable.
+	inline constexpr int32_t SignExtend3D(uint64_t v)
 	{
-		iv4 pt = {};
-		for (int i = 0; i != 32; ++i)
-		{
-			auto oct = C_Order3DFwd[index & 0b111]; // oct we're in
-			pt.x += (1 << i) * ((oct >> 0) & 1); // += points/oct/axis at this level
-			pt.y += (1 << i) * ((oct >> 1) & 1);
-			pt.z += (1 << i) * ((oct >> 2) & 1);
-			index >>= 3;
-		}
-		return pt.w1();
+		constexpr uint64_t sign_bit = uint64_t{1} << (C_Bits3D - 1);
+		auto value = static_cast<int32_t>(v);
+		return (v & sign_bit) == 0 ? value : value - (int32_t{1} << C_Bits3D);
 	}
 
-	// Convert a 3D point to an index in the "]" Order 3D space filling curve
+	// Convert a ]-Order 3D index to a 3D point.
+	// Only the low (3 * C_Bits3D) bits of 'index' are meaningful; higher bits are ignored. The
+	// reconstructed point's axes are each in the range [-C_Bias3D, C_Bias3D - 1].
+	inline iv4 COrder3D(int64_t index)
+	{
+		auto idx = static_cast<uint64_t>(index);
+		uint64_t x = 0, y = 0, z = 0;
+		for (int i = 0; i != C_Bits3D; ++i)
+		{
+			auto oct = C_Order3DFwd[idx & 0b111]; // oct we're in
+			x |= static_cast<uint64_t>((oct >> 0) & 1) << i; // set the bit/axis at this level
+			y |= static_cast<uint64_t>((oct >> 1) & 1) << i;
+			z |= static_cast<uint64_t>((oct >> 2) & 1) << i;
+			idx >>= 3;
+		}
+		return iv4(SignExtend3D(x), SignExtend3D(y), SignExtend3D(z), 1);
+	}
+
+	// Convert a 3D point to an index in the "]" Order 3D space filling curve.
+	// 'pt.x', 'pt.y', and 'pt.z' must each be in the range [-C_Bias3D, C_Bias3D - 1] (21 bits);
+	// coordinates outside that range cannot be represented by this curve.
 	inline int64_t COrder3D(iv4 pt)
 	{
-		int64_t index = 0;
-		for (int i = 0; i != 32; ++i)
+		assert(pt.x >= -C_Bias3D && pt.x < C_Bias3D && "COrder3D: x coordinate outside the representable 21-bit range");
+		assert(pt.y >= -C_Bias3D && pt.y < C_Bias3D && "COrder3D: y coordinate outside the representable 21-bit range");
+		assert(pt.z >= -C_Bias3D && pt.z < C_Bias3D && "COrder3D: z coordinate outside the representable 21-bit range");
+
+		// Truncate each axis to its low C_Bits3D bits (the two's-complement representation of the value).
+		uint64_t x = static_cast<uint32_t>(pt.x) & C_Mask3D;
+		uint64_t y = static_cast<uint32_t>(pt.y) & C_Mask3D;
+		uint64_t z = static_cast<uint32_t>(pt.z) & C_Mask3D;
+
+		uint64_t index = 0;
+		for (int i = 0; i != C_Bits3D; ++i)
 		{
 			auto oct =
-				((pt.x & 1) << 0) |
-				((pt.y & 1) << 1) |
-				((pt.z & 1) << 2);
+				((x & 1) << 0) |
+				((y & 1) << 1) |
+				((z & 1) << 2);
 
-			index += C_Order3DInv[oct] * (1LL << (3 * i));
-			pt.x >>= 1;
-			pt.y >>= 1;
-			pt.z >>= 1;
+			index |= static_cast<uint64_t>(C_Order3DInv[oct]) << (3 * i); // safe: 3*i <= 3*(C_Bits3D - 1) = 60 < 64
+			x >>= 1;
+			y >>= 1;
+			z >>= 1;
 		}
-		return index;
+		return static_cast<int64_t>(index);
 	}
 
 
@@ -120,30 +160,44 @@ namespace pr::space_filling
 		return index;
 	}
 
-	// Convert a Z-Order 3D index to a 3D point
+	// Convert a Z-Order 3D index to a 3D point.
+	// Only the low (3 * C_Bits3D) bits of 'index' are meaningful; higher bits are ignored. The
+	// reconstructed point's axes are each in the range [-C_Bias3D, C_Bias3D - 1].
 	inline iv4 ZOrder3D(int64_t index)
 	{
-		iv4 pt = { 0, 0, 0, 1 };
-		for (int i = 0; i < 32; ++i)
+		auto idx = static_cast<uint64_t>(index);
+		uint64_t x = 0, y = 0, z = 0;
+		for (int i = 0; i != C_Bits3D; ++i)
 		{
-			pt.x |= (index & (1LL << (3 * i + 0))) >> (2 * i + 0);
-			pt.y |= (index & (1LL << (3 * i + 1))) >> (2 * i + 1);
-			pt.z |= (index & (1LL << (3 * i + 2))) >> (2 * i + 2);
+			x |= (idx & (uint64_t{1} << (3 * i + 0))) >> (2 * i + 0); // safe: 3*i <= 60, 2*i <= 40
+			y |= (idx & (uint64_t{1} << (3 * i + 1))) >> (2 * i + 1);
+			z |= (idx & (uint64_t{1} << (3 * i + 2))) >> (2 * i + 2);
 		}
-		return pt;
+		return iv4(SignExtend3D(x), SignExtend3D(y), SignExtend3D(z), 1);
 	}
 
-	// Convert a 3D point to an index in the Z-Order 3D space filling curve
+	// Convert a 3D point to an index in the Z-Order 3D space filling curve.
+	// 'pt.x', 'pt.y', and 'pt.z' must each be in the range [-C_Bias3D, C_Bias3D - 1] (21 bits);
+	// coordinates outside that range cannot be represented by this curve.
 	inline int64_t ZOrder3D(iv4 pt)
 	{
-		int64_t index = 0;
-		for (int i = 0; i != 32; ++i)
+		assert(pt.x >= -C_Bias3D && pt.x < C_Bias3D && "ZOrder3D: x coordinate outside the representable 21-bit range");
+		assert(pt.y >= -C_Bias3D && pt.y < C_Bias3D && "ZOrder3D: y coordinate outside the representable 21-bit range");
+		assert(pt.z >= -C_Bias3D && pt.z < C_Bias3D && "ZOrder3D: z coordinate outside the representable 21-bit range");
+
+		// Truncate each axis to its low C_Bits3D bits (the two's-complement representation of the value).
+		uint64_t x = static_cast<uint32_t>(pt.x) & C_Mask3D;
+		uint64_t y = static_cast<uint32_t>(pt.y) & C_Mask3D;
+		uint64_t z = static_cast<uint32_t>(pt.z) & C_Mask3D;
+
+		uint64_t index = 0;
+		for (int i = 0; i != C_Bits3D; ++i)
 		{
-			index |= (pt.x & (1 << i)) << (2 * i + 0);
-			index |= (pt.y & (1 << i)) << (2 * i + 1);
-			index |= (pt.z & (1 << i)) << (2 * i + 2);
+			index |= (x & (uint64_t{1} << i)) << (2 * i + 0); // safe: 2*i <= 40 < 64
+			index |= (y & (uint64_t{1} << i)) << (2 * i + 1);
+			index |= (z & (uint64_t{1} << i)) << (2 * i + 2);
 		}
-		return index;
+		return static_cast<int64_t>(index);
 	}
 
 
@@ -283,6 +337,14 @@ namespace pr::space_filling::tests
 		}
 		PRUnitTestMethod(JOrderTest)
 		{
+			// Sign-extension boundary checks: verify SignExtend3D decodes the raw 21-bit patterns
+			// at and either side of the sign boundary (bit C_Bits3D - 1) to the expected signed values.
+			PR_EXPECT(SignExtend3D(0) == 0);
+			PR_EXPECT(SignExtend3D(1) == 1);
+			PR_EXPECT(SignExtend3D(C_Mask3D) == -1); // all C_Bits3D bits set -> -1
+			PR_EXPECT(SignExtend3D(uint64_t{1} << (C_Bits3D - 1)) == -C_Bias3D); // sign bit only -> minimum representable value
+			PR_EXPECT(SignExtend3D((uint64_t{1} << (C_Bits3D - 1)) - 1) == C_Bias3D - 1); // sign bit clear, all lower bits set -> maximum representable value
+
 			// ]-Order
 			for (int i = -1000; i != 1000; ++i)
 			{
@@ -295,6 +357,36 @@ namespace pr::space_filling::tests
 				auto pt = COrder3D(i);
 				auto index = COrder3D(pt);
 				PR_EXPECT(index == i);
+			}
+
+			// Exact-value checks: index 0 maps to the origin, and small positive per-axis offsets
+			// map to the same small indices as the original (unbounded) implementation did for
+			// in-range inputs - confirming the low-bit two's-complement mapping is unchanged.
+			PR_EXPECT(COrder3D(iv4(0, 0, 0, 1)) == 0);
+			PR_EXPECT(COrder3D(iv4(1, 0, 0, 1)) == 1);
+			PR_EXPECT(COrder3D(iv4(0, 1, 0, 1)) == 3);
+			PR_EXPECT(COrder3D(iv4(0, 0, 1, 1)) == 7);
+			PR_EXPECT(All(COrder3D(int64_t(0)) == iv4(0, 0, 0, 1)));
+
+			// Explicit negative-coordinate round trips (in addition to the exhaustive sweep below).
+			for (auto pt : { iv4(-1, 0, 0, 1), iv4(0, -1, 0, 1), iv4(0, 0, -1, 1), iv4(-1, -1, -1, 1) })
+			{
+				auto index = COrder3D(pt);
+				auto pt2 = COrder3D(index);
+				PR_EXPECT(All(pt2 == pt));
+			}
+			for (int z = -20; z != 20; ++z)
+			{
+				for (int y = -20; y != 20; ++y)
+				{
+					for (int x = -20; x != 20; ++x)
+					{
+						auto pt = iv4(x, y, z, 1);
+						auto index = COrder3D(pt);
+						auto pt2 = COrder3D(index);
+						PR_EXPECT(All(pt2 == pt));
+					}
+				}
 			}
 			for (int y = -100; y != 100; ++y)
 			{
@@ -318,6 +410,60 @@ namespace pr::space_filling::tests
 				auto pt = ZOrder3D(i);
 				auto index = ZOrder3D(pt);
 				PR_EXPECT(index == i);
+			}
+
+			// Exact-value checks: index 0 maps to the origin, and small positive per-axis offsets
+			// map to the same small indices as the original (unbounded) implementation did for
+			// in-range inputs - confirming the low-bit two's-complement mapping is unchanged.
+			PR_EXPECT(ZOrder3D(iv4(0, 0, 0, 1)) == 0);
+			PR_EXPECT(ZOrder3D(iv4(1, 0, 0, 1)) == 1);
+			PR_EXPECT(ZOrder3D(iv4(0, 1, 0, 1)) == 2);
+			PR_EXPECT(ZOrder3D(iv4(0, 0, 1, 1)) == 4);
+			PR_EXPECT(All(ZOrder3D(int64_t(0)) == iv4(0, 0, 0, 1)));
+
+			// Explicit negative-coordinate round trips (in addition to the exhaustive sweep below).
+			for (auto pt : { iv4(-1, 0, 0, 1), iv4(0, -1, 0, 1), iv4(0, 0, -1, 1), iv4(-1, -1, -1, 1) })
+			{
+				auto index = ZOrder3D(pt);
+				auto pt2 = ZOrder3D(index);
+				PR_EXPECT(All(pt2 == pt));
+			}
+			for (int z = -20; z != 20; ++z)
+			{
+				for (int y = -20; y != 20; ++y)
+				{
+					for (int x = -20; x != 20; ++x)
+					{
+						auto pt = iv4(x, y, z, 1);
+						auto index = ZOrder3D(pt);
+						auto pt2 = ZOrder3D(index);
+						PR_EXPECT(All(pt2 == pt));
+					}
+				}
+			}
+
+			// Boundary values for the 3D curves: the minimum/maximum representable per-axis coordinate
+			// (C_Bias3D is the magnitude of the representable range either side of zero, see space_filling.h), plus values either side
+			// of zero. This exercises the extremes of the 21-bit-per-axis domain without triggering the
+			// out-of-range asserts, and confirms neither curve wraps or corrupts values near the boundary.
+			int const bounds3d[] = { -C_Bias3D, -C_Bias3D + 1, -1, 0, 1, C_Bias3D - 2, C_Bias3D - 1 };
+			for (auto bz : bounds3d)
+			{
+				for (auto by : bounds3d)
+				{
+					for (auto bx : bounds3d)
+					{
+						auto pt = iv4(bx, by, bz, 1);
+
+						auto j_index = COrder3D(pt);
+						auto j_pt = COrder3D(j_index);
+						PR_EXPECT(All(j_pt == pt));
+
+						auto z_index = ZOrder3D(pt);
+						auto z_pt = ZOrder3D(z_index);
+						PR_EXPECT(All(z_pt == pt));
+					}
+				}
 			}
 
 			/* failing
