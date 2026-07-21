@@ -42,6 +42,7 @@
 #include "pr/common/bit_fields.h"
 #include "pr/common/cancel_token.h"
 #include "pr/common/coalesce.h"
+#include "pr/common/command_line.h"
 #include "pr/common/coroutine.h"
 #include "pr/common/crc.h"
 #include "pr/common/datetime.h"

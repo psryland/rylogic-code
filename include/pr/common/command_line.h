@@ -41,6 +41,7 @@ namespace pr
 		{
 			return str.size() >= 2 && (str[0] == '-' || str[0] == '/');
 		}
+
 		inline bool IsOption(std::wstring_view str)
 		{
 			return str.size() >= 2 && (str[0] == '-' || str[0] == '/');
@@ -192,7 +193,7 @@ namespace pr
 				else
 				{
 					// Otherwise, this is a command argument with no key
-					arg.values.push_back(argv[i++]);
+					arg.values.push_back(std::string(token));
 				}
 				args.push_back(arg);
 			}
@@ -328,3 +329,62 @@ namespace pr
 
 	// --------------------------------------------------------------------------------------------
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::common
+{
+	PRUnitTest(CmdLineSinglePositional)
+	{
+		char const* argv[] =
+		{
+			"app",
+			"one",
+		};
+
+		auto cmd = pr::CmdLine(int(sizeof(argv) / sizeof(argv[0])), argv);
+
+		PR_EXPECT(cmd.args.size() == 1);
+		PR_EXPECT(cmd.args[0].key.empty());
+		PR_EXPECT(cmd.args[0].values.size() == 1);
+		PR_EXPECT(cmd.args[0].values[0] == "one");
+	}
+
+	PRUnitTest(CmdLineMultiplePositionals)
+	{
+		char const* argv[] =
+		{
+			"app",
+			"one",
+			"two",
+			"three",
+		};
+
+		auto cmd = pr::CmdLine(int(sizeof(argv) / sizeof(argv[0])), argv);
+
+		PR_EXPECT(cmd.args.size() == 3);
+		PR_EXPECT(cmd.args[0].key.empty() && cmd.args[0].values.size() == 1 && cmd.args[0].values[0] == "one");
+		PR_EXPECT(cmd.args[1].key.empty() && cmd.args[1].values.size() == 1 && cmd.args[1].values[0] == "two");
+		PR_EXPECT(cmd.args[2].key.empty() && cmd.args[2].values.size() == 1 && cmd.args[2].values[0] == "three");
+	}
+
+	PRUnitTest(CmdLinePositionalsAndOptions)
+	{
+		char const* argv[] =
+		{
+			"app",
+			"one",
+			"two",
+			"-opt",
+			"value",
+		};
+
+		auto cmd = pr::CmdLine(int(sizeof(argv) / sizeof(argv[0])), argv);
+
+		PR_EXPECT(cmd.args.size() == 3);
+		PR_EXPECT(cmd.args[0].key.empty() && cmd.args[0].values.size() == 1 && cmd.args[0].values[0] == "one");
+		PR_EXPECT(cmd.args[1].key.empty() && cmd.args[1].values.size() == 1 && cmd.args[1].values[0] == "two");
+		PR_EXPECT(cmd.args[2].key == "opt" && cmd.args[2].values.size() == 1 && cmd.args[2].values[0] == "value");
+	}
+}
+#endif
