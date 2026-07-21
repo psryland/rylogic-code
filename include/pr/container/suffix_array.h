@@ -143,6 +143,11 @@ namespace pr::suffix_array
 		template <std::integral Int, bool LCPOnly>
 		MatchResult Find(std::span<Int const> sub, std::span<Int const> data, std::span<int const> sa)
 		{
+			// An empty index has no suffixes to search, so the result is always an empty match range.
+			// This keeps public callers from indexing into 'sa[0]' when the index was built from zero bytes.
+			if (sa.empty())
+				return {};
+
 			// Binary search until 'mid' lands in the range of matches for 'sub'
 			size_t lcp0 = 0, lcp1 = 0; // track the longest common prefix for the lower/upper bounds
 			for (size_t low = 0, high = sa.size(); ; )
@@ -443,6 +448,24 @@ namespace pr::container
 {
 	PRUnitTest(SuffixArrayTests)
 	{
+		{// Empty data and empty index
+			std::string data;
+			std::vector<int> sa;
+
+			suffix_array::Build(data, sa);
+			PR_EXPECT(sa.empty());
+
+			auto empty_query = std::span<char const>{};
+			auto mr = suffix_array::Find<char>(empty_query, data, sa);
+
+			PR_EXPECT(mr.length == 0);
+			PR_EXPECT(mr.sa_beg == 0);
+			PR_EXPECT(mr.sa_end == 0);
+			PR_EXPECT(suffix_array::Contains<char>(empty_query, data, sa));
+			PR_EXPECT(!suffix_array::Contains<char>({ "x", 1 }, data, sa));
+			PR_EXPECT(suffix_array::Count<char>(empty_query, data, sa) == 0);
+			PR_EXPECT(suffix_array::Count<char>({ "x", 1 }, data, sa) == 0);
+		}
 		{// String data
 			//                  0123456789ab
 			std::string data = "mmiisiisiissiippiiii";
@@ -467,6 +490,16 @@ namespace pr::container
 			PR_EXPECT(!suffix_array::Contains<char>({ "isp", 3 }, data, sa));
 			PR_EXPECT(suffix_array::Contains<char>({ "mmiisiisiissiippiiii", 20 }, data, sa));
 			PR_EXPECT(!suffix_array::Contains<char>({ "iiiii", 5 }, data, sa));
+
+			// An empty query is a prefix of every suffix in the index.
+			PR_EXPECT(suffix_array::Contains<char>(std::span<char const>{}, data, sa));
+			PR_EXPECT(suffix_array::Count<char>(std::span<char const>{}, data, sa) == data.size());
+			{
+				auto mr = suffix_array::Find<char>(std::span<char const>{}, data, sa);
+				PR_EXPECT(mr.length == 0);
+				PR_EXPECT(mr.sa_beg == 0);
+				PR_EXPECT(mr.sa_end == sa.size());
+			}
 
 			PR_EXPECT(suffix_array::Count<char>({ "i", 1 }, data, sa) == 12);
 			PR_EXPECT(suffix_array::Count<char>({ "ii", 2 }, data, sa) == 7);
