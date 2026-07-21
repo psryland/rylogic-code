@@ -326,8 +326,9 @@ namespace pr::str
 						if (r == converter_t::partial)
 							break;
 
-						// Convert the code point to an escaped unicode value
+						// Emit the canonical escape width so '\u' stays 4 hex digits and '\U' stays 8.
 						char_t code[9] = {};
+						auto const target_width = c32 <= 0xFFFF ? 4U : 8U;
 						if (c32 <= 0xFFFF)
 						{
 							char_traits<char_t>::uitostr(c32, &code[0], _countof(code), 16);
@@ -338,7 +339,7 @@ namespace pr::str
 							char_traits<char_t>::uitostr(c32, &code[0], _countof(code), 16);
 							Append(out, "\\U", len);
 						}
-						for (size_t i = 0, iend = char_traits<char_t>::length(code); i != iend; ++i)
+						for (size_t i = char_traits<char_t>::length(code); i < target_width; ++i)
 						{
 							Append(out, '0', len);
 						}
@@ -671,6 +672,20 @@ namespace pr::str
 		}
 		PRUnitTestMethod(Escape)
 		{
+			// Cover the Unicode width bug at the code-point formatting boundary.
+			// '\u' escapes must pad to 4 digits and '\U' escapes must pad to 8.
+			auto test_escape = [&](std::u8string const& src, char const* expected)
+			{
+				std::string out;
+				size_t len = 0;
+
+				Escape<char> esc;
+				for (auto ch : src)
+					esc.Translate(ch, out, len);
+
+				PR_EXPECT(out == expected);
+			};
+
 			std::u8string str = char8_ptr(u8"abc\123\u00b1\a\b\f\n\r\t\v\\\"\'\?");
 			std::string res = "abcS\\u00b1\\a\\b\\f\\n\\r\\t\\v\\\\\\\"\\\'\\?";
 			std::string out;
@@ -681,6 +696,11 @@ namespace pr::str
 				esc.Translate(ch, out, len);
 
 			PR_EXPECT(out == res);
+			// Overlong UTF-8 is only used here to reach the 1-digit hex formatting path.
+			test_escape(std::u8string{ static_cast<char8_t>(0xC0), static_cast<char8_t>(0x8F) }, "\\u000f");
+			test_escape(std::u8string(u8"\u0123"), "\\u0123");
+			test_escape(std::u8string(u8"\u1234"), "\\u1234");
+			test_escape(std::u8string(u8"\U0001F4A9"), "\\U0001f4a9");
 		}
 		PRUnitTestMethod(Unescape)
 		{
