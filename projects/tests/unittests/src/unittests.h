@@ -57,6 +57,7 @@
 #include "pr/common/log.h"
 #include "pr/common/memstream.h"
 #include "pr/common/number.h"
+#include "pr/common/objectpool.h"
 #include "pr/common/packing.h"
 #include "pr/common/pe_file.h"
 #include "pr/common/range.h"
