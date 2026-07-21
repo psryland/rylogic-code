@@ -169,6 +169,23 @@ namespace pr::math::tests
 					PR_EXPECT(m(r, c) == t(c, r));
 		}
 
+		PRUnitTestMethod(SubtractTransposeStates, float, double)
+		{
+			using mat_t = Matrix<T>;
+
+			// Use a non-square matrix so the logical shape and the physical layout are easy to distinguish.
+			auto m = mat_t(2, 3, { T(1), T(2), T(3), T(4), T(5), T(6) });
+			auto mt = mat_t(2, 3, { T(1), T(4), T(2), T(5), T(3), T(6) }, true);
+
+			// Same-flag subtraction should stay on the raw-buffer path for both normal and transposed matrices.
+			PR_EXPECT(FEql(m - m, mat_t::Zero(2, 3)));
+			PR_EXPECT(FEql(mt - mt, mat_t::Zero(2, 3)));
+
+			// Mixed-flag subtraction must fall back to element-by-element access so logically equal matrices cancel out.
+			PR_EXPECT(FEql(m, mt));
+			PR_EXPECT(FEql(m - mt, mat_t::Zero(2, 3)));
+		}
+
 		PRUnitTestMethod(Resizing)
 		{
 			auto M = Matrix<double>::Random(rng, 4, 3, -5.0, 5.0);
