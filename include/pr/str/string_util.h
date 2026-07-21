@@ -275,7 +275,7 @@ namespace pr::str
 	template <StringType Str1, StringType Str2, StringType Str3, typename Pred>
 	size_t Replace(Str1& str, Str2 const& what, Str3 const& with, Pred cmp)
 	{
-		if (Empty(str))
+		if (Empty(str) || Empty(what))
 			return 0;
 
 		auto str_len  = Size(str);
@@ -284,6 +284,7 @@ namespace pr::str
 
 		// This in an in place substitution so we need to copy from the
 		// start or end depending on whether 'with' is longer or shorter than 'what'
+		// An empty search string would match at every position, so treat it as a no-op.
 		auto count = size_t();
 		if (what_len >= with_len)
 		{
@@ -757,9 +758,17 @@ namespace pr::str
 		}
 		PRUnitTestMethod(Replace)
 		{
+			char empty_src[] = "";
+			char empty_res[] = "";
 			char src[] = "Bite my shiny donkey metal donkey";
 			char res1[] = "Bite my shiny arse metal arse";
 			char res2[] = "Bite my shiny donkey metal donkey";
+			PR_EXPECT(Replace(empty_src, "donkey", "arse") == 0u);
+			PR_EXPECT(Equal(empty_src, empty_res));
+			PR_EXPECT(Replace(src, "", "x") == 0u);
+			PR_EXPECT(Equal(src, res2));
+			PR_EXPECT(Replace(src, "", "") == 0u);
+			PR_EXPECT(Equal(src, res2));
 			PR_EXPECT(Replace(src, "donkey", "arse") == 2u);
 			PR_EXPECT(Equal(src, res1));
 			PR_EXPECT(Replace(src, "arse", "donkey") == 2u);
@@ -867,5 +876,3 @@ namespace pr::str
 	};
 }
 #endif
-
-
