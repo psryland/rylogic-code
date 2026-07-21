@@ -1448,6 +1448,19 @@ namespace pr::container
 		static_assert(std::is_move_assignable<NonCopyable>::value);
 		static_assert(!std::is_copy_assignable<NonCopyable>::value);
 
+		// A trivially-copyable type with implicit value-initialisation.
+		struct TrivialDefault
+		{
+			int val;
+
+			friend bool operator == (TrivialDefault const& lhs, int rhs)
+			{
+				return lhs.val == rhs;
+			}
+		};
+		static_assert(std::is_trivially_copyable_v<TrivialDefault>);
+		static_assert(std::is_default_constructible_v<TrivialDefault>);
+
 		// A trivially-copyable type without a default constructor.
 		struct TrivialNoDefault
 		{
@@ -1487,6 +1500,7 @@ namespace pr::container
 		using Array1 = pr::vector<Type, 16, true>;
 		using Array2 = pr::vector<NonCopyable, 4, false>;
 		using Array3 = pr::vector<TrivialNoDefault, 8, false>;
+		using Array4 = pr::vector<TrivialDefault, 8, false>;
 
 		// A number of items that ensures the non-local storage is tested
 		inline static constexpr int Many = static_cast<int>(Array0::local_capacity + 2);
@@ -1924,10 +1938,10 @@ namespace pr::container
 				Check chk;
 				{
 					// POD growth must overwrite poisoned storage with value-initialised elements.
-					Array0 arr;
+					Array4 arr;
 					arr.reserve(10);
-					arr.push_back(7);
-					arr.push_back(8);
+					arr.push_back({ 7 });
+					arr.push_back({ 8 });
 					arr.resize(1);
 					arr.resize(4);
 
@@ -1960,11 +1974,15 @@ namespace pr::container
 					Array3 arr;
 					arr.emplace_back(7);
 					arr.emplace_back(8);
-					arr.resize(1);
+					arr.resize(0);
 
-					PR_EXPECT(arr.size() == 1U);
-					PR_EXPECT(arr[0] == 7);
-					PR_THROWS(arr.resize(2), std::runtime_error);
+					PR_EXPECT(arr.empty());
+
+					Array3 grow;
+					grow.emplace_back(7);
+					PR_THROWS(grow.resize(2), std::runtime_error);
+					PR_EXPECT(grow.size() == 1U);
+					PR_EXPECT(grow[0] == 7);
 				}
 			}
 		}
