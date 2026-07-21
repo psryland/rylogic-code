@@ -269,8 +269,16 @@ namespace pr::algorithm::fft
 	std::vector<Real> InverseDiscreteFourierTransform(Real const* inputr, size_t length)
 	{
 		std::vector<Real> outr(length);
-		memcpy(outr, inputr, length);
-		impl::DFT(std::vector<Real>(length).data(), outr.data(), length);
+		if (inputr != outr.data())
+			memcpy(outr.data(), inputr, length * sizeof(Real));
+
+		// Match the complex overload: the supplied values are the real part of the spectrum,
+		// the imaginary part is implicitly zero, and the inverse needs the same 1/N normalisation.
+		for (auto i = 0; i != s_cast<int>(length); ++i)
+			outr[i] /= length;
+
+		std::vector<Real> zero(length);
+		impl::DFT(zero.data(), outr.data(), length);
 		return std::move(outr);
 	}
 
@@ -546,6 +554,20 @@ namespace pr::algorithm::fft::tests
 			InverseDiscreteFourierTransform(actualr.data(), actuali.data(), actualr.data(), actuali.data(), 1);
 			PR_EXPECT(actualr[0] == inputr[0]);
 			PR_EXPECT(actuali[0] == inputi[0]);
+		}
+		PRUnitTestMethod(RealInverseMatchesComplexZeroImag)
+		{
+			// The scalar inverse overload should behave like the complex overload with zero imaginary input.
+			std::vector<double> inputr{ 0.25, -0.5, 0.75, 1.0 };
+			std::vector<double> inputi(inputr.size(), 0.0);
+			std::vector<double> expectr(inputr.size());
+			std::vector<double> expecti(inputr.size());
+
+			InverseDiscreteFourierTransform(inputr.data(), inputi.data(), expectr.data(), expecti.data(), inputr.size());
+
+			auto actual = InverseDiscreteFourierTransform(inputr.data(), inputr.size());
+			for (auto i = 0; i != s_cast<int>(inputr.size()); ++i)
+				PR_EXPECT(std::abs(actual[i] - expectr[i]) < 1e-12);
 		}
 
 		PRUnitTestMethod(DFTAndiDFTTests)
