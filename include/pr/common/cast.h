@@ -20,8 +20,8 @@ namespace pr
 
 	namespace impl
 	{
-		// Test whether a floating-point value can be narrowed to an integer type without
-		// losing data or producing an out-of-range integer after truncation toward zero.
+		// Test whether a floating-point value truncates to a representable integer target
+		// value without producing an out-of-range conversion.
 		template <std::integral T, std::floating_point U>
 		constexpr bool FloatingToIntegralInRange(U x)
 		{
