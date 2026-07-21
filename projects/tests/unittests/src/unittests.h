@@ -144,6 +144,7 @@
 #include "pr/meta/gcf.h"
 #include "pr/meta/min_max.h"
 #include "pr/meta/nameof.h"
+#include "pr/meta/square_root.h"
 #include "pr/network/email.h"
 #include "pr/network/pipe.h"
 #include "pr/network/pipe2.h"
