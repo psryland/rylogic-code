@@ -152,28 +152,31 @@ namespace pr::hash
 				return block->l[i & 15] = RotateLeft(block->l[(i + 13) & 15] ^ block->l[(i + 8) & 15] ^ block->l[(i + 2) & 15] ^ block->l[i & 15], 1);
 			};
 
-			// SHA-1 rounds
-			auto R0 = [=](uint32_t v, uint32_t w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
+			// SHA-1 rounds.
+			// 'w' must be taken by reference: each round rotates the caller's variable by 30 bits so that
+			// subsequent rounds (which reuse 'w' in a different argument position) see the updated value.
+			// Taking it by value silently drops this rotation and produces an incorrect hash.
+			auto R0 = [=](uint32_t v, uint32_t& w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
 			{
 				z += ((w&(x^y)) ^ y) + SHABLK0(i) + 0x5A827999 + RotateLeft(v, 5);
 				w = RotateLeft(w, 30);
 			};
-			auto R1 = [=](uint32_t v, uint32_t w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
+			auto R1 = [=](uint32_t v, uint32_t& w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
 			{
 				z += ((w&(x^y)) ^ y) + SHABLK(i) + 0x5A827999 + RotateLeft(v, 5);
 				w = RotateLeft(w, 30);
 			};
-			auto R2 = [=](uint32_t v, uint32_t w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
+			auto R2 = [=](uint32_t v, uint32_t& w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
 			{
 				z += (w^x^y) + SHABLK(i) + 0x6ED9EBA1 + RotateLeft(v, 5);
 				w = RotateLeft(w, 30);
 			};
-			auto R3 = [=](uint32_t v, uint32_t w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
+			auto R3 = [=](uint32_t v, uint32_t& w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
 			{
 				z += (((w | x)&y) | (w&x)) + SHABLK(i) + 0x8F1BBCDC + RotateLeft(v, 5);
 				w = RotateLeft(w, 30);
 			};
-			auto R4 = [=](uint32_t v, uint32_t w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
+			auto R4 = [=](uint32_t v, uint32_t& w, uint32_t x, uint32_t y, uint32_t& z, uint32_t i)
 			{
 				z += (w^x^y) + SHABLK(i) + 0xCA62C1D6 + RotateLeft(v, 5);
 				w = RotateLeft(w, 30);
@@ -259,6 +262,24 @@ namespace pr::hash
 		//auto hash3 = Sha1HashFile("P:\\pr\\include\\pr\\crypt\\rijndael.h");
 		//auto hash4 = SHA1::hash_t{0x49,0x74,0x3D,0x87,0xDF,0xC8,0x63,0x83,0x18,0xBE,0x23,0x42,0xB2,0x47,0x06,0xE9,0x16,0x09,0xE9,0x85};
 		//PR_EXPECT(hash3 == hash4);
+
+		// Published FIPS 180-1 test vectors, used to catch regressions in the round transform.
+		{
+			char const msg[] = "abc";
+			auto hash = Sha1Hash(msg, 3);
+			auto expected = SHA1::hash_t{0xA9,0x99,0x3E,0x36,0x47,0x06,0x81,0x6A,0xBA,0x3E,0x25,0x71,0x78,0x50,0xC2,0x6C,0x9C,0xD0,0xD8,0x9D};
+			PR_EXPECT(hash == expected);
+		}
+
+		// Boundary case: a 56 byte message. After the mandatory bit-padding byte and the 8 byte length
+		// field are added, this no longer fits in a single 64 byte block, forcing 'Update' to flush the
+		// first block mid-stream (see the 'Transform' call inside 'Update') before 'Final' processes the second.
+		{
+			char const msg[] = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+			auto hash = Sha1Hash(msg, sizeof(msg) - 1);
+			auto expected = SHA1::hash_t{0x84,0x98,0x3E,0x44,0x1C,0x3B,0xD2,0x6E,0xBA,0xAE,0x4A,0xA1,0xF9,0x51,0x29,0xE5,0xE5,0x46,0x70,0xF1};
+			PR_EXPECT(hash == expected);
+		}
 	}
 }
 #endif
