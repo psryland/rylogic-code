@@ -131,7 +131,16 @@ namespace pr::csv
 		auto end = ptr + str.size();
 		for (++ptr; ptr != end; ++ptr)
 		{
-			if (*ptr == '"' && *(++ptr) != '"') break;
+			if (*ptr == '"')
+			{
+				// Advance past this quote before testing what follows, so that a quote at the
+				// very end of the string (the normal closing quote) never dereferences one past
+				// 'end'. Reaching 'end', or finding a non-quote character, means this quote closed
+				// the field. A following quote character means this was an escaped literal quote,
+				// so keep it and carry on.
+				if (++ptr == end || *ptr != '"')
+					break;
+			}
 			out.push_back(*ptr);
 		}
 		if (ptr != end) throw std::runtime_error("'csv' string incorrectly escaped");
@@ -429,6 +438,20 @@ namespace pr::storage
 			PR_EXPECT(esc == "\"A \"\"string\"\" with \r\n quotes, commas, and 'new' lines\"");
 			auto ori = UnescapeString(esc);
 			PR_EXPECT(ori == str);
+		}
+		PRUnitTestMethod(UnescapeStringBounds)
+		{
+			using namespace pr::csv;
+
+			// Each of these has its closing quote as the final character of the input, which is
+			// the boundary 'UnescapeString' must handle without reading past the end of the buffer.
+			PR_EXPECT(UnescapeString("\"\"") == "");        // empty field
+			PR_EXPECT(UnescapeString("\"a\"") == "a");      // single character field
+			PR_EXPECT(UnescapeString("\"abc\"") == "abc");  // multi-character field
+			PR_EXPECT(UnescapeString("\"a\"\"\"") == "a\""); // field ending with an escaped quote
+
+			// Characters trailing the closing quote are not valid CSV and should still be rejected.
+			PR_THROWS(UnescapeString("\"a\"x"), std::exception);
 		}
 		PRUnitTestMethod(BasicCSV)
 		{
