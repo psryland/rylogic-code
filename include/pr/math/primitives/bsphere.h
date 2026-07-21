@@ -123,9 +123,19 @@ namespace pr::math
 			}
 			else
 			{
-				// Only grow if 'rhs' extends beyond the current radius
 				auto separation = Length(rhs.Centre() - Centre());
-				if (separation + rhs.Radius() > Radius())
+				if (separation + rhs.Radius() <= Radius())
+				{
+					// 'rhs' already lies entirely within this BoundingSphere - nothing to do
+				}
+				else if (separation + Radius() <= rhs.Radius())
+				{
+					// This BoundingSphere lies entirely within 'rhs' - adopt it.
+					// This also covers the case where the centres coincide (separation == 0) but the
+					// radii differ, avoiding a divide-by-zero in the general case handled below.
+					m_ctr_rad = rhs.m_ctr_rad;
+				}
+				else
 				{
 					// Move the centre and increase the radius by the minimum
 					// amount to include the existing BoundingSphere and 'rhs'
