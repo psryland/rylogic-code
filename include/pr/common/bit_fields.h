@@ -111,9 +111,17 @@ namespace pr
 		return v;
 	}
 
-	// Reverse the order of the lower 'n' bits in 'v'. e.g. ReverseBits32(0b00101101, 4) returns 0b00101011
+	// Reverse the order of the lower 'n' bits in 'v'. n <= 0 returns 'v'; n >= the bit width returns the full reversal.
+	// e.g. ReverseBits32(0b00101101, 4) returns 0b00101011
 	constexpr uint32_t ReverseBits32(uint32_t v, int n)
 	{
+		if (n <= 0)
+			return v;
+
+		if (n >= 32)
+			return ReverseBits32(v);
+
+		// Keep the untouched upper bits, then move the reversed low bits into place.
 		return (v & (0xFFFFFFFFU << n)) | (ReverseBits32(v) >> (32 - n));
 	}
 
@@ -129,9 +137,17 @@ namespace pr
 		return v;
 	}
 
-	// Reverse the order of the lower 'n' bits in 'v'. e.g. ReverseBits32(0b00101101, 4) returns 0b00101011
+	// Reverse the order of the lower 'n' bits in 'v'. n <= 0 returns 'v'; n >= the bit width returns the full reversal.
+	// e.g. ReverseBits32(0b00101101, 4) returns 0b00101011
 	constexpr uint64_t ReverseBits64(uint64_t v, int n)
 	{
+		if (n <= 0)
+			return v;
+
+		if (n >= 64)
+			return ReverseBits64(v);
+
+		// Keep the untouched upper bits, then move the reversed low bits into place.
 		return (v & (0xFFFFFFFFFFFFFFFFULL << n)) | (ReverseBits64(v) >> (64 - n));
 	}
 
@@ -601,6 +617,9 @@ namespace pr::maths
 				auto c = ReverseBits32(a, 8); // just the lower 8 bits
 				auto C = 0b01100011110000011111100011110000U;
 				PR_EXPECT(c == C);
+
+				PR_EXPECT(ReverseBits32(a, 0) == a);
+				PR_EXPECT(ReverseBits32(a, 32) == b);
 			}
 			{            //0123456789_123456789_123456789_123456789_123456789_123456879_123 64bits
 				auto a = 0b0110001111000001111110000000111111110000000001111111111000000000ULL;
@@ -612,6 +631,9 @@ namespace pr::maths
 				auto c = ReverseBits64(a, 12); // just the lower 12 bits
 				auto C = 0b0110001111000001111110000000111111110000000001111111000000000111ULL;
 				PR_EXPECT(c == C);
+
+				PR_EXPECT(ReverseBits64(a, 0) == a);
+				PR_EXPECT(ReverseBits64(a, 64) == b);
 			}
 		}
 		PRUnitTestMethod(IEEEFloats)
