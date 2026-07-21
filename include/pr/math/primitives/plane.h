@@ -96,7 +96,7 @@ namespace pr::math
 				centre += *j;
 			}
 			p = Normalise(p);
-			p.w = Dot(centre, p) / (end - begin); // Centre / (end - begin) is the true centre
+			p.w = -Dot(centre, p) / (end - begin); // Centre / (end - begin) is the true centre, so use it as a point on the plane (Dot(plane, point) == 0)
 			return Plane3{ p };
 		}
 	};
