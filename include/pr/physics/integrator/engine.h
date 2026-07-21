@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/collision/contact.h"
 #include "pr/physics/integrator/engine_config.h"
 
 namespace pr::physics
