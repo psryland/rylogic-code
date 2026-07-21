@@ -126,6 +126,15 @@ namespace pr::threads
 			// Pop the queued item
 			item = m_queue.front();
 			m_queue.pop_front();
+
+			// Wake any thread blocked in 'Flush()' if this pop just made the queue empty. The
+			// notify above only covers the case where 'Dequeue' is entered with an already-empty
+			// queue; it doesn't cover the transition to empty caused by this pop, so without this,
+			// a 'Flush()' call that observed the queue non-empty and started waiting on
+			// 'm_cv_empty' would never be woken.
+			if (m_queue.empty())
+				m_cv_empty.notify_all();
+
 			return true;
 		}
 		template <typename Pred> bool Dequeue(T& item, MLock& lock, Pred pred)
@@ -212,6 +221,7 @@ namespace pr::threads
 #include "pr/common/fmt.h"
 #include <string>
 #include <algorithm>
+#include <future>
 
 namespace pr::threads
 {
@@ -269,6 +279,44 @@ namespace pr::threads
 		std::sort(begin(items),end(items));
 		for (auto i = 0U; i != items.size(); ++i)
 			PR_EXPECT(items[i] == std::format("t{}_{}", i/10, i%10));
+	}
+
+	// Regression test: a 'Flush()' call that observes the queue non-empty and starts waiting must
+	// be woken when a single 'Dequeue()' call pops the last item and empties the queue. Without a
+	// notify for that pop-to-empty transition, 'Flush()' would depend on a spurious wakeup and
+	// could block forever.
+	PRUnitTest(ConcurrentQueueFlushAfterSingleDequeueTests)
+	{
+		ConcurrentQueue<int> queue;
+		queue.Enqueue(42);
+
+		// Hold the queue's mutex directly so the flush thread is guaranteed to block trying to
+		// acquire it, then release it only once the flush thread has had time to reach that point.
+		// This forces the flush thread to observe the queue as non-empty before the item below is
+		// dequeued, reproducing the interleaving that exposes the lost-wakeup bug.
+		queue.m_mutex.lock();
+		auto flush = std::async(std::launch::async, [&] { queue.Flush(); });
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		queue.m_mutex.unlock();
+
+		// Give the flush thread time to acquire the now-free mutex, observe the queue as
+		// non-empty, and start waiting on the empty-queue condition before dequeuing the only item.
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+		int item = 0;
+		PR_EXPECT(queue.Dequeue(item));
+		PR_EXPECT(item == 42);
+
+		// 'Flush()' should wake up promptly now that the queue is empty. Bound the wait so a
+		// regression fails the test instead of hanging the whole test run.
+		auto woke = flush.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+		if (!woke)
+		{
+			// Unblock the stuck flush thread so the process can still exit cleanly.
+			queue.LastAdded();
+			flush.wait();
+		}
+		PR_EXPECT(woke);
 	}
 }
 #endif
