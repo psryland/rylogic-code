@@ -109,6 +109,11 @@ namespace pr
 				*out++ = ((dec[in[1]] & 0xf) << 4) + ((dec[in[2]] & 0x3c) >> 2);
 				*out++ = ((dec[in[2]] & 0x3) << 6) + ((dec[in[3]]       )     );
 			}
+
+			// Validate the trailing partial block before indexing the translated table.
+			unsigned int tail_length;
+			for (tail_length = 0; tail_length != src_length && is::base64(in[tail_length]); ++tail_length) {}
+			src_length = tail_length;
 			if (src_length > 1) *out++ = ((dec[in[0]]      ) << 2) + ((dec[in[1]] & 0x30) >> 4);
 			if (src_length > 2) *out++ = ((dec[in[1]] & 0xf) << 4) + ((dec[in[2]] & 0x3c) >> 2);
 			if (src_length > 3) *out++ = ((dec[in[2]] & 0x3) << 6) + ((dec[in[3]]       )     );
@@ -152,6 +157,28 @@ namespace pr::common
 		len = EncodeSize(4);                          PR_EXPECT(len == 8U);
 		Encode("ABCD", 4, dst, dst_length);           PR_EXPECT(dst_length == 8 && dst[0]=='Q' && dst[1]=='U' && dst[2]=='J' && dst[3]=='D' && dst[4]=='R' && dst[5]=='A');
 		Decode(dst, dst_length, src, src_length);     PR_EXPECT(src_length == 4 && src[0]=='A' && src[1]=='B' && src[2]=='C' && src[3]=='D');
+
+		// Tail decoding
+		{
+			unsigned char const tail[] = { 'Q', 'Q', '=', '=' };
+			Decode(tail, sizeof(tail), src, src_length); PR_EXPECT(src_length == 1 && src[0] == 'A');
+		}
+		{
+			unsigned char const tail[] = { 'Q', 'U', 'J' };
+			Decode(tail, sizeof(tail), src, src_length); PR_EXPECT(src_length == 2 && src[0] == 'A' && src[1] == 'B');
+		}
+		{
+			unsigned char const tail[] = { 'Q' };
+			Decode(tail, sizeof(tail), src, src_length); PR_EXPECT(src_length == 0U);
+		}
+		{
+			unsigned char const tail[] = { 'Q', 0x01 };
+			Decode(tail, sizeof(tail), src, src_length); PR_EXPECT(src_length == 0U);
+		}
+		{
+			unsigned char const tail[] = { 'Q', '{' };
+			Decode(tail, sizeof(tail), src, src_length); PR_EXPECT(src_length == 0U);
+		}
 
 		// All bytes from 0 to ff
 		unsigned char sbuf[256]; for (int i = 0; i != 256; ++i) sbuf[i] = (unsigned char)i;
