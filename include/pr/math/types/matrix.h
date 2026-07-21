@@ -489,12 +489,12 @@ namespace pr::math
 			pr_assert(lhs.vecs() == rhs.vecs());
 			pr_assert(lhs.cmps() == rhs.cmps());
 
-			// If one of the matrices is transposed, we need to subtract element-by-element
-			// If both are transposed (or not), we can vectorise element substracting
+			// If both matrices have the same transposed state, we can subtract the raw buffer directly.
+			// If one matrix is transposed and the other is not, we must subtract element-by-element.
 			// Return a matrix consist with the common transposed state
-			if (lhs.m_transposed != rhs.m_transposed)
+			if (lhs.m_transposed == rhs.m_transposed)
 			{
-				// If both are not transposed, we can vectorise element subtracting
+				// Raw-buffer subtraction is valid because both operands share the same physical layout.
 				Matrix<S> res(lhs.m_vecs, lhs.m_cmps);
 				res.m_transposed = lhs.m_transposed;
 				for (int i = 0, iend = res.size(); i != iend; ++i)
