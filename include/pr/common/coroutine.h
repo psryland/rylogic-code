@@ -242,7 +242,7 @@ namespace pr::coroutine
 			std::exception_ptr m_exception{};
 			std::atomic_bool m_done{ false };
 			std::atomic<int> m_ref_count{};
-			std::atomic<bool> m_scheduled{}; // 
+			std::atomic<bool> m_scheduled{}; // Continuation hand-off guard.
 			#if PR_COROUTINE_NAMES
 			std::string m_name{};
 			#endif
@@ -328,7 +328,7 @@ namespace pr::coroutine
 					}
 					auto await_suspend(std::coroutine_handle<promise_type>) const noexcept
 					{
-						return m_continuation != nullptr && m_continuation.promise().m_scheduled.exchange(true, std::memory_order_acquire)
+						return m_continuation != nullptr && !m_continuation.promise().m_scheduled.exchange(true, std::memory_order_acquire)
 							? static_cast<std::coroutine_handle<>>(m_continuation)
 							: static_cast<std::coroutine_handle<>>(std::noop_coroutine());
 					}
@@ -771,6 +771,57 @@ namespace pr::coroutine
 				b = next;
 			}
 		}
+
+		Task<> NestedChild(std::shared_ptr<std::atomic_int> stage)
+		{
+			stage->store(2);
+			co_return;
+		}
+
+		Task<> NestedParent(std::shared_ptr<std::atomic_int> stage)
+		{
+			stage->store(1);
+
+			co_await NestedChild(stage);
+
+			stage->store(3);
+			co_return;
+		}
+	}
+
+	// Regression test for the continuation hand-off in final_suspend: the awaited task must resume
+	// the awaiting task exactly once, otherwise nested Tasks can remain suspended forever.
+	PRUnitTest(CoroutineContinuationResumesAwaiter)
+	{
+		using namespace std::chrono_literals;
+
+		auto stage = std::make_shared<std::atomic_int>(0);
+
+		// Keep the nested Task alive on the detached waiter thread so a timeout only leaves that
+		// one thread blocked if the regression is still present.
+		auto task = std::make_shared<Task<>>(NestedParent(stage));
+
+		auto done_mutex = std::make_shared<std::mutex>();
+		auto done_cv = std::make_shared<std::condition_variable>();
+		auto done = std::make_shared<bool>(false);
+
+		std::thread([task, done_mutex, done_cv, done]
+		{
+			task->Wait();
+
+			{
+				std::lock_guard lock(*done_mutex);
+				*done = true;
+			}
+
+			done_cv->notify_one();
+		}).detach();
+
+		// Wait with a timeout so the test reports the regression instead of hanging the suite.
+		std::unique_lock lock(*done_mutex);
+		auto finished = done_cv->wait_for(lock, 5s, [done] { return *done; });
+		PR_EXPECT(finished);
+		PR_EXPECT(stage->load() == 3);
 	}
 
 	PRUnitTest(CoroutineTests)
