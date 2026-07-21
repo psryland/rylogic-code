@@ -61,6 +61,25 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(roots[0], 2.0));
 		}
 
+		PRUnitTestMethod(QuadraticDegenerateRoots)
+		{
+			// 0x² + 2x - 6 = 0 => x = 3
+			auto quadratic = Quadratic{ 0.0, 2.0, -6.0 };
+			auto roots = FindRoots(quadratic);
+			PR_EXPECT(roots.m_count == 1);
+			PR_EXPECT(FEql(roots[0], 3.0));
+		}
+
+		PRUnitTestMethod(QuadraticNearZeroLeadingCoefficient)
+		{
+			// Treat a tiny leading coefficient the same as zero so degenerate
+			// quadratics still collapse to the linear root.
+			auto quadratic = Quadratic{ tiny<double> * 0.5, 2.0, -6.0 };
+			auto roots = FindRoots(quadratic);
+			PR_EXPECT(roots.m_count == 1);
+			PR_EXPECT(FEql(roots[0], 3.0));
+		}
+
 		PRUnitTestMethod(QuadraticEvaluation)
 		{
 			auto q = Quadratic{ 2.0, -3.0, 1.0 }; // 2x² - 3x + 1
@@ -113,6 +132,15 @@ namespace pr::math::tests
 			auto c = Cubic{ 1.0, 0.0, -3.0, 0.0 };
 			auto sp2 = StationaryPoints(c);
 			PR_EXPECT(sp2.m_count == 2);
+		}
+
+		PRUnitTestMethod(DegenerateCubicStationaryPoints)
+		{
+			// 0x³ + 2x² - 6x has a stationary point at x = 1.5
+			auto cubic = Cubic{ 0.0, 2.0, -6.0, 0.0 };
+			auto stationary_points = StationaryPoints(cubic);
+			PR_EXPECT(stationary_points.m_count == 1);
+			PR_EXPECT(FEql(stationary_points[0], 1.5));
 		}
 
 		PRUnitTestMethod(FromPointsTests)
