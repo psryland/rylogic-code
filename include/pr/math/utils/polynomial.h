@@ -323,6 +323,10 @@ namespace pr::math
 	}
 	inline constexpr Roots FindRoots(Quadratic const& p) noexcept
 	{
+		// Check for a degenerate quadratic (A == 0)
+		if (Abs(p.A) < tiny<double>)
+			return FindRoots(Monic(p.B, p.C));
+
 		// This method is numerically more stable than (-b +/- sqrt(b^2-4ac)) / 2a
 		// (see numerical recipes, p184)
 		auto discriminant = p.B * p.B - 4.0 * p.A * p.C;
