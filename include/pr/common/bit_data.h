@@ -125,6 +125,19 @@ namespace pr
 			}
 		};
 
+		// Build a mask for the low 'bits' bits of a word without shifting by the full word size.
+		template <std::unsigned_integral WordType>
+		constexpr WordType BitsMask(int bits)
+		{
+			if (bits == 0)
+				return {};
+
+			if (bits == std::numeric_limits<WordType>::digits)
+				return std::numeric_limits<WordType>::max();
+
+			return (WordType{1} << bits) - 1;
+		}
+
 		// Read bits from a data source
 		template <std::unsigned_integral WordType, DataSource<WordType> DataSrc>
 		class Reader
@@ -200,7 +213,7 @@ namespace pr
 					// The number of bits to read from the current word
 					auto ofs = static_cast<int>(m_pos & OfsMask);
 					auto bits = std::min<int>(count - idx, WordSize - ofs);
-					auto mask = (1 << bits) - 1;
+					auto mask = BitsMask<WordType>(bits);
 
 					result |= static_cast<uint64_t>((word >> ofs) & mask) << idx;
 
@@ -346,7 +359,7 @@ namespace pr
 					// The number of bits to write to the current word
 					auto ofs = static_cast<int>(m_pos & OfsMask);
 					auto bits = std::min<int>(count - idx, WordSize - ofs);
-					auto mask = (1 << bits) - 1;
+					auto mask = BitsMask<WordType>(bits);
 
 					word |= static_cast<WordType>((value >> idx) & mask) << ofs;
 
@@ -558,6 +571,57 @@ namespace pr::common
 	}
 	PRUnitTest(BitWriterTests)
 	{
+		// Zero bits should leave both the writer output and reader position unchanged.
+		{
+			uint32_t data[] = { 0xDEADBEEF };
+			auto writer = BitWriter<uint32_t>({ &data[0], _countof(data) });
+			writer.WriteBits<uint32_t>(0x12345678u, 0);
+			writer.Flush();
+			PR_EXPECT(data[0] == 0xDEADBEEFu);
+
+			auto reader = BitReader<uint32_t>(data);
+
+			PR_EXPECT(reader.ReadBits<uint32_t>(0) == 0u);
+			PR_EXPECT(reader.Position() == 0);
+		}
+
+		// These chunks hit the 32-bit full-width mask path and the carry into the next word.
+		{
+			uint32_t data[2] = {};
+			auto writer = BitWriter<uint32_t>({ &data[0], _countof(data) });
+
+			writer.WriteBits<uint32_t>(0x1u, 1);
+			writer.WriteBits<uint32_t>(0x7FFFFFFFu, 31);
+			writer.WriteBits<uint32_t>(0xFFFFFFFFu, 32);
+			writer.Flush();
+
+			PR_EXPECT(data[0] == 0xFFFFFFFFu);
+			PR_EXPECT(data[1] == 0xFFFFFFFFu);
+
+			auto reader = BitReader<uint32_t>(data);
+			PR_EXPECT(reader.ReadBits<uint32_t>(1) == 0x1u);
+			PR_EXPECT(reader.ReadBits<uint32_t>(31) == 0x7FFFFFFFu);
+			PR_EXPECT(reader.ReadBits<uint32_t>(32) == 0xFFFFFFFFu);
+		}
+
+		// These chunks hit the 64-bit full-width mask path.
+		{
+			uint64_t data[2] = {};
+			auto writer = BitWriter<uint64_t>({ &data[0], _countof(data) });
+
+			writer.WriteBits<uint64_t>(0x1ull, 1);
+			writer.WriteBits<uint64_t>(0x7FFFFFFFFFFFFFFFull, 63);
+			writer.WriteBits<uint64_t>(0xFFFFFFFFFFFFFFFFull, 64);
+			writer.Flush();
+
+			PR_EXPECT(data[0] == 0xFFFFFFFFFFFFFFFFull);
+			PR_EXPECT(data[1] == 0xFFFFFFFFFFFFFFFFull);
+
+			auto reader = BitReader<uint64_t>(data);
+			PR_EXPECT(reader.ReadBits<uint64_t>(1) == 0x1ull);
+			PR_EXPECT(reader.ReadBits<uint64_t>(63) == 0x7FFFFFFFFFFFFFFFull);
+			PR_EXPECT(reader.ReadBits<uint64_t>(64) == 0xFFFFFFFFFFFFFFFFull);
+		}
 		{
 			uint8_t data[16] = {};
 			auto writer = BitWriter({ &data[0], _countof(data) });
