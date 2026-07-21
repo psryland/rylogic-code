@@ -149,7 +149,8 @@ namespace pr::rdr12::ldraw
 		// Find the range of complete sections that can be consumed
 		for (; bytes_read - consume >= int(sizeof(ldraw::SectionHeader));)
 		{
-			auto const& header = buffer.at_byte_ofs<ldraw::SectionHeader>(s_cast<size_t>(consume));
+			ldraw::SectionHeader header;
+			std::memcpy(&header, buffer.data() + consume, sizeof(header));
 
 			// If the first 4 bytes are not a keyword, then flush the buffer
 			if (!ldraw::EKeyword_::IsValue(s_cast<int>(header.m_keyword)))
@@ -195,7 +196,8 @@ namespace pr::rdr12::ldraw
 		// Otherwise, if 0 bytes can be consumed, check the buffer is big enough and the partial data is not invalid
 		else if (bytes_read >= sizeof(ldraw::SectionHeader))
 		{
-			auto const& header = buffer.at_byte_ofs<ldraw::SectionHeader>(s_cast<size_t>(0));
+			ldraw::SectionHeader header;
+			std::memcpy(&header, buffer.data(), sizeof(header));
 			required = header.m_size + sizeof(ldraw::SectionHeader);
 		}
 
@@ -282,7 +284,8 @@ namespace pr::rdr12::ldraw
 		// If we have enough bytes for a section header, check for a valid keyword
 		if (bytes_read >= static_cast<int>(sizeof(ldraw::SectionHeader)))
 		{
-			auto const& header = buffer.at_byte_ofs<ldraw::SectionHeader>(0);
+			ldraw::SectionHeader header;
+			std::memcpy(&header, buffer.data(), sizeof(header));
 			if (ldraw::EKeyword_::IsValue(s_cast<int>(header.m_keyword)))
 				return EMode::Binary;
 		}

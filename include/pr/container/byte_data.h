@@ -3,12 +3,16 @@
 //  Copyright (c) Oct 2003 Paul Ryland
 //******************************************
 #pragma once
+#include <array>
+#include <bit>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 #include <span>
 #include <concepts>
 #include <initializer_list>
 #include <sstream>
+#include <stdexcept>
 #include <malloc.h>
 #include <intrin.h>
 
@@ -376,7 +380,7 @@ namespace pr
 		// Return the buffer interpreted as 'Type'
 		template <typename Type> Type const& as() const
 		{
-			return *begin<Type>();
+			return *checked_ptr<Type>(0);
 		}
 		value_type const& as() const
 		{
@@ -384,7 +388,7 @@ namespace pr
 		}
 		template <typename Type> Type& as()
 		{
-			return *begin<Type>();
+			return *checked_ptr<Type>(0);
 		}
 		value_type& as()
 		{
@@ -394,7 +398,10 @@ namespace pr
 		// Indexed addressing in the buffer interpreted as an array of 'Type'
 		template <typename Type> Type const& at(size_t index) const
 		{
-			return begin<Type>()[index];
+			if (index >= size<Type>())
+				throw std::out_of_range("Index out of range");
+
+			return *checked_ptr<Type>(index * sizeof(Type));
 		}
 		value_type const& at(size_t index) const
 		{
@@ -402,21 +409,25 @@ namespace pr
 		}
 		template <typename Type> Type& at(size_t index)
 		{
-			return begin<Type>()[index];
+			if (index >= size<Type>())
+				throw std::out_of_range("Index out of range");
+
+			return *checked_ptr<Type>(index * sizeof(Type));
 		}
 		value_type& at(size_t index)
 		{
 			return begin()[index];
 		}
 
-		// Return a reference to 'Type' at a byte offset into the container
+		// Return a reference to 'Type' at a byte offset into the container.
+		// The offset must land on an address that satisfies alignof(Type).
 		template <typename Type> Type const& at_byte_ofs(size_t byte_ofs) const
 		{
-			return *reinterpret_cast<Type const*>(m_ptr + byte_ofs);
+			return *checked_ptr<Type>(byte_ofs);
 		}
 		template <typename Type> Type& at_byte_ofs(size_t byte_ofs)
 		{
-			return *reinterpret_cast<Type*>(m_ptr + byte_ofs);
+			return *checked_ptr<Type>(byte_ofs);
 		}
 
 		// Array access to bytes
@@ -447,14 +458,15 @@ namespace pr
 			return begin();
 		}
 
-		// A pointer to the data starting at the given byte offset
+		// A typed pointer to the data starting at the given byte offset.
+		// This applies the same bounds and alignment checks as 'at_byte_ofs'.
 		template <typename Type> Type const* data_at(size_t byte_ofs) const
 		{
-			return &at_byte_ofs<Type>(byte_ofs);
+			return checked_ptr<Type>(byte_ofs);
 		}
 		template <typename Type> Type* data_at(size_t byte_ofs)
 		{
-			return &at_byte_ofs<Type>(byte_ofs);
+			return checked_ptr<Type>(byte_ofs);
 		}
 
 		// Façade access
@@ -476,14 +488,16 @@ namespace pr
 		}
 
 		// Streaming access
-		template <typename Type> Type const& read(size_t& ofs) const
+		template <typename Type> Type read(size_t& ofs) const
 		{
-			if (ofs + sizeof(Type) > size())
+			static_assert(std::is_trivially_copyable_v<Type>);
+			if (ofs > size() || sizeof(Type) > size() - ofs)
 				throw std::out_of_range("read attempt beyond buffer end");
 
-			auto& r = at_byte_ofs<Type>(ofs);
+			std::array<std::byte, sizeof(Type)> bytes{};
+			std::memcpy(bytes.data(), m_ptr + ofs, sizeof(Type));
 			ofs += sizeof(Type);
-			return r;
+			return std::bit_cast<Type>(bytes);
 		}
 
 		// implicit conversions
@@ -497,6 +511,24 @@ namespace pr
 		}
 
 	private:
+
+		// Resolve a typed access after validating the byte range and the target type's alignment.
+		// Byte-oriented callers should stay on the raw byte APIs when they do not need typed access.
+		template <typename Type> Type const* checked_ptr(size_t byte_ofs) const
+		{
+			if (byte_ofs > m_size || sizeof(Type) > m_size - byte_ofs)
+				throw std::out_of_range("Offset position out of range");
+
+			auto ptr = m_ptr + byte_ofs;
+			if ((reinterpret_cast<std::uintptr_t>(ptr) % alignof(Type)) != 0)
+				throw std::runtime_error("Type access is misaligned");
+
+			return reinterpret_cast<Type const*>(ptr);
+		}
+		template <typename Type> Type* checked_ptr(size_t byte_ofs)
+		{
+			return const_cast<Type*>(static_cast<byte_data const&>(*this).template checked_ptr<Type>(byte_ofs));
+		}
 
 		// Convert a void pointer to a byte pointer
 		static value_type const* byte_ptr(void const* ptr)
@@ -596,21 +628,28 @@ namespace pr
 		// Interpret the current 'm_beg' pointer as 'Type'
 		template <typename Type> Type const& as() const
 		{
-			if (m_beg + sizeof(Type) > m_end)
+			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
+			if (sizeof(Type) > size)
 				throw std::out_of_range("buffer overrun");
+
+			if ((reinterpret_cast<std::uintptr_t>(m_beg) % alignof(Type)) != 0)
+				throw std::runtime_error("Type access is misaligned");
 
 			return *reinterpret_cast<Type const*>(m_beg);
 		}
 		
-		// Advance the pointer by the size of 'Type'
-		template <typename Type> Type const& read(int count = 1)
+		// Read one value and advance by 'count' elements of 'Type'.
+		template <typename Type> Type read(int count = 1)
 		{
-			if (m_beg + count * sizeof(Type) > m_end)
+			static_assert(std::is_trivially_copyable_v<Type>);
+			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
+			if (count < 0 || static_cast<size_t>(count) > size / sizeof(Type))
 				throw std::out_of_range("buffer overrun");
 
-			auto& r = as<Type>();
-			m_beg += count * sizeof(Type);
-			return r;
+			std::array<std::byte, sizeof(Type)> bytes{};
+			std::memcpy(bytes.data(), m_beg, sizeof(Type));
+			m_beg += static_cast<ptrdiff_t>(count) * static_cast<ptrdiff_t>(sizeof(Type));
+			return std::bit_cast<Type>(bytes);
 		}
 
 		// Read bytes to align to 'alignment'
@@ -647,18 +686,28 @@ namespace pr
 		// Interpret the current 'm_beg' pointer as 'Type'
 		template <typename Type> Type& as() const
 		{
+			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
+			if (sizeof(Type) > size)
+				throw std::out_of_range("buffer overrun");
+
+			if ((reinterpret_cast<std::uintptr_t>(m_beg) % alignof(Type)) != 0)
+				throw std::runtime_error("Type access is misaligned");
+
 			return *reinterpret_cast<Type*>(m_beg);
 		}
 		
-		// Advance the pointer by the size of 'Type'
+		// Write one value and advance by 'count' elements of 'Type'.
 		template <typename Type> void write(Type const& value, int count = 1)
 		{
-			if (m_beg + count * sizeof(Type) >m_end)
+			static_assert(std::is_trivially_copyable_v<Type>);
+			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
+			if (count < 0 || static_cast<size_t>(count) > size / sizeof(Type))
 				throw std::out_of_range("buffer overrun");
 
+			auto bytes = std::bit_cast<std::array<std::byte, sizeof(Type)>>(value);
 			for (; count-- != 0;)
 			{
-				as<Type>() = value;
+				std::memcpy(m_beg, bytes.data(), sizeof(Type));
 				m_beg += sizeof(Type);
 			}
 		}
@@ -894,6 +943,11 @@ namespace pr::container
 			for (int i = 0; i != 4; ++i) { PR_EXPECT(buf1[i + 6] == buf0[i]); }
 		}
 		{ // Access
+			struct alignas(64) OverAligned
+			{
+				std::uint64_t m_value;
+			};
+
 			byte_data buf0;
 			buf0.append({0, 1, 2, 3});
 			PR_EXPECT(buf0.size<int>() == 4U);
@@ -906,8 +960,37 @@ namespace pr::container
 			PR_EXPECT(arr0[3] == 3);
 
 			// at_byte_ofs
-			auto v1 = buf0.at_byte_ofs<int>(2);
-			PR_EXPECT(v1 == 0x00010000);
+			auto v1 = buf0.at_byte_ofs<int>(0);
+			PR_EXPECT(v1 == 0);
+
+			// const typed access
+			auto const& cbuf0 = buf0;
+			auto const v2 = cbuf0.template at_byte_ofs<int>(0);
+			PR_EXPECT(v2 == 0);
+
+			// Non-default-constructible trivially-copyable values should still round-trip.
+			struct NonDefaultTrivial
+			{
+				std::uint32_t m_value;
+				NonDefaultTrivial() = delete;
+			};
+			static_assert(std::is_trivially_copyable_v<NonDefaultTrivial>);
+			static_assert(!std::is_default_constructible_v<NonDefaultTrivial>);
+
+			auto const raw = std::array<std::byte, sizeof(NonDefaultTrivial)>{
+				std::byte{ 0x78 }, std::byte{ 0x56 }, std::byte{ 0x34 }, std::byte{ 0x12 }
+			};
+			auto const nd_value = std::bit_cast<NonDefaultTrivial>(raw);
+
+			byte_data buf_nd;
+			buf_nd.push_back(nd_value);
+			size_t nd_ofs = 0;
+			auto nd_read = buf_nd.read<NonDefaultTrivial>(nd_ofs);
+			PR_EXPECT(nd_read.m_value == 0x12345678U);
+
+			byte_data_cptr cptr_nd(buf_nd.span());
+			auto nd_peek = cptr_nd.read<NonDefaultTrivial>();
+			PR_EXPECT(nd_peek.m_value == 0x12345678U);
 
 			auto s = buf0.span<int>();
 			PR_EXPECT(s.size() == 4U);
@@ -915,6 +998,42 @@ namespace pr::container
 			PR_EXPECT(s[1] == 1);
 			PR_EXPECT(s[2] == 2);
 			PR_EXPECT(s[3] == 3);
+
+			// over-aligned access
+			byte_data<64> buf2;
+			buf2.push_back(OverAligned{ 0x1122334455667788ULL });
+			PR_EXPECT((reinterpret_cast<std::uintptr_t>(buf2.data()) % alignof(OverAligned)) == 0);
+			PR_EXPECT(buf2.at_byte_ofs<OverAligned>(0).m_value == 0x1122334455667788ULL);
+			PR_EXPECT(buf2.data_at<OverAligned>(0)->m_value == 0x1122334455667788ULL);
+
+			auto& aligned_ref = buf2.at_byte_ofs<OverAligned>(0);
+			aligned_ref.m_value = 0x8877665544332211ULL;
+			PR_EXPECT(buf2.at_byte_ofs<OverAligned>(0).m_value == 0x8877665544332211ULL);
+
+			auto const& cbuf2 = buf2;
+			PR_EXPECT(cbuf2.at_byte_ofs<OverAligned>(0).m_value == 0x8877665544332211ULL);
+			PR_EXPECT(cbuf2.data_at<OverAligned>(0)->m_value == 0x8877665544332211ULL);
+
+			// Check the two failure modes independently so the test documents both the size and alignment contracts.
+			PR_THROWS(buf2.at_byte_ofs<OverAligned>(1), std::out_of_range);
+
+			byte_data<64> buf3;
+			buf3.resize(sizeof(OverAligned) + 1);
+			PR_THROWS(buf3.at_byte_ofs<OverAligned>(1), std::runtime_error);
+
+			std::span<std::byte const> misaligned_const{ buf2.data() + 1, sizeof(OverAligned) };
+			byte_data_cptr cptr(misaligned_const);
+			PR_THROWS((cptr.as<OverAligned>()), std::runtime_error);
+
+			std::span<std::byte> misaligned_mut{ buf2.data() + 1, sizeof(OverAligned) };
+			byte_data_mptr mptr(misaligned_mut);
+			PR_THROWS((mptr.as<OverAligned>()), std::runtime_error);
+
+			// Align-to must skip the full padding width, not just one byte.
+			std::array<std::byte, 4> pad_bytes{ std::byte{0}, std::byte{1}, std::byte{2}, std::byte{3} };
+			byte_data_cptr align_ptr(std::span<std::byte const>{ pad_bytes.data() + 1, pad_bytes.size() - 1 });
+			align_ptr.align_to(4);
+			PR_EXPECT(align_ptr.m_beg == pad_bytes.data() + 4);
 		}
 		{ // Stream
 			byte_data buf0;

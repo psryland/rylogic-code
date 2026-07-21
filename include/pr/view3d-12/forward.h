@@ -31,6 +31,7 @@
 #include <chrono>
 #include <limits>
 #include <span>
+#include <cstring>
 #include <tuple>
 #include <source_location>
 #include <type_traits>

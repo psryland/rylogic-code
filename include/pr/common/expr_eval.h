@@ -8,9 +8,11 @@
 #include <limits>
 #include <string_view>
 #include <algorithm>
+#include <cstring>
 #include <type_traits>
 #include <initializer_list>
 #include <cassert>
+#include <stdexcept>
 #include "pr/common/fmt.h"
 #include "pr/common/hash.h"
 #include "pr/math/math.h"
@@ -636,6 +638,14 @@ namespace pr::eval
 	};
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
 	static_assert(std::alignment_of_v<Val> == 32, "Val should have 32 byte alignment");
+
+	template <typename Type> void WriteValue(byte_data<>& data, size_t ofs, Type const& value)
+	{
+		if (ofs > data.size() || sizeof(Type) > data.size() - ofs)
+			throw std::out_of_range("write attempt beyond buffer end");
+
+		std::memcpy(data.data() + ofs, &value, sizeof(Type));
+	}
 
 	// A collection of args with some rules enforced
 	struct ArgSet
@@ -1595,7 +1605,9 @@ namespace pr::eval
 
 							// If the next instruction is an 'else' statement, skip over it so that the else body
 							// gets executed. Remember If == branch-if-zero, Else == branch-always
-							if (m_op.at_byte_ofs<ETok>(i) == ETok::Else)
+							auto next_i = i;
+							auto next_tok = m_op.read<ETok>(next_i);
+							if (next_tok == ETok::Else)
 								i += sizeof(ETok) + sizeof(int);
 						}
 						break;
@@ -2321,7 +2333,7 @@ namespace pr::eval
 
 					// Determine the offset to jump over the if body. The jump is from the byte after the jump value.
 					auto jmp = static_cast<int>(compiled.m_op.size() - ofs0 - sizeof(int));
-					compiled.m_op.at_byte_ofs<int>(ofs0) = jmp;
+					WriteValue(compiled.m_op, ofs0, jmp);
 					break;
 				}
 				case ETok::Else:
@@ -2341,7 +2353,7 @@ namespace pr::eval
 
 					// Determine the offset to jump over the else body
 					auto jmp = static_cast<int>(compiled.m_op.size() - ofs0 - sizeof(int));
-					compiled.m_op.at_byte_ofs<int>(ofs0) = jmp;
+					WriteValue(compiled.m_op, ofs0, jmp);
 					return true;
 				}
 				default:
