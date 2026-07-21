@@ -40,7 +40,7 @@ namespace pr::algorithm::astar
 	struct EdgeData
 	{
 		// The node that the requested edge connects to
-		typename C::node_ref target_node = C::NullNode;
+		typename C::node_ref target_node = C::NoNode;
 
 		// The cost of including the edge in the path. (aka. the cost value)
 		typename C::cost_type edge_cost = {};
@@ -347,6 +347,21 @@ namespace pr::algorithm::astar::unittests
 {
 	PRUnitTestClass(AStarSearchTests)
 	{
+		// Regression config that matches ConfigType but deliberately has no NullNode alias.
+		struct EdgeDataConfig
+		{
+			using node_ref = int;
+			using edge_ref = int;
+			using cost_type = float;
+			template <typename T> using vector_type = std::vector<T>;
+			template <typename K, typename V> using hashmap_type = std::unordered_map<K, V>;
+			static constexpr node_ref NoNode = -1;
+			static constexpr edge_ref NoEdge = -1;
+			static constexpr cost_type CostMax = std::numeric_limits<cost_type>::max();
+		};
+		static_assert(astar::ConfigType<EdgeDataConfig>);
+		static_assert(std::default_initializable<astar::EdgeData<EdgeDataConfig>>);
+
 		struct Graph
 		{
 			struct Node { float x, y; };
@@ -496,6 +511,12 @@ namespace pr::algorithm::astar::unittests
 			{ // Node7 -> (-4,0) ("near" node7 degenerate case)
 				RunTest(graph.m_nodes[7], Graph::Node{ -4, 0 }, false, {});
 			}
+		}
+
+		PRUnitTestMethod(EdgeDataDefaultsToNoNode)
+		{
+			auto edge = astar::EdgeData<EdgeDataConfig>{};
+			PR_EXPECT(edge.target_node == EdgeDataConfig::NoNode);
 		}
 	};
 }
