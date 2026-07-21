@@ -96,27 +96,29 @@ namespace pr
 		{
 			return m_ptr != nullptr;
 		}
-		friend bool operator == (value_ptr lhs, value_ptr rhs)
+
+		// Comparisons must inspect the live owned pointer, not copies of the wrapper.
+		friend bool operator == (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr == rhs.m_ptr;
 		}
-		friend bool operator != (value_ptr lhs, value_ptr rhs)
+		friend bool operator != (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr != rhs.m_ptr;
 		}
-		friend bool operator <  (value_ptr lhs, value_ptr rhs)
+		friend bool operator <  (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr < rhs.m_ptr;
 		}
-		friend bool operator <= (value_ptr lhs, value_ptr rhs)
+		friend bool operator <= (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr <= rhs.m_ptr;
 		}
-		friend bool operator >  (value_ptr lhs, value_ptr rhs)
+		friend bool operator >  (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr > rhs.m_ptr;
 		}
-		friend bool operator >= (value_ptr lhs, value_ptr rhs)
+		friend bool operator >= (value_ptr const& lhs, value_ptr const& rhs)
 		{
 			return lhs.m_ptr >= rhs.m_ptr;
 		}
@@ -135,22 +137,65 @@ namespace pr::common
 			Thing(int i) :m_i(i) {}
 		};
 
-		PRUnitTestMethod(ValueSemantics)
+		// Null and self-comparisons must keep working once comparisons stop copying wrappers.
+		PRUnitTestMethod(NullAndReflexive)
 		{
-			value_ptr<Thing> v0(new Thing(0));
-			value_ptr<Thing> v1(new Thing(1));
-			PR_EXPECT(v0->m_i == 0);
-			PR_EXPECT(v1->m_i == 1);
+			value_ptr<Thing> empty;
+			PR_EXPECT(empty == nullptr);
+			PR_EXPECT(!(empty != nullptr));
+			PR_EXPECT(empty <= empty);
+			PR_EXPECT(empty >= empty);
+			PR_EXPECT(!(empty < empty));
+			PR_EXPECT(!(empty > empty));
 
-			auto v2 = v1;
-			PR_EXPECT(v2->m_i == 1);
+			value_ptr<Thing> value(new Thing(1));
+			PR_EXPECT(value == value);
+			PR_EXPECT(!(value != value));
+			PR_EXPECT(value <= value);
+			PR_EXPECT(value >= value);
+			PR_EXPECT(!(value < value));
+			PR_EXPECT(!(value > value));
+		}
 
-			v2->m_i++;
-			PR_EXPECT(v1->m_i == 1);
-			PR_EXPECT(v2->m_i == 2);
+		// Distinct pointers only have a defined ordering when they refer to the same array.
+		PRUnitTestMethod(DistinctAndOrdering)
+		{
+			// Keep the pointers non-owning so the ordering check can use stack storage in one array.
+			struct NoDelete
+			{
+				void operator()(Thing*) const noexcept
+				{
+				}
+			};
 
-			v1 = std::move(v2);
-			PR_EXPECT(v1->m_i == 2);
+			Thing storage[2] =
+			{
+				Thing(2),
+				Thing(3),
+			};
+			value_ptr<Thing, NoDelete> left(&storage[0]);
+			value_ptr<Thing, NoDelete> right(&storage[1]);
+			PR_EXPECT(left != right);
+			PR_EXPECT(!(left == right));
+			PR_EXPECT(left < right);
+			PR_EXPECT(right > left);
+			PR_EXPECT(left <= right);
+			PR_EXPECT(right >= left);
+		}
+
+		// Copying must clone the pointee while keeping identity-based comparisons stable.
+		PRUnitTestMethod(CopyIsolation)
+		{
+			value_ptr<Thing> value(new Thing(4));
+			auto copied = value;
+			PR_EXPECT(copied != value);
+			PR_EXPECT(copied->m_i == value->m_i);
+			PR_EXPECT(value == value);
+			PR_EXPECT(copied == copied);
+
+			copied->m_i = 9;
+			PR_EXPECT(value->m_i == 4);
+			PR_EXPECT(copied->m_i == 9);
 		}
 	};
 }
