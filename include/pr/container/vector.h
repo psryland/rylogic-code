@@ -1283,7 +1283,7 @@ namespace pr
 			if (lhs.size() != rhs.size()) return false;
 			auto lptr = std::begin(lhs);
 			auto rptr = std::begin(rhs);
-			for (auto n = lhs.size(); n-- != 0;)
+			for (auto n = lhs.size(); n-- != 0; ++lptr, ++rptr)
 				if (!(*lptr == *rptr)) return false;
 
 			return true;
@@ -1903,6 +1903,25 @@ namespace pr::container
 						PR_EXPECT(vec0[i].val == arr0[i].val);
 				}
 			}*/
+			{// operator == / != must compare every element, not just the first
+				Check chk;
+				{
+					Array0 arr0 = { 1, 2 };
+					Array0 arr1 = { 1, 2 };
+					PR_EXPECT(arr0 == arr1);
+					PR_EXPECT(!(arr0 != arr1));
+				}{
+					Array0 arr0 = { 1, 2 };
+					Array0 arr1 = { 3, 2 };
+					PR_EXPECT(!(arr0 == arr1));
+					PR_EXPECT(arr0 != arr1);
+				}{
+					Array0 arr0 = { 1, 2 };
+					Array0 arr1 = { 1, 3 };
+					PR_EXPECT(!(arr0 == arr1));
+					PR_EXPECT(arr0 != arr1);
+				}
+			}
 		}
 		PRUnitTestMethod(Mem)
 		{
