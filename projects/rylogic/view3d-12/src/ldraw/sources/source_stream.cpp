@@ -2,7 +2,6 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
-#include <cstring>
 #include "view3d-12/src/ldraw/sources/source_stream.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"

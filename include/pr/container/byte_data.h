@@ -3,6 +3,8 @@
 //  Copyright (c) Oct 2003 Paul Ryland
 //******************************************
 #pragma once
+#include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -489,13 +491,13 @@ namespace pr
 		template <typename Type> Type read(size_t& ofs) const
 		{
 			static_assert(std::is_trivially_copyable_v<Type>);
-			if (ofs + sizeof(Type) > size())
+			if (ofs > size() || sizeof(Type) > size() - ofs)
 				throw std::out_of_range("read attempt beyond buffer end");
 
-			Type value{};
-			std::memcpy(&value, m_ptr + ofs, sizeof(Type));
+			std::array<std::byte, sizeof(Type)> bytes{};
+			std::memcpy(bytes.data(), m_ptr + ofs, sizeof(Type));
 			ofs += sizeof(Type);
-			return value;
+			return std::bit_cast<Type>(bytes);
 		}
 
 		// implicit conversions
@@ -636,18 +638,18 @@ namespace pr
 			return *reinterpret_cast<Type const*>(m_beg);
 		}
 		
-		// Advance the pointer by the size of 'Type'
+		// Read one value and advance by 'count' elements of 'Type'.
 		template <typename Type> Type read(int count = 1)
 		{
 			static_assert(std::is_trivially_copyable_v<Type>);
 			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
-			if (count < 0 || size < static_cast<size_t>(count) * sizeof(Type))
+			if (count < 0 || static_cast<size_t>(count) > size / sizeof(Type))
 				throw std::out_of_range("buffer overrun");
 
-			Type value{};
-			std::memcpy(&value, m_beg, sizeof(Type));
-			m_beg += sizeof(Type);
-			return value;
+			std::array<std::byte, sizeof(Type)> bytes{};
+			std::memcpy(bytes.data(), m_beg, sizeof(Type));
+			m_beg += static_cast<ptrdiff_t>(count) * static_cast<ptrdiff_t>(sizeof(Type));
+			return std::bit_cast<Type>(bytes);
 		}
 
 		// Read bytes to align to 'alignment'
@@ -694,17 +696,18 @@ namespace pr
 			return *reinterpret_cast<Type*>(m_beg);
 		}
 		
-		// Advance the pointer by the size of 'Type'
+		// Write one value and advance by 'count' elements of 'Type'.
 		template <typename Type> void write(Type const& value, int count = 1)
 		{
 			static_assert(std::is_trivially_copyable_v<Type>);
 			auto size = m_beg == nullptr ? size_t(0) : static_cast<size_t>(m_end - m_beg);
-			if (count < 0 || size < static_cast<size_t>(count) * sizeof(Type))
+			if (count < 0 || static_cast<size_t>(count) > size / sizeof(Type))
 				throw std::out_of_range("buffer overrun");
 
+			auto bytes = std::bit_cast<std::array<std::byte, sizeof(Type)>>(value);
 			for (; count-- != 0;)
 			{
-				std::memcpy(m_beg, &value, sizeof(Type));
+				std::memcpy(m_beg, bytes.data(), sizeof(Type));
 				m_beg += sizeof(Type);
 			}
 		}
@@ -965,6 +968,30 @@ namespace pr::container
 			auto const v2 = cbuf0.template at_byte_ofs<int>(0);
 			PR_EXPECT(v2 == 0);
 
+			// Non-default-constructible trivially-copyable values should still round-trip.
+			struct NonDefaultTrivial
+			{
+				std::uint32_t m_value;
+				NonDefaultTrivial() = delete;
+			};
+			static_assert(std::is_trivially_copyable_v<NonDefaultTrivial>);
+			static_assert(!std::is_default_constructible_v<NonDefaultTrivial>);
+
+			auto const raw = std::array<std::byte, sizeof(NonDefaultTrivial)>{
+				std::byte{ 0x78 }, std::byte{ 0x56 }, std::byte{ 0x34 }, std::byte{ 0x12 }
+			};
+			auto const nd_value = std::bit_cast<NonDefaultTrivial>(raw);
+
+			byte_data buf_nd;
+			buf_nd.push_back(nd_value);
+			size_t nd_ofs = 0;
+			auto nd_read = buf_nd.read<NonDefaultTrivial>(nd_ofs);
+			PR_EXPECT(nd_read.m_value == 0x12345678U);
+
+			byte_data_cptr cptr_nd(buf_nd.span());
+			auto nd_peek = cptr_nd.read<NonDefaultTrivial>();
+			PR_EXPECT(nd_peek.m_value == 0x12345678U);
+
 			auto s = buf0.span<int>();
 			PR_EXPECT(s.size() == 4U);
 			PR_EXPECT(s[0] == 0);
@@ -988,55 +1015,25 @@ namespace pr::container
 			PR_EXPECT(cbuf2.data_at<OverAligned>(0)->m_value == 0x8877665544332211ULL);
 
 			// Check the two failure modes independently so the test documents both the size and alignment contracts.
-			bool threw = false;
-			try
-			{
-				(void)buf2.at_byte_ofs<OverAligned>(1);
-			}
-			catch (...)
-			{
-				threw = true;
-			}
-			PR_EXPECT(threw);
+			PR_THROWS(buf2.at_byte_ofs<OverAligned>(1), std::out_of_range);
 
 			byte_data<64> buf3;
 			buf3.resize(sizeof(OverAligned) + 1);
-			threw = false;
-			try
-			{
-				(void)buf3.at_byte_ofs<OverAligned>(1);
-			}
-			catch (...)
-			{
-				threw = true;
-			}
-			PR_EXPECT(threw);
+			PR_THROWS(buf3.at_byte_ofs<OverAligned>(1), std::runtime_error);
 
 			std::span<std::byte const> misaligned_const{ buf2.data() + 1, sizeof(OverAligned) };
 			byte_data_cptr cptr(misaligned_const);
-			threw = false;
-			try
-			{
-				(void)cptr.as<OverAligned>();
-			}
-			catch (...)
-			{
-				threw = true;
-			}
-			PR_EXPECT(threw);
+			PR_THROWS((cptr.as<OverAligned>()), std::runtime_error);
 
 			std::span<std::byte> misaligned_mut{ buf2.data() + 1, sizeof(OverAligned) };
 			byte_data_mptr mptr(misaligned_mut);
-			threw = false;
-			try
-			{
-				(void)mptr.as<OverAligned>();
-			}
-			catch (...)
-			{
-				threw = true;
-			}
-			PR_EXPECT(threw);
+			PR_THROWS((mptr.as<OverAligned>()), std::runtime_error);
+
+			// Align-to must skip the full padding width, not just one byte.
+			std::array<std::byte, 4> pad_bytes{ std::byte{0}, std::byte{1}, std::byte{2}, std::byte{3} };
+			byte_data_cptr align_ptr(std::span<std::byte const>{ pad_bytes.data() + 1, pad_bytes.size() - 1 });
+			align_ptr.align_to(4);
+			PR_EXPECT(align_ptr.m_beg == pad_bytes.data() + 4);
 		}
 		{ // Stream
 			byte_data buf0;
