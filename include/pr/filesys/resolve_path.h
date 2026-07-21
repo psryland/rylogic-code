@@ -10,18 +10,26 @@
 #include <sstream>
 #include <filesystem>
 #include <unordered_map>
+#include <span>
 #include <format>
 #include "pr/common/resource.h"
 #include "pr/common/memstream.h"
 #include "pr/common/event_handler.h"
 #include "pr/common/flags_enum.h"
-#include "pr/common/bit_fields.h"
 #include "pr/filesys/file_snapshot.h"
 
 namespace pr::filesys
 {
 	namespace resolver
 	{
+
+		// Check whether all bits in 'mask' are set in 'value'.
+		template <typename TFlags>
+		constexpr bool HasAllBits(TFlags value, TFlags mask)
+		{
+			return (value & mask) == mask;
+		}
+
 		// Info about the data being included
 		enum class EFlags
 		{
@@ -147,7 +155,7 @@ namespace pr::filesys
 		std::filesystem::path ResolvePath(std::filesystem::path const&, EFlags flags) const override
 		{
 			// Ignore if missing includes flagged
-			if (AllSet(flags, EFlags::IgnoreMissing))
+			if (resolver::HasAllBits(flags, EFlags::IgnoreMissing))
 				return {};
 
 			throw std::runtime_error("#include is not supported");
@@ -157,7 +165,7 @@ namespace pr::filesys
 		std::unique_ptr<std::istream> OpenStream(std::filesystem::path const&, EFlags flags) const override
 		{
 			// Ignore if missing includes flagged
-			if (AllSet(flags, EFlags::IgnoreMissing))
+			if (resolver::HasAllBits(flags, EFlags::IgnoreMissing))
 				return nullptr;
 
 			throw std::runtime_error("#include is not supported");
@@ -341,12 +349,12 @@ namespace pr::filesys
 			// Search files regardless of 'm_types' since this function is specifically for resolving filepaths
 			std::filesystem::path fullpath;
 			std::vector<std::filesystem::path> searched_paths;
-			auto local_dir = AllSet(flags, EFlags::IncludeLocalDir) ? &m_local_dir : nullptr;
+			auto local_dir = resolver::HasAllBits(flags, EFlags::IncludeLocalDir) ? &m_local_dir : nullptr;
 			if (ResolveFileInclude(include, local_dir, fullpath, searched_paths))
 				return fullpath;
 
 			// Ignore if missing includes flagged
-			if (AllSet(flags, EFlags::IgnoreMissing))
+			if (resolver::HasAllBits(flags, EFlags::IgnoreMissing))
 				return {};
 
 			// Raise an include missing error
@@ -362,8 +370,8 @@ namespace pr::filesys
 			// Try file includes
 			std::filesystem::path fullpath;
 			std::vector<std::filesystem::path> searched_paths;
-			auto local_dir = AllSet(flags, EFlags::IncludeLocalDir) ? &m_local_dir : nullptr;
-			if (AllSet(m_sources, ESources::Files) && ResolveFileInclude(include, local_dir, fullpath, searched_paths))
+			auto local_dir = resolver::HasAllBits(flags, EFlags::IncludeLocalDir) ? &m_local_dir : nullptr;
+			if (resolver::HasAllBits(m_sources, ESources::Files) && ResolveFileInclude(include, local_dir, fullpath, searched_paths))
 			{
 				auto snapshot = FileSnapshot(fullpath);
 				FileOpened(*this, fullpath);
@@ -373,23 +381,23 @@ namespace pr::filesys
 			// Try resources
 			HMODULE module;
 			auto id = ResId(include);
-			if (AllSet(m_sources, ESources::Resources) && ResolveResourceInclude(id, AllSet(flags, EFlags::Binary), module))
+			if (resolver::HasAllBits(m_sources, ESources::Resources) && ResolveResourceInclude(id, resolver::HasAllBits(flags, EFlags::Binary), module))
 			{
-				auto res = resource::Read<char>(id, AllSet(flags, EFlags::Binary) ? L"BINARY" : L"TEXT", module);
+				auto res = resource::Read<char>(id, resolver::HasAllBits(flags, EFlags::Binary) ? L"BINARY" : L"TEXT", module);
 				return std::unique_ptr<std::basic_istream<char>>(new mem_istream<char>(res.m_data, res.size()));
 			}
 
 			// Try the string table
 			strtable_t const* strtab;
 			auto tag = include.string();
-			if (AllSet(m_sources, ESources::Strings) && ResolveStringInclude(tag, strtab))
+			if (resolver::HasAllBits(m_sources, ESources::Strings) && ResolveStringInclude(tag, strtab))
 			{
 				auto const& str = (*strtab).at(tag);
 				return std::unique_ptr<std::istringstream>(new std::istringstream(str));
 			}
 
 			// If ignoring missing includes, return an empty source
-			if (AllSet(flags, EFlags::IgnoreMissing))
+			if (resolver::HasAllBits(flags, EFlags::IgnoreMissing))
 				return std::unique_ptr<std::istringstream>(new std::istringstream(""));
 
 			// Raise an include missing error
@@ -445,4 +453,3 @@ namespace pr::filesys
 		}
 	};
 }
-
