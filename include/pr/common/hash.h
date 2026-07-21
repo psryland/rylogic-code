@@ -267,6 +267,23 @@ namespace pr::hash
 		return impl::HashBytes<HashValue64>(ptr, end, h);
 	}
 
+	namespace impl
+	{
+		// Returns a pointer to the first occurrence of 'term' within the first 'max_len' elements of
+		// 'str', or 'str + max_len' if no terminator is found in that range. This lets a fixed-size
+		// character array be hashed with the same NUL-terminated semantics as a C-string (stopping at,
+		// and excluding, an embedded terminator) without ever scanning past the array's declared extent.
+		template <CharType Ty> constexpr Ty const* FindTerminator(Ty const* str, size_t max_len, Ty term = Ty())
+		{
+			for (size_t i = 0; i != max_len; ++i)
+			{
+				if (str[i] == term)
+					return str + i;
+			}
+			return str + max_len;
+		}
+	}
+
 	// Hash PODs given as arguments. Careful with hidden padding
 	template <typename... Args> inline HashValue32 HashArgs32(Args&&... args)
 	{
@@ -280,13 +297,23 @@ namespace pr::hash
 			if constexpr (PodType<Ty>)
 				h = HashBytes32(&arg, &arg + 1, h);
 
+			// A bounded character array. This check must come before the 'pointer to a null
+			// terminated string' check below because 'Ty' is the decayed (array-to-pointer) type,
+			// so a bounded char array would otherwise be misidentified as a pointer. Character
+			// arrays are hashed with the same semantics as a NUL-terminated string, i.e. stopping
+			// at (and excluding) the first embedded NUL, but the scan never runs past the array's
+			// N elements, so an array with no NUL is hashed over its full extent instead of
+			// reading out of bounds.
+			else if constexpr (std::is_bounded_array_v<ArgTy> && CharType<std::remove_pointer_t<Ty>>)
+				h = Hash32CT(&arg[0], impl::FindTerminator(&arg[0], _countof(arg)), h);
+
+			// A bounded array of non-character pods - hashed over its full extent as raw bytes.
+			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
+				h = HashBytes32(&arg[0], &arg[0] + _countof(arg), h);
+
 			// A pointer to a null terminated string
 			else if constexpr (std::is_pointer_v<Ty> && CharType<std::remove_pointer_t<Ty>>)
 				h = Hash32CT(arg, std::remove_pointer_t<Ty>(), h);
-
-			// An array of pods
-			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
-				h = HashBytes32(&arg[0], &arg[0] + _countof(arg), h);
 
 			// Not supported
 			else
@@ -307,7 +334,13 @@ namespace pr::hash
 			if constexpr (PodType<Ty>)
 				h = HashBytes64(&arg, &arg + 1, h);
 
-			// An array of pods
+			// A bounded character array. See the comment in 'HashArgs32' for why this check must
+			// come before the 'pointer to a null terminated string' check below, and for the
+			// bounded NUL-terminated semantics applied here.
+			else if constexpr (std::is_bounded_array_v<ArgTy> && CharType<std::remove_pointer_t<Ty>>)
+				h = Hash64CT(&arg[0], impl::FindTerminator(&arg[0], _countof(arg)), h);
+
+			// A bounded array of non-character pods - hashed over its full extent as raw bytes.
 			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
 				h = HashBytes64(&arg[0], &arg[0] + _countof(arg), h);
 
@@ -661,8 +694,60 @@ namespace pr::common
 			pod.s[0] = 1;
 			pod.s[1] = 2;
 			pod.s[2] = 3;
+
+			// "Paul" and L"here" are string literals, i.e. bounded arrays with an embedded NUL, so
+			// they're hashed up to (and excluding) that NUL - the same as NUL-terminated C-string
+			// hashing - giving the same result as before bounded character arrays were fixed to
+			// avoid reading past their extent.
 			const auto h0 = HashArgs("Paul", s, L"here", 1976, 12.29, 1234U, pod);
 			PR_EXPECT(h0 == static_cast<HashValue32>(0xe94b6ef9));
+		}
+		{ // Hash arguments - bounded character arrays are hashed with NUL-terminated semantics
+			// (stopping at, and excluding, the first embedded NUL) but the scan is bounded by the
+			// array's element count, so a buffer with no NUL anywhere in it is hashed over its full
+			// extent instead of reading past the end of the array looking for a terminator.
+
+			// A literal has an embedded NUL, so HashArgs32 must retain its pre-existing hash value
+			// (i.e. identical to hashing the same text via a NUL-terminated pointer).
+			const auto h_lit = HashArgs32("Paul");
+			const auto h_lit_expect = static_cast<HashValue32>(Hash32CT("Paul"));
+			PR_EXPECT(h_lit == h_lit_expect);
+
+			// A buffer with an embedded NUL followed by trailing storage must hash only the bytes
+			// before the NUL, excluding both the terminator and everything after it.
+			char terminated[8] = { 'A','B','C','\0','X','X','X','X' };
+			const auto h_term = HashArgs32(terminated);
+			const auto h_term_expect = static_cast<HashValue32>(Hash32CT(&terminated[0], &terminated[0] + 3));
+			PR_EXPECT(h_term == h_term_expect);
+
+			// A buffer with no NUL anywhere in it must hash exactly its N elements, for both char
+			// and wchar_t element types, and for both the 32 and 64 bit hash functions.
+			char unterminated[8] = { 'A','B','C','D','E','F','G','H' };
+			const auto h_unterm32 = HashArgs32(unterminated);
+			const auto h_unterm32_expect = static_cast<HashValue32>(Hash32CT(&unterminated[0], &unterminated[0] + 8));
+			PR_EXPECT(h_unterm32 == h_unterm32_expect);
+
+			const auto h_unterm64 = HashArgs64(unterminated);
+			const auto h_unterm64_expect = static_cast<HashValue64>(Hash64CT(&unterminated[0], &unterminated[0] + 8));
+			PR_EXPECT(h_unterm64 == h_unterm64_expect);
+
+			wchar_t wunterminated[3] = { L'Q', L'R', L'S' };
+			const auto h_wunterm = HashArgs32(wunterminated);
+			const auto h_wunterm_expect = static_cast<HashValue32>(Hash32CT(&wunterminated[0], &wunterminated[0] + 3));
+			PR_EXPECT(h_wunterm == h_wunterm_expect);
+
+			// A non-character POD array is unaffected by the string-like handling above - it's
+			// always hashed over its full extent as raw bytes.
+			int arr[3] = { 1, 2, 3 };
+			const auto h_arr = HashArgs32(arr);
+			const auto h_arr_expect = HashBytes32(&arr[0], &arr[0] + 3);
+			PR_EXPECT(h_arr == h_arr_expect);
+
+			// A genuine pointer variable must still use NUL-terminated hashing.
+			char const* ptr = "was";
+			const auto h_ptr = HashArgs32(ptr);
+			const auto h_ptr_expect = static_cast<HashValue32>(Hash32CT(ptr));
+			PR_EXPECT(h_ptr == h_ptr_expect);
 		}
 	}
 }
