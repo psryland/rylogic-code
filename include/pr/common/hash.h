@@ -280,13 +280,16 @@ namespace pr::hash
 			if constexpr (PodType<Ty>)
 				h = HashBytes32(&arg, &arg + 1, h);
 
+			// An array of pods. This check must come before the 'pointer to a null terminated
+			// string' check below because 'Ty' is the decayed (array-to-pointer) type, so a bounded
+			// char array would otherwise be misidentified as a pointer and hashed as a C-string,
+			// reading past the end of the array whenever it isn't NUL-terminated.
+			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
+				h = HashBytes32(&arg[0], &arg[0] + _countof(arg), h);
+
 			// A pointer to a null terminated string
 			else if constexpr (std::is_pointer_v<Ty> && CharType<std::remove_pointer_t<Ty>>)
 				h = Hash32CT(arg, std::remove_pointer_t<Ty>(), h);
-
-			// An array of pods
-			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
-				h = HashBytes32(&arg[0], &arg[0] + _countof(arg), h);
 
 			// Not supported
 			else
@@ -307,7 +310,8 @@ namespace pr::hash
 			if constexpr (PodType<Ty>)
 				h = HashBytes64(&arg, &arg + 1, h);
 
-			// An array of pods
+			// An array of pods. See the comment in 'HashArgs32' for why this check must
+			// come before the 'pointer to a null terminated string' check below.
 			else if constexpr (std::is_bounded_array_v<ArgTy> && PodType<std::remove_pointer_t<Ty>>)
 				h = HashBytes64(&arg[0], &arg[0] + _countof(arg), h);
 
@@ -661,8 +665,36 @@ namespace pr::common
 			pod.s[0] = 1;
 			pod.s[1] = 2;
 			pod.s[2] = 3;
+
+			// "Paul" and L"here" are string literals, i.e. bounded arrays, so they're hashed over
+			// their full extent (including the implicit trailing NUL). 's' is a pointer variable,
+			// so it's hashed as a NUL-terminated C-string instead.
 			const auto h0 = HashArgs("Paul", s, L"here", 1976, 12.29, 1234U, pod);
-			PR_EXPECT(h0 == static_cast<HashValue32>(0xe94b6ef9));
+			PR_EXPECT(h0 == static_cast<HashValue32>(0xabb58797));
+		}
+		{ // Hash arguments - bounded character arrays must be hashed over their full extent,
+			// not treated as NUL-terminated C-strings. A fixed-size buffer with no NUL anywhere
+			// in it must hash identically to hashing its bytes directly, and must not read past
+			// the end of the array looking for a terminator.
+			char buf[8] = { 'A','B','C','D','E','F','G','H' };
+			wchar_t wbuf[3] = { L'Q', L'R', L'S' };
+			char const* ptr = "was"; // A genuine pointer must still use NUL-terminated hashing.
+
+			const auto h_buf = HashArgs32(buf);
+			const auto h_buf_expect = HashBytes32(&buf[0], &buf[0] + _countof(buf));
+			PR_EXPECT(h_buf == h_buf_expect);
+
+			const auto h_wbuf = HashArgs32(wbuf);
+			const auto h_wbuf_expect = HashBytes32(&wbuf[0], &wbuf[0] + _countof(wbuf));
+			PR_EXPECT(h_wbuf == h_wbuf_expect);
+
+			const auto h_buf64 = HashArgs64(buf);
+			const auto h_buf64_expect = HashBytes64(&buf[0], &buf[0] + _countof(buf));
+			PR_EXPECT(h_buf64 == h_buf64_expect);
+
+			const auto h_ptr = HashArgs32(ptr);
+			const auto h_ptr_expect = static_cast<HashValue32>(Hash32CT(ptr));
+			PR_EXPECT(h_ptr == h_ptr_expect);
 		}
 	}
 }
