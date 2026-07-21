@@ -4,9 +4,12 @@
 //******************************************
 // Use to cast any pointer to a uint8_t pointer
 #pragma once
+#include <cstdint>
 #include <cstddef>
 #include <cassert>
+#include <cmath>
 #include <stdexcept>
+#include <limits>
 #include <type_traits>
 #include <span>
 
@@ -14,6 +17,32 @@ namespace pr
 {
 	// Debug helper for displaying types in error messages
 	template<typename T> struct show_type;
+
+	namespace impl
+	{
+		// Test whether a floating-point value can be narrowed to an integer type without
+		// leaving the target type's representable range.
+		template <std::integral T, std::floating_point U>
+		constexpr bool FloatingToIntegralInRange(U x)
+		{
+			if (!std::isfinite(x))
+				return false;
+
+			// The lower bound is always safe to compare directly because every built-in
+			// signed minimum and unsigned zero is exactly representable in binary floats.
+			if (x < static_cast<U>(std::numeric_limits<T>::lowest()))
+				return false;
+
+			// If the floating type has enough precision to represent every integer value in
+			// the target type, the upper bound is exact. Otherwise the rounded upper limit is
+			// already the first value that would narrow out of range.
+			auto const upper = static_cast<U>(std::numeric_limits<T>::max());
+			if constexpr (std::numeric_limits<U>::digits >= std::numeric_limits<T>::digits)
+				return x <= upper;
+			else
+				return x < upper;
+		}
+	}
 
 	// Helper for non-const member function overloads. Use 'const_call(member_func());'
 	#define const_call(fn) const_cast<std::remove_const_t<decltype(fn)>>(std::as_const(*this).fn)
@@ -109,10 +138,23 @@ namespace pr
 	{
 		return static_cast<T>(x);
 	}
-	template <std::integral T, std::floating_point U> constexpr T s_cast(U x)
+	template <std::integral T, bool RuntimeCheck = false, std::floating_point U> constexpr T s_cast(U x)
 	{
-		assert(x == x && "Can't convert NaN to an integral type");
-		assert(std::abs(x) != std::numeric_limits<U>::infinity() && "Can't convert '+/-inf' to an integral type");
+		auto const in_range = impl::FloatingToIntegralInRange<T>(x);
+
+		// RuntimeCheck throws, debug builds assert, and both modes use the same range test
+		// so the caller sees the same contract either way.
+		if constexpr (RuntimeCheck)
+		{
+			if (!in_range)
+				throw std::runtime_error("Cast loses data");
+		}
+		#ifndef NDEBUG
+		{
+			if (!in_range)
+				assert(false && "Cast loses data");
+		}
+		#endif
 		return static_cast<T>(x);
 	}
 
@@ -179,3 +221,37 @@ namespace pr
 	}
 }
 
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::common
+{
+	PRUnitTest(IntegralFromFloatingCastTests)
+	{
+		// Exact small boundaries should convert cleanly in the default assert-only mode.
+		PR_EXPECT(s_cast<int8_t>(127.0) == 127);
+		PR_EXPECT(s_cast<int8_t>(-128.0) == -128);
+		PR_EXPECT(s_cast<uint8_t>(255.0) == 255);
+
+		// Use values just inside the larger limits so the tests stay well-defined even
+		// when the floating type cannot represent the exact integer endpoint.
+		auto const int64_safe_hi = std::nextafter(static_cast<double>(std::numeric_limits<int64_t>::max()), -std::numeric_limits<double>::infinity());
+		PR_EXPECT((s_cast<int64_t, true>(int64_safe_hi) == static_cast<int64_t>(int64_safe_hi)));
+
+		auto const uint64_safe_hi = std::nextafter(static_cast<double>(std::numeric_limits<uint64_t>::max()), -std::numeric_limits<double>::infinity());
+		PR_EXPECT((s_cast<uint64_t, true>(uint64_safe_hi) == static_cast<uint64_t>(uint64_safe_hi)));
+
+		// Values that step beyond the legal range must fail before the narrowing cast.
+		PR_THROWS((s_cast<int8_t, true>(std::nextafter(127.0, std::numeric_limits<double>::infinity()))), std::runtime_error);
+		PR_THROWS((s_cast<int8_t, true>(std::nextafter(-128.0, -std::numeric_limits<double>::infinity()))), std::runtime_error);
+		PR_THROWS((s_cast<uint8_t, true>(std::nextafter(255.0, std::numeric_limits<double>::infinity()))), std::runtime_error);
+		PR_THROWS((s_cast<int64_t, true>(std::nextafter(static_cast<double>(std::numeric_limits<int64_t>::max()), std::numeric_limits<double>::infinity()))), std::runtime_error);
+		PR_THROWS((s_cast<uint64_t, true>(static_cast<double>(std::numeric_limits<uint64_t>::max()))), std::runtime_error);
+		PR_THROWS((s_cast<uint64_t, true>(std::nextafter(static_cast<double>(std::numeric_limits<uint64_t>::max()), std::numeric_limits<double>::infinity()))), std::runtime_error);
+
+		// NaN and infinities are rejected explicitly.
+		PR_THROWS((s_cast<int, true>(std::numeric_limits<double>::quiet_NaN())), std::runtime_error);
+		PR_THROWS((s_cast<int, true>(std::numeric_limits<double>::infinity())), std::runtime_error);
+		PR_THROWS((s_cast<int, true>(-std::numeric_limits<double>::infinity())), std::runtime_error);
+	}
+}
+#endif
