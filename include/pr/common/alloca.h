@@ -37,15 +37,18 @@ namespace pr
 		Type*& m_ptr;
 		size_t m_count;
 
+		// The scope owns the constructed objects, but the caller still owns the pointer variable.
+		// Copying or moving would leave two scope objects managing the same allocation.
 		AllocAScope(Type*& ptr, size_t count, void* mem)
 			: m_ptr(ptr)
 			, m_count(count)
 		{
 			m_ptr = impl_alloca::construct<Type>(static_cast<Type*>(mem), count);
 		}
-		AllocAScope(AllocAScope&&) = default;
+		AllocAScope(AllocAScope&&) = delete;
 		AllocAScope(AllocAScope const&) = delete;
-		AllocAScope& operator=(AllocAScope&) = default;
+		AllocAScope& operator=(AllocAScope&&) = delete;
+		AllocAScope& operator=(AllocAScope&) = delete;
 		AllocAScope& operator=(AllocAScope const&) = delete;
 		~AllocAScope()
 		{
@@ -58,15 +61,17 @@ namespace pr
 		Type*& m_ptr;
 		size_t m_count;
 
+		// Same ownership contract as AllocAScope; the managed pointer aliases caller state.
 		MAllocAScope(Type*& ptr, size_t count, void* mem)
 			:m_ptr(ptr)
 			,m_count(count)
 		{
 			m_ptr = impl_alloca::construct<Type>(static_cast<Type*>(mem), count);
 		}
-		MAllocAScope(MAllocAScope&&) = default;
+		MAllocAScope(MAllocAScope&&) = delete;
 		MAllocAScope(MAllocAScope const&) = delete;
-		MAllocAScope& operator=(MAllocAScope&&) = default;
+		MAllocAScope& operator=(MAllocAScope&&) = delete;
+		MAllocAScope& operator=(MAllocAScope&) = delete;
 		MAllocAScope& operator=(MAllocAScope const&) = delete;
 		~MAllocAScope()
 		{
@@ -109,7 +114,56 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
+	static_assert(!std::is_copy_constructible_v<AllocAScope<int>>);
+	static_assert(!std::is_move_constructible_v<AllocAScope<int>>);
+	static_assert(!std::is_copy_assignable_v<AllocAScope<int>>);
+	static_assert(!std::is_move_assignable_v<AllocAScope<int>>);
+	static_assert(!std::is_copy_constructible_v<MAllocAScope<int>>);
+	static_assert(!std::is_move_constructible_v<MAllocAScope<int>>);
+	static_assert(!std::is_copy_assignable_v<MAllocAScope<int>>);
+	static_assert(!std::is_move_assignable_v<MAllocAScope<int>>);
+
+	inline int s_alloca_ctor_count = 0;
+	inline int s_alloca_dtor_count = 0;
+
 	PRUnitTest(AllocaTests)
-	{}
+	{
+		struct Counter
+		{
+			Counter()
+			{
+				++s_alloca_ctor_count;
+			}
+			~Counter()
+			{
+				++s_alloca_dtor_count;
+			}
+		};
+
+		// Verify that the scope constructs and destroys each element exactly once.
+		s_alloca_ctor_count = 0;
+		s_alloca_dtor_count = 0;
+		{
+			Counter* ptr = nullptr;
+			PR_ALLOCA(ptr, Counter, 4);
+			PR_EXPECT(ptr != nullptr);
+			PR_EXPECT(s_alloca_ctor_count == 4);
+			PR_EXPECT(s_alloca_dtor_count == 0);
+		}
+		PR_EXPECT(s_alloca_ctor_count == 4);
+		PR_EXPECT(s_alloca_dtor_count == 4);
+
+		s_alloca_ctor_count = 0;
+		s_alloca_dtor_count = 0;
+		{
+			Counter* ptr = nullptr;
+			PR_MALLOCA(ptr, Counter, 4);
+			PR_EXPECT(ptr != nullptr);
+			PR_EXPECT(s_alloca_ctor_count == 4);
+			PR_EXPECT(s_alloca_dtor_count == 0);
+		}
+		PR_EXPECT(s_alloca_ctor_count == 4);
+		PR_EXPECT(s_alloca_dtor_count == 4);
+	}
 }
 #endif
