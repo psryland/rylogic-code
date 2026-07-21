@@ -1187,8 +1187,8 @@ namespace pr::storage::zip
 				auto& info = CDirEntry(i);
 				if (!info.IsDirectory())
 					continue;
-				
-				auto rel_path = std::filesystem::path(info.ItemName());
+
+				auto rel_path = ItemPath(info.ItemName());
 				std::filesystem::create_directories(directory / rel_path);
 			}
 
@@ -1199,7 +1199,7 @@ namespace pr::storage::zip
 				if (info.IsDirectory())
 					continue;
 
-				auto path = directory / std::filesystem::path(info.ItemName());
+				auto path = directory / ItemPath(info.ItemName());
 
 				progress(info, i, iend);
 				Extract(info.ItemName(), path);
@@ -1510,6 +1510,8 @@ namespace pr::storage::zip
 					throw std::runtime_error("Invalid zip. Item size value exceeds actual data size");
 				if (cdh.Size() > n)
 					throw std::runtime_error("Invalid zip. Computed header size does not agree header end signature location");
+				if (!ValidateItemName(cdh.ItemName()))
+					throw std::runtime_error("Invalid zip. Central directory item name is invalid");
 
 				m_cdir_index[i] = s_cast<uint32_t>(p - m_cdir.data());
 				n -= cdh.Size();
@@ -1805,17 +1807,36 @@ namespace pr::storage::zip
 		// Validate an archive item name
 		static bool ValidateItemName(std::string_view item_name)
 		{
-			// Valid names cannot start with a forward slash, cannot contain a drive letter, and cannot use DOS-style backward slashes.
+			// Archive names are stored as relative paths. Reject rooted, drive-relative, and parent-directory components so
+			// extraction can only occur beneath the caller's chosen destination root.
 			if (item_name.empty())
 				return false;
 			if (item_name.size() > 0xFFFF)
 				return false;
 			if (item_name[0] == '/')
 				return false;
-			for (auto c : item_name)
-				if (c == '\\' || c == ':')
+			if (item_name.find('\\') != std::string_view::npos)
+				return false;
+			if (item_name.find(':') != std::string_view::npos)
+				return false;
+
+			auto path = std::filesystem::path(item_name);
+			if (path.has_root_name() || path.has_root_directory() || path.is_absolute())
+				return false;
+			for (auto const& part : path)
+			{
+				if (part == "." || part == "..")
 					return false;
+			}
 			return true;
+		}
+
+		// Turn a validated archive item name into a filesystem path relative to the extraction root.
+		static std::filesystem::path ItemPath(std::string_view item_name)
+		{
+			if (!ValidateItemName(item_name))
+				throw std::runtime_error("Archive item name is invalid or too long");
+			return std::filesystem::path(item_name);
 		}
 
 		// Validate an archive item comment
@@ -4062,6 +4083,36 @@ namespace pr::storage
 			auto matches = bytes == file_bytes;
 			return matches;
 		};
+		auto WriteBytes = [](std::filesystem::path const& filepath, std::basic_string<uint8_t> const& bytes)
+		{
+			std::ofstream ofile(filepath, std::ios::binary);
+			ofile.write(reinterpret_cast<char const*>(bytes.data()), bytes.size());
+		};
+		auto ReplaceAll = [](std::basic_string<uint8_t>& bytes, std::string_view from, std::string_view to)
+		{
+			auto from_bytes = std::basic_string<uint8_t>(from.begin(), from.end());
+			auto to_bytes = std::basic_string<uint8_t>(to.begin(), to.end());
+			if (from_bytes.size() != to_bytes.size())
+				throw std::runtime_error("Replacement strings must be the same size");
+
+			auto pos = bytes.begin();
+			for (;;)
+			{
+				pos = std::search(pos, bytes.end(), from_bytes.begin(), from_bytes.end());
+				if (pos == bytes.end())
+					break;
+
+				std::copy(to_bytes.begin(), to_bytes.end(), pos);
+				pos += from_bytes.size();
+			}
+		};
+		auto AsBytes = [](std::string_view text)
+		{
+			return std::basic_string<uint8_t>(text.begin(), text.end());
+		};
+		auto temp_root = std::filesystem::temp_directory_path() / "zip_archive_tests";
+		std::filesystem::remove_all(temp_root);
+		std::filesystem::create_directories(temp_root);
 
 		{// Round trip time stamps
 			//auto now = std::filesystem::file_time_type::clock::now();
@@ -4140,6 +4191,58 @@ namespace pr::storage
 			z.Extract("binary-00-0F.bin", mem);
 			PR_EXPECT(MatchToFile(bytes, path / "binary-00-0F.bin"));
 		}
+
+		// Extract a nested archive layout to make sure legitimate relative paths still work.
+		{
+			auto test_root = temp_root / "nested";
+			auto archive_path = test_root / "nested.zip";
+			auto extract_root = test_root / "extract";
+			std::filesystem::remove_all(test_root);
+			std::filesystem::create_directories(test_root);
+
+			zip::ZipArchive z;
+			z.AddBytes(zip::ZipArchive::span_t<uint8_t>{}, "nested/dir/");
+			z.AddString("nested file", "nested/dir/file.txt");
+			z.Save(archive_path);
+			z.Close();
+
+			zip::ZipArchive z2(archive_path);
+			z2.ExtractAll(extract_root);
+
+			PR_EXPECT(std::filesystem::exists(extract_root / "nested" / "dir"));
+			PR_EXPECT(std::filesystem::is_directory(extract_root / "nested" / "dir"));
+			PR_EXPECT(std::filesystem::exists(extract_root / "nested" / "dir" / "file.txt"));
+			PR_EXPECT(FileToBytes(extract_root / "nested" / "dir" / "file.txt") == AsBytes("nested file"));
+		}
+
+		// Reject central-directory names that try to escape the extraction root.
+		{
+			auto test_root = temp_root / "traversal";
+			auto archive_path = test_root / "traversal.zip";
+			auto extract_root = test_root / "extract";
+			std::filesystem::remove_all(test_root);
+			std::filesystem::create_directories(test_root);
+
+			zip::ZipArchive z;
+			z.AddBytes(zip::ZipArchive::span_t<uint8_t>{}, "safe_dir__/");
+			z.AddString("payload", "safe_file__");
+			z.Save(archive_path);
+			z.Close();
+
+			auto bytes = FileToBytes(archive_path);
+			ReplaceAll(bytes, "safe_dir__/", "../evildir/");
+			ReplaceAll(bytes, "safe_file__", "../evil.txt");
+			WriteBytes(archive_path, bytes);
+
+			PR_EXPECT(!std::filesystem::exists(test_root / "evildir"));
+			PR_EXPECT(!std::filesystem::exists(test_root / "evil.txt"));
+			PR_THROWS(zip::ZipArchive z3(archive_path), std::runtime_error);
+			PR_EXPECT(!std::filesystem::exists(test_root / "evildir"));
+			PR_EXPECT(!std::filesystem::exists(test_root / "evil.txt"));
+			PR_EXPECT(!std::filesystem::exists(extract_root / "evildir"));
+			PR_EXPECT(!std::filesystem::exists(extract_root / "evil.txt"));
+		}
+		std::filesystem::remove_all(temp_root);
 	}
 }
 #endif
