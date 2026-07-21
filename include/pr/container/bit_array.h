@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2007
 //*********************************************
 #pragma once
+#include <cstdint>
 #include <bitset>
 #include <vector>
 #include <string>
@@ -195,18 +196,24 @@ namespace pr
 			return m_bits.data();
 		}
 
-		// Access the bit data buffer at an offset and reinterpret as type T
+		// Access the bit data buffer at an offset and reinterpret as type T.
+		// Callers must request an address that is already suitably aligned for T and
+		// that covers a whole number of T-sized words in the underlying storage.
 		template <typename T> requires (std::is_standard_layout_v<T>)
 		T const* ptr(std::size_t word_offset) const
 		{
-			static_assert(alignof(T) % alignof(WordType) == 0, "Alignment of T is not compatible with the word type");
 			static_assert(sizeof(T) % sizeof(WordType) == 0, "Size of T is not compatible with the word type");
 
-			auto t_size_in_words = sizeof(T) / sizeof(WordType);
-			if (word_offset + t_size_in_words > size_in_words())
+			auto const t_size_in_words = sizeof(T) / sizeof(WordType);
+			auto const size_words = size_in_words();
+			if (t_size_in_words > size_words || word_offset > size_words - t_size_in_words)
 				throw std::out_of_range("bitsetRT::ptr word offset is outside the buffer");
 
-			return reinterpret_cast<T const*>(data() + word_offset);
+			auto ptr = data() + word_offset;
+			if ((reinterpret_cast<std::uintptr_t>(ptr) % alignof(T)) != 0)
+				throw std::invalid_argument("bitsetRT::ptr requested address is not aligned for T");
+
+			return reinterpret_cast<T const*>(ptr);
 		}
 		template <typename T> requires (std::is_standard_layout_v<T>)
 		T* ptr(std::size_t word_offset)
@@ -820,27 +827,28 @@ namespace pr::container
 			PR_EXPECT(bs1.to_string() == "111110");
 		}
 		{
-			bitsetRT<unsigned char> bs1("10101010 01010101 10101010 01010101 10101010 01010101 10101010");
+			bitsetRT<unsigned char> bs1("10101010 01010101 10101010 01010101 10101010 01010101 10101010 01010101");
+			auto const& cbs1 = bs1;
 
-			PR_EXPECT(bs1.size_in_words() == 7);
-			PR_EXPECT(*bs1.ptr<uint32_t>(0) == 0xAA55AA55);
-			PR_EXPECT(*bs1.ptr<uint32_t>(1) == 0x55AA55AA);
-			PR_EXPECT(*bs1.ptr<uint32_t>(2) == 0xAA55AA55);
+			PR_EXPECT(bs1.size_in_words() == 8);
+			PR_EXPECT(*cbs1.ptr<uint32_t>(0) == 0xAA55AA55);
+			PR_EXPECT(*cbs1.ptr<uint32_t>(4) == 0xAA55AA55);
 
-			auto data = bs1.data();
 			*bs1.ptr<uint16_t>(0) = 0xFFFF;
-			*bs1.ptr<uint16_t>(3) = 0xFFFF;
+			*bs1.ptr<uint16_t>(4) = 0xFFFF;
 			*bs1.ptr<uint8_t>(6) = 0xFF;
 
-			PR_EXPECT(data[0] == 0xFF);
-			PR_EXPECT(data[1] == 0xFF);
-			PR_EXPECT(data[2] == 0x55);
-			PR_EXPECT(data[3] == 0xFF);
-			PR_EXPECT(data[4] == 0xFF);
-			PR_EXPECT(data[5] == 0xAA);
-			PR_EXPECT(data[6] == 0xFF);
+			PR_EXPECT(bs1.data()[0] == 0xFF);
+			PR_EXPECT(bs1.data()[1] == 0xFF);
+			PR_EXPECT(bs1.data()[2] == 0x55);
+			PR_EXPECT(bs1.data()[3] == 0xAA);
+			PR_EXPECT(bs1.data()[4] == 0xFF);
+			PR_EXPECT(bs1.data()[5] == 0xFF);
+			PR_EXPECT(bs1.data()[6] == 0xFF);
+			PR_EXPECT(bs1.data()[7] == 0xAA);
 
-			PR_THROWS(bs1.ptr<uint32_t>(5), std::out_of_range);
+			PR_THROWS(bs1.ptr<uint32_t>(1), std::invalid_argument);
+			PR_THROWS(bs1.ptr<uint32_t>(6), std::out_of_range);
 		}
 	}
 }
