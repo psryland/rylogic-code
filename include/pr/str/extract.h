@@ -427,9 +427,14 @@ namespace pr::str
 				quotes = "\"'";
 		}
 
-		// If the next character is not an acceptable quote, then this isn't a string
+		// FindChar returns the matching character or the terminator sentinel on miss, so
+		// the membership test must inspect the pointed-to character rather than the pointer.
 		auto quote = *src;
-		if (FindChar(quotes, quote) != 0) ++src; else return false;
+		auto quote_ptr = FindChar(quotes, quote);
+		if (*quote_ptr != 0)
+			++src;
+		else
+			return false;
 
 		auto len = Size(str);
 
@@ -844,27 +849,34 @@ namespace pr::str::tests
 		{// String
 			using namespace pr::str;
 
-			wchar_t const* src = LR"("string1" "str\"i\\ng2")", *s;
+			wchar_t const* src = LR"("string1" 'string2' abc "")", *s;
 			char         aarr[20] = {};
 			wchar_t      warr[20] = {};
 			std::string  astr;
 			std::wstring wstr;
 
 			s = src;
-			PR_EXPECT(ExtractString(aarr, s, L'\\', {}) && Equal(aarr, "string1") && *s == L' ');
-			PR_EXPECT(ExtractStringC(aarr, ++s, L'\\', {}) && Equal(aarr, "string1str\"i\\ng2") && *s == L'"');
+			PR_EXPECT(ExtractString(aarr, s, L'\\', L"\"'") && Equal(aarr, "string1") && *s == L' ');
+
+			++s;
+			PR_EXPECT(ExtractString(warr, s, L'\\', L"\"'") && Equal(warr, "string2") && *s == L' ');
+
+			wchar_t const* abc_src = L"abc";
+			s = abc_src;
+			auto const* before = s;
+			PR_EXPECT(!ExtractString(astr, s, L'\\', L"\"'") && s == before);
 
 			s = src;
-			PR_EXPECT(ExtractString(warr, s) && Equal(warr, "string1") && *s == L' ');
-			PR_EXPECT(ExtractStringC(warr, ++s) && Equal(warr, "string1str\\") && *s == L'"');
+			astr.clear();
+			PR_EXPECT(ExtractString(astr, s, L'\\', L"\"'") && Equal(astr, "string1") && *s == L' ');
 
-			s = src;
-			PR_EXPECT(ExtractString(astr, s, L'\\', {}) && Equal(astr, "string1") && *s == L' ');
-			PR_EXPECT(ExtractStringC(astr, ++s, L'\\', {}) && Equal(astr, "string1str\"i\\ng2") && *s == L'"');
+			auto empty_src = L"\"\"";
+			s = empty_src;
+			PR_EXPECT(ExtractString(wstr, s, L'\\', {}) && Empty(wstr) && *s == 0);
 
-			s = src;
-			PR_EXPECT(ExtractString(wstr, s) && Equal(wstr, "string1") && *s == L' ');
-			PR_EXPECT(ExtractStringC(wstr, ++s) && Equal(wstr, "string1str\\") && *s == L'"');
+			auto unterminated_src = L"\"abc";
+			s = unterminated_src;
+			PR_EXPECT(!ExtractString(wstr, s, L'\\', {}));
 		}
 		{// Bool
 			using namespace pr::str;
