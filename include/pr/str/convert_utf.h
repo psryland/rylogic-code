@@ -251,7 +251,7 @@ namespace pr::str
 					obuf[0] = static_cast<ou_char_t>(m_ibuf & 0xFFFFu);
 					out(&obuf[0], &obuf[0] + 1);
 				}
-				else if (m_ibuf < 0x10FFFFu)
+				else if (m_ibuf <= 0x10FFFFu && (m_ibuf < 0xD800u || m_ibuf > 0xDFFFu))
 				{
 					m_ibuf -= 0x010000u;
 					obuf[0] = static_cast<ou_char_t>(((m_ibuf >> 10) & 0x03FFu) + 0xD800u);

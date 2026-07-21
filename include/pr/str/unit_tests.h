@@ -106,6 +106,37 @@ namespace pr::str
 				PR_EXPECT(UTEqual(r.c_str(), {0x007a, 0x00df, 0x6c34, 0xd83c, 0xdf4c, 0}));
 			}
 		}
+		PRUnitTestMethod(ConvertUtf)
+		{
+			using namespace unittests;
+
+			// Supplementary-plane scalars must encode to UTF-16 surrogate pairs, while
+			// invalid scalars stay unrepresentable and fall back to the replacement code.
+			{
+				char32_t const cp[] = { 0x10FFFE, 0 };
+				auto r = convert_utf<char32_t, char16_t>::convert<std::u16string>(std::u32string_view(cp, 1));
+				PR_EXPECT(r.size() == 2U);
+				PR_EXPECT(UTEqual(r.c_str(), { 0xDBFF, 0xDFFE, 0 }));
+			}
+			{
+				char32_t const cp[] = { 0x10FFFF, 0 };
+				auto r = convert_utf<char32_t, char16_t>::convert<std::u16string>(std::u32string_view(cp, 1));
+				PR_EXPECT(r.size() == 2U);
+				PR_EXPECT(UTEqual(r.c_str(), { 0xDBFF, 0xDFFF, 0 }));
+			}
+			{
+				char32_t const cp[] = { 0x110000, 0 };
+				auto r = convert_utf<char32_t, char16_t>::convert<std::u16string>(std::u32string_view(cp, 1));
+				PR_EXPECT(r.size() == 1U);
+				PR_EXPECT(UTEqual(r.c_str(), { 0x005F, 0 }));
+			}
+			{
+				char32_t const cp[] = { 0xD800, 0 };
+				auto r = convert_utf<char32_t, char16_t>::convert<std::u16string>(std::u32string_view(cp, 1));
+				PR_EXPECT(r.size() == 1U);
+				PR_EXPECT(UTEqual(r.c_str(), { 0x005F, 0 }));
+			}
+		}
 		PRUnitTestMethod(Empty)
 		{
 			char const* aptr = "full";
@@ -626,5 +657,4 @@ namespace pr::str
 	};
 }
 #endif
-
 
