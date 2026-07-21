@@ -244,7 +244,7 @@ namespace pr::hash
 		void SetInput(uint8_t input, size_t index)
 		{
 			if (index == 0)
-				memset(&m_input[0], 0, 16);
+				memset(&m_input[0], 0, sizeof(m_input));
 
 			size_t word = index >> 3;
 			size_t byte = index & 7;
@@ -317,6 +317,25 @@ namespace pr::hash
 		auto hash1 = Blake2bHash(str0, sizeof(str0));
 		auto hash2 = Blake2bHash(str1, sizeof(str1));
 		PR_EXPECT(hash1 != hash2);
+
+		// Known-answer test spanning a full 128-byte block plus one extra byte. This exercises the
+		// block-boundary clearing in 'SetInput', which must zero the whole 128-byte input buffer
+		// when starting a new block; clearing only part of it leaves stale bytes from the previous
+		// (full) block corrupting the following (short) block.
+		{
+			uint8_t data[129];
+			for (int i = 0; i != 129; ++i)
+				data[i] = (uint8_t)i;
+
+			auto hash = Blake2bHash(data, sizeof(data));
+			Blake2b<>::hash_t expected = {
+				0xF5, 0x97, 0x11, 0xD4, 0x4A, 0x03, 0x1D, 0x5F, 0x97, 0xA9, 0x41, 0x3C, 0x06, 0x5D, 0x1E, 0x61,
+				0x4C, 0x41, 0x7E, 0xDE, 0x99, 0x85, 0x90, 0x32, 0x5F, 0x49, 0xBA, 0xD2, 0xFD, 0x44, 0x4D, 0x3E,
+				0x44, 0x18, 0xBE, 0x19, 0xAE, 0xC4, 0xE1, 0x14, 0x49, 0xAC, 0x1A, 0x57, 0x20, 0x78, 0x98, 0xBC,
+				0x57, 0xD7, 0x6A, 0x1B, 0xCF, 0x35, 0x66, 0x29, 0x2C, 0x20, 0xC6, 0x83, 0xA5, 0xC4, 0x64, 0x8F,
+			};
+			PR_EXPECT(hash == expected);
+		}
 
 		// This hash doesn't seem to produce the same result as the windows context menu one
 		//auto hash3 = Blake2bHashFile("P:\\pr\\include\\pr\\crypt\\rijndael.h");
