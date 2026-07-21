@@ -1,4 +1,4 @@
-﻿//**********************************************************************************
+//**********************************************************************************
 // Pointer to a reference counted object
 //  Copyright (c) Rylogic Ltd 2011
 //**********************************************************************************
@@ -172,12 +172,17 @@ namespace pr
 			return m_ptr != nullptr;
 		}
 
-		// Implicit conversion to base class
-		template <typename U, class = typename std::enable_if<std::is_convertible<U*,T*>::value>::type>
-		operator RefPtr<U>() const
-		{
-			return RefPtr<U>(static_cast<U*>(m_ptr), true);
-		}
+		// Note: there is deliberately no 'operator RefPtr<U>()' conversion operator here.
+		// The templated copy/move constructors above already provide the only implicit
+		// conversion that is safe: from RefPtr<T> to RefPtr<U> whenever 'T*' converts to
+		// 'U*' (i.e. 'U' is a base of 'T', or 'T' itself), since that direction can't slice
+		// or misrepresent the pointee's actual type. A member conversion operator enabled
+		// for that same direction would be redundant with those constructors and would make
+		// the conversion ambiguous, because both become equally-good user-defined conversions
+		// for the same source/target pair. Enabling it for the opposite direction instead
+		// would let a RefPtr<Base> silently, implicitly "convert" to a RefPtr<Derived> - an
+		// unchecked downcast that the compiler can't verify. Use an explicit static_cast or
+		// dynamic_cast on the raw pointer if a downcast is genuinely needed.
 
 		// Pointer de-reference
 		T* operator -> () const
@@ -327,3 +332,43 @@ namespace pr
 	}
 }
 
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::common
+{
+	PRUnitTestClass(TestRefPtr)
+	{
+		struct Thing : RefCount<Thing>
+		{
+			virtual ~Thing() = default;
+			virtual int Kind() const { return 0; }
+		};
+		struct Derived : Thing
+		{
+			int Kind() const override { return 1; }
+		};
+		struct Unrelated : RefCount<Unrelated>
+		{
+		};
+
+		PRUnitTestMethod(ConversionDirection)
+		{
+			// The safe upcast (derived -> base) must be implicit.
+			static_assert(std::is_convertible_v<RefPtr<Derived>, RefPtr<Thing>>, "RefPtr<Derived> should implicitly convert to RefPtr<Thing> (its base)");
+
+			// The unsafe downcast (base -> derived) must not be implicit; it can't be checked at compile time.
+			static_assert(!std::is_convertible_v<RefPtr<Thing>, RefPtr<Derived>>, "RefPtr<Thing> must not implicitly convert to RefPtr<Derived>");
+
+			// Unrelated types must not be convertible in either direction.
+			static_assert(!std::is_convertible_v<RefPtr<Unrelated>, RefPtr<Thing>>, "RefPtr<Unrelated> must not implicitly convert to RefPtr<Thing>");
+			static_assert(!std::is_convertible_v<RefPtr<Thing>, RefPtr<Unrelated>>, "RefPtr<Thing> must not implicitly convert to RefPtr<Unrelated>");
+
+			// Exercise the allowed upcast at runtime, not just via the type trait.
+			RefPtr<Derived> d(new Derived(), true);
+			RefPtr<Thing> b = d;
+			PR_EXPECT(b->Kind() == 1);
+			PR_EXPECT(b.RefCount() == 2);
+		}
+	};
+}
+#endif

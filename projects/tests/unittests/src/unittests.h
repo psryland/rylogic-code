@@ -60,6 +60,7 @@
 #include "pr/common/packing.h"
 #include "pr/common/pe_file.h"
 #include "pr/common/range.h"
+#include "pr/common/refptr.h"
 #include "pr/common/registrykey.h"
 #include "pr/common/repeater.h"
 #include "pr/common/scope.h"
