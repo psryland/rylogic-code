@@ -390,22 +390,40 @@ namespace pr::eval
 		}
 		friend Val  operator /  (Val const& lhs, Val const& rhs)
 		{
+			// Integer division by zero is undefined, but floating-point division keeps IEEE behaviour.
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(lhs.ll() / rhs.ll());
+				case EType::Intg:
+				{
+					if (rhs.ll() == 0) throw std::runtime_error("Divide by zero");
+					return Val(lhs.ll() / rhs.ll());
+				}
 				case EType::Real: return Val(lhs.db() / rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() / rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4:
+				{
+					if (Any(rhs.ivec(), [](auto x) { return x == 0; })) throw std::runtime_error("Divide by zero");
+					return Val(lhs.ivec() / rhs.ivec(), result_dim(lhs, rhs));
+				}
 				case EType::Real4: return Val(lhs.vec() / rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator %  (Val const& lhs, Val const& rhs)
 		{
+			// Integer modulo by zero is undefined, but floating-point modulo keeps std::fmod behaviour.
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(lhs.ll() % rhs.ll());
+				case EType::Intg:
+				{
+					if (rhs.ll() == 0) throw std::runtime_error("Divide by zero");
+					return Val(lhs.ll() % rhs.ll());
+				}
 				case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
-				case EType::Intg4: return Val(lhs.ivec() % rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4:
+				{
+					if (Any(rhs.ivec(), [](auto x) { return x == 0; })) throw std::runtime_error("Divide by zero");
+					return Val(lhs.ivec() % rhs.ivec(), result_dim(lhs, rhs));
+				}
 				case EType::Real4: return Val(lhs.vec() % rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -2363,6 +2381,16 @@ namespace pr::common::tests
 				PR_EXPECT(expr({{"y", 2.0}, {"x", -5.0}}) == Val(-2.5));
 				PR_EXPECT(expr(iv4(5), iv4(2)) == Val(iv4(2)));
 				PR_EXPECT(expr(v4(5), v4(2)) == Val(v4(2.5f)));
+				PR_THROWS(expr(5, 0), std::runtime_error);
+				{
+					Val lhs;
+					lhs = 5ull;
+					Val rhs;
+					rhs = 0ull;
+					PR_THROWS(expr(lhs, rhs), std::runtime_error);
+				}
+				PR_THROWS(expr(iv4(5, 6, 7, 8), iv4(1, 0, 1, 1)), std::runtime_error);
+				PR_EXPECT(std::isinf(expr(5.0, 0.0).db()));
 			}
 			{ // modulus
 				auto expr = Compile("x % y");
@@ -2370,6 +2398,16 @@ namespace pr::common::tests
 				PR_EXPECT(FEql(expr(11.3, 3.1).db(), Val(std::fmod(11.3, 3.1)).db()));
 				PR_EXPECT(expr(iv4(5), iv4(2)) == Val(iv4(1)));
 				PR_EXPECT(expr(v4(5), v4(2)) == Val(v4(1)));
+				PR_THROWS(expr(5, 0), std::runtime_error);
+				{
+					Val lhs;
+					lhs = 5ull;
+					Val rhs;
+					rhs = 0ull;
+					PR_THROWS(expr(lhs, rhs), std::runtime_error);
+				}
+				PR_THROWS(expr(iv4(5, 6, 7, 8), iv4(1, 0, 1, 1)), std::runtime_error);
+				PR_EXPECT(std::isnan(expr(5.0, 0.0).db()));
 			}
 			{ // unary plus
 				auto expr = Compile("+x");
