@@ -288,13 +288,18 @@ namespace pr::threads
 		{
 			// The pool is constructed and destroyed entirely within the detached thread, so a hung
 			// destructor (were the bug to regress) leaks only that thread rather than risking
-			// use of a pool object whose enclosing test scope has already returned.
+			// use of a pool object whose enclosing test scope has already returned. 'pool' is
+			// scoped to end before 'set_value' is called, so the promise is only fulfilled once
+			// the destructor (and its worker 'join' calls) has actually completed - otherwise a
+			// hung destructor would go undetected, since 'set_value' would already have fired.
 			auto done = std::make_shared<std::promise<void>>();
 			auto done_future = done->get_future();
 			std::thread([done]
 			{
-				ThreadPool pool(4);
-				std::this_thread::sleep_for(1ms); // Give workers a chance to reach 'wait' before destruction.
+				{
+					ThreadPool pool(4);
+					std::this_thread::sleep_for(1ms); // Give workers a chance to reach 'wait' before destruction.
+				}
 				done->set_value();
 			}).detach();
 
