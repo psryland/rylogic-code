@@ -36,7 +36,11 @@ namespace pr
 			static typeid_t id = 0;
 			return id++;
 		}
-		template <typename TData> static typeid_t TypeId()
+		// Note: the id is per (Data,InstId) pair, not just per 'Data'. Two 'get<Data, InstIdA>()' /
+		// 'get<Data, InstIdB>()' calls with the same 'Data' but different 'InstId' types must not
+		// alias the same slot in 'm_user_data' below, otherwise the stored 'IMap' would be static_cast
+		// to an incompatible 'Map<InstId,Data>' instantiation (different key type/hash => type confusion).
+		template <typename Data, typename InstId> static typeid_t TypeId()
 		{
 			static typeid_t id = NextId();
 			return id;
@@ -120,7 +124,7 @@ namespace pr
 		// True if this object contains user data of type 'TData' and associated with 'id'
 		template <typename Data, typename InstId = int> bool has(InstId id = InstId()) const
 		{
-			auto map = find_map<InstId, Data>(TypeId<Data>());
+			auto map = find_map<InstId, Data>(TypeId<Data, InstId>());
 			if (map == nullptr) return false;
 			return map->count(id) != 0;
 		}
@@ -131,7 +135,7 @@ namespace pr
 		// e.g.  auto value = UserData.get<MyThing>(Guid(..)).Value;
 		template <typename Data, typename InstId = int> Data const& get(InstId id = InstId()) const
 		{
-			auto map = find_map<InstId, Data>(TypeId<Data>());
+			auto map = find_map<InstId, Data>(TypeId<Data, InstId>());
 			if (map == nullptr) throw std::exception("User data not found");
 			return map->get(id);
 		}
@@ -142,14 +146,14 @@ namespace pr
 		// e.g.  UserData.get<MyThing>(Guid(..)) = my_thing;
 		template <typename Data, typename InstId = int> Data& get(InstId id = InstId())
 		{
-			auto map = find_map<InstId, Data>(TypeId<Data>(), true);
+			auto map = find_map<InstId, Data>(TypeId<Data, InstId>(), true);
 			return map->get(id, true);
 		}
 
 		// Remove user data
 		template <typename Data, typename InstId = int> void erase(InstId id = InstId())
 		{
-			auto map = find_map<InstId, Data>(TypeId<Data>(), false);
+			auto map = find_map<InstId, Data>(TypeId<Data, InstId>(), false);
 			if (map == nullptr) return;
 			map->erase(id);
 		}
@@ -212,6 +216,42 @@ namespace pr::common
 		udtest.erase<Blob>();
 		PR_EXPECT(!udtest.has<double>());
 		PR_EXPECT(!udtest.has<Blob>());
+	}
+	PRUnitTest(UserDataDistinctInstIdTypesTests)
+	{
+		// Same 'Data' type ('Info'), but accessed with two different 'InstId' types ('int' and 'Owner*').
+		// Each (Data,InstId) pair must be isolated: the map created for one 'InstId' type must not be
+		// reinterpreted as a map for a different 'InstId' type when both are looked up for the same 'Data'.
+		struct Info { int value; };
+		struct Owner {};
+
+		Owner owner_a, owner_b;
+		pr::UserData udtest;
+
+		// Populate via the default 'int' instance id, then via 'Owner*' instance ids, interleaved so
+		// that whichever slot layout is created first cannot silently satisfy the other InstId type.
+		udtest.get<Info>() = Info{ .value = 1 };
+		udtest.get<Info>(&owner_a) = Info{ .value = 2 };
+		udtest.get<Info>(&owner_b) = Info{ .value = 3 };
+
+		// Each (Data,InstId) pair sees only its own entries.
+		PR_EXPECT(udtest.has<Info>());
+		PR_EXPECT(udtest.has<Info>(&owner_a));
+		PR_EXPECT(udtest.has<Info>(&owner_b));
+		PR_EXPECT(!udtest.has<Info>((Owner*)nullptr));
+
+		// Values are distinct and unaffected by the other InstId type's entries (no aliasing/corruption).
+		PR_EXPECT(udtest.get<Info>().value == 1);
+		PR_EXPECT(udtest.get<Info>(&owner_a).value == 2);
+		PR_EXPECT(udtest.get<Info>(&owner_b).value == 3);
+
+		// Erasing one (Data,InstId) pair's entry must not disturb the other pair's map.
+		udtest.erase<Info>(&owner_a);
+		PR_EXPECT(!udtest.has<Info>(&owner_a));
+		PR_EXPECT(udtest.has<Info>());
+		PR_EXPECT(udtest.has<Info>(&owner_b));
+		PR_EXPECT(udtest.get<Info>().value == 1);
+		PR_EXPECT(udtest.get<Info>(&owner_b).value == 3);
 	}
 }
 #endif
