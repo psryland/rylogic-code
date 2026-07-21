@@ -262,7 +262,9 @@ namespace pr
 	}
 
 	// Expand 'range' if necessary to include 'rhs'. Returns 'rhs'
-	template <Rangeable T, Rangeable U> inline Range<U> const& Grow(Range<T>& range, Range<U> const& rhs)
+	// Returned by value because 'Range<U>::grow(Range<U>)' returns its by-value parameter,
+	// so binding a reference to it here would dangle as soon as this function returns.
+	template <Rangeable T, Rangeable U> inline Range<U> Grow(Range<T>& range, Range<U> const& rhs)
 	{
 		return range.grow(rhs);
 	}
@@ -351,6 +353,16 @@ namespace pr::common
 			PR_EXPECT(5 == r4.m_end);
 			PR_EXPECT(1 == r4.size());
 			PR_EXPECT(IsWithin(r4, 4));
+
+			// 'Grow(Range<T>&, Range<U> const&)' returns a value, not a reference, because
+			// 'Range<U>::grow(Range<U>)' returns its by-value parameter. Read the returned
+			// range through a copy (not a reference) to confirm this overload is safe to use.
+			IRange r5 = IRange::Reset();
+			IRange r6(4, 8);
+			IRange returned = Grow(r5, r6);
+			PR_EXPECT(4 == r5.m_beg);
+			PR_EXPECT(8 == r5.m_end);
+			PR_EXPECT(returned == r6);
 		}
 		PRUnitTestMethod(IterRange)
 		{
