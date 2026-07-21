@@ -1202,7 +1202,7 @@ namespace pr::console
 			if (handle == GetStdHandle(STD_OUTPUT_HANDLE)) return;
 			if (handle == GetStdHandle(STD_INPUT_HANDLE )) return;
 			if (handle == GetStdHandle(STD_ERROR_HANDLE )) return;
-			CloseHandle(handle);
+			::CloseHandle(handle);
 			handle = INVALID_HANDLE_VALUE;
 		}
 

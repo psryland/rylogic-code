@@ -34,6 +34,7 @@
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/support.h"
 #include "pr/collision/unittest_helpers.h"
+#include "pr/common/_console_tests.h"
 #include "pr/common/alloca.h"
 #include "pr/common/arena_allocator.h"
 #include "pr/common/async_wrap.h"
