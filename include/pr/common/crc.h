@@ -118,10 +118,18 @@ namespace pr
 		file.seekg(offset);
 		if (!file.good()) throw std::runtime_error("failed to load file for crc");
 
+		// 'count' is a signed byte count, but the default value ('~0ULL') converts to -1, meaning "read to end of file".
+		// A negative 'count' must not be passed to std::min alongside 'gcount()' because -1 compares less than every
+		// non-negative byte count, so every read would be clamped down to a bogus -1-byte read. Cast to the unsigned
+		// 'size_t' taken by Crc(), that becomes a read of nearly 2^64 bytes from the 4096-byte local buffer.
 		char buf[4096];
 		for (std::streamsize c; count != 0; count -= c)
 		{
-			c = std::min(file.read(&buf[0], sizeof(buf)).gcount(), count);
+			auto to_read = count < 0 ? static_cast<std::streamsize>(sizeof(buf)) : std::min<std::streamsize>(sizeof(buf), count);
+			c = file.read(&buf[0], to_read).gcount();
+			if (c == 0)
+				break; // End of file reached, whether or not the requested 'count' bytes were available.
+
 			crc = Crc(static_cast<size_t>(c), buf, crc);
 		}
 
@@ -162,6 +170,55 @@ namespace pr::common
 		{ // Crc32 a file
 			auto crc0 = pr::CrcFile(__FILEW__, 10, 1000);
 			PR_EXPECT(crc0 == 0x83ee20a2U); // CRC of *this* file. I.e. it will change if the file is changed
+		}
+		{ // CrcFile with default arguments (offset 0, count to EOF) must match an in-memory Crc of the whole file
+			std::vector<char> bytes(5000);
+			for (size_t i = 0; i != bytes.size(); ++i)
+			{
+				// Avoid byte values that Windows' std::ifstream text-mode translation would alter or stop at early
+				// ('\r' is folded away by CRLF translation, 0x1A is historically treated as a text-mode EOF marker).
+				// The file is opened in text mode by 'CrcFile' (a separate, pre-existing issue), so the reference
+				// bytes used for comparison must survive that translation unchanged.
+				auto value = static_cast<unsigned char>(i * 37 + 11);
+				if (value == '\r' || value == 0x1A)
+					value ^= 0x01;
+				bytes[i] = static_cast<char>(value);
+			}
+
+			auto const path = temp_dir() / "crc_test_file.bin";
+			{
+				std::ofstream out(path, std::ios::binary);
+				out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+			}
+
+			auto crc_full = pr::CrcFile(path.c_str());
+			PR_EXPECT(crc_full == pr::Crc(bytes.size(), bytes.data()));
+
+			// A bounded count part-way through the file
+			auto crc_bounded = pr::CrcFile(path.c_str(), 0, 1234);
+			PR_EXPECT(crc_bounded == pr::Crc(size_t(1234), bytes.data()));
+
+			// A non-zero offset combined with the default (to-EOF) count
+			auto crc_offset = pr::CrcFile(path.c_str(), 100);
+			PR_EXPECT(crc_offset == pr::Crc(bytes.size() - 100, bytes.data() + 100));
+
+			// An offset with a bounded count that runs past the end of the file must stop at EOF rather than
+			// hanging or reading past the file (the 'count' remaining never reaches zero from real data alone).
+			auto crc_short = pr::CrcFile(path.c_str(), static_cast<std::streamoff>(bytes.size() - 10), 1000);
+			PR_EXPECT(crc_short == pr::Crc(size_t(10), bytes.data() + bytes.size() - 10));
+
+			std::filesystem::remove(path);
+		}
+		{ // CrcFile of an empty file with default arguments must return the seed CRC untouched, not crash
+			auto const path = temp_dir() / "crc_test_empty.bin";
+			{
+				std::ofstream out(path, std::ios::binary);
+			}
+
+			auto crc_empty = pr::CrcFile(path.c_str());
+			PR_EXPECT(crc_empty == CRC(-1));
+
+			std::filesystem::remove(path);
 		}
 	}
 }
