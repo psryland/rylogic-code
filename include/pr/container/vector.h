@@ -778,7 +778,12 @@ namespace pr
 			if (m_count < newsize)
 			{
 				ensure_space(newsize, false);
-				traits::construct(alloc(), m_ptr + m_count, newsize - m_count);
+
+				// POD elements are stored as raw bytes, so copy a zero-initialised value into the new slots.
+				if constexpr (type_is_pod_v)
+					traits::fill_constr(alloc(), m_ptr + m_count, newsize - m_count, Type());
+				else
+					traits::construct(alloc(), m_ptr + m_count, newsize - m_count);
 			}
 			else if (m_count > newsize)
 			{
@@ -1869,6 +1874,42 @@ namespace pr::container
 				}
 			}
 		}
+		PRUnitTestMethod(Resize)
+		{
+			{
+				Check chk;
+				{
+					// POD growth must overwrite poisoned storage with value-initialised elements.
+					Array0 arr;
+					arr.reserve(10);
+					arr.push_back(7);
+					arr.push_back(8);
+					arr.resize(1);
+					arr.resize(4);
+
+					PR_EXPECT(arr.size() == 4U);
+					PR_EXPECT(arr[0] == 7);
+					for (int i = 1; i != 4; ++i)
+						PR_EXPECT(arr[i] == 0);
+				}
+			}{
+				Check chk;
+				{
+					// Non-POD growth still uses default construction for each new element.
+					Array1 arr;
+					arr.reserve(10);
+					arr.push_back(7);
+					arr.push_back(8);
+					arr.resize(1);
+					arr.resize(4);
+
+					PR_EXPECT(arr.size() == 4U);
+					PR_EXPECT(arr[0].val == 7);
+					for (int i = 1; i != 4; ++i)
+						PR_EXPECT(arr[i].val == 0);
+				}
+			}
+		}
 		PRUnitTestMethod(Operators)
 		{
 			{
@@ -2103,4 +2144,3 @@ namespace pr::container
 	};
 }
 #endif
-
