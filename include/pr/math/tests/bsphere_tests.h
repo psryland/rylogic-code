@@ -93,6 +93,49 @@ namespace pr::math::tests
 			PR_EXPECT(IsWithin(s2, V4(0, 0, -1, 1)));
 		}
 
+		PRUnitTestMethod(GrowUnionCoincidentCentres, float, double)
+		{
+			using V4 = Vec4<T>;
+			using BS = BoundingSphere<T>;
+
+			// Co-located spheres with differing radii must not divide by a zero separation between
+			// centres. The merged result should be the larger of the two, co-centred sphere, regardless
+			// of argument order.
+			auto tiny = BS(V4(1, 2, 3, 1), T(1));
+			auto huge = BS(V4(1, 2, 3, 1), T(5));
+
+			auto grow_tiny_by_huge = tiny;
+			Grow(grow_tiny_by_huge, huge);
+			PR_EXPECT(FEql(grow_tiny_by_huge.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(grow_tiny_by_huge.Radius() == T(5));
+
+			auto grow_huge_by_tiny = huge;
+			Grow(grow_huge_by_tiny, tiny);
+			PR_EXPECT(FEql(grow_huge_by_tiny.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(grow_huge_by_tiny.Radius() == T(5));
+
+			auto union_tiny_huge = Union(tiny, huge);
+			PR_EXPECT(FEql(union_tiny_huge.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(union_tiny_huge.Radius() == T(5));
+
+			auto union_huge_tiny = Union(huge, tiny);
+			PR_EXPECT(FEql(union_huge_tiny.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(union_huge_tiny.Radius() == T(5));
+
+			// Co-located spheres with equal radii should merge to the same sphere, unchanged.
+			auto a = BS(V4(1, 2, 3, 1), T(4));
+			auto b = BS(V4(1, 2, 3, 1), T(4));
+
+			auto grown_equal = a;
+			Grow(grown_equal, b);
+			PR_EXPECT(FEql(grown_equal.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(grown_equal.Radius() == T(4));
+
+			auto unioned_equal = Union(a, b);
+			PR_EXPECT(FEql(unioned_equal.Centre(), V4(1, 2, 3, 1)));
+			PR_EXPECT(unioned_equal.Radius() == T(4));
+		}
+
 		PRUnitTestMethod(IsWithinTests, float, double)
 		{
 			using V4 = Vec4<T>;
