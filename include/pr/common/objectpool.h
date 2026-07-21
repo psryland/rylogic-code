@@ -60,7 +60,7 @@ namespace pr
 			static void Destruct(T* target)                                                   { target->T::~T(); }
 			static void Construct(T* target)                                                  { new (target) T; }
 			template <typename P1> static void Construct(T* target, P1 p1)                    { new (target) T(p1); }
-			template <typename P1, typename P2> static void Construct(T* target, P1 p1, P2 p2){ new (target) T(p1); }
+			template <typename P1, typename P2> static void Construct(T* target, P1 p1, P2 p2){ new (target) T(p1, p2); }
 		};
 		using Constructor = typename meta::if_< meta::is_pod<Type>::value, POD<Type>, NonPOD<Type> >::type;
 
@@ -69,7 +69,9 @@ namespace pr
 		{
 			enum { SizeInBytes = NumPerBlock * sizeof(Type) };
 			typedef typename meta::aligned_storage<SizeInBytes, meta::alignment_of<Type>::value>::type TBuffer;
-			byte* buffer() { return pr::byte_ptr(&m_block); }
+
+			// Keep the raw-storage cursor in the same byte type used by the pool's pointer arithmetic.
+			uint8_t* buffer() { return reinterpret_cast<uint8_t*>(pr::byte_ptr(&m_block)); }
 
 			TBuffer m_block;
 			Block* m_next;
@@ -260,6 +262,42 @@ namespace pr
 		}
 	};
 }
+
+#if PR_UNITTESTS
+#pragma warning(push)
+#pragma warning(disable:4996)
+#include "pr/common/unittests.h"
+
+namespace pr::unittests
+{
+	// Verify the two-argument path forwards both values into placement-new.
+	PRUnitTest(ObjectPoolTwoArgConstruct)
+	{
+		struct TwoArgOnly
+		{
+			int m_first;
+			int m_second;
+
+			// Leave out a one-argument constructor so the test fails to compile if the wrong overload is used.
+			TwoArgOnly(int first, int second)
+				:m_first(first)
+				,m_second(second)
+			{
+			}
+
+			TwoArgOnly(int) = delete;
+		};
+
+		// Exercise construction and return so the test covers the full pool lifecycle.
+		pr::ObjectPool<TwoArgOnly, 1> pool;
+		auto* object = pool.Get(1, 2);
+		PR_EXPECT(object->m_first == 1);
+		PR_EXPECT(object->m_second == 2);
+		pool.Return(object);
+	}
+}
+#pragma warning(pop)
+#endif
 
 #undef PR_OP_CHK
 #undef PR_OP_MT
