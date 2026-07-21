@@ -246,28 +246,28 @@ namespace pr
 		{
 			return
 				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.db() + rhs.db()) :
-				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.ul() + rhs.ul()) :
+				(lhs.m_type == EType::UInt || rhs.m_type == EType::UInt) ? Number(lhs.ul() + rhs.ul()) :
 				Number(lhs.ll() + rhs.ll());
 		}
 		friend Number operator - (Number const& lhs, Number const& rhs)
 		{
 			return
 				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.db() - rhs.db()) :
-				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.ul() - rhs.ul()) :
+				(lhs.m_type == EType::UInt || rhs.m_type == EType::UInt) ? Number(lhs.ul() - rhs.ul()) :
 				Number(lhs.ll() - rhs.ll());
 		}
 		friend Number operator * (Number const& lhs, Number const& rhs)
 		{
 			return
 				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.db() * rhs.db()) :
-				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.ul() * rhs.ul()) :
+				(lhs.m_type == EType::UInt || rhs.m_type == EType::UInt) ? Number(lhs.ul() * rhs.ul()) :
 				Number(lhs.ll() * rhs.ll());
 		}
 		friend Number operator / (Number const& lhs, Number const& rhs)
 		{
 			return
 				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.db() / rhs.db()) :
-				(lhs.m_type == EType::FP || rhs.m_type == EType::FP) ? Number(lhs.ul() / rhs.ul()) :
+				(lhs.m_type == EType::UInt || rhs.m_type == EType::UInt) ? Number(lhs.ul() / rhs.ul()) :
 				Number(lhs.ll() / rhs.ll());
 		}
 	};
@@ -280,6 +280,11 @@ namespace pr::common
 {
 	PRUnitTest(NumberTests)
 	{
+		// Keep values above LLONG_MAX in the unsigned domain so arithmetic preserves the intended bit pattern.
+		auto const big = Number{ 1ULL << 63 };
+		PR_EXPECT(big.m_type == Number::EType::UInt);
+		PR_EXPECT(big.ul() == (1ULL << 63));
+
 		auto n0 = Number{1.3};
 		PR_EXPECT(n0.db() == 1.3);
 		PR_EXPECT(n0.ll() == 1LL);
@@ -314,6 +319,23 @@ namespace pr::common
 		PR_EXPECT(FEql(n6.db(), static_cast<double>(0b10110101)));
 		PR_EXPECT(n6.ll() == 0b10110101LL);
 		PR_EXPECT(n6.ul() == 0b10110101ULL);
+
+		// Exercise each integer operator with a UInt above LLONG_MAX so the unsigned branch is the one that matters.
+		auto add = big + Number{ 1ULL };
+		PR_EXPECT(add.m_type == Number::EType::UInt);
+		PR_EXPECT(add.ul() == ((1ULL << 63) + 1ULL));
+
+		auto sub = big - Number{ 1ULL };
+		PR_EXPECT(sub.m_type == Number::EType::UInt);
+		PR_EXPECT(sub.ul() == ((1ULL << 63) - 1ULL));
+
+		auto mul = big * Number{ 2ULL };
+		PR_EXPECT(mul.m_type == Number::EType::UInt);
+		PR_EXPECT(mul.ul() == 0ULL);
+
+		auto div = big / Number{ 2ULL };
+		PR_EXPECT(div.m_type == Number::EType::UInt);
+		PR_EXPECT(div.ul() == (1ULL << 62));
 	}
 }
 #endif
