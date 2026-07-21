@@ -40,6 +40,7 @@ namespace pr
 			,m_ptr(m_beg)
 		{}
 
+		// Keep the streambuf hooks protected so derived tests can exercise the virtuals without exposing them publicly.
 	protected:
 
 		// Get the current character in the controlled input sequence without changing the current position (or return eof()).
@@ -152,7 +153,7 @@ namespace pr
 			,m_ctx(ctx)
 		{}
 
-	private:
+	protected:
 
 		// Get the current character in the controlled input sequence without changing the current position (or return eof()).
 		int_type underflow() override
@@ -167,11 +168,18 @@ namespace pr
 		// Overflow is called to grow the output (or return eof())
 		int_type overflow(int_type c) override
 		{
-			// Note: 'm_ppos' not incremented
+			// EOF is a flush-style no-op for this streambuf; do not turn it into a data byte.
+			if (c == traits_type::eof())
+				return traits_type::not_eof(c);
+
 			auto ch = traits_type::to_char_type(c);
-			return m_write(m_ctx, m_ppos, &ch, 1) == 1
-				? traits_type::to_int_type(ch)
-				: traits_type::eof();
+			if (m_write == nullptr || m_write(m_ctx, m_ppos, &ch, 1) != 1)
+				return traits_type::eof();
+
+			// Keep the write cursor and the logical end in step with single-character writes.
+			m_ppos += 1;
+			m_end = std::max(m_end, m_ppos);
+			return traits_type::to_int_type(ch);
 		}
 
 		// Get the current character in the controlled input sequence and then advance the position indicator to the next character.
@@ -246,8 +254,8 @@ namespace pr
 			if (which & std::ios_base::out)
 			{
 				// Fill to the required size
-				for (; m_end < pos && overflow(0) != traits_type::eof(); ++m_end) {}
-				m_ppos = clamp(pos, 0, m_end);;
+				for (; m_end < pos && overflow(0) != traits_type::eof(); ) {}
+				m_ppos = clamp(pos, 0, m_end);
 				return pos_type(m_ppos);
 			}
 			return std::basic_streambuf<Elem>::seekpos(pos, which);
@@ -420,6 +428,103 @@ namespace pr::common
 			strm.seekp(16);
 			size_t pos = (size_t)strm.tellp();
 			PR_EXPECT(pos == 16U);
+		}
+
+		{ //' callback_streambuf
+			struct write_log
+			{
+				std::vector<char> m_data;
+				std::vector<size_t> m_write_offsets;
+
+				// Record the callback write offsets so the tests can assert the logical cursor movement directly.
+				static std::streamsize write(void* ctx, std::streambuf::off_type ofs, char const* bytes, std::streamsize count)
+				{
+					auto& me = *static_cast<write_log*>(ctx);
+
+					// Grow first so gap filling leaves zero-initialised bytes between writes instead of collapsing them.
+					auto required = static_cast<size_t>(ofs) + static_cast<size_t>(count);
+					if (me.m_data.size() < required)
+						me.m_data.resize(required, '\0');
+
+					me.m_write_offsets.push_back(static_cast<size_t>(ofs));
+					std::copy_n(bytes, static_cast<size_t>(count), me.m_data.data() + static_cast<size_t>(ofs));
+					return count;
+				}
+			};
+
+			struct test_callback_streambuf :pr::callback_streambuf<char>
+			{
+				using base_t = pr::callback_streambuf<char>;
+				using write_t = typename base_t::write_t;
+				using pos_type = typename base_t::pos_type;
+				using base_t::overflow;
+
+				// Expose the protected overflow hook so the EOF path can be checked without relying on a higher-level wrapper.
+				test_callback_streambuf(write_t write, void* ctx, pos_type end = 0)
+					:base_t(nullptr, write, ctx, end)
+				{}
+			};
+
+			{ // Consecutive single-character writes must advance the logical output position.
+				write_log log;
+				test_callback_streambuf buf(write_log::write, &log);
+				std::ostream strm(&buf);
+				auto expected_offsets = std::vector<size_t>{0, 1};
+				auto expected_data = std::vector<char>{'a', 'b'};
+
+				strm.put('a');
+				strm.put('b');
+
+				PR_EXPECT(log.m_write_offsets == expected_offsets);
+				PR_EXPECT(log.m_data == expected_data);
+				PR_EXPECT((size_t)strm.tellp() == 2U);
+			}
+
+			{ // Mixed single-character and bulk writes must share the same write cursor.
+				write_log log;
+				test_callback_streambuf buf(write_log::write, &log);
+				std::ostream strm(&buf);
+				auto expected_offsets = std::vector<size_t>{0, 1, 3};
+				auto expected_data = std::vector<char>{'a', 'b', 'c', 'd'};
+
+				strm.put('a');
+				strm.write("bc", 2);
+				strm.put('d');
+
+				PR_EXPECT(log.m_write_offsets == expected_offsets);
+				PR_EXPECT(log.m_data == expected_data);
+				PR_EXPECT((size_t)strm.tellp() == 4U);
+			}
+
+			{ // Seeking past the end must fill each missing byte at a unique offset before the next write.
+				write_log log;
+				test_callback_streambuf buf(write_log::write, &log);
+				std::ostream strm(&buf);
+				auto expected_offsets = std::vector<size_t>{0, 1, 2, 3, 4};
+				auto expected_data = std::vector<char>{'\0', '\0', '\0', '\0', 'x'};
+
+				strm.seekp(4);
+				strm.put('x');
+
+				PR_EXPECT(log.m_write_offsets == expected_offsets);
+				PR_EXPECT(log.m_data == expected_data);
+				PR_EXPECT((size_t)strm.tellp() == 5U);
+			}
+
+			{ // overflow(eof) is a no-op and must not synthesise a byte.
+				write_log log;
+				test_callback_streambuf buf(write_log::write, &log);
+				auto const eof = std::char_traits<char>::eof();
+				auto expected_offsets = std::vector<size_t>{0};
+				auto expected_data = std::vector<char>{'q'};
+
+				PR_EXPECT(buf.overflow(eof) != eof);
+				PR_EXPECT(log.m_write_offsets.empty());
+
+				PR_EXPECT(buf.overflow('q') != eof);
+				PR_EXPECT(log.m_write_offsets == expected_offsets);
+				PR_EXPECT(log.m_data == expected_data);
+			}
 		}
 	}
 }
