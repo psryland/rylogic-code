@@ -73,10 +73,14 @@ namespace pr::space_filling
 	inline static constexpr uint64_t C_Mask3D = (uint64_t{1} << C_Bits3D) - 1; // low C_Bits3D bits
 
 	// Sign-extend the low C_Bits3D bits of 'v' (all other bits must be zero) to a signed 32-bit value.
+	// 'v' is < 2^C_Bits3D, so the uint64_t -> int32_t conversion below always represents an in-range,
+	// non-negative value - it is not a narrowing/wrapping conversion. The subsequent subtraction is
+	// then plain int32_t arithmetic (no unsigned wraparound), keeping every step exactly representable.
 	inline constexpr int32_t SignExtend3D(uint64_t v)
 	{
 		constexpr uint64_t sign_bit = uint64_t{1} << (C_Bits3D - 1);
-		return static_cast<int32_t>((v ^ sign_bit) - sign_bit);
+		auto value = static_cast<int32_t>(v);
+		return (v & sign_bit) == 0 ? value : value - (int32_t{1} << C_Bits3D);
 	}
 
 	// Convert a ]-Order 3D index to a 3D point.
@@ -333,6 +337,14 @@ namespace pr::space_filling::tests
 		}
 		PRUnitTestMethod(JOrderTest)
 		{
+			// Sign-extension boundary checks: verify SignExtend3D decodes the raw 21-bit patterns
+			// at and either side of the sign boundary (bit C_Bits3D - 1) to the expected signed values.
+			PR_EXPECT(SignExtend3D(0) == 0);
+			PR_EXPECT(SignExtend3D(1) == 1);
+			PR_EXPECT(SignExtend3D(C_Mask3D) == -1); // all C_Bits3D bits set -> -1
+			PR_EXPECT(SignExtend3D(uint64_t{1} << (C_Bits3D - 1)) == -C_Bias3D); // sign bit only -> minimum representable value
+			PR_EXPECT(SignExtend3D((uint64_t{1} << (C_Bits3D - 1)) - 1) == C_Bias3D - 1); // sign bit clear, all lower bits set -> maximum representable value
+
 			// ]-Order
 			for (int i = -1000; i != 1000; ++i)
 			{
