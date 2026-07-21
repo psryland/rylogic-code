@@ -306,7 +306,7 @@ namespace pr
 	// Erase the first instance of 'value' from 'cont'
 	template <Container TCont> inline void erase_stable(TCont& cont, typename container_traits<TCont>::value_type const& value)
 	{
-		auto iter = std::remove(std::begin(cont), std::end(cont), value);
+		auto iter = std::find(std::begin(cont), std::end(cont), value);
 		erase_at(cont, iter);
 	}
 	template <Container TCont> inline void erase_unstable(TCont& cont, typename container_traits<TCont>::value_type const& value)
@@ -734,6 +734,41 @@ namespace pr::algorithm::astar::unittests
 				++i;
 			}
 			PR_EXPECT(i == ssize(spans));
+		}
+
+		// Exercise the stable value erase path with duplicates and each match position.
+		PRUnitTestMethod(EraseStable)
+		{
+			// The first matching element is removed and later duplicates keep their order.
+			{
+				std::vector<int> cont = {1, 2, 1, 3};
+
+				erase_stable(cont, 1);
+				PR_EXPECT(cont == std::vector<int>({2, 1, 3}));
+
+				erase_stable(cont, 1);
+				PR_EXPECT(cont == std::vector<int>({2, 3}));
+			}
+
+			// Each remaining case isolates one position or the no-match path.
+			{
+				std::vector<int> cont = {1, 2, 3};
+
+				erase_stable(cont, 1);
+				PR_EXPECT(cont == std::vector<int>({2, 3}));
+
+				cont = {1, 2, 3};
+				erase_stable(cont, 2);
+				PR_EXPECT(cont == std::vector<int>({1, 3}));
+
+				cont = {1, 2, 3};
+				erase_stable(cont, 3);
+				PR_EXPECT(cont == std::vector<int>({1, 2}));
+
+				cont = {1, 2, 3};
+				erase_stable(cont, 4);
+				PR_EXPECT(cont == std::vector<int>({1, 2, 3}));
+			}
 		}
 	};
 }
