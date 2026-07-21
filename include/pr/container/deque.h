@@ -156,10 +156,13 @@ namespace pr
 					::memcpy(mem, m_ptrs + m_first, inuse * sizeof(value_type*));
 					::memset(mem + inuse, 0, (new_capacity - inuse) * sizeof(value_type*));
 
+					// Keep the compact map, then return the old one to the pointer-map allocator.
+					auto old_capacity = m_capacity;
 					std::swap(m_ptrs, mem);
 					m_first    = 0;
 					m_last     = inuse;
 					m_capacity = new_capacity;
+					alloc_ptr_traits::deallocate(m_alloc_ptrs, mem, old_capacity);
 				}
 			}
 
@@ -1484,6 +1487,79 @@ namespace pr::container::tests
 			}
 		};
 
+		// Separate counters for block allocations and pointer-map allocations.
+		struct AllocStats
+		{
+			size_t m_block_allocs = 0;
+			size_t m_block_deallocs = 0;
+			size_t m_map_allocs = 0;
+			size_t m_map_deallocs = 0;
+		};
+
+		// Stateful allocator that shares a single ledger across rebound allocator types.
+		template <typename T> struct TrackingAllocator
+		{
+			using value_type = T;
+			using propagate_on_container_copy_assignment = std::true_type;
+			using propagate_on_container_move_assignment = std::true_type;
+			using propagate_on_container_swap = std::true_type;
+			using is_always_equal = std::false_type;
+
+			template <typename> friend struct TrackingAllocator;
+
+			std::shared_ptr<AllocStats> m_stats;
+
+			TrackingAllocator()
+				:m_stats(std::make_shared<AllocStats>())
+			{}
+			explicit TrackingAllocator(std::shared_ptr<AllocStats> stats)
+				:m_stats(std::move(stats))
+			{}
+			template <typename U>
+			TrackingAllocator(TrackingAllocator<U> const& rhs) noexcept
+				:m_stats(rhs.m_stats)
+			{}
+			template <typename U> struct rebind
+			{
+				using other = TrackingAllocator<U>;
+			};
+
+			// Count block and pointer-map allocations separately so the shrink path can be checked precisely.
+			[[nodiscard]] value_type* allocate(size_t n, void const* = nullptr)
+			{
+				if (n == 0)
+					return nullptr;
+
+				if constexpr (std::is_pointer_v<T>)
+					++m_stats->m_map_allocs;
+				else
+					++m_stats->m_block_allocs;
+
+				return static_cast<value_type*>(::operator new(sizeof(value_type) * n));
+			}
+			void deallocate(value_type* p, size_t = 0)
+			{
+				if (p == nullptr)
+					return;
+
+				if constexpr (std::is_pointer_v<T>)
+					++m_stats->m_map_deallocs;
+				else
+					++m_stats->m_block_deallocs;
+
+				::operator delete(p);
+			}
+
+			friend bool operator == (TrackingAllocator const& lhs, TrackingAllocator const& rhs)
+			{
+				return lhs.m_stats == rhs.m_stats;
+			}
+			friend bool operator != (TrackingAllocator const& lhs, TrackingAllocator const& rhs)
+			{
+				return !(lhs == rhs);
+			}
+		};
+
 		using Deque0 = pr::deque<Type, 8>;
 		using Deque1 = pr::deque<Type, 16>;
 		using Deque2 = pr::deque<NonCopyable, 4>;
@@ -1890,6 +1966,31 @@ namespace pr::container::tests
 				deq0.shrink_to_fit();
 				PR_EXPECT(deq0.capacity_front() == 0U);
 				PR_EXPECT(deq0.capacity_front() == 0U);
+			}
+			{
+				// Leave three full blocks in use so the map shrink path has to reallocate.
+				auto stats = std::make_shared<AllocStats>();
+				{
+					TrackingAllocator<int> allocator(stats);
+					pr::deque<int, 4, TrackingAllocator<int>> deq0(allocator);
+
+					for (int i = 0; i != 17; ++i)
+						deq0.push_back(i);
+					for (int i = 0; i != 5; ++i)
+						deq0.pop_back();
+
+					auto map_allocs = stats->m_map_allocs;
+					auto map_deallocs = stats->m_map_deallocs;
+					deq0.shrink_to_fit();
+
+					PR_EXPECT(stats->m_map_allocs == map_allocs + 1);
+					PR_EXPECT(stats->m_map_deallocs == map_deallocs + 1);
+					PR_EXPECT(deq0.size() == 12U);
+					for (size_t i = 0; i != deq0.size(); ++i)
+						PR_EXPECT(deq0[i] == int(i));
+				}
+				PR_EXPECT(stats->m_block_allocs == stats->m_block_deallocs);
+				PR_EXPECT(stats->m_map_allocs == stats->m_map_deallocs);
 			}
 		}
 	};
