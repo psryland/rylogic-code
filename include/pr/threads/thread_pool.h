@@ -82,8 +82,16 @@ namespace pr::threads
 		{
 			SetCurrentThreadName("ThreadPool Worker");
 
-			for (std::function<void()> task;;)
+			for (;;)
 			{
+				// Declared fresh each iteration (rather than once outside the loop) so that a
+				// failed 'try_pop' below reliably leaves 'task' empty. 'concurrent_queue::try_pop'
+				// only writes its output on success, so a shared, reused 'task' would otherwise
+				// retain the previous iteration's callable, letting the '!task' guards below
+				// mistake it for a genuinely pending task and re-run it instead of popping the
+				// next queued task.
+				std::function<void()> task;
+
 				// If there are no tasks, wait for a signal
 				if (!m_tasks.try_pop(task))
 				{
@@ -140,6 +148,47 @@ namespace pr::threads
 	//	auto result = pool.QueueTaskR([] { std::this_thread::sleep_for(std::chrono::milliseconds(100)); return 42; });
 	//	PR_EXPECT(result.get() == 42);
 #endif
+	}
+
+	// Regression test for a bug where a completed task could be re-run: the worker loop kept a
+	// single 'task' variable across iterations, and 'concurrent_queue::try_pop' leaves its output
+	// unchanged when the queue is empty. That meant a failed pop after a task finished left the
+	// just-run task sitting in the loop variable, which then bypassed the "do we have work" guard
+	// and got executed again instead of the next queued task.
+	PRUnitTest(ThreadPoolStaleTaskReplayTest)
+	{
+		// A single worker thread makes the interleaving deterministic: there's exactly one thread
+		// that can dequeue/execute tasks, so the only variable is timing between task 'A' finishing
+		// and task 'B' being queued from this thread.
+		ThreadPool pool(1);
+		std::atomic_int count_a = 0;
+		std::atomic_int count_b = 0;
+		std::atomic_bool a_ran = false;
+
+		pool.QueueTask([&]
+		{
+			++count_a;
+			a_ran = true;
+		});
+
+		// Wait for 'A' to have run at least once.
+		while (!a_ran)
+			std::this_thread::yield();
+
+		// Widen the race window: give the worker thread a chance to loop back to the (now empty)
+		// queue and hit the failed 'try_pop' before 'B' is queued. This is not required for
+		// correctness after the fix (the outcome is deterministic regardless of timing), it only
+		// increases the chance of catching a regression that reintroduces the stale-task bug.
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+		pool.QueueTask([&]
+		{
+			++count_b;
+		});
+
+		pool.WaitAll();
+		PR_EXPECT(count_a == 1);
+		PR_EXPECT(count_b == 1);
 	}
 }
 #endif
