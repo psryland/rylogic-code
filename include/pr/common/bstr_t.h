@@ -22,6 +22,15 @@ namespace pr
 		BSTR m_str;
 		bool m_own;
 
+		// Duplicate a BSTR using its explicit length so embedded '\0' code units survive the copy.
+		static BSTR Duplicate(BSTR str)
+		{
+			if (str == nullptr)
+				return nullptr;
+
+			return SysAllocStringLen(str, SysStringLen(str));
+		}
+
 		BSTR_t()
 			:m_str()
 			,m_own(true)
@@ -31,7 +40,7 @@ namespace pr
 			,m_own(own)
 		{}
 		BSTR_t(BSTR_t const& rhs)
-			:m_str(SysAllocString(rhs))
+			:m_str(Duplicate(rhs.m_str))
 			,m_own(true)
 		{}
 		BSTR_t(BSTR_t&& rhs) noexcept
@@ -52,7 +61,7 @@ namespace pr
 		{
 			if (&rhs == this) return *this;
 			if (m_str && m_own) SysFreeString(m_str);
-			m_str = SysAllocString(rhs.m_str);
+			m_str = Duplicate(rhs.m_str);
 			m_own = true;
 			return *this;
 		}
@@ -87,3 +96,77 @@ namespace pr
 		}
 	};
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+
+namespace pr::unittests
+{
+	// Copy construction should keep every code unit because BSTR length is explicit.
+	PRUnitTest(BstrCopyConstructionPreservesEmbeddedNul)
+	{
+		using namespace pr;
+
+		wchar_t const src[] = { L'a', L'\0', L'b' };
+		UINT const src_len = static_cast<UINT>(sizeof(src) / sizeof(src[0]));
+
+		BSTR_t original(SysAllocStringLen(src, src_len), true);
+		BSTR_t copy(original);
+
+		PR_EXPECT(SysStringLen(copy.m_str) == src_len);
+		for (UINT i = 0; i != src_len; ++i)
+			PR_EXPECT(copy.m_str[i] == src[i]);
+	}
+
+	// Copy assignment and self-assignment should leave the full BSTR content intact.
+	PRUnitTest(BstrCopyAssignmentPreservesEmbeddedNul)
+	{
+		using namespace pr;
+
+		wchar_t const src[] = { L'a', L'\0', L'b' };
+		UINT const src_len = static_cast<UINT>(sizeof(src) / sizeof(src[0]));
+
+		BSTR_t original(SysAllocStringLen(src, src_len), true);
+		BSTR_t copy;
+
+		copy = original;
+		PR_EXPECT(SysStringLen(copy.m_str) == src_len);
+		for (UINT i = 0; i != src_len; ++i)
+			PR_EXPECT(copy.m_str[i] == src[i]);
+
+		copy = copy;
+		PR_EXPECT(SysStringLen(copy.m_str) == src_len);
+		for (UINT i = 0; i != src_len; ++i)
+			PR_EXPECT(copy.m_str[i] == src[i]);
+	}
+
+	// Move, attach, and null cases should remain length-safe and keep ownership state predictable.
+	PRUnitTest(BstrMoveAttachAndNullBehaviour)
+	{
+		using namespace pr;
+
+		wchar_t const src[] = { L'a', L'\0', L'b' };
+		UINT const src_len = static_cast<UINT>(sizeof(src) / sizeof(src[0]));
+
+		BSTR raw = SysAllocStringLen(src, src_len);
+		BSTR_t attached(raw, false);
+		BSTR_t moved(std::move(attached));
+
+		PR_EXPECT(SysStringLen(moved.m_str) == src_len);
+		for (UINT i = 0; i != src_len; ++i)
+			PR_EXPECT(moved.m_str[i] == src[i]);
+		PR_EXPECT(attached.m_str == nullptr);
+		PR_EXPECT(attached.m_own == false);
+
+		BSTR_t null_value;
+		BSTR_t null_copy(null_value);
+		PR_EXPECT(null_copy.m_str == nullptr);
+
+		BSTR_t null_assigned;
+		null_assigned = null_value;
+		PR_EXPECT(null_assigned.m_str == nullptr);
+
+		SysFreeString(raw);
+	}
+}
+#endif

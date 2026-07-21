@@ -40,6 +40,7 @@
 #include "pr/common/base64.h"
 #include "pr/common/bit_data.h"
 #include "pr/common/bit_fields.h"
+#include "pr/common/bstr_t.h"
 #include "pr/common/cancel_token.h"
 #include "pr/common/coalesce.h"
 #include "pr/common/command_line.h"
