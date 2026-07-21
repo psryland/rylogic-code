@@ -41,6 +41,47 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(norm.direction(), V4(0, 0, 1, 0)));
 		}
 
+		// Verify that the best-fit plane passes through the input points, and that reversing
+		// the winding only flips the sign of the signed distance while preserving the magnitude.
+		PRUnitTestMethod(FromBestFit, float, double)
+		{
+			using V4 = Vec4<T>;
+			using P = Plane3<T>;
+
+			V4 const points_ccw[] =
+			{
+				V4(0, 0, 5, 1),
+				V4(1, 0, 5, 1),
+				V4(1, 1, 5, 1),
+				V4(0, 1, 5, 1),
+			};
+			V4 const points_cw[] =
+			{
+				V4(0, 0, 5, 1),
+				V4(0, 1, 5, 1),
+				V4(1, 1, 5, 1),
+				V4(1, 0, 5, 1),
+			};
+			auto const origin = V4(0, 0, 0, 1);
+
+			auto check = [&](auto const& points, T expected_signed_distance)
+			{
+				auto plane = P::FromBestFit(points);
+
+				// Every input point should satisfy the plane equation.
+				for (auto const& point : points)
+					PR_EXPECT(FEql(Distance(plane, point), T(0)));
+
+				// The signed distance changes with winding, but the geometric distance does not.
+				auto signed_distance = Distance(plane, origin);
+				PR_EXPECT(FEql(signed_distance, expected_signed_distance));
+				PR_EXPECT(FEql(Abs(signed_distance), T(5)));
+			};
+
+			check(points_ccw, T(-5));
+			check(points_cw, T(5));
+		}
+
 		PRUnitTestMethod(NormaliseTest, float, double)
 		{
 			using V4 = Vec4<T>;
