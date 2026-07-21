@@ -531,6 +531,23 @@ namespace pr::algorithm::fft::tests
 			err = Log10RMSError(expectr.data(), expecti.data(), actualr.data(), actuali.data(), n);
 		}
 
+		// Length one reaches the bit-reversal path with zero levels, so keep that boundary covered directly.
+		PRUnitTestMethod(LengthOneRegression)
+		{
+			std::vector<double> inputr{ 1.25 };
+			std::vector<double> inputi{ -0.5 };
+			std::vector<double> actualr(1);
+			std::vector<double> actuali(1);
+
+			DiscreteFourierTransform(inputr.data(), inputi.data(), actualr.data(), actuali.data(), 1);
+			PR_EXPECT(actualr[0] == inputr[0]);
+			PR_EXPECT(actuali[0] == inputi[0]);
+
+			InverseDiscreteFourierTransform(actualr.data(), actuali.data(), actualr.data(), actuali.data(), 1);
+			PR_EXPECT(actualr[0] == inputr[0]);
+			PR_EXPECT(actuali[0] == inputi[0]);
+		}
+
 		PRUnitTestMethod(DFTAndiDFTTests)
 		{
 			double max_err0 = -99.0, max_err1 = -99.0; //db
