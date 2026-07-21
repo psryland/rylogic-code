@@ -24,6 +24,13 @@ namespace pr::console
 	template <typename Char> class Console;
 	using HandlerFunction = BOOL(__stdcall*)(DWORD ctrl_type);
 
+#if PR_UNITTESTS
+	namespace tests
+	{
+		struct TestClass_ConsoleTests;
+	}
+#endif
+
 	#pragma region Enumerations
 
 	enum class EEvent :WORD
@@ -462,6 +469,9 @@ namespace pr::console
 		friend struct CursorScope;
 		friend struct ColourScope;
 		friend Pad;
+#if PR_UNITTESTS
+		friend struct tests::TestClass_ConsoleTests;
+#endif
 
 		void Check(int result, char const* msg) const
 		{
@@ -1852,3 +1862,28 @@ namespace pr
 	// Singleton access to the console
 	inline Console<>& cons() { static Console<> s_cons; return s_cons; }
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+
+namespace pr::console::tests
+{
+	PRUnitTestClass(ConsoleTests)
+	{
+		// Exercise the private helper without opening a live console window.
+		PRUnitTestMethod(CloseHandleUsesGlobalApi)
+		{
+			using Console = pr::Console<char>;
+			alignas(Console) unsigned char storage[sizeof(Console)] = {};
+			auto* console = reinterpret_cast<Console*>(&storage);
+
+			auto handle = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+			PR_EXPECT(handle != nullptr);
+
+			console->CloseHandle(handle);
+
+			PR_EXPECT(handle == INVALID_HANDLE_VALUE);
+		}
+	};
+}
+#endif
