@@ -399,14 +399,14 @@ namespace pr::task_graph
 		// 'max_signals' defaults to TaskId::Count if it exists, otherwise must be provided.
 		template <typename TId = TaskId>
 		explicit Graph(int thread_count = 0, int max_signals = static_cast<int>(TId::Count))
-			: m_pool(thread_count)
-			, m_signals(max_signals)
+			: m_signals(max_signals)
 			, m_tasks()
 			, m_pending(0)
 			, m_mutex()
 			, m_cv_done()
 			, m_exceptions()
 			, m_started()
+			, m_pool(thread_count)
 		{}
 		Graph(Graph const&) = delete;
 		Graph& operator =(Graph const&) = delete;
@@ -560,7 +560,6 @@ namespace pr::task_graph
 			}
 		}
 
-		WorkerPool m_pool;
 		std::vector<SignalState> m_signals;
 		std::vector<Task> m_tasks;
 		std::atomic<int> m_pending;
@@ -568,6 +567,15 @@ namespace pr::task_graph
 		std::condition_variable m_cv_done;
 		std::vector<std::exception_ptr> m_exceptions;
 		bool m_started;
+
+		// Declared last so it is destroyed first. Members are destroyed in reverse declaration order, and
+		// a task's completion callback (see Add()) can touch every member above via 'this' from a worker
+		// thread. Tearing any of them down while a worker thread might still resume a task coroutine
+		// (e.g. if the graph is destroyed without a preceding Wait()/Reset() to quiescence) is a
+		// use-after-free: coroutine_handle::destroy() requires the coroutine to be suspended, not actively
+		// executing. Destroying the pool first shuts down and joins every worker thread, so no thread can
+		// still be resuming a task by the time the containers above are torn down.
+		WorkerPool m_pool;
 	};
 }
 
@@ -870,6 +878,61 @@ namespace pr::task_graph::unittests
 		graph.Run();
 
 		PR_EXPECT(sum == 7);
+	}
+
+	PRUnitTest(TaskGraphDestructWhileTaskInFlight)
+	{
+		// Destroying the graph must not tear down task/signal state while a worker thread is still
+		// actively resuming a task coroutine. This starts a task, confirms it is running on a worker
+		// thread, and then destroys the graph *without* calling Wait() first. The task is parked on a
+		// plain (non-coroutine) gate inside the coroutine body, so from the coroutine machine's point of
+		// view it is not suspended and its frame must not be destroyed while the gate blocks it. If the
+		// graph's destructor tears down its task/signal containers before the worker pool has fully shut
+		// down and joined, this races the pool thread destroying/using the same coroutine frame; if it
+		// shuts the pool down (and so joins the worker thread) first, the destructor simply blocks until
+		// the gate is released and then tears down safely. A releaser thread frees the gate shortly after
+		// being started so the destructor call below can only return once the task has actually finished.
+		std::mutex gate_mutex;
+		std::condition_variable gate_cv;
+		bool started = false;
+		bool release = false;
+		bool completed = false;
+
+		auto graph = std::make_unique<Graph<TestId>>(1);
+		graph->Add(TestId::A, [&](auto&) -> Task
+		{
+			{
+				auto lock = std::unique_lock(gate_mutex);
+				started = true;
+				gate_cv.notify_all();
+				gate_cv.wait(lock, [&] { return release; });
+			}
+			completed = true;
+			co_return;
+		});
+
+		graph->Start();
+
+		// Wait for the task to be confirmed running on the worker thread before destroying the graph.
+		{
+			auto lock = std::unique_lock(gate_mutex);
+			gate_cv.wait(lock, [&] { return started; });
+		}
+
+		// Release the gate from another thread shortly after the graph destructor begins tearing down,
+		// so the destructor can only return once the in-flight task has actually finished.
+		auto releaser = std::thread([&]
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(30));
+			auto lock = std::unique_lock(gate_mutex);
+			release = true;
+			gate_cv.notify_all();
+		});
+
+		graph.reset(); // ~Graph() must block here until the worker pool has fully shut down and joined.
+		releaser.join();
+
+		PR_EXPECT(completed);
 	}
 }
 #endif
