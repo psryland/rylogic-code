@@ -4,7 +4,6 @@
 //******************************************
 
 #pragma once
-#include "pr/common/min_max_fix.h"
 
 namespace pr
 {
