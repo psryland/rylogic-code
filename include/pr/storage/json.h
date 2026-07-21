@@ -611,6 +611,34 @@ namespace pr::json
 			return code;
 		}
 
+		// Write a code point as UTF-8 bytes to 'out', advancing the pointer. The caller
+		// is responsible for ensuring 'out' has room for the up-to-4 bytes a code point can produce.
+		inline void Write(code_point_t code_point, char*& out)
+		{
+			if (code_point < 0x80)
+			{
+				*out++ = static_cast<char>(code_point);
+			}
+			else if (code_point < 0x800)
+			{
+				*out++ = static_cast<char>(0xC0 | (code_point >> 6));
+				*out++ = static_cast<char>(0x80 | (code_point & 0x3F));
+			}
+			else if (code_point < 0x10000)
+			{
+				*out++ = static_cast<char>(0xE0 | (code_point >> 12));
+				*out++ = static_cast<char>(0x80 | ((code_point >> 6) & 0x3F));
+				*out++ = static_cast<char>(0x80 | (code_point & 0x3F));
+			}
+			else
+			{
+				*out++ = static_cast<char>(0xF0 | (code_point >> 18));
+				*out++ = static_cast<char>(0x80 | ((code_point >> 12) & 0x3F));
+				*out++ = static_cast<char>(0x80 | ((code_point >> 6) & 0x3F));
+				*out++ = static_cast<char>(0x80 | (code_point & 0x3F));
+			}
+		}
+
 		// True if the first 3 bytes of 'str' are the UTF-8 BOM bytes
 		inline bool IsBOM(std::string_view str)
 		{
@@ -1077,31 +1105,36 @@ namespace pr::json
 				case 't': *out++ = '\t'; break;
 				case 'u':
 				{
+					// 'ptr' is at the 'u'. The preceding '\\' is at 'ptr - 1', so 'ptr - 1' with
+					// length 6 spans the whole "\uXXXX" escape, which is what utf8::Unescape expects.
 					if (end - ptr < 5)
 						throw std::runtime_error("Incomplete unicode escape sequence");
 
-					auto code =
-						((ptr[1] - '0') << 12) +
-						((ptr[2] - '0') << 8) +
-						((ptr[3] - '0') << 4) +
-						((ptr[4] - '0') << 0);
-
-					if (code < 0x80)
-					{
-						*out++ = static_cast<char>(code);
-					}
-					else if (code < 0x800)
-					{
-						*out++ = static_cast<char>(0xC0 | (code >> 6));
-						*out++ = static_cast<char>(0x80 | (code & 0x3F));
-					}
-					else
-					{
-						*out++ = static_cast<char>(0xE0 | (code >> 12));
-						*out++ = static_cast<char>(0x80 | ((code >> 6) & 0x3F));
-						*out++ = static_cast<char>(0x80 | (code & 0x3F));
-					}
+					auto code = utf8::Unescape(std::string_view(ptr - 1, 6));
 					ptr += 4;
+
+					// JSON encodes characters outside the basic multilingual plane (code points > 0xFFFF)
+					// as a pair of UTF-16 surrogates. A high surrogate must be immediately followed by a
+					// low surrogate escape; the pair is combined into the single code point they represent.
+					// A surrogate appearing on its own does not correspond to a valid unicode character.
+					if (code >= 0xD800 && code <= 0xDBFF)
+					{
+						if (end - ptr < 7 || ptr[1] != '\\' || ptr[2] != 'u')
+							throw std::runtime_error("Unpaired UTF-16 surrogate in unicode escape sequence");
+
+						auto low = utf8::Unescape(std::string_view(ptr + 1, 6));
+						if (low < 0xDC00 || low > 0xDFFF)
+							throw std::runtime_error("Unpaired UTF-16 surrogate in unicode escape sequence");
+
+						code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+						ptr += 6;
+					}
+					else if (code >= 0xDC00 && code <= 0xDFFF)
+					{
+						throw std::runtime_error("Unpaired UTF-16 surrogate in unicode escape sequence");
+					}
+
+					utf8::Write(code, out);
 					break;
 				}
 				default:
@@ -1502,6 +1535,24 @@ namespace pr::storage
 			auto root = json::Read(std::string_view{ test_data }, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
 			PR_EXPECT(root["SearchPaths"][0].to<std::string>() == "C:\\Work\\Path");
 			PR_EXPECT(root["EscapedString"].to<std::string>() == "This is a string with a \"quote\" in it");
+		}
+		PRUnitTestMethod(UnescapingUnicode)
+		{
+			// Basic multilingual plane code points, upper and lower case hex digits
+			PR_EXPECT(json::UnescapeString("\\u00E9") == "\xC3\xA9"); // é (U+00E9)
+			PR_EXPECT(json::UnescapeString("\\u00e9") == "\xC3\xA9"); // lower-case hex digits
+			PR_EXPECT(json::UnescapeString("\\u20AC") == "\xE2\x82\xAC"); // € (U+20AC)
+
+			// A UTF-16 surrogate pair combines into a single code point outside the basic multilingual plane
+			PR_EXPECT(json::UnescapeString("\\uD83D\\uDE00") == "\xF0\x9F\x98\x80"); // 😀 (U+1F600)
+
+			// Invalid hex digits are rejected
+			PR_THROWS(json::UnescapeString("\\u00G9"), std::runtime_error);
+
+			// Surrogates that aren't part of a valid pair are rejected
+			PR_THROWS(json::UnescapeString("\\uD83D"), std::runtime_error); // High surrogate with nothing following
+			PR_THROWS(json::UnescapeString("\\uD83D\\u0041"), std::runtime_error); // High surrogate followed by a non-surrogate
+			PR_THROWS(json::UnescapeString("\\uDE00"), std::runtime_error); // Lone low surrogate
 		}
 		PRUnitTestMethod(ReadingStream)
 		{
