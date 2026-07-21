@@ -464,28 +464,39 @@ namespace pr::algorithm::umap
 			// Full symmetric eigendecomposition (gated by spectral_init_max_n in caller).
 			auto eig = EigenSymmetric(M);
 
-			// Skip column 0 (trivial all-ones null of L); take columns [1..dim].
-			auto emb = std::vector<double>(static_cast<size_t>(n) * dim);
+			// The Laplacian only provides n-1 non-trivial eigenvectors. If the caller asks for
+			// more dimensions, keep the extra components from the seeded random init so the output
+			// shape stays fixed and the optimiser still starts deterministically.
+			auto emb = RandomInit(n, dim, seed);
+			auto spectral_dim = (std::min)(dim, n - 1);
+
+			// Skip column 0 (trivial all-ones null of L); take the first spectral_dim columns [1..].
 			for (int i = 0; i != n; ++i)
 			{
-				for (int d = 0; d != dim; ++d)
+				for (int d = 0; d != spectral_dim; ++d)
 					emb[i * dim + d] = eig.vectors(i, d + 1);
 			}
 
-			// Rescale so max magnitude is 10 (UMAP convention).
+			// Rescale and jitter only the spectral dimensions; the padded random dimensions already
+			// have the standard UMAP initial scale.
 			auto max_abs = 0.0;
-			for (auto v : emb)
-				max_abs = (std::max)(max_abs, std::abs(v));
+			for (int i = 0; i != n; ++i)
+				for (int d = 0; d != spectral_dim; ++d)
+					max_abs = (std::max)(max_abs, std::abs(emb[i * dim + d]));
 			if (max_abs > 0)
 			{
 				auto s = 10.0 / max_abs;
-				for (auto& v : emb) v *= s;
+				for (int i = 0; i != n; ++i)
+					for (int d = 0; d != spectral_dim; ++d)
+						emb[i * dim + d] *= s;
 			}
 
 			// Break ties / symmetries with a tiny jitter.
 			auto rng = std::minstd_rand(static_cast<std::uint32_t>(seed));
 			auto uni = std::uniform_real_distribution<double>(-0.5, 0.5);
-			for (auto& v : emb) v += 1e-4 * uni(rng);
+			for (int i = 0; i != n; ++i)
+				for (int d = 0; d != spectral_dim; ++d)
+					emb[i * dim + d] += 1e-4 * uni(rng);
 
 			return emb;
 		}
@@ -759,6 +770,36 @@ namespace pr::algorithm
 			}
 			auto corr = sxy / std::sqrt(sxx * syy);
 			PR_EXPECT(std::abs(corr) > 0.95);
+		}
+		PRUnitTestMethod(EmbedPadsSpectralInitWhenDimExceedsNodeCount)
+		{
+			// A connected graph with fewer nodes than requested embedding dimensions must still
+			// produce a full output vector. The spectral part should be used where available, and
+			// the remaining dimensions stay deterministically seeded.
+			struct Pt { double x, y; };
+			Pt pts[] =
+			{
+				{ 0.0, 0.0 },
+				{ 1.0, 0.0 },
+			};
+
+			auto cfg = umap::Config{};
+			cfg.dimensions = 3;
+			cfg.neighbor_count = 2;
+			cfg.spectral_init = true;
+			cfg.epochs = 1;
+			cfg.random_seed = 7;
+
+			auto result = umap::Embed(pts, [](Pt const& a, Pt const& b)
+			{
+				auto dx = a.x - b.x;
+				auto dy = a.y - b.y;
+				return std::sqrt(dx * dx + dy * dy);
+			}, cfg);
+
+			PR_EXPECT(result.size() == 2);
+			PR_EXPECT(std::isfinite(result[0].x) && std::isfinite(result[0].y) && std::isfinite(result[0].z));
+			PR_EXPECT(std::isfinite(result[1].x) && std::isfinite(result[1].y) && std::isfinite(result[1].z));
 		}
 	};
 }
