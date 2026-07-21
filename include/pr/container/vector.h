@@ -488,6 +488,17 @@ namespace pr
 			}
 		}
 
+		// Construct 'count' value-initialised elements in already-allocated storage.
+		// Trivially-copyable types still go through construction here so the tail is a
+		// real value-initialised object, not just a block of bytes that happens to look empty.
+		void value_init(Type* first, size_type count)
+		{
+			if constexpr (type_is_pod_v)
+				traits::fill_constr(alloc(), first, count, Type());
+			else
+				traits::construct(alloc(), first, count);
+		}
+
 	public:
 
 		// construct empty collection
@@ -506,12 +517,22 @@ namespace pr
 			,m_alloc(allocator)
 		{}
 
-		// construct from count * Type()
+		// construct from count value-initialised elements
 		explicit vector(size_type count)
 			:vector()
 		{
-			ensure_space(count, false);
-			traits::fill_constr(alloc(), m_ptr, count, Type());
+			if (count != 0)
+			{
+				if constexpr (std::is_default_constructible_v<Type>)
+				{
+					ensure_space(count, false);
+					value_init(m_ptr, count);
+				}
+				else
+				{
+					throw std::runtime_error("pr::vector<> cannot construct a count of a non-default-constructible type");
+				}
+			}
 			m_count = count;
 		}
 
@@ -777,13 +798,17 @@ namespace pr
 		{
 			if (m_count < newsize)
 			{
-				ensure_space(newsize, false);
-
-				// POD elements are stored as raw bytes, so copy a zero-initialised value into the new slots.
-				if constexpr (type_is_pod_v)
-					traits::fill_constr(alloc(), m_ptr + m_count, newsize - m_count, Type());
+				// Growth needs a real default value. Shrink-only calls still compile for
+				// non-default-constructible types because they never enter this branch.
+				if constexpr (std::is_default_constructible_v<Type>)
+				{
+					ensure_space(newsize, false);
+					value_init(m_ptr + m_count, newsize - m_count);
+				}
 				else
-					traits::construct(alloc(), m_ptr + m_count, newsize - m_count);
+				{
+					throw std::runtime_error("pr::vector<> cannot grow a non-default-constructible type");
+				}
 			}
 			else if (m_count > newsize)
 			{
@@ -1423,6 +1448,24 @@ namespace pr::container
 		static_assert(std::is_move_assignable<NonCopyable>::value);
 		static_assert(!std::is_copy_assignable<NonCopyable>::value);
 
+		// A trivially-copyable type without a default constructor.
+		struct TrivialNoDefault
+		{
+			int val;
+
+			TrivialNoDefault() = delete;
+			explicit TrivialNoDefault(int v)
+				:val(v)
+			{}
+
+			friend bool operator == (TrivialNoDefault const& lhs, int rhs)
+			{
+				return lhs.val == rhs;
+			}
+		};
+		static_assert(std::is_trivially_copyable_v<TrivialNoDefault>);
+		static_assert(!std::is_default_constructible_v<TrivialNoDefault>);
+
 		// Leaked objects checker
 		struct Check
 		{
@@ -1443,6 +1486,7 @@ namespace pr::container
 		using Array0 = pr::vector<Type, 8, false>;
 		using Array1 = pr::vector<Type, 16, true>;
 		using Array2 = pr::vector<NonCopyable, 4, false>;
+		using Array3 = pr::vector<TrivialNoDefault, 8, false>;
 
 		// A number of items that ensures the non-local storage is tested
 		inline static constexpr int Many = static_cast<int>(Array0::local_capacity + 2);
@@ -1907,6 +1951,20 @@ namespace pr::container
 					PR_EXPECT(arr[0].val == 7);
 					for (int i = 1; i != 4; ++i)
 						PR_EXPECT(arr[i].val == 0);
+				}
+			}{
+				Check chk;
+				{
+					// Non-default-constructible, trivially-copyable types can shrink, but
+					// growth is rejected explicitly instead of leaving raw storage behind.
+					Array3 arr;
+					arr.emplace_back(7);
+					arr.emplace_back(8);
+					arr.resize(1);
+
+					PR_EXPECT(arr.size() == 1U);
+					PR_EXPECT(arr[0] == 7);
+					PR_THROWS(arr.resize(2), std::runtime_error);
 				}
 			}
 		}
