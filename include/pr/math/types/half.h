@@ -12,6 +12,23 @@ namespace pr::math
 	using half_t = unsigned short;
 	using Half4 = Vec4<half_t>;
 
+	namespace half_impl
+	{
+		// Round an integer right shift using IEEE round-to-nearest-even so the constexpr path matches the runtime F16C conversion.
+		constexpr uint32_t RoundShiftRightNearestEven(uint32_t value, uint32_t shift) noexcept
+		{
+			if (shift == 0)
+				return value;
+
+			auto const truncated = value >> shift;
+			auto const remainder_mask = (uint32_t{1} << shift) - 1u;
+			auto const remainder = value & remainder_mask;
+			auto const halfway = uint32_t{1} << (shift - 1u);
+			auto const round_up = remainder > halfway || (remainder == halfway && (truncated & 1u) != 0u);
+			return truncated + static_cast<uint32_t>(round_up);
+		}
+	}
+
 	#define PR_MATH_DEFINE_TYPE(element)\
 	template <> struct vector_traits<Vec4<element>>\
 		: vector_traits_base<element, element, 4>\
@@ -25,63 +42,96 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(half_t);
 	#undef PR_MATH_DEFINE_TYPE
 
-	// Convert between 32-bit float (1s7e24m) and 16-bit float (1s5e10m) at compile time
+	// Convert a 32-bit float to IEEE binary16 during constant evaluation. The runtime path keeps using F16C so this code only needs to mirror the hardware bit pattern.
 	constexpr half_t F32toF16CT(float f32) noexcept
 	{
-		// see https://gist.github.com/martin-kallman/5049614 (Note comments though, Martin's implementation has a bug)
-		// see https://github.com/numpy/numpy/blob/master/numpy/core/src/npymath/halffloat.c#L466
+		auto const bits = std::bit_cast<uint32_t>(f32);
+		auto const sign_bits = static_cast<half_t>((bits >> 16) & 0x8000u);
+		auto const exponent_bits = static_cast<uint32_t>((bits >> 23) & 0xffu);
+		auto const mantissa_bits = static_cast<uint32_t>(bits & 0x007fffffu);
 
-		// Martin Kallman (mostly. Some parts nicked from numpy)
-		//
-		// Fast single-precision to half-precision floating point conversion
-		//  - Supports signed zero, denormals-as-zero (DAZ), flush-to-zero (FTZ),
-		//    clamp-to-max
-		//  - Does not support infinities or NaN
-		//  - Few, partially pipeline-able, non-branching instructions,
-		//  - Core operations ~10 clock cycles on modern x86-64
-		auto u = std::bit_cast<uint32_t>(f32);
-		auto t1 = static_cast<uint32_t>(u & 0x7fffffff);        // Non-sign bits
-		auto t2 = static_cast<uint32_t>(u & 0x80000000);        // Sign bit
-		auto t3 = static_cast<uint32_t>(u & 0x7f800000);        // Exponent
-		auto t4 = static_cast<uint32_t>(u & 0x007fffffu) >> 13; // NaN signal >> 13
+		// Preserve infinities and carry a quiet NaN payload into the half mantissa so constant evaluation classifies the same way as the F16C path.
+		if (exponent_bits == 0xffu)
+		{
+			if (mantissa_bits == 0u)
+				return static_cast<half_t>(sign_bits | 0x7c00u);
 
-		t1 >>= 13;                                     // Align mantissa on MSB
-		t2 >>= 16;                                     // Shift sign bit into position
-		t1 -= 0x1c000;                                 // Adjust bias
-		t1 = (t3 < 0x38800000) ? 0 : t1;               // Flush-to-zero
-		t1 = (t3 > 0x47000000) ? 0x7c00u : t1;         // Clamp-to-max (inf = 0x7c00u, max = 0x7bffu)
-		t1 = (t3 == 0x7f800000) ? (0x7c00u + t4) : t1; // NaN or Inf (t4 == 0)
-		t1 = (t3 == 0) ? 0 : t1;                       // Denormals-as-zero
-		t1 |= t2;                                      // Re-insert sign bit
-		return static_cast<half_t>(t1);
+			auto nan_payload = static_cast<half_t>(mantissa_bits >> 13);
+			nan_payload = static_cast<half_t>(nan_payload | 0x0200u);
+			return static_cast<half_t>(sign_bits | 0x7c00u | nan_payload);
+		}
+
+		// Float32 subnormals are far smaller than the binary16 range, so they only contribute the sign when rounded.
+		if (exponent_bits == 0u)
+			return sign_bits;
+
+		auto const exponent = static_cast<int>(exponent_bits) - 127;
+		if (exponent > 15)
+			return static_cast<half_t>(sign_bits | 0x7c00u);
+
+		auto const significand_bits = static_cast<uint32_t>(0x00800000u | mantissa_bits);
+		if (exponent >= -14)
+		{
+			// Round the 24-bit float significand into the 11-bit half significand, then fold any carry into the exponent.
+			auto rounded_significand = half_impl::RoundShiftRightNearestEven(significand_bits, 13);
+			auto half_exponent = static_cast<uint32_t>(exponent + 15);
+			if (rounded_significand == 0x0800u)
+			{
+				rounded_significand = 0x0400u;
+				++half_exponent;
+				if (half_exponent >= 0x1fu)
+					return static_cast<half_t>(sign_bits | 0x7c00u);
+			}
+
+			return static_cast<half_t>(sign_bits | (half_exponent << 10) | (rounded_significand & 0x03ffu));
+		}
+
+		// Values below the normal range become subnormals or signed zero, still using round-to-nearest-even.
+		if (exponent < -24)
+			return sign_bits;
+
+		auto rounded_mantissa = half_impl::RoundShiftRightNearestEven(significand_bits, static_cast<uint32_t>(-exponent - 1));
+		if (rounded_mantissa == 0x0400u)
+			return static_cast<half_t>(sign_bits | 0x0400u);
+
+		return static_cast<half_t>(sign_bits | rounded_mantissa);
 	}
+	// Convert an IEEE binary16 value to 32-bit float during constant evaluation so constexpr code sees the same categories and payload layout as the runtime path.
 	constexpr float F16toF32CT(half_t f16) noexcept
 	{
-		// Martin Kallman (mostly. Some parts nicked from numpy)
-		//
-		// Fast half-precision to single-precision floating point conversion
-		//  - Supports signed zero and denormals-as-zero (DAZ)
-		//  - Does not support infinities or NaN
-		//  - Few, partially pipeline-able, non-branching instructions,
-		//  - Core operations ~6 clock cycles on modern x86-64
+		auto const sign_bits = static_cast<uint32_t>(f16 & 0x8000u) << 16;
+		auto const exponent_bits = static_cast<uint32_t>((f16 >> 10) & 0x1fu);
+		auto const mantissa_bits = static_cast<uint32_t>(f16 & 0x03ffu);
 
-		auto t1 = static_cast<uint32_t>(f16 & 0x7fff);      // Non-sign bits
-		auto t2 = static_cast<uint32_t>(f16 & 0x8000);      // Sign bit
-		auto t3 = static_cast<uint32_t>(f16 & 0x7c00);      // Exponent
-		auto t4 = static_cast<uint32_t>(t1 - 0x7c00) << 13; // NaN signal
+		if (exponent_bits == 0x1fu)
+			return std::bit_cast<float>(sign_bits | 0x7f800000u | (mantissa_bits << 13));
 
-		t1 <<= 13;                                         // Align mantissa on MSB
-		t2 <<= 16;                                         // Shift sign bit into position
-		t1 += 0x38000000;                                  // Adjust bias
-		t1 = t3 == 0 ? 0 : t1;                             // Denormals-as-zero
-		t1 = t3 >= 0x7c00u ? 0x7f800000u + t4 : t1;        // NaN or Inf (t4 == 0)
-		t1 |= t2;                                          // Re-insert sign bit
-		return std::bit_cast<float>(t1);
+		if (exponent_bits != 0u)
+			return std::bit_cast<float>(sign_bits | ((exponent_bits + 112u) << 23) | (mantissa_bits << 13));
+
+		if (mantissa_bits == 0u)
+			return std::bit_cast<float>(sign_bits);
+
+		// Binary16 subnormals need renormalising before the float exponent can be reconstructed.
+		auto normalised_mantissa = mantissa_bits;
+		auto exponent = -14;
+		while ((normalised_mantissa & 0x0400u) == 0u)
+		{
+			normalised_mantissa <<= 1;
+			--exponent;
+		}
+		normalised_mantissa &= 0x03ffu;
+		return std::bit_cast<float>(sign_bits | (static_cast<uint32_t>(exponent + 127) << 23) | (normalised_mantissa << 13));
 	}
 
-	// Convert between 32-bit float (1s7e24m) and 16-bit float (1s5e10m)
-	inline half_t F32toF16(float f32) noexcept
+	// Convert between 32-bit float (1s8e23m) and IEEE binary16 (1s5e10m). Constant evaluation uses the scalar implementation while runtime keeps the F16C fast path.
+	inline constexpr half_t F32toF16(float f32) noexcept
 	{
+		if consteval
+		{
+			return F32toF16CT(f32);
+		}
+
 		#if PR_MATHS_USE_INTRINSICS
 		auto vecf32 = _mm_set_ps1(f32);
 		auto vecf16 = _mm_cvtps_ph(vecf32, _MM_FROUND_TO_NEAREST_INT);
@@ -90,8 +140,14 @@ namespace pr::math
 		return F32toF16CT(f32);
 		#endif
 	}
-	inline float F16toF32(half_t f16) noexcept
+	// Convert between IEEE binary16 (1s5e10m) and 32-bit float (1s8e23m). The runtime path still uses F16C where available.
+	inline constexpr float F16toF32(half_t f16) noexcept
 	{
+		if consteval
+		{
+			return F16toF32CT(f16);
+		}
+
 		#if PR_MATHS_USE_INTRINSICS
 		auto vecf16 = _mm_set_epi16(0, 0, 0, 0, 0, 0, 0, static_cast<short>(f16));
 		auto vecf32 = _mm_cvtph_ps(vecf16);
@@ -102,10 +158,8 @@ namespace pr::math
 	}
 
 	// Return 'v' converted to half size floats
-	template <VectorTypeFP Vec> constexpr Half4 pr_vectorcall F32toF16(Vec v) noexcept
+	template <VectorTypeFP Vec> requires (vector_traits<std::remove_cv_t<Vec>>::dimension == 4) constexpr Half4 pr_vectorcall F32toF16(Vec v) noexcept
 	{
-		using vt = vector_traits<Vec>;
-
 		auto fallback = [&]() constexpr { return Half4{ F32toF16(static_cast<float>(vec(v).x)), F32toF16(static_cast<float>(vec(v).y)), F32toF16(static_cast<float>(vec(v).z)), F32toF16(static_cast<float>(vec(v).w)) }; };
 		if consteval
 		{
@@ -126,7 +180,7 @@ namespace pr::math
 	}
 
 	// Return 'v' to full size floats/doubles
-	template <VectorTypeFP Vec> constexpr Vec pr_vectorcall F16toF32(Half4 v) noexcept
+	template <VectorTypeFP Vec> requires (vector_traits<std::remove_cv_t<Vec>>::dimension == 4) constexpr Vec pr_vectorcall F16toF32(Half4 v) noexcept
 	{
 		using vt = vector_traits<Vec>;
 
@@ -255,18 +309,18 @@ namespace pr::math::tests
 		PRUnitTestMethod(ConstexprTests)
 		{
 			// Constexpr round-trip
-			constexpr auto h = F32toF16CT(1.0f);
-			constexpr auto f = F16toF32CT(h);
+			constexpr auto h = F32toF16(1.0f);
+			constexpr auto f = F16toF32(h);
 			static_assert(f == 1.0f);
 
 			// Constexpr zero
-			constexpr auto hz = F32toF16CT(0.0f);
-			constexpr auto fz = F16toF32CT(hz);
+			constexpr auto hz = F32toF16(0.0f);
+			constexpr auto fz = F16toF32(hz);
 			static_assert(fz == 0.0f);
 
 			// Constexpr negative
-			constexpr auto hn = F32toF16CT(-1.0f);
-			constexpr auto fn = F16toF32CT(hn);
+			constexpr auto hn = F32toF16(-1.0f);
+			constexpr auto fn = F16toF32(hn);
 			static_assert(fn == -1.0f);
 		}
 		PRUnitTestMethod(BoundaryTests)
