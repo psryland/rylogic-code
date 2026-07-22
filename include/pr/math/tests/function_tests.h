@@ -543,6 +543,10 @@ namespace pr::math::tests
 		PRUnitTestMethod(ISqrtBoolTests
 		, bool
 		) {
+			static_assert(std::is_same_v<decltype(ISqrt(false)), bool>);
+			static_assert(std::is_same_v<decltype(ISqrt(true)), bool>);
+			static_assert(std::is_same_v<decltype(CompISqrt(false)), bool>);
+			static_assert(std::is_same_v<decltype(CompISqrt(true)), bool>);
 			static_assert(ISqrt(false) == false);
 			static_assert(ISqrt(true) == true);
 			static_assert(CompISqrt(false) == false);
