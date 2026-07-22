@@ -1912,11 +1912,49 @@ namespace pr::math
 	{
 		return 1 << n;
 	}
-	template <ScalarType S> constexpr S Pow(S x, int y) noexcept
+
+	// Raise 'x' to an integer power. For floating-point types, negative exponents return the
+	// reciprocal (Pow(x, -n) == 1/Pow(x, n)); for integral types they throw std::domain_error.
+	template <ScalarType S>
+	constexpr S Pow(S x, int y) noexcept(ScalarTypeFP<S>)
 	{
-		return y == 0 ? 1 : x * Pow(x, y - 1);
+		// Integral types do not support negative exponents.
+		if constexpr (std::integral<S>)
+		{
+			if (y < 0)
+				throw std::domain_error("Pow: negative exponent is undefined for integral types");
+		}
+
+		// Convert to unsigned magnitude. Unsigned subtraction yields the magnitude for every
+		// negative y, including INT_MIN, without signed overflow.
+		bool const negative = (y < 0);
+		unsigned exp = negative ? (0u - static_cast<unsigned>(y)) : static_cast<unsigned>(y);
+
+		// Exponentiation by squaring: square the base only while another bit remains,
+		// so the last iteration never performs a redundant multiplication.
+		S result = S(1);
+		for (;;)
+		{
+			if (exp & 1u)
+				result *= x;
+			exp >>= 1u;
+			if (exp == 0u)
+				break;
+			x *= x;
+		}
+
+		// Floating-point negative exponents return the reciprocal.
+		if constexpr (std::floating_point<S>)
+		{
+			if (negative)
+				return S(1) / result;
+		}
+		return result;
 	}
-	template <VectorType Vec> constexpr Vec pr_vectorcall Pow(Vec v, int y) noexcept
+
+	// Raise each component of 'v' using the scalar Pow contract.
+	template <VectorType Vec>
+	constexpr Vec pr_vectorcall Pow(Vec v, int y) noexcept(VectorTypeFP<Vec>)
 	{
 		using vt = vector_traits<Vec>;
 		Vec res = {};

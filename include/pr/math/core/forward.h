@@ -8,6 +8,7 @@
 #include <span>
 #include <ranges>
 #include <limits>
+#include <stdexcept>
 #include <memory>
 #include <array>
 #include <vector>
