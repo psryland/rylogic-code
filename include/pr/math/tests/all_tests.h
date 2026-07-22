@@ -9,6 +9,7 @@
 #include "pr/math/tests/vector3_tests.h"
 #include "pr/math/tests/vector4_tests.h"
 #include "pr/math/tests/vector8_tests.h"
+#include "pr/math/tests/generic_constructor_tests.h"
 #include "pr/math/tests/matrix2x2_tests.h"
 #include "pr/math/tests/matrix3x3_tests.h"
 #include "pr/math/tests/matrix4x4_tests.h"

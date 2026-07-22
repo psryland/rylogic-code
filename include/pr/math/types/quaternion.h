@@ -48,11 +48,32 @@ namespace pr::math
 			, z(z_)
 			, w(w_)
 		{}
-		constexpr Quat(std::ranges::random_access_range auto&& v) noexcept
-			:Quat(v[0], v[1], v[2], v[3])
-		{}
-		constexpr Quat(VectorTypeN<S, 4> auto v) noexcept
-			:Quat(vec(v).x, vec(v).y, vec(v).z, vec(v).w)
+		// Build from a random-access range. Caller guarantees at least 4 readable elements;
+		// for sized ranges the precondition is checked with pr_assert.
+		template <std::ranges::random_access_range R>
+			requires (!VectorType<std::remove_cvref_t<R>>)
+			      && std::convertible_to<std::ranges::range_reference_t<R>, S>
+		constexpr Quat(R&& v) noexcept
+		{
+			if constexpr (std::ranges::sized_range<R>)
+				pr_assert(std::ranges::size(v) >= 4 && "range must have at least 4 elements");
+			auto it = std::ranges::begin(v);
+			x = static_cast<S>(*it);
+			y = static_cast<S>(*(it + 1));
+			z = static_cast<S>(*(it + 2));
+			w = static_cast<S>(*(it + 3));
+		}
+
+		// Build from a same-scalar external rank-1 vector of dimension 4.
+		// Uses pr::math::vec() (fully qualified) because Quat has a data member
+		// named 'vec' that would otherwise shadow the free function.
+		constexpr Quat(Rank1VecSN<S, 4> auto v) noexcept
+			:Quat(
+				static_cast<S>(pr::math::vec(v).x),
+				static_cast<S>(pr::math::vec(v).y),
+				static_cast<S>(pr::math::vec(v).z),
+				static_cast<S>(pr::math::vec(v).w)
+			)
 		{}
 		constexpr Quat(intrinsic_t vec_) noexcept requires (!NoIntrinsic)
 			:vec(vec_)
