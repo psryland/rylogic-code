@@ -2210,18 +2210,23 @@ namespace pr::math
 		return static_cast<uint32_t>(n);
 	}
 
-	// Return the greatest common factor between 'a' and 'b'
+	// Return the greatest common factor (gcd) of |a| and |b|.
+	// If gcd = 1, a and b are co-prime.
+	// gcd(0, n) = gcd(n, 0) = n; gcd(0, 0) = 0.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::gcd).
 	template <std::integral S> constexpr S GreatestCommonFactor(S a, S b) noexcept
 	{
-		// Uses the Euclidean algorithm. If the greatest common factor is 1, then 'a' and 'b' are co-prime
-		while (b) { auto t = b; b = a % b; a = t; }
-		return a;
+		return std::gcd(a, b);
 	}
 
-	// Return the least common multiple between 'a' and 'b'
+	// Return the least common multiple of a and b.
+	// lcm(0, n) = lcm(n, 0) = 0 by convention.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::lcm).
 	template <std::integral S> constexpr S LeastCommonMultiple(S a, S b) noexcept
 	{
-		return (a * b) / GreatestCommonFactor(a, b);
+		return std::lcm(a, b);
 	}
 
 	// Convert a decimal back to a rational. Returns [numerator, denominator]
