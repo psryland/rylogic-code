@@ -383,34 +383,15 @@ namespace pr::math
 		}
 		friend constexpr Vec4 pr_vectorcall operator % (Vec4 lhs, Vec4 rhs) noexcept
 		{
-			// Don't check for divide by zero by default. For floats +inf/-inf are valid results
-			if consteval
-			{
-				return math::operator%<Vec4>(lhs, rhs);
-			}
-			else
-			{
-				if constexpr (IntrinsicF)
-				{
-					auto div = _mm_div_ps(lhs.vec, rhs.vec);                                // a / b
-					auto trunc = _mm_round_ps(div, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC); // trunc(a / b)
-					auto prod = _mm_mul_ps(trunc, rhs.vec);                                 // trunc(a / b) * b
-					auto rem = _mm_sub_ps(lhs.vec, prod);                                   // a - b * trunc(a / b) => fmod
-					return Vec4{ rem };
-				}
-				else if constexpr (IntrinsicD)
-				{
-					auto div = _mm256_div_pd(lhs.vec, rhs.vec);                                // a / b
-					auto trunc = _mm256_round_pd(div, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC); // trunc(a / b)
-					auto prod = _mm256_mul_pd(trunc, rhs.vec);                                 // trunc(a / b) * b
-					auto rem = _mm256_sub_pd(lhs.vec, prod);                                   // a - b * trunc(a / b) => fmod
-					return Vec4{ rem };
-				}
-				else
-				{
-					return math::operator%<Vec4>(lhs, rhs);
-				}
-			}
+			// Component-wise modulus: std::fmod semantics for floating-point types, built-in %
+			// for integers. There is no correct SIMD fast path for floating-point modulus:
+			// the approximation a − trunc(a/b)·b gives the wrong answer when |a/b| exceeds
+			// the mantissa's integer representable range, because the float-precision quotient
+			// is rounded before truncation. For example, Vec4<float>(1e20f) % 3 yields 0
+			// instead of the correct 2. std::fmod avoids this by carrying the exact integer
+			// quotient internally. Both float and integer cases are handled correctly by the
+			// generic component-wise path.
+			return math::operator%<Vec4>(lhs, rhs);
 		}
 		#pragma endregion
 

@@ -184,12 +184,25 @@ namespace pr::math
 	}
 	template <VectorType Vec> constexpr Vec pr_vectorcall operator % (typename vector_traits<Vec>::element_t lhs, Vec rhs) noexcept
 	{
+		// Scalar-left component-wise modulus. Floating-point types require std::fmod because
+		// the built-in % operator is not defined for float/double — they would be a compile
+		// error. Integer types use the built-in %.
 		using vt = vector_traits<Vec>;
 		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = lhs % vec(rhs).x;
-		if constexpr (vt::dimension > 1) vec(res).y = lhs % vec(rhs).y;
-		if constexpr (vt::dimension > 2) vec(res).z = lhs % vec(rhs).z;
-		if constexpr (vt::dimension > 3) vec(res).w = lhs % vec(rhs).w;
+		if constexpr (std::is_floating_point_v<typename vt::element_t>)
+		{
+			if constexpr (vt::dimension > 0) vec(res).x = std::fmod(lhs, vec(rhs).x);
+			if constexpr (vt::dimension > 1) vec(res).y = std::fmod(lhs, vec(rhs).y);
+			if constexpr (vt::dimension > 2) vec(res).z = std::fmod(lhs, vec(rhs).z);
+			if constexpr (vt::dimension > 3) vec(res).w = std::fmod(lhs, vec(rhs).w);
+		}
+		else
+		{
+			if constexpr (vt::dimension > 0) vec(res).x = lhs % vec(rhs).x;
+			if constexpr (vt::dimension > 1) vec(res).y = lhs % vec(rhs).y;
+			if constexpr (vt::dimension > 2) vec(res).z = lhs % vec(rhs).z;
+			if constexpr (vt::dimension > 3) vec(res).w = lhs % vec(rhs).w;
+		}
 		return res;
 	}
 	template <VectorType Vec> constexpr auto pr_vectorcall operator <=> (Vec lhs, Vec rhs) noexcept
