@@ -4,6 +4,8 @@
 //*********************************************
 #pragma once
 #include <cstdint>
+#include <bit>
+#include <array>
 #include <bitset>
 #include <vector>
 #include <string>
@@ -274,7 +276,7 @@ namespace pr
 			if (bits < 0 || bits > sizeof(T) * 8)
 				throw std::invalid_argument("bitsetRT::append invalid number of bits");
 
-			auto data = reinterpret_cast<unsigned_t const&>(value);
+			auto data = std::bit_cast<unsigned_t>(value);
 			return AppendBits(data, bits);
 		}
 
@@ -296,7 +298,7 @@ namespace pr
 
 			static_assert(!std::is_same_v<unsigned_t, void>, "Unsupported floating point type");
 
-			auto data = reinterpret_cast<unsigned_t const&>(value);
+			auto data = std::bit_cast<unsigned_t>(value);
 			return AppendBits(data, sizeof(unsigned_t) * 8);
 		}
 
@@ -775,6 +777,65 @@ namespace pr::container
 			PR_EXPECT(bs1.size() == 9);
 			bs1.append(6.28);
 			PR_EXPECT(bs1.size() == 73);
+		}
+		{
+			// Check the raw bytes directly so the test locks down the serialized format rather than
+			// relying on floating-point comparisons that can hide bit-pattern regressions.
+			auto expect_bytes = [](auto const& bs, std::span<uint8_t const> expected)
+			{
+				PR_EXPECT(bs.size() == expected.size() * 8);
+				for (std::size_t i = 0; i != expected.size(); ++i)
+					PR_EXPECT(bs.data()[i] == expected[i]);
+			};
+
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(1.0f);
+				auto const expected = std::array<uint8_t, 4>{ 0x00, 0x00, 0x80, 0x3F };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(-0.0f);
+				auto const expected = std::array<uint8_t, 4>{ 0x00, 0x00, 0x00, 0x80 };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(std::bit_cast<float>(0x7F800000u));
+				auto const expected = std::array<uint8_t, 4>{ 0x00, 0x00, 0x80, 0x7F };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(std::bit_cast<float>(0x7FC12345u));
+				auto const expected = std::array<uint8_t, 4>{ 0x45, 0x23, 0xC1, 0x7F };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(1.0);
+				auto const expected = std::array<uint8_t, 8>{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(-0.0);
+				auto const expected = std::array<uint8_t, 8>{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80 };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(std::bit_cast<double>(0x7FF0000000000000ull));
+				auto const expected = std::array<uint8_t, 8>{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x7F };
+				expect_bytes(bs, expected);
+			}
+			{
+				bitsetRT<uint8_t> bs;
+				bs.append(std::bit_cast<double>(0x7FF8123456789ABCull));
+				auto const expected = std::array<uint8_t, 8>{ 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12, 0xF8, 0x7F };
+				expect_bytes(bs, expected);
+			}
 		}
 		{
 			bitsetRT<unsigned char> bs1;
