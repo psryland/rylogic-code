@@ -238,7 +238,9 @@ namespace pr::math
 	template <ScalarType S, typename T>
 	constexpr bool pr_vectorcall IsNaN(Vec8<S, T> v, bool any = true) noexcept // false = all
 	{
-		return IsNaN(v.ang, any) || IsNaN(v.lin, any);
+		return any
+			? IsNaN(v.ang, true) || IsNaN(v.lin, true)
+			: IsNaN(v.ang, false) && IsNaN(v.lin, false);
 	}
 
 	// Project a vector onto an axis. Loosely "dot(vec,axis)*axis"

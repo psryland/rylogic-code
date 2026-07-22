@@ -108,6 +108,43 @@ namespace pr::math::tests
 			auto R = Reflect(v, n);
 			PR_EXPECT(FEql(r, R));
 		}
+
+		// Verify that Vec8 preserves the underlying Vec4 any/all NaN contract across both sub-vectors.
+		PRUnitTestMethod(IsNaNAggregation, float, double)
+		{
+			using vec8_t = Vec8<T, void>;
+			using vec4_t = Vec4<T>;
+
+			auto const nan = std::numeric_limits<T>::quiet_NaN();
+
+			auto const finite = vec8_t{
+				vec4_t{T(1), T(2), T(3), T(4)},
+				vec4_t{T(5), T(6), T(7), T(8)}
+			};
+			auto const angular_nan = vec8_t{
+				vec4_t{nan, nan, nan, nan},
+				finite.lin
+			};
+			auto const mixed_blocks = vec8_t{
+				vec4_t{nan, T(2), T(3), T(4)},
+				vec4_t{nan, nan, nan, nan}
+			};
+			auto const all_nan = vec8_t{
+				vec4_t{nan, nan, nan, nan},
+				vec4_t{nan, nan, nan, nan}
+			};
+
+			// 'any=true' succeeds when either sub-vector contains a NaN.
+			PR_EXPECT(!IsNaN(finite, true));
+			PR_EXPECT(IsNaN(angular_nan, true));
+			PR_EXPECT(IsNaN(mixed_blocks, true));
+
+			// 'any=false' succeeds only when both sub-vectors report that all of their elements are NaN.
+			PR_EXPECT(!IsNaN(finite, false));
+			PR_EXPECT(!IsNaN(angular_nan, false));
+			PR_EXPECT(!IsNaN(mixed_blocks, false));
+			PR_EXPECT(IsNaN(all_nan, false));
+		}
 	};
 }
 #endif
