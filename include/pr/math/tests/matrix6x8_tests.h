@@ -28,13 +28,14 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r, v));
 		}
 
+		// Verifies all six column setter paths and that Vec8 padding values are discarded.
 		PRUnitTestMethod(ColSetGet, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using vec8_t = Vec8<T, void>;
 			using vec3_t = Vec3<T>;
 
-			auto M = mat6_t::Zero();
+			auto matrix = mat6_t::Zero();
 			auto const cols = std::array
 			{
 				vec8_t{ T(1),  T(2),  T(3),  T(41), T(4),  T(5),  T(6),  T(42) },
@@ -47,12 +48,12 @@ namespace pr::math::tests
 
 			for (int i = 0; i != 6; ++i)
 			{
-				M.col(i, cols[i]);
+				matrix.col(i, cols[i]);
 			}
 
 			for (int i = 0; i != 6; ++i)
 			{
-				auto const got = M.col(i);
+				auto const got = matrix.col(i);
 				auto const expected = cols[i];
 
 				PR_EXPECT(got.ang.x == expected.ang.x);
@@ -65,18 +66,18 @@ namespace pr::math::tests
 				PR_EXPECT(got.lin.w == T(0));
 			}
 
-			PR_EXPECT(All(M.m00[0] == vec3_t(T(1),  T(2),  T(3))));
-			PR_EXPECT(All(M.m00[1] == vec3_t(T(7),  T(8),  T(9))));
-			PR_EXPECT(All(M.m00[2] == vec3_t(T(13), T(14), T(15))));
-			PR_EXPECT(All(M.m10[0] == vec3_t(T(4),  T(5),  T(6))));
-			PR_EXPECT(All(M.m10[1] == vec3_t(T(10), T(11), T(12))));
-			PR_EXPECT(All(M.m10[2] == vec3_t(T(16), T(17), T(18))));
-			PR_EXPECT(All(M.m01[0] == vec3_t(T(19), T(20), T(21))));
-			PR_EXPECT(All(M.m01[1] == vec3_t(T(25), T(26), T(27))));
-			PR_EXPECT(All(M.m01[2] == vec3_t(T(31), T(32), T(33))));
-			PR_EXPECT(All(M.m11[0] == vec3_t(T(22), T(23), T(24))));
-			PR_EXPECT(All(M.m11[1] == vec3_t(T(28), T(29), T(30))));
-			PR_EXPECT(All(M.m11[2] == vec3_t(T(34), T(35), T(36))));
+			PR_EXPECT(All(matrix.m00[0] == vec3_t(T(1),  T(2),  T(3))));
+			PR_EXPECT(All(matrix.m00[1] == vec3_t(T(7),  T(8),  T(9))));
+			PR_EXPECT(All(matrix.m00[2] == vec3_t(T(13), T(14), T(15))));
+			PR_EXPECT(All(matrix.m10[0] == vec3_t(T(4),  T(5),  T(6))));
+			PR_EXPECT(All(matrix.m10[1] == vec3_t(T(10), T(11), T(12))));
+			PR_EXPECT(All(matrix.m10[2] == vec3_t(T(16), T(17), T(18))));
+			PR_EXPECT(All(matrix.m01[0] == vec3_t(T(19), T(20), T(21))));
+			PR_EXPECT(All(matrix.m01[1] == vec3_t(T(25), T(26), T(27))));
+			PR_EXPECT(All(matrix.m01[2] == vec3_t(T(31), T(32), T(33))));
+			PR_EXPECT(All(matrix.m11[0] == vec3_t(T(22), T(23), T(24))));
+			PR_EXPECT(All(matrix.m11[1] == vec3_t(T(28), T(29), T(30))));
+			PR_EXPECT(All(matrix.m11[2] == vec3_t(T(34), T(35), T(36))));
 		}
 
 		PRUnitTestMethod(MultiplyVector, float, double)
