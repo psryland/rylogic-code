@@ -43,6 +43,7 @@ namespace pr::math::tests
 		PRUnitTestMethod(ConstexprIndexing, float, double, int32_t, int64_t)
 		{
 			using vec8_t = Vec8<T, void>;
+			static_assert(std::same_as<decltype(std::declval<vec8_t const&>()[0]), T const&>);
 
 			// Read every indexed component at compile time so both sub-vectors are exercised.
 			static_assert([]() constexpr

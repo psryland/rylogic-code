@@ -85,15 +85,23 @@ namespace pr::math
 		}
 
 		// Array access
-		constexpr S operator [] (int i) const noexcept
+		// Keep constexpr access on the active union members; the runtime path still uses the
+		// contiguous array alias.
+		constexpr S const& operator [] (int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
 
-			// Keep constexpr reads on the named union members so constant evaluation never
-			// touches the inactive runtime alias.
 			if consteval
 			{
-				return i < 4 ? ang[i] : lin[i - 4];
+				return
+					i == 0 ? ang.x :
+					i == 1 ? ang.y :
+					i == 2 ? ang.z :
+					i == 3 ? ang.w :
+					i == 4 ? lin.x :
+					i == 5 ? lin.y :
+					i == 6 ? lin.z :
+					         lin.w;
 			}
 			else
 			{
@@ -104,8 +112,6 @@ namespace pr::math
 		{
 			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
 
-			// Keep constexpr writes on the named union members so constant evaluation never
-			// touches the inactive runtime alias.
 			if consteval
 			{
 				return i < 4 ? ang[i] : lin[i - 4];
