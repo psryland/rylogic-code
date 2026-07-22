@@ -380,20 +380,23 @@ namespace Rylogic.Maths
 			return Operators<T>.Div(Operators<T>.Mul(first, numer), denom);
 		}
 
-		// Euclidean algorithm in the long domain, inputs must be nonnegative.
-		// Used by GreatestCommonFactor and LeastCommonMultiple to avoid int overflow.
+		// Euclidean algorithm over nonnegative long values. Returns gcd(a, b) as a nonneg long.
 		private static long GcfLong(long a, long b)
 		{
-			while (b != 0) { var t = b; b = a % b; a = t; }
+			while (b != 0)
+			{
+				var t = b;
+				b = a % b;
+				a = t;
+			}
 			return a;
 		}
 
 		/// <summary>
 		/// Return the greatest common factor (gcd) of |a| and |b| using the Euclidean algorithm.
 		/// If gcd = 1, a and b are co-prime. gcd(0, n) = gcd(n, 0) = n; gcd(0, 0) = 0.
-		/// For negative inputs the result is always nonneg.
-		/// Throws OverflowException when gcd(|a|, |b|) &gt; int.MaxValue, which can only occur
-		/// when one input is int.MinValue and the other is 0.</summary>
+		/// For negative inputs the result is always nonneg.</summary>
+		/// <exception cref="OverflowException">Thrown when the nonnegative result exceeds int.MaxValue.</exception>
 		public static int GreatestCommonFactor(int a, int b)
 		{
 			return checked((int)GcfLong(Math.Abs((long)a), Math.Abs((long)b)));
@@ -402,8 +405,8 @@ namespace Rylogic.Maths
 		/// <summary>
 		/// Return the least common multiple of a and b.
 		/// lcm(0, n) = lcm(n, 0) = 0. For negative inputs the result is nonneg.
-		/// Divides by the gcf before multiplying to avoid intermediate overflow.
-		/// Throws OverflowException if lcm(|a|, |b|) &gt; int.MaxValue.</summary>
+		/// Divides by the gcf before multiplying to avoid intermediate overflow.</summary>
+		/// <exception cref="OverflowException">Thrown when the nonnegative result exceeds int.MaxValue.</exception>
 		public static int LeastCommonMultiple(int a, int b)
 		{
 			// lcm with zero is zero by convention; also prevents divide-by-zero in the gcf step
@@ -981,8 +984,9 @@ namespace Rylogic.UnitTests
 			Assert.Equal(4, Math_.GreatestCommonFactor(12, -8));
 			Assert.Equal(4, Math_.GreatestCommonFactor(-12, -8));
 
-			// Unrepresentable: gcd(int.MinValue, 0) = 2^31 > int.MaxValue
+			// Unrepresentable: nonnegative result exceeds int.MaxValue
 			Assert.Throws<OverflowException>(() => Math_.GreatestCommonFactor(int.MinValue, 0));
+			Assert.Throws<OverflowException>(() => Math_.GreatestCommonFactor(int.MinValue, int.MinValue));
 
 			// LeastCommonMultiple
 			Assert.Equal(12, Math_.LeastCommonMultiple(4, 6));
@@ -1002,7 +1006,7 @@ namespace Rylogic.UnitTests
 			// Large values with a common factor: result fits but intermediate product would overflow
 			Assert.Equal(2_000_000_000, Math_.LeastCommonMultiple(2_000_000_000, 1_000_000_000));
 
-			// Unrepresentable: lcm result exceeds int.MaxValue
+			// Unrepresentable: nonnegative result exceeds int.MaxValue
 			Assert.Throws<OverflowException>(() => Math_.LeastCommonMultiple(int.MaxValue, 2));
 			Assert.Throws<OverflowException>(() => Math_.LeastCommonMultiple(int.MinValue, 3));
 		}
