@@ -90,7 +90,11 @@ namespace pr::math
 		// Explicit cast to Mat3x3. This discards the 4th row of the matrix, so only use this if you know the 4th row is (0,0,0,1)
 		constexpr explicit operator Mat3x3<S>() const noexcept
 		{
-			return Mat3x3<S>(x.xyz, y.xyz, z.xyz);
+			return Mat3x3<S>(
+				Vec3<S>{x.x, x.y, x.z},
+				Vec3<S>{y.x, y.y, y.z},
+				Vec3<S>{z.x, z.y, z.z}
+			);
 		}
 
 		// Array access
