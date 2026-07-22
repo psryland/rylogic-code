@@ -183,10 +183,11 @@ namespace pr::math
 				FEql(lhs.m11, rhs.m11);
 		}
 
-		// Return the transpose of a spatial matrix
-		friend constexpr Mat6x8 Transpose(Mat6x8 const& mat) noexcept
+		// Return the transpose of a spatial matrix.
+		// The transpose reverses the source/destination spaces while preserving the existing block layout.
+		friend constexpr Mat6x8<S, B, A> Transpose(Mat6x8 const& mat) noexcept
 		{
-			return Mat6x8(
+			return Mat6x8<S, B, A>(
 				Transpose(mat.m00), Transpose(mat.m10),
 				Transpose(mat.m01), Transpose(mat.m11)
 			);
@@ -286,11 +287,12 @@ namespace pr::math
 			: IsNaN(m.m00, false) && IsNaN(m.m01, false) && IsNaN(m.m10, false) && IsNaN(m.m11, false);
 	}
 
-	// Return the transpose of a spatial matrix
+	// Return the transpose of a spatial matrix.
+	// The transpose reverses the source/destination spaces while preserving the existing block layout.
 	template <ScalarType S, typename A, typename B>
-	constexpr Mat6x8<S, A, B> pr_vectorcall Transpose(Mat6x8<S,A,B> const& m)
+	constexpr Mat6x8<S, B, A> pr_vectorcall Transpose(Mat6x8<S, A, B> const& m)
 	{
-		return Mat6x8<S, A, B>(
+		return Mat6x8<S, B, A>(
 			Transpose(m.m00), Transpose(m.m10),
 			Transpose(m.m01), Transpose(m.m11));
 	}
