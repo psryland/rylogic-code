@@ -1004,16 +1004,65 @@ namespace pr::math::tests
 			static_assert(All(Cube(vec_t(S(-2))) == vec_t(S(-8))));
 		}
 
-		// ---- Pow (functions.h line ~1321) ----
+		// ---- Pow (functions.h line ~1916) ----
+		// Scalar tests: positive/zero shared behavior, FP reciprocal semantics for negative
+		// exponents, integral domain_error rejection, and exponent-boundary behavior.
 		PRUnitTestMethod(PowTests
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
 
+			// Positive and zero exponents -- shared by all numeric types.
 			static_assert(Pow(S(2), 0) == S(1));
 			static_assert(Pow(S(2), 1) == S(2));
 			static_assert(Pow(S(2), 3) == S(8));
 			static_assert(Pow(S(3), 2) == S(9));
+
+			// Constant evaluation rejects signed overflow, ensuring exponent one does not square the base.
+			static_assert(Pow(std::numeric_limits<S>::max(), 1) == std::numeric_limits<S>::max());
+
+			if constexpr (std::floating_point<S>)
+			{
+				// Negative exponents use reciprocal semantics: Pow(x, -n) == 1/Pow(x, n).
+				static_assert(Pow(S(2), -1) == S(0.5));
+				static_assert(Pow(S(2), -2) == S(0.25));
+				static_assert(Pow(S(4), -2) == S(1) / S(16));
+
+				// 2^|INT_MIN| overflows to inf in FP so the reciprocal is 0.
+				PR_EXPECT(Pow(S(2), std::numeric_limits<int>::min()) == S(0));
+
+				// (-1)^|INT_MIN| == 1 because |INT_MIN| == 2^31 is even; reciprocal is also 1.
+				PR_EXPECT(Pow(S(-1), std::numeric_limits<int>::min()) == S(1));
+			}
+			else
+			{
+				// Integral types reject negative exponents with std::domain_error.
+				PR_THROWS(Pow(S(2), -1), std::domain_error);
+				PR_THROWS(Pow(S(1), std::numeric_limits<int>::min()), std::domain_error);
+			}
+		}
+
+		// ---- Pow: vector overload ----
+		// Vector behavior follows the scalar Pow contract.
+		PRUnitTestMethod(PowVecTests
+		, Vec4<float>, Vec4<int32_t>
+		) {
+			using vec_t = T;
+			using S = typename vector_traits<vec_t>::element_t;
+
+			// Positive exponent -- all types.
+			static_assert(All(Pow(vec_t(S(2)), 3) == vec_t(S(8))));
+
+			if constexpr (std::floating_point<S>)
+			{
+				// Negative exponent: component-wise reciprocal.
+				static_assert(All(Pow(vec_t(S(2)), -1) == vec_t(S(0.5))));
+			}
+			else
+			{
+				// Negative exponent: throws domain_error via scalar delegation.
+				PR_THROWS(Pow(vec_t(S(2)), -1), std::domain_error);
+			}
 		}
 
 		// ---- DegreesToRadians, RadiansToDegrees (functions.h line ~1327) ----
