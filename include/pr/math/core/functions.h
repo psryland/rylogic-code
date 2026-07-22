@@ -1964,10 +1964,10 @@ namespace pr::math
 		return len * vec;
 	}
 
-	// Quantise a value to a power of two. 'scale' should be a power of 2, i.e. 256, 1024, 2048, etc
+	// Quantise a value by truncating toward zero onto a 1/'scale' grid.
 	template <ScalarTypeFP S, std::integral I> constexpr S Quantise(S x, I scale) noexcept
 	{
-		// The purpose of 'Quantise' is to round 'x' to the nearest representable floating number using 'N' mantissa bits where '1 << N' == 'scale.
+		// This intentionally truncates toward zero after scaling. Use Round(x * scale) / scale when nearest-grid rounding is required.
 		return static_cast<I>(x * scale) / static_cast<S>(scale);
 	}
 	template <VectorTypeFP Vec, std::integral I> constexpr Vec pr_vectorcall Quantise(Vec v, I scale) noexcept

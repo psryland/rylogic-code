@@ -2216,12 +2216,20 @@ namespace pr::math::tests
 
 			// Scalar quantise
 			PR_EXPECT(Quantise(S(0.123456), 100) == S(0.12));
+			PR_EXPECT(Quantise(S(0.76), 2) == S(0.5));
+			PR_EXPECT(Quantise(S(-0.76), 2) == S(-0.5));
+			PR_EXPECT(Quantise(S(0.75), 2) == S(0.5));
+			PR_EXPECT(Quantise(S(-0.75), 2) == S(-0.5));
 			PR_EXPECT(Quantise(S(0.999), 10) == S(0.9));
 
 			// Vector quantise
 			auto v = vec_t(S(0.123456));
 			auto q = Quantise(v, 100);
 			PR_EXPECT(FEql(q, vec_t(S(0.12))));
+
+			auto boundary = vec_t(S(-0.75));
+			auto boundary_q = Quantise(boundary, 2);
+			PR_EXPECT(FEql(boundary_q, vec_t(S(-0.5))));
 		}
 
 		// ---- SmoothStep (functions.h line ~1637) ----
