@@ -206,6 +206,123 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlOrientation(q_zero, Identity<Quat>(), T(0.001)));
 		}
 
+		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 180 degrees
+		// (half-angle > π/2). AxisAngle, Scale, and LogMap must all canonicalize to the positive-w
+		// form and return the equivalent shortest-arc result without changing the orientation.
+		PRUnitTestMethod(NegativeHemisphere, float, double)
+		{
+			using Quat = Quat<T>;
+			using Vec4 = Vec4<T>;
+
+			// A 270-degree rotation around Z encodes as w = cos(135°) < 0 — the negative hemisphere.
+			// Its shortest-arc equivalent is -90 degrees (same orientation, positive-w quaternion).
+			auto z_axis = Vec4::ZAxis();
+			auto q270 = Quat(z_axis, DegreesToRadians(T(270)));
+			PR_EXPECT(q270.w < T(0));
+
+			// AxisAngle: must reconstruct a shortest-arc orientation whose angle is 90 deg, not 270 deg.
+			// The axis is flipped to preserve the correct rotation sense.
+			{
+				auto [axis, angle] = math::AxisAngle(q270);
+				PR_EXPECT(FEqlAbsolute(angle, DegreesToRadians(T(90)), T(0.001)));
+
+				// Recovering the quaternion from the extracted axis and angle must give the same orientation.
+				auto q_recovered = Quat(axis, angle);
+				PR_EXPECT(math::FEqlOrientation(q_recovered, q270, T(0.001)));
+			}
+
+			// q and -q represent the same orientation; AxisAngle must return the same axis and angle for both.
+			{
+				auto [axis_pos, angle_pos] = math::AxisAngle(q270);
+				auto [axis_neg, angle_neg] = math::AxisAngle(-q270);
+				PR_EXPECT(FEqlAbsolute(angle_pos, angle_neg, T(0.001)));
+				PR_EXPECT(FEqlAbsolute<Vec4>(axis_pos, axis_neg, T(0.001)));
+			}
+
+			// Scale(q, f) and Scale(-q, f) must be orientation-equivalent.
+			{
+				auto q_scaled_pos = math::Scale(q270, T(0.5));
+				auto q_scaled_neg = math::Scale(-q270, T(0.5));
+				PR_EXPECT(math::FEqlOrientation(q_scaled_pos, q_scaled_neg, T(0.001)));
+			}
+
+			// LogMap(q) and LogMap(-q) must produce the same principal tangent vector.
+			{
+				auto v_pos = LogMap<Vec4>(q270);
+				auto v_neg = LogMap<Vec4>(-q270);
+				PR_EXPECT(FEqlAbsolute<Vec4>(v_pos, v_neg, T(0.001)));
+			}
+
+			// Scale: shortest-arc scaling by 0.5 must bisect the -90-degree arc, giving -45 degrees.
+			{
+				auto q_half = math::Scale(q270, T(0.5));
+				auto q_expected = Quat(z_axis, DegreesToRadians(T(-45)));
+				PR_EXPECT(math::FEqlOrientation(q_half, q_expected, T(0.001)));
+			}
+
+			// LogMap / ExpMap round-trip: orientation must survive even when w < 0.
+			{
+				auto v = LogMap<Vec4>(q270);
+				auto q_rt = ExpMap<Quat>(v);
+				PR_EXPECT(math::FEqlOrientation(q270, q_rt, T(0.001)));
+			}
+
+			// Identity round-trip through Scale must remain identity.
+			{
+				auto q_id = Identity<Quat>();
+				PR_EXPECT(math::FEqlOrientation(math::Scale(q_id, T(0.5)), q_id, T(0.001)));
+			}
+
+			// Near-identity: tiny positive rotation must round-trip cleanly.
+			{
+				auto q_tiny = Quat(z_axis, T(0.001));
+				auto v = LogMap<Vec4>(q_tiny);
+				auto q_rt = ExpMap<Quat>(v);
+				PR_EXPECT(math::FEqlOrientation(q_tiny, q_rt, T(0.001)));
+			}
+
+			// Near-pi (just below 180 deg): AxisAngle must return the correct angle magnitude.
+			{
+				auto q_near_pi = Quat(z_axis, DegreesToRadians(T(179)));
+				auto [axis, angle] = math::AxisAngle(q_near_pi);
+				PR_EXPECT(FEqlAbsolute(angle, DegreesToRadians(T(179)), T(0.01)));
+			}
+
+			// Exact pi boundary: construct with w = 0 explicitly to avoid cos(pi/2) rounding in
+			// the axis-angle constructor. At 180 degrees the rotation axis is inherently ambiguous
+			// — +Z and -Z are both valid and equally short — so q_pi and -q_pi may produce
+			// different square roots from Scale(q, 0.5). Both roots must square back to q_pi's
+			// orientation, but they need not equal each other.
+			{
+				// q_pi  is a 180-degree rotation around +Z with w = 0 exactly.
+				// q_mpi is its orientation-equivalent antipodal form {x,y,z} negated.
+				auto q_pi  = Quat{T(0), T(0),  T(1), T(0)};
+				auto q_mpi = Quat{T(0), T(0), T(-1), T(0)};
+
+				// AxisAngle must reconstruct q_pi's orientation for both inputs.
+				{
+					auto [axis, angle] = math::AxisAngle(q_pi);
+					PR_EXPECT(math::FEqlOrientation(Quat(axis, angle), q_pi, T(0.001)));
+				}
+				{
+					auto [axis, angle] = math::AxisAngle(q_mpi);
+					PR_EXPECT(math::FEqlOrientation(Quat(axis, angle), q_pi, T(0.001)));
+				}
+
+				// ExpMap(LogMap(…)) round-trip must be orientation-equivalent to q_pi for both.
+				PR_EXPECT(math::FEqlOrientation(ExpMap<Quat>(LogMap<Vec4>(q_pi)),  q_pi, T(0.001)));
+				PR_EXPECT(math::FEqlOrientation(ExpMap<Quat>(LogMap<Vec4>(q_mpi)), q_pi, T(0.001)));
+
+				// Scale(q, 0.5) produces one of two equally valid 90-degree roots. The root from
+				// q_pi uses axis +Z; the root from q_mpi uses axis -Z. Each must square back to
+				// q_pi's orientation via quaternion multiplication.
+				auto sqrt_pos = math::Scale(q_pi,  T(0.5));
+				auto sqrt_neg = math::Scale(q_mpi, T(0.5));
+				PR_EXPECT(math::FEqlOrientation(sqrt_pos * sqrt_pos, q_pi, T(0.001)));
+				PR_EXPECT(math::FEqlOrientation(sqrt_neg * sqrt_neg, q_pi, T(0.001)));
+			}
+		}
+
 		PRUnitTestMethod(RotationAt, float, double)
 		{
 			using Quat = Quat<T>;
