@@ -158,6 +158,30 @@ namespace pr::math::tests
 			PR_EXPECT(Dot3(a, b) == T(-22)); // 3-component dot (ignores w)
 		}
 
+		// Dot3 must ignore w in both operands — NaN or infinity in w must not contaminate xyz result.
+		PRUnitTestMethod(Dot3WContract, float, double)
+		{
+			using vec4_t = Vec4<T>;
+
+			// lhs=(1,2,3), rhs=(2,3,4): expected xyz dot = 1*2+2*3+3*4 = 20
+			auto check = [&](T lhs_w, T rhs_w)
+			{
+				auto lhs = vec4_t(T(1), T(2), T(3), lhs_w);
+				auto rhs = vec4_t(T(2), T(3), T(4), rhs_w);
+				auto expected = T(20);
+				auto actual = Dot3(lhs, rhs);
+				PR_EXPECT(actual == expected);
+			};
+
+			check(T(7), T(9));
+			check(std::numeric_limits<T>::quiet_NaN(), T(9));
+			check(T(7), std::numeric_limits<T>::quiet_NaN());
+			check(std::numeric_limits<T>::infinity(), T(9));
+			check(T(7), std::numeric_limits<T>::infinity());
+			check(-std::numeric_limits<T>::infinity(), T(9));
+			check(T(7), -std::numeric_limits<T>::infinity());
+		}
+
 		// Component-wise modulus for Vec%Vec, Vec%scalar, and scalar%Vec across all element types.
 		PRUnitTestMethod(Modulus, float, double, int32_t, int64_t)
 		{
