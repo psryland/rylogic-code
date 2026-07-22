@@ -4073,8 +4073,11 @@ namespace pr::math
 		// and angular acceleration are parallel or angular acceleration is zero.
 		if (LengthSq(Cross(avel, aacc)) < tiny<S>)
 		{
-			auto w = avel + aacc * time;
-			return ExpMap3x3<Mat>(w * time) * ori;
+			// Integrate w(t) = w0 + a*t exactly while the rotation axis is fixed.
+			// The result is w0*t + 0.5*a*t^2, not the final angular velocity scaled by time.
+			auto const dt = static_cast<S>(time);
+			auto const ang_disp = (avel + S(0.5) * aacc * dt) * dt;
+			return ExpMap3x3<Mat>(ang_disp) * ori;
 		}
 		else
 		{
