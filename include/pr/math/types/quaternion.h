@@ -210,7 +210,10 @@ namespace pr::math
 	PR_MATH_DEFINE_TYPE(double);
 	#undef PR_MATH_DEFINE_TYPE
 
-	// Decompose a quaternion into axis (normalised) and angle (radians)
+	// Decompose a quaternion into axis (normalised) and angle (radians).
+	// The angle is always in [0, π] (the shortest arc). q and -q represent the same orientation;
+	// when w < 0 the quaternion is canonicalized to positive-w form before extraction, which
+	// flips the axis direction to preserve the correct rotation sense.
 	template <QuaternionType Quat>
 	inline auto pr_vectorcall AxisAngle(Quat q) noexcept
 	{
@@ -218,13 +221,17 @@ namespace pr::math
 		struct R { Vec4<S> axis; S angle; };
 		pr_assert(IsNormalised(q.xyzw) && "quaternion isn't normalised");
 
-		// Use atan2 for the angle — well-conditioned everywhere, unlike acos
+		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2]
+		// and the angle in [0, π].
+		auto sign = q.w >= S(0) ? S(1) : S(-1);
 		auto sin_half_angle = Length(q.xyz);
-		auto angle = S(2) * std::atan2(sin_half_angle, Abs(q.w));
 
-		// Normalise the xyz part directly (avoids sqrt(1-w²) cancellation)
+		// Use atan2 for the angle — well-conditioned everywhere, unlike acos
+		auto angle = S(2) * std::atan2(sin_half_angle, sign * q.w);
+
+		// Normalise the xyz part of the canonical quaternion directly (avoids sqrt(1-w²) cancellation)
 		auto axis = sin_half_angle > tiny<S>
-			? Vec4<S>(q.x / sin_half_angle, q.y / sin_half_angle, q.z / sin_half_angle, S(0))
+			? Vec4<S>(sign * q.x / sin_half_angle, sign * q.y / sin_half_angle, sign * q.z / sin_half_angle, S(0))
 			: Vec4<S>(S(0), S(0), S(1), S(0)); // arbitrary axis for identity
 
 		return R{ axis, angle };
@@ -291,25 +298,30 @@ namespace pr::math
 		return res;
 	}
 
-	// Scale the rotation 'q' by 'frac'. Returns a rotation about the same axis but with angle scaled by 'frac'
+	// Scale the rotation 'q' by 'frac'. Returns a rotation about the same axis but with angle scaled by 'frac'.
+	// Uses the shortest-arc (positive-w canonical) form so that Scale(q,0.5) always bisects the
+	// minor arc rather than the reflex arc when w < 0.
 	template <QuaternionType Quat>
 	inline Quat pr_vectorcall Scale(Quat q, typename vector_traits<Quat>::element_t frac) noexcept
 	{
 		using S = typename vector_traits<Quat>::element_t;
 		pr_assert("quaternion isn't normalised" && IsNormalised(q.xyzw));
 
-		// Use atan2 for the half-angle — well-conditioned everywhere, unlike acos
+		// Canonicalize to the positive-w hemisphere for shortest-arc scaling.
+		auto sign = q.w >= S(0) ? S(1) : S(-1);
 		auto sin_half_angle = Length(q.xyz);
-		auto half_angle = std::atan2(sin_half_angle, Abs(q.w));
+
+		// Use atan2 for the half-angle — well-conditioned everywhere, unlike acos
+		auto half_angle = std::atan2(sin_half_angle, sign * q.w);
 		auto scaled_half_angle = frac * half_angle;
 		auto sin_ha = std::sin(scaled_half_angle);
 		auto cos_ha = std::cos(scaled_half_angle);
 
-		// Normalise the xyz part directly (avoids sqrt(1-w²) cancellation near identity)
+		// Normalise the xyz part of the canonical quaternion directly (avoids sqrt(1-w²) cancellation near identity)
 		if (sin_half_angle > tiny<S>)
 		{
 			auto scale = sin_ha / sin_half_angle;
-			return Quat{q.x * scale, q.y * scale, q.z * scale, cos_ha};
+			return Quat{sign * q.x * scale, sign * q.y * scale, sign * q.z * scale, cos_ha};
 		}
 		else
 		{
@@ -351,20 +363,28 @@ namespace pr::math
 		}
 	}
 
-	// Logarithm map of quaternion to tangent space at identity
+	// Logarithm map of quaternion to tangent space at identity.
+	// Maps q to v = axis * (angle/2), with |v| ∈ [0, π/2]. Uses positive-w canonical form
+	// so that q and -q (the same orientation) map to the same principal tangent vector.
+	// At exactly |v| = π/2 (a 180-degree rotation) the axis direction is inherently
+	// ambiguous; use FEqlOrientation rather than comparing v directly near that boundary.
 	template <VectorType Vec, QuaternionType Quat> requires (IsRank1<Vec> && SameS<Quat, Vec> && vector_traits<Vec>::dimension >= 3)
 	inline Vec pr_vectorcall LogMap(Quat q) noexcept
 	{
 		using S = typename vector_traits<Quat>::element_t;
 		auto xyz0 = Vec{ vec(q).x, vec(q).y, vec(q).z };
 
-		// Quat = [u·sin(A/2), cos(A/2)]
+		// Quat = [u·sin(A/2), cos(A/2)].
+		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2].
+		// A quaternion with w < 0 encodes a rotation > 180 degrees; negating both halves
+		// recovers the equivalent rotation in [0, π].
+		auto sign = vec(q).w >= S(0) ? S(1) : S(-1);
 		auto sin_half_ang = Length(xyz0);
-		auto ang_by_2 = std::atan2(sin_half_ang, Abs(vec(q).w)); // well-conditioned everywhere
+		auto ang_by_2 = std::atan2(sin_half_ang, sign * vec(q).w); // well-conditioned everywhere
 
-		// Scale xyz by (half_angle / sin_half_angle) to get axis * half_angle
+		// Scale canonical xyz by (half_angle / sin_half_angle) to get axis * half_angle
 		return sin_half_ang > tiny<S>
-			? xyz0 * static_cast<S>(ang_by_2 / sin_half_ang)
+			? xyz0 * static_cast<S>(sign * ang_by_2 / sin_half_ang)
 			: xyz0;
 	}
 	

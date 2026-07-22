@@ -403,15 +403,58 @@ namespace pr::math::tests
 		}
 		PRUnitTestMethod(GCFAndLCMTests)
 		{
+			// --- GreatestCommonFactor ---
+
+			// Basic positive cases
 			static_assert(GreatestCommonFactor(12, 8) == 4);
 			static_assert(GreatestCommonFactor(7, 13) == 1); // co-prime
 			static_assert(GreatestCommonFactor(100, 75) == 25);
-			static_assert(GreatestCommonFactor(0, 5) == 5);
 			static_assert(GreatestCommonFactor(17, 17) == 17);
 
+			// Zero inputs: gcd(0, n) = n, gcd(n, 0) = n, gcd(0, 0) = 0
+			static_assert(GreatestCommonFactor(0, 5) == 5);
+			static_assert(GreatestCommonFactor(5, 0) == 5);
+			static_assert(GreatestCommonFactor(0, 0) == 0);
+
+			// Negative inputs: result is always nonneg
+			static_assert(GreatestCommonFactor(-12, 8) == 4);
+			static_assert(GreatestCommonFactor(12, -8) == 4);
+			static_assert(GreatestCommonFactor(-12, -8) == 4);
+
+			// Unsigned
+			static_assert(GreatestCommonFactor(12u, 8u) == 4u);
+			static_assert(GreatestCommonFactor(0u, 5u) == 5u);
+
+			// 64-bit
+			static_assert(GreatestCommonFactor(int64_t(1'000'000'000'000LL), int64_t(750'000'000'000LL)) == 250'000'000'000LL);
+
+			// --- LeastCommonMultiple ---
+
+			// Basic positive cases
 			static_assert(LeastCommonMultiple(4, 6) == 12);
 			static_assert(LeastCommonMultiple(7, 13) == 91); // co-prime
 			static_assert(LeastCommonMultiple(12, 8) == 24);
+
+			// Zero inputs: lcm(0, n) = 0 by convention
+			static_assert(LeastCommonMultiple(0, 5) == 0);
+			static_assert(LeastCommonMultiple(5, 0) == 0);
+			static_assert(LeastCommonMultiple(0, 0) == 0);
+
+			// Large int32 values sharing a common factor: result fits despite large inputs
+			static_assert(LeastCommonMultiple(2'000'000'000, 1'000'000'000) == 2'000'000'000);
+
+			// Negative inputs: result is always nonneg
+			static_assert(LeastCommonMultiple(-4, 6) == 12);
+			static_assert(LeastCommonMultiple(4, -6) == 12);
+			static_assert(LeastCommonMultiple(-4, -6) == 12);
+
+			// Unsigned
+			static_assert(LeastCommonMultiple(4u, 6u) == 12u);
+			static_assert(LeastCommonMultiple(0u, 5u) == 0u);
+			static_assert(LeastCommonMultiple(2'000'000'000u, 1'000'000'000u) == 2'000'000'000u);
+
+			// 64-bit large values: result fits despite large inputs
+			static_assert(LeastCommonMultiple(int64_t(2'000'000'000'000LL), int64_t(1'000'000'000'000LL)) == 2'000'000'000'000LL);
 		}
 		PRUnitTestMethod(PadTests)
 		{

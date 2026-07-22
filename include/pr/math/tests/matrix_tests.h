@@ -325,6 +325,107 @@ namespace pr::math::tests
 			});
 		}
 
+		PRUnitTestMethod(ResizePreserveData)
+		{
+			// local→local: component count increases, both layouts fit in m_buf.
+			// 2×2 → 2×3: existing elements stay at their per-vector positions; new column is zeroed.
+			{
+				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
+				PR_EXPECT(m.local());
+				m.resize(2, 3, true);
+				PR_EXPECT(m.vecs() == 2 && m.cmps() == 3);
+				PR_EXPECT(m.local());
+				PR_EXPECT(m(0,0) == 1.0 && m(0,1) == 2.0 && m(0,2) == 0.0);
+				PR_EXPECT(m(1,0) == 3.0 && m(1,1) == 4.0 && m(1,2) == 0.0);
+			}
+
+			// local→local: same total element count, different component count (reshape).
+			// 2×3 → 3×2: the top-left 2×2 corner of logical positions is preserved; new row is zeroed.
+			{
+				auto m = Matrix<double>(2, 3, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+				PR_EXPECT(m.local());
+				m.resize(3, 2, true);
+				PR_EXPECT(m.vecs() == 3 && m.cmps() == 2);
+				PR_EXPECT(m.local());
+				PR_EXPECT(m(0,0) == 1.0 && m(0,1) == 2.0); // first two columns of old row 0
+				PR_EXPECT(m(1,0) == 4.0 && m(1,1) == 5.0); // first two columns of old row 1
+				PR_EXPECT(m(2,0) == 0.0 && m(2,1) == 0.0); // new row is zeroed
+			}
+
+			// local→local: component count decreases; only the min-corner elements are kept.
+			{
+				auto m = Matrix<double>(2, 3, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+				m.resize(2, 2, true);
+				PR_EXPECT(m.vecs() == 2 && m.cmps() == 2);
+				PR_EXPECT(m(0,0) == 1.0 && m(0,1) == 2.0);
+				PR_EXPECT(m(1,0) == 4.0 && m(1,1) == 5.0);
+			}
+
+			// local→heap: component count grows past LocalBufCount=16.
+			// 4×3=12 → 4×5=20: new buffer is heap-allocated.
+			{
+				auto m = Matrix<double>(4, 3, {1,2,3, 4,5,6, 7,8,9, 10,11,12});
+				PR_EXPECT(m.local());
+				m.resize(4, 5, true);
+				PR_EXPECT(!m.local());
+				PR_EXPECT(m.vecs() == 4 && m.cmps() == 5);
+				PR_EXPECT(m(0,0)==1 && m(0,1)==2 && m(0,2)==3 && m(0,3)==0 && m(0,4)==0);
+				PR_EXPECT(m(3,0)==10 && m(3,1)==11 && m(3,2)==12 && m(3,3)==0 && m(3,4)==0);
+			}
+
+			// heap→local: component count shrinks below LocalBufCount=16.
+			// 4×5=20 → 4×3=12: new buffer is m_buf; first three columns of each row are preserved.
+			{
+				auto m = Matrix<double>(4, 5, {1,2,3,4,5, 6,7,8,9,10, 11,12,13,14,15, 16,17,18,19,20});
+				PR_EXPECT(!m.local());
+				m.resize(4, 3, true);
+				PR_EXPECT(m.local());
+				PR_EXPECT(m.vecs() == 4 && m.cmps() == 3);
+				PR_EXPECT(m(0,0)==1  && m(0,1)==2  && m(0,2)==3);
+				PR_EXPECT(m(3,0)==16 && m(3,1)==17 && m(3,2)==18);
+			}
+
+			// heap→heap: same total element count, different component count, both on heap.
+			// 5×4=20 → 4×5=20: each row gets a new zero column; the fifth source row is dropped.
+			{
+				auto m = Matrix<double>(5, 4);
+				int v = 1;
+				for (int r = 0; r != 5; ++r)
+					for (int c = 0; c != 4; ++c)
+						m(r, c) = double(v++);
+
+				PR_EXPECT(!m.local());
+				m.resize(4, 5, true);
+				PR_EXPECT(!m.local());
+				PR_EXPECT(m.vecs() == 4 && m.cmps() == 5);
+
+				// Each row has four preserved elements followed by a new zero column.
+				for (int r = 0; r != 4; ++r)
+				{
+					for (int c = 0; c != 4; ++c)
+						PR_EXPECT(m(r, c) == double(r*4 + c + 1));
+
+					PR_EXPECT(m(r, 4) == 0.0);
+				}
+			}
+
+			// preserve_data=false: all elements are zeroed regardless of existing content.
+			{
+				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
+				m.resize(2, 3, false);
+				PR_EXPECT(m.vecs() == 2 && m.cmps() == 3);
+				for (auto v : m.data())
+					PR_EXPECT(v == 0.0);
+			}
+
+			// resize to zero dimensions: no crash, size reports zero.
+			{
+				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
+				m.resize(0, 0);
+				PR_EXPECT(m.vecs() == 0 && m.cmps() == 0 && m.size() == 0);
+			}
+		}
+
 		PRUnitTestMethod(DotProduct)
 		{
 			auto a = Matrix<float>(1, 3, {1.0f, 2.0f, 3.0f});

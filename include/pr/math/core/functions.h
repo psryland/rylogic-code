@@ -184,12 +184,25 @@ namespace pr::math
 	}
 	template <VectorType Vec> constexpr Vec pr_vectorcall operator % (typename vector_traits<Vec>::element_t lhs, Vec rhs) noexcept
 	{
+		// Scalar-left component-wise modulus. Floating-point types require std::fmod because
+		// the built-in % operator is not defined for float/double — they would be a compile
+		// error. Integer types use the built-in %.
 		using vt = vector_traits<Vec>;
 		Vec res = {};
-		if constexpr (vt::dimension > 0) vec(res).x = lhs % vec(rhs).x;
-		if constexpr (vt::dimension > 1) vec(res).y = lhs % vec(rhs).y;
-		if constexpr (vt::dimension > 2) vec(res).z = lhs % vec(rhs).z;
-		if constexpr (vt::dimension > 3) vec(res).w = lhs % vec(rhs).w;
+		if constexpr (std::is_floating_point_v<typename vt::element_t>)
+		{
+			if constexpr (vt::dimension > 0) vec(res).x = std::fmod(lhs, vec(rhs).x);
+			if constexpr (vt::dimension > 1) vec(res).y = std::fmod(lhs, vec(rhs).y);
+			if constexpr (vt::dimension > 2) vec(res).z = std::fmod(lhs, vec(rhs).z);
+			if constexpr (vt::dimension > 3) vec(res).w = std::fmod(lhs, vec(rhs).w);
+		}
+		else
+		{
+			if constexpr (vt::dimension > 0) vec(res).x = lhs % vec(rhs).x;
+			if constexpr (vt::dimension > 1) vec(res).y = lhs % vec(rhs).y;
+			if constexpr (vt::dimension > 2) vec(res).z = lhs % vec(rhs).z;
+			if constexpr (vt::dimension > 3) vec(res).w = lhs % vec(rhs).w;
+		}
 		return res;
 	}
 	template <VectorType Vec> constexpr auto pr_vectorcall operator <=> (Vec lhs, Vec rhs) noexcept
@@ -2197,18 +2210,23 @@ namespace pr::math
 		return static_cast<uint32_t>(n);
 	}
 
-	// Return the greatest common factor between 'a' and 'b'
+	// Return the greatest common factor (gcd) of |a| and |b|.
+	// If gcd = 1, a and b are co-prime.
+	// gcd(0, n) = gcd(n, 0) = n; gcd(0, 0) = 0.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::gcd).
 	template <std::integral S> constexpr S GreatestCommonFactor(S a, S b) noexcept
 	{
-		// Uses the Euclidean algorithm. If the greatest common factor is 1, then 'a' and 'b' are co-prime
-		while (b) { auto t = b; b = a % b; a = t; }
-		return a;
+		return std::gcd(a, b);
 	}
 
-	// Return the least common multiple between 'a' and 'b'
+	// Return the least common multiple of a and b.
+	// lcm(0, n) = lcm(n, 0) = 0 by convention.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::lcm).
 	template <std::integral S> constexpr S LeastCommonMultiple(S a, S b) noexcept
 	{
-		return (a * b) / GreatestCommonFactor(a, b);
+		return std::lcm(a, b);
 	}
 
 	// Convert a decimal back to a rational. Returns [numerator, denominator]
@@ -2834,6 +2852,62 @@ namespace pr::math
 	constexpr bool pr_vectorcall IsAntiSymmetric(Mat const& mat, typename vector_traits<Mat>::element_t tol = tiny<typename vector_traits<Mat>::element_t>) noexcept
 	{
 		using vt = vector_traits<Mat>;
+		using S = typename vt::element_t;
+
+		// Anti-symmetric matrices must have a zero diagonal. Use exact zero for integral
+		// types and the supplied absolute tolerance for floating-point types.
+		if constexpr (vt::dimension > 0)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).x.x) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).x.x != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 1)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).y.y) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).y.y != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 2)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).z.z) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).z.z != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 3)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).w.w) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).w.w != S{})
+					return false;
+			}
+		}
 
 		if constexpr (vt::dimension >= 2)
 		{

@@ -82,8 +82,8 @@ namespace pr::math
 		{
 			pr_assert(interval != 0);
 
-			// Compute relative quaternion, ensuring w >= 0 so that
-			// LogMap (which uses |w|) round-trips correctly via ExpMap.
+			// Compute relative quaternion in the positive-w (shortest-arc) canonical form
+			// so that the interpolation follows the minor arc.
 			auto dq = ~q1 * q0;
 			if (vec(dq).w < 0) dq = -dq;
 

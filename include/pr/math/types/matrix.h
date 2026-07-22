@@ -357,21 +357,26 @@ namespace pr::math
 		}
 
 		// Change the dimensions of the matrix.
+		// When preserve_data is true, each existing vector's elements are kept at their logical
+		// position; new slots are zeroed. When false, the entire new buffer is zeroed.
 		void resize(int vecs, int cmps, bool preserve_data = true) noexcept
 		{
 			if (m_transposed) std::swap(vecs, cmps);
 
-			// Check if a resize is needed
 			auto new_count = size_t(vecs * cmps);
 			auto old_count = size_t(m_vecs * m_cmps);
 			auto min_count = std::min(new_count, old_count);
-			auto min_vecs = std::min(vecs, m_vecs);
-			auto min_cmps = std::min(cmps, m_cmps);
-			
-			// Slocate buffer if necessary.
+			auto min_vecs  = std::min(vecs, m_vecs);
+			auto min_cmps  = std::min(cmps, m_cmps);
+
+			// Select the destination buffer.
+			// Reusing the existing buffer is only safe when the vector layout is unchanged
+			// (cmps == m_cmps): all elements are contiguous and no per-vector reshuffling is
+			// needed. When the component count changes, a distinct source and destination are
+			// required for the per-vector copy below.
 			auto data =
-				new_count == old_count ? m_data :
-				new_count > LocalBufCount ? new S[new_count] :
+				(new_count == old_count && cmps == m_cmps) ? m_data :
+				new_count > size_t(LocalBufCount) ? new S[new_count] :
 				&m_buf[0];
 
 			// Copy/Initialise data
@@ -382,16 +387,30 @@ namespace pr::math
 			}
 			else if (cmps == m_cmps)
 			{
-				// Matrix elements are stored as contiguous vectors so adding/removing vectors does not invalidate existing data.
+				// Vector layout is unchanged: adding/removing whole vectors does not disturb
+				// existing elements, so a single bulk copy (when moving between buffers) and a
+				// tail-zeroing step are sufficient.
 				if (data != m_data) memcpy(data, m_data, sizeof(S) * min_count);
 				memset(data + min_count, 0, sizeof(S) * (new_count - min_count));
 			}
 			else
 			{
-				// Adding components requires copying per vector.
+				// Component count changes: each vector must be copied individually because the
+				// per-vector stride differs between the old and new layout.
+				//
+				// When both old and new data fit in m_buf, source and destination point to the
+				// same buffer. Snapshot the old elements before zeroing so the copies read intact data.
+				S snap[LocalBufCount];
+				S* src = m_data;
+				if (data == m_data)
+				{
+					// data == m_data == &m_buf[0]; old_count <= LocalBufCount by construction.
+					memcpy(snap, m_data, sizeof(S) * old_count);
+					src = snap;
+				}
 				memset(data, 0, sizeof(S) * new_count);
 				for (int i = 0; i != min_vecs; ++i)
-					memcpy(data + i*cmps, m_data + i*m_cmps, sizeof(S) * min_cmps);
+					memcpy(data + i*cmps, src + i*m_cmps, sizeof(S) * min_cmps);
 			}
 
 			// Update the members
@@ -399,7 +418,7 @@ namespace pr::math
 			m_cmps = cmps;
 			std::swap(m_data, data);
 
-			// Deallocate the old buffer
+			// Deallocate the old buffer if it was heap-allocated
 			if (data != m_data && data != &m_buf[0])
 				delete[] data;
 		}
