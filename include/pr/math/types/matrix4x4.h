@@ -38,6 +38,7 @@ namespace pr::math
 		#pragma warning(disable:4201) // nameless struct
 		union
 		{
+			// x/y/z/w are the active union members for constexpr. rot/pos remains a runtime alias.
 			struct { Vec4<S> x, y, z, w; };
 			struct { Mat3x3<S> rot; Vec4<S> pos; };
 			struct { Vec4<S> arr[4]; };
@@ -66,8 +67,10 @@ namespace pr::math
 		{
 		}
 		constexpr Mat4x4(Mat3x3<S> const& rot_, Vec4<S> pos_) noexcept
-			:rot(rot_)
-			, pos(pos_)
+			: x(rot_.x.w0())
+			, y(rot_.y.w0())
+			, z(rot_.z.w0())
+			, w(pos_)
 		{
 			// Don't assert 'pos.w == 1' here. Not all m4x4's are affine transforms
 		}
@@ -138,12 +141,12 @@ namespace pr::math
 		// Create a 4x4 matrix using just the rotation part of this matrix
 		constexpr Mat4x4 w1() const noexcept
 		{
-			return Mat4x4{ rot, Origin<Vec4<S>>() };
+			return Mat4x4{ x, y, z, Origin<Vec4<S>>() };
 		}
 		constexpr Mat4x4 w1(Vec4<S> xyz) const noexcept
 		{
 			pr_assert(xyz.w == 1 && "'pos' must be a position vector");
-			return Mat4x4{ rot, xyz };
+			return Mat4x4{ x, y, z, xyz };
 		}
 
 		// Return the diagonal elements of this matrix

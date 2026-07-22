@@ -29,6 +29,26 @@ namespace pr::math::tests
 
 			PR_EXPECT(FEql(xf1, xf2));
 		}
+		PRUnitTestMethod(ConstexprConversion, float, double)
+		{
+			using xform_t = Xform<T>;
+			using m4x4_t = Mat4x4<T>;
+			using v4_t = Vec4<T>;
+			using quat_t = Quat<T>;
+
+			// Keep the Xform-to-matrix path constexpr on the matrix column view.
+			constexpr auto xf = xform_t(
+				v4_t(T(1), T(2), T(3), T(1)),
+				quat_t(T(0), T(0), T(0), T(1)),
+				v4_t(T(1), T(1), T(1), T(1)));
+			constexpr auto m = m4x4_t(xf);
+			constexpr auto expected = m4x4_t(
+				v4_t(T(1), T(0), T(0), T(0)),
+				v4_t(T(0), T(1), T(0), T(0)),
+				v4_t(T(0), T(0), T(1), T(0)),
+				v4_t(T(1), T(2), T(3), T(1)));
+			static_assert(All(m == expected));
+		}
 		PRUnitTestMethod(Multiply, float, double)
 		{
 			using xform_t = Xform<T>;
