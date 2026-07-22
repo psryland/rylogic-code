@@ -1311,8 +1311,81 @@ namespace pr::math::tests
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
 			using mat_t = T;
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
 
+			// A zero matrix is still anti-symmetric.
 			PR_EXPECT(IsAntiSymmetric(Zero<mat_t>()));
+
+			// Diagonal entries must be zero. Exercise every supported diagonal slot.
+			PR_EXPECT(!IsAntiSymmetric(Identity<mat_t>()));
+
+			auto diag = Zero<mat_t>();
+			vec(diag).x.x = S(1);
+			PR_EXPECT(!IsAntiSymmetric(diag));
+
+			if constexpr (vt::dimension > 1)
+			{
+				diag = Zero<mat_t>();
+				vec(diag).y.y = S(1);
+				PR_EXPECT(!IsAntiSymmetric(diag));
+			}
+			if constexpr (vt::dimension > 2)
+			{
+				diag = Zero<mat_t>();
+				vec(diag).z.z = S(1);
+				PR_EXPECT(!IsAntiSymmetric(diag));
+			}
+			if constexpr (vt::dimension > 3)
+			{
+				diag = Zero<mat_t>();
+				vec(diag).w.w = S(1);
+				PR_EXPECT(!IsAntiSymmetric(diag));
+			}
+
+			// A hand-built skew matrix should still pass.
+			auto skew = Zero<mat_t>();
+			vec(skew).x.y = S(2);
+			vec(skew).y.x = S(-2);
+			if constexpr (vt::dimension > 2)
+			{
+				vec(skew).x.z = S(3);
+				vec(skew).z.x = S(-3);
+				vec(skew).y.z = S(4);
+				vec(skew).z.y = S(-4);
+			}
+			if constexpr (vt::dimension > 3)
+			{
+				vec(skew).x.w = S(5);
+				vec(skew).w.x = S(-5);
+				vec(skew).y.w = S(6);
+				vec(skew).w.y = S(-6);
+				vec(skew).z.w = S(7);
+				vec(skew).w.z = S(-7);
+			}
+			PR_EXPECT(IsAntiSymmetric(skew));
+
+			if constexpr (std::floating_point<S>)
+			{
+				// Equal-to-tolerance diagonal values are allowed; the first value above the
+				// boundary should fail.
+				auto tol = tiny<S>;
+
+				auto at_tol = Zero<mat_t>();
+				vec(at_tol).x.x = tol;
+				PR_EXPECT(IsAntiSymmetric(at_tol, tol));
+
+				auto over_tol = Zero<mat_t>();
+				vec(over_tol).x.x = std::nextafter(tol, std::numeric_limits<S>::infinity());
+				PR_EXPECT(!IsAntiSymmetric(over_tol, tol));
+			}
+
+			// Physics uses 3x3 cross-product matrices as the canonical skew-symmetric case.
+			if constexpr (vt::dimension == 3 && std::floating_point<S>)
+			{
+				using Vec = typename vt::component_t;
+				PR_EXPECT(IsAntiSymmetric(CPM<mat_t>(Vec::XAxis())));
+			}
 		}
 
 		// ---- IsParallel (functions.h line ~1738) ----

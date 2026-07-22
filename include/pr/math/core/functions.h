@@ -2834,6 +2834,62 @@ namespace pr::math
 	constexpr bool pr_vectorcall IsAntiSymmetric(Mat const& mat, typename vector_traits<Mat>::element_t tol = tiny<typename vector_traits<Mat>::element_t>) noexcept
 	{
 		using vt = vector_traits<Mat>;
+		using S = typename vt::element_t;
+
+		// Anti-symmetric matrices must have a zero diagonal. Use exact zero for integral
+		// types and the supplied absolute tolerance for floating-point types.
+		if constexpr (vt::dimension > 0)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).x.x) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).x.x != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 1)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).y.y) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).y.y != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 2)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).z.z) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).z.z != S{})
+					return false;
+			}
+		}
+		if constexpr (vt::dimension > 3)
+		{
+			if constexpr (std::floating_point<S>)
+			{
+				if (Abs(vec(mat).w.w) > tol)
+					return false;
+			}
+			else
+			{
+				if (vec(mat).w.w != S{})
+					return false;
+			}
+		}
 
 		if constexpr (vt::dimension >= 2)
 		{
