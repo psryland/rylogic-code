@@ -12,25 +12,8 @@
 
 namespace pr::math
 {
-	template <typename S, bool = std::floating_point<S>>
-	struct Mat4x4QuatTransform
-	{
-		static void Transform() = delete;
-	};
-
-	template <typename S>
-	struct Mat4x4QuatTransform<S, true>
-	{
-		// Create from a same-scalar quaternion + position
-		static Mat4x4<S> Transform(Quat<S> q, Vec4<S> pos) noexcept
-		{
-			return Mat4x4<S>{ math::ToMatrix<Mat3x3<S>>(q), pos };
-		}
-	};
-
 	template <ScalarType S>
 	struct Mat4x4
-		: Mat4x4QuatTransform<S>
 	{
 		// Notes:
 		//  - Matrix members 'x, y, z, w' are column vectors stored contigously.
@@ -61,8 +44,6 @@ namespace pr::math
 			struct { Vec4<S> arr[4]; };
 		};
 		#pragma warning(pop)
-
-		using Mat4x4QuatTransform<S>::Transform;
 
 		// Construct
 		constexpr Mat4x4() noexcept
@@ -210,6 +191,14 @@ namespace pr::math
 		static Mat4x4 Transform(Mat3x3<S> const& rot, Vec4<S> pos) noexcept
 		{
 			return Mat4x4{ rot, pos };
+		}
+
+		// Create from a same-scalar quaternion + position
+		template <typename Q>
+			requires (std::same_as<Q, S> && std::floating_point<Q>)
+		static Mat4x4 Transform(Quat<Q> q, Vec4<S> pos) noexcept
+		{
+			return Mat4x4{ math::ToMatrix<Mat3x3<S>>(q), pos };
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
