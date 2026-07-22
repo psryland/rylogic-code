@@ -3724,39 +3724,19 @@ namespace pr::math
 		else if constexpr (vt::dimension == 2)
 		{
 			vec(vec(m).x).x = scale;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = scale;
 		}
 		else if constexpr (vt::dimension == 3)
 		{
 			vec(vec(m).x).x = scale;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).x).z = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = scale;
-			vec(vec(m).y).z = S(0);
-			vec(vec(m).z).x = S(0);
-			vec(vec(m).z).y = S(0);
 			vec(vec(m).z).z = scale;
 		}
 		else if constexpr (vt::dimension == 4)
 		{
 			vec(vec(m).x).x = scale;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).x).z = S(0);
-			vec(vec(m).x).w = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = scale;
-			vec(vec(m).y).z = S(0);
-			vec(vec(m).y).w = S(0);
-			vec(vec(m).z).x = S(0);
-			vec(vec(m).z).y = S(0);
 			vec(vec(m).z).z = scale;
-			vec(vec(m).z).w = S(0);
-			vec(vec(m).w).x = S(0);
-			vec(vec(m).w).y = S(0);
-			vec(vec(m).w).z = S(0);
 			vec(vec(m).w).w = scale;
 		}
 		else
@@ -3780,39 +3760,19 @@ namespace pr::math
 		else if constexpr (vt::dimension == 2)
 		{
 			vec(vec(m).x).x = vec(scale).x;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = vec(scale).y;
 		}
 		else if constexpr (vt::dimension == 3)
 		{
 			vec(vec(m).x).x = vec(scale).x;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).x).z = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = vec(scale).y;
-			vec(vec(m).y).z = S(0);
-			vec(vec(m).z).x = S(0);
-			vec(vec(m).z).y = S(0);
 			vec(vec(m).z).z = vec(scale).z;
 		}
 		else if constexpr (vt::dimension == 4)
 		{
 			vec(vec(m).x).x = vec(scale).x;
-			vec(vec(m).x).y = S(0);
-			vec(vec(m).x).z = S(0);
-			vec(vec(m).x).w = S(0);
-			vec(vec(m).y).x = S(0);
 			vec(vec(m).y).y = vec(scale).y;
-			vec(vec(m).y).z = S(0);
-			vec(vec(m).y).w = S(0);
-			vec(vec(m).z).x = S(0);
-			vec(vec(m).z).y = S(0);
 			vec(vec(m).z).z = vec(scale).z;
-			vec(vec(m).z).w = S(0);
-			vec(vec(m).w).x = S(0);
-			vec(vec(m).w).y = S(0);
-			vec(vec(m).w).z = S(0);
 			vec(vec(m).w).w = vec(scale).w;
 		}
 		else
