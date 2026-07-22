@@ -227,6 +227,54 @@ namespace pr::math::tests
 			}
 		}
 
+		PRUnitTestMethod(CopyAssignmentPreservesTranspose, float, double)
+		{
+			using mat_t = Matrix<T>;
+
+			auto check_assignment = [&](int vecs, int cmps, std::initializer_list<T> data) noexcept
+			{
+				auto normal = mat_t(vecs, cmps, data);
+
+				// Copy into a destination that already has the opposite logical orientation.
+				auto transposed_dest = mat_t(vecs, cmps);
+				transposed_dest.transpose();
+				transposed_dest = normal;
+
+				PR_EXPECT(transposed_dest.vecs() == normal.vecs());
+				PR_EXPECT(transposed_dest.cmps() == normal.cmps());
+				PR_EXPECT(FEql(transposed_dest, normal));
+
+				auto transposed_source = normal;
+				transposed_source.transpose();
+
+				// Copy from a transposed source into a destination that starts out normal.
+				auto normal_dest = mat_t(cmps, vecs);
+				normal_dest = transposed_source;
+
+				PR_EXPECT(normal_dest.vecs() == transposed_source.vecs());
+				PR_EXPECT(normal_dest.cmps() == transposed_source.cmps());
+				PR_EXPECT(FEql(normal_dest, transposed_source));
+
+				// Self-assignment must remain a no-op regardless of transpose state.
+				auto self = transposed_source;
+				self = self;
+				PR_EXPECT(FEql(self, transposed_source));
+			};
+
+			// Local-buffer path.
+			check_assignment(2, 3, { T(1), T(2), T(3), T(4), T(5), T(6) });
+
+			// Heap-buffer path.
+			check_assignment(5, 4,
+			{
+				T(1), T(2), T(3), T(4),
+				T(5), T(6), T(7), T(8),
+				T(9), T(10), T(11), T(12),
+				T(13), T(14), T(15), T(16),
+				T(17), T(18), T(19), T(20),
+			});
+		}
+
 		PRUnitTestMethod(DotProduct)
 		{
 			auto a = Matrix<float>(1, 3, {1.0f, 2.0f, 3.0f});
