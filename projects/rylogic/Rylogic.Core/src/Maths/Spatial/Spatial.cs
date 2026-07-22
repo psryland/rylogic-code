@@ -279,19 +279,19 @@ namespace Rylogic.Maths
 
 		/// <summary>
 		/// Spatial cross product.
-		/// There are two cross product operations, one for motion vectors and one for forces</summary>
-		public static v8<Motion> Cross<T>(v8<T> lhs, v8<Motion> rhs) where T: IVectorSpace
+		/// There are two cross product operations, one for motion/motion pairs and one for motion/force pairs</summary>
+		public static v8<Motion> Cross(v8<Motion> lhs, v8<Motion> rhs)
 		{
 			return new v8<Motion>(Cross(lhs.ang, rhs.ang), Cross(lhs.ang, rhs.lin) + Cross(lhs.lin, rhs.ang));
 		}
-		public static v8<Force> Cross<T>(v8<T> lhs, v8<Force> rhs) where T: IVectorSpace
+		public static v8<Force> Cross(v8<Motion> lhs, v8<Force> rhs)
 		{
 			return new v8<Force>(Cross(lhs.ang, rhs.ang) + Cross(lhs.lin, rhs.lin), Cross(lhs.ang, rhs.lin));
 		}
 
 		/// <summary>
-		/// The spatial cross product matrix for 'a', for use with motion vectors.
-		///' i.e. b = a x m = CPM(a) * m, where m is a motion vector</summary>
+		/// The spatial cross product matrix for 'a'.
+		/// The default result is motion-space; `CPM<Force>(a)` selects the dual force-space matrix for the same motion input.</summary>
 		public static m6x8<Motion,Motion> CPM(v8<Motion> a)
 		{
 			var cx_ang = CPM(a.ang.xyz);
@@ -300,13 +300,13 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>
-		/// The spatial cross product matrix for 'a', for use with force vectors.
-		/// i.e. b = a x* f = CPM(a) * f, where f is a force vector</summary>
-		public static m6x8<Force, Force> CPM(v8<Force> a)
+		/// The dual spatial cross product matrix for a motion vector.
+		/// The generic tag selects the force-space matrix form.</summary>
+		public static m6x8<T, T> CPM<T>(v8<Motion> a) where T : Force
 		{
 			var cx_ang = CPM(a.ang.xyz);
 			var cx_lin = CPM(a.lin.xyz);
-			return new m6x8<Force, Force>(cx_ang, cx_lin, m3x3.Zero, cx_ang);
+			return new m6x8<T, T>(cx_ang, cx_lin, m3x3.Zero, cx_ang);
 		}
 
 		/// <summary>Return the transpose of a spatial matrix</summary>
@@ -354,10 +354,10 @@ namespace Rylogic.UnitTests
 				Assert.True(Math_.FEql(r0, r1));
 			}
 			{
-				var v0 = new v8<Force>(1, 1, 1, 2, 2, 2);
+				var v0 = new v8<Motion>(1, 1, 1, 2, 2, 2);
 				var v1 = new v8<Force>(-1, -2, -3, -4, -5, -6);
 				var r0 = Math_.Cross(v0, v1);
-				var r1 = Math_.CPM(v0) * v1;
+				var r1 = Math_.CPM<Force>(v0) * v1;
 				Assert.True(Math_.FEql(r0, r1));
 			}
 			{// Test: vx* == -Transpose(vx)
@@ -365,7 +365,7 @@ namespace Rylogic.UnitTests
 				var v = v8<IVectorSpace>.Random(-5f, +5f, rng);
 
 				var m0 = Math_.CPM(v.Cast<Motion>()); // vx
-				var m1 = Math_.CPM(v.Cast<Force>());  // vx*
+				var m1 = Math_.CPM<Force>(v.Cast<Motion>());  // vx*
 				var m2 = Math_.Transpose(m1);
 				var m3 = (-m2).Cast<Motion,Motion>();
 				Assert.True(Math_.FEql(m0, m3));

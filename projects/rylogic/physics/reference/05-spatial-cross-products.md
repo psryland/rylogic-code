@@ -19,8 +19,7 @@ $$\hat{\mathbf{a}} \times \hat{\mathbf{b}} = \begin{bmatrix} \boldsymbol{\omega}
 
 In Rylogic:
 ```cpp
-template <typename T>
-Vec8f<Motion> Cross(Vec8f<T> const& lhs, Vec8f<Motion> const& rhs)
+Vec8f<Motion> Cross(Vec8f<Motion> const& lhs, Vec8f<Motion> const& rhs)
 {
     return Vec8f<Motion>(
         Cross3(lhs.ang, rhs.ang),                                // ω_a × ω_b
@@ -38,8 +37,7 @@ $$\hat{\mathbf{a}} \times^{*} \hat{\mathbf{b}} = \begin{bmatrix} \boldsymbol{\om
 
 In Rylogic:
 ```cpp
-template <typename T>
-Vec8f<Force> Cross(Vec8f<T> const& lhs, Vec8f<Force> const& rhs)
+Vec8f<Force> Cross(Vec8f<Motion> const& lhs, Vec8f<Force> const& rhs)
 {
     return Vec8f<Force>(
         Cross3(lhs.ang, rhs.ang) + Cross3(lhs.lin, rhs.lin),    // ω_a × τ_b + v_a × f_b
@@ -59,8 +57,9 @@ In other words, the force cross-product matrix is the **negative transpose** of 
 ```cpp
 {// Test: vx* == -Transpose(vx)
     auto v = v8(-2.3f, +1.3f, 0.9f, -2.2f, 0.0f, -1.0f);
-    auto m0 = CPM(static_cast<v8motion>(v)); // vx
-    auto m1 = CPM(static_cast<v8force>(v));  // vx*
+    auto m = static_cast<v8motion>(v);
+    auto m0 = CPM(m);        // vx
+    auto m1 = CPM<Force>(m); // vx*
     auto m2 = Transpose(m1);
     auto m3 = static_cast<m6x8m>(-m2);
     PR_EXPECT(FEql(m0, m3));
@@ -90,7 +89,7 @@ Mat6x8f<Motion,Motion> CPM(Vec8f<Motion> const& a)
 $$[\hat{\mathbf{a}}]_{\times^{*}} = \begin{bmatrix} [\boldsymbol{\omega}_a]_{\times} & [\mathbf{v}_a]_{\times} \\ 0 & [\boldsymbol{\omega}_a]_{\times} \end{bmatrix}$$
 
 ```cpp
-Mat6x8f<Force,Force> CPM(Vec8f<Force> const& a)
+Mat6x8f<Force,Force> CPM<Force>(Vec8f<Motion> const& a)
 {
     auto cx_ang = CPM(a.ang);
     auto cx_lin = CPM(a.lin);
