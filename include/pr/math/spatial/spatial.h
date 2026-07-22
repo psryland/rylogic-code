@@ -194,10 +194,11 @@ namespace pr::math::spatial
 		return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x3<S>>(), cx_ang);
 	}
 
-	// Create a spatial coordinate transform
+	// Spatial vector-space tags supported by coordinate transforms.
 	template <typename VecSpace>
 	concept SpatialVecSpace = std::same_as<VecSpace, Motion> || std::same_as<VecSpace, Force>;
 
+	// Create a spatial coordinate transform.
 	template <typename VecSpace, ScalarTypeFP S>
 		requires SpatialVecSpace<VecSpace>
 	constexpr Mat6x8<S, VecSpace, VecSpace> Transform(Mat4x4<S> const& a2b) noexcept
