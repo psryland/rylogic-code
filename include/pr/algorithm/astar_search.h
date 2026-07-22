@@ -327,11 +327,13 @@ namespace pr::algorithm::astar
 		path.push_back(PathItem{ .node = best_match.node, .edge = Adapter::NoEdge, .cost_to_node = best_match.cost_to_node });
 		for (auto const* i = &best_match; i->parent != Adapter::NoNode;)
 		{
-			path.push_back(PathItem{ .node = i->parent, .edge = i->parent_edge, .cost_to_node = i->cost_to_node });
-
-			// Find the parent of 'i'
+			// Record the cumulative cost for the node being appended, not the child we walked from.
 			auto parent = storage.find(i->parent);
 			assert(parent != storage.end());
+
+			path.push_back(PathItem{ .node = i->parent, .edge = i->parent_edge, .cost_to_node = parent->second.cost_to_node });
+
+			// Find the parent of 'i'
 			i = &parent->second;
 		}
 		std::reverse(begin(path), end(path));
@@ -469,6 +471,100 @@ namespace pr::algorithm::astar::unittests
 
 		Graph graph;
 
+		// Simple weighted chain used to pin the cumulative-cost reconstruction contract.
+		struct WeightedGraph
+		{
+			struct Edge
+			{
+				int target;
+				float cost;
+			};
+
+			std::vector<std::vector<Edge>> adj;
+
+			// Initialise the bidirectional chain with fixed edge costs.
+			WeightedGraph()
+				: adj(4)
+			{
+				// Build a simple chain so the expected cumulative cost at each hop is unambiguous.
+				adj[0].push_back({ 1, 2.0f });
+				adj[1].push_back({ 0, 2.0f });
+				adj[1].push_back({ 2, 3.0f });
+				adj[2].push_back({ 1, 3.0f });
+				adj[2].push_back({ 3, 5.0f });
+				adj[3].push_back({ 2, 5.0f });
+			}
+		};
+
+		// Adapter for the weighted chain regression case.
+		struct WeightedAdptr
+		{
+			using node_ref = int;
+			using edge_ref = int;
+			using cost_type = float;
+			template <typename T> using vector_type = std::vector<T>;
+			template <typename K, typename V> using hashmap_type = std::unordered_map<K, V>;
+			static constexpr node_ref NoNode = -1;
+			static constexpr edge_ref NoEdge = -1;
+			static constexpr cost_type CostMax = std::numeric_limits<cost_type>::max();
+
+			using WorkingData = astar::WorkingData<WeightedAdptr>;
+			using path_type = std::vector<PathItem<WeightedAdptr>>;
+			using NodeData = astar::NodeData<WeightedAdptr>;
+			using EdgeData = astar::EdgeData<WeightedAdptr>;
+
+			WeightedGraph& graph;
+			WorkingData working_data;
+			int goal;
+
+			// Keep references to the graph and goal node for repeated searches.
+			WeightedAdptr(WeightedGraph& graph, int goal)
+				: graph(graph)
+				, goal(goal)
+			{
+			}
+
+			// Reuse the working data so the regression test exercises the same code path as the real callers.
+			WorkingData& astar_working_data()
+			{
+				return working_data;
+			}
+
+			// Advance to the next adjacency entry for the current node.
+			edge_ref NextEdge(node_ref node, edge_ref edge) const
+			{
+				++edge;
+				return edge >= 0 && edge < ssize(graph.adj[node]) ? edge : NoEdge;
+			}
+
+			// Map the stored edge index to the adjacent node and its cost.
+			EdgeData ReadEdge(node_ref node, edge_ref edge) const
+			{
+				auto const& e = graph.adj[node][edge];
+				return EdgeData{
+					.target_node = e.target,
+					.edge_cost = e.cost,
+				};
+			}
+
+			// The regression test uses zero heuristic so the search behaves like Dijkstra's algorithm.
+			NodeData MeasureNode(node_ref node) const
+			{
+				return NodeData{
+					.heuristic_cost = 0.0f,
+					.is_goal = node == goal,
+				};
+			}
+
+			// Cost-to-node and cost-to-goal share the same units in this regression case.
+			cost_type CombinedCost(cost_type cost_to_node, cost_type cost_to_goal) const
+			{
+				return cost_to_node + cost_to_goal;
+			}
+		};
+		static_assert(astar::AdapterType<WeightedAdptr>);
+
+		// Validate the returned path order for the coordinate-based graph cases below.
 		void RunTest(Graph::Node const& start, Graph::Node const& goal, bool should_find, std::span<int const> expected)
 		{
 			Adptr adapter(graph, goal);
@@ -484,6 +580,28 @@ namespace pr::algorithm::astar::unittests
 
 				PR_EXPECT(hop.node == expected[i]);
 				PR_EXPECT(i + 1 == ssize(path) || adj[hop.edge] == path[i + 1].node);
+			}
+		}
+
+		// Validate the returned cumulative path costs using a simple weighted chain.
+		PRUnitTestMethod(PathCostReconstruction)
+		{
+			WeightedGraph graph;
+			WeightedAdptr adapter(graph, 3);
+			auto [found, path] = astar::Search(adapter, 0, 100.0f);
+
+			PR_EXPECT(found);
+			PR_EXPECT(path.size() == 4);
+
+			int const expected_nodes[] = { 0, 1, 2, 3 };
+			float const expected_costs[] = { 0.0f, 2.0f, 5.0f, 10.0f };
+			for (int i = 0; i != ssize(path); ++i)
+			{
+				auto const& hop = path[i];
+
+				PR_EXPECT(hop.node == expected_nodes[i]);
+				PR_EXPECT(hop.cost_to_node == expected_costs[i]);
+				PR_EXPECT(i + 1 == ssize(path) || graph.adj[hop.node][hop.edge].target == path[i + 1].node);
 			}
 		}
 
