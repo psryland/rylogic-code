@@ -43,25 +43,27 @@ namespace pr::math
 	template <typename T>
 	concept QuaternionType = vector_traits<std::remove_cvref_t<T>>::is_quaternion_v;
 
-	// Concept for rank-1 vectors (scalar elements, e.g. Vec3<float>).
-	// cv/ref qualifiers are stripped before the nested component_t lookup; without this, the
-	// unspecialized base template is used for qualified types, returning component_t = void,
-	// which makes IsRank1 incorrectly true for rank-2 types like Mat3x3<float> const.
+	// Concept for rank-1 vectors (scalar elements, e.g. Vec3<float>). cv/ref qualifiers on T are stripped
+	// before the nested component_t lookup so that e.g. IsRank1<Vec3<float> const> holds.
 	template <typename T>
 	concept IsRank1 = VectorType<T> && !VectorType<typename vector_traits<std::remove_cvref_t<T>>::component_t>;
 
-	// Concept for rank-2 vectors (vector elements, e.g. Mat3x3<float>).
-	// cv/ref qualifiers are stripped at each traits lookup level for the same reason as IsRank1.
+	// Concept for rank-2 vectors (vector elements, e.g. Mat3x3<float>). cv/ref qualifiers on T are stripped
+	// at each trait lookup level so that e.g. IsRank2<Mat3x3<float> const> holds.
 	template <typename T>
 	concept IsRank2 = VectorType<T>
 		&& VectorType<typename vector_traits<std::remove_cvref_t<T>>::component_t>
 		&& !VectorType<typename vector_traits<typename vector_traits<std::remove_cvref_t<T>>::component_t>::component_t>;
 
-	// Concept to ensure two vector/quaternion types have the same element type. cv/ref qualifiers are stripped.
+	// Concept satisfied when T and U are both vector or quaternion types with the same scalar element type.
+	// Both operands must satisfy VectorType or QuaternionType; this prevents non-vector types whose
+	// base-template element_t defaults to void from satisfying the constraint. cv/ref qualifiers are stripped.
 	template <typename T, typename U>
-	concept SameS = std::is_same_v<
-		typename vector_traits<std::remove_cvref_t<T>>::element_t,
-		typename vector_traits<std::remove_cvref_t<U>>::element_t>;
+	concept SameS = (VectorType<T> || QuaternionType<T>)
+		&& (VectorType<U> || QuaternionType<U>)
+		&& std::is_same_v<
+			typename vector_traits<std::remove_cvref_t<T>>::element_t,
+			typename vector_traits<std::remove_cvref_t<U>>::element_t>;
 
 	// Concept for vector types that support array access (e.g. m[i])
 	template <typename T>
