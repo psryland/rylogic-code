@@ -85,15 +85,35 @@ namespace pr::math
 		}
 
 		// Array access
-		constexpr S const& operator [] (int i) const noexcept
+		constexpr S operator [] (int i) const noexcept
 		{
 			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
-			return arr[i];
+
+			// Keep constexpr reads on the named union members so constant evaluation never
+			// touches the inactive runtime alias.
+			if consteval
+			{
+				return i < 4 ? ang[i] : lin[i - 4];
+			}
+			else
+			{
+				return arr[i];
+			}
 		}
 		constexpr S& operator [] (int i) noexcept
 		{
 			pr_assert(i >= 0 && i < _countof(arr) && "index out of range");
-			return arr[i];
+
+			// Keep constexpr writes on the named union members so constant evaluation never
+			// touches the inactive runtime alias.
+			if consteval
+			{
+				return i < 4 ? ang[i] : lin[i - 4];
+			}
+			else
+			{
+				return arr[i];
+			}
 		}
 
 		// Constants

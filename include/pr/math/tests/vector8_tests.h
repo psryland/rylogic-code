@@ -39,6 +39,43 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(z.ang, vec4_t(0, 0, 0, 0)));
 			PR_EXPECT(FEql(z.lin, vec4_t(0, 0, 0, 0)));
 		}
+		// Constant-evaluation indexing must stay on the active union view.
+		PRUnitTestMethod(ConstexprIndexing, float, double, int32_t, int64_t)
+		{
+			using vec8_t = Vec8<T, void>;
+
+			// Read every indexed component at compile time so both sub-vectors are exercised.
+			static_assert([]() constexpr
+			{
+				constexpr vec8_t v = vec8_t{
+					T(1), T(2), T(3), T(4),
+					T(5), T(6), T(7), T(8)
+				};
+
+				return
+					v[0] == T(1) &&
+					v[1] == T(2) &&
+					v[2] == T(3) &&
+					v[3] == T(4) &&
+					v[4] == T(5) &&
+					v[5] == T(6) &&
+					v[6] == T(7) &&
+					v[7] == T(8);
+			}());
+
+			// Write through the indexed setter in constant evaluation so the mutable overload
+			// follows the same active-member path.
+			static_assert([]() constexpr
+			{
+				auto v = vec8_t{
+					T(1), T(2), T(3), T(4),
+					T(5), T(6), T(7), T(8)
+				};
+
+				v[5] = T(42);
+				return v[5] == T(42) && v[4] == T(5) && v[6] == T(7);
+			}());
+		}
 
 		PRUnitTestMethod(LinAt_AngAt, float, double)
 		{
