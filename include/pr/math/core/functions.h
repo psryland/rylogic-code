@@ -851,18 +851,22 @@ namespace pr::math
 		return true;
 	}
 
-	// Compile time function for applying 'op' to each component of a vector
+	// Compile time function for applying 'op' to a scalar or each component of a vector
 	template <ScalarType S, typename Op> constexpr S CompOp(S a, Op op)
 	{
+		return op(a);
 	}
 	template <ScalarType S, typename Op> constexpr S CompOp(S a, S b, Op op)
 	{
+		return op(a, b);
 	}
 	template <ScalarType S, typename Op> constexpr S CompOp(S a, S b, S c, Op op)
 	{
+		return op(a, b, c);
 	}
 	template <ScalarType S, typename Op> constexpr S CompOp(S a, S b, S c, S d, Op op)
 	{
+		return op(a, b, c, d);
 	}
 	template <VectorType Vec, typename Op> constexpr Vec CompOp(Vec a, Op op)
 	{

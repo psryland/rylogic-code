@@ -338,6 +338,19 @@ namespace pr::math::tests
 			}
 		}
 
+		// ---- CompOp (functions.h line ~855) ----
+		PRUnitTestMethod(CompOpTests
+		, float, double, int32_t, int64_t
+		) {
+			using S = T;
+
+			// Scalar overloads should forward their arguments to the supplied operation and return that result unchanged.
+			static_assert(CompOp(S(2), [](S x) { return x + S(1); }) == S(3));
+			static_assert(CompOp(S(2), S(5), [](S x, S y) { return x * S(10) + y; }) == S(25));
+			static_assert(CompOp(S(2), S(5), S(7), [](S x, S y, S z) { return x + y + z; }) == S(14));
+			static_assert(CompOp(S(2), S(5), S(7), S(11), [](S x, S y, S z, S w) { return x + y + z + w; }) == S(25));
+		}
+
 		// ---- Abs (functions.h line ~675) ----
 		PRUnitTestMethod(Abs
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
