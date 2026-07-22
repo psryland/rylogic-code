@@ -2151,9 +2151,10 @@ namespace pr::math::tests
 		) {
 			using S = T;
 
-			PR_EXPECT(Step(S(0), S(1)) == S(0)); // lo <= hi → 0
-			PR_EXPECT(Step(S(1), S(0)) == S(1)); // lo > hi → 1
-			PR_EXPECT(Step(S(5), S(5)) == S(0)); // lo == hi → 0
+			// Step returns 0 below the edge, and 1 at or above it.
+			PR_EXPECT(Step(S(1), S(0)) == S(0)); // hi < lo → 0
+			PR_EXPECT(Step(S(1), S(1)) == S(1)); // hi == lo → 1
+			PR_EXPECT(Step(S(1), S(2)) == S(1)); // hi > lo → 1
 		}
 
 		// ---- Sigmoid (functions.h line ~1653) ----

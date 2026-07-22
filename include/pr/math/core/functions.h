@@ -1989,10 +1989,10 @@ namespace pr::math
 		return len_sq > 0 ? Sqrt(len_sq) : 0;
 	}
 
-	// Returns 1 if 'hi' is > 'lo' otherwise 0
+	// Returns 0 when 'hi' is below 'lo'; otherwise 1
 	template <ScalarType S> constexpr S Step(S lo, S hi) noexcept
 	{
-		return lo <= hi ? S(0) : S(1);
+		return hi < lo ? S(0) : S(1);
 	}
 
 	// Returns the 'Hermite' interpolation (3t^2 - 2t^3) between 'lo' and 'hi' for t=[0,1]
