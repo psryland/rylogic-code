@@ -13,16 +13,15 @@
 namespace pr::math
 {
 	template <typename S, bool = std::floating_point<S>>
-	struct mat4x4_quat_transform
+	struct Mat4x4QuatTransform
 	{
 		static void Transform() = delete;
 	};
 
 	template <typename S>
-	struct mat4x4_quat_transform<S, true>
+	struct Mat4x4QuatTransform<S, true>
 	{
-		// Keep the quaternion overload exact for floating-point matrices without
-		// forcing integer specialisations to form an invalid Quat<int> type.
+		// Create from a same-scalar quaternion + position
 		static Mat4x4<S> Transform(Quat<S> q, Vec4<S> pos) noexcept
 		{
 			return Mat4x4<S>{ math::ToMatrix<Mat3x3<S>>(q), pos };
@@ -31,7 +30,7 @@ namespace pr::math
 
 	template <ScalarType S>
 	struct Mat4x4
-		: mat4x4_quat_transform<S>
+		: Mat4x4QuatTransform<S>
 	{
 		// Notes:
 		//  - Matrix members 'x, y, z, w' are column vectors stored contigously.
@@ -63,7 +62,7 @@ namespace pr::math
 		};
 		#pragma warning(pop)
 
-		using mat4x4_quat_transform<S>::Transform;
+		using Mat4x4QuatTransform<S>::Transform;
 
 		// Construct
 		constexpr Mat4x4() noexcept
