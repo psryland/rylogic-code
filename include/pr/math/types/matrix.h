@@ -335,14 +335,14 @@ namespace pr::math
 			return *this;
 		}
 
-		// Set this matrix to an identity matrix.
-		// Uses logical (vec, cmp) access so the diagonal ones land at the correct positions
-		// regardless of transpose state and regardless of whether the matrix is square.
+		// Set the logical diagonal to one and all other elements to zero.
 		Matrix& identity() noexcept
 		{
 			zero();
-			auto n = std::min(vecs(), cmps());
-			for (int i = 0; i != n; ++i)
+
+			// Logical access preserves the current transpose state.
+			auto diagonal_size = std::min(vecs(), cmps());
+			for (int i = 0; i != diagonal_size; ++i)
 				(*this)(i, i) = S(1);
 			return *this;
 		}
