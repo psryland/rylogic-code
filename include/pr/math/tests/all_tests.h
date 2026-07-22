@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2002
 //*****************************************************************************
 #pragma once
+#include "pr/math/tests/traits_tests.h"
 #include "pr/math/tests/scalar_tests.h"
 #include "pr/math/tests/function_tests.h"
 #include "pr/math/tests/vector2_tests.h"
