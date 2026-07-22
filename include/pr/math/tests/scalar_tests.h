@@ -416,7 +416,7 @@ namespace pr::math::tests
 			static_assert(GreatestCommonFactor(5, 0) == 5);
 			static_assert(GreatestCommonFactor(0, 0) == 0);
 
-			// Negative inputs: result is always nonneg (was sign-dependent before the fix)
+			// Negative inputs: result is always nonneg
 			static_assert(GreatestCommonFactor(-12, 8) == 4);
 			static_assert(GreatestCommonFactor(12, -8) == 4);
 			static_assert(GreatestCommonFactor(-12, -8) == 4);
@@ -435,15 +435,15 @@ namespace pr::math::tests
 			static_assert(LeastCommonMultiple(7, 13) == 91); // co-prime
 			static_assert(LeastCommonMultiple(12, 8) == 24);
 
-			// Zero inputs: lcm(0, n) = 0 (was divide-by-zero before the fix)
+			// Zero inputs: lcm(0, n) = 0 by convention
 			static_assert(LeastCommonMultiple(0, 5) == 0);
 			static_assert(LeastCommonMultiple(5, 0) == 0);
 			static_assert(LeastCommonMultiple(0, 0) == 0);
 
-			// Large int32 values sharing a common factor — old multiply-first formula overflowed
+			// Large int32 values sharing a common factor: result fits despite large inputs
 			static_assert(LeastCommonMultiple(2'000'000'000, 1'000'000'000) == 2'000'000'000);
 
-			// Negative inputs: result is always nonneg (was sign-dependent before the fix)
+			// Negative inputs: result is always nonneg
 			static_assert(LeastCommonMultiple(-4, 6) == 12);
 			static_assert(LeastCommonMultiple(4, -6) == 12);
 			static_assert(LeastCommonMultiple(-4, -6) == 12);
@@ -453,7 +453,7 @@ namespace pr::math::tests
 			static_assert(LeastCommonMultiple(0u, 5u) == 0u);
 			static_assert(LeastCommonMultiple(2'000'000'000u, 1'000'000'000u) == 2'000'000'000u);
 
-			// 64-bit large values: multiply-first would overflow int64, but lcm fits
+			// 64-bit large values: result fits despite large inputs
 			static_assert(LeastCommonMultiple(int64_t(2'000'000'000'000LL), int64_t(1'000'000'000'000LL)) == 2'000'000'000'000LL);
 		}
 		PRUnitTestMethod(PadTests)

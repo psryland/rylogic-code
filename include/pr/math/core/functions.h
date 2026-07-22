@@ -2213,13 +2213,13 @@ namespace pr::math
 			using U = std::make_unsigned_t<S>;
 			auto ua = static_cast<U>(a); if (a < 0) ua = U(0) - ua;
 			auto ub = static_cast<U>(b); if (b < 0) ub = U(0) - ub;
-			while (ub) { U t = ub; ub = ua % ub; ua = t; }
+			while (ub) { auto t = ub; ub = ua % ub; ua = t; }
 			return static_cast<S>(ua);
 		}
 		else
 		{
 			// Unsigned: direct Euclidean algorithm
-			while (b) { S t = b; b = a % b; a = t; }
+			while (b) { auto t = b; b = a % b; a = t; }
 			return a;
 		}
 	}
@@ -2243,7 +2243,7 @@ namespace pr::math
 			auto ub = static_cast<U>(b); if (b < 0) ub = U(0) - ub;
 
 			// Divide by the gcf first to avoid overflow in the multiply step
-			U const g = GreatestCommonFactor(ua, ub);
+			auto const g = GreatestCommonFactor(ua, ub);
 			return static_cast<S>((ua / g) * ub);
 		}
 		else
