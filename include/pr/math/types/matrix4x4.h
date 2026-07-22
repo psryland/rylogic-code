@@ -198,8 +198,9 @@ namespace pr::math
 		}
 
 		// Create from a same-scalar quaternion + position
-		static Mat4x4 Transform(QuaternionType auto q, Vec4<S> pos) noexcept
-			requires (std::floating_point<S> && SameS<decltype(q), Vec4<S>>)
+		template <typename Q>
+			requires (std::same_as<Q, S> && std::floating_point<Q>)
+		static Mat4x4 Transform(Quat<Q> q, Vec4<S> pos) noexcept
 		{
 			return Mat4x4{ math::ToMatrix<Mat3x3<S>>(q), pos };
 		}
