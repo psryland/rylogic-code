@@ -46,6 +46,23 @@ namespace pr::math::tests
 			// Array access
 			PR_EXPECT(Q0[3] == T(1));
 		}
+
+		// Keep the free ToMatrix helper on the proxy access path for quaternions constructed from raw components.
+		PRUnitTestMethod(ConstexprToMatrix, float, double)
+		{
+			using Quat = Quat<T>;
+			using Vec3 = Vec3<T>;
+			using Mat3x3 = Mat3x3<T>;
+
+			constexpr auto q = Quat(T(0), T(0), T(1), T(1));
+			constexpr auto m = ToMatrix<Mat3x3>(q);
+			constexpr auto expected = Mat3x3(
+				Vec3(T(0), T(1), T(0)),
+				Vec3(T(-1), T(0), T(0)),
+				Vec3(T(0), T(0), T(1)));
+			static_assert(All(m == expected));
+		}
+
 		PRUnitTestMethod(Operators, float, double)
 		{
 			using Quat = Quat<T>;

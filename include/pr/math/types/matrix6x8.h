@@ -95,8 +95,17 @@ namespace pr::math
 		void col(int i, Vec8<S, void> rhs) noexcept
 		{
 			pr_assert("index out of range" && i >= 0 && i < 6);
-			if (i < 3) { m00[i] = rhs.ang.xyz; m10[i] = rhs.lin.xyz; }
-			else { m01[i - 3] = rhs.ang.xyz; m11[i - 3] = rhs.lin.xyz; }
+			if (i < 3)
+			{
+				m00[i] = Vec3<S>{ rhs.ang.x, rhs.ang.y, rhs.ang.z };
+				m10[i] = Vec3<S>{ rhs.lin.x, rhs.lin.y, rhs.lin.z };
+			}
+			else
+			{
+				auto const j = i - 3;
+				m01[j] = Vec3<S>{ rhs.ang.x, rhs.ang.y, rhs.ang.z };
+				m11[j] = Vec3<S>{ rhs.lin.x, rhs.lin.y, rhs.lin.z };
+			}
 		}
 
 		// Basic constants

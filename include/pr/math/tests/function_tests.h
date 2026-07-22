@@ -7,6 +7,30 @@
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+
+namespace
+{
+	// Minimal trait-backed 1x1 types keep the generic Scale helper honest for the smallest rank-2 matrix.
+	template <typename T> struct ExtVec1 { T x; };
+	template <typename T> struct ExtMat1x1 { ExtVec1<T> x; };
+}
+
+namespace pr::math
+{
+	template <typename T> struct vector_traits<ExtVec1<T>>
+		: vector_traits_base<T, T, 1>
+		, vector_access_member<ExtVec1<T>, T, 1>
+	{
+		template <ScalarType S> using rebind = ExtVec1<S>;
+	};
+	template <typename T> struct vector_traits<ExtMat1x1<T>>
+		: vector_traits_base<T, ExtVec1<T>, 1>
+		, vector_access_member<ExtMat1x1<T>, ExtVec1<T>, 1>
+	{
+		template <ScalarType S> using rebind = ExtMat1x1<S>;
+	};
+}
+
 namespace pr::math::tests
 {
 	PRUnitTestClass(FunctionTests)
@@ -214,6 +238,77 @@ namespace pr::math::tests
 					if constexpr (dim == 3) { auto c = static_cast<Mat3x3<int64_t>>(m); PR_EXPECT(All(c == Mat3x3<int64_t>::Identity())); }
 					if constexpr (dim == 4) { auto c = static_cast<Mat4x4<int64_t>>(m); PR_EXPECT(All(c == Mat4x4<int64_t>::Identity())); }
 				}
+			}
+		}
+
+		PRUnitTestMethod(ConstexprScale
+		, ExtMat1x1<float>, ExtMat1x1<double>
+		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
+		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
+		) {
+			using mat_t = T;
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
+			using vec_t = typename vt::component_t;
+
+			if constexpr (vt::dimension == 1)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(3));
+				constexpr auto s_scalar_expected = mat_t{ vec_t{ S(3) } };
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t{ S(5) });
+				constexpr auto s_vec_expected = mat_t{ vec_t{ S(5) } };
+				static_assert(All(s_vec == s_vec_expected));
+			}
+			else if constexpr (vt::dimension == 2)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(3));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(3), S(0)),
+					vec_t(S(0), S(3)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0)),
+					vec_t(S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
+			}
+			else if constexpr (vt::dimension == 3)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(4));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(4), S(0), S(0)),
+					vec_t(S(0), S(4), S(0)),
+					vec_t(S(0), S(0), S(4)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(3), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0), S(0)),
+					vec_t(S(0), S(3), S(0)),
+					vec_t(S(0), S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
+			}
+			else if constexpr (vt::dimension == 4)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(6));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(6), S(0), S(0), S(0)),
+					vec_t(S(0), S(6), S(0), S(0)),
+					vec_t(S(0), S(0), S(6), S(0)),
+					vec_t(S(0), S(0), S(0), S(6)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(3), S(4), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0), S(0), S(0)),
+					vec_t(S(0), S(3), S(0), S(0)),
+					vec_t(S(0), S(0), S(4), S(0)),
+					vec_t(S(0), S(0), S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
 			}
 		}
 

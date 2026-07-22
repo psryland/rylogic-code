@@ -28,6 +28,58 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r, v));
 		}
 
+		// Verifies all six column setter paths and that Vec8 padding values are discarded.
+		PRUnitTestMethod(ColSetGet, float, double)
+		{
+			using mat6_t = Mat6x8<T, void, void>;
+			using vec8_t = Vec8<T, void>;
+			using vec3_t = Vec3<T>;
+
+			auto matrix = mat6_t::Zero();
+			auto const cols = std::array
+			{
+				vec8_t{ T(1),  T(2),  T(3),  T(41), T(4),  T(5),  T(6),  T(42) },
+				vec8_t{ T(7),  T(8),  T(9),  T(43), T(10), T(11), T(12), T(44) },
+				vec8_t{ T(13), T(14), T(15), T(45), T(16), T(17), T(18), T(46) },
+				vec8_t{ T(19), T(20), T(21), T(47), T(22), T(23), T(24), T(48) },
+				vec8_t{ T(25), T(26), T(27), T(49), T(28), T(29), T(30), T(50) },
+				vec8_t{ T(31), T(32), T(33), T(51), T(34), T(35), T(36), T(52) },
+			};
+
+			for (int i = 0; i != 6; ++i)
+			{
+				matrix.col(i, cols[i]);
+			}
+
+			for (int i = 0; i != 6; ++i)
+			{
+				auto const got = matrix.col(i);
+				auto const expected = cols[i];
+
+				PR_EXPECT(got.ang.x == expected.ang.x);
+				PR_EXPECT(got.ang.y == expected.ang.y);
+				PR_EXPECT(got.ang.z == expected.ang.z);
+				PR_EXPECT(got.lin.x == expected.lin.x);
+				PR_EXPECT(got.lin.y == expected.lin.y);
+				PR_EXPECT(got.lin.z == expected.lin.z);
+				PR_EXPECT(got.ang.w == T(0));
+				PR_EXPECT(got.lin.w == T(0));
+			}
+
+			PR_EXPECT(All(matrix.m00[0] == vec3_t(T(1),  T(2),  T(3))));
+			PR_EXPECT(All(matrix.m00[1] == vec3_t(T(7),  T(8),  T(9))));
+			PR_EXPECT(All(matrix.m00[2] == vec3_t(T(13), T(14), T(15))));
+			PR_EXPECT(All(matrix.m10[0] == vec3_t(T(4),  T(5),  T(6))));
+			PR_EXPECT(All(matrix.m10[1] == vec3_t(T(10), T(11), T(12))));
+			PR_EXPECT(All(matrix.m10[2] == vec3_t(T(16), T(17), T(18))));
+			PR_EXPECT(All(matrix.m01[0] == vec3_t(T(19), T(20), T(21))));
+			PR_EXPECT(All(matrix.m01[1] == vec3_t(T(25), T(26), T(27))));
+			PR_EXPECT(All(matrix.m01[2] == vec3_t(T(31), T(32), T(33))));
+			PR_EXPECT(All(matrix.m11[0] == vec3_t(T(22), T(23), T(24))));
+			PR_EXPECT(All(matrix.m11[1] == vec3_t(T(28), T(29), T(30))));
+			PR_EXPECT(All(matrix.m11[2] == vec3_t(T(34), T(35), T(36))));
+		}
+
 		PRUnitTestMethod(MultiplyVector, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
@@ -83,7 +135,7 @@ namespace pr::math::tests
 			using mat6_t = Mat6x8<T, void, void>;
 			using vec8_t = Vec8<T, void>;
 
-			auto M = mat6_t
+			auto matrix = mat6_t
 			{
 				vec8_t{+1, +1, +2, -1, +6, +2},
 				vec8_t{-2, +2, +4, -3, +5, -4},
@@ -92,11 +144,11 @@ namespace pr::math::tests
 				vec8_t{+1, +2, +3, -2, +2, +3},
 				vec8_t{+1, -1, -2, -3, +6, -1}
 			};
-			auto M_inv = Invert(M);
-			auto I0 = M * M_inv;
-			auto I1 = M_inv * M;
-			PR_EXPECT(FEql(I0, mat6_t::Identity()));
-			PR_EXPECT(FEql(I1, mat6_t::Identity()));
+			auto inverse = Invert(matrix);
+			auto left = matrix * inverse;
+			auto right = inverse * matrix;
+			PR_EXPECT(FEql(left, mat6_t::Identity()));
+			PR_EXPECT(FEql(right, mat6_t::Identity()));
 		}
 
 		// Exercise the block-swap case where the diagonal 3x3 blocks are zero.
@@ -108,15 +160,15 @@ namespace pr::math::tests
 			using mat6_t = Mat6x8<T, void, void>;
 			using tagged_mat_t = Mat6x8<T, SpaceA, SpaceB>;
 
-			auto M = tagged_mat_t{
+			auto matrix = tagged_mat_t{
 				mat3_t::Zero(), mat3_t::Identity(),
 				mat3_t::Identity(), mat3_t::Zero()
 			};
-			static_assert(std::is_same_v<decltype(Invert(M)), Mat6x8<T, SpaceB, SpaceA>>);
+			static_assert(std::is_same_v<decltype(Invert(matrix)), Mat6x8<T, SpaceB, SpaceA>>);
 
-			auto M_inv = Invert(M);
-			auto left = M * M_inv;
-			auto right = M_inv * M;
+			auto inverse = Invert(matrix);
+			auto left = matrix * inverse;
+			auto right = inverse * matrix;
 			PR_EXPECT(FEql(static_cast<mat6_t const&>(left), mat6_t::Identity()));
 			PR_EXPECT(FEql(static_cast<mat6_t const&>(right), mat6_t::Identity()));
 		}
@@ -130,7 +182,7 @@ namespace pr::math::tests
 			using tagged_mat_t = Mat6x8<T, SpaceA, SpaceB>;
 			using vec8_t = Vec8<T, void>;
 
-			auto M = tagged_mat_t{};
+			auto matrix = tagged_mat_t{};
 			int const row_of_col[6] = { 0, 3, 4, 1, 2, 5 };
 			int const scalar_of_row[6] = { 0, 1, 2, 4, 5, 6 };
 			for (int col = 0; col != 6; ++col)
@@ -138,13 +190,13 @@ namespace pr::math::tests
 				auto column = vec8_t{ T(0) };
 				// The first three matrix rows live in the angular half of Vec8; the last three live in the linear half.
 				column[scalar_of_row[row_of_col[col]]] = T(1);
-				M.col(col, column);
+				matrix.col(col, column);
 			}
-			static_assert(std::is_same_v<decltype(Invert(M)), Mat6x8<T, SpaceB, SpaceA>>);
+			static_assert(std::is_same_v<decltype(Invert(matrix)), Mat6x8<T, SpaceB, SpaceA>>);
 
-			auto M_inv = Invert(M);
-			auto left = M * M_inv;
-			auto right = M_inv * M;
+			auto inverse = Invert(matrix);
+			auto left = matrix * inverse;
+			auto right = inverse * matrix;
 			PR_EXPECT(FEql(static_cast<mat6_t const&>(left), mat6_t::Identity()));
 			PR_EXPECT(FEql(static_cast<mat6_t const&>(right), mat6_t::Identity()));
 		}

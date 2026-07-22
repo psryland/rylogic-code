@@ -505,13 +505,17 @@ namespace pr::math
 		using mt = vector_traits<Mat>;
 		using Vec = typename mt::component_t;
 		using S = typename qt::element_t;
-		pr_assert(LengthSq(q.xyzw) != 0 && "'quat' is a zero quaternion");
 
-		auto s = S(2) / LengthSq(q.xyzw);
-		S xs = vec(q).x *  s, ys = vec(q).y *  s, zs = vec(q).z *  s;
-		S wx = vec(q).w * xs, wy = vec(q).w * ys, wz = vec(q).w * zs;
-		S xx = vec(q).x * xs, xy = vec(q).x * ys, xz = vec(q).x * zs;
-		S yy = vec(q).y * ys, yz = vec(q).y * zs, zz = vec(q).z * zs;
+		// Stay on the proxy/view access path so the helper works with quaternions that only expose traits.
+		auto const qv = vec(q);
+		auto const norm_sq = qv.x * qv.x + qv.y * qv.y + qv.z * qv.z + qv.w * qv.w;
+		pr_assert(norm_sq != S(0) && "'quat' is a zero quaternion");
+
+		auto const s = S(2) / norm_sq;
+		S xs = qv.x * s, ys = qv.y * s, zs = qv.z * s;
+		S wx = qv.w * xs, wy = qv.w * ys, wz = qv.w * zs;
+		S xx = qv.x * xs, xy = qv.x * ys, xz = qv.x * zs;
+		S yy = qv.y * ys, yz = qv.y * zs, zz = qv.z * zs;
 	
 		Mat m = {};
 		vec(m).x = Vec{S(1) - (yy + zz), xy + wz, xz - wy};
