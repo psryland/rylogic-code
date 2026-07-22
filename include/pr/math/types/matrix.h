@@ -137,6 +137,8 @@ namespace pr::math
 			if (this == &rhs) return *this;
 			if (rhs.local())
 			{
+				// Resize using the source's physical layout, then restore its logical transpose state.
+				m_transposed = false;
 				resize(rhs.m_vecs, rhs.m_cmps);
 				memcpy(m_data, rhs.m_data, sizeof(S) * size());
 				m_transposed = rhs.m_transposed;
