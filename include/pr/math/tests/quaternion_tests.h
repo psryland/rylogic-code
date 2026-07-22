@@ -223,6 +223,32 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlOrientation(q_zero, Identity<Quat>(), T(0.001)));
 		}
 
+		// Regression: Axis(), Angle(), and SinAngle() must canonicalize consistently for w < 0.
+		PRUnitTestMethod(MemberAxisSinAngle, float, double)
+		{
+			using quat_t = Quat<T>;
+			using vec4_t = Vec4<T>;
+			auto constexpr tol = T(0.001);
+
+			// 270-degree +Z rotation has w < 0; q270 and -q270 represent the same orientation.
+			auto q270 = quat_t(vec4_t::ZAxis(), DegreesToRadians(T(270)));
+			PR_EXPECT(q270.w < T(0));
+
+			auto axis = q270.Axis();
+			auto angle = q270.Angle();
+
+			// q and -q give the same shortest-arc axis, angle, and sine.
+			PR_EXPECT(FEqlAbsolute<vec4_t>(axis, (-q270).Axis(), tol));
+			PR_EXPECT(FEqlAbsolute(angle, (-q270).Angle(), tol));
+			PR_EXPECT(FEqlAbsolute(q270.SinAngle(), (-q270).SinAngle(), tol));
+
+			// Axis() + Angle() round-trip reconstructs the correct orientation.
+			PR_EXPECT(FEqlOrientation(quat_t(axis, angle), q270, tol));
+
+			// SinAngle() equals sin(Angle()).
+			PR_EXPECT(FEqlAbsolute(q270.SinAngle(), std::sin(angle), tol));
+		}
+
 		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 180 degrees
 		// (half-angle > π/2). AxisAngle, Scale, and LogMap must all canonicalize to the positive-w
 		// form and return the equivalent shortest-arc result without changing the orientation.

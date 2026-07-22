@@ -175,11 +175,12 @@ namespace pr::math
 			return s_identity;
 		}
 
-		// Get the axis component of the quaternion (normalised)
+		// Get the canonical shortest-arc axis component (normalised).
 		Vec4<S> Axis() const noexcept
 		{
-			// The axis is arbitrary for identity rotations
-			return Normalise(xyzw.w0(), Vec4<S>{0, 0, 1, 0});
+			// Canonicalize to the positive-w hemisphere (matches Angle()); identity axis is arbitrary
+			auto sign = w >= S(0) ? S(1) : S(-1);
+			return Normalise(Vec4<S>{sign * x, sign * y, sign * z, S(0)}, Vec4<S>{0, 0, 1, 0});
 		}
 
 		// Return the angle of rotation about 'Axis()'
@@ -208,9 +209,9 @@ namespace pr::math
 			//'  w == cos(θ/2)
 			//'  sin(θ) = 2 * sin(θ/2) * cos(θ/2)
 
-			// The sign is determined by the sign of w (which represents cos(θ/2))
+			// Use abs(w) to canonicalize to the positive-w hemisphere, matching Angle()/CosAngle()
 			auto sin_half_angle = Length(xyz);
-			return S(2) * sin_half_angle * w;
+			return S(2) * sin_half_angle * std::abs(w);
 		}
 	};
 
