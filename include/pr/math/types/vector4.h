@@ -460,10 +460,9 @@ namespace pr::math
 				}
 				else if constexpr (IntrinsicD)
 				{
-					// Zero w in both operands so that 0*NaN or 0*Inf in the w lane cannot
-					// contaminate the horizontal sum — the xyz result must always be finite when xyz inputs are.
-					auto a = _mm256_blend_pd(lhs.vec, _mm256_setzero_pd(), 0x8); // zero w of lhs
-					auto b = _mm256_blend_pd(rhs.vec, _mm256_setzero_pd(), 0x8); // zero w of rhs
+					// Mask both w lanes because 0 * NaN/Inf would contaminate the horizontal sum.
+					auto a = _mm256_blend_pd(lhs.vec, _mm256_setzero_pd(), 0x8);
+					auto b = _mm256_blend_pd(rhs.vec, _mm256_setzero_pd(), 0x8);
 					auto mul = _mm256_mul_pd(a, b);
 					auto hi = _mm256_extractf128_pd(mul, 1);
 					auto lo = _mm256_castpd256_pd128(mul);
