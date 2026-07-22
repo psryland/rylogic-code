@@ -28,6 +28,57 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r, v));
 		}
 
+		PRUnitTestMethod(ColSetGet, float, double)
+		{
+			using mat6_t = Mat6x8<T, void, void>;
+			using vec8_t = Vec8<T, void>;
+			using vec3_t = Vec3<T>;
+
+			auto M = mat6_t::Zero();
+			auto const cols = std::array
+			{
+				vec8_t{ T(1),  T(2),  T(3),  T(41), T(4),  T(5),  T(6),  T(42) },
+				vec8_t{ T(7),  T(8),  T(9),  T(43), T(10), T(11), T(12), T(44) },
+				vec8_t{ T(13), T(14), T(15), T(45), T(16), T(17), T(18), T(46) },
+				vec8_t{ T(19), T(20), T(21), T(47), T(22), T(23), T(24), T(48) },
+				vec8_t{ T(25), T(26), T(27), T(49), T(28), T(29), T(30), T(50) },
+				vec8_t{ T(31), T(32), T(33), T(51), T(34), T(35), T(36), T(52) },
+			};
+
+			for (int i = 0; i != 6; ++i)
+			{
+				M.col(i, cols[i]);
+			}
+
+			for (int i = 0; i != 6; ++i)
+			{
+				auto const got = M.col(i);
+				auto const expected = cols[i];
+
+				PR_EXPECT(got.ang.x == expected.ang.x);
+				PR_EXPECT(got.ang.y == expected.ang.y);
+				PR_EXPECT(got.ang.z == expected.ang.z);
+				PR_EXPECT(got.lin.x == expected.lin.x);
+				PR_EXPECT(got.lin.y == expected.lin.y);
+				PR_EXPECT(got.lin.z == expected.lin.z);
+				PR_EXPECT(got.ang.w == T(0));
+				PR_EXPECT(got.lin.w == T(0));
+			}
+
+			PR_EXPECT(All(M.m00[0] == vec3_t(T(1),  T(2),  T(3))));
+			PR_EXPECT(All(M.m00[1] == vec3_t(T(7),  T(8),  T(9))));
+			PR_EXPECT(All(M.m00[2] == vec3_t(T(13), T(14), T(15))));
+			PR_EXPECT(All(M.m10[0] == vec3_t(T(4),  T(5),  T(6))));
+			PR_EXPECT(All(M.m10[1] == vec3_t(T(10), T(11), T(12))));
+			PR_EXPECT(All(M.m10[2] == vec3_t(T(16), T(17), T(18))));
+			PR_EXPECT(All(M.m01[0] == vec3_t(T(19), T(20), T(21))));
+			PR_EXPECT(All(M.m01[1] == vec3_t(T(25), T(26), T(27))));
+			PR_EXPECT(All(M.m01[2] == vec3_t(T(31), T(32), T(33))));
+			PR_EXPECT(All(M.m11[0] == vec3_t(T(22), T(23), T(24))));
+			PR_EXPECT(All(M.m11[1] == vec3_t(T(28), T(29), T(30))));
+			PR_EXPECT(All(M.m11[2] == vec3_t(T(34), T(35), T(36))));
+		}
+
 		PRUnitTestMethod(MultiplyVector, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
