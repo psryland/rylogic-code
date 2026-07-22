@@ -50,6 +50,15 @@ namespace pr::math
 	template <typename T>
 	concept IsRank2 = VectorType<T> && VectorType<typename vector_traits<T>::component_t> && !VectorType<typename vector_traits<typename vector_traits<T>::component_t>::component_t>;
 
+	// Rank-1 vector type with scalar S and dimension N. Use as 'Rank1VecSN<S,N> auto v'
+	// in abbreviated templates; C++20 prepends the deduced type, producing Rank1VecSN<V,S,N>.
+	// Excludes rank-2 types (matrices) via IsRank1 and rejects mismatched dimension or scalar.
+	template <typename V, typename S, int N>
+	concept Rank1VecSN =
+		IsRank1<std::remove_cvref_t<V>> &&
+		VectorTypeN<std::remove_cvref_t<V>, N> &&
+		std::same_as<typename vector_traits<std::remove_cvref_t<V>>::element_t, S>;
+
 	// Concept to ensure two vector/quaternion types have the same element type
 	template <typename T, typename U>
 	concept SameS = std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, typename vector_traits<std::remove_cv_t<U>>::element_t>;

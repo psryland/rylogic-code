@@ -121,6 +121,7 @@
 #include "pr/math/tests/dynamics_tests.h"
 #include "pr/math/tests/frustum_tests.h"
 #include "pr/math/tests/function_tests.h"
+#include "pr/math/tests/generic_constructor_tests.h"
 #include "pr/math/tests/half_tests.h"
 #include "pr/math/tests/interpolate_tests.h"
 #include "pr/math/tests/matrix_tests.h"
