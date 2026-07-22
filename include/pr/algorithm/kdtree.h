@@ -233,9 +233,13 @@ namespace pr::kdtree
 		// Search a KD tree for the 'N' nearest neighbours within 'radius' of 'centre'
 		// Neighbours are returned in order of increasing distance from the search point.
 		// Return value is the number of neighbours found (may be less than nearest_out.size()).
+		// An empty nearest_out span is a valid no-op request and returns 0.
 		template <GetValueFunc<Item, S> GetValue, GetAxisFunc<Item> GetAxis>
 		static size_t FindNearest(std::span<Item const> kdtree, SearchCentre const& centre, S radius, std::span<Neighbour> nearest_out, GetValue get_value, GetAxis get_axis)
 		{
+			if (nearest_out.empty())
+				return 0;
+
 			struct Finder
 			{
 				std::span<Neighbour> m_nearest;
@@ -253,7 +257,6 @@ namespace pr::kdtree
 					, m_get_axis(get_axis)
 					, m_count(0)
 				{
-					assert(!m_nearest.empty());
 					for (auto& n : m_nearest)
 						n = { nullptr, std::numeric_limits<S>::infinity() };
 				}
@@ -338,9 +341,13 @@ namespace pr::kdtree
 		// Find pairs of items that are the nearest to each other
 		// Pairs are returned in order of increasing separation.
 		// Return value is the number of pairs found (may be less than pairs_out.size()).
+		// An empty pairs_out span is a valid no-op request and returns 0.
 		template <GetValueFunc<Item, S> GetValue, GetAxisFunc<Item> GetAxis>
 		static size_t Closest(std::span<Item const> kdtree, S radius, std::span<Pair> pairs_out, GetValue get_value, GetAxis get_axis)
 		{
+			if (pairs_out.empty())
+				return 0;
+
 			struct Finder
 			{
 				std::span<Pair> m_pairs;
@@ -356,7 +363,6 @@ namespace pr::kdtree
 					, m_get_axis(get_axis)
 					, m_count(0)
 				{
-					assert(!m_pairs.empty());
 					for (auto& p : m_pairs)
 						p = { nullptr, nullptr, std::numeric_limits<S>::infinity() };
 				}
@@ -852,6 +858,75 @@ namespace pr::algorithm::tests
 					builder.Save("E:/Dump/kdtree.ldr");
 				}
 				#endif
+			}
+		}
+		PRUnitTestMethod(EmptyOutputSpans)
+		{
+			auto get_value = [](Pt const& p, int a)
+			{
+				return p[a];
+			};
+			auto get_axis = [](Pt const& p)
+			{
+				return static_cast<int>(p.z);
+			};
+			auto set_axis = [](Pt& p, int a)
+			{
+				p.z = static_cast<float>(a);
+			};
+
+			// Empty trees should treat empty result spans as no-op requests.
+			{
+				std::vector<Pt> points;
+				Pt item{ v2{ 123.0f, 456.0f }, 7.0f };
+				KDTree::Neighbour nearest_sentinel{ &item, 42.0f };
+				float centre[2] = { 0.0f, 0.0f };
+
+				auto count = KDTree::FindNearest(points, centre, 1.0f, std::span<KDTree::Neighbour>(&nearest_sentinel, 0), get_value, get_axis);
+				PR_EXPECT(count == 0);
+				PR_EXPECT(nearest_sentinel.item == &item);
+				PR_EXPECT(nearest_sentinel.squared_distance == 42.0f);
+			}
+
+			{
+				std::vector<Pt> points;
+				Pt lhs{ v2{ 123.0f, 456.0f }, 7.0f };
+				Pt rhs{ v2{ 789.0f, 654.0f }, 8.0f };
+				KDTree::Pair pair_sentinel{ &lhs, &rhs, 42.0f };
+
+				auto count = KDTree::Closest(points, 1.0f, std::span<KDTree::Pair>(&pair_sentinel, 0), get_value, get_axis);
+				PR_EXPECT(count == 0);
+				PR_EXPECT(pair_sentinel.item0 == &lhs);
+				PR_EXPECT(pair_sentinel.item1 == &rhs);
+				PR_EXPECT(pair_sentinel.squared_distance == 42.0f);
+			}
+
+			// Non-empty trees should also leave empty result spans untouched.
+			{
+				std::vector<Pt> points = { Pt{ v2{ 0.0f, 0.0f }, 0 } };
+				Pt item{ v2{ 123.0f, 456.0f }, 7.0f };
+				KDTree::Neighbour nearest_sentinel{ &item, 42.0f };
+				float centre[2] = { 0.0f, 0.0f };
+
+				auto count = KDTree::FindNearest(points, centre, 1.0f, std::span<KDTree::Neighbour>(&nearest_sentinel, 0), get_value, get_axis);
+				PR_EXPECT(count == 0);
+				PR_EXPECT(nearest_sentinel.item == &item);
+				PR_EXPECT(nearest_sentinel.squared_distance == 42.0f);
+			}
+
+			{
+				std::vector<Pt> points = { Pt{ v2{ 0.0f, 0.0f }, 0 }, Pt{ v2{ 0.0f, 0.0f }, 0 } };
+				KDTree::Build(points, get_value, set_axis);
+
+				Pt lhs{ v2{ 123.0f, 456.0f }, 7.0f };
+				Pt rhs{ v2{ 789.0f, 654.0f }, 8.0f };
+				KDTree::Pair pair_sentinel{ &lhs, &rhs, 42.0f };
+
+				auto count = KDTree::Closest(points, 1.0f, std::span<KDTree::Pair>(&pair_sentinel, 0), get_value, get_axis);
+				PR_EXPECT(count == 0);
+				PR_EXPECT(pair_sentinel.item0 == &lhs);
+				PR_EXPECT(pair_sentinel.item1 == &rhs);
+				PR_EXPECT(pair_sentinel.squared_distance == 42.0f);
 			}
 		}
 		PRUnitTestMethod(Robustness)
