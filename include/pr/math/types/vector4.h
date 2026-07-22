@@ -479,7 +479,6 @@ namespace pr::math
 		}
 
 		// Cross product (3-component, w=0). Only for float — doubles use generic fallback.
-		// Note: w is zeroed by cancellation (aw*bw - aw*bw), which produces NaN if w is NaN.
 		friend constexpr Vec4 pr_vectorcall Cross(Vec4 lhs, Vec4 rhs) noexcept
 		{
 			if consteval
@@ -495,7 +494,8 @@ namespace pr::math
 					auto c = _mm_sub_ps(
 						_mm_mul_ps(lhs.vec, b_yzx),
 						_mm_mul_ps(a_yzx, rhs.vec));
-					return Vec4{ _mm_shuffle_ps(c, c, _MM_SHUFFLE(3, 0, 2, 1)) };
+					// Cross is defined only on xyz, so clear w explicitly and keep the output's sign-zero ordinary.
+					return Vec4{ _mm_blend_ps(_mm_shuffle_ps(c, c, _MM_SHUFFLE(3, 0, 2, 1)), _mm_setzero_ps(), 0x8) };
 				}
 				else if constexpr (IntrinsicD)
 				{
