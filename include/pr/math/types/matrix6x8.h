@@ -281,11 +281,9 @@ namespace pr::math
 	template <ScalarType S, typename A, typename B>
 	constexpr bool pr_vectorcall IsNaN(Mat6x8<S, A, B> m, bool any = true) noexcept // false = all
 	{
-		return
-			IsNaN(m.m00, any) &&
-			IsNaN(m.m01, any) &&
-			IsNaN(m.m10, any) &&
-			IsNaN(m.m11, any);
+		return any
+			? IsNaN(m.m00, true) || IsNaN(m.m01, true) || IsNaN(m.m10, true) || IsNaN(m.m11, true)
+			: IsNaN(m.m00, false) && IsNaN(m.m01, false) && IsNaN(m.m10, false) && IsNaN(m.m11, false);
 	}
 
 	// Return the transpose of a spatial matrix
