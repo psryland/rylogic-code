@@ -42,6 +42,37 @@ namespace pr::math::tests
 			auto M3 = mat3_t(arr);
 			PR_EXPECT(All(M3.x == M1.x) && All(M3.y == M1.y) && All(M3.z == M1.z));
 
+			// From std::array and std::span
+			constexpr std::array<T, 9> array_values{ T(10), T(11), T(12), T(13), T(14), T(15), T(16), T(17), T(18) };
+			constexpr mat3_t from_array(array_values);
+			static_assert(All(from_array.x == vec3_t(T(10), T(11), T(12))));
+			static_assert(All(from_array.y == vec3_t(T(13), T(14), T(15))));
+			static_assert(All(from_array.z == vec3_t(T(16), T(17), T(18))));
+
+			std::span<T const> span_values{ array_values };
+			mat3_t from_span(span_values);
+			PR_EXPECT(All(from_span.x == vec3_t(T(10), T(11), T(12))));
+			PR_EXPECT(All(from_span.y == vec3_t(T(13), T(14), T(15))));
+			PR_EXPECT(All(from_span.z == vec3_t(T(16), T(17), T(18))));
+
+			// PtrRange comes from generic_constructor_tests.h and has no range-level operator[].
+			T const ptr_data[] = { T(19), T(20), T(21), T(22), T(23), T(24), T(25), T(26), T(27), T(99) };
+			PtrRange<T> ptr_range{ ptr_data, ptr_data + 9 };
+			mat3_t from_ptr_range(ptr_range);
+			PR_EXPECT(All(from_ptr_range.x == vec3_t(T(19), T(20), T(21))));
+			PR_EXPECT(All(from_ptr_range.y == vec3_t(T(22), T(23), T(24))));
+			PR_EXPECT(All(from_ptr_range.z == vec3_t(T(25), T(26), T(27))));
+
+			// Unbounded iota is not sized, so the constructor must not ask for distance.
+			auto iota_range = std::views::iota(0);
+			mat3_t from_iota(iota_range);
+			PR_EXPECT(All(from_iota.x == vec3_t(T(0), T(1), T(2))));
+			PR_EXPECT(All(from_iota.y == vec3_t(T(3), T(4), T(5))));
+			PR_EXPECT(All(from_iota.z == vec3_t(T(6), T(7), T(8))));
+
+			// Non-convertible references are rejected at compile time.
+			static_assert(!std::is_constructible_v<mat3_t, std::array<char const*, 9> const&>);
+
 			// Array access (returns Vec3)
 			PR_EXPECT(All(M1[0] == M1.x));
 			PR_EXPECT(All(M1[1] == M1.y));

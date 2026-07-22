@@ -31,6 +31,33 @@ namespace pr::math::tests
 			static_assert(All(V2.x == vec2_t(T(5), T(6))));
 			static_assert(All(V2.y == vec2_t(T(7), T(8))));
 
+			// From std::array and std::span
+			constexpr std::array<T, 4> array_values{ T(9), T(10), T(11), T(12) };
+			constexpr mat2_t from_array(array_values);
+			static_assert(All(from_array.x == vec2_t(T(9), T(10))));
+			static_assert(All(from_array.y == vec2_t(T(11), T(12))));
+
+			std::span<T const> span_values{ array_values };
+			mat2_t from_span(span_values);
+			PR_EXPECT(All(from_span.x == vec2_t(T(9), T(10))));
+			PR_EXPECT(All(from_span.y == vec2_t(T(11), T(12))));
+
+			// PtrRange comes from generic_constructor_tests.h and has no range-level operator[].
+			T const ptr_data[] = { T(13), T(14), T(15), T(16), T(99) };
+			PtrRange<T> ptr_range{ ptr_data, ptr_data + 4 };
+			mat2_t from_ptr_range(ptr_range);
+			PR_EXPECT(All(from_ptr_range.x == vec2_t(T(13), T(14))));
+			PR_EXPECT(All(from_ptr_range.y == vec2_t(T(15), T(16))));
+
+			// Unbounded iota is not sized, so the constructor must not ask for distance.
+			auto iota_range = std::views::iota(0);
+			mat2_t from_iota(iota_range);
+			PR_EXPECT(All(from_iota.x == vec2_t(T(0), T(1))));
+			PR_EXPECT(All(from_iota.y == vec2_t(T(2), T(3))));
+
+			// Non-convertible references are rejected at compile time.
+			static_assert(!std::is_constructible_v<mat2_t, std::array<char const*, 4> const&>);
+
 			// Array access
 			static_assert(All(V0[0] == vec2_t(T(1), T(2))));
 			static_assert(All(V0[1] == vec2_t(T(3), T(4))));

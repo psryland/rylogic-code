@@ -37,11 +37,20 @@ namespace pr::math
 			:x(x_)
 			,y(y_)
 		{}
-		constexpr Mat2x2(std::ranges::random_access_range auto&& v) noexcept
-			:Mat2x2(
-				Vec2<S>(v[0], v[1]),
-				Vec2<S>(v[2], v[3]))
-		{}
+		// Build from a random-access range. Caller guarantees at least 4 readable elements;
+		// for sized ranges the precondition is checked with pr_assert.
+		template <std::ranges::random_access_range R>
+			requires (!VectorType<std::remove_cvref_t<R>>)
+			      && std::convertible_to<std::ranges::range_reference_t<R>, S>
+		constexpr Mat2x2(R&& v) noexcept
+		{
+			if constexpr (std::ranges::sized_range<R>)
+				pr_assert(std::ranges::size(v) >= 4 && "range must have at least 4 elements");
+
+			auto it = std::ranges::begin(v);
+			x = Vec2<S>(static_cast<S>(*it), static_cast<S>(*(it + 1)));
+			y = Vec2<S>(static_cast<S>(*(it + 2)), static_cast<S>(*(it + 3)));
+		}
 
 		// Explicit cast to different Scalar type
 		template <ScalarType S2> constexpr explicit operator Mat2x2<S2>() const noexcept
