@@ -195,17 +195,24 @@ namespace pr::math::spatial
 	}
 
 	// Create a spatial coordinate transform
-	template <typename VecSpace, ScalarTypeFP S> constexpr Mat6x8<S, VecSpace, VecSpace> Transform(Mat4x4<S> const& a2b) noexcept
+	template <typename VecSpace>
+	concept SpatialVecSpace = std::same_as<VecSpace, Motion> || std::same_as<VecSpace, Force>;
+
+	template <typename VecSpace, ScalarTypeFP S>
+		requires SpatialVecSpace<VecSpace>
+	constexpr Mat6x8<S, VecSpace, VecSpace> Transform(Mat4x4<S> const& a2b) noexcept
 	{
 		// Note: RBDA shows a transform to be (with r = a2b.pos):
 		//  [ E    0] = motion         [E   r^E]
 		//  [r^E   E]          force = [0    E ]
 		if constexpr (std::same_as<VecSpace, Motion>)
+		{
 			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x3<S>>(), math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, a2b.rot};
-		else if constexpr (std::same_as<VecSpace, Force>)
-			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x3<S>>(), a2b.rot};
+		}
 		else
-			static_assert(std::is_same_v<VecSpace, void>, "Invalid VecSpace");
+		{
+			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x3<S>>(), a2b.rot};
+		}
 	}
 
 	// Spatial inertia matrix

@@ -9,6 +9,33 @@
 #include "pr/common/unittests.h"
 namespace pr::math::spatial::tests
 {
+	namespace
+	{
+		using m4f = Mat4x4<float>;
+
+		struct UnrelatedTag
+		{
+		};
+
+		template <typename VecSpace, typename = void>
+		struct HasTransform : std::false_type
+		{
+		};
+
+		template <typename VecSpace>
+		struct HasTransform<VecSpace, std::void_t<decltype(Transform<VecSpace>(std::declval<m4f const&>()))>> : std::true_type
+		{
+		};
+
+		// Keep the public transform overload exact: only the spatial tags are valid call targets.
+		static_assert(std::same_as<decltype(Transform<Motion>(std::declval<m4f const&>())), Mat6x8<float, Motion, Motion>>);
+		static_assert(std::same_as<decltype(Transform<Force>(std::declval<m4f const&>())), Mat6x8<float, Force, Force>>);
+		static_assert(HasTransform<Motion>::value);
+		static_assert(HasTransform<Force>::value);
+		static_assert(!HasTransform<void>::value);
+		static_assert(!HasTransform<UnrelatedTag>::value);
+	}
+
 	PRUnitTestClass(SpatialAlgebraTests)
 	{
 		PRUnitTestMethod(CrossProduct, float, double)
