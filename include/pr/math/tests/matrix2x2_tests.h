@@ -4,6 +4,7 @@
 //*****************************************************************************
 #pragma once
 #include "pr/math/math.h"
+#include "pr/math/tests/range_test_helpers.h"
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
@@ -42,7 +43,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(from_span.x == vec2_t(T(9), T(10))));
 			PR_EXPECT(All(from_span.y == vec2_t(T(11), T(12))));
 
-			// PtrRange comes from generic_constructor_tests.h and has no range-level operator[].
+			// PtrRange is a pointer-pair helper with no range-level operator[].
 			T const ptr_data[] = { T(13), T(14), T(15), T(16), T(99) };
 			PtrRange<T> ptr_range{ ptr_data, ptr_data + 4 };
 			mat2_t from_ptr_range(ptr_range);

@@ -5,6 +5,7 @@
 // Tests for the generic (templated) constructors on Vec2, Vec3, Vec4, and Quat.
 #pragma once
 #include "pr/math/math.h"
+#include "pr/math/tests/range_test_helpers.h"
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
@@ -37,22 +38,6 @@ namespace pr::math
 		, vector_access_member<ExtVec4<T>, T, 4>
 	{
 		template <ScalarType S> using rebind = Vec4<S>;
-	};
-}
-
-namespace
-{
-	// A random-access range backed by a pointer pair. Has begin()/end() returning
-	// raw pointers (random-access iterators) but no range-level operator[].
-	// This exercises the iterator-based element-access path in the constructors.
-	template <typename T>
-	struct PtrRange
-	{
-		T const* m_first;
-		T const* m_last;
-
-		T const* begin() const { return m_first; }
-		T const* end()   const { return m_last; }
 	};
 }
 
