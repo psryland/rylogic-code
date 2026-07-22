@@ -381,16 +381,35 @@ namespace Rylogic.Maths
 		}
 
 		/// <summary>
-		/// Return the greatest common factor between 'a' and 'b'
-		/// Uses the Euclidean algorithm. If the greatest common factor is 1, then 'a' and 'b' are co-prime</summary>
+		/// Return the greatest common factor (gcd) of |a| and |b| using the Euclidean algorithm.
+		/// If gcd = 1, a and b are co-prime. gcd(0, n) = gcd(n, 0) = n; gcd(0, 0) = 0.
+		/// For negative inputs the result is always nonnegative. Cast through long before Math.Abs
+		/// so that int.MinValue is handled without overflow.</summary>
 		public static int GreatestCommonFactor(int a, int b)
 		{
-			while (b != 0) { int t = b; b = a % b; a = t; }
-			return a;
+			// Use unsigned arithmetic (via long → Math.Abs → uint) so negative inputs and
+			// int.MinValue are handled without overflow UB.
+			uint ua = (uint)Math.Abs((long)a);
+			uint ub = (uint)Math.Abs((long)b);
+			while (ub != 0) { uint t = ub; ub = ua % ub; ua = t; }
+			return (int)ua;
 		}
+
+		/// <summary>
+		/// Return the least common multiple of a and b.
+		/// lcm(0, n) = lcm(n, 0) = 0. For negative inputs the result is nonnegative.
+		/// Divides by the gcf before multiplying to avoid intermediate overflow.
+		/// If lcm(|a|, |b|) exceeds int.MaxValue the result is undefined.</summary>
 		public static int LeastCommonMultiple(int a, int b)
 		{
-			return (a * b) / GreatestCommonFactor(a, b);
+			// lcm with zero is zero by convention; also prevents divide-by-zero in the gcf step
+			if (a == 0 || b == 0) return 0;
+
+			// Use unsigned arithmetic to handle negatives and int.MinValue; divide first to avoid overflow
+			uint ua = (uint)Math.Abs((long)a);
+			uint ub = (uint)Math.Abs((long)b);
+			uint g = (uint)GreatestCommonFactor((int)ua, (int)ub);
+			return (int)((ua / g) * ub);
 		}
 
 		/// <summary>Returns true if 'value' is a single digit integer multiple of a power of ten. (e.g. 2000, 300, 1, 90000. Not 1200, 234)</summary>
