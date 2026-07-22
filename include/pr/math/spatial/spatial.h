@@ -131,7 +131,7 @@ namespace pr::math::spatial
 	}
 
 	// Spatial cross product.
-	// There are two cross product operators, one for motion vectors (rx) and one for forces (rx*)
+	// There are two cross product operators, one for motion/motion pairs (rx) and one for motion/force pairs (rx*)
 	template <ScalarTypeFP S> constexpr Vec8<S, Motion> pr_vectorcall Cross(Vec8<S, Motion> lhs, Vec8<S, Motion> rhs) noexcept
 	{
 		return Vec8<S, Motion>{
@@ -139,7 +139,7 @@ namespace pr::math::spatial
 			Cross(lhs.ang, rhs.lin) + Cross(lhs.lin, rhs.ang)
 		};
 	}
-	template <ScalarTypeFP S> constexpr Vec8<S, Force> pr_vectorcall Cross(Vec8<S, Force> lhs, Vec8<S, Force> rhs) noexcept
+	template <ScalarTypeFP S> constexpr Vec8<S, Force> pr_vectorcall Cross(Vec8<S, Motion> lhs, Vec8<S, Force> rhs) noexcept
 	{
 		return Vec8<S, Force>{
 			Cross(lhs.ang, rhs.ang) + Cross(lhs.lin, rhs.lin),
@@ -176,22 +176,19 @@ namespace pr::math::spatial
 		};
 	}
 
-	// Returns the spatial cross product matrix for 'a', for use with motion vectors.
-	//' i.e. b = a x m = CPM(a) * m, where m is a motion vector
-	template <ScalarTypeFP S> constexpr Mat6x8<S, Motion, Motion> CPM(Vec8<S, Motion> a) noexcept
+	// Returns the spatial cross product matrix for 'a'.
+	// The default result is motion-space; `CPM<Force>(a)` selects the dual force-space matrix for the same motion input.
+	template <typename VecSpace = Motion, ScalarTypeFP S = float>
+	requires (std::same_as<VecSpace, Motion> || std::same_as<VecSpace, Force>)
+	constexpr Mat6x8<S, VecSpace, VecSpace> CPM(Vec8<S, Motion> a) noexcept
 	{
-		auto cx_ang = math::CPM<Mat3x3<S>>(a.ang.xyz);
-		auto cx_lin = math::CPM<Mat3x3<S>>(a.lin.xyz);
-		return Mat6x8<S, Motion, Motion>(cx_ang, Zero<Mat3x3<S>>(), cx_lin, cx_ang);
-	}
 
-	// Returns the spatial cross product matrix for 'a', for use with force vectors.
-	// i.e. b = a x* f = CPM(a) * f, where f is a force vector
-	template <ScalarTypeFP S> constexpr Mat6x8<S, Force, Force> CPM(Vec8<S, Force> a) noexcept
-	{
 		auto cx_ang = math::CPM<Mat3x3<S>>(a.ang.xyz);
 		auto cx_lin = math::CPM<Mat3x3<S>>(a.lin.xyz);
-		return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x3<S>>(), cx_ang);
+		if constexpr (std::same_as<VecSpace, Motion>)
+			return Mat6x8<S, Motion, Motion>(cx_ang, Zero<Mat3x3<S>>(), cx_lin, cx_ang);
+		else
+			return Mat6x8<S, Force, Force>(cx_ang, cx_lin, Zero<Mat3x3<S>>(), cx_ang);
 	}
 
 	// Create a spatial coordinate transform
@@ -237,6 +234,31 @@ namespace pr::math::spatial::tests
 		//	v4 ang(4,3,2,0);
 		//	auto o2w = Mat4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4(1,1,1,1));
 		}
+		PRUnitTestMethod(ApiConstraints, float, double)
+		{
+			using v8motionT = Vec8<T, Motion>;
+			using v8forceT = Vec8<T, Force>;
+
+			// Compile-time coverage for the accepted and rejected spatial overloads.
+			auto can_cpm_with_integer_motion = []<typename U>() consteval
+			{
+				using int_motionT = Vec8<U, Motion>;
+				return requires (int_motionT const& v)
+				{
+					CPM(v);
+				};
+			};
+
+			static_assert(std::same_as<decltype(Cross(v8motionT{}, v8motionT{})), v8motionT>);
+			static_assert(std::same_as<decltype(Cross(v8motionT{}, v8forceT{})), v8forceT>);
+			static_assert(std::same_as<decltype(CPM(v8motionT{})), Mat6x8<T, Motion, Motion>>);
+			static_assert(std::same_as<decltype(CPM<Force>(v8motionT{})), Mat6x8<T, Force, Force>>);
+
+			static_assert(!can_cpm_with_integer_motion.template operator()<int>());
+			static_assert(!requires(v8forceT const& f) { Cross(f, f); });
+			static_assert(!requires(v8forceT const& f) { CPM<Force>(f); });
+			static_assert(!requires(v8motionT const& m) { CPM<void>(m); });
+		}
 		PRUnitTestMethod(CrossProducts, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
@@ -249,17 +271,18 @@ namespace pr::math::spatial::tests
 				auto r1 = CPM(v0) * v1;
 				PR_EXPECT(FEql(r0, r1));
 			}
-			{// Test: CPM(f) * a == f x* a
-				auto v0 = v8forceT(1, 1, 1, 2, 2, 2);
+			{// Test: CPM<Force>(m) * f == m x* f
+				auto v0 = v8motionT(1, 1, 1, 2, 2, 2);
 				auto v1 = v8forceT(-1, -2, -3, -4, -5, -6);
 				auto r0 = Cross(v0, v1);
-				auto r1 = CPM(v0) * v1;
+				auto r1 = CPM<Force>(v0) * v1;
 				PR_EXPECT(FEql(r0, r1));
 			}
 			{// Test: vx* == -Transpose(vx)
 				auto v = Vec8<T, void>(-2.3f, +1.3f, 0.9f, -2.2f, 0.0f, -1.0f);
-				auto m0 = CPM(static_cast<v8motionT>(v)); // vx
-				auto m1 = CPM(static_cast<v8forceT>(v)); // vx*
+				auto m = static_cast<v8motionT>(v);
+				auto m0 = CPM(m); // vx
+				auto m1 = CPM<Force>(m); // vx*
 				auto m2 = Transpose(m1);
 				auto m3 = static_cast<Mat6x8<T, Motion, Motion>>(-m2);
 				PR_EXPECT(FEql(m0, m3));
