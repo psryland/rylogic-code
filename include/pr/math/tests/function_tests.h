@@ -25,6 +25,94 @@ namespace pr::math::tests
 				return All(lhs == rhs);
 		};
 
+		// Returns the expected nearest integer square root of the largest representable value for each tested scalar width.
+		template <std::integral S> static constexpr S ExpectedMaxISqrt()
+		{
+			if constexpr (std::signed_integral<S>)
+			{
+				if constexpr (sizeof(S) == 1)
+				{
+					return S(11);
+				}
+				if constexpr (sizeof(S) == 2)
+				{
+					return S(181);
+				}
+				if constexpr (sizeof(S) == 4)
+				{
+					return S(46341);
+				}
+				if constexpr (sizeof(S) == 8)
+				{
+					return S(3037000500LL);
+				}
+			}
+			else
+			{
+				if constexpr (sizeof(S) == 1)
+				{
+					return S(16);
+				}
+				if constexpr (sizeof(S) == 2)
+				{
+					return S(256);
+				}
+				if constexpr (sizeof(S) == 4)
+				{
+					return S(65536);
+				}
+				if constexpr (sizeof(S) == 8)
+				{
+					return S(4294967296ULL);
+				}
+			}
+
+			static_assert(sizeof(S) == 1 || sizeof(S) == 2 || sizeof(S) == 4 || sizeof(S) == 8);
+			return S();
+		}
+
+		// Checks the scalar nearest-root contract around exact squares, rounding thresholds, signed sentinels, and type limits.
+		template <std::integral S> static constexpr void CheckScalarISqrt()
+		{
+			using U = std::make_unsigned_t<S>;
+
+			static_assert(ISqrt(S(0)) == S(0));
+			static_assert(ISqrt(S(1)) == S(1));
+			static_assert(ISqrt(S(2)) == S(1));
+			static_assert(ISqrt(S(3)) == S(2));
+			static_assert(ISqrt(S(4)) == S(2));
+			static_assert(ISqrt(S(6)) == S(2));
+			static_assert(ISqrt(S(7)) == S(3));
+			static_assert(ISqrt(S(9)) == S(3));
+			static_assert(ISqrt(S(10)) == S(3));
+			static_assert(ISqrt(S(12)) == S(3));
+			static_assert(ISqrt(S(13)) == S(4));
+			static_assert(ISqrt(S(99)) == S(10));
+			static_assert(ISqrt(S(100)) == S(10));
+			static_assert(ISqrt(S(110)) == S(10));
+			static_assert(ISqrt(S(111)) == S(11));
+			static_assert(ISqrt(std::numeric_limits<S>::max()) == ExpectedMaxISqrt<S>());
+			static_assert(ISqrt(std::numeric_limits<S>::max() - S(1)) == ExpectedMaxISqrt<S>());
+
+			if constexpr (std::signed_integral<S>)
+			{
+				static_assert(ISqrt(S(-1)) == S(0));
+				static_assert(ISqrt(S(-9)) == S(0));
+			}
+			else
+			{
+				constexpr auto floor_root = U((U(1) << (std::numeric_limits<U>::digits / 2)) - 1);
+				constexpr auto ceil_root = U(floor_root + 1);
+				constexpr auto square = U(floor_root * floor_root);
+				constexpr auto threshold = U(square + floor_root);
+
+				static_assert(ISqrt(S(square - 1)) == S(floor_root));
+				static_assert(ISqrt(S(square + 0)) == S(floor_root));
+				static_assert(ISqrt(S(threshold + 0)) == S(floor_root));
+				static_assert(ISqrt(S(threshold + 1)) == S(ceil_root));
+			}
+		}
+
 		PRUnitTestMethod(ExplicitCasts
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
@@ -451,9 +539,18 @@ namespace pr::math::tests
 			}
 		}
 
-		// ---- ISqrt (functions.h line ~830) ----
-		PRUnitTestMethod(ISqrtAndCompISqrtTests
-		, int32_t, int64_t
+		// ---- ISqrt (functions.h line ~1133) ----
+		PRUnitTestMethod(ISqrtScalarTests
+		, int8_t, uint8_t
+		, int16_t, uint16_t
+		, int32_t, uint32_t
+		, int64_t, uint64_t
+		) {
+			CheckScalarISqrt<T>();
+		}
+
+		// ---- CompISqrt (functions.h line ~1160) ----
+		PRUnitTestMethod(CompISqrtTests
 		, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<int32_t>, Vec4<int64_t>
@@ -463,24 +560,13 @@ namespace pr::math::tests
 		) {
 			using S = T;
 
-			if constexpr (VectorType<T>)
-			{
-				static_assert(All(CompISqrt(S(0)) == S(0)));
-				static_assert(All(CompISqrt(S(1)) == S(1)));
-				static_assert(All(CompISqrt(S(4)) == S(2)));
-				static_assert(All(CompISqrt(S(9)) == S(3)));
-				static_assert(All(CompISqrt(S(10)) == S(3)));
-				static_assert(All(CompISqrt(S(100)) == S(10)));
-			}
-			else
-			{
-				static_assert(ISqrt(S(0)) == S(0));
-				static_assert(ISqrt(S(1)) == S(1));
-				static_assert(ISqrt(S(4)) == S(2));
-				static_assert(ISqrt(S(9)) == S(3));
-				static_assert(ISqrt(S(10)) == S(3));
-				static_assert(ISqrt(S(100)) == S(10));
-			}
+			static_assert(All(CompISqrt(S(0)) == S(0)));
+			static_assert(All(CompISqrt(S(1)) == S(1)));
+			static_assert(All(CompISqrt(S(4)) == S(2)));
+			static_assert(All(CompISqrt(S(9)) == S(3)));
+			static_assert(All(CompISqrt(S(10)) == S(3)));
+			static_assert(All(CompISqrt(S(99)) == S(10)));
+			static_assert(All(CompISqrt(S(100)) == S(10)));
 		}
 
 		// ---- CompSum (functions.h line ~850) ----
