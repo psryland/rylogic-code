@@ -3575,7 +3575,7 @@ namespace pr::math
 		using S = typename vt::element_t;
 		pr_assert(IsNormalised(axis_norm) && "'axis_norm' should be normalised");
 
-		Mat m = Zero<Mat>();
+		Mat m = {};
 		auto trace_vec = axis_norm * (S(1) - cos_angle);
 
 		vec(vec(m).x).x = vec(trace_vec).x * vec(axis_norm).x + cos_angle;
@@ -3671,17 +3671,19 @@ namespace pr::math
 		return o2t * InvertOrthonormal(o2f);
 	}
 
-	// Create a scale matrix
+	// Create a scale matrix from a scalar or component vector using only matrix/vector traits.
 	template <VectorType Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall Scale(typename vector_traits<Mat>::element_t scale) noexcept
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
-		using Vec = typename vt::component_t;
 
-		// Build the matrix directly through accessors so the helper only depends on vector traits, not matrix constructors.
 		Mat m = {};
-		if constexpr (vt::dimension == 2)
+		if constexpr (vt::dimension == 1)
+		{
+			vec(vec(m).x).x = scale;
+		}
+		else if constexpr (vt::dimension == 2)
 		{
 			vec(vec(m).x).x = scale;
 			vec(vec(m).x).y = S(0);
@@ -3721,7 +3723,7 @@ namespace pr::math
 		}
 		else
 		{
-			static_assert(vt::dimension <= 4);
+			static_assert(vt::dimension >= 1 && vt::dimension <= 4);
 		}
 
 		return m;
@@ -3731,11 +3733,13 @@ namespace pr::math
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
-		using Vec = typename vt::component_t;
 
-		// Build the matrix directly through accessors so the helper stays generic over matrix and vector traits.
 		Mat m = {};
-		if constexpr (vt::dimension == 2)
+		if constexpr (vt::dimension == 1)
+		{
+			vec(vec(m).x).x = vec(scale).x;
+		}
+		else if constexpr (vt::dimension == 2)
 		{
 			vec(vec(m).x).x = vec(scale).x;
 			vec(vec(m).x).y = S(0);
@@ -3775,7 +3779,7 @@ namespace pr::math
 		}
 		else
 		{
-			static_assert(vt::dimension <= 4);
+			static_assert(vt::dimension >= 1 && vt::dimension <= 4);
 		}
 
 		return m;

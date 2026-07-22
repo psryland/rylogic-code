@@ -106,13 +106,8 @@ namespace pr::math
 	template <ScalarType S>
 	constexpr Mat4x4<S>::Mat4x4(Xform<S> const& xform) noexcept requires (std::floating_point<S>)
 		: Mat4x4(
-			[&xform]
-			{
-				using mat3_t = Mat3x3<S>;
-				using vec3_t = Vec3<S>;
-
-				return ::pr::math::template ToMatrix<mat3_t>(xform.rot) * ::pr::math::template Scale<mat3_t>(vec3_t{ xform.scl.x, xform.scl.y, xform.scl.z });
-			}(),
+			::pr::math::template ToMatrix<Mat3x3<S>>(xform.rot) *
+			::pr::math::template Scale<Mat3x3<S>>(Vec3<S>{ xform.scl.x, xform.scl.y, xform.scl.z }),
 			xform.pos)
 	{
 	}
