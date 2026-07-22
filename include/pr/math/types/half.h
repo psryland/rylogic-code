@@ -87,7 +87,8 @@ namespace pr::math
 		}
 
 		// Values below the normal range become subnormals or signed zero, still using round-to-nearest-even.
-		if (exponent < -24)
+		// Keep exponent -25 values in the rounded path because numbers above the halfway point round up to the smallest subnormal.
+		if (exponent < -25)
 			return sign_bits;
 
 		auto rounded_mantissa = half_impl::RoundShiftRightNearestEven(significand_bits, static_cast<uint32_t>(-exponent - 1));
@@ -104,7 +105,13 @@ namespace pr::math
 		auto const mantissa_bits = static_cast<uint32_t>(f16 & 0x03ffu);
 
 		if (exponent_bits == 0x1fu)
-			return std::bit_cast<float>(sign_bits | 0x7f800000u | (mantissa_bits << 13));
+		{
+			auto quiet_mantissa = mantissa_bits;
+			if (quiet_mantissa != 0u)
+				quiet_mantissa |= 0x0200u;
+
+			return std::bit_cast<float>(sign_bits | 0x7f800000u | (quiet_mantissa << 13));
+		}
 
 		if (exponent_bits != 0u)
 			return std::bit_cast<float>(sign_bits | ((exponent_bits + 112u) << 23) | (mantissa_bits << 13));

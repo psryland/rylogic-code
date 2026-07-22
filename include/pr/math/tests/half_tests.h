@@ -62,6 +62,9 @@ namespace pr::math::tests
 			static_assert(fm == -0.5f);
 
 			static_assert(F32toF16(-0.0f) == half_t{0x8000u});
+			static_assert(F32toF16(std::bit_cast<float>(0x33000000u)) == half_t{0x0000u});
+			static_assert(F32toF16(std::bit_cast<float>(0x33000001u)) == half_t{0x0001u});
+			static_assert(F32toF16(std::bit_cast<float>(0x337fffffu)) == half_t{0x0001u});
 			static_assert(F32toF16(0x1.0p-24f) == half_t{0x0001u});
 			static_assert(F32toF16(0x1.0p-14f) == half_t{0x0400u});
 			static_assert(F32toF16(65504.0f) == half_t{0x7bffu});
@@ -69,6 +72,8 @@ namespace pr::math::tests
 			static_assert(std::bit_cast<uint32_t>(F16toF32(half_t{0x0001u})) == 0x33800000u);
 			static_assert(std::bit_cast<uint32_t>(F16toF32(half_t{0x03ffu})) == 0x387fc000u);
 			static_assert(std::bit_cast<uint32_t>(F16toF32(half_t{0x7e00u})) == 0x7fc00000u);
+			static_assert(std::bit_cast<uint32_t>(F16toF32(half_t{0x7c01u})) == 0x7fc02000u);
+			static_assert(std::bit_cast<uint32_t>(F16toF32(half_t{0xfc01u})) == 0xffc02000u);
 
 			// This reproduces the original regression: constexpr vector conversion must stay on the constexpr scalar path.
 			constexpr auto hv = F32toF16(Vec4<float>{1.0f, -0.5f, 0.25f, -0.0f});
@@ -141,6 +146,12 @@ namespace pr::math::tests
 				F32Case{0x3f800000u, half_t{0x3c00u}, 0x3f800000u},
 				F32Case{0xbf000000u, half_t{0xb800u}, 0xbf000000u},
 				F32Case{0x3e800000u, half_t{0x3400u}, 0x3e800000u},
+				F32Case{0x33000000u, half_t{0x0000u}, 0x00000000u},
+				F32Case{0x33000001u, half_t{0x0001u}, 0x33800000u},
+				F32Case{0x337fffffu, half_t{0x0001u}, 0x33800000u},
+				F32Case{0xb3000000u, half_t{0x8000u}, 0x80000000u},
+				F32Case{0xb3000001u, half_t{0x8001u}, 0xb3800000u},
+				F32Case{0xb37fffffu, half_t{0x8001u}, 0xb3800000u},
 				F32Case{0x33800000u, half_t{0x0001u}, 0x33800000u},
 				F32Case{0x38800000u, half_t{0x0400u}, 0x38800000u},
 				F32Case{0x3f801000u, half_t{0x3c00u}, 0x3f800000u},
@@ -175,6 +186,8 @@ namespace pr::math::tests
 			auto const f16_cases = std::array
 			{
 				F16Case{half_t{0x03ffu}, 0x387fc000u},
+				F16Case{half_t{0x7c01u}, 0x7fc02000u},
+				F16Case{half_t{0xfc01u}, 0xffc02000u},
 				F16Case{half_t{0xfc00u}, 0xff800000u},
 				F16Case{half_t{0xfe00u}, 0xffc00000u},
 			};
