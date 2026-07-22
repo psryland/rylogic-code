@@ -2361,18 +2361,10 @@ namespace pr::math
 		return static_cast<Type>(a0 * (1 - rn) / (1 - ratio));
 	}
 
-	// Permutes the elements in 'arr' with each iteration. The first permutation is the ordered array; [0,N). Number of permutations == n!
+	// Permutes the elements in 'arr' with each iteration. The first permutation is the sorted array; duplicate values are skipped automatically by
+	// lexicographic advancement. Empty input yields one empty permutation, matching the combinatorial 0! contract.
 	template <std::integral T> auto PermutationsOf(std::span<T> arr) noexcept
 	{
-		// Algorithm:
-		// - find the last pair of values that has increasing order.
-		// - swap the first of the pair with the next greater value from the values in [i+1,n)
-		// - sort the values in [i+1,n)
-		// e.g.
-		//   Given '524761', the last pair with increasing order is '47'.
-		//   Swap '4' with '6' because its the next greater value to the right of '4' => '526741'
-		//   Sort the values right of '6' => '526147'
-
 		struct I
 		{
 			std::span<T> m_arr;
@@ -2388,28 +2380,9 @@ namespace pr::math
 			}
 			I& operator++() noexcept
 			{
-				int n = static_cast<int>(m_arr.size());
-
-				// Find the last pair of values that has increasing order.
-				int i = n - 1;
-				for (; i-- > 0 && m_arr[i] > m_arr[i+1];) {}
-				if (i == -1)
-				{
-					m_done = true;
-					return *this;
-				}
-
-				// Swap 'arr[i]' with the nearest value greater than 'arr[i]'
-				// to the right of 'i' then sort the values in the range: [i+1, n)
-				int j = i + 1;
-				for (int k = j + 1; k < n; ++k)
-				{
-					if (m_arr[k] < m_arr[i]) continue;
-					if (m_arr[k] > m_arr[j]) continue;
-					j = k;
-				}
-				std::swap(m_arr[i], m_arr[j]);
-				std::sort(m_arr.data() + i + 1, m_arr.data() + n);
+				// Advance the span in place using the standard lexicographic permutation step. When no later permutation exists, the iterator
+				// becomes exhausted.
+				m_done = !std::next_permutation(m_arr.begin(), m_arr.end());
 				return *this;
 			}
 			bool operator!=(I const& rhs) const noexcept
@@ -2421,7 +2394,7 @@ namespace pr::math
 		{
 			std::span<T> m_arr;
 			R(std::span<T> arr) :m_arr(arr) { std::sort(m_arr.begin(), m_arr.end()); }
-			auto begin() const { return I{ m_arr, m_arr.empty() || m_arr.front() == m_arr.back() }; }
+			auto begin() const { return I{ m_arr, false }; }
 			auto end() const { return I{ m_arr, true }; }
 		};
 		return R{ arr };

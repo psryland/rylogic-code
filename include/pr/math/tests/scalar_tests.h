@@ -13,6 +13,68 @@ namespace pr::math::tests
 	{
 		PRUnitTestMethod(PermutationTests)
 		{
+			{// empty input
+				std::span<int> arr0{};
+				int i = 0;
+				for (auto arr : PermutationsOf<int>(arr0))
+				{
+					PR_EXPECT(arr.empty());
+					++i;
+				}
+				PR_EXPECT(i == 1); // 0! == 1
+			}
+			{// singleton input
+				int arr0[] = {42};
+				int const expected[] = {42};
+				int i = 0;
+				for (auto arr : PermutationsOf<int>(arr0))
+				{
+					PR_EXPECT(std::ranges::equal(arr, expected));
+					++i;
+				}
+				PR_EXPECT(i == 1);
+			}
+			{// all equal values
+				int arr0[] = {7, 7, 7};
+				int const expected[] = {7, 7, 7};
+				int i = 0;
+				for (auto arr : PermutationsOf<int>(arr0))
+				{
+					PR_EXPECT(std::ranges::equal(arr, expected));
+					++i;
+				}
+				PR_EXPECT(i == 1);
+			}
+			{// duplicates
+				int arr0[] = {1, 1, 2};
+				int const expected[][3] = {
+					{ 1, 1, 2 },
+					{ 1, 2, 1 },
+					{ 2, 1, 1 }
+				};
+				int i = 0;
+				for (auto arr : PermutationsOf<int>(arr0))
+				{
+					PR_EXPECT(std::ranges::equal(arr, expected[i]));
+					++i;
+				}
+				PR_EXPECT(i == 3);
+			}
+			{// unsorted input normalization
+				int arr0[] = {2, 1, 2};
+				int const expected[][3] = {
+					{ 1, 2, 2 },
+					{ 2, 1, 2 },
+					{ 2, 2, 1 }
+				};
+				int i = 0;
+				for (auto arr : PermutationsOf<int>(arr0))
+				{
+					PR_EXPECT(std::ranges::equal(arr, expected[i]));
+					++i;
+				}
+				PR_EXPECT(i == 3);
+			}
 			{// 4-sequential
 				int arr0[] = {1, 2, 3, 4};
 				int const expected[][4] = {
