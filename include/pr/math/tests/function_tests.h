@@ -2049,16 +2049,35 @@ namespace pr::math::tests
 			using vt = vector_traits<mat_t>;
 			using S = typename vt::element_t;
 			using Vec = typename vt::component_t;
+			auto constexpr tol = S(0.001);
 
-			// Zero angular velocity and acceleration — orientation unchanged
-			auto ori = Identity<mat_t>();
-			auto result = RotationAt(0.0f, ori, Vec(S(0)), Vec(S(0)));
-			PR_EXPECT(FEql(result, ori));
+			// Compare against the exact angular displacement integral for the fixed-axis cases.
+			auto expect_parallel = [&](float time, Vec avel, Vec aacc)
+			{
+				auto const dt = static_cast<S>(time);
+				auto const expected_disp = (avel + S(0.5) * aacc * dt) * dt;
+				auto const actual = RotationAt(time, Identity<mat_t>(), avel, aacc);
 
-			// Constant angular velocity about Z, zero acceleration
-			auto avel = Vec(S(0), S(0), S(1)); // 1 rad/s about Z
-			auto R1 = RotationAt(0.0f, Identity<mat_t>(), avel, Vec(S(0)));
-			PR_EXPECT(IsOrthonormal(R1));
+				PR_EXPECT(IsOrthonormal(actual));
+				PR_EXPECT(FEqlAbsolute<Vec>(LogMap3x3(actual), expected_disp, tol));
+			};
+
+			// Zero time should preserve the starting orientation.
+			auto const ori = Rotation<mat_t>(Vec::XAxis(), S(0.25));
+			auto const unchanged = RotationAt(0.0f, ori, Vec::ZAxis(), Vec(S(0), S(0), S(2)));
+			PR_EXPECT(FEql(unchanged, ori));
+
+			// Zero angular acceleration should reduce to constant angular velocity.
+			expect_parallel(1.0f, Vec(S(0), S(0), S(1)), Vec(S(0)));
+
+			// Parallel angular acceleration should integrate to 0.5*a*t^2 from rest.
+			expect_parallel(1.0f, Vec(S(0)), Vec(S(0), S(0), S(2)));
+
+			// Non-zero initial angular velocity should add linearly to the quadratic term.
+			expect_parallel(1.0f, Vec(S(0), S(0), S(1)), Vec(S(0), S(0), S(2)));
+
+			// Negative time should follow the same integral and support exact cancellation cases.
+			expect_parallel(-1.0f, Vec(S(0), S(0), S(1)), Vec(S(0), S(0), S(2)));
 		}
 
 		// ---- Lerp (functions.h line ~1554) ----

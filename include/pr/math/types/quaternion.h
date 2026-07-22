@@ -393,8 +393,11 @@ namespace pr::math
 		// and angular acceleration are parallel or angular acceleration is zero.
 		if (LengthSq(Cross(avel, aacc)) < tiny<S>)
 		{
-			auto w = avel + aacc * time;
-			return ExpMap(S(0.5) * w * time) * ori;
+			// Integrate w(t) = w0 + a*t exactly while the rotation axis is fixed.
+			// Quaternion exp-map expects half-angle magnitude, so halve the angular displacement.
+			auto const dt = static_cast<S>(time);
+			auto const ang_disp = (avel + S(0.5) * aacc * dt) * dt;
+			return ExpMap<Quat>(S(0.5) * ang_disp) * ori;
 		}
 		else
 		{
@@ -411,11 +414,11 @@ namespace pr::math
 			auto w1 = avel + aacc * c2 * time;
 			auto w2 = avel + aacc * c3 * time;
 
-			auto u0 = ExpMap<Vec>(S(0.5) * w0 * time / S(3));
-			auto u1 = ExpMap<Vec>(S(0.5) * w1 * time / S(3));
-			auto u2 = ExpMap<Vec>(S(0.5) * w2 * time / S(3));
+			auto u0 = ExpMap<Quat>(S(0.5) * w0 * time / S(3));
+			auto u1 = ExpMap<Quat>(S(0.5) * w1 * time / S(3));
+			auto u2 = ExpMap<Quat>(S(0.5) * w2 * time / S(3));
 
-			return u2 * u1 * u0 * ori; // needs testing
+			return u2 * u1 * u0 * ori; // Compose the three Gauss-Legendre sub-steps in time order.
 		}
 	}
 

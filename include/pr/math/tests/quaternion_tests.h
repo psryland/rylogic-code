@@ -205,6 +205,52 @@ namespace pr::math::tests
 			auto q_zero = math::Scale(q, T(0));
 			PR_EXPECT(FEqlOrientation(q_zero, Identity<Quat>(), T(0.001)));
 		}
+
+		PRUnitTestMethod(RotationAt, float, double)
+		{
+			using Quat = Quat<T>;
+			using Vec3 = Vec3<T>;
+			using Vec4 = Vec4<T>;
+			using Mat3x3 = Mat3x3<T>;
+			auto constexpr tol = T(0.001);
+
+			// Compare against the exact angular displacement integral for the fixed-axis cases.
+			auto expect_parallel = [&](float time, Vec3 avel, Vec3 aacc)
+			{
+				auto const dt = static_cast<T>(time);
+				auto const expected_disp = (avel + T(0.5) * aacc * dt) * dt;
+				auto const actual = math::RotationAt(time, Identity<Quat>(), avel, aacc);
+				auto const actual_disp = LogMap<Vec3>(actual) * T(2);
+
+				PR_EXPECT(FEqlAbsolute<Vec3>(actual_disp, expected_disp, tol));
+			};
+
+			// Zero time should preserve the starting orientation.
+			auto const ori = Quat(Vec4::XAxis(), T(0.25));
+			auto const unchanged = math::RotationAt(0.0f, ori, Vec3::ZAxis(), Vec3(T(0), T(0), T(2)));
+			PR_EXPECT(FEqlOrientation(unchanged, ori, tol));
+
+			// Zero angular acceleration should reduce to constant angular velocity.
+			expect_parallel(1.0f, Vec3(T(0), T(0), T(1)), Vec3(T(0)));
+
+			// Parallel angular acceleration should integrate to 0.5*a*t^2 from rest.
+			expect_parallel(1.0f, Vec3(T(0)), Vec3(T(0), T(0), T(2)));
+
+			// Non-zero initial angular velocity should add linearly to the quadratic term.
+			expect_parallel(1.0f, Vec3(T(0), T(0), T(1)), Vec3(T(0), T(0), T(2)));
+
+			// Negative time should follow the same integral and support exact cancellation cases.
+			expect_parallel(-1.0f, Vec3(T(0), T(0), T(1)), Vec3(T(0), T(0), T(2)));
+
+			// Matrix and quaternion paths should agree for the non-parallel SPIRAL(6) integration case.
+			auto const time_np = 0.35f;
+			auto const avel_np = Vec3(T(0.7), T(-0.2), T(0.4));
+			auto const aacc_np = Vec3(T(-0.3), T(0.6), T(0.1));
+			auto const rot_q = math::RotationAt(time_np, ori, avel_np, aacc_np);
+			auto const rot_m = math::RotationAt(time_np, ToMatrix<Mat3x3>(ori), avel_np, aacc_np);
+			PR_EXPECT(FEqlOrientation(rot_q, ToQuat<Quat>(rot_m), tol));
+		}
+
 		PRUnitTestMethod(FEqlOrientation, float, double)
 		{
 			using Quat = Quat<T>;
