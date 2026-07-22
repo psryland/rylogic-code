@@ -229,11 +229,8 @@ namespace pr::math::tests
 
 		PRUnitTestMethod(ResizePreserveData)
 		{
-			// Regression: local→local component-count change.
-			// Both old (2×2=4) and new (2×3=6) fit in LocalBufCount=16, so both live in m_buf.
-			// The old code memset-zeroed m_buf before the per-vector copies read from it,
-			// returning all zeros. Reproduces: Matrix<double>(2,2,{1,2,3,4}).resize(2,3,true)
-			// should give rows {1,2,0} and {3,4,0}, not {0,0,0}.
+			// local→local: component count increases, both layouts fit in m_buf.
+			// 2×2 → 2×3: existing elements stay at their per-vector positions; new column is zeroed.
 			{
 				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
 				PR_EXPECT(m.local());
@@ -244,10 +241,8 @@ namespace pr::math::tests
 				PR_EXPECT(m(1,0) == 3.0 && m(1,1) == 4.0 && m(1,2) == 0.0);
 			}
 
-			// local→local: same total element count, component count changes (local alias).
-			// 2×3 → 3×2: both 6 elements, both local (6 < 16). The old code aliased src/dst on
-			// m_buf; memset wiped the source before copying, returning all zeros. With the fix,
-			// the top-left 2×2 corner (min_vecs=2, min_cmps=2) is preserved correctly.
+			// local→local: same total element count, different component count (reshape).
+			// 2×3 → 3×2: the top-left 2×2 corner of logical positions is preserved; new row is zeroed.
 			{
 				auto m = Matrix<double>(2, 3, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
 				PR_EXPECT(m.local());
@@ -259,7 +254,7 @@ namespace pr::math::tests
 				PR_EXPECT(m(2,0) == 0.0 && m(2,1) == 0.0); // new row is zeroed
 			}
 
-			// local→local: shrinking component count.
+			// local→local: component count decreases; only the min-corner elements are kept.
 			{
 				auto m = Matrix<double>(2, 3, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
 				m.resize(2, 2, true);
@@ -269,8 +264,7 @@ namespace pr::math::tests
 			}
 
 			// local→heap: component count grows past LocalBufCount=16.
-			// 4×3=12 → 4×5=20: new buffer is heap-allocated, no aliasing. Fix must not
-			// regress this case.
+			// 4×3=12 → 4×5=20: new buffer is heap-allocated.
 			{
 				auto m = Matrix<double>(4, 3, {1,2,3, 4,5,6, 7,8,9, 10,11,12});
 				PR_EXPECT(m.local());
@@ -281,8 +275,8 @@ namespace pr::math::tests
 				PR_EXPECT(m(3,0)==10 && m(3,1)==11 && m(3,2)==12 && m(3,3)==0 && m(3,4)==0);
 			}
 
-			// heap→local: component count shrinks back below LocalBufCount=16.
-			// 4×5=20 → 4×3=12: new buffer is m_buf, old is heap, no aliasing.
+			// heap→local: component count shrinks below LocalBufCount=16.
+			// 4×5=20 → 4×3=12: new buffer is m_buf; first three columns of each row are preserved.
 			{
 				auto m = Matrix<double>(4, 5, {1,2,3,4,5, 6,7,8,9,10, 11,12,13,14,15, 16,17,18,19,20});
 				PR_EXPECT(!m.local());
@@ -293,9 +287,8 @@ namespace pr::math::tests
 				PR_EXPECT(m(3,0)==16 && m(3,1)==17 && m(3,2)==18);
 			}
 
-			// heap→heap same-count reshape: 5×4=20 → 4×5=20, both heap (20 > LocalBufCount=16).
-			// Previously the 'same count → reuse buffer' shortcut aliased src and dst on heap,
-			// causing all-zeros output. The fix allocates a fresh heap buffer for this case.
+			// heap→heap: same total element count, different component count, both on heap.
+			// 5×4=20 → 4×5=20: each row gets a new zero column; the fifth source row is dropped.
 			{
 				auto m = Matrix<double>(5, 4);
 				int v = 1;
@@ -308,7 +301,7 @@ namespace pr::math::tests
 				PR_EXPECT(!m.local());
 				PR_EXPECT(m.vecs() == 4 && m.cmps() == 5);
 
-				// Original row r had elements [r*4+1 .. r*4+4] followed by a new zero column.
+				// Each row has four preserved elements followed by a new zero column.
 				for (int r = 0; r != 4; ++r)
 				{
 					for (int c = 0; c != 4; ++c)
@@ -318,7 +311,7 @@ namespace pr::math::tests
 				}
 			}
 
-			// preserve_data = false: entire new buffer must be zeroed regardless of old data.
+			// preserve_data=false: all elements are zeroed regardless of existing content.
 			{
 				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
 				m.resize(2, 3, false);
@@ -327,7 +320,7 @@ namespace pr::math::tests
 					PR_EXPECT(v == 0.0);
 			}
 
-			// resize to zero: no crash, size reports zero.
+			// resize to zero dimensions: no crash, size reports zero.
 			{
 				auto m = Matrix<double>(2, 2, {1.0, 2.0, 3.0, 4.0});
 				m.resize(0, 0);

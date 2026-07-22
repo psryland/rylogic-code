@@ -365,11 +365,10 @@ namespace pr::math
 			auto min_cmps  = std::min(cmps, m_cmps);
 
 			// Select the destination buffer.
-			// The 'reuse existing buffer' shortcut is only safe when the vector layout is
-			// unchanged (cmps == m_cmps): elements are contiguous and no reshuffling occurs.
-			// When the component count changes each vector must be copied individually, and
-			// source/destination cannot safely alias. For that path we always need a distinct
-			// buffer; large same-size reshapes get a fresh heap allocation here.
+			// Reusing the existing buffer is only safe when the vector layout is unchanged
+			// (cmps == m_cmps): all elements are contiguous and no per-vector reshuffling is
+			// needed. When the component count changes, a distinct source and destination are
+			// required for the per-vector copy below.
 			auto data =
 				(new_count == old_count && cmps == m_cmps) ? m_data :
 				new_count > size_t(LocalBufCount) ? new S[new_count] :
@@ -392,18 +391,15 @@ namespace pr::math
 			else
 			{
 				// Component count changes: each vector must be copied individually because the
-				// stride between vectors differs before and after the resize.
+				// per-vector stride differs between the old and new layout.
 				//
-				// Source/destination can still alias when both the old and new data fit in the
-				// local buffer (m_buf): zeroing the destination first would wipe the source.
-				// Snapshot the old data before zeroing in that case.
-				// (The large same-size-reshape alias is already broken above by allocating a
-				// fresh heap buffer, so snap only needs to cover the local-buffer case.)
+				// When both old and new data fit in m_buf, source and destination point to the
+				// same buffer. Snapshot the old elements before zeroing so the copies read intact data.
 				S snap[LocalBufCount];
 				S* src = m_data;
 				if (data == m_data)
 				{
-					// Both old and new buffers are m_buf (old_count <= LocalBufCount by construction).
+					// data == m_data == &m_buf[0]; old_count <= LocalBufCount by construction.
 					memcpy(snap, m_data, sizeof(S) * old_count);
 					src = snap;
 				}
