@@ -95,8 +95,8 @@ namespace pr::math
 		void col(int i, Vec8<S, void> rhs) noexcept
 		{
 			pr_assert("index out of range" && i >= 0 && i < 6);
-			if (i < 3) { m00[i] = rhs.ang; m10[i] = rhs.lin; }
-			else { m01[i - 3] = rhs.ang; m11[i - 3] = rhs.lin; }
+			if (i < 3) { m00[i] = rhs.ang.xyz; m10[i] = rhs.lin.xyz; }
+			else { m01[i - 3] = rhs.ang.xyz; m11[i - 3] = rhs.lin.xyz; }
 		}
 
 		// Basic constants
@@ -193,56 +193,6 @@ namespace pr::math
 			);
 		}
 
-		// Invert the 6x6 matrix 'm'
-		friend Mat6x8<S, B, A> Invert(Mat6x8<S, A, B> const& m)
-		{
-			// 2x2 block matrix inversion
-			// R = [A B]  R' = [E F]
-			//     [C D]       [G H]
-			// For square diagonal partitions of 'R' (i.e. submatrices are square)
-			// If 'A' is non-singular then 'R' is invertible iff the Schur complement "D - CA¯B" of A is invertible
-			// R'= [A¯ + A¯B(D-CA¯B)¯CA¯ ,  -A¯B(D-CA¯B)¯ ]
-			//     [    -(D-CA¯B)¯CA¯    ,    (D-CA¯B)¯   ]
-			// or:
-			//     [   (A-BD¯C)¯     ,    -(A-BD¯C)¯BD¯   ]
-			//     [ -D¯C(A-BD¯C)¯   , D¯+D¯C(A-BD¯C)¯BD¯ ]
-
-			auto& a = m.m00;
-			auto& b = m.m01;
-			auto& c = m.m10;
-			auto& d = m.m11;
-			if (IsInvertible(a))
-			{
-				auto a_inv = Invert(a);
-				auto schur = d - c * a_inv * b; // The 'Schur Complement'
-				if (IsInvertible(schur))
-				{
-					auto schur_inv = Invert(schur);
-					return Mat6x8<S, B, A>{
-						a_inv + a_inv * b * schur_inv * c * a_inv,
-						-a_inv * b * schur_inv,
-						-schur_inv * c * a_inv,
-						schur_inv
-					};
-				}
-			}
-			if (IsInvertible(d))
-			{
-				auto d_inv = Invert(d);
-				auto schur = a - b * d_inv * c; // The 'Schur Complement'
-				if (IsInvertible(schur))
-				{
-					auto schur_inv = Invert(schur);
-					return Mat6x8<S, B, A>{
-						schur_inv,
-						-schur_inv * b * d_inv,
-						-d_inv * c * schur_inv,
-						d_inv + d_inv * c * schur_inv * b * d_inv
-					};
-				}
-			}
-			throw std::runtime_error("matrix is singular");
-		}
 	};
 
 	// Note: Vec8 isn't really a VectorType. It can't be used with the generic vector functions. We can do checks though.
@@ -297,50 +247,82 @@ namespace pr::math
 			Transpose(m.m01), Transpose(m.m11));
 	}
 
-	// Invert the 6x6 matrix 'm'
-	template <ScalarType S, typename A, typename B>
-	inline Mat6x8<S,B,A> pr_vectorcall Invert(Mat6x8<S,A,B> const& m)
+	// Invert the 6x6 matrix 'm' using scalar Gauss-Jordan elimination.
+	// Partial pivoting on the scalar rows keeps the result valid even when the 3x3 block partitions are singular.
+	template <ScalarTypeFP S, typename A, typename B>
+	inline Mat6x8<S, B, A> pr_vectorcall Invert(Mat6x8<S, A, B> const& m)
 	{
-		// 2x2 block matrix inversion
-		// R = [A B]  R' = [E F]
-		//     [C D]       [G H]
-		// For square diagonal partitions of 'R' (i.e. submatrices are square)
-		// If 'A' is non-singular then 'R' is invertible iff the Schur complement "D - CA¯B" of A is invertible
-		// R'= [A¯ + A¯B(D-CA¯B)¯CA¯ ,  -A¯B(D-CA¯B)¯ ]
-		//     [    -(D-CA¯B)¯CA¯    ,    (D-CA¯B)¯   ]
-		// or:
-		//     [   (A-BD¯C)¯     ,    -(A-BD¯C)¯BD¯   ]
-		//     [ -D¯C(A-BD¯C)¯   , D¯+D¯C(A-BD¯C)¯BD¯ ]
+		S aug[6][12]{};
 
-		auto& a = m.m00;
-		auto& b = m.m01;
-		auto& c = m.m10;
-		auto& d = m.m11;
-		if (IsInvertible(a))
+		// Copy the 3x3 blocks into a scalar 6x6 matrix and append the identity on the right.
+		for (int row = 0; row != 6; ++row)
 		{
-			auto a_inv = Invert(a);
-			auto schur = d - c * a_inv * b; // The 'Schur Complement'
-			if (IsInvertible(schur))
+			auto const left_row = row < 3 ? m.m00.row(row) : m.m10.row(row - 3);
+			auto const right_row = row < 3 ? m.m01.row(row) : m.m11.row(row - 3);
+
+			for (int col = 0; col != 3; ++col)
 			{
-				auto schur_inv = Invert(schur);
-				return Mat6x8<S,B,A>{
-					a_inv + a_inv * b * schur_inv * c * a_inv , -a_inv * b * schur_inv,
-					                   -schur_inv * c * a_inv ,              schur_inv};
+				aug[row][col] = left_row[col];
+				aug[row][3 + col] = right_row[col];
+			}
+			aug[row][6 + row] = S(1);
+		}
+
+		// Reduce [M I] to [I M^-1] one pivot column at a time.
+		for (int pivot_col = 0; pivot_col != 6; ++pivot_col)
+		{
+			auto pivot_row = pivot_col;
+			auto pivot_abs = Abs(aug[pivot_row][pivot_col]);
+			for (int row = pivot_col + 1; row != 6; ++row)
+			{
+				auto const row_abs = Abs(aug[row][pivot_col]);
+				if (row_abs > pivot_abs)
+				{
+					pivot_abs = row_abs;
+					pivot_row = row;
+				}
+			}
+
+			auto const pivot_value = aug[pivot_row][pivot_col];
+			if (pivot_value == S(0))
+				throw std::runtime_error("matrix is singular");
+
+			if (pivot_row != pivot_col)
+			{
+				for (int col = 0; col != 12; ++col)
+					std::swap(aug[pivot_col][col], aug[pivot_row][col]);
+			}
+
+			auto const inv_pivot = S(1) / aug[pivot_col][pivot_col];
+			for (int col = 0; col != 12; ++col)
+				aug[pivot_col][col] *= inv_pivot;
+
+			for (int row = 0; row != 6; ++row)
+			{
+				if (row == pivot_col)
+					continue;
+
+				auto const factor = aug[row][pivot_col];
+				if (factor == S(0))
+					continue;
+
+				for (int col = 0; col != 12; ++col)
+					aug[row][col] -= factor * aug[pivot_col][col];
 			}
 		}
-		if (IsInvertible(d))
+
+		Mat6x8<S, B, A> inv;
+
+		// Rebuild each output column explicitly from the right half of the augmented matrix.
+		for (int col = 0; col != 6; ++col)
 		{
-			auto d_inv = Invert(d);
-			auto schur = a - b * d_inv * c; // The 'Schur Complement'
-			if (IsInvertible(schur))
-			{
-				auto schur_inv = Invert(schur);
-				return Mat6x8<S,B,A>{
-					             schur_inv ,                    -schur_inv * b * d_inv,
-					-d_inv * c * schur_inv , d_inv + d_inv * c * schur_inv * b * d_inv};
-			}
+			inv.col(col, Vec8<S, void>{
+				aug[0][6 + col], aug[1][6 + col], aug[2][6 + col],
+				aug[3][6 + col], aug[4][6 + col], aug[5][6 + col]
+			});
 		}
-		throw std::runtime_error("matrix is singular");
+
+		return inv;
 	}
 
 }

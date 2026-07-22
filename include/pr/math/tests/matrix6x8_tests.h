@@ -77,7 +77,8 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(Transpose(Mt), M));
 		}
 
-		PRUnitTestMethod(Inverse, float, double)
+		// Exercise the dense case and check both product orders land on the identity.
+		PRUnitTestMethod(InverseDense, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using vec8_t = Vec8<T, void>;
@@ -92,8 +93,68 @@ namespace pr::math::tests
 				vec8_t{+1, -1, -2, -3, +6, -1}
 			};
 			auto M_inv = Invert(M);
-			auto I = M * M_inv;
-			PR_EXPECT(FEql(I, mat6_t::Identity()));
+			auto I0 = M * M_inv;
+			auto I1 = M_inv * M;
+			PR_EXPECT(FEql(I0, mat6_t::Identity()));
+			PR_EXPECT(FEql(I1, mat6_t::Identity()));
+		}
+
+		// Exercise the block-swap case where the diagonal 3x3 blocks are zero.
+		PRUnitTestMethod(InverseSwappedBlocks, float, double)
+		{
+			struct SpaceA {};
+			struct SpaceB {};
+			using mat3_t = Mat3x3<T>;
+			using mat6_t = Mat6x8<T, void, void>;
+			using tagged_mat_t = Mat6x8<T, SpaceA, SpaceB>;
+
+			auto M = tagged_mat_t{
+				mat3_t::Zero(), mat3_t::Identity(),
+				mat3_t::Identity(), mat3_t::Zero()
+			};
+			static_assert(std::is_same_v<decltype(Invert(M)), Mat6x8<T, SpaceB, SpaceA>>);
+
+			auto M_inv = Invert(M);
+			auto left = M * M_inv;
+			auto right = M_inv * M;
+			PR_EXPECT(FEql(static_cast<mat6_t const&>(left), mat6_t::Identity()));
+			PR_EXPECT(FEql(static_cast<mat6_t const&>(right), mat6_t::Identity()));
+		}
+
+		// Exercise a full permutation that makes every 3x3 block singular on its own.
+		PRUnitTestMethod(InversePermutation, float, double)
+		{
+			struct SpaceA {};
+			struct SpaceB {};
+			using mat6_t = Mat6x8<T, void, void>;
+			using tagged_mat_t = Mat6x8<T, SpaceA, SpaceB>;
+			using vec8_t = Vec8<T, void>;
+
+			auto M = tagged_mat_t{};
+			int const row_of_col[6] = { 0, 3, 4, 1, 2, 5 };
+			int const scalar_of_row[6] = { 0, 1, 2, 4, 5, 6 };
+			for (int col = 0; col != 6; ++col)
+			{
+				auto column = vec8_t{ T(0) };
+				// The first three matrix rows live in the angular half of Vec8; the last three live in the linear half.
+				column[scalar_of_row[row_of_col[col]]] = T(1);
+				M.col(col, column);
+			}
+			static_assert(std::is_same_v<decltype(Invert(M)), Mat6x8<T, SpaceB, SpaceA>>);
+
+			auto M_inv = Invert(M);
+			auto left = M * M_inv;
+			auto right = M_inv * M;
+			PR_EXPECT(FEql(static_cast<mat6_t const&>(left), mat6_t::Identity()));
+			PR_EXPECT(FEql(static_cast<mat6_t const&>(right), mat6_t::Identity()));
+		}
+
+		// A zero matrix never finds a nonzero pivot, so the singular-matrix throw must remain intact.
+		PRUnitTestMethod(InverseSingularThrows, float, double)
+		{
+			using mat6_t = Mat6x8<T, void, void>;
+
+			PR_THROWS(Invert(mat6_t::Zero()), std::runtime_error);
 		}
 
 		// Verify that Mat6x8 combines its Mat3x3 blocks with the same any/all NaN contract as the generic matrix helpers.
