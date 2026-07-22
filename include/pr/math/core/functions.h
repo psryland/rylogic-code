@@ -1132,42 +1132,50 @@ namespace pr::math
 	// Integer square root
 	template <std::integral T> constexpr T ISqrt(T x) noexcept
 	{
-		// Returns the nearest integer root without ever forming an intermediate square larger than the input.
-		if constexpr (std::signed_integral<T>)
+		// Bool is already its own nearest integer square root and does not participate in the unsigned-root machinery below.
+		if constexpr (std::same_as<T, bool>)
 		{
-			if (x < 0)
-				return std::numeric_limits<T>::quiet_NaN();
+			return x;
 		}
-
-		using U = std::make_unsigned_t<T>;
-		auto const ux = static_cast<U>(x);
-		if (ux < 2)
-			return static_cast<T>(ux);
-
-		// Find the largest root whose square does not exceed the input using only division-based comparisons.
-		auto lo = U(1);
-		auto hi = ux / 2 + 1;
-		auto root = U(1);
-		for (; lo <= hi; )
+		else
 		{
-			U const mid = static_cast<U>(lo + ((hi - lo) >> 1));
-			if (mid <= ux / mid)
+			// Returns the nearest integer root without ever forming an intermediate square larger than the input.
+			if constexpr (std::signed_integral<T>)
 			{
-				root = mid;
-				lo = static_cast<U>(mid + U(1));
+				if (x < 0)
+					return std::numeric_limits<T>::quiet_NaN();
 			}
-			else
-			{
-				hi = static_cast<U>(mid - U(1));
-			}
-		}
 
-		// The lower square is always representable because it is bounded by the input. The remainder above that square
-		// decides whether the lower or upper root is closer, and there is no tie because adjacent squares differ by an odd amount.
-		auto const square = root * root;
-		auto const remainder = ux - square;
-		auto const nearest = remainder > root ? root + 1 : root;
-		return static_cast<T>(nearest);
+			using U = std::make_unsigned_t<T>;
+			auto const ux = static_cast<U>(x);
+			if (ux < 2)
+				return static_cast<T>(ux);
+
+			// Find the largest root whose square does not exceed the input using only division-based comparisons.
+			auto lo = U(1);
+			auto hi = ux / 2 + 1;
+			auto root = U(1);
+			for (; lo <= hi; )
+			{
+				U const mid = static_cast<U>(lo + ((hi - lo) >> 1));
+				if (mid <= ux / mid)
+				{
+					root = mid;
+					lo = static_cast<U>(mid + U(1));
+				}
+				else
+				{
+					hi = static_cast<U>(mid - U(1));
+				}
+			}
+
+			// The lower square is always representable because it is bounded by the input. The remainder above that square
+			// decides whether the lower or upper root is closer, and there is no tie because adjacent squares differ by an odd amount.
+			auto const square = root * root;
+			auto const remainder = ux - square;
+			auto const nearest = remainder > root ? root + 1 : root;
+			return static_cast<T>(nearest);
+		}
 	}
 	template <std::integral T> constexpr T CompISqrt(T x) noexcept
 	{

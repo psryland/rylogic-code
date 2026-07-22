@@ -540,6 +540,16 @@ namespace pr::math::tests
 		}
 
 		// ---- ISqrt (functions.h line ~1133) ----
+		PRUnitTestMethod(ISqrtBoolTests
+		, bool
+		) {
+			static_assert(ISqrt(false) == false);
+			static_assert(ISqrt(true) == true);
+			static_assert(CompISqrt(false) == false);
+			static_assert(CompISqrt(true) == true);
+		}
+
+		// ---- ISqrt scalar values (functions.h line ~1133) ----
 		PRUnitTestMethod(ISqrtScalarTests
 		, int8_t, uint8_t
 		, int16_t, uint16_t
