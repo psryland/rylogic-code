@@ -206,6 +206,74 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlOrientation(q_zero, Identity<Quat>(), T(0.001)));
 		}
 
+		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 90 degrees
+		// that use the "long arc" encoding. AxisAngle, Scale, and LogMap must all canonicalize to
+		// the positive-w (shortest-arc) form without changing the represented orientation.
+		PRUnitTestMethod(NegativeHemisphere, float, double)
+		{
+			using Quat = Quat<T>;
+			using Vec4 = Vec4<T>;
+
+			// A 270-degree rotation around Z encodes as w = cos(135°) < 0 — the negative hemisphere.
+			// Its shortest-arc equivalent is -90 degrees (same orientation, positive-w quaternion).
+			auto z_axis = Vec4::ZAxis();
+			auto q270 = Quat(z_axis, DegreesToRadians(T(270)));
+			PR_EXPECT(q270.w < T(0));
+
+			// AxisAngle: must reconstruct a shortest-arc orientation whose angle is 90 deg, not 270 deg.
+			// The axis is flipped to preserve the correct rotation sense.
+			{
+				auto [axis, angle] = math::AxisAngle(q270);
+				PR_EXPECT(FEqlAbsolute(angle, DegreesToRadians(T(90)), T(0.001)));
+
+				// Recovering the quaternion from the extracted axis and angle must give the same orientation.
+				auto q_recovered = Quat(axis, angle);
+				PR_EXPECT(math::FEqlOrientation(q_recovered, q270, T(0.001)));
+			}
+
+			// q and -q represent the same orientation; AxisAngle must return the same angle for both.
+			{
+				auto [axis_pos, angle_pos] = math::AxisAngle(q270);
+				auto [axis_neg, angle_neg] = math::AxisAngle(-q270);
+				PR_EXPECT(FEqlAbsolute(angle_pos, angle_neg, T(0.001)));
+			}
+
+			// Scale: shortest-arc scaling by 0.5 must bisect the -90-degree arc, giving -45 degrees.
+			{
+				auto q_half = math::Scale(q270, T(0.5));
+				auto q_expected = Quat(z_axis, DegreesToRadians(T(-45)));
+				PR_EXPECT(math::FEqlOrientation(q_half, q_expected, T(0.001)));
+			}
+
+			// LogMap / ExpMap round-trip: orientation must survive even when w < 0.
+			{
+				auto v = LogMap<Vec4>(q270);
+				auto q_rt = ExpMap<Quat>(v);
+				PR_EXPECT(math::FEqlOrientation(q270, q_rt, T(0.001)));
+			}
+
+			// Identity round-trip through Scale must remain identity.
+			{
+				auto q_id = Identity<Quat>();
+				PR_EXPECT(math::FEqlOrientation(math::Scale(q_id, T(0.5)), q_id, T(0.001)));
+			}
+
+			// Near-identity: tiny positive rotation must round-trip cleanly.
+			{
+				auto q_tiny = Quat(z_axis, T(0.001));
+				auto v = LogMap<Vec4>(q_tiny);
+				auto q_rt = ExpMap<Quat>(v);
+				PR_EXPECT(math::FEqlOrientation(q_tiny, q_rt, T(0.001)));
+			}
+
+			// Near-pi (just below 180 deg): AxisAngle must return the correct angle magnitude.
+			{
+				auto q_near_pi = Quat(z_axis, DegreesToRadians(T(179)));
+				auto [axis, angle] = math::AxisAngle(q_near_pi);
+				PR_EXPECT(FEqlAbsolute(angle, DegreesToRadians(T(179)), T(0.01)));
+			}
+		}
+
 		PRUnitTestMethod(RotationAt, float, double)
 		{
 			using Quat = Quat<T>;
