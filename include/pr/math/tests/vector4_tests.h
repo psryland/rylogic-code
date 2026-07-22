@@ -130,16 +130,14 @@ namespace pr::math::tests
 			PR_EXPECT(Dot3(a, b) == T(-22)); // 3-component dot (ignores w)
 		}
 
-		// Verify that Vec4::operator% matches component-wise std::fmod / built-in % exactly.
-		// The SIMD approximation a − trunc(a/b)·b previously gave wrong results for large
-		// quotients on float and double. These tests reproduce and guard against that regression.
+		// Component-wise modulus for Vec%Vec, Vec%scalar, and scalar%Vec across all element types.
 		PRUnitTestMethod(Modulus, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 
 			if constexpr (std::is_floating_point_v<T>)
 			{
-				// Ordinary positive values: result in [0, divisor)
+				// Vec % Vec — ordinary positive values
 				{
 					auto lhs = vec4_t(T(7), T(10), T(3.5), T(0));
 					auto rhs = vec4_t(T(3), T( 4), T(1.5), T(2));
@@ -150,7 +148,7 @@ namespace pr::math::tests
 					PR_EXPECT(FEql(got.w, std::fmod(T(0),   T(2))));
 				}
 
-				// Signed dividend: fmod sign follows the dividend, not the divisor
+				// Vec % Vec — signed dividend: sign of result matches dividend sign
 				{
 					auto lhs = vec4_t(T(-7), T( 7), T(-7), T( 7));
 					auto rhs = vec4_t(T( 3), T( 3), T(-3), T(-3));
@@ -161,10 +159,7 @@ namespace pr::math::tests
 					PR_EXPECT(FEql(got.w, std::fmod(T( 7), T(-3))));
 				}
 
-				// Precision-exhausting large quotient: the regression case.
-				// 1e20 / 3 exceeds float's exact integer range (~16M), so trunc(a/b)
-				// is rounded before multiplication, and the SIMD approximation returned 0
-				// instead of 2. std::fmod carries the exact integer quotient internally.
+				// Vec % Vec — large quotient: |a/b| exceeds the mantissa's exact integer range
 				{
 					auto lhs = vec4_t(T(1e20), T(1e15), T(1e7), T(123456789));
 					auto rhs = vec4_t(T(3),    T(7),    T(11),  T(97));
@@ -175,38 +170,89 @@ namespace pr::math::tests
 					PR_EXPECT(FEql(got.w, std::fmod(T(123456789), T(97))));
 				}
 
-				// Exceptional inputs: IEEE 754 edge cases must match std::fmod per component
+				// Vec % scalar — exercises the Vec % element_t generic overload
+				{
+					auto lhs = vec4_t(T(7), T(-7), T(1e20), T(0));
+					auto got = lhs % T(3);
+					PR_EXPECT(FEql(got.x, std::fmod(T(7),    T(3))));
+					PR_EXPECT(FEql(got.y, std::fmod(T(-7),   T(3))));
+					PR_EXPECT(FEql(got.z, std::fmod(T(1e20), T(3))));
+					PR_EXPECT(FEql(got.w, std::fmod(T(0),    T(3))));
+				}
+
+				// scalar % Vec — exercises the element_t % Vec generic overload (compile fix)
+				{
+					auto rhs = vec4_t(T(3), T(-3), T(1e20), T(7));
+					auto got = T(10) % rhs;
+					PR_EXPECT(FEql(got.x, std::fmod(T(10), T(3))));
+					PR_EXPECT(FEql(got.y, std::fmod(T(10), T(-3))));
+					PR_EXPECT(FEql(got.z, std::fmod(T(10), T(1e20))));
+					PR_EXPECT(FEql(got.w, std::fmod(T(10), T(7))));
+				}
+
+				// IEEE 754 special cases — all three forms delegate to std::fmod per component
 				{
 					auto inf = std::numeric_limits<T>::infinity();
 					auto nan = std::numeric_limits<T>::quiet_NaN();
 					T three = T(3);
 
-					// infinity dividend → NaN (std::fmod(inf, finite) == NaN)
-					auto r_inf = Vec4<T>(inf, T(5), T(5), T(5)) % Vec4<T>(three, three, three, three);
-					PR_EXPECT(std::isnan(r_inf.x));
-					PR_EXPECT(!std::isnan(r_inf.y));
+					// infinity dividend → NaN
+					auto r_inf_lhs = Vec4<T>(inf, T(5), T(5), T(5)) % Vec4<T>(three, three, three, three);
+					PR_EXPECT(std::isnan(r_inf_lhs.x));
+					PR_EXPECT(!std::isnan(r_inf_lhs.y));
 
-					// zero divisor → NaN (std::fmod(finite, 0) == NaN)
+					// finite % infinity → finite (remainder equals dividend)
+					auto r_inf_rhs = Vec4<T>(T(5), inf, T(5), T(5)) % Vec4<T>(inf, three, three, three);
+					PR_EXPECT(FEql(r_inf_rhs.x, std::fmod(T(5), inf)));
+					PR_EXPECT(std::isnan(r_inf_rhs.y));
+
+					// zero divisor → NaN
 					auto r_zero = Vec4<T>(T(5), T(5), T(5), T(5)) % Vec4<T>(T(0), three, three, three);
 					PR_EXPECT(std::isnan(r_zero.x));
 					PR_EXPECT(!std::isnan(r_zero.y));
 
-					// NaN propagates from either operand
+					// NaN propagates
 					auto r_nan = Vec4<T>(nan, T(5), T(5), T(5)) % Vec4<T>(three, three, three, three);
 					PR_EXPECT(std::isnan(r_nan.x));
 					PR_EXPECT(!std::isnan(r_nan.y));
+
+					// signed-zero dividend: sign of zero is preserved by fmod
+					T neg_zero = -T(0);
+					auto r_neg_zero = Vec4<T>(neg_zero, T(0), T(5), T(5)) % Vec4<T>(three, three, three, three);
+					PR_EXPECT(std::signbit(r_neg_zero.x));   // -0 % 3 == -0
+					PR_EXPECT(!std::signbit(r_neg_zero.y));  // +0 % 3 == +0
 				}
 			}
 			else
 			{
-				// Integer modulus must match built-in % exactly (truncation toward zero)
-				auto a = vec4_t(T(10), T(-10), T(10), T(-10));
-				auto b = vec4_t(T( 3), T(  3), T(-3), T( -3));
-				auto got = a % b;
-				PR_EXPECT(got.x == T(10) % T( 3));   //  1
-				PR_EXPECT(got.y == T(-10) % T( 3));  // -1
-				PR_EXPECT(got.z == T(10) % T(-3));   //  1
-				PR_EXPECT(got.w == T(-10) % T(-3));  // -1
+				// Vec % Vec — integer modulus truncates toward zero (C++ standard)
+				{
+					auto a = vec4_t(T(10), T(-10), T(10), T(-10));
+					auto b = vec4_t(T( 3), T(  3), T(-3), T( -3));
+					auto got = a % b;
+					PR_EXPECT(got.x == T(10) % T( 3));   //  1
+					PR_EXPECT(got.y == T(-10) % T( 3));  // -1
+					PR_EXPECT(got.z == T(10) % T(-3));   //  1
+					PR_EXPECT(got.w == T(-10) % T(-3));  // -1
+				}
+
+				// Vec % scalar
+				{
+					auto got = vec4_t(T(10), T(-10), T(10), T(-10)) % T(3);
+					PR_EXPECT(got.x == T( 10) % T(3));
+					PR_EXPECT(got.y == T(-10) % T(3));
+					PR_EXPECT(got.z == T( 10) % T(3));
+					PR_EXPECT(got.w == T(-10) % T(3));
+				}
+
+				// scalar % Vec
+				{
+					auto got = T(10) % vec4_t(T(3), T(-3), T(7), T(-7));
+					PR_EXPECT(got.x == T(10) % T( 3));
+					PR_EXPECT(got.y == T(10) % T(-3));
+					PR_EXPECT(got.z == T(10) % T( 7));
+					PR_EXPECT(got.w == T(10) % T(-7));
+				}
 			}
 		}
 	};
