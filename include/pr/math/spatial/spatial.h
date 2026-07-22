@@ -48,14 +48,6 @@ namespace pr::math::spatial
 	struct Motion {};
 	struct Force {};
 
-	namespace detail
-	{
-		// Treat CPM inputs as motion vectors only. The result-space tag selects the matrix form.
-		template <typename T> struct IsMotionVector : std::false_type {};
-		template <ScalarType S> struct IsMotionVector<Vec8<S, Motion>> : std::true_type {};
-		template <typename T> inline constexpr bool IsMotionVector_v = IsMotionVector<std::remove_cvref_t<T>>::value;
-	}
-
 	#pragma region Operators
 
 	// Rotate a spatial motion vector
@@ -186,14 +178,10 @@ namespace pr::math::spatial
 
 	// Returns the spatial cross product matrix for 'a'.
 	// The default result is motion-space; `CPM<Force>(a)` selects the dual force-space matrix for the same motion input.
-	template <typename VecSpace = Motion, typename Vec = void>
-	requires (
-		detail::IsMotionVector_v<Vec> &&
-		(std::same_as<VecSpace, Motion> || std::same_as<VecSpace, Force>)
-	)
-	constexpr auto CPM(Vec const& a) noexcept
+	template <typename VecSpace = Motion, ScalarTypeFP S = float>
+	requires (std::same_as<VecSpace, Motion> || std::same_as<VecSpace, Force>)
+	constexpr Mat6x8<S, VecSpace, VecSpace> CPM(Vec8<S, Motion> a) noexcept
 	{
-		using S = typename vector_traits<std::remove_cvref_t<decltype(a.ang)>>::element_t;
 
 		auto cx_ang = math::CPM<Mat3x3<S>>(a.ang.xyz);
 		auto cx_lin = math::CPM<Mat3x3<S>>(a.lin.xyz);
@@ -246,19 +234,27 @@ namespace pr::math::spatial::tests
 		//	v4 ang(4,3,2,0);
 		//	auto o2w = Mat4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4(1,1,1,1));
 		}
-		// Compile-time API coverage for the spatial dual-space overloads.
 		PRUnitTestMethod(ApiConstraints, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
 
-			// Compile-time coverage for the accepted spatial overloads.
+			// Compile-time coverage for the accepted and rejected spatial overloads.
+			auto can_cpm_with_integer_motion = []<typename U>() consteval
+			{
+				using int_motionT = Vec8<U, Motion>;
+				return requires (int_motionT const& v)
+				{
+					CPM(v);
+				};
+			};
+
 			static_assert(std::same_as<decltype(Cross(v8motionT{}, v8motionT{})), v8motionT>);
 			static_assert(std::same_as<decltype(Cross(v8motionT{}, v8forceT{})), v8forceT>);
 			static_assert(std::same_as<decltype(CPM(v8motionT{})), Mat6x8<T, Motion, Motion>>);
 			static_assert(std::same_as<decltype(CPM<Force>(v8motionT{})), Mat6x8<T, Force, Force>>);
 
-			// And compile-time rejection for the combinations that are no longer part of the API.
+			static_assert(!can_cpm_with_integer_motion.template operator()<int>());
 			static_assert(!requires(v8forceT const& f) { Cross(f, f); });
 			static_assert(!requires(v8forceT const& f) { CPM<Force>(f); });
 			static_assert(!requires(v8motionT const& m) { CPM<void>(m); });
