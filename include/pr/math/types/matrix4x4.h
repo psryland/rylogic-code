@@ -120,7 +120,7 @@ namespace pr::math
 		// Get/Set by row or column. Note: x,y,z are column vectors
 		constexpr Vec4<S> col(int i) const noexcept
 		{
-			return arr[i];
+			return (*this)[i];
 		}
 		constexpr Vec4<S> row(int i) const noexcept
 		{

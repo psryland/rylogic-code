@@ -505,13 +505,14 @@ namespace pr::math
 		using mt = vector_traits<Mat>;
 		using Vec = typename mt::component_t;
 		using S = typename qt::element_t;
-		pr_assert(LengthSq(q.xyzw) != 0 && "'quat' is a zero quaternion");
+		auto const norm_sq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+		pr_assert(norm_sq != S(0) && "'quat' is a zero quaternion");
 
-		auto s = S(2) / LengthSq(q.xyzw);
-		S xs = vec(q).x *  s, ys = vec(q).y *  s, zs = vec(q).z *  s;
-		S wx = vec(q).w * xs, wy = vec(q).w * ys, wz = vec(q).w * zs;
-		S xx = vec(q).x * xs, xy = vec(q).x * ys, xz = vec(q).x * zs;
-		S yy = vec(q).y * ys, yz = vec(q).y * zs, zz = vec(q).z * zs;
+		auto const s = S(2) / norm_sq;
+		S xs = q.x * s, ys = q.y * s, zs = q.z * s;
+		S wx = q.w * xs, wy = q.w * ys, wz = q.w * zs;
+		S xx = q.x * xs, xy = q.x * ys, xz = q.x * zs;
+		S yy = q.y * ys, yz = q.y * zs, zz = q.z * zs;
 	
 		Mat m = {};
 		vec(m).x = Vec{S(1) - (yy + zz), xy + wz, xz - wy};

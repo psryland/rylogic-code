@@ -3677,26 +3677,72 @@ namespace pr::math
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
+		using Vec = typename vt::component_t;
 
-		Mat mat = {};
-		if constexpr (vt::dimension > 0) vec(vec(mat).x).x = scale;
-		if constexpr (vt::dimension > 1) vec(vec(mat).y).y = scale;
-		if constexpr (vt::dimension > 2) vec(vec(mat).z).z = scale;
-		if constexpr (vt::dimension > 3) vec(vec(mat).w).w = scale;
-		return mat;
+		if constexpr (vt::dimension == 2)
+		{
+			return Mat{
+				Vec{ scale, S(0) },
+				Vec{ S(0), scale }
+			};
+		}
+		else if constexpr (vt::dimension == 3)
+		{
+			return Mat{
+				Vec{ scale, S(0), S(0) },
+				Vec{ S(0), scale, S(0) },
+				Vec{ S(0), S(0), scale }
+			};
+		}
+		else if constexpr (vt::dimension == 4)
+		{
+			return Mat{
+				Vec{ scale, S(0), S(0), S(0) },
+				Vec{ S(0), scale, S(0), S(0) },
+				Vec{ S(0), S(0), scale, S(0) },
+				Vec{ S(0), S(0), S(0), scale }
+			};
+		}
+		else
+		{
+			static_assert(vt::dimension <= 4);
+		}
 	}
 	template <VectorType Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall Scale(typename vector_traits<Mat>::component_t scale) noexcept
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
+		using Vec = typename vt::component_t;
 
-		Mat mat = {};
-		if constexpr (vt::dimension > 0) vec(vec(mat).x).x = vec(scale).x;
-		if constexpr (vt::dimension > 1) vec(vec(mat).y).y = vec(scale).y;
-		if constexpr (vt::dimension > 2) vec(vec(mat).z).z = vec(scale).z;
-		if constexpr (vt::dimension > 3) vec(vec(mat).w).w = vec(scale).w;
-		return mat;
+		if constexpr (vt::dimension == 2)
+		{
+			return Mat{
+				Vec{ scale.x, S(0) },
+				Vec{ S(0), scale.y }
+			};
+		}
+		else if constexpr (vt::dimension == 3)
+		{
+			return Mat{
+				Vec{ scale.x, S(0), S(0) },
+				Vec{ S(0), scale.y, S(0) },
+				Vec{ S(0), S(0), scale.z }
+			};
+		}
+		else if constexpr (vt::dimension == 4)
+		{
+			return Mat{
+				Vec{ scale.x, S(0), S(0), S(0) },
+				Vec{ S(0), scale.y, S(0), S(0) },
+				Vec{ S(0), S(0), scale.z, S(0) },
+				Vec{ S(0), S(0), S(0), scale.w }
+			};
+		}
+		else
+		{
+			static_assert(vt::dimension <= 4);
+		}
 	}
 
 	// Create a 2D shear matrix

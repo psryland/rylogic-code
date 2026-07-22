@@ -159,6 +159,10 @@ namespace pr::math::tests
 				vec4_t(T(0), T(1), T(0), T(0)),
 				vec4_t(T(0), T(0), T(1), T(0)),
 				vec4_t(T(10), T(20), T(30), T(1)));
+			static_assert(All(columns.col(0) == columns.x));
+			static_assert(All(columns.col(1) == columns.y));
+			static_assert(All(columns.col(2) == columns.z));
+			static_assert(All(columns.col(3) == columns.w));
 			constexpr auto vec = vec4_t(T(1), T(2), T(3), T(1));
 			constexpr auto transformed = columns * vec;
 			static_assert(All(transformed == vec4_t(T(11), T(22), T(33), T(1))));
