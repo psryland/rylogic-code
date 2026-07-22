@@ -39,6 +39,7 @@ namespace pr::algorithm::fft
 		template <typename Real> void DFTRadix2(Real* real, Real* imag, size_t pow2_length);
 		template <typename Real> void DFTBluestein(Real* real, Real* imag, size_t length);
 		template <typename Real> void Convolve(Real* xr, Real* xi, Real* yr, Real* yi, Real* outr, Real* outi, size_t pow2_length);
+		inline size_t ChirpIndex(size_t i, size_t length);
 
 		 // Computes the discrete Fourier transform (DFT) of the given complex vector in-place.
 		 // The vector can have any length. (real and imag have the same length).
@@ -126,10 +127,11 @@ namespace pr::algorithm::fft
 			std::vector<Real> creal(m), cimag(m);
 
 			// Temporary vectors and preprocessing
-			for (auto i = 0; i != s_cast<int>(length); ++i)
+			for (size_t i = 0; i != length; ++i)
 			{
-				// An accurate version of: angle = pi * i * i / length;
-				auto angle = constants<double>::tau_by_2 * ((i * i) % (length * 2)) / length;
+				// Keep the chirp square in unsigned arithmetic so the phase index stays exact at
+				// large non-power-of-two lengths. The modulo is taken before conversion to float.
+				auto angle = constants<double>::tau_by_2 * ChirpIndex(i, length) / length;
 				auto cos_i = std::cos(angle);
 				auto sin_i = std::sin(angle);
 
@@ -143,10 +145,9 @@ namespace pr::algorithm::fft
 			Convolve(&areal[0], &aimag[0], &breal[0], &bimag[0], &creal[0], &cimag[0], m);
 
 			// Post-processing
-			for (auto i = 0; i != s_cast<int>(length); ++i)
+			for (size_t i = 0; i != length; ++i)
 			{
-				// An accurate version of: angle = pi * i * i / length;
-				auto angle = constants<double>::tau_by_2 * ((i * i) % (length * 2)) / length;
+				auto angle = constants<double>::tau_by_2 * ChirpIndex(i, length) / length;
 				auto cos_i = std::cos(angle);
 				auto sin_i = std::sin(angle);
 
@@ -219,6 +220,17 @@ namespace pr::algorithm::fft
 					outi[k] += xr[i] * yi[j] + xi[i] * yr[j];
 				}
 			}
+		}
+
+		// Keep the chirp index in unsigned arithmetic so the square stays defined for lengths
+		// beyond the signed 32-bit boundary. The modulo is taken before conversion to float.
+		inline size_t ChirpIndex(size_t i, size_t length)
+		{
+			if (length > limits<size_t>::max() / 2)
+				throw std::length_error("Vector too large");
+
+			auto const chirp_mod = length * 2;
+			return (i * i) % chirp_mod;
 		}
 	}
 
@@ -568,6 +580,12 @@ namespace pr::algorithm::fft::tests
 			auto actual = InverseDiscreteFourierTransform(inputr.data(), inputr.size());
 			for (auto i = 0; i != s_cast<int>(inputr.size()); ++i)
 				PR_EXPECT(std::abs(actual[i] - expectr[i]) < 1e-12);
+		}
+
+		PRUnitTestMethod(BluesteinChirpBoundaryRegression)
+		{
+			// Length 46342 is the first non-power-of-two size that reaches i = 46341 in the chirp loop.
+			PR_EXPECT(impl::ChirpIndex(46341, 46342) == 1);
 		}
 
 		PRUnitTestMethod(DFTAndiDFTTests)
