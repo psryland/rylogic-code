@@ -137,6 +137,7 @@
 #include "pr/math/tests/scalar_tests.h"
 #include "pr/math/tests/spatial_tests.h"
 #include "pr/math/tests/stat_tests.h"
+#include "pr/math/tests/traits_tests.h"
 #include "pr/math/tests/transform_tests.h"
 #include "pr/math/tests/vector2_tests.h"
 #include "pr/math/tests/vector3_tests.h"

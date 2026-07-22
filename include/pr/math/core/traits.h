@@ -18,41 +18,50 @@ namespace pr::math
 		template <ScalarType S> using rebind = void;
 	};
 
-	// Concept for vector-like types. Note, can be rank-1 (e.g. Vec3) or rank-2 (e.g. Mat4x4) vectors
+	// Concept for vector-like types. Note, can be rank-1 (e.g. Vec3) or rank-2 (e.g. Mat4x4) vectors.
+	// cv/ref qualifiers are stripped before lookup so that e.g. VectorType<Vec3<float> const&> holds.
 	template <typename T>
-	concept VectorType = vector_traits<std::remove_cv_t<T>>::is_vector_v;
+	concept VectorType = vector_traits<std::remove_cvref_t<T>>::is_vector_v;
 
 	// Concept for vector-like types with dimension N
 	template <typename T, int N>
-	concept VectorTypeN = VectorType<T> && vector_traits<std::remove_cv_t<T>>::dimension == N;
+	concept VectorTypeN = VectorType<T> && vector_traits<std::remove_cvref_t<T>>::dimension == N;
 
 	// Concept for floating point vectors
 	template <typename T>
-	concept VectorTypeFP = VectorType<T> && std::floating_point<typename vector_traits<std::remove_cv_t<T>>::element_t>;
+	concept VectorTypeFP = VectorType<T> && std::floating_point<typename vector_traits<std::remove_cvref_t<T>>::element_t>;
 
 	// Concept for integral vectors
 	template <typename T>
-	concept VectorTypeInt = VectorType<T> && std::integral<typename vector_traits<std::remove_cv_t<T>>::element_t>;
+	concept VectorTypeInt = VectorType<T> && std::integral<typename vector_traits<std::remove_cvref_t<T>>::element_t>;
 
 	// Concept for boolean vectors
 	template <typename T>
-	concept VectorTypeBool = VectorType<T> && std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, bool>;
+	concept VectorTypeBool = VectorType<T> && std::is_same_v<typename vector_traits<std::remove_cvref_t<T>>::element_t, bool>;
 
-	// Concept for quaternion-like types
+	// Concept for quaternion-like types. cv/ref qualifiers are stripped before lookup.
 	template <typename T>
-	concept QuaternionType = vector_traits<std::remove_cv_t<T>>::is_quaternion_v;
+	concept QuaternionType = vector_traits<std::remove_cvref_t<T>>::is_quaternion_v;
 
-	// Concept for rank-1 vectors
+	// Concept for rank-1 vectors (scalar elements, e.g. Vec3<float>).
+	// cv/ref qualifiers are stripped before the nested component_t lookup; without this, the
+	// unspecialized base template is used for qualified types, returning component_t = void,
+	// which makes IsRank1 incorrectly true for rank-2 types like Mat3x3<float> const.
 	template <typename T>
-	concept IsRank1 = VectorType<T> && !VectorType<typename vector_traits<T>::component_t>;
+	concept IsRank1 = VectorType<T> && !VectorType<typename vector_traits<std::remove_cvref_t<T>>::component_t>;
 
-	// Concept for rank-2 vectors
+	// Concept for rank-2 vectors (vector elements, e.g. Mat3x3<float>).
+	// cv/ref qualifiers are stripped at each traits lookup level for the same reason as IsRank1.
 	template <typename T>
-	concept IsRank2 = VectorType<T> && VectorType<typename vector_traits<T>::component_t> && !VectorType<typename vector_traits<typename vector_traits<T>::component_t>::component_t>;
+	concept IsRank2 = VectorType<T>
+		&& VectorType<typename vector_traits<std::remove_cvref_t<T>>::component_t>
+		&& !VectorType<typename vector_traits<typename vector_traits<std::remove_cvref_t<T>>::component_t>::component_t>;
 
-	// Concept to ensure two vector/quaternion types have the same element type
+	// Concept to ensure two vector/quaternion types have the same element type. cv/ref qualifiers are stripped.
 	template <typename T, typename U>
-	concept SameS = std::is_same_v<typename vector_traits<std::remove_cv_t<T>>::element_t, typename vector_traits<std::remove_cv_t<U>>::element_t>;
+	concept SameS = std::is_same_v<
+		typename vector_traits<std::remove_cvref_t<T>>::element_t,
+		typename vector_traits<std::remove_cvref_t<U>>::element_t>;
 
 	// Concept for vector types that support array access (e.g. m[i])
 	template <typename T>
