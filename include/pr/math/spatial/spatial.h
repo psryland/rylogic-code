@@ -74,10 +74,13 @@ namespace pr::math::spatial
 	template <ScalarTypeFP S> constexpr Vec8<S, Motion> pr_vectorcall operator * (Mat4x4<S> const& a2b, Vec8<S, Motion> vec) noexcept
 	{
 		// [ E    0] * [v.ang] = [E*v.ang              ]
-		// [r^E   E]   [v.lin]   [E*v.lin + r^(E*v.ang)] where r = a2b.pos
+		// [r^E   E]   [v.lin]   [E*v.lin + r^(E*v.ang)] where r is the translation column
 		pr_assert("'lhs' is not an affine transform" && IsAffine(a2b));
-		auto ang_b = a2b.rot * vec.ang;
-		auto lin_b = a2b.rot * vec.lin + Cross(a2b.pos, ang_b);
+		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
+		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
+		auto ang_b = rot * vec.ang;
+		auto ang_b3 = Vec3<S>{ang_b.x, ang_b.y, ang_b.z};
+		auto lin_b = rot * vec.lin + Cross(pos, ang_b3).w0();
 		return Vec8<S, Motion>{ang_b, lin_b};
 	}
 
@@ -85,10 +88,13 @@ namespace pr::math::spatial
 	template <ScalarTypeFP S> constexpr Vec8<S, Force> pr_vectorcall operator * (Mat4x4<S> const& a2b, Vec8<S, Force> vec) noexcept
 	{
 		// [E   r^E] * [v.ang] = [E*v.ang + r^(E*v.lin)]
-		// [0    E ]   [v.lin]   [E*v.lin              ] where r = a2b.pos
+		// [0    E ]   [v.lin]   [E*v.lin              ] where r is the translation column
 		pr_assert("'lhs' is not an affine transform" && IsAffine(a2b));
-		auto lin_b = a2b.rot * vec.lin;
-		auto ang_b = a2b.rot * vec.ang + Cross(a2b.pos, lin_b);
+		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
+		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
+		auto lin_b = rot * vec.lin;
+		auto lin_b3 = Vec3<S>{lin_b.x, lin_b.y, lin_b.z};
+		auto ang_b = rot * vec.ang + Cross(pos, lin_b3).w0();
 		return Vec8<S, Force>{ang_b, lin_b};
 	}
 
@@ -200,16 +206,19 @@ namespace pr::math::spatial
 		requires SpatialVecSpace<VecSpace>
 	constexpr Mat6x8<S, VecSpace, VecSpace> Transform(Mat4x4<S> const& a2b) noexcept
 	{
-		// Note: RBDA shows a transform to be (with r = a2b.pos):
+		// Note: RBDA shows a transform to be (with r taken from the translation column):
 		//  [ E    0] = motion         [E   r^E]
 		//  [r^E   E]          force = [0    E ]
+		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
+		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
+
 		if constexpr (std::same_as<VecSpace, Motion>)
 		{
-			return Mat6x8<S, Motion, Motion>{a2b.rot, Zero<Mat3x3<S>>(), math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, a2b.rot};
+			return Mat6x8<S, Motion, Motion>{rot, Zero<Mat3x3<S>>(), math::CPM<Mat3x3<S>>(pos) * rot, rot};
 		}
-		else
+		else if constexpr (std::same_as<VecSpace, Force>)
 		{
-			return Mat6x8<S, Force, Force>{a2b.rot, math::CPM<Mat3x3<S>>(a2b.pos.xyz) * a2b.rot, Zero<Mat3x3<S>>(), a2b.rot};
+			return Mat6x8<S, Force, Force>{rot, math::CPM<Mat3x3<S>>(pos) * rot, Zero<Mat3x3<S>>(), rot};
 		}
 	}
 
@@ -337,6 +346,75 @@ namespace pr::math::spatial::tests
 			auto Rf = B2Cf * A2Bf;
 			PR_EXPECT(FEql(A2Cf, Rf));
 		}
+
+		// Keep the affine matrix on the canonical column members so constexpr evaluation
+		// exercises the active union view instead of the runtime rot/pos alias.
+		PRUnitTestMethod(ConstexprCanonicalColumns, float, double)
+		{
+			using Mat4x4 = Mat4x4<T>;
+			using Mat3x3 = Mat3x3<T>;
+			using Mat6x8MM = Mat6x8<T, Motion, Motion>;
+			using Mat6x8FF = Mat6x8<T, Force, Force>;
+			using Vec3 = Vec3<T>;
+			using Vec4 = Vec4<T>;
+			using Vec8M = Vec8<T, Motion>;
+			using Vec8F = Vec8<T, Force>;
+
+			// Canonical column construction keeps the constexpr path on x/y/z/w.
+			constexpr auto a2b = Mat4x4{
+				Vec4{T(1), T(0), T(0), T(0)},
+				Vec4{T(0), T(1), T(0), T(0)},
+				Vec4{T(0), T(0), T(1), T(0)},
+				Vec4{T(10), T(20), T(30), T(1)}
+			};
+
+			// Motion vectors should pick up the translational offset through the w column.
+			constexpr auto motion = Vec8M{
+				Vec4{T(0), T(1), T(0), T(0)},
+				Vec4{T(4), T(5), T(6), T(0)}
+			};
+			constexpr auto motion_result = a2b * motion;
+			constexpr auto motion_expected = Vec8M{
+				Vec4{T(0), T(1), T(0), T(0)},
+				Vec4{T(-26), T(5), T(16), T(0)}
+			};
+			PR_EXPECT(FEql(motion_result, motion_expected));
+
+			// Force vectors use the same affine data but apply the dual transform.
+			constexpr auto force = Vec8F{
+				Vec4{T(0), T(1), T(0), T(0)},
+				Vec4{T(4), T(5), T(6), T(0)}
+			};
+			constexpr auto force_result = a2b * force;
+			constexpr auto force_expected = Vec8F{
+				Vec4{T(-30), T(61), T(-30), T(0)},
+				Vec4{T(4), T(5), T(6), T(0)}
+			};
+			PR_EXPECT(FEql(force_result, force_expected));
+
+			// Spatial transforms generated from the same matrix must remain constexpr too.
+			constexpr auto rot = Mat3x3{
+				Vec4{T(1), T(0), T(0), T(0)},
+				Vec4{T(0), T(1), T(0), T(0)},
+				Vec4{T(0), T(0), T(1), T(0)}
+			};
+			constexpr auto zero = Mat3x3{T(0)};
+			constexpr auto pos = Vec3{T(10), T(20), T(30)};
+			constexpr auto motion_transform = Transform<Motion>(a2b);
+			constexpr auto motion_transform_expected = Mat6x8MM{
+				rot, zero,
+				math::CPM<Mat3x3>(pos), rot
+			};
+			PR_EXPECT(motion_transform == motion_transform_expected);
+
+			constexpr auto force_transform = Transform<Force>(a2b);
+			constexpr auto force_transform_expected = Mat6x8FF{
+				rot, math::CPM<Mat3x3>(pos),
+				zero, rot
+			};
+			PR_EXPECT(force_transform == force_transform_expected);
+		}
+
 		PRUnitTestMethod(TransformingSpatialVectors, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
