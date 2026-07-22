@@ -55,13 +55,21 @@ namespace pr
 		// Returns the amount of free space in the ring buffer
 		int64_t FreeSpace() const
 		{
-			return m_tail - m_head + int64_t(m_tail <= m_head) * std::ssize(m_data) - 1;
+			auto const size = std::ssize(m_data);
+			if (size == 0)
+				return 0;
+
+			return m_tail - m_head + int64_t(m_tail <= m_head) * size - 1;
 		}
 	
 		// Returns the number of items in the buffer
 		int64_t Count() const
 		{
-			return m_head - m_tail + int64_t(m_tail > m_head) * std::ssize(m_data);
+			auto const size = std::ssize(m_data);
+			if (size == 0)
+				return 0;
+
+			return m_head - m_tail + int64_t(m_tail > m_head) * size;
 		}
 
 		// Read a single item from the ring buffer. Faster than calling Read.
@@ -97,6 +105,9 @@ namespace pr
 		{
 			// Check there is enough data in the ring buffer.
 			auto length = std::ssize(data);
+			if (length == 0)
+				return true;
+
 			if (length > Count())
 				return false;
 
@@ -129,6 +140,9 @@ namespace pr
 		{
 			// Check there is enough free space in the buffer
 			auto length = std::ssize(data);
+			if (length == 0)
+				return true;
+
 			if (length > FreeSpace())
 				return false;
 
@@ -157,22 +171,29 @@ namespace pr
 		// [in] data - the pointer to the array of data being written to the ring buffer.
 		void Overwrite(std::span<value_type const> data)
 		{
+			auto length = std::ssize(data);
+			if (length == 0)
+				return;
+
+			auto const size = std::ssize(m_data);
+			if (size == 0)
+				return;
+
 			// If 'length' is greater than the number of bytes the ring buffer can hold,
 			// only write the last 'capacity - 1' bytes from 'data' into the ring buffer
 			// (the earlier bytes would be overwritten anyway)
-			auto length = std::ssize(data);
 			auto const* ibuf = data.data();
-			if (length >= std::ssize(m_data))
+			if (length >= size)
 			{
-				ibuf += length - (std::ssize(m_data) - 1);
-				length = (std::ssize(m_data) - 1);
+				ibuf += length - (size - 1);
+				length = (size - 1);
 			}
 
 			// Shift the tail so that the ring buffer now has the needed free space
 			if (length > FreeSpace())
 			{
 				m_tail = m_head + length;
-				for (; m_tail >= std::ssize(m_data);) m_tail -= std::ssize(m_data);
+				for (; m_tail >= size;) m_tail -= size;
 			}
 
 			// Do a normal 'Write' now there's room
@@ -208,6 +229,13 @@ namespace pr
 		// This can be used to 'memcpy' data out of the ring buffer.
 		std::span<value_type const> Peek(int64_t offset) const
 		{
+			if (Count() == 0)
+			{
+				// Empty rings report no data regardless of the requested offset.
+				assert(offset == 0);
+				return {};
+			}
+
 			// 'offset' must be within the data range.
 			assert(offset >= 0 && offset <= Count());
 
@@ -236,6 +264,7 @@ namespace pr
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include <vector>
 namespace pr::container
 {
 	PRUnitTest(RingBufferTests)
@@ -250,6 +279,36 @@ namespace pr::container
 
 		RingBuffer<std::span<uint8_t>> ring(g.bytes);
 		
+		{// Zero-capacity storage
+			uint8_t data[] = {0, 1, 2, 3};
+			uint8_t value = 0xAB;
+
+			RingBuffer<std::span<uint8_t>> empty_span(std::span<uint8_t>{});
+			PR_EXPECT(empty_span.Count() == 0);
+			PR_EXPECT(empty_span.FreeSpace() == 0);
+			PR_EXPECT(!empty_span.Read(value) && value == 0xAB);
+			PR_EXPECT(!empty_span.Write(value));
+			PR_EXPECT(!empty_span.Read({ data, _countof(data) }));
+			PR_EXPECT(!empty_span.Write({ data, _countof(data) }));
+			empty_span.Overwrite({ data, _countof(data) });
+			PR_EXPECT(empty_span.Count() == 0);
+			PR_EXPECT(empty_span.FreeSpace() == 0);
+			PR_EXPECT(empty_span.Peek(0).size() == 0);
+
+			RingBuffer<std::vector<uint8_t>> empty_vec(0);
+			value = 0xCD;
+			PR_EXPECT(empty_vec.Count() == 0);
+			PR_EXPECT(empty_vec.FreeSpace() == 0);
+			PR_EXPECT(!empty_vec.Read(value) && value == 0xCD);
+			PR_EXPECT(!empty_vec.Write(value));
+			PR_EXPECT(!empty_vec.Read({ data, _countof(data) }));
+			PR_EXPECT(!empty_vec.Write({ data, _countof(data) }));
+			empty_vec.Overwrite({ data, _countof(data) });
+			PR_EXPECT(empty_vec.Count() == 0);
+			PR_EXPECT(empty_vec.FreeSpace() == 0);
+			PR_EXPECT(empty_vec.Peek(0).size() == 0);
+		}
+
 		// Repeat the tests to exercise wrapping
 		for (int i = 0; i != 20; ++i)
 		{
