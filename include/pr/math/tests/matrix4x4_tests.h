@@ -281,22 +281,31 @@ namespace pr::math::tests
 			using vec4_t = Vec4<T>;
 			using quat_t = Quat<T>;
 			using mat4_t = Mat4x4<T>;
+			using other_t = std::conditional_t<std::is_same_v<T, float>, double, float>;
+
+			// The public overload is same-scalar only, so mixed scalar calls are rejected
+			// before the function body is considered.
+			static_assert(requires { mat4_t::Transform(quat_t::Identity(), vec4_t::Origin()); });
+			static_assert(!requires { mat4_t::Transform(Quat<other_t>::Identity(), vec4_t::Origin()); });
 
 			auto q = quat_t(T(1.0), T(0.5), T(0.7));
-			auto m1 = mat4_t::Transform(vec4_t::Normal(T(1), T(0), T(0), T(0)), T(1.0), vec4_t::Origin());
-			auto m2 = mat4_t::Transform(q, vec4_t::Origin());
+			auto pos = vec4_t(T(4), T(-3), T(2), T(1));
+			auto m1 = mat4_t::Transform(vec4_t::Normal(T(1), T(0), T(0), T(0)), T(1.0), pos);
+			auto m2 = mat4_t::Transform(q, pos);
 			PR_EXPECT(IsOrthonormal(m1));
 			PR_EXPECT(IsOrthonormal(m2));
+			PR_EXPECT(FEql(m2 * vec4_t::Origin(), pos));
 
 			// Random axis-angle round-trip
 			std::uniform_real_distribution<T> dist(T(-1), T(1));
 			auto ang = dist(rng);
 			auto axis = vec4_t::Normal(T(1), T(2), T(3), T(0));
-			auto m3 = mat4_t::Transform(axis, ang, vec4_t::Origin());
-			auto m4 = mat4_t::Transform(quat_t(axis, ang), vec4_t::Origin());
+			auto m3 = mat4_t::Transform(axis, ang, pos);
+			auto m4 = mat4_t::Transform(quat_t(axis, ang), pos);
 			PR_EXPECT(IsOrthonormal(m3));
 			PR_EXPECT(IsOrthonormal(m4));
 			PR_EXPECT(FEql(m3, m4));
+			PR_EXPECT(FEql(m4 * vec4_t::Origin(), pos));
 		}
 		PRUnitTestMethod(W0, float, double, int32_t, int64_t)
 		{

@@ -193,11 +193,11 @@ namespace pr::math
 			return Mat4x4{ rot, pos };
 		}
 
-		// Create from quaternion + position
-		template <typename Q = S> requires std::floating_point<Q>
-		static Mat4x4 Transform(Quat<Q> q, Vec4<S> pos) noexcept
+		// Create from a same-scalar quaternion + position
+		static Mat4x4 Transform(QuaternionType auto q, Vec4<S> pos) noexcept
+			requires (std::floating_point<S> && SameS<decltype(q), Vec4<S>>)
 		{
-			return Mat4x4{ math::ToMatrix<Mat3x3<Q>>(q), pos };
+			return Mat4x4{ math::ToMatrix<Mat3x3<S>>(q), pos };
 		}
 
 		// Create from an axis and angle. 'axis' should be normalised
