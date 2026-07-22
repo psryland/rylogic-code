@@ -2197,60 +2197,23 @@ namespace pr::math
 		return static_cast<uint32_t>(n);
 	}
 
-	// Return the greatest common factor (gcd) of |a| and |b| using the Euclidean algorithm.
+	// Return the greatest common factor (gcd) of |a| and |b|.
 	// If gcd = 1, a and b are co-prime.
 	// gcd(0, n) = gcd(n, 0) = n; gcd(0, 0) = 0.
-	// For signed types the result is always nonnegative — absolute values are used internally.
-	// If gcd(|a|, |b|) exceeds the range of S — only possible when one input is the signed
-	// minimum value and the other is 0 — the result is undefined.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::gcd).
 	template <std::integral S> constexpr S GreatestCommonFactor(S a, S b) noexcept
 	{
-		if constexpr (std::signed_integral<S>)
-		{
-			// Work in the unsigned domain so that negative inputs and the signed-minimum-value
-			// corner case are handled without UB. Two's-complement unsigned negation (U(0) - u)
-			// gives |x| correctly for all signed x, including the minimum value.
-			using U = std::make_unsigned_t<S>;
-			auto ua = static_cast<U>(a); if (a < 0) ua = U(0) - ua;
-			auto ub = static_cast<U>(b); if (b < 0) ub = U(0) - ub;
-			while (ub) { auto t = ub; ub = ua % ub; ua = t; }
-			return static_cast<S>(ua);
-		}
-		else
-		{
-			// Unsigned: direct Euclidean algorithm
-			while (b) { auto t = b; b = a % b; a = t; }
-			return a;
-		}
+		return std::gcd(a, b);
 	}
 
 	// Return the least common multiple of a and b.
 	// lcm(0, n) = lcm(n, 0) = 0 by convention.
-	// For signed types the result is always nonnegative — absolute values are used internally.
-	// Divides by the gcf before multiplying to avoid intermediate overflow, matching std::lcm.
-	// If lcm(|a|, |b|) cannot be represented in S, the result is undefined — same contract as std::lcm.
+	// For signed types the result is always nonnegative.
+	// If the nonnegative result cannot be represented in S, the behaviour is undefined (same contract as std::lcm).
 	template <std::integral S> constexpr S LeastCommonMultiple(S a, S b) noexcept
 	{
-		// lcm with zero is zero by convention; also prevents divide-by-zero in the gcf step
-		if (a == S(0) || b == S(0)) return S(0);
-
-		if constexpr (std::signed_integral<S>)
-		{
-			// Use unsigned arithmetic so negative inputs and the signed-minimum-value corner case
-			// are handled safely, and the result is always nonnegative.
-			using U = std::make_unsigned_t<S>;
-			auto ua = static_cast<U>(a); if (a < 0) ua = U(0) - ua;
-			auto ub = static_cast<U>(b); if (b < 0) ub = U(0) - ub;
-
-			// Divide by the gcf first to avoid overflow in the multiply step
-			auto const g = GreatestCommonFactor(ua, ub);
-			return static_cast<S>((ua / g) * ub);
-		}
-		else
-		{
-			// Divide by the gcf first to avoid overflow in the multiply step
-			return (a / GreatestCommonFactor(a, b)) * b;
-		}
+		return std::lcm(a, b);
 	}
 
 	// Convert a decimal back to a rational. Returns [numerator, denominator]
