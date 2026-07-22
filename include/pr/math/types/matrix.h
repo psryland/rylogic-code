@@ -137,6 +137,8 @@ namespace pr::math
 			if (this == &rhs) return *this;
 			if (rhs.local())
 			{
+				// Resize using the source's physical layout, then restore its logical transpose state.
+				m_transposed = false;
 				resize(rhs.m_vecs, rhs.m_cmps);
 				memcpy(m_data, rhs.m_data, sizeof(S) * size());
 				m_transposed = rhs.m_transposed;
@@ -153,8 +155,11 @@ namespace pr::math
 		Matrix& operator = (Matrix const& rhs) noexcept
 		{
 			if (this == &rhs) return *this;
+			// Resize from the source's physical layout, not this matrix's current logical view.
+			m_transposed = false;
 			resize(rhs.m_vecs, rhs.m_cmps);
 			memcpy(m_data, rhs.m_data, sizeof(S) * size());
+			m_transposed = rhs.m_transposed;
 			return *this;
 		}
 
