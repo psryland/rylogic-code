@@ -180,16 +180,27 @@ namespace pr::algorithm::peak_detection
 		peaks.push_back({ uf.m_birth[global_root], std::numeric_limits<T>::max() });
 
 		// Step 3: Filter by threshold. The threshold is a fraction of the maximum finite persistence.
+		auto const infinite_persistence = std::numeric_limits<T>::max();
 		auto max_persistence = T(0);
 		for (auto& p : peaks)
 		{
-			if (p.persistence < std::numeric_limits<T>::max())
+			if (p.persistence < infinite_persistence)
 				max_persistence = std::max(max_persistence, p.persistence);
 		}
 		auto cutoff = config.threshold * max_persistence;
 
-		// Remove peaks below the threshold
-		std::erase_if(peaks, [cutoff](auto const& p) { return p.persistence < cutoff; });
+		// Remove thresholded peaks. Zero-persistence merges are not peaks; they are samples that are
+		// absorbed at their birth height, which happens along monotone edges and equal-height plateaus.
+		std::erase_if(peaks, [cutoff, infinite_persistence](auto const& p)
+		{
+			if (p.persistence == infinite_persistence)
+				return false;
+
+			if (p.persistence <= T(0))
+				return true;
+
+			return p.persistence < cutoff;
+		});
 
 		// Step 4: Sort remaining peaks by persistence (most prominent first)
 		std::sort(peaks.begin(), peaks.end(), [](auto const& a, auto const& b) { return a.persistence > b.persistence; });
@@ -236,6 +247,25 @@ namespace pr::algorithm
 			peak_detection::DetectPeaks<float>(single, {}, [&](int idx) { peaks.push_back(idx); });
 			PR_EXPECT(peaks.size() == 1);
 			PR_EXPECT(peaks[0] == 0);
+		}
+
+		PRUnitTestMethod(DetectPeaks_ZeroPersistenceSequences)
+		{
+			// Sequences without finite-prominence peaks should return only the surviving global maximum.
+			auto expect_one_peak_with_value = [](std::vector<float> const& data, float peak_value)
+			{
+				auto peaks = std::vector<int>();
+				peak_detection::DetectPeaks<float>(data, {}, [&](int idx) { peaks.push_back(idx); });
+
+				PR_EXPECT(peaks.size() == 1);
+				PR_EXPECT(data[peaks[0]] == peak_value);
+			};
+
+			expect_one_peak_with_value({ 0.0f, 0.0f, 0.0f, 0.0f }, 0.0f);
+			expect_one_peak_with_value({ 0.0f, 1.0f, 2.0f, 3.0f }, 3.0f);
+			expect_one_peak_with_value({ 3.0f, 2.0f, 1.0f, 0.0f }, 3.0f);
+			expect_one_peak_with_value({ 0.0f, 1.0f, 1.0f, 0.0f }, 1.0f);
+			expect_one_peak_with_value({ 0.0f, 1.0f, 0.0f }, 1.0f);
 		}
 
 		PRUnitTestMethod(DetectPeaks_KnownPeaks)
