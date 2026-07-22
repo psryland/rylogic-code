@@ -1132,21 +1132,50 @@ namespace pr::math
 	// Integer square root
 	template <std::integral T> constexpr T ISqrt(T x) noexcept
 	{
-		// Compile time version of the square root.
-		//  - For a finite and non-negative value of "x", returns an approximation for the square root of "x"
-		//  - This method always converges or oscillates about the answer with a difference of 1.
-		//  - Otherwise, returns 0
-		if (x < 0)
-			return std::numeric_limits<T>::quiet_NaN();
-
-		T curr = x, prev = 0, pprev = 0;
-		for (;curr != prev && curr != pprev;)
+		// Bool is already its own nearest integer square root and does not participate in the unsigned-root machinery below.
+		if constexpr (std::same_as<T, bool>)
 		{
-			pprev = prev;
-			prev = curr;
-			curr = (curr + x / curr) >> 1;
+			return x;
 		}
-		return Abs(x - curr * curr) < Abs(x - prev * prev) ? curr : prev;
+		else
+		{
+			// Returns the nearest integer root without ever forming an intermediate square larger than the input.
+			if constexpr (std::signed_integral<T>)
+			{
+				if (x < 0)
+					return std::numeric_limits<T>::quiet_NaN();
+			}
+
+			using U = std::make_unsigned_t<T>;
+			auto const ux = static_cast<U>(x);
+			if (ux < 2)
+				return static_cast<T>(ux);
+
+			// Find the largest root whose square does not exceed the input using only division-based comparisons.
+			auto lo = U(1);
+			auto hi = ux / 2 + 1;
+			auto root = U(1);
+			for (; lo <= hi; )
+			{
+				U const mid = static_cast<U>(lo + ((hi - lo) >> 1));
+				if (mid <= ux / mid)
+				{
+					root = mid;
+					lo = static_cast<U>(mid + U(1));
+				}
+				else
+				{
+					hi = static_cast<U>(mid - U(1));
+				}
+			}
+
+			// The lower square is always representable because it is bounded by the input. The remainder above that square
+			// decides whether the lower or upper root is closer, and there is no tie because adjacent squares differ by an odd amount.
+			auto const square = root * root;
+			auto const remainder = ux - square;
+			auto const nearest = remainder > root ? root + 1 : root;
+			return static_cast<T>(nearest);
+		}
 	}
 	template <std::integral T> constexpr T CompISqrt(T x) noexcept
 	{
