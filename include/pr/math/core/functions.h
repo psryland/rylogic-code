@@ -3575,7 +3575,7 @@ namespace pr::math
 		using S = typename vt::element_t;
 		pr_assert(IsNormalised(axis_norm) && "'axis_norm' should be normalised");
 
-		Mat m = {};
+		Mat m = Zero<Mat>();
 		auto trace_vec = axis_norm * (S(1) - cos_angle);
 
 		vec(vec(m).x).x = vec(trace_vec).x * vec(axis_norm).x + cos_angle;
@@ -3679,34 +3679,52 @@ namespace pr::math
 		using S = typename vt::element_t;
 		using Vec = typename vt::component_t;
 
+		// Build the matrix directly through accessors so the helper only depends on vector traits, not matrix constructors.
+		Mat m = {};
 		if constexpr (vt::dimension == 2)
 		{
-			return Mat{
-				Vec{ scale, S(0) },
-				Vec{ S(0), scale }
-			};
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
 		}
 		else if constexpr (vt::dimension == 3)
 		{
-			return Mat{
-				Vec{ scale, S(0), S(0) },
-				Vec{ S(0), scale, S(0) },
-				Vec{ S(0), S(0), scale }
-			};
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = scale;
 		}
 		else if constexpr (vt::dimension == 4)
 		{
-			return Mat{
-				Vec{ scale, S(0), S(0), S(0) },
-				Vec{ S(0), scale, S(0), S(0) },
-				Vec{ S(0), S(0), scale, S(0) },
-				Vec{ S(0), S(0), S(0), scale }
-			};
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).x).w = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).y).w = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = scale;
+			vec(vec(m).z).w = S(0);
+			vec(vec(m).w).x = S(0);
+			vec(vec(m).w).y = S(0);
+			vec(vec(m).w).z = S(0);
+			vec(vec(m).w).w = scale;
 		}
 		else
 		{
 			static_assert(vt::dimension <= 4);
 		}
+
+		return m;
 	}
 	template <VectorType Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall Scale(typename vector_traits<Mat>::component_t scale) noexcept
@@ -3715,34 +3733,52 @@ namespace pr::math
 		using S = typename vt::element_t;
 		using Vec = typename vt::component_t;
 
+		// Build the matrix directly through accessors so the helper stays generic over matrix and vector traits.
+		Mat m = {};
 		if constexpr (vt::dimension == 2)
 		{
-			return Mat{
-				Vec{ scale.x, S(0) },
-				Vec{ S(0), scale.y }
-			};
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
 		}
 		else if constexpr (vt::dimension == 3)
 		{
-			return Mat{
-				Vec{ scale.x, S(0), S(0) },
-				Vec{ S(0), scale.y, S(0) },
-				Vec{ S(0), S(0), scale.z }
-			};
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = vec(scale).z;
 		}
 		else if constexpr (vt::dimension == 4)
 		{
-			return Mat{
-				Vec{ scale.x, S(0), S(0), S(0) },
-				Vec{ S(0), scale.y, S(0), S(0) },
-				Vec{ S(0), S(0), scale.z, S(0) },
-				Vec{ S(0), S(0), S(0), scale.w }
-			};
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).x).w = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).y).w = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = vec(scale).z;
+			vec(vec(m).z).w = S(0);
+			vec(vec(m).w).x = S(0);
+			vec(vec(m).w).y = S(0);
+			vec(vec(m).w).z = S(0);
+			vec(vec(m).w).w = vec(scale).w;
 		}
 		else
 		{
 			static_assert(vt::dimension <= 4);
 		}
+
+		return m;
 	}
 
 	// Create a 2D shear matrix

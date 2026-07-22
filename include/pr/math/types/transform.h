@@ -104,14 +104,16 @@ namespace pr::math
 
 	// Deferred definition of Mat4x4(Xform) constructor
 	template <ScalarType S>
-	constexpr Mat4x4<S> Mat4x4FromXform(Xform<S> const& xform) noexcept requires (std::floating_point<S>)
-	{
-		return Mat4x4<S>{ ToMatrix<Mat3x3<S>>(xform.rot) * Scale<Mat3x3<S>>(Vec3<S>{ xform.scl.x, xform.scl.y, xform.scl.z }), xform.pos };
-	}
-
-	template <ScalarType S>
 	constexpr Mat4x4<S>::Mat4x4(Xform<S> const& xform) noexcept requires (std::floating_point<S>)
-		: Mat4x4(Mat4x4FromXform(xform))
+		: Mat4x4(
+			[&xform]
+			{
+				using mat3_t = Mat3x3<S>;
+				using vec3_t = Vec3<S>;
+
+				return ::pr::math::template ToMatrix<mat3_t>(xform.rot) * ::pr::math::template Scale<mat3_t>(vec3_t{ xform.scl.x, xform.scl.y, xform.scl.z });
+			}(),
+			xform.pos)
 	{
 	}
 

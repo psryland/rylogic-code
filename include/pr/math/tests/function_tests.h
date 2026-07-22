@@ -217,6 +217,67 @@ namespace pr::math::tests
 			}
 		}
 
+		// Keep the free Scale helper generic over matrix traits and component views.
+		PRUnitTestMethod(ConstexprScale
+		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
+		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
+		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
+		) {
+			using mat_t = T;
+			using vt = vector_traits<mat_t>;
+			using S = typename vt::element_t;
+			using vec_t = typename vt::component_t;
+
+			if constexpr (vt::dimension == 2)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(3));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(3), S(0)),
+					vec_t(S(0), S(3)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0)),
+					vec_t(S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
+			}
+			else if constexpr (vt::dimension == 3)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(4));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(4), S(0), S(0)),
+					vec_t(S(0), S(4), S(0)),
+					vec_t(S(0), S(0), S(4)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(3), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0), S(0)),
+					vec_t(S(0), S(3), S(0)),
+					vec_t(S(0), S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
+			}
+			else if constexpr (vt::dimension == 4)
+			{
+				constexpr auto s_scalar = Scale<mat_t>(S(6));
+				constexpr auto s_scalar_expected = mat_t(
+					vec_t(S(6), S(0), S(0), S(0)),
+					vec_t(S(0), S(6), S(0), S(0)),
+					vec_t(S(0), S(0), S(6), S(0)),
+					vec_t(S(0), S(0), S(0), S(6)));
+				static_assert(All(s_scalar == s_scalar_expected));
+
+				constexpr auto s_vec = Scale<mat_t>(vec_t(S(2), S(3), S(4), S(5)));
+				constexpr auto s_vec_expected = mat_t(
+					vec_t(S(2), S(0), S(0), S(0)),
+					vec_t(S(0), S(3), S(0), S(0)),
+					vec_t(S(0), S(0), S(4), S(0)),
+					vec_t(S(0), S(0), S(0), S(5)));
+				static_assert(All(s_vec == s_vec_expected));
+			}
+		}
+
 		// ---- Operators (functions.h line ~18) ----
 		PRUnitTestMethod(Operators
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
