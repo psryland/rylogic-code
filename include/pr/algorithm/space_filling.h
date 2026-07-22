@@ -251,40 +251,54 @@ namespace pr::space_filling
 	inline int64_t Hilbert2D(iv2 pt)
 	{
 		// Notes:
-		// - This function reverses the process of the Hilbert curve.
+		//  - This function reverses the process of the Hilbert curve.
 		//  - 'Order' is the fractal level. 1 = 4 points, 2 = 16 points, 3 = 64 points, etc.
 		static_assert(Order > 0 && Order < 32, "Order must be > 0 and < 32");
 
 		// Total number of points in the curve
 		constexpr auto MaxPoints = 1LL << (2 * Order);
+		constexpr auto SideLength = 1LL << Order;
+		assert(pt.x >= 0 && pt.x < SideLength && "Hilbert2D: x coordinate outside the curve domain");
+		assert(pt.y >= 0 && pt.y < SideLength && "Hilbert2D: y coordinate outside the curve domain");
 
-		int64_t hilbert_index = 0;
+		// Reverse each index-to-point transform from the largest scale back to the leaf scale. The
+		// existing index-to-point mapping performs Order extra zero-quadrant transforms after consuming
+		// all index bits; reversing every transform preserves that established odd/even order orientation.
+		uint64_t hilbert_index = 0;
 		int64_t x = pt.x, y = pt.y;
 		for (auto s = MaxPoints >> 1; s != 0; s >>= 1)
 		{
-			auto rx = x & s;
-			auto ry = y & s;
+			auto rx = (x & s) != 0 ? 1 : 0;
+			auto ry = (y & s) != 0 ? 1 : 0;
 
-			// Reflect across y=x if necessary
-			if (ry != 0) {
+			// Remove the quadrant offset before undoing the rotation/reflection at this scale.
+			x -= s * rx;
+			y -= s * ry;
+
+			if (ry == 0)
+			{
+				// Reflect across y=x.
 				std::swap(x, y);
+
+				if (rx != 0)
+				{
+					// Rotate 180.
+					x = s - 1 - x;
+					y = s - 1 - y;
+				}
 			}
 
-			// Rotate 180 if necessary
-			if (rx != 0) {
-				x = s - 1 - x;
-				y = s - 1 - y;
+			// Only the lower Order scales encode index bits. Larger scales are the extra zero-quadrant
+			// transforms that are part of the existing point mapping but do not consume Hilbert index bits.
+			if (s < SideLength)
+			{
+				auto const digit = (rx << 1) | (ry ^ rx);
+				auto const scale = static_cast<uint64_t>(s);
+				hilbert_index |= static_cast<uint64_t>(digit) * scale * scale;
 			}
-
-			// Combine the bits
-			hilbert_index = (hilbert_index << 2) | (rx + 2 * ry);
-
-			// Move to the next fractal level
-			x >>= 1;
-			y >>= 1;
 		}
 
-		return hilbert_index;
+		return static_cast<int64_t>(hilbert_index);
 	}
 }
 
@@ -466,20 +480,61 @@ namespace pr::space_filling::tests
 				}
 			}
 
-			/* failing
-			for (int i = 0; i != 16384; ++i)
+			// Hilbert2D: these exact index-to-point anchors were captured from the existing mapping before
+			// changing the inverse. They document the established orientation, including the odd-order x/y
+			// swap caused by the extra zero-quadrant transforms in the decoder.
+			PR_EXPECT(All(Hilbert2D<1>(0) == iv2(0, 0)));
+			PR_EXPECT(All(Hilbert2D<1>(1) == iv2(1, 0)));
+			PR_EXPECT(All(Hilbert2D<1>(2) == iv2(1, 1)));
+			PR_EXPECT(All(Hilbert2D<1>(3) == iv2(0, 1)));
+			PR_EXPECT(All(Hilbert2D<2>(15) == iv2(3, 0)));
+			PR_EXPECT(All(Hilbert2D<3>(63) == iv2(0, 7)));
+			PR_EXPECT(All(Hilbert2D<4>(255) == iv2(15, 0)));
+			PR_EXPECT(All(Hilbert2D<5>(1023) == iv2(0, 31)));
+			PR_EXPECT(All(Hilbert2D<6>(4095) == iv2(63, 0)));
+
+			auto hilbert2d_round_trip = []<int Order>()
 			{
-				auto pt = Hilbert2D<4>(i);
-				auto index = Hilbert2D<4>(pt);
-				PR_EXPECT(index == i);
-			}
-			for (int i = 0; i != 1000; ++i)
-			{
-				auto pt = Hilbert3D(i);
-				auto index = Hilbert3D(pt);
-				PR_EXPECT(index == i);
-			}
-			*/
+				constexpr auto SideLength = 1 << Order;
+				constexpr auto MaxPoints = 1 << (2 * Order);
+				std::vector<bool> seen(MaxPoints, false);
+
+				// Every index must decode to one unique in-bounds point, and that point must encode back
+				// to the same index.
+				for (int64_t index = 0; index != MaxPoints; ++index)
+				{
+					auto pt = Hilbert2D<Order>(index);
+					PR_EXPECT(pt.x >= 0 && pt.x < SideLength);
+					PR_EXPECT(pt.y >= 0 && pt.y < SideLength);
+
+					auto const offset = pt.x + SideLength * pt.y;
+					PR_EXPECT(!seen[offset]);
+					seen[offset] = true;
+
+					auto index2 = Hilbert2D<Order>(pt);
+					PR_EXPECT(index2 == index);
+				}
+
+				// Check the point-to-index-to-point direction too, including all boundary points in the
+				// square domain for this order.
+				for (int y = 0; y != SideLength; ++y)
+				{
+					for (int x = 0; x != SideLength; ++x)
+					{
+						auto pt = iv2(x, y);
+						auto index = Hilbert2D<Order>(pt);
+						auto pt2 = Hilbert2D<Order>(index);
+						PR_EXPECT(All(pt2 == pt));
+					}
+				}
+			};
+			hilbert2d_round_trip.operator()<1>();
+			hilbert2d_round_trip.operator()<2>();
+			hilbert2d_round_trip.operator()<3>();
+			hilbert2d_round_trip.operator()<4>();
+			hilbert2d_round_trip.operator()<5>();
+			hilbert2d_round_trip.operator()<6>();
+			hilbert2d_round_trip.operator()<8>();
 
 			#if PR_UNITTESTS_VISUALISE
 			if constexpr (CreateVisualisations)
