@@ -106,10 +106,20 @@ namespace pr::math
 	template <ScalarType S>
 	constexpr Mat4x4<S>::Mat4x4(Xform<S> const& xform) noexcept requires (std::floating_point<S>)
 	{
-		auto rotation = math::ToMatrix<Mat3x3<S>>(xform.rot);
-		auto scale_mat = math::Scale<Mat3x3<S>>(xform.scl.xyz);
-		rot = rotation * scale_mat;
-		pos = xform.pos;
+		auto const& q = xform.rot;
+		auto const norm_sq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+		pr_assert(norm_sq != S(0) && "'quat' is a zero quaternion");
+		auto const s = S(2) / norm_sq;
+		auto const xs = q.x * s, ys = q.y * s, zs = q.z * s;
+		auto const wx = q.w * xs, wy = q.w * ys, wz = q.w * zs;
+		auto const xx = q.x * xs, xy = q.x * ys, xz = q.x * zs;
+		auto const yy = q.y * ys, yz = q.y * zs, zz = q.z * zs;
+
+		// Keep the column view active so constexpr callers read the same union member.
+		x = Vec4<S>{ S(1) - (yy + zz), xy + wz, xz - wy, S(0) } * xform.scl.x;
+		y = Vec4<S>{ xy - wz, S(1) - (xx + zz), yz + wx, S(0) } * xform.scl.y;
+		z = Vec4<S>{ xz + wy, yz - wx, S(1) - (xx + yy), S(0) } * xform.scl.z;
+		w = xform.pos;
 	}
 
 	// Approximate equality (absolute tolerance)

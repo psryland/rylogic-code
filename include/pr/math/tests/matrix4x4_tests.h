@@ -133,6 +133,52 @@ namespace pr::math::tests
 			PR_EXPECT(All(M1[2] == M1.z));
 			PR_EXPECT(All(M1[3] == M1.w));
 		}
+		PRUnitTestMethod(ConstexprUnionAccess, float, double, int32_t, int64_t)
+		{
+			using vec3_t = Vec3<T>;
+			using vec4_t = Vec4<T>;
+			using mat3_t = Mat3x3<T>;
+			using mat4_t = Mat4x4<T>;
+
+			// Keep the constexpr path on the column view so the canonical union member stays valid.
+			constexpr auto rot = mat3_t(
+				vec3_t(T(1), T(2), T(3)),
+				vec3_t(T(4), T(5), T(6)),
+				vec3_t(T(7), T(8), T(9)));
+			constexpr auto pos = vec4_t(T(10), T(11), T(12), T(1));
+			constexpr auto from_rot = mat4_t(rot, pos);
+			constexpr auto from_rot_expected = mat4_t(
+				vec4_t(T(1), T(2), T(3), T(0)),
+				vec4_t(T(4), T(5), T(6), T(0)),
+				vec4_t(T(7), T(8), T(9), T(0)),
+				pos);
+			static_assert(All(from_rot == from_rot_expected));
+
+			constexpr auto columns = mat4_t(
+				vec4_t(T(1), T(0), T(0), T(0)),
+				vec4_t(T(0), T(1), T(0), T(0)),
+				vec4_t(T(0), T(0), T(1), T(0)),
+				vec4_t(T(10), T(20), T(30), T(1)));
+			constexpr auto vec = vec4_t(T(1), T(2), T(3), T(1));
+			constexpr auto transformed = columns * vec;
+			static_assert(All(transformed == vec4_t(T(11), T(22), T(33), T(1))));
+
+			constexpr auto no_w = columns.w1();
+			constexpr auto no_w_expected = mat4_t(
+				vec4_t(T(1), T(0), T(0), T(0)),
+				vec4_t(T(0), T(1), T(0), T(0)),
+				vec4_t(T(0), T(0), T(1), T(0)),
+				Origin<vec4_t>());
+			static_assert(All(no_w == no_w_expected));
+
+			constexpr auto with_w = columns.w1(vec4_t(T(9), T(8), T(7), T(1)));
+			constexpr auto with_w_expected = mat4_t(
+				vec4_t(T(1), T(0), T(0), T(0)),
+				vec4_t(T(0), T(1), T(0), T(0)),
+				vec4_t(T(0), T(0), T(1), T(0)),
+				vec4_t(T(9), T(8), T(7), T(1)));
+			static_assert(All(with_w == with_w_expected));
+		}
 		PRUnitTestMethod(ColRow, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
