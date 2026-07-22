@@ -45,8 +45,8 @@ namespace pr::math
 		static constexpr double sin_45 = cos_45;
 		static constexpr double sin_60 = cos_30;
 
-		// The maximum integer value that can be exactly represented by a float,double
-		static constexpr int64_t max_representable_int = 9007199254740994LL; // 2^53
+		// The largest contiguous integer that round-trips exactly through double.
+		static constexpr int64_t max_representable_int = 1LL << limits<double>::digits;
 	};
 	template <> struct constants<float>
 	{
@@ -82,8 +82,8 @@ namespace pr::math
 		static constexpr float sin_45 = cos_45;
 		static constexpr float sin_60 = cos_30;
 
-		// The maximum integer value that can be exactly represented by a float,double
-		static constexpr int32_t max_representable_int = 16777216; // 2^24
+		// The largest contiguous integer that round-trips exactly through float.
+		static constexpr int32_t max_representable_int = 1 << limits<float>::digits;
 	};
 	template <> struct constants<int64_t>
 	{
@@ -105,11 +105,15 @@ namespace pr::math
 	template <> constexpr int64_t tiny<int64_t>       = constants<int64_t>::tiny;
 	template <> constexpr int32_t tiny<int32_t>       = constants<int32_t>::tiny;
 
-	// The maximum integer value that can be exactly represented by a float,double
-	inline constexpr int32_t max_int_in_float  = 16777216;           // 2^24
-	inline constexpr int64_t max_int_in_double = 9007199254740994LL; // 2^53
-	static_assert(static_cast<int32_t>(static_cast<float >(max_int_in_float     )) == max_int_in_float    );
-	static_assert(static_cast<int32_t>(static_cast<float >(max_int_in_float  + 1)) != max_int_in_float + 1);
-	static_assert(static_cast<int64_t>(static_cast<double>(max_int_in_double    )) == max_int_in_double    );
+	// The public aliases expose the contiguous exact-integer boundaries for float and double.
+	inline constexpr int32_t max_int_in_float = constants<float>::max_representable_int;
+	inline constexpr int64_t max_int_in_double = constants<double>::max_representable_int;
+
+	// Keep the integer boundary contract tied to the floating-point precision of each type.
+	static_assert(max_int_in_float == (1 << limits<float>::digits));
+	static_assert(max_int_in_double == (1LL << limits<double>::digits));
+	static_assert(static_cast<int32_t>(static_cast<float>(max_int_in_float)) == max_int_in_float);
+	static_assert(static_cast<int32_t>(static_cast<float>(max_int_in_float + 1)) != max_int_in_float + 1);
+	static_assert(static_cast<int64_t>(static_cast<double>(max_int_in_double)) == max_int_in_double);
 	static_assert(static_cast<int64_t>(static_cast<double>(max_int_in_double + 1)) != max_int_in_double + 1);
 }

@@ -55,6 +55,15 @@ namespace pr::math
 		&& VectorType<typename vector_traits<std::remove_cvref_t<T>>::component_t>
 		&& !VectorType<typename vector_traits<typename vector_traits<std::remove_cvref_t<T>>::component_t>::component_t>;
 
+	// Rank-1 vector type with scalar S and dimension N. Use as 'Rank1VecSN<S,N> auto v'
+	// in abbreviated templates; C++20 prepends the deduced type, producing Rank1VecSN<V,S,N>.
+	// Excludes rank-2 types (matrices) via IsRank1 and rejects mismatched dimension or scalar.
+	template <typename V, typename S, int N>
+	concept Rank1VecSN =
+		IsRank1<std::remove_cvref_t<V>> &&
+		VectorTypeN<std::remove_cvref_t<V>, N> &&
+		std::same_as<typename vector_traits<std::remove_cvref_t<V>>::element_t, S>;
+
 	// Concept satisfied when T and U are both vector or quaternion types with the same scalar element type.
 	// Both operands must satisfy VectorType or QuaternionType; this prevents non-vector types whose
 	// base-template element_t defaults to void from satisfying the constraint. cv/ref qualifiers are stripped.

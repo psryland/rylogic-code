@@ -37,8 +37,9 @@ namespace pr::math
 			, y(y_)
 			, z(z_)
 		{}
-		constexpr explicit Vec3(VectorTypeN<S, 3> auto v) noexcept
-			:Vec3(vec(v).x, vec(v).y, vec(v).z)
+		// Build from a same-scalar external rank-1 vector of dimension 3.
+		constexpr explicit Vec3(Rank1VecSN<S, 3> auto v) noexcept
+			:Vec3(static_cast<S>(vec(v).x), static_cast<S>(vec(v).y), static_cast<S>(vec(v).z))
 		{}
 		constexpr Vec3(Vec2<S> v, S z_) noexcept
 			:Vec3(v.x, v.y, z_)
@@ -50,9 +51,20 @@ namespace pr::math
 				Abs(axis_id) == AxisId::PosZ ? static_cast<S>(Sign<int>(axis_id)) : S(0)
 			)
 		{}
-		constexpr Vec3(std::ranges::random_access_range auto&& v) noexcept
-			:Vec3(v[0], v[1], v[2])
-		{}
+		// Build from a random-access range. Caller guarantees at least 3 readable elements;
+		// for sized ranges the precondition is checked with pr_assert.
+		template <std::ranges::random_access_range R>
+			requires (!VectorType<std::remove_cvref_t<R>>)
+			      && std::convertible_to<std::ranges::range_reference_t<R>, S>
+		constexpr Vec3(R&& v) noexcept
+		{
+			if constexpr (std::ranges::sized_range<R>)
+				pr_assert(std::ranges::size(v) >= 3 && "range must have at least 3 elements");
+			auto it = std::ranges::begin(v);
+			x = static_cast<S>(*it);
+			y = static_cast<S>(*(it + 1));
+			z = static_cast<S>(*(it + 2));
+		}
 
 		// Explicit cast to different Scalar type
 		template <ScalarType S2> constexpr explicit operator Vec3<S2>() const noexcept

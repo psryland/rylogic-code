@@ -37,11 +37,23 @@ namespace pr::math
 			: x(x_)
 			, y(y_)
 		{}
-		constexpr Vec2(std::ranges::random_access_range auto&& v) noexcept
-			:Vec2(v[0], v[1])
-		{}
-		constexpr explicit Vec2(VectorTypeN<S, 2> auto v) noexcept
-			:Vec2(vec(v).x, vec(v).y)
+		// Build from a random-access range. Caller guarantees at least 2 readable elements;
+		// for sized ranges the precondition is checked with pr_assert.
+		template <std::ranges::random_access_range R>
+			requires (!VectorType<std::remove_cvref_t<R>>)
+			      && std::convertible_to<std::ranges::range_reference_t<R>, S>
+		constexpr Vec2(R&& v) noexcept
+		{
+			if constexpr (std::ranges::sized_range<R>)
+				pr_assert(std::ranges::size(v) >= 2 && "range must have at least 2 elements");
+			auto it = std::ranges::begin(v);
+			x = static_cast<S>(*it);
+			y = static_cast<S>(*(it + 1));
+		}
+
+		// Build from a same-scalar external rank-1 vector of dimension 2.
+		constexpr explicit Vec2(Rank1VecSN<S, 2> auto v) noexcept
+			:Vec2(static_cast<S>(vec(v).x), static_cast<S>(vec(v).y))
 		{}
 		constexpr Vec2(AxisId axis_id) noexcept
 			:Vec2(
