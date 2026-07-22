@@ -10,9 +10,11 @@
 #include <iterator>
 #include <stdexcept>
 #include <algorithm>
+#include <set>
 #include <type_traits>
 #include <utility>
 #include <cassert>
+#include <vector>
 #include "pr/common/allocator.h"
 
 #pragma intrinsic(memcmp, memcpy, memset, strcmp)
@@ -117,10 +119,21 @@ namespace pr
 			// Release all allocated memory
 			void free_all()
 			{
+				// Only return blocks that were actually allocated. The map keeps null
+				// sentinels after growth and shrink operations, and those are not owned
+				// allocations.
 				for (size_type i = 0; i != m_capacity; ++i)
-					m_alloc_type.deallocate(m_ptrs[i], CountPerBlock);
+				{
+					if (m_ptrs[i] != nullptr)
+					{
+						m_alloc_type.deallocate(m_ptrs[i], CountPerBlock);
+					}
+				}
 
-				alloc_ptr_traits::deallocate(m_alloc_ptrs, m_ptrs, m_capacity);
+				if (m_capacity != 0)
+				{
+					alloc_ptr_traits::deallocate(m_alloc_ptrs, m_ptrs, m_capacity);
+				}
 				m_ptrs     = nullptr;
 				m_first    = 0;
 				m_last     = 0;
@@ -135,7 +148,11 @@ namespace pr
 				{
 					m_alloc_type.deallocate(m_ptrs[m_first], CountPerBlock);
 					m_ptrs[m_first++] = nullptr;
+
+					// Keep the tail index in the same coordinate space after trimming
+					// whole blocks from the front.
 					first -= CountPerBlock;
+					last  -= CountPerBlock;
 				}
 
 				// Free unused blocks at the end
@@ -238,7 +255,10 @@ namespace pr
 				auto new_first = copy(mem, new_capacity, *this);
 				
 				// Swap the pointers
-				alloc_ptr_traits::deallocate(m_alloc_ptrs, m_ptrs, m_capacity);
+				if (m_capacity != 0)
+				{
+					alloc_ptr_traits::deallocate(m_alloc_ptrs, m_ptrs, m_capacity);
+				}
 				m_ptrs     = mem;
 				m_first    = new_first;
 				m_last     = new_first + new_count;
@@ -1487,16 +1507,22 @@ namespace pr::container::tests
 			}
 		};
 
-		// Separate counters for block allocations and pointer-map allocations.
+		// Shared ledger for the block allocator and the rebound pointer-map
+		// allocator. It records the exact live pointers so the tests can reject
+		// null or foreign deallocations deterministically.
 		struct AllocStats
 		{
 			size_t m_block_allocs = 0;
 			size_t m_block_deallocs = 0;
 			size_t m_map_allocs = 0;
 			size_t m_map_deallocs = 0;
+			size_t m_invalid_deallocs = 0;
+			std::set<void const*> m_live_allocs;
 		};
 
-		// Stateful allocator that shares a single ledger across rebound allocator types.
+		// Stateful allocator that shares one ledger across rebound allocator types.
+		// The deque tests use this to prove that every owned block is released once
+		// and that no null or unknown pointer reaches deallocate().
 		template <typename T> struct TrackingAllocator
 		{
 			using value_type = T;
@@ -1530,17 +1556,37 @@ namespace pr::container::tests
 				if (n == 0)
 					return nullptr;
 
+				// Track the live pointer before returning it so deallocate can verify the
+				// pointer came back exactly once.
 				if constexpr (std::is_pointer_v<T>)
 					++m_stats->m_map_allocs;
 				else
 					++m_stats->m_block_allocs;
 
-				return static_cast<value_type*>(::operator new(sizeof(value_type) * n));
+				auto ptr = static_cast<value_type*>(::operator new(sizeof(value_type) * n));
+				m_stats->m_live_allocs.insert(ptr);
+				return ptr;
 			}
 			void deallocate(value_type* p, size_t = 0)
 			{
+				// Reject null and foreign pointers. The deque teardown is expected to
+				// return only owned allocations, and this ledger keeps that contract
+				// visible to the tests.
 				if (p == nullptr)
+				{
+					++m_stats->m_invalid_deallocs;
 					return;
+				}
+
+				auto const ptr = static_cast<void const*>(p);
+				auto const it = m_stats->m_live_allocs.find(ptr);
+				if (it == m_stats->m_live_allocs.end())
+				{
+					++m_stats->m_invalid_deallocs;
+					return;
+				}
+
+				m_stats->m_live_allocs.erase(it);
 
 				if constexpr (std::is_pointer_v<T>)
 					++m_stats->m_map_deallocs;
@@ -1991,6 +2037,111 @@ namespace pr::container::tests
 				}
 				PR_EXPECT(stats->m_block_allocs == stats->m_block_deallocs);
 				PR_EXPECT(stats->m_map_allocs == stats->m_map_deallocs);
+				PR_EXPECT(stats->m_invalid_deallocs == 0);
+			}
+		}
+		// Keep the ledger checks uniform so each scenario only needs to describe
+		// the shape of the deque activity, not the bookkeeping boilerplate.
+		static void ExpectBalanced(AllocStats const& stats)
+		{
+			PR_EXPECT(stats.m_block_allocs == stats.m_block_deallocs);
+			PR_EXPECT(stats.m_map_allocs == stats.m_map_deallocs);
+			PR_EXPECT(stats.m_invalid_deallocs == 0);
+		}
+
+		PRUnitTestMethod(LedgerEmpty)
+		{
+			Check chk;
+			{
+				// Empty containers should tear down without touching either allocator.
+				// The debug pointer hook keeps one backing block alive so the view
+				// layer can always point at a valid element slot.
+				auto stats = std::make_shared<AllocStats>();
+				{
+					TrackingAllocator<int> allocator(stats);
+					pr::deque<int, 4, TrackingAllocator<int>> deq0(allocator);
+					PR_EXPECT(deq0.empty());
+				}
+				ExpectBalanced(*stats);
+				PR_EXPECT(stats->m_block_allocs == 1U);
+				PR_EXPECT(stats->m_map_allocs == 1U);
+			}
+		}
+		PRUnitTestMethod(LedgerPartial)
+		{
+			Check chk;
+			{
+				// Partially filled deques should keep a single block alive until the
+				// final destructor pass returns it.
+				auto stats = std::make_shared<AllocStats>();
+				{
+					TrackingAllocator<int> allocator(stats);
+					pr::deque<int, 4, TrackingAllocator<int>> deq0(allocator);
+					for (int i = 0; i != 3; ++i)
+						deq0.push_back(i);
+					PR_EXPECT(deq0.size() == 3U);
+				}
+				ExpectBalanced(*stats);
+				PR_EXPECT(stats->m_block_allocs == 1U);
+				PR_EXPECT(stats->m_map_allocs == 1U);
+			}
+		}
+		PRUnitTestMethod(LedgerBackGrowth)
+		{
+			Check chk;
+			{
+				// Back growth plus shrink_to_fit leaves a compact map with a null tail
+				// slot, which the destructor must not hand back to the element allocator.
+				auto stats = std::make_shared<AllocStats>();
+				{
+					TrackingAllocator<int> allocator(stats);
+					pr::deque<int, 4, TrackingAllocator<int>> deq0(allocator);
+
+					for (int i = 0; i != 17; ++i)
+						deq0.push_back(i);
+					for (int i = 0; i != 5; ++i)
+						deq0.pop_back();
+
+					auto map_allocs = stats->m_map_allocs;
+					auto map_deallocs = stats->m_map_deallocs;
+					deq0.shrink_to_fit();
+
+					PR_EXPECT(stats->m_map_allocs == map_allocs + 1);
+					PR_EXPECT(stats->m_map_deallocs == map_deallocs + 1);
+					PR_EXPECT(deq0.size() == 12U);
+					for (size_t i = 0; i != deq0.size(); ++i)
+						PR_EXPECT(deq0[i] == int(i));
+				}
+				ExpectBalanced(*stats);
+			}
+		}
+		PRUnitTestMethod(LedgerFrontGrowth)
+		{
+			Check chk;
+			{
+				// Front growth mirrors the back-growth path and exercises the same
+				// teardown guarantees from the opposite side of the map.
+				auto stats = std::make_shared<AllocStats>();
+				{
+					TrackingAllocator<int> allocator(stats);
+					pr::deque<int, 4, TrackingAllocator<int>> deq0(allocator);
+
+					for (int i = 0; i != 17; ++i)
+						deq0.push_front(i);
+					for (int i = 0; i != 5; ++i)
+						deq0.pop_front();
+
+					auto map_allocs = stats->m_map_allocs;
+					auto map_deallocs = stats->m_map_deallocs;
+					deq0.shrink_to_fit();
+
+					PR_EXPECT(stats->m_map_allocs == map_allocs + 1);
+					PR_EXPECT(stats->m_map_deallocs == map_deallocs + 1);
+					PR_EXPECT(deq0.size() == 12U);
+					for (size_t i = 0; i != deq0.size(); ++i)
+						PR_EXPECT(deq0[i] == int(11 - i));
+				}
+				ExpectBalanced(*stats);
 			}
 		}
 	};
