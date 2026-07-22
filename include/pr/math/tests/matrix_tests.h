@@ -36,6 +36,48 @@ namespace pr::math::tests
 			}
 		}
 
+		// Regression: identity() on a transposed non-square matrix must place ones on the
+		// logical diagonal. Prior to the fix, cmps() mixed logical and physical dimensions so
+		// ones landed at wrong positions when the matrix was transposed.
+		PRUnitTestMethod(IdentityTransposedNonSquare)
+		{
+			// Matrix<double>(2,3) transposed → logical 3×2.
+			// Identity must have ones at (0,0) and (1,1) only.
+			{
+				auto m = Matrix<double>(2, 3);
+				m.transpose();
+				m.identity();
+
+				PR_EXPECT(m.vecs() == 3 && m.cmps() == 2);
+				PR_EXPECT(m(0, 0) == 1.0 && m(0, 1) == 0.0);
+				PR_EXPECT(m(1, 0) == 0.0 && m(1, 1) == 1.0);
+				PR_EXPECT(m(2, 0) == 0.0 && m(2, 1) == 0.0);
+			}
+
+			// Matrix<double>(3,2) transposed → logical 2×3.
+			// Identity must have ones at (0,0) and (1,1) only; (0,1), (0,2), (1,0), (1,2) are 0.
+			{
+				auto m = Matrix<double>(3, 2);
+				m.transpose();
+				m.identity();
+
+				PR_EXPECT(m.vecs() == 2 && m.cmps() == 3);
+				PR_EXPECT(m(0, 0) == 1.0 && m(0, 1) == 0.0 && m(0, 2) == 0.0);
+				PR_EXPECT(m(1, 0) == 0.0 && m(1, 1) == 1.0 && m(1, 2) == 0.0);
+			}
+
+			// Non-transposed non-square: sanity-check that the non-transposed path still works.
+			{
+				auto m = Matrix<double>(2, 4);
+				m.identity();
+
+				PR_EXPECT(m.vecs() == 2 && m.cmps() == 4);
+				for (int r = 0; r != 2; ++r)
+					for (int c = 0; c != 4; ++c)
+						PR_EXPECT(m(r, c) == (r == c ? 1.0 : 0.0));
+			}
+		}
+
 		PRUnitTestMethod(LUDecomposition)
 		{
 			auto m = MatrixLU<double>(4, 4, 

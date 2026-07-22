@@ -335,11 +335,15 @@ namespace pr::math
 			return *this;
 		}
 
-		// Set this matrix to an identity matrix
+		// Set this matrix to an identity matrix.
+		// Uses logical (vec, cmp) access so the diagonal ones land at the correct positions
+		// regardless of transpose state and regardless of whether the matrix is square.
 		Matrix& identity() noexcept
 		{
 			zero();
-			for (int i = 0, istep = cmps() + 1, iend = size(); i < iend; i += istep) m_data[i] = S(1);
+			auto n = std::min(vecs(), cmps());
+			for (int i = 0; i != n; ++i)
+				(*this)(i, i) = S(1);
 			return *this;
 		}
 
