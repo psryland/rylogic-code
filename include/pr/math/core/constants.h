@@ -105,7 +105,7 @@ namespace pr::math
 	template <> constexpr int64_t tiny<int64_t>       = constants<int64_t>::tiny;
 	template <> constexpr int32_t tiny<int32_t>       = constants<int32_t>::tiny;
 
-	// The contiguous exact-integer boundary is the same value used by the type specialisations above.
+	// The public aliases expose the contiguous exact-integer boundaries for float and double.
 	inline constexpr int32_t max_int_in_float = constants<float>::max_representable_int;
 	inline constexpr int64_t max_int_in_double = constants<double>::max_representable_int;
 
