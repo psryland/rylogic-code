@@ -221,10 +221,8 @@ namespace pr::math
 		struct R { Vec4<S> axis; S angle; };
 		pr_assert(IsNormalised(q.xyzw) && "quaternion isn't normalised");
 
-		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2) and
-		// the angle in [0, π]. Without this, a 270-degree rotation (w < 0) would extract
-		// as 90 degrees around the original axis — the correct angle magnitude but the wrong
-		// rotation sense (opposite orientation).
+		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2]
+		// and the angle in [0, π].
 		auto sign = q.w >= S(0) ? S(1) : S(-1);
 		auto sin_half_angle = Length(q.xyz);
 
@@ -309,8 +307,7 @@ namespace pr::math
 		using S = typename vector_traits<Quat>::element_t;
 		pr_assert("quaternion isn't normalised" && IsNormalised(q.xyzw));
 
-		// Canonicalize to the positive-w hemisphere for shortest-arc scaling. Without this,
-		// scaling a 270-degree rotation by 0.5 would give 135 degrees instead of -45 degrees.
+		// Canonicalize to the positive-w hemisphere for shortest-arc scaling.
 		auto sign = q.w >= S(0) ? S(1) : S(-1);
 		auto sin_half_angle = Length(q.xyz);
 
@@ -367,11 +364,10 @@ namespace pr::math
 	}
 
 	// Logarithm map of quaternion to tangent space at identity.
-	// Maps q to v = axis * (angle/2), with |v| ∈ [0, π/2). q and -q both map to v and -v
-	// respectively, which are orientation-equivalent under ExpMap, so ExpMap(LogMap(q)) gives
-	// either q or -q (same orientation). Uses the positive-w canonical form to ensure a
-	// consistent principal value — without this, LogMap(q) and LogMap(-q) would give
-	// vectors differing only in half-angle magnitude, breaking the round-trip direction.
+	// Maps q to v = axis * (angle/2), with |v| ∈ [0, π/2]. Uses positive-w canonical form
+	// so that q and -q (the same orientation) map to the same principal tangent vector.
+	// At exactly |v| = π/2 (a 180-degree rotation) the axis direction is inherently
+	// ambiguous; use FEqlOrientation rather than comparing v directly near that boundary.
 	template <VectorType Vec, QuaternionType Quat> requires (IsRank1<Vec> && SameS<Quat, Vec> && vector_traits<Vec>::dimension >= 3)
 	inline Vec pr_vectorcall LogMap(Quat q) noexcept
 	{
@@ -379,10 +375,9 @@ namespace pr::math
 		auto xyz0 = Vec{ vec(q).x, vec(q).y, vec(q).z };
 
 		// Quat = [u·sin(A/2), cos(A/2)].
-		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2).
-		// Without this, a w < 0 quaternion (> 90-degree rotation) maps to the wrong tangent
-		// direction: the axis component sign is inconsistent with the extracted half-angle,
-		// so ExpMap of the result returns the antipodal orientation.
+		// Canonicalize to the positive-w hemisphere so the half-angle is in [0, π/2].
+		// A quaternion with w < 0 encodes a rotation > 180 degrees; negating both halves
+		// recovers the equivalent rotation in [0, π].
 		auto sign = vec(q).w >= S(0) ? S(1) : S(-1);
 		auto sin_half_ang = Length(xyz0);
 		auto ang_by_2 = std::atan2(sin_half_ang, sign * vec(q).w); // well-conditioned everywhere

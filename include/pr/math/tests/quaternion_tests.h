@@ -206,9 +206,9 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlOrientation(q_zero, Identity<Quat>(), T(0.001)));
 		}
 
-		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 90 degrees
-		// that use the "long arc" encoding. AxisAngle, Scale, and LogMap must all canonicalize to
-		// the positive-w (shortest-arc) form without changing the represented orientation.
+		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 180 degrees
+		// (half-angle > π/2). AxisAngle, Scale, and LogMap must all canonicalize to the positive-w
+		// form and return the equivalent shortest-arc result without changing the orientation.
 		PRUnitTestMethod(NegativeHemisphere, float, double)
 		{
 			using Quat = Quat<T>;
@@ -231,11 +231,26 @@ namespace pr::math::tests
 				PR_EXPECT(math::FEqlOrientation(q_recovered, q270, T(0.001)));
 			}
 
-			// q and -q represent the same orientation; AxisAngle must return the same angle for both.
+			// q and -q represent the same orientation; AxisAngle must return the same axis and angle for both.
 			{
 				auto [axis_pos, angle_pos] = math::AxisAngle(q270);
 				auto [axis_neg, angle_neg] = math::AxisAngle(-q270);
 				PR_EXPECT(FEqlAbsolute(angle_pos, angle_neg, T(0.001)));
+				PR_EXPECT(FEqlAbsolute<Vec4>(axis_pos, axis_neg, T(0.001)));
+			}
+
+			// Scale(q, f) and Scale(-q, f) must be orientation-equivalent.
+			{
+				auto q_scaled_pos = math::Scale(q270, T(0.5));
+				auto q_scaled_neg = math::Scale(-q270, T(0.5));
+				PR_EXPECT(math::FEqlOrientation(q_scaled_pos, q_scaled_neg, T(0.001)));
+			}
+
+			// LogMap(q) and LogMap(-q) must produce the same principal tangent vector.
+			{
+				auto v_pos = LogMap<Vec4>(q270);
+				auto v_neg = LogMap<Vec4>(-q270);
+				PR_EXPECT(FEqlAbsolute<Vec4>(v_pos, v_neg, T(0.001)));
 			}
 
 			// Scale: shortest-arc scaling by 0.5 must bisect the -90-degree arc, giving -45 degrees.
