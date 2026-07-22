@@ -119,6 +119,34 @@ namespace pr::math::tests
 			PR_EXPECT(All((c == d) == !(c != d)));
 			PR_EXPECT(All((c != d) == !(c == d)));
 		}
+		PRUnitTestMethod(CrossWContract, float, double)
+		{
+			using vec4_t = Vec4<T>;
+
+			constexpr auto lhs_ct = vec4_t(T(1), T(0), T(0), T(7));
+			constexpr auto rhs_ct = vec4_t(T(0), T(1), T(0), T(9));
+			static_assert(All(math::Cross<vec4_t>(lhs_ct, rhs_ct) == vec4_t(T(0), T(0), T(1), T(0))));
+
+			auto check = [&](T lhs_w, T rhs_w)
+			{
+				auto lhs = vec4_t(T(1), T(0), T(0), lhs_w);
+				auto rhs = vec4_t(T(0), T(1), T(0), rhs_w);
+				auto expected = math::Cross<vec4_t>(lhs, rhs);
+				auto actual = Cross(lhs, rhs);
+
+				PR_EXPECT(FEql(actual, expected));
+				PR_EXPECT(expected.w == T(0) && !std::signbit(expected.w));
+				PR_EXPECT(actual.w == T(0) && !std::signbit(actual.w));
+			};
+
+			check(T(7), T(9));
+			check(std::numeric_limits<T>::quiet_NaN(), T(9));
+			check(T(7), std::numeric_limits<T>::quiet_NaN());
+			check(std::numeric_limits<T>::infinity(), T(9));
+			check(T(7), std::numeric_limits<T>::infinity());
+			check(-std::numeric_limits<T>::infinity(), T(9));
+			check(T(7), -std::numeric_limits<T>::infinity());
+		}
 		PRUnitTestMethod(Dot4, float, double, int32_t, int64_t)
 		{
 			// Dot3 vs Dot4 (type-specific because Dot3 is Vec4-only)
