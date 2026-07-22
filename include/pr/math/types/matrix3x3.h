@@ -47,11 +47,22 @@ namespace pr::math
 			,y(y_.x, y_.y, y_.z), yw()
 			,z(z_.x, z_.y, z_.z), zw()
 		{}
-		constexpr Mat3x3(std::ranges::random_access_range auto&& v) noexcept // 9 scalars
-			:x(v[0], v[1], v[2]), xw()
-			,y(v[3], v[4], v[5]), yw()
-			,z(v[6], v[7], v[8]), zw()
-		{}
+		// Build from a random-access range. Caller guarantees at least 9 readable elements;
+		// for sized ranges the precondition is checked with pr_assert.
+		template <std::ranges::random_access_range R>
+			requires (!VectorType<std::remove_cvref_t<R>>)
+			      && std::convertible_to<std::ranges::range_reference_t<R>, S>
+		constexpr Mat3x3(R&& v) noexcept
+		{
+			if constexpr (std::ranges::sized_range<R>)
+				pr_assert(std::ranges::size(v) >= 9 && "range must have at least 9 elements");
+
+			auto it = std::ranges::begin(v);
+			x = Vec3<S>(static_cast<S>(*it), static_cast<S>(*(it + 1)), static_cast<S>(*(it + 2)));
+			y = Vec3<S>(static_cast<S>(*(it + 3)), static_cast<S>(*(it + 4)), static_cast<S>(*(it + 5)));
+			z = Vec3<S>(static_cast<S>(*(it + 6)), static_cast<S>(*(it + 7)), static_cast<S>(*(it + 8)));
+			xw = yw = zw = S(0);
+		}
 
 		// Explicit cast to different Scalar type
 		template <ScalarType S2> constexpr explicit operator Mat3x3<S2>() const noexcept
