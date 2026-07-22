@@ -76,11 +76,9 @@ namespace pr::math::spatial
 		// [ E    0] * [v.ang] = [E*v.ang              ]
 		// [r^E   E]   [v.lin]   [E*v.lin + r^(E*v.ang)] where r is the translation column
 		pr_assert("'lhs' is not an affine transform" && IsAffine(a2b));
-		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
-		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
+		auto const rot = static_cast<Mat3x3<S>>(a2b);
 		auto ang_b = rot * vec.ang;
-		auto ang_b3 = Vec3<S>{ang_b.x, ang_b.y, ang_b.z};
-		auto lin_b = rot * vec.lin + Cross(pos, ang_b3).w0();
+		auto lin_b = rot * vec.lin + Cross(a2b.w, ang_b);
 		return Vec8<S, Motion>{ang_b, lin_b};
 	}
 
@@ -90,11 +88,9 @@ namespace pr::math::spatial
 		// [E   r^E] * [v.ang] = [E*v.ang + r^(E*v.lin)]
 		// [0    E ]   [v.lin]   [E*v.lin              ] where r is the translation column
 		pr_assert("'lhs' is not an affine transform" && IsAffine(a2b));
-		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
-		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
+		auto const rot = static_cast<Mat3x3<S>>(a2b);
 		auto lin_b = rot * vec.lin;
-		auto lin_b3 = Vec3<S>{lin_b.x, lin_b.y, lin_b.z};
-		auto ang_b = rot * vec.ang + Cross(pos, lin_b3).w0();
+		auto ang_b = rot * vec.ang + Cross(a2b.w, lin_b);
 		return Vec8<S, Force>{ang_b, lin_b};
 	}
 
@@ -209,7 +205,7 @@ namespace pr::math::spatial
 		// Note: RBDA shows a transform to be (with r taken from the translation column):
 		//  [ E    0] = motion         [E   r^E]
 		//  [r^E   E]          force = [0    E ]
-		auto const rot = Mat3x3<S>{a2b.x, a2b.y, a2b.z};
+		auto const rot = static_cast<Mat3x3<S>>(a2b);
 		auto const pos = Vec3<S>{a2b.w.x, a2b.w.y, a2b.w.z};
 
 		if constexpr (std::same_as<VecSpace, Motion>)
