@@ -36,17 +36,17 @@ namespace pr::math::tests
 			using v4_t = Vec4<T>;
 			using quat_t = Quat<T>;
 
-			// Keep the Xform-to-matrix path constexpr on the matrix column view.
+			// Keep the Xform-to-matrix path constexpr on a non-trivial rotation and scale.
 			constexpr auto xf = xform_t(
-				v4_t(T(1), T(2), T(3), T(1)),
-				quat_t(T(0), T(0), T(0), T(1)),
-				v4_t(T(1), T(1), T(1), T(1)));
+				v4_t(T(5), T(6), T(7), T(1)),
+				quat_t(T(0), T(0), T(1), T(1)),
+				v4_t(T(2), T(3), T(4), T(1)));
 			constexpr auto m = m4x4_t(xf);
 			constexpr auto expected = m4x4_t(
-				v4_t(T(1), T(0), T(0), T(0)),
-				v4_t(T(0), T(1), T(0), T(0)),
-				v4_t(T(0), T(0), T(1), T(0)),
-				v4_t(T(1), T(2), T(3), T(1)));
+				v4_t(T(0), T(2), T(0), T(0)),
+				v4_t(T(-3), T(0), T(0), T(0)),
+				v4_t(T(0), T(0), T(4), T(0)),
+				v4_t(T(5), T(6), T(7), T(1)));
 			static_assert(All(m == expected));
 		}
 		PRUnitTestMethod(Multiply, float, double)

@@ -3671,19 +3671,62 @@ namespace pr::math
 		return o2t * InvertOrthonormal(o2f);
 	}
 
-	// Create a scale matrix
+	// Create a scale matrix from a scalar or component vector using only matrix/vector traits.
 	template <VectorType Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall Scale(typename vector_traits<Mat>::element_t scale) noexcept
 	{
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
 
-		Mat mat = {};
-		if constexpr (vt::dimension > 0) vec(vec(mat).x).x = scale;
-		if constexpr (vt::dimension > 1) vec(vec(mat).y).y = scale;
-		if constexpr (vt::dimension > 2) vec(vec(mat).z).z = scale;
-		if constexpr (vt::dimension > 3) vec(vec(mat).w).w = scale;
-		return mat;
+		Mat m = {};
+		if constexpr (vt::dimension == 1)
+		{
+			vec(vec(m).x).x = scale;
+		}
+		else if constexpr (vt::dimension == 2)
+		{
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
+		}
+		else if constexpr (vt::dimension == 3)
+		{
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = scale;
+		}
+		else if constexpr (vt::dimension == 4)
+		{
+			vec(vec(m).x).x = scale;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).x).w = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = scale;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).y).w = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = scale;
+			vec(vec(m).z).w = S(0);
+			vec(vec(m).w).x = S(0);
+			vec(vec(m).w).y = S(0);
+			vec(vec(m).w).z = S(0);
+			vec(vec(m).w).w = scale;
+		}
+		else
+		{
+			static_assert(vt::dimension >= 1 && vt::dimension <= 4);
+		}
+
+		return m;
 	}
 	template <VectorType Mat> requires (IsRank2<Mat>)
 	constexpr Mat pr_vectorcall Scale(typename vector_traits<Mat>::component_t scale) noexcept
@@ -3691,12 +3734,55 @@ namespace pr::math
 		using vt = vector_traits<Mat>;
 		using S = typename vt::element_t;
 
-		Mat mat = {};
-		if constexpr (vt::dimension > 0) vec(vec(mat).x).x = vec(scale).x;
-		if constexpr (vt::dimension > 1) vec(vec(mat).y).y = vec(scale).y;
-		if constexpr (vt::dimension > 2) vec(vec(mat).z).z = vec(scale).z;
-		if constexpr (vt::dimension > 3) vec(vec(mat).w).w = vec(scale).w;
-		return mat;
+		Mat m = {};
+		if constexpr (vt::dimension == 1)
+		{
+			vec(vec(m).x).x = vec(scale).x;
+		}
+		else if constexpr (vt::dimension == 2)
+		{
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
+		}
+		else if constexpr (vt::dimension == 3)
+		{
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = vec(scale).z;
+		}
+		else if constexpr (vt::dimension == 4)
+		{
+			vec(vec(m).x).x = vec(scale).x;
+			vec(vec(m).x).y = S(0);
+			vec(vec(m).x).z = S(0);
+			vec(vec(m).x).w = S(0);
+			vec(vec(m).y).x = S(0);
+			vec(vec(m).y).y = vec(scale).y;
+			vec(vec(m).y).z = S(0);
+			vec(vec(m).y).w = S(0);
+			vec(vec(m).z).x = S(0);
+			vec(vec(m).z).y = S(0);
+			vec(vec(m).z).z = vec(scale).z;
+			vec(vec(m).z).w = S(0);
+			vec(vec(m).w).x = S(0);
+			vec(vec(m).w).y = S(0);
+			vec(vec(m).w).z = S(0);
+			vec(vec(m).w).w = vec(scale).w;
+		}
+		else
+		{
+			static_assert(vt::dimension >= 1 && vt::dimension <= 4);
+		}
+
+		return m;
 	}
 
 	// Create a 2D shear matrix
