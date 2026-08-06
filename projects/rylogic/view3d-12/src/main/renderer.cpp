@@ -85,7 +85,7 @@ namespace pr::rdr12
 			m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::DeviceDebug, true);
 			//m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::DeviceGPUDebug, true);
 			m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::BreakOnErrors, true);
-			#pragma message(PR_LINK "WARNING: ************************************************** DeviceDebug enabled")
+			#pragma message(PR_LINK "INFO: ************************************************** DeviceDebug enabled")
 			#endif
 
 			// Load PIX

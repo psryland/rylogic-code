@@ -445,6 +445,8 @@
     <ClInclude Include="..\..\..\include\pr\algorithm\umap.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\dynamics.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\interpolate.h" />
+    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate_c1.h" />
+    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate_c2.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\polynomial.h" />
     <ClInclude Include="..\..\..\include\pr\math\utils\primes.h" />
     <ClInclude Include="..\..\..\include\pr\view3d-12\ldraw\ldraw_svg.h" />

@@ -22,7 +22,7 @@ namespace pr::unittests::your::namespace
 //    For pr headers, consider putting the unit test in a different file to avoid additional dependencies
 #if PR_UNITTESTS_VISUALISE
 #include "pr/macros/link.h"
-#pragma message (PR_LINK "warning : ************************************************* PR_UNITTESTS_VISUALISE Enabled")
+#pragma message (PR_LINK "info : ************************************************* PR_UNITTESTS_VISUALISE Enabled")
 #endif
 
 #include "pr/common/unittests.h"
