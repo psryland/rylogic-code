@@ -1265,6 +1265,12 @@
     <ClInclude Include="..\..\..\include\pr\collision\col_polytope_vs_triangle.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate_c1.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\math\utils\interpolate_c2.h">
+      <Filter>pr\math\utils</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">

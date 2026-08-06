@@ -192,6 +192,60 @@ namespace pr::math
 		}
 	};
 
+	// A quintic curve in R3 constrained by value, first derivative, and second derivative at both endpoints.
+	template <ScalarTypeFP S>
+	struct QuinticCurve3
+	{
+		using Vec4 = Vec4<S>;
+
+		Vec4 m_c0;
+		Vec4 m_c1;
+		Vec4 m_c2;
+		Vec4 m_c3;
+		Vec4 m_c4;
+		Vec4 m_c5;
+
+		// Construct an uninitialized curve for deferred coefficient assignment.
+		QuinticCurve3() = default;
+
+		// Construct a curve whose derivatives are expressed in normalized parameter units.
+		QuinticCurve3(Vec4 p0, Vec4 v0, Vec4 a0, Vec4 p1, Vec4 v1, Vec4 a1) noexcept
+			: m_c0(p0)
+			, m_c1(v0)
+			, m_c2(S(0.5) * a0)
+			, m_c3()
+			, m_c4()
+			, m_c5()
+		{
+			// Solve the remaining coefficients from the endpoint constraints at u=1.
+			auto dp = p1 - p0;
+			m_c3 = S(10) * dp - S(6) * v0 - S(4) * v1 - S(1.5) * a0 + S(0.5) * a1;
+			m_c4 = -S(15) * dp + S(8) * v0 + S(7) * v1 + S(1.5) * a0 - a1;
+			m_c5 = S(6) * dp - S(3) * v0 - S(3) * v1 - S(0.5) * a0 + S(0.5) * a1;
+		}
+
+		// Evaluate the curve at normalized parameter u.
+		Vec4 Eval(S u) const noexcept
+		{
+			u = Clamp<S>(u, 0, 1);
+			return m_c0 + u * (m_c1 + u * (m_c2 + u * (m_c3 + u * (m_c4 + u * m_c5))));
+		}
+
+		// Evaluate the first derivative with respect to normalized parameter u.
+		Vec4 EvalDerivative(S u) const noexcept
+		{
+			u = Clamp<S>(u, 0, 1);
+			return m_c1 + u * (S(2) * m_c2 + u * (S(3) * m_c3 + u * (S(4) * m_c4 + u * S(5) * m_c5)));
+		}
+
+		// Evaluate the second derivative with respect to normalized parameter u.
+		Vec4 EvalDerivative2(S u) const noexcept
+		{
+			u = Clamp<S>(u, 0, 1);
+			return S(2) * m_c2 + u * (S(6) * m_c3 + u * (S(12) * m_c4 + u * S(20) * m_c5));
+		}
+	};
+
 	// A Spline made from a continuous collection of CubicCurves
 	template <ScalarTypeFP S, template<typename...> class Container = std::vector> requires StdContainer<Container, CubicCurve3<S>>
 	struct CubicSpline

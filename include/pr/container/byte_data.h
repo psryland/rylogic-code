@@ -946,6 +946,7 @@ namespace pr::container
 			struct alignas(64) OverAligned
 			{
 				std::uint64_t m_value;
+				std::byte m_padding[64 - sizeof(m_value)];
 			};
 
 			byte_data buf0;

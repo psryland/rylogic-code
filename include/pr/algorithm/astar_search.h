@@ -586,8 +586,8 @@ namespace pr::algorithm::astar::unittests
 		// Validate the returned cumulative path costs using a simple weighted chain.
 		PRUnitTestMethod(PathCostReconstruction)
 		{
-			WeightedGraph graph;
-			WeightedAdptr adapter(graph, 3);
+			WeightedGraph weighted_graph;
+			WeightedAdptr adapter(weighted_graph, 3);
 			auto [found, path] = astar::Search(adapter, 0, 100.0f);
 
 			PR_EXPECT(found);
@@ -601,7 +601,7 @@ namespace pr::algorithm::astar::unittests
 
 				PR_EXPECT(hop.node == expected_nodes[i]);
 				PR_EXPECT(hop.cost_to_node == expected_costs[i]);
-				PR_EXPECT(i + 1 == ssize(path) || graph.adj[hop.node][hop.edge].target == path[i + 1].node);
+				PR_EXPECT(i + 1 == ssize(path) || weighted_graph.adj[hop.node][hop.edge].target == path[i + 1].node);
 			}
 		}
 
