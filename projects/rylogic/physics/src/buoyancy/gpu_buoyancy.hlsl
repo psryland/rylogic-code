@@ -2,7 +2,7 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Sine-wave water buoyancy pass for composite collision-shape hulls.
+// Water-field buoyancy pass for composite collision-shape hulls.
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
@@ -18,7 +18,7 @@ struct CBufGpuBuoyancy
 {
 	int hull_count;
 	int groups_per_hull;
-	int wave_count;
+	int water_field_count;
 	float time_s;
 	float water_level;
 	float fluid_density;
@@ -30,11 +30,11 @@ struct CBufGpuBuoyancy
 	int enable_diagnostics;
 };
 
-struct GpuBuoyancyWave
-{
-	float4 direction_wavelength_phase_speed;
-	float4 amplitude;
-};
+#ifdef GPU_BUOYANCY_WATER_FIELD_INCLUDE
+#include GPU_BUOYANCY_WATER_FIELD_INCLUDE
+#else
+#include "physics/src/buoyancy/gpu_basic_waves.hlsli"
+#endif
 
 struct GpuBuoyancyPartial
 {
@@ -56,7 +56,7 @@ struct GpuBuoyancyDiagnostic
 
 ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
-StructuredBuffer<GpuBuoyancyWave> resource(g_waves, t1);
+StructuredBuffer<GpuBuoyancyWaterFieldElement> resource(g_water_field, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
 
@@ -132,15 +132,9 @@ groupshared float3 s_body_angular_velocity_ws;
 float EvaluateWaterHeight(float2 xy_ws)
 {
 	float height = g.water_level;
-	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		GpuBuoyancyWave wave = g_waves[wave_index];
-		float2 direction = wave.direction_wavelength_phase_speed.xy;
-		float wavelength = wave.direction_wavelength_phase_speed.z;
-		float phase_speed = wave.direction_wavelength_phase_speed.w;
-		float amplitude = wave.amplitude.x;
-		float phase = dot(direction, xy_ws) * tau / wavelength + phase_speed * g.time_s;
-		height += amplitude * sin(phase);
+		height += GpuBuoyancyEvaluateWaterHeightElement(g_water_field[element_index], xy_ws, g.time_s);
 	}
 	return height;
 }
@@ -153,19 +147,11 @@ float3 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 {
 	float height = g.water_level;
 	float2 gradient = float2(0.0f, 0.0f);
-	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		GpuBuoyancyWave wave = g_waves[wave_index];
-		float2 direction = wave.direction_wavelength_phase_speed.xy;
-		float wavelength = wave.direction_wavelength_phase_speed.z;
-		float phase_speed = wave.direction_wavelength_phase_speed.w;
-		float amplitude = wave.amplitude.x;
-		float k = tau / wavelength;
-		float phase = dot(direction, xy_ws) * k + phase_speed * g.time_s;
-		float s, c;
-		sincos(phase, s, c);
-		height += amplitude * s;
-		gradient += direction * (amplitude * phase_speed * phase_speed * c / gravity);
+		float3 contribution = GpuBuoyancyEvaluateWaterHeightAndPressureGradientElement(g_water_field[element_index], xy_ws, g.time_s, gravity);
+		height += contribution.x;
+		gradient += contribution.yz;
 	}
 	return float3(height, gradient.x, gradient.y);
 }
@@ -178,22 +164,10 @@ float3 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 // subtracts this from the body velocity to form the relative flow at each wetted surface sample.
 float3 EvaluateWaterVelocity(float3 pos_ws)
 {
-	float depth = min(pos_ws.z - g.water_level, 0.0f);
 	float3 velocity = float3(0.0f, 0.0f, 0.0f);
-	for (int wave_index = 0; wave_index != g.wave_count; ++wave_index)
+	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		GpuBuoyancyWave wave = g_waves[wave_index];
-		float2 direction = wave.direction_wavelength_phase_speed.xy;
-		float wavelength = wave.direction_wavelength_phase_speed.z;
-		float phase_speed = wave.direction_wavelength_phase_speed.w;
-		float amplitude = wave.amplitude.x;
-		float k = tau / wavelength;
-		float phase = dot(direction, pos_ws.xy) * k + phase_speed * g.time_s;
-		float s, c;
-		sincos(phase, s, c);
-		float speed = amplitude * phase_speed * exp(k * depth);
-		velocity.xy += (-speed * s) * direction;
-		velocity.z += speed * c;
+		velocity += GpuBuoyancyEvaluateWaterVelocityElement(g_water_field[element_index], pos_ws, g.time_s, g.water_level);
 	}
 	return velocity;
 }
@@ -333,13 +307,13 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 					// Flat-water fully-dry early-out. This is a per-sample skip, NOT an early return:
 					// the group-wide ReduceShared below must be reached by every thread, so we only
 					// suppress the per-sample work and leave force/torque/moment at zero. When
-					// wave_count==0 the surface is a constant level along 'up', so a box/sphere whose
+					// water_field_count==0 the surface is a constant level along 'up', so a box/sphere whose
 					// lowest support point is at or above water_level has every sample dry (the wet
 					// test uses signed_height < water_level). Skipping it avoids the emit + sibling
 					// cull + water eval and contributes exactly zero, so results are unchanged. Only
 					// box/sphere have a cheap support test; other primitives fall through to sampling.
 					bool fully_dry = false;
-					if (g.wave_count == 0)
+					if (g.water_field_count == 0)
 					{
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
@@ -552,10 +526,10 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 
 					// Flat-water fully-dry early-out (mirror of the volume kernel). A per-sample skip,
 					// not an early return, so every thread still reaches ReduceShared below. When
-					// wave_count==0 a box/sphere whose lowest support point is at or above water_level
+					// water_field_count==0 a box/sphere whose lowest support point is at or above water_level
 					// is entirely dry, so it generates no drag samples; skipping it is result-preserving.
 					bool fully_dry = false;
-					if (g.wave_count == 0)
+					if (g.water_field_count == 0)
 					{
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);

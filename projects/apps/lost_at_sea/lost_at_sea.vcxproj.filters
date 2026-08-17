@@ -34,6 +34,12 @@
     <Filter Include="src\world\sky\shaders">
       <UniqueIdentifier>{c9da2798-37e6-4e93-91be-f18cf962979f}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\world\water">
+      <UniqueIdentifier>{a6c19f86-f4d7-4d87-b157-6154d45847d9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\world\water\shaders">
+      <UniqueIdentifier>{bd711495-103d-482a-a9c3-8b6168c91602}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\diag">
       <UniqueIdentifier>{c8d9e0f1-2345-4678-9abc-def012345678}</UniqueIdentifier>
     </Filter>
@@ -108,6 +114,12 @@
     <ClCompile Include="src\core\physics\physics_system.cpp">
       <Filter>src\core\physics</Filter>
     </ClCompile>
+    <ClCompile Include="src\world\water\water_buoyancy_adapter.cpp">
+      <Filter>src\world\water</Filter>
+    </ClCompile>
+    <ClCompile Include="src\world\water\water_system.cpp">
+      <Filter>src\world\water</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\forward.h">
@@ -120,9 +132,6 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\world\ocean\ocean.h">
-      <Filter>src\world\ocean</Filter>
-    </ClInclude>
-    <ClInclude Include="src\world\ocean\gerstner_wave.h">
       <Filter>src\world\ocean</Filter>
     </ClInclude>
     <ClInclude Include="src\world\ocean\distant_ocean.h">
@@ -179,6 +188,21 @@
     <ClInclude Include="src\core\physics\physics_system.h">
       <Filter>src\core\physics</Filter>
     </ClInclude>
+    <ClInclude Include="src\world\water\water_buoyancy_adapter.h">
+      <Filter>src\world\water</Filter>
+    </ClInclude>
+    <ClInclude Include="src\world\water\water_system.h">
+      <Filter>src\world\water</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\frame_tasks.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sim_state.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\state_snapshot.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli">
@@ -205,6 +229,15 @@
     <None Include="src\world\sky\shaders\procedural_sky.hlsl">
       <Filter>src\world\sky\shaders</Filter>
     </None>
+    <None Include="src\world\water\shaders\water_field_types.hlsli">
+      <Filter>src\world\water\shaders</Filter>
+    </None>
+    <None Include="src\world\water\shaders\water_field.hlsli">
+      <Filter>src\world\water\shaders</Filter>
+    </None>
+    <None Include="src\world\water\shaders\water_field_buoyancy.hlsli">
+      <Filter>src\world\water\shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="res\shaders.rc">
@@ -222,6 +255,7 @@
     <ResourceCompile Include="src\world\sky\shaders\procedural_sky.rc">
       <Filter>src\world\sky\shaders</Filter>
     </ResourceCompile>
+    <ResourceCompile Include="src\world\water\shaders\water.rc" />
   </ItemGroup>
   <ItemGroup>
     <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\imgui.dll">

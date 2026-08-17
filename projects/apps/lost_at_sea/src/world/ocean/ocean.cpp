@@ -4,102 +4,63 @@
 //************************************
 #include "src/forward.h"
 #include "src/world/ocean/ocean.h"
-#include "src/world/ocean/gerstner_wave.h"
 #include "src/world/ocean/shaders/ocean_shader.h"
 
 namespace las
 {
-	// Radial mesh parameters. Rings are spaced logarithmically so that triangles
-	// appear roughly the same size on screen regardless of distance from camera.
-	static constexpr int NumRings = 160;             // Number of concentric rings
-	static constexpr int NumSegments = 256;           // Vertices per ring (around 360°)
-	static constexpr float InnerRadius = 2.0f;        // Radius of the innermost ring (metres)
-	static constexpr float OuterRadius = 1000.0f;     // Radius of the outermost ring (metres)
-	static constexpr float MinRingSpacing = 2.0f;     // Minimum radial distance between rings (metres) — caps point density near camera
-	static constexpr float WaterDensity = 1025.0f;    // kg/m^3 (seawater)
+	// The regular index lattice is mapped to a disk in the vertex shader, then radially warped to retain dense near-camera sampling without a polar singularity.
+	static constexpr int GridVertexCount = 905;
+	static constexpr float OuterRadius = 1000.0f;
+	static constexpr float MinGridSpacing = 0.0675f;
+	static constexpr float SurfaceWarpPower = 3.0f;
 
 	// Ocean
 	Ocean::Ocean(Renderer& rdr)
 		: m_inst()
-		, m_waves()
 		, m_shader()
 	{
-		// Initialise the ocean with a set of default wave components.
-		// Scale: ~1m amplitude swell, realistic for sailing ship conditions (Beaufort 4-5).
-		// Speed follows deep-water dispersion: v ≈ sqrt(g·λ/2π)
-		m_waves = {
-			{ Normalise(v4(1.0f, 0.3f, 0, 0)), 1.0f,  80.0f, 11.2f, 0.35f }, // Primary swell
-			{ Normalise(v4(0.8f, -0.6f, 0, 0)), 0.4f,  40.0f,  7.9f, 0.30f }, // Secondary
-			{ Normalise(v4(-0.3f, 1.0f, 0, 0)), 0.2f,  20.0f,  5.6f, 0.25f }, // Cross chop
-			{ Normalise(v4(0.5f, 0.5f, 0, 0)), 0.08f, 10.0f,  3.9f, 0.20f }, // Small ripple
-		};
-
-		// Build a flat radial mesh with encoded vertex data for the GPU.
-		// The vertex shader reconstructs world positions from ring/segment encoding.
-		// Vertex layout:
-		//   Centre vertex: m_vert = (0, 0, -1, 1) — sentinel value z=-1
-		//   Ring vertices:  m_vert = (cos θ, sin θ, t, 1) where t = normalised ring index [0,1]
-		auto vcount = 1 + NumRings * NumSegments;
-
+		// The index values identify a regular Cartesian lattice. The vertex shader reconstructs and warps positions from SV_VertexID, while one placeholder vertex preserves View3D's model contract.
+		auto const grid_cell_count = GridVertexCount - 1;
+		auto const icount = 6 * grid_cell_count * grid_cell_count;
 		rdr12::ModelGenerator::Buffers<Vert> buf;
-		buf.Reset(vcount, 0, 0, sizeof(uint16_t));
+		buf.Reset(1, icount, 0, sizeof(uint32_t));
+		buf.m_vcont[0] = Vert{};
+		auto iptr = buf.m_icont.begin<uint32_t>();
 
-		// Centre vertex — sentinel z = -1
+		// A regular grid has bounded vertex valence at the camera; no row or column converges into a centre fan.
+		for (int y = 0; y != grid_cell_count; ++y)
 		{
-			auto& v = buf.m_vcont[0];
-			v.m_vert = v4(0, 0, -1, 1);
-			v.m_diff = Colour(1.0f, 1.0f, 1.0f, 1.0f);
-			v.m_norm = v4(0, 0, 1, 0);
-			v.m_tex0 = v2(0.5f, 0.5f);
-			v.m_idx0 = iv2::Zero();
-		}
-
-		// Ring vertices — encode direction and normalised ring index
-		for (int ring = 0; ring != NumRings; ++ring)
-		{
-			auto t = static_cast<float>(ring) / (NumRings - 1);
-
-			for (int seg = 0; seg != NumSegments; ++seg)
+			for (int x = 0; x != grid_cell_count; ++x)
 			{
-				auto angle = constants<float>::tau * seg / NumSegments;
-				auto idx = 1 + ring * NumSegments + seg;
-				auto& v = buf.m_vcont[idx];
-				v.m_vert = v4(std::cos(angle), std::sin(angle), t, 1);
-				v.m_diff = Colour(1.0f, 1.0f, 1.0f, 1.0f);
-				v.m_norm = v4(0, 0, 1, 0);
-				v.m_tex0 = v2(0.5f + 0.5f * t * std::cos(angle), 0.5f + 0.5f * t * std::sin(angle));
-				v.m_idx0 = iv2::Zero();
+				auto i0 = static_cast<uint32_t>(y * GridVertexCount + x);
+				auto i1 = i0 + 1;
+				auto i2 = i0 + GridVertexCount;
+				auto i3 = i2 + 1;
+
+				// Follow the square-to-disk sector diagonal so cells crossing a sector boundary do not produce a nearly collinear triangle.
+				auto centred_x = 2 * x + 1 - grid_cell_count;
+				auto centred_y = 2 * y + 1 - grid_cell_count;
+				if (centred_x * centred_y > 0)
+				{
+					*iptr++ = i0;
+					*iptr++ = i1;
+					*iptr++ = i3;
+					*iptr++ = i0;
+					*iptr++ = i3;
+					*iptr++ = i2;
+				}
+				else
+				{
+					*iptr++ = i0;
+					*iptr++ = i1;
+					*iptr++ = i2;
+					*iptr++ = i1;
+					*iptr++ = i3;
+					*iptr++ = i2;
+				}
 			}
 		}
-
-		// Index buffer: triangle fan from centre to first ring
-		for (int seg = 0; seg != NumSegments; ++seg)
-		{
-			auto s0 = static_cast<uint16_t>(1 + seg);
-			auto s1 = static_cast<uint16_t>(1 + (seg + 1) % NumSegments);
-			buf.m_icont.push_back(0);  // centre
-			buf.m_icont.push_back(s0);
-			buf.m_icont.push_back(s1);
-		}
-
-		// Quad strips between consecutive rings
-		for (int ring = 0; ring != NumRings - 1; ++ring)
-		{
-			for (int seg = 0; seg != NumSegments; ++seg)
-			{
-				auto next_seg = (seg + 1) % NumSegments;
-				auto i0 = static_cast<uint16_t>(1 + ring * NumSegments + seg);
-				auto i1 = static_cast<uint16_t>(1 + ring * NumSegments + next_seg);
-				auto i2 = static_cast<uint16_t>(1 + (ring + 1) * NumSegments + seg);
-				auto i3 = static_cast<uint16_t>(1 + (ring + 1) * NumSegments + next_seg);
-				buf.m_icont.push_back(i0);
-				buf.m_icont.push_back(i2);
-				buf.m_icont.push_back(i1);
-				buf.m_icont.push_back(i1);
-				buf.m_icont.push_back(i2);
-				buf.m_icont.push_back(i3);
-			}
-		}
+		assert(iptr == buf.m_icont.end<uint32_t>());
 
 		// Set a large bounding box since the VS will displace vertices far from their encoded positions.
 		// The actual rendered extent is [-OuterRadius, +OuterRadius] in XY around the camera.
@@ -113,6 +74,8 @@ namespace las
 		buf.m_ncont.push_back(
 			NuggetDesc(ETopo::TriList, EGeom::Vert | EGeom::Colr | EGeom::Norm)
 				.alpha_geom()
+				.flags(ENuggetFlag::ShadowCastExclude)
+				.pso<EPipeState::InputLayout>(D3D12_INPUT_LAYOUT_DESC{})
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
 				})
@@ -126,73 +89,17 @@ namespace las
 		m_inst.m_model = ModelGenerator::Create<Vert>(factory, cache, &opts);
 		m_inst.m_i2w = m4x4::Identity(); // Instance transform: identity (the VS handles camera-relative positioning)
 
-		// @Copilot, please don't remove this, I want it for testing
-		// Render the ocean as wireframe
-		static bool bWireframe = false;
-		if (bWireframe)
-		{
-			for (auto& nugget : Enumerate(m_inst.m_model->m_nuggets))
-				nugget.FillMode(EFillMode::Wireframe);
-		}
-
 		factory.FlushToGpu(EGpuFlush::Block);
 	}
 
-	// Physics queries — kept for buoyancy calculations in Phase 2
-
-	// 
-	float Ocean::HeightAt(float world_x, float world_y, float time) const
-	{
-		auto h = 0.0f;
-		for (auto& w : m_waves)
-		{
-			auto k = w.WaveNumber();
-			auto phase = k * (w.m_direction.x * world_x + w.m_direction.y * world_y) - w.Frequency() * time;
-			h += w.m_amplitude * std::sin(phase);
-		}
-		return h;
-	}
-
-	v4 Ocean::DisplacedPosition(float world_x, float world_y, float time) const
-	{
-		auto dx = 0.0f, dy = 0.0f, dz = 0.0f;
-		for (auto& w : m_waves)
-		{
-			auto k = w.WaveNumber();
-			auto phase = k * (w.m_direction.x * world_x + w.m_direction.y * world_y) - w.Frequency() * time;
-			auto c = std::cos(phase);
-			auto s = std::sin(phase);
-			dx -= w.m_steepness * w.m_amplitude * w.m_direction.x * c;
-			dy -= w.m_steepness * w.m_amplitude * w.m_direction.y * c;
-			dz += w.m_amplitude * s;
-		}
-		return v4(world_x + dx, world_y + dy, dz, 1.0f);
-	}
-
-	v4 Ocean::NormalAt(float world_x, float world_y, float time) const
-	{
-		auto nx = 0.0f, ny = 0.0f, nz = 1.0f;
-		for (auto& w : m_waves)
-		{
-			auto k = w.WaveNumber();
-			auto phase = k * (w.m_direction.x * world_x + w.m_direction.y * world_y) - w.Frequency() * time;
-			auto c = std::cos(phase);
-			auto s = std::sin(phase);
-			nx -= w.m_direction.x * k * w.m_amplitude * c;
-			ny -= w.m_direction.y * k * w.m_amplitude * c;
-			nz -= w.m_steepness * k * w.m_amplitude * s;
-		}
-		return Normalise(v4(nx, ny, nz, 0.0f));
-	}
-
 	// Prepare shader constant buffers for rendering (thread-safe, no scene interaction).
-	void Ocean::PrepareRender(v4 camera_world_pos, float time, bool has_env_map, v4 sun_direction, v4 sun_colour)
+	void Ocean::PrepareRender(water::Snapshot const& water_snapshot, v4 camera_world_pos, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
 		if (!m_inst.m_model)
 			return;
 
 		m_inst.m_i2w.pos = v4(camera_world_pos.x, camera_world_pos.y, 0, 1);
-		m_shader->SetupFrame(m_waves, camera_world_pos, time, InnerRadius, OuterRadius, NumRings, MinRingSpacing, has_env_map, sun_direction, sun_colour);
+		m_shader->SetupFrame(water_snapshot, camera_world_pos, OuterRadius, GridVertexCount, MinGridSpacing, SurfaceWarpPower, has_env_map, sun_direction, sun_colour);
 	}
 
 	// Add instance to the scene drawlist (NOT thread-safe, must be called serially).
@@ -202,5 +109,26 @@ namespace las
 			return;
 
 		scene.AddInstance(m_inst);
+	}
+
+	// Return whether the near-ocean mesh is rendered as wireframe.
+	bool Ocean::Wireframe() const
+	{
+		if (!m_inst.m_model)
+			return false;
+
+		auto const* nugget = m_inst.m_model->m_nuggets.get();
+		return nugget != nullptr && nugget->FillMode() == EFillMode::Wireframe;
+	}
+
+	// Set the near-ocean mesh fill mode.
+	void Ocean::Wireframe(bool enabled)
+	{
+		if (!m_inst.m_model)
+			return;
+
+		auto fill_mode = enabled ? EFillMode::Wireframe : EFillMode::Default;
+		for (auto& nugget : Enumerate(m_inst.m_model->m_nuggets))
+			nugget.FillMode(fill_mode);
 	}
 }

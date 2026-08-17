@@ -4,7 +4,6 @@
 //************************************
 #include "src/forward.h"
 #include "src/world/ocean/ocean.h"
-#include "src/world/ocean/gerstner_wave.h"
 #include "src/world/ocean/shaders/ocean_shader.h"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
 
@@ -24,8 +23,14 @@ namespace las
 		, m_ps_bytecode()
 		, m_cbuf()
 	{
+		static_assert(sizeof(water::WaterFieldElement) == 64);
+		static_assert(alignof(water::WaterFieldElement) == 16);
+		static_assert(offsetof(water::WaterFieldElement, info) == 0);
+		static_assert(offsetof(water::WaterFieldElement, position) == 16);
+		static_assert(offsetof(water::WaterFieldElement, wave) == 32);
+		static_assert(offsetof(water::WaterFieldElement, timing) == 48);
 		static_assert((sizeof(CBufOcean) % 16) == 0);
-		static_assert(sizeof(CBufOcean) == sizeof(m_cbuf), "CBufOcean exceeds m_cbuf storage");
+		static_assert(sizeof(CBufOcean) < D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16);
 		auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
 
 		// Compile the shader
@@ -41,8 +46,7 @@ namespace las
 		m_code.PS = { m_ps_bytecode };
 
 		// Initialise default PBR parameters
-		auto& cbuf = storage_cast<CBufOcean>(m_cbuf);
-		cbuf = CBufOcean{
+		m_cbuf = CBufOcean{
 			.fresnel_f0 = 0.02f,                                    // Water at normal incidence
 			.specular_power = 256.0f,                               // Sharp sun glint
 			.sss_strength = 0.5f,                                   // Moderate subsurface scattering
@@ -64,38 +68,29 @@ namespace las
 
 		// Upload the ocean constant buffer and bind to root parameter CBufScreenSpace (b3).
 		// The ocean shader reuses this slot since it doesn't need screen-space geometry params.
-		auto& cbuf = storage_cast<CBufOcean>(m_cbuf);
-		auto gpu_address = upload.Add(cbuf, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
+		auto gpu_address = upload.Add(m_cbuf, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(ERootParam::CBufOcean), gpu_address);
 	}
 
-	// Update the constant buffer data for this frame
-	void OceanShader::SetupFrame(std::span<GerstnerWave const> waves, v4 camera_world_pos, float time, float inner_radius, float outer_radius, int num_rings, float min_ring_spacing, bool has_env_map, v4 sun_direction, v4 sun_colour)
+	// Copy one immutable water-field snapshot and update render-only frame parameters.
+	void OceanShader::SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float outer_radius, int grid_vertex_count, float min_grid_spacing, float surface_warp_power, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
-		auto& cbuf = storage_cast<CBufOcean>(m_cbuf);
-
-		cbuf.wave_count = std::min(static_cast<int>(waves.size()), MaxOceanWaves);
-		for (int i = 0; i != cbuf.wave_count; ++i)
+		m_cbuf.water_field_count = std::min(water_snapshot.m_element_count, water::MaxWaterFieldElementCount);
+		for (int i = 0; i != m_cbuf.water_field_count; ++i)
 		{
-			cbuf.wave_dirs[i] = waves[i].m_direction;
-			cbuf.wave_params[i] = v4(
-				waves[i].m_amplitude,
-				waves[i].m_wavelength,
-				waves[i].m_speed,
-				waves[i].m_steepness);
+			m_cbuf.water_field[i] = water_snapshot.m_elements[i];
 		}
 
-		// Zero remaining wave slots
-		for (int i = cbuf.wave_count; i != MaxOceanWaves; ++i)
+		// Clear inactive entries so the complete snapshot remains deterministic.
+		for (int i = m_cbuf.water_field_count; i != water::MaxWaterFieldElementCount; ++i)
 		{
-			cbuf.wave_dirs[i] = v4::Zero();
-			cbuf.wave_params[i] = v4::Zero();
+			m_cbuf.water_field[i] = water::WaterFieldElement{};
 		}
 
-		cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, time);
-		cbuf.mesh_config = v4(inner_radius, outer_radius, static_cast<float>(num_rings), min_ring_spacing);
-		cbuf.has_env_map = has_env_map ? 1 : 0;
-		cbuf.sun_direction = sun_direction;
-		cbuf.sun_colour = sun_colour;
+		m_cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, water_snapshot.m_time_s);
+		m_cbuf.mesh_config = v4(outer_radius, static_cast<float>(grid_vertex_count), min_grid_spacing, surface_warp_power);
+		m_cbuf.has_env_map = has_env_map ? 1 : 0;
+		m_cbuf.sun_direction = sun_direction;
+		m_cbuf.sun_colour = sun_colour;
 	}
 }

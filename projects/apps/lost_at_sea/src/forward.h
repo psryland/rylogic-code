@@ -10,10 +10,15 @@
 #include <string_view>
 #include <string>
 #include <span>
+#include <array>
 #include <vector>
 #include <memory>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <random>
 #include <mutex>
 #include <thread>
 #include <functional>
@@ -22,6 +27,7 @@
 #include <utility>
 #include <filesystem>
 #include <variant>
+#include <atomic>
 
 // Windows
 #include <windows.h>
@@ -48,6 +54,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/inertia.h"
 #include "pr/collision/shape_box.h"
+#include "pr/collision/shape_polytope.h"
 #include "pr/win32/win32.h"
 #include "pr/view3d-12/imgui/imgui.h"
 
@@ -85,5 +92,10 @@ namespace las
 		struct ICamera;
 		struct FreeCamera;
 		struct ShipCamera;
+	}
+	namespace water
+	{
+		struct Snapshot;
+		struct System;
 	}
 }

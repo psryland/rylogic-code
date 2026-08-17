@@ -2,11 +2,10 @@
 // Lost at Sea
 //  Copyright (c) Rylogic Ltd 2024
 //************************************
-// Gerstner wave ocean simulation.
-// GPU vertex shader handles wave displacement. CPU-side queries for physics.
+// Water-field ocean rendering.
 #pragma once
 #include "src/forward.h"
-#include "src/world/ocean/gerstner_wave.h"
+#include "src/world/water/water_system.h"
 
 namespace las
 {
@@ -25,20 +24,20 @@ namespace las
 		};
 
 		Instance m_inst;
-		vector<GerstnerWave> m_waves;
 		OceanShader* m_shader; // Owned by 'm_model'
 
 		explicit Ocean(Renderer& rdr);
 
-		// Physics queries (read-only, no rendering side effects)
-		float HeightAt(float world_x, float world_y, float time) const;
-		v4 DisplacedPosition(float world_x, float world_y, float time) const;
-		v4 NormalAt(float world_x, float world_y, float time) const;
-
 		// Prepare shader constant buffers for rendering (thread-safe, no scene interaction).
-		void PrepareRender(v4 camera_world_pos, float time, bool has_env_map, v4 sun_direction, v4 sun_colour);
+		void PrepareRender(water::Snapshot const& water_snapshot, v4 camera_world_pos, bool has_env_map, v4 sun_direction, v4 sun_colour);
 
 		// Add instance to the scene drawlist (NOT thread-safe, must be called serially).
 		void AddToScene(Scene& scene);
+
+		// Return whether the near-ocean mesh is rendered as wireframe.
+		bool Wireframe() const;
+
+		// Set the near-ocean mesh fill mode.
+		void Wireframe(bool enabled);
 	};
 }

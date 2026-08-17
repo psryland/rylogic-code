@@ -15,4 +15,5 @@ src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"
 src/compute/sweep.hlsl          TEXT DISCARDABLE "src/compute/sweep.hlsl"
 src/buoyancy/gpu_buoyancy.hlsl  TEXT DISCARDABLE "src/buoyancy/gpu_buoyancy.hlsl"
 src/buoyancy/buoyancy_sampler.hlsli TEXT DISCARDABLE "src/buoyancy/buoyancy_sampler.hlsli"
+src/buoyancy/gpu_basic_waves.hlsli TEXT DISCARDABLE "src/buoyancy/gpu_basic_waves.hlsli"
  

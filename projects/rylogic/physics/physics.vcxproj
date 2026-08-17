@@ -202,6 +202,7 @@
     <None Include="src\compute\physics_types.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
     <None Include="src\buoyancy\buoyancy_sampler.hlsli" />
+    <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSIntegrate" />

@@ -143,6 +143,27 @@
     <Filter Include="src\hlsl">
       <UniqueIdentifier>{9bd956b7-0122-4eac-9ecf-d9799a636ed6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="pr\compute">
+      <UniqueIdentifier>{f00ea779-26d3-4e0a-911d-cb58938436ac}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\utility">
+      <UniqueIdentifier>{c083a952-0775-4366-96a4-6ff22766f4b2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\particle_collision">
+      <UniqueIdentifier>{a5205359-3b41-4832-919c-a6c95be658d3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\radix_sort">
+      <UniqueIdentifier>{8f4954a7-29c8-4e6b-af9f-9b32a40e1b33}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\shaders">
+      <UniqueIdentifier>{b72cd745-039f-4e47-8f81-3466d5fda8c9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\spatial_partition">
+      <UniqueIdentifier>{31e5d5ed-0087-40f7-81f6-bdf6b910ce35}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\compute\resource">
+      <UniqueIdentifier>{55294b04-e40d-40d1-a6d9-8c105c8c4226}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\algorithm.h">
@@ -1271,6 +1292,120 @@
     <ClInclude Include="..\..\..\include\pr\math\utils\interpolate_c2.h">
       <Filter>pr\math\utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\compute.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\compute_pso.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\compute_step.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\forward.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\gpu.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\gpu_job.h">
+      <Filter>pr\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\barrier_batch.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\cmd_alloc.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\cmd_list.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\cmd_list_collection.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\conversion.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\gpu_sync.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\keep_alive.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\lookup.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\map_resource.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\pix.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\root_signature.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\update_resource.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\utility.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\utility\wrappers.h">
+      <Filter>pr\compute\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\particle_collision\collision_builder.h">
+      <Filter>pr\compute\particle_collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\particle_collision\particle_collision.h">
+      <Filter>pr\compute\particle_collision</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\radix_sort\radix_sort.h">
+      <Filter>pr\compute\radix_sort</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\shaders\dependency.h">
+      <Filter>pr\compute\shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\shaders\shader_cache.h">
+      <Filter>pr\compute\shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\shaders\shader_cache_fs.h">
+      <Filter>pr\compute\shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\shaders\shader_compiler.h">
+      <Filter>pr\compute\shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\shaders\source_resolver.h">
+      <Filter>pr\compute\shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\spatial_partition\spatial_partition.h">
+      <Filter>pr\compute\spatial_partition</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\descriptor.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\descriptor_store.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\gpu_descriptor_heap.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\gpu_transfer_allocation.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\gpu_transfer_buffer.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\gpu_transfer_buffer_page.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\image.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\resource_state.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\compute\resource\resource_state_store.h">
+      <Filter>pr\compute\resource</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">
@@ -1346,6 +1481,9 @@
     </ClCompile>
     <ClCompile Include="src\hlsl\spatial_algebra_tests.cpp">
       <Filter>src\hlsl</Filter>
+    </ClCompile>
+    <ClCompile Include="$(RylogicRoot)projects\apps\lost_at_sea\src\world\water\water_system.cpp">
+      <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
