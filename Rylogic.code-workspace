@@ -2,7 +2,7 @@
 	"folders": [
 		{
 			"name": ".vscode",
-			"path": "./.vscode"
+			"path": ".vscode"
 		},
 		{
 			"name": "Rylogic",
@@ -15,7 +15,7 @@
 		{
 			"name": "Dump",
 			"path": "../../Dump"
-		}	
+		}
 	],
 	"settings": {
 		"dotnet.server.useOmnisharp": true,
